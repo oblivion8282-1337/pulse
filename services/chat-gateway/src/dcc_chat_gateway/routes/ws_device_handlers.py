@@ -32,6 +32,7 @@ Antwort war im Zwei-Geräte-Test die schlechteste Rückmeldung, die es gab.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from dcc_chat_gateway.db import SessionLocal
@@ -51,11 +52,50 @@ def _manager(ctx: Any) -> Any:
     return getattr(ctx.websocket.app.state, "connection_manager", None)
 
 
+def _sitzungen(mgr: Any):
+    """Die Datenbank-Sitzungsfabrik — über den Manager, nicht über das
+    Modul-Global.
+
+    Dieselbe Regel wie bei den Plugin-Ops: ``from …db import SessionLocal``
+    zeigt in Tests auf eine ungepatchte Speicher-Datenbank, in der es die
+    Gerätezeile nicht gibt. Der Weckruf antwortete dort „kein solches Gerät",
+    und der Test hätte die Rechteprüfung, die er belegen soll, nie erreicht.
+    In der Anwendung ist es dasselbe Objekt (``app.py::set_session_factory``).
+    """
+    return getattr(mgr, "_session_factory", None) or SessionLocal
+
+
 #: Wie viele Bildschirme ein Gerät melden darf. Vier 4K-Schirme sind schon eine
 #: sehr grosszügige Arbeitsplatz-Annahme; die Grenze ist kein Schutz vor einem
 #: Angreifer (der Anmeldende ist der Besitzer), sondern gegen eine kaputte
 #: Client-Fassung, die eine endlose Liste schickt.
 MAX_MONITORS = 8
+
+#: Mindestpause zwischen zwei Geräte-Ops derselben Verbindung. Dieselbe Grösse
+#: und dieselbe Begründung wie bei ``remote_request``
+#: (``ws_remote_handlers._REQUEST_MIN_INTERVAL_S``): jede dieser Nachrichten
+#: kostet eine Datenbankabfrage, und der legitime Takt ist ein Klick.
+#:
+#: **Der Weckruf wiegt sogar schwerer als eine Anfrage**: er startet auf einem
+#: FREMDEN Rechner einen Encoder. Ohne Deckel liesse sich ein Gerät im Takt der
+#: Leitung zwischen Aufwachen und Einschlafen hin- und herwerfen.
+_GERAET_MIN_INTERVAL_S = 2.0
+
+
+def _takt_frei(ctx: Any, feld: str) -> bool:
+    """Ist die Mindestpause für ``feld`` auf dieser Verbindung abgelaufen?
+
+    Zwei getrennte Zeitpunkte (Anmelden, Wecken) statt eines gemeinsamen: sonst
+    schluckt der Weckruf die Anmeldung, die ein frisch verbundener Client
+    Sekundenbruchteile vorher geschickt hat — und ein verworfenes
+    ``device_announce`` heisst „Gerät bleibt offline", bis der Client von sich
+    aus neu verbindet.
+    """
+    now = time.monotonic()
+    if now - getattr(ctx, feld, 0.0) < _GERAET_MIN_INTERVAL_S:
+        return False
+    setattr(ctx, feld, now)
+    return True
 
 
 def _monitore(roh: Any) -> list[dict]:
@@ -73,7 +113,12 @@ def _monitore(roh: Any) -> list[dict]:
         if not isinstance(eintrag, dict):
             continue
         index = eintrag.get("index")
-        if not isinstance(index, int) or index < 1:
+        # Die Nummer muss dieselbe Grenze einhalten wie der Weckruf
+        # (``handle_wake``), sonst entsteht in der Auswahl ein Punkt, der beim
+        # Anklicken stillschweigend auf dem Hauptbildschirm landet: die Liste
+        # wird zwar auf ``MAX_MONITORS`` EINTRAEGE gekuerzt, die Nummern darin
+        # sind davon aber unberuehrt.
+        if not isinstance(index, int) or not 1 <= index <= MAX_MONITORS:
             continue
         raus.append(
             {
@@ -91,7 +136,14 @@ async def handle_announce(ctx: Any, msg: dict[str, Any]) -> None:
     mgr = _manager(ctx)
     if device_id is None or mgr is None:
         return
-    async with SessionLocal() as session:
+    # Bremse VOR der Datenbankabfrage — dieselbe Begründung wie bei
+    # ``remote_request``: eine Anmeldung kostet einen Zugriff, und ohne Deckel
+    # zahlt der Gateway eine Flut mit Leitungsgeschwindigkeit. Still verworfen,
+    # wie die Anmeldung überhaupt nicht antwortet. Ein ehrlicher Client meldet
+    # sich einmal je Verbindung an; die zwei Sekunden bemerkt er nie.
+    if not _takt_frei(ctx, "last_device_announce"):
+        return
+    async with _sitzungen(mgr)() as session:
         device = await session.get(Device, device_id)
         # Fremde oder verschwundene Zeile: still verwerfen (s. Modulkopf).
         if device is None or device.owner_user_id != ctx.user.id:
@@ -117,6 +169,15 @@ async def handle_withdraw(ctx: Any, msg: dict[str, Any]) -> None:
     device_id = _int_or_none(msg.get("device_id"))
     mgr = _manager(ctx)
     if device_id is None or mgr is None:
+        return
+    # **Nur eine Verbindung, die dieses Gerät auch angemeldet hat, meldet es
+    # ab** (Bughunt 2026-08-16). Hier stand keine einzige Prüfung — und der
+    # Abbau der Fernsteuerung darunter lief VOR allem anderen. Damit konnte
+    # jeder eingeloggte Nutzer mit einer geratenen oder aus der Kanalliste
+    # gelesenen Kennung jede laufende Fernsteuerung kappen, beliebig oft.
+    # Still verworfen wie in ``handle_announce``: eine Fehlerantwort verriete,
+    # ob es die Zeile gibt.
+    if ctx.websocket not in mgr.device_sockets(device_id):
         return
     # **Zuerst die Fernsteuerung abbauen, dann abmelden** (Bughunt 2026-08-16).
     # „Dieser Rechner ist kein Gerät mehr" und „jemand steuert ihn gerade über
@@ -154,7 +215,14 @@ async def handle_wake(ctx: Any, msg: dict[str, Any]) -> None:
     mgr = _manager(ctx)
     if device_id is None or mgr is None:
         return
-    async with SessionLocal() as session:
+    # Bremse VOR der Datenbankabfrage (s. ``_GERAET_MIN_INTERVAL_S``). Antwortet
+    # wie ``remote_request`` mit 4056: der Weckruf ist die ausdrückliche
+    # Handlung eines Menschen, und ein toter Knopf ohne Antwort war im
+    # Zwei-Geräte-Test die schlechteste Rückmeldung, die es gab.
+    if not _takt_frei(ctx, "last_device_wake"):
+        await _err(ctx.websocket, 4056, "too many device ops, retry in 2s")
+        return
+    async with _sitzungen(mgr)() as session:
         device = await session.get(Device, device_id)
         if device is None:
             await _err(ctx.websocket, 4060, "no such device")

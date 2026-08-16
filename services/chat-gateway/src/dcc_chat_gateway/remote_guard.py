@@ -168,21 +168,49 @@ async def remove_devices_for_member(session, manager, guild_id: int, user_id: in
     Die laufende Sitzung raeumt :func:`end_remote_sessions_for_member` ab; hier
     geht es um die Zeile. Gerufen aus denselben beiden Pfaden.
     """
+    from dcc_chat_gateway.device_meldungen import device_out  # noqa: PLC0415
     from dcc_chat_gateway.models import Device  # noqa: PLC0415 - App-Boot-Zirkel
 
-    rows = (
-        await session.execute(
-            select(Device).where(Device.guild_id == guild_id, Device.owner_user_id == user_id)
-        )
-    ).scalars().all()
+    treffer = await session.execute(
+        select(Device).where(Device.guild_id == guild_id, Device.owner_user_id == user_id)
+    )
+    rows = treffer.scalars().all()
     if not rows:
         return 0
+    # Den letzten Stand VOR dem Loeschen einsammeln: die Meldung unten braucht
+    # Kennung, Standplatz und Namen, und danach gibt es die Zeile nicht mehr.
+    stand = [
+        (device.id, device.channel_id, device_out(device, manager).model_dump())
+        for device in rows
+    ]
     for device in rows:
         if manager is not None:
             await manager.end_remote_sessions_for_device(device.id)
         await session.delete(device)
-    await session.flush()
+    # **Committen, nicht nur flushen** (Bughunt 2026-08-16). Beide Aufrufer
+    # rufen NACH ihrem eigenen Commit; ein blosses Flush haengt damit an keiner
+    # Transaktion mehr, die noch jemand abschliesst, und ``get_session`` rollt
+    # beim Schliessen zurueck. Beim Bann und beim Rauswurf ging es nur zufaellig
+    # durch, weil die anschliessende Moderations-Nachricht committet — beim
+    # freiwilligen Verlassen (``leave_guild``) gibt es die nicht, und die
+    # Geraetezeilen ueberlebten den Austritt.
+    await session.commit()
     log.info("devices removed with member: guild=%s count=%d", guild_id, len(rows))
+    if manager is not None:
+        # **Und das Verschwinden melden** (Bughunt 2026-08-16): ohne das bleibt
+        # in jeder offenen Kanalliste eine Kachel stehen, deren Zeile es nicht
+        # mehr gibt — ein Klick darauf endet in 4060. ``delete_device`` macht
+        # es laengst so; nur dieser Pfad tat es nicht.
+        for device_id, channel_id, daten in stand:
+            try:
+                await manager.publish_device_change(
+                    guild_id=guild_id, channel_id=channel_id, device=daten, removed=True
+                )
+            except Exception:  # noqa: BLE001  # pragma: no cover
+                log.debug("device removal not published", exc_info=True)
+            # Nach dem Melden vergessen — davor braucht die Meldung den
+            # gemerkten Standplatz (s. ``device_registry.device_forget``).
+            manager.device_forget(device_id)
     return len(rows)
 
 

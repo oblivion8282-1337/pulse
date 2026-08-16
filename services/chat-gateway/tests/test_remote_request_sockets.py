@@ -20,6 +20,7 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
+from dcc_chat_gateway.device_registry import _DeviceRegistryMixin
 from dcc_chat_gateway.remote_registry import _RemoteRegistryMixin
 from dcc_chat_gateway.routes import ws_remote_handlers
 from dcc_chat_gateway.routes.ws_ops_registry import WSOpContext
@@ -47,15 +48,22 @@ class _User:
         self.is_owner = False
 
 
-class _Mgr(_RemoteRegistryMixin):
+class _Mgr(_RemoteRegistryMixin, _DeviceRegistryMixin):
     """Registry mit einer *drehbaren* Socket-Liste: der erste Aufruf liefert die
-    Tabs von vor dem DB-Block, jeder weitere die von danach."""
+    Tabs von vor dem DB-Block, jeder weitere die von danach.
+
+    Das Geraete-Register haengt mit dran, weil der Aufbau-Pfad die Faecherung
+    seit 2026-08-16 daran misst (``ws_remote_geraet.einladungsziele``): ein
+    angemeldetes Geraet sieht nur Einladungen, die es nennen. Hier ist keines
+    angemeldet — die Tabs sind Menschen, und genau die sollen alles sehen.
+    """
 
     def __init__(self, first: list, later: list) -> None:
         self._lock = asyncio.Lock()
         self._user_conns: dict[int, set] = {}
         self._ws_user: dict = {}
         self._init_remote_registry()
+        self._init_device_registry()
         self._scripted = [first, later]
 
     def remote_user_sockets(self, user_id):  # type: ignore[override]

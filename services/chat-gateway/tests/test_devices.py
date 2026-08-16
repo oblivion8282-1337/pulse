@@ -344,23 +344,19 @@ async def test_abmelden_beendet_die_fernsteuerung_dieses_geraets(client, _auth_s
     from dcc_chat_gateway.routes import ws_device_handlers
 
     gid, cid, did = 11, 21, 31
-    sock = object()
     mgr = _register(client)
+    # Die Verbindung, die das Gerät angemeldet hat — nur sie darf es abmelden
+    # (der zweite Bughunt vom selben Tag, s. weiter unten).
+    sock = _Sock(client._transport.app)
     mgr.device_announce(sock, did, gid, cid)
 
     beendet: list[int] = []
-
-    class _Ctx:
-        class websocket:  # noqa: N801 - Test-Attrappe
-            app = type("A", (), {"state": type("S", (), {"connection_manager": mgr})})
-
-        user = type("U", (), {"id": 1})
 
     async def _merken(device_id: int) -> None:
         beendet.append(device_id)
 
     mgr.end_remote_sessions_for_device = _merken  # type: ignore[method-assign]
-    await ws_device_handlers.handle_withdraw(_Ctx(), {"device_id": str(did)})
+    await ws_device_handlers.handle_withdraw(_Ctx(sock, _User(1)), {"device_id": str(did)})
     assert beendet == [did], "das Abmelden muss die Sitzung dieses Geräts abbauen"
 
 
@@ -394,3 +390,542 @@ async def test_rauswurf_entfernt_die_geraete_des_mitglieds(client, _auth_signer,
         await s.commit()
     assert entfernt == 1
     assert (await client.get(f"/guilds/{gid}/devices", headers=_auth(owner_token))).json() == []
+
+
+# ── Was der zweite Bughunt vom 2026-08-16 gefunden hat ──────────────────────
+#
+# Die Attrappen unten stehen bewusst hier und nicht in der conftest: sie sind
+# das kleinste, was die Geräte-Ops brauchen (eine Verbindung, die mitschreibt,
+# und ein Kontext, der ihr den Manager reicht). Ein Fixture daraus zu machen
+# hiesse, sie über die ganze Suite zu verteilen, ohne dass sie dort jemand
+# braucht.
+
+
+class _Sock:
+    """Eine Verbindung, die aufschreibt, was ihr geschickt wird."""
+
+    def __init__(self, app=None) -> None:
+        self.sent: list[dict] = []
+        self.app = app
+
+    async def send_json(self, payload: dict) -> None:
+        self.sent.append(payload)
+
+
+class _Ctx:
+    """Der Verbindungskontext, wie ihn die WS-Ops sehen."""
+
+    def __init__(self, sock, user) -> None:
+        self.websocket = sock
+        self.user = user
+        self.last_remote_request = 0.0
+        self.last_device_announce = 0.0
+        self.last_device_wake = 0.0
+
+
+class _User:
+    def __init__(self, uid: int) -> None:
+        self.id = uid
+        self.username = f"u{uid}"
+        self.is_admin = False
+        self.is_owner = False
+        self.payload: dict = {}
+        self.user_identifier = str(uid)
+        self.is_self_host = False
+
+
+def _ctx(client, uid: int) -> _Ctx:
+    """Kontext auf der Test-App — die WS-Ops holen den Manager über
+    ``websocket.app.state``."""
+    return _Ctx(_Sock(client._transport.app), _User(uid))
+
+
+async def _mitglied(client, owner_token: str, gid: int, _auth_signer) -> tuple[str, int]:
+    """Ein zweites Mitglied der Community."""
+    token, uid = await _make_token(_auth_signer)
+    invite = (
+        await client.post(f"/guilds/{gid}/invites", json={}, headers=_auth(owner_token))
+    ).json()
+    r = await client.post(f"/invites/{invite['code']}/accept", headers=_auth(token))
+    assert r.status_code in (200, 201), r.text
+    return token, uid
+
+
+@pytest.mark.asyncio
+async def test_verlassen_entfernt_die_geraete_ueber_die_route(client, _auth_signer):
+    """**Der Fund:** ``remove_devices_for_member`` flusht nur. Beide Aufrufer
+    rufen NACH ihrem eigenen Commit, und ``get_session`` rollt beim Schliessen
+    zurück — die Gerätezeilen überlebten den Austritt. Beim Rauswurf und beim
+    Bann ging es nur zufällig durch (die Moderations-Nachricht committet
+    danach), beim freiwilligen Verlassen gar nicht.
+
+    Deshalb über die ROUTE geprüft: der bestehende Test ruft den Helfer direkt
+    und committet selbst — genau der Unterschied, um den es geht.
+    """
+    owner_token, _ = await _make_token(_auth_signer)
+    gid = await _guild(client, owner_token)
+    cid = await _voice_channel(client, owner_token, gid)
+    fremd_token, _ = await _mitglied(client, owner_token, gid, _auth_signer)
+
+    r = await client.post(
+        f"/guilds/{gid}/devices",
+        json={"channel_id": str(cid), "name": "fremder-pc"},
+        headers=_auth(fremd_token),
+    )
+    assert r.status_code == 201, r.text
+
+    r = await client.delete(f"/guilds/{gid}/members/@me", headers=_auth(fremd_token))
+    assert r.status_code == 204, r.text
+    assert (await client.get(f"/guilds/{gid}/devices", headers=_auth(owner_token))).json() == []
+
+
+@pytest.mark.asyncio
+async def test_rauswurf_ueber_die_route_entfernt_die_geraete(client, _auth_signer):
+    """Dasselbe für den Rauswurf — dort committet heute zufällig die
+    Moderations-Nachricht danach. Der Test hält fest, dass es nicht davon
+    abhängt."""
+    owner_token, _ = await _make_token(_auth_signer)
+    gid = await _guild(client, owner_token)
+    cid = await _voice_channel(client, owner_token, gid)
+    fremd_token, fremd_uid = await _mitglied(client, owner_token, gid, _auth_signer)
+    r = await client.post(
+        f"/guilds/{gid}/devices",
+        json={"channel_id": str(cid), "name": "fremder-pc"},
+        headers=_auth(fremd_token),
+    )
+    assert r.status_code == 201, r.text
+
+    r = await client.delete(
+        f"/guilds/{gid}/members/{fremd_uid}", headers=_auth(owner_token)
+    )
+    assert r.status_code == 204, r.text
+    assert (await client.get(f"/guilds/{gid}/devices", headers=_auth(owner_token))).json() == []
+
+
+@pytest.mark.asyncio
+async def test_umstellen_bleibt_dem_besitzer_vorbehalten(client, _auth_signer):
+    """**Der Fund:** ``MANAGE_GUILD`` durfte ein fremdes Gerät umstellen — in
+    einen Kanal, in dem ``@everyone`` ``REMOTE_CONTROL`` hat. Der Standplatz ist
+    der Rechteanker; „räumen können" trägt das Umwidmen nicht. Löschen und
+    Umbenennen bleiben bei der Verwaltung."""
+    owner_token, _ = await _make_token(_auth_signer)
+    gid = await _guild(client, owner_token)
+    alt = await _voice_channel(client, owner_token, gid, "werkbank")
+    neu = await _voice_channel(client, owner_token, gid, "lager")
+    fremd_token, _ = await _mitglied(client, owner_token, gid, _auth_signer)
+    device = (
+        await client.post(
+            f"/guilds/{gid}/devices",
+            json={"channel_id": str(alt), "name": "fremder-pc"},
+            headers=_auth(fremd_token),
+        )
+    ).json()
+
+    # Der Community-Besitzer hat MANAGE_GUILD — und darf trotzdem nicht.
+    r = await client.patch(
+        f"/guilds/{gid}/devices/{device['id']}",
+        json={"channel_id": str(neu)},
+        headers=_auth(owner_token),
+    )
+    assert r.status_code == 403
+    # Umbenennen darf er weiterhin, und entfernen auch.
+    r = await client.patch(
+        f"/guilds/{gid}/devices/{device['id']}",
+        json={"name": "abgestellt"},
+        headers=_auth(owner_token),
+    )
+    assert r.status_code == 200, r.text
+    assert (
+        await client.delete(f"/guilds/{gid}/devices/{device['id']}", headers=_auth(owner_token))
+    ).status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_ein_unsichtbarer_kanal_antwortet_wie_ein_nicht_vorhandener(
+    client, _auth_signer, session_factory
+):
+    """**Der Fund:** Existenz und Typ wurden vor den Rechten geprüft. Die drei
+    Antworten 404 / 400 / 403 verrieten damit, ob es hinter einer Kennung einen
+    Kanal gibt und ob er Sprache oder Text trägt — auch für Kanäle, die der
+    Rufer nicht sehen darf."""
+    owner_token, _ = await _make_token(_auth_signer)
+    gid = await _guild(client, owner_token)
+    geheim = await _voice_channel(client, owner_token, gid, "geheim")
+    fremd_token, fremd_uid = await _mitglied(client, owner_token, gid, _auth_signer)
+    async with session_factory() as s:
+        s.add(
+            PermissionOverwrite(
+                channel_id=geheim,
+                target_id=fremd_uid,
+                target_type=1,
+                allow_bf=0,
+                deny_bf=int(Permissions.VIEW_CHANNEL),
+            )
+        )
+        await s.commit()
+
+    versteckt = await client.post(
+        f"/guilds/{gid}/devices",
+        json={"channel_id": str(geheim), "name": "werkstatt-pc"},
+        headers=_auth(fremd_token),
+    )
+    erfunden = await client.post(
+        f"/guilds/{gid}/devices",
+        json={"channel_id": "123456789", "name": "werkstatt-pc"},
+        headers=_auth(fremd_token),
+    )
+    assert versteckt.status_code == erfunden.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_geloeschtes_geraet_hinterlaesst_nichts_im_register(client, _auth_signer):
+    """**Der Fund:** Standplatz und Bildschirmliste blieben für eine gelöschte
+    Kennung über die ganze Prozesslaufzeit stehen — ein Leck, und jede spätere
+    Meldung ginge an einen Kanal für ein Gerät, das es nicht mehr gibt."""
+    token, _ = await _make_token(_auth_signer)
+    gid = await _guild(client, token)
+    cid = await _voice_channel(client, token, gid)
+    device = (
+        await client.post(
+            f"/guilds/{gid}/devices",
+            json={"channel_id": str(cid), "name": "werkstatt-pc"},
+            headers=_auth(token),
+        )
+    ).json()
+    did = int(device["id"])
+    mgr = _register(client)
+    mgr.device_announce(_Sock(), did, int(gid), int(cid), [{"index": 1, "name": "HDMI-1"}])
+
+    r = await client.delete(f"/guilds/{gid}/devices/{device['id']}", headers=_auth(token))
+    assert r.status_code == 204
+    assert did not in mgr._device_where
+    assert did not in mgr._device_monitors
+    assert mgr.device_state(did) == ("offline", None)
+
+
+# ── Die WS-Ops eines Geräts ─────────────────────────────────────────────────
+
+
+async def _erlauben(session_factory, channel_id: int, user_id: int, bits: int) -> None:
+    """Einem Nutzer ein Recht im Kanal geben (Kanal-Overwrite)."""
+    async with session_factory() as s:
+        s.add(
+            PermissionOverwrite(
+                channel_id=int(channel_id),
+                target_id=int(user_id),
+                target_type=1,
+                allow_bf=bits,
+                deny_bf=0,
+            )
+        )
+        await s.commit()
+
+
+@pytest.mark.asyncio
+async def test_anmelden_mit_fremdem_geraet_wird_still_verworfen(client, _auth_signer):
+    """Die Anmeldung sagt „dieser Rechner ist Gerät X". Sie gilt nur für den
+    Besitzer der Zeile — und sie antwortet nicht, weil eine Fehlerantwort einem
+    fremden Konto verriete, dass es die Zeile gibt."""
+    from dcc_chat_gateway.routes import ws_device_handlers
+
+    owner_token, _ = await _make_token(_auth_signer)
+    gid = await _guild(client, owner_token)
+    cid = await _voice_channel(client, owner_token, gid)
+    device = (
+        await client.post(
+            f"/guilds/{gid}/devices",
+            json={"channel_id": str(cid), "name": "werkstatt-pc"},
+            headers=_auth(owner_token),
+        )
+    ).json()
+    did = int(device["id"])
+
+    fremd_token, fremd_uid = await _mitglied(client, owner_token, gid, _auth_signer)
+    ctx = _ctx(client, fremd_uid)
+    await ws_device_handlers.handle_announce(ctx, {"device_id": str(did)})
+    assert _register(client).device_state(did) == ("offline", None)
+    assert ctx.websocket.sent == []
+
+
+@pytest.mark.asyncio
+async def test_abmelden_von_fremdem_socket_kappt_keine_sitzung(client, _auth_signer):
+    """**Der Fund:** ``device_withdraw`` prüfte gar nichts — weder Besitz noch
+    Mitgliedschaft noch ob dieser Socket das Gerät angemeldet hat —, und der
+    Abbau der Fernsteuerung lief VOR allem anderen. Jeder eingeloggte Nutzer
+    konnte damit jede laufende Übernahme kappen, beliebig oft."""
+    from dcc_chat_gateway.routes import ws_device_handlers
+
+    mgr = _register(client)
+    gid, cid, did = 40, 41, 42
+    geraet_sock = _Sock(client._transport.app)
+    mgr.device_announce(geraet_sock, did, gid, cid)
+
+    beendet: list[int] = []
+
+    async def _merken(device_id: int) -> None:
+        beendet.append(device_id)
+
+    mgr.end_remote_sessions_for_device = _merken  # type: ignore[method-assign]
+
+    await ws_device_handlers.handle_withdraw(_ctx(client, 999), {"device_id": str(did)})
+    assert beendet == [], "ein fremder Socket darf nichts abbauen"
+    assert mgr.device_state(did) == ("ready", None)
+
+    # Der Socket des Geräts selbst darf es weiterhin.
+    eigen = _Ctx(geraet_sock, _User(1))
+    await ws_device_handlers.handle_withdraw(eigen, {"device_id": str(did)})
+    assert beendet == [did]
+    assert mgr.device_state(did) == ("offline", None)
+
+
+@pytest.mark.asyncio
+async def test_wecken_verlangt_remote_control(client, _auth_signer, session_factory):
+    """Wer nicht übernehmen darf, darf auch keinen fremden Rechner zum
+    Encodieren bringen — sonst wäre das Wecken ein Weg, einem Gerät dauerhaft
+    Last aufzuzwingen. Die Ablehnung ist wortgleich mit „gibt es nicht"."""
+    from dcc_chat_gateway.routes import ws_device_handlers
+
+    owner_token, _ = await _make_token(_auth_signer)
+    gid = await _guild(client, owner_token)
+    cid = await _voice_channel(client, owner_token, gid)
+    device = (
+        await client.post(
+            f"/guilds/{gid}/devices",
+            json={"channel_id": str(cid), "name": "werkstatt-pc"},
+            headers=_auth(owner_token),
+        )
+    ).json()
+    did = int(device["id"])
+    fremd_token, fremd_uid = await _mitglied(client, owner_token, gid, _auth_signer)
+
+    ohne = _ctx(client, fremd_uid)
+    await ws_device_handlers.handle_wake(ohne, {"device_id": str(did)})
+    assert ohne.websocket.sent[-1]["code"] == 4060
+
+    await _erlauben(session_factory, cid, fremd_uid, int(Permissions.REMOTE_CONTROL))
+    mit = _ctx(client, fremd_uid)
+    await ws_device_handlers.handle_wake(mit, {"device_id": str(did)})
+    # Jetzt scheitert es nur noch daran, dass niemand da ist.
+    assert mit.websocket.sent[-1]["code"] == 4061
+
+    # Und mit angemeldetem Gerät kommt der Weckruf wirklich an.
+    geraet_sock = _Sock(client._transport.app)
+    _register(client).device_announce(geraet_sock, did, int(gid), int(cid))
+    dritter = _ctx(client, fremd_uid)
+    await ws_device_handlers.handle_wake(dritter, {"device_id": str(did), "monitor": 2})
+    assert geraet_sock.sent[-1]["op"] == "device_wake"
+    assert geraet_sock.sent[-1]["monitor"] == 2
+
+
+@pytest.mark.asyncio
+async def test_wecken_hat_eine_bremse(client, _auth_signer, session_factory):
+    """**Der Fund:** ``device_wake`` hatte keinen Takt-Deckel, obwohl
+    ``remote_request`` mit derselben Begründung eine Zwei-Sekunden-Pause hat —
+    und ein Weckruf erzeugt zusätzlich Last auf einem FREMDEN Rechner."""
+    from dcc_chat_gateway.routes import ws_device_handlers
+
+    token, _ = await _make_token(_auth_signer)
+    gid = await _guild(client, token)
+    cid = await _voice_channel(client, token, gid)
+    device = (
+        await client.post(
+            f"/guilds/{gid}/devices",
+            json={"channel_id": str(cid), "name": "werkstatt-pc"},
+            headers=_auth(token),
+        )
+    ).json()
+    did = int(device["id"])
+    ctx = _ctx(client, 4242)
+
+    await ws_device_handlers.handle_wake(ctx, {"device_id": str(did)})
+    erste = len(ctx.websocket.sent)
+    await ws_device_handlers.handle_wake(ctx, {"device_id": str(did)})
+    assert ctx.websocket.sent[-1]["code"] == 4056
+    assert len(ctx.websocket.sent) == erste + 1
+
+
+@pytest.mark.asyncio
+async def test_bildschirmnummern_ueber_der_grenze_fallen_weg():
+    """Die Auswahl darf keinen Punkt anbieten, den der Weckruf still verwirft:
+    ``handle_wake`` lässt nur 1..8 durch, die Anmeldeliste nahm jede Nummer."""
+    from dcc_chat_gateway.routes.ws_device_handlers import MAX_MONITORS, _monitore
+
+    roh = [{"index": 1}, {"index": MAX_MONITORS + 1}, {"index": 0}]
+    assert [m["index"] for m in _monitore(roh)] == [1]
+
+
+# ── Die Bindung einer Fernsteuer-Anfrage an den Standplatz ──────────────────
+#
+# Der schwerste Fund des Hunts: die Anfrage prüfte die Rechte in dem Kanal, den
+# der RUFER nannte, und das mitgeschickte Gerät wurde nur durchgereicht. Wer
+# irgendwo eine eigene Community hat, in der das Opfer Mitglied ist, gab sich
+# dort REMOTE_CONTROL — und die Dauerfreigabe des Geräts stimmte zu, ohne dass
+# der echte Standplatz je gefragt wurde.
+
+
+async def _fernaufbau(client, _auth_signer):
+    """Steuernder (Community-Besitzer), Host mit einem Gerät in Kanal A, und
+    ein zweiter Kanal B, in dem der Steuernde ebenfalls alles darf."""
+    owner_token, owner_uid = await _make_token(_auth_signer)
+    gid = await _guild(client, owner_token)
+    a = await _voice_channel(client, owner_token, gid, "werkbank")
+    b = await _voice_channel(client, owner_token, gid, "lager")
+    host_token, host_uid = await _mitglied(client, owner_token, gid, _auth_signer)
+    device = (
+        await client.post(
+            f"/guilds/{gid}/devices",
+            json={"channel_id": str(a), "name": "werkstatt-pc"},
+            headers=_auth(host_token),
+        )
+    ).json()
+    return owner_token, owner_uid, host_token, host_uid, int(gid), int(a), int(b), device
+
+
+def _geraet_verbinden(mgr, client, device_id: int, host_uid: int, gid: int, cid: int):
+    """Eine Verbindung des Hosts, die sich als dieses Gerät angemeldet hat."""
+    sock = _Sock(client._transport.app)
+    mgr._ws_user[sock] = _User(host_uid)
+    mgr._user_conns.setdefault(host_uid, set()).add(sock)
+    mgr.device_announce(sock, device_id, gid, cid)
+    return sock
+
+
+@pytest.mark.asyncio
+async def test_anfrage_mit_geraet_aus_einem_anderen_kanal_wird_abgelehnt(
+    client, _auth_signer, session_factory
+):
+    """**Der Fund:** das Gerät wurde nie gegen seinen Standplatz gehalten. Die
+    Ablehnung bleibt bei 4051 — dieselbe Antwort wie „kein Zugriff", damit sie
+    nichts über fremde Kanäle verrät."""
+    from dcc_chat_gateway.routes import ws_remote_handlers
+
+    _, owner_uid, _, host_uid, gid, a, b, device = await _fernaufbau(client, _auth_signer)
+    mgr = _register(client)
+    _geraet_verbinden(mgr, client, int(device["id"]), host_uid, gid, a)
+
+    ctx = _ctx(client, owner_uid)
+    await ws_remote_handlers.handle_request(
+        ctx,
+        {"channel_id": str(b), "host_user_id": str(host_uid), "device_id": device["id"]},
+        session_factory=session_factory,
+    )
+    assert ctx.websocket.sent[-1]["code"] == 4051
+    assert mgr.remote_sessions_snapshot() == []
+
+
+@pytest.mark.asyncio
+async def test_anfrage_im_standplatz_erreicht_genau_das_geraet(
+    client, _auth_signer, session_factory
+):
+    """Der Gegenbeweis zum Test darüber: im richtigen Kanal geht dieselbe
+    Anfrage durch, die Einladung landet auf der Verbindung des Geräts, und die
+    Sitzung trägt dessen Kennung (daran findet sie später der Abbau beim
+    Umstellen)."""
+    from dcc_chat_gateway.routes import ws_remote_handlers
+
+    _, owner_uid, _, host_uid, gid, a, _b, device = await _fernaufbau(client, _auth_signer)
+    mgr = _register(client)
+    did = int(device["id"])
+    sock = _geraet_verbinden(mgr, client, did, host_uid, gid, a)
+
+    ctx = _ctx(client, owner_uid)
+    await ws_remote_handlers.handle_request(
+        ctx,
+        {"channel_id": str(a), "host_user_id": str(host_uid), "device_id": device["id"]},
+        session_factory=session_factory,
+    )
+    einladung = [f for f in sock.sent if f.get("op") == "remote_request"]
+    assert len(einladung) == 1
+    assert einladung[0]["device_id"] == device["id"]
+    sitzungen = mgr.remote_sessions_snapshot()
+    assert [s.device_id for s in sitzungen] == [str(did)]
+    mgr.remote_cancel_timeout(sitzungen[0].session_id)
+
+
+@pytest.mark.asyncio
+async def test_anfrage_ohne_geraet_erreicht_kein_geraet(
+    client, _auth_signer, session_factory
+):
+    """Eine Anfrage an einen MENSCHEN darf nicht bei einem Gerät landen: dort
+    beantwortet sie die Dauerfreigabe, und die kennt den Kanal nicht, an dem der
+    Gateway gerade die Rechte geprüft hat. Ist die einzige Verbindung des Hosts
+    ein Gerät, ist er als Mensch schlicht nicht erreichbar (4052)."""
+    from dcc_chat_gateway.routes import ws_remote_handlers
+
+    _, owner_uid, _, host_uid, gid, a, _b, device = await _fernaufbau(client, _auth_signer)
+    mgr = _register(client)
+    sock = _geraet_verbinden(mgr, client, int(device["id"]), host_uid, gid, a)
+
+    ctx = _ctx(client, owner_uid)
+    await ws_remote_handlers.handle_request(
+        ctx,
+        {"channel_id": str(a), "host_user_id": str(host_uid)},
+        session_factory=session_factory,
+    )
+    assert ctx.websocket.sent[-1]["code"] == 4052
+    assert [f for f in sock.sent if f.get("op") == "remote_request"] == []
+
+
+@pytest.mark.asyncio
+async def test_zwei_geraete_desselben_besitzers_blockieren_sich_nicht(
+    client, _auth_signer, session_factory
+):
+    """**Der Fund:** die Eindeutigkeit lag auf dem Host-KONTO. Standplatz-Geräte
+    hängen aber alle am Konto ihres Besitzers — das zweite Gerät antwortete mit
+    4054, während es in der Liste als „bereit" stand."""
+    from dcc_chat_gateway.routes import ws_remote_handlers
+
+    owner_token, owner_uid, host_token, host_uid, gid, a, _b, erstes = await _fernaufbau(
+        client, _auth_signer
+    )
+    zweites = (
+        await client.post(
+            f"/guilds/{gid}/devices",
+            json={"channel_id": str(a), "name": "lager-pc"},
+            headers=_auth(host_token),
+        )
+    ).json()
+    mgr = _register(client)
+    _geraet_verbinden(mgr, client, int(erstes["id"]), host_uid, gid, a)
+    _geraet_verbinden(mgr, client, int(zweites["id"]), host_uid, gid, a)
+
+    for geraet in (erstes, zweites):
+        # Je eine eigene Verbindung: die Mindestpause zwischen zwei Anfragen
+        # hängt am Socket, und zwei Geräte weckt man aus zwei Kacheln.
+        ctx = _ctx(client, owner_uid)
+        await ws_remote_handlers.handle_request(
+            ctx,
+            {"channel_id": str(a), "host_user_id": str(host_uid), "device_id": geraet["id"]},
+            session_factory=session_factory,
+        )
+        assert [f for f in ctx.websocket.sent if f.get("op") == "error"] == [], (
+            f"Anfrage an {geraet['name']} abgelehnt"
+        )
+    sitzungen = mgr.remote_sessions_snapshot()
+    assert sorted(s.device_id for s in sitzungen) == sorted(
+        [erstes["id"], zweites["id"]]
+    )
+    for s in sitzungen:
+        mgr.remote_cancel_timeout(s.session_id)
+
+
+@pytest.mark.asyncio
+async def test_ein_geraet_stimmt_nur_fuer_sich_selbst_zu(client, _auth_signer):
+    """Der Riegel am anderen Ende: meldet sich ein Gerät erst an, NACHDEM die
+    Einladung hinausging, könnte seine Dauerfreigabe eine Anfrage annehmen, die
+    an einem fremden Kanal geprüft wurde. Ein Geräte-Socket nimmt deshalb nur
+    an, was auf sein eigenes Gerät und dessen Standplatz zeigt."""
+    from dcc_chat_gateway.routes import ws_remote_handlers
+
+    mgr = _register(client)
+    gid, cid, did = 50, 51, 52
+    geraet_sock = _Sock(client._transport.app)
+    ctrl_sock = _Sock(client._transport.app)
+    mgr.device_announce(geraet_sock, did, gid, cid)
+    # Eine Sitzung, die KEIN Gerät nennt — genau die, die vorher durchging.
+    sess = await mgr.remote_create(str(cid), "70", geraet_sock, "80", ctrl_sock)
+    await ws_remote_handlers.handle_respond(
+        geraet_sock, _User(70), {"session_id": sess.session_id, "accept": True}
+    )
+    assert geraet_sock.sent[-1]["code"] == 4051
+    assert mgr.remote_get(sess.session_id).state == "pending"

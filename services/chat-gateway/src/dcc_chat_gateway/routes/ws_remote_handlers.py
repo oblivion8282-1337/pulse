@@ -9,7 +9,8 @@ single-pod).
 Op flow::
 
     controller --remote_request--> gateway --remote_pending--> controller
-                                   gateway --remote_request--> host (all tabs)
+                                   gateway --remote_request--> host (jede Verbindung,
+                                                               die sie sehen darf)
     host       --remote_respond--> gateway --remote_response--> both peers
     peer       --remote_signal---> gateway --remote_signal---> the *other* peer
     controller --remote_input----> gateway --remote_input----> host
@@ -33,10 +34,13 @@ Handler mit **verbindungsgebundenem Zustand** (die Bremsen) bekommen den
 Error frames are fire-and-forget (``_err``) — the socket is never closed:
   * 4050 required field missing / invalid (input: bad slot, bad base64, or a
     batch over the limits — those frames are dropped, the session survives)
-  * 4051 no access (not a member / no VIEW_CHANNEL / no REMOTE_CONTROL)
-  * 4052 host not reachable (offline, not a member, or cannot see the channel)
+  * 4051 no access (not a member / no VIEW_CHANNEL / no REMOTE_CONTROL / das
+    genannte Geraet steht nicht in diesem Kanal / ein Geraet stimmt einer
+    Sitzung zu, die ihm nicht gilt — s. :mod:`routes.ws_remote_geraet`)
+  * 4052 host not reachable (offline, not a member, cannot see the channel, or
+    das gemeinte Geraet ist nicht angemeldet)
   * 4053 no matching session / not a peer / input from the host, not the controller
-  * 4054 host already has an active session
+  * 4054 host already has an active session (je Host UND Geraet)
   * 4055 the host just refused (or ignored) an invite — cooldown running
   * 4056 der Rufer fragt zu schnell hintereinander an (Bremse, s. unten)
 """
@@ -56,6 +60,11 @@ from dcc_chat_gateway.remote_guard import peer_channel_perms
 from dcc_chat_gateway.remote_registry import send_to_socket
 from dcc_chat_gateway.routes._deps import channel_membership
 from dcc_chat_gateway.routes.ws_ops_registry import WSOpContext
+from dcc_chat_gateway.routes.ws_remote_geraet import (
+    darf_zustimmen,
+    einladungsziele,
+    standplatz_stimmt,
+)
 from dcc_chat_gateway.security import AuthenticatedUser
 
 log = logging.getLogger(__name__)
@@ -163,6 +172,10 @@ async def handle_request(
         return
     ctx.last_remote_request = now
     cid = str(cid_int)
+    # Welches GERAET gemeint ist, sofern der Rufer es an einer Geraete-Kachel
+    # angefragt hat. Von hier an traegt es die ganze Anfrage: Standplatz-Pruefung,
+    # Faecherung, Eindeutigkeit der Sitzung (``ws_remote_geraet``).
+    geraet = _int_or_none(msg.get("device_id"))
     async with session_factory() as session:
         channel = await channel_membership(session, cid_int, user.id)
         if channel is None:
@@ -176,11 +189,21 @@ async def handle_request(
         ):
             await _err(websocket, 4051, "no access")
             return
+        # **Ein genanntes Geraet muss in GENAU DIESEM Kanal stehen.** Sonst
+        # prueft der Gateway die Rechte an einem Kanal, den der Rufer sich
+        # aussucht, waehrend die Dauerfreigabe des Geraets ohne Rueckfrage
+        # zustimmt — der Standplatz und sein Overwrite waeren umgangen
+        # (Begruendung im Kopf von ``ws_remote_geraet``). Steht hinter der
+        # Rechtepruefung: sonst wuerde die Antwort verraten, welche
+        # Geraetekennungen es gibt.
+        if geraet is not None and not await standplatz_stimmt(session, geraet, cid_int):
+            await _err(websocket, 4051, "no access")
+            return
         # Den Host als ``AuthenticatedUser`` aus seiner offenen Verbindung holen,
         # nicht aus der id nachbauen: der Resolver liest ``is_admin``/``is_owner``
         # daraus, und ein nachgebauter Nutzer mit is_admin=False wuerde einem
         # Instanz-Admin faelschlich VIEW_CHANNEL absprechen.
-        host_sockets = mgr.remote_user_sockets(host_uid)
+        host_sockets = einladungsziele(mgr, host_uid, geraet)
         host_user = mgr.remote_socket_user(host_sockets[0]) if host_sockets else None
         if not host_sockets or host_user is None:
             # Der haeufigste Grund fuer "der Knopf tut nichts": der Host ist zwar
@@ -213,7 +236,7 @@ async def handle_request(
     # Fenster, bekaeme die Sitzung einen toten ``host_socket`` (Host bis zum
     # Zeitgeber blockiert), und ein inzwischen geoeffneter Tab bekaeme keine
     # Einladung, spaeter aber ein ``remote_canceled``.
-    host_sockets = mgr.remote_user_sockets(host_uid)
+    host_sockets = einladungsziele(mgr, host_uid, geraet)
     if not host_sockets:
         await _err(websocket, 4052, "host not reachable", audit=True)
         return
@@ -222,7 +245,14 @@ async def handle_request(
         cid,
         len(host_sockets),
     )
-    sess = await mgr.remote_create(cid, host_uid, host_sockets[0], user.id, websocket)
+    sess = await mgr.remote_create(
+        cid,
+        host_uid,
+        host_sockets[0],
+        user.id,
+        websocket,
+        device_id=str(geraet) if geraet is not None else None,
+    )
     if sess is None:
         await _err(websocket, 4054, "host already has an active remote session", audit=True)
         return
@@ -244,17 +274,12 @@ async def handle_request(
         "channel_id": cid,
         "from_user_id": str(user.id),
     }
-    # **Welches GERAET gemeint ist**, sofern der Rufer es an einer Geraete-Kachel
-    # angefragt hat (Bughunt 2026-08-16). Die Einladung geht an alle Tabs des
-    # Hosts — also auch an seinen Laptop, wenn dort dasselbe Konto laeuft. Ohne
-    # diese Angabe koennte dort jemand zustimmen, und der Steuernde saehe den
-    # Werkstatt-PC, waehrend seine Eingaben an den Laptop gingen (sie fielen dort
-    # zwar meist als „unbekannter Platz" durch, aber eben nicht zwingend).
-    # Weitergereicht und NICHT geprueft: welcher Rechner welches Geraet ist,
-    # weiss nur er selbst — er lehnt still ab, wenn er nicht gemeint ist.
-    geraet = str(msg.get("device_id") or "").strip()
-    if geraet:
-        frame["device_id"] = geraet
+    # **Welches GERAET gemeint ist.** Der Client braucht die Angabe, um eine
+    # Einladung abzulehnen, die einem anderen Rechner desselben Kontos gilt;
+    # dass sie ueberhaupt nur bei DIESEM Rechner ankommt, hat ``einladungsziele``
+    # oben schon entschieden.
+    if geraet is not None:
+        frame["device_id"] = str(geraet)
     # Zeitgeber VOR der Faecherung scharfstellen. Jedes ``send_to_socket``
     # unten ist ein await: antwortet ein Host-Tab mitten in der Faecherung,
     # loeschte der Accept einen Zeitgeber, den es noch gar nicht gab — und der
@@ -289,6 +314,17 @@ async def handle_respond(
     # are symmetric with the activate guard below.
     if sess.state != "pending":
         await _err(websocket, 4053, "session already answered")
+        return
+    # **Ein angemeldetes Geraet stimmt nur fuer sich selbst zu** — und nur einer
+    # Sitzung, die auf seinen eigenen Standplatz zeigt. Die Faecherung achtet
+    # bereits darauf, wer die Einladung ueberhaupt sieht; das hier faengt das
+    # Rennen, in dem sich ein Geraet erst NACH dem Hinausgehen der Einladung
+    # anmeldet und dann mit seiner Dauerfreigabe eine Anfrage annimmt, die an
+    # einem fremden Kanal geprueft wurde (Kopf von ``ws_remote_geraet``).
+    # Ablehnung als 4051: es ist eine Zugriffsentscheidung, keine verlorene
+    # Sitzung — und sie darf, anders als eine Absage, keine Sperrfrist ausloesen.
+    if not darf_zustimmen(mgr, sess, websocket):
+        await _err(websocket, 4051, "no access")
         return
     # EVERY side effect (dismiss/notify/teardown) must happen only AFTER this tab
     # atomically wins the answer — otherwise, in a concurrent double-answer, a

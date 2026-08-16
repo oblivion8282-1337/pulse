@@ -25,9 +25,14 @@ abstellen — ein eingetragenes Gerät kann nichts, was ein Mensch mit demselben
 Recht in demselben Kanal nicht auch könnte. ``MANAGE_CHANNELS`` zu verlangen
 hiesse, dass ein Nutzer für seinen eigenen Rechner einen Verwalter braucht.
 
-**Ändern und Entfernen** darf der Besitzer, und ausserdem ``MANAGE_GUILD``: ein
-Gerät steht im Raum einer Community, und deren Verwaltung muss es auch dann
+**Umbenennen und Entfernen** darf der Besitzer, und ausserdem ``MANAGE_GUILD``:
+ein Gerät steht im Raum einer Community, und deren Verwaltung muss es auch dann
 räumen können, wenn der Besitzer nicht erreichbar ist.
+
+**Umstellen darf nur der Besitzer.** Der Standplatz ist der Rechteanker — wer
+ihn setzt, bestimmt, wer den Rechner übernehmen darf. „Räumen können" trägt das
+nicht: mit ``MANAGE_GUILD`` allein liesse sich ein fremder Rechner in einen
+Kanal schieben, in dem ``@everyone`` ``REMOTE_CONTROL`` hat.
 
 Was hier NICHT steht
 --------------------
@@ -35,11 +40,14 @@ Der **Zustand** eines Geräts (bereit / belegt / offline) — der kommt nicht au
 der Datenbank, sondern aus lebenden Verbindungen und steht deshalb in
 :mod:`dcc_chat_gateway.device_registry`. Eine Spalte dafür wäre eine Zahl, die
 nach jedem Absturz lügt.
+
+Die **Form** eines Geräts nach aussen (``DeviceOut``) und die beiden Meldungen,
+die eine Änderung begleiten, stehen in :mod:`dcc_chat_gateway.device_meldungen`
+— beides brauchen auch Pfade ohne Route (Rauswurf, Bann).
 """
 
 from __future__ import annotations
 
-import logging
 import re
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -48,6 +56,13 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.device_meldungen import (
+    DeviceOut,
+    device_out,
+    manager_von,
+    melden,
+    sitzung_beenden,
+)
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_VOICE,
     DEVICE_NAME_MAX_LEN,
@@ -64,8 +79,6 @@ from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.schemas import SnowflakeId
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
-
-log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/guilds/{guild_id}/devices", tags=["devices"])
 
@@ -101,22 +114,6 @@ class DevicePatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=DEVICE_NAME_MAX_LEN)
 
 
-class DeviceOut(BaseModel):
-    id: str
-    guild_id: str
-    channel_id: str
-    owner_user_id: str
-    name: str
-    #: ``ready`` | ``busy`` | ``offline`` — aus dem Verbindungsregister.
-    state: str
-    #: Wer es gerade steuert (nur bei ``busy``), sonst ``None``.
-    busy_with: str | None = None
-    #: Die Bildschirme, die das Gerät beim Anmelden gemeldet hat. Leer, solange
-    #: es nie verbunden war — der Steuernde sieht dann nur „ein Bildschirm",
-    #: und das ist ehrlicher als eine erfundene Liste.
-    monitors: list[dict] = []
-
-
 def _normalise_name(name: str) -> str:
     """Gerätenamen vereinheitlichen und prüfen.
 
@@ -134,9 +131,26 @@ def _normalise_name(name: str) -> str:
     return kandidat
 
 
-async def _channel_in_guild(session, guild_id: int, channel_id: int) -> Channel:
+async def _standplatz_kanal(
+    session, user, guild_id: int, channel_id: int, *, detail: str
+) -> Channel:
+    """Den künftigen Standplatz laden und prüfen, dass der Rufer dort abstellen
+    darf.
+
+    **Die Reihenfolge ist hier Sicherheit, nicht Geschmack** (Bughunt
+    2026-08-16): Existenz und Typ standen vor der Rechteprüfung, und die drei
+    Antworten 404 / 400 / 403 verrieten damit jedem Mitglied, ob es hinter einer
+    beliebigen Kennung einen Kanal gibt und ob er Sprache oder Text trägt —
+    auch für Kanäle, die es nicht sehen darf. Ein unsichtbarer Kanal antwortet
+    deshalb jetzt wortgleich wie ein nicht vorhandener.
+    """
     channel = await session.get(Channel, channel_id)
-    if channel is None or channel.guild_id != guild_id:
+    wert = await resolve_permissions(session, user, guild_id, channel_id)
+    if (
+        channel is None
+        or channel.guild_id != guild_id
+        or not has_permission(wert, Permissions.VIEW_CHANNEL)
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="channel not found")
     # Der Standplatz muss ein Sprachkanal sein: dort läuft die Übertragung, an
     # der die Fernsteuerung hängt (`routes/streaming.py` verlangt genau das).
@@ -145,6 +159,8 @@ async def _channel_in_guild(session, guild_id: int, channel_id: int) -> Channel:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail="a device stands in a voice channel"
         )
+    if not has_permission(wert, Permissions.STREAM):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=detail)
     return channel
 
 
@@ -167,52 +183,26 @@ async def _require_owner_or_manager(session, user, device: Device) -> None:
     )
 
 
-def _manager(request: Request):
-    return getattr(request.app.state, "connection_manager", None)
-
-
-def _to_out(device: Device, mgr) -> DeviceOut:
-    # Ohne Manager (Testaufbau ohne WS-Schicht) ist nichts angemeldet — und
-    # „offline" ist die richtige Antwort auf „ich weiss es nicht".
-    zustand, mit = mgr.device_state(device.id) if mgr is not None else ("offline", None)
-    schirme = mgr.device_monitors(device.id) if mgr is not None else []
-    return DeviceOut(
-        id=str(device.id),
-        guild_id=str(device.guild_id),
-        channel_id=str(device.channel_id),
-        owner_user_id=str(device.owner_user_id),
-        name=device.name,
-        state=zustand,
-        busy_with=mit,
-        monitors=schirme,
-    )
-
-
 @router.get("", response_model=list[DeviceOut])
 async def list_devices(
     guild_id: SnowflakeId, user: CurrentUser, session: SessionDep, request: Request
 ) -> list[DeviceOut]:
     await require_member(session, guild_id, user.id)
-    rows = (
-        (
-            await session.execute(
-                select(Device).where(Device.guild_id == guild_id).order_by(Device.name)
-            )
-        )
-        .scalars()
-        .all()
+    treffer = await session.execute(
+        select(Device).where(Device.guild_id == guild_id).order_by(Device.name)
     )
     # Je Standplatz EINMAL auflösen, nicht je Gerät: mehrere Geräte in derselben
     # Werkstatt sind der Regelfall, und `resolve_permissions` ist der teuerste
     # Teil dieser Route.
+    mgr = manager_von(request)
     sichtbar: dict[int, bool] = {}
     ergebnis: list[DeviceOut] = []
-    for device in rows:
+    for device in treffer.scalars():
         if device.channel_id not in sichtbar:
             wert = await resolve_permissions(session, user, guild_id, device.channel_id)
             sichtbar[device.channel_id] = has_permission(wert, Permissions.VIEW_CHANNEL)
         if sichtbar[device.channel_id]:
-            ergebnis.append(_to_out(device, _manager(request)))
+            ergebnis.append(device_out(device, mgr))
     return ergebnis
 
 
@@ -225,13 +215,11 @@ async def create_device(
     request: Request,
 ) -> DeviceOut:
     await require_member(session, guild_id, user.id)
-    await _channel_in_guild(session, guild_id, body.channel_id)
-    await check_permission(
+    await _standplatz_kanal(
         session,
         user,
         guild_id,
-        Permissions.STREAM,
-        channel_id=body.channel_id,
+        body.channel_id,
         detail="you need permission to stream in that channel to park a device there",
     )
     name = _normalise_name(body.name)
@@ -270,8 +258,8 @@ async def create_device(
             status.HTTP_409_CONFLICT,
             detail="a device with that name (or this same machine) is already parked here",
         ) from None
-    stand = _to_out(device, _manager(request))
-    await _melden(request, device, stand)
+    stand = device_out(device, manager_von(request))
+    await melden(request, device, stand)
     return stand
 
 
@@ -292,13 +280,22 @@ async def patch_device(
         device.name = _normalise_name(body.name)
     alter_kanal: int | None = None
     if body.channel_id is not None and body.channel_id != device.channel_id:
-        await _channel_in_guild(session, guild_id, body.channel_id)
-        await check_permission(
+        # **Umstellen darf nur der Besitzer** (Bughunt 2026-08-16). Der
+        # Standplatz ist der Rechteanker des Geräts: wer ihn setzt, bestimmt,
+        # wer den Rechner übernehmen darf. Mit ``MANAGE_GUILD`` allein liesse
+        # sich ein fremder Rechner in einen Kanal schieben, in dem ``@everyone``
+        # ``REMOTE_CONTROL`` hat — die Verwaltung soll räumen können, nicht
+        # umwidmen. Löschen und Umbenennen bleiben deshalb bei ihr.
+        if device.owner_user_id != user.id:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                detail="only the device owner can move it to another channel",
+            )
+        await _standplatz_kanal(
             session,
             user,
             guild_id,
-            Permissions.STREAM,
-            channel_id=body.channel_id,
+            body.channel_id,
             detail="you need permission to stream in the new channel",
         )
         alter_kanal = device.channel_id
@@ -311,26 +308,34 @@ async def patch_device(
         raise HTTPException(
             status.HTTP_409_CONFLICT, detail="a device with that name already exists here"
         ) from None
+    mgr = manager_von(request)
     if alter_kanal is not None:
         # **Der Standplatzwechsel beendet eine laufende Sitzung.** Die Rechte
         # hingen am alten Kanal; ein stiller Übergang wäre die falsche Art von
         # bequem (Entwurf §3). NACH dem Commit (Bughunt 2026-08-16): davor
         # starb die Sitzung auch dann, wenn die Änderung gleich darauf an einem
         # Namenskonflikt scheiterte — abgebrochen und trotzdem getrennt.
-        await _sitzung_beenden(request, device)
+        await sitzung_beenden(request, device)
         # **Den alten Standplatz mitziehen** (Bughunt 2026-08-16): das Register
         # merkt sich den Ort, an den es Zustandsmeldungen schickt. Ohne diese
         # Zeile meldete ein umgestelltes Gerät weiter an den alten Kanal — die
         # Falschen sähen seinen Zustand, die Berechtigten nie einen.
-        mgr = _manager(request)
         if mgr is not None:
             mgr.device_move(device.id, guild_id, device.channel_id)
         # Und aus der Liste des alten Kanals muss es verschwinden. Wer den
         # neuen nicht sehen darf, behielte sonst einen Eintrag, den es dort
         # nicht mehr gibt — und könnte ihn wecken wollen.
-        await _melden(request, device, _to_out(device, mgr), entfernt=True, kanal=alter_kanal)
-    stand = _to_out(device, _manager(request))
-    await _melden(request, device, stand)
+        #
+        # **Mit dem ALTEN Standplatz in der Nutzlast** (Bughunt 2026-08-16):
+        # die Meldung geht an den alten Kanal, das eingebettete Gerät trug aber
+        # schon den neuen — das verriet dort eine Kanalkennung, die die
+        # Empfänger unter Umständen gar nicht sehen dürfen. Für sie ist die
+        # richtige Auskunft „das Gerät, das hier stand, ist weg".
+        alt = device_out(device, mgr)
+        alt.channel_id = str(alter_kanal)
+        await melden(request, device, alt, entfernt=True, kanal=alter_kanal)
+    stand = device_out(device, mgr)
+    await melden(request, device, stand)
     return stand
 
 
@@ -345,56 +350,17 @@ async def delete_device(
     await require_member(session, guild_id, user.id)
     device = await _load_device(session, guild_id, device_id)
     await _require_owner_or_manager(session, user, device)
-    await _sitzung_beenden(request, device)
+    await sitzung_beenden(request, device)
     # Der letzte Stand VOR dem Löschen: der Client braucht die Kennung zum
     # Austragen, und der Name macht eine Meldung lesbar.
-    stand = _to_out(device, _manager(request))
+    mgr = manager_von(request)
+    stand = device_out(device, mgr)
     await session.delete(device)
     await session.commit()
-    await _melden(request, device, stand, entfernt=True)
-
-
-# ── Nebenwirkungen ──────────────────────────────────────────────────────────
-#
-# Beide bewusst nach dem Commit und beide fehlertolerant: die Datenbank ist die
-# Wahrheit, die Meldung an die offenen Fenster ist Bequemlichkeit. Ein fehlendes
-# Redis darf keine Eintragung scheitern lassen — dieselbe Linie wie bei den
-# Plugin-Toggles (`guild_plugins.py`).
-
-
-async def _melden(
-    request: Request,
-    device: Device,
-    stand: DeviceOut,
-    *,
-    entfernt: bool = False,
-    kanal: int | None = None,
-) -> None:
-    """``device_changed`` an die Community schicken.
-
-    ``kanal`` übersteuert den Standplatz — gebraucht beim Umstellen, wo die
-    Meldung „weg hier" an den ALTEN Kanal gehen muss.
-    """
-    mgr = _manager(request)
-    if mgr is None:
-        return
-    try:
-        await mgr.publish_device_change(
-            guild_id=device.guild_id,
-            channel_id=kanal if kanal is not None else device.channel_id,
-            device=stand.model_dump(),
-            removed=entfernt,
-        )
-    except Exception:  # pragma: no cover - Meldung ist nie kritisch
-        log.debug("device_changed not published", exc_info=True)
-
-
-async def _sitzung_beenden(request: Request, device: Device) -> None:
-    """Eine laufende Fernsteuerung dieses Geräts abbauen."""
-    mgr = _manager(request)
-    if mgr is None:
-        return
-    try:
-        await mgr.end_remote_sessions_for_device(device.id)
-    except Exception:  # pragma: no cover
-        log.debug("device sessions not ended", exc_info=True)
+    await melden(request, device, stand, entfernt=True)
+    # Und das Register vergisst es — NACH der Meldung, die den gemerkten
+    # Standplatz noch braucht. Ohne das blieben Standplatz und Bildschirmliste
+    # für eine gelöschte Kennung über die ganze Prozesslaufzeit stehen
+    # (``device_registry.device_forget``).
+    if mgr is not None:
+        mgr.device_forget(device.id)
