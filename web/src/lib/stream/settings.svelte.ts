@@ -448,7 +448,15 @@ export function buildStartArgs(
     // kann, würde den Start abbrechen. Die Fallunterscheidung bleibt trotzdem
     // an `!== undefined` hängen, damit der Prüfstand — der ohne Oberfläche
     // fährt — weiter über `PULSE_INTRA_REFRESH` bestimmt.
-    if (o.intra_refresh !== undefined) cleaned.intra_refresh = intraRefreshPossible();
+    // **Aus DEMSELBEN Satz, nicht global** (Bughunt-Nachtrag 2026-08-16): beim
+    // Standplatz-Profil hätte `intraRefreshPossible()` die Einstellung des
+    // Besitzers für seine EIGENEN Übertragungen gelesen — der geweckte Rechner
+    // hätte dann etwas anderes gefahren, als im Profil steht. Gesendet wird
+    // weiterhin der ERFÜLLBARE Wert: ein Haken, den dieses FFmpeg nicht
+    // einlösen kann, bräche den Start ab.
+    if (o.intra_refresh !== undefined) {
+      cleaned.intra_refresh = o.intra_refresh === true && stream.intraRefreshAvailable;
+    }
     // HDR nur mitschicken, wenn es erfüllbar ist — ein `hdr: false` wäre
     // dasselbe wie es wegzulassen, und ein `hdr: true`, das der Sidecar nicht
     // einlösen kann, bräche den Start ab. Anders als bei Intra-Refresh gibt es

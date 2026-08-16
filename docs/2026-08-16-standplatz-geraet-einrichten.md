@@ -29,7 +29,14 @@ Sprecherliste auf.
    „Womit dieser Rechner überträgt, wenn er geweckt wird". Es gilt **nur**,
    wenn jemand das Gerät aus der Ferne weckt; die eigenen Stream-Einstellungen
    des Besitzers bleiben unberührt. Vorgaben: Hauptbildschirm, H.264, native
-   Auflösung, 30 Bilder/s, 8000 kbit/s, kein HDR. Begründung: Fernsteuern will
+   Auflösung, 30 Bilder/s, 8000 kbit/s, kein HDR, periodische Vollbilder.
+   **Die rollende Auffrischung ist einen Versuch wert**, wenn dein Rechner sie
+   kann: sie verteilt die Auffrischung über viele Bilder, statt alle paar
+   Sekunden ein grosses Vollbild zu schicken, das die Leitung kurz dichtmacht —
+   bei 30 Bildern je Sekunde ist das der Unterschied zwischen ruhig und
+   stossweise. Vorgabe ist sie trotzdem nicht: kann der Encoder sie nicht,
+   verweigert der Sidecar den Start, und auf einem unbeaufsichtigten Rechner
+   sieht das niemand. Begründung: Fernsteuern will
    lesbare Schrift und kurze Wege, Zuschauen will flüssige Bewegung — das sind
    gegensätzliche Einstellungen, und die Vorgaben bedienen den ersten Fall.
 5. **Rechte in der Community vergeben**: `REMOTE_CONTROL` (Bit 37) steht **nicht**

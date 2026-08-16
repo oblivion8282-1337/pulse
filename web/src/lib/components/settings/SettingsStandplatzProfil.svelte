@@ -24,6 +24,8 @@
   import SlidersIcon from '@lucide/svelte/icons/sliders-horizontal';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
+  import Checkbox from '$lib/components/form/Checkbox.svelte';
+  import { stream } from '$lib/stream/state.svelte';
   import {
     standplatzProfil,
     HAUPTBILDSCHIRM,
@@ -142,6 +144,25 @@
         />
       </label>
     </div>
+
+    <label class="border-border/60 flex items-start gap-3 border-t pt-3">
+      <Checkbox
+        class="mt-0.5 shrink-0"
+        bind:checked={entwurf.intra_refresh}
+        disabled={!stream.intraRefreshAvailable}
+        data-testid="standplatz-profil-intra"
+      />
+      <span class="flex min-w-0 flex-1 flex-col gap-1">
+        <span class="text-text-bright text-sm font-medium">
+          {m.standplatz_profil_intra()}
+        </span>
+        <span class="text-text-muted text-xs">
+          {stream.intraRefreshAvailable
+            ? m.standplatz_profil_intra_hint()
+            : m.standplatz_profil_intra_unavailable()}
+        </span>
+      </span>
+    </label>
 
     <span class="text-text-muted text-xs">{m.standplatz_profil_no_hdr()}</span>
 
