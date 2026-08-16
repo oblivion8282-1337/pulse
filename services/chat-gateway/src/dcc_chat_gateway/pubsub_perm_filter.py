@@ -202,7 +202,7 @@ class _PermFilterMixin:
             # guild that owns the role — scope by guild via _ws_guilds rather
             # than clearing every socket's cache. ``role_deleted`` carries
             # ``guild_id`` at the top level; ``role_created`` / ``role_updated``
-            # nest it under ``role.guild_id`` (see routes/roles.py::_role_dict).
+            # nest it under ``role.guild_id`` (see role_wire.py::role_wire_dict).
             raw_gid = payload.get("guild_id")
             if raw_gid is None:
                 role = payload.get("role")

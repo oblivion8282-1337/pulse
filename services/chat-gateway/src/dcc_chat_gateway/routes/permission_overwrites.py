@@ -9,6 +9,9 @@ The editor of an overwrite must hold MANAGE_PERMISSIONS in the channel
 *and* must already possess every bit they are granting (newly allowed
 bits or newly un-denied bits) — Stoatchat's anti-escalation pattern,
 implemented in ``permissions.assert_overwrite_within_editor_scope``.
+
+Zweite, unabhängige Schranke: der Rang des ZIELS
+(``_assert_editor_outranks_target``) — beim Setzen wie beim Löschen.
 """
 
 from __future__ import annotations
@@ -25,7 +28,10 @@ from dcc_chat_gateway.models import (
     PermissionOverwrite,
     Role,
 )
-from dcc_chat_gateway.role_hierarchy import assert_actor_outranks_role
+from dcc_chat_gateway.role_hierarchy import (
+    assert_actor_outranks,
+    assert_actor_outranks_role,
+)
 from dcc_chat_gateway.permissions import (
     OVERWRITE_TARGET_ROLE,
     OVERWRITE_TARGET_USER,
@@ -59,6 +65,45 @@ def _anti_escalation_check(
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             detail="cannot grant permissions you do not yourself have",
+        )
+
+
+async def _assert_editor_outranks_target(
+    session,
+    current: CurrentUser,
+    guild_id: int,
+    target_type: int,
+    target_id: int,
+    *,
+    verb: str,
+) -> None:
+    """Rangschranke für das ZIEL der Ausnahme — Rolle wie Benutzer.
+
+    Die Anti-Eskalation daneben prüft nur, welche BITS der Bearbeiter selbst
+    hält, nicht, WEN er trifft: ein rangniedriger Moderator konnte einem
+    ranghöheren Mitglied ``deny VIEW_CHANNEL`` setzen — und weil ohne
+    VIEW_CHANNEL alles wegfällt, kam das Opfer an die Sperre nicht mehr heran,
+    um sie zurückzunehmen. Beim LÖSCHEN ebenso: im privaten Kanal (@everyone
+    deny VIEW) hält die ``allow``-Ausnahme die höhere Rolle als Einziges drin,
+    sie zu entfernen wirkt wie ein deny (Bughunt 2026-08-16, beides belegt).
+
+    Ein Ziel, das es nicht (mehr) gibt, geht durch: verwaiste Zeilen müssen
+    aufräumbar bleiben. Das Anlegen prüft die Existenz vorher selbst (400).
+    """
+    guild = await session.get(Guild, guild_id)
+    if guild is None:
+        raise HTTPException(404, detail="guild not found")
+    if target_type == OVERWRITE_TARGET_ROLE:
+        role = await session.get(Role, target_id)
+        if role is not None and role.guild_id == guild_id:
+            await assert_actor_outranks_role(
+                session, current, guild, role,
+                detail=f"cannot {verb} an overwrite for a role at or above your highest role",
+            )
+    elif await session.get(GuildMember, (guild_id, target_id)) is not None:
+        await assert_actor_outranks(
+            session, current, guild, target_id,
+            detail=f"cannot {verb} an overwrite for a member at or above your highest role",
         )
 
 
@@ -188,21 +233,13 @@ async def set_overwrite(
         role = await session.get(Role, target_id)
         if role is None or role.guild_id != channel.guild_id:
             raise HTTPException(400, detail="role not found in this guild")
-        # Rang wie beim Bearbeiten der Rolle selbst: ohne das konnte ein
-        # Moderator mit MANAGE_CHANNELS einer RANGHOEHEREN Rolle in diesem Kanal
-        # die Sicht oder das Schreiben nehmen. Die Anti-Eskalation daneben
-        # prueft nur die BITS, die er selbst haelt — nicht, wen er trifft.
-        await assert_actor_outranks_role(
-            session,
-            current,
-            await session.get(Guild, channel.guild_id),
-            role,
-            detail="cannot set an overwrite for a role at or above your highest role",
-        )
     else:  # OVERWRITE_TARGET_USER
         member = await session.get(GuildMember, (channel.guild_id, target_id))
         if member is None:
             raise HTTPException(400, detail="user is not a member of this guild")
+    await _assert_editor_outranks_target(
+        session, current, channel.guild_id, target_type, target_id, verb="set"
+    )
 
     existing = await session.get(
         PermissionOverwrite, (channel_id, target_type, target_id)
@@ -263,7 +300,9 @@ async def delete_overwrite(
     """Remove a channel overwrite. Anti-escalation check still applies —
     removing a *deny* effectively grants those bits to the target, so
     the editor must hold them. Same shape as the set-call with
-    new_allow=0 / new_deny=0."""
+    new_allow=0 / new_deny=0. Die Rangschranke gilt hier ebenso: in einem
+    privaten Kanal entzieht das Löschen einer *allow*-Ausnahme dem Ziel den
+    Kanal — derselbe Effekt, den das PUT mit 403 abweist."""
     _validate_target_type(target_type)
     channel = await session.get(Channel, channel_id)
     if channel is None:
@@ -279,6 +318,9 @@ async def delete_overwrite(
     if existing is None:
         return  # idempotent
 
+    await _assert_editor_outranks_target(
+        session, current, channel.guild_id, target_type, target_id, verb="remove"
+    )
     _anti_escalation_check(
         editor_perms,
         new_allow=0,

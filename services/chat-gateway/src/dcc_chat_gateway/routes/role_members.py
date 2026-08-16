@@ -2,9 +2,10 @@
 read-side.
 
 Split off from ``routes/roles.py`` to keep each file under the §12.1
-line cap. The two halves share the ``_role_dict`` wire shape, which
-lives here as well so role_members can reuse it (small enough to
-duplicate; the alternative is a third module just for the helper)."""
+line cap. Die gemeinsame Drahtform der Rolle liegt seit 2026-08-16 in
+``role_wire.py`` — der ``ready``-Frame brauchte sie als dritter Nutzer,
+und die von Hand nachgebaute Kopie dort hatte bereits ``guild_id``
+verloren."""
 
 from __future__ import annotations
 
