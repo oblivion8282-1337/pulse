@@ -268,6 +268,16 @@ class RemoteSessionStore {
     // alles ab.
     this.#senden((c) => c.sendRemoteRespond(id, false));
     this.#reset();
+    // **Und der geweckte Rechner hört sofort auf zu übertragen.** Eine
+    // Ablehnung ist eine Entscheidung, kein Zeitablauf: der Weckruf hat nur
+    // deshalb ein Bild gestartet, weil daraus eine Übernahme werden sollte, und
+    // die ist gerade abgelehnt worden. Die Nachlauf-Wache in `wecken.ts` fasst
+    // denselben Fall, aber erst nach 90 Sekunden — sie ist das Netz für die
+    // Fälle ohne Entscheidung (niemand antwortet, Anfrage verfällt, Host sieht
+    // sie nie). Hier gibt es eine, also wird nicht gewartet: bis dahin lief der
+    // ungeschützte Schirm anderthalb Minuten weiter in den Kanal, obwohl der
+    // Besitzer eben Nein gesagt hat.
+    void geraet.abgelehntEingeschlafen();
   }
 
   // ── Beide ─────────────────────────────────────────────────────────────────

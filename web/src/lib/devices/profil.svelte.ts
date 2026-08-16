@@ -31,9 +31,10 @@
  * * **Hauptbildschirm** statt eines gemerkten `Monitor: 2`. Ein Rechner, vor
  *   dem niemand sitzt, darf nicht auf einen Schirm zeigen, den jemand vor
  *   Monaten gewählt hat.
- * * **Kein HDR, keine 10 bit.** HDR bricht den Start ab, wenn es der Schirm
- *   gerade nicht kann, und sieht beim Steuernden auf einem gewöhnlichen
- *   Bildschirm ausgewaschen aus.
+ * * **Intra-Frame an, HDR und 10 bit aus** — alle drei sind wählbar. Der
+ *   Intra-Frame nützt dem Fernbetrieb (kein Vollbild-Stoss alle zwei
+ *   Sekunden), HDR schadet ihm eher: der Steuernde sitzt meist vor einem
+ *   gewöhnlichen Bildschirm und sieht das Bild dort ausgewaschen.
  *
  * ## Was das Profil NICHT ist
  *
@@ -81,11 +82,13 @@ export interface StandplatzProfil {
    * hängt der Sendeweg daran: mit Intra-Refresh geht auch AV1 über WHIP, den
    * einzigen Weg mit Rückkanal (`pushProtokoll`).
    *
-   * **Vorgabe ist trotzdem AUS.** Kann der Encoder es nicht, verweigert der
-   * Sidecar den Start, statt heimlich etwas anderes zu fahren
-   * (`encode/auffrischung.rs`) — auf einem Rechner, vor dem niemand sitzt,
-   * wäre ein verweigerter Start ein Weckruf, der wortlos ins Leere läuft. Wer
-   * es einschaltet, hat es vorher an seinem Gerät ausprobiert.
+   * **Vorgabe ist AN** (seit 2026-08-16). Der frühere Einwand — kann der Encoder
+   * es nicht, verweigert der Sidecar den Start (`encode/auffrischung.rs`), und
+   * auf einem unbeaufsichtigten Rechner liest niemand die Absage — trägt nicht
+   * mehr: der Haken geht nur hinaus, wenn der Sidecar die Fähigkeit gemeldet
+   * hat (`buildStartArgs` prüft gegen `stream.intraRefreshAvailable`). Kann der
+   * Rechner es nicht, wird ohne gesendet statt gar nicht. Damit überwiegt der
+   * Nutzen: ruhige Leitung statt Vollbild-Stössen, und der Rückkanal-Weg.
    */
   intra_refresh: boolean;
   /**
@@ -121,7 +124,7 @@ export const VORGABE: StandplatzProfil = {
   aufloesung: 'Native',
   fps: 30,
   bitrate_kbps: 8000,
-  intra_refresh: false,
+  intra_refresh: true,
   zehn_bit: false,
   hdr: false,
 };

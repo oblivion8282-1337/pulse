@@ -44,6 +44,18 @@
   const monitore = $derived(streamSettings.available_monitors);
 
   /**
+   * Alte Auswahl nachziehen: wer früher den primären Schirm über seine Nummer
+   * gewählt hat, trägt jetzt denselben Eintrag unter dem Wert „Hauptbildschirm".
+   * Ohne diese Zeile stünde das Feld leer, weil kein Eintrag den alten Wert hat.
+   */
+  $effect(() => {
+    const primaer = monitore.find((mon) => mon.primary);
+    if (primaer && entwurf.quelle === `${MONITOR_CAPTURE_PREFIX}${primaer.index}`) {
+      entwurf = { ...entwurf, quelle: HAUPTBILDSCHIRM };
+    }
+  });
+
+  /**
    * 10 bit gibt es nur mit AV1 und nur, wenn der Sidecar es meldet; HDR nur
    * obendrauf. Beides hängt am **Entwurf**, nicht am gespeicherten Profil —
    * wer im Formular auf H.264 stellt, sieht die Kästchen sofort ausgrauen,
@@ -51,10 +63,6 @@
    */
   const zehnBitMoeglich = $derived(entwurf.codec === 'av1' && stream.tenBitAvailable);
   const hdrMoeglich = $derived(zehnBitMoeglich && entwurf.zehn_bit && stream.hdrAvailable);
-
-  function zuruecksetzen(): void {
-    entwurf = { ...VORGABE };
-  }
 
   /**
    * Eine Zahl aus einem Zahlenfeld, geklemmt — und mit Vorgabe für „nichts".
@@ -99,10 +107,21 @@
         bind:value={entwurf.quelle}
         data-testid="standplatz-profil-quelle"
       >
-        <option value={HAUPTBILDSCHIRM}>{m.standplatz_profil_source_primary()}</option>
+        <!-- **Ein Eintrag je Schirm, der primäre trägt den Stern.** Vorher stand
+             „Hauptbildschirm" zusätzlich in der Liste, und derselbe Monitor
+             erschien darunter noch einmal mit seinem Namen — doppelt gemoppelt.
+             Zusammengelegt heisst: wer den markierten wählt, wählt „der jeweils
+             primäre" (Wert [`HAUPTBILDSCHIRM`]). Das ist auf einem
+             unbeaufsichtigten Rechner die haltbarere Zusage: wird umgesteckt
+             oder der primäre Schirm gewechselt, folgt die Aufnahme, statt auf
+             eine Nummer zu zeigen, die es vielleicht nicht mehr gibt.
+             Ohne gemeldete Liste (nie verbunden) bleibt der eine Ersatz-Eintrag. -->
+        {#if monitore.length === 0}
+          <option value={HAUPTBILDSCHIRM}>{m.standplatz_profil_source_primary()}</option>
+        {/if}
         {#each monitore as mon (mon.index)}
-          <option value={`${MONITOR_CAPTURE_PREFIX}${mon.index}`}>
-            {mon.name} ({mon.width}×{mon.height})
+          <option value={mon.primary ? HAUPTBILDSCHIRM : `${MONITOR_CAPTURE_PREFIX}${mon.index}`}>
+            {mon.primary ? '* ' : ''}{mon.name} ({mon.width}×{mon.height})
           </option>
         {/each}
       </select>
@@ -152,44 +171,41 @@
       </label>
     </div>
 
-    <label class="border-border/60 flex items-start gap-3 border-t pt-3">
-      <Checkbox
+
+    <!-- Die drei Schalter nebeneinander: sie gehören zusammen (was der
+         Encoder zusätzlich tun soll) und kosten einzeln untereinander mehr
+         Höhe als der ganze Rest des Bildes. -->
+    <div class="border-border/60 flex flex-wrap items-start gap-x-6 gap-y-2 border-t pt-3">
+      <label class="flex items-start gap-2">
+        <Checkbox
         class="mt-0.5 shrink-0"
         bind:checked={entwurf.intra_refresh}
         disabled={!stream.intraRefreshAvailable}
         data-testid="standplatz-profil-intra"
-      />
-      <span class="text-text-bright min-w-0 flex-1 text-sm font-medium">{m.standplatz_profil_intra()}</span>
-    </label>
-
-    <!-- 10 bit und HDR: wählbar, aber an AV1 und an die Karte gebunden. Der
-         Wunsch bleibt gespeichert, auch wenn er gerade nicht erfüllbar ist —
-         beim Wecken fällt er dann still weg, statt den Start abzubrechen
-         (`buildStartArgs`). Deshalb hier nur `disabled`, kein Zurücksetzen. -->
-    <label class="flex items-start gap-3">
-      <Checkbox
+        />
+        <span class="text-text-bright text-sm font-medium">{m.standplatz_profil_intra()}</span>
+      </label>
+      <label class="flex items-start gap-2">
+        <Checkbox
         class="mt-0.5 shrink-0"
         bind:checked={entwurf.zehn_bit}
         disabled={!zehnBitMoeglich}
         data-testid="standplatz-profil-zehnbit"
-      />
-      <span class="text-text-bright min-w-0 flex-1 text-sm font-medium">{m.standplatz_profil_ten_bit()}</span>
-    </label>
-
-    <label class="flex items-start gap-3">
-      <Checkbox
+        />
+        <span class="text-text-bright text-sm font-medium">{m.standplatz_profil_ten_bit()}</span>
+      </label>
+      <label class="flex items-start gap-2">
+        <Checkbox
         class="mt-0.5 shrink-0"
         bind:checked={entwurf.hdr}
         disabled={!hdrMoeglich}
         data-testid="standplatz-profil-hdr"
-      />
-      <span class="text-text-bright min-w-0 flex-1 text-sm font-medium">{m.standplatz_profil_hdr()}</span>
-    </label>
+        />
+        <span class="text-text-bright text-sm font-medium">{m.standplatz_profil_hdr()}</span>
+      </label>
+    </div>
 
     <div class="flex justify-end gap-2 pt-1">
-      <Button size="sm" variant="ghost" onclick={zuruecksetzen}>
-        {m.standplatz_profil_reset()}
-      </Button>
       <Button onclick={speichern} data-testid="standplatz-profil-save">
         {m.standplatz_profil_save()}
       </Button>

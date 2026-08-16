@@ -22,12 +22,30 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { standplatz } from '$lib/remote/standplatz.svelte';
   import { remoteSession } from '$lib/remote/session.svelte';
+  import { geraeteSlots, wiederEinschlafen } from '$lib/devices/wecken';
   import { isElectron } from '$lib/platform/runtime';
   import { m } from '$lib/paraglide/messages.js';
 
   const desktop = isElectron();
 
-  let show = $derived(desktop && standplatz.aktiv && remoteSession.phase !== 'active');
+  /**
+   * Überträgt dieser Rechner gerade, weil ihn jemand geweckt hat?
+   *
+   * **Der Fehlerfall** (2026-08-16): jemand weckt das Gerät, der Besitzer lehnt
+   * die Übernahme ab — und der Rechner überträgt weiter, ohne dass es dafür
+   * eine Schaltfläche gäbe. Die Ströme gehören dem Weckruf, nicht dem Besitzer;
+   * sie tauchen deshalb in seinen gewohnten Bedienelementen nicht auf, und die
+   * Nachlauf-Wache greift erst nach 90 Sekunden. Ein unbeaufsichtigter Rechner,
+   * der ungefragt weitersendet, braucht einen Ausschalter, der immer da ist.
+   */
+  const geweckt = $derived(geraeteSlots().length);
+
+  // Das Banner steht jetzt aus zwei Gründen: freigegeben (der bisherige) ODER
+  // geweckt. Der zweite gilt auch ohne Dauerfreigabe — gerade dann ist er
+  // wichtig, denn dort ist gerade eine Übernahme abgelehnt worden.
+  let show = $derived(
+    desktop && (standplatz.aktiv || geweckt > 0) && remoteSession.phase !== 'active',
+  );
 
 </script>
 
@@ -44,7 +62,7 @@
     </span>
     <span class="min-w-0">
       <span class="text-text-bright block truncate text-sm font-medium">
-        {m.standplatz_banner_title()}
+        {geweckt > 0 ? m.standplatz_banner_streaming() : m.standplatz_banner_title()}
       </span>
       <span class="text-text-muted block truncate text-xs">
         {standplatz.jeder
@@ -56,13 +74,25 @@
           : m.standplatz_banner_until_hours({ hours: restStunden })}
       </span>
     </span>
-    <Button
-      size="sm"
-      variant="outline"
-      onclick={() => standplatz.zuruecknehmen()}
-      data-testid="remote-standplatz-banner-revoke"
-    >
-      {m.standplatz_banner_revoke()}
-    </Button>
+    {#if geweckt > 0}
+      <Button
+        size="sm"
+        variant="destructive"
+        onclick={() => void wiederEinschlafen()}
+        data-testid="remote-standplatz-banner-stop"
+      >
+        {m.standplatz_banner_stop()}
+      </Button>
+    {/if}
+    {#if standplatz.aktiv}
+      <Button
+        size="sm"
+        variant="outline"
+        onclick={() => standplatz.zuruecknehmen()}
+        data-testid="remote-standplatz-banner-revoke"
+      >
+        {m.standplatz_banner_revoke()}
+      </Button>
+    {/if}
   </div>
 {/if}
