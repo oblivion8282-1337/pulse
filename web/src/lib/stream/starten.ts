@@ -24,8 +24,7 @@ import { gsr } from './gsr';
 import { buildStartArgs, pushProtokoll, tenBitPossible } from './settings.svelte';
 import { resolveSlotLabel, resolveStreamLabel } from './label';
 import { streamSettings } from './settingsState.svelte';
-import type { AudioMode, OverrideSet } from './settingsCatalog';
-import { recordStreamStart } from './autoRestart';
+import { startMerken, type StandplatzStart } from './neustartGedaechtnis';
 import { stream } from './state.svelte';
 
 export type StartErgebnis =
@@ -46,7 +45,7 @@ export type StartErgebnis =
 export async function streamStarten(
   channelId: string,
   slot: number,
-  standplatz?: { quelle: string; uebersteuerung: OverrideSet; ton: AudioMode },
+  standplatz?: StandplatzStart,
 ): Promise<StartErgebnis> {
   let tok;
   try {
@@ -97,9 +96,11 @@ export async function streamStarten(
     );
     const r = await gsr.start(args, slot);
     if (r && !r.ok) return { ok: false, stufe: 'start', fehler: r.error };
-    // Den Kanal für den Auto-Neustart nach einer Auflösungsänderung merken —
-    // `autoRestart.ts` erfährt ihn sonst nirgends.
-    recordStreamStart(slot, channelId);
+    // Für den Auto-Neustart nach einer Auflösungsänderung merken, was der
+    // Neustart sonst nirgends erführe: den Kanal — und beim Standplatz-Gerät
+    // den ganzen Satz, sonst startet der Rechner mit den Einstellungen seines
+    // abwesenden Besitzers neu (`neustartGedaechtnis.ts`).
+    startMerken(slot, { channelId, standplatz });
     return { ok: true };
   } catch (fehler) {
     return { ok: false, stufe: 'start_wurf', fehler };

@@ -10,9 +10,14 @@
  * automatisch neu — der Neustart richtet die Pipeline auf die neue Auflösung
  * ein, für den Zuschauer bleibt ein kurzer Aussetzer.
  *
- * Der Neustart braucht die channelId des laufenden Streams; die kennt nur der
- * manuelle Start-Pfad (`StreamControls.onStart`), der sie deshalb pro Slot via
- * `recordStreamStart` hier hinterlegt. Kein Eintrag → kein Auto-Neustart.
+ * **Neu gestartet wird über den gemeinsamen Weg** (`streamStarten`), nicht über
+ * einen zweiten Nachbau daneben. Der Nachbau stand hier bis 2026-08-16 und hat
+ * genau den Fehler gemacht, vor dem eine Doppelung immer warnt: er kannte das
+ * Standplatz-Profil nicht und baute die Argumente aus den Einstellungen des
+ * Besitzers. Ein ferngeweckter Rechner wechselte damit mitten im Betrieb still
+ * Codec, Sendeweg und Aufnahmequelle — ausgelöst von aussen, ohne dass jemand
+ * davorsass. Was der Neustart dafür wissen muss, liegt im
+ * `neustartGedaechtnis`; kein Eintrag → kein Auto-Neustart.
  *
  * Schleifen-Schutz: maximal 2 automatische Neustarts pro Slot innerhalb von
  * 60 s. Wechselt die Auflösung im Minutentakt (User probiert Settings durch)
@@ -21,11 +26,9 @@
  */
 import { toast } from 'svelte-sonner';
 import { m } from '$lib/paraglide/messages.js';
-import { chatApi } from '$lib/api/chat';
-import { gsr } from './gsr';
-import { buildStartArgs, pushProtokoll, tenBitPossible } from './settings.svelte';
-import { stream, streamForSlot, markStarting } from './state.svelte';
-import { resolveSlotLabel } from './label';
+import { gemerkterStart } from './neustartGedaechtnis';
+import { streamStarten } from './starten';
+import { streamForSlot, markStarting } from './state.svelte';
 
 const RESTART_WINDOW_MS = 60_000;
 const MAX_RESTARTS_PER_WINDOW = 2;
@@ -34,23 +37,16 @@ const MAX_RESTARTS_PER_WINDOW = 2;
  *  sterbenden Prozess treffen und in dessen Exit-Aufräumen laufen. */
 const RESTART_DELAY_MS = 500;
 
-/** Pro Slot: channelId des zuletzt manuell gestarteten Streams. */
-const lastChannel: Record<number, string> = {};
 /** Pro Slot: Zeitstempel der letzten Auto-Neustarts (Sliding Window). */
 const attempts: Record<number, number[]> = {};
-
-/** Vom manuellen Start-Pfad nach erfolgreichem `gsr.start` aufgerufen. */
-export function recordStreamStart(slot: number, channelId: string): void {
-  lastChannel[slot] = channelId;
-}
 
 /**
  * Startet den Stream eines Slots neu, wenn der Schleifen-Schutz es erlaubt.
  * Läuft fire-and-forget aus dem Event-Reducer; Fehler landen im Slot-State.
  */
 export function maybeAutoRestart(slot: number): void {
-  const channelId = lastChannel[slot];
-  if (!channelId) return;
+  const merk = gemerkterStart(slot);
+  if (!merk) return;
 
   const now = Date.now();
   const recent = (attempts[slot] ?? []).filter((t) => now - t < RESTART_WINDOW_MS);
@@ -64,27 +60,18 @@ export function maybeAutoRestart(slot: number): void {
   void (async () => {
     await new Promise((resolve) => setTimeout(resolve, RESTART_DELAY_MS));
     const session = streamForSlot(slot);
-    try {
-      const label = resolveSlotLabel(slot).label;
-      // Denselben Weg wie beim Start von Hand waehlen — warum Betriebsart UND
-      // Codec den Transport mitentscheiden und was das harte `'rtmp'` hier
-      // anrichtete: s. `pushProtokoll`.
-      const tok = await chatApi.getStreamToken(
-        channelId,
-        pushProtokoll(),
-        slot,
-        label,
-        tenBitPossible(),
-        // Wie beim Start von Hand: die Fernsteuerbarkeit reist mit.
-        stream.fernsteuerbar
-      );
-      const args = buildStartArgs({ channelId, token: tok.token, pushUrl: tok.push_url }, slot);
-      const r = await gsr.start(args, slot);
-      if (r && !r.ok) throw new Error(r.error ?? m.stream_controls_error_start_failed());
-    } catch (e) {
-      session.state = 'error';
-      session.error = e instanceof Error ? e.message : String(e);
-      toast.error(m.stream_auto_restart_failed(), { description: session.error });
-    }
+    const erg = await streamStarten(merk.channelId, slot, merk.standplatz);
+    if (erg.ok) return;
+    // Alle drei Stufen enden hier gleich: der Slot geht in den Fehlerzustand
+    // mit manuellem Start-Knopf. Getrennt meldet sie nur der Knopf selbst.
+    const roh = erg.fehler;
+    session.state = 'error';
+    session.error =
+      roh instanceof Error
+        ? roh.message
+        : typeof roh === 'string' && roh
+          ? roh
+          : m.stream_controls_error_start_failed();
+    toast.error(m.stream_auto_restart_failed(), { description: session.error });
   })();
 }
