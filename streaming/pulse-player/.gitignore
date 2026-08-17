@@ -2,5 +2,10 @@
 # scripts/bootstrap-webrtc.sh, deshalb nicht eingecheckt.
 /vendor/
 
+# FFmpeg-Distribution für den lokalen Prüfbau (~180 MB entpackt), hergestellt
+# von `scripts/fetch-ffmpeg-linux.sh`. Reproduzierbar statt eingecheckt —
+# gleiche Bauart wie `win-hq-sidecar/ffmpeg-dist/`.
+/ffmpeg-dist/
+
 # Rust
 /target
