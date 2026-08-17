@@ -96,8 +96,22 @@ struct Merker {
     /// Kennung des zuletzt gemeldeten Bildes; `None` = Standardzeiger, für den
     /// gar keines gebraucht wird.
     bild: Option<String>,
-    /// Wecker seit der letzten Meldung (s. [`WIEDERHOLUNG_TAKTE`]).
+    /// Wecker seit der letzten Meldung — entscheidet, ob überhaupt etwas
+    /// hinausgeht.
     takte: u64,
+    /// Wecker seit dem letzten **vollständigen** Bild.
+    ///
+    /// **Getrennt von [`Self::takte`], und das ist der Punkt.** Beide Zähler
+    /// zusammenzulegen sieht sparsam aus und nimmt der Auffrischung genau dann
+    /// die Wirkung, wenn sie gebraucht wird: fällt der Zähler bei jeder
+    /// Meldung, dann frischt bei einem Zeiger, der öfter als einmal je Sekunde
+    /// wechselt, überhaupt nichts mehr auf — und Zeiger wechseln beim Fahren
+    /// über eine Timeline mehrmals je Sekunde. Ein verlorenes Bild bliebe dann
+    /// für den Rest der Sitzung verloren, obwohl die Heilung genau dafür da
+    /// ist. Gemessen an einer Nachbildung: mit einem Zähler 60 von 120 Takten
+    /// falscher Zeiger und keine Heilung bis zum Ende, mit zweien 8 von 120
+    /// und geheilt nach 800 ms.
+    bild_takte: u64,
     /// Kennungen, die in dieser Sitzung schon **vollständig** hinausgegangen
     /// sind. Für die genügt beim nächsten Mal die Kennung allein — ein Wechsel
     /// zwischen zwei Werkzeugen kostet damit ein paar Byte statt zweier Bilder.
@@ -111,7 +125,8 @@ struct Merker {
 }
 
 /// Der leere Anfang — Sitzungsbeginn und [`zuruecksetzen`] gehen von hier aus.
-const LEER: Merker = Merker { form: None, bild: None, takte: 0, bekannt: BTreeSet::new() };
+const LEER: Merker =
+    Merker { form: None, bild: None, takte: 0, bild_takte: 0, bekannt: BTreeSet::new() };
 
 static MERKER: Mutex<Merker> = Mutex::new(LEER);
 
@@ -232,6 +247,28 @@ fn bild_vollstaendig(bekannt: &BTreeSet<String>, kennung: &str, takte: u64) -> b
     takte >= WIEDERHOLUNG_TAKTE || !bekannt.contains(kennung)
 }
 
+/// Eine Kennung in die Liste der bekannten aufnehmen.
+///
+/// **Der erste Zweig ist der Fund**, nicht bloss eine Abkürzung: ohne ihn leert
+/// eine blosse Auffrischung die ganze Liste, sobald sie voll ist. Sie gilt
+/// nämlich als „vollständig" (s. [`bild_vollstaendig`]), obwohl die Kennung
+/// längst drinsteht — und die Gegenseite macht das Leeren nicht mit, weil sie
+/// ihren Vorrat nur beim EINFÜGEN deckelt und beim Auffrischen bloss
+/// nachschlägt. Danach halten die beiden Seiten verschiedene Mengen für
+/// bekannt, ohne dass je eine Nachricht verlorengegangen wäre, und der Sidecar
+/// schickt Kennungen für Bilder, die drüben nicht mehr liegen.
+///
+/// Reine Rechnung, damit die Regel ohne laufende Sitzung prüfbar ist.
+fn bekannt_aufnehmen(bekannt: &mut BTreeSet<String>, kennung: &str) {
+    if bekannt.contains(kennung) {
+        return;
+    }
+    if bekannt.len() >= MAX_BEKANNT {
+        bekannt.clear();
+    }
+    bekannt.insert(kennung.to_string());
+}
+
 /// Was in dieser Runde hinausgeht.
 struct Auftrag {
     /// Bild mitschicken, nicht nur seine Kennung (s. [`bild_vollstaendig`]).
@@ -243,18 +280,18 @@ struct Auftrag {
 fn buchen(form: &'static str, kennung: Option<&str>) -> Option<Auftrag> {
     let mut merker = sperre();
     merker.takte += 1;
+    merker.bild_takte += 1;
     if !meldung_faellig(merker.form, merker.bild.as_deref(), form, kennung, merker.takte) {
         return None;
     }
-    let vollstaendig = kennung.is_some_and(|k| bild_vollstaendig(&merker.bekannt, k, merker.takte));
+    let vollstaendig =
+        kennung.is_some_and(|k| bild_vollstaendig(&merker.bekannt, k, merker.bild_takte));
     merker.form = Some(form);
     merker.bild = kennung.map(str::to_string);
     merker.takte = 0;
     if let Some(k) = kennung.filter(|_| vollstaendig) {
-        if merker.bekannt.len() >= MAX_BEKANNT {
-            merker.bekannt.clear();
-        }
-        merker.bekannt.insert(k.to_string());
+        merker.bild_takte = 0;
+        bekannt_aufnehmen(&mut merker.bekannt, k);
     }
     Some(Auftrag { vollstaendig })
 }
@@ -391,6 +428,65 @@ mod tests {
         let mut bekannt = BTreeSet::new();
         bekannt.insert("aaa".to_string());
         assert!(bild_vollstaendig(&bekannt, "aaa", WIEDERHOLUNG_TAKTE));
+    }
+
+    /// **Ein schnell wechselnder Zeiger darf die Auffrischung nicht aushebeln.**
+    ///
+    /// Der Zähler für das vollständige Bild ist getrennt vom Zähler für „es
+    /// ging überhaupt etwas hinaus" (s. [`Merker::bild_takte`]). Lägen beide
+    /// zusammen, käme bei einem Zeiger, der öfter als einmal je Sekunde
+    /// wechselt, nie eine Auffrischung zustande — und genau so verhält sich ein
+    /// Zeiger beim Fahren über eine Timeline. Der Test hält die Bedingung fest,
+    /// die das trägt: die Fälligkeit des Bildes misst sich an SEINEM Zähler.
+    #[test]
+    fn haeufige_wechsel_heben_die_auffrischung_nicht_auf() {
+        let mut bekannt = BTreeSet::new();
+        bekannt.insert("aaa".to_string());
+        // Zwischendurch ging etwas hinaus (Formwechsel), das Bild aber schon
+        // lange nicht mehr: die Auffrischung ist trotzdem fällig.
+        assert!(bild_vollstaendig(&bekannt, "aaa", WIEDERHOLUNG_TAKTE + 3));
+        // Und umgekehrt: kurz nach einem vollständigen Bild genügt die Kennung.
+        assert!(!bild_vollstaendig(&bekannt, "aaa", 1));
+    }
+
+    /// **Eine blosse Auffrischung darf die Liste der bekannten Bilder nicht
+    /// leeren.**
+    ///
+    /// Sie gilt als „vollständig", obwohl die Kennung längst drinsteht — ohne
+    /// die Neuheitsprüfung liefe damit der Überlauf-Zweig mit und würfe die
+    /// ganze Liste weg. Die Gegenseite tut das nicht mit (sie leert nur beim
+    /// EINFÜGEN, und beim Auffrischen schlägt sie bloss nach), also laufen die
+    /// beiden Vorräte auseinander, ohne dass eine Nachricht verlorengeht.
+    #[test]
+    fn eine_auffrischung_leert_die_bekannten_nicht() {
+        let mut bekannt: BTreeSet<String> =
+            (0..MAX_BEKANNT).map(|i| format!("{i:04}")).collect();
+        let vorher = bekannt.clone();
+        // Eine Kennung, die schon drinsteht — genau der Fall der Auffrischung.
+        bekannt_aufnehmen(&mut bekannt, "0007");
+        assert_eq!(bekannt, vorher, "eine bekannte Kennung lässt die Liste unberührt");
+    }
+
+    /// Eine **neue** Kennung leert die volle Liste sehr wohl — das ist der
+    /// gewollte Überlauf. Ohne diesen Test sähe die Prüfung darüber aus, als
+    /// hätte sie den Deckel ganz abgeschafft.
+    #[test]
+    fn eine_neue_kennung_laesst_die_volle_liste_ueberlaufen() {
+        let mut bekannt: BTreeSet<String> =
+            (0..MAX_BEKANNT).map(|i| format!("{i:04}")).collect();
+        bekannt_aufnehmen(&mut bekannt, "neu");
+        assert_eq!(bekannt.len(), 1, "geleert und die neue aufgenommen");
+        assert!(bekannt.contains("neu"));
+    }
+
+    /// Unterhalb des Deckels wird schlicht ergänzt.
+    #[test]
+    fn unter_dem_deckel_wird_ergaenzt() {
+        let mut bekannt = BTreeSet::new();
+        bekannt_aufnehmen(&mut bekannt, "a");
+        bekannt_aufnehmen(&mut bekannt, "b");
+        bekannt_aufnehmen(&mut bekannt, "a");
+        assert_eq!(bekannt.len(), 2);
     }
 
     /// Die erste Form einer Sitzung geht in jedem Fall hinaus — auch wenn es

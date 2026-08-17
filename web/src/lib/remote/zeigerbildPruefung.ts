@@ -81,13 +81,30 @@ function istZahl(wert: unknown): wert is number {
  * wo die Grenzen ohnehin stehen — eine vierte Stelle, die dieselben Zahlen
  * kennt, liefe nur auseinander.
  */
-export function istBild(wert: unknown): wert is Zeigerbild {
-  if (!wert || typeof wert !== 'object') return false;
+export function pruefeBild(wert: unknown): Zeigerbild | undefined {
+  if (!wert || typeof wert !== 'object') return undefined;
   const b = wert as Record<string, unknown>;
-  if (typeof b.id !== 'string' || !b.id || b.id.length > MAX_KENNUNG_ZEICHEN) return false;
+  if (typeof b.id !== 'string' || !b.id || b.id.length > MAX_KENNUNG_ZEICHEN) return undefined;
   // Kurzform: der Host hält das Bild für bekannt, der Player greift in seinen
   // Vorrat. Masse brauchte er dafür nicht, also werden sie auch nicht verlangt.
-  if (b.daten === undefined) return true;
-  if (typeof b.daten !== 'string' || b.daten.length > MAX_DATEN_ZEICHEN) return false;
-  return istZahl(b.w) && istZahl(b.h) && istZahl(b.hx) && istZahl(b.hy);
+  //
+  // **Weitergegeben wird trotzdem nur die Kennung, nicht das Fremdobjekt.**
+  // Sonst reisen Felder mit, die niemand geprüft hat — und ein `w: -1` oder
+  // `hx: "a"` lässt drüben nicht etwa das Bild scheitern, sondern das Lesen
+  // der GANZEN Nachricht (`proto.rs` liest `w` als `u16`, bevor irgendein Code
+  // sie ansieht). Damit ginge ausgerechnet der Name verloren, der für genau
+  // diesen Fall als Rückfall mitgeschickt wird.
+  if (b.daten === undefined) return { id: b.id };
+  if (typeof b.daten !== 'string' || b.daten.length > MAX_DATEN_ZEICHEN) return undefined;
+  if (!istZahl(b.w) || !istZahl(b.h) || !istZahl(b.hx) || !istZahl(b.hy)) return undefined;
+  return { id: b.id, w: b.w, h: b.h, hx: b.hx, hy: b.hy, daten: b.daten };
+}
+
+/**
+ * Nur die Frage „ist das eines?" — für Stellen, die das Ergebnis nicht
+ * brauchen. Der Weg über [`pruefeBild`] ist der Regelfall: er gibt ein Bild
+ * zurück, das **nur** geprüfte Felder trägt.
+ */
+export function istBild(wert: unknown): wert is Zeigerbild {
+  return pruefeBild(wert) !== undefined;
 }

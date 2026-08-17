@@ -52,7 +52,7 @@
 
 import type { RemoteSignalKind } from '$lib/ws/handlers/types';
 import { aufSidecarEreignisse } from './sidecarInput';
-import { istBild, type Zeigerbild } from './zeigerbildPruefung';
+import { pruefeBild, type Zeigerbild } from './zeigerbildPruefung';
 
 export type { Zeigerbild };
 
@@ -121,6 +121,17 @@ class RemoteZeigerform {
   #bild: Zeigerbild | undefined;
   /** Wann der Host zuletzt gesendet hat (`Date.now()`), 0 = noch nie. */
   #gesendetMs = 0;
+  /**
+   * Wann zuletzt ein **vollständiges** Bild hinausging (`Date.now()`).
+   *
+   * **Getrennt von [`#gesendetMs`], und aus demselben Grund wie `bild_takte`
+   * im Sidecar:** ein gemeinsamer Zähler fällt bei jeder Meldung, und dann
+   * frischt bei einem Zeiger, der öfter als der Auffrischtakt wechselt,
+   * überhaupt nichts mehr auf — also gerade dort nicht, wo die Heilung
+   * gebraucht wird (beim Fahren über eine Timeline wechselt der Zeiger
+   * mehrmals je Sekunde).
+   */
+  #vollstaendigMs = 0;
 
   /** Mit dem Übergang der Sitzung nach 'active' rufen — wie `remoteP2P.start`. */
   start(rolle: 'controller' | 'host', sendSignal: SignalSender): void {
@@ -148,6 +159,7 @@ class RemoteZeigerform {
     this.#bildId = '';
     this.#bild = undefined;
     this.#gesendetMs = 0;
+    this.#vollstaendigMs = 0;
   }
 
   /**
@@ -178,7 +190,7 @@ class RemoteZeigerform {
     // Form soll nicht die letzte gültige stehen lassen. Für das Bild gilt
     // dasselbe: was die Prüfung nicht besteht, gibt es hier nicht.
     const gueltig = istForm(form) ? form : VORGABE;
-    const gueltigesBild = istBild(bild) ? bild : undefined;
+    const gueltigesBild = pruefeBild(bild);
     const kennung = gueltigesBild?.id ?? '';
     // **Eine Wiederholung MIT Daten geht trotzdem durch.** Sie ist die
     // Auffrischung des Hosts, und sie ist der einzige Weg, auf dem sich ein
@@ -208,7 +220,7 @@ class RemoteZeigerform {
     // trotzdem, damit eine ältere oder neuere Sidecar-Fassung nichts über die
     // Leitung schiebt, das die Gegenseite nicht deuten kann.
     const form = istForm(m.shape) ? m.shape : VORGABE;
-    const bild = istBild(m.bild) ? m.bild : undefined;
+    const bild = pruefeBild(m.bild);
     const kennung = bild?.id ?? '';
     const jetzt = Date.now();
     // Der Zeiger ist maschinenweit einer, aber bei mehreren Streams meldet ihn
@@ -218,10 +230,19 @@ class RemoteZeigerform {
     // Wechsel misst sich an Form UND Bildkennung: zwei Werkzeugzeiger desselben
     // Programms tragen beide den Namen `default`.
     const gleich = form === this.#form && kennung === this.#bildId;
-    if (gleich && jetzt - this.#gesendetMs < AUFFRISCH_MS) return;
+    // Ein vollständiges Bild geht auch dann durch, wenn sich sonst nichts
+    // geändert hat: es ist die Auffrischung des Sidecars, und die ist der eine
+    // Weg, auf dem ein drüben fehlendes Bild wieder ankommt. Die Sperre gilt
+    // dabei getrennt (s. [`#vollstaendigMs`]) — sonst schluckte ein schnell
+    // wechselnder Zeiger jede Auffrischung, weil die gemeinsame Sperre nie
+    // abläuft.
+    const istAuffrischung = Boolean(bild?.daten);
+    const sperreMs = istAuffrischung ? this.#vollstaendigMs : this.#gesendetMs;
+    if (gleich && jetzt - sperreMs < AUFFRISCH_MS) return;
     this.#form = form;
     this.#bildId = kennung;
     this.#gesendetMs = jetzt;
+    if (istAuffrischung) this.#vollstaendigMs = jetzt;
     // Geht die Meldung nicht hinaus (Verbindungs-Blip), wird sie hier NICHT
     // wiederholt: der Sidecar meldet je Sekunde erneut, und die nächste
     // Auffrischung holt es nach. Eine falsche Zeigerform ist zudem der

@@ -23,7 +23,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
-import { istBild } from '../src/lib/remote/zeigerbildPruefung.ts';
+import { istBild, pruefeBild } from '../src/lib/remote/zeigerbildPruefung.ts';
 
 type Form = { _was: string; bild: unknown };
 
@@ -91,12 +91,41 @@ describe('istBild ist fail-closed', () => {
   });
 
   /**
-   * Masse OHNE Daten sind erlaubt: der Sender schickt sie so nicht, aber sie
-   * sind harmlos — der Player greift dann über die Kennung in seinen Vorrat und
-   * sieht die Zahlen gar nicht an. Hier abzuweisen hiesse, eine künftige
-   * Erweiterung des Senders zu brechen, ohne dafür etwas zu gewinnen.
+   * **Die Kurzform gibt NUR die Kennung weiter, nie das Fremdobjekt.**
+   *
+   * Hier stand vorher, Masse ohne Daten seien harmlos, „weil der Player sie
+   * gar nicht ansieht". Das war falsch, und zwar auf die gefährliche Art: der
+   * Player *muss* sie nicht ansehen — `proto.rs` liest `w` als `u16`, bevor
+   * irgendein Code sie anfasst. Ein `w: -1` oder `hx: "a"` lässt damit nicht
+   * das Bild scheitern, sondern das Lesen der GANZEN Nachricht, und mit ihr
+   * geht ausgerechnet der Name verloren, der für genau diesen Fall als
+   * Rückfall mitkommt. Weitergegeben wird deshalb eine geprüfte Kopie.
    */
-  it('lässt Masse ohne Daten durch — harmlos, der Player sieht sie nicht an', () => {
-    assert.equal(istBild({ id: 'abc', w: 2, h: 2, hx: 0, hy: 0 }), true);
+  it('gibt aus der Kurzform nur die Kennung weiter', () => {
+    for (const gift of [
+      { id: 'abc', w: -1 },
+      { id: 'abc', w: null },
+      { id: 'abc', h: 70000 },
+      { id: 'abc', hx: 'a' },
+      { id: 'abc', hy: { a: 1 } },
+      { id: 'abc', w: 1.5 },
+    ]) {
+      const geprueft = pruefeBild(gift);
+      assert.deepEqual(geprueft, { id: 'abc' }, JSON.stringify(gift));
+    }
+  });
+
+  /** Aus der Vollform kommen genau die geprüften Felder zurück, nichts sonst. */
+  it('gibt aus der Vollform nur geprüfte Felder weiter', () => {
+    const geprueft = pruefeBild({
+      id: 'abc',
+      w: 2,
+      h: 2,
+      hx: 1,
+      hy: 0,
+      daten: 'hAkJCf8=',
+      unbekannt: 'darf nicht mitreisen',
+    });
+    assert.deepEqual(geprueft, { id: 'abc', w: 2, h: 2, hx: 1, hy: 0, daten: 'hAkJCf8=' });
   });
 });

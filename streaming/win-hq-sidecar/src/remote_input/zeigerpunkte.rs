@@ -21,9 +21,18 @@ pub(super) fn maske_gesetzt(maske: &[u8], nr: usize) -> bool {
 /// Vorvervielfachtes Alpha zurückrechnen.
 ///
 /// GDI hält Farbzeiger vorvervielfacht (die Farbe ist bereits mit der Deckung
-/// verrechnet), winit verlangt ausdrücklich das Gegenteil. Ohne die Rückrechnung
-/// kämen alle halbdurchsichtigen Ränder zu dunkel heraus — ein Zeiger mit
-/// schmutzigem Saum, und niemand käme auf die Ursache.
+/// verrechnet), winit verlangt ausdrücklich das Gegenteil („The alpha channel
+/// is assumed to be **not** premultiplied"). Ohne die Rückrechnung kämen alle
+/// halbdurchsichtigen Ränder zu dunkel heraus — ein Zeiger mit schmutzigem
+/// Saum, und niemand käme auf die Ursache.
+///
+/// **Umgekehrt hält winit seine eigene Zusage nur auf Wayland ein**: der
+/// Windows- und der X11-Weg reichen die Bytes ungerechnet weiter, obwohl GDI
+/// bzw. XRender vorvervielfacht erwarten (winit 0.30.13, geprüft 2026-08-17).
+/// Ein Steuernder auf Windows oder X11 sieht deshalb an halbdurchsichtigen
+/// Zeigerrändern einen etwas zu hellen Saum. Das ist kein Fehler dieser
+/// Rechnung und keiner des Packverfahrens — hier vermerkt, damit es später
+/// niemand dafür hält und an der falschen Stelle sucht.
 pub(super) fn entvielfachen(farbe: u8, deckung: u8) -> u8 {
     if deckung == 0 {
         return 0;
