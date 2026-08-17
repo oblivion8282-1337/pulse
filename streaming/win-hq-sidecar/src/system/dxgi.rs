@@ -76,10 +76,8 @@ impl Adapter {
     pub fn supported_video_codecs(&self) -> Vec<String> {
         super::codec_probe::supported_video_codecs(self)
     }
-}
 
-/// Beschreibung dieser Karte für die Auswahlregel (`system::gpu_wahl`).
-impl Adapter {
+    /// Beschreibung dieser Karte für die Auswahlregel (`system::gpu_wahl`).
     pub fn karte(&self) -> super::gpu_wahl::Karte {
         super::gpu_wahl::Karte {
             beschreibung: self.description.clone(),
@@ -131,6 +129,29 @@ pub fn sortiert_nach_leistung() -> bool {
     factory.cast::<IDXGIFactory6>().is_ok()
 }
 
+/// Der Adapter, den ein Start **ohne Einstellung** bekäme.
+///
+/// Klammert die drei Schritte zusammen, die `health` und `gpu_info` sonst je
+/// für sich ausschreiben: Karten beschreiben, `system::gpu_wahl` befragen, die
+/// Antwort wieder auf den Adapter zurückführen. Zwei Abschriften derselben
+/// Kette wären zwei Stellen, an denen „welche Karte melden wir" auseinander
+/// laufen kann — und beide melden dem Renderer Hersteller und Codec-Angebot,
+/// also genau das, woran er die Auswahl seiner Codecs aufhängt.
+///
+/// `traegt_schnellen_weg` kommt vom Aufrufer
+/// (`encode::vendor_traegt_zero_copy`), damit dieses Modul FFmpeg-frei bleibt —
+/// dieselbe Überlegung wie in `system::gpu_wahl`.
+pub fn vorgabe_adapter(
+    adapters: &[Adapter],
+    traegt_schnellen_weg: impl Fn(&str) -> bool,
+) -> Option<&Adapter> {
+    let karten: Vec<_> = adapters.iter().map(Adapter::karte).collect();
+    let wahl = super::gpu_wahl::vorgabe(&karten, traegt_schnellen_weg, sortiert_nach_leistung())?;
+    adapters
+        .iter()
+        .find(|a| a.vendor_id == wahl.vendor_id && a.device_id == wahl.device_id)
+}
+
 /// Ein **D3D11-Gerät auf einer bestimmten Karte**.
 ///
 /// Das ist der Hebel, um den es in `system::gpu_wahl` geht: `windows-capture`
@@ -162,10 +183,12 @@ pub fn geraet_auf_karte(
         D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice,
     };
 
-    let treffer = enumerieren(|adapter, desc| {
+    let adapter = enumerieren(|adapter, desc| {
         (desc.VendorId == vendor_id && desc.DeviceId == device_id).then(|| adapter.clone())
-    })?;
-    let adapter = treffer.into_iter().next().ok_or_else(|| {
+    })?
+    .into_iter()
+    .next()
+    .ok_or_else(|| {
         anyhow::anyhow!("keine GPU mit vendor_id=0x{vendor_id:04X} device_id=0x{device_id:04X}")
     })?;
 
@@ -275,9 +298,3 @@ fn utf16_to_string(buf: &[u16]) -> String {
     let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
     String::from_utf16_lossy(&buf[..len])
 }
-
-/// Sentinel — wenn `HMODULE` unbenutzt-wegoptimiert würde, hier referenzieren.
-/// (Im aktuellen Code nicht nötig, aber das `Win32_Foundation`-Feature würde
-/// sonst als unused warning kommen.)
-#[allow(dead_code)]
-const _USE_HMODULE: Option<HMODULE> = None;

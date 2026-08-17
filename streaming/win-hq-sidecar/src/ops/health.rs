@@ -29,17 +29,7 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
     // nicht mehr zwangsläufig die, auf der encodiert wird (`system::gpu_wahl`).
     // Hersteller und Codec-Angebot von der falschen Karte zu melden hieße, dem
     // Renderer Codecs anzubieten, die der Encoder gar nicht kann.
-    let karten: Vec<_> = adapters.iter().map(dxgi::Adapter::karte).collect();
-    let vorgabe = crate::system::gpu_wahl::vorgabe(
-        &karten,
-        crate::encode::vendor_traegt_zero_copy,
-        dxgi::sortiert_nach_leistung(),
-    );
-    let primary = vorgabe.and_then(|k| {
-        adapters
-            .iter()
-            .find(|a| a.vendor_id == k.vendor_id && a.device_id == k.device_id)
-    });
+    let primary = dxgi::vorgabe_adapter(&adapters, crate::encode::vendor_traegt_zero_copy);
 
     let (available, source, vendor, video_codecs, path) = match primary {
         Some(a) => (

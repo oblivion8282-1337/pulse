@@ -2,9 +2,10 @@
 //!
 //! Linux-Form: `{ok, vendor, card_path, display_server, video_codecs}` für
 //! **eine** GPU (die GSR aktiv nutzt). Auf Windows machen wir's sprechender:
-//! `vendor` + `video_codecs` zeigen den HIGH_PERFORMANCE-Adapter (= das was die
-//! Encode-Pipeline tatsächlich verwenden wird), `adapters` listet zusätzlich
-//! alle Hardware-Adapter (für Diagnose-Page / Stats-Overlay).
+//! `vendor` + `video_codecs` zeigen die Karte, die ein Start ohne Einstellung
+//! bekäme (`system::gpu_wahl`, seit 2026-08-17 nicht mehr schlicht der
+//! HIGH_PERFORMANCE-Adapter), `adapters` listet zusätzlich alle
+//! Hardware-Adapter (für Diagnose-Page / Stats-Overlay).
 //!
 //! `card_path` gibt's auf Windows nicht — Linux meint damit `/dev/dri/cardN`.
 //! Wir setzen das Feld auf null (Renderer toleriert das).
@@ -25,18 +26,8 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
     // `video_codecs` gehören deshalb an die Karte, die die Automatik nähme.
     // `adapters` darunter listet weiterhin ALLE — daraus baut die Oberfläche
     // ihre Auswahl.
-    let karten: Vec<_> = adapters.iter().map(dxgi::Adapter::karte).collect();
-    let primary = crate::system::gpu_wahl::vorgabe(
-        &karten,
-        crate::encode::vendor_traegt_zero_copy,
-        dxgi::sortiert_nach_leistung(),
-    )
-    .and_then(|k| {
-        adapters
-            .iter()
-            .find(|a| a.vendor_id == k.vendor_id && a.device_id == k.device_id)
-    })
-    .unwrap_or(&adapters[0]);
+    let primary = dxgi::vorgabe_adapter(&adapters, crate::encode::vendor_traegt_zero_copy)
+        .unwrap_or(&adapters[0]);
 
     let adapter_list: Vec<Value> = adapters
         .iter()

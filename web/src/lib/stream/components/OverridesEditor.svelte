@@ -23,6 +23,7 @@
     persistSettings,
   } from '../settings.svelte';
   import { stream } from '../state.svelte';
+  import type { GsrAdapter } from '../gsr';
   import { sourceSize, resolutionOptions } from '../resolution';
   import { effectiveHqLimits } from '../guildLimits';
   import { capabilities } from '$lib/stores/capabilities.svelte';
@@ -201,19 +202,22 @@
   // es nichts zu wählen, und ein Dropdown mit einem einzigen Eintrag ist eine
   // Frage ohne Antwortmöglichkeit. Linux/macOS melden `adapters` gar nicht.
   let gpuAdapters = $derived(streamSettings.gpu_info?.adapters ?? []);
+  // Der Speicher steht dabei, weil zwei Karten desselben Herstellers sonst nur
+  // am Modellnamen auseinanderzuhalten sind. Fehlt er (ältere Sidecars melden
+  // ihn nicht), bleibt der Name allein stehen — kein „0 MB", das nach einem
+  // Defekt aussähe.
+  function gpuBeschriftung(a: GsrAdapter): string {
+    if (!a.vram_mb) return a.description;
+    if (a.vram_mb >= 1024)
+      return m.overrides_editor_gpu_option_gb({
+        description: a.description,
+        gb: Math.round(a.vram_mb / 1024),
+      });
+    return m.overrides_editor_gpu_option_mb({ description: a.description, mb: a.vram_mb });
+  }
   let gpuOptions = $derived(
     gpuAdapters.length >= 2
-      ? gpuAdapters.map((a) => ({
-          value: a.id,
-          label: a.vram_mb
-            ? a.vram_mb >= 1024
-              ? m.overrides_editor_gpu_option_gb({
-                  description: a.description,
-                  gb: Math.round(a.vram_mb / 1024),
-                })
-              : m.overrides_editor_gpu_option_mb({ description: a.description, mb: a.vram_mb })
-            : a.description,
-        }))
+      ? gpuAdapters.map((a) => ({ value: a.id, label: gpuBeschriftung(a) }))
       : [],
   );
 

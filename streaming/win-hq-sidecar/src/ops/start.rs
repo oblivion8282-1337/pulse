@@ -319,17 +319,17 @@ fn parse_gpu(o: &Map<String, Value>) -> crate::system::gpu_wahl::Wunsch {
     if text.is_empty() || text.eq_ignore_ascii_case("auto") {
         return Wunsch::Automatisch;
     }
-    let Some((v, d)) = text.split_once(':') else {
-        eprintln!("[start] overrides.gpu unlesbar ({text:?}) — es wird automatisch gewählt");
-        return Wunsch::Automatisch;
-    };
-    match (u32::from_str_radix(v.trim(), 16), u32::from_str_radix(d.trim(), 16)) {
-        (Ok(vendor_id), Ok(device_id)) => Wunsch::Genau { vendor_id, device_id },
-        _ => {
+    text.split_once(':')
+        .and_then(|(v, d)| {
+            Some(Wunsch::Genau {
+                vendor_id: u32::from_str_radix(v.trim(), 16).ok()?,
+                device_id: u32::from_str_radix(d.trim(), 16).ok()?,
+            })
+        })
+        .unwrap_or_else(|| {
             eprintln!("[start] overrides.gpu unlesbar ({text:?}) — es wird automatisch gewählt");
             Wunsch::Automatisch
-        }
-    }
+        })
 }
 
 fn parse_overrides(params: &Map<String, Value>) -> Overrides {
