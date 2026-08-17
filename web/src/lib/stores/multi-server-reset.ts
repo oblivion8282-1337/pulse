@@ -16,8 +16,12 @@
  * Ausnahmen:
  *  - `readState.resetCacheOnly()` — der localStorage-Inhalt ist `userId`-keyed
  *    (`pulse.readState.<uid>`), nicht server-keyed. Beim Switch wollen wir die
- *    persistierten Read-Marks **nicht** wegwerfen; nur den In-Memory-Snapshot
- *    leeren, sodass der neue ready-Frame seeden kann.
+ *    persistierten Read-Marks **nicht** wegwerfen. Geleert wird deshalb nur
+ *    `latestByChannel` (die Sitzungsbeobachtung); die persistierten Karten
+ *    werden aus dem Speicher **neu eingelesen** statt auf `{}` gesetzt — sonst
+ *    schriebe der nächste `markRead` den kontoweiten Eintrag aus einer leeren
+ *    Karte heraus fort und löschte den Lesestand aller anderen Server
+ *    (Bughunt 2026-08-17).
  *  - `resetGuildPluginsCache()` — Map-Reset, nicht Store-Klasse.
  *
  * Reset-Methoden-Namen sind absichtlich nicht harmonisiert (`clear`

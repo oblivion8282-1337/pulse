@@ -43,6 +43,7 @@ import {
   canUseWindowAudioCapture
 } from './windowAudioCapture';
 import { installH264HwHint } from './h264HwHint';
+import { quelleZuruecknehmen, raumVerwerfen } from './abbruch';
 import { nameFor, userIdFromIdentity } from './identity';
 import { currentServerUserId } from '$lib/stores/currentServerUser';
 import { guilds } from '$lib/stores/guilds.svelte';
@@ -251,8 +252,19 @@ class VoiceRoom {
   /** Monotonic connect counter. Each `connect()` captures its value; an
    *  await that returns to find `#connectGen` moved on knows a newer
    *  connect (or a disconnect) superseded it and bails — without this a
-   *  fast double-click builds two `Room`s and orphans the first. */
+   *  fast double-click builds two `Room`s and orphans the first.
+   *  Hochgezaehlt wird an drei Stellen: `connect()` (neuer Aufbau),
+   *  `disconnect()` (ausdrueckliches Auflegen) und `#teardown()` (Abbau von
+   *  aussen, etwa Kick oder Netzverlust). Nur `connect()` hochzuzaehlen war
+   *  ein Loch: wer waehrend des Verbindens auflegte, wurde vom
+   *  zurueckkehrenden `connect()` wieder in den Kanal gesetzt — samt
+   *  Mikrofon-Veroeffentlichung auf einem bereits abgebauten Raum. */
   #connectGen = 0;
+  /** Der Zaehlerstand, den ein ausdrueckliches `disconnect()` entwertet hat.
+   *  Trennt „der Nutzer hat aufgelegt" von „die Verbindung ist gescheitert":
+   *  nur im ersten Fall schweigt `connect()`, im zweiten meldet es weiterhin
+   *  den Fehler. */
+  #abbruchGen = -1;
   /** Effective send-processor state. Drives applyNoiseFilter's swap decisions —
    *  re-evaluated against (noiseSuppression, inputMakeupGain≠1) on every call. */
   #sendProcessorMode: 'off' | SendProcessorMode = 'off';
@@ -411,9 +423,23 @@ class VoiceRoom {
     // cleared again in #teardown on leave.
     await setVoiceActive(true);
 
+    // Aufgelegt, waehrend der Ruf-Modus gesetzt wurde — gar nicht erst
+    // verbinden. Ohne diesen Wachposten baut der Handschlag den Raum noch
+    // vollstaendig auf, bevor der naechste Vergleich ihn wieder abraeumt.
+    if (gen !== this.#connectGen) {
+      await this.#abbruch(room);
+      return;
+    }
+
     try {
       await room.connect(resp.ws_url, resp.token);
     } catch (e) {
+      // Hat der Nutzer selbst aufgelegt, ist das Scheitern erwuenscht — dann
+      // keine Fehlermeldung. Ein echter Verbindungsfehler meldet weiter.
+      if (gen === this.#abbruchGen) {
+        await this.#abbruch(room);
+        return;
+      }
       this.error = e instanceof Error ? e.message : m.livekit_connection_failed();
       this.#teardown();
       throw e;
@@ -422,7 +448,7 @@ class VoiceRoom {
     // Superseded while the LiveKit handshake ran — tear down the room we just
     // built so it doesn't linger connected + mic-publishing as an orphan.
     if (gen !== this.#connectGen) {
-      await room.disconnect().catch(() => undefined);
+      await this.#abbruch(room);
       return;
     }
 
@@ -438,7 +464,7 @@ class VoiceRoom {
     // was awaiting. If so, the new connect already owns this.#room and the
     // shared state — bail without clobbering it.
     if (gen !== this.#connectGen) {
-      await room.disconnect().catch(() => undefined);
+      await this.#abbruch(room);
       return;
     }
 
@@ -466,7 +492,10 @@ class VoiceRoom {
 
     // Re-check again after devices.refresh() — same risk of a concurrent
     // connect that replaced this.#room during the await.
-    if (gen !== this.#connectGen) return;
+    if (gen !== this.#connectGen) {
+      await this.#abbruch(room);
+      return;
+    }
 
     // Eigentlicher Mic-Publish — `micEnabled` ist oben schon synchron gesetzt;
     // wir machen hier nur das LiveKit-API + applyNoiseFilter/#attachLocalAnalyser
@@ -474,11 +503,20 @@ class VoiceRoom {
     if (this.micEnabled) {
       try {
         await room.localParticipant.setMicrophoneEnabled(true, this.#audioCaptureDefaults());
-        if (gen !== this.#connectGen) return;
+        // Der teuerste Abbruchpunkt: hier existiert die Mikrofonspur bereits.
+        // Nur zurueckkehren wuerde sie offen zuruecklassen — #abbruch nimmt sie
+        // zurueck und stoppt sie, bevor der Raum getrennt wird.
+        if (gen !== this.#connectGen) {
+          await this.#abbruch(room);
+          return;
+        }
         await this.applyNoiseFilter();
         this.#attachLocalAnalyser();
       } catch (e) {
-        if (gen !== this.#connectGen) return;
+        if (gen !== this.#connectGen) {
+          await this.#abbruch(room);
+          return;
+        }
         this.micEnabled = false;
         this.error = e instanceof Error ? e.message : m.livekit_microphone_access_failed();
       }
@@ -487,7 +525,10 @@ class VoiceRoom {
     }
     // Re-check again after setMicEnabled() — same risk of a concurrent connect
     // that replaced this.#room during the await.
-    if (gen !== this.#connectGen) return;
+    if (gen !== this.#connectGen) {
+      await this.#abbruch(room);
+      return;
+    }
     // Restore deafen BEFORE publishing so peers see the right state immediately.
     // setDeafened auch mutet den Mic — daher nach dem (übersprungenen) Mic-On.
     if (opts.startDeafened) {
@@ -529,8 +570,28 @@ class VoiceRoom {
    * brief page refresh doesn't kill the host's party.
    */
   async disconnect(opts: { reason?: 'user' } = {}): Promise<void> {
+    // Zuerst einen laufenden `connect()` entwerten — noch VOR jedem `await`
+    // hier, sonst schluepft der Verbindungsaufbau zwischendurch an seinen
+    // Wachposten vorbei.
+    this.#abbruchGen = this.#connectGen;
+    this.#connectGen++;
     const room = this.#room;
-    if (!room) return;
+    if (!room) {
+      // Aufgelegt, bevor der Raum ueberhaupt stand (der Token-Abruf laeuft
+      // noch): der zurueckkehrende `connect()` bricht jetzt am Wachposten ab,
+      // raeumt aber die schon gesetzte Oberflaeche nicht mehr auf — das tun
+      // wir hier. Ohne diesen Zweig blieb der Knopf auf „Verbinden" stehen.
+      if (this.state === ConnectionState.Connecting && this.channelId !== null) {
+        if (opts.reason === 'user') clearVoiceResume();
+        this.state = ConnectionState.Disconnected;
+        this.channelId = null;
+        this.channelName = null;
+        this.error = null;
+        voiceState.channelId = null;
+        voiceState.connected = false;
+      }
+      return;
+    }
     sounds.play('voice.self_leave', this.#soundCtx);
     // Verlassen wir den Voice-Channel, muss ein laufender HQ-Stream mit weg —
     // er ist an genau diesen Channel gebunden. Sonst pusht der Sidecar weiter
@@ -561,6 +622,19 @@ class VoiceRoom {
     }
   }
 
+  /** Bricht einen `connect()` ab, den ein Auflegen oder ein neuerer Aufbau
+   *  entwertet hat: Geraete-Spuren zurueck, dann den Raum trennen (Begruendung
+   *  der Reihenfolge in `abbruch.ts`). Hat kein neuerer `connect()` uebernommen
+   *  (`channelId` leer), geben wir zusaetzlich den Android-Rufmodus frei — der
+   *  wurde vor `room.connect()` gesetzt und `#teardown` kann ihn nicht
+   *  zuverlaessig zurueckstellen, wenn er gerade erst gesetzt wird. */
+  async #abbruch(room: Room): Promise<void> {
+    // Sicherung: niemals den lebenden Raum abraeumen.
+    if (this.#room === room) return;
+    await raumVerwerfen(room);
+    if (this.channelId === null) void setVoiceActive(false);
+  }
+
   async setMicEnabled(on: boolean): Promise<void> {
     const room = this.#room;
     if (!room) return;
@@ -571,6 +645,14 @@ class VoiceRoom {
     this.micEnabled = on;
     try {
       await room.localParticipant.setMicrophoneEnabled(on, this.#audioCaptureDefaults());
+      // Derselbe Bauplan wie beim Verbinden: waehrend des `await` kann der
+      // Nutzer aufgelegt haben. Dann ist dieser Raum nicht mehr der lebende,
+      // und die eben erzeugte Mikrofonspur bliebe offen — zuruecknehmen statt
+      // sie mit `micEnabled = true` in einem toten Raum stehen zu lassen.
+      if (this.#room !== room) {
+        if (on) await quelleZuruecknehmen(room, Track.Source.Microphone);
+        return;
+      }
       if (on) {
         await this.applyNoiseFilter();
         this.#attachLocalAnalyser();
@@ -583,6 +665,9 @@ class VoiceRoom {
         else this.#localMic.detach();
       }
     } catch (e) {
+      // Nach dem Auflegen gehoert der Zustand nicht mehr uns — weder der
+      // alte Mikrofonstand noch eine Fehlermeldung.
+      if (this.#room !== room) return;
       this.micEnabled = prevMic;
       this.error = e instanceof Error ? e.message : m.livekit_microphone_access_failed();
     }
@@ -766,6 +851,13 @@ class VoiceRoom {
           const v = stream.getVideoTracks()[0];
           if (v) v.contentHint = s.contentHint;
           await this.#publishBypassStream(room.localParticipant, stream, publishOptions);
+          // Aufgelegt, waehrend die Auswahl offen war: der Raum ist weg, die
+          // Aufnahme laeuft. Zuruecknehmen, sonst zeigt das System weiter
+          // „Sie teilen Ihren Bildschirm".
+          if (this.#room !== room) {
+            await this.#unpublishBypass(room.localParticipant);
+            return;
+          }
           this.isScreenSharing = true;
         } else {
           const captureOptions: ScreenShareCaptureOptions = {
@@ -778,6 +870,13 @@ class VoiceRoom {
             captureOptions,
             publishOptions
           );
+          // Gleiche Lage wie im Bypass-Zweig: aufgelegt, waehrend die Auswahl
+          // offen war.
+          if (this.#room !== room) {
+            await quelleZuruecknehmen(room, Track.Source.ScreenShare);
+            await quelleZuruecknehmen(room, Track.Source.ScreenShareAudio);
+            return;
+          }
           this.isScreenSharing = true;
         }
       } else {
@@ -851,6 +950,13 @@ class VoiceRoom {
           resolution: this.#camCaptureResolution(),
           facingMode: this.cameraFacing
         });
+        // Aufgelegt waehrend des `await`: die Kamera laeuft bereits, der Raum
+        // ist aber schon abgebaut — Spur zuruecknehmen, sonst bleibt die
+        // Kamera-Anzeige des Geraets an.
+        if (this.#room !== room) {
+          await quelleZuruecknehmen(room, Track.Source.Camera);
+          return;
+        }
         this.isCameraOn = true;
       } else {
         // Turn the cam OFF by *unpublishing*, not just muting. LiveKit's
@@ -1060,16 +1166,21 @@ class VoiceRoom {
       return;
     }
     try {
+      // Neben dem eigenen Zaehler auch gegen den Raum pruefen: waehrend des
+      // `await` kann aufgelegt worden sein. `#teardown` hat die Handles dann
+      // schon fallen gelassen — schriebe man sie hier wieder hin, hielte
+      // `#sendProcessorMode` beim naechsten Beitritt einen Prozessor fuer
+      // installiert, den es nicht mehr gibt (Rauschunterdrueckung still aus).
       if (target === 'off') {
         await audioTrack.stopProcessor();
-        if (gen !== this.#filterGen) return;
+        if (gen !== this.#filterGen || this.#room !== room) return;
         this.#noiseGateSetter = null;
         this.#makeupSetter = null;
         this.#resetSendLevel();
       } else {
         const handle = createSendProcessor(target, settings.audio.noiseGateThresholdDb, gain);
         await audioTrack.setProcessor(handle.processor);
-        if (gen !== this.#filterGen) return;
+        if (gen !== this.#filterGen || this.#room !== room) return;
         this.#noiseGateSetter = handle.setGateThreshold;
         this.#makeupSetter = handle.setMakeupGain;
         handle.setLevelTap(this.#onSendLevel);
@@ -1078,7 +1189,9 @@ class VoiceRoom {
       // Processor swap replaces the published mediaStreamTrack — rebind raw meter.
       this.#attachLocalAnalyser();
     } catch (e) {
-      if (gen !== this.#filterGen) return;
+      // Nach dem Auflegen keine Meldung mehr — der Fehler betrifft einen
+      // Raum, den es nicht mehr gibt.
+      if (gen !== this.#filterGen || this.#room !== room) return;
       this.#clearProcessorHandles();
       this.#resetSendLevel();
       toast.error(m.livekit_audio_path_update_failed(), {
@@ -1589,6 +1702,10 @@ class VoiceRoom {
   #teardown(): void {
     if (this.#teardownDone) return;
     this.#teardownDone = true;
+    // Auch ein Abbau von aussen (Kick, Netzverlust, LiveKit meldet getrennt)
+    // entwertet einen laufenden `connect()` — sonst schriebe der beim
+    // Zurueckkehren den gerade abgeraeumten Zustand wieder hin.
+    this.#connectGen++;
     if (this.#refreshTimer !== null) {
       clearTimeout(this.#refreshTimer);
       this.#refreshTimer = null;

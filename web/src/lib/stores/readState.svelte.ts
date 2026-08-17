@@ -44,47 +44,37 @@ class ReadState {
   private persistMentionsTimer: ReturnType<typeof setTimeout> | null = null;
   private persistUnreadTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /** Liest eine der drei Karten aus dem Speicher. `null` heisst „da steht
+   *  nichts Brauchbares" — der Aufrufer behält dann seinen bisherigen Stand.
+   *  `null` ist bewusst von `{}` unterschieden: ein leeres Objekt wäre von
+   *  „wirklich nichts gelesen" nicht zu trennen. */
+  private ladeKarte<T>(key: string): Record<string, T> | null {
+    if (!key || typeof window === 'undefined') return null;
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') return parsed as Record<string, T>;
+    } catch {
+      // Corrupt localStorage — start fresh.
+    }
+    return null;
+  }
+
   hydrateForUser(userId: string): void {
     this.storageKey = `${STORAGE_PREFIX}${userId}`;
     this.mentionsKey = `${MENTIONS_PREFIX}${userId}`;
     this.unreadKey = `${UNREAD_PREFIX}${userId}`;
     if (typeof window === 'undefined') return;
-    try {
-      const raw = window.localStorage.getItem(this.storageKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === 'object') {
-          this.lastReadByChannel = parsed as Record<string, string>;
-        }
-      }
-    } catch {
-      // Corrupt localStorage — start fresh.
-    }
-    try {
-      const raw = window.localStorage.getItem(this.mentionsKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === 'object') {
-          this.mentionCountByChannel = parsed as Record<string, number>;
-        }
-      }
-    } catch {
-      // Corrupt → fresh counters; non-fatal.
-    }
-    try {
-      const raw = window.localStorage.getItem(this.unreadKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === 'object') {
-          this.unreadCountByChannel = parsed as Record<string, number>;
-        }
-      }
-    } catch {
-      // Corrupt → fresh counters; non-fatal.
-    }
+    this.lastReadByChannel = this.ladeKarte<string>(this.storageKey) ?? this.lastReadByChannel;
+    this.mentionCountByChannel =
+      this.ladeKarte<number>(this.mentionsKey) ?? this.mentionCountByChannel;
+    this.unreadCountByChannel =
+      this.ladeKarte<number>(this.unreadKey) ?? this.unreadCountByChannel;
   }
 
   clear(): void {
+    this.flushPending();
     this.storageKey = '';
     this.mentionsKey = '';
     this.unreadKey = '';
@@ -99,17 +89,49 @@ class ReadState {
    *
    * Im Gegensatz zu `clear()` bleibt der localStorage-Inhalt erhalten —
    * die Persistenz ist `pulse.readState.<userId>`-keyed, **nicht**
-   * server-keyed. Wir leeren nur den In-Memory-Snapshot, sodass der
+   * server-keyed. Wir leeren nur die Sitzungsbeobachtung, sodass der
    * neue Server-Connection-ready-Frame mit den eigenen Channels seeden
    * kann. `storageKey`/`mentionsKey` bleiben gesetzt, damit `markRead`
-   * weiterhin in den User-Key persistiert. Der nächste Hydrate beim
-   * Re-Login bzw. ein manueller `hydrateForUser(userId)` repopuliert.
+   * weiterhin in den User-Key persistiert.
+   *
+   * Bughunt 2026-08-17: dabei durfte der Speicher nicht aus einer LEEREN
+   * Karte heraus fortgeschrieben werden. Die Schlüssel hängen am Konto, nicht
+   * am Server — ein `markRead` nach dem Wechsel hätte den Lesestand aller
+   * Server (samt Direktnachrichten) auf die paar Kanäle des neuen Servers
+   * eingedampft, und ein noch laufender Schreib-Wecker hätte schlicht `{}`
+   * hineingeschrieben. Deshalb: ausstehende Schreibvorgänge zuerst ausführen,
+   * dann den persistierten Stand neu einlesen. In-Memory bleibt damit immer
+   * das vollständige Kontobild — derselbe Zustand wie nach einem Neuladen der
+   * Seite. Nur `latestByChannel` wird wirklich geleert; das ist der einzige
+   * Teil, der pro Sitzung neu beobachtet wird (und nie persistiert).
    */
   resetCacheOnly(): void {
-    this.lastReadByChannel = {};
+    this.flushPending();
     this.latestByChannel = {};
-    this.mentionCountByChannel = {};
-    this.unreadCountByChannel = {};
+    this.lastReadByChannel = this.ladeKarte<string>(this.storageKey) ?? {};
+    this.mentionCountByChannel = this.ladeKarte<number>(this.mentionsKey) ?? {};
+    this.unreadCountByChannel = this.ladeKarte<number>(this.unreadKey) ?? {};
+  }
+
+  /** Führt die drei entprellten Schreibvorgänge sofort aus und entschärft die
+   *  Wecker. Ohne das feuert ein Wecker nach einem Reset/Sign-out und schreibt
+   *  den bereits verworfenen Stand unter die weiterhin gültigen Schlüssel. */
+  flushPending(): void {
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = null;
+      this.write(this.storageKey, this.lastReadByChannel);
+    }
+    if (this.persistMentionsTimer) {
+      clearTimeout(this.persistMentionsTimer);
+      this.persistMentionsTimer = null;
+      this.write(this.mentionsKey, this.mentionCountByChannel);
+    }
+    if (this.persistUnreadTimer) {
+      clearTimeout(this.persistUnreadTimer);
+      this.persistUnreadTimer = null;
+      this.write(this.unreadKey, this.unreadCountByChannel);
+    }
   }
 
   /** Drop all read-state for a deleted channel so its keys don't linger in
@@ -220,17 +242,24 @@ class ReadState {
     return total;
   }
 
+  /** Einziger Schreibpunkt in den Speicher. Quota exceeded / abgeschaltet —
+   *  stillschweigend verwerfen; der In-Memory-Stand bleibt korrekt. */
+  private write(key: string, karte: Record<string, unknown>): void {
+    if (!key || typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(key, JSON.stringify(karte));
+    } catch {
+      // Quota exceeded / disabled — silently drop.
+    }
+  }
+
   private persist(): void {
     if (!this.storageKey || typeof window === 'undefined') return;
     // Debounce: cancel any pending timer and schedule a new flush.
     if (this.persistTimer) clearTimeout(this.persistTimer);
     this.persistTimer = setTimeout(() => {
-      try {
-        window.localStorage.setItem(this.storageKey, JSON.stringify(this.lastReadByChannel));
-      } catch {
-        // Quota exceeded / disabled — silently drop; in-memory state remains correct.
-      }
       this.persistTimer = null;
+      this.write(this.storageKey, this.lastReadByChannel);
     }, 200);
   }
 
@@ -239,12 +268,8 @@ class ReadState {
     // Debounce: cancel any pending timer and schedule a new flush.
     if (this.persistMentionsTimer) clearTimeout(this.persistMentionsTimer);
     this.persistMentionsTimer = setTimeout(() => {
-      try {
-        window.localStorage.setItem(this.mentionsKey, JSON.stringify(this.mentionCountByChannel));
-      } catch {
-        // Same forgiveness as `persist` — counter survives in memory.
-      }
       this.persistMentionsTimer = null;
+      this.write(this.mentionsKey, this.mentionCountByChannel);
     }, 200);
   }
 
@@ -252,12 +277,8 @@ class ReadState {
     if (!this.unreadKey || typeof window === 'undefined') return;
     if (this.persistUnreadTimer) clearTimeout(this.persistUnreadTimer);
     this.persistUnreadTimer = setTimeout(() => {
-      try {
-        window.localStorage.setItem(this.unreadKey, JSON.stringify(this.unreadCountByChannel));
-      } catch {
-        // Same forgiveness as the others — counter survives in memory.
-      }
       this.persistUnreadTimer = null;
+      this.write(this.unreadKey, this.unreadCountByChannel);
     }, 200);
   }
 }
