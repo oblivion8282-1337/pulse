@@ -6,11 +6,13 @@ Hard-delete (not anonymize). Owner-of-guild → guild gets nuked with it
 owner-transfer dance *before* the user reaches this endpoint).
 
 All DB work happens inside a single SQLAlchemy transaction so a half-
-purge can't leave dangling rows. Redis cleanup (voice presence + HQ
-stream-active keys) is best-effort and runs *after* the DB commit —
-the LiveKit webhook + media-svc poller would self-heal them anyway,
-this is just to make the user's UI snap to the right state without
-waiting for the next poll tick.
+purge can't leave dangling rows. Everything that is NOT a DB row —
+Redis presence keys, a still-connected LiveKit session, dropbox MinIO
+objects, the in-process device register — is best-effort and runs
+*after* the DB commit (see ``_PurgeResult``): a rollback must not leave
+someone evicted or a MinIO object gone while the rows still exist. Most
+of it self-heals eventually anyway; this just avoids waiting for the
+next poll/webhook tick.
 
 Importable for tests; the route in ``routes/internal.py`` is a thin
 auth-+-glue wrapper around ``purge_user``.
@@ -20,16 +22,20 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dcc_chat_gateway.device_meldungen import device_out
 from dcc_chat_gateway.models import (
     MENTION_TYPE_USER,
     Channel,
     CommunityInvite,
+    Device,
     DirectMessageChannel,
     FriendRequest,
     Friendship,
@@ -42,17 +48,48 @@ from dcc_chat_gateway.models import (
     MessageMention,
     MessageReaction,
     PermissionOverwrite,
+    Report,
     UserBlock,
     UserPreference,
     UserPrivacy,
     WebPushSubscription,
 )
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments
+from dcc_chat_gateway.routes.dropbox_admin import purge_guild_dropbox_objects
+from dcc_chat_gateway.user_purge_nachlauf import evict_voice_sessions, forget_devices
+from dcc_chat_gateway.voice_evict import voice_channels_for_guild
 
 if TYPE_CHECKING:
     from dcc_chat_gateway.pubsub import ConnectionManager
 
 log = logging.getLogger(__name__)
+
+# Endstatus für Meldungen, die der Purge selbst schliesst (Report.status
+# kennt nur "resolved"/"dismissed" als Endzustaende, s. routes/mod_queue.py).
+_REPORT_STATUS_OBSOLETE = "dismissed"
+_REPORT_NOTE_OBSOLETE = "Konto gelöscht"
+
+
+@dataclass
+class _PurgeResult:
+    """Sammelt, was ausserhalb der DB-Transaktion nachgezogen werden muss —
+    LiveKit-Eviction und Geraete-Register sind eigene Systeme, keine
+    DB-Zeilen, deshalb erst NACH dem Commit angefasst (s. Modul-Docstring)."""
+
+    #: Communitys, die komplett geloescht wurden (fuer den guild_deleted-Broadcast).
+    deleted_guild_ids: list[int] = field(default_factory=list)
+    #: Sprachkanaele geloeschter (eigener) Communitys — dort muss JEDER
+    #: Anwesende raus, nicht nur der Geloeschte (Ghost-Room, s. guilds.py::delete_guild).
+    owned_voice_channel_ids: list[int] = field(default_factory=list)
+    #: Communitys, in denen der Geloeschte Mitglied war, OHNE Eigentuemer zu
+    #: sein — dort bleibt der Kanal bestehen, nur der Geloeschte muss aus
+    #: einer eventuell laufenden LiveKit-Sitzung.
+    other_member_guild_ids: list[int] = field(default_factory=list)
+    #: Standplatz-Geraete des Nutzers, vor dem Loeschen erfasst (Kennung,
+    #: Community, Kanal, Aussenform) — fuers Register-Vergessen + die
+    #: device_changed-Meldung nach dem Commit.
+    removed_devices: list[tuple[int, int, int, dict]] = field(default_factory=list)
+
 
 # permission_overwrites.target_type sentinel for user-scoped rows
 # (role-scoped = 0). Mirrors the constants used by routes/permission_overwrites.
@@ -61,6 +98,11 @@ _OVERWRITE_TARGET_USER = 1
 
 async def _collect_owned_guild_ids(session: AsyncSession, user_id: int) -> list[int]:
     stmt = select(Guild.id).where(Guild.owner_id == user_id)
+    return list((await session.execute(stmt)).scalars())
+
+
+async def _collect_member_guild_ids(session: AsyncSession, user_id: int) -> list[int]:
+    stmt = select(GuildMember.guild_id).where(GuildMember.user_id == user_id)
     return list((await session.execute(stmt)).scalars())
 
 
@@ -76,12 +118,19 @@ async def _collect_dm_channel_ids(session: AsyncSession, user_id: int) -> list[i
 
 async def _hard_delete_guild_with_attachments(
     session: AsyncSession, guild_id: int
-) -> None:
+) -> list[int]:
     """``session.delete(guild)`` cascades channels/messages/members/etc.
     via the FK schema, but MinIO objects need an explicit sweep first
-    (see ``routes/guilds.py::delete_guild`` for the same pattern)."""
+    (see ``routes/guilds.py::delete_guild`` for the same pattern).
+
+    Returns the guild's voice-channel IDs — captured before the cascade
+    removes the ``channels`` rows — so the caller can evict every LiveKit
+    occupant from them AFTER the commit succeeds (mirrors
+    ``routes/guilds.py::delete_guild``; without this the room keeps
+    running for a channel that no longer exists)."""
     channel_ids_stmt = select(Channel.id).where(Channel.guild_id == guild_id)
     channel_ids = list((await session.execute(channel_ids_stmt)).scalars())
+    voice_channel_ids = await voice_channels_for_guild(session, guild_id)
     if channel_ids:
         att_ids_stmt = select(MessageAttachment.id).where(
             MessageAttachment.channel_id.in_(channel_ids),
@@ -93,6 +142,7 @@ async def _hard_delete_guild_with_attachments(
     guild = await session.get(Guild, guild_id)
     if guild is not None:
         await session.delete(guild)
+    return voice_channel_ids
 
 
 async def _delete_user_authored_messages(
@@ -100,13 +150,44 @@ async def _delete_user_authored_messages(
 ) -> None:
     """Hard-delete every message the user wrote (across all channels +
     DMs). FK CASCADE on ``message_id`` clears reactions / mentions /
-    attachments rows; MinIO objects need the helper sweep."""
+    attachments rows; MinIO objects need the helper sweep.
+
+    Runs the report cleanup first (needs the still-live message IDs)."""
     msg_ids_stmt = select(Message.id).where(Message.author_id == user_id)
     msg_ids = list((await session.execute(msg_ids_stmt)).scalars())
+    await _close_reports_for_deleted_user(session, user_id, msg_ids)
     if not msg_ids:
         return
     await hard_delete_attachments(session, message_ids=msg_ids)
     await session.execute(sa_delete(Message).where(Message.id.in_(msg_ids)))
+
+
+async def _close_reports_for_deleted_user(
+    session: AsyncSession, user_id: int, message_ids: Iterable[int]
+) -> None:
+    """Offene Meldungen schliessen, die auf den geloeschten Nutzer zeigen —
+    direkt (``target_user_id``) oder ueber eine seiner gleich mit-geloeschten
+    Nachrichten (``target_message_id``). ``Report`` traegt weder FK noch
+    CASCADE auf ``messages``/Nutzer (bewusst, s. Modell-Docstring), eine
+    offen bleibende Zeile faellt sonst aus jeder Warteschlange und laesst
+    sich nie mehr triagieren, aufloesen oder eskalieren."""
+    msg_ids = list(message_ids)
+    conditions = [Report.target_user_id == user_id]
+    if msg_ids:
+        conditions.append(Report.target_message_id.in_(msg_ids))
+    stmt = select(Report).where(
+        Report.status.in_(("new", "triaged")), or_(*conditions)
+    )
+    reports = (await session.execute(stmt)).scalars().all()
+    if not reports:
+        return
+    now = datetime.now(UTC)
+    for report in reports:
+        report.status = _REPORT_STATUS_OBSOLETE
+        report.resolved_at = now
+        report.resolution_note = _REPORT_NOTE_OBSOLETE
+        # Zeigt sonst auf eine Zeile, die gleich hart geloescht wird.
+        report.target_message_id = None
 
 
 async def _delete_dm_channels(
@@ -132,14 +213,34 @@ async def _delete_dm_channels(
     )
 
 
-async def _purge_db(session: AsyncSession, user_id: int) -> list[int]:
-    """Single-transaction DB sweep. Returns the list of owned-guild IDs
-    that got hard-deleted (caller fan-outs ``guild_deleted`` events)."""
+async def _purge_db(
+    session: AsyncSession, user_id: int, manager: ConnectionManager | None
+) -> _PurgeResult:
+    """Single-transaction DB sweep. Returns a :class:`_PurgeResult` with
+    everything the caller must still fan out AFTER the commit (guild_deleted
+    events, LiveKit eviction, device-register forgetting) — none of that is
+    a DB row, so none of it belongs inside this transaction."""
+    result = _PurgeResult()
+
+    # 0. Every guild the user is CURRENTLY a member of (owned or not),
+    # captured before anything below removes the membership rows or the
+    # guild itself. Needed so a possibly still-connected LiveKit session
+    # can be evicted after the commit — the owned half goes into
+    # ``owned_voice_channel_ids`` per-guild below, the rest is "member of
+    # a guild that keeps existing" and just needs the guild ID.
+    member_guild_ids = await _collect_member_guild_ids(session, user_id)
+
     # 1. Owned guilds → cascade-delete (must happen before membership
     # cleanup so the cascade can find this user's GuildMember row too).
     owned_guild_ids = await _collect_owned_guild_ids(session, user_id)
     for gid in owned_guild_ids:
-        await _hard_delete_guild_with_attachments(session, gid)
+        voice_channel_ids = await _hard_delete_guild_with_attachments(session, gid)
+        result.owned_voice_channel_ids.extend(voice_channel_ids)
+    result.deleted_guild_ids = owned_guild_ids
+    owned_set = set(owned_guild_ids)
+    result.other_member_guild_ids = [
+        gid for gid in member_guild_ids if gid not in owned_set
+    ]
 
     # 2. Memberships in non-owned guilds — composite-FK on member_roles
     # cascades the role assignments.
@@ -151,6 +252,34 @@ async def _purge_db(session: AsyncSession, user_id: int) -> list[int]:
     await session.execute(
         sa_delete(MemberRole).where(MemberRole.user_id == user_id)
     )
+
+    # 2c. Standplatz-Geraete des Nutzers. Ein Gerät in einer eigenen (schon
+    # per Kaskade verschwundenen) Community ist hier bereits weg — die
+    # Auswahl greift nur noch auf Geräte in fremden Communities. Aussenform
+    # + Standplatz VOR dem Löschen einsammeln (die Meldung nach dem Commit
+    # braucht beides, und die Zeile gibt es dann nicht mehr).
+    device_rows = (
+        await session.execute(
+            select(Device).where(Device.owner_user_id == user_id)
+        )
+    ).scalars().all()
+    if device_rows:
+        result.removed_devices = [
+            (device.id, device.guild_id, device.channel_id, device_out(device, manager).model_dump())
+            for device in device_rows
+        ]
+        # Erst die laufende Fernsteuerung beenden, dann die Zeile löschen —
+        # dieselbe Reihenfolge wie in ``remote_guard`` und
+        # ``ws_device_handlers``. Ohne diesen Schritt verschwinden Zeile und
+        # Registereintrag, waehrend die Sitzung weiterlaeuft: der Steuernde
+        # behielte ein Geraet, das es nicht mehr gibt, und dessen Besitzer es
+        # nicht mehr gibt.
+        if manager is not None:
+            for device in device_rows:
+                await manager.end_remote_sessions_for_device(device.id)
+        await session.execute(
+            sa_delete(Device).where(Device.owner_user_id == user_id)
+        )
 
     # 3. User-scoped channel overwrites.
     await session.execute(
@@ -178,13 +307,17 @@ async def _purge_db(session: AsyncSession, user_id: int) -> list[int]:
         )
     )
 
-    # 7. Ban records both ways — by self-delete the user no longer
-    # exists so historical bans against them are moot; bans they issued
-    # also drop (we don't keep a "banned by deleted user" tombstone).
+    # 7. Ban records AGAINST the user — by self-delete the user no longer
+    # exists so a historical ban against them is moot. Bans the user ISSUED
+    # against someone else stay: a moderation decision against a still-
+    # active third party must not silently lapse just because the
+    # moderator later deleted their own account (Bughunt 2026-08-17). The
+    # ``banned_by_id`` column has no FK to the (separate-service) users
+    # table, so leaving it pointing at a deleted account is the same
+    # tolerance every other unconstrained ``*_id`` column here already has
+    # (mentions, invites, …) — the row itself, and the ban, keep working.
     await session.execute(
-        sa_delete(GuildBan).where(
-            or_(GuildBan.user_id == user_id, GuildBan.banned_by_id == user_id)
-        )
+        sa_delete(GuildBan).where(GuildBan.user_id == user_id)
     )
 
     # 8. Web-Push subs.
@@ -246,7 +379,7 @@ async def _purge_db(session: AsyncSession, user_id: int) -> list[int]:
         sa_delete(UserPreference).where(UserPreference.user_id == user_id)
     )
 
-    return owned_guild_ids
+    return result
 
 
 async def _cleanup_redis(redis: Any, user_id: int) -> None:
@@ -296,11 +429,12 @@ async def purge_user(
     assert in tests.
     """
     try:
-        deleted_guild_ids = await _purge_db(session, user_id)
+        result = await _purge_db(session, user_id, manager)
         await session.commit()
     except Exception:
         await session.rollback()
         raise
+    deleted_guild_ids = result.deleted_guild_ids
     # Broadcast guild_deleted *after* commit so subscribers can't see
     # an inconsistent half-state if they round-trip back to the API.
     if manager is not None:
@@ -313,5 +447,22 @@ async def purge_user(
                 )
             except Exception:  # noqa: BLE001
                 log.warning("purge: guild_deleted publish failed", exc_info=True)
+    # MinIO objects of every hard-deleted owned guild's dropbox — same
+    # after-commit pattern as ``routes/guilds.py::delete_guild``: ON DELETE
+    # CASCADE already cleared the DB rows, MinIO never learns of that on
+    # its own.
+    for gid in deleted_guild_ids:
+        try:
+            await purge_guild_dropbox_objects(gid)
+        except Exception:  # noqa: BLE001
+            log.warning("purge: dropbox object purge failed for guild %s", gid, exc_info=True)
+    await evict_voice_sessions(
+        session,
+        redis,
+        user_id,
+        owned_voice_channel_ids=result.owned_voice_channel_ids,
+        other_member_guild_ids=result.other_member_guild_ids,
+    )
+    await forget_devices(manager, result.removed_devices)
     await _cleanup_redis(redis, user_id)
     return {"deleted_guild_ids": [str(g) for g in deleted_guild_ids]}
