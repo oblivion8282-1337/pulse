@@ -43,9 +43,11 @@ from dcc_chat_gateway.remote_guard import (
 from dcc_chat_gateway.role_hierarchy import assert_actor_outranks
 from dcc_chat_gateway.schemas import BanIn, BanOut
 from dcc_chat_gateway.security import CurrentUser
+from dcc_chat_gateway.stream_evict import end_active_streams_for_member
 from dcc_chat_gateway.stream_revoke import revoke_read_tokens_for_viewer
 from dcc_chat_gateway.system_dm import send_moderation_dm
 from dcc_chat_gateway.voice_evict import evict_user_from_guild_voice
+from dcc_chat_gateway.watch_evict import end_watch_parties_for_member
 
 router = APIRouter()
 
@@ -301,6 +303,26 @@ async def ban_user(
             guild_id,
             user_id,
             grund="membership_revoked",
+        )
+        # Und die eigene laufende Bildschirmuebertragung des Gebannten: ohne das
+        # sendet der Sidecar auf seinem Rechner unveraendert weiter, und der
+        # media-svc-Poller haelt den Kanal auf "live" (s. `stream_evict`).
+        await end_active_streams_for_member(
+            getattr(request.app.state, "redis", None),
+            session,
+            guild_id,
+            user_id,
+            grund="membership_revoked",
+        )
+        # Und eine laufende Watch-Party, die der Gebannte gerade hostet: die
+        # Kontroll-Ops pruefen nur noch den gespeicherten Host, nie die
+        # Mitgliedschaft (s. `watch_evict`).
+        await end_watch_parties_for_member(
+            session,
+            getattr(request.app.state, "redis", None),
+            getattr(request.app.state, "connection_manager", None),
+            guild_id,
+            user_id,
         )
         await _publish_member_removed(request, guild_id, user_id)
         # Tell the banned user directly (with the reason) — otherwise the

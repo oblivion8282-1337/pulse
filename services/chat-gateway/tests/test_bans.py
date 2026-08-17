@@ -15,6 +15,7 @@ from __future__ import annotations
 import random
 
 import pytest
+from dcc_chat_gateway import watchkeys
 
 
 def auth(token: str) -> dict[str, str]:
@@ -533,3 +534,92 @@ async def test_ban_zieht_lese_token_des_streams_zurueck(client, app, _auth_signe
         assert await redis.get("stream:token:token-b") is not None
     finally:
         await redis.delete(cache, fremd, "stream:token:token-a", "stream:token:token-b")
+
+
+@pytest.mark.asyncio
+async def test_ban_beendet_eigene_hq_uebertragung(client, app, _auth_signer):
+    """Bughunt 2026-08-17 (``streaming.md``): ``stream_revoke`` sperrte bisher
+    nur die LESE-Seite — der Gebannte sendete unveraendert weiter in die
+    Community, aus der er gerade entfernt wurde. Der Bann muss einen
+    ``stream:stopping``-Grabstein setzen (den der Poller als "beendet"
+    versteht) und den ``stream:active``-Datensatz raeumen."""
+    s = await _setup(client, _auth_signer)
+    gid = s["g"]["id"]
+    kanal = (
+        await client.post(
+            f"/guilds/{gid}/channels",
+            json={"name": "buehne", "type": 1},
+            headers=auth(s["t_owner"]),
+        )
+    ).json()
+    cid = kanal["id"]
+    uid_a = s["uid_a"]
+
+    redis = app.state.redis
+    aktiv_key = f"stream:active:channel-{cid}-{uid_a}"
+    grabstein_key = f"stream:stopping:channel-{cid}-{uid_a}"
+    await redis.set(aktiv_key, '{"user_id": "%s"}' % uid_a)
+    try:
+        r = await client.put(
+            f"/guilds/{gid}/bans/{uid_a}",
+            json={"reason": "spam"},
+            headers=auth(s["t_owner"]),
+        )
+        assert r.status_code in (200, 201, 204), r.text
+
+        # Der Grabstein steht, damit der Poller einen weiterhin publizierenden
+        # Pfad als beendet behandelt (er allein leitet die Live-Anzeige nicht
+        # aus ``stream:active`` ab).
+        assert await redis.get(grabstein_key) == b"1"
+        # Der Datensatz selbst ist weg — neue Zuschauer bekommen ueber
+        # ``GET /whep`` kein Token mehr.
+        assert await redis.get(aktiv_key) is None
+    finally:
+        await redis.delete(aktiv_key, grabstein_key)
+
+
+@pytest.mark.asyncio
+async def test_ban_beendet_gehostete_watch_party(client, app, _auth_signer):
+    """Bughunt 2026-08-17 (``verbindungen.md`` Nachtrag): ``watch_control``,
+    ``watch_heartbeat`` und ``watch_source_change`` pruefen nach dem Start nur
+    noch den gespeicherten Host, nie die Mitgliedschaft. Ein Bann muss eine
+    laufende Party des Betroffenen sofort beenden, statt ihm die Kontrolle zu
+    lassen."""
+    s = await _setup(client, _auth_signer)
+    gid = s["g"]["id"]
+    kanal = (
+        await client.post(
+            f"/guilds/{gid}/channels",
+            json={"name": "buehne", "type": 1},
+            headers=auth(s["t_owner"]),
+        )
+    ).json()
+    cid = str(kanal["id"])
+    uid_a = str(s["uid_a"])
+
+    redis = app.state.redis
+    ts = watchkeys.now_ms()
+    state = {
+        "party_id": "party-1",
+        "source": {"type": "youtube", "id": "abc"},
+        "host_user_id": uid_a,
+        "position": 0.0,
+        "is_playing": True,
+        "updated_at": ts,
+        "started_at": ts,
+        "source_epoch": 0,
+    }
+    await watchkeys.write_party(redis, cid, state)
+    try:
+        assert (await watchkeys.read_party(redis, cid, "party-1")) is not None
+
+        r = await client.put(
+            f"/guilds/{gid}/bans/{uid_a}",
+            json={"reason": "spam"},
+            headers=auth(s["t_owner"]),
+        )
+        assert r.status_code in (200, 201, 204), r.text
+
+        assert (await watchkeys.read_party(redis, cid, "party-1")) is None
+    finally:
+        await redis.delete(watchkeys.WATCH_STATE_KEY.format(channel_id=cid))

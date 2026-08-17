@@ -265,6 +265,25 @@ async def test_sendende_plaetze_nur_von_angemeldeten_geraeten(client, _auth_sign
 
 
 @pytest.mark.asyncio
+async def test_offline_geraet_meldet_keine_sendenden_plaetze_mehr(client, _auth_signer):
+    """Bughunt 2026-08-17: ``device_withdraw`` räumte die Belegung, liess aber
+    ``_device_streams`` stehen — ein längst offline gegangenes Gerät meldete
+    weiter alte Plätze als sendend, und ein später vom Besitzer selbst
+    gestarteter Strom auf demselben Platz landete am falschen Empfänger."""
+    mgr = _register(client)
+    gid, cid, did = 1, 2, 3
+    sock = object()
+
+    mgr.device_announce(sock, did, gid, cid)
+    assert mgr.device_streams_set(did, {0}) is True
+    assert mgr.device_streams(did) == [0]
+
+    assert mgr.device_withdraw(sock, did) is True
+    assert mgr.device_state(did)[0] == "offline"
+    assert mgr.device_streams(did) == []
+
+
+@pytest.mark.asyncio
 async def test_ein_zweites_fenster_nimmt_das_geraet_nicht_offline(client, _auth_signer):
     """Der Client eines Geräts kann mehrere Verbindungen haben; eine zu
     schliessen darf es nicht offline melden."""

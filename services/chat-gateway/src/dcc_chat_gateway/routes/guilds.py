@@ -39,7 +39,9 @@ from dcc_chat_gateway.remote_guard import (
     forget_devices_after_cascade,
     remove_devices_for_member,
 )
+from dcc_chat_gateway.stream_evict import end_active_streams_for_member
 from dcc_chat_gateway.stream_revoke import revoke_read_tokens_for_viewer
+from dcc_chat_gateway.watch_evict import end_watch_parties_for_member
 from dcc_chat_gateway.role_hierarchy import assert_actor_outranks
 from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments, purge_s3_keys
@@ -667,6 +669,27 @@ async def _remove_guild_member(
         guild_id,
         user_id,
         grund="membership_revoked",
+    )
+    # Und die SENDE-Seite: ohne das laeuft der Sidecar des Entfernten weiter
+    # und der media-svc-Poller haelt den Kanal auf "live". Der Bann-Pfad tut
+    # dasselbe — die Zeile gehoert hierher, weil Rauswurf und Austritt beide
+    # ueber diesen Helfer laufen und sonst nur die halbe Wirkung haetten.
+    await end_active_streams_for_member(
+        getattr(request.app.state, "redis", None),
+        session,
+        guild_id,
+        user_id,
+        grund="membership_revoked",
+    )
+    # Und eine laufende Watch-Party, die der Entfernte hostet: watch_control,
+    # watch_heartbeat und watch_stop pruefen nach dem Start nur noch, ob er
+    # der Host ist, nie ob er noch Mitglied ist.
+    await end_watch_parties_for_member(
+        session,
+        getattr(request.app.state, "redis", None),
+        getattr(request.app.state, "connection_manager", None),
+        guild_id,
+        user_id,
     )
     await _publish_guild_event(
         request,
