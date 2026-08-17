@@ -180,6 +180,12 @@ class ConnectionManager(
         self._ws_blocks_out: dict[WebSocket, set[int]] = {}
         self._ws_blocks_in: dict[WebSocket, set[int]] = {}
         self._ws_friends: dict[WebSocket, set[int]] = {}
+        # Buffer for friend/block lifecycle deltas that land on a socket
+        # before its caches above are hydrated (register()→hydrate_friend_
+        # caches() gap) — see pubsub_friend_cache.py's module docstring.
+        # list of (cache_attr, other_user_id, add) tuples, replayed and
+        # cleared by hydrate_friend_caches.
+        self._ws_pending_deltas: dict[WebSocket, list[tuple[str, int, bool]]] = {}
         # Extra plugin-declared pub/sub channels (populated by
         # subscribe_plugin_channels at lifespan time). Re-subscribed on every
         # start() call so that a crashed + restarted listener does not silently
@@ -373,6 +379,7 @@ class ConnectionManager(
             self._ws_blocks_out.pop(ws, None)
             self._ws_blocks_in.pop(ws, None)
             self._ws_friends.pop(ws, None)
+            self._ws_pending_deltas.pop(ws, None)
             # Use the reverse index to clean up only the channels this socket
             # was actually subscribed to — O(subscribed) instead of O(all
             # channels).  Fall back to the full scan when the reverse index

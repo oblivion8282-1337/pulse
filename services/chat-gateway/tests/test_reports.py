@@ -381,3 +381,79 @@ async def test_operator_report_message_not_found_404(client, _auth_signer):
         headers=auth(t),
     )
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# target_guild_id gets resolved+stamped at creation (survives hard-delete —
+# see routes/mod_queue_scope.py's scoping mirrors and models/moderation.py)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_channel_report_stamps_resolved_guild_id(
+    client, _auth_signer, session_factory
+):
+    """A channel-target report gets its guild resolved and persisted into
+    ``target_guild_id`` at creation time — not just relied on via a live
+    join against ``channels`` for the mod-queue's guild scoping. Without
+    this, a report over a channel that later gets hard-deleted becomes
+    permanently invisible+unresolvable in every moderator's queue."""
+    from dcc_chat_gateway.models import Report
+
+    owner_token, _ = await _token(_auth_signer)
+    guild_id, channel_id = await _make_guild_with_channel(client, owner_token)
+
+    reporter_token, _ = await _token(_auth_signer)
+    r = await client.post(
+        "/reports",
+        json={
+            "target_channel_id": channel_id,
+            "reason_code": "spam",
+            "body": "Spam in this channel.",
+        },
+        headers=auth(reporter_token),
+    )
+    assert r.status_code == 201, r.text
+    rid = int(r.json()["id"])
+
+    async with session_factory() as s:
+        report = await s.get(Report, rid)
+    assert report is not None
+    assert report.target_guild_id == int(guild_id)
+
+
+@pytest.mark.asyncio
+async def test_message_report_stamps_resolved_guild_id(
+    client, _auth_signer, session_factory
+):
+    """Same as above, for a message-target report (resolved via the
+    message's channel)."""
+    from dcc_chat_gateway.models import Report
+
+    owner_token, _ = await _token(_auth_signer)
+    guild_id, channel_id = await _make_guild_with_channel(client, owner_token)
+    msg = (
+        await client.post(
+            f"/channels/{channel_id}/messages",
+            json={"content": "spam spam spam"},
+            headers=auth(owner_token),
+        )
+    ).json()
+
+    reporter_token, _ = await _token(_auth_signer)
+    r = await client.post(
+        "/reports",
+        json={
+            "target_message_id": msg["id"],
+            "reason_code": "spam",
+            "body": "This message is spam.",
+        },
+        headers=auth(reporter_token),
+    )
+    assert r.status_code == 201, r.text
+    rid = int(r.json()["id"])
+
+    async with session_factory() as s:
+        report = await s.get(Report, rid)
+    assert report is not None
+    assert report.target_guild_id == int(guild_id)

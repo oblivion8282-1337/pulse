@@ -256,3 +256,68 @@ async def test_list_reactions_dm_visible_to_member(client, _auth_signer, friend_
     payload = r.json()
     assert len(payload) == 1
     assert payload[0]["emoji"] == "❤️"
+
+
+@pytest.mark.asyncio
+async def test_list_reactions_denied_without_view_channel(client, _auth_signer):
+    """Regression (Bughunt 2026-08-17 Nachtrag): ``GET .../reactions`` used
+    to only check guild *membership*, not channel visibility — a member with
+    VIEW_CHANNEL denied via a channel overwrite could still see who reacted
+    to a message in a channel they can't otherwise see. Mirrors the
+    READ_HISTORY gate on ``GET /channels/{id}/messages``."""
+    from dcc_shared.permission_resolver import OVERWRITE_TARGET_USER
+    from dcc_shared.permissions import Permissions
+
+    t1, _, t2, uid2, cid = await _make_guild_with_channel(client, _auth_signer)
+    msg = (
+        await client.post(
+            f"/channels/{cid}/messages", json={"content": "hi"}, headers=auth(t1)
+        )
+    ).json()
+    r = await client.put(
+        f"/messages/{msg['id']}/reactions/%F0%9F%91%8D/@me", headers=auth(t2)
+    )
+    assert r.status_code == 204, r.text
+
+    # Owner denies VIEW_CHANNEL for t2 in this channel.
+    r = await client.put(
+        f"/channels/{cid}/permissions/{OVERWRITE_TARGET_USER}/{uid2}",
+        json={"allow": "0", "deny": str(int(Permissions.VIEW_CHANNEL))},
+        headers=auth(t1),
+    )
+    assert r.status_code == 200, r.text
+
+    r = await client.get(f"/messages/{msg['id']}/reactions", headers=auth(t2))
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_dm_reaction_add_blocked(client, _auth_signer, friend_pair, cloud_mode):
+    """Regression: emoji reactions on DM messages used to skip the
+    block-gate entirely — a blocked user could keep reacting visibly.
+    Mirrors the block-gate on DM message sends
+    (``routes/messages.py::post_message``)."""
+    t_a, uid_a, t_b, _, dm_id = await _make_dm(client, _auth_signer, friend_pair)
+    msg = (
+        await client.post(
+            f"/channels/{dm_id}/messages", json={"content": "hi"}, headers=auth(t_a)
+        )
+    ).json()
+    r = await client.post(
+        "/blocks", json={"target_user_id": uid_a}, headers=auth(t_b)
+    )
+    assert r.status_code == 200, r.text
+
+    # The blocked user (t_a) can no longer add a reaction to that DM.
+    r = await client.put(
+        f"/messages/{msg['id']}/reactions/%F0%9F%91%8D/@me", headers=auth(t_a)
+    )
+    assert r.status_code == 403
+    assert r.json()["detail"] == "blocked"
+
+    # Nor can the blocker (t_b) — block gate applies either direction.
+    r = await client.put(
+        f"/messages/{msg['id']}/reactions/%E2%9D%A4/@me", headers=auth(t_b)
+    )
+    assert r.status_code == 403
+    assert r.json()["detail"] == "blocked"

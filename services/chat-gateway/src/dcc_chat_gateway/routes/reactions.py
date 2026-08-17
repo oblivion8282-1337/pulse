@@ -21,7 +21,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import Message, MessageReaction
+from dcc_chat_gateway.friend_helpers import block_exists_either_way
+from dcc_chat_gateway.models import DirectMessageChannel, Message, MessageReaction
 from dcc_chat_gateway.permissions import (
     Permissions,
     has_permission,
@@ -46,14 +47,46 @@ def _normalize_emoji(raw: str) -> str:
 
 async def _load_for_reaction(
     session, message_id: int, current_user_id: int
-) -> Message:
+) -> tuple[str, object, Message]:
+    """Load the message plus its resolved channel (kind, channel-row).
+
+    Returns ``(kind, channel, message)`` so callers can apply the same
+    kind-specific gates (VIEW_CHANNEL/READ_HISTORY for guilds, block-gate
+    for DMs) that ``routes/messages.py`` applies on the read/write path —
+    this endpoint used to only check guild *membership*, which let a
+    member without ``VIEW_CHANNEL`` on a specific channel still read its
+    reactor lists.
+    """
     msg = await session.get(Message, message_id)
     if msg is None or msg.deleted_at is not None:
         raise HTTPException(404, detail="message not found")
     # Polymorphic channel lookup — works for both guild Channel and
     # DirectMessageChannel rows. Raises the right 403/404 itself.
-    await resolve_channel_or_raise(session, msg.channel_id, current_user_id)
-    return msg
+    kind, ch = await resolve_channel_or_raise(session, msg.channel_id, current_user_id)
+    return kind, ch, msg
+
+
+async def _require_channel_view(session, current: CurrentUser, kind: str, ch) -> None:
+    """READ_HISTORY gate for guild channels — mirrors ``list_messages`` in
+    ``routes/messages.py``. Relies on the resolver's !VIEW_CHANNEL ->
+    revoke-all invariant, so this also covers VIEW_CHANNEL itself."""
+    if kind != "guild":
+        return
+    perms = await resolve_permissions(session, current, ch.guild_id, channel_id=ch.id)
+    if not has_permission(perms, Permissions.READ_HISTORY):
+        raise HTTPException(403, detail="missing permission: READ_HISTORY")
+
+
+async def _require_not_blocked(session, current: CurrentUser, kind: str, ch) -> None:
+    """Block gate for DM channels — mirrors ``post_message``. Reactions on
+    DM messages previously skipped this entirely, letting a blocked user
+    keep reacting visibly after being blocked."""
+    if kind != "dm":
+        return
+    dm: DirectMessageChannel = ch
+    other = dm.user_b_id if dm.user_a_id == current.id else dm.user_a_id
+    if await block_exists_either_way(session, current.id, other):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="blocked")
 
 
 @router.get("/messages/{message_id}/reactions")
@@ -76,7 +109,8 @@ async def list_message_reactions(
     are returned as raw IDs; the client tombstones unknowns via its
     user-cache, same as elsewhere.
     """
-    await _load_for_reaction(session, message_id, current.id)
+    kind, ch, _msg = await _load_for_reaction(session, message_id, current.id)
+    await _require_channel_view(session, current, kind, ch)
     rows = (
         await session.execute(
             select(MessageReaction.emoji, MessageReaction.user_id)
@@ -104,18 +138,20 @@ async def add_reaction(
     request: Request,
 ):
     emoji_n = _normalize_emoji(emoji)
-    msg = await session.get(Message, message_id)
-    if msg is None or msg.deleted_at is not None:
-        raise HTTPException(404, detail="message not found")
-    # Polymorphic channel lookup + access check (handles guild vs DM).
-    kind, ch = await resolve_channel_or_raise(session, msg.channel_id, current.id)
+    kind, ch, msg = await _load_for_reaction(session, message_id, current.id)
     # ADD_REACTIONS gate (guild channels only — DMs have no overlay).
+    # Implies VIEW_CHANNEL via the resolver's revoke-all invariant.
     if kind == "guild":
         perms = await resolve_permissions(
             session, current, ch.guild_id, channel_id=msg.channel_id
         )
         if not has_permission(perms, Permissions.ADD_REACTIONS):
             raise HTTPException(403, detail="missing permission: ADD_REACTIONS")
+    # Block gate (DM channels only) — a blocked/blocking user can still
+    # technically read the DM channel (unfriend doesn't delete it) but must
+    # not be able to produce new visible activity in it. Mirrors the send
+    # gate in ``post_message``.
+    await _require_not_blocked(session, current, kind, ch)
     row = MessageReaction(message_id=msg.id, user_id=current.id, emoji=emoji_n)
     session.add(row)
     try:
@@ -152,7 +188,7 @@ async def remove_reaction(
     request: Request,
 ):
     emoji_n = _normalize_emoji(emoji)
-    msg = await _load_for_reaction(session, message_id, current.id)
+    _kind, _ch, msg = await _load_for_reaction(session, message_id, current.id)
     row = (
         await session.execute(
             select(MessageReaction).where(
