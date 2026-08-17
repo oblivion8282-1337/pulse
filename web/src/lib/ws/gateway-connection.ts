@@ -2,7 +2,8 @@
  * Per-Server-WebSocket-Connection — Phase 4.2. `gateway-pool.svelte.ts` hält
  * die Map<serverId, GatewayConnection>; `connection.ts::gateway` proxied auf
  * die aktive Connection. Self-Host: hello-Frame-Check (MIN_SERVER_VERSION) +
- * Close-Code-Mapping 4044/4045/4046 = Reconnect, 4047/4003 = Stop. Bootstrap
+ * Close-Code-Mapping 4044/4045/4046/4070 = Reconnect, 4047/4071 = Stop (der
+ * Nutzer muss handeln, Wiederholen aendert nichts). Bootstrap
  * der globalen handler-registry läuft genau einmal. Multi-Server-Stores =
  * Phase 4.5+ Scope.
  */
@@ -49,10 +50,12 @@ export type WsListener = (evt: ServerEvent) => void;
 export type ChannelDeletedHook = (guildId: string, channelId: string) => void;
 export type GuildDeletedHook = (guildId: string) => void;
 
-/** 4044=incompatible · 4045=updating · 4046=starting · 4047=mfa-required · 4003=cors-blocked */
+/** 4044=incompatible · 4045=updating · 4046=starting · 4047=mfa-required
+ *  · 4070=suspended · 4071=email-unverified */
 export type ConnectionState =
   | 'idle' | 'connecting' | 'open' | 'closed'
-  | 'incompatible' | 'updating' | 'starting' | 'mfa-required' | 'cors-blocked';
+  | 'incompatible' | 'updating' | 'starting' | 'mfa-required'
+  | 'suspended' | 'email-unverified';
 
 export type HelloMeta = { server_version: string; capabilities: string[] };
 
@@ -506,7 +509,16 @@ export class GatewayConnection {
       case WS_CLOSE.SERVER_UPDATING: this.state = 'updating'; return;
       case WS_CLOSE.JWKS_NOT_READY: this.state = 'starting'; return;
       case WS_CLOSE.MFA_REQUIRED: this.state = 'mfa-required'; this.wantConnected = false; return;
-      case WS_CLOSE.CORS_BLOCKED: this.state = 'cors-blocked'; this.wantConnected = false; return;
+      // Sperre der Instanz: umkehrbar, und niemand sagt uns die Aufhebung an.
+      // `wantConnected` bleibt deshalb stehen — der Backoff laeuft bis auf
+      // 300 s auseinander und findet die Aufhebung von selbst, ohne dass der
+      // Nutzer neu laden muss.
+      case WS_CLOSE.INSTANCE_SUSPENDED: this.state = 'suspended'; return;
+      // E-Mail unbestaetigt: hier hilft kein Wiederholen, es braucht eine
+      // Handlung des Nutzers. Wiederwaehlen abschalten und im Banner den Weg
+      // zum Bestaetigungs-Schirm anbieten.
+      case WS_CLOSE.EMAIL_UNVERIFIED:
+        this.state = 'email-unverified'; this.wantConnected = false; return;
       default: this.state = 'closed';
     }
   }

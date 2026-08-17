@@ -34,7 +34,7 @@ from typing import Any
 from dcc_shared.events import GuildPluginsChangedEvent
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
@@ -168,7 +168,9 @@ async def toggle_guild_plugin(
 ):
     """Toggelt ``enabled`` für (guild_id, plugin_name).
 
-    * Plugin muss in der Allowlist sein, sonst 404 ``plugin_not_allowed``.
+    * Plugin muss in der Allowlist sein, sonst 404 ``plugin_not_allowed`` —
+      geprüft vor **und** nach dem Schreiben (der instanzweite Entzug kann
+      dazwischenfallen, s. Kommentar am zweiten Check).
     * ``hello`` ist nicht togglebar → 409.
     * MANAGE_GUILD-Gate.
     * Nach erfolgreichem Write wird der WS-Op-Gate-Cache für
@@ -226,6 +228,30 @@ async def toggle_guild_plugin(
         row.enabled_by_user_id = current.id
         await session.commit()
     invalidate_guild_plugin_cache(guild_id, name)
+
+    # Renn-Riegel gegen den instanzweiten Entzug: zwischen der Allowlist-Frage
+    # oben und dem Commit hier kann ein Admin das Plugin instanzweit entfernt
+    # haben. Seine Kaskade loescht die ``guild_plugins``-Zeilen, die es in
+    # diesem Moment GIBT — unsere entsteht danach und ueberlebte den Entzug.
+    # Benutzbar waere das Plugin dadurch nicht (das WS-Gate liest die Allowlist
+    # live), aber ein spaeteres Wiederzulassen schaltete es in genau dieser
+    # Community ohne Zutun ihres Admins sofort ein. Nach dem Commit sieht diese
+    # Sitzung frisch: nachfragen, eigene Zeile zuruecknehmen. Rest-Fenster
+    # (Kaskade gelaufen, noch nicht committet) braeuchte einen Fremdschluessel
+    # zwischen beiden Tabellen — den gibt es bewusst nicht (admin_plugins.py).
+    if name not in await list_allowed_names(session):
+        await session.execute(
+            delete(GuildPlugin).where(
+                GuildPlugin.guild_id == guild_id,
+                GuildPlugin.plugin_name == name,
+            )
+        )
+        await session.commit()
+        invalidate_guild_plugin_cache(guild_id, name)
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail="plugin_not_allowed"
+        )
+
     # WS-Push an alle Guild-Member, damit ihr Frontend-Cache live
     # invalidiert wird (sonst sähen sie das Plugin erst beim nächsten
     # Guild-Mount). Auf ``guild:events`` — der Listener-Filter scoped
