@@ -135,8 +135,13 @@ export async function subscribeUser(): Promise<void> {
 /** Cancel the active subscription on this device + tell the backend. Best-
  *  effort: a missing local sub (already gone) still pings the backend with
  *  the previously-known endpoint if we can recover it, but it's not an
- *  error to be "already unsubscribed". */
-export async function unsubscribeUser(): Promise<void> {
+ *  error to be "already unsubscribed".
+ *
+ *  `bearerOverride`: siehe `deletePushSubscription` — der Sign-Out-Pfad ruft
+ *  das hier NACHDEM `clearTokens()` schon gelaufen sein kann (dynamischer
+ *  Import verzögert die Ausführung um mindestens einen Tick), also muss der
+ *  Aufrufer den zu diesem Zeitpunkt noch gültigen Token selbst mitgeben. */
+export async function unsubscribeUser(bearerOverride?: string): Promise<void> {
   if (!pushSupported()) return;
   const reg = await getRegistration();
   if (!reg) return;
@@ -149,7 +154,7 @@ export async function unsubscribeUser(): Promise<void> {
     /* swallow — we still want to free the server-side record */
   }
   try {
-    await deletePushSubscription(endpoint);
+    await deletePushSubscription(endpoint, bearerOverride);
   } catch {
     /* tolerate 404 / network — DELETE is idempotent server-side */
   }

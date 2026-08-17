@@ -167,6 +167,18 @@ async def subscribe(
             status.HTTP_503_SERVICE_UNAVAILABLE, detail="push_disabled"
         )
     _validate_push_endpoint(payload.endpoint)
+    # Ein physischer Endpunkt kann nur einem Konto gehoeren: eine Zeile eines
+    # ANDEREN Users mit demselben Endpoint zuerst entfernen. Ohne das behaelt
+    # ein Konto sein Abo, obwohl der Browser den Endpunkt laengst einem
+    # anderen Nutzer zugeteilt hat (Bughunt 2026-08-17, chat.md) — Haerte
+    # gegen Faelle, in denen der Client-seitige Abmelde-Pfad nicht greift
+    # (kein Sign-Out, Absturz, geloeschter Service Worker).
+    await session.execute(
+        delete(WebPushSubscription).where(
+            WebPushSubscription.endpoint == payload.endpoint,
+            WebPushSubscription.user_id != current.id,
+        )
+    )
     existing = (
         await session.execute(
             select(WebPushSubscription).where(
