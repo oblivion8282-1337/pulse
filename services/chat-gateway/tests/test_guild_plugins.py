@@ -14,6 +14,7 @@ import uuid
 
 import pytest
 from dcc_chat_gateway.models import GuildPlugin, InstancePluginAllowlist
+from sqlalchemy import delete
 from starlette.testclient import TestClient
 from .conftest import receive_skipping
 
@@ -467,3 +468,65 @@ async def test_delete_plugin_broadcasts_disabled_to_affected_guilds(
                 assert evt["enabled"] is False
 
     await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_put_toggle_verliert_rennen_gegen_instanzweiten_entzug(
+    client, _auth_signer, session_factory, monkeypatch
+):
+    """Entzieht ein Admin das Plugin instanzweit, waehrend ein Toggle laeuft,
+    darf keine ``guild_plugins``-Zeile uebrigbleiben.
+
+    Der Ablauf ohne Riegel: der Toggle fragt die Allowlist (Plugin erlaubt),
+    dazwischen entfernt der Admin es instanzweit — seine Kaskade loescht die
+    Zeilen, die es in dem Moment GIBT — und danach legt der Toggle seine
+    Zeile neu an. Benutzbar waere das Plugin nicht (das WS-Gate liest die
+    Allowlist live), aber ein spaeteres Wiederzulassen schaltete es in dieser
+    Community ohne Zutun ihres Admins sofort ein.
+
+    Der Entzug wird hier exakt an der Nahtstelle eingeschoben: der erste
+    Allowlist-Blick liefert noch „erlaubt", direkt danach ist es weg.
+    """
+    await _seed_allowlist(session_factory, ["hello", "tamagotchi"])
+    token, _ = await _make_token(_auth_signer)
+    guild_id = await _create_guild(client, token)
+
+    from dcc_chat_gateway.plugins import allowlist as allowlist_mod
+
+    echt = allowlist_mod.list_allowed_names
+    blicke = {"n": 0}
+
+    async def _mit_entzug_dazwischen(session):
+        namen = set(await echt(session))
+        blicke["n"] += 1
+        if blicke["n"] == 1:
+            # Genau das tut ``remove_plugin_from_allowlist``: erst die
+            # Guild-Zeilen, dann die Allowlist-Zeile.
+            await session.execute(
+                delete(GuildPlugin).where(
+                    GuildPlugin.plugin_name == "tamagotchi"
+                )
+            )
+            await session.execute(
+                delete(InstancePluginAllowlist).where(
+                    InstancePluginAllowlist.plugin_name == "tamagotchi"
+                )
+            )
+            await session.commit()
+        return namen
+
+    monkeypatch.setattr(
+        allowlist_mod, "list_allowed_names", _mit_entzug_dazwischen
+    )
+
+    r = await client.put(
+        f"/guilds/{guild_id}/plugins/tamagotchi",
+        json={"enabled": True},
+        headers=_auth(token),
+    )
+    assert r.status_code == 404, r.text
+    assert r.json()["detail"] == "plugin_not_allowed"
+    assert blicke["n"] == 2, "der zweite Allowlist-Blick muss stattfinden"
+
+    async with session_factory() as s:
+        assert await s.get(GuildPlugin, (guild_id, "tamagotchi")) is None

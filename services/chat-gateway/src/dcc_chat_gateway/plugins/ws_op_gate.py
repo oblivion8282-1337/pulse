@@ -62,12 +62,22 @@ log = logging.getLogger(__name__)
 # seinen Block selbst — Kollisionen müssen wir per Konvention vermeiden.
 # Stand des Code-Audits beim Plugin-Admin-Aktivierungs-PR1:
 #
-# * ``ws.py``              — 4001 (token), 4003 (email-unverified),
-#                            4009 (too many connections)
+# * ``ws.py``              — SCHLIESScodes 4001 (token), 4009 (zu viele
+#                            Verbindungen), 4046 (JWKS kalt), 4070 (Instanz
+#                            gesperrt), 4071 (E-Mail unbestaetigt)
 # * ``ws_ops.py``          — 4001/4002/4007/4009 (frame/JSON/unknown op)
 # * ``ws_ops_handlers.py`` — 4003/4004/4011/4012 (subscribe/voice errors)
 # * ``ws_op_send.py``      — 4005/4006/4008/4013/4014/4290 (send-Pfad)
 # * ``ws_watch.py``        — 4012–4017 (watch-party-Fehler)
+# * Fernsteuerung/Geraete  — 4050–4061 (Fehler-Frames)
+#
+# Zwei GETRENNTE Raeume, die nur zufaellig dieselben Zahlen benutzen: ein
+# Fehler-FRAME (``{"op":"error","code":…}``) und ein SCHLIESScode. Der Klient
+# liest den einen im Nachrichtenstrom, den anderen in ``_mapCloseCode``
+# (``web/src/lib/ws/gateway-connection.ts``) — eine Ueberschneidung zwischen
+# den Raeumen ist harmlos, eine INNERHALB eines Raumes nicht. 4070/4071 sind
+# 2026-08-17 als Schliesscodes dazugekommen, weil sich Instanz-Sperre und
+# unbestaetigte E-Mail zuvor 4003 teilten.
 #
 # Plugin-Gate nutzt ``4040–4043`` — getrennter Block, sodass Frontends
 # anhand des Codes eindeutig zwischen Plugin-Reject und Send-/Watch-Reject

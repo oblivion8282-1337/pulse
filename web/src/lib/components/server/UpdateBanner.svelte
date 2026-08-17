@@ -3,16 +3,19 @@
 
   Slim Banner oben im App-Shell, sichtbar wenn die aktive Gateway-Connection
   einen "abnormalen" Zustand hat (incompatible/updating/starting/mfa-required/
-  cors-blocked). Reaktiv via `serverState` (1Hz-Poll, kein Eingriff in
-  gateway-connection.ts). Bei `open` oder `idle` → unsichtbar.
+  suspended/email-unverified). Reaktiv via `serverState` (1Hz-Poll, kein
+  Eingriff in gateway-connection.ts). Bei `open` oder `idle` → unsichtbar.
 
   mfa-required hat einen Action-Button → /login (Cloud) bzw. Stub-Hinweis
-  (Self-Host, Cert-Re-Auth ist Phase 5).
+  (Self-Host, Cert-Re-Auth ist Phase 5); email-unverified führt auf den
+  Bestätigungs-Schirm. `suspended` bekommt bewusst KEINEN Knopf: der Nutzer
+  kann nichts tun, die Verbindung kommt beim Aufheben von selbst zurück.
 -->
 <script lang="ts">
   import RefreshCcwIcon from '@lucide/svelte/icons/refresh-ccw';
   import AlertCircleIcon from '@lucide/svelte/icons/alert-circle';
   import ShieldAlertIcon from '@lucide/svelte/icons/shield-alert';
+  import MailWarningIcon from '@lucide/svelte/icons/mail-warning';
   import { Button } from '$lib/components/ui/button/index.js';
   import { goto } from '$app/navigation';
   import { activeServer } from '$lib/stores/active-server.svelte';
@@ -26,7 +29,8 @@
       snap.state === 'updating' ||
       snap.state === 'starting' ||
       snap.state === 'mfa-required' ||
-      snap.state === 'cors-blocked',
+      snap.state === 'suspended' ||
+      snap.state === 'email-unverified',
   );
   let host = $derived(active?.label ?? 'Server');
 
@@ -39,13 +43,20 @@
       return m.update_banner_starting({ host: h });
     if (state === 'mfa-required')
       return m.update_banner_mfa_required({ host: h });
-    if (state === 'cors-blocked')
-      return m.update_banner_cors_blocked({ host: h });
+    if (state === 'suspended')
+      return m.update_banner_suspended({ host: h });
+    if (state === 'email-unverified')
+      return m.update_banner_email_unverified({ host: h });
     return '';
   }
 
   function tone(state: string): string {
-    if (state === 'mfa-required' || state === 'cors-blocked' || state === 'incompatible')
+    if (
+      state === 'mfa-required' ||
+      state === 'suspended' ||
+      state === 'email-unverified' ||
+      state === 'incompatible'
+    )
       return 'bg-destructive/15 border-destructive/40 text-destructive';
     return 'bg-warning/15 border-warning/40 text-warning';
   }
@@ -59,7 +70,9 @@
   >
     {#if snap.state === 'mfa-required'}
       <ShieldAlertIcon class="size-4 shrink-0" />
-    {:else if snap.state === 'cors-blocked' || snap.state === 'incompatible'}
+    {:else if snap.state === 'email-unverified'}
+      <MailWarningIcon class="size-4 shrink-0" />
+    {:else if snap.state === 'suspended' || snap.state === 'incompatible'}
       <AlertCircleIcon class="size-4 shrink-0" />
     {:else}
       <RefreshCcwIcon class="size-4 shrink-0 animate-spin" />
@@ -73,6 +86,15 @@
         data-testid="update-banner-mfa-action"
       >
         {m.update_banner_mfa_action()}
+      </Button>
+    {:else if snap.state === 'email-unverified'}
+      <Button
+        size="sm"
+        variant="outline"
+        onclick={() => goto('/verify-email-required')}
+        data-testid="update-banner-email-action"
+      >
+        {m.update_banner_email_action()}
       </Button>
     {/if}
   </div>

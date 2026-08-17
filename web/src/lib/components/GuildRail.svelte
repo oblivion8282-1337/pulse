@@ -329,7 +329,15 @@
   // Ausnahmezustand gerendert (`open` zeigt keinen Dot), daher kein grüner Fall.
   function serverStateDotColor(state: string): string {
     if (state === 'connecting' || state === 'starting' || state === 'updating') return 'bg-warning';
-    if (state === 'incompatible' || state === 'cors-blocked' || state === 'mfa-required') return 'bg-destructive';
+    // Sperre und E-Mail-Riegel sind Ausnahmezustaende mit Handlungsbedarf —
+    // rot, nicht das gelbe „kommt gleich wieder".
+    if (
+      state === 'incompatible' ||
+      state === 'email-unverified' ||
+      state === 'suspended' ||
+      state === 'mfa-required'
+    )
+      return 'bg-destructive';
     return 'bg-gray-500';
   }
 </script>

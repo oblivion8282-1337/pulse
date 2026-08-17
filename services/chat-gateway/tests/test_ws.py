@@ -14,6 +14,7 @@ import random
 
 import pytest
 from starlette.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from .conftest import receive_skipping, skip_init_frames
 
@@ -376,3 +377,56 @@ async def test_ws_close_4046_when_jwks_not_ready(ws_app, _auth_signer):
     await asyncio.to_thread(_run)
 
     await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_ws_close_4070_when_instance_suspended(ws_app, _auth_signer, monkeypatch):
+    """Gesperrte Instanz schliesst mit dem EIGENEN Code 4070.
+
+    Die Zahl ist das Einzige, was der Klient auswertet (``_mapCloseCode`` in
+    ``web/src/lib/ws/gateway-connection.ts``, den ``reason``-Text liest dort
+    niemand). Bis 2026-08-17 stand hier 4003 — dieselbe Zahl wie beim
+    E-Mail-Riegel und beim klientseitigen „CORS blockiert", weshalb der Nutzer
+    eine falsche Diagnose las und das Wiederverbinden dauerhaft ausging.
+    4070 heisst ausdruecklich „umkehrbar, weiter versuchen".
+    """
+    from dcc_chat_gateway.routes import ws as ws_route
+
+    async def _gesperrt(_redis):
+        return True
+
+    monkeypatch.setattr(ws_route, "read_suspend_state", _gesperrt)
+
+    def _run():
+        uid = random.randint(1, 1_000_000)
+        token = _auth_signer.issue_access(uid, f"u{uid}")
+        with TestClient(ws_app) as tc:
+            with pytest.raises(WebSocketDisconnect) as exc:
+                with tc.websocket_connect(f"/ws?token={token}") as ws:
+                    ws.receive_text()
+            assert exc.value.code == ws_route.WS_CLOSE_INSTANCE_SUSPENDED == 4070
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_ws_close_codes_bleiben_eindeutig():
+    """Kein Schliesscode des WS-Eintritts darf zweimal vorkommen.
+
+    Der Befund, der 4070/4071 ausgeloest hat, war eine Doppelbelegung — dieser
+    Test ist die Wache dagegen. Er prueft nur die SCHLIESScodes; Fehler-Frames
+    sind ein anderer Kanal und duerfen dieselben Zahlen tragen.
+    """
+    from dcc_chat_gateway.routes.ws import (
+        WS_CLOSE_EMAIL_UNVERIFIED,
+        WS_CLOSE_INSTANCE_SUSPENDED,
+    )
+
+    codes = [
+        4001,  # Token abgelaufen / ungueltig
+        4009,  # zu viele Verbindungen
+        4046,  # JWKS noch kalt
+        WS_CLOSE_INSTANCE_SUSPENDED,
+        WS_CLOSE_EMAIL_UNVERIFIED,
+    ]
+    assert len(set(codes)) == len(codes)

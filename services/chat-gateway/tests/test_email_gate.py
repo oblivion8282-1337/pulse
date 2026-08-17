@@ -2,8 +2,13 @@
 
 A token carrying ``email_blocked`` — auth-svc stamps it on unverified
 accounts once SMTP is configured — is rejected everywhere: REST routes
-return 403, the WS endpoint closes with the distinct code 4003 (so the
+return 403, the WS endpoint closes with the distinct code 4071 (so the
 client can route to the "verify your email" screen).
+
+Der Code war bis 2026-08-17 4003 und teilte sich diese Zahl mit der
+Instanz-Sperre; der Klient las beides als „CORS blockiert". Der Test haelt
+den eigenen Code fest, weil genau die Zahl das Einzige ist, was der Klient
+auswertet.
 """
 
 from __future__ import annotations
@@ -12,6 +17,7 @@ import asyncio
 import random
 
 import pytest
+from dcc_chat_gateway.routes.ws import WS_CLOSE_EMAIL_UNVERIFIED
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -48,6 +54,6 @@ async def test_ws_rejects_email_blocked_token(ws_app, _auth_signer):
             with pytest.raises(WebSocketDisconnect) as exc:
                 with tc.websocket_connect(f"/ws?token={blocked}") as ws:
                     ws.receive_text()
-            assert exc.value.code == 4003
+            assert exc.value.code == WS_CLOSE_EMAIL_UNVERIFIED == 4071
 
     await asyncio.to_thread(_run)

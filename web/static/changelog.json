@@ -2,6 +2,26 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-18",
+      "date": "2026-08-18",
+      "style": "Sachlich",
+      "title": "Moderation wirkt sofort, Blockieren wirkt überall",
+      "intro": "Bisher schlossen Bann, Rauswurf und Rechtsentzug den Zugang für die Zukunft, liessen aber laufen, was gerade lief. Und der Block griff beim Schreiben, nicht auf den kleinen Nebenwegen.",
+      "items": [
+        "Ein Bann oder Rauswurf beendet jetzt die laufende Bildschirmübertragung des Betroffenen. Bisher sendete er weiter in die Community, aus der er gerade entfernt wurde.",
+        "Dasselbe für eine Watch-Party: wer entfernt wird, verliert die Kontrolle darüber sofort. Das gilt für Bann, Rauswurf und freiwilliges Verlassen.",
+        "Nimmst du jemandem das Recht, einen Sprachkanal zu betreten, fliegt er auch aus dem laufenden Gespräch. Bisher lief es in seinem Ohr weiter, ohne jeden Hinweis.",
+        "Der Rausschmiss aus den Sprachkanälen scheitert nicht mehr stillschweigend, wenn eine Community mehr als hundert Sprachkanäle hat.",
+        "Blockieren wirkt jetzt auch auf den kleinen Wegen: Emoji-Reaktionen auf Direktnachrichten und die Anzeige, dass jemand gerade schreibt.",
+        "Wer einen Kanal nicht sehen darf, sieht auch nicht mehr, wer dort auf welche Nachricht reagiert hat.",
+        "Meldungen an die Moderation bleiben auffindbar, auch wenn der gemeldete Kanal oder die gemeldete Nachricht später gelöscht wird. Bisher verschwanden sie dauerhaft aus der Warteschlange.",
+        "Wird ein Server vorübergehend gesperrt, verbindet sich die App danach von selbst wieder, sobald die Sperre aufgehoben ist. Bisher blieb sie stehen, bis man neu lud — und nannte als Grund ein Verbindungsproblem, das gar nicht vorlag.",
+        "Ist deine E-Mail-Adresse noch nicht bestätigt, sagt die App das jetzt und führt dich direkt zur Bestätigung.",
+        "Jemanden in einen Sprachkanal zu ziehen, für den ein ausdrückliches Verbot besteht, meldet nicht mehr fälschlich Erfolg.",
+        "Ein Gerät, das die Verbindung verliert, gibt sein LIVE-Abzeichen wieder her, statt es dem tatsächlich Sendenden vorzuenthalten."
+      ]
+    },
+    {
       "id": "2026-08-17.5",
       "date": "2026-08-17",
       "style": "Sachlich",

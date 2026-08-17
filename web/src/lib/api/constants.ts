@@ -29,12 +29,29 @@ export const RECONNECT_BACKOFF_MS: readonly number[] = [
 export const WS_PING_INTERVAL_MS = 25_000;
 export const WS_PONG_TIMEOUT_MS = 90_000;
 
-/** Self-Host-WS-Close-Codes (Plan §DE-10/§5). */
+/**
+ * WS-Schliesscodes (Plan §DE-10/§5).
+ *
+ * Gegenstueck: `services/chat-gateway/src/dcc_chat_gateway/routes/ws.py`
+ * (dortiger Kommentarblock begruendet die Vergabe) — **synchron halten**.
+ * Ausgewertet wird ausschliesslich die Zahl; den `reason`-Text des Servers
+ * liest hier niemand. Deshalb darf eine Zahl nur EINE Bedeutung tragen.
+ *
+ * `CORS_BLOCKED: 4003` ist 2026-08-17 entfallen: serverseitig hat diesen Code
+ * nie jemand aus einem CORS-Grund gesendet, wohl aber die Instanz-Sperre und
+ * der E-Mail-Riegel — beide erschienen dem Nutzer dadurch als CORS-Problem.
+ * Die beiden haben jetzt 4070/4071. Ein alter Server sendet weiter 4003; das
+ * faellt hier in den `default`-Zweig („Verbindung weg, erneut versuchen"),
+ * was in beiden Faellen richtiger ist als die alte Falschdiagnose.
+ */
 export const WS_CLOSE = {
   TOKEN_EXPIRED: 4001,
-  CORS_BLOCKED: 4003,
   SERVER_TOO_OLD: 4044,
   SERVER_UPDATING: 4045,
   JWKS_NOT_READY: 4046,
   MFA_REQUIRED: 4047,
+  /** Instanz von der Cloud gesperrt/geloescht — umkehrbar, also weiter warten. */
+  INSTANCE_SUSPENDED: 4070,
+  /** Konto ohne bestaetigte E-Mail — braucht eine Handlung des Nutzers. */
+  EMAIL_UNVERIFIED: 4071,
 } as const;

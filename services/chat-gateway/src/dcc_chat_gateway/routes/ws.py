@@ -75,6 +75,36 @@ _MAX_OVERSIZE_FRAMES = 5
 # trigger a Postgres StringDataRightTruncation.
 _MAX_NONCE_LEN = 64
 
+# ---------------------------------------------------------------------------
+# Schliesscodes des WS-Eintritts.
+#
+# Ein Schliesscode ist die EINZIGE Information, die der Klient auswertet — den
+# ``reason``-Text liest ``_mapCloseCode`` in
+# ``web/src/lib/ws/gateway-connection.ts`` nirgends. Zwei Bedeutungen auf
+# denselben Code zu legen heisst deshalb: der Klient kann sie nicht trennen.
+# Genau das war bis 2026-08-17 der Fall — Instanz-Sperre und unbestaetigte
+# E-Mail teilten sich 4003, das der Klient seinerseits als „CORS blockiert"
+# fuehrte (ein Code, den serverseitig nie jemand gesendet hat). Der Nutzer las
+# eine falsche Diagnose, und der Klient stellte das selbsttaetige
+# Wiederverbinden dauerhaft ein.
+#
+# Die beiden Faelle haben jetzt eigene Codes in einem bis dahin voellig freien
+# Block (407x). **4003 wurde bewusst NICHT umgedeutet**: waehrend eines
+# Ausrollens treffen alte und neue Seite aufeinander, und ein Code, der seine
+# Bedeutung wechselt, ist in genau diesem Fenster nicht unterscheidbar von
+# seiner alten Lesart. Ein neuer Code faellt bei einem alten Klienten dagegen
+# in dessen ``default``-Zweig — „Verbindung weg, spaeter erneut versuchen",
+# also das harmlose Verhalten.
+#
+# Die Gegenstuecke stehen in ``web/src/lib/api/constants.ts`` (``WS_CLOSE``)
+# und muessen synchron bleiben. Belegte Schliesscodes des Gateways:
+# 4001 (Token), 4009 (zu viele Verbindungen), 4046 (JWKS kalt),
+# 4070/4071 (hier). Fehler-FRAMES sind ein anderer Kanal und duerfen sich mit
+# Schliesscodes ueberschneiden (4001–4017, 4040–4044, 4050–4061, 4290) — sie
+# laufen nie durch ``_mapCloseCode``.
+WS_CLOSE_INSTANCE_SUSPENDED = 4070
+WS_CLOSE_EMAIL_UNVERIFIED = 4071
+
 
 def _channel_id(value: object) -> int | None:
     """Parse a client-supplied channel id to int, or None if malformed."""
@@ -90,9 +120,9 @@ def _channel_id(value: object) -> int | None:
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     # Accept first so the reject paths below can send real WebSocket close
-    # frames with their numeric codes (4001/4003/4046). Starlette translates a
-    # close()-before-accept() into an HTTP 403, which drops the close code and
-    # leaves the client unable to tell the reject reasons apart.
+    # frames with their numeric codes (4001/4009/4046/4070/4071). Starlette
+    # translates a close()-before-accept() into an HTTP 403, which drops the
+    # close code and leaves the client unable to tell the reject reasons apart.
     await websocket.accept()
 
     # Ist DIESE Instanz gesperrt oder geloescht, endet hier auch jede BESTEHENDE
@@ -101,7 +131,11 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     # verbindet. Zustand aus Redis, gefuellt vom Sperr-Poller; ohne Redis gilt
     # "nicht gesperrt" (fail-open, s. suspend_poller.py).
     if await read_suspend_state(getattr(websocket.app.state, "redis", None)):
-        await websocket.close(code=4003, reason="instance suspended")
+        # Eigener Code: die Sperre ist umkehrbar, der Klient soll also weiter
+        # (langsam) neu waehlen und die Aufhebung von selbst finden.
+        await websocket.close(
+            code=WS_CLOSE_INSTANCE_SUSPENDED, reason="instance suspended"
+        )
         return
 
     try:
@@ -165,11 +199,14 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
         return
 
     # Email-verification gate: a token carrying ``email_blocked`` belongs to
-    # an unverified account on an SMTP-configured deployment. Distinct close
-    # code (4003) so the client can route to the "verify your email" screen
-    # instead of treating it as a generic auth failure.
+    # an unverified account on an SMTP-configured deployment. Eigener Code
+    # (4071), damit der Klient auf den „E-Mail bestaetigen"-Schirm leiten kann
+    # statt es fuer einen gewoehnlichen Auth-Fehler zu halten. Hier hilft kein
+    # Wiederholen: es braucht eine Handlung des Nutzers.
     if payload.get("email_blocked"):
-        await websocket.close(code=4003, reason="email not verified")
+        await websocket.close(
+            code=WS_CLOSE_EMAIL_UNVERIFIED, reason="email not verified"
+        )
         return
 
     # Reject already-expired tokens before `ready` — avoids sending `ready`
