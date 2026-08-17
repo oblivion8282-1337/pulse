@@ -60,26 +60,27 @@ async def create_block(
     if existing is not None:
         return BlockOut(user_id=existing.blocked_id, since=existing.created_at)
 
-    # Tear down friendship + pending requests in the same TX as the
-    # block insert so we never end up with "friend AND blocked" or
-    # "block AND a stale pending request". We capture whether a
-    # friendship existed first so we can emit friend_removed events
-    # (the block is private to the blocker, but the friendship tear-
-    # down is a state change the other party legitimately needs to know
-    # about — they'd otherwise keep a stale entry in their friend list).
+    # Tear down pending requests + friendship in the same TX as the block
+    # insert so we never end up with "friend AND blocked" or "block AND a
+    # stale pending request".
+    #
+    # Order matters here: the FriendRequest delete goes FIRST, and the
+    # Friendship check+delete comes AFTER it. ``friends.py``'s accept path
+    # (``accept_friend_request`` and the auto-accept branch of
+    # ``create_friend_request``) holds a ``SELECT … FOR UPDATE`` lock on the
+    # relevant FriendRequest row for the duration of its friendship-install.
+    # On Postgres, our DELETE below has to wait for that row lock to
+    # release before it can proceed — so by the time we get past it, any
+    # friendship a concurrent accept just installed is already visible.
+    # Checking friendship-existence BEFORE this wait (the old order) let a
+    # concurrent accept slip a friendship in during the gap, producing
+    # "blocked AND friends" — exactly the state this transaction exists to
+    # prevent. We capture whether a friendship existed so we can emit
+    # friend_removed events (the block is private to the blocker, but the
+    # friendship tear-down is a state change the other party legitimately
+    # needs to know about — they'd otherwise keep a stale entry in their
+    # friend list).
     lo, hi = sort_pair(me, target)
-    friendship_existed = (
-        await session.execute(
-            select(Friendship.user_a_id).where(
-                Friendship.user_a_id == lo, Friendship.user_b_id == hi
-            )
-        )
-    ).first() is not None
-    await session.execute(
-        sa_delete(Friendship).where(
-            Friendship.user_a_id == lo, Friendship.user_b_id == hi
-        )
-    )
     await session.execute(
         sa_delete(FriendRequest).where(
             or_(
@@ -92,6 +93,18 @@ async def create_block(
                     FriendRequest.receiver_id == me,
                 ),
             )
+        )
+    )
+    friendship_existed = (
+        await session.execute(
+            select(Friendship.user_a_id).where(
+                Friendship.user_a_id == lo, Friendship.user_b_id == hi
+            )
+        )
+    ).first() is not None
+    await session.execute(
+        sa_delete(Friendship).where(
+            Friendship.user_a_id == lo, Friendship.user_b_id == hi
         )
     )
     block = UserBlock(blocker_id=me, blocked_id=target)

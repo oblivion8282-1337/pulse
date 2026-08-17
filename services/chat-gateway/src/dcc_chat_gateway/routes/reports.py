@@ -26,6 +26,7 @@ from dcc_chat_gateway.complaint_escalate import (
 )
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import (
+    Channel,
     DirectMessageChannel,
     Message,
     MessageAttachment,
@@ -93,13 +94,40 @@ async def create_report(
             detail="too many reports — try again later",
         )
 
+    # Resolve+pin the guild scope at creation time for channel/message
+    # reports, same as the client-supplied pin used for member-list user
+    # reports. ``mod_queue_scope.py``'s three scoping mirrors all already
+    # treat ``target_guild_id`` as an unconditional match — but until now
+    # nothing ever populated it for channel/message reports, so they relied
+    # entirely on a live join against ``channels``/``messages``. Once the
+    # target channel (or its whole channel, cascading to the message) is
+    # deleted, that join stops matching and the report vanishes from every
+    # moderator's queue — permanently and unresolvably, since nothing else
+    # records which guild it belonged to. Persisting the resolved guild id
+    # here survives that deletion; the live-join branches still fire first
+    # for reports filed before this fix / any that somehow end up without
+    # a resolvable guild at creation time (e.g. a channel deleted in the
+    # same instant — falls back to no guild scope, matching the previous
+    # behaviour exactly).
+    target_guild_id = payload.target_guild_id
+    if target_guild_id is None and payload.target_channel_id is not None:
+        target_guild_id = await session.scalar(
+            select(Channel.guild_id).where(Channel.id == payload.target_channel_id)
+        )
+    elif target_guild_id is None and payload.target_message_id is not None:
+        target_guild_id = await session.scalar(
+            select(Channel.guild_id)
+            .join(Message, Message.channel_id == Channel.id)
+            .where(Message.id == payload.target_message_id)
+        )
+
     report = Report(
         id=next_id(),
         reporter_user_id=current.id,
         target_message_id=payload.target_message_id,
         target_user_id=payload.target_user_id,
         target_channel_id=payload.target_channel_id,
-        target_guild_id=payload.target_guild_id,
+        target_guild_id=target_guild_id,
         reason_code=payload.reason_code,
         body=payload.body,
         status="new",

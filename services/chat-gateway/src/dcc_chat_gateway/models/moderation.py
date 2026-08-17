@@ -113,10 +113,19 @@ class Report(Base):
     target_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     target_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     target_channel_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    # Explicit guild scope: set when a user is reported from a specific
-    # community's member list. Pins the report to THAT community instead of
-    # fanning out to every guild the target happens to be a member of. NULL
-    # for message/channel reports (scoped via those) and legacy user reports.
+    # Explicit guild scope. Set when a user is reported from a specific
+    # community's member list (pins the report to THAT community instead of
+    # fanning out to every guild the target happens to be a member of), AND
+    # (since 2026-08-18) resolved+stamped at creation time for channel/message
+    # reports too — a durable copy of the guild the target belonged to at
+    # report time. ``routes/mod_queue_scope.py``'s three scoping mirrors treat
+    # this column as an unconditional match ALONGSIDE the live channel/message
+    # join, so a report stays visible+resolvable even after its target channel
+    # or message is hard-deleted (the live join alone would make the report
+    # vanish from every moderator's queue once the row it points at is gone).
+    # NULL for legacy reports filed before this column was backfilled at
+    # creation time, and for user-only reports without an explicit community
+    # context (those still fan out to every guild the target is a member of).
     target_guild_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     reason_code: Mapped[str] = mapped_column(Text, nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)

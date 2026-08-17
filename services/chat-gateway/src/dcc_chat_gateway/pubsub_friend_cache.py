@@ -6,8 +6,26 @@ system). Holds the lazy-filled ``_ws_friends`` / ``_ws_blocks_out`` /
 with the friend/block lifecycle events the REST routes publish.
 
 State (``_ws_user``, ``_ws_friends``, ``_ws_blocks_out``, ``_ws_blocks_in``,
-``_user_conns``, ``_lock``) is initialised in ``ConnectionManager.__init__``;
-the mixin reaches it via ``self.`` through cooperative inheritance.
+``_ws_pending_deltas``, ``_user_conns``, ``_lock``) is initialised in
+``ConnectionManager.__init__``; the mixin reaches it via ``self.`` through
+cooperative inheritance.
+
+**Register→hydrate race:** ``routes/ws_ready.py`` registers the socket
+(``manager.register``), then loads the friend/block snapshot from the DB,
+then calls ``hydrate_friend_caches`` — three separate ``await`` points. A
+friend/block lifecycle event for this user can land on the pub/sub listener
+in that gap: the socket is already in ``_ws_user`` (so ``_apply_friend_*``
+finds it), but its cache dict entry doesn't exist yet, so the old code
+treated ``None`` as "not hydrated, nothing to mutate" and dropped the event
+on the floor — permanently, since the *next* thing to touch the cache was
+``hydrate_friend_caches`` overwriting it with the (now stale) DB snapshot.
+Fix: an un-hydrated mutation is buffered per-socket in
+``_ws_pending_deltas`` instead of dropped, and replayed once
+``hydrate_friend_caches`` lands the snapshot. Replay uses ``set.add`` /
+``set.discard`` — both idempotent — so it doesn't matter whether the
+buffered delta already made it into the DB snapshot (e.g. because the event
+fired between the DB read and the ``hydrate`` call rather than before it):
+applying it twice is a no-op, not a double-count.
 """
 
 from __future__ import annotations
@@ -30,13 +48,21 @@ class _FriendCacheMixin:
         """Seed the per-socket friend/block caches with already-loaded sets.
         Called from the WS endpoint right after ``register`` with the same
         sets the ``ready`` frame is built from — so the first lookup is
-        warm. No-op for sockets that have been removed."""
+        warm. No-op for sockets that have been removed.
+
+        Replays anything buffered in ``_ws_pending_deltas`` for this socket
+        (see module docstring) on top of the snapshot, then clears the
+        buffer — a lifecycle event that fired during the register→hydrate
+        gap must not still be sitting there after the socket is warm."""
         async with self._lock:
             if ws not in self._ws_user:
                 return
             self._ws_friends[ws] = set(friends)
             self._ws_blocks_out[ws] = set(blocks_out)
             self._ws_blocks_in[ws] = set(blocks_in)
+            for cache_attr, other, add in self._ws_pending_deltas.pop(ws, ()):
+                target = getattr(self, cache_attr)[ws]
+                target.add(other) if add else target.discard(other)
 
     def friends_for(self, ws: WebSocket) -> set[int] | None:
         """Read the cached friend set for this socket (None if not hydrated)."""
@@ -70,28 +96,32 @@ class _FriendCacheMixin:
                 return True
         return False
 
+    def _mutate_or_buffer(self, ws: WebSocket, cache_attr: str, other: int, add: bool) -> None:
+        """Apply an add/discard to a per-socket cache set, or — if that
+        socket's cache isn't hydrated yet (register→hydrate gap, see module
+        docstring) — buffer it in ``_ws_pending_deltas`` for
+        ``hydrate_friend_caches`` to replay. ``cache_attr`` is the name of
+        one of ``_ws_friends`` / ``_ws_blocks_out`` / ``_ws_blocks_in``."""
+        store = getattr(self, cache_attr).get(ws)
+        if store is not None:
+            store.add(other) if add else store.discard(other)
+        else:
+            self._ws_pending_deltas.setdefault(ws, []).append((cache_attr, other, add))
+
     def _apply_friend_added(self, user_a: int, user_b: int) -> None:
         """Mutate both users' cached friend sets when a friendship is installed."""
         for ws, u in list(self._ws_user.items()):
             if u.id == user_a:
-                friends = self._ws_friends.get(ws)
-                if friends is not None:
-                    friends.add(user_b)
+                self._mutate_or_buffer(ws, "_ws_friends", user_b, True)
             elif u.id == user_b:
-                friends = self._ws_friends.get(ws)
-                if friends is not None:
-                    friends.add(user_a)
+                self._mutate_or_buffer(ws, "_ws_friends", user_a, True)
 
     def _apply_friend_removed(self, user_a: int, user_b: int) -> None:
         for ws, u in list(self._ws_user.items()):
             if u.id == user_a:
-                friends = self._ws_friends.get(ws)
-                if friends is not None:
-                    friends.discard(user_b)
+                self._mutate_or_buffer(ws, "_ws_friends", user_b, False)
             elif u.id == user_b:
-                friends = self._ws_friends.get(ws)
-                if friends is not None:
-                    friends.discard(user_a)
+                self._mutate_or_buffer(ws, "_ws_friends", user_a, False)
 
     def _apply_block_added(self, blocker: int, blocked: int) -> None:
         """``blocker`` blocked ``blocked``. Update blocker's outgoing cache
@@ -100,30 +130,18 @@ class _FriendCacheMixin:
         for friend_removed go out separately when applicable."""
         for ws, u in list(self._ws_user.items()):
             if u.id == blocker:
-                bo = self._ws_blocks_out.get(ws)
-                if bo is not None:
-                    bo.add(blocked)
-                friends = self._ws_friends.get(ws)
-                if friends is not None:
-                    friends.discard(blocked)
+                self._mutate_or_buffer(ws, "_ws_blocks_out", blocked, True)
+                self._mutate_or_buffer(ws, "_ws_friends", blocked, False)
             elif u.id == blocked:
-                bi = self._ws_blocks_in.get(ws)
-                if bi is not None:
-                    bi.add(blocker)
-                friends = self._ws_friends.get(ws)
-                if friends is not None:
-                    friends.discard(blocker)
+                self._mutate_or_buffer(ws, "_ws_blocks_in", blocker, True)
+                self._mutate_or_buffer(ws, "_ws_friends", blocker, False)
 
     def _apply_block_removed(self, blocker: int, blocked: int) -> None:
         for ws, u in list(self._ws_user.items()):
             if u.id == blocker:
-                bo = self._ws_blocks_out.get(ws)
-                if bo is not None:
-                    bo.discard(blocked)
+                self._mutate_or_buffer(ws, "_ws_blocks_out", blocked, False)
             elif u.id == blocked:
-                bi = self._ws_blocks_in.get(ws)
-                if bi is not None:
-                    bi.discard(blocker)
+                self._mutate_or_buffer(ws, "_ws_blocks_in", blocker, False)
 
     def _apply_friend_lifecycle(self, target_uid: int, payload: dict) -> None:
         """Live-update the friend/block caches from the lifecycle events that

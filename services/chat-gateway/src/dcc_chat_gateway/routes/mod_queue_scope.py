@@ -27,7 +27,11 @@ def _guild_scope_predicate(guild_id: int):
     A report is in scope when *any* of its targets belongs to this guild:
       - target_channel_id → channel's guild_id matches
       - target_message_id → message's channel's guild_id matches
-      - target_guild_id → explicit community scope (member-list user report)
+      - target_guild_id → explicit community scope. Set for member-list
+        user reports, and (since 2026-08-18) also stamped at creation time
+        for channel/message reports (see ``routes/reports.py``) — the
+        durable fallback once the reported channel/message is hard-deleted
+        and the live-join branches below stop matching.
       - target_user_id only (no channel/message/guild target) → user is a
         member (legacy fan-out for reports raised without a guild context)
 

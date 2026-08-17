@@ -863,3 +863,100 @@ async def test_user_report_with_target_guild_scopes_to_that_guild_only(
     cnt_b = (await client.get(f"/guilds/{g_b['id']}/mod-queue/count", headers=auth(t_owner))).json()
     assert cnt_a["count"] == 1
     assert cnt_b["count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Reports must survive their target being hard-deleted (Bughunt 2026-08-17)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_channel_report_survives_channel_deletion(client, _auth_signer):
+    """A channel-target report filed through the real ``POST /reports`` path
+    (which now resolves+stamps ``target_guild_id`` — see test_reports.py)
+    stays visible in the mod-queue after the reported channel is deleted.
+
+    Before the fix, ``_guild_scope_predicate`` scoped a channel report
+    purely via a live join against ``channels`` — once the channel row was
+    gone, the report vanished from every moderator's queue permanently and
+    unresolvably."""
+    t_owner, _ = await _token(_auth_signer)
+    g = await _make_guild(client, t_owner)
+    ch = (
+        await client.post(
+            f"/guilds/{g['id']}/channels",
+            json={"name": "general", "type": 0},
+            headers=auth(t_owner),
+        )
+    ).json()
+
+    t_reporter, _ = await _token(_auth_signer)
+    created = await client.post(
+        "/reports",
+        json={
+            "target_channel_id": ch["id"],
+            "reason_code": "spam",
+            "body": "Spam channel.",
+        },
+        headers=auth(t_reporter),
+    )
+    assert created.status_code == 201, created.text
+    rid = created.json()["id"]
+
+    r = await client.delete(f"/channels/{ch['id']}", headers=auth(t_owner))
+    assert r.status_code == 204, r.text
+
+    r = await client.get(f"/guilds/{g['id']}/mod-queue", headers=auth(t_owner))
+    assert r.status_code == 200
+    assert rid in {item["id"] for item in r.json()}
+
+    # Still resolvable, not just listable.
+    r = await client.post(
+        f"/guilds/{g['id']}/mod-queue/{rid}/resolve",
+        json={"resolution": "dismissed"},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.asyncio
+async def test_message_report_survives_channel_deletion(client, _auth_signer):
+    """Same as above for a message-target report — the channel delete
+    cascades to hard-delete its messages too (``routes/channels.py::
+    delete_channel``), so the message-join branch dies with it as well."""
+    t_owner, _ = await _token(_auth_signer)
+    g = await _make_guild(client, t_owner)
+    ch = (
+        await client.post(
+            f"/guilds/{g['id']}/channels",
+            json={"name": "general", "type": 0},
+            headers=auth(t_owner),
+        )
+    ).json()
+    msg = (
+        await client.post(
+            f"/channels/{ch['id']}/messages",
+            json={"content": "spam"},
+            headers=auth(t_owner),
+        )
+    ).json()
+
+    t_reporter, _ = await _token(_auth_signer)
+    created = await client.post(
+        "/reports",
+        json={
+            "target_message_id": msg["id"],
+            "reason_code": "spam",
+            "body": "Spam message.",
+        },
+        headers=auth(t_reporter),
+    )
+    assert created.status_code == 201, created.text
+    rid = created.json()["id"]
+
+    r = await client.delete(f"/channels/{ch['id']}", headers=auth(t_owner))
+    assert r.status_code == 204, r.text
+
+    r = await client.get(f"/guilds/{g['id']}/mod-queue", headers=auth(t_owner))
+    assert r.status_code == 200
+    assert rid in {item["id"] for item in r.json()}
