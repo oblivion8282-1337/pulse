@@ -103,11 +103,15 @@ function rotateIfNeeded(zusatz: number): void {
 const drossel = createDrossel();
 
 /**
- * Append one sidecar output line. `stream` tags the source (`out` / `err` /
- * `lifecycle`); empty lines are dropped. All errors are swallowed so a
- * misbehaving filesystem can never take the sidecar down with it.
+ * Append one sidecar log line. `stream` tags the source, gesehen aus der Sicht
+ * des Sidecars: `out` / `err` sind seine beiden Ausgabekanäle, **`in` ist, was
+ * ihm über stdin geschickt wurde** (seit 2026-08-17 — bis dahin waren nur die
+ * Antworten zu sehen, nie die Fragen, und damit nicht, ob ein Stopp befohlen
+ * wurde). `lifecycle` gehört Electron selbst. Empty lines are dropped. All
+ * errors are swallowed so a misbehaving filesystem can never take the sidecar
+ * down with it.
  */
-export function logSidecar(stream: 'out' | 'err' | 'lifecycle', line: string): void {
+export function logSidecar(stream: 'in' | 'out' | 'err' | 'lifecycle', line: string): void {
   const text = (line ?? '').trimEnd();
   if (!text.trim()) return;
   const now = Date.now();

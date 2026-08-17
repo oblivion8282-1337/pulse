@@ -208,8 +208,17 @@ export function geraetWecken(
  * **Nur die selbst geweckten Plätze.** Was der Besitzer von Hand gestartet hat,
  * steht nicht in der Karte und bleibt unangetastet — es wäre sein Stream, nicht
  * unserer.
+ *
+ * **`grund` ist Pflicht, und zwar aus einem konkreten Anlass** (2026-08-17):
+ * hier endet die Übertragung eines unbeaufsichtigten Rechners, und bis dahin
+ * stand nirgends, dass und warum das geschah. Für den Steuernden sieht es aus
+ * wie „das Bild ist weg"; im Protokoll war es von einem Abbruch nicht zu
+ * unterscheiden. Es gibt vier Wege hierher — abgelaufene Nachlauf-Frist,
+ * abgelehnte Anfrage, beendete Fernsteuerung, der Knopf des Besitzers —, und
+ * welcher es war, beantwortet die Frage. Deshalb kein Vorgabewert: ein
+ * Aufrufer, der nichts sagt, soll gar nicht erst durchkommen.
  */
-export async function wiederEinschlafen(): Promise<void> {
+export async function wiederEinschlafen(grund: string): Promise<void> {
   if (nachlaufWecker) clearTimeout(nachlaufWecker);
   nachlaufWecker = null;
   const laufend = new Set(runningStreamSlots());
@@ -219,7 +228,18 @@ export async function wiederEinschlafen(): Promise<void> {
     if (laufend.has(slot)) void remoteProtokoll.beenden(vorgang);
   }
   vorgangFuerPlatz.clear();
-  await Promise.all(plaetze.map((slot) => stopSlot(slot)));
+  // Fürs Entwickeln, wo die Renderer-Konsole offen ist — und für den Fall, dass
+  // gar nichts mehr lief: dann geht unten kein Befehl hinaus und die
+  // dauerhafte Spur unten entsteht nicht. Im verpackten Build ist diese Zeile
+  // wertlos (Electrons Renderer-Konsole hat dort keinen Abnehmer), deshalb ist
+  // sie NICHT die eigentliche Antwort.
+  console.info(`[geraet] schlafen gelegt (${grund}) — ${plaetze.length} Übertragung(en)`);
+  // **Die dauerhafte Spur.** Der Grund reist im `stop`-Befehl mit und steht
+  // damit in der `sidecar.log`, in derselben Zeile wie der Stopp selbst — der
+  // einzigen Datei, die der Diagnose-Upload überträgt. Genau diese eine Zeile
+  // hat am 2026-08-17 gefehlt: dass der Sender aufhörte, war zu sehen, ob es
+  // ihm jemand befohlen hatte, nicht.
+  await Promise.all(plaetze.map((slot) => stopSlot(slot, `schlafen gelegt: ${grund}`)));
 }
 
 /**
@@ -259,7 +279,7 @@ function nachlaufWachen(): void {
   nachlaufWecker = setTimeout(() => {
     nachlaufWecker = null;
     if (remoteSession.phase === 'active' && remoteSession.role === 'host') return;
-    void wiederEinschlafen();
+    void wiederEinschlafen('Nachlauf-Frist abgelaufen, keine Übernahme zustande gekommen');
   }, NACHLAUF_MS);
 }
 
@@ -283,7 +303,22 @@ export async function weckrufBehandeln(
   if (!eintrag || eintrag.deviceId !== deviceId) return;
 
   const quelle = quelleFuerMonitor(monitor);
-  if (laeuftSchon(quelle)) return;
+  if (laeuftSchon(quelle)) {
+    // **Verworfen wird weiterhin — aber nicht mehr stumm** (2026-08-17). Dieses
+    // frühe Zurückspringen ist richtig: eine zweite Übertragung derselben
+    // Quelle kostet Rechenzeit und Bandbreite für dasselbe Bild. Für den
+    // Steuernden ist es aber ununterscheidbar von „nichts passiert" — er wartet
+    // 25 s (`schirme.svelte.ts::WARTEN_MS`) und bekommt dann „hat nicht
+    // geantwortet". Am 2026-08-17 hat genau das eine halbe Stunde Fehlersuche
+    // gekostet, weil auf beiden Seiten nichts darüber im Protokoll stand.
+    //
+    // Die Auswahl beim Steuernden blendet schon laufende Schirme aus
+    // (`devices/schirme.svelte.ts`), hierher kommt also nur, wessen Zuordnung
+    // dort nicht getroffen hat — und dann ist diese Zeile der einzige Hinweis
+    // darauf, dass der Ruf ankam und bewusst verfiel.
+    console.info(`[geraet] Weckruf verworfen — "${quelle}" überträgt bereits`);
+    return;
+  }
 
   // Der erste Bildschirm trägt den Ton, jeder weitere ist stumm (s. Modulkopf).
   // **Vergebene Plätze zählen mit**, sonst hielte sich ein zweiter Weckruf

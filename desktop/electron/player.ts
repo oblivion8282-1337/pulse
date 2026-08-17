@@ -32,7 +32,9 @@ import { app } from 'electron';
 
 import { diagnoseEingeschaltet } from './experimental-log-upload';
 import { createHwdecWacht } from './player-hwdec-wacht';
+import { createLeerlaufWacht } from './player-leerlauf';
 import { logSidecar } from './sidecar-log';
+import { befehlZeile } from './sidecar-log-befehle';
 
 /**
  * Eine Zeile in beide Kanaele: Datei-Log (ueberlebt den verpackten Build) und
@@ -42,7 +44,7 @@ import { logSidecar } from './sidecar-log';
  * damit er in der gemeinsamen Datei erhalten bleibt — sonst waeren
  * Player-Zeilen dort nicht von denen des Capture-Sidecars zu unterscheiden.
  */
-function log(stream: 'out' | 'err' | 'lifecycle', line: string): void {
+function log(stream: 'in' | 'out' | 'err' | 'lifecycle', line: string): void {
   const text = `[pulse-player] ${line}`;
   logSidecar(stream, text);
   if (stream === 'err' || stream === 'lifecycle') console.error(text);
@@ -56,6 +58,27 @@ const OPEN_TIMEOUT_MS = 30_000;
 const SHUTDOWN_GRACE_MS = 2_000;
 /** Nach SIGTERM, bevor hart beendet wird — gleiche Staffelung wie `sidecar.ts`. */
 const SHUTDOWN_SIGTERM_GRACE_MS = 2_000;
+
+/**
+ * Wie lange der Player ohne ein einziges Fenster weiterlaufen darf. Wozu es
+ * diese Frist gibt und warum nicht sofort beendet wird: `player-leerlauf.ts`.
+ *
+ * **Warum ausgerechnet 30 s.** Zwei gemessene Werte begrenzen das nach unten.
+ * Im untersuchten Vorfall vom 2026-08-17 lagen **23 s** zwischen dem `close`
+ * des einen und dem `open` des naechsten Fensters — der ferne Rechner musste
+ * dazwischen geweckt werden und seinen Encoder hochfahren. Und die App selbst
+ * wartet bis zu **25 s** auf das erste Bild, bevor sie aufgibt
+ * (`web/src/lib/devices/schirme.svelte.ts`, `WARTEN_MS`). Eine kuerzere Frist
+ * als diese 25 s erzwaenge einen Neustart ausgerechnet im langsamsten Fall, den
+ * es regulaer gibt. 30 s liegt darueber und ist zugleich kurz genug, dass ein
+ * unbenutzter Player keine halbe Stunde Speicher haelt.
+ *
+ * **Annahme, die falsch sein kann:** dass ein Neustart billig ist. Hier ist er
+ * es (der Prozess selbst startet in Millisekunden, die Zeit geht in den
+ * WebRTC-Aufbau, den es ohnehin braucht). Zeigt sich das auf schwachen
+ * Maschinen anders, ist diese Zahl die Stellschraube — nicht das Abschalten.
+ */
+const LEERLAUF_MS = 30_000;
 
 const BINARY_NAME = process.platform === 'win32' ? 'pulse-player.exe' : 'pulse-player';
 
@@ -176,6 +199,29 @@ class PlayerManager {
    * auslaesst. Begruendung im Kopf von `player-hwdec-wacht.ts`.
    */
   private hwdecWacht = createHwdecWacht();
+  /**
+   * Welche Fenster offen sind, und wann ohne sie Schluss ist.
+   *
+   * Gefuehrt aus dem Protokollstrom und nicht aus einem Zaehler im Renderer:
+   * `open`, `close` und das vom Nutzer ausgeloeste `player:state closed` laufen
+   * alle ueber dieselbe stdio-Leitung, und nur hier sind sie vollstaendig zu
+   * sehen. Ein Renderer, der neu geladen wird, verloere seinen Stand.
+   */
+  private leerlauf = createLeerlaufWacht(LEERLAUF_MS, () => {
+    log('lifecycle', `kein Fenster mehr seit ${LEERLAUF_MS / 1000} s — wird beendet`);
+    void this.shutdown();
+  });
+  /**
+   * Der Prozess, den WIR beenden — sein `exit` ist kein Stoerfall.
+   *
+   * Als Referenz auf den Kindprozess und nicht als `boolean`: `exit` kommt
+   * asynchron, und ein Merker ohne Zuordnung koennte den Sturz eines
+   * NACHFOLGERS verschlucken. Ohne diese Unterscheidung meldete jedes gewollte
+   * Herunterfahren dem Renderer ein `failed`, und der verriegelt darauf den
+   * eigenen Weg (`nativeFailed` in `useNativePlayback.svelte.ts`) — der Player
+   * waere nach dem ersten Leerlauf bis zum naechsten Mount abgemeldet.
+   */
+  private gewollterAbbau: ChildProcessWithoutNullStreams | null = null;
 
   isAvailable(): boolean {
     if (this.startFailed) return false;
@@ -275,6 +321,17 @@ class PlayerManager {
       this.rl?.close();
       this.rl = null;
       this.child = null;
+      // Mit dem Prozess sind auch seine Fenster weg. Der naechste Start faengt
+      // bei null an — bliebe hier ein Eintrag stehen, waere die Leerlauf-Frist
+      // fuer den Nachfolger dauerhaft entschaerft.
+      this.leerlauf.zuruecksetzen();
+      // **Ein von uns gewolltes Ende ist kein Stoerfall.** Beim Leerlauf-Abbau
+      // (und beim App-Ende) darf der Renderer kein `failed` sehen — s.
+      // `gewollterAbbau`.
+      if (this.gewollterAbbau === child) {
+        this.gewollterAbbau = null;
+        return;
+      }
       // Laufende Sitzungen sind mit dem Prozess weg — den Renderer informieren,
       // damit er auf den Standardweg zurueckfaellt.
       //
@@ -345,6 +402,12 @@ class PlayerManager {
     // Ereignis (`ev`) statt Antwort (`id`/`ok`) — gleiche Unterscheidung wie
     // bei den Capture-Sidecars.
     if (typeof msg.ev === 'string') {
+      // Das Fensterkreuz meldet sich hier und NICHT als `close`-Op: der Nutzer
+      // hat im Fenster geschlossen, die App erfaehrt es erst durch diese
+      // Meldung. Ohne sie zaehlte nur, was die App selbst zumacht.
+      if (msg.ev === 'player:state' && msg.state === 'closed' && typeof msg.session === 'number') {
+        this.leerlauf.geschlossen(msg.session);
+      }
       this.emit(msg);
       return;
     }
@@ -383,6 +446,14 @@ class PlayerManager {
 
   /** Schickt eine Operation und wartet auf die zugehoerige Antwort. */
   async call(op: string, params: Record<string, unknown> = {}): Promise<PlayerMessage> {
+    // **Das `close` wird VOR der Antwort gebucht.** Wer schliesst, will das
+    // Fenster los — ob der Player es bestaetigt, aendert daran nichts, und eine
+    // Absage („unbekannte Sitzung") liesse den Eintrag sonst fuer immer stehen
+    // und die Leerlauf-Frist nie anlaufen.
+    if (op === 'close' && typeof params.session === 'number') {
+      this.leerlauf.geschlossen(params.session);
+    }
+
     const child = this.ensureStarted();
     const id = this.nextId;
     this.nextId += 1;
@@ -390,7 +461,7 @@ class PlayerManager {
     const timeoutMs = op === 'open' ? OPEN_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
     const payload = JSON.stringify({ ...params, op, id });
 
-    return new Promise<PlayerMessage>((resolve, reject) => {
+    const antwort = await new Promise<PlayerMessage>((resolve, reject) => {
       const fail = (err: Error): void => {
         this.pending.delete(id);
         clearTimeout(timer);
@@ -401,10 +472,25 @@ class PlayerManager {
         timeoutMs,
       );
       this.pending.set(id, { resolve, reject, timer });
+      // **Dieselbe Luecke wie im Capture-Sidecar** (2026-08-17): mitgeschrieben
+      // wurden nur die Antworten. Ein Fenster, das zugeht, sah damit gleich aus,
+      // ob die App es geschlossen hat oder ob es von selbst verschwand. Die
+      // Eingabe-Ops der Fernsteuerung (bis zu 125/s, s. `handleLine`) bleiben
+      // draussen — die Positivliste in `sidecar-log-befehle.ts` laesst nur den
+      // Lebenszyklus durch.
+      const zeile = befehlZeile({ ...params, op, id });
+      if (zeile) log('in', zeile);
       child.stdin.write(`${payload}\n`, (err) => {
         if (err) fail(err);
       });
     });
+
+    // Die Sitzungsnummer vergibt der Player, sie steht erst in der Antwort.
+    // Ein gescheitertes `open` kommt gar nicht bis hierher (`call` wirft dann).
+    if (op === 'open' && typeof antwort.session === 'number') {
+      this.leerlauf.geoeffnet(antwort.session);
+    }
+    return antwort;
   }
 
   /**
@@ -442,8 +528,16 @@ class PlayerManager {
    * `before-quit`.
    */
   async shutdown(): Promise<void> {
+    // Die Frist gilt fuer einen Prozess, den es gleich nicht mehr gibt —
+    // zuerst weg damit, auch im frueh zurueckspringenden Fall unten. Sonst
+    // liefe sie nach einem App-Ende-Shutdown ins Leere und ein neu gestarteter
+    // Player (naechstes Fenster) bekaeme ein fremdes Beenden ab.
+    this.leerlauf.zuruecksetzen();
     const child = this.child;
     if (!child || child.killed) return;
+    // Ab hier ist das Ende gewollt — der `exit`-Handler meldet dem Renderer
+    // dann kein `failed` (s. `gewollterAbbau`).
+    this.gewollterAbbau = child;
     try {
       await Promise.race([
         this.call('shutdown'),
