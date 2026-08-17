@@ -2,6 +2,28 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-18.2",
+      "date": "2026-08-18",
+      "style": "Sachlich",
+      "title": "Auflegen wirkt sofort, Ungelesen-Marken bleiben",
+      "intro": "Mehrere Stellen, an denen die Oberfläche etwas anderes tat als sie anzeigte — beim Auflegen, beim Serverwechsel und überall dort, wo der Server etwas ablehnte, ohne dass es jemand erfuhr.",
+      "items": [
+        "Wer auflegt, während die Verbindung noch aufgebaut wird, ist wirklich weg. Bisher konnte der Beitritt danach trotzdem zustande kommen — samt offenem Mikrofon, obwohl die Oberfläche getrennt anzeigte.",
+        "Dasselbe für Kamera und Bildschirmübertragung: legst du auf, während der Auswahldialog offen steht, bleibt die Aufnahme nicht hängen.",
+        "Die Rauschunterdrückung bleibt nach einem erneuten Beitritt aktiv. Unter bestimmten Umständen hielt sie sich für eingeschaltet, war es aber nicht — ohne dass etwas darauf hindeutete.",
+        "Ein Serverwechsel löscht nicht mehr deine Ungelesen-Marken und deinen Lesestand. Bisher konnte der gesamte gespeicherte Stand über alle Server hinweg verlorengehen.",
+        "Lehnt der Server das Starten einer Watch-Party oder einen Videowechsel ab, siehst du das jetzt. Bisher schloss sich der Dialog und nichts geschah.",
+        "Dasselbe beim Zurücksetzen des Tamagotchi ohne die nötige Berechtigung — es zeigte Erfolg an, obwohl der Server ablehnte.",
+        "Die Herkunftsanzeige der Kanalrechte stimmt wieder mit dem tatsächlichen Ergebnis überein, wenn eine Überschreibung dasselbe Recht gleichzeitig erlaubt und verbietet.",
+        "Beim Nachladen älterer Nachrichten werden Lücken jetzt wirklich abgeglichen.",
+        "Fernsteuerung: fällt die Direktverbindung weg, kommt eine gerade gedrückte Taste nicht mehr doppelt beim anderen Rechner an.",
+        "Ein Standplatz-Gerät, das mit zehn Bit sendet, wird Zuschauern auch als solches gemeldet.",
+        "Direktnachrichten lösen wieder eine Push-Benachrichtigung aus, wenn sie über die Weboberfläche gesendet wurden — also im Normalfall.",
+        "Eine Erwähnung mit einer übergrossen Zahl bringt den Nachrichtenversand nicht mehr zum Absturz.",
+        "Eine Einladung, die die App im Moment des Startens erreicht, geht nicht mehr verloren."
+      ]
+    },
+    {
       "id": "2026-08-18",
       "date": "2026-08-18",
       "style": "Sachlich",

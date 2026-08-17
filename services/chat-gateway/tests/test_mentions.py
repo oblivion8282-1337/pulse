@@ -75,6 +75,24 @@ def test_parse_markers_extracts_all_kinds():
     assert (MENTION_TYPE_EVERYONE, MENTION_EVERYONE_TARGET_ID) in out
 
 
+def test_parse_markers_drops_int64_overflow():
+    """A 20-digit id (the regex allows up to 20 digits) overflows the
+    signed-64-bit ``user_id``/``role.id`` columns. Regression: this used
+    to reach ``filter_to_valid``'s ``session.execute`` unfiltered and
+    crash the whole send with an unguarded driver error (asyncpg/sqlite3
+    "out of range")."""
+    from dcc_chat_gateway.mentions import INT64_MAX, parse_markers
+    from dcc_chat_gateway.models import MENTION_TYPE_ROLE, MENTION_TYPE_USER
+
+    too_big = INT64_MAX + 1  # 9223372036854775808, 19 digits, still <20
+    way_too_big = 99999999999999999999  # 20 digits, the regex's own ceiling
+    out = parse_markers(f"<@{too_big}> <@&{way_too_big}> <@{INT64_MAX}>")
+    assert (MENTION_TYPE_USER, too_big) not in out
+    assert (MENTION_TYPE_ROLE, way_too_big) not in out
+    # A value AT the boundary is still accepted (off-by-one check).
+    assert (MENTION_TYPE_USER, INT64_MAX) in out
+
+
 def test_parse_markers_dedupes_and_handles_here():
     from dcc_chat_gateway.mentions import parse_markers
     from dcc_chat_gateway.models import MENTION_TYPE_EVERYONE, MENTION_TYPE_USER
@@ -397,6 +415,77 @@ async def test_edit_message_only_pings_new_user(ws_app, _auth_signer):
                 )
                 f = ws_bob.receive_json()
                 assert f["op"] != "mention_added"
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_post_message_oversized_mention_does_not_crash(client, _auth_signer):
+    """A 20-digit ``<@...>`` marker (INT8 overflow) must not 500 the REST
+    send path — it's silently dropped like any other non-resolvable
+    marker."""
+    t_owner, _, _, _, _, cid = await _make_two_member_guild(client, _auth_signer)
+    r = await client.post(
+        f"/channels/{cid}/messages",
+        json={"content": "hi <@99999999999999999999>"},
+        headers=_auth(t_owner),
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["mentions"] == []
+
+
+@pytest.mark.asyncio
+async def test_ws_send_oversized_mention_does_not_crash(ws_app, _auth_signer):
+    """Same overflow, but driven through the WS ``send`` op end-to-end —
+    the path this bug report specifically flagged as a 500-trigger."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, _, _, _, cid = _bootstrap_two_users(tc, _auth_signer)
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ws_o:
+                receive_skipping(ws_o)  # skip hello + ready
+                ws_o.send_json({"op": "subscribe", "channel_id": cid})
+                ws_o.send_json(
+                    {
+                        "op": "send",
+                        "channel_id": cid,
+                        "content": "hi <@99999999999999999999>",
+                        "nonce": "n-overflow",
+                    }
+                )
+                # Must get a normal ack + broadcast, not a WS error frame /
+                # dropped connection.
+                frame = _drain_until(ws_o, lambda f: f.get("op") == "message")
+                assert frame["data"]["mentions"] == []
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_ws_send_oversized_reply_to_id_rejected_not_crashed(ws_app, _auth_signer):
+    """Same overflow class, different field: ``reply_to_id`` is also an
+    unbounded user-supplied number that used to reach
+    ``session.get(Message, reply_to_int)`` unguarded. Must come back as a
+    clean 4005 error frame, not a crashed/closed connection."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, _, _, _, cid = _bootstrap_two_users(tc, _auth_signer)
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ws_o:
+                receive_skipping(ws_o)  # skip hello + ready
+                ws_o.send_json({"op": "subscribe", "channel_id": cid})
+                ws_o.send_json(
+                    {
+                        "op": "send",
+                        "channel_id": cid,
+                        "content": "reply to a bogus id",
+                        "reply_to_id": "99999999999999999999",
+                        "nonce": "n-reply-overflow",
+                    }
+                )
+                frame = ws_o.receive_json()
+                assert frame["op"] == "error"
+                assert frame["code"] == 4005
 
     await asyncio.to_thread(_run)
 

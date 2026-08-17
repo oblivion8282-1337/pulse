@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated
 
+from dcc_shared.snowflake import INT64_MAX, INT64_MIN
 from pydantic import (
     BaseModel,
     BeforeValidator,
@@ -30,12 +31,24 @@ def _coerce_id(value: object) -> int:
     JavaScript clients must pass IDs as strings because Number can't
     represent >2^53 without precision loss. We accept both forms so the
     Python tests stay ergonomic.
+
+    Der Bereich wird geprueft (Bughunt 17. August): eine Kennung ausserhalb
+    von BIGINT bringt nicht diese Pruefung zu Fall, sondern den Datenbank-
+    treiber — der Nutzer bekaeme einen 500er statt einer Eingabefehlermeldung,
+    und er kann ihn mit einer harmlos aussehenden Nachricht ausloesen. Die
+    Pruefung sitzt hier, weil ``SnowflakeId`` die gemeinsame Naht ALLER
+    REST-Eingaben ist; eine Grenze je Route waere genau die Sorte Kopie, die
+    dann an einer Stelle fehlt.
     """
     if isinstance(value, int):
-        return value
-    if isinstance(value, str):
-        return int(value)
-    raise TypeError(f"expected int or string id, got {type(value).__name__}")
+        parsed = value
+    elif isinstance(value, str):
+        parsed = int(value)
+    else:
+        raise TypeError(f"expected int or string id, got {type(value).__name__}")
+    if not (INT64_MIN <= parsed <= INT64_MAX):
+        raise ValueError("id out of range")
+    return parsed
 
 
 SnowflakeId = Annotated[int, BeforeValidator(_coerce_id)]

@@ -29,11 +29,14 @@ from dcc_chat_gateway.friend_helpers import (
     friendship_exists,
 )
 from dcc_chat_gateway.mentions import (
+    INT64_MAX,
+    INT64_MIN,
     MENTION_EVERYONE_RE,
     fan_out_mention_events,
     filter_to_valid,
     parse_markers,
     persist_for_message,
+    serialize_mention_targets,
 )
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_TEXT,
@@ -41,7 +44,7 @@ from dcc_chat_gateway.models import (
     Message,
 )
 from dcc_chat_gateway.permissions import resolve_permissions
-from dcc_chat_gateway.push import fan_out_mention_push
+from dcc_chat_gateway.push import fan_out_dm_push, fan_out_mention_push
 from dcc_chat_gateway.routes._deps import resolve_channel_for_user
 from dcc_chat_gateway.routes.messages import serialize_message
 from dcc_chat_gateway.routes.ws_ops_registry import WSOpContext
@@ -79,6 +82,10 @@ async def handle_send(ctx: WSOpContext, msg: dict[str, Any]) -> None:
             {"op": "error", "code": 4005, "msg": "invalid send payload"}
         )
         return
+    # Store the trimmed content, matching REST's ``payload.content.strip()``
+    # (messages.py post_message) — otherwise WS-sent messages keep stray
+    # leading/trailing whitespace that the REST path would have dropped.
+    content = content.strip()
     # Reject over-long content explicitly instead of silently truncating to
     # 4000 — the REST endpoint also rejects with 422, so the WS path
     # matches that semantics.
@@ -99,6 +106,16 @@ async def handle_send(ctx: WSOpContext, msg: dict[str, Any]) -> None:
         try:
             reply_to_int = int(reply_to_raw)
         except (TypeError, ValueError):
+            await websocket.send_json(
+                {"op": "error", "code": 4005, "msg": "invalid reply_to_id"}
+            )
+            return
+        # ``messages.id`` ist signed-64-bit BIGINT. Ein Wert ausserhalb des
+        # Bereichs kann nie eine echte Nachricht treffen und wuerde das
+        # spaetere ``session.get(Message, reply_to_int)`` mit einem
+        # ungefangenen Treiberfehler abstuerzen lassen (gleiche Ursache wie
+        # der Ueberlauf bei @-Erwaehnungen, siehe ``mentions.py``).
+        if not (INT64_MIN <= reply_to_int <= INT64_MAX):
             await websocket.send_json(
                 {"op": "error", "code": 4005, "msg": "invalid reply_to_id"}
             )
@@ -257,9 +274,7 @@ async def handle_send(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     await websocket.send_json(
         {"op": "message_ack", "nonce": nonce, "id": str(persisted.id)}
     )
-    mentions_serial = [
-        {"type": t, "id": str(tid)} for (t, tid) in sorted(valid_mentions)
-    ]
+    mentions_serial = serialize_mention_targets(valid_mentions)
     # Publish is best-effort: message is already persisted, so a Redis
     # failure must not kill the WS connection.
     try:
@@ -330,3 +345,16 @@ async def handle_send(ctx: WSOpContext, msg: dict[str, Any]) -> None:
             )
         except Exception:
             log.exception("ws dm_bump publish failed for channel %s", cid)
+        # Closed-browser web-push for the DM recipient (the other member).
+        # The dm_bump above only reaches tabs that are open. Mirrors
+        # routes/messages.py::post_message (same ordering — after the
+        # in-app bump). Best-effort — fan_out_dm_push never raises.
+        recipient_id = dm_pair[1] if dm_pair[0] == user.id else dm_pair[0]
+        if recipient_id != user.id:
+            await fan_out_dm_push(
+                recipient_id=recipient_id,
+                author_name=user.username,
+                content=content,
+                channel_id=cid_int,
+                message_id=persisted.id,
+            )

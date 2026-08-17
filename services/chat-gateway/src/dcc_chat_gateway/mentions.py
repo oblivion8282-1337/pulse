@@ -33,6 +33,7 @@ import re
 from dcc_shared.events import MentionAddedData, MentionAddedEvent
 from dcc_shared.permission_resolver import has_permission
 from dcc_shared.permissions import Permissions
+from dcc_shared.snowflake import INT64_MAX, INT64_MIN
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import HTTPConnection
@@ -67,6 +68,14 @@ _MENTION_ROLE_RE = re.compile(r"<@&(\d{1,20})>")
 # route still owns the permission-reject (we just expose the regex).
 MENTION_EVERYONE_RE = re.compile(r"(?<!\w)@(everyone|here)\b")
 
+# User-/Rollen-Marker erlauben bis zu 20 Ziffern (siehe Regex oben), aber die
+# Ziel-Spalten (``guild_members.user_id`` / ``roles.id``) sind signed-64-bit
+# BIGINT. Ein Wert ausserhalb dieses Bereichs kann nie ein echtes Snowflake
+# treffen und liesse ``session.execute`` in ``filter_to_valid`` mit einem
+# ungefangenen Treiberfehler abstuerzen (asyncpg: "value out of int64
+# range"), was den kompletten Sende-Vorgang killt statt die nicht aufloesbare
+# Markierung still zu verwerfen (siehe Docstring von ``filter_to_valid``).
+
 
 def parse_markers(content: str) -> set[tuple[int, int]]:
     """Extract every well-formed mention marker from ``content``.
@@ -77,15 +86,23 @@ def parse_markers(content: str) -> set[tuple[int, int]]:
     re-firing the per-user ``mention_added`` envelope per repetition
     would be a notification-spam vector.
 
+    Markers whose numeric id falls outside signed-64-bit range are dropped
+    here (rather than surfacing later as a DB error) — same treatment as
+    any other marker that can't resolve to a real member/role.
+
     Pure function; no DB, no permission knowledge. Caller layers the
     validation (member-of-guild, role mentionable, ``MENTION_EVERYONE``)
     on top via ``filter_to_valid``.
     """
     out: set[tuple[int, int]] = set()
     for m in _MENTION_USER_RE.finditer(content):
-        out.add((MENTION_TYPE_USER, int(m.group(1))))
+        tid = int(m.group(1))
+        if INT64_MIN <= tid <= INT64_MAX:
+            out.add((MENTION_TYPE_USER, tid))
     for m in _MENTION_ROLE_RE.finditer(content):
-        out.add((MENTION_TYPE_ROLE, int(m.group(1))))
+        tid = int(m.group(1))
+        if INT64_MIN <= tid <= INT64_MAX:
+            out.add((MENTION_TYPE_ROLE, tid))
     if MENTION_EVERYONE_RE.search(content):
         out.add((MENTION_TYPE_EVERYONE, MENTION_EVERYONE_TARGET_ID))
     return out
@@ -398,6 +415,8 @@ async def fan_out_mention_events(
 
 
 __all__ = [
+    "INT64_MAX",
+    "INT64_MIN",
     "MENTION_EVERYONE_RE",
     "fan_out_mention_events",
     "filter_to_valid",
