@@ -79,6 +79,12 @@ def _isolate_settings(_registry_cert):
     # admin route, which normally invalidates, is bypassed) does not leak a
     # stale value into the next.
     _invalidate_smtp_cache()
+    # Der CRL-Endpunkt fuellt ein leeres Redis-ZSET hoechstens einmal je Minute
+    # aus der Datenbank nach. Der Merker ist prozessweit — ohne Reset erbte ein
+    # Test die Sperre des vorigen und saehe eine leere Sperrliste.
+    import dcc_auth.routes_crl as _crl
+
+    _crl._last_reseed = None
     # Force the test DB and small ttl so refresh-expired path is testable.
     s = Settings(
         database_url="sqlite+aiosqlite:///:memory:",
