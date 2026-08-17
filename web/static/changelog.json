@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-17.4",
+      "date": "2026-08-17",
+      "style": "Sachlich",
+      "title": "Sicherheit: Ausweise enden mit dem Konto",
+      "intro": "Geräte weisen sich auf fremden Servern mit einem Ausweis aus, den Pulse ausstellt. Was mit diesem Ausweis passiert, wenn das Konto dahinter verschwindet, ist jetzt eindeutig geregelt.",
+      "items": [
+        "Löschst du dein Konto, verlieren die Ausweise deiner Geräte überall ihre Gültigkeit — auch auf Servern, die nicht von uns betrieben werden. Sie melden sich danach nirgends mehr an.",
+        "Dasselbe gilt, wenn ein Konto gesperrt wird: die Sperre erreicht jeden Server, nicht nur die Anmeldung hier.",
+        "Ein Widerruf bleibt so lange bestehen, wie der Ausweis gegolten hätte. Er kann nicht dadurch wirkungslos werden, dass es das Konto inzwischen nicht mehr gibt.",
+        "Widerrufen wird nur die Kennung des Ausweises. Was an einem gelöschten Konto hing — Name, Gerätebezeichnung, Schlüssel —, bleibt gelöscht."
+      ]
+    },
+    {
       "id": "2026-08-17.3",
       "date": "2026-08-17",
       "style": "Sachlich",

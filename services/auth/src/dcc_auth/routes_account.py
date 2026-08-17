@@ -4,8 +4,14 @@ Three commitments shape this route:
 
 * **Hard, not soft.** No grace period. ``DELETE FROM users WHERE id=?`` —
   the FK CASCADE chains (refresh_tokens, password_reset_tokens,
-  email_verification_tokens, user_backup_codes — migration 0001 + 0006)
-  do the bulk of the work; the avatar file is best-effort unlinked here.
+  email_verification_tokens, user_backup_codes — migration 0001 + 0006,
+  dazu issued_credentials seit Migration 0014) do the bulk of the work;
+  the avatar file is best-effort unlinked here.
+* **Widerruf vor der Kaskade.** Geräte-Zertifikate müssen widerrufen sein,
+  *bevor* ``issued_credentials`` mitgelöscht wird — danach kennt niemand mehr
+  die ``cert_id``, und ein Self-Host ließe das Gerät bis zu 365 Tage weiter
+  als das gelöschte Konto herein. Der Grabstein in ``revoked_credentials``
+  hängt an keinem FK und trägt den Widerruf über die Löschung hinaus.
 * **Cross-service first.** chat-gateway owns guild memberships, messages
   and presence — those rows must go *before* we delete the auth-side row,
   otherwise a half-deleted user becomes an unreferenced ``user_id`` in
@@ -33,6 +39,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import delete, func, select
 
 import dcc_auth.config as _config
+from dcc_auth.credential_revocation import (
+    REASON_ACCOUNT_DELETE,
+    publish_revocations,
+    revoke_credentials_for_user,
+)
 from dcc_auth.db import SessionDep
 from dcc_auth.models import AdminAuditLog, User, WebAuthnCredential
 from dcc_auth.models_instances import RegisteredInstance
@@ -105,10 +116,12 @@ async def delete_me(
          (``totp_enabled`` OR at least one registered passkey).
       5. chat-gateway purge — on failure, rollback (no DB writes yet) and 503.
       6. avatar file unlink (best-effort).
-      7. ``DELETE FROM users WHERE id = current.id`` — FK CASCADE cleans the
-         four child tables atomically.
-      8. audit-log insert with ``actor_id == target_id``.
-      9. commit + 204.
+      7. Geräte-Zertifikate widerrufen (Grabstein + ``revoked_at``) — muss vor
+         Schritt 8 liegen, weil die Kaskade die Zeilen sonst mitnimmt.
+      8. ``DELETE FROM users WHERE id = current.id`` — FK CASCADE cleans the
+         child tables atomically.
+      9. audit-log insert with ``actor_id == target_id``.
+     10. commit, Redis-Sperrliste beschicken, 204.
     """
     settings = _config.get_settings()
     await _check_rate(request, "account_delete", settings.rate_limit_account_delete)
@@ -209,6 +222,18 @@ async def delete_me(
         await soft_delete_instance(session, inst)
     deleted_instance_ids = [inst.id for inst in owned_instances]
 
+    # Geräte-Zertifikate widerrufen, BEVOR die User-Zeile fällt. Der FK
+    # ``issued_credentials.user_id`` steht auf CASCADE — die Zeilen mit den
+    # ``cert_id``s sind gleich weg, und danach kann sie niemand mehr
+    # widerrufen: ein Self-Host prüft ein Zertifikat nur gegen Signatur und
+    # Sperrliste, die Cloud-Nutzertabelle fragt er nie. Ohne diesen Schritt
+    # meldet sich das Gerät des gelöschten Kontos bis zu 365 Tage weiter an,
+    # unwiderruflich. Der Grabstein in ``revoked_credentials`` hängt an keinem
+    # FK und überlebt die Kaskade — er trägt den Widerruf bis ``expires_at``.
+    revoked_certs = await revoke_credentials_for_user(
+        session, user_id, reason=REASON_ACCOUNT_DELETE
+    )
+
     # Hard-delete. FK ON DELETE CASCADE handles the four child tables.
     await session.execute(delete(User).where(User.id == user_id))
 
@@ -226,6 +251,12 @@ async def delete_me(
     )
 
     await session.commit()
+
+    # Erst nach dem Commit in die Redis-Sperrliste: ein Rollback (etwa an der
+    # Instanz-Soft-Löschung) darf keinen Widerruf melden, den es nicht gibt.
+    # Bleibt Redis stumm, trägt der Grabstein — der CRL-Endpunkt füllt ein
+    # leeres ZSET aus der Datenbank nach.
+    await publish_revocations(revoked_certs)
 
     # Kill-Switch-Cache für gelöschte Instanzen invalidieren (nach dem Commit,
     # analog delete_my_instance): ein noch laufender Container sieht sich beim
