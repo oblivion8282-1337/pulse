@@ -123,9 +123,15 @@ export function sleep(guildId: string): void {
   gateway.sendPluginOp('tamagotchi:sleep', { guild_id: guildId });
 }
 
+/** Reset — wie ``revive`` MANAGE_GUILD-gated im Backend (``_handle_privileged``
+ *  in ``backend.py``). KEIN Optimistic-Update: ein Mitglied ohne die
+ *  Berechtigung sah hier bisher sofort ein frisches Pet, obwohl der Server die
+ *  Aktion ablehnt (kein Broadcast folgt) — die Anzeige blieb dann dauerhaft falsch, bis
+ *  irgendein anderes Update den State zufällig korrigiert. Fehlt die
+ *  Permission, kommt ein Error-Frame zurück und der State bleibt unverändert;
+ *  bei Erfolg überschreibt der ``state_update``-Broadcast wie überall sonst. */
 export function reset(guildId: string): void {
   if (!guildId) return;
-  applyOptimistic(guildId, () => ({ ...DEFAULT_PET }));
   gateway.sendPluginOp('tamagotchi:reset', { guild_id: guildId });
 }
 

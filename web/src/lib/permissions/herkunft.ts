@@ -160,8 +160,11 @@ function herkunft(
   for (const ow of abweichungen) {
     const eigene = `${ow.target_type}:${ow.target_id}` === ziel.eigenerSchluessel;
     const ueber = eigene ? null : ow.name;
-    if (has(ow.allow, perm)) stand = { art: 'hier_erlaubt', ueber };
-    else if (has(ow.deny, perm)) stand = { art: 'hier_verboten', ueber };
+    // Formel des Resolvers: (wert | allow) & ~deny — innerhalb DERSELBEN
+    // Überschreibung gewinnt deny also über allow, wenn beide dasselbe Bit
+    // tragen. Reihenfolge hier deshalb umgekehrt zur Formel-Schreibweise.
+    if (has(ow.deny, perm)) stand = { art: 'hier_verboten', ueber };
+    else if (has(ow.allow, perm)) stand = { art: 'hier_erlaubt', ueber };
   }
 
   // Die revoke-all-Invariante des Servers: ohne „Kanal ansehen" fällt alles

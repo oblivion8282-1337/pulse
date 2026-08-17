@@ -10,6 +10,7 @@
   import { goto } from '$app/navigation';
   import { auth } from '$lib/stores/auth.svelte';
   import { gateway } from '$lib/ws/connection';
+  import { watchFehlerWacht } from '$lib/watch/fehlerwacht.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
@@ -30,6 +31,10 @@
   onDestroy(() => {
     gateway.disconnect();
   });
+
+  // Ablehnungen des Servers zur Watch-Party sichtbar machen. Einmal je
+  // Fenster — Begruendung in `watch/fehlerwacht.svelte.ts`.
+  watchFehlerWacht();
 </script>
 
 <svelte:head><title>{m.watch_popup_page_title()}</title></svelte:head>

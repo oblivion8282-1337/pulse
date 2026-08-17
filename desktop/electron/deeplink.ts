@@ -93,13 +93,30 @@ export function handleDeepLink(url: string, getWindow: () => BrowserWindow | nul
 
   const payload = { hostname: host, code };
   // Always buffer the validated payload so the renderer can pull it on mount.
-  // Also push it eagerly when the webContents is alive, in case the renderer
-  // is already fully loaded (e.g. a second-instance deep-link while the app
-  // is running). After the eager push, clear the buffer to prevent duplicate
-  // delivery on renderer reload (which would re-pull via takePendingInvite).
+  // Also push it eagerly when the webContents is alive AND has actually
+  // finished loading, in case the renderer is already fully loaded (e.g. a
+  // second-instance deep-link while the app is running). After the eager
+  // push, clear the buffer to prevent duplicate delivery on renderer reload
+  // (which would re-pull via takePendingInvite).
+  //
+  // **`!isDestroyed()` alone is NOT enough** (Bughunt 2026-08-17): a freshly
+  // created window exists and isn't destroyed long before its page has
+  // loaded — same race the `ready-to-show` handler in main.ts already avoids
+  // by deliberately NOT pushing there. Sending while still loading is a
+  // guaranteed drop (SvelteKit's `onMount` hasn't registered the
+  // `ipcRenderer.on('pulse:invite', …)` listener yet), and clearing the
+  // buffer right after meant the later pull-based `invite:getPending` found
+  // nothing either — the invite was gone for good. `isLoading() === false`
+  // is not a hundred-percent proof `onMount` already ran, but it closes the
+  // one case that was certain to lose the invite every time.
   pendingInvitePayload = payload;
   const win = getWindow();
-  if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+  if (
+    win &&
+    !win.isDestroyed() &&
+    !win.webContents.isDestroyed() &&
+    !win.webContents.isLoading()
+  ) {
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();

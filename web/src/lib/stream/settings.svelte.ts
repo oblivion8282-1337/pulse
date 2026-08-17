@@ -63,12 +63,16 @@ export * from './captureSource';
  * damit die den Wiedergabeweg wählen können) und den Auto-Neustart. Liefen die
  * auseinander, bekäme ein Zuschauer das eigene Fenster für einen 8-bit-Stream
  * oder umgekehrt.
+ *
+ * `overrides` ist ein Parameter, kein fester Zugriff auf den Store — beim
+ * Standplatz-Gerät zählt der Wunsch aus dem Profil (`standplatz.uebersteuerung`),
+ * nicht der des abwesenden Besitzers (fehlte das hier: Zuschauer-Ansage und
+ * tatsächlich gesendete Tiefe liefen auseinander). Default bleibt der
+ * Besitzer-Store, jeder bestehende Aufruf ohne Argument bleibt also gültig.
  */
-export function tenBitPossible(): boolean {
-  const codec = streamSettings.overrides.codec ?? 'h264';
-  return (
-    streamSettings.overrides.bit_depth === 10 && codec === 'av1' && stream.tenBitAvailable
-  );
+export function tenBitPossible(overrides: OverrideSet = streamSettings.overrides): boolean {
+  const codec = overrides.codec ?? 'h264';
+  return overrides.bit_depth === 10 && codec === 'av1' && stream.tenBitAvailable;
 }
 
 /**
@@ -422,19 +426,10 @@ export function buildStartArgs(
     if (typeof o.fps === 'number' && o.fps > 0)
       cleaned.fps = Math.min(hq.fpsMax, Math.max(capabilities.hqFpsMin, o.fps));
     if (o.resolution) cleaned.resolution = clampResolution(o.resolution, hq.resolutionMax);
-    // 10 bit nur mitschicken, wenn es auch erfüllbar ist (AV1 + passende
-    // Karte) — sonst stünde in der Diagnose-argv eine Tiefe, die der Sidecar
-    // gleich wieder verwirft.
-    // **Beim Standplatz-Gerät zählt der Wunsch aus dem Profil**, beim Knopf des
-    // Besitzers der aus den Stream-Einstellungen — geprüft wird in beiden Fällen
-    // gegen dieselbe Fähigkeit der Karte (`tenBitPossible` liest die
-    // Einstellungen, hier kommt der Wunsch vom Rufer). Ein nicht erfüllbarer
-    // Wunsch fällt still weg, statt den Start abzubrechen: bei einem Weckruf
-    // sitzt niemand davor, der die Absage läse.
-    const zehnBitGewuenscht = standplatz
-      ? standplatz.uebersteuerung.bit_depth === 10
-      : streamSettings.overrides.bit_depth === 10;
-    if (zehnBitGewuenscht && o.codec === 'av1' && stream.tenBitAvailable) cleaned.bit_depth = 10;
+    // 10 bit nur mitschicken, wenn es auch erfüllbar ist — `o` ist bereits die
+    // richtige Wunschquelle (Profil beim Standplatz-Gerät, sonst der eigene
+    // Store), `tenBitPossible(o)` prüft sie EINMAL für alle drei Verwendungen.
+    if (tenBitPossible(o)) cleaned.bit_depth = 10;
     // Die Wahl mitschicken, sobald die Oberflaeche eine getroffen hat — auch
     // ein `false`. NUR das gar nicht gesetzte Feld bleibt weg, dann entscheidet
     // im Sidecar `PULSE_INTRA_REFRESH`, und der Pruefstand behaelt seine

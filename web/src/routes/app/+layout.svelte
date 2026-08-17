@@ -13,6 +13,7 @@
   import { readState } from '$lib/stores/readState.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { gateway } from '$lib/ws/connection';
+  import { watchFehlerWacht } from '$lib/watch/fehlerwacht.svelte';
   import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
   import { initActivityHeartbeat, disposeActivityHeartbeat } from '$lib/ws/activity';
   import { pendingInstanceApps } from '$lib/stores/pendingInstanceApps.svelte';
@@ -291,6 +292,10 @@
       .some((c) => c.type === 0 && readState.isUnread(c.id));
     document.title = dmUnread || channelUnread ? '● Pulse' : 'Pulse';
   });
+
+  // Ablehnungen des Servers zur Watch-Party sichtbar machen. Einmal je
+  // Fenster — Begruendung in `watch/fehlerwacht.svelte.ts`.
+  watchFehlerWacht();
 </script>
 
 <div class="text-text-base flex h-dvh w-screen flex-col" data-testid="app-shell">
