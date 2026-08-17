@@ -752,12 +752,25 @@ async def kick_member(
     the kicked user drop the guild locally; other clients prune their
     member list. The WS connection is not force-closed — the next
     permission-gated action on that guild will 403 naturally.
+
+    Die Reihenfolge trägt: ``require_member`` läuft VOR Owner-Prüfung und
+    Ziel-Nachschlag. Ohne den Riegel beantwortete die Route jedem Fremden zwei
+    Fragen, die er nicht stellen darf — „ist das der Eigentümer?“ (403 „cannot
+    kick the guild owner“ statt des allgemeinen 403) und „ist das ein
+    Mitglied?“ (404 statt 403); ein Bestätigungs-Orakel, für das man nichts
+    wissen, nur raten muss. ``bans.py::ban_user`` und ``patch_member`` sind
+    gegen dasselbe Muster abgesichert, hier fehlte es. Mitglieder behalten die
+    genauen Meldungen (sie lesen Eigentümer und Mitgliederliste ohnehin über
+    ``GET /guilds/{id}`` und ``/members``), Instanz-Admins bleiben ausgenommen
+    — sie räumen auch in fremden Communities auf.
     """
     if user_id == current.id:
         raise HTTPException(400, detail="cannot kick yourself")
     guild = await session.get(Guild, guild_id)
     if guild is None:
         raise HTTPException(404, detail="guild not found")
+    if not current.is_admin:
+        await require_member(session, guild_id, current.id)
     if guild.owner_id == user_id:
         raise HTTPException(403, detail="cannot kick the guild owner")
     member = await session.get(GuildMember, (guild_id, user_id))

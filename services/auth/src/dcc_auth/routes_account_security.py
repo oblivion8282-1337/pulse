@@ -16,6 +16,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from sqlalchemy import delete, select, update
+from sqlalchemy.exc import IntegrityError
 
 from dcc_auth.browser_sessions import (
     create_session,
@@ -98,10 +99,9 @@ async def change_password(
     await revoke_all_for_user(session, current.id)
 
     # ...then re-arm THIS client with a fresh token pair + session cookie, so the
-    # password change doesn't immediately log the active device out.
-    tokens = await _issue_tokens(
-        session, current, signer=signer, user_agent=user_agent, ip_hash=_hash_ip(request)
-    )
+    # password change doesn't immediately log the active device out. Cookie zuerst:
+    # die Refresh-Zeile verweist darauf (Migration 0049), damit ein späteres
+    # „Sitzung beenden“ beide Hälften dieser Sitzung trifft.
     sid = await create_session(
         session,
         user_id=current.id,
@@ -109,6 +109,14 @@ async def change_password(
         acr="0",
         user_agent=user_agent,
         ip=_client_ip(request),
+    )
+    tokens = await _issue_tokens(
+        session,
+        current,
+        signer=signer,
+        user_agent=user_agent,
+        ip_hash=_hash_ip(request),
+        session_id=sid,
     )
     await session.commit()
     set_session_cookie(response, sid)
@@ -225,5 +233,19 @@ async def confirm_email_change(
     row.used_at = now
     user.email = row.new_email
     user.email_verified_at = now
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        # Zwei Bestätigungen auf dieselbe Zieladresse im selben Augenblick: die
+        # Vorprüfung oben sieht beide Male "frei", die UNIQUE-Zusage auf
+        # ``users.email`` hält, und der Verlierer flog bisher als unbehandelter
+        # 500er heraus — obwohl der Docstring genau hier einen 409 zusagt. Die
+        # Vorprüfung bleibt als schneller Weg; verbindlich ist die Datenbank.
+        # Der Rollback nimmt auch ``used_at`` zurück: der Bestätigungslink des
+        # Verlierers bleibt brauchbar und liefert beim nächsten Klick denselben
+        # 409 aus der Vorprüfung.
+        await session.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="email already in use"
+        ) from exc
     return MessageOut(detail="ok")

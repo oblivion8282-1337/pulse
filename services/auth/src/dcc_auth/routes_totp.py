@@ -328,9 +328,6 @@ async def login_totp(
         )
 
     user_agent = request.headers.get("user-agent")
-    tokens = await _issue_tokens(
-        session, user, signer=signer, user_agent=user_agent, ip_hash=_hash_ip(request)
-    )
     # Browser-Session-Cookie wie beim Passwort-Login (routes.py::login) — sonst
     # bekommen 2FA-User keinen pulse_session-Cookie und die cookie-only Cert-/
     # Backup-/Profile-Endpoints (runIssueFlow → /credentials/issue) liefern 401.
@@ -347,6 +344,16 @@ async def login_totp(
         acr="1",
         user_agent=user_agent,
         ip=_client_ip(request),
+    )
+    # Erst jetzt die Token — die Refresh-Zeile verweist auf das Cookie, damit
+    # „Sitzung beenden“ später beide Hälften trifft (session_link.py).
+    tokens = await _issue_tokens(
+        session,
+        user,
+        signer=signer,
+        user_agent=user_agent,
+        ip_hash=_hash_ip(request),
+        session_id=sid,
     )
     await session.commit()
     set_session_cookie(response, sid)

@@ -211,13 +211,6 @@ async def webauthn_login_verify(
     row.sign_count = verified.new_sign_count
     row.last_used_at = datetime.now(UTC)
     user_agent = request.headers.get("user-agent")
-    tokens = await _issue_tokens(
-        session,
-        user,
-        signer=signer,
-        user_agent=user_agent,
-        ip_hash=_hash_ip(request),
-    )
     # Browser-Session-Cookie wie beim Passwort-Login — sonst sind die cookie-only
     # Cert-/Backup-/Profile-Endpoints für Passkey-User unerreichbar (401). Ein
     # Passkey mit user-verification (passwordless) bzw. Passwort+Passkey (2FA) ist
@@ -230,6 +223,16 @@ async def webauthn_login_verify(
         acr="1",
         user_agent=user_agent,
         ip=_client_ip(request),
+    )
+    # Erst jetzt die Token — die Refresh-Zeile verweist auf das Cookie, damit
+    # „Sitzung beenden“ später beide Hälften trifft (session_link.py).
+    tokens = await _issue_tokens(
+        session,
+        user,
+        signer=signer,
+        user_agent=user_agent,
+        ip_hash=_hash_ip(request),
+        session_id=sid,
     )
     await session.commit()
     set_session_cookie(response, sid)

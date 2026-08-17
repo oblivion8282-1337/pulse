@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import base64
+from datetime import UTC, datetime, timedelta
+
 import pytest
+
+from dcc_auth.models import UserSession
 
 REG_PAYLOAD = {
     "username": "alice",
@@ -19,7 +24,7 @@ async def _register(client, **overrides) -> dict:
     return r.json()
 
 
-async def _login(client, *, user_agent: str | None = None) -> dict:
+async def _login_response(client, *, user_agent: str | None = None):
     headers = {"User-Agent": user_agent} if user_agent else {}
     r = await client.post(
         "/login",
@@ -30,7 +35,27 @@ async def _login(client, *, user_agent: str | None = None) -> dict:
         headers=headers,
     )
     assert r.status_code == 200, r.text
-    return r.json()
+    return r
+
+
+async def _login(client, *, user_agent: str | None = None) -> dict:
+    return (await _login_response(client, user_agent=user_agent)).json()
+
+
+async def _cookie_alive(client, sid: str) -> bool:
+    """Lebt das Browser-Session-Cookie noch? (cookie-only ``GET /me``)"""
+    r = await client.get("/me", headers={"Cookie": f"pulse_session={sid}"})
+    assert r.status_code in (200, 401), r.text
+    return r.status_code == 200
+
+
+async def _session_id_for_ua(client, access: str, user_agent: str) -> str:
+    rows = (
+        await client.get("/sessions", headers={"Authorization": f"Bearer {access}"})
+    ).json()
+    hits = [row["id"] for row in rows if row["user_agent"] == user_agent]
+    assert len(hits) == 1, f"expected exactly one row for {user_agent}: {rows}"
+    return hits[0]
 
 
 @pytest.mark.asyncio
@@ -211,3 +236,195 @@ async def test_refresh_updates_last_used_at(client):
     assert new_row["last_used_at"] is not None
     # The new row's last_used_at should be >= the original.
     assert new_row["last_used_at"] >= initial_last_used
+
+
+# ---------------------------------------------------------------------------
+# Eine Sitzung sind ZWEI Berechtigungen: Refresh-Token + pulse_session-Cookie.
+# Die Tests hier halten die Zusage der Oberflaeche fest ("Sitzung beenden"),
+# die vorher nur die Haelfte einloeste — das entfernte Geraet blieb ueber sein
+# Cookie angemeldet und durfte damit weiter Geraete-Zertifikate ausstellen.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_session_also_kills_the_browser_cookie(client):
+    """Einzel-Widerruf beendet auch das Cookie derselben Anmeldung."""
+    own = await client.post("/register", json=REG_PAYLOAD)
+    assert own.status_code == 201, own.text
+    own_sid = own.cookies["pulse_session"]
+    access = own.json()["access_token"]
+
+    other = await _login_response(client, user_agent="OtherDevice/1")
+    other_sid = other.cookies["pulse_session"]
+    assert await _cookie_alive(client, other_sid)
+
+    target = await _session_id_for_ua(client, access, "OtherDevice/1")
+    r = await client.delete(
+        f"/sessions/{target}", headers={"Authorization": f"Bearer {access}"}
+    )
+    assert r.status_code == 204, r.text
+
+    assert not await _cookie_alive(client, other_sid), (
+        "das Cookie des beendeten Geraets muss sofort tot sein"
+    )
+    assert await _cookie_alive(client, own_sid), (
+        "die Sitzung des Aufrufers darf der Widerruf nicht mitnehmen"
+    )
+
+
+@pytest.mark.asyncio
+async def test_ended_session_cannot_issue_a_device_certificate(client):
+    """Der Kern der Zusage: nach dem Widerruf stellt das Geraet nichts mehr aus.
+
+    ``/credentials/issue`` authentifiziert ausschliesslich ueber das Cookie —
+    ueberlebt es den Widerruf, kann sich ein gekapertes Geraet weiter frische
+    Identitaets-Zertifikate ziehen.
+    """
+    own = await client.post("/register", json=REG_PAYLOAD)
+    access = own.json()["access_token"]
+    other = await _login_response(client, user_agent="OtherDevice/1")
+    other_sid = other.cookies["pulse_session"]
+
+    target = await _session_id_for_ua(client, access, "OtherDevice/1")
+    assert (
+        await client.delete(
+            f"/sessions/{target}", headers={"Authorization": f"Bearer {access}"}
+        )
+    ).status_code == 204
+
+    r = await client.post(
+        "/credentials/issue",
+        json={
+            "device_pubkey": base64.b64encode(b"\x07" * 32).decode(),
+            "device_label": "gekapert",
+        },
+        headers={"Cookie": f"pulse_session={other_sid}"},
+    )
+    assert r.status_code == 401, r.text
+
+
+@pytest.mark.asyncio
+async def test_delete_all_sessions_kills_other_cookies_only(client):
+    """"Alle anderen beenden" nimmt die fremden Cookies mit, das eigene nicht."""
+    await client.post("/register", json=REG_PAYLOAD)
+    other = await _login_response(client, user_agent="OtherDevice/1")
+    other_sid = other.cookies["pulse_session"]
+    mine = await _login_response(client, user_agent="CurrentDevice/1")
+    my_sid = mine.cookies["pulse_session"]
+
+    r = await client.delete(
+        "/sessions",
+        headers={
+            "Authorization": f"Bearer {mine.json()['access_token']}",
+            "User-Agent": "CurrentDevice/1",
+            "Cookie": f"pulse_session={my_sid}",
+        },
+    )
+    assert r.status_code == 200, r.text
+
+    assert not await _cookie_alive(client, other_sid)
+    assert await _cookie_alive(client, my_sid)
+
+
+@pytest.mark.asyncio
+async def test_logout_with_refresh_token_kills_the_linked_cookie(client):
+    """Abmelden ohne Cookie (Desktop) beendet trotzdem das Cookie der Sitzung."""
+    await client.post("/register", json=REG_PAYLOAD)
+    device = await _login_response(client, user_agent="Desktop/1")
+    sid = device.cookies["pulse_session"]
+
+    r = await client.post(
+        "/logout", json={"refresh_token": device.json()["refresh_token"]}
+    )
+    assert r.status_code == 200, r.text
+    assert not await _cookie_alive(client, sid)
+
+
+@pytest.mark.asyncio
+async def test_link_survives_refresh_rotation(client):
+    """Nach der Token-Rotation trifft der Widerruf weiterhin beide Haelften."""
+    own = await client.post("/register", json=REG_PAYLOAD)
+    access = own.json()["access_token"]
+    device = await _login_response(client, user_agent="Roaming/1")
+    sid = device.cookies["pulse_session"]
+
+    rotated = await client.post(
+        "/refresh",
+        json={"refresh_token": device.json()["refresh_token"]},
+        headers={"User-Agent": "Roaming/1"},
+    )
+    assert rotated.status_code == 200, rotated.text
+
+    target = await _session_id_for_ua(client, access, "Roaming/1")
+    assert (
+        await client.delete(
+            f"/sessions/{target}", headers={"Authorization": f"Bearer {access}"}
+        )
+    ).status_code == 204
+    assert not await _cookie_alive(client, sid)
+
+
+@pytest.mark.asyncio
+async def test_link_follows_session_renew(client, session_factory):
+    """``/session/renew`` haengt die Token auf das neue Cookie um.
+
+    Der Fall der Desktop-App: beim Start liegt nur der Zugriffstoken vor, das
+    Cookie ist laengst abgelaufen. Ohne das Umhaengen zeigte die Verknuepfung
+    danach auf die tote Vorgaenger-Zeile — und "Sitzung beenden" liefe genau
+    fuer die Geraete ins Leere, die am haeufigsten erneuern.
+    """
+    own = await client.post("/register", json=REG_PAYLOAD)
+    access = own.json()["access_token"]
+    device = await _login_response(client, user_agent="Desktop/2")
+
+    # Der Ausgangszustand des Falls: das Cookie ist abgelaufen, nur der
+    # Zugriffstoken lebt noch. (Ein Gerät, das sein Cookie noch hat, schickt es
+    # mit — dann greift der genaue Weg über die Vorgängerkennung.)
+    async with session_factory() as db:
+        row = await db.get(UserSession, device.cookies["pulse_session"])
+        assert row is not None
+        row.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        await db.commit()
+
+    renewed = await client.post(
+        "/session/renew",
+        headers={
+            "Authorization": f"Bearer {device.json()['access_token']}",
+            "User-Agent": "Desktop/2",
+        },
+    )
+    assert renewed.status_code == 204, renewed.text
+    fresh_sid = renewed.cookies["pulse_session"]
+    assert await _cookie_alive(client, fresh_sid)
+
+    target = await _session_id_for_ua(client, access, "Desktop/2")
+    assert (
+        await client.delete(
+            f"/sessions/{target}", headers={"Authorization": f"Bearer {access}"}
+        )
+    ).status_code == 204
+    assert not await _cookie_alive(client, fresh_sid), (
+        "das beim Erneuern entstandene Cookie muss mit der Sitzung sterben"
+    )
+
+
+@pytest.mark.asyncio
+async def test_refresh_token_reuse_also_kills_the_cookies(client):
+    """Wiederverwendung = Diebstahlverdacht: die Cookies der Familie fallen mit."""
+    reg = await client.post("/register", json=REG_PAYLOAD)
+    device = await _login_response(client, user_agent="Stolen/1")
+    sid = device.cookies["pulse_session"]
+    reg_sid = reg.cookies["pulse_session"]
+
+    first = await client.post(
+        "/refresh", json={"refresh_token": device.json()["refresh_token"]}
+    )
+    assert first.status_code == 200
+    # Zweite Vorlage desselben (bereits rotierten) Tokens -> Familien-Widerruf.
+    replay = await client.post(
+        "/refresh", json={"refresh_token": device.json()["refresh_token"]}
+    )
+    assert replay.status_code == 401
+
+    assert not await _cookie_alive(client, sid)
+    assert not await _cookie_alive(client, reg_sid)

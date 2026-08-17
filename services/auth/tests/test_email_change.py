@@ -133,3 +133,50 @@ async def test_email_change_requires_auth(client):
         json={"new_email": _NEW, "current_password": _REG["password"]},
     )
     assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_email_change_confirm_conflict_answers_409_not_500(client, monkeypatch):
+    """Zwei Bestaetigungen auf dieselbe Zieladresse: der Verlierer bekommt den
+    zugesagten 409, keinen unbehandelten Datenbankfehler.
+
+    Die Vorpruefung liest ohne Sperre, und zwischen ihr und dem Commit liegt
+    die andere Transaktion. Echte Gleichzeitigkeit laesst sich auf der
+    In-Memory-SQLite nicht herstellen (eine Verbindung, ein Schreiber) —
+    deshalb wird der Commit einmal zum Scheitern gebracht, also genau die
+    Stelle, an der die UNIQUE-Zusage in Wirklichkeit zuschlaegt.
+    """
+    from sqlalchemy.exc import IntegrityError
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    captured = _spy_capture(monkeypatch)
+    login_r = await _register_and_login(client)
+    r = await client.post(
+        "/me/email/change",
+        json={"new_email": _NEW, "current_password": _REG["password"]},
+        headers=_bearer(login_r),
+    )
+    assert r.status_code == 204, r.text
+    token = captured["url"].rstrip("/").rsplit("/", 1)[-1]
+
+    original_commit = AsyncSession.commit
+    versuche = {"n": 0}
+
+    async def _kollision(self, *args, **kwargs):
+        versuche["n"] += 1
+        if versuche["n"] == 1:
+            raise IntegrityError("UPDATE users SET email", {}, Exception("duplicate"))
+        return await original_commit(self, *args, **kwargs)
+
+    monkeypatch.setattr(AsyncSession, "commit", _kollision)
+
+    r_conflict = await client.post("/me/email/change/confirm", json={"token": token})
+    assert r_conflict.status_code == 409, r_conflict.text
+    assert r_conflict.json()["detail"] == "email already in use"
+
+    # Der Rollback nimmt auch ``used_at`` zurueck: derselbe Link bleibt
+    # brauchbar, sobald die Adresse wieder frei ist.
+    r_second = await client.post("/me/email/change/confirm", json={"token": token})
+    assert r_second.status_code == 200, r_second.text
+    me = await client.get("/me", headers=_bearer(login_r))
+    assert me.json()["email"] == _NEW
