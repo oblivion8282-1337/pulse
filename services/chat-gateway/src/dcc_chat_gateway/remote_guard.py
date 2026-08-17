@@ -214,6 +214,71 @@ async def remove_devices_for_member(session, manager, guild_id: int, user_id: in
     return len(rows)
 
 
+async def collect_devices_for_cascade(
+    session, manager, *, guild_id: int, channel_id: int | None = None
+) -> list[tuple[int, int, dict]]:
+    """Standplatz-Geraete einsammeln, bevor eine Kanal- oder Community-Loeschung
+    sie per ``ON DELETE CASCADE`` mitnimmt.
+
+    **Warum das dazugehoert** (Bughunt 2026-08-17, ``daten.md``): die
+    Datenbankzeile faellt mit dem Kanal bzw. der Community, das In-Prozess-
+    Register (``device_registry.py``) merkt davon nichts — Standplatz und
+    Bildschirmliste blieben fuer eine Kennung stehen, die es nicht mehr gibt,
+    und die Kachel haengt bis zum naechsten Neuladen in einer offenen
+    Geraeteliste. Gemeinsame Stelle fuer beide Loeschwege statt zweier
+    getrennt gepflegter Kopien.
+
+    Beendet nebenbei jede laufende Fernsteuerung dieser Geraete — dieselbe
+    Reihenfolge wie ``remove_devices_for_member``: erst die Sitzung, dann (nach
+    dem Commit, ueber :func:`forget_devices_after_cascade`) die Meldung und das
+    Vergessen. ``channel_id`` grenzt auf einen einzelnen Kanal ein
+    (Kanal-Loeschung); ohne ihn zaehlt die ganze Community
+    (Community-Loeschung).
+
+    Muss VOR dem Commit gerufen werden — danach gibt es die Zeilen nicht mehr.
+    """
+    from dcc_chat_gateway.device_meldungen import device_out  # noqa: PLC0415
+    from dcc_chat_gateway.models import Device  # noqa: PLC0415 - App-Boot-Zirkel
+
+    stmt = select(Device).where(Device.guild_id == guild_id)
+    if channel_id is not None:
+        stmt = stmt.where(Device.channel_id == channel_id)
+    rows = (await session.execute(stmt)).scalars().all()
+    if not rows:
+        return []
+    stand = [
+        (device.id, device.channel_id, device_out(device, manager).model_dump())
+        for device in rows
+    ]
+    if manager is not None:
+        for device in rows:
+            await manager.end_remote_sessions_for_device(device.id)
+    return stand
+
+
+async def forget_devices_after_cascade(
+    manager, guild_id: int, devices: list[tuple[int, int, dict]]
+) -> None:
+    """Nach dem Commit: das Register vergisst, was die Kaskade gerade geraeumt
+    hat, und meldet das Verschwinden — sonst bleibt die Kachel in jeder offenen
+    Geraeteliste stehen, bis jemand neu laedt (s. :func:`collect_devices_for_cascade`).
+
+    Gerufen mit deren Ergebnis, NACH dem Commit. Gleiche Reihenfolge wie
+    ``delete_device``: erst melden (der gemerkte Standplatz wird noch
+    gebraucht), dann vergessen.
+    """
+    if manager is None or not devices:
+        return
+    for device_id, channel_id, daten in devices:
+        try:
+            await manager.publish_device_change(
+                guild_id=guild_id, channel_id=channel_id, device=daten, removed=True
+            )
+        except Exception:  # noqa: BLE001  # pragma: no cover
+            log.debug("device removal not published", exc_info=True)
+        manager.device_forget(device_id)
+
+
 async def end_remote_sessions_for_member(
     session, manager, guild_id: int, user_id: int, *, reason: str = "membership_revoked"
 ) -> int:
