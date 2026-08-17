@@ -195,6 +195,42 @@
   const zehnBitGewaehlt = $derived(
     VIDEO_MODES.find((v) => v.value === codecValue)?.tenBit === true,
   );
+
+  // GPU-Auswahl (Windows, mehrere Grafikkarten). Nur anbieten, wenn der
+  // Sidecar wirklich mehr als eine Karte gemeldet hat — bei einer Karte gibt
+  // es nichts zu wählen, und ein Dropdown mit einem einzigen Eintrag ist eine
+  // Frage ohne Antwortmöglichkeit. Linux/macOS melden `adapters` gar nicht.
+  let gpuAdapters = $derived(streamSettings.gpu_info?.adapters ?? []);
+  let gpuOptions = $derived(
+    gpuAdapters.length >= 2
+      ? gpuAdapters.map((a) => ({
+          value: a.id,
+          label: a.vram_mb
+            ? a.vram_mb >= 1024
+              ? m.overrides_editor_gpu_option_gb({
+                  description: a.description,
+                  gb: Math.round(a.vram_mb / 1024),
+                })
+              : m.overrides_editor_gpu_option_mb({ description: a.description, mb: a.vram_mb })
+            : a.description,
+        }))
+      : [],
+  );
+
+  function onGpu(e: Event) {
+    const v = (e.currentTarget as HTMLSelectElement).value || 'auto';
+    streamSettings.overrides = { ...streamSettings.overrides, gpu: v };
+    persistSettings();
+  }
+
+  // Der ANGEZEIGTE Wert muss in der Optionsliste vorkommen — dieselbe Regel
+  // wie bei `codecValue`/`resValue`: eine gespeicherte `id` von einer anderen
+  // Maschine (oder einer inzwischen ausgebauten Karte) fällt auf 'auto' zurück.
+  let gpuValue = $derived.by(() => {
+    const gewuenscht = streamSettings.overrides.gpu ?? 'auto';
+    return gpuOptions.some((o) => o.value === gewuenscht) ? gewuenscht : 'auto';
+  });
+
   let bitrateValue = $derived(streamSettings.overrides.bitrate_kbps ?? '');
   let fpsValue = $derived(streamSettings.overrides.fps ?? '');
   // Der *angezeigte* Wert muss in der Optionsliste vorkommen — sonst zeigt das
@@ -248,6 +284,25 @@
       </p>
     {/if}
   </div>
+
+  {#if gpuOptions.length > 0}
+    <div class="flex flex-col gap-1.5">
+      <Label for="ov-gpu" class="text-text-muted text-2xs font-semibold tracking-wide uppercase">{m.overrides_editor_gpu_label()}</Label>
+      <select
+        id="ov-gpu"
+        class="bg-bg-input text-text-base h-9 rounded-md px-2 text-sm outline-none"
+        value={gpuValue}
+        onchange={onGpu}
+        data-testid="stream-overrides-gpu"
+      >
+        <option value="auto">{m.overrides_editor_gpu_auto()}</option>
+        {#each gpuOptions as g (g.value)}
+          <option value={g.value}>{g.label}</option>
+        {/each}
+      </select>
+      <p class="text-text-muted text-2xs">{m.overrides_editor_gpu_hint()}</p>
+    </div>
+  {/if}
 
   <div class="flex flex-col gap-1.5">
     <Label for="ov-resolution" class="text-text-muted text-2xs font-semibold tracking-wide uppercase">{m.overrides_editor_resolution_label()}</Label>

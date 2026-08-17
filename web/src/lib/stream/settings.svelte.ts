@@ -478,6 +478,15 @@ export function buildStartArgs(
       ? standplatz.uebersteuerung.hdr === true
       : streamSettings.overrides.hdr === true;
     if (hdrGewuenscht && cleaned.bit_depth === 10 && stream.hdrAvailable) cleaned.hdr = true;
+    // GPU-Wahl nur mitschicken, wenn wirklich eine bestimmte Karte gewählt ist
+    // — `undefined` oder `'auto'` bedeuten beide Automatik, und Automatik ist
+    // die Vorgabe im Sidecar; ein explizit gesendetes `'auto'` wäre nur ein
+    // Wert mehr, der synchron gehalten werden müsste, ohne dass er etwas
+    // änderte. Aus DEMSELBEN Satz wie die anderen Overrides (Standplatz-Profil
+    // vs. eigene Einstellungen) — dieselbe Begründung wie bei Intra-Refresh
+    // oben: das Standplatz-Profil trägt seine eigene GPU-Wahl, nicht die des
+    // Besitzers für seine eigenen Übertragungen.
+    if (o.gpu && o.gpu !== 'auto') cleaned.gpu = o.gpu;
     if (Object.keys(cleaned).length > 0) args.overrides = cleaned;
   }
   return args;

@@ -35,8 +35,38 @@ use windows::Win32::Graphics::Direct3D11::{
 use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC};
 use windows::core::HSTRING;
 use windows_capture::settings::{
-    CursorCaptureSettings, DrawBorderSettings, MinimumUpdateIntervalSettings,
+    CursorCaptureSettings, DrawBorderSettings, GraphicsCaptureItemType, MinimumUpdateIntervalSettings,
+    Settings,
 };
+
+/// Die Aufnahme an eine **bestimmte Grafikkarte** binden.
+///
+/// Ohne das baut `windows-capture` sein D3D11-Gerät mit
+/// `D3D11CreateDevice(None, …)` und überlässt Windows die Wahl — auf Rechnern
+/// mit eingebauter und eingesteckter Grafik meist die eingebaute, weil sie den
+/// Bildschirm versorgt. Und weil `pipeline_hw` den Hersteller aus genau diesem
+/// Gerät liest (`system::dxgi::device_vendor`), entscheidet diese eine Zeile
+/// über den gesamten weiteren Encode-Weg. Welche Karte es sein soll, sagt
+/// `system::gpu_wahl`; hierher kommt nur noch das Ergebnis.
+///
+/// **Steht hier und nicht an den Aufrufstellen**, weil es davon sechs gibt (je
+/// Monitor und Fenster in `wgc`, `wgc_hw`, `wgc_d3d12`) und eine Bindung, die
+/// an fünf davon greift, der schlimmste denkbare Zustand wäre: der Stream
+/// liefe, auf der falschen Karte, je nach Aufnahmeart.
+///
+/// `None` lässt der Bibliothek ihr eigenes Verhalten — der Weg, den Linux und
+/// macOS ohnehin gehen und den ein Rechner mit nur einer Karte nicht braucht.
+pub(crate) fn auf_gpu<Flags, T: TryInto<GraphicsCaptureItemType>>(
+    settings: Settings<Flags, T>,
+    gpu: Option<(u32, u32)>,
+) -> Result<Settings<Flags, T>> {
+    let Some((vendor_id, device_id)) = gpu else {
+        return Ok(settings);
+    };
+    let (geraet, kontext) = crate::system::dxgi::geraet_auf_karte(vendor_id, device_id)
+        .context("Aufnahme-Gerät auf der gewählten GPU")?;
+    Ok(settings.with_d3d_device(geraet, kontext))
+}
 
 /// Präfix der „Quellgröße hat sich geändert"-Fehlermeldung — an allen drei
 /// Abbruch-Stellen (wgc_hw / wgc_d3d12 / CPU-Pfad) UND in

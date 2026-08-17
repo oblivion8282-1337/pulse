@@ -112,6 +112,9 @@ pub(crate) fn parse_start_params(params: &Map<String, Value>) -> Result<StartPar
         // Wird erst vom Verteiler gefüllt, wenn `hdr` geprüft ist — hier steht
         // noch nicht fest, ob der Schirm mitspielt.
         schirm: None,
+        gpu_wunsch: overrides.gpu,
+        // Ebenfalls erst vom Verteiler, aus `gpu_wunsch` und der Kartenliste.
+        gpu: None,
         show_cursor,
         av_offset_ms,
     })
@@ -293,6 +296,40 @@ struct Overrides {
     /// Start (`encode::hdr::pruefen`). Der Unterschied ist Absicht und in
     /// `StartParams::hdr` begründet.
     hdr: bool,
+    /// Welche Grafikkarte, aus `overrides.gpu`. Siehe [`gpu_wunsch`].
+    gpu: crate::system::gpu_wahl::Wunsch,
+}
+
+/// `overrides.gpu` einlesen.
+///
+/// Erwartet die **Kennung**, die `gpu_info` je Karte als `id` herausgibt:
+/// `"<vendor_id>:<device_id>"`, beide vierstellig hexadezimal, z. B.
+/// `"10DE:1E84"`. Fehlend, leer oder `"auto"` heißt Automatik.
+///
+/// **Eine undeutbare Kennung führt zur Automatik, nicht zum Abbruch.** Sie
+/// kommt aus einer gespeicherten Einstellung, und eine Einstellung aus einer
+/// älteren Fassung darf niemanden am Streamen hindern — die Automatik trifft
+/// ohnehin die vernünftige Wahl. Sichtbar bleibt es über die Log-Zeile in
+/// `select_adapter`, die den verfehlten Wunsch meldet.
+fn parse_gpu(o: &Map<String, Value>) -> crate::system::gpu_wahl::Wunsch {
+    use crate::system::gpu_wahl::Wunsch;
+    let Some(text) = o.get("gpu").and_then(Value::as_str) else {
+        return Wunsch::Automatisch;
+    };
+    if text.is_empty() || text.eq_ignore_ascii_case("auto") {
+        return Wunsch::Automatisch;
+    }
+    let Some((v, d)) = text.split_once(':') else {
+        eprintln!("[start] overrides.gpu unlesbar ({text:?}) — es wird automatisch gewählt");
+        return Wunsch::Automatisch;
+    };
+    match (u32::from_str_radix(v.trim(), 16), u32::from_str_radix(d.trim(), 16)) {
+        (Ok(vendor_id), Ok(device_id)) => Wunsch::Genau { vendor_id, device_id },
+        _ => {
+            eprintln!("[start] overrides.gpu unlesbar ({text:?}) — es wird automatisch gewählt");
+            Wunsch::Automatisch
+        }
+    }
 }
 
 fn parse_overrides(params: &Map<String, Value>) -> Overrides {
@@ -356,5 +393,5 @@ fn parse_overrides(params: &Map<String, Value>) -> Overrides {
         Some(gesagt) => gesagt,
         None => crate::env::flag("PULSE_HDR"),
     };
-    Overrides { codec, bitrate_kbps: bitrate, fps, resolution, ten_bit, hdr }
+    Overrides { codec, bitrate_kbps: bitrate, fps, resolution, ten_bit, hdr, gpu: parse_gpu(o) }
 }

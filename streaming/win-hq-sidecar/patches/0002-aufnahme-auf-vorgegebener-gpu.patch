@@ -1,0 +1,81 @@
+diff --git a/src/capture.rs b/src/capture.rs
+index f2ee9ba..1f12306 100644
+--- a/src/capture.rs
++++ b/src/capture.rs
+@@ -275,7 +275,11 @@ pub trait GraphicsCaptureApiHandler: Sized {
+         let thread_id = unsafe { GetCurrentThreadId() };
+ 
+         // Create Direct3D device and context
+-        let (d3d_device, d3d_device_context) = create_d3d_device()?;
++        // Pulse patch: prefer the caller's device (see `Settings::d3d_device`).
++        let (d3d_device, d3d_device_context) = match settings.d3d_device {
++            Some(vorgabe) => vorgabe,
++            None => create_d3d_device()?,
++        };
+ 
+         // Start capture
+         let result = Arc::new(Mutex::new(None));
+@@ -378,7 +382,11 @@ pub trait GraphicsCaptureApiHandler: Sized {
+             let thread_id = unsafe { GetCurrentThreadId() };
+ 
+             // Create direct3d device and context
+-            let (d3d_device, d3d_device_context) = create_d3d_device()?;
++            // Pulse patch: prefer the caller's device (see `Settings::d3d_device`).
++            let (d3d_device, d3d_device_context) = match settings.d3d_device {
++                Some(vorgabe) => vorgabe,
++                None => create_d3d_device()?,
++            };
+ 
+             // Start capture
+             let result = Arc::new(Mutex::new(None));
+diff --git a/src/settings.rs b/src/settings.rs
+index 28f2f52..d96f6cc 100644
+--- a/src/settings.rs
++++ b/src/settings.rs
+@@ -115,6 +115,19 @@ pub struct Settings<Flags, T: TryInto<GraphicsCaptureItemType>> {
+     pub(crate) color_format: ColorFormat,
+     /// User-defined flags that can be passed to the capture implementation.
+     pub(crate) flags: Flags,
++    /// Pulse patch: a caller-supplied Direct3D 11 device to capture onto.
++    ///
++    /// Without this, `capture.rs` builds its own device via
++    /// `D3D11CreateDevice(None, D3D_DRIVER_TYPE_HARDWARE, ...)`, which lets
++    /// Windows pick the adapter — on machines with both integrated and discrete
++    /// graphics that is usually the integrated one, because it drives the
++    /// display. Everything downstream of the capture (encoder vendor, encode
++    /// path) follows from that adapter, so the choice has to be made here or
++    /// not at all. `None` keeps the crate's original behaviour.
++    pub(crate) d3d_device: Option<(
++        ::windows::Win32::Graphics::Direct3D11::ID3D11Device,
++        ::windows::Win32::Graphics::Direct3D11::ID3D11DeviceContext,
++    )>,
+ }
+ 
+ impl<Flags, T: TryInto<GraphicsCaptureItemType>> Settings<Flags, T> {
+@@ -141,9 +154,26 @@ impl<Flags, T: TryInto<GraphicsCaptureItemType>> Settings<Flags, T> {
+             dirty_region_settings,
+             color_format,
+             flags,
++            d3d_device: None,
+         }
+     }
+ 
++    /// Pulse patch: capture onto a caller-supplied Direct3D 11 device instead
++    /// of one created by this crate. See the `d3d_device` field for why.
++    ///
++    /// Added as a builder method rather than a `new` parameter so that existing
++    /// call sites keep compiling unchanged.
++    #[inline]
++    #[must_use]
++    pub fn with_d3d_device(
++        mut self,
++        device: ::windows::Win32::Graphics::Direct3D11::ID3D11Device,
++        context: ::windows::Win32::Graphics::Direct3D11::ID3D11DeviceContext,
++    ) -> Self {
++        self.d3d_device = Some((device, context));
++        self
++    }
++
+     /// Returns a reference to the capture item.
+     #[inline]
+     #[must_use]

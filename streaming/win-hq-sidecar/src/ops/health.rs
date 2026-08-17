@@ -25,7 +25,21 @@ use crate::system::dxgi;
 
 pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
     let adapters = dxgi::list_adapters().unwrap_or_default();
-    let primary = adapters.first();
+    // **Nicht `adapters.first()`** — seit die Karte wählbar ist, ist die erste
+    // nicht mehr zwangsläufig die, auf der encodiert wird (`system::gpu_wahl`).
+    // Hersteller und Codec-Angebot von der falschen Karte zu melden hieße, dem
+    // Renderer Codecs anzubieten, die der Encoder gar nicht kann.
+    let karten: Vec<_> = adapters.iter().map(dxgi::Adapter::karte).collect();
+    let vorgabe = crate::system::gpu_wahl::vorgabe(
+        &karten,
+        crate::encode::vendor_traegt_zero_copy,
+        dxgi::sortiert_nach_leistung(),
+    );
+    let primary = vorgabe.and_then(|k| {
+        adapters
+            .iter()
+            .find(|a| a.vendor_id == k.vendor_id && a.device_id == k.device_id)
+    });
 
     let (available, source, vendor, video_codecs, path) = match primary {
         Some(a) => (

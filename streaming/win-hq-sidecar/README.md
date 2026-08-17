@@ -28,10 +28,15 @@ ffmpegs Muxer — folgenlos, solange Intel Intra-Refresh ohnehin nicht trägt.
 
 - **Capture:** `windows-capture` v2 (WGC, ID3D11-Texture-Output) — **gepatchter
   Zweig** unter `vendor/windows-capture/` (gitignored,
-  `scripts/bootstrap-windows-capture.sh` stellt ihn her): die Crate reicht die
-  WGC-Session einmal an den Handler durch (`on_session_ready`), damit das
-  Cursor-Echo der Fernsteuerung den Host-Cursor zur Laufzeit aus dem Stream
-  nehmen kann (`capture/cursorsteuerung.rs`).
+  `scripts/bootstrap-windows-capture.sh` stellt ihn her). Zwei Patches:
+  `0001` reicht die WGC-Session einmal an den Handler durch
+  (`on_session_ready`), damit das Cursor-Echo der Fernsteuerung den Host-Cursor
+  zur Laufzeit aus dem Stream nehmen kann (`capture/cursorsteuerung.rs`);
+  `0002` gibt `Settings` eine Baumethode `with_d3d_device`, damit die Aufnahme
+  auf einer **vorgegebenen** Grafikkarte laufen kann statt auf der, die Windows
+  zuteilt (`system::gpu_wahl`). **Ein vorhandener Zweig frischt sich nicht
+  selbst auf** — nach einem neuen Patch das Skript erneut laufen lassen, sonst
+  fehlt die Methode beim Übersetzen.
 - **Audio:** `wasapi` (Desktop-Loopback + Mikrofon). Der **„Desktop"**-Modus nutzt
   WASAPI-Process-Loopback im **EXCLUDE-Modus** über den Pulse-Prozess-Tree
   (`new_application_loopback_client(pid, include_tree=false)` →
@@ -207,13 +212,36 @@ Latenzzahl dahinter gilt unverändert — D3D12 ist um das Zweieinhalbfache late
 (6,8 gegen 17,2 ms) —, sie wiegt die zwei Encode-Wege nur nicht mehr auf.
 
 **Dispatch-Detail:** die Regel steht einmal in `VideoCodec::encode_path`
-(`encode/encoder.rs`) und wird **zweimal ausgewertet** — im Dispatcher
-(`stream_controller::run_pipeline`) auf `select_adapter()`, das auf Multi-GPU den
-`HIGH_PERFORMANCE`-Slot (dGPU) liefert und nicht zwingend die Display-/Capture-GPU;
-und noch einmal in `pipeline_hw::run` auf der ECHTEN WGC-D3D11-Device-GPU
+(`encode/codec.rs`) und wird **zweimal ausgewertet** — im Dispatcher
+(`stream_controller::run_pipeline`) auf `select_adapter()`, und noch einmal in
+`pipeline_hw::run` auf der ECHTEN WGC-D3D11-Device-GPU
 (`system::dxgi::device_vendor`). Passt die Kombination dort nicht, delegiert
 `pipeline_hw` selbst weiter — an `pipeline_d3d12` oder den CPU-Pfad, je nachdem,
 was `encode_path` sagt.
+
+**Seit dem 2026-08-17 sollten die beiden Auswertungen dasselbe ergeben**, und
+das ist der Unterschied zum Zustand davor. Bis dahin wählte `select_adapter()`
+nur die **Encoder**-GPU, während `windows-capture` sein D3D11-Gerät mit
+`D3D11CreateDevice(None, …)` baute und Windows die **Aufnahme**-GPU bestimmte —
+auf Rechnern mit eingebauter und eingesteckter Grafik meist die eingebaute, weil
+sie den Bildschirm versorgt. Der Encoder richtete sich am Ende nach der Aufnahme,
+die Wahl lief also ins Leere. Gemeldet am 2026-08-17 von einem Nutzer mit
+RTX 2070 SUPER **und** Intel UHD 630: `h264_qsv` statt `h264_nvenc`, Abbruch beim
+Öffnen (QSV nimmt keinen D3D11VA-Rahmenspeicher an).
+
+Jetzt reicht der Dispatcher die gewählte Karte über `StartParams::gpu` bis in die
+Aufnahme durch (`capture::auf_gpu` → Pulse-Patch `0002` an der Crate), und die
+zweite Auswertung ist die **Gegenprobe**: dass WGC die Bilder auf einer anderen
+Karte als der des Bildschirms liefert, ist zwar vorgesehen, aber von Microsoft
+nirgends ausdrücklich zugesagt. Weicht es ab, sagt es `pipeline_hw` in einer
+eigenen Zeile, und die Delegation fängt es auf.
+
+**Welche Karte es wird**, steht in `system::gpu_wahl` (mit Tests, die ohne
+Windows laufen): der Wunsch aus `overrides.gpu` schlägt alles; sonst die Karte
+mit dem meisten **eigenen** Videospeicher unter denen, deren Hersteller den
+D3D11-Zero-Copy-Weg trägt. Der Videospeicher entscheidet mit, weil die
+DXGI-Reihenfolge allein eine im Prozessor eingebaute Radeon-Grafik nicht von
+einer eingesteckten Karte trennt — beide sind `vendor == "amd"`.
 
 ## Fernsteuerung — Eingabe-Injektion (`src/remote_input/`)
 
@@ -309,9 +337,10 @@ einzeln beschrieben.
   den Zwei-Geräte-Test, wo fünf Sekunden je Durchgang die Messung beherrschen.
 - `PULSE_HQ_FERN_TICKRASTER=1` — Notausgang: im Fern-Modus wieder starr takten
   statt bei Ankunft zu senden (A/B gegen den Latenzgewinn).
-- `PULSE_HQ_ADAPTER_VENDOR=nvidia|amd|intel` — Adapter-Filter statt
-  DXGI-`HIGH_PERFORMANCE`-Default. Auf Multi-GPU (dGPU+iGPU) der einzige Weg, einen
-  bestimmten Vendor-Pfad zu validieren, ohne den Default umzustellen.
+- `PULSE_HQ_ADAPTER_VENDOR=nvidia|amd|intel` — Karten-Filter, **schlägt sowohl die
+  Automatik als auch `overrides.gpu`**. Der Weg, einen bestimmten Vendor-Pfad zu
+  prüfen, ohne über die Oberfläche zu gehen. Gilt seit dem 2026-08-17 auch für die
+  Aufnahme, nicht mehr nur für den Encoder.
 - `PULSE_HQ_DISABLE_ZERO_COPY=1` — erzwingt den CPU-Pfad für **jeden** Vendor (NVIDIA wie
   AMD). Für A/B-Debugging; auf AMD = Fallback auf `h264_amf` (Software-NV12-Input).
   **Teuer:** bei 1440p→1080p60 gemessen rund eine volle CPU-Kerne.

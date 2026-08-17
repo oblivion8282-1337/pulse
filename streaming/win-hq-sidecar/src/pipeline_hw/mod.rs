@@ -27,10 +27,13 @@
 //! (`PULSE_HQ_AMD_D3D12=1`, Begründung an `amd_forces_d3d12` in
 //! `encode/codec.rs`) und AV1 nicht.
 //!
-//! Da `select_adapter()` auf Multi-GPU die dGPU statt der Display-GPU liefern
-//! kann, verifiziert `run` die echte WGC-Capture-GPU und delegiert bei einer
+//! `run` verifiziert die echte WGC-Capture-GPU und delegiert bei einer
 //! unpassenden Vendor/Codec-Kombination selbst an `pipeline_d3d12` bzw.
-//! `run_cpu_pipeline`. Kill-Switch `PULSE_HQ_DISABLE_ZERO_COPY=1` → CPU-Pfad.
+//! `run_cpu_pipeline`. Das war bis zum 2026-08-17 der Regelfall (die Aufnahme
+//! landete auf der GPU, die Windows ihr gab, und die wich von
+//! `select_adapter()` ab); seither bekommt die Aufnahme ihre Karte vorgegeben,
+//! und die Prüfung ist die **Gegenprobe** — sie greift nur noch, wenn die
+//! Vorgabe nicht durchkam. Kill-Switch `PULSE_HQ_DISABLE_ZERO_COPY=1` → CPU-Pfad.
 //!
 //! Capture-Start + Warten auf das erste Bild sitzt in [`capture_start`] —
 //! herausgezogen, weil diese Datei mit den Messbegründungen über die harte
@@ -71,13 +74,34 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     let capture_start::Aufnahmestart {
         capture, hw, width, height, direkt, first, first_qpc, origin_instant,
     } = capture_start::start_and_wait_for_setup(&params, fps, direkt_an)?;
-    // Vendor der ECHTEN Capture/Encode-GPU (WGC-D3D11-Device). `adapter` aus
-    // `select_adapter()` kann auf Multi-GPU eine andere GPU sein (dGPU-Default).
-    // Massgeblich ist die GPU, auf der WGC sein Device gebaut hat (= die des
-    // primaeren Displays), nicht die aus `select_adapter()` — der Encoder muss
-    // zu ihr passen (h264_nvenc / h264_amf).
+    // Vendor der ECHTEN Capture/Encode-GPU (WGC-D3D11-Device). Maßgeblich ist
+    // die GPU, auf der WGC sein Device gebaut hat — der Encoder muss zu ihr
+    // passen (h264_nvenc / h264_amf).
+    //
+    // **Seit dem 2026-08-17 sollte das dieselbe sein wie `adapter`**: der
+    // Verteiler gibt die gewählte Karte über `StartParams::gpu` in die Aufnahme
+    // hinein (`capture::auf_gpu`). Die Abfrage hier bleibt trotzdem stehen, und
+    // zwar nicht aus Vorsicht, sondern weil sie die **Gegenprobe** ist: dass
+    // Windows die Bilder wirklich auf einer anderen Karte als der des
+    // Bildschirms liefert, ist für Windows Graphics Capture zwar vorgesehen,
+    // aber von Microsoft nirgends ausdrücklich zugesagt. Weicht es ab, sagt es
+    // die Zeile darunter — und die Delegation weiter unten fängt es auf.
     let vendor =
         crate::system::dxgi::device_vendor(hw.device()).unwrap_or_else(|| adapter.vendor());
+    // Die zweite Hälfte des Belegs (die erste ist „GPU: …" aus
+    // `select_adapter`). Beide zusammen beantworten die einzige Frage, die
+    // eine Rückmeldung von einem Rechner mit zwei Grafikkarten klären muss:
+    // ist die Aufnahme dort gelandet, wo sie hin sollte?
+    if vendor != adapter.vendor() {
+        eprintln!(
+            "[pipeline-hw] Die Aufnahme läuft auf einer {vendor}-GPU, gewählt war aber {} \
+             ({}) — die Vorgabe hat nicht gegriffen.",
+            adapter.description,
+            adapter.vendor()
+        );
+    } else {
+        eprintln!("[pipeline-hw] Aufnahme läuft auf der gewählten GPU (vendor={vendor})");
+    }
 
     // `encode_path` hier ein zweites Mal auswerten — jetzt mit dem ECHTEN
     // Vendor der WGC-Capture-GPU. Der Dispatcher entscheidet auf

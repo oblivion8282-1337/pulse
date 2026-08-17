@@ -465,6 +465,8 @@ fn run_capture(
                 farbformat,
                 flags,
             );
+            // Die Aufnahme an die gewählte Karte binden — Begründung an `auf_gpu`.
+            let settings = super::auf_gpu(settings, cfg.gpu)?;
             HwFrameSink::start(settings).context("Monitor capture failed")?;
         }
         ResolvedTarget::Window(window) => {
@@ -478,6 +480,8 @@ fn run_capture(
                 farbformat,
                 flags,
             );
+            // Die Aufnahme an die gewählte Karte binden — Begründung an `auf_gpu`.
+            let settings = super::auf_gpu(settings, cfg.gpu)?;
             HwFrameSink::start(settings).context("Window capture failed")?;
         }
     }

@@ -7,20 +7,29 @@
 # Bauart wie `streaming/pulse-player/scripts/bootstrap-webrtc.sh`. Fehlt der
 # Pfad, bricht cargo schon beim AUFLÖSEN ab, nicht erst beim Übersetzen.
 #
-# WAS DER PATCH MACHT: Die Crate setzt `IsCursorCaptureEnabled` nur beim
-# Start der Aufnahme und legt die WGC-Session danach nirgends offen. Für das
-# Cursor-Echo der Fernsteuerung muss der Host-Cursor aber MITTEN IM STREAM aus
-# der Aufnahme genommen und wieder hineingelegt werden können (der Steuernde
-# sieht seinen eigenen, verzögerungsfreien Zeiger; der nachlaufende
-# Stream-Cursor wäre nur ein Geisterbild). Der Patch reicht die Session einmal
-# an den Handler durch (`on_session_ready`, Default no-op) — sonst nichts.
+# WAS DIE PATCHES MACHEN (alle aus `patches/`, in Dateinamen-Reihenfolge):
+#
+# 0001 — Die Crate setzt `IsCursorCaptureEnabled` nur beim Start der Aufnahme
+# und legt die WGC-Session danach nirgends offen. Für das Cursor-Echo der
+# Fernsteuerung muss der Host-Cursor aber MITTEN IM STREAM aus der Aufnahme
+# genommen und wieder hineingelegt werden können (der Steuernde sieht seinen
+# eigenen, verzögerungsfreien Zeiger; der nachlaufende Stream-Cursor wäre nur
+# ein Geisterbild). Der Patch reicht die Session einmal an den Handler durch
+# (`on_session_ready`, Default no-op).
+#
+# 0002 — Die Crate baut ihr D3D11-Gerät mit `D3D11CreateDevice(None, …)`, also
+# auf der Karte, die Windows aussucht. Auf Rechnern mit eingebauter und
+# eingesteckter Grafik ist das die des Bildschirms, und weil der Encoder sich
+# nach der Aufnahme-Karte richtet, entscheidet sie über den ganzen Encode-Weg.
+# Der Patch gibt `Settings` eine Baumethode `with_d3d_device`; fehlt sie, baut
+# die Crate ihr Gerät weiter selbst (`system::gpu_wahl`).
 #
 # WARUM TARBALL STATT GIT-KLON: Das Upstream-Repo trägt keine Tags; ein
 # `--branch <tag>`-Klon wie in `scripts/lib/gepatchter-klon.sh` ist damit
 # nicht pinbar. Das crates.io-Tarball ist unveränderlich und über die
 # SHA256-Prüfsumme gepinnt — dieselbe, die im Cargo.lock steht.
 #
-# Fällt weg, sobald windows-capture selbst einen Laufzeit-Zugriff auf die
+# 0001 fällt weg, sobald windows-capture selbst einen Laufzeit-Zugriff auf die
 # Session anbietet.
 set -euo pipefail
 

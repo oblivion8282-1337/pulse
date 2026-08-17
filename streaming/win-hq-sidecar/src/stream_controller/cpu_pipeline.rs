@@ -17,6 +17,7 @@ use crate::audio::AudioCapture;
 use crate::capture::wgc::{CaptureConfig, CapturedFrame, WgcCapture};
 use crate::encode::{AudioStreamConfig, EncoderConfig, FfmpegEncoder, VideoCodec};
 use crate::events;
+use crate::system::gpu_wahl;
 use crate::tick_monitor::{TickMonitor, TickSample};
 
 use super::{StartParams, StreamController, emit_state, fit_within_box, select_adapter};
@@ -25,15 +26,27 @@ use crate::zeitbasis;
 pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
     let ctrl = StreamController::singleton();
     (|| -> Result<()> {
-        // Encoder-Vendor aus dem HIGH_PERFORMANCE-Adapter. Im CPU-Pfad gehen
-        // Software-NV12-Frames in den Encoder — die GPU lädt sie selbst hoch,
-        // sie muss kein Display treiben. Auf Multi-GPU ist das die dGPU.
-        let adapter = select_adapter()?;
+        // Im CPU-Pfad gehen Software-NV12-Frames in den Encoder — die GPU lädt
+        // sie selbst hoch, sie muss kein Display treiben.
+        //
+        // **Die Entscheidung des Verteilers nachschlagen, nicht neu herleiten.**
+        // `params.gpu` trägt die bereits gefallene Wahl; sie noch einmal aus
+        // `gpu_wunsch` abzuleiten käme zwar zum selben Ergebnis, wäre aber eine
+        // zweite Herleitung derselben Sache — und die zweite ist es, die eines
+        // Tages abweicht. Nur wenn nichts entschieden wurde (dieser Weg ist
+        // auch ohne Verteiler erreichbar), fragt der Aufruf selbst.
+        let wunsch = match params.gpu {
+            Some((vendor_id, device_id)) => gpu_wahl::Wunsch::Genau { vendor_id, device_id },
+            None => params.gpu_wunsch.clone(),
+        };
+        let adapter = select_adapter(&wunsch)?;
         let mut capture = WgcCapture::start(
             params.capture.clone(),
             CaptureConfig {
                 max_fps: params.override_fps.unwrap_or(params.profile.fps),
                 include_cursor: params.show_cursor,
+                // Auf DERSELBEN Karte aufnehmen, die der Verteiler gewählt hat.
+                gpu: params.gpu,
                 ..Default::default()
             },
         )?;

@@ -102,7 +102,7 @@ pub fn log_encoder_open(
     );
 }
 
-pub use codec::{EncodePath, VideoCodec};
+pub use codec::{EncodePath, VideoCodec, vendor_traegt_zero_copy};
 pub use d3d11_scale::D3D11Scaler;
 pub use encoder::{AudioStreamConfig, EncoderConfig, FfmpegEncoder};
 pub use encoder_d3d12::{D3d12EncoderConfig, FfmpegD3d12Encoder};

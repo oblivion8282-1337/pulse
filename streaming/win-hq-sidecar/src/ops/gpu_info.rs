@@ -19,12 +19,36 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
     if adapters.is_empty() {
         bail!("no hardware video adapter found (DXGI enumeration empty)");
     }
-    let primary = &adapters[0];
+    // **Nicht `adapters[0]`** — dieselbe Überlegung wie in `ops::health`: seit
+    // die Karte wählbar ist, meldet die erste nicht mehr zwangsläufig das
+    // Codec-Angebot der Karte, auf der encodiert wird. `vendor` und
+    // `video_codecs` gehören deshalb an die Karte, die die Automatik nähme.
+    // `adapters` darunter listet weiterhin ALLE — daraus baut die Oberfläche
+    // ihre Auswahl.
+    let karten: Vec<_> = adapters.iter().map(dxgi::Adapter::karte).collect();
+    let primary = crate::system::gpu_wahl::vorgabe(
+        &karten,
+        crate::encode::vendor_traegt_zero_copy,
+        dxgi::sortiert_nach_leistung(),
+    )
+    .and_then(|k| {
+        adapters
+            .iter()
+            .find(|a| a.vendor_id == k.vendor_id && a.device_id == k.device_id)
+    })
+    .unwrap_or(&adapters[0]);
 
     let adapter_list: Vec<Value> = adapters
         .iter()
         .map(|a| {
             json!({
+                // **Die Kennung, unter der die Oberfläche eine Karte zurück
+                // bestellt** (`start` → `overrides.gpu`, gelesen von
+                // `ops::start::parse_gpu`). Bewusst ein undurchsichtiger
+                // Text: der Renderer soll ihn durchreichen, nicht zerlegen —
+                // sonst gäbe es eine zweite Stelle, die das Zahlenformat
+                // kennt, und die liefe irgendwann auseinander.
+                "id": format!("{:04X}:{:04X}", a.vendor_id, a.device_id),
                 "description": a.description,
                 "vendor": a.vendor(),
                 "vendor_id": format!("0x{:04X}", a.vendor_id),

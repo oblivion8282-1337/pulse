@@ -145,11 +145,19 @@ codegen-units = 1
 strip = true
 
 # Der Zweig unter `vendor/` wird von `scripts/bootstrap-windows-capture.sh`
-# hergestellt (crates.io-Tarball 2.0.0, SHA-gepinnt, plus
-# `patches/0001-...patch`) und ist gitignored. Delta gegen 2.0.0: die Crate
-# reicht die WGC-Session einmal an den Handler durch (`on_session_ready`),
-# damit der Cursor während der Fernsteuerung zur Laufzeit aus der Aufnahme
-# genommen werden kann (`capture/cursorsteuerung.rs`). Ohne den Zweig bricht
-# cargo beim Auflösen ab — erst das Bootstrap-Skript laufen lassen.
+# hergestellt (crates.io-Tarball 2.0.0, SHA-gepinnt, plus allen Patches aus
+# `patches/`) und ist gitignored. Zwei Deltas gegen 2.0.0:
+#   0001 — die Crate reicht die WGC-Session einmal an den Handler durch
+#          (`on_session_ready`), damit der Cursor während der Fernsteuerung zur
+#          Laufzeit aus der Aufnahme genommen werden kann
+#          (`capture/cursorsteuerung.rs`).
+#   0002 — `Settings::with_d3d_device`: die Aufnahme kann auf einem
+#          vorgegebenen D3D11-Gerät laufen statt auf dem, das Windows
+#          zuteilt. Trägt die GPU-Auswahl (`system::gpu_wahl`).
+# Ohne den Zweig bricht cargo beim Auflösen ab — erst das Bootstrap-Skript
+# laufen lassen. **Ein bereits vorhandener Zweig wird NICHT von selbst
+# aufgefrischt**: wer ihn vor einem neuen Patch angelegt hat, baut weiter gegen
+# den alten Stand (Symptom: `with_d3d_device` gibt es nicht). Dann das Skript
+# erneut laufen lassen — es packt frisch aus.
 [patch.crates-io]
 windows-capture = { path = "vendor/windows-capture" }

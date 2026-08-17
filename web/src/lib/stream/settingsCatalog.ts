@@ -45,6 +45,14 @@ export interface OverrideSet {
    * damit AV1; die Oberfläche erzwingt beides beim Anhaken.
    */
   hdr?: boolean;
+  /**
+   * Welche Grafikkarte encodieren soll — eine opake `id` aus
+   * `GsrGpuInfo.adapters` (Windows, nur bei mindestens zwei Karten gesetzt).
+   * `undefined` oder `'auto'` heißt Automatik: der Sidecar wählt selbst und
+   * bevorzugt die eingesteckte Karte. Nur auf Maschinen mit mehreren
+   * Adaptern überhaupt sichtbar — s. `OverridesEditor.svelte`.
+   */
+  gpu?: string;
 }
 
 // Hard caps for the HQ-stream bitrate. MediaMTX fans out WHEP copies to every

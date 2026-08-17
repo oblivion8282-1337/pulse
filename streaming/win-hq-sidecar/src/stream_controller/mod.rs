@@ -19,7 +19,7 @@
 //! nur die Zustandsverwaltung (Start/Stop/Snapshot) und die Weiche, die pro
 //! Adapter/Codec entscheidet, welche Pipeline läuft.
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use serde_json::json;
 use std::sync::Mutex;
 use std::sync::OnceLock;
@@ -37,7 +37,7 @@ mod cpu_pipeline;
 mod helpers;
 pub(crate) use cpu_pipeline::run_cpu_pipeline;
 pub(crate) use helpers::{build_argv_redacted, emit_state, fit_within_box, zielmasse};
-use helpers::select_adapter;
+use helpers::{gpu_sackgasse, select_adapter};
 
 /// Wie lange `stop()` maximal auf das Auslaufen des Worker-Threads wartet,
 /// bevor es ihn aufgibt. Der Worker terminiert nach dem Stop-Signal selbst
@@ -149,6 +149,19 @@ pub struct StartParams {
     /// Antworten geben — die Bildpunkte trügen die eine, die Metadaten die
     /// andere.
     pub schirm: Option<crate::system::hdr::SchirmFarbe>,
+    /// Welche Grafikkarte die Anfrage will (`overrides.gpu`). Regelfall
+    /// [`Wunsch::Automatisch`](crate::system::gpu_wahl::Wunsch::Automatisch) —
+    /// dann entscheidet `system::gpu_wahl`.
+    pub gpu_wunsch: crate::system::gpu_wahl::Wunsch,
+    /// Welche Karte es geworden ist, als Paar aus Hersteller- und
+    /// Gerätekennung.
+    ///
+    /// **Wird vom Verteiler gesetzt, nicht vom Request** — wie
+    /// [`schirm`](Self::schirm). Von hier reicht ihn jede der drei Pipelines an
+    /// `CaptureConfig::gpu` weiter, damit die Aufnahme auf derselben Karte
+    /// läuft wie der Encoder. Genau das lief bis zum 2026-08-17 auseinander:
+    /// der Encoder folgte der Wahl, die Aufnahme folgte Windows.
+    pub gpu: Option<(u32, u32)>,
 }
 
 impl StartParams {
@@ -380,15 +393,15 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
     // Pipeline-Objekte (`ManuallyDrop`) werden vom Unwind nicht angefasst —
     // der Teardown-Crash-Schutz gilt also auch auf dem Panic-Pfad.
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<()> {
-        let adapter = select_adapter()?;
+        let adapter = select_adapter(&params.gpu_wunsch)?;
 
         // Welcher Encode-Weg zuständig ist, steht an genau einer Stelle:
         // `VideoCodec::encode_path` (`encode/encoder.rs`) — dort auch die
         // Begründung je Zelle. Hier wird sie nur noch ausgeführt.
         //
-        // `select_adapter()` liefert auf Multi-GPU evtl. die dGPU statt der
-        // Display-GPU; `pipeline_hw` wertet `encode_path` deshalb mit der
-        // ECHTEN WGC-GPU noch einmal aus und delegiert nötigenfalls weiter.
+        // `pipeline_hw` wertet `encode_path` mit der ECHTEN WGC-GPU noch einmal
+        // aus und delegiert nötigenfalls weiter — seit dem 2026-08-17 als
+        // Gegenprobe zur Vorgabe aus `params.gpu`, vorher als Regelfall.
         // Kill-Switch `PULSE_HQ_DISABLE_ZERO_COPY=1` erzwingt den CPU-Pfad —
         // auch das ist ein Grund, aus dem 10 bit ausfallen kann, s.
         // `encode::zehnbit::pruefen` unten.
@@ -418,6 +431,10 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
         // zwischen zwei Abfragen ändern, und dann sagten Bildpunkte und
         // Metadaten Verschiedenes.
         let mut params = params;
+        // Die gewählte Karte an die Aufnahme durchreichen. Ohne diese Zeile
+        // bleibt die Auswahl eine Encoder-Einstellung, und die Aufnahme
+        // entscheidet weiter Windows — der Zustand vor dem 2026-08-17.
+        params.gpu = Some((adapter.vendor_id, adapter.device_id));
         if params.hdr {
             let schirm = crate::encode::hdr::pruefen(
                 adapter.vendor(),
@@ -447,6 +464,30 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
         if !disable_zc {
             match pfad {
                 EncodePath::D3d11ZeroCopy => {
+                    // **Ein Hersteller, der diesen Weg nicht bedienen kann,
+                    // darf hier nicht durch.** `encode_path` sagt bei
+                    // angemeldetem Sendeweg für JEDEN Hersteller
+                    // `D3d11ZeroCopy` — für Intel ist das falsch, und ohne die
+                    // Abfrage bekäme `h264_qsv` einen D3D11-Rahmenspeicher
+                    // untergeschoben. `avcodec_open2` antwortet darauf mit
+                    // `Invalid argument`, und diese Meldung erklärt niemandem
+                    // etwas (gemeldet 2026-08-17).
+                    //
+                    // **Sie steht im Zweig und nicht davor**, damit sie nur den
+                    // Weg sperrt, den sie meint: `PULSE_HQ_DISABLE_ZERO_COPY=1`
+                    // und ein angemeldeter Encoder aus dem Labor kommen hier
+                    // gar nicht vorbei, und ein Abbruch davor hätte auch die
+                    // gesperrt.
+                    //
+                    // Der Abbruch ist nicht die Lösung, sondern die ehrliche
+                    // Fassung des Mangels: Intel kann über den eigenen
+                    // WebRTC-Sendeweg zurzeit gar nicht senden, weil der
+                    // CPU-Weg ihn nicht bedient (`encode::encoder::create`
+                    // öffnet immer den ffmpeg-Muxer). Das zu heilen ist eine
+                    // eigene Änderung.
+                    if !crate::encode::vendor_traegt_zero_copy(adapter.vendor()) {
+                        bail!("{}", gpu_sackgasse(&adapter, &params.gpu_wunsch));
+                    }
                     return crate::pipeline_hw::run(adapter, params, stop_rx);
                 }
                 EncodePath::D3d12ZeroCopy => {

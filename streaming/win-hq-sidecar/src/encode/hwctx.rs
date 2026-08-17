@@ -83,10 +83,12 @@ const D3D11_RESOURCE_MISC_SHARED_NTHANDLE: u32 = 0x800;
 /// Hängt das D3D11-Device an einer AMD-GPU (VendorId `0x1002`)? Einer der
 /// beiden Gründe für Einzeltexturen statt Texture-Array in [`HwContext::new`]
 /// (der andere ist ein P010-Pool — Begründung dort). Bewusst am Device statt
-/// an `select_adapter()` abgefragt:
-/// maßgeblich ist die GPU, auf der WGC captured und AMF encodiert, und die
-/// kann auf Multi-GPU von der `HIGH_PERFORMANCE`-Wahl abweichen (gleiche
-/// Überlegung wie `pipeline_hw::device_vendor`).
+/// an `select_adapter()` abgefragt: maßgeblich ist die GPU, auf der WGC
+/// captured und AMF encodiert. Seit dem 2026-08-17 bekommt die Aufnahme ihre
+/// Karte vorgegeben, die beiden sollten also übereinstimmen — die Abfrage hier
+/// bleibt trotzdem am Device, weil sie eine Eigenschaft des Pools bestimmt und
+/// eine falsche Antwort ein zerrissenes Bild ergäbe, nicht eine Fehlermeldung
+/// (gleiche Überlegung wie `system::dxgi::device_vendor`).
 fn device_is_amd(device: &ID3D11Device) -> bool {
     crate::system::dxgi::device_vendor(device) == Some("amd")
 }

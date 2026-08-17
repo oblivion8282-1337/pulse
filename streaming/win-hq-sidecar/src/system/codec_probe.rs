@@ -38,9 +38,29 @@ use ffmpeg::{Dictionary, Rational, codec, format};
 use crate::encode::VideoCodec;
 use crate::system::dxgi::Adapter;
 
-/// Ein Probe-Ergebnis pro Prozess (Sidecar = eine GPU / ein Vendor). Beide
-/// Call-Sites (`health`, `gpu_info`) lesen den primären Adapter, darum kein
-/// per-Adapter-Key nötig.
+/// Ein Probe-Ergebnis pro Prozess, **ohne Adapter-Schlüssel**.
+///
+/// Hier stand bis zum 2026-08-17 „Sidecar = eine GPU / ein Vendor. Beide
+/// Call-Sites lesen den primären Adapter" — der zweite Satz stimmt nicht mehr:
+/// `health` und `gpu_info` lesen seither die Karte, die `system::gpu_wahl`
+/// nähme, und die ist auf Rechnern mit zwei Karten nicht mehr die erste.
+///
+/// **Fehlerhaft wird der Zwischenspeicher davon trotzdem nicht**, und das
+/// hängt an einer Eigenschaft, die man beim Ändern kennen muss: er wird nur im
+/// `"nvidia"`-Zweig gelesen. AMD und Intel antworten fest verdrahtet, ein
+/// Wechsel zwischen den Herstellern greift also gar nicht darauf zu. Übrig
+/// bleibt genau ein Fall, in dem er die falsche Antwort gäbe — **zwei
+/// verschiedene NVIDIA-Karten im selben Rechner**, von denen nur eine AV1
+/// kann (RTX 20 gegen RTX 40).
+///
+/// **Ein Schlüssel aus Hersteller- und Gerätekennung würde diesen Fall
+/// trotzdem nicht heilen**, und das ist der Teil, den man beim Nachbessern
+/// zuerst wissen muss: `probe_inner` öffnet `hevc_nvenc`/`av1_nvenc` **ohne
+/// Gerätewahl**. NVENC nimmt dann sein eigenes Standardgerät, nicht die
+/// gewählte Karte — die Probe beantwortet also ohnehin eine andere Frage als
+/// die gestellte. Wer den Fall wirklich schließen will, muss zuerst dort die
+/// Karte vorgeben (`-gpu` bzw. ein D3D11-Gerätekontext) und erst danach den
+/// Schlüssel ergänzen.
 static PROBED: OnceLock<Vec<String>> = OnceLock::new();
 
 /// Open-Dimension der Capability-Probe. NVENC lehnt unter 145×49 ab

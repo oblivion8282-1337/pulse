@@ -69,6 +69,8 @@ pub(super) fn start_and_wait_for_setup(
             hdr: params.hdr,
             hdr_direkt,
             ziel_kasten: params.override_resolution,
+            // Auf DERSELBEN Karte aufnehmen, die der Verteiler gewählt hat.
+            gpu: params.gpu,
             ..Default::default()
         },
         24,

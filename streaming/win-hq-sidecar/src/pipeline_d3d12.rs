@@ -98,6 +98,8 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>, codec: VideoCodec) -> Res
         CaptureConfig {
             max_fps: fps,
             include_cursor: params.show_cursor,
+            // Auf DERSELBEN Karte aufnehmen, die der Verteiler gewählt hat.
+            gpu: params.gpu,
             ..Default::default()
         },
     )?;

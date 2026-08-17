@@ -79,12 +79,30 @@ export interface GsrHealth {
   };
 }
 
+/**
+ * Eine einzelne, vom Sidecar gefundene Grafikkarte (Windows, `adapters` in
+ * `gpu_info`). `id` ist eine opake Kennung — nur durchreichen, nie zerlegen
+ * oder parsen; sie geht unverändert als `overrides.gpu` in `GsrStartArgs`
+ * zurück (`ops/start.rs` löst sie dort auf).
+ */
+export interface GsrAdapter {
+  id: string;
+  description: string;
+  vendor?: string;
+  vendor_id?: string;
+  device_id?: string;
+  vram_mb?: number;
+}
+
 export interface GsrGpuInfo {
   ok: boolean;
   vendor?: string;
   card_path?: string;
   display_server?: string;
   video_codecs?: string[];
+  /** Mehrere Grafikkarten (Windows, mind. zwei Adapter). Fehlt/leer bei nur
+   *  einer Karte oder auf Linux/macOS — dann gibt es nichts auszuwählen. */
+  adapters?: GsrAdapter[];
   error?: string;
 }
 
@@ -166,6 +184,12 @@ export interface GsrStartArgs {
      *  VERWEIGERT den Start, wenn er es nicht liefern kann — anders als bei
      *  `bit_depth`, das still zurückgenommen wird. */
     hdr?: boolean;
+    /** Welche Grafikkarte encodieren soll — eine `id` aus `GsrGpuInfo.adapters`.
+     *  Weglassen oder `"auto"` (kein gültiger `id`-Wert) heißt Automatik, der
+     *  Sidecar wählt selbst. Nur gesetzt, wenn die Oberfläche wirklich eine
+     *  bestimmte Karte gewählt hat — s. `OverrideSet.gpu` in
+     *  `settingsCatalog.ts`. */
+    gpu?: string;
   };
   /** Show the mouse cursor in the captured stream. Default true (GSR's
    *  built-in default); set to false to pass `-cursor no`. */

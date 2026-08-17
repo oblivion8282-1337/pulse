@@ -2,6 +2,20 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-17",
+      "date": "2026-08-17",
+      "style": "Sachlich",
+      "title": "Grafikkarte für das Streaming wählbar",
+      "intro": "Auf Rechnern mit zwei Grafikkarten hat Pulse bisher die genommen, die Windows ihm zuwies — oft die schwache im Prozessor. Das konnte dazu führen, dass sich kein Stream starten ließ.",
+      "items": [
+        "Pulse nimmt jetzt von sich aus die eingesteckte Grafikkarte statt der im Prozessor eingebauten. Das gilt auch dann, wenn beide vom selben Hersteller sind.",
+        "In den Streameinstellungen lässt sich unter „GPU“ eine bestimmte Karte auswählen. Das Feld erscheint nur, wenn es überhaupt mehr als eine gibt.",
+        "Kann eine Karte nicht senden, steht das jetzt in verständlichen Worten da statt als technische Fehlermeldung."
+      ],
+      "outro": "Betrifft nur Windows.",
+      "_notiz": "Kern der Änderung: die Wahl greift an der AUFNAHME, nicht am Encoder — der richtete sich vorher nach der Aufnahme-GPU und überstimmte damit jede Encoder-Einstellung. Hintergrund: streaming/win-hq-sidecar/README.md, Regel in system/gpu_wahl.rs."
+    },
+    {
       "id": "2026-08-16",
       "date": "2026-08-16",
       "style": "Sachlich",

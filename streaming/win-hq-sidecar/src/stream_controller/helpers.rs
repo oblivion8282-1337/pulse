@@ -6,33 +6,102 @@ use anyhow::{Result, anyhow};
 use serde_json::json;
 
 use crate::events;
-use crate::system::dxgi;
+use crate::system::{dxgi, gpu_wahl};
 
 use super::StartParams;
 
-/// Adapter-Auswahl: per default der HIGH_PERFORMANCE-Slot (dGPU bevorzugt).
-/// Test/Diagnose-Override: `PULSE_HQ_ADAPTER_VENDOR=nvidia|amd|intel` filtert
-/// erst nach Vendor, dann wird der erste Treffer genommen. Nützlich auf
-/// Multi-GPU-Systemen (dGPU+iGPU) um den AMF/QSV-Pfad zu validieren ohne den
-/// HIGH_PERFORMANCE-Default umzustellen.
-pub(super) fn select_adapter() -> Result<dxgi::Adapter> {
+/// Die Grafikkarte für **Aufnahme und Encoder**.
+///
+/// **Bis zum 2026-08-17 stand hier nur „nimm die erste"**, und das war die
+/// halbe Wahrheit: Diese Karte bestimmte den Encoder, aber nicht die Aufnahme —
+/// die baute `windows-capture` auf der Karte, die Windows ihr gab. Auf Rechnern
+/// mit zwei Karten liefen die beiden auseinander, und `pipeline_hw` richtete
+/// sich am Ende nach der Aufnahme (`system::dxgi::device_vendor`). Seither
+/// reicht der Aufrufer die hier gewählte Karte über `StartParams::gpu` bis in
+/// die Aufnahme durch, und die Wahl gilt wieder für beides.
+///
+/// Die Regel selbst steht in [`crate::system::gpu_wahl`] — dort auch die
+/// Begründung, warum der eigene Videospeicher mitentscheidet und die
+/// Reihenfolge allein nicht genügt.
+///
+/// **`PULSE_HQ_ADAPTER_VENDOR=nvidia|amd|intel` bleibt** als Labor-Notbremse
+/// und schlägt weiterhin alles: Wer den QSV- oder AMF-Weg gegenprüfen will,
+/// soll das ohne Umweg über die Oberfläche können.
+pub(super) fn select_adapter(wunsch: &gpu_wahl::Wunsch) -> Result<dxgi::Adapter> {
     let adapters = dxgi::list_adapters()?;
-    let adapter = match std::env::var("PULSE_HQ_ADAPTER_VENDOR").ok().as_deref() {
-        Some(want) if !want.is_empty() => adapters
+    if let Some(want) = std::env::var("PULSE_HQ_ADAPTER_VENDOR").ok().filter(|v| !v.is_empty()) {
+        let adapter = adapters
             .into_iter()
             .find(|a| a.vendor() == want)
-            .ok_or_else(|| anyhow!("no DXGI adapter with vendor={want}"))?,
-        _ => adapters
-            .into_iter()
-            .next()
-            .ok_or_else(|| anyhow!("no DXGI adapter for encode"))?,
-    };
+            .ok_or_else(|| anyhow!("no DXGI adapter with vendor={want}"))?;
+        eprintln!(
+            "[stream-pipeline] GPU: {} (vendor={}) — erzwungen über PULSE_HQ_ADAPTER_VENDOR",
+            adapter.description,
+            adapter.vendor()
+        );
+        return Ok(adapter);
+    }
+
+    let karten: Vec<gpu_wahl::Karte> = adapters.iter().map(dxgi::Adapter::karte).collect();
+    let wahl = gpu_wahl::waehlen(
+        &karten,
+        wunsch,
+        crate::encode::vendor_traegt_zero_copy,
+        dxgi::sortiert_nach_leistung(),
+    )
+    .ok_or_else(|| anyhow!("no DXGI adapter for encode"))?;
+    let adapter = adapters
+        .into_iter()
+        .nth(wahl.index)
+        .expect("gpu_wahl liefert nur Stellen aus der übergebenen Liste");
+
+    if wahl.wunsch_verfehlt {
+        eprintln!(
+            "[stream-pipeline] Die eingestellte GPU steckt nicht (mehr) in diesem Rechner — \
+             es wird automatisch gewählt."
+        );
+    }
+    // **Diese Zeile ist der Beleg**, an dem eine Rückmeldung von einem
+    // Doppel-GPU-Rechner hängt: sie sagt, welche Karte gewollt war. Ob die
+    // Aufnahme auch dort gelandet ist, sagt erst `pipeline_hw` — die beiden
+    // gehören zusammen gelesen.
     eprintln!(
-        "[stream-pipeline] encode adapter: {} (vendor={})",
+        "[stream-pipeline] GPU: {} (vendor={}, {} MB eigener Speicher) — {}",
         adapter.description,
-        adapter.vendor()
+        adapter.vendor(),
+        adapter.vram_mb,
+        match wahl.grund {
+            gpu_wahl::Grund::Gewuenscht => "so eingestellt",
+            gpu_wahl::Grund::SchnellsterWeg => "automatisch gewählt",
+            gpu_wahl::Grund::ErsteAusReihenfolge =>
+                "automatisch gewählt (keine Karte trägt den schnellen Weg)",
+        }
     );
     Ok(adapter)
+}
+
+/// Der Satz, mit dem der Start abbricht, wenn die Karte den Sendeweg nicht
+/// bedienen kann (`run_pipeline`).
+///
+/// **Zwei Fassungen, weil es zwei Lagen sind.** Wer die Karte gar nicht
+/// eingestellt hat, soll erfahren, dass es dafür ein Feld gibt. Wer sie
+/// ausdrücklich eingestellt hat — `Wunsch::Genau` umgeht die Automatik
+/// absichtlich — bekäme mit demselben Satz den Rat, genau das zu tun, was er
+/// gerade getan hat. Das liest sich, als hätte das Programm nicht bemerkt, was
+/// man ihm gesagt hat.
+pub(crate) fn gpu_sackgasse(adapter: &dxgi::Adapter, wunsch: &gpu_wahl::Wunsch) -> String {
+    let karte = format!("{} ({})", adapter.description, adapter.vendor());
+    match wunsch {
+        gpu_wahl::Wunsch::Genau { .. } => format!(
+            "Über {karte} kann Pulse zurzeit nicht senden. Diese Karte ist in den \
+             Streameinstellungen unter „GPU“ fest eingestellt — mit „Automatisch“ oder einer \
+             anderen Karte lässt sich der Stream starten."
+        ),
+        gpu_wahl::Wunsch::Automatisch => format!(
+            "Über {karte} kann Pulse zurzeit nicht senden. Steckt eine zweite Grafikkarte im \
+             Rechner, lässt sie sich in den Streameinstellungen unter „GPU“ auswählen."
+        ),
+    }
 }
 
 pub(crate) fn emit_state(state: &str, running: bool, uptime_s: f64) {

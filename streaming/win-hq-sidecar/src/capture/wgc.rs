@@ -91,6 +91,14 @@ pub struct CaptureConfig {
     /// Pool schon in Zielmaßen an und muss sie deshalb selbst ausrechnen
     /// (`stream_controller::zielmasse`, dieselbe Funktion wie im Taktfaden).
     pub ziel_kasten: Option<(u32, u32)>,
+    /// Auf **welcher Grafikkarte** aufgenommen werden soll, als Paar aus
+    /// Hersteller- und Gerätekennung. `None` = die Bibliothek entscheidet wie
+    /// bisher, also faktisch Windows.
+    ///
+    /// Der Wert kommt aus `system::gpu_wahl` und wird in
+    /// [`super::auf_gpu`] eingelöst; die Begründung, warum diese Wahl
+    /// ausgerechnet an der Aufnahme hängt und nicht am Encoder, steht dort.
+    pub gpu: Option<(u32, u32)>,
 }
 
 impl Default for CaptureConfig {
@@ -103,6 +111,7 @@ impl Default for CaptureConfig {
             hdr: false,
             hdr_direkt: false,
             ziel_kasten: None,
+            gpu: None,
         }
     }
 }
@@ -352,6 +361,8 @@ fn run_capture(
                 ColorFormat::Bgra8,
                 flags,
             );
+            // Die Aufnahme an die gewählte Karte binden — Begründung an `auf_gpu`.
+            let settings = super::auf_gpu(settings, cfg.gpu)?;
             FrameSink::start(settings).context("Monitor capture failed")?;
         }
         ResolvedTarget::Window(window) => {
@@ -365,6 +376,8 @@ fn run_capture(
                 ColorFormat::Bgra8,
                 flags,
             );
+            // Die Aufnahme an die gewählte Karte binden — Begründung an `auf_gpu`.
+            let settings = super::auf_gpu(settings, cfg.gpu)?;
             FrameSink::start(settings).context("Window capture failed")?;
         }
     }

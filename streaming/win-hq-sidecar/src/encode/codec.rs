@@ -51,6 +51,31 @@ fn amd_forces_d3d12() -> bool {
     crate::env::flag("PULSE_HQ_AMD_D3D12")
 }
 
+/// Kann dieser Hersteller den **D3D11-Zero-Copy-Weg** bedienen?
+///
+/// **AMD geht seit 2026-08-04 mit JEDEM Codec über AMF**, nicht mehr nur mit
+/// AV1. Ein Weg statt zwei — Begründung und Preis stehen an
+/// `amd_forces_d3d12`.
+///
+/// Steht als eigene Funktion neben [`VideoCodec::encode_path`], weil zwei
+/// Aufrufer dieselbe Frage stellen und **verschiedene Antworten bekommen
+/// müssen**:
+///
+/// * `encode_path` beantwortet „welchen Weg nimmt DIESER Stream" — und dort
+///   schlägt ein angemeldeter Sendeweg alles andere, auch den Hersteller.
+/// * `system::gpu_wahl` beantwortet „welche Karte SOLL es werden" — und dafür
+///   ist genau die Hersteller-Frage die richtige, ungefiltert vom Sendeweg.
+///
+/// Dass `encode_path` bei angemeldetem Sendeweg auch für Intel
+/// `D3d11ZeroCopy` sagt, obwohl diese Funktion `false` antwortet, ist kein
+/// Widerspruch zweier Tabellen, sondern ein **bekannter Mangel** mit einer
+/// eigenen Stelle: `run_pipeline` fängt die Kombination ab und bricht mit einer
+/// lesbaren Meldung ab, statt `h264_qsv` einen D3D11-Rahmenspeicher
+/// unterzuschieben (`avcodec_open2` → `Invalid argument`, gemeldet 2026-08-17).
+pub fn vendor_traegt_zero_copy(vendor: &str) -> bool {
+    matches!(vendor, "nvidia" | "amd")
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum VideoCodec {
     H264,
@@ -166,12 +191,10 @@ impl VideoCodec {
         if vendor == "amd" && !matches!(self, VideoCodec::Av1) && amd_forces_d3d12() {
             return EncodePath::D3d12ZeroCopy;
         }
-        match vendor {
-            // **AMD geht seit 2026-08-04 mit JEDEM Codec über AMF**, nicht mehr
-            // nur mit AV1. Ein Weg statt zwei — Begründung und Preis stehen an
-            // `amd_forces_d3d12`.
-            "nvidia" | "amd" => EncodePath::D3d11ZeroCopy,
-            _ => EncodePath::Cpu,
+        if vendor_traegt_zero_copy(vendor) {
+            EncodePath::D3d11ZeroCopy
+        } else {
+            EncodePath::Cpu
         }
     }
 
