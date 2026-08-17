@@ -58,7 +58,7 @@ from dcc_chat_gateway.models import (
     DropboxFile,
     DropboxPendingUpload,
 )
-from dcc_chat_gateway.routes._deps import require_member
+from dcc_chat_gateway.routes._dropbox_access import require_dropbox_view
 from dcc_chat_gateway.routes._dropbox_helpers import (
     bump_used,
     fresh_entry_id,
@@ -108,7 +108,7 @@ async def mint_upload_url(
     parallel mints can't both squeeze past the quota check before
     either commits."""
 
-    await require_member(session, guild_id, current.id)
+    await require_dropbox_view(session, current, guild_id)
     if not ratelimit.check("dropbox_mint", current.id):
         raise HTTPException(
             429, detail="too many upload-url mints — slow down"
@@ -209,7 +209,7 @@ async def finish_upload(
     cross-user finishes (member B trying to finish A's mint) are
     both refused at the pending-row lookup."""
 
-    await require_member(session, guild_id, current.id)
+    await require_dropbox_view(session, current, guild_id)
     if not ratelimit.check("dropbox_finish", current.id):
         raise HTTPException(
             429, detail="too many finish-upload calls — slow down"
