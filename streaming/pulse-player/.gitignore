@@ -2,5 +2,18 @@
 # scripts/bootstrap-webrtc.sh, deshalb nicht eingecheckt.
 /vendor/
 
+# FFmpeg-LGPL-Distribution, gegen die gebaut und dynamisch gelinkt wird.
+# Rund 250 MB — gehoert nicht ins Repo. Der Windows-Sidecar schliesst sie seit
+# jeher aus, hier fehlte die Zeile: am 2026-08-17 hat ein `git add streaming/`
+# prompt eine halbe Million Zeilen eingecheckt (zurueckgerollt).
+#
+# Woher sie kommt: unter Windows `scripts/fetch-ffmpeg.ps1` (im Sidecar), unter
+# Linux reicht ein Entpacken der BtbN-LGPL-Shared-Distribution hierher. Der
+# Player findet sie ueber die Umgebungsvariable, nicht ueber eine Config:
+#   FFMPEG_DIR=$PWD/ffmpeg-dist/n8.1-lgpl-shared cargo build
+# Ohne sie zieht cargo die System-FFmpeg, und bei einer neueren Fassung bricht
+# `ffmpeg-next` an Enum-Werten ab, die es noch nicht kennt.
+/ffmpeg-dist/
+
 # Rust
 /target

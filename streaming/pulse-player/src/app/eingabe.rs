@@ -182,8 +182,7 @@ impl App {
         // haengt am Ereignisschleifen-Zeiger, nicht am Fenster, und derselbe
         // ferne Rechner kann ueber mehrere Fenster gesteuert werden (ein Platz
         // je Bildschirm). Ihn je Fenster zu halten hiesse, dasselbe Bild
-        // mehrfach beim Betriebssystem anzulegen. Getrennt vom Zugriff auf die
-        // Sitzung, weil beides `&mut self` braucht.
+        // mehrfach beim Betriebssystem anzulegen.
         let gebaut = req.bild.as_ref().and_then(|b| self.zeigervorrat.holen(b, event_loop));
         let session = self.sessions.get_mut(&session_id).ok_or("unbekannte Sitzung")?;
         match gebaut {

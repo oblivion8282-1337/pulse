@@ -38,11 +38,18 @@
 //! die Stelle, an der man sich am leichtesten vertut, und sie steht so in der
 //! `ICONINFO`-Definition: bei einem Schwarzweiss-Symbol ist die obere Hälfte
 //! die UND-, die untere die XOR-Maske; bei einem Farbsymbol beschreibt die
-//! Maske **nur** die UND-Maske und hat damit die gewöhnliche Höhe. Deshalb
-//! liest [`bild_holen`] sie im Farbfall mit `hoehe` und im Maskenfall mit
-//! `roh_hoehe`. Wer hier `roh_hoehe` für beide nähme, bekäme beim Farbzeiger
-//! eine Maske doppelter Höhe und läse die Deckung der unteren Bildhälfte aus
-//! Speicher, der nicht dazugehört.
+//! Maske ausdrücklich **nur** die UND-Maske und hat damit die gewöhnliche
+//! Höhe. Deshalb liest [`bild_holen`] sie im Farbfall mit `hoehe` und im
+//! Maskenfall mit `roh_hoehe`.
+//!
+//! Der gefährliche Irrtum ist dabei **der umgekehrte**: wer die Maske eines
+//! reinen Maskenzeigers mit der halben Höhe läse, bekäme als XOR-Hälfte lauter
+//! Nullen und damit einen still falschen, durchweg schwarzen Zeiger. In die
+//! andere Richtung passiert nichts Schlimmes — im Farbfall ist `hoehe`
+//! definitionsgemäss gleich `roh_hoehe`, die beiden Aufrufe wären identisch.
+//! (Aus fremdem Speicher liest hier ohnehin nichts: [`als_bgra`] legt seinen
+//! Puffer selbst in der angeforderten Höhe an, und die Maske wird über
+//! `.get()` gelesen.)
 //!
 //! ## Warum alles als 32 bit gelesen wird
 //!
@@ -76,8 +83,15 @@ impl Bitmaps {
         let mut info = ICONINFO::default();
         // Ein Zeiger IST ein Symbol, nur mit Haltepunkt statt Ursprung — die
         // Umdeutung des Handles ist die von Windows vorgesehene.
-        unsafe { GetIconInfo(HICON(zeiger.0), &mut info) }.ok()?;
-        Some(Bitmaps(info))
+        let ergebnis = unsafe { GetIconInfo(HICON(zeiger.0), &mut info) };
+        // **Die Hülle wird auch im Fehlerfall gebaut**, und erst danach wird
+        // abgebrochen: die Dokumentation sagt nicht zu, dass bei einem
+        // Fehlschlag keine der beiden Bitmaps schon angelegt war. So gibt
+        // `Drop` frei, was da ist, und `default()` hat Nullzeiger, die der
+        // Freigabe-Zweig ohnehin überspringt.
+        let bitmaps = Bitmaps(info);
+        ergebnis.ok()?;
+        Some(bitmaps)
     }
 }
 
@@ -153,7 +167,11 @@ fn als_bgra(schirm: &Schirm, bitmap: HBITMAP, breite: i32, hoehe: i32) -> Option
             DIB_RGB_COLORS,
         )
     };
-    (zeilen != 0).then_some(puffer)
+    // **Genau so viele Zeilen wie angefordert**, nicht bloss „mehr als null":
+    // eine Teilkopie gälte sonst als Erfolg, und der unkopierte Rest bliebe
+    // Null — beim Farbbild also durchsichtig, bei der Maske deckend. Beides
+    // wäre ein still falscher Zeiger statt eines Rückfalls auf den Namen.
+    (zeilen == hoehe).then_some(puffer)
 }
 
 /// Das Bild des gerade gezeichneten Zeigers.
