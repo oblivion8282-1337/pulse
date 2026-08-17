@@ -274,6 +274,14 @@ class _DeviceRegistryMixin:
         # die Belegung stehen und das Gerät käme beim nächsten Anmelden sofort
         # als „belegt" zurück — für eine Sitzung, die es nicht mehr gibt.
         self.device_set_busy(device_id, None)
+        # Und nicht mehr sendend (Bughunt 2026-08-17): ohne das bleibt
+        # `_device_streams` stehen, obwohl der Zustand gerade auf "offline"
+        # geht — genau die Luege, die dieses Modul laut seinem eigenen
+        # Kommentar an `_device_streams` oben vermeiden soll. Meldet der
+        # Besitzer spaeter an seinem EIGENEN Rechner einen Strom auf demselben
+        # Platz in diesem Kanal, wandert das LIVE-Abzeichen sonst an das
+        # laengst offline gegangene Geraet statt an ihn.
+        self._device_streams.pop(device_id, None)
         # Die Bildschirme bleiben stehen: sie sind die letzte bekannte Auskunft
         # über ein Gerät, das gerade offline ist, und beim nächsten Anmelden
         # ohnehin überschrieben. Die Liste zu leeren hiesse, dass die
