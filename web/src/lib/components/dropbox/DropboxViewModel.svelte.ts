@@ -70,6 +70,14 @@ class DropboxViewModel {
   // Stale-response token — see comment on ``refreshEntries``.
   #entriesGen = 0;
 
+  // Timestamp of the last successful ``refreshEntries`` — ``e.url`` is a
+  // presigned GET minted at listing time (600s TTL server-side); see
+  // ``openFile`` for why this is tracked.
+  #entriesFetchedAt: number | null = null;
+  // Refresh the listing before a preview once the URL might be dead.
+  // Safely below the real 600s TTL, leaving room for the refresh itself.
+  static readonly #URL_STALE_MS = 8 * 60 * 1000;
+
   constructor(public channel: Channel) {
     // ----- WS subscription -----
     // Flat-field shape; see DropboxQuotaUpdatedEvent in
@@ -243,6 +251,7 @@ class DropboxViewModel {
       });
       if (myGen !== this.#entriesGen) return;
       this.entries = r.entries;
+      this.#entriesFetchedAt = Date.now();
     } catch (e) {
       if (myGen !== this.#entriesGen) return;
       this.error = (e as Error).message;
@@ -282,9 +291,25 @@ class DropboxViewModel {
     this.navigateToIndex(parts.length - 1);
   }
 
-  openFile(e: DropboxEntry) {
-    if (!isFile(e) || !e.url) return;
-    window.open(e.url, '_blank', 'noopener,noreferrer');
+  /** Open a file's preview. ``e.url`` is the presigned GET from the last
+   *  listing and expires (600s server-side). No per-click mint endpoint
+   *  exists for previews — ``/download-url`` always forces
+   *  ``Content-Disposition: attachment``, so it can't stand in for an
+   *  inline preview. Instead: refresh the listing first if it's old
+   *  enough that the URL might already be dead — proactive rather than
+   *  reactive, since ``window.open`` can't observe a failed load. */
+  async openFile(e: DropboxEntry) {
+    if (!isFile(e)) return;
+    let target: DropboxEntry | undefined = e;
+    const stale =
+      this.#entriesFetchedAt === null ||
+      Date.now() - this.#entriesFetchedAt > DropboxViewModel.#URL_STALE_MS;
+    if (stale) {
+      await this.refreshEntries();
+      target = this.entries.find((x) => x.id === e.id);
+    }
+    if (!target?.url) return;
+    window.open(target.url, '_blank', 'noopener,noreferrer');
   }
 
   // ----- Folder creation -----

@@ -2,6 +2,23 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-17.5",
+      "date": "2026-08-17",
+      "style": "Sachlich",
+      "title": "Ablage: Kontingent, Ordner und Zugriff",
+      "intro": "Eine Durchsicht der Ablage hat mehrere Stellen gefunden, an denen sie sich verzählte oder mehr hergab als vorgesehen.",
+      "items": [
+        "Wer einen Kanal nicht sehen darf, hat auf die Ablage darin jetzt auch keinen Zugriff mehr — weder zum Ansehen noch zum Herunter- oder Hochladen. Bisher genügte die Mitgliedschaft in der Community.",
+        "Ein Ordner nimmt seinen Inhalt jetzt in den Papierkorb mit, und beim Zurückholen kommt er wieder mit. Bisher blieben die Dateien darin liegen: unerreichbar, aber weiter auf das Kontingent gerechnet.",
+        "Der Speicherzähler verzählt sich nicht mehr, wenn dieselbe Datei gleichzeitig zweimal gelöscht oder zurückgeholt wird.",
+        "Legst du einen Ordner an oder benennst um, während jemand anderes denselben Namen belegt, bekommst du einen sauberen Hinweis auf die Namenskollision statt einer Fehlermeldung.",
+        "Dateinamen werden vor der Prüfung vereinheitlicht. Zeichen, die wie ein Punkt oder ein Schrägstrich aussehen, aber andere sind, führen nicht mehr zu einem gespeicherten Namen, der etwas anderes bedeutet als er anzeigt.",
+        "Ein Ordner mit Unterstrich im Namen zieht beim Verschieben nicht mehr den Inhalt eines ähnlich benannten Nachbarordners mit.",
+        "Die stündliche Aufräumroutine löscht keine Dateien mehr, deren Upload gerade noch läuft.",
+        "Die Dateivorschau öffnet keine abgelaufenen Verweise mehr, wenn die Ablage lange offen stand."
+      ]
+    },
+    {
       "id": "2026-08-17.4",
       "date": "2026-08-17",
       "style": "Sachlich",
