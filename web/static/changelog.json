@@ -2,6 +2,22 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-17.3",
+      "date": "2026-08-17",
+      "style": "Sachlich",
+      "title": "Aufräumen: was beim Löschen und Abmelden liegenblieb",
+      "intro": "Eine Durchsicht der Lösch- und Abmeldewege hat mehrere Stellen gefunden, an denen etwas stehenblieb, das hätte mitgehen müssen. Nichts davon war sichtbar, solange alles gut lief — bemerkbar wurde es erst hinterher.",
+      "items": [
+        "Beim Abmelden werden Push-Benachrichtigungen jetzt wirklich abbestellt. Bisher blieb das Abo am Gerät hängen: auf einem gemeinsam genutzten Rechner liefen danach die Vorschauen fremder Nachrichten weiter auf den Bildschirm, und es hörte von selbst nie wieder auf. Das gilt für jeden Weg hinaus — abmelden, Konto löschen, Sitzung beenden, Kontowechsel.",
+        "Wer sein Konto löscht, verlässt dabei auch den Sprachkanal, in dem er gerade sitzt. Bisher lief die Verbindung weiter, obwohl es das Konto nicht mehr gab.",
+        "Sperren, die jemand als Moderator ausgesprochen hat, bleiben bestehen, wenn er später sein eigenes Konto löscht. Bisher fielen sie stillschweigend weg, und die Gesperrten konnten zurückkommen.",
+        "Offene Meldungen gegen ein gelöschtes Konto werden geschlossen, statt unlösbar in der Warteschlange der Moderation stehenzubleiben.",
+        "Löscht jemand sein Konto oder eine Community, verschwinden auch die Dateien dazu — Ablage, eigene Klänge und das Symbol der Community. Das Symbol war bisher danach noch abrufbar.",
+        "Geräte, die in einem gelöschten Kanal oder einer gelöschten Community standen, verschwinden sofort aus der Liste. Bisher blieb die Kachel bis zum nächsten Neuladen stehen und zeigte auf etwas, das es nicht mehr gab.",
+        "Wird ein Gerät ferngesteuert und sein Besitzer löscht das Konto, endet die Übernahme, statt weiterzulaufen."
+      ]
+    },
+    {
       "id": "2026-08-17.2",
       "date": "2026-08-17",
       "style": "Sachlich",

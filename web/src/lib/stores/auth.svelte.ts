@@ -1,5 +1,5 @@
 import { me } from '$lib/api/auth';
-import { isDefinitiveAuthError } from '$lib/api/client';
+import { isDefinitiveAuthError, currentAccessToken } from '$lib/api/client';
 import { clearTokens, loadTokens } from '$lib/api/storage';
 import { clearVoiceResume } from '$lib/voice/resume';
 import { readState } from './readState.svelte';
@@ -146,7 +146,15 @@ class AuthStore {
     } catch (e) {
       if (isDefinitiveAuthError(e)) {
         // Der Server hat uns wirklich abgelehnt — Session tot. Tokens löschen,
-        // app/+layout leitet danach auf /login um.
+        // app/+layout leitet danach auf /login um. Dieser Pfad läuft NICHT
+        // über signOut() (kein Reload/anderer Tab), räumt das Web-Push-Abo
+        // also separat auf — sonst bleibt es hier stehen (Bughunt
+        // 2026-08-17, chat.md: dritter Abmeldeweg neben Knopf und
+        // Kontowechsel). Kein Bearer-Override nötig: die Session ist schon
+        // ungültig, das serverseitige DELETE scheitert ohnehin best-effort —
+        // die Browser-seitige `sub.unsubscribe()` (der eigentliche Schutz
+        // für den nächsten Nutzer) läuft unabhängig davon.
+        void import('$lib/notifications/pushSubscribe').then((m) => m.unsubscribeUser());
         clearTokens();
         this.user = null;
       } else {
@@ -203,6 +211,10 @@ class AuthStore {
       /* localStorage unzugänglich → Wächter degradiert still */
     }
     if (prev && prev !== userId) {
+      // Web-Push-Abo des Vorgängers abmelden — derselbe Grund wie in
+      // signOut(): ohne das erbt der neue User am selben Gerät dessen
+      // Klartext-Vorschauen von Erwähnungen/DMs. Fire-and-forget/best-effort.
+      void import('$lib/notifications/pushSubscribe').then((m) => m.unsubscribeUser());
       // Self-Host-Connections + Session-Tokens des Vorgängers schließen.
       for (const s of serversStore.servers) {
         if (s.isCloud) continue;
@@ -277,6 +289,24 @@ class AuthStore {
   }
 
   signOut(): void {
+    // Web-Push-Abo abmelden (Bughunt 2026-08-17, chat.md): sonst bleibt es
+    // beim Service Worker UND beim Server (user_id, endpoint) stehen, und auf
+    // einem geteilten Browserprofil laufen die Klartext-Vorschauen fremder
+    // Erwähnungen/DMs auf den Bildschirm des nächsten Nutzers weiter — heilt
+    // von selbst nie. Token JETZT sichern (der dynamische Import unten
+    // verzögert den eigentlichen Aufruf um mind. einen Tick — clearTokens()
+    // direkt danach liefe dem sonst davon) und explizit durchreichen, damit
+    // das serverseitige DELETE noch autorisiert durchgeht. Fire-and-forget:
+    // `unsubscribeUser()` ist best-effort (schluckt Netzwerk-/
+    // Berechtigungsfehler intern), Sign-Out darf daran nicht hängen bleiben.
+    // Nur für Cloud sinnvoll — `currentAccessToken()` liefert ausschließlich
+    // das Cloud-JWT; ist gerade ein Self-Host aktiv, greift dessen eigener
+    // Session-Token weiter automatisch über die normale Bearer-Auflösung
+    // (kein Override, sonst würde ein falscher Bearer das DELETE dort kaputt
+    // machen statt es zu retten).
+    const pushBearer =
+      (activeServer.current?.isCloud ?? true) ? (currentAccessToken() ?? undefined) : undefined;
+    void import('$lib/notifications/pushSubscribe').then((m) => m.unsubscribeUser(pushBearer));
     clearTokens();
     // Voice-Resume verwerfen — nach explizitem Logout darf der nächste Boot
     // nicht in den alten Channel zurückspringen.

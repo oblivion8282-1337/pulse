@@ -48,10 +48,25 @@ export async function postPushSubscription(p: PushSubscriptionPayload): Promise<
   await request<void>('/notifications/subscribe', { method: 'POST', body: p });
 }
 
-export async function deletePushSubscription(endpoint: string): Promise<void> {
+/**
+ * `bearerOverride`: für den Sign-Out-Pfad, wo `clearTokens()` schon synchron
+ * gelaufen ist, bevor dieser (async, dynamisch importierte) Aufruf feuert —
+ * `request()` fände über `loadTokens()` sonst keinen Token mehr und das
+ * DELETE liefe unauthentifiziert ins Leere (Bughunt 2026-08-17, chat.md:
+ * „vor dem Verwerfen der Tokens aufrufen, damit … noch autorisiert
+ * durchgeht"). `auth: false` unterdrückt die automatische Bearer-Auflösung,
+ * damit der übergebene Header nicht überschrieben wird.
+ */
+export async function deletePushSubscription(
+  endpoint: string,
+  bearerOverride?: string
+): Promise<void> {
   await request<void>('/notifications/subscribe', {
     method: 'DELETE',
-    body: { endpoint }
+    body: { endpoint },
+    ...(bearerOverride
+      ? { auth: false, headers: { Authorization: `Bearer ${bearerOverride}` } }
+      : {})
   });
 }
 
