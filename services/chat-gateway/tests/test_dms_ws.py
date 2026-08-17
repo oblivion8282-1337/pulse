@@ -196,6 +196,49 @@ async def test_ws_dm_send_publishes_dm_bump(ws_app, _auth_signer):
 
 
 @pytest.mark.asyncio
+async def test_ws_dm_send_triggers_web_push(ws_app, _auth_signer, monkeypatch):
+    """Regression: the WS ``send`` op used to skip ``fan_out_dm_push``
+    entirely (only the REST POST path called it), so a tab-closed DM
+    recipient never got an OS-level notification for a message sent via
+    the WS path — the normal path for a plain-text DM from the web
+    client. Must fire with the same args REST would pass."""
+    import dcc_chat_gateway.routes.ws_op_send as ws_op_send
+
+    calls: list[dict] = []
+
+    async def _fake_fan_out_dm_push(**kwargs):
+        calls.append(kwargs)
+
+    monkeypatch.setattr(ws_op_send, "fan_out_dm_push", _fake_fan_out_dm_push)
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            t_a, uid_a, _, uid_b, dm_id = _bootstrap_dm_sync(tc, _auth_signer)
+            with tc.websocket_connect(f"/ws?token={t_a}") as ws_a:
+                receive_skipping(ws_a)  # ready
+                ws_a.send_json({"op": "subscribe", "channel_id": dm_id})
+                ws_a.send_json(
+                    {
+                        "op": "send",
+                        "channel_id": dm_id,
+                        "content": "push me",
+                        "nonce": "push-n1",
+                    }
+                )
+                # Drain ack + message.
+                for _ in range(2):
+                    receive_skipping(ws_a)
+
+            assert len(calls) == 1
+            call = calls[0]
+            assert call["recipient_id"] == uid_b
+            assert call["content"] == "push me"
+            assert call["channel_id"] == int(dm_id)
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
 async def test_ws_dm_send_bumps_last_message_id(ws_app, _auth_signer):
     """A WS send on a DM must update last_message_id (visible on next ready)."""
 

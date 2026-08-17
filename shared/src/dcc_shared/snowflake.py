@@ -95,3 +95,17 @@ class SnowflakeGenerator:
                     f"current time {ts} is before configured epoch {self.epoch_ms}"
                 )
             return (delta << TIME_SHIFT) | (self.worker_id << WORKER_SHIFT) | self._seq
+
+
+# Grenzen des Wertebereichs, in dem eine Snowflake gespeichert werden kann.
+# Alle Kennungen liegen in BIGINT-Spalten; eine groessere Zahl bringt nicht die
+# Pruefung zu Fall, sondern den Datenbanktreiber — als 500er statt als
+# Eingabefehler. Wer eine von aussen kommende Kennung nach int wandelt, prueft
+# sie deshalb gegen diese beiden Werte, BEVOR sie in eine Abfrage geht.
+#
+# Steht hier und nirgends sonst: die Grenzen lagen bis zum Bughunt vom
+# 17. August dreimal im chat-gateway herum (schemas, mentions,
+# pubsub_perm_filter), und genau eine dieser Stellen hatte die Pruefung dann
+# nicht.
+INT64_MIN = -(2**63)
+INT64_MAX = 2**63 - 1

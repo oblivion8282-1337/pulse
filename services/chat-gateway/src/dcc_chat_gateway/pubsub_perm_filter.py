@@ -13,6 +13,8 @@ via ``self.`` through cooperative inheritance.
 
 from __future__ import annotations
 
+from dcc_shared.snowflake import INT64_MAX, INT64_MIN
+
 import asyncio
 import logging
 
@@ -25,8 +27,6 @@ from dcc_chat_gateway.pubsub_guild_scope import GUILD_MEMBER_SCOPED_OPS, event_g
 log = logging.getLogger(__name__)
 
 # Signed 64-bit bounds — channel ids live in a Postgres BIGINT column.
-_INT64_MIN = -(2**63)
-_INT64_MAX = 2**63 - 1
 _VIEW_CHANNEL_BIT = int(Permissions.VIEW_CHANNEL)
 
 
@@ -350,7 +350,7 @@ class _PermFilterMixin:
         # hardened, killed the whole pubsub task. Treat as unknown → drop, and
         # log so we can trace the client/source that emitted the bad id (a real
         # frontend bug — valid Pulse snowflakes never exceed this range).
-        if not (_INT64_MIN <= cid_int <= _INT64_MAX):
+        if not (INT64_MIN <= cid_int <= INT64_MAX):
             log.warning("broadcast filter: channel_id %s out of int64 range — dropping", cid_int)
             return []
         # Hebel A — resolve the channel's broadcast identity from cache so the
