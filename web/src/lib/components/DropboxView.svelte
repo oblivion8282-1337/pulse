@@ -41,7 +41,7 @@
 
   function openOrEnter(e: DropboxEntry) {
     if (isFolder(e)) v.enterFolder(e);
-    else v.openFile(e);
+    else void v.openFile(e);
   }
   function downloadEntry(e: DropboxEntry) {
     if (isFolder(e)) void v.downloadFolder(e);

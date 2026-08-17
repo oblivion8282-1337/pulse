@@ -28,6 +28,7 @@ from dcc_chat_gateway.routes._dropbox_helpers import (
     normalize_parent_path,
     publish_purge_event,
     publish_quota_event,
+    storage_path_for,
 )
 from dcc_chat_gateway.routes._dropbox_policy import (
     DropboxGuild,
@@ -175,10 +176,18 @@ async def _sweep_once(connection_manager) -> None:
 
     2. Orphan-upload purge — every ``dropbox/<guild_id>/`` MinIO object
        whose key has no matching ``DropboxFile.storage_key`` (live or
-       in-trash) is treated as an abandoned upload and hard-deleted.
-       This catches the PUT-after-mint-but-before-finish case (browser
-       closed, network failed, JWT expired, …) which would otherwise
-       leak bytes until guild-delete fires ``purge_guild_dropbox_objects``.
+       in-trash) AND no matching *unexpired* ``DropboxPendingUpload`` row
+       is treated as an abandoned upload and hard-deleted. The pending
+       check matters: a client that already PUT the bytes but hasn't
+       called ``finish-upload`` yet has an object on the bucket with no
+       ``DropboxFile`` row (that row is only created on finish) — without
+       this check a sweep landing in that window deletes a file mid-
+       upload. Once the pending row's ``expires_at`` has passed the
+       upload is genuinely abandoned and the object is purged like any
+       other orphan. This catches the PUT-after-mint-but-before-finish
+       case (browser closed, network failed, JWT expired, …) which would
+       otherwise leak bytes until guild-delete fires
+       ``purge_guild_dropbox_objects``.
     """
 
     # Lazy import — these touch the app lifespan state; avoid at module
@@ -231,8 +240,9 @@ async def _sweep_once(connection_manager) -> None:
     # ---- Orphan-upload purge -----------------------------------------
     # Walk MinIO under every ``dropbox/<gid>/`` prefix; any object whose
     # storage_key has no matching ``DropboxFile.storage_key`` (live OR
-    # in-trash — the trash list already purged the live path) is an
-    # abandoned upload. Hard-delete it.
+    # in-trash — the trash list already purged the live path) AND no
+    # matching unexpired ``DropboxPendingUpload`` row is an abandoned
+    # upload. Hard-delete it.
     orphaned: list[str] = []
     try:
         s = get_settings()
@@ -242,6 +252,28 @@ async def _sweep_once(connection_manager) -> None:
             paginator = client.get_paginator("list_objects_v2")
             for cfg in cfg_rows:
                 prefix = f"dropbox/{cfg.guild_id}/"
+                # Unexpired pending uploads for this guild — their MinIO
+                # object has no DropboxFile row yet (that only appears on
+                # finish-upload) but is not abandoned. ``id`` doubles as
+                # the future DropboxFile.id, so the storage key can be
+                # derived without waiting for the row to materialize.
+                pending_rows = (
+                    await session.execute(
+                        select(DropboxPendingUpload).where(
+                            DropboxPendingUpload.guild_id == cfg.guild_id
+                        )
+                    )
+                ).scalars().all()
+                protected_keys = {
+                    storage_path_for(cfg.guild_id, p.id)
+                    for p in pending_rows
+                    if (
+                        p.expires_at
+                        if p.expires_at.tzinfo is not None
+                        else p.expires_at.replace(tzinfo=timezone.utc)
+                    )
+                    >= now
+                }
                 try:
                     async for page in paginator.paginate(
                         Bucket=s.s3_bucket, Prefix=prefix
@@ -257,7 +289,7 @@ async def _sweep_once(connection_manager) -> None:
                                     )
                                 )
                             ).scalar_one_or_none()
-                            if row is not None:
+                            if row is not None or key in protected_keys:
                                 continue
                             try:
                                 await s3.delete_object(key)

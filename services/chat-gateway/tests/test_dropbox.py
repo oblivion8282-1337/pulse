@@ -1840,6 +1840,101 @@ async def test_sweep_reaps_expired_pending_uploads(
 
 
 @pytest.mark.asyncio
+async def test_sweep_protects_object_of_unexpired_pending_upload(
+    client, _auth_signer, mock_s3, session_factory, monkeypatch
+):
+    """A PUT that landed but hasn't reached ``finish-upload`` yet has no
+    ``DropboxFile`` row — that row is only created on finish. The orphan
+    half of the sweep must NOT treat its bytes as abandoned while the
+    mint's ``expires_at`` is still in the future.
+
+    Regression for the bug where the orphan sweep only checked
+    ``DropboxFile`` and ignored ``dropbox_pending_uploads`` entirely,
+    deleting a file mid-upload regardless of the mint's TTL."""
+
+    from dcc_chat_gateway.routes import dropbox_admin
+    from dcc_chat_gateway.routes._dropbox_helpers import storage_path_for
+
+    monkeypatch.setattr(dropbox_admin, "SessionLocal", session_factory)
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+    await _provision_dropbox(client, token, gid)
+
+    # Mint a fresh (non-expired) upload — mirrors the real client, which
+    # PUTs the bytes right after minting but has not yet called
+    # finish-upload.
+    mint_r = await client.post(
+        f"/guilds/{gid}/dropbox/upload-url",
+        json={
+            "parent_path": "",
+            "name": "mid-upload.bin",
+            "content_type": "application/octet-stream",
+            "size_bytes": 5,
+        },
+        headers=auth(token),
+    )
+    assert mint_r.status_code == 200
+    pending_id = int(mint_r.json()["id"])
+    key = storage_path_for(int(gid), pending_id)
+    mock_s3.put[key] = b"still-uploading"
+
+    await dropbox_admin._sweep_once(connection_manager=None)
+
+    # The object survives — the mint has not expired yet.
+    assert key in mock_s3.put
+    assert key not in mock_s3.deleted
+
+
+@pytest.mark.asyncio
+async def test_sweep_purges_object_of_expired_pending_upload(
+    client, _auth_signer, mock_s3, session_factory, monkeypatch
+):
+    """Once a mint's ``expires_at`` is in the past the upload is
+    genuinely abandoned — the orphan half must still reclaim its
+    bytes, same as before this fix, just gated on expiry instead of
+    being unconditional."""
+
+    from datetime import datetime, timedelta, timezone
+
+    from dcc_chat_gateway.models import DropboxPendingUpload
+    from dcc_chat_gateway.routes import dropbox_admin
+    from dcc_chat_gateway.routes._dropbox_helpers import storage_path_for
+
+    monkeypatch.setattr(dropbox_admin, "SessionLocal", session_factory)
+
+    token, uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+    await _provision_dropbox(client, token, gid)
+
+    expired_id = int(datetime.now().timestamp() * 1000) * 1000
+    long_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+    async with session_factory() as s:
+        s.add(
+            DropboxPendingUpload(
+                id=expired_id,
+                uploader_id=uid,
+                guild_id=int(gid),
+                parent_path="",
+                name="abandoned.bin",
+                size_bytes=5,
+                expires_at=long_ago,
+            )
+        )
+        await s.commit()
+
+    key = storage_path_for(int(gid), expired_id)
+    mock_s3.put[key] = b"never-finished"
+
+    await dropbox_admin._sweep_once(connection_manager=None)
+
+    assert key not in mock_s3.put
+    assert key in mock_s3.deleted
+
+
+@pytest.mark.asyncio
 async def test_guild_delete_purges_dropbox_objects(
     client, _auth_signer, mock_s3
 ):

@@ -18,10 +18,15 @@
 
   const GB = 1024 * 1024 * 1024;
   const MB = 1024 * 1024;
+  // Mirrors the server's DEFAULT_DROPBOX_QUOTA_BYTES
+  // (routes/_dropbox_policy.py) — that's the value a newly provisioned
+  // dropbox actually gets, not the older 5 GiB DropboxConfig column
+  // default the row-creation path deliberately no longer uses.
+  const DEFAULT_QUOTA_GB = 1;
   const DEFAULT_CFG: DropboxConfig = {
     guild_id: '',
     enabled: true,
-    total_quota_bytes: 5 * GB,
+    total_quota_bytes: DEFAULT_QUOTA_GB * GB,
     per_file_max_bytes: 100 * MB,
     used_bytes: 0,
     trash_retention_days: 30,
@@ -33,7 +38,7 @@
   let busy = $state(false);
   // Local form buffers (in human-readable units); commit on save.
   let enabled = $state(true);
-  let quotaMb = $state(5 * 1024);
+  let quotaMb = $state(DEFAULT_QUOTA_GB * 1024);
   let perFileMb = $state(100);
   let retentionDays = $state(30);
 
@@ -55,7 +60,7 @@
       // 404 = no config row yet; defaults stand in.
       cfg = { ...DEFAULT_CFG, guild_id: guildId };
       enabled = true;
-      quotaMb = 5 * 1024;
+      quotaMb = DEFAULT_QUOTA_GB * 1024;
       perFileMb = 100;
       retentionDays = 30;
     } finally {
