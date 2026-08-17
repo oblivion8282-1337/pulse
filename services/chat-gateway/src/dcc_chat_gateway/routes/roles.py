@@ -44,6 +44,7 @@ from dcc_chat_gateway.schemas import (
 )
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
+from dcc_chat_gateway.voice_evict import evict_ineligible_from_voice_channels
 from dcc_shared.events import (
     RoleCreatedEvent,
     RoleDeletedEvent,
@@ -216,6 +217,13 @@ async def patch_role(
     await session.commit()
     await session.refresh(role)
     await _publish(request, RoleUpdatedEvent(role=role_wire_dict(role)))
+    # Ein Rechteentzug (Bits raus, Rolle neu positioniert) darf niemanden in
+    # einer laufenden Sprachsitzung zurücklassen, dem jetzt VIEW_CHANNEL oder
+    # CONNECT fehlt — NACH dem Commit, die neuen Rechte müssen stehen, und
+    # best-effort (darf die schon gelungene Änderung nicht scheitern lassen).
+    await evict_ineligible_from_voice_channels(
+        session, getattr(request.app.state, "redis", None), guild_id
+    )
     return role
 
 
@@ -271,6 +279,11 @@ async def delete_role(
         RoleDeletedEvent(
             guild_id=str(guild_id), role_id=str(role_id)
         ),
+    )
+    # Wie bei patch_role: eine gelöschte Rolle kann VIEW_CHANNEL/CONNECT
+    # gekostet haben — nachziehen, wer jetzt noch in Voice sitzen darf.
+    await evict_ineligible_from_voice_channels(
+        session, getattr(request.app.state, "redis", None), guild_id
     )
 
 

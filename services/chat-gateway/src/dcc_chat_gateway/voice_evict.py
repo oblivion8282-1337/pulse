@@ -23,8 +23,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, Channel
+from dcc_chat_gateway.permissions import Permissions, has_permission, resolve_permissions
+from dcc_chat_gateway.security import AuthenticatedUser
 
 log = logging.getLogger(__name__)
+
+# Muss mit ``InternalEvictIn.channel_ids`` (``Field(max_length=100)`` in
+# ``voice-signaling/routes/internal.py``) synchron bleiben — dort keine
+# gemeinsame Konstante moeglich (Zwei-Service-Grenze), also hier als eigene
+# Konstante gefuehrt statt als Magic Number. Ueberschreitet eine Community
+# diese Zahl an Sprachkanaelen, lehnt die Gegenseite die GESAMTE Anfrage mit
+# 422 ab, bevor irgendein Kanal geworfen wird — deshalb wird unten in
+# Bloecken dieser Groesse gesendet statt in einem Rutsch.
+_MAX_EVICT_CHANNELS_PER_CALL = 100
 
 # Singleton httpx client for the internal voice-signaling call. Opening a fresh
 # ``AsyncClient`` per kick/ban allocates a new connection pool and pays a TCP+TLS
@@ -85,7 +96,10 @@ async def _post_evict(
             url, json=body, headers={"X-Pulse-Internal-Secret": secret}
         )
         if resp.status_code >= 400:
-            log.warning(
+            # 4xx ist kein Transportfehler, sondern ein abgelehnter Aufruf
+            # (z.B. eine zu lange channel_ids-Liste) — lauter als eine
+            # Warnung melden, damit ein systematischer Fehlschlag auffaellt.
+            log.error(
                 "voice-evict %s/%s returned %s", channel_ids, user_id, resp.status_code
             )
     except httpx.HTTPError as exc:
@@ -105,7 +119,15 @@ async def evict_user_from_guild_voice(
     channel_ids = await voice_channels_for_guild(session, guild_id)
     if not channel_ids:
         return
-    await _post_evict(secret, channel_ids, str(user_id))
+    # In Bloecken senden statt in einem Rutsch — die Gegenseite lehnt eine
+    # laengere Liste als ``_MAX_EVICT_CHANNELS_PER_CALL`` ganz ab (siehe
+    # Konstante oben), das wuerde den Auswurf fuer die GESAMTE Community
+    # stumm scheitern lassen, sobald sie mehr Sprachkanaele hat.
+    uid = str(user_id)
+    for i in range(0, len(channel_ids), _MAX_EVICT_CHANNELS_PER_CALL):
+        await _post_evict(
+            secret, channel_ids[i : i + _MAX_EVICT_CHANNELS_PER_CALL], uid
+        )
 
 
 async def evict_all_from_voice_channels(
@@ -135,3 +157,65 @@ async def evict_all_from_voice_channels(
             # The evict endpoint validates ^\d+$; skip any non-numeric stray.
             if uid.isdigit():
                 await _post_evict(secret, [cid], uid)
+
+
+async def evict_ineligible_from_voice_channels(
+    session: AsyncSession,
+    redis: Any,
+    guild_id: int,
+    channel_ids: Iterable[int] | None = None,
+) -> None:
+    """Nach einer Rechteänderung (Rollen-Update/-Löschung, Rollenentzug,
+    Kanal-Overwrite) laufende Sprachsitzungen nachziehen: wer auf einem
+    Sprachkanal jetzt kein ``VIEW_CHANNEL``/``CONNECT`` mehr hat, wird
+    geworfen. Gemeinsame Stelle für ``routes/roles.py``,
+    ``routes/role_members.py`` und ``routes/permission_overwrites.py`` —
+    alle drei ändern effektive Kanalrechte, ohne dass die betroffene
+    LiveKit-Sitzung das je merkt (der Token-Grant steht bis zu 4 h fest).
+
+    Quelle der Wahrheit für "wer sitzt gerade drin" ist die Redis-
+    Präsenzmenge (dieselbe, die der Reconcile-Loop in voice-signaling
+    pflegt) — nicht die DB, die nur die Mitgliedschaft kennt. Für jeden
+    Anwesenden wird das Recht frisch aufgelöst; fehlt VIEW_CHANNEL oder
+    CONNECT, geht derselbe ``_post_evict``-Weg wie bei Bann/Kick.
+
+    ``channel_ids=None`` prüft ALLE Sprachkanäle der Community — nötig
+    bei einer Rollenänderung, die jeden Kanal treffen kann (roles.py,
+    role_members.py). Ein Kanal-Overwrite betrifft dagegen nur einen
+    Kanal; ``permission_overwrites.py`` grenzt entsprechend ein.
+
+    Konservativ bei globalen Admins: die Admin-Flagge liegt in auth-svc
+    und ist hier nicht sichtbar (gleiche Einschränkung wie
+    ``permissions.members_who_can_view``) — ein globaler Admin ohne
+    rollenbasiertes Recht wird im Zweifel mitgeworfen statt ausgenommen.
+
+    Muss NACH dem Commit der Rechteänderung gerufen werden (die neuen
+    Rechte müssen stehen, bevor ausgewertet wird, wer noch darf) und ist
+    best-effort wie ``_post_evict`` — ein Fehlschlag bricht weder die
+    schon gelungene Rechteänderung noch die übrigen Kanäle ab."""
+    secret = get_settings().internal_service_secret
+    if not secret or redis is None:
+        return
+    if channel_ids is None:
+        channel_ids = await voice_channels_for_guild(session, guild_id)
+    channel_ids = list(channel_ids)
+    if not channel_ids:
+        return
+
+    for cid in channel_ids:
+        try:
+            members = await redis.smembers(f"voice:room:channel-{cid}")
+        except Exception:  # noqa: BLE001 — best-effort, skip this channel
+            log.warning("voice-evict: smembers failed for channel %s", cid, exc_info=True)
+            continue
+        for raw in members:
+            uid_str = raw.decode() if isinstance(raw, (bytes, bytearray)) else str(raw)
+            if not uid_str.isdigit():
+                continue
+            user = AuthenticatedUser(id=int(uid_str), username="", is_admin=False, payload={})
+            value = await resolve_permissions(session, user, guild_id, channel_id=cid)
+            if not (
+                has_permission(value, Permissions.VIEW_CHANNEL)
+                and has_permission(value, Permissions.CONNECT)
+            ):
+                await _post_evict(secret, [cid], uid_str)
