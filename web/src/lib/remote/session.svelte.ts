@@ -215,6 +215,14 @@ class RemoteSessionStore {
     if (this.phase !== 'active' || this.role !== 'controller') return false;
     if (!this.sessionId || sessionId !== this.sessionId) return false;
     this.#letzterSlot = slot;
+    // Schnappschuss der Buchführung VOR dieser Nachricht — `remoteP2P.senden()`
+    // bucht `frames` sofort, unabhängig vom Träger. Ein `nachziehBuendel()`
+    // ERST NACH diesem Ruf sähe einen frischen Druck aus GENAU dieser
+    // Nachricht schon als „gehalten" und schickte ihn beim Rückfall auf den
+    // Serverweg ein zweites Mal als DOWN, ohne dazwischenliegendes UP
+    // (Bughunt 2026-08-17). Reines Lesen, keine Mutation — unschädlich, falls
+    // der Kanal am Ende doch trägt und der Schnappschuss ungenutzt bleibt.
+    const gehaltenVorDieserNachricht = remoteP2P.nachziehBuendel();
     // Erst der direkte Kanal (`p2p.ts`) — er sagt, ob er getragen hat oder was
     // dem Serverweg noch vorangehen muss (frisches Hello nach Kanal-Ausfall).
     const weg = remoteP2P.senden(sessionId, slot, frames);
@@ -231,8 +239,9 @@ class RemoteSessionStore {
         // erneut behauptet werden — sonst ist seine Taste nach einem
         // Kanalausfall tot, obwohl der Finger daraufliegt. Dieselbe Lücke wie
         // nach einem Vorrang des Hosts, und derselbe Baustein
-        // (`buchfuehrung.ts::nachziehBuendel`).
-        for (const buendel of remoteP2P.nachziehBuendel()) {
+        // (`buchfuehrung.ts::nachziehBuendel`). Schnappschuss von oben, NICHT
+        // ein frischer Ruf (s. dort).
+        for (const buendel of gehaltenVorDieserNachricht) {
           this.#senden((c) => c.sendRemoteInput(sessionId, slot, buendel));
         }
       }

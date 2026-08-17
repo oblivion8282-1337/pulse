@@ -53,7 +53,16 @@ export async function gapFillChannel(cid: string, refetchOnOverflow: boolean): P
       return;
     }
     messages.mergeGap(cid, page);
-    messages.reconcile(cid, page);
+    // `reconcile` re-syncs content/edited_at/reactions of messages we
+    // ALREADY hold — but `page` (`after=lastId`) is by construction only
+    // ids strictly newer than anything we hold, so it can never overlap with
+    // the existing list; passing it here was a no-op that only ever matched
+    // the rows `mergeGap` had just inserted moments before. Fetch the
+    // newest window WITHOUT the cursor instead — that's the slice most
+    // likely to have picked up a late edit/reaction while the WS was down,
+    // and it does overlap with what we already hold.
+    const recent = await chatApi.listMessages(cid, { limit: GAP_FILL_LIMIT });
+    messages.reconcile(cid, recent);
   } catch {
     // Best-effort. A 401 means the token already rotated again (unlikely
     // but possible); the next reconnect/switch will retry.

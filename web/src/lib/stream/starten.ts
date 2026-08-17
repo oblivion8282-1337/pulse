@@ -77,8 +77,14 @@ export async function streamStarten(
       pushProtokoll(standplatz?.uebersteuerung),
       slot,
       label,
-      // 10 bit gibt es im Fernbetrieb nicht (s. `devices/profil.svelte.ts`).
-      standplatz ? false : tenBitPossible(),
+      // 10 bit gibt es auch im Fernbetrieb (Profil-Feld `zehn_bit`,
+      // `devices/profil.svelte.ts`) — der Wunsch kommt dann aus dem Profil,
+      // nicht aus den Stream-Einstellungen des abwesenden Besitzers. Dieselbe
+      // Prüfung wie in `buildStartArgs`, EINE Definition (`tenBitPossible`,
+      // s. dort): ein fest verdrahtetes `false` hier hätte Zuschauern die
+      // falsche Farbtiefe angesagt, obwohl der Sidecar tatsächlich mit 10 bit
+      // sendet.
+      tenBitPossible(standplatz?.uebersteuerung),
       // Ferngesteuert werden kann nur, wessen Sidecar Eingaben einspielen kann —
       // heute allein der Windows-Sidecar. Der Wert reist mit dem Stream bis zum
       // Zuschauer und entscheidet dort, ob der Anfrage-Knopf erscheint.

@@ -290,11 +290,17 @@ class MessageStore {
   }
 
   /** Re-sync already-present messages from a freshly re-fetched page —
-   *  `content`, `edited_at` and `reactions`. A `?after=<lastId>` gap-fill
-   *  only ever sees brand-new messages, so reaction toggles and edits that
+   *  `content`, `edited_at` and `reactions`. Reaction toggles and edits that
    *  landed on *existing* messages while the WS was disconnected would
-   *  otherwise stay stale until a full channel reload. New messages in
-   *  `msgs` are ignored here — `mergeGap` owns those. */
+   *  otherwise stay stale until a full channel reload.
+   *
+   *  **The caller must pass a page that actually overlaps the ids we
+   *  already hold.** A `?after=<lastId>` gap-fill page can't — by
+   *  construction it contains only ids strictly newer than `lastId`, i.e.
+   *  never anything already in `byChannel` — so passing it here is a
+   *  silent no-op (see `gapFill.ts`, which fetches a separate cursor-less
+   *  window for this). New messages in `msgs` are ignored here regardless
+   *  — `mergeGap` owns those. */
   reconcile(channelId: string, msgs: Message[]): void {
     const list = this.byChannel[channelId];
     if (!list) return;
