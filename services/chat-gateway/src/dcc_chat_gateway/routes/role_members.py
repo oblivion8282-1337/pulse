@@ -24,6 +24,7 @@ from dcc_chat_gateway.role_hierarchy import highest_role_position
 from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.schemas import RoleOut
 from dcc_chat_gateway.security import CurrentUser
+from dcc_chat_gateway.voice_evict import evict_ineligible_from_voice_channels
 from dcc_shared.events import MemberRolesUpdatedEvent
 
 router = APIRouter()
@@ -164,6 +165,13 @@ async def unassign_member_role(
     )
     await session.commit()
     await _publish_member_roles_updated(request, guild_id, user_id)
+    # Der entzogenen Rolle konnte VIEW_CHANNEL/CONNECT auf irgendeinem
+    # Sprachkanal anhaengen — nach dem Commit nachziehen (guild-weit, denn
+    # welche Kanaele betroffen sind, ist ohne die volle Rechte-Aufloesung
+    # nicht bekannt).
+    await evict_ineligible_from_voice_channels(
+        session, getattr(request.app.state, "redis", None), guild_id
+    )
 
 
 @router.get(

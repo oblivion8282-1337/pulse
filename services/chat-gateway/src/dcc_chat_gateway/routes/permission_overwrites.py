@@ -22,6 +22,7 @@ from sqlalchemy import delete, select
 
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import (
+    CHANNEL_TYPE_VOICE,
     Channel,
     Guild,
     GuildMember,
@@ -41,6 +42,7 @@ from dcc_chat_gateway.permissions import (
 )
 from dcc_chat_gateway.schemas import OverwriteIn, OverwriteOut
 from dcc_chat_gateway.security import CurrentUser
+from dcc_chat_gateway.voice_evict import evict_ineligible_from_voice_channels
 
 router = APIRouter()
 
@@ -276,6 +278,16 @@ async def set_overwrite(
         channel.guild_id,
         [_overwrite_dict(ow) for ow in all_ows],
     )
+    # Ein neuer deny auf VIEW_CHANNEL/CONNECT darf niemanden in einer
+    # laufenden Sprachsitzung auf DIESEM Kanal zurücklassen — nach dem
+    # Commit, best-effort. Nur relevant fuer Sprachkanäle.
+    if channel.type == CHANNEL_TYPE_VOICE:
+        await evict_ineligible_from_voice_channels(
+            session,
+            getattr(request.app.state, "redis", None),
+            channel.guild_id,
+            channel_ids=[channel_id],
+        )
 
     return OverwriteOut(
         target_type=existing.target_type,
@@ -346,3 +358,12 @@ async def delete_overwrite(
         channel.guild_id,
         [_overwrite_dict(ow) for ow in all_ows],
     )
+    # Wie bei set_overwrite: das Loeschen einer allow-Ausnahme kann
+    # VIEW_CHANNEL/CONNECT gekostet haben — nachziehen.
+    if channel.type == CHANNEL_TYPE_VOICE:
+        await evict_ineligible_from_voice_channels(
+            session,
+            getattr(request.app.state, "redis", None),
+            channel.guild_id,
+            channel_ids=[channel_id],
+        )

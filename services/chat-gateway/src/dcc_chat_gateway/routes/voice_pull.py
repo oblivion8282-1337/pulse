@@ -28,8 +28,10 @@ Der interne Naming (Marker-Key, Tabelle, Revoke-Endpoint) bleibt
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from dcc_shared.events import ChannelRevealedEvent, VoicePullEvent
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
 from dcc_chat_gateway.db import SessionDep
@@ -115,6 +117,16 @@ async def voice_pull(
     overwrite = await session.get(
         PermissionOverwrite, (channel_id, OVERWRITE_TARGET_USER, user_id)
     )
+    # Eine bestehende deny-Ausnahme auf VIEW_CHANNEL/CONNECT gewinnt beim
+    # Aufloesen immer gegen das frisch verOderte allow-Bit (deny-wins,
+    # permission_resolver.py) — das Verschieben wirkte dann nicht, meldete
+    # aber Erfolg. Das Verbot bleibt bewusst stehen (kein Rangschranken-
+    # oder Eskalations-Check hier); stattdessen ehrlich ablehnen.
+    if overwrite is not None and overwrite.deny_bf & _PULL_ALLOW:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="user has an explicit deny on VIEW_CHANNEL or CONNECT for this channel",
+        )
     if overwrite is None:
         overwrite = PermissionOverwrite(
             channel_id=channel_id,
@@ -128,6 +140,10 @@ async def voice_pull(
         overwrite.allow_bf = overwrite.allow_bf | _PULL_ALLOW
 
     # Upsert the pull marker row (re-pull refreshes granted_by/granted_at).
+    # ``granted_at`` hat kein ``onupdate`` (nur ``server_default`` fuer den
+    # Insert) — ohne die explizite Zuweisung hier bleibt sie beim ersten Wert
+    # stehen, und der Reaper (der ausschliesslich nach granted_at auswaehlt)
+    # widerruft einen frischen Re-Pull Sekunden statt Minuten spaeter.
     pull = await session.get(ChannelVoicePull, (channel_id, user_id))
     if pull is None:
         session.add(
@@ -135,6 +151,7 @@ async def voice_pull(
         )
     else:
         pull.granted_by = current.id
+        pull.granted_at = datetime.now(UTC)
 
     await session.commit()
 
