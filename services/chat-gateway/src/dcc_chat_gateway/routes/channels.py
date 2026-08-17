@@ -40,6 +40,10 @@ from dcc_chat_gateway.permissions import (
 from dcc_chat_gateway.routes._dropbox_helpers import validate_name
 from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments, purge_s3_keys
+from dcc_chat_gateway.remote_guard import (
+    collect_devices_for_cascade,
+    forget_devices_after_cascade,
+)
 from dcc_chat_gateway.schemas import (
     ChannelIn,
     ChannelOut,
@@ -228,6 +232,13 @@ async def delete_channel(
     guild_id = channel.guild_id
     channel_is_voice = channel.type == CHANNEL_TYPE_VOICE
     channel_is_dropbox = channel.type == CHANNEL_TYPE_DROPBOX
+    mgr = getattr(request.app.state, "connection_manager", None)
+    # Standplatz-Geräte dieses Kanals jetzt erfassen (vor dem Cascade-Delete)
+    # — das In-Prozess-Register (device_registry.py) erfährt von der
+    # DB-Kaskade sonst nie (Bughunt 2026-08-17, daten.md).
+    devices_removed = await collect_devices_for_cascade(
+        session, mgr, guild_id=guild_id, channel_id=channel_id
+    )
     # Collect attachment ids before deleting messages, then hard-delete them
     # (removes the MinIO objects too — Message bulk-delete can't cascade those).
     att_ids_stmt = (
@@ -282,8 +293,9 @@ async def delete_channel(
     # LiveKit-Session werfen, sonst hängen sie in einem Ghost-Channel (nichts
     # heilt das innerhalb der Session). Best-effort, nach dem Commit.
     if channel_is_voice:
-        mgr = getattr(request.app.state, "connection_manager", None)
         await evict_all_from_voice_channels(getattr(mgr, "_redis", None), [channel_id])
+    # Und das Geräte-Register vergisst, was die Kaskade gerade geräumt hat.
+    await forget_devices_after_cascade(mgr, guild_id, devices_removed)
 
 
 @router.patch("/channels/{channel_id}", response_model=ChannelOut)

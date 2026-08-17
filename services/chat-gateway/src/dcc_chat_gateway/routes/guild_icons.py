@@ -51,6 +51,25 @@ def _icon_path(guild_id: int) -> Path:
     return _icon_dir() / f"{guild_id}.webp"
 
 
+def purge_icon_file(guild_id: int) -> None:
+    """Die Symboldatei eines Servers best-effort vom Datentraeger entfernen.
+
+    Gerufen aus den Loeschwegen (``routes.guilds.delete_guild``) NACH dem
+    Commit — die DB-Zeile ist dann schon weg. Anders als Anhaenge und
+    Ablage liegt das Symbol nicht in MinIO, sondern lokal
+    (``<guild_icon_upload_dir>/<guild_id>.webp``, s. Modulkopf); ohne diesen
+    Aufruf ueberlebt es die Community, zu der es gehoerte, und bleibt unter
+    seiner deterministischen Adresse abrufbar (Bughunt 2026-08-17,
+    ``ablage.md``). Ein Fehler bricht die Loeschung nicht ab — best-effort wie
+    die MinIO-Purges daneben.
+    """
+    path = _icon_path(guild_id)
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        log.warning("guild_icon_purge_failed", guild_id=guild_id)
+
+
 @router.post("/guilds/{guild_id}/icon", response_model=GuildOut)
 async def upload_icon(
     guild_id: int,

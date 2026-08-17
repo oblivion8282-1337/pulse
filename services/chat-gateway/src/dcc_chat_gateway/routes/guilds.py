@@ -26,6 +26,7 @@ from dcc_chat_gateway.models import (
     Channel,
     Guild,
     GuildMember,
+    GuildSoundOverride,
     Message,
     MessageAttachment,
     PermissionOverwrite,
@@ -33,7 +34,9 @@ from dcc_chat_gateway.models import (
 )
 from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.remote_guard import (
+    collect_devices_for_cascade,
     end_remote_sessions_for_member,
+    forget_devices_after_cascade,
     remove_devices_for_member,
 )
 from dcc_chat_gateway.stream_revoke import revoke_read_tokens_for_viewer
@@ -288,6 +291,7 @@ async def delete_guild(
         raise HTTPException(404, detail="guild not found")
     if guild.owner_id != current.id and not current.is_admin:
         raise HTTPException(403, detail="only the owner can delete the guild")
+    mgr = getattr(request.app.state, "connection_manager", None)
     # Hard-delete MinIO attachments for all channels before the DB cascade
     # removes the rows — the cascade can't clean up object-store objects.
     channel_ids_stmt = select(Channel.id).where(Channel.guild_id == guild_id)
@@ -295,6 +299,10 @@ async def delete_guild(
     # Voice-Channels jetzt erfassen (vor dem Cascade-Delete) — nach dem Commit
     # werfen wir alle dort Anwesenden aus der Voice-Session.
     voice_channel_ids = await voice_channels_for_guild(session, guild_id)
+    # Standplatz-Geräte jetzt erfassen (vor dem Cascade-Delete) — das
+    # In-Prozess-Register (device_registry.py) erfährt von der DB-Kaskade
+    # sonst nie (Bughunt 2026-08-17, daten.md).
+    devices_removed = await collect_devices_for_cascade(session, mgr, guild_id=guild_id)
     s3_keys_to_purge: list[str] = []
     if channel_ids:
         att_ids_stmt = select(MessageAttachment.id).where(
@@ -311,6 +319,14 @@ async def delete_guild(
         # guild cascade never reaches message rows — delete them explicitly,
         # mirroring routes/channels.py::delete_channel.
         await session.execute(sa_delete(Message).where(Message.channel_id.in_(channel_ids)))
+    # Sound-Overrides: dieselbe Kaskade wie bei Anhängen (ON DELETE CASCADE auf
+    # guild_sound_overrides.guild_id räumt die Zeile), aber MinIO erfährt auch
+    # davon nichts — dieselbe purge_s3_keys-Runde nach dem Commit nimmt sie
+    # gleich mit (Bughunt 2026-08-17, chat.md).
+    sound_keys_stmt = select(GuildSoundOverride.storage_key).where(
+        GuildSoundOverride.guild_id == guild_id
+    )
+    s3_keys_to_purge.extend((await session.execute(sound_keys_stmt)).scalars())
     await session.delete(guild)
     await session.commit()
     # Purge MinIO objects only after the commit succeeds — a rollback must not
@@ -322,14 +338,22 @@ async def delete_guild(
     # a transient MinIO outage leaves a few orphans, picked up by the next
     # sweep iteration.
     await purge_guild_dropbox_objects(guild_id)
+    # Community-Symbol: liegt lokal auf der Platte (nicht in MinIO) und wird
+    # von keiner Kaskade und keinem Aufräumer erfasst (Bughunt 2026-08-17,
+    # ablage.md). Lazy import: guild_icons.py importiert seinerseits aus
+    # diesem Modul (_guild_dict/_publish_guild_event).
+    from dcc_chat_gateway.routes.guild_icons import purge_icon_file  # noqa: PLC0415
+
+    purge_icon_file(guild_id)
     await _publish_guild_event(
         request, GuildDeletedEvent(guild_id=str(guild_id))
     )
     # Anwesende aus allen (jetzt gelöschten) Voice-Channels werfen — sonst
     # hängen sie in Ghost-Sessions. Best-effort, nach dem Commit.
     if voice_channel_ids:
-        mgr = getattr(request.app.state, "connection_manager", None)
         await evict_all_from_voice_channels(getattr(mgr, "_redis", None), voice_channel_ids)
+    # Und das Geräte-Register vergisst, was die Kaskade gerade geräumt hat.
+    await forget_devices_after_cascade(mgr, guild_id, devices_removed)
 
 
 @router.post(
