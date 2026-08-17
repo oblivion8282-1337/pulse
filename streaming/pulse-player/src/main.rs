@@ -41,6 +41,7 @@ mod session;
 mod stockung;
 mod theme;
 mod whep;
+mod zeigerbild;
 mod zerocopy;
 
 use anyhow::Result;

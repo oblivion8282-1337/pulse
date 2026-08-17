@@ -461,8 +461,13 @@ export interface PulsePlayerApi {
    *  setzen („text", „ns-resize", …) — das, was das Cursor-Echo aus dem Bild
    *  nimmt (`$lib/remote/zeigerform.ts`). Optional aus demselben Grund wie
    *  `transportStatus`: eine ältere Shell kennt die Brücke nicht, dann bleibt
-   *  es beim Standardpfeil. */
-  pointerShape?(session: number, shape: string): Promise<PulsePlayerResult>;
+   *  es beim Standardpfeil.
+   *
+   *  `bild` traegt die Pixel fuer Zeiger, die kein Name abbildet
+   *  (Werkzeugzeiger von Schnitt-, Bild- und 3D-Programmen). Der Player nimmt
+   *  sie, wenn er sie bauen kann, und faellt sonst auf `shape` zurueck. Eine
+   *  aeltere Shell reicht das Feld nicht durch — dann greift ebenfalls `shape`. */
+  pointerShape?(session: number, shape: string, bild?: unknown): Promise<PulsePlayerResult>;
   /** Fernsteuerung: die Bildschirme des fernen Rechners fuers Menue am Griff.
    *  Optional wie `pointerShape` — eine aeltere Shell kennt den Op nicht, und
    *  dann bleibt das Menue eben ohne Bildschirmliste. */

@@ -11,16 +11,23 @@
 //! trifft. Der Zeiger fühlt sich zwar an wie der eigene — er weiß nur nichts
 //! mehr über den fremden Rechner.
 //!
-//! **Was hier hinausgeht, ist ein NAME und kein Bild** (`text`, `ns-resize`,
+//! **Bevorzugt geht ein NAME hinaus und kein Bild** (`text`, `ns-resize`,
 //! `pointer` …). Der Steuernde setzt damit die Form seines eigenen, lokal vom
 //! Betriebssystem gezeichneten Zeigers. Das kostet ein paar Byte je
 //! Formwechsel statt eines Bildes je Wechsel, bleibt verzögerungsfrei, trägt
 //! über Plattformgrenzen (winit benennt seine Formen nach derselben
 //! CSS-Liste, macOS und Linux übersetzen sie in ihre eigenen) und kommt beim
-//! Steuernden in dessen Zeigergröße und -thema an. Der Preis: nur die
-//! Standardformen. Ein Spiel oder ein Bildbearbeiter mit eigenem Zeiger fällt
-//! auf [`VORGABE`] zurück — dafür bräuchte es die Pixel selbst
-//! (`GetIconInfo` + `GetDIBits`), und das ist eine eigene Stufe.
+//! Steuernden in dessen Zeigergröße und -thema an.
+//!
+//! **Wo der Name nicht trägt, gehen die Pixel mit.** Die Namensliste kennt nur
+//! die dreizehn Formen, die Windows selbst mitbringt; die Rasierklinge einer
+//! Schnittanwendung, der Werkzeugzeiger einer Bildbearbeitung, der Achsenzeiger
+//! eines 3D-Programms stehen nicht darauf. Früher fielen die alle wortlos auf
+//! [`VORGABE`], und der Steuernde sah einen Standardpfeil, wo das Programm ihm
+//! etwas sagen wollte. Erkennt [`zu_name`] den Zeiger nicht, holt
+//! [`super::zeigerpixel`] deshalb sein Bild und es geht neben dem Namen her.
+//! Der Name bleibt trotzdem **immer** dabei: kommt das Bild nicht durch oder
+//! kann der Steuernde es nicht bauen, hat er wenigstens den Rückfall.
 //!
 //! **Warum am Wecker der Wache und nicht an den Eingabe-Nachrichten.** Die Form
 //! ändert sich, ohne dass jemand etwas sendet: der Zeiger steht über einer
@@ -38,6 +45,7 @@
 //! ist ja auch keiner. Den einen Fall, in dem der Zeiger wirklich verschwinden
 //! muss (Spiel mit Zeigerfang), erledigt der Player schon selbst über den Fang.
 
+use std::collections::BTreeSet;
 use std::sync::Mutex;
 
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -47,7 +55,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::PCWSTR;
 
-use super::wache;
+use super::{base64, wache, zeigerpixel};
+use crate::zeigerbild::Zeigerbild;
 
 /// Was gemeldet wird, wenn die Form keinem Standard-Zeiger entspricht — der
 /// eigene Zeiger eines Spiels, ein Werkzeug-Zeiger einer Bildbearbeitung, ein
@@ -68,18 +77,41 @@ const VORGABE: &str = "default";
 /// fällt gegen den 60/s-Deckel nicht ins Gewicht.
 const WIEDERHOLUNG_TAKTE: u64 = 10;
 
-/// Was von der letzten Meldung übrig ist. Beides unter **einer** Sperre, weil
-/// es nur zusammen einen Sinn ergibt: die Takte zählen den Abstand zu genau
-/// dieser Form, und jede Meldung setzt beide zugleich.
+/// Wie viele Zeigerbilder als „drüben bekannt" geführt werden.
+///
+/// Ein Programm hat ein paar Dutzend eigene Zeiger; 64 deckt das mit Rand. Beim
+/// Überlaufen wird die Liste **geleert** statt einzeln gealtert: das kostet
+/// einmalig, dass jedes Bild erneut vollständig hinausgeht, und spart die
+/// Buchführung darüber, welches am längsten nicht gebraucht wurde. Eine Liste,
+/// die unbegrenzt wächst, wäre die Alternative — und die wächst in einer langen
+/// Sitzung mit wechselnden Programmen eben doch.
+const MAX_BEKANNT: usize = 64;
+
+/// Was von der letzten Meldung übrig ist. Alles unter **einer** Sperre, weil es
+/// nur zusammen einen Sinn ergibt: die Takte zählen den Abstand zu genau dieser
+/// Form, und jede Meldung setzt alles zugleich.
 struct Merker {
     /// Zuletzt gemeldete Form; `None` = in dieser Sitzung noch nichts gemeldet.
     form: Option<&'static str>,
+    /// Kennung des zuletzt gemeldeten Bildes; `None` = Standardzeiger, für den
+    /// gar keines gebraucht wird.
+    bild: Option<String>,
     /// Wecker seit der letzten Meldung (s. [`WIEDERHOLUNG_TAKTE`]).
     takte: u64,
+    /// Kennungen, die in dieser Sitzung schon **vollständig** hinausgegangen
+    /// sind. Für die genügt beim nächsten Mal die Kennung allein — ein Wechsel
+    /// zwischen zwei Werkzeugen kostet damit ein paar Byte statt zweier Bilder.
+    ///
+    /// Das ist eine **Annahme** über die Gegenseite, keine Zusage von ihr: geht
+    /// eine Nachricht verloren oder wirft der Steuernde seinen Vorrat weg,
+    /// stimmt sie nicht mehr. Deshalb trägt die Auffrischung das Bild immer
+    /// vollständig — spätestens nach einer Sekunde ist der Irrtum geheilt, und
+    /// bis dahin steht drüben der Standardpfeil, nicht der falsche Zeiger.
+    bekannt: BTreeSet<String>,
 }
 
 /// Der leere Anfang — Sitzungsbeginn und [`zuruecksetzen`] gehen von hier aus.
-const LEER: Merker = Merker { form: None, takte: 0 };
+const LEER: Merker = Merker { form: None, bild: None, takte: 0, bekannt: BTreeSet::new() };
 
 static MERKER: Mutex<Merker> = Mutex::new(LEER);
 
@@ -121,8 +153,18 @@ fn abbildung() -> [(PCWSTR, &'static str); 13] {
     ]
 }
 
-/// Die Form des gerade gezeichneten System-Zeigers.
-fn ermitteln() -> &'static str {
+/// Was über den Zeiger herauszufinden war.
+enum Stand {
+    /// Ein Zeiger, den Windows selbst mitbringt — der Name genügt, und er ist
+    /// der bessere Weg (s. Modulkopf).
+    Name(&'static str),
+    /// Ein eigener Zeiger der Anwendung. Der Name wäre hier nur der
+    /// Standardpfeil, also gehen die Pixel mit.
+    Eigen(Zeigerbild),
+}
+
+/// Der gerade gezeichnete System-Zeiger.
+fn ermitteln() -> Stand {
     let mut info =
         CURSORINFO { cbSize: std::mem::size_of::<CURSORINFO>() as u32, ..Default::default() };
     if unsafe { GetCursorInfo(&mut info) }.is_err() {
@@ -130,35 +172,109 @@ fn ermitteln() -> &'static str {
         // eine Störung darf weder die Sitzung noch das Protokoll fluten (der
         // Wecker käme 100 ms später mit derselben Zeile wieder) — deshalb wird
         // der Fehler auch nicht ausgegeben.
-        return VORGABE;
+        return Stand::Name(VORGABE);
     }
-    zu_name(info.hCursor)
+    match zu_name(info.hCursor) {
+        Some(name) => Stand::Name(name),
+        // **Der Zeiger wird bei JEDEM Wecker frisch ausgelesen**, nicht am
+        // Handle festgemacht. Windows gibt die Zahl eines freigegebenen Zeigers
+        // an den nächsten weiter; wer sie als Ausweis nähme, zeigte irgendwann
+        // ein Bild, das zu einem längst verworfenen Zeiger gehört. Das Auslesen
+        // ist eine Kopie von wenigen Kilobyte und fällt zehnmal je Sekunde
+        // neben der laufenden Bildschirmaufnahme nicht ins Gewicht.
+        None => zeigerpixel::bild_holen(info.hCursor).map_or(Stand::Name(VORGABE), Stand::Eigen),
+    }
 }
 
 /// Ein Zeiger-Handle in einen Namen übersetzen. Getrennt von [`ermitteln`],
 /// damit der Vergleich für sich steht — er ist die einzige Stelle, an der
 /// dieses Modul etwas behauptet.
-fn zu_name(aktuell: HCURSOR) -> &'static str {
+///
+/// `None` heisst **nicht** „Fehler", sondern „kein Zeiger, den Windows selbst
+/// mitbringt" — und damit: hol die Pixel.
+fn zu_name(aktuell: HCURSOR) -> Option<&'static str> {
     if aktuell.0.is_null() {
         // Kein Zeiger gesetzt (ausgeblendet). Absichtlich nicht als eigene
-        // Form gemeldet — Begründung im Modulkopf.
-        return VORGABE;
+        // Form gemeldet — Begründung im Modulkopf. Auch kein Bild: es gibt
+        // keines.
+        return Some(VORGABE);
     }
     for (kennung, name) in abbildung() {
         if unsafe { LoadCursorW(None, kennung) }.is_ok_and(|h| h == aktuell) {
-            return name;
+            return Some(name);
         }
     }
-    VORGABE
+    None
 }
 
 /// Steht eine Meldung an? Reine Rechnung, damit die Regel ohne Windows und
 /// ohne laufende Sitzung prüfbar ist.
 ///
-/// Zwei Anlässe: der **Wechsel** (der Regelfall, er soll sofort hinaus) und die
+/// Drei Anlässe: der **Formwechsel**, der **Bildwechsel** (zwei eigene Zeiger
+/// desselben Programms tragen beide den Namen [`VORGABE`] — ohne den Vergleich
+/// der Kennung bliebe der Wechsel zwischen ihnen unbemerkt) und die
 /// **Auffrischung** (s. [`WIEDERHOLUNG_TAKTE`]).
-fn meldung_faellig(gemeldet: Option<&str>, jetzt: &str, takte: u64) -> bool {
-    gemeldet != Some(jetzt) || takte >= WIEDERHOLUNG_TAKTE
+fn meldung_faellig(
+    gemeldete_form: Option<&str>,
+    gemeldetes_bild: Option<&str>,
+    form: &str,
+    bild: Option<&str>,
+    takte: u64,
+) -> bool {
+    gemeldete_form != Some(form) || gemeldetes_bild != bild || takte >= WIEDERHOLUNG_TAKTE
+}
+
+/// Muss das Bild **vollständig** mit, oder genügt seine Kennung?
+///
+/// Vollständig bei der Auffrischung — sie ist es, die einen Verlust heilt — und
+/// bei jedem Bild, das die Gegenseite noch nicht gesehen hat.
+fn bild_vollstaendig(bekannt: &BTreeSet<String>, kennung: &str, takte: u64) -> bool {
+    takte >= WIEDERHOLUNG_TAKTE || !bekannt.contains(kennung)
+}
+
+/// Was in dieser Runde hinausgeht.
+struct Auftrag {
+    /// Bild mitschicken, nicht nur seine Kennung (s. [`bild_vollstaendig`]).
+    vollstaendig: bool,
+}
+
+/// Den Merker fortschreiben und sagen, was zu senden ist. Getrennt vom Senden,
+/// damit die Sperre nicht über einen fremden Kanal gehalten wird.
+fn buchen(form: &'static str, kennung: Option<&str>) -> Option<Auftrag> {
+    let mut merker = sperre();
+    merker.takte += 1;
+    if !meldung_faellig(merker.form, merker.bild.as_deref(), form, kennung, merker.takte) {
+        return None;
+    }
+    let vollstaendig = kennung.is_some_and(|k| bild_vollstaendig(&merker.bekannt, k, merker.takte));
+    merker.form = Some(form);
+    merker.bild = kennung.map(str::to_string);
+    merker.takte = 0;
+    if let Some(k) = kennung.filter(|_| vollstaendig) {
+        if merker.bekannt.len() >= MAX_BEKANNT {
+            merker.bekannt.clear();
+        }
+        merker.bekannt.insert(k.to_string());
+    }
+    Some(Auftrag { vollstaendig })
+}
+
+/// Das `bild`-Feld der Meldung. `None`, wenn keines mitgeht — bei einem
+/// Standardzeiger, und bei einem Bild, das nicht unter die Nutzlastgrenze passt
+/// (dann trägt allein der Name, s. `crate::zeigerbild::MAX_LAEUFE_BYTE`).
+fn bildfeld(bild: &Zeigerbild, kennung: &str, vollstaendig: bool) -> Option<serde_json::Value> {
+    if !vollstaendig {
+        return Some(serde_json::json!({ "id": kennung }));
+    }
+    let laeufe = bild.packen()?;
+    Some(serde_json::json!({
+        "id": kennung,
+        "w": bild.breite,
+        "h": bild.hoehe,
+        "hx": bild.halt_x,
+        "hy": bild.halt_y,
+        "daten": base64::kodiere(&laeufe),
+    }))
 }
 
 /// Der Wecker der Wache (alle 100 ms, aus ihrem eigenen Faden).
@@ -172,23 +288,29 @@ pub(super) fn tick() {
     // **Bei Vorrang des Hosts die Vorgabe**, nicht die echte Form: der Host
     // führt dann seinen eigenen Zeiger, der wieder im Bild ist
     // ([`super::vorrang`]) — der Steuernde soll nicht mit einem I-Balken
-    // dastehen, der zu einer Bewegung gehört, die nicht seine ist.
-    let jetzt = if wache::host_regt_sich() { VORGABE } else { ermitteln() };
+    // dastehen, der zu einer Bewegung gehört, die nicht seine ist. Aus
+    // demselben Grund geht dann auch kein Bild hinaus.
+    let stand = if wache::host_regt_sich() { Stand::Name(VORGABE) } else { ermitteln() };
+    // Ein eigener Zeiger trägt als Namen die Vorgabe — sie ist der Rückfall,
+    // wenn das Bild nicht ankommt oder drüben nicht gebaut werden kann.
+    let (form, bild) = match &stand {
+        Stand::Name(n) => (*n, None),
+        Stand::Eigen(b) => (VORGABE, Some(b)),
+    };
+    let kennung = bild.map(Zeigerbild::kennung);
 
-    let faellig = {
-        let mut merker = sperre();
-        merker.takte += 1;
-        let faellig = meldung_faellig(merker.form, jetzt, merker.takte);
-        if faellig {
-            *merker = Merker { form: Some(jetzt), takte: 0 };
-        }
-        faellig
+    let Some(auftrag) = buchen(form, kennung.as_deref()) else {
+        return;
     };
     // Außerhalb der Sperre — `emit` reiht zwar nur ein, aber es gibt keinen
     // Grund, einen fremden Kanal unter einer eigenen Sperre anzufassen.
-    if faellig {
-        crate::events::emit(serde_json::json!({ "ev": "remote_pointer", "shape": jetzt }));
+    let mut nachricht = serde_json::json!({ "ev": "remote_pointer", "shape": form });
+    if let Some((b, k)) = bild.zip(kennung.as_deref()) {
+        if let Some(feld) = bildfeld(b, k, auftrag.vollstaendig) {
+            nachricht["bild"] = feld;
+        }
     }
+    crate::events::emit(nachricht);
 }
 
 /// Sitzungsende: den Merker leeren, damit die nächste Sitzung ihre erste Form
@@ -203,19 +325,25 @@ pub(super) fn zuruecksetzen() {
 mod tests {
     use super::*;
 
+    /// Kurzform für die Fälle ohne Bild — die Regel für Standardzeiger ist
+    /// dieselbe geblieben, nur die Signatur trägt jetzt zwei Felder mehr.
+    fn faellig(gemeldet: Option<&str>, jetzt: &str, takte: u64) -> bool {
+        meldung_faellig(gemeldet, None, jetzt, None, takte)
+    }
+
     /// Ein Wechsel geht sofort hinaus — er ist der Regelfall und der einzige,
     /// den der Steuernde bemerkt.
     #[test]
     fn ein_wechsel_meldet_sofort() {
-        assert!(meldung_faellig(Some("default"), "text", 1));
+        assert!(faellig(Some("default"), "text", 1));
     }
 
     /// Ohne Wechsel bleibt es still, bis die Auffrischung fällig ist.
     #[test]
     fn gleiche_form_schweigt_bis_zur_auffrischung() {
-        assert!(!meldung_faellig(Some("text"), "text", 1));
-        assert!(!meldung_faellig(Some("text"), "text", WIEDERHOLUNG_TAKTE - 1));
-        assert!(meldung_faellig(Some("text"), "text", WIEDERHOLUNG_TAKTE));
+        assert!(!faellig(Some("text"), "text", 1));
+        assert!(!faellig(Some("text"), "text", WIEDERHOLUNG_TAKTE - 1));
+        assert!(faellig(Some("text"), "text", WIEDERHOLUNG_TAKTE));
     }
 
     /// **Der Grund für die Auffrischung:** der Gateway verwirft über seinem
@@ -223,7 +351,46 @@ mod tests {
     /// mehr, behielte der Steuernde die falsche Form für den Rest der Sitzung.
     #[test]
     fn die_auffrischung_wiederholt_auch_ohne_wechsel() {
-        assert!(meldung_faellig(Some("ew-resize"), "ew-resize", WIEDERHOLUNG_TAKTE + 5));
+        assert!(faellig(Some("ew-resize"), "ew-resize", WIEDERHOLUNG_TAKTE + 5));
+    }
+
+    /// **Zwei eigene Zeiger desselben Programms tragen beide den Namen
+    /// `default`** — zwischen ihnen unterscheidet allein die Kennung des Bildes.
+    /// Ohne diesen Vergleich bliebe der Wechsel von der Rasierklinge zum
+    /// Trimm-Zeiger unbemerkt, und der Steuernde behielte das falsche Bild.
+    #[test]
+    fn ein_bildwechsel_meldet_auch_bei_gleichem_namen() {
+        assert!(meldung_faellig(Some(VORGABE), Some("aaa"), VORGABE, Some("bbb"), 1));
+        assert!(!meldung_faellig(Some(VORGABE), Some("aaa"), VORGABE, Some("aaa"), 1));
+    }
+
+    /// Der Weg vom eigenen Zeiger zurück zum Standardpfeil: der Name bleibt
+    /// gleich, das Bild fällt weg. Würde nur der Name verglichen, bliebe drüben
+    /// der Werkzeugzeiger stehen, nachdem der Nutzer das Programm verlassen hat.
+    #[test]
+    fn das_wegfallen_des_bildes_meldet() {
+        assert!(meldung_faellig(Some(VORGABE), Some("aaa"), VORGABE, None, 1));
+    }
+
+    /// Ein Bild, das die Gegenseite schon hat, geht als blosse Kennung hinaus —
+    /// sonst kostete jeder Wechsel zwischen zwei Werkzeugen zwei volle Bilder.
+    #[test]
+    fn bekanntes_bild_geht_nur_als_kennung() {
+        let mut bekannt = BTreeSet::new();
+        bekannt.insert("aaa".to_string());
+        assert!(!bild_vollstaendig(&bekannt, "aaa", 1));
+        assert!(bild_vollstaendig(&bekannt, "bbb", 1), "ein neues Bild muss ganz hinaus");
+    }
+
+    /// **Die Auffrischung trägt das Bild immer ganz.** Sie ist der einzige Weg,
+    /// auf dem sich ein am Gateway verworfenes Bild heilt — ginge sie als blosse
+    /// Kennung hinaus, bliebe der Steuernde für den Rest der Sitzung beim
+    /// Standardpfeil, und niemand käme auf die Ursache.
+    #[test]
+    fn die_auffrischung_traegt_das_bild_ganz() {
+        let mut bekannt = BTreeSet::new();
+        bekannt.insert("aaa".to_string());
+        assert!(bild_vollstaendig(&bekannt, "aaa", WIEDERHOLUNG_TAKTE));
     }
 
     /// Die erste Form einer Sitzung geht in jedem Fall hinaus — auch wenn es
@@ -231,13 +398,108 @@ mod tests {
     /// meldet.
     #[test]
     fn die_erste_form_meldet_immer() {
-        assert!(meldung_faellig(None, VORGABE, 1));
+        assert!(faellig(None, VORGABE, 1));
     }
 
-    /// Ein Nullzeiger ist kein Handle: kein Absturz, sondern die Vorgabe.
+    /// Ein Nullzeiger ist kein Handle: kein Absturz, sondern die Vorgabe — und
+    /// ausdrücklich **kein** Anlass, Pixel zu suchen, denn es gibt keine.
     #[test]
     fn ohne_zeiger_gilt_die_vorgabe() {
-        assert_eq!(zu_name(HCURSOR(std::ptr::null_mut())), VORGABE);
+        assert_eq!(zu_name(HCURSOR(std::ptr::null_mut())), Some(VORGABE));
+    }
+
+    /// Das `bild`-Feld in beiden Ausprägungen: ganz und als blosse Kennung.
+    /// Hält die Feldnamen fest, auf die der Renderer und der Player hören
+    /// (`web/src/lib/remote/zeigerform.ts`, `pulse-player/src/proto.rs`).
+    #[test]
+    fn das_bildfeld_traegt_die_erwarteten_namen() {
+        let bild = Zeigerbild {
+            breite: 2,
+            hoehe: 2,
+            halt_x: 1,
+            halt_y: 0,
+            punkte: vec![9u8; 2 * 2 * 4],
+        };
+        let kurz = bildfeld(&bild, "abc", false).expect("Kennung allein");
+        assert_eq!(kurz["id"], "abc");
+        assert!(kurz.get("daten").is_none(), "ohne Daten, wenn drueben bekannt");
+
+        let ganz = bildfeld(&bild, "abc", true).expect("ganzes Bild");
+        assert_eq!(ganz["w"], 2);
+        assert_eq!(ganz["h"], 2);
+        assert_eq!(ganz["hx"], 1);
+        assert_eq!(ganz["hy"], 0);
+        assert!(ganz["daten"].as_str().is_some_and(|s| !s.is_empty()));
+    }
+
+    /// **`bildfeld` erzeugt genau die Formen des Prüfsteins** — nicht mehr und
+    /// nicht weniger.
+    ///
+    /// Der Prüfstein (`streaming/zeigerbild-formen.json`) ist die eine Stelle,
+    /// an der steht, was über die Leitung geht; die Gegenseiten prüfen gegen
+    /// dieselbe Datei (`web/test/zeigerbild-formen.test.ts` und der Test in
+    /// `pulse-player/src/app/zeigerbau.rs`). Wer hier ein Feld ergänzt oder
+    /// wegnimmt, muss die Datei anfassen und bricht damit die Tests der anderen
+    /// Seiten, bis er sie mitzieht.
+    ///
+    /// **Warum das nötig war:** am 2026-08-17 verlangte die Prüfung im Renderer
+    /// vier Zahlenfelder, die die Kurzform gar nicht hat — sie verwarf damit
+    /// jede Kurzform, und der Zeiger des Steuernden sprang bei jedem
+    /// Rückwechsel auf den Standardpfeil. Beide Seiten hatten grüne Tests.
+    #[test]
+    fn bildfeld_erzeugt_genau_die_formen_des_pruefsteins() {
+        let pruefstein: serde_json::Value =
+            serde_json::from_str(include_str!("../../../zeigerbild-formen.json"))
+                .expect("Prüfstein ist gültiges JSON");
+        let formen = pruefstein["formen"].as_array().expect("Liste 'formen'");
+        // Die Feldnamen je Ausprägung, wie sie der Prüfstein festhält.
+        let felder = |wert: &serde_json::Value| -> Vec<String> {
+            let mut k: Vec<String> =
+                wert.as_object().expect("Objekt").keys().cloned().collect();
+            k.sort();
+            k
+        };
+        let kurz: Vec<Vec<String>> = formen
+            .iter()
+            .map(|f| felder(&f["bild"]))
+            .filter(|k| !k.contains(&"daten".to_string()))
+            .collect();
+        let voll: Vec<Vec<String>> = formen
+            .iter()
+            .map(|f| felder(&f["bild"]))
+            .filter(|k| k.contains(&"daten".to_string()))
+            .collect();
+        assert!(!kurz.is_empty(), "der Prüfstein muss eine Kurzform enthalten");
+        assert!(!voll.is_empty(), "der Prüfstein muss eine Vollform enthalten");
+
+        let bild = Zeigerbild {
+            breite: 2,
+            hoehe: 2,
+            halt_x: 1,
+            halt_y: 0,
+            punkte: vec![9u8; 2 * 2 * 4],
+        };
+        assert_eq!(
+            felder(&bildfeld(&bild, "abc", false).expect("Kurzform")),
+            kurz[0],
+            "die Kurzform weicht vom Prüfstein ab"
+        );
+        assert_eq!(
+            felder(&bildfeld(&bild, "abc", true).expect("Vollform")),
+            voll[0],
+            "die Vollform weicht vom Prüfstein ab"
+        );
+    }
+
+    /// Ein Bild über der Nutzlastgrenze geht **gar nicht** hinaus — der Name
+    /// trägt dann allein. Eine Nachricht, die der Gateway still verwirft, wäre
+    /// die schlechtere Wahl: sie sähe von hier aus wie ein Erfolg aus.
+    #[test]
+    fn ein_zu_grosses_bild_liefert_kein_feld() {
+        let bunt: Vec<u8> = (0..128 * 128 * 4).map(|i| (i % 251) as u8).collect();
+        let bild =
+            Zeigerbild { breite: 128, hoehe: 128, halt_x: 0, halt_y: 0, punkte: bunt };
+        assert!(bildfeld(&bild, "abc", true).is_none());
     }
 
     /// Jede Form der Tabelle ist ein Name aus der CSS-Liste, den winit auf der

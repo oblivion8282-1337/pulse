@@ -161,8 +161,8 @@
     remoteP2P.setStatusSink((transport) => {
       for (const f of fenster) void transportMelden(f.nummer, transport);
     });
-    remoteZeigerform.setSenke((form) => {
-      for (const f of fenster) void zeigerformMelden(f.nummer, form);
+    remoteZeigerform.setSenke((form, bild) => {
+      for (const f of fenster) void zeigerformMelden(f.nummer, form, bild);
     });
   });
 

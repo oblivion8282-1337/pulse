@@ -50,6 +50,39 @@ pub fn dekodiere(s: &str) -> Result<Vec<u8>, String> {
     Ok(aus)
 }
 
+/// Das Standard-Alphabet, in Senderichtung.
+const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/// Bytes zu einem Base64-Wort. Die **Gegenrichtung** zu [`dekodiere`], und aus
+/// demselben Grund von Hand: dreissig Zeilen sind keine Abhängigkeit wert.
+///
+/// Gebraucht wird sie für das Zeigerbild ([`super::zeigerpixel`]) — der einzige
+/// Weg, auf dem dieser Sidecar etwas Binäres nach aussen gibt. Die Eingabe geht
+/// in die andere Richtung, deshalb stand hier bisher nur der Dekodierer.
+///
+/// **Gefüllt wird immer**, aus demselben Grund wie beim Dekodieren: die
+/// Gegenseiten (Gateway und Player) verlangen eine Füllung, die zur Länge passt.
+pub fn kodiere(bytes: &[u8]) -> String {
+    let mut aus = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for block in bytes.chunks(3) {
+        // Auf drei Byte auffüllen und merken, wie viele davon echt waren — die
+        // fehlenden werden am Ende zu '='.
+        let mut drei = [0u8; 3];
+        drei[..block.len()].copy_from_slice(block);
+        let wort = (drei[0] as u32) << 16 | (drei[1] as u32) << 8 | drei[2] as u32;
+        for i in 0..4 {
+            // Ein Zeichen deckt sechs Bit ab; ab dem (block.len()+1)-ten Zeichen
+            // stünde nur noch Füllung.
+            if i <= block.len() {
+                aus.push(ALPHABET[(wort >> (18 - i * 6)) as usize & 0x3F] as char);
+            } else {
+                aus.push('=');
+            }
+        }
+    }
+    aus
+}
+
 /// Zeichen → 6-Bit-Wert im Standard-Alphabet, `None` = gehört nicht dazu.
 fn sechs_bit(z: u8) -> Option<u8> {
     Some(match z {
@@ -127,5 +160,30 @@ mod tests {
         assert!(dekodiere("A").is_err());
         assert!(dekodiere("AAAAA").is_err());
         assert!(dekodiere("A=AA").is_err());
+    }
+
+    /// Die Senderichtung gegen bekannte Wörter — dieselben, an denen der
+    /// Dekodierer oben hängt, nur andersherum gelesen.
+    #[test]
+    fn kodiert_bekannte_woerter() {
+        assert_eq!(kodiere(&[0x00, 0x02]), "AAI=");
+        assert_eq!(kodiere(&[0x03, 0x00, 0x01]), "AwAB");
+        assert_eq!(kodiere(&[0x01, 0xFF, 0x7F, 0xFF, 0x7F]), "Af9//38=");
+        assert_eq!(kodiere(&[0xFF]), "/w==");
+        assert_eq!(kodiere(&[0xFB]), "+w==");
+        assert_eq!(kodiere(&[]), "");
+    }
+
+    /// **Die eigentliche Zusage:** was hier hinausgeht, muss der Dekodierer der
+    /// Gegenseite wieder hereinbekommen. Alle drei Restlängen abgedeckt — die
+    /// Füllung ist genau dort die Fehlerquelle.
+    #[test]
+    fn kodieren_und_dekodieren_ergeben_dasselbe() {
+        for laenge in 0..40usize {
+            let bytes: Vec<u8> = (0..laenge).map(|i| (i * 37 % 256) as u8).collect();
+            let wort = kodiere(&bytes);
+            assert_eq!(wort.len() % 4, 0, "Länge {laenge} ist nicht gefüllt");
+            assert_eq!(dekodiere(&wort).unwrap(), bytes, "Länge {laenge}");
+        }
     }
 }

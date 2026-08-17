@@ -15,7 +15,7 @@
 //! pruefen. In `app/mod.rs` hineingeschrieben waere davon nichts testbar.
 
 mod bildlage;
-mod rahmen;
+pub(crate) mod rahmen;
 mod schlange;
 mod strom;
 mod tasten;

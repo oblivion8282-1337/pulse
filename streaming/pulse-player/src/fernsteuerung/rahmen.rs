@@ -263,9 +263,83 @@ pub fn base64(bytes: &[u8]) -> String {
     out
 }
 
+/// Die Gegenrichtung zu [`base64`] — gebraucht fuer das **Zeigerbild** des
+/// Hosts (`app/zeigerbau.rs`), das als einziges etwas Binaeres in DIESE Richtung
+/// schickt.
+///
+/// **Streng, nicht grosszuegig**, gleichlautend mit dem Sidecar
+/// (`remote_input/base64.rs::dekodiere`): nur das Standard-Alphabet, kein
+/// URL-safe, keine Leerzeichen, keine Zeilenumbrueche, und die Fuellung ist
+/// Pflicht. Der einzige Sender fuellt ohnehin auf; wer hier nachsichtig waere,
+/// naehme Woerter an, die keine Gegenstelle je erzeugt.
+///
+/// Fehler ohne Text: der Aufrufer faellt auf den Namen des Zeigers zurueck und
+/// hat mit einer Begruendung nichts anzufangen — sie kaeme im Takt der
+/// Auffrischung immer wieder.
+pub fn base64_zurueck(wort: &str) -> Result<Vec<u8>, ()> {
+    let roh = wort.as_bytes();
+    if roh.len() % 4 != 0 {
+        return Err(());
+    }
+    let kern = roh.strip_suffix(b"==").or_else(|| roh.strip_suffix(b"=")).unwrap_or(roh);
+    if kern.contains(&b'=') {
+        return Err(());
+    }
+    let mut aus = Vec::with_capacity(kern.len() * 3 / 4);
+    let mut sammler: u32 = 0;
+    let mut bits: u32 = 0;
+    for &z in kern {
+        let wert = match z {
+            b'A'..=b'Z' => z - b'A',
+            b'a'..=b'z' => z - b'a' + 26,
+            b'0'..=b'9' => z - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return Err(()),
+        };
+        sammler = (sammler << 6) | u32::from(wert);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            aus.push((sammler >> bits) as u8);
+        }
+    }
+    Ok(aus)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Der Dekodierer gegen bekannte Woerter — dieselben, an denen der
+    /// Kodierer im Sidecar haengt (`remote_input/base64.rs`).
+    #[test]
+    fn base64_zurueck_liest_bekannte_woerter() {
+        assert_eq!(base64_zurueck("AAI="), Ok(vec![0x00, 0x02]));
+        assert_eq!(base64_zurueck("AwAB"), Ok(vec![0x03, 0x00, 0x01]));
+        assert_eq!(base64_zurueck("/w=="), Ok(vec![0xFF]));
+        assert_eq!(base64_zurueck("+w=="), Ok(vec![0xFB]));
+        assert_eq!(base64_zurueck(""), Ok(vec![]));
+    }
+
+    /// **Die eigentliche Zusage:** kodieren und zurueck ergibt dasselbe, ueber
+    /// alle drei Restlaengen — die Fuellung ist genau dort die Fehlerquelle.
+    #[test]
+    fn base64_hin_und_zurueck_ergibt_dasselbe() {
+        for laenge in 0..40usize {
+            let bytes: Vec<u8> = (0..laenge).map(|i| (i * 37 % 256) as u8).collect();
+            assert_eq!(base64_zurueck(&base64(&bytes)), Ok(bytes), "Laenge {laenge}");
+        }
+    }
+
+    /// Fremdmaterial wird abgewiesen: fehlende Fuellung, Fuellung mitten im
+    /// Wort, URL-safe-Zeichen, Leerraum.
+    #[test]
+    fn base64_zurueck_weist_fremdes_ab() {
+        for wort in ["AAA", "A===", "A=AA", "-w==", "_w==", "AA I", "AA\nI", "A"] {
+            assert!(base64_zurueck(wort).is_err(), "{wort:?}");
+        }
+    }
 
     #[test]
     fn hello_traegt_version_zwei() {

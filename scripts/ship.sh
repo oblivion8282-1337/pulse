@@ -64,6 +64,16 @@ else
   echo "  Frontend check + build…"
   ( cd web && pnpm check && pnpm build ) \
     || { echo "✗ Frontend check/build ROT — Push abgebrochen." >&2; exit 1; }
+  # Node-Unit-Tests von web/ und desktop/ (zusammen <1 s). Sie liefen bis zum
+  # 2026-08-17 in KEINEM Gate — weder hier noch in einem Workflow —, also nur,
+  # wenn jemand von Hand daran dachte. Ein Test, den niemand ausführt, ist kein
+  # Test; und ausgerechnet an dieser Grenze (Renderer gegen Sidecar/Player) ist
+  # am selben Tag ein echter Fehler durchgerutscht.
+  echo "  Node-Unit-Tests (web + desktop)…"
+  ( cd web && pnpm test:unit ) \
+    || { echo "✗ web-Unit-Tests ROT — Push abgebrochen." >&2; exit 1; }
+  ( cd desktop && pnpm test:unit ) \
+    || { echo "✗ desktop-Unit-Tests ROT — Push abgebrochen." >&2; exit 1; }
   echo "✓ Test-Gate grün."
 fi
 echo

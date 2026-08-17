@@ -12,6 +12,7 @@ pub mod diagnose;
 mod eingabe;
 mod requests;
 mod takt;
+mod zeigerbau;
 mod zeigerform;
 
 use std::collections::HashMap;
@@ -255,6 +256,11 @@ pub struct App {
     proxy: EventLoopProxy<UserEvent>,
     runtime: tokio::runtime::Handle,
     stdout: StdoutWriter,
+    /// Die Zeigerbilder der Fernsteuerung, einmal gebaut und behalten
+    /// (s. [`zeigerbau`]). Bei der App und nicht bei der Sitzung, weil ein
+    /// gebauter Zeiger am Ereignisschleifen-Zeiger haengt und derselbe ferne
+    /// Rechner ueber mehrere Fenster gesteuert werden kann.
+    zeigervorrat: zeigerbau::Vorrat,
 }
 
 /// Wie lange nach dem letzten Bild des Hauptstroms das Auffangnetz noch
@@ -277,6 +283,7 @@ impl App {
             proxy,
             runtime,
             stdout: StdoutWriter::new(),
+            zeigervorrat: zeigerbau::Vorrat::default(),
         }
     }
 

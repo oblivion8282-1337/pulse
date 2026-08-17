@@ -23,4 +23,5 @@ pub mod syncprobe;
 pub mod system;
 pub mod tick_monitor;
 pub mod whip;
+pub mod zeigerbild;
 pub mod zeitbasis;
