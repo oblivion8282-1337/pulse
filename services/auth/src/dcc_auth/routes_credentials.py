@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import collections
-import logging
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -17,6 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_auth.browser_sessions import validate_session
 from dcc_auth.config import get_settings
+from dcc_auth.credential_revocation import (
+    REASON_REISSUE,
+    REASON_USER_REVOKE,
+    publish_revocations,
+    record_revocation,
+)
 from dcc_auth.db import SessionDep
 from dcc_auth.models import IssuedCredential, User, UserSession
 from dcc_auth.schemas_credentials import (
@@ -26,8 +31,6 @@ from dcc_auth.schemas_credentials import (
     CredentialListResponse,
 )
 from dcc_auth.security import get_signer
-
-log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/credentials", tags=["credentials"])
 
@@ -116,22 +119,11 @@ async def _active_creds_for_user(db: AsyncSession, user_id: int) -> list[IssuedC
 async def _push_to_redis_crl(cert_id: str, expires_at: datetime) -> None:
     """Best-effort: add cert_id to auth:revoked_certs ZSET and invalidate the ETag cache.
 
-    Uses crl_add() from routes_crl which does zadd + ETag recompute atomically so
-    that GET /.well-known/revoked-credentials never serves a stale 304 after a
-    fresh revocation.
+    Duenne Huelle um ``credential_revocation.publish_revocations`` — dieselbe
+    Bewegung machen Kontoloeschung und Admin-Sperre ueber alle Zeilen eines
+    Nutzers. Der Name bleibt, weil Tests genau hier abgreifen.
     """
-    try:
-        from redis.asyncio import Redis
-
-        from dcc_auth.routes_crl import crl_add
-
-        redis_url = get_settings().redis_url  # type: ignore[attr-defined]
-        if not redis_url:
-            return
-        async with Redis.from_url(redis_url, decode_responses=True) as r:
-            await crl_add(r, cert_id, int(expires_at.timestamp()))
-    except Exception:
-        log.warning("redis CRL push failed for cert_id=%s", cert_id, exc_info=True)
+    await publish_revocations([(cert_id, expires_at)])
 
 
 async def _cookie_user_and_session(
@@ -273,6 +265,14 @@ async def issue_credential(
         await db.refresh(user)
         await db.refresh(session_row)
         return CredentialIssueResponse(cert=_sign_credential_jwt(user, winner, session_row))
+    # Grabsteine fuer die zurueckgezogenen Alt-Paesse — in derselben
+    # Transaktion wie der ``revoked_at``-Stempel. Im IntegrityError-Pfad oben
+    # ist die Transaktion bereits zurueckgerollt, dort entstehen also (richtig)
+    # weder Stempel noch Grabsteine.
+    for old_cert_id, old_expires in revoked_for_crl:
+        await record_revocation(
+            db, old_cert_id, old_expires, reason=REASON_REISSUE, revoked_at=now
+        )
     cert_jwt = _sign_credential_jwt(user, cred, session_row)
     await db.commit()
     # Zurückgezogene Alt-Pässe in die CRL — erst jetzt, nach erfolgreichem Commit.
@@ -342,10 +342,12 @@ async def revoke_credential(cert_id: str, request: Request, db: SessionDep) -> N
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="forbidden")
     now = datetime.now(UTC)
     cred.revoked_at = now
+    # Grabstein: ueberlebt eine spaetere Kontoloeschung, deren Kaskade diese
+    # Zeile mitnimmt. Ohne ihn waere der Widerruf danach nicht mehr belegbar.
+    _, expires_at = await record_revocation(
+        db, str(cert_uuid), cred.expires_at, reason=REASON_USER_REVOKE, revoked_at=now
+    )
     await db.flush()
-    expires_at = cred.expires_at
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=UTC)
     await _push_to_redis_crl(str(cert_uuid), expires_at)
     await db.commit()
     return None

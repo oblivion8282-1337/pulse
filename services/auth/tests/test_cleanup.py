@@ -269,6 +269,7 @@ async def test_run_once_keeps_usable_and_never_touches_backup_codes(
         "refresh_tokens_revoked": 0,
         "user_sessions_expired": 0,
         "username_reservations_expired": 0,
+        "revoked_credentials_expired": 0,
     }
 
     async with session_factory() as s:

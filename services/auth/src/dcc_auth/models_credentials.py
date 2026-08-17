@@ -84,6 +84,50 @@ class IssuedCredential(Base):
     )
 
 
+class RevokedCredential(Base):
+    """Grabstein eines widerrufenen Geraete-Zertifikats (Migration 0048).
+
+    Warum eine eigene Tabelle und nicht bloss ``issued_credentials.revoked_at``:
+    der Fremdschluessel ``issued_credentials.user_id`` steht auf ``ON DELETE
+    CASCADE``. Loescht ein Nutzer sein Konto, verschwindet damit jede seiner
+    Zertifikatszeilen — und mit ihr die einzige Spur der ``cert_id``. Ein
+    Widerruf, der nur in dieser Zeile lebt, ist danach begrifflich unmoeglich:
+    die Sperrliste kann nichts veroeffentlichen, dessen Kennung niemand mehr
+    kennt, und das Geraet meldet sich auf jedem Self-Host bis zu 365 Tage
+    weiter als der geloeschte Nutzer an.
+
+    Diese Zeile haengt an keinem Fremdschluessel und ueberlebt die Kaskade.
+    Sie traegt **absichtlich weder ``user_id`` noch ``device_pubkey``**: das
+    Loeschversprechen ist hart, und ``cert_id`` ist ein zufaelliges uuid4 ohne
+    Bezug zum Konto — ein Self-Host kann daraus nichts verknuepfen, was er
+    nicht ohnehin schon aus dem vorgezeigten Zertifikat weiss (pairwise_sub
+    bleibt unberuehrt).
+
+    Aufbewahrung: bis ``expires_at``, also genau so lange, wie das Zertifikat
+    ohne den Widerruf noch gegolten haette. Frueheres Aufraeumen liesse es
+    danach wieder aufleben (der Sweeper in ``cleanup.py`` haelt sich daran).
+    """
+
+    __tablename__ = "revoked_credentials"
+
+    cert_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True).with_variant(_sqlite.TEXT(), "sqlite"),
+        primary_key=True,
+    )
+    # Ablauf des urspruenglichen Zertifikats — zugleich der Score im Redis-ZSET
+    # und die Aufbewahrungsgrenze dieser Zeile.
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    # Kurzes Etikett fuer die Nachschau ("account_delete", "admin_disable", …).
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("ix_revoked_credentials_expires_at", "expires_at"),
+    )
+
+
 class UsernameReservation(Base):
     """30-day hold on a just-vacated username (Block 1.D, migration 0016).
 
