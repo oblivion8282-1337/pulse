@@ -53,6 +53,13 @@ from dcc_auth.security import (
     verify_dummy_password,
     verify_password,
 )
+from dcc_auth.session_link import (
+    as_sid,
+    parse_sid,
+    relink_to_new_session,
+    revoke_sessions,
+    revoke_sessions_of_tokens,
+)
 from dcc_auth.snowflake import next_id
 from dcc_auth.username_suggestions import suggest_usernames as _suggest_usernames
 
@@ -126,7 +133,17 @@ async def _issue_tokens(
     signer: JwtSigner,
     user_agent: str | None,
     ip_hash: str | None = None,
+    session_id: uuid.UUID | str | None = None,
 ) -> TokensOut:
+    """Zugriffs- + Refresh-Token ausstellen und die Refresh-Zeile schreiben.
+
+    ``session_id`` verknuepft die Zeile mit dem Browser-Session-Cookie
+    desselben Anmeldevorgangs (Migration 0049). Alle Anmeldewege reichen es
+    durch, ``/refresh`` zieht es bei der Rotation mit — nur so beendet
+    "Sitzung beenden" spaeter auch das Cookie und nicht bloss den Token
+    (siehe ``session_link.py``). Deshalb legen die Aufrufer das Cookie VOR
+    den Token an: der Fremdschluessel verlangt die Zeile.
+    """
     blocked = await _email_gate_blocked(session, user)
     access = signer.issue_access(
         user.id,
@@ -146,6 +163,7 @@ async def _issue_tokens(
         user_agent=(user_agent[:1000] if user_agent else None),
         ip_hash=ip_hash,
         last_used_at=now,
+        session_id=as_sid(session_id),  # type: ignore[arg-type]
     )
     session.add(rt)
     await session.flush()
@@ -358,14 +376,12 @@ async def register(
         # bestehende Clouds; auf einer frischen DB greift dieser Pfad.
         user.is_owner = True
 
-    tokens = await _issue_tokens(
-        session, user, signer=signer, user_agent=user_agent, ip_hash=_hash_ip(request)
-    )
-
     # Browser-Session-Cookie analog zum Login. Register schließt den Sign-In
     # in einem Schritt ab — Client erwartet ab hier den Session-Cookie, weil
     # die Cert-Issue + Profile-Endpoints (browser_sessions.get_current_user_
     # from_cookie) ausschließlich Cookie-authentifiziert sind.
+    # VOR den Token: die Refresh-Zeile verweist per Fremdschlüssel auf diese
+    # Zeile, damit ein späteres „Sitzung beenden“ beide Hälften trifft.
     sid = await create_session(
         session,
         user_id=user.id,
@@ -373,6 +389,14 @@ async def register(
         acr="0",
         user_agent=user_agent,
         ip=_client_ip(request),
+    )
+    tokens = await _issue_tokens(
+        session,
+        user,
+        signer=signer,
+        user_agent=user_agent,
+        ip_hash=_hash_ip(request),
+        session_id=sid,
     )
 
     # Auto-fire the verify-email so the new user finds a fresh link in their
@@ -461,10 +485,8 @@ async def login(
         ticket = issue_mfa_ticket(signer, user.id, settings.mfa_ticket_ttl_seconds)
         return LoginMfaPending(mfa_ticket=ticket, methods=methods)
 
-    tokens = await _issue_tokens(
-        session, user, signer=signer, user_agent=user_agent, ip_hash=_hash_ip(request)
-    )
     # Session cookie: amr=["pwd"] + acr="0" (password-only, no MFA at this step).
+    # Vor den Token, damit die Refresh-Zeile darauf verweisen kann.
     sid = await create_session(
         session,
         user_id=user.id,
@@ -472,6 +494,14 @@ async def login(
         acr="0",
         user_agent=user_agent,
         ip=_client_ip(request),
+    )
+    tokens = await _issue_tokens(
+        session,
+        user,
+        signer=signer,
+        user_agent=user_agent,
+        ip_hash=_hash_ip(request),
+        session_id=sid,
     )
     await session.commit()
     set_session_cookie(response, sid)
@@ -502,8 +532,15 @@ async def renew_session(
     expired, locking them out of the ``mfa_step_up_required`` gate
     (``/credentials/issue``) until a full re-login. We never *force* a downgrade:
     if no MFA evidence is found, the previous ``acr="0"`` default stands.
+
+    Die Refresh-Token des Geräts werden auf das neue Cookie umgehängt und das
+    abgelöste Cookie entwertet. Ohne das zeigte die Verknüpfung danach auf eine
+    tote Zeile, und „Sitzung beenden“ liefe für genau die Geräte ins Leere, die
+    am häufigsten erneuern — die Desktop-App tut es bei jedem Start
+    (``session_link.relink_to_new_session``).
     """
     amr, acr = await _strongest_session_context(request, session, current.id)
+    old_sid = parse_sid(request.cookies.get("pulse_session"))
     sid = await create_session(
         session,
         user_id=current.id,
@@ -512,6 +549,18 @@ async def renew_session(
         user_agent=user_agent,
         ip=_client_ip(request),
     )
+    await relink_to_new_session(
+        session,
+        user_id=current.id,
+        old_sid=old_sid,
+        new_sid=str(sid),
+        user_agent=user_agent,
+    )
+    if old_sid is not None:
+        # Das abgelöste Cookie ist beim Client bereits ersetzt; es weiter
+        # gelten zu lassen hiesse nur, eine zweite lebende Sitzung zu führen,
+        # die niemand mehr sieht.
+        await revoke_sessions(session, [old_sid])
     await session.commit()
     set_session_cookie(response, sid)
     return None
@@ -599,11 +648,21 @@ async def refresh(
         # was stolen and replayed, or vice versa — we can't tell, so revoke the
         # whole family (all of the user's still-active refresh tokens). This is
         # the standard OAuth refresh-token-reuse mitigation.
-        await session.execute(
-            update(RefreshToken)
-            .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
-            .values(revoked_at=now)
-        )
+        family = (
+            await session.execute(
+                select(RefreshToken).where(
+                    RefreshToken.user_id == user_id,
+                    RefreshToken.revoked_at.is_(None),
+                )
+            )
+        ).scalars().all()
+        for row in family:
+            row.revoked_at = now
+        # Und die zugehörigen Cookies: die Wiederverwendung ist der Verdacht
+        # eines gestohlenen Tokens, und ein ``pulse_session``-Cookie überlebt
+        # den Familien-Widerruf sonst — mitsamt dem Recht, sich damit ein
+        # Geräte-Zertifikat auszustellen.
+        await revoke_sessions_of_tokens(session, list(family), now=now)
         await session.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="refresh token not active")
     # SQLite returns naive datetimes; coerce to UTC for the comparison.
@@ -627,8 +686,16 @@ async def refresh(
     # rotated-out row keeps its original ``last_used_at`` (audit trail); the
     # newly-issued row gets a fresh stamp inside ``_issue_tokens``.
     rt.revoked_at = now
+    # Die Verknüpfung zum Browser-Cookie wandert mit: die Rotation wechselt den
+    # Token, nicht das Gerät. Ohne das Mitziehen verlöre die Sitzungsliste nach
+    # der ersten Rotation ihren Zugriff auf die zweite Hälfte der Sitzung.
     tokens = await _issue_tokens(
-        session, user, signer=signer, user_agent=user_agent, ip_hash=_hash_ip(request)
+        session,
+        user,
+        signer=signer,
+        user_agent=user_agent,
+        ip_hash=_hash_ip(request),
+        session_id=rt.session_id,
     )
     await session.commit()
     return tokens
@@ -662,6 +729,11 @@ async def logout(
             rt = await session.get(RefreshToken, jti)
             if rt is not None and rt.user_id == user_id and rt.revoked_at is None:
                 rt.revoked_at = datetime.now(tz=UTC)
+                # Das Cookie derselben Anmeldung mit beenden. Der Desktop meldet
+                # sich nur mit dem Refresh-Token ab (der Cookie-Zweig unten
+                # greift dort nicht) — ohne diese Zeile bliebe sein Cookie
+                # gültig und könnte weiter Geräte-Zertifikate ausstellen.
+                await revoke_sessions_of_tokens(session, [rt], now=rt.revoked_at)
                 committed = True
 
     # --- Revoke browser session cookie (if present) ---

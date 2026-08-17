@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-18.3",
+      "date": "2026-08-18",
+      "style": "Sachlich",
+      "title": "Sitzung beenden beendet jetzt das Gerät",
+      "intro": "„Sitzung beenden“ hat bisher nur die Hälfte einer Anmeldung beendet. Die andere Hälfte lief weiter.",
+      "items": [
+        "Beendest du in den Einstellungen eine Sitzung, ist das betreffende Gerät wirklich abgemeldet. Bisher blieb es angemeldet und konnte sogar noch neue Geräte-Ausweise ausstellen.",
+        "Dasselbe gilt jetzt für das Abmelden aus der Desktop-App und für den Fall, dass ein gestohlener Anmelde-Token erkannt wird — dort blieb die Browser-Anmeldung bisher unangetastet.",
+        "Geräte-Ausweise werden dabei bewusst NICHT mit widerrufen: sie gehören zum Gerät, nicht zur Sitzung. Wer sie zurückziehen will, tut das weiterhin in der Geräteliste — sonst verlöre man seine Identität auf allen Servern, nur weil man ein fremdes Fenster geschlossen hat.",
+        "Bestätigst du eine E-Mail-Änderung auf eine Adresse, die inzwischen jemand anderes belegt hat, bekommst du einen verständlichen Hinweis statt eines Fehlers. Der Bestätigungslink bleibt danach benutzbar."
+      ]
+    },
+    {
       "id": "2026-08-18.2",
       "date": "2026-08-18",
       "style": "Sachlich",

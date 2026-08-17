@@ -246,3 +246,64 @@ async def test_higher_mod_can_kick_lower_member(client, _auth_signer):
         headers=auth(s["t_a"]),
     )
     assert r.status_code == 204
+
+
+# ---------------------------------------------------------------------------
+# Kein Bestaetigungs-Orakel: die Antwort darf einem Aussenstehenden nicht
+# verraten, WER Eigentuemer ist und WER Mitglied ist. bans.py::ban_user ist
+# gegen dasselbe Muster abgesichert; hier fehlte der Riegel.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_outsider_gets_the_same_answer_for_owner_and_member(client, _auth_signer):
+    """Fuer einen Nicht-Mitglied sind Eigentuemer, Mitglied und Unbekannter
+    ununterscheidbar — gleicher Code, gleicher Text."""
+    s = await _setup(client, _auth_signer)
+    t_out, _ = await _register_user(_auth_signer)
+    gid = s["g"]["id"]
+
+    antworten = []
+    for ziel in (s["uid_owner"], s["uid_a"], 9999999):
+        r = await client.delete(f"/guilds/{gid}/members/{ziel}", headers=auth(t_out))
+        antworten.append((r.status_code, r.json().get("detail")))
+
+    assert antworten[0] == antworten[1] == antworten[2], antworten
+    assert antworten[0][0] == 403
+    assert antworten[0][1] == "not a member of this guild"
+
+
+@pytest.mark.asyncio
+async def test_member_keeps_the_precise_answers(client, _auth_signer):
+    """Wer die Auskunft legitim hat, behaelt sie: ein Mitglied liest
+    Eigentuemer und Mitgliederliste ohnehin ueber die Community-Routen, also
+    bleiben hier die genauen Meldungen stehen — sonst waere die Fehlermeldung
+    fuer Moderatoren unbrauchbar."""
+    s = await _setup(client, _auth_signer)
+    gid = s["g"]["id"]
+
+    r_owner = await client.delete(
+        f"/guilds/{gid}/members/{s['uid_owner']}", headers=auth(s["t_a"])
+    )
+    assert r_owner.status_code == 403
+    assert r_owner.json()["detail"] == "cannot kick the guild owner"
+
+    r_unknown = await client.delete(
+        f"/guilds/{gid}/members/9999999", headers=auth(s["t_a"])
+    )
+    assert r_unknown.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_instance_admin_may_kick_without_membership(client, _auth_signer):
+    """Der Riegel darf den Instanz-Admin nicht aussperren: er raeumt auch in
+    Communities auf, in denen er nicht Mitglied ist."""
+    s = await _setup(client, _auth_signer)
+    admin_token = _auth_signer.issue_access(
+        random.randint(1, 1_000_000), "globaladmin", is_admin=True
+    )
+    r = await client.delete(
+        f"/guilds/{s['g']['id']}/members/{s['uid_a']}",
+        headers=auth(admin_token),
+    )
+    assert r.status_code == 204, r.text

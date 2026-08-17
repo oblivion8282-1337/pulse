@@ -327,6 +327,23 @@ class RefreshToken(Base):
     # sessions UI can show real liveness. The old (revoked) row keeps its
     # original value as an audit trail.
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Das Browser-Session-Cookie (``user_sessions``), das im selben Anmeldevorgang
+    # entstand (Migration 0049). Eine "Sitzung" besteht aus ZWEI Berechtigungen,
+    # die getrennt leben: dem Refresh-Token und dem ``pulse_session``-Cookie.
+    # Ohne diese Verknuepfung beendete "Sitzung beenden" nur die eine Haelfte —
+    # das Geraet blieb ueber den Cookie voll angemeldet und konnte weiter
+    # Geraete-Zertifikate ausstellen (``/credentials/issue`` haengt genau am
+    # Cookie). Wird bei jeder Rotation in ``/refresh`` mitgezogen und bei
+    # ``/session/renew`` auf das neue Cookie umgehaengt.
+    #
+    # ``ON DELETE SET NULL``: der Sweeper (``purge_expired_sessions``) loescht
+    # abgelaufene Cookie-Zeilen. Die verlorene Verknuepfung kostet nichts —
+    # ein abgelaufenes Cookie ist ohnehin tot, da bleibt nichts zu beenden.
+    session_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True).with_variant(_sqlite.TEXT(), "sqlite"),
+        ForeignKey("user_sessions.session_id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     __table_args__ = (
         Index(
@@ -335,6 +352,7 @@ class RefreshToken(Base):
             postgresql_where="revoked_at IS NULL",
         ),
         Index("ix_refresh_tokens_user_revoked", "user_id", "revoked_at"),
+        Index("ix_refresh_tokens_session_id", "session_id"),
     )
 
 

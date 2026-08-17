@@ -8,6 +8,12 @@ The endpoints here only ever expose the caller's *own* sessions — there is
 no admin-cross-user variant (that would belong under ``routes_admin.py``
 behind an admin gate).
 
+Eine Sitzung besteht aus **zwei** Berechtigungen: dem Refresh-Token, den diese
+Liste zeigt, und dem ``pulse_session``-Cookie, das sie nicht zeigt. Beide Wege
+hier beenden beide Hälften — der Einzel-Widerruf über die Verknüpfung
+``refresh_tokens.session_id``, der Sammel-Widerruf über den Nutzerbezug. Die
+Mechanik dahinter liegt in ``session_link.py``.
+
 Kept in its own file so ``routes.py`` stays under the size cap.
 """
 
@@ -24,6 +30,11 @@ from dcc_auth.db import SessionDep
 from dcc_auth.models import RefreshToken, User, UserSession
 from dcc_auth.routes import _get_current_user, _hash_ip
 from dcc_auth.schemas import SessionOut, SessionsRevokeAllOut
+from dcc_auth.session_link import (
+    parse_sid,
+    revoke_session_of_token_fallback,
+    revoke_sessions_of_tokens,
+)
 
 router = APIRouter()
 
@@ -88,11 +99,29 @@ async def list_sessions(
 
 @router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_session(
+    request: Request,
     session_id: str,
     session: SessionDep,
     current: User = Depends(_get_current_user),
 ):
-    """Revoke one specific refresh token belonging to the caller.
+    """Revoke one specific refresh token belonging to the caller — **und das
+    Browser-Cookie derselben Anmeldung**.
+
+    Eine Sitzung besteht aus zwei Berechtigungen: dem Refresh-Token, den diese
+    Liste zeigt, und dem ``pulse_session``-Cookie, das sie nicht zeigt. Wurde
+    hier nur der Token entwertet, blieb das entfernte Gerät über sein Cookie
+    voll angemeldet und konnte sich sogar noch ein Geräte-Zertifikat ausstellen
+    (``/credentials/issue`` authentifiziert ausschließlich über das Cookie) —
+    die Schaltfläche sagte etwas zu, was nicht eintrat. Die Verknüpfung dafür
+    liegt in ``refresh_tokens.session_id`` (Migration 0049); der Notbehelf für
+    Zeilen von vorher steht in ``session_link.py``.
+
+    Ausdrücklich **nicht** widerrufen werden die Geräte-Zertifikate des
+    beendeten Geräts: sie hängen am Gerät, nicht an der Sitzung, gelten bis zu
+    365 Tage über jede Ab- und Neuanmeldung hinweg und haben unter „Geräte“
+    einen eigenen, sichtbaren Widerrufsweg. Was hier zählt, ist, dass die
+    beendete Sitzung keine NEUEN mehr ausstellen kann — und das leistet der
+    Cookie-Widerruf.
 
     Returns 404 if the token doesn't exist, belongs to another user, or is
     already revoked — collapsing the three into one response avoids
@@ -106,7 +135,17 @@ async def revoke_session(
     rt = await session.get(RefreshToken, jti)
     if rt is None or rt.user_id != current.id or rt.revoked_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session not found")
-    rt.revoked_at = datetime.now(tz=UTC)
+    now = datetime.now(tz=UTC)
+    rt.revoked_at = now
+    if rt.session_id is not None:
+        await revoke_sessions_of_tokens(session, [rt], now=now)
+    else:
+        await revoke_session_of_token_fallback(
+            session,
+            rt,
+            keep_sid=parse_sid(request.cookies.get("pulse_session")),
+            now=now,
+        )
     await session.commit()
     return None
 
