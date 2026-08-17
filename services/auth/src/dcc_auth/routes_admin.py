@@ -12,7 +12,9 @@ Two write-actions side-effect:
   (prevents accidental lockout). Demoting *someone else* down to last-
   admin = themselves is fine.
 * Disabling a user revokes *all* of their refresh tokens immediately so
-  they can't extend reach beyond the ≤15 min access-token TTL.
+  they can't extend reach beyond the ≤15 min access-token TTL — dazu die
+  Browser-Sitzungen und die Geräte-Zertifikate (letztere sind der einzige
+  Hebel, der einen Self-Host überhaupt erreicht).
 """
 
 from __future__ import annotations
@@ -24,6 +26,11 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select, update
 
+from dcc_auth.credential_revocation import (
+    REASON_ADMIN_DISABLE,
+    publish_revocations,
+    revoke_credentials_for_user,
+)
 from dcc_auth.db import SessionDep
 from dcc_auth.models import (
     AdminAuditLog,
@@ -155,6 +162,7 @@ async def patch_user(
         )
 
     changes: dict[str, Any] = {}
+    revoked_certs: list[tuple[str, datetime]] = []  # Push erst nach dem Commit
 
     if payload.is_admin is not None and payload.is_admin != user.is_admin:
         if not payload.is_admin and user.id == actor.id:
@@ -201,6 +209,14 @@ async def patch_user(
                 )
                 .values(expires_at=now, revoked_at=now)
             )
+            # Und die Geräte-Zertifikate: ein Self-Host prüft nur Signatur
+            # und Sperrliste, eine nutzerbezogene Sperre veröffentlicht die
+            # Cloud nicht. Ohne diesen Schritt behält der Gesperrte überall
+            # dort, wo er Mitglied ist, bis zu 365 Tage vollen Zugriff. Beim
+            # Entsperren zieht er ein frisches Zertifikat — gewollter Preis.
+            revoked_certs = await revoke_credentials_for_user(
+                session, user_id, reason=REASON_ADMIN_DISABLE, now=now
+            )
 
     if payload.self_host_enabled is not None and payload.self_host_enabled != user.self_host_enabled:
         changes["self_host_enabled"] = {"from": user.self_host_enabled, "to": payload.self_host_enabled}
@@ -216,6 +232,7 @@ async def patch_user(
         )
         await session.commit()
         await session.refresh(user)
+        await publish_revocations(revoked_certs)
 
     return user
 
