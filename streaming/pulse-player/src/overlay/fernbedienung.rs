@@ -195,13 +195,26 @@ impl Overlay {
                         // holen — genau das, was der Griff hier vermeidet.
                         let zuschaltbar: Vec<_> =
                             self.fern_schirme.iter().filter(|s| !s.open).cloned().collect();
-                        if !zuschaltbar.is_empty() && self.fern_schirme.len() > 1 {
+                        if self.fern_schirme.len() > 1 {
                             ui.add_space(6.0);
                             ui.label(
                                 egui::RichText::new("Bildschirme")
                                     .font(theme::font_xs())
                                     .color(theme::TEXT_DIM),
                             );
+                            // **Ist keiner mehr zu holen, steht es da** (2026-08-17).
+                            // Vorher verschwand die ganze Gruppe: wer wusste, dass
+                            // der Rechner drei Schirme hat, suchte dann nach einem
+                            // Menuepunkt, den es aus gutem Grund nicht mehr gab —
+                            // und hielt das Fehlen fuer einen Fehler. Ein Satz ist
+                            // billiger als diese Suche.
+                            if zuschaltbar.is_empty() {
+                                ui.label(
+                                    egui::RichText::new("Alle Bildschirme sind bereits offen")
+                                        .font(theme::font_xs())
+                                        .color(theme::TEXT_DIM),
+                                );
+                            }
                             for schirm in &zuschaltbar {
                                 let beschriftung = format!("+ {}", schirm.name);
                                 if ui

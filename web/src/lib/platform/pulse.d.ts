@@ -56,7 +56,9 @@ export interface PulseGsrApi {
    *  stream e.g. a second monitor). Defaults to slot 0. */
   start(args: unknown, slot?: number): Promise<unknown>;
   /** Stop the stream in the given slot (default 0). */
-  stop(slot?: number): Promise<unknown>;
+  /** `grund` ist reine Diagnose — er landet in der Protokollzeile des Befehls
+   *  (`sidecar-log-befehle.ts`) und wird vom Sidecar ignoriert. */
+  stop(slot?: number, grund?: string): Promise<unknown>;
   /** Welcher Linux-Sidecar läuft und warum. `null` auf anderen Plattformen
    *  oder wenn gar kein Sidecar auffindbar ist. Startet nichts. */
   backend(): Promise<PulseLinuxBackend | null>;

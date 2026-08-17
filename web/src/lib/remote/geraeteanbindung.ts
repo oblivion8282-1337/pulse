@@ -118,7 +118,7 @@ function standplatzKanal(serverId: string | null): string | null {
  */
 export async function abgelehntEingeschlafen(): Promise<void> {
   if (geraeteAnmeldung.eintragungen.length === 0) return;
-  await wiederEinschlafen();
+  await wiederEinschlafen('Anfrage vom Besitzer abgelehnt');
 }
 
 /**
@@ -172,5 +172,5 @@ export function uebernahmeBeenden(
   // sonst für immer weiter und verbraucht genau das, was „erst auf Abruf"
   // einsparen sollte. Nur auf einem eingetragenen Gerät und nur für die
   // Ströme, die ein Weckruf gestartet hat (`devices/wecken.ts`).
-  if (geraeteAnmeldung.eintragungen.length > 0) void wiederEinschlafen();
+  if (geraeteAnmeldung.eintragungen.length > 0) void wiederEinschlafen('Fernsteuerung beendet');
 }

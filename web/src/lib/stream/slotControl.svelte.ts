@@ -17,10 +17,15 @@ export function nextFreeStreamSlot(): number {
   return -1;
 }
 
-/** Stop one slot's stream. Best-effort — the WS broadcast restores state. */
-export async function stopSlot(slot: number): Promise<void> {
+/** Stop one slot's stream. Best-effort — the WS broadcast restores state.
+ *
+ *  `grund` ist reine Diagnose: er reist im Befehl mit und steht damit in
+ *  derselben Protokollzeile wie der Stopp (`sidecar-log-befehle.ts`). Nur die
+ *  Wege, die einen Rechner von sich aus stoppen, füllen ihn — beim Knopf des
+ *  Streamers ist „der Mensch hat geklickt" keine Frage, die je offen war. */
+export async function stopSlot(slot: number, grund?: string): Promise<void> {
   try {
-    await gsr.stop(slot);
+    await gsr.stop(slot, grund);
     // Reconcile locally: the fresh (respawned) sidecar emits no `stopped` event,
     // so without this a stop after a crash would leave the UI stuck on "live".
     markStopped(slot);
@@ -36,5 +41,7 @@ export async function stopSlot(slot: number): Promise<void> {
  *  channel-leave path in `livekit.svelte.ts`; `stopSlot` swallows its own
  *  errors, so no rejection escapes. */
 export async function stopAll(): Promise<void> {
-  await Promise.all(runningStreamSlots().map(stopSlot));
+  // Ausgeschriebene Lambda statt `map(stopSlot)`: `map` reicht den Index als
+  // zweites Argument durch, und der landete seit `grund` in der Protokollzeile.
+  await Promise.all(runningStreamSlots().map((slot) => stopSlot(slot)));
 }

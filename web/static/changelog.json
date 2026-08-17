@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-17.2",
+      "date": "2026-08-17",
+      "style": "Sachlich",
+      "title": "Bildschirme fernsteuern: zwei Ärgernisse weniger",
+      "items": [
+        "Ein Bildschirm, den du bereits geöffnet hast, wird nicht mehr zur Auswahl angeboten. Ein Klick darauf hat vorher nichts bewirkt, ohne dass irgendwo etwas dazu stand. Sind alle Bildschirme offen, steht das jetzt da, statt dass der Eintrag verschwindet.",
+        "Das Fenster für die Fernsteuerung belegt keinen Arbeitsspeicher mehr, wenn es geschlossen ist. Bisher lief es unsichtbar weiter, bis Pulse selbst beendet wurde."
+      ],
+      "_notiz": "Der erste Punkt ist die Ursache eines gemeldeten Vorfalls: Pulse erkannte am Anzeigenamen, welcher Bildschirm schon läuft — traf der nicht, galt er als frei und wurde angeboten, und der Weckruf verpuffte wortlos. Wasserdicht wird das erst, wenn das Gerät je Platz die Bildschirmnummer meldet (offen). Nicht im Changelog, weil rein diagnostisch: ausgehende Befehle an Sidecar und Player werden jetzt mitprotokolliert."
+    },
+    {
       "id": "2026-08-16",
       "date": "2026-08-16",
       "style": "Sachlich",

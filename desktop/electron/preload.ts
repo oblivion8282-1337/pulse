@@ -89,7 +89,14 @@ contextBridge.exposeInMainWorld('pulse', {
     // concurrent one (e.g. a second monitor). The read-only catalog ops above
     // stay on slot 0; they don't depend on which stream is running.
     start: (args: unknown, slot = 0) => gsrCall('start', args, slot),
-    stop: (slot = 0) => gsrCall('stop', {}, slot),
+    // `grund` ist reine Diagnose und reist im Befehl mit, damit er in DERSELBEN
+    // Protokollzeile steht wie der Stopp selbst (`sidecar-log-befehle.ts`). Der
+    // Umweg über eine eigene Meldung schiede aus: der Renderer hat keinen Zugang
+    // zur `sidecar.log`, und seine Konsole hat im verpackten Build keinen
+    // Abnehmer — die Begruendung waere genau dort verloren, wo man sie sucht.
+    // Kein Sidecar wertet das Feld aus (keiner benutzt `deny_unknown_fields`),
+    // es faellt dort still weg.
+    stop: (slot = 0, grund?: string) => gsrCall('stop', grund ? { grund } : {}, slot),
 
     /** Welcher Linux-Sidecar läuft (rust/gsr) und warum — für die Anzeige im
      *  Kompatibilitäts-Tab. Eigener Kanal, kein `gsr:call`: das ist eine

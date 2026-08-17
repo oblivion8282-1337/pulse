@@ -78,7 +78,7 @@
       <Button
         size="sm"
         variant="destructive"
-        onclick={() => void wiederEinschlafen()}
+        onclick={() => void wiederEinschlafen('vom Besitzer am Gerät beendet')}
         data-testid="remote-standplatz-banner-stop"
       >
         {m.standplatz_banner_stop()}

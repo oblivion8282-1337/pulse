@@ -24,6 +24,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { app } from 'electron';
 import { logSidecar } from './sidecar-log';
+import { befehlZeile } from './sidecar-log-befehle';
 import {
   createStreamLifecycleTracker,
   type StreamLifecycleTracker,
@@ -419,6 +420,16 @@ type EventCallback = (ev: SidecarMessage) => void;
 // ── Manager ─────────────────────────────────────────────────────────────────
 
 class SidecarManager {
+  /**
+   * Der Platz, den dieser Manager bedient — nur fürs Protokoll.
+   *
+   * Ein Rechner kann mehrere Bildschirme gleichzeitig übertragen, und je Platz
+   * läuft ein eigener Kindprozess (s. [`getSidecar`]). Alle schreiben in
+   * DIESELBE Datei; ohne die Nummer wäre einem `stop` nicht anzusehen, welchen
+   * der Ströme es beendet hat — und genau diese Frage stand am 2026-08-17 offen.
+   */
+  constructor(private readonly slot = 0) {}
+
   private child: ChildProcessWithoutNullStreams | null = null;
   private rl: readline.Interface | null = null;
   private nextId = 1;
@@ -505,6 +516,14 @@ class SidecarManager {
         });
 
         try {
+          // **Den Befehl mitschreiben, bevor er hinausgeht.** Ohne diese Zeile
+          // stehen im Protokoll nur die Antworten — und ein Sender, der aufhört
+          // zu übertragen, sieht dann genauso aus, ob ihm jemand `stop` gesagt
+          // hat oder ob er von sich aus aufgab. Genau daran ist die
+          // Untersuchung vom 2026-08-17 gescheitert. Welche Befehle durchgehen
+          // und wie die Geheimnisse herausfallen: `sidecar-log-befehle.ts`.
+          const zeile = befehlZeile(req);
+          if (zeile) logSidecar('in', `slot=${this.slot} ${zeile}`);
           child.stdin.write(JSON.stringify(req) + '\n');
         } catch (err) {
           clearTimeout(timer);
@@ -793,7 +812,7 @@ export function onSidecarCreated(cb: (manager: SidecarManager, slot: number) => 
 export function getSidecar(slot = 0): SidecarManager {
   let m = instances.get(slot);
   if (!m) {
-    m = new SidecarManager();
+    m = new SidecarManager(slot);
     instances.set(slot, m);
     onCreated?.(m, slot);
   }

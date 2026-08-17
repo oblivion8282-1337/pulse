@@ -258,10 +258,11 @@ export const gsr = {
     const b = bridge();
     return b ? ((await b.start(args, slot)) as GsrStartResult) : null;
   },
-  /** Stop the stream in `slot` (default 0). */
-  async stop(slot = 0): Promise<GsrStopResult | null> {
+  /** Stop the stream in `slot` (default 0). `grund` ist reine Diagnose und
+   *  landet in der Protokollzeile des Befehls (s. `preload.ts`). */
+  async stop(slot = 0, grund?: string): Promise<GsrStopResult | null> {
     const b = bridge();
-    return b ? ((await b.stop(slot)) as GsrStopResult) : null;
+    return b ? ((await b.stop(slot, grund)) as GsrStopResult) : null;
   },
 
   /**

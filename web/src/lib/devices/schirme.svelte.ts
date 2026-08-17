@@ -48,39 +48,109 @@ export interface SchirmStand extends DeviceMonitor {
   open: boolean;
 }
 
-/**
- * Die Bildschirme eines Geräts, jeder mit „läuft schon".
- *
- * Meldet das Gerät keine (nie verbunden oder ältere Fassung), bleibt genau ein
- * Eintrag übrig: sein Hauptbildschirm. Das ist ehrlicher als eine erfundene
- * Liste — und der eine Knopf tut, was er immer getan hat.
- *
- * Erkannt wird „läuft schon" am **Namen**, den das Gerät beim Start
- * mitgeschickt hat (`stream/starten.ts` nimmt ihn aus der wirklich
- * aufgenommenen Quelle). Trifft der Name nicht, ist die Folge harmlos: der
- * Schirm gilt als nicht offen, ein Klick weckt ihn, und das Gerät verwirft den
- * Weckruf für eine schon laufende Quelle von selbst.
- */
-export function schirmeVon(device: Device): SchirmStand[] {
-  const stroeme = streamPresence
+/** Alle Ströme des Besitzers in diesem Standplatz — von Hand gestartete wie
+ *  geweckte. */
+function stroemeVon(device: Device) {
+  return streamPresence
     .streamsIn(device.channel_id)
     .filter((s) => s.user_id === device.owner_user_id);
-  const liste: DeviceMonitor[] =
-    device.monitors.length > 0
-      ? device.monitors
-      : [{ index: 0, name: m.device_view_screen_primary(), primary: true }];
-  return liste.map((mon) => ({
-    ...mon,
-    open: stroeme.some((s) => s.label === mon.name || s.label === `Monitor ${mon.index}`),
-  }));
+}
+
+/** Ein einzelner Strom, wie `stroemeVon` ihn liefert. */
+type Strom = ReturnType<typeof stroemeVon>[number];
+
+/**
+ * Zeigt dieser Strom diesen Bildschirm?
+ *
+ * Verglichen wird der **Name**, den das Gerät beim Start mitgeschickt hat
+ * (`stream/starten.ts` nimmt ihn aus der wirklich aufgenommenen Quelle) — das
+ * ist der einzige Weg, auf dem die Zuordnung Strom→Bildschirm über den Draht
+ * kommt. Beide Enden lesen ihn aus derselben Aufzählung, gleich sollten sie
+ * also sein; **verglichen wird trotzdem nachsichtig** (Rand und Gross-/
+ * Kleinschreibung egal), weil ein Unterschied hier nicht auffällt, sondern
+ * still das Falsche tut: der Schirm gälte als frei und stünde erneut zur Wahl.
+ */
+function passt(strom: { label?: string }, mon: DeviceMonitor): boolean {
+  // Ohne Namen ist nichts zuzuordnen — dann passt dieser Strom zu keinem
+  // Bildschirm. Genau dieser Fall greift unten den Hauptbildschirm auf.
+  const a = strom.label?.trim().toLowerCase();
+  if (!a) return false;
+  return a === mon.name.trim().toLowerCase() || a === `monitor ${mon.index}`;
+}
+
+/**
+ * Die Bildschirme, die dieses Gerät hat.
+ *
+ * Meldet es keine (nie verbunden oder ältere Fassung), bleibt genau ein Eintrag
+ * übrig: sein Hauptbildschirm. Das ist ehrlicher als eine erfundene Liste — und
+ * der eine Knopf tut, was er immer getan hat.
+ */
+function monitorListe(device: Device): DeviceMonitor[] {
+  if (device.monitors.length > 0) return device.monitors;
+  return [{ index: 0, name: m.device_view_screen_primary(), primary: true }];
+}
+
+/**
+ * Welcher Strom zeigt welchen Bildschirm — die **eine** Zuordnung, an der beide
+ * Fragen hängen: „läuft der schon?" und „welchen Strom mache ich auf, wenn
+ * jemand zusehen will?".
+ *
+ * Beide getrennt zu beantworten hiesse, dass ein Bildschirm als laufend gilt,
+ * dessen Strom sich nicht finden lässt — dann steht ein Knopf da, der wortlos
+ * nichts tut. Genau diese Sorte Fehler soll hier verschwinden.
+ *
+ * **Der Hauptbildschirm bekommt zusätzlich einen Strom des Geräts zugeordnet,
+ * dessen Name zu keinem Schirm passt** (Bughunt 2026-08-17). Der Grund steht in
+ * `wecken.ts::quelleFuerMonitor`: der Haupt-Knopf („wecken und übernehmen")
+ * schickt **keine** Nummer mit, das Gerät nimmt dann die Quelle seines
+ * Standplatz-Profils — und das ist per Vorgabe sein Hauptbildschirm. Trägt
+ * dieser erste Strom einen Namen, der nicht trifft (Profil auf eine andere
+ * Quelle gestellt, Bildschirmliste seit dem Start verändert, allgemeiner
+ * Ersatzname), galt der Hauptbildschirm als frei und wurde erneut angeboten.
+ * Ein Klick darauf lief dann ins Nichts: das Gerät erkennt die schon laufende
+ * Quelle und verwirft den Ruf (`wecken.ts`), es ging kein zweites Fenster auf,
+ * und für den Steuernden sah es aus, als sei der Player verschwunden.
+ *
+ * **Nur Ströme des Geräts zählen dafür** (`device.stream_slots`, dieselbe
+ * Quelle wie in `darstellung.ts::stromGehoertGeraet`): was der Besitzer von
+ * Hand überträgt — ein Fenster, eine Anwendung — sagt nichts über seine
+ * Bildschirme. Meldet ein Gerät seine Plätze nicht (ältere Fassung), bleibt es
+ * beim reinen Namensvergleich.
+ *
+ * **Annahme, die falsch sein kann:** dass ein namenlos zugeordneter Gerätestrom
+ * der Hauptbildschirm ist. Steht im Profil ausdrücklich ein anderer Schirm, ist
+ * er es nicht — dann fehlt der Hauptbildschirm in der Auswahl, obwohl er zu
+ * holen wäre. Das ist die harmlosere Hälfte: ein Eintrag zu wenig fällt auf,
+ * ein Eintrag, der wortlos nichts tut, fällt nicht auf.
+ */
+function zuordnung(device: Device): Map<number, Strom> {
+  const stroeme = stroemeVon(device);
+  const liste = monitorListe(device);
+  const karte = new Map<number, Strom>();
+  for (const mon of liste) {
+    const treffer = stroeme.find((s) => passt(s, mon));
+    if (treffer) karte.set(mon.index, treffer);
+  }
+  const geraetePlaetze = new Set(device.stream_slots ?? []);
+  const namenlos = stroeme.find(
+    (s) => geraetePlaetze.has(s.slot) && !liste.some((mon) => passt(s, mon)),
+  );
+  const haupt = liste.find((mon) => mon.primary);
+  // Einen Schirm, der schon seinen eigenen Strom hat, nicht überschreiben:
+  // der zugeordnete ist der genauere.
+  if (namenlos && haupt && !karte.has(haupt.index)) karte.set(haupt.index, namenlos);
+  return karte;
+}
+
+/** Die Bildschirme eines Geräts, jeder mit „läuft schon". */
+export function schirmeVon(device: Device): SchirmStand[] {
+  const karte = zuordnung(device);
+  return monitorListe(device).map((mon) => ({ ...mon, open: karte.has(mon.index) }));
 }
 
 /** Der laufende Strom eines Bildschirms, oder `undefined`. */
 function stromFuer(device: Device, mon: DeviceMonitor) {
-  return streamPresence
-    .streamsIn(device.channel_id)
-    .filter((s) => s.user_id === device.owner_user_id)
-    .find((s) => s.label === mon.name || s.label === `Monitor ${mon.index}`);
+  return zuordnung(device).get(mon.index);
 }
 
 /**
