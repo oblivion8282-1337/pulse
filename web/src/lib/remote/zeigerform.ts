@@ -11,19 +11,25 @@
  * * **Host:** hört die `remote_pointer`-Meldungen seiner Sidecars mit (dieselbe
  *   Brücke wie alle Sidecar-Ereignisse) und schickt jeden Wechsel als
  *   `remote_signal` der Art 'zeiger' an den Steuernden.
- * * **Steuernder:** reicht den Namen ins Player-Fenster, wo winit die Form auf
- *   den lokalen Zeiger setzt (`streaming/pulse-player/src/app/eingabe.rs`).
+ * * **Steuernder:** reicht ihn ins Player-Fenster, wo winit die Form auf den
+ *   lokalen Zeiger setzt (`streaming/pulse-player/src/app/eingabe.rs`).
  *
- * ## Warum Namen und nicht Pixel
+ * ## Warum bevorzugt Namen und nicht Pixel
  *
  * Ein Name kostet ein paar Byte je Wechsel, und gezeichnet wird weiter der
  * lokale Zeiger — also ohne Verzögerung, in der Zeigergröße und dem Thema des
  * Steuernden, und **plattformübergreifend**: winit übersetzt dieselbe
  * CSS-Namensliste unter Windows in `IDC_*`, unter macOS in `NSCursor`, unter
  * Linux in die Namen des installierten Zeiger-Themas. Ein Linux-Rechner, der
- * einen Windows-Rechner steuert, bekommt so seinen eigenen I-Balken. Der Preis
- * ist, dass nur Standardformen tragen; ein Spiel mit eigenem Zeiger fällt auf
- * `default`.
+ * einen Windows-Rechner steuert, bekommt so seinen eigenen I-Balken.
+ *
+ * Nur trägt der Name allein die dreizehn Formen, die Windows selbst mitbringt.
+ * Die Rasierklinge einer Schnittanwendung, der Werkzeugzeiger einer
+ * Bildbearbeitung, der Achsenzeiger eines 3D-Programms fielen früher alle auf
+ * `default`. Für die schickt der Host deshalb zusätzlich das **Bild**
+ * (`streaming/win-hq-sidecar/src/remote_input/zeigerpixel.rs`), und dieses Modul
+ * reicht es mit durch. Der Name bleibt trotzdem immer dabei — er ist der
+ * Rückfall, wenn das Bild fehlt oder sich drüben nicht bauen lässt.
  *
  * ## Warum überhaupt ein Filter hier
  *
@@ -32,17 +38,26 @@
  * aber was nicht auf der Liste steht, hat auch nichts im IPC zum Hauptprozess
  * verloren. **Die Liste ist an drei Stellen dieselbe** und muss synchron
  * bleiben: hier, im Sidecar (`remote_input/zeigerform.rs::abbildung`) und im
- * Player (`app/zeigerform.rs`). Die beiden Rust-Enden hält je ein Test
- * fest; hier gibt es keinen (kein Vitest im Web), dafür stammt der Typ
- * [`Zeigerform`] aus derselben Liste — ein hier erfundener Name fiele erst beim
- * Player auf, und zwar als wortloser Standardpfeil.
+ * Player (`app/zeigerform.rs`). Die beiden Rust-Enden hält je ein Test fest;
+ * hier trägt sie der Typ [`Zeigerform`] — ein hier erfundener Name fiele erst
+ * beim Player auf, und zwar als wortloser Standardpfeil.
+ *
+ * **Die Prüfung des BILDES steht nebenan** ([`./zeigerbildPruefung`]), und
+ * zwar, damit sie ausführbar ist: dieses Modul importiert `./sidecarInput` zur
+ * Laufzeit, und ein solcher Import macht eine Datei für Nodes Testläufer
+ * unerreichbar (er löst erweiterungslose Pfade nicht auf). Der Test dort prüft
+ * gegen den Prüfstein `streaming/zeigerbild-formen.json`, also gegen die
+ * Formen, die der SENDER erzeugt — nicht gegen ausgedachte.
  */
 
 import type { RemoteSignalKind } from '$lib/ws/handlers/types';
 import { aufSidecarEreignisse } from './sidecarInput';
+import { istBild, type Zeigerbild } from './zeigerbildPruefung';
+
+export type { Zeigerbild };
 
 type SignalSender = (kind: RemoteSignalKind, data: unknown) => boolean;
-type Senke = (form: Zeigerform) => void;
+type Senke = (form: Zeigerform, bild?: Zeigerbild) => void;
 
 /**
  * Die Formen, die über die Leitung dürfen — Namen aus der CSS-Zeigerliste, die
@@ -95,6 +110,15 @@ class RemoteZeigerform {
   #senke: Senke | null = null;
   /** Zuletzt gemeldete bzw. gesetzte Form. */
   #form: Zeigerform = VORGABE;
+  /** Kennung des zuletzt gemeldeten bzw. gesetzten Bildes, '' = keines. */
+  #bildId = '';
+  /**
+   * Das zuletzt gesetzte Bild — nur beim Steuernden, nur zum Nachliefern an ein
+   * Fenster, das sich später anhängt (s. [`setSenke`]). Gehalten wird die
+   * **Vollform**, sonst könnte das neue Fenster nichts damit anfangen: sein
+   * Player hat noch keinen Vorrat, in den eine blosse Kennung greifen könnte.
+   */
+  #bild: Zeigerbild | undefined;
   /** Wann der Host zuletzt gesendet hat (`Date.now()`), 0 = noch nie. */
   #gesendetMs = 0;
 
@@ -113,12 +137,16 @@ class RemoteZeigerform {
     // behielte sein Fenster die letzte Form der Sitzung. Der Player setzt beim
     // Ende der Erfassung ebenfalls zurück — doppelt, weil die beiden Wege
     // (Sitzungsende, Fenster zu) nicht immer in derselben Reihenfolge laufen.
-    if (this.#rolle === 'controller' && this.#form !== VORGABE) this.#senke?.(VORGABE);
+    if (this.#rolle === 'controller' && (this.#form !== VORGABE || this.#bildId)) {
+      this.#senke?.(VORGABE);
+    }
     this.#abmelden?.();
     this.#abmelden = null;
     this.#rolle = null;
     this.#sendSignal = null;
     this.#form = VORGABE;
+    this.#bildId = '';
+    this.#bild = undefined;
     this.#gesendetMs = 0;
   }
 
@@ -131,7 +159,7 @@ class RemoteZeigerform {
    */
   setSenke(senke: Senke | null): void {
     this.#senke = senke;
-    if (senke && this.#rolle === 'controller') senke(this.#form);
+    if (senke && this.#rolle === 'controller') senke(this.#form, this.#bild);
   }
 
   /**
@@ -145,13 +173,28 @@ class RemoteZeigerform {
   _signal(data: unknown): void {
     if (this.#rolle !== 'controller') return;
     if (!data || typeof data !== 'object') return;
-    const form = (data as { form?: unknown }).form;
+    const { form, bild } = data as { form?: unknown; bild?: unknown };
     // Unbekannte Form → Standardpfeil, nicht ignorieren: eine ausgedachte
-    // Form soll nicht die letzte gültige stehen lassen.
+    // Form soll nicht die letzte gültige stehen lassen. Für das Bild gilt
+    // dasselbe: was die Prüfung nicht besteht, gibt es hier nicht.
     const gueltig = istForm(form) ? form : VORGABE;
-    if (gueltig === this.#form) return;
+    const gueltigesBild = istBild(bild) ? bild : undefined;
+    const kennung = gueltigesBild?.id ?? '';
+    // **Eine Wiederholung MIT Daten geht trotzdem durch.** Sie ist die
+    // Auffrischung des Hosts, und sie ist der einzige Weg, auf dem sich ein
+    // Bild heilt, das drüben fehlt — etwa weil der Player seinen Vorrat
+    // geleert hat, während der Host es weiter für bekannt hält. Ohne diese
+    // Ausnahme bliebe der Steuernde bis zum nächsten echten Wechsel beim
+    // Standardpfeil. Reine Wiederholungen ohne Daten kosten dagegen nur IPC.
+    if (gueltig === this.#form && kennung === this.#bildId && !gueltigesBild?.daten) return;
     this.#form = gueltig;
-    this.#senke?.(gueltig);
+    this.#bildId = kennung;
+    // Nur die Vollform aufheben: ein später angehängtes Fenster kann mit einer
+    // blossen Kennung nichts anfangen, sein Player hat noch keinen Vorrat.
+    // Fällt das Bild ganz weg (Standardzeiger), fällt auch das Gemerkte weg.
+    if (gueltigesBild?.daten) this.#bild = gueltigesBild;
+    else if (!gueltigesBild) this.#bild = undefined;
+    this.#senke?.(gueltig, gueltigesBild);
   }
 
   // ── Host-Seite ────────────────────────────────────────────────────────────
@@ -159,26 +202,32 @@ class RemoteZeigerform {
   #vomSidecar(ev: unknown): void {
     if (this.#rolle !== 'host') return;
     if (!ev || typeof ev !== 'object') return;
-    const m = ev as { ev?: unknown; shape?: unknown };
+    const m = ev as { ev?: unknown; shape?: unknown; bild?: unknown };
     if (m.ev !== 'remote_pointer') return;
     // Was der eigene Sidecar meldet, ist nicht Fremdeingabe — geprüft wird es
     // trotzdem, damit eine ältere oder neuere Sidecar-Fassung nichts über die
     // Leitung schiebt, das die Gegenseite nicht deuten kann.
     const form = istForm(m.shape) ? m.shape : VORGABE;
+    const bild = istBild(m.bild) ? m.bild : undefined;
+    const kennung = bild?.id ?? '';
     const jetzt = Date.now();
     // Der Zeiger ist maschinenweit einer, aber bei mehreren Streams meldet ihn
     // jeder Sidecar-Prozess für sich. Deshalb wird hier zusammengefasst: der
     // Wechsel geht sofort hinaus, die Auffrischung höchstens im Takt von
-    // `AUFFRISCH_MS` — sonst ginge sie mit jedem Platz einzeln hinaus.
-    if (form === this.#form && jetzt - this.#gesendetMs < AUFFRISCH_MS) return;
+    // `AUFFRISCH_MS` — sonst ginge sie mit jedem Platz einzeln hinaus. Der
+    // Wechsel misst sich an Form UND Bildkennung: zwei Werkzeugzeiger desselben
+    // Programms tragen beide den Namen `default`.
+    const gleich = form === this.#form && kennung === this.#bildId;
+    if (gleich && jetzt - this.#gesendetMs < AUFFRISCH_MS) return;
     this.#form = form;
+    this.#bildId = kennung;
     this.#gesendetMs = jetzt;
     // Geht die Meldung nicht hinaus (Verbindungs-Blip), wird sie hier NICHT
     // wiederholt: der Sidecar meldet je Sekunde erneut, und die nächste
     // Auffrischung holt es nach. Eine falsche Zeigerform ist zudem der
     // harmloseste Verlust dieser Sitzung — sie kostet Rückmeldung, keine
     // Eingabe.
-    this.#sendSignal?.('zeiger', { form });
+    this.#sendSignal?.('zeiger', bild ? { form, bild } : { form });
   }
 }
 

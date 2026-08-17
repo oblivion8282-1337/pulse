@@ -468,7 +468,7 @@ ein Zeiger sonst über den fremden Rechner sagt (I-Balken über Text, Doppelpfei
 an einer Kante, Hand über einem Verweis, Wartekringel), fiel damit weg. Man zieht
 an Kanten ins Leere und rät, ob ein Klick trifft.
 
-**Über die Leitung geht ein Name, kein Bild.** `remote_signal` mit
+**Über die Leitung geht bevorzugt ein Name, kein Bild.** `remote_signal` mit
 `kind: "zeiger"` und `data: {form}`, wobei `form` ein Name aus der
 CSS-Zeigerliste ist (`text`, `pointer`, `wait`, `progress`, `crosshair`, `help`,
 `not-allowed`, `ew-resize`, `ns-resize`, `nwse-resize`, `nesw-resize`, `move`,
@@ -481,11 +481,48 @@ unter macOS auf `NSCursor` und unter Linux auf das installierte Zeiger-Thema
 abbildet. Wer von Linux aus einen Windows-Rechner steuert, bekommt seinen
 eigenen I-Balken.
 
-**Der Preis:** nur Standardformen. Ein Spiel, eine Bildbearbeitung oder ein
-Werkzeug mit eigenem Zeiger trifft keinen der System-Zeiger und fällt auf
-`default`. Wer das schließen will, muss die Pixel selbst holen (`GetIconInfo` +
-`GetDIBits`) und als Bitmap samt Hotspot übertragen — eine eigene Stufe mit
-eigenen Sonderfällen (Transparenz, invertierende Zeiger, Animationen).
+### Zeiger, die kein Name trägt (seit 2026-08-17)
+
+Die Namensliste deckt nur die dreizehn Formen ab, die Windows selbst mitbringt.
+Die Rasierklinge einer Schnittanwendung, der Werkzeugzeiger einer
+Bildbearbeitung, der Achsenzeiger eines 3D-Programms trafen früher keinen davon
+und fielen auf `default` — der Steuernde sah einen Standardpfeil, wo das
+Programm ihm etwas sagen wollte. Für diese Fälle gehen die **Pixel** mit:
+
+```
+data: {form: "default", bild: {id, w, h, hx, hy, daten?}}
+```
+
+* **`form` ist immer dabei**, auch neben einem Bild. Es ist der Rückfall, wenn
+  das Bild fehlt oder sich drüben nicht bauen lässt.
+* **`id`** ist die Kennung des Bildes (FNV-1a über Masse, Haltepunkt und
+  Punkte). Der Host führt Buch, welche er schon geschickt hat, und lässt bei
+  einem bekannten Bild `daten` weg — ein Wechsel zwischen zwei Werkzeugen kostet
+  dann ein paar Byte statt zweier Bilder. **Die Auffrischung trägt `daten`
+  trotzdem immer**, denn sie ist der einzige Weg, auf dem sich ein verlorenes
+  oder drüben verworfenes Bild heilt.
+* **`daten`** sind die Punkte als Läufe, Base64. Format, Grenzen und beide
+  Richtungen stehen in `streaming/pulse-player/src/zeigerbild.rs` — **wortgleich
+  gespiegelt** nach `streaming/win-hq-sidecar/src/zeigerbild.rs`, gleiches Muster
+  wie `zeitbasis.rs`.
+
+Zwei Grenzen, die dabei zusammenhängen: der Weiterleiter deckelt die Nutzlast
+auf 8 KiB, ein 32×32-Zeiger roh in Base64 sind schon 5464 Byte, und ein 48×48
+passte gar nicht mehr. Deshalb die Läufe — ein Zeiger ist zu weiten Teilen
+durchsichtig, ein üblicher schrumpft auf einige hundert Byte. Was trotzdem nicht
+unter `MAX_LAEUFE_BYTE` passt, wird **gar nicht** geschickt; dann trägt der Name
+allein. Eine Nachricht, die der Gateway still verwirft, sähe vom Sender aus wie
+ein Erfolg.
+
+Was **nicht** getragen wird: Programme, die ihren Zeiger selbst ins Bild malen
+(Spiele im Vollbild, manche 3D-Ansichten im Zeigerfang). Die braucht es hier
+auch nicht — ein selbstgemalter Zeiger ist Teil des Bildes, das Cursor-Echo
+nimmt nur den System-Zeiger aus der Aufnahme, er kommt also ohnehin durch (mit
+der Verzögerung des Streams). Ebenfalls offen: **animierte Zeiger** stehen
+vermutlich still, weil nur das gerade gezeichnete Einzelbild ausgelesen wird —
+nicht belegt, und die Standardformen `wait`/`progress` decken die häufigen Fälle
+schon über den Namen ab. Und die **Größe** richtet sich nach der Skalierung des
+Hosts, nicht nach der des Steuernden; winit skaliert eigene Zeiger nicht mit.
 
 **Ermittelt wird am Wecker der Wache**, nicht an eingehenden Nachrichten: die
 Form ändert sich, ohne dass jemand etwas sendet (der Zeiger steht über einer
@@ -514,6 +551,12 @@ bereits ab.
 und Player (`app/zeigerform.rs`) — und muss synchron bleiben. Ein hier erfundener
 Name käme drüben wortlos als Standardpfeil an; die beiden Rust-Listen hält je
 ein Test fest, im Renderer trägt sie der Typ `Zeigerform` (kein Vitest im Web).
+
+**Das Bildformat dagegen steht an genau einer Stelle**, zweimal wortgleich
+hingelegt (`zeigerbild.rs` in Player und Sidecar). Der Unterschied ist Absicht:
+bei der Formenliste müssen sich drei Sprachen auf Namen einigen, beim Bildformat
+müssen sich zwei Rust-Enden Byte für Byte einig sein — und eine Beschreibung in
+zwei Fassungen läuft auseinander.
 
 ## Was sich gegenüber v1 geändert hat
 

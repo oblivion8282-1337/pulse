@@ -1,0 +1,63 @@
+{
+  "_hinweis": [
+    "Der Pruefstein fuer das Zeigerbild der Fernsteuerung: GENAU diese Formen",
+    "erzeugt der Sidecar im Feld `data.bild` eines `remote_signal` der Art",
+    "'zeiger'. Drei Tests haengen an dieser Datei, je einer auf jeder Station",
+    "des Weges:",
+    "",
+    "  Sender    streaming/win-hq-sidecar/src/remote_input/zeigerform.rs",
+    "            (`bildfeld` erzeugt genau diese Formen)",
+    "  Weiche    web/test/zeigerbild-formen.test.ts",
+    "            (`istBild` nimmt genau diese Formen an)",
+    "  Empfaenger streaming/pulse-player/src/app/zeigerbau.rs",
+    "            (der Player verarbeitet genau diese Formen)",
+    "",
+    "WARUM DIESE DATEI EXISTIERT. Am 2026-08-17 verlangte die Weiche vier",
+    "Zahlenfelder, die der Sender in der Kurzform gar nicht schickt — sie",
+    "verwarf damit jede Kurzform, und der Zeiger des Steuernden sprang bei",
+    "jedem Rueckwechsel fuer bis zu eine Sekunde auf den Standardpfeil. Beide",
+    "Seiten hatten gruene Tests: die Rust-Seite hielt die Kurzform OHNE Masse",
+    "fest, die TypeScript-Seite verlangte sie MIT. Niemand pruefte ueber die",
+    "Sprachgrenze.",
+    "",
+    "Ein Test auf der Empfaengerseite allein haette das nicht gefangen: wer",
+    "eine Pruefung testet, schreibt die Beispiele aus derselben Vorstellung",
+    "auf, aus der er die Pruefung geschrieben hat — die Kurzform waere dort",
+    "gar nicht vorgekommen. Deshalb steht der Pruefstein HIER, beim Sender,",
+    "und die Empfaenger pruefen gegen ihn.",
+    "",
+    "Wer eine Form aendert oder eine dritte einfuehrt, muss diese Datei",
+    "anfassen — und bricht damit die Tests der jeweils anderen Seite, bis er",
+    "sie mitzieht. Genau das ist ihr Zweck."
+  ],
+  "formen": [
+    {
+      "_was": "Kurzform: der Sender haelt das Bild fuer bereits uebertragen. Der Player greift allein ueber die Kennung in seinen Vorrat, Masse braucht er dafuer nicht. Der Regelfall beim Rueckwechsel auf einen Zeiger, der eben schon einmal ueber die Leitung ging.",
+      "bild": {
+        "id": "65a2d1df42babae5"
+      }
+    },
+    {
+      "_was": "Vollform, einfarbig: ein 2x2-Bild aus vier gleichen Punkten, also ein einziger Wiederholungslauf.",
+      "bild": {
+        "id": "0123456789abcdef",
+        "w": 2,
+        "h": 2,
+        "hx": 1,
+        "hy": 0,
+        "daten": "hAkJCf8="
+      }
+    },
+    {
+      "_was": "Vollform, bunt: ein 2x2-Bild aus vier verschiedenen Punkten, also eine einzige Einzelfolge. Deckt den zweiten Lauftyp ab.",
+      "bild": {
+        "id": "fedcba9876543210",
+        "w": 2,
+        "h": 2,
+        "hx": 0,
+        "hy": 0,
+        "daten": "BAECA/8EBQb/BwgJ/woLDP8="
+      }
+    }
+  ]
+}

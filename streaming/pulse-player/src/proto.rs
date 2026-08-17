@@ -10,6 +10,33 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Das Zeigerbild, wie es der Host schickt (`remote_pointer`).
+///
+/// **Die Daten fehlen, wenn der Host das Bild fuer bereits uebertragen haelt** —
+/// dann traegt allein die `id`, und der Player greift in seinen Vorrat
+/// (`app/zeigerbau.rs`). Alle Zahlen sind Fremdmaterial und werden dort geprueft,
+/// nicht hier: `serde` soll nur lesen, was auf der Leitung stand.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct Zeigerbildrahmen {
+    /// Kennung des Bildes — dieselbe fuer dasselbe Bild, s.
+    /// [`crate::zeigerbild::Zeigerbild::kennung`].
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub w: u16,
+    #[serde(default)]
+    pub h: u16,
+    /// Haltepunkt: der Punkt im Bild, der auf das Ziel zeigt.
+    #[serde(default)]
+    pub hx: u16,
+    #[serde(default)]
+    pub hy: u16,
+    /// Die gepackten Punkte, Base64. Fehlt bei einem Bild, das der Host schon
+    /// einmal geschickt hat.
+    #[serde(default)]
+    pub daten: Option<String>,
+}
+
 /// Eingehender Request. `op` entscheidet, welche Felder gelesen werden.
 #[derive(Debug, Deserialize)]
 pub struct Request {
@@ -104,12 +131,21 @@ pub struct Request {
     // --- remote_pointer ---
     /// Form des Host-Zeigers als Name aus der CSS-Zeigerliste („text",
     /// „ns-resize", …). Ersetzt beim Steuernden, was das Cursor-Echo aus dem
-    /// Bild nimmt (`web/src/lib/remote/zeigerform.ts`). Ein **Name** und kein
-    /// Bild: gezeichnet wird der lokale Zeiger, also ohne Verzoegerung und in
-    /// der Zeigergroesse des Steuernden — und winit uebersetzt denselben Namen
-    /// auf jeder Plattform in deren eigene Form.
+    /// Bild nimmt (`web/src/lib/remote/zeigerform.ts`). Ein **Name**, wo es
+    /// einen gibt: gezeichnet wird dann der lokale Zeiger, also ohne
+    /// Verzoegerung und in der Zeigergroesse des Steuernden — und winit
+    /// uebersetzt denselben Namen auf jeder Plattform in deren eigene Form.
+    ///
+    /// Steht **immer** dabei, auch wenn ein Bild mitkommt: er ist der Rueckfall,
+    /// wenn das Bild fehlt oder sich nicht bauen laesst.
     #[serde(default)]
     pub shape: Option<String>,
+
+    /// Das Bild des Host-Zeigers — nur fuer Formen, die kein Name traegt
+    /// (Werkzeugzeiger von Schnitt-, Bild- und 3D-Programmen). Aufbau und
+    /// Grenzen: [`crate::zeigerbild`].
+    #[serde(default)]
+    pub bild: Option<Zeigerbildrahmen>,
 
     // --- remote_anfragbar ---
     /// Darf dieser Zuschauer eine Fernsteuerung anfragen? Der Player zeigt

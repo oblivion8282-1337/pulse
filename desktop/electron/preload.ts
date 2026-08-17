@@ -162,9 +162,15 @@ contextBridge.exposeInMainWorld('pulse', {
       playerCall('remote_transport', { session, transport }),
     /** Fernsteuerung: Form des Host-Zeigers auf den lokalen Zeiger setzen
      *  („text", „ns-resize", …). Ersetzt, was das Cursor-Echo aus dem Bild
-     *  nimmt — Namen aus der CSS-Liste, kein Bild (`$lib/remote/zeigerform.ts`). */
-    pointerShape: (session: number, shape: string) =>
-      playerCall('remote_pointer', { session, shape }),
+     *  nimmt (`$lib/remote/zeigerform.ts`).
+     *
+     *  Bevorzugt ein Name aus der CSS-Liste — dann zeichnet dieser Rechner den
+     *  Zeiger in seiner eigenen Groesse und seinem Thema. `bild` kommt nur fuer
+     *  Zeiger mit, die kein Name abbildet (Werkzeugzeiger von Schnitt-, Bild-
+     *  und 3D-Programmen); geprueft wurde es im Renderer, gedeutet wird es im
+     *  Player, und `shape` bleibt in beiden Faellen der Rueckfall. */
+    pointerShape: (session: number, shape: string, bild?: unknown) =>
+      playerCall('remote_pointer', { session, shape, bild }),
     /** Fernsteuerung: welche Bildschirme der ferne Rechner hat. Das Fenster
      *  zeigt sie im Menue am Griff und meldet die Wahl als
      *  `player:remoteScreen` zurueck — angefordert wird in der App

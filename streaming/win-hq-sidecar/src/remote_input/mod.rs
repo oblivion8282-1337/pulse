@@ -56,6 +56,8 @@ pub mod rahmen;
 mod vorrang;
 mod wache;
 mod zeigerform;
+mod zeigerpixel;
+mod zeigerpunkte;
 pub mod ziel;
 pub mod zuordnung;
 

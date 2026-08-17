@@ -12,7 +12,7 @@
  */
 
 import type { PulseRemoteInputNachricht } from '$lib/platform/pulse.d';
-import type { Zeigerform } from './zeigerform';
+import type { Zeigerbild, Zeigerform } from './zeigerform';
 
 function player() {
   return typeof window !== 'undefined' ? window.pulse?.player : undefined;
@@ -69,12 +69,21 @@ export async function transportMelden(fensterSitzung: number, transport: string)
  * Der Player setzt sie auf den lokalen Zeiger des Steuernden — das ersetzt,
  * was das Cursor-Echo aus dem Bild nimmt (`$lib/remote/zeigerform.ts`).
  *
+ * `bild` kommt fuer Zeiger mit, die kein Name traegt (Werkzeugzeiger von
+ * Schnitt-, Bild- und 3D-Programmen). Der Player nimmt es, wenn er es bauen
+ * kann, und faellt sonst auf `form` zurueck — deshalb geht die Form **immer**
+ * mit, auch wenn ein Bild dabei ist.
+ *
  * Best-effort wie die Transport-Anzeige: eine ausgebliebene Form kostet
  * Rueckmeldung, keine Eingabe, und darf den Fluss nicht beruehren.
  */
-export async function zeigerformMelden(fensterSitzung: number, form: Zeigerform): Promise<void> {
+export async function zeigerformMelden(
+  fensterSitzung: number,
+  form: Zeigerform,
+  bild?: Zeigerbild,
+): Promise<void> {
   try {
-    await player()?.pointerShape?.(fensterSitzung, form);
+    await player()?.pointerShape?.(fensterSitzung, form, bild);
   } catch (e) {
     console.warn('[remote] Zeigerform warf:', e);
   }

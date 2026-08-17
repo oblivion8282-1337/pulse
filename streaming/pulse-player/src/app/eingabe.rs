@@ -10,6 +10,8 @@
 //! Als Kindmodul von [`super`] kommt das an die privaten Felder der Sitzung,
 //! ohne dafuer Zugaenge zu oeffnen, die sonst niemand braucht.
 
+use winit::event_loop::ActiveEventLoop;
+
 use super::App;
 use super::zeigerform::zeigerform;
 use crate::fernsteuerung::Abgabe;
@@ -145,9 +147,16 @@ impl App {
     /// seinen Zeiger aus der Aufnahme (Cursor-Echo), damit hier nur der lokale,
     /// verzoegerungsfreie zu sehen ist. Mit ihm verschwindet aber die
     /// Formensprache: I-Balken ueber Text, Doppelpfeil an Kanten, Hand ueber
-    /// Verweisen. Der Host meldet sie deshalb als NAMEN, und hier bekommt der
-    /// lokale Zeiger die passende Form — gezeichnet vom Betriebssystem dieses
-    /// Rechners, in dessen Zeigergroesse und Thema.
+    /// Verweisen. Der Host meldet sie deshalb, und hier bekommt der lokale
+    /// Zeiger die passende Form.
+    ///
+    /// **Zwei Wege, und der Name ist der bevorzugte.** Fuer die Formen, die
+    /// Windows selbst mitbringt, kommt ein NAME — dann zeichnet das
+    /// Betriebssystem dieses Rechners, in dessen Zeigergroesse und Thema. Fuer
+    /// alles andere (Werkzeugzeiger von Schnitt-, Bild- und 3D-Programmen)
+    /// kommt ein BILD, das [`super::zeigerbau`] entpackt. Das Bild hat Vorrang,
+    /// der Name bleibt der Rueckfall: kommt es nicht durch oder laesst es sich
+    /// nicht bauen, steht immer noch eine Form da statt gar nichts.
     ///
     /// **Nicht an die laufende Erfassung gekoppelt.** Der Renderer liefert die
     /// zuletzt bekannte Form nach, sobald sich das Fenster anhaengt, und das
@@ -156,10 +165,31 @@ impl App {
     /// etwas aendert — die Auffrischungen tragen nur bis zum Renderer, der
     /// Gleiches nicht erneut durchreicht. Zurueckgesetzt wird beim Ausschalten
     /// der Erfassung (s. [`Self::input_capture`]).
-    pub(super) fn remote_pointer(&mut self, req: &Request) -> Result<(), String> {
+    pub(super) fn remote_pointer(
+        &mut self,
+        req: &Request,
+        event_loop: &ActiveEventLoop,
+    ) -> Result<(), String> {
         let session_id = req.session.ok_or("session fehlt")?;
+        // **Erst die Sitzung pruefen, dann bauen.** Andersherum legte eine
+        // Meldung fuer ein laengst geschlossenes Fenster noch einen Zeiger beim
+        // Betriebssystem an, der dann im Vorrat liegenbliebe — und der Aufruf
+        // schluege danach trotzdem fehl.
+        if !self.sessions.contains_key(&session_id) {
+            return Err("unbekannte Sitzung".to_string());
+        }
+        // Der Vorrat gehoert der App und nicht der Sitzung: `create_custom_cursor`
+        // haengt am Ereignisschleifen-Zeiger, nicht am Fenster, und derselbe
+        // ferne Rechner kann ueber mehrere Fenster gesteuert werden (ein Platz
+        // je Bildschirm). Ihn je Fenster zu halten hiesse, dasselbe Bild
+        // mehrfach beim Betriebssystem anzulegen. Getrennt vom Zugriff auf die
+        // Sitzung, weil beides `&mut self` braucht.
+        let gebaut = req.bild.as_ref().and_then(|b| self.zeigervorrat.holen(b, event_loop));
         let session = self.sessions.get_mut(&session_id).ok_or("unbekannte Sitzung")?;
-        session.window.set_cursor(zeigerform(req.shape.as_deref().unwrap_or_default()));
+        match gebaut {
+            Some(zeiger) => session.window.set_cursor(zeiger),
+            None => session.window.set_cursor(zeigerform(req.shape.as_deref().unwrap_or_default())),
+        }
         Ok(())
     }
 

@@ -91,7 +91,7 @@ impl App {
             // Fernsteuerung: welche Form der Zeiger des Hosts gerade hat. Der
             // Player setzt sie auf den eigenen Zeiger — mehr steht hier nicht,
             // die Auswahl der Form trifft der Host (s. `eingabe.rs`).
-            "remote_pointer" => match self.remote_pointer(&req) {
+            "remote_pointer" => match self.remote_pointer(&req, event_loop) {
                 Ok(()) => self.stdout.send(&Response::bare(id)),
                 Err(e) => self.stdout.send(&Response::err(id, e)),
             },
