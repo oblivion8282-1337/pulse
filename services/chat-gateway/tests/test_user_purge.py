@@ -16,7 +16,9 @@ import pytest_asyncio
 from sqlalchemy import select
 
 from dcc_chat_gateway.models import (
+    CHANNEL_TYPE_VOICE,
     MENTION_TYPE_USER,
+    Device,
     DirectMessageChannel,
     FriendRequest,
     Friendship,
@@ -28,6 +30,7 @@ from dcc_chat_gateway.models import (
     MessageMention,
     MessageReaction,
     PermissionOverwrite,
+    Report,
     UserBlock,
     UserPrivacy,
     WebPushSubscription,
@@ -853,3 +856,336 @@ async def test_purge_clears_friendship_system(
             == []
         )
         assert (await s.get(UserPrivacy, uid_a)) is None
+
+
+# ---------------------------------------------------------------------------
+# Bughunt 2026-08-17 — voice eviction, dropbox purge, devices, bans, reports
+
+
+@pytest.mark.asyncio
+async def test_purge_evicts_voice_from_owned_guild_channels(
+    client, _auth_signer, _internal_secret_set, monkeypatch
+):
+    """A deleted OWNED guild's voice channels must throw out every occupant —
+    not just the deleted user — otherwise the LiveKit room keeps running for
+    a channel that no longer exists (same ghost-room fix as
+    ``routes/guilds.py::delete_guild``)."""
+    import dcc_chat_gateway.user_purge_nachlauf as nachlauf_mod
+
+    calls: list[list[int]] = []
+
+    async def _capture(_redis, channel_ids):
+        calls.append(sorted(int(c) for c in channel_ids))
+
+    monkeypatch.setattr(nachlauf_mod, "evict_all_from_voice_channels", _capture)
+
+    t_owner, uid_owner = await _register(_auth_signer)
+    g = (
+        await client.post("/guilds", json={"name": "g"}, headers=_auth(t_owner))
+    ).json()
+    v = (
+        await client.post(
+            f"/guilds/{g['id']}/channels",
+            json={"name": "voice", "type": CHANNEL_TYPE_VOICE},
+            headers=_auth(t_owner),
+        )
+    ).json()
+
+    r = await client.post(
+        f"/internal/users/{uid_owner}/purge", headers=_internal_headers()
+    )
+    assert r.status_code == 204, r.text
+    assert calls == [[int(v["id"])]]
+
+
+@pytest.mark.asyncio
+async def test_purge_evicts_deleted_user_from_other_guilds_voice(
+    client, _auth_signer, _internal_secret_set, monkeypatch
+):
+    """A voice session in a guild the deleted user does NOT own must still
+    end — that guild survives the purge, so only the deleted user (not the
+    whole room) gets thrown out via the normal per-guild evict call."""
+    import dcc_chat_gateway.user_purge_nachlauf as nachlauf_mod
+
+    calls: list[tuple[int, int]] = []
+
+    async def _capture(_session, guild_id, user_id):
+        calls.append((guild_id, user_id))
+
+    monkeypatch.setattr(nachlauf_mod, "evict_user_from_guild_voice", _capture)
+
+    t_owner, _ = await _register(_auth_signer)
+    g = (
+        await client.post("/guilds", json={"name": "g"}, headers=_auth(t_owner))
+    ).json()
+    t_a, uid_a = await _make_user_in_guild(client, _auth_signer, t_owner, g["id"])
+
+    r = await client.post(
+        f"/internal/users/{uid_a}/purge", headers=_internal_headers()
+    )
+    assert r.status_code == 204, r.text
+    assert calls == [(int(g["id"]), uid_a)]
+
+
+@pytest.mark.asyncio
+async def test_purge_purges_dropbox_objects_of_owned_guild(
+    client, _auth_signer, _internal_secret_set, monkeypatch
+):
+    """Deleting an owned guild via account-purge must sweep its dropbox
+    MinIO objects too — ``ON DELETE CASCADE`` clears the DB rows, but MinIO
+    never learns of that on its own (matches ``routes/guilds.py::delete_guild``)."""
+    import dcc_chat_gateway.user_purge as user_purge_mod
+
+    calls: list[int] = []
+
+    async def _capture(guild_id):
+        calls.append(guild_id)
+
+    monkeypatch.setattr(user_purge_mod, "purge_guild_dropbox_objects", _capture)
+
+    t_owner, uid_owner = await _register(_auth_signer)
+    g = (
+        await client.post("/guilds", json={"name": "g"}, headers=_auth(t_owner))
+    ).json()
+
+    r = await client.post(
+        f"/internal/users/{uid_owner}/purge", headers=_internal_headers()
+    )
+    assert r.status_code == 204, r.text
+    assert calls == [int(g["id"])]
+
+
+@pytest.mark.asyncio
+async def test_purge_removes_standplatz_devices(
+    client, session_factory, _auth_signer, _internal_secret_set
+):
+    """A Standplatz-Geraet registered in a guild the user does NOT own must
+    not outlive the account — otherwise the row keeps a dead owner
+    permanently, and its ``(guild_id, name)`` stays blocked forever
+    (Bughunt 2026-08-17, daten.md)."""
+    t_owner, _ = await _register(_auth_signer)
+    g = (
+        await client.post("/guilds", json={"name": "g"}, headers=_auth(t_owner))
+    ).json()
+    t_a, uid_a = await _make_user_in_guild(client, _auth_signer, t_owner, g["id"])
+    v = (
+        await client.post(
+            f"/guilds/{g['id']}/channels",
+            json={"name": "voice", "type": CHANNEL_TYPE_VOICE},
+            headers=_auth(t_owner),
+        )
+    ).json()
+
+    d = (
+        await client.post(
+            f"/guilds/{g['id']}/devices",
+            json={"channel_id": str(v["id"]), "name": "werkstatt-pc"},
+            headers=_auth(t_a),
+        )
+    ).json()
+    assert d["owner_user_id"] == str(uid_a)
+
+    async with session_factory() as s:
+        assert (await s.get(Device, int(d["id"]))) is not None
+
+    r = await client.post(
+        f"/internal/users/{uid_a}/purge", headers=_internal_headers()
+    )
+    assert r.status_code == 204, r.text
+
+    async with session_factory() as s:
+        assert (await s.get(Device, int(d["id"]))) is None
+
+
+@pytest.mark.asyncio
+async def test_purge_ends_remote_sessions_of_removed_devices(
+    client, app, _auth_signer, _internal_secret_set, monkeypatch
+):
+    """Deleting the owner must end a remote-control session that is running on
+    that owner's Standplatz device — every other path that removes a device
+    does this (``remote_guard``, ``ws_device_handlers``, ``device_meldungen``).
+    Without it the row and the register entry vanish while the session keeps
+    running, and whoever is controlling holds a device that no longer exists."""
+    t_owner, _ = await _register(_auth_signer)
+    g = (
+        await client.post("/guilds", json={"name": "g"}, headers=_auth(t_owner))
+    ).json()
+    t_a, uid_a = await _make_user_in_guild(client, _auth_signer, t_owner, g["id"])
+    v = (
+        await client.post(
+            f"/guilds/{g['id']}/channels",
+            json={"name": "voice", "type": CHANNEL_TYPE_VOICE},
+            headers=_auth(t_owner),
+        )
+    ).json()
+    d = (
+        await client.post(
+            f"/guilds/{g['id']}/devices",
+            json={"channel_id": str(v["id"]), "name": "werkstatt-pc"},
+            headers=_auth(t_a),
+        )
+    ).json()
+
+    manager = app.state.connection_manager
+    original = manager.end_remote_sessions_for_device
+    beendet: list[int] = []
+
+    async def _capture(device_id: int) -> None:
+        beendet.append(device_id)
+        await original(device_id)
+
+    monkeypatch.setattr(manager, "end_remote_sessions_for_device", _capture)
+
+    r = await client.post(
+        f"/internal/users/{uid_a}/purge", headers=_internal_headers()
+    )
+    assert r.status_code == 204, r.text
+    assert beendet == [int(d["id"])]
+
+
+@pytest.mark.asyncio
+async def test_purge_keeps_bans_issued_against_still_active_users(
+    client, session_factory, _auth_signer, _internal_secret_set
+):
+    """Befund 4 (Bughunt 2026-08-17): a ban a moderator issued against a
+    still-active THIRD party must not silently lapse just because the
+    moderator later deletes their own account — otherwise a moderation
+    decision disappears without a trace and the banned user can rejoin
+    through any invite. Only bans AGAINST the deleted account itself
+    (moot — the account no longer exists) may drop."""
+    t_owner, uid_owner = await _register(_auth_signer)
+    g = (
+        await client.post("/guilds", json={"name": "g"}, headers=_auth(t_owner))
+    ).json()
+    t_mod, uid_mod = await _make_user_in_guild(client, _auth_signer, t_owner, g["id"])
+    t_c, uid_c = await _make_user_in_guild(client, _auth_signer, t_owner, g["id"])
+
+    # Give the mod BAN_MEMBERS (bit 9) via a role, same as test_bans.py.
+    role = (
+        await client.post(
+            f"/guilds/{g['id']}/roles",
+            json={"name": "mod", "permissions": str(1 << 9)},
+            headers=_auth(t_owner),
+        )
+    ).json()
+    await client.put(
+        f"/guilds/{g['id']}/members/{uid_mod}/roles/{role['id']}",
+        headers=_auth(t_owner),
+    )
+
+    r = await client.put(
+        f"/guilds/{g['id']}/bans/{uid_c}",
+        json={"reason": "test"},
+        headers=_auth(t_mod),
+    )
+    assert r.status_code in (200, 201, 204), r.text
+
+    async with session_factory() as s:
+        ban = await s.get(GuildBan, (int(g["id"]), uid_c))
+    assert ban is not None
+    assert ban.banned_by_id == uid_mod
+
+    # The moderator deletes their own account.
+    r = await client.post(
+        f"/internal/users/{uid_mod}/purge", headers=_internal_headers()
+    )
+    assert r.status_code == 204, r.text
+
+    async with session_factory() as s:
+        ban = await s.get(GuildBan, (int(g["id"]), uid_c))
+    assert ban is not None, "a ban against a still-active third party must survive"
+    # banned_by_id may keep pointing at the now-deleted moderator — the
+    # column has no FK to the (separate-service) users table, same
+    # tolerance every other unconstrained *_id column here already has.
+    # The ban itself staying effective is what matters.
+    assert ban.banned_by_id == uid_mod
+
+
+@pytest.mark.asyncio
+async def test_purge_closes_open_report_for_deleted_message(
+    client, session_factory, _auth_signer, _internal_secret_set
+):
+    """Befund 5 (Bughunt 2026-08-17): purging the REPORTED user must not
+    leave an open report pointing at a message that's about to be
+    hard-deleted — ``Report.target_message_id`` has no FK/CASCADE, so an
+    untouched row would fall out of every moderation-queue scope
+    permanently (never triageable, resolvable, or escalatable again)."""
+    t_owner, _ = await _register(_auth_signer)
+    g = (
+        await client.post("/guilds", json={"name": "g"}, headers=_auth(t_owner))
+    ).json()
+    t_reporter, _ = await _make_user_in_guild(client, _auth_signer, t_owner, g["id"])
+    t_b, uid_b = await _make_user_in_guild(client, _auth_signer, t_owner, g["id"])
+
+    chan = (
+        await client.post(
+            f"/guilds/{g['id']}/channels",
+            json={"name": "general", "type": 0},
+            headers=_auth(t_owner),
+        )
+    ).json()
+    msg = await _post_message(client, t_b, chan["id"], "bad message")
+
+    r = await client.post(
+        "/reports",
+        json={"target_message_id": msg["id"], "reason_code": "spam", "body": ""},
+        headers=_auth(t_reporter),
+    )
+    assert r.status_code == 201, r.text
+    report_id = r.json()["id"]
+
+    async with session_factory() as s:
+        report = await s.get(Report, int(report_id))
+    assert report.status == "new"
+    assert report.target_message_id == int(msg["id"])
+
+    r = await client.post(
+        f"/internal/users/{uid_b}/purge", headers=_internal_headers()
+    )
+    assert r.status_code == 204, r.text
+
+    async with session_factory() as s:
+        report = await s.get(Report, int(report_id))
+    assert report is not None, "the report row itself must survive, just closed"
+    assert report.status in ("resolved", "dismissed")
+    assert report.target_message_id is None
+    assert report.resolved_at is not None
+
+
+@pytest.mark.asyncio
+async def test_purge_closes_open_report_targeting_deleted_user_directly(
+    client, session_factory, _auth_signer, _internal_secret_set
+):
+    """Same Befund, the other target shape: a plain user-report (no
+    ``target_message_id``) must not stay ``new`` forever once the reported
+    user's account — and with it their ``GuildMember`` row the queue scopes
+    on — is gone."""
+    t_owner, _ = await _register(_auth_signer)
+    g = (
+        await client.post("/guilds", json={"name": "g"}, headers=_auth(t_owner))
+    ).json()
+    t_reporter, _ = await _make_user_in_guild(client, _auth_signer, t_owner, g["id"])
+    t_b, uid_b = await _make_user_in_guild(client, _auth_signer, t_owner, g["id"])
+
+    r = await client.post(
+        "/reports",
+        json={
+            "target_user_id": str(uid_b),
+            "target_guild_id": g["id"],
+            "reason_code": "harassment",
+            "body": "",
+        },
+        headers=_auth(t_reporter),
+    )
+    assert r.status_code == 201, r.text
+    report_id = r.json()["id"]
+
+    r = await client.post(
+        f"/internal/users/{uid_b}/purge", headers=_internal_headers()
+    )
+    assert r.status_code == 204, r.text
+
+    async with session_factory() as s:
+        report = await s.get(Report, int(report_id))
+    assert report is not None
+    assert report.status in ("resolved", "dismissed")
