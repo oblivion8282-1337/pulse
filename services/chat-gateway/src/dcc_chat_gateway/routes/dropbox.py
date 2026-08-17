@@ -22,7 +22,6 @@ from dcc_chat_gateway import ratelimit, s3
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_DROPBOX,
-    DROPBOX_KIND_FILE,
     DROPBOX_KIND_FOLDER,
     Channel,
     DropboxConfig,
@@ -30,11 +29,9 @@ from dcc_chat_gateway.models import (
     Guild,
 )
 from dcc_chat_gateway.permissions import Permissions, check_permission
-from dcc_chat_gateway.routes._deps import require_member
+from dcc_chat_gateway.routes._dropbox_access import require_dropbox_view
 from dcc_chat_gateway.routes._dropbox_helpers import (
-    bump_used,
     fresh_entry_id,
-    locked_config,
     normalize_parent_path,
     publish_entry_event,
     publish_purge_event,
@@ -53,6 +50,12 @@ from dcc_chat_gateway.routes._dropbox_schemas import (
     DropboxEntryOut,
     DropboxEntryPatchIn,
     DropboxFolderCreateIn,
+)
+from dcc_chat_gateway.routes._dropbox_writes import (
+    commit_or_conflict,
+    like_prefix,
+    perform_restore,
+    perform_trash,
 )
 from dcc_chat_gateway.security import CurrentUser
 from dcc_shared.events import ChannelCreatedEvent
@@ -276,7 +279,7 @@ async def get_quota(
     would re-enable the feature for every guild (DB side-effect on
     a pure GET)."""
 
-    await require_member(session, guild_id, current.id)
+    await require_dropbox_view(session, current, guild_id)
     cfg = await _get_config_unlocked(session, guild_id)
     if cfg is None:
         raise HTTPException(404, detail="dropbox not provisioned for this guild")
@@ -307,7 +310,7 @@ async def list_entries(
     - ``include_trash`` — switch to trash listing (path/q ignored)
     """
 
-    await require_member(session, guild_id, current.id)
+    await require_dropbox_view(session, current, guild_id)
     cfg = await _get_config_unlocked(session, guild_id)
     if cfg is None or not cfg.enabled:
         raise HTTPException(404, detail="dropbox disabled for this guild")
@@ -422,7 +425,7 @@ async def create_folder(
     permission. Pre-flight SELECT catches the unique-index violation
     BEFORE the INSERT, so we can hand back a clean 409."""
 
-    await require_member(session, guild_id, current.id)
+    await require_dropbox_view(session, current, guild_id)
     cfg = await _get_config_unlocked(session, guild_id)
     if cfg is None or not cfg.enabled:
         raise HTTPException(404, detail="dropbox disabled for this guild")
@@ -472,7 +475,13 @@ async def create_folder(
         pinned=False,
     )
     session.add(entry)
-    await session.commit()
+    # Die Vorprüfung oben liegt Await-Punkte vor dem Commit — eine zweite,
+    # für sich legitime Anfrage kann den Namen dazwischen belegen. Dann
+    # entscheidet der Unique-Index, und diese Antwort ist dieselbe 409 wie
+    # oben statt eines unbehandelten 500ers.
+    await commit_or_conflict(
+        session, detail=f"'{name}' already exists at this path"
+    )
     await session.refresh(entry)
 
     await publish_entry_event(
@@ -504,7 +513,7 @@ async def patch_entry(
     """Rename / move / pin-toggle. Members can edit their own uploads;
     others' edits require MANAGE_CHANNELS."""
 
-    await require_member(session, guild_id, current.id)
+    await require_dropbox_view(session, current, guild_id)
     if not ratelimit.check("dropbox_patch", current.id):
         raise HTTPException(
             429, detail="too many patch requests — slow down"
@@ -613,12 +622,18 @@ async def patch_entry(
                 if new_parent
                 else entry.name
             )
+            # ``like_prefix`` maskiert ``%`` und ``_`` — beide sind in einem
+            # Ablage-Namen erlaubt und wären als LIKE-Platzhalter sonst weit
+            # gefasst: der Ordner ``a_b`` zöge beim Verschieben den Inhalt des
+            # unbeteiligten ``axb`` mit.
             desc_stmt = select(DropboxFile).where(
                 DropboxFile.guild_id == guild_id,
                 DropboxFile.id != entry.id,
                 or_(
                     DropboxFile.parent_path == old_self_path,
-                    DropboxFile.parent_path.like(f"{old_self_path}/%"),
+                    DropboxFile.parent_path.like(
+                        like_prefix(old_self_path), escape="\\"
+                    ),
                 ),
             )
             for d in (await session.execute(desc_stmt)).scalars():
@@ -627,7 +642,9 @@ async def patch_entry(
                 )
                 d.updated_at = utc_now()
 
-    await session.commit()
+    await commit_or_conflict(
+        session, detail=f"'{entry.name}' already exists at the destination"
+    )
     await session.refresh(entry)
 
     await publish_entry_event(
@@ -652,9 +669,13 @@ async def delete_entry(
 ) -> None:
     """Soft-delete (trash). Members can trash their own uploads;
     others' require MANAGE_CHANNELS. MinIO bytes stay — the sweep
-    task purges after ``trash_retention_days``."""
+    task purges after ``trash_retention_days``.
 
-    await require_member(session, guild_id, current.id)
+    Bei einem Ordner geht der ganze Teilbaum mit; die Buchhaltung und das
+    Rennen um den Zustandswechsel liegen in ``_dropbox_writes.perform_trash``.
+    """
+
+    await require_dropbox_view(session, current, guild_id)
     if not ratelimit.check("dropbox_delete", current.id):
         raise HTTPException(
             429, detail="too many trash requests — slow down"
@@ -678,16 +699,9 @@ async def delete_entry(
             Permissions.MANAGE_CHANNELS,
         )
 
-    async with with_quota_lock(guild_id):
-        cfg = await locked_config(session, guild_id)
-        now = utc_now()
-        entry.deleted_at = now
-        entry.deleted_by_id = current.id
-        entry.updated_at = now
-        is_file = entry.kind == DROPBOX_KIND_FILE
-        if is_file and entry.size_bytes:
-            bump_used(cfg, -int(entry.size_bytes))
-        await session.commit()
+    cfg = await perform_trash(
+        session, guild_id=guild_id, entry=entry, actor_id=current.id
+    )
     await session.refresh(entry)
 
     await publish_entry_event(
@@ -697,7 +711,7 @@ async def delete_entry(
         entry=entry,
     )
     mgr = getattr(request.app.state, "connection_manager", None)
-    if mgr is not None:
+    if mgr is not None and cfg is not None:
         await publish_quota_event(mgr, cfg)
 
 
@@ -732,7 +746,7 @@ async def empty_trash(
         raise HTTPException(
             429, detail="too many empty-trash requests — slow down"
         )
-    await require_member(session, guild_id, current.id)
+    await require_dropbox_view(session, current, guild_id)
     await check_permission(
         session, current, guild_id, Permissions.MANAGE_CHANNELS,
     )
@@ -798,9 +812,13 @@ async def restore_entry(
 ) -> DropboxEntryOut:
     """Bring an entry back from the trash. Same ownership rule as
     delete. Restoring re-bumps the quota (file only) — refuses if the
-    community is over-full in the meantime."""
+    community is over-full in the meantime.
 
-    await require_member(session, guild_id, current.id)
+    Ein Ordner bringt den Teilbaum mit zurück, der zusammen mit ihm in den
+    Papierkorb ging; Buchhaltung und Rennen liegen in
+    ``_dropbox_writes.perform_restore``."""
+
+    await require_dropbox_view(session, current, guild_id)
     if not ratelimit.check("dropbox_restore", current.id):
         raise HTTPException(
             429, detail="too many restore requests — slow down"
@@ -824,25 +842,7 @@ async def restore_entry(
             Permissions.MANAGE_CHANNELS,
         )
 
-    async with with_quota_lock(guild_id):
-        cfg = await locked_config(session, guild_id)
-        is_file = entry.kind == DROPBOX_KIND_FILE
-        if is_file and entry.size_bytes:
-            projected = cfg.used_bytes + int(entry.size_bytes)
-            if projected > cfg.total_quota_bytes:
-                raise HTTPException(
-                    409,
-                    detail=(
-                        "restore would exceed the community's quota "
-                        f"(free: {cfg.total_quota_bytes - cfg.used_bytes} bytes)"
-                    ),
-                )
-            cfg.used_bytes = projected
-
-        entry.deleted_at = None
-        entry.deleted_by_id = None
-        entry.updated_at = utc_now()
-        await session.commit()
+    cfg = await perform_restore(session, guild_id=guild_id, entry=entry)
     await session.refresh(entry)
 
     await publish_entry_event(
@@ -852,6 +852,6 @@ async def restore_entry(
         entry=entry,
     )
     mgr = getattr(request.app.state, "connection_manager", None)
-    if mgr is not None:
+    if mgr is not None and cfg is not None:
         await publish_quota_event(mgr, cfg)
     return await serialize_entry(session, entry)

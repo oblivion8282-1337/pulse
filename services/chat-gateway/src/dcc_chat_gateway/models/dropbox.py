@@ -17,6 +17,7 @@ from sqlalchemy import (
     SmallInteger,
     Text,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -137,6 +138,21 @@ class DropboxFile(Base):
         # probe — small per row, but worth having since the bucket walk
         # does one lookup per object.
         Index("ix_dropbox_files_storage_key", "storage_key"),
+        # Der partielle Unique-Index aus Migration 0043 — er entscheidet in
+        # Produktion die Namenskollision, auf die sich ``commit_or_conflict``
+        # verlässt (IntegrityError → 409 statt 500). Er stand bis zum Bughunt
+        # vom 17. August nur in der Migration: Testschemata entstehen über
+        # ``create_all``, also fehlte in JEDEM Test genau der Riegel, den der
+        # Code in Produktion voraussetzt.
+        Index(
+            "ix_dropbox_files_unique_name",
+            "guild_id",
+            "parent_path",
+            "name",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+            sqlite_where=text("deleted_at IS NULL"),
+        ),
     )
 
 

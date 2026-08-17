@@ -142,10 +142,41 @@ def normalize_parent_path(raw: str | None) -> str:
     return "/".join(parts)
 
 
+def _fold_name(name: str) -> str:
+    """Die kanonische Form, die tatsächlich gespeichert wird.
+
+    Reihenfolge ist hier alles: (1) **NFKC zuerst** — die Normalisierung
+    bildet unauffällige Kompatibilitätsformen auf genau die Zeichen ab, die
+    geprüft werden müssen (U+FF0E → ``.``, U+FF0F → ``/``, U+2024 → ``.``,
+    U+3000 → Leerzeichen). (2) **Dann die unsichtbaren Zeichen streichen** —
+    auch das Streichen erzeugt erst die verbotene Form (``.``+ZWSP+``.`` →
+    ``..``). (3) **Noch einmal NFKC** — das Streichen kann zwei Zeichen
+    zusammenrücken, die zusammen zerlegbar sind (``e``+ZWJ+Combining Acute →
+    ``é``); sonst wäre der Rückgabewert nicht sicher normalisiert und
+    derselbe Name stünde in zwei Schreibweisen vor dem Unique-Index.
+
+    Idempotent: ``_fold_name(_fold_name(x)) == _fold_name(x)``.
+    """
+
+    folded = unicodedata.normalize("NFKC", name)
+    folded = "".join(
+        c for c in folded
+        if c not in _BIDI_FORMAT and c not in _ZW_INVISIBLE
+    )
+    return unicodedata.normalize("NFKC", folded)
+
+
 def validate_name(name: str) -> str:
     """Validate that ``name`` is a safe basename (no path separators,
     no control chars, no leading/trailing dots/whitespace). Returns the
     canonical form.
+
+    **Jede Prüfung läuft gegen die kanonische Form** (``_fold_name``), also
+    gegen genau den String, der gespeichert, in ``full_path()``
+    zusammengesetzt und von ``dropbox_downloads.py`` als ZIP-Eintragsname
+    geschrieben wird. Bis 17.08.2026 normalisierte erst der Rückgabewert:
+    ``．．`` bzw. ``．．／evil.txt`` (Vollbreiten-Homoglyphe) kamen an allen
+    Prüfungen vorbei und wurden als ``..`` bzw. ``../evil.txt`` gespeichert.
 
     Hardens against:
       - Path-traversal / NUL injection (``/`` ``\\`` ``\\0``)
@@ -159,25 +190,28 @@ def validate_name(name: str) -> str:
         raise ValueError("name is empty")
     if len(name) > 255:
         raise ValueError("name longer than 255 chars")
-    # Strip bidi-format + zero-width-invisible chars BEFORE the
-    # forbidden-char check (which only catches a narrow set of
-    # bytes anyway).
-    cleaned = "".join(
-        c for c in name
-        if c not in _BIDI_FORMAT and c not in _ZW_INVISIBLE
-    )
+    cleaned = _fold_name(name)
+    # NFKC darf einen Namen verlängern (``ﷺ`` → mehrere Zeichen) und das
+    # Streichen darf ihn leeren — beides erst nach der Faltung messbar.
+    if not cleaned:
+        raise ValueError("name is empty")
+    if len(cleaned) > 255:
+        raise ValueError("name longer than 255 chars")
     if any(c in _FORBIDDEN_NAME_CHARS for c in cleaned):
         raise ValueError("name contains forbidden character (/ \\ \\0)")
+    # Steuerzeichen (C0/C1). Der Docstring verspricht sie seit jeher, geprüft
+    # wurden bisher nur ``/ \\ \\0``. Ein ``\\r\\n`` im Namen bricht den
+    # ZIP-Eintragsnamen und den ``Content-Disposition``-Header.
+    if any(ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F for c in cleaned):
+        raise ValueError("name contains a control character")
     if cleaned in (".", ".."):
         raise ValueError(f"name '{cleaned}' is reserved")
     if cleaned != cleaned.strip():
         raise ValueError("name has leading or trailing whitespace")
-    if cleaned.startswith("."):
-        # Hidden files on POSIX uploads are fine (``.env``, ``.gitignore``)
-        # — only a single leading dot at the start. Reject ``..`` already
-        # handled above.
-        pass
-    return unicodedata.normalize("NFKC", cleaned)
+    # Führender Punkt bleibt erlaubt — versteckte POSIX-Dateien (``.env``,
+    # ``.gitignore``) sind ein gültiger Upload. ``.`` und ``..`` sind oben
+    # bereits abgewiesen.
+    return cleaned
 
 
 def full_path(parent_path: str, name: str) -> str:
@@ -195,8 +229,14 @@ def full_path(parent_path: str, name: str) -> str:
 
 def bump_used(config: DropboxConfig, delta: int) -> None:
     """Adjust the cached ``used_bytes`` by ``delta`` (positive on upload,
-    negative on delete / restore-from-trash → - used). The sweep task
-    reconciles against MinIO truth at startup.
+    negative on delete / restore-from-trash → - used).
+
+    **Es gibt keinen Abgleich, der einen abgedrifteten Zähler heilt** — der
+    frühere Docstring behauptete das, aber der stündliche Sweep fasst
+    ``used_bytes`` nicht an und ``s3.guild_dropbox_bytes()`` hat keinen
+    Aufrufer. Jeder Aufrufer muss deshalb selbst sicherstellen, dass er genau
+    einmal bucht: ``_dropbox_writes.py`` hängt die Buchung an ein bedingtes
+    UPDATE, das nur eine von zwei parallelen Anfragen gewinnt.
 
     Synchronous because we only mutate an attribute the session already
     tracks — caller's own ``commit()`` makes the change durable."""
@@ -386,9 +426,11 @@ def storage_path_for(guild_id: int, entry_id: int) -> str:
     An id-derived key is unique by construction and path-independent, so moves
     need not touch it at all.
 
-    The ``.o`` segment keeps new keys disjoint from the legacy path-derived ones
-    still in the table: ``validate_name`` rejects any name starting with a dot,
-    so no legacy key can contain this segment.
+    The ``.o`` segment hält neue Schlüssel von den alten, pfadabgeleiteten
+    getrennt. Achtung: die frühere Begründung („``validate_name`` rejects any
+    name starting with a dot") stimmt nicht — führende Punkte sind erlaubt
+    (``.env``). Ein Altbestand mit einem Wurzelordner ``.o`` trüge denselben
+    Präfix; neue Schlüssel entstehen nur noch hier.
 
     Versioning puts historical versions under ``<base>_v<n>`` — see
     ``routes/dropbox.py::finish_upload`` where v1 is the initial and v>=2

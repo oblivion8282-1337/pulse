@@ -14,8 +14,11 @@ cap, PLAN.md §12.1). Two endpoints:
   which consumes our async ``s3.stream_object`` generator directly — no
   temp files, no buffering whole files, MinIO→ZIP→client chunked.
 
-Download = read, so both endpoints are membership-only (``require_member``),
-mirroring ``list_entries`` — no ownership gate.
+Download = read, so both endpoints gate on ``require_dropbox_view``
+(Mitgliedschaft **und** ``VIEW_CHANNEL`` auf den Ablage-Kanal), mirroring
+``list_entries`` — no ownership gate. Mitgliedschaft allein reichte hier bis
+zum Bughunt vom 17. August: der Kanal ist der Rechteanker der Ablage, und ein
+Riegel, der nur beim Auflisten sitzt, laesst den Herunterlade-Weg offen.
 """
 
 from __future__ import annotations
@@ -35,7 +38,7 @@ from dcc_chat_gateway.models import (
     DROPBOX_KIND_FOLDER,
     DropboxFile,
 )
-from dcc_chat_gateway.routes._deps import require_member
+from dcc_chat_gateway.routes._dropbox_access import require_dropbox_view
 from dcc_chat_gateway.routes._dropbox_helpers import (
     full_path,
     normalize_parent_path,
@@ -94,7 +97,7 @@ async def get_download_url(
     from the listing (which is ``inline`` for renderable types), this always
     downloads — the explicit "Download" button."""
 
-    await require_member(session, guild_id, current.id)
+    await require_dropbox_view(session, current, guild_id)
     if not ratelimit.check("dropbox_download", current.id):
         raise HTTPException(429, detail="too many download requests — slow down")
     entry = await _live_file(session, guild_id, entry_id)
@@ -240,7 +243,7 @@ async def download_archive(
     ``Authorization`` header to a navigation, so it rides in the query
     string (same pattern as the WS endpoint)."""
 
-    await require_member(session, guild_id, current.id)
+    await require_dropbox_view(session, current, guild_id)
     if not ratelimit.check("dropbox_download", current.id):
         raise HTTPException(429, detail="too many download requests — slow down")
 
