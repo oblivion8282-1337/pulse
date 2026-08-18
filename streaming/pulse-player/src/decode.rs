@@ -263,21 +263,30 @@ impl Kandidat {
     }
 }
 
-/// Wie viele Einheiten auf einen Einstiegspunkt gewartet wird, bevor die
-/// Sitzung aufgibt. Bei 60 fps sind das zwanzig Sekunden.
+/// Wie lange auf einen Einstiegspunkt gewartet wird, bevor die Sitzung
+/// aufgibt.
 ///
 /// Es MUSS eine Grenze geben: kommt nie ein Keyframe, waere stilles Warten
 /// wieder genau das Verhalten, das eine Kachel dauerhaft in "verbinde"
 /// stehen laesst — nur mit einer anderen Ursache.
 ///
-/// 600 (zehn Sekunden) war zu knapp und hat am 2026-07-28 drei Sitzungen
+/// Zehn Sekunden waren zu knapp und haben am 2026-07-28 drei Sitzungen
 /// gekostet: unter anhaltendem Paketverlust kommt ein angefordertes Vollbild
 /// oft selbst beschaedigt an (25-35 Pakete, bei 5 % Verlust ~28 %
 /// Ueberlebenswahrscheinlichkeit), die Uhr lief ab und der Player gab auf,
 /// waehrend die Leitung sich kurz darauf erholte. Die Meldung benannte die
 /// Ursache korrekt ("der Sender schickt zu selten ein Vollbild") — sie ging
 /// nur unter, weil der Pruefstand die Player-Ereignisse nicht mitschrieb.
-const MAX_UNITS_WITHOUT_KEYFRAME: u64 = 1200;
+///
+/// **Warum in Sekunden und nicht mehr in Einheiten (2026-08-18).** Hier stand
+/// `1200` Einheiten mit dem Zusatz „bei 60 fps sind das zwanzig Sekunden" —
+/// die Zahl war also als Dauer GEMEINT, aber als Bildzahl geschrieben. Damit
+/// schrumpfte sie mit steigender Bildrate: bei 144 fps blieben von den
+/// gemeinten 20 s noch **8,3**, und lagen damit sogar unter dem Vollbild-
+/// Abstand, den `PULSE_KEYFRAME_SECONDS` schon vorher zuliess. Ein Zuschauer
+/// auf einem 144-Hz-Schirm gab dann auf, bevor das naechste regulaere Vollbild
+/// ueberhaupt faellig war. Als Dauer gilt der gemeinte Wert auf jeder Bildrate.
+const MAX_WARTEZEIT_OHNE_KEYFRAME: std::time::Duration = std::time::Duration::from_secs(20);
 
 /// Wie viele Bilder hintereinander der Decoder liefern darf, die sich nicht
 /// anzeigen lassen, bevor die Sitzung endet.
@@ -1181,8 +1190,15 @@ pub struct VideoDecoder {
     /// Solange gesetzt, wird jede Einheit verworfen, die kein Einstiegspunkt
     /// ist. Siehe [`VideoDecoder::decode`].
     awaiting_keyframe: bool,
-    /// Wie viele Einheiten dabei bisher verworfen wurden.
+    /// Wie viele Einheiten dabei bisher verworfen wurden. Reine Meldegroesse —
+    /// aufgegeben wird nach ZEIT (s. [`MAX_WARTEZEIT_OHNE_KEYFRAME`]).
     skipped_before_keyframe: u64,
+    /// Seit wann auf den Einstiegspunkt gewartet wird. Gestellt beim ersten
+    /// verworfenen Baustein eines Anlaufs, erkennbar an
+    /// `skipped_before_keyframe == 1` — damit haengt die Uhr automatisch an
+    /// denselben Stellen, die den Zaehler zuruecksetzen, und kann bei einem
+    /// neuen Anlauf nicht vergessen werden.
+    warte_seit: std::time::Instant,
     /// Bis wann das Bild nach einer Luecke als unsauber gilt (s. [`on_gap`]).
     unsauber_bis: Option<std::time::Instant>,
     /// Der Einfrier-Nachweis samt Staffelung der Abhilfe (s.
@@ -1287,6 +1303,7 @@ impl VideoDecoder {
                         rebuilds: Neuaufbauten::default(),
                         awaiting_keyframe: true,
                         skipped_before_keyframe: 0,
+                        warte_seit: std::time::Instant::now(),
                         unsauber_bis: None,
                         wacht: EinfrierWacht::default(),
                         keyframes: 0,
@@ -1445,6 +1462,13 @@ impl VideoDecoder {
             self.keyframes += 1;
             self.keyframe_abstand = self.letztes_keyframe.map(|t| jetzt.duration_since(t));
             self.keyframe_bytes = data.len();
+            // Der Einfrier-Waechter braucht denselben Wert: bei stehendem
+            // Inhalt aendert sich das dekodierte Bild NUR im Takt der
+            // Vollbilder, sein Fenster muss also laenger sein als dieser Takt
+            // (s. `einfrieren::EinfrierWacht::mindestdauer`).
+            if let Some(d) = self.keyframe_abstand {
+                self.wacht.vollbild_abstand(d);
+            }
             let abstand = self
                 .keyframe_abstand
                 .map(|d| format!("{:.0} ms", d.as_millis()))
@@ -1458,10 +1482,20 @@ impl VideoDecoder {
         if self.awaiting_keyframe {
             if !ist_einstiegspunkt {
                 self.skipped_before_keyframe += 1;
-                if self.skipped_before_keyframe > MAX_UNITS_WITHOUT_KEYFRAME {
+                // Der erste verworfene Baustein eines Anlaufs stellt die Uhr.
+                // Anders als ein eigenes Zuruecksetzen an den fuenf Stellen,
+                // die `awaiting_keyframe` wieder setzen, kann das nicht
+                // vergessen werden — dort wird ohnehin schon der Zaehler
+                // genullt.
+                if self.skipped_before_keyframe == 1 {
+                    self.warte_seit = std::time::Instant::now();
+                }
+                let gewartet = self.warte_seit.elapsed();
+                if gewartet > MAX_WARTEZEIT_OHNE_KEYFRAME {
                     bail!(
-                        "kein Einstiegspunkt nach {} Einheiten — der Sender schickt \
-                         zu selten ein Vollbild",
+                        "kein Einstiegspunkt nach {:.1} s ({} Einheiten) — der Sender \
+                         schickt zu selten ein Vollbild",
+                        gewartet.as_secs_f32(),
                         self.skipped_before_keyframe
                     );
                 }
@@ -1810,7 +1844,7 @@ impl VideoDecoder {
     /// Intra-Refresh-Betrieb gibt es aber keinen regulaeren Keyframe mehr: das
     /// einzige Vollbild kommt auf Anforderung. Geht die eine Anforderung
     /// hinaus, waehrend der Player noch im Verbindungsaufbau steckt, wartet er
-    /// danach VERGEBLICH — bis `MAX_UNITS_WITHOUT_KEYFRAME` die Sitzung
+    /// danach VERGEBLICH — bis [`MAX_WARTEZEIT_OHNE_KEYFRAME`] die Sitzung
     /// abbricht. Am 2026-07-31 im Pruefstand beobachtet: 150 Sekunden mit
     /// „dekodiert 0/s", ohne dass ein zweites Mal angefordert wurde.
     ///
@@ -2543,19 +2577,49 @@ mod tests {
 
     /// Ewiges Warten waere wieder eine haengende Kachel — nur mit anderer
     /// Ursache. Nach der Grenze muss ein Fehler kommen.
+    ///
+    /// Die Uhr wird vorgestellt statt abgewartet: zwanzig Sekunden im Test
+    /// waeren zwanzig Sekunden, und ein Test, der so lange braucht, wird
+    /// irgendwann uebersprungen statt gelesen.
     #[test]
     fn ewiges_warten_endet_mit_fehler() {
         let mut d = VideoDecoder::new(Codec::Av1, Some(false), None).expect("AV1-Software-Decoder");
         let frame = [0x32u8, 0x03, 0xAA, 0xBB, 0xCC];
-        for _ in 0..MAX_UNITS_WITHOUT_KEYFRAME {
-            assert!(d.decode(&frame).is_ok(), "innerhalb der Grenze wird nur verworfen");
+
+        assert!(d.decode(&frame).is_ok(), "innerhalb der Grenze wird nur verworfen");
+        assert_eq!(d.skipped_before_keyframe, 1, "der erste Baustein stellt die Uhr");
+
+        // Innerhalb der Frist bleibt es beim Verwerfen, egal wie viele
+        // Einheiten es sind — genau das war vorher nicht so.
+        for _ in 0..5_000 {
+            assert!(d.decode(&frame).is_ok(), "die Bildzahl allein darf nichts ausloesen");
         }
+
+        d.warte_seit = std::time::Instant::now() - MAX_WARTEZEIT_OHNE_KEYFRAME
+            - std::time::Duration::from_secs(1);
         // Kein `expect_err`: `DecodedFrame` traegt kein `Debug`, und es nur
         // fuer eine Testmeldung anzuhaengen waere der falsche Preis.
         let Err(err) = d.decode(&frame) else {
             panic!("nach der Grenze muss ein Fehler kommen");
         };
         assert!(format!("{err:#}").contains("Einstiegspunkt"), "Meldung: {err:#}");
+    }
+
+    /// Ein neuer Anlauf bekommt eine neue Uhr. Ohne das wuerde eine alte,
+    /// laengst abgelaufene Wartezeit den naechsten Anlauf sofort abbrechen.
+    #[test]
+    fn neuer_anlauf_stellt_die_uhr_neu() {
+        let mut d = VideoDecoder::new(Codec::Av1, Some(false), None).expect("AV1-Software-Decoder");
+        let frame = [0x32u8, 0x03, 0xAA, 0xBB, 0xCC];
+
+        assert!(d.decode(&frame).is_ok());
+        d.warte_seit = std::time::Instant::now() - MAX_WARTEZEIT_OHNE_KEYFRAME
+            - std::time::Duration::from_secs(1);
+
+        // Wie an allen Stellen, die wieder auf einen Einstiegspunkt warten
+        // lassen: Zaehler auf null. Die Uhr haengt daran.
+        d.skipped_before_keyframe = 0;
+        assert!(d.decode(&frame).is_ok(), "der neue Anlauf darf nicht sofort abbrechen");
     }
 
     /// Nach einem Neuaufbau fehlt dem neuen Decoder alles — er muss wieder

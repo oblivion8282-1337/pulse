@@ -138,10 +138,11 @@ def einstieg_sichern(sender, player, sid: str, versuche: int = 6,
     Sitzung angelegt ist, ICE und DTLS brauchen danach noch rund eine Sekunde.
     Das Vollbild geht dann raus, bevor der Zuschauer zuhoert. Im
     Intra-Refresh-Betrieb kommt so schnell kein zweites (Uhr in MediaMTX aus,
-    `PULSE_KEYFRAME_SECONDS=10`), und der Player gibt nach 600 Einheiten ohne
-    Einstiegspunkt auf — `decode.rs::MAX_UNITS_WITHOUT_KEYFRAME`, also nach rund
-    zehn Sekunden. Am 2026-07-29 genau so gesehen: Daten kamen mit 3,8 Mbit/s
-    an, `state` blieb `connecting`, Bildrate 0.
+    `PULSE_KEYFRAME_SECONDS=10`), und der Player gibt nach
+    `decode.rs::MAX_WARTEZEIT_OHNE_KEYFRAME` ohne Einstiegspunkt auf. Am
+    2026-07-29 genau so gesehen: Daten kamen mit 3,8 Mbit/s an, `state` blieb
+    `connecting`, Bildrate 0. (Damals war die Grenze eine Bildzahl und lief
+    schon nach zehn Sekunden ab; seit dem 2026-08-18 ist sie eine Dauer.)
     """
     for n in range(1, versuche + 1):
         r = sender.call("keyframe", timeout=5)

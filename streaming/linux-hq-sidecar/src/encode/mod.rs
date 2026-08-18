@@ -684,16 +684,60 @@ unsafe fn open_encoder(
 /// auf `cbr` mit fester Bitrate. Er kostet Bildqualitaet, weil mehr Bits in die
 /// Vollbilder gehen. Beides gehoert gemessen, bevor die Vorgabe sich aendert —
 /// deshalb ein Schalter und keine neue Zahl.
+///
+/// **Warum die Obergrenze seit 2026-08-18 bei [`KEYFRAME_SEKUNDEN_MAX`] statt
+/// bei 10 liegt.** Die 10 waren eine hingeschriebene Zahl — es gibt im ganzen
+/// Repo keine Messung und keinen Satz, der sie herleitet. Inzwischen liegen
+/// drei Schichten vor dem regulaeren Takt (NACK, FlexFEC, angefordertes
+/// Vollbild ueber PLI, letzteres in 11 ms beantwortet), er ist also von der
+/// Hauptrettung zur letzten Reserve geworden. Dass er als Reparaturwerkzeug
+/// ohnehin schwach ist, ist gemessen: vierfach haeufigere Vollbilder brachten
+/// die Stillstaende nur von 12 auf 9 je 19 s
+/// (`verlust-2026-07-28-keyframe-abstand.json`). Was ein laengerer Abstand
+/// dagegen belegbar bringt, sind kleinere Uebertragungsspitzen — bei 20 s GOP
+/// fiel p99 im 100-ms-Fenster von 12053 auf 5108 kbit/s
+/// (`docs/plans/2026-07-31-av-sync-und-uebertragungsspitzen.md`).
+///
+/// **Bei eingeschaltetem Intra-Refresh bedeutet der Wert etwas anderes**: dort
+/// ist er die Umlaufdauer der Auffrischungswelle, nicht der Vollbild-Abstand.
+/// Ein langer Wert laesst eine verlorene Bildstelle entsprechend lange stehen.
+///
+/// Ein Wert ausserhalb der Grenzen wird **gemeldet**, nicht stillschweigend
+/// verworfen: die stille Rueckkehr auf die Vorgabe hat genau die Sorte
+/// Messreihe erzeugt, die unter falschem Etikett laeuft (vgl. der
+/// Intra-Refresh-Vorfall vom 2026-08-02 weiter oben).
 fn keyframe_abstand_bilder(fps: u32) -> u32 {
-    let sekunden = std::env::var("PULSE_KEYFRAME_SECONDS")
-        .ok()
-        .and_then(|v| v.parse::<f32>().ok())
-        .filter(|v| (0.1..=10.0).contains(v))
-        .unwrap_or(2.0);
+    let sekunden = match std::env::var("PULSE_KEYFRAME_SECONDS").ok().as_deref() {
+        None => KEYFRAME_SEKUNDEN_VORGABE,
+        Some(roh) => match roh.parse::<f32>() {
+            Ok(v) if (KEYFRAME_SEKUNDEN_MIN..=KEYFRAME_SEKUNDEN_MAX).contains(&v) => v,
+            _ => {
+                tracing::warn!(
+                    target: "stream", wert = roh,
+                    min = KEYFRAME_SEKUNDEN_MIN, max = KEYFRAME_SEKUNDEN_MAX,
+                    vorgabe = KEYFRAME_SEKUNDEN_VORGABE,
+                    "PULSE_KEYFRAME_SECONDS unbrauchbar — es gilt die Vorgabe"
+                );
+                KEYFRAME_SEKUNDEN_VORGABE
+            }
+        },
+    };
     // Mindestens ein Bild — ein GOP von 0 hiesse "jedes Bild ein Vollbild" und
     // wuerde von manchen Encodern als "unbegrenzt" gelesen.
     ((fps as f32 * sekunden).round() as u32).max(1)
 }
+
+/// Vollbild-Abstand in Sekunden, wenn nichts gesagt wird. Wie bei GSR.
+const KEYFRAME_SEKUNDEN_VORGABE: f32 = 2.0;
+const KEYFRAME_SEKUNDEN_MIN: f32 = 0.1;
+
+/// Obergrenze fuer `PULSE_KEYFRAME_SECONDS`.
+///
+/// Eine Grenze muss es geben — ein vertippter Wert soll keinen Strom erzeugen,
+/// in den niemand mehr einsteigt. 120 s ist doppelt so viel wie der laengste
+/// Abstand, ueber den ueberhaupt nachgedacht wurde, und liegt damit weit genug
+/// weg, um nichts Sinnvolles abzuschneiden.
+const KEYFRAME_SEKUNDEN_MAX: f32 = 120.0;
 
 /// Offene Anforderung eines Vollbilds.
 ///
@@ -741,11 +785,26 @@ fn jetzt_ms() -> u64 {
 /// dekodierbar ist — aber die Ursache ist allgemein: die Anforderung eines
 /// Zuschauers darf den Strom fuer alle anderen nicht ruinieren.
 ///
-/// **Warum genau dieser Wert.** Der Abstand regulaerer Vollbilder
-/// (`PULSE_KEYFRAME_SECONDS`, Vorgabe 2 s) ist die natuerliche Obergrenze: Mit
-/// ihr ist der angeforderte Weg NIE schlechter als der alte Betrieb mit festem
-/// Takt. Die erste Anforderung nach einer Ruhephase wird sofort beantwortet —
-/// gedrosselt wird nur das Nachfassen.
+/// **Warum genau dieser Wert.** Er folgt dem Abstand regulaerer Vollbilder —
+/// aber hoechstens bis [`KEYFRAME_DROSSEL_DECKEL_MS`]. Der erste Teil haelt die
+/// Zusage von frueher: mit ihm ist der angeforderte Weg NIE schlechter als ein
+/// fester Takt derselben Laenge. Die erste Anforderung nach einer Ruhephase
+/// wird sofort beantwortet — gedrosselt wird nur das Nachfassen.
+///
+/// **Warum der Deckel seit 2026-08-18 dazugehoert.** Ohne ihn war die Bremse an
+/// `PULSE_KEYFRAME_SECONDS` gekoppelt, und diese Kopplung kippt, sobald der
+/// Takt lang wird: bei 60 s Abstand haette der Sender 60 s lang jede
+/// Anforderung verworfen. Genau die Schicht, die einen langen Takt ueberhaupt
+/// vertretbar macht (Late-Join und Verlust-Erholung ueber PLI), waere damit
+/// tot gewesen — der zweite Zuschauer haette bis zu 60 s nichts gesehen, und
+/// wo gar kein Vollbild ankommt, ist das Ergebnis gemessen **0 Bilder gegen
+/// 2228**.
+///
+/// Die alte Begruendung („nie schlechter als der feste Takt") bleibt dabei
+/// gewahrt, nur bezogen auf die VORGABE statt auf den eingestellten Wert: mehr
+/// als ein Vollbild je [`KEYFRAME_DROSSEL_DECKEL_MS`] konnte ein Zuschauer auch
+/// vorher nie erzwingen, und genau das ist der Schutz, um den es beim Vorfall
+/// vom 2026-08-02 ging.
 ///
 /// `PULSE_KEYFRAME_MIN_ABSTAND_MS` setzt ihn fuer Messungen ausser Kraft (0 =
 /// jede Anforderung beantworten, das Verhalten vor dieser Aenderung).
@@ -757,8 +816,21 @@ fn keyframe_mindestabstand_ms(fps: u32) -> u64 {
         return v;
     }
     let bilder = keyframe_abstand_bilder(fps) as u64;
-    bilder.saturating_mul(1000) / fps.max(1) as u64
+    let takt_ms = bilder.saturating_mul(1000) / fps.max(1) as u64;
+    takt_ms.min(KEYFRAME_DROSSEL_DECKEL_MS)
 }
+
+/// Obergrenze der Bremse fuer angeforderte Vollbilder.
+///
+/// Entspricht der Vorgabe von `PULSE_KEYFRAME_SECONDS` (2 s) — der Wert, gegen
+/// den der Schutz vom 2026-08-02 ausgelegt wurde. Ein Zuschauer kann damit
+/// hoechstens ein Vollbild je zwei Sekunden ausloesen, unabhaengig davon, wie
+/// lang der regulaere Takt eingestellt ist.
+/// Muss der Vorgabe entsprechen — festgehalten von
+/// `drossel_deckel_entspricht_der_vorgabe`, damit die beiden Zahlen nicht
+/// auseinanderlaufen (Gleitkomma-Rechnung im `const` waere hier der
+/// unbequemere Weg).
+const KEYFRAME_DROSSEL_DECKEL_MS: u64 = 2_000;
 
 /// Beim naechsten Bild ein Vollbild erzeugen.
 pub fn request_keyframe() {
@@ -1017,10 +1089,16 @@ mod format_hint_tests {
 mod keyframe_sperrfrist_tests {
     use super::*;
 
+    /// Alle Tests hier stellen dieselben Umgebungsvariablen um. Ohne
+    /// Serialisierung liest der eine die Einstellung des anderen — und zwar
+    /// nicht als Fehlschlag, sondern als falsches Ergebnis.
+    static ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     /// Die Sperrfrist ist der Schutz davor, dass EIN Empfaenger den Strom fuer
     /// alle ruiniert (2026-08-02: 766 erzwungene Vollbilder, eins alle 420 ms).
     #[test]
     fn zweite_anforderung_wird_zusammengefasst() {
+        let _wache = ENV.lock().unwrap_or_else(|p| p.into_inner());
         unsafe { std::env::set_var("PULSE_KEYFRAME_MIN_ABSTAND_MS", "60000") };
         LETZTES_VOLLBILD_MS.store(NIE, std::sync::atomic::Ordering::Relaxed);
 
@@ -1045,5 +1123,63 @@ mod keyframe_sperrfrist_tests {
         assert!(take_keyframe_request(60));
 
         unsafe { std::env::remove_var("PULSE_KEYFRAME_MIN_ABSTAND_MS") };
+    }
+
+    /// **Der Kern der Aenderung vom 2026-08-18.** Vorher folgte die Bremse dem
+    /// eingestellten Takt ohne Deckel — ein 60-s-Takt hiesse 60 s Bremse, und
+    /// damit waere die Vollbild-Anforderung tot, auf der ein langer Takt gerade
+    /// beruht. Ein zweiter Zuschauer haette bis zu 60 s nichts gesehen.
+    #[test]
+    fn langer_takt_verlaengert_die_bremse_nicht() {
+        let _wache = ENV.lock().unwrap_or_else(|p| p.into_inner());
+        unsafe { std::env::remove_var("PULSE_KEYFRAME_MIN_ABSTAND_MS") };
+        unsafe { std::env::set_var("PULSE_KEYFRAME_SECONDS", "60") };
+
+        assert_eq!(keyframe_abstand_bilder(60), 3600, "der Takt selbst folgt der Einstellung");
+        assert_eq!(
+            keyframe_mindestabstand_ms(60),
+            KEYFRAME_DROSSEL_DECKEL_MS,
+            "die Bremse darf dem langen Takt NICHT folgen"
+        );
+
+        unsafe { std::env::remove_var("PULSE_KEYFRAME_SECONDS") };
+    }
+
+    /// Der Deckel ist eine Obergrenze, keine feste Zahl: bleibt der Takt unter
+    /// ihm, bleibt er massgeblich (sonst waere die alte Zusage gebrochen, dass
+    /// der angeforderte Weg nie schlechter ist als der feste Takt).
+    #[test]
+    fn kurzer_takt_bleibt_massgeblich() {
+        let _wache = ENV.lock().unwrap_or_else(|p| p.into_inner());
+        unsafe { std::env::remove_var("PULSE_KEYFRAME_MIN_ABSTAND_MS") };
+        unsafe { std::env::set_var("PULSE_KEYFRAME_SECONDS", "0.5") };
+
+        assert_eq!(keyframe_mindestabstand_ms(60), 500);
+
+        unsafe { std::env::remove_var("PULSE_KEYFRAME_SECONDS") };
+    }
+
+    /// Ein unbrauchbarer Wert faellt auf die Vorgabe zurueck — aber laut. Die
+    /// stille Rueckkehr war die Falle: eine Messreihe mit „60 s" im Protokoll,
+    /// die in Wahrheit mit 2 s lief, sieht vollkommen plausibel aus.
+    #[test]
+    fn unbrauchbarer_wert_faellt_auf_die_vorgabe() {
+        let _wache = ENV.lock().unwrap_or_else(|p| p.into_inner());
+        let vorgabe = (60.0 * KEYFRAME_SEKUNDEN_VORGABE) as u32;
+
+        for roh in ["blah", "0", "-5", "100000"] {
+            unsafe { std::env::set_var("PULSE_KEYFRAME_SECONDS", roh) };
+            assert_eq!(keyframe_abstand_bilder(60), vorgabe, "Wert {roh:?}");
+        }
+
+        unsafe { std::env::remove_var("PULSE_KEYFRAME_SECONDS") };
+        assert_eq!(keyframe_abstand_bilder(60), vorgabe, "ohne Variable die Vorgabe");
+    }
+
+    /// Haelt die beiden Zahlen zusammen, die im `const` nicht voneinander
+    /// abgeleitet werden konnten.
+    #[test]
+    fn drossel_deckel_entspricht_der_vorgabe() {
+        assert_eq!(KEYFRAME_DROSSEL_DECKEL_MS, (KEYFRAME_SEKUNDEN_VORGABE * 1000.0) as u64);
     }
 }

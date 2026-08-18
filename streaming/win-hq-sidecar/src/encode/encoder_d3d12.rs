@@ -146,7 +146,7 @@ impl FfmpegD3d12Encoder {
         encoder.set_frame_rate(Some(Rational::new(cfg.fps as i32, 1)));
         encoder.set_bit_rate((cfg.bitrate_kbps as usize).saturating_mul(1000));
         encoder.set_max_bit_rate((cfg.bitrate_kbps as usize).saturating_mul(1000));
-        encoder.set_gop(cfg.fps.saturating_mul(2));
+        encoder.set_gop(crate::keyframe::abstand_bilder(cfg.fps));
         if global_header {
             encoder.set_flags(codec::Flags::GLOBAL_HEADER);
         }
