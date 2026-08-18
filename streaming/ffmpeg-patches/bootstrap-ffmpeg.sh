@@ -108,11 +108,34 @@ opts=(
     --enable-libdav1d
 )
 
+# AUF NVIDIA IST DIESER ZWEIG NICHT OPTIONAL, auch wenn die Meldung unten
+# harmlos klingt: ohne NVENC hat der fertige Sidecar GAR KEINEN Encoder. Sein
+# `health` meldet dann `video_codecs: []`, die Oberflaeche blendet den
+# HQ-Knopf aus, und nichts sagt einem warum. Auf Arch heisst das Paket
+# `ffnvcodec-headers`.
+#
+# DIE HEADER DUERFEN ABER NICHT ZU NEU SEIN. Ab `n13.1.15.0` ist
+# `NV_ENC_CLOCK_TIMESTAMP_SET.countingType` in `countingTypeLSB`/`…MSB`
+# aufgeteilt; das hier gebaute FFmpeg (s. VERSION oben) kennt nur den alten
+# Namen und bricht mit
+#   nvenc.c: »NV_ENC_CLOCK_TIMESTAMP_SET« hat kein Element namens »countingType«
+# ab. Letzte passende Fassung ist `n13.0.19.0`. Wenn die Distribution schon
+# weiter ist, NICHT das Systempaket herunterstufen (das naechste Systemupdate
+# hebt es wieder an), sondern daneben legen:
+#
+#   git clone https://github.com/FFmpeg/nv-codec-headers && cd nv-codec-headers
+#   git checkout n13.0.19.0 && make install PREFIX=~/.cache/pulse/nv-codec-headers-n13.0
+#   export PKG_CONFIG_PATH=~/.cache/pulse/nv-codec-headers-n13.0/lib/pkgconfig:$PKG_CONFIG_PATH
+#   PULSE_FFMPEG_NEUBAU=1 scripts/hq-bauen.sh
+#
+# Gegen das System-FFmpeg zu bauen ist KEIN Ausweg: die `ffmpeg-next`-Crate
+# haengt an der API dieser Fassung (mit n9.0.1 bricht schon `cargo build` ab).
 if pkg-config --exists ffnvcodec 2>/dev/null; then
     echo "==> nv-codec-headers gefunden — NVENC/NVDEC kommen mit"
     opts+=(--enable-nvenc --enable-ffnvcodec --enable-cuvid --enable-nvdec)
 else
-    echo "==> nv-codec-headers fehlen — Bau ohne NVENC/NVDEC (auf AMD/Intel richtig so)"
+    echo "==> nv-codec-headers fehlen — Bau ohne NVENC/NVDEC (auf AMD/Intel richtig so,"
+    echo "    auf NVIDIA bekommt der Sidecar dadurch KEINEN Encoder — s. Kommentar hier)"
 fi
 
 cd "$quelle"
