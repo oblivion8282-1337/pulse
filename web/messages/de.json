@@ -2899,5 +2899,6 @@
   "whep_player_popup_blocked": "Popup blockiert",
   "whep_player_popup_blocked_description": "Bitte erlaube Pop-up-Fenster für Pulse und versuche es erneut.",
   "whep_player_stream_load_failed": "Stream konnte nicht geladen werden",
-  "whep_player_waiting_for_stream": "Warte auf den Stream…"
+  "whep_player_waiting_for_stream": "Warte auf den Stream…",
+  "standplatz_settings_platform_only": "Fernsteuerung gibt es zurzeit nur unter Windows. Dieser Rechner meldet sich deshalb nicht als Remote-Rechner an und erscheint für andere als offline. Eine bestehende Eintragung kannst du hier entfernen."
 }
