@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-18.8",
+      "date": "2026-08-18",
+      "style": "Sachlich",
+      "title": "Tote Links zeigen jetzt eine Seite statt gar nichts",
+      "items": [
+        "Führt ein Link ins Leere — ein gelöschter Kanal, ein abgelaufener Einladungslink, eine unvollständige Adresse —, siehst du jetzt einen Hinweis und einen Knopf zurück zu Pulse. Bisher blieb das Fenster in diesen Fällen einfach weiß, ohne Text und ohne Weg zurück."
+      ]
+    },
+    {
       "id": "2026-08-18.7",
       "date": "2026-08-18",
       "style": "Sachlich",
