@@ -120,6 +120,31 @@ pub fn vendor_defaults(vendor: Vendor, codec: &str) -> Dictionary<'static> {
             opts.set("tune", "ull");
             opts.set("rc", "cbr");
             opts.set("b_ref_mode", "0");
+            // **`forced-idr` gehoert IMMER hierher, nicht nur zu Intra-Refresh**
+            // (2026-08-18, an einer echten Zwei-Rechner-Strecke gefunden).
+            //
+            // Ohne die Option kodiert NVENC ein ANGEFORDERTES Vollbild nicht
+            // zwingend als IDR — und nur ein IDR ist ein Einstiegspunkt, an dem
+            // ein neu dazukommender Zuschauer anfangen kann. Bis heute stand
+            // sie ausschliesslich in [`intra_refresh_opts`], weil dort der
+            // ganze Strom an der Anforderung haengt. Im Vollbild-Betrieb schien
+            // sie entbehrlich: bei zwei Sekunden Takt kam ohnehin sofort ein
+            // regulaeres IDR hinterher.
+            //
+            // Mit der Vorgabe von 60 s (s. `KEYFRAME_SEKUNDEN_VORGABE`) ist
+            // diese Annahme weggefallen, und der Fehler wurde sichtbar —
+            // ausgerechnet nur in EINER Richtung, was die Suche lange in die
+            // falsche Ecke lenkte: der AMD-Rechner (VAAPI) sendete einwandfrei,
+            // der NVIDIA-Rechner (NVENC) lieferte ein schwarzes Bild, bis nach
+            // bis zu einer Minute das naechste regulaere Vollbild kam. VAAPI
+            // macht aus einer Anforderung ohnehin ein IDR (2026-08-01
+            // nachgemessen: drei angeforderte Keyframes, drei IDR), NVENC nicht.
+            //
+            // Kostenlos ist sie nicht ganz — sie zwingt jedes angeforderte Bild
+            // zum IDR statt zu einem billigeren I-Bild. Genau das ist aber der
+            // Zweck: ein Vollbild, in das niemand einsteigen kann, ist die
+            // teurere Variante von gar keinem.
+            opts.set("forced-idr", "1");
             // Hier stand mal: "preset/Multipass/rc-lookahead nur bei tune=quality".
             // Das ist FALSCH — 2026-07-19 nachgemessen (RTX 4090, ffmpeg-nvenc):
             // `preset`/`multipass`/`spatial-aq` werden auch mit tune=ll angenommen
@@ -308,6 +333,13 @@ pub fn intra_refresh_gewuenscht() -> bool {
 /// (`set_gop`, 2 s), und beide Encoder machen daraus dasselbe — NVENC liest
 /// `gopLength` als Refresh-Periode und schaltet den GOP danach auf unendlich
 /// (`nvenc.c:1309ff`), der VAAPI-Patch genauso.
+///
+/// **`forced-idr` steht seit dem 2026-08-18 zusaetzlich im Regelzweig**
+/// ([`vendor_opts`], Nvidia-Arm) und damit auch ohne Intra-Refresh — es geht um
+/// beantwortete Vollbild-Anforderungen, und die sind in BEIDEN Betriebsarten
+/// der kritische Weg. Hier bleibt es stehen, weil diese Liste zugleich die
+/// Faehigkeitsprobe ist ([`fehlende_intra_refresh_option`]); doppelt gesetzt
+/// schadet nicht, derselbe Schluessel mit demselben Wert.
 ///
 /// `forced-idr` nur bei NVENC: dort wird ein angeforderter Keyframe sonst
 /// nicht zwingend als IDR kodiert. VAAPI macht daraus ohnehin eins
@@ -546,6 +578,12 @@ fn apply_override(opts: &mut Dictionary<'_>) {
 mod intra_refresh_tests {
     use super::*;
 
+    /// `intra_refresh_setzen` schreibt prozessweiten Zustand — ohne
+    /// Serialisierung verstellt ein Test die Betriebsart, waehrend der
+    /// andere sie liest. Einzeln sind dann beide gruen, zusammen faellt
+    /// einer: genau so ist es am 2026-08-18 aufgelaufen.
+    static BETRIEBSART: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     /// Der Weg vom Start-Parameter bis in die Encoder-Optionen — die Strecke,
     /// auf der der Wunsch am 2026-08-02 verlorenging (die Oberflaeche schickte
     /// das Feld gar nicht erst mit, und nichts fiel auf).
@@ -554,6 +592,7 @@ mod intra_refresh_tests {
     /// einander den Zustand umstellen.
     #[test]
     fn wunsch_erreicht_die_encoder_optionen() {
+        let _wache = BETRIEBSART.lock().unwrap_or_else(|p| p.into_inner());
         intra_refresh_setzen(true);
         assert!(intra_refresh_gewuenscht());
         for vendor in [Vendor::Nvidia, Vendor::Amd, Vendor::Intel] {
@@ -572,8 +611,43 @@ mod intra_refresh_tests {
         for vendor in [Vendor::Nvidia, Vendor::Amd, Vendor::Intel] {
             let opts = vendor_opts(vendor, "h264");
             for (key, _) in intra_refresh_opts(vendor) {
+                // `forced-idr` ist die AUSNAHME und steht seit dem 2026-08-18
+                // absichtlich in beiden Betriebsarten — s. der eigene Test
+                // darunter. Ohne diese Zeile prueft der Test noch die alte
+                // Zusage und schlaegt gegen die Absicht an.
+                if key == &"forced-idr" {
+                    continue;
+                }
                 assert_eq!(opts.get(key), None, "{key} steht trotz Absage in den Optionen");
             }
         }
+    }
+
+    /// **Der Fehler vom 2026-08-18, als Test.**
+    ///
+    /// Ohne `forced-idr` kodiert NVENC ein angefordertes Vollbild nicht
+    /// zwingend als IDR — und nur ein IDR ist ein Einstiegspunkt. Bis dahin
+    /// stand die Option nur im Intra-Refresh-Zweig; mit der 60-s-Vorgabe und
+    /// abgewaehltem Intra-Refresh fiel sie damit weg, und ein Zuschauer sah
+    /// ein schwarzes Bild, bis nach bis zu einer Minute das naechste regulaere
+    /// Vollbild kam. Sichtbar wurde es nur in EINER Richtung: VAAPI macht aus
+    /// einer Anforderung ohnehin ein IDR, NVENC nicht.
+    ///
+    /// Der Windows-Sidecar setzt sie laengst unbedingt — das hier stellt den
+    /// Gleichstand her und haelt ihn fest.
+    #[test]
+    fn nvenc_erzwingt_idr_in_beiden_betriebsarten() {
+        let _wache = BETRIEBSART.lock().unwrap_or_else(|p| p.into_inner());
+        for an in [true, false] {
+            intra_refresh_setzen(an);
+            let opts = vendor_opts(Vendor::Nvidia, "h264");
+            assert_eq!(
+                opts.get("forced-idr"),
+                Some("1"),
+                "forced-idr fehlt bei intra_refresh={an} — angeforderte Vollbilder waeren \
+                 dann nicht zwingend IDR, und niemand koennte einsteigen"
+            );
+        }
+        intra_refresh_setzen(false);
     }
 }
