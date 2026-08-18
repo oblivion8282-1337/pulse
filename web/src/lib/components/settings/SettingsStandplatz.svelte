@@ -45,9 +45,13 @@
   import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
   import type { Member } from '$lib/api/types';
   import { isElectron } from '$lib/platform/runtime';
+  import { darfStandplatzSein } from '$lib/remote/darfStandplatzSein';
   import { m } from '$lib/paraglide/messages.js';
 
   const desktop = isElectron();
+  // Kann sich dieser Rechner ueberhaupt steuern lassen? Dieselbe Bedingung
+  // wie beim Reiter-Gate und bei der Anmeldung (`darfStandplatzSein`).
+  const kannStandplatz = darfStandplatzSein();
 
   // Entwurf im Formular, erst „Freigeben" schreibt ihn fest. Ohne diese
   // Trennung stünde das Gerät schon scharf, während jemand noch die
@@ -241,6 +245,16 @@
     <p class="border-border text-text-muted rounded-2xl border border-dashed p-4 text-sm">
       {m.standplatz_settings_desktop_only()}
     </p>
+  {:else if !kannStandplatz}
+    <!-- Desktop, aber ohne Gegenstelle (Linux/macOS). Hier steht bewusst NUR
+         der Hinweis und die Eintragung: alles andere — Dauerfreigabe,
+         Standplatz-Profil, Berechtigte — richtet etwas ein, das dieser Rechner
+         nicht einloesen kann. Die Eintragung bleibt, weil sie der einzige Weg
+         ist, eine unter Windows angelegte Zeile wieder loszuwerden. -->
+    <p class="border-border text-text-muted rounded-2xl border border-dashed p-4 text-sm">
+      {m.standplatz_settings_platform_only()}
+    </p>
+    <SettingsGeraeteEintragung />
   {:else}
     <!-- Zustand -->
     <div class="border-border flex items-center gap-3 rounded-2xl border p-4">

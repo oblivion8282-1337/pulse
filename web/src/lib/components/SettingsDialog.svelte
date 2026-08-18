@@ -50,6 +50,8 @@
   import { sounds } from '$lib/sounds/engine';
   import { isCapacitorAndroid, isElectron } from '$lib/platform/runtime';
   import { darfStandplatzSein } from '$lib/remote/darfStandplatzSein';
+  import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
+  import { activeServer } from '$lib/stores/active-server.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
@@ -114,7 +116,17 @@
   // liegt gemeinsam in `remote/darfStandplatzSein.ts`, weil Reiter und
   // Anmeldung schon einmal auseinanderliefen: der Reiter war unter Linux
   // versteckt, die vorhandene Eintragung meldete sich trotzdem weiter an.
-  const istWindows = darfStandplatzSein();
+  //
+  // ODER: es liegt bereits eine Eintragung fuer diesen Server vor. Ohne dieses
+  // Oder waere der Reiter die Falle, die er am 2026-08-18 kurz war — die
+  // EINZIGE Stelle zum Entfernen einer Eintragung sitzt darin
+  // (`SettingsGeraeteEintragung`). Wer einen Rechner unter Windows eingetragen
+  // hat und ihn spaeter unter Linux startet, saehe sonst dauerhaft eine
+  // Geraetezeile in der Kanalliste und haette keinen Weg mehr, sie loszuwerden.
+  // Was man anlegen kann, muss man ueberall wieder abraeumen koennen.
+  const istWindows = $derived(
+    darfStandplatzSein() || !!geraeteAnmeldung.fuerServer(activeServer.serverId),
+  );
 
   // Für die Teile INNERHALB des Tabs, die es wirklich nur unter Linux gibt
   // (die Notbremse zurück auf den GSR-Sidecar).
