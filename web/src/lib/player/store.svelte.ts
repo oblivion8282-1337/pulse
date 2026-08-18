@@ -68,7 +68,9 @@ export const playerSettings = $state({
    * der native Weg wird unberechenbar (Mediane 369 / 38 / 190 ms ueber drei
    * identische Laeufe, Ausschlag in jedem Lauf zwischen 366 und 539 ms). Grund:
    * nach jeder Luecke wartet der Decoder auf den naechsten Einstiegspunkt, und
-   * der kommt nur alle zwei Sekunden; Chromium dekodiert stattdessen weiter.
+   * der kam damals nur alle zwei Sekunden (Vorgabe seit dem 2026-08-18:
+   * sechzig — das Argument wiegt also eher schwerer, aufgefangen wird es vom
+   * Vollbild auf Anforderung); Chromium dekodiert stattdessen weiter.
    *
    * Heute ohne Folgen, weil `useNativePlayer` per Vorgabe aus ist und keine
    * Oberflaeche hat. Aber: **als Vorgabe fuer Zuschauer taugt der native Weg

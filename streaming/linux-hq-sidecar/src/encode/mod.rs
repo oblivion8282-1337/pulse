@@ -669,7 +669,8 @@ unsafe fn open_encoder(
     Ok(opened)
 }
 
-/// Keyframe-Abstand in Bildern. Vorgabe zwei Sekunden wie bei GSR.
+/// Keyframe-Abstand in Bildern. Vorgabe s. [`KEYFRAME_SEKUNDEN_VORGABE`]
+/// (seit 2026-08-18 sechzig Sekunden, davor zwei wie bei GSR).
 ///
 /// **Warum das einstellbar ist.** Der Abstand ist der einzige Hebel, den der
 /// Sender gegen Paketverlust hat, solange kein Rueckkanal existiert. Am
@@ -727,8 +728,53 @@ fn keyframe_abstand_bilder(fps: u32) -> u32 {
     ((fps as f32 * sekunden).round() as u32).max(1)
 }
 
-/// Vollbild-Abstand in Sekunden, wenn nichts gesagt wird. Wie bei GSR.
-const KEYFRAME_SEKUNDEN_VORGABE: f32 = 2.0;
+/// Vollbild-Abstand in Sekunden, wenn nichts gesagt wird.
+///
+/// **Seit dem 2026-08-18: 60 s statt 2 s.** Die 2 s stammten von GSR und waren
+/// richtig, solange der regulaere Takt die einzige Rettung nach einem Verlust
+/// war. Heute liegen drei Schichten davor (NACK, FlexFEC, angefordertes
+/// Vollbild ueber PLI — und der Sendeweg ist seit demselben Tag immer WHIP, hat
+/// also immer einen Rueckkanal).
+///
+/// **Gemessen an der echten Leitung** (2026-08-18, drei Mitschnitte des
+/// ausgehenden Stroms, AV1/VAAPI 1080p60 bei 2000 kbps, je 2,5–7,5 Minuten;
+/// Auswertung ueber `streaming/testbench/aufschlag.py`-Bausteine):
+///
+/// | Takt | Stoss-Fenster | p99 / Rate | groesste Spitze / Rate |
+/// |---|---|---|---|
+/// | 30 s | 4,06 % | 4,1x | 6,9x |
+/// | **60 s** | **2,16 %** | **2,8x** | **5,7x** |
+/// | 120 s | 2,96 % | 3,4x | 7,2x |
+///
+/// **120 s ist wieder schlechter, und das ist der eigentliche Fund.** Ein
+/// Vollbild wiegt rund 110 kB gegen 4 kB fuer ein normales Bild — die HOEHE der
+/// Spitze aendert sich durch den Takt nicht, nur ihre Haeufigkeit. Ab etwa
+/// einer Minute bestimmt aber nicht mehr die Einstellung, wie oft ein Vollbild
+/// kommt, sondern der Bedarf der Zuschauer: im 120-s-Lauf kamen neun Vollbilder
+/// in 449 s, obwohl der Takt nur vier vorsah, und sie kamen in Haeufungen statt
+/// gleichmaessig verteilt. Genau das verschlechtert die Spitzenwerte wieder.
+///
+/// **Was NICHT gemessen ist:** alle drei Laeufe liefen auf einer sauberen
+/// Leitung (null Nachlieferungen). Unter echtem Paketverlust wird der
+/// Rueckkanal zur alleinigen Rettung, und ein angefordertes Vollbild ist ein
+/// Schwall aus 25–35 Paketen, der bei 5 % Verlust nur zu rund 28 % heil
+/// ankommt. Wer den Wert wieder senkt, tut es aus diesem Grund.
+const KEYFRAME_SEKUNDEN_VORGABE: f32 = 60.0;
+
+/// Der Abstand, fuer den die Schutzmechanismen ausgelegt WURDEN.
+///
+/// **Nicht dasselbe wie die Vorgabe, seit die Vorgabe gewandert ist.** Zwei
+/// Stellen haengen an dieser Zahl, und beide wuerden kaputtgehen, wenn sie der
+/// Vorgabe folgte:
+///
+/// * [`KEYFRAME_DROSSEL_DECKEL_MS`] — die Bremse fuer angeforderte Vollbilder.
+///   Folgte sie 60 s, verwuerfe der Sender eine Anforderung eine Minute lang;
+///   genau dieser Fehler wurde am 2026-08-18 gefunden und behoben.
+/// * [`warne_bei_intra_refresh_ohne_rueckkanal`] — die Warnschwelle. Folgte sie
+///   der Vorgabe, bliebe ausgerechnet der Normalfall (60 s ueber einen Weg ohne
+///   Rueckkanal) stumm, obwohl er der gefaehrlichste ist.
+const KEYFRAME_SEKUNDEN_UNBEDENKLICH: f32 = 2.0;
+
 const KEYFRAME_SEKUNDEN_MIN: f32 = 0.1;
 
 /// Obergrenze fuer `PULSE_KEYFRAME_SECONDS`.
@@ -826,10 +872,13 @@ fn keyframe_mindestabstand_ms(fps: u32) -> u64 {
 /// den der Schutz vom 2026-08-02 ausgelegt wurde. Ein Zuschauer kann damit
 /// hoechstens ein Vollbild je zwei Sekunden ausloesen, unabhaengig davon, wie
 /// lang der regulaere Takt eingestellt ist.
-/// Muss der Vorgabe entsprechen — festgehalten von
-/// `drossel_deckel_entspricht_der_vorgabe`, damit die beiden Zahlen nicht
-/// auseinanderlaufen (Gleitkomma-Rechnung im `const` waere hier der
-/// unbequemere Weg).
+/// Muss [`KEYFRAME_SEKUNDEN_UNBEDENKLICH`] entsprechen — festgehalten von
+/// `drossel_deckel_entspricht_dem_unbedenklichen_abstand`, damit die beiden
+/// Zahlen nicht auseinanderlaufen (Gleitkomma-Rechnung im `const` waere hier
+/// der unbequemere Weg).
+///
+/// **Bewusst NICHT an der Vorgabe:** die ist seit dem 2026-08-18 60 s, und eine
+/// Bremse von 60 s waere der Fehler, den dieselbe Aenderung behoben hat.
 const KEYFRAME_DROSSEL_DECKEL_MS: u64 = 2_000;
 
 /// Beim naechsten Bild ein Vollbild erzeugen.
@@ -1075,10 +1124,10 @@ fn warne_bei_intra_refresh_ohne_rueckkanal(output_path: &str) {
         return;
     }
     let sekunden = keyframe_abstand_sekunden();
-    if sekunden > KEYFRAME_SEKUNDEN_VORGABE {
+    if sekunden > KEYFRAME_SEKUNDEN_UNBEDENKLICH {
         tracing::warn!(
             target: "stream", format, sekunden,
-            vorgabe = KEYFRAME_SEKUNDEN_VORGABE,
+            unbedenklich = KEYFRAME_SEKUNDEN_UNBEDENKLICH,
             "Langer Vollbild-Abstand ohne RTCP-Rueckkanal: dieser Weg kann keine \
              Vollbild-Anforderung zustellen — ein beitretender Zuschauer wartet bis zum \
              naechsten regulaeren Vollbild, also bis zu so viele Sekunden. Ueber WHIP \
@@ -1217,8 +1266,22 @@ mod keyframe_sperrfrist_tests {
     /// Haelt die beiden Zahlen zusammen, die im `const` nicht voneinander
     /// abgeleitet werden konnten.
     #[test]
-    fn drossel_deckel_entspricht_der_vorgabe() {
-        assert_eq!(KEYFRAME_DROSSEL_DECKEL_MS, (KEYFRAME_SEKUNDEN_VORGABE * 1000.0) as u64);
+    fn drossel_deckel_entspricht_dem_unbedenklichen_abstand() {
+        assert_eq!(
+            KEYFRAME_DROSSEL_DECKEL_MS,
+            (KEYFRAME_SEKUNDEN_UNBEDENKLICH * 1000.0) as u64
+        );
+    }
+
+    /// Der Fund vom 2026-08-18, als Test festgehalten: die Bremse darf der
+    /// Vorgabe NICHT folgen. Waere sie an ihr festgemacht, verwuerfe der Sender
+    /// eine Vollbild-Anforderung eine Minute lang.
+    #[test]
+    fn die_bremse_folgt_der_vorgabe_nicht() {
+        assert!(
+            KEYFRAME_DROSSEL_DECKEL_MS < (KEYFRAME_SEKUNDEN_VORGABE * 1000.0) as u64,
+            "Deckel {KEYFRAME_DROSSEL_DECKEL_MS} ms gegen Vorgabe {KEYFRAME_SEKUNDEN_VORGABE} s"
+        );
     }
 
     /// Die Rueckrechnung fuer die Warnung muss denselben Abstand nennen, den der

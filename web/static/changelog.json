@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-18.7",
+      "date": "2026-08-18",
+      "style": "Sachlich",
+      "title": "Bildschirm teilen: ruhigere Übertragung",
+      "intro": "Eine Einstellung am Encoder, die auf der Leitung deutlich weniger Stösse erzeugt.",
+      "items": [
+        "Beim Teilen deines Bildschirms wird das vollständige Einzelbild, das die Übertragung regelmässig auffrischt, jetzt seltener geschickt. Es ist rund dreissigmal so gross wie ein normales Bild und belastete die Leitung bisher alle zwei Sekunden — gemessen sinken die Lastspitzen dadurch auf etwa die Hälfte.",
+        "Spürbar wird das vor allem auf schwächeren oder unruhigen Verbindungen: weniger kurze Aussetzer, gleichmässigeres Bild. Wer beitritt, bekommt sein erstes Bild weiterhin sofort — das wird eigens angefordert."
+      ]
+    },
+    {
       "id": "2026-08-18.6",
       "date": "2026-08-18",
       "style": "Sachlich",

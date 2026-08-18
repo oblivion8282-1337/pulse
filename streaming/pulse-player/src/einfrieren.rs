@@ -295,9 +295,13 @@ const EINFRIER_BILDER: u32 = 90;
 /// Wie lange dasselbe Bild MINDESTENS gestanden haben muss.
 ///
 /// **Die eigentliche Untergrenze, und die einzige, die nicht an der Bildrate
-/// haengt.** Der Sender legt alle zwei Sekunden ein Vollbild bzw. einen
-/// abgeschlossenen Auffrischungsdurchlauf hin, und dabei aendert sich das
-/// dekodierte Bild auch bei stehendem Inhalt (Messreihe im Modulkopf); ein
+/// haengt.** Der Sender legte damals alle zwei Sekunden ein Vollbild bzw.
+/// einen abgeschlossenen Auffrischungsdurchlauf hin (seine Vorgabe steht seit
+/// dem 2026-08-18 auf sechzig Sekunden — deshalb ist diese Zahl nur noch die
+/// UNTERGRENZE, den wirklichen Takt holt sich
+/// [`EinfrierWacht::mindestdauer`] aus der Beobachtung), und dabei aendert
+/// sich das dekodierte Bild auch bei stehendem Inhalt (Messreihe im
+/// Modulkopf); ein
 /// Fenster darunter liegt systematisch INNERHALB einer Periode und sieht dort
 /// ein Standbild, das keines ist. 2500 ms sind die gemessenen 2000 plus ein
 /// Viertel — der Aufschlag deckt den Jitter des Senders (1999–2001 ms), die
@@ -332,7 +336,8 @@ const EINFRIER_DAUER: std::time::Duration = std::time::Duration::from_millis(2_5
 /// einzelnes auf Anforderung gesendetes Vollbild zieht das Fenster zusammen
 /// (Fehlalarm); zu lang, und ein einmaliger echter Haenger laesst die Wacht
 /// noch minutenlang stumpf. Bei einem Zwei-Sekunden-Takt sind vier Abstaende
-/// acht Sekunden Gedaechtnis.
+/// acht Sekunden Gedaechtnis, bei der heutigen Vorgabe von sechzig Sekunden
+/// entsprechend vier Minuten.
 const VOLLBILD_FENSTER: usize = 4;
 
 /// Wie viele Bytes in derselben Zeit hineingegangen sein muessen.
@@ -441,6 +446,9 @@ pub struct EinfrierWacht {
     /// Ringpuffer, damit ein einzelner Ausreisser wieder herausfaellt.
     vollbild_abstaende: [std::time::Duration; VOLLBILD_FENSTER],
     vollbild_platz: usize,
+    /// Wann zuletzt ein Vollbild gemeldet wurde. `None` = noch keins gesehen;
+    /// dann traegt nur die feste Untergrenze (s. [`EinfrierWacht::mindestdauer`]).
+    letztes_vollbild: Option<std::time::Instant>,
     /// Nur mit `PULSE_PLAYER_TAKT_LOG=1` (s. [`messung::TaktDiagnose`]).
     takt: Option<messung::TaktDiagnose>,
 }
@@ -556,7 +564,10 @@ impl EinfrierWacht {
         // einbricht), steht es lange genug in SEKUNDEN (haelt sie vom
         // Vollbild-Takt des Senders fern, s. [`EINFRIER_DAUER`]), und kommt
         // ueberhaupt noch etwas an (s. [`EINFRIER_BYTES`]).
-        let dauer = self.mindestdauer();
+        // Dieselbe Uhr wie die Pruefung darunter — sonst misst die eine Seite
+        // die echte Zeit und die andere die gestellte, und der Test sieht ein
+        // anderes Fenster als der Betrieb.
+        let dauer = self.mindestdauer_zur_zeit(jetzt);
         let lange_genug = self
             .letzte_aenderung
             .is_some_and(|t| jetzt.saturating_duration_since(t) >= dauer);
@@ -591,18 +602,35 @@ impl EinfrierWacht {
         messung::zahl("PULSE_PLAYER_EINFRIER_BILDER", EINFRIER_BILDER) << self.stufe
     }
 
-    /// Einen beobachteten Vollbild-Abstand des Senders melden.
+    /// Ein angekommenes Vollbild melden — mit seinem Abstand zum vorigen,
+    /// sofern es einen gibt.
     ///
-    /// Der Decoder misst ihn ohnehin (`decode.rs`, `keyframe_abstand`) — hier
-    /// wird er zur Untergrenze von [`EinfrierWacht::mindestdauer`]. Siehe dort,
-    /// warum die Wacht ihn braucht.
-    pub fn vollbild_abstand(&mut self, abstand: std::time::Duration) {
+    /// Der Decoder misst beides ohnehin (`decode.rs`, `keyframe_abstand`); hier
+    /// wird daraus die Untergrenze von [`EinfrierWacht::mindestdauer`]. Siehe
+    /// dort, warum die Wacht das braucht.
+    ///
+    /// **`abstand` ist `None` beim ERSTEN Vollbild einer Sitzung, und gerade
+    /// dieser Fall muss gemeldet werden.** Bis zum zweiten Vollbild gibt es
+    /// keinen Abstand zu beobachten — bei der Vorgabe von 60 s ist das die
+    /// erste Minute. Genau darin braucht die Wacht den Zeitpunkt, um ihr
+    /// Fenster mitwachsen zu lassen.
+    pub fn vollbild_gesehen(&mut self, abstand: Option<std::time::Duration>) {
+        self.vollbild_gesehen_zur_zeit(std::time::Instant::now(), abstand);
+    }
+
+    /// Wie [`EinfrierWacht::vollbild_gesehen`], mit herausgezogener Uhr.
+    pub fn vollbild_gesehen_zur_zeit(
+        &mut self,
+        jetzt: std::time::Instant,
+        abstand: Option<std::time::Duration>,
+    ) {
+        self.letztes_vollbild = Some(jetzt);
         // Sinnlose Werte (Uhr rueckwaerts, doppelte Meldung) draussen lassen:
         // sie koennten das Fenster nur verkuerzen, nie verlaengern, und genau
         // die Richtung ist die gefaehrliche.
-        if abstand.is_zero() {
+        let Some(abstand) = abstand.filter(|a| !a.is_zero()) else {
             return;
-        }
+        };
         self.vollbild_abstaende[self.vollbild_platz] = abstand;
         self.vollbild_platz = (self.vollbild_platz + 1) % VOLLBILD_FENSTER;
     }
@@ -638,12 +666,44 @@ impl EinfrierWacht {
     /// das Fenster sonst zusammenzoege. Das Fenster ist begrenzt, damit ein
     /// einmaliger Ausreisser (echter Haenger) wieder herausfaellt, statt die
     /// Wacht fuer den Rest der Sitzung stumpf zu lassen.
+    /// **Die Wartezeit auf das ZWEITE Vollbild zaehlt mit** (seit 2026-08-18,
+    /// zusammen mit der Vorgabe von 60 s). Vorher stand die Wacht bis dahin auf
+    /// ihrer festen Untergrenze — bei einem Takt von einer Minute also die
+    /// ganze erste Minute lang auf 2,5 s. Auf einem stehenden Bildschirm meldet
+    /// sie darin zwangslaeufig, baut den Decoder neu auf, und weil jeder
+    /// Neuaufbau ein Vollbild anfordert, sieht sie danach einen KURZEN Abstand
+    /// und bleibt kurz — die Anpassung kaeme nie ans Ziel. Ein Ruecksetz-Kreis,
+    /// den erst die lange Vorgabe erzeugt haette.
+    ///
+    /// Der Abstand seit dem letzten Vollbild ist eine Untergrenze fuer den
+    /// echten Takt: solange kein zweites gekommen ist, ist er mindestens so
+    /// gross wie die bisher verstrichene Zeit. Damit waechst das Fenster von
+    /// selbst mit, statt in eine Meldung zu laufen.
+    ///
+    /// **Was das kostet, und es gehoert dazu:** kommt gar kein Vollbild mehr
+    /// UND steht das Bild, waechst das Fenster unbegrenzt weiter — ein wirklich
+    /// haengender Decoder bliebe dann unentdeckt. Das ist kein Versehen,
+    /// sondern die Grenze des Verfahrens: ohne Vollbild sind „stehender Inhalt"
+    /// und „Decoder haengt" am Bild nicht zu unterscheiden. Dafuer greift der
+    /// andere Waechter — `decode.rs::MAX_WARTEZEIT_OHNE_KEYFRAME` beendet die
+    /// Sitzung, wenn nach einem Neuaufbau kein Einstiegspunkt mehr kommt.
     pub fn mindestdauer(&self) -> std::time::Duration {
+        self.mindestdauer_zur_zeit(std::time::Instant::now())
+    }
+
+    /// Wie [`EinfrierWacht::mindestdauer`], mit herausgezogener Uhr — sonst
+    /// waere der Beitrag der laufenden Wartezeit nicht pruefbar.
+    pub fn mindestdauer_zur_zeit(&self, jetzt: std::time::Instant) -> std::time::Duration {
         let fest = messung::dauer("PULSE_PLAYER_EINFRIER_MS", EINFRIER_DAUER);
         // Noch nichts beobachtet heisst: alle Plaetze auf null, das Groesste
         // ist null, und es bleibt bei `fest`. Kein Sonderfall noetig.
         let groesster = self.vollbild_abstaende.iter().copied().max().unwrap_or_default();
-        fest.max(groesster + groesster / 4)
+        let laufend = self
+            .letztes_vollbild
+            .map(|t| jetzt.saturating_duration_since(t))
+            .unwrap_or_default();
+        let takt = groesster.max(laufend);
+        fest.max(takt + takt / 4)
     }
 
     /// Wievielte Meldung ohne zwischenzeitlich laufende Wiedergabe das war —
@@ -761,7 +821,8 @@ mod tests {
     fn langer_vollbild_takt_meldet_nicht_zu_frueh() {
         let mut w = EinfrierWacht::default();
         let mut uhr = Uhr::mit(60);
-        w.vollbild_abstand(std::time::Duration::from_secs(10));
+        let jetzt = uhr.tick();
+        w.vollbild_gesehen_zur_zeit(jetzt, Some(std::time::Duration::from_secs(10)));
 
         // Zehn Sekunden Stillstand sind bei diesem Sender der Normalfall.
         let alarme = stehendes_bild(&mut w, &mut uhr, 600);
@@ -770,15 +831,51 @@ mod tests {
 
     /// Die Anpassung darf die Wacht nicht abschalten — jenseits des Takts ist
     /// ein stehendes Bild weiterhin ein Haenger.
+    ///
+    /// **Der Fall wird hier so gestellt, wie er wirklich aussieht** (av1_cuvid
+    /// am 2026-07-31): der Decoder haengt, waehrend WEITER Daten und Vollbilder
+    /// ankommen. Nur so ist er von einem stehenden Bildschirm zu
+    /// unterscheiden — bleiben auch die Vollbilder aus, waechst das Fenster
+    /// bewusst mit (Begruendung bei [`EinfrierWacht::mindestdauer`]), und dann
+    /// meldet die Wacht zu Recht nicht.
     #[test]
     fn langer_vollbild_takt_meldet_trotzdem_noch() {
         let mut w = EinfrierWacht::default();
         let mut uhr = Uhr::mit(60);
-        w.vollbild_abstand(std::time::Duration::from_secs(10));
-
-        let alarme = stehendes_bild(&mut w, &mut uhr, 800);
+        let takt = std::time::Duration::from_secs(10);
+        let mut alarme = Vec::new();
+        let planes = bild(7);
+        let mut naechstes_vollbild = 0u32;
+        for i in 0..900 {
+            let jetzt = uhr.tick();
+            // Alle zehn Sekunden ein Vollbild — der Sender lebt, der Decoder
+            // gibt trotzdem immer dasselbe Bild aus.
+            if i == naechstes_vollbild {
+                w.vollbild_gesehen_zur_zeit(jetzt, (i > 0).then_some(takt));
+                naechstes_vollbild += 600;
+            }
+            w.daten(12_000);
+            w.bild_zur_zeit(&planes, jetzt);
+            if w.eingefroren_zur_zeit(jetzt) {
+                alarme.push(i);
+            }
+        }
         let erster = *alarme.first().expect("ein echter Haenger muss gemeldet werden");
-        assert!(erster > 700, "nicht vor Ablauf des Takts, war {erster}");
+        assert!(erster > 600, "nicht innerhalb des Takts, war {erster}");
+    }
+
+    /// Die Kehrseite, ausdruecklich festgehalten: **kommt gar kein Vollbild
+    /// mehr, meldet die Wacht nicht** — sie kann „stehender Bildschirm" dann
+    /// nicht von „Decoder haengt" unterscheiden und waechst mit. Dafuer greift
+    /// `decode.rs::MAX_WARTEZEIT_OHNE_KEYFRAME`.
+    #[test]
+    fn ohne_weiteres_vollbild_waechst_das_fenster_mit() {
+        let mut w = EinfrierWacht::default();
+        let mut uhr = Uhr::mit(60);
+        let jetzt = uhr.tick();
+        w.vollbild_gesehen_zur_zeit(jetzt, None);
+        let alarme = stehendes_bild(&mut w, &mut uhr, 900);
+        assert!(alarme.is_empty(), "ohne Vollbild kein Urteil moeglich, war {alarme:?}");
     }
 
     /// Ein auf Anforderung gesendetes Vollbild landet zwischen zwei regulaeren
@@ -788,8 +885,8 @@ mod tests {
     #[test]
     fn ein_kurzer_abstand_zieht_das_fenster_nicht_zusammen() {
         let mut w = EinfrierWacht::default();
-        w.vollbild_abstand(std::time::Duration::from_secs(10));
-        w.vollbild_abstand(std::time::Duration::from_millis(200));
+        w.vollbild_gesehen(Some(std::time::Duration::from_secs(10)));
+        w.vollbild_gesehen(Some(std::time::Duration::from_millis(200)));
         assert!(
             w.mindestdauer() >= std::time::Duration::from_secs(12),
             "war {:?}",
@@ -803,9 +900,9 @@ mod tests {
     #[test]
     fn ausreisser_faellt_wieder_heraus() {
         let mut w = EinfrierWacht::default();
-        w.vollbild_abstand(std::time::Duration::from_secs(30));
+        w.vollbild_gesehen(Some(std::time::Duration::from_secs(30)));
         for _ in 0..VOLLBILD_FENSTER {
-            w.vollbild_abstand(std::time::Duration::from_secs(2));
+            w.vollbild_gesehen(Some(std::time::Duration::from_secs(2)));
         }
         assert_eq!(
             w.mindestdauer(),

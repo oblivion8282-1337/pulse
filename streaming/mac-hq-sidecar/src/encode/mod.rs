@@ -25,7 +25,7 @@ use mux_writer::MuxWriter;
 /// Opus audio bitrate (kbps) — fixed for now.
 const OPUS_BITRATE_KBPS: u32 = 128;
 
-/// Regulaerer Vollbild-Abstand in Bildern, Vorgabe zwei Sekunden.
+/// Regulaerer Vollbild-Abstand in Bildern, Vorgabe sechzig Sekunden.
 ///
 /// **Zwillingsrechnung** zu `keyframe::abstand_bilder` im Windows-Sidecar und
 /// `encode::keyframe_abstand_bilder` im Linux-Sidecar — bis 2026-08-18 stand
@@ -33,7 +33,7 @@ const OPUS_BITRATE_KBPS: u32 = 128;
 /// den drei Plattformen verschieden wirksam. Die ausfuehrliche Begruendung der
 /// Grenzen steht beim Linux-Zwilling.
 fn keyframe_abstand_bilder(fps: u32) -> u32 {
-    const VORGABE: f32 = 2.0;
+    const VORGABE: f32 = 60.0; // seit 2026-08-18, Begruendung beim Linux-Zwilling
     const MIN: f32 = 0.1;
     const MAX: f32 = 120.0;
     let sekunden = match std::env::var("PULSE_KEYFRAME_SECONDS").ok().as_deref() {
