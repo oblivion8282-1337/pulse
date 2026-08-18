@@ -31,6 +31,31 @@ import { execFileSync } from 'node:child_process';
 
 const BACKEND_PFADE = ['services/', 'shared/', 'plugins/'];
 
+// Nach einem Neustart von `dev-remote.mjs` wirksam: Werkzeuge und der
+// Electron-Hauptprozess (den baut der Start selbst neu).
+const NEUSTART_PFADE = ['scripts/', 'desktop/electron/'];
+
+// **Der wichtigste Hinweis von allen**, und der einzige, dessen Fehlen schon
+// echten Schaden angerichtet hat (2026-08-18): geholter Rust-Code wird NICHT
+// von selbst zu einem neuen Binary. Ein veraltetes Binary laeuft klaglos
+// weiter und verhaelt sich anders als der Code, den man gerade liest — an
+// jenem Tag lief der Sidecar drei Stunden mit einem Vollbild-Abstand von 2 s,
+// waehrend im Arbeitsverzeichnis laengst 60 s standen, und die Abweichung
+// wurde dem Server zugeschrieben statt dem Bau.
+//
+// Nur die Pfade der EIGENEN Plattform, sonst meldet ein Linux-Rechner einen
+// Neubau fuer den Windows-Sidecar, den er ohnehin nicht bauen kann.
+const NATIV_PFADE = {
+  linux: ['streaming/linux-hq-sidecar/', 'streaming/pulse-player/', 'streaming/ffmpeg-patches/'],
+  win32: ['streaming/win-hq-sidecar/', 'streaming/pulse-player/'],
+  darwin: ['streaming/mac-hq-sidecar/', 'streaming/pulse-player/'],
+}[process.platform] ?? [];
+
+const NATIV_BEFEHL =
+  process.platform === 'linux'
+    ? 'scripts/hq-bauen.sh'
+    : 'cargo build --release im betroffenen streaming/-Verzeichnis';
+
 /**
  * @param {object} o
  * @param {string} o.repo        Wurzel des Arbeitsverzeichnisses
@@ -103,13 +128,20 @@ export function starteSelbstabgleich({ repo, intervallMs = 10_000, log = console
     zuletztGemeldet = '';
     log(`  ✓ ${hinten} neue Commit(s) auf ${branch} geholt — die Oberfläche lädt per HMR selbst neu`);
 
-    // Zwei Fälle, in denen "geholt" NICHT "wirksam" heißt — beide würden sonst
-    // stillschweigend danebengehen und als Fehler an der falschen Stelle gesucht.
-    if (geaendert.some((f) => BACKEND_PFADE.some((p) => f.startsWith(p)))) {
+    // Drei Fälle, in denen "geholt" NICHT "wirksam" heißt — alle würden sonst
+    // stillschweigend danebengehen und als Fehler an der falschen Stelle
+    // gesucht. Der native Fall steht zuletzt, weil er der folgenreichste ist
+    // und so als letzte Zeile stehen bleibt.
+    const betrifft = (pfade) => geaendert.some((f) => pfade.some((p) => f.startsWith(p)));
+
+    if (betrifft(BACKEND_PFADE)) {
       log('  → Backend-Code dabei: der gemeinsame Stack bekommt ihn erst über  pnpm dev:sync');
     }
-    if (geaendert.some((f) => f.startsWith('scripts/'))) {
+    if (betrifft(NEUSTART_PFADE)) {
       log('  → Werkzeuge geändert: wirkt erst nach einem Neustart von pnpm dev:remote');
+    }
+    if (betrifft(NATIV_PFADE)) {
+      log(`  ⚠ Sidecar/Player geändert: NEU BAUEN, sonst läuft das alte Binary weiter —  ${NATIV_BEFEHL}`);
     }
   }
 
