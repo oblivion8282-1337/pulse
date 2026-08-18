@@ -80,6 +80,30 @@ for s in auth:dcc_auth chat-gateway:dcc_chat_gateway voice-signaling:dcc_voice_s
 done
 ```
 
+## Versions-Parität mit Produktion
+
+Der Sinn dieses Stacks ist, dass ein Test hier etwas über Produktion aussagt.
+Dafür müssen die Fremdbausteine dieselben sein. Stand 2026-08-18 sind
+Postgres, Redis, MinIO und nginx identisch, und **MediaMTX und LiveKit sind
+bewusst auf die Prod-Fassung gepinnt**:
+
+| | Produktion | hier |
+|---|---|---|
+| MediaMTX-Fork | `1.19.1-pulse4` | `1.19.1-pulse4` |
+| LiveKit | `v1.13.3` | `v1.13.3` |
+
+Vorher lief hier ein lokal gebautes MediaMTX vom 2026-08-04 und LiveKit
+`v1.11`. Dem Fork fehlten damit die 60-fps-Glättung (2026-08-14) und die
+PLI-Drossel auf 500 ms (2026-08-15) — **genau die Art Abweichung, die einen
+Streaming-Fehler vortäuscht, den es in Produktion nicht gibt.** Wer die Pins in
+`infra/prod/docker-compose.yml` anhebt, zieht die hier mit.
+
+Die `mediamtx.yml` weicht an **zwei** Zeilen ab, und das muss so sein: die
+öffentliche IP, und `authHTTPAddress` zeigt auf den Compose-Namen statt auf
+`127.0.0.1` (Prod fährt MediaMTX mit host-Networking, hier läuft es im
+Compose-Netz). Sonst ist sie deckungsgleich — bei Änderungen an der
+Prod-Fassung von Hand nachziehen, `dev-sync.sh` fasst sie nicht an.
+
 ## Einmalige Einrichtung
 
 ### 1. `.env` auf dem Server ergänzen
