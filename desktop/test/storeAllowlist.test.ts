@@ -35,7 +35,16 @@ function erlaubteSchluessel(): Set<string> {
  * Die Schlüssel, die der Renderer über `saveAll` schreibt.
  *
  * Zwei Quellen, weil es zwei Muster gibt: die Standplatz-Module halten je einen
- * `SPEICHER_SCHLUESSEL`, die Stream-Einstellungen eine `PERSIST_KEYS`-Liste.
+ * `…_SCHLUESSEL`, die Stream-Einstellungen eine `PERSIST_KEYS`-Liste.
+ *
+ * **Beide Muster müssen wirklich gelesen werden, und breit.** Am 2026-08-18 traf
+ * beides nicht zu, und derselbe Fehler kam deshalb doppelt durch: der Sammellauf
+ * hörte auf den einen Namen `SPEICHER_SCHLUESSEL` statt auf die Sorte und
+ * übersah `BEREINIGT_SCHLUESSEL` in `devices/profil.svelte.ts`; und `PERSIST_KEYS`
+ * stand zwar in dieser Doku, wurde aber nie gelesen — `intra_refresh_bereinigt`
+ * fehlte in der Allowlist, ohne dass es jemandem auffiel. Beide Merker sagen
+ * „schon bereinigt"; verworfen laufen die einmaligen Bereinigungen bei JEDEM
+ * Start erneut. Ein zu enges Muster sieht aus wie ein bestandener Test.
  */
 function geschriebeneSchluessel(): string[] {
   const lib = join(WURZEL, 'web', 'src', 'lib');
@@ -51,8 +60,16 @@ function geschriebeneSchluessel(): string[] {
   const gefunden = new Set<string>();
   for (const datei of dateien) {
     const text = readFileSync(datei, 'utf8');
-    for (const treffer of text.matchAll(/SPEICHER_SCHLUESSEL = '([^']+)'/g)) {
+    for (const treffer of text.matchAll(/[A-Z_]*SCHLUESSEL = '([^']+)'/g)) {
       gefunden.add(treffer[1]);
+    }
+    // Der Listen-Fall: `const PERSIST_KEYS = [ … ] as const;`. Genommen wird
+    // nur, was allein auf seiner Zeile steht — die Liste ist durchkommentiert,
+    // und in den Kommentaren stehen ebenfalls Literale in Anführungszeichen
+    // (`capture_sources['1']`), die sonst als Schlüssel durchgingen.
+    const liste = text.match(/const PERSIST_KEYS = \[([\s\S]*?)\n\]/);
+    if (liste) {
+      for (const treffer of liste[1].matchAll(/^\s*'([^']+)',\s*$/gm)) gefunden.add(treffer[1]);
     }
   }
   return [...gefunden];
