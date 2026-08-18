@@ -48,7 +48,8 @@
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import { untrack } from 'svelte';
   import { sounds } from '$lib/sounds/engine';
-  import { isCapacitorAndroid, isElectron, isWindows } from '$lib/platform/runtime';
+  import { isCapacitorAndroid, isElectron } from '$lib/platform/runtime';
+  import { darfStandplatzSein } from '$lib/remote/darfStandplatzSein';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
@@ -108,7 +109,12 @@
   const isDesktopApp = isElectron();
 
   // Kann dieser Rechner selbst ferngesteuert werden? (s. `windowsOnly` unten)
-  const istWindows = isWindows();
+  //
+  // Dieselbe Bedingung wie bei der Anmeldung in `ws/handlers/ready.ts` — sie
+  // liegt gemeinsam in `remote/darfStandplatzSein.ts`, weil Reiter und
+  // Anmeldung schon einmal auseinanderliefen: der Reiter war unter Linux
+  // versteckt, die vorhandene Eintragung meldete sich trotzdem weiter an.
+  const istWindows = darfStandplatzSein();
 
   // Für die Teile INNERHALB des Tabs, die es wirklich nur unter Linux gibt
   // (die Notbremse zurück auf den GSR-Sidecar).
