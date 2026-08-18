@@ -840,7 +840,6 @@
   "device_state_ready": "ready",
   "device_view_busy_with": "Currently controlled by {user}.",
   "device_view_no_permission": "You lack the permission to take over this device.",
-  "device_view_offline_hint": "The device cannot be reached. It has to be switched on and signed in to Pulse.",
   "device_view_screen_primary": "Primary screen",
   "device_view_screens": "Screens",
   "device_view_screens_hint": "An additional screen is only streamed once you ask for it — that saves both processing on the remote machine and bandwidth. Each gets its own window; input follows the window your mouse is in.",
@@ -2897,5 +2896,6 @@
   "whep_player_popup_blocked_description": "Please allow pop-up windows for Pulse and try again.",
   "whep_player_stream_load_failed": "Stream could not be loaded",
   "whep_player_waiting_for_stream": "Waiting for stream…",
-  "standplatz_settings_platform_only": "Remote control currently exists on Windows only. This machine therefore does not announce itself as a remote machine and shows as offline to others. You can remove an existing registration here."
+  "standplatz_settings_platform_only": "Remote control currently exists on Windows only. This machine therefore does not announce itself as a remote machine and shows as offline to others. You can remove an existing registration here.",
+  "device_view_offline_hint": "The device cannot be reached."
 }
