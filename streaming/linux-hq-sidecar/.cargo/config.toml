@@ -1,9 +1,16 @@
-# Linux: ffmpeg-sys-next findet das System-FFmpeg (Arch n8.1.2) per pkg-config
-# (libavformat/libavcodec/libavutil liegen in den Standard-Pfaden). Kein
-# FFMPEG_DIR (das ist der Windows-Env-Var-Pfad) und kein Custom-Build nötig —
-# anders als bei macOS, wo SecureTransport RTMPS blockiert und deshalb ein
-# eigener OpenSSL-FFmpeg-Build gepflegt wird. GnuTLS im System-FFmpeg honoriert
-# `tls_verify=0` out-of-the-box.
+# Linux: ffmpeg-sys-next findet FFmpeg per pkg-config — aber NICHT das der
+# Distribution. `scripts/hq-bauen.sh` baut n8.1.1 mit dem
+# VAAPI-Intra-Refresh-Patch nach ~/.cache/pulse/ffmpeg-intra-refresh/prefix und
+# setzt PKG_CONFIG_PATH sowie einen RPATH dorthin. Kein FFMPEG_DIR (das ist der
+# Windows-Weg).
+#
+# **Hier stand bis 2026-08-18 „System-FFmpeg (Arch n8.1.2) … kein Custom-Build
+# nötig … GnuTLS honoriert tls_verify=0".** Beide Halbsätze stimmen nicht mehr:
+# der Eigenbau ist Pflicht (Intra-Refresh für VAAPI gibt es upstream in keiner
+# Version, auch nicht in 9.0), und er wird mit `--enable-openssl` konfiguriert —
+# der Sidecar meldet entsprechend `tls_backend: "openssl"`, nicht gnutls.
+# Zusätzlich taugt das Distributions-FFmpeg als Grundlage gar nicht mehr: Arch
+# steht auf n9.0.1, `ffmpeg-next = "8.1"` übersetzt dagegen nicht.
 #
 # bindgen (transitiv via ffmpeg-sys-next) braucht libclang — liegt auf diesem
 # System als /usr/lib/libclang.so (kein pkg-config-File, aber bindgen findet es

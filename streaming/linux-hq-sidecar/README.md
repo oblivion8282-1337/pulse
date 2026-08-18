@@ -13,13 +13,14 @@ WebRTC/WHIP-Push, AV1-Paketierer, FEC), arbeitet **nicht hier**, sondern in
 
 ## Stack
 - **Capture**: xdg-desktop-portal ScreenCast → PipeWire-DMABUF, zero-copy in den Encoder.
-- **Encode**: VAAPI (AMD/Intel) / NVENC (Nvidia) via `ffmpeg-next` 8.1 (System-FFmpeg,
-  pkg-config). Codecs: **nur H264 + AV1** (kein HEVC). Die Encoder-Optionen gehen auf GSR
+- **Encode**: VAAPI (AMD/Intel) / NVENC (Nvidia) via `ffmpeg-next` 8.1 gegen den
+  **gepatchten FFmpeg-Eigenbau n8.1.1** (`scripts/hq-bauen.sh`, per pkg-config gefunden,
+  RPATH auf `~/.cache/pulse/ffmpeg-intra-refresh/prefix`) — nicht gegen das der Distribution. Codecs: **nur H264 + AV1** (kein HEVC). Die Encoder-Optionen gehen auf GSR
   zurück, sind aber **nicht mehr 1:1** — maßgeblich ist `encode/opts.rs`, dort steht an
   jedem Wert die Messung (etwa VAAPI `async_depth=1` statt GSRs 3: der Vorlauf kostete
   zwei Bildabstände, 33,6 → 5,3 ms).
-- **Push**: FLV-Mux → RTMPS an MediaMTX (`tls_verify=0`, GnuTLS-Backend im System-FFmpeg —
-  kein Custom-Build nötig, anders als bei macOS). Viewer holen per WHEP.
+- **Push**: FLV-Mux → RTMPS an MediaMTX (`tls_verify=0`, **OpenSSL**-Backend —
+  `--enable-openssl` im Eigenbau, der Sidecar meldet es als `health.gsr.tls_backend`). Viewer holen per WHEP.
 - **Threading**: `std::thread` + `mpsc`, kein Tokio im Main-Loop (nur scoped für die
   Portal-Verhandlung via `ashpd`).
 
