@@ -101,7 +101,7 @@ function monitorListe(device: Device): DeviceMonitor[] {
  *
  * **Der Hauptbildschirm bekommt zusätzlich einen Strom des Geräts zugeordnet,
  * dessen Name zu keinem Schirm passt** (Bughunt 2026-08-17). Der Grund steht in
- * `wecken.ts::quelleFuerMonitor`: der Haupt-Knopf („wecken und übernehmen")
+ * `wecken.ts::quelleFuerMonitor`: der Haupt-Knopf („Übernehmen")
  * schickt **keine** Nummer mit, das Gerät nimmt dann die Quelle seines
  * Standplatz-Profils — und das ist per Vorgabe sein Hauptbildschirm. Trägt
  * dieser erste Strom einen Namen, der nicht trifft (Profil auf eine andere
@@ -189,7 +189,7 @@ function fensterOeffnen(device: Device, slot: number, uebernahme = true): void {
  *
  * **Warum das hier selbsttätig geschieht und nicht am Knopf des Zuschauers**
  * (Änderung 2026-08-16): bei einem Standplatz-Gerät heisst der eine Knopf
- * „wecken und übernehmen", und genau das soll er tun. Die Zustimmung ist bei
+ * „Übernehmen", und genau das soll er tun. Die Zustimmung ist bei
  * diesen Geräten **vorverlegt** — sie steht als Dauerfreigabe, lange bevor
  * jemand klickt. Ein zweiter Knopf „Fernsteuerung anfragen" fragte also etwas,
  * das schon beantwortet ist, und liesse den Steuernden vor einem Bild sitzen,
@@ -304,7 +304,7 @@ class SchirmWarten {
    *
    * `ausdruecklich` trennt die beiden Wege, die hier zusammenlaufen: die
    * Bildschirmliste meint einen bestimmten Schirm und nennt seine Nummer, der
-   * Haupt-Knopf („wecken und übernehmen") meint dagegen „den, den du herzeigen
+   * Haupt-Knopf („Übernehmen") meint dagegen „den, den du herzeigen
    * willst" und nennt keine — dort entscheidet das Standplatz-Profil des
    * Geräts (Begründung in `wecken.ts::quelleFuerMonitor`).
    */
