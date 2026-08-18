@@ -24,6 +24,7 @@
 
   import { m } from '$lib/paraglide/messages.js';
   import OverridesEditor from './OverridesEditor.svelte';
+  import ErweiterteOptionen from './ErweiterteOptionen.svelte';
   import MonitorPicker from './MonitorPicker.svelte';
   import AudioModePicker from './AudioModePicker.svelte';
   import AvOffsetSlider from './AvOffsetSlider.svelte';
@@ -127,6 +128,9 @@
 
         <Separator />
         <StreamControls {channelId} streamSlot={slot} {onStarted} />
+        <!-- Unter dem Start-Knopf, zugeklappt: was man selten braucht, soll den
+             Weg zum Starten nicht verstellen. -->
+        <ErweiterteOptionen />
         <StreamLog streamSlot={slot} />
       </div>
     {/if}

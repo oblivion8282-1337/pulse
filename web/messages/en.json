@@ -840,6 +840,7 @@
   "device_state_ready": "ready",
   "device_view_busy_with": "Currently controlled by {user}.",
   "device_view_no_permission": "You lack the permission to take over this device.",
+  "device_view_offline_hint": "The device cannot be reached.",
   "device_view_screen_primary": "Primary screen",
   "device_view_screens": "Screens",
   "device_view_screens_hint": "An additional screen is only streamed once you ask for it — that saves both processing on the remote machine and bandwidth. Each gets its own window; input follows the window your mouse is in.",
@@ -2584,6 +2585,7 @@
   "standplatz_settings_log_manual": "confirmed",
   "standplatz_settings_log_running": "running",
   "standplatz_settings_log_unknown_duration": "duration unknown",
+  "standplatz_settings_platform_only": "Remote control currently exists on Windows only. This machine therefore does not announce itself as a remote machine and shows as offline to others. You can remove an existing registration here.",
   "standplatz_settings_revoke": "Revoke release",
   "standplatz_settings_state_off": "Not released",
   "standplatz_settings_state_on": "Released",
@@ -2638,6 +2640,8 @@
   "stream_controls_state_stopped": "Stopped",
   "stream_controls_toast_start_failed": "Failed to start stream",
   "stream_error_start_timeout": "Stream did not start within 20 seconds — sidecar or network.",
+  "stream_erweitert_intra_hinweis": "Spreads the picture refresh instead of sending periodic full frames. Only worth it on very weak connections — otherwise the picture is better without.",
+  "stream_erweitert_titel": "Advanced",
   "stream_grid_participants_collapse_aria": "Hide participants",
   "stream_grid_participants_collapsed_hint": "{count} participants · hidden",
   "stream_grid_participants_expand_aria": "Show participants",
@@ -2895,7 +2899,5 @@
   "whep_player_popup_blocked": "Popup blocked",
   "whep_player_popup_blocked_description": "Please allow pop-up windows for Pulse and try again.",
   "whep_player_stream_load_failed": "Stream could not be loaded",
-  "whep_player_waiting_for_stream": "Waiting for stream…",
-  "standplatz_settings_platform_only": "Remote control currently exists on Windows only. This machine therefore does not announce itself as a remote machine and shows as offline to others. You can remove an existing registration here.",
-  "device_view_offline_hint": "The device cannot be reached."
+  "whep_player_waiting_for_stream": "Waiting for stream…"
 }
