@@ -1462,13 +1462,15 @@ impl VideoDecoder {
             self.keyframes += 1;
             self.keyframe_abstand = self.letztes_keyframe.map(|t| jetzt.duration_since(t));
             self.keyframe_bytes = data.len();
-            // Der Einfrier-Waechter braucht denselben Wert: bei stehendem
-            // Inhalt aendert sich das dekodierte Bild NUR im Takt der
-            // Vollbilder, sein Fenster muss also laenger sein als dieser Takt
+            // Der Einfrier-Waechter braucht dasselbe: bei stehendem Inhalt
+            // aendert sich das dekodierte Bild NUR im Takt der Vollbilder, sein
+            // Fenster muss also laenger sein als dieser Takt
             // (s. `einfrieren::EinfrierWacht::mindestdauer`).
-            if let Some(d) = self.keyframe_abstand {
-                self.wacht.vollbild_abstand(d);
-            }
+            //
+            // Auch das ERSTE Vollbild wird gemeldet, obwohl es noch keinen
+            // Abstand hat: bis zum zweiten hat die Wacht sonst nichts, woran
+            // sie sich halten kann — bei 60 s Takt die ganze erste Minute.
+            self.wacht.vollbild_gesehen(self.keyframe_abstand);
             let abstand = self
                 .keyframe_abstand
                 .map(|d| format!("{:.0} ms", d.as_millis()))
