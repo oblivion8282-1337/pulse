@@ -2899,5 +2899,8 @@
   "whep_player_popup_blocked": "Popup blockiert",
   "whep_player_popup_blocked_description": "Bitte erlaube Pop-up-Fenster für Pulse und versuche es erneut.",
   "whep_player_stream_load_failed": "Stream konnte nicht geladen werden",
-  "whep_player_waiting_for_stream": "Warte auf den Stream…"
+  "whep_player_waiting_for_stream": "Warte auf den Stream…",
+  "error_page_title": "Diese Seite gibt es nicht",
+  "error_page_body": "Der Link führt ins Leere — vielleicht wurde der Kanal gelöscht oder die Adresse ist unvollständig.",
+  "error_page_back": "Zurück zu Pulse"
 }
