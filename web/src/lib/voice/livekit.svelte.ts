@@ -78,6 +78,18 @@ const NAME_COLLATOR = new Intl.Collator();
  *  — fast enough that a speaker change still feels instant. */
 const PARTICIPANT_REFRESH_DEBOUNCE_MS = 50;
 
+/** Maps a `setMicrophoneEnabled`/getUserMedia failure to a user-facing message
+ *  — never the raw browser string (e.g. Chromium's unlocalized "Requested
+ *  device not found"). `NotFoundError`/`OverconstrainedError` mean no device
+ *  matched the (possibly stale, persisted) deviceId — most commonly because
+ *  no microphone is connected at all. */
+function micErrorMessage(e: unknown): string {
+  if (e instanceof DOMException && (e.name === 'NotFoundError' || e.name === 'OverconstrainedError')) {
+    return m.livekit_microphone_not_found();
+  }
+  return m.livekit_microphone_access_failed();
+}
+
 /** Static camera resolution map — width/height only; frameRate is dynamic and
  *  added at call-site from capabilities.camFpsMax. */
 const CAM_DIMS: Record<string, { width: number; height: number }> = {
@@ -518,7 +530,7 @@ class VoiceRoom {
           return;
         }
         this.micEnabled = false;
-        this.error = e instanceof Error ? e.message : m.livekit_microphone_access_failed();
+        this.error = micErrorMessage(e);
       }
     } else if (startMuted || this.pttMode) {
       // Bewusst stumm: nichts zu publishen.
