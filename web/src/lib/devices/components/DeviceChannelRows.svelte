@@ -26,7 +26,7 @@
 
   **Zusehen und Übernehmen sind zwei Wege.** Das LIVE-Abzeichen öffnet nur das
   Bild (`onWatch`), der Rest der Zeile führt in die Geräteansicht (`onSelect`),
-  wo „Wecken und übernehmen" sitzt. Ohne diese Trennung löste ein Dritter, der
+  wo „Übernehmen" sitzt. Ohne diese Trennung löste ein Dritter, der
   bloss zuschauen wollte, eine Fernsteuer-Anfrage aus — womöglich während schon
   jemand steuert.
 
