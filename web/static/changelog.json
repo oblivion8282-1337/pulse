@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-18.5",
+      "date": "2026-08-18",
+      "style": "Sachlich",
+      "title": "Remote-Rechner: LIVE nur einmal, und kein falsches Bereit",
+      "intro": "Zwei Stellen, an denen die Kanalliste etwas anderes anzeigte als tatsächlich zutraf.",
+      "items": [
+        "Überträgst du selbst, während einer deiner Remote-Rechner im selben Kanal steht, leuchtet LIVE nur noch an dir. Bisher leuchtete es zusätzlich am Rechner, obwohl der gar nichts sendete.",
+        "Ein Remote-Rechner zeigt sich nur noch dort als bereit, wo er sich auch wirklich übernehmen lässt — also unter Windows. Bisher meldete sich ein einmal eingetragener Rechner auch unter Linux und macOS weiter als bereit, und jeder Übernahmeversuch lief wortlos ins Leere."
+      ]
+    },
+    {
       "id": "2026-08-18.4",
       "date": "2026-08-18",
       "style": "Sachlich",

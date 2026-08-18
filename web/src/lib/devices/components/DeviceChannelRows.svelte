@@ -40,8 +40,7 @@
 <script lang="ts">
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import { deviceStore } from '$lib/devices/store.svelte';
-  import { punktKlasse, zustandsText } from '$lib/devices/darstellung';
-  import { streamPresence } from '$lib/stores/streamPresence.svelte';
+  import { geraetSendet, punktKlasse, zustandsText } from '$lib/devices/darstellung';
   import { startGeraetZug } from '$lib/devices/geraetZug';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import type { Device } from '$lib/api/devices';
@@ -75,18 +74,10 @@
 
   const geraete = $derived(deviceStore.forGuild(guildId).filter((d) => d.channel_id === channelId));
 
-  /**
-   * Überträgt dieses Gerät gerade?
-   *
-   * Am Besitzer erkannt, weil der Strom unter dessen Konto läuft — das Gerät
-   * hat keine eigene Kennung im Streaming-Weg (`stream/starten.ts`). Steht der
-   * Besitzer selbst im Kanal und teilt seinen Bildschirm, trägt seine eigene
-   * Zeile ohnehin ein eigenes Abzeichen; hier zählt nur, dass überhaupt ein
-   * Strom dieses Kontos in diesem Kanal läuft.
-   */
-  function sendet(d: Device): boolean {
-    return streamPresence.streamsIn(channelId).some((s) => s.user_id === d.owner_user_id);
-  }
+  // Überträgt dieses Gerät gerade? Die Bedingung liegt in `darstellung.ts`
+  // direkt neben ihrem Gegenstück für die Menschen-Zeile — die beiden müssen
+  // sich ergänzen, und getrennt gepflegt sind sie schon einmal auseinander-
+  // gelaufen (Doppel-Abzeichen, 2026-08-18).
 
   // Die Kennung auf DIESEM Server, nicht die des Kontos: `owner_user_id` ist
   // serverlokal, und auf einem Self-Host ist die Cloud-Kennung eine andere —
@@ -95,7 +86,7 @@
 </script>
 
 {#each geraete as d (d.id)}
-  {@const live = sendet(d)}
+  {@const live = geraetSendet(d, channelId)}
   {@const meins = d.owner_user_id === meine}
   <div class="ml-4 flex flex-col" data-testid="device-channel-rows" data-channel-id={channelId}>
     <button
