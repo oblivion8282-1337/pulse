@@ -255,7 +255,17 @@ pub fn reset() {
 // ── Regulaerer Vollbild-Abstand ──────────────────────────────────────────────
 
 /// Vollbild-Abstand in Sekunden, wenn nichts gesagt wird.
-pub const SEKUNDEN_VORGABE: f32 = 2.0;
+///
+/// **Seit dem 2026-08-18: 60 s statt 2 s.** Volle Begruendung samt Messreihe
+/// beim Zwilling im Linux-Sidecar (`encode/mod.rs::KEYFRAME_SEKUNDEN_VORGABE`)
+/// — kurz: an der echten Leitung gemessen sind bei 60 s die Sendespitzen am
+/// kleinsten (p99 2,8x der mittleren Rate gegen 4,1x bei 30 s), und 120 s ist
+/// wieder schlechter, weil dann die angeforderten Vollbilder ueberwiegen.
+///
+/// **Die Rueckstaffelung oben haengt NICHT hieran** (`ABSTAND_LANGSAM`, feste
+/// 2 s) und darf es auch nicht: eine Bremse, die der Vorgabe folgte, verwuerfe
+/// eine Anforderung eine Minute lang.
+pub const SEKUNDEN_VORGABE: f32 = 60.0;
 const SEKUNDEN_MIN: f32 = 0.1;
 
 /// Obergrenze fuer `PULSE_KEYFRAME_SECONDS`. Eine Grenze muss es geben, damit
@@ -443,8 +453,8 @@ mod tests {
     fn ohne_einstellung_gilt_die_vorgabe() {
         let _wache = ENV.lock().unwrap_or_else(|p| p.into_inner());
         unsafe { std::env::remove_var("PULSE_KEYFRAME_SECONDS") };
-        assert_eq!(abstand_bilder(60), 120, "zwei Sekunden bei 60 fps");
-        assert_eq!(abstand_bilder(144), 288, "zwei Sekunden bei 144 fps");
+        assert_eq!(abstand_bilder(60), 3600, "sechzig Sekunden bei 60 fps");
+        assert_eq!(abstand_bilder(144), 8640, "sechzig Sekunden bei 144 fps");
     }
 
     #[test]
@@ -462,9 +472,10 @@ mod tests {
     #[test]
     fn unbrauchbarer_wert_faellt_auf_die_vorgabe() {
         let _wache = ENV.lock().unwrap_or_else(|p| p.into_inner());
+        let vorgabe = (60.0 * SEKUNDEN_VORGABE) as u32;
         for roh in ["blah", "0", "-5", "100000"] {
             unsafe { std::env::set_var("PULSE_KEYFRAME_SECONDS", roh) };
-            assert_eq!(abstand_bilder(60), 120, "Wert {roh:?}");
+            assert_eq!(abstand_bilder(60), vorgabe, "Wert {roh:?}");
         }
         unsafe { std::env::remove_var("PULSE_KEYFRAME_SECONDS") };
     }
