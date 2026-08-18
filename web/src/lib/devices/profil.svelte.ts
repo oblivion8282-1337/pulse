@@ -83,7 +83,26 @@ export interface StandplatzProfil {
    * `pushProtokoll` ohnehin für jeden Codec WHIP, der Haken entscheidet also
    * nur noch über die Betriebsart selbst.)
    *
-   * **Vorgabe ist AN** (seit 2026-08-16). Der frühere Einwand — kann der Encoder
+   * **Vorgabe ist seit dem 2026-08-18 wieder AUS**, und der Grund ist gemessen:
+   * der reguläre Vollbild-Abstand steht seither auf 60 s statt 2 s, und damit
+   * kippt die Abwägung. An der echten Leitung nachgemessen (drei Mitschnitte,
+   * `KEYFRAME_SEKUNDEN_VORGABE` im Linux-Sidecar nennt die Tabelle) liefert der
+   * lange Takt bei 2000 kbps **+1,87 VMAF bei 16 % weniger Daten** als
+   * Intra-Refresh (95,16 gegen 93,29 bei 1687 gegen 1999 kbit/s) — die
+   * Vollbild-Stösse kommen selten genug, dass der Vorteil der verteilten
+   * Auffrischung sie nicht mehr aufwiegt.
+   *
+   * Dazu der Punkt, der für einen unbeaufsichtigten Rechner besonders zählt:
+   * **ein Intra-Refresh-Strom heilt sich nach einem Paketverlust NICHT selbst**
+   * (2026-07-29: eine verworfene Zugriffseinheit lässt das Bild dauerhaft
+   * stehen, Erholung nie), ein Vollbild-Strom heilt am nächsten Takt
+   * byte-perfekt. Wo niemand sitzt, der neu verbindet, ist dieses Auffangnetz
+   * mehr wert als eine gleichmässigere Leitung.
+   *
+   * Der Haken bleibt wählbar — wer eine sehr dünne Leitung hat, für den kann
+   * die gleichmässigere Verteilung weiter die bessere Wahl sein.
+   *
+   * **Die frühere Begründung für AN, zum Nachlesen:** Der Einwand — kann der Encoder
    * es nicht, verweigert der Sidecar den Start (`encode/auffrischung.rs`), und
    * auf einem unbeaufsichtigten Rechner liest niemand die Absage — trägt nicht
    * mehr: der Haken geht nur hinaus, wenn der Sidecar die Fähigkeit gemeldet
@@ -125,7 +144,7 @@ export const VORGABE: StandplatzProfil = {
   aufloesung: 'Native',
   fps: 30,
   bitrate_kbps: 8000,
-  intra_refresh: true,
+  intra_refresh: false,
   zehn_bit: false,
   hdr: false,
 };
