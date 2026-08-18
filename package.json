@@ -5,6 +5,13 @@
   "license": "SEE LICENSE IN LICENSE",
   "description": "Discord-Clone monorepo (frontend workspace root)",
   "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "dev:remote": "node scripts/dev-remote.mjs",
+    "dev:remote:web": "node scripts/dev-remote.mjs --no-electron",
+    "dev:remote:logs": "node scripts/dev-remote.mjs --logs",
+    "dev:sync": "bash scripts/dev-sync.sh",
+    "dev:sync:watch": "bash scripts/dev-sync.sh --watch"
+  },
   "engines": {
     "node": ">=20"
   },
