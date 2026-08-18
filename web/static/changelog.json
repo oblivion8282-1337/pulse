@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-18.6",
+      "date": "2026-08-18",
+      "style": "Sachlich",
+      "title": "Bildschirm teilen: schneller im Bild, besser gegen Störungen",
+      "intro": "Wer einer laufenden Übertragung beitritt, wartete bei einer bestimmten Einstellung spürbar auf das erste Bild.",
+      "items": [
+        "Übertragungen mit dem Codec AV1 nehmen jetzt denselben Übertragungsweg wie alle anderen. Damit kann dein Gerät beim Beitreten sofort ein volles Bild anfordern, statt auf das nächste zu warten — das erste Bild kommt merklich früher.",
+        "Auf demselben Weg gibt es zusätzlich einen Schutz gegen verlorene Datenpakete, den AV1-Übertragungen bisher gar nicht hatten. Auf einer unruhigen Leitung bedeutet das weniger Bildfehler und weniger Standbilder."
+      ]
+    },
+    {
       "id": "2026-08-18.5",
       "date": "2026-08-18",
       "style": "Sachlich",

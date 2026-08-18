@@ -1045,19 +1045,57 @@ pub fn is_whip_url(url: &str) -> bool {
 /// Nur eine Warnung, kein Abbruch und kein stilles Umschalten: Der Prüfstand
 /// fährt den Sidecar ohne Oberfläche und darf diese Kombination messen dürfen.
 /// Dateiziele sind ausgenommen — dort gibt es keinen Zuschauer.
+/// **Seit dem 2026-08-18 deckt sie einen zweiten Fall mit: einen langen
+/// Vollbild-Abstand.** Die Folge ist dieselbe und der Weg dorthin war derselbe
+/// Denkfehler. `pushProtokoll` in der Oberflaeche waehlte fuer AV1 ohne
+/// Intra-Refresh RTMPS, ausdruecklich begruendet damit, dass dort „ein Vollbild
+/// je zwei Sekunden im Strom" stehe. Als `PULSE_KEYFRAME_SECONDS` den Abstand
+/// streckbar machte, wurde diese Begruendung falsch, ohne dass jemand die Regel
+/// anfasste: bei 30 s Abstand wartete ein beitretender Zuschauer bis zu dreissig
+/// Sekunden auf sein erstes Bild. Die Oberflaeche nimmt inzwischen immer WHIP —
+/// aber der Sidecar laeuft auch ohne sie (Pruefstand, fremde Aufrufer), und
+/// genau dafuer ist diese Wache da.
+///
+/// Die Grenze ist der Abstand, den die Vorgabe erzeugt: bis dahin ist der Strom
+/// so beschaffen wie der, fuer den RTMPS einmal freigegeben wurde.
 fn warne_bei_intra_refresh_ohne_rueckkanal(output_path: &str) {
     let Some(format) = url_format_hint(output_path) else {
         return; // Datei, kein Netz-Ziel
     };
-    if format == "whip" || !opts::intra_refresh_gewuenscht() {
+    if format == "whip" {
         return;
     }
-    tracing::warn!(
-        target: "stream", format,
-        "Intra-Refresh ohne RTCP-Rueckkanal: dieser Weg kann keine Vollbild-Anforderung \
-         zustellen, und der Strom enthaelt kaum Vollbilder — Zuschauer sehen ein \
-         schwarzes Bild. Intra-Refresh braucht WHIP."
-    );
+    if opts::intra_refresh_gewuenscht() {
+        tracing::warn!(
+            target: "stream", format,
+            "Intra-Refresh ohne RTCP-Rueckkanal: dieser Weg kann keine Vollbild-Anforderung \
+             zustellen, und der Strom enthaelt kaum Vollbilder — Zuschauer sehen ein \
+             schwarzes Bild. Intra-Refresh braucht WHIP."
+        );
+        return;
+    }
+    let sekunden = keyframe_abstand_sekunden();
+    if sekunden > KEYFRAME_SEKUNDEN_VORGABE {
+        tracing::warn!(
+            target: "stream", format, sekunden,
+            vorgabe = KEYFRAME_SEKUNDEN_VORGABE,
+            "Langer Vollbild-Abstand ohne RTCP-Rueckkanal: dieser Weg kann keine \
+             Vollbild-Anforderung zustellen — ein beitretender Zuschauer wartet bis zum \
+             naechsten regulaeren Vollbild, also bis zu so viele Sekunden. Ueber WHIP \
+             bekaeme er es sofort."
+        );
+    }
+}
+
+/// Der eingestellte Vollbild-Abstand in Sekunden.
+///
+/// Aus [`keyframe_abstand_bilder`] zurueckgerechnet statt die Umgebung ein
+/// zweites Mal zu lesen: so gelten Grenzen, Vorgabe und Meldung bei einem
+/// unbrauchbaren Wert genau einmal, und die Warnung kann nicht ueber einen
+/// Abstand reden, den der Encoder gar nicht faehrt.
+fn keyframe_abstand_sekunden() -> f32 {
+    const BEZUG_FPS: u32 = 1000;
+    keyframe_abstand_bilder(BEZUG_FPS) as f32 / BEZUG_FPS as f32
 }
 
 #[cfg(test)]
@@ -1181,5 +1219,27 @@ mod keyframe_sperrfrist_tests {
     #[test]
     fn drossel_deckel_entspricht_der_vorgabe() {
         assert_eq!(KEYFRAME_DROSSEL_DECKEL_MS, (KEYFRAME_SEKUNDEN_VORGABE * 1000.0) as u64);
+    }
+
+    /// Die Rueckrechnung fuer die Warnung muss denselben Abstand nennen, den der
+    /// Encoder faehrt — sonst warnt sie ueber etwas anderes, als laeuft.
+    #[test]
+    fn abstand_in_sekunden_folgt_der_einstellung() {
+        let _wache = ENV.lock().unwrap_or_else(|p| p.into_inner());
+
+        unsafe { std::env::remove_var("PULSE_KEYFRAME_SECONDS") };
+        assert_eq!(keyframe_abstand_sekunden(), KEYFRAME_SEKUNDEN_VORGABE);
+
+        for (roh, erwartet) in [("30", 30.0), ("0.5", 0.5), ("60", 60.0)] {
+            unsafe { std::env::set_var("PULSE_KEYFRAME_SECONDS", roh) };
+            assert_eq!(keyframe_abstand_sekunden(), erwartet, "Wert {roh:?}");
+        }
+
+        // Ein unbrauchbarer Wert nennt die Vorgabe, nicht sich selbst — sonst
+        // warnte die Wache vor einem Abstand, den es gar nicht gibt.
+        unsafe { std::env::set_var("PULSE_KEYFRAME_SECONDS", "99999") };
+        assert_eq!(keyframe_abstand_sekunden(), KEYFRAME_SEKUNDEN_VORGABE);
+
+        unsafe { std::env::remove_var("PULSE_KEYFRAME_SECONDS") };
     }
 }

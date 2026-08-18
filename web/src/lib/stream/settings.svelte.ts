@@ -296,13 +296,44 @@ export interface ChannelStreamArg {
 }
 
 /**
- * Der Push-Weg, den Betriebsart und Codec verlangen.
+ * Der Push-Weg. **Seit dem 2026-08-18 immer WHIP.**
  *
  * Nur WHIP hat den RTCP-Rueckkanal, ueber den die Vollbild-Anforderung eines
  * beitretenden Zuschauers den Encoder erreicht. Wo ein Strom nach dem Start
  * kaum noch Vollbilder fuehrt, bekommt der Zuschauer sein erstes nur auf
  * Anforderung — ueber RTMPS saehe er GAR NICHTS (gemessen: 0 Bilder gegen
- * 2228). Zwei Faelle brauchen ihn deshalb:
+ * 2228).
+ *
+ * **Warum die Fallunterscheidung weg ist.** Bis hierher galt WHIP nur fuer
+ * Intra-Refresh und H.264; AV1 mit periodischen Vollbildern ging ueber RTMPS.
+ * Das war vertretbar, solange dort GARANTIERT alle zwei Sekunden ein Vollbild
+ * im Strom stand — genau so stand es weiter unten auch als Begruendung. Seit
+ * `PULSE_KEYFRAME_SECONDS` den Abstand streckbar macht (2026-08-18, bis zu 120
+ * s), gilt diese Garantie nicht mehr, und die Regel kippte damit still: bei 30
+ * s Abstand wartete ein beitretender Zuschauer bis zu **30 Sekunden** auf sein
+ * erstes Bild, ohne dass irgendwo etwas Auffaelliges im Log stand. Live
+ * beobachtet am 2026-08-18.
+ *
+ * Statt die Regel um den Abstand zu erweitern — der hier gar nicht bekannt ist,
+ * er ist eine Umgebungsvariable des Sidecars — faellt sie ganz weg. Das ist
+ * auch die Richtung, in die die Begruendung ohnehin schon zeigte: *der
+ * Rueckkanal schadet nirgends, wo er nicht gebraucht wird, bleibt er
+ * ungenutzt.* Dazu kommt die **FlexFEC-Paritaet, die es nur ueber WHIP gibt**
+ * (2026-08-06: 71 von 71 RTMPS-Sitzungen ohne) — ein AV1-Strom hatte damit
+ * bisher gar keinen Verlustschutz.
+ *
+ * AV1 ueber WHIP ist kein neuer Weg: der Sidecar bringt dafuer seinen eigenen
+ * WebRTC-Sender mit (`linux-hq-sidecar/src/whip/`, ffmpegs Muxer traegt kein
+ * AV1), und er laeuft in Produktion, seit Intra-Refresh ausgeliefert wird.
+ *
+ * **RTMPS bleibt serverseitig bestehen** (media-svc vergibt weiter solche
+ * Token, MediaMTX horcht weiter auf 1936). Wer es braucht — etwa in einem Netz,
+ * das UDP sperrt, waehrend TCP durchgeht — kann es dort anfordern; nur waehlt
+ * die Oberflaeche es nicht mehr von sich aus.
+ *
+ * Die beiden Faelle, die den Rueckkanal schon vorher erzwangen, und warum sie
+ * ihn brauchen — die Begruendung bleibt lesenswert, weil sie erklaert, wie
+ * teuer ein fehlender Rueckkanal wirklich ist:
  *
  * **1. Intra-Refresh.** Die Betriebsart selbst, ausdruecklich gewaehlt.
  *
@@ -342,24 +373,17 @@ export interface ChannelStreamArg {
  * selbst neu startete, wechselte damit lautlos auf einen Weg, auf dem er nicht
  * funktioniert — sichtbar erst beim Zuschauer, als schwarzes Bild.
  */
-export function pushProtokoll(uebersteuerung?: OverrideSet): 'rtmp' | 'whip' {
-  // Derselbe Rueckgriff auf `'h264'` wie in `tenBitPossible`: ein ungesetzter
-  // Codec IST H.264 (s. die Vorgabe in `loadSettings`), und der Fall haette
-  // sonst ausgerechnet bei einer frischen Installation gefehlt.
+export function pushProtokoll(_uebersteuerung?: OverrideSet): 'rtmp' | 'whip' {
+  // Der Parameter bleibt in der Signatur, obwohl er nicht mehr gelesen wird:
+  // die Aufrufstelle beim Standplatz-Gerät (`stream/starten.ts`) reicht dort
+  // das Profil des geweckten Rechners herein, und sie soll das weiter tun. Kommt
+  // je wieder eine Unterscheidung, haengt sie genau an diesem Satz — dass sie
+  // frueher am FALSCHEN Satz hing (global statt Profil), war der Bughunt-Fund
+  // vom 2026-08-16.
   //
-  // `uebersteuerung` ist das Standplatz-Profil eines geweckten Geräts
-  // (`$lib/devices/profil.svelte.ts`): der Weg muss dem Codec folgen, mit dem
-  // WIRKLICH gesendet wird, nicht dem, den der Besitzer für seine eigenen
-  // Übertragungen eingestellt hat. Ohne das forderte der Client ein Token für
-  // RTMPS an, während der Sidecar H.264 über WHIP schiebt (oder umgekehrt).
-  const satz = uebersteuerung ?? streamSettings.overrides;
-  const codec = satz.codec ?? 'h264';
-  // Die Betriebsart aus DEMSELBEN Satz lesen, nicht global (Bughunt
-  // 2026-08-16): das Standplatz-Profil setzt sie nicht, der Sidecar fährt dann
-  // ohne — hätte der Besitzer sie für seine eigenen Übertragungen an, wählte
-  // der Weg hier WHIP für einen Strom, der gar keinen Intra-Refresh hat.
-  const intra = satz.intra_refresh === true && stream.intraRefreshAvailable;
-  return intra || codec === 'h264' ? 'whip' : 'rtmp';
+  // Der Rueckgabetyp behaelt `'rtmp'` bewusst: RTMPS ist serverseitig nicht
+  // abgeschafft, nur nicht mehr die Wahl der Oberflaeche (Begruendung oben).
+  return 'whip';
 }
 
 /**

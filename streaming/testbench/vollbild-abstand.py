@@ -288,11 +288,20 @@ def main() -> int:
             except SystemExit as e:
                 print(f"{name:>11s}   vom Encoder abgelehnt ({e})")
                 continue
-            m = measure_vmaf(out, args.ref, pix_fmt, w, h, args.fps, args.frames)
+            # Auf die Referenzgroesse schneiden: `av1_vaapi` gibt bei 1080
+            # dekodiert 1082 Zeilen heraus, und libvmaf verweigert dann den
+            # Vergleich (Begruendung bei `measure_vmaf`). Bei passender
+            # Groesse ist der Schnitt wirkungslos.
+            m = measure_vmaf(out, args.ref, pix_fmt, w, h, args.fps, args.frames,
+                             dist_crop=f"{w}:{h}:0:0")
             pk = pakete_lesen(out)
-            # Spitzen ohne den Anlauf (s. `ohne_anlauf`), Bildgewicht MIT ihm:
-            # fuer „wie schwer ist ein Vollbild" zaehlt jedes, auch das erste.
+            # Spitzen ohne den Anlauf (s. `ohne_anlauf`) — die mittlere
+            # Datenrate aber ueber ALLE Pakete: sie ist die Antwort auf „wieviel
+            # geht ueber die Leitung", und da zaehlt das erste Vollbild mit.
+            # (Die aus der Spitzenrechnung mitgelieferte mittlere Rate laesst es
+            # weg und liegt deshalb rund ein Prozent zu niedrig.)
             sp = spitzen(ohne_anlauf(pk), FENSTER_S)
+            sp["mittel_kbps"] = spitzen(pk, FENSTER_S)["mittel_kbps"]
             bg = bildgewicht(pk)
             print(f"{name:>11s} {m['vmaf']:8.3f} {m['psnr_y']:7.2f} {m['float_ssim']:7.4f} "
                   f"{sp['mittel_kbps']:8.0f} {sp['spitze_max_kbps']:8.0f} "
