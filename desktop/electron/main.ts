@@ -1066,6 +1066,12 @@ const ALLOWED_STORE_KEYS = new Set([
   'use_overrides',
   'show_cursor',
   'av_offset_ms',
+  // Merker der einmaligen Intra-Refresh-Bereinigung vom 2026-08-18
+  // (`stream/settingsState.svelte.ts`, `PERSIST_KEYS`). Er sagt „schon
+  // bereinigt" — fehlt er hier, wird er verworfen, und die Bereinigung nimmt
+  // dem Nutzer bei JEDEM Start erneut eine Wahl ab, die er inzwischen bewusst
+  // getroffen hat.
+  'intra_refresh_bereinigt',
   'custom_servers',
   // Multi-Server-Liste (vormals localStorage `pulse.servers`) — auf dem Desktop
   // in den chmod-600-Tresor verschoben statt im Klartext-Profil zu liegen.
@@ -1104,6 +1110,12 @@ const ALLOWED_STORE_KEYS = new Set([
   // (`devices/profil.svelte.ts`) — getrennt von den Stream-Einstellungen des
   // Besitzers, deshalb ein eigener Schlüssel.
   'remote.standplatzProfil',
+  // Der Merker der einmaligen Intra-Refresh-Bereinigung vom 2026-08-18
+  // (`devices/profil.svelte.ts`). Ohne ihn hält „einmalig" nicht: der Merker
+  // wird verworfen, die Bereinigung läuft bei JEDEM Start erneut und schaltet
+  // ein bewusst wieder gesetztes Intra-Refresh jedes Mal aufs Neue ab. Im
+  // Browser fällt das nicht auf, dort trägt der localStorage-Rückfall.
+  'remote.standplatzProfilIntraBereinigt',
   // HINWEIS: `pulse.host.creds` (③c-Pairing-Credentials) steht BEWUSST NICHT
   // hier. Der Main-Prozess schreibt sie via pairing.ts::saveCreds über einen
   // DIREKTEN storeSet-Aufruf (store.ts kennt keine Allowlist — die gilt nur für
