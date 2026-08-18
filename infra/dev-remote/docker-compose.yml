@@ -290,9 +290,21 @@ services:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
       - ./nginx/security-headers.inc:/etc/nginx/security-headers.inc:ro
 
+  # MediaMTX und LiveKit sind AUF DIE PROD-FASSUNG GEPINNT und müssen es
+  # bleiben. Hier lag bis 2026-08-18 ein lokal gebautes `pulse-mediamtx:prod`
+  # vom 2026-08-04 und LiveKit v1.11 — dem Fork fehlten damit die
+  # 60-fps-Glättung (2026-08-14) und die PLI-Drossel auf 500 ms (2026-08-15).
+  # Wer Streaming gegen so einen Stand misst, jagt Fehler, die es in Produktion
+  # nicht gibt. Beim Anheben der Prod-Pins in `infra/prod/docker-compose.yml`
+  # diese beiden Zeilen mitziehen.
+  #
+  # ACHTUNG, der Fork ist der eine Teil, für den `dev-sync.sh` NICHT gilt: die
+  # Patches liegen in `infra/mediamtx-fork/`, werden von `mediamtx-fork.yml`
+  # gebaut und über den Tag hier eingezogen. Eine Fork-Änderung braucht also
+  # weiterhin CI und einen neuen Tag — Quellcode-Sync hilft dabei nicht.
   mediamtx:
     <<: *base
-    image: pulse-mediamtx:prod
+    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse4
     container_name: pulsetest_mediamtx
     environment:
       PULSE_KEYFRAME_INTERVAL: "0"
@@ -305,7 +317,7 @@ services:
 
   livekit:
     <<: *base
-    image: livekit/livekit-server:v1.11
+    image: livekit/livekit-server:v1.13.3
     container_name: pulsetest_livekit
     command: ["--config", "/livekit.yaml"]
     ports:
