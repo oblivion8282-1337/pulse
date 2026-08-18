@@ -90,3 +90,29 @@ export function stromGehoertGeraet(channelId: string, userId: string): boolean {
   if (eigene.length === 0) return false;
   return eigene.every((s) => plaetze.has(s.slot));
 }
+
+/**
+ * Die Gegenseite: sendet DIESES Gerät gerade selbst?
+ *
+ * Gehört zwingend neben `stromGehoertGeraet()` — die beiden bilden zusammen
+ * eine Aufteilung, kein Nebeneinander. Der Mensch gibt sein Abzeichen genau
+ * dann ab, wenn das Gerät es bekommt, und für jeden Strom leuchtet genau eine
+ * der beiden Zeilen.
+ *
+ * **Warum das hier steht und nicht in der Gerätezeile**: dort stand bis zum
+ * 2026-08-18 die alte Vermutung „läuft in diesem Kanal irgendein Strom des
+ * Besitzers?". Als die Menschen-Seite auf die gemeldeten Plätze umgestellt
+ * wurde (6889e66a), blieb die Gerätezeile darauf sitzen — und beide Abzeichen
+ * leuchteten gleichzeitig, sobald jemand von Hand übertrug, während sein
+ * Standplatz nur danebenstand. Solange beide Bedingungen in derselben Datei
+ * liegen, kann das nicht wieder auseinanderlaufen.
+ */
+export function geraetSendet(device: { owner_user_id: string; stream_slots?: number[] }, channelId: string): boolean {
+  const plaetze = new Set(device.stream_slots ?? []);
+  // Meldet das Gerät nichts, sendet es auch nichts. Ein Gerät ohne gemeldete
+  // Plätze ist der Normalfall (nie geweckt) — nicht etwa „alles gehört ihm".
+  if (plaetze.size === 0) return false;
+  return streamPresence
+    .streamsIn(channelId)
+    .some((s) => s.user_id === device.owner_user_id && plaetze.has(s.slot));
+}

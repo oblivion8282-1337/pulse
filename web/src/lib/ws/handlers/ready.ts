@@ -34,6 +34,7 @@ import type { ReadyEvent } from './types';
 import type { Guild } from '$lib/api/types';
 import { gatewayForServer } from '$lib/ws/connection';
 import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
+import { darfStandplatzSein } from '$lib/remote/darfStandplatzSein';
 
 /** Extra context fields that only the ready handler cares about — kept
  *  separate from `HandlerContext` so other handlers don't see them. */
@@ -163,7 +164,14 @@ export function register(ctx: ReadyContext): void {
     // alle anderen auf „offline", waehrend es laengst wieder verbunden ist.
     // Auf der Verbindung, die diesen Rahmen gebracht hat — eine Eintragung
     // gehoert einem Server, nicht „dem gerade aktiven".
-    if (sid) {
+    //
+    // **Nur wo dieser Rechner sich auch wirklich steuern lassen kann.** Eine
+    // Eintragung ueberlebt einen Plattformwechsel (dieselbe Datei, anderes
+    // Betriebssystem), und ohne diese Pruefung meldete sich ein Linux-Rechner
+    // munter weiter an: er stand fuer alle als „bereit", waehrend jede
+    // Uebernahme in `remote/session.svelte.ts` schweigend verworfen wurde. Ohne
+    // Anmeldung steht er als offline — das entspricht der Wahrheit.
+    if (sid && darfStandplatzSein()) {
       const eintrag = geraeteAnmeldung.fuerServer(sid);
       const conn = eintrag ? gatewayForServer(sid) : null;
       if (eintrag && conn) {
