@@ -235,35 +235,32 @@ export async function loadCatalogs(): Promise<void> {
       const { hdr: _hdrWeg, ...rest } = streamSettings.overrides;
       streamSettings.overrides = rest;
     }
-    // **Intra-Refresh ist seit 2026-08-06 die VORGABE, wo der Sidecar ihn
-    // meldet** — vorher musste ihn jeder Nutzer von Hand einschalten, und
-    // praktisch niemand tat das.
+    // **Intra-Refresh bekommt hier bewusst KEINE Vorgabe mehr.** Wer nichts
+    // einstellt, streamt ohne — der Haken unter „Erweitert" ist die einzige
+    // Stelle, die ihn setzt.
     //
-    // Was daran hing, war mehr als die Betriebsart selbst: `pushProtokoll()`
-    // koppelt den Sendeweg daran (Intra-Refresh braucht den WHIP-Rückkanal),
-    // und nur über WHIP erzeugt der Server FlexFEC-Parität. Ohne den Haken lief
-    // also dreierlei nicht — rollender Refresh, Rückkanal und Verlustschutz —,
-    // obwohl alle drei gemessen, ausgeliefert und in Betrieb waren. In der
-    // Produktionsauswertung vom 2026-08-06 bekamen 71 von 71 RTMPS-Sitzungen
-    // KEINE Parität, während über WHIP 75 von 131 welche hatten.
+    // Vom 2026-08-06 bis zum 2026-08-18 stand hier das Gegenteil: ein
+    // `undefined` wurde auf `true` gehoben, wo der Sidecar die Fähigkeit
+    // meldete. Beide Gründe dafür sind entfallen.
     //
-    // Der Gewinn ist gemessen (`profiles/hq-2026-07-31-intra-refresh-echter-
-    // sender.json`): bei gleicher Datenrate 1,4 statt 48,7 Prozent gestörte
-    // Sekunden und 92,8 statt 76,3 VMAF.
+    // *Der gemessene Vorteil hat sich umgedreht.* Er galt gegen einen
+    // Vollbild-Abstand von 2 s; seit dem 2026-08-18 sind es 60 s, und damit
+    // liefert der lange Takt an identischen Bildern bei 2000 kbps **+1,87 VMAF
+    // bei 16 % weniger Daten** (95,16 gegen 93,29 bei 1687 gegen 1999 kbit/s;
+    // Tabelle bei `KEYFRAME_SEKUNDEN_VORGABE` im Linux-Sidecar). Dazu der
+    // schwerere Punkt: ein Intra-Refresh-Strom **heilt sich nach Paketverlust
+    // nicht selbst**, ein Vollbild-Strom heilt am nächsten Takt.
     //
-    // Gesetzt wird ausdrücklich `true` statt nur die Prüfung umzudrehen: der
-    // Wert muss in `overrides` LANDEN, damit `buildStartArgs` ihn mitschickt.
-    // Fehlt er, entscheidet die Vorgabe im Sidecar — und die ist aus. Genau so
-    // ging der Wunsch am 2026-08-02 schon einmal verloren, ohne dass etwas
-    // auffiel.
+    // *Der Sendeweg hängt nicht mehr daran.* Die Vorgabe war halb damit
+    // begründet, dass nur WHIP FlexFEC-Parität bekommt und `pushProtokoll()`
+    // den Weg am Haken festmachte. Seit dem 2026-08-18 liefert `pushProtokoll`
+    // für jeden Codec `'whip'` — Rückkanal und Parität stehen also unabhängig
+    // von dieser Betriebsart.
     //
-    // Ein ausdrückliches `false` bleibt unangetastet: eine Abwahl ist eine
-    // Willensbekundung, keine fehlende Vorgabe. Die Rücknahme oben schützt
-    // weiterhin davor, dass ein mitgereister Haken auf ungeeigneter Hardware
-    // liegen bleibt.
-    if (streamSettings.overrides.intra_refresh === undefined && stream.intraRefreshAvailable) {
-      streamSettings.overrides = { ...streamSettings.overrides, intra_refresh: true };
-    }
+    // Die Bereinigung in `settingsState.svelte.ts::applyPersisted` räumt einen
+    // aus der alten Lage gespeicherten Haken einmalig weg. Sie war wirkungslos,
+    // solange diese Zeilen hier standen: sie löscht den Wert, und der nächste
+    // Aufruf von `loadCatalogs()` setzte ihn sofort wieder auf `true`.
     streamSettings.catalogs_loaded = true;
   } catch (e) {
     streamSettings.catalog_error = e instanceof Error ? e.message : String(e);
