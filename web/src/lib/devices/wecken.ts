@@ -115,7 +115,7 @@ function naechsterPlatz(): number {
  *
  * **Ohne Nummer heisst „nimm den, den du für richtig hältst"** — und das ist
  * die Quelle aus dem Standplatz-Profil. Der Haupt-Knopf beim Steuernden
- * („wecken und übernehmen") schickt deshalb bewusst keine Nummer mit; erst die
+ * („Übernehmen") schickt deshalb bewusst keine Nummer mit; erst die
  * Bildschirmliste tut es. Bis zum Bughunt 2026-08-16 schickte auch der
  * Haupt-Knopf die Nummer des gemeldeten Hauptbildschirms, und damit war die
  * Einstellung im Profil bei jedem online gemeldeten Gerät wirkungslos: sie

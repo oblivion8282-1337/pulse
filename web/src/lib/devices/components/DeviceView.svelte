@@ -15,7 +15,7 @@
   Fenster, in dem die Maus gerade ist, denn der Drahtvertrag trägt die
   Platznummer in jeder Nachricht.
 
-  Der Knopf heisst „Wecken und übernehmen" und tut seit 2026-08-16 beides:
+  Der Knopf heisst „Übernehmen" und tut seit 2026-08-16 beides:
   wecken → warten, bis das Bild da ist → eigenes Player-Fenster → Fernsteuerung
   anfordern. Die Reihenfolge bleibt getrennt (die Anfrage geht erst nach dem
   Bild hinaus, s. `schirme.svelte.ts::uebernehmen`), aber sie kostet keinen
@@ -34,7 +34,6 @@
   import { schirmWarten, schirmeVon, zusehen } from '$lib/devices/schirme.svelte';
   import { gegenstelle } from '$lib/remote/gegenstelle';
   import { userCache } from '$lib/stores/users.svelte';
-  import { guilds } from '$lib/stores/guilds.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { darfFernsteuern } from '$lib/remote/darfSteuern';
   import { m } from '$lib/paraglide/messages.js';
@@ -48,14 +47,12 @@
     onOpenChannel: (channelId: string) => void;
   } = $props();
 
-  const besitzer = $derived(gegenstelle(device.owner_user_id));
-  const kanal = $derived(
-    guilds.channelsByGuild[device.guild_id]?.find((c) => c.id === device.channel_id) ?? null,
-  );
   const steuernder = $derived(device.busy_with ? gegenstelle(device.busy_with) : null);
 
   $effect(() => {
-    userCache.queue(device.owner_user_id);
+    // Nur noch fuer den Steuernden: Besitzer und Standplatz stehen seit
+    // 2026-08-18 nicht mehr in dieser Ansicht (die Kopfzeile daneben nennt
+    // beides ohnehin).
     if (device.busy_with) userCache.queue(device.busy_with);
   });
 
@@ -96,19 +93,25 @@
 
 </script>
 
-<div class="flex h-full flex-col items-center justify-center gap-6 p-8" data-testid="device-view">
+<!-- Die Klassen der Fläche sind DIESELBEN wie bei den Geschwistern, die an
+     dieser Stelle stehen (`VoiceChannelView`, die Gesperrt- und Leer-Ansichten
+     in der Kanalseite) — die Geräteansicht ersetzt die Kanalansicht und muss
+     sich deshalb wie eine verhalten.
+
+     Bis 2026-08-18 fehlten hier `glass-panel` und `flex-1`, und beides fiel
+     sofort auf: ohne `flex-1` wächst der Block nicht auf die Breite des
+     Hauptbereichs, sondern bleibt auf Inhaltsbreite stehen und klebt am linken
+     Rand; ohne `glass-panel` fehlt die Fläche, auf der jede andere Ansicht
+     sitzt. Wer hier etwas ändert, gleicht mit den Geschwistern ab. -->
+<div
+  class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-6 rounded-none p-8 md:rounded-2xl"
+  data-testid="device-view"
+>
   <div class="flex flex-col items-center gap-3 text-center">
     <span class="border-text-muted/40 text-text-muted grid size-16 place-items-center rounded-xl border">
       <MonitorIcon class="size-8" />
     </span>
     <h1 class="text-text-bright font-mono text-2xl">{device.name}</h1>
-    <p class="text-text-muted text-sm">
-      {m.device_view_owner({ user: besitzer.anzeige })}
-      {#if kanal}
-        · {m.device_view_place({ channel: kanal.name })}
-      {/if}
-    </p>
-    <p class="text-text-muted max-w-md text-xs">{m.device_view_intro()}</p>
   </div>
 
   {#if device.state === 'busy'}
@@ -156,10 +159,16 @@
     <!-- Noch nichts läuft: ein Knopf, und der holt den Bildschirm, den das
          Gerät selbst dafür vorsieht — deshalb `ausdruecklich: false`. -->
     {@const haupt = schirme.find((s) => s.primary) ?? schirme[0]}
+    <!-- **Offline heisst wirklich unerreichbar** — es gibt kein Wake-on-LAN, der
+         Rechner muss laufen und bei Pulse angemeldet sein (genau das sagt der
+         Hinweis darunter). Ohne dieses `disabled` liess sich der Knopf drücken,
+         der Weckruf ging an ein Gerät ohne Verbindung, und nach dem Zeitablauf
+         kam „Das Gerät hat nicht geantwortet." Ein Knopf, der sichtbar nichts
+         bewirken kann, gehört ausgegraut statt in eine Wartezeit zu führen. -->
     <Button
       size="lg"
       onclick={() => schirmWarten.holen(device, haupt, false)}
-      disabled={!!wartetAuf}
+      disabled={!!wartetAuf || device.state === 'offline'}
       data-testid="device-view-take-over"
     >
       <PlayIcon class="size-4" />
