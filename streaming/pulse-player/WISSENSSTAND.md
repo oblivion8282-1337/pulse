@@ -113,7 +113,9 @@ Env-Schalter (23 Stück). Die betriebsrelevanten:
 | `PULSE_PLAYER_DUMP_RTP` | RTP-Nutzlasten mitschneiden |
 
 Wichtige Konstanten: `ERROR_LIMIT=30` (Ablehnungen bis Neuaufbau),
-`MAX_REBUILDS=2`, `MAX_UNITS_WITHOUT_KEYFRAME=1200`, `MAX_BUFFERED=2048`.
+`MAX_REBUILDS=2`, `MAX_WARTEZEIT_OHNE_KEYFRAME=20 s`, `MAX_BUFFERED=2048`.
+Die Wartezeit war bis zum 2026-08-18 eine Bildzahl (`1200`) und schrumpfte
+dadurch mit steigender Bildrate — bei 144 fps auf 8,3 s.
 
 ---
 

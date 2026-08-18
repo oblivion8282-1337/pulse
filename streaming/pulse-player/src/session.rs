@@ -729,7 +729,7 @@ pub async fn run(
                 // — das einzige Vollbild kommt auf Anforderung. Ging die
                 // hinaus, waehrend der Player noch im Verbindungsaufbau steckte,
                 // wartete er danach vergeblich, bis
-                // `MAX_UNITS_WITHOUT_KEYFRAME` die Sitzung abbrach: der
+                // `MAX_WARTEZEIT_OHNE_KEYFRAME` die Sitzung abbrach: der
                 // Zuschauer sah NIE ein Bild. Am 2026-07-31 im Pruefstand
                 // beobachtet (150 Sekunden „dekodiert 0/s").
                 //
