@@ -840,6 +840,7 @@
   "device_state_ready": "bereit",
   "device_view_busy_with": "Wird gerade von {user} gesteuert.",
   "device_view_no_permission": "Dir fehlt das Recht, dieses Gerät zu übernehmen.",
+  "device_view_offline_hint": "Das Gerät ist nicht erreichbar.",
   "device_view_screen_primary": "Hauptbildschirm",
   "device_view_screens": "Bildschirme",
   "device_view_screens_hint": "Ein weiterer Bildschirm wird erst übertragen, wenn du ihn anforderst — das spart Rechenzeit auf dem fernen Rechner und Bandbreite. Jeder bekommt sein eigenes Fenster; die Eingabe folgt dem Fenster, in dem deine Maus ist.",
@@ -2584,6 +2585,7 @@
   "standplatz_settings_log_manual": "bestätigt",
   "standplatz_settings_log_running": "läuft",
   "standplatz_settings_log_unknown_duration": "Dauer unbekannt",
+  "standplatz_settings_platform_only": "Fernsteuerung gibt es zurzeit nur unter Windows. Dieser Rechner meldet sich deshalb nicht als Remote-Rechner an und erscheint für andere als offline. Eine bestehende Eintragung kannst du hier entfernen.",
   "standplatz_settings_revoke": "Freigabe aufheben",
   "standplatz_settings_state_off": "Nicht freigegeben",
   "standplatz_settings_state_on": "Freigegeben",
@@ -2638,6 +2640,8 @@
   "stream_controls_state_stopped": "Gestoppt",
   "stream_controls_toast_start_failed": "Stream konnte nicht gestartet werden",
   "stream_error_start_timeout": "Stream-Start nach 20 Sekunden abgebrochen — Sidecar oder Netzwerk.",
+  "stream_erweitert_intra_hinweis": "Verteilt die Bildauffrischung statt regelmässiger Vollbilder. Nur für sehr schwache Verbindungen sinnvoll — sonst ist das Bild ohne besser.",
+  "stream_erweitert_titel": "Erweitert",
   "stream_grid_participants_collapse_aria": "Teilnehmer ausblenden",
   "stream_grid_participants_collapsed_hint": "{count} Teilnehmer · ausgeblendet",
   "stream_grid_participants_expand_aria": "Teilnehmer einblenden",
@@ -2895,7 +2899,5 @@
   "whep_player_popup_blocked": "Popup blockiert",
   "whep_player_popup_blocked_description": "Bitte erlaube Pop-up-Fenster für Pulse und versuche es erneut.",
   "whep_player_stream_load_failed": "Stream konnte nicht geladen werden",
-  "whep_player_waiting_for_stream": "Warte auf den Stream…",
-  "standplatz_settings_platform_only": "Fernsteuerung gibt es zurzeit nur unter Windows. Dieser Rechner meldet sich deshalb nicht als Remote-Rechner an und erscheint für andere als offline. Eine bestehende Eintragung kannst du hier entfernen.",
-  "device_view_offline_hint": "Das Gerät ist nicht erreichbar."
+  "whep_player_waiting_for_stream": "Warte auf den Stream…"
 }
