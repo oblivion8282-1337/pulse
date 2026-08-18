@@ -29,6 +29,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { starteSelbstabgleich } from './lib/dev-selbstabgleich.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const WIN = process.platform === 'win32';
@@ -268,6 +269,15 @@ async function main() {
 
   if (!has('--no-electron')) await startElectron();
 
+  // Dauerhaft an: der andere Rechner soll Gepushtes von selbst bekommen, ohne
+  // dass dort jemand `git pull` tippt. Sicherungen stecken im Modul — gezogen
+  // wird nur bei sauberem Arbeitsbaum und reinem Vorlauf, sonst nur gemeldet.
+  // Notausgang für den Fall, dass man beim Basteln Ruhe braucht:
+  // PULSE_DEV_PULL=0.
+  if (process.env.PULSE_DEV_PULL !== '0') {
+    starteSelbstabgleich({ repo: REPO, log: (zeile) => console.log(zeile) });
+  }
+
   console.log(
     [
       '',
@@ -280,6 +290,7 @@ async function main() {
       '  Backend-Änderung hinschieben:   scripts/dev-sync.sh',
       '  Dauerhaft mitziehen:            scripts/dev-sync.sh --watch',
       '  Remote-Logs:                    node scripts/dev-remote.mjs --logs',
+      `  Selbstabgleich:                 ${process.env.PULSE_DEV_PULL === '0' ? 'aus (PULSE_DEV_PULL=0)' : 'an — zieht neue Commits alle 10 s nach'}`,
       '  Beenden:                        Strg+C',
       ''
     ].join('\n')
