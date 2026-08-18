@@ -160,11 +160,11 @@
          Gerät selbst dafür vorsieht — deshalb `ausdruecklich: false`. -->
     {@const haupt = schirme.find((s) => s.primary) ?? schirme[0]}
     <!-- **Offline heisst wirklich unerreichbar** — es gibt kein Wake-on-LAN, der
-         Rechner muss laufen und bei Pulse angemeldet sein (genau das sagt der
-         Hinweis darunter). Ohne dieses `disabled` liess sich der Knopf drücken,
-         der Weckruf ging an ein Gerät ohne Verbindung, und nach dem Zeitablauf
-         kam „Das Gerät hat nicht geantwortet." Ein Knopf, der sichtbar nichts
-         bewirken kann, gehört ausgegraut statt in eine Wartezeit zu führen. -->
+         Rechner muss laufen und bei Pulse angemeldet sein. Ohne dieses
+         `disabled` liess sich der Knopf drücken, der Weckruf ging an ein Gerät
+         ohne Verbindung, und nach dem Zeitablauf kam „Das Gerät hat nicht
+         geantwortet." Ein Knopf, der sichtbar nichts bewirken kann, gehört
+         ausgegraut statt in eine Wartezeit zu führen. -->
     <Button
       size="lg"
       onclick={() => schirmWarten.holen(device, haupt, false)}
@@ -175,7 +175,11 @@
       {wartetAuf ? m.device_view_waking() : m.device_view_wake()}
     </Button>
     {#if device.state === 'offline'}
-      <p class="text-text-muted max-w-sm text-center text-xs">
+      <!-- Nur der Befund, nicht die Anleitung: der Knopf darueber ist bereits
+           ausgegraut, und ein ausgegrauter Knopf ohne jedes Wort liesse offen,
+           ob die App klemmt. Was zu tun ist (einschalten, anmelden), stand hier
+           frueher dazu und war fuer den taeglichen Blick zu viel Text. -->
+      <p class="text-text-muted text-xs" data-testid="device-view-offline">
         {m.device_view_offline_hint()}
       </p>
     {/if}
