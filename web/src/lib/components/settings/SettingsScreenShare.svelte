@@ -61,16 +61,20 @@
 
   <section class="flex flex-col gap-2 rounded-2xl border border-border bg-bg-input/40 p-4">
     <span class="text-text-bright text-sm font-medium">{m.settings_screenshare_section_codec()}</span>
-    <div class="flex flex-col gap-1.5">
+    <!-- Nebeneinander statt untereinander, und zwar im selben `grid-cols-2` wie
+         der Auflösungs-Block darunter: bei zwei kurzen Bezeichnungen ist eine
+         volle Zeile je Eintrag verschenkter Platz, und die beiden Abschnitte
+         standen ohne Grund unterschiedlich. -->
+    <div class="grid grid-cols-2 gap-1.5">
       {#each codecs as c (c.value)}
-        <label class="flex cursor-pointer items-start gap-2.5 rounded-xl px-2 py-2.5 transition-colors hover:bg-bg-hover md:py-1.5">
+        <label class="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2.5 transition-colors hover:bg-bg-hover md:py-1.5">
           <input
             type="radio"
             name="sss-codec"
             value={c.value}
             checked={settings.screenShare.codec === c.value}
             onchange={() => settings.setScreenShareCodec(c.value)}
-            class="accent-primary mt-0.5"
+            class="accent-primary"
           />
           <span class="text-text-bright text-sm">{c.label}</span>
         </label>
