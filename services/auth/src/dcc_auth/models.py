@@ -369,9 +369,13 @@ class AuthSettings(Base):
     id: Mapped[int] = mapped_column(SmallInteger, primary_key=True, default=1)
     # Registration mode: "open" | "invite_only" | "closed".
     # - open: anyone can /register
-    # - invite_only: /register requires a valid invite code (later — currently
-    #   the column exists but auth-svc treats invite_only like closed since
-    #   there's no invite-issuing flow yet)
+    # - invite_only: /register requires a valid invite code. Fully wired since
+    #   migration 0022 — `routes.py::register` rejects a missing code before
+    #   the Argon2 hash and consumes the code afterwards via an atomic guarded
+    #   UPDATE (so a duplicate-username 409 doesn't burn it); codes are minted
+    #   in `routes_admin.py`. This comment used to claim invite_only behaved
+    #   like closed, which stopped being true and would talk you out of the
+    #   one mode that keeps a public test instance usable.
     # - closed: /register always 403s
     registration_mode: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default="open"

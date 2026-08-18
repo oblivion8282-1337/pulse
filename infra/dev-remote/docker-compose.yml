@@ -1,0 +1,323 @@
+# Pulse — gemeinsamer REMOTE-DEV-Stack (Hetzner, https://pulse.unicutmedia.com)
+#
+# Hier läuft die UNTERE Hälfte dessen, was früher auf jedem Rechner einzeln lief
+# (`scripts/dev-up.fish`): Datenbank, Redis, MinIO, LiveKit, MediaMTX und die
+# fünf FastAPI-Dienste. Vite und Electron bleiben auf dem Arbeitsrechner
+# (`scripts/dev-remote.mjs`) — HMR muss sofort sein, und Bildschirmaufnahme
+# hängt physisch an der Maschine. Ablauf, Einrichtung und Rückfall stehen in
+# `infra/dev-remote/README.md`.
+#
+# ── Der entscheidende Unterschied zum Prod-Stack ─────────────────────────────
+# Der Python-Quellcode ist NICHT ins Image gebacken, sondern von außen
+# eingehängt, und die Dienste laufen mit `uvicorn --reload`. Eine Änderung ist
+# damit ~2 Sekunden nach `scripts/dev-sync.sh` live — ohne Image-Bau, ohne
+# Registry, ohne Umweg über GitHub.
+#
+# WARUM DAS FUNKTIONIERT: die Dienste sind im Image *editable* installiert. Die
+# Dateien `_editable_impl_dcc_<pkg>.pth` in site-packages enthalten schlicht
+# einen Pfad — `/app/services/<svc>/src` bzw. `/app/shared/src`. Ein Mount über
+# genau diese Pfade wird deshalb ohne Umweg importiert. Wer das Layout in
+# `Dockerfile.service` verschiebt, muss die Mounts hier mitziehen, sonst läuft
+# stillschweigend weiter der gebackene Code aus dem Image.
+#
+# Die Images (`pulsetest-*:local`) sind damit nur noch ABHÄNGIGKEITS-TRÄGER:
+# sie liefern `/app/.venv`. Neu gebaut werden müssen sie ausschließlich, wenn
+# sich `uv.lock` ändert (zuletzt 2026-07-01).
+#
+# ── Der Projektname ist nicht frei wählbar ───────────────────────────────────
+# An `name: pulsetest` hängen der Volume-Präfix (`pulsetest_pgdata` — der
+# vorhandene Datenbestand) und die Container-Namen, auf die der Caddy des Hosts
+# zeigt (`reverse_proxy pulsetest_web:80`). Ein anderer Projektname legt eine
+# leere Datenbank an und die Adresse pulse.unicutmedia.com zeigt ins Leere.
+# Aus demselben Grund wird dieses Compose an Ort und Stelle eingespielt und
+# nicht als zweites Projekt danebengestellt: zwei Postgres-Container auf
+# demselben Verzeichnis zerlegen den Datenbestand.
+
+name: pulsetest
+
+x-base: &base
+  restart: unless-stopped
+  networks: [pulse-selfhost-net]
+
+x-app: &app
+  <<: *base
+  env_file: .env
+
+x-health: &health
+  interval: 15s
+  timeout: 5s
+  retries: 5
+  start_period: 10s
+
+# Beide Dienste mit Healthcheck fragen denselben `/health`-Weg ab.
+x-service-health: &service-health
+  <<: *health
+  test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+
+services:
+  # ── Zustand ────────────────────────────────────────────────────────────────
+
+  postgres:
+    <<: *app
+    image: postgres:16-alpine
+    container_name: pulsetest_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+
+  redis:
+    <<: *base
+    image: redis:7-alpine
+    container_name: pulsetest_redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # MinIO fehlte im bisherigen Test-Stack, während `.env` und die
+  # nginx-Location `/pulse-attachments/` (`set $u minio;`) längst darauf
+  # zeigten — Anhänge und Ablage waren hier deshalb tot, ohne dass es eine
+  # Fehlermeldung gegeben hätte. Die Zugangsdaten sind bewusst dieselben wie
+  # in `S3_ACCESS_KEY`/`S3_SECRET_KEY`, damit es nur EINEN Satz gibt.
+  minio:
+    <<: *base
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: pulsetest_minio
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY}
+      # Presign-Host. MinIO lässt Pfad-Präfixe hier fallen (in Prod
+      # nachgemessen), deshalb ist der Bucket-Name das URL-Präfix und nginx
+      # reicht `/pulse-attachments/*` unverändert durch. Muss auf die
+      # öffentliche Adresse zeigen, sonst passt die Signatur nicht zu dem,
+      # was der Browser aufruft.
+      MINIO_SERVER_URL: https://pulse.unicutmedia.com
+      MINIO_BROWSER_REDIRECT_URL: http://127.0.0.1:9001
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      <<: *health
+      start_period: 15s
+    ports:
+      # Konsole nur auf die Loopback — per SSH-Tunnel erreichbar, nichts öffentlich.
+      - "127.0.0.1:9101:9001"
+
+  minio-init:
+    <<: *base
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    container_name: pulsetest_minio_init
+    depends_on:
+      minio: { condition: service_healthy }
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" &&
+        mc mb --ignore-existing local/pulse-attachments &&
+        echo "bucket pulse-attachments ready"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY}
+    restart: "no"
+
+  # ── Migrationen ────────────────────────────────────────────────────────────
+  # Laufen gegen den EINGEHÄNGTEN alembic-Ordner, nicht gegen den im Image.
+  # Eine neue Migration ist damit nach `dev-sync.sh --migrate` sofort anwendbar,
+  # ohne Image-Bau.
+
+  migrate-auth:
+    <<: *app
+    image: pulsetest-auth:local
+    container_name: pulsetest_migrate_auth
+    working_dir: /app/services/auth
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+    volumes:
+      - ./secrets:/secrets:ro
+      - ./src/shared/src:/app/shared/src:ro
+      - ./src/services/auth/src:/app/services/auth/src:ro
+      - ./src/services/auth/alembic:/app/services/auth/alembic:ro
+      - ./src/services/auth/alembic.ini:/app/services/auth/alembic.ini:ro
+
+  migrate-chat:
+    <<: *app
+    image: pulsetest-chat:local
+    container_name: pulsetest_migrate_chat
+    working_dir: /app/services/chat-gateway
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+    volumes:
+      - ./secrets:/secrets:ro
+      - ./src/shared/src:/app/shared/src:ro
+      - ./src/services/chat-gateway/src:/app/services/chat-gateway/src:ro
+      - ./src/services/chat-gateway/alembic:/app/services/chat-gateway/alembic:ro
+      - ./src/services/chat-gateway/alembic.ini:/app/services/chat-gateway/alembic.ini:ro
+
+  # ── Dienste ────────────────────────────────────────────────────────────────
+  # `--reload-dir` ist Pflicht und nicht bloß Feinschliff: uvicorn beobachtet
+  # von sich aus nur das Arbeitsverzeichnis (`/app/services/<svc>`). Ohne die
+  # zweite Angabe würden Änderungen an `dcc_shared` — also an Permissions,
+  # Snowflakes, Modellen — stillschweigend NICHT neu geladen, und man suchte den
+  # Fehler im eigenen Code.
+
+  auth:
+    <<: *app
+    image: pulsetest-auth:local
+    container_name: pulsetest_auth
+    depends_on:
+      postgres: { condition: service_healthy }
+      migrate-auth: { condition: service_completed_successfully }
+    command:
+      ["uvicorn", "dcc_auth.app:app", "--host", "0.0.0.0", "--port", "8000",
+       "--reload", "--reload-dir", "/app/services/auth/src",
+       "--reload-dir", "/app/shared/src"]
+    healthcheck: *service-health
+    volumes:
+      - ./secrets:/secrets:ro
+      - ./src/shared/src:/app/shared/src:ro
+      - ./src/services/auth/src:/app/services/auth/src:ro
+      - ./src/services/auth/alembic:/app/services/auth/alembic:ro
+      - ./src/services/auth/alembic.ini:/app/services/auth/alembic.ini:ro
+
+  chat-gateway:
+    <<: *app
+    image: pulsetest-chat:local
+    container_name: pulsetest_chat
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate-chat: { condition: service_completed_successfully }
+      auth: { condition: service_started }
+    # `--ws-max-size 65536` deckelt eingehende WS-Rahmen; die App erzwingt
+    # zusätzlich 16 KiB. Ohne die Angabe puffert uvicorn bis 16 MiB, bevor die
+    # App-Prüfung greift. Gilt hier genauso wie in Prod.
+    command:
+      ["uvicorn", "dcc_chat_gateway.app:app", "--host", "0.0.0.0", "--port", "8000",
+       "--ws-max-size", "65536",
+       "--reload", "--reload-dir", "/app/services/chat-gateway/src",
+       "--reload-dir", "/app/shared/src", "--reload-dir", "/app/plugins"]
+    healthcheck: *service-health
+    volumes:
+      - ./secrets:/secrets:ro
+      - ./src/shared/src:/app/shared/src:ro
+      - ./src/services/chat-gateway/src:/app/services/chat-gateway/src:ro
+      - ./src/services/chat-gateway/alembic:/app/services/chat-gateway/alembic:ro
+      - ./src/services/chat-gateway/alembic.ini:/app/services/chat-gateway/alembic.ini:ro
+      # Plugin-Discovery sucht einen `plugins/`-Nachbarn (`discover_plugins_dir()`).
+      # Fehlt der Mount, erscheinen alle Plugins als verwaist.
+      - ./src/plugins:/app/plugins:ro
+
+  voice-signaling:
+    <<: *app
+    image: pulsetest-voice:local
+    container_name: pulsetest_voice
+    depends_on:
+      redis: { condition: service_healthy }
+      auth: { condition: service_started }
+    command:
+      ["uvicorn", "dcc_voice_signaling.app:app", "--host", "0.0.0.0", "--port", "8000",
+       "--reload", "--reload-dir", "/app/services/voice-signaling/src",
+       "--reload-dir", "/app/shared/src"]
+    volumes:
+      - ./secrets:/secrets:ro
+      - ./src/shared/src:/app/shared/src:ro
+      - ./src/services/voice-signaling/src:/app/services/voice-signaling/src:ro
+
+  media-svc:
+    <<: *app
+    image: pulsetest-media:local
+    container_name: pulsetest_media
+    depends_on:
+      redis: { condition: service_healthy }
+      auth: { condition: service_started }
+    command:
+      ["uvicorn", "dcc_media_svc.app:app", "--host", "0.0.0.0", "--port", "8000",
+       "--reload", "--reload-dir", "/app/services/media-svc/src",
+       "--reload-dir", "/app/shared/src"]
+    volumes:
+      - ./secrets:/secrets:ro
+      - ./src/shared/src:/app/shared/src:ro
+      - ./src/services/media-svc/src:/app/services/media-svc/src:ro
+
+  mediamtx-auth-hook:
+    <<: *app
+    image: pulsetest-hook:local
+    container_name: pulsetest_hook
+    depends_on:
+      redis: { condition: service_healthy }
+    command:
+      ["uvicorn", "dcc_mediamtx_auth_hook.app:app", "--host", "0.0.0.0", "--port", "8000",
+       "--reload", "--reload-dir", "/app/services/mediamtx-auth-hook/src",
+       "--reload-dir", "/app/shared/src"]
+    volumes:
+      - ./secrets:/secrets:ro
+      - ./src/shared/src:/app/shared/src:ro
+      - ./src/services/mediamtx-auth-hook/src:/app/services/mediamtx-auth-hook/src:ro
+
+  # ── Auslieferung + Medien ──────────────────────────────────────────────────
+
+  # Die ausgelieferte Oberfläche unter pulse.unicutmedia.com. Für den täglichen
+  # Ablauf braucht man sie NICHT — dort läuft Vite lokal und spricht nur die
+  # `/api/*`-Wege hier an. Sie ist für die Fälle da, in denen es keinen lokalen
+  # Vite gibt: Handy, fremder Rechner, verpackte Electron-App.
+  # Bestückt wird sie mit `scripts/dev-sync.sh --web`.
+  web:
+    <<: *base
+    image: nginx:1.27-alpine
+    container_name: pulsetest_web
+    depends_on:
+      auth: { condition: service_started }
+      chat-gateway: { condition: service_started }
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - ./web-build:/usr/share/nginx/html:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/security-headers.inc:/etc/nginx/security-headers.inc:ro
+
+  mediamtx:
+    <<: *base
+    image: pulse-mediamtx:prod
+    container_name: pulsetest_mediamtx
+    environment:
+      PULSE_KEYFRAME_INTERVAL: "0"
+    ports:
+      - "1936:1936"
+      - "8189:8189/udp"
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+      - ./certs:/certs:ro
+
+  livekit:
+    <<: *base
+    image: livekit/livekit-server:v1.11
+    container_name: pulsetest_livekit
+    command: ["--config", "/livekit.yaml"]
+    ports:
+      - "7881:7881"
+      - "7882-7892:7882-7892/udp"
+    volumes:
+      - ./livekit.yaml:/livekit.yaml:ro
+
+volumes:
+  pgdata:
+  miniodata:
+
+networks:
+  pulse-selfhost-net:
+    external: true
