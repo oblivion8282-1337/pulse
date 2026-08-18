@@ -23,7 +23,7 @@
 // diesen lokalen Vite. Bildschirmaufnahme, Sidecars und der native Player
 // bleiben ohnehin lokal, die hängen an der Hardware.
 
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -32,6 +32,7 @@ import { fileURLToPath } from 'node:url';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const WIN = process.platform === 'win32';
+const PLAYER_BIN = WIN ? 'pulse-player.exe' : 'pulse-player';
 
 const argv = process.argv.slice(2);
 
@@ -127,51 +128,110 @@ function tailRemoteLogs() {
 }
 
 /**
- * Auf Windows/Mac findet `desktop/electron/sidecar.ts` den HQ-Sidecar von
- * selbst (Walk-up ab dem Electron-Modul zu `streaming/{win,mac}-hq-sidecar/
- * target/{release,debug}/`) — dort ist nichts zu tun.
+ * Findet die nativen Teile (Aufnahme-Sidecar, HQ-Player) und meldet, was fehlt.
  *
- * Linux hat diesen Walk-up NICHT für den Rust-Sidecar (der Crate liegt zwar
- * im Repo, aber `resolveLinuxRustBinaryPath()` kennt nur `$PULSE_LINUX_HQ_
- * SIDECAR` oder den Flatpak-Pfad `/app/bin/…`) — ohne eine der beiden bleibt
- * `stream.gsrAvailable` false und der HQ-Stream-Button verschwindet, obwohl
- * ein gebautes Binary im Repo liegt. Spiegelt die Auflösung aus
- * `scripts/dev-up.fish` (GSR-Fallback zuerst geprüft, Rust-Sidecar bevorzugt
- * gesetzt, falls vorhanden).
+ * WARUM DAS HIER STEHEN MUSS: ohne diese Prüfung ist ein fehlendes Binary
+ * NICHT zu erkennen — die Oberfläche blendet den HQ-Knopf einfach aus, und der
+ * Knopf für das eigene Zuschauer-Fenster tut nichts. Man sucht den Fehler dann
+ * im Backend, obwohl nur `scripts/hq-bauen.sh` nie gelaufen ist. `dev-up.fish`
+ * warnt an dieser Stelle seit jeher; hier fehlte es und hat genau diesen
+ * Irrweg ausgelöst.
+ *
+ * NUR LINUX BRAUCHT VARIABLEN, und zwar aus einem bestimmten Grund: Windows und
+ * macOS finden ihren Sidecar über die Aufwärtssuche in
+ * `desktop/electron/sidecar.ts` (`streaming/<platt>-hq-sidecar/target/…`),
+ * ebenso den Player. Für den Rust-Linux-Sidecar gibt es diese Aufwärtssuche
+ * NICHT — `resolveLinuxRustBinaryPath()` kennt nur `$PULSE_LINUX_HQ_SIDECAR`
+ * oder den Flatpak-Pfad `/app/bin/…`. Ohne eine der beiden bleibt
+ * `stream.gsrAvailable` false und der HQ-Knopf verschwindet, obwohl ein
+ * gebautes Binary im Repo liegt.
  */
-function resolveLinuxHqSidecarEnv() {
-  if (process.platform !== 'linux') return {};
+function resolveNativeParts() {
   const env = {};
+  const report = [];
+  const exists = (p) => p && fs.existsSync(p);
+  const rel = (...seg) => path.join(REPO, ...seg);
 
-  const cacheRoot = process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache');
-  const gsrCandidates = [
-    path.join(cacheRoot, 'pulse', 'gsr', 'gpu-screen-recorder', 'build', 'gpu-screen-recorder'),
-    '/tmp/gsr-analysis/gpu-screen-recorder/build/gpu-screen-recorder'
-  ];
-  const gsrBin = gsrCandidates.find((p) => fs.existsSync(p));
-  if (gsrBin) {
-    env.GSR_BINARY = gsrBin;
-    env.PULSE_SIDECAR_PY = path.join(REPO, 'streaming', 'gsr-sidecar', 'control.py');
+  if (process.platform === 'linux') {
+    // bootstrap-gsr.fish baut in den XDG-Cache; der frühere /tmp-Ort lag auf
+    // tmpfs und war nach jedem Neustart weg.
+    const cacheRoot = process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache');
+    const gsrCandidates = [
+      path.join(cacheRoot, 'pulse/gsr/gpu-screen-recorder/build/gpu-screen-recorder'),
+      '/tmp/gsr-analysis/gpu-screen-recorder/build/gpu-screen-recorder'
+    ];
+    const gsr = gsrCandidates.find(exists);
+    if (gsr) {
+      env.GSR_BINARY = gsr;
+      env.PULSE_SIDECAR_PY = rel('streaming/gsr-sidecar/control.py');
+    }
+
+    const rust = rel('streaming/linux-hq-sidecar/target/release/pulse-linux-hq-sidecar');
+    if (exists(rust)) {
+      env.PULSE_LINUX_HQ_SIDECAR = rust;
+      report.push('✓ Rust-Linux-Sidecar da (Standard-Aufnahmeweg)');
+      report.push(...sidecarReport(rust));
+    } else if (gsr) {
+      report.push('ℹ Rust-Linux-Sidecar nicht gebaut — es läuft der GSR-Rückfall (scripts/hq-bauen.sh)');
+    } else {
+      report.push('⚠ Kein Aufnahme-Sidecar gebaut — der HQ-Knopf bleibt versteckt (scripts/hq-bauen.sh)');
+    }
   } else {
-    console.log('… GSR-Binary fehlt — HQ-Fallback bleibt aus (streaming/bootstrap-gsr.fish baut es)');
+    const sub = process.platform === 'win32' ? 'win' : 'mac';
+    const exe = process.platform === 'win32' ? 'pulse-win-hq-sidecar.exe' : 'pulse-mac-hq-sidecar';
+    if (!exists(rel(`streaming/${sub}-hq-sidecar/target/release/${exe}`))) {
+      report.push(`⚠ HQ-Sidecar nicht gebaut — der HQ-Knopf bleibt versteckt (cargo build --release in streaming/${sub}-hq-sidecar/)`);
+    }
   }
 
-  const rustSidecar = path.join(
-    REPO,
-    'streaming',
-    'linux-hq-sidecar',
-    'target',
-    'release',
-    'pulse-linux-hq-sidecar'
-  );
-  if (fs.existsSync(rustSidecar)) {
-    env.PULSE_LINUX_HQ_SIDECAR = rustSidecar;
-    console.log('✓ Rust-Linux-Sidecar da (Standard-Aufnahmeweg)');
-  } else {
-    console.log('… Rust-Linux-Sidecar nicht gebaut — HQ nutzt den GSR-Fallback, falls vorhanden');
+  const player = rel('streaming/pulse-player/target/release', PLAYER_BIN);
+  if (!exists(player)) {
+    report.push('⚠ Nativer Player nicht gebaut — "im eigenen Fenster ansehen" tut nichts, Zuschauen läuft über den Browser (scripts/hq-bauen.sh)');
   }
+  return { env, report };
+}
 
-  return env;
+/**
+ * Fragt den Sidecar SELBST nach seinem Zustand, statt am Bibliothekspfad zu
+ * raten — `health` meldet dieselben Fähigkeiten, an denen auch die Oberfläche
+ * ihre Schalter festmacht. So können Hinweis und App nicht auseinanderlaufen.
+ *
+ * DIE WICHTIGSTE ZEILE IST DIE LEERE CODEC-LISTE. Am 2026-08-18 stand hier
+ * zuerst nur eine Intra-Refresh-Meldung, die auf „AMD/Intel" verwies — auf
+ * einer NVIDIA-Karte. Der wahre Befund lag daneben: `video_codecs: []`, weil
+ * `bootstrap-ffmpeg.sh` NVENC nur einschaltet, wenn `ffnvcodec` da ist, und
+ * das Paket fehlte. Ohne Encoder taugt der Sidecar gar nichts, und die
+ * Nebensache hätte den Blick weiter auf das Falsche gelenkt.
+ */
+function sidecarReport(binary) {
+  let health;
+  try {
+    const out = execFileSync(binary, [], {
+      input: '{"op":"health","id":1}\n',
+      timeout: 30_000,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'ignore']
+    });
+    health = JSON.parse(out.split('\n').find((l) => l.trim().startsWith('{')) || '{}').gsr;
+  } catch {
+    return ['⚠ Sidecar antwortet nicht auf `health` — HQ-Aufnahme wird nicht funktionieren'];
+  }
+  if (!health) return ['⚠ Sidecar liefert keinen Zustand — HQ-Aufnahme wird nicht funktionieren'];
+
+  const lines = [];
+  const codecs = health.video_codecs || [];
+  if (!health.available || codecs.length === 0) {
+    lines.push(
+      `⚠ Sidecar hat KEINE Encoder (${health.vendor || 'unbekannt'}) — HQ-Aufnahme geht nicht. ` +
+        'Auf NVIDIA fehlt meist ffnvcodec-headers; danach: PULSE_FFMPEG_NEUBAU=1 scripts/hq-bauen.sh'
+    );
+  } else {
+    lines.push(`✓ Encoder da (${health.vendor}): ${codecs.join(', ')}`);
+    if (!health.intra_refresh) {
+      lines.push('ℹ Intra-Refresh nicht verfügbar — gepatchtes FFmpeg fehlt: scripts/hq-bauen.sh');
+    }
+  }
+  return lines;
 }
 
 async function startElectron() {
@@ -182,14 +242,13 @@ async function startElectron() {
     console.error('✗ Electron-Build fehlgeschlagen — Vite läuft weiter, Browser tut es auch');
     return;
   }
+  const { env: nativeEnv, report } = resolveNativeParts();
+  for (const line of report) console.log(`  ${line}`);
+
   console.log('→ Electron starten');
   run('pnpm', ['run', 'start'], {
     cwd: path.join(REPO, 'desktop'),
-    env: {
-      PULSE_DEV_URL: `http://localhost:${VITE_PORT}`,
-      PULSE_DEVTOOLS: '1',
-      ...resolveLinuxHqSidecarEnv()
-    }
+    env: { PULSE_DEV_URL: `http://localhost:${VITE_PORT}`, PULSE_DEVTOOLS: '1', ...nativeEnv }
   });
 }
 
