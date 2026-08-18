@@ -1420,6 +1420,7 @@
   "livekit_codec_unsupported": "Codec {current} wird hier nicht unterstützt — stell ihn in den Einstellungen auf {fallback} um.",
   "livekit_connection_failed": "Verbindung zu LiveKit fehlgeschlagen",
   "livekit_microphone_access_failed": "Mikrofon-Zugriff fehlgeschlagen",
+  "livekit_microphone_not_found": "Kein Mikrofon gefunden — bitte eines anschließen und erneut versuchen.",
   "livekit_screenshare_failed": "Bildschirm teilen fehlgeschlagen",
   "livekit_screenshare_unavailable": "Bildschirm teilen ist hier nicht verfügbar.",
   "livekit_token_request_failed": "Token-Anfrage fehlgeschlagen",
