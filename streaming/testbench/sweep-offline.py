@@ -63,6 +63,19 @@ VARIANTEN: list[tuple[str, list[str]]] = [
 # `intra_refresh` gibt es nur mit dem Patch aus `streaming/ffmpeg-patches/`;
 # ohne ihn bricht ffmpeg mit "Option not found" ab — laut und richtig, statt
 # still einen Keyframe-Lauf unter diesem Namen zu messen.
+#
+# **Dieselbe Meldung kommt aber auch, wenn der Patch SEHR WOHL gebaut ist**
+# (2026-08-18 nachgesehen): `~/.cache/pulse/ffmpeg-intra-refresh/prefix/bin/
+# ffmpeg` traegt keinen RPATH auf sein eigenes `../lib`, der Programmlader nimmt
+# also die Bibliothek der Distribution. Es braucht deshalb BEIDES —
+# `PATH` und `LD_LIBRARY_PATH`:
+#
+#     P=~/.cache/pulse/ffmpeg-intra-refresh/prefix
+#     PATH=$P/bin:$PATH LD_LIBRARY_PATH=$P/lib ./sweep-offline.py …
+#
+# `vollbild-abstand.py::gepatchtes_ffmpeg_bevorzugen` macht genau das von
+# selbst; hier steht es bewusst als Aufruf-Hinweis, damit die vorhandenen
+# Messakten nicht nachtraeglich mit einem anderen FFmpeg entstehen als damals.
 VARIANTEN_VAAPI: list[tuple[str, list[str]]] = [
     ("heute", []),
     ("intraref", ["-intra_refresh", "1", "-g", "600"]),
