@@ -537,11 +537,19 @@ cargo test
 ```
 
 **Die PATH-Zeile ist kein Beiwerk.** `FFMPEG_DIR` sagt nur, wogegen gelinkt
-wird; zur Laufzeit sucht Windows die DLLs erneut. Diese Kiste hat — anders als
-`win-hq-sidecar` — **kein `build.rs`, das sie neben die Testdatei kopiert**, also
-findet sie sie nur ueber den PATH. Fehlt er, stirbt die Testdatei mit
-`STATUS_DLL_NOT_FOUND` (`0xC0000135`), **bevor eine Zeile Code laeuft**, und
-`cargo test` meldet bloss „test failed" ohne Grund.
+wird; zur Laufzeit sucht Windows die DLLs erneut, und zwar zuerst neben der
+`.exe`, die gerade startet. Fehlen sie dort und im PATH, stirbt das Programm mit
+`STATUS_DLL_NOT_FOUND` (`0xC0000135`), **bevor eine Zeile Code laeuft** — bei
+`cargo test` als nacktes „test failed" ohne Grund.
+
+Seit dem 2026-08-18 hat diese Kiste dafuer ein **`build.rs`** wie der Nachbar
+`win-hq-sidecar`: es kopiert die DLLs aus `$FFMPEG_DIR/bin/` neben die gebauten
+Binaerdateien (`target/{profile}/` samt `examples/` und `deps/`). Der gebaute
+Player laeuft damit auch dann, wenn ihn jemand ohne vorbereiteten PATH startet
+— genau der Fall in der Dev-Sitzung, wo Electron ihn selbst startet und ihm
+nichts mitgibt. Die PATH-Zeile bleibt trotzdem sinnvoll: sie greift auch beim
+allerersten Lauf in einem frischen Baum, in dem die Zielverzeichnisse noch gar
+nicht existieren.
 
 **Warum das nicht einfach in eine `.cargo/config.toml` wandert:** deren
 `[env]`-Block gilt fuer JEDE Plattform und laesst sich nicht auf Windows
