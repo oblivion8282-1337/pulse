@@ -54,6 +54,23 @@ import type { OverrideSet } from '$lib/stream/settingsCatalog';
 
 const SPEICHER_SCHLUESSEL = 'remote.standplatzProfil';
 
+/**
+ * Merker der einmaligen Intra-Refresh-Bereinigung vom 2026-08-18.
+ *
+ * Bis dahin war Intra-Refresh hier die Vorgabe. Mit dem Vollbild-Abstand von
+ * 60 s ist es die schlechtere Wahl (gemessen: +1,87 VMAF bei 16 % weniger
+ * Daten ohne), und fuer einen unbeaufsichtigten Rechner zusaetzlich das
+ * fehlende Auffangnetz — ein Intra-Refresh-Strom heilt sich nach Paketverlust
+ * nicht selbst. Ein gespeichertes `true` stammt aus der alten Lage; ohne diese
+ * Bereinigung erreichte die neue Vorgabe kein einziges bestehendes Geraet.
+ *
+ * **Eigener Schluessel statt eines Feldes im Profil:** das Profil ist die Wahl
+ * des Nutzers und wird als Ganzes geschrieben — ein Buchfuehrungs-Haken darin
+ * waere ein Feld, das bei jedem Speichern mitreist und in `ausSpeicher`
+ * gepflegt werden muesste.
+ */
+const BEREINIGT_SCHLUESSEL = 'remote.standplatzProfilIntraBereinigt';
+
 /** Aufnahmequelle „Hauptbildschirm" — der Windows-Sidecar deutet `monitor`,
  *  `portal` und die leere Zeichenkette alle als primären Schirm
  *  (`ops/start.rs::parse_capture`). Ausgeschrieben, weil `portal` unter Linux
@@ -176,6 +193,17 @@ class StandplatzProfilStore {
     try {
       const alle = vorgeladen ?? (await loadAll());
       this.profil = ausSpeicher(alle[SPEICHER_SCHLUESSEL]);
+      // Genau einmal (s. `BEREINIGT_SCHLUESSEL`): wer den Haken danach wieder
+      // setzt, behaelt ihn. Der Merker wird auch dann geschrieben, wenn nichts
+      // zu bereinigen war — sonst liefe die Pruefung bei jedem Start erneut.
+      if (alle[BEREINIGT_SCHLUESSEL] !== true) {
+        const musste = this.profil.intra_refresh;
+        if (musste) this.profil = { ...this.profil, intra_refresh: false };
+        await saveAll({
+          [BEREINIGT_SCHLUESSEL]: true,
+          ...(musste ? { [SPEICHER_SCHLUESSEL]: this.profil } : {}),
+        });
+      }
     } catch {
       this.profil = { ...VORGABE };
     }

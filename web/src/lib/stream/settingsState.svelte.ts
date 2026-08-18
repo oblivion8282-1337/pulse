@@ -57,6 +57,9 @@ export const streamSettings = $state({
   // den Rest-Lippensync, den die QPC-Verankerung nicht abfängt. Auf Linux
   // ungenutzt (gpu-screen-recorder synct selbst). 0 = neutral.
   av_offset_ms: 0,
+  // Merker: die einmalige Intra-Refresh-Bereinigung vom 2026-08-18 ist gelaufen
+  // (s. `applyPersisted`). Kein Schalter — nur ein Haken in der Buchfuehrung.
+  intra_refresh_bereinigt: false,
 
   // Catalogs from sidecar (filled by `loadCatalogs()`)
   available_audio_apps: [] as string[],
@@ -90,6 +93,12 @@ const PERSIST_KEYS = [
   'use_overrides',
   'show_cursor',
   'av_offset_ms',
+  // Merker der einmaligen Bereinigung vom 2026-08-18 (s. `applyPersisted`).
+  // Anders als der `excluded_apps_pulse_seeded`-Merker von damals muss dieser
+  // BLEIBEN: er sagt „schon bereinigt". Faellt er weg, liefe die Bereinigung
+  // beim naechsten Laden erneut und naehme dem Nutzer eine Wahl, die er
+  // inzwischen bewusst getroffen hat.
+  'intra_refresh_bereinigt',
 ] as const;
 
 type PersistKey = (typeof PERSIST_KEYS)[number];
@@ -208,6 +217,25 @@ function applyPersisted(data: Record<string, unknown>): void {
   // next write and this branch never runs again.
   if (data.excluded_apps_pulse_seeded === true && streamSettings.excluded_apps.includes('Pulse')) {
     streamSettings.excluded_apps = streamSettings.excluded_apps.filter((x) => x !== 'Pulse');
+    persistSettings();
+  }
+
+  // Einmalige Bereinigung (2026-08-18): Intra-Refresh war bis dahin eine
+  // vertretbare Wahl, weil der Vollbild-Abstand bei 2 s lag. Mit 60 s ist es
+  // die schlechtere — an identischen Bildern gemessen +1,87 VMAF bei 16 %
+  // weniger Daten OHNE Intra-Refresh (Tabelle bei `KEYFRAME_SEKUNDEN_VORGABE`
+  // im Linux-Sidecar). Ein gespeichertes `true` stammt aus der alten Lage und
+  // wuerde die neue Vorgabe fuer Bestandsnutzer sonst nie erreichen.
+  //
+  // **Genau einmal**, festgehalten am Merker: wer den Haken danach wieder
+  // setzt, behaelt ihn. Eine Bereinigung, die bei jedem Laden zuschlaegt, waere
+  // keine Vorgabe mehr, sondern eine Bevormundung.
+  if (data.intra_refresh_bereinigt !== true) {
+    if (streamSettings.overrides.intra_refresh === true) {
+      const { intra_refresh: _alt, ...rest } = streamSettings.overrides;
+      streamSettings.overrides = rest;
+    }
+    streamSettings.intra_refresh_bereinigt = true;
     persistSettings();
   }
 }
