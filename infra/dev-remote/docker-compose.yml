@@ -308,6 +308,13 @@ services:
     container_name: pulsetest_mediamtx
     environment:
       PULSE_KEYFRAME_INTERVAL: "0"
+      # Muss 1:1 mit infra/prod/docker-compose.yml übereinstimmen — sonst
+      # testet man gegen einen Stand, den es in Produktion nicht gibt. Volle
+      # Begründung der Werte dort.
+      PULSE_FLEXFEC: "1"
+      PULSE_FLEXFEC_MEDIA: "10"
+      PULSE_FLEXFEC_FEC: "2"
+      PULSE_FLEXFEC_ADAPTIV: "1"
     ports:
       - "1936:1936"
       - "8189:8189/udp"
