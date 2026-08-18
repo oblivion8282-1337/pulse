@@ -25,6 +25,36 @@ use mux_writer::MuxWriter;
 /// Opus audio bitrate (kbps) — fixed for now.
 const OPUS_BITRATE_KBPS: u32 = 128;
 
+/// Regulaerer Vollbild-Abstand in Bildern, Vorgabe zwei Sekunden.
+///
+/// **Zwillingsrechnung** zu `keyframe::abstand_bilder` im Windows-Sidecar und
+/// `encode::keyframe_abstand_bilder` im Linux-Sidecar — bis 2026-08-18 stand
+/// hier `(fps * 2).max(1)` fest im Code, und damit war derselbe Schalter auf
+/// den drei Plattformen verschieden wirksam. Die ausfuehrliche Begruendung der
+/// Grenzen steht beim Linux-Zwilling.
+fn keyframe_abstand_bilder(fps: u32) -> u32 {
+    const VORGABE: f32 = 2.0;
+    const MIN: f32 = 0.1;
+    const MAX: f32 = 120.0;
+    let sekunden = match std::env::var("PULSE_KEYFRAME_SECONDS").ok().as_deref() {
+        None => VORGABE,
+        Some(roh) => match roh.parse::<f32>() {
+            Ok(v) if (MIN..=MAX).contains(&v) => v,
+            _ => {
+                // Gemeldet statt still verworfen: eine Messreihe mit "60 s" im
+                // Protokoll, die in Wahrheit mit 2 s lief, sieht plausibel aus.
+                eprintln!(
+                    "[encode] PULSE_KEYFRAME_SECONDS={roh:?} unbrauchbar \
+                     (erlaubt {MIN}..={MAX}) — es gilt die Vorgabe {VORGABE}"
+                );
+                VORGABE
+            }
+        },
+    };
+    // Mindestens ein Bild — ein GOP von 0 lesen manche Encoder als "unbegrenzt".
+    ((fps as f32 * sekunden).round() as u32).max(1)
+}
+
 /// Map a stream profile codec id to the matching VideoToolbox encoder.
 ///
 /// Uses the real hardware-capability probe ([`crate::caps`]): the exact encoder
@@ -166,7 +196,7 @@ impl VideoEncoder {
         venc.set_frame_rate(Some(Rational::new(fps as i32, 1)));
         venc.set_bit_rate((bitrate_kbps as usize).saturating_mul(1000));
         venc.set_max_bit_rate((bitrate_kbps as usize).saturating_mul(1000));
-        venc.set_gop((fps * 2).max(1)); // keyframe every ~2s
+        venc.set_gop(keyframe_abstand_bilder(fps));
         venc.set_max_b_frames(0); // low-latency, FLV-friendly
         if global_header {
             venc.set_flags(codec::Flags::GLOBAL_HEADER);

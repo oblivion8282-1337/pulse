@@ -304,13 +304,18 @@ const EINFRIER_BILDER: u32 = 90;
 /// Wartezeit bis das Vollbild dekodiert ist, und den Fall, dass die Periode
 /// exakt erreicht wird (gemessen: 120 von 120).
 ///
-/// **Was sie NICHT deckt, und das ist nachgemessen statt befuerchtet:** ein
-/// laengeres GOP verschiebt den Takt mit. Mit `PULSE_ENCODER_OPTS=g=600` stand
-/// dasselbe Standbild **597 Bilder** bitgleich (Periode 600 statt 120, wieder
-/// minus drei). `PULSE_KEYFRAME_SECONDS` im Linux-Sidecar erlaubt genau das —
-/// bis zu 10 Sekunden. Wer das hochdreht, holt sich den Fehlalarm zurueck; die
-/// Staffelung faengt ihn dann wie bisher nach der ersten Meldung ab. Windows
-/// und macOS haben den Schalter nicht.
+/// **Was diese ZAHL nicht deckt, und das ist nachgemessen statt befuerchtet:**
+/// ein laengeres GOP verschiebt den Takt mit. Mit `PULSE_ENCODER_OPTS=g=600`
+/// stand dasselbe Standbild **597 Bilder** bitgleich (Periode 600 statt 120,
+/// wieder minus drei). `PULSE_KEYFRAME_SECONDS` erlaubt genau das, seit dem
+/// 2026-08-18 bis zu 120 Sekunden und auf allen drei Plattformen.
+///
+/// Deshalb ist die Zahl seither nur noch die **Untergrenze**:
+/// [`EinfrierWacht::mindestdauer`] hebt sie auf den Takt an, den der Sender
+/// tatsaechlich faehrt. Die Staffelung ([`MAX_STUFE`]) haette das nicht
+/// aufgefangen — sie kommt bei 60 fps nur bis 12 s und holt einen laengeren
+/// Takt nie mehr ein, der Fehlalarm bliebe also dauerhaft statt nach der
+/// ersten Meldung zu verschwinden.
 ///
 /// **Nicht gestaffelt** — die Verdopplung bleibt allein bei
 /// [`EINFRIER_BILDER`], damit der schlechteste Fall der bleibt, der bei
@@ -319,6 +324,16 @@ const EINFRIER_BILDER: u32 = 90;
 /// liegt — bei 60 fps nur auf Stufe 0, bei 144 fps auf 0 und 1, bei 30 fps nie.
 /// Also genau dort, wo der Fehlalarm ueberhaupt moeglich ist.
 const EINFRIER_DAUER: std::time::Duration = std::time::Duration::from_millis(2_500);
+
+/// Ueber wie viele beobachtete Vollbild-Abstaende
+/// [`EinfrierWacht::mindestdauer`] ihr Maximum bildet.
+///
+/// Vier ist der Ausgleich zwischen den beiden Fehlern: zu kurz, und ein
+/// einzelnes auf Anforderung gesendetes Vollbild zieht das Fenster zusammen
+/// (Fehlalarm); zu lang, und ein einmaliger echter Haenger laesst die Wacht
+/// noch minutenlang stumpf. Bei einem Zwei-Sekunden-Takt sind vier Abstaende
+/// acht Sekunden Gedaechtnis.
+const VOLLBILD_FENSTER: usize = 4;
 
 /// Wie viele Bytes in derselben Zeit hineingegangen sein muessen.
 ///
@@ -421,6 +436,11 @@ pub struct EinfrierWacht {
     bewegte_fenster: u32,
     /// Meldungen seit der letzten nachweislich bewegten Wiedergabe.
     stufe: u32,
+    /// Die letzten beobachteten Vollbild-Abstaende des Senders, aus denen
+    /// [`EinfrierWacht::mindestdauer`] ihre Untergrenze zieht (s. dort).
+    /// Ringpuffer, damit ein einzelner Ausreisser wieder herausfaellt.
+    vollbild_abstaende: [std::time::Duration; VOLLBILD_FENSTER],
+    vollbild_platz: usize,
     /// Nur mit `PULSE_PLAYER_TAKT_LOG=1` (s. [`messung::TaktDiagnose`]).
     takt: Option<messung::TaktDiagnose>,
 }
@@ -571,6 +591,22 @@ impl EinfrierWacht {
         messung::zahl("PULSE_PLAYER_EINFRIER_BILDER", EINFRIER_BILDER) << self.stufe
     }
 
+    /// Einen beobachteten Vollbild-Abstand des Senders melden.
+    ///
+    /// Der Decoder misst ihn ohnehin (`decode.rs`, `keyframe_abstand`) — hier
+    /// wird er zur Untergrenze von [`EinfrierWacht::mindestdauer`]. Siehe dort,
+    /// warum die Wacht ihn braucht.
+    pub fn vollbild_abstand(&mut self, abstand: std::time::Duration) {
+        // Sinnlose Werte (Uhr rueckwaerts, doppelte Meldung) draussen lassen:
+        // sie koennten das Fenster nur verkuerzen, nie verlaengern, und genau
+        // die Richtung ist die gefaehrliche.
+        if abstand.is_zero() {
+            return;
+        }
+        self.vollbild_abstaende[self.vollbild_platz] = abstand;
+        self.vollbild_platz = (self.vollbild_platz + 1) % VOLLBILD_FENSTER;
+    }
+
     /// Wie lange das Bild zusaetzlich gestanden haben muss (s.
     /// [`EINFRIER_DAUER`]).
     ///
@@ -578,8 +614,36 @@ impl EinfrierWacht {
     /// herkommt — geprueft wird gegen sie, und die Diagnoseausgabe nennt
     /// dieselbe. Zwei getrennte Abfragen der Umgebung koennten
     /// auseinanderlaufen, und das faellt ausgerechnet im Log nicht auf.
+    ///
+    /// **Warum sie seit 2026-08-18 dem Sender folgt.** [`EINFRIER_DAUER`] ist
+    /// aus einem Vollbild-Abstand von zwei Sekunden hergeleitet (2000 plus ein
+    /// Viertel). Das Bild aendert sich bei stehendem Inhalt naemlich genau im
+    /// Takt der Vollbilder, sonst nie — gemessen und im Modulkopf belegt. Steht
+    /// der Sender auf einem laengeren Takt, liegt ein festes Fenster von 2,5 s
+    /// systematisch INNERHALB einer Periode und sieht dort ein Standbild, das
+    /// keines ist. Mit `g=600` stand dasselbe Bild **597 Bilder** bitgleich;
+    /// die Staffelung ([`MAX_STUFE`]) kommt nur bis 12 s bei 60 fps und holt
+    /// das ab einem Takt darueber nie mehr ein — der Fehlalarm bliebe dauerhaft.
+    ///
+    /// Statt einer zweiten Einstellung, die man am Empfaenger von Hand zum
+    /// Sender passend halten muesste, nimmt die Wacht den Takt, den sie
+    /// ohnehin beobachtet. Der Aufschlag ist derselbe wie bei
+    /// [`EINFRIER_DAUER`] (ein Viertel), aus demselben Grund: Jitter des
+    /// Senders, Dekodierzeit, und der Fall, dass die Periode exakt erreicht
+    /// wird.
+    ///
+    /// Genommen wird das **Groesste** der letzten [`VOLLBILD_FENSTER`]
+    /// Abstaende, nicht das Letzte: ein auf Anforderung gesendetes Vollbild
+    /// kommt zwischen zwei regulaeren an und ergibt einen kurzen Abstand, der
+    /// das Fenster sonst zusammenzoege. Das Fenster ist begrenzt, damit ein
+    /// einmaliger Ausreisser (echter Haenger) wieder herausfaellt, statt die
+    /// Wacht fuer den Rest der Sitzung stumpf zu lassen.
     pub fn mindestdauer(&self) -> std::time::Duration {
-        messung::dauer("PULSE_PLAYER_EINFRIER_MS", EINFRIER_DAUER)
+        let fest = messung::dauer("PULSE_PLAYER_EINFRIER_MS", EINFRIER_DAUER);
+        // Noch nichts beobachtet heisst: alle Plaetze auf null, das Groesste
+        // ist null, und es bleibt bei `fest`. Kein Sonderfall noetig.
+        let groesster = self.vollbild_abstaende.iter().copied().max().unwrap_or_default();
+        fest.max(groesster + groesster / 4)
     }
 
     /// Wievielte Meldung ohne zwischenzeitlich laufende Wiedergabe das war —
@@ -686,6 +750,68 @@ mod tests {
         let mut w = EinfrierWacht::default();
         let mut uhr = Uhr::mit(60);
         assert_eq!(stehendes_bild(&mut w, &mut uhr, 151), vec![150]);
+    }
+
+    /// **Ein langer Vollbild-Takt des Senders darf keinen Fehlalarm
+    /// ausloesen.** Bei stehendem Inhalt aendert sich das dekodierte Bild nur
+    /// im Takt der Vollbilder (Messreihe im Modulkopf) — ein festes Fenster von
+    /// 2,5 s liegt bei einem Zehn-Sekunden-Takt systematisch INNERHALB einer
+    /// Periode und sieht dort ein Standbild, das keines ist.
+    #[test]
+    fn langer_vollbild_takt_meldet_nicht_zu_frueh() {
+        let mut w = EinfrierWacht::default();
+        let mut uhr = Uhr::mit(60);
+        w.vollbild_abstand(std::time::Duration::from_secs(10));
+
+        // Zehn Sekunden Stillstand sind bei diesem Sender der Normalfall.
+        let alarme = stehendes_bild(&mut w, &mut uhr, 600);
+        assert!(alarme.is_empty(), "im Takt des Senders darf nichts melden, war {alarme:?}");
+    }
+
+    /// Die Anpassung darf die Wacht nicht abschalten — jenseits des Takts ist
+    /// ein stehendes Bild weiterhin ein Haenger.
+    #[test]
+    fn langer_vollbild_takt_meldet_trotzdem_noch() {
+        let mut w = EinfrierWacht::default();
+        let mut uhr = Uhr::mit(60);
+        w.vollbild_abstand(std::time::Duration::from_secs(10));
+
+        let alarme = stehendes_bild(&mut w, &mut uhr, 800);
+        let erster = *alarme.first().expect("ein echter Haenger muss gemeldet werden");
+        assert!(erster > 700, "nicht vor Ablauf des Takts, war {erster}");
+    }
+
+    /// Ein auf Anforderung gesendetes Vollbild landet zwischen zwei regulaeren
+    /// und ergibt einen kurzen Abstand. Wuerde die Wacht dem letzten Wert
+    /// folgen, zoege genau das ihr Fenster wieder zusammen — und der Fehlalarm
+    /// waere zurueck, ausgerechnet nach einem Verlust.
+    #[test]
+    fn ein_kurzer_abstand_zieht_das_fenster_nicht_zusammen() {
+        let mut w = EinfrierWacht::default();
+        w.vollbild_abstand(std::time::Duration::from_secs(10));
+        w.vollbild_abstand(std::time::Duration::from_millis(200));
+        assert!(
+            w.mindestdauer() >= std::time::Duration::from_secs(12),
+            "war {:?}",
+            w.mindestdauer()
+        );
+    }
+
+    /// Umgekehrt darf ein einmaliger Ausreisser die Wacht nicht dauerhaft
+    /// stumpf lassen — deshalb ein Fenster und kein Maximum ueber die ganze
+    /// Sitzung.
+    #[test]
+    fn ausreisser_faellt_wieder_heraus() {
+        let mut w = EinfrierWacht::default();
+        w.vollbild_abstand(std::time::Duration::from_secs(30));
+        for _ in 0..VOLLBILD_FENSTER {
+            w.vollbild_abstand(std::time::Duration::from_secs(2));
+        }
+        assert_eq!(
+            w.mindestdauer(),
+            EINFRIER_DAUER,
+            "nach einem vollen Fenster zaehlt der Ausreisser nicht mehr"
+        );
     }
 
     /// **Dieselbe Dauer bei jeder Bildrate** — das ist der ganze Zweck von

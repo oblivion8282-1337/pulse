@@ -252,6 +252,54 @@ pub fn reset() {
     }
 }
 
+// ── Regulaerer Vollbild-Abstand ──────────────────────────────────────────────
+
+/// Vollbild-Abstand in Sekunden, wenn nichts gesagt wird.
+pub const SEKUNDEN_VORGABE: f32 = 2.0;
+const SEKUNDEN_MIN: f32 = 0.1;
+
+/// Obergrenze fuer `PULSE_KEYFRAME_SECONDS`. Eine Grenze muss es geben, damit
+/// ein vertippter Wert keinen Strom erzeugt, in den niemand mehr einsteigt.
+const SEKUNDEN_MAX: f32 = 120.0;
+
+/// Regulaerer Vollbild-Abstand in Bildern.
+///
+/// **Bis 2026-08-18 stand hier an drei Stellen `cfg.fps * 2` als feste Zahl**
+/// (`encoder.rs`, `encoder_hw.rs`, `encoder_d3d12.rs`), waehrend der
+/// Linux-Sidecar den Abstand ueber `PULSE_KEYFRAME_SECONDS` einstellbar
+/// hatte. Damit war jede Messung zum Vollbild-Abstand auf Windows gar nicht
+/// erst fahrbar, und die beiden Plattformen liefen bei derselben Einstellung
+/// verschieden — die Sorte Unterschied, die man in den Messwerten sucht statt
+/// in der Konfiguration.
+///
+/// **Zwillingsrechnung zu `keyframe_abstand_bilder` im Linux-Sidecar**
+/// (`streaming/linux-hq-sidecar/src/encode/mod.rs`) — Grenzen und Vorgabe
+/// gehoeren zusammengehalten. Dort steht auch die ausfuehrliche Begruendung,
+/// warum die Obergrenze seit dem 2026-08-18 nicht mehr bei 10 s liegt.
+///
+/// Ein unbrauchbarer Wert wird **gemeldet**, nicht stillschweigend verworfen:
+/// eine Messreihe, die „60 s" im Protokoll stehen hat und in Wahrheit mit 2 s
+/// lief, sieht vollkommen plausibel aus.
+pub fn abstand_bilder(fps: u32) -> u32 {
+    let sekunden = match std::env::var("PULSE_KEYFRAME_SECONDS").ok().as_deref() {
+        None => SEKUNDEN_VORGABE,
+        Some(roh) => match roh.parse::<f32>() {
+            Ok(v) if (SEKUNDEN_MIN..=SEKUNDEN_MAX).contains(&v) => v,
+            _ => {
+                eprintln!(
+                    "[encode] PULSE_KEYFRAME_SECONDS={roh:?} unbrauchbar \
+                     (erlaubt {SEKUNDEN_MIN}..={SEKUNDEN_MAX}) — es gilt die \
+                     Vorgabe {SEKUNDEN_VORGABE}"
+                );
+                SEKUNDEN_VORGABE
+            }
+        },
+    };
+    // Mindestens ein Bild — ein GOP von 0 hiesse "jedes Bild ein Vollbild" und
+    // wuerde von manchen Encodern als "unbegrenzt" gelesen.
+    ((fps as f32 * sekunden).round() as u32).max(1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -384,5 +432,50 @@ mod tests {
             take_keyframe_request(),
             "nach reset muss die erste Anforderung des neuen Streams sofort wirken"
         );
+    }
+
+    /// Die Tests unten stellen dieselbe Umgebungsvariable um — ohne
+    /// Serialisierung liest der eine die Einstellung des anderen, und zwar
+    /// nicht als Fehlschlag, sondern als falsches Ergebnis.
+    static ENV: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn ohne_einstellung_gilt_die_vorgabe() {
+        let _wache = ENV.lock().unwrap_or_else(|p| p.into_inner());
+        unsafe { std::env::remove_var("PULSE_KEYFRAME_SECONDS") };
+        assert_eq!(abstand_bilder(60), 120, "zwei Sekunden bei 60 fps");
+        assert_eq!(abstand_bilder(144), 288, "zwei Sekunden bei 144 fps");
+    }
+
+    #[test]
+    fn die_einstellung_wirkt() {
+        let _wache = ENV.lock().unwrap_or_else(|p| p.into_inner());
+        unsafe { std::env::set_var("PULSE_KEYFRAME_SECONDS", "60") };
+        assert_eq!(abstand_bilder(60), 3600);
+        unsafe { std::env::set_var("PULSE_KEYFRAME_SECONDS", "0.5") };
+        assert_eq!(abstand_bilder(60), 30);
+        unsafe { std::env::remove_var("PULSE_KEYFRAME_SECONDS") };
+    }
+
+    /// Der stille Rueckfall war die Falle — hier wird nur geprueft, DASS auf
+    /// die Vorgabe zurueckgefallen wird; die Meldung dazu geht nach stderr.
+    #[test]
+    fn unbrauchbarer_wert_faellt_auf_die_vorgabe() {
+        let _wache = ENV.lock().unwrap_or_else(|p| p.into_inner());
+        for roh in ["blah", "0", "-5", "100000"] {
+            unsafe { std::env::set_var("PULSE_KEYFRAME_SECONDS", roh) };
+            assert_eq!(abstand_bilder(60), 120, "Wert {roh:?}");
+        }
+        unsafe { std::env::remove_var("PULSE_KEYFRAME_SECONDS") };
+    }
+
+    /// Ein GOP von 0 wuerde von manchen Encodern als „unbegrenzt" gelesen —
+    /// das Gegenteil dessen, was ein sehr kurzer Abstand bedeuten soll.
+    #[test]
+    fn niemals_null_bilder() {
+        let _wache = ENV.lock().unwrap_or_else(|p| p.into_inner());
+        unsafe { std::env::set_var("PULSE_KEYFRAME_SECONDS", "0.1") };
+        assert_eq!(abstand_bilder(1), 1);
+        unsafe { std::env::remove_var("PULSE_KEYFRAME_SECONDS") };
     }
 }
