@@ -24,7 +24,9 @@
 // bleiben ohnehin lokal, die hängen an der Hardware.
 
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -124,6 +126,54 @@ function tailRemoteLogs() {
   run('ssh', [DEV_HOST, `cd '${DEV_DIR}' && docker compose logs -f --tail=50 ${SERVICES}`]);
 }
 
+/**
+ * Auf Windows/Mac findet `desktop/electron/sidecar.ts` den HQ-Sidecar von
+ * selbst (Walk-up ab dem Electron-Modul zu `streaming/{win,mac}-hq-sidecar/
+ * target/{release,debug}/`) — dort ist nichts zu tun.
+ *
+ * Linux hat diesen Walk-up NICHT für den Rust-Sidecar (der Crate liegt zwar
+ * im Repo, aber `resolveLinuxRustBinaryPath()` kennt nur `$PULSE_LINUX_HQ_
+ * SIDECAR` oder den Flatpak-Pfad `/app/bin/…`) — ohne eine der beiden bleibt
+ * `stream.gsrAvailable` false und der HQ-Stream-Button verschwindet, obwohl
+ * ein gebautes Binary im Repo liegt. Spiegelt die Auflösung aus
+ * `scripts/dev-up.fish` (GSR-Fallback zuerst geprüft, Rust-Sidecar bevorzugt
+ * gesetzt, falls vorhanden).
+ */
+function resolveLinuxHqSidecarEnv() {
+  if (process.platform !== 'linux') return {};
+  const env = {};
+
+  const cacheRoot = process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache');
+  const gsrCandidates = [
+    path.join(cacheRoot, 'pulse', 'gsr', 'gpu-screen-recorder', 'build', 'gpu-screen-recorder'),
+    '/tmp/gsr-analysis/gpu-screen-recorder/build/gpu-screen-recorder'
+  ];
+  const gsrBin = gsrCandidates.find((p) => fs.existsSync(p));
+  if (gsrBin) {
+    env.GSR_BINARY = gsrBin;
+    env.PULSE_SIDECAR_PY = path.join(REPO, 'streaming', 'gsr-sidecar', 'control.py');
+  } else {
+    console.log('… GSR-Binary fehlt — HQ-Fallback bleibt aus (streaming/bootstrap-gsr.fish baut es)');
+  }
+
+  const rustSidecar = path.join(
+    REPO,
+    'streaming',
+    'linux-hq-sidecar',
+    'target',
+    'release',
+    'pulse-linux-hq-sidecar'
+  );
+  if (fs.existsSync(rustSidecar)) {
+    env.PULSE_LINUX_HQ_SIDECAR = rustSidecar;
+    console.log('✓ Rust-Linux-Sidecar da (Standard-Aufnahmeweg)');
+  } else {
+    console.log('… Rust-Linux-Sidecar nicht gebaut — HQ nutzt den GSR-Fallback, falls vorhanden');
+  }
+
+  return env;
+}
+
 async function startElectron() {
   console.log('→ Electron bauen');
   const build = run('pnpm', ['run', 'build:electron'], { cwd: path.join(REPO, 'desktop') });
@@ -135,7 +185,11 @@ async function startElectron() {
   console.log('→ Electron starten');
   run('pnpm', ['run', 'start'], {
     cwd: path.join(REPO, 'desktop'),
-    env: { PULSE_DEV_URL: `http://localhost:${VITE_PORT}`, PULSE_DEVTOOLS: '1' }
+    env: {
+      PULSE_DEV_URL: `http://localhost:${VITE_PORT}`,
+      PULSE_DEVTOOLS: '1',
+      ...resolveLinuxHqSidecarEnv()
+    }
   });
 }
 
