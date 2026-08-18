@@ -24,10 +24,10 @@
  * * **30 Bilder/s** statt 60. Wer arbeitet, bewegt selten etwas Flüssiges, und
  *   die Hälfte der Bilder heisst doppelt so viele Bits je Bild — also
  *   schärfere Schrift bei gleicher Bitrate.
- * * **H.264** als Vorgabe: läuft in jedem Browser und geht immer über den
- *   WHIP-Weg, der als einziger einen Rückkanal hat (`pushProtokoll`). AV1 bleibt
- *   wählbar — es halbiert die Bitrate —, ist aber nicht die Vorgabe für einen
- *   Rechner, den man blind weckt.
+ * * **H.264** als Vorgabe: läuft in jedem Browser. AV1 bleibt wählbar — es
+ *   halbiert die Bitrate —, ist aber nicht die Vorgabe für einen Rechner, den
+ *   man blind weckt. (Am Sendeweg hängt das seit dem 2026-08-18 nicht mehr:
+ *   `pushProtokoll` nimmt für jeden Codec WHIP.)
  * * **Hauptbildschirm** statt eines gemerkten `Monitor: 2`. Ein Rechner, vor
  *   dem niemand sitzt, darf nicht auf einen Schirm zeigen, den jemand vor
  *   Monaten gewählt hat.
@@ -78,9 +78,10 @@ export interface StandplatzProfil {
    * abhängt. Ein periodisches Vollbild ist bei 30 Bildern je Sekunde ein
    * Brocken, der die Leitung für einen Moment dichtmacht (gemessen: 170–247 KB
    * alle gut zwei Sekunden bei 2,5 Mbit/s); Intra-Refresh verteilt dieselbe
-   * Auffrischung über viele Bilder und hält den Fluss gleichmässig. Ausserdem
-   * hängt der Sendeweg daran: mit Intra-Refresh geht auch AV1 über WHIP, den
-   * einzigen Weg mit Rückkanal (`pushProtokoll`).
+   * Auffrischung über viele Bilder und hält den Fluss gleichmässig. (Der
+   * Sendeweg hing bis zum 2026-08-18 mit daran — inzwischen nimmt
+   * `pushProtokoll` ohnehin für jeden Codec WHIP, der Haken entscheidet also
+   * nur noch über die Betriebsart selbst.)
    *
    * **Vorgabe ist AN** (seit 2026-08-16). Der frühere Einwand — kann der Encoder
    * es nicht, verweigert der Sidecar den Start (`encode/auffrischung.rs`), und

@@ -101,10 +101,25 @@ def encode_cmd(ref: Path, pix_fmt: str, w: int, h: int, fps: int, kbps: int,
 
 
 def measure_vmaf(enc: Path, ref: Path, pix_fmt: str, w: int, h: int, fps: int,
-                  frames: int, dist_scale: str = "", dist_start: int = 0) -> dict[str, float]:
+                  frames: int, dist_scale: str = "", dist_start: int = 0,
+                  dist_crop: str = "") -> dict[str, float]:
     """Vergleicht enc gegen ref per libvmaf (VMAF/PSNR/SSIM, gepoolt). `dist_scale`
     (z.B. "1920:1080:flags=lanczos") skaliert die kodierte Seite vor dem Vergleich
     hoch — fuer den Aufloesungs-Sweep; leer laesst sie unveraendert.
+
+    `dist_crop` (z.B. "1920:1080:0:0") schneidet die kodierte Seite VOR dem
+    Vergleich auf die Referenzgroesse zurueck. Leer = unveraendert.
+
+    **Wofuer das gebraucht wird, mit Beleg (2026-08-18):** `av1_vaapi` auf AMD
+    liefert bei 1920x1080 dekodiert **1920x1082** — zwei Zeilen mehr, waehrend
+    Container und `ffprobe` weiter 1080 melden (mit `showinfo` nachgesehen:
+    `s:1920x1082`). libvmaf verweigert den Vergleich dann rundheraus mit "input
+    height must match", und zwar erst im Filtergraphen, also lange nach dem
+    Punkt, an dem man den Fehler vermuten wuerde. `h264_vaapi` aus demselben
+    Lauf liefert glatte 1080. Geschnitten wird ab (0,0) — die Zugabe liegt
+    unten, der Bildinhalt bleibt also unberuehrt. Skalieren waere hier falsch:
+    das rechnete die Bildpunkte um und mischte einen Messfehler in genau die
+    Zahl, die gemessen werden soll.
 
     `dist_start` verwirft die ersten N Bilder der KODIERTEN Seite, bevor
     verglichen wird. Gebraucht wird das, wenn die Referenz nicht bei Bild 0 des
@@ -160,10 +175,14 @@ def measure_vmaf(enc: Path, ref: Path, pix_fmt: str, w: int, h: int, fps: int,
     with tempfile.TemporaryDirectory() as td:
         log = Path(td) / "vmaf.json"
         vor_skalierung = f"scale={dist_scale}," if dist_scale else ""
+        # Schnitt VOR der Skalierung: erst auf die richtige Groesse bringen,
+        # was der Decoder zu gross herausgibt, dann erst (falls verlangt)
+        # skalieren.
+        schnitt = f"crop={dist_crop}," if dist_crop else ""
         versatz = f"trim=start_frame={dist_start}," if dist_start else ""
         takt = f"settb=1/{fps},setpts=N,"
         graph = (
-            f"[0:v]{versatz}{takt}{vor_skalierung}format=yuv420p10le[d];"
+            f"[0:v]{versatz}{takt}{schnitt}{vor_skalierung}format=yuv420p10le[d];"
             f"[1:v]{takt}format=yuv420p10le[r];"
             "[d][r]libvmaf=feature='name=psnr|name=float_ssim'"
             f"{_modell_param()}:log_path={log}:log_fmt=json"
