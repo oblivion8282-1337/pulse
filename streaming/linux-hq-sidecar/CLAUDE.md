@@ -53,9 +53,33 @@ Verbatim-portierte Dateien (nicht ohne Not anfassen): `proto.rs, dispatch.rs, ev
 main.rs, profiles.rs, encode/mux_writer.rs, ops/{stop,state}.rs`.
 
 ## Architektur-Entscheidungen (Nutzer-Vorgaben — einhalten)
-- **System-FFmpeg** via pkg-config (Arch n8.1.2, `--enable-gnutls --enable-libdrm
-  --enable-nvenc --enable-vulkan`). `ffmpeg-next = "8.1"`. Für Flatpak-Auslieferung:
-  `org.freedesktop.Platform.ffmpeg`-Extension (System-FFmpeg ist GPL → **nicht bündeln**).
+- **FFmpeg: GEPATCHTER Eigenbau, n8.1.1** — nicht das System-FFmpeg. `ffmpeg-next = "8.1"`.
+  Gebaut von `scripts/hq-bauen.sh` nach `~/.cache/pulse/ffmpeg-intra-refresh/prefix`;
+  Sidecar und Player bekommen einen RPATH dorthin, jedes andere Programm auf dem
+  Rechner benutzt weiter das der Distribution. Der Flatpak baut **dieselbe** Fassung
+  mit demselben Patch (`packaging/com.howispulse.Pulse.yml`, Tag `n8.1.1` + Commit-Pin) —
+  Dev und Auslieferung stimmen also überein, und das soll so bleiben.
+
+  **Hier stand bis 2026-08-18 „System-FFmpeg via pkg-config (Arch n8.1.2)" und
+  „für Flatpak die `org.freedesktop.Platform.ffmpeg`-Extension, nicht bündeln".**
+  Beides gilt nicht mehr und führt in die Irre:
+  * Der Eigenbau ist **Pflicht, nicht Geschmackssache**: Intra-Refresh für die
+    VAAPI-Encoder reicht FFmpeg in KEINER Version durch, auch nicht in master
+    (nachgeprüft 2026-08-18 gegen `release/9.0` — `vaapi_encode.c` ist dort
+    byte-identisch zu 8.1). Ohne den Patch haben AMD und Intel die Betriebsart nicht.
+  * Das System-FFmpeg ist als Baugrundlage inzwischen sogar **unbrauchbar**: Arch
+    steht auf n9.0.1, und `ffmpeg-next = "8.1"` übersetzt dagegen nicht (gemessen:
+    14 Fehler, neue Enum-Varianten). Ein Versionssprung ist damit kein reines
+    Aufräumen, sondern zieht die Crate mit.
+  * Der Flatpak **bündelt sein FFmpeg sehr wohl** — LGPL-konform über
+    `--enable-version3` ohne `--enable-gpl`.
+
+  **NVENC-Header sind versionsempfindlich:** `ffnvcodec` ab `n13.1.15.0` teilt
+  `countingType` auf und lässt sich mit diesem FFmpeg nicht mehr übersetzen. Letzte
+  passende Fassung ist `n13.0.19.0` — der Flatpak pinnt sie, lokal legt man sie
+  daneben statt das Systempaket herunterzustufen (Anleitung im Kommentar von
+  `streaming/ffmpeg-patches/bootstrap-ffmpeg.sh`). Fehlen die Header ganz, baut
+  FFmpeg still ohne NVENC und der Sidecar meldet `video_codecs: []`.
 - **Encoder v1: VAAPI (AMD/Intel) + NVENC (Nvidia), beide Zero-Copy verbindlich.**
   Codecs **nur H264 + AV1** (kein HEVC — nicht anbieten, nicht proben, keine hevc_mux-Tests).
 - **Screen-Picker (Portal/PipeWire-Capture) wird zuletzt gebaut** — zuerst Pipeline mit
@@ -176,8 +200,25 @@ Diagnose-Logging (`src/logging.rs`, `tracing`): geht auf **stderr** (stdout = nu
 JSON-RPC), Pulse tee't das in `sidecar.log`. Stufen/Targets via `PULSE_HQ_LOG` (wie
 `RUST_LOG`), Default `info` — z.B. `PULSE_HQ_LOG=info,pipewire=debug,nvenc=debug`. Targets:
 `pipewire, nvenc, vaapi, audio, egl, stream, mux`. Token-Redaction: `src/redact.rs`.
+**Gebaut wird über `scripts/hq-bauen.sh` im Repo-Wurzelverzeichnis, nicht mit
+blossem `cargo build`.** Am 2026-08-18 nachgestellt, weil hier bis dahin
+`cargo build --release` stand:
+
+* **Nacktes `cargo build --release`** bricht mit 14 Fehlern in `ffmpeg-next` ab —
+  es findet über pkg-config das FFmpeg der Distribution, und das ist inzwischen
+  n9.0.1 (neue Enum-Varianten).
+* **Nur `PKG_CONFIG_PATH` auf den gepatchten Bau zu setzen reicht ebenfalls
+  nicht.** Es übersetzt dann zwar, aber das Binary **startet nicht**:
+  `error while loading shared libraries: libavutil.so.60`. Denn der RPATH fehlt,
+  und die gepatchten Bibliotheken liegen ausserhalb der Standard-Suchpfade.
+  `hq-bauen.sh` setzt beides — Suchpfad zur Bauzeit UND RPATH (mit
+  `-Wl,--disable-new-dtags`, Begründung dort).
+
+Wer das Skript umgeht, überschreibt sich also ein funktionierendes Binary mit
+einem, das nicht startet.
+
 ```bash
-cargo build --release
+bash ../../scripts/hq-bauen.sh          # FFmpeg (falls nötig) + Sidecar + Player
 echo '{"op":"health","id":1}' | ./target/release/pulse-linux-hq-sidecar
 cargo run --release --example tls_probe -- rtmps://localhost:11936/test
 cargo run --release --example encode_smoke -- /tmp/smoke.mp4 h264 1280 720 30 120
