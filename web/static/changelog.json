@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-18.4",
+      "date": "2026-08-18",
+      "style": "Sachlich",
+      "title": "Codec-Auswahl steht nebeneinander",
+      "items": [
+        "In den Einstellungen unter Bildschirmübertragung stehen H.264 und AV1 jetzt nebeneinander statt untereinander — wie die Auflösungen darunter, die das schon immer so gemacht haben."
+      ]
+    },
+    {
       "id": "2026-08-18.3",
       "date": "2026-08-18",
       "style": "Sachlich",
