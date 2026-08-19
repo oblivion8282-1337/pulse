@@ -392,8 +392,15 @@ impl Sendeart {
 /// Wie lange das Bild nach einer Luecke als unsauber gilt — also die Dauer
 /// eines vollen Auffrisch-Durchlaufs beim Sender.
 ///
-/// Der Sender leitet sie aus seinem Keyframe-Abstand ab (`intraRefreshCnt =
-/// gopLength - 1`, Vorgabe 2 s). Der Zuschauer kann sie NICHT aus dem
+/// Sie stammt aus der Zeit der wandernden Auffrischung, wo der Sender sie aus
+/// seinem Keyframe-Abstand ableitete (`intraRefreshCnt = gopLength - 1`, damals
+/// Vorgabe 2 s). **Seit dem 2026-08-18 ist Intra-Refresh ueberall abgewaehlt
+/// und die Vorgabe steht auf 60 s** — der Wert hier ist trotzdem geblieben, und
+/// zwar begruendet: er ist nur noch der Notausgang. Die Sperre endet regulaer,
+/// sobald wirklich ein Vollbild ankommt (s. `decode`, `ist_einstiegspunkt`), und
+/// das dauert nach einer Anforderung hoechstens so lange wie die Bremse des
+/// Senders (`KEYFRAME_SEKUNDEN_UNBEDENKLICH`, 2 s) — nicht einen GOP.
+/// Der Zuschauer kann sie NICHT aus dem
 /// Datenstrom lesen: H.264 traegt dafuer eine Markierung, AV1 hat keine, und
 /// NVIDIAs AV1-Konfiguration kennt das Feld gar nicht erst. Statt daran zu
 /// scheitern, wird die Zeit einfach abgewartet — sie ist bekannt.

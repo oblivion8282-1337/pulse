@@ -125,7 +125,6 @@ impl Ausgabetakt {
             self.anpassung.fenster_start = None;
             return;
         }
-        let fern = self.vorhalt_vor_fern.is_some();
         let Some(start) = self.anpassung.fenster_start else {
             self.anpassung.fenster_start = Some(jetzt);
             self.anpassung.verspaetet_start = self.verspaetet;
@@ -139,16 +138,29 @@ impl Ausgabetakt {
         let zu_spaet = self.verspaetet.saturating_sub(self.anpassung.verspaetet_start);
         let je_sekunde = zu_spaet as f64 / dauer.as_secs_f64();
         let ist_ms = self.vorhalt.as_millis() as u32;
-        // Untergrenze des Reglers. Waehrend einer Fernsteuerung ist das der
-        // Fern-Wert und nicht die Basis des Nutzers: der Regler soll bei
-        // Stoerung anheben duerfen, aber danach wieder auf den Wert
-        // zurueckfinden, der fuer das Steuern gedacht ist — und nicht auf eine
-        // Basis, die der Nutzer fuers Zusehen gewaehlt hat.
-        let boden_ms = if fern {
-            super::fernsteuerung::FERN_VORHALT_MS
-        } else {
-            self.anpassung.basis.as_millis() as u32
-        };
+        // Untergrenze des Reglers ist IMMER die Basis — der zuletzt von Hand
+        // gesetzte Wert. Anheben ist eine Reaktion auf die Leitung, kein neuer
+        // Wunsch; sinkt die Stoerung, gehoert genau dorthin zurueckgeregelt.
+        //
+        // **Auch waehrend einer Fernsteuerung, und das ist kein Sonderfall.**
+        // Hier stand bis zum 2026-08-19 ein zweiter Zweig, der beim Steuern
+        // `fernsteuerung::FERN_VORHALT_MS` als Boden nahm. Der war erst falsch
+        // — er hob einen tiefer eingestellten Wert an
+        // (`PULSE_PLAYER_AUSGABETAKT_MS=2`, Pruefstand) und tat damit genau
+        // das, was `fernsteuerung()` ausschliesst („nur senken, nie anheben"):
+        // nach drei ruhigen Fenstern rechnete `2.saturating_sub(15).max(30)`
+        // den Vorhalt auf 30 hoch. Und mit der naheliegenden Reparatur
+        // (`FERN_VORHALT_MS.min(basis)`) war er beweisbar wirkungslos: waehrend
+        // einer Fernsteuerung ist die Basis ohnehin schon hoechstens der
+        // Fern-Wert, weil BEIDE Wege dorthin ueber `setze_vorhalt` →
+        // `basis_setzen` laufen — `fernsteuerung(true)` senkt sie, und
+        // `setze_vorhalt_vom_nutzer` haelt die Senkung waehrenddessen ein.
+        //
+        // Die Untergrenze des Steuerns steht damit an der Stelle, an der sie
+        // hergestellt wird, und nicht ein zweites Mal hier. Wer sie doch wieder
+        // hier braucht, hat vorher einen Weg gebaut, der die Basis waehrend der
+        // Fernsteuerung anhebt — und der gehoert dann dort geradegerueckt.
+        let boden_ms = self.anpassung.basis.as_millis() as u32;
 
         let ziel_ms = if je_sekunde >= HOCH_AB as f64 {
             self.anpassung.ruhige_fenster = 0;
@@ -282,6 +294,13 @@ mod tests {
 
     /// Die Gegenrichtung: unter den Fern-Wert darf der Regler waehrend des
     /// Steuerns nicht zurueck, auch wenn die Leitung ruhig ist.
+    ///
+    /// **Was dieser Test seit dem 2026-08-19 wirklich festhaelt.** Der Regler
+    /// hat dafuer keinen eigenen Zweig mehr (s. `anpassen`) — die Untergrenze
+    /// kommt daher, dass `fernsteuerung(true)` die BASIS auf den Fern-Wert
+    /// senkt. Genau das prueft er: liesse jemand `fernsteuerung()` den Vorhalt
+    /// absenken, ohne die Basis mitzuziehen, regelte der Takt hier von 30 auf
+    /// die 90 des Nutzers zurueck — mitten im Steuern und ohne Anlass.
     #[test]
     fn waehrend_der_fernsteuerung_bleibt_der_fern_wert_die_untergrenze() {
         let (mut takt, mut jetzt) = neu_mit_fenster(90);
@@ -294,6 +313,26 @@ mod tests {
             u64::from(super::super::fernsteuerung::FERN_VORHALT_MS),
             "bis zum Fern-Wert herunter, aber nicht darunter"
         );
+    }
+
+    /// Der Weg ueber den REGLER darf die Zusage von `fernsteuerung()` nicht
+    /// aushebeln: wer selbst tiefer eingestellt hat, behaelt seinen Wert auch
+    /// nach ruhigen Fenstern. Bis zum 2026-08-19 rechnete der ruhige Zweig
+    /// `2.saturating_sub(15).max(30)` und hob auf 30 an — der direkte Aufruf
+    /// hatte dafuer einen Test, der Weg ueber den Regler nicht.
+    #[test]
+    fn der_regler_hebt_einen_tieferen_nutzerwert_beim_steuern_nicht_an() {
+        let mut takt = Ausgabetakt::neu(2);
+        takt.fernsteuerung(true);
+        assert_eq!(takt.vorhalt_ms(), 2, "die Fernsteuerung senkt nur, sie hebt nicht");
+        // Erst NACH `fernsteuerung()` das Fenster oeffnen: `setze_vorhalt`
+        // beendet die laufende Regelung.
+        let mut jetzt = Instant::now();
+        takt.anpassen(jetzt);
+        for _ in 0..(RUHIG_BIS_RUNTER * 2) {
+            fenster(&mut takt, &mut jetzt, 0);
+        }
+        assert_eq!(takt.vorhalt_ms(), 2, "ruhige Fenster duerfen nicht auf den Fern-Wert heben");
     }
 
     #[test]
