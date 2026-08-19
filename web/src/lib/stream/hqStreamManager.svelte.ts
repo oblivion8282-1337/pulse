@@ -176,16 +176,26 @@ export class ManagedHqStream {
    *   der einzige Decoder. Die Auftragszählung des Rings stützt das: rund
    *   41 Aufträge je Sekunde, also einer statt zweier Decoder.
    *
-   * **Wofür es trotzdem gebraucht wird: den EIGENEN Stream.**
-   * `HqStreamKeepAlive.svelte` nimmt ihn ausdrücklich aus `wanted` heraus (die
-   * Browser-Verbindung braucht er nicht), `WhepPlayer.svelte` legt ihn über
-   * `hqStreams.ensure()` aber trotzdem an — und niemand räumt ihn wieder weg.
-   * Wer sich selbst im eigenen Fenster zusieht, hatte dadurch dauerhaft zwei
-   * Decoder auf einer Video-Einheit. Genau diese Lücke schliesst `setRuhend`.
+   * **Hier stand bis zum 2026-08-19: „Wofür es trotzdem gebraucht wird: den
+   * EIGENEN Stream" — samt dem Hinweis, der eigentliche Fehler sitze eine
+   * Ebene höher und gehöre behoben. Er ist behoben, der Absatz gilt nicht
+   * mehr.**
    *
-   * Der eigentliche Fehler sitzt eine Ebene höher: dass der eigene Stream
-   * überhaupt über die Leitung zurückgeholt wird. Das gehört behoben, ist aber
-   * ein anderer Eingriff.
+   * `HqStreamKeepAlive.svelte` nahm den eigenen Stream aus `wanted` heraus,
+   * während `WhepPlayer.svelte` ihn beim Mounten über `hqStreams.ensure()`
+   * trotzdem anlegte. Erzeuger und Eigentümer widersprachen sich also: der
+   * Abgleicher schloss sofort wieder, der nächste Effect-Lauf legte neu an.
+   * Das kostete Bandbreite auf der Sendeleitung und lieferte trotzdem kein
+   * brauchbares Selbstbild. Seit dem 2026-08-19 hängt der eigene Stream an
+   * derselben Bedingung wie jeder fremde — an `openedTiles`, also an der
+   * ausdrücklichen Absicht des Nutzers.
+   *
+   * Am Messstand nachgewiesen: ohne Zuschauer keine Lesesitzung, beim Anklicken
+   * genau eine (stabil über 45 s), beim Wegklicken wieder keine.
+   *
+   * `setRuhend` bleibt davon unberührt und wird weiter gebraucht — für JEDEN
+   * Stream, der ins eigene Fenster übernommen wird: sonst dekodieren Browser
+   * und Fenster dasselbe Bild doppelt auf einer Video-Einheit.
    *
    * Gesetzt wird es von der `NativePlayerSession`, nicht von der Kachel: das
    * Fenster überlebt deren Unmount (Keep-Alive), und nur sie kennt den Zustand
@@ -280,7 +290,12 @@ export class ManagedHqStream {
   }
 
   #onStream(stream: MediaStream): void {
-    if (this.#disposed) return;
+    // Auch hier `ruhend` mitprüfen: der Rückruf feuert MITTEN in `connectWhep`.
+    // Ist inzwischen das eigene Fenster eingesprungen, gehört dieser Strom zu
+    // einer Sitzung, die gleich wieder geschlossen wird — würde er trotzdem
+    // angehängt, bliebe ein Audio-Element mit totem `srcObject` stehen und
+    // `this.stream` zeigte auf einen Strom, den es nicht mehr gibt.
+    if (this.#abgebrochen()) return;
     this.stream = stream;
     // Audio bevorzugt über den Web-Audio-Graphen (boost) — läuft unabhängig vom
     // Video-Element weiter. Greift der nicht, Fallback auf ein verstecktes,
@@ -395,13 +410,34 @@ export class ManagedHqStream {
     }
   }
 
+  /**
+   * Ist der Aufbau, der gerade läuft, inzwischen gegenstandslos?
+   *
+   * `#disposed` = die Kachel ist geschlossen, `ruhend` = das eigene Fenster hat
+   * übernommen. Beides muss nach JEDEM `await` in `#start` geprüft werden — die
+   * Begründung steht dort.
+   */
+  #abgebrochen(): boolean {
+    return this.#disposed || this.ruhend;
+  }
+
   async #start(): Promise<void> {
     // `ruhend` gehört hierher und nicht nur an die Aufrufstellen: ein bereits
     // laufender Retry-Timer (`#scheduleRetry`) würde die Verbindung sonst
     // wieder aufbauen, während das eigene Fenster den Stream hat.
     if (this.#disposed || this.ruhend) return;
     await this.#teardown();
-    if (this.#disposed) return;
+    // **Nach jedem `await` erneut auf `ruhend` prüfen, nicht nur auf
+    // `#disposed`.** Der Wettlauf: `setRuhend(true)` stösst `#ruhenLegen` →
+    // `#teardown` an. Fällt das in ein Fenster, in dem hier gerade ein `await`
+    // hängt, findet jenes `#teardown` `#session === null` vor und schliesst
+    // nichts — anschliessend hängt dieser Lauf seine frisch aufgebaute, LEBENDE
+    // Sitzung in einen Manager, der sich für ruhend hält. Sie bleibt bis
+    // `close()`/`reconcile` offen. Erkennbar ist das Leck am Server: MediaMTX
+    // zeigt zwei gleichzeitige Lesesitzungen auf demselben Pfad, obwohl nur ein
+    // Zuschauer da ist — und jede kostet Bandbreite auf genau der Leitung, die
+    // beim Streamen ohnehin der Engpass ist.
+    if (this.#abgebrochen()) return;
     if (this.#attempt === 0) this.phase = 'connecting';
     try {
       const { whep_url, ten_bit, remote_input } = await chatApi.getWhepUrl(
@@ -417,7 +453,7 @@ export class ManagedHqStream {
       // die Lage, in der die Entscheidung faellt.
       this.tenBit = ten_bit === true;
       this.fernsteuerbar = remote_input === true;
-      if (this.#disposed) return;
+      if (this.#abgebrochen()) return;
       // **10 bit ohne eigenes Fenster: gar nicht erst verbinden.**
       //
       // Warum ABLEHNEN und nicht „so gut es geht anzeigen": beides waere
@@ -448,14 +484,19 @@ export class ManagedHqStream {
       // `isPlayerAvailable` liefert im Browser immer `false` und wirft nie —
       // die Abfrage ist also auch dort unbedenklich.
       if (this.tenBit && !(await isPlayerAvailable())) {
-        if (this.#disposed) return;
+        if (this.#abgebrochen()) return;
         this.phase = 'error';
         this.detail = m.hq_stream_ten_bit_needs_desktop();
         return;
       }
-      if (this.#disposed) return;
+      if (this.#abgebrochen()) return;
       const s = await connectWhep(whep_url, (stream) => this.#onStream(stream));
-      if (this.#disposed) {
+      if (this.#abgebrochen()) {
+        // Hier wird wirklich geschlossen und nicht bloss die Referenz fallen
+        // gelassen: die Sitzung steht zu diesem Zeitpunkt schon, und `#teardown`
+        // bekommt sie nie zu sehen — sie war nie in `#session`. Ohne das
+        // `close()` wäre das Leck nur von der einen Stelle an die andere
+        // gerückt.
         await s.close();
         return;
       }
