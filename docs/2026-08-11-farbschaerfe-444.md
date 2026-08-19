@@ -230,6 +230,14 @@ FLV beschränkt die Farbabtastung nicht, nur die Codec-Tags. Formal liefe ein
 Weg für „AV1 ohne Intra-Refresh" und hat keinen RTCP-Rückkanal — für
 Fernsteuerung ist er der falsche Weg.
 
+> **Nachtrag 2026-08-19:** Der Halbsatz „nur noch der Weg für AV1 ohne
+> Intra-Refresh" stimmt seit dem 2026-08-18 nicht mehr. Die Oberfläche wählt
+> **immer** WHIP, ohne Fallunterscheidung nach Codec oder Betriebsart
+> (`stream/settings.svelte.ts::pushProtokoll`); RTMPS bleibt nur serverseitig
+> bestehen, für Netze, die UDP sperren. Der Schluss dieses Abschnitts wird
+> davon nicht berührt — er wird sogar stärker: RTMPS kommt für einen normalen
+> Stream gar nicht mehr vor.
+
 ---
 
 ## 4. Der Empfänger
