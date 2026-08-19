@@ -374,11 +374,7 @@ async def handle_respond(
     # denn eine Zustimmung darf nie an einer Anzeige haengen.
     geraet = mgr.device_for_socket(websocket)
     if geraet is not None:
-        try:
-            mgr.device_set_busy(geraet, sess.controller_user_id, websocket)
-            await mgr.publish_device_state(geraet)
-        except Exception:  # noqa: BLE001  # pragma: no cover
-            log.debug("device busy state not published", exc_info=True)
+        await mgr.device_mark_busy_and_publish(geraet, sess.controller_user_id, websocket)
 
 
 def _signal_data_too_large(data: Any) -> bool:

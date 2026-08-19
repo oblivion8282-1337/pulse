@@ -105,9 +105,11 @@ async def handle_reclaim(
     if role == "host" and reclaimed.device_id is not None:
         try:
             geraet_id = int(reclaimed.device_id)
-            mgr.device_set_busy(geraet_id, reclaimed.controller_user_id, websocket)
-            await mgr.publish_device_state(geraet_id)
-        except Exception:  # noqa: BLE001  # pragma: no cover
-            log.debug("device busy state not restored after reclaim", exc_info=True)
+        except ValueError:  # pragma: no cover
+            geraet_id = None
+        if geraet_id is not None:
+            await mgr.device_mark_busy_and_publish(
+                geraet_id, reclaimed.controller_user_id, websocket
+            )
     log.info("remote session %s reclaimed by role=%s", session_id, role)
     await send_to_socket(websocket, frame_ok)

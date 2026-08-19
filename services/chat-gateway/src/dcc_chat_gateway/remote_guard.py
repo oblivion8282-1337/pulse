@@ -60,6 +60,18 @@ async def peer_channel_perms(session, channel_id: int, user) -> int | None:
     return await resolve_permissions(session, user, channel.guild_id, channel_id)
 
 
+def _fehlt_unbefristet(manager, session_id: str, role: str, peer_user) -> bool:
+    """Fehlt ``peer_user`` (``role`` = "host"/"controller"), OHNE dass gerade
+    eine bekannte Gnadenfrist genau dieser Rolle laeuft?
+
+    Herausgeloest, weil `_end_reason` sonst einen einzigen, mehrzeiligen
+    Boolean aus zwei unabhaengigen Pruefungen (Rolle "controller", Rolle
+    "host") bilden muesste — leicht zu ueberfliegen, leicht durch einen
+    Tippfehler in nur EINER der beiden Haelften unbemerkt asymmetrisch zu
+    machen (Pruefer-Befund 2026-08-20)."""
+    return peer_user is None and not manager.remote_disconnect_grace_active(session_id, role)
+
+
 async def _end_reason(session, manager, sess, max_session_s: float) -> str | None:
     """Why ``sess`` must die now, or ``None`` when it may live on."""
     if sess.age_s() >= max_session_s:
@@ -90,11 +102,9 @@ async def _end_reason(session, manager, sess, max_session_s: float) -> str | Non
         #
         # Fehlen BEIDE, muss BEIDE Abwesenheit ueber eine laufende Frist erklaert
         # sein — fehlt auch nur einer ohne Frist, bleibt es beim Sofort-Ende.
-        if (controller is None and not manager.remote_disconnect_grace_active(
-            sess.session_id, "controller"
-        )) or (host is None and not manager.remote_disconnect_grace_active(
-            sess.session_id, "host"
-        )):
+        controller_fehlt = _fehlt_unbefristet(manager, sess.session_id, "controller", controller)
+        host_fehlt = _fehlt_unbefristet(manager, sess.session_id, "host", host)
+        if controller_fehlt or host_fehlt:
             # Ein Wettlauf mit dem Disconnect-Pfad kostet nichts:
             # ``remote_terminate`` poppt unter dem Lock und ist idempotent, der
             # Zweite findet nichts mehr vor. Der Grund heisst wie dort

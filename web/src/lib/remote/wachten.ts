@@ -154,6 +154,19 @@ export function verbindungsWachtMitGnadenfrist(
     // Ausdrücklich gescheitert (fremde Rolle/fremder Nutzer, Sitzung schon
     // weg, Frist serverseitig schon abgelaufen) — nicht auf den eigenen
     // Zeitgeber warten, der Server hat schon geantwortet.
+    //
+    // **Nur wirksam, wenn die Frist noch läuft** (Prüferbefund 2026-08-20):
+    // `conn.on('ready')` oben schickt bei JEDEM `ready` auf dieser Verbindung
+    // ein `remote_reclaim`, solange die Frist aktiv ist — nicht nur nach einem
+    // echten Abriss. `requestResync()` (Serverwechsel zurück auf DIESE
+    // Verbindung) löst beim Server ebenfalls ein frisches `ready` aus, OHNE
+    // dass `conn.onClose` dazwischen gefeuert hätte. Zwei Reclaim-Anfragen
+    // können so gleichzeitig unterwegs sein; die ERSTE Antwort gewinnt bei
+    // Erfolg (`frist.wiederhergestellt` oben), und eine SPÄTER eintreffende
+    // `remote_reclaim_failed` der zweiten, längst überholten Anfrage gehört
+    // dann zu keiner laufenden Frist mehr — sie darf die gerade erst
+    // wiederhergestellte, aktiv laufende Sitzung nicht mehr abbauen.
+    if (!frist.aktiv) return;
     ab();
     beiEndgueltigemVerlust();
   });
