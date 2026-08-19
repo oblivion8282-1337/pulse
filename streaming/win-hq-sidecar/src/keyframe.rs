@@ -266,6 +266,11 @@ pub fn reset() {
 /// 2 s) und darf es auch nicht: eine Bremse, die der Vorgabe folgte, verwuerfe
 /// eine Anforderung eine Minute lang.
 pub const SEKUNDEN_VORGABE: f32 = 60.0;
+
+/// Vorgabe fuer die UMLAUFDAUER, wenn Intra-Refresh laeuft — bleibt bei 2 s.
+/// Begruendung beim Zwilling im Linux-Sidecar
+/// (`KEYFRAME_SEKUNDEN_UMLAUF_VORGABE`).
+pub const SEKUNDEN_UMLAUF_VORGABE: f32 = 2.0;
 const SEKUNDEN_MIN: f32 = 0.1;
 
 /// Obergrenze fuer `PULSE_KEYFRAME_SECONDS`. Eine Grenze muss es geben, damit
@@ -291,17 +296,27 @@ const SEKUNDEN_MAX: f32 = 120.0;
 /// eine Messreihe, die „60 s" im Protokoll stehen hat und in Wahrheit mit 2 s
 /// lief, sieht vollkommen plausibel aus.
 pub fn abstand_bilder(fps: u32) -> u32 {
+    // Die Vorgabe haengt an der Betriebsart (2026-08-19, Zwilling im
+    // Linux-Sidecar): dieselbe Zahl ist ohne Intra-Refresh der Vollbild-Abstand
+    // und mit Intra-Refresh die UMLAUFDAUER der Auffrischung
+    // (`intra_refresh_mode=gop_aligned`, s. `encode/auffrischung.rs`). 60 s sind
+    // als Abstand gemessen gut und als Umlaufdauer unbrauchbar.
+    let vorgabe = if crate::encode::auffrischung::gewuenscht() {
+        SEKUNDEN_UMLAUF_VORGABE
+    } else {
+        SEKUNDEN_VORGABE
+    };
     let sekunden = match std::env::var("PULSE_KEYFRAME_SECONDS").ok().as_deref() {
-        None => SEKUNDEN_VORGABE,
+        None => vorgabe,
         Some(roh) => match roh.parse::<f32>() {
             Ok(v) if (SEKUNDEN_MIN..=SEKUNDEN_MAX).contains(&v) => v,
             _ => {
                 eprintln!(
                     "[encode] PULSE_KEYFRAME_SECONDS={roh:?} unbrauchbar \
                      (erlaubt {SEKUNDEN_MIN}..={SEKUNDEN_MAX}) — es gilt die \
-                     Vorgabe {SEKUNDEN_VORGABE}"
+                     Vorgabe {vorgabe}"
                 );
-                SEKUNDEN_VORGABE
+                vorgabe
             }
         },
     };
@@ -453,8 +468,13 @@ mod tests {
     fn ohne_einstellung_gilt_die_vorgabe() {
         let _wache = ENV.lock().unwrap_or_else(|p| p.into_inner());
         unsafe { std::env::remove_var("PULSE_KEYFRAME_SECONDS") };
+        crate::encode::auffrischung::setzen(false);
         assert_eq!(abstand_bilder(60), 3600, "sechzig Sekunden bei 60 fps");
         assert_eq!(abstand_bilder(144), 8640, "sechzig Sekunden bei 144 fps");
+        // Mit Intra-Refresh ist dieselbe Zahl die Umlaufdauer — und bleibt bei 2 s.
+        crate::encode::auffrischung::setzen(true);
+        assert_eq!(abstand_bilder(60), 120, "mit Intra-Refresh: 2 s Umlaufdauer");
+        crate::encode::auffrischung::setzen(false);
     }
 
     #[test]
