@@ -257,10 +257,11 @@ pub fn reset() {
 /// Zaehlt die Bilder und sagt, wann das naechste Vollbild faellig ist.
 ///
 /// **Wofuer, und warum das nicht der GOP-Takt des Encoders erledigt**
-/// (gemessen 2026-08-19, Radeon 780M): bei `h264_amf` haengt die rollende
-/// Auffrischung an `usage=ultralowlatency`, und die laeuft aus Lastgruenden
-/// unbedingt mit. Wer die Auffrischung abwaehlt, bekam bis heute
-/// `usage=transcoding` untergeschoben, damit der GOP-Takt wieder greift — und
+/// (gemessen 2026-08-19, Radeon 780M): `h264_amf` liefert unter
+/// `usage=ultralowlatency` den bestellten Vollbild-Takt NICHT — es kommt eines
+/// statt der bestellten. Diese Betriebsart wird aus Lastgruenden unbedingt
+/// gesetzt. Wer periodische Vollbilder wollte, bekam bis heute
+/// `usage=transcoding` untergeschoben, damit der Takt wieder greift — und
 /// zahlte dafuer **25,2 statt 10,2 Prozent Video-Engine**, also das
 /// Zweieinhalbfache, weil `transcoding` die ganze Voranalyse mitbringt.
 ///
@@ -270,6 +271,13 @@ pub fn reset() {
 /// echten Vollbildern** in 28 s — die Last der sparsamen Betriebsart mit der
 /// Eigenschaft der teuren. Messakte
 /// `streaming/testbench/profiles/amd-2026-08-19-vollbilder-ohne-aufschlag.json`.
+///
+/// **Was der Encoder in der sparsamen Betriebsart ANSTELLE der Vollbilder tut,
+/// ist offen.** Hier stand zwischenzeitlich „die Auffrischung laeuft daneben
+/// weiter" — zurueckgenommen am selben Tag, weil nicht nachweisbar; die
+/// gescheiterten Versuche stehen an `auffrischung::braucht_selbsttakt`. Fuer
+/// diesen Takt ist das ohne Belang, fuer Aussagen ueber Verlust-Robustheit
+/// nicht.
 ///
 /// **Warum ein eigener Zaehler und nicht [`request_keyframe`]:** die
 /// Rueckstaffelung dort verteidigt gegen einen kaputten Zuschauer, der ohne

@@ -27,11 +27,24 @@ Die beiden offenen Punkte von heute Vormittag sind damit erledigt: die Latenz
 von `transcoding` braucht niemand mehr zu messen (der Wert kommt nicht mehr
 vor), und auf dieser Hardware gilt der Befund — er wurde hier erhoben.
 
-**Was offen bleibt:** der Strom trägt jetzt beides, rollende Auffrischung UND
-periodische Vollbilder. Für den Zuschauer ist das kein Nachteil (er steigt am
-Vollbild ein, die Welle repariert weiterhin dazwischen), aber es ist eine
-Eigenschaft mehr, als der Haken verspricht — die Zeile „Encoder offen" sagt es
-deshalb ausdrücklich. Und: nur auf einer iGPU gemessen.
+**Zurückgenommen am selben Tag:** Hier stand „der Strom trägt jetzt beides,
+rollende Auffrischung UND periodische Vollbilder, die Welle repariert weiterhin
+dazwischen". Das ist **nicht belegt**. Belegt ist nur, dass die sparsame
+Betriebsart den bestellten Vollbild-Takt unterdrückt — nicht, dass eine
+Auffrischung an seine Stelle tritt. Drei Nachweisversuche sind gescheitert
+(Bitstrom-Spur, Blockkarten, Schadenstest); die Einzelheiten stehen in der
+Messakte und an `auffrischung::braucht_selbsttakt`. Das stärkste Gegenindiz kam
+vom Nutzer: er sieht den Auffrischungs-Wischer **nur** bei ausdrücklich
+eingeschalteter Auffrischung.
+
+Für den Fix ändert das nichts — der Selbsttakt wird gebraucht, weil der
+bestellte Takt ausbleibt, und alle Lastzahlen stehen. Wohl aber für jede
+Aussage über Verlust-Robustheit: die naheliegendere Erklärung dafür, dass
+H.264-Ströme Störungen besser überstehen, liegt beim **Empfänger** (H.264-
+Decoder überdecken Fehler, dav1d gibt bei fehlenden Bezügen gar kein Bild aus).
+Ebenfalls nicht gemessen.
+
+**Und weiterhin offen:** nur auf einer iGPU gemessen.
 
 ---
 
