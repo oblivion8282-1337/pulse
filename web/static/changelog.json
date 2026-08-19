@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-19.3",
+      "date": "2026-08-19",
+      "style": "Sachlich",
+      "title": "Bildschirmteilen: Verbesserungen",
+      "items": [
+        "Auf Mac-Rechnern erscheint das Bild bei Zuschauern wieder sofort. Zuletzt konnte es bis zu einer Minute dauern, bis nach dem Beitreten das erste Bild kam.",
+        "Die Codec-Auswahl bietet auf Mac-Rechnern kein AV1 mehr an. Es wurde dort ohnehin still durch H.264 ersetzt.",
+        "Ein Stream in HDR bricht jetzt mit einer Meldung ab, wenn die Grafikkarte kurzfristig nicht mitspielt, statt unbemerkt in normaler Bildqualität weiterzulaufen.",
+        "Ein Zuschauerbild, das beim Verbinden hängenbleibt, findet von selbst zurück. Vorher half nur Abwarten."
+      ]
+    },
+    {
       "id": "2026-08-19.2",
       "date": "2026-08-19",
       "style": "Sachlich",
