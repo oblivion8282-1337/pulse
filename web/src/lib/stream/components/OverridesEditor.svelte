@@ -16,7 +16,7 @@
     VIDEO_MODES,
     videoModeOf,
     applyVideoMode,
-    gpuHasAv1,
+    av1Nutzbar,
     allowedResolutions,
     clampResolution,
     captureSourceForSlot,
@@ -38,9 +38,12 @@
     streamSlot?: number;
   } = $props();
 
-  // Nur anbieten, was diese Maschine wirklich encodieren kann. AV1 verlangt,
-  // dass der Sidecar es in `video_codecs` meldet (RTX 40xx, neuere Intel/AMD,
-  // Apple M3+); H.264 ist die Grundlinie und steht immer da. 10 bit verlangt
+  // Nur anbieten, was diese Maschine wirklich encodieren kann UND was heil
+  // beim Zuschauer ankommt. AV1 verlangt, dass der Sidecar es in
+  // `video_codecs` meldet (RTX 40xx, neuere Intel/AMD) — auf macOS zusaetzlich,
+  // dass der Sendeweg es traegt, und das tut er dort nicht (`av1Nutzbar`, seit
+  // 2026-08-19: ffmpegs WHIP-Muxer kennt kein AV1, der M3+ bekam still H.264).
+  // H.264 ist die Grundlinie und steht immer da. 10 bit verlangt
   // zusätzlich `health.gsr.ten_bit` — es hängt am Encoder, nicht am Codec.
   //
   // Ein nicht angebotener Eintrag ist besser als ein angebotener, der beim
@@ -55,7 +58,7 @@
   let codecOptions = $derived(
     VIDEO_MODES.filter(
       (m) =>
-        (m.codec !== 'av1' || gpuHasAv1(streamSettings.gpu_info?.video_codecs)) &&
+        (m.codec !== 'av1' || av1Nutzbar(streamSettings.gpu_info?.video_codecs)) &&
         (!m.tenBit || stream.tenBitAvailable) &&
         (!m.hdr || (isWindows() && stream.hdrAvailable)),
     ),

@@ -70,6 +70,24 @@ capability, not by hardcoding. The renderer gates the codec choice the same way
 (`gpuHasAv1(gpu_info.video_codecs)`), matching how Linux (GSR) and Windows report
 their GPU's codec set.
 
+### No back channel — and what follows from it (2026-08-19)
+
+This sidecar is the only one of the three **without an RTCP back channel**: it
+has no keyframe-request path (no `request_keyframe`, no `pict_type=I`) and no
+WHIP sender of its own — `http(s)://` targets go to ffmpeg's WHIP muxer, which
+carries neither an inbound PLI nor AV1. Two consequences, both deliberate:
+
+- **Keyframe distance defaults to 2 s here**, not the 60 s that Linux/Windows
+  moved to on 2026-08-18 (`encode/mod.rs::KEYFRAME_SEKUNDEN_UNBEDENKLICH`).
+  A joining viewer can only wait for the *regular* keyframe; the native player
+  gives up after 20 s. `PULSE_KEYFRAME_SECONDS` still overrides — with a warning.
+- **AV1 is not offered by the UI on macOS** (`web/src/lib/stream/settings.svelte.ts
+  ::av1Nutzbar`), because the WHIP muxer would silently downgrade it to h264.
+  Same line the intra-refresh checkbox already draws.
+
+Building a real WHIP sender for macOS (port of `*-hq-sidecar/src/whip/`) lifts
+both restrictions at once; nothing else does.
+
 ## Protocol (parity with the other two sidecars)
 
 One JSON object per stdin line = a request; one per stdout line = a response
