@@ -238,6 +238,10 @@ struct Session {
     /// Bedienoberflaeche nicht aufgebaut werden konnte). Deshalb hier zusaetzlich
     /// direkt an der Sitzung, statt sie ueber das Overlay umzuleiten.
     can_reattach: bool,
+    /// Die zuletzt losgeschickte Options-Task (s. `requests::apply_options`).
+    /// Haelt die REIHENFOLGE der Patches auf dem Weg in die Sitzung: jede neue
+    /// wartet auf diese hier, bevor sie sendet.
+    optionskette: Option<tokio::task::JoinHandle<()>>,
 }
 
 pub struct App {
@@ -326,6 +330,11 @@ impl App {
         let netz_cmd_fuer_befehle = netz_cmd_tx.clone();
         self.runtime.spawn(async move {
             let mut cmd_rx = cmd_rx;
+            // Nachzuegler-Task fuer den Fall, dass der Netz-Kanal gerade voll
+            // ist (s. unten). Als Kette, damit auch der Nachschub in der
+            // richtigen Reihenfolge ankommt — ein „aus", das ein „ein"
+            // ueberholt, waere schlimmer als der verlorene Patch.
+            let mut nachzuegler: Option<tokio::task::JoinHandle<()>> = None;
             while let Some(cmd) = cmd_rx.recv().await {
                 let kopie = match &cmd {
                     SessionCommand::Fernsteuerung(aktiv) => {
@@ -335,15 +344,40 @@ impl App {
                     _ => None,
                 };
                 if let Some(kopie) = kopie {
-                    // `try_send`, NIE blockierend (Bughunt R2): der Netz-Kanal
-                    // hat Tiefe 4, und das Auffangnetz pollt seine Befehle erst
-                    // nach dem WHEP-Aufbau (bis 15 s + 2 s ICE). Ein
-                    // blockierendes Send hier hielte den WEITERLEITER an — und
+                    // Hier wird NIE blockierend gesendet (Bughunt R2): der
+                    // Netz-Kanal hat Tiefe 4, und das Auffangnetz pollt seine
+                    // Befehle erst nach dem WHEP-Aufbau (bis 15 s + 2 s ICE).
+                    // Ein blockierendes Send hielte den WEITERLEITER an — und
                     // damit erreichte den HAUPTSTROM gar nichts mehr, auch kein
-                    // Stop. Ein verlorener Patch im Auffangnetz ist der billigere
-                    // Fehler; der naechste Statistik-Takt bzw. Options-Patch
-                    // zieht ihn nach.
-                    let _ = netz_cmd_fuer_befehle.try_send(kopie);
+                    // Stop.
+                    //
+                    // **Verworfen werden darf es trotzdem nicht.** Hier stand
+                    // ein blosses `try_send` mit der Begruendung, der naechste
+                    // Statistik-Takt bzw. Options-Patch ziehe es nach — das
+                    // gilt aber nur fuers EINSCHALTEN: `fern_geduld` in
+                    // `session.rs` wird nur bei laufender Fernsteuerung neu
+                    // gerechnet. Blieb ein `Fernsteuerung(false)` liegen, hing
+                    // das Auffangnetz bis zum Sitzungsende auf der abgesenkten
+                    // Geduld — und gezeigt wird es genau dann, wenn der
+                    // Hauptstrom ausfaellt. Der Nachschub laeuft deshalb ueber
+                    // eine eigene Task, die warten darf, waehrend der
+                    // Weiterleiter weiterlaeuft.
+                    let voll = nachzuegler.as_ref().is_some_and(|h| !h.is_finished());
+                    let rest = if voll {
+                        Some(kopie)
+                    } else {
+                        netz_cmd_fuer_befehle.try_send(kopie).err().map(|e| e.into_inner())
+                    };
+                    if let Some(kopie) = rest {
+                        let tx = netz_cmd_fuer_befehle.clone();
+                        let vorherige = nachzuegler.take();
+                        nachzuegler = Some(tokio::spawn(async move {
+                            if let Some(vorherige) = vorherige {
+                                let _ = vorherige.await;
+                            }
+                            let _ = tx.send(kopie).await;
+                        }));
+                    }
                 }
                 if haupt_cmd_tx.send(cmd).await.is_err() {
                     break;
@@ -586,6 +620,7 @@ impl App {
                 fern_transport: String::new(),
                 eingabe_frames: 0,
                 can_reattach: req.can_reattach.unwrap_or(true),
+                optionskette: None,
             },
         );
         // Einmal zeichnen, bevor das erste Bild da ist: sonst zeigt das Fenster
@@ -838,7 +873,7 @@ impl App {
                 // **Der Eimer, der bis zum 2026-08-07 fehlte.** Die Zeile nannte
                 // dekodierte und gezeichnete Bilder und zwei Verlustzaehler —
                 // aber nicht den groessten: nach einer Luecke gilt das Bild
-                // `refresh_dauer()` lang als unsauber (Vorgabe 2 s!), und JEDES
+                // `refresh_dauer()` lang als unsauber (Deckel 2 s), und JEDES
                 // Bild in dieser Zeit wird weggeworfen. Bei 144 fps sind das bis
                 // zu 288 Stueck je Luecke. Ohne diese Zahl gingen bei 1440p rund
                 // 60 Bilder je Sekunde verloren, ohne dass eine Zeile sagte wohin.

@@ -4,6 +4,7 @@
   import StreamGrid from './StreamGrid.svelte';
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
   import MemberList from './MemberList.svelte';
+  import ChannelHeading from './ChannelHeading.svelte';
   import { gateway } from '$lib/ws/connection';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import VolumeXIcon from '@lucide/svelte/icons/volume-x';
@@ -193,18 +194,14 @@
 <section class="glass-panel relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl" data-testid="voice-channel-view">
   <header class="flex h-14 items-center gap-2.5 px-3 md:px-5">
     <Volume2Icon class="text-primary size-5 shrink-0" />
-    <span class="text-text-bright truncate text-lg font-semibold tracking-tight" data-testid="active-channel-name">{channel.name}</span>
-    <span class="text-text-muted ml-2 hidden truncate text-sm md:block">· {statusLabel}</span>
     <!-- **Das Thema des Kanals** (2026-08-16). Es liess sich in den
          Kanal-Einstellungen setzen, wurde aber nur in der Kopfzeile eines
          TEXTkanals gezeigt (`ChatView.svelte`) — bei einem Sprachkanal stand es
-         nirgends, das Feld war also eine Eingabe ins Nichts. Hinter dem Status,
-         damit „verbunden"/„nicht verbunden" die erste Auskunft bleibt. -->
-    {#if channel.topic}
-      <span class="text-text-muted hidden truncate text-sm md:block" data-testid="voice-channel-topic">
-        · {channel.topic}
-      </span>
-    {/if}
+         nirgends, das Feld war also eine Eingabe ins Nichts. Seit 2026-08-19
+         steht es eine Zeile tiefer (`ChannelHeading.svelte`), damit
+         „verbunden"/„nicht verbunden" die erste Auskunft neben dem Namen bleibt
+         und nicht zwei Bruchstücke hintereinander in derselben Zeile hängen. -->
+    <ChannelHeading name={channel.name} topic={channel.topic} meta={statusLabel} />
     <div class="ml-auto flex items-center gap-1">
       <Button
         variant="ghost"

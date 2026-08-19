@@ -535,3 +535,169 @@ async def test_stream_token_rtmp_wish_does_not_downgrade_whip(
     )
     assert r.status_code == 200, r.text
     assert r.json()["push_protocol"] == "whip"
+
+
+@pytest.mark.asyncio
+async def test_whep_reuses_cached_read_token(client, redis, auth_signer):
+    """Zweimal dieselbe Anfrage → dasselbe Token.
+
+    Das Lese-Token ist bewusst MEHRFACH nutzbar und wird nicht verbraucht;
+    genau darauf beruht der Nachschlage-Schluessel.  Der Test haelt das fest,
+    damit die Reparatur des verwaisten Cache-Eintrags (siehe unten) sie nicht
+    versehentlich in ein Einmal-Token verwandelt.
+    """
+    from dcc_shared.streaming import read_cache_key
+
+    access = auth_signer.issue_access(7, "bob")
+    cid = _unique_cid()
+    path = f"channel-{cid}-42-{'deadbeef' * 4}"
+    await redis.set(
+        ACTIVE_KEY.format(channel_id=cid, user_id="42"),
+        json.dumps({"user_id": "42", "started_at": "2026-05-14T00:00:00+00:00", "path": path}),
+    )
+    cache_key = read_cache_key("7", cid, "42", 0)
+    tokens: list[str] = []
+    try:
+        for _ in range(2):
+            r = await client.get(f"/channels/{cid}/whep?user_id=42", headers=_auth(access))
+            assert r.status_code == 200
+            tokens.append(r.json()["whep_url"].partition("token=")[2])
+        assert tokens[0] == tokens[1]
+        assert await redis.get(TOKEN_KEY.format(token=tokens[0])) is not None
+    finally:
+        await redis.delete(ACTIVE_KEY.format(channel_id=cid, user_id="42"), cache_key)
+        for t in tokens:
+            await redis.delete(TOKEN_KEY.format(token=t))
+
+
+@pytest.mark.asyncio
+async def test_whep_heals_orphaned_read_cache_entry(client, redis, auth_signer):
+    """Ein Nachschlage-Schluessel ohne Token-Datensatz darf nicht als totes
+    Token ausgeliefert werden.
+
+    So ein Paar entsteht, wenn ``stream:token:*`` unter Speicherdruck verdraengt
+    wird.  Ohne die Heilung liefert ``GET /whep`` bis zu einer Stunde lang
+    dasselbe tote Token; der auth-hook weist es mit ``read_unknown_token`` ab,
+    und die Kachel des Zuschauers heilt nie.
+
+    Geheilt wird durch **Wiederbeleben desselben Tokens**, nicht durch ein
+    neues: das Token gehoert ohnehin diesem Zuschauer, und ein neues verlangte,
+    den vorhandenen Zeiger zu loeschen — genau der Griff, mit dem sich ein
+    gleichzeitiger Aufruf sein gerade ausgehaendigtes Token unsperrbar machen
+    liess (s. ``test_ausgehaendigtes_lese_token_bleibt_fuer_den_bann_erreichbar``).
+    Ein vom BANN geloeschtes Token kann so nicht auferstehen: der Bann loescht
+    Zeiger und Datensatz in einem einzigen ``DELETE``.
+    """
+    from dcc_shared.streaming import read_cache_key
+
+    access = auth_signer.issue_access(7, "bob")
+    cid = _unique_cid()
+    path = f"channel-{cid}-42-{'deadbeef' * 4}"
+    await redis.set(
+        ACTIVE_KEY.format(channel_id=cid, user_id="42"),
+        json.dumps({"user_id": "42", "started_at": "2026-05-14T00:00:00+00:00", "path": path}),
+    )
+    cache_key = read_cache_key("7", cid, "42", 0)
+    # Der verwaiste Zustand: Zeiger auf ein Token, das es nicht (mehr) gibt.
+    await redis.set(cache_key, "verwaistes-token", ex=60)
+    ausgeliefert = ""
+    try:
+        r = await client.get(f"/channels/{cid}/whep?user_id=42", headers=_auth(access))
+        assert r.status_code == 200
+        ausgeliefert = r.json()["whep_url"].partition("token=")[2]
+        raw = await redis.get(TOKEN_KEY.format(token=ausgeliefert))
+        assert raw is not None, "das ausgelieferte Token muss registriert sein"
+        rec = json.loads(raw)
+        assert rec["scope"] == "read"
+        assert rec["channel_id"] == cid and rec["user_id"] == "42"
+        # Und der Zeiger zeigt auf genau dieses Token — sonst faende der Bann
+        # es nicht.
+        assert _wert(await redis.get(cache_key)) == ausgeliefert
+        # Die Laufzeit des Zeigers wurde mitgezogen: ein Datensatz, der seinen
+        # Zeiger ueberlebt, waere fuer den Bann unsichtbar.
+        assert await redis.ttl(cache_key) >= await redis.ttl(TOKEN_KEY.format(token=ausgeliefert))
+    finally:
+        await redis.delete(ACTIVE_KEY.format(channel_id=cid, user_id="42"), cache_key)
+        if ausgeliefert:
+            await redis.delete(TOKEN_KEY.format(token=ausgeliefert))
+
+
+def _wert(roh: bytes | str | None) -> str:
+    return "" if roh is None else (roh.decode() if isinstance(roh, bytes) else str(roh))
+
+
+class _MitEinschub:
+    """Redis-Huelle, die nach dem ERSTEN Kommando einen zweiten Aufruf
+    dazwischenschiebt.
+
+    Damit wird das Rennen zweier gleichzeitiger ``GET /whep`` desselben
+    Zuschauers deterministisch statt zufaellig: der zweite Aufruf laeuft
+    vollstaendig durch, waehrend der erste zwischen seinen Redis-Rufen steht.
+    """
+
+    def __init__(self, echt, einschub):
+        self._echt = echt
+        self._einschub = einschub
+        self.eingeschoben = ""
+        self._getan = False
+
+    def __getattr__(self, name):
+        attr = getattr(self._echt, name)
+        if not callable(attr):
+            return attr
+
+        async def gerufen(*a, **kw):
+            ergebnis = await attr(*a, **kw)
+            if not self._getan:
+                self._getan = True
+                self.eingeschoben = await self._einschub()
+            return ergebnis
+
+        return gerufen
+
+
+@pytest.mark.asyncio
+async def test_ausgehaendigtes_lese_token_bleibt_fuer_den_bann_erreichbar(redis):
+    """**Die Zusage, an der die Sperre haengt.**
+
+    ``chat-gateway/stream_revoke.py`` findet die Lese-Token eines Zuschauers
+    ausschliesslich ueber die Nachschlage-Schluessel (``scan_iter`` + ``mget``).
+    Ein ausgehaendigtes Token ohne Zeiger ist damit bis zu eine Stunde lang
+    nicht sperrbar — es gibt keinen zweiten Weg zu ihm.
+
+    Geprueft wird der boese Verlauf: ein verwaister Zeiger liegt schon da, und
+    mitten in der Bearbeitung faellt ein zweiter Aufruf desselben Zuschauers
+    ein, der sein Token bereits bekommen hat.  Beide ausgehaendigten Token
+    muessen danach ueber den Bann-Weg auffindbar sein.
+    """
+    from dcc_media_svc.routes import _read_token_fuer
+    from dcc_shared.streaming import read_cache_channel, read_cache_key, read_cache_scan_pattern
+
+    cid = _unique_cid()
+    cache_key = read_cache_key("7", cid, "42", 0)
+    await redis.set(cache_key, "verwaistes-token", ex=60)
+
+    async def dazwischen() -> str:
+        return await _read_token_fuer(redis, "7", cid, "42", 0)
+
+    huelle = _MitEinschub(redis, dazwischen)
+    ausgehaendigt = {await _read_token_fuer(huelle, "7", cid, "42", 0), huelle.eingeschoben}
+    assert huelle.eingeschoben, "der eingeschobene Aufruf muss gelaufen sein"
+    try:
+        # Der Bann-Weg, nachgebaut wie in ``revoke_read_tokens_for_viewer``.
+        zeiger = [
+            k
+            async for k in redis.scan_iter(match=read_cache_scan_pattern("7"), count=100)
+            if read_cache_channel(k) == cid
+        ]
+        erreichbar = {_wert(w) for w in await redis.mget(zeiger) if w}
+        for token in ausgehaendigt:
+            assert await redis.exists(TOKEN_KEY.format(token=token)), (
+                "ein Token, das es nicht mehr gibt, ist auch kein Problem"
+            )
+            assert token in erreichbar, (
+                f"Token {token} wurde ausgehaendigt, aber kein Zeiger fuehrt dorthin — "
+                "der Bann kann es nicht loeschen"
+            )
+    finally:
+        await redis.delete(cache_key, *[TOKEN_KEY.format(token=t) for t in ausgehaendigt])

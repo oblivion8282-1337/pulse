@@ -210,11 +210,13 @@ async def run_session_op_loop(
             )
         except Exception:  # noqa: BLE001
             log.exception("watch cleanup_on_disconnect failed for user=%s", user.id)
-        # Remote-control sessions: end every session this socket was a peer of
-        # and notify the other peer. No grace (unlike watch) — a dropped socket
-        # means the input path is dead, and the host must not be left with keys
-        # held down. Must also run before remove_socket so the per-user socket
-        # set is still intact for the registry lookup.
+        # Remote-control sessions: an ACTIVE session this socket was a peer of
+        # gets a short grace window before it ends (`remote_reconnect_registry.py`,
+        # added 2026-08-19 — a socket drops every few minutes on the shared
+        # remote-dev-stack, and treating every blip as final killed working
+        # sessions); a still-PENDING one (just a dialog, nothing to save) ends
+        # immediately as before. Must also run before remove_socket so the
+        # per-user socket set is still intact for the registry lookup.
         # Standplatz-Geraete: eine Verbindung, die faellt, nimmt jedes Geraet
         # mit, das sie angemeldet hatte. **VOR dem Fernsteuer-Abbau**, und das
         # ist der ganze Trick: der Abbau einer Sitzung gibt das Geraet sonst

@@ -101,8 +101,11 @@ apiAddress: :9997
 rtsp: no
 
 # SRT ingest disabled: stream tokens would travel in cleartext UDP (no TLS).
-# Currently media-svc only issues RTMPS tokens (protocol: pattern=r"^rtmp$"),
-# so SRT is not needed. If future Opus-audio path requires SRT, issue
+# media-svc mints RTMPS *or* WHIP tokens (request field `protocol`, pattern
+# `^(rtmp|whip)$`) — and since 2026-08-18 the client asks unconditionally for
+# WHIP (`web/src/lib/stream/settings.svelte.ts::pushProtokoll`), so in practice
+# every push is WHIP; RTMPS stays available for networks that block UDP. SRT is
+# minted in neither case. If a future Opus-audio path requires SRT, issue
 # separate SRT-only short-lived tokens and document the cleartext risk.
 srt: no
 

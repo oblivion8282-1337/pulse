@@ -44,9 +44,12 @@ umgehen. All das entfällt hier.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from dcc_shared.events import DeviceChangedEvent, DeviceStateEvent
+
+log = logging.getLogger(__name__)
 
 
 class _DeviceRegistryMixin:
@@ -335,6 +338,26 @@ class _DeviceRegistryMixin:
             self._device_busy[device_id] = str(controller_user_id)
             if socket is not None:
                 self._device_busy_socket[device_id] = socket
+
+    async def device_mark_busy_and_publish(
+        self, device_id: int, controller_user_id: str, socket: Any
+    ) -> None:
+        """``device_set_busy`` + Meldung, fehlertolerant — der eine Weg, über
+        den ein angenommener ODER wiederhergestellter Host-Socket seine
+        Belegung setzt (Prüferbefund 2026-08-20: stand vorher wortgleich in
+        ``ws_remote_handlers.py`` UND ``ws_remote_reconnect.py``).
+
+        Fehlertolerant, weil eine Zustimmung/ein Reclaim nie an einer Anzeige
+        hängen darf — der Aufrufer entscheidet selbst, WELCHEN Socket und
+        WELCHE ``device_id`` er hier einsetzt (beim Accept über
+        ``device_for_socket``, beim Reclaim über die gemerkte
+        ``RemoteSession.device_id`` — die beiden Quellen unterscheiden sich
+        bewusst, s. Aufrufer)."""
+        try:
+            self.device_set_busy(device_id, controller_user_id, socket)
+            await self.publish_device_state(device_id)
+        except Exception:  # noqa: BLE001  # pragma: no cover
+            log.debug("device busy state not published", exc_info=True)
 
     # ── Meldungen ───────────────────────────────────────────────────────────
 

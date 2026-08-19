@@ -95,6 +95,32 @@ impl Ausgabetakt {
             self.setze_vorhalt(alt.as_millis() as u32);
         }
     }
+
+    /// Ein Vorhalt-Wunsch des Nutzers (`set_option ausgabetakt_ms`) — der EINE
+    /// Weg dorthin, gleich ob gerade gesteuert wird oder nicht.
+    ///
+    /// **Warum nicht einfach [`Ausgabetakt::setze_vorhalt`].** Waehrend einer
+    /// Fernsteuerung ist der geltende Vorhalt nicht der Wunsch des Nutzers,
+    /// sondern die Absenkung — und `vorhalt_vor_fern` haelt den Wunsch fuer
+    /// danach. Ein `set_option` direkt auf `setze_vorhalt` machte deshalb
+    /// gleich zwei Dinge falsch: es hob die Fern-Absenkung still auf, und der
+    /// gesetzte Wert war beim Fern-Ende wieder weg, weil dann der alte
+    /// gemerkte Stand zurueckkam. Genau derselbe Fehler wurde am 2026-08-13
+    /// fuer die Jitter-Geduld gefunden und dort mit dem Merker `fern_geduld`
+    /// behoben (`session.rs`) — der Lautstaerkeregler sitzt im Fern-Menue,
+    /// also faellt ein Options-Patch mitten in der Fernsteuerung wirklich an.
+    ///
+    /// Der Wunsch wird deshalb gemerkt und nur bis zum Fern-Wert **gesenkt**
+    /// gestellt; die Zusage „nur senken, nie anheben" gilt hier wie oben.
+    pub fn setze_vorhalt_vom_nutzer(&mut self, ms: u32) {
+        let Some(_) = self.vorhalt_vor_fern else {
+            return self.setze_vorhalt(ms);
+        };
+        let gewuenscht = Duration::from_millis(u64::from(ms.min(super::VORHALT_MAX_MS)));
+        self.vorhalt_vor_fern = Some(gewuenscht);
+        let ziel = gewuenscht.min(Duration::from_millis(u64::from(FERN_VORHALT_MS)));
+        self.setze_vorhalt(ziel.as_millis() as u32);
+    }
 }
 
 #[cfg(test)]
@@ -138,6 +164,32 @@ mod tests {
         takt.fernsteuerung(true);
         takt.fernsteuerung(false);
         assert_eq!(ms(&takt), 30);
+    }
+
+    /// `set_option ausgabetakt_ms` mitten in der Fernsteuerung (der
+    /// Lautstaerkeregler sitzt im Fern-Menue, der Fall ist real): die
+    /// Absenkung bleibt, und der Wunsch geht beim Fern-Ende nicht verloren.
+    #[test]
+    fn ein_nutzerwert_waehrend_der_fernsteuerung_ueberlebt_das_ende() {
+        let mut takt = Ausgabetakt::neu(100);
+        takt.fernsteuerung(true);
+        assert_eq!(ms(&takt), u128::from(FERN_VORHALT_MS));
+        takt.setze_vorhalt_vom_nutzer(80);
+        assert_eq!(ms(&takt), u128::from(FERN_VORHALT_MS), "die Fern-Absenkung bleibt stehen");
+        takt.fernsteuerung(false);
+        assert_eq!(ms(&takt), 80, "der waehrenddessen gesetzte Wunsch gilt danach");
+    }
+
+    /// Und die Gegenrichtung: ein Wunsch UNTER dem Fern-Wert wird nicht
+    /// angehoben — dieselbe Zusage wie beim Einschalten.
+    #[test]
+    fn ein_tieferer_nutzerwert_waehrend_der_fernsteuerung_gilt_sofort() {
+        let mut takt = Ausgabetakt::neu(100);
+        takt.fernsteuerung(true);
+        takt.setze_vorhalt_vom_nutzer(2);
+        assert_eq!(ms(&takt), 2);
+        takt.fernsteuerung(false);
+        assert_eq!(ms(&takt), 2);
     }
 
     #[test]

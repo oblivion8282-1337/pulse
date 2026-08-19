@@ -118,6 +118,13 @@ const REMOTE_SESSION_OPS: ReadonlySet<ServerEvent['op']> = new Set([
   'remote_canceled',
   'remote_input',
   'remote_signal',
+  // `remote_reclaimed`/`remote_reclaim_failed` stehen bewusst NICHT hier: sie
+  // laufen nie durch diese Allowlist. `wachten.ts` hört sie über einen
+  // rohen `conn.on(...)`-Zuhörer ab (wie `fehlerWacht` für `op:'error'`),
+  // und dieser Weg ist von der aktiv/Hintergrund-Unterscheidung in `_handle`
+  // unberührt (`gateway-connection.ts`, Zeile mit `for (const l of this.
+  // listeners) l(evt)` — läuft VOR jeder Zulässigkeitsprüfung, für jede
+  // Verbindung).
 ]);
 
 /** Die Verbindung der laufenden Sitzung. Der Session-Store meldet sie an und

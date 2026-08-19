@@ -41,6 +41,7 @@ from dcc_chat_gateway.routes import (
     ws_device_handlers,
     ws_remote_handlers,
     ws_remote_input,
+    ws_remote_reconnect,
     ws_remote_teardown,
     ws_typing,
     ws_watch,
@@ -278,6 +279,16 @@ async def handle_remote_input(ctx: WSOpContext, msg: dict[str, Any]) -> None:
 @register_ws_op("remote_end")
 async def handle_remote_end(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     await ws_remote_teardown.handle_end(ctx.websocket, ctx.user, msg)
+
+
+@register_ws_op("remote_reclaim")
+async def handle_remote_reclaim(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    # Der abgerissene Peer ist zurueck: der Sitzung den neuen Socket geben,
+    # solange ihre Gnadenfrist noch laeuft (`remote_reconnect_registry.py`) UND
+    # seine Rechte noch stehen (frische DB-Pruefung, wie bei `remote_request`).
+    await ws_remote_reconnect.handle_reclaim(
+        ctx.websocket, ctx.user, msg, session_factory=SessionLocal
+    )
 
 
 @register_ws_op("device_announce")

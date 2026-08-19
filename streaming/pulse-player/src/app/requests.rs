@@ -201,13 +201,30 @@ impl App {
         // `ok: true`, ohne dass sich etwas aendert (genau die Falle, wegen der
         // `hwdec` unten den Decoder verwirft).
         if let Some(ms) = patch.ausgabetakt_ms {
-            session.takt.setze_vorhalt(ms);
+            // **Ueber den Nutzer-Weg**, nicht direkt `setze_vorhalt`: laeuft
+            // gerade eine Fernsteuerung, ist der geltende Vorhalt die
+            // Absenkung und nicht der Wunsch. Der Wunsch wird deshalb gemerkt
+            // und erst beim Fern-Ende gestellt (Begruendung dort) — sonst hoebe
+            // ein `set_option` die Absenkung still auf und waere danach selbst
+            // wieder weg. Derselbe Fall wie `fern_geduld` in `session.rs`.
+            session.takt.setze_vorhalt_vom_nutzer(ms);
         }
         session.window.request_redraw();
+        // **Der Weg zur Sitzung muss die Reihenfolge halten.** Jeder Patch
+        // ginge sonst als eigene Task auf ein Multi-Thread-Runtime (`main.rs`),
+        // und zwei schnell aufeinanderfolgende koennen sich ueberholen: am
+        // Lautstaerkeregler im Fern-Menue zeigte das Overlay dann den neuen
+        // Wert, waehrend der Ton beim alten blieb — bleibend, bis zum naechsten
+        // Zug. Jede Task wartet deshalb auf ihre Vorgaengerin. Blockierend
+        // senden ginge nicht: das liefe auf dem Fenster-Thread.
         let tx = session.commands.clone();
-        self.runtime.spawn(async move {
+        let vorherige = session.optionskette.take();
+        session.optionskette = Some(self.runtime.spawn(async move {
+            if let Some(vorherige) = vorherige {
+                let _ = vorherige.await;
+            }
             let _ = tx.send(SessionCommand::Options(Box::new(patch))).await;
-        });
+        }));
     }
 
     /// Schickt einen Befehl mit Rueckmeldung in die Sitzung und beantwortet den

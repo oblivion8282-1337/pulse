@@ -39,6 +39,34 @@ impl Erfassung {
         // Verwerfen ist dabei die sichere Seite: der Host gibt beim Hello
         // ohnehin alles frei, die Frames waeren also hoechstens ueberfluessig —
         // am falschen Ziel sind sie dagegen echte Fremdeingabe.
+        //
+        // **Warum hier nichts nachgereicht wird.** Nahe liegt, beim Zielwechsel
+        // erst regulaer `ausschalten()` zu durchlaufen und die Hoch-Ereignisse
+        // noch mit dem ALTEN Platz hinauszuschicken — sonst bleibt drueben eine
+        // Taste gedrueckt. Genau das wurde am 2026-08-19 gebaut und wieder
+        // zurueckgenommen; die Stelle sieht nur wie ein Versehen aus:
+        //
+        // 1. Die Weiche im Hauptprozess (`desktop/electron/remoteInput.ts`,
+        //    `erfassungSchalten`) meldet das NEUE Ziel an, bevor sie
+        //    `input_capture` ruft. Frames, die waehrend dieses Rufs mit dem
+        //    alten Platz hinausgehen, wirft `verteilen()` still weg
+        //    (`ev.slot !== zuordnung.slot`) — die Taste bliebe trotzdem
+        //    gedrueckt, der Aufwand waere umsonst.
+        // 2. Beim reinen SITZUNGSwechsel (gleicher Platz) kaemen sie an, aber
+        //    mit der neuen Kennung und VOR dem Hello. Dort ist der Host
+        //    fail-closed („Eingabe vor dem Hello-Handschlag") — die frische
+        //    Sitzung stuende still. Ein Nachreichen macht den Fall also nicht
+        //    besser, sondern schlimmer.
+        // 3. Erreichbar ist der Fall mit dem ausgelieferten Renderer gar nicht:
+        //    `RemoteControllerInput.svelte` schaltet bei jeder Ziel-Aenderung
+        //    erst ab und dann ein, `aktiv` ist beim Einschalten also immer
+        //    `false`. Er traete nur ein, wenn ein Ausschalten scheitert (Fenster
+        //    weg, Ruf geworfen) — und dann ist ein Frame-Schwall mit fremder
+        //    Kennung die schlechtere Antwort.
+        //
+        // Wer die klemmende Taste beim Zielwechsel doch schliessen will, setzt
+        // beim ABSCHALTEN an (dort geht der alte Platz sauber mit) und nicht
+        // hier.
         let selbes_ziel =
             sitzung.is_some() && sitzung == self.sitzung.as_deref() && slot == self.slot;
         self.strom_beginnen(selbes_ziel);

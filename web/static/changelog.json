@@ -2,6 +2,41 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-19.5",
+      "date": "2026-08-19",
+      "style": "Sachlich",
+      "title": "Bildschirmteilen: Verbesserungen",
+      "items": [
+        "Auf Mac-Rechnern erscheint das Bild bei Zuschauern wieder sofort. Zuletzt konnte es bis zu einer Minute dauern, bis nach dem Beitreten das erste Bild kam.",
+        "Die Codec-Auswahl bietet auf Mac-Rechnern kein AV1 mehr an. Es wurde dort ohnehin still durch H.264 ersetzt.",
+        "Ein Stream in HDR bricht jetzt mit einer Meldung ab, wenn die Grafikkarte kurzfristig nicht mitspielt, statt unbemerkt in normaler Bildqualität weiterzulaufen.",
+        "Ein Zuschauerbild, das beim Verbinden hängenbleibt, findet von selbst zurück. Vorher half nur Abwarten."
+      ]
+    },
+    {
+      "id": "2026-08-19.4",
+      "date": "2026-08-19",
+      "style": "Sachlich",
+      "title": "Geräteansicht: es gibt wieder einen Weg zurück",
+      "items": [
+        "Hattest du einen Rechner in einem Kanal angeklickt, konntest du die Geräteansicht nicht mehr verlassen: Der Klick auf den Kanal, in dem der Rechner steht, blieb wirkungslos — ausgerechnet der naheliegendste Weg zurück. Er funktioniert jetzt.",
+        "Zusätzlich steht links oben in der Geräteansicht ein Knopf „Zurück zum Kanal“. Bisher gab es dort überhaupt keinen sichtbaren Ausgang."
+      ]
+    },
+    {
+      "id": "2026-08-19.3",
+      "date": "2026-08-19",
+      "style": "Sachlich",
+      "title": "Das Thema eines Kanals ist endlich lesbar",
+      "items": [
+        "Das Thema steht jetzt in einer eigenen Zeile unter dem Kanalnamen, statt als angehängter Halbsatz dahinter. Bisher wurde es schon bei mittlerer Länge mitten im Wort abgeschnitten, ohne dass man den Rest irgendwo nachlesen konnte. Ist es weiterhin zu lang für die Fensterbreite, zeigt ein Verweilen mit der Maus den vollständigen Text.",
+        "In Sprachkanälen hingen zuvor Verbindungsstatus und Thema als zwei Bruchstücke hintereinander in derselben Zeile. Der Status bleibt jetzt oben neben dem Namen, das Thema geht darunter.",
+        "Auf schmalen Fenstern und auf dem Handy war das Thema bisher gar nicht zu sehen — dort steht es jetzt ebenfalls.",
+        "In der Kanalliste links stand das Thema nirgends, man sah es erst nach dem Betreten des Kanals. Bleibst du jetzt mit der Maus kurz auf einem Kanal stehen, erscheint es daneben — so kannst du hineinschauen, bevor du wechselst. Die Liste selbst bleibt dabei genauso kompakt wie bisher.",
+        "Die Kopfzeile bleibt dabei genauso hoch wie bisher — beim Wechsel zwischen Kanälen mit und ohne Thema springt nichts."
+      ]
+    },
+    {
       "id": "2026-08-19.2",
       "date": "2026-08-19",
       "style": "Sachlich",

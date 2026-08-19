@@ -145,6 +145,35 @@ impl VideoCodec {
     /// RTMPS oder in eine Datei einen anderen Encode-Weg als im ausgelieferten
     /// Sidecar — und ein Messstand, der anders encodiert als das Original,
     /// misst das Falsche.
+    ///
+    /// **Der Kurzschluss gilt auch für Intel, und das ist heute ein offener
+    /// Punkt — kein Versehen, aber auch keine belegte Wahl** (aufgeschrieben
+    /// 2026-08-19). Intel gehört laut Tabelle unten auf die CPU-Pipeline; seit
+    /// die Push-URL IMMER WHIP ist (2026-08-18), greift diese Zeile dort aber
+    /// jedes Mal, und der Stream landet auf dem D3D11-Weg, für den es keinen
+    /// QSV-Zweig gibt: `encoder_hw` setzt `pix_fmt = D3D11` und hängt einen
+    /// D3D11VA-Frames-Kontext an, `h264_qsv`/`av1_qsv` nehmen aber QSV- oder
+    /// Software-Bilder. Der Open scheitert dann, und `baue_mit_rueckfall` hat
+    /// für `intel` keinen Arm — der Start bricht ab, mit einer Meldung über
+    /// den Encoder statt über die Ursache. **Ungemessen** (keine Intel-
+    /// Maschine im Aufbau); belegt ist nur der Code-Weg.
+    ///
+    /// **Der naheliegende Fix wäre schlimmer**: schickte man Intel hier zurück
+    /// auf die CPU-Pipeline, käme sie an `output::open_output`, und die sagt
+    /// bei angemeldetem Sendeweg ausdrücklich ab („dieser Encode-Weg kann den
+    /// angemeldeten Sendeweg nicht bedienen"). Ergebnis wäre derselbe
+    /// abgebrochene Start, nur über einen längeren Weg — der ffmpeg-Muxer ist
+    /// keine Alternative, er scheitert auf Windows an DTLS (2026-08-02).
+    /// Solange nicht gemessen ist, was `qsv` mit D3D11-Bildern wirklich tut,
+    /// bleibt diese Zeile deshalb, wie sie ist: eine Änderung könnte nur
+    /// tauschen, WELCHE Meldung kommt, und im schlechteren Fall einen heute
+    /// laufenden Stream abschalten.
+    ///
+    /// Der echte Ausweg wäre ein dritter: `encode::senke` auch auf der
+    /// CPU-Pipeline anmelden (`encoder.rs` gabeln wie `encoder_hw.rs`, ohne
+    /// globalen Kopf, Parametersätze im Strom). Das ist Arbeit an einer
+    /// Datei, die je Bild läuft, und lohnt erst, wenn eine Intel-Maschine zum
+    /// Messen da ist.
     pub fn encode_path(self, vendor: &str, push_url: &str) -> EncodePath {
         if super::senke::zustaendig(push_url) {
             return EncodePath::D3d11ZeroCopy;

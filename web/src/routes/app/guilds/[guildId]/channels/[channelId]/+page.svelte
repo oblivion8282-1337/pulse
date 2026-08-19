@@ -336,16 +336,24 @@
   }
 
   async function selectChannel(c: Channel) {
+    // **Ein offenes Geraet macht den Kanal-Klick NOETIG, obwohl der Kanal schon
+    // der aktive ist.** Das Geraet steht in der Adresse (`?device=`) und
+    // ersetzt die Kanalansicht; der Kanal-Teil der Adresse bleibt dabei
+    // derselbe. Ohne diese Abfrage kuerzt die Gleichheitspruefung unten den
+    // Klick als „schon da" ab — und ausgerechnet der Kanal, in dem das Geraet
+    // steht, waere der einzige, den man nicht mehr betreten kann.
+    const geraetOffen = offenesGeraet !== null;
+
     // Voice-Kanal auf Mobil: direkt beitreten und die Kanal-Liste offen lassen
     // (keine große Vollbild-Voice-Ansicht). Status erscheint im Dock + inline.
     if (viewport.isMobile && c.type === 1) {
       void voice.connect(c.id, c.name);
       navDrawer.open = true;
-      if (c.id !== channelId) await goto(`/app/guilds/${guildId}/channels/${c.id}`);
+      if (c.id !== channelId || geraetOffen) await goto(`/app/guilds/${guildId}/channels/${c.id}`);
       return;
     }
     navDrawer.open = false;
-    if (c.id === channelId) return;
+    if (c.id === channelId && !geraetOffen) return;
     await goto(`/app/guilds/${guildId}/channels/${c.id}`);
   }
 

@@ -22,6 +22,7 @@
 import { loadAll, saveAll } from '$lib/stream/persistence';
 import { refreshMonitors } from '$lib/stream/captureSource';
 import { streamSettings } from '$lib/stream/settingsState.svelte';
+import { platzMeldungen } from '$lib/devices/platzMeldung.svelte';
 
 const SPEICHER_SCHLUESSEL = 'remote.geraete';
 
@@ -112,6 +113,15 @@ class GeraeteAnmeldung {
       // Ohne Liste anmelden — s. oben.
     }
     senden(eintrag.deviceId, monitore);
+    // **Und die Plätze neu melden lassen.** Eine Anmeldung geht nach jedem
+    // Verbindungsaufbau hinaus; der Server hat die Platzmenge dieses Geräts
+    // beim Abriss vergessen (`device_withdraw`), unser Merker aber nicht. Ohne
+    // dieses Entwerten sendete das Gerät weiter, galt serverseitig als
+    // plattlos, und sein Bildschirm wurde einem Steuernden erneut als frei
+    // angeboten — dessen Weckruf das Gerät dann mit „überträgt bereits"
+    // verwarf. Die Entwertung sitzt genau hier, damit sie mit der Anmeldung
+    // nicht auseinanderlaufen kann.
+    platzMeldungen.vergessen(eintrag.serverId);
   }
 
   /** Nach dem Entfernen vergessen. */

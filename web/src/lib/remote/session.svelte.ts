@@ -38,7 +38,8 @@ import * as geraet from './geraeteanbindung';
 import { fensterZurSitzung } from './fenster';
 import { fremdeSitzungBeenden, herkunftsVerbindung, sendenAuf } from './draht';
 import { KEINE_ANTWORT, remoteErrorMessage } from './fehlertexte';
-import { WachtSchalter, anfrageFrist, fehlerWacht, verbindungsWacht } from './wachten';
+import { WachtSchalter, anfrageFrist, fehlerWacht, verbindungsWachtMitGnadenfrist } from './wachten';
+import { nachReclaimBehaupten } from './wiederaufnahme';
 import { VerworfeneAnfragen } from './verworfeneAnfragen';
 
 export type RemotePhase = 'idle' | 'requesting' | 'incoming' | 'active';
@@ -395,7 +396,7 @@ class RemoteSessionStore {
       return;
     }
     this.phase = 'active';
-    this.#watchVerbindung();
+    this.#watchVerbindung(sessionId);
     // Das Fenster ist die FOLGE der Zusage, nicht ihre Voraussetzung — warum,
     // steht in `fenster.ts`.
     fensterZurSitzung(this.role, this.channelId, this.peerUserId, this.targetSlot);
@@ -506,12 +507,26 @@ class RemoteSessionStore {
     // nächsten Anfrage.
   }
 
-  /** Verbindungsverlust beendet die Sitzung (Begründung in `wachten.ts`).
-   *  Gemessen wird die Verbindung DIESER Sitzung: sonst beendete ein
-   *  Server-Wechsel die Fernsteuerung — und umgekehrt liefe sie weiter, obwohl
-   *  ihr eigener Träger längst weg wäre. */
-  #watchVerbindung(): void {
-    this.#verbindung.an(() => verbindungsWacht(this.#conn, () => this.#reset()));
+  /** Verbindungsverlust startet eine Gnadenfrist statt die Sitzung sofort zu
+   *  beenden (Begründung in `wachten.ts`). Gemessen wird die Verbindung
+   *  DIESER Sitzung: sonst beendete ein Server-Wechsel die Fernsteuerung —
+   *  und umgekehrt liefe sie weiter, obwohl ihr eigener Träger längst weg
+   *  wäre. Was nach einem geglückten Reclaim zu behaupten ist, steht in
+   *  `wiederaufnahme.ts` — nur der Steuernde hat dort etwas zu tun, ein
+   *  Reclaim des Hosts ruft `nachReclaimBehaupten` gar nicht erst auf. */
+  #watchVerbindung(sessionId: string): void {
+    this.#verbindung.an(() =>
+      verbindungsWachtMitGnadenfrist(
+        this.#conn,
+        sessionId,
+        () => this.#senden((c) => c.sendRemoteReclaim(sessionId)),
+        () =>
+          nachReclaimBehaupten(this.role, (frames) =>
+            this.#senden((c) => c.sendRemoteInput(sessionId, this.#letzterSlot, frames)),
+          ),
+        () => this.#reset(),
+      ),
+    );
   }
 
   /** Frist für eine unbeantwortete Anfrage (s. [`ANFRAGE_FRIST_MS`]) — beide

@@ -133,6 +133,30 @@ export function hdrPossible(): boolean {
   return streamSettings.overrides.hdr === true && stream.hdrAvailable && tenBitPossible();
 }
 
+/**
+ * AV1 — kann diese Maschine es, UND kommt es auch heil beim Zuschauer an?
+ *
+ * `gpuHasAv1` allein beantwortet nur die erste Hälfte: es fragt den Encoder.
+ * **Auf macOS ist die zweite Hälfte seit dem 2026-08-18 nein** (korrigiert am
+ * 2026-08-19). Seit `pushProtokoll` bedingungslos WHIP liefert, geht der
+ * mac-Sidecar über ffmpegs WHIP-Muxer — der trägt kein AV1, und der Sidecar
+ * nimmt den Codec beim Start still auf H.264 zurück
+ * (`mac-hq-sidecar/src/encode/mod.rs`). Linux und Windows bringen dafür einen
+ * eigenen WebRTC-Sender mit (`src/whip/` in beiden Sidecars), macOS nicht — dieselbe Grenze,
+ * die schon beim Intra-Refresh-Kästchen gezogen ist
+ * (`components/ErweiterteOptionen.svelte`).
+ *
+ * Ein nicht angebotener Eintrag ist besser als einer, der beim Start still
+ * zurückgenommen wird: auf einem M3+ stand „AV1" im Feld, war sogar die
+ * Vorbelegung, und übertragen wurde H.264 — sichtbar nirgends.
+ *
+ * Wer hier je das `!isMac()` entfernt, baut vorher den eigenen WHIP-Sender für
+ * macOS.
+ */
+export function av1Nutzbar(codecs: ReadonlyArray<string> | undefined): boolean {
+  return !isMac() && gpuHasAv1(codecs);
+}
+
 // ── Catalog loading + GPU defaults ──────────────────────────────────────────
 
 let loading = false;
@@ -198,7 +222,7 @@ export async function loadCatalogs(): Promise<void> {
     streamSettings.profile_name = 'Custom';
     streamSettings.use_overrides = true;
     // Default codec/bitrate/fps — only if the user hasn't already saved a value.
-    const hasAv1 = gpuHasAv1(streamSettings.gpu_info?.video_codecs);
+    const hasAv1 = av1Nutzbar(streamSettings.gpu_info?.video_codecs);
     const defaults: OverrideSet = {};
     if (!streamSettings.overrides.codec) defaults.codec = hasAv1 ? 'av1' : 'h264';
     // Coerce a previously-saved codec this GPU can't encode (e.g. 'av1' carried
@@ -341,14 +365,16 @@ export interface ChannelStreamArg {
  * 2026-07-30, drittelt die Video-Engine-Last), und diese Einstellung schaltet
  * die rollende Auffrischung von sich aus mit ein.
  *
- * **Hier stand „Das Kaestchen aendert daran nichts" — das gilt seit dem
- * 2026-08-07 nicht mehr:** `auffrischung.rs::abschalt_optionen_fuer` schaltet
- * `h264_amf` bei abgewaehltem Haken auf `usage=transcoding` und nimmt die
- * Auffrischung damit wirklich weg. Der Satz beschreibt also den Stand VOR
- * diesem Datum. Der Preis dieser Gegenrichtung ist die zweieinhalbfache
- * Video-Engine-Last, und seit Intra-Refresh abgewaehlt voreingestellt ist,
- * zahlt ihn jeder AMD-Windows-Stream — das ist dort als offene Entscheidung
- * vermerkt.
+ * **Das Kaestchen aendert daran wieder nichts — und das ist Absicht.** Vom
+ * 2026-08-07 bis zum 2026-08-19 schaltete `auffrischung.rs::
+ * abschalt_optionen_fuer` `h264_amf` bei abgewaehltem Haken auf
+ * `usage=transcoding` und nahm die Auffrischung damit wirklich weg; das kostete
+ * aber die sparsame Betriebsart (25,2 statt 10,2 Prozent Video-Engine,
+ * nachgemessen), und seit Intra-Refresh abgewaehlt voreingestellt ist, haette
+ * das jeder AMD-Windows-Stream gezahlt. Seit dem 2026-08-19 gibt
+ * `abschalt_optionen_fuer` fuer `h264_amf` deshalb `&[]` zurueck,
+ * `usage=ultralowlatency` bleibt unbedingt stehen — die Vollbilder kommen
+ * stattdessen aus `keyframe::Selbsttakt`.
  *
  * Beim Stand von damals galt: Ein H.264-Strom auf AMD hat nach dem Start
  * praktisch kein Vollbild mehr, ganz gleich, was die Oberflaeche bestellt —

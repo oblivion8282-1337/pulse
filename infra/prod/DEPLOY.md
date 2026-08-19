@@ -73,7 +73,8 @@ chmod 0644 certs/server.crt
 #    (no 1935/tcp — mediamtx.yml sets rtmpEncryption: strict, plain-RTMP is refused)
 sudo ufw allow 1936/tcp        # RTMPS ingest (GSR push — TLS, token not in cleartext)
 # NO 8890/udp — SRT ingest is OFF (`srt: no` in mediamtx.yml, with the reason
-# at that line: plaintext UDP, and media-svc only ever mints RTMPS tokens).
+# at that line: plaintext UDP, and media-svc mints only RTMPS or WHIP tokens,
+# never SRT).
 # This rule stood here until 2026-08-04 and would have opened a port nothing
 # listens on.
 sudo ufw allow 8189/udp        # MediaMTX WebRTC ICE

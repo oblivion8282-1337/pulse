@@ -9,6 +9,12 @@ Rollen statt Sockets: wer eine Sitzung beenden darf und wer die Nachricht
 bekommt, haengt an der **Rolle**, nicht daran, welchen Socket wir gerade vor uns
 haben. Der Host hat waehrend der Wartezeit womoeglich mehrere Tabs offen —
 ``host_socket`` ist bis zur Zustimmung nur der Stellvertreter.
+
+Der Disconnect-Pfad beendet eine ANGENOMMENE Sitzung seit 2026-08-19 nicht
+mehr sofort, sondern gibt ihr eine kurze Gnadenfrist
+(:mod:`remote_reconnect_registry`) — die Annahme (``remote_reclaim``) liegt in
+:mod:`routes.ws_remote_reconnect`, aus demselben Groessen-Grund wie die
+Aufteilung hier.
 """
 
 from __future__ import annotations
@@ -90,10 +96,35 @@ async def handle_end(
 
 
 async def cleanup_remote_on_disconnect(websocket: WebSocket, manager) -> None:
-    """Socket closing: end every remote session this socket was a peer of and
-    tell the other peer immediately — no grace window (unlike watch parties)."""
+    """Socket closing: a still-PENDING session (no consent yet — just a dialog
+    on the other side) ends immediately, as before. An ACTIVE session instead
+    gets a short grace window (`remote_reconnect_registry.py`,
+    REMOTE_DISCONNECT_GRACE_S) before it ends — added 2026-08-19 after a
+    working session died 37s in on the shared remote-dev-stack, where a socket
+    of EITHER peer drops every few minutes (any backend sync there reloads
+    uvicorn, which drops every connected socket). Traffic toward the dropped
+    peer is silently swallowed for the length of the window (`send_to_socket`
+    already tolerates a gone socket); a `remote_reclaim` within the window
+    hands the session its new socket and nothing else needs to happen."""
     for sess in manager.remote_sessions_for_socket(websocket):
-        try:
-            await _end_and_notify_peer(manager, sess.session_id, websocket, "peer_disconnected")
-        except Exception:  # noqa: BLE001
-            log.exception("remote disconnect cleanup failed for session %s", sess.session_id)
+        if sess.state != "active":
+            try:
+                await _end_and_notify_peer(
+                    manager, sess.session_id, websocket, "peer_disconnected"
+                )
+            except Exception:  # noqa: BLE001
+                log.exception(
+                    "remote disconnect cleanup failed for pending session %s", sess.session_id
+                )
+            continue
+        role = "host" if websocket is sess.host_socket else "controller"
+
+        async def _on_grace_expired(session_id: str, _role: str, ws: WebSocket = websocket) -> None:
+            try:
+                await _end_and_notify_peer(manager, session_id, ws, "peer_disconnected")
+            except Exception:  # noqa: BLE001
+                log.exception(
+                    "remote disconnect cleanup (after grace) failed for session %s", session_id
+                )
+
+        manager.remote_schedule_disconnect_grace(sess.session_id, role, _on_grace_expired)

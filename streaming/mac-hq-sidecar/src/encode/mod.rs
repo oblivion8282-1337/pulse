@@ -25,21 +25,59 @@ use mux_writer::MuxWriter;
 /// Opus audio bitrate (kbps) — fixed for now.
 const OPUS_BITRATE_KBPS: u32 = 128;
 
-/// Regulaerer Vollbild-Abstand in Bildern, Vorgabe sechzig Sekunden.
+/// Der Abstand, fuer den die Schutzmechanismen ausgelegt WURDEN — und auf
+/// macOS zugleich die Vorgabe.
+///
+/// **Zwilling zu `KEYFRAME_SEKUNDEN_UNBEDENKLICH` im Linux-Sidecar** (2 s,
+/// dort ausfuehrlich begruendet). Auf den anderen beiden Plattformen ist die
+/// Vorgabe seit dem 2026-08-18 auf 60 s gewandert, weil vor dem regulaeren
+/// Takt drei Schichten liegen (NACK, FlexFEC und vor allem das ueber RTCP
+/// **angeforderte** Vollbild). Genau die letzte fehlt hier.
+const KEYFRAME_SEKUNDEN_UNBEDENKLICH: f32 = 2.0;
+
+/// Regulaerer Vollbild-Abstand in Bildern.
 ///
 /// **Zwillingsrechnung** zu `keyframe::abstand_bilder` im Windows-Sidecar und
 /// `encode::keyframe_abstand_bilder` im Linux-Sidecar — bis 2026-08-18 stand
 /// hier `(fps * 2).max(1)` fest im Code, und damit war derselbe Schalter auf
 /// den drei Plattformen verschieden wirksam. Die ausfuehrliche Begruendung der
 /// Grenzen steht beim Linux-Zwilling.
+///
+/// **Die Vorgabe bleibt auf macOS bei 2 s, korrigiert am 2026-08-19.** Am
+/// 2026-08-18 zog dieser Sidecar die neue 60-s-Vorgabe mit, ohne dass die
+/// Voraussetzung dafuer hier gilt: dieser Sidecar hat **keinen
+/// Vollbild-Anforderungspfad** (kein `request_keyframe`, kein `pict_type=I`)
+/// und **keinen eigenen WHIP-Sender** — `http(s)://`-Ziele gehen an ffmpegs
+/// WHIP-Muxer, der keinen RTCP-Rueckkanal in den Encoder zurueckfuehrt, RTMPS
+/// und SRT sowieso nicht. Auf macOS ist der regulaere Takt also nicht die
+/// letzte Reserve, sondern die EINZIGE Rettung, genau wie vor 2026-08-18. Die
+/// Folge der 60 s war messbar schlimm: ein beitretender Zuschauer wartete bis
+/// zu 60 s auf sein erstes Bild, und der native Player gibt schon nach 20 s auf
+/// (`pulse-player::MAX_WARTEZEIT_OHNE_KEYFRAME`) — der Stream sah aus wie
+/// kaputt. Wer die Vorgabe hier je wieder streckt, baut vorher den
+/// Rueckkanal.
 fn keyframe_abstand_bilder(fps: u32) -> u32 {
-    // 60 s seit 2026-08-18 (Begruendung beim Linux-Zwilling). Die dortige
-    // Fallunterscheidung nach Betriebsart entfaellt hier: macOS traegt
-    // keinen Intra-Refresh, die Zahl ist also immer der Vollbild-Abstand.
-    const VORGABE: f32 = 60.0;
+    ((fps as f32 * keyframe_abstand_sekunden()).round() as u32).max(1)
+}
+
+/// Der eingestellte Vollbild-Abstand in Sekunden.
+///
+/// Aus der Umgebung gelesen, mit [`KEYFRAME_SEKUNDEN_UNBEDENKLICH`] als
+/// Vorgabe. `PULSE_KEYFRAME_SECONDS` bleibt wirksam — der Schalter ist fuer
+/// Messreihen da, und wer ihn setzt, weiss was er tut; gewarnt wird trotzdem
+/// (s. [`warne_bei_langem_abstand_ohne_rueckkanal`]).
+fn keyframe_abstand_sekunden() -> f32 {
+    abstand_sekunden_aus(std::env::var("PULSE_KEYFRAME_SECONDS").ok().as_deref())
+}
+
+/// Die reine Rechnung dahinter — von der Umgebung getrennt, damit sie ohne
+/// `set_var` (in Edition 2024 `unsafe` und zwischen Testfaeden unsicher)
+/// pruefbar ist.
+fn abstand_sekunden_aus(roh: Option<&str>) -> f32 {
+    const VORGABE: f32 = KEYFRAME_SEKUNDEN_UNBEDENKLICH;
     const MIN: f32 = 0.1;
     const MAX: f32 = 120.0;
-    let sekunden = match std::env::var("PULSE_KEYFRAME_SECONDS").ok().as_deref() {
+    match roh {
         None => VORGABE,
         Some(roh) => match roh.parse::<f32>() {
             Ok(v) if (MIN..=MAX).contains(&v) => v,
@@ -53,9 +91,25 @@ fn keyframe_abstand_bilder(fps: u32) -> u32 {
                 VORGABE
             }
         },
-    };
-    // Mindestens ein Bild — ein GOP von 0 lesen manche Encoder als "unbegrenzt".
-    ((fps as f32 * sekunden).round() as u32).max(1)
+    }
+}
+
+/// Warnt, wenn jemand den Abstand ueber das Unbedenkliche hinaus streckt.
+///
+/// Gegenstueck zu `warne_bei_intra_refresh_ohne_rueckkanal` im Linux-Sidecar,
+/// nur ohne dessen Fallunterscheidung: **auf macOS hat KEIN Sendeweg einen
+/// Rueckkanal** (kein eigener WHIP-Sender, kein `request_keyframe`), die
+/// Warnung haengt also allein am Abstand und nicht am Ziel-Format.
+fn warne_bei_langem_abstand_ohne_rueckkanal() {
+    let sekunden = keyframe_abstand_sekunden();
+    if sekunden > KEYFRAME_SEKUNDEN_UNBEDENKLICH {
+        eprintln!(
+            "[encode] Langer Vollbild-Abstand ({sekunden} s) ohne RTCP-Rueckkanal: dieser \
+             Sidecar kann keine Vollbild-Anforderung beantworten — ein beitretender \
+             Zuschauer wartet bis zum naechsten regulaeren Vollbild, also bis zu so viele \
+             Sekunden, und der native Player gibt nach 20 s auf."
+        );
+    }
 }
 
 /// Map a stream profile codec id to the matching VideoToolbox encoder.
@@ -200,6 +254,7 @@ impl VideoEncoder {
         venc.set_bit_rate((bitrate_kbps as usize).saturating_mul(1000));
         venc.set_max_bit_rate((bitrate_kbps as usize).saturating_mul(1000));
         venc.set_gop(keyframe_abstand_bilder(fps));
+        warne_bei_langem_abstand_ohne_rueckkanal();
         venc.set_max_b_frames(0); // low-latency, FLV-friendly
         if global_header {
             venc.set_flags(codec::Flags::GLOBAL_HEADER);
@@ -332,4 +387,47 @@ fn redact(url: &str) -> String {
         }
     }
     s
+}
+
+#[cfg(test)]
+mod keyframe_tests {
+    use super::{KEYFRAME_SEKUNDEN_UNBEDENKLICH, abstand_sekunden_aus};
+
+    /// **Der eigentliche Punkt dieser Datei.** Ohne gesetzte Umgebung gilt auf
+    /// macOS der unbedenkliche Abstand, NICHT die gestreckte Vorgabe der
+    /// anderen Plattformen — hier kann niemand ein Vollbild anfordern. Ein
+    /// Zwilling, der die 60 s wieder hereinzieht, faellt hier auf.
+    #[test]
+    fn ohne_rueckkanal_gilt_der_unbedenkliche_abstand() {
+        assert_eq!(abstand_sekunden_aus(None), KEYFRAME_SEKUNDEN_UNBEDENKLICH);
+        assert_eq!(abstand_sekunden_aus(None), 2.0);
+    }
+
+    /// Der Messschalter bleibt wirksam — auch nach oben.
+    #[test]
+    fn umgebung_uebersteuert_im_erlaubten_bereich() {
+        assert_eq!(abstand_sekunden_aus(Some("30")), 30.0);
+        assert_eq!(abstand_sekunden_aus(Some("0.1")), 0.1);
+        assert_eq!(abstand_sekunden_aus(Some("120")), 120.0);
+    }
+
+    /// Unbrauchbares faellt auf die Vorgabe zurueck (und wird gemeldet).
+    #[test]
+    fn unbrauchbares_faellt_auf_die_vorgabe() {
+        for roh in ["", "abc", "0", "-5", "121"] {
+            assert_eq!(
+                abstand_sekunden_aus(Some(roh)),
+                KEYFRAME_SEKUNDEN_UNBEDENKLICH,
+                "{roh:?}"
+            );
+        }
+    }
+
+    /// Bilder statt Sekunden, und nie 0 (ein GOP von 0 lesen manche Encoder
+    /// als "unbegrenzt").
+    #[test]
+    fn bilder_aus_sekunden_nie_null() {
+        assert_eq!(((60.0 * abstand_sekunden_aus(None)).round() as u32).max(1), 120);
+        assert_eq!(((1.0 * abstand_sekunden_aus(Some("0.1"))).round() as u32).max(1), 1);
+    }
 }

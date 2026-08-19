@@ -30,6 +30,8 @@
   import { gatewayForServer } from '$lib/ws/connection';
   import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
   import { deviceStore } from '$lib/devices/store.svelte';
+  import { platzSchluessel } from '$lib/devices/platzMeldungBuch';
+  import { platzMeldungen } from '$lib/devices/platzMeldung.svelte';
   import { isElectron } from '$lib/platform/runtime';
 
   const desktop = isElectron();
@@ -60,22 +62,32 @@
   // Zustandsänderung des Streams eine Nachricht hinaus (Bitrate, Zuschauer);
   // der Gateway verwirft Doppelte zwar, aber das Nachrichtenaufkommen wäre
   // trotzdem falsch.
-  let gemeldet = '';
+  //
+  // Der Merker wird **je Server** geführt und von der Anmeldung entwertet —
+  // beides begründet im Kopf von `$lib/devices/platzMeldungBuch`. Jeder Server
+  // wird eigenständig versorgt, ein Fehlschlag bei einem hält die übrigen
+  // deshalb nicht auf (`continue`, nicht `return`).
   $effect(() => {
     const slots = geraeteSlots();
-    const schluessel = slots.join(',');
-    for (const e of geraeteAnmeldung.eintragungen) {
-      if (schluessel === gemeldet) return;
-      const conn = gatewayForServer(e.serverId);
-      if (!conn) return;
-      try {
-        conn.sendDeviceStreams(e.deviceId, slots);
-        gemeldet = schluessel;
-      } catch {
-        // Keine Verbindung — beim nächsten Wechsel erneut. Der Gateway vergisst
-        // das Gerät beim Abriss ohnehin.
-      }
-    }
+    const schluessel = platzSchluessel(slots);
+    const eintragungen = geraeteAnmeldung.eintragungen;
+    platzMeldungen.ausfuehren(
+      eintragungen.map((e) => e.serverId),
+      schluessel,
+      (serverId) => {
+        const e = eintragungen.find((x) => x.serverId === serverId);
+        const conn = e ? gatewayForServer(serverId) : null;
+        if (!e || !conn) return false;
+        // **Das Ergebnis wird zurückgegeben, nicht weggeworfen.** `_sendRaw`
+        // wirft nicht, wenn der Socket zu ist — es gibt `false` zurück
+        // (`gateway-connection.ts`). Ein `try/catch` mit festem `return true`
+        // war deshalb toter Code, und der Merker galt als gesetzt, obwohl
+        // nichts hinausging: dieser Server blieb bis zum nächsten
+        // Platz-Wechsel ungemeldet. Beim nächsten Durchgang erneut, spätestens
+        // beim Wiederverbinden — die Neuanmeldung entwertet den Merker.
+        return conn.sendDeviceStreams(e.deviceId, slots);
+      },
+    );
   });
 
   // Die eigene Gerätezeile vorladen. Sie ist der einzige Weg vom Rechner zu

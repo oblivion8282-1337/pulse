@@ -211,6 +211,15 @@ class _RemoteRegistryMixin:
                 await self.device_release_for_socket(sess.host_socket)
             except Exception:  # noqa: BLE001  # pragma: no cover
                 log.debug("device release failed", exc_info=True)
+            try:
+                # Jede laufende Gnadenfrist (`remote_reconnect_registry.py`)
+                # dieser Sitzung mit abraeumen, gleich welcher Rolle — sonst
+                # feuert ihr Zeitgeber spaeter ins Leere. `try/except` wie
+                # oben: ein Test-Doppel ohne `_RemoteReconnectMixin` (z.B.
+                # `test_remote_registry.py::_Reg`) hat die Methode nicht.
+                self.remote_cancel_disconnect_grace(session_id)
+            except Exception:  # noqa: BLE001  # pragma: no cover
+                log.debug("disconnect-grace cleanup failed", exc_info=True)
         return sess
 
     async def remote_end_if_pending(self, session_id: str) -> RemoteSession | None:

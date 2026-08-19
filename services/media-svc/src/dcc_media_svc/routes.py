@@ -363,6 +363,114 @@ async def get_stream_state(
     )
 
 
+def _text(wert: bytes | str | None) -> str:
+    """Redis-Antwort als Text (die Klienten liefern je nach Aufbau bytes)."""
+    if wert is None:
+        return ""
+    return wert.decode() if isinstance(wert, bytes) else str(wert)
+
+
+# Ein Lese-Token bestimmen — Zeiger und Datensatz in EINEM Schritt.
+#
+# **Warum Lua und nicht drei Redis-Rufe.** Der Bann in chat-gateway
+# (``stream_revoke.py``) findet die Token eines Zuschauers AUSSCHLIESSLICH ueber
+# die Nachschlage-Schluessel: ``scan_iter`` auf ``stream:read-cache:<viewer>:*``,
+# dann ``mget``, dann beides loeschen. Ein ausgehaendigtes Token, auf das kein
+# Zeiger zeigt, ist damit bis zu eine Stunde lang nicht sperrbar — es gibt
+# keinen zweiten Weg zu ihm (der Datensatz kennt Kanal und Streamer, aber nicht
+# den Zuschauer). Die Sperre baut also auf einer Zuordnung Zeiger→Token auf, und
+# wer sie herstellt, muss sie auch unteilbar herstellen.
+#
+# Mit einzelnen Rufen ging das zweimal schief: ein Aufruf, der einen verwaisten
+# Zeiger raeumt, loescht dabei womoeglich den frisch geschriebenen Zeiger eines
+# anderen, dessen Token schon beim Zuschauer ist; und ein Zeiger, der ohne NX
+# geschrieben wird, ueberschreibt den eines fremden Gewinners. Beide Male bleibt
+# genau das zurueck, was der Bann nicht mehr findet. Im Skript gibt es diese
+# Zwischenraeume nicht.
+#
+# Was das Skript zusagt:
+#   * **Zeiger lebt mindestens so lange wie sein Datensatz.** Beim Wiederbeleben
+#     wird die Laufzeit des Zeigers deshalb mitgezogen; ein Datensatz, der
+#     seinen Zeiger ueberlebte, waere wieder unsperrbar.
+#   * **Heil gefundene Paare werden nicht angefasst** — sonst verlaengerte
+#     jedes ``GET /whep`` die Laufzeit, und das Token eines dauerhaft
+#     zuschauenden Zuschauers wechselte nie.
+#   * **Ein verwaister Zeiger wird geheilt, nicht ausgeliefert.** Verwaist heisst
+#     hier: Zeiger da, Datensatz weg (Speicherdruck hat ``stream:token:*``
+#     verdraengt). Geheilt wird durch Wiederbeleben DESSELBEN Tokens statt durch
+#     ein neues — es gehoert ohnehin diesem Zuschauer, und ein neues verlangte
+#     wieder ein Loeschen des fremden Zeigers. Ein vom BANN geloeschtes Token
+#     kann so nicht auferstehen: der Bann loescht Zeiger und Datensatz in einem
+#     einzigen ``DELETE``, es gibt den Zwischenzustand nicht.
+_LUA_LESE_TOKEN = """
+local zeiger = redis.call('GET', KEYS[1])
+if zeiger then
+  if redis.call('EXISTS', ARGV[1] .. zeiger) == 1 then
+    return zeiger
+  end
+  redis.call('SET', ARGV[1] .. zeiger, ARGV[2], 'EX', ARGV[3])
+  redis.call('SET', KEYS[1], zeiger, 'EX', ARGV[3])
+  return zeiger
+end
+redis.call('SET', ARGV[1] .. ARGV[4], ARGV[2], 'EX', ARGV[3])
+redis.call('SET', KEYS[1], ARGV[4], 'EX', ARGV[3])
+return ARGV[4]
+"""
+
+# Der Namensraum der Token-Schluessel, wie ihn das Skript zum Anhaengen braucht.
+_TOKEN_PRAEFIX = TOKEN_KEY.format(token="")
+
+
+async def _read_token_fuer(
+    redis: Redis,
+    viewer_id: str,
+    channel_id: str,
+    user_id: str,
+    slot: int,
+) -> str:
+    """Das WHEP-Lese-Token fuer genau ein (Zuschauer, Kanal, Streamer, Platz).
+
+    Deterministisch statt je Anfrage frisch: ein Zuschauer in einer
+    Wiederverbindungs-Schleife haeufte sonst pro Anlauf einen lebenden
+    Redis-Schluessel an (je 1 h TTL), ohne dass sich am Umfang des Tokens
+    etwas aenderte.
+
+    Sicherheit: Lese-Token sind **nicht** einmalig — der auth-hook nimmt sie
+    ueber die ganze TTL an und verbraucht sie nicht (WHEP macht OPTIONS +
+    POST + Wiederverbindungen mit demselben Token).  Ein vorhandenes Token
+    weiterzugeben ist deshalb gleichwertig damit, ein neues auszustellen;
+    beide sind an Kanal und Streamer gebunden, nicht an den Zuschauer.
+
+    Die Reihenfolge und die Unteilbarkeit begruendet ``_LUA_LESE_TOKEN``: was
+    hier herauskommt, muss der Bann in chat-gateway finden koennen.
+    """
+    s = get_settings()
+    # Form in `dcc_shared.streaming` — chat-gateway loescht diese Schluessel
+    # beim Bann, und zwei Fassungen davon waeren eine stille Fehlerquelle.
+    cache_key = read_cache_key(viewer_id, channel_id, user_id, slot)
+    read_record = json.dumps(
+        {
+            "channel_id": channel_id,
+            "user_id": user_id,
+            "scope": "read",
+            "protocol": "webrtc",
+            "created_at": int(time.time()),
+        },
+        separators=(",", ":"),
+    )
+    return _text(
+        await redis.eval(  # type: ignore[arg-type]
+            _LUA_LESE_TOKEN,
+            1,
+            cache_key,
+            _TOKEN_PRAEFIX,
+            read_record,
+            str(s.read_token_ttl_s),
+            secrets.token_urlsafe(32),
+        )
+    )
+
+
 @router.get("/channels/{channel_id}/whep", response_model=WhepOut)
 async def get_whep_url(
     channel_id: ChannelId,
@@ -397,58 +505,7 @@ async def get_whep_url(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
     s = get_settings()
 
-    # Deterministic read-token per (viewer, channel, publisher): reuse an
-    # existing valid token instead of minting a fresh key on every WHEP request.
-    # A viewer in a reconnect loop would otherwise accumulate O(reconnects) live
-    # Redis keys (each 1 h TTL) with no benefit — the token carries the same
-    # scope regardless.  We cache the token string itself under a lookup key
-    # keyed to the triplet; the cache entry carries the same TTL as the token so
-    # the two expire together.  On cache miss we mint once and write both keys in
-    # a single pipeline.
-    #
-    # Security: read tokens are not single-use secrets — the auth-hook accepts
-    # them for the lifetime of the TTL and does not consume them (WHEP does an
-    # OPTIONS preflight + POST + periodic reconnects, all requiring the same
-    # token).  Reusing an existing token is therefore functionally identical to
-    # minting a new one; both are channel+publisher-bound (not viewer-bound) by
-    # design, so sharing them across reconnects from the same viewer is safe.
-    viewer_id = str(user.id)
-    # Form in `dcc_shared.streaming` — chat-gateway loescht diese Schluessel
-    # beim Bann, und zwei Fassungen davon waeren eine stille Fehlerquelle.
-    cache_key = read_cache_key(viewer_id, channel_id, user_id, slot)
-    cached = await redis.get(cache_key)
-    if cached is not None:
-        read_token = cached.decode() if isinstance(cached, bytes) else cached
-    else:
-        # Mint a candidate token and race to claim the cache slot atomarisch via
-        # SET NX.  Only the winner writes the stream:token key — losers read the
-        # winner's token from the cache and return it, so no orphaned token keys
-        # accumulate from concurrent WHEP requests by the same viewer.
-        candidate = secrets.token_urlsafe(32)
-        read_record = {
-            "channel_id": channel_id,
-            "user_id": user_id,
-            "scope": "read",
-            "protocol": "webrtc",
-            "created_at": int(time.time()),
-        }
-        won = await redis.set(cache_key, candidate, ex=s.read_token_ttl_s, nx=True)
-        if won:
-            # This request is the winner — register the token so the auth-hook
-            # can validate it.  The candidate is already in the cache; no other
-            # concurrent request will mint a second stream:token key.
-            await redis.set(
-                TOKEN_KEY.format(token=candidate),
-                json.dumps(read_record, separators=(",", ":")),
-                ex=s.read_token_ttl_s,
-            )
-            read_token = candidate
-        else:
-            # Another concurrent request beat us to the cache slot.  Read the
-            # winner's token — our candidate is discarded without ever being
-            # written to stream:token:*, leaving no orphaned key.
-            winner = await redis.get(cache_key)
-            read_token = (winner.decode() if isinstance(winner, bytes) else winner) or candidate
+    read_token = await _read_token_fuer(redis, str(user.id), channel_id, user_id, slot)
     base = s.mediamtx_public_base.rstrip("/")
     return WhepOut(
         whep_url=f"{base}/{path}/whep?token={read_token}",
