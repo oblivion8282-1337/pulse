@@ -517,9 +517,34 @@ class RemoteSessionStore {
         this.#conn,
         sessionId,
         () => this.#senden((c) => c.sendRemoteReclaim(sessionId)),
+        () => this.#nachReclaimBehaupten(sessionId),
         () => this.#reset(),
       ),
     );
+  }
+
+  /**
+   * Nach einem geglückten Reclaim: Hello + alles noch Gehaltene erneut
+   * behaupten — derselbe Weg wie beim Rückfall Kanal→Serverweg in
+   * [`sendInput`]. Bughunt 2026-08-19, zweite Runde (Befund 5/6): ohne das
+   * blieb eine vom Steuernden gehaltene Taste nach einem Verbindungsabriss +
+   * erfolgreichem Reclaim am fernen Rechner hängen — vor der Gnadenfrist
+   * erledigte das `#reset()` → `eingabeFreigeben()` beim Sofort-Ende, und die
+   * Frist hat diesen Aufräumer ersetzt, ohne einen Ersatz mitzubringen.
+   *
+   * Nur der STEUERNDE sendet Eingabe (`handle_input`-Gegenstück im Gateway
+   * prüft dasselbe) — ein Reclaim des Hosts hat hier nichts zu behaupten.
+   */
+  #nachReclaimBehaupten(sessionId: string): void {
+    if (this.role !== 'controller') return;
+    if (
+      this.#senden((c) => c.sendRemoteInput(sessionId, this.#letzterSlot, remoteP2P.helloBuendel()))
+    ) {
+      remoteP2P.wsHelloGesendet();
+      for (const buendel of remoteP2P.nachziehBuendel()) {
+        this.#senden((c) => c.sendRemoteInput(sessionId, this.#letzterSlot, buendel));
+      }
+    }
   }
 
   /** Frist für eine unbeantwortete Anfrage (s. [`ANFRAGE_FRIST_MS`]) — beide

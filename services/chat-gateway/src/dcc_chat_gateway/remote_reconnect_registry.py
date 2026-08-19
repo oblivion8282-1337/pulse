@@ -18,6 +18,16 @@ Zustimmungsdialog, keine Uebertragung, die es zu retten gaebe — die stirbt wie
 bisher sofort mit dem Socket, der sie trug (``ws_remote_teardown.py``
 entscheidet das).
 
+**Die Frist haengt am Paar (Sitzung, Rolle), nicht an der Sitzung allein**
+(Bughunt 2026-08-19, zweite Runde — unabhaengig von zwei Pruefe gefunden). Bei
+``uvicorn --reload`` reissen IMMER beide Rollen gleichzeitig, nicht nur eine.
+Eine einzige Frist je Sitzung hiess: der zweite Abriss ueberschrieb die Frist
+des ersten, der Reclaim der ueberschriebenen Rolle scheiterte mit "no grace
+window for this role", und der Client behandelte das als endgueltig — die
+Sitzung starb SCHNELLER als vor der Gnadenfrist. Deshalb ist der Schluessel
+unten ``tuple[session_id, role]``: beide Rollen koennen gleichzeitig und
+unabhaengig voneinander in Gnadenfrist stehen.
+
 Getrennt von :mod:`remote_registry`, weil das schon an der Groessen-Grenze lag
 (338 von 350 Zeilen, PLAN.md §12.1) — dieselbe Begruendung wie die Aufteilung
 in ``ws_remote_handlers``/``ws_remote_teardown``/``ws_remote_input``.
@@ -50,6 +60,10 @@ log = logging.getLogger(__name__)
 # zum Reconnect) mit Rand, ohne die Taste unnoetig lang haengen zu lassen.
 REMOTE_DISCONNECT_GRACE_S = float(os.environ.get("REMOTE_DISCONNECT_GRACE_S", "10"))
 
+# Schluessel eines Zeitgebers: (Sitzung, die abgerissene Rolle). ZWEI Rollen
+# koennen gleichzeitig eigene Fristen halten (s. Moduldoc).
+_GraceKey = tuple[str, str]
+
 
 class _RemoteReconnectMixin:
     """Ergaenzt die Gnadenfrist-Buchfuehrung um ``ConnectionManager``. Braucht
@@ -61,8 +75,7 @@ class _RemoteReconnectMixin:
     _remote_sessions: dict[str, Any]
     _lock: asyncio.Lock
 
-    # session_id -> (Rolle, die abgerissen ist, Ablauf-Task).
-    _remote_disconnect_timers: dict[str, tuple[str, asyncio.Task[Any]]]
+    _remote_disconnect_timers: dict[_GraceKey, asyncio.Task[Any]]
 
     def _init_remote_reconnect(self) -> None:
         self._remote_disconnect_timers = {}
@@ -78,43 +91,52 @@ class _RemoteReconnectMixin:
         """Gnadenfrist scharfstellen, nachdem der Socket von ``role`` ("host"
         oder "controller") in dieser Sitzung abgerissen ist.
 
-        **Wiederholt sich derselbe Abriss, bevor die alte Frist ablief, faengt
-        sie NEU an** (idempotent je Sitzung, wie
-        ``remote_registry.remote_schedule_timeout``) — eine flatternde
-        Verbindung bekommt so bei jedem Versuch die volle Frist, nicht eine
-        schrumpfende. Genau das im Log vom 2026-08-19 beobachtete Muster
-        (mehrere Abrisse binnen Sekunden)."""
+        **Wirkt nur auf die Frist DIESER Rolle** — reisst kurz danach die
+        ANDERE Rolle ebenfalls ab (der Regelfall bei `uvicorn --reload`, das
+        beide Sockets gleichzeitig trennt), bleibt deren eigene Frist
+        unberuehrt stehen. Vor 2026-08-19 (zweite Runde) loeschte ein
+        rollenloser Abbruch hier die Frist der ANDEREN Rolle mit — das genaue
+        Gegenteil der Absicht.
+
+        **Wiederholt sich derselbe Abriss DERSELBEN Rolle, bevor ihre alte
+        Frist ablief, faengt sie NEU an** (idempotent je (Sitzung, Rolle)) —
+        eine flatternde Verbindung bekommt so bei jedem Versuch die volle
+        Frist, nicht eine schrumpfende."""
         if delay is None:
             delay = REMOTE_DISCONNECT_GRACE_S
-        self.remote_cancel_disconnect_grace(session_id)
+        self.remote_cancel_disconnect_grace(session_id, role=role)
+        key = (session_id, role)
         task = asyncio.create_task(
             self._disconnect_grace_expired(session_id, role, on_expired, delay)
         )
-        self._remote_disconnect_timers[session_id] = (role, task)
+        self._remote_disconnect_timers[key] = task
 
     def remote_cancel_disconnect_grace(
         self, session_id: str, *, role: str | None = None
     ) -> None:
-        """Eine laufende Frist abbrechen (erfolgreicher Reclaim, oder die
-        Sitzung endet aus einem anderen Grund). Mit ``role`` nur abbrechen,
-        wenn die Frist wirklich fuer DIESE Rolle laeuft — sonst koennte ein
-        Reclaim der falschen Seite die Frist der anderen wegnehmen."""
-        entry = self._remote_disconnect_timers.get(session_id)
-        if entry is None:
-            return
-        if role is not None and entry[0] != role:
-            return
-        entry[1].cancel()
-        self._remote_disconnect_timers.pop(session_id, None)
+        """Eine laufende Frist abbrechen.
 
-    def remote_disconnect_grace_role(self, session_id: str) -> str | None:
-        """Welche Rolle gerade innerhalb ihrer Gnadenfrist fehlt, oder
-        ``None`` (keine laufende Frist — die Sitzung ist entweder vollstaendig
-        verbunden oder laengst beendet). ``remote_reclaim`` prueft daran, dass
-        ein Steuernder nicht die Gnadenfrist des Hosts fuer sich beanspruchen
-        kann und umgekehrt."""
-        entry = self._remote_disconnect_timers.get(session_id)
-        return entry[0] if entry is not None else None
+        Mit ``role`` nur die Frist DIESER Rolle (erfolgreicher Reclaim, oder
+        ein neuer Abriss derselben Rolle ersetzt seine eigene alte Frist).
+        Ohne ``role`` BEIDE — der Aufruf, den `remote_end` fuer JEDEN
+        Abbauweg macht (Sitzung weg heisst: keine Frist mehr sinnvoll, gleich
+        welcher Rolle)."""
+        if role is not None:
+            task = self._remote_disconnect_timers.pop((session_id, role), None)
+            if task is not None:
+                task.cancel()
+            return
+        for key in [k for k in self._remote_disconnect_timers if k[0] == session_id]:
+            self._remote_disconnect_timers.pop(key).cancel()
+
+    def remote_disconnect_grace_active(self, session_id: str, role: str) -> bool:
+        """Laeuft gerade eine Frist fuer GENAU diese Rolle dieser Sitzung?
+
+        Zwei Aufrufer: `remote_reclaim` (darf nur reklamieren, wessen Rolle
+        wirklich in Frist steht) und die periodische Rechte-Wache
+        (`remote_guard.py::_end_reason` — ein waehrend der Frist fehlender
+        Sockel-Nutzer ist der ERWARTETE Zustand, kein Grund zum Sofort-Ende)."""
+        return (session_id, role) in self._remote_disconnect_timers
 
     async def _disconnect_grace_expired(
         self,
@@ -123,24 +145,23 @@ class _RemoteReconnectMixin:
         on_expired: Callable[[str, str], Awaitable[None]],
         delay: float,
     ) -> None:
+        key = (session_id, role)
         try:
             await asyncio.sleep(delay)
-            # Zwischenzeitlich reklamiert (oder ein NEUERER Abriss derselben
+            # Zwischenzeitlich reklamiert (oder ein NEUERER Abriss DERSELBEN
             # Rolle hat die Uhr neu gestellt, s. `remote_schedule_disconnect_
             # grace`)? Dann ist DIESER Task nicht mehr der aktuelle Zeitgeber
-            # der Sitzung — pruefen VOR dem Abbau, sonst reisst ein spaet
-            # auslösender Timer eine laengst wiederhergestellte Sitzung doch
-            # noch ab. Gleiches Muster wie
+            # fuer (Sitzung, Rolle) — pruefen VOR dem Abbau, sonst reisst ein
+            # spaet auslösender Timer eine laengst wiederhergestellte Sitzung
+            # doch noch ab. Gleiches Muster wie
             # `remote_registry._remote_timeout`/`watch_registry.
             # _host_end_after_grace`.
-            entry = self._remote_disconnect_timers.get(session_id)
-            if entry is None or entry[1] is not asyncio.current_task():
+            if self._remote_disconnect_timers.get(key) is not asyncio.current_task():
                 return
             await on_expired(session_id, role)
         finally:
-            entry = self._remote_disconnect_timers.get(session_id)
-            if entry is not None and entry[1] is asyncio.current_task():
-                self._remote_disconnect_timers.pop(session_id, None)
+            if self._remote_disconnect_timers.get(key) is asyncio.current_task():
+                self._remote_disconnect_timers.pop(key, None)
 
     async def remote_reclaim(
         self, session_id: str, role: str, user_id: str, new_socket: Any
@@ -163,7 +184,7 @@ class _RemoteReconnectMixin:
             )
             if erwarteter_nutzer != str(user_id):
                 return None
-            if self.remote_disconnect_grace_role(session_id) != role:
+            if not self.remote_disconnect_grace_active(session_id, role):
                 return None
             if role == "host":
                 sess.host_socket = new_socket

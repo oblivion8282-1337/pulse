@@ -284,8 +284,11 @@ async def handle_remote_end(ctx: WSOpContext, msg: dict[str, Any]) -> None:
 @register_ws_op("remote_reclaim")
 async def handle_remote_reclaim(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     # Der abgerissene Peer ist zurueck: der Sitzung den neuen Socket geben,
-    # solange ihre Gnadenfrist noch laeuft (`remote_reconnect_registry.py`).
-    await ws_remote_reconnect.handle_reclaim(ctx.websocket, ctx.user, msg)
+    # solange ihre Gnadenfrist noch laeuft (`remote_reconnect_registry.py`) UND
+    # seine Rechte noch stehen (frische DB-Pruefung, wie bei `remote_request`).
+    await ws_remote_reconnect.handle_reclaim(
+        ctx.websocket, ctx.user, msg, session_factory=SessionLocal
+    )
 
 
 @register_ws_op("device_announce")
