@@ -67,23 +67,48 @@ async def _end_reason(session, manager, sess, max_session_s: float) -> str | Non
     controller = manager.remote_socket_user(sess.controller_socket)
     host = manager.remote_socket_user(sess.host_socket)
     if controller is None or host is None:
-        # Fail-closed: ein Peer-Socket, den der Manager nicht mehr kennt, hat
-        # keinen Nutzer mehr — und ohne Nutzer kann die Wache seine Rechte nicht
-        # pruefen. Hier stand "den Abbau besitzt der Disconnect-Pfad"; das war
-        # falsch, denn ``_ws_user`` wird an einer ZWEITEN Stelle geleert: der
-        # Pubsub-Verteiler meldet einen Socket bei Sendefehler oder abgelaufener
-        # Sendefrist ueber ``remove_socket`` ab, OHNE ihn zu schliessen und ohne
-        # den Disconnect-Pfad zu rufen. Ein Steuernder, der kurz nicht liest
-        # (TCP-Gegendruck, Mobilclient mit Sendestau), verlor damit seinen
-        # Eintrag, steuerte aber weiter — und die Wache sagte fuer diese Sitzung
-        # fuer immer "leben lassen": Rollenentzug und Kanal-Overwrite blieben
-        # bis zu acht Stunden wirkungslos.
+        # Ein fehlender Peer-Socket hat zwei ganz verschiedene Ursachen, und
+        # nur EINE davon ist ein sicherer Grund zum Sofort-Ende (Bughunt
+        # 2026-08-19, zweite Runde — der erste Fix hier war zu grob):
         #
-        # Ein Wettlauf mit dem Disconnect-Pfad kostet nichts: ``remote_terminate``
-        # poppt unter dem Lock und ist idempotent, der Zweite findet nichts mehr
-        # vor. Der Grund heisst wie dort ``peer_disconnected`` — fuer die
-        # Gegenseite ist es genau das, und das Frontend kennt kein neues Wort.
-        return "peer_disconnected"
+        # (a) Eine LAUFENDE Gnadenfrist genau dieser Rolle
+        # (`remote_reconnect_registry.py`) — der Socket ist weg, WEIL der
+        # Disconnect-Pfad ihn gerade erst befristet hat, und ein
+        # `remote_reclaim` kann in den naechsten Sekunden alles wiederherstellen.
+        # Das ist der ERWARTETE Zwischenzustand einer Gnadenfrist, kein Anlass
+        # zum Ende — bei 30 s Takt und 10 s Frist toetete das fail-closed sonst
+        # rund ein Drittel aller Wackler noch WAEHREND ihrer eigenen Gnadenfrist,
+        # bevor sie ueberhaupt eine Chance zum Reklamieren hatten.
+        #
+        # (b) Alles andere — insbesondere der Pubsub-Verteiler, der einen Socket
+        # bei Sendefehler oder abgelaufener Sendefrist ueber ``remove_socket``
+        # abmeldet, OHNE ihn zu schliessen und OHNE den Disconnect-Pfad (und
+        # damit ohne jede Gnadenfrist) zu rufen. Ein Steuernder, der kurz nicht
+        # liest (TCP-Gegendruck, Mobilclient mit Sendestau), verliert so seinen
+        # Eintrag, steuert aber weiter — dafuer bleibt es beim Sofort-Ende, sonst
+        # sagte die Wache fuer diese Sitzung fuer immer "leben lassen".
+        #
+        # Fehlen BEIDE, muss BEIDE Abwesenheit ueber eine laufende Frist erklaert
+        # sein — fehlt auch nur einer ohne Frist, bleibt es beim Sofort-Ende.
+        if (controller is None and not manager.remote_disconnect_grace_active(
+            sess.session_id, "controller"
+        )) or (host is None and not manager.remote_disconnect_grace_active(
+            sess.session_id, "host"
+        )):
+            # Ein Wettlauf mit dem Disconnect-Pfad kostet nichts:
+            # ``remote_terminate`` poppt unter dem Lock und ist idempotent, der
+            # Zweite findet nichts mehr vor. Der Grund heisst wie dort
+            # ``peer_disconnected`` — fuer die Gegenseite ist es genau das, und
+            # das Frontend kennt kein neues Wort.
+            return "peer_disconnected"
+        # Beide Abwesenheiten (falls beide fehlen) sind befristet erklaert —
+        # diesen Takt ueberspringen, ohne die Rechte des noch bekannten Peers zu
+        # pruefen (der fehlt hier ja gerade nicht zwangslaeufig; ist er da,
+        # PRUEFT der Rest der Funktion trotzdem nicht weiter, weil unten sowohl
+        # `controller` als auch `host` gebraucht werden und mindestens einer
+        # `None` ist). Der naechste Takt (spaetestens 30 s spaeter) greift
+        # erneut — kein Fenster bleibt dauerhaft ungeprueft.
+        return None
     try:
         cid = int(sess.channel_id)
     except ValueError:

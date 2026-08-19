@@ -18,6 +18,7 @@ import uuid
 
 import pytest
 from dcc_chat_gateway import remote_guard
+from dcc_chat_gateway.remote_reconnect_registry import _RemoteReconnectMixin
 from dcc_chat_gateway.remote_registry import _RemoteRegistryMixin
 from dcc_chat_gateway.security import AuthenticatedUser
 from dcc_shared.permissions import Permissions
@@ -70,9 +71,11 @@ class _Factory:
         return False
 
 
-class _Mgr(_RemoteRegistryMixin):
-    """Minimaler ConnectionManager-Ersatz — die Wache braucht nur die Registry,
-    die Socket→Nutzer-Zuordnung und die Session-Factory."""
+class _Mgr(_RemoteRegistryMixin, _RemoteReconnectMixin):
+    """Minimaler ConnectionManager-Ersatz — die Wache braucht die Registry,
+    die Gnadenfrist-Buchfuehrung (`remote_disconnect_grace_active`, seit
+    2026-08-19 zweite Runde), die Socket→Nutzer-Zuordnung und die
+    Session-Factory."""
 
     def __init__(self, session=None, *, factory=None) -> None:
         self._lock = asyncio.Lock()
@@ -82,6 +85,7 @@ class _Mgr(_RemoteRegistryMixin):
         # sonst der Attrappen-Kontextmanager um ``session``.
         self._session_factory = factory or _Factory(session)
         self._init_remote_registry()
+        self._init_remote_reconnect()
 
 
 async def _live_session(mgr: _Mgr, *, cid: str = "77") -> tuple:
@@ -170,6 +174,60 @@ async def test_audit_ends_a_session_whose_peer_socket_is_already_gone(monkeypatc
     assert await remote_guard.audit_remote_sessions(mgr) == 1
     assert mgr.remote_get(sess.session_id) is None
     assert ctrl_ws.sent[-1]["reason"] == "peer_disconnected"
+
+
+@pytest.mark.asyncio
+async def test_audit_spares_a_session_within_a_tracked_disconnect_grace(monkeypatch):
+    """GEGENPROBE zum vorigen Test (Bughunt 2026-08-19, zweite Runde): fehlt
+    ein Peer-Nutzer, WEIL genau seine Rolle gerade in einer bekannten
+    Gnadenfrist steht (`remote_reconnect_registry.py`), ist das der erwartete
+    Zwischenzustand — kein Grund zum Sofort-Ende. Vorher toetete das
+    fail-closed rund ein Drittel aller Wackler noch waehrend ihrer eigenen
+    Gnadenfrist (30 s Takt gegen 10 s Frist), bevor ueberhaupt eine Chance zum
+    Reklamieren bestand."""
+    mgr = _Mgr(_FakeSession())
+    sess, host_ws, ctrl_ws = await _live_session(mgr)
+    # Wie beim Disconnect-Pfad: Socket-Nutzer weg, UND — anders als im vorigen
+    # Test — die Gnadenfrist fuer genau diese Rolle ist scharf.
+    del mgr._ws_user[host_ws]
+
+    async def _never(_sid: str, _role: str) -> None:
+        raise AssertionError("die Frist darf in diesem Test nicht ablaufen")
+
+    mgr.remote_schedule_disconnect_grace(sess.session_id, "host", _never, delay=999)
+
+    async def _boom(*_a, **_k):
+        raise AssertionError("ohne beide Nutzer darf gar keine Rechteabfrage laufen")
+
+    monkeypatch.setattr(remote_guard, "peer_channel_perms", _boom)
+    assert await remote_guard.audit_remote_sessions(mgr) == 0
+    assert mgr.remote_get(sess.session_id) is sess
+    assert ctrl_ws.sent == []
+
+
+@pytest.mark.asyncio
+async def test_audit_still_ends_a_session_whose_OTHER_role_lacks_grace(monkeypatch):
+    """Fehlen BEIDE Nutzer, aber nur EINER hat eine laufende Gnadenfrist, bleibt
+    es beim Sofort-Ende — eine befristete Abwesenheit deckt nicht automatisch
+    die andere Rolle mit ab."""
+    mgr = _Mgr(_FakeSession())
+    sess, host_ws, ctrl_ws = await _live_session(mgr)
+    del mgr._ws_user[host_ws]
+    del mgr._ws_user[ctrl_ws]
+
+    async def _never(_sid: str, _role: str) -> None:
+        raise AssertionError("die Frist darf in diesem Test nicht ablaufen")
+
+    # NUR der Host hat eine laufende Frist — der Controller fehlt ohne jede
+    # bekannte Erklaerung (der zweite, aeltere Grund: der Pubsub-Verteiler).
+    mgr.remote_schedule_disconnect_grace(sess.session_id, "host", _never, delay=999)
+
+    async def _boom(*_a, **_k):
+        raise AssertionError("ohne Nutzer darf gar keine Rechteabfrage laufen")
+
+    monkeypatch.setattr(remote_guard, "peer_channel_perms", _boom)
+    assert await remote_guard.audit_remote_sessions(mgr) == 1
+    assert mgr.remote_get(sess.session_id) is None
 
 
 @pytest.mark.asyncio

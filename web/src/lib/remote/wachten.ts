@@ -83,11 +83,20 @@ export class WachtSchalter {
  * bereits weg sein, wenn die Wacht startet — dann käme nie ein Ereignis mehr,
  * und es gibt nichts zu retten. `beiEndgueltigemVerlust` läuft in dem Fall
  * noch aus diesem Ruf heraus (der Aufrufer, `WachtSchalter.an`, verträgt das).
+ *
+ * **`beiWiederhergestellt` feuert bei einem geglückten Reclaim** — und nur
+ * dann (Bughunt 2026-08-19, zweite Runde, Befund 5/6): der Aufrufer behauptet
+ * darüber alles noch Gehaltene erneut (Hello + `nachziehBuendel`, wie beim
+ * Rückfall Kanal→Serverweg). Ohne das blieb eine vom Steuernden gehaltene
+ * Taste nach einem Reclaim am fernen Rechner hängen — vor der Gnadenfrist
+ * erledigte das `#reset()` → `eingabeFreigeben()` beim Sofort-Ende; die Frist
+ * hat diesen Aufräumer ersetzt, ohne ihn zu ersetzen.
  */
 export function verbindungsWachtMitGnadenfrist(
   conn: GatewayConnection | null,
   sessionId: string,
   reclaimSenden: () => boolean,
+  beiWiederhergestellt: () => void,
   beiEndgueltigemVerlust: () => void,
 ): Abbruch {
   if (!istOffen(conn) || !conn) {
@@ -136,6 +145,10 @@ export function verbindungsWachtMitGnadenfrist(
     if (evt.session_id !== sessionId) return;
     if (evt.op === 'remote_reclaimed') {
       frist.wiederhergestellt(generation);
+      // Nur feuern, wenn DIESER Aufruf die Frist wirklich beendet hat — ein
+      // Echo zu einer bereits überholten Generation (s. `Gnadenfrist`) lässt
+      // `aktiv` unverändert `true` und darf hier nichts auslösen.
+      if (!frist.aktiv) beiWiederhergestellt();
       return;
     }
     // Ausdrücklich gescheitert (fremde Rolle/fremder Nutzer, Sitzung schon
