@@ -38,6 +38,7 @@ from dcc_chat_gateway.pubsub_channels import (
 from dcc_chat_gateway.pubsub_friend_cache import _FriendCacheMixin
 from dcc_chat_gateway.pubsub_listener import _ListenerMixin
 from dcc_chat_gateway.pubsub_perm_filter import _PermFilterMixin
+from dcc_chat_gateway.remote_reconnect_registry import _RemoteReconnectMixin
 from dcc_chat_gateway.remote_registry import _RemoteRegistryMixin
 from dcc_chat_gateway.security import AuthenticatedUser
 from dcc_chat_gateway.watch_registry import _WatchRegistryMixin
@@ -86,6 +87,7 @@ class ConnectionManager(
     _FriendCacheMixin,
     _WatchRegistryMixin,
     _RemoteRegistryMixin,
+    _RemoteReconnectMixin,
     _DeviceRegistryMixin,
 ):
     # Max parallel WebSocket connections per user. Each connection multiplies
@@ -194,6 +196,7 @@ class ConnectionManager(
         self._lock = asyncio.Lock()
         self._init_watch_registry()
         self._init_remote_registry()
+        self._init_remote_reconnect()
         self._init_device_registry()
         self._started = False
 
