@@ -252,6 +252,67 @@ pub fn reset() {
     }
 }
 
+// ── Selbst getakteter Vollbild-Abstand ───────────────────────────────────────
+
+/// Zaehlt die Bilder und sagt, wann das naechste Vollbild faellig ist.
+///
+/// **Wofuer, und warum das nicht der GOP-Takt des Encoders erledigt**
+/// (gemessen 2026-08-19, Radeon 780M): bei `h264_amf` haengt die rollende
+/// Auffrischung an `usage=ultralowlatency`, und die laeuft aus Lastgruenden
+/// unbedingt mit. Wer die Auffrischung abwaehlt, bekam bis heute
+/// `usage=transcoding` untergeschoben, damit der GOP-Takt wieder greift — und
+/// zahlte dafuer **25,2 statt 10,2 Prozent Video-Engine**, also das
+/// Zweieinhalbfache, weil `transcoding` die ganze Voranalyse mitbringt.
+///
+/// Der Ausweg misst sich so: die sparsame Betriebsart stehen lassen und die
+/// Vollbilder selbst takten, ueber denselben Weg, den eine Zuschauer-Anfrage
+/// nimmt (`pict_type = I`). Gemessen ergibt das **10,2 Prozent bei sechs
+/// echten Vollbildern** in 28 s — die Last der sparsamen Betriebsart mit der
+/// Eigenschaft der teuren. Messakte
+/// `streaming/testbench/profiles/amd-2026-08-19-vollbilder-ohne-aufschlag.json`.
+///
+/// **Warum ein eigener Zaehler und nicht [`request_keyframe`]:** die
+/// Rueckstaffelung dort verteidigt gegen einen kaputten Zuschauer, der ohne
+/// Unterlass anfordert. Ein Takt aus dem eigenen Haus ist kein Sturm; liefe er
+/// durch die Leiter, wuerde ausgerechnet der regulaere Abstand gedrosselt,
+/// sobald daneben ein Zuschauer repariert. Beide Quellen muenden erst im
+/// Encoder zusammen.
+///
+/// **Der Zaehler laeuft ueber ALLE Bilder**, auch die duplizierten. Das ist
+/// Absicht: der Abstand ist in Sekunden gedacht, und die Zeit laeuft auch
+/// dann weiter, wenn sich das Bild nicht aendert. Ein Zaehler nur auf frischen
+/// Aufnahmen liesse bei stehendem Bildschirm minutenlang kein Vollbild zu —
+/// genau dann, wenn ein neuer Zuschauer nichts zu sehen bekaeme.
+#[derive(Debug)]
+pub struct Selbsttakt {
+    abstand: u32,
+    seit: u32,
+}
+
+impl Selbsttakt {
+    /// `abstand` in Bildern, aus [`abstand_bilder`]. `None` = aus.
+    pub fn neu(abstand: Option<u32>) -> Self {
+        Self { abstand: abstand.unwrap_or(0), seit: 0 }
+    }
+
+    /// Einmal je Bild rufen. `true` = dieses Bild soll ein Vollbild werden.
+    ///
+    /// Das ERSTE Bild ist keines: der Encoder legt von sich aus mit einem
+    /// Vollbild los, und ein zweites unmittelbar danach waere verschenkte
+    /// Bitrate an der Stelle, an der sie am knappsten ist.
+    pub fn faellig(&mut self) -> bool {
+        if self.abstand == 0 {
+            return false;
+        }
+        self.seit += 1;
+        if self.seit >= self.abstand {
+            self.seit = 0;
+            return true;
+        }
+        false
+    }
+}
+
 // ── Regulaerer Vollbild-Abstand ──────────────────────────────────────────────
 
 /// Vollbild-Abstand in Sekunden, wenn nichts gesagt wird.
@@ -334,6 +395,32 @@ mod tests {
     /// Leiter selbst brauchen das nicht: die laufen auf einer eigenen Instanz
     /// mit gestellter Uhr.
     static SERIELL: Mutex<()> = Mutex::new(());
+
+    /// Der Takt haelt den bestellten Abstand — und faengt nicht sofort an.
+    ///
+    /// Das erste Bild ist bereits ein Vollbild (der Encoder legt so los); ein
+    /// zweites unmittelbar danach waere verschenkte Bitrate genau dort, wo sie
+    /// am knappsten ist. Deshalb steht die erste Faelligkeit auf `abstand`,
+    /// nicht auf 1.
+    #[test]
+    fn selbsttakt_haelt_den_abstand() {
+        let mut takt = Selbsttakt::neu(Some(4));
+        let treffer: Vec<bool> = (0..12).map(|_| takt.faellig()).collect();
+        assert_eq!(
+            treffer,
+            vec![false, false, false, true, false, false, false, true, false, false, false, true],
+            "jedes vierte Bild, beginnend beim vierten"
+        );
+    }
+
+    /// Aus heisst aus. Ohne diese Zeile liefe der Takt auf jedem Encoder mit,
+    /// auch auf denen, die ihren GOP-Takt selbst einloesen — die bekaemen ihre
+    /// Vollbilder dann doppelt.
+    #[test]
+    fn selbsttakt_aus_liefert_nie() {
+        let mut takt = Selbsttakt::neu(None);
+        assert!((0..500).all(|_| !takt.faellig()));
+    }
 
     #[test]
     fn genau_ein_vollbild_je_anforderung() {

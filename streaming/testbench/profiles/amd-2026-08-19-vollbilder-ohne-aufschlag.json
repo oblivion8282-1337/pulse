@@ -1,0 +1,74 @@
+{
+  "datum": "2026-08-19",
+  "frage": "Was kosten periodische Vollbilder auf AMD/Windows, und laesst sich der Aufschlag vermeiden?",
+  "anlass": "Seit dem 2026-08-18 ist Intra-Refresh abgewaehlt voreingestellt. Bei h264_amf haengt die rollende Auffrischung an usage=ultralowlatency, das aus Lastgruenden unbedingt gesetzt wird; das Abwaehlen ueberschrieb den Wert seit dem 2026-08-07 mit usage=transcoding. Damit zahlte ab dem 2026-08-18 jeder AMD-Stream unter Windows den teuren Zweig, nicht mehr nur wer ausdruecklich abwaehlte.",
+  "maschine": {
+    "gpu": "AMD Radeon 780M Graphics (iGPU)",
+    "os": "Windows 11 Pro 10.0.26200",
+    "sidecar": "streaming/win-hq-sidecar, release",
+    "zweig": "remote/2026-08-18/integration"
+  },
+  "aufbau": {
+    "werkzeug": "streaming/win-hq-labor/testbench/vollbild-last-messen.ps1",
+    "aufloesung": "1080p", "fps": 60, "bitrate_kbps": 12000, "audio": "aus",
+    "dauer_s": 45, "vorlauf_s": 10, "bildaenderung": "bewegung.ps1",
+    "ziel": "lokaler FLV-Mitschnitt statt WHIP",
+    "warum_datei": [
+      "Der Hetzner-Messstand ist seit 2026-08-12 abgeschaltet (mediamtx-labor gestoppt), weil pulse.unicutmedia.com den gemeinsamen Remote-Dev-Stack traegt — ein Lauf dagegen endet in HTTP 401.",
+      "ZWINGEND: ueber eine WHIP-URL ist der D3D12-Weg gar nicht messbar. VideoCodec::encode_path gibt einem angemeldeten Sendeweg den Vorrang und liefert D3D11 zurueck, bevor PULSE_HQ_AMD_D3D12 ueberhaupt gelesen wird. Ein Arm 'd3d12 ueber WHIP' liefe klaglos und maesse den D3D11-Weg."
+    ],
+    "messgroessen": {
+      "video_engine": "GPU Engine(pid_<sidecar>_*_engtype_video codec 0), Median ueber die Messdauer",
+      "encoder_zeit": "enc avg aus der Diagnosezeile des Sidecars, erstes Fenster verworfen",
+      "vollbilder": "ffprobe ueber den Mitschnitt, Pakete mit K-Flag"
+    }
+  },
+  "arme": [
+    { "codec": "h264", "weg": "amf",   "auffrischung": "an",  "video_engine_pct": 10.5, "encoder_ms": 17.0, "vollbilder": false, "encoder": "h264_amf" },
+    { "codec": "h264", "weg": "amf",   "auffrischung": "aus", "video_engine_pct": 25.2, "encoder_ms": 17.1, "vollbilder": true,  "encoder": "h264_amf", "hinweis": "Stand vor dem Fix: usage=transcoding" },
+    { "codec": "h264", "weg": "d3d12", "auffrischung": "aus", "video_engine_pct": 25.2, "encoder_ms": 6.1,  "vollbilder": true,  "encoder": "h264_d3d12va" },
+    { "codec": "h264", "weg": "d3d12", "auffrischung": "an",  "ergebnis": "Startverweigerung (h264_d3d12va nimmt die Option an und tut nichts damit)" },
+    { "codec": "av1",  "weg": "amf",   "auffrischung": "aus", "video_engine_pct": 8.8,  "encoder_ms": 17.0, "vollbilder": true,  "encoder": "av1_amf" },
+    { "codec": "av1",  "weg": "amf",   "auffrischung": "an",  "video_engine_pct": 8.9,  "encoder_ms": 17.0, "vollbilder": false, "encoder": "av1_amf" },
+    { "codec": "av1",  "weg": "d3d12", "auffrischung": "aus", "video_engine_pct": 9.2,  "encoder_ms": 17.1, "vollbilder": true,  "encoder": "av1_amf", "hinweis": "faellt auf AMF zurueck — encode_path laesst AV1 den D3D12-Weg ausdruecklich liegen" },
+    { "codec": "h264", "weg": "amf",   "auffrischung": "an", "zuruf_s": 5, "video_engine_pct": 10.2, "encoder_ms": 17.0, "vollbilder": true, "encoder": "h264_amf", "hinweis": "der entscheidende Arm: sparsame Betriebsart BEHALTEN, Vollbilder ueber op=keyframe" }
+  ],
+  "befunde": [
+    "Der gemeldete Aufschlag ist real und reproduziert: 10,5 -> 25,2 Prozent Video-Engine, also das Zweieinhalbfache. Die Julizahlen (10,3 / 26,6) sind bestaetigt.",
+    "Die vermutete Ursache ist WIDERLEGT. h264_d3d12va setzt gar kein usage und kostet dieselben 25,2 Prozent. Teuer ist nicht die Umschaltung auf transcoding, sondern alles, was NICHT ultralowlatency ist — der Encode-Weg aendert daran nichts.",
+    "AV1 kostet in beiden Betriebsarten gleich (8,8 / 8,9). Der Grund: abschalt_optionen_fuer greift nur bei h264_amf, av1_amf behaelt ultralowlatency also in beiden Faellen. Das ist der Gegenbeweis dafuer, dass periodische Vollbilder als solche teuer waeren.",
+    "LOESUNG: ultralowlatency behalten und die Vollbilder selbst takten (derselbe Weg, den eine Zuschauer-Anfrage nimmt, pict_type=I). Gemessen 10,2 Prozent bei sechs echten Vollbildern in 28 s.",
+    "Der D3D12-Weg bleibt ein Latenz-Gewinn (6,1 statt 17,1 ms Encoder-Zeit), aber kein Last-Gewinn. Er ist damit weiter kein Grund, von einem Encode-Weg auf zwei zurueckzugehen."
+  ],
+  "abnahme_nach_dem_fix": {
+    "dauer_s": 145, "keyframe_sekunden": 60,
+    "video_engine_pct": 10.5, "encoder_ms": 17.0,
+    "vollbilder": "3 in 8746 Bildern (Start + 60 s + 120 s)",
+    "logzeile": "Encoder offen: h264_amf (..., Vollbilder selbst getaktet, Auffrischung laeuft mit)"
+  },
+  "latenz_nachtrag": {
+    "frage": "Die Encoder-Zeit liegt bei allen AMF-Armen auf 17,0 ms — auffaellig genau ein Bild bei 60 fps. Laesst sie sich senken?",
+    "vorgehen": "Alles selbst nachgemessen, nichts aus frueheren Notizen uebernommen.",
+    "bildratenreihe": {
+      "30_fps": 33.8, "60_fps": 17.1, "120_fps": 8.6,
+      "befund": "Genau ein Bildabstand plus 0,4 ms. Die eigentliche Encoder-Arbeit dauert 0,4 ms; der Rest ist Warten auf das naechste eingeschobene Bild."
+    },
+    "wartebudget_im_drain": {
+      "schalter": "PULSE_ENC_DRAIN_WAIT_MS (neu, bleibt als Messmittel im Code)",
+      "0_ms": 17.0, "4_ms": 17.0, "12_ms": 17.0,
+      "befund": "Das Paket ist wirklich nicht da. AMF gibt Bild N erst heraus, wenn Bild N+1 kommt — Pipeline der Hardware, nicht unser Abholrhythmus. Bestaetigt unabhaengig die AV1-Messung vom 2026-07-30 (17,23 -> 17,21), diesmal an H.264."
+    },
+    "encoder_optionen_ohne_wirkung": {
+      "gemessen": ["latency=1", "preanalysis=0", "preencode=0", "bf=0", "max_b_frames=0", "alle vier zusammen"],
+      "ergebnis_ms": "17,0 bis 17,1 — wie ohne sie",
+      "hinweis": "async_depth steht ohnehin auf 1 (opts.rs)."
+    },
+    "gegenprobe_dass_die_messung_taugt": "Dieselbe Messkette meldet auf dem d3d12va-Weg 6,1 ms. Ein systematisch aufgeblaehter Messwert saehe dort genauso hoch aus.",
+    "schluss": "Auf AMF ist die eine Bildzeit von unserer Seite nicht zu entfernen. Was hilft, ist eine hoehere Bildrate: bei 120 fps halbiert sie sich auf 8,6 ms."
+  },
+  "offen": [
+    "Latenz BIS ZUM ZUSCHAUER ist damit nicht gemessen — die Encoder-Zeit sagt nur, was das Einschieben kostet. Die Frage aus der Uebergabe vom 2026-08-19 ('Latenz transcoding gegen ultralowlatency') ist damit gegenstandslos geworden, weil transcoding nicht mehr vorkommt.",
+    "Bildqualitaet unter dem Selbsttakt nicht gemessen. Erwartung: wie ultralowlatency (81,60 VMAF am 2026-07-30), also 0,4 unter transcoding — derselbe Tausch, den opts.rs seit dem 2026-07-30 bewusst eingeht.",
+    "Nur auf einer iGPU gemessen. Auf einer dedizierten Radeon koennen die Absolutwerte anders liegen; die Richtung haengt an der Betriebsart, nicht an der Karte."
+  ]
+}

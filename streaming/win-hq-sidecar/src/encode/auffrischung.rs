@@ -169,9 +169,12 @@ fn optionen_fuer(encoder: &str) -> Option<&'static [(&'static str, &'static str)
 /// was lief. Ein Schalter, der nichts schaltet, ist schlimmer als keiner: er
 /// erzeugt Vertrauen in eine Zusage, die niemand einlöst.
 ///
-/// **`transcoding` ist der einzige Hebel, und das ist gemessen**, nicht
-/// geraten (Messakte `amd-2026-08-02-h264-intra-refresh.json`, Abschnitte 2+3;
-/// stehendes Bild, feste Quantisierung, 300 Bilder bei `-g 60`):
+/// **Die Tabelle ist leer, und das ist seit dem 2026-08-19 die Antwort.**
+///
+/// Bis dahin stand hier `("usage", "transcoding")`, weil das der einzige
+/// Hebel war, der den Vollbild-Takt zurückholte (Messakte
+/// `amd-2026-08-02-h264-intra-refresh.json`, Abschnitte 2+3; stehendes Bild,
+/// feste Quantisierung, 300 Bilder bei `-g 60`):
 ///
 /// | `usage`            | Vollbilder in 300 Bildern |
 /// |--------------------|---------------------------|
@@ -180,32 +183,32 @@ fn optionen_fuer(encoder: &str) -> Option<&'static [(&'static str, &'static str)
 /// | `lowlatency`       | 1                         |
 /// | `ultralowlatency`  | 1                         |
 ///
-/// Dieses eine Vollbild ist das beim Start; danach kommt keines mehr. Die
-/// naheliegende Alternative `intra_refresh_mb` **schaltet nichts ab** — sie
-/// dreht nur an einem bereits laufenden Zyklus (+14 % Last im aktiven Block).
-/// Wer sie hier einsetzen wollte, hat die Messung nicht gelesen.
+/// Die Tabelle stimmt weiterhin — sie beantwortet nur die falsche Frage. Sie
+/// fragt, wie man den GOP-Takt zurückbekommt, und der Preis dafür ist die
+/// sparsame Betriebsart: **25,2 statt 10,2 Prozent Video-Engine**, gemessen
+/// am 2026-08-19 auf einer Radeon 780M. Bis zum 2026-08-18 zahlte den nur,
+/// wer ausdrücklich abwählte; seit die Vorgabe umgedreht ist, jeder
+/// AMD-Stream unter Windows.
 ///
-/// **Der Preis, damit ihn niemand suchen muss:** Video-Engine 26,6 statt
-/// 10,3 Prozent (H.264, 2026-07-30) — zweieinhalbfache Last auf einer iGPU.
-/// Die Bildqualität wird dabei leicht **besser** (+0,4 VMAF).
+/// Die richtige Frage ist, wie der Zuschauer zu einem Vollbild kommt — und
+/// dafür braucht es den GOP-Takt gar nicht. [`braucht_selbsttakt`] lässt
+/// `ultralowlatency` stehen und stellt die Vollbilder daneben. Dort steht die
+/// Messreihe samt der Gegenprobe, die zeigt, dass es nicht am Encode-Weg
+/// liegt.
 ///
-/// **ACHTUNG, hier stand bis zum 2026-08-19: „Er trifft nur, wer ausdrücklich
-/// abwählt; die Vorgabe ist seit dem 2026-08-06 Intra-Refresh und bleibt auf
-/// dem billigen Weg." Das gilt NICHT mehr.** Seit dem 2026-08-18 ist
-/// Intra-Refresh abgewählt voreingestellt, und H.264 ist der Vorgabe-Codec —
-/// **jeder** AMD-Stream unter Windows nimmt damit den teuren Zweig. Das war
-/// eine unbeabsichtigte Folge des Vorgabe-Wechsels und ist noch nicht bewertet;
-/// die Übergabe dazu steht in
-/// `docs/plans/2026-08-19-uebergabe-amd-windows-last.md`.
-///
-/// **Was NICHT gemessen ist: die Latenz.** `transcoding` heißt bei AMF
-/// „Generic Transcoding" und stellt Vorlauf und Voranalyse anders ein. Der Wert
-/// stand hier allerdings bis zum 2026-07-30 als Vorgabe und lief in dieser Zeit
-/// in Produktion — er ist also nicht neu, nur ungemessen. Wer die Zahl braucht,
-/// misst gegen `ultralowlatency` und trägt sie hier ein.
+/// Die naheliegende Alternative `intra_refresh_mb` **schaltet nichts ab** —
+/// sie dreht nur an einem bereits laufenden Zyklus (+14 % Last im aktiven
+/// Block). Wer sie hier einsetzen wollte, hat die Messung nicht gelesen.
 fn abschalt_optionen_fuer(encoder: &str) -> &'static [(&'static str, &'static str)] {
     match encoder {
-        "h264_amf" => &[("usage", "transcoding")],
+        // **Seit dem 2026-08-19 steht hier NICHTS mehr**, und das ist der
+        // eigentliche Fix: `usage=transcoding` schaltete die Auffrischung zwar
+        // ab, nahm dabei aber die sparsame Betriebsart mit — 25,2 statt 10,2
+        // Prozent Video-Engine, gemessen auf dieser Karte. Die Vollbilder
+        // kommen stattdessen aus `keyframe::Selbsttakt`, die Auffrischung
+        // laeuft daneben weiter. Volle Herleitung dort und in
+        // [`braucht_selbsttakt`].
+        "h264_amf" => &[],
         // Alle übrigen frischen nur auf Ansage auf — `h264_d3d12va` frischt
         // zwar durchgehend auf, ersetzt den Vollbild-Takt dabei aber NICHT
         // (Messakte Abschnitt 5: bei `-g 60` bleiben die fünf Vollbilder
@@ -213,6 +216,42 @@ fn abschalt_optionen_fuer(encoder: &str) -> &'static [(&'static str, &'static st
         // und genau darum geht es hier.
         _ => &[],
     }
+}
+
+/// Muss dieser Encoder seine Vollbilder selbst getaktet bekommen?
+///
+/// **Genau dann, wenn Vollbilder verlangt sind und der Encoder trotzdem
+/// auffrischt.** Das ist keine Sonderregel für `h264_amf`, sondern folgt aus
+/// [`optionen_fuer`]: `Some(&[])` heißt dort „frischt bereits von sich aus
+/// auf" — und was von sich aus läuft, hört auch von sich aus nicht auf. Auf
+/// so einem Encoder greift der GOP-Takt nicht, die Vollbilder müssen also von
+/// außen kommen (`keyframe::Selbsttakt`, Herleitung und Messwerte dort).
+///
+/// **Warum nicht weiterhin `usage=transcoding`** (der Weg vom 2026-08-07):
+/// weil er die Auffrischung nur als Nebenwirkung davon abschaltet, dass er die
+/// sparsame Betriebsart wegnimmt — und die kostet auf dieser Karte das
+/// Zweieinhalbfache an Video-Engine. Am 2026-08-19 nachgemessen, drei Arme, je
+/// 35 s bei 1080p60 und 12 Mbit/s:
+///
+/// | | Video-Engine | Vollbilder |
+/// |---|---|---|
+/// | `ultralowlatency` (Auffrischung) | 10,5 % | nein |
+/// | `transcoding` (der alte Abschaltweg) | 25,2 % | ja |
+/// | **`ultralowlatency` + Selbsttakt** | **10,2 %** | **ja** |
+///
+/// Die Gegenprobe, dass es nicht am Encode-Weg liegt: `h264_d3d12va` setzt
+/// gar kein `usage` und kostet dieselben 25,2 %. Teuer ist also nicht die
+/// Umschaltung, sondern alles, was NICHT `ultralowlatency` ist.
+///
+/// **Was dabei ehrlich bleiben muss:** der Strom trägt danach beides — die
+/// rollende Auffrischung UND periodische Vollbilder. Das ist kein Etikett auf
+/// einer anderen Sache, sondern ein Strom mit einer Eigenschaft mehr; die Zeile
+/// „Encoder offen" sagt es deshalb ausdrücklich (`encode/mod.rs`). Für den
+/// Zuschauer ändert sich nichts zum Schlechteren: er steigt am Vollbild ein
+/// statt an der Auffrischungswelle, und die Welle repariert weiterhin
+/// Paketverluste zwischen zwei Vollbildern.
+pub fn braucht_selbsttakt(encoder: &str) -> bool {
+    !gewuenscht() && matches!(optionen_fuer(encoder), Some(liste) if liste.is_empty())
 }
 
 /// Der Encoder, den ein Stream mit dieser Kombination wirklich öffnen würde.
@@ -328,6 +367,10 @@ pub fn anwenden(opts: &mut Dictionary<'_>, encoder: &str, fps: u32) -> Result<()
         }
         return Ok(());
     }
+    // Ein Encoder, der die Auffrischung ohnehin faehrt, braucht sie nicht
+    // zusaetzlich bestellt — und wenn er sie faehrt, obwohl sie abgewaehlt
+    // ist, sorgt der Selbsttakt fuer die Vollbilder. Beide Faelle stehen an
+    // [`braucht_selbsttakt`].
     let Some(liste) = optionen_fuer(encoder) else {
         bail!(
             "Intra-Refresh verlangt, aber '{encoder}' liefert ihn nicht. \
@@ -484,29 +527,63 @@ mod tests {
         });
     }
 
-    /// **Der Haken muss etwas tun.** Wird die Betriebsart abgewählt, muss
-    /// `h264_amf` das `usage` verlieren, an dem sie hängt — sonst frischt der
-    /// Encoder weiter auf und der Strom trägt nach dem Start kein Vollbild
-    /// mehr. Genau das lief bis zum 2026-08-07 in Produktion: der Zuschauer
-    /// bekam alle Pakete, dekodierte null Bilder und baute zwanzigmal neu auf.
+    /// **Der Haken muss etwas tun** — die Zusage von 2026-08-07, aber seit dem
+    /// 2026-08-19 auf einem anderen Weg eingelöst.
+    ///
+    /// Bis dahin stand hier `usage == "transcoding"`. Das löste die Zusage ein
+    /// und kostete dafür 25,2 statt 10,2 Prozent Video-Engine, weil es der
+    /// sparsamen Betriebsart die ganze Voranalyse zurückgab. Der Test prüft
+    /// deshalb jetzt die Zusage selbst — es kommen Vollbilder — statt des
+    /// Mittels, mit dem sie eingelöst wird: `usage` bleibt sparsam, und der
+    /// Selbsttakt ist eingeschaltet.
+    ///
+    /// Warum das kein aufgeweichter Test ist: die Eigenschaft, um die es geht,
+    /// war nie „der Encoder frischt nicht auf", sondern „ein neu einsteigender
+    /// Zuschauer bekommt ein Bild". Der alte Weg erreichte das, indem er die
+    /// Auffrischung wegnahm, der neue, indem er Vollbilder danebenstellt.
     #[test]
-    fn abgewaehlt_nimmt_h264_amf_die_auffrischung_wirklich_weg() {
+    fn abgewaehlt_bringt_h264_amf_echte_vollbilder() {
         mit_wunsch(false, || {
             let mut opts = super::super::opts::vendor_encoder_opts("amd", VideoCodec::H264, false);
             assert_eq!(
                 opts.get("usage"),
                 Some("ultralowlatency"),
-                "Vorbedingung: der Vendor-Zweig setzt den Wert, an dem die Auffrischung haengt"
+                "Vorbedingung: der Vendor-Zweig setzt den sparsamen Wert"
             );
             anwenden(&mut opts, "h264_amf", 60).unwrap();
             assert_eq!(
                 opts.get("usage"),
-                Some("transcoding"),
-                "abgewaehlt heisst echte Vollbilder — gemessen: 5 statt 1 je 300 Bilder"
+                Some("ultralowlatency"),
+                "die sparsame Betriebsart bleibt — sie ist der ganze Grund fuer den Selbsttakt"
             );
-            // `intra_refresh_mb` schaltet nichts ab (es dreht nur am laufenden
-            // Zyklus) und hat hier deshalb nichts verloren.
+            assert!(
+                braucht_selbsttakt("h264_amf"),
+                "abgewaehlt heisst echte Vollbilder — hier kommen sie aus keyframe::Selbsttakt"
+            );
+            // `intra_refresh_mb` dreht nur an einem laufenden Zyklus und
+            // schaltet nichts ab; es hat hier nach wie vor nichts verloren.
             assert_eq!(opts.get("intra_refresh_mb"), None);
+        });
+    }
+
+    /// Der Selbsttakt trifft **nur** den Encoder, der ihn braucht.
+    ///
+    /// Ohne diese Grenze bekäme jeder Encoder Vollbilder doppelt: einmal aus
+    /// seinem GOP-Takt, den er einlöst, und einmal von außen. Das fiele nicht
+    /// als Fehler auf, sondern nur an Bitratenspitzen, die niemand mehr
+    /// zuordnen kann.
+    #[test]
+    fn selbsttakt_nur_wo_der_encoder_von_sich_aus_auffrischt() {
+        mit_wunsch(false, || {
+            assert!(braucht_selbsttakt("h264_amf"), "frischt ueber usage von sich aus auf");
+            assert!(!braucht_selbsttakt("h264_d3d12va"), "loest seinen GOP-Takt selbst ein");
+            assert!(!braucht_selbsttakt("av1_amf"), "frischt nur auf Ansage auf");
+            assert!(!braucht_selbsttakt("h264_nvenc"), "frischt nur auf Ansage auf");
+        });
+        // Und mit gewuenschter Auffrischung nirgends — dort sind Vollbilder
+        // gerade nicht das Ziel.
+        mit_wunsch(true, || {
+            assert!(!braucht_selbsttakt("h264_amf"));
         });
     }
 

@@ -108,6 +108,10 @@ pub struct FfmpegHwEncoder {
     /// Vollbilder auf Anforderung: abholen, zählen, gedrosselt melden
     /// (s. `crate::keyframe::Anforderungen`).
     vollbilder_angefordert: crate::keyframe::Anforderungen,
+    /// Vollbilder aus eigenem Takt — nur auf Encodern, die trotz abgewählter
+    /// Auffrischung auffrischen und deshalb den GOP-Takt nicht einlösen
+    /// (`auffrischung::braucht_selbsttakt`).
+    vollbilder_selbst: crate::keyframe::Selbsttakt,
     /// Einschieben -> Paket, s. `latency.rs`. Das ist der Posten, den
     /// `zerolatency`/`delay` veraendern; `last_send_us` sieht ihn NICHT.
     enc_latency: EncodeLatency,
@@ -301,6 +305,10 @@ impl FfmpegHwEncoder {
             last_send_us: 0,
             last_mux_us: 0,
             vollbilder_angefordert: Default::default(),
+            vollbilder_selbst: crate::keyframe::Selbsttakt::neu(
+                super::auffrischung::braucht_selbsttakt(codec_name)
+                    .then(|| crate::keyframe::abstand_bilder(cfg.fps)),
+            ),
             enc_latency: EncodeLatency::default(),
             schirm: cfg.schirm,
         })
@@ -379,7 +387,15 @@ impl FfmpegHwEncoder {
         // Aufruf im Messfenster, trüge `last_send_us` ausgerechnet auf den
         // interessanten Bildern die Schreibzeit mit — ein Ausreißer genau dort,
         // wo man am genauesten hinsieht.
-        let angefordert = self.vollbilder_angefordert.naechstes_bild(pts);
+        // ODER, und die Reihenfolge ist wesentlich: `naechstes_bild` MUSS auch
+        // dann laufen, wenn der Selbsttakt ohnehin schon ein Vollbild bestellt
+        // hat — es holt die Anforderung ab und loescht sie. Bliebe sie stehen,
+        // waere das naechste Bild ein zweites Vollbild, das niemand wollte.
+        // Deshalb beide Seiten in eigene Bindungen und kein `||` mit
+        // Kurzschluss.
+        let auf_anforderung = self.vollbilder_angefordert.naechstes_bild(pts);
+        let aus_eigenem_takt = self.vollbilder_selbst.faellig();
+        let angefordert = auf_anforderung || aus_eigenem_takt;
         // VOR dem Einschieben stempeln: mit `delay=0` liefert NVENC das Paket
         // im selben Aufruf zurueck (s. `latency.rs`).
         let t_send = std::time::Instant::now();
@@ -425,24 +441,71 @@ impl FfmpegHwEncoder {
     /// EAGAIN/EOF = nichts (mehr) da → Drain fertig; ein ECHTER
     /// Encoder-Fehler wird propagiert statt verschluckt (#8).
     ///
-    /// **Auf EAGAIN zu warten bringt bei AMF nichts — geprüft.** Naheliegender
-    /// Verdacht war, dass „jetzt noch nicht" nur heißt, dass wir zu früh
-    /// fragen, und dass das Paket ein paar Millisekunden später bereitläge; wir
-    /// es aber erst beim nächsten Tick abholen und so einen ganzen Bildabstand
-    /// verschenken. Am 2026-07-30 gemessen: ein Drain, der bis zu 12 ms lang
-    /// gezielt auf das Paket zum gerade eingeschobenen Bild nachfragt, ändert
-    /// die Encode-Latenz von `av1_amf` um 0,02 ms (17,23 → 17,21). Das Paket
-    /// ist wirklich nicht da — FFmpegs AMF-Zweig gibt es erst heraus, wenn das
-    /// nächste Bild eingeschoben wird. Nicht noch einmal versuchen; die
-    /// Herleitung steht in `docs/plans/2026-07-30-amd-windows-messung.md`.
+    /// **Auf EAGAIN zu warten bringt bei AMF nichts — zweimal unabhängig
+    /// geprüft.** Naheliegender Verdacht war, dass „jetzt noch nicht" nur
+    /// heißt, dass wir zu früh fragen, und dass das Paket ein paar
+    /// Millisekunden später bereitläge; wir es aber erst beim nächsten Tick
+    /// abholen und so einen ganzen Bildabstand verschenken.
+    ///
+    /// * 2026-07-30, `av1_amf`: 17,23 → 17,21 ms.
+    /// * 2026-08-19, `h264_amf`, über `PULSE_ENC_DRAIN_WAIT_MS` (s. unten):
+    ///   17,0 ms bei 0, bei 4 und bei 12 ms Wartebudget — auf drei Stellen
+    ///   identisch.
+    ///
+    /// **Woher die eine Bildzeit kommt, ist am 2026-08-19 ebenfalls geklärt**,
+    /// und zwar ohne Code: die Encode-Latenz folgt der Bildrate (33,8 / 17,1 /
+    /// 8,6 ms bei 30 / 60 / 120 fps). Das ist genau ein Bildabstand plus
+    /// 0,4 ms — die eigentliche Encoder-Arbeit dauert also 0,4 ms, der Rest ist
+    /// Warten auf das nächste eingeschobene Bild. AMF gibt das Paket zu Bild N
+    /// erst heraus, wenn Bild N+1 kommt; das ist die Pipeline der Hardware,
+    /// nicht unser Abholrhythmus.
+    ///
+    /// Ebenfalls am 2026-08-19 gemessen und **ohne jede Wirkung** auf diese
+    /// Zeit, damit sie niemand erneut durchprobiert: `latency=1`,
+    /// `preanalysis=0`, `preencode=0`, `bf=0`, `max_b_frames=0` und alle vier
+    /// zusammen — 17,0 bis 17,1 ms, wie ohne sie. `async_depth` steht ohnehin
+    /// auf 1 (`opts.rs`).
+    ///
+    /// Der einzige gemessene Weg ohne diese Bildzeit ist `h264_d3d12va`
+    /// (6,1 ms) — der ist über WHIP aber nicht erreichbar, und über ihn kostet
+    /// die Video-Engine das Zweieinhalbfache. Messakte
+    /// `profiles/amd-2026-08-19-vollbilder-ohne-aufschlag.json`.
+    ///
+    /// **Der Messschalter bleibt** (`PULSE_ENC_DRAIN_WAIT_MS`, in Millisekunden,
+    /// leer = aus): auf einer anderen AMD-Generation kann die Antwort anders
+    /// ausfallen, und ein „nicht noch einmal versuchen" ohne nachprüfbares
+    /// Mittel ist eine Behauptung, die niemand widerlegen kann.
     fn drain_video(&mut self) -> Result<()> {
         let mut mux_us: u64 = 0;
+        // Messpfad, normalerweise aus (`PULSE_ENC_DRAIN_WAIT_MS` ungesetzt).
+        // Er beantwortet EINE Frage: kommt das Paket gleich, wenn man kurz
+        // wartet, oder wirklich erst beim naechsten eingeschobenen Bild? Ohne
+        // diesen Schalter ist die Frage nicht zu trennen — im Regelbetrieb
+        // fallen "Paket ist noch nicht fertig" und "wir fragen nicht mehr
+        // nach" zusammen. Kostet nichts, solange die Variable leer ist: dann
+        // steht unten dieselbe Schleife wie zuvor.
+        let warte_bis = std::env::var("PULSE_ENC_DRAIN_WAIT_MS")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+            .filter(|ms| *ms > 0.0)
+            .map(|ms| std::time::Instant::now() + std::time::Duration::from_secs_f64(ms / 1000.0));
         loop {
             let mut packet = Packet::empty();
             match self.encoder.receive_packet(&mut packet) {
                 Ok(()) => {}
                 Err(ffmpeg::Error::Eof) => break,
-                Err(ffmpeg::Error::Other { errno }) if errno == ffmpeg::error::EAGAIN => break,
+                Err(ffmpeg::Error::Other { errno }) if errno == ffmpeg::error::EAGAIN => {
+                    match warte_bis {
+                        // Kurz schlafen statt heiss zu drehen: ein Spinlock auf
+                        // dem Taktfaden verfaelscht genau die Zeit, die hier
+                        // gemessen werden soll.
+                        Some(frist) if std::time::Instant::now() < frist => {
+                            std::thread::sleep(std::time::Duration::from_micros(200));
+                            continue;
+                        }
+                        _ => break,
+                    }
+                }
                 Err(e) => return Err(e.into()),
             }
             // Zuordnen VOR `rescale_ts` — danach steht der pts in der
