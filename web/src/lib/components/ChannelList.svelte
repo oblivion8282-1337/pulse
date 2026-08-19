@@ -59,6 +59,7 @@
   const CHANNEL_BTN_CLASS =
     'group flex w-full items-center gap-3 rounded-xl px-3 py-4 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary';
 
+  import ChannelTopicTooltip from './ChannelTopicTooltip.svelte';
   import DeviceChannelRows from '$lib/devices/components/DeviceChannelRows.svelte';
   import DeviceUmzugDialog from '$lib/devices/components/DeviceUmzugDialog.svelte';
   import type { Device } from '$lib/api/devices';
@@ -424,9 +425,12 @@
       {@const unreadCount = activeChannelId !== c.id ? readState.getUnreadCount(c.id) : 0}
       <ContextMenu.Root>
         <ContextMenu.Trigger>
-          {#snippet child({ props })}
+          {#snippet child({ props: ctxProps })}
+            <ChannelTopicTooltip topic={c.topic}>
+            {#snippet children(tipProps)}
             <button
-              {...props}
+              {...ctxProps}
+              {...tipProps}
               class="{CHANNEL_BTN_CLASS} {dragOverId === c.id
                 ? 'border-t-2 border-primary'
                 : ''} {dragId === c.id ? 'opacity-50' : ''}"
@@ -466,6 +470,8 @@
                 {/if}
               </span>
             </button>
+            {/snippet}
+            </ChannelTopicTooltip>
           {/snippet}
         </ContextMenu.Trigger>
         <ContextMenu.Content>
@@ -513,9 +519,12 @@
         {@const isUnread = activeChannelId !== c.id && readState.isUnread(c.id)}
         <ContextMenu.Root>
           <ContextMenu.Trigger>
-            {#snippet child({ props })}
+            {#snippet child({ props: ctxProps })}
+              <ChannelTopicTooltip topic={c.topic}>
+              {#snippet children(tipProps)}
               <button
-                {...props}
+                {...ctxProps}
+                {...tipProps}
                 class="{CHANNEL_BTN_CLASS} {dragOverId === c.id
                   ? 'border-t-2 border-primary'
                   : ''} {dragId === c.id ? 'opacity-50' : ''}"
@@ -540,6 +549,8 @@
                   {/if}
                 </span>
               </button>
+              {/snippet}
+              </ChannelTopicTooltip>
             {/snippet}
           </ContextMenu.Trigger>
           <ContextMenu.Content>
@@ -574,9 +585,12 @@
       {#each voiceChannels as c (c.id)}
       <ContextMenu.Root>
         <ContextMenu.Trigger>
-          {#snippet child({ props })}
+          {#snippet child({ props: ctxProps })}
+            <ChannelTopicTooltip topic={c.topic}>
+            {#snippet children(tipProps)}
             <button
-              {...props}
+              {...ctxProps}
+              {...tipProps}
               class="{CHANNEL_BTN_CLASS} {dragOverId === c.id
                 ? 'border-t-2 border-primary'
                 : ''} {dragId === c.id ? 'opacity-50' : ''} {userDragOverId === c.id
@@ -623,6 +637,8 @@
                 {/if}
               </span>
             </button>
+            {/snippet}
+            </ChannelTopicTooltip>
           {/snippet}
         </ContextMenu.Trigger>
         <ContextMenu.Content>
