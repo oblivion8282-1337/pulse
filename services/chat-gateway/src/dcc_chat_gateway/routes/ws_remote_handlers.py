@@ -15,6 +15,13 @@ Op flow::
     peer       --remote_signal---> gateway --remote_signal---> the *other* peer
     controller --remote_input----> gateway --remote_input----> host
     peer       --remote_end------> gateway --remote_ended----> the *other* peer
+    peer (nach Abriss) --remote_reclaim--> gateway --remote_reclaimed/
+                                                     remote_reclaim_failed--> peer
+
+``remote_reclaim`` gehoert NICHT zum Handshake oben, sondern zur Gnadenfrist
+nach einem Verbindungsabriss (:mod:`remote_reconnect_registry`,
+:mod:`routes.ws_remote_reconnect`) — eine ANGENOMMENE Sitzung stirbt seit
+2026-08-19 nicht mehr sofort mit dem Socket, der sie trug.
 
 ``remote_pending`` geht an den Steuernden, sobald die Sitzung angelegt ist und
 **bevor** die Einladung an die Host-Tabs geht: ohne dieses Frame kennt der

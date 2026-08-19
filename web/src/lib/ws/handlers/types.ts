@@ -372,6 +372,12 @@ export type ServerEvent =
   | { op: 'remote_pending'; session_id: string; channel_id: string; host_user_id: string }
   | { op: 'remote_response'; session_id: string; accepted: boolean }
   | { op: 'remote_ended'; session_id: string; reason: string }
+  // Antwort auf `remote_reclaim` (Gnadenfrist nach Verbindungsabriss,
+  // `$lib/remote/wachten.ts`). `remote_reclaim_failed` trägt einen Klartext
+  // nur fürs Log — angezeigt wird nichts, der lokale Zeitgeber der Gnadenfrist
+  // beendet die Sitzung ohnehin gleich.
+  | { op: 'remote_reclaimed'; session_id: string }
+  | { op: 'remote_reclaim_failed'; session_id: string; reason: string }
   // Eingabe-Frames des Steuernden, vom Gateway unverändert durchgereicht (nur
   // der Host bekommt sie). Format: `docs/plans/2026-08-12-input-wire-protokoll-v2.md`.
   | { op: 'remote_input'; session_id: string; slot: number; frames: string[] }
@@ -470,6 +476,9 @@ export type ClientEvent =
   | { op: 'remote_input'; session_id: string; slot: number; frames: string[] }
   | { op: 'remote_signal'; session_id: string; kind: RemoteSignalKind; data: unknown }
   | { op: 'remote_end'; session_id: string }
+  // Nach einem Verbindungsabriss zurück, innerhalb der Gnadenfrist
+  // (`$lib/remote/wachten.ts`, `ws_remote_reconnect.py::handle_reclaim`).
+  | { op: 'remote_reclaim'; session_id: string }
   // „Dieser Rechner ist das Standplatz-Geraet X" — und die Ruecknahme. Der
   // Server sieht Verbindungen von Nutzern, nicht von Rechnern; nur der Rechner
   // selbst kennt seine Kennung (`$lib/devices/anmeldung.svelte.ts`).

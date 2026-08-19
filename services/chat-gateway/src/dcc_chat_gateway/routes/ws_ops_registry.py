@@ -175,6 +175,7 @@ CORE_OPS: frozenset[str] = frozenset({
     "remote_signal",
     "remote_input",
     "remote_end",
+    "remote_reclaim",
     "profile_statement",
 })
 

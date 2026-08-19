@@ -23,6 +23,8 @@ import random
 import pytest
 from starlette.testclient import TestClient
 
+from dcc_chat_gateway import remote_reconnect_registry
+
 from .conftest import ping_barrier, skip_init_frames, trenne
 
 
@@ -211,7 +213,16 @@ async def test_remote_end_notifies_peer(ws_app, _auth_signer):
 
 
 @pytest.mark.asyncio
-async def test_remote_disconnect_notifies_peer(ws_app, _auth_signer):
+async def test_remote_disconnect_notifies_peer(ws_app, _auth_signer, monkeypatch):
+    """Seit 2026-08-19 bekommt eine ANGENOMMENE Sitzung nach einem Abriss erst
+    eine Gnadenfrist (`remote_reconnect_registry.py`), bevor `remote_ended`
+    hinausgeht — die Frist wird hier auf 0 gesetzt, damit dieser Test weiterhin
+    prüft, dass die Meldung am ENDE ankommt, ohne real zu warten. Der eigene
+    Test für die Frist selbst ist `test_remote_reclaim_survives_disconnect`
+    unten."""
+
+    monkeypatch.setattr(remote_reconnect_registry, "REMOTE_DISCONNECT_GRACE_S", 0)
+
     def _run():
         with TestClient(ws_app) as tc:
             owner_token, _, member_token, member_uid, _, cid = _setup_remote(tc, _auth_signer)
@@ -233,6 +244,98 @@ async def test_remote_disconnect_notifies_peer(ws_app, _auth_signer):
                     ended = _drain_for(host_ws, "remote_ended")
                     assert ended["session_id"] == sid
                     assert ended["reason"] == "peer_disconnected"
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_remote_reclaim_survives_disconnect(ws_app, _auth_signer):
+    """Die eigentliche Zusage der Gnadenfrist: reisst der Socket des
+    Steuernden ab und meldet er sich mit einem NEUEN Socket rechtzeitig via
+    `remote_reclaim` zurück, bleibt die Sitzung am Leben — der Host bekommt
+    KEIN `remote_ended`, und Eingabe über den neuen Socket kommt weiter an.
+
+    Bughunt 2026-08-19: eine echte, laufende Sitzung starb an genau so einem
+    Wackler nach 37 s auf dem gemeinsamen Remote-Dev-Stack (jeder Backend-Sync
+    dort laedt `uvicorn --reload` neu und trennt dabei jeden Socket)."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, member_token, member_uid, _, cid = _setup_remote(tc, _auth_signer)
+            with tc.websocket_connect(f"/ws?token={member_token}") as host_ws:
+                skip_init_frames(host_ws)
+                with tc.websocket_connect(f"/ws?token={owner_token}") as ctrl_ws:
+                    skip_init_frames(ctrl_ws)
+                    ctrl_ws.send_json(
+                        {"op": "remote_request", "channel_id": cid, "host_user_id": str(member_uid)}
+                    )
+                    sid = _drain_for(host_ws, "remote_request")["session_id"]
+                    host_ws.send_json({"op": "remote_respond", "session_id": sid, "accept": True})
+                    _drain_for(ctrl_ws, "remote_response")
+                    _drain_for(host_ws, "remote_response")
+                # `ctrl_ws` geschlossen (Ende des `with`) — der Steuernde ist
+                # weg, die Gnadenfrist läuft (Vorgabe 10 s, hier nicht
+                # verändert: der Reclaim kommt lange davor).
+                with tc.websocket_connect(f"/ws?token={owner_token}") as ctrl_ws2:
+                    skip_init_frames(ctrl_ws2)
+                    ctrl_ws2.send_json({"op": "remote_reclaim", "session_id": sid})
+                    reclaimed = _drain_for(ctrl_ws2, "remote_reclaimed")
+                    assert reclaimed["session_id"] == sid
+                    # Eingabe über den NEUEN Socket kommt beim Host an — die
+                    # Sitzung ist wirklich fortgesetzt, nicht nur bestätigt.
+                    ctrl_ws2.send_json(
+                        {
+                            "op": "remote_input",
+                            "session_id": sid,
+                            "slot": 0,
+                            "frames": [base64.b64encode(b"\x02\x00\x00").decode()],
+                        }
+                    )
+                    # Bewusst KEIN `_drain_for` (das überliest jedes Frame mit
+                    # anderem `op` stillschweigend) — hier zählt gerade, DASS
+                    # kein `remote_ended` zwischen der Bestätigung und der
+                    # Eingabe steckt.
+                    gesehen = []
+                    for _ in range(20):
+                        f = host_ws.receive_json()
+                        gesehen.append(f)
+                        if f.get("op") == "remote_input":
+                            break
+                    assert gesehen[-1].get("op") == "remote_input", gesehen
+                    assert gesehen[-1]["session_id"] == sid
+                    assert not any(f.get("op") == "remote_ended" for f in gesehen), gesehen
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_remote_reclaim_wrong_user_rejected(ws_app, _auth_signer):
+    """Ein DRITTER Nutzer darf die Gnadenfrist einer fremden Sitzung nicht für
+    sich beanspruchen — auch nicht, wenn er die Sitzungskennung kennt (sie
+    steht in jedem `remote_ended`/`remote_pending`-Frame und ist kein
+    Geheimnis, nur ein Bezeichner)."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, member_token, member_uid, _, cid = _setup_remote(tc, _auth_signer)
+            bystander_uid = random.randint(1, 1_000_000)
+            bystander_token = _auth_signer.issue_access(bystander_uid, f"u{bystander_uid}")
+            with tc.websocket_connect(f"/ws?token={member_token}") as host_ws:
+                skip_init_frames(host_ws)
+                with tc.websocket_connect(f"/ws?token={owner_token}") as ctrl_ws:
+                    skip_init_frames(ctrl_ws)
+                    ctrl_ws.send_json(
+                        {"op": "remote_request", "channel_id": cid, "host_user_id": str(member_uid)}
+                    )
+                    sid = _drain_for(host_ws, "remote_request")["session_id"]
+                    host_ws.send_json({"op": "remote_respond", "session_id": sid, "accept": True})
+                    _drain_for(ctrl_ws, "remote_response")
+                    _drain_for(host_ws, "remote_response")
+                with tc.websocket_connect(f"/ws?token={bystander_token}") as bystander_ws:
+                    skip_init_frames(bystander_ws)
+                    bystander_ws.send_json({"op": "remote_reclaim", "session_id": sid})
+                    failed = _drain_for(bystander_ws, "remote_reclaim_failed")
+                    assert failed["session_id"] == sid
 
     await asyncio.to_thread(_run)
 

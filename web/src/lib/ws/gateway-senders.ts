@@ -124,6 +124,15 @@ export function sendRemoteEnd(send: SendRaw, sessionId: string): boolean {
   return send({ op: 'remote_end', session_id: sessionId });
 }
 /**
+ * Nach einem Verbindungsabriss zurück, innerhalb der Gnadenfrist: „gib der
+ * Sitzung meinen neuen Socket" (`$lib/remote/wachten.ts`,
+ * `ws_remote_reconnect.py::handle_reclaim`). Antwort ist `remote_reclaimed`
+ * oder `remote_reclaim_failed`, nie stumm.
+ */
+export function sendRemoteReclaim(send: SendRaw, sessionId: string): boolean {
+  return send({ op: 'remote_reclaim', session_id: sessionId });
+}
+/**
  * Eingabe-Frames zum Host (Wire-Protokoll v2, „Die Hülle auf dem Serverweg").
  * `frames` sind Base64 und **in Reihenfolge** — ein Klick, der seine
  * Positionierung überholt, landet am falschen Ort. Gebündelt hat der
