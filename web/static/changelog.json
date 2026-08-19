@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-19.3",
+      "date": "2026-08-19",
+      "style": "Sachlich",
+      "title": "Das Thema eines Kanals ist endlich lesbar",
+      "items": [
+        "Das Thema steht jetzt in einer eigenen Zeile unter dem Kanalnamen, statt als angehängter Halbsatz dahinter. Bisher wurde es schon bei mittlerer Länge mitten im Wort abgeschnitten, ohne dass man den Rest irgendwo nachlesen konnte. Ist es weiterhin zu lang für die Fensterbreite, zeigt ein Verweilen mit der Maus den vollständigen Text.",
+        "In Sprachkanälen hingen zuvor Verbindungsstatus und Thema als zwei Bruchstücke hintereinander in derselben Zeile. Der Status bleibt jetzt oben neben dem Namen, das Thema geht darunter.",
+        "Auf schmalen Fenstern und auf dem Handy war das Thema bisher gar nicht zu sehen — dort steht es jetzt ebenfalls.",
+        "Die Kopfzeile bleibt dabei genauso hoch wie bisher — beim Wechsel zwischen Kanälen mit und ohne Thema springt nichts."
+      ]
+    },
+    {
       "id": "2026-08-19.2",
       "date": "2026-08-19",
       "style": "Sachlich",

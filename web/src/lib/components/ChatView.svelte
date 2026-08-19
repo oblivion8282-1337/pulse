@@ -19,6 +19,7 @@
   import { isElectron } from '$lib/platform/runtime';
   import { canRecoverDroppedFiles, recoverDroppedFiles } from '$lib/platform/electronFiles';
   import { channelNameStyle } from '$lib/utils/nameColor';
+  import ChannelHeading from './ChannelHeading.svelte';
   import { m as pm } from '$lib/paraglide/messages.js';
   import { serverCapabilities } from '$lib/stores/serverCapabilities.svelte';
   import { serversStore } from '$lib/api/servers.svelte';
@@ -220,10 +221,11 @@
       {:else}
         <HashIcon class="text-primary size-5 shrink-0" />
       {/if}
-      <span class="text-text-bright truncate text-lg font-semibold tracking-tight" style={headerKind === 'dm' ? '' : channelNameStyle(channel)} data-testid="active-channel-name">{channel.name}</span>
-      {#if channel.topic}
-        <span class="text-text-muted ml-2 hidden truncate text-sm md:block">· {channel.topic}</span>
-      {/if}
+      <ChannelHeading
+        name={channel.name}
+        topic={channel.topic}
+        nameStyle={headerKind === 'dm' ? '' : channelNameStyle(channel)}
+      />
       {#if showMemberList}
         <Button
           variant="ghost"
