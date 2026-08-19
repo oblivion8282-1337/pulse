@@ -339,9 +339,19 @@ export interface ChannelStreamArg {
  * liegt nicht hier, sondern im Encoder: `h264_amf` bekommt aus Last-Gruenden
  * `usage=ultralowlatency` (`win-hq-sidecar/src/encode/opts.rs`, seit dem
  * 2026-07-30, drittelt die Video-Engine-Last), und diese Einstellung schaltet
- * die rollende Auffrischung von sich aus mit ein. **Das Kaestchen aendert
- * daran nichts.** Ein H.264-Strom auf AMD hat also nach dem Start praktisch
- * kein Vollbild mehr, ganz gleich, was die Oberflaeche glaubt zu bestellen —
+ * die rollende Auffrischung von sich aus mit ein.
+ *
+ * **Hier stand „Das Kaestchen aendert daran nichts" — das gilt seit dem
+ * 2026-08-07 nicht mehr:** `auffrischung.rs::abschalt_optionen_fuer` schaltet
+ * `h264_amf` bei abgewaehltem Haken auf `usage=transcoding` und nimmt die
+ * Auffrischung damit wirklich weg. Der Satz beschreibt also den Stand VOR
+ * diesem Datum. Der Preis dieser Gegenrichtung ist die zweieinhalbfache
+ * Video-Engine-Last, und seit Intra-Refresh abgewaehlt voreingestellt ist,
+ * zahlt ihn jeder AMD-Windows-Stream — das ist dort als offene Entscheidung
+ * vermerkt.
+ *
+ * Beim Stand von damals galt: Ein H.264-Strom auf AMD hat nach dem Start
+ * praktisch kein Vollbild mehr, ganz gleich, was die Oberflaeche bestellt —
  * die Zeile „Vollbilder" im Sidecar-Log ist fuer diesen Encoder nur das
  * Etikett des Wunsches, nicht die Beschreibung des Stroms
  * (`encode/mod.rs::log_encoder_open`).

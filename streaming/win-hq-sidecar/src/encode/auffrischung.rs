@@ -187,9 +187,32 @@ fn optionen_fuer(encoder: &str) -> Option<&'static [(&'static str, &'static str)
 ///
 /// **Der Preis, damit ihn niemand suchen muss:** Video-Engine 26,6 statt
 /// 10,3 Prozent (H.264, 2026-07-30) — zweieinhalbfache Last auf einer iGPU.
-/// Die Bildqualität wird dabei leicht **besser** (+0,4 VMAF). Er trifft nur,
-/// wer ausdrücklich abwählt; die Vorgabe ist seit dem 2026-08-06 Intra-Refresh
-/// und bleibt auf dem billigen Weg.
+/// Die Bildqualität wird dabei leicht **besser** (+0,4 VMAF).
+///
+/// **ACHTUNG, hier stand bis zum 2026-08-19: „Er trifft nur, wer ausdrücklich
+/// abwählt; die Vorgabe ist seit dem 2026-08-06 Intra-Refresh und bleibt auf
+/// dem billigen Weg." Das gilt NICHT mehr.** Seit dem 2026-08-18 ist
+/// Intra-Refresh abgewählt voreingestellt, und H.264 ist der Vorgabe-Codec —
+/// **jeder** AMD-Stream unter Windows nimmt damit den teuren Zweig. Das war
+/// eine unbeabsichtigte Folge des Vorgabe-Wechsels, keine Entscheidung.
+///
+/// **OFFENE ENTSCHEIDUNG (Stand 2026-08-19), drei Wege:**
+///
+/// 1. *Preis annehmen.* Zweieinhalbfache Video-Engine-Last als Normalfall auf
+///    AMD/Windows. Ehrlich, aber teuer — auf einer iGPU teilen sich Encode und
+///    Decode dieselbe Einheit.
+/// 2. *Auf `h264_amf` den billigen Weg behalten* und hinnehmen, dass dort
+///    faktisch die rollende Auffrischung läuft, obwohl das Kästchen aus ist.
+///    Der Einwand von damals — über RTMPS sähe ein Zuschauer dauerhaft nichts —
+///    trägt nicht mehr: der Sendeweg ist seit dem 2026-08-18 IMMER WHIP, der
+///    Rückkanal steht also. Preis: die Oberfläche sagt etwas anderes als der
+///    Strom tut.
+/// 3. *Auf AMD/Windows AV1 bevorzugen.* Dort besteht die Kopplung nicht
+///    (`av1_amf` trägt die Betriebsart über einen eigenen Schalter). Groesster
+///    Eingriff, loest es aber an der Wurzel.
+///
+/// **Was für die Entscheidung fehlt, ist genau eine Zahl** — s. den nächsten
+/// Absatz: die Latenz. Ohne sie ist Weg 1 nicht bewertbar.
 ///
 /// **Was NICHT gemessen ist: die Latenz.** `transcoding` heißt bei AMF
 /// „Generic Transcoding" und stellt Vorlauf und Voranalyse anders ein. Der Wert
