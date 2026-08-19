@@ -838,6 +838,7 @@
   "device_state_busy": "in use",
   "device_state_offline": "offline",
   "device_state_ready": "ready",
+  "device_view_back_to_channel": "Back to channel",
   "device_view_busy_with": "Currently controlled by {user}.",
   "device_view_no_permission": "You lack the permission to take over this device.",
   "device_view_offline_hint": "The device cannot be reached.",

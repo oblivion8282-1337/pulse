@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-19.4",
+      "date": "2026-08-19",
+      "style": "Sachlich",
+      "title": "Geräteansicht: es gibt wieder einen Weg zurück",
+      "items": [
+        "Hattest du einen Rechner in einem Kanal angeklickt, konntest du die Geräteansicht nicht mehr verlassen: Der Klick auf den Kanal, in dem der Rechner steht, blieb wirkungslos — ausgerechnet der naheliegendste Weg zurück. Er funktioniert jetzt.",
+        "Zusätzlich steht links oben in der Geräteansicht ein Knopf „Zurück zum Kanal“. Bisher gab es dort überhaupt keinen sichtbaren Ausgang."
+      ]
+    },
+    {
       "id": "2026-08-19.3",
       "date": "2026-08-19",
       "style": "Sachlich",

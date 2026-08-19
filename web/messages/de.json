@@ -838,6 +838,7 @@
   "device_state_busy": "belegt",
   "device_state_offline": "offline",
   "device_state_ready": "bereit",
+  "device_view_back_to_channel": "Zurück zum Kanal",
   "device_view_busy_with": "Wird gerade von {user} gesteuert.",
   "device_view_no_permission": "Dir fehlt das Recht, dieses Gerät zu übernehmen.",
   "device_view_offline_hint": "Das Gerät ist nicht erreichbar.",

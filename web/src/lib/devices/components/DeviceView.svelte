@@ -29,6 +29,7 @@
   import PlayIcon from '@lucide/svelte/icons/play';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import EyeIcon from '@lucide/svelte/icons/eye';
+  import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import { Button } from '$lib/components/ui/button/index.js';
   import type { Device, DeviceMonitor } from '$lib/api/devices';
   import { schirmWarten, schirmeVon, zusehen } from '$lib/devices/schirme.svelte';
@@ -104,9 +105,28 @@
      Rand; ohne `glass-panel` fehlt die Fläche, auf der jede andere Ansicht
      sitzt. Wer hier etwas ändert, gleicht mit den Geschwistern ab. -->
 <div
-  class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-6 rounded-none p-8 md:rounded-2xl"
+  class="glass-panel relative flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-6 rounded-none p-8 md:rounded-2xl"
   data-testid="device-view"
 >
+  <!-- **Der Weg zurück** (2026-08-19). Die Ansicht ersetzt die Kanalansicht im
+       ganzen Hauptbereich, hatte aber keinen Ausgang: der Klick auf den Kanal,
+       IN dem das Gerät steht, kürzte in `selectChannel` als „schon da" ab (das
+       Gerät steht in der Adresse, nicht der Kanal), und einen Zurück-Knopf gab
+       es nicht. Wer ein Gerät einmal geöffnet hatte, kam nur über einen anderen
+       Kanal oder den Zurück-Knopf des Browsers wieder heraus — im Electron-
+       Fenster also gar nicht. Der Knopf sitzt in der Ecke statt in der Mitte:
+       die Mitte gehört dem Übernehmen. -->
+  <Button
+    variant="ghost"
+    size="sm"
+    class="text-text-muted absolute left-3 top-3 gap-1.5"
+    onclick={() => onOpenChannel(device.channel_id)}
+    data-testid="device-view-back"
+  >
+    <ArrowLeftIcon class="size-4" />
+    {m.device_view_back_to_channel()}
+  </Button>
+
   <div class="flex flex-col items-center gap-3 text-center">
     <span class="border-text-muted/40 text-text-muted grid size-16 place-items-center rounded-xl border">
       <MonitorIcon class="size-8" />
