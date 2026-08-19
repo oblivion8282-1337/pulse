@@ -95,7 +95,19 @@ pub fn log_encoder_open(
     ten_bit: bool,
 ) {
     let tiefe = if ten_bit { 10 } else { 8 };
-    let auffrischung = if auffrischung::gewuenscht() { "Intra-Refresh" } else { "Vollbilder" };
+    // Drei Zustaende, nicht zwei. Der dritte ist seit dem 2026-08-19 der
+    // Regelfall auf `h264_amf`: Vollbilder sind verlangt, die Auffrischung
+    // laeuft trotzdem mit (sie haengt an der sparsamen Betriebsart), und die
+    // Vollbilder kommen aus dem Selbsttakt. Das GEHOERT in die Zeile — sie ist
+    // die Stelle, an der man nachsieht, was wirklich lief, und „Vollbilder"
+    // allein verschwiege die Haelfte.
+    let auffrischung = if auffrischung::gewuenscht() {
+        "Intra-Refresh"
+    } else if auffrischung::braucht_selbsttakt(codec_name) {
+        "Vollbilder selbst getaktet, Auffrischung laeuft mit"
+    } else {
+        "Vollbilder"
+    };
     eprintln!(
         "[encode] Encoder offen: {codec_name} (vendor={vendor}, {width}x{height}@{fps}, \
          {bitrate_kbps} kbps, {tiefe} bit, {auffrischung})"

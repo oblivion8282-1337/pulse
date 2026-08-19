@@ -125,15 +125,20 @@ pub(crate) fn vendor_encoder_opts(
             // Notausgang. 0,4 VMAF für zweieinhalbfach weniger Video-Engine ist
             // trotzdem der richtige Tausch, und zwar erst recht auf einer iGPU.
             //
-            // **Dieser Wert ist NICHT das letzte Wort, seit dem 2026-08-07.**
-            // Bei `h264_amf` bringt `ultralowlatency` die rollende Auffrischung
-            // mit — wer sie abwählt, bekam sie trotzdem, und der Zuschauer sah
-            // über RTMPS gar nichts. `auffrischung::anwenden` überschreibt den
-            // Wert deshalb mit `transcoding`, wenn die Betriebsart ausdrücklich
-            // NICHT verlangt ist. Es läuft direkt nach dieser Funktion, und die
-            // Begründung samt Messtabelle steht dort
-            // (`auffrischung::abschalt_optionen_fuer`). Wer hier liest und die
-            // Zeile für unbedingt hält, liegt falsch.
+            // **Hier stand vom 2026-08-07 bis zum 2026-08-19: „Dieser Wert ist
+            // NICHT das letzte Wort — `auffrischung::anwenden` überschreibt ihn
+            // mit `transcoding`, wenn die Betriebsart nicht verlangt ist." Das
+            // gilt nicht mehr: der Wert ist wieder unbedingt.**
+            //
+            // Der Grund für die Rücknahme ist gemessen (2026-08-19, Radeon
+            // 780M, 1080p60): das Überschreiben kostete **25,2 statt 10,2
+            // Prozent Video-Engine**, weil `transcoding` die ganze Voranalyse
+            // zurückbringt — und seit dem 2026-08-18 traf das nicht mehr nur
+            // den, der ausdrücklich abwählte, sondern jeden AMD-Stream.
+            // Dieselbe Zusage (echte Vollbilder für den einsteigenden
+            // Zuschauer) löst jetzt `keyframe::Selbsttakt` ein, ohne die
+            // sparsame Betriebsart aufzugeben. Herleitung und Messtabelle in
+            // `auffrischung::braucht_selbsttakt`.
             opts.set("usage", "ultralowlatency");
             // **`quality` wirkt bei den beiden Encodern verschieden**, und der
             // Satz „unter `ultralowlatency` wirkungslos" galt nur für AV1:
