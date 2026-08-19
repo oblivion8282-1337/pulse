@@ -255,7 +255,41 @@ function startService(name: string, env: NodeJS.ProcessEnv, port: number, cwd: s
   procs.push(p);
 }
 
+/**
+ * Die Infrastruktur hochfahren, auf der die Suite steht.
+ *
+ * **Warum das hier stehen MUSS** (2026-08-19): Bis dahin setzte `globalSetup`
+ * die Container einfach voraus und rief nur `compose exec` hinein. Fehlte einer,
+ * scheiterte nicht der Aufbau, sondern es fielen einzelne TESTS — und zwar
+ * immer dieselben, was wie ein Bestand aussah statt wie eine fehlende
+ * Voraussetzung. In `CLAUDE.md` stand jahrelang eine „Grundlinie: 98 gruen,
+ * 4 rot" mit `attachments` und `dropbox` darunter. Beide laden Dateien hoch,
+ * beide brauchen den Objektspeicher, und `dcc_night_minio` war schlicht nicht
+ * gestartet: mit laufendem MinIO sind sie sofort gruen (6/6 nachgefahren).
+ *
+ * Vier dauerhaft rote Tests sind vier Tests, die keine Regression mehr melden
+ * koennen — deshalb wird die Voraussetzung jetzt hergestellt statt angenommen.
+ *
+ * `up -d` ist idempotent und laesst laufende Container in Ruhe. `minio-init`
+ * legt den Bucket an und beendet sich (Exit 0) — das ist kein Fehler.
+ */
+function ensureInfra() {
+  const cwd = resolve(__dirname, '../../..');
+  try {
+    execSync(`${COMPOSE} up -d postgres redis minio minio-init`, { cwd, stdio: 'ignore' });
+  } catch (e) {
+    // Laut, nicht still: ohne Infrastruktur scheitert die Suite ohnehin, aber
+    // sie soll es HIER sagen und nicht als Testfehlschlag zwanzig Zeilen
+    // spaeter.
+    throw new Error(
+      `Die Test-Infrastruktur liess sich nicht starten (${COMPOSE} up -d postgres redis minio minio-init). ` +
+        `Laeuft der Container-Dienst? Ursprungsfehler: ${e}`
+    );
+  }
+}
+
 export default async function globalSetup() {
+  ensureInfra();
   const dotenv = loadDotenv(resolve(ROOT, '.env'));
   const pgUser = dotenv.POSTGRES_USER ?? 'dcc';
   const pgPort = dotenv.POSTGRES_PORT ?? '5434';
