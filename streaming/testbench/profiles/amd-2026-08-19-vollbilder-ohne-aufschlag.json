@@ -46,6 +46,17 @@
     "vollbilder": "3 in 8746 Bildern (Start + 60 s + 120 s)",
     "logzeile": "Encoder offen: h264_amf (..., Vollbilder selbst getaktet, Auffrischung laeuft mit)"
   },
+  "ruecknahme_am_selben_tag": {
+    "was_behauptet_wurde": "Der Strom traegt nach dem Fix beides: periodische Vollbilder UND die rollende Auffrischung, die weiterhin Paketverluste repariert. So stand es in der Logzeile ('Auffrischung laeuft mit'), im Commit und in drei Doc-Kommentaren.",
+    "warum_zurueckgenommen": "Der Nutzer sieht den Auffrischungs-Wischer NUR bei ausdruecklich eingeschalteter Auffrischung, nicht in dieser Betriebsart -- bei einem sichtbaren Effekt ist das ein starkes Gegenindiz. Drei Nachweisversuche sind gescheitert.",
+    "versuche": [
+      "Bitstrom-Spur: constrained_intra_pred_flag = 0 und kein recovery point -- aber ebenso in der ausdruecklich eingeschalteten Auffrischung. Das Merkmal taugt fuer h264_amf nicht, AMD macht es anders.",
+      "Blockkarten (-debug mb_type): der ausgelieferte FFmpeg-Bau gibt sie nicht aus.",
+      "Schadenstest: je ein Bild mit Inhalt an neun Stellen entfernt, Erholung an Bild-Pruefsummen gemessen. Vollbilder 4 von 9 erholt (Mittel 1,43 s), mit Auffrischung 4 von 9 (Mittel 1,85 s) -- kein Unterschied. Einschraenkung: das Pruefbild war Rauschen, das sich ohnehin laufend neu aufbaut; der Test misst dort womoeglich gar nicht die Auffrischung."
+    ],
+    "was_stehen_bleibt": "Gemessen ist, DASS usage=ultralowlatency den bestellten Vollbild-Takt unterdrueckt (1 statt des bestellten Takts) -- der Grund fuer den Selbsttakt steht also. Ebenso stehen alle Lastzahlen. Offen ist allein, was der Encoder anstelle der Vollbilder tut.",
+    "folge": "Keine Aussage ueber die Verlust-Robustheit von H.264 darf sich auf diese Betriebsart stuetzen, solange sie nicht gemessen ist. Die naheliegendere Erklaerung fuer die beobachtete Robustheit liegt beim EMPFAENGER: H.264-Decoder ueberdecken Fehler und zeigen weiter, waehrend dav1d bei fehlenden Bezuegen gar kein Bild ausgibt (Lab-Notiz 2026-07-29). Nicht gemessen."
+  },
   "latenz_nachtrag": {
     "frage": "Die Encoder-Zeit liegt bei allen AMF-Armen auf 17,0 ms — auffaellig genau ein Bild bei 60 fps. Laesst sie sich senken?",
     "vorgehen": "Alles selbst nachgemessen, nichts aus frueheren Notizen uebernommen.",

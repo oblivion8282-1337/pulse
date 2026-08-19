@@ -202,12 +202,12 @@ fn optionen_fuer(encoder: &str) -> Option<&'static [(&'static str, &'static str)
 fn abschalt_optionen_fuer(encoder: &str) -> &'static [(&'static str, &'static str)] {
     match encoder {
         // **Seit dem 2026-08-19 steht hier NICHTS mehr**, und das ist der
-        // eigentliche Fix: `usage=transcoding` schaltete die Auffrischung zwar
-        // ab, nahm dabei aber die sparsame Betriebsart mit — 25,2 statt 10,2
-        // Prozent Video-Engine, gemessen auf dieser Karte. Die Vollbilder
-        // kommen stattdessen aus `keyframe::Selbsttakt`, die Auffrischung
-        // laeuft daneben weiter. Volle Herleitung dort und in
-        // [`braucht_selbsttakt`].
+        // eigentliche Fix: `usage=transcoding` holte den Vollbild-Takt zwar
+        // zurueck, nahm dabei aber die sparsame Betriebsart mit — 25,2 statt
+        // 10,2 Prozent Video-Engine, gemessen auf dieser Karte. Die Vollbilder
+        // kommen stattdessen aus `keyframe::Selbsttakt`. Was der Encoder in der
+        // sparsamen Betriebsart sonst noch tut, ist damit ausdruecklich NICHT
+        // behauptet — siehe [`braucht_selbsttakt`].
         "h264_amf" => &[],
         // Alle übrigen frischen nur auf Ansage auf — `h264_d3d12va` frischt
         // zwar durchgehend auf, ersetzt den Vollbild-Takt dabei aber NICHT
@@ -243,13 +243,33 @@ fn abschalt_optionen_fuer(encoder: &str) -> &'static [(&'static str, &'static st
 /// gar kein `usage` und kostet dieselben 25,2 %. Teuer ist also nicht die
 /// Umschaltung, sondern alles, was NICHT `ultralowlatency` ist.
 ///
-/// **Was dabei ehrlich bleiben muss:** der Strom trägt danach beides — die
-/// rollende Auffrischung UND periodische Vollbilder. Das ist kein Etikett auf
-/// einer anderen Sache, sondern ein Strom mit einer Eigenschaft mehr; die Zeile
-/// „Encoder offen" sagt es deshalb ausdrücklich (`encode/mod.rs`). Für den
-/// Zuschauer ändert sich nichts zum Schlechteren: er steigt am Vollbild ein
-/// statt an der Auffrischungswelle, und die Welle repariert weiterhin
-/// Paketverluste zwischen zwei Vollbildern.
+/// **Was dabei NICHT behauptet werden darf** — und hier stand am 2026-08-19
+/// zwischenzeitlich das Gegenteil: dass der Strom danach beides trage, die
+/// rollende Auffrischung UND periodische Vollbilder, und die Welle weiterhin
+/// Paketverluste repariere.
+///
+/// Belegt ist nur die eine Hälfte: `usage=ultralowlatency` **unterdrückt den
+/// bestellten Vollbild-Takt** (2026-08-02 gezählt, 2026-08-19 nachgemessen).
+/// Dass an seine Stelle eine rollende Auffrischung tritt, ist auf dieser
+/// Maschine **nicht nachgewiesen**, und drei Versuche sind daran gescheitert:
+///
+/// * Im Bitstrom keine Spur (`constrained_intra_pred_flag = 0`, kein recovery
+///   point) — allerdings auch nicht bei ausdrücklich eingeschalteter
+///   Auffrischung, das Merkmal taugt für `h264_amf` also nicht.
+/// * Ein Schadenstest über neun Schnittstellen (je ein Bild mit Inhalt
+///   entfernt, Erholung an Bild-Prüfsummen gemessen) trennte die beiden
+///   Betriebsarten nicht: 4 von 9 erholt auf beiden Seiten. Das Prüfbild war
+///   Rauschen, das sich ohnehin laufend neu aufbaut — der Test misst dort
+///   womöglich gar nicht die Auffrischung.
+/// * Der Nutzer sieht den Auffrischungs-Wischer **nur** bei ausdrücklich
+///   eingeschalteter Auffrischung, nicht in dieser Betriebsart. Das ist das
+///   stärkste Gegenindiz und stammt nicht aus einem Messgerät, sondern aus dem
+///   Auge — bei einem sichtbaren Effekt zählt das.
+///
+/// Für den Selbsttakt ändert das nichts: er wird gebraucht, weil der bestellte
+/// Takt ausbleibt, und dieser Grund steht. Wohl aber für jede Aussage über die
+/// Verlust-Robustheit von H.264 — die darf sich auf diese Betriebsart **nicht**
+/// stützen, solange sie nicht gemessen ist.
 pub fn braucht_selbsttakt(encoder: &str) -> bool {
     !gewuenscht() && matches!(optionen_fuer(encoder), Some(liste) if liste.is_empty())
 }

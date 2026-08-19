@@ -96,15 +96,30 @@ pub fn log_encoder_open(
 ) {
     let tiefe = if ten_bit { 10 } else { 8 };
     // Drei Zustaende, nicht zwei. Der dritte ist seit dem 2026-08-19 der
-    // Regelfall auf `h264_amf`: Vollbilder sind verlangt, die Auffrischung
-    // laeuft trotzdem mit (sie haengt an der sparsamen Betriebsart), und die
-    // Vollbilder kommen aus dem Selbsttakt. Das GEHOERT in die Zeile — sie ist
-    // die Stelle, an der man nachsieht, was wirklich lief, und „Vollbilder"
-    // allein verschwiege die Haelfte.
+    // Regelfall auf `h264_amf`: Vollbilder sind verlangt, der Encoder liefert
+    // den bestellten Takt aber nicht von sich aus, also kommen sie aus dem
+    // Selbsttakt. Das gehoert in die Zeile — sie ist die Stelle, an der man
+    // nachsieht, was wirklich lief.
+    //
+    // **Hier stand am 2026-08-19 zwischenzeitlich „Vollbilder selbst getaktet,
+    // Auffrischung laeuft mit". Das war zu viel behauptet und ist noch am
+    // selben Tag zurueckgenommen worden.** Gemessen ist, DASS die sparsame
+    // Betriebsart den bestellten Vollbild-Takt unterdrueckt (1 Vollbild statt
+    // des bestellten Takts). NICHT gemessen ist, dass sie ihn durch eine
+    // rollende Auffrischung ersetzt: im Bitstrom findet sich in dieser
+    // Betriebsart keine Spur davon (weder `constrained_intra_pred_flag` noch
+    // ein recovery point — und zwar in der ausdruecklich eingeschalteten
+    // Auffrischung genauso wenig, die Suche taugt hier also nicht), und ein
+    // Schadenstest ueber neun Schnittstellen trennte die beiden Betriebsarten
+    // nicht (4 von 9 erholt auf beiden Seiten). Der Nutzer sieht den
+    // Auffrischungs-Wischer ausserdem nur bei ausdruecklich eingeschalteter
+    // Auffrischung, nicht hier — was gegen die Behauptung spricht.
+    //
+    // Die Zeile sagt deshalb nur noch, was sie belegen kann.
     let auffrischung = if auffrischung::gewuenscht() {
         "Intra-Refresh"
     } else if auffrischung::braucht_selbsttakt(codec_name) {
-        "Vollbilder selbst getaktet, Auffrischung laeuft mit"
+        "Vollbilder selbst getaktet"
     } else {
         "Vollbilder"
     };
