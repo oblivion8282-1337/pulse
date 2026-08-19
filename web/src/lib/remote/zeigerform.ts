@@ -203,9 +203,14 @@ class RemoteZeigerform {
     this.#bildId = kennung;
     // Nur die Vollform aufheben: ein später angehängtes Fenster kann mit einer
     // blossen Kennung nichts anfangen, sein Player hat noch keinen Vorrat.
-    // Fällt das Bild ganz weg (Standardzeiger), fällt auch das Gemerkte weg.
+    // **Und das Gemerkte muss zur Kennung passen.** Bei der Kurzform `{id}`
+    // steht das Bild nicht in der Meldung, sondern im Vorrat des Players —
+    // hier bliebe sonst das Bild des VORIGEN Zeigers liegen, während `#bildId`
+    // schon auf den neuen zeigt, und `setSenke` reichte einem zweiten
+    // Player-Fenster die falsche Form. Passt die Kurzform zum Gemerkten, bleibt
+    // es; sonst (und wenn das Bild ganz wegfällt) fällt es weg.
     if (gueltigesBild?.daten) this.#bild = gueltigesBild;
-    else if (!gueltigesBild) this.#bild = undefined;
+    else if (this.#bild?.id !== kennung) this.#bild = undefined;
     this.#senke?.(gueltig, gueltigesBild);
   }
 

@@ -46,13 +46,16 @@
  * Der `remote_signal`-Weiterleiter des Gateways trägt dagegen in beide
  * Richtungen und ist an die per Consent bestätigte Sitzung gebunden. Er
  * verwirft allerdings über seinem Sekundendeckel **still** — deshalb wiederholt
- * der Sidecar einen geltenden Vorrang einmal je Sekunde, und deshalb steht hier
- * eine Geduld, die einen verlorenen Schluss auffängt.
+ * der Sidecar einen geltenden Vorrang einmal je Sekunde, deshalb **reicht der
+ * Host diese Wiederholung durch** (gedeckelt, s. [`./vorrangTakt`]) statt sie
+ * am Flankenfilter zu verschlucken, und deshalb steht hier eine Geduld, die
+ * einen verlorenen Schluss auffängt.
  */
 
 import type { RemoteSignalKind } from '$lib/ws/handlers/types';
 import { remoteP2P } from './p2p';
 import { aufSidecarEreignisse } from './sidecarInput';
+import { VorrangBuch, hostMeldungWeiterreichen, restZeit } from './vorrangTakt';
 import { WachtSchalter, anfrageFrist } from './wachten';
 
 type SignalSender = (kind: RemoteSignalKind, data: unknown) => boolean;
@@ -61,43 +64,36 @@ type FrameSender = (frames: string[]) => void;
 /**
  * Wie lange der Steuernde ohne Auffrischung noch an einen Vorrang glaubt.
  *
- * Der Sidecar wiederholt ihn je Sekunde; drei Sekunden Schweigen heißen also,
- * dass Meldungen verlorengehen oder der Sidecar weg ist. Dann wird der Vorrang
- * als beendet behandelt — und nachgezogen. Kommt danach doch noch eine
- * Auffrischung, gilt er wieder; ein überzähliges Nachziehen behauptet nur
- * Tasten erneut, die der Host ohnehin gerade verwirft.
+ * **Gerechnet wird mit dem Takt des SENDERS, nicht mit dem Deckel des Hosts.**
+ * Der Sidecar wiederholt einen geltenden Vorrang je Sekunde
+ * (`vorrangTakt.ts::SIDECAR_TAKT_MS`); `AUFFRISCH_MS` (0,9 s) begrenzt das
+ * Durchreichen nur nach oben und macht daraus keine 0,9 s. Zwei verlorene
+ * Auffrischungen ergeben deshalb ein Schweigen von 3 × 1 s — mit den früheren
+ * 3 s Geduld war das exakt der Grenzfall, und `vorrang.rs::tick()` überspringt
+ * seinen Zähler zusätzlich, wenn die Sitzungssperre gerade belegt ist, der
+ * Abstand wächst unter Eingabelast also über eine Sekunde. Vier Sekunden
+ * lassen zwei Verluste sicher durchgehen.
+ *
+ * **Nach oben ist sie auch nicht frei:** sie ist die Zeit, die ein Steuernder
+ * im schlimmsten Fall fälschlich für gesperrt hält, nachdem der Host längst
+ * freigegeben hat. Deshalb eine Sekunde Reserve und nicht fünf.
+ *
+ * Läuft sie ab, gilt der Vorrang als beendet — und wird nachgezogen. Kommt
+ * danach doch noch eine Auffrischung, gilt er wieder; ein überzähliges
+ * Nachziehen behauptet nur Tasten erneut, die der Host ohnehin gerade
+ * verwirft.
  *
  * (Dieser Zeitgeber ist der einzige hier, und er ist nur das Netz — der
  * Regelweg ist ereignisgetrieben. Chromium drosselt Zeitgeber in verdeckten
  * Fenstern, s. `wachten.ts`; ein spät auslösendes Netz ist hinnehmbar, ein
  * spät bemerkter Vorrang wäre es nicht.)
  */
-const GEDULD_MS = 3_000;
-
-/** Obergrenze für eine gemeldete Restzeit — die Wache hält Sekunden, nicht
- *  Tage. Schützt die Anzeige vor `Infinity` und absurden Zahlen. */
-const REST_MAX_MS = 60_000;
-
-/** Eine gemeldete Restzeit auf etwas Anzeigbares bringen. */
-function restZeit(wert: unknown): number {
-  if (typeof wert !== 'number' || !Number.isFinite(wert) || wert <= 0) return 0;
-  return Math.min(wert, REST_MAX_MS);
-}
+const GEDULD_MS = 4_000;
 
 /** Was im Statistik-Feld des Player-Fensters steht, solange der Host übernimmt. */
 function anzeige(restMs: number): string {
   const sekunden = Math.max(1, Math.round(restMs / 1000));
   return `Der Streamer steuert gerade selbst (bis zu ${sekunden} s)`;
-}
-
-/** Die Meldung des Sidecars, auf das Nötige eingedampft. `null` = geht uns
- *  nichts an (etwa `input_error` — den behandelt der fail-closed-Weg). */
-function ausMeldung(ev: unknown): { aktiv: boolean; restMs: number } | null {
-  if (!ev || typeof ev !== 'object') return null;
-  const m = ev as { ev?: unknown; state?: unknown; hold_ms?: unknown };
-  if (m.ev !== 'remote_state') return null;
-  if (m.state !== 'host_active' && m.state !== 'live') return null;
-  return { aktiv: m.state === 'host_active', restMs: restZeit(m.hold_ms) };
 }
 
 class RemoteVorrang {
@@ -107,24 +103,10 @@ class RemoteVorrang {
   /** Abmelder der Sidecar-Ereignisse (nur beim Host gesetzt). */
   #abmelden: (() => void) | null = null;
   /**
-   * Welche Stream-Plätze gerade Vorrang melden, und **bis wann** ihre Meldung
-   * noch gilt.
-   *
-   * **Warum je Platz:** je Platz läuft ein eigener Sidecar-Prozess mit eigener
-   * Wache, und alle sehen denselben Host. Ihre Meldungen kommen dicht
-   * hintereinander — ein einzelner Schalter würde vom `live` des einen Platzes
-   * zurückgesetzt, während der andere noch übernommen hat.
-   *
-   * **Warum mit Verfallszeit** (Bughunt 2026-08-14): ein Platz verließ die
-   * Menge früher nur über sein eigenes `live`. Endete sein Stream *während*
-   * eines Vorrangs — etwa weil der Host mit genau dieser Handbewegung den
-   * zweiten Stream beendet —, kam dieses `live` nie: der Sidecar fährt herunter
-   * und meldet nichts mehr. Der Vorrang klemmte dann für den Rest der Sitzung
-   * auf „aktiv", die Anzeige blieb stehen, und vor allem lief das Nachziehen
-   * nie wieder. Ein Platz, dessen Meldung nicht aufgefrischt wird, fällt jetzt
-   * von selbst heraus.
+   * Die Plätze, die gerade Vorrang melden, samt Sendetakt — reine Rechnung,
+   * deshalb nebenan und prüfbar ([`./vorrangTakt`]).
    */
-  readonly #plaetze = new Map<number, number>();
+  readonly #buch = new VorrangBuch();
   #aktiv = false;
   /** Netz für einen verlorenen Schluss (s. [`GEDULD_MS`]), nur beim Steuernden. */
   readonly #geduld = new WachtSchalter();
@@ -162,7 +144,7 @@ class RemoteVorrang {
     this.#rolle = null;
     this.#sendSignal = null;
     this.#sendInput = null;
-    this.#plaetze.clear();
+    this.#buch.leeren();
     this.#aktiv = false;
   }
 
@@ -185,44 +167,20 @@ class RemoteVorrang {
   // ── Host-Seite ────────────────────────────────────────────────────────────
 
   #vomSidecar(ev: unknown): void {
-    const meldung = ausMeldung(ev);
-    if (meldung === null || this.#rolle !== 'host') return;
-    const slot = (ev as { slot?: unknown }).slot;
-    // Ohne Platz in der Meldung zählt sie als Platz 0 — die Brücke hängt ihn
-    // an jedes Sidecar-Ereignis an, aber darauf zu BAUEN hieße, dass eine
-    // ältere Shell den Vorrang wortlos verlöre.
-    const platz = typeof slot === 'number' && Number.isInteger(slot) ? slot : 0;
-    const jetzt = Date.now();
-    if (meldung.aktiv) {
-      // Die Auffrischung kommt je Sekunde; die Restzeit plus eine Sekunde
-      // Reserve ist die Zeit, nach der diese Meldung als überholt gilt.
-      this.#plaetze.set(platz, jetzt + meldung.restMs + 1_000);
-    } else {
-      this.#plaetze.delete(platz);
-    }
-    // Verfallene Plätze aussortieren — hier statt in einem Zeitgeber, weil
-    // Chromium Zeitgeber in verdeckten Fenstern drosselt und der Host
-    // typischerweise im Vollbild spielt (s. `wachten.ts`). Solange irgendein
-    // Sidecar lebt, kommt je Sekunde ein Ereignis; stirbt der letzte, bleibt
-    // die Sperre stehen, bis das nächste Ereignis sie räumt — und ohne
-    // laufenden Sidecar kommt ohnehin keine Eingabe mehr durch.
-    for (const [p, bis] of this.#plaetze) {
-      if (bis <= jetzt) this.#plaetze.delete(p);
-    }
-
-    const aktiv = this.#plaetze.size > 0;
-    if (aktiv === this.#aktiv) return;
-    this.#aktiv = aktiv;
-    // Der Steuernde erfährt es; hier ist nichts weiter zu tun — der Host
-    // bemerkt seine eigene Übernahme daran, dass sein Rechner gehorcht.
-    //
-    // Geht die Meldung nicht hinaus (Verbindungs-Blip), wird sie hier NICHT
-    // wiederholt: das tut der Sidecar von sich aus je Sekunde, solange der
-    // Vorrang gilt. Ein stiller Verlust im Gateway-Deckel heilt darüber
-    // ebenfalls — deshalb steht hier nur eine Zeile fürs Protokoll.
-    if (this.#sendSignal?.('vorrang', { aktiv, rest_ms: meldung.restMs }) === false) {
-      console.warn('[remote-vorrang] Meldung ging nicht hinaus — der Steuernde sieht sie nicht');
-    }
+    // Hier steht bewusst KEINE Bedingung mehr ausser der Rolle: die
+    // Entscheidung, ob eine Meldung hinausgeht, liegt vollständig in
+    // [`hostMeldungWeiterreichen`] — dort ist sie geprüft. Vorher stand sie
+    // hier, und ein wieder eingesetzter Flankenfilter blieb von allen Tests
+    // unbemerkt (Prüferbefund 2026-08-19). `vorrang-takt.test.ts` hält diese
+    // Verdrahtung jetzt fest.
+    if (this.#rolle !== 'host') return;
+    const aktiv = hostMeldungWeiterreichen(
+      this.#buch,
+      ev,
+      Date.now(),
+      (signal) => this.#sendSignal?.('vorrang', signal) !== false,
+    );
+    if (aktiv !== null) this.#aktiv = aktiv;
   }
 
   // ── Steuernden-Seite ──────────────────────────────────────────────────────
