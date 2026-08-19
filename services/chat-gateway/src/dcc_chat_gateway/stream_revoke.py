@@ -66,6 +66,15 @@ async def revoke_read_tokens_for_viewer(
     den Token-Datensatz selbst (damit das bereits ausgehändigte Token sofort
     ungültig ist — das ist der eigentliche Zweck).
 
+    **Diese Suche ist der EINZIGE Weg zu einem ausgehändigten Token** — der
+    Token-Datensatz selbst kennt Kanal und Streamer, aber nicht den Zuschauer,
+    und ein Token ohne Nachschlage-Schlüssel wäre deshalb bis zum Ablauf seiner
+    Stunde nicht sperrbar. Hergestellt wird die Zuordnung an genau einer Stelle,
+    und zwar unteilbar: ``media-svc``s ``_read_token_fuer`` schreibt Datensatz
+    und Zeiger in einem Lua-Schritt und fasst einen fremden Zeiger nie an (dort
+    ausführlich begründet). Wer dort etwas ändert, ändert die Wirksamkeit dieses
+    Banns mit.
+
     **Auf die Community eingegrenzt**, genau wie
     ``end_remote_sessions_for_member`` nebenan: wer aus Server A fliegt, darf
     seine laufenden Übertragungen in Server B nicht verlieren. Die Community
