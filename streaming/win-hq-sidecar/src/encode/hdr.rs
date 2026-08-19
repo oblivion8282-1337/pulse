@@ -37,7 +37,7 @@
 use anyhow::{Result, bail};
 use ffmpeg_next as ffmpeg;
 
-use super::codec::VideoCodec;
+use super::codec::{EncodePath, VideoCodec};
 use crate::capture::CaptureSource;
 use crate::system::hdr::SchirmFarbe;
 
@@ -163,11 +163,46 @@ pub fn verfuegbar(vendor: &str, codecs: &[String]) -> bool {
 /// beim Schirm-Fall ist die Abhilfe ein Windows-Schalter, beim Codec-Fall ein
 /// anderes Kästchen in derselben Maske.
 pub fn pruefen(
+    disable_zc: bool,
+    pfad: EncodePath,
     vendor: &str,
     codec: VideoCodec,
     push_url: &str,
     quelle: &CaptureSource,
 ) -> Result<SchirmFarbe> {
+    // **Der Schalter zuerst, wie bei [`super::zehnbit::pruefen`]** — und aus
+    // demselben Grund. Bis zum 2026-08-19 bekam diese Funktion `disable_zc`
+    // gar nicht: sie fragte nur `encoder_name`, und der wertet
+    // `encode_path` VOR dem Schalter aus. Mit
+    // `PULSE_HQ_DISABLE_ZERO_COPY=1` auf einer AMD- oder NVIDIA-Karte kam
+    // deshalb `av1_amf`/`av1_nvenc` heraus, `traegt_hdr` sagte Ja, der Start
+    // lief durch — und `run_pipeline` schickte den Stream danach an allen drei
+    // Zweigen vorbei in `run_cpu_pipeline`, die weder `hdr::signalisieren`
+    // ruft noch in scRGB aufnimmt. Ergebnis: SDR/8 bit unter dem HDR-Etikett,
+    // also genau der Ausgang, gegen den es dieses Modul gibt. Der Modulkopf
+    // von `run_pipeline` verlangt hier ausdrücklich die Absage für ALLE drei
+    // Wege — die ist ohne den Schalter nicht zu haben.
+    if disable_zc {
+        bail!(
+            "HDR verlangt, aber PULSE_HQ_DISABLE_ZERO_COPY erzwingt den CPU-Weg — der nimmt \
+             BGRA entgegen, hat keinen Farbwandler nach PQ/BT.2020 und liefert immer 8 bit. \
+             HDR und dieser Schalter schließen sich aus: entweder den Schalter weglassen, oder \
+             ohne HDR starten."
+        );
+    }
+    // Der EFFEKTIVE Encode-Weg, nicht nur der Encoder-Name. Dass der D3D12-
+    // und der CPU-Weg heute auch über `traegt_hdr` durchfallen, ist ein
+    // Nebeneffekt der Namenstabelle und keine Zusage — diese Zeile sagt es
+    // ausdrücklich und nennt den Weg, statt einen Encoder-Namen zu nennen,
+    // der den Nutzer an der falschen Stelle suchen lässt.
+    if pfad != EncodePath::D3d11ZeroCopy {
+        bail!(
+            "HDR verlangt, aber dieser Stream liefe über {pfad:?} — nur der D3D11-Weg trägt den \
+             Farbwandler nach PQ/BT.2020 (encode/farbraum.rs); der D3D12- und der CPU-Weg nehmen \
+             fest BGRA entgegen. Abhilfe: auf NVIDIA/AMD mit AV1 streamen und den \
+             Gegenprobe-Schalter PULSE_HQ_AMD_D3D12 ausgeschaltet lassen."
+        );
+    }
     let Some(encoder) = encoder_name(vendor, codec, push_url) else {
         bail!("HDR verlangt, aber für {vendor} mit {codec:?} gibt es hier gar keinen Encoder");
     };
@@ -333,6 +368,47 @@ mod tests {
     fn nur_nvenc_meldet_die_fehlenden_mastering_angaben() {
         assert!(mastering_fehlt("av1_nvenc").is_some());
         assert!(mastering_fehlt("av1_amf").is_none());
+    }
+
+    /// **Der nachgetragene Fehler (2026-08-19), gegenprobt.** Der Schalter
+    /// erzwingt den CPU-Weg, auch wenn `pfad` (roh, vor dem Schalter
+    /// ausgewertet) D3d11ZeroCopy sagt und der Encoder-Name HDR trüge. Ohne
+    /// diese Prüfung lief ein HDR-Start unter dem Schalter durch und endete in
+    /// `run_cpu_pipeline` — SDR/8 bit unter dem HDR-Etikett.
+    ///
+    /// Beide Absagen greifen VOR jeder DXGI-Abfrage, der Test braucht deshalb
+    /// weder Bildschirm noch HDR-Schalter der Maschine.
+    #[test]
+    fn disable_zc_bricht_ab_und_nennt_den_schalter() {
+        let fehler = pruefen(
+            true,
+            EncodePath::D3d11ZeroCopy,
+            "amd",
+            VideoCodec::Av1,
+            "",
+            &CaptureSource::PrimaryMonitor,
+        )
+        .unwrap_err();
+        assert!(fehler.to_string().contains("PULSE_HQ_DISABLE_ZERO_COPY"), "{fehler}");
+    }
+
+    /// Und dieselbe Disziplin für den effektiven Weg: was nicht über D3D11
+    /// läuft, trägt keinen Farbwandler — die Absage nennt den WEG, nicht einen
+    /// Encoder-Namen.
+    #[test]
+    fn nur_der_d3d11_weg_darf_hdr() {
+        for pfad in [EncodePath::D3d12ZeroCopy, EncodePath::Cpu] {
+            let fehler = pruefen(
+                false,
+                pfad,
+                "amd",
+                VideoCodec::Av1,
+                "",
+                &CaptureSource::PrimaryMonitor,
+            )
+            .unwrap_err();
+            assert!(fehler.to_string().contains("D3D11-Weg"), "{pfad:?}: {fehler}");
+        }
     }
 
     /// Der Gegenprobe-Schalter auf D3D12 nimmt H.264 vom AMF-Weg — und damit

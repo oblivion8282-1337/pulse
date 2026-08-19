@@ -419,7 +419,15 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
         // Metadaten Verschiedenes.
         let mut params = params;
         if params.hdr {
+            // `disable_zc` und `pfad` gehen mit — dieselben zwei Angaben,
+            // die `zehnbit::pruefen` unten bekommt, und aus demselben Grund:
+            // ohne sie prüft die Absage den Weg, der OHNE Schalter liefe, und
+            // ein Start unter `PULSE_HQ_DISABLE_ZERO_COPY=1` lief an allen
+            // drei Zweigen vorbei in `run_cpu_pipeline` — SDR/8 bit unter dem
+            // HDR-Etikett (nachgetragen 2026-08-19).
             let schirm = crate::encode::hdr::pruefen(
+                disable_zc,
+                pfad,
                 adapter.vendor(),
                 codec,
                 &params.push_url,

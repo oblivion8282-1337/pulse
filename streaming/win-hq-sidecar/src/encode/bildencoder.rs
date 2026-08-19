@@ -250,6 +250,24 @@ pub(crate) enum Gebaut {
     AnD3d12,
 }
 
+/// Hängt an diesem Auftrag eine Betriebsart, die KEINEN Rückfall überlebt?
+/// Liefert dann ihren Namen für die Meldung, sonst `None`.
+///
+/// Getrennte Funktion und nicht zwei `&&` im Match-Arm, weil sie damit prüfbar
+/// ist: `baue_mit_rueckfall` selbst braucht ein D3D11-Gerät und läuft in
+/// keinem Test.
+///
+/// **HDR steht in `schirm`, nicht in einem eigenen `hdr`-Feld** — die beiden
+/// sind dasselbe (Begründung an `HwEncoderConfig::schirm`). HDR zieht 10 bit
+/// ohnehin nach sich (`stream_controller::run_pipeline` setzt `ten_bit`), es
+/// wird trotzdem zuerst gefragt: die genauere Meldung gewinnt.
+fn betriebsart_ohne_rueckfall(cfg: &HwEncoderConfig) -> Option<&'static str> {
+    if cfg.schirm.is_some() {
+        return Some("HDR");
+    }
+    cfg.ten_bit.then_some("10 bit")
+}
+
 /// Den Encoder bauen und die Rückfälle anwenden.
 ///
 /// **Steht hier und nicht in `pipeline_hw`**, weil es Regeln über Encoder sind
@@ -310,6 +328,19 @@ pub(crate) unsafe fn baue_mit_rueckfall(
         {
             Err(e)
         }
+        // **Keine Rückfälle, wenn eine Betriebsart daran hängt.** HDR und
+        // 10 bit überleben KEINEN der beiden Rückfälle darunter: der
+        // D3D12-Weg hat nur NV12 und keinen Farbwandler, und der AV1→H.264-
+        // Griff nimmt HDR schon deshalb mit, weil `supports_ten_bit` nur AV1
+        // durchlässt. Dieselbe Linie wie bei `auffrischung` und `hdr::pruefen`
+        // — unerfüllbar heisst Startverweigerung, nicht still etwas anderes
+        // fahren. Muss VOR beiden Rückfällen stehen.
+        Err(e) if betriebsart_ohne_rueckfall(cfg).is_some() => {
+            let art = betriebsart_ohne_rueckfall(cfg).unwrap_or("diese Betriebsart");
+            Err(e.context(format!(
+                "{art} verlangt, aber der Encoder liess sich auf dem D3D11-Weg nicht oeffnen —                  KEIN Rueckfall (D3D12 liegt fest auf NV12 und hat keinen Farbwandler, der                  AV1-Rueckfall auf H.264 traegt weder 10 bit noch HDR). Ein Rueckfall waere                  ein SDR-8-bit-Strom unter dem bestellten Etikett."
+            )))
+        }
         // **Das Auffangnetz für AMF-Issue #455.** Seit dem 2026-08-04 geht AMD
         // mit beiden Codecs über AMF (s. `encode_path`), und `h264_amf` auf
         // D3D11-Eingang ist genau die Konstellation, für die es das Issue gibt
@@ -320,7 +351,19 @@ pub(crate) unsafe fn baue_mit_rueckfall(
         // D3D12-Zweig ab, statt den Stream fallen zu lassen. Der trägt kein
         // AV1 (keine brauchbare extradata) und kein Intra-Refresh — Letzteres
         // bricht dort mit klarer Meldung ab, statt still Keyframes zu fahren.
-        // Ein Rückfall, der die Betriebsart verschluckt, gibt es also nicht.
+        //
+        // **Was er ebenfalls nicht trägt, und was hier bis zum 2026-08-19
+        // fehlte: HDR und 10 bit.** Der Satz an dieser Stelle lautete „ein
+        // Rückfall, der die Betriebsart verschluckt, gibt es also nicht" und
+        // zählte nur AV1 und Intra-Refresh auf — geprüft wurde gar nichts.
+        // Der D3D12-Weg legt seinen Bildpuffer fest auf NV12
+        // (`encoder_d3d12.rs`), und für AV1 reicht `pipeline_d3d12` an
+        // `run_cpu_pipeline` weiter, die weder ein `ten_bit`-Feld noch
+        // `hdr::signalisieren` kennt. Ein HDR-Stream wäre nach diesem Rückfall
+        // still 8-bit-SDR ohne PQ/BT.2020 gelaufen — ohne eine Zeile im Log.
+        // Deshalb steht der Arm darunter davor; die Prüfung selbst hängt an
+        // [`betriebsart_ohne_rueckfall`], damit sie nicht als Wortlaut in
+        // einem Kommentar wohnt.
         Err(e) if vendor == "amd" => {
             eprintln!(
                 "[pipeline-hw] {:?} nicht über D3D11 öffenbar ({e:#}) — \
@@ -371,6 +414,57 @@ impl BildEncoder for super::encoder_hw::FfmpegHwEncoder {
 
 #[cfg(test)]
 mod tests {
+    use super::betriebsart_ohne_rueckfall;
+    use crate::encode::VideoCodec;
+    use crate::encode::encoder_hw::HwEncoderConfig;
+
+    fn cfg() -> HwEncoderConfig {
+        HwEncoderConfig {
+            codec: VideoCodec::Av1,
+            vendor: "amd".to_string(),
+            fps: 60,
+            bitrate_kbps: 4000,
+            dst_w: 1920,
+            dst_h: 1080,
+            ten_bit: false,
+            schirm: None,
+        }
+    }
+
+    /// Der Regelfall bleibt der Regelfall: ohne HDR und ohne 10 bit greifen
+    /// die Rückfälle wie bisher (AMD → D3D12, AV1 → H.264).
+    #[test]
+    fn ohne_betriebsart_kein_riegel() {
+        assert!(betriebsart_ohne_rueckfall(&cfg()).is_none());
+    }
+
+    /// Der nachgetragene Fehler: ein HDR-Auftrag darf nicht still an den
+    /// D3D12-Weg abgegeben werden — der liefert 8-bit-SDR unter dem
+    /// HDR-Etikett.
+    #[test]
+    fn hdr_verbietet_den_rueckfall() {
+        let mut c = cfg();
+        c.ten_bit = true;
+        c.schirm = Some(crate::system::hdr::SchirmFarbe {
+            hdr_aktiv: true,
+            bits_je_kanal: 10,
+            max_nits: 530.0,
+            max_vollbild_nits: 400.0,
+            min_nits: 0.0001,
+            primaervalenzen: [[0.68, 0.32], [0.265, 0.69], [0.15, 0.06]],
+            weisspunkt: [0.3127, 0.329],
+        });
+        assert_eq!(betriebsart_ohne_rueckfall(&c), Some("HDR"));
+    }
+
+    /// 10 bit ohne HDR ebenso — beide Rückfälle liegen fest auf 8 bit.
+    #[test]
+    fn zehn_bit_verbietet_den_rueckfall() {
+        let mut c = cfg();
+        c.ten_bit = true;
+        assert_eq!(betriebsart_ohne_rueckfall(&c), Some("10 bit"));
+    }
+
     /// Ohne Anmeldung baut die Pipeline ihren eigenen Encoder — der
     /// ausgelieferte Sidecar verhält sich also unverändert. Gleiche Absicherung
     /// wie bei `senke`, gleiche Fehlerart: ein Vorgabe-Bauer hier würde
