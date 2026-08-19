@@ -261,3 +261,40 @@ async def test_stale_expiry_task_noop_after_being_superseded():
     assert reg._remote_disconnect_timers[(sess.session_id, "host")] is not alter_task
     await asyncio.sleep(0.05)
     assert calls == ["neu"], "nur der neue Zeitgeber darf feuern"
+
+
+@pytest.mark.asyncio
+async def test_grace_expiry_calling_remote_end_does_not_cancel_itself():
+    """CI-Befund 2026-08-20 — deterministischer Hänger, zweimal identisch
+    reproduziert in `test_remote_disconnect_notifies_peer`.
+
+    `_disconnect_grace_expired` ruft über `on_expired` irgendwann
+    `remote_end` auf (genau das tut `_end_and_notify_peer` in
+    `ws_remote_teardown.py`), und `remote_end` räumt seinerseits JEDE Frist
+    der Sitzung auf — auch die eigene, gerade noch laufende. Ohne die
+    Schutzklausel in `remote_cancel_disconnect_grace` (»storniere nie den
+    eigenen, gerade laufenden Task«) storniert sich der Task mitten in seiner
+    eigenen Ausführung: `cancel()` wirkt am NÄCHSTEN `await` — hier dem
+    `await` NACH `remote_end`, der die Meldung verschickt. Eine
+    `CancelledError` dort ist keine `Exception` und wird vom umschließenden
+    `except Exception` (in `_on_grace_expired`) nicht gefangen — die Meldung
+    geht nie hinaus, und wer darauf wartet, hängt bis zum Timeout."""
+    reg = _Reg()
+    sess, _, _ = await _active_session(reg)
+    verschickt: list[str] = []
+
+    async def on_expired(session_id: str, _role: str) -> None:
+        # Genau die Reihenfolge aus `_end_and_notify_peer`: erst `remote_end`
+        # (räumt die eigene Frist mit ab), DANACH noch ein `await` — der
+        # "Versand" der Meldung. Ohne den Schutz hängt sich GENAU HIER die
+        # `CancelledError` ein, und `verschickt` bleibt leer.
+        await reg.remote_end(session_id)
+        await asyncio.sleep(0)
+        verschickt.append("remote_ended")
+
+    reg.remote_schedule_disconnect_grace(sess.session_id, "controller", on_expired, delay=0)
+    await asyncio.sleep(0.05)
+    assert verschickt == ["remote_ended"], (
+        "der ablaufende Zeitgeber hat sich über remote_end selbst storniert, "
+        "bevor er seine Meldung verschicken konnte"
+    )

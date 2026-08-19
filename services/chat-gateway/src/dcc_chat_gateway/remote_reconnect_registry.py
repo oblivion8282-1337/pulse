@@ -120,14 +120,31 @@ class _RemoteReconnectMixin:
         ein neuer Abriss derselben Rolle ersetzt seine eigene alte Frist).
         Ohne ``role`` BEIDE — der Aufruf, den `remote_end` fuer JEDEN
         Abbauweg macht (Sitzung weg heisst: keine Frist mehr sinnvoll, gleich
-        welcher Rolle)."""
+        welcher Rolle).
+
+        **Storniert NIE den eigenen, gerade laufenden Task** (CI-Befund
+        2026-08-20, deterministischer Haenger in `test_remote_disconnect_
+        notifies_peer`): laeuft die Gnadenfrist ab, ruft `_disconnect_grace_
+        expired` ueber `on_expired` irgendwann `remote_end` — und `remote_end`
+        raeumt seinerseits JEDE Frist der Sitzung auf, auch die eigene, gerade
+        noch laufende. Ohne diese Ausnahme storniert sich der Task selbst,
+        WAEHREND er noch die `remote_ended`-Meldung verschickt — `cancel()`
+        wirkt beim naechsten `await` (dem Versand selbst), eine `Cancelled
+        Error` dort ist keine `Exception` und wird vom umschliessenden
+        `except Exception` nicht gefangen, die Meldung geht nie hinaus. Der
+        Task raeumt sich in seinem eigenen `finally` ohnehin ab, sobald er
+        fertig ist — das Popmen hier reicht, das Stornieren waere nur fuer
+        einen FREMDEN, noch wartenden Task noetig."""
+        current = asyncio.current_task()
         if role is not None:
             task = self._remote_disconnect_timers.pop((session_id, role), None)
-            if task is not None:
+            if task is not None and task is not current:
                 task.cancel()
             return
         for key in [k for k in self._remote_disconnect_timers if k[0] == session_id]:
-            self._remote_disconnect_timers.pop(key).cancel()
+            task = self._remote_disconnect_timers.pop(key)
+            if task is not current:
+                task.cancel()
 
     def remote_disconnect_grace_active(self, session_id: str, role: str) -> bool:
         """Laeuft gerade eine Frist fuer GENAU diese Rolle dieser Sitzung?
