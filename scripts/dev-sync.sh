@@ -29,7 +29,18 @@
 
 set -euo pipefail
 
-HOST="${PULSE_DEV_HOST:-michael@77.42.71.166}"
+# Der Kurzname aus ~/.ssh/config hat Vorrang vor der nackten IP, WENN es ihn
+# gibt. Grund: ssh sucht seinen `Host`-Block nach dem Namen auf der
+# Kommandozeile, nicht nach der aufgelösten Adresse — mit `michael@77.42.71.166`
+# greift der Block `Host pulse-test` also NICHT, und damit auch sein
+# `IdentityFile` nicht. Auf einer Maschine ohne Agent endet das in
+# "Permission denied (publickey,password)", obwohl `ssh pulse-test` daneben
+# anstandslos durchläuft.
+if [ -z "${PULSE_DEV_HOST:-}" ] && grep -qiE '^[[:space:]]*Host([[:space:]].*)?[[:space:]]pulse-test([[:space:]]|$)' "$HOME/.ssh/config" 2>/dev/null; then
+  HOST="pulse-test"
+else
+  HOST="${PULSE_DEV_HOST:-michael@77.42.71.166}"
+fi
 DIR="${PULSE_DEV_DIR:-pulse-test}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -38,7 +49,18 @@ cd "$REPO_ROOT"
 # Wiederverwendete SSH-Verbindung. Ohne das kostet jeder Lauf einen kompletten
 # Verbindungsaufbau (~0,5 s) — im --watch-Dauerlauf ist das der Unterschied
 # zwischen "sofort" und "spürbar".
-SSH_OPTS=(-o ControlMaster=auto -o ControlPath="${TMPDIR:-/tmp}/pulse-dev-%r@%h-%p" -o ControlPersist=5m)
+#
+# WINDOWS KANN DAS NICHT: Multiplexing reicht den Verbindungs-Dateideskriptor
+# über einen Unix-Socket weiter, den es dort nicht gibt. Das scheitert nicht
+# leise, sondern mit "mm_send_fd: sendmsg(2): Connection reset by peer" —
+# eine Meldung, die nach kaputtem Netz aussieht, obwohl die Verbindung steht
+# (`ssh <host> echo OK` läuft daneben einwandfrei durch). Dort also ohne
+# Wiederverwendung; der halbe Verbindungsaufbau je Lauf ist der günstigere
+# Preis gegenüber einem Sync, der auf dieser Plattform gar nicht läuft.
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) SSH_OPTS=() ;;
+  *) SSH_OPTS=(-o ControlMaster=auto -o ControlPath="${TMPDIR:-/tmp}/pulse-dev-%r@%h-%p" -o ControlPersist=5m) ;;
+esac
 ssh_run() { ssh "${SSH_OPTS[@]}" "$HOST" "$@"; }
 
 # Pfade, die den Stack ausmachen. `-R` von rsync hält die Struktur, deshalb

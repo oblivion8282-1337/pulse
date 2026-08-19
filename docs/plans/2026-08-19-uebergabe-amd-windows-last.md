@@ -1,4 +1,40 @@
-# Übergabe — AMD/Windows: Encoder-Last nach dem Vorgabe-Wechsel
+# Erledigt — AMD/Windows: Encoder-Last nach dem Vorgabe-Wechsel
+
+**Stand 2026-08-19, nachmittags: gemessen und behoben.** Der Text unten
+beschrieb die Lage am Vormittag und bleibt als Fragestellung stehen; was
+dabei herauskam, steht hier.
+
+## Ergebnis
+
+Der gemeldete Aufschlag war real: **10,5 gegen 25,2 Prozent** Video-Engine
+(H.264, 1080p60, 12 Mbit/s, Radeon 780M). Die Julizahlen sind bestätigt.
+
+**Die vermutete Ursache war falsch.** Nicht die Umschaltung auf
+`usage=transcoding` ist teuer, sondern alles, was nicht `ultralowlatency` ist
+— nachgewiesen an `h264_d3d12va`, das gar kein `usage` setzt und dieselben
+25,2 Prozent kostet. Den Gegenbeweis liefert AV1: dort greift der Abschaltweg
+nie, und beide Betriebsarten kosten gleich viel (8,8 / 8,9 Prozent).
+
+**Behoben ohne Preis:** die sparsame Betriebsart bleibt stehen, die Vollbilder
+kommen aus einem eigenen Takt (`keyframe::Selbsttakt`, derselbe Weg, den eine
+Zuschauer-Anfrage nimmt). Gemessen **10,5 Prozent mit** 60-Sekunden-Vollbildern
+— die Last der billigen Betriebsart mit der Eigenschaft der teuren.
+
+Messakte: `streaming/testbench/profiles/amd-2026-08-19-vollbilder-ohne-aufschlag.json`.
+Messstand: `streaming/win-hq-labor/testbench/vollbild-last-messen.ps1`.
+
+Die beiden offenen Punkte von heute Vormittag sind damit erledigt: die Latenz
+von `transcoding` braucht niemand mehr zu messen (der Wert kommt nicht mehr
+vor), und auf dieser Hardware gilt der Befund — er wurde hier erhoben.
+
+**Was offen bleibt:** der Strom trägt jetzt beides, rollende Auffrischung UND
+periodische Vollbilder. Für den Zuschauer ist das kein Nachteil (er steigt am
+Vollbild ein, die Welle repariert weiterhin dazwischen), aber es ist eine
+Eigenschaft mehr, als der Haken verspricht — die Zeile „Encoder offen" sagt es
+deshalb ausdrücklich. Und: nur auf einer iGPU gemessen.
+
+---
+
 
 Für die Maschine, die AMD unter Windows testet. Branch:
 **`remote/2026-08-18/integration`**.
