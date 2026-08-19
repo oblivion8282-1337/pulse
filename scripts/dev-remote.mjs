@@ -47,7 +47,22 @@ function valueOf(flag, fallback) {
 }
 
 const ORIGIN = valueOf('--origin', process.env.PULSE_API_ORIGIN || 'https://pulse.unicutmedia.com');
-const DEV_HOST = process.env.PULSE_DEV_HOST || 'michael@77.42.71.166';
+// Kurzname aus ~/.ssh/config vor der nackten IP — dieselbe Begründung wie in
+// scripts/dev-sync.sh: ssh sucht seinen `Host`-Block nach dem Namen auf der
+// Kommandozeile, nicht nach der aufgelösten Adresse. Mit `michael@77.42.71.166`
+// greift `Host pulse-test` nicht, und ohne dessen `IdentityFile` endet das
+// Log-Mitlesen in "Permission denied", obwohl `ssh pulse-test` läuft.
+function devHost() {
+  if (process.env.PULSE_DEV_HOST) return process.env.PULSE_DEV_HOST;
+  try {
+    const cfg = fs.readFileSync(path.join(os.homedir(), '.ssh', 'config'), 'utf8');
+    if (/^\s*Host\s+(\S+\s+)*pulse-test(\s|$)/im.test(cfg)) return 'pulse-test';
+  } catch {
+    /* keine ssh-config — dann eben die IP */
+  }
+  return 'michael@77.42.71.166';
+}
+const DEV_HOST = devHost();
 const DEV_DIR = process.env.PULSE_DEV_DIR || 'pulse-test';
 const VITE_PORT = Number(process.env.PULSE_WEB_PORT || 5173);
 const SERVICES = 'auth chat-gateway voice-signaling media-svc mediamtx-auth-hook';
