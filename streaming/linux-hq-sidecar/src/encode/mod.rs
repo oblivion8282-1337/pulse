@@ -708,18 +708,31 @@ unsafe fn open_encoder(
 /// Messreihe erzeugt, die unter falschem Etikett laeuft (vgl. der
 /// Intra-Refresh-Vorfall vom 2026-08-02 weiter oben).
 fn keyframe_abstand_bilder(fps: u32) -> u32 {
+    // **Die Vorgabe haengt an der Betriebsart, seit dem 2026-08-19.** Dieselbe
+    // Zahl steuert zwei verschiedene Dinge: ohne Intra-Refresh den Abstand der
+    // Vollbilder, mit Intra-Refresh die UMLAUFDAUER der Auffrischungswelle
+    // (`-g`, s. `opts::intra_refresh_opts`). 60 s sind als Vollbild-Abstand
+    // gemessen gut und als Umlaufdauer katastrophal — eine verlorene Bildstelle
+    // bliebe eine Minute lang stehen, und der Player verdeckt nur 2 s
+    // (`decode.rs::refresh_dauer`). Eine einzige Vorgabe kann beiden nicht
+    // dienen; genau das war am 2026-08-18 uebersehen worden.
+    let vorgabe = if opts::intra_refresh_gewuenscht() {
+        KEYFRAME_SEKUNDEN_UMLAUF_VORGABE
+    } else {
+        KEYFRAME_SEKUNDEN_VORGABE
+    };
     let sekunden = match std::env::var("PULSE_KEYFRAME_SECONDS").ok().as_deref() {
-        None => KEYFRAME_SEKUNDEN_VORGABE,
+        None => vorgabe,
         Some(roh) => match roh.parse::<f32>() {
             Ok(v) if (KEYFRAME_SEKUNDEN_MIN..=KEYFRAME_SEKUNDEN_MAX).contains(&v) => v,
             _ => {
                 tracing::warn!(
                     target: "stream", wert = roh,
                     min = KEYFRAME_SEKUNDEN_MIN, max = KEYFRAME_SEKUNDEN_MAX,
-                    vorgabe = KEYFRAME_SEKUNDEN_VORGABE,
+                    vorgabe,
                     "PULSE_KEYFRAME_SECONDS unbrauchbar — es gilt die Vorgabe"
                 );
-                KEYFRAME_SEKUNDEN_VORGABE
+                vorgabe
             }
         },
     };
@@ -774,6 +787,16 @@ const KEYFRAME_SEKUNDEN_VORGABE: f32 = 60.0;
 ///   der Vorgabe, bliebe ausgerechnet der Normalfall (60 s ueber einen Weg ohne
 ///   Rueckkanal) stumm, obwohl er der gefaehrlichste ist.
 const KEYFRAME_SEKUNDEN_UNBEDENKLICH: f32 = 2.0;
+
+/// Vorgabe fuer die UMLAUFDAUER, wenn Intra-Refresh laeuft.
+///
+/// Bleibt bei 2 s, waehrend der Vollbild-Abstand auf 60 s gewandert ist. Bei
+/// Intra-Refresh ist die Zahl keine Wartezeit zwischen Einstiegspunkten,
+/// sondern wie lange die Auffrischung braucht, um einmal ueber das Bild zu
+/// laufen — und so lange bleibt eine verlorene Bildstelle sichtbar kaputt.
+/// Der Player verdeckt genau diese Zeit (`pulse-player/src/decode.rs::
+/// refresh_dauer`, ebenfalls 2000 ms); die beiden Zahlen gehoeren zusammen.
+const KEYFRAME_SEKUNDEN_UMLAUF_VORGABE: f32 = 2.0;
 
 const KEYFRAME_SEKUNDEN_MIN: f32 = 0.1;
 
@@ -1261,6 +1284,31 @@ mod keyframe_sperrfrist_tests {
 
         unsafe { std::env::remove_var("PULSE_KEYFRAME_SECONDS") };
         assert_eq!(keyframe_abstand_bilder(60), vorgabe, "ohne Variable die Vorgabe");
+    }
+
+    /// **Der Fund vom 2026-08-19:** dieselbe Einstellung steuert je Betriebsart
+    /// zwei verschiedene Dinge. Ohne Intra-Refresh den Vollbild-Abstand (60 s,
+    /// gemessen gut), mit Intra-Refresh die Umlaufdauer der Auffrischung — und
+    /// 60 s Umlauf hiessen: eine verlorene Bildstelle bleibt eine Minute lang
+    /// kaputt, waehrend der Player nur 2 s verdeckt.
+    #[test]
+    fn die_vorgabe_haengt_an_der_betriebsart() {
+        let _wache = ENV.lock().unwrap_or_else(|p| p.into_inner());
+        unsafe { std::env::remove_var("PULSE_KEYFRAME_SECONDS") };
+
+        opts::intra_refresh_setzen(false);
+        assert_eq!(keyframe_abstand_bilder(60), 3600, "ohne Intra-Refresh: 60 s Vollbild-Abstand");
+
+        opts::intra_refresh_setzen(true);
+        assert_eq!(keyframe_abstand_bilder(60), 120, "mit Intra-Refresh: 2 s Umlaufdauer");
+
+        // Eine ausdrueckliche Einstellung schlaegt beide Vorgaben.
+        unsafe { std::env::set_var("PULSE_KEYFRAME_SECONDS", "10") };
+        assert_eq!(keyframe_abstand_bilder(60), 600);
+        opts::intra_refresh_setzen(false);
+        assert_eq!(keyframe_abstand_bilder(60), 600);
+
+        unsafe { std::env::remove_var("PULSE_KEYFRAME_SECONDS") };
     }
 
     /// Haelt die beiden Zahlen zusammen, die im `const` nicht voneinander
