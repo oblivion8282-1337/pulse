@@ -169,10 +169,6 @@ export function verbindungsWachtMitGnadenfrist(
 /** Ein Wurf zählt als „nicht offen": die Verbindung wurde abgeräumt (abgemeldet
  *  / Server-Eintrag entfernt), und das ist für die Sitzung dasselbe wie ein
  *  Abriss. */
-
-/** Ein Wurf zählt als „nicht offen": die Verbindung wurde abgeräumt (abgemeldet
- *  / Server-Eintrag entfernt), und das ist für die Sitzung dasselbe wie ein
- *  Abriss. */
 function istOffen(conn: GatewayConnection | null): boolean {
   try {
     return conn?.state === 'open';
