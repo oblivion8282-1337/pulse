@@ -74,6 +74,40 @@ else
     || { echo "✗ web-Unit-Tests ROT — Push abgebrochen." >&2; exit 1; }
   ( cd desktop && pnpm test:unit ) \
     || { echo "✗ desktop-Unit-Tests ROT — Push abgebrochen." >&2; exit 1; }
+
+  # Cargo-Tests der beiden Crates, die auf Linux WIRKLICH bauen: pulse-player
+  # (415 Tests) und linux-hq-sidecar (101). Sie liefen bis zum 2026-08-19 in
+  # keinem Gate — mit demselben Ergebnis wie bei den Node-Unit-Tests davor: im
+  # Player lag ein roter Test monatelang unbemerkt, und ein roter Test meldet
+  # keine Regression mehr. win-/mac-hq-sidecar bleiben draussen, die bauen hier
+  # nicht (Windows-/macOS-Bibliotheken).
+  #
+  # Nur bei Änderung am jeweiligen Crate — ein Kaltbau kostet Minuten, und die
+  # allermeisten Pushes fassen kein Rust an.
+  #
+  # **Warum FFMPEG_DIR und LD_LIBRARY_PATH:** beide Crates hängen an der
+  # gepinnten FFmpeg n8.1. Ohne FFMPEG_DIR zieht `ffmpeg-next` die zu neue
+  # System-FFmpeg und bricht an nicht abgedeckten Enum-Werten ab; ohne
+  # LD_LIBRARY_PATH übersetzt es zwar, aber die Testbinaries finden
+  # libavcodec.so.62 nicht und sterben mit Exit 127. Beides sieht wie ein
+  # kaputter Test aus und ist keiner.
+  ffmpeg_prefix="${PULSE_FFMPEG_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/pulse/ffmpeg-intra-refresh/prefix}"
+  rust_crates=""
+  echo "$changed" | grep -q '^streaming/pulse-player/' && rust_crates="$rust_crates streaming/pulse-player"
+  echo "$changed" | grep -q '^streaming/linux-hq-sidecar/' && rust_crates="$rust_crates streaming/linux-hq-sidecar"
+  if [ -n "$rust_crates" ]; then
+    if [ ! -d "$ffmpeg_prefix/lib" ]; then
+      echo "⚠  Rust-Crates geändert, aber die gepinnte FFmpeg fehlt ($ffmpeg_prefix)." >&2
+      echo "   Cargo-Tests ÜBERSPRUNGEN — sie laufen also nicht. Bau sie mit" >&2
+      echo "   scripts/hq-bauen.sh, oder setze PULSE_FFMPEG_DIR auf einen eigenen Bau." >&2
+    else
+      for crate in $rust_crates; do
+        echo "  Cargo-Tests $crate…"
+        ( cd "$crate" && FFMPEG_DIR="$ffmpeg_prefix" LD_LIBRARY_PATH="$ffmpeg_prefix/lib" cargo test -q ) \
+          || { echo "✗ Cargo-Tests $crate ROT — Push abgebrochen." >&2; exit 1; }
+      done
+    fi
+  fi
   echo "✓ Test-Gate grün."
 fi
 echo

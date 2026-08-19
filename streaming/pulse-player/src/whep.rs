@@ -895,16 +895,33 @@ mod tests {
     /// Gemessen wird nicht der Speicher (schlecht beobachtbar), sondern was
     /// die Gegenstelle loswerden konnte: mit einer Obergrenze bricht der
     /// Client sofort ab, und der Stub bringt nur noch das los, was die
-    /// Socket-Puffer schon geschluckt hatten (gemessen 0,5-0,7 MB) statt der
-    /// vollen 200 MB.
+    /// Socket-Puffer schon geschluckt hatten, statt der vollen 200 MB.
+    ///
+    /// **Die genaue Zahl ist KEINE Eigenschaft des Codes** (Nachtrag
+    /// 2026-08-19). Hier stand als Schranke 1 MB, gegriffen aus einer Messung
+    /// von 0,5-0,7 MB auf einer Maschine — wieviel ein abgebrochener Lauf noch
+    /// aufnimmt, entscheidet aber die Puffergroesse des Kerns samt
+    /// TCP-Fensterautomatik. Auf einer anderen Maschine passten 2,5 MB hinein
+    /// und der Test war rot, ohne dass am Client etwas fehlte; er lief in
+    /// keinem Gate mit und blieb deshalb lange unbemerkt liegen.
+    ///
+    /// Die Schranke steht jetzt dort, wo sie eine Aussage ueber den CODE
+    /// trifft: faellt die Begrenzung weg, liest der Client die vollen 200 MB
+    /// und der Zaehler landet bei `ANGEKUENDIGT`. Alles, was um
+    /// Groessenordnungen darunter liegt, belegt den Abbruch — unabhaengig
+    /// davon, wieviel der Kern zwischenlagert. Den eigentlichen Beweis fuehrt
+    /// ohnehin die Zeile darueber: der Abbruchgrund nennt die ANGEKUENDIGTE
+    /// Groesse, kommt also aus der Pruefung VOR dem Lesen.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn repro_22_whep_antwort_ohne_groessengrenze() {
         use std::io::{Read, Write};
         use std::sync::atomic::{AtomicU64, Ordering};
 
-        /// Was der Stub hoechstens loswerden koennen DARF. SDP-Antworten sind
-        /// wenige KB; 1 MB ist bereits sehr grosszuegig.
-        const ERLAUBT: u64 = 1024 * 1024;
+        /// Was der Stub hoechstens loswerden koennen DARF. Gross genug, dass
+        /// Socket-Puffer verschiedener Maschinen darunter bleiben, klein genug,
+        /// dass ein Client ohne Begrenzung (der die vollen `ANGEKUENDIGT`
+        /// liest) sicher darueber liegt. Begruendung im Kopf des Tests.
+        const ERLAUBT: u64 = 16 * 1024 * 1024;
         /// Was er heute loswird.
         const ANGEKUENDIGT: u64 = 200 * 1024 * 1024;
 
