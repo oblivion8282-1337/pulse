@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-19.2",
+      "date": "2026-08-19",
+      "style": "Sachlich",
+      "title": "Eigenen Stream ansehen: funktioniert jetzt verlässlich",
+      "items": [
+        "Wenn du deinen eigenen geteilten Bildschirm anklickst, um zu prüfen was bei den anderen ankommt, bleibt das Bild jetzt stehen. Bisher hat sich diese Ansicht laufend selbst neu aufgebaut und war dadurch kaum zu gebrauchen.",
+        "Umgekehrt entsteht die Verbindung nur noch, wenn du sie wirklich öffnest — und sie wird beendet, sobald du die Ansicht schließt. Vorher konnte sie im Hintergrund Bandbreite kosten, die beim Teilen ohnehin knapp ist."
+      ]
+    },
+    {
       "id": "2026-08-19",
       "date": "2026-08-19",
       "style": "Sachlich",
