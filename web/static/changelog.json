@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-19",
+      "date": "2026-08-19",
+      "style": "Sachlich",
+      "title": "Bildschirm teilen: deutlich weniger Grafiklast auf AMD-Rechnern",
+      "intro": "Eine Nebenwirkung der Umstellung von gestern — gemessen und behoben.",
+      "items": [
+        "Teilst du deinen Bildschirm auf einem Windows-Rechner mit AMD-Grafik, braucht die Aufnahme jetzt nur noch etwa 40 Prozent der bisherigen Grafikleistung. Die Umstellung von gestern hatte den Encoder ungewollt in eine aufwendigere Betriebsart gezwungen.",
+        "Zu merken ist das vor allem auf Notebooks und Geräten mit eingebauter Grafik: Das Gerät bleibt kühler, und für alles, was nebenher läuft, bleibt mehr Leistung übrig. Am Bild, an der Qualität und daran, wie schnell Zuschauer einsteigen, ändert sich nichts."
+      ]
+    },
+    {
       "id": "2026-08-18.8",
       "date": "2026-08-18",
       "style": "Sachlich",
