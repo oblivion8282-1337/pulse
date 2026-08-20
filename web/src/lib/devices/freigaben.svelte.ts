@@ -6,23 +6,30 @@
  * er gerade hinsieht.
  */
 import { grantsApi, type Grant, type GrantEingabe } from '$lib/api/devices';
+import { dedupliziertLaden } from './ladeWaechter';
 
 class Freigaben {
   #proGeraet = $state<Record<string, Grant[]>>({});
   laden_ = $state<Record<string, boolean>>({});
+  /** Laufende Abrufe je Gerät — ein überlappender zweiter Aufruf (z. B. ein
+   *  WS-Reconnect während eine HTTP-Anfrage noch offen ist) wartet auf
+   *  DIESES Versprechen, statt eine noch leere Liste als „geladen"
+   *  anzusehen (Bughunt 2026-08-20, Begründung in `ladeWaechter.ts`). */
+  #laufend = new Map<string, Promise<void>>();
 
   fuer(deviceId: string): Grant[] {
     return this.#proGeraet[deviceId] ?? [];
   }
 
   async laden(guildId: string, deviceId: string): Promise<void> {
-    if (this.laden_[deviceId]) return;
-    this.laden_[deviceId] = true;
-    try {
-      this.#proGeraet[deviceId] = await grantsApi.list(guildId, deviceId);
-    } finally {
-      this.laden_[deviceId] = false;
-    }
+    return dedupliziertLaden(this.#laufend, deviceId, async () => {
+      this.laden_[deviceId] = true;
+      try {
+        this.#proGeraet[deviceId] = await grantsApi.list(guildId, deviceId);
+      } finally {
+        this.laden_[deviceId] = false;
+      }
+    });
   }
 
   /** Ersetzen. Der Server ist die Wahrheit — wir übernehmen seine Antwort,
