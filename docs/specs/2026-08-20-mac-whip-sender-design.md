@@ -1,0 +1,178 @@
+# Ein eigener WHIP-Sender für macOS — Entwurf (2026-08-20)
+
+Ziel: der mac-Sidecar sendet über einen eigenen WebRTC-Sendeweg statt über
+ffmpegs WHIP-Muxer. Damit fallen beide macOS-Sonderfälle auf einmal weg — der
+Vollbild-Abstand von 2 s und die AV1-Sperre.
+
+Schwesterentwurf, gleichzeitig in Arbeit auf einem eigenen Zweig:
+`2026-08-20-mac-player-design.md` (die Empfangsrichtung). Gemeinsame Datei am
+Ende nur `desktop/package.json` (Version).
+
+## Warum
+
+Seit dem 2026-08-18 liefert `pushProtokoll` immer WHIP. Auf macOS geht
+`http(s)://` aber an ffmpegs WHIP-Muxer (`mac-hq-sidecar/src/encode/mod.rs`
+Z. 133–144, `url_format_hint` → `Some("whip")`), und der kann zwei Dinge nicht:
+
+1. **Keinen Rückkanal zur Anwendung.** Die Vollbild-Anforderung eines
+   Zuschauers (RTCP PLI/FIR) erreicht den Encoder nie. Am 2026-07-28 gemessen:
+   ohne sie steht das Bild nach einem Paketverlust bis zum nächsten regulären
+   Vollbild — bei 0,2 % Verlust in 7 bis 9 von 17 Sekunden. Mit ihr sind es 0
+   bis 1, und die Bildrate geht von 0 auf 60.
+2. **Kein AV1.** In ffmpeg 8.1 und im aktuellen master trägt `whip.c`
+   ausschliesslich H.264.
+
+Daraus folgen die beiden Einschränkungen, die am 2026-08-19 ehrlich gemacht
+statt versteckt wurden:
+
+- Der **Vollbild-Abstand bleibt auf macOS bei 2 s**
+  (`KEYFRAME_SEKUNDEN_UNBEDENKLICH`, `encode/mod.rs:36`), während Linux und
+  Windows auf 60 s stehen. Mit 60 s ohne Anforderungspfad wartete ein
+  beitretender Zuschauer bis zu 60 s auf sein erstes Bild — und der native
+  Player gibt nach 20 s auf (`MAX_WARTEZEIT_OHNE_KEYFRAME`,
+  `pulse-player/src/decode.rs:289`).
+- Die **Oberfläche bietet auf macOS kein AV1 mehr an**
+  (`web/src/lib/stream/settings.svelte.ts:156-158`, `av1Nutzbar`), weil der
+  Muxer es still auf H.264 zurückgenommen hätte.
+
+Der Code benennt die Auflösung an beiden Stellen selbst. In
+`settings.svelte.ts` Z. 153–154 steht wörtlich: *„Wer hier je das `!isMac()`
+entfernt, baut vorher den eigenen WHIP-Sender für macOS."* Das ist dieses
+Vorhaben.
+
+Es ist zugleich der Punkt, an dem die Regel „periodische Vollbilder primär,
+Intra-Refresh nur sekundär" auch auf macOS ankommt. Auf Linux und Windows gilt
+sie längst; der Mac hängt als einziger bei 2 s fest, und zwar allein mangels
+Rückkanal.
+
+## Der Befund, der den Zuschnitt bestimmt
+
+`streaming/win-hq-sidecar/src/whip/` ist **vollständig plattformneutral.** Kein
+einziges `cfg(windows)`, keine Windows-API, keine `windows::`-Verwendung. Die
+externen Abhängigkeiten sind `anyhow`, `bytes`, `rtcp`, `tokio`, `webrtc`.
+
+Das Vorhaben ist deshalb keine Portierung, sondern eine **Extraktion**. Der
+Code muss nicht übersetzt, sondern geteilt werden.
+
+## Aufbau
+
+### C1 — Neue Crate `streaming/pulse-whip/`
+
+Bisher steht im Repo jede Sidecar-Crate für sich; es gibt keinen Workspace und
+keine geteilten Crates. Geteilter Code wurde bislang als **Zwilling mit
+Wortgleichheits-Test** gelöst (`zeigerbild.rs` mit `pulse-player/tests/
+zwillinge.rs`, dazu `zeitbasis.rs`). Für dieses Stück trägt das Muster nicht
+mehr: es sind 2.225 Zeilen mit echter Logik — Taktgeber, Bandbreitenschätzer
+und ein eigener AV1-Paketierer, der einen dokumentierten Fehler in webrtc-rs'
+`Av1Payloader` umgeht (Längenfelder ab 128 falsch geschrieben). Ein Fix daran
+müsste sonst jedes Mal zweimal passieren.
+
+Die Anbindung nach aussen ist schmal: `whip::senke::baue` wird in
+`win-hq-sidecar/src/main.rs:65` als Funktionszeiger übergeben, dazu kommen der
+Typ `SendewegAbgewiesen` (`encode/bildencoder.rs:327`) und `av1::RTP_TAKT_HZ`
+(`zeitbasis.rs:32`).
+
+Nach innen greift `whip/` sechsmal in die Sidecar-Crate zurück. Die Extraktion
+löst sie so auf:
+
+| Rückgriff | Auflösung |
+|---|---|
+| `crate::zeitbasis::{VIDEO_HZ, pts_aus_sekunden, takte_je_bild}` | **wandert mit.** `zeitbasis.rs` ist ohnehin schon ein Zwilling mit dem Player — dieser Schritt beseitigt eine bestehende Doppelung, statt eine neue zu schaffen |
+| `crate::encode::senke::{PaketSenke, SenkenAuftrag}` | **wandert mit** und wird die Schnittstelle, über die ein Sidecar Pakete hineinreicht |
+| `crate::redact::secrets` | **wandert mit.** Tokens dürfen nie geloggt werden; die Redaktion gehört an den Code, der die URL kennt |
+| `crate::keyframe::request_keyframe` | **Callback**, vom Sidecar beim Aufbau gestellt |
+| `crate::events::emit` | **Callback** |
+| `crate::remote_input::fern_aktiv` | **Callback** |
+
+Die drei Callbacks bilden zusammen den Einhängepunkt der Crate. Für den
+Windows-Sidecar ist das Ergebnis **verhaltensgleich**: reines Verschieben plus
+vier Einhängungen, keine geänderte Logik.
+
+Nachzuziehen sind die Bauwege — die Flatpak-Manifeste rechnen mit
+selbsttragenden Crates (`packaging/*-cargo-sources.json`, Cargo baut dort
+offline), Windows- und Mac-CI cachen je Crate-Verzeichnis.
+
+**Fertig, wenn:** der Windows-Sidecar mit der Crate gebaut unverändert
+funktioniert — `cargo test` grün, ein Stream läuft, ein PLI löst nachweislich
+ein Vollbild aus.
+
+### C2 — Der mac-Sidecar sendet selbst
+
+`url_format_hint` (`mac-hq-sidecar/src/encode/mod.rs:133-144`) gibt für
+`http(s)://` nicht mehr `Some("whip")` an ffmpegs Muxer, sondern geht über
+`pulse-whip`. RTMPS bleibt unverändert beim Muxer — dieselbe Aufteilung wie
+unter Windows.
+
+Neu zu bauen ist der **Vollbild-Anforderungspfad**: der mac-Sidecar hat heute
+kein `request_keyframe` und kein `pict_type=I`. Beim Windows-Sidecar liegt das
+in `keyframe.rs:148`; für VideoToolbox ist das Gegenstück zu finden.
+
+**Fertig, wenn:** ein PLI von einem beitretenden Zuschauer auf macOS
+nachweislich ein Vollbild auslöst, und AV1 über den eigenen Weg ankommt statt
+still auf H.264 zurückgenommen zu werden.
+
+### C3 — Die Sonderfälle zurücknehmen
+
+Erst wenn C2 nachgewiesen ist, und dann **zusammen** — es sind mehrere Stellen,
+die dieselbe Behauptung tragen:
+
+- `KEYFRAME_SEKUNDEN_UNBEDENKLICH` als Vorgabe (`encode/mod.rs:36`, Rechnung
+  Z. 76–95) → die regulären 60 s wie Linux und Windows. Die Konstante selbst
+  bleibt: sie trägt weiterhin die Bremse für angeforderte Vollbilder und die
+  Warnschwelle, und genau diese zwei Zahlen dürfen der Vorgabe nicht folgen.
+- `warne_bei_langem_abstand_ohne_rueckkanal()` (`encode/mod.rs:103-113`) →
+  entfällt oder wird zur Prüfung, dass der Rückkanal wirklich steht.
+- Der Test `ohne_rueckkanal_gilt_der_unbedenkliche_abstand`
+  (`encode/mod.rs:393-433`) sichert heute genau das ab, was hier wegfällt — er
+  wird ersetzt, nicht gelöscht: die neue Fassung hält fest, dass der Mac jetzt
+  am regulären Abstand hängt.
+- Der stille H.264-Zwangsrückfall (`encode/mod.rs:195-200`).
+- `av1Nutzbar` (`web/src/lib/stream/settings.svelte.ts:156-158`) → das
+  `!isMac()` fällt, samt der Begründung darüber (Z. 136–155).
+- Doku: `mac-hq-sidecar/README.md` (Abschnitt „No back channel — and what
+  follows from it") und `CLAUDE.md` (der Absatz „macOS ist der Sonderfall:
+  kein Rückkanal", dazu die Erwähnungen beim Vollbild-Abstand und bei
+  `pushProtokoll`).
+
+Das Intra-Refresh-Kästchen bleibt auf macOS aus. Es hängt an
+`(isLinux() || isWindows()) && stream.intraRefreshAvailable`
+(`ErweiterteOptionen.svelte:41`), und der mac-Sidecar hat schlicht keinen
+Intra-Refresh-Code. Das ist kein Rückstand, sondern deckt sich mit der
+Vorgabe: periodische Vollbilder sind der Regelfall, Intra-Refresh die
+Ausnahme.
+
+## Was nicht dazugehört
+
+- Die Empfangsrichtung — eigener Entwurf, eigener Zweig.
+- Intra-Refresh auf macOS. Ausdrücklich nicht Ziel.
+- Der Linux-Sidecar. Er könnte später von `pulse-whip` profitieren, wird hier
+  aber nicht angefasst.
+
+## Prüfen
+
+- `cargo test` in beiden Sidecars und in der neuen Crate; `cargo clippy`.
+- Die Windows-Regression ist der empfindlichste Punkt: der Sidecar wird über
+  den Installer ausgeliefert und ein Fehler hier trifft Bestandsnutzer. Vor dem
+  Landen ein echter Stream von einer Windows-Maschine, nicht nur grüne Tests.
+- Von Hand: WHIP-Rauchtest gegen ein Wegwerf-MediaMTX (Muster in
+  `docs/plans/2026-07-12-whip-win-mac-handover.md`), AV1 über den eigenen Weg,
+  PLI-Antwort, RTMPS-Regression.
+- Vor dem Push: pytest, `pnpm check`, `pnpm build`, Playwright.
+
+## Auslieferung
+
+Berührt `streaming/win-hq-sidecar/**` und damit den Windows-Installer — ein
+Versionswechsel in `desktop/package.json` ist Pflicht, sonst erreicht die
+Änderung Bestandsclients nicht.
+
+Changelog-Eintrag: Mac-Nutzer bekommen AV1 zurück und ein spürbar schnelleres
+erstes Bild. Stil vor dem Push abstimmen, echte Umlaute, keine Emojis.
+
+## Offen, bewusst
+
+Die Messreihe zum 60-s-Takt lief auf sauberer Leitung, null Nachlieferungen
+(`linux-hq-sidecar/src/encode/mod.rs` Z. 770–774). Wie sich der lange Takt
+unter echtem Paketverlust verhält, ist ungemessen — das gilt nach diesem
+Vorhaben dann auch für macOS. Es spricht nicht gegen den Schritt (der Mac
+bekommt denselben Rückkanal, der die Lücke anderswo schliesst), aber es bleibt
+eine offene Zahl und wird nicht als geklärt ausgegeben.
