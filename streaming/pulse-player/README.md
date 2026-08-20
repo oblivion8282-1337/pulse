@@ -527,7 +527,32 @@ Muxers umgerechnet — 90 Bilder landeten in 49 ms statt in drei Sekunden.
 
 ## Bauen und testen
 
-**Zuerst: rustc >= 1.95.** Seit dem Sprung auf wgpu 30 / egui 0.36
+**Auf Linux zuerst: das passende FFmpeg holen.** `ffmpeg-next` 8.1 uebersetzt
+nicht gegen FFmpeg 9, und Arch/CachyOS liefern seit 2026 genau das im System.
+`cargo check` scheitert dann mit 14 Fehlern **in der Crate**, nicht in
+Pulse-Code — Felder wie `pix_fmts`/`sample_fmts` gibt es dort nicht mehr, drei
+Codec-Kennungen sind weg, neue Sorten Zusatzdaten kamen hinzu. Am 2026-08-17
+hat das eine Aenderung am Player ungeprueft in die CI geschickt.
+
+```bash
+streaming/pulse-player/scripts/fetch-ffmpeg-linux.sh   # einmalig, ~57 MB
+export PKG_CONFIG_PATH="$PWD/streaming/pulse-player/ffmpeg-dist/n8.1-lgpl-shared/lib/pkgconfig"
+export FFMPEG_DIR="$PWD/streaming/pulse-player/ffmpeg-dist/n8.1-lgpl-shared"
+cargo check
+```
+
+**`PKG_CONFIG_PATH` ist der wirksame Hebel, nicht `FFMPEG_DIR`** — auf Linux
+sucht `ffmpeg-sys-next` ueber pkg-config und uebergeht die Verzeichnisvariable,
+mit der der Windows-Sidecar auskommt. Mit `FFMPEG_DIR` allein bleiben es
+dieselben 14 Fehler (nachgemessen 2026-08-17).
+
+Der Pfad steht bewusst **nicht** in einer `.cargo/config.toml`: der Flatpak
+baut dieselbe Kiste und faende das Verzeichnis dort nicht. Und was das Skript
+holt, taugt zum Uebersetzen, **nicht zum Ausliefern** — die Auslieferung linkt
+gegen das gebuendelte FFmpeg des Flatpak-Manifests, das den
+VAAPI-Intra-Refresh-Patch und die Decoder-Liste traegt.
+
+**Dann: rustc >= 1.95.** Seit dem Sprung auf wgpu 30 / egui 0.36
 (2026-08-07) baut die Kiste unter aelteren Fassungen nicht mehr — cargo lehnt
 schon das Aufloesen ab („is not supported by the following packages"), es ist
 also kein stiller Fehlschlag. Die Zahl steht in `Cargo.toml` unter
