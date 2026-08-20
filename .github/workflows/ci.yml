@@ -123,17 +123,17 @@ jobs:
       - name: Build
         run: pnpm --filter @dcc/web build
 
-  # Haelt die bewusst doppelt gefuehrten Dateien der HQ-Programme zusammen
-  # (streaming/zwillinge/). Laeuft HIER und nicht in den Plattform-Workflows,
-  # weil die Crate keine Abhaengigkeiten hat: `include_str!` liest zur
-  # Uebersetzungszeit aus dem Repo, es muss also weder FFmpeg noch ein
-  # Plattform-SDK vorhanden sein. Sekunden, kein Cache noetig.
+  # Hält die bewusst doppelt geführten Dateien der HQ-Programme zusammen
+  # (streaming/zwillinge/). Läuft HIER und nicht in den Plattform-Workflows,
+  # weil die Crate keine Abhängigkeiten hat: `include_str!` liest zur
+  # Übersetzungszeit aus dem Repo, es muss also weder FFmpeg noch ein
+  # Plattform-SDK vorhanden sein. Sekunden, kein Cache nötig.
   zwillinge:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Zwillinge pruefen
+      - name: Zwillinge prüfen
         run: cargo test --manifest-path streaming/zwillinge/Cargo.toml
 
   # Changelog-Erinnerung: ein Deploy, der Code/Verhalten ändert, SOLL einen

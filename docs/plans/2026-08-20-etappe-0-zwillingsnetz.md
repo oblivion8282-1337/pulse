@@ -342,11 +342,15 @@ An `streaming/zwillinge/src/lib.rs` anhängen:
 /// Entfernt Zeilenkommentare und Leerzeilen, damit nur die Logik verglichen
 /// wird.
 ///
-/// **Bewusst grob, und das genuegt hier.** Die verglichenen Dateien nutzen
-/// ausschliesslich `//`- und `///`-Kommentare (geprueft am 2026-08-20); Block-
-/// kommentare und Kommentare am Zeilenende kommen nicht vor. Wer ein Paar
-/// hinzufuegt, dessen Dateien das anders halten, prueft das vorher — sonst
-/// vergleicht dieser Helfer stillschweigend weniger, als er vorgibt.
+/// **Entfernt NUR ganze Kommentarzeilen — Kommentare am Zeilenende bleiben
+/// stehen und werden mitverglichen.** Allein `whip/av1.rs` hat davon 43. Heute
+/// gruen, weil sie auf beiden Seiten gleich sind, und das ist bei einem
+/// Zwilling auch die richtige Erwartung: wer einen davon auf einer Plattform
+/// praezisiert, muss es auf der anderen ebenso tun.
+///
+/// Der Filter wird NICHT erweitert. Zeilenend-Kommentare zuverlaessig zu
+/// entfernen hiesse, `//` innerhalb von Zeichenketten zu erkennen — also Rust
+/// zu zerlegen.
 ///
 /// Zeichenketten, die `//` enthalten (etwa eine URL), stehen in diesen Dateien
 /// nie am Zeilenanfang; deshalb reicht der Test auf das erste
