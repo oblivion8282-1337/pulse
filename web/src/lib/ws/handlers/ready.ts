@@ -35,6 +35,7 @@ import type { Guild } from '$lib/api/types';
 import { gatewayForServer } from '$lib/ws/connection';
 import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
 import { darfStandplatzSein } from '$lib/remote/darfStandplatzSein';
+import { standplatz } from '$lib/remote/standplatz.svelte';
 
 /** Extra context fields that only the ready handler cares about — kept
  *  separate from `HandlerContext` so other handlers don't see them. */
@@ -175,10 +176,13 @@ export function register(ctx: ReadyContext): void {
       const eintrag = geraeteAnmeldung.fuerServer(sid);
       const conn = eintrag ? gatewayForServer(sid) : null;
       if (eintrag && conn) {
-        void geraeteAnmeldung.anmelden(
-          (deviceId, monitore) => conn.sendDeviceAnnounce(deviceId, monitore),
-          eintrag,
-        );
+        // Nach der Anmeldung: hier liegen zum ersten Mal beide Dinge vor, die
+        // der einmalige Umzug der alten lokalen Freigabeliste braucht — eine
+        // stehende Verbindung und die Eintragung dieses Geräts auf DIESEM
+        // Server (Begründung `standplatz.svelte.ts::versucheUmzug`).
+        void geraeteAnmeldung
+          .anmelden((deviceId, monitore) => conn.sendDeviceAnnounce(deviceId, monitore), eintrag)
+          .then(() => standplatz.versucheUmzug(eintrag));
       }
     }
     ctx.onReadySeeded();
