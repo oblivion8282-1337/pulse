@@ -94,7 +94,7 @@ pub(super) fn warne_bei_langem_abstand_ohne_rueckkanal(hat_rueckkanal: bool) {
 /// available). `health` already reports the same probe to the renderer, which
 /// filters the codec picker by it — so in practice the requested codec is
 /// always supported here.
-pub(super) fn videotoolbox_encoder(codec: &str) -> &'static str {
+pub(crate) fn videotoolbox_encoder(codec: &str) -> &'static str {
     match crate::caps::vt_encoder_name(codec) {
         Some(name) if crate::caps::supports_codec(codec) => name,
         _ => "h264_videotoolbox",

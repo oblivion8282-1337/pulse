@@ -426,18 +426,18 @@ impl WhipSender {
 
     /// Ein encodiertes Ton-Paket senden.
     ///
-    /// `dauer` ist die Laenge des Opus-Pakets (heute 5 ms, s.
-    /// `encode::audio::opus_frame_ms`) — webrtc-rs leitet daraus den
+    /// `dauer` ist die Laenge des Opus-Pakets (auf macOS konstant 20 ms, s.
+    /// `encode::audio::OPUS_FRAME_DURATION`) — webrtc-rs leitet daraus den
     /// RTP-Zeitstempel ab. Ein falscher Wert verschoebe den Ton gegen das Bild,
     /// ohne dass irgendwo ein Fehler auftaucht.
     ///
-    /// **Auch hier ueber [`dauer_fuer_takte`]**, obwohl der Ton die Falle heute
-    /// nicht trifft: 5 ms mal 48000 faellt in f64 zufaellig knapp UEBER 240 und
-    /// wird richtig abgeschnitten. Das ist ein Zufall der Darstellung, keine
-    /// Absicht — bei einer anderen Paketlaenge (`OPUS_FRAME_MS`) kann es
-    /// andersherum ausgehen, und dann liefe der TON weg statt des Bildes. Ein
-    /// gemessener Fehler an einer Stelle heisst, dieselbe Stelle ueberall zu
-    /// schliessen.
+    /// **Auch hier ueber [`dauer_fuer_takte`]**, obwohl 20 ms mal 48000 exakt
+    /// 960 Takte ergibt (`OPUS_FRAME_SAMPLES`) und die Rundungsfalle deshalb
+    /// auf macOS heute gar nicht zuschlagen kann. Trotzdem ueber dieselbe
+    /// Funktion wie das Bild, statt eine feste Konstante hier hinzuschreiben:
+    /// aendert sich die Paketlaenge einmal, laeuft der Ton automatisch mit,
+    /// statt still wegzudriften. Ein gemessener Fehler an einer Stelle heisst,
+    /// dieselbe Stelle ueberall zu schliessen.
     pub fn send_audio(&self, data: &[u8], dauer: Duration) -> Result<()> {
         let takte = (dauer.as_secs_f64() * 48_000.0).round() as u32;
         write_to_track(&self.audio, data, dauer_fuer_takte(takte, 48_000))

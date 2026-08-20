@@ -12,7 +12,7 @@
 pub mod audio;
 pub mod hw;
 pub mod mux_writer;
-mod timing;
+mod wahl;
 
 use std::ffi::c_void;
 use std::sync::Arc;
@@ -24,16 +24,19 @@ use ffmpeg::{Dictionary, Packet, Rational, codec, format};
 use audio::AudioEncoder;
 use hw::VtHwContext;
 use mux_writer::MuxWriter;
-use timing::{
-    keyframe_abstand_bilder, url_format_hint, videotoolbox_encoder,
-    warne_bei_langem_abstand_ohne_rueckkanal,
-};
+use wahl::{keyframe_abstand_bilder, url_format_hint, warne_bei_langem_abstand_ohne_rueckkanal};
+
+/// Re-Export fuer `ops::start::resolve_codec`s K-1-Test — der Testet die
+/// Eigenschaft "der von `resolve_codec` durchgelassene Codec ist derselbe,
+/// den der Encoder tatsaechlich oeffnet" und braucht dafuer den Zugriff auf
+/// beide Seiten der Rechnung, ueber die Modulgrenze hinweg.
+pub(crate) use wahl::videotoolbox_encoder;
 
 /// Der Abstand, fuer den die Schutzmechanismen ausgelegt WURDEN — und auf
 /// macOS zugleich die Vorgabe.
 ///
 /// **Zwilling zu `KEYFRAME_SEKUNDEN_UNBEDENKLICH` im Linux-Sidecar** (2 s,
-/// dort ausfuehrlich begruendet). Definiert hier statt in `timing.rs`, weil
+/// dort ausfuehrlich begruendet). Definiert hier statt in `wahl.rs`, weil
 /// `keyframe.rs` (Test `deckel_haengt_am_unbedenklichen_abstand`) darauf
 /// zugreift — die kleinstmoegliche Oeffnung ist `pub(crate)` an genau dieser
 /// Stelle, nicht ein zusaetzlicher Re-Export.
@@ -71,7 +74,7 @@ pub struct VideoEncoder {
     /// `hw_frames_ctx` references it.
     hw: VtHwContext,
     audio: Option<AudioEncoder>,
-    mux: Ausgabe,
+    ausgabe: Ausgabe,
     width: u32,
     height: u32,
     stream_idx: usize,
@@ -178,7 +181,7 @@ impl VideoEncoder {
             encoder,
             hw,
             audio,
-            mux: Ausgabe::Mux(mux),
+            ausgabe: Ausgabe::Mux(mux),
             width,
             height,
             stream_idx,
@@ -238,7 +241,7 @@ impl VideoEncoder {
             encoder,
             hw,
             audio,
-            mux: Ausgabe::Whip(Arc::new(sender)),
+            ausgabe: Ausgabe::Whip(Arc::new(sender)),
             width: params.width,
             height: params.height,
             stream_idx: 0,
@@ -294,9 +297,15 @@ impl VideoEncoder {
     /// `anchor_samples` is the wall-clock position (in 48kHz samples since the
     /// shared stream epoch) used to anchor the FIRST audio frame's pts, so audio
     /// lines up with video instead of both independently starting at 0.
+    ///
+    /// **Nur auf dem Muxer-Weg.** Auf dem WHIP-Weg wirkt der Anker nicht: der
+    /// Paket-`pts` wird dort verworfen (`audio::TonSenke::Whip` in `drain`,
+    /// s. `audio.rs`), WebRTC leitet den Ton-Zeitstempel stattdessen aus den
+    /// Paketdauern ab (`WhipSender::send_audio`). Derselbe Rand gilt am
+    /// Linux-Zwilling.
     pub fn push_audio(&mut self, samples: &[f32], anchor_samples: i64) -> Result<()> {
         if let Some(a) = self.audio.as_mut() {
-            let senke = match &self.mux {
+            let senke = match &self.ausgabe {
                 Ausgabe::Mux(m) => audio::TonSenke::Mux(m),
                 Ausgabe::Whip(w) => audio::TonSenke::Whip(w),
             };
@@ -327,16 +336,7 @@ impl VideoEncoder {
     pub fn push_pixel_buffer(&mut self, pb: *mut c_void, pts: i64) -> Result<()> {
         let pts = pts.max(self.frame_index);
         self.frame_index = pts + 1;
-        // Der Muxer-Weg encodiert in fps-Takten (`encoder_time_base == 1/fps`),
-        // der eingehende `pts` passt dort unveraendert. Der WHIP-Weg encodiert
-        // dagegen in der 90-kHz-RTP-Uhr (`start_whip`) — hier umgerechnet, statt
-        // in `drain()` (Falle 1: dort geht das Encoder-Paket ohne zweite
-        // Umrechnung direkt an `WhipSender::send`). Gerundet, nicht
-        // abgeschnitten, damit sich der Fehler nicht einseitig aufsummiert.
-        let encoder_pts = match &self.mux {
-            Ausgabe::Mux(_) => pts,
-            Ausgabe::Whip(_) => fps_takt_zu_rtp_takt(pts, self.fps),
-        };
+        let encoder_pts = encoder_pts_fuer(matches!(self.ausgabe, Ausgabe::Whip(_)), pts, self.fps);
         unsafe {
             let frame = hw::wrap(&self.hw, pb, self.width, self.height, encoder_pts)?;
             // Vollbild auf Anforderung: `pict_type = I` bringt `h264_videotoolbox`
@@ -372,7 +372,7 @@ impl VideoEncoder {
         loop {
             let mut packet = Packet::empty();
             match self.encoder.receive_packet(&mut packet) {
-                Ok(()) => match &self.mux {
+                Ok(()) => match &self.ausgabe {
                     Ausgabe::Mux(m) => {
                         packet.set_stream(self.stream_idx);
                         packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
@@ -403,13 +403,13 @@ impl VideoEncoder {
         self.encoder.send_eof().context("send_eof")?;
         self.drain()?;
         if let Some(a) = self.audio.as_mut() {
-            let senke = match &self.mux {
+            let senke = match &self.ausgabe {
                 Ausgabe::Mux(m) => audio::TonSenke::Mux(m),
                 Ausgabe::Whip(w) => audio::TonSenke::Whip(w),
             };
             a.flush(&senke)?;
         }
-        match &mut self.mux {
+        match &mut self.ausgabe {
             Ausgabe::Mux(m) => m.finish(),
             Ausgabe::Whip(w) => {
                 w.close();
@@ -425,54 +425,42 @@ impl VideoEncoder {
 ///
 /// Herausgeloest, damit die Rechnung ohne einen echten Stream pruefbar ist —
 /// `push_pixel_buffer` selbst braucht dafuer einen offenen VideoToolbox-
-/// Encoder. Gerundet (nicht abgeschnitten): bei 30 fps waere `90000/30` exakt
-/// 3000, aber bei krummen Raten wie 280 fps ist es das nicht, und Abschneiden
-/// wuerde den Fehler einseitig aufsummieren lassen (Zwilling zur Falle, die
-/// `whip::dauer_fuer_takte` fuer die Ton-Paketdauer schon einmal behoben hat).
+/// Encoder. Gerundet (nicht abgeschnitten, per `(2*pts*hz + fps) / (2*fps)` —
+/// die Rundungszugabe volle `fps/2`, nicht die auf ungerade `fps` abgerundete
+/// Ganzzahl `fps/2`, s. `halbfall_rundet_auf`): bei 30 fps waere `90000/30`
+/// exakt 3000, aber bei krummen Raten wie 280 fps ist es das nicht, und
+/// Abschneiden wuerde den Fehler einseitig aufsummieren lassen (Zwilling zur
+/// Falle, die `whip::dauer_fuer_takte` fuer die Ton-Paketdauer schon einmal
+/// behoben hat).
+///
+/// **Groessenordnung eines falschen Vorzeichens/Faktors hier:** bei 60 fps
+/// rueckt der Zeitstempel je Bild um `90000/60 = 1500` RTP-Takte vor, also
+/// `1500/90000 s ≈ 16,7 ms` — NICHT um rund eine Millisekunde. Ein Fehler an
+/// dieser Stelle waere deshalb pro Bild vier Groessenordnungen groesser als
+/// "kaum messbar" (s. Commit-Historie: eine fruehere Commit-Message nannte
+/// hier "fast eine Millisekunde" — tatsaechlich waeren es bei einem
+/// entsprechenden Fehler 11 µs statt der richtigen 16,7 ms gewesen).
 fn fps_takt_zu_rtp_takt(pts: i64, fps: u32) -> i64 {
     let hz = i128::from(crate::zeitbasis::VIDEO_HZ);
     let fps = i128::from(fps.max(1));
-    ((i128::from(pts) * hz + fps / 2) / fps) as i64
+    ((i128::from(pts) * hz * 2 + fps) / (fps * 2)) as i64
 }
 
+/// Welchen `pts` der Encoder fuer ein Bild bekommt — der Muxer-Weg rechnet
+/// NICHT um, der WHIP-Weg schon (s. [`fps_takt_zu_rtp_takt`]).
+///
+/// Nimmt bewusst ein `bool` statt `&Ausgabe`: ein echtes `Ausgabe::Whip`
+/// braucht eine echte, verbundene WHIP-Sitzung und ist ohne Netzwerk nicht
+/// konstruierbar — das `bool` traegt genau die eine Information, die diese
+/// Funktion tatsaechlich braucht, und macht sie damit ohne jeden Encoder oder
+/// Sender pruefbar (W-2(d): der Muxer-Zweig war bisher NICHT unit-getestet,
+/// nur am manuellen RTMPS-Rauchtest).
+fn encoder_pts_fuer(ist_whip: bool, pts: i64, fps: u32) -> i64 {
+    if ist_whip { fps_takt_zu_rtp_takt(pts, fps) } else { pts }
+}
+
+// Tests in einer eigenen Datei (`pts_umrechnung_tests.rs`) — sonst reisst
+// diese Datei die Groessen-Policy (hart 500 Zeilen); Tests sind davon
+// ausgenommen (`PLAN.md` §12.1).
 #[cfg(test)]
-mod pts_umrechnung_tests {
-    use super::fps_takt_zu_rtp_takt;
-    use crate::zeitbasis::VIDEO_HZ;
-
-    /// Glatte Bildraten treffen die 90-kHz-Uhr exakt.
-    #[test]
-    fn glatte_bildrate_trifft_exakt() {
-        assert_eq!(fps_takt_zu_rtp_takt(0, 60), 0);
-        assert_eq!(fps_takt_zu_rtp_takt(1, 60), 1_500);
-        assert_eq!(fps_takt_zu_rtp_takt(60, 60), 90_000);
-    }
-
-    /// Krumme Bildraten runden, statt abzuschneiden — sonst faellt der Fehler
-    /// einseitig aus (die Falle, die `whip::dauer_fuer_takte` fuer den Ton
-    /// schon einmal behoben hat).
-    #[test]
-    fn krumme_bildrate_rundet_statt_abzuschneiden() {
-        // 90000/280 = 321,43 — abgeschnitten waere 321, gerundet 321. Nach 7
-        // Bildern liegt der Unterschied klar: 90000*7/280 = 2250 exakt.
-        assert_eq!(fps_takt_zu_rtp_takt(7, 280), 2_250);
-        // 90000/3 = 30000 exakt, aber 90000*2/3 = 60000 exakt — kein guter
-        // Testfall fuer Rundung. 90000/7 = 12857,14... — hier zeigt sich's:
-        assert_eq!(fps_takt_zu_rtp_takt(1, 7), 12_857); // 12857,14 -> 12857
-        assert_eq!(fps_takt_zu_rtp_takt(2, 7), 25_714); // 25714,29 -> 25714
-    }
-
-    /// `fps=0` darf nicht durch Null teilen — geklemmt auf 1.
-    #[test]
-    fn null_fps_teilt_nicht_durch_null() {
-        assert_eq!(fps_takt_zu_rtp_takt(1, 0), i64::from(VIDEO_HZ));
-    }
-
-    /// Der Muxer-Weg rechnet ueberhaupt nicht um — das ist in
-    /// `push_pixel_buffer` selbst geprueft (Match auf `Ausgabe::Mux`), diese
-    /// Funktion hier deckt nur den WHIP-Zweig ab.
-    #[test]
-    fn ein_sekundentakt_ergibt_die_volle_uhr() {
-        assert_eq!(fps_takt_zu_rtp_takt(30, 30), i64::from(VIDEO_HZ));
-    }
-}
+mod pts_umrechnung_tests;
