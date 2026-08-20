@@ -2903,5 +2903,12 @@
   "whep_player_waiting_for_stream": "Waiting for stream…",
   "error_page_title": "This page does not exist",
   "error_page_body": "The link leads nowhere — the channel may have been deleted, or the address is incomplete.",
-  "error_page_back": "Back to Pulse"
+  "error_page_back": "Back to Pulse",
+  "device_manage_title": "Manage",
+  "device_manage_name_label": "Name",
+  "device_manage_guild_label": "Community",
+  "device_manage_channel_label": "Location (voice channel)",
+  "device_manage_remove": "Remove device",
+  "device_manage_error": "Failed: {error}",
+  "device_manage_role_grants_cleared": "{count} role grant(s) were cleared — they belonged to the old community."
 }
