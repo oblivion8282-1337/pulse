@@ -26,6 +26,7 @@
     allowedFpsSteps,
     fpsAllowed,
     snapFps,
+    largestMonitorSize,
   } from '../settings.svelte';
   import { stream } from '../state.svelte';
   import { sourceSize, resolutionOptions, RESOLUTION_BOXES, fitWithinBox } from '../resolution';
@@ -200,8 +201,16 @@
   // begrenzt bei 10 bit die Bildraten-Stufen (Last-Regel, `settingsCatalog`).
   // Ohne bekannte Quellgröße gilt die Stufen-BOX als obere Schranke: die
   // Einpassung verkleinert nur, macht nie größer — die Box ist der Worst Case.
+  //
+  // Bei „Native" unter dem Linux-Portal ist die Quelle unbekannt (sie steht
+  // erst im Portal-Dialog fest) — dann begrenzt der GRÖSSTE bekannte Monitor
+  // die Stufen, denn jedes dieser Bilder ist im Dialog wählbar. Bis zum
+  // 2026-08-20 blieb „Native" dort ungefiltert, und auf einem 4K-Monitor war
+  // 144 fps in 10 bit wählbar — genau die Kombination, die die Grenze
+  // verhindern soll.
   let sendGroesse = $derived.by(() => {
-    if (resValue === 'Native') return srcSize;
+    if (resValue === 'Native')
+      return srcSize ?? largestMonitorSize(streamSettings.available_monitors);
     const box = RESOLUTION_BOXES[resValue];
     if (!box) return null;
     if (!srcSize) return { width: box[0], height: box[1] };

@@ -16,6 +16,7 @@ import {
   HQ_TEN_BIT_MAX_PIXELS_PER_SEC,
   fpsAllowed,
   allowedFpsSteps,
+  largestMonitorSize,
   snapFps,
 } from '../src/lib/stream/settingsCatalog.ts';
 
@@ -83,4 +84,22 @@ test('snapFps biegt auf die größte Stufe UNTER dem alten Wert', () => {
 
 test('die Last-Grenze ist die vereinbarte 300-Mpix/s-Schwelle', () => {
   assert.equal(HQ_TEN_BIT_MAX_PIXELS_PER_SEC, 300_000_000);
+});
+
+test('größter Monitor als Worst Case für „Native" unter dem Linux-Portal', () => {
+  // Der gemeldete Fall vom 2026-08-20: Linux, 4K-Monitor, „Original" gewählt —
+  // die Quelle ist unbekannt, aber jedes der bekannten Bilder wählbar. Die
+  // Liste muss nach dem GRÖSSTEN Monitor begrenzen, nicht gar nicht.
+  const monitore = [
+    { width: 1920, height: 1080 },
+    { width: 3840, height: 2160 },
+  ];
+  assert.deepEqual(largestMonitorSize(monitore), { width: 3840, height: 2160 });
+  assert.deepEqual(allowedFpsSteps(true, largestMonitorSize(monitore), 1, 144), [25, 30]);
+});
+
+test('largestMonitorSize ohne verwertbare Einträge ist null', () => {
+  assert.equal(largestMonitorSize([]), null);
+  // Kanten 0 sind kein Monitor — sie würden die Last gegen null rechnen.
+  assert.equal(largestMonitorSize([{ width: 0, height: 0 }]), null);
 });
