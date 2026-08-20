@@ -84,6 +84,7 @@ def _community_row(guild: Guild, member_count: int, storage_bytes: int) -> Commu
         max_members=guild.max_members,
         max_channels=guild.max_channels,
         max_roles=guild.max_roles,
+        max_devices_per_owner=guild.max_devices_per_owner,
         max_concurrent_streams=guild.max_concurrent_streams,
         dropbox_allowed=guild.dropbox_allowed,
         dropbox_quota_bytes=guild.dropbox_quota_bytes,
@@ -270,6 +271,7 @@ async def set_community_limits(
     guild.max_members = payload.max_members
     guild.max_channels = payload.max_channels
     guild.max_roles = payload.max_roles
+    guild.max_devices_per_owner = payload.max_devices_per_owner
     guild.max_concurrent_streams = payload.max_concurrent_streams
     # Feature permission, non-nullable column → only overwrite when sent.
     if payload.dropbox_allowed is not None:
@@ -300,6 +302,7 @@ async def set_community_limits(
             "max_members": payload.max_members,
             "max_channels": payload.max_channels,
             "max_roles": payload.max_roles,
+            "max_devices_per_owner": payload.max_devices_per_owner,
             "max_concurrent_streams": payload.max_concurrent_streams,
             "dropbox_allowed": payload.dropbox_allowed,
             "dropbox_quota_bytes": payload.dropbox_quota_bytes,

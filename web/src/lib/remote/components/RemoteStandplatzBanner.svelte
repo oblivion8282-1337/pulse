@@ -24,9 +24,38 @@
   import { remoteSession } from '$lib/remote/session.svelte';
   import { geraeteSlots, wiederEinschlafen } from '$lib/devices/wecken';
   import { isElectron } from '$lib/platform/runtime';
+  import { activeServer } from '$lib/stores/active-server.svelte';
+  import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
+  import { freigaben } from '$lib/devices/freigaben.svelte';
+  import { freigabenUmfang } from '$lib/devices/freigabenUmfang';
   import { m } from '$lib/paraglide/messages.js';
 
   const desktop = isElectron();
+
+  // Welches Gerät dieser Rechner ist, sagt die lokale Eintragung — dieselbe
+  // Quelle wie in `SettingsStandplatz.svelte`. Ohne Eintragung auf dem
+  // gerade aktiven Server gibt es keine Server-Liste zu lesen; der Umfang
+  // bleibt dann leer, das Banner selbst hängt weiter nur an `standplatz.aktiv`.
+  const eintragung = $derived(geraeteAnmeldung.fuerServer(activeServer.serverId));
+  $effect(() => {
+    if (eintragung) void freigaben.laden(eintragung.guildId, eintragung.deviceId);
+  });
+  const umfang = $derived(
+    freigabenUmfang(eintragung ? freigaben.fuer(eintragung.deviceId) : []),
+  );
+
+  /**
+   * **Der lokale Notaus — sticht immer.** (Entscheidung zu Prüfbefund W-1,
+   * 2026-08-20.) Vorher leerte dieser Knopf zusätzlich die ganze
+   * kontoweite, auf allen Rechnern gepflegte Server-Freigabeliste — unwider-
+   * ruflich und ohne Rückfrage, und mit derselben Beschriftung wie der Knopf
+   * in den Einstellungen, der genau das NICHT tut. Der Hauptschalter darf
+   * keine kontoweiten Daten vernichten; wer die Liste ändern will, tut das in
+   * der Freigabe-Oberfläche.
+   */
+  async function zuruecknehmen(): Promise<void> {
+    await standplatz.zuruecknehmen();
+  }
 
   /**
    * Überträgt dieser Rechner gerade, weil ihn jemand geweckt hat?
@@ -65,9 +94,9 @@
         {geweckt > 0 ? m.standplatz_banner_streaming() : m.standplatz_banner_title()}
       </span>
       <span class="text-text-muted block truncate text-xs">
-        {standplatz.jeder
+        {umfang.jeder
           ? m.standplatz_banner_scope_everyone()
-          : m.standplatz_banner_scope_users({ count: standplatz.nutzer.length })}
+          : m.standplatz_banner_scope_users({ count: umfang.anzahl })}
         ·
         {restStunden === null
           ? m.standplatz_banner_permanent()
@@ -88,7 +117,7 @@
       <Button
         size="sm"
         variant="outline"
-        onclick={() => standplatz.zuruecknehmen()}
+        onclick={() => void zuruecknehmen()}
         data-testid="remote-standplatz-banner-revoke"
       >
         {m.standplatz_banner_revoke()}

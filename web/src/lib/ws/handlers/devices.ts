@@ -15,6 +15,8 @@ import { deviceStore } from '$lib/devices/store.svelte';
 import { registerWsHandler } from '../handler-registry';
 import { weckrufBehandeln } from '$lib/devices/wecken';
 import { dispatchingServerId } from '$lib/ws/gateway-connection';
+import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
+import { nachzugFuer } from '$lib/devices/nachzugAktion';
 
 const ZUSTAENDE: readonly DeviceState[] = ['ready', 'busy', 'offline'];
 
@@ -46,6 +48,37 @@ export function register(): void {
     const geraet = evt.device as Device | undefined;
     if (!evt.guild_id || !geraet?.id) return;
     deviceStore._changed(String(evt.guild_id), geraet, evt.removed === true);
+    // **Und die eigene Eintragung mitziehen.** Ohne das bleibt ein Rechner
+    // nach dem Entfernen im Standplatz-Betrieb (hält den Schirm wach, meldet
+    // sich bei jedem Verbinden als ein Gerät an, das es nicht gibt) — und nach
+    // einem Community-Wechsel aus der Ferne zeigt seine Eintragung auf die
+    // alte Community.
+    //
+    // Die Entscheidung selbst (`nachzugAktion.ts::nachzugFuer`) ist geprüft:
+    // eine Meldung über ein fremdes Gerät (keine lokale Eintragung mit dieser
+    // Kennung) greift hier NIE, und die Abmeldung an den alten Standplatz
+    // beim Umstellen (`moved: true`) räumt NICHTS weg — die direkt danach
+    // eintreffende Änderungsmeldung mit dem neuen Standplatz zieht nach.
+    const guildId = String(geraet.guild_id);
+    switch (
+      nachzugFuer(
+        {
+          deviceId: geraet.id,
+          guildId,
+          name: geraet.name,
+          entfernt: evt.removed === true,
+          umzug: evt.moved === true,
+        },
+        geraeteAnmeldung.eintragungen,
+      )
+    ) {
+      case 'vergessen':
+        void geraeteAnmeldung.vergessen(geraet.id);
+        break;
+      case 'nachziehen':
+        void geraeteAnmeldung.nachziehen(geraet.id, guildId, geraet.name);
+        break;
+    }
   });
 
   registerWsHandler('device_state', (evt) => {

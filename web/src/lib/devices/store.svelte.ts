@@ -81,6 +81,23 @@ class DeviceStore {
     return this.forGuild(guildId).find((d) => d.id === deviceId) ?? null;
   }
 
+  /**
+   * Alle eigenen Geräte über alle geladenen Communitys — für „Meine Geräte
+   * auf diesem Server" im Standplatz-Reiter. Wie bei `byChannelOwner` reicht
+   * die Suche nur über das, was schon geladen ist: der Reiter lädt vorher
+   * selbst jede Community nach, die der Nutzer sieht.
+   */
+  eigene(ownerId: string | null | undefined): Device[] {
+    if (!ownerId) return [];
+    const treffer: Device[] = [];
+    for (const liste of this.byGuild.values()) {
+      for (const d of liste) {
+        if (d.owner_user_id === ownerId) treffer.push(d);
+      }
+    }
+    return treffer;
+  }
+
   /** Einmal laden. Fehler werden verschluckt: eine fehlende Geräteliste ist
    *  eine leere Kategorie in der Kanalliste, kein Grund, die Ansicht zu
    *  stören. */

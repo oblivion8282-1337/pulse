@@ -84,21 +84,37 @@ async def melden(
     *,
     entfernt: bool = False,
     kanal: int | None = None,
+    guild: int | None = None,
+    umzug: bool = False,
 ) -> None:
     """``device_changed`` an die Community schicken.
 
     ``kanal`` übersteuert den Standplatz — gebraucht beim Umstellen, wo die
-    Meldung „weg hier" an den ALTEN Kanal gehen muss.
+    Meldung „weg hier" an den ALTEN Kanal gehen muss. ``guild`` übersteuert
+    ebenso die Community — seit dem Community-Wechsel kann die ALTE Community
+    eine andere sein als ``device.guild_id`` (das Gerät trägt zu diesem
+    Zeitpunkt schon die neue). Beide Vorgaben (``device.guild_id`` /
+    ``device.channel_id``) halten das Verhalten für alle bestehenden Rufer
+    unverändert.
+
+    ``umzug`` gehört zusammen mit ``entfernt=True`` beim Umstellen gesetzt:
+    ohne die Unterscheidung räumt der eigene Rechner des Geräts (Mitglied der
+    alten Community, sieht den alten Kanal) seine lokale Eintragung dauerhaft
+    weg, sobald er die eigene Abmeldung empfängt — obwohl das Gerät nur
+    umgezogen ist, nicht gelöscht (Prüfbefund K-1, 2026-08-20). Der Client
+    kann das aus der sonstigen Nutzlast nicht unterscheiden, der Server muss
+    es sagen.
     """
     mgr = manager_von(request)
     if mgr is None:
         return
     try:
         await mgr.publish_device_change(
-            guild_id=device.guild_id,
+            guild_id=guild if guild is not None else device.guild_id,
             channel_id=kanal if kanal is not None else device.channel_id,
             device=stand.model_dump(),
             removed=entfernt,
+            moved=umzug,
         )
     except Exception:  # pragma: no cover - Meldung ist nie kritisch
         log.debug("device_changed not published", exc_info=True)

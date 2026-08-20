@@ -293,6 +293,13 @@ class DeviceChangedEvent(_EventBase):
     channel_id: str
     device: dict
     removed: bool = False
+    #: Ist diese Abmeldung Teil eines Umstellens (Kanal-/Community-Wechsel),
+    #: nicht ein echtes Loeschen? Ohne dieses Feld ist die Abmeldung an den
+    #: ALTEN Standplatz beim Umstellen vom Loeschen nicht unterscheidbar — der
+    #: Client raeumte seine lokale Eintragung dauerhaft weg, obwohl das Geraet
+    #: nur umgezogen ist (Pruefbefund K-1, 2026-08-20). Nur gueltig zusammen
+    #: mit ``removed=True``.
+    moved: bool = False
 
 
 class DeviceStateEvent(_EventBase):

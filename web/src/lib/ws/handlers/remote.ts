@@ -65,6 +65,7 @@ export function register(): void {
       evt.channel_id,
       evt.from_user_id,
       evt.device_id,
+      evt.freigabe === true,
     );
   });
   // Nur an den Steuernden: die Kennung seiner gerade angelegten Sitzung.

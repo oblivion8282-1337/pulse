@@ -45,6 +45,7 @@
         { key: 'max_members', kind: 'raw', label: m.guild_limits_field_max_members },
         { key: 'max_channels', kind: 'raw', label: m.guild_limits_field_max_channels },
         { key: 'max_roles', kind: 'raw', label: m.guild_limits_field_max_roles },
+        { key: 'max_devices_per_owner', kind: 'raw', label: m.guild_limits_field_max_devices },
         { key: 'max_concurrent_streams', kind: 'raw', label: m.guild_limits_field_max_concurrent_streams }
       ]
     }

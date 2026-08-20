@@ -32,29 +32,22 @@
   import SettingsApps from './settings/SettingsApps.svelte';
   import SettingsExperimental from './settings/SettingsExperimental.svelte';
   import SettingsStandplatz from './settings/SettingsStandplatz.svelte';
-  import DownloadIcon from '@lucide/svelte/icons/download';
-  import PlugZapIcon from '@lucide/svelte/icons/plug-zap';
-  import PaletteIcon from '@lucide/svelte/icons/palette';
-  import MicIcon from '@lucide/svelte/icons/mic';
-  import MonitorIcon from '@lucide/svelte/icons/monitor';
-  import BellIcon from '@lucide/svelte/icons/bell';
-  import Volume2Icon from '@lucide/svelte/icons/volume-2';
-  import KeyboardIcon from '@lucide/svelte/icons/keyboard';
-  import ShieldIcon from '@lucide/svelte/icons/shield';
-  import LockIcon from '@lucide/svelte/icons/lock';
-  import ServerIcon from '@lucide/svelte/icons/server';
-  import MonitorCogIcon from '@lucide/svelte/icons/monitor-cog';
-  import UserIcon from '@lucide/svelte/icons/user';
+  import SettingsDialogNav from './SettingsDialogNav.svelte';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import { untrack } from 'svelte';
   import { sounds } from '$lib/sounds/engine';
   import { isCapacitorAndroid, isElectron } from '$lib/platform/runtime';
   import { darfStandplatzSein } from '$lib/remote/darfStandplatzSein';
+  import { reiterSichtbar } from '$lib/devices/reiterSichtbar';
   import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
+  import { deviceStore } from '$lib/devices/store.svelte';
+  import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { activeServer } from '$lib/stores/active-server.svelte';
+  import { guilds } from '$lib/stores/guilds.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
+  import { getSettingsTabs } from './settingsTabs';
 
   type MobileView = 'list' | 'detail';
 
@@ -76,7 +69,7 @@
         //
         // **Gegen `visibleTabs` geprüft und nicht gegen einzelne Merkmale**:
         // die frühere Fassung zählte `desktopOnly` und `browserOnly` einzeln
-        // auf, und jedes neue Merkmal (zuletzt `windowsOnly`) fehlte hier
+        // auf, und jedes neue Merkmal (zuletzt `standplatzGate`) fehlte hier
         // stillschweigend — der Dialog öffnete dann einen Reiter, den seine
         // eigene Liste gar nicht führt.
         const sichtbar = visibleTabs.some((t) => t.id === initialTab);
@@ -110,65 +103,66 @@
   // es fehlte allein der Schalter.
   const isDesktopApp = isElectron();
 
-  // Kann dieser Rechner selbst ferngesteuert werden? (s. `windowsOnly` unten)
+  // Zeigt dieser Client den Standplatz-Reiter? Drei Gründe, unabhängig
+  // voneinander (`reiterSichtbar.ts`):
   //
-  // Dieselbe Bedingung wie bei der Anmeldung in `ws/handlers/ready.ts` — sie
-  // liegt gemeinsam in `remote/darfStandplatzSein.ts`, weil Reiter und
-  // Anmeldung schon einmal auseinanderliefen: der Reiter war unter Linux
-  // versteckt, die vorhandene Eintragung meldete sich trotzdem weiter an.
-  //
-  // ODER: es liegt bereits eine Eintragung fuer diesen Server vor. Ohne dieses
-  // Oder waere der Reiter die Falle, die er am 2026-08-18 kurz war — die
-  // EINZIGE Stelle zum Entfernen einer Eintragung sitzt darin
-  // (`SettingsGeraeteEintragung`). Wer einen Rechner unter Windows eingetragen
-  // hat und ihn spaeter unter Linux startet, saehe sonst dauerhaft eine
-  // Geraetezeile in der Kanalliste und haette keinen Weg mehr, sie loszuwerden.
-  // Was man anlegen kann, muss man ueberall wieder abraeumen koennen.
-  const istWindows = $derived(
-    darfStandplatzSein() || !!geraeteAnmeldung.fuerServer(activeServer.serverId),
+  // * Dieser RECHNER kann selbst Standplatz sein (`darfStandplatzSein`) —
+  //   dieselbe Bedingung wie bei der Anmeldung in `ws/handlers/ready.ts`.
+  //   Reiter und Anmeldung liefen am 2026-08-18 schon einmal auseinander: der
+  //   Reiter war unter Linux versteckt, die vorhandene Eintragung meldete
+  //   sich trotzdem weiter an.
+  // * Es liegt bereits eine Eintragung fuer diesen Server vor. Ohne diesen
+  //   Fall waere der Reiter die Falle, die er am 2026-08-18 kurz war — die
+  //   EINZIGE Stelle zum Entfernen einer Eintragung sitzt darin
+  //   (`SettingsGeraeteEintragung`). Wer einen Rechner unter Windows
+  //   eingetragen hat und ihn spaeter unter Linux startet, saehe sonst
+  //   dauerhaft eine Geraetezeile in der Kanalliste und haette keinen Weg
+  //   mehr, sie loszuwerden. Was man anlegen kann, muss man ueberall wieder
+  //   abraeumen koennen.
+  // * Dieser NUTZER besitzt Geraete auf diesem Server, unabhaengig davon, ob
+  //   der Rechner, an dem er gerade sitzt, selbst Standplatz sein kann — der
+  //   neue Fall seit 2026-08-20: auch unter Linux/macOS/Browser soll man die
+  //   eigenen Geraete sehen und entfernen koennen.
+  const zeigtStandplatzReiter = $derived(
+    reiterSichtbar({
+      kannStandplatzSein: darfStandplatzSein(),
+      hatEintragung: !!geraeteAnmeldung.fuerServer(activeServer.serverId),
+      besitztGeraete: deviceStore.eigene(currentServerUserId()).length > 0,
+    }),
   );
+
+  // Geräte für ALLE Communitys vorladen, sobald der Dialog öffnet — sonst
+  // kennt `deviceStore.eigene()` oben nur die Community, deren Kanalliste
+  // zuletzt offen war, und `zeigtStandplatzReiter` bliebe dauerhaft falsch,
+  // wenn das eigene Gerät woanders steht oder der Dialog aus einer Ansicht
+  // ohne aktive Community geöffnet wird (DM/Freunde, mobile Tabs). Der
+  // einzige bisherige Nachlade-Pfad (`SettingsStandplatzGeraete`) lag HINTER
+  // genau der Sichtbarkeitsentscheidung, die er beheben sollte — ein
+  // Henne-Ei-Problem ohne Selbstheilung (Fix-Runde 1, 2026-08-20).
+  //
+  // `ensureLoaded` ist intern idempotent (bereits geladene Communitys werden
+  // nicht neu geholt) — ein zweites Öffnen löst also keine neuen Anfragen
+  // aus. Blockiert nicht: die Tabs richten sich reaktiv nach, sobald die
+  // Daten da sind. `queueMicrotask` wie beim Vorbild in `app/+layout.svelte`,
+  // wegen des Svelte-Effect-Depth-Guards.
+  $effect(() => {
+    if (!open) return;
+    const guildIds = guilds.list.map((g) => g.id);
+    queueMicrotask(() => {
+      for (const id of guildIds) void deviceStore.ensureLoaded(id);
+    });
+  });
 
   // Für die Teile INNERHALB des Tabs, die es wirklich nur unter Linux gibt
   // (die Notbremse zurück auf den GSR-Sidecar).
   const isLinuxDesktop =
     isElectron() && typeof window !== 'undefined' && window.pulse?.os === 'linux';
 
-  const tabs: {
-    id: SettingsTab;
-    label: string;
-    icon: typeof MicIcon;
-    desktopOnly?: true;
-    browserOnly?: true;
-    electronOnly?: true;
-    /**
-     * Nur dort zeigen, wo dieser Rechner selbst ferngesteuert werden KANN.
-     *
-     * Eingaben einspielen kann heute allein der Windows-Sidecar
-     * (`remote_input/`); unter Linux und macOS gibt es die Gegenstelle nicht.
-     * Der Reiter bietet aber genau das an — Dauerfreigabe, Standplatz-Profil,
-     * Eintragung als Gerät. Wer ihn dort ausfüllt, richtet ein Gerät ein, das
-     * sich niemand holen kann, und sucht den Fehler anschliessend im Server.
-     *
-     * **Betrifft nur das ANBIETEN.** Steuern, zusehen und Geräte in der
-     * Kanalliste sehen bleibt plattformneutral — der Steuernde braucht keinen
-     * Sidecar, und genau das ist der übliche Fall auf einem Linux-Rechner.
-     */
-    windowsOnly?: true;
-  }[] = [
-    { id: 'profile', label: m.settings_dialog_tab_profile(), icon: UserIcon },
-    { id: 'appearance', label: m.settings_dialog_tab_appearance(), icon: PaletteIcon },
-    { id: 'audio-video', label: m.settings_dialog_tab_audio_video(), icon: MicIcon },
-    { id: 'screen-share', label: m.settings_dialog_tab_screen_share(), icon: MonitorIcon, desktopOnly: true },
-    { id: 'standplatz', label: m.settings_dialog_tab_standplatz(), icon: MonitorCogIcon, electronOnly: true, windowsOnly: true },
-    { id: 'notifications', label: m.settings_dialog_tab_notifications(), icon: BellIcon },
-    { id: 'sounds', label: m.settings_dialog_tab_sounds(), icon: Volume2Icon },
-    { id: 'keyboard', label: m.settings_dialog_tab_keyboard(), icon: KeyboardIcon, desktopOnly: true },
-    { id: 'privacy', label: m.settings_dialog_tab_privacy(), icon: LockIcon },
-    { id: 'security', label: m.settings_dialog_tab_security(), icon: ShieldIcon },
-    { id: 'self-host', label: m.settings_dialog_tab_self_host(), icon: ServerIcon },
-    { id: 'apps', label: m.settings_dialog_tab_apps(), icon: DownloadIcon, browserOnly: true },
-    { id: 'experimental', label: m.settings_dialog_tab_diagnostics(), icon: PlugZapIcon, electronOnly: true }
-  ];
+  // Reine Daten, ausgelagert nach `settingsTabs.ts` (Zerlegung, 250-Zeilen-
+  // Grenze). Als Funktionsaufruf statt Modul-Import, damit die Labels beim
+  // Erzeugen DIESER Instanz ausgewertet werden — exakt das Timing des
+  // vorherigen `const`-Ausdrucks hier an Ort und Stelle.
+  const tabs = getSettingsTabs();
 
   let visibleTabs = $derived(
     tabs.filter(
@@ -176,7 +170,7 @@
         (!t.desktopOnly || !viewport.isMobile) &&
         (!t.browserOnly || inBrowser) &&
         (!t.electronOnly || isDesktopApp) &&
-        (!t.windowsOnly || istWindows)
+        (!t.standplatzGate || zeigtStandplatzReiter)
     )
   );
 
@@ -200,28 +194,7 @@
     </Dialog.Title>
 
     <!-- Nav-Liste: immer sichtbar auf sm+; auf mobile nur wenn mobileView=list -->
-    <nav
-      class="bg-bg-input flex shrink-0 flex-col gap-0.5 overflow-y-auto rounded-l-2xl p-3 max-sm:w-full max-sm:rounded-none sm:w-56
-        {mobileView === 'detail' ? 'max-sm:hidden' : ''}"
-    >
-      <p class="text-text-muted px-2 pb-2 pt-1 text-xs font-semibold uppercase tracking-wide">
-        {m.settings_dialog_title()}
-      </p>
-      {#each visibleTabs as t (t.id)}
-        <button
-          type="button"
-          onclick={() => selectTab(t.id)}
-          class="flex items-center gap-2 rounded-xl px-2 py-3 text-left text-base transition-colors md:py-1.5 md:text-sm {activeTab ===
-          t.id
-            ? 'bg-bg-hover text-text-bright'
-            : 'text-text-base hover:bg-bg-hover'}"
-          data-testid="settings-tab-{t.id}"
-        >
-          <t.icon class="size-5 shrink-0 md:size-4" />
-          {t.label}
-        </button>
-      {/each}
-    </nav>
+    <SettingsDialogNav tabs={visibleTabs} {activeTab} {mobileView} onSelect={selectTab} />
 
     <!-- Inhaltsbereich: auf sm+ inline; auf mobile nur wenn mobileView=detail -->
     <div
