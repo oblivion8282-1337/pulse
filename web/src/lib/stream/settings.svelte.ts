@@ -221,7 +221,11 @@ export async function loadCatalogs(): Promise<void> {
     }
     streamSettings.profile_name = 'Custom';
     streamSettings.use_overrides = true;
-    // Default codec/bitrate/fps — only if the user hasn't already saved a value.
+    // Default codec/bitrate — only if the user hasn't already saved a value.
+    // Für die Bildrate steht seither kein Default mehr hier: „Standard" im
+    // FPS-Feld heißt gerade, dass die Oberfläche nichts mitgibt und der
+    // Sidecar seine Vorgabe nimmt (`FPS_STANDARD`) — eine Vorbelegung auf 60
+    // hätte den Eintrag nie sichtbar werden lassen.
     const hasAv1 = av1Nutzbar(streamSettings.gpu_info?.video_codecs);
     const defaults: OverrideSet = {};
     if (!streamSettings.overrides.codec) defaults.codec = hasAv1 ? 'av1' : 'h264';
@@ -229,7 +233,6 @@ export async function loadCatalogs(): Promise<void> {
     // over to an H.264-only machine) back to the baseline.
     else if (streamSettings.overrides.codec === 'av1' && !hasAv1) defaults.codec = 'h264';
     if (streamSettings.overrides.bitrate_kbps === undefined) defaults.bitrate_kbps = 4000;
-    if (streamSettings.overrides.fps === undefined) defaults.fps = 60;
     if (Object.keys(defaults).length > 0) {
       streamSettings.overrides = { ...streamSettings.overrides, ...defaults };
     }
