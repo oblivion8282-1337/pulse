@@ -381,7 +381,14 @@ async def patch_device(
         alt = device_out(device, mgr)
         alt.channel_id = str(alter_kanal)
         alt.guild_id = str(alte_guild)
-        await melden(request, device, alt, entfernt=True, kanal=alter_kanal, guild=alte_guild)
+        # **`umzug=True`** (Prüfbefund K-1, 2026-08-20): ohne die Markierung ist
+        # diese Abmeldung von einem echten Löschen nicht unterscheidbar — der
+        # eigene Rechner des Geräts empfängt sie selbst (Mitglied der alten
+        # Community) und würde seine lokale Eintragung dauerhaft wegräumen,
+        # kurz bevor die Meldung mit dem neuen Standplatz nachzieht.
+        await melden(
+            request, device, alt, entfernt=True, kanal=alter_kanal, guild=alte_guild, umzug=True
+        )
     stand = device_out(device, mgr)
     await melden(request, device, stand)
     return DevicePatchOut(**stand.model_dump(), role_grants_cleared=geraeumt)

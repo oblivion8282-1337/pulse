@@ -403,6 +403,10 @@ export type ServerEvent =
       channel_id: string;
       device: Device;
       removed?: boolean;
+      // Ist diese Abmeldung Teil eines Umstellens (Kanal-/Community-Wechsel),
+      // nicht ein echtes Loeschen? Nur gueltig zusammen mit `removed: true`
+      // (Pruefbefund K-1, 2026-08-20) — s. `nachzugAktion.ts`.
+      moved?: boolean;
     }
   // Der Weckruf an das Geraet selbst: „fang bitte an zu uebertragen".
   | {

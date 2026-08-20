@@ -1136,3 +1136,53 @@ async def test_geraete_deckel_kommt_aus_dem_community_limit(client, _auth_signer
         headers=_auth(token),
     )
     assert r.status_code == 409, r.text
+
+
+@pytest.mark.asyncio
+async def test_umstellen_markiert_die_abmeldung_als_umzug(client, _auth_signer):
+    """**Prüfbefund K-1 (2026-08-20):** die Abmeldung an den ALTEN Standplatz
+    beim Umstellen war von einem echten Löschen nicht unterscheidbar — der
+    Rechner des Geräts ist Mitglied der alten Community, empfängt die eigene
+    Abmeldung also selbst und hätte seine lokale Eintragung dauerhaft
+    weggeräumt, obwohl das Gerät nur umgezogen ist. Die Abmeldung beim
+    Umstellen muss ``moved: True`` tragen, ein echtes Löschen NICHT."""
+    token, _ = await _make_token(_auth_signer)
+    gid = await _guild(client, token)
+    alt = await _voice_channel(client, token, gid, "werkbank")
+    neu = await _voice_channel(client, token, gid, "lager")
+    device = (
+        await client.post(
+            f"/guilds/{gid}/devices",
+            json={"channel_id": str(alt), "name": "werkstatt-pc"},
+            headers=_auth(token),
+        )
+    ).json()
+
+    mgr = _register(client)
+    aufrufe: list[dict] = []
+
+    async def _merken(**kwargs):
+        aufrufe.append(kwargs)
+
+    mgr.publish_device_change = _merken  # type: ignore[method-assign]
+
+    r = await client.patch(
+        f"/guilds/{gid}/devices/{device['id']}",
+        json={"channel_id": str(neu)},
+        headers=_auth(token),
+    )
+    assert r.status_code == 200, r.text
+
+    abmeldungen = [a for a in aufrufe if a["removed"] is True]
+    assert len(abmeldungen) == 1, "genau eine Abmeldung an den alten Standplatz"
+    assert abmeldungen[0]["moved"] is True
+
+    aufrufe.clear()
+    r = await client.delete(
+        f"/guilds/{gid}/devices/{device['id']}",
+        headers=_auth(token),
+    )
+    assert r.status_code == 204, r.text
+    assert len(aufrufe) == 1
+    assert aufrufe[0]["removed"] is True
+    assert aufrufe[0]["moved"] is False
