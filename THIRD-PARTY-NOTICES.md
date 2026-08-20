@@ -173,7 +173,7 @@ The user-facing counterpart is the "Nativer HQ-Player" section of
 | Component | Version | License | Note |
 |---|---|---|---|
 | webrtc-rs | 0.17.2 | MIT OR Apache-2.0 | **Modified by Pulse** — two patches, see below |
-| wgpu / winit / egui (+ `egui-wgpu`, `egui-winit`, `egui_extras`) | 29.0.4 / 0.30.13 / 0.35.0 | MIT OR Apache-2.0 (winit: Apache-2.0) | |
+| wgpu / winit / egui (+ `egui-wgpu`, `egui-winit`, `egui_extras`) | 30.0.0 / 0.30.13 / 0.36.1 | MIT OR Apache-2.0 (winit: Apache-2.0) | |
 | resvg / usvg | 0.45.1 | Apache-2.0 OR MIT | SVG icon rasteriser pulled in by `egui_extras`'s `svg` feature |
 | tiny-skia | 0.11.4 | BSD-3-Clause | |
 | cpal | 0.17.3 | Apache-2.0 | audio output |
@@ -183,7 +183,7 @@ The user-facing counterpart is the "Nativer HQ-Player" section of
 | webpki-root-certs | 1.0.9 | CDLA-Permissive-2.0 | Mozilla root store |
 | self_cell | 1.3.0 | Apache-2.0 OR GPL-2.0-only | **Pulse takes Apache-2.0.** The only GPL text anywhere in the shipped trees, and it is an either/or |
 | ICU4X (`icu_*`, `zerovec`, `tinystr`, `writeable`, `yoke`, …) | 2.2.0 | Unicode-3.0 | |
-| epaint_default_fonts | 0.35.0 | (MIT OR Apache-2.0) AND **OFL-1.1** AND **Ubuntu-font-1.0** | egui's default fonts, embedded because `theme.rs` starts from `FontDefinitions::default()` |
+| epaint_default_fonts | 0.36.1 | (MIT OR Apache-2.0) AND **OFL-1.1** AND **Ubuntu-font-1.0** | egui's default fonts, embedded because `theme.rs` starts from `FontDefinitions::default()` |
 | Plus Jakarta Sans (Regular, SemiBold) | — | **SIL OFL 1.1** | `assets/fonts/`, `include_bytes!` in `theme.rs`; origin + notice in `assets/fonts/LICENSE.md` |
 | Lucide icons | — | **ISC** (parts from Feather, MIT) | `assets/icons/`, notice in `assets/icons/LICENSE.md` |
 
@@ -217,18 +217,28 @@ client-side code (falls under the Pulse Client License, not this notice
 file); its own transitive Cargo dependency tree was not audited as part of
 this pass.
 
-## Native HQ player (`streaming/pulse-player/`)
+## Native HQ player — statically linked Rust dependencies
 
-New in this branch. Unlike the capture sidecars, this component links its Rust
-dependencies statically into its own binary; they are listed here because their
-permissive licenses still require attribution.
+Unlike the capture sidecars, this component links its Rust dependencies
+statically into its own binary; they are listed here because their permissive
+licenses still require attribution.
+
+**Heading renamed on 2026-08-20**: it read "Native HQ player
+(`streaming/pulse-player/`)" — word for word the same as the section further up,
+which covers where the binary ships. Two identical headings in an attribution
+file are a real hazard: whoever updates one has no reason to suspect the other,
+and that is exactly how the "macOS does not ship it" line survived the macOS
+rollout. It also opened with "New in this branch", which stopped being true
+several releases ago. Versions here are read from
+`streaming/pulse-player/Cargo.lock`; wgpu and egui were two minor versions stale
+until the same day.
 
 | Component | Version | License |
 |---|---|---|
 | [webrtc-rs](https://github.com/webrtc-rs/webrtc) | 0.17.2 | MIT OR Apache-2.0 |
-| [wgpu](https://github.com/gfx-rs/wgpu) | 29.0.4 | MIT OR Apache-2.0 |
+| [wgpu](https://github.com/gfx-rs/wgpu) | 30.0.0 | MIT OR Apache-2.0 |
 | [winit](https://github.com/rust-windowing/winit) | 0.30.13 | Apache-2.0 |
-| [egui](https://github.com/emilk/egui) (+ `egui-wgpu`, `egui-winit`) | 0.35.0 | MIT OR Apache-2.0 |
+| [egui](https://github.com/emilk/egui) (+ `egui-wgpu`, `egui-winit`) | 0.36.1 | MIT OR Apache-2.0 |
 | [cpal](https://github.com/RustAudio/cpal) | 0.17.3 | Apache-2.0 |
 | [ffmpeg-next](https://github.com/zmwangx/rust-ffmpeg) (binding only) | 8.1.0 | WTFPL |
 | [rustls](https://github.com/rustls/rustls) | 0.23.42 | Apache-2.0 OR ISC OR MIT |

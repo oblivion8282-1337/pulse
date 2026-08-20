@@ -129,9 +129,9 @@ Nennung verlangen.
 | Komponente | Version | Lizenz |
 |---|---|---|
 | [webrtc-rs](https://github.com/webrtc-rs/webrtc) (**von Pulse geändert**, siehe unten) | 0.17.2 | MIT oder Apache-2.0 |
-| [wgpu](https://github.com/gfx-rs/wgpu) | 29.0.4 | MIT oder Apache-2.0 |
+| [wgpu](https://github.com/gfx-rs/wgpu) | 30.0.0 | MIT oder Apache-2.0 |
 | [winit](https://github.com/rust-windowing/winit) | 0.30.13 | Apache-2.0 |
-| [egui](https://github.com/emilk/egui) (mit `egui-wgpu`, `egui-winit`, `egui_extras`) | 0.35.0 | MIT oder Apache-2.0 |
+| [egui](https://github.com/emilk/egui) (mit `egui-wgpu`, `egui-winit`, `egui_extras`) | 0.36.1 | MIT oder Apache-2.0 |
 | [resvg](https://github.com/linebender/resvg) / usvg (Symbol-Zeichner) | 0.45.1 | Apache-2.0 oder MIT |
 | [tiny-skia](https://github.com/linebender/tiny-skia) | 0.11.4 | BSD-3-Clause |
 | [cpal](https://github.com/RustAudio/cpal) | 0.17.3 | Apache-2.0 |
