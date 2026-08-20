@@ -50,7 +50,10 @@
   import { sounds } from '$lib/sounds/engine';
   import { isCapacitorAndroid, isElectron } from '$lib/platform/runtime';
   import { darfStandplatzSein } from '$lib/remote/darfStandplatzSein';
+  import { reiterSichtbar } from '$lib/devices/reiterSichtbar';
   import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
+  import { deviceStore } from '$lib/devices/store.svelte';
+  import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { m } from '$lib/paraglide/messages.js';
@@ -76,7 +79,7 @@
         //
         // **Gegen `visibleTabs` geprüft und nicht gegen einzelne Merkmale**:
         // die frühere Fassung zählte `desktopOnly` und `browserOnly` einzeln
-        // auf, und jedes neue Merkmal (zuletzt `windowsOnly`) fehlte hier
+        // auf, und jedes neue Merkmal (zuletzt `standplatzGate`) fehlte hier
         // stillschweigend — der Dialog öffnete dann einen Reiter, den seine
         // eigene Liste gar nicht führt.
         const sichtbar = visibleTabs.some((t) => t.id === initialTab);
@@ -110,22 +113,32 @@
   // es fehlte allein der Schalter.
   const isDesktopApp = isElectron();
 
-  // Kann dieser Rechner selbst ferngesteuert werden? (s. `windowsOnly` unten)
+  // Zeigt dieser Client den Standplatz-Reiter? Drei Gründe, unabhängig
+  // voneinander (`reiterSichtbar.ts`):
   //
-  // Dieselbe Bedingung wie bei der Anmeldung in `ws/handlers/ready.ts` — sie
-  // liegt gemeinsam in `remote/darfStandplatzSein.ts`, weil Reiter und
-  // Anmeldung schon einmal auseinanderliefen: der Reiter war unter Linux
-  // versteckt, die vorhandene Eintragung meldete sich trotzdem weiter an.
-  //
-  // ODER: es liegt bereits eine Eintragung fuer diesen Server vor. Ohne dieses
-  // Oder waere der Reiter die Falle, die er am 2026-08-18 kurz war — die
-  // EINZIGE Stelle zum Entfernen einer Eintragung sitzt darin
-  // (`SettingsGeraeteEintragung`). Wer einen Rechner unter Windows eingetragen
-  // hat und ihn spaeter unter Linux startet, saehe sonst dauerhaft eine
-  // Geraetezeile in der Kanalliste und haette keinen Weg mehr, sie loszuwerden.
-  // Was man anlegen kann, muss man ueberall wieder abraeumen koennen.
-  const istWindows = $derived(
-    darfStandplatzSein() || !!geraeteAnmeldung.fuerServer(activeServer.serverId),
+  // * Dieser RECHNER kann selbst Standplatz sein (`darfStandplatzSein`) —
+  //   dieselbe Bedingung wie bei der Anmeldung in `ws/handlers/ready.ts`.
+  //   Reiter und Anmeldung liefen am 2026-08-18 schon einmal auseinander: der
+  //   Reiter war unter Linux versteckt, die vorhandene Eintragung meldete
+  //   sich trotzdem weiter an.
+  // * Es liegt bereits eine Eintragung fuer diesen Server vor. Ohne diesen
+  //   Fall waere der Reiter die Falle, die er am 2026-08-18 kurz war — die
+  //   EINZIGE Stelle zum Entfernen einer Eintragung sitzt darin
+  //   (`SettingsGeraeteEintragung`). Wer einen Rechner unter Windows
+  //   eingetragen hat und ihn spaeter unter Linux startet, saehe sonst
+  //   dauerhaft eine Geraetezeile in der Kanalliste und haette keinen Weg
+  //   mehr, sie loszuwerden. Was man anlegen kann, muss man ueberall wieder
+  //   abraeumen koennen.
+  // * Dieser NUTZER besitzt Geraete auf diesem Server, unabhaengig davon, ob
+  //   der Rechner, an dem er gerade sitzt, selbst Standplatz sein kann — der
+  //   neue Fall seit 2026-08-20: auch unter Linux/macOS/Browser soll man die
+  //   eigenen Geraete sehen und entfernen koennen.
+  const zeigtStandplatzReiter = $derived(
+    reiterSichtbar({
+      kannStandplatzSein: darfStandplatzSein(),
+      hatEintragung: !!geraeteAnmeldung.fuerServer(activeServer.serverId),
+      besitztGeraete: deviceStore.eigene(currentServerUserId()).length > 0,
+    }),
   );
 
   // Für die Teile INNERHALB des Tabs, die es wirklich nur unter Linux gibt
@@ -141,25 +154,29 @@
     browserOnly?: true;
     electronOnly?: true;
     /**
-     * Nur dort zeigen, wo dieser Rechner selbst ferngesteuert werden KANN.
+     * Nur dort zeigen, wo `reiterSichtbar()` es erlaubt (Rechner kann selbst
+     * Standplatz sein, oder es liegt eine Eintragung vor, oder der Nutzer
+     * besitzt Geräte auf diesem Server — s. `reiterSichtbar.ts`).
      *
-     * Eingaben einspielen kann heute allein der Windows-Sidecar
-     * (`remote_input/`); unter Linux und macOS gibt es die Gegenstelle nicht.
-     * Der Reiter bietet aber genau das an — Dauerfreigabe, Standplatz-Profil,
-     * Eintragung als Gerät. Wer ihn dort ausfüllt, richtet ein Gerät ein, das
-     * sich niemand holen kann, und sucht den Fehler anschliessend im Server.
+     * **Hiess bis 2026-08-20 `windowsOnly`.** Der Name stimmte, solange die
+     * einzige Bedingung war, ob DIESER Rechner ferngesteuert werden kann
+     * (nur der Windows-Sidecar spielt Eingaben ein). Seit auch „besitzt
+     * Geräte auf diesem Server" den Reiter zeigt, ist das nicht mehr
+     * plattformgebunden — ein Linux-Nutzer mit einem eigenen Windows-Gerät
+     * sieht den Reiter jetzt ebenfalls, ohne dass sein eigener Rechner etwas
+     * kann.
      *
-     * **Betrifft nur das ANBIETEN.** Steuern, zusehen und Geräte in der
-     * Kanalliste sehen bleibt plattformneutral — der Steuernde braucht keinen
-     * Sidecar, und genau das ist der übliche Fall auf einem Linux-Rechner.
+     * **Betrifft nur das ANBIETEN der Freigabe/Eintragung-Formulare.**
+     * Steuern, zusehen und Geräte in der Kanalliste sehen bleibt
+     * plattformneutral — der Steuernde braucht keinen Sidecar.
      */
-    windowsOnly?: true;
+    standplatzGate?: true;
   }[] = [
     { id: 'profile', label: m.settings_dialog_tab_profile(), icon: UserIcon },
     { id: 'appearance', label: m.settings_dialog_tab_appearance(), icon: PaletteIcon },
     { id: 'audio-video', label: m.settings_dialog_tab_audio_video(), icon: MicIcon },
     { id: 'screen-share', label: m.settings_dialog_tab_screen_share(), icon: MonitorIcon, desktopOnly: true },
-    { id: 'standplatz', label: m.settings_dialog_tab_standplatz(), icon: MonitorCogIcon, electronOnly: true, windowsOnly: true },
+    { id: 'standplatz', label: m.settings_dialog_tab_standplatz(), icon: MonitorCogIcon, electronOnly: true, standplatzGate: true },
     { id: 'notifications', label: m.settings_dialog_tab_notifications(), icon: BellIcon },
     { id: 'sounds', label: m.settings_dialog_tab_sounds(), icon: Volume2Icon },
     { id: 'keyboard', label: m.settings_dialog_tab_keyboard(), icon: KeyboardIcon, desktopOnly: true },
@@ -176,7 +193,7 @@
         (!t.desktopOnly || !viewport.isMobile) &&
         (!t.browserOnly || inBrowser) &&
         (!t.electronOnly || isDesktopApp) &&
-        (!t.windowsOnly || istWindows)
+        (!t.standplatzGate || zeigtStandplatzReiter)
     )
   );
 

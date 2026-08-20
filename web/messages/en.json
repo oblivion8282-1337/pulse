@@ -2921,5 +2921,9 @@
   "device_grants_add_role_placeholder": "— Choose a role —",
   "device_grants_add_everyone": "Grant to anyone with the permission",
   "device_grants_everyone_hint": "This does not bypass permission checks — the server still requires REMOTE_CONTROL at the device's location.",
-  "device_grants_remove_aria": "Remove grant"
+  "device_grants_remove_aria": "Remove grant",
+  "device_settings_my_devices_title": "My devices on this server",
+  "device_settings_my_devices_empty": "No devices of your own on this server yet.",
+  "device_settings_my_devices_open": "Open device view",
+  "device_settings_my_devices_meta": "{guild} · {channel} · {state}"
 }
