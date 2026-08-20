@@ -204,8 +204,17 @@
 
   <!-- Verwaltung — unterhalb aller Übernehmen-/Zusehen-Zustände, denn sie ist
        davon unabhängig: ob und wie ein Gerät gerade übertragt, ändert nichts
-       daran, wer es umbenennen, umstellen oder entfernen darf. -->
-  <DeviceVerwaltung {device} {darfVerwalten} />
+       daran, wer es umbenennen, umstellen oder entfernen darf.
+
+       **Nur für Besitzer/Verwalter im DOM** (Fix zu Prüfbefund W-4,
+       2026-08-20): innen sind zwar die Umstell-Felder an `istBesitzer` und der
+       Entfernen-Knopf an `istBesitzer || darfVerwalten` gebunden, aber das
+       Namensfeld war für JEDEN freigeschaltet und feuerte beim Verlassen ein
+       `PATCH`, das der Server ohnehin mit 403 abweist — ein gewöhnliches
+       Mitglied sah eine Karte „Verwalten" mit einem Feld, das nichts tut. -->
+  {#if eigenes || darfVerwalten}
+    <DeviceVerwaltung {device} {darfVerwalten} />
+  {/if}
 
   <!-- Freigabeliste — nur für den Besitzer, und dafür nicht bloss
        ausgeblendet, sondern gar nicht erst im DOM (`eigenes` ist dieselbe
