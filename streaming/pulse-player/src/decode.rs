@@ -8,8 +8,8 @@
 //!
 //! Vorgehen: erst einen hardwaregestuetzten Decoder ueber seinen Namen suchen
 //! (`av1_cuvid`, `h264_cuvid`, `*_qsv`) oder den nativen mit angehaengtem
-//! Geraet (VAAPI unter Linux, D3D11VA unter Windows), sonst Software. Der
-//! Decode laeuft in allen diesen Faellen auf der GPU.
+//! Geraet (VAAPI unter Linux, D3D11VA unter Windows, VideoToolbox unter
+//! macOS), sonst Software. Der Decode laeuft in allen diesen Faellen auf der GPU.
 //!
 //! **Hier stand „Das ist noch nicht zero-copy … bewusst nicht Teil des ersten
 //! Wurfs". Das gilt fuer keinen der drei Hardware-Wege mehr:** unter Windows
@@ -74,10 +74,10 @@ fn is_hardware(name: &str) -> bool {
 /// Ein Geraetetyp, der an den NATIVEN Decoder gehaengt wird, statt einen
 /// eigenen Decoder zu benennen.
 ///
-/// `Vaapi` und `D3d11va` sind hwaccels, keine Decoder — genau die Verwechslung,
-/// an der die Kandidatenliste bis 2026-08-01 mit erfundenen `av1_vaapi`-Namen
-/// scheiterte. Sie decken je eine Plattform ab: VAAPI unter Linux, D3D11VA
-/// unter Windows.
+/// `Vaapi`, `D3d11va` und `VideoToolbox` sind hwaccels, keine Decoder — genau
+/// die Verwechslung, an der die Kandidatenliste bis 2026-08-01 mit erfundenen
+/// `av1_vaapi`-Namen scheiterte. Sie decken je eine Plattform ab: VAAPI unter
+/// Linux, D3D11VA unter Windows, VideoToolbox unter macOS.
 ///
 /// **`Cuda` ist der Sonderfall und faellt aus der Reihe.** Es sitzt nicht auf
 /// dem nativen Decoder, sondern auf `av1_cuvid`/`h264_cuvid` — die sind sehr

@@ -593,7 +593,7 @@ gehalten.
 
 **Den Decoder von aussen festlegen** (`PULSE_PLAYER_DECODER`, s.
 `src/decoderwahl.rs`) — Komma-Liste in Probierreihenfolge, `name`,
-`name+hw` (plattform-eigener hwaccel: D3D11VA/VAAPI) oder `name+cuda`:
+`name+hw` (plattform-eigener hwaccel: D3D11VA/VAAPI/VideoToolbox) oder `name+cuda`:
 
 ```
 PULSE_PLAYER_DECODER=av1+hw        # D3D11VA statt av1_cuvid -> Zero-Copy-Weg
