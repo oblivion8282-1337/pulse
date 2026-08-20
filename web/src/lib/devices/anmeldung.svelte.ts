@@ -130,6 +130,23 @@ class GeraeteAnmeldung {
     await this.#sichern();
   }
 
+  /**
+   * Community oder Name einer bestehenden Eintragung nachziehen.
+   *
+   * Nötig seit dem Community-Wechsel aus der Ferne: die Eintragung trägt sonst
+   * weiter die alte Community, der Rechner lädt die Geräteliste der falschen
+   * und sein eigener Reiter zeigt ins Leere. Legt bewusst NICHTS an — eine
+   * Meldung über ein fremdes Gerät darf diesen Rechner nicht zu einem machen.
+   */
+  async nachziehen(deviceId: string, guildId: string, name: string): Promise<void> {
+    const vorhanden = this.eintragungen.find((e) => e.deviceId === deviceId);
+    if (!vorhanden) return;
+    this.eintragungen = this.eintragungen.map((e) =>
+      e.deviceId === deviceId ? { ...e, guildId, name } : e,
+    );
+    await this.#sichern();
+  }
+
   async #sichern(): Promise<void> {
     try {
       await saveAll({ [SPEICHER_SCHLUESSEL]: this.eintragungen });

@@ -15,6 +15,7 @@ import { deviceStore } from '$lib/devices/store.svelte';
 import { registerWsHandler } from '../handler-registry';
 import { weckrufBehandeln } from '$lib/devices/wecken';
 import { dispatchingServerId } from '$lib/ws/gateway-connection';
+import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
 
 const ZUSTAENDE: readonly DeviceState[] = ['ready', 'busy', 'offline'];
 
@@ -46,6 +47,16 @@ export function register(): void {
     const geraet = evt.device as Device | undefined;
     if (!evt.guild_id || !geraet?.id) return;
     deviceStore._changed(String(evt.guild_id), geraet, evt.removed === true);
+    // **Und die eigene Eintragung mitziehen.** Ohne das bleibt ein Rechner
+    // nach dem Entfernen im Standplatz-Betrieb (hält den Schirm wach, meldet
+    // sich bei jedem Verbinden als ein Gerät an, das es nicht gibt) — und nach
+    // einem Community-Wechsel aus der Ferne zeigt seine Eintragung auf die
+    // alte Community.
+    if (evt.removed === true) {
+      void geraeteAnmeldung.vergessen(geraet.id);
+    } else {
+      void geraeteAnmeldung.nachziehen(geraet.id, String(geraet.guild_id), geraet.name);
+    }
   });
 
   registerWsHandler('device_state', (evt) => {
