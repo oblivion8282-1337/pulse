@@ -2927,5 +2927,6 @@
   "device_settings_my_devices_open": "Open device view",
   "device_settings_my_devices_meta": "{guild} · {channel} · {state}",
   "admin_communities_limits_max_devices": "Max devices per person",
-  "guild_limits_field_max_devices": "Max devices per person"
+  "guild_limits_field_max_devices": "Max devices per person",
+  "standplatz_banner_clear_failed": "Could not clear the grant list. Please try again."
 }

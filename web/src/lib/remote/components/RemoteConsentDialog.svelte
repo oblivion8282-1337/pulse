@@ -21,9 +21,12 @@
   import { gegenstelle, ort } from '$lib/remote/gegenstelle';
   import { userCache } from '$lib/stores/users.svelte';
   import { m } from '$lib/paraglide/messages.js';
-  import { standplatz } from '$lib/remote/standplatz.svelte';
   import { isElectron } from '$lib/platform/runtime';
   import Checkbox from '$lib/components/form/Checkbox.svelte';
+  import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
+  import { freigaben } from '$lib/devices/freigaben.svelte';
+  import { mitNeuem } from '$lib/devices/freigabenBearbeitung';
+  import { merkenSichtbar } from '$lib/remote/merkenSichtbar';
 
   // Nicht bei selbsttätiger Zustimmung: die Dauerfreigabe des Standplatz-Geräts
   // hat die Frage schon beantwortet (`$lib/remote/standplatz.svelte.ts`). Die
@@ -52,15 +55,20 @@
   let quittiert = $state<string | null>(null);
   let acted = $derived(quittiert !== null && quittiert === remoteSession.sessionId);
 
-  // „Künftig ohne Rückfrage" — der Weg, auf dem die Freigabeliste des Geräts
-  // wächst (`$lib/remote/standplatz.svelte.ts`). Bewusst HIER und nicht nur in
-  // den Einstellungen: dort müsste man Kennungen von Hand eintragen, hier steht
-  // der Betreffende samt Namen und Herkunft vor einem, und die Entscheidung
-  // fällt in dem Moment, in dem man sie ohnehin trifft.
+  // „Künftig ohne Rückfrage" — der Weg, auf dem die Server-Freigabeliste DIESES
+  // Geräts wächst (`$lib/devices/freigaben.svelte.ts`). Bewusst HIER und nicht
+  // nur in den Einstellungen: dort müsste man Kennungen von Hand eintragen,
+  // hier steht der Betreffende samt Namen und Herkunft vor einem, und die
+  // Entscheidung fällt in dem Moment, in dem man sie ohnehin trifft.
   //
-  // Nur in der Desktop-App sichtbar: nur dort kann dieser Rechner überhaupt
-  // ferngesteuert werden, und nur dort gibt es den Geräte-Speicher.
+  // Nur sichtbar, wenn der Haken auch etwas bewirken kann: nur in der
+  // Desktop-App (nur dort gibt es den Geräte-Speicher) UND nur, wenn dieser
+  // Rechner auf dem gerade dispatchenden Server als Standplatz-Gerät
+  // eingetragen ist — sonst gäbe es keine Server-Liste, in die der Haken
+  // schreiben könnte. Reine Regel in `merkenSichtbar.ts`.
   const desktop = isElectron();
+  let eintragung = $derived(geraeteAnmeldung.fuerServer(remoteSession.serverId));
+  let zeigeMerken = $derived(merkenSichtbar({ desktop, hatEintragung: eintragung !== null }));
   let merken = $state(false);
 
   // Beim Wechsel der Anfrage zurücksetzen: das Kreuz gehört der Anfrage, vor
@@ -74,27 +82,36 @@
     quittiert = remoteSession.sessionId;
     // ERST merken, DANN zustimmen: `accept()` kann über `#reset` aufräumen
     // (Senden fehlgeschlagen), und danach ist die Kennung des Anfragenden weg.
-    // Eine frische Freigabe gilt acht Stunden — dieselbe Spanne wie der
-    // absolute Sitzungsdeckel des Gateways, und lang genug für einen
-    // Arbeitstag; eine schon geltende bleibt, wie sie ist.
-    //
-    // Server und Kanal kommen aus der SITZUNG, nicht aus dem Dispatch-Global
-    // (`remoteSession.serverId` — Begründung dort): hier wird Sekunden nach dem
-    // Eintreffen der Anfrage geklickt, und bis dahin hat längst ein fremder
-    // Rahmen den Zeiger umgesetzt.
-    const server = remoteSession.serverId;
-    const kanal = remoteSession.channelId;
-    if (merken && desktop && remoteSession.peerUserId && server && kanal) {
-      // Über `nutzerErgaenzen`, NICHT über `freigeben`: das schaltet scharf und
-      // reichte dabei `jeder` mit — ein Haken für EINE Person öffnete das Gerät
-      // wieder für alle (`standplatz.svelte.ts::nutzerErgaenzen`).
-      void standplatz.nutzerErgaenzen({
-        serverId: server,
-        channelId: kanal,
-        userId: remoteSession.peerUserId,
-      });
+    // Eine frische Freigabe gilt acht Stunden — dieselbe Spanne, die der
+    // Haken auch schon vor dem Umzug auf den Server versprach
+    // (`standplatz_consent_remember_hint`).
+    if (merken && zeigeMerken && eintragung && remoteSession.peerUserId) {
+      void ergaenzeMerkenGrant(eintragung, remoteSession.peerUserId);
     }
     remoteSession.accept();
+  }
+
+  /** Den zustimmenden Nutzer der Server-Freigabeliste DIESES Geräts
+   *  hinzufügen — vorhandene Liste laden, ergänzen, ganze Liste setzen
+   *  (`freigaben.setzen` ist PUT-Semantik). Ein Netzfehler kostet nur den
+   *  Haken, nicht die gerade erteilte Zustimmung — die läuft unabhängig
+   *  weiter. */
+  async function ergaenzeMerkenGrant(
+    ziel: { guildId: string; deviceId: string },
+    userId: string,
+  ): Promise<void> {
+    try {
+      await freigaben.laden(ziel.guildId, ziel.deviceId);
+      const naechste = mitNeuem(freigaben.fuer(ziel.deviceId), {
+        subject_type: 'user',
+        subject_id: userId,
+        expires_at: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(),
+      });
+      await freigaben.setzen(ziel.guildId, ziel.deviceId, naechste);
+    } catch {
+      // Kein Netz oder Server lehnt ab: der Haken bewirkt dann nichts, die
+      // bereits gesendete Zustimmung für DIESE Anfrage bleibt unberührt.
+    }
   }
   function deny(): void {
     quittiert = remoteSession.sessionId;
@@ -158,7 +175,7 @@
       <span>{m.remote_consent_safety()}</span>
     </div>
 
-    {#if desktop}
+    {#if zeigeMerken}
       <label class="border-border flex items-start gap-3 rounded-lg border border-dashed p-3">
         <Checkbox
           class="mt-0.5 shrink-0"

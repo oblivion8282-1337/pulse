@@ -101,12 +101,10 @@
     // ein Ablauf in der Vergangenheit (dieselbe Falle wie im Übertragungs-Profil).
     const zahl = Number.isFinite(Number(menge)) && Number(menge) > 0 ? Number(menge) : 1;
     // Die Empfänger entscheidet seit 2026-08-20 der Server (`device_grants`,
-    // s. `SettingsStandplatzFreigabe`) — hier bleibt nur der Hauptschalter,
-    // deshalb `jeder: true`: lokal soll nichts mehr einschränken, was der
-    // Server ohnehin über `selbsttaetigRegel.ts` prüft.
+    // s. `SettingsStandplatzFreigabe`) — hier bleibt nur noch der
+    // Hauptschalter, `freigeben` kennt `nutzer`/`jeder` seither gar nicht
+    // mehr (Umbau 2026-08-20, Punkt 3).
     await standplatz.freigeben({
-      nutzer: standplatz.nutzer,
-      jeder: true,
       geltung,
       dauerMs: spanneMs(zahl, einheit),
     });
