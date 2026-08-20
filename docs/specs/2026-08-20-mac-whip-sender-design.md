@@ -67,6 +67,58 @@ und ein eigener AV1-Paketierer, der einen dokumentierten Fehler in webrtc-rs'
 `Av1Payloader` umgeht (Längenfelder ab 128 falsch geschrieben). Ein Fix daran
 müsste sonst jedes Mal zweimal passieren.
 
+#### Der Befund, der C1 grösser macht als gedacht: es gibt schon zwei Fassungen
+
+Ein früherer Stand dieses Entwurfs nahm an, nur Windows habe einen eigenen
+WHIP-Sender. Das ist falsch: **`linux-hq-sidecar/src/whip/` existiert ebenfalls**
+(1.936 Zeilen, vier Dateien). Der Vergleich beider Fassungen, Kommentare
+herausgerechnet:
+
+| Datei | Codezeilen Win / Linux | abweichend | Befund |
+|---|---|---|---|
+| `av1.rs` | 496 / 496 | **0** | reine Doppelung — einziger Unterschied ist die Position eines Doc-Absatzes |
+| `sdp.rs` | 220 / 220 | **0** | bitgleich |
+| `mod.rs` | 336 / 278 | 80 | **kein Konflikt, sondern Vorsprung**: die Abweichungen sind fast vollständig Windows-Zusätze — REMB-Bandbreitenschätzung (eigene Datei `bandbreite.rs`, die Linux gar nicht hat), Senken-Registry, Token-Redaktion |
+| `pacer.rs` | 103 / 129 | 120 | **zwei echte Algorithmen** |
+
+716 Codezeilen liegen also heute schon doppelt im Repo — ohne Zwillings-Test,
+ohne Vermerk. Genau das Muster, das CLAUDE.md beim Paar `zeitbasis.rs`
+beschreibt: still auseinandergelaufen, harmlos nur durch Glück.
+
+#### Der Pacer wird umgangen, nicht gelöst
+
+Beide Taktgeber wurden am 2026-08-14 von der gescheiterten Erstfassung weg
+umgebaut, aber in verschiedene Richtungen: **Windows** teilt das Sendefenster
+durch die Gruppenzahl (variabler Abstand, Untergrenze `MIN_ABSTAND = 2 ms`,
+`zuschnitt()`), **Linux** hält einen festen `GRUPPEN_ABSTAND = 2500 µs` und
+variiert die Gruppenzahl (`gruppenzahl()`). Dazu prüft Windows in der
+Eilig-Bedingung zusätzlich `remote_input::fern_aktiv()` — ein echtes Feature,
+das Linux nicht braucht, weil dort niemand Host ist.
+
+Welcher Algorithmus besser ist, **ist nicht entschieden und wird hier nicht
+entschieden.** Eine Antwort verlangte eine Messung über eine echte Strecke
+(lokal treten die Ankunftslücken gar nicht auf — 0 bei 4000 kbps), und der
+Messstand ist gestoppt.
+
+Deshalb: **`pacer.rs` bleibt plattformeigen**, hinter einem schmalen Trait in
+der Crate. Beide Algorithmen laufen weiter dort, wo sie sich bewährt haben. Das
+kostet nichts, weil die Schnittstelle bereits deckungsgleich ist — beide
+`mod.rs` konstruieren wortgleich
+`Pacer::start(runtime(), Arc::clone(&video_track), frame_duration)`, halten
+wortgleich `pacer: Option<pacer::Pacer>` und rufen wortgleich `p.send(pakete)`.
+
+Ein angenehmer Nebeneffekt: bleibt der Pacer plattformeigen, bleibt
+`fern_aktiv()` in ihm — und ist gar kein Callback mehr. Es bleiben **zwei**
+Nähte statt drei.
+
+#### Was Linux dabei dazubekommt
+
+Wandert `mod.rs` in die Crate, erbt der Linux-Sidecar die
+REMB-Bandbreitenschätzung, die er heute nicht hat. Das ist inhaltlich eine
+Verbesserung, aber **eine Verhaltensänderung an produktivem Code** — sie gehört
+als solche ausgewiesen und einzeln geprüft, nicht als stille Nebenwirkung einer
+Extraktion.
+
 Die Anbindung nach aussen ist schmal: `whip::senke::baue` wird in
 `win-hq-sidecar/src/main.rs:64-66` als Funktionszeiger übergeben, dazu kommen
 der Typ `SendewegAbgewiesen` (`encode/bildencoder.rs:327`, ein
@@ -176,8 +228,12 @@ Ausnahme.
 
 - Die Empfangsrichtung — eigener Entwurf, eigener Zweig.
 - Intra-Refresh auf macOS. Ausdrücklich nicht Ziel.
-- Der Linux-Sidecar. Er könnte später von `pulse-whip` profitieren, wird hier
-  aber nicht angefasst.
+- **Die Pacer-Frage.** Welcher der beiden Taktgeber-Algorithmen besser ist,
+  bleibt offen. Sie wird umgangen (Trait, plattformeigene Implementierung),
+  nicht beantwortet — die Antwort verlangte eine Messung über eine echte
+  Strecke, und die steht laut beiden Modulkommentaren ohnehin noch aus.
+- **`bandbreite.rs` als eigenständige Vereinheitlichung.** Sie wandert mit
+  `mod.rs` mit, weil sie daran hängt; sie wird nicht darüber hinaus angefasst.
 
 ## Prüfen
 
