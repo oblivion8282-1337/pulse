@@ -44,22 +44,17 @@
     freigabenUmfang(eintragung ? freigaben.fuer(eintragung.deviceId) : []),
   );
 
-  /** Zurücknehmen ist zweiteilig, und die Reihenfolge ist wichtig: zuerst der
-   *  lokale Hauptschalter (`standplatz.zuruecknehmen()`, wirkt sofort und auch
-   *  ohne Netz), erst danach die Server-Liste leeren. Der umgekehrte Weg liesse
-   *  das Gerät bei einem Netzfehler beim zweiten Schritt scharf stehen. Bricht
-   *  das Leeren ab, bekommt der Nutzer das gesagt — die lokale Sperre gilt
-   *  trotzdem schon. */
-  let leerenFehler = $state<string | null>(null);
+  /**
+   * **Der lokale Notaus — sticht immer.** (Entscheidung zu Prüfbefund W-1,
+   * 2026-08-20.) Vorher leerte dieser Knopf zusätzlich die ganze
+   * kontoweite, auf allen Rechnern gepflegte Server-Freigabeliste — unwider-
+   * ruflich und ohne Rückfrage, und mit derselben Beschriftung wie der Knopf
+   * in den Einstellungen, der genau das NICHT tut. Der Hauptschalter darf
+   * keine kontoweiten Daten vernichten; wer die Liste ändern will, tut das in
+   * der Freigabe-Oberfläche.
+   */
   async function zuruecknehmen(): Promise<void> {
-    leerenFehler = null;
     await standplatz.zuruecknehmen();
-    if (!eintragung) return;
-    try {
-      await freigaben.setzen(eintragung.guildId, eintragung.deviceId, []);
-    } catch (e) {
-      leerenFehler = e instanceof Error ? e.message : String(e);
-    }
   }
 
   /**
@@ -107,11 +102,6 @@
           ? m.standplatz_banner_permanent()
           : m.standplatz_banner_until_hours({ hours: restStunden })}
       </span>
-      {#if leerenFehler}
-        <span class="text-destructive block truncate text-xs" data-testid="remote-standplatz-banner-error">
-          {m.standplatz_banner_clear_failed()}
-        </span>
-      {/if}
     </span>
     {#if geweckt > 0}
       <Button
