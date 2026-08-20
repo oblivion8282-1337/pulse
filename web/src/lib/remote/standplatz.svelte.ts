@@ -1,6 +1,8 @@
 /**
  * Fernsteuerung — **Dauerfreigabe am Standplatz-Gerät** (Stufe 1 aus
- * `docs/plans/2026-08-14-fernsteuerung-unbeaufsichtigte-geraete.md`).
+ * `docs/plans/2026-08-14-fernsteuerung-unbeaufsichtigte-geraete.md`,
+ * seit 2026-08-20 durch `docs/superpowers/specs/2026-08-20-geraeteverwaltung-design.md`
+ * abgelöst — siehe dort für die aktuelle Aufteilung Server/Gerät).
  *
  * Ein Rechner, vor dem niemand sitzt, kann den Zustimmungsdialog nicht
  * beantworten: er verfällt nach 30 s, und das Aussitzen zählt als Absage — der
@@ -19,38 +21,45 @@
  * je Host, Abbau bei Rauswurf und Bann. Diese Datei entscheidet nur, **ob der
  * Dialog überhaupt jemandem vorgelegt wird**.
  *
- * ## Warum der Schalter am Gerät sitzt und nicht auf dem Server
+ * ## Wo die Liste liegt, seit 2026-08-20 — und was am Gerät bleibt
  *
- * Ein serverseitiger Schalter wäre von einem Admin fernaktivierbar — und „ein
- * Admin schaltet fremde Rechner scharf" ist genau das, was diese Zustimmung
- * verhindern soll. Gespeichert wird deshalb dort, wo auch die Stream-Geheimnisse
- * liegen: `desktop/electron/store.ts` (`pulse-stream.json`, unter Linux
- * chmod 600), über den vorhandenen Zwei-Wege-Wrapper `stream/persistence.ts`.
- * Der Server darf später erfahren, **dass** ein Gerät selbsttätig annimmt;
- * setzen darf er es nie.
+ * **Korrigiert 2026-08-20:** die Freigabeliste selbst liegt seither auf dem
+ * Server (`chat.device_grants`), nicht mehr nur hier im Geräte-Speicher.
+ * Schreiben und Lesen darf **ausschliesslich der Besitzer** — auch
+ * `MANAGE_GUILD` nicht. Der ursprüngliche Einwand von Stufe 1 bleibt dabei
+ * gewahrt, nur der Riegel hat sich verschoben: nicht mehr „die Liste existiert
+ * nicht auf dem Server", sondern „niemand ausser dem Besitzer darf sie
+ * ändern" — ein Admin kann fremde Rechner damit weiterhin nicht
+ * fernaktivieren. Aufgelöst wird die Liste vom Gateway (dadurch werden Rollen
+ * erstmals möglich, siehe unten), der das Ergebnis als Feld `freigabe` an
+ * `remote_request` anhängt; **die Zustimmung selbst erteilt weiterhin dieses
+ * Gerät** (`selbsttaetigRegel.ts`). Was am Gerät bleibt, ist der lokale
+ * Hauptschalter `aktiv` — steht er auf „aus", stimmt der Rechner nie
+ * selbsttätig zu, unabhängig davon, was der Server sagt. Ein Gerät, das offline
+ * ist, stimmt weiterhin nie zu.
  *
- * ## Was hier bewusst NICHT steht
+ * Der einmalige Umzug der alten, rein lokalen Liste (`nutzer`/`jeder`) auf den
+ * Server steht in `#umziehenEinmal` weiter unten in dieser Datei.
  *
- * **Rollen.** Der Entwurf nennt „Rolle und/oder einzelne Nutzer im
- * Standplatz-Kanal". Rollen sauber aufzulösen heisst, die Rollen des
- * Anfragenden in der Community des Standplatzes zu kennen — der Client hat sie
- * nur für die gerade geöffnete Community, und eine Anfrage kommt auch herein,
- * während man woanders steht. Eine halb aufgelöste Rolle wäre hier die
- * schlechteste Antwort: sie sähe nach einer Regel aus und träfe zufällig. Stufe
- * 1 trägt deshalb die beiden Achsen, die der Client sicher kennt — einzelne
- * Nutzer und „jeder, der überhaupt anfragen darf" —, und die Rollen kommen mit
- * dem serverseitigen Standplatz (Stufe 2), wo `resolve_permissions` sie ohnehin
- * schon auflöst.
+ * ## Rollen — waren hier bewusst aussen vor, sind es jetzt nicht mehr
  *
- * **Rollen** bleiben also draussen. **Der Ort dagegen nicht mehr** (Bughunt
- * 2026-08-16): „gilt für das GERÄT, egal aus welchem Kanal" war ein Loch. Die
- * Rechteprüfung des Servers engt zwar ein — aber sie prüft den Kanal, den der
- * ANFRAGENDE nennt. Wer in seiner eigenen Community `REMOTE_CONTROL` hat,
- * schickte `remote_request` mit deren Kanalkennung, und die Dauerfreigabe
- * stimmte zu, obwohl er am Standplatz nichts darf. Jede Freigabe trägt deshalb
- * ihren Ort: einzelne Nutzer den Kanal, in dem sie freigegeben wurden, und
- * „jeder" den Standplatz des Geräts, den der Aufrufer beisteuert
- * (`geraeteanbindung.ts`).
+ * Stufe 1 trug nur die beiden Achsen, die dieser Client sicher kennt —
+ * einzelne Nutzer und „jeder, der überhaupt anfragen darf". Rollen sauber
+ * aufzulösen hätte verlangt, die Rollen des Anfragenden in der Community des
+ * Standplatzes zu kennen, auch wenn man selbst gerade woanders steht — das
+ * konnte der Client nicht, ohne zu raten. **Erledigt seit 2026-08-20**: die
+ * Auflösung liegt jetzt beim Server (`device_grants.py`), der genau das kann,
+ * was der Client nie konnte — er kennt `resolve_permissions` für jede
+ * Community, nicht nur die gerade geöffnete. Rollen-Freigaben stehen deshalb
+ * nicht in dieser Datei, sondern serverseitig.
+ *
+ * **Der Ort bleibt gebunden** (Bughunt 2026-08-16, unverändert gültig):
+ * „gilt für das GERÄT, egal aus welchem Kanal" war ein Loch. Wer in seiner
+ * eigenen Community `REMOTE_CONTROL` hat, schickte `remote_request` mit deren
+ * Kanalkennung, und eine ortslose Freigabe stimmte zu, obwohl er am Standplatz
+ * nichts darf. Jede Freigabe trägt deshalb ihren Ort: einzelne Nutzer den
+ * Kanal, in dem sie freigegeben wurden, und „jeder" den Standplatz des
+ * Geräts, den der Aufrufer beisteuert (`geraeteanbindung.ts`).
  */
 
 import { loadAll, saveAll } from '$lib/stream/persistence';

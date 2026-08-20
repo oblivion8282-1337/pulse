@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-20",
+      "date": "2026-08-20",
+      "style": "Sachlich",
+      "title": "Standplatz-Geräte: Verwaltung von jedem Rechner aus",
+      "items": [
+        "Ein Standplatz-Gerät lässt sich jetzt von jedem deiner Rechner aus verwalten, nicht nur von ihm selbst: umbenennen, in eine andere Community oder einen anderen Kanal stellen, entfernen.",
+        "Wer ein Gerät dauerhaft ohne Rückfrage übernehmen darf, legst du ebenfalls von überall fest — und kannst dafür jetzt auch ganze Rollen statt nur einzelner Personen freigeben.",
+        "Die Höchstzahl an Geräten je Besitzer und Community lässt sich jetzt von den Community-Einstellungen aus anpassen."
+      ]
+    },
+    {
       "id": "2026-08-19.5",
       "date": "2026-08-19",
       "style": "Sachlich",
