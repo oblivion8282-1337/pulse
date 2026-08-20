@@ -20,6 +20,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
 
+# Token-Maskierung, seit 2026-08-20 gemeinsam mit win/mac in einer eigenen
+# Crate. `src/redact.rs` bleibt als Re-Export bestehen (s. dort).
+pulse-redact = { path = "../pulse-redact" }
+
 # Diagnose-Logging auf stderr (Pulse tee't das in sidecar.log). Stufen +
 # Modul-Targets, gesteuert über $PULSE_HQ_LOG (wie RUST_LOG). Siehe src/logging.rs.
 tracing = "0.1"
