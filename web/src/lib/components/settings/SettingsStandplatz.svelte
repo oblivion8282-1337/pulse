@@ -38,6 +38,7 @@
   import SettingsStandplatzGeraete from './SettingsStandplatzGeraete.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
+  import Select from '$lib/components/form/Select.svelte';
   import { spanneMs, standplatz, type Einheit, type Geltung } from '$lib/remote/standplatz.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { deviceStore } from '$lib/devices/store.svelte';
@@ -99,6 +100,12 @@
     { id: 'tage', label: m.standplatz_settings_unit_days },
     { id: 'wochen', label: m.standplatz_settings_unit_weeks },
   ];
+
+  // Als Auswahlliste fürs Feld — label() erst hier aufrufen, damit die
+  // Beschriftung (wie bisher beim Rendern) die aktuelle Sprache trifft.
+  const einheitenOptionen = $derived(
+    einheiten.map((e) => ({ value: e.id, label: e.label() })),
+  );
 
   async function freigeben(): Promise<void> {
     // Die Zahl wird hier geklemmt und nicht erst im Speicher: ein geleertes
@@ -205,15 +212,13 @@
             bind:value={menge}
             data-testid="standplatz-duration-amount"
           />
-          <select
-            class="border-border bg-bg-input text-text-bright rounded-lg border px-2 py-1.5 text-sm"
-            bind:value={einheit}
+          <Select
+            class="w-auto"
+            value={einheit}
+            options={einheitenOptionen}
+            onchange={(v) => (einheit = v as Einheit)}
             data-testid="standplatz-duration-unit"
-          >
-            {#each einheiten as e (e.id)}
-              <option value={e.id}>{e.label()}</option>
-            {/each}
-          </select>
+          />
         </div>
       {/if}
     </div>

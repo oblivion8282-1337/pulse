@@ -22,6 +22,7 @@
 <script lang="ts">
   import XIcon from '@lucide/svelte/icons/x';
   import { Button } from '$lib/components/ui/button/index.js';
+  import Select from '$lib/components/form/Select.svelte';
   import { freigaben } from '$lib/devices/freigaben.svelte';
   import { restzeit } from '$lib/devices/restzeit';
   import { mitNeuem, ohne } from '$lib/devices/freigabenBearbeitung';
@@ -81,6 +82,16 @@
 
   const waehlbareNutzer = $derived(mitglieder.filter((mm) => !vergebeneNutzer.has(mm.user_id)));
   const waehlbareRollen = $derived(rollenListe.filter((r) => !vergebeneRollen.has(r.id)));
+
+  // Beide Felder: der Leerwert ist Platzhalter („noch niemand/keine Rolle
+  // gewählt"), kein Eintrag — das Hinzufügen startet erst mit der Wahl.
+  const nutzerOptionen = $derived(
+    waehlbareNutzer.map((mm) => ({
+      value: mm.user_id,
+      label: userCache.displayName(mm.user_id),
+    })),
+  );
+  const rollenOptionen = $derived(waehlbareRollen.map((r) => ({ value: r.id, label: r.name })));
 
   let auswahlNutzer = $state('');
   let auswahlRolle = $state('');
@@ -188,34 +199,32 @@
 
     <label class="flex flex-col gap-1">
       <span class="text-text-muted text-xs">{m.device_grants_add_user_label()}</span>
-      <select
-        class="border-border bg-bg-input text-text-bright rounded-lg border px-2 py-1.5 text-sm"
-        bind:value={auswahlNutzer}
-        onchange={nutzerHinzufuegen}
+      <Select
+        value={auswahlNutzer}
+        options={nutzerOptionen}
+        placeholder={m.device_grants_add_user_placeholder()}
+        onchange={(v) => {
+          auswahlNutzer = v;
+          nutzerHinzufuegen();
+        }}
         disabled={waehlbareNutzer.length === 0}
         data-testid="device-grant-add-user"
-      >
-        <option value="">{m.device_grants_add_user_placeholder()}</option>
-        {#each waehlbareNutzer as mm (mm.user_id)}
-          <option value={mm.user_id}>{userCache.displayName(mm.user_id)}</option>
-        {/each}
-      </select>
+      />
     </label>
 
     <label class="flex flex-col gap-1">
       <span class="text-text-muted text-xs">{m.device_grants_add_role_label()}</span>
-      <select
-        class="border-border bg-bg-input text-text-bright rounded-lg border px-2 py-1.5 text-sm"
-        bind:value={auswahlRolle}
-        onchange={rolleHinzufuegen}
+      <Select
+        value={auswahlRolle}
+        options={rollenOptionen}
+        placeholder={m.device_grants_add_role_placeholder()}
+        onchange={(v) => {
+          auswahlRolle = v;
+          rolleHinzufuegen();
+        }}
         disabled={waehlbareRollen.length === 0}
         data-testid="device-grant-add-role"
-      >
-        <option value="">{m.device_grants_add_role_placeholder()}</option>
-        {#each waehlbareRollen as r (r.id)}
-          <option value={r.id}>{r.name}</option>
-        {/each}
-      </select>
+      />
     </label>
 
     {#if !hatJeder}

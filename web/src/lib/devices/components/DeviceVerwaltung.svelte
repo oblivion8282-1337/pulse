@@ -15,6 +15,7 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
+  import Select from '$lib/components/form/Select.svelte';
   import { geraeteVerwaltung } from '$lib/devices/verwaltung.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
@@ -56,6 +57,9 @@
     (guilds.channelsByGuild[zielGuild] ?? []).filter((c) => c.type === 1),
   );
 
+  const guildOptionen = $derived(guilds.list.map((g) => ({ value: g.id, label: g.name })));
+  const kanalOptionen = $derived(sprachkanaele.map((c) => ({ value: c.id, label: c.name })));
+
   function umbenennen(): void {
     const wert = name.trim();
     if (!wert || wert === device.name) return;
@@ -96,32 +100,30 @@
   {#if istBesitzer}
     <label class="flex flex-col gap-1">
       <span class="text-text-muted text-xs">{m.device_manage_guild_label()}</span>
-      <select
-        class="border-border bg-bg-input text-text-bright rounded-lg border px-2 py-1.5 text-sm"
-        bind:value={zielGuild}
+      <Select
+        value={zielGuild}
+        options={guildOptionen}
         disabled={geraeteVerwaltung.laeuft}
-        onchange={umstellenGuild}
+        onchange={(v) => {
+          zielGuild = v;
+          umstellenGuild();
+        }}
         data-testid="device-manage-guild"
-      >
-        {#each guilds.list as g (g.id)}
-          <option value={g.id}>{g.name}</option>
-        {/each}
-      </select>
+      />
     </label>
     <label class="flex flex-col gap-1">
       <span class="text-text-muted text-xs">{m.device_manage_channel_label()}</span>
-      <select
-        class="border-border bg-bg-input text-text-bright rounded-lg border px-2 py-1.5 text-sm"
-        bind:value={zielKanal}
+      <Select
+        value={zielKanal}
+        options={kanalOptionen}
+        placeholder="—"
         disabled={geraeteVerwaltung.laeuft || sprachkanaele.length === 0}
-        onchange={umstellen}
+        onchange={(v) => {
+          zielKanal = v;
+          umstellen();
+        }}
         data-testid="device-manage-channel"
-      >
-        <option value="">—</option>
-        {#each sprachkanaele as c (c.id)}
-          <option value={c.id}>{c.name}</option>
-        {/each}
-      </select>
+      />
     </label>
     {#if geraeteVerwaltung.geraeumteRollen > 0}
       <p class="text-text-muted text-xs" data-testid="device-manage-role-grants-cleared">

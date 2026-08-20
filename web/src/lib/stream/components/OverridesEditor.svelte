@@ -12,6 +12,7 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import Checkbox from '$lib/components/form/Checkbox.svelte';
+  import Select from '$lib/components/form/Select.svelte';
   import {
     streamSettings,
     VIDEO_MODES,
@@ -96,9 +97,8 @@
     ),
   );
 
-  function onCodec(e: Event) {
-    const v = (e.currentTarget as HTMLSelectElement).value || 'h264';
-    streamSettings.overrides = applyVideoMode(streamSettings.overrides, v);
+  function onCodec(v: string) {
+    streamSettings.overrides = applyVideoMode(streamSettings.overrides, v || 'h264');
     persistSettings();
   }
 
@@ -140,8 +140,7 @@
   // Bildrate: Auswahl aus Stufen statt Freifeld (`FPS_VALUES`). Kein
   // „Eigener Wert"-Eintrag — ein Freifeld unterliefe genau die Führung, um
   // die es hier geht (nicht anbieten ist besser als hinten wegklemmen).
-  function onFpsSelect(e: Event) {
-    const v = (e.currentTarget as HTMLSelectElement).value;
+  function onFpsSelect(v: string) {
     const next = { ...streamSettings.overrides };
     // '' = „Standard": das Feld ungesetzt lassen, der Sidecar nimmt seine
     // Vorgabe (60). `delete` wie bei `bit_depth` — ein `fps: undefined`
@@ -152,9 +151,8 @@
     persistSettings();
   }
 
-  function onResolution(e: Event) {
-    const v = (e.currentTarget as HTMLSelectElement).value || 'Native';
-    streamSettings.overrides = { ...streamSettings.overrides, resolution: v };
+  function onResolution(v: string) {
+    streamSettings.overrides = { ...streamSettings.overrides, resolution: v || 'Native' };
     persistSettings();
   }
 
@@ -222,6 +220,12 @@
   // (Begründung an `FPS_STANDARD`). Sonst wäre die Vorgabe der einzige Weg,
   // die Last-Grenze unbemerkt zu unterlaufen.
   let standardErlaubt = $derived(fpsAllowed(FPS_STANDARD, zehnBitGewaehlt, sendGroesse, fMin, fMax));
+  // Die Stufen als Auswahlliste für das Dropdown — „Standard" nur, wenn die
+  // Vorgabe (60) in dieser Kombination auch erlaubt ist.
+  let fpsAuswahl = $derived([
+    ...(standardErlaubt ? [{ value: '', label: m.overrides_editor_fps_standard() }] : []),
+    ...fpsOptions.map((f) => ({ value: String(f), label: String(f) })),
+  ]);
   // Der wirksame Wert des Felds: die gespeicherte Wahl, oder ohne eine solche
   // „Standard" — außer die Vorgabe ist in der Kombination gerade nicht
   // erlaubt, dann steht sie selbst an (und wird vom Effect unten festgenagelt).
@@ -266,17 +270,13 @@
  <div class="grid gap-3 sm:grid-cols-2">
   <div class="flex flex-col gap-1.5">
     <Label for="ov-codec" class="text-text-muted text-2xs font-semibold tracking-wide uppercase">Codec</Label>
-    <select
+    <Select
       id="ov-codec"
-      class="bg-bg-input text-text-base h-9 rounded-md px-2 text-sm outline-none"
       value={codecValue}
+      options={codecOptions}
       onchange={onCodec}
       data-testid="stream-overrides-codec"
-    >
-      {#each codecOptions as c (c.value)}
-        <option value={c.value}>{c.label}</option>
-      {/each}
-    </select>
+    />
     {#if zehnBitGewaehlt}
       <p class="text-2xs text-amber-500" data-testid="stream-overrides-ten-bit-warning">
         {m.overrides_editor_ten_bit_warning()}
@@ -286,17 +286,13 @@
 
   <div class="flex flex-col gap-1.5">
     <Label for="ov-resolution" class="text-text-muted text-2xs font-semibold tracking-wide uppercase">{m.overrides_editor_resolution_label()}</Label>
-    <select
+    <Select
       id="ov-resolution"
-      class="bg-bg-input text-text-base h-9 rounded-md px-2 text-sm outline-none"
       value={resValue}
+      options={resOptions}
       onchange={onResolution}
       data-testid="stream-overrides-resolution"
-    >
-      {#each resOptions as r (r.value)}
-        <option value={r.value}>{r.label}</option>
-      {/each}
-    </select>
+    />
     <!-- Bei bekannter Quellgröße sagen die Beschriftungen schon alles — der
          allgemeine Hinweis entfällt dann. Die Admin-Deckelung wird immer
          gezeigt, sie erklärt eine Einschränkung von außen. -->
@@ -329,20 +325,13 @@
 
   <div class="flex flex-col gap-1.5">
     <Label for="ov-fps" class="text-text-muted text-2xs font-semibold tracking-wide uppercase">FPS</Label>
-    <select
+    <Select
       id="ov-fps"
-      class="bg-bg-input text-text-base h-9 rounded-md px-2 text-sm outline-none"
       value={fpsValue}
+      options={fpsAuswahl}
       onchange={onFpsSelect}
       data-testid="stream-overrides-fps"
-    >
-      {#if standardErlaubt}
-        <option value="">{m.overrides_editor_fps_standard()}</option>
-      {/if}
-      {#each fpsOptions as f (f)}
-        <option value={String(f)}>{f}</option>
-      {/each}
-    </select>
+    />
     <!-- Solange die Last-Grenze etwas streicht, wäre die Bereichsangabe
          „Erlaubt: 1–144" daneben aktiv irreführend — die Liste endet ja
          sichtbar früher. Dann sagt der Hinweis, WER die Auswahl begrenzt. -->

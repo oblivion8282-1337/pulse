@@ -16,6 +16,7 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
+  import Select from '$lib/components/form/Select.svelte';
 
   // Screen-share resolution ceiling options (descending; 'native' = no cap).
   const NS_RESOLUTIONS = ['native', '1080p', '720p', '480p'];
@@ -104,6 +105,11 @@
   function resLabel(r: string): string {
     return r === 'native' ? m.admin_normal_stream_limits_native_no_limit() : r;
   }
+
+  // `$derived`, weil `resLabel()` ein m.* ruft — als const bliebe die
+  // Beschriftung beim Sprachwechsel stehen (dieselbe Regel wie in
+  // SettingsStandplatz: label() erst hier aufrufen).
+  const resOptionen = $derived(NS_RESOLUTIONS.map((r) => ({ value: r, label: resLabel(r) })));
 </script>
 
 <section class="rounded-2xl border border-border bg-bg-input p-5" data-testid="admin-normal-stream-limits">
@@ -174,15 +180,14 @@
             {m.admin_normal_stream_limits_max_resolution_desc()}
           </div>
         </div>
-        <select
-          bind:value={resolutionMax}
-          class="w-44 shrink-0 rounded-md border border-border bg-bg-input px-2 py-1 text-sm text-text-bright focus:border-primary focus:outline-none"
-          data-testid="ns-resolution-max" aria-label={m.admin_normal_stream_limits_max_resolution()}
-        >
-          {#each NS_RESOLUTIONS as r (r)}
-            <option value={r}>{resLabel(r)}</option>
-          {/each}
-        </select>
+        <Select
+          class="w-44 shrink-0"
+          value={resolutionMax}
+          options={resOptionen}
+          onchange={(v) => (resolutionMax = v)}
+          data-testid="ns-resolution-max"
+          aria-label={m.admin_normal_stream_limits_max_resolution()}
+        />
       </div>
 
       <div class="mt-1 flex justify-end">

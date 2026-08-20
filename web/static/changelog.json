@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-20.3",
+      "date": "2026-08-20",
+      "style": "Sachlich",
+      "title": "Auswahllisten in neuem Gewand",
+      "items": [
+        "Alle Ausklapplisten sind einheitlich gestaltet: dunkler Hintergrund, sanfte Einblendung, Haken am gewählten Eintrag, Tastaturbedienung und Tippsuche.",
+        "Geschlossen fügen sich Auswahlfelder jetzt passgenau neben Eingabefeldern ein — gleiche Form, gleicher Fokus-Ring."
+      ]
+    },
+    {
       "id": "2026-08-20.2",
       "date": "2026-08-20",
       "style": "Sachlich",

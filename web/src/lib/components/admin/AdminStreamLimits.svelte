@@ -19,6 +19,7 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
+  import Select from '$lib/components/form/Select.svelte';
 
   let current = $state<Permissions | null>(null);
   let error = $state<string | null>(null);
@@ -106,6 +107,11 @@
   function resLabel(r: string): string {
     return r === 'Native' ? m.admin_stream_limits_resolution_native() : r;
   }
+
+  // `$derived`, weil `resLabel()` ein m.* ruft — als const bliebe die
+  // Beschriftung beim Sprachwechsel stehen (dieselbe Regel wie in
+  // SettingsStandplatz: label() erst hier aufrufen).
+  const resOptionen = $derived(RESOLUTION_VALUES.map((r) => ({ value: r, label: resLabel(r) })));
 </script>
 
 <section class="rounded-2xl border border-border bg-bg-input p-5" data-testid="admin-stream-limits">
@@ -176,15 +182,14 @@
             {m.admin_stream_limits_resolution_hint()}
           </div>
         </div>
-        <select
-          bind:value={resolutionMax}
-          class="w-44 shrink-0 rounded-md border border-border bg-bg-input px-2 py-1 text-sm text-text-bright focus:border-primary focus:outline-none"
-          data-testid="hq-resolution-max" aria-label={m.admin_stream_limits_resolution_aria()}
-        >
-          {#each RESOLUTION_VALUES as r (r)}
-            <option value={r}>{resLabel(r)}</option>
-          {/each}
-        </select>
+        <Select
+          class="w-44 shrink-0"
+          value={resolutionMax}
+          options={resOptionen}
+          onchange={(v) => (resolutionMax = v)}
+          data-testid="hq-resolution-max"
+          aria-label={m.admin_stream_limits_resolution_aria()}
+        />
       </div>
 
       <div class="mt-1 flex justify-end">

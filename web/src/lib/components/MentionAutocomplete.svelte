@@ -215,8 +215,12 @@
 </script>
 
 {#if open && items.length > 0}
+  <!-- Dieselbe Popover-Optik wie ui/select und ui/dropdown-menu (bg-popover,
+       Ring statt Rahmen, Blur, Einblenden) — die @-Vorschlagliste ist im
+       Produktauge eine Auswahlliste wie jede andere; bis 2026-08-20 war sie
+       die einzige mit abweichender Grundfläche (bg-panel + border). -->
   <div
-    class="bg-bg-panel absolute bottom-full left-2 right-2 z-20 mb-2 max-h-64 overflow-y-auto rounded-xl border border-border shadow-lg"
+    class="bg-popover text-popover-foreground animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-2 absolute bottom-full left-2 right-2 z-20 mb-2 max-h-64 overflow-y-auto rounded-xl shadow-xl ring-1 ring-border backdrop-blur-xl duration-100"
     data-testid="mention-autocomplete"
     role="listbox"
   >

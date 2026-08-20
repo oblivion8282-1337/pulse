@@ -30,9 +30,17 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import FieldLabel from '$lib/components/form/FieldLabel.svelte';
+  import Select from '$lib/components/form/Select.svelte';
 
   type Mode = 'vps' | 'app_host';
   const mobile = isMobile();
+
+  const zweckOptionen = $derived([
+    { value: 'privat', label: m.app_host_apply_purpose_privat() },
+    { value: 'verein', label: m.app_host_apply_purpose_verein() },
+    { value: 'firma', label: m.app_host_apply_purpose_firma() },
+    { value: 'sonst', label: m.app_host_apply_purpose_sonst() },
+  ]);
 
   let mode = $state<Mode>('vps');
   let hostname = $state('');
@@ -196,13 +204,12 @@
         <Label class="text-text-bright text-xs font-medium" for="sha-purpose">
           {m.app_host_apply_purpose_label()}
         </Label>
-        <select id="sha-purpose" bind:value={purpose}
-          class="bg-bg-input border-border text-text-bright rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary">
-          <option value="privat">{m.app_host_apply_purpose_privat()}</option>
-          <option value="verein">{m.app_host_apply_purpose_verein()}</option>
-          <option value="firma">{m.app_host_apply_purpose_firma()}</option>
-          <option value="sonst">{m.app_host_apply_purpose_sonst()}</option>
-        </select>
+        <Select
+          id="sha-purpose"
+          value={purpose}
+          options={zweckOptionen}
+          onchange={(v) => (purpose = v as 'privat' | 'verein' | 'firma' | 'sonst')}
+        />
       </div>
       <div class="flex flex-col gap-1">
         <Label class="text-text-bright text-xs font-medium" for="sha-message">
