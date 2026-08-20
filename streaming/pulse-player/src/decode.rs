@@ -1905,6 +1905,15 @@ impl VideoDecoder {
         self.wacht.eingefroren()
     }
 
+    /// Es wurden Bilddaten verworfen — an die Einfrier-Wacht weiterreichen.
+    ///
+    /// Der Decoder haelt die Wacht, deshalb geht die Meldung durch ihn
+    /// hindurch; er selbst tut damit nichts. Siehe
+    /// [`crate::einfrieren::EinfrierWacht::schaden_gemeldet`].
+    pub fn schaden_gemeldet(&mut self) {
+        self.wacht.schaden_gemeldet();
+    }
+
     /// Setzt den Decoder nach einem erkannten Einfrieren neu auf.
     ///
     /// Wie der Keyframe-Zweig von [`on_gap`]: leeren und auf den naechsten

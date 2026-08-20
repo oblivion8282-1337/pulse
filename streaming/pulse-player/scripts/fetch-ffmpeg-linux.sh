@@ -37,12 +37,17 @@ set -euo pipefail
 # Release daneben; sie ist hier ausdrücklich NICHT gemeint.
 VERSION="n8.1"
 URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-${VERSION}-latest-linux64-lgpl-shared-8.1.tar.xz"
-# Prüfsumme vom 2026-08-17. **Das Release heißt `latest` und wird neu gebaut** —
+# Prüfsumme vom 2026-08-21 (vorher 2026-08-17: 10ccdea5…824b). **Das Release heißt `latest` und wird neu gebaut** —
 # die Summe ändert sich also, ohne dass die FFmpeg-Version wechselt. Schlägt
 # die Prüfung fehl, erst nachsehen, ob `pkg-config --modversion libavcodec`
 # im Entpackten weiterhin 62.x meldet (= FFmpeg 8.1); dann die Summe hier
 # nachziehen. Eine Summe, die niemand prüft, ist keine.
-SHA256="10ccdea5b5f0742d2337e5a4254fb0457c566a78aef7635a40dbd7376834824b"
+#
+# Am 2026-08-21 genau so geschehen und nachgeprüft, bevor die Summe hier
+# stand: `libavcodec.pc` meldet 62.28.102 (= FFmpeg 8.1, das Bauwerk nennt
+# sich n8.1.2-44-g7c533d0f86), und `--enable-gpl` steht NICHT in der
+# Konfiguration — es bleibt bei LGPL. Nur die Bauzahl hat gewechselt.
+SHA256="ed384c9fc9992db5d70d28907160333da064c6b803d85dd137d8f6d9fbecd95a"
 
 hier="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ziel="$hier/ffmpeg-dist/n8.1-lgpl-shared"

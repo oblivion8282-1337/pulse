@@ -643,6 +643,45 @@ pub async fn run(
                         )
                     }
                 };
+                // Der Zusammensetzer hat eine FERTIGE Einheit weggeworfen.
+                //
+                // Das ist ausgefallenes Bild — und der einzige Zeuge dafuer,
+                // wenn weder der Jitter-Puffer noch der Sequenzzaehler etwas
+                // gesehen haben. Genau so liegt der Fall hinter MediaMTX: es
+                // vergibt die Sequenznummern beim Weiterreichen neu, verwirft
+                // aber selbst Bilder, denen Pakete fehlten — der Rest kommt
+                // hier lueckenlos gezaehlt an (`0003-flexfec-on-whep.patch`,
+                // Kopf; am 2026-08-21 an der laufenden Leitung nachgewiesen:
+                // Verluststoesse am Server und Fehlerschuebe im Player fielen
+                // auf die Sekunde zusammen, ohne dass eine Luecke gemeldet
+                // wurde).
+                //
+                // Ohne diese Anforderung blieb die Erholung am Decoder
+                // haengen — und `av1_cuvid` lehnt kaputte Daten nicht ab,
+                // sondern gibt weiter Bilder aus, immer dasselbe. Damit fiel
+                // auf NVIDIA-Hardware jeder Ausloeser weg und das Bild stand,
+                // bis der Einfrier-Waechter zuschlug.
+                //
+                // Dieselbe Bremse wie beim Luecken-Pfad: ein Verluststoss
+                // erzeugt viele verworfene Einheiten hintereinander, und
+                // Vollbild um Vollbild anzufordern wuerde genau die Bitrate
+                // sprengen, die den Verlust verursacht hat.
+                let verworfen = assembler.verworfen_abholen();
+                if codec.is_video() && verworfen {
+                    // Zweitens der Einfrier-Wacht sagen, dass der naechste
+                    // Stillstand eine bekannte Ursache haette. Ohne das muesste
+                    // sie dem Vollbild-Takt des Senders folgen und griffe bei
+                    // 60 s Abstand erst nach 75 Sekunden (s. `einfrieren.rs`).
+                    if let Some(f) = decoder.as_ref() {
+                        f.zustand().schaden.store(true, Relaxed);
+                    }
+                    if let Some(ssrc) = video_ssrc.filter(|_| !ohne_anforderung) {
+                        if last_keyframe_request.elapsed() >= KEYFRAME_REQUEST_INTERVAL {
+                            last_keyframe_request = Instant::now();
+                            whep_session.request_keyframe(ssrc).await;
+                        }
+                    }
+                }
                 let Some(unit) = unit else { continue };
                 if codec.is_video() {
                     use crate::app::diagnose as dg;

@@ -84,6 +84,10 @@ pub struct Assembler {
     kind: Kind,
     /// Sequenznummer des zuletzt verarbeiteten Pakets; `None` vor dem ersten.
     last_seq: Option<u16>,
+    /// Seit dem letzten Abholen wurde eine fertige Einheit weggeworfen.
+    /// Gesammelt fuer ALLE Codecs an einer Stelle, damit `session.rs` nur den
+    /// Wrapper kennen muss (s. [`Assembler::verworfen_abholen`]).
+    verworfen: bool,
 }
 
 impl Assembler {
@@ -98,7 +102,7 @@ impl Assembler {
             },
             Codec::Opus => Kind::Opus,
         };
-        Self { kind, last_seq: None }
+        Self { kind, last_seq: None, verworfen: false }
     }
 
     /// Aktuelle Groesse der im Aufbau befindlichen Einheit — fuer Tests und
@@ -134,6 +138,34 @@ impl Assembler {
         }
     }
 
+    /// Wurde seit dem letzten Aufruf eine fertige Einheit weggeworfen?
+    ///
+    /// **Wofuer die Frage da ist.** [`Assembler::push`] antwortet mit `None`
+    /// auf zwei voellig verschiedene Lagen: „die Einheit ist noch nicht
+    /// fertig" und „die Einheit ist ausgefallen". Der Aufrufer braucht den
+    /// Unterschied, denn nur die zweite ist ein Grund, beim Sender ein
+    /// Vollbild anzufordern.
+    ///
+    /// **Warum nicht der Luecken-Pfad reicht.** `session.rs` fordert bisher
+    /// nur an, wenn der Jitter-Puffer eine Luecke meldet. MediaMTX vergibt die
+    /// Sequenznummern beim Weiterreichen aber NEU (Kopf von
+    /// `0003-flexfec-on-whep.patch`): verwirft es selbst ein Bild, kommt der
+    /// Rest lueckenlos gezaehlt an, der Jitter-Puffer sieht nichts, und die
+    /// Sequenzpruefung im Wrapper ebenso wenig. Der Zusammensetzer ist dann
+    /// der EINZIGE, der den Schaden bemerkt — und bis 2026-08-21 hat er ihn
+    /// fuer sich behalten.
+    ///
+    /// Der zweite Weg zur Erholung ist der Decoder: lehnt er die Daten ab,
+    /// meldet er „warte auf Einstieg", und die Sitzung fordert nach. Das
+    /// traegt aber nur, solange der Decoder ueberhaupt ablehnt. `av1_cuvid`
+    /// tut das nicht — es schluckt den Schaden und gibt weiter Bilder aus,
+    /// immer dasselbe (s. `decode::VideoDecoder::on_gap`). Damit fiel bei
+    /// NVIDIA-Hardware jeder Ausloeser weg, und die Erholung hing allein am
+    /// Einfrier-Waechter.
+    pub fn verworfen_abholen(&mut self) -> bool {
+        std::mem::take(&mut self.verworfen)
+    }
+
     /// Verarbeitet ein Paket; liefert eine fertige Einheit, sobald der Marker
     /// das Ende signalisiert.
     ///
@@ -150,8 +182,15 @@ impl Assembler {
         }
         self.last_seq = Some(seq);
 
-        match &mut self.kind {
-            Kind::Av1(a) => a.push(payload, marker),
+        // Jeder Zweig meldet zusaetzlich, ob er eine fertige Einheit
+        // weggeworfen hat. Als Rueckgabe und nicht per `self.verworfen = true`
+        // im Zweig, weil `self.kind` hier ausgeliehen ist — und weil so kein
+        // Zweig die Meldung vergessen kann, ohne dass es auffaellt.
+        let (verworfen, ergebnis) = match &mut self.kind {
+            Kind::Av1(a) => {
+                let out = a.push(payload, marker);
+                (a.verworfen_abholen(), out)
+            }
             Kind::H264 { depacketizer, unit, dropped, fua_bytes } => {
                 match depacketizer.depacketize(payload) {
                     // Der H264-Depacketizer liefert bereits Annex-B mit
@@ -202,10 +241,18 @@ impl Assembler {
                 }
                 let bad = std::mem::take(dropped);
                 let out = unit.split().freeze();
-                (!bad && !out.is_empty()).then_some(out)
+                // Wie im AV1-Zweig: bis zum Marker gekommen und trotzdem nicht
+                // herausgegangen heisst ausgefallenes Bild.
+                let verworfen = bad && !out.is_empty();
+                (verworfen, (!bad && !out.is_empty()).then_some(out))
             }
-            Kind::Opus => (!payload.is_empty()).then(|| payload.clone()),
-        }
+            // Ton kennt keine Einheit, die ausfallen koennte — und darf
+            // deshalb nie eine Vollbild-Anforderung ausloesen. Genau daran ist
+            // der Luecken-Pfad am 2026-07-28 schon einmal gescheitert.
+            Kind::Opus => (false, (!payload.is_empty()).then(|| payload.clone())),
+        };
+        self.verworfen |= verworfen;
+        ergebnis
     }
 }
 
@@ -260,6 +307,41 @@ mod tests {
         assert!(a.push(3, &nal, true).is_none(), "Einheit ueber die Luecke darf nicht raus");
         // Danach wieder regulaer.
         assert!(a.push(4, &nal, true).is_some(), "Erholung nach dem Sprung");
+    }
+
+    /// Der Wrapper muss die Meldung durchreichen — fuer JEDEN Codec.
+    ///
+    /// `session.rs` kennt nur ihn, nicht die einzelnen Zusammensetzer. Bliebe
+    /// die Meldung im AV1-Zweig stecken, haette H.264 dieselbe stille
+    /// Erholungsluecke weiter; der Fehler war nie ein AV1-Fehler, sondern
+    /// einer der Unterscheidung „unfertig" gegen „weggeworfen".
+    #[test]
+    fn verworfene_einheit_kommt_durch_den_wrapper() {
+        let mut a = Assembler::for_codec(Codec::H264);
+        let nal = Bytes::from_static(&[0x41, 0x9A, 0x00]);
+        a.push(1, &nal, false);
+        assert!(!a.verworfen_abholen(), "unfertig ist kein Verlust");
+        // 2 fehlt — hier faengt es die Sequenzpruefung, im echten Fall (neu
+        // vergebene Nummern) der Zusammensetzer selbst. Beide Wege muessen in
+        // derselben Meldung enden.
+        assert!(a.push(3, &nal, true).is_none(), "Einheit ueber die Luecke bleibt drin");
+        assert!(a.verworfen_abholen(), "und wird gemeldet");
+        assert!(!a.verworfen_abholen(), "abgeholt ist abgeholt");
+
+        assert!(a.push(4, &nal, true).is_some(), "danach wieder regulaer");
+        assert!(!a.verworfen_abholen(), "eine heile Einheit meldet nichts");
+    }
+
+    /// Opus hat keine Einheiten, die verloren gehen koennten — und darf
+    /// deshalb auch nie eine Vollbild-Anforderung ausloesen. Genau daran ist
+    /// der Luecken-Pfad am 2026-07-28 schon einmal gescheitert (eine Tonluecke
+    /// riss das Bild mit).
+    #[test]
+    fn opus_meldet_nie_einen_verlust() {
+        let mut a = Assembler::for_codec(Codec::Opus);
+        let leer = Bytes::new();
+        assert!(a.push(1, &leer, true).is_none(), "leeres Paket faellt weg");
+        assert!(!a.verworfen_abholen(), "aber das ist kein Bildverlust");
     }
 
     /// Die Sequenznummer laeuft bei 65535 um — bei 60 fps alle gut 18 Minuten.
