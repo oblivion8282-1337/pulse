@@ -32,19 +32,7 @@
   import SettingsApps from './settings/SettingsApps.svelte';
   import SettingsExperimental from './settings/SettingsExperimental.svelte';
   import SettingsStandplatz from './settings/SettingsStandplatz.svelte';
-  import DownloadIcon from '@lucide/svelte/icons/download';
-  import PlugZapIcon from '@lucide/svelte/icons/plug-zap';
-  import PaletteIcon from '@lucide/svelte/icons/palette';
-  import MicIcon from '@lucide/svelte/icons/mic';
-  import MonitorIcon from '@lucide/svelte/icons/monitor';
-  import BellIcon from '@lucide/svelte/icons/bell';
-  import Volume2Icon from '@lucide/svelte/icons/volume-2';
-  import KeyboardIcon from '@lucide/svelte/icons/keyboard';
-  import ShieldIcon from '@lucide/svelte/icons/shield';
-  import LockIcon from '@lucide/svelte/icons/lock';
-  import ServerIcon from '@lucide/svelte/icons/server';
-  import MonitorCogIcon from '@lucide/svelte/icons/monitor-cog';
-  import UserIcon from '@lucide/svelte/icons/user';
+  import SettingsDialogNav from './SettingsDialogNav.svelte';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import { untrack } from 'svelte';
   import { sounds } from '$lib/sounds/engine';
@@ -55,9 +43,11 @@
   import { deviceStore } from '$lib/devices/store.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { activeServer } from '$lib/stores/active-server.svelte';
+  import { guilds } from '$lib/stores/guilds.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
+  import { getSettingsTabs } from './settingsTabs';
 
   type MobileView = 'list' | 'detail';
 
@@ -141,51 +131,38 @@
     }),
   );
 
+  // Geräte für ALLE Communitys vorladen, sobald der Dialog öffnet — sonst
+  // kennt `deviceStore.eigene()` oben nur die Community, deren Kanalliste
+  // zuletzt offen war, und `zeigtStandplatzReiter` bliebe dauerhaft falsch,
+  // wenn das eigene Gerät woanders steht oder der Dialog aus einer Ansicht
+  // ohne aktive Community geöffnet wird (DM/Freunde, mobile Tabs). Der
+  // einzige bisherige Nachlade-Pfad (`SettingsStandplatzGeraete`) lag HINTER
+  // genau der Sichtbarkeitsentscheidung, die er beheben sollte — ein
+  // Henne-Ei-Problem ohne Selbstheilung (Fix-Runde 1, 2026-08-20).
+  //
+  // `ensureLoaded` ist intern idempotent (bereits geladene Communitys werden
+  // nicht neu geholt) — ein zweites Öffnen löst also keine neuen Anfragen
+  // aus. Blockiert nicht: die Tabs richten sich reaktiv nach, sobald die
+  // Daten da sind. `queueMicrotask` wie beim Vorbild in `app/+layout.svelte`,
+  // wegen des Svelte-Effect-Depth-Guards.
+  $effect(() => {
+    if (!open) return;
+    const guildIds = guilds.list.map((g) => g.id);
+    queueMicrotask(() => {
+      for (const id of guildIds) void deviceStore.ensureLoaded(id);
+    });
+  });
+
   // Für die Teile INNERHALB des Tabs, die es wirklich nur unter Linux gibt
   // (die Notbremse zurück auf den GSR-Sidecar).
   const isLinuxDesktop =
     isElectron() && typeof window !== 'undefined' && window.pulse?.os === 'linux';
 
-  const tabs: {
-    id: SettingsTab;
-    label: string;
-    icon: typeof MicIcon;
-    desktopOnly?: true;
-    browserOnly?: true;
-    electronOnly?: true;
-    /**
-     * Nur dort zeigen, wo `reiterSichtbar()` es erlaubt (Rechner kann selbst
-     * Standplatz sein, oder es liegt eine Eintragung vor, oder der Nutzer
-     * besitzt Geräte auf diesem Server — s. `reiterSichtbar.ts`).
-     *
-     * **Hiess bis 2026-08-20 `windowsOnly`.** Der Name stimmte, solange die
-     * einzige Bedingung war, ob DIESER Rechner ferngesteuert werden kann
-     * (nur der Windows-Sidecar spielt Eingaben ein). Seit auch „besitzt
-     * Geräte auf diesem Server" den Reiter zeigt, ist das nicht mehr
-     * plattformgebunden — ein Linux-Nutzer mit einem eigenen Windows-Gerät
-     * sieht den Reiter jetzt ebenfalls, ohne dass sein eigener Rechner etwas
-     * kann.
-     *
-     * **Betrifft nur das ANBIETEN der Freigabe/Eintragung-Formulare.**
-     * Steuern, zusehen und Geräte in der Kanalliste sehen bleibt
-     * plattformneutral — der Steuernde braucht keinen Sidecar.
-     */
-    standplatzGate?: true;
-  }[] = [
-    { id: 'profile', label: m.settings_dialog_tab_profile(), icon: UserIcon },
-    { id: 'appearance', label: m.settings_dialog_tab_appearance(), icon: PaletteIcon },
-    { id: 'audio-video', label: m.settings_dialog_tab_audio_video(), icon: MicIcon },
-    { id: 'screen-share', label: m.settings_dialog_tab_screen_share(), icon: MonitorIcon, desktopOnly: true },
-    { id: 'standplatz', label: m.settings_dialog_tab_standplatz(), icon: MonitorCogIcon, electronOnly: true, standplatzGate: true },
-    { id: 'notifications', label: m.settings_dialog_tab_notifications(), icon: BellIcon },
-    { id: 'sounds', label: m.settings_dialog_tab_sounds(), icon: Volume2Icon },
-    { id: 'keyboard', label: m.settings_dialog_tab_keyboard(), icon: KeyboardIcon, desktopOnly: true },
-    { id: 'privacy', label: m.settings_dialog_tab_privacy(), icon: LockIcon },
-    { id: 'security', label: m.settings_dialog_tab_security(), icon: ShieldIcon },
-    { id: 'self-host', label: m.settings_dialog_tab_self_host(), icon: ServerIcon },
-    { id: 'apps', label: m.settings_dialog_tab_apps(), icon: DownloadIcon, browserOnly: true },
-    { id: 'experimental', label: m.settings_dialog_tab_diagnostics(), icon: PlugZapIcon, electronOnly: true }
-  ];
+  // Reine Daten, ausgelagert nach `settingsTabs.ts` (Zerlegung, 250-Zeilen-
+  // Grenze). Als Funktionsaufruf statt Modul-Import, damit die Labels beim
+  // Erzeugen DIESER Instanz ausgewertet werden — exakt das Timing des
+  // vorherigen `const`-Ausdrucks hier an Ort und Stelle.
+  const tabs = getSettingsTabs();
 
   let visibleTabs = $derived(
     tabs.filter(
@@ -217,28 +194,7 @@
     </Dialog.Title>
 
     <!-- Nav-Liste: immer sichtbar auf sm+; auf mobile nur wenn mobileView=list -->
-    <nav
-      class="bg-bg-input flex shrink-0 flex-col gap-0.5 overflow-y-auto rounded-l-2xl p-3 max-sm:w-full max-sm:rounded-none sm:w-56
-        {mobileView === 'detail' ? 'max-sm:hidden' : ''}"
-    >
-      <p class="text-text-muted px-2 pb-2 pt-1 text-xs font-semibold uppercase tracking-wide">
-        {m.settings_dialog_title()}
-      </p>
-      {#each visibleTabs as t (t.id)}
-        <button
-          type="button"
-          onclick={() => selectTab(t.id)}
-          class="flex items-center gap-2 rounded-xl px-2 py-3 text-left text-base transition-colors md:py-1.5 md:text-sm {activeTab ===
-          t.id
-            ? 'bg-bg-hover text-text-bright'
-            : 'text-text-base hover:bg-bg-hover'}"
-          data-testid="settings-tab-{t.id}"
-        >
-          <t.icon class="size-5 shrink-0 md:size-4" />
-          {t.label}
-        </button>
-      {/each}
-    </nav>
+    <SettingsDialogNav tabs={visibleTabs} {activeTab} {mobileView} onSelect={selectTab} />
 
     <!-- Inhaltsbereich: auf sm+ inline; auf mobile nur wenn mobileView=detail -->
     <div
