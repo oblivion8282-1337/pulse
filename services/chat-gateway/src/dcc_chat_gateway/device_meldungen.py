@@ -84,18 +84,24 @@ async def melden(
     *,
     entfernt: bool = False,
     kanal: int | None = None,
+    guild: int | None = None,
 ) -> None:
     """``device_changed`` an die Community schicken.
 
     ``kanal`` übersteuert den Standplatz — gebraucht beim Umstellen, wo die
-    Meldung „weg hier" an den ALTEN Kanal gehen muss.
+    Meldung „weg hier" an den ALTEN Kanal gehen muss. ``guild`` übersteuert
+    ebenso die Community — seit dem Community-Wechsel kann die ALTE Community
+    eine andere sein als ``device.guild_id`` (das Gerät trägt zu diesem
+    Zeitpunkt schon die neue). Beide Vorgaben (``device.guild_id`` /
+    ``device.channel_id``) halten das Verhalten für alle bestehenden Rufer
+    unverändert.
     """
     mgr = manager_von(request)
     if mgr is None:
         return
     try:
         await mgr.publish_device_change(
-            guild_id=device.guild_id,
+            guild_id=guild if guild is not None else device.guild_id,
             channel_id=kanal if kanal is not None else device.channel_id,
             device=stand.model_dump(),
             removed=entfernt,
