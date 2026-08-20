@@ -23,6 +23,8 @@
 - **Sprache:** Rust-Doc-Kommentare in diesen Crates sind ASCII (`ae`/`oe`/`ue`/`ss`). **Commit-Messages mit ECHTEN Umlauten** (ä/ö/ü/ß) — Projektkonvention. **Keine Emojis.**
 - **Kein Changelog-Eintrag** — reine Umbauten ohne sichtbare Verhaltensänderung für Nutzer. Ausnahme: falls die Vereinheitlichung der Maskierung als Verhaltensänderung gewertet wird, entscheidet das der Controller.
 - Quelldateien ≤ 350 Zeilen (hart 500), ausgenommen Tests.
+- **Tests gegen die VOLLE erwartete Zeichenkette, nicht gegen „das Geheimnis ist weg".** Nachgetragen am 2026-08-20 nach der Prüfung von Aufgabe 1: sechs von sieben Tests prüften dort nur `!s.contains(geheim)` und wären grün geblieben, wenn die Funktion schlicht `"***"` zurückgäbe. Bei einer Maskierung liegt die Kunst darin, früh genug zu schneiden **und** die Meldung ringsum zu verschonen — die zweite Hälfte fällt ohne `assert_eq!` unter den Tisch. **Aber:** einen erwarteten Wert nie blind aus dem Ist-Ergebnis übernehmen, sondern von Hand nachrechnen; sonst hält der Test nur fest, dass der Code tut, was er tut.
+- **Eine Testbegründung ist eine Behauptung und wird geprüft wie Code.** In diesem Repo tragen Kommentare Wissen; eine falsche Begründung überlebt länger als ein falscher Wert, weil kein Test sie rot macht.
 - **Alle Befehle im Vordergrund**, kein `run_in_background`.
 
 ## Ausgangslage, selbst gemessen am 2026-08-20
@@ -38,6 +40,8 @@
 Alle drei suchen dieselben Präfixe: `pass=`, `token=`, `streamid=publish:`.
 
 **Aufrufer:** Windows 4, Linux 8, macOS 6 — **plus drei im Labor** (`win-hq-labor` nutzt `pulse_win_hq_sidecar::redact::secrets`). Das Labor ist der vierte Nutzer und wird oft übersehen.
+
+**Es gibt eine VIERTE Fassung, und sie bleibt stehen:** `streaming/gsr-sidecar/redact.py`, eine Regex-Fassung im Python-Sidecar (auf Linux das Auffangnetz, wenn der Rust-Sidecar fehlt). Sie fängt strikt weniger als die neue Rust-Fassung — sie verlangt ein `[?&]` vor dem Präfix, und beim SRT-Streamid maskiert sie nur das letzte Segment statt alles ab `publish:`. **Sie wird nicht angefasst:** der Python-Sidecar hat keine Rust-Abhängigkeiten und soll keine bekommen. Die Ausnahme gehört im Modulkopf von `pulse-redact` vermerkt, sonst sieht die Vereinheitlichung vollständiger aus, als sie ist.
 
 **Die Zeitrechnung** (`zeitbasis.rs`) liegt in win und linux mit **null abweichenden Codezeilen** vor (nur Kommentare unterscheiden sich, und die verweisen berechtigt auf plattformeigene Module). macOS hat seit dem WHIP-Sender eine dritte, reduzierte Fassung.
 
@@ -120,9 +124,9 @@ mod tests {
     }
 
     /// **Konnte vorher NUR Windows.** Linux und macOS kannten als Ende nur
-    /// `&` und Leerzeichen, fanden hier keins und maskierten deshalb bis zum
-    /// Ende der Meldung — der Schluessel war zwar weg, der Rest der Meldung
-    /// aber auch.
+    /// `&` und Leerzeichen. Sie haetten am Leerzeichen abgeschnitten und
+    /// dabei die schliessende Klammer mitgefressen (`…pass=*** beim
+    /// Oeffnen`) — der Schluessel war weg, die Meldung aber beschaedigt.
     #[test]
     fn url_in_klammern_endet_an_der_klammer() {
         let s = redact_url("Fehler (url=rtmps://h/p?pass=geheim123) beim Oeffnen");
