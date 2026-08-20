@@ -63,7 +63,7 @@ export function getSettingsTabs(): SettingsTabDef[] {
     { id: 'appearance', label: m.settings_dialog_tab_appearance(), icon: PaletteIcon },
     { id: 'audio-video', label: m.settings_dialog_tab_audio_video(), icon: MicIcon },
     { id: 'screen-share', label: m.settings_dialog_tab_screen_share(), icon: MonitorIcon, desktopOnly: true },
-    { id: 'standplatz', label: m.settings_dialog_tab_standplatz(), icon: MonitorCogIcon, electronOnly: true, standplatzGate: true },
+    { id: 'standplatz', label: m.settings_dialog_tab_standplatz(), icon: MonitorCogIcon, standplatzGate: true },
     { id: 'notifications', label: m.settings_dialog_tab_notifications(), icon: BellIcon },
     { id: 'sounds', label: m.settings_dialog_tab_sounds(), icon: Volume2Icon },
     { id: 'keyboard', label: m.settings_dialog_tab_keyboard(), icon: KeyboardIcon, desktopOnly: true },
