@@ -55,10 +55,27 @@ Stellen und beide werden gezogen.
 ## Aufbau in Stufen
 
 Die Stufen A1–A3 sind **zusammen auslieferbar** und werden von A4/A5 nicht
-aufgehalten. Das ist eine ausdrückliche Festlegung, kein Zufall der Reihenfolge:
-Zero-Copy ist laut README (Z. 201–256) selbst auf NVIDIA unter Windows **nie
-erreicht** worden. Ein Vorhaben, das die DMG-Auslieferung daran hängt, hätte ein
-offenes Ende.
+aufgehalten. Das ist eine ausdrückliche Festlegung, kein Zufall der Reihenfolge.
+
+Die Begründung liefert die Windows-Erfahrung mit Zero-Copy — allerdings anders,
+als es das Player-README nahelegt (dazu unten „Was danach zu berichtigen ist").
+Dort wird Zero-Copy auf NVIDIA als „nie erreicht" geführt; das galt nur bis zum
+2026-08-11 vormittags und ist seither behoben (`ZUERST_NATIV_HW`,
+`src/decode.rs:511`). Der Weg funktioniert dort inzwischen und ist gemessen.
+
+Lehrreich ist der **Verlauf**: die Kostenseite lag am 2026-08-11 früh vor
+(Hochladen 1,20 → 0,00 ms bei 1080p8), und trotzdem wurde die Vorgabe zunächst
+ausdrücklich **nicht** umgestellt — es fehlte der Beleg auf der Robustheitsseite
+(Verhalten nach Paketverlust, Wiederaufsetzen, Einstieg in einen
+Intra-Refresh-Strom), und `decode.rs` führte für cuvid mehrere hart erarbeitete
+Sonderbehandlungen, die für D3D11VA niemand geprüft hatte. Erst als
+`player-2026-08-11-robustheit-d3d11va-gegen-cuvid.json` nachgereicht war, wurde
+gedreht.
+
+Daraus folgt für macOS: eine Zero-Copy-Brücke braucht **zwei** getrennte Belege,
+und der zweite ist der teurere. Das ist ein eigener Arbeitszyklus mit eigenem
+Messaufwand — kein Anhängsel an eine Auslieferung. Ein Vorhaben, das das DMG
+daran hängt, hätte ein offenes Ende.
 
 ### A1 — VideoToolbox als hwaccel
 
@@ -158,9 +175,17 @@ Kommentar (Z. 1–14) benennt den Grund: VideoToolbox gibt seine Bilder als
 schlimmer als ihr Fehlen. `GpuBild` und `Bruecke` sind dort unbewohnte Enums,
 `bruecke_moeglich()` liefert konstant `false`.
 
-Diese Stufe ist ausdrücklich ergebnisoffen. Sie wird gemessen, nicht geglaubt:
-ohne einen Nachweis, dass der Umweg über den Hauptspeicher auf dieser Hardware
-wirklich weh tut, wird sie nicht gebaut.
+„Vierte Brücke" ist wörtlich zu nehmen. Es gibt heute drei, und der Kopf von
+`zerocopy/mod.rs` hält fest, dass ihre Unterschiede **erzwungen und nicht
+gewählt** sind — bei Windows (geteilte Textur, NT-Handle) und Linux/NVIDIA
+(exportiertes `VkImage`) ist sogar die Richtung vertauscht, weil FFmpegs
+CUDA-Speicher nicht exportierbar ist, und der VAAPI-Weg kopiert überhaupt
+nicht. Eine IOSurface-Brücke erbt von keiner der drei mehr als das Muster.
+
+Diese Stufe ist ausdrücklich ergebnisoffen. Sie wird gemessen, nicht geglaubt —
+und zwar zweifach, Kosten und Robustheit getrennt (Begründung oben bei den
+Stufen). Ohne einen Nachweis, dass der Umweg über den Hauptspeicher auf dieser
+Hardware wirklich weh tut, wird sie gar nicht erst gebaut.
 
 ## Was nicht dazugehört
 
@@ -209,6 +234,19 @@ Eine Behauptung wird nie an nur einer Stelle korrigiert:
 
 - `streaming/pulse-player/README.md` Z. 247–254 und Z. 662–665 („macOS bleibt
   ungeprueft und wird nicht ausgeliefert", offener Punkt 5).
+
+- **Nebenfund, gehört unabhängig von diesem Vorhaben berichtigt:** dasselbe
+  README führt Zero-Copy auf NVIDIA unter Windows als „nie erreicht" (Z. 212–215)
+  und widmet dem einen ganzen Blockquote (Z. 265–296, bis hin zu „Wer die
+  Vorgabe drehen will, misst das zuerst"). **Das ist überholt.** Der Kopf von
+  `src/decode.rs` (Z. 22–42) dokumentiert die Behebung vom 2026-08-11:
+  `ZUERST_NATIV_HW` (`decode.rs:511`) stellt unter Windows den nativen Decoder
+  mit D3D11VA vor `*_cuvid`, womit der Zero-Copy-Weg für alle drei Hersteller
+  gilt; die Robustheitsmessung, deren Fehlen die Umstellung vorher blockierte,
+  liegt als `player-2026-08-11-robustheit-d3d11va-gegen-cuvid.json` vor.
+  README und Code widersprechen sich hier also — korrigiert wurde nur eine der
+  beiden Stellen. Aufgefallen beim Prüfen einer Behauptung, die aus dem
+  veralteten README in einen früheren Stand dieses Entwurfs geraten war.
 - `streaming/pulse-player/WISSENSSTAND.md` — enthält heute keine macOS-Aussage;
   die Messung aus A1 gehört dort als GEMESSEN hinein.
 - `CLAUDE.md`, wo die Auslieferungswege des Players aufgezählt sind.
