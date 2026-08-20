@@ -53,6 +53,19 @@ async def require_member(session, guild_id: int, user_id: int) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="community is suspended")
 
 
+async def is_guild_member(session, guild_id: int, user_id: int) -> bool:
+    """Wie ``require_member``, aber ohne zu werfen.
+
+    Gebraucht dort, wo ein 403 die falsche Antwort wäre — etwa beim Prüfen
+    einer FREMDEN Community, deren blosse Existenz ein 403 verriete
+    (``routes/devices.py::_ziel_standplatz``). Bewusst schmal: prüft nur die
+    Mitgliedschaft, nicht die Suspendierung — der Aufrufer entscheidet selbst,
+    was eine fehlende Mitgliedschaft für ihn bedeutet.
+    """
+    member = await session.get(GuildMember, (guild_id, user_id))
+    return member is not None
+
+
 async def channel_membership(session, channel_id: int, user_id: int) -> Channel | None:
     channel = await session.get(Channel, channel_id)
     if channel is None:

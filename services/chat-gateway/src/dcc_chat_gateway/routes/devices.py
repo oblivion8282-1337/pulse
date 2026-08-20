@@ -75,7 +75,7 @@ from dcc_chat_gateway.permissions import (
     has_permission,
     resolve_permissions,
 )
-from dcc_chat_gateway.routes._deps import require_member
+from dcc_chat_gateway.routes._deps import is_guild_member, require_member
 from dcc_chat_gateway.schemas import SnowflakeId
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
@@ -110,6 +110,11 @@ class DeviceCreate(BaseModel):
 
 
 class DevicePatch(BaseModel):
+    #: Zielcommunity. Nur der Besitzer darf sie ändern — der Standplatz ist der
+    #: Rechteanker, und ``MANAGE_GUILD`` soll räumen können, nicht umwidmen
+    #: (dieselbe Begründung wie beim Kanal). Zusammen mit ``channel_id``
+    #: anzugeben: ein Kanal ohne seine Community wäre nicht auflösbar.
+    guild_id: SnowflakeId | None = None
     channel_id: SnowflakeId | None = None
     name: str | None = Field(default=None, min_length=1, max_length=DEVICE_NAME_MAX_LEN)
 
@@ -162,6 +167,20 @@ async def _standplatz_kanal(
     if not has_permission(wert, Permissions.STREAM):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail=detail)
     return channel
+
+
+async def _ziel_standplatz(
+    session, user, guild_id: int, channel_id: int, *, detail: str
+) -> Channel:
+    """Wie ``_standplatz_kanal``, aber für eine möglicherweise ANDERE Community.
+
+    Die Mitgliedschaft wird hier geprüft und nicht über ``require_member``:
+    dessen 403 verriete, dass es die Community gibt. Ein Nicht-Mitglied bekommt
+    dieselbe Antwort wie für einen Kanal, den es nicht sehen darf — 404.
+    """
+    if not await is_guild_member(session, guild_id, user.id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="channel not found")
+    return await _standplatz_kanal(session, user, guild_id, channel_id, detail=detail)
 
 
 async def _load_device(session, guild_id: int, device_id: int) -> Device:
@@ -279,27 +298,35 @@ async def patch_device(
     if body.name is not None:
         device.name = _normalise_name(body.name)
     alter_kanal: int | None = None
-    if body.channel_id is not None and body.channel_id != device.channel_id:
+    alte_guild: int | None = None
+    ziel_guild = body.guild_id if body.guild_id is not None else device.guild_id
+    if body.channel_id is not None and (
+        body.channel_id != device.channel_id or ziel_guild != device.guild_id
+    ):
         # **Umstellen darf nur der Besitzer** (Bughunt 2026-08-16). Der
         # Standplatz ist der Rechteanker des Geräts: wer ihn setzt, bestimmt,
         # wer den Rechner übernehmen darf. Mit ``MANAGE_GUILD`` allein liesse
         # sich ein fremder Rechner in einen Kanal schieben, in dem ``@everyone``
         # ``REMOTE_CONTROL`` hat — die Verwaltung soll räumen können, nicht
-        # umwidmen. Löschen und Umbenennen bleiben deshalb bei ihr.
+        # umwidmen. Löschen und Umbenennen bleiben deshalb bei ihr. Gilt
+        # unverändert für den Community-Wechsel: er ist nur eine weitere Form
+        # des Umstellens.
         if device.owner_user_id != user.id:
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN,
                 detail="only the device owner can move it to another channel",
             )
-        await _standplatz_kanal(
+        await _ziel_standplatz(
             session,
             user,
-            guild_id,
+            ziel_guild,
             body.channel_id,
             detail="you need permission to stream in the new channel",
         )
         alter_kanal = device.channel_id
+        alte_guild = device.guild_id
         device.channel_id = body.channel_id
+        device.guild_id = ziel_guild
 
     try:
         await session.commit()
@@ -319,9 +346,11 @@ async def patch_device(
         # **Den alten Standplatz mitziehen** (Bughunt 2026-08-16): das Register
         # merkt sich den Ort, an den es Zustandsmeldungen schickt. Ohne diese
         # Zeile meldete ein umgestelltes Gerät weiter an den alten Kanal — die
-        # Falschen sähen seinen Zustand, die Berechtigten nie einen.
+        # Falschen sähen seinen Zustand, die Berechtigten nie einen. Seit dem
+        # Community-Wechsel muss das die NEUE Community sein, nicht die aus dem
+        # Pfad (die bleibt bei einem Wechsel die alte).
         if mgr is not None:
-            mgr.device_move(device.id, guild_id, device.channel_id)
+            mgr.device_move(device.id, device.guild_id, device.channel_id)
         # Und aus der Liste des alten Kanals muss es verschwinden. Wer den
         # neuen nicht sehen darf, behielte sonst einen Eintrag, den es dort
         # nicht mehr gibt — und könnte ihn wecken wollen.
@@ -330,10 +359,13 @@ async def patch_device(
         # die Meldung geht an den alten Kanal, das eingebettete Gerät trug aber
         # schon den neuen — das verriet dort eine Kanalkennung, die die
         # Empfänger unter Umständen gar nicht sehen dürfen. Für sie ist die
-        # richtige Auskunft „das Gerät, das hier stand, ist weg".
+        # richtige Auskunft „das Gerät, das hier stand, ist weg". Dieselbe
+        # Begründung gilt jetzt für die Community: die Meldung geht an die
+        # ALTE, nicht an die, in der das Gerät inzwischen steht.
         alt = device_out(device, mgr)
         alt.channel_id = str(alter_kanal)
-        await melden(request, device, alt, entfernt=True, kanal=alter_kanal)
+        alt.guild_id = str(alte_guild)
+        await melden(request, device, alt, entfernt=True, kanal=alter_kanal, guild=alte_guild)
     stand = device_out(device, mgr)
     await melden(request, device, stand)
     return stand
