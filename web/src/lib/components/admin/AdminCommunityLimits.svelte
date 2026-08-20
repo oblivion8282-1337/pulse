@@ -45,6 +45,9 @@
   /** Instanz-Standard für den Ablage-Speicher — Spiegel von
    *  ``DEFAULT_DROPBOX_QUOTA_BYTES`` (_dropbox_policy.py). Synchron halten. */
   const DEFAULT_DROPBOX_QUOTA_GB = 1;
+  /** Instanz-Standard fuer den Geraete-Deckel je Person -- Spiegel von
+   *  ``DEFAULT_MAX_DEVICES_PER_OWNER`` (guild_limits.py). Synchron halten. */
+  const DEFAULT_MAX_DEVICES_PER_OWNER = 25;
   // "Native" ist ein interner Wert, kein Anzeigetext — Klappmenü und Platzhalter
   // beschriften ihn deshalb über denselben Weg.
   const resLabel = (r: string) => (r === 'Native' ? m.admin_communities_limits_res_native() : r);
@@ -62,6 +65,9 @@
   let maxMembers = $state(untrack(() => community.max_members?.toString() ?? ''));
   let maxChannels = $state(untrack(() => community.max_channels?.toString() ?? ''));
   let maxRoles = $state(untrack(() => community.max_roles?.toString() ?? ''));
+  let maxDevicesPerOwner = $state(
+    untrack(() => community.max_devices_per_owner?.toString() ?? '')
+  );
   let maxStreams = $state(untrack(() => community.max_concurrent_streams?.toString() ?? ''));
   // Ablage: Freigabe (Schalter, kein Erben) + eigener Speicher-Topf.
   let dropboxAllowed = $state(untrack(() => community.dropbox_allowed));
@@ -86,6 +92,7 @@
         max_members: numOrNull(maxMembers),
         max_channels: numOrNull(maxChannels),
         max_roles: numOrNull(maxRoles),
+        max_devices_per_owner: numOrNull(maxDevicesPerOwner),
         max_concurrent_streams: numOrNull(maxStreams),
         dropbox_allowed: dropboxAllowed,
         dropbox_quota_bytes: unitStrToBytes(dropboxQuotaGB, GB)
@@ -225,6 +232,12 @@
         bind:value={maxRoles}
         fallback="unlimited"
         min="1" testid="community-limit-max-roles"
+      />
+      <LimitField
+        label={m.admin_communities_limits_max_devices()}
+        bind:value={maxDevicesPerOwner}
+        fallback={DEFAULT_MAX_DEVICES_PER_OWNER}
+        min="1" testid="community-limit-max-devices"
       />
       <LimitField
         label={m.admin_communities_limits_max_streams()}
