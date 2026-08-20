@@ -8,33 +8,36 @@
 
 use super::KEYFRAME_SEKUNDEN_UNBEDENKLICH;
 
+/// Regulaerer Vollbild-Abstand, Vorgabe in Sekunden — wie Linux und Windows.
+///
+/// Der so gestreckte Abstand setzt einen RTCP-Rueckkanal voraus, ueber den ein
+/// beitretender Zuschauer sein Einstiegs-Vollbild anfordert; den bringt der
+/// eigene WHIP-Sender (`crate::whip`) mit, nachgemessen — s. README, Abschnitt
+/// "Own WHIP sender + back channel". Die Begruendung der 60 s selbst
+/// (Stossfenster-Messung) steht beim Linux-Zwilling
+/// `encode::KEYFRAME_SEKUNDEN_VORGABE`.
+///
+/// RTMPS hat den Rueckkanal nicht (s.
+/// [`warne_bei_langem_abstand_ohne_rueckkanal`]), wird auf macOS aber praktisch
+/// nie gewaehlt: `pushProtokoll` nimmt fuer H.264 immer WHIP, und AV1 findet
+/// auf heutiger Mac-Hardware keinen Encoder (s. `caps.rs`).
+const KEYFRAME_SEKUNDEN_VORGABE: f32 = 60.0;
+
 /// Regulaerer Vollbild-Abstand in Bildern.
 ///
 /// **Zwillingsrechnung** zu `keyframe::abstand_bilder` im Windows-Sidecar und
 /// `encode::keyframe_abstand_bilder` im Linux-Sidecar. Die ausfuehrliche
 /// Begruendung der Grenzen steht beim Linux-Zwilling.
-///
-/// **Die Vorgabe bleibt auf macOS bei 2 s, korrigiert am 2026-08-19.** Seit
-/// Aufgabe 4 hat dieser Sidecar einen Vollbild-Anforderungspfad
-/// (`crate::keyframe`), und seit Aufgabe 3 erreicht diese Anforderung ueber den
-/// eigenen WHIP-Sender (`crate::whip`) auch wirklich den Encoder — s.
-/// [`warne_bei_langem_abstand_ohne_rueckkanal`]. RTMPS und SRT bleiben aber
-/// weiterhin ohne Rueckkanal, und welcher Weg gilt, entscheidet der Client
-/// (`pushProtokoll`, `CLAUDE.md`). Die Vorgabe bleibt deshalb bei 2 s, statt
-/// pauschal auf die gestreckten 60 s der anderen Plattformen zu wechseln: ein
-/// Zuschauer auf einem RTMPS-Stream haette sonst ohne jede Rettung bis zu einer
-/// Minute lang nichts zu sehen, wenn er ein Bild verliert (Begruendung/Zahlen
-/// dazu am Linux-Zwilling `KEYFRAME_SEKUNDEN_VORGABE`).
 pub(super) fn keyframe_abstand_bilder(fps: u32) -> u32 {
     ((fps as f32 * keyframe_abstand_sekunden()).round() as u32).max(1)
 }
 
 /// Der eingestellte Vollbild-Abstand in Sekunden.
 ///
-/// Aus der Umgebung gelesen, mit [`KEYFRAME_SEKUNDEN_UNBEDENKLICH`] als
-/// Vorgabe. `PULSE_KEYFRAME_SECONDS` bleibt wirksam — der Schalter ist fuer
-/// Messreihen da, und wer ihn setzt, weiss was er tut; gewarnt wird trotzdem
-/// (s. [`warne_bei_langem_abstand_ohne_rueckkanal`]).
+/// Aus der Umgebung gelesen, mit [`KEYFRAME_SEKUNDEN_VORGABE`] als Vorgabe.
+/// `PULSE_KEYFRAME_SECONDS` bleibt wirksam — der Schalter ist fuer Messreihen
+/// da, und wer ihn setzt, weiss was er tut; gewarnt wird trotzdem (s.
+/// [`warne_bei_langem_abstand_ohne_rueckkanal`]).
 fn keyframe_abstand_sekunden() -> f32 {
     abstand_sekunden_aus(std::env::var("PULSE_KEYFRAME_SECONDS").ok().as_deref())
 }
@@ -43,7 +46,7 @@ fn keyframe_abstand_sekunden() -> f32 {
 /// `set_var` (in Edition 2024 `unsafe` und zwischen Testfaeden unsicher)
 /// pruefbar ist.
 fn abstand_sekunden_aus(roh: Option<&str>) -> f32 {
-    const VORGABE: f32 = KEYFRAME_SEKUNDEN_UNBEDENKLICH;
+    const VORGABE: f32 = KEYFRAME_SEKUNDEN_VORGABE;
     const MIN: f32 = 0.1;
     const MAX: f32 = 120.0;
     match roh {
@@ -67,10 +70,11 @@ fn abstand_sekunden_aus(roh: Option<&str>) -> f32 {
 /// der gewaehlte Weg keinen Rueckkanal hat.
 ///
 /// Gegenstueck zu `warne_bei_intra_refresh_ohne_rueckkanal` im Linux-Sidecar.
-/// **Seit Aufgabe 3 mit derselben Fallunterscheidung**: der eigene WHIP-Sender
-/// haengt jetzt an `VideoEncoder::start`, RTMPS/SRT haben aber weiterhin keinen
-/// Rueckkanal — die Warnung haengt also am ZIEL, nicht mehr pauschal am
-/// Abstand.
+/// Haengt am ZIEL, nicht am Abstand: der eigene WHIP-Sender (`crate::whip`)
+/// haengt an `VideoEncoder::start` und hat den Rueckkanal, RTMPS/SRT nicht.
+/// Seit die Vorgabe bei [`KEYFRAME_SEKUNDEN_VORGABE`] (60 s) liegt, ist diese
+/// Warnung der einzige verbliebene Riegel fuer den RTMPS-Fall — heute
+/// unerreicht (s. dort), aber echt, falls sich das aendert.
 pub(super) fn warne_bei_langem_abstand_ohne_rueckkanal(hat_rueckkanal: bool) {
     if hat_rueckkanal {
         return;
@@ -119,16 +123,19 @@ pub(super) fn url_format_hint(target: &str) -> Option<&'static str> {
 
 #[cfg(test)]
 mod keyframe_tests {
-    use super::{KEYFRAME_SEKUNDEN_UNBEDENKLICH, abstand_sekunden_aus};
+    use super::{KEYFRAME_SEKUNDEN_UNBEDENKLICH, KEYFRAME_SEKUNDEN_VORGABE, abstand_sekunden_aus};
 
     /// **Der eigentliche Punkt dieser Datei.** Ohne gesetzte Umgebung gilt auf
-    /// macOS der unbedenkliche Abstand, NICHT die gestreckte Vorgabe der
-    /// anderen Plattformen — hier kann niemand ein Vollbild anfordern. Ein
-    /// Zwilling, der die 60 s wieder hereinzieht, faellt hier auf.
+    /// macOS dieselbe gestreckte Vorgabe wie auf Linux und Windows (60 s), und
+    /// sie ist ausdruecklich NICHT dieselbe Zahl wie
+    /// `KEYFRAME_SEKUNDEN_UNBEDENKLICH` (2 s), an dem Drossel-Deckel und
+    /// Warnschwelle haengen. Ein Zwilling, der die beiden wieder
+    /// zusammenzieht, faellt hier auf.
     #[test]
-    fn ohne_rueckkanal_gilt_der_unbedenkliche_abstand() {
-        assert_eq!(abstand_sekunden_aus(None), KEYFRAME_SEKUNDEN_UNBEDENKLICH);
-        assert_eq!(abstand_sekunden_aus(None), 2.0);
+    fn macos_folgt_der_regulaeren_vorgabe() {
+        assert_eq!(abstand_sekunden_aus(None), KEYFRAME_SEKUNDEN_VORGABE);
+        assert_eq!(abstand_sekunden_aus(None), 60.0);
+        assert_ne!(KEYFRAME_SEKUNDEN_VORGABE, KEYFRAME_SEKUNDEN_UNBEDENKLICH);
     }
 
     /// Der Messschalter bleibt wirksam — auch nach oben.
@@ -145,17 +152,17 @@ mod keyframe_tests {
         for roh in ["", "abc", "0", "-5", "121"] {
             assert_eq!(
                 abstand_sekunden_aus(Some(roh)),
-                KEYFRAME_SEKUNDEN_UNBEDENKLICH,
+                KEYFRAME_SEKUNDEN_VORGABE,
                 "{roh:?}"
             );
         }
     }
 
     /// Bilder statt Sekunden, und nie 0 (ein GOP von 0 lesen manche Encoder
-    /// als "unbegrenzt").
+    /// als "unbegrenzt"). 3600 = 60 fps * 60 s Vorgabe.
     #[test]
     fn bilder_aus_sekunden_nie_null() {
-        assert_eq!(((60.0 * abstand_sekunden_aus(None)).round() as u32).max(1), 120);
+        assert_eq!(((60.0 * abstand_sekunden_aus(None)).round() as u32).max(1), 3600);
         assert_eq!(((1.0 * abstand_sekunden_aus(Some("0.1"))).round() as u32).max(1), 1);
     }
 }

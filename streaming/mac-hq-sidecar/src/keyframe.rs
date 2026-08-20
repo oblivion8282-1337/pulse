@@ -39,8 +39,8 @@ use std::time::{Duration, Instant};
 /// Test `deckel_haengt_am_unbedenklichen_abstand`, der die beiden Zahlen
 /// zusammenhaelt (Gleitkomma-Rechnung im `const` waere hier der unbequemere
 /// Weg). **Bewusst NICHT an der gestreckten Vorgabe** (`keyframe_abstand_sekunden`,
-/// derzeit ebenfalls 2 s, aber ueber die Umgebung veraenderbar): eine Bremse,
-/// die der Vorgabe folgte, verwuerfe eine Anforderung den ganzen
+/// 60 s wie auf Linux und Windows, ueber die Umgebung veraenderbar): eine
+/// Bremse, die der Vorgabe folgte, verwuerfe eine Anforderung den ganzen
 /// Vollbild-Abstand lang — genau der Fehler, der bei den Zwillingen am
 /// 2026-08-18 gefunden und behoben wurde.
 pub(crate) const DROSSEL_DECKEL: Duration = Duration::from_millis(2_000);
