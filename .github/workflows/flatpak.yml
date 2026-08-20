@@ -39,6 +39,16 @@ on:
       - 'packaging/linux-hq-sidecar-cargo-sources.json'
       - 'streaming/pulse-player/**'
       - 'packaging/pulse-player-cargo-sources.json'
+      # streaming/pulse-{redact,zeitbasis,whip,zeigerbild}/** liegen ausserhalb
+      # von linux-hq-sidecar/ UND pulse-player/, obwohl beide dagegen linken
+      # (seit dem Zusammenlegen der vormals mehrfachen Dateien in gemeinsame
+      # Crates). Eine Änderung dort träfe ohne diese Einträge keinen Pfad-Filter
+      # und der gebaute Flatpak bliebe still auf dem alten Stand — dieselbe
+      # Falle wie beim FFmpeg-Patch unten, nur eine Ebene höher im Verzeichnisbaum.
+      - 'streaming/pulse-redact/**'
+      - 'streaming/pulse-zeitbasis/**'
+      - 'streaming/pulse-whip/**'
+      - 'streaming/pulse-zeigerbild/**'
       - 'streaming/patches/**'
       # Der VAAPI-Intra-Refresh-Patch wird ins gebündelte FFmpeg gebaut. Ohne
       # diesen Eintrag löst eine Änderung daran keinen Build aus, und die
