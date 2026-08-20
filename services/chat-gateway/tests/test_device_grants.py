@@ -179,3 +179,67 @@ async def test_unsinnige_freigabe_wird_abgewiesen(client, _auth_signer):
         headers=_auth(besitzer),
     )
     assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_gedeckt_nutzer_rolle_jeder_und_abgelaufen(client, _auth_signer):
+    """Die vier Fälle der Auflösung, über die Route geprüft.
+
+    Die reine Funktion nimmt Rechte und Rollen als Argumente; hier geht es um
+    das Zusammenspiel — vor allem darum, dass eine Freigabe die Rechteprüfung am
+    Standplatz NICHT ersetzt.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from dcc_chat_gateway.device_grants import gedeckt
+    from dcc_chat_gateway.models import (
+        SUBJECT_EVERYONE,
+        SUBJECT_ROLE,
+        SUBJECT_USER,
+        Device,
+        DeviceGrant,
+    )
+
+    _device = Device(id=1, guild_id=2, channel_id=3, owner_user_id=4, name="pc")
+    frisch = datetime.now(UTC) + timedelta(hours=1)
+    alt = datetime.now(UTC) - timedelta(hours=1)
+
+    def zeilen(*g):
+        return list(g)
+
+    # Nutzer-Freigabe trifft
+    assert gedeckt(
+        zeilen(DeviceGrant(id=1, device_id=1, subject_type=SUBJECT_USER, subject_id=9, expires_at=None, created_by_user_id=4)),
+        anfragender_id=9,
+        rollen=set(),
+    )
+    # ... aber nicht für jemand anderen
+    assert not gedeckt(
+        zeilen(DeviceGrant(id=1, device_id=1, subject_type=SUBJECT_USER, subject_id=9, expires_at=None, created_by_user_id=4)),
+        anfragender_id=10,
+        rollen=set(),
+    )
+    # Rolle trifft über die Rollenmenge
+    assert gedeckt(
+        zeilen(DeviceGrant(id=2, device_id=1, subject_type=SUBJECT_ROLE, subject_id=77, expires_at=None, created_by_user_id=4)),
+        anfragender_id=10,
+        rollen={77},
+    )
+    # „jeder" trifft immer
+    assert gedeckt(
+        zeilen(DeviceGrant(id=3, device_id=1, subject_type=SUBJECT_EVERYONE, subject_id=None, expires_at=None, created_by_user_id=4)),
+        anfragender_id=10,
+        rollen=set(),
+    )
+    # Abgelaufen trifft nie
+    assert not gedeckt(
+        zeilen(DeviceGrant(id=4, device_id=1, subject_type=SUBJECT_EVERYONE, subject_id=None, expires_at=alt, created_by_user_id=4)),
+        anfragender_id=10,
+        rollen=set(),
+    )
+    # Noch gültig trifft
+    assert gedeckt(
+        zeilen(DeviceGrant(id=5, device_id=1, subject_type=SUBJECT_EVERYONE, subject_id=None, expires_at=frisch, created_by_user_id=4)),
+        anfragender_id=10,
+        rollen=set(),
+    )
