@@ -61,6 +61,13 @@ pub enum Event {
     State { state: StreamState, running: bool, uptime_s: u64 },
     Fps { fps: u64, uptime_s: u64 },
     Log { line: String },
+    /// Bedeutsame Mitteilung, die kein Fehler ist — der Unterschied zu
+    /// [`Event::Log`]: Sie gehört VOR den Nutzer, nicht nur ins Stream-Log.
+    /// (Erster Fall: Bildrate-Begrenzung bei 10 bit, `code = "fps_begrenzt"` —
+    /// das Web zeigt sie als Toast, die `line` zusätzlich im Log-Fenster.)
+    /// Additiv zur Ur-Fassung von control.py — alte Verbraucher ignorieren
+    /// unbekannte `ev`-Namen einfach (das Web matcht explizit).
+    Notice { line: String, code: String },
     Error { message: String },
     /// `code` bei None weggelassen (nicht null) — wie control.py; Some(60) =
     /// Portal-Abbruch durch den User.

@@ -2929,5 +2929,6 @@
   "guild_limits_field_max_devices": "Max. Geräte je Person",
   "standplatz_banner_clear_failed": "Freigabeliste konnte nicht geleert werden. Bitte erneut versuchen.",
   "overrides_editor_fps_standard": "Standard (60)",
-  "overrides_editor_fps_capped": "Bei 10 bit begrenzt die Auflösung die Auswahl — höhere Bildraten überfordern die Decoder mancher Zuschauer."
+  "overrides_editor_fps_capped": "Bei 10 bit begrenzt die Auflösung die Auswahl — höhere Bildraten überfordern die Decoder mancher Zuschauer.",
+  "stream_fps_capped": "Bildrate begrenzt"
 }

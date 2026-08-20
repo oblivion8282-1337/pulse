@@ -212,39 +212,11 @@ export const FPS_STANDARD = 60;
 export const HQ_TEN_BIT_MAX_PIXELS_PER_SEC = 300_000_000;
 
 /** Größe, die bei der gewählten Auflösung tatsächlich gesendet wird.
- *  `null` = unbekannt — dann bleibt die Last unbestimmt und die Liste
- *  ungeschmälert. */
+ *  `null` = unbekannt (Linux-Portal: Quelle steht erst beim Start fest) —
+ *  dann bleibt die Last unbestimmt und die Liste ungeschmälert; das Netz
+ *  ist die Begrenzung im Sidecar (`lastgrenze`), der die echte Größe nach
+ *  der Portal-Verhandlung kennt. */
 export type SendSize = { width: number; height: number } | null;
-
-/**
- * Die größte bekannte Monitorfläche — Worst Case für „Native" auf Linux.
- *
- * Unter Linux steht die Quelle erst im Portal-Dialog beim Start fest; die
- * Liste der Monitore kennt der Sidecar trotzdem. Wer „Original" in 10 bit
- * streamt, kann JEDES dieser Bilder erwischen — also begrenzt der größte
- * Monitor die Bildraten-Stufen. Das ist bewusst die konservative Richtung:
- * jemand, der nur den kleinen zweiten Schirm streamen will, wählt dafür die
- * passende Auflösungs-Stufe und bekommt die vollen Raten wieder.
- *
- * Ohne bekannte Monitore `null` (dann gilt: Last unbestimmt, Liste
- * ungeschmälert — dieselbe Falle wie vor dieser Funktion, aber ohne Zahl
- * wäre die Liste leer).
- */
-export function largestMonitorSize(
-  monitors: ReadonlyArray<{ width: number; height: number }>,
-): SendSize {
-  let groesste: SendSize = null;
-  let flaeche = 0;
-  for (const m of monitors) {
-    if (!m.width || !m.height) continue;
-    const f = m.width * m.height;
-    if (f > flaeche) {
-      flaeche = f;
-      groesste = { width: m.width, height: m.height };
-    }
-  }
-  return groesste;
-}
 
 /** Ist diese Bildrate in dieser Kombination erlaubt? */
 export function fpsAllowed(

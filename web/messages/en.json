@@ -2929,5 +2929,6 @@
   "guild_limits_field_max_devices": "Max devices per person",
   "standplatz_banner_clear_failed": "Could not clear the grant list. Please try again.",
   "overrides_editor_fps_standard": "Default (60)",
-  "overrides_editor_fps_capped": "With 10-bit, the resolution caps this list — higher rates overwhelm some viewers’ hardware decoders."
+  "overrides_editor_fps_capped": "With 10-bit, the resolution caps this list — higher rates overwhelm some viewers’ hardware decoders.",
+  "stream_fps_capped": "Frame rate limited"
 }
