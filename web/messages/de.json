@@ -2910,5 +2910,16 @@
   "device_manage_channel_label": "Standplatz (Sprachkanal)",
   "device_manage_remove": "Gerät entfernen",
   "device_manage_error": "Fehlgeschlagen: {error}",
-  "device_manage_role_grants_cleared": "Dabei wurden {count} Rollen-Freigabe(n) entfernt — sie gehörten der alten Community."
+  "device_manage_role_grants_cleared": "Dabei wurden {count} Rollen-Freigabe(n) entfernt — sie gehörten der alten Community.",
+  "device_grants_title": "Wer übernehmen darf",
+  "device_grants_empty": "Noch niemand freigegeben.",
+  "device_grants_everyone_label": "Jeder mit dem Recht",
+  "device_grants_expired": "abgelaufen",
+  "device_grants_add_user_label": "Nutzer hinzufügen",
+  "device_grants_add_user_placeholder": "— Nutzer wählen —",
+  "device_grants_add_role_label": "Rolle hinzufügen",
+  "device_grants_add_role_placeholder": "— Rolle wählen —",
+  "device_grants_add_everyone": "Für jeden mit dem Recht freigeben",
+  "device_grants_everyone_hint": "Das umgeht keine Rechteprüfung — der Server verlangt weiterhin, dass jemand REMOTE_CONTROL am Standplatz hat.",
+  "device_grants_remove_aria": "Freigabe entfernen"
 }
