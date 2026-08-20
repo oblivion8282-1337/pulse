@@ -2903,5 +2903,12 @@
   "whep_player_waiting_for_stream": "Warte auf den Stream…",
   "error_page_title": "Diese Seite gibt es nicht",
   "error_page_body": "Der Link führt ins Leere — vielleicht wurde der Kanal gelöscht oder die Adresse ist unvollständig.",
-  "error_page_back": "Zurück zu Pulse"
+  "error_page_back": "Zurück zu Pulse",
+  "device_manage_title": "Verwalten",
+  "device_manage_name_label": "Name",
+  "device_manage_guild_label": "Community",
+  "device_manage_channel_label": "Standplatz (Sprachkanal)",
+  "device_manage_remove": "Gerät entfernen",
+  "device_manage_error": "Fehlgeschlagen: {error}",
+  "device_manage_role_grants_cleared": "Dabei wurden {count} Rollen-Freigabe(n) entfernt — sie gehörten der alten Community."
 }

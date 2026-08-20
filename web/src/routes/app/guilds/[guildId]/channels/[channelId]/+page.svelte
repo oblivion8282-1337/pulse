@@ -594,6 +594,7 @@
     {#key offenesGeraet.id}
       <DeviceView
         device={offenesGeraet}
+        darfVerwalten={roles.hasGuildPermission(guildId, Perm.MANAGE_GUILD)}
         onOpenChannel={(cid) => goto(`/app/guilds/${guildId}/channels/${cid}`)}
       />
     {/key}
