@@ -100,10 +100,16 @@ async def test_nur_der_besitzer_sieht_und_setzt(client, _auth_signer):
             headers=_auth(besitzer),
         )
     ).json()
-    await client.put(
+    r_rolle = await client.put(
         f"/guilds/{gid}/members/{f_uid}/roles/{role['id']}",
         headers=_auth(besitzer),
     )
+    # **Testschärfe** (Prüfbefund 2026-08-20): ohne diese Zusicherung schlägt
+    # die Rollen-Zuweisung still fehl, ohne dass ein späterer Test es merkt —
+    # dann prüft dieser Test nicht mehr MANAGE_GUILD gegen 404, sondern einen
+    # beliebigen Fremden ohne Rechte, genau das, was ein früherer Commit hier
+    # gerade repariert hat.
+    assert r_rolle.status_code == 204, r_rolle.text
 
     # Setzen
     r = await client.put(
