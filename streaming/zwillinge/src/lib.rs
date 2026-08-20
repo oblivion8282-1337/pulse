@@ -19,15 +19,34 @@
 /// Entfernt Zeilenkommentare und Leerzeilen, damit nur die Logik verglichen
 /// wird.
 ///
-/// **Bewusst grob, und das genuegt hier.** Die verglichenen Dateien nutzen
-/// ausschliesslich `//`- und `///`-Kommentare (geprueft am 2026-08-20); Block-
-/// kommentare und Kommentare am Zeilenende kommen nicht vor. Wer ein Paar
-/// hinzufuegt, dessen Dateien das anders halten, prueft das vorher — sonst
-/// vergleicht dieser Helfer stillschweigend weniger, als er vorgibt.
+/// **Entfernt NUR ganze Kommentarzeilen — Kommentare am Zeilenende bleiben
+/// stehen und werden mitverglichen.**
 ///
-/// Zeichenketten, die `//` enthalten (etwa eine URL), stehen in diesen Dateien
-/// nie am Zeilenanfang; deshalb reicht der Test auf das erste
-/// Nicht-Leerzeichen.
+/// **Hier stand bis zum 2026-08-20 abends, die verglichenen Dateien nutzten
+/// ausschliesslich ganze Kommentarzeilen, "geprueft" mit Datum. Das war nicht
+/// geprueft, sondern behauptet, und es stimmt nicht:** allein
+/// `whip/av1.rs` hat 43 Kommentare am Zeilenende. Gefunden bei der Pruefung
+/// dieser Aufgabe, nicht beim Schreiben.
+///
+/// Was daraus folgt, und warum es trotzdem so bleibt: Diese 43 werden als Code
+/// verglichen. Heute gruen, weil sie auf beiden Seiten gleich sind — und das
+/// ist bei einem Zwilling auch die richtige Erwartung. Wer einen davon auf
+/// einer Plattform praezisiert, muss es auf der anderen ebenso tun, sonst wird
+/// dieser Test rot. **Das ist kein Fehlalarm, sondern die strengere Regel**,
+/// nur eben eine, die vorher nirgends stand.
+///
+/// Der Filter wird deshalb NICHT erweitert. Zeilenend-Kommentare zuverlaessig
+/// zu entfernen hiesse, `//` innerhalb von Zeichenketten zu erkennen — also
+/// Rust zu zerlegen. Heute enthaelt keine der verglichenen Dateien eine
+/// Zeichenkette mit `//` (nachgesehen am 2026-08-20), ein naiver Schnitt ginge
+/// also gut; aber er bliebe eine Falle fuer das naechste Paar, das man
+/// hinzufuegt.
+///
+/// **Wer ein Paar hinzufuegt, dessen Dateien ganze Kommentarzeilen
+/// unterschiedlich fuehren muessen** (etwa Verweise auf plattformeigene
+/// Module, wie in `zeitbasis.rs`), ist hier richtig. Wer eines hinzufuegt, das
+/// auch am Zeilenende abweichen darf, braucht einen anderen Helfer — und
+/// sollte vorher fragen, ob es dann noch ein Zwilling ist.
 pub fn ohne_kommentare(quelle: &str) -> String {
     quelle
         .lines()
@@ -48,6 +67,23 @@ mod tests {
     fn kommentare_und_leerzeilen_fallen_weg() {
         let roh = "// Kopf\nfn a() {}\n\n    /// Doc\n    fn b() {}\n";
         assert_eq!(ohne_kommentare(roh), "fn a() {}\n    fn b() {}");
+    }
+
+    /// **Haelt die Grenze aus dem Doc-Kommentar fest.**
+    ///
+    /// Ein Kommentar am Zeilenende ueberlebt den Filter und wird damit
+    /// mitverglichen. Das ist die strengere Regel und heute erfuellt, aber sie
+    /// stand bis zum 2026-08-20 falsch in der Doku ("kommen nicht vor") — und
+    /// eine Behauptung ohne Test ist genau das, was hier schon einmal
+    /// danebenging.
+    #[test]
+    fn kommentar_am_zeilenende_bleibt_stehen() {
+        let roh = "let a = 1; // Hinweis\n";
+        assert_eq!(
+            ohne_kommentare(roh),
+            "let a = 1; // Hinweis",
+            "Zeilenend-Kommentare werden NICHT entfernt — s. Doc-Kommentar"
+        );
     }
 
     /// Code darf NICHT verschwinden, nur weil irgendwo `//` vorkommt.

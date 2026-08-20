@@ -233,7 +233,11 @@ EOF
 
 **Hintergrund für den Bearbeiter.** Vier Paare sind in der **Logik** identisch, weichen aber in Kommentaren ab. Ein byte-genauer Test wäre dort nicht nur zu streng, sondern **schädlich**: Bei `zeitbasis.rs` verweisen die abweichenden Kommentare auf plattformeigene Module (`crate::tick_monitor` auf Windows, `stream_controller.rs` auf Linux). Diese Abweichung ist richtig. Ein Test, der sie rot macht, würde jemanden dazu bringen, eine Falschaussage nachzuziehen.
 
-Die Vergleichs-Hilfe muss deshalb Kommentare entfernen — aber **nur Zeilenkommentare**, und das reicht: die vier Paare nutzen ausschliesslich `//`- und `///`-Kommentare (geprüft am 2026-08-20).
+Die Vergleichs-Hilfe entfernt deshalb **ganze Kommentarzeilen**.
+
+**Korrektur vom 2026-08-20 abends:** Hier stand, die vier Paare nutzten „ausschliesslich `//`- und `///`-Kommentare (geprüft am 2026-08-20)". Das war behauptet, nicht geprüft, und es stimmt nicht — allein `whip/av1.rs` hat **43 Kommentare am Zeilenende**. Der Filter entfernt die nicht; sie werden mitverglichen.
+
+Das bleibt so, und die Doku sagt es jetzt: Bei einem Zwilling ist „auch die Zeilenend-Kommentare bleiben gleich" die passendere Regel. Sie zuverlässig zu entfernen hiesse, `//` innerhalb von Zeichenketten zu erkennen — also Rust zu zerlegen. Ein Test hält die Grenze fest (`kommentar_am_zeilenende_bleibt_stehen`), damit sie nicht wieder zur unbelegten Behauptung wird.
 
 - [ ] **Schritt 1: Den Test zuerst schreiben**
 
