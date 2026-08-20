@@ -46,6 +46,41 @@ is_system() {
   esac
 }
 
+# Guard against silently bundling GPL-licensed codec libraries. Pulse's own
+# FFmpeg build is LGPL-only (no --enable-gpl); Homebrew's FFmpeg is typically
+# built --enable-gpl and pulls in libx264/libx265. If ffmpeg-sys-next resolves
+# against Homebrew instead of the private build (most commonly because
+# PKG_CONFIG_PATH was not exported before `cargo build`), this recursive copy
+# would happily bundle GPL libraries next to Pulse's proprietary client code
+# without anyone noticing. Refuse instead.
+is_homebrew_ffmpeg_path() {
+  case "$1" in
+    */homebrew/*/ffmpeg/*|*/homebrew/Cellar/ffmpeg/*|/usr/local/Cellar/ffmpeg/*|/usr/local/opt/ffmpeg/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+is_gpl_codec_lib() {
+  case "$(basename "$1")" in
+    libx264*|libx265*|libvpx*|libfdk*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+abort_on_gpl_dep() {
+  echo "error: refusing to bundle likely GPL-licensed dependency: $1" >&2
+  echo "  Pulse's own FFmpeg build is LGPL-only; this path/library looks like" >&2
+  echo "  it came from Homebrew's FFmpeg instead, which is normally built" >&2
+  echo "  --enable-gpl (libx264/libx265/...)." >&2
+  echo "  Most likely cause: PKG_CONFIG_PATH was not exported before" >&2
+  echo "  'cargo build --release', so ffmpeg-sys-next resolved the Homebrew" >&2
+  echo "  FFmpeg via pkg-config instead of the private LGPL-only build." >&2
+  echo "  Fix: export PKG_CONFIG_PATH to point at the private FFmpeg build" >&2
+  echo "  (see mac-build.yml / streaming/mac-hq-sidecar/README.md), then" >&2
+  echo "  'cargo build --release' again before re-running this script." >&2
+  exit 1
+}
+
 # Worklist of Mach-O files (inside OUT) to scan. Dedup by file-existence in OUT
 # (a dylib already copied there has been queued too) — keeps this compatible
 # with the macOS system bash 3.2 (no associative arrays).
@@ -59,6 +94,7 @@ while [ "$i" -lt "${#queue[@]}" ]; do
     is_system "$dep" && continue
     base="$(basename "$dep")"
     if [ ! -f "$OUT/$base" ]; then
+      { is_homebrew_ffmpeg_path "$dep" || is_gpl_codec_lib "$dep"; } && abort_on_gpl_dep "$dep"
       cp -f "$dep" "$OUT/$base"
       chmod u+w "$OUT/$base"
       install_name_tool -id "@loader_path/$base" "$OUT/$base"

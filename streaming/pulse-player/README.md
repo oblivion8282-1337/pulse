@@ -256,11 +256,20 @@ Ehrlich benannt, damit niemand danach sucht:
   Einstieg in einen Intra-Refresh-Strom ohne periodische Vollbilder. Seither
   wird er auch im Windows-Installer mitgeliefert (`electron-builder.yml`,
   `win-build.yml`). **Hier stand bis zum 2026-08-20 „macOS bleibt ungeprueft
-  und wird nicht ausgeliefert".** Beides ist erledigt: der Player dekodiert
-  dort ueber VideoToolbox in Hardware und faehrt im DMG mit. Was auf macOS
-  weiterhin fehlt, ist Zero-Copy (`src/zerocopy/leer.rs` bleibt der bewusste
-  Platzhalter) und der EDR-Ausgang fuer HDR — beides steht unter „Naechste
-  Schritte".
+  und wird nicht ausgeliefert".** Das Zweite ist erledigt: der Player faehrt
+  seit Version 0.1.69 im DMG mit. Das Erste nur zur Haelfte — die
+  VideoToolbox-Hardware-Dekodierung ist eingebaut und der Weg ist da (`health`
+  meldet ihn aus dem App-Bundle heraus, siehe `WISSENSSTAND.md` Abschnitt 8),
+  aber gegen einen echten Stream mit zwei Clients ist er noch nicht
+  nachgewiesen. Fuer AV1 zusaetzlich gemessen (Apple M2, ohne `libdav1d`):
+  FFmpegs eigener `av1`-Decoder ist ein reiner Hardware-Stub, und
+  VideoToolbox kann AV1 erst ab M3 dekodieren — ohne `libdav1d` schlaegt AV1
+  auf M1/M2 fehl (mit `-hwaccel videotoolbox` "Function not implemented",
+  ohne hwaccel "Conversion failed!" und null Bilder; H.264 lief im selben Lauf
+  fehlerfrei). Deshalb bindet die private FFmpeg seit 2026-08-20 `libdav1d`
+  ein (BSD-2-Clause). Was auf macOS weiterhin fehlt, ist Zero-Copy
+  (`src/zerocopy/leer.rs` bleibt der bewusste Platzhalter) und der
+  EDR-Ausgang fuer HDR — beides steht unter „Naechste Schritte".
 - **AV1-Depacketisierung ist nur durch Unit-Tests abgesichert**, nicht gegen
   einen echten Stream. Siehe unten.
 
@@ -531,6 +540,20 @@ unlesbares `bin_data`, und die Zeitstempel wurden nicht in die Zeitbasis des
 Muxers umgerechnet — 90 Bilder landeten in 49 ms statt in drei Sekunden.
 
 ## Bauen und testen
+
+**Zuerst, auf JEDER Plattform: `scripts/bootstrap-webrtc.sh` laufen lassen.**
+`Cargo.toml` bindet `webrtc` ueber `[patch.crates-io]` an den lokalen Pfad
+`vendor/webrtc-rs/webrtc` — der Ordner ist gitignored und existiert in einem
+frischen Checkout nicht. Ohne ihn bricht `cargo` schon beim **Aufloesen** ab
+(„failed to load source for dependency `webrtc`"), nicht erst beim
+Kompilieren — auch `cargo build --release`/`dist:mac` scheitert dann hart,
+selbst wenn FFmpeg und alles andere bereitsteht. Das Skript klont den
+gepatchten Zweig nach `vendor/webrtc-rs/` und ist idempotent, also gefahrlos
+vor jedem Bau erneut aufrufbar:
+
+```bash
+streaming/pulse-player/scripts/bootstrap-webrtc.sh
+```
 
 **Auf Linux zuerst: das passende FFmpeg holen.** `ffmpeg-next` 8.1 uebersetzt
 nicht gegen FFmpeg 9, und Arch/CachyOS liefern seit 2026 genau das im System.

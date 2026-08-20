@@ -292,12 +292,26 @@ ins eigene Bundle-Verzeichnis, nicht auf eine System- oder Homebrew-Kopie.
 **`health` antwortet aus dem App-Bundle heraus** mit
 `{"ok":true,"codecs":["h264","av1"]}`.
 
+**AV1 scheiterte auf Apple M2 ohne `libdav1d` vollständig** (2026-08-20,
+private FFmpeg vor der dav1d-Aufnahme). Mit `-hwaccel videotoolbox`: „Failed
+setup for format videotoolbox_vld … Function not implemented". Ohne hwaccel:
+„Conversion failed!", null Bilder. H.264 lief im selben Lauf fehlerfrei (60
+Bilder, 16,7-fach). Ursache gelesen aus dem FFmpeg-Binärprogramm: der `av1`-
+Decoder meldet „Threading capabilities: none" und „Supported hardware
+devices: videotoolbox" — er ist ein reiner Hardware-Stub, kein Software-Pfad
+dahinter. VideoToolbox selbst kann AV1 erst ab der M3-Generation dekodieren,
+M1/M2 bleiben also ganz ohne Decoder. **Deshalb bindet die private FFmpeg
+seit 2026-08-20 `libdav1d` ein** (BSD-2-Clause, `--enable-libdav1d` in
+`build-ffmpeg.sh`) — der GELESEN-Befund direkt unten war der Stand davor.
+
 ### GELESEN
 
-**Die gebündelte FFmpeg hat kein `libdav1d`**, nur den in FFmpeg selbst
-eingebauten AV1-Decoder. Der Player probiert `libdav1d` zuerst und fällt
-zurück (Abschnitt 2/3). Folge: der Software-Rückfall für AV1 ist auf macOS
-langsamer als unter Windows, dessen BtbN-FFmpeg `libdav1d` mitbringt.
+**Vor dem 2026-08-20 hatte die gebündelte FFmpeg kein `libdav1d`**, nur den
+in FFmpeg selbst eingebauten AV1-Decoder — siehe GEMESSEN oben, der Grund,
+warum das seither anders ist. Der Player probiert `libdav1d` zuerst und
+fällt zurück (Abschnitt 2/3); mit `libdav1d` an Bord ist der Software-Rückfall
+für AV1 auf macOS jetzt derselbe Pfad wie unter Windows, dessen BtbN-FFmpeg
+`libdav1d` ebenfalls mitbringt.
 
 ### VERMUTET — nicht als Grundlage benutzen
 

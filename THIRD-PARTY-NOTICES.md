@@ -35,7 +35,7 @@ tree changes; it is the only way this file stays true.
 |---|---|---|---|
 | FFmpeg — self-built, **MODIFIED by Pulse** | `n8.1.2` + `streaming/ffmpeg-patches/0002-amfenc_av1-rollender-intra-refresh.patch`, package dated 2026-08-05 | LGPL 2.1-or-later (no `--enable-gpl`/`--enable-nonfree`/`--enable-version3`, no libx264/libx265); the patch itself is LGPL-2.1-or-later per `streaming/ffmpeg-patches/LICENSE` | `scripts/build-ffmpeg-patched.ps1` (the build), `scripts/fetch-ffmpeg.ps1` (`$PatchedUrl`/`$PatchedSha`, SHA256-pinned), `.cargo/config.toml` (`FFMPEG_DIR`), `Cargo.toml` (`ffmpeg-next` binding), `.github/workflows/win-build.yml` (CI fetch step) |
 | FFmpeg — BtbN prebuilt, unmodified (**fallback only**) | frozen self-hosted mirror of BtbN's `n8.1` LGPL-shared build, dated 2026-06-16 | LGPL (that distribution's own licence text is **v3**) | `scripts/fetch-ffmpeg.ps1` (`$FallbackUrl`/`$FallbackSha`) — used only if `$PatchedUrl`/`$PatchedSha` are cleared |
-| pulse-player (native HQ player) | shipped in the Windows installer since app version `0.1.42` | Pulse's own client code; its third-party tree is listed in its own section below | `desktop/electron-builder.yml` (`win.extraResources` → `resources/hq-sidecar/pulse-player.exe`), `.github/workflows/win-build.yml` (build steps) |
+| pulse-player (native HQ player) | shipped in the Windows installer since app version `0.1.42`, in the macOS DMG since `0.1.69` | Pulse's own client code; its third-party tree is listed in its own section below | `desktop/electron-builder.yml` (`win.extraResources` → `resources/hq-sidecar/pulse-player.exe`; `mac.extraResources` for the macOS bundle), `.github/workflows/win-build.yml` / `mac-build.yml` (build steps) |
 | nv-codec-headers | `n13.0.19.0` (build-time only, not redistributed as a file) | MIT | Referenced alongside the Linux FFmpeg module, `packaging/com.howispulse.Pulse.yml:169-179` |
 
 **Since 2026-08-05 Windows ships a Pulse-MODIFIED FFmpeg.** Built from the
@@ -110,6 +110,8 @@ assuming the set is stable.
 | Component | Version / pin | License | Declared in |
 |---|---|---|---|
 | FFmpeg (self-built) | `8.0.1` (`FFMPEG_VERSION` default) | LGPL (no `--enable-gpl`/libx264/libx265) | `streaming/mac-hq-sidecar/scripts/build-ffmpeg.sh:9-42`, `Cargo.toml:46-53`, `.cargo/config.toml`, `.github/workflows/mac-build.yml:14-22,58-81` |
+| dav1d | since 2026-08-20 | BSD-2-Clause | `streaming/mac-hq-sidecar/scripts/build-ffmpeg.sh` (`--enable-libdav1d`) |
+| pulse-player (native HQ player) | shipped in the macOS DMG since app version `0.1.69` | Pulse's own client code; its third-party tree is listed in its own section below | `desktop/electron-builder.yml` (`mac.extraResources` → `Resources/hq-sidecar/`), `.github/workflows/mac-build.yml` (build steps) |
 
 Built from the unmodified official `ffmpeg.org` source tarball with
 `--enable-openssl --disable-securetransport --enable-videotoolbox
@@ -120,6 +122,19 @@ configure line does not pass `--enable-version3` — which LGPL minor version
 (2.1-or-later vs. 3) that produces was not independently confirmed from
 within this repository and is flagged here as an open question rather than
 asserted.
+
+**Since 2026-08-20 this FFmpeg additionally embeds `libdav1d`** (BSD-2-Clause,
+`--enable-libdav1d`). Reason: FFmpeg's own `av1` decoder is a pure hardware
+stub, and VideoToolbox cannot decode AV1 before the M3 generation — without
+dav1d, `pulse-player` had no way to show AV1 at all on M1/M2 Macs. dav1d does
+not touch the LGPL bookkeeping above; it is a separate BSD-2-Clause dylib
+bundled the same way (dynamic, exchangeable file next to the app).
+
+**`streaming/pulse-player/` links against this same dylib set as of app
+version `0.1.69`** — `scripts/bundle-dylibs.sh` builds one shared bundle
+directory for both the sidecar and the player (`<outdir> <binary...>`), so
+everything said above about dynamic linking, exchangeability and source
+availability applies equally to the player binary, not just the sidecar.
 
 ## Linux (Flatpak, `packaging/com.howispulse.Pulse.yml`)
 
@@ -142,10 +157,13 @@ inside the official Electron release archive and are not reproduced here.
 
 ## Native HQ player (`streaming/pulse-player/`)
 
-Ships on **Linux** (Flatpak, `/app/bin/pulse-player`) and, since app version
-`0.1.42`, on **Windows** (`resources/hq-sidecar/pulse-player.exe`, next to the
-FFmpeg DLLs it links against). macOS does not ship it. It is additive: without
-the binary the renderer stays on the built-in `<video>` WHEP path.
+Ships on **Linux** (Flatpak, `/app/bin/pulse-player`), since app version
+`0.1.42` on **Windows** (`resources/hq-sidecar/pulse-player.exe`, next to the
+FFmpeg DLLs it links against), and since app version `0.1.69` on **macOS**
+(`Resources/hq-sidecar/`, `desktop/electron-builder.yml` → `mac.extraResources`,
+sharing the same dylib set `scripts/bundle-dylibs.sh` builds for the sidecar —
+see the macOS section above). It is additive: without the binary the renderer
+stays on the built-in `<video>` WHEP path.
 
 Everything below is **statically linked into that binary**, so the notices
 travel with the shipped file even though there are no separate library files.
@@ -245,4 +263,4 @@ stricter audit is ever required.
 
 ---
 
-Stand / last updated: 26. Juli 2026
+Stand / last updated: 20. August 2026
