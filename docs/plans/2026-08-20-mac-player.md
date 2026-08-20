@@ -47,7 +47,7 @@
 ## Aufgabe 1: VideoToolbox als vierter hwaccel
 
 **Dateien:**
-- Ändern: `streaming/pulse-player/src/decode.rs` (Aufzählung ~Z. 93–97, `geraetetyp` ~Z. 100–106, `beschreibung` ~Z. 108–114, `bildformat` ~Z. 166–172, `AUF_GPU_FORMATE` ~Z. 194–198, `Kandidat::nativ_hw` ~Z. 219–225, `geraet_kurzform` ~Z. 251, Gerätepfad-Auswahl ~Z. 742–743, `ZUERST_NATIV_HW` ~Z. 511)
+- Ändern: `streaming/pulse-player/src/decode.rs` (Aufzählung ~Z. 93–97, `geraetetyp` ~Z. 100–106, `beschreibung` ~Z. 108–114, `bildformat` ~Z. 166–172, `AUF_GPU_FORMATE` ~Z. 194–198, `Kandidat::nativ_hw` ~Z. 219–225, `geraetetag` ~Z. 251, Gerätepfad-Auswahl ~Z. 742–743, `ZUERST_NATIV_HW` ~Z. 511)
 - Ändern: `streaming/pulse-player/src/decoderwahl.rs` (Doku-Tabelle ~Z. 28)
 - Test: `streaming/pulse-player/src/decode.rs` (Testmodul am Dateiende, ~Z. 2283 und ~Z. 2402)
 
@@ -110,7 +110,7 @@ Und den Test `jeder_geraetetyp_hat_ein_abgeholtes_bildformat` (~Z. 2402) um die 
 ```bash
 cd streaming/pulse-player
 export PKG_CONFIG_PATH="$(brew --prefix ffmpeg)/lib/pkgconfig:$PKG_CONFIG_PATH"
-cargo test --lib geraetetyp 2>&1 | tail -20
+cargo test geraetetyp 2>&1 | tail -20
 ```
 
 Erwartung: **Kompilierfehler**, `no variant or associated item named `VideoToolbox` found for enum `Hwaccel``. Das ist der gewünschte Fehlschlag — die Variante gibt es noch nicht.
@@ -186,7 +186,7 @@ const AUF_GPU_FORMATE: [ffmpeg::format::Pixel; 4] = [
 
 - [ ] **Schritt 6: Kurzform und Gerätepfad nachziehen**
 
-`geraet_kurzform` (~Z. 251) — VideoToolbox ist ein plattform-eigener hwaccel und meldet wie die anderen beiden `hw`, damit `PULSE_PLAYER_DECODER=av1+hw` plattformübergreifend dasselbe bedeutet:
+`geraetetag` (~Z. 251) — VideoToolbox ist ein plattform-eigener hwaccel und meldet wie die anderen beiden `hw`, damit `PULSE_PLAYER_DECODER=av1+hw` plattformübergreifend dasselbe bedeutet:
 
 ```rust
             Some(Hwaccel::Vaapi) | Some(Hwaccel::D3d11va) | Some(Hwaccel::VideoToolbox) => Some("hw"),
@@ -225,10 +225,10 @@ Ergänze **über** der Konstanten, im bestehenden Doc-Kommentar, einen Absatz im
 ```bash
 cd streaming/pulse-player
 export PKG_CONFIG_PATH="$(brew --prefix ffmpeg)/lib/pkgconfig:$PKG_CONFIG_PATH"
-cargo test --lib 2>&1 | tail -20
+cargo test 2>&1 | tail -20
 ```
 
-Erwartung: alle Tests grün, darunter `geraetetyp_passt_zur_plattform` und `jeder_geraetetyp_hat_ein_abgeholtes_bildformat`. Die Gesamtzahl liegt bei 326 plus den hier berührten.
+Erwartung: alle Tests grün, darunter `geraetetyp_passt_zur_plattform` und `jeder_geraetetyp_hat_ein_abgeholtes_bildformat`. Die Gesamtzahl lag am 2026-08-20 bei 393 (die 326 im README sind veraltet).
 
 - [ ] **Schritt 9: Clippy**
 
@@ -768,7 +768,7 @@ grep -n "<<<<<<<\|>>>>>>>\|=======" streaming/pulse-player/README.md || echo "sa
 ```bash
 cd streaming/pulse-player
 export PKG_CONFIG_PATH="$HOME/src/ffmpeg-openssl/lib/pkgconfig:$PKG_CONFIG_PATH"
-cargo test --lib 2>&1 | tail -10
+cargo test 2>&1 | tail -10
 ```
 
 Erwartung: grün.
@@ -825,6 +825,16 @@ Die Stelle bei „Was er noch NICHT kann" (~Z. 247–254) endet heute mit „**m
 
 Und den offenen Punkt 5 (~Z. 662–665, „macOS bauen und pruefen … nur macOS ist offen") auf den neuen Stand ziehen: gebaut und ausgeliefert ist es, offen bleiben Zero-Copy und EDR.
 
+- [ ] **Schritt 2b: Die Testzahl im README berichtigen**
+
+`streaming/pulse-player/README.md:522` sagt `cargo test          # 326 Tests, keine Hardware noetig`. Am 2026-08-20 waren es **393**. Die Zahl ist also schon vor diesem Vorhaben veraltet — aufgefallen bei der Umsetzung von Aufgabe 1. Auf den aktuellen Stand ziehen (nach den Änderungen dieses Zweigs neu zählen, nicht 393 abschreiben).
+
+Im selben Zug prüfen, ob das README noch andere Kommandos nennt, die es so nicht gibt: die Crate ist ein **reines Bin-Crate ohne `lib.rs`**, `cargo test --lib` läuft dort ins Leere.
+
+```bash
+grep -n "cargo test\|cargo run\|--lib" streaming/pulse-player/README.md
+```
+
 - [ ] **Schritt 3: Den Messbefund in WISSENSSTAND.md eintragen**
 
 `streaming/pulse-player/WISSENSSTAND.md` klassifiziert jede Aussage als GEMESSEN, GELESEN, VERMUTET oder WIDERLEGT und enthält bisher **keine** macOS-Aussage. Trage die Befunde aus Aufgabe 3 ein — als GEMESSEN nur das, was wirklich gemessen wurde, mit Hardware und Datum. Wurde der Stream-Lauftest (unten) noch nicht gefahren, gehört die Hardware-Dekodierung als VERMUTET hinein, nicht als GEMESSEN.
@@ -851,7 +861,7 @@ Inhaltlich: Mac-Nutzer bekommen beim Zusehen ein eigenes Player-Fenster statt de
 cd /Users/michael/Documents/pulse
 REDIS_URL=redis://localhost:6380/0 uv run --all-packages pytest -q
 cd web && pnpm check && pnpm build
-cd ../streaming/pulse-player && cargo test --lib 2>&1 | tail -5
+cd ../streaming/pulse-player && cargo test 2>&1 | tail -5
 cd ../../desktop && pnpm test:unit
 ```
 
