@@ -16,6 +16,12 @@
 //! * `mod.rs` — plattformeigen. Windows traegt dort zusaetzlich eine
 //!   Bandbreiten-Schaetzung, die die anderen nicht haben.
 //!
+//! **Bewusst nicht mitgezogen: `streaming/win-hq-labor/src/whip/av1.rs`.**
+//! Vierte Fassung, 572 statt 791 Zeilen — das Labor bildet nur einen
+//! Ausschnitt der Paketierung nach, den es fuer seine Testbench braucht, und
+//! bleibt eigenstaendig: es ist kein Auslieferziel und soll nicht an dieser
+//! Crate haengen.
+//!
 //! `src/zeitbasis.rs` ist kein eigener Baustein, sondern nur ein Re-Export von
 //! `pulse-zeitbasis` — `av1.rs` ruft `crate::zeitbasis::…` auf, unveraendert
 //! wie in allen drei Sidecars.

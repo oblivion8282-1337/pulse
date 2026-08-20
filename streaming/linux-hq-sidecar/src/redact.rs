@@ -6,4 +6,4 @@
 //! aendern will, tut es in `streaming/pulse-redact/` — sie gilt fuer alle
 //! drei Sidecars.
 
-pub use pulse_redact::redact_url;
+pub use pulse_redact::*;
