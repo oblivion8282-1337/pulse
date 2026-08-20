@@ -39,16 +39,20 @@ flatpak run com.howispulse.Pulse
 > flatpak install --user https://howispulse.com/flatpak/com.howispulse.Pulse.flatpakref
 > ```
 > App data under `~/.var/app/com.howispulse.Pulse/` survives that (it holds
-> `pulse-stream.json` with the streaming settings). Check afterwards that
-> `flatpak list --columns=application,origin` shows `pulse-origin`, not
-> `pulse1-origin`.
+> `pulse-stream.json` with the streaming settings). Check afterwards where the
+> remote POINTS, not what it is called: `flatpak remotes --columns=name,url` must
+> show `https://howispulse.com/flatpak/` for the Pulse remote. **The name proves
+> nothing** — Flatpak appends a digit when the preferred name is already taken, so
+> an install straight off the published channel legitimately shows up as
+> `pulse1-origin`. A local `build.fish` install is recognisable by its
+> `file:///…/.flatpak-builder/cache` URL.
 First run pulls runtimes (`org.freedesktop.{Platform,Sdk}//24.08`, `org.electronjs.Electron2.BaseApp//24.08`) and builds FFmpeg + GSR from source — ~15-30 min.
 
 ## Distribution — self-updating Flatpak repo
 
 The packaged app is published to a signed OSTree repo served at
-`https://howispulse.com/flatpak/` (on the Hetzner VPS, behind the existing
-Caddy → `pulse_web` nginx). A friend installs once from there and gets new builds
+`https://howispulse.com/flatpak/` (on the netcup VPS that serves the cloud —
+since the move on 2026-05-28; behind the existing Caddy → `pulse_web` nginx). A friend installs once from there and gets new builds
 via `flatpak update` (GNOME Software / KDE Discover also auto-update Flatpaks in the
 background). Remember: **web-only changes need no new Flatpak** — the app loads
 `howispulse.com` remotely; only native changes (electron `main`/`preload`,
