@@ -6,6 +6,7 @@
 -->
 <script lang="ts">
   import { Input } from '$lib/components/ui/input/index.js';
+  import Select from '$lib/components/form/Select.svelte';
   import type { Einheit, Geltung } from '$lib/remote/standplatz.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -24,6 +25,8 @@
     { id: 'tage', label: m.standplatz_settings_unit_days },
     { id: 'wochen', label: m.standplatz_settings_unit_weeks },
   ];
+
+  const einheitenOptionen = $derived(einheiten.map((e) => ({ value: e.id, label: e.label() })));
 </script>
 
 <div class="flex flex-wrap items-center gap-2">
@@ -35,13 +38,12 @@
   {/each}
   {#if geltung === 'befristet'}
     <Input type="number" min="1" class="h-7 w-16 text-xs" bind:value={menge} />
-    <select
-      class="border-border bg-bg-input text-text-bright rounded-lg border px-2 py-1 text-xs"
-      bind:value={einheit}
-    >
-      {#each einheiten as e (e.id)}
-        <option value={e.id}>{e.label()}</option>
-      {/each}
-    </select>
+    <!-- h-7/text-xs wie das Zahlenfeld daneben — die beiden bilden ein Paar. -->
+    <Select
+      class="h-7 px-2 text-xs md:text-xs"
+      value={einheit}
+      options={einheitenOptionen}
+      onchange={(v) => (einheit = v as Einheit)}
+    />
   {/if}
 </div>

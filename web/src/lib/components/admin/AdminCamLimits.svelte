@@ -14,10 +14,16 @@
   import { Button } from '$lib/components/ui/button';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
+  import Select from '$lib/components/form/Select.svelte';
 
   // Mirrors ALLOWED_CAM_RESOLUTIONS in the backend schema. Ascending for the UI.
   const CAM_RESOLUTIONS = ['480p', '720p', '1080p', '1440p'];
   const CAM_FPS = [15, 30, 60];
+
+  // Beide Felder arbeiten mit String-Werten (Auswahlliste); die FPS-Zahl
+  // wird beim Setzen zurückgeparsst — `fpsMax` bleibt eine Zahl wie bisher.
+  const resOptionen = CAM_RESOLUTIONS.map((r) => ({ value: r, label: r }));
+  const fpsOptionen = CAM_FPS.map((f) => ({ value: String(f), label: String(f) }));
 
   let current = $state<Permissions | null>(null);
   let error = $state<string | null>(null);
@@ -83,16 +89,14 @@
           <div class="text-text-bright text-sm font-medium">{m.admin_cam_limits_max_resolution()}</div>
           <div class="text-text-muted text-xs mt-0.5">{m.admin_cam_limits_max_resolution_desc()}</div>
         </div>
-        <select
-          bind:value={resolutionMax}
-          class="w-44 shrink-0 rounded-md border border-border bg-bg-input px-2 py-1 text-sm text-text-bright focus:border-primary focus:outline-none"
+        <Select
+          class="w-44 shrink-0"
+          value={resolutionMax}
+          options={resOptionen}
+          onchange={(v) => (resolutionMax = v)}
           data-testid="cam-resolution-max"
           aria-label={m.admin_cam_limits_max_resolution()}
-        >
-          {#each CAM_RESOLUTIONS as r (r)}
-            <option value={r}>{r}</option>
-          {/each}
-        </select>
+        />
       </div>
 
       <!-- FPS ceiling -->
@@ -101,16 +105,14 @@
           <div class="text-text-bright text-sm font-medium">{m.admin_cam_limits_max_fps()}</div>
           <div class="text-text-muted text-xs mt-0.5">{m.admin_cam_limits_max_fps_desc()}</div>
         </div>
-        <select
-          bind:value={fpsMax}
-          class="w-44 shrink-0 rounded-md border border-border bg-bg-input px-2 py-1 text-sm text-text-bright focus:border-primary focus:outline-none"
+        <Select
+          class="w-44 shrink-0"
+          value={String(fpsMax)}
+          options={fpsOptionen}
+          onchange={(v) => (fpsMax = Number(v))}
           data-testid="cam-fps-max"
           aria-label={m.admin_cam_limits_max_fps()}
-        >
-          {#each CAM_FPS as f (f)}
-            <option value={f}>{f}</option>
-          {/each}
-        </select>
+        />
       </div>
 
       <div class="mt-1 flex justify-end">

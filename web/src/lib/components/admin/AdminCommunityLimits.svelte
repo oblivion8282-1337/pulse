@@ -11,8 +11,9 @@
   zusammen — es ist derselbe Speicher-Gedanke, nur zwei Töpfe.
 
   Speichert den vollen Satz über PATCH /owner/communities/{id}/limits; null
-  löscht eine Übersteuerung. Plain inline inputs (no bits-ui dialog) — safe in
-  a re-rendering list.
+  löscht eine Übersteuerung. Inline-Felder ohne Dialog-Editor (das
+  Auflösungs-Dropdown ist ein flüchtiges Popover, kein Zustandsträger) — safe
+  in a re-rendering list.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
@@ -20,6 +21,7 @@
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import Switch from '$lib/components/form/Switch.svelte';
+  import Select from '$lib/components/form/Select.svelte';
   import LimitField from './LimitField.svelte';
   import LimitGroup from './LimitGroup.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
@@ -78,6 +80,19 @@
 
   const RES_OPTIONS = ['Native', '4K', '1440p', '1080p', '720p', '480p'];
 
+  // Der Leerwert ist eine WAHL („keine Übersteuerung, es gilt der instanz-
+  // weite Standard") und kein Platzhalter: die Beschriftung nennt den dann
+  // tatsächlich geltenden Wert — deshalb bleibt er ein echter Eintrag.
+  const resAuswahl = $derived([
+    {
+      value: '',
+      label: m.admin_communities_limits_placeholder_default({
+        value: resLabel(capabilities.hqResolutionMax)
+      })
+    },
+    ...RES_OPTIONS.map((r) => ({ value: r, label: resLabel(r) }))
+  ]);
+
   async function save() {
     busy = true;
     try {
@@ -135,20 +150,12 @@
       />
       <label class="flex flex-col gap-1">
         <span class="text-text-muted text-xs font-medium">{m.admin_communities_limits_resolution()}</span>
-        <select
-          bind:value={resolution}
-          class="border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none"
+        <Select
+          value={resolution}
+          options={resAuswahl}
+          onchange={(v) => (resolution = v)}
           data-testid="community-limit-resolution"
-        >
-          <option value="">
-            {m.admin_communities_limits_placeholder_default({
-              value: resLabel(capabilities.hqResolutionMax)
-            })}
-          </option>
-          {#each RES_OPTIONS as r (r)}
-            <option value={r}>{resLabel(r)}</option>
-          {/each}
-        </select>
+        />
       </label>
     </div>
   </LimitGroup>

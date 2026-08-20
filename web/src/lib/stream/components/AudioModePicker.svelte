@@ -20,6 +20,7 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
+  import Select from '$lib/components/form/Select.svelte';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import RefreshIcon from '@lucide/svelte/icons/refresh-cw';
   import XIcon from '@lucide/svelte/icons/x';
@@ -92,6 +93,13 @@
       (a) => !streamSettings.excluded_apps.includes(a) && a !== PULSE_SELF_NODE_NAME,
     ),
   );
+  // Platzhalter des Hinzufügen-Felds: gibt es nichts zu wählen, sagt er WARUM
+  // (keine laufenden Apps / alle schon ausgeschlossen), sonst die Aufforderung.
+  let addPlaceholder = $derived.by(() => {
+    if (availableForAdd.length > 0) return m.audio_mode_picker_select_app_placeholder();
+    if (streamSettings.available_audio_apps.length === 0) return m.audio_mode_picker_no_running_apps();
+    return m.audio_mode_picker_all_excluded();
+  });
 
   function modeSlug(mode: string): string {
     return mode.toLowerCase().replace(/[ +]+/g, '-');
@@ -126,11 +134,12 @@
   }
 
   function onAdd() {
-    // Wird die App-Liste neu geladen, während eine Auswahl im <select> ansteht,
-    // verschwindet die gewählte App ggf. aus den Optionen — der Browser zeigt
-    // dann den Platzhalter, aber bind:value (change-event-getrieben) lässt
-    // pickedToAdd stehen. Ohne diesen Guard schließt "Hinzufügen" eine stale,
-    // nicht mehr sichtbar gewählte App aus. Nur ausschließen, wenn weiterhin gültig.
+    // Wird die App-Liste neu geladen, während eine Auswahl im Dropdown ansteht,
+    // verschwindet die gewählte App ggf. aus den Optionen — das Feld zeigt dann
+    // den Platzhalter, aber `pickedToAdd` behält die alte Wahl (sie wechselt
+    // erst mit der nächsten Auswahl). Ohne diesen Guard schließt "Hinzufügen"
+    // eine stale, nicht mehr sichtbar gewählte App aus. Nur ausschließen, wenn
+    // weiterhin gültig.
     if (!pickedToAdd || !availableForAdd.includes(pickedToAdd)) {
       pickedToAdd = '';
       return;
@@ -295,23 +304,15 @@
       </div>
 
       <div class="flex items-center gap-2">
-        <select
-          class="bg-bg-chat text-text-base h-8 flex-1 rounded-md px-2 text-xs outline-none"
-          bind:value={pickedToAdd}
+        <Select
+          class="h-8 flex-1 text-xs md:text-xs"
+          value={pickedToAdd}
+          options={availableForAdd.map((a) => ({ value: a, label: a }))}
+          placeholder={addPlaceholder}
+          onchange={(v) => (pickedToAdd = v)}
           disabled={availableForAdd.length === 0}
           data-testid="stream-audio-app-select"
-        >
-          <option value="">
-            {availableForAdd.length === 0
-              ? streamSettings.available_audio_apps.length === 0
-                ? m.audio_mode_picker_no_running_apps()
-                : m.audio_mode_picker_all_excluded()
-              : m.audio_mode_picker_select_app_placeholder()}
-          </option>
-          {#each availableForAdd as a (a)}
-            <option value={a}>{a}</option>
-          {/each}
-        </select>
+        />
         <Button
           type="button"
           size="sm"

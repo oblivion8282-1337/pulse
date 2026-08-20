@@ -288,18 +288,17 @@ test.describe.serial('Roles + Permissions E2E', () => {
     await expect(alice.getByTestId('guild-settings-dialog')).toBeVisible();
     await alice.getByTestId('settings-tab-ownership').click();
     await expect(alice.getByTestId('ownership-transfer')).toBeVisible();
-    // Pick bob (the only other member; the select drops the owner row).
+    // Pick bob (the only other member; the list drops the owner row).
+    // The field is a popover select: data-testid sits on the trigger button,
+    // entries carry role="option", and the "— Mitglied wählen —" placeholder
+    // lives in the placeholder prop — it is no longer an entry. Bob is the
+    // only other member, so the single entry that appears IS bob.
     const target = alice.getByTestId('ot-target');
-    // listMembers is fired from an effect after the form mounts; the
-    // member options appear a tick later. Wait until at least the
-    // placeholder + one member are present before snapshotting.
-    await expect(target.locator('option')).toHaveCount(2, { timeout: 10_000 });
-    const options = await target.locator('option').all();
-    // First option is the placeholder "— Mitglied wählen —"; pick the second.
-    expect(options.length).toBeGreaterThanOrEqual(2);
-    const bobValue = await options[1].getAttribute('value');
-    expect(bobValue).toMatch(/^\d+$/);
-    await target.selectOption(bobValue!);
+    await target.click();
+    // listMembers is fired from an effect after the form mounts; the member
+    // entries appear a tick later in the popover.
+    await expect(alice.getByRole('option')).toHaveCount(1, { timeout: 10_000 });
+    await alice.getByRole('option').click();
 
     await alice.getByTestId('ot-confirm').fill('Roles Test Guild');
     // Wait on the network 200 from POST /transfer-ownership so we
