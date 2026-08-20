@@ -1748,7 +1748,6 @@
   "overrides_editor_bitrate_label": "Bitrate (kbps)",
   "overrides_editor_bitrate_placeholder": "z.B. 6000",
   "overrides_editor_bitrate_range": "Erlaubt: {min}–{max} kbps.",
-  "overrides_editor_fps_placeholder": "z.B. 60",
   "overrides_editor_fps_range": "Erlaubt: {min}–{max} FPS.",
   "overrides_editor_resolution_capped": "Vom Server-Admin auf max. {max} begrenzt.",
   "overrides_editor_resolution_hint": "Größer als die Quelle wird nie gestreamt — hochskaliert wird nicht.",
@@ -2928,5 +2927,7 @@
   "device_settings_my_devices_meta": "{guild} · {channel} · {state}",
   "admin_communities_limits_max_devices": "Max. Geräte je Person",
   "guild_limits_field_max_devices": "Max. Geräte je Person",
-  "standplatz_banner_clear_failed": "Freigabeliste konnte nicht geleert werden. Bitte erneut versuchen."
+  "standplatz_banner_clear_failed": "Freigabeliste konnte nicht geleert werden. Bitte erneut versuchen.",
+  "overrides_editor_fps_standard": "Standard (60)",
+  "overrides_editor_fps_capped": "Bei 10 bit begrenzt die Auflösung die Auswahl — höhere Bildraten überfordern die Decoder mancher Zuschauer."
 }

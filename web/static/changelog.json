@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-20.2",
+      "date": "2026-08-20",
+      "style": "Sachlich",
+      "title": "Bildrate jetzt Auswahlliste statt Freifeld",
+      "items": [
+        "Die Bildrate beim Streamen wird aus einer Liste gewählt — von 25 bis 144 Bilder pro Sekunde, dazu ein Standardwert. 25 ist für PAL-Inhalte (europäisches Fernsehen) mit dabei.",
+        "Bei AV1 mit 10 bit passt sich die Liste an die gewählte Auflösung an: Kombinationen, die das Dekodieren auf manchen Zuschauer-Rechnern überfordern, werden gar nicht erst angeboten. Vorher konnte ein solcher Strom beim Zuschauer stehen bleiben oder ganz ausfallen."
+      ]
+    },
+    {
       "id": "2026-08-20",
       "date": "2026-08-20",
       "style": "Sachlich",

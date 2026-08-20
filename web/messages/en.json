@@ -1748,7 +1748,6 @@
   "overrides_editor_bitrate_label": "Bitrate (kbps)",
   "overrides_editor_bitrate_placeholder": "e.g. 6000",
   "overrides_editor_bitrate_range": "Allowed: {min}–{max} kbps.",
-  "overrides_editor_fps_placeholder": "e.g. 60",
   "overrides_editor_fps_range": "Allowed: {min}–{max} FPS.",
   "overrides_editor_resolution_capped": "Capped to {max} by the server admin.",
   "overrides_editor_resolution_hint": "Never streams larger than the source — it is not upscaled.",
@@ -2928,5 +2927,7 @@
   "device_settings_my_devices_meta": "{guild} · {channel} · {state}",
   "admin_communities_limits_max_devices": "Max devices per person",
   "guild_limits_field_max_devices": "Max devices per person",
-  "standplatz_banner_clear_failed": "Could not clear the grant list. Please try again."
+  "standplatz_banner_clear_failed": "Could not clear the grant list. Please try again.",
+  "overrides_editor_fps_standard": "Default (60)",
+  "overrides_editor_fps_capped": "With 10-bit, the resolution caps this list — higher rates overwhelm some viewers’ hardware decoders."
 }
