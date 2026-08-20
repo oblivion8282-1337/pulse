@@ -363,6 +363,12 @@ export type ServerEvent =
        *  Geraete-Kachel gestellt wurde. Wer nicht dieses Geraet ist, lehnt
        *  still ab (`$lib/remote/geraeteanbindung.ts`). */
       device_id?: string;
+      /** Deckt eine Dauerfreigabe (`device_grants`) diese Anfrage? Nur
+       *  gesetzt, wenn überhaupt ein Geraet gemeint ist — eine Anfrage an
+       *  einen Menschen traegt das Feld gar nicht. Vom Gateway aufgeloest
+       *  (Rollen, Kanalmitgliedschaft); der Client prueft nur noch seinen
+       *  Hauptschalter (`$lib/remote/standplatz.svelte.ts`). */
+      freigabe?: boolean;
     }
   // Nur an den STEUERNDEN, unmittelbar nach dem Anlegen der Sitzung und noch
   // bevor die Host-Tabs die Anfrage sehen. Erst damit kennt der Steuernde seine
