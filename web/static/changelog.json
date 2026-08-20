@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-21",
+      "date": "2026-08-21",
+      "style": "Sachlich",
+      "title": "Bild erholt sich nach Störungen sofort",
+      "intro": "Wer einen Stream im eigenen Player ansieht, hatte bei einer unruhigen Leitung des Senders lange Standbilder. Das ist behoben.",
+      "items": [
+        "Verliert die Leitung des Senders Pakete, fehlen dem Bild Daten. Der Player erkennt das jetzt selbst und fordert sofort ein frisches Vollbild an, statt auf das nächste reguläre zu warten — das kann sonst bis zu eine Minute entfernt sein.",
+        "Auf Rechnern mit NVIDIA-Grafikkarte fiel das besonders auf: Dort meldet der Bild-Dekodierer eine Störung nicht, sondern zeigt einfach weiter dasselbe Bild. Es gab damit niemanden, der die Erholung angestoßen hätte.",
+        "Die Notbremse gegen ein eingefrorenes Bild greift wieder schnell. Sie richtete sich nach dem Abstand der Vollbilder und wartete dadurch zuletzt bis zu 75 Sekunden; jetzt erkennt sie an der Ursache, ob wirklich etwas hängt oder der Bildschirminhalt nur stillsteht."
+      ],
+      "outro": "Im Fenster von Pulse selbst gab es das Problem nicht — betroffen war nur der eigene Player."
+    },
+    {
       "id": "2026-08-20.3",
       "date": "2026-08-20",
       "style": "Sachlich",
