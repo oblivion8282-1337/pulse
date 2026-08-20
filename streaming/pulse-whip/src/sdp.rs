@@ -174,7 +174,7 @@ pub fn codec_capability(
 /// **Muss VOR `register_default_interceptors` laufen.** Das haengt seine
 /// Rueckmeldungen (`nack`, `nack pli`, `transport-cc`) an die zu dem Zeitpunkt
 /// angemeldeten Fassungen; danach angemeldete bekaemen nichts davon.
-pub(super) fn register_codecs(
+pub(crate) fn register_codecs(
     media: &mut MediaEngine,
     video: &RTCRtpCodecCapability,
     audio: &RTCRtpCodecCapability,

@@ -20,11 +20,8 @@ Kommentarzeilen (`ohne_kommentare`, s. `src/lib.rs`):
 
 | Datei | Paar | Abweichung roh | ohne Kommentare | Klasse |
 |---|---|---|---|---|
-| `whip/sdp.rs` | win-linux | 0 | 0 | A: bitgleich |
 | `ops/state.rs` | linux-mac | 0 | 0 | A: bitgleich |
 | `zeigerbild.rs` | player-win | 0 | 0 | A: bitgleich |
-| `whip/av1.rs` | win-linux | 8 | 0 | B: logisch gleich |
-| `zeitbasis.rs` | win-linux | 6 | 0 | B |
 | `proto.rs` | win-mac | 5 | 0 | B |
 | `events.rs` | linux-mac | 8 | 0 | B |
 | `profiles.rs` | linux-mac | 20 | 1 | C: fast gleich |
@@ -36,9 +33,21 @@ Kommentarzeilen (`ohne_kommentare`, s. `src/lib.rs`):
 | `whip/mod.rs` | win-linux | 122 | 80 | D |
 | `whip/pacer.rs` | win-linux | 250 | 120 | D |
 
+**Drei Paare sind seit dem 2026-08-20 keine Zwillinge mehr, sondern
+zusammengefuehrt** und deshalb aus der Tabelle oben entfernt: `whip/sdp.rs`
+(win-linux-mac, war Klasse A: bitgleich), `whip/av1.rs` (win-linux-mac, war
+Klasse B: logisch gleich, 8 Rohzeilen Abweichung) und `zeitbasis.rs`
+(win-linux, war Klasse B, 6 Rohzeilen Abweichung). Alle drei Dateien sind in
+den drei Sidecars jetzt nur noch Re-Export-Einzeiler aus den gemeinsamen
+Crates `pulse-whip` (`sdp.rs`, `av1.rs`) und `pulse-zeitbasis`
+(`zeitbasis.rs`) — ein Vergleich zweier Einzeiler haette keinen
+Erkenntniswert mehr gehabt, die zugehoerigen Tests wurden deshalb entfernt.
+Die eigentliche Logik samt ihrer eigenen Tests steht jetzt in
+`streaming/pulse-whip/src/{sdp,av1}.rs` bzw. `streaming/pulse-zeitbasis/src/lib.rs`.
+
 **Getestet sind nur Klasse A (`tests/bitgleich.rs`) und Klasse B
-(`tests/logisch_gleich.rs`).** Klasse C und D sind hier **absichtlich nicht
-vertreten**:
+(`tests/logisch_gleich.rs`) — aktuell zwei Paare je Klasse, vier Tests
+insgesamt.** Klasse C und D sind hier **absichtlich nicht vertreten**:
 
 - **Klasse C** ("fast gleich", wenige Zeilen Abweichung nach Filter) sind
   Kandidaten fuer spaetere Etappen — dort werden sie zusammengefuehrt und
@@ -60,23 +69,25 @@ im HQ-Streaming-Code ab — das tut sie nicht.
 
 Fuer Paare, bei denen jede Abweichung — auch ein Kommentar — ein Fehler waere:
 das Dateiformat selbst ist die Vertragsgrundlage zwischen den Seiten
-(SDP-Angebot, Zustandsabfrage, Zeigerbild-Format zwischen Sidecar und Player).
+(Zustandsabfrage, Zeigerbild-Format zwischen Sidecar und Player).
 
 ## Klasse B: logisch gleich (`tests/logisch_gleich.rs`)
 
 Fuer Paare, deren Kommentare **berechtigt** abweichen duerfen, weil sie auf
-plattformeigene Module verweisen (z. B. `zeitbasis.rs`: `crate::tick_monitor`
-unter Windows, `stream_controller.rs` unter Linux). Verglichen wird ueber
-`ohne_kommentare()` aus `src/lib.rs`.
+plattformeigene Module verweisen — das Muster, das den Fall ausgeloest hat,
+war `zeitbasis.rs`: `crate::tick_monitor` unter Windows, `stream_controller.rs`
+unter Linux (Datei liegt seit dem 2026-08-20 nicht mehr hier, s. o.). Verglichen
+wird ueber `ohne_kommentare()` aus `src/lib.rs`.
 
 ## Die Grenze des Filters (`ohne_kommentare`)
 
 `ohne_kommentare` entfernt **nur ganze Kommentarzeilen**. Ein Kommentar am
 Zeilenende bleibt stehen und wird mitverglichen — das ist bewusst so, nicht
-eine Luecke im Filter. `whip/av1.rs` allein hat 43 Kommentare am Zeilenende,
-die heute auf beiden Seiten gleich sind; das ist bei einem Zwilling die
-richtige Erwartung, und wer einen davon auf einer Plattform praezisiert, muss
-es auf der anderen ebenso tun, sonst wird der Test rot.
+eine Luecke im Filter. `whip/av1.rs` (bis zum 2026-08-20 hier ein Klasse-B-Paar,
+seither Re-Export aus `pulse-whip`) hatte allein 43 Kommentare am Zeilenende,
+die auf beiden Seiten gleich waren; das ist bei einem Zwilling die richtige
+Erwartung, und wer einen davon auf einer Plattform praezisiert, muss es auf
+der anderen ebenso tun, sonst wird der Test rot.
 
 Der Filter wird deshalb nicht erweitert, um `//` auch am Zeilenende zu
 entfernen — das hiesse, `//` innerhalb von Zeichenketten von echten
