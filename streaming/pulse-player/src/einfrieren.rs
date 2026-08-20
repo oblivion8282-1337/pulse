@@ -407,7 +407,7 @@ const BEWEGUNGS_WECHSEL: u32 = 4;
 const BEWEGUNGS_KETTE: u32 = 8;
 
 /// Messwerkzeug fuer den Pruefstand — im Betrieb vollstaendig aus.
-mod messung;
+pub mod messung;
 
 /// Fingerabdruck eines dekodierten Bildes (s. [`abdruck::bild_abdruck`]).
 mod abdruck;
@@ -707,6 +707,16 @@ impl EinfrierWacht {
     /// Vollbild-Takt des Senders folgen muss oder nicht.
     pub fn schaden_gemeldet(&mut self) {
         self.schaden_seit_aenderung = true;
+    }
+
+    /// Wie viele Bilder in Folge bitgleich waren — fuer die Diagnose.
+    pub fn gleiche_bilder(&self) -> u32 {
+        self.gleiche_bilder
+    }
+
+    /// Ist der Wacht eine Schadensursache bekannt? Fuer die Diagnose.
+    pub fn schaden_bekannt(&self) -> bool {
+        self.schaden_seit_aenderung
     }
 
     pub fn mindestdauer(&self) -> std::time::Duration {

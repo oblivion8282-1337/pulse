@@ -1905,6 +1905,34 @@ impl VideoDecoder {
         self.wacht.eingefroren()
     }
 
+    /// Diagnose der Verlust-Erholung (`PULSE_PLAYER_ERHOLUNG_LOG=1`).
+    ///
+    /// **Warum es das braucht.** Ein `av1_cuvid`, das nach einem Aussetzer
+    /// weiter 60 Bilder je Sekunde ausgibt — immer dasselbe —, ist an KEINER
+    /// Kennzahl zu erkennen: dekodiert 60/s, gezeichnet 60/s, Paketverlust 0,
+    /// null zu spaet. Die Einfrier-Wacht ist die einzige Stelle, die den
+    /// Unterschied kennt, weil nur sie das Bild selbst vergleicht. Ohne diese
+    /// Ausgabe bleibt die Frage „steht das Bild wirklich" unbeantwortbar.
+    ///
+    /// Gemeldet wird beim Ueberschreiten von Vielfachen der Schwelle, nicht je
+    /// Bild — sonst stuende hier bei 60 fps eine Zeile je 16 ms.
+    pub fn erholung_melden(&mut self) {
+        if !crate::einfrieren::messung::erholung_log() {
+            return;
+        }
+        let gleich = self.wacht.gleiche_bilder();
+        let schwelle = self.wacht.schwelle();
+        if gleich == 0 || schwelle == 0 || gleich % schwelle != 0 {
+            return;
+        }
+        eprintln!(
+            "pulse-player: Bild steht seit {gleich} Bildern bitgleich \
+             (Schwelle {schwelle}, Mindestdauer {:?}, Schaden gemeldet: {})",
+            self.wacht.mindestdauer(),
+            if self.wacht.schaden_bekannt() { "ja" } else { "nein" }
+        );
+    }
+
     /// Es wurden Bilddaten verworfen — an die Einfrier-Wacht weiterreichen.
     ///
     /// Der Decoder haelt die Wacht, deshalb geht die Meldung durch ihn

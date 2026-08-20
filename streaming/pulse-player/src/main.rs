@@ -19,6 +19,7 @@ mod ablage;
 mod abriss;
 mod app;
 mod audio;
+mod bildluecke;
 mod decode;
 mod decodefaden;
 mod decoderwahl;
