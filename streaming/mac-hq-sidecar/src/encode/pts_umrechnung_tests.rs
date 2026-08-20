@@ -64,8 +64,8 @@ fn halbfall_rundet_auf() {
 }
 
 /// **W-2(a).** Nachweis ueber einen LANGEN Horizont — das schliesst aus, was
-/// "nach einer Stunde sichtbar weg" waere: eine glatte Bildrate bleibt über
-/// eine volle Stunde exakt, eine krumme bleibt über 100 000 Bilder (bei
+/// "nach einer Stunde sichtbar weg" waere: eine glatte Bildrate bleibt ueber
+/// eine volle Stunde exakt, eine krumme bleibt ueber 100 000 Bilder (bei
 /// 280 fps > 5 Minuten) auf plus/minus einen RTP-Takt am mathematisch
 /// exakten Wert — kein Wegdriften durch akkumulierten Rundungsfehler, weil
 /// `fps_takt_zu_rtp_takt` absolut skaliert (s.
