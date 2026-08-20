@@ -2927,5 +2927,6 @@
   "device_settings_my_devices_open": "Zur Geräteansicht",
   "device_settings_my_devices_meta": "{guild} · {channel} · {state}",
   "admin_communities_limits_max_devices": "Max. Geräte je Person",
-  "guild_limits_field_max_devices": "Max. Geräte je Person"
+  "guild_limits_field_max_devices": "Max. Geräte je Person",
+  "standplatz_banner_clear_failed": "Freigabeliste konnte nicht geleert werden. Bitte erneut versuchen."
 }

@@ -142,15 +142,17 @@ interface Gespeichert {
   /**
    * **Seit 2026-08-20 nicht mehr die Wahrheit.** Die Entscheidung „ohne
    * Rückfrage übernehmen" trifft der Server (`device_grants`, Feld `freigabe`
-   * an `remote_request`) — dieses Feld bleibt nur als EINMALIGER Vorrat für
-   * den Umzug (`#umziehen`) stehen und wird danach nicht mehr gelesen. Drei
-   * Oberflächen-Dateien hängen noch daran (`SettingsStandplatz.svelte`,
-   * `RemoteConsentDialog.svelte`, `RemoteStandplatzBanner.svelte`) — deren
-   * Umbau ist eine spätere Aufgabe.
+   * an `remote_request`) — dieses Feld ist nur noch der EINMALIGE Vorrat für
+   * den Umzug (`#umziehenEinmal`). Es lebt nicht mehr als reaktives Feld auf
+   * der Klasse, sondern nur noch als privater Instanz-Zustand
+   * (`#umzugAltbestand`), der beim Sichern unangetastet zurückgeschrieben
+   * wird — ein Zurücknehmen/Freigeben zwischen Laden und erfolgtem Umzug darf
+   * den Altbestand nicht löschen, sonst hat ein späterer Umzugsversuch nichts
+   * mehr zu lesen.
    */
   nutzer: Freigegebener[];
-  /** Wie `nutzer`: seit 2026-08-20 nur noch Vorrat für den Umzug, keine
-   *  Quelle der Wahrheit. Siehe Kommentar dort. */
+  /** Wie `nutzer`: nur noch Vorrat für den Umzug, keine Quelle der Wahrheit
+   *  und kein reaktives Feld mehr. Siehe Kommentar dort. */
   jeder: boolean;
   geltung: Geltung;
   /** Bis wann die Freigabe gilt (ms seit Epoche), `null` = ohne Ablauf. */
@@ -164,18 +166,6 @@ const LEER: Gespeichert = {
   geltung: 'befristet',
   gueltigBis: null,
 };
-
-/** Doppelte Einträge entfernen — Server, Kanal UND Nutzer müssen
- *  übereinstimmen. */
-function eindeutig(liste: Freigegebener[]): Freigegebener[] {
-  const gesehen = new Set<string>();
-  return liste.filter((n) => {
-    const k = `${n.serverId} ${n.channelId}\u0000${n.userId}`;
-    if (gesehen.has(k)) return false;
-    gesehen.add(k);
-    return true;
-  });
-}
 
 function istGeltung(wert: unknown): wert is Geltung {
   return wert === 'befristet' || wert === 'dauerhaft';
@@ -219,10 +209,6 @@ function ausSpeicher(roh: unknown): Gespeichert {
 
 class StandplatzFreigabe {
   aktiv = $state(false);
-  /** Seit 2026-08-20 nur noch Vorrat für den Umzug, siehe `Gespeichert.nutzer`. */
-  nutzer = $state<Freigegebener[]>([]);
-  /** Seit 2026-08-20 nur noch Vorrat für den Umzug, siehe `Gespeichert.jeder`. */
-  jeder = $state(false);
   geltung = $state<Geltung>('befristet');
   gueltigBis = $state<number | null>(null);
   /** Ist der gespeicherte Stand schon gelesen? Bis dahin wird **nichts**
@@ -248,6 +234,18 @@ class StandplatzFreigabe {
    * gedacht (Bughunt 2026-08-20, Fix-Runde 3), nicht global.
    */
   #umzugMerker: unknown = false;
+  /**
+   * Der aus dem Speicher gelesene Altbestand der alten lokalen Freigabeliste
+   * (`nutzer`/`jeder`) — **nur noch Vorrat für `#umziehenEinmal`**, kein
+   * reaktives Feld mehr (Umbau 2026-08-20, Punkt 3: die beiden Oberflächen,
+   * die noch daran hingen, schreiben inzwischen auf die Server-Liste). Beim
+   * Sichern wird er unverändert zurückgeschrieben (`#sichern`) — ein
+   * Zurücknehmen/Freigeben, das zwischen dem Laden und einem erfolgreichen
+   * Umzug passiert, darf den Altbestand nicht löschen, sonst hat ein
+   * späterer Umzugsversuch (z. B. nach einem Netzfehler) nichts mehr zu
+   * lesen.
+   */
+  #umzugAltbestand: { nutzer: Freigegebener[]; jeder: boolean } = { nutzer: [], jeder: false };
   /** Schutz gegen ZWEI überlappende Umzugs-Läufe FÜR DENSELBEN SERVER
    *  (Bughunt 2026-08-20, Fix-Runde 2): ein WS-Reconnect löst ein zweites
    *  `ready` aus, bevor der erste Lauf seine HTTP-Anfragen aufgelöst hat —
@@ -293,6 +291,9 @@ class StandplatzFreigabe {
       (stand.geltung === 'befristet' && stand.gueltigBis === null && stand.aktiv) ||
       (stand.gueltigBis !== null && stand.gueltigBis <= Date.now());
     if (verfallen) stand = { ...stand, aktiv: false, gueltigBis: null };
+    // Altbestand VOR `#uebernehmen`/`#sichern` merken: der Umzug (`#umziehenEinmal`)
+    // liest ihn ausschliesslich hier heraus, nicht mehr über reaktive Felder.
+    this.#umzugAltbestand = { nutzer: stand.nutzer, jeder: stand.jeder };
     this.#uebernehmen(stand);
     this.geladen = true;
     // Zurückschreiben, wenn die Freigabe gerade verfallen ist: sonst behauptet
@@ -348,14 +349,17 @@ class StandplatzFreigabe {
     // DENSELBEN Server auf DIESEN Lauf wartete, könnte er inzwischen schon
     // erledigt sein.
     if (serverBereitsUmgezogen(this.#umzugMerker, eintrag.serverId)) return;
-    // **Nach Server gefiltert.** `nutzer` trägt eine Server-Zuordnung
-    // (`Freigegebener.serverId`) — dasselbe Gerät kann in der Cloud UND auf
-    // einem Self-Host eingetragen sein, und nur die Einträge DIESES Servers
-    // dürfen zu DIESEM Gerät wandern. `jeder` trägt dagegen keine
-    // Server-Zuordnung und war immer global gemeint — der Schalter gilt für
-    // jeden Server, den man migriert, nicht nur für einen.
-    const lokalDiesesServers = this.nutzer.filter((n) => n.serverId === eintrag.serverId);
-    const lokalVorhanden = this.jeder || lokalDiesesServers.length > 0;
+    // **Nach Server gefiltert.** `#umzugAltbestand.nutzer` trägt eine
+    // Server-Zuordnung (`Freigegebener.serverId`) — dasselbe Gerät kann in
+    // der Cloud UND auf einem Self-Host eingetragen sein, und nur die
+    // Einträge DIESES Servers dürfen zu DIESEM Gerät wandern.
+    // `#umzugAltbestand.jeder` trägt dagegen keine Server-Zuordnung und war
+    // immer global gemeint — der Schalter gilt für jeden Server, den man
+    // migriert, nicht nur für einen.
+    const lokalDiesesServers = this.#umzugAltbestand.nutzer.filter(
+      (n) => n.serverId === eintrag.serverId,
+    );
+    const lokalVorhanden = this.#umzugAltbestand.jeder || lokalDiesesServers.length > 0;
     if (!lokalVorhanden) return;
     let serverListeLeer: boolean;
     try {
@@ -374,7 +378,7 @@ class StandplatzFreigabe {
       await this.#markiereServerUmgezogen(eintrag.serverId);
       return;
     }
-    const grants: GrantEingabe[] = this.jeder
+    const grants: GrantEingabe[] = this.#umzugAltbestand.jeder
       ? [{ subject_type: 'everyone', subject_id: null, expires_at: this.#endeIso() }]
       : lokalDiesesServers.map((n) => ({
           subject_type: 'user' as const,
@@ -411,27 +415,18 @@ class StandplatzFreigabe {
   }
 
   /**
-   * Freigabe erteilen. Der eine Weg hinein — bewusst mit allen drei Angaben auf
-   * einmal, damit es keinen Zwischenzustand „scharf, aber für niemanden" gibt.
+   * Freigabe erteilen — der Hauptschalter. WER ohne Rückfrage darf, entscheidet
+   * seit 2026-08-20 der Server (`device_grants`); hier bleibt nur noch „ob
+   * überhaupt" und „wie lange".
    */
   async freigeben(opts: {
-    nutzer: Freigegebener[];
-    jeder: boolean;
     geltung: Geltung;
     /** Länge der Spanne bei `befristet`. Fehlt sie, gilt eine Stunde — die
      *  kürzeste sinnvolle Zusage, nicht die längste. */
     dauerMs?: number;
   }): Promise<void> {
-    // Eine Freigabe ohne Empfänger ist keine — sie sähe im Schalterbild nur so
-    // aus, als stünde das Gerät bereit, und niemand käme durch.
-    if (!opts.jeder && opts.nutzer.length === 0) {
-      await this.zuruecknehmen();
-      return;
-    }
     this.#uebernehmen({
       aktiv: true,
-      nutzer: eindeutig(opts.nutzer),
-      jeder: opts.jeder,
       geltung: opts.geltung,
       gueltigBis:
         opts.geltung === 'befristet' ? Date.now() + (opts.dauerMs ?? STUNDE_MS) : null,
@@ -439,69 +434,7 @@ class StandplatzFreigabe {
     await this.#sichern();
   }
 
-  /**
-   * Einen einzelnen Nutzer ergänzen — der Weg des Zustimmungsdialogs.
-   *
-   * **Warum nicht über [`freigeben`]** (Bughunt 2026-08-16): der Dialog reichte
-   * `jeder: standplatz.jeder` durch, und `freigeben` schaltet ausdrücklich
-   * scharf. Eine zurückgenommene Freigabe behält `jeder` bewusst stehen (s.
-   * [`zuruecknehmen`]) — wer also für EINE Person den Haken setzte, öffnete das
-   * Gerät wieder für alle. Derselbe Fehler wie beim X in den Einstellungen, für
-   * das [`nutzerSetzen`] schon gebaut worden war; der Dialog wurde nicht
-   * mitgezogen.
-   *
-   * Steht die Freigabe schon, kommt der Name schlicht dazu: Geltung und „jeder"
-   * bleiben, wie der Besitzer sie gesetzt hat — ein Haken im Dialog ist keine
-   * Gelegenheit, ein bewusst gewähltes `dauerhaft` auf acht Stunden zu kürzen
-   * (auch das tat er).
-   */
-  async nutzerErgaenzen(wer: Freigegebener, geltung: Geltung = 'befristet'): Promise<void> {
-    const nutzer = eindeutig([...this.nutzer, wer]);
-    if (this.aktiv) {
-      this.nutzer = nutzer;
-      await this.#sichern();
-      return;
-    }
-    this.#uebernehmen({
-      aktiv: true,
-      nutzer,
-      // **Niemals wiederbeleben.** Ein gespeichertes `jeder` aus einer
-      // zurückgenommenen Freigabe ist eine Entscheidung, die jemand bewusst
-      // ausgeschaltet hat; sie hier stillschweigend mitzunehmen wäre die
-      // gefährlichste Auslegung des Hakens „diesen einen künftig ohne
-      // Rückfrage". Die Vorbelegung des Kästchens in den Einstellungen kostet
-      // das — einen Klick.
-      jeder: false,
-      geltung,
-      gueltigBis: geltung === 'befristet' ? Date.now() + 8 * STUNDE_MS : null,
-    });
-    await this.#sichern();
-  }
-
-  /**
-   * Nur die Freigabeliste ändern — **ohne den Ein/Aus-Schalter anzufassen**.
-   *
-   * Der Weg für „einen Namen streichen". Über [`freigeben`] zu gehen wäre der
-   * naheliegende Kurzschluss und war ein Loch (Bughunt 2026-08-16): `freigeben`
-   * schaltet die Freigabe ausdrücklich SCHARF, also machte das Streichen eines
-   * von zwei Namen aus einer zurückgenommenen Freigabe wieder eine geltende —
-   * ein Klick, der laut Beschriftung nur einen Namen löscht, hob eine bewusste
-   * Sicherheitsentscheidung auf.
-   *
-   * Bleibt niemand übrig und gilt auch nicht „jeder", wird eine GELTENDE
-   * Freigabe zurückgenommen: scharf ohne Empfänger wäre eine Anzeige, die lügt.
-   */
-  async nutzerSetzen(nutzer: Freigegebener[]): Promise<void> {
-    this.nutzer = eindeutig(nutzer);
-    if (this.aktiv && !this.jeder && this.nutzer.length === 0) {
-      await this.zuruecknehmen();
-      return;
-    }
-    await this.#sichern();
-  }
-
-  /** Freigabe zurücknehmen. Die Empfängerliste bleibt stehen, damit ein
-   *  versehentliches Ausschalten nicht die ganze Einstellung kostet. */
+  /** Freigabe zurücknehmen. */
   async zuruecknehmen(): Promise<void> {
     this.aktiv = false;
     this.gueltigBis = null;
@@ -548,19 +481,21 @@ class StandplatzFreigabe {
     return this.gueltigBis === null ? null : new Date(this.gueltigBis).toISOString();
   }
 
-  #uebernehmen(stand: Gespeichert): void {
+  #uebernehmen(stand: { aktiv: boolean; geltung: Geltung; gueltigBis: number | null }): void {
     this.aktiv = stand.aktiv;
-    this.nutzer = stand.nutzer;
-    this.jeder = stand.jeder;
     this.geltung = stand.geltung;
     this.gueltigBis = stand.gueltigBis;
   }
 
   async #sichern(): Promise<void> {
+    // `nutzer`/`jeder` kommen unverändert aus `#umzugAltbestand` — dieser
+    // Schreibpfad ist selbst nach dem Wegfall der reaktiven Felder noch der
+    // einzige, der die Datei berührt, und er darf den Altbestand nicht
+    // verlieren, solange `#umziehenEinmal` ihn noch nicht abgeholt hat.
     const stand: Gespeichert = {
       aktiv: this.aktiv,
-      nutzer: [...this.nutzer],
-      jeder: this.jeder,
+      nutzer: this.#umzugAltbestand.nutzer,
+      jeder: this.#umzugAltbestand.jeder,
       geltung: this.geltung,
       gueltigBis: this.gueltigBis,
     };

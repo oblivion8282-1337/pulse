@@ -24,9 +24,43 @@
   import { remoteSession } from '$lib/remote/session.svelte';
   import { geraeteSlots, wiederEinschlafen } from '$lib/devices/wecken';
   import { isElectron } from '$lib/platform/runtime';
+  import { activeServer } from '$lib/stores/active-server.svelte';
+  import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
+  import { freigaben } from '$lib/devices/freigaben.svelte';
+  import { freigabenUmfang } from '$lib/devices/freigabenUmfang';
   import { m } from '$lib/paraglide/messages.js';
 
   const desktop = isElectron();
+
+  // Welches Gerät dieser Rechner ist, sagt die lokale Eintragung — dieselbe
+  // Quelle wie in `SettingsStandplatz.svelte`. Ohne Eintragung auf dem
+  // gerade aktiven Server gibt es keine Server-Liste zu lesen; der Umfang
+  // bleibt dann leer, das Banner selbst hängt weiter nur an `standplatz.aktiv`.
+  const eintragung = $derived(geraeteAnmeldung.fuerServer(activeServer.serverId));
+  $effect(() => {
+    if (eintragung) void freigaben.laden(eintragung.guildId, eintragung.deviceId);
+  });
+  const umfang = $derived(
+    freigabenUmfang(eintragung ? freigaben.fuer(eintragung.deviceId) : []),
+  );
+
+  /** Zurücknehmen ist zweiteilig, und die Reihenfolge ist wichtig: zuerst der
+   *  lokale Hauptschalter (`standplatz.zuruecknehmen()`, wirkt sofort und auch
+   *  ohne Netz), erst danach die Server-Liste leeren. Der umgekehrte Weg liesse
+   *  das Gerät bei einem Netzfehler beim zweiten Schritt scharf stehen. Bricht
+   *  das Leeren ab, bekommt der Nutzer das gesagt — die lokale Sperre gilt
+   *  trotzdem schon. */
+  let leerenFehler = $state<string | null>(null);
+  async function zuruecknehmen(): Promise<void> {
+    leerenFehler = null;
+    await standplatz.zuruecknehmen();
+    if (!eintragung) return;
+    try {
+      await freigaben.setzen(eintragung.guildId, eintragung.deviceId, []);
+    } catch (e) {
+      leerenFehler = e instanceof Error ? e.message : String(e);
+    }
+  }
 
   /**
    * Überträgt dieser Rechner gerade, weil ihn jemand geweckt hat?
@@ -65,14 +99,19 @@
         {geweckt > 0 ? m.standplatz_banner_streaming() : m.standplatz_banner_title()}
       </span>
       <span class="text-text-muted block truncate text-xs">
-        {standplatz.jeder
+        {umfang.jeder
           ? m.standplatz_banner_scope_everyone()
-          : m.standplatz_banner_scope_users({ count: standplatz.nutzer.length })}
+          : m.standplatz_banner_scope_users({ count: umfang.anzahl })}
         ·
         {restStunden === null
           ? m.standplatz_banner_permanent()
           : m.standplatz_banner_until_hours({ hours: restStunden })}
       </span>
+      {#if leerenFehler}
+        <span class="text-destructive block truncate text-xs" data-testid="remote-standplatz-banner-error">
+          {m.standplatz_banner_clear_failed()}
+        </span>
+      {/if}
     </span>
     {#if geweckt > 0}
       <Button
@@ -88,7 +127,7 @@
       <Button
         size="sm"
         variant="outline"
-        onclick={() => standplatz.zuruecknehmen()}
+        onclick={() => void zuruecknehmen()}
         data-testid="remote-standplatz-banner-revoke"
       >
         {m.standplatz_banner_revoke()}

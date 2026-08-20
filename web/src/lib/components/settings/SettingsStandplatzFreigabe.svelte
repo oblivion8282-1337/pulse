@@ -9,11 +9,11 @@
 
   **Warum das kein Verhaltensbruch ist, obwohl die alte Liste verschwindet.**
   Seit 2026-08-20 entscheidet für die WEM-Frage allein der Server
-  (`device_grants`, Begründung im Dateikopf von `remote/standplatz.svelte.ts`)
-  — `standplatz.nutzer`/`jeder` sind seither nur noch Umzugsvorrat für zwei
-  andere Oberflächen (`RemoteStandplatzBanner`, `RemoteConsentDialog`, Umbau
-  in einer eigenen, nachfolgenden Aufgabe) und keine Quelle der Wahrheit mehr.
-  Ihre Setzer bleiben deshalb bestehen, nur diese Datei hängt nicht mehr daran.
+  (`device_grants`, Begründung im Dateikopf von `remote/standplatz.svelte.ts`).
+  `RemoteStandplatzBanner` und `RemoteConsentDialog` hingen als letzte noch an
+  `standplatz.nutzer`/`jeder` — beide schreiben inzwischen ebenfalls auf die
+  Server-Liste, die Felder samt ihren Setzern (`nutzerErgaenzen`/`nutzerSetzen`)
+  sind aus `standplatz.svelte.ts` entfernt.
 -->
 <script lang="ts">
   import DeviceFreigaben from '$lib/devices/components/DeviceFreigaben.svelte';
