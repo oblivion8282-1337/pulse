@@ -210,6 +210,10 @@ fn arbeiten(
         if zustand.schaden.swap(false, Relaxed) {
             dec.schaden_gemeldet();
         }
+        // Diagnose (`PULSE_PLAYER_ERHOLUNG_LOG=1`): ein stehendes Bild bei
+        // gesunden Zahlen ist von aussen nicht zu sehen — die Wacht weiss es
+        // als einzige. Nur beim Ueberschreiten der Schwelle, nicht je Bild.
+        dec.erholung_melden();
         if dec.eingefroren() {
             dec.wegen_einfrieren_neu();
             zustand.vollbild_noetig.store(true, Relaxed);

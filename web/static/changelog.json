@@ -6,13 +6,14 @@
       "date": "2026-08-21",
       "style": "Sachlich",
       "title": "Bild erholt sich nach Störungen sofort",
-      "intro": "Wer einen Stream im eigenen Player ansieht, hatte bei einer unruhigen Leitung des Senders lange Standbilder. Das ist behoben.",
+      "intro": "Wer einen Stream ansieht, hatte bei einer unruhigen Leitung des Senders lange Standbilder — gemessen bis zu einer Minute am Stück. Das ist behoben.",
       "items": [
-        "Verliert die Leitung des Senders Pakete, fehlen dem Bild Daten. Der Player erkennt das jetzt selbst und fordert sofort ein frisches Vollbild an, statt auf das nächste reguläre zu warten — das kann sonst bis zu eine Minute entfernt sein.",
-        "Auf Rechnern mit NVIDIA-Grafikkarte fiel das besonders auf: Dort meldet der Bild-Dekodierer eine Störung nicht, sondern zeigt einfach weiter dasselbe Bild. Es gab damit niemanden, der die Erholung angestoßen hätte.",
-        "Die Notbremse gegen ein eingefrorenes Bild greift wieder schnell. Sie richtete sich nach dem Abstand der Vollbilder und wartete dadurch zuletzt bis zu 75 Sekunden; jetzt erkennt sie an der Ursache, ob wirklich etwas hängt oder der Bildschirminhalt nur stillsteht."
+        "Geht unterwegs ein einziges Bild verloren, reisst die Kette: fast jedes Bild beschreibt nur die Änderung gegenüber dem vorigen, und ein Vollbild kommt regulär erst nach einer Minute. Bis dahin stand das Bild still.",
+        "Der Player erkennt den Ausfall jetzt selbst — am fortlaufenden Zeitstempel, den jedes Bild vom Sender mitbringt — und fordert sofort ein frisches Vollbild an. An der echten Leitung gemessen: aus 60 Sekunden Standbild wurde kein Standbild.",
+        "Auf Rechnern mit NVIDIA-Grafikkarte fiel es besonders auf. Deren Bild-Dekodierer meldet eine Störung nicht, sondern zeigt einfach weiter dasselbe Bild — es gab damit niemanden, der die Erholung angestossen hätte.",
+        "Die Notbremse gegen ein eingefrorenes Bild greift ebenfalls wieder. Sie richtete sich nach dem Abstand der Vollbilder und wartete dadurch zuletzt über 75 Sekunden."
       ],
-      "outro": "Im Fenster von Pulse selbst gab es das Problem nicht — betroffen war nur der eigene Player."
+      "outro": "Am Sender ändert sich nichts — der Verlust auf der Leitung bleibt, nur bemerkt und behebt ihn der Zuschauer jetzt sofort."
     },
     {
       "id": "2026-08-20.3",

@@ -341,6 +341,25 @@ pub async fn run(
     // Die Kennung kommt aus dem ersten Videopaket; vorher gibt es nichts
     // anzufordern.
     let mut video_ssrc: Option<u32> = None;
+    // Diagnose der Verlust-Erholung, s. weiter unten beim Zusammensetzer.
+    let erholung_log = std::env::var("PULSE_PLAYER_ERHOLUNG_LOG").as_deref() == Ok("1");
+    let mut verworfene_einheiten: u64 = 0;
+    // Fortlaufender Zeitstempel der Videobilder — die EINZIGE Nummerierung, die
+    // den Server ueberlebt. Er schreibt SSRC und Sequenznummern neu, die
+    // Zeitstempel darf er nicht anfassen: an ihnen haengen Bildtakt und
+    // Ton-Synchronitaet. Ein fehlendes Bild hinterlaesst deshalb hier eine
+    // Luecke, wo die Sequenznummern lueckenlos aussehen.
+    //
+    // Vorerst NUR Beobachtung (`PULSE_PLAYER_ERHOLUNG_LOG=1`): erst nachweisen,
+    // dass der Sprung wirklich ankommt, dann daran eine Entscheidung haengen.
+    // Fehlende Bilder am fortlaufenden Zeitstempel erkennen — die einzige
+    // Nummerierung, die den Server ueberlebt (volle Begruendung samt Messwerten
+    // in `crate::bildluecke`). Ohne sie bemerkt NIEMAND den Ausfall: der
+    // Zusammensetzer sieht keinen Bruch, `av1_cuvid` nimmt die referenzlosen
+    // Bilder klaglos an, und alle Kennzahlen bleiben gesund, waehrend das Bild
+    // steht.
+    let mut bildluecken = crate::bildluecke::Bildluecken::neu();
+    let mut ts_spruenge: u64 = 0;
     // Takt der Video-Zeitstempel (s. der Video-Zweig unten). `0` = noch kein
     // Videopaket gesehen; `app::takt` behandelt das wie „kein Zeitstempel".
     let mut video_clock_rate: u32 = 0;
@@ -666,8 +685,57 @@ pub async fn run(
                 // erzeugt viele verworfene Einheiten hintereinander, und
                 // Vollbild um Vollbild anzufordern wuerde genau die Bitrate
                 // sprengen, die den Verlust verursacht hat.
+                // Fehlt ein Bild? Dann ist die Referenzkette gerissen, und nur
+                // ein Vollbild flickt sie. Am 2026-08-21 gemessen: EIN
+                // ausgefallenes Bild kostete 60 Sekunden Standbild, weil diese
+                // Anforderung fehlte.
+                //
+                // Dieselbe Bremse wie bei den anderen Wegen. Ein Fehlalarm
+                // kostet nur ein zusaetzliches Vollbild und ist unsichtbar —
+                // deshalb darf hier grosszuegig geurteilt werden, waehrend der
+                // Decoder-Neuaufbau vorsichtig bleibt.
+                if codec.is_video() && unit.is_some() {
+                    if let Some(ts) = unit_rtp_ts {
+                        if let Some(fehlend) = bildluecken.pruefen(ts, video_clock_rate) {
+                            ts_spruenge += 1;
+                            if erholung_log {
+                                eprintln!(
+                                    "pulse-player: Bildluecke (#{ts_spruenge}) — {fehlend} \
+                                     Bild(er) ausgefallen, Vollbild angefordert"
+                                );
+                            }
+                            // Auch der Einfrier-Wacht sagen, dass ein Stillstand
+                            // ab jetzt eine bekannte Ursache haette: dann muss
+                            // ihre Schwelle nicht mehr dem Vollbild-Takt des
+                            // Senders folgen (s. `einfrieren.rs`).
+                            if let Some(f) = decoder.as_ref() {
+                                f.zustand().schaden.store(true, Relaxed);
+                            }
+                            if let Some(ssrc) = video_ssrc.filter(|_| !ohne_anforderung) {
+                                if last_keyframe_request.elapsed() >= KEYFRAME_REQUEST_INTERVAL {
+                                    last_keyframe_request = Instant::now();
+                                    whep_session.request_keyframe(ssrc).await;
+                                }
+                            }
+                        }
+                    }
+                }
                 let verworfen = assembler.verworfen_abholen();
                 if codec.is_video() && verworfen {
+                    // Diagnose (`PULSE_PLAYER_ERHOLUNG_LOG=1`): ohne sie ist von
+                    // aussen NICHT unterscheidbar, ob der Zusammensetzer nichts
+                    // gemeldet hat oder ob die Anforderung ins Leere ging — und
+                    // genau daran ist die Fehlersuche am 2026-08-21 einmal
+                    // haengengeblieben.
+                    verworfene_einheiten += 1;
+                    if erholung_log {
+                        let gebremst = last_keyframe_request.elapsed() < KEYFRAME_REQUEST_INTERVAL;
+                        eprintln!(
+                            "pulse-player: Einheit verworfen (#{verworfene_einheiten}), \
+                             Vollbild {}",
+                            if gebremst { "gebremst" } else { "angefordert" }
+                        );
+                    }
                     // Zweitens der Einfrier-Wacht sagen, dass der naechste
                     // Stillstand eine bekannte Ursache haette. Ohne das muesste
                     // sie dem Vollbild-Takt des Senders folgen und griffe bei
