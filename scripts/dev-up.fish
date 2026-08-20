@@ -265,7 +265,14 @@ else
 end
 
 _info "Electron starten (→ localhost:5173)"
-bash -c "env PULSE_DEV_URL=http://localhost:5173 PULSE_DEVTOOLS=1 $gsr_env setsid nohup ./node_modules/.bin/electron . > /tmp/dcc-electron-dev.log 2>&1 < /dev/null &"
+# DevTools NICHT erzwingen (gingen sonst bei jedem Start als eigenes Fenster
+# auf). Wer sie will: PULSE_DEVTOOLS=1 vor den Aufruf setzen — die Zeile reicht
+# eine gesetzte Variable durch — oder im Fenster Strg+Shift+I.
+set -l devtools_env
+if test -n "$PULSE_DEVTOOLS"
+    set devtools_env "PULSE_DEVTOOLS=$PULSE_DEVTOOLS"
+end
+bash -c "env PULSE_DEV_URL=http://localhost:5173 $devtools_env $gsr_env setsid nohup ./node_modules/.bin/electron . > /tmp/dcc-electron-dev.log 2>&1 < /dev/null &"
 popd >/dev/null
 sleep 2
 _ok "" "Electron up"
