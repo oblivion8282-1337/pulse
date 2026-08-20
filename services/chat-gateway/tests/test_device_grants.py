@@ -11,6 +11,7 @@ import uuid
 
 import pytest
 from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, SUBJECT_EVERYONE, DeviceGrant
+from dcc_shared.permissions import Permissions
 
 
 def _auth(token: str) -> dict[str, str]:
@@ -38,6 +39,18 @@ async def _voice_channel(client, token: str, guild_id: int, name: str = "werkban
     return r.json()["id"]
 
 
+async def _mitglied(client, owner_token: str, gid: int, _auth_signer) -> tuple[str, int]:
+    """Ein zweites Mitglied der Community — via Einladung beigetreten, wie im
+    Muster aus ``tests/test_devices.py``."""
+    token, uid = await _make_token(_auth_signer)
+    invite = (
+        await client.post(f"/guilds/{gid}/invites", json={}, headers=_auth(owner_token))
+    ).json()
+    r = await client.post(f"/invites/{invite['code']}/accept", headers=_auth(token))
+    assert r.status_code in (200, 201), r.text
+    return token, uid
+
+
 @pytest.mark.asyncio
 async def test_freigabe_haengt_am_geraet(session_factory):
     async with session_factory() as session:
@@ -61,7 +74,6 @@ async def test_freigabe_haengt_am_geraet(session_factory):
 @pytest.mark.asyncio
 async def test_nur_der_besitzer_sieht_und_setzt(client, _auth_signer):
     besitzer, b_uid = await _make_token(_auth_signer)
-    fremd, f_uid = await _make_token(_auth_signer)
     gid = await _guild(client, besitzer, "studio")
     kanal = await _voice_channel(client, besitzer, gid)
     r = await client.post(
@@ -70,6 +82,22 @@ async def test_nur_der_besitzer_sieht_und_setzt(client, _auth_signer):
         headers=_auth(besitzer),
     )
     did = r.json()["id"]
+
+    # Der Fremde ist Mitglied der Community UND traegt MANAGE_GUILD — die
+    # Sicherheits-Zusage ist erst dann geprueft, wenn require_member (403 wegen
+    # fehlender Mitgliedschaft) nicht schon vorher greift.
+    fremd, f_uid = await _mitglied(client, besitzer, gid, _auth_signer)
+    role = (
+        await client.post(
+            f"/guilds/{gid}/roles",
+            json={"name": "verwaltung", "permissions": str(int(Permissions.MANAGE_GUILD))},
+            headers=_auth(besitzer),
+        )
+    ).json()
+    await client.put(
+        f"/guilds/{gid}/members/{f_uid}/roles/{role['id']}",
+        headers=_auth(besitzer),
+    )
 
     # Setzen
     r = await client.put(
@@ -84,15 +112,16 @@ async def test_nur_der_besitzer_sieht_und_setzt(client, _auth_signer):
     r = await client.get(f"/guilds/{gid}/devices/{did}/grants", headers=_auth(besitzer))
     assert len(r.json()) == 1
 
-    # Ein Fremder — auch mit MANAGE_GUILD — darf weder lesen noch setzen.
+    # Ein Fremder — auch mit MANAGE_GUILD — darf weder lesen noch setzen: 404,
+    # nicht 403, damit die Antwort nicht verraet, wem welche Kennung gehoert.
     r = await client.get(f"/guilds/{gid}/devices/{did}/grants", headers=_auth(fremd))
-    assert r.status_code in (403, 404)
+    assert r.status_code == 404, r.text
     r = await client.put(
         f"/guilds/{gid}/devices/{did}/grants",
         json={"grants": []},
         headers=_auth(fremd),
     )
-    assert r.status_code in (403, 404)
+    assert r.status_code == 404, r.text
 
 
 @pytest.mark.asyncio
