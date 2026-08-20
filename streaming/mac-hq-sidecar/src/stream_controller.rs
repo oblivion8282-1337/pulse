@@ -84,6 +84,12 @@ impl StreamController {
         if guard.is_some() {
             return Err(anyhow!("ein Stream läuft bereits"));
         }
+        // Eine Vollbild-Anforderung, die nach dem letzten Bild des vorigen
+        // Streams eintraf, gehoert nicht diesem hier — und vor allem darf seine
+        // Drossel den neuen Stream nicht sperren (Begruendung an
+        // `keyframe::reset`). Zwilling: `win-hq-sidecar` ruft es an derselben
+        // Stelle im Ablauf.
+        crate::keyframe::reset();
         let (stop_tx, stop_rx) = channel::<()>();
         let shared = Arc::new(Shared {
             running: AtomicBool::new(true),

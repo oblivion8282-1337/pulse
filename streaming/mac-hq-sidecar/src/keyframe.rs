@@ -125,6 +125,30 @@ pub(crate) fn take_keyframe_request() -> bool {
     ANGEFORDERT.load(Ordering::Relaxed) && ANGEFORDERT.swap(false, Ordering::Relaxed)
 }
 
+/// Alles vergessen, was vom vorigen Stream uebrig ist.
+///
+/// **Warum das noetig ist, und warum es mehr als Kosmetik ist.** Der Zustand
+/// dieses Moduls ist prozessweit (`static`), ein Stream-Wechsel raeumt ihn also
+/// nicht von selbst ab. Zwei Dinge ueberleben ihn sonst:
+///
+/// * Der Merker `ANGEFORDERT` — harmlos: das erste Bild eines frisch
+///   gestarteten Encoders ist ohnehin ein Vollbild, ein zusaetzlich gesetztes
+///   `pict_type` aendert daran nichts.
+/// * **Der Drossel-Zeitstempel — nicht harmlos.** Faellt eine echte Anforderung
+///   des neuen Streams in den Deckel (s. [`DROSSEL_DECKEL`]) der letzten
+///   angenommenen aus dem ALTEN, wird sie stillschweigend verworfen. Der
+///   Zuschauer wartet dann bis zum naechsten regulaeren Vollbild — beim
+///   heutigen Abstand hoechstens zwei Sekunden, beim gestreckten bis zu einer
+///   Minute. Das ist genau der Zustand, gegen den dieses Modul gebaut wurde.
+///
+/// Zwilling zu `win-hq-sidecar/src/keyframe.rs::reset`, dort aus demselben
+/// Grund und an derselben Stelle im Ablauf gerufen.
+pub(crate) fn reset() {
+    ANGEFORDERT.store(false, Ordering::Relaxed);
+    *DROSSEL.letzte_angenommen.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    GEDROSSELT.store(0, Ordering::Relaxed);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,14 +189,47 @@ mod tests {
     #[test]
     fn genau_ein_vollbild_je_anforderung() {
         let _g = SERIELL.lock().unwrap_or_else(|e| e.into_inner());
-        // Sauberer Ausgangszustand: kein anderer Test in diesem Modul ruft
-        // die prozessweite `request_keyframe()` an.
-        assert!(!take_keyframe_request(), "Ausgangszustand ist nichts angefordert");
+        // Ausgangszustand HERSTELLEN, nicht annehmen. Hier stand bis zum
+        // 2026-08-20 die Annahme "kein anderer Test in diesem Modul ruft die
+        // prozessweite `request_keyframe()` an" — die stimmt heute, ist aber
+        // eine Aussage ueber alle kuenftigen Tests, und `SERIELL` schuetzt nur
+        // innerhalb dieses Moduls. Ein `reset()` kostet nichts und macht den
+        // Test von der Reihenfolge unabhaengig.
+        reset();
+        assert!(!take_keyframe_request(), "nach reset darf nichts anliegen");
         request_keyframe();
         assert!(take_keyframe_request(), "die Anforderung muss ankommen");
         assert!(
             !take_keyframe_request(),
             "sie darf nicht kleben bleiben — sonst wird jedes Bild ein Vollbild"
+        );
+    }
+
+    /// **Der Fall, um den es wirklich geht.** Nicht "reset setzt Felder
+    /// zurueck", sondern: eine echte Anforderung des NEUEN Streams darf nicht
+    /// an der Drossel des alten scheitern.
+    ///
+    /// Ohne `reset` verwirft die Drossel sie stillschweigend, wenn sie in den
+    /// Deckel der letzten angenommenen faellt — und der Zuschauer wartet bis
+    /// zum naechsten regulaeren Vollbild. Beim gestreckten Abstand ist das bis
+    /// zu eine Minute: genau der Zustand, den dieses Modul verhindern soll.
+    #[test]
+    fn nach_reset_wird_eine_anforderung_des_neuen_streams_angenommen() {
+        let d = Drossel::neu();
+        // Alter Stream: eine Anforderung wird angenommen.
+        assert!(d.anfordern_und_abholen(Duration::ZERO));
+        // Ohne Zuruecksetzen faellt die naechste in den Deckel — belegt, dass
+        // der Fall ueberhaupt eintreten kann.
+        assert!(
+            !d.anfordern_und_abholen(Duration::from_millis(100)),
+            "Vorbedingung: innerhalb des Deckels wird verworfen"
+        );
+        // Stream-Wechsel.
+        *d.letzte_angenommen.lock().unwrap() = None;
+        // Neuer Stream, dieselbe Uhr: muss jetzt durchgehen.
+        assert!(
+            d.anfordern_und_abholen(Duration::from_millis(101)),
+            "nach dem Zuruecksetzen darf die Drossel des alten Streams nicht mehr sperren"
         );
     }
 }
