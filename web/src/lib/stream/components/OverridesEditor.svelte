@@ -38,13 +38,11 @@
     streamSlot?: number;
   } = $props();
 
-  // Nur anbieten, was diese Maschine wirklich encodieren kann UND was heil
-  // beim Zuschauer ankommt. AV1 verlangt, dass der Sidecar es in
-  // `video_codecs` meldet (RTX 40xx, neuere Intel/AMD) — auf macOS zusaetzlich,
-  // dass der Sendeweg es traegt, und das tut er dort nicht (`av1Nutzbar`, seit
-  // 2026-08-19: ffmpegs WHIP-Muxer kennt kein AV1, der M3+ bekam still H.264).
-  // H.264 ist die Grundlinie und steht immer da. 10 bit verlangt
-  // zusätzlich `health.gsr.ten_bit` — es hängt am Encoder, nicht am Codec.
+  // Nur anbieten, was diese Maschine wirklich encodieren kann. AV1 verlangt,
+  // dass der Sidecar es in `video_codecs` meldet (RTX 40xx, neuere Intel/AMD;
+  // auf heutiger Mac-Hardware nie — Begründung an `av1Nutzbar`). H.264 ist die
+  // Grundlinie und steht immer da. 10 bit verlangt zusätzlich
+  // `health.gsr.ten_bit` — es hängt am Encoder, nicht am Codec.
   //
   // Ein nicht angebotener Eintrag ist besser als ein angebotener, der beim
   // Start still zurückgenommen wird: der Nutzer sähe sonst „AV1 10 bit" im Feld

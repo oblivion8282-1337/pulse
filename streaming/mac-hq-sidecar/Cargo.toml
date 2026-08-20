@@ -51,3 +51,12 @@ dispatch2 = "0.3"
 ffmpeg-next = { version = "8.0", default-features = false, features = [
     "codec", "format", "software-resampling", "software-scaling",
 ] }
+
+# Eigener WebRTC-Sendeweg (WHIP), s. `src/whip/` — Vorarbeit fuer Aufgabe 4+.
+# Fassungen wie in `streaming/linux-hq-sidecar/Cargo.toml`, dort steht auch
+# die Begruendung (kein Rueckkanal bei ffmpegs WHIP-Muxer).
+webrtc = "0.17"
+rtcp = "0.17"
+bytes = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }

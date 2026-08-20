@@ -70,23 +70,35 @@ capability, not by hardcoding. The renderer gates the codec choice the same way
 (`gpuHasAv1(gpu_info.video_codecs)`), matching how Linux (GSR) and Windows report
 their GPU's codec set.
 
-### No back channel — and what follows from it (2026-08-19)
+### Own WHIP sender + back channel (since 2026-08-20)
 
-This sidecar is the only one of the three **without an RTCP back channel**: it
-has no keyframe-request path (no `request_keyframe`, no `pict_type=I`) and no
-WHIP sender of its own — `http(s)://` targets go to ffmpeg's WHIP muxer, which
-carries neither an inbound PLI nor AV1. Two consequences, both deliberate:
+Like Linux and Windows, this sidecar has its own WebRTC send path
+(`src/whip/`) for `http(s)://` targets instead of ffmpeg's WHIP muxer — the
+muxer carries neither an inbound PLI/FIR nor AV1. With the own sender comes a
+real RTCP back channel: a joining viewer's keyframe request reaches the
+encoder (`crate::keyframe`, `pict_type = I`). Measured on 2026-08-20 with two
+Pulse instances: sender at `PULSE_KEYFRAME_SECONDS=30`, a viewer joins late,
+the sidecar logs `[whip] Vollbild angefordert (insgesamt 1)`, and the picture
+arrives immediately instead of after up to 30 s.
 
-- **Keyframe distance defaults to 2 s here**, not the 60 s that Linux/Windows
-  moved to on 2026-08-18 (`encode/mod.rs::KEYFRAME_SEKUNDEN_UNBEDENKLICH`).
-  A joining viewer can only wait for the *regular* keyframe; the native player
-  gives up after 20 s. `PULSE_KEYFRAME_SECONDS` still overrides — with a warning.
-- **AV1 is not offered by the UI on macOS** (`web/src/lib/stream/settings.svelte.ts
-  ::av1Nutzbar`), because the WHIP muxer would silently downgrade it to h264.
-  Same line the intra-refresh checkbox already draws.
+That proof is what retired the earlier special case:
 
-Building a real WHIP sender for macOS (port of `*-hq-sidecar/src/whip/`) lifts
-both restrictions at once; nothing else does.
+- **Keyframe distance now defaults to 60 s here too** (`encode::wahl::
+  KEYFRAME_SEKUNDEN_VORGABE`), matching Linux/Windows — no longer the 2 s this
+  sidecar used while it had no back channel. `PULSE_KEYFRAME_SECONDS` still
+  overrides, with a warning if a target *without* a back channel (RTMPS) ends
+  up with a long distance.
+- **AV1 is offered by the UI again where the hardware supports it**
+  (`web/src/lib/stream/settings.svelte.ts::av1Nutzbar`, plain `gpuHasAv1`
+  now). On today's Mac hardware that stays `false` regardless: FFmpeg 8.0.1
+  has no `av1_videotoolbox` encoder, and no Apple chip encodes AV1 (M3+ only
+  decodes it) — s. `caps.rs`. The muxer reason is gone; the hardware reason
+  isn't.
+
+`videotoolbox_encoder`'s h264 fallback (`encode/wahl.rs`) is unrelated and
+stays: it's a hardware-capability guard, not a WHIP workaround, and
+`ops::start::resolve_codec` already resolves the codec against `caps::
+supports_codec` before the encoder ever opens.
 
 ## Protocol (parity with the other two sidecars)
 

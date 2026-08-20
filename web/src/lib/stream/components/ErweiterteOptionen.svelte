@@ -30,9 +30,11 @@
   //
   // Linux ODER Windows: Intra-Refresh setzt den WHIP-Weg voraus, und der
   // braucht einen eigenen WebRTC-Sender (RTCP-Rueckkanal fuer das
-  // Einstiegs-Vollbild, dazu ein AV1-Paketierer). macOS bleibt draussen — dort
-  // ginge es ueber ffmpegs WHIP-Muxer: kein Rueckkanal, kein AV1, und ein
-  // sichtbares Kaestchen waere eine Zusage, die der Sendeweg nicht einloest.
+  // Einstiegs-Vollbild, dazu ein AV1-Paketierer). macOS bleibt draussen, aber
+  // NICHT mehr aus diesem Grund — den eigenen WHIP-Sender hat es seit
+  // `mac-hq-sidecar/src/whip/`. Es fehlt dort schlicht die Betriebsart selbst
+  // (kein Gegenstueck zu `encode/auffrischung.rs`), und ein sichtbares
+  // Kaestchen waere eine Zusage, die der Sidecar nicht einloest.
   //
   // Und nur, wenn der Sidecar die Betriebsart wirklich liefert
   // (`health.gsr.intra_refresh`). Beide Sidecars brechen den Start ab, statt

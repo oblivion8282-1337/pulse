@@ -35,11 +35,12 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
     let display_index = parse_display_index(capture_src);
 
     let overrides = params.get("overrides").and_then(Value::as_object);
-    let codec = overrides
+    let requested_codec = overrides
         .and_then(|o| o.get("codec"))
         .and_then(Value::as_str)
         .unwrap_or(profile.codec)
         .to_string();
+    let codec = resolve_codec(&requested_codec);
     let fps = overrides
         .and_then(|o| o.get("fps"))
         .and_then(Value::as_u64)
@@ -124,6 +125,35 @@ fn parse_display_index(capture: &str) -> usize {
     digits.parse::<usize>().unwrap_or(1).max(1)
 }
 
+/// Codec-Wahl mit EINEM Sicherheitsnetz: kann diese Hardware den gewuenschten
+/// Codec nicht encodieren, hier auf h264 zurueckfallen — VOR jedem Encoder-
+/// oder Sendeweg-Aufbau. Zwilling zur Absage in
+/// `linux-hq-sidecar/src/ops/start.rs` (dort ausfuehrlich begruendet: "ein
+/// veralteter Client oder ein Direktaufruf kaeme sonst zum harten Fehler").
+///
+/// **Warum hier und nicht erst am Encoder.** Ohne diese Schranke fiel bisher
+/// nur `videotoolbox_encoder` (`encode/wahl.rs`) STILL auf
+/// `h264_videotoolbox` zurueck, wenn die Hardware den angefragten Codec nicht
+/// encodieren kann (etwa AV1 vor M3, oder wenn das gelinkte FFmpeg keinen
+/// `av1_videotoolbox` mitbringt) — waehrend der eigene WHIP-Sendeweg
+/// (`whip::WhipSender::connect`) weiterhin die rohe, unkorrigierte
+/// `codec_id` bekam. Das Ergebnis: der Handschlag kuendigt AV1 an, der
+/// Encoder liefert H.264-Bytes, und `sdp::codec_capability` waehlt den
+/// AV1-Paketierer, der diese Bytes als OBUs zerlegt — der Zuschauer sieht
+/// nichts, und nirgends erscheint ein Fehler. `h264` bleibt auf Apple Silicon
+/// immer verfuegbar (Basisfall, `caps::supports_codec`), der Fallback landet
+/// also nie im Leeren.
+fn resolve_codec(requested: &str) -> String {
+    if crate::caps::supports_codec(requested) {
+        requested.to_string()
+    } else {
+        eprintln!(
+            "[start] Codec '{requested}' auf dieser Hardware nicht encodierbar → Fallback auf h264"
+        );
+        "h264".to_string()
+    }
+}
+
 /// A `"window:<cg-window-id>"` capture token selects a single window. Anything
 /// else (display/monitor/portal) returns None → display capture.
 fn parse_window_id(capture: &str) -> Option<u32> {
@@ -189,21 +219,51 @@ fn build_redacted_argv(
         "--bitrate".to_string(),
         format!("{bitrate_kbps}k"),
         "--out".to_string(),
-        redact(push_url),
+        crate::redact::redact_url(push_url),
     ]
 }
 
-fn redact(url: &str) -> String {
-    let mut s = url.to_string();
-    for pat in ["pass=", "token=", "streamid=publish:"] {
-        if let Some(idx) = s.find(pat) {
-            let start = idx + pat.len();
-            let end = s[start..]
-                .find(|c: char| c == '&' || c == ' ')
-                .map(|i| start + i)
-                .unwrap_or(s.len());
-            s.replace_range(start..end, "***");
+#[cfg(test)]
+mod codec_resolution_tests {
+    use super::resolve_codec;
+
+    /// **K-1.** Nicht "die Funktion gibt h264 zurueck" — sondern die
+    /// Eigenschaft, um die es geht: der Codec, den `resolve_codec` an den
+    /// Sendeweg (WHIP wie Muxer) durchlaesst, ist IMMER derselbe, den
+    /// `videotoolbox_encoder` (`encode/wahl.rs`) fuer diesen Codec
+    /// tatsaechlich oeffnet. `videotoolbox_encoder` faellt NUR dann still auf
+    /// `h264_videotoolbox` zurueck, wenn `caps::supports_codec` fuer den
+    /// uebergebenen Codec falsch ist — und genau das schliesst
+    /// `resolve_codec` jetzt aus, bevor irgendein Encoder oder Sendeweg den
+    /// Codec zu Gesicht bekommt. Ohne diesen Test haette ein AV1-Wunsch auf
+    /// Hardware ohne AV1-Encoding weiterhin still auseinanderlaufen koennen:
+    /// Encoder faehrt h264, WHIP-Handschlag kuendigt av1 an.
+    #[test]
+    fn ergebnis_deckt_sich_mit_dem_tatsaechlich_geoeffneten_encoder() {
+        for requested in ["h264", "hevc", "h265", "av1", "unbekannt", ""] {
+            let resolved = resolve_codec(requested);
+
+            assert!(
+                crate::caps::supports_codec(&resolved),
+                "resolve_codec({requested:?}) lieferte {resolved:?}, aber \
+                 diese Hardware encodiert das laut caps::supports_codec nicht"
+            );
+
+            let tatsaechlich_geoeffnet = crate::encode::videotoolbox_encoder(&resolved);
+            let fuer_resolved_erwartet = crate::caps::vt_encoder_name(&resolved)
+                .expect("ein von resolve_codec durchgelassener Codec hat eine Encoder-Zuordnung");
+            assert_eq!(
+                tatsaechlich_geoeffnet, fuer_resolved_erwartet,
+                "videotoolbox_encoder({resolved:?}) faellt auf {tatsaechlich_geoeffnet} \
+                 zurueck, obwohl resolve_codec {resolved:?} als unterstuetzt gemeldet hat — \
+                 genau die K-1-Luecke waere das fuer den Sendeweg, der {resolved:?} bekommt"
+            );
         }
     }
-    s
+
+    /// Ein Codec, den die Hardware traegt, geht unveraendert durch.
+    #[test]
+    fn unterstuetzter_codec_bleibt_unveraendert() {
+        assert_eq!(resolve_codec("h264"), "h264");
+    }
 }

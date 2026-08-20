@@ -16,10 +16,12 @@
 //! | start                  | stub (error)    | ScreenCaptureKit + VideoToolbox + RTMPS |
 //! | stop                   | idempotent      | StreamController                        |
 //! | state                  | idle            | StreamController snapshot               |
+//! | keyframe               | real            | manual keyframe-on-request trigger      |
 
 pub mod build_argv;
 pub mod gpu_info;
 pub mod health;
+pub mod keyframe;
 pub mod list_application_audio;
 pub mod list_monitors;
 pub mod list_windows;

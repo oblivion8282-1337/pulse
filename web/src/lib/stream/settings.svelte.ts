@@ -134,27 +134,27 @@ export function hdrPossible(): boolean {
 }
 
 /**
- * AV1 — kann diese Maschine es, UND kommt es auch heil beim Zuschauer an?
+ * AV1 — kann diese Maschine es wirklich encodieren?
  *
- * `gpuHasAv1` allein beantwortet nur die erste Hälfte: es fragt den Encoder.
- * **Auf macOS ist die zweite Hälfte seit dem 2026-08-18 nein** (korrigiert am
- * 2026-08-19). Seit `pushProtokoll` bedingungslos WHIP liefert, geht der
- * mac-Sidecar über ffmpegs WHIP-Muxer — der trägt kein AV1, und der Sidecar
- * nimmt den Codec beim Start still auf H.264 zurück
- * (`mac-hq-sidecar/src/encode/mod.rs`). Linux und Windows bringen dafür einen
- * eigenen WebRTC-Sender mit (`src/whip/` in beiden Sidecars), macOS nicht — dieselbe Grenze,
- * die schon beim Intra-Refresh-Kästchen gezogen ist
- * (`components/ErweiterteOptionen.svelte`).
+ * Bewusst **nur** `gpuHasAv1`, also die vom Sidecar gemeldete echte Fähigkeit,
+ * ohne Plattform-Riegel. Bis zum 2026-08-19 stand hier zusätzlich `!isMac()`,
+ * weil der mac-Sidecar über ffmpegs WHIP-Muxer ging, der kein AV1 trägt und
+ * den Codec beim Start still auf H.264 zurücknahm; mit dem eigenen WHIP-Sender
+ * (`mac-hq-sidecar/src/whip/`) ist dieser Grund weg.
  *
- * Ein nicht angebotener Eintrag ist besser als einer, der beim Start still
- * zurückgenommen wird: auf einem M3+ stand „AV1" im Feld, war sogar die
- * Vorbelegung, und übertragen wurde H.264 — sichtbar nirgends.
+ * **Auf heutiger Mac-Hardware bleibt AV1 trotzdem draußen — das ist kein
+ * fehlender Riegel, sondern die ehrliche Antwort**: die gelinkte FFmpeg 8.0.1
+ * hat keinen `av1_videotoolbox`-Encoder, und kein Apple-Chip kann AV1
+ * encodieren (M3+ nur dekodieren, s. `mac-hq-sidecar/src/caps.rs`). Der
+ * Sidecar meldet deshalb `video_codecs: ["h264","hevc"]`. Liefert das hier
+ * eines Tages `true`, kann die Maschine es tatsächlich.
  *
- * Wer hier je das `!isMac()` entfernt, baut vorher den eigenen WHIP-Sender für
- * macOS.
+ * Der Wrapper bleibt als benannte Stelle bestehen: käme je wieder ein Grund
+ * hinzu, AV1 trotz fähigem Encoder nicht anzubieten, gehört er hierher und
+ * nicht in jeden Aufrufer.
  */
 export function av1Nutzbar(codecs: ReadonlyArray<string> | undefined): boolean {
-  return !isMac() && gpuHasAv1(codecs);
+  return gpuHasAv1(codecs);
 }
 
 // ── Catalog loading + GPU defaults ──────────────────────────────────────────

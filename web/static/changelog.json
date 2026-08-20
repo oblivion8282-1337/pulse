@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-20",
+      "date": "2026-08-20",
+      "style": "Sachlich",
+      "title": "Bildschirmteilen auf dem Mac: schneller da, sparsamer unterwegs",
+      "items": [
+        "Kommst du zu einem laufenden Stream vom Mac dazu, siehst du jetzt sofort ein Bild. Bisher musstest du warten, bis der sendende Rechner von sich aus das nächste Vollbild schickte.",
+        "Ein Mac schickt beim Teilen deutlich weniger Daten: Vollbilder gehen jetzt im gleichen Abstand hinaus wie unter Windows und Linux, statt alle zwei Sekunden. Ein Vollbild ist rund fünfundzwanzigmal so groß wie ein normales."
+      ]
+    },
+    {
       "id": "2026-08-19.5",
       "date": "2026-08-19",
       "style": "Sachlich",
