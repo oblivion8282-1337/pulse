@@ -42,8 +42,16 @@
 //!
 //! **Kopie aus `linux-hq-sidecar/src/whip/` (2026-08-20).** Nicht wortgleich —
 //! die crate-eigenen Rueckgriffe unterscheiden sich. Was hier an der LOGIK
-//! geaendert wird, gehoert dort nachgetragen; `tests/zwillinge.rs` deckt nur
-//! `av1.rs` und `sdp.rs` ab, diese Datei nicht.
+//! geaendert wird, gehoert dort nachgetragen.
+//!
+//! **Und das ist jetzt der einzige Schutz.** Seit `av1.rs` und `sdp.rs` am
+//! 2026-08-20 gemeinsam in `pulse-whip` liegen, sind `mod.rs` und `pacer.rs`
+//! die beiden LETZTEN Dateien des Sendewegs, die noch je Plattform doppelt
+//! vorliegen — und kein Test haelt sie zusammen. Bis zum selben Tag gab es
+//! hier eine `tests/zwillinge.rs`, die `av1.rs` und `sdp.rs` gegen die
+//! Linux-Fassung hielt; sie verglich nach der Zusammenlegung nur noch zwei
+//! Weiterleitungs-Einzeiler und wurde entfernt, weil ein Test, der gruen
+//! bleibt ohne etwas zu pruefen, schlechter ist als gar keiner.
 
 pub mod av1;
 mod pacer;
