@@ -40,10 +40,21 @@ einer sicherheitsrelevanten Stelle.** Die Token-Redaktion maskiert
 Stream-Schlüssel, bevor irgendetwas ins Protokoll geht. Alle drei Sidecars
 lösen dieselbe Aufgabe, aber verschieden:
 
-- **Windows** erkennt mehr Abschlusszeichen (Klammern, Anführungszeichen),
-  ersetzt **alle** Vorkommen und ignoriert Groß-/Kleinschreibung
-- **Linux** ersetzt alle Vorkommen, aber nur an `&` und Leerzeichen
-- **macOS** ersetzt nur das **erste** Vorkommen je Präfix
+| | alle Vorkommen | Groß/klein egal | gründliche Abschlusszeichen |
+|---|---|---|---|
+| **Windows** | ✓ | ✗ | ✓ (`is_whitespace` + `& " ' ( ) [ ] { } , ; < > \| \``) |
+| **Linux** | ✓ | ✓ (sucht auf kleingeschriebener Kopie) | ✗ (nur `&` und Leerzeichen) |
+| **macOS** | ✗ (nur das erste) | ✗ | ✗ |
+
+**Keine der drei ist die beste** — jede kann etwas, was den anderen fehlt. Zwei
+konkrete Fälle:
+
+- `?Token=abc` (großes T) in einer Fehlermeldung: **Linux** maskiert, Windows
+  und macOS nicht.
+- `Fehler (url=rtmps://h/p?token=abc)`: **Windows** endet sauber an der
+  Klammer. Linux und macOS finden weder `&` noch Leerzeichen, greifen auf
+  `unwrap_or(len)` zurück und maskieren **bis zum Ende der Meldung** — der
+  Schlüssel ist zwar weg, aber der Rest der Meldung auch.
 
 Es gibt also Adressen, bei denen ein Schlüssel auf einer Plattform maskiert
 wird und auf einer anderen im Klartext im Protokoll landet. Die macOS-Grenze
@@ -137,12 +148,29 @@ wird und der auf allen drei Rechnern grün ist.
 
 Klein, sicherheitsrelevant, und mit einer echten Entscheidung darin.
 
-**Zu entscheiden: welches der drei Verhalten wird das gemeinsame?**
-Empfehlung ist die Windows-Fassung, weil sie die gründlichste ist (mehr
-Abschlusszeichen, alle Vorkommen, unabhängig von Groß-/Kleinschreibung). Das
-heisst aber: **Linux und macOS ändern ihr Verhalten** — sie maskieren künftig
-mehr. Eine Verhaltensänderung an ausgeliefertem Code, die als solche geprüft
-gehört, nicht nebenbei mitgenommen.
+**Entschieden am 2026-08-20: das Beste aus beiden.** Windows' Abschlusszeichen
+(`ends_value`) plus Linux' Unempfindlichkeit gegen Groß-/Kleinschreibung, beide
+mit „alle Vorkommen". Kein Neubau — zwei erprobte Teile zusammengesetzt.
+
+Die gemeinsame Fassung fängt damit **strikt mehr** als jede heutige. Alle drei
+Plattformen ändern ihr Verhalten:
+
+- Windows gewinnt Groß-/Kleinschreibungs-Toleranz
+- Linux gewinnt die gründlichen Abschlusszeichen
+- macOS gewinnt beides und zusätzlich „alle Vorkommen"
+
+Das ist eine Verhaltensänderung an ausgeliefertem Code auf **drei** Plattformen
+und gehört als solche geprüft, nicht nebenbei mitgenommen.
+
+**Wie diese Entscheidung zustande kam, gehört mit ins Protokoll**, weil sie
+beinahe anders ausgefallen wäre: Die Bestandsaufnahme hatte Windows als
+case-insensitiv geführt und Linux nicht. Das ist vertauscht — der Windows-Code
+sucht mit `find(pat)` direkt im Original, Linux auf einer
+`to_ascii_lowercase()`-Kopie. Auf dieser falschen Grundlage war „wir nehmen
+Windows" bereits entschieden; erst der Blick in den echten Code hat gezeigt,
+dass Windows dabei eine Fähigkeit verloren hätte, die Linux heute hat. **Bei
+einer sicherheitsrelevanten Funktion reicht eine Zusammenfassung nicht** — die
+Fassungen gehören nebeneinandergelegt.
 
 Der Test dazu hält nicht fest, dass die Funktion „etwas maskiert", sondern
 **welche Adressen sie erwischt** — mit je einem Fall pro Sendeweg (WHIP
@@ -217,10 +245,21 @@ ist. Die Ergebnisse kommen als Befunde ins Repo, nicht als mündliche Zusage.
 
 ## Offene Entscheidungen
 
-1. **Redaktions-Verhalten** (Etappe 1): Windows-Fassung als gemeinsame? Damit
-   ändern Linux und macOS ihr Verhalten.
+1. ~~Redaktions-Verhalten~~ — **entschieden am 2026-08-20**: das Beste aus
+   beiden (s. Etappe 1).
 2. **Namensschema** der Crates: `pulse-*` wie hier vorgeschlagen, oder ein
    gemeinsames Präfix wie `hq-*`?
 3. **Ob Etappe 0 eigene Befunde erzeugt** — findet sie eine bereits bestehende
    Abweichung (besonders bei Windows), wird daraus eine eigene kleine Aufgabe
    vor Etappe 1.
+
+## Eine Lehre für die Umsetzung
+
+Der Redaktions-Fall oben ist kein Einzelfall, sondern der Grund für Etappe 0.
+Zwischen „diese Dateien sind gleich" und „diese Dateien tun dasselbe" liegt
+genau die Sorte Fehler, die keiner Suite auffällt. Die Bestandsaufnahme hat
+Textgleichheit gut erkannt (`av1.rs`, `sdp.rs` — bitgleich, belegt) und ist bei
+der Frage „verhalten sie sich gleich?" einmal danebengelegen.
+
+**Für jede Etappe gilt deshalb: erst die Fassungen nebeneinanderlegen, dann
+entscheiden.** Nicht die Zusammenfassung glauben, auch nicht die eigene.
