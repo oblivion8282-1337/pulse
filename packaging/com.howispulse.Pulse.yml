@@ -431,15 +431,39 @@ modules:
       # /etc, das Skript scheiterte sonst am letzten Schritt.
       - ./rust-toolchain/install.sh --prefix=$PWD/rust --disable-ldconfig
         --components=rustc,cargo,rust-std-x86_64-unknown-linux-gnu
-      - PATH="$PWD/rust/bin:$PATH" cargo --offline build --release --verbose
-      - install -Dm755 target/release/pulse-player /app/bin/pulse-player
+      # Gebaut wird IM Unterverzeichnis, nicht im Bauwurzel — s. den Kommentar
+      # bei den `dir`-Quellen unten (gleiches Muster wie beim
+      # `pulse-linux-hq-sidecar`-Modul). `rust-toolchain/` bleibt an der
+      # Wurzel liegen, deshalb der Ruecksprung `../rust` im PATH.
+      - cd pulse-player && PATH="$PWD/../rust/bin:$PATH" cargo --offline build --release --verbose
+      - install -Dm755 pulse-player/target/release/pulse-player /app/bin/pulse-player
     sources:
       - type: archive
         url: https://static.rust-lang.org/dist/rust-1.97.1-x86_64-unknown-linux-gnu.tar.xz
         sha256: 88f28fa9af20594179f85d6df67078dfd6fa93e2f6da5e1e9b0ac4997988ca4f
         dest: rust-toolchain
+      # ── Seit 2026-08-20 braucht dieses Modul ZWEI Verzeichnisse ─────────
+      # Der Player haengt per Pfad-Abhaengigkeit an der geteilten Crate
+      # `streaming/pulse-zeigerbild` (Zeigerbild-Format der Fernsteuerung,
+      # geteilt mit dem Windows-Sidecar). Gleicher Grund wie beim
+      # `pulse-linux-hq-sidecar`-Modul: `type: dir` kopiert **nur den
+      # genannten Pfad**, `path = "../pulse-zeigerbild"` in `Cargo.toml` zeigte
+      # ohne einen eigenen Eintrag ins Leere, und weil der Flatpak
+      # `cargo --offline` baut, gibt es kein Nachladen — der Bau bricht, nur
+      # hier und erst in CI. Deshalb bekommt die Hauptquelle jetzt `dest:
+      # pulse-player` (vorher direkt an der Wurzel) und `pulse-zeigerbild`
+      # liegt als Geschwister daneben, damit `../pulse-zeigerbild` im
+      # Bauordner dasselbe bedeutet wie im Repo. Das verschiebt zugleich
+      # `vendor/webrtc-rs` und die Patches darunter NACH `pulse-player/…` —
+      # deren Cargo.toml-Pfad `vendor/webrtc-rs/webrtc` ist relativ zur
+      # eigenen Lage und muss mitziehen.
+      #
+      # Die Sources-JSON muss dafuer NICHT neu erzeugt werden: `pulse-zeigerbild`
+      # hat keine externen Abhaengigkeiten (leeres `[dependencies]` in dessen
+      # `Cargo.toml`) — es kommt also kein Crate von crates.io hinzu.
       - type: dir
         path: ../streaming/pulse-player
+        dest: pulse-player
         # `dir` kopiert wörtlich, `.gitignore` gilt hier NICHT — und beide
         # Ausnahmen sind hier nicht bloss Ballast:
         #
@@ -453,6 +477,11 @@ modules:
         skip:
           - target
           - vendor
+      - type: dir
+        path: ../streaming/pulse-zeigerbild
+        dest: pulse-zeigerbild
+        skip:
+          - target
       # Der gepatchte webrtc-rs-Zweig, den `Cargo.toml` über
       # `[patch.crates-io]` als PFAD einbindet — ohne ihn bricht cargo schon
       # beim Auflösen ab.
@@ -467,7 +496,7 @@ modules:
         url: https://github.com/webrtc-rs/webrtc.git
         tag: v0.17.2
         commit: 1da3fe8ee84db8d266322cbcfcb357c745959a8e
-        dest: vendor/webrtc-rs
+        dest: pulse-player/vendor/webrtc-rs
       # Alle drei Patches, in derselben Reihenfolge wie im Skript. Der erste
       # macht die Ströme sichtbar, deren SSRC zu keiner angemeldeten Spur passt
       # (dort liegen die FlexFEC-Paritätspakete), der zweite setzt die
@@ -479,13 +508,13 @@ modules:
       # sondern der Absturzschutz.
       - type: patch
         path: ../streaming/pulse-player/patches/0001-webrtc-rs-expose-undeclared-ssrc-streams.patch
-        dest: vendor/webrtc-rs
+        dest: pulse-player/vendor/webrtc-rs
       - type: patch
         path: ../streaming/pulse-player/patches/0002-nack-generator-resend-delay.patch
-        dest: vendor/webrtc-rs
+        dest: pulse-player/vendor/webrtc-rs
       - type: patch
         path: ../streaming/pulse-player/patches/0003-h264-stapa-bounds-check.patch
-        dest: vendor/webrtc-rs
+        dest: pulse-player/vendor/webrtc-rs
       # Wie beim Sidecar: ändert sich `Cargo.lock`, muss diese Datei neu
       # generiert werden (flatpak-cargo-generator).
       - pulse-player-cargo-sources.json

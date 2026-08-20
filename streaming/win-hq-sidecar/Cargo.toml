@@ -27,6 +27,11 @@ pulse-zeitbasis = { path = "../pulse-zeitbasis" }
 # Re-Exports bestehen (s. dort).
 pulse-whip = { path = "../pulse-whip" }
 
+# Zeigerbild-Format der Fernsteuerung, seit 2026-08-20 gemeinsam mit dem
+# Player in einer eigenen Crate. `src/zeigerbild.rs` bleibt als Re-Export
+# bestehen (s. dort).
+pulse-zeigerbild = { path = "../pulse-zeigerbild" }
+
 # Stage 2: DXGI-Adapter-Enum (real `gpu_info` + populates `health.gsr.vendor`).
 # Features kept narrow — only what the adapter walk + COM init needs.
 windows = { version = "0.62", features = [

@@ -3158,6 +3158,7 @@ dependencies = [
  "ffmpeg-next",
  "libloading",
  "pollster",
+ "pulse-zeigerbild",
  "raw-window-handle",
  "reqwest",
  "rtp 0.17.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3171,6 +3172,10 @@ dependencies = [
  "windows",
  "winit",
 ]
+
+[[package]]
+name = "pulse-zeigerbild"
+version = "0.1.0"
 
 [[package]]
 name = "quick-xml"
