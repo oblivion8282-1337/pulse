@@ -56,6 +56,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.device_grants import rollen_freigaben_loeschen
 from dcc_chat_gateway.device_meldungen import (
     DeviceOut,
     device_out,
@@ -117,6 +118,13 @@ class DevicePatch(BaseModel):
     guild_id: SnowflakeId | None = None
     channel_id: SnowflakeId | None = None
     name: str | None = Field(default=None, min_length=1, max_length=DEVICE_NAME_MAX_LEN)
+
+
+class DevicePatchOut(DeviceOut):
+    #: Anzahl geräumter Rollen-Freigaben bei einem Community-Wechsel — 0 bei
+    #: reinem Kanalwechsel/Umbenennen. Nicht Teil von ``DeviceOut``: das Feld
+    #: entsteht nur hier, in jeder Geräteliste wäre es eine Lüge.
+    role_grants_cleared: int = 0
 
 
 def _normalise_name(name: str) -> str:
@@ -282,7 +290,7 @@ async def create_device(
     return stand
 
 
-@router.patch("/{device_id}", response_model=DeviceOut)
+@router.patch("/{device_id}", response_model=DevicePatchOut)
 async def patch_device(
     guild_id: SnowflakeId,
     device_id: SnowflakeId,
@@ -290,7 +298,7 @@ async def patch_device(
     user: CurrentUser,
     session: SessionDep,
     request: Request,
-) -> DeviceOut:
+) -> DevicePatchOut:
     await require_member(session, guild_id, user.id)
     device = await _load_device(session, guild_id, device_id)
     await _require_owner_or_manager(session, user, device)
@@ -328,7 +336,19 @@ async def patch_device(
         device.channel_id = body.channel_id
         device.guild_id = ziel_guild
 
+    geraeumt = 0
     try:
+        if alte_guild is not None and alte_guild != device.guild_id:
+            # Rollen gehören ihrer Community. Nach dem Wechsel zeigen diese
+            # Zeilen ins Leere — schlimmer noch, dieselbe Kennung kann in der
+            # Zielcommunity eine andere Rolle sein. VOR dem Commit (dieselbe
+            # Lehre wie beim Sitzungsabbau weiter unten, Bughunt 2026-08-16):
+            # ein Wechsel, der gleich darauf an einem Namenskonflikt
+            # scheitert, darf die Freigaben nicht mitnehmen. Der
+            # ``UniqueConstraint``-Verstoss kann schon hier auffliegen
+            # (Autoflush vor dem ``DELETE``), nicht erst beim Commit —
+            # deshalb liegt die Räumung selbst im ``try``.
+            geraeumt = await rollen_freigaben_loeschen(session, device.id)
         await session.commit()
     except IntegrityError:
         await session.rollback()
@@ -368,7 +388,7 @@ async def patch_device(
         await melden(request, device, alt, entfernt=True, kanal=alter_kanal, guild=alte_guild)
     stand = device_out(device, mgr)
     await melden(request, device, stand)
-    return stand
+    return DevicePatchOut(**stand.model_dump(), role_grants_cleared=geraeumt)
 
 
 @router.delete("/{device_id}", status_code=status.HTTP_204_NO_CONTENT)
