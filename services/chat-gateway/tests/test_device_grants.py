@@ -1,4 +1,4 @@
-"""Tests für die Freigabeliste eines Standplatz-Geräts.
+"""Tests für die Freigabeliste eines Standplatz-Geräts — lesen und ersetzen.
 
 Die Liste sagt, WER einen Rechner ohne Rückfrage übernehmen darf. Sie lag bis
 2026-08-20 auf dem Gerät selbst und war damit nur vor Ort änderbar; Entwurf:
@@ -7,8 +7,35 @@ Die Liste sagt, WER einen Rechner ohne Rückfrage übernehmen darf. Sie lag bis
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
-from dcc_chat_gateway.models import SUBJECT_EVERYONE, SUBJECT_USER, DeviceGrant
+from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, SUBJECT_EVERYONE, DeviceGrant
+
+
+def _auth(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
+async def _make_token(signer) -> tuple[str, int]:
+    uid = abs(hash(uuid.uuid4())) & ((1 << 31) - 1)
+    return signer.issue_access(uid, f"u{uid}"), uid
+
+
+async def _guild(client, token: str, name: str = "werkstatt") -> int:
+    r = await client.post("/guilds", json={"name": name}, headers=_auth(token))
+    assert r.status_code == 201, r.text
+    return r.json()["id"]
+
+
+async def _voice_channel(client, token: str, guild_id: int, name: str = "werkbank") -> int:
+    r = await client.post(
+        f"/guilds/{guild_id}/channels",
+        json={"name": name, "type": CHANNEL_TYPE_VOICE},
+        headers=_auth(token),
+    )
+    assert r.status_code == 201, r.text
+    return r.json()["id"]
 
 
 @pytest.mark.asyncio
@@ -29,3 +56,97 @@ async def test_freigabe_haengt_am_geraet(session_factory):
         assert geladen.subject_type == SUBJECT_EVERYONE
         assert geladen.subject_id is None
         assert geladen.created_at is not None
+
+
+@pytest.mark.asyncio
+async def test_nur_der_besitzer_sieht_und_setzt(client, _auth_signer):
+    besitzer, b_uid = await _make_token(_auth_signer)
+    fremd, f_uid = await _make_token(_auth_signer)
+    gid = await _guild(client, besitzer, "studio")
+    kanal = await _voice_channel(client, besitzer, gid)
+    r = await client.post(
+        f"/guilds/{gid}/devices",
+        json={"channel_id": str(kanal), "name": "schnitt-1"},
+        headers=_auth(besitzer),
+    )
+    did = r.json()["id"]
+
+    # Setzen
+    r = await client.put(
+        f"/guilds/{gid}/devices/{did}/grants",
+        json={"grants": [{"subject_type": "user", "subject_id": str(f_uid)}]},
+        headers=_auth(besitzer),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()[0]["subject_id"] == str(f_uid)
+
+    # Lesen
+    r = await client.get(f"/guilds/{gid}/devices/{did}/grants", headers=_auth(besitzer))
+    assert len(r.json()) == 1
+
+    # Ein Fremder — auch mit MANAGE_GUILD — darf weder lesen noch setzen.
+    r = await client.get(f"/guilds/{gid}/devices/{did}/grants", headers=_auth(fremd))
+    assert r.status_code in (403, 404)
+    r = await client.put(
+        f"/guilds/{gid}/devices/{did}/grants",
+        json={"grants": []},
+        headers=_auth(fremd),
+    )
+    assert r.status_code in (403, 404)
+
+
+@pytest.mark.asyncio
+async def test_ersetzen_raeumt_die_alte_liste(client, _auth_signer):
+    besitzer, _ = await _make_token(_auth_signer)
+    _, a_uid = await _make_token(_auth_signer)
+    _, b_uid = await _make_token(_auth_signer)
+    gid = await _guild(client, besitzer, "studio")
+    kanal = await _voice_channel(client, besitzer, gid)
+    did = (
+        await client.post(
+            f"/guilds/{gid}/devices",
+            json={"channel_id": str(kanal), "name": "schnitt-1"},
+            headers=_auth(besitzer),
+        )
+    ).json()["id"]
+
+    await client.put(
+        f"/guilds/{gid}/devices/{did}/grants",
+        json={"grants": [{"subject_type": "user", "subject_id": str(a_uid)}]},
+        headers=_auth(besitzer),
+    )
+    r = await client.put(
+        f"/guilds/{gid}/devices/{did}/grants",
+        json={"grants": [{"subject_type": "user", "subject_id": str(b_uid)}]},
+        headers=_auth(besitzer),
+    )
+    assert [g["subject_id"] for g in r.json()] == [str(b_uid)]
+
+
+@pytest.mark.asyncio
+async def test_unsinnige_freigabe_wird_abgewiesen(client, _auth_signer):
+    besitzer, _ = await _make_token(_auth_signer)
+    gid = await _guild(client, besitzer, "studio")
+    kanal = await _voice_channel(client, besitzer, gid)
+    did = (
+        await client.post(
+            f"/guilds/{gid}/devices",
+            json={"channel_id": str(kanal), "name": "schnitt-1"},
+            headers=_auth(besitzer),
+        )
+    ).json()["id"]
+
+    # Unbekannte Art
+    r = await client.put(
+        f"/guilds/{gid}/devices/{did}/grants",
+        json={"grants": [{"subject_type": "gruppe", "subject_id": "1"}]},
+        headers=_auth(besitzer),
+    )
+    assert r.status_code == 422
+    # user ohne Kennung
+    r = await client.put(
+        f"/guilds/{gid}/devices/{did}/grants",
+        json={"grants": [{"subject_type": "user", "subject_id": None}]},
+        headers=_auth(besitzer),
+    )
+    assert r.status_code == 422
