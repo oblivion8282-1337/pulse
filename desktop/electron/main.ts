@@ -1116,6 +1116,12 @@ const ALLOWED_STORE_KEYS = new Set([
   // ein bewusst wieder gesetztes Intra-Refresh jedes Mal aufs Neue ab. Im
   // Browser fällt das nicht auf, dort trägt der localStorage-Rückfall.
   'remote.standplatzProfilIntraBereinigt',
+  // Merker des einmaligen Umzugs der alten lokalen Standplatz-Freigabeliste
+  // auf den Server (`remote/standplatz.svelte.ts`, seit 2026-08-20 entscheidet
+  // dort `device_grants`, nicht mehr diese Liste). Ohne diesen Schlüssel wird
+  // der Merker verworfen, der Client hält den Umzug bei JEDEM Start erneut für
+  // unerledigt und fragt die Server-Liste jedes Mal wieder ab.
+  'remote.standplatz.umgezogen',
   // HINWEIS: `pulse.host.creds` (③c-Pairing-Credentials) steht BEWUSST NICHT
   // hier. Der Main-Prozess schreibt sie via pairing.ts::saveCreds über einen
   // DIREKTEN storeSet-Aufruf (store.ts kennt keine Allowlist — die gilt nur für
