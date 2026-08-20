@@ -61,7 +61,10 @@ from collections.abc import Callable
 from typing import Any
 
 from fastapi import WebSocket
+from sqlalchemy import select
 
+from dcc_chat_gateway.device_grants import freigaben_lesen, gedeckt
+from dcc_chat_gateway.models import Device, MemberRole
 from dcc_chat_gateway.permissions import Permissions, has_permission, resolve_permissions
 from dcc_chat_gateway.remote_guard import peer_channel_perms
 from dcc_chat_gateway.remote_registry import send_to_socket
@@ -152,6 +155,17 @@ async def _err(websocket: WebSocket, code: int, msg: str, *, audit: bool = False
     await websocket.send_json({"op": "error", "code": code, "msg": msg})
 
 
+async def _rollen_von(session, guild_id: int, user_id: int) -> set[int]:
+    """Die Rollenkennungen, die der Nutzer in dieser Community hält."""
+    treffer = await session.execute(
+        select(MemberRole.role_id).where(
+            MemberRole.guild_id == guild_id,
+            MemberRole.user_id == user_id,
+        )
+    )
+    return set(treffer.scalars())
+
+
 async def handle_request(
     ctx: WSOpContext,
     msg: dict[str, Any],
@@ -206,6 +220,20 @@ async def handle_request(
         if geraet is not None and not await standplatz_stimmt(session, geraet, cid_int):
             await _err(websocket, 4051, "no access")
             return
+        # **Deckt eine Dauerfreigabe diese Anfrage?** Reiner Zusatz zur
+        # Rechteprüfung oben — sie ersetzt niemals VIEW_CHANNEL/REMOTE_CONTROL
+        # oder ``standplatz_stimmt``, sondern spart nur die Rückfrage am
+        # Gerät. Kein Gerät gemeint → kein zusätzlicher Datenbankgriff.
+        freigabe_gilt = False
+        if geraet is not None:
+            device_row = await session.get(Device, geraet)
+            if device_row is not None:
+                rollen = await _rollen_von(session, device_row.guild_id, user.id)
+                freigabe_gilt = gedeckt(
+                    await freigaben_lesen(session, geraet),
+                    anfragender_id=user.id,
+                    rollen=rollen,
+                )
         # Den Host als ``AuthenticatedUser`` aus seiner offenen Verbindung holen,
         # nicht aus der id nachbauen: der Resolver liest ``is_admin``/``is_owner``
         # daraus, und ein nachgebauter Nutzer mit is_admin=False wuerde einem
@@ -287,6 +315,13 @@ async def handle_request(
     # oben schon entschieden.
     if geraet is not None:
         frame["device_id"] = str(geraet)
+        # **Deckt eine Dauerfreigabe diese Anfrage?** Der Gateway rechnet es
+        # aus, weil nur er Rollen auflösen kann — der Client kennt sie
+        # bestenfalls für die gerade geöffnete Community, und eine Anfrage kommt
+        # auch herein, während man woanders steht. Das Gerät ENTSCHEIDET
+        # trotzdem weiter: es antwortet mit einer ganz gewöhnlichen Zustimmung,
+        # nur ohne Dialog. Damit bleibt „Gerät offline = keine Zustimmung".
+        frame["freigabe"] = freigabe_gilt
     # Zeitgeber VOR der Faecherung scharfstellen. Jedes ``send_to_socket``
     # unten ist ein await: antwortet ein Host-Tab mitten in der Faecherung,
     # loeschte der Accept einen Zeitgeber, den es noch gar nicht gab — und der
