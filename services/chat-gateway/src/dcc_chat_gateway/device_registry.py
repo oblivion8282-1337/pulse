@@ -362,15 +362,26 @@ class _DeviceRegistryMixin:
     # ── Meldungen ───────────────────────────────────────────────────────────
 
     async def publish_device_change(
-        self, *, guild_id: int, channel_id: int, device: dict, removed: bool
+        self,
+        *,
+        guild_id: int,
+        channel_id: int,
+        device: dict,
+        removed: bool,
+        moved: bool = False,
     ) -> None:
-        """``device_changed`` an die Community (gefiltert auf den Standplatz)."""
+        """``device_changed`` an die Community (gefiltert auf den Standplatz).
+
+        ``moved`` markiert die Abmeldung an den ALTEN Standplatz beim
+        Umstellen — sonst von einem echten Löschen nicht unterscheidbar
+        (Prüfbefund K-1, 2026-08-20)."""
         await self.publish_guild_event(
             DeviceChangedEvent(
                 guild_id=str(guild_id),
                 channel_id=str(channel_id),
                 device=device,
                 removed=removed,
+                moved=moved,
             )
         )
 
