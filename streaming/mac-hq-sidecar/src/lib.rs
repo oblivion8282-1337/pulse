@@ -14,4 +14,5 @@ pub mod profiles;
 pub mod proto;
 pub mod redact;
 pub mod stream_controller;
+pub mod whip;
 pub mod zeitbasis;
