@@ -13,17 +13,31 @@
 # ad-hoc (`codesign -s -`). That's enough to *run*; Gatekeeper still shows the
 # "unverified developer" prompt on first open (we ship unsigned by choice).
 #
-# Usage: bundle-dylibs.sh <sidecar-binary> <output-dir>
+# Usage: bundle-dylibs.sh <output-dir> <binary> [more-binaries...]
+#
+# More than one binary shares ONE set of dylibs: the player and the sidecar
+# link the same private FFmpeg and both ship in Resources/hq-sidecar/. The
+# dedup below keys on file-existence in OUT, so the second binary finds the
+# first one's dylibs already there and skips copying them. Argument order was
+# <binary> <outdir> until 2026-08-20 — it had to flip for the variadic tail.
 set -euo pipefail
 
-BIN="${1:?usage: bundle-dylibs.sh <binary> <outdir>}"
-OUT="${2:?usage: bundle-dylibs.sh <binary> <outdir>}"
-BINNAME="$(basename "$BIN")"
+OUT="${1:?usage: bundle-dylibs.sh <outdir> <binary> [more...]}"
+shift
+[ "$#" -ge 1 ] || { echo "usage: bundle-dylibs.sh <outdir> <binary> [more...]" >&2; exit 1; }
 
 rm -rf "$OUT"
 mkdir -p "$OUT"
-cp -f "$BIN" "$OUT/$BINNAME"
-chmod u+w "$OUT/$BINNAME"
+
+# Copy every binary in first, then scan them all — a single queue, one dylib set.
+queue=()
+for bin in "$@"; do
+  [ -f "$bin" ] || { echo "not found: $bin" >&2; exit 1; }
+  name="$(basename "$bin")"
+  cp -f "$bin" "$OUT/$name"
+  chmod u+w "$OUT/$name"
+  queue+=("$OUT/$name")
+done
 
 is_system() {
   case "$1" in
@@ -35,7 +49,6 @@ is_system() {
 # Worklist of Mach-O files (inside OUT) to scan. Dedup by file-existence in OUT
 # (a dylib already copied there has been queued too) — keeps this compatible
 # with the macOS system bash 3.2 (no associative arrays).
-queue=("$OUT/$BINNAME")
 i=0
 while [ "$i" -lt "${#queue[@]}" ]; do
   f="${queue[$i]}"; i=$((i + 1))
@@ -61,5 +74,8 @@ for f in "$OUT"/*; do
 done
 
 echo "✓ bundled $(ls "$OUT" | wc -l | tr -d ' ') files into $OUT"
-echo "--- sidecar deps (should be @loader_path / system only) ---"
-otool -L "$OUT/$BINNAME" | tail -n +2 | awk '{print "  "$1}'
+for bin in "$@"; do
+  name="$(basename "$bin")"
+  echo "--- $name deps (should be @loader_path / system only) ---"
+  otool -L "$OUT/$name" | tail -n +2 | awk '{print "  "$1}'
+done
