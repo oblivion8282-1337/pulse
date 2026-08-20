@@ -30,22 +30,14 @@ fn av1_win_gleich_linux() {
     );
 }
 
-/// `zeitbasis.rs` — die RTP-Taktrechnung.
-///
-/// **Die Stelle, an der es schon einmal passiert ist**: am 2026-08-17 liefen
-/// die beiden Fassungen unbemerkt auseinander. Folgenlos nur durch Zufall, weil
-/// es Kommentarzeilen traf. Genau dieser Test haette es gemeldet.
-#[test]
-fn zeitbasis_win_gleich_linux() {
-    let win = include_str!("../../win-hq-sidecar/src/zeitbasis.rs");
-    let linux = include_str!("../../linux-hq-sidecar/src/zeitbasis.rs");
-    assert_eq!(
-        ohne_kommentare(win),
-        ohne_kommentare(linux),
-        "zeitbasis.rs ist in der LOGIK abgewichen. Encoder-Uhr und RTP-Uhr \
-         muessen auf allen Plattformen dieselbe sein."
-    );
-}
+// `zeitbasis.rs` — die RTP-Taktrechnung.
+//
+// War hier bis zum 2026-08-20 ein Zwillingstest (`zeitbasis_win_gleich_linux`,
+// gefunden anlaesslich des Auseinanderlaufens vom 2026-08-17). Win und linux
+// sind seit dem 2026-08-20 beide nur noch ein Re-Export aus der gemeinsamen
+// Crate `streaming/pulse-zeitbasis` — ein Vergleich zweier Einzeiler haette
+// keinen Erkenntniswert mehr. Die eigentliche Logik samt ihrer Tests steht
+// jetzt in `pulse-zeitbasis/src/lib.rs`.
 
 /// `proto.rs` — das stdio-JSON-RPC-Rahmenformat zwischen Electron und Sidecar.
 ///

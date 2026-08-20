@@ -18,6 +18,10 @@ anyhow = "1"
 # Crate. `src/redact.rs` bleibt als Re-Export bestehen (s. dort).
 pulse-redact = { path = "../pulse-redact" }
 
+# RTP-Taktrechnung, seit 2026-08-20 gemeinsam mit linux/mac in einer eigenen
+# Crate. `src/zeitbasis.rs` bleibt als Re-Export bestehen (s. dort).
+pulse-zeitbasis = { path = "../pulse-zeitbasis" }
+
 # Stage 2: DXGI-Adapter-Enum (real `gpu_info` + populates `health.gsr.vendor`).
 # Features kept narrow — only what the adapter walk + COM init needs.
 windows = { version = "0.62", features = [
