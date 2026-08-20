@@ -1,0 +1,24 @@
+[package]
+name = "pulse-whip"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# anyhow und webrtc stehen bereits in allen drei Sidecars in genau diesen
+# Fassungen — es kommt nichts Neues hinzu. pulse-zeitbasis dagegen ist ein
+# Befund aus dieser Etappe, kein Punkt aus der urspruenglichen Planung: av1.rs
+# ruft `crate::zeitbasis::…` auf, und alle drei Sidecars loesen das seit dem
+# 2026-08-20 ueber genau diese Crate (`src/zeitbasis.rs` dort ist nur noch ein
+# Re-Export). Damit `src/av1.rs` wortgleich aus den Sidecars uebernommen
+# werden kann, ohne seinen Inhalt anzufassen, braucht diese Crate denselben
+# Re-Export — siehe `src/zeitbasis.rs`.
+[dependencies]
+anyhow = "1"
+webrtc = "0.17"
+pulse-zeitbasis = { path = "../pulse-zeitbasis" }
+
+# Nur fuer `#[tokio::test]` in sdp.rs — in den Sidecars ist tokio eine
+# vollwertige Abhaengigkeit (dort auch fuer ashpd/das Portal gebraucht), hier
+# nur zum Testen. Version und Feature-Satz aus den Sidecars uebernommen.
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
