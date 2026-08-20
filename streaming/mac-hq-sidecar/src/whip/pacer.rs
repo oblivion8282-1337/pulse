@@ -172,12 +172,10 @@ impl Pacer {
                 ist_us += begonnen.elapsed().as_micros() as u64;
                 if n_bilder % MELDE_ALLE == 0 {
                     let je_bild_ms = |us: u64| format!("{:.2}", us as f64 / MELDE_ALLE as f64 / 1000.0);
-                    tracing::info!(
-                        target: "whip",
-                        soll_ms = je_bild_ms(soll_us),
-                        ist_ms = je_bild_ms(ist_us),
-                        pakete = n,
-                        "Verteilung je Bild"
+                    eprintln!(
+                        "[whip] Verteilung je Bild: soll {} ms, ist {} ms ({n} Pakete)",
+                        je_bild_ms(soll_us),
+                        je_bild_ms(ist_us)
                     );
                     soll_us = 0;
                     ist_us = 0;

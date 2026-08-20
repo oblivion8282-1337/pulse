@@ -288,7 +288,7 @@ impl WhipSender {
                         // ist weg" — dann darf die Schleife enden, sonst
                         // liefe sie heiss.
                         if fehler_am_stueck >= 5 {
-                            tracing::debug!(target: "whip", "RTCP-Lesen beendet: {e}");
+                            eprintln!("[whip] RTCP-Lesen beendet: {e}");
                             break;
                         }
                         tokio::time::sleep(Duration::from_millis(20)).await;
@@ -310,10 +310,7 @@ impl WhipSender {
                         // genau diese Unterscheidung war die Frage. Sie sind
                         // selten genug (rund zehn in 18 s bei 3 % Verlust), als
                         // dass das Log ueberliefe.
-                        tracing::info!(
-                            target: "whip",
-                            "Vollbild angefordert (insgesamt {angefordert})"
-                        );
+                        eprintln!("[whip] Vollbild angefordert (insgesamt {angefordert})");
                     }
                 }
             }
