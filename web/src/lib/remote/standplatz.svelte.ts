@@ -387,12 +387,19 @@ class StandplatzFreigabe {
       await this.#markiereServerUmgezogen(eintrag.serverId);
       return;
     }
+    // **`expires_at: null` — unbefristet** (Fix zu Prüfbefund W-2, 2026-08-20).
+    // Im Altbestand liefen `nutzer`/`jeder` nie ab, nur die Scharfschaltung des
+    // Hauptschalters tat das. `this.#endeIso()` wäre die Frist des Haupt-
+    // schalters gewesen — bei einem aktiven Gerät mit z. B. 8-Stunden-Fenster
+    // wären alle migrierten Freigaben in 8 Stunden verfallen, obwohl der
+    // Server den Umzug längst als erledigt vermerkt und den Altbestand nie
+    // wieder liest. Die Befristung bleibt allein am Hauptschalter.
     const grants: GrantEingabe[] = this.#umzugAltbestand.jeder
-      ? [{ subject_type: 'everyone', subject_id: null, expires_at: this.#endeIso() }]
+      ? [{ subject_type: 'everyone', subject_id: null, expires_at: null }]
       : lokalDiesesServers.map((n) => ({
           subject_type: 'user' as const,
           subject_id: n.userId,
-          expires_at: this.#endeIso(),
+          expires_at: null,
         }));
     try {
       await freigaben.setzen(eintrag.guildId, eintrag.deviceId, grants);
