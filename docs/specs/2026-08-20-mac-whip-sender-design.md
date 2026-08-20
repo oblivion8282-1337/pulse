@@ -68,25 +68,56 @@ und ein eigener AV1-Paketierer, der einen dokumentierten Fehler in webrtc-rs'
 müsste sonst jedes Mal zweimal passieren.
 
 Die Anbindung nach aussen ist schmal: `whip::senke::baue` wird in
-`win-hq-sidecar/src/main.rs:65` als Funktionszeiger übergeben, dazu kommen der
-Typ `SendewegAbgewiesen` (`encode/bildencoder.rs:327`) und `av1::RTP_TAKT_HZ`
-(`zeitbasis.rs:32`).
+`win-hq-sidecar/src/main.rs:64-66` als Funktionszeiger übergeben, dazu kommen
+der Typ `SendewegAbgewiesen` (`encode/bildencoder.rs:327`, ein
+`pub struct SendewegAbgewiesen(pub u16)` — der HTTP-Status, **bewusst ohne die
+URL**, weil dort das Token steht) und `av1::RTP_TAKT_HZ` (`zeitbasis.rs:32`).
+
+Eine Randbedingung, die früh zu klären ist: `win-hq-sidecar` zieht das
+unveränderte `webrtc` 0.17 von crates.io, während `pulse-player` es vendort und
+mit drei Patches versieht. `[patch.crates-io]` wirkt nur im jeweiligen
+Workspace-Root, die beiden sind heute also getrennt. Für den reinen Sendeweg
+bringt der Player-Patch nichts — `pulse-whip` bleibt beim unveränderten
+`webrtc`.
 
 Nach innen greift `whip/` sechsmal in die Sidecar-Crate zurück. Die Extraktion
 löst sie so auf:
 
 | Rückgriff | Auflösung |
 |---|---|
-| `crate::zeitbasis::{VIDEO_HZ, pts_aus_sekunden, takte_je_bild}` | **wandert mit.** `zeitbasis.rs` ist ohnehin schon ein Zwilling mit dem Player — dieser Schritt beseitigt eine bestehende Doppelung, statt eine neue zu schaffen |
-| `crate::encode::senke::{PaketSenke, SenkenAuftrag}` | **wandert mit** und wird die Schnittstelle, über die ein Sidecar Pakete hineinreicht |
-| `crate::redact::secrets` | **wandert mit.** Tokens dürfen nie geloggt werden; die Redaktion gehört an den Code, der die URL kennt |
-| `crate::keyframe::request_keyframe` | **Callback**, vom Sidecar beim Aufbau gestellt |
-| `crate::events::emit` | **Callback** |
-| `crate::remote_input::fern_aktiv` | **Callback** |
+| `crate::encode::senke::{PaketSenke, SenkenAuftrag}` (`senke.rs:20`) | **bleibt im Sidecar** — s. unten, das ist die wichtigste Erkenntnis der Inventur |
+| `crate::zeitbasis::takte_je_bild` (`av1.rs:414`) | **wandert mit** — eine Zeile Ceil-Division; die beiden anderen (`VIDEO_HZ`, `pts_aus_sekunden`) werden nur im Testmodul gebraucht |
+| `crate::redact::secrets` (`mod.rs:441`) | **wandert mit.** Tokens dürfen nie geloggt werden; die Redaktion gehört an den Code, der die URL kennt. `redact.rs:42-44` verbietet ausdrücklich zwei Fassungen |
+| `crate::keyframe::request_keyframe` (`mod.rs:392`) | **Callback** `Arc<dyn Fn() + Send + Sync>`, beim Aufbau gestellt |
+| `crate::events::emit` (`mod.rs:239`) | **Callback** |
+| `crate::remote_input::fern_aktiv` (`pacer.rs:149`) | **`Arc<AtomicBool>`**, an `Pacer::start` durchgereicht |
 
-Die drei Callbacks bilden zusammen den Einhängepunkt der Crate. Für den
-Windows-Sidecar ist das Ergebnis **verhaltensgleich**: reines Verschieben plus
-vier Einhängungen, keine geänderte Logik.
+**Die Korrektur am ursprünglichen Zuschnitt.** Ein früherer Stand dieses
+Entwurfs ließ `PaketSenke`/`SenkenAuftrag` mitwandern. Das geht nicht:
+`whip/senke.rs` ist die **einzige** Datei in `whip/`, die in die Sidecar-Crate
+zurückgreift, und mitgewandert entstünde eine zirkuläre Abhängigkeit
+`pulse-whip` → `win-hq-sidecar`.
+
+Richtig ist der umgekehrte Schnitt: `pulse-whip` kennt nur seinen eigenen
+`WhipSender` (`connect`/`send`/`send_audio`/`close`), und **jeder Sidecar
+schreibt seinen eigenen dünnen Adapter** auf sein `PaketSenke`-Trait. Unter
+Windows ist dieser Adapter das heutige `senke.rs` — 30 Zeilen, die bleiben, wo
+sie sind. Der mac-Sidecar bekommt sein Gegenstück.
+
+Das ist nicht nur zulässig, sondern besser: die Crate weiß dann nichts über die
+Senken-Abstraktion irgendeines Sidecars, und beide Seiten können ihre eigene
+behalten.
+
+**Der Einhängepunkt existiert bereits.** `encode/senke.rs:104-112` führt
+`pub type SenkenBauer = fn(&SenkenAuftrag) -> Result<Box<dyn PaketSenke>>` und
+`registriere_senken_bauer()`; `main.rs:64-66` meldet dort den Funktionszeiger
+an. Ein Test (`ohne_anmeldung_geht_alles_ueber_den_muxer`) hält fest, dass die
+Anmeldung im Binary steht und nicht in `lib.rs`. Der mac-Sidecar kann dasselbe
+Muster übernehmen, statt eines zu erfinden.
+
+Für den Windows-Sidecar ist das Ergebnis **verhaltensgleich**: `whip/` wandert
+bis auf `senke.rs` aus, und es entstehen drei Einhängungen. Keine geänderte
+Logik.
 
 Nachzuziehen sind die Bauwege — die Flatpak-Manifeste rechnen mit
 selbsttragenden Crates (`packaging/*-cargo-sources.json`, Cargo baut dort
