@@ -159,8 +159,12 @@
                 {m.standplatz_settings_duration_permanent()}
               {:else if rest === 'abgelaufen'}
                 {m.device_grants_expired()}
+              {:else if rest.einheit === 'minuten'}
+                {m.standplatz_rest_minutes({ count: rest.anzahl })}
+              {:else if rest.einheit === 'stunden'}
+                {m.standplatz_rest_hours({ count: rest.anzahl })}
               {:else}
-                {rest}
+                {m.standplatz_rest_days({ count: rest.anzahl })}
               {/if}
             </span>
           </div>
