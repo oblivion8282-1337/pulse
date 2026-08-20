@@ -39,6 +39,11 @@
 //! jedes ausgelassene Bild (verspaeteter Takt, EAGAIN-Verwurf) verschob die
 //! Video-Uhr dauerhaft gegen Wanduhr und Ton. Fuer AV1 war genau das am
 //! 2026-08-03 behoben worden; H.264 zieht hiermit nach.
+//!
+//! **Und das ist jetzt der einzige Schutz.** Seit `av1.rs` und `sdp.rs` am
+//! 2026-08-20 gemeinsam in `pulse-whip` liegen, sind `mod.rs` und `pacer.rs`
+//! die beiden LETZTEN Dateien des Sendewegs, die noch je Plattform doppelt
+//! vorliegen — und kein Test haelt sie zusammen.
 
 pub mod av1;
 mod pacer;

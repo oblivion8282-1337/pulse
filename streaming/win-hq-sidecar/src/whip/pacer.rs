@@ -57,6 +57,18 @@
 //! Die variable Bildgroesse (gemessen 1 bis 12 Pakete) steckt damit von
 //! selbst im Zuschnitt: wenige Pakete → wenige oder gar keine Gruppen, grosse
 //! Bilder → mehr Gruppen im selben Fenster.
+//!
+//! **Die Linux/Mac-Schwester weicht bewusst ab** (`linux-hq-sidecar/src/whip/
+//! pacer.rs`, dort und in `mac-hq-sidecar` am 2026-07-28 nach eigener
+//! Leitungsmessung gebaut): gleiches Prinzip, anderer Zuschnitt (dort fester
+//! `GRUPPEN_ABSTAND`, hier `zuschnitt` mit Fenster/Gruppen-Teilung nach
+//! Paketzahl). Welcher Zuschnitt besser ist, ist nicht gemessen. Wer einen
+//! Pacer-Fehler behebt, sieht sich BEIDE an.
+//!
+//! **Kein Test haelt die beiden zusammen.** Seit `av1.rs` und `sdp.rs` am
+//! 2026-08-20 gemeinsam in `pulse-whip` liegen, sind `pacer.rs` und `mod.rs`
+//! die beiden LETZTEN doppelt vorliegenden Dateien des Sendewegs. Der Pacer
+//! bleibt dabei absichtlich doppelt — s. oben.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};

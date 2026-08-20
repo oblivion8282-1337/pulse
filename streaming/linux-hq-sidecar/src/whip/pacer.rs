@@ -51,6 +51,13 @@
 //! gleiches Prinzip, anderer Zuschnitt (dort `zuschnitt` mit Fenster/Gruppen-
 //! Teilung, hier fester [`GRUPPEN_ABSTAND`] — kuerzeres Fenster fuer kleine
 //! Bilder). Wer einen Pacer-Fehler behebt, sieht sich BEIDE an.
+//!
+//! **Kein Test haelt die beiden zusammen.** Seit `av1.rs` und `sdp.rs` am
+//! 2026-08-20 gemeinsam in `pulse-whip` liegen, sind `pacer.rs` und `mod.rs`
+//! die beiden LETZTEN doppelt vorliegenden Dateien des Sendewegs. Der
+//! Pacer ist dabei der Sonderfall, der auch kuenftig doppelt bleibt: die
+//! Windows-Fassung weicht absichtlich ab (s. oben), und welcher Zuschnitt
+//! besser ist, ist nicht gemessen.
 
 use std::sync::Arc;
 use std::time::Duration;
