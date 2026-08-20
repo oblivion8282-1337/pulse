@@ -89,7 +89,7 @@ Windows ist der einzige Rechner, auf dem **beide** Etappen zusammentreffen: Der 
 cd streaming\win-hq-labor; cargo check
 ```
 
-Es zieht den Sidecar als Bibliothek und ist damit der Nutzer, der bei Sichtbarkeits-Fehlern zuerst umfällt — genau der Punkt, an dem sieben Symbole erweitert wurden.
+Es zieht den Sidecar als Bibliothek und ist damit der Nutzer, der bei Sichtbarkeits-Fehlern zuerst umfällt — genau der Punkt, an dem sieben Symbole erweitert wurden. Auch `streaming/win-hq-labor/Cargo.lock` ist getrackt und kennt die vier Kisten noch nicht — separat von `win-hq-sidecar/Cargo.lock` mitcommitten und melden.
 
 ### 3. Ein echter Stream, und zwar mit Fernsteuerung
 
@@ -107,7 +107,7 @@ Der Prüfstein `streaming/zeigerbild-formen.json` ist unangetastet geblieben; di
 Von beiden Maschinen:
 
 1. **Testausgabe im Wortlaut** (Ergebniszeile genügt).
-2. **Hast du `Cargo.lock` mitcommittet?**
+2. **Hast du `Cargo.lock` mitcommittet?** (Windows: sowohl `win-hq-sidecar/Cargo.lock` als auch `win-hq-labor/Cargo.lock`.)
 3. **Kam beim Zuschauer ein AV1-Bild?**
 
 Linux zusätzlich: **baut der Flatpak, und liegen BEIDE Binärdateien?**

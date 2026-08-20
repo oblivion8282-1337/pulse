@@ -82,7 +82,7 @@ Auch hier ist `Cargo.lock` getrackt und kennt die neuen Kisten noch nicht — ge
 cd streaming\win-hq-labor; cargo check
 ```
 
-Bricht das, ist die Weiterleitung falsch aufgesetzt.
+Bricht das, ist die Weiterleitung falsch aufgesetzt. Auch `streaming/win-hq-labor/Cargo.lock` ist getrackt und kennt die neue Kiste noch nicht — ebenfalls mitcommitten und melden (leicht zu übersehen, weil es ein zweites `Cargo.lock` neben dem des Sidecars ist).
 
 ### 3. Ein echter Stream, mit Blick ins Protokoll
 
@@ -95,7 +95,7 @@ Wie auf Linux. **Zusätzlich hier interessant**, weil es die Verhaltensänderung
 Von beiden Maschinen:
 
 1. **Testausgabe im Wortlaut** (`cargo test`, die Ergebniszeile genügt).
-2. **Hast du `Cargo.lock` mitcommittet?**
+2. **Hast du `Cargo.lock` mitcommittet?** (Windows: sowohl `win-hq-sidecar/Cargo.lock` als auch `win-hq-labor/Cargo.lock`.)
 3. **Das Ergebnis der Protokoll-Prüfung.** Nicht „sah gut aus", sondern: Wo hast du nachgesehen, und stand irgendwo ein Schlüssel?
 4. Windows zusätzlich: **baut das Labor?**
 5. Linux zusätzlich: **baut der Flatpak, und liegt das Binary am erwarteten Pfad?**

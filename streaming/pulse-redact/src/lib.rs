@@ -28,6 +28,15 @@
 //! SRT-Streamid nur das letzte Segment statt alles ab `publish:`). Bleibt
 //! trotzdem eigenstaendig: der Python-Sidecar hat keine Rust-Abhaengigkeiten
 //! und soll keine bekommen.
+//!
+//! **Reichweite: dies ist der EINZIGE Filter zwischen einer Push-URL und
+//! allem, was ein Sidecar hinausschreibt** — Antworten, Events, den eigenen
+//! Sendeweg eingeschlossen. Wer diese Funktion anfasst, misst sich an dieser
+//! Reichweite. Sie trifft ausserdem nur die drei unten genannten Praefixe;
+//! eine URL mit einem Token unter anderem Namen geht ungefiltert durch.
+//! **Kommt ein vierter Sendeweg dazu, gehoert sein Praefix hier in die Liste
+//! nachgetragen** (`["pass=", "token=", "streamid=publish:"]` in
+//! `redact_url`) — sonst faengt die Maskierung ihn nicht.
 
 /// Endet der Key-Wert an diesem Zeichen?
 ///

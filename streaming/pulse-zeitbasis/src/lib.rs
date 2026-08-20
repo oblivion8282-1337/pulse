@@ -34,7 +34,9 @@
 //!
 //! Weil es die Uhr ist, die am Ende der Leitung ohnehin zaehlt: RTP fuehrt
 //! Video seit jeher mit 90 kHz, und der Wert wird im SDP als `clock_rate`
-//! angemeldet ([`crate::whip::av1::RTP_TAKT_HZ`]). Encoder- und RTP-Zeitbasis
+//! angemeldet (`pulse_whip::av1::RTP_TAKT_HZ` — diese Crate hat keine
+//! Abhaengigkeiten, deshalb kein anklickbarer Intra-Doc-Link ueber die
+//! Crate-Grenze). Encoder- und RTP-Zeitbasis
 //! gleichzusetzen macht die Umrechnung im Sendeweg zur Identitaet — und eine
 //! Umrechnung, die es nicht gibt, kann auch nicht falsch runden. Auf dem
 //! Muxer-Weg (RTMPS/Datei) rechnet FFmpeg selbst nach `stream_time_base` um;

@@ -519,7 +519,7 @@ nehmen die jeweils aktuelle stabile Fassung.
 
 ```
 cd streaming/pulse-player
-cargo test          # 326 Tests, keine Hardware noetig
+cargo test          # 381 Tests gruen, 6 ignoriert (Stand 2026-08-20), keine Hardware noetig
 cargo build --release
 ```
 

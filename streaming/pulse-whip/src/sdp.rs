@@ -5,7 +5,8 @@
 //! Pufferabmessungen ab und entscheidet, ob er annehmen kann — eine falsche
 //! Angabe faellt deshalb nicht beim Bauen auf, sondern beim Zuschauer.
 //!
-//! **Die Zusage muss auch hinauskommen — dafuer gibt es [`register_codecs`].**
+//! **Die Zusage muss auch hinauskommen — dafuer gibt es `register_codecs`**
+//! (crate-intern, deshalb kein anklickbarer Link in dieser oeffentlichen Doku).
 //! Bis 2026-08-12 rechnete diese Datei die H.264-Stufe sorgfaeltig aus, und
 //! `whip/mod.rs` rief zwei Zeilen spaeter `register_default_codecs()`. Im
 //! Angebot stand dann die Vorgabeliste von webrtc-rs, nicht unser Wert: 1440p60
@@ -98,7 +99,7 @@ fn h264_stufe(breite: u32, hoehe: u32, fps: u32) -> u8 {
 
 /// Fassung fuer den Codec, wie sie im Angebot steht.
 ///
-/// Dieselbe Fassung geht an [`register_codecs`] UND an die Spur. Das ist kein
+/// Dieselbe Fassung geht an `register_codecs` (crate-intern) UND an die Spur. Das ist kein
 /// Zufall, sondern die Absicherung: die Spur findet ihren Codec beim Binden nur
 /// ueber einen Vergleich von MIME-Typ und fmtp-Zeile
 /// (`codec_parameters_fuzzy_search`), und ein Unterschied zwischen dem
@@ -217,7 +218,8 @@ pub fn baue_api(
 }
 
 /// Fassung fuer die Tonspur — immer Opus, der Ton-Encoder kennt nichts anderes
-/// (s. [`crate::encode::audio`]).
+/// (s. `encode::audio` — plattformeigen je Sidecar, liegt nicht in dieser
+/// Crate, deshalb kein anklickbarer Intra-Doc-Link).
 pub fn opus_capability() -> RTCRtpCodecCapability {
     RTCRtpCodecCapability {
         mime_type: MIME_TYPE_OPUS.to_owned(),
