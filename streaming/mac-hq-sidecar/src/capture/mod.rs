@@ -17,6 +17,8 @@
 //! are conservative. [`AssumeSend`] wraps a `Retained<_>` we move between the
 //! query thread and the worker thread; this is sound for SCK objects.
 
+mod filter;
+
 use std::sync::mpsc::{Sender, channel};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -38,10 +40,10 @@ unsafe extern "C" {
 }
 use objc2_core_foundation::CFRetained;
 use objc2_core_video::{CVImageBuffer, CVPixelBufferGetHeight, CVPixelBufferGetWidth};
-use objc2_foundation::{NSArray, NSError, NSObject, NSObjectProtocol};
+use objc2_foundation::{NSError, NSObject, NSObjectProtocol};
 use objc2_screen_capture_kit::{
-    SCContentFilter, SCDisplay, SCRunningApplication, SCShareableContent, SCStream,
-    SCStreamConfiguration, SCStreamOutput, SCStreamOutputType, SCWindow,
+    SCDisplay, SCRunningApplication, SCShareableContent, SCStream, SCStreamConfiguration,
+    SCStreamOutput, SCStreamOutputType, SCWindow,
 };
 
 // The sidecar's parent process is the Electron ("Pulse") main process (it
@@ -320,8 +322,11 @@ fn pick_display(content: &SCShareableContent, display_index: usize) -> Result<Re
 
 // ── Frame-output delegate (SCStreamOutput) ───────────────────────────────────
 
+/// Beide Kanaele sind optional, weil seit dem 2026-08-20 zwei Streams laufen:
+/// der Bild-Stream traegt nur Bild, der Ton-Stream nur Ton. Ein Wegwerf-Kanal
+/// fuer die jeweils andere Haelfte waere eine Falle — niemand leerte ihn.
 struct OutputIvars {
-    video_tx: Mutex<Sender<Frame>>,
+    video_tx: Mutex<Option<Sender<Frame>>>,
     audio_tx: Mutex<Option<Sender<AudioFrame>>>,
 }
 
@@ -355,7 +360,10 @@ define_class!(
 );
 
 impl FrameOutput {
-    fn new(video_tx: Sender<Frame>, audio_tx: Option<Sender<AudioFrame>>) -> Retained<Self> {
+    fn new(
+        video_tx: Option<Sender<Frame>>,
+        audio_tx: Option<Sender<AudioFrame>>,
+    ) -> Retained<Self> {
         let this = Self::alloc().set_ivars(OutputIvars {
             video_tx: Mutex::new(video_tx),
             audio_tx: Mutex::new(audio_tx),
@@ -381,7 +389,9 @@ impl FrameOutput {
             pixel_buffer: SendPixelBuffer(image_buffer),
         };
         if let Ok(tx) = self.ivars().video_tx.lock() {
-            let _ = tx.send(frame);
+            if let Some(tx) = tx.as_ref() {
+                let _ = tx.send(frame);
+            }
         }
     }
 
@@ -473,9 +483,17 @@ fn interleave_audio(buffers: &[AudioBuffer; 2], n: usize) -> Vec<f32> {
 
 /// A running ScreenCaptureKit session for one display. Keeps the stream + output
 /// delegate alive; frames arrive on the `Sender<Frame>` passed to [`start`].
+///
+/// **Zwei Streams seit dem 2026-08-20, nicht einer.** SCK schneidet Bild und
+/// Ton mit demselben Inhaltsfilter zu; ein einzelner Stream kann daher nicht
+/// "ganzer Monitor im Bild, aber nur Safari im Ton". Die Begruendung samt der
+/// zwei Fehler, die daraus entstanden waren, steht in [`filter`]. Der Ton-Stream
+/// existiert nur, wenn Ton gewuenscht ist.
 pub struct Capturer {
     stream: AssumeSend<Retained<SCStream>>,
     _output: AssumeSend<Retained<FrameOutput>>,
+    ton_stream: Option<AssumeSend<Retained<SCStream>>>,
+    _ton_output: Option<AssumeSend<Retained<FrameOutput>>>,
 }
 
 // SAFETY: SCStream operations are thread-safe; see the module note.
@@ -497,71 +515,22 @@ impl Capturer {
     ) -> Result<Self> {
         let want_audio = audio_tx.is_some();
         let content = shareable_content()?;
-        let empty_windows: Retained<NSArray<SCWindow>> = NSArray::new();
 
-        // The SCK content filter scopes video AND audio together, so the audio
-        // mode also shapes what's captured visually:
-        //   - explicit window  → just that window (initWithDesktopIndependentWindow)
-        //   - App(x)           → only app x's windows + audio (includingApplications)
-        //   - Desktop{exclude} → whole display minus Pulse (echo) + excluded apps
-        //                        from both video and audio (excludingApplications)
-        //   - None             → whole display, nothing excluded
-        let filter = if let Some(wid) = window_id {
-            let window = find_window(&content, wid)
-                .ok_or_else(|| anyhow!("Fenster {wid} nicht gefunden (geschlossen?)"))?;
-            unsafe {
-                SCContentFilter::initWithDesktopIndependentWindow(
-                    SCContentFilter::alloc(),
-                    &window,
-                )
-            }
-        } else if let AudioScope::App(app_name) = &audio_scope {
-            let apps = resolve_applications(&content, std::slice::from_ref(app_name), None);
-            if apps.is_empty() {
-                return Err(anyhow!("App '{app_name}' nicht gefunden (läuft sie?)"));
-            }
-            let arr = NSArray::from_retained_slice(&apps);
-            let display = pick_display(&content, display_index)?;
-            unsafe {
-                SCContentFilter::initWithDisplay_includingApplications_exceptingWindows(
-                    SCContentFilter::alloc(),
-                    &display,
-                    &arr,
-                    &empty_windows,
-                )
-            }
+        // Bild und Ton bekommen je einen EIGENEN Filter und einen eigenen
+        // Stream. Warum das noetig ist — und welche zwei Fehler die fruehere
+        // gemeinsame Loesung hatte — steht ausfuehrlich in `filter.rs`.
+        let bild = filter::bild_filter(&content, display_index, window_id)?;
+
+        // Pulse (der Electron-Elternprozess) wird nur beim Ton ausgeschlossen,
+        // gegen Echo. Im BILD bleibt es sichtbar.
+        let pulse_pid = if want_audio { Some(unsafe { getppid() }) } else { None };
+        let ton = if want_audio {
+            filter::ton_filter(&content, display_index, &audio_scope, pulse_pid)?
         } else {
-            let display = pick_display(&content, display_index)?;
-            let excludes: &[String] = match &audio_scope {
-                AudioScope::Desktop { exclude } => exclude,
-                _ => &[],
-            };
-            // Always also exclude Pulse itself (the Electron parent process) so
-            // the streamer's voice channel isn't recaptured → no echo.
-            let pulse_pid = if want_audio { Some(unsafe { getppid() }) } else { None };
-            let apps = resolve_applications(&content, excludes, pulse_pid);
-            if apps.is_empty() {
-                unsafe {
-                    SCContentFilter::initWithDisplay_excludingWindows(
-                        SCContentFilter::alloc(),
-                        &display,
-                        &empty_windows,
-                    )
-                }
-            } else {
-                let arr = NSArray::from_retained_slice(&apps);
-                unsafe {
-                    SCContentFilter::initWithDisplay_excludingApplications_exceptingWindows(
-                        SCContentFilter::alloc(),
-                        &display,
-                        &arr,
-                        &empty_windows,
-                    )
-                }
-            }
+            None
         };
 
-        // Stream configuration.
+        // ── Bild-Stream ──────────────────────────────────────────────────────
         let config = unsafe { SCStreamConfiguration::new() };
         unsafe {
             config.setWidth(width);
@@ -575,87 +544,164 @@ impl Capturer {
             config.setPixelFormat(PIXEL_FORMAT_BGRA);
             config.setShowsCursor(show_cursor);
             config.setQueueDepth(6);
-            if want_audio {
-                config.setCapturesAudio(true);
-                config.setSampleRate(48_000);
-                config.setChannelCount(2);
-                // Don't capture Pulse's own playback (other voice participants)
-                // back into the stream → no echo.
-                config.setExcludesCurrentProcessAudio(true);
-            }
+            // Bewusst KEINE Audio-Einstellungen: dieser Stream traegt nur Bild.
         }
 
-        let output = FrameOutput::new(tx, audio_tx);
-
-        // SCStreamDelegate omitted (None) for now — didStopWithError lands with
-        // the StreamController wiring.
+        let output = FrameOutput::new(Some(tx), None);
         let stream = unsafe {
-            SCStream::initWithFilter_configuration_delegate(SCStream::alloc(), &filter, &config, None)
+            SCStream::initWithFilter_configuration_delegate(SCStream::alloc(), &bild, &config, None)
         };
-
-        let output_proto = ProtocolObject::from_ref(&*output);
         unsafe {
             stream
                 .addStreamOutput_type_sampleHandlerQueue_error(
-                    output_proto,
+                    ProtocolObject::from_ref(&*output),
                     SCStreamOutputType::Screen,
                     None,
                 )
                 .map_err(|e| anyhow!("addStreamOutput(video) failed: {}", e.localizedDescription()))?;
-            if want_audio {
-                stream
-                    .addStreamOutput_type_sampleHandlerQueue_error(
-                        output_proto,
-                        SCStreamOutputType::Audio,
-                        None,
-                    )
-                    .map_err(|e| {
-                        anyhow!("addStreamOutput(audio) failed: {}", e.localizedDescription())
-                    })?;
-            }
         }
 
-        // Start capture and block until the start completes (or errors).
-        let (start_tx, start_rx) = channel::<Result<(), String>>();
-        let start_tx = Mutex::new(Some(start_tx));
-        let start_handler = RcBlock::new(move |error: *mut NSError| {
-            let res = unsafe {
-                match error.as_ref() {
-                    Some(err) => Err(err.localizedDescription().to_string()),
-                    None => Ok(()),
+        // ── Ton-Stream (nur wenn Ton gewuenscht) ─────────────────────────────
+        let ton_teile = match (ton, audio_tx) {
+            (Some(ton_filter), Some(audio_tx)) => {
+                let ton_config = unsafe { SCStreamConfiguration::new() };
+                unsafe {
+                    // 2x2 bei einem Bild je Sekunde ist KEIN Versehen: SCK
+                    // verlangt eine Bildkonfiguration, auch wenn niemand die
+                    // Bilder abholt (unten wird nur der Audio-Output
+                    // registriert). Die echte Aufloesung hier einzutragen
+                    // hiesse, denselben Bildschirm ein zweites Mal zu
+                    // skalieren, ohne dass ein einziges Bild gebraucht wird.
+                    ton_config.setWidth(2);
+                    ton_config.setHeight(2);
+                    ton_config.setMinimumFrameInterval(CMTime {
+                        value: 1,
+                        timescale: 1,
+                        flags: objc2_core_media::CMTimeFlags::Valid,
+                        epoch: 0,
+                    });
+                    ton_config.setQueueDepth(3);
+                    ton_config.setCapturesAudio(true);
+                    ton_config.setSampleRate(48_000);
+                    ton_config.setChannelCount(2);
+                    // Schliesst den Sidecar-Prozess selbst aus. Pulse/Electron
+                    // ist ein ANDERER Prozess und wird ueber den Filter
+                    // ausgeschlossen (s. `pulse_pid` oben).
+                    ton_config.setExcludesCurrentProcessAudio(true);
                 }
-            };
-            if let Ok(mut g) = start_tx.lock() {
-                if let Some(t) = g.take() {
-                    let _ = t.send(res);
+
+                let ton_output = FrameOutput::new(None, Some(audio_tx));
+                let ton_stream = unsafe {
+                    SCStream::initWithFilter_configuration_delegate(
+                        SCStream::alloc(),
+                        &ton_filter,
+                        &ton_config,
+                        None,
+                    )
+                };
+                unsafe {
+                    ton_stream
+                        .addStreamOutput_type_sampleHandlerQueue_error(
+                            ProtocolObject::from_ref(&*ton_output),
+                            SCStreamOutputType::Audio,
+                            None,
+                        )
+                        .map_err(|e| {
+                            anyhow!("addStreamOutput(audio) failed: {}", e.localizedDescription())
+                        })?;
                 }
+                Some((ton_stream, ton_output))
             }
-        });
-        unsafe { stream.startCaptureWithCompletionHandler(Some(&start_handler)) };
-        match start_rx.recv_timeout(Duration::from_secs(10)) {
-            Ok(Ok(())) => {}
-            Ok(Err(msg)) => return Err(anyhow!("startCapture failed: {msg}")),
-            Err(_) => return Err(anyhow!("startCapture timed out")),
-        }
+            _ => None,
+        };
+
+        // ── Beide starten ────────────────────────────────────────────────────
+        starte_stream(&stream).map_err(|e| anyhow!("startCapture(Bild) {e}"))?;
+
+        let ton_teile = match ton_teile {
+            Some((ton_stream, ton_output)) => {
+                if let Err(e) = starte_stream(&ton_stream) {
+                    // Der Bild-Stream laeuft bereits. Ihn hier NICHT zu
+                    // stoppen hinterliesse eine herrenlose Bildschirmaufnahme
+                    // — und macOS liefert danach unter Umstaenden gar keine
+                    // Aufnahmequellen mehr (am 2026-08-20 genau so erlebt).
+                    stoppe_stream(&stream);
+                    return Err(anyhow!("startCapture(Ton) {e}"));
+                }
+                Some((ton_stream, ton_output))
+            }
+            None => None,
+        };
+
+        let (ton_stream, ton_output) = match ton_teile {
+            Some((s, o)) => (Some(AssumeSend(s)), Some(AssumeSend(o))),
+            None => (None, None),
+        };
 
         Ok(Self {
             stream: AssumeSend(stream),
             _output: AssumeSend(output),
+            ton_stream,
+            _ton_output: ton_output,
         })
     }
 
     /// Stop the capture session (blocks until stopped, best-effort).
+    ///
+    /// Stoppt BEIDE Streams. Der Ton-Stream zuerst, damit nicht noch Ton
+    /// hereinkommt, waehrend das Bild schon steht — und in jedem Fall auch der
+    /// Bild-Stream, selbst wenn der erste haengt: eine zurueckgelassene
+    /// Bildschirmaufnahme kann die naechste Sitzung blockieren.
     pub fn stop(&self) {
-        let (tx, rx) = channel::<()>();
-        let tx = Mutex::new(Some(tx));
-        let handler = RcBlock::new(move |_error: *mut NSError| {
-            if let Ok(mut g) = tx.lock() {
-                if let Some(t) = g.take() {
-                    let _ = t.send(());
-                }
-            }
-        });
-        unsafe { self.stream.0.stopCaptureWithCompletionHandler(Some(&handler)) };
-        let _ = rx.recv_timeout(Duration::from_secs(5));
+        if let Some(ton) = &self.ton_stream {
+            stoppe_stream(&ton.0);
+        }
+        stoppe_stream(&self.stream.0);
     }
+}
+
+/// Startet einen Stream und wartet, bis SCK den Erfolg meldet.
+///
+/// Ohne das Warten liefe der Aufrufer weiter, waehrend die Aufnahme noch gar
+/// nicht steht — ein Fehlschlag kaeme dann erst viel spaeter und ohne Bezug
+/// zur Ursache an.
+fn starte_stream(stream: &SCStream) -> Result<(), String> {
+    let (tx, rx) = channel::<Result<(), String>>();
+    let tx = Mutex::new(Some(tx));
+    let handler = RcBlock::new(move |error: *mut NSError| {
+        let res = unsafe {
+            match error.as_ref() {
+                Some(err) => Err(err.localizedDescription().to_string()),
+                None => Ok(()),
+            }
+        };
+        if let Ok(mut g) = tx.lock() {
+            if let Some(t) = g.take() {
+                let _ = t.send(res);
+            }
+        }
+    });
+    unsafe { stream.startCaptureWithCompletionHandler(Some(&handler)) };
+    match rx.recv_timeout(Duration::from_secs(10)) {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(msg)) => Err(format!("failed: {msg}")),
+        Err(_) => Err("timed out".to_string()),
+    }
+}
+
+/// Stoppt einen Stream, bestmoeglich. Fehler werden geschluckt — beim Abbau
+/// gibt es nichts mehr zu retten, und ein `?` hier liesse den zweiten Stream
+/// stehen.
+fn stoppe_stream(stream: &SCStream) {
+    let (tx, rx) = channel::<()>();
+    let tx = Mutex::new(Some(tx));
+    let handler = RcBlock::new(move |_error: *mut NSError| {
+        if let Ok(mut g) = tx.lock() {
+            if let Some(t) = g.take() {
+                let _ = t.send(());
+            }
+        }
+    });
+    unsafe { stream.stopCaptureWithCompletionHandler(Some(&handler)) };
+    let _ = rx.recv_timeout(Duration::from_secs(5));
 }
