@@ -52,11 +52,27 @@ First run pulls runtimes (`org.freedesktop.{Platform,Sdk}//24.08`, `org.electron
 
 The packaged app is published to a signed OSTree repo served at
 `https://howispulse.com/flatpak/` (on the netcup VPS that serves the cloud —
-since the move on 2026-05-28; behind the existing Caddy → `pulse_web` nginx). A friend installs once from there and gets new builds
-via `flatpak update` (GNOME Software / KDE Discover also auto-update Flatpaks in the
-background). Remember: **web-only changes need no new Flatpak** — the app loads
-`howispulse.com` remotely; only native changes (electron `main`/`preload`,
-the Python sidecar, the GSR binary) need a rebuild + republish.
+since the move on 2026-05-28; behind the existing Caddy → `pulse_web` nginx). A
+friend installs once from there and gets new builds via `flatpak update` (GNOME
+Software / KDE Discover also auto-update Flatpaks in the background).
+
+Remember: **web-only changes need no new Flatpak** — the app loads
+`howispulse.com` remotely. Only what is actually bundled needs a rebuild +
+republish, and the authoritative list is the `paths:` filter in
+`.github/workflows/flatpak.yml` — do not reproduce it from memory, read it:
+
+- `desktop/electron/**`, `desktop/package.json` — the Electron bundle
+- `streaming/linux-hq-sidecar/**` — the **Rust** sidecar, the default on Linux
+  since 2026-07-17
+- `streaming/gsr-sidecar/**`, `streaming/patches/**` — the Python/GSR sidecar,
+  still shipped as the fallback when the Rust binary is missing
+- `streaming/pulse-player/**` — the player
+- `streaming/ffmpeg-patches/**` — patched into the bundled FFmpeg
+- `packaging/*-cargo-sources.json` — the offline Cargo manifests for both Rust
+  crates; a `Cargo.lock` change means regenerating these, or the Flatpak build
+  fails offline
+- the manifest and its assets (`com.howispulse.Pulse.yml`, `launcher.sh`,
+  `.desktop`, `.metainfo.xml`, `.svg`)
 
 ### One-time setup
 1. **Signing key** (so the friend doesn't need `--no-gpg-verify`):
