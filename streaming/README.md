@@ -151,17 +151,18 @@ Voice-Channel:
   `MEDIAMTX_PUSH_PROTOCOL`): Default `rtmp` → `rtmps://<host>:1936/...`-URL.
   App-gehostete Instanzen minten für Gäste `whip` →
   `https://<host>/whep/<pfad>/whip?token=…` (WebRTC-Ingest, locht NAT wie
-  WHEP; Owner bleibt RTMPS). **Linux- und Windows-Sidecar fahren `http(s)://`
-  über einen EIGENEN WebRTC-Sendeweg** (`src/whip/`, webrtc-rs) statt über
-  ffmpegs Muxer — AV1 geht dort direkt, ein H.264-Rückfall entfällt. Eine
-  `TrackLocalStaticRTP` trägt beide Codecs: AV1 zerlegt ein eigener Paketierer
-  (webrtc-rs' `Av1Payloader` schreibt Längenfelder ab 128 falsch), H.264
-  webrtc-rs' `H264Payloader` — **beide stempeln seit 2026-08-14 selbst aus dem
-  Encoder-`pts`** (bis dahin lief H.264 als Sample-Spur mit aus fester
-  Bilddauer hochgezählter Zeit, was bei jedem ausgelassenen Bild die Video-Uhr
-  verschob). Der **macOS**-Sidecar kann WHIP nur über ffmpegs Muxer, also
-  weiterhin mit AV1→H.264-Rückfall; der Python-GSR-Sidecar kann kein WHIP.
-  Plan: `docs/plans/2026-07-12-whip-guest-publish.md`.
+  WHEP; Owner bleibt RTMPS). **Alle drei Rust-Sidecars (Linux, Windows, seit
+  2026-08-20 auch macOS) fahren `http(s)://` über einen EIGENEN
+  WebRTC-Sendeweg** (`src/whip/mod.rs`+`pacer.rs` plattformeigen; der
+  AV1/SDP-Teil liegt seit 2026-08-20 gemeinsam in `streaming/pulse-whip`,
+  webrtc-rs) statt über ffmpegs Muxer — AV1 geht dort direkt, ein
+  H.264-Rückfall entfällt. Eine `TrackLocalStaticRTP` trägt beide Codecs: AV1
+  zerlegt ein eigener Paketierer (webrtc-rs' `Av1Payloader` schreibt
+  Längenfelder ab 128 falsch), H.264 webrtc-rs' `H264Payloader` — **beide
+  stempeln seit 2026-08-14 selbst aus dem Encoder-`pts`** (bis dahin lief
+  H.264 als Sample-Spur mit aus fester Bilddauer hochgezählter Zeit, was bei
+  jedem ausgelassenen Bild die Video-Uhr verschob). Der Python-GSR-Sidecar
+  kann kein WHIP. Plan: `docs/plans/2026-07-12-whip-guest-publish.md`.
   - **Die AV1-Sperre liegt an ffmpegs Muxer, nicht an WHIP** (nachgeprüft
     2026-07-28, damit es niemand aus dem Satz oben falsch schließt): `whip.c`
     trägt `.p.video_codec = AV_CODEC_ID_H264` und genau einen Payload-Typ (106),
