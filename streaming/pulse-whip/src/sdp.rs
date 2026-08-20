@@ -103,7 +103,7 @@ fn h264_stufe(breite: u32, hoehe: u32, fps: u32) -> u8 {
 /// ueber einen Vergleich von MIME-Typ und fmtp-Zeile
 /// (`codec_parameters_fuzzy_search`), und ein Unterschied zwischen dem
 /// Angemeldeten und dem Angebotenen faellt sonst erst am Zuschauer auf.
-pub(super) fn codec_capability(
+pub fn codec_capability(
     codec: &str,
     breite: u32,
     hoehe: u32,
@@ -202,7 +202,7 @@ pub(super) fn register_codecs(
 /// Angebots entscheidet: was in der Media-Engine steht, steht im SDP. Der Test
 /// am Ende dieser Datei kommt so an dieselbe Funktion wie der Betrieb — sonst
 /// pruefte er einen Nachbau und nicht den Weg.
-pub(super) fn baue_api(
+pub fn baue_api(
     video: &RTCRtpCodecCapability,
     audio: &RTCRtpCodecCapability,
 ) -> Result<webrtc::api::API> {
@@ -218,7 +218,7 @@ pub(super) fn baue_api(
 
 /// Fassung fuer die Tonspur — immer Opus, der Ton-Encoder kennt nichts anderes
 /// (s. [`crate::encode::audio`]).
-pub(super) fn opus_capability() -> RTCRtpCodecCapability {
+pub fn opus_capability() -> RTCRtpCodecCapability {
     RTCRtpCodecCapability {
         mime_type: MIME_TYPE_OPUS.to_owned(),
         clock_rate: 48000,

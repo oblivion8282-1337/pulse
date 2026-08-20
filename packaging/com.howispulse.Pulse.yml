@@ -282,27 +282,34 @@ modules:
       # `linux-hq-sidecar-cargo-sources.json` neu generiert werden
       # (flatpak-cargo-generator) — der Flatpak baut Cargo offline.
       #
-      # ── Seit 2026-08-20 liegen hier DREI Verzeichnisse ───────────────────
+      # ── Seit 2026-08-20 liegen hier VIER Verzeichnisse ───────────────────
       # Der Sidecar hängt per Pfad-Abhängigkeit an geteilten Crates
-      # (`streaming/pulse-redact`, `streaming/pulse-zeitbasis` und weitere),
-      # die er sich mit dem Windows- und dem mac-Sidecar teilt. `type: dir`
-      # kopiert **nur den genannten Pfad**; ohne einen eigenen Eintrag je
-      # Crate zeigte `path = "../…"` im Bauordner ins Leere — und weil der
-      # Flatpak `cargo --offline` baut, gibt es kein Nachladen, der Bau
-      # bricht. Windows und macOS bauen normal und merken davon nichts; der
-      # Fehler träfe allein den Flatpak, und erst in CI.
+      # (`streaming/pulse-redact`, `streaming/pulse-zeitbasis`,
+      # `streaming/pulse-whip` und weitere), die er sich mit dem Windows- und
+      # dem mac-Sidecar teilt. `type: dir` kopiert **nur den genannten Pfad**;
+      # ohne einen eigenen Eintrag je Crate zeigte `path = "../…"` im
+      # Bauordner ins Leere — und weil der Flatpak `cargo --offline` baut,
+      # gibt es kein Nachladen, der Bau bricht. Windows und macOS bauen
+      # normal und merken davon nichts; der Fehler träfe allein den Flatpak,
+      # und erst in CI.
       #
       # Deshalb `dest:` auf jeder Seite: die Geschwister-Lage aus dem Repo
-      # (`streaming/linux-hq-sidecar` neben `streaming/pulse-redact` und
-      # `streaming/pulse-zeitbasis`) wird im Bauordner nachgebaut, damit
-      # `../pulse-redact`/`../pulse-zeitbasis` dort dasselbe bedeuten wie
-      # hier. Kommt eine geteilte Crate dazu, gehört sie hierher — sonst
-      # bricht der Flatpak-Bau als einziger.
+      # (`streaming/linux-hq-sidecar` neben `streaming/pulse-redact`,
+      # `streaming/pulse-zeitbasis` und `streaming/pulse-whip`) wird im
+      # Bauordner nachgebaut, damit `../pulse-redact`/`../pulse-zeitbasis`/
+      # `../pulse-whip` dort dasselbe bedeuten wie hier. Kommt eine geteilte
+      # Crate dazu, gehört sie hierher — sonst bricht der Flatpak-Bau als
+      # einziger.
       #
       # Die Sources-JSON muss dafür NICHT neu erzeugt werden: weder
-      # `pulse-redact` noch `pulse-zeitbasis` haben externe Abhängigkeiten, es
-      # kommt also kein Crate von crates.io hinzu. Erst eine geteilte Crate
-      # MIT Fremdabhängigkeiten verlangt den Generator-Lauf.
+      # `pulse-redact` noch `pulse-zeitbasis` haben externe Abhängigkeiten.
+      # `pulse-whip` hat welche (`webrtc`, `anyhow`), aber beide stehen schon
+      # in exakt dieser Fassung in allen drei Sidecars und damit bereits in
+      # `linux-hq-sidecar-cargo-sources.json` (geprüft: `webrtc-0.17.x` und
+      # `anyhow-1.0.x` sind enthalten) — es kommt also kein Crate von
+      # crates.io hinzu. Erst eine geteilte Crate mit einer FREMDABHÄNGIGKEIT,
+      # die noch in keinem der drei Sidecars steckt, verlangt den
+      # Generator-Lauf (flatpak-cargo-generator).
       - type: dir
         path: ../streaming/linux-hq-sidecar
         dest: linux-hq-sidecar
@@ -320,6 +327,11 @@ modules:
       - type: dir
         path: ../streaming/pulse-zeitbasis
         dest: pulse-zeitbasis
+        skip:
+          - target
+      - type: dir
+        path: ../streaming/pulse-whip
+        dest: pulse-whip
         skip:
           - target
       - linux-hq-sidecar-cargo-sources.json

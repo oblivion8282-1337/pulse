@@ -10,25 +10,15 @@
 
 use zwillinge::ohne_kommentare;
 
-/// `whip/av1.rs` — der eigene AV1-Paketierer.
-///
-/// Er umgeht einen dokumentierten Fehler in webrtc-rs' `Av1Payloader`
-/// (Laengenfelder ab 128 falsch geschrieben). Laufen die Fassungen
-/// auseinander, sendet eine Plattform Pakete, die der Zuschauer nicht
-/// zusammensetzen kann — und das faellt erst am schwarzen Bild auf.
-///
-/// Am 2026-08-20 gemessen: 496 Codezeilen je Seite, null Abweichung. Die
-/// acht Rohzeilen Unterschied sind ein Doc-Absatz an anderer Stelle.
-#[test]
-fn av1_win_gleich_linux() {
-    let win = include_str!("../../win-hq-sidecar/src/whip/av1.rs");
-    let linux = include_str!("../../linux-hq-sidecar/src/whip/av1.rs");
-    assert_eq!(
-        ohne_kommentare(win),
-        ohne_kommentare(linux),
-        "whip/av1.rs ist in der LOGIK abgewichen (Kommentare duerfen abweichen)."
-    );
-}
+// `whip/av1.rs` — der eigene AV1-Paketierer.
+//
+// War hier bis zum 2026-08-20 ein Zwillingstest (`av1_win_gleich_linux`,
+// 496 Codezeilen je Seite, null logische Abweichung — die acht Rohzeilen
+// Unterschied waren ein Doc-Absatz an anderer Stelle). Win/linux/mac sind
+// seit dem 2026-08-20 alle nur noch ein Re-Export aus der gemeinsamen Crate
+// `streaming/pulse-whip` — ein Vergleich zweier Einzeiler haette keinen
+// Erkenntniswert mehr. Die eigentliche Logik samt ihrer Tests steht jetzt in
+// `pulse-whip/src/av1.rs`.
 
 // `zeitbasis.rs` — die RTP-Taktrechnung.
 //

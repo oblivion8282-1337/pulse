@@ -21,23 +21,14 @@
 //! die Zwillingsdatei ihn mit vertauschten Pfaden enthalten — und waere damit
 //! nicht mehr wortgleich.
 
-/// `whip/sdp.rs` — das SDP-Angebot des eigenen WebRTC-Sendewegs.
-///
-/// Am 2026-08-20 gemessen: byte-identisch zwischen Windows und Linux. Hier
-/// darf nichts abweichen, auch kein Kommentar — die Datei enthaelt die
-/// ausgehandelten Codec-Fassungen und Profil-Stufen, und eine Abweichung
-/// zwischen zwei Sendern zeigt sich erst in der SDP-Verhandlung beim
-/// Zuschauer.
-#[test]
-fn sdp_win_gleich_linux() {
-    let win = include_str!("../../win-hq-sidecar/src/whip/sdp.rs");
-    let linux = include_str!("../../linux-hq-sidecar/src/whip/sdp.rs");
-    assert_eq!(
-        win, linux,
-        "whip/sdp.rs ist zwischen win-hq-sidecar und linux-hq-sidecar abgewichen. \
-         Wer an einem etwas lernt, traegt es am anderen nach."
-    );
-}
+// `whip/sdp.rs` — das SDP-Angebot des eigenen WebRTC-Sendewegs.
+//
+// War hier bis zum 2026-08-20 ein Zwillingstest (`sdp_win_gleich_linux`,
+// dreimal bitgleich zwischen win/linux/mac). Alle drei Fassungen sind seit
+// dem 2026-08-20 nur noch ein Re-Export aus der gemeinsamen Crate
+// `streaming/pulse-whip` — ein Vergleich zweier Einzeiler haette keinen
+// Erkenntniswert mehr. Die eigentliche Logik samt ihrer Tests steht jetzt in
+// `pulse-whip/src/sdp.rs`.
 
 /// `ops/state.rs` — die Zustandsabfrage des Sidecars.
 ///

@@ -355,7 +355,7 @@ fn baue(
 /// (s. Modulkopf von [`super`]) — genau das Fehlen dieser Rechnung war der
 /// H.264-Judder. Er wohnt weiter in `av1.rs`, weil der AV1-Paketierer sein
 /// erster und dokumentierender Nutzer ist.
-pub(super) struct SpurZustand {
+pub struct SpurZustand {
     seq: u16,
     /// Ersatz-Takt, falls ein Encoder-Paket ausnahmsweise KEINEN `pts` traegt.
     /// Zaehlt dann dort weiter, wo der letzte Zeitstempel lag — sonst laegen
@@ -365,7 +365,7 @@ pub(super) struct SpurZustand {
 }
 
 impl SpurZustand {
-    pub(super) fn neu(fps: u32) -> Self {
+    pub fn neu(fps: u32) -> Self {
         // Zufaelliger Startpunkt fuer die Sequenznummern, wie es auch
         // webrtc-rs' eigener Zaehler macht. Die Uhr reicht dafuer — eine
         // Zufallsquelle waere hier eine Abhaengigkeit fuer nichts.
@@ -403,7 +403,7 @@ impl SpurZustand {
     ///
     /// `as u32` schneidet oben ab — genau das erwartet RFC 3550 von einer
     /// RTP-Uhr (sie laeuft ueber und faengt von vorn an).
-    pub(super) fn zeitstempel(&mut self, pts: Option<i64>) -> u32 {
+    pub fn zeitstempel(&mut self, pts: Option<i64>) -> u32 {
         let takt = match pts {
             Some(p) if p >= 0 => p as u64,
             _ => self.ersatz_takt,
@@ -416,7 +416,7 @@ impl SpurZustand {
     }
 
     /// Sequenznummer fuer das naechste Paket; laeuft bei 65535 ueber.
-    pub(super) fn naechste_seq(&mut self) -> u16 {
+    pub fn naechste_seq(&mut self) -> u16 {
         let seq = self.seq;
         self.seq = self.seq.wrapping_add(1);
         seq

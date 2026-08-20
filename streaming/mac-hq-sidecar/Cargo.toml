@@ -22,6 +22,11 @@ pulse-redact = { path = "../pulse-redact" }
 # Crate. `src/zeitbasis.rs` bleibt als Re-Export bestehen (s. dort).
 pulse-zeitbasis = { path = "../pulse-zeitbasis" }
 
+# AV1-Paketierung + SDP-Aufbau des WHIP-Sendewegs, seit 2026-08-20 gemeinsam
+# mit win/linux in einer eigenen Crate. `src/whip/{av1,sdp}.rs` bleiben als
+# Re-Exports bestehen (s. dort).
+pulse-whip = { path = "../pulse-whip" }
+
 # Capture — ScreenCaptureKit (SCStream) + the surrounding CoreMedia/CoreVideo/
 # CoreGraphics types, via the official objc2 framework bindings (no Swift shim).
 # Same objc2 0.3-framework / 0.6-core release train.
