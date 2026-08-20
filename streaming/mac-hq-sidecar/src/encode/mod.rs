@@ -33,7 +33,12 @@ const OPUS_BITRATE_KBPS: u32 = 128;
 /// Vorgabe seit dem 2026-08-18 auf 60 s gewandert, weil vor dem regulaeren
 /// Takt drei Schichten liegen (NACK, FlexFEC und vor allem das ueber RTCP
 /// **angeforderte** Vollbild). Genau die letzte fehlt hier.
-const KEYFRAME_SEKUNDEN_UNBEDENKLICH: f32 = 2.0;
+///
+/// **Sichtbarkeit `pub(crate)`** (seit Aufgabe 4): der Deckel der Drossel in
+/// `keyframe.rs` haengt an genau dieser Zahl (Test
+/// `deckel_haengt_am_unbedenklichen_abstand`) — die kleinstmoegliche Oeffnung,
+/// nicht `pub`.
+pub(crate) const KEYFRAME_SEKUNDEN_UNBEDENKLICH: f32 = 2.0;
 
 /// Regulaerer Vollbild-Abstand in Bildern.
 ///
@@ -45,17 +50,23 @@ const KEYFRAME_SEKUNDEN_UNBEDENKLICH: f32 = 2.0;
 ///
 /// **Die Vorgabe bleibt auf macOS bei 2 s, korrigiert am 2026-08-19.** Am
 /// 2026-08-18 zog dieser Sidecar die neue 60-s-Vorgabe mit, ohne dass die
-/// Voraussetzung dafuer hier gilt: dieser Sidecar hat **keinen
-/// Vollbild-Anforderungspfad** (kein `request_keyframe`, kein `pict_type=I`)
-/// und **keinen eigenen WHIP-Sender** — `http(s)://`-Ziele gehen an ffmpegs
-/// WHIP-Muxer, der keinen RTCP-Rueckkanal in den Encoder zurueckfuehrt, RTMPS
-/// und SRT sowieso nicht. Auf macOS ist der regulaere Takt also nicht die
-/// letzte Reserve, sondern die EINZIGE Rettung, genau wie vor 2026-08-18. Die
-/// Folge der 60 s war messbar schlimm: ein beitretender Zuschauer wartete bis
-/// zu 60 s auf sein erstes Bild, und der native Player gibt schon nach 20 s auf
+/// Voraussetzung dafuer hier galt: dieser Sidecar hatte **keinen
+/// Vollbild-Anforderungspfad** (kein `request_keyframe`, kein `pict_type=I`).
+/// **Seit Aufgabe 4 (2026-08-20) gibt es beides** (`crate::keyframe`, hier
+/// eingeloest in [`VideoEncoder::push_pixel_buffer`]) — die Vorgabe bleibt
+/// TROTZDEM bei 2 s, weil die Voraussetzung dafuer noch nicht *durchgehend*
+/// gilt: `url_format_hint` unten schickt `http(s)://`-Ziele weiterhin an
+/// ffmpegs WHIP-Muxer, der keinen RTCP-Rueckkanal in den Encoder
+/// zurueckfuehrt, RTMPS und SRT sowieso nicht. Der eigene WHIP-Sender
+/// (`crate::whip`) existiert bereits (seit Aufgabe 2), ist aber noch nicht an
+/// diesen Push-Pfad angeschlossen — das ist Aufgabe 3/5. Auf macOS ist der
+/// regulaere Takt also weiterhin nicht die letzte Reserve, sondern die
+/// EINZIGE Rettung, genau wie vor 2026-08-18. Die Folge der 60 s war messbar
+/// schlimm: ein beitretender Zuschauer wartete bis zu 60 s auf sein erstes
+/// Bild, und der native Player gibt schon nach 20 s auf
 /// (`pulse-player::MAX_WARTEZEIT_OHNE_KEYFRAME`) — der Stream sah aus wie
-/// kaputt. Wer die Vorgabe hier je wieder streckt, baut vorher den
-/// Rueckkanal.
+/// kaputt. Wer die Vorgabe hier streckt, MUSS vorher `crate::whip` an
+/// `url_format_hint`/`VideoEncoder::start` anschliessen.
 fn keyframe_abstand_bilder(fps: u32) -> u32 {
     ((fps as f32 * keyframe_abstand_sekunden()).round() as u32).max(1)
 }
@@ -97,9 +108,11 @@ fn abstand_sekunden_aus(roh: Option<&str>) -> f32 {
 /// Warnt, wenn jemand den Abstand ueber das Unbedenkliche hinaus streckt.
 ///
 /// Gegenstueck zu `warne_bei_intra_refresh_ohne_rueckkanal` im Linux-Sidecar,
-/// nur ohne dessen Fallunterscheidung: **auf macOS hat KEIN Sendeweg einen
-/// Rueckkanal** (kein eigener WHIP-Sender, kein `request_keyframe`), die
-/// Warnung haengt also allein am Abstand und nicht am Ziel-Format.
+/// nur ohne dessen Fallunterscheidung: **auf macOS erreicht KEIN aktiver
+/// Push-Pfad einen Rueckkanal** (der eigene WHIP-Sender existiert seit
+/// Aufgabe 2, haengt aber noch nicht an `VideoEncoder::start` — s.
+/// [`keyframe_abstand_bilder`]), die Warnung haengt also allein am Abstand
+/// und nicht am Ziel-Format.
 fn warne_bei_langem_abstand_ohne_rueckkanal() {
     let sekunden = keyframe_abstand_sekunden();
     if sekunden > KEYFRAME_SEKUNDEN_UNBEDENKLICH {
@@ -329,11 +342,35 @@ impl VideoEncoder {
     ///
     /// # Safety
     /// `pb` must be a valid `CVPixelBufferRef` with one retain to hand over.
+    // `pb` is opaque here (owned by `crate::capture`, documented above) and
+    // only ever reaches an actual dereference inside `hw::wrap` (an `unsafe
+    // fn` with its own `# Safety` contract) — this crate never compiled
+    // clean under clippy before (E0433 in `whip/mod.rs` until this change),
+    // so this pre-existing lint surfaces here for the first time.
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     pub fn push_pixel_buffer(&mut self, pb: *mut c_void, pts: i64) -> Result<()> {
         let pts = pts.max(self.frame_index);
         self.frame_index = pts + 1;
         unsafe {
             let frame = hw::wrap(&self.hw, pb, self.width, self.height, pts)?;
+            // Vollbild auf Anforderung: `pict_type = I` bringt `h264_videotoolbox`
+            // (`videotoolboxenc.c`) dazu, `kVTEncodeFrameOptionKey_ForceKeyFrame`
+            // zu setzen — unabhaengig vom HW-Frames-Kontext, der Zero-Copy-Pfad
+            // bleibt intakt (Nachweis: `nm -u .../libavcodec.dylib | grep
+            // ForceKeyFrame`). `take_keyframe_request()` MUSS hier stehen, auch
+            // wenn nichts angefordert wurde — sonst bliebe ein einmal gesetztes
+            // `pict_type=I` ohne Wirkung auf die Drossel unbeobachtet stehen.
+            //
+            // Anders als auf Linux/Windows braucht es KEIN explizites
+            // Zuruecksetzen auf `pict_type = AV_PICTURE_TYPE_NONE` fuer das
+            // naechste Bild: `frame` wird hier bei jedem Aufruf frisch von
+            // `hw::wrap` alloziert (kein Pool) und direkt danach wieder
+            // freigegeben — der naechste Aufruf startet mit einem frischen,
+            // genullten `AVFrame`, dessen `pict_type` bereits
+            // `AV_PICTURE_TYPE_NONE` ist.
+            if crate::keyframe::take_keyframe_request() {
+                (*frame).pict_type = ffmpeg::ffi::AVPictureType::AV_PICTURE_TYPE_I;
+            }
             let rc = ffmpeg::ffi::avcodec_send_frame(self.encoder.as_mut_ptr(), frame);
             let mut f = frame;
             ffmpeg::ffi::av_frame_free(&mut f); // drop our ref; encoder keeps its own
