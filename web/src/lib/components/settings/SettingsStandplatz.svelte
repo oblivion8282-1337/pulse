@@ -19,10 +19,15 @@
   der Grund, warum der Reiter selbst seit 2026-08-20 nicht mehr nur unter
   Windows sichtbar ist (`reiterSichtbar.ts`).
 
-  **Nur in der Desktop-App.** Ferngesteuert werden kann ausschliesslich ein
-  Rechner mit lokalem Sidecar; im Browser wäre der Schalter eine Zusage, die
-  niemand einlöst. Der Tab ist deshalb `electronOnly` (SettingsDialog), und
-  dieser Hinweis ist das Netz, falls er doch einmal woanders landet.
+  **Der Hauptschalter braucht die Desktop-App, der Reiter selbst nicht mehr**
+  (Fix zu Prüfbefund W-3, 2026-08-20). Ferngesteuert werden kann ausschliesslich
+  ein Rechner mit lokalem Sidecar; im Browser wäre der Schalter eine Zusage,
+  die niemand einlöst — der `{#if !desktop}`-Zweig unten zeigt dort nur den
+  Hinweis und, unbedingt, `SettingsStandplatzGeraete`: die Verwaltung der
+  EIGENEN Geräte läuft browserseitig und braucht keinen Sidecar. Der Reiter
+  selbst folgt seit 2026-08-20 allein `reiterSichtbar()` (kein `electronOnly`
+  mehr in `settingsTabs.ts`) — der Entwurf verspricht die Verwaltung
+  ausdrücklich auch im Browser.
 -->
 <script lang="ts">
   import MonitorCogIcon from '@lucide/svelte/icons/monitor-cog';
