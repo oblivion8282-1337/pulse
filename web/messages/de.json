@@ -2925,5 +2925,7 @@
   "device_settings_my_devices_title": "Meine Geräte auf diesem Server",
   "device_settings_my_devices_empty": "Noch keine eigenen Geräte auf diesem Server.",
   "device_settings_my_devices_open": "Zur Geräteansicht",
-  "device_settings_my_devices_meta": "{guild} · {channel} · {state}"
+  "device_settings_my_devices_meta": "{guild} · {channel} · {state}",
+  "admin_communities_limits_max_devices": "Max. Geräte je Person",
+  "guild_limits_field_max_devices": "Max. Geräte je Person"
 }

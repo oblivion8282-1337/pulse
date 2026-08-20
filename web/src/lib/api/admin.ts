@@ -230,6 +230,7 @@ export type Community = {
   max_members: number | null;
   max_channels: number | null;
   max_roles: number | null;
+  max_devices_per_owner: number | null;
   max_concurrent_streams: number | null;
   /** Feature permission (not a cap): may this community use the Ablage?
    *  Locked by default — the community's own admin cannot lift it. */
@@ -252,6 +253,7 @@ export type CommunityLimits = {
   max_members: number | null;
   max_channels: number | null;
   max_roles: number | null;
+  max_devices_per_owner: number | null;
   max_concurrent_streams: number | null;
   /** Feature permission. Omit/null = leave unchanged. */
   dropbox_allowed?: boolean | null;
