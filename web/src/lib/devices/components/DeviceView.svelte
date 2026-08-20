@@ -33,6 +33,7 @@
   import { schirmWarten, schirmeVon } from '$lib/devices/schirme.svelte';
   import DeviceScreenList from '$lib/devices/components/DeviceScreenList.svelte';
   import DeviceVerwaltung from '$lib/devices/components/DeviceVerwaltung.svelte';
+  import DeviceFreigaben from '$lib/devices/components/DeviceFreigaben.svelte';
   import { gegenstelle } from '$lib/remote/gegenstelle';
   import { userCache } from '$lib/stores/users.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
@@ -205,4 +206,13 @@
        davon unabhängig: ob und wie ein Gerät gerade übertragt, ändert nichts
        daran, wer es umbenennen, umstellen oder entfernen darf. -->
   <DeviceVerwaltung {device} {darfVerwalten} />
+
+  <!-- Freigabeliste — nur für den Besitzer, und dafür nicht bloss
+       ausgeblendet, sondern gar nicht erst im DOM (`eigenes` ist dieselbe
+       Bedingung wie `device.owner_user_id === currentServerUserId()`, hier
+       schon berechnet). Die Liste sagt, wer den Rechner ohne Rückfrage
+       übernehmen darf — das geht sonst niemanden etwas an. -->
+  {#if eigenes}
+    <DeviceFreigaben {device} />
+  {/if}
 </div>

@@ -2910,5 +2910,16 @@
   "device_manage_channel_label": "Location (voice channel)",
   "device_manage_remove": "Remove device",
   "device_manage_error": "Failed: {error}",
-  "device_manage_role_grants_cleared": "{count} role grant(s) were cleared — they belonged to the old community."
+  "device_manage_role_grants_cleared": "{count} role grant(s) were cleared — they belonged to the old community.",
+  "device_grants_title": "Who may take over",
+  "device_grants_empty": "Nobody granted access yet.",
+  "device_grants_everyone_label": "Anyone with the permission",
+  "device_grants_expired": "expired",
+  "device_grants_add_user_label": "Add user",
+  "device_grants_add_user_placeholder": "— Choose a user —",
+  "device_grants_add_role_label": "Add role",
+  "device_grants_add_role_placeholder": "— Choose a role —",
+  "device_grants_add_everyone": "Grant to anyone with the permission",
+  "device_grants_everyone_hint": "This does not bypass permission checks — the server still requires REMOTE_CONTROL at the device's location.",
+  "device_grants_remove_aria": "Remove grant"
 }
