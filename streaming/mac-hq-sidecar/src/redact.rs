@@ -1,12 +1,20 @@
 //! Token aus einer Push-URL entfernen, bevor sie in eine Meldung geht.
 //!
-//! **Hier stand nichts — die Funktion lag bis zum 2026-08-20 ZWEIMAL im
-//! Sidecar** (`ops/start.rs` und `encode/mod.rs`), beide Male gleich. Mit dem
-//! eigenen Sendeweg waere eine dritte Kopie dazugekommen. Windows und Linux
+//! **Hier stand nichts — die Funktion lag bis zum 2026-08-20 DREIMAL im
+//! Sidecar**: `ops/start.rs`, `encode/mod.rs` und, unter dem abweichenden Namen
+//! `redact_token_in_url`, `ops/build_argv.rs`. Alle drei funktional gleich; die
+//! dritte faellt beim Suchen nach `fn redact` durch, weil sie anders heisst.
+//! Mit dem eigenen Sendeweg waere eine vierte dazugekommen. Windows und Linux
 //! fuehren dafuer laengst ein eigenes Modul; dieses zieht nach.
 //!
 //! Der Name `redact_url` ist von der Linux-Fassung uebernommen, damit die
 //! kopierten Sendeweg-Dateien unveraendert bleiben koennen.
+//!
+//! **Bewusst grob**, und dieser Satz stammt aus der geloeschten
+//! `build_argv`-Fassung: die Linux-Variante nimmt dafuer einen regulaeren
+//! Ausdruck, hier genuegt das Suchen nach den drei Praefixen. Wer das aendert,
+//! bedenkt, dass diese Funktion der einzige Filter zwischen einer Push-URL und
+//! dem Protokoll ist.
 
 /// Mask a token in a push URL for logging (never log the raw stream key).
 pub fn redact_url(url: &str) -> String {

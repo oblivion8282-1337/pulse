@@ -67,31 +67,13 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
         Value::String(profile.container.to_string()),
         Value::String("--out".to_string()),
         // Token redaction (analogue of `streaming/gsr-sidecar/redact.py`).
-        Value::String(redact_token_in_url(&target)),
+        Value::String(crate::redact::redact_url(&target)),
     ];
 
     Ok(json_to_map(json!({
         "binary": binary,
         "argv": argv,
     })))
-}
-
-/// Mask `pass=`/`token=`/streamid tail in a push URL. Deliberately coarse — the
-/// Linux variant uses a regex; this is enough for diagnostic output.
-fn redact_token_in_url(url: &str) -> String {
-    let patterns = ["pass=", "token=", "streamid=publish:"];
-    let mut s = url.to_string();
-    for pat in patterns {
-        if let Some(idx) = s.find(pat) {
-            let tail_start = idx + pat.len();
-            let tail_end = s[tail_start..]
-                .find(|c: char| c == '&' || c == ' ')
-                .map(|i| tail_start + i)
-                .unwrap_or(s.len());
-            s.replace_range(tail_start..tail_end, "***");
-        }
-    }
-    s
 }
 
 fn json_to_map(v: Value) -> Map<String, Value> {
