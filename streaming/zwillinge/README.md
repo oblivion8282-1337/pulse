@@ -1,11 +1,21 @@
 # zwillinge
 
-Haelt die bewusst doppelt gefuehrten Dateien der vier HQ-Programme
-(`win-hq-sidecar`, `linux-hq-sidecar`, `mac-hq-sidecar`, `pulse-player`)
-zusammen. Zwischen ihnen liegen rund 2.400 Codezeilen mehrfach fast wortgleich
-vor. Zweimal ist eine dieser Kopien unbemerkt auseinandergelaufen
-(`zeitbasis.rs` am 2026-08-17, die Zero-Copy-Bruecke am 2026-08-06), und die
-Token-Redaktion verhaelt sich bis heute auf den drei Plattformen verschieden.
+Bewacht die noch verbliebenen doppelt gefuehrten Dateien der vier HQ-Programme
+(`win-hq-sidecar`, `linux-hq-sidecar`, `mac-hq-sidecar`, `pulse-player`) auf
+unbemerktes Auseinanderlaufen. Frueher waren das rund 2.400 Codezeilen ueber
+mehrere Datei-Paare; die vier engsten davon (`whip/sdp.rs`, `whip/av1.rs`,
+`zeitbasis.rs`, `zeigerbild.rs`) sind seit dem 2026-08-20 in eigene gemeinsame
+Crates gezogen (`pulse-whip`, `pulse-zeitbasis`, `pulse-zeigerbild` — s.
+Tabelle unten) und damit keine Doppelung mehr, die diese Kiste bewachen
+muesste. Ebenso ist die Token-Redaktion, die frueher auf den drei Plattformen
+verschieden ausfiel, seit Commit `5dd051e5` in `pulse-redact` vereinheitlicht.
+Was bleibt, sind die Datei-Paare aus der Tabelle unten, die (noch) nicht
+zusammengefuehrt sind. Der Anlass fuer diese Crate ist historisch: gleich
+zweimal ist eine solche Kopie unbemerkt auseinandergelaufen (das damals noch
+doppelt gefuehrte `zeitbasis.rs` am 2026-08-17, die Zero-Copy-Bruecke am
+2026-08-06) — beide Male harmlos, beide Male reiner Zufallsfund. Die noch
+verbliebenen Paare tragen dasselbe Risiko, solange sie nicht ebenfalls
+zusammengefuehrt sind.
 
 Diese Crate hat **keine Abhaengigkeiten** und **aendert nie Produktivcode**.
 Wird ein Test rot, ist das der Befund — nicht der Test. `include_str!` liest
