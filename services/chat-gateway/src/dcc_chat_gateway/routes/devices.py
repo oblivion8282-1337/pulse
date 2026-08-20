@@ -64,11 +64,13 @@ from dcc_chat_gateway.device_meldungen import (
     melden,
     sitzung_beenden,
 )
+from dcc_chat_gateway.guild_limits import LIMITS_BY_KEY, effective
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_VOICE,
     DEVICE_NAME_MAX_LEN,
     Channel,
     Device,
+    Guild,
 )
 from dcc_chat_gateway.permissions import (
     Permissions,
@@ -82,14 +84,6 @@ from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 
 router = APIRouter(prefix="/guilds/{guild_id}/devices", tags=["devices"])
-
-#: Wie viele Geräte eine Person je Community eintragen darf.
-#:
-#: Nicht als Schutz vor einem Angreifer gedacht — wer eintragen darf, darf auch
-#: übertragen, und das ist die teurere Handlung. Es ist ein Riegel gegen den
-#: Unfall: ein Client, der die Eintragung bei jedem Start wiederholt, füllte
-#: sonst die Kanalliste, und der Fehler fiele erst jemand anderem auf.
-MAX_DEVICES_PER_OWNER = 10
 
 #: Erlaubte Gerätenamen: Buchstaben, Ziffern, Bindestrich, Unterstrich, Punkt.
 #:
@@ -258,10 +252,12 @@ async def create_device(
             .where(Device.guild_id == guild_id, Device.owner_user_id == user.id)
         )
     ).scalar_one()
-    if eigene >= MAX_DEVICES_PER_OWNER:
+    guild = await session.get(Guild, guild_id)
+    deckel = effective(guild, LIMITS_BY_KEY["max_devices_per_owner"]) if guild else None
+    if deckel is not None and eigene >= deckel:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            detail=f"at most {MAX_DEVICES_PER_OWNER} devices per community",
+            detail=f"at most {deckel} devices per community",
         )
 
     device = Device(

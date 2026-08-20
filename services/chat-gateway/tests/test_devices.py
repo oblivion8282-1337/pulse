@@ -1109,3 +1109,30 @@ async def test_community_wechsel_nur_besitzer(client, _auth_signer):
         headers=_auth(verwalter_token),
     )
     assert r.status_code == 403, r.text
+
+
+@pytest.mark.asyncio
+async def test_geraete_deckel_kommt_aus_dem_community_limit(client, _auth_signer):
+    token, _ = await _make_token(_auth_signer)
+    gid = await _guild(client, token, "studio")
+    kanal = await _voice_channel(client, token, gid)
+    # Deckel auf 1 setzen (Community-eigener Wert)
+    r = await client.patch(
+        f"/guilds/{gid}/limits",
+        json={"limits": {"max_devices_per_owner": 1}},
+        headers=_auth(token),
+    )
+    assert r.status_code == 200, r.text
+
+    r = await client.post(
+        f"/guilds/{gid}/devices",
+        json={"channel_id": str(kanal), "name": "schnitt-1"},
+        headers=_auth(token),
+    )
+    assert r.status_code == 201
+    r = await client.post(
+        f"/guilds/{gid}/devices",
+        json={"channel_id": str(kanal), "name": "schnitt-2"},
+        headers=_auth(token),
+    )
+    assert r.status_code == 409, r.text
