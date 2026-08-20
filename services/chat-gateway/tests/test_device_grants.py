@@ -474,3 +474,93 @@ async def test_abgelaufene_freigabe_aus_der_datenbank_greift_nicht(
     assert len(einladung) == 1
     assert einladung[0]["freigabe"] is False
     mgr.remote_cancel_timeout(mgr.remote_sessions_snapshot()[0].session_id)
+
+
+@pytest.mark.asyncio
+async def test_community_wechsel_raeumt_rollen_freigaben(client, _auth_signer):
+    besitzer, _ = await _make_token(_auth_signer)
+    _, gast = await _make_token(_auth_signer)
+    quelle = await _guild(client, besitzer, "projekt-nord")
+    ziel = await _guild(client, besitzer, "projekt-sued")
+    k_quelle = await _voice_channel(client, besitzer, quelle)
+    k_ziel = await _voice_channel(client, besitzer, ziel, "schnitt-2")
+    rolle = (
+        await client.post(
+            f"/guilds/{quelle}/roles", json={"name": "cutter"}, headers=_auth(besitzer)
+        )
+    ).json()["id"]
+    did = (
+        await client.post(
+            f"/guilds/{quelle}/devices",
+            json={"channel_id": str(k_quelle), "name": "schnitt-1"},
+            headers=_auth(besitzer),
+        )
+    ).json()["id"]
+    await client.put(
+        f"/guilds/{quelle}/devices/{did}/grants",
+        json={
+            "grants": [
+                {"subject_type": "role", "subject_id": str(rolle)},
+                {"subject_type": "user", "subject_id": str(gast)},
+            ]
+        },
+        headers=_auth(besitzer),
+    )
+
+    await client.patch(
+        f"/guilds/{quelle}/devices/{did}",
+        json={"guild_id": str(ziel), "channel_id": str(k_ziel)},
+        headers=_auth(besitzer),
+    )
+
+    # Die Rolle ist weg, der Nutzer bleibt: Nutzerkennungen gelten serverweit,
+    # Rollenkennungen nur in ihrer Community.
+    r = await client.get(f"/guilds/{ziel}/devices/{did}/grants", headers=_auth(besitzer))
+    arten = sorted(g["subject_type"] for g in r.json())
+    assert arten == ["user"]
+
+
+@pytest.mark.asyncio
+async def test_community_wechsel_scheitert_laesst_rollen_freigaben_stehen(
+    client, _auth_signer
+):
+    besitzer, _ = await _make_token(_auth_signer)
+    quelle = await _guild(client, besitzer, "projekt-ost")
+    ziel = await _guild(client, besitzer, "projekt-west")
+    k_quelle = await _voice_channel(client, besitzer, quelle)
+    k_ziel = await _voice_channel(client, besitzer, ziel, "schnitt-2")
+    rolle = (
+        await client.post(
+            f"/guilds/{quelle}/roles", json={"name": "cutter"}, headers=_auth(besitzer)
+        )
+    ).json()["id"]
+    did = (
+        await client.post(
+            f"/guilds/{quelle}/devices",
+            json={"channel_id": str(k_quelle), "name": "schnitt-1"},
+            headers=_auth(besitzer),
+        )
+    ).json()["id"]
+    await client.put(
+        f"/guilds/{quelle}/devices/{did}/grants",
+        json={"grants": [{"subject_type": "role", "subject_id": str(rolle)}]},
+        headers=_auth(besitzer),
+    )
+    # Namenskonflikt in der Zielcommunity: dort steht bereits ein Gerät mit
+    # demselben Namen.
+    await client.post(
+        f"/guilds/{ziel}/devices",
+        json={"channel_id": str(k_ziel), "name": "schnitt-1"},
+        headers=_auth(besitzer),
+    )
+
+    r = await client.patch(
+        f"/guilds/{quelle}/devices/{did}",
+        json={"guild_id": str(ziel), "channel_id": str(k_ziel)},
+        headers=_auth(besitzer),
+    )
+    assert r.status_code == 409
+
+    r = await client.get(f"/guilds/{quelle}/devices/{did}/grants", headers=_auth(besitzer))
+    arten = sorted(g["subject_type"] for g in r.json())
+    assert arten == ["role"]
