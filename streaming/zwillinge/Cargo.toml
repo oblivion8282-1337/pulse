@@ -1,0 +1,10 @@
+[package]
+name = "zwillinge"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Bewusst OHNE Abhaengigkeiten. Diese Crate soll auf jeder Maschine in
+# Sekunden bauen — auch dort, wo weder FFmpeg noch ein Plattform-SDK
+# vorhanden ist. Sie enthaelt keinen Produktivcode.
+[dependencies]

@@ -1,0 +1,7 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Bibliothekskrate ohne Abhaengigkeiten (Faustregel wie win-hq-sidecar/.gitignore:
+# Binaerkrates pinnen ihr Lockfile, Bibliotheken nicht).
+/Cargo.lock
