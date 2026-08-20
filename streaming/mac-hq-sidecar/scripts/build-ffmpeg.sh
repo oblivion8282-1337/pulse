@@ -25,6 +25,16 @@
 # there rides on `av1_amf`. dav1d is BSD-2-Clause, so it does not touch the LGPL
 # posture below.
 #
+# `--disable-xlib --disable-libxcb` keeps this build DETERMINISTIC, and that is
+# the point — not the few hundred kilobytes. FFmpeg's configure enables whatever
+# it happens to find, and pkg-config searches Homebrew's shared prefix no matter
+# what PKG_CONFIG_PATH says. On 2026-08-20 that silently pulled libX11, libxcb,
+# libXau and libXdmcp into the macOS bundle (some other formula had installed
+# them), where X11 has no purpose whatsoever — and every one of them would have
+# needed an attribution entry. A build that ships different libraries depending
+# on what else the machine has installed is not a build you can redistribute
+# with confidence. Add `--disable-` for anything not deliberately wanted.
+#
 # Output: shared dylibs in $PREFIX/lib. `streaming/mac-hq-sidecar/.cargo/config.toml`
 # points PKG_CONFIG_PATH at $PREFIX/lib/pkgconfig (default ~/src/ffmpeg-openssl).
 # Override the install location with PREFIX=… if you keep the config.toml in sync.
@@ -39,7 +49,7 @@ SRC="$WORK/ffmpeg-$VER"
 TARBALL="$WORK/ffmpeg-$VER.tar.xz"
 
 # openssl@3 + opus pkgconfig so configure resolves --enable-openssl/--enable-libopus.
-export PKG_CONFIG_PATH="$(brew --prefix openssl@3)/lib/pkgconfig:$(brew --prefix opus)/lib/pkgconfig"
+export PKG_CONFIG_PATH="$(brew --prefix openssl@3)/lib/pkgconfig:$(brew --prefix opus)/lib/pkgconfig:$(brew --prefix dav1d)/lib/pkgconfig"
 
 echo "→ FFmpeg $VER  →  prefix $PREFIX"
 mkdir -p "$WORK"
@@ -54,6 +64,7 @@ cd "$SRC"
   --enable-videotoolbox --enable-audiotoolbox \
   --enable-libopus \
   --enable-libdav1d \
+  --disable-xlib --disable-libxcb \
   --disable-ffplay --disable-doc --disable-debug \
   --enable-neon
 
@@ -77,3 +88,16 @@ case "$DECODERS" in
   *) echo "✗ libdav1d missing — AV1 would not decode on M1/M2 (see header). Is 'brew install dav1d' present, and was PKG_CONFIG_PATH set for it?" >&2
      exit 1 ;;
 esac
+
+# Nothing unexpected may have crept in. `bundle-dylibs.sh` copies whatever these
+# dylibs reference, so a stray dependency here ends up in the shipped DMG and in
+# the attribution file. See the xlib note in the header for how that happened.
+STRAYS="$(otool -L "$PREFIX"/lib/libav*.dylib 2>/dev/null \
+  | grep -oE '/[^ ]*/lib(X11|xcb|Xau|Xdmcp|x264|x265|vpx|fdk)[^ ]*' | sort -u || true)"
+if [ -n "$STRAYS" ]; then
+  echo "✗ unexpected dependencies linked into this FFmpeg:" >&2
+  echo "$STRAYS" | sed 's/^/    /' >&2
+  echo "  configure enabled something it found on this machine. Add the matching --disable- flag." >&2
+  exit 1
+fi
+echo "✓ no stray X11/GPL-codec dependencies"
