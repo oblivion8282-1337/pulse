@@ -273,3 +273,34 @@ ist.
    1440p60) — unerklärt.
 7. **Echte A/V-Synchronisierung** fehlt (heute Puffer-Näherung).
 8. **Ab ~280 fps bündelt die Aufnahme** — eigener Faden, Compositor-Grenze.
+
+---
+
+## 8. macOS-Portierung — Stand 2026-08-20
+
+### GEMESSEN
+
+**Der Player baut und läuft auf macOS arm64** (macOS 15.7.3, rustc 1.96).
+
+**Das gebündelte Verzeichnis ist portabel und nutzt nachweislich die
+mitgelieferten Bibliotheken, nicht die der Baumaschine.** An einen fremden
+Ort kopiert startet er unverändert; nimmt man ihm die gebündelte
+`libavcodec.62.dylib` weg, bricht dyld beim Start mit `Library not loaded:
+@loader_path/libavcodec.62.dylib` ab — der Loader-Pfad zeigt also wirklich
+ins eigene Bundle-Verzeichnis, nicht auf eine System- oder Homebrew-Kopie.
+
+**`health` antwortet aus dem App-Bundle heraus** mit
+`{"ok":true,"codecs":["h264","av1"]}`.
+
+### GELESEN
+
+**Die gebündelte FFmpeg hat kein `libdav1d`**, nur den in FFmpeg selbst
+eingebauten AV1-Decoder. Der Player probiert `libdav1d` zuerst und fällt
+zurück (Abschnitt 2/3). Folge: der Software-Rückfall für AV1 ist auf macOS
+langsamer als unter Windows, dessen BtbN-FFmpeg `libdav1d` mitbringt.
+
+### VERMUTET — nicht als Grundlage benutzen
+
+- **Dass VideoToolbox am echten Stream wirklich greift.** Gemessen ist nur
+  der Bau und der isolierte Start (`health`); ein Lauf gegen die echte Kette
+  mit zwei Clients steht noch aus.

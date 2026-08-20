@@ -255,7 +255,12 @@ Ehrlich benannt, damit niemand danach sucht:
   WHIP-Sendeweg -> gepatchtes MediaMTX -> Player) samt Ton und nachtraeglichem
   Einstieg in einen Intra-Refresh-Strom ohne periodische Vollbilder. Seither
   wird er auch im Windows-Installer mitgeliefert (`electron-builder.yml`,
-  `win-build.yml`). **macOS bleibt ungeprueft** und wird nicht ausgeliefert.
+  `win-build.yml`). **Hier stand bis zum 2026-08-20 „macOS bleibt ungeprueft
+  und wird nicht ausgeliefert".** Beides ist erledigt: der Player dekodiert
+  dort ueber VideoToolbox in Hardware und faehrt im DMG mit. Was auf macOS
+  weiterhin fehlt, ist Zero-Copy (`src/zerocopy/leer.rs` bleibt der bewusste
+  Platzhalter) und der EDR-Ausgang fuer HDR — beides steht unter „Naechste
+  Schritte".
 - **AV1-Depacketisierung ist nur durch Unit-Tests abgesichert**, nicht gegen
   einen echten Stream. Siehe unten.
 
@@ -567,7 +572,7 @@ nehmen die jeweils aktuelle stabile Fassung.
 
 ```
 cd streaming/pulse-player
-cargo test          # 326 Tests, keine Hardware noetig
+cargo test          # 393 Tests, keine Hardware noetig
 cargo build --release
 ```
 
@@ -712,7 +717,10 @@ Drittanbieter-Seite im Web.
    kam dort schwarz an" betrifft nicht diesen Weg, sondern den Linux-Weg ueber
    ein exportiertes `VkImage`; er ist hier **nicht** nachgeprueft worden und
    bleibt unveraendert stehen.
-5. macOS bauen und pruefen. **Windows ist am 2026-08-05 erledigt** — gebaut,
-   gegen die echte Kette geprueft (H.264 und AV1, 8 und 10 bit, jeweils
-   `*_cuvid` in Hardware) und im Installer. Hier stand vorher „Windows und
-   macOS"; nur macOS ist offen.
+5. Zero-Copy und der EDR-Ausgang fuer HDR auf macOS. **Windows ist am
+   2026-08-05 erledigt** — gebaut, gegen die echte Kette geprueft (H.264 und
+   AV1, 8 und 10 bit, jeweils `*_cuvid` in Hardware) und im Installer.
+   **macOS ist am 2026-08-20 erledigt** — gebaut, VideoToolbox-Hardware-
+   Dekodierung, im DMG. Hier stand vorher „Windows und macOS"; offen bleiben
+   auf macOS nur noch Zero-Copy (`src/zerocopy/leer.rs` bleibt der bewusste
+   Platzhalter) und der EDR-Ausgang.

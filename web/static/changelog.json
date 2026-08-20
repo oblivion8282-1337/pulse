@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-20",
+      "date": "2026-08-20",
+      "style": "Sachlich",
+      "title": "Bildschirmteilen auf dem Mac: eigenes Fenster beim Abkoppeln",
+      "items": [
+        "Koppelst du auf einem Mac einen Stream ab, öffnet sich jetzt ein eigenes Fenster, das das Bild selbst dekodiert — über die Grafikeinheit statt über den Hauptprozessor. Bisher fiel der Mac dort auf den Browser-Weg zurück, weil das nötige Programm gar nicht mitgeliefert wurde.",
+        "In diesem Fenster gibt es Zoom, Lautstärke über 100 %, eine Statistik und Mitschnitt ohne Neuberechnung — dieselben Möglichkeiten, die Windows- und Linux-Nutzer schon hatten."
+      ]
+    },
+    {
       "id": "2026-08-19.5",
       "date": "2026-08-19",
       "style": "Sachlich",
