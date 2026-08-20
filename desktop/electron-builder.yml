@@ -195,11 +195,18 @@ mac:
   #   entitlementsInherit: build-resources/entitlements.mac.plist
   #   notarize: true     # braucht APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID
   #   publish: { provider: generic, url: https://howispulse.com/updates/mac/ }
-  # HQ-Streaming-Sidecar: the SELF-CONTAINED bundle dir produced by
-  # `scripts/bundle-dylibs.sh` (binary + @loader_path-rewritten FFmpeg/openssl/
-  # opus dylibs, ad-hoc signed). Built by `dist:mac` before electron-builder
-  # runs; ships to Resources/hq-sidecar/ where resolveMacBinaryPath() finds it.
-  # (Requires `cargo build --release` in streaming/mac-hq-sidecar/ first.)
+  # HQ-Streaming-Sidecar UND nativer Player: the SELF-CONTAINED bundle dir
+  # produced by `scripts/bundle-dylibs.sh <outdir> <binary...>` (both binaries +
+  # ONE shared set of @loader_path-rewritten FFmpeg/openssl/opus dylibs, ad-hoc
+  # signed). Built by `dist:mac` before electron-builder runs; ships to
+  # Resources/hq-sidecar/ where resolveMacBinaryPath() finds the sidecar and
+  # resolvePlayerBinary() (electron/player.ts) finds the player.
+  #
+  # Deliberately ONE entry, unlike the win section: there the two binaries are
+  # filtered out of two different target dirs, here bundle-dylibs.sh has already
+  # put them side by side. The player joined on 2026-08-20; before that the Mac
+  # app fell back to the <video> path silently, because the dir it looks in
+  # existed but was empty.
   extraResources:
     - from: ../streaming/mac-hq-sidecar/target/release/hq-sidecar
       to: hq-sidecar
