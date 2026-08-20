@@ -21,6 +21,13 @@
 //! allen stdout-Verkehr wäre: dort läuft auch Signaling-Nutzlast durch (SDP/ICE
 //! der Fernsteuerung), die eine blinde Textersetzung zerstören würde. Redigiert
 //! wird an den Quellen — Fehler-Strings und die argv-Antwort.
+//!
+//! **Bewusst nicht mitgezogen: `streaming/gsr-sidecar/redact.py`.** Vierte
+//! Fassung, im Python-Sidecar (Linux-Auffangnetz), regexbasiert und faengt
+//! strikt weniger (verlangt ein `[?&]` vor dem Praefix, maskiert beim
+//! SRT-Streamid nur das letzte Segment statt alles ab `publish:`). Bleibt
+//! trotzdem eigenstaendig: der Python-Sidecar hat keine Rust-Abhaengigkeiten
+//! und soll keine bekommen.
 
 /// Endet der Key-Wert an diesem Zeichen?
 ///
@@ -87,9 +94,10 @@ mod tests {
     #[test]
     fn token_wird_maskiert() {
         let roh = "https://howispulse.com/whep/kanal/whip?token=geheim123";
-        let s = redact_url(roh);
-        assert!(!s.contains("geheim123"), "Token steht noch drin: {s}");
-        assert!(s.contains("howispulse.com"), "Host soll lesbar bleiben: {s}");
+        assert_eq!(
+            redact_url(roh),
+            "https://howispulse.com/whep/kanal/whip?token=***"
+        );
     }
 
     /// **Konnte vorher NUR Linux.** Windows und macOS suchten
@@ -97,50 +105,59 @@ mod tests {
     /// durchgelassen.
     #[test]
     fn grossgeschriebener_parametername_wird_auch_gefasst() {
-        let s = redact_url("rtmps://h/p?Token=geheim123&x=1");
-        assert!(!s.contains("geheim123"), "Token= mit grossem T durchgerutscht: {s}");
+        assert_eq!(
+            redact_url("rtmps://h/p?Token=geheim123&x=1"),
+            "rtmps://h/p?Token=***&x=1"
+        );
     }
 
     /// **Konnte vorher NUR Windows.** Linux und macOS kannten als Ende nur
-    /// `&` und Leerzeichen, fanden hier keins und maskierten deshalb bis zum
-    /// Ende der Meldung — der Schluessel war zwar weg, der Rest der Meldung
-    /// aber auch.
+    /// `&` und Leerzeichen. Hier gibt es zwar ein Leerzeichen (nach der
+    /// schliessenden Klammer), aber keins VOR ihr — Linux/macOS haetten
+    /// deshalb erst dort geschnitten und die schliessende Klammer mit
+    /// aufgefressen (`"...pass=*** beim Oeffnen"`), nicht die ganze
+    /// restliche Meldung. Diese Fassung kennt zusaetzlich `)` als Ende und
+    /// erhaelt die Klammer.
     #[test]
     fn url_in_klammern_endet_an_der_klammer() {
-        let s = redact_url("Fehler (url=rtmps://h/p?pass=geheim123) beim Oeffnen");
-        assert!(!s.contains("geheim123"), "Schluessel steht noch drin: {s}");
-        assert!(s.contains(") beim Oeffnen"), "Rest der Meldung gefressen: {s}");
+        assert_eq!(
+            redact_url("Fehler (url=rtmps://h/p?pass=geheim123) beim Oeffnen"),
+            "Fehler (url=rtmps://h/p?pass=***) beim Oeffnen"
+        );
     }
 
     /// **Konnte vorher NICHT macOS.** Verschachtelte anyhow-Kontexte
     /// enthalten dieselbe URL mehrfach; macOS maskierte nur das erste
-    /// Vorkommen und liess die folgenden im Klartext stehen.
+    /// Vorkommen und liess die folgenden im Klartext stehen. Zugleich belegt
+    /// das die schliessende Klammer gefolgt von `: ` — auch dahinter bleibt
+    /// der Rest der Meldung erhalten.
     #[test]
     fn alle_vorkommen_werden_gefasst() {
-        let s = redact_url("open (rtmps://h?pass=eins): failed rtmps://h?pass=zwei");
-        assert!(!s.contains("eins"), "erstes Vorkommen: {s}");
-        assert!(!s.contains("zwei"), "zweites Vorkommen durchgerutscht: {s}");
+        assert_eq!(
+            redact_url("open (rtmps://h?pass=eins): failed rtmps://h?pass=zwei"),
+            "open (rtmps://h?pass=***): failed rtmps://h?pass=***"
+        );
     }
 
     /// Base64-Schluessel enthalten `/`, `+`, `=` — die duerfen NICHT als Ende
-    /// gelten, sonst bliebe ein Rest des Schluessels stehen.
+    /// gelten, sonst bliebe ein Rest des Schluessels stehen. Deckt alle drei
+    /// ab, inklusive eines Schluessels, der selbst auf `==` endet.
     #[test]
     fn base64_schluessel_wird_ganz_gefasst() {
-        let s = redact_url("?token=aGVsbG8+d29ybGQ/Zm9v=");
-        assert!(!s.contains("aGVsbG8"), "Anfang steht noch da: {s}");
-        assert!(!s.contains("Zm9v"), "Rest des Schluessels steht noch da: {s}");
+        assert_eq!(redact_url("?token=aB+c/d=="), "?token=***");
     }
 
-    /// Alle drei bekannten Praefixe, je einer pro Sendeweg.
+    /// Alle drei bekannten Praefixe, je einer pro Sendeweg. Der SRT-Fall
+    /// belegt zugleich, dass ein Leerzeichen nach dem Schluessel den Rest
+    /// der Meldung stehen laesst statt ihn mit aufzufressen.
     #[test]
     fn alle_drei_sendewege() {
-        for (roh, geheim) in [
-            ("?token=abc123", "abc123"),        // WHIP
-            ("?pass=abc123", "abc123"),         // RTMPS
-            ("?streamid=publish:abc123", "abc123"), // SRT
+        for (roh, erwartet) in [
+            ("?token=abc123", "?token=***"),                     // WHIP
+            ("?pass=abc123", "?pass=***"),                       // RTMPS
+            ("?streamid=publish:abc123", "?streamid=publish:***"), // SRT
         ] {
-            let s = redact_url(roh);
-            assert!(!s.contains(geheim), "{roh} nicht maskiert: {s}");
+            assert_eq!(redact_url(roh), erwartet, "bei Eingabe {roh}");
         }
     }
 
@@ -149,5 +166,55 @@ mod tests {
     fn ohne_schluessel_unveraendert() {
         let roh = "rtmps://howispulse.com:1936/kanal";
         assert_eq!(redact_url(roh), roh);
+    }
+
+    /// `&` schneidet ab, der Rest der Query bleibt stehen.
+    #[test]
+    fn endet_am_kaufmannsund_rest_bleibt() {
+        assert_eq!(redact_url("?pass=x&y=1"), "?pass=***&y=1");
+    }
+
+    /// Ein Zeilenumbruch zaehlt als Whitespace und damit als Ende — mehrzeilige
+    /// Logmeldungen sollen nicht ueber die Zeile hinaus mitgerissen werden.
+    #[test]
+    fn zeilenumbruch_ist_ein_endezeichen() {
+        assert_eq!(
+            redact_url("token=geheim123\nrest der meldung"),
+            "token=***\nrest der meldung"
+        );
+    }
+
+    /// `streamid=publish:…` endet wie jeder andere Praefix an einem
+    /// Leerzeichen — der Rest der Meldung nach dem Schluessel bleibt lesbar.
+    #[test]
+    fn streamid_rest_der_meldung_bleibt() {
+        assert_eq!(
+            redact_url("streamid=publish:abc123 rest der meldung"),
+            "streamid=publish:*** rest der meldung"
+        );
+    }
+
+    /// `)` gefolgt von `: ` — die schliessende Klammer UND das Folgende
+    /// bleiben erhalten, nicht nur eins von beidem.
+    #[test]
+    fn schliessende_klammer_gefolgt_von_doppelpunkt_bleibt() {
+        assert_eq!(redact_url("(pass=geheim): Fehler"), "(pass=***): Fehler");
+    }
+
+    /// `ends_value` ist `pub` und wird ausserhalb dieser Datei aufgerufen
+    /// (`find(ends_value)`) — ohne einen Test dafuer stuende die eigentliche
+    /// Substanz der Funktion (welche Zeichen ein Ende markieren, welche
+    /// bewusst nicht) nur im Fliesstext ihres Doc-Kommentars. Haelt die
+    /// Zeichenmenge direkt fest, unabhaengig von `redact_url`.
+    #[test]
+    fn ends_value_deckt_erwartete_zeichen_ab() {
+        for c in [' ', '\n', '\t', '&', '"', '\'', '(', ')', '[', ']', '{', '}', ',', ';', '<', '>', '|', '`'] {
+            assert!(ends_value(c), "{c:?} soll als Ende gelten");
+        }
+        // URL-taugliche Zeichen: Base64-Schluessel enthalten sie, sie duerfen
+        // deshalb NICHT als Ende gelten.
+        for c in ['/', '+', '=', '%', ':', '-', '_', '.'] {
+            assert!(!ends_value(c), "{c:?} soll NICHT als Ende gelten");
+        }
     }
 }
