@@ -264,7 +264,10 @@ async function startElectron() {
   console.log('→ Electron starten');
   run('pnpm', ['run', 'start'], {
     cwd: path.join(REPO, 'desktop'),
-    env: { PULSE_DEV_URL: `http://localhost:${VITE_PORT}`, PULSE_DEVTOOLS: '1', ...nativeEnv }
+    // DevTools NICHT erzwingen: sie gingen bei jedem Start als eigenes Fenster
+    // auf. Wer sie will, setzt PULSE_DEVTOOLS=1 in der Umgebung (wird von
+    // process.env durchgereicht) oder drückt Strg+Shift+I.
+    env: { PULSE_DEV_URL: `http://localhost:${VITE_PORT}`, ...nativeEnv }
   });
 }
 
