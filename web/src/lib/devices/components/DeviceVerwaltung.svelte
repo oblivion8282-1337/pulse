@@ -36,8 +36,20 @@
   });
 
   let zielKanal = $state('');
+  // **Am Geräte-Identität hängen, nicht an „ist gerade leer"** (Fix zu
+  // Prüfbefund G-1, 2026-08-20): das gewöhnliche Nachführ-Muster (`if
+  // (!zielKanal) …`) las `zielKanal`, wurde also von JEDER Änderung
+  // erneut ausgelöst — auch von `umstellenGuild()`s absichtlichem Leeren,
+  // das dieselbe Anweisung im selben Durchlauf rückgängig machte. Wer nur
+  // `device.id` liest, füllt ausschliesslich beim Wechsel auf ein ANDERES
+  // Gerät neu — ein bewusstes Leeren nach Community-Wechsel bleibt leer und
+  // zwingt zur echten Auswahl aus `sprachkanaele`.
+  let zielKanalGeraet = '';
   $effect(() => {
-    if (!zielKanal) zielKanal = device.channel_id;
+    if (zielKanalGeraet !== device.id) {
+      zielKanalGeraet = device.id;
+      zielKanal = device.channel_id;
+    }
   });
 
   const sprachkanaele = $derived(
