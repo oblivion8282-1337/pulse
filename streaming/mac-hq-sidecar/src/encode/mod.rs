@@ -219,10 +219,10 @@ impl VideoEncoder {
                     }
                 }
                 format::output_as_with(&push_url, fmt, opts)
-                    .with_context(|| format!("open output {fmt} → {}", redact(push_url)))?
+                    .with_context(|| format!("open output {fmt} → {}", crate::redact::redact_url(push_url)))?
             }
             None => format::output(&push_url)
-                .with_context(|| format!("open output → {}", redact(push_url)))?,
+                .with_context(|| format!("open output → {}", crate::redact::redact_url(push_url)))?,
         };
 
         let global_header = output
@@ -371,22 +371,6 @@ impl VideoEncoder {
         }
         self.mux.finish()
     }
-}
-
-/// Mask a token in a push URL for logging (never log the raw stream key).
-fn redact(url: &str) -> String {
-    let mut s = url.to_string();
-    for pat in ["pass=", "token=", "streamid=publish:"] {
-        if let Some(idx) = s.find(pat) {
-            let start = idx + pat.len();
-            let end = s[start..]
-                .find(|c: char| c == '&' || c == ' ')
-                .map(|i| start + i)
-                .unwrap_or(s.len());
-            s.replace_range(start..end, "***");
-        }
-    }
-    s
 }
 
 #[cfg(test)]
