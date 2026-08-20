@@ -1,6 +1,6 @@
 {
   "name": "@dcc/desktop",
-  "version": "0.1.68",
+  "version": "0.1.69",
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
   "description": "Pulse desktop wrapper (Electron)",
