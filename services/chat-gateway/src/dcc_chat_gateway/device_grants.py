@@ -31,10 +31,21 @@ from dcc_chat_gateway.models import (
 def gedeckt(
     zeilen: Iterable[DeviceGrant], *, anfragender_id: int, rollen: set[int]
 ) -> bool:
-    """Deckt eine der Freigaben diesen Anfragenden gerade ab?"""
+    """Deckt eine der Freigaben diesen Anfragenden gerade ab?
+
+    Reine Rechnung über rohe Zeilen — bewusst ohne Bindung an einen
+    DB-Dialekt. ``DateTime(timezone=True)`` liefert unter aiosqlite eine
+    NAIVE ``datetime`` zurück (Prod/asyncpg liefert timezone-aware); ein
+    Vergleich naiv-gegen-aware wirft ``TypeError``. Ein fehlgeschlagener
+    Vergleich darf hier nie zum Absturz des aufrufenden WS-Ops werden —
+    deshalb wird ein naiver Wert als UTC gedeutet, bevor verglichen wird.
+    """
     jetzt = datetime.now(UTC)
     for z in zeilen:
-        if z.expires_at is not None and z.expires_at <= jetzt:
+        ablauf = z.expires_at
+        if ablauf is not None and ablauf.tzinfo is None:
+            ablauf = ablauf.replace(tzinfo=UTC)
+        if ablauf is not None and ablauf <= jetzt:
             continue
         if z.subject_type == SUBJECT_EVERYONE:
             return True

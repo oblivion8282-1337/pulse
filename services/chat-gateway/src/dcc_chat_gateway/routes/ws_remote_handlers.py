@@ -64,7 +64,7 @@ from fastapi import WebSocket
 from sqlalchemy import select
 
 from dcc_chat_gateway.device_grants import freigaben_lesen, gedeckt
-from dcc_chat_gateway.models import Device, MemberRole
+from dcc_chat_gateway.models import MemberRole
 from dcc_chat_gateway.permissions import Permissions, has_permission, resolve_permissions
 from dcc_chat_gateway.remote_guard import peer_channel_perms
 from dcc_chat_gateway.remote_registry import send_to_socket
@@ -224,16 +224,18 @@ async def handle_request(
         # Rechteprüfung oben — sie ersetzt niemals VIEW_CHANNEL/REMOTE_CONTROL
         # oder ``standplatz_stimmt``, sondern spart nur die Rückfrage am
         # Gerät. Kein Gerät gemeint → kein zusätzlicher Datenbankgriff.
+        # ``channel.guild_id`` ist der bereits geprüfte, autoritative Wert
+        # (``standplatz_stimmt`` hat oben bestätigt, dass das Gerät in GENAU
+        # diesem Kanal steht) — ein zusätzlicher ``session.get(Device, …)``
+        # nur für die Guild-Kennung entfällt damit.
         freigabe_gilt = False
         if geraet is not None:
-            device_row = await session.get(Device, geraet)
-            if device_row is not None:
-                rollen = await _rollen_von(session, device_row.guild_id, user.id)
-                freigabe_gilt = gedeckt(
-                    await freigaben_lesen(session, geraet),
-                    anfragender_id=user.id,
-                    rollen=rollen,
-                )
+            rollen = await _rollen_von(session, channel.guild_id, user.id)
+            freigabe_gilt = gedeckt(
+                await freigaben_lesen(session, geraet),
+                anfragender_id=user.id,
+                rollen=rollen,
+            )
         # Den Host als ``AuthenticatedUser`` aus seiner offenen Verbindung holen,
         # nicht aus der id nachbauen: der Resolver liest ``is_admin``/``is_owner``
         # daraus, und ein nachgebauter Nutzer mit is_admin=False wuerde einem
