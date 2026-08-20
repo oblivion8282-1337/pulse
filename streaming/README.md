@@ -184,6 +184,12 @@ Komfort-Fallback); `"portal"` → Primärmonitor.
 - `state` — `state ∈ {"idle","starting","live","error","stopped"}`, `running`, `uptime_s`
 - `fps` — `fps`, `uptime_s` (kommt sobald GSR "update fps: N" auf stderr meldet → impliziert "live")
 - `log` — `line` (eine Roh-Zeile GSR-stderr; gemerged inklusive stdout)
+- `notice` — `line`, `code` — bedeutsame, aber nicht-fehlerhafte Mitteilung; gehört
+  vor den Nutzer (das Web zeigt sie als Toast) und zusätzlich ins Log-Fenster. Bisher
+  nur der Linux-Rust-Sidecar, bisher ein Code: `fps_begrenzt` (10-bit-Bildrate am
+  Start begrenzt, weil die verhandelte Quellgröße die Last-Grenze
+  `linux-hq-sidecar/src/lastgrenze.rs` überstieg). Verbraucher müssen das Event
+  tolerieren (unbekannte `code`s ignorieren).
 - `error` — `message`
 - `stopped` — kommt direkt nach dem letzten `state=stopped`-Event
 

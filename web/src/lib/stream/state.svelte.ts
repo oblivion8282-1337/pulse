@@ -296,6 +296,13 @@ function applyEvent(ev: GsrEvent): void {
   if (ev.ev === 'stopped' && ev.reason === 'sidecar_exit') {
     toast.error(m.stream_stopped_sidecar_exit());
   }
+  // 10-bit-Bildrate wurde am Start begrenzt: Die Quelle (Linux-Portal:
+  // erst im Dialog gewählt) war größer, als die im Panel gewählte Bildrate
+  // für Zuschauer-Decoder verträgt. Der Stream LÄUFT — nur langsamer; die
+  // Ansage erklärt, warum die Anzeige eine andere Rate zeigt als gewählt.
+  if (ev.ev === 'notice' && ev.code === 'fps_begrenzt') {
+    toast.warning(m.stream_fps_capped(), { description: ev.line });
+  }
 }
 
 /**
@@ -332,7 +339,11 @@ function applyEventInner(s: StreamSession, ev: GsrEvent): void {
       if (s.state !== 'live') s.state = 'live';
       s.running = true;
       break;
+    // `notice` trägt dieselbe Zeile zusätzlich zum Toast (unten in
+    // `applyEvent`) ins Log-Fenster — die Ansage gilt dem Nutzer, das Log
+    // ist die Spur.
     case 'log':
+    case 'notice':
       s.lastLog = [...s.lastLog, ev.line].slice(-MAX_LOG_LINES);
       break;
     case 'error':

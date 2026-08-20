@@ -194,6 +194,12 @@ export type GsrEventBody =
   | { ev: 'state'; state: 'idle' | 'starting' | 'live' | 'error' | 'stopped'; running: boolean; uptime_s: number }
   | { ev: 'fps'; fps: number; uptime_s: number }
   | { ev: 'log'; line: string }
+  // Bedeutsame, aber nicht-fehlerhafte Mitteilung des Sidecars — sie gehört
+  // VOR den Nutzer (Toast), nicht nur ins Log-Fenster. `code` wählt die Art
+  // (bisher nur 'fps_begrenzt': 10-bit-Bildrate am Start begrenzt, weil die
+  // Quelle größer ausfiel als im Panel annehmbar — Linux-Portal). Nur der
+  // Linux-Sidecar sendet sie heute; Verbraucher müssen sie tolerieren.
+  | { ev: 'notice'; line: string; code: string }
   // `code` is an optional machine-readable tag (Windows sidecar; e.g.
   // 'capture_size_changed' → the client auto-restarts the stream). The Linux
   // sidecar doesn't send it yet — consumers must tolerate its absence.
