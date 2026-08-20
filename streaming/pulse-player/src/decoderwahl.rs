@@ -25,7 +25,7 @@
 //! | Eintrag | trifft |
 //! |---|---|
 //! | `libdav1d` | den Kandidaten OHNE angehaengtes Geraet |
-//! | `av1+hw` | den nativen Decoder mit dem plattform-eigenen hwaccel (D3D11VA unter Windows, VAAPI unter Linux) |
+//! | `av1+hw` | den nativen Decoder mit dem plattform-eigenen hwaccel (D3D11VA unter Windows, VAAPI unter Linux, VideoToolbox unter macOS) |
 //! | `av1_cuvid+cuda` | den cuvid-Decoder mit CUDA-Geraet (Bild bleibt auf der Karte) |
 //!
 //! `av1_cuvid` allein trifft also den cuvid-Decoder **ohne** Geraet — den, der

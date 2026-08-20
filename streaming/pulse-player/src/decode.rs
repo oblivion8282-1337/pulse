@@ -94,6 +94,7 @@ enum Hwaccel {
     Vaapi,
     D3d11va,
     Cuda,
+    VideoToolbox,
 }
 
 impl Hwaccel {
@@ -102,6 +103,7 @@ impl Hwaccel {
             Self::Vaapi => ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VAAPI,
             Self::D3d11va => ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_D3D11VA,
             Self::Cuda => ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_CUDA,
+            Self::VideoToolbox => ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VIDEOTOOLBOX,
         }
     }
 
@@ -110,6 +112,7 @@ impl Hwaccel {
             Self::Vaapi => "Hardware (VAAPI)",
             Self::D3d11va => "Hardware (D3D11VA)",
             Self::Cuda => "Hardware (CUDA)",
+            Self::VideoToolbox => "Hardware (VideoToolbox)",
         }
     }
 
@@ -141,7 +144,7 @@ impl Hwaccel {
     /// Konstanten stehen deshalb als Zahl da statt als Symbol.
     fn flags(self, geteilter_kontext: bool) -> std::os::raw::c_int {
         match self {
-            Self::Vaapi | Self::D3d11va => 0,
+            Self::Vaapi | Self::D3d11va | Self::VideoToolbox => 0,
             Self::Cuda if geteilter_kontext => AV_CUDA_USE_CURRENT_CONTEXT,
             Self::Cuda => 0,
         }
@@ -168,6 +171,7 @@ impl Hwaccel {
             Self::Vaapi => ffmpeg::format::Pixel::VAAPI,
             Self::D3d11va => ffmpeg::format::Pixel::D3D11,
             Self::Cuda => ffmpeg::format::Pixel::CUDA,
+            Self::VideoToolbox => ffmpeg::format::Pixel::VIDEOTOOLBOX,
         }
     }
 }
@@ -191,10 +195,11 @@ const AV_CUDA_USE_CURRENT_CONTEXT: std::os::raw::c_int = 2;
 /// Genau so am 2026-08-04 mit D3D11 passiert und am 2026-08-07 fuer CUDA
 /// vorhergesagt. Als Konstante laesst sich der Zusammenhang gegen
 /// [`Hwaccel::bildformat`] pruefen, statt ihn zu hoffen.
-const AUF_GPU_FORMATE: [ffmpeg::format::Pixel; 3] = [
+const AUF_GPU_FORMATE: [ffmpeg::format::Pixel; 4] = [
     ffmpeg::format::Pixel::VAAPI,
     ffmpeg::format::Pixel::D3D11,
     ffmpeg::format::Pixel::CUDA,
+    ffmpeg::format::Pixel::VIDEOTOOLBOX,
 ];
 
 /// Ein Weg, den Decoder zu oeffnen.
@@ -219,7 +224,9 @@ impl Kandidat {
     const fn nativ_hw(name: &'static str) -> Self {
         #[cfg(windows)]
         let hw = Some(Hwaccel::D3d11va);
-        #[cfg(not(windows))]
+        #[cfg(target_os = "macos")]
+        let hw = Some(Hwaccel::VideoToolbox);
+        #[cfg(not(any(windows, target_os = "macos")))]
         let hw = Some(Hwaccel::Vaapi);
         Self { name, hw }
     }
@@ -248,7 +255,9 @@ impl Kandidat {
     /// Denselben Kniff macht [`Kandidat::nativ_hw`] auf der anderen Seite.
     fn geraetetag(&self) -> Option<&'static str> {
         match self.hw {
-            Some(Hwaccel::Vaapi) | Some(Hwaccel::D3d11va) => Some("hw"),
+            Some(Hwaccel::Vaapi) | Some(Hwaccel::D3d11va) | Some(Hwaccel::VideoToolbox) => {
+                Some("hw")
+            }
             Some(Hwaccel::Cuda) => Some("cuda"),
             None => None,
         }
@@ -508,7 +517,13 @@ fn candidates(codec: Codec, allow_hw: bool) -> Vec<Kandidat> {
 ///
 /// `*_cuvid` bleibt in BEIDEN Faellen in der Liste, nur eben dahinter: laesst
 /// sich der hwaccel nicht anlegen, kommt es weiterhin zum Zug.
-const ZUERST_NATIV_HW: bool = cfg!(windows);
+///
+/// **Seit dem 2026-08-20 gilt das auch fuer macOS**, und deshalb steht hier
+/// `not(linux)` statt `windows`: cuvid-Decoder gibt es auf macOS gar nicht, ein
+/// Versuch kostet nur Startzeit. Die Aussage der Konstanten ist unveraendert —
+/// ueberall ausser auf Linux zuerst der native Decoder mit dem
+/// plattform-eigenen hwaccel.
+const ZUERST_NATIV_HW: bool = cfg!(not(target_os = "linux"));
 
 /// Der eigentliche Aufbau der Liste, ohne die Umgebung zu befragen.
 ///
@@ -740,7 +755,7 @@ fn hw_geraet_anhaengen(
     // Kontext ist die Karte ohnehin schon entschieden.
     let pfad = match art {
         Hwaccel::Vaapi => Some(vaapi_geraetepfad()),
-        Hwaccel::D3d11va | Hwaccel::Cuda => None,
+        Hwaccel::D3d11va | Hwaccel::Cuda | Hwaccel::VideoToolbox => None,
     };
     let c_pfad = pfad
         .as_deref()
@@ -2288,7 +2303,9 @@ mod tests {
             .expect("hwaccel-Kandidat fehlt");
         #[cfg(windows)]
         assert_eq!(hw, Hwaccel::D3d11va);
-        #[cfg(not(windows))]
+        #[cfg(target_os = "macos")]
+        assert_eq!(hw, Hwaccel::VideoToolbox);
+        #[cfg(not(any(windows, target_os = "macos")))]
         assert_eq!(hw, Hwaccel::Vaapi);
     }
 
@@ -2400,7 +2417,12 @@ mod tests {
     /// nach der Ursache aussieht. Am 2026-08-04 mit D3D11 genau so passiert.
     #[test]
     fn jeder_geraetetyp_hat_ein_abgeholtes_bildformat() {
-        for art in [Hwaccel::Vaapi, Hwaccel::D3d11va, Hwaccel::Cuda] {
+        for art in [
+            Hwaccel::Vaapi,
+            Hwaccel::D3d11va,
+            Hwaccel::Cuda,
+            Hwaccel::VideoToolbox,
+        ] {
             let format = art.bildformat();
             assert!(
                 AUF_GPU_FORMATE.contains(&format),
