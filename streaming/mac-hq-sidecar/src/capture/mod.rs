@@ -17,7 +17,13 @@
 //! are conservative. [`AssumeSend`] wraps a `Retained<_>` we move between the
 //! query thread and the worker thread; this is sound for SCK objects.
 
+mod abfrage;
 mod filter;
+mod output;
+
+use abfrage::{find_window, pick_display, resolve_applications, shareable_content};
+use output::FrameOutput;
+pub use abfrage::{list_audio_applications, list_capture_windows, list_displays};
 
 use std::sync::mpsc::{Sender, channel};
 use std::sync::Mutex;
@@ -27,10 +33,8 @@ use anyhow::{Result, anyhow};
 use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
-use objc2::{AllocAnyThread, DefinedClass, Message, define_class, msg_send};
-use objc2_core_audio_types::{AudioBuffer, AudioBufferList};
-use objc2_core_graphics::CGMainDisplayID;
-use objc2_core_media::{CMBlockBuffer, CMSampleBuffer, CMTime};
+use objc2::AllocAnyThread;
+use objc2_core_media::CMTime;
 
 // CoreFoundation is linked transitively by the objc2 framework crates; the
 // retained CMBlockBuffer from `audio_buffer_list_with_retained_block_buffer`
@@ -39,12 +43,9 @@ unsafe extern "C" {
     fn CFRelease(cf: *const std::ffi::c_void);
 }
 use objc2_core_foundation::CFRetained;
-use objc2_core_video::{CVImageBuffer, CVPixelBufferGetHeight, CVPixelBufferGetWidth};
-use objc2_foundation::{NSError, NSObject, NSObjectProtocol};
-use objc2_screen_capture_kit::{
-    SCDisplay, SCRunningApplication, SCShareableContent, SCStream, SCStreamConfiguration,
-    SCStreamOutput, SCStreamOutputType, SCWindow,
-};
+use objc2_core_video::CVImageBuffer;
+use objc2_foundation::NSError;
+use objc2_screen_capture_kit::{SCStream, SCStreamConfiguration, SCStreamOutputType};
 
 // The sidecar's parent process is the Electron ("Pulse") main process (it
 // spawns us) — used to exclude Pulse's own audio from a Desktop capture so the
@@ -143,341 +144,6 @@ fn cmtime_seconds(t: CMTime) -> f64 {
 
 /// kCVPixelFormatType_32BGRA — fourcc 'BGRA'.
 const PIXEL_FORMAT_BGRA: u32 = u32::from_be_bytes(*b"BGRA");
-
-// ── Content query ────────────────────────────────────────────────────────────
-
-/// Block on `SCShareableContent.getShareableContentWithCompletionHandler:` and
-/// hand back the retained content. Requires Screen-Recording permission — without
-/// it the completion handler returns an error (or times out).
-fn shareable_content() -> Result<Retained<SCShareableContent>> {
-    let (tx, rx) = channel::<Result<AssumeSend<Retained<SCShareableContent>>, String>>();
-    let tx = Mutex::new(Some(tx));
-
-    let handler = RcBlock::new(move |content: *mut SCShareableContent, error: *mut NSError| {
-        let result = unsafe {
-            if let Some(content) = content.as_ref() {
-                Ok(AssumeSend(content.retain()))
-            } else if let Some(err) = error.as_ref() {
-                Err(err.localizedDescription().to_string())
-            } else {
-                Err("getShareableContent returned no content and no error".to_string())
-            }
-        };
-        if let Ok(mut guard) = tx.lock() {
-            if let Some(tx) = guard.take() {
-                let _ = tx.send(result);
-            }
-        }
-    });
-
-    // SAFETY: completion-handler block matches the documented signature.
-    unsafe { SCShareableContent::getShareableContentWithCompletionHandler(&handler) };
-
-    match rx.recv_timeout(Duration::from_secs(8)) {
-        Ok(Ok(content)) => Ok(content.0),
-        Ok(Err(msg)) => Err(anyhow!("SCShareableContent error: {msg}")),
-        Err(_) => Err(anyhow!(
-            "SCShareableContent timed out (Screen-Recording-Permission fehlt?)"
-        )),
-    }
-}
-
-/// Enumerate displays for `list_monitors`.
-pub fn list_displays() -> Result<Vec<DisplayInfo>> {
-    let content = shareable_content()?;
-    let main_id = CGMainDisplayID();
-    let displays = unsafe { content.displays() };
-
-    let mut out = Vec::new();
-    for (i, display) in displays.iter().enumerate() {
-        let display_id = unsafe { display.displayID() };
-        let width = unsafe { display.width() } as i64;
-        let height = unsafe { display.height() } as i64;
-        out.push(DisplayInfo {
-            index: i + 1,
-            display_id,
-            name: format!("Display {display_id}"),
-            primary: display_id == main_id,
-            width,
-            height,
-            // TODO(stage: polish): CGDisplayCopyDisplayMode → refresh rate.
-            refresh_hz: 0,
-        });
-    }
-    Ok(out)
-}
-
-/// Application names for the audio picker (specific-app capture + the
-/// desktop-audio exclude list). SCK has no "is this app producing audio?" query,
-/// so we approximate with the running applications that own at least one
-/// on-screen window — the user-facing apps, deduped + sorted — which is the set
-/// worth offering. (The Windows/Linux lists are "apps with an active audio
-/// session"; macOS can't narrow that far without a private CoreAudio tap.)
-pub fn list_audio_applications() -> Result<Vec<String>> {
-    let content = shareable_content()?;
-    let windows = unsafe { content.windows() };
-
-    let mut names = std::collections::BTreeSet::new();
-    for w in windows.iter() {
-        // Keep only normal, on-screen app windows: `windowLayer == 0` drops the
-        // menu bar / Dock / Spotlight / Control Center system layers, and a
-        // minimum size drops tiny helper windows. This turns "every running
-        // process with a surface" into "the apps the user actually sees".
-        if !unsafe { w.isOnScreen() } || unsafe { w.windowLayer() } != 0 {
-            continue;
-        }
-        let frame = unsafe { w.frame() };
-        if frame.size.width < 120.0 || frame.size.height < 120.0 {
-            continue;
-        }
-        if let Some(app) = unsafe { w.owningApplication() } {
-            let name = unsafe { app.applicationName() }.to_string();
-            if !name.is_empty() {
-                names.insert(name);
-            }
-        }
-    }
-    Ok(names.into_iter().collect())
-}
-
-/// Capturable windows for the source picker — same "normal, on-screen, sizeable
-/// window" filter as [`list_audio_applications`], but returns each window with
-/// its CG id + title so the user can stream a single window instead of a whole
-/// display.
-pub fn list_capture_windows() -> Result<Vec<WindowInfo>> {
-    let content = shareable_content()?;
-    let windows = unsafe { content.windows() };
-
-    let mut out = Vec::new();
-    for w in windows.iter() {
-        if !unsafe { w.isOnScreen() } || unsafe { w.windowLayer() } != 0 {
-            continue;
-        }
-        let frame = unsafe { w.frame() };
-        if frame.size.width < 120.0 || frame.size.height < 120.0 {
-            continue;
-        }
-        let app = unsafe { w.owningApplication() }
-            .map(|a| unsafe { a.applicationName() }.to_string())
-            .unwrap_or_default();
-        let title = unsafe { w.title() }
-            .map(|t| t.to_string())
-            .unwrap_or_default();
-        out.push(WindowInfo {
-            window_id: unsafe { w.windowID() },
-            title,
-            app,
-            width: frame.size.width as i64,
-            height: frame.size.height as i64,
-        });
-    }
-    Ok(out)
-}
-
-/// Find a window by its CG id in the current shareable content.
-fn find_window(
-    content: &SCShareableContent,
-    window_id: u32,
-) -> Option<Retained<SCWindow>> {
-    let windows = unsafe { content.windows() };
-    windows
-        .iter()
-        .find(|w| unsafe { w.windowID() } == window_id)
-        .map(|w| w.retain())
-}
-
-/// Running applications matching any of `names` (by `applicationName`) or the
-/// given `also_pid` (used to find Pulse's own Electron process via getppid).
-fn resolve_applications(
-    content: &SCShareableContent,
-    names: &[String],
-    also_pid: Option<i32>,
-) -> Vec<Retained<SCRunningApplication>> {
-    let apps = unsafe { content.applications() };
-    let mut out = Vec::new();
-    for a in apps.iter() {
-        let name = unsafe { a.applicationName() }.to_string();
-        let pid = unsafe { a.processID() };
-        if also_pid == Some(pid) || names.iter().any(|n| n == &name) {
-            out.push(a.retain());
-        }
-    }
-    out
-}
-
-/// Resolve the 1-based display index (clamped to the main display).
-fn pick_display(content: &SCShareableContent, display_index: usize) -> Result<Retained<SCDisplay>> {
-    let displays = unsafe { content.displays() };
-    let count = displays.len();
-    if count == 0 {
-        return Err(anyhow!("keine Displays gefunden"));
-    }
-    let idx = if display_index >= 1 && display_index <= count {
-        display_index - 1
-    } else {
-        0
-    };
-    Ok(displays.objectAtIndex(idx))
-}
-
-// ── Frame-output delegate (SCStreamOutput) ───────────────────────────────────
-
-/// Beide Kanaele sind optional, weil seit dem 2026-08-20 zwei Streams laufen:
-/// der Bild-Stream traegt nur Bild, der Ton-Stream nur Ton. Ein Wegwerf-Kanal
-/// fuer die jeweils andere Haelfte waere eine Falle — niemand leerte ihn.
-struct OutputIvars {
-    video_tx: Mutex<Option<Sender<Frame>>>,
-    audio_tx: Mutex<Option<Sender<AudioFrame>>>,
-}
-
-define_class!(
-    // SAFETY:
-    // - NSObject has no subclassing requirements.
-    // - FrameOutput does not implement Drop.
-    #[unsafe(super = NSObject)]
-    #[ivars = OutputIvars]
-    struct FrameOutput;
-
-    // SAFETY: NSObjectProtocol has no safety requirements.
-    unsafe impl NSObjectProtocol for FrameOutput {}
-
-    // SAFETY: the selector signature matches SCStreamOutput.
-    unsafe impl SCStreamOutput for FrameOutput {
-        #[unsafe(method(stream:didOutputSampleBuffer:ofType:))]
-        fn stream_did_output(
-            &self,
-            _stream: &SCStream,
-            sample_buffer: &CMSampleBuffer,
-            ty: SCStreamOutputType,
-        ) {
-            match ty {
-                SCStreamOutputType::Screen => self.handle_video(sample_buffer),
-                SCStreamOutputType::Audio => self.handle_audio(sample_buffer),
-                _ => {}
-            }
-        }
-    }
-);
-
-impl FrameOutput {
-    fn new(
-        video_tx: Option<Sender<Frame>>,
-        audio_tx: Option<Sender<AudioFrame>>,
-    ) -> Retained<Self> {
-        let this = Self::alloc().set_ivars(OutputIvars {
-            video_tx: Mutex::new(video_tx),
-            audio_tx: Mutex::new(audio_tx),
-        });
-        // SAFETY: NSObject's init is correct.
-        unsafe { msg_send![super(this), init] }
-    }
-
-    fn handle_video(&self, sample_buffer: &CMSampleBuffer) {
-        // SAFETY: a screen sample buffer is backed by a CVPixelBuffer. We retain
-        // it and hand it on **without locking or copying** — the IOSurface stays
-        // on the GPU and the encoder wraps it as a VideoToolbox hw-frame.
-        let Some(image_buffer) = (unsafe { sample_buffer.image_buffer() }) else {
-            return;
-        };
-        let width = CVPixelBufferGetWidth(&image_buffer);
-        let height = CVPixelBufferGetHeight(&image_buffer);
-        let pts = cmtime_seconds(unsafe { sample_buffer.presentation_time_stamp() });
-        let frame = Frame {
-            width,
-            height,
-            pts_seconds: pts,
-            pixel_buffer: SendPixelBuffer(image_buffer),
-        };
-        if let Ok(tx) = self.ivars().video_tx.lock() {
-            if let Some(tx) = tx.as_ref() {
-                let _ = tx.send(frame);
-            }
-        }
-    }
-
-    fn handle_audio(&self, sample_buffer: &CMSampleBuffer) {
-        // Fast bail if no audio sink registered.
-        let guard = match self.ivars().audio_tx.lock() {
-            Ok(g) => g,
-            Err(_) => return,
-        };
-        let Some(atx) = guard.as_ref() else { return };
-
-        // AudioBufferList sized for up to 2 buffers (stereo, interleaved or
-        // planar). Layout-compatible prefix with the flexible-array
-        // `AudioBufferList` (mNumberBuffers + mBuffers[…]).
-        #[repr(C)]
-        struct Abl2 {
-            n: u32,
-            buffers: [AudioBuffer; 2],
-        }
-        // SAFETY: zeroed is a valid initial AudioBufferList.
-        let mut abl: Abl2 = unsafe { std::mem::zeroed() };
-        let mut block_buffer: *mut CMBlockBuffer = std::ptr::null_mut();
-        // SAFETY: pointers are valid; `buffer_list_size` matches `Abl2`.
-        let status = unsafe {
-            sample_buffer.audio_buffer_list_with_retained_block_buffer(
-                std::ptr::null_mut(),
-                &mut abl as *mut Abl2 as *mut AudioBufferList,
-                std::mem::size_of::<Abl2>(),
-                None,
-                None,
-                0,
-                &mut block_buffer as *mut *mut CMBlockBuffer,
-            )
-        };
-
-        if status == 0 {
-            let interleaved = interleave_audio(&abl.buffers, abl.n as usize);
-            if !interleaved.is_empty() {
-                let pts = cmtime_seconds(unsafe { sample_buffer.presentation_time_stamp() });
-                let _ = atx.send(AudioFrame {
-                    samples: interleaved,
-                    sample_rate: 48_000,
-                    channels: 2,
-                    pts_seconds: pts,
-                });
-            }
-        }
-        // Release the retained block buffer (+1 from the call above).
-        if !block_buffer.is_null() {
-            unsafe { CFRelease(block_buffer as *const std::ffi::c_void) };
-        }
-    }
-}
-
-/// Build interleaved stereo Float32 from an AudioBufferList. SCK delivers either
-/// one interleaved buffer (mNumberChannels=2) or two planar buffers (L, R).
-fn interleave_audio(buffers: &[AudioBuffer; 2], n: usize) -> Vec<f32> {
-    if n == 1 {
-        let b = buffers[0];
-        if b.mData.is_null() {
-            return Vec::new();
-        }
-        let count = (b.mDataByteSize as usize) / 4;
-        // SAFETY: mData points at mDataByteSize bytes of Float32 PCM.
-        unsafe { std::slice::from_raw_parts(b.mData as *const f32, count) }.to_vec()
-    } else if n >= 2 {
-        let (l, r) = (buffers[0], buffers[1]);
-        if l.mData.is_null() || r.mData.is_null() {
-            return Vec::new();
-        }
-        let nl = (l.mDataByteSize as usize) / 4;
-        let nr = (r.mDataByteSize as usize) / 4;
-        let frames = nl.min(nr);
-        // SAFETY: each plane holds its byte count of Float32 PCM.
-        let ls = unsafe { std::slice::from_raw_parts(l.mData as *const f32, nl) };
-        let rs = unsafe { std::slice::from_raw_parts(r.mData as *const f32, nr) };
-        let mut out = Vec::with_capacity(frames * 2);
-        for i in 0..frames {
-            out.push(ls[i]);
-            out.push(rs[i]);
-        }
-        out
-    } else {
-        Vec::new()
-    }
-}
 
 // ── Capturer ─────────────────────────────────────────────────────────────────
 
