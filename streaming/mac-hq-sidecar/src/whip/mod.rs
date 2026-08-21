@@ -54,11 +54,13 @@
 //! bleibt ohne etwas zu pruefen, schlechter ist als gar keiner.
 
 pub mod av1;
+pub mod bildmarke;
 mod pacer;
 mod sdp;
 
 use av1::SpurZustand;
 
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -172,6 +174,10 @@ struct Bildspur {
 
 pub struct WhipSender {
     track: Bildspur,
+    /// Die extmap-Nummer, unter der die Bildmarke ausgehandelt wurde — 0 heisst
+    /// "nicht ausgehandelt", dann wird keine geschrieben. Der Zuschauer urteilt
+    /// dann gar nicht ("Marke oder nichts") statt auf Vermutungen.
+    marken_id: AtomicU8,
     /// Ton als EIGENE Spur.
     ///
     /// Der entscheidende Unterschied zum Muxer-Weg: dort liegen Bild und Ton
@@ -238,6 +244,10 @@ impl WhipSender {
         let sender = pc
             .add_track(Arc::clone(&track.track) as Arc<dyn TrackLocal + Send + Sync>)
             .await?;
+        // Zweiter Griff auf denselben Sender: der RTCP-Faden unten verbraucht
+        // `sender`, die extmap-Nummer der Bildmarke laesst sich aber erst NACH
+        // der Aushandlung abfragen.
+        let sender_fuer_marke = Arc::clone(&sender);
 
         // Ton-Spur IMMER anbieten, auch wenn kein Ton kommt.
         //
@@ -325,7 +335,29 @@ impl WhipSender {
         });
 
         let (resource_url, http) = Self::negotiate(&pc, url).await?;
-        Ok(Self { track, audio, pc, resource_url, http })
+
+        // Die Nummer, unter der die Bildmarke ausgehandelt wurde. Erst nach
+        // `set_remote_description` (in `negotiate`) liefert webrtc-rs hier die
+        // tatsaechlich ausgehandelten Erweiterungen; kennt der Server sie
+        // nicht, ist die Liste leer und wir schreiben nichts. Der Zuschauer
+        // urteilt dann gar nicht — "Marke oder nichts" statt Vermutung.
+        let marken_id = sender_fuer_marke
+            .get_parameters()
+            .await
+            .rtp_parameters
+            .header_extensions
+            .iter()
+            .find(|e| e.uri == bildmarke::EXTMAP_URI)
+            .map_or(0u8, |e| u8::try_from(e.id).unwrap_or(0));
+        match marken_id {
+            0 => eprintln!(
+                "[whip] Bildmarke nicht ausgehandelt — der Zuschauer kann fehlende Bilder \
+                 nicht erkennen (Server ohne Patch 0006?)"
+            ),
+            id => eprintln!("[whip] Bildmarke ausgehandelt als extmap {id}"),
+        }
+
+        Ok(Self { track, audio, pc, resource_url, http, marken_id: AtomicU8::new(marken_id) })
     }
 
     /// Angebot erzeugen, Kandidaten sammeln, POST, Antwort setzen.
@@ -390,23 +422,22 @@ impl WhipSender {
             let (z, paketierer) = &mut *g;
             // Alle Pakete eines Bildes tragen denselben Zeitstempel.
             let ts = z.zeitstempel(pts);
-            // `letztes` = letztes Paket des Bildes (→ Marker-Bit).
-            let mut paket = |daten: Bytes, letztes: bool| Packet {
-                header: Header {
-                    version: 2,
-                    marker: letztes,
-                    sequence_number: z.naechste_seq(),
-                    timestamp: ts,
-                    ..Default::default()
-                },
-                payload: daten,
-            };
-            match paketierer {
+            let marken_id = self.marken_id.load(Ordering::Relaxed);
+
+            // Erst paketieren, DANN nummerieren. Geht nichts hinaus, wird auch
+            // keine Bildnummer verbraucht — daran erkennt der Zuschauer, dass
+            // nichts verlorenging (`crate::whip::bildmarke`).
+            //
+            // Je Eintrag: Nutzlast, erstes Paket, letztes Paket, Vollbild.
+            let teile: Vec<(Bytes, bool, bool, bool)> = match paketierer {
                 Paketierer::Av1 => av1::paketiere(data, av1::MTU)?
                     .into_iter()
-                    .map(|p| paket(Bytes::from(p.daten), p.letztes))
+                    .map(|p| (Bytes::from(p.daten), p.erstes, p.letztes, p.vollbild))
                     .collect(),
                 Paketierer::H264(p) => {
+                    // Der Payloader von webrtc-rs sagt nicht, ob ein Vollbild
+                    // dabei war; die Bildmarke braucht es fuer die Schablone.
+                    let vollbild = pulse_whip::h264::h264_ist_vollbild(data);
                     let teile = p
                         .payload(av1::MTU, &Bytes::copy_from_slice(data))
                         .context("H.264 paketieren")?;
@@ -414,9 +445,39 @@ impl WhipSender {
                     // vom Payloader gemerkt und erst vor dem naechsten
                     // Vollbild ausgegeben.
                     let n = teile.len();
-                    teile.into_iter().enumerate().map(|(i, b)| paket(b, i + 1 == n)).collect()
+                    teile
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, b)| (b, i == 0, i + 1 == n, vollbild))
+                        .collect()
                 }
+            };
+            if teile.is_empty() {
+                return Ok(());
             }
+            let nummer = z.naechste_bildnummer();
+            teile
+                .into_iter()
+                .map(|(daten, erstes, letztes, vollbild)| {
+                    let mut header = Header {
+                        version: 2,
+                        // `letztes` = letztes Paket des Bildes (→ Marker-Bit).
+                        marker: letztes,
+                        sequence_number: z.naechste_seq(),
+                        timestamp: ts,
+                        ..Default::default()
+                    };
+                    if marken_id != 0 {
+                        let marke = bildmarke::Bildmarke { anfang: erstes, ende: letztes, vollbild, nummer };
+                        // Ein Fehler waere hier ein Programmierfehler (unzu-
+                        // laessige Nummer), kein Betriebsfall. Ein Strom ohne
+                        // Marke ist besser als kein Strom, deshalb kein `?`.
+                        let _ = header
+                            .set_extension(marken_id, Bytes::from(bildmarke::schreiben(&marke)));
+                    }
+                    Packet { header, payload: daten }
+                })
+                .collect()
         };
         match pacer {
             Some(p) => p.send(pakete),

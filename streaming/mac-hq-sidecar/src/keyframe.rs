@@ -6,10 +6,10 @@
 //! Rueckkanal — der eigene WHIP-Sendeweg (`whip::mod`) ist der erste Weg, auf
 //! dem die Anforderung eines Zuschauers den Encoder ueberhaupt erreicht.
 //!
-//! Und im Intra-Refresh-Betrieb (Aufgabe 3, noch aussenvor) ist sie nicht nur
-//! Reparatur, sondern Voraussetzung: dort hat der Strom nach dem Start KEIN
-//! Vollbild mehr, ein neu dazukommender Zuschauer kaeme ohne diese Anforderung
-//! gar nicht erst ins Bild.
+//! Bis zum 2026-08-21 stand hier zusaetzlich, die Anforderung sei im
+//! Intra-Refresh-Betrieb sogar Voraussetzung statt blosser Reparatur. Diese
+//! Betriebsart ist inzwischen vollstaendig aus Pulse entfernt; der Absatz ist
+//! damit gegenstandslos geworden.
 //!
 //! **Warum das hier steht und nicht im WHIP-Modul**: eingeloest wird die
 //! Anforderung vom Encoder (`crate::encode`), der `take_keyframe_request()` je

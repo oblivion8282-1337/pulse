@@ -439,7 +439,7 @@ impl SpurZustand {
     /// erkennt der Zuschauer, dass nichts verlorenging. Wuerde hier je Aufruf
     /// von `send` gezaehlt, meldete er eine Luecke fuer ein Bild, das es nie
     /// gegeben hat: derselbe Fehler wie beim Zeitstempel, nur teurer.
-    pub(super) fn naechste_bildnummer(&mut self) -> u16 {
+    pub fn naechste_bildnummer(&mut self) -> u16 {
         let n = self.bildnummer;
         self.bildnummer = self.bildnummer.wrapping_add(1);
         n

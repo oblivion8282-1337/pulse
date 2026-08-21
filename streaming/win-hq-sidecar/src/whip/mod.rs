@@ -265,25 +265,10 @@ fn remb_auswerten(wacht: &mut bandbreite::BandbreitenWacht, bps: f32, ziel_kbps:
 /// die Wahl der Schablone. Gesucht wird ueber die Annex-B-Startcodes, weil der
 /// Encoder in diesem Format liefert — dasselbe, was `H264Payloader` erwartet.
 ///
-/// Ein SPS (7) oder PPS (8) allein ist KEIN Vollbild: solche Pakete haelt der
-/// Payloader zurueck und gibt sie erst vor dem naechsten Vollbild aus.
-fn h264_ist_vollbild(daten: &[u8]) -> bool {
-    let mut i = 0;
-    while i + 3 < daten.len() {
-        let lang = daten[i] == 0 && daten[i + 1] == 0 && daten[i + 2] == 0 && daten[i + 3] == 1;
-        let kurz = daten[i] == 0 && daten[i + 1] == 0 && daten[i + 2] == 1;
-        if lang || kurz {
-            let kopf = i + if lang { 4 } else { 3 };
-            if kopf < daten.len() && daten[kopf] & 0x1F == 5 {
-                return true;
-            }
-            i = kopf;
-        } else {
-            i += 1;
-        }
-    }
-    false
-}
+/// H.264-Vollbild-Erkennung — liegt seit dem 2026-08-21 gemeinsam in
+/// `pulse-whip::h264`. Hier nur noch durchgereicht, damit die Aufrufstelle
+/// unveraendert bleibt.
+use pulse_whip::h264::h264_ist_vollbild;
 
 impl WhipSender {
     /// Baut die Sitzung auf und kehrt zurueck, sobald das Angebot beantwortet

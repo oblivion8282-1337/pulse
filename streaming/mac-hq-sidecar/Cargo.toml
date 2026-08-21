@@ -26,6 +26,7 @@ pulse-zeitbasis = { path = "../pulse-zeitbasis" }
 # mit win/linux in einer eigenen Crate. `src/whip/{av1,sdp}.rs` bleiben als
 # Re-Exports bestehen (s. dort).
 pulse-whip = { path = "../pulse-whip" }
+pulse-bildmarke = { path = "../pulse-bildmarke" }
 
 # Capture — ScreenCaptureKit (SCStream) + the surrounding CoreMedia/CoreVideo/
 # CoreGraphics types, via the official objc2 framework bindings (no Swift shim).

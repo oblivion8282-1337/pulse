@@ -69,7 +69,8 @@ fn abstand_sekunden_aus(roh: Option<&str>) -> f32 {
 /// Warnt, wenn jemand den Abstand ueber das Unbedenkliche hinaus streckt UND
 /// der gewaehlte Weg keinen Rueckkanal hat.
 ///
-/// Gegenstueck zu `warne_bei_intra_refresh_ohne_rueckkanal` im Linux-Sidecar.
+/// Gegenstueck zu `warne_bei_langem_vollbild_abstand_ohne_rueckkanal` im
+/// Linux-Sidecar (dort `encode/mod.rs`).
 /// Haengt am ZIEL, nicht am Abstand: der eigene WHIP-Sender (`crate::whip`)
 /// haengt an `VideoEncoder::start` und hat den Rueckkanal, RTMPS/SRT nicht.
 /// Seit die Vorgabe bei [`KEYFRAME_SEKUNDEN_VORGABE`] (60 s) liegt, ist diese
