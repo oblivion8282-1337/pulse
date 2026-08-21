@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-21.4",
+      "date": "2026-08-21",
+      "style": "Sachlich",
+      "title": "Mac: Ton wählen ändert nicht mehr das Bild",
+      "intro": "Beim Teilen vom Mac hat die Wahl der Tonquelle bisher mitbestimmt, was die Zuschauer zu sehen bekamen. Das ist behoben.",
+      "items": [
+        "Wählst du einen ganzen Bildschirm und dazu den Ton einer einzelnen App, bleibt das Bild jetzt der ganze Bildschirm. Bisher schrumpfte es auf die Fenster dieser App zusammen.",
+        "Pulse selbst ist im geteilten Bild wieder zu sehen. Damit sich Sprachteilnehmer nicht doppelt hören, wird Pulse vom Ton ausgenommen — bisher verschwand die App dadurch auch aus dem Bild.",
+        "Am Ton ändert sich nichts: Wer mitredet, hört sich weiterhin nicht selbst im Stream."
+      ],
+      "outro": "Betrifft nur Macs. Auf Windows und Linux war Bild und Ton schon immer getrennt wählbar."
+    },
+    {
       "id": "2026-08-21.3",
       "date": "2026-08-21",
       "style": "Sachlich",
