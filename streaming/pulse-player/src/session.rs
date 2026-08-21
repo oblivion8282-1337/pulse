@@ -78,6 +78,14 @@ const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(20);
 /// ueberlastet ist, mit zusaetzlicher Last.
 const KEYFRAME_REQUEST_INTERVAL: Duration = Duration::from_millis(200);
 
+/// Nach wie vielen Videobildern einmal Bilanz gezogen wird, ob die Bildmarke
+/// wirklich ankommt.
+///
+/// 120 sind bei 60 Bildern je Sekunde zwei Sekunden — spaet genug, dass der
+/// Anlauf vorbei ist, und frueh genug, dass die Meldung noch am Anfang des
+/// Logs steht, wo man sie sucht.
+const MARKEN_BILANZ_NACH: u64 = 120;
+
 /// Wie oft nachgefordert wird, solange der Decoder noch gar keinen
 /// Einstiegspunkt hat. Laenger als [`KEYFRAME_REQUEST_INTERVAL`]: dort ist eine
 /// laufende Wiedergabe zu retten und jede Millisekunde zaehlt, hier wartet der
@@ -368,6 +376,15 @@ pub async fn run(
     let marken_id = whep_session.marken_id();
     let mut bildzaehler = crate::bildmarke::Bildzaehler::neu();
     let mut bild_luecken: u64 = 0;
+    // Wie viele Bilder gesehen, wie viele davon mit Nummer.
+    //
+    // **Ohne diese Bilanz ist ein stiller Totalausfall nicht von einem
+    // fehlerfreien Lauf zu unterscheiden**: kommt gar keine Marke an, urteilt
+    // der Zaehler nie und meldet folglich auch nichts — genau wie bei einer
+    // sauberen Leitung. Ausgehandelt heisst nicht angekommen; dazwischen liegt
+    // der Server, der sie ueber seine Neuverpackung tragen muss.
+    let mut bild_einheiten: u64 = 0;
+    let mut bild_mit_marke: u64 = 0;
     // Takt der Video-Zeitstempel (s. der Video-Zweig unten). `0` = noch kein
     // Videopaket gesehen; `app::takt` behandelt das wie „kein Zeitstempel".
     let mut video_clock_rate: u32 = 0;
@@ -720,6 +737,28 @@ pub async fn run(
                 // Ohne ausgehandelte Marke (`marken_id == 0`) steht hier `None`
                 // und es wird gar nicht geurteilt.
                 if codec.is_video() && unit.is_some() {
+                    bild_einheiten += 1;
+                    if unit_bildnummer.is_some() {
+                        bild_mit_marke += 1;
+                    }
+                    if bild_einheiten == MARKEN_BILANZ_NACH {
+                        if marken_id != 0 && bild_mit_marke == 0 {
+                            // Kein Diagnose-Schalter davor: das ist ein
+                            // Fehler, kein Messwert. Die Erkennung ist dann
+                            // vollstaendig ausgefallen, und der Zuschauer
+                            // merkt es an nichts.
+                            eprintln!(
+                                "pulse-player: Bildmarke als extmap {marken_id} ausgehandelt, \
+                                 aber in {MARKEN_BILANZ_NACH} Bildern keine einzige \
+                                 angekommen — reicht der Server sie durch?"
+                            );
+                        } else if erholung_log {
+                            eprintln!(
+                                "pulse-player: Bildmarke — {bild_mit_marke} von \
+                                 {bild_einheiten} Bildern tragen eine Nummer"
+                            );
+                        }
+                    }
                     if let Some(nummer) = unit_bildnummer {
                         if let Some(fehlend) = bildzaehler.pruefen(nummer) {
                             bild_luecken += 1;
