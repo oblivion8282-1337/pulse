@@ -33,12 +33,24 @@
 //! die drei Pflichtbyte; die Schablonen-Tabelle wird geschrieben, weil das
 //! Format sie verlangt und libwebrtc sie auswertet, aber von uns nie gelesen.
 //!
+//! ## Warum `allow(dead_code)`
+//!
+//! Jede Seite benutzt nur ihre Haelfte: die Sidecars schreiben, der Player
+//! liest und zaehlt. In den Sidecars faellt das nicht auf (sie sind
+//! Bibliotheken, `pub` genuegt), im Player schon — er ist ein Binaerziel, dort
+//! ist ungenutztes `pub` toter Code. Die Datei beschreibt aber bewusst das
+//! GANZE Format an EINER Stelle; sie je Seite zu halbieren hiesse, zwei
+//! Beschreibungen zu pflegen, die auseinanderlaufen koennen — genau das, was
+//! die Zwillinge verhindern sollen.
+//!
 //! ## Wo die Nummer entsteht
 //!
 //! Im Paketierer, also HINTER dem Encoder. Verschluckt der Encoder ein Bild,
 //! entsteht kein Paket und keine Nummer wird verbraucht — die Folge bleibt
 //! lueckenlos, und das ist richtig: es gibt nichts zu reparieren. Genau das
 //! trennt „nie erzeugt" von „verloren", und genau das kann eine Uhr nicht.
+
+#![allow(dead_code)]
 
 /// Der URI, unter dem die Erweiterung im SDP ausgehandelt wird.
 pub const EXTMAP_URI: &str =
