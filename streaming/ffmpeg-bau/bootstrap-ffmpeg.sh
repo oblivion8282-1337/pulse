@@ -130,9 +130,11 @@ opts=(
 #
 # Gegen das System-FFmpeg zu bauen ist KEIN Ausweg: die `ffmpeg-next`-Crate
 # haengt an der API dieser Fassung (mit n9.0.1 bricht schon `cargo build` ab).
+mit_nvenc=0
 if pkg-config --exists ffnvcodec 2>/dev/null; then
     echo "==> nv-codec-headers gefunden — NVENC/NVDEC kommen mit"
     opts+=(--enable-nvenc --enable-ffnvcodec --enable-cuvid --enable-nvdec)
+    mit_nvenc=1
 else
     echo "==> nv-codec-headers fehlen — Bau ohne NVENC/NVDEC (auf AMD/Intel richtig so,"
     echo "    auf NVIDIA bekommt der Sidecar dadurch KEINEN Encoder — s. Kommentar hier)"
@@ -156,9 +158,21 @@ make install >>"$wurzel/build.log" 2>&1
 
 # --- Gegenprobe -------------------------------------------------------------
 #
-# Ohne die waere nicht gesagt, dass der Patch wirklich greift: ein FFmpeg ohne
-# die Option baut genauso durch, und der Fehler faellt erst beim ersten
-# Streamversuch auf.
+# **Sie prueft seit dem 2026-08-21 etwas anderes.** Bis dahin fragte sie, ob der
+# Intra-Refresh-Patch gegriffen hat; die Betriebsart ist entfallen, der Patch
+# damit auch — und die Probe blieb stehen. Sie verlangte danach eine Option, die
+# es nicht mehr geben KANN, und liess den Bau auf jeder Linux-Maschine mit
+# "Der Patch hat nicht gegriffen" scheitern.
+#
+# Der GRUND fuer eine Gegenprobe bleibt aber bestehen, und er ist derselbe: ein
+# unvollstaendig konfiguriertes FFmpeg baut genauso durch, und der Fehler faellt
+# erst beim ersten Streamversuch auf. Der heute reale Fall steht im
+# Wurzel-`CLAUDE.md`: fehlen die nv-codec-headers, baut FFmpeg still ohne NVENC
+# und der Sidecar meldet `video_codecs: []`.
+#
+# Geprueft wird deshalb, ob die Encoder wirklich da sind, die der Sidecar
+# braucht — die VAAPI-Wege immer, die NVENC-Wege nur, wenn `configure` sie
+# ueberhaupt einschalten sollte.
 #
 # `LD_LIBRARY_PATH` ist hier PFLICHT und keine Vorsichtsmassnahme. FFmpeg linkt
 # sein eigenes `ffmpeg`-Binary ohne RPATH: ohne die Variable laedt der Loader
@@ -166,17 +180,22 @@ make install >>"$wurzel/build.log" 2>&1
 # das System-FFmpeg und meldet "Patch hat nicht gegriffen", obwohl der Bau
 # in Ordnung ist. Genau das ist hier beim ersten Lauf passiert.
 echo "==> Gegenprobe"
+erwartet=(av1_vaapi h264_vaapi)
+[ "$mit_nvenc" -eq 1 ] && erwartet+=(av1_nvenc h264_nvenc)
 fehlt=0
-for enc in av1_vaapi h264_vaapi; do
+for enc in "${erwartet[@]}"; do
     if LD_LIBRARY_PATH="$prefix/lib" "$prefix/bin/ffmpeg" \
-        -hide_banner -h "encoder=$enc" 2>/dev/null | grep -q "intra_refresh"; then
-        echo "  $enc: intra_refresh da"
+        -hide_banner -h "encoder=$enc" 2>/dev/null | grep -q "^Encoder $enc"; then
+        echo "  $enc: da"
     else
-        echo "  $enc: intra_refresh FEHLT" >&2
+        echo "  $enc: FEHLT" >&2
         fehlt=1
     fi
 done
-[ "$fehlt" -eq 0 ] || { echo "Der Patch hat nicht gegriffen." >&2; exit 1; }
+[ "$fehlt" -eq 0 ] || {
+    echo "FFmpeg wurde ohne die noetigen Encoder gebaut — s. $wurzel/configure.log" >&2
+    exit 1
+}
 
 echo ""
 echo "Fertig: $prefix"
