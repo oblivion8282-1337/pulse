@@ -456,13 +456,19 @@ impl WhipSender {
             .iter()
             .find(|e| e.uri == bildmarke::EXTMAP_URI)
             .map_or(0u8, |e| u8::try_from(e.id).unwrap_or(0));
+        // Anders als der Linux-Zwilling schreibt dieser Sidecar mit `eprintln!`
+        // nach stderr (Electron fängt das in `sidecar.log` auf) — `tracing`
+        // ist hier weder Abhängigkeit noch je initialisiert. Eine gespiegelte
+        // `tracing::info!` übersetzt deshalb gar nicht erst; und `tracing`
+        // bloß nachzurüsten wäre die schlechtere Reparatur gewesen, weil sie
+        // ohne Subscriber wortlos verschluckt würde — ausgerechnet die Zeile,
+        // an der der Nachweis der Bildmarke hängt.
         match marken_id {
-            0 => tracing::warn!(
-                target: "whip",
-                "Bildmarke nicht ausgehandelt — der Zuschauer kann fehlende Bilder \
+            0 => eprintln!(
+                "[whip] Bildmarke nicht ausgehandelt — der Zuschauer kann fehlende Bilder \
                  nicht erkennen (Server ohne Patch 0006?)"
             ),
-            id => tracing::info!(target: "whip", "Bildmarke ausgehandelt als extmap {id}"),
+            id => eprintln!("[whip] Bildmarke ausgehandelt als extmap {id}"),
         }
 
         Ok(Self {
