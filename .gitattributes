@@ -2,3 +2,16 @@
 # byteweise mit LF-Quellbäumen (webrtc-rs, windows-capture, FFmpeg), und ein
 # per autocrlf=true ausgecheckter CRLF-Patch passt dann nicht mehr.
 *.patch -text
+
+# Pruefsteine ebenso, und aus demselben Grund eine Stufe strenger gedacht: sie
+# werden vom SENDER erzeugt (`bildmarke_pruefstein` in whip/bildmarke.rs,
+# `zeigerform`-Gegenstueck daneben) und vom Test als GANZE ZEICHENKETTE
+# verglichen — nicht als geparstes JSON. Ein per autocrlf ausgecheckter
+# CRLF-Pruefstein laesst den Test auf jeder Windows-Maschine scheitern, obwohl
+# inhaltlich alles stimmt.
+#
+# Genau so am 2026-08-21 aufgelaufen: `bildmarke_pruefstein` war auf Windows nie
+# gelaufen (dort stand nur `cargo build`), und beim ersten `cargo test` fiel er
+# sofort um. Ein Pruefstein, der je nach Auscheck-Maschine andere Bytes hat, ist
+# als Pruefstein wertlos.
+streaming/*-formen.json -text
