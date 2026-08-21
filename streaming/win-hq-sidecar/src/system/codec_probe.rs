@@ -17,18 +17,24 @@
 //! tabelle → RTX 5090 / Blackwell / jede künftige AV1-fähige Architektur wird ohne
 //! Code-Änderung korrekt erkannt.
 //!
-//! **AMD + Intel: NICHT probe-gesteuert, sondern Hardcode `[h264, hevc, av1]`.** Die
-//! AMF-/QSV-Open-Probe (Capability ≠ Stability — AMF/d3d12va und QSV liegen über
-//! denselben HW-Encode-Engines) lieferte auf realer Hardware False Negative für HEVC
-//! und AV1: `*_amf`/`*_qsv` öffnen zuverlässig nur für H.264, die HEVC/AV1-Opens sind
-//! treiberseitig unzuverlässig schon vorm Encode. User sahen darum nur noch H.264,
-//! obwohl die Runtime-Pfade beide Codecs encoden (AMD via d3d12va, Intel via QSV).
-//! HEVC/AV1-Support ist generationsstabil (AMD Polaris+ HEVC / RDNA3+ AV1; Intel
-//! Skylake+ HEVC / Arc+ AV1) → die Hardcode-Liste spiegelt, was die Encoder-Pfade
-//! wirklich leisten. Restrisiko: ältere Intel-iGPUs ohne AV1-Engine sehen AV1 in der
-//! UI — das Frontend bietet ohnehin nur H.264 + AV1 (HEVC nie), und der AV1→H.264-
-//! Runtime-Fallback fängt es ab. NVIDIA bleibt probe-gesteuert (Turing-AV1-False-
-//! Positive war NVIDIA-spezifisch).
+//! **AMD + Intel: die D3D12-Fähigkeitsabfrage** (`super::encode_caps`), seit dem
+//! 2026-08-21. Davor stand hier ein Hardcode `[h264, hevc, av1]`, und der war für
+//! AMD falsch: AV1 kodiert dort erst RDNA 3. Eine Radeon RX 570 (Polaris) bekam
+//! AV1 angeboten, konnte es nicht, und der Start endete in einer Meldung über
+//! Sendewege statt über Codecs — der ganze Vorgang steht im Kopf von
+//! `encode_caps`.
+//!
+//! **Der Hardcode war selbst schon ein Rückbau**, und diese Begründung bleibt
+//! stehen, damit niemand im Kreis läuft: die Open-Probe unten lieferte auf
+//! AMD/Intel False Negatives für HEVC und AV1 (`*_amf`/`*_qsv` öffnen
+//! zuverlässig nur für H.264, die HEVC/AV1-Opens sind treiberseitig unzuverlässig
+//! schon vorm Encode), Nutzer sahen daraufhin nur noch H.264. Die Abfrage in
+//! `encode_caps` öffnet nichts und ist von genau diesem Problem nicht betroffen —
+//! sie ist kein zweiter Anlauf derselben Idee.
+//!
+//! NVIDIA bleibt probe-gesteuert: dort ist die Probe an Hardware belegt
+//! (Turing-AV1-False-Positive war NVIDIA-spezifisch), und ein Wechsel wäre eine
+//! Änderung ohne Beschwerde dahinter.
 
 use std::sync::OnceLock;
 
@@ -38,9 +44,11 @@ use ffmpeg::{Dictionary, Rational, codec, format};
 use crate::encode::VideoCodec;
 use crate::system::dxgi::Adapter;
 
-/// Ein Probe-Ergebnis pro Prozess (Sidecar = eine GPU / ein Vendor). Beide
+/// Ein Ergebnis pro Prozess (Sidecar = eine GPU / ein Vendor). Beide
 /// Call-Sites (`health`, `gpu_info`) lesen den primären Adapter, darum kein
-/// per-Adapter-Key nötig.
+/// per-Adapter-Key nötig. Gilt für beide Wege — die NVENC-Probe wie die
+/// D3D12-Abfrage; welcher gelaufen ist, entscheidet der Hersteller, und der
+/// wechselt innerhalb eines Prozesses nicht.
 static PROBED: OnceLock<Vec<String>> = OnceLock::new();
 
 /// Open-Dimension der Capability-Probe. NVENC lehnt unter 145×49 ab
@@ -68,14 +76,30 @@ pub fn supported_video_codecs(adapter: &Adapter) -> Vec<String> {
                 })
             })
             .clone(),
-        // AMD + Intel: Hardcode wie vor der Probe-Einführung (Rationale s. Modul-
-        // Docstring). HEVC taucht in der UI nicht auf (Frontend bietet nur H.264 +
-        // AV1); die AV1→H.264-Runtime-Fallback fängt ältere Intel-iGPUs ohne AV1 ab.
-        "amd" | "intel" => vec![
-            "h264".to_string(),
-            "hevc".to_string(),
-            "av1".to_string(),
-        ],
+        // AMD + Intel: Treiber fragen, nicht raten (Rationale s. Modul-Docstring
+        // und `encode_caps`). HEVC taucht in der UI nicht auf (Frontend bietet nur
+        // H.264 + AV1) und wird trotzdem mitgeführt — `health` meldet die Liste
+        // roh weiter, und eine Liste, die weniger sagt als der Treiber weiß, ist
+        // im Diagnose-Log irreführend.
+        //
+        // **Scheitert die Abfrage, fällt AV1 weg statt hinzuzukommen.** Die
+        // Abfrage scheitert nur ohne D3D12-Video im Treiber, und ein Treiber ohne
+        // D3D12-Video sitzt auf Hardware, die AV1 sicher nicht kodiert — das Nein
+        // ist dort die wahrscheinlichere Antwort, nicht die vorsichtigere. Teuer
+        // ist ein Irrtum in keine Richtung mehr: seit 2026-08-21 nimmt
+        // `encode::bildencoder::baue_mit_rueckfall` einen AV1-Wunsch, den die
+        // Karte nicht erfüllt, auf H.264 zurück, statt den Stream abzubrechen.
+        "amd" | "intel" => PROBED
+            .get_or_init(|| {
+                super::encode_caps::kodierbare_codecs(adapter).unwrap_or_else(|e| {
+                    eprintln!(
+                        "[codec-probe] D3D12-Faehigkeitsabfrage fehlgeschlagen ({e:#}) → \
+                         h264+hevc, kein AV1"
+                    );
+                    vec!["h264".to_string(), "hevc".to_string()]
+                })
+            })
+            .clone(),
         _ => Vec::new(),
     }
 }

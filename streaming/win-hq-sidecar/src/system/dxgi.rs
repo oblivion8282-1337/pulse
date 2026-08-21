@@ -64,9 +64,16 @@ impl Adapter {
     }
 
     /// Encoder-Codecs die die GPU in Hardware wirklich unterstützt (FFmpeg-Codec-
-    /// Namen). Echte Open-Probe — siehe `codec_probe`. Selbst-korrigierend und
-    /// vorwärtskompatibel: meldet AV1 erst ab Ada (RTX 40+) / RDNA3 / Intel Arc,
-    /// und erkennt künftige Architekturen ohne Tabellenpflege.
+    /// Namen). Zur Laufzeit ermittelt — auf NVIDIA per Open-Probe, auf AMD/Intel
+    /// per D3D12-Fähigkeitsabfrage, siehe `codec_probe`. Beide Wege sind
+    /// selbst-korrigierend und vorwärtskompatibel: AV1 erscheint erst ab Ada
+    /// (RTX 40+) / RDNA 3 / Intel Arc, und künftige Architekturen brauchen keine
+    /// Tabellenpflege.
+    ///
+    /// **Hier stand bis zum 2026-08-21 „Echte Open-Probe".** Das galt nur für
+    /// NVIDIA; AMD und Intel bekamen eine feste Liste, in der AV1 unbedingt
+    /// stand — auf einer Radeon RX 570 also fälschlich (Hergang im Kopf von
+    /// `system::encode_caps`).
     pub fn supported_video_codecs(&self) -> Vec<String> {
         super::codec_probe::supported_video_codecs(self)
     }

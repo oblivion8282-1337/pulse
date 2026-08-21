@@ -290,92 +290,141 @@ pub(crate) unsafe fn baue_mit_rueckfall(
         // SAFETY: derselbe Vertrag, den diese Funktion vom Aufrufer verlangt.
         unsafe { baue(&cfg, hw_frames_ref, d3d_device, d3d_context, lock_ptr, audio, url) }
     };
-    match einmal(cfg.codec, audio.clone()) {
-        Ok(enc) => Ok(Gebaut::Encoder(enc)),
-        // **Kein Rückfall, wenn sich ein Encode-Weg angemeldet hat.** Dann wäre
-        // er keine Rettung, sondern eine Verfälschung: der Strom liefe über das
-        // ALTE Verfahren weiter, während oben „angemeldet" im Log steht. Von
-        // aussen sähe er gesund aus und beantwortete eine andere Frage als die
-        // gestellte. Am 2026-08-02 genau so beobachtet, als `h264_vulkan` mit
-        // Ziel-Bitrate am AMD-Treiber scheiterte und der Lauf wortlos auf
-        // `h264_d3d12va` wechselte.
-        Err(e) if angemeldet().is_some() => Err(e.context(
+    let fehler = match einmal(cfg.codec, audio) {
+        Ok(enc) => return Ok(Gebaut::Encoder(enc)),
+        Err(e) => e,
+    };
+
+    // **Kein Rückfall, wenn sich ein Encode-Weg angemeldet hat.** Dann wäre
+    // er keine Rettung, sondern eine Verfälschung: der Strom liefe über das
+    // ALTE Verfahren weiter, während oben „angemeldet" im Log steht. Von
+    // aussen sähe er gesund aus und beantwortete eine andere Frage als die
+    // gestellte. Am 2026-08-02 genau so beobachtet, als `h264_vulkan` mit
+    // Ziel-Bitrate am AMD-Treiber scheiterte und der Lauf wortlos auf
+    // `h264_d3d12va` wechselte.
+    if angemeldet().is_some() {
+        return Err(fehler.context(
             "angemeldeter Encode-Weg liess sich nicht oeffnen — KEIN Rueckfall auf den \
              Regelweg, das waere eine Messung unter falschem Etikett",
-        )),
-        // **Ein abgewiesener Sendeweg ist KEIN Encoder-Problem.** Muss vor
-        // BEIDEN Rückfällen darunter stehen — dem AMD-Zweig und dem AV1-Zweig.
-        //
-        // Beim ersten Anlauf am 2026-08-05 stand dieser Arm nur vor dem
-        // AV1-Zweig. Auf einer AMD-Karte fing der Arm darunter ein HTTP 401
-        // zuerst ab und meldete „nicht über D3D11 öffenbar → Delegation an
-        // pipeline_d3d12" — also genau die Fehlklasse, die hier behoben werden
-        // sollte, eine Ebene höher. Auf der NVIDIA-Prüfmaschine war das nicht
-        // zu sehen, weil der AMD-Arm dort nie greift. Gefunden beim
-        // Vereinfachungs-Durchlauf, nicht beim Messen.
-        //
-        // Dieselbe Regel wie beim angemeldeten Encode-Weg oben und in
-        // `auffrischung.rs`: lieber ehrlich abbrechen als unter falschem
-        // Etikett weiterlaufen. Ein anderer Encode-Weg hätte ohnehin nicht
-        // geholfen — der Server weist den Sendeweg unabhängig davon ab.
-        Err(e)
-            if e.chain()
-                .any(|u| u.downcast_ref::<crate::whip::SendewegAbgewiesen>().is_some()) =>
-        {
-            Err(e)
-        }
-        // **Keine Rückfälle, wenn eine Betriebsart daran hängt.** HDR und
-        // 10 bit überleben KEINEN der beiden Rückfälle darunter: der
-        // D3D12-Weg hat nur NV12 und keinen Farbwandler, und der AV1→H.264-
-        // Griff nimmt HDR schon deshalb mit, weil `supports_ten_bit` nur AV1
-        // durchlässt. Dieselbe Linie wie bei `auffrischung` und `hdr::pruefen`
-        // — unerfüllbar heisst Startverweigerung, nicht still etwas anderes
-        // fahren. Muss VOR beiden Rückfällen stehen.
-        Err(e) if betriebsart_ohne_rueckfall(cfg).is_some() => {
-            let art = betriebsart_ohne_rueckfall(cfg).unwrap_or("diese Betriebsart");
-            Err(e.context(format!(
-                "{art} verlangt, aber der Encoder liess sich auf dem D3D11-Weg nicht oeffnen —                  KEIN Rueckfall (D3D12 liegt fest auf NV12 und hat keinen Farbwandler, der                  AV1-Rueckfall auf H.264 traegt weder 10 bit noch HDR). Ein Rueckfall waere                  ein SDR-8-bit-Strom unter dem bestellten Etikett."
-            )))
-        }
-        // **Das Auffangnetz für AMF-Issue #455.** Seit dem 2026-08-04 geht AMD
-        // mit beiden Codecs über AMF (s. `encode_path`), und `h264_amf` auf
-        // D3D11-Eingang ist genau die Konstellation, für die es das Issue gibt
-        // (`SubmitInput`-Integer-Divide-by-Zero). Auf der Prüfmaschine ist der
-        // Absturz nicht reproduzierbar — das ist eine Maschine, kein Beleg.
-        //
-        // Scheitert der Open, gibt dieser Weg deshalb an den erprobten
-        // D3D12-Zweig ab, statt den Stream fallen zu lassen. Der trägt kein
-        // AV1 (keine brauchbare extradata).
-        //
-        // **Was er ebenfalls nicht trägt, und was hier bis zum 2026-08-19
-        // fehlte: HDR und 10 bit.** Der Satz an dieser Stelle lautete „ein
-        // Rückfall, der die Betriebsart verschluckt, gibt es also nicht" und
-        // zählte nur einen Teil der Betriebsarten auf — geprüft wurde gar
-        // nichts.
-        // Der D3D12-Weg legt seinen Bildpuffer fest auf NV12
-        // (`encoder_d3d12.rs`), und für AV1 reicht `pipeline_d3d12` an
-        // `run_cpu_pipeline` weiter, die weder ein `ten_bit`-Feld noch
-        // `hdr::signalisieren` kennt. Ein HDR-Stream wäre nach diesem Rückfall
-        // still 8-bit-SDR ohne PQ/BT.2020 gelaufen — ohne eine Zeile im Log.
-        // Deshalb steht der Arm darunter davor; die Prüfung selbst hängt an
-        // [`betriebsart_ohne_rueckfall`], damit sie nicht als Wortlaut in
-        // einem Kommentar wohnt.
-        Err(e) if vendor == "amd" => {
-            eprintln!(
-                "[pipeline-hw] {:?} nicht über D3D11 öffenbar ({e:#}) — \
-                 Delegation an pipeline_d3d12",
-                cfg.codec
-            );
-            Ok(Gebaut::AnD3d12)
-        }
-        // AV1-NVENC gibt es erst ab Ada (RTX 40); ältere NVIDIA/Treiber liefern
-        // beim Öffnen "function not implemented" → H.264 statt Abbruch.
-        Err(e) if matches!(cfg.codec, super::VideoCodec::Av1) => {
-            eprintln!("[pipeline-hw] av1 HW encoder nicht verfügbar ({e:#}) → Fallback H.264");
-            Ok(Gebaut::Encoder(einmal(super::VideoCodec::H264, audio)?))
-        }
-        Err(e) => Err(e),
+        ));
     }
+
+    // **Ein abgewiesener Sendeweg ist KEIN Encoder-Problem.** Muss vor BEIDEN
+    // Rückfällen darunter stehen — dem AV1-Zweig und dem AMD-Zweig.
+    //
+    // Beim ersten Anlauf am 2026-08-05 stand diese Prüfung nur vor dem
+    // AV1-Zweig. Auf einer AMD-Karte fing der Zweig darunter ein HTTP 401
+    // zuerst ab und meldete „nicht über D3D11 öffenbar → Delegation an
+    // pipeline_d3d12" — also genau die Fehlklasse, die hier behoben werden
+    // sollte, eine Ebene höher. Auf der NVIDIA-Prüfmaschine war das nicht zu
+    // sehen, weil der AMD-Zweig dort nie greift. Gefunden beim
+    // Vereinfachungs-Durchlauf, nicht beim Messen.
+    //
+    // Dieselbe Regel wie beim angemeldeten Encode-Weg oben und in
+    // `auffrischung.rs`: lieber ehrlich abbrechen als unter falschem Etikett
+    // weiterlaufen. Ein anderer Encode-Weg hätte ohnehin nicht geholfen — der
+    // Server weist den Sendeweg unabhängig davon ab.
+    if fehler
+        .chain()
+        .any(|u| u.downcast_ref::<crate::whip::SendewegAbgewiesen>().is_some())
+    {
+        return Err(fehler);
+    }
+
+    // **Keine Rückfälle, wenn eine Betriebsart daran hängt.** HDR und 10 bit
+    // überleben KEINEN der beiden Rückfälle darunter: der D3D12-Weg hat nur
+    // NV12 und keinen Farbwandler, und der AV1→H.264-Griff nimmt HDR schon
+    // deshalb mit, weil `supports_ten_bit` nur AV1 durchlässt. Dieselbe Linie
+    // wie bei `auffrischung` und `hdr::pruefen` — unerfüllbar heisst
+    // Startverweigerung, nicht still etwas anderes fahren. Muss VOR beiden
+    // Rückfällen stehen.
+    if let Some(art) = betriebsart_ohne_rueckfall(cfg) {
+        return Err(fehler.context(format!(
+            "{art} verlangt, aber der Encoder liess sich auf dem D3D11-Weg nicht oeffnen — \
+             KEIN Rueckfall (D3D12 liegt fest auf NV12 und hat keinen Farbwandler, der \
+             AV1-Rueckfall auf H.264 traegt weder 10 bit noch HDR). Ein Rueckfall waere \
+             ein SDR-8-bit-Strom unter dem bestellten Etikett."
+        )));
+    }
+
+    // **AV1, das die Karte nicht kann → H.264 auf DEMSELBEN Weg.** AV1-NVENC
+    // gibt es erst ab Ada (RTX 40), AV1-AMF erst ab RDNA 3; ältere Karten und
+    // Treiber liefern beim Öffnen „function not implemented".
+    //
+    // **Dieser Zweig stand bis zum 2026-08-21 UNTER dem AMD-Zweig und war
+    // damit auf AMD unerreichbar** — mit Folgen, die niemand mit AV1 in
+    // Verbindung gebracht hätte: eine Radeon RX 570 (Polaris, kein AV1) bekam
+    // die Delegation an `pipeline_d3d12`, der gab AV1 an den CPU-Weg weiter,
+    // und der brach am angemeldeten Sendeweg ab. Der Nutzer las „dieser
+    // Encode-Weg kann den angemeldeten Sendeweg nicht bedienen" und hatte
+    // einen Codec gewählt, den seine Karte nie kodieren konnte (2026-08-21
+    // gemeldet). Die Reihenfolge ist also nicht Geschmack: der AMD-Zweig ist
+    // das Netz für einen TREIBER-Fehlschlag, dieser hier die Antwort auf eine
+    // fehlende FÄHIGKEIT, und die gehört zuerst gefragt.
+    //
+    // **10 bit und HDR sind hier schon abgeräumt** — der Riegel darüber greift
+    // vorher. Das ist auch die Antwort auf die Frage, die sich sonst hier
+    // stellte: der Bild-Pool führt bei 10 bit P010, und H.264 daraus wäre
+    // High 10, was kein Browser dekodiert.
+    if matches!(cfg.codec, super::VideoCodec::Av1) {
+        eprintln!("[pipeline-hw] av1 HW encoder nicht verfügbar ({fehler:#}) → Fallback H.264");
+        match einmal(super::VideoCodec::H264, audio) {
+            Ok(enc) => return Ok(Gebaut::Encoder(enc)),
+            // Auch H.264 geht nicht: dann ist es kein Codec-Problem mehr,
+            // sondern eines des Weges — weiter unten steht das Netz dafür.
+            // Der URSPRÜNGLICHE Fehler wird weitergetragen, nicht dieser:
+            // gescheitert ist der Start am angeforderten Codec.
+            Err(e2) => eprintln!("[pipeline-hw] Rückfall auf H.264 scheiterte ebenfalls: {e2:#}"),
+        }
+    }
+
+    // **Das Auffangnetz für AMF-Issue #455.** Seit dem 2026-08-04 geht AMD mit
+    // beiden Codecs über AMF (s. `encode_path`), und `h264_amf` auf
+    // D3D11-Eingang ist genau die Konstellation, für die es das Issue gibt
+    // (`SubmitInput`-Integer-Divide-by-Zero). Auf der Prüfmaschine ist der
+    // Absturz nicht reproduzierbar — das ist eine Maschine, kein Beleg.
+    //
+    // Scheitert der Open, gibt dieser Weg deshalb an den erprobten
+    // D3D12-Zweig ab, statt den Stream fallen zu lassen. Der trägt kein AV1
+    // (keine brauchbare extradata).
+    //
+    // **Was er ebenfalls nicht trägt, und was hier bis zum 2026-08-19 fehlte:
+    // HDR und 10 bit.** Der Satz an dieser Stelle lautete „ein Rückfall, der
+    // die Betriebsart verschluckt, gibt es also nicht" und zählte nur einen
+    // Teil der Betriebsarten auf — geprüft wurde gar nichts. Der D3D12-Weg
+    // legt seinen Bildpuffer fest auf NV12 (`encoder_d3d12.rs`), und für AV1
+    // reicht `pipeline_d3d12` an `run_cpu_pipeline` weiter, die weder ein
+    // `ten_bit`-Feld noch `hdr::signalisieren` kennt. Ein HDR-Stream wäre nach
+    // diesem Rückfall still 8-bit-SDR ohne PQ/BT.2020 gelaufen — ohne eine
+    // Zeile im Log. Deshalb steht [`betriebsart_ohne_rueckfall`] weiter oben;
+    // die Prüfung hängt an einer Funktion, damit sie nicht als Wortlaut in
+    // einem Kommentar wohnt.
+    if vendor == "amd" {
+        // **Aber nur, wenn der D3D12-Weg das Ziel überhaupt erreichen kann.**
+        // Ist ein Sendeweg angemeldet, ist die Delegation garantiert
+        // vergeblich: nur der D3D11-Weg ist gegabelt, D3D12 und CPU schreiben
+        // in einen Container und laufen unweigerlich in die Absage in
+        // `output::open_output`. Seit die Oberfläche am 2026-08-18 immer WHIP
+        // wählt, ist das der Regelfall und nicht mehr die Ausnahme — das Netz
+        // fing seither jeden AMD-Fehlschlag auf, um ihn zwei Ebenen tiefer als
+        // Meldung über Sendewege wieder auszuwerfen. Der echte Fehler stand
+        // dann nirgends mehr.
+        if super::senke::zustaendig(url) {
+            return Err(fehler.context(
+                "Encoder liess sich auf dieser GPU nicht oeffnen; der Auffangweg ueber D3D12 \
+                 kann den angemeldeten Sendeweg nicht bedienen (nur der D3D11-Weg ist \
+                 gegabelt) — Stream abgebrochen",
+            ));
+        }
+        eprintln!(
+            "[pipeline-hw] {:?} nicht über D3D11 öffenbar ({fehler:#}) — \
+             Delegation an pipeline_d3d12",
+            cfg.codec
+        );
+        return Ok(Gebaut::AnD3d12);
+    }
+
+    Err(fehler)
 }
 
 /// Der Regelweg als [`BildEncoder`].

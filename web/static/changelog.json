@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-21.5",
+      "date": "2026-08-21",
+      "style": "Sachlich",
+      "title": "Bildschirm teilen: Videoformat richtet sich nach deiner Grafikkarte",
+      "items": [
+        "Welche Videoformate zur Auswahl stehen, beantwortet jetzt deine Grafikkarte selbst. Bisher wurde AV1 auf allen AMD-Karten angeboten, obwohl es erst neuere Modelle erzeugen können. Wer es auf einer älteren Karte gewählt hatte, konnte seinen Bildschirm gar nicht mehr teilen und bekam dabei eine Meldung, die mit dem Videoformat nichts zu tun hatte.",
+        "Kommt eine gespeicherte Wahl an, die deine Karte nicht erfüllen kann, wird jetzt auf das Standardformat umgeschaltet, statt die Übertragung abzubrechen."
+      ]
+    },
+    {
       "id": "2026-08-21.4",
       "date": "2026-08-21",
       "style": "Sachlich",

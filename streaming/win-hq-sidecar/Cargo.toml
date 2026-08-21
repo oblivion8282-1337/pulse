@@ -35,6 +35,11 @@ windows = { version = "0.62", features = [
     "Win32_System_Performance", # QueryPerformanceCounter: prueft, ob WGC- und WASAPI-Zeitstempel auf derselben Uhr liegen (syncprobe.rs)
     "Win32_Media", # timeBeginPeriod: Systemtimer auf 1 ms für die Tokio-Wartezeiten des WHIP-Wegs (main.rs)
     "Win32_Media_Audio",
+    # ID3D12VideoDevice::CheckFeatureSupport: fragt den Treiber, welche Codecs die
+    # Video-Engine kodiert (system/encode_caps.rs). Die D3D12-VIDEO-Symbole liegen
+    # im windows-Crate unter MediaFoundation, NICHT unter Direct3D12 — wer sie dort
+    # sucht, findet nichts und hält die Abfrage für nicht gebunden.
+    "Win32_Media_MediaFoundation",
     "Win32_Media_KernelStreaming",
     "Win32_System_Threading",
     "Win32_System_ProcessStatus",
