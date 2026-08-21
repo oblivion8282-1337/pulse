@@ -20,6 +20,7 @@ mod abriss;
 mod app;
 mod audio;
 mod bildluecke;
+mod bildmarke;
 mod decode;
 mod decodefaden;
 mod decoderwahl;

@@ -40,6 +40,7 @@
 //! Video-Uhr dauerhaft gegen Wanduhr und Ton. Fuer AV1 war genau das am
 //! 2026-08-03 behoben worden; H.264 zieht hiermit nach.
 
+pub mod bildmarke;
 pub mod av1;
 mod bandbreite;
 mod pacer;
