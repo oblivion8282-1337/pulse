@@ -2,8 +2,9 @@
 //!
 //! Der Prüfstand beantwortet die Frage bis hierher nur am Decoder: `obu-schnitt.py`
 //! verwirft Zugriffseinheiten, `ffmpeg` dekodiert, `heilung.py` wertet aus
-//! (`profiles/decoder-2026-07-29-intra-refresh.json`). Das misst die
-//! Decoder-Bibliothek — **nicht diesen Player**. Der Unterschied steht in
+//! (Messakte `decoder-2026-07-29-intra-refresh.json`, am 2026-08-21 zusammen
+//! mit der Betriebsart gelöscht). Das misst die
+//! Decoder-Bibliothek — **nicht diesen Player**. Der Unterschied stand in
 //! derselben Akte unter `uebertragbarkeit/unterschiede_zum_player`: der Player
 //! speist Zugriffseinheiten EINZELN über [`VideoDecoder::decode`] ein statt über
 //! den `obu`-Demuxer, er setzt `AV_CODEC_FLAG_LOW_DELAY`, und vor allem hängt an
@@ -229,9 +230,11 @@ pub fn ausfuehren(argv: &[String]) -> Result<()> {
     let mut z = Zaehler::default();
     let start = std::time::Instant::now();
     let takt = std::time::Duration::from_millis(a.takt_ms);
-    // Das Vollbild, das auf Anforderung eingespielt wird. Im Intra-Refresh-
-    // Betrieb ist das der einzige Weg zurück ins Bild — der Sender schickt von
-    // sich aus keines mehr.
+    // Das Vollbild, das auf Anforderung eingespielt wird. Im
+    // Intra-Refresh-Betrieb (bis zum 2026-08-21) war das der einzige Weg zurück
+    // ins Bild — der Sender schickte von sich aus keines mehr. Seither schickt
+    // er wieder welche, aber nur alle 60 s; für die Dauer dieser Messung
+    // ändert das nichts.
     let vollbild = a.vollbild.and_then(|i| einheiten.get(i).map(|t| t.0.clone()));
     let mut anfordern = false;
 

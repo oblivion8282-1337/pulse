@@ -136,10 +136,12 @@ def einstieg_sichern(sender, player, sid: str, versuche: int = 6,
 
     EIN Ruf direkt nach `open` kommt zu FRUEH: `open` kehrt zurueck, sobald die
     Sitzung angelegt ist, ICE und DTLS brauchen danach noch rund eine Sekunde.
-    Das Vollbild geht dann raus, bevor der Zuschauer zuhoert. Im
-    Intra-Refresh-Betrieb kommt so schnell kein zweites (Uhr in MediaMTX aus,
-    `PULSE_KEYFRAME_SECONDS=10`), und der Player gibt nach
-    `decode.rs::MAX_WARTEZEIT_OHNE_KEYFRAME` ohne Einstiegspunkt auf. Am
+    Das Vollbild geht dann raus, bevor der Zuschauer zuhoert. Ein zweites
+    kommt so schnell nicht (Uhr in MediaMTX aus, `PULSE_KEYFRAME_SECONDS`
+    steht seit dem 2026-08-18 auf 60 s), und der Player gibt nach
+    `decode.rs::MAX_WARTEZEIT_OHNE_KEYFRAME` ohne Einstiegspunkt auf. Bis zum
+    2026-08-21 stand hier der Intra-Refresh-Betrieb als Grund; die Betriebsart
+    ist entfernt, der lange Vollbild-Abstand erzeugt dieselbe Lage. Am
     2026-07-29 genau so gesehen: Daten kamen mit 3,8 Mbit/s an, `state` blieb
     `connecting`, Bildrate 0. (Damals war die Grenze eine Bildzahl und lief
     schon nach zehn Sekunden ab; seit dem 2026-08-18 ist sie eine Dauer.)
@@ -247,8 +249,10 @@ def main() -> int:
 
             # Vollbild NACH dem Beitritt, sonst bleibt das Fenster schwarz: der
             # Player fordert von sich aus erst bei einer Luecke an
-            # (`session.rs`), und im Intra-Refresh-Betrieb ist die feste
-            # Keyframe-Uhr von MediaMTX aus.
+            # (`session.rs`), und die feste Keyframe-Uhr von MediaMTX ist aus
+            # (`PULSE_KEYFRAME_INTERVAL=0`). Bis zum 2026-08-21 war der
+            # Intra-Refresh-Betrieb der Grund dafuer; heute ist es der
+            # Vollbild-Abstand von 60 s, der genauso lange schwarz waere.
             if args.proto == "whip":
                 einstieg_sichern(sender, player, res["session"])
 
@@ -257,13 +261,15 @@ def main() -> int:
             print(f"\nFenster ist offen. Weg: {weg} ueber {ziel}, "
                   f"{args.codec} {args.bits} bit, {args.fps} fps, {args.kbps} kbps, "
                   f"{args.aufloesung or 'native Aufloesung'}")
-            # Die Encoder-Schalter mit ausgeben: Intra-Refresh ist keine
-            # Vorgabe, sondern haengt an der Umgebung. Wer sie beim Aufruf
-            # vergisst, sieht sonst den ALTEN Weg und haelt ihn fuer den neuen.
+            # Die Encoder-Schalter mit ausgeben: sie haengen an der Umgebung,
+            # nicht am Aufruf. Wer sie beim Aufruf vergisst, sieht sonst eine
+            # andere Einstellung als die, die er zu messen glaubt. (Bis zum
+            # 2026-08-21 war Intra-Refresh der Hauptfall dafuer; die
+            # Betriebsart ist entfernt, der Rest gilt unveraendert.)
             print(f"  Encoder: PULSE_ENCODER_OPTS="
                   f"{os.environ.get('PULSE_ENCODER_OPTS', '(nicht gesetzt)')}  "
                   f"PULSE_KEYFRAME_SECONDS="
-                  f"{os.environ.get('PULSE_KEYFRAME_SECONDS', '(Vorgabe 2)')}")
+                  f"{os.environ.get('PULSE_KEYFRAME_SECONDS', '(Vorgabe 60)')}")
             tasten_hilfe = ("p  Vollbild anfordern   q  Schluss" if args.fern else
                             "<Eingabetaste> Stoerung an/aus   + / -  Verlust aendern   "
                             "p  Vollbild anfordern   q  Schluss")

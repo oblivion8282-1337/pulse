@@ -317,7 +317,8 @@ für niemanden encodiert, ist Verschwendung.
 Naheliegend wäre, `remote_request` selbst als Weckruf zu nehmen. Dagegen spricht
 ein konkreter Fehlerfall: dann hinge eine **Sitzungszusage an einer
 Encoder-Initialisierung**. Scheitert die — kein Monitor angeschlossen, Encoder
-belegt, Startverweigerung wegen HDR oder Intra-Refresh — stünde eine aktive
+belegt, Startverweigerung wegen HDR (bis zum 2026-08-21 auch wegen
+Intra-Refresh) — stünde eine aktive
 Fernsteuer-Sitzung ohne Bild, und der Fehler wäre nicht lesbar.
 
 Deshalb getrennt: wecken → übertragen → **dann** die unveränderte
@@ -358,8 +359,8 @@ Alle aus derselben Wurzel — der Sidecar ist ein Userland-Prozess:
 Genau deshalb ist „unattended" bei den kommerziellen Werkzeugen ein
 Systemdienst. **Vorschlag für die erste Fassung: den angemeldeten, entsperrten
 Desktop tragen — und das ansagen**, statt es stillschweigend halb zu können.
-Dieselbe Linie wie bei Intra-Refresh und HDR (Startverweigerung statt
-Etikettenschwindel).
+Dieselbe Linie, die HDR fährt und bis zum 2026-08-21 der Intra-Refresh fuhr
+(Startverweigerung statt Etikettenschwindel).
 
 ## 11. Offene Entscheidungen
 

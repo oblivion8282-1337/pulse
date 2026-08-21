@@ -7,8 +7,8 @@ hingeschriebene Zahl ohne Herleitung waren. Was dabei auffiel: zur eigentlichen
 Frage — wieviel Bildqualitaet ein laengerer Abstand bei fester Datenrate bringt
 — gibt es im ganzen Repo KEINE Zahl. Gemessen sind nur die beiden Extreme
 (`allintra-2026-07-29.json`: jedes Bild ein Vollbild kostet rund die
-vierzigfache Bitrate) und der Vergleich gegen Intra-Refresh
-(`qualitaet-2026-07-31-intra-refresh-gegen-keyframes.json`). Dazwischen ist
+vierzigfache Bitrate) und ein Vergleich gegen Intra-Refresh, dessen Messakte
+mit der Betriebsart am 2026-08-21 geloescht wurde. Dazwischen ist
 nichts, und `verlust-2026-07-28-keyframe-abstand.json` sagt das ausdruecklich:
 „Seine Kosten bei der Bildqualitaet sind NICHT gemessen."
 
@@ -84,24 +84,32 @@ ABSTAENDE_S = [0.5, 1.0, 2.0, 4.0, 10.0, 30.0, 60.0]
 FENSTER_S = 0.1
 
 
-def gepatchtes_ffmpeg() -> Path | None:
-    """Pfad zum gepatchten FFmpeg aus `streaming/ffmpeg-patches/`, falls gebaut.
+def eigenbau_ffmpeg() -> Path | None:
+    """Pfad zum Eigenbau-FFmpeg aus `streaming/ffmpeg-bau/`, falls gebaut.
+
+    **Hiess bis zum 2026-08-21 `gepatchtes_ffmpeg` und lag unter
+    `~/.cache/pulse/ffmpeg-intra-refresh/prefix`.** Der Grund von damals ist
+    entfallen: die beiden Patches legten `intra_refresh` fuer VA-API und AMF
+    frei, die Betriebsart ist aus Pulse entfernt, gebaut wird unveraenderter
+    Upstream (n8.1.1). Der Eigenbau bleibt trotzdem der bessere Encoder fuer
+    diese Messung — Sidecar und Player linken gegen genau diesen Stand, waehrend
+    Arch/CachyOS schon auf n9 liegt. Eine Zahl aus dem Distributions-FFmpeg gilt
+    fuer die ausgelieferte App nur ungefaehr.
 
     **Zwei Fallen liegen hier hintereinander, beide am 2026-08-18 aufgelaufen.**
 
     Erstens: `PATH` allein genuegt nicht. Das gebaute `prefix/bin/ffmpeg` traegt
     keinen RPATH auf sein eigenes `../lib` — der Programmlader nimmt deshalb die
     Bibliothek der Distribution (`/usr/lib64/ffmpeg/libavcodec.so.62`, mit `ldd`
-    nachgesehen), und die kennt `intra_refresh` nicht. Der Patch ist gebaut, das
-    Programm liegt da, und trotzdem meldet ffmpeg „Unrecognized option". Wer nur
-    den PATH setzt, sucht den Fehler im Bau statt im Programmlader. Es braucht
+    nachgesehen). Der Bau liegt da und wirkt trotzdem nicht; wer nur den PATH
+    setzt, sucht den Fehler im Bau statt im Programmlader. Es braucht
     zusaetzlich `LD_LIBRARY_PATH` (s. [`encode_lauf`]).
 
-    Zweitens, und deshalb wird die Umgebung NICHT global gesetzt: **der gepatchte
-    Bau hat kein libvmaf**, der der Distribution schon. Ein global gesetztes
-    `LD_LIBRARY_PATH` zoege auch die Messung auf die gepatchte `libavfilter` —
+    Zweitens, und deshalb wird die Umgebung NICHT global gesetzt: **der Eigenbau
+    hat kein libvmaf**, der der Distribution schon. Ein global gesetztes
+    `LD_LIBRARY_PATH` zoege auch die Messung auf die eigene `libavfilter` —
     und dann scheitert sie an „No such filter: 'libvmaf'". Deshalb die Teilung:
-    **kodiert wird mit dem gepatchten, gemessen mit dem der Distribution.** Das
+    **kodiert wird mit dem Eigenbau, gemessen mit dem der Distribution.** Das
     ist unbedenklich, weil alle Varianten eines Laufs denselben Encoder sehen
     und VMAF nur zwei fertige Dateien vergleicht.
 
@@ -110,13 +118,13 @@ def gepatchtes_ffmpeg() -> Path | None:
     CLI-Programm faellt durch dieses Netz.
     """
     wurzel = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-    prefix = wurzel / "pulse" / "ffmpeg-intra-refresh" / "prefix"
+    prefix = wurzel / "pulse" / "ffmpeg" / "prefix"
     return prefix if (prefix / "bin" / "ffmpeg").is_file() else None
 
 
 def encode_lauf(cmd: list[str], was: str, prefix: Path | None) -> None:
-    """Wie `vmaf_common.run_ffmpeg`, aber mit dem gepatchten FFmpeg — samt der
-    Bibliothek, ohne die es wirkungslos waere (s. [`gepatchtes_ffmpeg`])."""
+    """Wie `vmaf_common.run_ffmpeg`, aber mit dem Eigenbau-FFmpeg — samt der
+    Bibliothek, ohne die es wirkungslos waere (s. [`eigenbau_ffmpeg`])."""
     umgebung = dict(os.environ)
     if prefix is not None:
         cmd = [str(prefix / "bin" / "ffmpeg"), *cmd[1:]]
@@ -129,24 +137,24 @@ def encode_lauf(cmd: list[str], was: str, prefix: Path | None) -> None:
         raise SystemExit(f"{was} fehlgeschlagen")
 
 
-def varianten(fps: int, abstaende: list[float], codec: str,
-              mit_intraref: bool) -> list[tuple[str, list[str]]]:
+def varianten(fps: int, abstaende: list[float]) -> list[tuple[str, list[str]]]:
     """(Name, zusaetzliche Encoder-Optionen) je Abstand.
 
     `-g` steht in `encode_cmd` schon auf `fps*2`; weil unsere Angabe DAHINTER
     kommt, gewinnt sie (ffmpeg nimmt bei doppelter Option die letzte). Der
     Abstand wird in Bildern angegeben, genau wie im Sidecar
     (`keyframe_abstand_bilder`), damit hier nicht eine zweite Rundung entsteht.
+
+    **Bis zum 2026-08-21 hing hier ein Vergleichspunkt `intraref-2s`** (hinter
+    dem Schalter `--intraref`), bei dem die Zahl die Umlaufdauer der
+    Auffrischung war statt des Vollbild-Abstands. Die Betriebsart ist aus Pulse
+    entfernt und die Encoder kennen die Option nicht mehr; damit misst dieses
+    Werkzeug nur noch das, was es im Namen traegt.
     """
     liste: list[tuple[str, list[str]]] = []
     for s in abstaende:
         bilder = max(1, round(fps * s))
         liste.append((f"{s:g}s", ["-g", str(bilder)]))
-    if mit_intraref:
-        # Vergleichspunkt, kein Abstand: hier ist die Zahl die Umlaufdauer der
-        # Auffrischung, nicht der Vollbild-Abstand.
-        opt = "intra_refresh" if codec.endswith("_vaapi") else "intra-refresh"
-        liste.append(("intraref-2s", [f"-{opt}", "1", "-g", str(fps * 2)]))
     return liste
 
 
@@ -252,16 +260,15 @@ def main() -> int:
                     help="av1_vaapi/h264_vaapi (AMD, Intel) oder av1_nvenc/h264_nvenc")
     ap.add_argument("--abstaende", default="",
                     help=f"Komma-Liste in Sekunden (Vorgabe: {ABSTAENDE_S})")
-    ap.add_argument("--intraref", action="store_true",
-                    help="Intra-Refresh als Vergleichspunkt mitfahren (braucht auf VAAPI "
-                         "das gepatchte FFmpeg)")
     ap.add_argument("--json", type=Path, default=None, help="Messakte hierhin schreiben")
     args = ap.parse_args()
 
-    prefix = gepatchtes_ffmpeg()
-    if prefix is None and args.intraref:
-        print("Hinweis: gepatchtes FFmpeg nicht gebaut — der Intra-Refresh-Vergleichspunkt "
-              "wird auf VAAPI abgelehnt werden (scripts/hq-bauen.sh baut es).", file=sys.stderr)
+    # `--intraref` gab es bis zum 2026-08-21; die Betriebsart ist entfallen.
+    prefix = eigenbau_ffmpeg()
+    if prefix is None:
+        print("Hinweis: Eigenbau-FFmpeg nicht gebaut — gemessen wird mit dem der "
+              "Distribution (streaming/ffmpeg-bau/bootstrap-ffmpeg.sh baut es). Zahlen "
+              "aus beiden Baeuten sind nur ungefaehr vergleichbar.", file=sys.stderr)
 
     abstaende = ([float(v) for v in args.abstaende.split(",") if v.strip()]
                  if args.abstaende else list(ABSTAENDE_S))
@@ -279,7 +286,7 @@ def main() -> int:
 
     ergebnisse = []
     with tempfile.TemporaryDirectory() as td:
-        for name, extra in varianten(args.fps, abstaende, args.codec, args.intraref):
+        for name, extra in varianten(args.fps, abstaende):
             out = Path(td) / f"g{name}.mkv"
             cmd = encode_cmd(args.ref, pix_fmt, w, h, args.fps, args.kbps,
                              args.frames, out, post=extra, codec=args.codec)
@@ -316,8 +323,9 @@ def main() -> int:
             "frage": "Wieviel Bildqualitaet bringt ein laengerer Vollbild-Abstand bei "
                      "fester Datenrate, und wieviel kleiner werden die Sendespitzen?",
             "warum_die_frage_offen_war": "Bis 2026-08-18 gab es dazu keine Zahl — gemessen "
-                                          "waren nur die Extreme (allintra) und der Vergleich "
-                                          "gegen Intra-Refresh.",
+                                          "waren nur die Extreme (allintra) und ein Vergleich "
+                                          "gegen Intra-Refresh, dessen Messakte mit der "
+                                          "Betriebsart am 2026-08-21 geloescht wurde.",
             "aufbau": f"vollbild-abstand.py, Referenz {args.ref.name} ({pix_fmt} {w}x{h}), "
                       f"{args.frames} Bilder, {args.fps} fps, {args.kbps} kbps, {args.codec}. "
                       f"Identische Bilder je Variante, nur -g verschieden.",

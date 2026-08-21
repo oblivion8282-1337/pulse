@@ -113,10 +113,13 @@ def main() -> int:
         if not res.get("ok"):
             print(f"Player-Start fehlgeschlagen: {res}", file=sys.stderr)
             return 1
-        # Ein Vollbild auf Zuruf, sobald das Fenster offen ist. Im
-        # Intra-Refresh-Betrieb hat der Strom nach dem Start KEIN Vollbild mehr;
-        # der Player wartet aber auf eines und bliebe sonst schwarz. Ohne
-        # Intra-Refresh ist die Anforderung folgenlos — deshalb immer.
+        # Ein Vollbild auf Zuruf, sobald das Fenster offen ist. Der Player
+        # wartet auf ein Vollbild und bliebe sonst bis zum naechsten Takt
+        # schwarz — bei der heutigen Vorgabe von 60 s also fast eine Minute.
+        # Bis zum 2026-08-21 stand hier als Begruendung der Intra-Refresh-
+        # Betrieb (nach dem Start ueberhaupt KEIN Vollbild mehr); die
+        # Betriebsart ist entfernt, der Handgriff bleibt noetig. Liegt der
+        # Abstand kurz, ist die Anforderung folgenlos — deshalb immer.
         time.sleep(1.0)
         sender.call("keyframe", timeout=10)
 

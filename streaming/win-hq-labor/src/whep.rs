@@ -1,6 +1,24 @@
 //! Ein Zuschauer, der wirklich zusieht — empfängt, setzt zusammen, **dekodiert**
 //! und rechnet nach.
 //!
+//! **Zwei Voraussetzungen dieses Messwerks sind weggefallen** (Stand
+//! 2026-08-21), und beides steht hier, weil ein Lauf sonst plausibel aussieht
+//! und nichts beantwortet:
+//!
+//! 1. **Der Vollbild-Nachweis ist gegenstandslos.** Die Zählung „wie viele der
+//!    ankommenden Bilder sind Vollbilder" war der Beleg dafür, dass
+//!    Intra-Refresh läuft. Die Betriebsart ist am 2026-08-21 aus Pulse
+//!    entfernt; die Zahl ist heute nur noch der GOP-Takt des Senders.
+//! 2. **Die Gegenstelle ist seit dem 2026-08-12 gestoppt.** Der Hetzner-
+//!    Messstand trägt den gemeinsamen Remote-Dev-Stack, ein Lauf dagegen endet
+//!    in HTTP 401 (Rückholanleitung auf dem Server,
+//!    `~/messstand-gestoppt-2026-08-12.txt`).
+//!
+//! **Was weiter trägt, und deshalb bleibt die Datei unangetastet:** die
+//! Erholungs-Messung nach Verlust, der Ton und die Frage, ob ein angefordertes
+//! Vollbild wirklich ankommt. Das misst ein Decoder, und keine dieser drei
+//! Fragen hängt an der Betriebsart.
+//!
 //! **Warum dekodieren.** Bis hierher war belegt: die Anforderung eines
 //! Zuschauers erreicht den Encoder, und der erzeugt ein Vollbild. Was damit
 //! NICHT belegt war, ist die Frage, um die es eigentlich geht — kommt der

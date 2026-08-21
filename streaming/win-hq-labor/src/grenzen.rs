@@ -11,7 +11,8 @@ use anyhow::{Result, bail};
 /// Warnung.
 ///
 /// Gemessen am 2026-08-02 (Radeon 780M, Treiber 32.0.31035.1003, FFmpeg
-/// n8.1.2), Messakte `intrarefresh-2026-08-02-windows-amd.json` Abschnitt 11:
+/// n8.1.2), Messakte `intrarefresh-2026-08-02-windows-amd.json` Abschnitt 11
+/// (am 2026-08-21 gelöscht):
 /// `av1_vulkan` liefert in 10 Bit **ab dem ersten Zwischenbild** eine falsche
 /// Farbebene, die binnen weniger Bilder auf Anschlag läuft — das Bild wird
 /// durchgehend magenta. Das erste Vollbild ist einwandfrei, alle folgenden

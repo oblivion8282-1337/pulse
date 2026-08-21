@@ -460,7 +460,8 @@ export class ManagedHqStream {
       // vertretbar, wenn der `<video>`-Weg 10 bit nur heruntergerechnet
       // zeigte. Er tut etwas anderes. Gemessen am 2026-08-01
       // (`streaming/testbench/profiles/browser-2026-08-01-windows-av1-10bit.json`,
-      // ausgewertet in `intrarefresh-2026-08-02-windows-amd.json` Abschnitt 9):
+      // ausgewertet in der Messakte `intrarefresh-2026-08-02-windows-amd.json`
+      // Abschnitt 9, die am 2026-08-21 mit der Betriebsart geloescht wurde):
       // Chromes Hardware-Decoder steigt MITTEN im Lauf aus, libwebrtc faellt
       // auf `dav1d` zurueck, und der kann kein 10 bit
       // (`Dav1dDecoder::Decode unhandled bit depth: 10`). Ab da ist der Strom

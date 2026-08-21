@@ -46,8 +46,9 @@ param(
   # Leer = `ffplay` mit `testsrc2`. Das genuegt fuer die FARBKETTE, aber nicht
   # fuer die Frage, ob echte Spitzlichter durchkommen: ein SDR-Programm auf
   # einem HDR-Desktop wird vom Compositor auf SDR-Weiss abgebildet, und mehr
-  # als SDR-Weiss steht dann nirgends im Bild. Genau diese Luecke steht in der
-  # Messakte `nvidia-2026-08-04-windows-intra-refresh.json` als offener Punkt.
+  # als SDR-Weiss steht dann nirgends im Bild. Genau diese Luecke stand in der
+  # Messakte `nvidia-2026-08-04-windows-intra-refresh.json` als offener Punkt --
+  # die Akte ist am 2026-08-21 geloescht, die Luecke besteht weiter.
   #
   # Ein Pfad auf einen PQ/BT.2020-Clip laesst ihn stattdessen im VLC im
   # Vollbild laufen. **VLC, und das ist gemessen, nicht gewaehlt** (2026-08-11,
@@ -163,7 +164,8 @@ video{width:100vw;height:100vh;object-fit:fill}</style>
     return $null
   }
   # **`SDL_RENDER_DRIVER=software` nachgetragen am 2026-08-11**, aus demselben
-  # Grund wie in `nvidia-intra-refresh-nachweis.ps1`: ohne die Variable bleibt
+  # Grund wie im damaligen `nvidia-intra-refresh-nachweis.ps1` (am 2026-08-21
+  # geloescht): ohne die Variable bleibt
   # der ffplay-Fensterinhalt in der WGC-Aufnahme schwarz, der Desktop
   # drumherum aber nicht. Herleitung: `nvidia-zehnbit-nachweis.ps1`.
   $env:SDL_RENDER_DRIVER = 'software'

@@ -405,8 +405,9 @@ pub async fn run(
     // Last auf die Leitung, die den Verlust verursacht hat. Am 2026-07-28
     // gemessen: 33 Anforderungen in 15 s, danach war die Verbindung tot,
     // waehrend derselbe Verlust im Keyframe-Betrieb spurlos vorbeiging.
-    // Bei Intra-Refresh braucht es die Anforderung theoretisch nicht: nach
-    // einem vollen Durchlauf (~2 s) ist jeder Bildteil einmal erneuert.
+    // Im Intra-Refresh-Betrieb (bis zum 2026-08-21) haette es die Anforderung
+    // theoretisch nicht gebraucht: nach einem vollen Durchlauf (~2 s) war
+    // jeder Bildteil einmal erneuert.
     // Anfordern ist Pflicht, nicht Kosmetik — am 2026-07-28 am laufenden
     // Stream WIDERLEGT, dass es auch ohne ginge:
     //
@@ -895,9 +896,13 @@ pub async fn run(
 
                 // Solange kein Einstiegspunkt da ist, NACHFORDERN.
                 //
-                // Im Intra-Refresh-Betrieb kommt kein regulaerer Keyframe mehr
-                // — das einzige Vollbild kommt auf Anforderung. Ging die
-                // hinaus, waehrend der Player noch im Verbindungsaufbau steckte,
+                // Beobachtet wurde das im Intra-Refresh-Betrieb (bis zum
+                // 2026-08-21), wo gar kein regulaerer Keyframe mehr kam und das
+                // einzige Vollbild auf Anforderung. Es gilt unveraendert
+                // weiter: der Vollbild-Abstand steht seit dem 2026-08-18 bei
+                // 60 s, also faellt der Zuschauer genauso lange ins Leere. Ging
+                // die Anforderung hinaus,
+                // waehrend der Player noch im Verbindungsaufbau steckte,
                 // wartete er danach vergeblich, bis
                 // `MAX_WARTEZEIT_OHNE_KEYFRAME` die Sitzung abbrach: der
                 // Zuschauer sah NIE ein Bild. Am 2026-07-31 im Pruefstand

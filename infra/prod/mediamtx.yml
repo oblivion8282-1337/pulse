@@ -45,14 +45,22 @@ rtmpsAddress: :1936
 rtmpServerCert: /certs/server.crt
 rtmpServerKey: /certs/server.key
 
-# HLS ist AUS (2026-08-03) — es geht mit Intra-Refresh nicht zusammen, und
-# niemand konsumiert es.
+# HLS ist AUS (2026-08-03) — es geht mit unserem Vollbild-Takt nicht zusammen,
+# und niemand konsumiert es.
 #
-# **Die Unvertraeglichkeit:** HLS kann nur an Vollbildern segmentieren. Seit
-# `PULSE_KEYFRAME_INTERVAL=0` (s. docker-compose.yml) enthaelt ein
-# Intra-Refresh-Strom keine periodischen mehr, und `hlsAlwaysRemux: yes` baute
-# die Segmente auch ohne einen einzigen Zuschauer. Der Muxer starb daran lokal
-# alle ~66 s mit „reached maximum segment size" und startete im Kreis neu.
+# **Die Unvertraeglichkeit:** HLS kann nur an Vollbildern segmentieren. Mit
+# `PULSE_KEYFRAME_INTERVAL=0` (s. docker-compose.yml) kommen sie nur noch so
+# oft, wie der SENDER sie setzt, und `hlsAlwaysRemux: yes` baute die Segmente
+# auch ohne einen einzigen Zuschauer. Der Muxer starb daran lokal alle ~66 s
+# mit „reached maximum segment size" und startete im Kreis neu.
+#
+# **Der Grund hat sich am 2026-08-21 geaendert, das Ergebnis nicht.** Hier
+# stand, HLS vertrage sich nicht mit Intra-Refresh — jene Betriebsart lieferte
+# ueberhaupt keine periodischen Vollbilder mehr. Sie ist entfernt. Geblieben ist
+# der Vollbild-Abstand von 60 s (`PULSE_KEYFRAME_SECONDS`, seit 2026-08-18):
+# Segmente von einer Minute reissen dieselbe Grenze, nur langsamer. Wer diesen
+# Block wieder scharf stellen will, weil „Intra-Refresh ja weg ist", laeuft
+# also in denselben Absturz.
 #
 # **Warum Abschalten und kein Kompromiss:** Kein Pulse-Client spricht HLS an.
 # Der HQ-Stream laeuft ueber WHEP, und die Watch-Party lehnt `.m3u8` sogar
@@ -62,7 +70,9 @@ rtmpServerKey: /certs/server.key
 #
 # Zurueckholen: diesen Block wieder scharf stellen UND `PULSE_KEYFRAME_INTERVAL`
 # entfernen — beides zusammen, sonst kehrt die Absturzschleife zurueck. Damit
-# faellt allerdings Intra-Refresh weg.
+# faellt allerdings der lange Vollbild-Abstand weg, und der ist gemessen: 60 s
+# statt 2 s druecken das Stoss-Fenster von 4,06 auf 2,16 Prozent
+# (Wurzel-`CLAUDE.md`, Abschnitt HQ-Streaming).
 hls: no
 
 # WebRTC / WHEP (reached via pulse_web → /whep/*; ICE on :8189/udp direct)

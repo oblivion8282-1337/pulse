@@ -14,10 +14,15 @@
 #
 # WAS ES NICHT IST: der Bauweg der Auslieferung. Der Flatpak baut den Player
 # gegen sein eigenes, gebündeltes FFmpeg (`packaging/com.howispulse.Pulse.yml`,
-# ffmpeg-Modul) — dort hängen zwei Dinge dran, die es sonst nirgends gibt: der
-# VAAPI-Intra-Refresh-Patch und die Decoder-Liste, ohne die der Player kein
-# Bild zeigt. Was hier geladen wird, taugt zum ÜBERSETZEN, nicht zum
-# Ausliefern.
+# ffmpeg-Modul) — dort hängt die zugeschnittene Konfiguration dran: die
+# Decoder-, Filter- und Hardware-Liste, ohne die der Player kein Bild zeigt.
+# Was hier geladen wird, taugt zum ÜBERSETZEN, nicht zum Ausliefern.
+#
+# Bis zum 2026-08-21 stand hier ein zweiter Unterschied: der
+# VAAPI-Intra-Refresh-Patch. Den gibt es nicht mehr — die Betriebsart ist aus
+# Pulse entfernt, der Patch mit ihr, und das Flatpak-Manifest baut seither
+# unveränderten Upstream n8.1.1. Übrig bleibt die Konfiguration; Grund genug,
+# aber nur einer.
 #
 # WARUM `PKG_CONFIG_PATH` UND NICHT NUR `FFMPEG_DIR`: auf Linux findet
 # `ffmpeg-sys-next` seine Bibliotheken über pkg-config. `FFMPEG_DIR` allein —

@@ -67,12 +67,16 @@ republish, and the authoritative list is the `paths:` filter in
 - `streaming/gsr-sidecar/**`, `streaming/patches/**` — the Python/GSR sidecar,
   still shipped as the fallback when the Rust binary is missing
 - `streaming/pulse-player/**` — the player
-- `streaming/ffmpeg-patches/**` — patched into the bundled FFmpeg
 - `packaging/*-cargo-sources.json` — the offline Cargo manifests for both Rust
   crates; a `Cargo.lock` change means regenerating these, or the Flatpak build
   fails offline
 - the manifest and its assets (`com.howispulse.Pulse.yml`, `launcher.sh`,
   `.desktop`, `.metainfo.xml`, `.svg`)
+
+Until 2026-08-21 this list also had `streaming/ffmpeg-patches/**` — Pulse patches
+applied to the bundled FFmpeg to expose rolling intra refresh. That encoder mode
+was dropped, and with it the patch directory: the manifest now builds unmodified
+upstream FFmpeg (`com.howispulse.Pulse.yml`, the `ffmpeg` module).
 
 ### One-time setup
 1. **Signing key** (so the friend doesn't need `--no-gpg-verify`):

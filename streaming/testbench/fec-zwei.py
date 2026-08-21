@@ -78,7 +78,11 @@ def paritaet_je_sekunde(label: str) -> list[tuple[int, int]]:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--quelle", default=str(HERE / "fec-intraref-20s.mkv"))
+    # Hiess bis zum 2026-08-21 `fec-intraref-20s.mkv` und war mit echtem
+    # Intra-Refresh gebaut; die Betriebsart ist entfallen, die Vorlage entsteht
+    # heute ueber einen ueberlangen Vollbild-Abstand (Rezept im `README.md`).
+    # Gebraucht wird unveraendert: EIN Vollbild, ganz am Anfang.
+    ap.add_argument("--quelle", default=str(HERE / "fec-vorlage-20s.mkv"))
     ap.add_argument("--profil", default="klar", choices=tuple(_fa.serverstoerung.PROFILE))
     ap.add_argument("--secs", type=int, default=90)
     ap.add_argument("--zweiter-ab", type=float, default=40.0)

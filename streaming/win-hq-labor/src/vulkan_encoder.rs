@@ -1,9 +1,26 @@
-//! **Der Encoder, um den es im Labor geht:** `av1_vulkan` mit Intra-Refresh.
+//! **Der Encoder, um den es im Labor ging:** `av1_vulkan` mit Intra-Refresh.
+//! **STILLGELEGT seit dem 2026-08-21.**
+//!
+//! Intra-Refresh ist an dem Tag aus Pulse entfernt worden, und mit ihm der
+//! Patch `ffmpeg-patches/0001-vulkan-encode-intra-refresh.patch` — der einzige
+//! Weg, auf dem FFmpeg `-intra_refresh` an `av1_vulkan`/`h264_vulkan` überhaupt
+//! anbot. **Ohne den Patch nimmt der Encoder die Option unten schweigend nicht
+//! an**: FFmpeg lässt sie im Dictionary liegen, `open_with` gelingt trotzdem,
+//! und der Strom läuft mit dem gewöhnlichen GOP-Takt. Genau die Sorte Messung,
+//! die nicht scheitert, sondern täuscht.
+//!
+//! **Nicht umgebaut, und das ist eine Entscheidung.** Der Vergleichsarm hinter
+//! `PULSE_LABOR_VULKAN=1` bleibt lauffähig — er misst weiter `av1_vulkan` gegen
+//! `av1_amf`, nur eben beide ohne Auffrischung, und dafür ist er brauchbar. Die
+//! Alternative wäre, die Intra-Refresh-Zeilen herauszuschneiden; das kostete
+//! Aufwand, nähme dem Blatt seine Begründung und brächte keiner Messung etwas.
+//! **Wer den Arm für eine Auffrischungs-Frage benutzt, holt zuerst den Patch
+//! zurück** — sonst vergleicht er zwei gleiche Läufe.
 //!
 //! Das ist die Stelle, an der die ganze Kette zusammenkommt. Warum sie so
 //! aussieht, in einem Satz je Glied:
 //!
-//! * **Intra-Refresh statt periodischer Vollbilder** ist das Ziel des Labors —
+//! * **Intra-Refresh statt periodischer Vollbilder** war das Ziel des Labors —
 //!   die Auffrischung über viele Bilder verteilt statt in Stößen.
 //! * **Nur der Vulkan-Encoder kann es hier.** AMF ignoriert die Einstellung
 //!   byte-identisch (gemessen 2026-08-01), D3D12 liefert nichts Brauchbares.
@@ -17,7 +34,8 @@
 //! * **Und es braucht einen Rückkanal**, weil ein Intra-Refresh-Strom nach dem
 //!   Start kein Vollbild mehr hat: ohne Anforderung käme ein neu einsteigender
 //!   Zuschauer nie ins Bild (und nach Verlust heilt er nicht von selbst,
-//!   `decoder-2026-07-29-intra-refresh.json`). Deshalb der eigene WHIP-Weg.
+//!   `decoder-2026-07-29-intra-refresh.json`, am 2026-08-21 gelöscht). Deshalb
+//!   der eigene WHIP-Weg — der bleibt, er hängt nicht an der Betriebsart.
 //!
 //! Die Pipeline (Aufnahme, Skalierung, Taktung, A/V-Verankerung) bleibt die
 //! des Sidecars — hier hängt sich nur der Encoder ein
@@ -192,7 +210,10 @@ impl VulkanEncoder {
         }
 
         let mut opts = ffmpeg::Dictionary::new();
-        // **Das hier ist der Zweck der ganzen Übung.**
+        // **Das hier war der Zweck der ganzen Übung** — bis zum 2026-08-21.
+        // Ohne den gelöschten Patch 0001 kennt kein FFmpeg diese Option mehr;
+        // die beiden `set`-Aufrufe bleiben dann folgenlos, ohne dass es jemand
+        // meldet. Siehe den Modulkopf.
         //
         // `PULSE_LABOR_KEIN_IR=1` schaltet es ab — **nur zur Halbierung**, nicht
         // als Betriebsart. Es gibt genau eine Frage, für die man das braucht:

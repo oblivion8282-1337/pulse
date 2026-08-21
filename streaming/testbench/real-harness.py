@@ -272,12 +272,15 @@ def main() -> int:
             # kennen muss, um den Container zu waehlen. Ein fester Vorlauf war
             # zu kurz und die Aufnahme fiel still aus.
             #
-            # **Dabei muss der Einstieg nachgefordert werden.** Unter
-            # Intra-Refresh gibt es nur EIN Vollbild, und das lag vor dem
-            # Beitritt des Players — ohne Nachforderung dekodiert er nie etwas,
-            # die Schleife laeuft leer, und der Lauf endet mit „noch kein Bild
-            # empfangen". Genau so ist der erste Qualitaetsvergleich zwischen
-            # Keyframes und Intra-Refresh gescheitert (2026-07-31).
+            # **Dabei muss der Einstieg nachgefordert werden.** Das naechste
+            # Vollbild liegt bei 60 s Abstand weit hinter dem Beitritt des
+            # Players — ohne Nachforderung dekodiert er lange nichts, die
+            # Schleife laeuft leer, und der Lauf endet mit „noch kein Bild
+            # empfangen". Bis zum 2026-08-21 war der Grund ein anderer und
+            # haerter: unter Intra-Refresh gab es ueberhaupt nur EIN Vollbild,
+            # und daran ist der erste Qualitaetsvergleich zwischen Keyframes
+            # und Intra-Refresh gescheitert (2026-07-31). Die Betriebsart ist
+            # entfernt, die Nachforderung bleibt noetig.
             for versuch in range(60):
                 st = player.call("stats", session=sid)
                 if st.get("ok") and (st.get("frames_decoded") or 0) > 0:
@@ -290,9 +293,11 @@ def main() -> int:
                 print(f"Aufnahme abgelehnt: {rr}", file=sys.stderr)
                 return 1
             # Zweites Vollbild als Startpunkt der DATEI: der Recorder schreibt
-            # erst ab dem naechsten Keyframe. Unter Intra-Refresh kaeme sonst
-            # keiner mehr, und die Aufnahme bliebe leer — was erst beim
-            # Ansehen auffiele.
+            # erst ab dem naechsten Keyframe. Bei 60 s Abstand kaeme der erst
+            # nach einer Minute, und die Aufnahme bliebe so lange leer — was
+            # erst beim Ansehen auffiele. (Bis zum 2026-08-21 war der Fall
+            # unter Intra-Refresh noch schaerfer: dort kaeme ueberhaupt keiner
+            # mehr.)
             sender.call("keyframe", timeout=10)
             print(f"Aufnahme laeuft: {rr.get('path', rec_path)}")
         end = time.monotonic() + args.secs

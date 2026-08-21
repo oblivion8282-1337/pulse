@@ -20,8 +20,14 @@ Alles auf Radeon 780M, Treiber 32.0.31035.1003, gebündeltes FFmpeg n8.1.
 | Kann D3D12 es? | **nein brauchbar** — `av1_d3d12va` bricht ab, `h264_d3d12va` ändert 0,47 % ohne `constrained_intra_pred`, ohne recovery point | A/B bei fester Quantisierung |
 | Kann Vulkan Video es? | **ja** | +1,8 % bei Umlauf 30, +4,9 % bei Umlauf 10 (richtige Richtung), ein Keyframe im Strom, 0 Decoder-Meldungen |
 | Ist der Messaufbau empfindlich genug? | **ja** | Eichung: 30 erzwungene Vollbilder = +9,9 %; erwartet für Umlauf 30 ≈ +2 %, gemessen 1,8 % |
-| Heilt Intra-Refresh nach Verlust? | **nein, auf keiner Plattform** | `profiles/decoder-2026-07-29-intra-refresh.json` (Linux, av1_nvenc): ein verworfenes Bild tötet den Strom dauerhaft; Ursache ist der Decoder |
-| Was trägt dann? | FEC + NACK + Vollbild beim Beitritt | `browser-2026-07-31-intra-refresh-unter-stoerung.json`: 358 s, 5 Störzyklen, 0 Standbilder, 1 Anforderung |
+| Heilt Intra-Refresh nach Verlust? | **nein, auf keiner Plattform** | Messakte `decoder-2026-07-29-intra-refresh.json` (Linux, av1_nvenc): ein verworfenes Bild tötet den Strom dauerhaft; Ursache ist der Decoder |
+| Was trägt dann? | FEC + NACK + Vollbild beim Beitritt | Messakte `browser-2026-07-31-intra-refresh-unter-stoerung.json`: 358 s, 5 Störzyklen, 0 Standbilder, 1 Anforderung |
+
+> **Nachtrag 2026-08-21:** Die Betriebsart „Intra-Refresh" ist ersatzlos
+> entfallen — der Befund „heilt nach Verlust nicht" war einer der vier Gründe
+> dafür. Die beiden hier genannten Messakten sind mit ihr gelöscht worden und
+> liegen nicht mehr unter `streaming/testbench/profiles/`; die Zeilen bleiben
+> als Ergebnisprotokoll stehen.
 
 **Konsequenz für alles Weitere:** Der Encoder ist nicht mehr die offene Frage.
 Offen sind der Publish-Weg (WHIP statt RTMPS) und der Empfänger.

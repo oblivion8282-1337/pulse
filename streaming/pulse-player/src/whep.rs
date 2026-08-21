@@ -508,8 +508,9 @@ pub async fn connect(
     // FlexFEC anbieten — seit 2026-08-03 der Standardweg, vorher hinter
     // `PULSE_PLAYER_FLEXFEC=1` versteckt; abschaltbar mit `=0` (fuer
     // Vergleichsmessungen und als Notausgang, falls das veraenderte Angebot
-    // einem Server nicht passt). Warum umgestellt wurde — Intra-Refresh heilt
-    // sich nach Verlust nicht selbst — steht im Modul-Kopf von `crate::fec`,
+    // einem Server nicht passt). Warum umgestellt wurde — ein
+    // Intra-Refresh-Strom heilte sich nach Verlust nicht selbst — steht im
+    // Modul-Kopf von `crate::fec`,
     // gleich beim aufgerufenen `eingeschaltet()`.
     //
     // **Was an dieser Zeile haengt.** Ohne das Angebot fehlt FlexFEC im SDP,
@@ -682,7 +683,9 @@ fn rueckkanal_flags(answer: &str) -> (bool, bool, bool) {
     // Sequenznummern gezaehlt): MediaMTX sagt `rtx NEIN` und liefert
     // trotzdem nach — 505 Wiederholungen bei 5 % Verlust, 4 bei 1 %, und in
     // der Nullkontrolle ueber 56651 Paketen ohne Stoerung exakt null.
-    // Volles Protokoll: `testbench/profiles/decoder-2026-07-29-intra-refresh.json`.
+    // Volles Protokoll stand in der Messakte
+    // `decoder-2026-07-29-intra-refresh.json`, die am 2026-08-21 zusammen mit
+    // der Betriebsart geloescht wurde; die Zahlen oben sind daraus.
     //
     // Die Zeile bleibt trotzdem gemeldet: sie sagt, WELCHEN der beiden Wege
     // die Gegenstelle anbietet, und das ist bei einer fremden Gegenstelle

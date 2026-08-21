@@ -103,11 +103,12 @@ def lauf(args, i: int, proto: str, epoch: str | None, ton_start,
             sid = res["session"]
 
             if getattr(args, "keyframe_nach_open", False):
-                # Intra-Refresh-Betrieb: der Strom hat nach t=0 KEINE IDR mehr,
-                # der Player wartet aber auf eines (decode.rs). Ein Beitritt
-                # braucht deshalb genau ein angefordertes Vollbild — das
-                # produktive Gegenstueck waere "PLI nur bei Beitritt" statt der
-                # 2-s-Uhr in MediaMTX.
+                # Der Strom hat nach t=0 lange KEINE IDR mehr, der Player
+                # wartet aber auf eines (decode.rs). Ein Beitritt braucht
+                # deshalb genau ein angefordertes Vollbild. Bis zum 2026-08-21
+                # war das der Intra-Refresh-Betrieb (nach t=0 nie wieder ein
+                # Vollbild); seit dem Vollbild-Abstand von 60 s gilt es aus
+                # demselben Grund weiter — nur endlich statt nie.
                 time.sleep(1.0)
                 sender.call("keyframe", timeout=10)
 
@@ -196,7 +197,8 @@ def main() -> int:
                          "Interleave-Queue gegen Direktschreiben (PULSE_MUX_DIRECT) im Wechsel.")
     ap.add_argument("--keyframe-nach-open", action="store_true",
                     help="einmal ein Vollbild anfordern, sobald der Player offen "
-                         "ist (noetig bei intra-refresh: sonst wartet er ewig)")
+                         "ist (noetig bei langem Vollbild-Abstand: sonst wartet er "
+                         "bis zum naechsten Takt)")
     ap.add_argument("--nur-proto", default=None, choices=["rtmps", "whip"],
                     help="alle Laeufe mit DIESEM Weg (statt Wechsel) — fuer "
                          "Encoder-Vergleiche, deren Schalter als Env an der "
