@@ -202,8 +202,10 @@ pub struct SessionStats {
     /// Bilder, die verworfen wurden, weil die Darstellung nicht mitkam.
     /// Anders als `frames_dropped` (Paketverlust) ist das kein Netzproblem.
     pub frames_skipped: u64,
-    /// Was der Sender laut ankommendem Strom schickt — periodische Vollbilder
-    /// oder rollende Auffrischung (s. [`crate::decode::VideoDecoder::sendeart`]).
+    /// Was der Sender laut ankommendem Strom schickt: Zahl der Vollbilder,
+    /// ihr Abstand und die Groesse des letzten (s.
+    /// [`crate::decode::VideoDecoder::sendeart`]). Am Strom GEMESSEN, nicht aus
+    /// einer Einstellung gelesen.
     pub sendeart: crate::decode::Sendeart,
     pub buffered_packets: u64,
     pub jitter_target_ms: u64,
