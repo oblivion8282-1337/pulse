@@ -438,7 +438,7 @@ services:
     # instantly. The AV1 temporal-delimiter patch still applies cleanly and is
     # kept. Rollback: revert this commit → `:1.17.1-pulse` (image still in GHCR
     # and cached on the host) + `docker compose up -d pulse_mediamtx`.
-    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse4
+    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse5
     container_name: pulse_mediamtx
     restart: unless-stopped
     network_mode: host
@@ -461,6 +461,13 @@ services:
       # laengst 0 ist) waere das Verhalten richtig — die Fehlersuche liefe also
       # im Code statt in dieser Datei.
       PULSE_KEYFRAME_INTERVAL: "0"
+      # Die Bildmarke (AV1 Dependency Descriptor) ueber die Neuverpackung
+      # tragen — Patch 0006. Ohne sie kann der Zuschauer ein VERLORENES Bild
+      # nicht von einem unterscheiden, das der Sender nie erzeugt hat, und
+      # fordert auf Verdacht Vollbilder an (2026-08-21 gemessen: ein halbes je
+      # Sekunde bei voellig gesunder Leitung). Voller Hintergrund:
+      # docs/superpowers/specs/2026-08-21-dependency-descriptor-design.md
+      PULSE_DEPENDENCY_DESCRIPTOR: "1"
       # FlexFEC-Paritaet auf dem WHEP-Ausgang. **Bedingung dafuer, dass
       # Intra-Refresh Verlust ueberlebt** — nicht bloss eine Verbesserung:
       # Ein Intra-Refresh-Strom heilt sich nach einem Verlust NICHT selbst

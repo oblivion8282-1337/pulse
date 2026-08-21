@@ -173,7 +173,7 @@ Auf **jedem** Paket, drei Byte (Pflichtfelder):
  Bit  8-23   laufende Nummer   (frame_number, 16 Bit, Umlauf bei 65536)
 ```
 
-Auf dem **ersten Paket jedes Vollbilds** zusätzlich die Schablonen-Tabelle in
+Auf **jedem Paket eines Vollbilds** zusätzlich die Schablonen-Tabelle in
 unserer kleinsten zulässigen Ausprägung:
 
 ```
@@ -184,10 +184,20 @@ eine Kette,       das Decode-Ziel haengt an ihr
 keine Aufloesungsangaben
 ```
 
-Rund zehn Byte auf Vollbildern, drei auf allen anderen — bei ~1200 Byte je
-Paket unter einem Promille. Es passt in die **einbytige** Form der
-RTP-Header-Erweiterung (bis 16 Byte); erst geschichtete Ströme bräuchten die
-zweibytige.
+**Neun** Byte auf Vollbild-Paketen (24 Pflicht- und 41 Struktur-Bit, auf 72
+aufgefüllt), drei auf allen anderen — bei ~1200 Byte je Paket unter einem
+Promille. Es passt in die **einbytige** Form der RTP-Header-Erweiterung (bis 16
+Byte); erst geschichtete Ströme bräuchten die zweibytige.
+
+**Warum auf jedem Paket eines Vollbilds und nicht nur auf dem ersten** (beim
+Umsetzen festgelegt, weicht vom ersten Entwurfsstand ab): MediaMTX schneidet
+die Pakete neu. Läge die Tabelle nur auf dem ersten, müsste der Patch erkennen,
+welches neu geschnittene Paket das erste ist, und sie dorthin verschieben —
+Logik, die falsch sein kann. Liegt sie auf allen, kopiert er die Bytes und
+korrigiert zwei Bit. Kosten: sechs Byte je Vollbild-Paket, bei rund 90 Paketen
+je Vollbild also ~540 Byte, bei 60 s Abstand nicht messbar. Nebennutzen: ein
+spät einsteigender Zuschauer hat die Tabelle mit dem ersten Vollbild-Paket, das
+er sieht.
 
 **Die genaue Bitfolge wird gegen den Spezifikationstext geprüft, nicht aus dem
 Gedächtnis geschrieben.** Verbindlich ist die AV1-RTP-Spezifikation der AOM;
@@ -232,8 +242,14 @@ Der Patch:
    (`inbound_track.go:22` liest `params.HeaderExtensions`).
 2. Nach `encoder.Encode(...)` die Marke auf die neuen Pakete setzen:
    **Nummer und Schablone unverändert** vom eingehenden Bild
-   (`u.RTPPackets[0]`), **Bildanfang/Bildende neu** nach der neuen Aufteilung,
-   **Schablonen-Tabelle auf das neue erste Paket** eines Vollbilds.
+   (`u.RTPPackets[0]`), **Bildanfang/Bildende neu** nach der neuen Aufteilung.
+   Die Schablonen-Tabelle fährt unverändert mit — sie steht auf jedem Paket
+   eines Vollbilds, gerade damit hier nichts zu verschieben ist.
+3. **Eingang und Ausgang handeln die Erweiterung getrennt aus** und bekommen
+   dabei verschiedene Nummern; `from_stream.go` sieht aber nur die Pakete,
+   nicht die Aushandlung des Eingangs. Der Eingang schreibt die Marke deshalb
+   auf eine feste interne Nummer um (14). Dasselbe Recht nimmt sich
+   `stripTWCCExtension` schon heute, nur löschend.
 3. Hinter `PULSE_DEPENDENCY_DESCRIPTOR=1`, aus per Vorgabe — wie die Patches
    0002 bis 0005. Ein unkonfiguriertes Deployment verhält sich wie bisher.
 

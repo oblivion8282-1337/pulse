@@ -36,7 +36,7 @@ services:
     # beide Tags auf denselben Digest eines 1.17.1-Images zeigten — der
     # Container meldete `v1.17.1-dirty`. Nach einem Bump also
     # `docker logs streaming-mediamtx | head -1` pruefen, nicht den Tag glauben.
-    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse4
+    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse5
     container_name: streaming-mediamtx
     restart: unless-stopped
     network_mode: host
@@ -49,6 +49,13 @@ services:
       # Bursts zurück, die das Verfahren vermeidet. RTMP-Sender berührt er
       # nicht. Leer/unbesetzt = Upstream-Verhalten (2s).
       PULSE_KEYFRAME_INTERVAL: "0"
+      # Die Bildmarke (AV1 Dependency Descriptor) ueber die Neuverpackung
+      # tragen — Patch 0006. Ohne sie kann der Zuschauer ein VERLORENES Bild
+      # nicht von einem unterscheiden, das der Sender nie erzeugt hat, und
+      # fordert auf Verdacht Vollbilder an (2026-08-21 gemessen: ein halbes je
+      # Sekunde bei voellig gesunder Leitung). Voller Hintergrund:
+      # docs/superpowers/specs/2026-08-21-dependency-descriptor-design.md
+      PULSE_DEPENDENCY_DESCRIPTOR: "1"
       # FlexFEC bleibt im Dev-Stack AUS. Sie kostet jeden Zuschauer rund
       # 20 Prozent mehr Daten, unabhängig davon, wie der Stream reinkam —
       # das ist eine eigene Entscheidung und gehört nicht in denselben
