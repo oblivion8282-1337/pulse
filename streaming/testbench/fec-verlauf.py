@@ -23,7 +23,7 @@ Gemessen wird je Sekunde:
 Daraus die Zahl, um die es geht: der Abstand zwischen der ersten Sekunde mit
 Verlust und der ersten Sekunde mit Paritaet danach.
 
-    ./fec-verlauf.py intraref-adaptiv-stoerung.pcap
+    ./fec-verlauf.py adaptiv-stoerung.pcap
     ./fec-verlauf.py mein.pcap --alle          # jede Sekunde statt nur Fenster
 """
 

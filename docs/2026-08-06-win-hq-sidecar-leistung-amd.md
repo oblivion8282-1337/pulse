@@ -624,7 +624,9 @@ jedem Codec über AMF**, vorher ging H.264/HEVC über D3D12.
 2. **`encode/codec.rs`, Doku zu `supports_ten_bit`** — „H.264 läuft auf AMD über
    D3D12 (`encode_path`) und damit an diesem Pool vorbei". Gilt nicht mehr.
 3. **`encode/auffrischung.rs`, Doku zu `encoder_name`** — „bei AMD je Codec ein
-   anderer (AV1 über AMF, H.264 über D3D12)". Gilt nicht mehr.
+   anderer (AV1 über AMF, H.264 über D3D12)". Gilt nicht mehr. *(Nachtrag
+   2026-08-21: `encoder_name` steht seit dem Wegfall des Intra-Refresh in
+   `encode/codec.rs`; von `auffrischung.rs` blieb nur `braucht_selbsttakt`.)*
 
 Dazu eine vierte, aus der HDR-Arbeit dieses Zweigs:
 

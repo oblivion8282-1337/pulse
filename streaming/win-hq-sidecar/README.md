@@ -17,12 +17,20 @@ Kein Python — die Rust-Bin ist standalone (FFmpeg-DLLs neben der exe).
 `encode::senke`). ffmpegs WHIP-Muxer wäre für den zweiten Fall der naheliegende
 Weg und kann zwei Dinge nicht, die hier zählen: er hat **keinen Rückkanal** zur
 Anwendung — eine Vollbild-Anforderung des Zuschauers erreicht den Encoder also
-nie — und er trägt **kein AV1**. Beides ist bei Intra-Refresh entscheidend: so
-ein Strom hat nach dem Start kein Vollbild mehr, und AV1 ist auf AMD der Codec,
-der die Betriebsart überhaupt trägt.
+nie — und er trägt **kein AV1**. Der Rückkanal ist beim heutigen
+Vollbild-Abstand von **60 s** Voraussetzung und nicht Zubehör: ein beitretender
+Zuschauer wartete sonst bis zu eine Minute auf sein erstes Bild.
 
-Dieselbe Fassung wie im Linux-Sidecar. Der CPU-Weg (Intel) benutzt weiter
-ffmpegs Muxer — folgenlos, solange Intel Intra-Refresh ohnehin nicht trägt.
+*(Bis zum 2026-08-21 stand die Begründung auf Intra-Refresh — so ein Strom hatte
+nach dem Start überhaupt kein Vollbild mehr, und AV1 war auf AMD der einzige
+Codec, der die Betriebsart trug. Die Betriebsart ist aus Pulse entfernt. Die
+beiden Mängel des Muxers bleiben, sie werden jetzt vom gestreckten
+Vollbild-Abstand allein getragen.)*
+
+Dieselbe Fassung wie im Linux-Sidecar. **`http(s)://` schickt jeden Hersteller
+auf den eigenen Sender** — `encode_path` prüft die URL, bevor es den Hersteller
+ansieht (`encode/codec.rs`); ffmpegs Muxer bleibt damit dem RTMPS-Weg
+vorbehalten, und dort ist der Rückkanal ohnehin nicht vorgesehen.
 
 ## Stack
 
@@ -40,14 +48,14 @@ ffmpegs Muxer — folgenlos, solange Intel Intra-Refresh ohnehin nicht trägt.
   läuft. `pid` = Electron-Main-PID via `PULSE_SELF_PID` (gesetzt in
   `desktop/electron/sidecar.ts`); fehlt sie, Fallback auf den simplen
   Render-Loopback. Linux-Äquivalent: `-a app-inverse:Pulse` (`gsr-sidecar/profiles.py`).
-- **Encode/Mux:** `ffmpeg-next` 8.1, gelinkt gegen ein **selbst gebautes, gepatchtes**
-  FFmpeg unter `ffmpeg-dist/n8.1-lgpl-shared/` (Pfad via `.cargo/config.toml`
+- **Encode/Mux:** `ffmpeg-next` 8.1, gelinkt gegen ein **unverändertes** LGPL-shared-
+  Fertigpaket unter `ffmpeg-dist/n8.1-lgpl-shared/` (Pfad via `.cargo/config.toml`
   `FFMPEG_DIR`; `build.rs` kopiert die DLLs neben die exe) — s. „Das FFmpeg" unten.
 - MediaMTX-Build für lokales Testen unter `mediamtx-dist/v1.18.1/mediamtx.exe`.
 
 ## Drei Encode-Pfade
 
-Dispatch über `VideoCodec::encode_path` (`encode/encoder.rs` — die EINE Stelle für die
+Dispatch über `VideoCodec::encode_path` (`encode/codec.rs` — die EINE Stelle für die
 Regel), ausgewertet in `src/stream_controller.rs::run_pipeline`: **`nvidia` und `amd` →
 `pipeline_hw`** (D3D11-Zero-Copy, alle Codecs — NVENC bzw. AMF), sonst (Intel) →
 `run_cpu_pipeline`. `PULSE_HQ_DISABLE_ZERO_COPY=1` zwingt jeden Vendor auf den CPU-Pfad
@@ -57,14 +65,21 @@ den `pipeline_d3d12`-Weg als Gegenprobe zurück.
 **Bis 2026-08-04 stand hier die alte Aufteilung** — H.264/HEVC auf AMD über
 `pipeline_d3d12`, nur AV1 über AMF. Sie war je Codec begründet (D3D12 latenzärmer, AMF
 sparsamer) und ist einer Vereinheitlichung gewichen: ein Weg statt zwei. Der Preis steht
-am Schalter `amd_forces_d3d12` in `encode/encoder.rs` — rund 10 ms, exakt ein Bildabstand,
+am Schalter `amd_forces_d3d12` in `encode/codec.rs` — rund 10 ms, exakt ein Bildabstand,
 weil AMF codec-unabhängig ein Bild zurückhält.
 
-**Für Intra-Refresh war genau diese Aufteilung der Grund**, dass die Fähigkeitsmeldung
-am Encode-Weg hängt und nicht an der Optionstabelle: `h264_d3d12va` nimmt die Option an
-und tut nichts damit. Über den Gegenprobe-Schalter ist er weiter erreichbar, deshalb
-bleibt die Prüfung — `health.gsr.intra_refresh` fragt den Encoder, der bei dieser
-Kombination **wirklich** läuft (`encode/auffrischung.rs::encoder_name`).
+**Wer eine Encoder-Eigenschaft abfragt, muss den Encoder meinen, der bei dieser
+Kombination WIRKLICH läuft** — nicht den, den die Optionstabelle nahelegt. Genau diese
+Aufteilung ist der Grund: derselbe Codec landet je nach Hersteller und Schalter bei einem
+anderen ffmpeg-Encoder. Übrig davon ist `encode/auffrischung.rs::braucht_selbsttakt`:
+`h264_amf` frischt unter `usage=ultralowlatency` von sich aus auf und verschluckt damit
+den bestellten Vollbild-Takt, seine Vollbilder kommen deshalb aus `keyframe::Selbsttakt`.
+
+*(Bis zum 2026-08-21 stand hier stattdessen die Fähigkeitsmeldung
+`health.gsr.intra_refresh` samt `encoder_name` — sie beantwortete dieselbe Frage für die
+Betriebsart rollender Intra-Refresh, deren Musterfall `h264_d3d12va` war: der nimmt die
+Option an und tut nichts damit. Betriebsart, Meldung und Startverweigerung sind entfallen;
+die Lehre, am echten Encoder zu fragen, ist geblieben.)*
 
 ### HDR (seit 2026-08-06)
 
@@ -177,7 +192,7 @@ komplett D3D12-only:
 Kein PCIe-Roundtrip, kein CPU-swscale: conv-Zeit 17 ms → 2,9 ms, stabile 60 fps.
 
 ### CPU-Fallback (Intel/QSV + Kill-Switch)
-`src/capture/wgc.rs` + `src/encode/encoder.rs` → `run_cpu_pipeline`.
+`src/capture/wgc.rs` + `src/encode/codec.rs` → `run_cpu_pipeline`.
 
 BGRA via `frame.buffer().as_nopadding_buffer()` → CPU `Vec<u8>` → swscale BGRA→NV12 →
 QSV/AMF. Aktiv für **Intel** sowie für jeden Vendor unter `PULSE_HQ_DISABLE_ZERO_COPY=1`.
@@ -206,7 +221,7 @@ Latenzzahl dahinter gilt unverändert — D3D12 ist um das Zweieinhalbfache late
 (6,8 gegen 17,2 ms) —, sie wiegt die zwei Encode-Wege nur nicht mehr auf.
 
 **Dispatch-Detail:** die Regel steht einmal in `VideoCodec::encode_path`
-(`encode/encoder.rs`) und wird **zweimal ausgewertet** — im Dispatcher
+(`encode/codec.rs`) und wird **zweimal ausgewertet** — im Dispatcher
 (`stream_controller::run_pipeline`) auf `select_adapter()`, das auf Multi-GPU den
 `HIGH_PERFORMANCE`-Slot (dGPU) liefert und nicht zwingend die Display-/Capture-GPU;
 und noch einmal in `pipeline_hw::run` auf der ECHTEN WGC-D3D11-Device-GPU
@@ -326,14 +341,12 @@ einzeln beschrieben.
   jedem P010-Pool, sonst Array). `0` reproduziert das zerrissene AMF-Bild auf AMD
   und den P010-Fehlschlag auf NVIDIA, `1` misst Einzeltexturen auf NVIDIA in 8 bit.
   Begründung am Wert in `encode/hwctx.rs`.
-- `PULSE_INTRA_REFRESH=1` — rollender Intra-Refresh statt periodischer Vollbilder,
-  wenn die Oberfläche nichts sagt (`overrides.intra_refresh` sticht). **Heißt auf
-  Linux genauso**, damit die Prüfstand-Skripte plattformgleich bleiben. Trägt der
-  Encoder die Betriebsart nicht, **bricht der Start ab** — ein Keyframe-Strom unter
-  diesem Etikett wäre keine Messung, die scheitert, sondern eine, die täuscht.
-  Welcher Encoder sie trägt und warum, steht in `src/encode/auffrischung.rs`; die
-  Kurzfassung: AMD nur mit AV1 (`av1_amf`), NVIDIA immer, Intel nie, und
-  `h264_d3d12va` nimmt die Option an, ohne etwas zu tun.
+- *(`PULSE_INTRA_REFRESH=1` gab es bis zum 2026-08-21 und gibt es nicht mehr:
+  rollender Intra-Refresh statt periodischer Vollbilder, mit Startverweigerung,
+  wenn der Encoder die Betriebsart nicht trug. Die Betriebsart ist aus Pulse
+  entfernt — die Variable wird nicht mehr gelesen, auf Windows so wenig wie auf
+  Linux. Der Vollbild-Abstand steht durchgehend auf 60 s,
+  `PULSE_KEYFRAME_SECONDS` verstellt ihn.)*
 - `PULSE_WHIP_PACING=0` — schaltet die Verteilung der RTP-Pakete eines Bildes über
   die Zeit AB (zurück zum Schwall-Senden). **AN als Vorgabe seit 2026-08-14**, seit
   dem Neubau mit absoluten Zeitpunkten und Paketgruppen; die erste Fassung war
@@ -384,54 +397,35 @@ einzeln beschrieben.
   27-29 ms einbrachte und eine Korrektur noetig war).
 - `PULSE_TCP_NODELAY=0` — Nagle wieder an (Vergleichsmessung).
 
-## Das FFmpeg — selbst gebaut, seit 2026-08-04
+## Das FFmpeg — ein unverändertes Fertigpaket
 
-Bis dahin kam das Paket unter `ffmpeg-dist/n8.1-lgpl-shared/` fertig von BtbN.
-**Das geht nicht mehr:** der Sidecar fährt AV1 auf AMD mit rollendem
-Intra-Refresh, und die dafür nötigen Optionen an `av1_amf`
-(`intra_refresh_mode`, `intra_refresh_stripes`) gibt es in **keiner**
-FFmpeg-Fassung — nicht in 8.1, nicht in `master`, also in keinem Fertigpaket.
-Sie kommen aus `streaming/ffmpeg-patches/0002-amfenc_av1-…`. Ein neueres Bundle
-hilft nachweislich nicht; wer das prüft, prüft an einem ungepatchten Bau.
+Unter `ffmpeg-dist/n8.1-lgpl-shared/` liegt BtbNs LGPL-shared-Bau von FFmpeg 8.1,
+**ohne jeden Pulse-Patch**.
 
-- **Selbst bauen:** `scripts/build-ffmpeg-patched.ps1` (FFmpeg n8.1.2 + Patch
-  0002, MSYS2/mingw64). Holt die Quelle, patcht, konfiguriert, baut, prüft das
-  Ergebnis und ersetzt das bisherige Paket **erst danach**. Jede Zeile der
-  configure-Liste trägt im Skript ihren Grund.
-- **Holen statt bauen:** `scripts/fetch-ffmpeg.ps1` — unverändert SHA-gepinnt
-  vom eigenen VPS. Es erkennt am `ffmpeg.exe` selbst, ob das Paket gepatcht
-  ist: ein bereits gepatchtes überschreibt es nicht (nur mit `-Force`), und ein
-  ungepatchtes meldet es als Warnung, statt es stillschweigend hinzunehmen.
-- **Was noch von Hand fehlt:** das gebaute Zip auf den VPS legen
-  (`build-ffmpeg-patched.ps1 -Zip` schnürt es und nennt den SHA256), danach in
-  `fetch-ffmpeg.ps1` `$PatchedUrl` und `$PatchedSha` **gemeinsam** setzen.
-  Solange die beiden leer sind, holt CI weiter das alte BtbN-Paket — der
-  Windows-Sidecar baut dann, verweigert aber AV1 mit Intra-Refresh. Der Bau vom
-  2026-08-04 liegt als
-  `ffmpeg-dist/ffmpeg-n8.1-lgpl-shared-patched-2026-08-04.zip` bereit,
-  SHA256 `266b960d2610e89f2cb8353930c5c9866285c1c78b84d0b7b08b3fbd16beda19`:
-
-  ```
-  scp ffmpeg-dist/ffmpeg-n8.1-lgpl-shared-patched-2026-08-04.zip `
-      michael@159.195.150.54:pulse/downloads/vendor/
-  ```
-
-  Der Bau ist **nicht bitgleich reproduzierbar** — wer neu baut, bekommt einen
-  anderen SHA256 und muss beide Zeilen erneut setzen. Deshalb wird die Datei
-  hochgeladen und eingefroren, nicht bei jedem Bau neu erzeugt.
+- **Holen:** `pwsh scripts/fetch-ffmpeg.ps1`. Es lädt eine eingefrorene, selbst
+  gespiegelte Kopie (`howispulse.com/downloads/vendor/…-2026-06-16.zip`) und prüft
+  den SHA256. Selbst gespiegelt, weil BtbNs `latest` ein rollendes Tag ist: dessen
+  Artefakte werden laufend neu hochgeladen, ein gepinnter Hash wird dabei stale, und
+  CI scheitert dann mit „SHA256 mismatch". Beim Anheben gilt `$Url` und
+  `$ExpectedSha` **gemeinsam** setzen, nie ein stiller Wechsel.
+- **Lizenz bleibt LGPL:** kein `--enable-gpl`, kein `--enable-nonfree`, kein
+  libx264/libx265. Die DLLs liegen dynamisch gelinkt neben der `.exe`.
 - **Ein Auslieferungs-Bump gehört dazu:** Änderungen unter
   `streaming/win-hq-sidecar/**` erreichen Bestandsclients nur mit einem
   `version`-Bump in `desktop/package.json` (electron-updater ignoriert eine
   erneut veröffentlichte gleiche Version wortlos).
-- **Lizenz bleibt LGPL:** kein `--enable-gpl`, kein `--enable-nonfree`, kein
-  libx264/libx265; `--enable-version3` steht bewusst auch nicht da. Das
-  Bauskript bricht ab, wenn einer dieser Schalter auftaucht.
-- **Unterschiede zum BtbN-Paket:** enthalten ist genau, was der Sidecar
-  braucht — `amf`, `nvenc`/`ffnvcodec`, `libvpl` (QSV), `d3d11va`/`d3d12va`,
-  `libopus`, `libdav1d`, `libsrt`, `schannel`, `zlib`. BtbNs Dutzende weiterer
-  Fremdbibliotheken (libaom, libsvtav1, libplacebo, libass, …) fehlen; keine
-  davon wird hier benutzt. Das Paket schrumpft dadurch von rund 250 MB auf
-  48 MB.
+
+**Vom 2026-08-05 bis zum 2026-08-21 stand hier das Gegenteil**, und zwar
+ausführlich: „selbst gebaut, seit 2026-08-04", ein eigenes Bauskript
+`scripts/build-ffmpeg-patched.ps1` (FFmpeg n8.1.2 + MSYS2/mingw64), ein
+zugeschnittener Satz Fremdbibliotheken (48 statt 250 MB), ein von Hand auf den VPS
+gelegtes Zip samt `$PatchedUrl`/`$PatchedSha`, und eine Erkennung im Fetch-Skript,
+ob das vorliegende Paket gepatcht ist. Der einzige Grund dafür war **ein** Patch:
+`av1_amf` hatte die Optionen `intra_refresh_mode`/`intra_refresh_stripes` in keiner
+FFmpeg-Fassung, weder in 8.1 noch in `master`. Mit der Betriebsart rollender
+Intra-Refresh ist der Patch entfallen und mit ihm der ganze Apparat — **Bauskript,
+Zip-Erkennung und die beiden `$Patched*`-Variablen sind gelöscht**, nicht bloß
+ungenutzt. Wer sie in einer alten Anleitung findet, sucht vergeblich.
 
 **Nach einem Austausch des Pakets muss `build.rs` einmal laufen**, sonst liegen
 neben der `.exe` weiter die alten DLLs — Windows sucht dort zuerst, und
@@ -442,8 +436,9 @@ neben der `.exe` weiter die alten DLLs — Windows sucht dort zuerst, und
 cargo build --release --bins --examples
 ```
 
-Das Bauskript stupst `build.rs` selbst an; von Hand ausgetauscht muss man daran
-denken.
+**Daran muss man selbst denken** — bis zum 2026-08-21 stand hier, das Bauskript
+stupse `build.rs` an; dieses Skript gibt es nicht mehr, und `fetch-ffmpeg.ps1` tut
+es nicht.
 
 ## TLS/RTMPS-Fußnote
 

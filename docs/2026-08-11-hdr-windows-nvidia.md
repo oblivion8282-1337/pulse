@@ -73,7 +73,8 @@ Kurve nicht angewandt worden, läge die Spitze wieder bei 889 bis 940. Derselbe
 Schluss wie Befund 4 der AMD-Akte, auf anderer Hardware.
 
 **b) Echte HDR-Spitzlichter.** Die AMD-Messung und die Intra-Refresh-Akte vom
-2026-08-04 hatten beide dieselbe Lücke: gemessen wurde an SDR-Inhalt auf einem
+2026-08-04 (`nvidia-2026-08-04-windows-intra-refresh.json`, am 2026-08-21
+zusammen mit der Betriebsart gelöscht) hatten beide dieselbe Lücke: gemessen wurde an SDR-Inhalt auf einem
 HDR-Desktop, und mehr als SDR-Weiß stand dort nirgends im Bild. Nachgeholt mit
 einem selbst erzeugten PQ/BT.2020-Clip (waagerechte Rampe, `gradients` +
 `setparams`, mit `av1_nvenc` nach mp4), abgespielt im VLC im Vollbild:

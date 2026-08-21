@@ -1,4 +1,4 @@
-# Windows-HQ-Labor — Intra-Refresh auf AMD/Windows
+# Windows-HQ-Labor — Intra-Refresh auf AMD/Windows (bis 2026-08-21)
 
 > **Intra-Refresh ist am 2026-08-21 aus Pulse entfernt worden.** Die
 > Betriebsart, um die es auf diesem Blatt streckenweise geht, gibt es nicht
@@ -13,22 +13,27 @@
 
 
 **Das Ziel und die Regeln stehen in `CLAUDE.md` daneben.** Kurz: Intra-Refresh
-soll das reguläre Verfahren mit periodischen Vollbildern ersetzen; hier wird es
-auf AMD/Windows portiert. Was hier entsteht, heißt `pulse-win-hq-labor` und geht
-in keinen Nutzer-Build — `win-build.yml` baut ausschließlich
-`pulse-win-hq-sidecar`.
+**sollte** das reguläre Verfahren mit periodischen Vollbildern ersetzen; hier
+wurde es auf AMD/Windows portiert. **Das Ziel ist am 2026-08-21 entfallen** —
+die Betriebsart ist aus Pulse entfernt. Was hier entsteht, heißt
+`pulse-win-hq-labor` und geht in keinen Nutzer-Build — `win-build.yml` baut
+ausschließlich `pulse-win-hq-sidecar`.
 
-## Stand (2026-08-02): Intra-Refresh läuft — über AMF, nicht über Vulkan
+## Stand (2026-08-02, überholt am 2026-08-21): Intra-Refresh lief — über AMF, nicht über Vulkan
 
-**Der Encode-Weg ist seit dem 2026-08-02 `av1_amf`/`h264_amf` mit Auffrischung**,
-ein nackter Lauf braucht dafür keine Umgebungsvariable. Der Vulkan-Weg bleibt
+**Der Encode-Weg war von 2026-08-02 bis 2026-08-21 `av1_amf`/`h264_amf` mit
+Auffrischung**, ein nackter Lauf brauchte dafür keine Umgebungsvariable. Seit
+dem 2026-08-21 trägt keiner der beiden Wege die Auffrischung mehr — die beiden
+FFmpeg-Patches, an denen sie hing, sind mit der Betriebsart gelöscht. Der Vulkan-Weg bleibt
 allein als Vergleichsarm stehen (`PULSE_LABOR_VULKAN=1`) — sein Code und seine
 Messakten sind Absicht, nicht Rückstand: der Vergleich muss nachfahrbar bleiben.
 **Die Begründung, Optionen und Schalter stehen in `CLAUDE.md`**, Abschnitt „Der
 Encode-Weg"; hier steht bewusst keine zweite Fassung davon.
 
-Belegt am Zuschauer (dekodierendes Messwerk, `amf-2026-08-02-intra-refresh-doch.json`,
-`amd-2026-08-02-h264-intra-refresh.json`, `amd-2026-08-02-qualitaet-und-browser.json`):
+Belegt war am Zuschauer (dekodierendes Messwerk; die ersten beiden Messakten
+sind am 2026-08-21 gelöscht: `amf-2026-08-02-intra-refresh-doch.json`,
+`amd-2026-08-02-h264-intra-refresh.json` — geblieben ist
+`amd-2026-08-02-qualitaet-und-browser.json`):
 
 | | |
 |---|---|
@@ -48,8 +53,8 @@ gegen das Bild vermessen worden — das eigene Messwerk zählt nur Bilder.
 
 ## Warum getrennt
 
-Der experimentelle Weg (eigener WebRTC/WHIP-Push, AV1-Paketierer,
-Intra-Refresh) greift mitten in den Sendepfad: der Encoder-Ausgang wird von
+Der experimentelle Weg (eigener WebRTC/WHIP-Push, AV1-Paketierer — und bis zum
+2026-08-21 Intra-Refresh) greift mitten in den Sendepfad: der Encoder-Ausgang wird von
 „schreib in den Muxer" zu einem Enum `Muxer | Whip`. Über den ausgelieferten
 Stand gelegt liefe **jeder Windows-Nutzer** durch diesen Code — auch wer nie
 WHIP anfasst, und ein Fehler darin zeigte sich nicht als Absturz, sondern als
@@ -72,7 +77,7 @@ stillschweigend zu verschwinden:
    `h264_amf` `-intra_refresh_mb`. Damit frischt AMF wirklich auf, in 8 wie in
    10 Bit. Die byte-identischen Ströme waren echt — sie kamen davon, dass der
    Treiber einen Optionsnamen annimmt, den er nicht kennt.
-   Herleitung: `amf-2026-08-02-intra-refresh-doch.json`.
+   Herleitung: `amf-2026-08-02-intra-refresh-doch.json` (am 2026-08-21 gelöscht).
 2. **D3D12 ebenfalls nicht brauchbar.** `av1_d3d12va` bricht mit Intra-Refresh
    sofort ab; `h264_d3d12va` nimmt die Option an, ändert den Strom um 0,47 % und
    setzt weder `constrained_intra_pred_flag` noch einen recovery point.
@@ -82,10 +87,11 @@ stillschweigend zu verschwinden:
    gleicher Qualität als AMF, eine Ratensteuerung, die ihr Ziel nicht trifft,
    und 10 Bit ist magenta (s.u.). Deshalb nur noch Vergleichsarm.
 
-**Was Intra-Refresh NICHT leistet, auf keiner Plattform:** heilen. Ein einziges
-verworfenes Bild tötet den Strom dauerhaft — gemessen auf Linux mit `av1_nvenc`
-(`../testbench/profiles/decoder-2026-07-29-intra-refresh.json`), und der Grund
-ist der Decoder, nicht der Encoder. Der Verlustschutz kommt aus der Schicht
+**Was Intra-Refresh NICHT leistete, auf keiner Plattform:** heilen. Ein einziges
+verworfenes Bild tötete den Strom dauerhaft — gemessen auf Linux mit `av1_nvenc`
+(`../testbench/profiles/decoder-2026-07-29-intra-refresh.json`, am 2026-08-21
+gelöscht), und der Grund ist der Decoder, nicht der Encoder. **Das war am
+2026-08-21 einer der Gründe, die Betriebsart ganz zu entfernen.** Der Verlustschutz kommt aus der Schicht
 darunter (FEC, NACK) plus dem Vollbild auf Anforderung. Wer hier misst und
 „erholt sich nicht" findet, hat das erwartete Verhalten gemessen.
 
@@ -326,7 +332,8 @@ Nutzer bestätigt), und über die **echte Leitung** ist der Weg gemessen
   D3D11-Weg), für Intel heißt es: kein WHIP aus dem Labor.
 * **Windows+NVIDIA ist seit dem 2026-08-04 gemessen** — aber nicht von hier
   aus. Der Nachweis dort läuft am **ausgelieferten** Sidecar gegen einen
-  Dateimitschnitt (`testbench/nvidia-intra-refresh-nachweis.ps1`), weil NVENC
+  Dateimitschnitt (`testbench/nvidia-intra-refresh-nachweis.ps1`, am 2026-08-21
+  gelöscht), weil NVENC
   weder den Vulkan-Umweg noch ein gepatchtes FFmpeg braucht. Das Labor selbst
   ist auf dieser Karte nie gelaufen; der Weg über den eigenen Sendeweg zum
   dekodierenden Zuschauer ist auf NVIDIA weiterhin offen.

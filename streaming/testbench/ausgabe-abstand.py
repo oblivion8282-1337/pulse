@@ -5,10 +5,12 @@ Die Zahl, auf die es beim Ruckeln ankommt, ist **nicht** die Bildrate, sondern
 der Abstand zwischen zwei ausgegebenen Bildern. Der Player schreibt ihn je
 Sekunde als Spanne mit (``Abstand 2.3-267.3 ms``); dieses Werkzeug macht daraus
 die Kennzahlen, mit denen zwei Laeufe vergleichbar werden — dieselben, in denen
-am 2026-07-31 der Intra-Refresh-Gewinn auf NVIDIA ausgedrueckt wurde
-(``profiles/hq-2026-07-31-intra-refresh-echter-sender.json``).
+am 2026-07-31 der Intra-Refresh-Gewinn auf NVIDIA ausgedrueckt wurde. Jene
+Messakte (``profiles/hq-2026-07-31-intra-refresh-echter-sender.json``) ist am
+2026-08-21 mit der Betriebsart geloescht worden; die Kennzahlen sind davon
+unberuehrt und vergleichen heute z. B. zwei Vollbild-Abstaende.
 
-    ./ausgabe-abstand.py player-amd-intraref.log player-amd-keyframes.log
+    ./ausgabe-abstand.py player-amd-60s.log player-amd-2s.log
 
 **Gezaehlt wird je SEKUNDE, nicht je Bild.** Der Player meldet je Sekunde nur
 Kleinst- und Groesstwert, nicht jeden einzelnen Abstand — ein Median ueber alle

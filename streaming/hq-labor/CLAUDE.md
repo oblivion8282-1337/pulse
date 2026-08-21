@@ -38,12 +38,17 @@ so sind fünf von sechs Läufen einer Kennlinie ausgefallen.
 Binary jetzt `mediamtx.fecfix` (drei Patches plus den neuen pion-Patch), das
 vorherige liegt als `mediamtx.vor-fecfix` daneben. Betriebsart über
 `~/mediamtx-labor/neustart.sh`, Zugang in `~/mediamtx-labor/zugang.txt`.
-Aktuell: **FlexFEC 10+2, Intra-Refresh** (`PULSE_KEYFRAME_INTERVAL=0`).
+Betriebsart damals: **FlexFEC 10+2, Intra-Refresh** (`PULSE_KEYFRAME_INTERVAL=0`).
+**Der Messstand ist seit dem 2026-08-12 gestoppt** (Rückholanleitung auf dem
+Server, `~/messstand-gestoppt-2026-08-12.txt`), und Intra-Refresh gibt es seit
+dem 2026-08-21 nicht mehr — beides gilt für alles Folgende.
 
 ### Was an diesem Tag entschieden ist
 
-**Die Umstellung auf Intra-Refresh kostet nichts und gewinnt dreifach** — auf
-Linux+NVIDIA gemessen, gegen Keyframes alle 2 s bei identischer Datenrate:
+**Die Umstellung auf Intra-Refresh kostete nichts und gewann dreifach** — so
+stand es hier, gemessen am 2026-07-31 auf Linux+NVIDIA, gegen Keyframes alle 2 s
+bei identischer Datenrate. **Die Umstellung ist am 2026-08-21 zurückgenommen
+worden**; die Zahlen bleiben als Messbefund stehen, die Folgerung daraus nicht:
 gleiche Bitrate (4015 gegen 3905 kbit/s), **1,4 statt 48,7 Prozent** gestörte
 Sekunden, **92,8 statt 76,3 VMAF**. Der oft genannte Aufschlag von 20 Prozent
 gehört *nicht* zu Intra-Refresh, sondern zur Parität — die ist eine getrennte
@@ -67,16 +72,21 @@ größere Gruppe ist zu träge für unseren 100-ms-Puffer.
 Zusammen: bei 5 Prozent Verlust derselbe Aufschlag wie vorher (36,5 gegen
 37,0 Prozent) — aber vorher war es ein Strom **ohne** funktionierenden Schutz.
 
-### Was als Nächstes ansteht
+### Was am 2026-07-31 als Nächstes anstand
+
+> **Die Punkte 1 und 4 sind mit dem 2026-08-21 gegenstandslos** — sie hingen an
+> der Auslieferung von Intra-Refresh, und die ist zurückgenommen. Sie stehen
+> hier als Historie, nicht als Aufgabenliste.
 
 1. ~~**AMD klären**~~ — **erledigt am 2026-08-01, die Antwort ist JA.** Radeon
    780M (VCN 4, Mesa 26.1.5) meldet rollenden Intra-Refresh für AV1, H.264 und
    HEVC, und Mesa programmiert ihn bis in den VCN-Kommandostrom. Im Weg stand
    allein FFmpeg, das die VA-API-Schnittstelle in **keiner** Version
-   durchreicht (auch nicht in `master`). Patch dafür:
-   `streaming/ffmpeg-patches/`, Beweiskette in
-   `testbench/profiles/amd-2026-08-01-intra-refresh.json`. `h264_amf` und der
-   Verzicht auf AV1 auf AMD sind damit vom Tisch.
+   durchreicht (auch nicht in `master`). Der Patch dafür lag in
+   `streaming/ffmpeg-patches/`, die Beweiskette in
+   `testbench/profiles/amd-2026-08-01-intra-refresh.json` — **beides am
+   2026-08-21 gelöscht**. `h264_amf` und der Verzicht auf AV1 auf AMD sind damit
+   vom Tisch.
    **Was daran offen bleibt: die Auslieferung** — Sidecar und Labor linken
    gegen das FFmpeg des Systems. Upstream einreichen, eigenes FFmpeg ins
    Flatpak bündeln oder auf den Laborgebrauch beschränken ist eine
@@ -90,8 +100,10 @@ Zusammen: bei 5 Prozent Verlust derselbe Aufschlag wie vorher (36,5 gegen
    59. Zwei Ursachen sind behoben (Mittelwert → abklingendes Maximum,
    Aufräumfenster entkoppelt), die dritte ist offen.
    `PULSE_PLAYER_NACK_SPERRE_AUTO=1` schaltet sie zum Weitersuchen ein.
-4. **Die Patches in die Produktion** (`hq-labor/mediamtx-patches/` →
-   `infra/mediamtx-fork/`), erst wenn 1 geklärt ist.
+4. ~~**Die Patches in die Produktion**~~ (`hq-labor/mediamtx-patches/` →
+   `infra/mediamtx-fork/`), erst wenn 1 geklärt ist. — Erledigt für die
+   FlexFEC-Patches (Produktion fährt seit 2026-08-15 `pulse-mediamtx:1.19.1-pulse3`,
+   heute `pulse4`); der Intra-Refresh-Teil ist am 2026-08-21 entfallen.
 
 ### Fallen dieses Tages, damit sie sich nicht wiederholen
 
@@ -150,11 +162,13 @@ Gewinn, solange es nicht gemessen und benannt ist.
 Plattformen: **Linux, Windows, macOS**. Ein Weg, der nur auf einer davon
 funktioniert, ist eine Zwischenlösung, kein Ergebnis.
 
-**Daraus folgt die wichtigste offene Frage:** Wenn der Weg über Intra-Refresh
-und Fehlerkorrektur gegangen wird, muss das **auch im Browser und in Electron**
-ankommen — nicht nur im nativen Player. Vorrecherche des Nutzers sagt, dass
-FEC und NACK dort inzwischen tragen. **Das ist zu prüfen, nicht zu glauben**
-(Stand der Prüfung siehe „Offene Punkte").
+**Daraus folgte bis zum 2026-08-21 die wichtigste offene Frage:** Wenn der Weg
+über Intra-Refresh und Fehlerkorrektur gegangen wird, muss das **auch im Browser
+und in Electron** ankommen — nicht nur im nativen Player. Vorrecherche des
+Nutzers sagte, dass FEC und NACK dort inzwischen tragen. **Das war zu prüfen,
+nicht zu glauben** (Stand der Prüfung siehe „Offene Punkte").
+**Der Intra-Refresh-Teil der Frage ist entfallen**, seit die Betriebsart aus
+Pulse heraus ist; für Fehlerkorrektur allein gilt sie unverändert.
 
 ## Das Messsetup
 
@@ -309,7 +323,8 @@ Bittiefe zugeschrieben.
 Hier stand zwischenzeitlich das Gegenteil („scheidet für Browser und Electron
 aus"), geschlossen aus der Quelltextstelle `keyframe_required_ = true` in
 libwebrtc. Das war voreilig: die Stelle betrifft den **Einstieg**, nicht den
-Dauerbetrieb. Gemessen (`profiles/browser-2026-07-31-intra-refresh.json`):
+Dauerbetrieb. Gemessen (`profiles/browser-2026-07-31-intra-refresh.json`, am
+2026-08-21 gelöscht):
 
 | Lauf | Bilder |
 |---|---|
@@ -329,15 +344,24 @@ in Bildrate und Ankunftslücken innerhalb des Rauschens (58,1–58,4 fps,
 13,2–13,5 Lücken/s, größte Lücke 36 ms). Der Referenzsender schickt
 gleichmäßig — die Bündelung entsteht dahinter.
 
-## Stand 2026-08-04 — was auf `feat/intra-refresh-produktion` fehlt
+## Stand 2026-08-04 — was auf `feat/intra-refresh-produktion` fehlte
 
-Die Labor-Fragen sind beantwortet; was hier steht, ist der Weg von „lauffaehig
+> **Dieser ganze Abschnitt ist am 2026-08-21 Historie geworden.** Er beschrieb
+> den Weg von „lauffaehig im Dev-Stack" nach „ausgeliefert" für eine
+> Betriebsart, die es nicht mehr gibt. **Die offenen Kästchen darin sind keine
+> Aufgaben mehr** — was davon unabhängig von Intra-Refresh gilt (FlexFEC,
+> Zeitstempel, Fuell-OBU-Filter, Codec-Wahl), ist ausgeliefert und steht in
+> `streaming/README.md`.
+
+Die Labor-Fragen waren beantwortet; was hier steht, war der Weg von „lauffaehig
 im Dev-Stack" nach „ausgeliefert". Der Abschnitt darunter (Stand 2026-07-31)
 bleibt als Historie stehen.
 
 **Erledigt seit dem 2026-08-03** (Details in den Commits, hier nur als Landkarte):
 Auslieferung des VAAPI-Patches (`streaming/ffmpeg-patches/` + `scripts/hq-bauen.sh`
-+ Flatpak-Modul), `health.gsr.intra_refresh` und das daran gattierte Kaestchen,
++ Flatpak-Modul — der Patch ist am 2026-08-21 geloescht),
+`health.gsr.intra_refresh` und das daran gattierte Kaestchen (beide ebenfalls
+am 2026-08-21 entfallen),
 der **Fuell-OBU-Filter** (99,6 % des AMD-Bitstroms waren Fuellbytes), die
 **RTP-Zeitstempel aus dem echten pts** statt aus einem Bildzaehler, die
 Codec-Wahl nach echter Aufloesung, die H.264-Fassungsangabe im SDP, und das
@@ -362,7 +386,8 @@ Maschine): 1 statt 10 Vollbilder bei gleicher Datenrate, `h264_nvenc` wie
 `av1_nvenc`, je drei Laeufe, dazu recovery points und das eingeloeste Vollbild
 auf Anforderung. Messakte
 `profiles/nvidia-2026-08-04-windows-intra-refresh.json`, Werkzeug
-`win-hq-labor/testbench/nvidia-intra-refresh-nachweis.ps1`. Gemessen ist der
+`win-hq-labor/testbench/nvidia-intra-refresh-nachweis.ps1` — **beide am
+2026-08-21 geloescht**. Gemessen ist der
 Encoder am Mitschnitt, **nicht** der Weg zum Zuschauer und nicht das Verhalten
 unter Verlust.
 
@@ -404,15 +429,20 @@ gegen die Produktion statt gegen ein lokales MediaMTX.
       blieb folgenlos (er betrifft nur WebRTC-Publisher, und die gibt es in
       Produktion nicht). Wer die Wirkung isoliert nachmessen will, setzt
       `PULSE_FLEXFEC` voruebergehend auf `"0"` und vergleicht.
-- [ ] **Die Produktion kennt `protocol=whip` nicht.** `media-svc` und
-      `chat-gateway` haben das Feld auf `^rtmp$` festgenagelt; ein WHIP-Token
-      endet mit 422. Intra-Refresh ist damit ueber die Produktion nicht startbar.
-- [ ] **Die Player-Oberflaeche ist Branch-only.** `web/src/lib/player/**` und das
-      Intra-Refresh-Kaestchen gibt es auf `main` nicht — in der ausgelieferten
-      App fehlen die Knoepfe schlicht. Und `PULSE_DEV_URL` wird in verpackten
+- [x] **Die Produktion kennt `protocol=whip` nicht.** `media-svc` und
+      `chat-gateway` hatten das Feld auf `^rtmp$` festgenagelt; ein WHIP-Token
+      endete mit 422. — Ueberholt: WHIP ist seit dem 2026-08-18 der einzige
+      Push-Weg der Oberflaeche. Der Intra-Refresh-Teil des Punktes ist mit dem
+      2026-08-21 ohnehin gegenstandslos.
+- [ ] **Die Player-Oberflaeche ist Branch-only.** `web/src/lib/player/**` gibt es
+      auf `main` nicht — in der ausgelieferten App fehlen die Knoepfe schlicht.
+      (Das Intra-Refresh-Kaestchen stand hier ebenfalls; es ist am 2026-08-21
+      samt `ErweiterteOptionen.svelte` geloescht worden.) Und `PULSE_DEV_URL` wird in verpackten
       Builds bewusst ignoriert (Sicherheitsentscheidung), es gibt also keine
       Abkuerzung ueber den Dev-Stack.
-- [ ] **Kein `changelog.json`-Eintrag** fuer den ganzen Branch.
+- [ ] **Kein `changelog.json`-Eintrag** fuer den ganzen Branch. (Fuer
+      Intra-Refresh braucht es keinen mehr — die Betriebsart hat den Nutzer nie
+      erreicht und ist am 2026-08-21 entfernt worden.)
 
 **Gemessen, aber noch nicht verfolgt:**
 
@@ -450,15 +480,22 @@ gegen die Produktion statt gegen ein lokales MediaMTX.
 
 ## Offene Punkte (Stand 2026-07-31, Nacht)
 
-**Blockierend — davor lohnt nichts anderes:**
+> **Alles, was hier Intra-Refresh betrifft, ist am 2026-08-21 gegenstandslos
+> geworden** — die Betriebsart ist aus Pulse entfernt. Die abgehakten Punkte
+> bleiben als Messbefund stehen; die offenen (Auslieferung des Patches, macOS)
+> sind **keine Aufgaben mehr**, sondern die Fragen, die nie beantwortet wurden
+> und mit ein Grund für die Entfernung waren.
+
+**Blockierend war damals — davor lohnte nichts anderes:**
 
 - [x] **AMD: kann die Hardware Intra-Refresh?** JA (2026-08-01, Radeon 780M).
-      Die Sperre war FFmpeg, nicht die Hardware — Patch liegt in
-      `streaming/ffmpeg-patches/`, der Sidecar setzt die richtige Option je
-      Vendor über `PULSE_INTRA_REFRESH=1` und **bricht ab**, wenn sein FFmpeg
-      sie nicht kennt (statt still Keyframes zu fahren).
+      Die Sperre war FFmpeg, nicht die Hardware — der Patch lag in
+      `streaming/ffmpeg-patches/` (am 2026-08-21 gelöscht), der Sidecar setzte
+      die richtige Option je Vendor über `PULSE_INTRA_REFRESH=1` und **brach
+      ab**, wenn sein FFmpeg sie nicht kannte (statt still Keyframes zu fahren).
 - [x] **AMD messen** — gemessen 2026-08-01, Messakte
-      `profiles/amd-2026-08-01-intra-refresh-echter-sender.json`: **16,0 gegen
+      `profiles/amd-2026-08-01-intra-refresh-echter-sender.json` (am 2026-08-21
+      gelöscht): **16,0 gegen
       65,6 Prozent** gestörte Sekunden bei gleicher Datenrate (4001/3998
       kbit/s), 386 Belege für den 2-Sekunden-Takt im Keyframe-Lauf. Der Befund
       von NVIDIA trägt also auf beiden Herstellern. Offen bleiben: die
@@ -471,14 +508,15 @@ gegen die Produktion statt gegen ein lokales MediaMTX.
       pulse-player`), danach GPU-Reset. Ohne gleichzeitiges Encoden dekodiert
       dieselbe Karte mit ~185 fps. Gleichartige Fälle stehen in den
       Mesa-Anmerkungen 26.0/26.1 als bekannte Fehler.
-- [ ] **Auslieferung des Patches** entscheiden: upstream einreichen, eigenes
-      (LGPL) FFmpeg ins Flatpak bündeln, oder Laborgebrauch. Bis dahin haben
-      Nutzer auf AMD kein Intra-Refresh, egal was der Sidecar kann.
+- [x] **Auslieferung des Patches** entscheiden: upstream einreichen, eigenes
+      (LGPL) FFmpeg ins Flatpak bündeln, oder Laborgebrauch. — **Am 2026-08-21
+      anders entschieden als gedacht: gar nicht.** Der Patch ist mit der
+      Betriebsart gelöscht; Nutzer auf AMD bekommen periodische Vollbilder.
 - [x] **Windows** — erledigt am 2026-08-04, ausgeliefert im Sidecar
       (`win-hq-sidecar/src/encode/auffrischung.rs` + `src/whip/`). Gemessen auf
       einer Radeon 780M am 2026-08-02, auf Windows+NVIDIA **nicht**
       nachgemessen. **Zwei Annahmen dieses Eintrags waren falsch** und stehen
-      berichtigt in `UEBERGABE-WINDOWS-MACOS.md`: der AMD-Weg ist **AMF, nicht
+      berichtigt in `UEBERGABE-WINDOWS-MACOS.md`: der AMD-Weg war **AMF, nicht
       D3D12** (`av1_amf` mit `intra_refresh_mode gop_aligned` — die Option
       heißt dort nur anders), und `*_d3d12va` ist unbrauchbar, nicht bequem
       (nimmt die Option an, tut nichts damit). Und ein Punkt fehlte ganz: der
@@ -486,17 +524,20 @@ gegen die Produktion statt gegen ein lokales MediaMTX.
       mehr; ffmpegs WHIP-Muxer kann die Anforderung des Zuschauers nicht
       weiterreichen und trägt kein AV1, also ist der eigene WebRTC-Sendeweg
       mitportiert. Die Encoder-Option war die halbe Aufgabe.
-- [ ] **macOS** — der offene Fall, unverändert. `videotoolbox` hat in FFmpeg
-      keine einzige einschlägige Stelle. Ob VideoToolbox selbst es kann,
-      entscheidet, ob die Umstellung plattformweit möglich ist. Einstieg:
-      `UEBERGABE-WINDOWS-MACOS.md` daneben.
+- [x] **macOS** — blieb der offene Fall bis zuletzt. `videotoolbox` hat in
+      FFmpeg keine einzige einschlägige Stelle. Genau daran hing, ob die
+      Umstellung plattformweit möglich ist — **die Antwort blieb aus, und das
+      war am 2026-08-21 einer der drei Gründe, die Betriebsart zu entfernen**
+      (neben dem schlechteren H.264-Bild und dem fehlenden Selbstheilen nach
+      Verlust). Einstieg war `UEBERGABE-WINDOWS-MACOS.md` daneben.
 - [x] **Windows+NVIDIA nachmessen** — erledigt am 2026-08-04 auf einer
       RTX 5080. Die Optionen (`intra-refresh` + `no-scenecut`, upstream) tun
       dort, was sie versprechen: 1 statt 10 Vollbilder bei gleicher Datenrate,
       mit beiden Codecs, dreimal wiederholt; 9 recovery-point-SEI gegen 0 in
       der Gegenprobe; `forced-idr` loest die Anforderung als echtes IDR ein.
       Kein eigener FFmpeg-Bau noetig, anders als bei `av1_amf`. Messakte
-      `profiles/nvidia-2026-08-04-windows-intra-refresh.json`.
+      `profiles/nvidia-2026-08-04-windows-intra-refresh.json` (am 2026-08-21
+      geloescht).
       **Nicht** mitbeantwortet: der Weg zum Zuschauer und das Verhalten unter
       Verlust, beides am Mitschnitt nicht messbar.
       **Nebenbefund, und er wog schwerer als die Messung selbst:** 10 bit war

@@ -250,7 +250,10 @@ class PlayerManager {
     // **Die Statistik-Zeilen folgen dem Diagnose-Schalter.**
     //
     // Der Player kann seit dem 2026-08-07 je Sekunde melden, was der Sender
-    // wirklich schickt (Vollbilder oder rollende Auffrischung), welche
+    // wirklich schickt (Vollbild-Zahl, -Abstand und -Groesse; bis zum
+    // 2026-08-21 stand dort zusaetzlich eine Deutung „Vollbilder oder rollende
+    // Auffrischung" — die Betriebsart ist entfallen, es sind nur noch Zahlen),
+    // welche
     // Einstellungen wirklich gelten, wo zwischen Netz und Schirm die Bilder
     // liegenbleiben, und ob die Bilanz der Bilder aufgeht. Das alles hing an
     // `PULSE_PLAYER_STATS_LOG`, und dieser Schalter wurde von NIEMANDEM

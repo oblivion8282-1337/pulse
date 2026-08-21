@@ -1,3 +1,18 @@
+# STAND 2026-08-21: INTRA-REFRESH IST AUS PULSE ENTFERNT.
+#
+# Dieses Skript schickte im Start-Auftrag `"intra_refresh":true` mit. Das Feld
+# gibt es seit dem 2026-08-21 nicht mehr, der Sidecar verschluckt es
+# stillschweigend -- es ist deshalb hier herausgenommen.
+#
+# DIE MESSUNG BLEIBT SINNVOLL, und zwar aus einem einzigen Grund: ihre beiden
+# Arme unterscheiden sich am CODEC (h264 gegen av1), nicht an der Betriebsart.
+# Das Wegfallen des Feldes macht sie also NICHT zu zwei gleichen Dingen.
+#
+# Was sich aendert, ist die Vergleichbarkeit nach hinten: alle bisherigen Zahlen
+# entstanden bei rollender Auffrischung, ein Lauf von heute misst den Weg mit
+# periodischen Vollbildern. Wer alte und neue Zahlen nebeneinanderlegt, sagt das
+# dazu.
+
 # Wie lange dauert es vom Anfordern eines Vollbilds bis zu dem Bild, mit dem
 # der Zuschauer wieder sehen kann? STUFE 1: die Encoder-Seite allein.
 #
@@ -63,7 +78,8 @@ $SidecarRoot = Join-Path (Split-Path $LaborRoot -Parent) 'win-hq-sidecar'
 $Bin         = Join-Path $SidecarRoot 'target\release\pulse-win-hq-sidecar.exe'
 $FfBin       = Join-Path $SidecarRoot 'ffmpeg-dist\n8.1-lgpl-shared\bin'
 # `ffplay` fehlt im ausgelieferten Bau (ohne SDL gebaut) -- derselbe Rueckfall
-# wie in `nvidia-intra-refresh-nachweis.ps1`.
+# wie in `nvidia-zehnbit-nachweis.ps1`. (Hier stand `nvidia-intra-refresh-
+# nachweis.ps1`, am 2026-08-21 mit der Betriebsart geloescht.)
 $PlayBin     = Join-Path $SidecarRoot 'ffmpeg-dist\n8.1-lgpl-shared.vorher\bin\ffplay.exe'
 if (-not $Ablage) { $Ablage = Join-Path $env:TEMP 'pulse-nvidia-anforderung' }
 New-Item -ItemType Directory -Force -Path $Ablage | Out-Null
@@ -126,7 +142,7 @@ function Invoke-Lauf {
   $start = '{"op":"start","id":2,"channel":{"id":"1","token":"","push_url":"' + $url +
            '"},"capture":"monitor","audio":{"mode":"Aus"},"overrides":{"codec":"' + $Codec +
            '","bitrate_kbps":' + $Bitrate + ',"fps":' + $Fps + ',"resolution":"' + $Aufloesung +
-           '","intra_refresh":true}}'
+           '"}}'
 
   # Bewegtbild ist Pflicht; `SDL_RENDER_DRIVER=software`, sonst nimmt WGC den
   # ffplay-Fensterinhalt schwarz auf (Herleitung: `nvidia-zehnbit-nachweis.ps1`).

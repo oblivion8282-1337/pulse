@@ -52,13 +52,14 @@ pub struct Request {
     /// Vollbild ist. Er wird im selben Fenster gezeigt, solange der Hauptstrom
     /// kein Bild liefert — beim Beitritt und nach Paketverlust.
     ///
-    /// Warum das gebraucht wird: Im Intra-Refresh-Betrieb hat der Hauptstrom
-    /// keine Vollbilder mehr. Wer einsteigt oder den Faden verliert, muss
-    /// einen vollen Auffrisch-Durchlauf (~2 s) abwarten, bis sein Bild wieder
-    /// stimmt — und saehe in dieser Zeit Schwarz oder Muell. Ein
-    /// angefordertes Vollbild wuerde das abkuerzen, ginge aber an ALLE
-    /// Zuschauer und stoert jeden, der gerade zuschaut. Das Netz laesst die
-    /// Kosten beim Verursacher.
+    /// Warum das gebraucht wird: Bis zum 2026-08-21 gab es den
+    /// Intra-Refresh-Betrieb, in dem der Hauptstrom gar keine Vollbilder mehr
+    /// hatte. Seither hat er wieder welche — aber nur alle 60 s
+    /// (`PULSE_KEYFRAME_SECONDS`). Wer einsteigt oder den Faden verliert,
+    /// wartet ohne Zutun bis zu eine Minute, bis sein Bild wieder stimmt, und
+    /// saehe in dieser Zeit Schwarz oder Muell. Ein angefordertes Vollbild
+    /// wuerde das abkuerzen, ginge aber an ALLE Zuschauer und stoert jeden,
+    /// der gerade zuschaut. Das Netz laesst die Kosten beim Verursacher.
     #[serde(default)]
     pub fallback_url: Option<String>,
     #[serde(default)]

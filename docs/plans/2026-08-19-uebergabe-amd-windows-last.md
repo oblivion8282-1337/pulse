@@ -74,10 +74,17 @@ hat und die vorher niemanden traf.
 (`encode/opts.rs`, seit 2026-07-30 — das drittelt die Video-Engine-Last).
 **Diese Einstellung schaltet die rollende Auffrischung von sich aus mit ein.**
 
-Damit ein abgewählter Intra-Refresh-Haken auch wirklich wirkt, überschreibt
+Damit ein abgewählter Intra-Refresh-Haken auch wirklich wirkt, überschrieb
 `auffrischung.rs::abschalt_optionen_fuer` sie bei `h264_amf` mit
-`usage=transcoding` (seit 2026-08-07). Angewandt wird das in `anwenden()`
-genau dann, wenn Intra-Refresh **nicht** gewünscht ist.
+`usage=transcoding` (seit 2026-08-07). Angewandt wurde das in `anwenden()`
+genau dann, wenn Intra-Refresh **nicht** gewünscht war.
+
+> **Nachtrag 2026-08-21.** Beide Funktionen gibt es nicht mehr: mit der
+> Betriebsart ist auch der Abschaltweg entfallen. Von `auffrischung.rs` blieb
+> allein `braucht_selbsttakt` übrig — die Frage, ob ein Encoder von sich aus
+> auffrischt und damit den bestellten Vollbild-Takt verschluckt. `h264_amf`
+> behält `usage=ultralowlatency`, die Vollbilder kommen aus
+> `keyframe::Selbsttakt` (siehe „Ergebnis" oben).
 
 Bekannte Zahlen (H.264, 2026-07-30):
 
@@ -96,8 +103,9 @@ abwählte. Seit die Vorgabe „aus" ist und H.264 der Vorgabe-Codec, nimmt ihn
 **1. Die fehlende Zahl messen: Latenz `transcoding` gegen `ultralowlatency`.**
 Das ist die einzige Größe, die für eine Bewertung fehlt. Ohne sie lässt sich
 nicht sagen, ob die zweieinhalbfache Last ein akzeptabler Preis ist. Der
-Doc-Kommentar in `auffrischung.rs` sagt dazu: „Wer die Zahl braucht, misst
-gegen `ultralowlatency` und trägt sie hier ein."
+Doc-Kommentar in `auffrischung.rs` sagte dazu: „Wer die Zahl braucht, misst
+gegen `ultralowlatency` und trägt sie hier ein." (Der Satz ist am 2026-08-21
+mit dem Abschaltweg entfallen — die Zahl wird nicht mehr gebraucht.)
 
 **2. Prüfen, ob der Befund auf dieser Hardware überhaupt gilt.** Die 26,6 %
 stammen vom 2026-07-30 von einer iGPU. Auf einer dedizierten Karte kann das
@@ -119,10 +127,11 @@ Bricht der Build dort, liegt es sehr wahrscheinlich daran.
 im Sidecar-Log muss `keyframe_abstand_bilder` = fps × 60 zeigen (60 fps → 3600,
 144 fps → 8640). Steht dort fps × 2, ist der Sidecar nicht neu gebaut.
 
-**Seit 2026-08-19 hängt die Vorgabe an der Betriebsart:** ohne Intra-Refresh
-60 s Vollbild-Abstand, mit Intra-Refresh 2 s Umlaufdauer. Dieselbe Zahl steuert
-je Betriebsart zwei verschiedene Dinge — bei eingeschaltetem Intra-Refresh ist
-sie die Umlaufdauer der Auffrischungswelle, und 60 s wären dort unbrauchbar.
+**Vom 2026-08-19 bis zum 2026-08-21 hing die Vorgabe an der Betriebsart:** ohne
+Intra-Refresh 60 s Vollbild-Abstand, mit Intra-Refresh 2 s Umlaufdauer —
+dieselbe Zahl steuerte je Betriebsart zwei verschiedene Dinge. Seit dem
+2026-08-21 gibt es nur noch die eine Betriebsart, und damit nur noch die eine
+Bedeutung: 60 s Vollbild-Abstand.
 
 ## Was auf Windows *nicht* das Problem ist
 

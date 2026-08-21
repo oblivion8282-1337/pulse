@@ -1,5 +1,18 @@
 //! Das AV1-Level im Sequenzkopf berichtigen, bevor der Strom hinausgeht.
 //!
+//! **Erreicht wird das seit dem 2026-08-21 praktisch nicht mehr.** Die
+//! Berichtigung gilt einem Fehler von `av1_vulkan`; dieser Encode-Weg ist mit
+//! dem Löschen des FFmpeg-Patches 0001 stillgelegt (s.
+//! [`crate::vulkan_encoder`]), und `av1_amf` schreibt von sich aus Level 5.2.
+//! `whip::mod` ruft die Funktion weiterhin für jeden AV1-Strom auf, wo sie dann
+//! nichts zu berichtigen findet.
+//!
+//! **Nicht ausgebaut, und das ist eine Entscheidung:** die Prüfung kostet ein
+//! paar Bit-Vergleiche je Sequenzkopf, sie ist durch Tests abgedeckt, und sie
+//! ist die Versicherung für den Tag, an dem der Vulkan-Arm zurückkommt. Sie
+//! herauszunehmen wäre Aufwand ohne Nutzen — und ein Rückbau, der genau den
+//! Fehler wieder aufmacht, der hier eine Stunde gekostet hat.
+//!
 //! **Warum das nötig ist.** `av1_vulkan` schreibt in FFmpeg 8.1 immer
 //! `seq_level_idx = 4`, also Level 3.0, und die Option `-level` wird dabei
 //! ignoriert. Level 3.0 erlaubt aber nur 665.856 Bildpunkte je Bild — 1280x720
@@ -16,7 +29,8 @@
 //! **Gemessen am 2026-08-02** über den Hetzner-Messstand, Edge und Brave:
 //! ohne diese Korrektur 1 Rückfall auf Software und 0 Bilder bei 10 Bit; mit
 //! ihr 0 Rückfälle und rund 490 Bilder in 20 s, alle drei Ströme in Hardware.
-//! Messakte `intrarefresh-2026-08-02-windows-amd.json`, Abschnitt 9.
+//! Messakte `intrarefresh-2026-08-02-windows-amd.json`, Abschnitt 9 — die Akte
+//! ist am 2026-08-21 gelöscht.
 //!
 //! **Warum eine Korrektur der Bits und kein Encoder-Patch.** Der Patch wäre die
 //! sauberere Stelle, kostet aber einen FFmpeg-Neubau je Änderung. Hier ist es

@@ -1,7 +1,28 @@
+# STAND 2026-08-21: INTRA-REFRESH IST AUS PULSE ENTFERNT -- DER ARM
+# `-Auffrischung an` GIBT ES NICHT MEHR.
+#
+# Das Skript setzte im Start-Auftrag `intra_refresh`. Das Feld verschluckt der
+# Sidecar seit dem 2026-08-21 stillschweigend: `-Auffrischung an` und
+# `-Auffrischung aus` waeren damit ZWEI GLEICHE LAEUFE mit verschiedenen
+# Etiketten -- eine Messung, die nicht scheitert, sondern taeuscht. Genau die
+# Sorte, gegen die es dieses Labor gibt. Das Feld ist deshalb heraus, und
+# `-Auffrischung an` bricht unten ab, statt still dasselbe zu messen.
+#
+# WAS WEITER TRAEGT: alles, was die Arme am CODEC und am ENCODE-WEG trennt --
+# `-Codec h264|av1` und `-Weg amf|d3d12` -- sowie `-ZurufSekunden` (Vollbilder
+# auf Zuruf gegen den GOP-Takt). Fuer diese Fragen ist das Skript unveraendert
+# brauchbar.
+#
+# WAS ERLEDIGT IST: die Frage dahinter, die unten steht. Sie fragte nach dem
+# Preis des ABWAEHLENS auf `h264_amf` -- den gibt es nicht mehr, seit es nichts
+# mehr abzuwaehlen gibt. Der Absatz bleibt als Historie stehen.
+#
+# ------------------------------------------------------------------------
+#
 # Was kosten PERIODISCHE VOLLBILDER auf AMD/Windows -- je Codec und je Encode-Weg?
 #
-# DIE FRAGE DAHINTER (2026-08-19): seit dem 2026-08-18 ist Intra-Refresh
-# abgewaehlt voreingestellt. Auf `h264_amf` schaltet `usage=ultralowlatency`
+# DIE FRAGE DAHINTER (2026-08-19, erledigt am 2026-08-21): seit dem 2026-08-18
+# war Intra-Refresh abgewaehlt voreingestellt. Auf `h264_amf` schaltet `usage=ultralowlatency`
 # die Auffrischung aber VON SICH AUS ein, weshalb `auffrischung.rs` beim
 # Abwaehlen auf `usage=transcoding` umstellt -- und dieser Zweig kostete am
 # 2026-07-30 gemessen 26,6 statt 10,3 Prozent Video-Engine. Bis zum 2026-08-18
@@ -58,8 +79,10 @@ param(
   # amf   = Regelweg seit 2026-08-04 (D3D11-Zero-Copy, `*_amf`)
   # d3d12 = Gegenprobe hinter PULSE_HQ_AMD_D3D12=1 (D3D12-Zero-Copy, `*_d3d12va`)
   [ValidateSet('amf','d3d12')][string]$Weg = 'amf',
-  # aus = periodische Vollbilder (die Vorgabe seit 2026-08-18)
-  # an  = rollende Auffrischung (die Vorgabe davor)
+  # aus = periodische Vollbilder -- seit dem 2026-08-21 der einzige Weg
+  # an  = rollende Auffrischung; bis zum 2026-08-21 der Gegenarm, seither nicht
+  #       mehr herstellbar (s. Kopf). Bleibt in der Liste, damit eine alte
+  #       Aufrufzeile eine ERKLAERUNG bekommt statt eines Validierungsfehlers.
   [ValidateSet('an','aus')][string]$Auffrischung = 'aus',
   [int]$Sekunden = 45,
   # Die ersten Sekunden gehoeren dem Encoder-Anlauf.
@@ -72,11 +95,15 @@ param(
   # Vollbilder AUF ZURUF statt aus dem GOP-Takt: alle N Sekunden ein
   # `{"op":"keyframe"}` in die stdin des Sidecars.
   #
-  # WOFUER (2026-08-19): der teure Zweig entsteht nur, weil das Abwaehlen der
-  # Auffrischung bei `h264_amf` die sparsame Betriebsart mitnimmt. Bleibt
-  # `usage=ultralowlatency` stehen (also Auffrischung AN) und kommen die
-  # Vollbilder stattdessen auf Zuruf, muesste beides gleichzeitig zu haben
-  # sein. Dieser Schalter misst genau das, ohne den Sidecar zu aendern.
+  # WOFUER (2026-08-19, Begruendung ueberholt am 2026-08-21): der teure Zweig
+  # entstand nur, weil das Abwaehlen der Auffrischung bei `h264_amf` die
+  # sparsame Betriebsart mitnahm. Blieb `usage=ultralowlatency` stehen (also
+  # Auffrischung AN) und kamen die Vollbilder stattdessen auf Zuruf, muesste
+  # beides gleichzeitig zu haben sein -- das mass dieser Schalter.
+  #
+  # Seit Intra-Refresh weg ist, gibt es diesen Gegensatz nicht mehr. Der
+  # Schalter bleibt trotzdem brauchbar, jetzt fuer eine schlichtere Frage:
+  # was kosten Vollbilder auf Zuruf gegenueber dem GOP-Takt?
   #
   # Die Rueckstaffelung in `keyframe.rs` steht dem nicht im Weg, solange der
   # Abstand ueber der Ruhe-Schwelle von 2 s liegt: die Leiter faengt dann bei
@@ -85,6 +112,14 @@ param(
 )
 
 $ErrorActionPreference = 'Continue'
+
+# Der Riegel. Siehe den Kopf: das Feld, das diesen Arm ausgemacht hat, gibt es
+# seit dem 2026-08-21 nicht mehr -- ein Lauf mit `an` maesse Zeichen fuer
+# Zeichen dasselbe wie einer mit `aus` und traege ein falsches Etikett.
+if ($Auffrischung -eq 'an') {
+  throw 'Intra-Refresh ist am 2026-08-21 aus Pulse entfernt worden: "-Auffrischung an" ist nicht mehr herstellbar und maesse denselben Lauf wie "aus". Begruendung im Kopf dieser Datei.'
+}
+
 $sp     = $PSScriptRoot
 $labor  = Split-Path $sp -Parent
 $wurzel = Split-Path (Split-Path $labor -Parent) -Parent
@@ -109,9 +144,11 @@ $bewegung = Start-Process powershell -PassThru -ArgumentList @(
 Start-Sleep -Seconds 2
 
 # --- Sender ------------------------------------------------------------------
+# Hier stand `intra_refresh = ($Auffrischung -eq 'an')`. Das Feld ist am
+# 2026-08-21 mit der Betriebsart entfallen; der Sidecar wuerde es stumm
+# verschlucken.
 $ov = @{
   codec = $Codec; bitrate_kbps = $Bitrate; fps = $Fps; resolution = $Aufloesung
-  intra_refresh = ($Auffrischung -eq 'an')
 }
 $req = @{ op='start'; id=1
   channel=@{ id='1'; token=''; push_url=($mitschnitt -replace '\\', '/') }

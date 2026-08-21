@@ -379,8 +379,9 @@ die zugesagte Übernahme. Mausbewegung trägt eine Schwelle (8 px in 250 ms), Kn
 und Taste nicht.
 
 **Ohne Wache keine Fernsteuerung.** Lässt sich der Hook nicht anmelden, verweigert
-schon der Handschlag die Sitzung — dieselbe Linie wie bei Intra-Refresh und HDR:
-lieber gar nicht als still etwas Schwächeres unter demselben Etikett. Nicht
+schon der Handschlag die Sitzung — dieselbe Linie, die HDR fährt (und bis zum
+2026-08-21 der Intra-Refresh fuhr): lieber gar nicht als still etwas Schwächeres
+unter demselben Etikett. Nicht
 erkennbar bleibt ein Hook, den Windows zur Laufzeit wegen Zeitüberschreitung
 entfernt; dagegen hilft nur, dass der Rückruf nichts tut als einen Zeitstempel
 abzulegen (die Übergänge fährt ein eigener Faden).

@@ -249,7 +249,11 @@ Ehrlich benannt, damit niemand danach sucht:
   (RTX 5080) laeuft er mit Hardware-Dekodierung — `h264_cuvid` und `av1_cuvid`,
   8 wie 10 bit —, geprueft gegen die echte Kette (win-hq-sidecar -> eigener
   WHIP-Sendeweg -> gepatchtes MediaMTX -> Player) samt Ton und nachtraeglichem
-  Einstieg in einen Intra-Refresh-Strom ohne periodische Vollbilder. Seither
+  Einstieg in einen laufenden Strom. *(Der Einstieg lief damals gegen einen
+  Intra-Refresh-Strom ganz ohne periodische Vollbilder. Diese Betriebsart ist am
+  2026-08-21 aus Pulse entfernt worden; der Fall bleibt derselbe, nur kommt das
+  erste Bild heute vom Vollbild-Abstand — 60 s — bzw. auf Anforderung ueber den
+  RTCP-Rueckkanal.)* Seither
   wird er auch im Windows-Installer mitgeliefert (`electron-builder.yml`,
   `win-build.yml`). **macOS bleibt ungeprueft** und wird nicht ausgeliefert.
 - **AV1-Depacketisierung ist nur durch Unit-Tests abgesichert**, nicht gegen
@@ -284,7 +288,8 @@ Sonderstellung ist weggefallen (s. „Wer noch mitliest").
 > 255 — Dither, kein Versatz und keine Farbverschiebung), HDR laeuft auf beiden.
 > **Die Vorgabe ist trotzdem nicht umgestellt worden:** belegt ist die
 > Kostenseite, nicht die Robustheitsseite (Verhalten nach Paketverlust,
-> Wiederaufsetzen, Intra-Refresh-Einstieg), und `decode.rs` fuehrt fuer cuvid
+> Wiederaufsetzen, nachtraeglicher Einstieg in einen laufenden Strom — bis zum
+> 2026-08-21 stand hier "Intra-Refresh-Einstieg"), und `decode.rs` fuehrt fuer cuvid
 > mehrere hart erarbeitete Sonderbehandlungen, die fuer D3D11VA niemand geprueft
 > hat. Wer die Vorgabe drehen will, misst das zuerst.
 >
@@ -526,8 +531,15 @@ dieselben 14 Fehler (nachgemessen 2026-08-17).
 Der Pfad steht bewusst **nicht** in einer `.cargo/config.toml`: der Flatpak
 baut dieselbe Kiste und fände das Verzeichnis dort nicht. Und was das Skript
 holt, taugt zum Übersetzen, **nicht zum Ausliefern** — die Auslieferung linkt
-gegen das gebündelte FFmpeg des Flatpak-Manifests, das den
-VAAPI-Intra-Refresh-Patch und die Decoder-Liste trägt.
+gegen das gebündelte FFmpeg des Flatpak-Manifests, das die zugeschnittene
+Decoder-, Filter- und Hardware-Liste trägt.
+
+*(Hier stand bis zum 2026-08-21 zusätzlich „den VAAPI-Intra-Refresh-Patch". Den
+gibt es nicht mehr: die Betriebsart ist aus Pulse entfernt, der Patch mit ihr,
+und das Manifest baut seither unveränderten Upstream n8.1.1
+— `packaging/com.howispulse.Pulse.yml` sagt das an seiner `sources`-Liste
+ausdrücklich. Der Unterschied zum hier Geladenen ist nur noch die
+Konfiguration.)*
 
 **Dann: rustc >= 1.95.** Seit dem Sprung auf wgpu 30 / egui 0.36
 (2026-08-07) baut die Kiste unter aelteren Fassungen nicht mehr — cargo lehnt

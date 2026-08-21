@@ -76,10 +76,15 @@ ffmpeg-next = { version = "8.1", default-features = false, features = [
 #
 # WARUM nicht ffmpegs WHIP-Muxer: der hat KEINEN Rueckkanal zur Anwendung — eine
 # Vollbild-Anforderung des Zuschauers koennte den Encoder also nie erreichen —
-# und er kann kein AV1 (in ffmpeg 8.1 UND master geprueft, nur H.264). Bei
-# Intra-Refresh ist der Rueckkanal keine Zugabe, sondern Voraussetzung: dieser
-# Strom hat nach dem Start kein Vollbild mehr, ohne Anforderung kommt ein neu
-# dazukommender Zuschauer gar nicht erst ins Bild.
+# und er kann kein AV1 (in ffmpeg 8.1 UND master geprueft, nur H.264). Beim
+# Vollbild-Abstand von 60 s ist der Rueckkanal keine Zugabe, sondern
+# Voraussetzung: ein neu dazukommender Zuschauer wartete sonst bis zu eine
+# Minute auf sein erstes Bild.
+#
+# Bis zum 2026-08-21 stand hier "Bei Intra-Refresh" — jener Strom hatte nach dem
+# Start ueberhaupt kein Vollbild mehr. Die Betriebsart ist aus Pulse entfernt;
+# die Begruendung faellt damit nicht weg, sie haengt jetzt am gestreckten
+# Vollbild-Abstand statt an der Betriebsart.
 #
 # Dieselben Fassungen wie im Linux-Sidecar, im nativen Player und in
 # `streaming/pulse-remote-webrtc`. Auseinanderlaufende webrtc-rs-Versionen
