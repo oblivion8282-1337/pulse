@@ -2,6 +2,20 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-21.4",
+      "date": "2026-08-21",
+      "style": "Sachlich",
+      "title": "Remote-Rechner eintragen: die Sackgasse ist weg",
+      "intro": "Im Reiter „Standplatz\" konnte das Eintragen eines Rechners in einem Zustand landen, aus dem es kein Zurück gab: ein leeres, ausgegrautes Auswahlfeld, kein Hinweis, und das Formular zum Eintragen blieb verborgen.",
+      "items": [
+        "Auslöser war eine alte Eintragung, zu der es auf dem Server nichts mehr gab — etwa, weil die Community verlassen oder gelöscht wurde oder der Rechner von einem anderen Gerät aus entfernt worden war. Der Reiter hielt den Rechner dann weiter für eingetragen.",
+        "Solche Eintragungen räumen sich jetzt von selbst weg, sobald feststeht, dass es ihre Community nicht mehr gibt. Bleibt doch eine übrig, sagt der Reiter das ausdrücklich und bietet einen Knopf an, der sie entfernt.",
+        "Die Community eines eingetragenen Rechners lässt sich jetzt auch direkt im Reiter wechseln. Bisher ging dort nur ein anderer Kanal derselben Community.",
+        "Leere Auswahlfelder erklären sich: keine Community, oder kein Sprachkanal, in dem du übertragen darfst. Beim Namen steht jetzt daneben, welche Zeichen erlaubt sind."
+      ],
+      "outro": "Wer seinen Rechner bisher nicht eintragen konnte, kommt damit weiter."
+    },
+    {
       "id": "2026-08-21.3",
       "date": "2026-08-21",
       "style": "Sachlich",
