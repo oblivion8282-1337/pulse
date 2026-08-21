@@ -18,6 +18,7 @@ rationale for each; this is the map.
 | `0002-forward-viewer-keyframe-requests` | lets a viewer's key-frame request reach the publisher, and makes the hardwired 2 s key-frame ticker switchable (`PULSE_KEYFRAME_INTERVAL`). |
 | `0003-flexfec-on-whep` | generates FlexFEC parity on the WHEP sending side (`PULSE_FLEXFEC=1`, media:parity via `PULSE_FLEXFEC_MEDIA`/`_FEC`). |
 | `0004-flexfec-adaptiv` | drives that parity off the incoming NACK instead of paying it unconditionally (`PULSE_FLEXFEC_ADAPTIV=1`). |
+| `0006-bildmarke-durchreichen` | carries the AV1 Dependency Descriptor (a running frame number) across MediaMTX's re-packetisation, so a viewer can tell a *lost* frame from one the sender never produced (`PULSE_DEPENDENCY_DESCRIPTOR=1`). |
 
 `patches-vendor/` — applied to vendored third-party code, after `go mod vendor`:
 
@@ -25,7 +26,7 @@ rationale for each; this is the map.
 |---|---|
 | `0005-flexfec-nachlieferungen-nicht-puffern` | keeps NACK retransmissions out of pion's parity buffer; a single one otherwise left the whole group unprotected. |
 
-**Every one of 0002-0005 is off unless its environment variable is set.** An
+**Every one of 0002-0006 is off unless its environment variable is set.** An
 un-configured deployment behaves exactly like upstream plus 0001.
 
 > **Dieser Abschnitt beschrieb den Fork bis 2026-08-04 als „minimal" mit genau

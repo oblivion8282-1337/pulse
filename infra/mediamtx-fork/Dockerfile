@@ -85,6 +85,13 @@ RUN set -e; \
       patch -p1 < "$p"; \
     done
 
+# The Bildmarke fixture (patch 0006) is NOT carried inside the patch — it is a
+# copy of `streaming/bildmarke-formen.json`, produced by the SENDER, and a copy
+# living inside a diff would go stale in silence. It rides along as a plain
+# file instead, and a test in the Pulse repo
+# (`streaming/pulse-player/tests/zwillinge.rs`) holds the two identical.
+COPY bildmarke-formen.json internal/protocols/webrtc/testdata/bildmarke-formen.json
+
 # Two generators have to run before `go build`:
 #   * internal/servers/hls/hlsjsdownloader  — fetches hls.min.js (embedded into the binary)
 #   * internal/core/versiongetter           — writes internal/core/VERSION (embedded too)
