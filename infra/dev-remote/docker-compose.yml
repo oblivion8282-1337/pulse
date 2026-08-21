@@ -304,10 +304,17 @@ services:
   # weiterhin CI und einen neuen Tag — Quellcode-Sync hilft dabei nicht.
   mediamtx:
     <<: *base
-    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse4
+    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse5
     container_name: pulsetest_mediamtx
     environment:
       PULSE_KEYFRAME_INTERVAL: "0"
+      # Die Bildmarke (AV1 Dependency Descriptor) ueber die Neuverpackung
+      # tragen — Patch 0006. Ohne sie kann der Zuschauer ein VERLORENES Bild
+      # nicht von einem unterscheiden, das der Sender nie erzeugt hat, und
+      # fordert auf Verdacht Vollbilder an (2026-08-21 gemessen: ein halbes je
+      # Sekunde bei voellig gesunder Leitung). Voller Hintergrund:
+      # docs/superpowers/specs/2026-08-21-dependency-descriptor-design.md
+      PULSE_DEPENDENCY_DESCRIPTOR: "1"
       # Muss 1:1 mit infra/prod/docker-compose.yml übereinstimmen — sonst
       # testet man gegen einen Stand, den es in Produktion nicht gibt. Volle
       # Begründung der Werte dort.

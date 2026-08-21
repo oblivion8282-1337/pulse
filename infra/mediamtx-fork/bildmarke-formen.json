@@ -1,0 +1,10 @@
+{
+  "_kommentar": "Pruefstein fuer die Bildmarke (Dependency Descriptor). ERZEUGT VOM SENDER durch den Test `bildmarke_pruefstein` in whip/bildmarke.rs. Player und MediaMTX-Patch pruefen dagegen. Neu schreiben: PULSE_PRUEFSTEIN_SCHREIBEN=1 cargo test bildmarke_pruefstein",
+  "formen": [
+    { "name": "vollbild-einziges-paket", "anfang": true, "ende": true, "vollbild": true, "nummer": 0, "bytes": "C0000080003B410100" },
+    { "name": "vollbild-mittleres-paket", "anfang": false, "ende": false, "vollbild": true, "nummer": 65535, "bytes": "00FFFF80003B410100" },
+    { "name": "differenz-erstes-paket", "anfang": true, "ende": false, "vollbild": false, "nummer": 4660, "bytes": "811234" },
+    { "name": "differenz-letztes-paket", "anfang": false, "ende": true, "vollbild": false, "nummer": 1, "bytes": "410001" },
+    { "name": "differenz-umlauf", "anfang": true, "ende": true, "vollbild": false, "nummer": 65535, "bytes": "C1FFFF" }
+  ]
+}

@@ -78,6 +78,14 @@ const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(20);
 /// ueberlastet ist, mit zusaetzlicher Last.
 const KEYFRAME_REQUEST_INTERVAL: Duration = Duration::from_millis(200);
 
+/// Nach wie vielen Videobildern einmal Bilanz gezogen wird, ob die Bildmarke
+/// wirklich ankommt.
+///
+/// 120 sind bei 60 Bildern je Sekunde zwei Sekunden — spaet genug, dass der
+/// Anlauf vorbei ist, und frueh genug, dass die Meldung noch am Anfang des
+/// Logs steht, wo man sie sucht.
+const MARKEN_BILANZ_NACH: u64 = 120;
+
 /// Wie oft nachgefordert wird, solange der Decoder noch gar keinen
 /// Einstiegspunkt hat. Laenger als [`KEYFRAME_REQUEST_INTERVAL`]: dort ist eine
 /// laufende Wiedergabe zu retten und jede Millisekunde zaehlt, hier wartet der
@@ -352,14 +360,31 @@ pub async fn run(
     //
     // Vorerst NUR Beobachtung (`PULSE_PLAYER_ERHOLUNG_LOG=1`): erst nachweisen,
     // dass der Sprung wirklich ankommt, dann daran eine Entscheidung haengen.
-    // Fehlende Bilder am fortlaufenden Zeitstempel erkennen — die einzige
-    // Nummerierung, die den Server ueberlebt (volle Begruendung samt Messwerten
-    // in `crate::bildluecke`). Ohne sie bemerkt NIEMAND den Ausfall: der
-    // Zusammensetzer sieht keinen Bruch, `av1_cuvid` nimmt die referenzlosen
-    // Bilder klaglos an, und alle Kennzahlen bleiben gesund, waehrend das Bild
-    // steht.
-    let mut bildluecken = crate::bildluecke::Bildluecken::neu();
-    let mut ts_spruenge: u64 = 0;
+    // Fehlende Bilder an der BILDNUMMER erkennen, nicht am Zeitstempel.
+    //
+    // Der Zeitstempel ist eine Uhr: ein vom Sender ausgelassener Bildplatz und
+    // ein unterwegs verlorenes Bild erzeugen darin dieselbe Luecke. Am
+    // 2026-08-21 hat der Player deshalb ein halbes Vollbild je Sekunde
+    // angefordert, obwohl nichts fehlte. Die Bildnummer aus `crate::bildmarke`
+    // zaehlt, was den Encoder VERLASSEN hat — ein ausgelassener Bildplatz
+    // verbraucht keine.
+    //
+    // Ist die Marke nicht ausgehandelt (alter Sender, Server ohne Patch 0006),
+    // bleibt `marken_id` null und es wird GAR NICHT geurteilt: „Marke oder
+    // nichts". Volle Herleitung in
+    // `docs/superpowers/specs/2026-08-21-dependency-descriptor-design.md`.
+    let marken_id = whep_session.marken_id();
+    let mut bildzaehler = crate::bildmarke::Bildzaehler::neu();
+    let mut bild_luecken: u64 = 0;
+    // Wie viele Bilder gesehen, wie viele davon mit Nummer.
+    //
+    // **Ohne diese Bilanz ist ein stiller Totalausfall nicht von einem
+    // fehlerfreien Lauf zu unterscheiden**: kommt gar keine Marke an, urteilt
+    // der Zaehler nie und meldet folglich auch nichts — genau wie bei einer
+    // sauberen Leitung. Ausgehandelt heisst nicht angekommen; dazwischen liegt
+    // der Server, der sie ueber seine Neuverpackung tragen muss.
+    let mut bild_einheiten: u64 = 0;
+    let mut bild_mit_marke: u64 = 0;
     // Takt der Video-Zeitstempel (s. der Video-Zweig unten). `0` = noch kein
     // Videopaket gesehen; `app::takt` behandelt das wie „kein Zeitstempel".
     let mut video_clock_rate: u32 = 0;
@@ -602,7 +627,7 @@ pub async fn run(
                 .or_insert_with(|| crate::dump::RtpDump::from_env(codec.as_str()));
 
             for release in buffer.poll(now) {
-                let (unit, unit_arrived, unit_rtp_ts) = match release {
+                let (unit, unit_arrived, unit_rtp_ts, unit_bildnummer) = match release {
                     Release::Gap { .. } => {
                         assembler.on_gap();
                         // Eine Luecke bricht die Zeitreihe: das naechste Bild
@@ -620,17 +645,21 @@ pub async fn run(
                         // aufgefallen, eingebaut wenige Stunden zuvor mit dem
                         // Absturzschutz.
                         if codec.is_video() {
+                            // `f.luecke()` bleibt: das ist ABSTURZSCHUTZ, nicht
+                            // Erkennung — `av1_cuvid` stuerzt an einem
+                            // Differenzbild ohne Referenz ab (2026-07-28
+                            // gemessen), es muss also auf einen Einstiegspunkt
+                            // warten.
+                            //
+                            // Die Vollbild-Anforderung faellt hier weg. Ein
+                            // Paketverlust ist noch kein fehlendes BILD: fehlt
+                            // wirklich eines, meldet es der Bildzaehler weiter
+                            // unten, und zwar mit der Angabe, WELCHES. Und
+                            // steht der Decoder danach auf „wartet auf
+                            // Einstieg", fordert der Einstieg-Pfad ohnehin
+                            // binnen 500 ms nach.
                             if let Some(f) = decoder.as_ref() {
                                 f.luecke();
-                            }
-                            // Und beim Sender ein Vollbild anfordern, sonst
-                            // dauert das Warten bis zum naechsten regulaeren
-                            // Keyframe.
-                            if let Some(ssrc) = video_ssrc.filter(|_| !ohne_anforderung) {
-                                if last_keyframe_request.elapsed() >= KEYFRAME_REQUEST_INTERVAL {
-                                    last_keyframe_request = Instant::now();
-                                    whep_session.request_keyframe(ssrc).await;
-                                }
                             }
                         }
                         luecken += 1;
@@ -655,10 +684,21 @@ pub async fn run(
                         if let Some(d) = dumps.get(codec).and_then(Option::as_ref) {
                             d.write(&p.payload, marker);
                         }
+                        // Die Bildnummer DIESES Pakets. Alle Pakete eines
+                        // Bildes tragen dieselbe; gezaehlt wird sie erst, wenn
+                        // die Einheit VOLLSTAENDIG ist (s. unten) — ein Bild,
+                        // von dem nur ein Teil ankam, hat seine Nummer sonst
+                        // schon gezeigt, waehrend der Zusammensetzer es
+                        // wegwirft, und der Verlust bliebe unbemerkt.
+                        let nummer = (marken_id != 0)
+                            .then(|| p.header.get_extension(marken_id))
+                            .flatten()
+                            .and_then(|roh| crate::bildmarke::nummer_lesen(&roh));
                         (
                             assembler.push(p.header.sequence_number, &p.payload, marker),
                             Some(arrived),
                             Some(ts),
+                            nummer,
                         )
                     }
                 };
@@ -685,23 +725,47 @@ pub async fn run(
                 // erzeugt viele verworfene Einheiten hintereinander, und
                 // Vollbild um Vollbild anzufordern wuerde genau die Bitrate
                 // sprengen, die den Verlust verursacht hat.
-                // Fehlt ein Bild? Dann ist die Referenzkette gerissen, und nur
-                // ein Vollbild flickt sie. Am 2026-08-21 gemessen: EIN
-                // ausgefallenes Bild kostete 60 Sekunden Standbild, weil diese
-                // Anforderung fehlte.
+                // Fehlt ein Bild? Die BILDNUMMER sagt es, statt es aus der
+                // Uhr zu erraten.
                 //
-                // Dieselbe Bremse wie bei den anderen Wegen. Ein Fehlalarm
-                // kostet nur ein zusaetzliches Vollbild und ist unsichtbar —
-                // deshalb darf hier grosszuegig geurteilt werden, waehrend der
-                // Decoder-Neuaufbau vorsichtig bleibt.
+                // Ein vom Sender ausgelassener Bildplatz verbraucht keine
+                // Nummer und meldet deshalb nichts — genau das war der Fehler
+                // vom 2026-08-21, als der Zeitstempel beides gleich aussehen
+                // liess. Und ein wirklich verlorenes Bild hinterlaesst eine
+                // Luecke in der Zaehlung, die kein Schwellenwert erraten muss.
+                //
+                // Ohne ausgehandelte Marke (`marken_id == 0`) steht hier `None`
+                // und es wird gar nicht geurteilt.
                 if codec.is_video() && unit.is_some() {
-                    if let Some(ts) = unit_rtp_ts {
-                        if let Some(fehlend) = bildluecken.pruefen(ts, video_clock_rate) {
-                            ts_spruenge += 1;
+                    bild_einheiten += 1;
+                    if unit_bildnummer.is_some() {
+                        bild_mit_marke += 1;
+                    }
+                    if bild_einheiten == MARKEN_BILANZ_NACH {
+                        if marken_id != 0 && bild_mit_marke == 0 {
+                            // Kein Diagnose-Schalter davor: das ist ein
+                            // Fehler, kein Messwert. Die Erkennung ist dann
+                            // vollstaendig ausgefallen, und der Zuschauer
+                            // merkt es an nichts.
+                            eprintln!(
+                                "pulse-player: Bildmarke als extmap {marken_id} ausgehandelt, \
+                                 aber in {MARKEN_BILANZ_NACH} Bildern keine einzige \
+                                 angekommen — reicht der Server sie durch?"
+                            );
+                        } else if erholung_log {
+                            eprintln!(
+                                "pulse-player: Bildmarke — {bild_mit_marke} von \
+                                 {bild_einheiten} Bildern tragen eine Nummer"
+                            );
+                        }
+                    }
+                    if let Some(nummer) = unit_bildnummer {
+                        if let Some(fehlend) = bildzaehler.pruefen(nummer) {
+                            bild_luecken += 1;
                             if erholung_log {
                                 eprintln!(
-                                    "pulse-player: Bildluecke (#{ts_spruenge}) — {fehlend} \
-                                     Bild(er) ausgefallen, Vollbild angefordert"
+                                    "pulse-player: Bildluecke (#{bild_luecken}) — {fehlend} \
+                                     Bild(er) fehlen vor Nummer {nummer}, Vollbild angefordert"
                                 );
                             }
                             // Auch der Einfrier-Wacht sagen, dass ein Stillstand
@@ -729,11 +793,9 @@ pub async fn run(
                     // haengengeblieben.
                     verworfene_einheiten += 1;
                     if erholung_log {
-                        let gebremst = last_keyframe_request.elapsed() < KEYFRAME_REQUEST_INTERVAL;
                         eprintln!(
-                            "pulse-player: Einheit verworfen (#{verworfene_einheiten}), \
-                             Vollbild {}",
-                            if gebremst { "gebremst" } else { "angefordert" }
+                            "pulse-player: Einheit verworfen (#{verworfene_einheiten}) — \
+                             die Bildnummer meldet die Luecke"
                         );
                     }
                     // Zweitens der Einfrier-Wacht sagen, dass der naechste
@@ -743,12 +805,11 @@ pub async fn run(
                     if let Some(f) = decoder.as_ref() {
                         f.zustand().schaden.store(true, Relaxed);
                     }
-                    if let Some(ssrc) = video_ssrc.filter(|_| !ohne_anforderung) {
-                        if last_keyframe_request.elapsed() >= KEYFRAME_REQUEST_INTERVAL {
-                            last_keyframe_request = Instant::now();
-                            whep_session.request_keyframe(ssrc).await;
-                        }
-                    }
+                    // KEINE Anforderung mehr von hier. Ein verworfenes Bild hat
+                    // seine Nummer nie vollstaendig gezeigt, also meldet der
+                    // Bildzaehler die Luecke ohnehin — mit der besseren Angabe,
+                    // WELCHES Bild fehlt. Der Schadensmerker bleibt, er stellt
+                    // die Einfrier-Wacht scharf.
                 }
                 let Some(unit) = unit else { continue };
                 if codec.is_video() {

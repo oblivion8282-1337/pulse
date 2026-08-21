@@ -242,6 +242,12 @@ pub struct Nutzlast {
     pub daten: Vec<u8>,
     /// Letztes Paket des Zeitabschnitts — setzt das Marker-Bit (Abschnitt 4.2).
     pub letztes: bool,
+    /// Erstes Paket des Zeitabschnitts — Bildanfang der Bildmarke.
+    pub erstes: bool,
+    /// Gehoert zu einem Vollbild. Je Bild gleich und trotzdem an jedem Paket:
+    /// die Bildmarke braucht es an jedem, weil die Schablonen-Tabelle auf
+    /// jedem Vollbild-Paket steht (`crate::whip::bildmarke`).
+    pub vollbild: bool,
 }
 
 /// Einen Zeitabschnitt (ein encodiertes Bild, wie FFmpeg es liefert) in
@@ -256,7 +262,10 @@ pub fn paketiere(daten: &[u8], mtu: usize) -> Result<Vec<Nutzlast>> {
     // Ungefaehrlich, weil der Kopf in jedem echten Vollbild ohnehin mitsteht:
     // ein spaet hinzukommender Zuschauer braucht bei 60 s Vollbild-Abstand
     // sowieso eine Vollbild-Anforderung, und die liefert ihn mit.
-    if !obus.iter().any(ist_vollbild) {
+    // Einmal bestimmt, an jedes Paket gehaengt: die Bildmarke waehlt daran ihre
+    // Schablone und entscheidet, ob die Tabelle mitgeht.
+    let vollbild = obus.iter().any(ist_vollbild);
+    if !vollbild {
         obus.retain(|o| o.typ != OBU_SEQUENZKOPF);
     }
     if obus.is_empty() {
@@ -302,8 +311,14 @@ pub fn paketiere(daten: &[u8], mtu: usize) -> Result<Vec<Nutzlast>> {
     if !stuecke.is_empty() {
         pakete.push(baue(&obus, &stuecke, z, false, &mut sequenzkopf_offen));
     }
+    if let Some(f) = pakete.first_mut() {
+        f.erstes = true;
+    }
     if let Some(l) = pakete.last_mut() {
         l.letztes = true;
+    }
+    for p in &mut pakete {
+        p.vollbild = vollbild;
     }
     Ok(pakete)
 }
@@ -341,7 +356,7 @@ fn baue(
         }
         obus[s.obu].schreibe(&mut daten, s.von, s.bis);
     }
-    Nutzlast { daten, letztes: false }
+    Nutzlast { daten, letztes: false, erstes: false, vollbild: false }
 }
 
 /// Fortlaufender Spur-Zustand: Sequenznummern + Zeitstempel.
@@ -361,6 +376,8 @@ pub(super) struct SpurZustand {
     /// zwei Bilder auf derselben Uhrzeit.
     ersatz_takt: u64,
     fps: u32,
+    /// Laufende Bildnummer fuer die Bildmarke. Laeuft bei 65536 um.
+    bildnummer: u16,
 }
 
 impl SpurZustand {
@@ -371,7 +388,7 @@ impl SpurZustand {
         let seq = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.subsec_nanos() as u16);
-        Self { seq, ersatz_takt: 0, fps }
+        Self { seq, ersatz_takt: 0, fps, bildnummer: 0 }
     }
 
     /// RTP-Zeitstempel DIESES Bildes, aus dem `pts` des Encoder-Pakets.
@@ -414,6 +431,20 @@ impl SpurZustand {
         takt as u32
     }
 
+    /// Die Nummer DIESES Bildes; danach steht der Zaehler auf dem naechsten.
+    ///
+    /// **Wird nur aufgerufen, wenn wirklich Pakete hinausgehen.** Verschluckt
+    /// der Encoder ein Bild, oder haelt der Paketierer einen Sequenzkopf ohne
+    /// Vollbild zurueck, verbraucht das KEINE Nummer — und genau daran
+    /// erkennt der Zuschauer, dass nichts verlorenging. Wuerde hier je Aufruf
+    /// von `send` gezaehlt, meldete er eine Luecke fuer ein Bild, das es nie
+    /// gegeben hat: derselbe Fehler wie beim Zeitstempel, nur teurer.
+    pub(super) fn naechste_bildnummer(&mut self) -> u16 {
+        let n = self.bildnummer;
+        self.bildnummer = self.bildnummer.wrapping_add(1);
+        n
+    }
+
     /// Sequenznummer fuer das naechste Paket; laeuft bei 65535 ueber.
     pub(super) fn naechste_seq(&mut self) -> u16 {
         let seq = self.seq;
@@ -425,6 +456,16 @@ impl SpurZustand {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bildnummer_laeuft_um_und_ueberspringt_nichts() {
+        let mut z = SpurZustand::neu(60);
+        z.bildnummer = u16::MAX - 1;
+        assert_eq!(z.naechste_bildnummer(), u16::MAX - 1);
+        assert_eq!(z.naechste_bildnummer(), u16::MAX);
+        assert_eq!(z.naechste_bildnummer(), 0, "der Umlauf ist ein normaler Schritt");
+        assert_eq!(z.naechste_bildnummer(), 1);
+    }
 
     /// Ein OBU im Format, das FFmpeg liefert: mit Groessenfeld.
     ///
