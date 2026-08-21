@@ -1,20 +1,17 @@
 #!/usr/bin/env python3
-"""Warum steht bei Intra-Refresh gelegentlich sekundenlang das Bild?
+"""Warum steht nach einem Paketverlust gelegentlich sekundenlang das Bild?
 
-Der Befund vom 2026-07-31 (`profiles/hq-2026-07-31-intra-refresh-echter-sender.json`):
-Intra-Refresh raeumt das Pumpen der periodischen Keyframes weg — Haenger ueber
-100 ms fallen von 48,7 auf 1,4 Prozent der Sekunden. Was bleibt, sind SELTENE,
-dafuer LANGE Standbilder: acht Stueck in 1248 Sekunden, das laengste 2466 ms,
-jedes begleitet von einer Vollbild-Anforderung des Players.
+**Hiess bis zum 2026-08-21 `intraref-verlust.py`** und fragte dasselbe fuer die
+Betriebsart rollender Intra-Refresh. Die ist entfernt; die Frage nach der
+Verlust-Reparatur bleibt und ist bei einem Vollbild-Abstand von 60 s sogar
+dringender — so lange darf kein Bild stehen.
 
-**Die 2466 ms sind ein STANDBILD, nicht die Wartezeit auf ein angefordertes
-Vollbild.** Der Unterschied ist mehrfach verlorengegangen — aus der Zahl wurde
-„bis zu 2466 ms, bis ein angefordertes Vollbild ankommt". Der Sender braucht
-dafuer ein bis zwei Bildabstaende: 130 Anforderungen auf NVIDIA, Median
-11,6 ms, groesster Wert 22,7 ms
-(`profiles/nvidia-2026-08-11-anforderung-bis-vollbild.json`). Was die
-Standbilder lang macht, ist alles ANDERE in der Kette — und genau danach fragt
-dieses Skript.
+Ein Standbild ist NICHT die Wartezeit auf ein angefordertes Vollbild. Der
+Unterschied ist mehrfach verlorengegangen. Der Sender braucht dafuer ein bis
+zwei Bildabstaende: 130 Anforderungen auf NVIDIA, Median 11,6 ms, groesster
+Wert 22,7 ms (`profiles/nvidia-2026-08-11-anforderung-bis-vollbild.json`). Was
+die Standbilder lang macht, ist alles ANDERE in der Kette — und genau danach
+fragt dieses Skript.
 
 **Die offene Frage ist nicht OB Verlust auftritt, sondern warum er nicht
 repariert wird.** Die Kette hat dafuer zwei Mittel: FlexFEC (Paritaet, 10+2)
@@ -32,13 +29,12 @@ das dauert sichtbar. Drei Moeglichkeiten, die dieser Lauf trennt:
    Gruppe genau EIN Loch; ein Buendel von drei Paketen ueberfordert 10+2
    strukturell, und wenn die Wiederholung auch verloren geht, bleibt nur PLI.
 
-**Warum der ECHTE Sender und nicht ffmpeg** (wie in `fern-nack.py`): der
-Intra-Refresh-Betrieb ist genau das, was hier zur Debatte steht, und den kann
-nur unser Encoder. Der Preis ist das Portal — der Lauf braucht einen wachen
-Bildschirm und beim ersten Mal einen Klick.
+**Warum der ECHTE Sender und nicht ffmpeg** (wie in `fern-nack.py`): gemessen
+werden soll die Kette, die wirklich ausgeliefert wird — eigener WHIP-Sender,
+eigener Paketierer, eigener Rueckkanal. Der Preis ist das Portal: der Lauf
+braucht einen wachen Bildschirm und beim ersten Mal einen Klick.
 
-    ./intraref-verlust.py --secs 600
-    ./intraref-verlust.py --secs 600 --keyframes   # Gegenprobe ohne Intra-Refresh
+    ./verlust-reparatur.py --secs 600
 
 Beim Auswerten zaehlt die **Lebendkontrolle** (`nack_deckt_lauf_ab`): decken
 die NACKs nicht den groessten Teil des Laufs ab, ist der Mitschnitt nach einem
@@ -177,7 +173,7 @@ def paritaet_auswerten(proben: list[dict]) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--secs", type=float, default=600.0)
-    ap.add_argument("--label", default="intraref-verlust")
+    ap.add_argument("--label", default="verlust-reparatur")
     ap.add_argument("--fps", type=int, default=60)
     ap.add_argument("--kbps", type=int, default=4000)
     ap.add_argument("--codec", default="av1")
@@ -198,8 +194,6 @@ def main() -> int:
                     help="Native/4K/1440p/1080p/720p/480p oder WxH. Ohne Angabe "
                          "die native Groesse des Schirms. Achtung: der Sidecar "
                          "liest Unbekanntes still als Native")
-    ap.add_argument("--keyframes", action="store_true",
-                    help="Gegenprobe: periodische Keyframes statt Intra-Refresh")
     # Fuer die Einfrier-Diagnose (2026-07-31): schreibt den ANKOMMENDEN
     # Bitstrom mit, vor dem Decoder. Zeigt die Aufnahme Bewegung, waehrend der
     # Schirm stand, liegt der Fehler im Decoder oder in der Darstellung; steht
@@ -231,8 +225,7 @@ def main() -> int:
 
     server_ip = socket.gethostbyname(_fern.HOST)
     iface = iface_zu(server_ip)
-    betrieb = "Keyframes 2 s" if args.keyframes else "Intra-Refresh"
-    print(f"[{args.label}] {betrieb} — {_fern.HOST} = {server_ip} ueber {iface}")
+    print(f"[{args.label}] {_fern.HOST} = {server_ip} ueber {iface}")
 
     pcap = HERE / f"{args.label}.pcap"
     dump = subprocess.Popen(
@@ -247,13 +240,9 @@ def main() -> int:
 
     sender_log = HERE / f"sender-{args.label}.log"
     player_log = HERE / f"player-{args.label}.log"
-    # Der Encoder-Schalter geht als Umgebung an den Sidecar. VENDOR-NEUTRAL:
-    # die Optionsnamen unterscheiden sich (NVENC `intra-refresh`, VAAPI
-    # `intra_refresh`), und der NVENC-Name allein haette auf einer AMD-Karte
-    # still einen Keyframe-Lauf unter diesem Etikett gemessen. `vendor_opts`
-    # setzt jetzt den richtigen Namen, und der Sidecar bricht ab, wenn sein
-    # FFmpeg die Option nicht kennt.
-    env = {} if args.keyframes else {"PULSE_INTRA_REFRESH": "1"}
+    # Der Sidecar faehrt seine Vorgabe. Wer den Vollbild-Abstand fuer einen
+    # Lauf verstellen will, setzt `PULSE_KEYFRAME_SECONDS` von aussen.
+    env: dict[str, str] = {}
     # Zeitmuster VOR dem Sender: der Sidecar nimmt den Bildschirm auf, das
     # Muster muss also schon stehen, wenn die Aufnahme beginnt.
     muster = None
@@ -304,8 +293,9 @@ def main() -> int:
         threading.Thread(target=ereignisse_lesen,
                          args=(player_log, start, vollbilder, stopp), daemon=True).start()
 
-        # Ein Vollbild auf Zuruf: im Intra-Refresh-Betrieb hat der Strom nach
-        # dem Start keinen Einstiegspunkt mehr, der Player bliebe sonst schwarz.
+        # Ein Vollbild auf Zuruf: bei 60 s Abstand kaeme der naechste
+        # Einstiegspunkt erst nach einer Minute, der Player bliebe so lange
+        # schwarz.
         #
         # WIEDERHOLT anfordern, bis der Player den Einstieg meldet. Eine
         # einzelne Anforderung ist ein Wettlauf: geht sie hinaus, waehrend der
@@ -330,7 +320,7 @@ def main() -> int:
         #     ("noch kein Bild empfangen — erst nach dem ersten Frame moeglich").
         #   * DANACH schreibt der Recorder erst ab dem naechsten Video-Keyframe
         #     (`recorder.rs::awaiting_keyframe`) — und den gibt es im
-        #     Intra-Refresh-Betrieb nur auf Anforderung.
+        #     regulaeren Takt erst nach bis zu einer Minute gibt.
         #
         # Also: erst der Einstieg oben, dann `record`, dann ein zweites Vollbild
         # als Startpunkt der Datei. Ohne das zweite bleibt sie leer, und das

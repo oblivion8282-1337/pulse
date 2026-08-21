@@ -99,18 +99,17 @@ win:
     #
     # Er kommt aus der Distribution, nicht aus `target/release/` — dorthin
     # kopiert `build.rs` nur die DLLs selbst. Und er muss zum Build passen, der
-    # WIRKLICH ausgeliefert wird: seit 2026-08-05 ist das der selbst gebaute,
-    # gepatchte Baum, und sein Text ist LGPL **2.1** (`configure` läuft ohne
-    # `--enable-version3`). BtbNs Rückfall-Paket trüge stattdessen v3. Die
-    # Datei staged `build-ffmpeg-patched.ps1`; ein selbst gebauter Baum bringt
-    # von sich aus KEINE mit.
+    # WIRKLICH ausgeliefert wird: seit dem 2026-08-21 ist das wieder das
+    # unveraenderte BtbN-Fertigpaket, und dessen Text liegt als `LICENSE.txt`
+    # in der Wurzel des Zips.
+    #
+    # **Der `PULSE-AENDERUNGEN.txt` daneben ist am 2026-08-21 entfallen.** Er
+    # war der Aenderungshinweis, den die LGPL fuer eine VERAENDERTE Bibliothek
+    # verlangt; das FFmpeg ist wieder unveraendert, und die Datei erzeugte
+    # ohnehin nur der geloeschte `build-ffmpeg-patched.ps1`. Waere sie
+    # stehengeblieben, braeche electron-builder am fehlenden Pfad ab.
     - from: ../streaming/win-hq-sidecar/ffmpeg-dist/n8.1-lgpl-shared/LICENSE.txt
       to: hq-sidecar/FFMPEG-LICENSE.txt
-    # Der Änderungshinweis, den die LGPL für eine veränderte Bibliothek will —
-    # bewusst IM Paket und nicht nur im Repo: wer die DLLs in die Hand bekommt,
-    # soll ohne Umweg sehen, dass sie nicht dem Original entsprechen.
-    - from: ../streaming/win-hq-sidecar/ffmpeg-dist/n8.1-lgpl-shared/PULSE-AENDERUNGEN.txt
-      to: hq-sidecar/PULSE-AENDERUNGEN.txt
     # App-Hosting-Podman-Bündelung (resources-podman → podman) entfernt, weil
     # App-Hosting geparkt ist (2026-07-14) — der Windows-Client hostet nicht
     # mehr, das gebündelte Podman war totes Gewicht im Installer. Zum

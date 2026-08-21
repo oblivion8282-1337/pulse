@@ -1,28 +1,24 @@
 #!/usr/bin/env bash
-# Baut das gepatchte FFmpeg, das Intra-Refresh ueber VA-API durchreicht.
+# Baut das FFmpeg, gegen das der Linux-Sidecar und der Player linken.
 #
-# WARUM ES DAS GIBT: Intra-Refresh ist auf AMD und Intel die Betriebsart, die
-# unter Paketverlust gewinnt (16,0 gegen 65,6 Prozent gestoerte Sekunden bei
-# gleicher Datenrate, Messakte
-# `streaming/testbench/profiles/amd-2026-08-01-intra-refresh-echter-sender.json`).
-# Die Hardware kann es, der Treiber kann es — FFmpeg reicht es nicht durch, in
-# KEINER Version, auch nicht in master. Begruendung und Beweiskette: README.md
-# daneben.
+# WARUM ES DAS GIBT: `ffmpeg-next = "8.1"` uebersetzt nur gegen FFmpeg 8.1.
+# Aktuelle Distributionen liegen darueber (Arch/CachyOS auf n9.0.1), und dagegen
+# bricht die Kiste an nicht abgedeckten Enum-Werten ab. Das Distributions-FFmpeg
+# taugt als Grundlage also nicht, unabhaengig davon, welche Optionen es kennt.
 #
-# Ohne dieses FFmpeg bricht der Sidecar den Start ab, sobald Intra-Refresh
-# verlangt wird (`encode/opts.rs::intra_refresh_pruefen`) — bewusst, denn still
-# auf Keyframes zurueckzufallen hiesse, einen Keyframe-Strom unter dem Etikett
-# der anderen Betriebsart zu fahren. Auf NVIDIA wird das Skript nicht gebraucht:
-# `*_nvenc` hat die Option upstream.
+# **Bis zum 2026-08-21 trug dieses Verzeichnis zusaetzlich zwei Patches**, die
+# rollenden Intra-Refresh fuer die VA-API- und AMF-Encoder freilegten. Die
+# Betriebsart ist entfallen (Begruendung im Wurzel-`CLAUDE.md`), die Patches
+# damit auch — gebaut wird jetzt unveraenderter Upstream-Quelltext.
 #
-# WOHIN: $XDG_CACHE_HOME/pulse/ffmpeg-intra-refresh/ (Standard
-# ~/.cache/pulse/ffmpeg-intra-refresh/) — derselbe persistente Ort, den auch
-# `streaming/bootstrap-gsr.fish` benutzt. NICHT nach /tmp: das ist auf dieser
-# Maschine ein tmpfs, der Bau waere nach jedem Reboot weg.
+# WOHIN: $XDG_CACHE_HOME/pulse/ffmpeg/ (Standard ~/.cache/pulse/ffmpeg/) —
+# derselbe persistente Ort, den auch `streaming/bootstrap-gsr.fish` benutzt.
+# NICHT nach /tmp: das ist auf manchen Maschinen ein tmpfs, der Bau waere nach
+# jedem Reboot weg.
 #
 # Das System-FFmpeg wird NICHT angefasst. `scripts/hq-bauen.sh` baut Sidecar und
 # Player mit einem RPATH auf das Ergebnis hier — nur diese beiden Programme
-# sehen das gepatchte FFmpeg, alles andere auf dem Rechner bleibt, wie es ist.
+# sehen dieses FFmpeg, alles andere auf dem Rechner bleibt, wie es ist.
 #
 # LIZENZ: der Bau ist bewusst LGPL — kein `--enable-gpl`, kein libx264. Das ist
 # die Bedingung aus dem Wurzel-`CLAUDE.md` (Pulse darf keinen GPL-Code linken)
@@ -32,7 +28,7 @@
 set -euo pipefail
 
 # Derselbe Stand, den das Flatpak pinnt (packaging/com.howispulse.Pulse.yml,
-# ffmpeg-Modul). Dev und Auslieferung sollen denselben Quelltext patchen —
+# ffmpeg-Modul). Dev und Auslieferung sollen denselben Quelltext bauen —
 # sonst gilt eine hier gemessene Zahl fuer die ausgelieferte App nicht.
 VERSION="n8.1.1"
 # Derselbe Commit, den das Flatpak-Manifest nennt. Er steht hier ZUSAETZLICH
@@ -45,7 +41,7 @@ REPO="https://github.com/FFmpeg/FFmpeg.git"
 hier="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$hier/../.." && pwd)"
 cache_root="${XDG_CACHE_HOME:-$HOME/.cache}"
-wurzel="$cache_root/pulse/ffmpeg-intra-refresh"
+wurzel="$cache_root/pulse/ffmpeg"
 quelle="$wurzel/src"
 prefix="$wurzel/prefix"
 
@@ -53,15 +49,19 @@ prefix="$wurzel/prefix"
 # Aufrufer, weil hier der Pfad ohnehin steht — sonst muesste jeder Aufrufer ihn
 # selbst herleiten und bei einem Umzug mitwandern.
 if [ -x "$prefix/bin/ffmpeg" ] && [ "${PULSE_FFMPEG_NEUBAU:-0}" != "1" ]; then
-    echo "==> Gepatchtes FFmpeg liegt schon da ($prefix)"
+    echo "==> FFmpeg liegt schon da ($prefix)"
     echo "    Neu bauen:  PULSE_FFMPEG_NEUBAU=1 $0"
     exit 0
 fi
 
-# --- Quelltext holen und patchen -------------------------------------------
-echo "==> FFmpeg $VERSION holen und patchen (flacher Klon, ~100 MB)"
+# --- Quelltext holen --------------------------------------------------------
+#
+# `flacher_klon` statt `gepatchter_klon`: hier gibt es nichts mehr anzuwenden
+# (s. Kopf). Der Klon samt Commit-Reset und Zeitstempel ist derselbe, und ihn
+# ein zweites Mal auszuschreiben hiesse, zwei Fassungen davon zu pflegen.
+echo "==> FFmpeg $VERSION holen (flacher Klon, ~100 MB)"
 . "$repo_root/scripts/lib/gepatchter-klon.sh"
-gepatchter_klon "$REPO" "$VERSION" "$quelle" "$hier" "$COMMIT"
+flacher_klon "$REPO" "$VERSION" "$quelle" "$COMMIT"
 
 # --- Konfigurieren ----------------------------------------------------------
 #

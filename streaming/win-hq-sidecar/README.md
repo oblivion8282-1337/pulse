@@ -139,8 +139,7 @@ P010-Pool. Zwei getrennte Gründe:
   (zerrissenes Bild, codec-unabhängig; Standbild-A/B am Wert in `hwctx.rs`).
 - **P010, jeder Vendor** (2026-08-04): NVIDIA lehnt ein P010-Texture-Array ab
   (`CreateTexture2D` → `E_INVALIDARG`), womit **jeder 10-bit-Stream vor dem
-  Encoder-Open starb**, während `health` die Fähigkeit meldete. Messakte
-  `streaming/testbench/profiles/nvidia-2026-08-04-windows-intra-refresh.json`.
+  Encoder-Open starb**, während `health` die Fähigkeit meldete.
 
 **Auf NVIDIA trägt der 10-bit-Weg echte 10 bit — unabhängig bestätigt am
 2026-08-11** (RTX 5080, Treiber 610.47), an beiden Enden geprüft:

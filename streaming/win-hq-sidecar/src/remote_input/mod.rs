@@ -360,8 +360,8 @@ fn handschlag(z: &mut Zustand, version: u8) -> Result<(), String> {
     // zugesagt ist, dass er jederzeit mit einer Handbewegung übernimmt. Lässt
     // sich das auf diesem System nicht durchsetzen, ist die Zusage nicht
     // einlösbar — dann verweigert der Start, statt still etwas Schwächeres
-    // unter demselben Etikett zu liefern (dieselbe Linie wie Intra-Refresh und
-    // HDR, s. `encode/auffrischung.rs`). Idempotent: das zweite Hello einer
+    // unter demselben Etikett zu liefern (dieselbe Linie wie bei HDR,
+    // s. `encode/hdr.rs`). Idempotent: das zweite Hello einer
     // Sitzung findet die Wache stehend vor.
     wache::starten().map_err(|e| {
         format!("Vorrang des Hosts nicht durchsetzbar, Fernsteuerung verweigert: {e}")

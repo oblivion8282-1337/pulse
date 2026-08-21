@@ -43,9 +43,9 @@ Pulse-Repo für die Spec.
 - Ops: `health, gpu_info, list_monitors, list_windows,
   list_application_audio, build_argv, start, stop, state, keyframe`.
   (`keyframe` seit 2026-08-02 — beim naechsten Bild ein Vollbild erzeugen. Bei
-  Intra-Refresh keine Reparatur, sondern Voraussetzung: der Strom hat nach dem
-  Start kein Vollbild mehr. Der Windows-Sidecar hat sie ebenfalls, der
-  Python-Auffang nicht.)
+  einem Vollbild-Abstand von 60 s keine blosse Reparatur, sondern
+  Voraussetzung: ein beitretender Zuschauer wartete sonst bis zu eine Minute.
+  Der Windows-Sidecar hat sie ebenfalls, der Python-Auffang nicht.)
 - States: `idle|starting|live|error|stopped`. Events: `state, fps, log, error, stopped`.
 - Token in URLs (pass=/token=) wird in `argv`/Logs **redacted** (`***`).
 
@@ -53,21 +53,21 @@ Verbatim-portierte Dateien (nicht ohne Not anfassen): `proto.rs, dispatch.rs, ev
 main.rs, profiles.rs, encode/mux_writer.rs, ops/{stop,state}.rs`.
 
 ## Architektur-Entscheidungen (Nutzer-Vorgaben — einhalten)
-- **FFmpeg: GEPATCHTER Eigenbau, n8.1.1** — nicht das System-FFmpeg. `ffmpeg-next = "8.1"`.
-  Gebaut von `scripts/hq-bauen.sh` nach `~/.cache/pulse/ffmpeg-intra-refresh/prefix`;
+- **FFmpeg: Eigenbau n8.1.1, unverändert** — nicht das System-FFmpeg. `ffmpeg-next = "8.1"`.
+  Gebaut von `scripts/hq-bauen.sh` nach `~/.cache/pulse/ffmpeg/prefix`;
   Sidecar und Player bekommen einen RPATH dorthin, jedes andere Programm auf dem
   Rechner benutzt weiter das der Distribution. Der Flatpak baut **dieselbe** Fassung
-  mit demselben Patch (`packaging/com.howispulse.Pulse.yml`, Tag `n8.1.1` + Commit-Pin) —
-  Dev und Auslieferung stimmen also überein, und das soll so bleiben.
+  (`packaging/com.howispulse.Pulse.yml`, Tag `n8.1.1` + Commit-Pin) — Dev und
+  Auslieferung stimmen also überein, und das soll so bleiben.
+
+  **Bis zum 2026-08-21 trug dieser Bau einen Pulse-Patch** (rollender
+  Intra-Refresh für die VAAPI-Encoder). Die Betriebsart ist entfernt, der Patch
+  damit auch; gebaut wird unveränderter Upstream-Quelltext.
 
   **Hier stand bis 2026-08-18 „System-FFmpeg via pkg-config (Arch n8.1.2)" und
   „für Flatpak die `org.freedesktop.Platform.ffmpeg`-Extension, nicht bündeln".**
   Beides gilt nicht mehr und führt in die Irre:
-  * Der Eigenbau ist **Pflicht, nicht Geschmackssache**: Intra-Refresh für die
-    VAAPI-Encoder reicht FFmpeg in KEINER Version durch, auch nicht in master
-    (nachgeprüft 2026-08-18 gegen `release/9.0` — `vaapi_encode.c` ist dort
-    byte-identisch zu 8.1). Ohne den Patch haben AMD und Intel die Betriebsart nicht.
-  * Das System-FFmpeg ist als Baugrundlage inzwischen sogar **unbrauchbar**: Arch
+  * Das System-FFmpeg ist als Baugrundlage **unbrauchbar**: Arch
     steht auf n9.0.1, und `ffmpeg-next = "8.1"` übersetzt dagegen nicht (gemessen:
     14 Fehler, neue Enum-Varianten). Ein Versionssprung ist damit kein reines
     Aufräumen, sondern zieht die Crate mit.
@@ -78,7 +78,7 @@ main.rs, profiles.rs, encode/mux_writer.rs, ops/{stop,state}.rs`.
   `countingType` auf und lässt sich mit diesem FFmpeg nicht mehr übersetzen. Letzte
   passende Fassung ist `n13.0.19.0` — der Flatpak pinnt sie, lokal legt man sie
   daneben statt das Systempaket herunterzustufen (Anleitung im Kommentar von
-  `streaming/ffmpeg-patches/bootstrap-ffmpeg.sh`). Fehlen die Header ganz, baut
+  `streaming/ffmpeg-bau/bootstrap-ffmpeg.sh`). Fehlen die Header ganz, baut
   FFmpeg still ohne NVENC und der Sidecar meldet `video_codecs: []`.
 - **Encoder v1: VAAPI (AMD/Intel) + NVENC (Nvidia), beide Zero-Copy verbindlich.**
   Codecs **nur H264 + AV1** (kein HEVC — nicht anbieten, nicht proben, keine hevc_mux-Tests).
@@ -94,8 +94,8 @@ main.rs, profiles.rs, encode/mux_writer.rs, ops/{stop,state}.rs`.
   NVENC `rc=cbr/b_ref_mode=0` + `preset=p2` + `zerolatency=1`/`delay=0` und seit
   2026-08-04 **`tune=ull`** statt GSRs `ll` — reine Angleichung an den Windows-Sidecar,
   der `ull` seit jeher setzt. **Am 2026-08-06 gemessen: die beiden Tunes erzeugen einen
-  byte-identischen Bitstrom** (acht Konstellationen, beide Codecs, mit und ohne
-  Intra-Refresh), weil ihr einziger Unterschied die VBV-Puffergröße ist — und die
+  byte-identischen Bitstrom** (acht Konstellationen, beide Codecs,
+  jeweils drei Bitraten), weil ihr einziger Unterschied die VBV-Puffergröße ist — und die
   überschreibt ffmpeg. Der Wechsel ist also folgenlos, und das ist jetzt belegt statt
   offen; er würde erst zählen, wenn jemand `bufsize` setzt. Messakte:
   `streaming/testbench/profiles/tune-2026-08-06-ll-gegen-ull.json`.

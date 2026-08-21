@@ -76,44 +76,10 @@ export function tenBitPossible(overrides: OverrideSet = streamSettings.overrides
 }
 
 /**
- * Rollender Intra-Refresh — Wunsch UND Erfüllbarkeit?
- *
- * Wie [`tenBitPossible`], und aus demselben Grund EINE Definition: der Wert
- * entscheidet an drei Stellen dasselbe — die Sidecar-Argumente
- * (`buildStartArgs`), den Push-Weg (`pushProtokoll`, Intra-Refresh braucht den
- * WHIP-Rückkanal) und den Auto-Neustart. Liefen die auseinander, entstünde
- * genau die Kombination, die am 2026-08-03 ein schwarzes Bild erzeugt hat:
- * Intra-Refresh-Strom über RTMPS, also ohne den Rückkanal, über den ein
- * beitretender Zuschauer sein erstes Vollbild anfordern könnte.
- *
- * **Umgekehrt gilt das seit dem 2026-08-07 NICHT mehr:** ein `false` hier heißt
- * nicht mehr „also RTMPS". Bei H.264 nimmt `pushProtokoll` unabhängig von
- * diesem Wert WHIP, weil der Encoder die Betriebsart dort von sich aus fährt —
- * die Begründung steht dort, nicht hier.
- *
- * **`stream.intraRefreshAvailable` gehört zwingend dazu**, obwohl das Kästchen
- * bereits danach gated ist. Die Einstellung wird persistiert und wandert damit
- * zwischen Rechnern: ein auf einem NVIDIA-Rechner gesetzter Haken läge sonst
- * auf einer AMD-Maschine ohne gepatchtes FFmpeg weiter an — unsichtbar, weil
- * das Kästchen dort gar nicht erscheint, und der Stream bräche beim Start ab.
- *
- * **Hier stand bis zum 2026-08-07: „unter Windows trägt die Betriebsart nur
- * AV1 (über AMF), H.264 läuft über einen Encoder, der die Option annimmt und
- * nichts damit tut". Das ist falsch** — es beschreibt `h264_d3d12va`, und der
- * ist auf AMD seit dem 2026-08-04 nicht mehr der Regelweg (nur noch über
- * `PULSE_HQ_AMD_D3D12=1`). Heute geht AMD mit jedem Codec über AMF, und
- * `h264_amf` trägt die Betriebsart sehr wohl — sogar ungefragt
- * (`win-hq-sidecar/src/encode/auffrischung.rs`).
- */
-export function intraRefreshPossible(): boolean {
-  return streamSettings.overrides.intra_refresh === true && stream.intraRefreshAvailable;
-}
-
-/**
  * HDR — Wunsch UND Erfüllbarkeit?
  *
- * Dieselbe Bauart wie [`tenBitPossible`] und [`intraRefreshPossible`], und aus
- * demselben Grund an EINER Stelle. Der Unterschied zu beiden: die Folge eines
+ * Dieselbe Bauart wie [`tenBitPossible`], und aus demselben Grund an EINER
+ * Stelle. Der Unterschied zu beiden: die Folge eines
  * falschen Ja ist hier keine stille Rücknahme, sondern ein abgebrochener Start
  * — der Sidecar verweigert HDR, das er nicht liefern kann (Begründung dort in
  * `encode/hdr.rs`). Umso wichtiger, dass die Oberfläche gar nicht erst danach
@@ -142,9 +108,7 @@ export function hdrPossible(): boolean {
  * mac-Sidecar über ffmpegs WHIP-Muxer — der trägt kein AV1, und der Sidecar
  * nimmt den Codec beim Start still auf H.264 zurück
  * (`mac-hq-sidecar/src/encode/mod.rs`). Linux und Windows bringen dafür einen
- * eigenen WebRTC-Sender mit (`src/whip/` in beiden Sidecars), macOS nicht — dieselbe Grenze,
- * die schon beim Intra-Refresh-Kästchen gezogen ist
- * (`components/ErweiterteOptionen.svelte`).
+ * eigenen WebRTC-Sender mit (`src/whip/` in beiden Sidecars), macOS nicht.
  *
  * Ein nicht angebotener Eintrag ist besser als einer, der beim Start still
  * zurückgenommen wird: auf einem M3+ stand „AV1" im Feld, war sogar die
@@ -246,48 +210,12 @@ export async function loadCatalogs(): Promise<void> {
         streamSettings.overrides.codec ?? 'h264',
       );
     }
-    // Und dieselbe Rücknahme für Intra-Refresh. Die Einstellungen wandern mit
-    // dem Konto zwischen Rechnern: ein auf NVIDIA gesetzter Haken läge sonst
-    // auf einer AMD-Maschine ohne gepatchtes FFmpeg weiter in den gespeicherten
-    // Werten — unsichtbar, weil das Kästchen dort gar nicht erscheint.
-    // `intraRefreshPossible()` fängt das beim Senden ohnehin ab; hier wird der
-    // tote Wert zusätzlich weggeräumt, damit er nicht dauerhaft mitreist.
-    if (streamSettings.overrides.intra_refresh === true && !intraRefreshPossible()) {
-      const { intra_refresh: _weg, ...rest } = streamSettings.overrides;
-      streamSettings.overrides = rest;
-    }
     // Und dasselbe für HDR — hier sogar dringender: ein mitgereister Wunsch
     // bricht den Start ab, statt still auf etwas Kleineres zurückzufallen.
     if (streamSettings.overrides.hdr === true && !hdrPossible()) {
       const { hdr: _hdrWeg, ...rest } = streamSettings.overrides;
       streamSettings.overrides = rest;
     }
-    // **Intra-Refresh bekommt hier bewusst KEINE Vorgabe mehr.** Wer nichts
-    // einstellt, streamt ohne — der Haken unter „Erweitert" ist die einzige
-    // Stelle, die ihn setzt.
-    //
-    // Vom 2026-08-06 bis zum 2026-08-18 stand hier das Gegenteil: ein
-    // `undefined` wurde auf `true` gehoben, wo der Sidecar die Fähigkeit
-    // meldete. Beide Gründe dafür sind entfallen.
-    //
-    // *Der gemessene Vorteil hat sich umgedreht.* Er galt gegen einen
-    // Vollbild-Abstand von 2 s; seit dem 2026-08-18 sind es 60 s, und damit
-    // liefert der lange Takt an identischen Bildern bei 2000 kbps **+1,87 VMAF
-    // bei 16 % weniger Daten** (95,16 gegen 93,29 bei 1687 gegen 1999 kbit/s;
-    // Tabelle bei `KEYFRAME_SEKUNDEN_VORGABE` im Linux-Sidecar). Dazu der
-    // schwerere Punkt: ein Intra-Refresh-Strom **heilt sich nach Paketverlust
-    // nicht selbst**, ein Vollbild-Strom heilt am nächsten Takt.
-    //
-    // *Der Sendeweg hängt nicht mehr daran.* Die Vorgabe war halb damit
-    // begründet, dass nur WHIP FlexFEC-Parität bekommt und `pushProtokoll()`
-    // den Weg am Haken festmachte. Seit dem 2026-08-18 liefert `pushProtokoll`
-    // für jeden Codec `'whip'` — Rückkanal und Parität stehen also unabhängig
-    // von dieser Betriebsart.
-    //
-    // Die Bereinigung in `settingsState.svelte.ts::applyPersisted` räumt einen
-    // aus der alten Lage gespeicherten Haken einmalig weg. Sie war wirkungslos,
-    // solange diese Zeilen hier standen: sie löscht den Wert, und der nächste
-    // Aufruf von `loadCatalogs()` setzte ihn sofort wieder auf `true`.
     streamSettings.catalogs_loaded = true;
   } catch (e) {
     streamSettings.catalog_error = e instanceof Error ? e.message : String(e);
@@ -328,80 +256,53 @@ export interface ChannelStreamArg {
  * Anforderung — ueber RTMPS saehe er GAR NICHTS (gemessen: 0 Bilder gegen
  * 2228).
  *
- * **Warum die Fallunterscheidung weg ist.** Bis hierher galt WHIP nur fuer
- * Intra-Refresh und H.264; AV1 mit periodischen Vollbildern ging ueber RTMPS.
- * Das war vertretbar, solange dort GARANTIERT alle zwei Sekunden ein Vollbild
- * im Strom stand — genau so stand es weiter unten auch als Begruendung. Seit
- * `PULSE_KEYFRAME_SECONDS` den Abstand streckbar macht (2026-08-18, bis zu 120
- * s), gilt diese Garantie nicht mehr, und die Regel kippte damit still: bei 30
- * s Abstand wartete ein beitretender Zuschauer bis zu **30 Sekunden** auf sein
- * erstes Bild, ohne dass irgendwo etwas Auffaelliges im Log stand. Live
- * beobachtet am 2026-08-18.
+ * **Warum es keine Fallunterscheidung mehr gibt.** Frueher waehlte die
+ * Oberflaeche RTMPS, wo sie einen Strom mit regelmaessigen Vollbildern
+ * erwartete. Das war vertretbar, solange GARANTIERT alle zwei Sekunden eines im
+ * Strom stand. Seit `PULSE_KEYFRAME_SECONDS` den Abstand streckbar macht
+ * (2026-08-18, bis zu 120 s), gilt diese Garantie nicht mehr, und die Regel
+ * kippte damit still: bei 30 s Abstand wartete ein beitretender Zuschauer bis
+ * zu **30 Sekunden** auf sein erstes Bild, ohne dass irgendwo etwas
+ * Auffaelliges im Log stand. Live beobachtet am 2026-08-18.
  *
  * Statt die Regel um den Abstand zu erweitern — der hier gar nicht bekannt ist,
  * er ist eine Umgebungsvariable des Sidecars — faellt sie ganz weg. Das ist
  * auch die Richtung, in die die Begruendung ohnehin schon zeigte: *der
  * Rueckkanal schadet nirgends, wo er nicht gebraucht wird, bleibt er
  * ungenutzt.* Dazu kommt die **FlexFEC-Paritaet, die es nur ueber WHIP gibt**
- * (2026-08-06: 71 von 71 RTMPS-Sitzungen ohne) — ein AV1-Strom hatte damit
- * bisher gar keinen Verlustschutz.
+ * (2026-08-06: 71 von 71 RTMPS-Sitzungen ohne, 75 von 131 WHIP-Sitzungen mit)
+ * — ein AV1-Strom hatte damit bisher gar keinen Verlustschutz.
  *
  * AV1 ueber WHIP ist kein neuer Weg: der Sidecar bringt dafuer seinen eigenen
  * WebRTC-Sender mit (`linux-hq-sidecar/src/whip/`, ffmpegs Muxer traegt kein
- * AV1), und er laeuft in Produktion, seit Intra-Refresh ausgeliefert wird.
+ * AV1), und er laeuft seit Langem in Produktion.
  *
  * **RTMPS bleibt serverseitig bestehen** (media-svc vergibt weiter solche
  * Token, MediaMTX horcht weiter auf 1936). Wer es braucht — etwa in einem Netz,
  * das UDP sperrt, waehrend TCP durchgeht — kann es dort anfordern; nur waehlt
  * die Oberflaeche es nicht mehr von sich aus.
  *
- * Die beiden Faelle, die den Rueckkanal schon vorher erzwangen, und warum sie
- * ihn brauchen — die Begruendung bleibt lesenswert, weil sie erklaert, wie
- * teuer ein fehlender Rueckkanal wirklich ist:
- *
- * **1. Intra-Refresh.** Die Betriebsart selbst, ausdruecklich gewaehlt.
- *
- * **2. H.264, immer — auch mit abgewaehltem Intra-Refresh.** Das ist seit dem
- * 2026-08-07 nicht mehr die Ausnahme, sondern der Regelfall, und der Grund
- * liegt nicht hier, sondern im Encoder: `h264_amf` bekommt aus Last-Gruenden
+ * **Wie teuer ein fehlender Rueckkanal wirklich ist**, am Beispiel, das die
+ * Regel erzwungen hat: `h264_amf` bekommt aus Last-Gruenden
  * `usage=ultralowlatency` (`win-hq-sidecar/src/encode/opts.rs`, seit dem
  * 2026-07-30, drittelt die Video-Engine-Last), und diese Einstellung schaltet
- * die rollende Auffrischung von sich aus mit ein.
- *
- * **Das Kaestchen aendert daran wieder nichts — und das ist Absicht.** Vom
- * 2026-08-07 bis zum 2026-08-19 schaltete `auffrischung.rs::
- * abschalt_optionen_fuer` `h264_amf` bei abgewaehltem Haken auf
- * `usage=transcoding` und nahm die Auffrischung damit wirklich weg; das kostete
- * aber die sparsame Betriebsart (25,2 statt 10,2 Prozent Video-Engine,
- * nachgemessen), und seit Intra-Refresh abgewaehlt voreingestellt ist, haette
- * das jeder AMD-Windows-Stream gezahlt. Seit dem 2026-08-19 gibt
- * `abschalt_optionen_fuer` fuer `h264_amf` deshalb `&[]` zurueck,
- * `usage=ultralowlatency` bleibt unbedingt stehen — die Vollbilder kommen
- * stattdessen aus `keyframe::Selbsttakt`.
- *
- * Beim Stand von damals galt: Ein H.264-Strom auf AMD hat nach dem Start
- * praktisch kein Vollbild mehr, ganz gleich, was die Oberflaeche bestellt —
- * die Zeile „Vollbilder" im Sidecar-Log ist fuer diesen Encoder nur das
- * Etikett des Wunsches, nicht die Beschreibung des Stroms
- * (`encode/mod.rs::log_encoder_open`).
+ * eine rollende Auffrischung von sich aus mit ein. Ein H.264-Strom auf AMD hat
+ * damit nach dem Start praktisch kein Vollbild mehr — die kommen dort
+ * ausschliesslich aus `keyframe::Selbsttakt` und aus Anforderungen ueber den
+ * Rueckkanal.
  *
  * Belegt in der Produktion am 2026-08-07: derselbe Kanal, dieselben Minuten.
- * H.264 ueber RTMPS ohne Intra-Refresh — 1400 Pakete in 5 s, 0 Verlust, **0
- * dekodierte Bilder**, 25 unbeantwortete Vollbild-Anforderungen, danach
- * zwanzig Neuaufbauten in Folge ueber zwei Minuten, keiner davon mit Bild.
- * Dieselbe Maschine ueber WHIP: 2681 Bilder. AV1 ueber RTMPS: 1146 Bilder (AV1
- * braucht fuer die Auffrischung einen eigenen Schalter, der ohne Wunsch nicht
- * gesetzt wird — deshalb ist dort ein Vollbild je zwei Sekunden im Strom).
+ * H.264 ueber RTMPS — 1400 Pakete in 5 s, 0 Verlust, **0 dekodierte Bilder**,
+ * 25 unbeantwortete Vollbild-Anforderungen, danach zwanzig Neuaufbauten in
+ * Folge ueber zwei Minuten, keiner davon mit Bild. Dieselbe Maschine ueber
+ * WHIP: 2681 Bilder.
  *
  * **Warum nicht auf AMD eingeschraenkt**, obwohl nur dieser Encoder betroffen
  * ist: welchen Encoder der Sidecar wirklich oeffnet, entscheidet sich dort und
  * haengt an Hersteller, Plattform und `PULSE_HQ_AMD_D3D12` — die Oberflaeche
  * weiss es nicht zuverlaessig. Eine Regel, die auf eine Vermutung ueber den
  * Encoder baut, waere genau die Sorte stiller Fehlannahme, die diesen Fehler
- * erzeugt hat. Der Rueckkanal schadet nirgends: wo er nicht gebraucht wird,
- * bleibt er ungenutzt, und die FlexFEC-Paritaet gibt es ohnehin nur ueber
- * WHIP (2026-08-06: 71 von 71 RTMPS-Sitzungen ohne, 75 von 131 WHIP-Sitzungen
- * mit).
+ * erzeugt hat.
  *
  * **Warum als Funktion und nicht zweimal ausgeschrieben:** die Regel stand in
  * `StreamControls` und im Auto-Neustart getrennt, und im Auto-Neustart stand
@@ -490,41 +391,9 @@ export function buildStartArgs(
     // richtige Wunschquelle (Profil beim Standplatz-Gerät, sonst der eigene
     // Store), `tenBitPossible(o)` prüft sie EINMAL für alle drei Verwendungen.
     if (tenBitPossible(o)) cleaned.bit_depth = 10;
-    // Die Wahl mitschicken, sobald die Oberflaeche eine getroffen hat — auch
-    // ein `false`. NUR das gar nicht gesetzte Feld bleibt weg, dann entscheidet
-    // im Sidecar `PULSE_INTRA_REFRESH`, und der Pruefstand behaelt seine
-    // Betriebsart.
-    //
-    // **Warum `=== true` hier nicht reichte** (2026-08-03, schwarzes Bild beim
-    // Zuschauer): Der Sidecar haelt die Betriebsart in einer prozessweiten
-    // Variablen (`encode::opts::AUS_PARAMETERN`) und setzt sie nur, wenn das
-    // Feld ankommt. Fehlte es, blieb der Wert des VORIGEN Laufs stehen. Wer
-    // also einmal mit Intra-Refresh gestreamt hatte und danach auf den
-    // Standardweg zurueckschaltete, bekam weiter einen Intra-Refresh-Strom —
-    // aber ueber RTMPS, weil `pushProtokoll()` korrekt auf den Standardweg
-    // schloss. Dieser Strom hat kaum Vollbilder UND keinen Rueckkanal, ueber
-    // den ein Zuschauer eins anfordern koennte: er sieht dauerhaft nichts.
-    //
-    // Gesendet wird der ERFÜLLBARE Wert, nicht der gespeicherte Wunsch
-    // (`intraRefreshPossible`): ein Haken, den dieses FFmpeg nicht einlösen
-    // kann, würde den Start abbrechen. Die Fallunterscheidung bleibt trotzdem
-    // an `!== undefined` hängen, damit der Prüfstand — der ohne Oberfläche
-    // fährt — weiter über `PULSE_INTRA_REFRESH` bestimmt.
-    // **Aus DEMSELBEN Satz, nicht global** (Bughunt-Nachtrag 2026-08-16): beim
-    // Standplatz-Profil hätte `intraRefreshPossible()` die Einstellung des
-    // Besitzers für seine EIGENEN Übertragungen gelesen — der geweckte Rechner
-    // hätte dann etwas anderes gefahren, als im Profil steht. Gesendet wird
-    // weiterhin der ERFÜLLBARE Wert: ein Haken, den dieses FFmpeg nicht
-    // einlösen kann, bräche den Start ab.
-    if (o.intra_refresh !== undefined) {
-      cleaned.intra_refresh = o.intra_refresh === true && stream.intraRefreshAvailable;
-    }
     // HDR nur mitschicken, wenn es erfüllbar ist — ein `hdr: false` wäre
     // dasselbe wie es wegzulassen, und ein `hdr: true`, das der Sidecar nicht
-    // einlösen kann, bräche den Start ab. Anders als bei Intra-Refresh gibt es
-    // hier keinen prozessweiten Rest aus dem vorigen Lauf, den man überschreiben
-    // müsste: HDR steht in den Start-Parametern, nicht in einer Variablen des
-    // Sidecar-Prozesses.
+    // einlösen kann, bräche den Start ab.
     // Auch hier zählt beim Gerät der Wunsch aus dem Profil. HDR hängt an
     // `cleaned.bit_depth` und nicht am Wunsch: was oben durchgefallen ist
     // (kein AV1, Karte kann es nicht), darf hier nicht doch noch ein `hdr:true`

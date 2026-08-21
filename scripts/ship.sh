@@ -91,7 +91,7 @@ else
   # LD_LIBRARY_PATH übersetzt es zwar, aber die Testbinaries finden
   # libavcodec.so.62 nicht und sterben mit Exit 127. Beides sieht wie ein
   # kaputter Test aus und ist keiner.
-  ffmpeg_prefix="${PULSE_FFMPEG_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/pulse/ffmpeg-intra-refresh/prefix}"
+  ffmpeg_prefix="${PULSE_FFMPEG_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/pulse/ffmpeg/prefix}"
   rust_crates=""
   echo "$changed" | grep -q '^streaming/pulse-player/' && rust_crates="$rust_crates streaming/pulse-player"
   echo "$changed" | grep -q '^streaming/linux-hq-sidecar/' && rust_crates="$rust_crates streaming/linux-hq-sidecar"

@@ -187,15 +187,6 @@
       <label class="flex items-start gap-2">
         <Checkbox
         class="mt-0.5 shrink-0"
-        bind:checked={entwurf.intra_refresh}
-        disabled={!stream.intraRefreshAvailable}
-        data-testid="standplatz-profil-intra"
-        />
-        <span class="text-text-bright text-sm font-medium">{m.standplatz_profil_intra()}</span>
-      </label>
-      <label class="flex items-start gap-2">
-        <Checkbox
-        class="mt-0.5 shrink-0"
         bind:checked={entwurf.zehn_bit}
         disabled={!zehnBitMoeglich}
         data-testid="standplatz-profil-zehnbit"

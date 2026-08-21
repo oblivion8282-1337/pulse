@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-21.2",
+      "date": "2026-08-21",
+      "style": "Sachlich",
+      "title": "Eine Einstellung weniger beim Streamen",
+      "intro": "Unter „Erweitert\" im HQ-Fenster stand ein Kästchen namens „Intra-Refresh\". Es ist ersatzlos entfallen.",
+      "items": [
+        "Es hat gesteuert, wie der sendende Rechner das Bild auffrischt: verteilt über viele Bilder statt in regelmässigen Vollbildern. Der Gedanke dahinter war eine gleichmässigere Leitung.",
+        "Gegen den heutigen Vollbild-Abstand hält das nicht mehr stand. Mit Vollbildern ist das Bild schärfer, braucht weniger Daten, und vor allem: geht unterwegs etwas verloren, repariert sich der Strom beim nächsten Vollbild von selbst. Mit der verteilten Auffrischung tat er das nicht.",
+        "Auf Macs gab es die Betriebsart ohnehin nie, und mit H.264 sah das Bild sichtbar schlechter aus."
+      ],
+      "outro": "Wenn du das Kästchen nie angefasst hast, ändert sich für dich nichts. Wer es gesetzt hatte, streamt ab jetzt in der besseren Betriebsart."
+    },
+    {
       "id": "2026-08-21",
       "date": "2026-08-21",
       "style": "Sachlich",

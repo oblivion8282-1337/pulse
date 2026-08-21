@@ -35,10 +35,8 @@ use anyhow::{Result, anyhow};
 /// Aufteilung — H.264 über D3D12, AV1 über AMF — war je Codec begründet und in
 /// der Summe teuer: zwei Encode-Wege, die auseinanderlaufen, zwei Stellen für
 /// jede Option, und Eigenschaften, die nur auf einem der beiden ankommen.
-/// Intra-Refresh ist genau so ein Fall: `h264_d3d12va` nimmt die Option an und
-/// tut nichts damit, `h264_amf` frischt unter `usage=ultralowlatency` von sich
-/// aus auf. Auch `usage` selbst gibt es nur bei AMF — der d3d12va-Zweig liegt
-/// fest bei rund 25 % Video-Engine und lässt sich nicht sparsam stellen.
+/// `usage` ist genau so ein Fall: es gibt das nur bei AMF — der d3d12va-Zweig
+/// liegt fest bei rund 25 % Video-Engine und lässt sich nicht sparsam stellen.
 ///
 /// **Das Risiko, das mitkommt, und es ist benannt:** `h264_amf` auf
 /// D3D11-Eingang ist die Konstellation aus AMF-Issue #455
@@ -283,5 +281,30 @@ impl VideoCodec {
             VideoCodec::Hevc => "hevc_d3d12va",
             VideoCodec::Av1 => "av1_d3d12va",
         }
+    }
+}
+
+/// Der Encoder, den ein Stream mit dieser Kombination wirklich öffnen würde.
+///
+/// Nicht [`VideoCodec::ffmpeg_name`] allein: unter Windows hängt der Name am
+/// **Encode-Weg**, und der kann ein anderer sein, als der Herstellername
+/// vermuten lässt. Wer hier den Herstellernamen nähme, meldete eine Fähigkeit
+/// für einen Encoder, der gar nicht startet.
+///
+/// AMD geht seit dem 2026-08-04 mit jedem Codec über AMF
+/// ([`VideoCodec::encode_path`]). Auseinander gehen die Namen heute noch bei
+/// aktivem `PULSE_HQ_AMD_D3D12=1` und auf Intel; die Abfrage über `encode_path`
+/// bleibt deshalb richtig.
+///
+/// `push_url` leer: die Fähigkeitsmeldung kennt das Ziel noch nicht, und der
+/// Regelweg ist der ohne angemeldeten Sendeweg.
+///
+/// **Lag bis zum 2026-08-21 in `encode/auffrischung.rs`** — dort, weil die
+/// Intra-Refresh-Tabelle sie brauchte. Die ist entfallen, die Frage „welcher
+/// Encoder läuft wirklich" nicht: `encode/hdr.rs` stellt sie weiter.
+pub fn encoder_name(vendor: &str, codec: VideoCodec, push_url: &str) -> Option<&'static str> {
+    match codec.encode_path(vendor, push_url) {
+        EncodePath::D3d12ZeroCopy => Some(codec.d3d12va_name()),
+        _ => codec.ffmpeg_name(vendor).ok(),
     }
 }

@@ -96,10 +96,10 @@ fn abstand_sekunden_aus(roh: Option<&str>) -> f32 {
 
 /// Warnt, wenn jemand den Abstand ueber das Unbedenkliche hinaus streckt.
 ///
-/// Gegenstueck zu `warne_bei_intra_refresh_ohne_rueckkanal` im Linux-Sidecar,
-/// nur ohne dessen Fallunterscheidung: **auf macOS hat KEIN Sendeweg einen
-/// Rueckkanal** (kein eigener WHIP-Sender, kein `request_keyframe`), die
-/// Warnung haengt also allein am Abstand und nicht am Ziel-Format.
+/// Gegenstueck zu `warne_bei_langem_vollbild_abstand_ohne_rueckkanal` im
+/// Linux-Sidecar, nur ohne dessen Pruefung des Ziel-Formats: **auf macOS hat
+/// KEIN Sendeweg einen Rueckkanal** (kein eigener WHIP-Sender, kein
+/// `request_keyframe`), die Warnung haengt also allein am Abstand.
 fn warne_bei_langem_abstand_ohne_rueckkanal() {
     let sekunden = keyframe_abstand_sekunden();
     if sekunden > KEYFRAME_SEKUNDEN_UNBEDENKLICH {

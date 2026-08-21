@@ -202,16 +202,15 @@ fn zerlege(daten: &[u8]) -> Result<Vec<Obu<'_>>> {
 /// `KEY_FRAME` (0) sein.
 ///
 /// **Warum das nicht am Sequenzkopf abzulesen ist** (Windows-Labor,
-/// 2026-08-02): `av1_amf` schreibt im Intra-Refresh-Betrieb an jedem GOP-Rand
-/// einen Sequenzkopf, ohne dass ein Vollbild folgt — gemessen 6 Sequenzkoepfe
-/// auf 1 Vollbild in 360 Bildern. Wer den Kopf als Einstiegspunkt nimmt,
-/// schickt den Zuschauer fuenfmal auf ein Zwischenbild.
+/// 2026-08-02): `av1_amf` schreibt an jedem GOP-Rand einen Sequenzkopf, ohne
+/// dass ein Vollbild folgt — gemessen 6 Sequenzkoepfe auf 1 Vollbild in 360
+/// Bildern. Wer den Kopf als Einstiegspunkt nimmt, schickt den Zuschauer
+/// fuenfmal auf ein Zwischenbild.
 ///
 /// Auf `av1_nvenc` faellt das nicht auf, weil der Encoder den Kopf nur vor
-/// Vollbildern schreibt (am 2026-08-02 auf dieser Karte nachgemessen: 0 Faelle
-/// in beiden Betriebsarten, mit und ohne Intra-Refresh). Das ist eine
-/// Eigenschaft dieses einen Encoders, keine des Formats — und der Paketierer
-/// darf sich nicht darauf verlassen.
+/// Vollbildern schreibt (am 2026-08-02 auf dieser Karte nachgemessen: 0
+/// Faelle). Das ist eine Eigenschaft dieses einen Encoders, keine des Formats
+/// — und der Paketierer darf sich nicht darauf verlassen.
 ///
 /// Das Feld `reduced_still_picture_header` wuerde dieses Bit-Layout aendern; es
 /// gilt nur fuer Einzelbild-Streams und kann in einem Live-Strom nicht
@@ -255,8 +254,8 @@ pub fn paketiere(daten: &[u8], mtu: usize) -> Result<Vec<Nutzlast>> {
     // weiterhin 8 Vollbilder statt 1. Erst das Weglassen hat es beendet.
     //
     // Ungefaehrlich, weil der Kopf in jedem echten Vollbild ohnehin mitsteht:
-    // ein spaet hinzukommender Zuschauer braucht bei Intra-Refresh sowieso eine
-    // Vollbild-Anforderung, und die liefert ihn mit.
+    // ein spaet hinzukommender Zuschauer braucht bei 60 s Vollbild-Abstand
+    // sowieso eine Vollbild-Anforderung, und die liefert ihn mit.
     if !obus.iter().any(ist_vollbild) {
         obus.retain(|o| o.typ != OBU_SEQUENZKOPF);
     }
