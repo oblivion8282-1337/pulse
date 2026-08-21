@@ -162,12 +162,7 @@ impl FfmpegD3d12Encoder {
             (*ctx).hw_frames_ctx = new_ref;
         }
 
-        let mut opts = d3d12va_opts();
-        // Hier ist der Abbruch der ganze Zweck: `h264_d3d12va` NIMMT die
-        // Intra-Refresh-Option an und tut nichts damit (Herleitung in
-        // `auffrischung::optionen_fuer`). Ohne diese Zeile liefe genau der
-        // Fall, gegen den die Betriebsart antritt — und niemand sähe es.
-        super::auffrischung::anwenden(&mut opts, codec_name, cfg.fps)?;
+        let opts = d3d12va_opts();
         warn_unknown_opts(&mut encoder, codec_name, &opts);
         let opened = encoder
             .open_with(opts)

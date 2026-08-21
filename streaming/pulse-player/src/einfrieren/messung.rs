@@ -178,3 +178,12 @@ mod tests {
         );
     }
 }
+
+/// Diagnose der Verlust-Erholung: `PULSE_PLAYER_ERHOLUNG_LOG=1`.
+///
+/// Eigener Schalter und nicht an `takt_log` gehaengt: die beiden beantworten
+/// verschiedene Fragen, und wer die eine sucht, will nicht die andere
+/// mitlesen.
+pub fn erholung_log() -> bool {
+    std::env::var("PULSE_PLAYER_ERHOLUNG_LOG").as_deref() == Ok("1")
+}

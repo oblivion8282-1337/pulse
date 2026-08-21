@@ -21,6 +21,7 @@
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
   import { Input } from '$lib/components/ui/input/index.js';
+  import Select from '$lib/components/form/Select.svelte';
 
   let { guildId }: { guildId: string } = $props();
 
@@ -74,6 +75,16 @@
   let creating = $state(false);
   let expiryIdx = $state(4); // 1 day
   let usesIdx = $state(6); // unlimited
+
+  // Das Auswahlfeld arbeitet mit Strings; die gewählte POSITION bleibt eine
+  // Zahl (Index in die Optionslisten oben) — zurückparsen beim Setzen, damit
+  // `create()` unverändert `EXPIRY_OPTIONS[expiryIdx].value` lesen kann.
+  let expiryAuswahl = $derived(
+    EXPIRY_OPTIONS.map((opt, i) => ({ value: String(i), label: opt.label() })),
+  );
+  let usesAuswahl = $derived(
+    USES_OPTIONS.map((opt, i) => ({ value: String(i), label: opt.label() })),
+  );
 
   async function load() {
     loading = true;
@@ -155,29 +166,23 @@
     <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
       <div class="flex flex-1 flex-col gap-1.5">
         <Label for="invite-expiry">{m.guild_invites_expire_after()}</Label>
-        <select
+        <Select
           id="invite-expiry"
-          bind:value={expiryIdx}
-          class="bg-bg-input border-border text-text-base w-full rounded-md border px-3 py-2 text-sm"
+          value={String(expiryIdx)}
+          options={expiryAuswahl}
+          onchange={(v) => (expiryIdx = Number(v))}
           data-testid="invite-expiry"
-        >
-          {#each EXPIRY_OPTIONS as opt, i (i)}
-            <option value={i}>{opt.label()}</option>
-          {/each}
-        </select>
+        />
       </div>
       <div class="flex flex-1 flex-col gap-1.5">
         <Label for="invite-uses">{m.guild_invites_max_uses()}</Label>
-        <select
+        <Select
           id="invite-uses"
-          bind:value={usesIdx}
-          class="bg-bg-input border-border text-text-base w-full rounded-md border px-3 py-2 text-sm"
+          value={String(usesIdx)}
+          options={usesAuswahl}
+          onchange={(v) => (usesIdx = Number(v))}
           data-testid="invite-uses"
-        >
-          {#each USES_OPTIONS as opt, i (i)}
-            <option value={i}>{opt.label()}</option>
-          {/each}
-        </select>
+        />
       </div>
       <Button onclick={create} disabled={creating} data-testid="invite-create">
         {creating ? m.guild_invites_creating() : m.guild_invites_create()}

@@ -71,7 +71,7 @@ def server_paritaet(fec: int) -> bool:
 
 def ein_lauf(label: str, secs: float, kbps: int) -> dict | None:
     """Einen Prueflauf fahren und seine Messwerte einsammeln."""
-    befehl = [sys.executable, str(HERE / "intraref-verlust.py"),
+    befehl = [sys.executable, str(HERE / "verlust-reparatur.py"),
               "--secs", str(secs), "--label", label, "--muster", "--kbps", str(kbps)]
     env = {**os.environ, "PULSE_PLAYER_FLEXFEC": "1"}
     r = subprocess.run(befehl, capture_output=True, text=True, timeout=secs + 300, env=env)

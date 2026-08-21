@@ -21,7 +21,7 @@ Leitung, gehoert aber nicht zur Paritaet: sie faellt nur an, wenn wirklich
 etwas verloren ging, waehrend die Paritaet (ohne Regelung) immer mitlaeuft.
 Wer beides zusammenwirft, haelt eine gestoerte Messung fuer teure Paritaet.
 
-    ./aufschlag.py intraref-verlust-fec.pcap
+    ./aufschlag.py verlust-reparatur-fec.pcap
     ./aufschlag.py mein.pcap 77.42.71.166
 """
 

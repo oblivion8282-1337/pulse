@@ -142,6 +142,16 @@ pub struct Av1Assembler {
     expect_continuation: bool,
     /// Einheit ist unbrauchbar (Verlust erkannt) und wird verworfen.
     poisoned: bool,
+    /// Seit dem letzten Abholen wurde mindestens eine FERTIGE Einheit
+    /// weggeworfen.
+    ///
+    /// **Warum das neben `poisoned` noch noetig ist.** `poisoned` beschreibt
+    /// die Einheit im Aufbau und ist mit ihr wieder weg; diese Meldung
+    /// ueberlebt sie und geht nach aussen. `push` gibt naemlich fuer beides
+    /// dasselbe `None` zurueck — „noch nicht fertig" und „weggeworfen" —, und
+    /// der Aufrufer muss den Unterschied kennen: nur der zweite Fall ist ein
+    /// Grund, beim Sender ein Vollbild anzufordern.
+    verworfen: bool,
 }
 
 impl Av1Assembler {
@@ -152,8 +162,19 @@ impl Av1Assembler {
     /// Meldet einen Paketverlust. Die laufende Einheit wird verworfen, weil
     /// sie ohne das fehlende Fragment keinen gueltigen Bitstrom mehr ergibt.
     pub fn on_gap(&mut self) {
+        // Eine angefangene Einheit geht hier verloren, und das ist ein Verlust
+        // wie jeder andere. Gemeldet wird trotzdem erst beim Marker (in
+        // `push`): sonst zaehlte ein Verlust, den der Jitter-Puffer ohnehin
+        // schon gemeldet hat, ein zweites Mal — und die Meldung soll heissen
+        // „eine Einheit ist ausgefallen", nicht „es gab ein Ereignis".
         self.reset();
         self.poisoned = true;
+    }
+
+    /// Wurde seit dem letzten Aufruf eine fertige Einheit weggeworfen?
+    /// Holt die Meldung ab und loescht sie.
+    pub fn verworfen_abholen(&mut self) -> bool {
+        std::mem::take(&mut self.verworfen)
     }
 
     fn reset(&mut self) {
@@ -240,6 +261,13 @@ impl Av1Assembler {
         self.expect_continuation = false;
         let poisoned = std::mem::take(&mut self.poisoned);
         let out = self.unit.split().freeze();
+        // Eine Einheit, die es bis zum Marker geschafft hat und trotzdem nicht
+        // herausgeht, ist ausgefallenes BILD — der einzige Punkt, an dem der
+        // Zusammensetzer das sicher weiss. Leere Einheiten zaehlen nicht mit:
+        // da war nichts, was verloren gehen konnte.
+        if poisoned && !out.is_empty() {
+            self.verworfen = true;
+        }
         (!poisoned && !out.is_empty()).then_some(out)
     }
 
@@ -332,6 +360,52 @@ mod tests {
             assert_eq!(dec, v, "Wert {v}");
             assert_eq!(n, enc.len(), "Laenge {v}");
         }
+    }
+
+    /// Der Schaden, den die SEQUENZNUMMERN NICHT verraten.
+    ///
+    /// MediaMTX vergibt beim Weiterreichen neue Sequenznummern (belegt im
+    /// Kopf von `0003-flexfec-on-whep.patch`). Verwirft es selbst ein Bild,
+    /// weil ihm Pakete fehlten, kommt der Rest hier LUECKENLOS gezaehlt an —
+    /// weder der Jitter-Puffer noch die Sequenzpruefung im Wrapper sehen
+    /// etwas. Der einzige Zeuge ist `Z` gegen `expect_continuation`.
+    ///
+    /// **Und genau dieser Zeuge schwieg bis 2026-08-21.** Die Einheit wurde
+    /// richtig verworfen, aber `push` gibt fuer „verworfen" dasselbe `None`
+    /// zurueck wie fuer „noch nicht fertig"; `session.rs` konnte beides nicht
+    /// unterscheiden und forderte kein Vollbild an. Mit `av1_cuvid` — das
+    /// kaputte Daten schluckt statt sie abzulehnen — blieb danach niemand
+    /// uebrig, der die Erholung angestossen haette.
+    #[test]
+    fn verworfene_einheit_wird_gemeldet() {
+        let mut a = Av1Assembler::new();
+        let header = 6u8 << 3;
+
+        let mut p1 = vec![0b0101_0000]; // Z=0 Y=1 W=1 — wird fortgesetzt
+        p1.extend_from_slice(&[header, 0xAA]);
+        assert!(a.push(&p1, false).is_none(), "ohne Marker noch keine Einheit");
+        assert!(!a.verworfen_abholen(), "eine UNFERTIGE Einheit ist kein Verlust");
+
+        // Die Fortsetzung fehlt: dieses Paket faengt neu an (Z=0), obwohl eine
+        // Fortsetzung erwartet war. Sequenznummern spielen hier keine Rolle.
+        let mut p2 = vec![0b0001_0000];
+        p2.extend_from_slice(&[header, 0xBB]);
+        assert!(a.push(&p2, true).is_none(), "vergiftete Einheit darf nicht heraus");
+        assert!(a.verworfen_abholen(), "der Verlust muss nach aussen gemeldet werden");
+        assert!(!a.verworfen_abholen(), "abgeholt ist abgeholt — kein Dauerzustand");
+    }
+
+    /// Gegenprobe: eine heile Einheit darf keinen Verlust melden. Ohne sie
+    /// pruefte der Test darueber nur, dass die Meldung ueberhaupt kommt — und
+    /// ein `verworfen`, das immer true ist, waere gruen.
+    #[test]
+    fn heile_einheit_meldet_keinen_verlust() {
+        let mut a = Av1Assembler::new();
+        let header = 6u8 << 3;
+        let mut pkt = vec![0b0001_0000];
+        pkt.extend_from_slice(&[header, 0xAA, 0xBB]);
+        assert!(a.push(&pkt, true).is_some(), "Einheit ist fertig");
+        assert!(!a.verworfen_abholen(), "nichts verworfen, nichts zu melden");
     }
 
     /// Ein Paket, ein OBU (W=1), kein Fragment: muss mit gesetztem

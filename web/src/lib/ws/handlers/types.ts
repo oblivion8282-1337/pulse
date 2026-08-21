@@ -363,6 +363,12 @@ export type ServerEvent =
        *  Geraete-Kachel gestellt wurde. Wer nicht dieses Geraet ist, lehnt
        *  still ab (`$lib/remote/geraeteanbindung.ts`). */
       device_id?: string;
+      /** Deckt eine Dauerfreigabe (`device_grants`) diese Anfrage? Nur
+       *  gesetzt, wenn überhaupt ein Geraet gemeint ist — eine Anfrage an
+       *  einen Menschen traegt das Feld gar nicht. Vom Gateway aufgeloest
+       *  (Rollen, Kanalmitgliedschaft); der Client prueft nur noch seinen
+       *  Hauptschalter (`$lib/remote/standplatz.svelte.ts`). */
+      freigabe?: boolean;
     }
   // Nur an den STEUERNDEN, unmittelbar nach dem Anlegen der Sitzung und noch
   // bevor die Host-Tabs die Anfrage sehen. Erst damit kennt der Steuernde seine
@@ -397,6 +403,10 @@ export type ServerEvent =
       channel_id: string;
       device: Device;
       removed?: boolean;
+      // Ist diese Abmeldung Teil eines Umstellens (Kanal-/Community-Wechsel),
+      // nicht ein echtes Loeschen? Nur gueltig zusammen mit `removed: true`
+      // (Pruefbefund K-1, 2026-08-20) — s. `nachzugAktion.ts`.
+      moved?: boolean;
     }
   // Der Weckruf an das Geraet selbst: „fang bitte an zu uebertragen".
   | {

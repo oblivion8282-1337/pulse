@@ -30,6 +30,14 @@ from dcc_chat_gateway.models import Guild
 DEFAULT_ATTACHMENT_MAX_SIZE_BYTES = 26214400  # 25 MiB
 DEFAULT_ATTACHMENT_MAX_COUNT = 4
 
+# Wie das Geräte-Limit selbst (siehe ``LIMITS`` unten) NIE als Schutz vor einem
+# Angreifer gedacht — wer ein Gerät eintragen darf, darf auch übertragen, das
+# ist die teurere Handlung. 25 deckt eine Postproduktion mit Luft ab (mehr
+# Schnittplätze als in einem einzelnen Studio üblich) und bleibt trotzdem klein
+# genug, dass ein Client, der sich in einer Schleife neu einträgt, auffällt,
+# bevor er die Kanalliste flutet.
+DEFAULT_MAX_DEVICES_PER_OWNER = 25
+
 #: Kapazität der Ziel-Spalte je Zahlentyp. Rein der DB-Rahmen — semantische
 #: Grenzen zieht die Betreiber-Obergrenze. Ohne diesen Deckel liefe ein
 #: ungeklemmter Wert (Obergrenze NULL = unbegrenzt) in die Spalte und würde als
@@ -91,6 +99,13 @@ LIMITS: tuple[LimitSpec, ...] = (
         "max_channels", "max_channels", "community_max_channels", value_max=_SMALLINT_MAX
     ),
     LimitSpec("max_roles", "max_roles", "community_max_roles", value_max=_SMALLINT_MAX),
+    LimitSpec(
+        "max_devices_per_owner",
+        "max_devices_per_owner",
+        "community_max_devices_per_owner",
+        instance_default=DEFAULT_MAX_DEVICES_PER_OWNER,
+        value_max=_SMALLINT_MAX,
+    ),
     LimitSpec(
         "max_concurrent_streams",
         "max_concurrent_streams",

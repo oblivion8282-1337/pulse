@@ -1,34 +1,30 @@
 #!/usr/bin/env bash
 # Baut die komplette HQ-Kette fuer den Dev-Stack auf dieser Maschine:
-# gepatchtes FFmpeg, den Linux-Sidecar (Sender) und den nativen Player
-# (Empfaenger). Danach kann `scripts/dev-up.fish` alles davon benutzen.
+# FFmpeg, den Linux-Sidecar (Sender) und den nativen Player (Empfaenger).
+# Danach kann `scripts/dev-up.fish` alles davon benutzen.
 #
-# EIN Befehl, weil die drei Teile nur zusammen etwas taugen: der Sidecar sendet
-# Intra-Refresh nur, wenn sein FFmpeg die Option kennt, und der Player ist der
+# EIN Befehl, weil die drei Teile nur zusammen etwas taugen: Sidecar und Player
+# muessen gegen dieselbe FFmpeg-Fassung gebaut sein, und der Player ist der
 # Zuschauer, an dem man das Ergebnis sieht.
 #
 # WAS ES NICHT ANFASST: das System-FFmpeg. Sidecar und Player bekommen einen
-# RPATH auf den eigenen Bau unter ~/.cache/pulse/ffmpeg-intra-refresh/prefix —
+# RPATH auf den eigenen Bau unter ~/.cache/pulse/ffmpeg/prefix —
 # nur diese beiden Programme sehen ihn. Jedes andere Programm auf dem Rechner,
 # `ffmpeg` auf der Kommandozeile eingeschlossen, benutzt weiter das der
 # Distribution.
-#
-# Auf NVIDIA ist der FFmpeg-Teil nicht noetig (`*_nvenc` hat Intra-Refresh
-# upstream), schadet aber auch nicht — das Skript laeuft auf beiden Herstellern
-# gleich.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cache_root="${XDG_CACHE_HOME:-$HOME/.cache}"
-prefix="$cache_root/pulse/ffmpeg-intra-refresh/prefix"
+prefix="$cache_root/pulse/ffmpeg/prefix"
 
-# --- 1. Gepatchtes FFmpeg ---------------------------------------------------
+# --- 1. FFmpeg --------------------------------------------------------------
 #
 # Unbedingt aufrufen: das Skript entscheidet selbst, ob schon etwas da ist
 # (`PULSE_FFMPEG_NEUBAU=1` erzwingt den Neubau). Es kennt den Zielpfad ohnehin —
 # ihn hier ein zweites Mal herzuleiten hiesse, ihn bei einem Umzug an zwei
 # Stellen nachziehen zu muessen.
-bash "$repo_root/streaming/ffmpeg-patches/bootstrap-ffmpeg.sh"
+bash "$repo_root/streaming/ffmpeg-bau/bootstrap-ffmpeg.sh"
 
 # `-Wl,--disable-new-dtags` ist der nicht offensichtliche Teil und darf beim
 # Kuerzen NICHT wegfallen. Ohne ihn schreibt der Linker DT_RUNPATH statt

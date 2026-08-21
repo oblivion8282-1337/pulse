@@ -3144,6 +3144,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "pulse-bildmarke"
+version = "0.1.0"
+
+[[package]]
 name = "pulse-player"
 version = "0.1.0"
 dependencies = [
@@ -3158,6 +3162,7 @@ dependencies = [
  "ffmpeg-next",
  "libloading",
  "pollster",
+ "pulse-bildmarke",
  "pulse-zeigerbild",
  "raw-window-handle",
  "reqwest",

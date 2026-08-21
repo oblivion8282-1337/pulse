@@ -74,11 +74,6 @@ export const stream = $state({
    *  Der Wert reist mit dem Stream bis zum Zuschauer — dort entscheidet er, ob
    *  „Fernsteuerung anfragen" überhaupt erscheint. */
   fernsteuerbar: false,
-  /** True iff das FFmpeg des Sidecars rollenden Intra-Refresh durchreicht
-   *  (`gsr.intra_refresh`). Ohne das verweigert der Encoder-Open den Start —
-   *  der Schalter wird deshalb gar nicht erst angeboten, statt eine
-   *  Fehlermeldung zu produzieren. Fehlt das Feld, bleibt es false. */
-  intraRefreshAvailable: false,
   /** True iff dieser Rechner HDR senden kann (`gsr.hdr`) — also einen Encoder
    *  hat, der PQ/BT.2020 bis in den Strom trägt. **Nicht** die Frage, ob HDR
    *  in Windows gerade eingeschaltet ist: die beantwortet erst der Start, und
@@ -219,7 +214,6 @@ export async function initStream(): Promise<() => void> {
       stream.gsrAvailable = !!h.gsr?.available;
       stream.tenBitAvailable = !!h.gsr?.ten_bit;
       stream.fernsteuerbar = !!h.gsr?.remote_input;
-      stream.intraRefreshAvailable = !!h.gsr?.intra_refresh;
       stream.hdrAvailable = !!h.gsr?.hdr;
     }
   } catch (e) {
@@ -227,7 +221,6 @@ export async function initStream(): Promise<() => void> {
     stream.gsrAvailable = false;
     stream.tenBitAvailable = false;
     stream.hdrAvailable = false;
-    stream.intraRefreshAvailable = false;
     stream.error = String(e);
     // Reset the guard so a later call can retry if the sidecar recovers.
     initialised = false;
@@ -296,6 +289,13 @@ function applyEvent(ev: GsrEvent): void {
   if (ev.ev === 'stopped' && ev.reason === 'sidecar_exit') {
     toast.error(m.stream_stopped_sidecar_exit());
   }
+  // 10-bit-Bildrate wurde am Start begrenzt: Die Quelle (Linux-Portal:
+  // erst im Dialog gewählt) war größer, als die im Panel gewählte Bildrate
+  // für Zuschauer-Decoder verträgt. Der Stream LÄUFT — nur langsamer; die
+  // Ansage erklärt, warum die Anzeige eine andere Rate zeigt als gewählt.
+  if (ev.ev === 'notice' && ev.code === 'fps_begrenzt') {
+    toast.warning(m.stream_fps_capped(), { description: ev.line });
+  }
 }
 
 /**
@@ -332,7 +332,11 @@ function applyEventInner(s: StreamSession, ev: GsrEvent): void {
       if (s.state !== 'live') s.state = 'live';
       s.running = true;
       break;
+    // `notice` trägt dieselbe Zeile zusätzlich zum Toast (unten in
+    // `applyEvent`) ins Log-Fenster — die Ansage gilt dem Nutzer, das Log
+    // ist die Spur.
     case 'log':
+    case 'notice':
       s.lastLog = [...s.lastLog, ev.line].slice(-MAX_LOG_LINES);
       break;
     case 'error':

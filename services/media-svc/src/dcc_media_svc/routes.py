@@ -255,16 +255,15 @@ async def issue_stream_token(
     # Hosts gar nicht erreichen. Der Instanz-OWNER streamt auf die eigene
     # Maschine und behaelt den bewaehrten RTMPS-Weg.
     #
-    # Der Wunsch kam 2026-08-02 dazu, fuer Intra-Refresh: dieser Betriebsart
-    # fehlt ueber RTMPS der RTCP-Rueckkanal, und ohne ihn bekommt ein
-    # beitretender Zuschauer nie sein erstes Vollbild — er saehe gar nichts.
-    # Die Betriebsart entscheidet den Transport also mit.
+    # Der Wunsch kam 2026-08-02 dazu: ueber RTMPS fehlt der RTCP-Rueckkanal,
+    # und ohne ihn wartet ein beitretender Zuschauer bis zum naechsten
+    # regulaeren Vollbild auf sein erstes Bild.
     #
-    # **Seit dem 2026-08-07 auch der CODEC**, und darauf ist beim Lesen der
-    # Zahlen zu achten: der Client wuenscht WHIP jetzt bei JEDEM H.264-Stream,
-    # auch bei abgewaehltem Intra-Refresh (`web/.../settings.svelte.ts::
-    # pushProtokoll`). Grund ist `h264_amf`, das die Auffrischung wegen
-    # `usage=ultralowlatency` ungefragt mitfaehrt — der Strom hat dann kaum
+    # **Seit dem 2026-08-07 entscheidet auch der CODEC mit**, und darauf ist
+    # beim Lesen der Zahlen zu achten: der Client wuenscht WHIP bei JEDEM
+    # H.264-Stream (`web/.../settings.svelte.ts::pushProtokoll`, seit dem
+    # 2026-08-18 ohnehin bei jedem). Grund ist `h264_amf`, das wegen
+    # `usage=ultralowlatency` von sich aus auffrischt — der Strom hat dann kaum
     # Vollbilder, obwohl niemand welche abbestellt hat. In der Produktion am
     # 2026-08-07 belegt: 0 dekodierte Bilder ueber RTMPS gegen 2681 ueber WHIP,
     # derselbe Kanal, dieselben Minuten. Der RTMPS-Anteil faellt dadurch stark;
@@ -272,8 +271,8 @@ async def issue_stream_token(
     #
     # Warum der Wunsch die Owner-Ausnahme schlaegt: die Ausnahme ist eine
     # Bequemlichkeit (der bewaehrte Weg, wo er ohnehin funktioniert), keine
-    # Sicherheitsgrenze. Bliebe sie staerker, koennte ausgerechnet der Betreiber
-    # einer Instanz Intra-Refresh auf ihr nie benutzen.
+    # Sicherheitsgrenze. Bliebe sie staerker, bekaeme ausgerechnet der Betreiber
+    # einer Instanz den Rueckkanal auf ihr nie.
     #
     # Und warum nur nach oben: ein Client, der RTMPS wuenscht, wo der Server
     # WHIP erzwingt, wuerde sich damit den Weg abschneiden, der auf dieser

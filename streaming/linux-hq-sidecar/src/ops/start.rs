@@ -102,24 +102,13 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
     // (der WHEP-Rückfall im Web ist ein `<video>`); danach die HW-Probe. Weil
     // der Codec oben schon auf h264 zurückgefallen sein kann (fehlendes AV1),
     // erledigt derselbe Zweig auch diesen Fall.
-    // Betriebsart vor dem Encoder-Open hinterlegen — `vendor_opts` und die
-    // Prüfung lesen sie von dort (s. `opts::intra_refresh_gewuenscht`).
-    if let Some(an) = requested_intra_refresh(overrides) {
-        crate::encode::opts::intra_refresh_setzen(an);
-    }
-    // Dasselbe Muster, derselbe Grund: die Opus-Paketlänge hängt am Sendeweg,
-    // gebraucht wird sie aber dort, wo die Ziel-URL nicht hinkommt — vor allem
-    // im Aufnahme-Raster. **Vor** dem Aufbau der Aufnahme setzen.
+    // Die Opus-Paketlänge hängt am Sendeweg, gebraucht wird sie aber dort, wo
+    // die Ziel-URL nicht hinkommt — vor allem im Aufnahme-Raster. **Vor** dem
+    // Aufbau der Aufnahme setzen.
     //
-    // Ohne `if let`: es gibt kein „ungesagt". Die URL liegt vor, also steht der
-    // Weg fest, und ein Rest aus dem vorigen Stream wäre hier schlimmer als
-    // eine Vorgabe.
+    // Ohne „ungesagt": die URL liegt vor, also steht der Weg fest, und ein Rest
+    // aus dem vorigen Stream wäre hier schlimmer als eine Vorgabe.
     crate::encode::audio::setze_sendeweg(crate::encode::is_whip_url(&push_url));
-    // Hier stand bis 2026-08-02 eine Warnung, Intra-Refresh trage auf AV1
-    // nicht. Sie war falsch — Begruendung und Gegenmessung stehen bei der
-    // entfernten `traegt_intra_refresh` in `encode/opts.rs`. Ob der Encoder
-    // die Betriebsart wirklich annimmt, entscheidet ohnehin
-    // `intra_refresh_pruefen` vor dem Open, und zwar mit Abbruch statt Warnung.
     let wants_ten_bit = requested_ten_bit(overrides);
     let ten_bit = wants_ten_bit && ten_bit_possible(&codec);
     if wants_ten_bit && !ten_bit {
@@ -218,17 +207,6 @@ pub(crate) fn requested_ten_bit(overrides: Option<&Map<String, Value>>) -> bool 
         .and_then(|o| o.get("bit_depth"))
         .and_then(Value::as_u64)
         == Some(10)
-}
-
-/// Wunsch aus dem Wire-Format lesen: `overrides.intra_refresh` = true|false.
-///
-/// Fehlt das Feld, wird NICHT auf `false` entschieden, sondern gar nicht — dann
-/// bleibt `PULSE_INTRA_REFRESH` zuständig. Sonst könnte ein Client, der das Feld
-/// nicht kennt, dem Prüfstand die Betriebsart unter den Füßen wegziehen.
-pub(crate) fn requested_intra_refresh(overrides: Option<&Map<String, Value>>) -> Option<bool> {
-    overrides
-        .and_then(|o| o.get("intra_refresh"))
-        .and_then(Value::as_bool)
 }
 
 /// Ist der 10-bit-Wunsch bei diesem Codec und dieser Hardware erfüllbar?

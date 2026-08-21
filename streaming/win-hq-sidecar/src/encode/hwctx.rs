@@ -305,7 +305,7 @@ impl HwContext {
             // Getrennt ist NICHT, ob der Treiber P010-Arrays grundsätzlich
             // ablehnt oder nur zusammen mit `RENDER_TARGET` — der 10-bit-Pool
             // hat dieses Bind-Flag immer, die Frage stellt sich hier also nicht.
-            // Messakte `nvidia-2026-08-04-windows-intra-refresh.json`.
+            // Gemessen am 2026-08-04 auf einer RTX 5080.
             //
             // Deshalb hängt die Bauart an **beidem**: am Vendor (AMDs
             // zerrissenes Bild) und am Format (NVIDIAs abgelehntem P010-Array).

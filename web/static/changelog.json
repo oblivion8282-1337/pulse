@@ -2,13 +2,85 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
-      "id": "2026-08-20",
+      "id": "2026-08-21.3",
+      "date": "2026-08-21",
+      "style": "Sachlich",
+      "title": "Eine Einstellung weniger beim Streamen",
+      "intro": "Unter „Erweitert\" im HQ-Fenster stand ein Kästchen namens „Intra-Refresh\". Es ist ersatzlos entfallen.",
+      "items": [
+        "Es hat gesteuert, wie der sendende Rechner das Bild auffrischt: verteilt über viele Bilder statt in regelmässigen Vollbildern. Der Gedanke dahinter war eine gleichmässigere Leitung.",
+        "Gegen den heutigen Vollbild-Abstand hält das nicht mehr stand. Mit Vollbildern ist das Bild schärfer, braucht weniger Daten, und vor allem: geht unterwegs etwas verloren, repariert sich der Strom beim nächsten Vollbild von selbst. Mit der verteilten Auffrischung tat er das nicht.",
+        "Auf Macs gab es die Betriebsart ohnehin nie, und mit H.264 sah das Bild sichtbar schlechter aus."
+      ],
+      "outro": "Wenn du das Kästchen nie angefasst hast, ändert sich für dich nichts. Wer es gesetzt hatte, streamt ab jetzt in der besseren Betriebsart."
+    },
+    {
+      "id": "2026-08-21.2",
+      "date": "2026-08-21",
+      "style": "Sachlich",
+      "title": "Ruhigeres und schärferes Bild beim Zuschauen",
+      "intro": "Die Verbesserung von heute Vormittag hatte eine Kehrseite: der Player forderte oft ein frisches Vollbild an, obwohl gar nichts fehlte. Das kostete Bildschärfe, ohne etwas zu verbessern.",
+      "items": [
+        "Der Player hat bisher aus den Zeitabständen zwischen den Bildern geschlossen, ob eines fehlt. Diese Rechnung kann zwei Fälle nicht unterscheiden: ein Bild ging verloren, oder der sendende Rechner hat für diesen Moment gar keines erzeugt. Beides sieht in der Zeit gleich aus.",
+        "Jetzt trägt der Strom eine laufende Bildnummer. Fehlt eine Nummer, ist wirklich etwas verlorengegangen; sind die Nummern lückenlos, ist alles da, auch wenn zwischen zwei Bildern mehr Zeit lag.",
+        "Für dich heißt das: bei ruhigem Bildinhalt bleibt die Übertragung ruhig, und die verfügbare Bandbreite geht in Bilddetail statt in überflüssige Vollbilder. Geht wirklich etwas verloren, wird es genauso schnell repariert wie bisher."
+      ],
+      "outro": "Wirkt, sobald sendender und empfangender Rechner aktualisiert sind."
+    },
+    {
+      "id": "2026-08-21",
+      "date": "2026-08-21",
+      "style": "Sachlich",
+      "title": "Bild erholt sich nach Störungen sofort",
+      "intro": "Wer einen Stream ansieht, hatte bei einer unruhigen Leitung des Senders lange Standbilder — gemessen bis zu einer Minute am Stück. Das ist behoben.",
+      "items": [
+        "Geht unterwegs ein einziges Bild verloren, reisst die Kette: fast jedes Bild beschreibt nur die Änderung gegenüber dem vorigen, und ein Vollbild kommt regulär erst nach einer Minute. Bis dahin stand das Bild still.",
+        "Der Player erkennt den Ausfall jetzt selbst — am fortlaufenden Zeitstempel, den jedes Bild vom Sender mitbringt — und fordert sofort ein frisches Vollbild an. An der echten Leitung gemessen: aus 60 Sekunden Standbild wurde kein Standbild.",
+        "Auf Rechnern mit NVIDIA-Grafikkarte fiel es besonders auf. Deren Bild-Dekodierer meldet eine Störung nicht, sondern zeigt einfach weiter dasselbe Bild — es gab damit niemanden, der die Erholung angestossen hätte.",
+        "Die Notbremse gegen ein eingefrorenes Bild greift ebenfalls wieder. Sie richtete sich nach dem Abstand der Vollbilder und wartete dadurch zuletzt über 75 Sekunden."
+      ],
+      "outro": "Am Sender ändert sich nichts — der Verlust auf der Leitung bleibt, nur bemerkt und behebt ihn der Zuschauer jetzt sofort."
+    },
+    {
+      "id": "2026-08-20.4",
       "date": "2026-08-20",
       "style": "Sachlich",
       "title": "Bildschirmteilen auf dem Mac: schneller da, sparsamer unterwegs",
       "items": [
         "Kommst du zu einem laufenden Stream vom Mac dazu, siehst du jetzt sofort ein Bild. Bisher musstest du warten, bis der sendende Rechner von sich aus das nächste Vollbild schickte.",
         "Ein Mac schickt beim Teilen deutlich weniger Daten: Vollbilder gehen jetzt im gleichen Abstand hinaus wie unter Windows und Linux, statt alle zwei Sekunden. Ein Vollbild ist rund fünfundzwanzigmal so groß wie ein normales."
+      ]
+    },
+    {
+      "id": "2026-08-20.3",
+      "date": "2026-08-20",
+      "style": "Sachlich",
+      "title": "Auswahllisten in neuem Gewand",
+      "items": [
+        "Alle Ausklapplisten sind einheitlich gestaltet: dunkler Hintergrund, sanfte Einblendung, Haken am gewählten Eintrag, Tastaturbedienung und Tippsuche.",
+        "Geschlossen fügen sich Auswahlfelder jetzt passgenau neben Eingabefeldern ein — gleiche Form, gleicher Fokus-Ring."
+      ]
+    },
+    {
+      "id": "2026-08-20.2",
+      "date": "2026-08-20",
+      "style": "Sachlich",
+      "title": "Bildrate jetzt Auswahlliste statt Freifeld",
+      "items": [
+        "Die Bildrate beim Streamen wird aus einer Liste gewählt — von 25 bis 144 Bilder pro Sekunde, dazu ein Standardwert. 25 ist für PAL-Inhalte (europäisches Fernsehen) mit dabei.",
+        "Bei AV1 mit 10 bit passt sich die Liste an die gewählte Auflösung an: Kombinationen, die das Dekodieren auf manchen Zuschauer-Rechnern überfordern, werden gar nicht erst angeboten. Vorher konnte ein solcher Strom beim Zuschauer stehen bleiben oder ganz ausfallen.",
+        "Ist die Aufnahmequelle beim Start größer, als die gewählte Bildrate verträgt (etwa bei „Original\" unter Linux), wird die Bildrate automatisch passend begrenzt und darauf hingewiesen — der Stream läuft trotzdem."
+      ]
+    },
+    {
+      "id": "2026-08-20",
+      "date": "2026-08-20",
+      "style": "Sachlich",
+      "title": "Standplatz-Geräte: Verwaltung von jedem Rechner aus",
+      "items": [
+        "Ein Standplatz-Gerät lässt sich jetzt von jedem deiner Rechner aus verwalten, nicht nur von ihm selbst: umbenennen, in eine andere Community oder einen anderen Kanal stellen, entfernen.",
+        "Wer ein Gerät dauerhaft ohne Rückfrage übernehmen darf, legst du ebenfalls von überall fest — und kannst dafür jetzt auch ganze Rollen statt nur einzelner Personen freigeben.",
+        "Die Höchstzahl an Geräten je Besitzer und Community lässt sich jetzt von den Community-Einstellungen aus anpassen."
       ]
     },
     {
@@ -865,26 +937,6 @@
       ]
     },
     {
-      "id": "2026-07-17.11",
-      "date": "2026-07-17",
-      "style": "Sachlich",
-      "title": "Android: Voice im Auto nicht mehr zu leise",
-      "items": [
-        "Behoben: Beim Voice-Chat über Bluetooth im Auto wurde der Ton über den Medien-Kanal ausgegeben und war dadurch sehr leise. Voice läuft jetzt über den Telefon-Kanal — deutlich lauter und über den richtigen Lautstärkeregler steuerbar."
-      ]
-    },
-    {
-      "id": "2026-07-17.10",
-      "date": "2026-07-17",
-      "style": "Sachlich",
-      "title": "Windows: Zuverlässigeres Auto-Update",
-      "items": [
-        "Der Update-Bildschirm beim Start entfällt. Neue Versionen werden im Hintergrund geladen.",
-        "Ein Hinweis meldet, sobald ein Update bereitliegt, und installiert es auf Klick über den gewohnten Installer.",
-        "Wer nicht klickt, bekommt das Update automatisch beim nächsten Beenden — niemand bleibt auf einer alten Version hängen."
-      ]
-    },
-    {
       "id": "2026-07-17.9",
       "date": "2026-07-17",
       "style": "Sachlich",
@@ -963,6 +1015,26 @@
       "items": [
         "Wenn zwei Rollen dieselbe Position haben und sich ihre Kanal-Rechte widersprechen, wird das Ergebnis jetzt immer gleich aufgelöst. Vorher konnte dasselbe Recht ohne erkennbaren Grund zwischen erlaubt und verweigert wechseln.",
         "Die Desktop-App meldet Schreibfehler zum HQ-Streaming-Helfer jetzt sauber, statt sie stillschweigend zu verlieren."
+      ]
+    },
+    {
+      "id": "2026-07-17.11",
+      "date": "2026-07-17",
+      "style": "Sachlich",
+      "title": "Android: Voice im Auto nicht mehr zu leise",
+      "items": [
+        "Behoben: Beim Voice-Chat über Bluetooth im Auto wurde der Ton über den Medien-Kanal ausgegeben und war dadurch sehr leise. Voice läuft jetzt über den Telefon-Kanal — deutlich lauter und über den richtigen Lautstärkeregler steuerbar."
+      ]
+    },
+    {
+      "id": "2026-07-17.10",
+      "date": "2026-07-17",
+      "style": "Sachlich",
+      "title": "Windows: Zuverlässigeres Auto-Update",
+      "items": [
+        "Der Update-Bildschirm beim Start entfällt. Neue Versionen werden im Hintergrund geladen.",
+        "Ein Hinweis meldet, sobald ein Update bereitliegt, und installiert es auf Klick über den gewohnten Installer.",
+        "Wer nicht klickt, bekommt das Update automatisch beim nächsten Beenden — niemand bleibt auf einer alten Version hängen."
       ]
     },
     {
@@ -1569,38 +1641,6 @@
       ]
     },
     {
-      "id": "2026-07-01.12",
-      "date": "2026-07-01",
-      "style": "Sachlich",
-      "title": "Sprach-Channel: Ton kommt nach Gerätewechsel sofort auf dem neuen Gerät",
-      "items": [
-        "Wer in den Einstellungen ein anderes Wiedergabegerät wählt, hört die Sprach-Channel-Teilnehmer jetzt sofort darüber — vorher war dafür ein Neuladen nötig."
-      ]
-    },
-    {
-      "id": "2026-07-01.11",
-      "date": "2026-07-01",
-      "style": "Sachlich",
-      "title": "Sprach-Ton über Bluetooth verbessert (Android-App)",
-      "intro": "In der Android-App kommt der Ton in Sprach-Channels über Bluetooth — etwa im Auto — jetzt lauter an.",
-      "items": [
-        "Die Lautstärketasten regeln im Sprach-Channel den Anruf-Pegel statt der Medien-Lautstärke.",
-        "Verbundene Bluetooth-Geräte werden zuverlässiger für die Wiedergabe genutzt."
-      ]
-    },
-    {
-      "id": "2026-07-01.10",
-      "date": "2026-07-01",
-      "style": "Sachlich",
-      "title": "Ablage: Toolbar aufgeräumt, Trash-Modus deutlich",
-      "items": [
-        "Die Schaltflächen in der Ablage-Werkzeugleiste zeigen jetzt nur noch Symbole statt Beschriftungen — Werkzeuge wie in einem Datei-Manager.",
-        "Ein neuer Ordner wird jetzt in einem eigenen Dialog angelegt, nicht mehr in einer eingeblendeten Zeile unter der Werkzeugleiste.",
-        "Im Papierkorb-Modus zeigt eine rote Leiste oberhalb der Liste, dass man gerade gelöschte Einträge sieht, und enthält direkt die Schaltfläche „Papierkorb leeren“.",
-        "Ordner-Karten und Listen-Zeilen haben jetzt deutlichere Umrandungen, damit sie besser voneinander abgegrenzt sind."
-      ]
-    },
-    {
       "id": "2026-07-01.9",
       "date": "2026-07-01",
       "style": "Sachlich",
@@ -1679,6 +1719,38 @@
       ]
     },
     {
+      "id": "2026-07-01.12",
+      "date": "2026-07-01",
+      "style": "Sachlich",
+      "title": "Sprach-Channel: Ton kommt nach Gerätewechsel sofort auf dem neuen Gerät",
+      "items": [
+        "Wer in den Einstellungen ein anderes Wiedergabegerät wählt, hört die Sprach-Channel-Teilnehmer jetzt sofort darüber — vorher war dafür ein Neuladen nötig."
+      ]
+    },
+    {
+      "id": "2026-07-01.11",
+      "date": "2026-07-01",
+      "style": "Sachlich",
+      "title": "Sprach-Ton über Bluetooth verbessert (Android-App)",
+      "intro": "In der Android-App kommt der Ton in Sprach-Channels über Bluetooth — etwa im Auto — jetzt lauter an.",
+      "items": [
+        "Die Lautstärketasten regeln im Sprach-Channel den Anruf-Pegel statt der Medien-Lautstärke.",
+        "Verbundene Bluetooth-Geräte werden zuverlässiger für die Wiedergabe genutzt."
+      ]
+    },
+    {
+      "id": "2026-07-01.10",
+      "date": "2026-07-01",
+      "style": "Sachlich",
+      "title": "Ablage: Toolbar aufgeräumt, Trash-Modus deutlich",
+      "items": [
+        "Die Schaltflächen in der Ablage-Werkzeugleiste zeigen jetzt nur noch Symbole statt Beschriftungen — Werkzeuge wie in einem Datei-Manager.",
+        "Ein neuer Ordner wird jetzt in einem eigenen Dialog angelegt, nicht mehr in einer eingeblendeten Zeile unter der Werkzeugleiste.",
+        "Im Papierkorb-Modus zeigt eine rote Leiste oberhalb der Liste, dass man gerade gelöschte Einträge sieht, und enthält direkt die Schaltfläche „Papierkorb leeren“.",
+        "Ordner-Karten und Listen-Zeilen haben jetzt deutlichere Umrandungen, damit sie besser voneinander abgegrenzt sind."
+      ]
+    },
+    {
       "id": "2026-07-01",
       "date": "2026-07-01",
       "style": "Sachlich",
@@ -1738,15 +1810,6 @@
       "title": "Eigenen Ton jetzt auch im Voice-Channel testen",
       "items": [
         "Du kannst dich jetzt auch in einem Voice-Channel selbst abhören, um Mikrofon und Lautstärke zu testen — sogar wenn du stummgeschaltet bist. Niemand sonst hört dabei etwas, und die Pegelanzeigen sowie der Verstärkungsregler reagieren live."
-      ]
-    },
-    {
-      "id": "2026-06-29.10",
-      "date": "2026-06-29",
-      "style": "Freundlich",
-      "title": "Löse jeden Stream in ein eigenes Fenster",
-      "items": [
-        "Du kannst jetzt jeden deiner Streams einzeln in ein eigenes Fenster abkoppeln — nicht mehr nur den ersten. Die anderen bleiben dabei im Hauptfenster offen."
       ]
     },
     {
@@ -1819,6 +1882,15 @@
       "items": [
         "Wenn du über eine Einladung in einer Nachricht einer Community beigetreten bist, zeigt der Button danach „Beigetreten\" und ist nicht mehr anklickbar.",
         "Vorher blieb der Beitreten-Button aktiv, obwohl du schon Mitglied warst."
+      ]
+    },
+    {
+      "id": "2026-06-29.10",
+      "date": "2026-06-29",
+      "style": "Freundlich",
+      "title": "Löse jeden Stream in ein eigenes Fenster",
+      "items": [
+        "Du kannst jetzt jeden deiner Streams einzeln in ein eigenes Fenster abkoppeln — nicht mehr nur den ersten. Die anderen bleiben dabei im Hauptfenster offen."
       ]
     },
     {
@@ -2302,52 +2374,6 @@
       ]
     },
     {
-      "id": "2026-06-17.13",
-      "date": "2026-06-17",
-      "style": "Sachlich",
-      "title": "Räumlicher Klang in Sprachkanälen",
-      "items": [
-        "Neuer räumlicher Klang für Sprachkanäle: Teilnehmer lassen sich rund um dich anordnen, sodass mehrere gleichzeitig Sprechende leichter auseinanderzuhalten sind.",
-        "Ein- und ausschalten sowie die Qualität wählst du per Rechtsklick auf den Sprachkanal oder in den Audio-Einstellungen.",
-        "Bei aktivem räumlichen Klang erscheint im Sprachkanal links eine Kreis-Ansicht, in der du die Teilnehmer per Ziehen positionierst.",
-        "Verfügbar am Desktop; Kopfhörer werden empfohlen."
-      ]
-    },
-    {
-      "id": "2026-06-17.12",
-      "date": "2026-06-17",
-      "style": "Sachlich",
-      "title": "Fehlerbehebungen und Stabilität",
-      "items": [
-        "Erwähnungen (@Name) werden in Nachrichten wieder farblich hervorgehoben.",
-        "Die Fenster-Auswahl beim Bildschirm-Streaming funktioniert wieder (macOS).",
-        "Versehentliche Erwähnungs-Benachrichtigungen beim Neutippen wurden behoben.",
-        "Eine vom Admin gesetzte Stummschaltung bleibt jetzt auch nach dem Aufheben von \"Ton aus\" bestehen.",
-        "Mehrere Stabilitäts- und Aufräum-Verbesserungen bei Voice und Streaming.",
-        "Sicherheitskorrekturen in der Rechte- und Server-Verwaltung."
-      ]
-    },
-    {
-      "id": "2026-06-17.11",
-      "date": "2026-06-17",
-      "style": "Sachlich",
-      "title": "HQ-Streaming bei systemweiter Installation",
-      "items": [
-        "HQ-Streaming funktioniert jetzt auch, wenn Pulse für alle Benutzer installiert wurde. Vorher tauchte das Streaming-Icon in diesem Fall nicht auf."
-      ]
-    },
-    {
-      "id": "2026-06-17.10",
-      "date": "2026-06-17",
-      "style": "Sachlich",
-      "title": "Manuelle Installation für eigene Server vervollständigt",
-      "items": [
-        "Im Einrichten-Dialog gibt es jetzt einen klar sichtbaren Bereich „Manuelle Installation“ — direkt unter dem Schnell-Installer — mit einem Knopf, der eine fertige Konfigurationsdatei (.env) herunterlädt, inklusive aller Zugangsdaten.",
-        "Der Link zur ausführlichen Schritt-für-Schritt-Anleitung ist deutlicher sichtbar.",
-        "Die Anleitung wird wieder mit korrekten Umlauten angezeigt."
-      ]
-    },
-    {
       "id": "2026-06-17.9",
       "date": "2026-06-17",
       "style": "Sachlich",
@@ -2426,6 +2452,52 @@
       "items": [
         "Über den Link „Missbrauch melden“ im Rechtliches-Bereich (unten auf der Anmelde- und Registrierungsseite) lassen sich jetzt rechtswidrige oder missbräuchliche Inhalte direkt melden — auch ohne Anmeldung. Eine E-Mail-Adresse anzugeben ist freiwillig und nur für eventuelle Rückfragen.",
         "Eingegangene Meldungen werden vom Pulse-Team gesichtet und bearbeitet. Betrifft eine Meldung eine selbst gehostete Pulse-Instanz, kann sie an den jeweiligen Betreiber weitergeleitet werden, damit dieser die Inhalte prüfen kann."
+      ]
+    },
+    {
+      "id": "2026-06-17.13",
+      "date": "2026-06-17",
+      "style": "Sachlich",
+      "title": "Räumlicher Klang in Sprachkanälen",
+      "items": [
+        "Neuer räumlicher Klang für Sprachkanäle: Teilnehmer lassen sich rund um dich anordnen, sodass mehrere gleichzeitig Sprechende leichter auseinanderzuhalten sind.",
+        "Ein- und ausschalten sowie die Qualität wählst du per Rechtsklick auf den Sprachkanal oder in den Audio-Einstellungen.",
+        "Bei aktivem räumlichen Klang erscheint im Sprachkanal links eine Kreis-Ansicht, in der du die Teilnehmer per Ziehen positionierst.",
+        "Verfügbar am Desktop; Kopfhörer werden empfohlen."
+      ]
+    },
+    {
+      "id": "2026-06-17.12",
+      "date": "2026-06-17",
+      "style": "Sachlich",
+      "title": "Fehlerbehebungen und Stabilität",
+      "items": [
+        "Erwähnungen (@Name) werden in Nachrichten wieder farblich hervorgehoben.",
+        "Die Fenster-Auswahl beim Bildschirm-Streaming funktioniert wieder (macOS).",
+        "Versehentliche Erwähnungs-Benachrichtigungen beim Neutippen wurden behoben.",
+        "Eine vom Admin gesetzte Stummschaltung bleibt jetzt auch nach dem Aufheben von \"Ton aus\" bestehen.",
+        "Mehrere Stabilitäts- und Aufräum-Verbesserungen bei Voice und Streaming.",
+        "Sicherheitskorrekturen in der Rechte- und Server-Verwaltung."
+      ]
+    },
+    {
+      "id": "2026-06-17.11",
+      "date": "2026-06-17",
+      "style": "Sachlich",
+      "title": "HQ-Streaming bei systemweiter Installation",
+      "items": [
+        "HQ-Streaming funktioniert jetzt auch, wenn Pulse für alle Benutzer installiert wurde. Vorher tauchte das Streaming-Icon in diesem Fall nicht auf."
+      ]
+    },
+    {
+      "id": "2026-06-17.10",
+      "date": "2026-06-17",
+      "style": "Sachlich",
+      "title": "Manuelle Installation für eigene Server vervollständigt",
+      "items": [
+        "Im Einrichten-Dialog gibt es jetzt einen klar sichtbaren Bereich „Manuelle Installation“ — direkt unter dem Schnell-Installer — mit einem Knopf, der eine fertige Konfigurationsdatei (.env) herunterlädt, inklusive aller Zugangsdaten.",
+        "Der Link zur ausführlichen Schritt-für-Schritt-Anleitung ist deutlicher sichtbar.",
+        "Die Anleitung wird wieder mit korrekten Umlauten angezeigt."
       ]
     },
     {
@@ -2585,57 +2657,6 @@
       ]
     },
     {
-      "id": "2026-06-12.14",
-      "date": "2026-06-12",
-      "style": "Sachlich",
-      "title": "Mehrere kleine Verbesserungen",
-      "items": [
-        "Das Profilbild lässt sich jetzt direkt im Profil-Tab der Einstellungen ändern.",
-        "Kanäle können jetzt ein Thema bekommen — beim Umbenennen eines Kanals gibt es ein Themenfeld.",
-        "Eine Watch-Party zeigt jetzt an, wie viele Personen gerade zuschauen.",
-        "Twitch-VODs starten jetzt an der im Link angegebenen Stelle (z. B. ?t=1h2m3s).",
-        "Das Tamagotchi-Widget zeigt beim Laden sofort den korrekten Stand statt kurzzeitig Startwerte."
-      ]
-    },
-    {
-      "id": "2026-06-12.13",
-      "date": "2026-06-12",
-      "style": "Sachlich",
-      "title": "Datenschutz-Einstellungen aufgeräumt",
-      "items": [
-        "Die Auswahl, wer dir Direktnachrichten schicken darf, wurde aus den Datenschutz-Einstellungen entfernt: Direktnachrichten sind ohnehin nur zwischen Freunden möglich, die Optionen hatten keine zusätzliche Wirkung.",
-        "Adminbereich: Beim Webcam-Limit steht jetzt dabei, dass es eine Vorgabe für Clients und keine erzwungene Server-Grenze ist."
-      ]
-    },
-    {
-      "id": "2026-06-12.12",
-      "date": "2026-06-12",
-      "style": "Sachlich",
-      "title": "HQ-Streams nur noch für Mitglieder sichtbar",
-      "items": [
-        "Ein HQ-Stream lässt sich jetzt nur noch ansehen, wenn man Mitglied der jeweiligen Community ist und Zugriff auf den Kanal hat. Für Mitglieder ändert sich nichts."
-      ]
-    },
-    {
-      "id": "2026-06-12.11",
-      "date": "2026-06-12",
-      "style": "Sachlich",
-      "title": "Moderationsaktionen werden beim Auflösen ausgeführt",
-      "items": [
-        "Wird ein gemeldeter Beitrag mit einer Aktion (Bann, Kick oder Nachricht löschen) abgeschlossen, führt Pulse diese Aktion jetzt tatsächlich aus — vorher wurde sie nur vermerkt.",
-        "Die Aktion greift nur, wenn der Moderator die passende Berechtigung hat; andernfalls bleibt die Meldung offen."
-      ]
-    },
-    {
-      "id": "2026-06-12.10",
-      "date": "2026-06-12",
-      "style": "Sachlich",
-      "title": "Moderations-Protokoll erfasst mehr Aktionen",
-      "items": [
-        "Moderationsaktionen (Bann, Aufheben eines Banns, Kick, Rollenänderungen und das Löschen fremder Nachrichten) erscheinen jetzt im Moderations-Protokoll."
-      ]
-    },
-    {
       "id": "2026-06-12.9",
       "date": "2026-06-12",
       "style": "Sachlich",
@@ -2714,6 +2735,57 @@
       ]
     },
     {
+      "id": "2026-06-12.14",
+      "date": "2026-06-12",
+      "style": "Sachlich",
+      "title": "Mehrere kleine Verbesserungen",
+      "items": [
+        "Das Profilbild lässt sich jetzt direkt im Profil-Tab der Einstellungen ändern.",
+        "Kanäle können jetzt ein Thema bekommen — beim Umbenennen eines Kanals gibt es ein Themenfeld.",
+        "Eine Watch-Party zeigt jetzt an, wie viele Personen gerade zuschauen.",
+        "Twitch-VODs starten jetzt an der im Link angegebenen Stelle (z. B. ?t=1h2m3s).",
+        "Das Tamagotchi-Widget zeigt beim Laden sofort den korrekten Stand statt kurzzeitig Startwerte."
+      ]
+    },
+    {
+      "id": "2026-06-12.13",
+      "date": "2026-06-12",
+      "style": "Sachlich",
+      "title": "Datenschutz-Einstellungen aufgeräumt",
+      "items": [
+        "Die Auswahl, wer dir Direktnachrichten schicken darf, wurde aus den Datenschutz-Einstellungen entfernt: Direktnachrichten sind ohnehin nur zwischen Freunden möglich, die Optionen hatten keine zusätzliche Wirkung.",
+        "Adminbereich: Beim Webcam-Limit steht jetzt dabei, dass es eine Vorgabe für Clients und keine erzwungene Server-Grenze ist."
+      ]
+    },
+    {
+      "id": "2026-06-12.12",
+      "date": "2026-06-12",
+      "style": "Sachlich",
+      "title": "HQ-Streams nur noch für Mitglieder sichtbar",
+      "items": [
+        "Ein HQ-Stream lässt sich jetzt nur noch ansehen, wenn man Mitglied der jeweiligen Community ist und Zugriff auf den Kanal hat. Für Mitglieder ändert sich nichts."
+      ]
+    },
+    {
+      "id": "2026-06-12.11",
+      "date": "2026-06-12",
+      "style": "Sachlich",
+      "title": "Moderationsaktionen werden beim Auflösen ausgeführt",
+      "items": [
+        "Wird ein gemeldeter Beitrag mit einer Aktion (Bann, Kick oder Nachricht löschen) abgeschlossen, führt Pulse diese Aktion jetzt tatsächlich aus — vorher wurde sie nur vermerkt.",
+        "Die Aktion greift nur, wenn der Moderator die passende Berechtigung hat; andernfalls bleibt die Meldung offen."
+      ]
+    },
+    {
+      "id": "2026-06-12.10",
+      "date": "2026-06-12",
+      "style": "Sachlich",
+      "title": "Moderations-Protokoll erfasst mehr Aktionen",
+      "items": [
+        "Moderationsaktionen (Bann, Aufheben eines Banns, Kick, Rollenänderungen und das Löschen fremder Nachrichten) erscheinen jetzt im Moderations-Protokoll."
+      ]
+    },
+    {
       "id": "2026-06-12",
       "date": "2026-06-12",
       "style": "Sachlich",
@@ -2777,53 +2849,6 @@
       "title": "Voice-Anzeige im Server-Tooltip verbessert",
       "items": [
         "Wer in einem Voice-Channel sitzt, wird beim Überfahren einer Community jetzt auch dann angezeigt, wenn sie auf einem anderen Server liegt — vorher musste man die Community erst anklicken."
-      ]
-    },
-    {
-      "id": "2026-06-10.14",
-      "date": "2026-06-10",
-      "style": "Sachlich",
-      "title": "Sicherheit und Datenschutz verbessert",
-      "items": [
-        "Benachrichtigungen von selbst-gehosteten Servern zeigen jetzt den Servernamen im Titel, damit sich ein fremder Server nicht als Pulse Cloud ausgeben kann.",
-        "Bilder im SVG-Format lassen sich nicht mehr als Anhang hochladen — sie konnten versteckten Code enthalten.",
-        "Weitere Absicherungen rund um Anmeldung (Zwei-Faktor), Profilbilder und Server-Verbindungen, die im Hintergrund greifen."
-      ]
-    },
-    {
-      "id": "2026-06-10.13",
-      "date": "2026-06-10",
-      "style": "Sachlich",
-      "title": "Profilbilder auf Self-Host-Servern",
-      "items": [
-        "Auf selbst-gehosteten Servern werden jetzt die Profilbilder der Mitglieder angezeigt statt nur der Initialen. Die Bilder werden datenschutzfreundlich nachgeladen — der Server erfährt dabei nicht, welcher Cloud-Account dahintersteht. Bestehende Profilbilder erscheinen, sobald sie einmal neu hochgeladen wurden."
-      ]
-    },
-    {
-      "id": "2026-06-10.12",
-      "date": "2026-06-10",
-      "style": "Sachlich",
-      "title": "Sprachkanal zeigt dich nach Server-Wechsel wieder",
-      "items": [
-        "Bist du in einem Sprachkanal und wechselst zwischendurch zu einem anderen Server und wieder zurück, siehst du dich (und die anderen Teilnehmer) wieder korrekt im Kanal. Vorher konnte die Teilnehmerliste nach dem Zurückwechseln veralten und dich selbst nicht mehr anzeigen, obwohl du noch verbunden warst."
-      ]
-    },
-    {
-      "id": "2026-06-10.11",
-      "date": "2026-06-10",
-      "style": "Sachlich",
-      "title": "Server entfernen heißt jetzt wirklich austreten",
-      "items": [
-        "Entfernst du einen Self-Host-Server aus deiner Liste, trittst du jetzt tatsächlich aus — für einen erneuten Beitritt brauchst du wieder eine Einladung. Vorher wurde nur die lokale Verknüpfung gelöscht und die Mitgliedschaft blieb bestehen. Betreibst du den Server selbst, bleibst du Mitglied (er verschwindet nur aus deiner Ansicht), und wer noch eigene Communitys auf dem Server besitzt, muss sie zuerst übertragen oder löschen."
-      ]
-    },
-    {
-      "id": "2026-06-10.10",
-      "date": "2026-06-10",
-      "style": "Sachlich",
-      "title": "Benachrichtigungs-Untermenü war abgeschnitten",
-      "items": [
-        "Im Rechtsklick-Menü eines Servers öffnet das Untermenü „Benachrichtigungen“ (Alle / Nur Erwähnungen / Stumm) jetzt korrekt — vorher wurde es an der Menükante abgeschnitten und war praktisch unsichtbar."
       ]
     },
     {
@@ -2899,6 +2924,53 @@
       ]
     },
     {
+      "id": "2026-06-10.14",
+      "date": "2026-06-10",
+      "style": "Sachlich",
+      "title": "Sicherheit und Datenschutz verbessert",
+      "items": [
+        "Benachrichtigungen von selbst-gehosteten Servern zeigen jetzt den Servernamen im Titel, damit sich ein fremder Server nicht als Pulse Cloud ausgeben kann.",
+        "Bilder im SVG-Format lassen sich nicht mehr als Anhang hochladen — sie konnten versteckten Code enthalten.",
+        "Weitere Absicherungen rund um Anmeldung (Zwei-Faktor), Profilbilder und Server-Verbindungen, die im Hintergrund greifen."
+      ]
+    },
+    {
+      "id": "2026-06-10.13",
+      "date": "2026-06-10",
+      "style": "Sachlich",
+      "title": "Profilbilder auf Self-Host-Servern",
+      "items": [
+        "Auf selbst-gehosteten Servern werden jetzt die Profilbilder der Mitglieder angezeigt statt nur der Initialen. Die Bilder werden datenschutzfreundlich nachgeladen — der Server erfährt dabei nicht, welcher Cloud-Account dahintersteht. Bestehende Profilbilder erscheinen, sobald sie einmal neu hochgeladen wurden."
+      ]
+    },
+    {
+      "id": "2026-06-10.12",
+      "date": "2026-06-10",
+      "style": "Sachlich",
+      "title": "Sprachkanal zeigt dich nach Server-Wechsel wieder",
+      "items": [
+        "Bist du in einem Sprachkanal und wechselst zwischendurch zu einem anderen Server und wieder zurück, siehst du dich (und die anderen Teilnehmer) wieder korrekt im Kanal. Vorher konnte die Teilnehmerliste nach dem Zurückwechseln veralten und dich selbst nicht mehr anzeigen, obwohl du noch verbunden warst."
+      ]
+    },
+    {
+      "id": "2026-06-10.11",
+      "date": "2026-06-10",
+      "style": "Sachlich",
+      "title": "Server entfernen heißt jetzt wirklich austreten",
+      "items": [
+        "Entfernst du einen Self-Host-Server aus deiner Liste, trittst du jetzt tatsächlich aus — für einen erneuten Beitritt brauchst du wieder eine Einladung. Vorher wurde nur die lokale Verknüpfung gelöscht und die Mitgliedschaft blieb bestehen. Betreibst du den Server selbst, bleibst du Mitglied (er verschwindet nur aus deiner Ansicht), und wer noch eigene Communitys auf dem Server besitzt, muss sie zuerst übertragen oder löschen."
+      ]
+    },
+    {
+      "id": "2026-06-10.10",
+      "date": "2026-06-10",
+      "style": "Sachlich",
+      "title": "Benachrichtigungs-Untermenü war abgeschnitten",
+      "items": [
+        "Im Rechtsklick-Menü eines Servers öffnet das Untermenü „Benachrichtigungen“ (Alle / Nur Erwähnungen / Stumm) jetzt korrekt — vorher wurde es an der Menükante abgeschnitten und war praktisch unsichtbar."
+      ]
+    },
+    {
       "id": "2026-06-10",
       "date": "2026-06-10",
       "style": "Sachlich",
@@ -2953,59 +3025,6 @@
       "title": "Mehr Ruhe auf dem Handy",
       "items": [
         "Der „Was ist neu?“-Hinweis hält sich jetzt vom Handy und der Android-App fern und meldet sich nur noch am Desktop."
-      ]
-    },
-    {
-      "id": "2026-06-08.14",
-      "date": "2026-06-08",
-      "style": "Sachlich",
-      "title": "Darstellungskorrektur am Neuigkeiten-Hinweis",
-      "items": [
-        "Der „Was ist neu?“-Hinweis unten rechts hat wieder einen sichtbaren, deckenden Hintergrund — vorher war er durchsichtig."
-      ]
-    },
-    {
-      "id": "2026-06-08.13",
-      "date": "2026-06-08",
-      "style": "Sachlich",
-      "title": "Android-App: Lautsprecher oder Hörmuschel wählbar",
-      "intro": "Verbesserungen am Ton in der Android-App:",
-      "items": [
-        "Im Sprachkanal kannst du jetzt über ein neues Lautsprecher-Symbol in der Sprach-Leiste zwischen Lautsprecher und Hörmuschel umschalten.",
-        "Der Ton kommt wieder zuverlässiger über den Lautsprecher statt der leisen Hörmuschel.",
-        "Das App-Symbol wird auf moderneren Geräten sauberer dargestellt."
-      ]
-    },
-    {
-      "id": "2026-06-08.12",
-      "date": "2026-06-08",
-      "style": "Sachlich",
-      "title": "Communities verlassen",
-      "intro": "Eine neue Möglichkeit für Mitglieder:",
-      "items": [
-        "Du kannst eine Community jetzt selbst verlassen — Rechtsklick auf das Community-Symbol, dann „Community verlassen“. Das gilt für Communities in der Cloud genauso wie auf selbst gehosteten Servern.",
-        "Nur der Besitzer einer Community kann sie nicht einfach verlassen — er überträgt sie zuerst an jemand anderen oder löscht sie."
-      ]
-    },
-    {
-      "id": "2026-06-08.11",
-      "date": "2026-06-08",
-      "style": "Sachlich",
-      "title": "HQ-Streaming auf selbst gehosteten Servern",
-      "intro": "Eine Korrektur für selbst gehostete Server:",
-      "items": [
-        "Das Starten eines HQ-Streams in einem Sprachkanal auf einem selbst gehosteten Server schlug bisher fehl. Jetzt funktioniert es."
-      ]
-    },
-    {
-      "id": "2026-06-08.10",
-      "date": "2026-06-08",
-      "style": "Sachlich",
-      "title": "Neuigkeiten erscheinen jetzt als Hinweis statt als Fenster",
-      "intro": "Eine Änderung daran, wie dir nach einem Update gezeigt wird, was neu ist:",
-      "items": [
-        "Der „Was ist neu?“-Hinweis öffnet sich nicht mehr als Fenster mitten im Bild, sondern erscheint als Meldung unten rechts.",
-        "Du kannst dabei normal weiterarbeiten — zum Beispiel in einen Sprachkanal wechseln — und die Meldung wegklicken, wenn du sie gelesen hast."
       ]
     },
     {
@@ -3101,6 +3120,59 @@
         "Bevor du einem selbst gehosteten Server beitrittst, richtest du einmalig ein Backup ein. So bleibt deine Server-Liste auch nach einem Gerätewechsel wiederherstellbar."
       ],
       "outro": "Bestehende Konten und Mitgliedschaften bleiben unverändert."
+    },
+    {
+      "id": "2026-06-08.14",
+      "date": "2026-06-08",
+      "style": "Sachlich",
+      "title": "Darstellungskorrektur am Neuigkeiten-Hinweis",
+      "items": [
+        "Der „Was ist neu?“-Hinweis unten rechts hat wieder einen sichtbaren, deckenden Hintergrund — vorher war er durchsichtig."
+      ]
+    },
+    {
+      "id": "2026-06-08.13",
+      "date": "2026-06-08",
+      "style": "Sachlich",
+      "title": "Android-App: Lautsprecher oder Hörmuschel wählbar",
+      "intro": "Verbesserungen am Ton in der Android-App:",
+      "items": [
+        "Im Sprachkanal kannst du jetzt über ein neues Lautsprecher-Symbol in der Sprach-Leiste zwischen Lautsprecher und Hörmuschel umschalten.",
+        "Der Ton kommt wieder zuverlässiger über den Lautsprecher statt der leisen Hörmuschel.",
+        "Das App-Symbol wird auf moderneren Geräten sauberer dargestellt."
+      ]
+    },
+    {
+      "id": "2026-06-08.12",
+      "date": "2026-06-08",
+      "style": "Sachlich",
+      "title": "Communities verlassen",
+      "intro": "Eine neue Möglichkeit für Mitglieder:",
+      "items": [
+        "Du kannst eine Community jetzt selbst verlassen — Rechtsklick auf das Community-Symbol, dann „Community verlassen“. Das gilt für Communities in der Cloud genauso wie auf selbst gehosteten Servern.",
+        "Nur der Besitzer einer Community kann sie nicht einfach verlassen — er überträgt sie zuerst an jemand anderen oder löscht sie."
+      ]
+    },
+    {
+      "id": "2026-06-08.11",
+      "date": "2026-06-08",
+      "style": "Sachlich",
+      "title": "HQ-Streaming auf selbst gehosteten Servern",
+      "intro": "Eine Korrektur für selbst gehostete Server:",
+      "items": [
+        "Das Starten eines HQ-Streams in einem Sprachkanal auf einem selbst gehosteten Server schlug bisher fehl. Jetzt funktioniert es."
+      ]
+    },
+    {
+      "id": "2026-06-08.10",
+      "date": "2026-06-08",
+      "style": "Sachlich",
+      "title": "Neuigkeiten erscheinen jetzt als Hinweis statt als Fenster",
+      "intro": "Eine Änderung daran, wie dir nach einem Update gezeigt wird, was neu ist:",
+      "items": [
+        "Der „Was ist neu?“-Hinweis öffnet sich nicht mehr als Fenster mitten im Bild, sondern erscheint als Meldung unten rechts.",
+        "Du kannst dabei normal weiterarbeiten — zum Beispiel in einen Sprachkanal wechseln — und die Meldung wegklicken, wenn du sie gelesen hast."
+      ]
     },
     {
       "id": "2026-06-08",

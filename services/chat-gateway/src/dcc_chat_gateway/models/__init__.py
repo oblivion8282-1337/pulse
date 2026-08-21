@@ -15,7 +15,15 @@ from dcc_chat_gateway.models.channels import (
     DirectMessageChannel,
 )
 from dcc_chat_gateway.models.community_invites import CommunityInvite
-from dcc_chat_gateway.models.devices import DEVICE_NAME_MAX_LEN, Device
+from dcc_chat_gateway.models.devices import (
+    DEVICE_NAME_MAX_LEN,
+    SUBJECT_EVERYONE,
+    SUBJECT_ROLE,
+    SUBJECT_TYPES,
+    SUBJECT_USER,
+    Device,
+    DeviceGrant,
+)
 from dcc_chat_gateway.models.member_invites import CommunityInviteNotification
 from dcc_chat_gateway.models.dropbox import (
     DROPBOX_KIND_FILE,
@@ -75,6 +83,7 @@ __all__ = [
     "ChatSettings",
     "DEVICE_NAME_MAX_LEN",
     "Device",
+    "DeviceGrant",
     "DirectMessageChannel",
     "DropboxConfig",
     "DropboxFile",
@@ -97,6 +106,10 @@ __all__ = [
     "MessageReaction",
     "PermissionOverwrite",
     "Role",
+    "SUBJECT_EVERYONE",
+    "SUBJECT_ROLE",
+    "SUBJECT_TYPES",
+    "SUBJECT_USER",
     "UserBlock",
     "UserPreference",
     "UserPrivacy",

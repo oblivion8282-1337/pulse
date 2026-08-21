@@ -15,6 +15,7 @@
   import { submitAbuseReport } from '$lib/api/complaints';
   import { auth } from '$lib/stores/auth.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import Select from '$lib/components/form/Select.svelte';
 
   let {
     messageId,
@@ -62,6 +63,12 @@
   let reasonCode = $state<ReasonCode>('spam');
   let body = $state('');
   let submitting = $state(false);
+
+  const grundOptionen = $derived(
+    (Object.entries(REASON_LABELS) as [ReasonCode, () => string][]).map(
+      ([code, labelFn]) => ({ value: code, label: labelFn() }),
+    ),
+  );
 
   const bodyLen = $derived(body.length);
   // Der Freitext ist optional — die Kategorie (reason_code) ist Pflicht und
@@ -145,16 +152,13 @@
         <label class="text-text-base text-sm font-medium" for="report-reason">
           {m.report_message_reason_label()}
         </label>
-        <select
+        <Select
           id="report-reason"
-          bind:value={reasonCode}
-          class="bg-bg-input border-border text-text-base focus:border-primary w-full rounded-md border px-3 py-2 text-sm outline-none"
+          value={reasonCode}
+          options={grundOptionen}
+          onchange={(v) => (reasonCode = v as ReasonCode)}
           data-testid="report-reason-select"
-        >
-          {#each Object.entries(REASON_LABELS) as [code, labelFn] (code)}
-            <option value={code}>{labelFn()}</option>
-          {/each}
-        </select>
+        />
       </div>
 
       <!-- CSAM-Sonderhinweis -->

@@ -22,9 +22,11 @@ Sprecherliste auf.
    Community, Standplatz (ein Sprachkanal) und ein Name (`werkstatt-pc`).
    Der Name ist klein geschrieben, ohne Leerzeichen — Geräte sollen nicht wie
    Menschen heissen können.
-3. **Dauerfreigabe erteilen** — im selben Bild. Wer ohne Rückfrage übernehmen
-   darf (einzelne Personen oder jeder mit dem Recht) und wie lange (bis zum
-   Neustart / acht Stunden / dauerhaft).
+3. **Dauerfreigabe erteilen** — im selben Bild, seit 2026-08-20 auch von jedem
+   anderen Rechner des Besitzers aus nachträglich änderbar. Wer ohne Rückfrage
+   übernehmen darf (einzelne Personen, seit 2026-08-20 auch ganze Rollen, oder
+   jeder mit dem Recht) und wie lange (bis zum Neustart / acht Stunden /
+   dauerhaft).
 4. **Übertragungs-Profil für den Fernbetrieb prüfen** — im selben Reiter unter
    „Womit dieser Rechner überträgt, wenn er geweckt wird". Es gilt **nur**,
    wenn jemand das Gerät aus der Ferne weckt; die eigenen Stream-Einstellungen
@@ -152,10 +154,29 @@ stillschweigend halb zu können.
   Die Anmeldung eines Geräts beweist deshalb „eine Verbindung des Besitzers
   behauptet, dieser Rechner zu sein" — nicht, dass es derselbe physische
   Rechner ist wie beim Eintragen. Auf Self-Hosts steht die Kennung bereits in
-  der Sitzung (`SessionClaims.cert_id`).
-* **Rollen in der Dauerfreigabe.** Heute tragen einzelne Nutzer und „jeder mit
-  dem Recht"; Rollen brauchen den serverseitigen Standplatz (Begründung in
-  `standplatz.svelte.ts`).
+  der Sitzung (`SessionClaims.cert_id`). Die Bindung Zeile↔Maschine (`cert_id`
+  in `chat.devices`) wartet auf genau diesen Ausweisbezug.
 * **Ein eigenes Geräte-Konto** (Stufe 3 des Entwurfs, §11.1): dann überlebt ein
   Gerät seinen Besitzer, und der Chat-Zugang fällt bauartbedingt weg statt über
-  einen Sichtschutz.
+  einen Sichtschutz. Eigener Entwurf dazu:
+  `docs/superpowers/specs/2026-08-20-geraete-konto-entwurf.md`.
+
+**Nachtrag 2026-08-20 — Stufe 2, Fernverwaltung** (voller Entwurf:
+`docs/superpowers/specs/2026-08-20-geraeteverwaltung-design.md`): die Schritte
+oben beschreiben weiterhin die Ersteinrichtung, die am Gerät selbst passieren
+muss. Danach gilt aber nicht mehr, dass nur dieses Gerät sich selbst verwalten
+kann:
+
+* **Die Dauerfreigabe (Schritt 3) liegt seither auf dem Server**
+  (`chat.device_grants`), nicht mehr nur lokal in `pulse-stream.json` — lesen
+  und schreiben darf ausschliesslich der Besitzer, von jedem seiner Rechner
+  aus, auch von Linux, macOS oder dem Browser. Die Zustimmung selbst erteilt
+  weiterhin das Gerät, ein lokaler Hauptschalter am Gerät sticht immer, und ein
+  offline stehendes Gerät stimmt weiterhin nie zu. **Rollen sind jetzt
+  freigebbar**, nicht mehr nur einzelne Nutzer und „jeder mit dem Recht" — der
+  Server löst sie auf, wozu der Client nie in der Lage war.
+* **Standplatz und Community lassen sich von jedem Rechner aus ändern**, nicht
+  nur der Kanal — ein Gerät kann damit die Community wechseln, ohne dass
+  jemand am Rechner steht.
+* **Der Geräte-Deckel ist ein Community-Limit** (Vorgabe 25 statt einer festen
+  Zahl je Besitzer), einstellbar in den Limit-Editoren.

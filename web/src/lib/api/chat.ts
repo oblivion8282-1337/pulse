@@ -522,7 +522,7 @@ export const chatApi = {
    * des Sidecars: `rtmp` → `rtmps://…` (FLV ueber TCP), `whip` → `https://…`
    * (eigener WebRTC-Sender). Nur der WHIP-Weg hat einen Rueckkanal, ueber den
    * die Vollbild-Anforderung eines Zuschauers den Encoder erreicht — deshalb
-   * verlangt Intra-Refresh ihn.
+   * waehlt die Oberflaeche ihn seit dem 2026-08-18 immer.
    */
   getStreamToken(
     channelId: string,

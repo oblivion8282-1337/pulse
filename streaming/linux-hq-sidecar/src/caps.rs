@@ -32,15 +32,6 @@ pub struct Caps {
     /// läuft aber über `<video>`. Heute nur der NVENC-Pfad (s.
     /// `encode::probe_encoder`).
     pub ten_bit: bool,
-    /// Reicht das gelinkte FFmpeg rollenden Intra-Refresh durch?
-    ///
-    /// **Das ist eine Frage an FFmpeg, nicht an die Hardware.** Auf NVIDIA ist
-    /// die Option upstream; auf VAAPI (AMD/Intel) gibt es sie in KEINER
-    /// FFmpeg-Version, dort braucht es unseren Patch
-    /// (`streaming/ffmpeg-patches/`). Ohne ihn bricht der Start ab, statt still
-    /// Keyframes zu fahren — die Oberfläche soll das Kästchen deshalb gar nicht
-    /// erst anbieten.
-    pub intra_refresh: bool,
 }
 
 /// Hardware-encodierbare Video-Codecs auf dieser Maschine, in Präferenzordnung.
@@ -130,19 +121,11 @@ fn probe_all() -> (Caps, bool) {
                 false
             }
         };
-    // Intra-Refresh fragt nur die Optionsliste des Encoders ab — keine
-    // Hardware, kein `open`, also auch nichts, was `definitive` kippen könnte.
-    // Ein einziger Codec genügt: die Option sitzt bei beiden Vendorn im
-    // gemeinsamen Optionsblock, und was hier gemeldet wird, ist die Eigenschaft
-    // des FFmpeg-Baus, nicht die des Codecs.
-    let intra_refresh = out
-        .first()
-        .is_some_and(|c| encode::opts::intra_refresh_verfuegbar(vendor, c));
     tracing::info!(
-        target: "stream", vendor = vendor.slug(), codecs = ?out, ten_bit, intra_refresh,
+        target: "stream", vendor = vendor.slug(), codecs = ?out, ten_bit,
         "HW-Encode-Probe abgeschlossen"
     );
-    (Caps { codecs: out, ten_bit, intra_refresh }, definitive)
+    (Caps { codecs: out, ten_bit }, definitive)
 }
 
 /// Kann diese Maschine den Pulse-Codec (h264/av1) per Hardware encodieren?

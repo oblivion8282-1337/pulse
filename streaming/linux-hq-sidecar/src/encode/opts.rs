@@ -7,7 +7,6 @@
 //!   NVENC:  `rc`  = constqp | vbr | cbr
 //!   VAAPI:  `rc_mode` = CQP | VBR | CBR  (GROSS)
 
-use std::sync::atomic::{AtomicU8, Ordering};
 
 use ffmpeg_next as ffmpeg;
 use ffmpeg::Dictionary;
@@ -80,7 +79,7 @@ pub fn vendor_defaults(vendor: Vendor, codec: &str) -> Dictionary<'static> {
             // **Gemessen am 2026-08-06: der Wechsel aendert gar nichts.** Beide
             // Tunes erzeugen einen BYTE-IDENTISCHEN Bitstrom — geprueft ueber
             // acht Konstellationen (av1_nvenc und h264_nvenc, 2000/4000/10000
-            // kbps, Spiel- und Desktop-Material, mit und ohne Intra-Refresh),
+            // kbps, Spiel- und Desktop-Material),
             // je als MD5 des Videostroms. Kontrolle gegen den Trugschluss
             // "wirkungslos, weil das Argument gar nicht ankommt": derselbe
             // Aufbau mit `tune=hq` liefert sehr wohl einen anderen Strom.
@@ -120,16 +119,15 @@ pub fn vendor_defaults(vendor: Vendor, codec: &str) -> Dictionary<'static> {
             opts.set("tune", "ull");
             opts.set("rc", "cbr");
             opts.set("b_ref_mode", "0");
-            // **`forced-idr` gehoert IMMER hierher, nicht nur zu Intra-Refresh**
+            // **`forced-idr` gehoert IMMER hierher, unbedingt**
             // (2026-08-18, an einer echten Zwei-Rechner-Strecke gefunden).
             //
             // Ohne die Option kodiert NVENC ein ANGEFORDERTES Vollbild nicht
             // zwingend als IDR — und nur ein IDR ist ein Einstiegspunkt, an dem
-            // ein neu dazukommender Zuschauer anfangen kann. Bis heute stand
-            // sie ausschliesslich in [`intra_refresh_opts`], weil dort der
-            // ganze Strom an der Anforderung haengt. Im Vollbild-Betrieb schien
-            // sie entbehrlich: bei zwei Sekunden Takt kam ohnehin sofort ein
-            // regulaeres IDR hinterher.
+            // ein neu dazukommender Zuschauer anfangen kann. Bis dahin stand
+            // sie in einem Zweig, der nicht immer lief; bei zwei Sekunden
+            // Vollbild-Takt schien sie entbehrlich, weil ohnehin sofort ein
+            // regulaeres IDR hinterherkam.
             //
             // Mit der Vorgabe von 60 s (s. `KEYFRAME_SEKUNDEN_VORGABE`) ist
             // diese Annahme weggefallen, und der Fehler wurde sichtbar —
@@ -281,204 +279,7 @@ pub fn vendor_defaults(vendor: Vendor, codec: &str) -> Dictionary<'static> {
             // * `tiles=2x1`: kein Gewinn, +3 % GPU.
         }
     }
-    if intra_refresh_gewuenscht() {
-        for (k, v) in intra_refresh_opts(vendor) {
-            opts.set(k, v);
-        }
-    }
     opts
-}
-
-/// Wunsch aus den Start-Parametern. `None` = nichts gesagt, dann entscheidet
-/// die Umgebungsvariable.
-///
-/// Prozessweit statt als Feld in `EncoderConfig`, weil [`vendor_opts`] und
-/// [`intra_refresh_pruefen`] von mehreren Stellen ohne diese Konfiguration
-/// gerufen werden — ein Feld müsste durch jede davon durchgereicht werden, und
-/// eine vergessene Stelle liefe still im falschen Modus.
-static AUS_PARAMETERN: AtomicU8 = AtomicU8::new(UNGESAGT);
-
-const UNGESAGT: u8 = 0;
-const AUS: u8 = 1;
-const AN: u8 = 2;
-
-/// Den Wunsch der Oberfläche hinterlegen. `ops::start` ruft das einmal je
-/// Stream, bevor der Encoder geöffnet wird.
-pub fn intra_refresh_setzen(an: bool) {
-    AUS_PARAMETERN.store(if an { AN } else { AUS }, Ordering::Relaxed);
-}
-
-/// Rollender Intra-Refresh statt periodischer Keyframes?
-///
-/// Quelle ist der Wunsch aus den Start-Parametern (`overrides.intra_refresh`);
-/// ohne ihn `PULSE_INTRA_REFRESH=1`. Die Variable bleibt, weil der Prüfstand
-/// den Sidecar direkt fährt, ohne Oberfläche.
-///
-/// **Warum eine eigene Variable und nicht `PULSE_ENCODER_OPTS`:** die
-/// Optionsnamen unterscheiden sich je Vendor (NVENC `intra-refresh`, VAAPI
-/// `intra_refresh`). Ein Prüfstand-Skript, das den NVENC-Namen setzt, misst auf
-/// einer AMD-Karte einen Keyframe-Lauf unter dem Etikett „Intra-Refresh" — die
-/// Sorte Fehler, die eine Messreihe nicht scheitern lässt, sondern verfälscht.
-pub fn intra_refresh_gewuenscht() -> bool {
-    match AUS_PARAMETERN.load(Ordering::Relaxed) {
-        AN => true,
-        AUS => false,
-        _ => matches!(std::env::var("PULSE_INTRA_REFRESH").as_deref(), Ok("1")),
-    }
-}
-
-/// Die Encoder-Optionen für rollenden Intra-Refresh, je Vendor.
-///
-/// Die **Umlaufdauer** steht hier bewusst nicht: sie ergibt sich aus `-g`
-/// (`set_gop`, 2 s), und beide Encoder machen daraus dasselbe — NVENC liest
-/// `gopLength` als Refresh-Periode und schaltet den GOP danach auf unendlich
-/// (`nvenc.c:1309ff`), der VAAPI-Patch genauso.
-///
-/// **`forced-idr` steht seit dem 2026-08-18 zusaetzlich im Regelzweig**
-/// ([`vendor_opts`], Nvidia-Arm) und damit auch ohne Intra-Refresh — es geht um
-/// beantwortete Vollbild-Anforderungen, und die sind in BEIDEN Betriebsarten
-/// der kritische Weg. Hier bleibt es stehen, weil diese Liste zugleich die
-/// Faehigkeitsprobe ist ([`fehlende_intra_refresh_option`]); doppelt gesetzt
-/// schadet nicht, derselbe Schluessel mit demselben Wert.
-///
-/// `forced-idr` nur bei NVENC: dort wird ein angeforderter Keyframe sonst
-/// nicht zwingend als IDR kodiert. VAAPI macht daraus ohnehin eins
-/// (2026-08-01 nachgemessen: drei angeforderte Keyframes, drei IDR) — und
-/// dass angeforderte Keyframes weiter ankommen, ist die Bedingung, unter der
-/// Zuschauer überhaupt in einen Intra-Refresh-Strom einsteigen können.
-///
-/// **VAAPI braucht ein gepatchtes FFmpeg** (`streaming/ffmpeg-patches/`);
-/// upstream gibt es die Option in keiner Version. Fehlt sie, bricht der
-/// Encoder-Open mit klarer Meldung ab, statt still weiterzulaufen.
-pub fn intra_refresh_opts(vendor: Vendor) -> &'static [(&'static str, &'static str)] {
-    match vendor {
-        // `no-scenecut` gehoert dazu und fehlte bis 2026-08-02. Ohne die Option
-        // schiebt NVENC bei Szenenwechseln von sich aus I-Bilder ein — mitten
-        // in einen Strom, der gerade KEINE haben soll. Jedes davon ist bei
-        // fester Bitrate ein sichtbarer Ausschlag. Die Labor-Vorlage der
-        // erfolgreichen Messung hatte sie (`-intra-refresh 1 -no-scenecut 1`),
-        // unsere Optionsliste nicht.
-        Vendor::Nvidia => &[("intra-refresh", "1"), ("forced-idr", "1"), ("no-scenecut", "1")],
-        Vendor::Amd | Vendor::Intel => &[("intra_refresh", "1")],
-    }
-}
-
-// **Hier stand bis 2026-08-02 ein `traegt_intra_refresh(codec) == "h264"`.**
-// Die Begruendung — AV1 koenne dem Zuschauer mangels `recovery_point`-SEI nicht
-// signalisieren, wann die Auffrisch-Welle durch ist, weshalb der Empfaenger
-// dauerhaft Vollbilder anfordere — war eine Fehldeutung des Pumpens, das an
-// jenem Tag zu sehen war. Sie ist widerlegt, und zwar durch eine Messung, die
-// es vorher schon gab: `streaming/testbench/profiles/
-// hq-2026-07-31-intra-refresh-echter-sender.json` faehrt `av1_nvenc` in 10 bit
-// ueber den ausgelieferten Weg und zaehlt im Intra-Refresh-Lauf **8 Vollbilder
-// in 1248 s** gegen 216 in 427 s im Keyframe-Lauf. Die Akte belegt die Mechanik
-// zusaetzlich am ffmpeg-Quelltext (`nvenc_setup_av1_config` setzt
-// `enableIntraRefresh=1` und danach `gopLength = NVENC_INFINITE_GOPLENGTH`).
-//
-// Die echte Quelle der Vollbild-Flut sass beim Zuschauer: Chromiums
-// dav1d-Anbindung lehnt `bpc != 8` ab, bekommt bei 10-bit-AV1 nie ein Bild
-// zustande und fordert endlos Vollbilder an — auch dann, wenn das Bild laengst
-// im eigenen Fenster laeuft und niemand dieses `<video>` ansieht. Abgeklemmt
-// wird das dort, wo es entsteht (`web/src/lib/stream/components/
-// HqStreamKeepAlive.svelte`), nicht durch eine Codec-Sperre im Encoder.
-//
-// Kein neuer Ersatz an dieser Stelle: es gibt keinen Codec, der Intra-Refresh
-// hier nicht traegt. Was ihn nicht kann, faellt schon in `intra_refresh_pruefen`
-// mit klarer Meldung durch.
-
-/// Reicht dieses FFmpeg Intra-Refresh für `vendor` und `codec` durch?
-///
-/// **Warum es diese Frage zusätzlich zu [`intra_refresh_pruefen`] gibt:** die
-/// Prüfung dort läuft beim Encoder-Open, also erst wenn der Nutzer schon auf
-/// „Stream starten" geklickt hat, und ihre Antwort ist ein Abbruch. Für die
-/// Oberfläche ist das zu spät — sie soll das Kästchen gar nicht erst anbieten,
-/// wenn dieses FFmpeg die Betriebsart nicht kann. Dasselbe Muster wie bei
-/// `ten_bit`: ein nicht angebotener Schalter ist besser als einer, der beim
-/// Start eine Fehlermeldung produziert.
-///
-/// Anders als [`super::probe_encoder`] wird hier **keine Hardware angefasst** —
-/// die Frage ist nicht „kann die Karte das", sondern „hat dieses FFmpeg die
-/// Option". Deshalb kein Geräte-Kontext, kein `open`, nur die Optionsliste des
-/// Encoders. Die Hardware-Frage beantwortet ohnehin die Codec-Probe, die
-/// Intra-Refresh mitprobt (`vendor_defaults` setzt die Optionen, sobald der
-/// Wunsch gesetzt ist).
-///
-/// Auf NVIDIA ist die Antwort immer ja (Option upstream), auf VAAPI nur mit
-/// unserem Patch (`streaming/ffmpeg-patches/`).
-pub fn intra_refresh_verfuegbar(vendor: Vendor, codec: &str) -> bool {
-    let Some(name) = encoder_name(vendor, codec) else {
-        return false;
-    };
-    let Some(desc) = ffmpeg::codec::encoder::find_by_name(name) else {
-        return false; // Encoder gar nicht ins FFmpeg gelinkt
-    };
-    let Ok(mut enc) = ffmpeg::codec::context::Context::new_with_codec(desc)
-        .encoder()
-        .video()
-    else {
-        return false;
-    };
-    // SAFETY: `enc` lebt bis zum Ende der Funktion, der Zeiger stammt aus ihm
-    // und ist damit gueltig; die Pruefung liest ihn nur (`av_opt_find`).
-    unsafe { fehlende_intra_refresh_option(enc.as_mut_ptr(), vendor) }.is_none()
-}
-
-/// Welche der für Intra-Refresh nötigen Optionen kennt dieser Encoder NICHT?
-/// `None` = alle da.
-///
-/// Eine Stelle für zwei Fragen: [`intra_refresh_verfuegbar`] fragt nur, ob
-/// etwas fehlt, [`intra_refresh_pruefen`] braucht zusätzlich den Namen für
-/// seine Fehlermeldung. Getrennt ausgeschrieben könnten die beiden Listen
-/// auseinanderlaufen — und dann böte die Oberfläche eine Betriebsart an, die
-/// der Start ablehnt, oder umgekehrt.
-///
-/// # Safety
-///
-/// `ctx` muss ein gueltiger `AVCodecContext` sein und den Aufruf ueberleben.
-unsafe fn fehlende_intra_refresh_option(
-    ctx: *mut ffmpeg::ffi::AVCodecContext,
-    vendor: Vendor,
-) -> Option<&'static str> {
-    intra_refresh_opts(vendor)
-        .iter()
-        // SAFETY: `ctx` ist laut Kontrakt gueltig und wird nur gelesen.
-        .find(|(key, _)| !unsafe { kennt_option(ctx, key) })
-        .map(|(key, _)| *key)
-}
-
-/// Vor dem Encoder-Open prüfen, ob ein verlangter Intra-Refresh überhaupt
-/// ankommt — und den Start verweigern, wenn nicht.
-///
-/// **Warum hier ein Fehler steht, wo [`warn_unknown`] nur warnt:** eine
-/// unbekannte Option aus `PULSE_ENCODER_OPTS` ist die Eingabe des Messenden und
-/// soll ihn nicht am Streamen hindern. Intra-Refresh dagegen ist die
-/// Betriebsart selbst: fällt sie aus, läuft ein Keyframe-Strom unter ihrem
-/// Etikett weiter — eine Messung, die nicht scheitert, sondern täuscht.
-///
-/// Auf VAAPI trifft das jedes ungepatchte FFmpeg, also praktisch jedes System
-/// (`streaming/ffmpeg-patches/`).
-///
-/// # Safety
-///
-/// Wie [`warn_unknown`]: `ctx` muss ein gueltiger `AVCodecContext` sein und den
-/// Aufruf ueberleben. Die Funktion liest ihn nur.
-pub unsafe fn intra_refresh_pruefen(
-    ctx: *mut ffmpeg::ffi::AVCodecContext,
-    vendor: Vendor,
-    codec_name: &str,
-) -> anyhow::Result<()> {
-    if !intra_refresh_gewuenscht() {
-        return Ok(());
-    }
-    // SAFETY: `ctx` ist laut Kontrakt gueltig und wird nur gelesen.
-    if let Some(key) = unsafe { fehlende_intra_refresh_option(ctx, vendor) } {
-        anyhow::bail!(
-            "PULSE_INTRA_REFRESH=1, aber '{codec_name}' kennt '{key}' nicht — \
-             dieses FFmpeg reicht Intra-Refresh nicht durch. \
-             Patch und Bauanleitung: streaming/ffmpeg-patches/"
-        );
-    }
-    Ok(())
 }
 
 /// Meldet Encoder-Optionen, die dieser Encoder gar nicht kennt.
@@ -575,79 +376,29 @@ fn apply_override(opts: &mut Dictionary<'_>) {
 }
 
 #[cfg(test)]
-mod intra_refresh_tests {
+mod tests {
     use super::*;
-
-    /// `intra_refresh_setzen` schreibt prozessweiten Zustand — ohne
-    /// Serialisierung verstellt ein Test die Betriebsart, waehrend der
-    /// andere sie liest. Einzeln sind dann beide gruen, zusammen faellt
-    /// einer: genau so ist es am 2026-08-18 aufgelaufen.
-    static BETRIEBSART: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    /// Der Weg vom Start-Parameter bis in die Encoder-Optionen — die Strecke,
-    /// auf der der Wunsch am 2026-08-02 verlorenging (die Oberflaeche schickte
-    /// das Feld gar nicht erst mit, und nichts fiel auf).
-    ///
-    /// Laeuft seriell: die Betriebsart ist prozessweit, parallele Tests wuerden
-    /// einander den Zustand umstellen.
-    #[test]
-    fn wunsch_erreicht_die_encoder_optionen() {
-        let _wache = BETRIEBSART.lock().unwrap_or_else(|p| p.into_inner());
-        intra_refresh_setzen(true);
-        assert!(intra_refresh_gewuenscht());
-        for vendor in [Vendor::Nvidia, Vendor::Amd, Vendor::Intel] {
-            let opts = vendor_opts(vendor, "h264");
-            for (key, wert) in intra_refresh_opts(vendor) {
-                assert_eq!(
-                    opts.get(key),
-                    Some(*wert),
-                    "{key} fehlt in den Optionen fuer {vendor:?}",
-                );
-            }
-        }
-
-        intra_refresh_setzen(false);
-        assert!(!intra_refresh_gewuenscht());
-        for vendor in [Vendor::Nvidia, Vendor::Amd, Vendor::Intel] {
-            let opts = vendor_opts(vendor, "h264");
-            for (key, _) in intra_refresh_opts(vendor) {
-                // `forced-idr` ist die AUSNAHME und steht seit dem 2026-08-18
-                // absichtlich in beiden Betriebsarten — s. der eigene Test
-                // darunter. Ohne diese Zeile prueft der Test noch die alte
-                // Zusage und schlaegt gegen die Absicht an.
-                if key == &"forced-idr" {
-                    continue;
-                }
-                assert_eq!(opts.get(key), None, "{key} steht trotz Absage in den Optionen");
-            }
-        }
-    }
 
     /// **Der Fehler vom 2026-08-18, als Test.**
     ///
     /// Ohne `forced-idr` kodiert NVENC ein angefordertes Vollbild nicht
-    /// zwingend als IDR — und nur ein IDR ist ein Einstiegspunkt. Bis dahin
-    /// stand die Option nur im Intra-Refresh-Zweig; mit der 60-s-Vorgabe und
-    /// abgewaehltem Intra-Refresh fiel sie damit weg, und ein Zuschauer sah
-    /// ein schwarzes Bild, bis nach bis zu einer Minute das naechste regulaere
-    /// Vollbild kam. Sichtbar wurde es nur in EINER Richtung: VAAPI macht aus
-    /// einer Anforderung ohnehin ein IDR, NVENC nicht.
+    /// zwingend als IDR — und nur ein IDR ist ein Einstiegspunkt. Die Option
+    /// stand damals in einem Zweig, der nicht immer lief; mit der 60-s-Vorgabe
+    /// fiel sie damit weg, und ein Zuschauer sah ein schwarzes Bild, bis nach
+    /// bis zu einer Minute das naechste regulaere Vollbild kam. Sichtbar wurde
+    /// es nur in EINER Richtung: VAAPI macht aus einer Anforderung ohnehin ein
+    /// IDR, NVENC nicht.
     ///
     /// Der Windows-Sidecar setzt sie laengst unbedingt — das hier stellt den
     /// Gleichstand her und haelt ihn fest.
     #[test]
-    fn nvenc_erzwingt_idr_in_beiden_betriebsarten() {
-        let _wache = BETRIEBSART.lock().unwrap_or_else(|p| p.into_inner());
-        for an in [true, false] {
-            intra_refresh_setzen(an);
-            let opts = vendor_opts(Vendor::Nvidia, "h264");
-            assert_eq!(
-                opts.get("forced-idr"),
-                Some("1"),
-                "forced-idr fehlt bei intra_refresh={an} — angeforderte Vollbilder waeren \
-                 dann nicht zwingend IDR, und niemand koennte einsteigen"
-            );
-        }
-        intra_refresh_setzen(false);
+    fn nvenc_erzwingt_idr() {
+        let opts = vendor_opts(Vendor::Nvidia, "h264");
+        assert_eq!(
+            opts.get("forced-idr"),
+            Some("1"),
+            "forced-idr fehlt — angeforderte Vollbilder waeren dann nicht zwingend IDR, \
+             und niemand koennte einsteigen"
+        );
     }
 }

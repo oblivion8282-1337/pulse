@@ -119,23 +119,13 @@ pub(crate) fn parse_start_params(params: &Map<String, Value>) -> Result<StartPar
 
 pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
     let start_params = parse_start_params(&params)?;
-    // Die Betriebsart ist prozessweit, nicht Teil der `StartParams` — sie wird
-    // an vier Stellen gelesen, die diese Konfiguration nicht sehen
-    // (`encode::auffrischung`). **Nur hier setzen, nicht in
-    // `parse_start_params`:** das teilt sich `build_argv`, und der baut nur
-    // eine Kommandozeile zum Anzeigen. Eine Vorschau darf die Betriebsart des
-    // nächsten echten Streams nicht umstellen.
-    if let Some(an) = requested_intra_refresh(params.get("overrides").and_then(Value::as_object)) {
-        crate::encode::auffrischung::setzen(an);
-    }
-    // Dasselbe Muster, derselbe Grund: die Opus-Rahmenlänge haengt am Sendeweg,
+    // Die Opus-Rahmenlänge haengt am Sendeweg,
     // gebraucht wird sie aber an Stellen, die die Start-Parameter nicht sehen
     // (Aufnahme-Raster, Paketdauer im Sendeweg). **Vor** `start()`, weil die
     // Aufnahme ihr Raster daraus nimmt.
     //
-    // Anders als oben ohne `if let`: es gibt kein "ungesagt". Die Ziel-URL
-    // liegt vor, also steht der Weg fest — und ein Rest aus dem vorigen Stream
-    // waere hier schlimmer als eine Vorgabe.
+    // Ohne "ungesagt": die Ziel-URL liegt vor, also steht der Weg fest — und
+    // ein Rest aus dem vorigen Stream waere hier schlimmer als eine Vorgabe.
     crate::encode::audio::setze_sendeweg(crate::encode::output::is_whip_url(
         &start_params.push_url,
     ));
@@ -147,18 +137,6 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
         Value::Array(argv.into_iter().map(Value::String).collect()),
     );
     Ok(out)
-}
-
-/// Wunsch aus dem Wire-Format lesen: `overrides.intra_refresh` = true|false.
-///
-/// Fehlt das Feld, wird NICHT auf `false` entschieden, sondern gar nicht — dann
-/// bleibt `PULSE_INTRA_REFRESH` zuständig. Sonst zöge ein Client, der das Feld
-/// nicht kennt, dem Messstand die Betriebsart unter den Füßen weg. Wortgleich
-/// zum Linux-Sidecar (`ops/start.rs::requested_intra_refresh`).
-fn requested_intra_refresh(overrides: Option<&Map<String, Value>>) -> Option<bool> {
-    overrides
-        .and_then(|o| o.get("intra_refresh"))
-        .and_then(Value::as_bool)
 }
 
 /// `capture` aus dem Request → konkreter `CaptureSource`.
@@ -342,8 +320,7 @@ fn parse_overrides(params: &Map<String, Value>) -> Overrides {
     // den soll niemand als „hat ja funktioniert" abhaken.
     // Sagt die Oberflaeche nichts, entscheidet `PULSE_HDR=1`.
     //
-    // **Gleiche Bauart und gleicher Grund wie `PULSE_INTRA_REFRESH`**
-    // (`encode::auffrischung::gewuenscht`): der Sidecar wird auch ohne
+    // **Der Rueckfall auf die Variable ist Absicht:** der Sidecar wird auch ohne
     // Oberflaeche gefahren — vom Messstand, und vor allem von der ECHTEN
     // Desktop-App, solange das HDR-Kaestchen nur auf dem Feature-Zweig liegt
     // und die App die veroeffentlichte Web-Fassung laedt. Ohne diesen Rueckfall
