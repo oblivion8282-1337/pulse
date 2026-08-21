@@ -9,6 +9,7 @@
 <script lang="ts">
   import { m } from '$lib/paraglide/messages.js';
   import { Input } from '$lib/components/ui/input/index.js';
+  import Select from '$lib/components/form/Select.svelte';
   import { toDisplay, RESOLUTION_LADDER, type LimitKind } from './guildLimitUnits';
 
   let {
@@ -42,21 +43,29 @@
     const from = cap === 'Native' ? 0 : RESOLUTION_LADDER.indexOf(cap);
     return RESOLUTION_LADDER.slice(Math.max(from, 0));
   });
+
+  // Der Leerwert ist eine WAHL, kein Platzhalter: „erbt die Vorgabe des
+  // Betreibers" heißt, die Grenze auf dem Server zu lassen — und die Options-
+  // Beschriftung nennt den Wert, der dann tatsächlich gilt. Sie darf deshalb
+  // nicht ins placeholder-Prop wandern (dort wäre sie nicht anwählbar).
+  const resAuswahl = $derived([
+    { value: '', label: placeholder },
+    ...resolutionOptions.map((r) => ({
+      value: r,
+      label: r === 'Native' ? m.guild_limits_res_native() : r,
+    })),
+  ]);
 </script>
 
 <label class="flex flex-col gap-1">
   <span class="text-text-muted text-xs font-medium">{label}</span>
   {#if kind === 'resolution'}
-    <select
-      bind:value
-      class="border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none"
+    <Select
+      value={value}
+      options={resAuswahl}
+      onchange={(v) => (value = v)}
       data-testid={testid}
-    >
-      <option value="">{placeholder}</option>
-      {#each resolutionOptions as r (r)}
-        <option value={r}>{r === 'Native' ? m.guild_limits_res_native() : r}</option>
-      {/each}
-    </select>
+    />
   {:else}
     <Input type="number" min="0" step="any" {placeholder} bind:value data-testid={testid} />
   {/if}

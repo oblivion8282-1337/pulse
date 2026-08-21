@@ -41,6 +41,28 @@ export interface Device {
   stream_slots: number[];
 }
 
+/**
+ * Antwort auf ein PATCH. Trägt zusätzlich `role_grants_cleared`, wenn ein
+ * Community-Wechsel Rollen-Freigaben geräumt hat — das gehört NICHT dauerhaft
+ * zu `Device` (in jeder Geräteliste wäre es eine Lüge), deshalb ein eigener
+ * Antwort-Typ nur für diese eine Route.
+ */
+export type DevicePatchAntwort = Device & { role_grants_cleared?: number };
+
+export type GrantArt = 'user' | 'role' | 'everyone';
+
+export interface Grant {
+  id: string;
+  subject_type: GrantArt;
+  /** Nutzer- oder Rollenkennung; `null` bei `everyone`. */
+  subject_id: string | null;
+  /** ISO-Zeitpunkt; `null` = dauerhaft. */
+  expires_at: string | null;
+  created_at: string;
+}
+
+export type GrantEingabe = Pick<Grant, 'subject_type' | 'subject_id' | 'expires_at'>;
+
 export const devicesApi = {
   /** Alle Geräte der Community, deren Standplatz man sehen darf. */
   list(guildId: string): Promise<Device[]> {
@@ -55,13 +77,14 @@ export const devicesApi = {
     return request<Device>(`/guilds/${guildId}/devices`, { method: 'POST', body });
   },
 
-  /** Umbenennen oder auf einen anderen Standplatz stellen. */
+  /** Umbenennen, auf einen anderen Standplatz stellen oder die Community
+   *  wechseln. */
   patch(
     guildId: string,
     deviceId: string,
-    body: { name?: string; channel_id?: string },
-  ): Promise<Device> {
-    return request<Device>(`/guilds/${guildId}/devices/${deviceId}`, {
+    body: { name?: string; channel_id?: string; guild_id?: string },
+  ): Promise<DevicePatchAntwort> {
+    return request<DevicePatchAntwort>(`/guilds/${guildId}/devices/${deviceId}`, {
       method: 'PATCH',
       body,
     });
@@ -70,5 +93,22 @@ export const devicesApi = {
   /** Eintragung entfernen. */
   remove(guildId: string, deviceId: string): Promise<void> {
     return request<void>(`/guilds/${guildId}/devices/${deviceId}`, { method: 'DELETE' });
+  },
+};
+
+export const grantsApi = {
+  /** Die Freigabeliste eines EIGENEN Geräts. Fremde Geräte antworten 404. */
+  list(guildId: string, deviceId: string): Promise<Grant[]> {
+    return request<Grant[]>(`/guilds/${guildId}/devices/${deviceId}/grants`);
+  },
+
+  /** Die ganze Liste ersetzen — es gibt bewusst keinen Weg, einen einzelnen
+   *  Eintrag zu ändern: so entsteht kein Zwischenzustand „scharf, aber für
+   *  niemanden". */
+  set(guildId: string, deviceId: string, grants: GrantEingabe[]): Promise<Grant[]> {
+    return request<Grant[]>(`/guilds/${guildId}/devices/${deviceId}/grants`, {
+      method: 'PUT',
+      body: { grants },
+    });
   },
 };

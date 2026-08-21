@@ -56,9 +56,9 @@ class StreamTokenIn(BaseModel):
     # weitergereichten.
     #
     # ``whip`` ist seit 2026-08-02 erlaubt (vorher hart auf ``rtmp``): der
-    # WHIP-Weg ist der einzige mit RTCP-Rueckkanal, und ohne den bekommt ein
-    # beitretender Zuschauer in einem Intra-Refresh-Strom nie sein erstes
-    # Vollbild. media-svc entscheidet weiterhin, was daraus wird — hier steht
+    # WHIP-Weg ist der einzige mit RTCP-Rueckkanal, und ohne den wartet ein
+    # beitretender Zuschauer bis zum naechsten regulaeren Vollbild auf sein
+    # erstes Bild — bei der Vorgabe von 60 s also bis zu eine Minute. media-svc entscheidet weiterhin, was daraus wird — hier steht
     # nur, was ueberhaupt gefragt werden darf.
     protocol: Annotated[str, Field(default="rtmp", pattern=r"^(rtmp|whip)$")] = "rtmp"
     # Which of the caller's stream slots to publish (0 == the default single

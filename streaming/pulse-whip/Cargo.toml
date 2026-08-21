@@ -16,6 +16,7 @@ publish = false
 anyhow = "1"
 webrtc = "0.17"
 pulse-zeitbasis = { path = "../pulse-zeitbasis" }
+pulse-bildmarke = { path = "../pulse-bildmarke" }
 
 # Nur fuer `#[tokio::test]` in sdp.rs — in den Sidecars ist tokio eine
 # vollwertige Abhaengigkeit (dort auch fuer ashpd/das Portal gebraucht), hier

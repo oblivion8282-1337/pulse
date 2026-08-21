@@ -1,0 +1,456 @@
+From 909bfd9c68e38c9f60036a367d5bed0e1466167e Mon Sep 17 00:00:00 2001
+From: b <x@y.z>
+Date: Fri, 21 Aug 2026 13:59:46 +0200
+Subject: [PATCH] bildmarke: Dependency Descriptor ueber die Neuverpackung
+ tragen
+
+---
+ internal/protocols/webrtc/bildmarke.go       | 118 ++++++++++++++++++
+ internal/protocols/webrtc/bildmarke_test.go  | 122 +++++++++++++++++++
+ internal/protocols/webrtc/from_stream.go     |  25 ++++
+ internal/protocols/webrtc/inbound_track.go   |  22 ++++
+ internal/protocols/webrtc/outbound_track.go  |  26 ++++
+ internal/protocols/webrtc/peer_connection.go |  18 +++
+ 6 files changed, 331 insertions(+)
+ create mode 100644 internal/protocols/webrtc/bildmarke.go
+ create mode 100644 internal/protocols/webrtc/bildmarke_test.go
+
+diff --git a/internal/protocols/webrtc/bildmarke.go b/internal/protocols/webrtc/bildmarke.go
+new file mode 100644
+index 0000000..b39cea5
+--- /dev/null
++++ b/internal/protocols/webrtc/bildmarke.go
+@@ -0,0 +1,118 @@
++package webrtc
++
++import (
++	"os"
++
++	"github.com/pion/rtp"
++	"github.com/pion/webrtc/v4"
++)
++
++// Die Bildmarke (AV1 Dependency Descriptor): eine laufende Bildnummer, die der
++// Sender auf jedes RTP-Paket schreibt.
++//
++// Warum MediaMTX etwas damit zu tun hat: `from_stream.go` verpackt JEDEN Codec
++// neu (`encoder.Encode(...)`) und uebernimmt vom Eingang nur den Zeitstempel.
++// Jede Header-Erweiterung des Senders faellt dabei weg. Genau deshalb war der
++// Zeitstempel bisher "die einzige Nummerierung, die die Klebestelle
++// uebersteht" — und genau deshalb genuegte es nicht, die Marke nur im Sender
++// zu schreiben.
++//
++// Der Zuschauer braucht sie, um "ein Bild ist verloren" von "der Sender hat
++// keines erzeugt" zu unterscheiden. Am 2026-08-21 forderte der Player ohne sie
++// ein halbes Vollbild je Sekunde an, obwohl nichts fehlte. Volle Herleitung:
++// docs/superpowers/specs/2026-08-21-dependency-descriptor-design.md im
++// Pulse-Repo.
++//
++// Das Format selbst steht dort in streaming/*/src/whip/bildmarke.rs; hier wird
++// NICHTS davon gedeutet ausser den zwei Paket-Bits. Deshalb kann dieser Code
++// auch nicht falsch liegen: er rahmt drei Byte um.
++const bildmarkeExtensionURI = "https://aomediacodec.github.io/av1-rtp-spec/#dependency-descriptor-rtp-header-extension"
++
++// bildmarkeInterneID ist die Nummer, unter der die Marke INNERHALB von
++// MediaMTX gefuehrt wird.
++//
++// Warum eine feste statt der ausgehandelten: Eingang und Ausgang handeln die
++// Erweiterung getrennt aus und bekommen dabei verschiedene Nummern (der
++// Sender bietet an, der Zuschauer bietet an, und beide zaehlen ihre eigenen
++// Erweiterungen). `from_stream.go` sieht nur die Pakete, nicht die
++// Aushandlung des Eingangs. Der Eingang schreibt die Marke deshalb auf eine
++// feste Nummer um; der Ausgang liest von dort und schreibt auf die mit dem
++// Zuschauer ausgehandelte.
++//
++// 14 ist die hoechste Nummer der einbytigen Form (RFC 8285) und wird von
++// MediaMTX sonst nicht vergeben.
++//
++// Nebenwirkung, bewusst in Kauf genommen: ein Leser, der die eingehenden
++// Pakete unveraendert weiterreicht (RTSP-Durchreiche, Aufzeichnung), traegt
++// die Marke danach unter Nummer 14. Empfaenger ignorieren eine nicht
++// ausgehandelte Erweiterung. Dasselbe Recht nimmt sich `stripTWCCExtension`
++// schon heute, nur andersherum — es LOESCHT eine Erweiterung aus demselben
++// Paket.
++const bildmarkeInterneID = 14
++
++// bildmarkeLaengeMin ist die Laenge der Pflichtfelder. Kuerzer ist kein
++// Descriptor.
++const bildmarkeLaengeMin = 3
++
++// bildmarkeAktiv sagt, ob der Patch eingeschaltet ist.
++//
++// Aus per Vorgabe, wie alle Pulse-Patches an diesem Fork: ein
++// unkonfiguriertes Deployment verhaelt sich wie Upstream.
++func bildmarkeAktiv() bool {
++	return os.Getenv("PULSE_DEPENDENCY_DESCRIPTOR") == "1"
++}
++
++// bildmarkeExtensionID sucht die ausgehandelte Nummer der Bildmarke.
++// Null heisst: nicht ausgehandelt, es ist nichts zu tun.
++//
++// Gleiches Muster wie inboundTrackTWCCExtensionID.
++func bildmarkeExtensionID(params webrtc.RTPParameters) uint8 {
++	for _, ext := range params.HeaderExtensions {
++		if ext.URI == bildmarkeExtensionURI {
++			return uint8(ext.ID) //nolint:gosec
++		}
++	}
++	return 0
++}
++
++// bildmarkeLesen holt die rohe Marke vom ersten Paket eines eingehenden
++// Bildes. Nil heisst: der Sender markiert nicht.
++func bildmarkeLesen(pkts []*rtp.Packet) []byte {
++	if len(pkts) == 0 {
++		return nil
++	}
++	roh := pkts[0].GetExtension(bildmarkeInterneID)
++	if len(roh) < bildmarkeLaengeMin {
++		return nil
++	}
++	aus := make([]byte, len(roh))
++	copy(aus, roh)
++	return aus
++}
++
++// bildmarkeSetzen haengt die Marke an ein NEU GESCHNITTENES Paket.
++//
++// Nummer und Schablone beschreiben das BILD und bleiben unveraendert.
++// Bildanfang und Bildende beschreiben das PAKET — und weil MediaMTX die
++// Pakete neu schneidet, verschieben sich diese Grenzen. Sie werden deshalb neu
++// gesetzt, und das ist der ganze Patch.
++//
++// Die Schablonen-Tabelle, die auf Vollbild-Paketen anhaengt, wandert
++// unveraendert mit: der Sender schreibt sie auf JEDES Paket eines Vollbilds,
++// gerade damit hier nicht entschieden werden muss, welches neu geschnittene
++// Paket das erste ist.
++func bildmarkeSetzen(pkt *rtp.Packet, roh []byte, id uint8, anfang bool, ende bool) {
++	if id == 0 || len(roh) < bildmarkeLaengeMin {
++		return
++	}
++	aus := make([]byte, len(roh))
++	copy(aus, roh)
++	aus[0] &= 0b0011_1111
++	if anfang {
++		aus[0] |= 1 << 7
++	}
++	if ende {
++		aus[0] |= 1 << 6
++	}
++	pkt.SetExtension(id, aus) //nolint:errcheck
++}
+diff --git a/internal/protocols/webrtc/bildmarke_test.go b/internal/protocols/webrtc/bildmarke_test.go
+new file mode 100644
+index 0000000..a16ef3b
+--- /dev/null
++++ b/internal/protocols/webrtc/bildmarke_test.go
+@@ -0,0 +1,122 @@
++package webrtc
++
++import (
++	"encoding/hex"
++	"encoding/json"
++	"os"
++	"testing"
++
++	"github.com/pion/rtp"
++	"github.com/stretchr/testify/require"
++)
++
++// Der Pruefstein kommt vom SENDER (streaming/bildmarke-formen.json im
++// Pulse-Repo, erzeugt vom Test `bildmarke_pruefstein` in bildmarke.rs) und
++// wird beim Bauen des Images hierher gelegt.
++//
++// Warum vom Sender und nicht von hier: am 2026-08-17 rutschte ein Formatfehler
++// durch beide Testnetze, weil jede Seite ihre Faelle aus derselben Vorstellung
++// aufschrieb, aus der sie die Pruefung schrieb. Wer eine Pruefung testet, denkt
++// sich die Faelle nicht aus, die er beim Schreiben uebersehen hat.
++type bildmarkeForm struct {
++	Name     string `json:"name"`
++	Anfang   bool   `json:"anfang"`
++	Ende     bool   `json:"ende"`
++	Vollbild bool   `json:"vollbild"`
++	Nummer   int    `json:"nummer"`
++	Bytes    string `json:"bytes"`
++}
++
++func bildmarkeFormenLaden(t *testing.T) []bildmarkeForm {
++	t.Helper()
++	roh, err := os.ReadFile("testdata/bildmarke-formen.json")
++	require.NoError(t, err)
++	var stein struct {
++		Formen []bildmarkeForm `json:"formen"`
++	}
++	require.NoError(t, json.Unmarshal(roh, &stein))
++	require.NotEmpty(t, stein.Formen)
++	return stein.Formen
++}
++
++// bildmarkeSetzen muss aus derselben Marke mit VERTAUSCHTEN Paketgrenzen
++// wieder genau die Vorlage des Senders herstellen — und dabei Bildnummer,
++// Schablone und die Schablonen-Tabelle unberuehrt lassen.
++func TestBildmarkeSetzenTrifftDenPruefstein(t *testing.T) {
++	for _, f := range bildmarkeFormenLaden(t) {
++		t.Run(f.Name, func(t *testing.T) {
++			erwartet, err := hex.DecodeString(f.Bytes)
++			require.NoError(t, err)
++
++			verdreht := make([]byte, len(erwartet))
++			copy(verdreht, erwartet)
++			verdreht[0] ^= 0b1100_0000 // beide Paket-Bits umdrehen
++
++			pkt := &rtp.Packet{}
++			bildmarkeSetzen(pkt, verdreht, 5, f.Anfang, f.Ende)
++			require.Equal(t, erwartet, []byte(pkt.GetExtension(5)))
++		})
++	}
++}
++
++// Ohne ausgehandelte Nummer wird nichts geschrieben: eine nicht ausgehandelte
++// Erweiterung darf nach RFC 8285 nicht gesendet werden.
++func TestBildmarkeOhneAusgehandelteNummerSchreibtNichts(t *testing.T) {
++	pkt := &rtp.Packet{}
++	bildmarkeSetzen(pkt, []byte{0xC0, 0x00, 0x00}, 0, true, true)
++	require.Empty(t, pkt.GetExtensionIDs())
++}
++
++// Zu kurz ist kein Descriptor — weder beim Lesen noch beim Schreiben.
++func TestBildmarkeZuKurzWirdVerworfen(t *testing.T) {
++	pkt := &rtp.Packet{}
++	bildmarkeSetzen(pkt, []byte{0xC0, 0x00}, 5, true, true)
++	require.Empty(t, pkt.GetExtensionIDs())
++
++	quelle := &rtp.Packet{}
++	quelle.SetExtension(bildmarkeInterneID, []byte{0xC0, 0x00}) //nolint:errcheck
++	require.Nil(t, bildmarkeLesen([]*rtp.Packet{quelle}))
++	require.Nil(t, bildmarkeLesen(nil))
++}
++
++// Der Weg, den ein Bild wirklich nimmt: hereinkommen, neu geschnitten werden,
++// hinausgehen. Die Nummer muss ueberleben, die Paket-Bits muessen der neuen
++// Aufteilung folgen.
++func TestBildmarkeUeberlebtDieNeuverpackung(t *testing.T) {
++	for _, f := range bildmarkeFormenLaden(t) {
++		if !f.Anfang || !f.Ende {
++			continue // nur die Formen, die ein ganzes Bild in einem Paket tragen
++		}
++		t.Run(f.Name, func(t *testing.T) {
++			roh, err := hex.DecodeString(f.Bytes)
++			require.NoError(t, err)
++			herein := &rtp.Packet{}
++			herein.SetExtension(bildmarkeInterneID, roh) //nolint:errcheck
++
++			// Aus einem Paket werden drei.
++			hinaus := []*rtp.Packet{{}, {}, {}}
++			tr := &OutboundTrack{bildmarkeExtID: 9}
++			tr.bildmarkeUebertragen(hinaus, []*rtp.Packet{herein})
++
++			for i, pkt := range hinaus {
++				aus := pkt.GetExtension(9)
++				require.Len(t, aus, len(roh), "die Tabelle faehrt vollstaendig mit")
++				require.Equal(t, roh[1], aus[1], "Bildnummer, hohe Haelfte")
++				require.Equal(t, roh[2], aus[2], "Bildnummer, niedrige Haelfte")
++				require.Equal(t, roh[0]&0b0011_1111, aus[0]&0b0011_1111, "Schablone")
++				require.Equal(t, i == 0, aus[0]&0b1000_0000 != 0, "Bildanfang")
++				require.Equal(t, i == 2, aus[0]&0b0100_0000 != 0, "Bildende")
++			}
++		})
++	}
++}
++
++// Markiert der Sender nicht, geschieht nichts — der Strom laeuft wie bisher.
++func TestBildmarkeOhneMarkeGeschiehtNichts(t *testing.T) {
++	hinaus := []*rtp.Packet{{}, {}}
++	tr := &OutboundTrack{bildmarkeExtID: 9}
++	tr.bildmarkeUebertragen(hinaus, []*rtp.Packet{{}})
++	for _, pkt := range hinaus {
++		require.Empty(t, pkt.GetExtensionIDs())
++	}
++}
+diff --git a/internal/protocols/webrtc/from_stream.go b/internal/protocols/webrtc/from_stream.go
+index a5fbc6a..993dd39 100644
+--- a/internal/protocols/webrtc/from_stream.go
++++ b/internal/protocols/webrtc/from_stream.go
+@@ -98,6 +98,11 @@ func setupVideoTrack(
+ 					return nil //nolint:nilerr
+ 				}
+ 
++				// Die Bildmarke ueber die Neuverpackung tragen. Ohne das faellt
++				// sie hier weg, und der Zuschauer kann fehlende Bilder nicht
++				// von ausgelassenen unterscheiden (`bildmarke.go`).
++				track.bildmarkeUebertragen(packets, u.RTPPackets)
++
+ 				for _, pkt := range packets {
+ 					ntp := u.NTP.Add(timestampToDuration(int64(pkt.Timestamp), 90000))
+ 					pkt.Timestamp += u.RTPPackets[0].Timestamp
+@@ -145,6 +150,11 @@ func setupVideoTrack(
+ 					return nil //nolint:nilerr
+ 				}
+ 
++				// Die Bildmarke ueber die Neuverpackung tragen. Ohne das faellt
++				// sie hier weg, und der Zuschauer kann fehlende Bilder nicht
++				// von ausgelassenen unterscheiden (`bildmarke.go`).
++				track.bildmarkeUebertragen(packets, u.RTPPackets)
++
+ 				for _, pkt := range packets {
+ 					ntp := u.NTP.Add(timestampToDuration(int64(pkt.Timestamp), 90000))
+ 					pkt.Timestamp += u.RTPPackets[0].Timestamp
+@@ -190,6 +200,11 @@ func setupVideoTrack(
+ 					return nil //nolint:nilerr
+ 				}
+ 
++				// Die Bildmarke ueber die Neuverpackung tragen. Ohne das faellt
++				// sie hier weg, und der Zuschauer kann fehlende Bilder nicht
++				// von ausgelassenen unterscheiden (`bildmarke.go`).
++				track.bildmarkeUebertragen(packets, u.RTPPackets)
++
+ 				for _, pkt := range packets {
+ 					ntp := u.NTP.Add(timestampToDuration(int64(pkt.Timestamp), 90000))
+ 					pkt.Timestamp += u.RTPPackets[0].Timestamp
+@@ -246,6 +261,11 @@ func setupVideoTrack(
+ 					return nil //nolint:nilerr
+ 				}
+ 
++				// Die Bildmarke ueber die Neuverpackung tragen. Ohne das faellt
++				// sie hier weg, und der Zuschauer kann fehlende Bilder nicht
++				// von ausgelassenen unterscheiden (`bildmarke.go`).
++				track.bildmarkeUebertragen(packets, u.RTPPackets)
++
+ 				for _, pkt := range packets {
+ 					ntp := u.NTP.Add(timestampToDuration(int64(pkt.Timestamp), 90000))
+ 					pkt.Timestamp += u.RTPPackets[0].Timestamp
+@@ -303,6 +323,11 @@ func setupVideoTrack(
+ 					return nil //nolint:nilerr
+ 				}
+ 
++				// Die Bildmarke ueber die Neuverpackung tragen. Ohne das faellt
++				// sie hier weg, und der Zuschauer kann fehlende Bilder nicht
++				// von ausgelassenen unterscheiden (`bildmarke.go`).
++				track.bildmarkeUebertragen(packets, u.RTPPackets)
++
+ 				for _, pkt := range packets {
+ 					ntp := u.NTP.Add(timestampToDuration(int64(pkt.Timestamp), 90000))
+ 					pkt.Timestamp += u.RTPPackets[0].Timestamp
+diff --git a/internal/protocols/webrtc/inbound_track.go b/internal/protocols/webrtc/inbound_track.go
+index 7cd362a..d32be7e 100644
+--- a/internal/protocols/webrtc/inbound_track.go
++++ b/internal/protocols/webrtc/inbound_track.go
+@@ -306,6 +306,9 @@ type InboundTrack struct {
+ 	// Pulse: throttle for reader-driven key frame requests.
+ 	keyFrameMutex sync.Mutex
+ 	lastKeyFrame  time.Time
++
++	// Ausgehandelte Nummer der Bildmarke am EINGANG; 0 = nicht ausgehandelt.
++	bildmarkeExtID uint8
+ }
+ 
+ // RequestKeyFrame asks the publisher for a key frame right now (Pulse).
+@@ -334,6 +337,24 @@ func (t *InboundTrack) RequestKeyFrame() {
+ func (t *InboundTrack) initialize() {
+ 	t.OnPacketRTP = func(*rtp.Packet) {}
+ 	t.twccExtID = inboundTrackTWCCExtensionID(t.receiver.GetParameters())
++	t.bildmarkeExtID = bildmarkeExtensionID(t.receiver.GetParameters())
++}
++
++// normalisiereBildmarke schreibt die Marke auf die feste interne Nummer um.
++//
++// Eingang und Ausgang handeln die Erweiterung getrennt aus und bekommen dabei
++// verschiedene Nummern; `from_stream.go` sieht aber nur die Pakete, nicht die
++// Aushandlung des Eingangs. Volle Begruendung in `bildmarke.go`.
++func (t *InboundTrack) normalisiereBildmarke(pkt *rtp.Packet) {
++	if t.bildmarkeExtID == 0 || t.bildmarkeExtID == bildmarkeInterneID {
++		return
++	}
++	roh := pkt.GetExtension(t.bildmarkeExtID)
++	if len(roh) < bildmarkeLaengeMin {
++		return
++	}
++	pkt.SetExtension(bildmarkeInterneID, roh) //nolint:errcheck
++	pkt.DelExtension(t.bildmarkeExtID)        //nolint:errcheck
+ }
+ 
+ func (t *InboundTrack) stripTWCCExtension(pkt *rtp.Packet) {
+@@ -462,6 +483,7 @@ func (t *InboundTrack) start() {
+ 				}
+ 
+ 				t.stripTWCCExtension(pkt)
++				t.normalisiereBildmarke(pkt)
+ 				t.OnPacketRTP(pkt)
+ 			}
+ 		}
+diff --git a/internal/protocols/webrtc/outbound_track.go b/internal/protocols/webrtc/outbound_track.go
+index 43a3955..67f56ba 100644
+--- a/internal/protocols/webrtc/outbound_track.go
++++ b/internal/protocols/webrtc/outbound_track.go
+@@ -17,6 +17,31 @@ type OutboundTrack struct {
+ 	track      *webrtc.TrackLocalStaticRTP
+ 	ssrc       uint32
+ 	rtcpSender *rtpsender.Sender
++	// Ausgehandelte Nummer der Bildmarke am AUSGANG; 0 = nicht ausgehandelt.
++	bildmarkeExtID uint8
++}
++
++// bildmarkeUebertragen haengt die Marke des eingehenden Bildes an die neu
++// geschnittenen Pakete.
++//
++// `quelle` sind die Pakete, wie sie hereinkamen; `neu` die, die hinausgehen.
++// Uebernommen werden Bildnummer und Schablone, neu gesetzt werden nur
++// Bildanfang und Bildende — s. `bildmarke.go`.
++//
++// Verwirft MediaMTX ein beschaedigtes Bild, wird diese Funktion dafuer gar
++// nicht erst gerufen: dessen Nummer geht nie hinaus, und genau daran erkennt
++// der Zuschauer die Luecke.
++func (t *OutboundTrack) bildmarkeUebertragen(neu []*rtp.Packet, quelle []*rtp.Packet) {
++	if t.bildmarkeExtID == 0 || len(neu) == 0 {
++		return
++	}
++	marke := bildmarkeLesen(quelle)
++	if marke == nil {
++		return
++	}
++	for i, pkt := range neu {
++		bildmarkeSetzen(pkt, marke, t.bildmarkeExtID, i == 0, i == len(neu)-1)
++	}
+ }
+ 
+ func (t *OutboundTrack) isVideo() bool {
+@@ -47,6 +72,7 @@ func (t *OutboundTrack) setup(p *PeerConnection) error {
+ 	}
+ 
+ 	t.ssrc = uint32(sender.GetParameters().Encodings[0].SSRC)
++	t.bildmarkeExtID = bildmarkeExtensionID(sender.GetParameters().RTPParameters)
+ 
+ 	t.rtcpSender = &rtpsender.Sender{
+ 		ClockRate: int(t.track.Codec().ClockRate),
+diff --git a/internal/protocols/webrtc/peer_connection.go b/internal/protocols/webrtc/peer_connection.go
+index e6c1242..beab5fb 100644
+--- a/internal/protocols/webrtc/peer_connection.go
++++ b/internal/protocols/webrtc/peer_connection.go
+@@ -671,6 +671,24 @@ func (co *PeerConnection) Start() error {
+ 		}
+ 	}
+ 
++	// Die Bildmarke fuer Video anmelden — in BEIDEN Richtungen. Am Eingang,
++	// damit die Marke des Senders ueberhaupt ausgehandelt und geliefert wird;
++	// am Ausgang, damit sie dem Zuschauer gegenueber zugesagt ist und
++	// geschrieben werden darf (RFC 8285: was nicht ausgehandelt ist, darf
++	// nicht gesendet werden).
++	//
++	// Ist der Patch aus, wird nichts angemeldet, nichts ausgehandelt, und der
++	// ganze uebrige Code bleibt wirkungslos: alle Nummern bleiben null.
++	if bildmarkeAktiv() {
++		err := mediaEngine.RegisterHeaderExtension(
++			webrtc.RTPHeaderExtensionCapability{URI: bildmarkeExtensionURI},
++			webrtc.RTPCodecTypeVideo,
++		)
++		if err != nil {
++			return err
++		}
++	}
++
+ 	interceptorRegistry := &interceptor.Registry{}
+ 
+ 	err := registerInterceptors(
+-- 
+2.55.0
+

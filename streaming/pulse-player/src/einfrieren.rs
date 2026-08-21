@@ -407,7 +407,7 @@ const BEWEGUNGS_WECHSEL: u32 = 4;
 const BEWEGUNGS_KETTE: u32 = 8;
 
 /// Messwerkzeug fuer den Pruefstand — im Betrieb vollstaendig aus.
-mod messung;
+pub mod messung;
 
 /// Fingerabdruck eines dekodierten Bildes (s. [`abdruck::bild_abdruck`]).
 mod abdruck;
@@ -449,6 +449,13 @@ pub struct EinfrierWacht {
     /// Wann zuletzt ein Vollbild gemeldet wurde. `None` = noch keins gesehen;
     /// dann traegt nur die feste Untergrenze (s. [`EinfrierWacht::mindestdauer`]).
     letztes_vollbild: Option<std::time::Instant>,
+    /// Seit der letzten Bildaenderung wurden Bilddaten verworfen.
+    ///
+    /// Das ist die URSACHE, die stehenden Inhalt von einem haengenden Decoder
+    /// trennt — die einzige Unterscheidung, die am Ausgabebild selbst nicht zu
+    /// treffen ist (beides sieht identisch aus). Gemeldet wird sie vom
+    /// Zusammensetzer ueber `session.rs` und den Decoder-Faden.
+    schaden_seit_aenderung: bool,
     /// Nur mit `PULSE_PLAYER_TAKT_LOG=1` (s. [`messung::TaktDiagnose`]).
     takt: Option<messung::TaktDiagnose>,
 }
@@ -499,6 +506,10 @@ impl EinfrierWacht {
             self.gleiche_bilder = 0;
             self.bytes_seit_bild = 0;
             self.letzte_aenderung = Some(jetzt);
+            // Das Bild bewegt sich wieder — ein zuvor gemeldeter Schaden ist
+            // damit abgearbeitet. Bliebe er stehen, haengte EIN Verluststoss
+            // die Fehlalarm-Bremse fuer den Rest der Sitzung aus.
+            self.schaden_seit_aenderung = false;
         } else {
             // `letzte_aenderung` steht hier immer: in diesen Zweig kommt man
             // nur mit einem vorherigen Bild, und das erste Bild gilt per
@@ -687,6 +698,27 @@ impl EinfrierWacht {
     /// und „Decoder haengt" am Bild nicht zu unterscheiden. Dafuer greift der
     /// andere Waechter — `decode.rs::MAX_WARTEZEIT_OHNE_KEYFRAME` beendet die
     /// Sitzung, wenn nach einem Neuaufbau kein Einstiegspunkt mehr kommt.
+    /// Es wurden Bilddaten verworfen — der naechste Stillstand hat damit eine
+    /// bekannte Ursache.
+    ///
+    /// Meldet das der Zusammensetzer (s. `depacket::Assembler::verworfen_abholen`),
+    /// dann ist ein stehendes Bild kein stehender INHALT, sondern ein Loch im
+    /// Strom. Genau daran haengt, ob [`EinfrierWacht::mindestdauer`] dem
+    /// Vollbild-Takt des Senders folgen muss oder nicht.
+    pub fn schaden_gemeldet(&mut self) {
+        self.schaden_seit_aenderung = true;
+    }
+
+    /// Wie viele Bilder in Folge bitgleich waren — fuer die Diagnose.
+    pub fn gleiche_bilder(&self) -> u32 {
+        self.gleiche_bilder
+    }
+
+    /// Ist der Wacht eine Schadensursache bekannt? Fuer die Diagnose.
+    pub fn schaden_bekannt(&self) -> bool {
+        self.schaden_seit_aenderung
+    }
+
     pub fn mindestdauer(&self) -> std::time::Duration {
         self.mindestdauer_zur_zeit(std::time::Instant::now())
     }
@@ -695,6 +727,23 @@ impl EinfrierWacht {
     /// waere der Beitrag der laufenden Wartezeit nicht pruefbar.
     pub fn mindestdauer_zur_zeit(&self, jetzt: std::time::Instant) -> std::time::Duration {
         let fest = messung::dauer("PULSE_PLAYER_EINFRIER_MS", EINFRIER_DAUER);
+        // Bekannte Ursache: die Kopplung an den Vollbild-Takt entfaellt.
+        //
+        // Sie existiert allein gegen EINEN Fehlalarm — stehender Inhalt, den
+        // der Sender bei jedem Vollbild bitgleich neu liefert (Messreihe im
+        // Modulkopf). Wurden seit der letzten Bildaenderung Bilddaten
+        // verworfen, liegt dieser Fall nicht vor: dann fehlt etwas im Strom,
+        // und das Bild steht aus einem Grund, den die Wacht behandeln soll.
+        //
+        // **Warum kein Deckel auf den Takt.** Naheliegend waere „hoechstens
+        // zehn Sekunden folgen". Das holte die Fehlalarme zurueck, denn bei
+        // sechzig Sekunden Vollbild-Abstand steht ein ruhender Bildschirm
+        // voellig regulaer eine Minute lang bitgleich — und die Staffelung
+        // ([`MAX_STUFE`]) faengt das nicht, sie kommt bei 60 fps nur bis 12 s.
+        // Die Ursache trennt beide Faelle sauber, eine Zahl kann es nicht.
+        if self.schaden_seit_aenderung {
+            return fest;
+        }
         // Noch nichts beobachtet heisst: alle Plaetze auf null, das Groesste
         // ist null, und es bleibt bei `fest`. Kein Sonderfall noetig.
         let groesster = self.vollbild_abstaende.iter().copied().max().unwrap_or_default();
@@ -805,6 +854,67 @@ mod tests {
     /// Zwei-Sekunden-Takts, in dem der Sender ein Standbild ohnehin veraendert
     /// (Messreihe im Modulkopf). Bindend ist jetzt [`EINFRIER_DAUER`], also
     /// 2500 ms — bei 60 Bildern je Sekunde das 150. Bild.
+    /// **Die Zahl, an der die langen Haenger hingen** (2026-08-21).
+    ///
+    /// [`EinfrierWacht::mindestdauer`] koppelt sich an den Vollbild-Takt des
+    /// Senders, und das aus gutem Grund: bei stehendem Inhalt liefert jedes
+    /// Vollbild bitgleich dasselbe Bild, ein kuerzeres Fenster meldete dort
+    /// Fehlalarm um Fehlalarm (Messreihe im Modulkopf).
+    ///
+    /// Seit dem 2026-08-18 steht `PULSE_KEYFRAME_SECONDS` aber auf **60 s**
+    /// statt auf 2. Damit wurde aus der Kopplung eine Wartezeit von 75
+    /// Sekunden, bevor die Wacht ein wirklich haengendes Bild ueberhaupt
+    /// anfasst — vorher waren es 2,5. Dieselbe Aenderung, die den
+    /// Vollbild-Abstand verdreissigfacht hat, hat die Rettung mit
+    /// verdreissigfacht, und niemand hat es bemerkt: `CLAUDE.md` fuehrt zwei
+    /// Zahlen auf, die der Vorgabe nicht folgen duerfen — es waren drei.
+    ///
+    /// Aufgeloest wird das nicht mit einem Deckel (der brachte die
+    /// Fehlalarme zurueck), sondern mit der URSACHE: ein Stillstand, zu dem
+    /// verworfene Bilddaten gemeldet wurden, ist kein stehender Inhalt.
+    #[test]
+    fn verworfene_daten_loesen_die_kopplung_an_den_vollbild_takt() {
+        let mut w = EinfrierWacht::default();
+        let t0 = std::time::Instant::now();
+        w.vollbild_gesehen_zur_zeit(t0, Some(std::time::Duration::from_secs(60)));
+        assert_eq!(
+            w.mindestdauer_zur_zeit(t0),
+            std::time::Duration::from_secs(75),
+            "ohne bekannte Ursache bleibt es beim Takt plus einem Viertel"
+        );
+
+        w.schaden_gemeldet();
+        assert_eq!(
+            w.mindestdauer_zur_zeit(t0),
+            EINFRIER_DAUER,
+            "mit bekannter Ursache genuegt die feste Untergrenze"
+        );
+    }
+
+    /// Die Meldung darf nicht kleben bleiben: sobald sich das Bild wieder
+    /// bewegt, ist der alte Schaden erledigt und die Kopplung muss zurueck —
+    /// sonst haette EIN Verluststoss die Fehlalarm-Bremse fuer den Rest der
+    /// Sitzung ausgehaengt.
+    #[test]
+    fn ein_veraendertes_bild_erledigt_die_schadensmeldung() {
+        let mut w = EinfrierWacht::default();
+        let t0 = std::time::Instant::now();
+        w.vollbild_gesehen_zur_zeit(t0, Some(std::time::Duration::from_secs(60)));
+        w.schaden_gemeldet();
+        assert_eq!(w.mindestdauer_zur_zeit(t0), EINFRIER_DAUER);
+
+        // Zwei verschiedene Bilder: das erste gilt immer als veraendert
+        // (`letzter_abdruck == None`), erst das zweite belegt eine echte
+        // Bewegung.
+        w.bild_zur_zeit(&bild(1), t0);
+        w.bild_zur_zeit(&bild(2), t0);
+        assert_eq!(
+            w.mindestdauer_zur_zeit(t0),
+            std::time::Duration::from_secs(75),
+            "bewegtes Bild heisst: der Schaden ist Geschichte"
+        );
+    }
+
     #[test]
     fn haengender_decoder_wird_nach_zweieinhalb_sekunden_gemeldet() {
         let mut w = EinfrierWacht::default();

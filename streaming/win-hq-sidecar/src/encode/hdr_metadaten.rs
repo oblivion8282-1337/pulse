@@ -196,11 +196,11 @@ unsafe fn kontext_seitendaten<T>(
 ///
 /// **Warum je Bild und nicht einmal.** FFmpegs AMF-Zweig liest sie aus den
 /// Begleitdaten des Bildes (`amf_save_hdr_metadata`), und zwar bei jedem
-/// Einschieben; er kennt keinen Weg, sie einmal zu hinterlegen. Bei einem Strom
-/// mit rollendem Intra-Refresh ist das sogar der bessere Weg: dort gibt es nach
-/// dem Start keine Vollbilder mehr, an denen sich statische Metadaten sonst
-/// üblicherweise wiederholen — ein später dazukommender Zuschauer bekäme sie
-/// nie.
+/// Einschieben; er kennt keinen Weg, sie einmal zu hinterlegen. Bei einem
+/// Vollbild-Abstand von 60 s ist das sogar der bessere Weg: statische
+/// Metadaten wiederholen sich üblicherweise an den Vollbildern, und die kommen
+/// hier selten genug, dass ein später dazukommender Zuschauer lange warten
+/// müsste.
 ///
 /// Die Kosten sind zwei kleine Speicheranforderungen je Bild. Bei 60 Bildern in
 /// der Sekunde ist das gegenüber allem anderen in diesem Weg nicht messbar; und

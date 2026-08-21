@@ -10,6 +10,7 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
+  import Select from '$lib/components/form/Select.svelte';
   import { Label } from '$lib/components/ui/label/index.js';
   import { toast } from 'svelte-sonner';
   import { chatApi } from '$lib/api/chat';
@@ -45,6 +46,12 @@
     !!selectedUserId && confirmName === guild.name && !busy
   );
 
+  // Der Leerwert ist kein Eintrag, sondern der Platzhalter: „nichts gewählt"
+  // ist hier kein Zustand, den man anwählt, sondern das Fehlen einer Wahl.
+  let zielOptionen = $derived(
+    members.map((mem) => ({ value: mem.user_id, label: displayName(mem) })),
+  );
+
   async function transfer(): Promise<void> {
     if (!canSubmit) return;
     busy = true;
@@ -76,17 +83,14 @@
 
   <div class="space-y-2">
     <Label for="ot-target">{m.owner_transfer_label_target()}</Label>
-    <select
+    <Select
       id="ot-target"
-      class="bg-bg-input border-border w-full rounded-md border px-3 py-2 text-sm"
-      bind:value={selectedUserId}
+      value={selectedUserId}
+      options={zielOptionen}
+      placeholder={m.owner_transfer_select_placeholder()}
+      onchange={(v) => (selectedUserId = v)}
       data-testid="ot-target"
-    >
-      <option value="">{m.owner_transfer_select_placeholder()}</option>
-      {#each members as m (m.user_id)}
-        <option value={m.user_id}>{displayName(m)}</option>
-      {/each}
-    </select>
+    />
   </div>
 
   <div class="space-y-2">

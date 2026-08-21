@@ -6,10 +6,9 @@
 //! Rueckkanal — der eigene WHIP-Sendeweg ist der erste Weg, auf dem die
 //! Anforderung eines Zuschauers den Encoder ueberhaupt erreicht.
 //!
-//! Und im Intra-Refresh-Betrieb ist sie nicht nur Reparatur, sondern
-//! Voraussetzung: dort hat der Strom nach dem Start KEIN Vollbild mehr, ein
-//! neu dazukommender Zuschauer kaeme ohne diese Anforderung gar nicht erst
-//! ins Bild.
+//! Und bei einem Vollbild-Abstand von 60 s ist sie nicht nur Reparatur,
+//! sondern Voraussetzung: ein neu dazukommender Zuschauer wartete ohne diese
+//! Anforderung bis zu einer Minute auf sein erstes Bild.
 //!
 //! **Warum das hier steht und nicht im Labor**, obwohl heute nur das Labor
 //! einen Rueckkanal hat: eingeloest wird die Anforderung vom Encoder, und der
@@ -41,9 +40,9 @@ static ANGEFORDERT: AtomicBool = AtomicBool::new(false);
 // der Bildfluss geht in Stoesse. Ein einzelner kaputter Empfaenger legt so die
 // Uebertragung fuer die ganze Runde lahm.
 //
-// **Warum die ERSTE sofort durchgeht.** Unter Intra-Refresh hat der Strom nach
-// dem Start kein Vollbild mehr; ein neu dazukommender Zuschauer sieht ohne
-// diese eine Anforderung ueberhaupt nichts. Eine Staffelung, die schon beim
+// **Warum die ERSTE sofort durchgeht.** Bei 60 s Vollbild-Abstand sieht ein
+// neu dazukommender Zuschauer ohne diese eine Anforderung bis zu eine Minute
+// lang nichts. Eine Staffelung, die schon beim
 // ersten Mal bremst, macht aus dem Einstieg eine Wartezeit — genau das, was
 // `session.rs::EINSTIEG_REQUEST_INTERVAL` auf der Empfaengerseite vermeidet.
 // Gestaffelt wird deshalb erst die WIEDERHOLUNG.
@@ -241,8 +240,8 @@ impl Anforderungen {
 ///
 /// **Die Staffelung geht mit zurueck**, und das ist kein Beiwerk: bliebe sie
 /// stehen, faenge ein neuer Stream unter Umstaenden auf der langsamsten Stufe
-/// an — und die allererste Anforderung ist im Intra-Refresh-Betrieb genau die,
-/// die den Zuschauer ueberhaupt ins Bild bringt. Der Zaehler der verworfenen
+/// an — und die allererste Anforderung ist genau die, die den Zuschauer
+/// ueberhaupt ins Bild bringt. Der Zaehler der verworfenen
 /// bleibt absichtlich stehen: er ist eine Bilanz ueber die Prozesslaufzeit,
 /// keine Eigenschaft eines Streams.
 pub fn reset() {
@@ -336,10 +335,6 @@ impl Selbsttakt {
 /// eine Anforderung eine Minute lang.
 pub const SEKUNDEN_VORGABE: f32 = 60.0;
 
-/// Vorgabe fuer die UMLAUFDAUER, wenn Intra-Refresh laeuft — bleibt bei 2 s.
-/// Begruendung beim Zwilling im Linux-Sidecar
-/// (`KEYFRAME_SEKUNDEN_UMLAUF_VORGABE`).
-pub const SEKUNDEN_UMLAUF_VORGABE: f32 = 2.0;
 const SEKUNDEN_MIN: f32 = 0.1;
 
 /// Obergrenze fuer `PULSE_KEYFRAME_SECONDS`. Eine Grenze muss es geben, damit
@@ -365,27 +360,17 @@ const SEKUNDEN_MAX: f32 = 120.0;
 /// eine Messreihe, die „60 s" im Protokoll stehen hat und in Wahrheit mit 2 s
 /// lief, sieht vollkommen plausibel aus.
 pub fn abstand_bilder(fps: u32) -> u32 {
-    // Die Vorgabe haengt an der Betriebsart (2026-08-19, Zwilling im
-    // Linux-Sidecar): dieselbe Zahl ist ohne Intra-Refresh der Vollbild-Abstand
-    // und mit Intra-Refresh die UMLAUFDAUER der Auffrischung
-    // (`intra_refresh_mode=gop_aligned`, s. `encode/auffrischung.rs`). 60 s sind
-    // als Abstand gemessen gut und als Umlaufdauer unbrauchbar.
-    let vorgabe = if crate::encode::auffrischung::gewuenscht() {
-        SEKUNDEN_UMLAUF_VORGABE
-    } else {
-        SEKUNDEN_VORGABE
-    };
     let sekunden = match std::env::var("PULSE_KEYFRAME_SECONDS").ok().as_deref() {
-        None => vorgabe,
+        None => SEKUNDEN_VORGABE,
         Some(roh) => match roh.parse::<f32>() {
             Ok(v) if (SEKUNDEN_MIN..=SEKUNDEN_MAX).contains(&v) => v,
             _ => {
                 eprintln!(
                     "[encode] PULSE_KEYFRAME_SECONDS={roh:?} unbrauchbar \
                      (erlaubt {SEKUNDEN_MIN}..={SEKUNDEN_MAX}) — es gilt die \
-                     Vorgabe {vorgabe}"
+                     Vorgabe {SEKUNDEN_VORGABE}"
                 );
-                vorgabe
+                SEKUNDEN_VORGABE
             }
         },
     };
@@ -563,13 +548,8 @@ mod tests {
     fn ohne_einstellung_gilt_die_vorgabe() {
         let _wache = ENV.lock().unwrap_or_else(|p| p.into_inner());
         unsafe { std::env::remove_var("PULSE_KEYFRAME_SECONDS") };
-        crate::encode::auffrischung::setzen(false);
         assert_eq!(abstand_bilder(60), 3600, "sechzig Sekunden bei 60 fps");
         assert_eq!(abstand_bilder(144), 8640, "sechzig Sekunden bei 144 fps");
-        // Mit Intra-Refresh ist dieselbe Zahl die Umlaufdauer — und bleibt bei 2 s.
-        crate::encode::auffrischung::setzen(true);
-        assert_eq!(abstand_bilder(60), 120, "mit Intra-Refresh: 2 s Umlaufdauer");
-        crate::encode::auffrischung::setzen(false);
     }
 
     #[test]

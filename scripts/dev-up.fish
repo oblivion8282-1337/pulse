@@ -93,10 +93,10 @@ else if not diff -q (grep -vE '^\s*(#|$)' mediamtx.yml.template | psub) \
     # Die lokale Konfiguration ist gitignored und wird beim ersten Lauf aus der
     # Vorlage kopiert — danach wandert die Vorlage weiter und die Kopie nicht.
     # Der Hinweis ist da, weil dieser Drift STILL kaputtgeht: am 2026-08-03 stand
-    # lokal noch `hls: yes`, das die Vorlage längst abgeschaltet hatte. Mit
-    # Intra-Refresh enthält der Strom keine periodischen Vollbilder mehr, der
-    # HLS-Muxer findet keine Segmentgrenze und stürzt im Kreis — sichtbar nur in
-    # `docker logs`, während in der App einfach nichts ankommt.
+    # lokal noch `hls: yes`, das die Vorlage längst abgeschaltet hatte. Bei einem
+    # Vollbild-Abstand von 60 s findet der HLS-Muxer minutenlang keine
+    # Segmentgrenze und stürzt im Kreis — sichtbar nur in `docker logs`, während
+    # in der App einfach nichts ankommt.
     #
     # Nur Warnung, kein Überschreiben: wer hier absichtlich etwas geändert hat,
     # soll es nicht wortlos verlieren.
@@ -233,22 +233,6 @@ set -l rust_sidecar "$repo_root/streaming/linux-hq-sidecar/target/release/pulse-
 if test -x $rust_sidecar
     set gsr_env "$gsr_env PULSE_LINUX_HQ_SIDECAR=$rust_sidecar"
     _ok "" "Rust-Linux-Sidecar da (Standard-Aufnahmeweg)"
-
-    # Intra-Refresh braucht auf AMD/Intel ein gepatchtes FFmpeg — VA-API reicht
-    # die Option upstream in KEINER Version durch (streaming/ffmpeg-patches/,
-    # gebaut von scripts/hq-bauen.sh).
-    #
-    # Gefragt wird der SIDECAR SELBST, nicht das Dateisystem: `health` meldet
-    # dieselbe Fähigkeit, an der auch die Oberfläche das Kästchen festmacht.
-    # Damit können Dev-Hinweis und App nicht auseinanderlaufen — eine Prüfung,
-    # die stattdessen den Bibliothekspfad des Binaries ansieht, beantwortet nur
-    # eine Näherung derselben Frage.
-    set -l health (echo '{"op":"health","id":1}' | timeout 30 $rust_sidecar 2>/dev/null)
-    if string match -q '*"intra_refresh":true*' -- $health
-        _ok "" "Intra-Refresh verfügbar (Sidecar reicht die Betriebsart durch)"
-    else
-        _info "Intra-Refresh nicht verfügbar — auf AMD/Intel fehlt das gepatchte FFmpeg. Bauen: scripts/hq-bauen.sh"
-    end
 else
     _info "Rust-Linux-Sidecar nicht gebaut — Dev nutzt den GSR-Fallback"
 end
@@ -265,7 +249,14 @@ else
 end
 
 _info "Electron starten (→ localhost:5173)"
-bash -c "env PULSE_DEV_URL=http://localhost:5173 PULSE_DEVTOOLS=1 $gsr_env setsid nohup ./node_modules/.bin/electron . > /tmp/dcc-electron-dev.log 2>&1 < /dev/null &"
+# DevTools NICHT erzwingen (gingen sonst bei jedem Start als eigenes Fenster
+# auf). Wer sie will: PULSE_DEVTOOLS=1 vor den Aufruf setzen — die Zeile reicht
+# eine gesetzte Variable durch — oder im Fenster Strg+Shift+I.
+set -l devtools_env
+if test -n "$PULSE_DEVTOOLS"
+    set devtools_env "PULSE_DEVTOOLS=$PULSE_DEVTOOLS"
+end
+bash -c "env PULSE_DEV_URL=http://localhost:5173 $devtools_env $gsr_env setsid nohup ./node_modules/.bin/electron . > /tmp/dcc-electron-dev.log 2>&1 < /dev/null &"
 popd >/dev/null
 sleep 2
 _ok "" "Electron up"

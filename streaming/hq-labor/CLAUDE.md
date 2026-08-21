@@ -1,5 +1,17 @@
 # CLAUDE.md — HQ-Labor
 
+> **Intra-Refresh ist am 2026-08-21 aus Pulse entfernt worden.** Die
+> Betriebsart, um die es auf diesem Blatt streckenweise geht, gibt es nicht
+> mehr: kein Kästchen, kein Health-Feld, keine Encoder-Optionen, keine
+> FFmpeg-Patches. Gründe waren das sichtbar schlechtere H.264-Bild, dass macOS
+> sie nie trug, und dass ein Vollbild-Strom sich nach Paketverlust selbst
+> repariert — ein Intra-Refresh-Strom nicht. Die zugehörigen Messakten sind
+> gelöscht, weil sie teils nie bestätigt und teils später widerlegt wurden.
+>
+> **Was hier über die Betriebsart steht, ist Historie und keine Anleitung.**
+> Methodik, Aufbau und alles Übrige gelten weiter.
+
+
 Projektanweisungen für die Arbeit am HQ-Streaming-Weg (dieses Verzeichnis, der
 Prüfstand unter `streaming/testbench/`, der Player unter
 `streaming/pulse-player/` und der ausgelieferte Sidecar nebenan).

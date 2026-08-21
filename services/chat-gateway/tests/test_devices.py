@@ -978,3 +978,211 @@ async def test_ein_geraet_stimmt_nur_fuer_sich_selbst_zu(client, _auth_signer):
     )
     assert geraet_sock.sent[-1]["code"] == 4051
     assert mgr.remote_get(sess.session_id).state == "pending"
+
+
+@pytest.mark.asyncio
+async def test_geraet_wechselt_die_community(client, _auth_signer):
+    token, uid = await _make_token(_auth_signer)
+    quelle = await _guild(client, token, "projekt-nord")
+    ziel = await _guild(client, token, "projekt-sued")
+    kanal_quelle = await _voice_channel(client, token, quelle)
+    kanal_ziel = await _voice_channel(client, token, ziel, "schnitt-2")
+
+    r = await client.post(
+        f"/guilds/{quelle}/devices",
+        json={"channel_id": str(kanal_quelle), "name": "schnitt-3"},
+        headers=_auth(token),
+    )
+    device_id = r.json()["id"]
+
+    r = await client.patch(
+        f"/guilds/{quelle}/devices/{device_id}",
+        json={"guild_id": str(ziel), "channel_id": str(kanal_ziel)},
+        headers=_auth(token),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["guild_id"] == str(ziel)
+    assert r.json()["channel_id"] == str(kanal_ziel)
+
+    # Aus der alten Community verschwunden, in der neuen aufgetaucht.
+    alt = await client.get(f"/guilds/{quelle}/devices", headers=_auth(token))
+    assert alt.json() == []
+    neu = await client.get(f"/guilds/{ziel}/devices", headers=_auth(token))
+    assert [d["id"] for d in neu.json()] == [device_id]
+
+
+@pytest.mark.asyncio
+async def test_community_wechsel_ohne_rechte_am_ziel(client, _auth_signer):
+    token, uid = await _make_token(_auth_signer)
+    fremd_token, _ = await _make_token(_auth_signer)
+    quelle = await _guild(client, token, "meins")
+    kanal = await _voice_channel(client, token, quelle)
+    fremd = await _guild(client, fremd_token, "fremd")
+    fremd_kanal = await _voice_channel(client, fremd_token, fremd)
+
+    r = await client.post(
+        f"/guilds/{quelle}/devices",
+        json={"channel_id": str(kanal), "name": "werkstatt-pc"},
+        headers=_auth(token),
+    )
+    device_id = r.json()["id"]
+
+    # Kein Mitglied der Zielcommunity: wortgleich wie ein nicht vorhandener
+    # Kanal — die Antwort darf nicht verraten, dass es die Community gibt.
+    r = await client.patch(
+        f"/guilds/{quelle}/devices/{device_id}",
+        json={"guild_id": str(fremd), "channel_id": str(fremd_kanal)},
+        headers=_auth(token),
+    )
+    assert r.status_code == 404, r.text
+
+
+@pytest.mark.asyncio
+async def test_gleiche_community_bleibt_ein_kanalwechsel(client, _auth_signer):
+    besitzer, _ = await _make_token(_auth_signer)
+    gid = await _guild(client, besitzer, "studio")
+    kanal = await _voice_channel(client, besitzer, gid)
+    zweit_kanal = await _voice_channel(client, besitzer, gid, "schnitt-2")
+    r = await client.post(
+        f"/guilds/{gid}/devices",
+        json={"channel_id": str(kanal), "name": "schnitt-1"},
+        headers=_auth(besitzer),
+    )
+    device_id = r.json()["id"]
+
+    # Der Community-Eigner ist hier zugleich Besitzer des Geräts; für den
+    # Gegentest braucht es ein Gerät, das jemand anderem gehört. Wir prüfen
+    # deshalb den Fall über die vorhandene Regel: derselbe Aufruf mit
+    # ``guild_id`` auf die eigene Community ist ein reiner Kanalwechsel und
+    # muss weiterhin durchgehen.
+    r = await client.patch(
+        f"/guilds/{gid}/devices/{device_id}",
+        json={"guild_id": str(gid), "channel_id": str(zweit_kanal)},
+        headers=_auth(besitzer),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["channel_id"] == str(zweit_kanal)
+
+
+@pytest.mark.asyncio
+async def test_community_wechsel_nur_besitzer(client, _auth_signer):
+    """**Der echte Nicht-Besitzer-Fall**: ``MANAGE_GUILD`` darf ein fremdes
+    Gerät räumen (löschen/umbenennen), aber nicht umwidmen — dieselbe Regel
+    wie beim reinen Kanalwechsel (``test_umstellen_bleibt_dem_besitzer_vorbehalten``),
+    hier gegen den Community-Wechsel geprüft. Ein zweites Mitglied mit einer
+    ``MANAGE_GUILD``-Rolle versucht, das Gerät eines anderen Mitglieds in eine
+    andere Community zu verschieben, und bekommt 403 — nicht 404, denn diese
+    Person IST Mitglied beider Communities, es geht hier nicht um Sichtbarkeit
+    sondern um Eigentum."""
+    besitzer, _ = await _make_token(_auth_signer)
+    gid = await _guild(client, besitzer, "werkstatt-a")
+    ziel_gid = await _guild(client, besitzer, "werkstatt-b")
+    kanal = await _voice_channel(client, besitzer, gid)
+    ziel_kanal = await _voice_channel(client, besitzer, ziel_gid, "andere-bank")
+
+    geraete_besitzer, geraete_uid = await _mitglied(client, besitzer, gid, _auth_signer)
+    device = (
+        await client.post(
+            f"/guilds/{gid}/devices",
+            json={"channel_id": str(kanal), "name": "fremder-pc"},
+            headers=_auth(geraete_besitzer),
+        )
+    ).json()
+
+    # Verwalter mit MANAGE_GUILD, aber nicht Besitzer des Geräts.
+    verwalter_token, verwalter_uid = await _mitglied(client, besitzer, gid, _auth_signer)
+    role = (
+        await client.post(
+            f"/guilds/{gid}/roles",
+            json={"name": "verwaltung", "permissions": str(int(Permissions.MANAGE_GUILD))},
+            headers=_auth(besitzer),
+        )
+    ).json()
+    await client.put(
+        f"/guilds/{gid}/members/{verwalter_uid}/roles/{role['id']}",
+        headers=_auth(besitzer),
+    )
+
+    r = await client.patch(
+        f"/guilds/{gid}/devices/{device['id']}",
+        json={"guild_id": str(ziel_gid), "channel_id": str(ziel_kanal)},
+        headers=_auth(verwalter_token),
+    )
+    assert r.status_code == 403, r.text
+
+
+@pytest.mark.asyncio
+async def test_geraete_deckel_kommt_aus_dem_community_limit(client, _auth_signer):
+    token, _ = await _make_token(_auth_signer)
+    gid = await _guild(client, token, "studio")
+    kanal = await _voice_channel(client, token, gid)
+    # Deckel auf 1 setzen (Community-eigener Wert)
+    r = await client.patch(
+        f"/guilds/{gid}/limits",
+        json={"limits": {"max_devices_per_owner": 1}},
+        headers=_auth(token),
+    )
+    assert r.status_code == 200, r.text
+
+    r = await client.post(
+        f"/guilds/{gid}/devices",
+        json={"channel_id": str(kanal), "name": "schnitt-1"},
+        headers=_auth(token),
+    )
+    assert r.status_code == 201
+    r = await client.post(
+        f"/guilds/{gid}/devices",
+        json={"channel_id": str(kanal), "name": "schnitt-2"},
+        headers=_auth(token),
+    )
+    assert r.status_code == 409, r.text
+
+
+@pytest.mark.asyncio
+async def test_umstellen_markiert_die_abmeldung_als_umzug(client, _auth_signer):
+    """**Prüfbefund K-1 (2026-08-20):** die Abmeldung an den ALTEN Standplatz
+    beim Umstellen war von einem echten Löschen nicht unterscheidbar — der
+    Rechner des Geräts ist Mitglied der alten Community, empfängt die eigene
+    Abmeldung also selbst und hätte seine lokale Eintragung dauerhaft
+    weggeräumt, obwohl das Gerät nur umgezogen ist. Die Abmeldung beim
+    Umstellen muss ``moved: True`` tragen, ein echtes Löschen NICHT."""
+    token, _ = await _make_token(_auth_signer)
+    gid = await _guild(client, token)
+    alt = await _voice_channel(client, token, gid, "werkbank")
+    neu = await _voice_channel(client, token, gid, "lager")
+    device = (
+        await client.post(
+            f"/guilds/{gid}/devices",
+            json={"channel_id": str(alt), "name": "werkstatt-pc"},
+            headers=_auth(token),
+        )
+    ).json()
+
+    mgr = _register(client)
+    aufrufe: list[dict] = []
+
+    async def _merken(**kwargs):
+        aufrufe.append(kwargs)
+
+    mgr.publish_device_change = _merken  # type: ignore[method-assign]
+
+    r = await client.patch(
+        f"/guilds/{gid}/devices/{device['id']}",
+        json={"channel_id": str(neu)},
+        headers=_auth(token),
+    )
+    assert r.status_code == 200, r.text
+
+    abmeldungen = [a for a in aufrufe if a["removed"] is True]
+    assert len(abmeldungen) == 1, "genau eine Abmeldung an den alten Standplatz"
+    assert abmeldungen[0]["moved"] is True
+
+    aufrufe.clear()
+    r = await client.delete(
+        f"/guilds/{gid}/devices/{device['id']}",
+        headers=_auth(token),
+    )
+    assert r.status_code == 204, r.text
+    assert len(aufrufe) == 1
+    assert aufrufe[0]["removed"] is True
+    assert aufrufe[0]["moved"] is False

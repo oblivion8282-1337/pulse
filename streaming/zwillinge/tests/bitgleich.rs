@@ -33,3 +33,25 @@ fn ops_state_linux_gleich_mac() {
 // gemeinsamen Crate `streaming/pulse-zeigerbild` — ein Vergleich zweier
 // Einzeiler haette keinen Erkenntniswert mehr. Die eigentliche Logik samt
 // ihrer Tests steht jetzt in `pulse-zeigerbild/src/lib.rs`.
+
+// ── Uebernommen am 2026-08-21 aus `pulse-player/tests/zwillinge.rs` ──────────
+// Jene Datei hielt drei Paare zusammen. Zwei davon — `zeigerbild.rs` und
+// `bildmarke.rs` — liegen seither in gemeinsamen Kisten (`pulse-zeigerbild`,
+// `pulse-bildmarke`) und brauchen keinen Vergleich mehr. Der dritte gilt
+// weiter: der Pruefstein ist eine DATEI, keine Kiste, und wird bewusst an zwei
+// Orten gehalten — der MediaMTX-Fork baut ohne dieses Repo. Er wandert deshalb
+// hierher, statt mit seiner Datei zu verschwinden.
+
+/// Der Pruefstein, gegen den Sender und Fork gleichermassen pruefen.
+#[test]
+fn pruefstein_liegt_im_mediamtx_fork_wortgleich() {
+    const SENDER: &str = include_str!("../../bildmarke-formen.json");
+    const FORK: &str = include_str!("../../../infra/mediamtx-fork/bildmarke-formen.json");
+    assert_eq!(
+        SENDER, FORK,
+        "streaming/bildmarke-formen.json und \
+         infra/mediamtx-fork/bildmarke-formen.json sind auseinandergelaufen. \
+         Der Sender erzeugt die Datei — die Kopie im Fork zieht nach, nie umgekehrt: \
+         cp streaming/bildmarke-formen.json infra/mediamtx-fork/",
+    );
+}

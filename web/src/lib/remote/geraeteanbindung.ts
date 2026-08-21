@@ -68,40 +68,22 @@ export function fremdesGeraetAblehnen(sessionId: string, deviceId?: string): boo
  *
  * Fail-closed an jeder Abzweigung — die Prüfung selbst liegt in
  * `standplatz.svelte.ts`; hier steht nur, wo sie gerufen wird.
+ *
+ * **Seit 2026-08-20 reicht das nur noch durch.** Wer diese Anfrage deckt, weiss
+ * seit dem Server-Umzug der Freigabeliste (`device_grants`) allein der
+ * Gateway — er kennt Rollen und Kanalmitgliedschaft, der Client nicht. Das
+ * Ergebnis kommt als Feld `freigabe` am `remote_request`-Rahmen herein
+ * (`ws/handlers/remote.ts`); der Hauptschalter am Gerät bleibt trotzdem hier,
+ * nicht auf dem Server (Begründung im Datei-Kopf von `standplatz.svelte.ts`).
  */
-export function ohneRueckfrage(channelId: string, vonUserId: string | null): boolean {
+export function ohneRueckfrage(freigabeVomServer: boolean): boolean {
   // Der Aufrufer merkt sich das Ergebnis als `selbsttaetig`, und daran hängen
   // zwei Dinge: der Zustimmungsdialog bleibt zu (er stünde sonst einen
   // Serverumlauf lang sichtbar da — die Phase bleibt bis zum Echo auf
   // 'incoming' —, und ein Dialog, der von selbst verschwindet, sieht aus wie
   // ein Fehler), und das Protokoll trennt daran die selbsttätige von der
   // bestätigten Übernahme.
-  const server = dispatchenderServer();
-  // Die Eintragung reist als letzte Zusicherung mit: ist der Standplatz gerade
-  // nicht auflösbar, entscheidet sie für „jeder" (Begründung dort).
-  return standplatz.darfOhneRueckfrage(
-    server,
-    channelId,
-    vonUserId,
-    standplatzKanal(server),
-    geraeteAnmeldung.fuerServer(server) !== null,
-  );
-}
-
-/**
- * In welchem Kanal steht dieser Rechner auf diesem Server?
- *
- * Die Eintragung kennt nur die Community (`anmeldung.svelte.ts::Eintragung`),
- * den Kanal weiss allein die Gerätezeile des Servers. `null` heisst „nicht
- * auflösbar" — dann gilt die Freigabe „jeder" nicht, und die Anfrage geht den
- * gewöhnlichen Weg über den Dialog. Vorgeladen wird die Liste vom Gerät selbst
- * (`devices/components/DeviceKiosk.svelte`), damit dieser Fall die Ausnahme
- * bleibt.
- */
-function standplatzKanal(serverId: string | null): string | null {
-  const eintrag = geraeteAnmeldung.fuerServer(serverId);
-  if (!eintrag) return null;
-  return deviceStore.byId(eintrag.guildId, eintrag.deviceId)?.channel_id ?? null;
+  return standplatz.selbsttaetigZustimmen(freigabeVomServer);
 }
 
 /**

@@ -328,7 +328,8 @@ class RemoteSessionStore {
     sessionId: string,
     channelId: string,
     fromUserId: string,
-    deviceId?: string,
+    deviceId: string | undefined,
+    freigabe: boolean,
   ): void {
     if (this.phase !== 'idle') return; // schon beschäftigt — Server-Gate (4054) deckt das ab
     // Kann dieser Rechner überhaupt ferngesteuert werden? Ohne Brücke
@@ -369,9 +370,9 @@ class RemoteSessionStore {
     this.#watchErrors();
     // Dauerfreigabe (`geraeteanbindung.ts`) — NACH den Wachten: ein
     // fehlgeschlagenes `accept()` räumt über `#reset` auf, das sie braucht.
-    // Mit dem Kanal: eine Dauerfreigabe gilt am Standplatz, nicht überall
-    // (Begründung in `standplatz.svelte.ts`).
-    if (geraet.ohneRueckfrage(channelId, fromUserId)) {
+    // `freigabe` hat der Gateway schon aufgelöst (Rollen, Kanalmitgliedschaft);
+    // hier sticht nur noch der Hauptschalter am Gerät.
+    if (geraet.ohneRueckfrage(freigabe)) {
       this.selbsttaetig = true;
       this.accept();
     }

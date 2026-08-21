@@ -26,12 +26,6 @@ export interface OverrideSet {
   fps?: number;
   resolution?: string;
   /**
-   * Rollender Intra-Refresh statt periodischer Vollbilder. Fehlt das Feld,
-   * entscheidet der Sidecar über `PULSE_INTRA_REFRESH` — deshalb wird es nur
-   * gesetzt, wenn die Oberfläche wirklich eine Wahl getroffen hat.
-   */
-  intra_refresh?: boolean;
-  /**
    * HDR senden — der Bildschirminhalt wird in seinem vollen Helligkeitsumfang
    * aufgenommen und als PQ/BT.2020 encodiert.
    *
@@ -154,12 +148,132 @@ export function clampResolution(res: string, maxRes: string): string {
   return idx >= maxIdx ? res : maxRes;
 }
 
+// ── Bildraten-Stufen ────────────────────────────────────────────────────────
+
+/**
+ * Die Bildraten-Stufen des FPS-Felds (bis 2026-08-20 ein Freifeld).
+ *
+ * **25 gehört hinein, auch wenn es im Produktionsbetrieb selten ist:**
+ * PAL-Material (europäisches TV, ältere Aufnahmen) läuft mit 25 Bildern/s —
+ * wer das streamen will, hatte sonst keine passende Stufe.
+ *
+ * Die Liste endet bei **144**, nicht bei 165/240: über 144 hinaus gibt es
+ * keine Kombination mehr, die auf Zuschauer-Seite verlässlich ankommt (s. die
+ * Last-Grenze unten), und Monitore mit mehr Takt streamen ohnehin mit
+ * Quell-Raten, die kein gewöhnlicher Decoder mitnimmt.
+ */
+export const FPS_VALUES: ReadonlyArray<number> = [25, 30, 60, 90, 120, 144];
+
+/**
+ * Was „Standard" im FPS-Feld bedeutet: die Vorgabe der Sidecars, wenn die
+ * Oberfläche `fps` nicht mitgibt. Alle vier Sidecars stehen auf 60
+ * (`gsr-sidecar/profiles.py`, `linux-hq-sidecar/src/profiles.rs`,
+ * `win-hq-sidecar/src/profiles.rs`, macOS analog) — deshalb trägt das
+ * Etikett die Zahl.
+ *
+ * Die Vorgabe wird wie eine Stufe GEPRÜFT, nicht automatisch durchgewinkt:
+ * wäre 60 in der gewählten Kombination nicht erlaubt (4K in 10 bit), fällt
+ * der „Standard"-Eintrag weg und der Wert wird auf die höchste erlaubte
+ * Stufe festgenagelt. Sonst wäre die Vorgabe der einzige Weg, die Last-Grenze
+ * unbemerkt zu unterlaufen.
+ */
+export const FPS_STANDARD = 60;
+
+/**
+ * Last-Grenze für 10 bit: Auflösung × Bildrate in Bildpunkten je Sekunde.
+ *
+ * **Warum es sie gibt (Vorfall 2026-08-20):** 2560×1440 bei 144 Bildern/s in
+ * AV1 8 bit lief bei einem Zuschauer auf Linux/AMD problemlos — dieselbe
+ * Kombination in 10 bit brachte die Videoeinheit seiner GPU zum Hängen
+ * (Kernel-Reset des Videorings; auf älterem Treiberunterbau stirbt dabei der
+ * ganze Player-Prozess). Die Decoder-Hardware gewöhnlicher Karten ist auf
+ * etwa „4K60" (~500 Mpix/s) ausgelegt, und 10 bit kostet die Einheit das
+ * 1,5- bis 2-fache an Zyklen pro Bildpunkt — der Strom war also effektiv bei
+ * 800–1000 Mpix/s angekommen. Der Sender kann die Zuschauer-Hardware nicht
+ * kennen; die einzige Stelle, an der sich das verhindern lässt, ist die
+ * Auswahl im Editor.
+ *
+ * **Warum ~300:** die Hälfte der Faustregel-Decke. Sie lässt 1080p bis 144
+ * (299 Mpix/s) und 1440p bis 60 (221) zu, sperrt aber genau die Kombination,
+ * die den Vorfall machte (1440p×144 = 531). Es ist eine bewusst grobe,
+ * konservative Zahl aus einem gemessenen Fall — die saubere Lösung wäre
+ * messen statt raten (Lastmessung im Player), bis es die gibt, grenzt dieser
+ * Wert das Risiko ein.
+ *
+ * In 8 bit wird NICHT begrenzt: derselbe Strom lief in 8 bit durch, und
+ * H.264 ist auf jeder Karte der billige Weg.
+ */
+export const HQ_TEN_BIT_MAX_PIXELS_PER_SEC = 300_000_000;
+
+/** Größe, die bei der gewählten Auflösung tatsächlich gesendet wird.
+ *  `null` = unbekannt (Linux-Portal: Quelle steht erst beim Start fest) —
+ *  dann bleibt die Last unbestimmt und die Liste ungeschmälert; das Netz
+ *  ist die Begrenzung im Sidecar (`lastgrenze`), der die echte Größe nach
+ *  der Portal-Verhandlung kennt. */
+export type SendSize = { width: number; height: number } | null;
+
+/** Ist diese Bildrate in dieser Kombination erlaubt? */
+export function fpsAllowed(
+  fps: number,
+  tenBit: boolean,
+  size: SendSize,
+  min: number,
+  max: number,
+): boolean {
+  if (fps < min || fps > max) return false;
+  if (!tenBit || !size) return true;
+  return size.width * size.height * fps <= HQ_TEN_BIT_MAX_PIXELS_PER_SEC;
+}
+
+/**
+ * Die anbietbaren Stufen — erst nach Instanz-/Community-Grenzen, dann nach
+ * der Last-Grenze.
+ *
+ * **Die Liste ist nie leer.** Leert die Last-Grenze alles (Riesenquelle in
+ * 10 bit — selbst 25 Bilder/s bleiben über der Grenze), bleibt die kleinste
+ * stufen-gültige Stufe stehen: ein leeres Dropdown wäre schlimmer als eine
+ * offiziell langsame Wahl, und die Grenze ist eine Führung, kein Verbot —
+ * wer bei 5K in 10 bit streamen will, hat ein anderes Problem als die
+ * Bildrate.
+ */
+export function allowedFpsSteps(
+  tenBit: boolean,
+  size: SendSize,
+  min: number,
+  max: number,
+): ReadonlyArray<number> {
+  const nachGrenzen = FPS_VALUES.filter((f) => f >= min && f <= max);
+  // Auch die Admin-Grenzen können alles streichen (min über der höchsten
+  // Stufe) — der Boden gilt darum schon hier, nicht erst nach der Last-Grenze.
+  const mitBoden = nachGrenzen.length ? nachGrenzen : [FPS_VALUES[0]];
+  if (!tenBit || !size) return mitBoden;
+  const nachLast = mitBoden.filter((f) => fpsAllowed(f, true, size, min, max));
+  return nachLast.length ? nachLast : [mitBoden[0]];
+}
+
+/**
+ * Eine gespeicherte Bildrate auf die Stufenliste biegen. Die größte erlaubte
+ * Stufe UNTER dem bisherigen Wert — wer 144 gewählt hatte und auf 10 bit/1440p
+ * wechselt, landet auf 60, nicht auf 25; wer 25 (PAL) gewählt hatte, behält
+ * 25. Gibt es keine kleinere, die kleinste erlaubte (der Wert war zu NIEDRIG
+ * für die Grenzen, also wird angehoben).
+ */
+export function snapFps(current: number, steps: ReadonlyArray<number>): number {
+  if (steps.includes(current)) return current;
+  // Die Stufenliste ist aufsteigend: die letzte Stufe UNTER dem Wert ist
+  // zugleich die größte.
+  const darunter = steps.findLast((f) => f < current);
+  return darunter ?? steps[0];
+}
+
 export const AUDIO_MODES: ReadonlyArray<AudioMode> = [
   'Aus',
   'Desktop',
   'Mikrofon',
   'Desktop + Mikrofon',
 ];
+
+
 
 /** Prefix the sidecar uses to recognise "capture this app's audio" — the
  *  on-the-wire `audio.mode` for app capture is `"App: <name>"`, which the

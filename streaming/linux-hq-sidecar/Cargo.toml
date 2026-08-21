@@ -32,6 +32,7 @@ pulse-zeitbasis = { path = "../pulse-zeitbasis" }
 # mit win/mac in einer eigenen Crate. `src/whip/{av1,sdp}.rs` bleiben als
 # Re-Exports bestehen (s. dort).
 pulse-whip = { path = "../pulse-whip" }
+pulse-bildmarke = { path = "../pulse-bildmarke" }
 
 # Diagnose-Logging auf stderr (Pulse tee't das in sidecar.log). Stufen +
 # Modul-Targets, gesteuert über $PULSE_HQ_LOG (wie RUST_LOG). Siehe src/logging.rs.

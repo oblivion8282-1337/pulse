@@ -14,6 +14,7 @@
   import MonitorCogIcon from '@lucide/svelte/icons/monitor-cog';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
+  import Select from '$lib/components/form/Select.svelte';
   import { devicesApi } from '$lib/api/devices';
   import { ApiError } from '$lib/api/client';
   import { deviceStore } from '$lib/devices/store.svelte';
@@ -112,6 +113,17 @@
     (guilds.channelsByGuild[zielGuild] ?? []).filter((c) => c.type === 1),
   );
 
+  // Optionen für die drei Auswahlfelder. Die „—" der beiden unteren sind
+  // Platzhalter (nichts gewählt), keine wählbaren Einträge: das Formular
+  // bleibt ohne Community bzw. Kanal ohnehin gesperrt.
+  const eigeneKanalOptionen = $derived(
+    eigeneKanaele.map((c) => ({ value: c.id, label: c.name })),
+  );
+  const guildOptionen = $derived(guilds.list.map((g) => ({ value: g.id, label: g.name })));
+  const sprachkanalOptionen = $derived(
+    sprachkanaele.map((c) => ({ value: c.id, label: c.name })),
+  );
+
   async function eintragen(): Promise<void> {
     if (!serverId || !zielGuild || !zielKanal || !geraetName.trim()) return;
     eintragBusy = true;
@@ -196,17 +208,16 @@
       <div class="border-border/60 flex flex-col gap-2 border-t pt-3">
         <label class="flex flex-col gap-1">
           <span class="text-text-muted text-xs">{m.device_settings_register_channel()}</span>
-          <select
-            class="border-border bg-bg-input text-text-bright rounded-lg border px-2 py-1.5 text-sm"
-            bind:value={neuerKanal}
+          <Select
+            value={neuerKanal}
+            options={eigeneKanalOptionen}
             disabled={eintragBusy || eigeneKanaele.length === 0}
-            onchange={() => void umstellen()}
+            onchange={(v) => {
+              neuerKanal = v;
+              void umstellen();
+            }}
             data-testid="device-move-channel"
-          >
-            {#each eigeneKanaele as c (c.id)}
-              <option value={c.id}>{c.name}</option>
-            {/each}
-          </select>
+          />
         </label>
       </div>
       <label class="flex flex-col gap-1">
@@ -233,30 +244,24 @@
       <div class="border-border/60 flex flex-col gap-2 border-t pt-3">
         <label class="flex flex-col gap-1">
           <span class="text-text-muted text-xs">{m.device_settings_register_community()}</span>
-          <select
-            class="border-border bg-bg-input text-text-bright rounded-lg border px-2 py-1.5 text-sm"
-            bind:value={zielGuild}
+          <Select
+            value={zielGuild}
+            options={guildOptionen}
+            placeholder="—"
+            onchange={(v) => (zielGuild = v)}
             data-testid="device-register-guild"
-          >
-            <option value="">—</option>
-            {#each guilds.list as g (g.id)}
-              <option value={g.id}>{g.name}</option>
-            {/each}
-          </select>
+          />
         </label>
         <label class="flex flex-col gap-1">
           <span class="text-text-muted text-xs">{m.device_settings_register_channel()}</span>
-          <select
-            class="border-border bg-bg-input text-text-bright rounded-lg border px-2 py-1.5 text-sm"
-            bind:value={zielKanal}
+          <Select
+            value={zielKanal}
+            options={sprachkanalOptionen}
+            placeholder="—"
             disabled={!zielGuild}
+            onchange={(v) => (zielKanal = v)}
             data-testid="device-register-channel"
-          >
-            <option value="">—</option>
-            {#each sprachkanaele as c (c.id)}
-              <option value={c.id}>{c.name}</option>
-            {/each}
-          </select>
+          />
         </label>
         <label class="flex flex-col gap-1">
           <span class="text-text-muted text-xs">{m.device_settings_register_name()}</span>

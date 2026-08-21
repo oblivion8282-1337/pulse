@@ -56,6 +56,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.device_grants import rollen_freigaben_loeschen
 from dcc_chat_gateway.device_meldungen import (
     DeviceOut,
     device_out,
@@ -63,11 +64,13 @@ from dcc_chat_gateway.device_meldungen import (
     melden,
     sitzung_beenden,
 )
+from dcc_chat_gateway.guild_limits import LIMITS_BY_KEY, effective
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_VOICE,
     DEVICE_NAME_MAX_LEN,
     Channel,
     Device,
+    Guild,
 )
 from dcc_chat_gateway.permissions import (
     Permissions,
@@ -75,20 +78,12 @@ from dcc_chat_gateway.permissions import (
     has_permission,
     resolve_permissions,
 )
-from dcc_chat_gateway.routes._deps import require_member
+from dcc_chat_gateway.routes._deps import is_guild_member, require_member
 from dcc_chat_gateway.schemas import SnowflakeId
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 
 router = APIRouter(prefix="/guilds/{guild_id}/devices", tags=["devices"])
-
-#: Wie viele Geräte eine Person je Community eintragen darf.
-#:
-#: Nicht als Schutz vor einem Angreifer gedacht — wer eintragen darf, darf auch
-#: übertragen, und das ist die teurere Handlung. Es ist ein Riegel gegen den
-#: Unfall: ein Client, der die Eintragung bei jedem Start wiederholt, füllte
-#: sonst die Kanalliste, und der Fehler fiele erst jemand anderem auf.
-MAX_DEVICES_PER_OWNER = 10
 
 #: Erlaubte Gerätenamen: Buchstaben, Ziffern, Bindestrich, Unterstrich, Punkt.
 #:
@@ -110,8 +105,20 @@ class DeviceCreate(BaseModel):
 
 
 class DevicePatch(BaseModel):
+    #: Zielcommunity. Nur der Besitzer darf sie ändern — der Standplatz ist der
+    #: Rechteanker, und ``MANAGE_GUILD`` soll räumen können, nicht umwidmen
+    #: (dieselbe Begründung wie beim Kanal). Zusammen mit ``channel_id``
+    #: anzugeben: ein Kanal ohne seine Community wäre nicht auflösbar.
+    guild_id: SnowflakeId | None = None
     channel_id: SnowflakeId | None = None
     name: str | None = Field(default=None, min_length=1, max_length=DEVICE_NAME_MAX_LEN)
+
+
+class DevicePatchOut(DeviceOut):
+    #: Anzahl geräumter Rollen-Freigaben bei einem Community-Wechsel — 0 bei
+    #: reinem Kanalwechsel/Umbenennen. Nicht Teil von ``DeviceOut``: das Feld
+    #: entsteht nur hier, in jeder Geräteliste wäre es eine Lüge.
+    role_grants_cleared: int = 0
 
 
 def _normalise_name(name: str) -> str:
@@ -162,6 +169,20 @@ async def _standplatz_kanal(
     if not has_permission(wert, Permissions.STREAM):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail=detail)
     return channel
+
+
+async def _ziel_standplatz(
+    session, user, guild_id: int, channel_id: int, *, detail: str
+) -> Channel:
+    """Wie ``_standplatz_kanal``, aber für eine möglicherweise ANDERE Community.
+
+    Die Mitgliedschaft wird hier geprüft und nicht über ``require_member``:
+    dessen 403 verriete, dass es die Community gibt. Ein Nicht-Mitglied bekommt
+    dieselbe Antwort wie für einen Kanal, den es nicht sehen darf — 404.
+    """
+    if not await is_guild_member(session, guild_id, user.id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="channel not found")
+    return await _standplatz_kanal(session, user, guild_id, channel_id, detail=detail)
 
 
 async def _load_device(session, guild_id: int, device_id: int) -> Device:
@@ -231,10 +252,12 @@ async def create_device(
             .where(Device.guild_id == guild_id, Device.owner_user_id == user.id)
         )
     ).scalar_one()
-    if eigene >= MAX_DEVICES_PER_OWNER:
+    guild = await session.get(Guild, guild_id)
+    deckel = effective(guild, LIMITS_BY_KEY["max_devices_per_owner"]) if guild else None
+    if deckel is not None and eigene >= deckel:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            detail=f"at most {MAX_DEVICES_PER_OWNER} devices per community",
+            detail=f"at most {deckel} devices per community",
         )
 
     device = Device(
@@ -263,7 +286,7 @@ async def create_device(
     return stand
 
 
-@router.patch("/{device_id}", response_model=DeviceOut)
+@router.patch("/{device_id}", response_model=DevicePatchOut)
 async def patch_device(
     guild_id: SnowflakeId,
     device_id: SnowflakeId,
@@ -271,7 +294,7 @@ async def patch_device(
     user: CurrentUser,
     session: SessionDep,
     request: Request,
-) -> DeviceOut:
+) -> DevicePatchOut:
     await require_member(session, guild_id, user.id)
     device = await _load_device(session, guild_id, device_id)
     await _require_owner_or_manager(session, user, device)
@@ -279,29 +302,49 @@ async def patch_device(
     if body.name is not None:
         device.name = _normalise_name(body.name)
     alter_kanal: int | None = None
-    if body.channel_id is not None and body.channel_id != device.channel_id:
+    alte_guild: int | None = None
+    ziel_guild = body.guild_id if body.guild_id is not None else device.guild_id
+    if body.channel_id is not None and (
+        body.channel_id != device.channel_id or ziel_guild != device.guild_id
+    ):
         # **Umstellen darf nur der Besitzer** (Bughunt 2026-08-16). Der
         # Standplatz ist der Rechteanker des Geräts: wer ihn setzt, bestimmt,
         # wer den Rechner übernehmen darf. Mit ``MANAGE_GUILD`` allein liesse
         # sich ein fremder Rechner in einen Kanal schieben, in dem ``@everyone``
         # ``REMOTE_CONTROL`` hat — die Verwaltung soll räumen können, nicht
-        # umwidmen. Löschen und Umbenennen bleiben deshalb bei ihr.
+        # umwidmen. Löschen und Umbenennen bleiben deshalb bei ihr. Gilt
+        # unverändert für den Community-Wechsel: er ist nur eine weitere Form
+        # des Umstellens.
         if device.owner_user_id != user.id:
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN,
                 detail="only the device owner can move it to another channel",
             )
-        await _standplatz_kanal(
+        await _ziel_standplatz(
             session,
             user,
-            guild_id,
+            ziel_guild,
             body.channel_id,
             detail="you need permission to stream in the new channel",
         )
         alter_kanal = device.channel_id
+        alte_guild = device.guild_id
         device.channel_id = body.channel_id
+        device.guild_id = ziel_guild
 
+    geraeumt = 0
     try:
+        if alte_guild is not None and alte_guild != device.guild_id:
+            # Rollen gehören ihrer Community. Nach dem Wechsel zeigen diese
+            # Zeilen ins Leere — schlimmer noch, dieselbe Kennung kann in der
+            # Zielcommunity eine andere Rolle sein. VOR dem Commit (dieselbe
+            # Lehre wie beim Sitzungsabbau weiter unten, Bughunt 2026-08-16):
+            # ein Wechsel, der gleich darauf an einem Namenskonflikt
+            # scheitert, darf die Freigaben nicht mitnehmen. Der
+            # ``UniqueConstraint``-Verstoss kann schon hier auffliegen
+            # (Autoflush vor dem ``DELETE``), nicht erst beim Commit —
+            # deshalb liegt die Räumung selbst im ``try``.
+            geraeumt = await rollen_freigaben_loeschen(session, device.id)
         await session.commit()
     except IntegrityError:
         await session.rollback()
@@ -319,9 +362,11 @@ async def patch_device(
         # **Den alten Standplatz mitziehen** (Bughunt 2026-08-16): das Register
         # merkt sich den Ort, an den es Zustandsmeldungen schickt. Ohne diese
         # Zeile meldete ein umgestelltes Gerät weiter an den alten Kanal — die
-        # Falschen sähen seinen Zustand, die Berechtigten nie einen.
+        # Falschen sähen seinen Zustand, die Berechtigten nie einen. Seit dem
+        # Community-Wechsel muss das die NEUE Community sein, nicht die aus dem
+        # Pfad (die bleibt bei einem Wechsel die alte).
         if mgr is not None:
-            mgr.device_move(device.id, guild_id, device.channel_id)
+            mgr.device_move(device.id, device.guild_id, device.channel_id)
         # Und aus der Liste des alten Kanals muss es verschwinden. Wer den
         # neuen nicht sehen darf, behielte sonst einen Eintrag, den es dort
         # nicht mehr gibt — und könnte ihn wecken wollen.
@@ -330,13 +375,23 @@ async def patch_device(
         # die Meldung geht an den alten Kanal, das eingebettete Gerät trug aber
         # schon den neuen — das verriet dort eine Kanalkennung, die die
         # Empfänger unter Umständen gar nicht sehen dürfen. Für sie ist die
-        # richtige Auskunft „das Gerät, das hier stand, ist weg".
+        # richtige Auskunft „das Gerät, das hier stand, ist weg". Dieselbe
+        # Begründung gilt jetzt für die Community: die Meldung geht an die
+        # ALTE, nicht an die, in der das Gerät inzwischen steht.
         alt = device_out(device, mgr)
         alt.channel_id = str(alter_kanal)
-        await melden(request, device, alt, entfernt=True, kanal=alter_kanal)
+        alt.guild_id = str(alte_guild)
+        # **`umzug=True`** (Prüfbefund K-1, 2026-08-20): ohne die Markierung ist
+        # diese Abmeldung von einem echten Löschen nicht unterscheidbar — der
+        # eigene Rechner des Geräts empfängt sie selbst (Mitglied der alten
+        # Community) und würde seine lokale Eintragung dauerhaft wegräumen,
+        # kurz bevor die Meldung mit dem neuen Standplatz nachzieht.
+        await melden(
+            request, device, alt, entfernt=True, kanal=alter_kanal, guild=alte_guild, umzug=True
+        )
     stand = device_out(device, mgr)
     await melden(request, device, stand)
-    return stand
+    return DevicePatchOut(**stand.model_dump(), role_grants_cleared=geraeumt)
 
 
 @router.delete("/{device_id}", status_code=status.HTTP_204_NO_CONTENT)

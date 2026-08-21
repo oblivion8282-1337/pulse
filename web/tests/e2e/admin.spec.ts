@@ -191,7 +191,11 @@ test.describe.serial('admin-panel E2E', () => {
     // Fresh DB: smtp_settings starts unconfigured → "Nicht eingerichtet".
     await expect(page.getByTestId('smtp-status-inactive')).toBeVisible();
     // Pick the Custom preset so host/port stay editable, fill creds.
-    await page.getByTestId('smtp-provider').selectOption('custom');
+    // The provider field is a popover select: click the trigger, then the
+    // entry — "Eigener SMTP-Server" is the visible label of 'custom'
+    // (SMTP_PRESETS in smtpProviders.ts).
+    await page.getByTestId('smtp-provider').click();
+    await page.getByRole('option', { name: 'Eigener SMTP-Server' }).click();
     await page.getByTestId('smtp-host').fill('smtp.test.example');
     await page.getByTestId('smtp-from').fill('noreply@test.example');
     await page.getByTestId('smtp-pass').fill('secret-not-tested');

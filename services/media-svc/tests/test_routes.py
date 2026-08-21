@@ -482,7 +482,7 @@ async def test_issue_token_clears_stopping_tombstone(client, auth_signer, redis)
 async def test_stream_token_client_may_ask_for_whip(client, auth_signer, redis):
     """Der Client darf WHIP verlangen, auch wenn die Instanz RTMPS mintet.
 
-    Das ist der Intra-Refresh-Fall: nur der WHIP-Weg hat einen RTCP-Rueckkanal,
+    Nur der WHIP-Weg hat einen RTCP-Rueckkanal,
     und ohne den bekommt ein beitretender Zuschauer nie sein erstes Vollbild.
     """
     access = auth_signer.issue_access(31, "carol")
@@ -507,7 +507,7 @@ async def test_stream_token_whip_wish_beats_owner_exemption(
 
     Sie stellt den Owner auf den bewaehrten RTMPS-Weg zurueck — aber nur, wenn
     er nichts anderes verlangt. Bliebe sie staerker, koennte ausgerechnet der
-    Betreiber einer Instanz Intra-Refresh auf ihr nie benutzen.
+    Betreiber einer Instanz den Rueckkanal auf ihr nie bekommen.
     """
     access = auth_signer.issue_access(4242, "owner")
     cid = _unique_cid()

@@ -20,7 +20,7 @@
     type SmtpSettings,
     type SmtpSettingsPatch
   } from '$lib/api/admin';
-  import { SMTP_PRESETS } from '$lib/admin/smtpProviders';
+  import { SMTP_PRESETS, type SmtpPreset } from '$lib/admin/smtpProviders';
   import { auth } from '$lib/stores/auth.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import SaveIcon from '@lucide/svelte/icons/save';
@@ -30,6 +30,7 @@
   import AlertCircleIcon from '@lucide/svelte/icons/alert-circle';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
+  import Select from '$lib/components/form/Select.svelte';
 
   let current = $state<SmtpSettings | null>(null);
   let provider = $state<SmtpProvider>('custom');
@@ -82,6 +83,13 @@
   }
 
   const preset = $derived(SMTP_PRESETS[provider]);
+
+  const providerOptionen = $derived(
+    (Object.entries(SMTP_PRESETS) as [SmtpProvider, SmtpPreset][]).map(([k, p]) => ({
+      value: k,
+      label: p.name,
+    })),
+  );
   const lockedFields = $derived(provider !== 'custom');
 
   const dirty = $derived.by(() => {
@@ -201,17 +209,17 @@
       {/if}
       <div class="flex flex-col gap-1.5">
         <Label for="smtp-provider">Provider</Label>
-        <select
+        <Select
           id="smtp-provider"
-          class="border-border bg-bg-panel text-text-bright focus:border-primary rounded-md border px-3 py-2 text-sm outline-none"
-          bind:value={provider}
-          onchange={() => applyPreset(provider)}
+          value={provider}
+          options={providerOptionen}
+          onchange={(v) => {
+            const next = v as SmtpProvider;
+            provider = next;
+            applyPreset(next);
+          }}
           data-testid="smtp-provider"
-        >
-          {#each Object.entries(SMTP_PRESETS) as [k, p] (k)}
-            <option value={k}>{p.name}</option>
-          {/each}
-        </select>
+        />
         {#if preset.credentials_hint}
           <p class="text-text-muted text-xs">{preset.credentials_hint}</p>
         {/if}

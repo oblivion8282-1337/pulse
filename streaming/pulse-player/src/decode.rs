@@ -335,13 +335,6 @@ const MAX_HARDWARE_ANLAEUFE: u32 = 1;
 /// Fenster, das ewig auf ein Vollbild wartet, das nie kommt.
 const MAX_EINSTIEGE: u32 = 3;
 
-/// Ab wann „seit langem kein Vollbild" als rollende Auffrischung gilt.
-///
-/// Der uebliche Vollbild-Abstand liegt bei zwei Sekunden. Fuenf sind reichlich
-/// darueber und lassen einem ausgefallenen oder verspaeteten Vollbild Luft,
-/// bevor die Betriebsart umgedeutet wird.
-const OHNE_VOLLBILD_SCHWELLE_MS: u64 = 5_000;
-
 /// Was am Strom ueber die Sendeart abzulesen ist (s. [`VideoDecoder::sendeart`]).
 ///
 /// `Copy`, weil es in `SessionStats` mitreist und die ganze Struktur dort
@@ -363,24 +356,31 @@ pub struct Sendeart {
 }
 
 impl Sendeart {
-    /// Eine Zeile fuer das Log. Nennt Zahlen und haengt nur dann eine Deutung
-    /// an, wenn sie eindeutig ist.
+    /// Eine Zeile fuer das Log. Nennt nur noch ZAHLEN, keine Deutung.
+    ///
+    /// **Hier stand bis zum 2026-08-21 eine Deutung, und sie war falsch
+    /// geworden.** Lag das letzte Vollbild laenger als fuenf Sekunden zurueck,
+    /// meldete diese Zeile „keine periodischen Vollbilder, also rollende
+    /// Auffrischung". Die Schwelle stammte aus der Zeit, als der uebliche
+    /// Vollbild-Abstand zwei Sekunden betrug; seit dem 2026-08-18 steht die
+    /// Vorgabe auf 60 s, und damit wurde sie bei JEDEM gesunden Strom
+    /// ueberschritten — die Zeile behauptete also dauerhaft eine Betriebsart,
+    /// die es seit dem Entfernen von Intra-Refresh gar nicht mehr geben kann.
+    ///
+    /// Es ist die vierte Zahl, die dem Vollbild-Abstand stillschweigend
+    /// gefolgt ist (CLAUDE.md fuehrt zwei auf, Commit 3f311c94 fand die
+    /// dritte). Deshalb keine neue Schwelle: es gibt nur noch EINE Betriebsart,
+    /// also ist jede Deutung ueberfluessig. Die Zahlen sagen ohnehin mehr —
+    /// wer den Abstand sehen will, liest ihn ab.
     pub fn beschreibung(&self) -> String {
         let Some(her_ms) = self.her_ms else {
             return "noch kein Vollbild gesehen".to_string();
         };
         let her_s = her_ms as f64 / 1000.0;
         let kb = self.bytes as f64 / 1024.0;
-        if her_ms >= OHNE_VOLLBILD_SCHWELLE_MS {
-            return format!(
-                "{} Vollbilder, letztes vor {her_s:.0} s ({kb:.0} KB) — keine periodischen \
-                 Vollbilder, also rollende Auffrischung",
-                self.vollbilder
-            );
-        }
         match self.abstand_ms {
             Some(a) => format!(
-                "{} Vollbilder, Abstand {:.1} s, zuletzt {kb:.0} KB — periodische Vollbilder",
+                "{} Vollbilder, Abstand {:.1} s, letztes vor {her_s:.0} s ({kb:.0} KB)",
                 self.vollbilder,
                 a as f64 / 1000.0
             ),
@@ -1903,6 +1903,43 @@ impl VideoDecoder {
     /// gestaffelt. Volle Begruendung samt Messreihe: [`crate::einfrieren`].
     pub fn eingefroren(&mut self) -> bool {
         self.wacht.eingefroren()
+    }
+
+    /// Diagnose der Verlust-Erholung (`PULSE_PLAYER_ERHOLUNG_LOG=1`).
+    ///
+    /// **Warum es das braucht.** Ein `av1_cuvid`, das nach einem Aussetzer
+    /// weiter 60 Bilder je Sekunde ausgibt — immer dasselbe —, ist an KEINER
+    /// Kennzahl zu erkennen: dekodiert 60/s, gezeichnet 60/s, Paketverlust 0,
+    /// null zu spaet. Die Einfrier-Wacht ist die einzige Stelle, die den
+    /// Unterschied kennt, weil nur sie das Bild selbst vergleicht. Ohne diese
+    /// Ausgabe bleibt die Frage „steht das Bild wirklich" unbeantwortbar.
+    ///
+    /// Gemeldet wird beim Ueberschreiten von Vielfachen der Schwelle, nicht je
+    /// Bild — sonst stuende hier bei 60 fps eine Zeile je 16 ms.
+    pub fn erholung_melden(&mut self) {
+        if !crate::einfrieren::messung::erholung_log() {
+            return;
+        }
+        let gleich = self.wacht.gleiche_bilder();
+        let schwelle = self.wacht.schwelle();
+        if gleich == 0 || schwelle == 0 || gleich % schwelle != 0 {
+            return;
+        }
+        eprintln!(
+            "pulse-player: Bild steht seit {gleich} Bildern bitgleich \
+             (Schwelle {schwelle}, Mindestdauer {:?}, Schaden gemeldet: {})",
+            self.wacht.mindestdauer(),
+            if self.wacht.schaden_bekannt() { "ja" } else { "nein" }
+        );
+    }
+
+    /// Es wurden Bilddaten verworfen — an die Einfrier-Wacht weiterreichen.
+    ///
+    /// Der Decoder haelt die Wacht, deshalb geht die Meldung durch ihn
+    /// hindurch; er selbst tut damit nichts. Siehe
+    /// [`crate::einfrieren::EinfrierWacht::schaden_gemeldet`].
+    pub fn schaden_gemeldet(&mut self) {
+        self.wacht.schaden_gemeldet();
     }
 
     /// Setzt den Decoder nach einem erkannten Einfrieren neu auf.

@@ -39,7 +39,7 @@ streaming/
 ├── hq-labor/                Messstand Linux — NICHT ausgeliefert (s.u.)
 ├── win-hq-labor/            Messstand Windows — NICHT ausgeliefert (s.u.)
 ├── testbench/               Messwerkzeuge + `profiles/` = die Messakten
-├── ffmpeg-patches/          unsere FFmpeg-Patches (VAAPI + AMF, je Intra-Refresh)
+├── ffmpeg-bau/              baut das gepinnte FFmpeg fuer Linux-Sidecar + Player
 ├── patches/                 GSR-C++-Patches (FLV-Opus, Vulkan-Stub) — verbatim
 ├── server/                  MediaMTX-Setup (Template + docker-compose + Player)
 ├── bootstrap-gsr.fish       Custom-GSR-Build mit Patches (für T6 Flatpak)
@@ -61,10 +61,10 @@ gilt dasselbe. Ein eigener Crate-Name (`pulse-win-hq-labor`) hält die
 Unterscheidung auch dort auf, wo jemand von Hand baut.
 
 **Warum sie trotzdem im Repo liegen:** ohne sie ist eine Nachmessung ein Neubau.
-Der Windows-Messstand hat belegt, dass Intra-Refresh beim Zuschauer ankommt —
-nicht an einer Bildzahl aus dem Sender, sondern an der Gegenstelle gemessen. Die
-nächste offene Frage (Windows mit NVIDIA) braucht genau ihn wieder. Er lag bis
-2026-08-04 nur auf einem lokalen Zweig; das war ein Versehen, kein Entwurf.
+Der Windows-Messstand misst an der GEGENSTELLE, nicht an einer Bildzahl aus dem
+Sender — und nur so lässt sich belegen, was beim Zuschauer wirklich ankommt. Er
+lag bis 2026-08-04 nur auf einem lokalen Zweig; das war ein Versehen, kein
+Entwurf.
 
 ## Was vom Original-Repo NICHT mitkopiert wurde
 
@@ -100,25 +100,27 @@ JSON-Request und schreibt pro Antwort/Event eine JSON-Zeile auf stdout:
 
 | op | Request-Felder | Response (zusätzlich zu `ok`+`id`) |
 |---|---|---|
-| `health` | — | `gsr: {available, source, path?, version?, vendor?, is_flatpak, video_codecs?, has_flv_patch?, ten_bit?, intra_refresh?, hdr?, ...}` — `ten_bit`/`intra_refresh` melden Linux- und Windows-Sidecar, `hdr` **nur Windows**; macOS und der Python-Auffang melden keines davon. **`undefined` heißt „nein"**, nie „unbekannt, probier's mal" |
+| `health` | — | `gsr: {available, source, path?, version?, vendor?, is_flatpak, video_codecs?, has_flv_patch?, ten_bit?, hdr?, ...}` — `ten_bit` melden Linux- und Windows-Sidecar, `hdr` **nur Windows**; macOS und der Python-Auffang melden keines davon. **`undefined` heißt „nein"**, nie „unbekannt, probier's mal" |
 | `gpu_info` | — | `vendor, card_path, display_server, video_codecs` (re-probe falls noch nicht da) |
 | `list_profiles` | — | `profiles, servers (immer `[]`), audio_modes, app_label_prefix` — **nur noch GSR-Sidecar** (Linux-Auffangnetz). Die Rust-Sidecars haben die Op 2026-07-19 verloren: der Katalog hatte nie einen Konsumenten (das HQ-Panel setzt hart `profile_name='Custom'` + `use_overrides=true`) und alle vier Einträge trugen dieselben 4000 kbps / 60 fps. Nicht gesetzte Overrides fallen dort jetzt auf einen einzelnen Sockel (`profiles::BASELINE`, h264/opus/flv, 4000 kbps, 60 fps) zurück — dieselben Werte wie der frühere `Custom`-Eintrag. |
 | `list_monitors` | — | `monitors: [{index (1-basiert), name, primary, width, height, refresh_hz}, ...]` — **nur Windows-Sidecar** (Linux nutzt den Portal-Picker) |
 | `list_windows` | — | `windows: [{id (HWND-Zahl), title, app, width, height}, ...]` — **nur Windows-Sidecar**: Quelle für den In-App-Fenster-Picker (Linux nutzt den Portal-Dialog) |
 | `list_application_audio` | — | `applications: [name, ...]` (Apps mit Audio-Output) |
 | `build_argv` | siehe `start` | `binary, argv` — **baut die Argumentliste ohne GSR zu starten** (Test/Debug) |
-| `start` | `profile, channel: {id, token, push_url?, mediamtx_endpoint?, push_protocol?}, capture, audio: {mode, excluded_apps}, overrides? {codec, bitrate_kbps, fps, resolution, bit_depth, intra_refresh, hdr}` | `argv` (die gleiche Liste) — danach kommen Events |
+| `start` | `profile, channel: {id, token, push_url?, mediamtx_endpoint?, push_protocol?}, capture, audio: {mode, excluded_apps}, overrides? {codec, bitrate_kbps, fps, resolution, bit_depth, hdr}` | `argv` (die gleiche Liste) — danach kommen Events |
 | `stop` | — | `ok` |
 | `state` | — | `running, state, fps, uptime_s, argv` |
 | `keyframe` | — | `ok` — beim nächsten Bild ein Vollbild erzeugen. **Nur Linux- und Windows-Sidecar.** Ohne laufenden Stream folgenlos; mehrere Anforderungen innerhalb eines Bildabstands fallen zu einer zusammen (bei mehreren Zuschauern zahlt der Sender ein Intra-Bild einmal für alle). Der reguläre Weg ist der RTCP-Rückkanal des eigenen WHIP-Sendewegs — diese Operation ist die Gegenstelle von Hand, damit die Wirkung messbar ist, ohne dass ein echter Zuschauer und ein Verlustprofil zusammenkommen müssen. |
 
-`overrides.intra_refresh` schaltet die Betriebsart um: rollender Intra-Refresh
-statt periodischer Vollbilder. **Der Sidecar verweigert den Start**, wenn sein
-Encoder sie nicht liefert, statt still Keyframes unter ihrem Etikett zu fahren;
-ob sie überhaupt zu haben ist, meldet `health.gsr.intra_refresh` vorab, damit
-die Oberfläche das Kästchen gar nicht erst anbietet. Ein solcher Strom hat nach
-dem Start **kein** Vollbild mehr — der Rückkanal (`keyframe` bzw. RTCP) ist
-deshalb Voraussetzung, nicht Zubehör.
+**Bis zum 2026-08-21 gab es hier ein `overrides.intra_refresh`** — rollender
+Intra-Refresh statt periodischer Vollbilder, samt Fähigkeitsmeldung
+`health.gsr.intra_refresh` und einer Startverweigerung, wenn der Encoder die
+Betriebsart nicht lieferte. Beides ist entfallen; wer eines der Felder noch
+mitschickt, wird ignoriert.
+
+Der Vollbild-Abstand steht auf 60 s (`PULSE_KEYFRAME_SECONDS`). Der Rückkanal
+(`keyframe` bzw. RTCP) ist damit **Voraussetzung, nicht Zubehör**: ohne ihn
+wartet ein beitretender Zuschauer bis zu eine Minute auf sein erstes Bild.
 
 **Der Zuschauer erfährt die Bittiefe über die WHEP-Antwort** (`ten_bit`), nicht
 über `stream:events`: sie reist als `ten_bit` im Token-Record mit
@@ -185,6 +187,12 @@ Komfort-Fallback); `"portal"` → Primärmonitor.
 - `state` — `state ∈ {"idle","starting","live","error","stopped"}`, `running`, `uptime_s`
 - `fps` — `fps`, `uptime_s` (kommt sobald GSR "update fps: N" auf stderr meldet → impliziert "live")
 - `log` — `line` (eine Roh-Zeile GSR-stderr; gemerged inklusive stdout)
+- `notice` — `line`, `code` — bedeutsame, aber nicht-fehlerhafte Mitteilung; gehört
+  vor den Nutzer (das Web zeigt sie als Toast) und zusätzlich ins Log-Fenster. Bisher
+  nur der Linux-Rust-Sidecar, bisher ein Code: `fps_begrenzt` (10-bit-Bildrate am
+  Start begrenzt, weil die verhandelte Quellgröße die Last-Grenze
+  `linux-hq-sidecar/src/lastgrenze.rs` überstieg). Verbraucher müssen das Event
+  tolerieren (unbekannte `code`s ignorieren).
 - `error` — `message`
 - `stopped` — kommt direkt nach dem letzten `state=stopped`-Event
 
@@ -249,10 +257,11 @@ Rust-Binary, gleiches stdio-JSON-RPC wie der Linux-GSR-Sidecar (alle Ops/Events
 identisch). Stack: `windows-capture` v2 (WGC; gepatchter Zweig unter
 `win-hq-sidecar/vendor/`, s. dortiges README — Cursor-Echo der Fernsteuerung),
 `wasapi` (Desktop-Loopback +
-Mikrofon), `ffmpeg-next` 8.1 gegen ein **selbst gebautes, gepatchtes** FFmpeg
-unter `ffmpeg-dist/n8.1-lgpl-shared/` (n8.1.2 + `ffmpeg-patches/0002-amfenc_av1-…`;
-seit 2026-08-04 nicht mehr BtbNs Fertigpaket, weil es die AMF-Intra-Refresh-Optionen
-in keiner Fassung gibt — Bau: `win-hq-sidecar/scripts/build-ffmpeg-patched.ps1`).
+Mikrofon), `ffmpeg-next` 8.1 gegen das **unveränderte** LGPL-shared-Fertigpaket
+unter `ffmpeg-dist/n8.1-lgpl-shared/` (BtbN-Bau, eingefroren und selbst
+gespiegelt — geholt von `win-hq-sidecar/scripts/fetch-ffmpeg.ps1`). Vom
+2026-08-05 bis zum 2026-08-21 lag dort ein selbst gebauter, gepatchter Baum;
+der Patch trug die Intra-Refresh-Betriebsart, die es nicht mehr gibt.
 `build.rs` kopiert die FFmpeg-DLLs neben die exe — Binary ist standalone, kein
 Python nötig.
 

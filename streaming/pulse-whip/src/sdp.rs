@@ -5,8 +5,7 @@
 //! Pufferabmessungen ab und entscheidet, ob er annehmen kann — eine falsche
 //! Angabe faellt deshalb nicht beim Bauen auf, sondern beim Zuschauer.
 //!
-//! **Die Zusage muss auch hinauskommen — dafuer gibt es `register_codecs`**
-//! (crate-intern, deshalb kein anklickbarer Link in dieser oeffentlichen Doku).
+//! **Die Zusage muss auch hinauskommen — dafuer gibt es [`register_codecs`].**
 //! Bis 2026-08-12 rechnete diese Datei die H.264-Stufe sorgfaeltig aus, und
 //! `whip/mod.rs` rief zwei Zeilen spaeter `register_default_codecs()`. Im
 //! Angebot stand dann die Vorgabeliste von webrtc-rs, nicht unser Wert: 1440p60
@@ -27,7 +26,7 @@ use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_AV1, MIME_TYPE_H264, MIME
 use webrtc::api::APIBuilder;
 use webrtc::interceptor::registry::Registry;
 use webrtc::rtp_transceiver::rtp_codec::{
-    RTCRtpCodecCapability, RTCRtpCodecParameters, RTPCodecType,
+    RTCRtpCodecCapability, RTCRtpCodecParameters, RTCRtpHeaderExtensionCapability, RTPCodecType,
 };
 use webrtc::rtp_transceiver::{PayloadType, RTCPFeedback};
 
@@ -99,7 +98,7 @@ fn h264_stufe(breite: u32, hoehe: u32, fps: u32) -> u8 {
 
 /// Fassung fuer den Codec, wie sie im Angebot steht.
 ///
-/// Dieselbe Fassung geht an `register_codecs` (crate-intern) UND an die Spur. Das ist kein
+/// Dieselbe Fassung geht an [`register_codecs`] UND an die Spur. Das ist kein
 /// Zufall, sondern die Absicherung: die Spur findet ihren Codec beim Binden nur
 /// ueber einen Vergleich von MIME-Typ und fmtp-Zeile
 /// (`codec_parameters_fuzzy_search`), und ein Unterschied zwischen dem
@@ -175,7 +174,7 @@ pub fn codec_capability(
 /// **Muss VOR `register_default_interceptors` laufen.** Das haengt seine
 /// Rueckmeldungen (`nack`, `nack pli`, `transport-cc`) an die zu dem Zeitpunkt
 /// angemeldeten Fassungen; danach angemeldete bekaemen nichts davon.
-pub(crate) fn register_codecs(
+pub(super) fn register_codecs(
     media: &mut MediaEngine,
     video: &RTCRtpCodecCapability,
     audio: &RTCRtpCodecCapability,
@@ -203,12 +202,35 @@ pub(crate) fn register_codecs(
 /// Angebots entscheidet: was in der Media-Engine steht, steht im SDP. Der Test
 /// am Ende dieser Datei kommt so an dieselbe Funktion wie der Betrieb — sonst
 /// pruefte er einen Nachbau und nicht den Weg.
+/// Die Bildmarke im Angebot anbieten.
+///
+/// Nur fuer Video: eine Bildnummer auf einer Tonspur ergaebe keinen Sinn, und
+/// jede angebotene Erweiterung kostet Aushandlung.
+///
+/// **Geschrieben wird nur, was die Antwort annimmt** (RFC 8285). Die
+/// ausgehandelte Nummer holt `whip/mod.rs` nach dem Handschlag aus den
+/// Sender-Parametern — `get_rtp_parameters_by_kind` liefert nach
+/// `set_remote_description` genau die ausgehandelten, nicht die angebotenen.
+/// Kommt sie dort nicht vor, bleibt die Marke weg, und der Zuschauer urteilt
+/// gar nicht. Das ist zugleich der Rueckfall gegen einen Server ohne
+/// MediaMTX-Patch 0006.
+pub(super) fn register_header_extensions(media: &mut MediaEngine) -> Result<()> {
+    media
+        .register_header_extension(
+            RTCRtpHeaderExtensionCapability { uri: pulse_bildmarke::EXTMAP_URI.to_owned() },
+            RTPCodecType::Video,
+            None,
+        )
+        .context("Bildmarke als Header-Erweiterung anmelden")
+}
+
 pub fn baue_api(
     video: &RTCRtpCodecCapability,
     audio: &RTCRtpCodecCapability,
 ) -> Result<webrtc::api::API> {
     let mut media = MediaEngine::default();
     register_codecs(&mut media, video, audio).context("Codecs registrieren")?;
+    register_header_extensions(&mut media).context("Header-Erweiterungen registrieren")?;
     let registry = register_default_interceptors(Registry::new(), &mut media)
         .context("Interceptor-Registry")?;
     Ok(APIBuilder::new()
@@ -218,8 +240,7 @@ pub fn baue_api(
 }
 
 /// Fassung fuer die Tonspur — immer Opus, der Ton-Encoder kennt nichts anderes
-/// (s. `encode::audio` — plattformeigen je Sidecar, liegt nicht in dieser
-/// Crate, deshalb kein anklickbarer Intra-Doc-Link).
+/// (s. [`crate::encode::audio`]).
 pub fn opus_capability() -> RTCRtpCodecCapability {
     RTCRtpCodecCapability {
         mime_type: MIME_TYPE_OPUS.to_owned(),

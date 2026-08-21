@@ -27,12 +27,13 @@
 <script lang="ts">
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import PlayIcon from '@lucide/svelte/icons/play';
-  import PlusIcon from '@lucide/svelte/icons/plus';
-  import EyeIcon from '@lucide/svelte/icons/eye';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import { Button } from '$lib/components/ui/button/index.js';
-  import type { Device, DeviceMonitor } from '$lib/api/devices';
-  import { schirmWarten, schirmeVon, zusehen } from '$lib/devices/schirme.svelte';
+  import type { Device } from '$lib/api/devices';
+  import { schirmWarten, schirmeVon } from '$lib/devices/schirme.svelte';
+  import DeviceScreenList from '$lib/devices/components/DeviceScreenList.svelte';
+  import DeviceVerwaltung from '$lib/devices/components/DeviceVerwaltung.svelte';
+  import DeviceFreigaben from '$lib/devices/components/DeviceFreigaben.svelte';
   import { gegenstelle } from '$lib/remote/gegenstelle';
   import { userCache } from '$lib/stores/users.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
@@ -41,9 +42,12 @@
 
   let {
     device,
+    darfVerwalten,
     onOpenChannel,
   }: {
     device: Device;
+    /** `MANAGE_GUILD` in der Community, in der das Gerät steht. */
+    darfVerwalten: boolean;
     /** Zum Standplatz wechseln, sobald das Bild da ist. */
     onOpenChannel: (channelId: string) => void;
   } = $props();
@@ -148,22 +152,7 @@
        steuert. Bis 2026-08-16 zeigte die Ansicht in genau diesen drei Fällen
        gar nichts, obwohl das Bild im Kanal für jeden offen lag. -->
   {#if nurZusehen && laeuft}
-    <div class="flex flex-col items-center gap-2" data-testid="device-view-watch">
-      <span class="text-text-muted text-xs">{m.device_view_screens()}</span>
-      <div class="flex flex-wrap justify-center gap-2">
-        {#each schirme.filter((s) => s.open) as mon (mon.index)}
-          <Button
-            size="sm"
-            variant="outline"
-            onclick={() => zusehen(device, mon)}
-            data-testid={`device-view-watch-${mon.index}`}
-          >
-            <EyeIcon class="size-4" />
-            {mon.name}
-          </Button>
-        {/each}
-      </div>
-    </div>
+    <DeviceScreenList {device} {schirme} modus="watch" />
   {/if}
 
   {#if device.state === 'busy'}
@@ -206,32 +195,33 @@
   {:else}
     <!-- Läuft schon: je Bildschirm ein Eintrag. Offene führen zur Kachel,
          geschlossene werden erst beim Klick übertragen. -->
-    <div class="flex flex-col items-center gap-2" data-testid="device-view-screens">
-      <span class="text-text-muted text-xs">{m.device_view_screens()}</span>
-      <div class="flex flex-wrap justify-center gap-2">
-        {#each schirme as mon (mon.index)}
-          {@const offen = mon.open}
-          <Button
-            size="sm"
-            variant={offen ? 'default' : 'outline'}
-            onclick={() => schirmWarten.holen(device, mon)}
-            disabled={schirmWarten.wartetAufSchirm(device.id, mon.index)}
-            data-testid={`device-view-screen-${mon.index}`}
-          >
-            {#if !offen}
-              <PlusIcon class="size-4" />
-            {/if}
-            {mon.name}
-          </Button>
-        {/each}
-      </div>
-      <span class="text-text-muted max-w-sm text-center text-xs">
-        {m.device_view_screens_hint()}
-      </span>
-    </div>
+    <DeviceScreenList {device} {schirme} modus="manage" />
   {/if}
 
   {#if fehler}
     <p class="text-sm text-red-500" data-testid="device-view-error">{fehler}</p>
+  {/if}
+
+  <!-- Verwaltung — unterhalb aller Übernehmen-/Zusehen-Zustände, denn sie ist
+       davon unabhängig: ob und wie ein Gerät gerade übertragt, ändert nichts
+       daran, wer es umbenennen, umstellen oder entfernen darf.
+
+       **Nur für Besitzer/Verwalter im DOM** (Fix zu Prüfbefund W-4,
+       2026-08-20): innen sind zwar die Umstell-Felder an `istBesitzer` und der
+       Entfernen-Knopf an `istBesitzer || darfVerwalten` gebunden, aber das
+       Namensfeld war für JEDEN freigeschaltet und feuerte beim Verlassen ein
+       `PATCH`, das der Server ohnehin mit 403 abweist — ein gewöhnliches
+       Mitglied sah eine Karte „Verwalten" mit einem Feld, das nichts tut. -->
+  {#if eigenes || darfVerwalten}
+    <DeviceVerwaltung {device} {darfVerwalten} />
+  {/if}
+
+  <!-- Freigabeliste — nur für den Besitzer, und dafür nicht bloss
+       ausgeblendet, sondern gar nicht erst im DOM (`eigenes` ist dieselbe
+       Bedingung wie `device.owner_user_id === currentServerUserId()`, hier
+       schon berechnet). Die Liste sagt, wer den Rechner ohne Rückfrage
+       übernehmen darf — das geht sonst niemanden etwas an. -->
+  {#if eigenes}
+    <DeviceFreigaben {device} />
   {/if}
 </div>

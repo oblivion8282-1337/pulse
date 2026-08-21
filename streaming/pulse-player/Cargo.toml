@@ -69,6 +69,7 @@ bytes = "1"
 # Windows-Sidecar in einer eigenen Crate. `src/zeigerbild.rs` bleibt als
 # Re-Export bestehen (s. dort).
 pulse-zeigerbild = { path = "../pulse-zeigerbild" }
+pulse-bildmarke = { path = "../pulse-bildmarke" }
 
 # --- Decode (LGPL-FFmpeg, dynamisch gelinkt) ---
 ffmpeg-next = { version = "8.1", default-features = false, features = [

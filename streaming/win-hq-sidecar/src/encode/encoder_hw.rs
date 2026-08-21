@@ -219,10 +219,7 @@ impl FfmpegHwEncoder {
             super::hdr::signalisieren(&mut encoder, cfg.schirm.as_ref());
         }
 
-        let mut opts = vendor_encoder_opts(&cfg.vendor, cfg.codec, cfg.ten_bit);
-        // Vor dem Open, mit Abbruch statt Warnung: fällt die Betriebsart aus,
-        // liefe ein Keyframe-Strom unter ihrem Etikett weiter (`auffrischung`).
-        super::auffrischung::anwenden(&mut opts, codec_name, cfg.fps)?;
+        let opts = vendor_encoder_opts(&cfg.vendor, cfg.codec, cfg.ten_bit);
         warn_unknown_opts(&mut encoder, codec_name, &opts);
         let opened = encoder
             .open_with(opts)

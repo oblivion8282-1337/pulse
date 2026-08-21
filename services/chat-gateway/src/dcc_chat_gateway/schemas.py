@@ -958,6 +958,7 @@ class CommunityOut(BaseModel):
     max_members: int | None = None
     max_channels: int | None = None
     max_roles: int | None = None
+    max_devices_per_owner: int | None = None
     max_concurrent_streams: int | None = None
     # Feature permission (not a cap): may this community use the Ablage?
     # False = the whole dropbox 404s for its members, regardless of what the
@@ -1000,6 +1001,7 @@ class CommunityLimitsIn(BaseModel):
     max_members: Annotated[int | None, Field(default=None, ge=1, le=1_000_000)] = None
     max_channels: Annotated[int | None, Field(default=None, ge=1, le=10000)] = None
     max_roles: Annotated[int | None, Field(default=None, ge=1, le=10000)] = None
+    max_devices_per_owner: Annotated[int | None, Field(default=None, ge=1, le=10000)] = None
     max_concurrent_streams: Annotated[int | None, Field(default=None, ge=0, le=10000)] = None
     # Feature permission, not a cap: None = leave unchanged (non-nullable
     # column), so an older client that doesn't send the field can't silently
