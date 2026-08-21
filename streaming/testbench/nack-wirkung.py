@@ -46,7 +46,7 @@ from collections import Counter, deque
 from pathlib import Path
 
 HERE = Path(__file__).parent
-# Wird auch ueber `laden("nack-wirkung")` eingebunden (intraref-verlust.py,
+# Wird auch ueber `laden("nack-wirkung")` eingebunden (verlust-reparatur.py,
 # fern-nack.py) — dann steht das Verzeichnis nicht zwangslaeufig im Pfad.
 sys.path.insert(0, str(HERE))
 # `ist_rtp_oder_rtcp` kommt gemeinsam mit `aufschlag.py` — dort auch die

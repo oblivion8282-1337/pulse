@@ -83,7 +83,6 @@ carries neither an inbound PLI nor AV1. Two consequences, both deliberate:
   gives up after 20 s. `PULSE_KEYFRAME_SECONDS` still overrides — with a warning.
 - **AV1 is not offered by the UI on macOS** (`web/src/lib/stream/settings.svelte.ts
   ::av1Nutzbar`), because the WHIP muxer would silently downgrade it to h264.
-  Same line the intra-refresh checkbox already draws.
 
 Building a real WHIP sender for macOS (port of `*-hq-sidecar/src/whip/`) lifts
 both restrictions at once; nothing else does.

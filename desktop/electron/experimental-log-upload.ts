@@ -50,11 +50,11 @@ const MAX_LOG_BYTES = 512 * 1024;
  * Die Felder aus `health.gsr`, die in den Bericht wandern.
  *
  * Es sind die Fähigkeiten, an denen ein Encoder-Fehler hängt: ob 10 bit und
- * Intra-Refresh überhaupt zur Verfügung standen, und welche Codecs die Karte
- * anbot. Ohne sie liest sich „AV1 ging nicht" wie ein Fehler, obwohl es
- * womöglich schlicht nicht angeboten war.
+ * HDR überhaupt zur Verfügung standen, und welche Codecs die Karte anbot. Ohne
+ * sie liest sich „AV1 ging nicht" wie ein Fehler, obwohl es womöglich schlicht
+ * nicht angeboten war.
  */
-const GSR_FELDER = ['vendor', 'display_server', 'video_codecs', 'ten_bit', 'intra_refresh'];
+const GSR_FELDER = ['vendor', 'display_server', 'video_codecs', 'ten_bit', 'hdr'];
 
 /** Pro Slot: kam seit dem letzten Start ein `error`-Event? → bestimmt `reason`. */
 const sawError = new Set<number>();

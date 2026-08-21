@@ -26,12 +26,6 @@ export interface OverrideSet {
   fps?: number;
   resolution?: string;
   /**
-   * Rollender Intra-Refresh statt periodischer Vollbilder. Fehlt das Feld,
-   * entscheidet der Sidecar über `PULSE_INTRA_REFRESH` — deshalb wird es nur
-   * gesetzt, wenn die Oberfläche wirklich eine Wahl getroffen hat.
-   */
-  intra_refresh?: boolean;
-  /**
    * HDR senden — der Bildschirminhalt wird in seinem vollen Helligkeitsumfang
    * aufgenommen und als PQ/BT.2020 encodiert.
    *

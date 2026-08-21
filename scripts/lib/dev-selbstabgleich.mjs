@@ -46,7 +46,7 @@ const NEUSTART_PFADE = ['scripts/', 'desktop/electron/'];
 // Nur die Pfade der EIGENEN Plattform, sonst meldet ein Linux-Rechner einen
 // Neubau fuer den Windows-Sidecar, den er ohnehin nicht bauen kann.
 const NATIV_PFADE = {
-  linux: ['streaming/linux-hq-sidecar/', 'streaming/pulse-player/', 'streaming/ffmpeg-patches/'],
+  linux: ['streaming/linux-hq-sidecar/', 'streaming/pulse-player/', 'streaming/ffmpeg-bau/'],
   win32: ['streaming/win-hq-sidecar/', 'streaming/pulse-player/'],
   darwin: ['streaming/mac-hq-sidecar/', 'streaming/pulse-player/'],
 }[process.platform] ?? [];

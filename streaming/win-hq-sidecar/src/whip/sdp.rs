@@ -26,7 +26,7 @@ use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_AV1, MIME_TYPE_H264, MIME
 use webrtc::api::APIBuilder;
 use webrtc::interceptor::registry::Registry;
 use webrtc::rtp_transceiver::rtp_codec::{
-    RTCRtpCodecCapability, RTCRtpCodecParameters, RTPCodecType,
+    RTCRtpCodecCapability, RTCRtpCodecParameters, RTCRtpHeaderExtensionCapability, RTPCodecType,
 };
 use webrtc::rtp_transceiver::{PayloadType, RTCPFeedback};
 
@@ -202,12 +202,35 @@ pub(super) fn register_codecs(
 /// Angebots entscheidet: was in der Media-Engine steht, steht im SDP. Der Test
 /// am Ende dieser Datei kommt so an dieselbe Funktion wie der Betrieb — sonst
 /// pruefte er einen Nachbau und nicht den Weg.
+/// Die Bildmarke im Angebot anbieten.
+///
+/// Nur fuer Video: eine Bildnummer auf einer Tonspur ergaebe keinen Sinn, und
+/// jede angebotene Erweiterung kostet Aushandlung.
+///
+/// **Geschrieben wird nur, was die Antwort annimmt** (RFC 8285). Die
+/// ausgehandelte Nummer holt `whip/mod.rs` nach dem Handschlag aus den
+/// Sender-Parametern — `get_rtp_parameters_by_kind` liefert nach
+/// `set_remote_description` genau die ausgehandelten, nicht die angebotenen.
+/// Kommt sie dort nicht vor, bleibt die Marke weg, und der Zuschauer urteilt
+/// gar nicht. Das ist zugleich der Rueckfall gegen einen Server ohne
+/// MediaMTX-Patch 0006.
+pub(super) fn register_header_extensions(media: &mut MediaEngine) -> Result<()> {
+    media
+        .register_header_extension(
+            RTCRtpHeaderExtensionCapability { uri: super::bildmarke::EXTMAP_URI.to_owned() },
+            RTPCodecType::Video,
+            None,
+        )
+        .context("Bildmarke als Header-Erweiterung anmelden")
+}
+
 pub(super) fn baue_api(
     video: &RTCRtpCodecCapability,
     audio: &RTCRtpCodecCapability,
 ) -> Result<webrtc::api::API> {
     let mut media = MediaEngine::default();
     register_codecs(&mut media, video, audio).context("Codecs registrieren")?;
+    register_header_extensions(&mut media).context("Header-Erweiterungen registrieren")?;
     let registry = register_default_interceptors(Registry::new(), &mut media)
         .context("Interceptor-Registry")?;
     Ok(APIBuilder::new()

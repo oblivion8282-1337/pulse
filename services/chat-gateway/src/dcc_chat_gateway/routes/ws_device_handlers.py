@@ -251,7 +251,7 @@ async def handle_wake(ctx: Any, msg: dict[str, Any]) -> None:
     wäre, die Anfrage selbst als Weckruf zu nehmen. Dagegen spricht ein
     konkreter Fehlerfall — dann hinge eine Sitzungszusage an einer
     Encoder-Initialisierung. Scheitert die (kein Monitor angeschlossen, Encoder
-    belegt, Startverweigerung wegen HDR oder Intra-Refresh), stünde eine aktive
+    belegt, Startverweigerung wegen HDR), stünde eine aktive
     Fernsteuer-Sitzung ohne Bild da, und der Fehler wäre nicht lesbar. Also:
     wecken → übertragen → **dann** die unveränderte ``remote_request``. In der
     Oberfläche darf das ein Klick sein; hier bleiben es zwei Vorgänge.

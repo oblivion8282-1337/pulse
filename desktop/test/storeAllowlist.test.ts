@@ -40,11 +40,12 @@ function erlaubteSchluessel(): Set<string> {
  * **Beide Muster müssen wirklich gelesen werden, und breit.** Am 2026-08-18 traf
  * beides nicht zu, und derselbe Fehler kam deshalb doppelt durch: der Sammellauf
  * hörte auf den einen Namen `SPEICHER_SCHLUESSEL` statt auf die Sorte und
- * übersah `BEREINIGT_SCHLUESSEL` in `devices/profil.svelte.ts`; und `PERSIST_KEYS`
- * stand zwar in dieser Doku, wurde aber nie gelesen — `intra_refresh_bereinigt`
- * fehlte in der Allowlist, ohne dass es jemandem auffiel. Beide Merker sagen
- * „schon bereinigt"; verworfen laufen die einmaligen Bereinigungen bei JEDEM
- * Start erneut. Ein zu enges Muster sieht aus wie ein bestandener Test.
+ * übersah einen zweiten Schlüssel in `devices/profil.svelte.ts`; und
+ * `PERSIST_KEYS` stand zwar in dieser Doku, wurde aber nie gelesen — ein
+ * Bereinigungs-Merker fehlte in der Allowlist, ohne dass es jemandem auffiel.
+ * Solche Merker sagen „schon bereinigt"; verworfen laufen die einmaligen
+ * Bereinigungen bei JEDEM Start erneut. Ein zu enges Muster sieht aus wie ein
+ * bestandener Test.
  */
 function geschriebeneSchluessel(): string[] {
   const lib = join(WURZEL, 'web', 'src', 'lib');

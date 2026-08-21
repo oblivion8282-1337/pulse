@@ -243,9 +243,6 @@ function sidecarReport(binary) {
     );
   } else {
     lines.push(`✓ Encoder da (${health.vendor}): ${codecs.join(', ')}`);
-    if (!health.intra_refresh) {
-      lines.push('ℹ Intra-Refresh nicht verfügbar — gepatchtes FFmpeg fehlt: scripts/hq-bauen.sh');
-    }
   }
   return lines;
 }

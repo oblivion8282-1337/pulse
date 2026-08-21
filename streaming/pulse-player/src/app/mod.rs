@@ -917,12 +917,17 @@ impl App {
         // liest sie.
         //
         // Warum das ueberhaupt gebraucht wird: am 2026-08-07 kostete es einen
-        // halben Messtag, dass der Testsender periodische Vollbilder fuhr,
-        // waehrend im Betrieb rollende Auffrischung laeuft. Ein 1440p-Vollbild
-        // ueber eine schmale Leitung braucht hunderte Millisekunden und reisst
-        // genau die Ankunftsloecher, die danach dem Player angelastet wurden.
-        // Diese Zeile beantwortet das beim Hinsehen — auf jedem Betriebssystem,
-        // weil nur der Bitstrom gelesen wird.
+        // halben Messtag, dass der Testsender einen anderen Vollbild-Takt fuhr
+        // als der Betrieb. Ein 1440p-Vollbild ueber eine schmale Leitung
+        // braucht hunderte Millisekunden und reisst genau die Ankunftsloecher,
+        // die danach dem Player angelastet wurden. Diese Zeile beantwortet das
+        // beim Hinsehen — auf jedem Betriebssystem, weil nur der Bitstrom
+        // gelesen wird.
+        //
+        // Sie DEUTET seit dem 2026-08-21 nichts mehr (s.
+        // `decode::Sendeart::beschreibung`): mit dem Entfernen von
+        // Intra-Refresh gibt es nur noch eine Betriebsart, und die alte Deutung
+        // war zuletzt dauerhaft falsch.
         if st.sendeart.her_ms.is_some() {
             eprintln!("pulse-player: Sitzung {id}: Sender — {}", st.sendeart.beschreibung());
         }

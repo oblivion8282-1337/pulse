@@ -2,6 +2,32 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-21.3",
+      "date": "2026-08-21",
+      "style": "Sachlich",
+      "title": "Eine Einstellung weniger beim Streamen",
+      "intro": "Unter „Erweitert\" im HQ-Fenster stand ein Kästchen namens „Intra-Refresh\". Es ist ersatzlos entfallen.",
+      "items": [
+        "Es hat gesteuert, wie der sendende Rechner das Bild auffrischt: verteilt über viele Bilder statt in regelmässigen Vollbildern. Der Gedanke dahinter war eine gleichmässigere Leitung.",
+        "Gegen den heutigen Vollbild-Abstand hält das nicht mehr stand. Mit Vollbildern ist das Bild schärfer, braucht weniger Daten, und vor allem: geht unterwegs etwas verloren, repariert sich der Strom beim nächsten Vollbild von selbst. Mit der verteilten Auffrischung tat er das nicht.",
+        "Auf Macs gab es die Betriebsart ohnehin nie, und mit H.264 sah das Bild sichtbar schlechter aus."
+      ],
+      "outro": "Wenn du das Kästchen nie angefasst hast, ändert sich für dich nichts. Wer es gesetzt hatte, streamt ab jetzt in der besseren Betriebsart."
+    },
+    {
+      "id": "2026-08-21.2",
+      "date": "2026-08-21",
+      "style": "Sachlich",
+      "title": "Ruhigeres und schärferes Bild beim Zuschauen",
+      "intro": "Die Verbesserung von heute Vormittag hatte eine Kehrseite: der Player forderte oft ein frisches Vollbild an, obwohl gar nichts fehlte. Das kostete Bildschärfe, ohne etwas zu verbessern.",
+      "items": [
+        "Der Player hat bisher aus den Zeitabständen zwischen den Bildern geschlossen, ob eines fehlt. Diese Rechnung kann zwei Fälle nicht unterscheiden: ein Bild ging verloren, oder der sendende Rechner hat für diesen Moment gar keines erzeugt. Beides sieht in der Zeit gleich aus.",
+        "Jetzt trägt der Strom eine laufende Bildnummer. Fehlt eine Nummer, ist wirklich etwas verlorengegangen; sind die Nummern lückenlos, ist alles da, auch wenn zwischen zwei Bildern mehr Zeit lag.",
+        "Für dich heißt das: bei ruhigem Bildinhalt bleibt die Übertragung ruhig, und die verfügbare Bandbreite geht in Bilddetail statt in überflüssige Vollbilder. Geht wirklich etwas verloren, wird es genauso schnell repariert wie bisher."
+      ],
+      "outro": "Wirkt, sobald sendender und empfangender Rechner aktualisiert sind."
+    },
+    {
       "id": "2026-08-21",
       "date": "2026-08-21",
       "style": "Sachlich",

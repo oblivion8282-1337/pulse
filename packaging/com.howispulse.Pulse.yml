@@ -9,10 +9,9 @@
 #   - der Rust-Linux-HQ-Sidecar (senden) und der native HQ-Player (zuschauen),
 #     beide gegen dasselbe gebündelte FFmpeg gelinkt.
 #
-# Das gebündelte FFmpeg trägt zwei Dinge, die es sonst nirgends gibt und die
-# beim Kürzen nicht wegfallen dürfen: den VAAPI-Intra-Refresh-Patch (sonst haben
-# AMD/Intel die Betriebsart nicht) und eine Decoder-Liste (sonst zeigt der
-# Player nie ein Bild). Beides steht am ffmpeg-Modul ausführlich begründet.
+# Das gebündelte FFmpeg trägt eine Decoder-Liste, die beim Kürzen nicht
+# wegfallen darf — ohne sie zeigt der Player nie ein Bild. Am ffmpeg-Modul
+# ausführlich begründet.
 #
 # What's NOT inside: the web frontend. The packaged app loads https://howispulse.com remotely
 # (electron/main.ts → PROD_URL, since no PULSE_DEV_URL is set), so web-side fixes are live without a new
@@ -198,23 +197,13 @@ modules:
         url: https://github.com/FFmpeg/FFmpeg.git
         tag: n8.1.1
         commit: 239f2c733de417201d7ad3b3b8b0d9b63285b2b1
-      # Rollender Intra-Refresh fuer die VAAPI-Encoder. FFmpeg reicht die
-      # VA-API-Option in KEINER Version durch, auch nicht in master — ohne
-      # diesen Patch haben AMD- und Intel-Nutzer die Betriebsart schlicht nicht,
-      # und der Sidecar verweigert den Start, statt still Keyframes zu fahren
-      # (`encode/opts.rs::intra_refresh_pruefen`). Auf NVIDIA wird er nicht
-      # gebraucht, `*_nvenc` hat die Option upstream.
+      # **Unveraenderter Upstream-Quelltext.** Bis zum 2026-08-21 lag hier ein
+      # Pulse-Patch, der rollenden Intra-Refresh fuer die VAAPI-Encoder
+      # freilegte; die Betriebsart ist entfallen, der Patch damit auch.
       #
-      # Begruendung, Messreihe und Bauanleitung: `streaming/ffmpeg-patches/`.
-      # Der Patch ist LGPL (von FFmpeg abgeleitet), NICHT Pulse-lizenziert —
-      # eigene LICENSE liegt daneben. Gegen genau den Commit oben geprueft;
-      # beim Anheben von FFmpeg zuerst `git apply --check` gegen den neuen Tag.
-      #
-      # Dev baut denselben Commit mit demselben Patch
-      # (`streaming/ffmpeg-patches/bootstrap-ffmpeg.sh`) — hier gemessene Zahlen
+      # Dev baut denselben Commit
+      # (`streaming/ffmpeg-bau/bootstrap-ffmpeg.sh`) — hier gemessene Zahlen
       # gelten deshalb auch fuer die ausgelieferte App.
-      - type: patch
-        path: ../streaming/ffmpeg-patches/0001-vaapi_encode-rollender-intra-refresh.patch
     modules:
       - name: ffnvcodec
         no-autogen: true

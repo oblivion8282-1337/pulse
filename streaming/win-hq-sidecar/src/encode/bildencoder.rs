@@ -13,14 +13,10 @@
 //! anderes. Genau dieselbe Überlegung wie bei [`super::senke`], eine Ebene
 //! höher.
 //!
-//! **Die ursprüngliche Begründung ist widerlegt und steht hier trotzdem**,
-//! damit sie niemand erneut zieht: „Intra-Refresh geht auf AMD/Windows nur
-//! über Vulkan, weil AMF die Einstellung ignoriert" war falsch. AMF kennt die
-//! Option nur unter einem anderen Namen (`intra_refresh_mode=gop_aligned` bei
-//! `av1_amf`), und ist dem Vulkan-Weg an jedem gemessenen Punkt überlegen —
-//! rund 43 Prozent weniger Bits bei gleicher Qualität, brauchbare
-//! Ratensteuerung, 10 Bit farblich in Ordnung. Der ausgelieferte Weg ist
-//! deshalb AMF; siehe `encode::opts::intra_refresh_opts`.
+//! **Der Vulkan-Weg ist gemessen unterlegen und deshalb nicht der
+//! ausgelieferte**, damit ihn niemand erneut vorschlägt: AMF ist ihm an jedem
+//! gemessenen Punkt voraus — rund 43 Prozent weniger Bits bei gleicher
+//! Qualität, brauchbare Ratensteuerung, 10 Bit farblich in Ordnung.
 //!
 //! **Ohne Anmeldung ändert sich nichts.** Der ausgelieferte Sidecar meldet
 //! nichts an; dann baut `pipeline_hw` seinen `FfmpegHwEncoder` wie immer.
@@ -349,13 +345,13 @@ pub(crate) unsafe fn baue_mit_rueckfall(
         //
         // Scheitert der Open, gibt dieser Weg deshalb an den erprobten
         // D3D12-Zweig ab, statt den Stream fallen zu lassen. Der trägt kein
-        // AV1 (keine brauchbare extradata) und kein Intra-Refresh — Letzteres
-        // bricht dort mit klarer Meldung ab, statt still Keyframes zu fahren.
+        // AV1 (keine brauchbare extradata).
         //
         // **Was er ebenfalls nicht trägt, und was hier bis zum 2026-08-19
         // fehlte: HDR und 10 bit.** Der Satz an dieser Stelle lautete „ein
         // Rückfall, der die Betriebsart verschluckt, gibt es also nicht" und
-        // zählte nur AV1 und Intra-Refresh auf — geprüft wurde gar nichts.
+        // zählte nur einen Teil der Betriebsarten auf — geprüft wurde gar
+        // nichts.
         // Der D3D12-Weg legt seinen Bildpuffer fest auf NV12
         // (`encoder_d3d12.rs`), und für AV1 reicht `pipeline_d3d12` an
         // `run_cpu_pipeline` weiter, die weder ein `ten_bit`-Feld noch

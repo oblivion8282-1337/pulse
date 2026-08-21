@@ -344,14 +344,6 @@
  </div>
 
   <div class="flex flex-wrap items-center gap-x-6 gap-y-3">
-    <!-- **Das Intra-Refresh-Kaestchen sass bis zum 2026-08-18 hier.** Es steht
-         jetzt zugeklappt unter dem Start-Knopf (`ErweiterteOptionen.svelte`) —
-         zwischen Quelle, Codec, Bitrate und Bildrate gehoert es nicht hin: das
-         sind die Felder fuer den Alltag, Intra-Refresh ist es nicht. Die beiden
-         Bedingungen (nur Linux/Windows, nur wenn der Sidecar es meldet) sind
-         mitgewandert und dort begruendet. -->
-
-
     <!-- HIER STAND BIS ZUM 2026-08-07 EIN HDR-KAESTCHEN. Es sitzt jetzt als
          vierter Eintrag im Codec-Feld oben („AV1 10 bit HDR", `VIDEO_MODES`),
          weil es beim Anhaken ohnehin das Codec-Feld umstellen musste — HDR gibt

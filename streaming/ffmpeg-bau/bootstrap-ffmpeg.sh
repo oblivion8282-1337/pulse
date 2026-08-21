@@ -1,28 +1,24 @@
 #!/usr/bin/env bash
-# Baut das gepatchte FFmpeg, das Intra-Refresh ueber VA-API durchreicht.
+# Baut das FFmpeg, gegen das der Linux-Sidecar und der Player linken.
 #
-# WARUM ES DAS GIBT: Intra-Refresh ist auf AMD und Intel die Betriebsart, die
-# unter Paketverlust gewinnt (16,0 gegen 65,6 Prozent gestoerte Sekunden bei
-# gleicher Datenrate, Messakte
-# `streaming/testbench/profiles/amd-2026-08-01-intra-refresh-echter-sender.json`).
-# Die Hardware kann es, der Treiber kann es — FFmpeg reicht es nicht durch, in
-# KEINER Version, auch nicht in master. Begruendung und Beweiskette: README.md
-# daneben.
+# WARUM ES DAS GIBT: `ffmpeg-next = "8.1"` uebersetzt nur gegen FFmpeg 8.1.
+# Aktuelle Distributionen liegen darueber (Arch/CachyOS auf n9.0.1), und dagegen
+# bricht die Kiste an nicht abgedeckten Enum-Werten ab. Das Distributions-FFmpeg
+# taugt als Grundlage also nicht, unabhaengig davon, welche Optionen es kennt.
 #
-# Ohne dieses FFmpeg bricht der Sidecar den Start ab, sobald Intra-Refresh
-# verlangt wird (`encode/opts.rs::intra_refresh_pruefen`) — bewusst, denn still
-# auf Keyframes zurueckzufallen hiesse, einen Keyframe-Strom unter dem Etikett
-# der anderen Betriebsart zu fahren. Auf NVIDIA wird das Skript nicht gebraucht:
-# `*_nvenc` hat die Option upstream.
+# **Bis zum 2026-08-21 trug dieses Verzeichnis zusaetzlich zwei Patches**, die
+# rollenden Intra-Refresh fuer die VA-API- und AMF-Encoder freilegten. Die
+# Betriebsart ist entfallen (Begruendung im Wurzel-`CLAUDE.md`), die Patches
+# damit auch — gebaut wird jetzt unveraenderter Upstream-Quelltext.
 #
-# WOHIN: $XDG_CACHE_HOME/pulse/ffmpeg-intra-refresh/ (Standard
-# ~/.cache/pulse/ffmpeg-intra-refresh/) — derselbe persistente Ort, den auch
-# `streaming/bootstrap-gsr.fish` benutzt. NICHT nach /tmp: das ist auf dieser
-# Maschine ein tmpfs, der Bau waere nach jedem Reboot weg.
+# WOHIN: $XDG_CACHE_HOME/pulse/ffmpeg/ (Standard ~/.cache/pulse/ffmpeg/) —
+# derselbe persistente Ort, den auch `streaming/bootstrap-gsr.fish` benutzt.
+# NICHT nach /tmp: das ist auf manchen Maschinen ein tmpfs, der Bau waere nach
+# jedem Reboot weg.
 #
 # Das System-FFmpeg wird NICHT angefasst. `scripts/hq-bauen.sh` baut Sidecar und
 # Player mit einem RPATH auf das Ergebnis hier — nur diese beiden Programme
-# sehen das gepatchte FFmpeg, alles andere auf dem Rechner bleibt, wie es ist.
+# sehen dieses FFmpeg, alles andere auf dem Rechner bleibt, wie es ist.
 #
 # LIZENZ: der Bau ist bewusst LGPL — kein `--enable-gpl`, kein libx264. Das ist
 # die Bedingung aus dem Wurzel-`CLAUDE.md` (Pulse darf keinen GPL-Code linken)
@@ -32,7 +28,7 @@
 set -euo pipefail
 
 # Derselbe Stand, den das Flatpak pinnt (packaging/com.howispulse.Pulse.yml,
-# ffmpeg-Modul). Dev und Auslieferung sollen denselben Quelltext patchen —
+# ffmpeg-Modul). Dev und Auslieferung sollen denselben Quelltext bauen —
 # sonst gilt eine hier gemessene Zahl fuer die ausgelieferte App nicht.
 VERSION="n8.1.1"
 # Derselbe Commit, den das Flatpak-Manifest nennt. Er steht hier ZUSAETZLICH
@@ -45,7 +41,7 @@ REPO="https://github.com/FFmpeg/FFmpeg.git"
 hier="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$hier/../.." && pwd)"
 cache_root="${XDG_CACHE_HOME:-$HOME/.cache}"
-wurzel="$cache_root/pulse/ffmpeg-intra-refresh"
+wurzel="$cache_root/pulse/ffmpeg"
 quelle="$wurzel/src"
 prefix="$wurzel/prefix"
 
@@ -53,15 +49,19 @@ prefix="$wurzel/prefix"
 # Aufrufer, weil hier der Pfad ohnehin steht — sonst muesste jeder Aufrufer ihn
 # selbst herleiten und bei einem Umzug mitwandern.
 if [ -x "$prefix/bin/ffmpeg" ] && [ "${PULSE_FFMPEG_NEUBAU:-0}" != "1" ]; then
-    echo "==> Gepatchtes FFmpeg liegt schon da ($prefix)"
+    echo "==> FFmpeg liegt schon da ($prefix)"
     echo "    Neu bauen:  PULSE_FFMPEG_NEUBAU=1 $0"
     exit 0
 fi
 
-# --- Quelltext holen und patchen -------------------------------------------
-echo "==> FFmpeg $VERSION holen und patchen (flacher Klon, ~100 MB)"
+# --- Quelltext holen --------------------------------------------------------
+#
+# `flacher_klon` statt `gepatchter_klon`: hier gibt es nichts mehr anzuwenden
+# (s. Kopf). Der Klon samt Commit-Reset und Zeitstempel ist derselbe, und ihn
+# ein zweites Mal auszuschreiben hiesse, zwei Fassungen davon zu pflegen.
+echo "==> FFmpeg $VERSION holen (flacher Klon, ~100 MB)"
 . "$repo_root/scripts/lib/gepatchter-klon.sh"
-gepatchter_klon "$REPO" "$VERSION" "$quelle" "$hier" "$COMMIT"
+flacher_klon "$REPO" "$VERSION" "$quelle" "$COMMIT"
 
 # --- Konfigurieren ----------------------------------------------------------
 #
@@ -130,9 +130,11 @@ opts=(
 #
 # Gegen das System-FFmpeg zu bauen ist KEIN Ausweg: die `ffmpeg-next`-Crate
 # haengt an der API dieser Fassung (mit n9.0.1 bricht schon `cargo build` ab).
+mit_nvenc=0
 if pkg-config --exists ffnvcodec 2>/dev/null; then
     echo "==> nv-codec-headers gefunden — NVENC/NVDEC kommen mit"
     opts+=(--enable-nvenc --enable-ffnvcodec --enable-cuvid --enable-nvdec)
+    mit_nvenc=1
 else
     echo "==> nv-codec-headers fehlen — Bau ohne NVENC/NVDEC (auf AMD/Intel richtig so,"
     echo "    auf NVIDIA bekommt der Sidecar dadurch KEINEN Encoder — s. Kommentar hier)"
@@ -156,9 +158,21 @@ make install >>"$wurzel/build.log" 2>&1
 
 # --- Gegenprobe -------------------------------------------------------------
 #
-# Ohne die waere nicht gesagt, dass der Patch wirklich greift: ein FFmpeg ohne
-# die Option baut genauso durch, und der Fehler faellt erst beim ersten
-# Streamversuch auf.
+# **Sie prueft seit dem 2026-08-21 etwas anderes.** Bis dahin fragte sie, ob der
+# Intra-Refresh-Patch gegriffen hat; die Betriebsart ist entfallen, der Patch
+# damit auch — und die Probe blieb stehen. Sie verlangte danach eine Option, die
+# es nicht mehr geben KANN, und liess den Bau auf jeder Linux-Maschine mit
+# "Der Patch hat nicht gegriffen" scheitern.
+#
+# Der GRUND fuer eine Gegenprobe bleibt aber bestehen, und er ist derselbe: ein
+# unvollstaendig konfiguriertes FFmpeg baut genauso durch, und der Fehler faellt
+# erst beim ersten Streamversuch auf. Der heute reale Fall steht im
+# Wurzel-`CLAUDE.md`: fehlen die nv-codec-headers, baut FFmpeg still ohne NVENC
+# und der Sidecar meldet `video_codecs: []`.
+#
+# Geprueft wird deshalb, ob die Encoder wirklich da sind, die der Sidecar
+# braucht — die VAAPI-Wege immer, die NVENC-Wege nur, wenn `configure` sie
+# ueberhaupt einschalten sollte.
 #
 # `LD_LIBRARY_PATH` ist hier PFLICHT und keine Vorsichtsmassnahme. FFmpeg linkt
 # sein eigenes `ffmpeg`-Binary ohne RPATH: ohne die Variable laedt der Loader
@@ -166,17 +180,22 @@ make install >>"$wurzel/build.log" 2>&1
 # das System-FFmpeg und meldet "Patch hat nicht gegriffen", obwohl der Bau
 # in Ordnung ist. Genau das ist hier beim ersten Lauf passiert.
 echo "==> Gegenprobe"
+erwartet=(av1_vaapi h264_vaapi)
+[ "$mit_nvenc" -eq 1 ] && erwartet+=(av1_nvenc h264_nvenc)
 fehlt=0
-for enc in av1_vaapi h264_vaapi; do
+for enc in "${erwartet[@]}"; do
     if LD_LIBRARY_PATH="$prefix/lib" "$prefix/bin/ffmpeg" \
-        -hide_banner -h "encoder=$enc" 2>/dev/null | grep -q "intra_refresh"; then
-        echo "  $enc: intra_refresh da"
+        -hide_banner -h "encoder=$enc" 2>/dev/null | grep -q "^Encoder $enc"; then
+        echo "  $enc: da"
     else
-        echo "  $enc: intra_refresh FEHLT" >&2
+        echo "  $enc: FEHLT" >&2
         fehlt=1
     fi
 done
-[ "$fehlt" -eq 0 ] || { echo "Der Patch hat nicht gegriffen." >&2; exit 1; }
+[ "$fehlt" -eq 0 ] || {
+    echo "FFmpeg wurde ohne die noetigen Encoder gebaut — s. $wurzel/configure.log" >&2
+    exit 1
+}
 
 echo ""
 echo "Fertig: $prefix"

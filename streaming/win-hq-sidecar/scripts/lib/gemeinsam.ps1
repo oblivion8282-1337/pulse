@@ -55,26 +55,3 @@ function Invoke-Fremd([scriptblock]$Aufruf) {
     & $Aufruf
 }
 
-# Die Optionen, die Patch 0002 an `av1_amf` haengt. Eine Stelle, weil sonst ein
-# umbenannter Optionsname an drei Orten nachgezogen werden muesste - und der
-# vergessene Ort meldete weiter "alles da".
-$script:PatchOptionen = @('intra_refresh_mode', 'intra_refresh_stripes')
-
-# Kennt das FFmpeg unter dieser Wurzel (`<wurzel>\bin\ffmpeg.exe`) die Optionen
-# aus Patch 0002?
-#
-# Das ist die einzige Frage, die ein gepatchtes von einem ungepatchten Paket
-# unterscheidet - der Dateiname sagt es nicht, die FFmpeg-Fassung auch nicht.
-# `$Fehlend` nimmt die Namen auf, die nicht da sind, damit der Aufrufer eine
-# brauchbare Meldung bauen kann.
-function Test-Gepatcht([string]$Wurzel, [ref]$Fehlend) {
-    $exe = Join-Path $Wurzel 'bin\ffmpeg.exe'
-    if (-not (Test-Path $exe)) {
-        if ($Fehlend) { $Fehlend.Value = $script:PatchOptionen }
-        return $false
-    }
-    $hilfe = (Get-Ausgabe { & $exe -hide_banner -h encoder=av1_amf }) -join "`n"
-    $fehlt = @($script:PatchOptionen | Where-Object { $hilfe -notmatch $_ })
-    if ($Fehlend) { $Fehlend.Value = $fehlt }
-    return ($fehlt.Count -eq 0)
-}
