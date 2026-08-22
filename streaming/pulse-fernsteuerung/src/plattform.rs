@@ -14,9 +14,9 @@ use crate::zuordnung::Rechteck;
 /// Was die Plattform mit dem Betriebssystem macht.
 ///
 /// **Alles hier ist Ausfuehrung ohne Entscheidung.** Ob ueberhaupt injiziert
-/// wird, entscheidet die Sitzung; wohin, [`crate::zuordnung`]. Ein Injektor,
-/// der selbst entscheidet, waere eine zweite Meinung an einer Stelle, an der
-/// es nur eine geben darf.
+/// wird, entscheidet `crate::ausfuehrung` (kistenintern, deshalb ohne Link);
+/// wohin, [`crate::zuordnung`]. Ein Injektor, der selbst entscheidet, waere
+/// eine zweite Meinung an einer Stelle, an der es nur eine geben darf.
 pub trait Injektor: Sync {
     /// Den Zeiger **absolut** auf `punkt` setzen.
     ///

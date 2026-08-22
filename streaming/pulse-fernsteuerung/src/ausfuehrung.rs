@@ -84,7 +84,7 @@ pub(crate) fn einspielen(
 ) -> Result<(), String> {
     match frame {
         // Der Handschlag ist Sitzungszustand, nicht Ausführung — er wird eine
-        // Ebene höher behandelt (`super::handschlag`).
+        // Ebene höher behandelt (`crate::sitzung::Sitzung::handschlag`).
         InputFrame::Hello { .. } => {}
         InputFrame::MouseMoveAbs { x, y } => {
             let punkt = rechteck.and_then(|r| zuordnung::anteil_auf_punkt(x, y, &r));

@@ -5,8 +5,8 @@
 //! Sitzungsende, beim Verwerfen, beim Hello oder beim Prozessende etwas unten,
 //! und die W-Taste laeuft im Spiel des fremden Rechners weiter.
 //!
-//! Wer freigibt, entscheidet die Sitzung — hier steht nur, **wie**
-//! freigegeben wird.
+//! Wer freigibt, entscheidet die Sitzung ([`crate::sitzung`]) — hier steht
+//! nur, **wie** freigegeben wird.
 
 use std::collections::HashSet;
 
@@ -30,8 +30,8 @@ impl Druck {
     }
 
     /// Haben **wir** diesen Knopf unten? Nur dann darf sein Hoch-Ereignis das
-    /// Orts-Tor umgehen — sonst klemmte eine Maustaste am fremden Rechner,
-    /// sobald das Quell-Rechteck wegfaellt.
+    /// Orts-Tor umgehen (s. `crate::ausfuehrung`) — sonst klemmte eine
+    /// Maustaste am fremden Rechner, sobald das Quell-Rechteck wegfaellt.
     pub fn knopf_ist_unten(&self, btn: u8) -> bool {
         self.knoepfe.contains(&btn)
     }
