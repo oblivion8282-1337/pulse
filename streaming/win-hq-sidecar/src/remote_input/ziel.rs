@@ -333,6 +333,7 @@ mod tests {
     /// **beendet die Sitzung nicht**.
     #[test]
     fn ohne_strom_ist_der_slot_unbekannt() {
+        let _sperre = crate::remote_input::pruefstand();
         // Der Schalter ist prozessweit; der Test setzt ihn nicht, also gilt aus.
         if crate::env::flag(LABOR_OHNE_STROM) {
             return;
@@ -346,6 +347,7 @@ mod tests {
     /// dieses Prozesses — oder, über den Labor-Weg, auf einem Bildschirm.
     #[test]
     fn platz_jenseits_der_schranke_ist_unbekannt() {
+        let _sperre = crate::remote_input::pruefstand();
         strom_gestartet(None);
         assert!(matches!(bindung_fuer_slot(SLOT_MAX + 1), Zielsuche::KeinStrom));
         // Auch jenseits von u32 — hier wurde früher auf `u32::MAX` gekappt.
@@ -357,6 +359,7 @@ mod tests {
     /// Verworfen (mit Freigabe beim Aufrufer) — **nicht** selbst aufgelöst.
     #[test]
     fn strom_ohne_gemeldetes_ziel_ist_nicht_aufloesbar() {
+        let _sperre = crate::remote_input::pruefstand();
         strom_gestartet(Some(0));
         assert!(matches!(bindung_fuer_slot(0), Zielsuche::NichtAufloesbar(_)));
         // Der erklärte Platz gilt weiterhin strikt — außer der Labor-Schalter

@@ -37,6 +37,7 @@ on:
       - 'streaming/pulse-whip/**'
       - 'streaming/pulse-zeigerbild/**'
       - 'streaming/pulse-bildmarke/**'
+      - 'streaming/pulse-fernsteuerung/**'
       - '.github/workflows/win-build.yml'
   workflow_dispatch: {}
 

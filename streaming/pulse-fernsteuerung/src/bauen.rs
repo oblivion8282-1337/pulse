@@ -246,7 +246,7 @@ pub fn base64(bytes: &[u8]) -> String {
 /// schickt.
 ///
 /// **Streng, nicht grosszuegig**, gleichlautend mit dem Sidecar
-/// (`remote_input/base64.rs::dekodiere`): nur das Standard-Alphabet, kein
+/// (`crate::base64::dekodiere`): nur das Standard-Alphabet, kein
 /// URL-safe, keine Leerzeichen, keine Zeilenumbrueche, und die Fuellung ist
 /// Pflicht. Der einzige Sender fuellt ohnehin auf; wer hier nachsichtig waere,
 /// naehme Woerter an, die keine Gegenstelle je erzeugt.
@@ -290,7 +290,7 @@ mod tests {
     use super::*;
 
     /// Der Dekodierer gegen bekannte Woerter — dieselben, an denen der
-    /// Kodierer im Sidecar haengt (`remote_input/base64.rs`).
+    /// Kodierer im Sidecar haengt (`crate::base64`).
     #[test]
     fn base64_zurueck_liest_bekannte_woerter() {
         assert_eq!(base64_zurueck("AAI="), Ok(vec![0x00, 0x02]));

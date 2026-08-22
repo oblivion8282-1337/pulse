@@ -198,6 +198,7 @@ mod tests {
     /// Sitzung ist danach stillgelegt und alles Gedrückte freigegeben).
     #[test]
     fn missgeformter_platz_ist_fail_closed() {
+        let _sperre = crate::remote_input::pruefstand();
         assert!(handle(params(json!(-1))).is_err());
         // Stillgelegt — ein wohlgeformter Aufruf kommt jetzt auch nicht durch.
         assert!(handle(params(json!(0))).is_err());
@@ -214,6 +215,7 @@ mod tests {
     /// `remote_input::tests`).
     #[test]
     fn kaputte_frames_sind_fail_closed() {
+        let _sperre = crate::remote_input::pruefstand();
         let zu_viele: Vec<Value> = (0..=MAX_FRAMES).map(|_| json!("AAI=")).collect();
         let zu_lang = json!(["A".repeat(2048)]); // 1536 Byte > MAX_BYTES
         for frames in [
@@ -238,6 +240,7 @@ mod tests {
     /// Kennung" geworden — fail-closed ist hier billiger als raten.
     #[test]
     fn missgeformte_kennung_ist_fail_closed() {
+        let _sperre = crate::remote_input::pruefstand();
         assert_eq!(sitzungs_id_aus(&Map::new()), Ok(None));
         let mit = |wert: Value| {
             json!({"slot": 0, "session_id": wert, "frames": ["AAI="]})
@@ -256,6 +259,7 @@ mod tests {
     /// läuft weiter. Ein `slot: 999` darf keine Fernsteuerung abwürgen.
     #[test]
     fn platz_ausserhalb_des_bereichs_verwirft_nur() {
+        let _sperre = crate::remote_input::pruefstand();
         for wert in [json!(999), json!(5_000_000_000u64)] {
             let out = handle(params(wert.clone())).expect("kein Protokollfehler");
             assert_eq!(out["state"], json!("unknown_slot"), "slot {wert}");
