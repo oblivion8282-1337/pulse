@@ -18,9 +18,12 @@
 //! Reihenfolge-Sperre, jeder bekommt eine frische Sitzung mit eigenem
 //! Pruefstand.
 
+pub mod base64;
 pub mod bauen;
+pub mod bewegung;
 pub mod format;
 pub mod rahmen;
+pub mod zuordnung;
 
 /// Sender und Empfaenger gegeneinander: was [`bauen`] erzeugt, muss [`rahmen`]
 /// wieder auseinandernehmen koennen — und dasselbe herausbekommen.
