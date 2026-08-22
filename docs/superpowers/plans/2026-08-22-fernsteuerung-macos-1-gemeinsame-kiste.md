@@ -1885,10 +1885,17 @@ In `streaming/win-hq-sidecar/src/ops/remote_input_end.rs`: `Sitzung::singleton()
 Run: `grep -rn "remote_input::Sitzung\|remote_input::pruefstand\|Sitzung::singleton" streaming/win-hq-sidecar/src/`
 Expected: nur noch Treffer in `main.rs` (Prozessende) und `lib.rs`. Diese auf `crate::remote_input::sitzung()` umstellen; `beenden_endgueltig()` bleibt gleich.
 
-- [ ] **Step 9: Formatierung prüfen**
+- [ ] **Step 9: Auf Hinterlassenschaften prüfen**
 
-Run: `cd streaming/win-hq-sidecar && cargo fmt --check`
-Expected: keine Ausgabe. (`cargo build` geht auf diesem Mac nicht — s. Global Constraints.)
+`cargo build` geht auf diesem Mac nicht, `cargo fmt` ist nicht installiert und läuft in keinem Gate des Projekts — die einzige lokale Prüfung ist deshalb die Suche nach Bezügen auf das, was gerade entfernt wurde.
+
+Run:
+
+```bash
+grep -rn "remote_input::rahmen\|remote_input::druck\|remote_input::base64\|remote_input::ausfuehrung\|remote_input::vorrang\|remote_input::pruefstand\|Sitzung::singleton\|injektion::pruefspur\|wache::pruefhilfe\|bewegung_zaehlt\|scancode_gueltig" streaming/win-hq-sidecar/src/
+```
+
+Expected: **keine Treffer.** Jeder Treffer ist eine Aufrufstelle, die auf ein gelöschtes Modul oder eine gewanderte Funktion zeigt und den Windows-Bau in Task 9 rot machen wird.
 
 - [ ] **Step 10: Committen**
 
@@ -2089,9 +2096,13 @@ vollstaendig ist."
 
 ---
 
-### Task 8: Bau-Auslöser und Flatpak-Manifest
+### Task 8: Bau-Auslöser, Flatpak-Manifest und das Testgatter
 
-Die neue Kiste liegt außerhalb der Programmordner. Fehlt sie in einer der Listen, **bricht nichts** — der Bau läuft einfach nicht, und das Ausgelieferte trägt still den alten Stand. Genau dafür gibt es die beiden Prüftests.
+Die neue Kiste liegt außerhalb der Programmordner. Das hat zwei Folgen, und beide sind lautlos:
+
+**Fehlt sie in einem Bau-Auslöser, bricht nichts** — der Bau läuft einfach nicht, und das Ausgelieferte trägt still den alten Stand. Dafür gibt es die beiden Prüftests in `streaming/zwillinge`.
+
+**Und ihre Tests laufen in keinem Gate.** `scripts/ship.sh` fährt `cargo test` nur für `streaming/pulse-player/` und `streaming/linux-hq-sidecar/`; `ci.yml` fährt nur `streaming/zwillinge`. Die fünf vorhandenen gemeinsamen Kisten stehen nirgends — und `cargo test` in einem Programm führt die Tests seiner Pfad-Abhängigkeiten **nicht** mit. `pulse-fernsteuerung` träte dieser Gruppe bei, mit den siebzehn sicherheitskritischsten Tests des Repos. Das ist wortwörtlich die Lehre aus CLAUDE.md: „ein nicht ausgeführter Test sieht in der Ausgabe genauso aus wie ein grüner".
 
 **Files:**
 - Modify: `.github/workflows/win-build.yml`
@@ -2149,15 +2160,62 @@ In `packaging/com.howispulse.Pulse.yml`, beim Modul des Players, zu den anderen 
 Run: `cd streaming/zwillinge && cargo test`
 Expected: PASS — alle vier Testdateien.
 
-- [ ] **Step 7: Committen**
+- [ ] **Step 7: Die gemeinsamen Kisten ins lokale Test-Gate hängen**
+
+In `scripts/ship.sh`, im Rust-Abschnitt (bei `rust_crates=""`). Die gemeinsamen Kisten sind **abhängigkeitsfrei** — sie brauchen weder FFmpeg noch ein Plattform-SDK und bauen in Sekunden. Sie gehören deshalb **vor** die `ffmpeg_prefix`-Schranke, nicht dahinter: sonst fielen sie mit aus, sobald jemand die gepinnte FFmpeg nicht gebaut hat.
+
+```sh
+  # Die gemeinsamen Kisten (`streaming/pulse-*`) laufen in KEINEM Gate — weder
+  # hier noch in ci.yml —, und `cargo test` in einem Programm fuehrt die Tests
+  # seiner Pfad-Abhaengigkeiten nicht mit. Seit 2026-08-22 traegt
+  # pulse-fernsteuerung die Sitzungs-Zustandsmaschine der Fernsteuerung; ihre
+  # Tests sind die schaerfsten im Repo und liefen bis dahin nirgends.
+  #
+  # Ohne FFmpeg-Schranke, weil diese Kisten abhaengigkeitsfrei sind und in
+  # Sekunden bauen.
+  for kiste in $(echo "$changed" | sed -n 's|^\(streaming/pulse-[a-z-]*\)/.*|\1|p' | sort -u); do
+    [ -f "$kiste/Cargo.toml" ] || continue
+    echo "  Cargo-Tests $kiste…"
+    ( cd "$kiste" && cargo test -q ) \
+      || { echo "✗ Cargo-Tests $kiste ROT — Push abgebrochen." >&2; exit 1; }
+  done
+```
+
+Prüfen, dass es greift:
 
 ```bash
-git add .github/workflows packaging/com.howispulse.Pulse.yml
-git commit -m "ci: pulse-fernsteuerung in die Bau-Ausloeser und ins Flatpak-Manifest
+echo "streaming/pulse-fernsteuerung/src/lib.rs" | \
+  sed -n 's|^\(streaming/pulse-[a-z-]*\)/.*|\1|p' | sort -u
+```
+
+Expected: `streaming/pulse-fernsteuerung`
+
+- [ ] **Step 8: Dieselben Kisten in die CI hängen**
+
+In `.github/workflows/ci.yml`, beim vorhandenen `zwillinge`-Job (er fährt schon `cargo test --manifest-path streaming/zwillinge/Cargo.toml`). Einen Schritt daneben, mit derselben Begründung: abhängigkeitsfrei, Sekunden, und sonst läuft es nirgends.
+
+```yaml
+      - name: Gemeinsame Kisten
+        run: |
+          for k in streaming/pulse-*/Cargo.toml; do
+            echo "== $k"
+            cargo test --manifest-path "$k"
+          done
+```
+
+- [ ] **Step 9: Committen**
+
+```bash
+git add .github/workflows packaging/com.howispulse.Pulse.yml scripts/ship.sh
+git commit -m "ci: pulse-fernsteuerung in die Bau-Ausloeser, ins Flatpak-Manifest und ins Test-Gate
 
 Eine fehlende Kiste bricht nichts — der Bau laeuft einfach nicht und liefert
 still den alten Stand aus. Die beiden Pruefnetze in streaming/zwillinge haben
-die Luecken genannt."
+die Luecken genannt.
+
+Dazu das Test-Gate: die gemeinsamen Kisten liefen bisher in keinem, weder
+lokal noch in der CI, und cargo test in einem Programm fuehrt die Tests seiner
+Pfad-Abhaengigkeiten nicht mit. Betrifft alle fuenf vorhandenen mit."
 ```
 
 ---
