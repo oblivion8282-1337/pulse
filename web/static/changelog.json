@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-22.4",
+      "date": "2026-08-22",
+      "style": "Sachlich",
+      "title": "Watch-Party: der Lautstärkeregler zeigt jetzt den echten Ton",
+      "intro": "Wer bei einer Watch-Party zusieht, hat einen eigenen Lautstärkeregler in der Kachel. Der zeigte bisher immer 100 Prozent an, egal wie laut es wirklich war — er war mit dem Player gar nicht verbunden, sondern nur mit sich selbst. Das ist behoben.",
+      "items": [
+        "Der Regler steht beim Öffnen jetzt dort, wo der Ton wirklich ist. Bisher sprang die Lautstärke beim ersten Anfassen hörbar, weil erst dieser Griff die angezeigten 100 Prozent tatsächlich einstellte.",
+        "Stummschalten und wieder Anschalten führen zurück auf die Lautstärke von vorher statt auf einen Wert, der nur zufällig noch im Regler stand.",
+        "Wer in einer Party stumm geschaltet hatte, hatte in der nächsten Party keinen Ton mehr und sah trotzdem 100 Prozent. Ursache: Stumm und Lautstärke sind zwei getrennte Zustände, die YouTube sich über Videos hinweg merkt — am Regler zu ziehen hob die Stummschaltung nicht auf. Jetzt schon."
+      ],
+      "outro": "Betrifft Zuschauer einer Watch-Party. Der Host steuert seinen Ton weiter über die gewohnte YouTube-Leiste."
+    },
+    {
       "id": "2026-08-22.3",
       "date": "2026-08-22",
       "style": "Sachlich",

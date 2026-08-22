@@ -130,12 +130,36 @@
   // YT-Regler fehlt bei controls:0, also reicht die Kachel die Lautstärke über
   // den Controller an den Player durch (0–100). Der Host nutzt weiter den
   // nativen Regler seiner vollen Chrome.
+  // Der Startwert ist ein PLATZHALTER bis zum ersten Abgleich mit dem Player:
+  // YouTube bringt Lautstärke und Stummschaltung aus seinem eigenen Gedächtnis
+  // mit (über alle Videos hinweg, auch aus einer Party, in der man Host war).
+  // Wer hier 100 anzeigt, ohne zu fragen, zeigt eine Zahl neben dem Ton.
   let viewerVolume = $state(100);
   let volBeforeMute = 100;
-  // Slider-Anzeige und Player immer im Gleichschritt setzen.
+  // Hat der Zuschauer den Regler schon angefasst? Dann nie wieder vom Player
+  // überschreiben lassen.
+  let viewerVolumeTouched = false;
+
+  /** Regler auf den Stand des Players ziehen. Stumm zeigen wir als 0 an — so
+   * liest die Kachel-Leiste die Stummschaltung (Knopf-Symbol hängt an 0). */
+  function adoptPlayerVolume(): void {
+    if (viewerVolumeTouched) return;
+    const vol = controller.getVolume();
+    const muted = controller.isMuted();
+    if (vol === null && muted === null) return;
+    if (vol !== null) volBeforeMute = vol > 0 ? vol : 100;
+    viewerVolume = muted ? 0 : (vol ?? viewerVolume);
+  }
+
+  // Slider-Anzeige und Player immer im Gleichschritt setzen. Lautstärke und
+  // Stummschaltung sind am Player zwei Zustände: eine Lautstärke > 0 muss die
+  // Stummschaltung ausdrücklich aufheben, sonst dreht man am Regler eines
+  // stummen Players (genau der Fall nach einer Party, in der man stumm war).
   function setViewerVolume(percent: number): void {
     viewerVolume = percent;
-    controller.setVolume(percent);
+    viewerVolumeTouched = true;
+    if (percent > 0) controller.setVolume(percent);
+    controller.setMuted(percent === 0);
   }
   function onViewerVolume(e: Event): void {
     setViewerVolume(Number((e.currentTarget as HTMLInputElement).value));
@@ -159,6 +183,8 @@
     // later party/role changes.
     controller.syncHeartbeat();
     controller.syncViewer();
+    // Regler an den mitgebrachten Stand des Players anpassen (s. oben).
+    adoptPlayerVolume();
   }
   // Untertitel des Zuschauer-Players: derselbe Weg wie die Lautstärke oben —
   // `controls:0` nimmt ihm den CC-Knopf, die Kachel gibt ihn zurück. Rein
@@ -188,6 +214,9 @@
     // Gleiches Netz für die Auflösung: onPlaybackQualityChange kann vor dem
     // ersten play schon gefeuert sein, ohne dass sich ein Wert gemerkt hat.
     if (e.type === 'play' && quality.quality === null) quality.refresh();
+    // Netz für die Lautstärke: manche Player melden ihren gemerkten Stand erst,
+    // wenn wirklich Ton läuft. Greift nur, solange niemand am Regler war.
+    if (e.type === 'play') adoptPlayerVolume();
     controller.onEvent(e);
   }
 
