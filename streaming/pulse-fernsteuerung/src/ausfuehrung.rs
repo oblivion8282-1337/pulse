@@ -334,7 +334,11 @@ mod tests {
         z.druck.knopf(1, true);
         einspielen(&mut z, &inj, None, InputFrame::MouseButton { btn: 1, down: false }).unwrap();
         let spur = inj.nimm();
-        assert_eq!(spur, vec![Ereignis::Knopf { btn: 1, down: false }], "nur das Hoch-Ereignis: {spur:?}");
+        assert_eq!(
+            spur,
+            vec![Ereignis::Knopf { btn: 1, down: false }],
+            "nur das Hoch-Ereignis: {spur:?}"
+        );
         assert!(!z.druck.knopf_ist_unten(1));
     }
 
