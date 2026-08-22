@@ -42,6 +42,10 @@
   import HqStreamBackgroundHost from '$lib/stream/components/HqStreamBackgroundHost.svelte';
   import LiveKitBackgroundHost from '$lib/stream/components/LiveKitBackgroundHost.svelte';
   import WatchBackgroundHost from '$lib/watch/WatchBackgroundHost.svelte';
+  import MobileTabBar from '$lib/components/mobile/MobileTabBar.svelte';
+  import TabletNavRail from '$lib/components/mobile/TabletNavRail.svelte';
+  import { istDetailScreen } from '$lib/navigation/tabs';
+  import { page } from '$app/state';
   import UpdateBanner from '$lib/components/server/UpdateBanner.svelte';
   import SelfHostDisclaimer from '$lib/components/server/SelfHostDisclaimer.svelte';
 
@@ -300,6 +304,22 @@
     document.title = dmUnread || channelUnread ? '● Pulse' : 'Pulse';
   });
 
+  // Die eine Regel, die entscheidet, wer auf welcher Bildschirmgroesse
+  // navigiert. Steht bewusst NUR hier: die Leisten rendern sich nicht selbst
+  // weg, sonst gaebe es zwei Stellen mit derselben Bedingung.
+  //
+  //   < md   : Bereichs-Leiste unten, ausser auf einem Detail-Bildschirm
+  //   md-lg  : Bereichs-Spalte links
+  //   >= lg  : keines von beidem — das Drei-Spalten-Layout bleibt unberuehrt
+  //
+  // Auf einem Detail-Bildschirm (offenes Gespraech, Kanal, Einstellungsseite)
+  // verschwindet die Leiste, damit der Bildschirm dem Inhalt gehoert; zurueck
+  // fuehrt der Pfeil oder die System-Geste.
+  let zeigeLeisteUnten = $derived(
+    hydrated && viewport.isMobile && !istDetailScreen(page.url.pathname)
+  );
+  let zeigeSpalteLinks = $derived(hydrated && viewport.isTablet);
+
   // Ablehnungen des Servers zur Watch-Party sichtbar machen. Einmal je
   // Fenster — Begruendung in `watch/fehlerwacht.svelte.ts`.
   watchFehlerWacht();
@@ -316,6 +336,9 @@
        PWA and the Android APK (no-op as a browser tab). md restores the
        regular padding. -->
   <div class="flex flex-1 gap-0 p-0 pt-[var(--safe-top)] md:gap-3 md:p-3 md:pt-3 min-h-0">
+    {#if zeigeSpalteLinks}
+      <TabletNavRail />
+    {/if}
     {#if !hydrated}
       <div class="text-text-muted flex flex-1 items-center justify-center text-sm">loading…</div>
     {:else}
@@ -328,8 +351,16 @@
        nicht überdecken; Auflegen ist immer erreichbar. Desktop: Controls
        leben im Sidebar-Footer (s. SidebarFooter). -->
   {#if viewport.isMobile && (voice.connected || voice.connecting)}
-    <div class="shrink-0 pb-[var(--safe-bottom)]">
+    <div class="shrink-0 {zeigeLeisteUnten ? '' : 'pb-[var(--safe-bottom)]'}">
       <VoiceControlBar />
+    </div>
+  {/if}
+  <!-- Die Bereichs-Leiste sitzt UNTER dem Voice-Dock (Canvas 3a): das Dock ist
+       der laufende Zustand, die Leiste die Navigation. `--safe-bottom` traegt
+       jetzt sie, sonst laege der Home-Balken des Telefons darauf. -->
+  {#if zeigeLeisteUnten}
+    <div class="shrink-0 pb-[var(--safe-bottom)]">
+      <MobileTabBar />
     </div>
   {/if}
 </div>

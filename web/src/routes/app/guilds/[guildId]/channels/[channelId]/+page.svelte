@@ -9,6 +9,7 @@
   import DeviceView from '$lib/devices/components/DeviceView.svelte';
   import { deviceStore } from '$lib/devices/store.svelte';
   import { geraetPfad } from '$lib/devices/darstellung';
+  import { kanalAnlegen } from '$lib/channels/anlegen';
   import type { Device } from '$lib/api/devices';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import DropboxView from '$lib/components/DropboxView.svelte';
@@ -381,46 +382,11 @@
     creatingGuild = false;
   }
 
+  // Die Anlege-Logik lebt in `$lib/channels/anlegen.ts`, weil der
+  // Raeume-Bereich denselben Knopf hat (Mobil-Umbau 2026-08-22).
   async function createChannel(name: string, type: number) {
     if (!activeGuild) return;
-    try {
-      // Type=2 (Dropbox / Ablage) is special — there's at most one per
-      // guild. POST /guilds/{id}/dropbox/channel is idempotent: it
-      // creates with the user-supplied name on first call, hands back
-      // the existing channel on subsequent calls (admin renames via
-      // PATCH instead of creating a new one).
-      let newChannelId: string;
-      if (type === 2) {
-        const ch = await dropboxApi.createDropboxChannel(activeGuild.id, name);
-        guilds.addChannel({
-          id: ch.id,
-          guild_id: ch.guild_id,
-          name: ch.name,
-          type: ch.type,
-          position: ch.position,
-          topic: null,
-          created_at: new Date().toISOString()
-        });
-        newChannelId = ch.id;
-      } else {
-        const ch = await chatApi.createChannel(activeGuild.id, { name, type });
-        guilds.addChannel(ch);
-        newChannelId = ch.id;
-      }
-      creatingChannel = false;
-      await goto(`/app/guilds/${activeGuild.id}/channels/${newChannelId}`);
-    } catch (e) {
-      // 409 vom Ablage-Endpoint = die Community hat ihre Ablage abgeschaltet
-      // (Sicherheitsnetz — der Dialog blendet die Option normalerweise aus,
-      // aber ein Klick vor dem Nachladen des Schalters landet hier).
-      const status = (e as { status?: number })?.status;
-      toast.error(
-        type === 2 && status === 409
-          ? pm.channel_page_dropbox_disabled()
-          : pm.channel_page_create_failed(),
-        { description: e instanceof Error ? e.message : String(e) }
-      );
-    }
+    if (await kanalAnlegen(activeGuild.id, name, type)) creatingChannel = false;
   }
 
   async function onChannelDeleted(deletedId: string) {

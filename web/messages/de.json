@@ -2934,5 +2934,17 @@
   "standplatz_banner_clear_failed": "Freigabeliste konnte nicht geleert werden. Bitte erneut versuchen.",
   "overrides_editor_fps_standard": "Standard (60)",
   "overrides_editor_fps_capped": "Bei 10 bit begrenzt die Auflösung die Auswahl — höhere Bildraten überfordern die Decoder mancher Zuschauer.",
-  "stream_fps_capped": "Bildrate begrenzt"
+  "stream_fps_capped": "Bildrate begrenzt",
+  "nav_tab_chats": "Chats",
+  "nav_tab_rooms": "Räume",
+  "nav_tab_friends": "Freunde",
+  "nav_tab_me": "Du",
+  "nav_tab_unread_badge": "{count} ungelesen",
+  "nav_tab_requests_badge": "{count} offene Anfragen",
+  "nav_tab_bar_label": "Bereiche",
+  "rooms_empty_server": "Auf diesem Server bist du noch in keiner Community.",
+  "rooms_empty_all": "Du bist noch in keiner Community.",
+  "rooms_discover_cta": "Communities entdecken",
+  "channel_list_back": "Zurück",
+  "discover_coming_soon": "Das Verzeichnis öffentlicher Communities entsteht gerade."
 }

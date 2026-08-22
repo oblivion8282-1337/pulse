@@ -19,19 +19,7 @@
 
 <script lang="ts">
   import * as Dialog from '$lib/components/ui/dialog/index.js';
-  import SettingsAppearance from './settings/SettingsAppearance.svelte';
-  import SettingsAudioVideo from './settings/SettingsAudioVideo.svelte';
-  import SettingsScreenShare from './settings/SettingsScreenShare.svelte';
-  import SettingsNotifications from './settings/SettingsNotifications.svelte';
-  import SettingsSounds from './settings/SettingsSounds.svelte';
-  import SettingsSecurity from './settings/SettingsSecurity.svelte';
-  import SettingsKeyboard from './settings/SettingsKeyboard.svelte';
-  import SettingsPrivacy from './settings/SettingsPrivacy.svelte';
-  import SettingsProfile from './settings/SettingsProfile.svelte';
-  import SettingsSelfHost from './settings/SettingsSelfHost.svelte';
-  import SettingsApps from './settings/SettingsApps.svelte';
-  import SettingsExperimental from './settings/SettingsExperimental.svelte';
-  import SettingsStandplatz from './settings/SettingsStandplatz.svelte';
+  import SettingsPanel from './settings/SettingsPanel.svelte';
   import SettingsDialogNav from './SettingsDialogNav.svelte';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import { untrack } from 'svelte';
@@ -47,7 +35,7 @@
   import { viewport } from '$lib/stores/viewport.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
-  import { getSettingsTabs } from './settingsTabs';
+  import { getSettingsTabs, sichtbareReiter } from './settingsTabs';
 
   type MobileView = 'list' | 'detail';
 
@@ -164,14 +152,15 @@
   // vorherigen `const`-Ausdrucks hier an Ort und Stelle.
   const tabs = getSettingsTabs();
 
+  // Dieselbe Rechnung wie der Du-Bereich des Handys (`/app/me`) — ausgelagert
+  // nach `settingsTabs.ts`, damit es nicht zwei davon gibt.
   let visibleTabs = $derived(
-    tabs.filter(
-      (t) =>
-        (!t.desktopOnly || !viewport.isMobile) &&
-        (!t.browserOnly || inBrowser) &&
-        (!t.electronOnly || isDesktopApp) &&
-        (!t.standplatzGate || zeigtStandplatzReiter)
-    )
+    sichtbareReiter(tabs, {
+      istMobil: viewport.isMobile,
+      imBrowser: inBrowser,
+      istDesktopApp: isDesktopApp,
+      zeigtStandplatz: zeigtStandplatzReiter
+    })
   );
 
   let activeLabel = $derived(visibleTabs.find((t) => t.id === activeTab)?.label ?? '');
@@ -216,33 +205,7 @@
       </div>
 
       <div class="flex-1 overflow-y-auto pb-6 pl-6 pr-4 pt-14 max-sm:pt-6">
-        {#if activeTab === 'profile'}
-          <SettingsProfile />
-        {:else if activeTab === 'appearance'}
-          <SettingsAppearance />
-        {:else if activeTab === 'audio-video'}
-          <SettingsAudioVideo />
-        {:else if activeTab === 'screen-share'}
-          <SettingsScreenShare />
-        {:else if activeTab === 'standplatz'}
-          <SettingsStandplatz />
-        {:else if activeTab === 'notifications'}
-          <SettingsNotifications />
-        {:else if activeTab === 'sounds'}
-          <SettingsSounds />
-        {:else if activeTab === 'keyboard'}
-          <SettingsKeyboard />
-        {:else if activeTab === 'privacy'}
-          <SettingsPrivacy />
-        {:else if activeTab === 'self-host'}
-          <SettingsSelfHost />
-        {:else if activeTab === 'apps'}
-          <SettingsApps />
-        {:else if activeTab === 'experimental'}
-          <SettingsExperimental />
-        {:else}
-          <SettingsSecurity />
-        {/if}
+        <SettingsPanel tab={activeTab} />
       </div>
     </div>
   </Dialog.Content>

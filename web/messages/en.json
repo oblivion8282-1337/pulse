@@ -2934,5 +2934,17 @@
   "standplatz_banner_clear_failed": "Could not clear the grant list. Please try again.",
   "overrides_editor_fps_standard": "Default (60)",
   "overrides_editor_fps_capped": "With 10-bit, the resolution caps this list — higher rates overwhelm some viewers’ hardware decoders.",
-  "stream_fps_capped": "Frame rate limited"
+  "stream_fps_capped": "Frame rate limited",
+  "nav_tab_chats": "Chats",
+  "nav_tab_rooms": "Rooms",
+  "nav_tab_friends": "Friends",
+  "nav_tab_me": "You",
+  "nav_tab_unread_badge": "{count} unread",
+  "nav_tab_requests_badge": "{count} pending requests",
+  "nav_tab_bar_label": "Sections",
+  "rooms_empty_server": "You are not in any community on this server yet.",
+  "rooms_empty_all": "You are not in any community yet.",
+  "rooms_discover_cta": "Discover communities",
+  "channel_list_back": "Back",
+  "discover_coming_soon": "The public community directory is being built."
 }
