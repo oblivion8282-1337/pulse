@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-22.2",
+      "date": "2026-08-22",
+      "style": "Sachlich",
+      "title": "Ton nach einem Aussetzer: kein Nachhinken mehr",
+      "intro": "Stockte die Verbindung beim Zusehen kurz, blieb der Ton danach spürbar hinter dem Bild zurück — und sprang Sekunden später mit einem hörbaren Schnitt wieder auf die richtige Stelle. Das ist behoben.",
+      "items": [
+        "Nach einer kurzen Lieferpause kam der aufgestaute Ton als Schwall an. Der Player räumte den Überschuss zu früh weg, nämlich schon während der Schwall noch lief, und sperrte sich damit selbst für die Räumung, auf die es ankam.",
+        "Aufgeräumt wird jetzt erst, wenn der Rückstand vollständig angekommen ist. Das kostet ein Wimpernschlag mehr und dafür einen einzigen Schnitt statt zweier.",
+        "Aus einer halben Sekunde Störung wurden bisher rund sechs Sekunden Ton hinter dem Bild. Diese Nachwirkung fällt weg."
+      ],
+      "outro": "Der kurze Aussetzer im Moment der Störung selbst bleibt — der kommt von der Leitung, nicht vom Player."
+    },
+    {
       "id": "2026-08-22",
       "date": "2026-08-22",
       "style": "Sachlich",
