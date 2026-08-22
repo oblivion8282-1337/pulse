@@ -18,6 +18,7 @@
 //! Reihenfolge-Sperre, jeder bekommt eine frische Sitzung mit eigenem
 //! Pruefstand.
 
+mod ausfuehrung;
 pub mod base64;
 pub mod bauen;
 pub mod bewegung;

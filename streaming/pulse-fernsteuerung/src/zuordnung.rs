@@ -67,7 +67,7 @@ pub fn anteil_auf_punkt(x: u16, y: u16, r: &Rechteck) -> Option<(i32, i32)> {
 ///
 /// Die **eine** Stelle, an der die Klemm-Zusage der Spezifikation rechnerisch
 /// eingelöst wird: absolute Bewegung, relative Bewegung und das Orts-Tor für
-/// Knopf und Rad (`super::ausfuehrung`) gehen alle hier durch. Halboffen —
+/// Knopf und Rad (`crate::ausfuehrung`) gehen alle hier durch. Halboffen —
 /// rechte und untere Kante gehören dem Nachbarn.
 pub fn klemmen(px: i32, py: i32, r: &Rechteck) -> Option<(i32, i32)> {
     if r.rechts <= r.links || r.unten <= r.oben {
@@ -80,7 +80,7 @@ pub fn klemmen(px: i32, py: i32, r: &Rechteck) -> Option<(i32, i32)> {
 }
 
 /// Die Mitte des Quell-Rechtecks — Startpunkt für relative Bewegung ohne
-/// bekannte Zeigerlage (`super::ausfuehrung::relatives_ziel`). `None` bei
+/// bekannte Zeigerlage (`crate::ausfuehrung::relatives_ziel`). `None` bei
 /// entartetem Rechteck.
 pub fn mitte(r: &Rechteck) -> Option<(i32, i32)> {
     klemmen(
