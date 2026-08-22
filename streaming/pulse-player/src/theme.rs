@@ -30,13 +30,40 @@ pub const TEXT_DIM: Color32 = Color32::from_rgb(0x9c, 0xa3, 0xaf);
 /// `--primary` — aktiver Zustand (z.B. Chat offen).
 pub const PRIMARY: Color32 = Color32::from_rgb(0x3b, 0x82, 0xf6);
 
-/// Untergrund der Leiste. In der App liegt sie ueber dem Bild als
-/// `bg-black/40` MIT Weichzeichnung — die kann egui nicht, und ohne sie
-/// verschwimmt die Leiste im Bild. Deshalb deutlich dichter als der
-/// CSS-Wert; das ist die bewusste Abweichung, ohne die sie sich nicht abhebt.
-pub const LEISTE_BG: Color32 = Color32::from_black_alpha(215);
-/// Die Lautstaerke-Gruppe innerhalb der Leiste, eine Stufe heller abgesetzt.
-pub const GRUPPE_BG: Color32 = Color32::from_rgba_premultiplied(20, 20, 22, 150);
+/// Untergrund der Leiste und des Fernsteuerungs-Menues. In der App liegt sie
+/// ueber dem Bild als `bg-black/40` MIT Weichzeichnung — die kann egui nicht,
+/// und ohne sie verschwimmt die Leiste im Bild. Deshalb deutlich dichter als
+/// der CSS-Wert; das ist die bewusste Abweichung, ohne die sie sich nicht
+/// abhebt.
+///
+/// **Am 2026-08-22 von reinem Schwarz bei Alpha 215 auf ein angehobenes Grau
+/// bei Alpha 246 gezogen**, weil das Fernsteuerungs-Menue schlecht lesbar war.
+/// Zwei Gruende, die zusammenwirkten:
+///
+/// * **Die 15 % Restdurchsicht sind das eigentliche Problem, nicht die
+///   Helligkeit.** Ueber einem ruhigen Bild fiel sie nicht auf; ueber einem
+///   fernen Schreibtisch schimmert dort ein bewegtes, kleinteiliges Bild
+///   durch, und 13-px-Schrift steht dann auf wanderndem Untergrund. Weniger
+///   Durchsicht hilft der Lesbarkeit mehr als jede Farbaenderung.
+/// * **Reines Schwarz gibt der Flaeche keine Kante.** Ueber dunklem Bildinhalt
+///   verschwand die Begrenzung des Menues ganz. Ein angehobenes Grau liest
+///   sich als Flaeche, auch wenn dahinter Schwarz liegt.
+///
+/// Der Wert ist an `--popover` (`rgba(24,24,27,0.85)`) angelehnt und
+/// ausdruecklich heller und dichter als dieser: die App legt hinter ihre
+/// Popover eine Weichzeichnung, die hier fehlt. Vormultipliziert
+/// geschrieben — gemeint ist `rgb(38,38,43)` bei Alpha 246.
+pub const LEISTE_BG: Color32 = Color32::from_rgba_premultiplied(37, 37, 41, 246);
+/// Die Lautstaerke-Gruppe und die Knoepfe innerhalb der Leiste bzw. des
+/// Menues, eine Stufe heller abgesetzt.
+///
+/// Ebenfalls am 2026-08-22 angehoben (Alpha 150 → 235). Sie war der
+/// durchsichtigste Teil des Menues und damit der schlechtest lesbare: bei 59 %
+/// Deckung stand die Beschriftung eines Knopfes zu 41 % auf dem fernen Bild.
+/// Der Abstand zur Flaeche dahinter bleibt erhalten — sie muss als Knopf
+/// erkennbar bleiben, nicht nur als heller Fleck. Gemeint ist `rgb(58,58,64)`
+/// bei Alpha 235.
+pub const GRUPPE_BG: Color32 = Color32::from_rgba_premultiplied(53, 53, 59, 235);
 /// Untergrund des Fernsteuerungs-Griffs, wenn der Zeiger darauf steht oder das
 /// Menue offen ist.
 ///
@@ -44,7 +71,11 @@ pub const GRUPPE_BG: Color32 = Color32::from_rgba_premultiplied(20, 20, 22, 150)
 /// bringt ihre eigenen Farben mit, und `tint` multipliziert nur — eine
 /// „aktive" Einfaerbung machte daraus ein schmutziges Dunkelpetrol, das sich
 /// vom Ruhezustand kaum unterschied.
-pub const GRIFF_BG_AKTIV: Color32 = Color32::from_rgba_premultiplied(60, 60, 66, 220);
+/// Mitangehoben am 2026-08-22 (Alpha 220 → 240), damit der Abstand zur nun
+/// dichteren [`LEISTE_BG`] erhalten bleibt: der Griff soll im Ruhezustand
+/// unauffaellig sein und beim Zeiger darauf sichtbar aufhellen. Gemeint ist
+/// `rgb(70,70,76)` bei Alpha 240 — dieselbe Farbe wie zuvor, nur dichter.
+pub const GRIFF_BG_AKTIV: Color32 = Color32::from_rgba_premultiplied(66, 66, 72, 240);
 /// Schiene des Lautstaerke-Reglers. MUSS gesetzt werden: `apply_style` macht
 /// alle Knopfflaechen durchsichtig, und egui zeichnet die Schiene aus
 /// derselben Farbe (`widgets.inactive.bg_fill`, `slider.rs`) — sie verschwand
