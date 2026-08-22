@@ -123,7 +123,7 @@ pub fn rest_ms() -> u64 {
 
 /// Die Wache aufstellen. Idempotent; `Err` heißt **die Zusage ist auf diesem
 /// System nicht zu halten** — der Aufrufer verweigert die Sitzung dann
-/// (Begründung in [`super::handschlag`]).
+/// (Begründung bei `Sitzung::handschlag` in `pulse_fernsteuerung::sitzung`).
 pub fn starten() -> Result<(), String> {
     let mut laufend = LAUFEND.lock().unwrap_or_else(|e| e.into_inner());
     if laufend.is_some() {

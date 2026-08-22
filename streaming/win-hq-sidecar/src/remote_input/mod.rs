@@ -165,3 +165,24 @@ impl Umgebung for WinUmgebung {
         }));
     }
 }
+
+/// Pruefstand-Sperre fuer die Tests, die am **prozessweiten** Zustand dieses
+/// Moduls haengen: der einen [`sitzung()`] und der Stream-Registrierung in
+/// [`ziel`].
+///
+/// **Die Kiste braucht sie nicht mehr** — ihre Sitzung traegt die Plattform als
+/// Feld, jeder Test baut sich eine eigene. Der Sidecar-Prozess hat weiterhin
+/// genau eine, und `cargo test` faehrt seine Tests auf mehreren Faeden: ohne
+/// Reihenfolge legt der eine sie still, waehrend der andere „laeuft weiter"
+/// nachweist. Beim Nehmen wird gleich aufgeraeumt, damit kein Test die
+/// Hinterlassenschaft eines anderen sieht; eine vergiftete Sperre wird
+/// uebernommen, sonst scheiterten danach alle uebrigen an ihr statt an ihrer
+/// eigenen Sache.
+#[cfg(test)]
+pub(crate) fn pruefstand() -> std::sync::MutexGuard<'static, ()> {
+    static SPERRE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let sperre = SPERRE.lock().unwrap_or_else(|e| e.into_inner());
+    ziel::strom_beendet();
+    sitzung().beenden();
+    sperre
+}
