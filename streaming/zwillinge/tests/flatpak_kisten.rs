@@ -64,20 +64,41 @@ fn kisten_von(paket: &str, gefunden: &mut BTreeSet<String>) {
 /// Die `type: dir`-Quellen EINES Moduls des Flatpak-Manifests.
 ///
 /// Auch hier Zeilen-Vergleich statt YAML-Parser (s. oben). Ein Modul beginnt
-/// mit `- name: <x>` und endet vor dem naechsten `- name:` auf derselben
-/// Einrueckung; dazwischen wird jede `path: ../streaming/<y>`-Zeile gesammelt.
+/// mit `- name: <x>` auf zwei Leerzeichen Einrueckung und endet vor dem
+/// naechsten Eintrag derselben Einrueckung; dazwischen wird jede
+/// `path: ../streaming/<y>`-Zeile gesammelt. Die Einrueckung gehoert zur
+/// Abgrenzung: `- name: ffnvcodec` steht tiefer eingerueckt INNERHALB des
+/// ffmpeg-Moduls und darf es nicht beenden.
+///
+/// **Zeilenweise statt byteweise, und das ist der Punkt.** Die erste Fassung
+/// suchte mit `find("- name: <x>\n")` im rohen Text und fand deshalb auf
+/// Windows kein einziges Modul: Git wandelt die Zeilenenden beim Auschecken um
+/// (`core.autocrlf`, Vorgabe des dortigen Installers), im Text steht dann
+/// `\r\n`. Der Waechter meldete "steht nicht im Manifest" fuer Eintraege, die
+/// sehr wohl dort standen — auf dem Bauserver gruen, auf jeder
+/// Windows-Maschine rot. `lines()` streift das `\r` selbst ab und macht die
+/// Auswertung damit unabhaengig von der Schreibweise.
 fn dir_quellen(manifest: &str, modul: &str) -> BTreeSet<String> {
-    let start = manifest
-        .find(&format!("- name: {modul}\n"))
-        .unwrap_or_else(|| panic!("Modul '{modul}' steht nicht im Manifest"));
-    let rest = &manifest[start + 1..];
-    let ende = rest.find("\n  - name: ").map_or(manifest.len(), |i| start + 1 + i);
+    let kopf = format!("  - name: {modul}");
+    let mut im_modul = false;
+    let mut gesehen = false;
+    let mut quellen = BTreeSet::new();
 
-    manifest[start..ende]
-        .lines()
-        .filter_map(|z| z.trim().strip_prefix("path: ../streaming/"))
-        .map(|p| p.trim().to_string())
-        .collect()
+    for zeile in manifest.lines() {
+        if zeile.starts_with("  - name: ") {
+            im_modul = zeile.trim_end() == kopf;
+            gesehen |= im_modul;
+            continue;
+        }
+        if im_modul {
+            if let Some(p) = zeile.trim().strip_prefix("path: ../streaming/") {
+                quellen.insert(p.trim().to_string());
+            }
+        }
+    }
+
+    assert!(gesehen, "Modul '{modul}' steht nicht im Manifest");
+    quellen
 }
 
 /// Je Flatpak-Modul: welches Paket wird darin gebaut?
@@ -149,4 +170,45 @@ fn die_auswertung_findet_ueberhaupt_etwas() {
             "'{paket}' haengt an keiner einzigen pulse-Kiste — Cargo.toml-Form geaendert?"
         );
     }
+}
+
+/// Gegenprobe: die Auswertung darf nicht an der Schreibweise der Zeilenenden
+/// haengen.
+///
+/// Der Test hier arbeitet auf einem gestellten Manifest, nicht auf dem echten:
+/// welche Zeilenenden das echte traegt, entscheidet die Git-Einstellung der
+/// Maschine — auf dem Bauserver LF, auf Windows CRLF. Ein Test gegen die Datei
+/// prueft also je nach Rechner etwas anderes und auf dem Bauserver nie den
+/// Fall, an dem die erste Fassung gescheitert ist.
+///
+/// Beide Schreibweisen muessen dasselbe ergeben. Zusaetzlich wird das Ergebnis
+/// selbst geprueft: gaebe die Auswertung fuer beide nichts zurueck, waere der
+/// Vergleich leer gegen leer und damit wertlos.
+#[test]
+fn zeilenenden_aendern_das_ergebnis_nicht() {
+    const MANIFEST: &str = "modules:\n\
+                            \x20 - name: ffmpeg\n\
+                            \x20   sources:\n\
+                            \x20     - name: ffnvcodec\n\
+                            \x20       path: ../streaming/nicht-mitzaehlen\n\
+                            \x20 - name: pulse-player\n\
+                            \x20   sources:\n\
+                            \x20     - type: dir\n\
+                            \x20       path: ../streaming/pulse-zeigerbild\n\
+                            \x20     - type: dir\n\
+                            \x20       path: ../streaming/pulse-bildmarke\n\
+                            \x20 - name: pulse\n";
+    let mit_crlf = MANIFEST.replace('\n', "\r\n");
+
+    let lf = dir_quellen(MANIFEST, "pulse-player");
+    let crlf = dir_quellen(&mit_crlf, "pulse-player");
+
+    assert_eq!(lf, crlf, "CRLF und LF muessen dieselben Quellen ergeben");
+    assert_eq!(
+        lf,
+        ["pulse-bildmarke", "pulse-zeigerbild"].map(String::from).into(),
+        "die Auswertung findet nicht genau die Quellen des Moduls — das tiefer \
+         eingerueckte 'ffnvcodec' beendet das ffmpeg-Modul faelschlich, oder die \
+         Abgrenzung greift gar nicht mehr"
+    );
 }
