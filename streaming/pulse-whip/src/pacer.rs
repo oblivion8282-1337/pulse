@@ -46,18 +46,48 @@
 //! `cargo test`. Die Gegenmessung ueber die echte Leitung (wie am 2026-07-28)
 //! steht noch aus; `PULSE_WHIP_PACING=0` ist dafuer der Vergleichs-Schalter.
 //!
-//! **Die Windows-Schwester weicht bewusst ab** (`win-hq-sidecar/src/whip/
-//! pacer.rs`, dort 2026-08-13 unabhaengig nach denselben Lehren gebaut):
-//! gleiches Prinzip, anderer Zuschnitt (dort `zuschnitt` mit Fenster/Gruppen-
-//! Teilung, hier fester [`GRUPPEN_ABSTAND`] — kuerzeres Fenster fuer kleine
-//! Bilder). Wer einen Pacer-Fehler behebt, sieht sich BEIDE an.
+//! **Seit dem 2026-08-22 fahren alle drei Plattformen diesen Taktgeber.**
+//! Windows trug bis dahin einen eigenen (`win-hq-sidecar/src/whip/pacer.rs`,
+//! dort 2026-08-13 unabhaengig nach denselben Lehren gebaut): gleiches
+//! Prinzip, anderer Zuschnitt — dort Fenster geteilt durch Gruppenzahl, hier
+//! ein fester [`GRUPPEN_ABSTAND`]. Der Unterschied wurde nur bei KLEINEN
+//! Bildern sichtbar (ein Zwei-Paket-Bild war hier nach 2,5 ms hinaus, dort
+//! nach 6,7 ms); bei grossen waren beide praktisch gleich (11,1 gegen
+//! 12,5 ms).
 //!
-//! **Kein Test haelt die beiden zusammen.** Seit `av1.rs` und `sdp.rs` am
-//! 2026-08-20 gemeinsam in `pulse-whip` liegen, sind `pacer.rs` und `mod.rs`
-//! die beiden LETZTEN doppelt vorliegenden Dateien des Sendewegs. Der
-//! Pacer ist dabei der Sonderfall, der auch kuenftig doppelt bleibt: die
-//! Windows-Fassung weicht absichtlich ab (s. oben), und welcher Zuschnitt
-//! besser ist, ist nicht gemessen.
+//! **Warum zusammengelegt, obwohl die Leitungs-Gegenmessung weiterhin
+//! aussteht.** Weil die Frage, die sie beantworten wuerde, kleiner ist als sie
+//! aussah: die beiden Zuschnitte unterscheiden sich ausgerechnet dort, wo ein
+//! Schwall am wenigsten schadet. Schaden richten lange Schwaelle an, also
+//! grosse Bilder — und da waren sie ohnehin gleich. Der moegliche Gewinn ist
+//! damit klein und ungewiss, der Gewinn an Wartbarkeit sicher: ein Fehler im
+//! Verteilen wird ab jetzt EINMAL behoben und gilt ueberall, statt zweimal
+//! gefunden werden zu muessen.
+//!
+//! Dazu kam der Befund, dass der Windows-Zuschnitt gar kein Zugestaendnis an
+//! die Plattform war — er ist unabhaengig entstanden, aus denselben Lehren,
+//! ohne einen Windows-Grund. Es wurde also nichts aufgegeben.
+//!
+//! Erste Zahlen von der Windows-Maschine (2026-08-22, AMD 780M, AV1, 60 fps,
+//! je ueber die echte Leitung): eigener Zuschnitt 3,91 ms je Bild bis alle
+//! Pakete draussen waren, dieser hier 1,73 ms; schlechtester Fall 11,54 gegen
+//! 3,22 ms. **Das ist kein sauberer Vergleich** — der Bildschirminhalt war
+//! nicht derselbe (38 % gegen 63 % Standbilder), und das zieht in dieselbe
+//! Richtung wie das Ergebnis. Es zeigt nur, dass hier nichts einbrach.
+//!
+//! **Was die Gegenmessung immer noch klaeren muesste:** die Ankunftsluecken
+//! BEIM ZUSCHAUER (wie 2026-07-28). Frueher fertig zu sein ist naemlich nicht
+//! von selbst besser — der Zweck des Verteilens ist ja, gerade nicht als
+//! Schwall zu senden. `PULSE_WHIP_PACING=0` ist dafuer der Vergleichs-
+//! Schalter.
+//!
+//! **Windows hebt die Zeitgeber-Aufloesung prozessweit auf 1 ms**
+//! (`timeBeginPeriod(1)` in `win-hq-sidecar/src/main.rs`, seit 2026-08-13) —
+//! ohne das laegen `tokio::time::sleep`-Wartezeiten dort auf dem 15,6-ms-
+//! Raster des Systemtimers, und der Zuschnitt hier verfehlte sein Soll um ein
+//! Vielfaches. Wer diesen Taktgeber auf eine weitere Windows-Binaerdatei
+//! zieht, braucht denselben Aufruf. Woran man das Fehlen erkennt, steht bei
+//! [`tests::verteilung_haelt_ihr_soll`].
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -234,31 +264,37 @@ mod tests {
     /// einer belasteten CI-Maschine nicht flattert — der alte Fehler lag mit
     /// +5,2 ms VERTEILUNGSBEDINGT weit darueber, um den geht es.
     ///
-    /// **Unter Windows uebersprungen, und zwar bewusst nicht mit weiterer
-    /// Toleranz.** Gemessen am 2026-08-22 auf der Windows-Maschine: von drei
-    /// Laeufen waren zwei rot (Ist 28,0 und 16,1 ms bei Soll 12,5), einer
-    /// gruen — der Zeitgeber dort weckt vielfach grobkoerniger als unter Linux
-    /// und macOS, ohne dass die Verteilung etwas falsch macht. Der Test ist
-    /// dort also nicht rot, sondern FLATTRIG, was schlimmer ist: er zeigt
-    /// abwechselnd beides. Eine Toleranz, die das aufnimmt,
-    /// muesste bei etwa 20 ms liegen und waere damit groesser als das Soll
-    /// selbst: der alte Fehler (Ist 20,8 bei Soll 12,5) laege dann INNERHALB
-    /// der Toleranz. Der Test liefe also weiter, koennte aber genau das nicht
-    /// mehr finden, wofuer es ihn gibt — schlechter als ein sichtbar
-    /// uebersprungener Test.
+    /// **Unter Windows uebersprungen — und der Grund ist der Testlauf, nicht
+    /// die Plattform.** Gemessen am 2026-08-22: von drei Laeufen waren zwei
+    /// rot (Ist 28,0 und 16,1 ms bei Soll 12,5), einer gruen. Nicht rot,
+    /// sondern FLATTRIG, was schlimmer ist — der Test zeigt abwechselnd
+    /// beides.
     ///
-    /// Das ist hier vertretbar, weil **Windows diesen Pacer gar nicht
-    /// benutzt**: es faehrt seinen eigenen (`win-hq-sidecar/src/whip/pacer.rs`,
-    /// anderer Zuschnitt des Sendefensters, s. Modulkopf von `lib.rs`) und
-    /// bindet aus dieser Kiste nur `h264` ein. Geprueft wird die Verteilung
-    /// dort, wo sie laeuft: auf Linux und macOS. Sollte Windows je auf diesen
-    /// Pacer wechseln, gehoert der Test wieder scharf gestellt — dann aber mit
-    /// einem Zeitgeber feiner Aufloesung, nicht mit weiterer Toleranz.
+    /// Ursache ist eine fehlende Zeile, die es nur in der ausgelieferten
+    /// Binaerdatei gibt: `win-hq-sidecar/src/main.rs` hebt die
+    /// Zeitgeber-Aufloesung prozessweit auf 1 ms (`timeBeginPeriod(1)`, seit
+    /// 2026-08-13). Diese Testbinaerdatei tut das nicht, also liegen ihre
+    /// `tokio::time::sleep`-Wartezeiten auf dem 15,6-ms-Raster des
+    /// Systemtimers. **Der echte Sidecar haelt sein Soll sehr wohl** — am
+    /// selben Tag ueber die echte Leitung gemessen: 0,44 ms Ueberschuss je
+    /// Bild. Der Test misst hier also den Testlauf, nicht den Zuschnitt.
+    ///
+    /// **Bewusst nicht mit weiterer Toleranz geloest.** Sie muesste bei etwa
+    /// 20 ms liegen und waere damit groesser als das Soll selbst: der alte
+    /// Fehler (Ist 20,8 bei Soll 12,5) laege dann INNERHALB der Toleranz. Der
+    /// Test liefe weiter und koennte genau das nicht mehr finden, wofuer es
+    /// ihn gibt — schlechter als ein sichtbar uebersprungener Test.
+    ///
+    /// **So waere er scharf zu stellen:** `timeBeginPeriod(1)` zu Beginn des
+    /// Tests rufen. Das verlangt die `windows`-Kiste als Dev-Abhaengigkeit
+    /// dieser Crate, die heute abhaengigkeitsarm ist und auf drei Systemen
+    /// baut — deshalb nicht nebenbei entschieden. Geprueft wird der Zuschnitt
+    /// bis dahin auf Linux und macOS, wo er dieselbe Rechnung faehrt.
     #[test]
     #[cfg_attr(
         windows,
-        ignore = "Windows weckt zu grobkoernig (16-28 ms bei 12,5 ms Soll) und faehrt \
-                  ohnehin seinen eigenen Pacer"
+        ignore = "die Testbinaerdatei ruft kein timeBeginPeriod(1) — sie misst das \
+                  15,6-ms-Raster, nicht den Zuschnitt (s. Doc-Kommentar)"
     )]
     fn verteilung_haelt_ihr_soll() {
         let rt = tokio::runtime::Builder::new_current_thread()

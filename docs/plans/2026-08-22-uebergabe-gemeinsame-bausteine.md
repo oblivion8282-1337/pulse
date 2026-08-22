@@ -22,7 +22,9 @@ Bilanz für eure beiden Sidecars: **4.639 Zeilen weniger, 242 mehr.**
 | `pulse-bildmarke` | 422 | Windows- und Linux-Sidecar + Player |
 | `pulse-zeigerbild` | 501 | Windows-Sidecar + Player |
 
-**Was bewusst NICHT zusammengelegt wurde:** `whip/mod.rs` (plattformeigen) und der **Windows-Pacer**. Dessen Zuschnitt weicht absichtlich ab — er dehnt jedes Bild auf das volle Sendefenster, Linux/macOS halten einen festen Abstand. Bei kleinen Bildern macht das 6,7 gegen 2,5 ms aus, bei großen ist es fast gleich. **Welcher besser ist, ist nicht gemessen**, deshalb bleibt Windows unangetastet.
+**Was bewusst NICHT zusammengelegt wurde:** `whip/mod.rs` — plattformeigen, Windows trägt dort eine Bandbreiten-Schätzung, die die anderen nicht haben.
+
+> **Nachtrag 2026-08-22 abends: der Taktgeber ist jetzt doch dabei.** Hier stand, der Windows-Pacer bleibe unangetastet, weil ungemessen sei, welcher Zuschnitt besser ist. Aufgelöst hat das nicht eine Messung, sondern die Einsicht, dass die Frage kleiner ist als sie aussah: Die beiden unterschieden sich nur bei **kleinen** Bildern (2,5 gegen 6,7 ms) — also dort, wo ein Schwall am wenigsten schadet; bei grossen Bildern waren sie ohnehin fast gleich. Kleiner ungewisser Gewinn gegen sicheren Gewinn an Wartbarkeit. Dazu kam der Befund, dass der Windows-Zuschnitt gar kein Zugeständnis an die Plattform war, sondern unabhängig aus denselben Lehren entstanden — es wurde also nichts aufgegeben. **Für Linux und macOS ändert sich dadurch nichts**, ihr Taktgeber ist derselbe wie zuvor. Begründung und Zahlen im Kopf von `streaming/pulse-whip/src/pacer.rs`.
 
 ## Das Einzige, was sein Verhalten ändert: die Maskierung
 
@@ -171,7 +173,9 @@ Die Verhaltensänderung an der Maskierung ist abgedeckt: `grossgeschriebener_par
 
 Das ist die **zweite** Zeilenenden-Falle im Repo; die erste steht im `CLAUDE.md` bei `bootstrap-windows-capture.sh`. Beide Male grün auf Linux, hart kaputt auf Windows.
 
-**2. Der Verteilungs-Test in `pulse-whip` flatterte** (behoben, `test(pulse-whip)`). Drei Läufe: 28,0 ms rot, grün, 16,1 ms rot — bei einem Soll von 12,5 und 3 ms Toleranz. Der Zeitgeber unter Windows weckt vielfach grobkörniger. Nicht über mehr Toleranz gelöst: die müsste bei rund 20 ms liegen und wäre grösser als das Soll selbst, der alte Fehler (Ist 20,8) läge dann darin. Stattdessen unter Windows übersprungen, mit sichtbarem Grund — vertretbar, weil **Windows diesen Pacer gar nicht benutzt** (eigener in `win-hq-sidecar/src/whip/pacer.rs`, aus dieser Kiste kommt nur `h264`). Linux und macOS laufen unverändert scharf.
+**2. Der Verteilungs-Test in `pulse-whip` flatterte** (behoben, `test(pulse-whip)`). Drei Läufe: 28,0 ms rot, grün, 16,1 ms rot — bei einem Soll von 12,5 und 3 ms Toleranz. Nicht über mehr Toleranz gelöst: die müsste bei rund 20 ms liegen und wäre grösser als das Soll selbst, der alte Fehler (Ist 20,8) läge dann darin. Stattdessen unter Windows übersprungen, mit sichtbarem Grund.
+
+**Die Ursache war zunächst falsch zugeordnet** und ist beim Zusammenlegen des Taktgebers aufgefallen: Es liegt nicht am Betriebssystem, sondern an der **Testbinärdatei**. Der ausgelieferte Sidecar hebt die Zeitgeber-Auflösung prozessweit auf 1 ms (`timeBeginPeriod(1)` in `main.rs`), der Testlauf tut das nicht — dort liegen die Wartezeiten auf dem 15,6-ms-Raster. Über die echte Leitung gemessen hält derselbe Zuschnitt sein Soll auf 0,44 ms genau. Scharf zu stellen wäre er mit demselben Aufruf im Test; das verlangt die `windows`-Kiste als Dev-Abhängigkeit einer bislang abhängigkeitsarmen Crate und ist deshalb nicht nebenbei entschieden.
 
 ## Noch offen — braucht einen laufenden Stream
 

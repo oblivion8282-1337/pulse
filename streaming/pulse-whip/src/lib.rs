@@ -7,14 +7,16 @@
 //!
 //! **Was hier bewusst NICHT liegt:**
 //!
-//! * `pacer.rs` — die Windows-Fassung weicht ABSICHTLICH ab (dort 2026-08-13
-//!   unabhaengig nach denselben Lehren gebaut, anderer Zuschnitt des
-//!   Sendefensters). Welcher Zuschnitt besser ist, ist nicht gemessen; eine
-//!   Zusammenlegung waere eine inhaltliche Entscheidung unter Unwissen. Der
-//!   Hinweis in beiden Fassungen — „wer einen Pacer-Fehler behebt, sieht sich
-//!   BEIDE an" — gilt weiter.
 //! * `mod.rs` — plattformeigen. Windows traegt dort zusaetzlich eine
 //!   Bandbreiten-Schaetzung, die die anderen nicht haben.
+//!
+//! **`pacer.rs` stand bis zum 2026-08-22 auch in dieser Liste** — Windows
+//! trug einen eigenen Zuschnitt, und welcher besser sei, war nicht gemessen.
+//! Aufgeloest hat das nicht eine Messung, sondern die Einsicht, dass die
+//! Frage kleiner ist als sie aussah: die beiden unterschieden sich nur bei
+//! kleinen Bildern, also dort, wo ein Schwall am wenigsten schadet. Kleiner
+//! ungewisser Gewinn gegen sicheren Gewinn an Wartbarkeit — Begruendung und
+//! Zahlen im Kopf von [`pacer`].
 //!
 //! **Bewusst nicht mitgezogen: `streaming/win-hq-labor/src/whip/av1.rs`.**
 //! Vierte Fassung, 572 statt 791 Zeilen — das Labor bildet nur einen

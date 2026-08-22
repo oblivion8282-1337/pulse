@@ -64,7 +64,17 @@ Kommentarzeilen (`ohne_kommentare`, s. `src/lib.rs`):
 | `ops/mod.rs` | linux-mac | 29 | 8 | C |
 | `proto.rs` | win-linux | 57 | 39 | D: echt verschieden |
 | `whip/mod.rs` | win-linux | 122 | 80 | D |
-| `whip/pacer.rs` | win-linux | 250 | 120 | D |
+
+**`whip/pacer.rs` (win-linux) stand hier bis zum 2026-08-22 als Klasse D** —
+also als Paar, das absichtlich verschieden bleiben sollte. Windows fuhr einen
+eigenen Zuschnitt des Sendetakts, und welcher besser sei, war nicht gemessen.
+Aufgeloest hat das nicht eine Messung, sondern die Einsicht, dass die beiden
+sich nur bei kleinen Bildern unterschieden — dort, wo ein Schwall am wenigsten
+schadet. Windows fuehrt seither denselben Taktgeber wie die anderen beiden;
+Begruendung und Zahlen im Kopf von `streaming/pulse-whip/src/pacer.rs`.
+**Merkposten fuer die Klassen-Einteilung hier:** "Klasse D" heisst nicht
+"bleibt fuer immer" — es heisst "verschieden, und wir wissen nicht, ob
+zu Recht". Das ist eine Frage, die man stellen kann, kein Endzustand.
 
 **Vier Paare sind seit dem 2026-08-20 keine Zwillinge mehr, sondern
 zusammengefuehrt** und deshalb aus der Tabelle oben entfernt: `whip/sdp.rs`
@@ -93,9 +103,11 @@ nicht vertreten**:
   einbauen — beides ist fuer eine Uebergangsphase nicht die richtige Form von
   Test.
 - **Klasse D** ("echt verschieden") sind **keine Zwillinge**. Die Dateien
-  loesen auf den Plattformen unterschiedliche Probleme (z. B. `whip/pacer.rs`:
-  jede Plattform hat ihren eigenen Sendetakt) und sollen das auch bleiben. Ein
-  Gleichheits-Test darauf waere in der Sache falsch.
+  loesen auf den Plattformen unterschiedliche Probleme (z. B. `whip/mod.rs`:
+  Windows traegt dort eine Bandbreiten-Schaetzung, die die anderen nicht
+  haben). Ein Gleichheits-Test darauf waere in der Sache falsch. Dass die
+  Einordnung trotzdem ueberprueft gehoert, zeigt `whip/pacer.rs` — es stand
+  hier als Klasse D und ist es bei genauerem Hinsehen nicht gewesen (s. o.).
 
 Beide Klassen sind hier nur **dokumentiert**, nicht getestet. Ohne diesen
 Abschnitt entstuende der falsche Eindruck, diese Crate decke alle Doppelungen

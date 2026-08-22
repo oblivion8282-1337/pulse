@@ -35,9 +35,15 @@ fn main() -> anyhow::Result<()> {
     // das NICHT (`thread::sleep` läuft über den High-Resolution-Waitable-Timer,
     // s. `pipeline_hw`), wohl aber die Tokio-Seite des WHIP-Sendewegs: deren
     // Wartezeiten (Timeouts, `tokio::time::sleep` — der gemessene Grund, warum
-    // der Pacer-Versuch in `whip/pacer.rs` 7,9-ms-Schlafzeiten als 13,1 ms
-    // ausführte) laufen über Timeouts mit Systemtimer-Auflösung. Prozessweit
-    // seit Win10 2004, fällt mit dem Prozess.
+    // der erste Pacer-Versuch 7,9-ms-Schlafzeiten als 13,1 ms ausführte)
+    // laufen über Timeouts mit Systemtimer-Auflösung. Prozessweit seit
+    // Win10 2004, fällt mit dem Prozess.
+    //
+    // DIESE ZEILE GEHÖRT ZUM TAKTGEBER, auch wenn er seit dem 2026-08-22 in
+    // `pulse-whip::pacer` liegt und nicht mehr hier: ohne sie verfehlt er sein
+    // Soll um ein Vielfaches. Wie sich das äußert, steht dort im Doc-Kommentar
+    // von `tests::verteilung_haelt_ihr_soll` — genau dieser Testlauf hat kein
+    // `timeBeginPeriod` und flattert deshalb unter Windows.
     unsafe {
         if windows::Win32::Media::timeBeginPeriod(1) != 0 {
             eprintln!("[hq-sidecar] timeBeginPeriod(1) abgelehnt — Systemtimer bleibt grob");
