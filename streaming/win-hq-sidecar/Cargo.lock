@@ -1561,6 +1561,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "pulse-bildmarke"
+version = "0.1.0"
+
+[[package]]
+name = "pulse-redact"
+version = "0.1.0"
+
+[[package]]
+name = "pulse-whip"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "pulse-bildmarke",
+ "pulse-zeitbasis",
+ "tokio",
+ "webrtc",
+]
+
+[[package]]
 name = "pulse-win-hq-sidecar"
 version = "0.1.0"
 dependencies = [
@@ -1568,6 +1587,11 @@ dependencies = [
  "ash",
  "bytes",
  "ffmpeg-next",
+ "pulse-bildmarke",
+ "pulse-redact",
+ "pulse-whip",
+ "pulse-zeigerbild",
+ "pulse-zeitbasis",
  "reqwest",
  "rtcp",
  "serde",
@@ -1579,6 +1603,14 @@ dependencies = [
  "windows 0.62.2",
  "windows-capture",
 ]
+
+[[package]]
+name = "pulse-zeigerbild"
+version = "0.1.0"
+
+[[package]]
+name = "pulse-zeitbasis"
+version = "0.1.0"
 
 [[package]]
 name = "quinn"

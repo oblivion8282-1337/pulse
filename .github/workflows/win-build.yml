@@ -21,6 +21,22 @@ on:
       # trüge weiter den alten Stand — genau die Falle, die flatpak.yml beim
       # FFmpeg-Patch schon hatte.
       - 'streaming/pulse-player/**'
+      # Die gemeinsamen Kisten liegen ausserhalb von win-hq-sidecar/ UND
+      # pulse-player/, obwohl beide dagegen linken (seit dem Zusammenlegen der
+      # vormals mehrfachen Dateien in gemeinsame Crates). Ohne diese Einträge
+      # löst eine Änderung dort keinen Build aus, und der Installer trüge
+      # weiter den alten Stand — dieselbe Falle wie beim nativen Player oben,
+      # nur eine Ebene höher im Verzeichnisbaum.
+      #
+      # Die Liste muss REKURSIV vollständig sein: pulse-whip hängt selbst an
+      # pulse-zeitbasis und pulse-bildmarke. Nachgerechnet wird das von
+      # streaming/zwillinge/tests/bau_ausloeser.rs — wer hier etwas ändert,
+      # bekommt dort die Gegenprobe.
+      - 'streaming/pulse-redact/**'
+      - 'streaming/pulse-zeitbasis/**'
+      - 'streaming/pulse-whip/**'
+      - 'streaming/pulse-zeigerbild/**'
+      - 'streaming/pulse-bildmarke/**'
       - '.github/workflows/win-build.yml'
   workflow_dispatch: {}
 

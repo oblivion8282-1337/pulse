@@ -39,11 +39,15 @@
 //! jedes ausgelassene Bild (verspaeteter Takt, EAGAIN-Verwurf) verschob die
 //! Video-Uhr dauerhaft gegen Wanduhr und Ton. Fuer AV1 war genau das am
 //! 2026-08-03 behoben worden; H.264 zieht hiermit nach.
+//!
+//! **Und das ist jetzt der einzige Schutz.** Seit `av1.rs` und `sdp.rs` am
+//! 2026-08-20 und der Taktgeber am 2026-08-22 gemeinsam in `pulse-whip`
+//! liegen, ist `mod.rs` die LETZTE Datei des Sendewegs, die noch je Plattform
+//! doppelt vorliegt — und kein Test haelt sie zusammen.
 
 pub mod bildmarke;
 pub mod av1;
 mod bandbreite;
-mod pacer;
 mod sdp;
 pub mod senke;
 
@@ -183,15 +187,33 @@ enum Paketierer {
     H264(H264Payloader),
 }
 
+/// Soll gegen Ist des Taktgebers ins Protokoll — die Zahl, an der die erste
+/// Pacer-Fassung ihr Scheitern gezeigt hat.
+///
+/// Der gemeinsame Taktgeber meldet ueber einen mitgegebenen Zeiger statt
+/// selbst zu schreiben, weil die drei Plattformen ihre Ausgabe verschieden
+/// loswerden: Linux ueber `tracing`, macOS und Windows ueber `eprintln!`
+/// (hier laeuft kein Subscriber). Der Wortlaut ist auf allen dreien gleich —
+/// sonst waeren Mitschnitte verschiedener Rechner nicht nebeneinanderzulegen.
+fn melde_verteilung(soll_ms: f64, ist_ms: f64, pakete: usize) {
+    eprintln!(
+        "[whip] Verteilung je Bild: soll {soll_ms:.2} ms, ist {ist_ms:.2} ms ({pakete} Pakete)"
+    );
+}
+
 /// Die Bildspur: eigene RTP-Pakete fuer beide Codecs.
 struct Bildspur {
     /// Zeitstempel-/Sequenz-Zustand + Paketierer unter EINEM Lock — beides
     /// wird pro Bild in einem Zug gebraucht.
     zustand: Mutex<(SpurZustand, Paketierer)>,
     /// Verteilt die Pakete eines Bildes ueber die Zeit statt sie als Schwall
-    /// zu senden (Zahlen in [`pacer`]). `PULSE_WHIP_PACING=0` schaltet die
-    /// Verteilung zum Gegenmessen ab.
-    pacer: Option<pacer::Pacer>,
+    /// zu senden (Zahlen in [`pulse_whip::pacer`]). `PULSE_WHIP_PACING=0`
+    /// schaltet die Verteilung zum Gegenmessen ab.
+    ///
+    /// **Seit dem 2026-08-22 derselbe Taktgeber wie auf Linux und macOS.**
+    /// Windows trug bis dahin einen eigenen Zuschnitt; die Begruendung dafuer
+    /// steht im Kopf von [`pulse_whip::pacer`].
+    pacer: Option<pulse_whip::pacer::Pacer>,
     track: Arc<TrackLocalStaticRTP>,
 }
 
@@ -260,25 +282,10 @@ fn remb_auswerten(wacht: &mut bandbreite::BandbreitenWacht, bps: f32, ziel_kbps:
 /// die Wahl der Schablone. Gesucht wird ueber die Annex-B-Startcodes, weil der
 /// Encoder in diesem Format liefert — dasselbe, was `H264Payloader` erwartet.
 ///
-/// Ein SPS (7) oder PPS (8) allein ist KEIN Vollbild: solche Pakete haelt der
-/// Payloader zurueck und gibt sie erst vor dem naechsten Vollbild aus.
-fn h264_ist_vollbild(daten: &[u8]) -> bool {
-    let mut i = 0;
-    while i + 3 < daten.len() {
-        let lang = daten[i] == 0 && daten[i + 1] == 0 && daten[i + 2] == 0 && daten[i + 3] == 1;
-        let kurz = daten[i] == 0 && daten[i + 1] == 0 && daten[i + 2] == 1;
-        if lang || kurz {
-            let kopf = i + if lang { 4 } else { 3 };
-            if kopf < daten.len() && daten[kopf] & 0x1F == 5 {
-                return true;
-            }
-            i = kopf;
-        } else {
-            i += 1;
-        }
-    }
-    false
-}
+/// H.264-Vollbild-Erkennung — liegt seit dem 2026-08-21 gemeinsam in
+/// `pulse-whip::h264`. Hier nur noch durchgereicht, damit die Aufrufstelle
+/// unveraendert bleibt.
+use pulse_whip::h264::h264_ist_vollbild;
 
 impl WhipSender {
     /// Baut die Sitzung auf und kehrt zurueck, sobald das Angebot beantwortet
@@ -333,10 +340,15 @@ impl WhipSender {
         let track = Bildspur {
             zustand: Mutex::new((SpurZustand::neu(fps), paketierer)),
             // AN als Vorgabe seit dem Neubau mit absoluten Zeitpunkten und
-            // Paket-Gruppen (s. [`pacer`]); `PULSE_WHIP_PACING=0` ist der
-            // Gegenmess-Schalter.
+            // Paket-Gruppen (s. [`pulse_whip::pacer`]); `PULSE_WHIP_PACING=0`
+            // ist der Gegenmess-Schalter.
             pacer: (std::env::var("PULSE_WHIP_PACING").as_deref() != Ok("0")).then(|| {
-                pacer::Pacer::start(runtime(), Arc::clone(&video_track), frame_duration)
+                pulse_whip::pacer::Pacer::start(
+                    runtime(),
+                    Arc::clone(&video_track),
+                    frame_duration,
+                    melde_verteilung,
+                )
             }),
             track: video_track,
         };

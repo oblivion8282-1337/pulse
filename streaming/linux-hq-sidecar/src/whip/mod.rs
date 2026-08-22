@@ -39,6 +39,11 @@
 //! jedes ausgelassene Bild (verspaeteter Takt, EAGAIN-Verwurf) verschob die
 //! Video-Uhr dauerhaft gegen Wanduhr und Ton. Fuer AV1 war genau das am
 //! 2026-08-03 behoben worden; H.264 zieht hiermit nach.
+//!
+//! **Und das ist jetzt der einzige Schutz.** Seit `av1.rs` und `sdp.rs` am
+//! 2026-08-20 gemeinsam in `pulse-whip` liegen, sind `mod.rs` und `pacer.rs`
+//! die beiden LETZTEN Dateien des Sendewegs, die noch je Plattform doppelt
+//! vorliegen — und kein Test haelt sie zusammen.
 
 pub mod bildmarke;
 pub mod av1;
@@ -187,24 +192,21 @@ pub struct WhipSender {
 /// die Wahl der Schablone. Gesucht wird ueber die Annex-B-Startcodes, weil der
 /// Encoder in diesem Format liefert — dasselbe, was `H264Payloader` erwartet.
 ///
-/// Ein SPS (7) oder PPS (8) allein ist KEIN Vollbild: solche Pakete haelt der
-/// Payloader zurueck und gibt sie erst vor dem naechsten Vollbild aus.
-fn h264_ist_vollbild(daten: &[u8]) -> bool {
-    let mut i = 0;
-    while i + 3 < daten.len() {
-        let lang = daten[i] == 0 && daten[i + 1] == 0 && daten[i + 2] == 0 && daten[i + 3] == 1;
-        let kurz = daten[i] == 0 && daten[i + 1] == 0 && daten[i + 2] == 1;
-        if lang || kurz {
-            let kopf = i + if lang { 4 } else { 3 };
-            if kopf < daten.len() && daten[kopf] & 0x1F == 5 {
-                return true;
-            }
-            i = kopf;
-        } else {
-            i += 1;
-        }
-    }
-    false
+/// H.264-Vollbild-Erkennung — liegt seit dem 2026-08-21 gemeinsam in
+/// `pulse-whip::h264`. Hier nur noch durchgereicht, damit die Aufrufstelle
+/// unveraendert bleibt.
+use pulse_whip::h264::h264_ist_vollbild;
+
+/// Wohin die Soll/Ist-Zeile des Pacers geht — hier ueber `tracing`, wie der
+/// Rest dieses Sidecars.
+fn pacer_melder(soll_ms: f64, ist_ms: f64, pakete: usize) {
+    tracing::info!(
+        target: "whip",
+        soll_ms = format!("{soll_ms:.2}"),
+        ist_ms = format!("{ist_ms:.2}"),
+        pakete,
+        "Verteilung je Bild"
+    );
 }
 
 impl WhipSender {
@@ -251,7 +253,7 @@ impl WhipSender {
             // Paket-Gruppen (s. [`pacer`]); `PULSE_WHIP_PACING=0` ist der
             // Gegenmess-Schalter.
             pacer: (std::env::var("PULSE_WHIP_PACING").as_deref() != Ok("0")).then(|| {
-                pacer::Pacer::start(runtime(), Arc::clone(&video_track), frame_duration)
+                pacer::Pacer::start(runtime(), Arc::clone(&video_track), frame_duration, pacer_melder)
             }),
             track: video_track,
         };

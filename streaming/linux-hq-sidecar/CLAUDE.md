@@ -217,6 +217,21 @@ blossem `cargo build`.** Am 2026-08-18 nachgestellt, weil hier bis dahin
 Wer das Skript umgeht, überschreibt sich also ein funktionierendes Binary mit
 einem, das nicht startet.
 
+**Für `cargo test` gilt dasselbe, und dort fällt es leichter herein** (2026-08-22):
+Das Skript baut nur `--release`, also greift für einen Testlauf keine seiner
+Einstellungen. Der Bau-Cache verdeckt zudem die erste Hälfte des Problems — die
+FFmpeg-Anbindung liegt schon übersetzt vor, es kommt also nicht zu den 14 Fehlern,
+sondern erst zum zweiten Symptom: die Testbinärdatei startet nicht
+(`libavcodec.so.62: cannot open shared object file`). Das sieht nach einem kaputten
+Zweig aus und ist keiner. Dieselben zwei Zeilen wie im Skript davorsetzen:
+
+```bash
+prefix="$HOME/.cache/pulse/ffmpeg/prefix"
+export PKG_CONFIG_PATH="$prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+export RUSTFLAGS="-L native=$prefix/lib -C link-arg=-Wl,-rpath,$prefix/lib -C link-arg=-Wl,--disable-new-dtags"
+cargo test
+```
+
 ```bash
 bash ../../scripts/hq-bauen.sh          # FFmpeg (falls nötig) + Sidecar + Player
 echo '{"op":"health","id":1}' | ./target/release/pulse-linux-hq-sidecar

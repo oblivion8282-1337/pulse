@@ -184,15 +184,18 @@ des HQ-Wegs (GPU-Encode, CPU frei). Auf schwächeren Maschinen fällt es aus.
 ### 3.1 Zwei harte Sperren, beide im eigenen Code
 
 ```rust
-// streaming/{win,linux}-hq-sidecar/src/whip/sdp.rs:71-75
+// streaming/pulse-whip/src/sdp.rs:136-140 (seit 2026-08-20 gemeinsame Crate
+// aller drei Sidecars; damals noch in win-/linux-hq-sidecar/src/whip/sdp.rs)
 sdp_fmtp_line: format!(
     "level-asymmetry-allowed=1;packetization-mode=1;\
-     profile-level-id=6400{:02x}", h264_stufe(breite, hoehe, fps)),
+     profile-level-id=6400{:02x}",
+    h264_stufe(breite, hoehe, fps)
+),
 ```
 `64` = `profile_idc 100` = High = 4:2:0. Für 4:4:4 müsste dort `f4` stehen.
 
 ```rust
-// …/whip/sdp.rs:84
+// streaming/pulse-whip/src/sdp.rs:157
 sdp_fmtp_line: "profile-id=0".to_owned(),   // AV1 Main = nur 4:2:0
 ```
 
