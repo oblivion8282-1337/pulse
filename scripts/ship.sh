@@ -75,6 +75,26 @@ else
   ( cd desktop && pnpm test:unit ) \
     || { echo "✗ desktop-Unit-Tests ROT — Push abgebrochen." >&2; exit 1; }
 
+  # Die gemeinsamen Kisten (`streaming/pulse-*`) laufen in KEINEM Gate — weder
+  # hier noch in ci.yml —, und `cargo test` in einem Programm fuehrt die Tests
+  # seiner Pfad-Abhaengigkeiten nicht mit. Seit 2026-08-22 traegt
+  # pulse-fernsteuerung die Sitzungs-Zustandsmaschine der Fernsteuerung; ihre
+  # Tests sind die schaerfsten im Repo und liefen bis dahin nirgends.
+  #
+  # Ohne FFmpeg-Schranke, weil diese Kisten abhaengigkeitsfrei sind und in
+  # Sekunden bauen. Ausnahme: pulse-player traegt denselben Namensstamm
+  # (`streaming/pulse-*`), haengt aber an der gepinnten FFmpeg und wird weiter
+  # unten mit FFMPEG_DIR/LD_LIBRARY_PATH getestet — hier ausdruecklich
+  # ausgenommen, sonst liefe es hier ein zweites Mal, diesmal ohne die
+  # noetige Umgebung, und braeche den Bau eines unveraenderten Crates.
+  for kiste in $(echo "$changed" | sed -n 's|^\(streaming/pulse-[a-z-]*\)/.*|\1|p' | sort -u); do
+    [ "$kiste" = "streaming/pulse-player" ] && continue
+    [ -f "$kiste/Cargo.toml" ] || continue
+    echo "  Cargo-Tests $kiste…"
+    ( cd "$kiste" && cargo test -q ) \
+      || { echo "✗ Cargo-Tests $kiste ROT — Push abgebrochen." >&2; exit 1; }
+  done
+
   # Cargo-Tests der beiden Crates, die auf Linux WIRKLICH bauen: pulse-player
   # (415 Tests) und linux-hq-sidecar (101). Sie liefen bis zum 2026-08-19 in
   # keinem Gate — mit demselben Ergebnis wie bei den Node-Unit-Tests davor: im

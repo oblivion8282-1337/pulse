@@ -135,6 +135,23 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Zwillinge prüfen
         run: cargo test --manifest-path streaming/zwillinge/Cargo.toml
+      # Dieselbe Begründung wie oben: die gemeinsamen Kisten (streaming/pulse-*,
+      # ausgenommen pulse-player) sind abhängigkeitsfrei und bauen in Sekunden.
+      # Sie liefen bis 2026-08-22 in KEINEM Gate — weder hier noch in
+      # scripts/ship.sh —, und `cargo test` in einem Programm führt die Tests
+      # seiner Pfad-Abhängigkeiten nicht mit.
+      - name: Gemeinsame Kisten
+        run: |
+          for k in streaming/pulse-*/Cargo.toml; do
+            # pulse-player teilt sich nur den Namensstamm, ist aber keine
+            # abhängigkeitsfreie gemeinsame Kiste (braucht die gepinnte
+            # FFmpeg + Plattform-SDKs) und wird in den Plattform-Workflows
+            # (win-/mac-build.yml) gebaut und getestet — hier ausgenommen,
+            # sonst schlüge dieser Schritt auf dem nackten Runner fehl.
+            case "$k" in streaming/pulse-player/*) continue ;; esac
+            echo "== $k"
+            cargo test --manifest-path "$k"
+          done
 
   # Changelog-Erinnerung: ein Deploy, der Code/Verhalten ändert, SOLL einen
   # Eintrag in web/static/changelog.json mitbringen (s. scripts/check-changelog.sh
