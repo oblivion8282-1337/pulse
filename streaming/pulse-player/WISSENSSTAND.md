@@ -279,3 +279,48 @@ ist.
    1440p60) — unerklärt.
 7. **Echte A/V-Synchronisierung** fehlt (heute Puffer-Näherung).
 8. **Ab ~280 fps bündelt die Aufnahme** — eigener Faden, Compositor-Grenze.
+
+---
+
+## 8. macOS-Portierung — Stand 2026-08-20
+
+### GEMESSEN
+
+**Der Player baut und läuft auf macOS arm64** (macOS 15.7.3, rustc 1.96).
+
+**Das gebündelte Verzeichnis ist portabel und nutzt nachweislich die
+mitgelieferten Bibliotheken, nicht die der Baumaschine.** An einen fremden
+Ort kopiert startet er unverändert; nimmt man ihm die gebündelte
+`libavcodec.62.dylib` weg, bricht dyld beim Start mit `Library not loaded:
+@loader_path/libavcodec.62.dylib` ab — der Loader-Pfad zeigt also wirklich
+ins eigene Bundle-Verzeichnis, nicht auf eine System- oder Homebrew-Kopie.
+
+**`health` antwortet aus dem App-Bundle heraus** mit
+`{"ok":true,"codecs":["h264","av1"]}`.
+
+**AV1 scheiterte auf Apple M2 ohne `libdav1d` vollständig** (2026-08-20,
+private FFmpeg vor der dav1d-Aufnahme). Mit `-hwaccel videotoolbox`: „Failed
+setup for format videotoolbox_vld … Function not implemented". Ohne hwaccel:
+„Conversion failed!", null Bilder. H.264 lief im selben Lauf fehlerfrei (60
+Bilder, 16,7-fach). Ursache gelesen aus dem FFmpeg-Binärprogramm: der `av1`-
+Decoder meldet „Threading capabilities: none" und „Supported hardware
+devices: videotoolbox" — er ist ein reiner Hardware-Stub, kein Software-Pfad
+dahinter. VideoToolbox selbst kann AV1 erst ab der M3-Generation dekodieren,
+M1/M2 bleiben also ganz ohne Decoder. **Deshalb bindet die private FFmpeg
+seit 2026-08-20 `libdav1d` ein** (BSD-2-Clause, `--enable-libdav1d` in
+`build-ffmpeg.sh`) — der GELESEN-Befund direkt unten war der Stand davor.
+
+### GELESEN
+
+**Vor dem 2026-08-20 hatte die gebündelte FFmpeg kein `libdav1d`**, nur den
+in FFmpeg selbst eingebauten AV1-Decoder — siehe GEMESSEN oben, der Grund,
+warum das seither anders ist. Der Player probiert `libdav1d` zuerst und
+fällt zurück (Abschnitt 2/3); mit `libdav1d` an Bord ist der Software-Rückfall
+für AV1 auf macOS jetzt derselbe Pfad wie unter Windows, dessen BtbN-FFmpeg
+`libdav1d` ebenfalls mitbringt.
+
+### VERMUTET — nicht als Grundlage benutzen
+
+- **Dass VideoToolbox am echten Stream wirklich greift.** Gemessen ist nur
+  der Bau und der isolierte Start (`health`); ein Lauf gegen die echte Kette
+  mit zwei Clients steht noch aus.

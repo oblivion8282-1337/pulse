@@ -32,7 +32,7 @@ use zwillinge::{kisten_von, wurzel};
 /// richtig so.
 const ABLAEUFE: &[(&str, &[&str])] = &[
     ("win-build.yml", &["win-hq-sidecar", "pulse-player"]),
-    ("mac-build.yml", &["mac-hq-sidecar"]),
+    ("mac-build.yml", &["mac-hq-sidecar", "pulse-player"]),
     ("flatpak.yml", &["linux-hq-sidecar", "pulse-player"]),
 ];
 

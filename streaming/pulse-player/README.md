@@ -209,11 +209,15 @@ Ehrlich benannt, damit niemand danach sucht:
   (`clock_rate` liegt dafuer schon bereit). Wie weit das in der Praxis
   auseinanderlaeuft, ist ungemessen.
 - **Kein Standbild-Export.** Der Frame liegt vor, ein PNG-Encoder fehlt noch.
-- **Zero-copy ist unter Windows die Vorgabe — aber auf NVIDIA wird er nie
-  erreicht** (`PULSE_PLAYER_ZEROCOPY=0` schaltet ihn aus). Der Zusatz ist am
-  2026-08-11 dazugekommen; bis dahin stand hier nur die erste Haelfte, und die
-  liest sich wie eine Aussage ueber Windows, ist aber eine ueber AMD und Intel.
-  Einzelheiten und Zahlen unter „Zero-Copy". **Hier stand bis zum 2026-08-06 abends „Kein zero-copy",
+- **Zero-copy ist unter Windows die Vorgabe — auf allen drei Herstellern**
+  (`PULSE_PLAYER_ZEROCOPY=0` schaltet ihn aus). **Hier stand vom 2026-08-11
+  frueh bis zum 2026-08-20 „aber auf NVIDIA wird er nie erreicht". Das war
+  keinen Tag lang richtig und blieb neun stehen** — die Reihenfolge der
+  Decoder-Kandidaten ist noch am 2026-08-11 umgedreht worden
+  ([`ZUERST_NATIV_HW`] in `src/decode.rs`), womit der D3D11VA-Weg auch auf
+  NVIDIA betreten wird. Nachgezogen wurde das damals nur im Kopf von
+  `decode.rs`, nicht hier. Einzelheiten und Zahlen unter „Zero-Copy".
+  **Hier stand bis zum 2026-08-06 abends „Kein zero-copy",
   danach „nur auf Anforderung (`PULSE_PLAYER_ZEROCOPY=1`)"; beides ist
   ueberholt** — die Einzelheiten stehen weiter unten unter „Zero-Copy". Mit
   `=0` gilt der ganze folgende Absatz unveraendert: jedes Bild nimmt den
@@ -255,25 +259,53 @@ Ehrlich benannt, damit niemand danach sucht:
   erste Bild heute vom Vollbild-Abstand — 60 s — bzw. auf Anforderung ueber den
   RTCP-Rueckkanal.)* Seither
   wird er auch im Windows-Installer mitgeliefert (`electron-builder.yml`,
-  `win-build.yml`). **macOS bleibt ungeprueft** und wird nicht ausgeliefert.
+  `win-build.yml`). **Hier stand bis zum 2026-08-20 „macOS bleibt ungeprueft
+  und wird nicht ausgeliefert".** Das Zweite ist erledigt: der Player faehrt
+  seit Version 0.1.69 im DMG mit. Das Erste nur zur Haelfte — die
+  VideoToolbox-Hardware-Dekodierung ist eingebaut und der Weg ist da (`health`
+  meldet ihn aus dem App-Bundle heraus, siehe `WISSENSSTAND.md` Abschnitt 8),
+  aber gegen einen echten Stream mit zwei Clients ist er noch nicht
+  nachgewiesen. Fuer AV1 zusaetzlich gemessen (Apple M2, ohne `libdav1d`):
+  FFmpegs eigener `av1`-Decoder ist ein reiner Hardware-Stub, und
+  VideoToolbox kann AV1 erst ab M3 dekodieren — ohne `libdav1d` schlaegt AV1
+  auf M1/M2 fehl (mit `-hwaccel videotoolbox` "Function not implemented",
+  ohne hwaccel "Conversion failed!" und null Bilder; H.264 lief im selben Lauf
+  fehlerfrei). Deshalb bindet die private FFmpeg seit 2026-08-20 `libdav1d`
+  ein (BSD-2-Clause). Was auf macOS weiterhin fehlt, ist Zero-Copy
+  (`src/zerocopy/leer.rs` bleibt der bewusste Platzhalter) und der
+  EDR-Ausgang fuer HDR — beides steht unter „Naechste Schritte".
 - **AV1-Depacketisierung ist nur durch Unit-Tests abgesichert**, nicht gegen
   einen echten Stream. Siehe unten.
 
-## Zero-Copy: das Bild bleibt im Grafikspeicher (Windows — AMD und Intel)
+## Zero-Copy: das Bild bleibt im Grafikspeicher (Windows)
 
 **Seit dem 2026-08-06 (nachts) die Vorgabe**; `PULSE_PLAYER_ZEROCOPY=0` schaltet
 ihn aus. **Hier stand bis dahin „auf Anforderung, `PULSE_PLAYER_ZEROCOPY=1`" —
 der Schalter zeigt jetzt in die andere Richtung**, und der Grund fuer die
 Sonderstellung ist weggefallen (s. „Wer noch mitliest").
 
-> **Auf NVIDIA laeuft dieser ganze Abschnitt nicht.** Die Ueberschrift hiess bis
-> zum 2026-08-11 „(Windows, Vorgabe)", und das war zu breit: der Weg haengt am
-> **D3D11VA**-Bild, und auf einer NVIDIA-Karte kommt der Player dort nie an.
-> `av1_cuvid`/`h264_cuvid` stehen in der Kandidatenliste **vor** dem nativen
-> Decoder, sie oeffnen anstandslos, und ohne CUDA-Geraet (die Vorgabe ausserhalb
-> von Linux) legen sie ihr Bild schon im Hauptspeicher ab. `bruecke_moeglich`
-> ist damit falsch, und die Bruecke wird nicht gefragt — kein Fehler, keine
-> Meldung, nur der langsamere Weg.
+> **Auf NVIDIA lief dieser Abschnitt einen halben Tag lang nicht — seit dem
+> 2026-08-11 laeuft er wieder.** Der Weg haengt am **D3D11VA**-Bild, und dorthin
+> kam der Player auf einer NVIDIA-Karte zunaechst nie: `av1_cuvid`/`h264_cuvid`
+> standen in der Kandidatenliste **vor** dem nativen Decoder, sie oeffnen
+> anstandslos, und ohne CUDA-Geraet (die Vorgabe ausserhalb von Linux) legen sie
+> ihr Bild schon im Hauptspeicher ab. `bruecke_moeglich` war damit falsch, und
+> die Bruecke wurde nicht gefragt — kein Fehler, keine Meldung, nur der
+> langsamere Weg.
+>
+> **Behoben am selben Tag durch [`ZUERST_NATIV_HW`]** (`src/decode.rs`): unter
+> Windows steht der native Decoder mit D3D11VA jetzt VOR `*_cuvid`, das
+> Ergebnis der Messung unten ist damit die Vorgabe. `*_cuvid` bleibt als
+> Rueckfall dahinter; **Linux ist absichtlich unberuehrt**, dort ist `*_cuvid`
+> mit CUDA-Geraet selbst der Anfang der Zero-Copy-Kette (belegt am 2026-08-07),
+> und es nach hinten zu schieben hiesse, einen gemessenen Weg gegen einen
+> ungemessenen zu tauschen.
+>
+> **Hier stand bis zum 2026-08-20 der Zustand VOR der Behebung, im Praesens.**
+> Die Korrektur war am 2026-08-11 nur im Kopf von `src/decode.rs` nachgezogen
+> worden — dieser Abschnitt blieb neun Tage lang stehen und widersprach dem
+> Code. Aufgefallen beim Nachpruefen einer Behauptung, die von hier in einen
+> Entwurf geraten war.
 >
 > Nachgemessen am 2026-08-11 auf einer RTX 5080 (Treiber 610.47), je drei
 > abwechselnde Laeufe zu 45 s, 1080p60 ueber die echte WHEP-Kette; Messakte
@@ -286,16 +318,16 @@ Sonderstellung ist weggefallen (s. „Wer noch mitliest").
 >
 > Das Bild ist auf beiden Wegen dasselbe (mittlere Abweichung 0,03 bzw. 0,06 von
 > 255 — Dither, kein Versatz und keine Farbverschiebung), HDR laeuft auf beiden.
-> **Die Vorgabe ist trotzdem nicht umgestellt worden:** belegt ist die
+> **Hier stand „die Vorgabe ist trotzdem nicht umgestellt worden: belegt ist die
 > Kostenseite, nicht die Robustheitsseite (Verhalten nach Paketverlust,
 > Wiederaufsetzen, nachtraeglicher Einstieg in einen laufenden Strom — bis zum
 > 2026-08-21 stand hier "Intra-Refresh-Einstieg"), und `decode.rs` fuehrt fuer cuvid
 > mehrere hart erarbeitete Sonderbehandlungen, die fuer D3D11VA niemand geprueft
 > hat. Wer die Vorgabe drehen will, misst das zuerst.
 >
-> Sichtbar ist der Fall jetzt wenigstens: der Player schreibt beim ersten Bild
-> `Bildweg ueber den Hauptspeicher — fuer NV12 gibt es auf dieser Plattform
-> keine Zero-Copy-Bruecke`.
+> Bleibt der Fall doch einmal eintreten, ist er sichtbar: der Player schreibt
+> beim ersten Bild `Bildweg ueber den Hauptspeicher — fuer NV12 gibt es auf
+> dieser Plattform keine Zero-Copy-Bruecke`.
 
 Gemessen an der laufenden Kette (Radeon 780M, 1080p60 in 10 bit, HDR, je zwei
 Runden zu 75 s, Vorgabe gegen `=0` auf demselben Material):
@@ -409,7 +441,9 @@ dx12-Backend. Der Player faehrt unter Windows D3D12 (wegen HDR) — mit
   je Bild, also vierundzwanzig statt sechzig je Sekunde bei 60 fps — vor dem
   2026-08-07 stand hier „zwoelf statt sechzig", damals war der Ring zwoelf
   gross).
-- **NVIDIA und Intel sind ungemessen.** Der Rueckfall auf das Ruecklesen bleibt
+- **Intel ist ungemessen.** **Hier stand bis zum 2026-08-20 „NVIDIA und
+  Intel"** — NVIDIA ist seit dem 2026-08-11 gemessen, Kosten wie Robustheit
+  (beide Messakten oben im Blockquote). Der Rueckfall auf das Ruecklesen bleibt
   deshalb Pflicht und ist es auch: scheitert irgendetwas, steht eine Logzeile im
   Protokoll und der Player laeuft wie vorher.
 
@@ -509,6 +543,22 @@ Muxers umgerechnet — 90 Bilder landeten in 49 ms statt in drei Sekunden.
 
 ## Bauen und testen
 
+**Zuerst, auf JEDER Plattform: `scripts/bootstrap-webrtc.sh` laufen lassen.**
+`Cargo.toml` bindet `webrtc` ueber `[patch.crates-io]` an den lokalen Pfad
+`vendor/webrtc-rs/webrtc` — der Ordner ist gitignored und existiert in einem
+frischen Checkout nicht. Ohne ihn bricht `cargo` schon beim **Aufloesen** ab
+(„failed to load source for dependency `webrtc`"), nicht erst beim
+Kompilieren — auch `cargo build --release`/`dist:mac` scheitert dann hart,
+selbst wenn FFmpeg und alles andere bereitsteht. Das Skript klont den
+gepatchten Zweig nach `vendor/webrtc-rs/` und ist idempotent, also gefahrlos
+vor jedem Bau erneut aufrufbar:
+
+```bash
+streaming/pulse-player/scripts/bootstrap-webrtc.sh
+```
+
+**Auf Linux zuerst: das passende FFmpeg holen.** `ffmpeg-next` 8.1 uebersetzt
+
 **Auf Linux zuerst: das passende FFmpeg holen.** `ffmpeg-next` 8.1 übersetzt
 nicht gegen FFmpeg 9, und Arch/CachyOS liefern seit 2026 genau das im System.
 `cargo check` scheitert dann mit 14 Fehlern **in der Crate**, nicht in
@@ -556,7 +606,7 @@ nehmen die jeweils aktuelle stabile Fassung.
 
 ```
 cd streaming/pulse-player
-cargo test          # 381 Tests gruen, 6 ignoriert (Stand 2026-08-20), keine Hardware noetig
+cargo test          # 389 Tests gruen, 6 ignoriert (Stand 2026-08-22), keine Hardware noetig
 cargo build --release
 ```
 
@@ -607,7 +657,7 @@ gehalten.
 
 **Den Decoder von aussen festlegen** (`PULSE_PLAYER_DECODER`, s.
 `src/decoderwahl.rs`) — Komma-Liste in Probierreihenfolge, `name`,
-`name+hw` (plattform-eigener hwaccel: D3D11VA/VAAPI) oder `name+cuda`:
+`name+hw` (plattform-eigener hwaccel: D3D11VA/VAAPI/VideoToolbox) oder `name+cuda`:
 
 ```
 PULSE_PLAYER_DECODER=av1+hw        # D3D11VA statt av1_cuvid -> Zero-Copy-Weg
@@ -694,9 +744,17 @@ Drittanbieter-Seite im Web.
    nicht der Weg des Bildes. Der Rueckfall auf Software bleibt die einzige
    bekannte Abhilfe.
 
-   Ebenfalls offen: NVIDIA und Intel. Auf NVIDIA ist selbst der Import
-   ungeprueft, und der Vulkan-Weg kam dort schwarz an.
-5. macOS bauen und pruefen. **Windows ist am 2026-08-05 erledigt** — gebaut,
-   gegen die echte Kette geprueft (H.264 und AV1, 8 und 10 bit, jeweils
-   `*_cuvid` in Hardware) und im Installer. Hier stand vorher „Windows und
-   macOS"; nur macOS ist offen.
+   Ebenfalls offen: Intel. **Hier stand „NVIDIA und Intel. Auf NVIDIA ist
+   selbst der Import ungeprueft" — fuer den Windows-Weg ist das seit dem
+   2026-08-11 erledigt** (D3D11VA-Import auf einer RTX 5080, Kosten und
+   Robustheit gemessen, s. „Zero-Copy" oben). Der Nachsatz „und der Vulkan-Weg
+   kam dort schwarz an" betrifft nicht diesen Weg, sondern den Linux-Weg ueber
+   ein exportiertes `VkImage`; er ist hier **nicht** nachgeprueft worden und
+   bleibt unveraendert stehen.
+5. Zero-Copy und der EDR-Ausgang fuer HDR auf macOS. **Windows ist am
+   2026-08-05 erledigt** — gebaut, gegen die echte Kette geprueft (H.264 und
+   AV1, 8 und 10 bit, jeweils `*_cuvid` in Hardware) und im Installer.
+   **macOS ist am 2026-08-20 erledigt** — gebaut, VideoToolbox-Hardware-
+   Dekodierung, im DMG. Hier stand vorher „Windows und macOS"; offen bleiben
+   auf macOS nur noch Zero-Copy (`src/zerocopy/leer.rs` bleibt der bewusste
+   Platzhalter) und der EDR-Ausgang.

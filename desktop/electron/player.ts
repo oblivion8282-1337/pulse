@@ -109,6 +109,13 @@ interface PendingRequest {
  * zweite Kopie derselben ~100 MB verlangt. Bis 2026-08-05 wurde er ueberhaupt
  * nicht mitgeliefert und diese Suche lief unter Windows daher immer ins Leere.
  *
+ * **Seit 2026-08-20 gilt derselbe Punkt auch unter macOS**, nur ueber einen
+ * anderen Mechanismus: dort loest `@loader_path` (statt einer Verzeichnis-Suche)
+ * die dylibs relativ zum Binary auf, und `scripts/bundle-dylibs.sh` baut fuer
+ * Sidecar UND Player bewusst EINEN gemeinsamen Dylib-Satz in `hq-sidecar/` —
+ * ein eigener Player-Ordner haette wieder eine zweite Kopie derselben
+ * FFmpeg-dylibs verlangt.
+ *
  * Gibt `null` zurueck statt zu werfen: "nicht vorhanden" ist ein normaler
  * Zustand, kein Fehler.
  */

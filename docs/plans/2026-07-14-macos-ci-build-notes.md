@@ -56,7 +56,11 @@ prüfen.
    Quelltext (`make -j`) → Erstlauf ~15+ Min. Braucht **Xcode CLT** + Homebrew
    **`openssl@3`** + **`opus`**. In CI cachen (analog zum FFmpeg-Cache im
    `win-build.yml`).
-3. Danach: `cargo build --release` → `scripts/bundle-dylibs.sh` (rewrite
+3. Danach (Stand nach Landung des Players, 2026-08-20 — vorher war es nur EIN
+   Binary): `scripts/bootstrap-webrtc.sh` (holt den gepatchten webrtc-rs-Zweig,
+   den der Player über `[patch.crates-io]` braucht) → `cargo build --release`
+   für Sidecar UND Player → `scripts/bundle-dylibs.sh <outdir> <binary...>`
+   baut EINEN gemeinsamen Dylib-Satz für beide Binaries (rewrite
    `@loader_path`) → `electron-builder --mac`.
 
 ## Zwei Wege für den CI-Build
@@ -85,9 +89,13 @@ FFmpeg-Bump.
 - `.github/workflows/mac-build.yml` — Klon von `win-build.yml`, `runs-on:
   macos-latest` (arm64). Steps: Rust + Cargo-Cache → `brew install openssl@3 opus`
   → FFmpeg-Cache (`~/src/ffmpeg-openssl`, keyed auf `build-ffmpeg.sh`) → FFmpeg
-  bauen nur bei Cache-Miss → pnpm/Node → `dist:mac` mit `PKG_CONFIG_PATH` auf die
-  frische FFmpeg (überschreibt den hardcodierten Pfad in `.cargo/config.toml`,
-  cargos `[env]` ist non-force) → Artefakt-Upload → scp `Pulse-*.dmg` nach
+  bauen nur bei Cache-Miss → pnpm/Node → seit dem Player-Merge (2026-08-20)
+  zusätzlich `streaming/pulse-player/scripts/bootstrap-webrtc.sh` (patched
+  webrtc-rs auschecken, sonst bricht `cargo` schon beim Auflösen ab) → `dist:mac`
+  mit `PKG_CONFIG_PATH` auf die frische FFmpeg (überschreibt den hardcodierten
+  Pfad in `.cargo/config.toml`, cargos `[env]` ist non-force) — baut jetzt beide
+  Binaries (Sidecar + Player) und `bundle-dylibs.sh` legt sie in einen
+  gemeinsamen Dylib-Satz → Artefakt-Upload → scp `Pulse-*.dmg` nach
   `…:pulse/downloads/Pulse-latest.dmg` nur auf `main`.
 - **Podman-Bündelung raus** (wie Windows): `bash scripts/fetch-mac-podman.sh` aus
   `dist:mac` (`desktop/package.json`) + der `resources-podman-mac`-extraResource
@@ -127,11 +135,19 @@ schon, das alte DMG liegt dort.
    **nur auf main**, ist also erst nach dem Merge sichtbar.
 
 ## Referenz-Dateien (Kurzindex)
-- `desktop/package.json` — Script `dist:mac`, `bundle:mac-sidecar`, `build:electron`
+- `desktop/package.json` — Script `dist:mac`, `bundle:mac-sidecar`, `build:electron`.
+  `bundle:mac-sidecar` baut seit 2026-08-20 **zwei** Binaries (Sidecar + Player,
+  `cd ../pulse-player && cargo build --release`) und ruft `bundle-dylibs.sh` mit
+  der neuen Aufrufform `bundle-dylibs.sh <outdir> <binary...>` (vorher ein
+  einzelnes Binary als erstes Argument).
 - `desktop/electron-builder.yml` — mac-Sektion (Z. ~168–205): targets dmg+zip,
   extraResources (hq-sidecar + resources-podman-mac), Stufe-B-Kommentar
 - `desktop/electron/updater.ts` — macOS-Update-Verhalten (unsigniert, Download)
 - `streaming/mac-hq-sidecar/` — Rust-Sidecar, `scripts/build-ffmpeg.sh`,
   `scripts/bundle-dylibs.sh`, `.cargo/config.toml`, `README.md`
+- `streaming/pulse-player/scripts/bootstrap-webrtc.sh` — muss vor `cargo build`
+  laufen (checkt den gepatchten webrtc-rs-Zweig aus, den `Cargo.toml` per
+  `[patch.crates-io]` erwartet); ohne ihn/`vendor/` bricht `cargo` schon beim
+  Auflösen ab, nicht erst beim Kompilieren.
 - `web/src/lib/downloads/appDownloads.ts` — `MAC_DMG_URL`
 - `docs/plans/2026-06-15-macos-client.md` — Mac-Client-Gesamtplan (Stufe A/B)

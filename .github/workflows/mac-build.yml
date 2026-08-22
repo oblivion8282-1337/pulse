@@ -1,7 +1,7 @@
 name: mac-build
 
-# Baut das macOS-DMG (Pulse-Desktop inkl. HQ-Streaming-Sidecar) und lädt es per
-# scp auf den Cloud-VPS, von wo nginx es unter
+# Baut das macOS-DMG (Pulse-Desktop inkl. HQ-Streaming-Sidecar und nativem
+# Player) und lädt es per scp auf den Cloud-VPS, von wo nginx es unter
 # https://howispulse.com/downloads/Pulse-latest.dmg ausliefert (matcht MAC_DMG_URL
 # in web/src/lib/downloads/appDownloads.ts). Gleiches Deploy-Muster wie
 # win-build.yml / flatpak.yml — selbe VPS-SSH-Secrets.
@@ -22,7 +22,8 @@ name: mac-build
 # Pfade konsistent → bundle-dylibs.sh funktioniert unverändert. Der FFmpeg-Cache
 # macht den ~15-min-Kaltbau danach zu einem schnellen Restore.
 #
-# Läuft bei jedem main-Push, der den Desktop-Wrapper oder den Mac-Sidecar berührt.
+# Läuft bei jedem main-Push, der den Desktop-Wrapper, den Mac-Sidecar oder den
+# nativen Player berührt.
 # Manuell auslösbar via "Run workflow".
 
 on:
@@ -35,9 +36,11 @@ on:
       # Mac-Sidecar dagegen linkt (seit dem Zusammenlegen der vormals mehrfachen
       # Dateien in gemeinsame Crates). Ohne diese Einträge löst eine Änderung
       # dort keinen DMG-Build aus, und das ausgelieferte Bundle trüge weiter den
-      # alten Stand. pulse-zeigerbild fehlt hier bewusst — der Mac-Sidecar linkt
-      # nicht dagegen (es trägt das Zeigerbild der Fernsteuerung, die es nur
-      # unter Windows gibt).
+      # alten Stand. **pulse-zeigerbild gehört seit dem 2026-08-22 dazu**: hier
+      # stand, es werde nicht gebraucht, weil der Mac-Sidecar nicht dagegen linkt
+      # — das stimmte, solange nur er im DMG lag. Seit der native Player
+      # mitgebaut wird, gilt es nicht mehr, denn DER hängt daran. Aufgefallen
+      # ist es nicht beim Lesen, sondern weil bau_ausloeser.rs rot wurde.
       #
       # Die Liste muss REKURSIV vollständig sein: pulse-whip hängt selbst an
       # pulse-zeitbasis und pulse-bildmarke. Nachgerechnet wird das von
@@ -47,6 +50,12 @@ on:
       - 'streaming/pulse-zeitbasis/**'
       - 'streaming/pulse-whip/**'
       - 'streaming/pulse-bildmarke/**'
+      - 'streaming/pulse-zeigerbild/**'
+      # Der native Player wird seit 2026-08-20 auch im DMG ausgeliefert. Ohne
+      # diesen Eintrag löst eine Änderung an ihm keinen Build aus, und das DMG
+      # trüge weiter den alten Stand — dieselbe Falle, die win-build.yml beim
+      # Player und flatpak.yml beim FFmpeg-Patch schon hatte.
+      - 'streaming/pulse-player/**'
       - '.github/workflows/mac-build.yml'
   workflow_dispatch: {}
 
@@ -69,7 +78,9 @@ jobs:
       - name: Cargo-Cache
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: streaming/mac-hq-sidecar
+          workspaces: |
+            streaming/mac-hq-sidecar
+            streaming/pulse-player
 
       # FFmpeg-Build + der spätere Dylib-Bundle brauchen openssl@3 + opus Headers/
       # Libs (VideoToolbox/AudioToolbox liefert macOS selbst). openssl@3 ist auf
@@ -108,8 +119,17 @@ jobs:
       - name: Dependencies
         run: pnpm install --frozen-lockfile
 
-      # esbuild-Bundle → cargo build --release (Sidecar) → bundle-dylibs.sh
-      # (@loader_path-Rewrite + ad-hoc-Sign) → electron-builder --mac → DMG+ZIP in
+      # Der Player linkt eine gevendorte, gepatchte webrtc-rs (drei Patches in
+      # streaming/pulse-player/patches/ — undeclared-SSRC-Streams für FlexFEC,
+      # NACK-Resend-Delay, H264-STAP-A-Bounds-Check). vendor/ ist gitignored,
+      # ohne diesen Schritt scheitert schon `cargo resolve`. Gleiches Muster wie
+      # in win-build.yml.
+      - name: webrtc-rs-Zweig herstellen (Player)
+        run: ./streaming/pulse-player/scripts/bootstrap-webrtc.sh
+
+      # esbuild-Bundle → cargo build --release (Sidecar UND Player) →
+      # bundle-dylibs.sh (ein gemeinsamer Dylib-Satz für beide,
+      # @loader_path-Rewrite + ad-hoc-Sign) → electron-builder --mac → DMG+ZIP in
       # desktop/release/. `dist:mac` läuft mit `--publish never`; der Upload macht
       # der scp-Step unten. PKG_CONFIG_PATH zeigt cargo auf die frisch gebaute
       # FFmpeg (überschreibt den auf michaels Mac hardcodierten Pfad in

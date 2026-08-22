@@ -13,17 +13,31 @@
 # ad-hoc (`codesign -s -`). That's enough to *run*; Gatekeeper still shows the
 # "unverified developer" prompt on first open (we ship unsigned by choice).
 #
-# Usage: bundle-dylibs.sh <sidecar-binary> <output-dir>
+# Usage: bundle-dylibs.sh <output-dir> <binary> [more-binaries...]
+#
+# More than one binary shares ONE set of dylibs: the player and the sidecar
+# link the same private FFmpeg and both ship in Resources/hq-sidecar/. The
+# dedup below keys on file-existence in OUT, so the second binary finds the
+# first one's dylibs already there and skips copying them. Argument order was
+# <binary> <outdir> until 2026-08-20 — it had to flip for the variadic tail.
 set -euo pipefail
 
-BIN="${1:?usage: bundle-dylibs.sh <binary> <outdir>}"
-OUT="${2:?usage: bundle-dylibs.sh <binary> <outdir>}"
-BINNAME="$(basename "$BIN")"
+OUT="${1:?usage: bundle-dylibs.sh <outdir> <binary> [more...]}"
+shift
+[ "$#" -ge 1 ] || { echo "usage: bundle-dylibs.sh <outdir> <binary> [more...]" >&2; exit 1; }
 
 rm -rf "$OUT"
 mkdir -p "$OUT"
-cp -f "$BIN" "$OUT/$BINNAME"
-chmod u+w "$OUT/$BINNAME"
+
+# Copy every binary in first, then scan them all — a single queue, one dylib set.
+queue=()
+for bin in "$@"; do
+  [ -f "$bin" ] || { echo "not found: $bin" >&2; exit 1; }
+  name="$(basename "$bin")"
+  cp -f "$bin" "$OUT/$name"
+  chmod u+w "$OUT/$name"
+  queue+=("$OUT/$name")
+done
 
 is_system() {
   case "$1" in
@@ -32,10 +46,44 @@ is_system() {
   esac
 }
 
+# Guard against silently bundling GPL-licensed codec libraries. Pulse's own
+# FFmpeg build is LGPL-only (no --enable-gpl); Homebrew's FFmpeg is typically
+# built --enable-gpl and pulls in libx264/libx265. If ffmpeg-sys-next resolves
+# against Homebrew instead of the private build (most commonly because
+# PKG_CONFIG_PATH was not exported before `cargo build`), this recursive copy
+# would happily bundle GPL libraries next to Pulse's proprietary client code
+# without anyone noticing. Refuse instead.
+is_homebrew_ffmpeg_path() {
+  case "$1" in
+    */homebrew/*/ffmpeg/*|*/homebrew/Cellar/ffmpeg/*|/usr/local/Cellar/ffmpeg/*|/usr/local/opt/ffmpeg/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+is_gpl_codec_lib() {
+  case "$(basename "$1")" in
+    libx264*|libx265*|libvpx*|libfdk*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+abort_on_gpl_dep() {
+  echo "error: refusing to bundle likely GPL-licensed dependency: $1" >&2
+  echo "  Pulse's own FFmpeg build is LGPL-only; this path/library looks like" >&2
+  echo "  it came from Homebrew's FFmpeg instead, which is normally built" >&2
+  echo "  --enable-gpl (libx264/libx265/...)." >&2
+  echo "  Most likely cause: PKG_CONFIG_PATH was not exported before" >&2
+  echo "  'cargo build --release', so ffmpeg-sys-next resolved the Homebrew" >&2
+  echo "  FFmpeg via pkg-config instead of the private LGPL-only build." >&2
+  echo "  Fix: export PKG_CONFIG_PATH to point at the private FFmpeg build" >&2
+  echo "  (see mac-build.yml / streaming/mac-hq-sidecar/README.md), then" >&2
+  echo "  'cargo build --release' again before re-running this script." >&2
+  exit 1
+}
+
 # Worklist of Mach-O files (inside OUT) to scan. Dedup by file-existence in OUT
 # (a dylib already copied there has been queued too) — keeps this compatible
 # with the macOS system bash 3.2 (no associative arrays).
-queue=("$OUT/$BINNAME")
 i=0
 while [ "$i" -lt "${#queue[@]}" ]; do
   f="${queue[$i]}"; i=$((i + 1))
@@ -46,6 +94,7 @@ while [ "$i" -lt "${#queue[@]}" ]; do
     is_system "$dep" && continue
     base="$(basename "$dep")"
     if [ ! -f "$OUT/$base" ]; then
+      { is_homebrew_ffmpeg_path "$dep" || is_gpl_codec_lib "$dep"; } && abort_on_gpl_dep "$dep"
       cp -f "$dep" "$OUT/$base"
       chmod u+w "$OUT/$base"
       install_name_tool -id "@loader_path/$base" "$OUT/$base"
@@ -61,5 +110,8 @@ for f in "$OUT"/*; do
 done
 
 echo "✓ bundled $(ls "$OUT" | wc -l | tr -d ' ') files into $OUT"
-echo "--- sidecar deps (should be @loader_path / system only) ---"
-otool -L "$OUT/$BINNAME" | tail -n +2 | awk '{print "  "$1}'
+for bin in "$@"; do
+  name="$(basename "$bin")"
+  echo "--- $name deps (should be @loader_path / system only) ---"
+  otool -L "$OUT/$name" | tail -n +2 | awk '{print "  "$1}'
+done

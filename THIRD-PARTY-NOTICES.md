@@ -34,7 +34,7 @@ tree changes; it is the only way this file stays true.
 | Component | Version / pin | License | Declared in |
 |---|---|---|---|
 | FFmpeg — BtbN prebuilt, **unmodified** | frozen self-hosted mirror of BtbN's `n8.1` LGPL-shared build, dated 2026-06-16 | LGPL (that distribution's own licence text is **v3**, shipped as `LICENSE.txt` at the package root) | `scripts/fetch-ffmpeg.ps1` (`$Url`/`$ExpectedSha`, SHA256-pinned), `.cargo/config.toml` (`FFMPEG_DIR`), `Cargo.toml` (`ffmpeg-next` binding), `.github/workflows/win-build.yml` (CI fetch step) |
-| pulse-player (native HQ player) | shipped in the Windows installer since app version `0.1.42` | Pulse's own client code; its third-party tree is listed in its own section below | `desktop/electron-builder.yml` (`win.extraResources` → `resources/hq-sidecar/pulse-player.exe`), `.github/workflows/win-build.yml` (build steps) |
+| pulse-player (native HQ player) | shipped in the Windows installer since app version `0.1.42`, in the macOS DMG since `0.1.73` | Pulse's own client code; its third-party tree is listed in its own section below | `desktop/electron-builder.yml` (`win.extraResources` → `resources/hq-sidecar/pulse-player.exe`), `.github/workflows/win-build.yml` (build steps) |
 | nv-codec-headers | `n13.0.19.0` (build-time only, not redistributed as a file) | MIT | Referenced alongside the Linux FFmpeg module, `packaging/com.howispulse.Pulse.yml:169-179` |
 
 **Windows ships an unmodified FFmpeg.** From 2026-08-05 to 2026-08-21 it did
@@ -73,6 +73,8 @@ named.
 | Component | Version / pin | License | Declared in |
 |---|---|---|---|
 | FFmpeg (self-built) | `8.0.1` (`FFMPEG_VERSION` default) | LGPL (no `--enable-gpl`/libx264/libx265) | `streaming/mac-hq-sidecar/scripts/build-ffmpeg.sh:9-42`, `Cargo.toml:46-53`, `.cargo/config.toml`, `.github/workflows/mac-build.yml:14-22,58-81` |
+| dav1d | since 2026-08-20 | BSD-2-Clause | `streaming/mac-hq-sidecar/scripts/build-ffmpeg.sh` (`--enable-libdav1d`) |
+| pulse-player (native HQ player) | shipped in the macOS DMG since app version `0.1.69` | Pulse's own client code; its third-party tree is listed in its own section below | `desktop/electron-builder.yml` (`mac.extraResources` → `Resources/hq-sidecar/`), `.github/workflows/mac-build.yml` (build steps) |
 
 Built from the unmodified official `ffmpeg.org` source tarball with
 `--enable-openssl --disable-securetransport --enable-videotoolbox
@@ -83,6 +85,19 @@ configure line does not pass `--enable-version3` — which LGPL minor version
 (2.1-or-later vs. 3) that produces was not independently confirmed from
 within this repository and is flagged here as an open question rather than
 asserted.
+
+**Since 2026-08-20 this FFmpeg additionally embeds `libdav1d`** (BSD-2-Clause,
+`--enable-libdav1d`). Reason: FFmpeg's own `av1` decoder is a pure hardware
+stub, and VideoToolbox cannot decode AV1 before the M3 generation — without
+dav1d, `pulse-player` had no way to show AV1 at all on M1/M2 Macs. dav1d does
+not touch the LGPL bookkeeping above; it is a separate BSD-2-Clause dylib
+bundled the same way (dynamic, exchangeable file next to the app).
+
+**`streaming/pulse-player/` links against this same dylib set as of app
+version `0.1.69`** — `scripts/bundle-dylibs.sh` builds one shared bundle
+directory for both the sidecar and the player (`<outdir> <binary...>`), so
+everything said above about dynamic linking, exchangeability and source
+availability applies equally to the player binary, not just the sidecar.
 
 ## Linux (Flatpak, `packaging/com.howispulse.Pulse.yml`)
 
@@ -105,10 +120,13 @@ inside the official Electron release archive and are not reproduced here.
 
 ## Native HQ player (`streaming/pulse-player/`)
 
-Ships on **Linux** (Flatpak, `/app/bin/pulse-player`) and, since app version
-`0.1.42`, on **Windows** (`resources/hq-sidecar/pulse-player.exe`, next to the
-FFmpeg DLLs it links against). macOS does not ship it. It is additive: without
-the binary the renderer stays on the built-in `<video>` WHEP path.
+Ships on **Linux** (Flatpak, `/app/bin/pulse-player`), since app version
+`0.1.42` on **Windows** (`resources/hq-sidecar/pulse-player.exe`, next to the
+FFmpeg DLLs it links against), and since app version `0.1.69` on **macOS**
+(`Resources/hq-sidecar/`, `desktop/electron-builder.yml` → `mac.extraResources`,
+sharing the same dylib set `scripts/bundle-dylibs.sh` builds for the sidecar —
+see the macOS section above). It is additive: without the binary the renderer
+stays on the built-in `<video>` WHEP path.
 
 Everything below is **statically linked into that binary**, so the notices
 travel with the shipped file even though there are no separate library files.
@@ -118,7 +136,7 @@ The user-facing counterpart is the "Nativer HQ-Player" section of
 | Component | Version | License | Note |
 |---|---|---|---|
 | webrtc-rs | 0.17.2 | MIT OR Apache-2.0 | **Modified by Pulse** — two patches, see below |
-| wgpu / winit / egui (+ `egui-wgpu`, `egui-winit`, `egui_extras`) | 29.0.4 / 0.30.13 / 0.35.0 | MIT OR Apache-2.0 (winit: Apache-2.0) | |
+| wgpu / winit / egui (+ `egui-wgpu`, `egui-winit`, `egui_extras`) | 30.0.0 / 0.30.13 / 0.36.1 | MIT OR Apache-2.0 (winit: Apache-2.0) | |
 | resvg / usvg | 0.45.1 | Apache-2.0 OR MIT | SVG icon rasteriser pulled in by `egui_extras`'s `svg` feature |
 | tiny-skia | 0.11.4 | BSD-3-Clause | |
 | cpal | 0.17.3 | Apache-2.0 | audio output |
@@ -128,7 +146,7 @@ The user-facing counterpart is the "Nativer HQ-Player" section of
 | webpki-root-certs | 1.0.9 | CDLA-Permissive-2.0 | Mozilla root store |
 | self_cell | 1.3.0 | Apache-2.0 OR GPL-2.0-only | **Pulse takes Apache-2.0.** The only GPL text anywhere in the shipped trees, and it is an either/or |
 | ICU4X (`icu_*`, `zerovec`, `tinystr`, `writeable`, `yoke`, …) | 2.2.0 | Unicode-3.0 | |
-| epaint_default_fonts | 0.35.0 | (MIT OR Apache-2.0) AND **OFL-1.1** AND **Ubuntu-font-1.0** | egui's default fonts, embedded because `theme.rs` starts from `FontDefinitions::default()` |
+| epaint_default_fonts | 0.36.1 | (MIT OR Apache-2.0) AND **OFL-1.1** AND **Ubuntu-font-1.0** | egui's default fonts, embedded because `theme.rs` starts from `FontDefinitions::default()` |
 | Plus Jakarta Sans (Regular, SemiBold) | — | **SIL OFL 1.1** | `assets/fonts/`, `include_bytes!` in `theme.rs`; origin + notice in `assets/fonts/LICENSE.md` |
 | Lucide icons | — | **ISC** (parts from Feather, MIT) | `assets/icons/`, notice in `assets/icons/LICENSE.md` |
 
@@ -162,18 +180,28 @@ client-side code (falls under the Pulse Client License, not this notice
 file); its own transitive Cargo dependency tree was not audited as part of
 this pass.
 
-## Native HQ player (`streaming/pulse-player/`)
+## Native HQ player — statically linked Rust dependencies
 
-New in this branch. Unlike the capture sidecars, this component links its Rust
-dependencies statically into its own binary; they are listed here because their
-permissive licenses still require attribution.
+Unlike the capture sidecars, this component links its Rust dependencies
+statically into its own binary; they are listed here because their permissive
+licenses still require attribution.
+
+**Heading renamed on 2026-08-20**: it read "Native HQ player
+(`streaming/pulse-player/`)" — word for word the same as the section further up,
+which covers where the binary ships. Two identical headings in an attribution
+file are a real hazard: whoever updates one has no reason to suspect the other,
+and that is exactly how the "macOS does not ship it" line survived the macOS
+rollout. It also opened with "New in this branch", which stopped being true
+several releases ago. Versions here are read from
+`streaming/pulse-player/Cargo.lock`; wgpu and egui were two minor versions stale
+until the same day.
 
 | Component | Version | License |
 |---|---|---|
 | [webrtc-rs](https://github.com/webrtc-rs/webrtc) | 0.17.2 | MIT OR Apache-2.0 |
-| [wgpu](https://github.com/gfx-rs/wgpu) | 29.0.4 | MIT OR Apache-2.0 |
+| [wgpu](https://github.com/gfx-rs/wgpu) | 30.0.0 | MIT OR Apache-2.0 |
 | [winit](https://github.com/rust-windowing/winit) | 0.30.13 | Apache-2.0 |
-| [egui](https://github.com/emilk/egui) (+ `egui-wgpu`, `egui-winit`) | 0.35.0 | MIT OR Apache-2.0 |
+| [egui](https://github.com/emilk/egui) (+ `egui-wgpu`, `egui-winit`) | 0.36.1 | MIT OR Apache-2.0 |
 | [cpal](https://github.com/RustAudio/cpal) | 0.17.3 | Apache-2.0 |
 | [ffmpeg-next](https://github.com/zmwangx/rust-ffmpeg) (binding only) | 8.1.0 | WTFPL |
 | [rustls](https://github.com/rustls/rustls) | 0.23.42 | Apache-2.0 OR ISC OR MIT |
@@ -208,4 +236,4 @@ stricter audit is ever required.
 
 ---
 
-Stand / last updated: 26. Juli 2026
+Stand / last updated: 20. August 2026

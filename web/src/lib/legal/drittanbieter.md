@@ -60,12 +60,23 @@ gebaut ist — jede als eigene, austauschbare Datei:
 | Komponente | Version / Pin | Lizenz | Einbindung |
 |---|---|---|---|
 | [FFmpeg](https://ffmpeg.org/releases/ffmpeg-8.0.1.tar.xz) | 8.0.1, eigener Build | LGPL (Build ohne `--enable-gpl`/libx264/libx265) | Dynamisch verlinkt: als `.dylib`-Dateien neben der App gebündelt |
+| [dav1d](https://code.videolan.org/videolan/dav1d) (AV1-Dekodierung) | seit 2026-08-20 | BSD-2-Clause | Dynamisch verlinkt, dieselbe `.dylib`-Auslieferung wie oben |
 
 Für macOS wird FFmpeg aus dem unveränderten offiziellen Quell-Tarball selbst
 gebaut (statt Homebrews Standard-Build zu verwenden, der GPL-lizenziert wäre),
 mit VideoToolbox-Hardware-Encoding, OpenSSL für TLS/RTMPS und
 [libopus](https://opus-codec.org/) (BSD-3-Clause) für Audio. Der Quellcode ist
-unverändert und über den obigen Link direkt vom FFmpeg-Projekt erhältlich.
+unverändert und über den obigen Link direkt vom FFmpeg-Projekt erhältlich. Seit
+dem 2026-08-20 bindet dieser Build zusätzlich [dav1d](https://code.videolan.org/videolan/dav1d)
+(BSD-2-Clause) ein: FFmpegs eigener `av1`-Decoder ist ein reiner
+Hardware-Stub, und VideoToolbox kann AV1 erst ab der M3-Generation dekodieren
+— ohne dav1d könnte der native HQ-Player auf M1/M2-Macs gar kein AV1
+anzeigen. dav1d berührt die LGPL-Aufstellung oben nicht, es ist eine eigene
+BSD-2-Clause-Datei, dynamisch eingebunden wie die übrigen.
+
+Der native HQ-Player (`streaming/pulse-player/`, siehe unten) linkt seit
+Version 0.1.69 gegen dieselben `.dylib`-Dateien wie der Streaming-Sidecar —
+`scripts/bundle-dylibs.sh` baut für beide Programme ein gemeinsames Bündel.
 
 ## Linux (Flatpak)
 
@@ -95,8 +106,9 @@ zur Build-Zeit bezogenes Programm ausgeliefert, nicht mit Pulse verlinkt.
 ## Nativer HQ-Player (Desktop, optional)
 
 Die Desktop-App kann HQ-Streams in einem eigenen Fenster darstellen statt im
-eingebauten Browser-Player — unter Linux (Flatpak) und, seit Version 0.1.42,
-auch unter Windows. Ist die Komponente nicht vorhanden, läuft die Wiedergabe
+eingebauten Browser-Player — unter Linux (Flatpak), seit Version 0.1.42 auch
+unter Windows, und seit Version 0.1.69 auch unter macOS. Ist die Komponente
+nicht vorhanden, läuft die Wiedergabe
 unverändert im eingebauten Player weiter. Sie bindet die folgenden Bibliotheken
 **statisch** ein; sie sind hier aufgeführt, weil auch freizügige Lizenzen eine
 Nennung verlangen.
@@ -104,9 +116,9 @@ Nennung verlangen.
 | Komponente | Version | Lizenz |
 |---|---|---|
 | [webrtc-rs](https://github.com/webrtc-rs/webrtc) (**von Pulse geändert**, siehe unten) | 0.17.2 | MIT oder Apache-2.0 |
-| [wgpu](https://github.com/gfx-rs/wgpu) | 29.0.4 | MIT oder Apache-2.0 |
+| [wgpu](https://github.com/gfx-rs/wgpu) | 30.0.0 | MIT oder Apache-2.0 |
 | [winit](https://github.com/rust-windowing/winit) | 0.30.13 | Apache-2.0 |
-| [egui](https://github.com/emilk/egui) (mit `egui-wgpu`, `egui-winit`, `egui_extras`) | 0.35.0 | MIT oder Apache-2.0 |
+| [egui](https://github.com/emilk/egui) (mit `egui-wgpu`, `egui-winit`, `egui_extras`) | 0.36.1 | MIT oder Apache-2.0 |
 | [resvg](https://github.com/linebender/resvg) / usvg (Symbol-Zeichner) | 0.45.1 | Apache-2.0 oder MIT |
 | [tiny-skia](https://github.com/linebender/tiny-skia) | 0.11.4 | BSD-3-Clause |
 | [cpal](https://github.com/RustAudio/cpal) | 0.17.3 | Apache-2.0 |
@@ -147,4 +159,4 @@ ausgeliefert.
 
 ---
 
-Stand: 5. August 2026
+Stand: 20. August 2026
