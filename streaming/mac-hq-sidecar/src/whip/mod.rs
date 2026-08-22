@@ -193,6 +193,12 @@ pub struct WhipSender {
     http: reqwest::Client,
 }
 
+/// Wohin die Soll/Ist-Zeile des Pacers geht — hier `eprintln!`, weil in diesem
+/// Sidecar kein `tracing`-Subscriber laeuft (die Zeile ginge sonst ins Leere).
+fn pacer_melder(soll_ms: f64, ist_ms: f64, pakete: usize) {
+    eprintln!("[whip] Verteilung je Bild: soll {soll_ms:.2} ms, ist {ist_ms:.2} ms ({pakete} Pakete)");
+}
+
 impl WhipSender {
     /// Baut die Sitzung auf und kehrt zurueck, sobald das Angebot beantwortet
     /// ist. Blockiert den aufrufenden (synchronen) Faden waehrenddessen.
@@ -237,7 +243,7 @@ impl WhipSender {
             // Paket-Gruppen (s. [`pacer`]); `PULSE_WHIP_PACING=0` ist der
             // Gegenmess-Schalter.
             pacer: (std::env::var("PULSE_WHIP_PACING").as_deref() != Ok("0")).then(|| {
-                pacer::Pacer::start(runtime(), Arc::clone(&video_track), frame_duration)
+                pacer::Pacer::start(runtime(), Arc::clone(&video_track), frame_duration, pacer_melder)
             }),
             track: video_track,
         };

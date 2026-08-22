@@ -197,6 +197,18 @@ pub struct WhipSender {
 /// unveraendert bleibt.
 use pulse_whip::h264::h264_ist_vollbild;
 
+/// Wohin die Soll/Ist-Zeile des Pacers geht — hier ueber `tracing`, wie der
+/// Rest dieses Sidecars.
+fn pacer_melder(soll_ms: f64, ist_ms: f64, pakete: usize) {
+    tracing::info!(
+        target: "whip",
+        soll_ms = format!("{soll_ms:.2}"),
+        ist_ms = format!("{ist_ms:.2}"),
+        pakete,
+        "Verteilung je Bild"
+    );
+}
+
 impl WhipSender {
     /// Baut die Sitzung auf und kehrt zurueck, sobald das Angebot beantwortet
     /// ist. Blockiert den aufrufenden (synchronen) Faden waehrenddessen.
@@ -241,7 +253,7 @@ impl WhipSender {
             // Paket-Gruppen (s. [`pacer`]); `PULSE_WHIP_PACING=0` ist der
             // Gegenmess-Schalter.
             pacer: (std::env::var("PULSE_WHIP_PACING").as_deref() != Ok("0")).then(|| {
-                pacer::Pacer::start(runtime(), Arc::clone(&video_track), frame_duration)
+                pacer::Pacer::start(runtime(), Arc::clone(&video_track), frame_duration, pacer_melder)
             }),
             track: video_track,
         };

@@ -14,6 +14,9 @@ publish = false
 # Re-Export — siehe `src/zeitbasis.rs`.
 [dependencies]
 anyhow = "1"
+# Der Pacer verteilt auf einem eigenen Faden und wartet auf absolute
+# Zeitpunkte — beides ueber tokio, wie in beiden Sidecars.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
 webrtc = "0.17"
 pulse-zeitbasis = { path = "../pulse-zeitbasis" }
 pulse-bildmarke = { path = "../pulse-bildmarke" }

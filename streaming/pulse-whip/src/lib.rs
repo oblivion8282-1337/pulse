@@ -28,5 +28,6 @@
 
 pub mod av1;
 pub mod h264;
+pub mod pacer;
 pub mod sdp;
 pub mod zeitbasis;
