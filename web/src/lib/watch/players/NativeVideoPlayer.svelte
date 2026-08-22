@@ -59,6 +59,11 @@
         setVolume: (p: number) => {
           v.volume = Math.max(0, Math.min(100, p)) / 100;
         },
+        getVolume: () => v.volume * 100,
+        isMuted: () => v.muted,
+        setMuted: (m: boolean) => {
+          v.muted = m;
+        },
         destroy: () => {
           v.pause();
           v.removeAttribute('src');

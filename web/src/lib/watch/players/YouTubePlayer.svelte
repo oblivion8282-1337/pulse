@@ -160,6 +160,14 @@
                 getDuration: () => Number(p()?.getDuration() ?? 0),
                 setPlaybackRate: (r: number) => p()?.setPlaybackRate(r),
                 setVolume: (pp: number) => p()?.setVolume(Math.max(0, Math.min(100, pp))),
+                // YouTube merkt sich Lautstärke UND Stummschaltung über alle
+                // Embeds hinweg. Ohne diese drei Getter/Setter zeigte die
+                // Kachel einen erfundenen Startwert an, und ein anderswo
+                // stummgeschalteter Player blieb stumm: setVolume() hebt die
+                // Stummschaltung nicht auf.
+                getVolume: () => Number(p()?.getVolume?.() ?? 100),
+                isMuted: () => !!p()?.isMuted?.(),
+                setMuted: (m: boolean) => (m ? p()?.mute?.() : p()?.unMute?.()),
                 hasCaptionSupport: captions.isAvailable,
                 getCaptionTracks: captions.getCaptionTracks,
                 getActiveCaptionTrack: captions.getActiveCaptionTrack,
