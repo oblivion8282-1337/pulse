@@ -2946,5 +2946,13 @@
   "rooms_empty_all": "You are not in any community yet.",
   "rooms_discover_cta": "Discover communities",
   "channel_list_back": "Back",
-  "discover_coming_soon": "The public community directory is being built."
+  "discover_coming_soon": "The public community directory is being built.",
+  "dm_preview_image": "Image",
+  "dm_preview_file": "File",
+  "dm_preview_own_prefix": "You: ",
+  "chats_empty": "No conversations yet. Tap the button to start one.",
+  "chats_compose": "New conversation",
+  "chat_view_back": "Back",
+  "channel_switcher_close": "Close channel list",
+  "channel_switcher_open": "Switch channel"
 }

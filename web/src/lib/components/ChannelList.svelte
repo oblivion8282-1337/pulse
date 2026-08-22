@@ -44,7 +44,8 @@
     canCreate = false,
     activeDeviceId = null,
     onSelectDevice,
-    onBack
+    onBack,
+    variant = 'aside'
   }: {
     guild: Guild | null;
     channels: Channel[];
@@ -60,6 +61,13 @@
     onSelectDevice?: (device: Device) => void;
     /** Zurueck zur Community-Uebersicht — nur auf Handy/Tablet gesetzt. */
     onBack?: () => void;
+    /** `aside` = eigenstaendige Spalte (Rechner, Vollbild-Liste des Handys).
+     *  `sheet` = Inhalt eines Blattes von unten: ohne Panel-Rahmen und ohne
+     *  Nutzer-Fusszeile, denn das Blatt bringt seinen eigenen Rahmen mit und
+     *  die Fusszeile gehoert nicht in einen Kanal-Wechsler. Alles andere —
+     *  Dialoge, Kontextmenues, Zeilen — ist in beiden Faellen dasselbe; genau
+     *  deshalb ist es eine Ausprägung und keine zweite Komponente. */
+    variant?: 'aside' | 'sheet';
   } = $props();
 
   let renameChannel = $state<Channel | null>(null);
@@ -159,8 +167,11 @@
   }
 </script>
 
-<aside
-  class="glass-panel text-text-base flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:w-60 md:flex-none md:rounded-2xl lg:w-68"
+<svelte:element
+  this={variant === 'sheet' ? 'div' : 'aside'}
+  class={variant === 'sheet'
+    ? 'text-text-base flex min-h-0 w-full flex-col'
+    : 'glass-panel text-text-base flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:w-60 md:flex-none md:rounded-2xl lg:w-68'}
   data-testid="channel-list"
 >
   <ChannelListHeader {guild} {canInvite} {canCreate} {onCreateClick} {onBack} />
@@ -226,5 +237,7 @@
     />
   </nav>
 
-  <SidebarFooter />
-</aside>
+  {#if variant === 'aside'}
+    <SidebarFooter />
+  {/if}
+</svelte:element>

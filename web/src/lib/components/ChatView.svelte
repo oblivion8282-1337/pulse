@@ -1,5 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
+  import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import HashIcon from '@lucide/svelte/icons/hash';
   import AtSignIcon from '@lucide/svelte/icons/at-sign';
   import UsersIcon from '@lucide/svelte/icons/users';
@@ -31,6 +33,10 @@
     onSend,
     isOwner = false,
     headerKind = 'channel',
+    /** Zurueck zur Liste — nur auf dem Handy gesetzt und nur dort gezeigt. */
+    onBack,
+    /** Titel antippbar machen: oeffnet den Kanal-Wechsler (nur Kanaele). */
+    onSwitchChannel,
     showMemberList = true,
     composerDisabled = false,
     composerDisabledReason = '',
@@ -45,6 +51,8 @@
     isOwner?: boolean;
     /** 'dm' swaps the # for an @-style icon and prefixes names with @. */
     headerKind?: 'channel' | 'dm';
+    onBack?: () => void;
+    onSwitchChannel?: () => void;
     /** Global-Friends Stufe 1: DMs leben in der Cloud. Bei `true` gehen
      *  Typing-Signale über die Cloud-Connection und "ist das meine Nachricht?"
      *  vergleicht gegen die Cloud-User-ID (auth.user.id) statt gegen die
@@ -216,16 +224,49 @@
   {/if}
   <header class="flex h-14 items-center gap-2.5 px-3 md:px-5">
     {#if channel}
+      <!-- Zurueck-Pfeil nur auf dem Handy: dort ist der Chat ein
+           aufgeschobener Bildschirm ueber seiner Liste. Ab `md` steht die
+           Liste daneben, ein Pfeil zeigte dann auf etwas bereits Sichtbares.
+           Die System-Zurueck-Geste tut dasselbe — der Pfeil ist der sichtbare
+           Weg daneben, nicht der einzige. -->
+      {#if onBack && viewport.isMobile}
+        <button
+          class="text-text-muted hover:text-primary -ml-2 flex min-h-12 min-w-12 shrink-0 items-center justify-center"
+          onclick={onBack}
+          data-testid="chat-back"
+          aria-label={pm.chat_view_back()}
+        >
+          <ChevronLeftIcon class="size-6" />
+        </button>
+      {/if}
       {#if headerKind === 'dm'}
         <AtSignIcon class="text-primary size-5 shrink-0" />
       {:else}
         <HashIcon class="text-primary size-5 shrink-0" />
       {/if}
-      <ChannelHeading
-        name={channel.name}
-        topic={channel.topic}
-        nameStyle={headerKind === 'dm' ? '' : channelNameStyle(channel)}
-      />
+      {#if onSwitchChannel && viewport.isMobile}
+        <!-- Der Titel ist der Kanal-Wechsler (Entwurf 5c). Das Blatt von unten
+             ersetzt den seitlichen Drawer; hier ist der Griff dazu. -->
+        <button
+          class="flex min-h-12 min-w-0 flex-1 items-center gap-1 text-left"
+          onclick={onSwitchChannel}
+          data-testid="channel-switcher-open"
+          aria-label={pm.channel_switcher_open()}
+        >
+          <ChannelHeading
+            name={channel.name}
+            topic={channel.topic}
+            nameStyle={channelNameStyle(channel)}
+          />
+          <ChevronDownIcon class="text-text-muted size-4 shrink-0" />
+        </button>
+      {:else}
+        <ChannelHeading
+          name={channel.name}
+          topic={channel.topic}
+          nameStyle={headerKind === 'dm' ? '' : channelNameStyle(channel)}
+        />
+      {/if}
       {#if showMemberList}
         <Button
           variant="ghost"
@@ -245,6 +286,7 @@
 
   <div class="relative flex min-h-0 flex-1">
     <MessageList
+      layout={headerKind === 'dm' ? 'bubble' : 'row'}
       {channel}
       {messages}
       {myId}

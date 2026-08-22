@@ -38,6 +38,7 @@ from sqlalchemy import or_, select
 
 import dcc_chat_gateway.config as _cfg
 from dcc_chat_gateway import s3, watchkeys
+from dcc_chat_gateway.dm_vorschau import letzte_nachrichten
 from dcc_chat_gateway.db import SessionLocal
 from dcc_chat_gateway.friend_events import (
     load_blocks_in,
@@ -359,6 +360,11 @@ async def build_and_send_ready_frame(
             ]
             # ``can_send`` per DM = friendship + no block. We already have both
             # sets; intersect in-memory.
+            # Vorschautexte fuer die Chats-Liste des Handys. MUSS hier stehen
+            # und nicht nur in `GET /dm-channels`: der ready-Rahmen ueberschreibt
+            # die Liste im Klienten-Speicher (`directMessages.seed`), die
+            # Vorschau waere sonst nach jedem Verbindungsaufbau wieder weg.
+            dm_letzte = await letzte_nachrichten(session, list(dm_rows))
             dm_channels = []
             for d in dm_rows:
                 other = d.user_b_id if d.user_a_id == user.id else d.user_a_id
@@ -376,6 +382,17 @@ async def build_and_send_ready_frame(
                         ),
                         "created_at": d.created_at.isoformat(),
                         "can_send": can_send,
+                        "last_message_preview": (
+                            dm_letzte[d.id].text if d.id in dm_letzte else None
+                        ),
+                        "last_message_author_id": (
+                            str(dm_letzte[d.id].author_id) if d.id in dm_letzte else None
+                        ),
+                        "last_message_at": (
+                            dm_letzte[d.id].created_at.isoformat()
+                            if d.id in dm_letzte
+                            else None
+                        ),
                     }
                 )
         else:

@@ -14,7 +14,15 @@
 
   type ChatItem =
     | { kind: 'divider'; label: string; key: string }
-    | { kind: 'message'; message: Message; isContinuation: boolean; key: string };
+    | {
+        kind: 'message';
+        message: Message;
+        isContinuation: boolean;
+        /** Letzte Nachricht ihrer Gruppe. Nur die Sprechblasen-Huelle nutzt es
+         *  (dort steht dann die Uhrzeit); wird beim Anhaengen nachgezogen. */
+        isGroupEnd: boolean;
+        key: string;
+      };
 
   // Infinite-Scroll-Up: ab diesem Abstand zum oberen Rand ältere nachladen.
   const LOAD_THRESHOLD = 600;
@@ -26,6 +34,9 @@
     myId,
     namePrefix = '#',
     isOwner = false,
+    /** Huelle der Nachrichten. Sprechblasen nur in privaten Gespraechen —
+     *  im Kanal tragen Autorname und -farbe die Orientierung. */
+    layout = 'row',
     onSetReplyTarget,
     onEditMessage,
     onDeleteMessage,
@@ -33,6 +44,7 @@
   }: {
     channel: Channel | null;
     messages: Message[];
+    layout?: 'row' | 'bubble';
     /** Server-local id (DMs → Cloud-id) for "is this mine?" checks. */
     myId: string | null;
     namePrefix?: string;
@@ -263,7 +275,9 @@
       for (let i = _lastItemsMessageCount; i < len; i++) {
         newItems.push(...buildItem(messages[i], messages[i - 1], today, yesterday));
       }
+      const ab = _cachedItems!.length;
       _cachedItems = [..._cachedItems!, ...newItems];
+      gruppenEndenNachziehen(_cachedItems, ab);
     } else {
       _cachedItems = buildItems(messages, today, yesterday);
     }
@@ -274,11 +288,43 @@
     return _cachedItems;
   });
 
+
+  /**
+   * Zieht die Gruppenenden ab ``ab`` nach.
+   *
+   * **Warum nachtraeglich und nicht beim Bauen:** ob eine Nachricht die letzte
+   * ihrer Gruppe ist, entscheidet die NAECHSTE — beim Bauen kennt man die noch
+   * nicht. Der Anhaenge-Pfad oben haengt neue Elemente an, ohne die Liste neu
+   * zu bauen; genau dann verliert die bis dahin letzte Nachricht ihr
+   * Gruppenende, und ohne diesen Durchlauf stuenden zwei Uhrzeiten
+   * untereinander.
+   */
+  function gruppenEndenNachziehen(items: ChatItem[], ab: number): void {
+    // Eine Stelle zurueck: die letzte Nachricht VOR dem neuen Stueck kann ihr
+    // Gruppenende gerade verloren haben.
+    let vorherige: Extract<ChatItem, { kind: 'message' }> | null = null;
+    for (let i = ab - 1; i >= 0; i--) {
+      const it = items[i];
+      if (it.kind === 'message') {
+        vorherige = it;
+        break;
+      }
+    }
+    for (let i = ab; i < items.length; i++) {
+      const it = items[i];
+      if (it.kind !== 'message') continue;
+      if (vorherige && it.isContinuation) vorherige.isGroupEnd = false;
+      it.isGroupEnd = true;
+      vorherige = it;
+    }
+  }
+
   function buildItems(msgs: Message[], today: Date, yesterday: Date): ChatItem[] {
     const result: ChatItem[] = [];
     for (let i = 0; i < msgs.length; i++) {
       result.push(...buildItem(msgs[i], msgs[i - 1], today, yesterday));
     }
+    gruppenEndenNachziehen(result, 0);
     return result;
   }
 
@@ -300,7 +346,7 @@
       mDate.getTime() - prevDate!.getTime() < 7 * 60 * 1000 &&
       mDateStr === prevDateStr;
 
-    out.push({ kind: 'message', message: m, isContinuation, key: m.id });
+    out.push({ kind: 'message', message: m, isContinuation, isGroupEnd: true, key: m.id });
     return out;
   }
 
@@ -412,6 +458,9 @@
               replyTo={replyMetaFor(item.message)}
               avatarUrl={avatarUrl}
               isContinuation={item.isContinuation}
+              isGroupEnd={item.isGroupEnd}
+              {layout}
+              istEigene={item.message.author_id === myId}
               highlight={highlightId === item.message.id}
               canEdit={canEditMessage(item.message)}
               canDelete={canDeleteMessage(item.message)}

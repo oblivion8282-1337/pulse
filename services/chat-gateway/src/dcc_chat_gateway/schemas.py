@@ -419,8 +419,17 @@ class DMChannelOut(BaseModel):
     last_message_id: int | None = None
     created_at: datetime
     can_send: bool = True
+    #: Ausschnitt der letzten Nachricht fuer die Chats-Liste des Handys
+    #: (Mobil-Umbau 2026-08-22). Bei einer Nachricht ohne Text, aber mit
+    #: Anhang steht hier ein Marker (``__image__`` / ``__file__``), den der
+    #: Klient uebersetzt — der Dateiname geht bewusst NICHT mit, siehe
+    #: ``dm_vorschau.py``. Null, wenn es keine (oder eine geloeschte)
+    #: letzte Nachricht gibt.
+    last_message_preview: str | None = None
+    last_message_author_id: int | None = None
+    last_message_at: datetime | None = None
 
-    @field_serializer("id", "other_user_id", "last_message_id")
+    @field_serializer("id", "other_user_id", "last_message_id", "last_message_author_id")
     def _ser_ids(self, v: int | None) -> str | None:
         return _opt_id_str(v)
 

@@ -2946,5 +2946,13 @@
   "rooms_empty_all": "Du bist noch in keiner Community.",
   "rooms_discover_cta": "Communities entdecken",
   "channel_list_back": "Zurück",
-  "discover_coming_soon": "Das Verzeichnis öffentlicher Communities entsteht gerade."
+  "discover_coming_soon": "Das Verzeichnis öffentlicher Communities entsteht gerade.",
+  "dm_preview_image": "Bild",
+  "dm_preview_file": "Datei",
+  "dm_preview_own_prefix": "Du: ",
+  "chats_empty": "Noch keine Gespräche. Tippe unten rechts, um eines zu beginnen.",
+  "chats_compose": "Neues Gespräch",
+  "chat_view_back": "Zurück",
+  "channel_switcher_close": "Kanalliste schließen",
+  "channel_switcher_open": "Kanal wechseln"
 }

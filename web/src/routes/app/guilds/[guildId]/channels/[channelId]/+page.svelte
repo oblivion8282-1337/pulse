@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import ChannelList from '$lib/components/ChannelList.svelte';
+  import ChannelSwitcherSheet from '$lib/components/mobile/ChannelSwitcherSheet.svelte';
   import GuildRail from '$lib/components/GuildRail.svelte';
   import ChatView from '$lib/components/ChatView.svelte';
   import VoiceChannelView from '$lib/components/VoiceChannelView.svelte';
@@ -133,6 +134,8 @@
   // Which screen the add-community dialog opens on (rail "+" menu).
   let createGuildMode = $state<'create' | 'join'>('create');
   let creatingChannel = $state(false);
+  // Kanal-Wechsler von unten (Handy/Tablet) — loest den seitlichen Drawer ab.
+  let wechslerOffen = $state(false);
   let resolving = $state(true);
   let loadError = $state<string | null>(null);
 
@@ -348,8 +351,10 @@
     // Voice-Kanal auf Mobil: direkt beitreten und die Kanal-Liste offen lassen
     // (keine große Vollbild-Voice-Ansicht). Status erscheint im Dock + inline.
     if (viewport.isMobile && c.type === 1) {
+      // Beitreten und hinnavigieren. Frueher blieb der Drawer dabei offen,
+      // damit die Liste sichtbar blieb; den Drawer gibt es auf dem Handy nicht
+      // mehr, und ohne Ziel-Ansicht saehe man nach dem Tippen nichts.
       void voice.connect(c.id, c.name);
-      navDrawer.open = true;
       if (c.id !== channelId || geraetOffen) await goto(`/app/guilds/${guildId}/channels/${c.id}`);
       return;
     }
@@ -514,9 +519,13 @@
   onGuildDeleted={handleRemoteGuildDeleted}
 />
 
-<!-- Channel-Liste: Desktop dauerhaft; Mobil als eigene Spalte rechts der
-     Guild-Rail, sobald der Drawer offen ist — In-Flow, kein Overlay. -->
-{#if !viewport.isMobile || navDrawer.open}
+<!-- Channel-Liste: ab `md` als Spalte neben dem Chat. Auf dem Handy gibt es
+     sie hier NICHT mehr — dort ist der Kanal-Chat ein Vollbild-Screen, und die
+     Kanaele erreicht man ueber den Wechsler von unten (Titel antippen) oder
+     ueber die Vollbild-Liste unter `/app/rooms/[guildId]`. Der Drawer vom
+     linken Rand ist damit weg und kollidiert nicht mehr mit der
+     System-Zurueck-Geste. -->
+{#if !viewport.isMobile}
   <ChannelList
     guild={activeGuild ?? null}
     channels={channelsForGuild}
@@ -535,6 +544,8 @@
     channel={activeChannel}
     messages={visibleMessages}
     onSend={sendMessage}
+    onBack={() => goto(`/app/rooms/${guildId}`)}
+    onSwitchChannel={() => (wechslerOffen = true)}
     isOwner={!!activeGuild && roles.hasGuildPermission(activeGuild.id, Perm.MANAGE_MESSAGES)}
     onEditMessage={editMessage}
     onDeleteMessage={deleteMessage}
@@ -542,9 +553,14 @@
   />
 {/snippet}
 
-<!-- Chat/Voice: Desktop dauerhaft; Mobil nur solange der Drawer zu ist und der
-     aktive Kanal kein Voice-Kanal ist (Voice = Liste bleibt, keine Vollbild-Seite). -->
-{#if !viewport.isMobile || (!navDrawer.open && !isVoiceChannel)}
+<!-- Chat/Voice fuellt hier immer den Bereich.
+     **Geaendert mit dem Mobil-Umbau:** vorher blieb auf dem Handy bei einem
+     Sprachkanal die Kanalliste stehen, statt eine Vollbild-Ansicht zu oeffnen —
+     das ging nur, WEIL die Liste als Drawer daneben lag. Die Liste ist hier
+     jetzt weg (Kanaele: Wechsler von unten oder `/app/rooms/[guildId]`), also
+     braeuchte dieselbe Bedingung einen leeren Bildschirm. Der Sprachkanal
+     bekommt deshalb auch am Telefon seine eigene Ansicht. -->
+{#if true}
   {#if showVoiceStack && connectedVoiceChannel}
     {@const vc = connectedVoiceChannel}
     <MobileVoiceStack
@@ -622,6 +638,19 @@
   onClose={() => (creatingGuild = false)}
   onCreate={createGuild}
   onJoin={joinGuild}
+/>
+
+<ChannelSwitcherSheet
+  bind:open={wechslerOffen}
+  guild={activeGuild ?? null}
+  channels={channelsForGuild}
+  activeChannelId={activeChannel?.id ?? null}
+  onSelect={selectChannel}
+  onCreateClick={() => (creatingChannel = true)}
+  {onChannelDeleted}
+  canCreate={!!activeGuild && roles.hasGuildPermission(activeGuild.id, Perm.MANAGE_CHANNELS)}
+  activeDeviceId={offenesGeraet?.id ?? null}
+  onSelectDevice={geraetOeffnen}
 />
 
 <CreateChannelDialog
