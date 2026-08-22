@@ -6,6 +6,14 @@ Stand 2026-08-22. Zweig `feat/vorhalt-reserve-messen`.
 Schritt für Schritt folgen; es ist nichts zu entscheiden und nichts zu
 recherchieren.
 
+> **Die Messung ist gelaufen (2026-08-22). Ergebnis:
+> `2026-08-22-vorhalt-messung-ergebnis.md`.** Die Erwartung weiter unten —
+> reichlich Reserve, alles in der ersten Stufe, der Vorhalt kann deutlich
+> herunter — hat sich **nicht** bestätigt: auf der gemessenen Strecke sind 30 ms
+> eher zu wenig als zu viel. Die Anleitung bleibt gültig, wenn dieselbe Messung
+> auf einer anderen Leitung wiederholt werden soll; nur ihre Erwartung ist
+> überholt.
+
 ## Worum es geht
 
 Der Player hält jedes Bild kurz zurück, damit die Ausgabe gleichmäßig läuft

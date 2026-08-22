@@ -62,6 +62,25 @@ use super::Ausgabetakt;
 /// `PULSE_PLAYER_AUSGABETAKT_MS` gegen.
 pub const FERN_VORHALT_MS: u32 = 30;
 
+/// Wie tief der Regler waehrend einer Fernsteuerung hoechstens senken darf.
+///
+/// **Der Unterschied zu [`FERN_VORHALT_MS`] ist der ganze Punkt.** Der Wert
+/// oben ist der START, diese Zahl hier ist der BODEN — und dazwischen
+/// entscheidet nicht mehr eine Konstante, sondern die gemessene Reserve
+/// (`super::reserve`, `super::anpassung`).
+///
+/// **Warum ueberhaupt eine harte Grenze, wenn doch gemessen wird.** Die
+/// Messung sagt, wie viel Vorhalt die Strecke braucht; sie sagt nichts
+/// darueber, was der Player unterhalb davon noch kann. Bei 0 faellt die
+/// Reihenfolge-Korrektur der Warteschlange ganz weg — das ist ein anderer
+/// Zustand, kein „noch etwas schneller" (s. oben). 5 ms ist der tiefste Wert,
+/// der am 2026-08-12 ueber den Serverweg gemessen wurde und dort trug.
+///
+/// **Kein Mindestwert gegen den Nutzer.** Wer selbst tiefer eingestellt hat
+/// (`PULSE_PLAYER_AUSGABETAKT_MS`, Pruefstand), behaelt seinen Wert — die
+/// Grenze gilt dem Regler, nicht dem Wunsch.
+pub const FERN_VORHALT_MIN_MS: u32 = 5;
+
 impl Ausgabetakt {
 /// Vorhalt fuer die Dauer einer Fernsteuerung absenken — und danach genau
     /// den Wert wiederherstellen, der vorher galt.

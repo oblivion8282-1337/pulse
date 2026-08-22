@@ -77,6 +77,26 @@ const RUHIG_BIS_RUNTER: u32 = 3;
 /// Schrittweite je Anpassung.
 const STUFE_MS: u32 = 15;
 
+/// So viele gemessene Bilder braucht ein Fenster, bevor seine Reserve eine
+/// Absenkung tragen darf.
+///
+/// Der Anker des Takts zieht sich in den ersten Sekunden noch auf die kuerzeste
+/// Laufzeit; was er dabei als Reserve meldet, ist zu gut. 30 Bilder sind bei
+/// 60 fps eine halbe Sekunde — genug, dass ein einzelner guter Augenblick die
+/// Entscheidung nicht traegt, und wenig genug, dass ein 2-s-Fenster sie auch
+/// bei 30 fps erreicht.
+const MESS_MINDESTBILDER: u32 = 30;
+
+/// Wie viel von der gemessenen Reserve ein Absenken hoechstens aufbraucht.
+///
+/// **Ein Verhaeltnis und keine Millisekundenzahl, und das ist Absicht.** Genau
+/// an einer festen Zahl ist der Vorhalt zweimal gescheitert (Modulkopf von
+/// [`super::fernsteuerung`]): sie stammte beide Male von genau einer Leitung.
+/// Ein Verhaeltnis skaliert mit jeder Strecke von selbst — und es ist
+/// selbstbremsend: jede Absenkung laesst die Haelfte stehen, naehert sich der
+/// Kante also, ohne sie je zu erreichen.
+const MESS_TEILER: u32 = 2;
+
 /// Obergrenze der Anpassung.
 ///
 /// 105 ms deckt die gemessene NACK-Umlaufzeit (rund 61 ms) mit Reserve ab, und
@@ -97,11 +117,33 @@ pub(super) struct Anpassung {
     /// Stand des `verspaetet`-Zaehlers zu Fensterbeginn.
     verspaetet_start: u64,
     ruhige_fenster: u32,
+    /// Die knappste Reserve im laufenden Fenster und wie viele Bilder sie
+    /// getragen haben.
+    ///
+    /// **Eigene Buchfuehrung statt `reserve::Reserve` mitzulesen**, obwohl
+    /// dieselbe Zahl dort schon steht: jenes Fenster gehoert der
+    /// Zusammenfassung im Log und wird von ihr im Sekundentakt geleert. Ein
+    /// Regler, dessen Entscheidung davon abhinge, ob und wann jemand ein Log
+    /// abholt, waere nicht nachvollziehbar.
+    knappste: Option<Duration>,
+    gemessene_bilder: u32,
+    /// Der Vorhalt, gegen den die laufende Messung gilt — wie in
+    /// [`super::reserve`]: aendert er sich, wird verworfen statt
+    /// weitergezaehlt.
+    gemessen_bei: Duration,
 }
 
 impl Anpassung {
     pub(super) fn neu(basis: Duration) -> Self {
-        Self { basis, fenster_start: None, verspaetet_start: 0, ruhige_fenster: 0 }
+        Self {
+            basis,
+            fenster_start: None,
+            verspaetet_start: 0,
+            ruhige_fenster: 0,
+            knappste: None,
+            gemessene_bilder: 0,
+            gemessen_bei: Duration::ZERO,
+        }
     }
 
     /// Ein von Hand gesetzter Vorhalt ist die neue Untergrenze — und beendet
@@ -111,6 +153,12 @@ impl Anpassung {
         self.basis = basis;
         self.fenster_start = None;
         self.ruhige_fenster = 0;
+        self.messung_zuruecksetzen();
+    }
+
+    fn messung_zuruecksetzen(&mut self) {
+        self.knappste = None;
+        self.gemessene_bilder = 0;
     }
 }
 
@@ -118,13 +166,17 @@ impl Ausgabetakt {
     /// Ein Fenster auswerten, falls eines voll ist. Wird aus `einreihen`
     /// gerufen — also genau dort, wo `verspaetet` hochgezaehlt wird, und ohne
     /// eigenen Zeitgeber.
-    pub(super) fn anpassen(&mut self, jetzt: Instant) {
+    /// `reserve` ist die Reserve des eben eingereihten Bildes, wie
+    /// [`super::reserve::Reserve::buchen`] sie verbucht hat — `None`, wenn
+    /// nichts zu messen war.
+    pub(super) fn anpassen(&mut self, jetzt: Instant, reserve: Option<Duration>) {
         // Ausgeschalteter Takt: nicht anfassen — „aus" ist eine Ansage und kein
         // Startwert (Modulkopf).
         if !self.aktiv() {
             self.anpassung.fenster_start = None;
             return;
         }
+        self.reserve_merken(reserve);
         let Some(start) = self.anpassung.fenster_start else {
             self.anpassung.fenster_start = Some(jetzt);
             self.anpassung.verspaetet_start = self.verspaetet;
@@ -162,6 +214,9 @@ impl Ausgabetakt {
         // Fernsteuerung anhebt — und der gehoert dann dort geradegerueckt.
         let boden_ms = self.anpassung.basis.as_millis() as u32;
 
+        // Ob die MESSUNG diesen Schritt bestimmt hat — nur dann darf die
+        // Log-Zeile sie als Grund nennen.
+        let mut gemessener_boden = None;
         let ziel_ms = if je_sekunde >= HOCH_AB as f64 {
             self.anpassung.ruhige_fenster = 0;
             let ziel = (ist_ms + STUFE_MS).min(OBERGRENZE_MS);
@@ -181,7 +236,8 @@ impl Ausgabetakt {
             self.anpassung.ruhige_fenster += 1;
             if self.anpassung.ruhige_fenster >= RUHIG_BIS_RUNTER {
                 self.anpassung.ruhige_fenster = 0;
-                ist_ms.saturating_sub(STUFE_MS).max(boden_ms)
+                gemessener_boden = self.senk_boden_ms(boden_ms, ist_ms);
+                ist_ms.saturating_sub(STUFE_MS).max(gemessener_boden.unwrap_or(boden_ms))
             } else {
                 ist_ms
             }
@@ -197,14 +253,87 @@ impl Ausgabetakt {
             // Untergrenze neu (dort begruendet) — das ist der Weg des Nutzers,
             // nicht der der Regelung.
             self.vorhalt_anwenden(ziel_ms);
-            eprintln!(
-                "[takt] Vorhalt {ist_ms} -> {ziel_ms} ms ({je_sekunde:.1} zu spaete Bilder/s)"
-            );
+            // **Der Grund gehoert in die Zeile.** Beim Senken ist
+            // `zu spaete Bilder/s` immer 0,0 — das erklaert ein Anheben, aber
+            // nicht das Gegenteil. Seit die Absenkung an der gemessenen
+            // Reserve haengt (s. `senk_boden_ms`), steht sie hier daneben:
+            // sonst laesst sich in einem Protokoll nicht mehr unterscheiden,
+            // ob ein Schritt aus der Messung kam oder aus der alten
+            // Stufen-Mechanik gegen die Basis.
+            let grund = match (gemessener_boden, self.anpassung.knappste) {
+                (Some(_), Some(k)) => format!("knappste Reserve {} ms", k.as_millis()),
+                _ => format!("{je_sekunde:.1} zu spaete Bilder/s"),
+            };
+            eprintln!("[takt] Vorhalt {ist_ms} -> {ziel_ms} ms ({grund})");
         }
 
         // Fensterschnitt IMMER am Ende — auch nach einer Aenderung.
         self.anpassung.fenster_start = Some(jetzt);
         self.anpassung.verspaetet_start = self.verspaetet;
+        self.anpassung.messung_zuruecksetzen();
+    }
+
+    /// Wie tief dieses Absenken gehen darf.
+    ///
+    /// **Das ist die Stelle, an der die Messung den geratenen Wert abloest.**
+    /// Ohne sie ist die Untergrenze die Basis — und die ist waehrend einer
+    /// Fernsteuerung nicht der Wunsch des Nutzers, sondern
+    /// [`super::fernsteuerung::FERN_VORHALT_MS`], also eine Zahl, die von genau
+    /// einer Leitung abgelesen wurde. Zweimal wurde sie so gesetzt und beim
+    /// naechsten Netz widerlegt (Herleitung dort).
+    ///
+    /// **Warum der Regler die Kante ohne Messung nicht finden kann.** Nach oben
+    /// reagiert er auf Schaden (`HOCH_AB`), nach unten auf Schweigen — er hat
+    /// bis hierher keinen Wert dafuer, wie viel Luft NOCH da ist. Er sucht die
+    /// Untergrenze also, indem er sie ueberschreitet, und jede Abwaertsbewegung
+    /// wird mit Ruckeln bezahlt. Die Basis war das Netz darunter. Mit der
+    /// gemessenen Reserve gibt es einen Wert davor, und erst damit darf das Netz
+    /// tiefer haengen.
+    ///
+    /// Drei Bedingungen, alle drei fail-closed auf den alten Weg:
+    ///
+    /// * **Nur beim Steuern.** Sonst ist die Basis ein Wunsch des Nutzers, und
+    ///   ein Wunsch wird nicht wegmessen.
+    /// * **Nur mit genug Bildern** ([`MESS_MINDESTBILDER`]).
+    /// * **Nur gegen den geltenden Vorhalt** — eine Reserve, die gegen 30 ms
+    ///   gemessen wurde, sagt ueber 16 ms nichts.
+    /// `None` heisst „die Messung traegt hier nichts bei" — dann gilt die Basis
+    /// wie bisher. **Ein `Option` und kein Rueckfall auf `basis_ms` im Innern**,
+    /// damit die Log-Zeile den Grund nicht raten muss: sonst stuende dort
+    /// „knappste Reserve X ms" auch unter einem Schritt, den die alte
+    /// Stufen-Mechanik gemacht hat, und ein Protokoll waere nicht mehr
+    /// auswertbar.
+    fn senk_boden_ms(&self, basis_ms: u32, ist_ms: u32) -> Option<u32> {
+        if self.vorhalt_vor_fern.is_none()
+            || self.anpassung.gemessene_bilder < MESS_MINDESTBILDER
+            || self.anpassung.gemessen_bei != self.vorhalt
+        {
+            return None;
+        }
+        let knappste = self.anpassung.knappste?;
+        // Die knappste Reserve ist der schlechteste Fall, der noch rechtzeitig
+        // war — um so viel LIESSE sich senken. Aufgebraucht wird nur die
+        // Haelfte davon (s. `MESS_TEILER`).
+        let erlaubt_ms = (knappste.as_millis() as u32) / MESS_TEILER;
+        // Der Nutzerwunsch bleibt erreichbar, falls er tiefer liegt als die
+        // harte Grenze — sie gilt dem Regler, nicht ihm.
+        let hart_ms = basis_ms.min(super::fernsteuerung::FERN_VORHALT_MIN_MS);
+        Some(ist_ms.saturating_sub(erlaubt_ms).max(hart_ms))
+    }
+
+    /// Die Reserve eines Bildes in das laufende Fenster aufnehmen.
+    fn reserve_merken(&mut self, reserve: Option<Duration>) {
+        let Some(reserve) = reserve else {
+            return;
+        };
+        if self.vorhalt != self.anpassung.gemessen_bei {
+            self.anpassung.messung_zuruecksetzen();
+            self.anpassung.gemessen_bei = self.vorhalt;
+        }
+        let reserve = reserve.min(self.vorhalt);
+        self.anpassung.knappste =
+            Some(self.anpassung.knappste.map_or(reserve, |bisher| bisher.min(reserve)));
+        self.anpassung.gemessene_bilder += 1;
     }
 }
 
@@ -217,13 +346,30 @@ mod tests {
     fn fenster(takt: &mut Ausgabetakt, jetzt: &mut Instant, zu_spaet: u64) {
         takt.verspaetet += zu_spaet;
         *jetzt += FENSTER + Duration::from_millis(1);
-        takt.anpassen(*jetzt);
+        takt.anpassen(*jetzt, None);
+    }
+
+    /// Wie [`fenster`], aber mit einer gemessenen Reserve je Bild — so viele
+    /// Bilder, dass die Messung als belastbar gilt.
+    fn fenster_mit_reserve(
+        takt: &mut Ausgabetakt,
+        jetzt: &mut Instant,
+        zu_spaet: u64,
+        reserve_ms: u64,
+    ) {
+        takt.verspaetet += zu_spaet;
+        let reserve = Some(Duration::from_millis(reserve_ms));
+        for _ in 0..MESS_MINDESTBILDER {
+            takt.anpassen(*jetzt, reserve);
+        }
+        *jetzt += FENSTER + Duration::from_millis(1);
+        takt.anpassen(*jetzt, reserve);
     }
 
     fn neu_mit_fenster(ms: u32) -> (Ausgabetakt, Instant) {
         let mut takt = Ausgabetakt::neu(ms);
         let jetzt = Instant::now();
-        takt.anpassen(jetzt); // erstes Fenster oeffnen
+        takt.anpassen(jetzt, None); // erstes Fenster oeffnen
         (takt, jetzt)
     }
 
@@ -328,7 +474,7 @@ mod tests {
         // Erst NACH `fernsteuerung()` das Fenster oeffnen: `setze_vorhalt`
         // beendet die laufende Regelung.
         let mut jetzt = Instant::now();
-        takt.anpassen(jetzt);
+        takt.anpassen(jetzt, None);
         for _ in 0..(RUHIG_BIS_RUNTER * 2) {
             fenster(&mut takt, &mut jetzt, 0);
         }
@@ -356,5 +502,101 @@ mod tests {
             fenster(&mut takt, &mut jetzt, 0);
         }
         assert_eq!(takt.vorhalt_ms(), 50);
+    }
+
+    /// **Der Kern der Messkopplung.** Zeigt die Messung reichlich Luft, darf
+    /// der Regler beim Steuern unter den Fern-Wert — dorthin kam er bisher
+    /// nie, weil die Basis ihn dort festhielt.
+    #[test]
+    fn gemessene_reserve_senkt_beim_steuern_unter_den_fern_wert() {
+        let (mut takt, mut jetzt) = neu_mit_fenster(30);
+        takt.fernsteuerung(true);
+        // `fernsteuerung` setzt die Basis und beendet damit das laufende
+        // Fenster — hier wieder eines oeffnen.
+        takt.anpassen(jetzt, None);
+        for _ in 0..(RUHIG_BIS_RUNTER * 6) {
+            fenster_mit_reserve(&mut takt, &mut jetzt, 0, 28);
+        }
+        assert_eq!(
+            takt.vorhalt_ms(),
+            u64::from(super::super::fernsteuerung::FERN_VORHALT_MIN_MS),
+            "reichlich gemessene Reserve fuehrt bis an die harte Untergrenze"
+        );
+    }
+
+    /// Und nicht weiter: die harte Untergrenze haelt auch, wenn die Messung
+    /// eine absurd grosse Reserve meldet.
+    #[test]
+    fn die_harte_untergrenze_haelt_auch_bei_riesiger_reserve() {
+        let (mut takt, mut jetzt) = neu_mit_fenster(30);
+        takt.fernsteuerung(true);
+        takt.anpassen(jetzt, None);
+        for _ in 0..(RUHIG_BIS_RUNTER * 10) {
+            fenster_mit_reserve(&mut takt, &mut jetzt, 0, 5_000);
+        }
+        assert_eq!(
+            takt.vorhalt_ms(),
+            u64::from(super::super::fernsteuerung::FERN_VORHALT_MIN_MS),
+            "nie unter die harte Untergrenze"
+        );
+    }
+
+    /// **Die Zusage, die das Ganze erst tragfaehig macht.** Ist die Reserve
+    /// knapp, darf der Schritt nicht die volle Stufe sein — sonst tastet sich
+    /// der Regler wie bisher ueber die Kante, nur von tiefer aus.
+    ///
+    /// 4 ms Reserve bei 30 ms Vorhalt: erlaubt ist die Haelfte, also 2 ms.
+    #[test]
+    fn knappe_reserve_erlaubt_nur_einen_kleinen_schritt() {
+        let (mut takt, mut jetzt) = neu_mit_fenster(30);
+        takt.fernsteuerung(true);
+        takt.anpassen(jetzt, None);
+        for _ in 0..RUHIG_BIS_RUNTER {
+            fenster_mit_reserve(&mut takt, &mut jetzt, 0, 4);
+        }
+        assert_eq!(takt.vorhalt_ms(), 28, "hoechstens die halbe gemessene Reserve");
+    }
+
+    /// Ohne Fernsteuerung bleibt die Basis die Untergrenze, auch mit Messung —
+    /// dort ist der eingestellte Wert ein Wunsch und keine geratene Konstante.
+    #[test]
+    fn ohne_fernsteuerung_bleibt_die_basis_die_untergrenze() {
+        let (mut takt, mut jetzt) = neu_mit_fenster(30);
+        for _ in 0..(RUHIG_BIS_RUNTER * 6) {
+            fenster_mit_reserve(&mut takt, &mut jetzt, 0, 28);
+        }
+        assert_eq!(takt.vorhalt_ms(), 30, "der Wunsch des Nutzers bindet weiter");
+    }
+
+    /// Eine duenne Messung traegt keine Entscheidung: der Anker zieht sich in
+    /// den ersten Sekunden noch auf die Bestzeit, und was er dabei meldet, ist
+    /// zu gut. Unter der Mindestzahl bleibt es beim alten Weg.
+    #[test]
+    fn eine_duenne_messung_senkt_nicht_unter_den_fern_wert() {
+        let (mut takt, mut jetzt) = neu_mit_fenster(30);
+        takt.fernsteuerung(true);
+        takt.anpassen(jetzt, None);
+        let reserve = Some(Duration::from_millis(28));
+        for _ in 0..(RUHIG_BIS_RUNTER * 4) {
+            takt.anpassen(jetzt, reserve);
+            jetzt += FENSTER + Duration::from_millis(1);
+            takt.anpassen(jetzt, reserve);
+        }
+        assert_eq!(takt.vorhalt_ms(), 30, "zwei Bilder je Fenster sind keine Messung");
+    }
+
+    /// Wer selbst tiefer eingestellt hat, kommt mit Messung auch dorthin — die
+    /// harte Untergrenze ist eine Grenze fuer den Regler, kein Mindestwert
+    /// gegen den Nutzer.
+    #[test]
+    fn ein_tieferer_nutzerwert_bleibt_auch_mit_messung_erreichbar() {
+        let mut takt = Ausgabetakt::neu(2);
+        takt.fernsteuerung(true);
+        let mut jetzt = Instant::now();
+        takt.anpassen(jetzt, None);
+        for _ in 0..(RUHIG_BIS_RUNTER * 6) {
+            fenster_mit_reserve(&mut takt, &mut jetzt, 0, 2);
+        }
+        assert_eq!(takt.vorhalt_ms(), 2, "der eingestellte Wert bleibt erreichbar");
     }
 }

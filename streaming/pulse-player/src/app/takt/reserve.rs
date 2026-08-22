@@ -97,9 +97,20 @@ impl Reserve {
     ///
     /// `ziel` ist sein Anzeigezeitpunkt, `jetzt` seine Ankunft, `vorhalt` der
     /// zu diesem Zeitpunkt wirksame Vorhalt.
-    pub(super) fn buchen(&mut self, vorhalt: Duration, ziel: Instant, jetzt: Instant) {
+    ///
+    /// Zurueck kommt die verbuchte Reserve — [`super::anpassung`] regelt damit
+    /// die Absenkung. **Sie hier abzugreifen und nicht dort neu auszurechnen**
+    /// haelt die beiden Feinheiten an einer Stelle: die Klemmung auf den
+    /// Vorhalt und den Ausschluss zu spaeter Bilder. `None` heisst „nichts
+    /// verbucht" — kein Takt, oder das Bild war zu spaet.
+    pub(super) fn buchen(
+        &mut self,
+        vorhalt: Duration,
+        ziel: Instant,
+        jetzt: Instant,
+    ) -> Option<Duration> {
         if vorhalt.is_zero() {
-            return;
+            return None;
         }
         if vorhalt != self.gemessen_bei {
             self.zuruecksetzen();
@@ -107,7 +118,7 @@ impl Reserve {
         }
         // Zu spaet: nicht verbuchen (s. Modulkopf).
         if ziel <= jetzt {
-            return;
+            return None;
         }
         // `ziel` liegt nie weiter als einen Vorhalt in der Zukunft — `ziel()`
         // zieht den Anker sonst nach. Geklemmt wird trotzdem: die Zusage gilt
@@ -121,6 +132,7 @@ impl Reserve {
         let verbraucht = vorhalt - reserve;
         let stufe = (verbraucht.as_nanos() * STUFEN as u128 / vorhalt.as_nanos()) as usize;
         self.stufen[stufe.min(STUFEN - 1)] += 1;
+        Some(reserve)
     }
 
     /// Den Bericht abholen und das Fenster neu beginnen.
@@ -235,5 +247,36 @@ mod tests {
         let zweiter = r.abholen();
         assert_eq!(zweiter.knappste, None);
         assert_eq!(zweiter.stufen, [0; STUFEN]);
+    }
+
+    /// **Was der Regler von hier braucht.** `buchen` gibt die verbuchte
+    /// Reserve zurueck, damit die Anpassung sie nicht ein zweites Mal
+    /// ausrechnen muss — die Klemmung und der Ausschluss zu spaeter Bilder
+    /// stehen genau einmal, hier.
+    #[test]
+    fn buchen_gibt_die_verbuchte_reserve_zurueck() {
+        let mut r = Reserve::neu();
+        let jetzt = Instant::now();
+        assert_eq!(
+            r.buchen(VORHALT, jetzt + Duration::from_millis(12), jetzt),
+            Some(Duration::from_millis(12))
+        );
+    }
+
+    /// Ein zu spaetes Bild wird nicht verbucht — und meldet deshalb auch
+    /// nichts nach oben, statt eine Reserve von Null vorzutaeuschen.
+    #[test]
+    fn ein_zu_spaetes_bild_meldet_keine_reserve() {
+        let mut r = Reserve::neu();
+        let jetzt = Instant::now();
+        assert_eq!(r.buchen(VORHALT, jetzt, jetzt), None);
+    }
+
+    /// Ohne Takt gibt es nichts zu messen.
+    #[test]
+    fn ohne_vorhalt_meldet_buchen_nichts() {
+        let mut r = Reserve::neu();
+        let jetzt = Instant::now();
+        assert_eq!(r.buchen(Duration::ZERO, jetzt + Duration::from_millis(5), jetzt), None);
     }
 }

@@ -394,10 +394,12 @@ impl Ausgabetakt {
         // `anpassen`, das den Vorhalt aendern kann: gemessen wird gegen genau
         // den Wert, mit dem `ziel` eben gerechnet hat.
         let wirksam = self.wirksamer_vorhalt();
-        self.reserve.buchen(wirksam, ziel, jetzt);
+        let reserve = self.reserve.buchen(wirksam, ziel, jetzt);
         // Hier und nicht in einem eigenen Zeitgeber: das ist die Stelle, an der
-        // die Verspaetung entsteht, und sie laeuft ohnehin je Bild.
-        self.anpassen(jetzt);
+        // die Verspaetung entsteht, und sie laeuft ohnehin je Bild. Die eben
+        // verbuchte Reserve geht mit: sie entscheidet, wie weit abgesenkt
+        // werden darf.
+        self.anpassen(jetzt, reserve);
         // Die Reihenfolge muss monoton bleiben, sonst zeigt `faellig` ein Bild
         // vor seinem Vorgaenger. Bei gleichem oder kleinerem Zeitstempel (Sender
         // hat B-Bilder oder wiederholt einen Stempel) wird auf den Vorgaenger
