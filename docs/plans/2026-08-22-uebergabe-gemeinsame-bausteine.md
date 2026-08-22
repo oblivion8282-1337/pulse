@@ -182,6 +182,12 @@ Nicht abgearbeitet, weil ein Zuschauer dazugehört:
 - [ ] Zeigerformen über die Fernsteuerung, auch die selbstgemalten (Resolve/Premiere/Blender)
 - [ ] Protokoll auf Stream-Schlüssel absuchen (Start-Antwort, argv, Fehlerketten)
 
-## Ein Fund nebenbei, nicht behoben
+## Ein dritter Befund, ebenfalls behoben
 
-`pulse-bildmarke` fehlt in den **Pfad-Filtern aller drei Bau-Abläufe** (`win-build.yml`, `mac-build.yml`, `flatpak.yml` nennen nur die vier älteren Kisten) und in der Version-Bump-Aufzählung im `CLAUDE.md`. Folge: Eine Änderung allein an dieser Kiste löst keinen Installer- oder DMG-Bau aus, das Ausgelieferte bliebe still auf dem alten Stand. Dieselbe Sorte Falle, die der neue Wächter fürs Flatpak-Manifest abfängt — nur eine Ebene darüber, wo bisher nichts nachrechnet.
+`pulse-bildmarke` fehlte in den **Pfad-Filtern aller drei Bau-Abläufe** (`win-build.yml`, `mac-build.yml`, `flatpak.yml` nannten nur die vier älteren Kisten) und in der Version-Bump-Aufzählung im `CLAUDE.md`. Folge: Eine Änderung allein an dieser Kiste hätte weder Installer noch DMG noch Flatpak neu gebaut, das Ausgelieferte wäre still auf dem alten Stand geblieben.
+
+Das ist die unangenehmere Hälfte derselben Falle, die der Wächter fürs Flatpak-Manifest abfängt: **dort bricht der Bau, hier bricht gar nichts.** Kein Knall, keine rote CI — der Bau läuft einfach nicht.
+
+Eingetragen, und daneben ein zweiter Wächter (`streaming/zwillinge/tests/bau_ausloeser.rs`), der je Ablauf nachrechnet, welche Kisten die Programme brauchen, die er baut. Rekursiv, und geprüft wird nur die Richtung, die weh tut — ein Eintrag zu viel kostet einen unnötigen Bau, einer zu wenig liefert alten Code aus. Gegenprobe gefahren. Die Abhängigkeits-Rechnung liegt jetzt einmal in `zwillinge::kisten_von` und wird von beiden Wächtern benutzt.
+
+**Für Linux heisst das:** `packaging/com.howispulse.Pulse.yml` ist unverändert — der Flatpak-Teil des Auftrags oben steht genau so weiter offen.
