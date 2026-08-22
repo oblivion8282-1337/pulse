@@ -9,8 +9,12 @@
 -->
 <script lang="ts">
   import type { LocalVideoTrack, RemoteVideoTrack } from 'livekit-client';
+  import SwitchCameraIcon from '@lucide/svelte/icons/switch-camera';
   import TileShell from '$lib/stream/components/TileShell.svelte';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
+  import { voice } from '$lib/voice/livekit.svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     channelId,
@@ -30,6 +34,19 @@
      *  eigene Selbst-Vorschau auszublenden ohne die Kamera zu stoppen. */
     onHide?: () => void;
   } = $props();
+
+  /**
+   * Front/Rueck-Wechsel sitzt auf der EIGENEN Kachel, nicht in der Knopfreihe
+   * (Entwurf 23a).
+   *
+   * Zwei Gruende: er betrifft genau dieses Bild, und die Reihe muss einzeilig
+   * bleiben — mit ihm waeren es auf dem Handy fuenf runde 56-px-Knoepfe, und
+   * die passen nebeneinander nicht mehr.
+   *
+   * `mirror` ist der verlaessliche Hinweis auf die eigene Kachel: die
+   * Selbst-Vorschau wird gespiegelt gerendert, fremde nie.
+   */
+  const zeigtKameraWechsel = $derived(mirror && viewport.isMobile && voice.isCameraOn);
 
   let videoEl = $state<HTMLVideoElement | null>(null);
 
@@ -51,6 +68,18 @@
   video={videoEl}
   onHide={onHide ?? (() => openedTiles.close('cam', channelId, identity))}
 >
+  {#snippet overlay()}
+    {#if zeigtKameraWechsel}
+      <button
+        class="absolute bottom-2 right-2 z-10 flex size-11 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm"
+        onclick={() => void voice.flipCamera()}
+        data-testid="camera-tile-flip"
+        aria-label={m.voice_bar_camera_switch()}
+      >
+        <SwitchCameraIcon class="size-5" />
+      </button>
+    {/if}
+  {/snippet}
   {#snippet media()}
     <!-- svelte-ignore a11y_media_has_caption -->
     <video

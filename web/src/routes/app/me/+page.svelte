@@ -16,6 +16,7 @@
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import LogOutIcon from '@lucide/svelte/icons/log-out';
   import { auth } from '$lib/stores/auth.svelte';
+  import { settings } from '$lib/stores/settings.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
@@ -51,7 +52,7 @@
     })
   );
 
-  let eintraege = $derived(
+  let sichtbar = $derived(
     sichtbareReiter(tabs, {
       istMobil: viewport.isMobile,
       imBrowser: inBrowser,
@@ -59,6 +60,44 @@
       zeigtStandplatz
     })
   );
+
+  /**
+   * Benachrichtigungen nach oben.
+   *
+   * Am Rechner steht der Reiter in der Mitte der Liste, und das ist dort
+   * richtig — man sitzt ohnehin vor dem Bildschirm. Am Telefon ist „wann
+   * meldet sich das Ding" die mit Abstand haeufigste Frage an die
+   * Einstellungen; sie gehoert an die erste Stelle statt hinter Ton und
+   * Erscheinungsbild.
+   */
+  let eintraege = $derived.by(() => {
+    const liste = sichtbar.slice();
+    const i = liste.findIndex((t) => t.id === 'notifications');
+    if (i > 0) liste.unshift(liste.splice(i, 1)[0]!);
+    return liste;
+  });
+
+  /**
+   * Der aktuelle Wert rechts neben einem Eintrag (Entwurf 14a/15a).
+   *
+   * Bewusst nur dort, wo es EINEN Wert gibt, der die Sektion zusammenfasst.
+   * „Sprache & Video" oder „Sicherheit" haben keinen solchen Wert; eine
+   * erfundene Zusammenfassung waere schlechter als eine leere Stelle.
+   */
+  function wert(id: string): string {
+    if (id === 'appearance') {
+      const t = settings.appearance.theme;
+      return t === 'dark'
+        ? m.settings_appearance_theme_dark_label()
+        : t === 'light'
+          ? m.settings_appearance_theme_light_label()
+          : m.settings_appearance_theme_system_label();
+    }
+    if (id === 'notifications') {
+      return settings.notifications.browserPushEnabled ? m.me_value_on() : m.me_value_off();
+    }
+    return '';
+  }
 
   let anzeigename = $derived(auth.user?.display_name || auth.user?.username || '');
 
@@ -116,6 +155,9 @@
         >
           <Symbol class="text-text-muted size-5 shrink-0" />
           <span class="text-text-bright flex-1 truncate text-sm font-medium">{eintrag.label}</span>
+          {#if wert(eintrag.id)}
+            <span class="text-text-muted shrink-0 text-xs">{wert(eintrag.id)}</span>
+          {/if}
           <ChevronRightIcon class="text-text-muted size-4 shrink-0" />
         </button>
       {/each}

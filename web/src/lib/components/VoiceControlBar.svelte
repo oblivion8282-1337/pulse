@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
+  import { m } from '$lib/paraglide/messages.js';
   import * as Tooltip from '$lib/components/ui/tooltip/index.js';
   import MicIcon from '@lucide/svelte/icons/mic';
   import MicOffIcon from '@lucide/svelte/icons/mic-off';
@@ -110,7 +111,7 @@
       aria-hidden="true"
     ></span>
     <span class="text-text-muted shrink-0">
-      {voice.connecting ? 'Verbinden' : 'Voice'}
+      {voice.connecting ? m.voice_bar_connecting() : m.voice_bar_label()}
     </span>
     {#if voice.channelName}
       <span class="text-text-bright truncate font-semibold" title={voice.channelName}>
@@ -133,10 +134,10 @@
               disabled={selfForceMuted}
               data-testid="voice-mic-toggle"
               aria-label={selfForceMuted
-                ? 'Vom Mod stummgeschaltet'
+                ? m.voice_bar_force_muted()
                 : voice.micEnabled
-                  ? 'Mikrofon stummschalten'
-                  : 'Mikrofon aktivieren'}
+                  ? m.voice_bar_mic_mute()
+                  : m.voice_bar_mic_unmute()}
             >
               {#if voice.micEnabled && !selfForceMuted}<MicIcon class={iconCls} />{:else}<MicOffIcon class={iconCls} />{/if}
               {#if selfForceMuted}
@@ -150,9 +151,9 @@
         </Tooltip.Trigger>
         <Tooltip.Content>
           {#if selfForceMuted}
-            Vom Mod stummgeschaltet
+            {m.voice_bar_force_muted()}
           {:else}
-            {voice.micEnabled ? 'Mikrofon stumm' : 'Mikrofon an'}
+            {voice.micEnabled ? m.voice_bar_mic_state_muted() : m.voice_bar_mic_state_on()}
           {/if}
         </Tooltip.Content>
       </Tooltip.Root>
@@ -169,10 +170,10 @@
               disabled={selfForceDeafened}
               data-testid="voice-deafen-toggle"
               aria-label={selfForceDeafened
-                ? 'Vom Mod taubgeschaltet'
+                ? m.voice_bar_force_deafened()
                 : voice.deafened
-                  ? 'Ton aktivieren'
-                  : 'Ton stummschalten'}
+                  ? m.voice_bar_undeafen()
+                  : m.voice_bar_deafen()}
             >
               {#if voice.deafened}<HeadphoneOffIcon class={iconCls} />{:else}<HeadphonesIcon class={iconCls} />{/if}
               {#if selfForceDeafened}
@@ -186,16 +187,16 @@
         </Tooltip.Trigger>
         <Tooltip.Content>
           {#if selfForceDeafened}
-            Vom Mod taubgeschaltet
+            {m.voice_bar_force_deafened()}
           {:else}
-            {voice.deafened ? 'Taub (alle stumm)' : 'Ton an'}
+            {voice.deafened ? m.voice_bar_deafen_state_on() : m.voice_bar_deafen_state_off()}
           {/if}
         </Tooltip.Content>
       </Tooltip.Root>
 
       <!-- Lautsprecher/Hörmuschel-Umschalter — nur in der Android-App (nativer
            AudioRoute-Toggle). Behebt den earpiece-Default im Kommunikationsmodus. -->
-      {#if showAudioRouteToggle}
+      {#if showAudioRouteToggle && !viewport.isMobile}
         <Tooltip.Root>
           <Tooltip.Trigger>
             {#snippet child({ props })}
@@ -206,14 +207,16 @@
                 class={btnCls}
                 onclick={toggleAudioRoute}
                 data-testid="voice-audio-route-toggle"
-                aria-label={speakerOn ? 'Auf Hörmuschel umschalten' : 'Auf Lautsprecher umschalten'}
+                aria-label={speakerOn
+                  ? m.voice_bar_route_to_earpiece()
+                  : m.voice_bar_route_to_speaker()}
               >
                 {#if speakerOn}<Volume2Icon class={iconCls} />{:else}<EarIcon class={iconCls} />{/if}
               </Button>
             {/snippet}
           </Tooltip.Trigger>
           <Tooltip.Content>
-            {speakerOn ? 'Lautsprecher (tippen für Hörmuschel)' : 'Hörmuschel (tippen für Lautsprecher)'}
+            {speakerOn ? m.voice_bar_route_speaker_hint() : m.voice_bar_route_earpiece_hint()}
           </Tooltip.Content>
         </Tooltip.Root>
       {/if}
@@ -234,20 +237,24 @@
                 class={btnCls}
                 onclick={() => voice.toggleCamera()}
                 data-testid="voice-camera-toggle"
-                aria-label={voice.isCameraOn ? 'Kamera ausschalten' : 'Kamera einschalten'}
+                aria-label={voice.isCameraOn ? m.voice_bar_camera_disable() : m.voice_bar_camera_enable()}
               >
                 {#if voice.isCameraOn}<VideoIcon class={iconCls} />{:else}<VideoOffIcon class={iconCls} />{/if}
               </Button>
             {/snippet}
           </Tooltip.Trigger>
           <Tooltip.Content>
-            {voice.isCameraOn ? 'Kamera aus' : 'Kamera an'}
+            {voice.isCameraOn ? m.voice_bar_camera_off() : m.voice_bar_camera_on()}
           </Tooltip.Content>
         </Tooltip.Root>
 
         <!-- Front-/Rückkamera umschalten — nur auf Touch-Geräten (Handy/Tablet)
-             mit zwei Kameras; auf Desktop (App/Browser) sinnlos. -->
-        {#if voice.isCameraOn && isTouchDevice}
+             mit zwei Kameras; auf Desktop (App/Browser) sinnlos.
+             **Auf dem Handy sitzt er stattdessen auf der eigenen Kachel**
+             (`CameraTile`, Entwurf 23a): er betrifft genau dieses Bild, und
+             als fuenfter runder 56-px-Knopf spraengte er die einzeilige
+             Reihe. Auf dem Tablet ist der Platz da, dort bleibt er hier. -->
+        {#if voice.isCameraOn && isTouchDevice && !viewport.isMobile}
           <Tooltip.Root>
             <Tooltip.Trigger>
               {#snippet child({ props })}
@@ -258,13 +265,13 @@
                   class={btnCls}
                   onclick={() => voice.flipCamera()}
                   data-testid="voice-camera-flip"
-                  aria-label="Kamera wechseln"
+                  aria-label={m.voice_bar_camera_switch()}
                 >
                   <SwitchCameraIcon class={iconCls} />
                 </Button>
               {/snippet}
             </Tooltip.Trigger>
-            <Tooltip.Content>Kamera wechseln (Front/Rück)</Tooltip.Content>
+            <Tooltip.Content>{m.voice_bar_camera_switch_hint()}</Tooltip.Content>
           </Tooltip.Root>
         {/if}
       {/if}
@@ -284,13 +291,13 @@
               class="ml-auto max-md:ml-0 {btnCls}"
               onclick={() => voice.disconnect({ reason: 'user' })}
               data-testid="voice-disconnect"
-              aria-label="Voice verlassen"
+              aria-label={m.voice_bar_leave()}
             >
               <PhoneOffIcon class={iconCls} />
             </Button>
           {/snippet}
         </Tooltip.Trigger>
-        <Tooltip.Content>Voice verlassen</Tooltip.Content>
+        <Tooltip.Content>{m.voice_bar_leave()}</Tooltip.Content>
       </Tooltip.Root>
     </Tooltip.Provider>
   </div>

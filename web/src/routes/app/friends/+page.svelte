@@ -69,18 +69,32 @@
   }}
 />
 
-{#if !viewport.isMobile || navDrawer.open}
+<!-- Die DM-Spalte gehoert ab `md` neben die Freunde; auf dem Handy sind
+     private Gespraeche ein eigener Bereich (Chats), eine zweite Liste hier
+     waere derselbe Inhalt an zwei Orten. -->
+{#if !viewport.isMobile}
   <DMChannelList activeDMId={null} onSelect={selectDM} />
 {/if}
 
-{#if !viewport.isMobile || !navDrawer.open}
+{#if true}
   <section
     class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl"
     data-testid="friends-page"
   >
-    <header class="border-border/40 flex items-center gap-4 border-b px-4 py-3">
-      <h1 class="text-text-bright text-base font-semibold">{m.friends_page_title()}</h1>
-      <nav class="flex flex-wrap gap-1" data-testid="friends-tabs">
+    <header
+      class="border-border/40 flex flex-col gap-2 border-b px-4 py-3 md:flex-row md:items-center md:gap-4"
+    >
+      <h1
+        class="text-text-bright text-[22px] font-extrabold tracking-tight md:text-base md:font-semibold"
+      >{m.friends_page_title()}</h1>
+      <!-- Auf dem Handy scrollt die Reiter-Reihe waagerecht, statt in zwei
+           Zeilen umzubrechen: fuenf Reiter passen auf 390 px nicht nebeneinander,
+           und eine zweite Zeile schoebe die Liste bei jedem Wechsel hoch und
+           runter. -->
+      <nav
+        class="-mx-1 flex gap-1.5 overflow-x-auto px-1 md:mx-0 md:flex-wrap md:overflow-visible md:px-0"
+        data-testid="friends-tabs"
+      >
         {#each TABS as t (t.key)}
           {@const isActive = activeTab === t.key}
           {@const badge =
@@ -89,7 +103,7 @@
               : 0}
           <button
             type="button"
-            class="hover:bg-bg-hover relative rounded-md px-3 py-1 text-sm font-medium transition-colors {isActive
+            class="hover:bg-bg-hover relative flex min-h-12 shrink-0 items-center rounded-full px-3.5 py-1.5 text-[13px] font-semibold transition-colors md:min-h-0 md:rounded-md md:py-1 md:text-sm md:font-medium {isActive
               ? 'bg-[var(--accent-soft)] text-primary'
               : 'text-text-muted hover:text-text-bright'}"
             onclick={() => switchTab(t.key)}
