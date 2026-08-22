@@ -58,17 +58,19 @@
 //! selbst im Zuschnitt: wenige Pakete → wenige oder gar keine Gruppen, grosse
 //! Bilder → mehr Gruppen im selben Fenster.
 //!
-//! **Die Linux/Mac-Schwester weicht bewusst ab** (`linux-hq-sidecar/src/whip/
-//! pacer.rs`, dort und in `mac-hq-sidecar` am 2026-07-28 nach eigener
-//! Leitungsmessung gebaut): gleiches Prinzip, anderer Zuschnitt (dort fester
-//! `GRUPPEN_ABSTAND`, hier `zuschnitt` mit Fenster/Gruppen-Teilung nach
-//! Paketzahl). Welcher Zuschnitt besser ist, ist nicht gemessen. Wer einen
+//! **Die Schwester weicht bewusst ab** — sie liegt seit dem 2026-08-22
+//! gemeinsam in `pulse-whip::pacer` und bedient Linux UND macOS (beide
+//! rechneten ohnehin Zeichen fuer Zeichen gleich). Gleiches Prinzip, anderer
+//! Zuschnitt: dort ein fester `GRUPPEN_ABSTAND`, hier `zuschnitt` mit
+//! Fenster/Gruppen-Teilung nach Paketzahl. Der Unterschied wird bei KLEINEN
+//! Bildern sichtbar — ein Zwei-Paket-Bild ist dort nach 2,5 ms hinaus, hier
+//! nach 6,7 ms; bei grossen Bildern sind beide praktisch gleich (12,5 gegen
+//! 11,1 ms). Welcher Zuschnitt besser ist, ist NICHT gemessen. Wer einen
 //! Pacer-Fehler behebt, sieht sich BEIDE an.
 //!
-//! **Kein Test haelt die beiden zusammen.** Seit `av1.rs` und `sdp.rs` am
-//! 2026-08-20 gemeinsam in `pulse-whip` liegen, sind `pacer.rs` und `mod.rs`
-//! die beiden LETZTEN doppelt vorliegenden Dateien des Sendewegs. Der Pacer
-//! bleibt dabei absichtlich doppelt — s. oben.
+//! **Kein Test haelt sie zusammen** — sie sind ja verschieden. Seit `av1.rs`
+//! und `sdp.rs` am 2026-08-20 gemeinsam liegen, sind `pacer.rs` und `mod.rs`
+//! die letzten Dateien des Sendewegs, die dieser Sidecar noch allein traegt.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};

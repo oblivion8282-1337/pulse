@@ -1,5 +1,12 @@
 # Übergabe: Etappen 1 und 2 auf dem Windows- und dem Linux-Rechner prüfen
 
+> **ÜBERHOLT am 2026-08-22 — nicht mehr danach arbeiten.**
+> Seither sind eine fünfte Kiste (`pulse-bildmarke`) und die Pacer-Zusammenlegung
+> dazugekommen, und im Flatpak-Manifest fehlte ein Eintrag, der den Bau ohne Netz
+> gebrochen hätte. Der gültige Prüfauftrag ist
+> **`docs/plans/2026-08-22-uebergabe-gemeinsame-bausteine.md`**.
+> Dieses Dokument bleibt als Protokoll des Zwischenstands stehen.
+
 **Stand 2026-08-20. Zweig `feat/gemeinsame-bausteine`. Nicht gelandet — die Etappe wartet auf genau diese beiden Rückmeldungen.**
 
 Geschrieben auf dem Mac. Der Windows- und der Linux-Sidecar bauen dort nicht (keine passende FFmpeg-Distribution, keine vendored Abhängigkeiten), und Flatpak schon gar nicht. Alles unten ist auf dem Mac **durch Lesen** geprüft und **nicht übersetzt worden**. Genau das holt ihr nach.

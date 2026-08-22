@@ -1,5 +1,12 @@
 # Übergabe: Etappen 3 und 4 auf dem Windows- und dem Linux-Rechner prüfen
 
+> **ÜBERHOLT am 2026-08-22 — nicht mehr danach arbeiten.**
+> Seither sind eine fünfte Kiste (`pulse-bildmarke`) und die Pacer-Zusammenlegung
+> dazugekommen, und im Flatpak-Manifest fehlte ein Eintrag, der den Bau ohne Netz
+> gebrochen hätte. Der gültige Prüfauftrag ist
+> **`docs/plans/2026-08-22-uebergabe-gemeinsame-bausteine.md`**.
+> Dieses Dokument bleibt als Protokoll des Zwischenstands stehen.
+
 **Stand 2026-08-20. Zweig `feat/gemeinsame-bausteine`. Nicht gelandet.**
 
 Zweiter Teil der Übergabe; der erste ist `docs/plans/2026-08-20-uebergabe-etappe-1-2.md`. **Beide gehören zusammen** — dieselben Maschinen, derselbe Zweig, ein Durchgang. Wenn du beides an einem Stück machst, prüf zuerst das andere Dokument, dann dieses.
