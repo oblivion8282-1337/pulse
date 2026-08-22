@@ -177,14 +177,17 @@ Das ist die **zweite** Zeilenenden-Falle im Repo; die erste steht im `CLAUDE.md`
 
 **Die Ursache war zunächst falsch zugeordnet** und ist beim Zusammenlegen des Taktgebers aufgefallen: Es liegt nicht am Betriebssystem, sondern an der **Testbinärdatei**. Der ausgelieferte Sidecar hebt die Zeitgeber-Auflösung prozessweit auf 1 ms (`timeBeginPeriod(1)` in `main.rs`), der Testlauf tut das nicht — dort liegen die Wartezeiten auf dem 15,6-ms-Raster. Über die echte Leitung gemessen hält derselbe Zuschnitt sein Soll auf 0,44 ms genau. Scharf zu stellen wäre er mit demselben Aufruf im Test; das verlangt die `windows`-Kiste als Dev-Abhängigkeit einer bislang abhängigkeitsarmen Crate und ist deshalb nicht nebenbei entschieden.
 
-## Noch offen — braucht einen laufenden Stream
+## Am laufenden Stream geprüft
 
-Nicht abgearbeitet, weil ein Zuschauer dazugehört:
+Mehrere Streams über den gemeinsamen Dev-Stack, Sidecar aus `target/release` des Zweigs (nicht der installierte), AMD 780M:
 
-- [ ] AV1-Bild beim Zuschauer
-- [ ] `[whip] Bildmarke ausgehandelt als extmap N` im Protokoll
-- [ ] Zeigerformen über die Fernsteuerung, auch die selbstgemalten (Resolve/Premiere/Blender)
-- [ ] Protokoll auf Stream-Schlüssel absuchen (Start-Antwort, argv, Fehlerketten)
+- [x] **AV1-Bild beim Zuschauer** — `av1_amf` offen, `Ausgabe: angemeldeter Sendeweg (nicht der Muxer)`, also der eigene WHIP-Weg aus der gemeinsamen Kiste. Bild kam an, vom Nutzer bestätigt.
+- [x] **`[whip] Bildmarke ausgehandelt als extmap 1`** — bei jedem Start im Protokoll.
+- [x] **Rückkanal** — „Vollbild angefordert" samt Auslieferung binnen Millisekunden, mehrfach.
+- [x] **Protokoll auf Stream-Schlüssel** — an allen drei Stellen nachgesehen (eingehender Startbefehl, `argv`, `push_url`), über den ganzen Lauf **kein Schlüssel im Klartext**; ebensowenig in den 5589 Zeilen davor.
+- [ ] **Zeigerformen über die Fernsteuerung** (Textfeld, Fensterrand, selbstgemalter Zeiger aus Resolve/Premiere/Blender) — **beim Abschluss der Sitzung nicht ausdrücklich einzeln bestätigt.** Wer als Nächster an einer Windows-Maschine sitzt, fährt das nach; es ist der Weg durch `pulse-zeigerbild`, und der ist sonst nirgends im Betrieb geprüft.
+
+**Zur Reichweite der Schlüssel-Prüfung:** Auf der Platte landet nichts, aber die Maskierung, die dort greift, ist die **Electron-seitige** (`desktop/electron/sidecar-log.ts`) — es gibt zwei Schichten. Die Rust-seitige, also die mit der Verhaltensänderung, feuert nur auf Fehlerpfaden; alle Läufe waren fehlerfrei. Sie ist durch zwölf Einzeltests abgedeckt, nicht durch einen Stream. Nebenbei: Die Electron-Schicht kennt `token=` und `pass=`, aber **nicht `streamid=`** — heute folgenlos, weil nur WHIP benutzt wird.
 
 ## Ein dritter Befund, ebenfalls behoben
 
@@ -195,3 +198,19 @@ Das ist die unangenehmere Hälfte derselben Falle, die der Wächter fürs Flatpa
 Eingetragen, und daneben ein zweiter Wächter (`streaming/zwillinge/tests/bau_ausloeser.rs`), der je Ablauf nachrechnet, welche Kisten die Programme brauchen, die er baut. Rekursiv, und geprüft wird nur die Richtung, die weh tut — ein Eintrag zu viel kostet einen unnötigen Bau, einer zu wenig liefert alten Code aus. Gegenprobe gefahren. Die Abhängigkeits-Rechnung liegt jetzt einmal in `zwillinge::kisten_von` und wird von beiden Wächtern benutzt.
 
 **Für Linux heisst das:** `packaging/com.howispulse.Pulse.yml` ist unverändert — der Flatpak-Teil des Auftrags oben steht genau so weiter offen.
+
+---
+
+# WAS LINUX NOCH ZU TUN HAT
+
+Der LINUX-Abschnitt oben gilt unverändert. Seit er geschrieben wurde, ist auf der Windows-Maschine allerdings etwas dazugekommen, das Linux mitbetrifft:
+
+**Der Taktgeber ist jetzt bei allen dreien derselbe** (s. Nachtrag oben). Für Linux ändert sich am Verhalten **nichts** — es fährt schon seit dem 2026-08-22 vormittags den gemeinsamen, und dessen Rechnung ist unangetastet. Geändert haben sich nur der Modulkopf, ein Test-Attribut und die Doku. Trotzdem gehört der Linux-Bau danach einmal durchgelassen, weil `pulse-whip` angefasst wurde.
+
+Damit sind es für Linux drei Dinge:
+
+1. **`cd streaming/linux-hq-sidecar && cargo test`** — und `Cargo.lock` mitcommitten (kennt die Kisten noch nicht).
+2. **Der Flatpak-Bau** — der wichtigste Punkt, und nur dort prüfbar. Danach müssen BEIDE Binärdateien liegen. Der Wächter `streaming/zwillinge/tests/flatpak_kisten.rs` rechnet die Manifest-Einträge zwar nach, aber er ersetzt den Bau nicht: Er prüft, ob jede Kiste GENANNT ist, nicht ob der Bau durchläuft.
+3. **Ein echter Stream** mit AV1-Bild beim Zuschauer, der Bildmarken-Zeile im Protokoll und der Schlüssel-Prüfung.
+
+**Was Linux NICHT nachholen muss:** die beiden Test-Befunde von Windows (Zeilenenden, flatternder Verteilungs-Test). Beide waren Windows-eigen und sind behoben; auf Linux waren sie ohnehin grün.
