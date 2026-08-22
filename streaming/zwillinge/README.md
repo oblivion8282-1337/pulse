@@ -23,6 +23,30 @@ zur Uebersetzungszeit aus dem Repo, es muss also nichts von den fremden
 Plattformen gebaut werden; die Tests laufen deshalb auf jeder Maschine und in
 der CI (`.github/workflows/ci.yml`, Job `zwillinge`).
 
+## Zweite Aufgabe: Listen von Hand nachrechnen
+
+Seit die Doppelungen in gemeinsame Kisten (`pulse-*`) gezogen sind, steht an
+mehreren Stellen im Repo je eine Liste, welche Kiste ein Programm braucht.
+Diese Listen pflegt niemand automatisch, und eine fehlende Zeile faellt
+jeweils nur auf **einer** der drei Maschinen auf — deshalb gehoeren sie
+hierher, in die Crate, die ueberall laeuft.
+
+| Test | Liste | was passiert, wenn eine Kiste fehlt |
+|---|---|---|
+| `tests/flatpak_kisten.rs` | `type: dir`-Quellen in `packaging/com.howispulse.Pulse.yml` | Flatpak-Bau **bricht** (cargo `--offline` findet die Pfad-Abhaengigkeit nicht) — nur dort, und erst in der CI nach dem Merge |
+| `tests/bau_ausloeser.rs` | `on.push.paths` in `win-build.yml`, `mac-build.yml`, `flatpak.yml` | Es bricht **gar nichts**: der Bau laeuft nicht, und das Ausgelieferte bleibt still auf dem alten Stand |
+
+Der zweite Fall ist der unangenehmere, weil es keinen Knall gibt. Beide Listen
+gehen getrennt kaputt — `pulse-bildmarke` fehlte am 2026-08-22 in beiden.
+
+Beide rechnen die Abhaengigkeiten **rekursiv** ueber
+`zwillinge::kisten_von`: `pulse-whip` haengt selbst an `pulse-zeitbasis` und
+`pulse-bildmarke`, eine Liste der direkt genannten Abhaengigkeiten uebersaehe
+sie. Und beide werten **zeilenweise** aus statt byteweise — ein byteweiser
+Vergleich mit `\n` findet auf Windows nichts, weil Git die Zeilenenden beim
+Auschecken umwandelt (genau daran war die erste Fassung von
+`flatpak_kisten.rs` gescheitert).
+
 ## Was hier bewacht wird — und was nicht
 
 Am 2026-08-20 gemessen, Abweichung in Rohzeilen und nach Herausfiltern ganzer

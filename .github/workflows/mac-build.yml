@@ -31,15 +31,22 @@ on:
     paths:
       - 'desktop/**'
       - 'streaming/mac-hq-sidecar/**'
-      # streaming/pulse-{redact,zeitbasis,whip}/** liegen ausserhalb von
-      # mac-hq-sidecar/, obwohl der Mac-Sidecar dagegen linkt (seit dem
-      # Zusammenlegen der vormals mehrfachen Dateien in gemeinsame Crates).
-      # Ohne diese Einträge löst eine Änderung dort keinen DMG-Build aus, und
-      # das ausgelieferte Bundle trüge weiter den alten Stand. pulse-zeigerbild
-      # fehlt hier bewusst — der Mac-Sidecar linkt nicht dagegen.
+      # Die gemeinsamen Kisten liegen ausserhalb von mac-hq-sidecar/, obwohl der
+      # Mac-Sidecar dagegen linkt (seit dem Zusammenlegen der vormals mehrfachen
+      # Dateien in gemeinsame Crates). Ohne diese Einträge löst eine Änderung
+      # dort keinen DMG-Build aus, und das ausgelieferte Bundle trüge weiter den
+      # alten Stand. pulse-zeigerbild fehlt hier bewusst — der Mac-Sidecar linkt
+      # nicht dagegen (es trägt das Zeigerbild der Fernsteuerung, die es nur
+      # unter Windows gibt).
+      #
+      # Die Liste muss REKURSIV vollständig sein: pulse-whip hängt selbst an
+      # pulse-zeitbasis und pulse-bildmarke. Nachgerechnet wird das von
+      # streaming/zwillinge/tests/bau_ausloeser.rs — wer hier etwas ändert,
+      # bekommt dort die Gegenprobe.
       - 'streaming/pulse-redact/**'
       - 'streaming/pulse-zeitbasis/**'
       - 'streaming/pulse-whip/**'
+      - 'streaming/pulse-bildmarke/**'
       - '.github/workflows/mac-build.yml'
   workflow_dispatch: {}
 

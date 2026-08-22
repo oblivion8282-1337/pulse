@@ -15,6 +15,15 @@
 //!
 //! **Diese Crate aendert nie Produktivcode.** Wird ein Test rot, ist das der
 //! Befund — nicht der Test.
+//!
+//! **Zweite Aufgabe seit dem 2026-08-20: Listen von Hand nachrechnen.** Seit
+//! die Doppelungen in gemeinsame Kisten (`pulse-*`) gezogen sind, steht an
+//! mehreren Stellen im Repo je eine Liste, welche Kiste ein Programm braucht —
+//! im Flatpak-Manifest und in den Pfad-Filtern der Bau-Ablaeufe. Diese Listen
+//! pflegt niemand automatisch, und eine fehlende Zeile faellt jeweils nur auf
+//! einer der drei Maschinen auf (s. `tests/flatpak_kisten.rs` und
+//! `tests/bau_ausloeser.rs`). Dafuer stehen [`streaming`] und [`kisten_von`]
+//! hier: beide Tests brauchen dieselbe Rechnung.
 
 /// Entfernt Zeilenkommentare und Leerzeilen, damit nur die Logik verglichen
 /// wird.
@@ -59,9 +68,67 @@ pub fn ohne_kommentare(quelle: &str) -> String {
         .join("\n")
 }
 
+/// `streaming/` — der Elternordner dieser Test-Crate.
+///
+/// Ueber `CARGO_MANIFEST_DIR` statt ueber das Arbeitsverzeichnis, damit die
+/// Tests unabhaengig davon laufen, aus welchem Ordner `cargo test` gerufen
+/// wurde.
+pub fn streaming() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("streaming/")
+        .to_path_buf()
+}
+
+/// Die Repo-Wurzel.
+pub fn wurzel() -> std::path::PathBuf {
+    streaming().parent().expect("Repo-Wurzel").to_path_buf()
+}
+
+/// Die `pulse-*`-Pfad-Abhaengigkeiten eines Pakets, **rekursiv** aufgeloest.
+///
+/// **Rekursiv ist hier nicht Feinschliff, sondern der Kern.** `pulse-whip`
+/// haengt selbst an `pulse-zeitbasis` und `pulse-bildmarke`. Ein Programm, das
+/// in seiner `Cargo.toml` nur `pulse-whip` nennt, braucht die beiden trotzdem
+/// im Bauordner und muss bei einer Aenderung an ihnen neu gebaut werden. Eine
+/// Liste der direkt genannten Abhaengigkeiten uebersaehe das.
+///
+/// Bewusst ein Zeilen-Vergleich statt eines TOML-Parsers: diese Crate ist
+/// abhaengigkeitsfrei, damit sie auf jeder Maschine in Sekunden baut. Erkannt
+/// wird die Form, in der die Abhaengigkeiten im Repo geschrieben stehen —
+/// `pulse-foo = { path = "../pulse-foo" }`.
+pub fn kisten_von(paket: &str, gefunden: &mut std::collections::BTreeSet<String>) {
+    let pfad = streaming().join(paket).join("Cargo.toml");
+    let Ok(inhalt) = std::fs::read_to_string(&pfad) else {
+        panic!("{} nicht lesbar — Paket umbenannt oder verschoben?", pfad.display());
+    };
+    for zeile in inhalt.lines() {
+        let zeile = zeile.trim();
+        if !zeile.starts_with("pulse-") || !zeile.contains("path") {
+            continue;
+        }
+        let Some(name) = zeile.split_whitespace().next() else { continue };
+        if gefunden.insert(name.to_string()) {
+            kisten_von(name, gefunden); // rekursiv: Kisten haengen an Kisten
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Die Rechnung muss ueber `pulse-whip` hinweg auch dessen eigene Kisten
+    /// finden — sonst waere jede Liste, die auf ihr aufbaut, zu kurz.
+    #[test]
+    fn kisten_von_loest_ueber_zwei_ebenen_auf() {
+        let mut gefunden = std::collections::BTreeSet::new();
+        kisten_von("pulse-whip", &mut gefunden);
+        assert!(
+            gefunden.contains("pulse-zeitbasis") && gefunden.contains("pulse-bildmarke"),
+            "pulse-whip haengt an beiden — gefunden: {gefunden:?}"
+        );
+    }
 
     #[test]
     fn kommentare_und_leerzeilen_fallen_weg() {

@@ -31,35 +31,7 @@
 
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::{Path, PathBuf};
-
-/// `streaming/` — der Elternordner dieser Test-Crate.
-fn streaming() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).parent().expect("streaming/").to_path_buf()
-}
-
-/// Die `pulse-*`-Pfad-Abhaengigkeiten einer `Cargo.toml`, rekursiv aufgeloest.
-///
-/// Bewusst ein Zeilen-Vergleich statt eines TOML-Parsers: diese Crate ist
-/// abhaengigkeitsfrei, damit sie auf jeder Maschine in Sekunden baut. Erkannt
-/// wird die Form, in der die Abhaengigkeiten im Repo geschrieben stehen —
-/// `pulse-foo = { path = "../pulse-foo" }`.
-fn kisten_von(paket: &str, gefunden: &mut BTreeSet<String>) {
-    let pfad = streaming().join(paket).join("Cargo.toml");
-    let Ok(inhalt) = fs::read_to_string(&pfad) else {
-        panic!("{} nicht lesbar — Paket umbenannt oder verschoben?", pfad.display());
-    };
-    for zeile in inhalt.lines() {
-        let zeile = zeile.trim();
-        if !zeile.starts_with("pulse-") || !zeile.contains("path") {
-            continue;
-        }
-        let Some(name) = zeile.split_whitespace().next() else { continue };
-        if gefunden.insert(name.to_string()) {
-            kisten_von(name, gefunden); // rekursiv: Kisten haengen an Kisten
-        }
-    }
-}
+use zwillinge::{kisten_von, wurzel};
 
 /// Die `type: dir`-Quellen EINES Moduls des Flatpak-Manifests.
 ///
@@ -107,7 +79,7 @@ const MODULE: &[(&str, &str)] =
 
 #[test]
 fn flatpak_traegt_jede_gebrauchte_kiste() {
-    let manifest_pfad = streaming().parent().expect("Repo-Wurzel").join("packaging/com.howispulse.Pulse.yml");
+    let manifest_pfad = wurzel().join("packaging/com.howispulse.Pulse.yml");
     let manifest = fs::read_to_string(&manifest_pfad)
         .unwrap_or_else(|e| panic!("{} nicht lesbar: {e}", manifest_pfad.display()));
 
@@ -152,7 +124,7 @@ fn flatpak_traegt_jede_gebrauchte_kiste() {
 /// pruefen.
 #[test]
 fn die_auswertung_findet_ueberhaupt_etwas() {
-    let manifest_pfad = streaming().parent().expect("Repo-Wurzel").join("packaging/com.howispulse.Pulse.yml");
+    let manifest_pfad = wurzel().join("packaging/com.howispulse.Pulse.yml");
     let manifest = fs::read_to_string(&manifest_pfad).expect("Manifest lesbar");
 
     for (modul, paket) in MODULE {
