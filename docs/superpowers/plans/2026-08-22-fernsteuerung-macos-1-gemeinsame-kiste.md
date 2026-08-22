@@ -186,7 +186,7 @@ Dann in der Kopie **genau vier** Änderungen:
 3. Die Opcode-Literale im `match` durch die Konstanten ersetzen: `0x00 =>` wird `OP_HELLO =>`, `0x01 =>` wird `OP_MAUS_ABS =>`, und so weiter für `OP_MAUS_REL`, `OP_MAUS_KNOPF`, `OP_MAUS_RAD`, `OP_TASTE`. (Rust erlaubt Konstanten als Match-Muster.)
 4. Im Test `hello_v1_ist_wohlgeformt_aber_alt` bleibt `PROTOKOLL_VERSION` gültig, weil es über `format::*` hereinkommt — nichts zu tun.
 
-Die Modul-Doku bleibt sonst **wortgleich**; der Verweis „`streaming/win-hq-sidecar/src/remote_input.rs`" wird zu „der Injektor der jeweiligen Plattform".
+Die Modul-Doku bleibt sonst **wortgleich**.
 
 - [ ] **Step 4: `bauen.rs` aus dem Player holen**
 
@@ -199,7 +199,8 @@ Dann in der Kopie:
 
 1. Die Konstanten-Blöcke löschen (`PROTOKOLL_VERSION`, `OP_*`, `RASTE`, `enum Knopf`) — sie stehen in `format`.
 2. Oben einfügen: `use crate::format::*;`
-3. Sonst nichts. `hello()`, `maus_abs()`, `maus_rel()`, `maus_knopf()`, `maus_rad()`, `taste()`, `anteil_zu_u16()`, `Rastensammler`, `Rahmen` und alle Tests bleiben wortgleich.
+3. Die vier Doku-Verweise nachziehen, die in der Kiste ins Leere zeigen: `[`super`]` und der Pfad `streaming/win-hq-sidecar/src/remote_input.rs` im Modulkopf, sowie `[`super::schlange`]` und `[`super::Erfassung`]` weiter unten. Im Player war `super` das Modul `fernsteuerung`; in der Kiste ist es die Wurzel, und `cargo doc --no-deps` meldet die beiden letzten. Ersetzen durch schlichte Code-Auszeichnung mit dem Zusatz „im Player" bzw. durch [`crate::rahmen`].
+4. Sonst nichts. `hello()`, `maus_abs()`, `maus_rel()`, `maus_knopf()`, `maus_rad()`, `taste()`, `anteil_zu_u16()`, `Rastensammler`, `Rahmen` und alle Tests bleiben wortgleich.
 
 - [ ] **Step 5: `lib.rs` schreiben**
 
