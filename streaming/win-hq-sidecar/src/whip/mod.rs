@@ -195,8 +195,10 @@ struct Bildspur {
     zustand: Mutex<(SpurZustand, Paketierer)>,
     /// Verteilt die Pakete eines Bildes ueber die Zeit statt sie als Schwall
     /// zu senden (Zahlen in [`pacer`]). `PULSE_WHIP_PACING=0` schaltet die
-    /// Verteilung zum Gegenmessen ab.
-    pacer: Option<pacer::Pacer>,
+    /// Verteilung zum Gegenmessen ganz ab, `PULSE_WHIP_PACER=gemeinsam` nimmt
+    /// statt des Windows-eigenen den Zuschnitt von Linux und macOS
+    /// (s. [`pacer::Takt`]).
+    pacer: Option<pacer::Takt>,
     track: Arc<TrackLocalStaticRTP>,
 }
 
@@ -326,7 +328,7 @@ impl WhipSender {
             // Paket-Gruppen (s. [`pacer`]); `PULSE_WHIP_PACING=0` ist der
             // Gegenmess-Schalter.
             pacer: (std::env::var("PULSE_WHIP_PACING").as_deref() != Ok("0")).then(|| {
-                pacer::Pacer::start(runtime(), Arc::clone(&video_track), frame_duration)
+                pacer::Takt::start(runtime(), Arc::clone(&video_track), frame_duration)
             }),
             track: video_track,
         };

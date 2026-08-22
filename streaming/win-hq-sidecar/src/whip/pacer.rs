@@ -214,6 +214,88 @@ impl Pacer {
     }
 }
 
+// ─── Umschalter zum Gegenmessen ──────────────────────────────────────────────
+
+/// Welcher Zuschnitt verteilt: der Windows-eigene oder der gemeinsame.
+///
+/// **Wozu.** Windows verteilt anders als Linux und macOS, und **welcher
+/// Zuschnitt besser ist, ist bis heute nicht gemessen** — beide Modulkoepfe
+/// sagen das selbst. Genau deshalb ist der gemeinsame Zuschnitt beim
+/// Zusammenlegen am 2026-08-20 NICHT auf Windows ausgedehnt worden: das waere
+/// eine inhaltliche Entscheidung unter Unwissen gewesen.
+///
+/// Dieser Umschalter macht die Messung erst moeglich. Beide Zuschnitte laufen
+/// auf DERSELBEN Maschine ueber DIESELBE Leitung, nur durch einen Neustart
+/// getrennt — das ist der Vergleich, der bisher fehlte. Die lokale Schleife
+/// taugt dafuer nicht: die Ankunftsluecken, um die es geht, entstehen erst
+/// unterwegs.
+///
+/// **Die Vorgabe bleibt der eigene Zuschnitt.** Ein Schalter zum Messen darf
+/// nicht nebenbei das Verhalten aller Windows-Nutzer aendern; wird die Messung
+/// eindeutig, gehoert die Umstellung als eigene Entscheidung ins Repo, mit den
+/// Zahlen daneben.
+///
+/// Der Unterschied in einem Satz: der eigene Zuschnitt teilt das ganze
+/// Sendefenster durch die Gruppenzahl und nutzt es damit immer aus, der
+/// gemeinsame haelt einen festen Abstand von 2,5 ms. Bei wenigen Paketen ist
+/// der gemeinsame frueher fertig (2,5 gegen 6,7 ms), bei vielen sind sie
+/// nahezu gleich (11,1 gegen 12,5 ms).
+pub enum Takt {
+    Eigen(Pacer),
+    Gemeinsam(pulse_whip::pacer::Pacer),
+}
+
+/// Meldet Soll und Ist des gemeinsamen Zuschnitts im GLEICHEN Wortlaut wie der
+/// eigene.
+///
+/// Ohne das waeren die beiden Laeufe nicht nebeneinanderzulegen — man saehe
+/// zwei verschiedene Zeilen und muesste beim Auswerten raten, welche zu
+/// welchem Zuschnitt gehoert. Was die Zahlen bedeuten, unterscheidet sich
+/// trotzdem: jeder Zuschnitt rechnet sein EIGENES Soll aus. Verglichen wird
+/// also nicht Soll gegen Soll, sondern je Zuschnitt, wie nah er an seinem
+/// eigenen Ziel bleibt — und beim Zuschauer, welche Ankunftsluecken ankommen.
+fn melde_gemeinsam(soll_ms: f64, ist_ms: f64, pakete: usize) {
+    eprintln!(
+        "[whip] Verteilung je Bild: soll {soll_ms:.2} ms, ist {ist_ms:.2} ms ({pakete} Pakete)"
+    );
+}
+
+impl Takt {
+    /// Startet den Verteil-Faden — welchen, entscheidet `PULSE_WHIP_PACER`.
+    ///
+    /// `PULSE_WHIP_PACER=gemeinsam` nimmt den Zuschnitt von Linux und macOS,
+    /// alles andere (auch nicht gesetzt) den Windows-eigenen.
+    pub fn start(
+        rt: &tokio::runtime::Runtime,
+        track: Arc<TrackLocalStaticRTP>,
+        frame_duration: Duration,
+    ) -> Self {
+        // Die Zeile ist Pflicht, nicht Zierde: ohne sie steht im Protokoll
+        // eines Laufs nirgends, WELCHER Zuschnitt die Zahlen darunter erzeugt
+        // hat — und ein Mitschnitt ohne diese Angabe ist als Messung wertlos.
+        if std::env::var("PULSE_WHIP_PACER").as_deref() == Ok("gemeinsam") {
+            eprintln!("[whip] Taktgeber: gemeinsamer Zuschnitt (wie Linux/macOS)");
+            Takt::Gemeinsam(pulse_whip::pacer::Pacer::start(
+                rt,
+                track,
+                frame_duration,
+                melde_gemeinsam,
+            ))
+        } else {
+            eprintln!("[whip] Taktgeber: Windows-eigener Zuschnitt (Vorgabe)");
+            Takt::Eigen(Pacer::start(rt, track, frame_duration))
+        }
+    }
+
+    /// Pakete eines Bildes zum Verteilen abgeben. Blockiert nie.
+    pub fn send(&self, pakete: Vec<Packet>) -> anyhow::Result<()> {
+        match self {
+            Takt::Eigen(p) => p.send(pakete),
+            Takt::Gemeinsam(p) => p.send(pakete),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
