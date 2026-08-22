@@ -47,21 +47,6 @@ pub fn dpi_bewusstsein_setzen() -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// Ist der Scancode so injizierbar, wie Satz 1 ihn kennt?
-///
-/// Satz 1 hat genau zwei Formen: `0x00xx` (Grundtaste) und `0xE0xx` (erweiterte
-/// Taste). **Alles andere darf nicht injiziert werden**, denn `wScan` trägt nur
-/// das niederwertige Byte: `0xE11D` (der `0xE1`-Präfix der Pause-Taste) käme
-/// nach `& 0xFF` als **linke Strg-Taste** an — und bliebe, weil das Hoch-
-/// Ereignis unter demselben missgeformten Code gemerkt wird, am fremden Rechner
-/// gedrückt. Die Spezifikation verlangt bei Missgeformtem Beenden statt Raten;
-/// geprüft wird deshalb in der Sitzung (`super::einspielen`, fail-closed),
-/// bevor irgendetwas abgefeuert wird. Der Steuernde schickt `Pause` laut
-/// Spezifikation ohnehin nicht.
-pub fn scancode_gueltig(scan: u16) -> bool {
-    matches!(scan >> 8, 0x00 | 0xE0)
-}
-
 /// btn-Code → (`SendInput`-Flag, mouseData). `None` = unbekannt → fail-closed.
 pub fn tasten_ereignis(btn: u8, down: bool) -> Option<(MOUSE_EVENT_FLAGS, i32)> {
     Some(match btn {
@@ -105,8 +90,9 @@ pub fn maus(dx: i32, dy: i32, data: i32, flags: MOUSE_EVENT_FLAGS) {
 /// Flag, nicht in `wScan`). `wVk = 0` — reine Scancode-Injektion, damit die
 /// Belegung beider Seiten keine Rolle spielt.
 ///
-/// Der Aufrufer hat den Scancode geprüft ([`scancode_gueltig`]) — hier wird
-/// nicht mehr entschieden, hier wird abgefeuert.
+/// Der Aufrufer hat den Scancode bereits geprüft (Gültigkeitsprüfung jetzt in
+/// `pulse_fernsteuerung::format`) — hier wird nicht mehr entschieden, hier
+/// wird abgefeuert.
 pub fn taste(scan: u16, down: bool) {
     let mut flags: KEYBD_EVENT_FLAGS = KEYEVENTF_SCANCODE;
     if ist_erweitert(scan) {
@@ -132,81 +118,15 @@ pub fn taste(scan: u16, down: bool) {
     abfeuern(input);
 }
 
-/// Ein fertiges `INPUT` an Windows geben — **im Testlauf nur mitschreiben**.
-///
-/// Die Tests laufen auf der Maschine des Entwicklers; ein `SendInput` daraus
-/// bewegte deren echten Zeiger und tippte in deren echtes Fenster (und auf
-/// genau dieser Maschine läuft womöglich gerade ein Stream). Trotzdem müssen
-/// die Sitzungs-Tests prüfen können, WAS injiziert worden wäre — allen voran
-/// die Freigabe des Gedrückten auf den Verwerf-Pfaden. Deshalb der Umweg über
-/// [`pruefspur`]: im Testbau landet jedes Ereignis fadenlokal in einer Liste,
-/// im Auslieferbau gibt es die Liste gar nicht.
+/// Ein fertiges `INPUT` an Windows geben.
 fn abfeuern(input: INPUT) {
-    if pruefspur::mitschreiben(&input) {
-        return;
-    }
     unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) };
-}
-
-/// Auslieferbau: nichts mitschreiben, es wird wirklich injiziert.
-#[cfg(not(test))]
-mod pruefspur {
-    pub(super) fn mitschreiben(_input: &super::INPUT) -> bool {
-        false
-    }
-}
-
-/// Testbau: statt zu injizieren wird mitgeschrieben (Begründung an
-/// [`abfeuern`]). Fadenlokal, damit parallel laufende Tests sich nicht in die
-/// Spur des jeweils anderen schreiben.
-#[cfg(test)]
-pub mod pruefspur {
-    use std::cell::RefCell;
-
-    use windows::Win32::UI::Input::KeyboardAndMouse::{INPUT, INPUT_KEYBOARD, KEYEVENTF_KEYUP};
-
-    /// Was ohne Testlauf an `SendInput` gegangen wäre.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub enum Ereignis {
-        Maus { dx: i32, dy: i32, data: i32, flags: u32 },
-        Taste { scan: u16, hoch: bool },
-    }
-
-    thread_local! {
-        static SPUR: RefCell<Vec<Ereignis>> = const { RefCell::new(Vec::new()) };
-    }
-
-    pub(super) fn mitschreiben(input: &INPUT) -> bool {
-        // Die Union wird nach `r#type` gelesen — genau so, wie Windows sie
-        // liest; ein anderer Zweig existiert nicht.
-        let ereignis = if input.r#type == INPUT_KEYBOARD {
-            let ki = unsafe { input.Anonymous.ki };
-            Ereignis::Taste {
-                scan: ki.wScan,
-                hoch: (ki.dwFlags & KEYEVENTF_KEYUP) == KEYEVENTF_KEYUP,
-            }
-        } else {
-            let mi = unsafe { input.Anonymous.mi };
-            Ereignis::Maus {
-                dx: mi.dx,
-                dy: mi.dy,
-                data: mi.mouseData as i32,
-                flags: mi.dwFlags.0,
-            }
-        };
-        SPUR.with(|s| s.borrow_mut().push(ereignis));
-        true
-    }
-
-    /// Die Spur dieses Fadens abholen und leeren.
-    pub fn nimm() -> Vec<Ereignis> {
-        SPUR.with(|s| std::mem::take(&mut *s.borrow_mut()))
-    }
 }
 
 /// Erweiterte Taste? Nur der `0xE0`-Präfix zählt — `0xE1` (Pause) schickt der
 /// Steuernde laut Spezifikation gar nicht erst, und ein trotzdem eingegangener
-/// `0xE1`-Code wird vorher abgewiesen ([`scancode_gueltig`]).
+/// `0xE1`-Code wird vorher in der Sitzung abgewiesen (Gültigkeitsprüfung jetzt
+/// in `pulse_fernsteuerung::format`).
 fn ist_erweitert(scan: u16) -> bool {
     (scan >> 8) == 0xE0
 }
@@ -220,49 +140,6 @@ mod tests {
         assert!(ist_erweitert(0xE01D)); // rechte Strg-Taste
         assert!(!ist_erweitert(0x001D)); // linke Strg-Taste
         assert!(!ist_erweitert(0xE11D)); // Pause-Präfix, nicht erweitert
-    }
-
-    /// Satz 1 kennt `0x00xx` und `0xE0xx` — sonst nichts. `0xE11D` ist der
-    /// Fall, der ohne diese Prüfung als linke Strg-Taste injiziert würde (und
-    /// dann gedrückt bliebe), weil `wScan` nur das niederwertige Byte trägt.
-    #[test]
-    fn nur_satz_1_scancodes_sind_gueltig() {
-        assert!(scancode_gueltig(0x001D)); // linke Strg-Taste
-        assert!(scancode_gueltig(0x0000));
-        assert!(scancode_gueltig(0xE01D)); // rechte Strg-Taste
-        assert!(scancode_gueltig(0xE04B)); // Pfeil links
-        assert!(!scancode_gueltig(0xE11D)); // Pause-Präfix
-        assert!(!scancode_gueltig(0x011D)); // erfundener Präfix
-        assert!(!scancode_gueltig(0xFFFF));
-    }
-
-    /// Im Testlauf darf nie wirklich injiziert werden — und die Spur muss
-    /// tragen, was gemeint war (der Scancode, und ob es ein Hoch-Ereignis
-    /// war). Darauf bauen die Freigabe-Tests der Sitzung auf.
-    #[test]
-    fn testlauf_schreibt_mit_statt_zu_injizieren() {
-        let _ = pruefspur::nimm();
-        taste(0xE01D, true);
-        taste(0x001E, false);
-        maus(7, 9, 120, MOUSEEVENTF_LEFTDOWN);
-        let spur = pruefspur::nimm();
-        assert_eq!(
-            spur,
-            vec![
-                // `wScan` trägt nur das niederwertige Byte — der `0xE0`-Präfix
-                // steckt im Extended-Flag, nicht in der Zahl.
-                pruefspur::Ereignis::Taste { scan: 0x1D, hoch: false },
-                pruefspur::Ereignis::Taste { scan: 0x1E, hoch: true },
-                pruefspur::Ereignis::Maus {
-                    dx: 7,
-                    dy: 9,
-                    data: 120,
-                    flags: MOUSEEVENTF_LEFTDOWN.0,
-                },
-            ]
-        );
-        // Abgeholt heißt geleert — sonst sähe der nächste Test fremde Spuren.
-        assert!(pruefspur::nimm().is_empty());
     }
 
     #[test]

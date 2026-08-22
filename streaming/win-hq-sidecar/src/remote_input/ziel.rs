@@ -104,7 +104,8 @@ pub const SLOT_MAX: u64 = 98;
 static AKTIVER_STROM: Mutex<Option<AktiverStrom>> = Mutex::new(None);
 
 /// Die Registrierung nehmen — **auch eine vergiftete Sperre**. Aus demselben
-/// Grund wie in [`crate::remote_input::Sitzung::sperre`]: eine Panik unter der
+/// Grund wie bei der Sperre der Fernsteuer-Sitzung
+/// (`pulse_fernsteuerung::sitzung::Sitzung`): eine Panik unter der
 /// Sperre darf nicht dazu führen, dass danach jeder Zugriff panikt. Hier hinge
 /// sonst ausgerechnet [`strom_beendet`] auf dem Abbau-Pfad, und die
 /// Fernsteuerung zielte weiter auf einen Stream, den es nicht mehr gibt.
@@ -332,7 +333,6 @@ mod tests {
     /// **beendet die Sitzung nicht**.
     #[test]
     fn ohne_strom_ist_der_slot_unbekannt() {
-        let _sperre = crate::remote_input::pruefstand();
         // Der Schalter ist prozessweit; der Test setzt ihn nicht, also gilt aus.
         if crate::env::flag(LABOR_OHNE_STROM) {
             return;
@@ -346,7 +346,6 @@ mod tests {
     /// dieses Prozesses — oder, über den Labor-Weg, auf einem Bildschirm.
     #[test]
     fn platz_jenseits_der_schranke_ist_unbekannt() {
-        let _sperre = crate::remote_input::pruefstand();
         strom_gestartet(None);
         assert!(matches!(bindung_fuer_slot(SLOT_MAX + 1), Zielsuche::KeinStrom));
         // Auch jenseits von u32 — hier wurde früher auf `u32::MAX` gekappt.
@@ -358,7 +357,6 @@ mod tests {
     /// Verworfen (mit Freigabe beim Aufrufer) — **nicht** selbst aufgelöst.
     #[test]
     fn strom_ohne_gemeldetes_ziel_ist_nicht_aufloesbar() {
-        let _sperre = crate::remote_input::pruefstand();
         strom_gestartet(Some(0));
         assert!(matches!(bindung_fuer_slot(0), Zielsuche::NichtAufloesbar(_)));
         // Der erklärte Platz gilt weiterhin strikt — außer der Labor-Schalter

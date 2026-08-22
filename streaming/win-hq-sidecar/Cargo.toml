@@ -33,6 +33,12 @@ pulse-whip = { path = "../pulse-whip" }
 pulse-zeigerbild = { path = "../pulse-zeigerbild" }
 pulse-bildmarke = { path = "../pulse-bildmarke" }
 
+# Plattformfreier Kern der Fernsteuerung, seit 2026-08-22 gemeinsam mit dem
+# mac-Sidecar und dem Player in einer eigenen Kiste. Hier bleibt die
+# Windows-Haelfte: SendInput, die Low-Level-Haken, die Rechteck-Aufloesung, die
+# SendInput-Normierung und die Zeigerform.
+pulse-fernsteuerung = { path = "../pulse-fernsteuerung" }
+
 # Stage 2: DXGI-Adapter-Enum (real `gpu_info` + populates `health.gsr.vendor`).
 # Features kept narrow — only what the adapter walk + COM init needs.
 windows = { version = "0.62", features = [

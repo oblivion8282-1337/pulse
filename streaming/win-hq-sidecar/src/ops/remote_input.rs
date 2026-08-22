@@ -40,7 +40,8 @@
 use anyhow::Result;
 use serde_json::{Map, Value};
 
-use crate::remote_input::{Sitzung, base64};
+use crate::remote_input::sitzung;
+use pulse_fernsteuerung::base64;
 
 /// Obergrenze wie beim Gateway (Spezifikation, „Grenzen"): 32 Frames, 1024 Byte
 /// dekodiert. Der Gateway erzwingt sie schon — hier steht sie trotzdem, weil der
@@ -90,7 +91,7 @@ fn sitzungs_id_aus(params: &Map<String, Value>) -> Result<Option<&str>, String> 
 /// Die Frames aus der Hülle dekodieren.
 ///
 /// **Jeder** Fehler hier ist ein Protokollfehler und geht über
-/// [`Sitzung::protokollfehler`] (s. [`handle`]) — zu viele Frames, kaputtes
+/// `Sitzung::protokollfehler` (s. [`handle`]) — zu viele Frames, kaputtes
 /// Base64, ein Eintrag der keine Zeichenkette ist, ein fehlendes Feld. Hier
 /// standen nackte `anyhow!`: die gingen zwar als `ok:false` zurück, legten die
 /// Sitzung aber weder still noch gaben sie das Gedrückte frei — die im Modulkopf
@@ -135,19 +136,21 @@ fn huelle_lesen(params: &Map<String, Value>) -> Result<Huelle<'_>, String> {
 }
 
 pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
-    let sitzung = Sitzung::singleton();
+    let sitzung = sitzung();
     let (slot, sitzungs_id, frames) = match huelle_lesen(&params) {
         Ok(teile) => teile,
         // Über die Sitzung, nicht als blankes `Err`: ein Protokollfehler legt
         // still UND gibt frei — auch der aus der Hülle.
-        Err(grund) => return Err(sitzung.protokollfehler(grund)),
+        Err(grund) => return Err(anyhow::anyhow!(sitzung.protokollfehler(grund))),
     };
 
     // Fehlt das Feld oder ist es missgeformt, gilt „kein fremder Vorrang" —
     // es kann die Eingabe nur einschränken, und eine ältere Shell schickt es
     // gar nicht erst.
     let fremder_vorrang = params.get("host_active").and_then(Value::as_bool).unwrap_or(false);
-    let bericht = sitzung.frames(slot, sitzungs_id, &frames, fremder_vorrang)?;
+    let bericht = sitzung
+        .frames(slot, sitzungs_id, &frames, fremder_vorrang)
+        .map_err(|e| anyhow::anyhow!(e))?;
     let mut out = Map::new();
     out.insert("processed".to_string(), Value::from(bericht.verarbeitet));
     out.insert("state".to_string(), Value::from(bericht.zustand));
@@ -195,11 +198,10 @@ mod tests {
     /// Sitzung ist danach stillgelegt und alles Gedrückte freigegeben).
     #[test]
     fn missgeformter_platz_ist_fail_closed() {
-        let _sperre = crate::remote_input::pruefstand();
         assert!(handle(params(json!(-1))).is_err());
         // Stillgelegt — ein wohlgeformter Aufruf kommt jetzt auch nicht durch.
         assert!(handle(params(json!(0))).is_err());
-        Sitzung::singleton().beenden();
+        sitzung().beenden();
     }
 
     /// **Der Fund:** zu viele Frames, kaputtes Base64 und ein Nicht-String
@@ -212,7 +214,6 @@ mod tests {
     /// `remote_input::tests`).
     #[test]
     fn kaputte_frames_sind_fail_closed() {
-        let _sperre = crate::remote_input::pruefstand();
         let zu_viele: Vec<Value> = (0..=MAX_FRAMES).map(|_| json!("AAI=")).collect();
         let zu_lang = json!(["A".repeat(2048)]); // 1536 Byte > MAX_BYTES
         for frames in [
@@ -229,7 +230,7 @@ mod tests {
                 handle(params(json!(0))).is_err(),
                 "{frames} hätte die Sitzung stilllegen müssen"
             );
-            Sitzung::singleton().beenden();
+            sitzung().beenden();
         }
     }
 
@@ -237,7 +238,6 @@ mod tests {
     /// Kennung" geworden — fail-closed ist hier billiger als raten.
     #[test]
     fn missgeformte_kennung_ist_fail_closed() {
-        let _sperre = crate::remote_input::pruefstand();
         assert_eq!(sitzungs_id_aus(&Map::new()), Ok(None));
         let mit = |wert: Value| {
             json!({"slot": 0, "session_id": wert, "frames": ["AAI="]})
@@ -249,19 +249,18 @@ mod tests {
         assert_eq!(sitzungs_id_aus(&mit(json!("abc"))), Ok(Some("abc")));
         assert!(sitzungs_id_aus(&mit(json!(7))).is_err());
         assert!(handle(mit(json!(7))).is_err());
-        Sitzung::singleton().beenden();
+        sitzung().beenden();
     }
 
     /// Ein Platz außerhalb des Bereichs dagegen: still verworfen, die Sitzung
     /// läuft weiter. Ein `slot: 999` darf keine Fernsteuerung abwürgen.
     #[test]
     fn platz_ausserhalb_des_bereichs_verwirft_nur() {
-        let _sperre = crate::remote_input::pruefstand();
         for wert in [json!(999), json!(5_000_000_000u64)] {
             let out = handle(params(wert.clone())).expect("kein Protokollfehler");
             assert_eq!(out["state"], json!("unknown_slot"), "slot {wert}");
             assert_eq!(out["processed"], json!(0));
         }
-        Sitzung::singleton().beenden();
+        sitzung().beenden();
     }
 }
