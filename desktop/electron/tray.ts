@@ -63,12 +63,18 @@ function loadIcon(name: Status): Electron.NativeImage {
   // Dev (`pnpm dev` aus desktop/): cwd ist desktop/ → dort liegen sie unter
   // `build-resources/tray/`. Der Resolver probiert alle plausiblen Pfade,
   // nimmt den ersten Treffer.
+  //
+  // **Immer die 1x-Datei, NIE `@2x` direkt** (bis 2026-08-22 stand die
+  // `@2x`-Fassung zuerst in dieser Liste, und genau das war der Fehler):
+  // `createFromPath` liest die genannte Datei als NORMALE Auflösung. Auf ein
+  // `@2x` gezeigt landeten damit 44 Pixel in einer Leiste, die 22 Punkte hoch
+  // ist — auf dem Mac sichtbar als riesiges, oben und unten abgeschnittenes
+  // Symbol. Zeigt man dagegen auf die Basis-Datei, sucht Electron die
+  // `@2x`-Fassung von selbst daneben und hängt sie als Retina-Darstellung
+  // ein. Die Dateien liegen bereits in beiden Größen (22 und 44) bereit.
   const candidates = [
-    path.join(process.resourcesPath ?? '', 'tray', `${file}@2x.png`),
     path.join(process.resourcesPath ?? '', 'tray', `${file}.png`),
-    path.join(__dirname, '..', '..', 'build-resources', 'tray', `${file}@2x.png`),
     path.join(__dirname, '..', '..', 'build-resources', 'tray', `${file}.png`),
-    path.join(process.cwd(), 'build-resources', 'tray', `${file}@2x.png`),
     path.join(process.cwd(), 'build-resources', 'tray', `${file}.png`),
   ];
   for (const p of candidates) {
@@ -139,13 +145,39 @@ export function applyTrayStatus(s: TrayStatus): void {
   }
 }
 
+/**
+ * Kantenlänge des Tray-Symbols in **Punkten** (nicht Pixeln).
+ *
+ * 22 ist das Mass der macOS-Menüleiste; Windows und Linux kommen damit
+ * ebenfalls zurecht (dort skaliert die Shell ohnehin selbst nach).
+ */
+const TRAY_PUNKTE = 22;
+
 /** Tray-Icon aus einem vom Renderer gerenderten PNG (Canvas → data: URL),
  *  für den dynamischen Badge. `tray.setImage(empty)` würde das Icon löschen
- *  → Electron-Default-Flash; daher bei ungültigem Input silent drop. */
+ *  → Electron-Default-Flash; daher bei ungültigem Input silent drop.
+ *
+ *  **Das Bild MUSS hier verkleinert werden.** Der Renderer malt in 100×100
+ *  (`web/src/lib/tray/imageRenderer.ts`), und dort stand bis zum 2026-08-22 die
+ *  Annahme, "Electron resizedet auf die native Tray-Größe". Das tut es nicht:
+ *  `createFromDataURL` nimmt die Bildpunkte als normale Auflösung, 100 Punkte
+ *  in einer 22-Punkte-Leiste. Auf dem Mac war das Symbol dadurch riesig und
+ *  oben wie unten abgeschnitten.
+ *
+ *  Verkleinert wird auf die DOPPELTE Punktzahl und das Ergebnis als
+ *  Retina-Darstellung eingehängt (`scaleFactor: 2`): so bleibt das Symbol auf
+ *  einem Retina-Schirm scharf, statt aus 22 Pixeln hochgerechnet zu werden.
+ *  Der Umweg über `toPNG()` ist nötig, weil sich der Skalierungsfaktor nur
+ *  beim Erzeugen aus einem Puffer setzen lässt. */
 export function setTrayImageFromDataUrl(dataUrl: string): void {
   if (!tray) return;
   if (!dataUrl.startsWith('data:image/')) return;
-  const img = nativeImage.createFromDataURL(dataUrl);
-  if (img.isEmpty()) return;
-  tray.setImage(img);
+  const roh = nativeImage.createFromDataURL(dataUrl);
+  if (roh.isEmpty()) return;
+  const kante = TRAY_PUNKTE * 2;
+  const png = roh.resize({ width: kante, height: kante, quality: 'best' }).toPNG();
+  const img = nativeImage.createFromBuffer(png, { scaleFactor: 2 });
+  // Schlägt der Puffer-Weg fehl (leeres PNG), lieber das unskalierte Bild als
+  // gar keines — ein leeres Icon zeigt Electrons Standard-Symbol.
+  tray.setImage(img.isEmpty() ? roh : img);
 }

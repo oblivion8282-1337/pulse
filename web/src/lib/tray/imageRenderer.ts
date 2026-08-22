@@ -1,10 +1,18 @@
 /**
  * Renderer-side Tray-Image-Generierung.
  *
- * Malt das Pulse-Mark in 100×100 (Electron resizedet auf die native Tray-Größe)
- * mit optionalem Badge-Kreis unten-rechts. Ergebnis als PNG data-URL via IPC
- * an main → nativeImage.createFromDataURL (robuster als Uint8Array über die
- * contextBridge zu schicken).
+ * Malt das Pulse-Mark in 100×100 mit optionalem Badge-Kreis unten-rechts.
+ * Ergebnis als PNG data-URL via IPC an main → nativeImage.createFromDataURL
+ * (robuster als Uint8Array über die contextBridge zu schicken).
+ *
+ * **100×100 ist eine Zeichenfläche, keine Ausgabegröße.** Hier stand bis zum
+ * 2026-08-22 „Electron resizedet auf die native Tray-Größe" — das tut es
+ * nicht. Die 100 Punkte landeten unverkleinert in einer Leiste, die 22 Punkte
+ * hoch ist; auf dem Mac war das Symbol dadurch riesig und abgeschnitten.
+ * Verkleinert wird jetzt in `desktop/electron/tray.ts`
+ * (`setTrayImageFromDataUrl`), und zwar auf 44 Pixel mit Skalierungsfaktor 2,
+ * damit es auf Retina scharf bleibt. Grosszügig hier zu malen ist weiterhin
+ * richtig — es gibt der Verkleinerung Substanz.
  */
 
 export type TrayState = 'normal' | 'mute' | 'deaf';
