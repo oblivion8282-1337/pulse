@@ -145,3 +145,43 @@ Damit klar ist, was schon geprüft wurde und was nicht:
 - `pnpm check` ohne Befund, `pnpm build` durch, 115 Web- und 181 Desktop-Unit-Tests grün.
 
 **Nicht geprüft:** alles, was Windows und Linux betrifft, und der Flatpak-Bau. Genau dafür gibt es dieses Dokument.
+
+---
+
+# RÜCKMELDUNG WINDOWS — 2026-08-22
+
+Maschine: Windows 11, AMD, zwei Schirme (1920×1080@180, 3840×2160@120), rustc 1.97.1.
+
+## Was am Bau geprüft ist
+
+| | Ergebnis |
+|---|---|
+| `win-hq-sidecar` `cargo test` | **180 grün, 0 rot**, 2 übersprungen (fragen echte Hardware ab) |
+| `win-hq-labor` `cargo check` | **sauber**, 30 s — keiner der sieben Sichtbarkeits-Fehler ist zurück, `redact::secrets` löst über die Weiterleitung auf |
+| Beide `Cargo.lock` | eingetragen und committet, je 32 Zeilen, **ausschliesslich** die fünf Kisten — keine fremde Version hat sich verschoben |
+| Rauchtest am Binary | `health` und `list_monitors` antworten; AMD erkannt, HDR/10 Bit/AV1 verfügbar, `remote_input: true`, beide Schirme gefunden |
+| Die fünf Kisten einzeln | redact 12, zeitbasis 6, whip 30 (+1 übersprungen), bildmarke 11, zeigerbild 12 — alle grün |
+| Testnetz `zwillinge` | 10 grün (nach dem Fix unten) |
+
+Die Verhaltensänderung an der Maskierung ist abgedeckt: `grossgeschriebener_parametername_wird_auch_gefasst` hält genau den Windows-Fall fest (`?Token=`).
+
+## Zwei Befunde — beide im Testwerk, keiner im Umbau
+
+**1. Der Flatpak-Wächter schlug auf keiner Windows-Maschine an** (behoben, `fix(zwillinge)`). Der Test vom 2026-08-22 meldete `Modul 'pulse-linux-hq-sidecar' steht nicht im Manifest` für einen Eintrag, der dort steht. Ursache: Git wandelt die Zeilenenden beim Auschecken auf Windows um (`core.autocrlf`, Vorgabe des dortigen Installers); der Test suchte byteweise nach `- name: <x>\n`. Er lief damit auf genau einer der drei Maschinen — auf dem Bauserver grün, auf jeder Windows-Maschine blind. Jetzt zeilenweise, plus ein Test auf einem gestellten Manifest in beiden Schreibweisen. Gegenprobe gefahren.
+
+Das ist die **zweite** Zeilenenden-Falle im Repo; die erste steht im `CLAUDE.md` bei `bootstrap-windows-capture.sh`. Beide Male grün auf Linux, hart kaputt auf Windows.
+
+**2. Der Verteilungs-Test in `pulse-whip` flatterte** (behoben, `test(pulse-whip)`). Drei Läufe: 28,0 ms rot, grün, 16,1 ms rot — bei einem Soll von 12,5 und 3 ms Toleranz. Der Zeitgeber unter Windows weckt vielfach grobkörniger. Nicht über mehr Toleranz gelöst: die müsste bei rund 20 ms liegen und wäre grösser als das Soll selbst, der alte Fehler (Ist 20,8) läge dann darin. Stattdessen unter Windows übersprungen, mit sichtbarem Grund — vertretbar, weil **Windows diesen Pacer gar nicht benutzt** (eigener in `win-hq-sidecar/src/whip/pacer.rs`, aus dieser Kiste kommt nur `h264`). Linux und macOS laufen unverändert scharf.
+
+## Noch offen — braucht einen laufenden Stream
+
+Nicht abgearbeitet, weil ein Zuschauer dazugehört:
+
+- [ ] AV1-Bild beim Zuschauer
+- [ ] `[whip] Bildmarke ausgehandelt als extmap N` im Protokoll
+- [ ] Zeigerformen über die Fernsteuerung, auch die selbstgemalten (Resolve/Premiere/Blender)
+- [ ] Protokoll auf Stream-Schlüssel absuchen (Start-Antwort, argv, Fehlerketten)
+
+## Ein Fund nebenbei, nicht behoben
+
+`pulse-bildmarke` fehlt in den **Pfad-Filtern aller drei Bau-Abläufe** (`win-build.yml`, `mac-build.yml`, `flatpak.yml` nennen nur die vier älteren Kisten) und in der Version-Bump-Aufzählung im `CLAUDE.md`. Folge: Eine Änderung allein an dieser Kiste löst keinen Installer- oder DMG-Bau aus, das Ausgelieferte bliebe still auf dem alten Stand. Dieselbe Sorte Falle, die der neue Wächter fürs Flatpak-Manifest abfängt — nur eine Ebene darüber, wo bisher nichts nachrechnet.
