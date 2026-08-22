@@ -77,6 +77,9 @@ pub(super) struct Ringregelung {
     pub(super) resyncs: u64,
     /// Wann zuletzt grob gekappt wurde — fuer [`RING_KAPP_SPERRE`].
     letzte_kappung: Option<Instant>,
+    /// Fuellstand beim vorigen Anhaengen — daran haengt, ob der Rueckstand
+    /// gerade noch WAECHST (s. `nach_anhaengen`).
+    letzter_fuellstand: Option<usize>,
 }
 
 impl Ringregelung {
@@ -92,8 +95,34 @@ impl Ringregelung {
         if soll == 0 {
             return 0;
         }
+        // **Nur schneiden, wenn der Rueckstand nicht mehr WAECHST** (2026-08-22).
+        //
+        // Ohne diese Bedingung entschied der Schnitt mitten im Nachhol-Schwall:
+        // dessen erstes Stueck reisst die Schwelle, es wird geschnitten, die
+        // Sperrfrist beginnt — und der Rest des Schwalls landet danach in einem
+        // Ring, der fuer die naechsten fuenf Sekunden nicht mehr angefasst
+        // werden darf. Gemessen am 2026-08-22: Ring neunfach voll, Uhrenabgleich
+        // sechs Sekunden am Anschlag (-1000 ppm, er braeuchte Minuten fuer
+        // diesen Rueckstand), dann ein zweiter Schnitt. Fuer den Hoerer ein
+        // Aussetzer, sechs Sekunden Ton hinter dem Bild und ein zweiter
+        // hoerbarer Schnitt — aus einer halben Sekunde Lieferpause.
+        //
+        // Es ist derselbe Fehler, den der entfernte Feinabbau unten machte, nur
+        // in gross: **auf einem Augenblickswert entscheiden, waehrend sich der
+        // Wert noch bewegt.** Waechst der Ring, ist der Schwall noch unterwegs
+        // und jede Zahl von jetzt ist die falsche Grundlage.
+        //
+        // Kein neuer Zeitwert dafuer, sondern der Vergleich mit dem vorigen
+        // Fuellstand: der Schwall ist vorbei, wenn das Geraet wieder so viel
+        // abholt, wie hereinkommt. Streng `>`, ohne Toleranz — im schlechtesten
+        // Fall verschiebt ein Sample Zuwachs den Schnitt um EIN Paket
+        // (rund 20 ms) statt um fuenf Sekunden. Das erste Anhaengen ueberhaupt
+        // gilt als nicht wachsend: ohne Vorgeschichte gibt es keinen Schwall,
+        // an dem man sein koennte.
+        let waechst = self.letzter_fuellstand.is_some_and(|vorher| ring.len() > vorher);
+        self.letzter_fuellstand = Some(ring.len());
         let darf_kappen = self.letzte_kappung.is_none_or(|t| t.elapsed() >= RING_KAPP_SPERRE);
-        if ring.len() > soll * RING_KAPP_FAKTOR && darf_kappen {
+        if ring.len() > soll * RING_KAPP_FAKTOR && darf_kappen && !waechst {
             // Grob: nach einem Nachhol-Schwall in EINEM Schnitt zurueck auf den
             // Sollwert. Hoerbar wie ein kurzer Aussetzer — und der bessere
             // Tausch gegen einen Rueckstand, der sonst bis Sitzungsende bleibt.
@@ -101,6 +130,10 @@ impl Ringregelung {
             ring.drain(..excess);
             self.resyncs += 1;
             self.letzte_kappung = Some(Instant::now());
+            // Der Bezugswert muss den Schnitt mitmachen, sonst sieht das
+            // naechste Anhaengen einen "wachsenden" Ring, obwohl nur das
+            // Geschnittene fehlt.
+            self.letzter_fuellstand = Some(ring.len());
             return excess as u64;
         }
         // **Hier stand bis zum 2026-08-13 ein Feinabbau, und er war die Ursache
@@ -197,11 +230,65 @@ mod tests {
         let mut ring = stereo_ring(soll * RING_KAPP_FAKTOR + 100);
         r.nach_anhaengen(&mut ring, soll);
 
+        // **Zweimal mit demselben Ring**, und das ist seit dem 2026-08-22
+        // noetig: der erste Aufruf traegt den Fuellstand nur ein (gegenueber dem
+        // geschnittenen Ring ist er gewachsen, also wird ohnehin nicht
+        // geschnitten). Erst beim zweiten ist der Ring nicht mehr wachsend —
+        // ab da kann NUR noch die Sperrfrist blockieren, und genau das soll
+        // dieser Test zeigen. Mit einem einzigen Aufruf bestuende er auch dann,
+        // wenn es die Sperrfrist gar nicht mehr gaebe.
         let mut wieder_voll = stereo_ring(soll * RING_KAPP_FAKTOR + 100);
+        r.nach_anhaengen(&mut wieder_voll, soll);
         let verworfen = r.nach_anhaengen(&mut wieder_voll, soll);
 
         assert_eq!(verworfen, 0, "innerhalb der Sperrfrist wird nicht erneut geschnitten");
         assert_eq!(r.resyncs, 1);
+    }
+
+    /// **Der Nachhol-Schwall aus dem Protokoll vom 2026-08-22.** Ein
+    /// Lieferaussetzer laesst den Ring leerlaufen; der Rueckstand kommt danach
+    /// als Schwall in vielen Stuecken. Waehrend er noch laeuft, darf NICHT
+    /// geschnitten werden — sonst schneidet man einen Ring, der gleich wieder
+    /// volllaeuft, und verbraucht dabei die Sperrfrist fuer den Schnitt, auf
+    /// den es ankommt.
+    ///
+    /// Gemessen sah das so aus (Sitzung 1, Sollwert 6240 Samples):
+    /// ```text
+    /// Puffer 0                                  <- leergelaufen
+    /// Puffer 58758  verworfen +12480            <- Schnitt bei 3x Soll, mitten im Schwall
+    /// Puffer 58408  ppm -1000                   <- und jetzt sechs Sekunden
+    /// Puffer 57992  ppm -1000                      Sperrfrist, Ring neunfach voll,
+    /// Puffer 57640  ppm -1000                      Uhrenabgleich am Anschlag
+    /// Puffer  5844  verworfen +53012            <- erst jetzt der richtige Schnitt
+    /// ```
+    /// Die verworfenen 12480 sind exakt `2 * Soll` — die Signatur eines
+    /// Schnitts von der Schwelle auf den Sollwert. Fuer den Hoerer heisst der
+    /// Ablauf: Aussetzer, dann rund sechs Sekunden Ton hinter dem Bild, dann
+    /// ein zweiter hoerbarer Schnitt.
+    #[test]
+    fn waehrend_der_schwall_laeuft_wird_nicht_geschnitten() {
+        let soll = RING_SOLL_MS * 96;
+        let mut r = Ringregelung::default();
+        let mut ring: VecDeque<f32> = VecDeque::new();
+
+        // Der Schwall: zehn Stuecke, der Ring waechst bei jedem.
+        for _ in 0..10 {
+            ring.extend(stereo_ring(soll));
+            r.nach_anhaengen(&mut ring, soll);
+        }
+        assert_eq!(r.resyncs, 0, "solange der Rueckstand noch ankommt, wird nicht geschnitten");
+        let hoehepunkt = ring.len();
+        assert!(hoehepunkt > soll * RING_KAPP_FAKTOR, "Vorbedingung: der Ring ist weit ueber der Schwelle");
+
+        // Der Schwall ist vorbei: ab jetzt kommt so viel herein, wie das Geraet
+        // abholt — der Fuellstand waechst nicht mehr.
+        ring.drain(..soll);
+        ring.extend(stereo_ring(soll));
+        let verworfen = r.nach_anhaengen(&mut ring, soll);
+
+        assert_eq!(r.resyncs, 1, "genau EIN Schnitt, und zwar nach dem Schwall");
+        assert_eq!(ring.len(), soll, "und er raeumt den ganzen Rueckstand");
+        assert_eq!(verworfen, (hoehepunkt - soll) as u64, "in einem Zug, nicht in zwei");
     }
 
     /// Ohne Sollwert (Geraet noch nicht bekannt) passiert gar nichts.
