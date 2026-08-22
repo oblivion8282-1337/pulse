@@ -61,6 +61,11 @@ Aufzeichnung des Empfängers zeigt diese Höhe. Zwei Zeilen Zugabe, ungerade
 Zahl. Nicht weiter untersucht, gehört aber geklärt: eine krumme Höhe kann bei
 Zuschauern zu einer Skalierung führen, die es nicht geben müsste.
 
+*(2026-08-22 geklärt: die Vermutung stimmte. Die zwei Zeilen sind hartes
+Schwarz, die Skalierung findet statt, und dazu kommt ein Zielversatz der
+Fernsteuerung von bis zu 2 Pixeln. Ursache und Messung:
+`streaming/win-hq-sidecar/README.md`.)*
+
 **Sichtprüfung bestanden**: Standbilder aus beiden Empfangsströmen zeigen den
 Prüftext rasiermesserscharf, keine Risse, keine versetzten Kopien. Das ist die
 Prüfung, die am Vortag den kaputten AV1-Weg entlarvt hat, den jede Kennzahl für

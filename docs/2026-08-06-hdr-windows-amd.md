@@ -358,7 +358,11 @@ zum Auge — dafür muss weiterhin jemand hinsehen.
   Objekten — Typ und Werte fehlen. Das sieht aus wie „keine Metadaten im Strom"
   und hat hier einen Fehlalarm erzeugt. `-show_frames -of flat` zeigt alles.
 * **Der Strom meldet 1082 statt 1080 Zeilen** — im SDR- wie im HDR-Lauf, also
-  unabhängig von dieser Arbeit. Nicht verfolgt.
+  unabhängig von dieser Arbeit. *(2026-08-22 verfolgt: eine Eigenart von
+  `av1_amf`, die es weder bei `h264_amf` noch bei `hevc_amf` gibt und die sich
+  am Encoder nicht abstellen lässt. Messung, Regel und Folgen —
+  darunter ein Zielversatz der Fernsteuerung — in
+  `streaming/win-hq-sidecar/README.md`.)*
 * **PowerShell-Skripte in diesem Repo müssen reines ASCII sein.** Windows
   PowerShell 5.1 liest `.ps1` ohne BOM als ANSI; ein UTF-8-Gedankenstrich wird
   dabei zu drei Zeichen, von denen das letzte ein typografisches

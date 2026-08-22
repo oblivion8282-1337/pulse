@@ -263,8 +263,16 @@ Weitere Befunde:
   Qualität ohne messbaren Gegenwert. Nicht setzen.
 - `av1_amf` signalisiert bei 1080p-Eingang eine Höhe von **1082** statt 1080 —
   eine Eigenart der AMF-internen Ausrichtung, die den AV1-Pfad schon vorher
-  betraf und von diesen Änderungen unberührt bleibt. Kosmetisch (0,18 %
-  Seitenverhältnis), aber unsauber.
+  betraf und von diesen Änderungen unberührt bleibt.
+
+  **Nachtrag 2026-08-22:** hier stand „kosmetisch (0,18 % Seitenverhältnis),
+  aber unsauber". Das Seitenverhältnis ist tatsächlich harmlos, die beiden
+  Zusatzzeilen sind es nicht: sie sind hartes Schwarz, und weil der Player die
+  Zeigerlage als Anteil am Videobild rechnet, zielt die **Fernsteuerung**
+  dadurch systematisch bis zu 2 Pixel zu hoch. Vollständige Messung samt Regel
+  (`h % 16 == 8` → `h + 2`), Vergleich mit `h264_amf`/`hevc_amf` und den drei
+  erfolglos durchprobierten `-align`-Werten: `streaming/win-hq-sidecar/README.md`,
+  Abschnitt „AV1 auf AMD meldet 1082 statt 1080 Zeilen".
 
 ---
 
@@ -570,4 +578,9 @@ AMD-Maschine als Gegenprobe (auch für den Array-Befund — eine GPU, ein Treibe
 3. **Die 17,2 ms von `av1_amf`** sind abschließend untersucht (Abschnitt 7):
    ein Bildabstand, über FFmpeg nicht wegzubekommen, aber über die Bildrate
    halbierbar. Der einzige verbliebene Weg wäre AMF direkt statt über FFmpeg.
-4. **Die 1082-Höhe** des AV1-Stroms gehört geradegezogen.
+4. **Die 1082-Höhe** des AV1-Stroms gehört geradegezogen. *(2026-08-22
+   nachgemessen: am Encoder nicht möglich — `-align none` liefert ebenfalls
+   1082, `-align 64x16` verweigert 1080 ganz. Es bleiben vier Auswege, die alle
+   mehr kosten als der Fehler; Abwägung in
+   `streaming/win-hq-sidecar/README.md`. Der Punkt bleibt offen, aber als
+   Entscheidung, nicht als ungelöste Frage.)*

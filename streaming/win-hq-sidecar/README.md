@@ -229,6 +229,99 @@ und noch einmal in `pipeline_hw::run` auf der ECHTEN WGC-D3D11-Device-GPU
 `pipeline_hw` selbst weiter — an `pipeline_d3d12` oder den CPU-Pfad, je nachdem,
 was `encode_path` sagt.
 
+## AV1 auf AMD meldet 1082 statt 1080 Zeilen (gemessen 2026-08-22)
+
+`av1_amf` gibt einen 1920x1080-Eingang als Strom aus, der sich selbst als
+**1920x1082** ausweist. Der Sidecar ist daran unbeteiligt: sein Log sagt
+`capture 1920x1080 → encode 1920x1080`, `zielmasse`/`fit_within_box` runden
+grundsätzlich **ab** und deckeln auf die eingestellte Box (aus einer 1080er
+Vorgabe können dort rechnerisch nie 1082 werden), und der WHIP-Sendeweg reicht
+die AV1-Kopfdaten unverändert durch, ohne die Bildgrösse überhaupt zu lesen.
+
+**Diese Notiz steht hier, weil das Symptom in die falsche Richtung zeigt.** Wer
+1082 sieht, sucht zuerst in unserer Skalierung — dort ist nichts zu finden. Der
+Befund war am 2026-07-30 schon einmal am Rand notiert worden und ging trotzdem
+verloren, weil er dreimal verstreut und jedesmal als „nicht verfolgt" dastand.
+
+### Die Regel
+
+Gemessen auf einer Radeon 780M, FFmpeg n8.1, Testbild durch `av1_amf`:
+
+| Höhe hinein | Höhe im fertigen Strom |
+|---|---|
+| Vielfache von 16 (720, 1088, 1440, 2160) | unverändert |
+| `h % 16 == 8` (728, 1000, 1016, **1080**, 1096, 1112) | **h + 2** |
+| übrige (1050, 1076, 1078, 1084, 1086) | auf das nächste Vielfache von 16 |
+
+1080 ist damit ausgerechnet der ungünstigste verbreitete Wert. Die Breite blieb
+in allen Läufen unberührt — geprüft wurden allerdings nur Breiten, die selbst
+Vielfache von 16 sind.
+
+### Warum das ein Fehler ist und nicht bloss eine Ausrichtung
+
+Dass die Hardware intern ausrichtet, ist normal. Der Fehler ist, dass sie **nicht
+wieder herausgerechnet wird**. Die beiden Nachbarn auf derselben Karte machen es
+richtig: `h264_amf` liefert bei 1080 sauber 1080, und `hevc_amf` rechnet intern
+ebenfalls mit 1088, weist nach aussen aber korrekt 1080 aus (`coded_height=1088`
+neben `height=1080`). Nur der AV1-Zweig gibt seine Ausrichtung als echte
+Bildgrösse aus, statt sie über die dafür vorgesehene AV1-Angabe wieder
+abzuziehen.
+
+### Was es kostet
+
+Die zwei Zusatzzeilen sind **hartes Schwarz** (Luma 0, aus dem dekodierten Bild
+ausgelesen), nicht etwa fortgesetzter Bildinhalt. Daraus folgen drei Dinge:
+
+1. ein 2 Pixel hoher schwarzer Balken am unteren Rand jedes AV1-Stroms von AMD,
+2. 0,18 % zu hoch dargestellt — das sieht niemand,
+3. **die Fernsteuerung zielt zu hoch.** Der Player rechnet die Zeigerlage als
+   Anteil am Videobild (`fernsteuerung/bildlage.rs`, Nenner also 1082 Zeilen),
+   der Host legt denselben Anteil auf seinen Bildschirm (1080 Zeilen). Ganz oben
+   stimmt es exakt, zur Mitte hin fehlt rund 1 Pixel, am unteren Rand 2.
+
+Punkt 3 ist der Grund, warum „kosmetisch" (so stand es bis zum 2026-08-22 in
+`docs/plans/2026-07-30-amd-windows-messung.md`) zu wenig war: das
+Seitenverhältnis ist harmlos, ein systematischer Zielversatz nicht.
+
+### Am Encoder nicht abstellbar
+
+`av1_amf` hat eine `-align`-Option mit drei Werten. Alle drei durchprobiert:
+
+| `-align` | Ergebnis bei 1080 |
+|---|---|
+| `64x16` | Encoder öffnet gar nicht: `Resolution incorrect for alignment mode` |
+| `1080p` | 1082 |
+| `none` | **ebenfalls 1082** |
+
+`none` hält also nicht, was der Name verspricht. Auf dieser Karte gibt es keinen
+Schalter dagegen — auch nicht über die Optionen, die der Sidecar ohnehin setzt
+(`usage`, `quality`, `rc`, `async_depth`, `forced_idr`; mit ihnen nachgefahren,
+gleiches Ergebnis).
+
+### Was bliebe, wenn man es doch angeht
+
+- **Auf 1088 auffüllen**: acht schwarze Zeilen statt zwei. Schlechter.
+- **Auf 1072 herunterrechnen**: kostet Bildinhalt oder verzerrt um 0,7 %, also
+  das Vierfache des jetzigen Fehlers. Schlechter.
+- **Die Zielhöhe dem Player mitteilen und dort abschneiden**: behebt Balken und
+  Zielversatz sauber, aber nur im nativen Player — Browser-Zuschauer behielten
+  beides.
+- **H.264/HEVC statt AV1 auf AMD**: melden 1080 richtig, kosten aber die
+  AV1-Effizienz.
+
+Entschieden ist nichts davon. Der Punkt steht damit weiter offen, aber nicht mehr
+als „gehört geradegezogen" — geradeziehen lässt er sich am Encoder nachweislich
+nicht, jeder verbleibende Weg kostet mehr als der Fehler selbst.
+
+### Nachprüfen
+
+```powershell
+$ff = "streaming\win-hq-sidecar\ffmpeg-dist\n8.1-lgpl-shared\bin"
+& "$ff\ffmpeg.exe" -f lavfi -i testsrc=size=1920x1080:rate=60 -t 0.3 `
+    -c:v av1_amf -b:v 3000k -y probe.obu
+& "$ff\ffprobe.exe" -v error -show_entries stream=width,height -of csv=p=0 probe.obu
+```
+
 ## Fernsteuerung — Eingabe-Injektion (`src/remote_input/`)
 
 Der Sidecar ist der **Host** des Eingabe-Wire-Protokolls **v2** (verbindlich:
