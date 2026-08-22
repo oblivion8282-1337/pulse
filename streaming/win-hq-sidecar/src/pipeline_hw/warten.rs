@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 
+use super::bildplatz::Bildplatz;
 use crate::capture::{HwCaptureItem, WgcHwCapture};
 use crate::encode::OwnedHwFrame;
 
@@ -70,11 +71,17 @@ pub(super) struct Abholung {
 ///   Raster glättet, und genau dafür ist es da. `thread::sleep` nutzt auf
 ///   Win10+/aktuellem Rust einen High-Resolution-Waitable-Timer.
 /// * **FERNSTEUERUNG**: auf die ANKUNFT des nächsten Bildes warten, höchstens
-///   bis zum Tick (der bleibt als Heartbeat für stehende Bilder — ohne ihn
-///   stürbe der Push am MediaMTX-readTimeout). Das Raster kostete sonst im
-///   Mittel einen halben Bildabstand (8,3 ms bei 60 fps): ein Bild, das 1 ms
-///   nach dem Tick ankommt, wartete fast einen vollen. Beim Steuern zahlt das
-///   der geschlossene Kreis aus Eingabe hin und Bild zurück.
+///   bis zur Fälligkeit des Bildplatzes (die bleibt als Heartbeat für stehende
+///   Bilder — ohne ihn stürbe der Push am MediaMTX-readTimeout). Das Raster
+///   kostete sonst im Mittel einen halben Bildabstand (8,3 ms bei 60 fps): ein
+///   Bild, das 1 ms nach dem Tick ankommt, wartete fast einen vollen. Beim
+///   Steuern zahlt das der geschlossene Kreis aus Eingabe hin und Bild zurück.
+///
+/// **Die Frist wird hier NICHT weitergesetzt** (anders als bis zum
+/// 2026-08-22). Sie gehört dem Bildplatz und wird erst vergeben, wenn wirklich
+/// ein Bild hinausgegangen ist — sonst schiebt jeder Durchlauf, der das Bild
+/// nur hält, den Platz vor sich her und die Bildrate bricht ein. Herleitung im
+/// Kopf von [`super::bildplatz`].
 ///
 /// Danach werden alle noch wartenden Capture-Frames abgeholt, nur der neueste
 /// bleibt in `last_frame` (ältere gehen in den Pool zurück). Kommt nichts
@@ -82,19 +89,18 @@ pub(super) struct Abholung {
 pub(super) fn warten_und_abholen(
     capture: &mut WgcHwCapture,
     fern: bool,
-    frame_dur: Duration,
-    next_tick: &mut Instant,
+    platz: &mut Bildplatz,
     last_frame: &mut Option<OwnedHwFrame>,
     newest_qpc: &mut i64,
 ) -> Result<Abholung> {
-    let geplant = *next_tick;
+    let geplant = platz.faellig();
     // Zählt bereits das im Wartefenster angekommene Bild mit (nur Fern-Weg);
     // der Drain unten zählt weiter.
     let mut captured: u32 = 0;
     let now = Instant::now();
-    if *next_tick > now {
+    if geplant > now {
         if fern {
-            match capture.items.recv_timeout(*next_tick - now) {
+            match capture.items.recv_timeout(geplant - now) {
                 Ok(HwCaptureItem::Frame { frame, qpc }) => {
                     frame_uebernehmen(frame, qpc, last_frame, newest_qpc);
                     captured = 1;
@@ -108,23 +114,17 @@ pub(super) fn warten_und_abholen(
                 }
             }
         } else {
-            std::thread::sleep(*next_tick - now);
+            std::thread::sleep(geplant - now);
         }
     }
-    let now = Instant::now();
-    if fern {
-        // Heartbeat-Frist ab JETZT, kein Raster: das Raster wäre genau die
-        // Quantisierung, die dieser Zweig wegnimmt. Encodiert wird trotzdem
-        // höchstens im fps-Takt — die PTS-Platz-Bremse in `mod.rs` hält
-        // Bilder, deren Platz schon bedient ist, bis zum nächsten Heartbeat.
-        *next_tick = now + frame_dur;
-    } else {
-        *next_tick += frame_dur;
-        // Rückstand nicht akkumulieren — sonst Frame-Burst nach einem Stall.
-        if *next_tick < now {
-            *next_tick = now;
-        }
+    if !fern {
+        // Zusehen: das feste Raster läuft weiter, egal ob etwas angekommen ist
+        // — es ist genau die Glättung, für die es da ist.
+        platz.weiter_im_raster(Instant::now());
     }
+    // Fern: die Frist bleibt stehen. Weitergesetzt wird sie in `run`, sobald
+    // ein Bild wirklich hinausgegangen ist (`Bildplatz::vergeben`) — ein
+    // Durchlauf, der das Bild hält, darf den Platz nicht verschieben.
 
     // Ab hier wird Arbeit gemessen (ohne den Pacing-Sleep) — derselbe
     // Zeitpunkt trägt den Iterationsbeginn und den Anfang des Drains.

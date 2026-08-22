@@ -52,6 +52,7 @@ use crate::system::dxgi::Adapter;
 use crate::tick_monitor::{TickMonitor, TickSample};
 use crate::zeitbasis;
 
+mod bildplatz;
 mod capture_start;
 mod vorstufe;
 mod warten;
@@ -288,7 +289,7 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     // readTimeout → Verbindungsabbruch). Pro Tick wird der zuletzt gecapturete
     // Frame encodet (dupliziert, wenn kein neuer da ist); die PTS kommt aus der
     // Wanduhr → Stream-Zeit läuft mit Echtzeit statt mit der Capture-Rate.
-    let frame_dur = Duration::from_secs_f64(1.0 / fps as f64);
+    // Fälligkeit des Platzes und Bremse dazu: [`bildplatz::Bildplatz`].
     let started = Instant::now();
     // A/V-Sync über echte Hardware-Timestamps (QPC): Video-PTS aus dem WGC-QPC
     // relativ zum QPC des ersten Frames (origin_qpc); Audio am selben origin
@@ -308,7 +309,7 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     let mut last_pts: i64 = -1;
     let mut audio_dead = false;
     let mut frames_sent: u64 = 0;
-    let mut next_tick = started;
+    let mut platz = bildplatz::Bildplatz::neu(started, fps);
     let mut last_fps_emit = started;
     // Mikro-Stutter-Diagnose — misst pro Tick die einzelnen Stufen, erkennt
     // langsame Ticks/pts-Gaps und loggt sie. Details: `tick_monitor.rs`.
@@ -333,8 +334,7 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
             warten::warten_und_abholen(
                 &mut capture,
                 fern,
-                frame_dur,
-                &mut next_tick,
+                &mut platz,
                 &mut last_frame,
                 &mut newest_qpc,
             )?;
@@ -393,22 +393,13 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         let mut pts = if captured > 0 {
             zeitbasis::pts_aus_sekunden(elapsed)
         } else {
-            last_pts + zeitbasis::takte_je_bild(fps)
+            last_pts + platz.takte_je_bild()
         };
-        // Fern-Weg: höchstens ein Bild je Bildabstand. WGC liefert bis 0,9/fps
-        // (Deckel in `capture::min_interval_settings`) — encodierte jede
-        // Ankunft sofort, liefen die Zeitstempel dauerhaft schneller als die
-        // Echtzeit, und der Ausgabe-Takt des Zuschauers verankerte sich
-        // laufend neu. Das gehaltene Bild liegt in `last_frame` und geht
-        // spätestens mit dem nächsten Heartbeat hinaus (ein Bildabstand) —
-        // der Merker darunter sorgt dafür, dass es dann auch WIRKLICH
-        // gewandelt wird.
-        //
-        // **Die Grenze ist ein BILDABSTAND, nicht ein Takt.** Im alten Raster
-        // fielen beide zusammen (ein Takt war ein Bildabstand); seit der
-        // feineren Zeitbasis ist ein Takt 11 µs, und `pts <= last_pts` liesse
-        // hier praktisch jede Ankunft durch — die Bremse wäre wortlos weg.
-        if fern && captured > 0 && pts < last_pts + zeitbasis::takte_je_bild(fps) {
+        // Fern-Weg: höchstens ein Bild je Bildabstand — wozu, und warum die
+        // Grenze ein Bildabstand ist und kein Takt, steht bei
+        // [`bildplatz::Bildplatz`]. Das gehaltene Bild bleibt in `last_frame`
+        // und geht spätestens zur Fälligkeit des Platzes hinaus.
+        if fern && captured > 0 && !platz.traegt(pts, last_pts) {
             // Bughunt 2026-08-13: Das Halten allein genügte NICHT. Beim
             // Heartbeat ist `captured == 0`, und `captured == 0` heißt für die
             // Vorstufe „Quelle unverändert — gib dein letztes Ergebnis zurück".
@@ -458,6 +449,15 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
             gehaltenes_ungewandelt = false;
             last_pts = pts;
             frames_sent += 1;
+            // **Erst hier.** Der Platz ist bedient, der nächste wird einen
+            // Bildabstand nach DIESEM Bild fällig. Ein Durchlauf, der oben
+            // gehalten hat, kommt nicht hierher und verschiebt den Platz
+            // deshalb auch nicht — genau daran hing der Fehler vom
+            // 2026-08-22 (Herleitung im Kopf von `bildplatz.rs`). Beim
+            // Zusehen läuft stattdessen das Raster in `warten`.
+            if fern {
+                platz.vergeben(iter_start);
+            }
         }
 
         // Tick verbuchen. `send`/`mux` kommen aus dem Encoder (NVENC-Submit

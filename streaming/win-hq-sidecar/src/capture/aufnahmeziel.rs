@@ -157,8 +157,10 @@ impl Aufnahmeziel {
 /// je Bild bei 2560×1440 in fp16 (HDR), 0,96 ms bei 8 bit — die Kosten folgen
 /// exakt der Bytezahl. Bei 60 fps und bewegtem Bild sind das rund 12 % der
 /// 3D-Einheit des Senders. Sie fällt auch für Bilder an, die der Taktfaden
-/// gleich wieder verwirft (die Aufnahme ist auf `0,9/fps` gedeckelt, liefert
-/// also ~11 % mehr Bilder als der Takt verbraucht).
+/// gleich wieder verwirft (die Aufnahme ist auf [`super::DECKEL_ANTEIL`]`/fps`
+/// gedeckelt — seit dem 2026-08-14 ein halber Bildabstand statt 0,9, sie darf
+/// also bis zum doppelten der Zielrate liefern, begrenzt durch die
+/// Wiederholrate des Schirms).
 ///
 /// **Deshalb ist sie in HDR seit dem 2026-08-07 nicht mehr der Regelfall**,
 /// sondern nur noch der Weg unter `PULSE_HQ_HDR_ZWISCHENKOPIE=1` — und für SDR,
