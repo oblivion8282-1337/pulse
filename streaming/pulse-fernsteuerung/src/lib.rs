@@ -26,6 +26,7 @@ pub mod druck;
 pub mod format;
 pub mod plattform;
 pub mod rahmen;
+pub mod sitzung;
 pub mod zuordnung;
 
 #[cfg(test)]

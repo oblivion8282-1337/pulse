@@ -116,7 +116,7 @@ mod tests {
     }
 
     /// Die Version wird vom Parser **nicht** bewertet — das tut die Sitzung
-    /// (`super::super::Sitzung`). Ein v1-Hello ist also wohlgeformt und wird
+    /// (`crate::sitzung::Sitzung`). Ein v1-Hello ist also wohlgeformt und wird
     /// erst eine Ebene höher abgewiesen.
     #[test]
     fn hello_v1_ist_wohlgeformt_aber_alt() {
