@@ -21,9 +21,14 @@
 pub mod base64;
 pub mod bauen;
 pub mod bewegung;
+pub mod druck;
 pub mod format;
+pub mod plattform;
 pub mod rahmen;
 pub mod zuordnung;
+
+#[cfg(test)]
+mod pruefstand;
 
 /// Sender und Empfaenger gegeneinander: was [`bauen`] erzeugt, muss [`rahmen`]
 /// wieder auseinandernehmen koennen — und dasselbe herausbekommen.
