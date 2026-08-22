@@ -190,16 +190,23 @@
 //! | 144 | 285 | — | — | 288 |
 //!
 //! **Was den Takt setzt, ist der Vollbild-Abstand des Senders, nicht die
-//! Auffrischung.** Alle drei Sidecars stellen ihn auf zwei Sekunden —
-//! `set_gop(cfg.fps * 2)` in allen drei Encoder-Wegen des Windows-Sidecars,
-//! `(fps * 2).max(1)` auf macOS, `keyframe_abstand_bilder()` auf Linux; in
-//! Bildern also **2 x fps**, genau die Periode oben. Der Player bestaetigt es
-//! unabhaengig: seine eigene Vollbild-Meldung nennt 1999 bis 2001 ms. Im
-//! Intra-Refresh-Betrieb kommt gar kein zweites Vollbild (gemessen: **eines**
-//! in 40 s) und der Takt ist trotzdem derselbe — NVENC richtet die Dauer eines
-//! Auffrischungsdurchlaufs am GOP aus. Wer die Auffrischung fuer die Ursache
-//! haelt, sucht bei abgeschaltetem Intra-Refresh nach einer zweiten Erklaerung,
-//! wo es nur eine gibt.
+//! Auffrischung.** Zur Messzeit stellten alle drei Sidecars ihn auf zwei
+//! Sekunden — `set_gop(cfg.fps * 2)` in allen drei Encoder-Wegen des
+//! Windows-Sidecars, `(fps * 2).max(1)` auf macOS, `keyframe_abstand_bilder()`
+//! auf Linux; in Bildern also **2 x fps**, genau die Periode oben. Der Player
+//! bestaetigte es unabhaengig: seine eigene Vollbild-Meldung nannte 1999 bis
+//! 2001 ms. Im Intra-Refresh-Betrieb kam gar kein zweites Vollbild (gemessen:
+//! **eines** in 40 s) und der Takt war trotzdem derselbe — NVENC richtete die
+//! Dauer eines Auffrischungsdurchlaufs am GOP aus. Wer die Auffrischung fuer
+//! die Ursache hielt, suchte bei abgeschaltetem Intra-Refresh nach einer
+//! zweiten Erklaerung, wo es nur eine gibt.
+//!
+//! **Zwei Zahlen sind seither gewandert, der Schluss nicht.** Der
+//! Vollbild-Abstand steht seit dem 2026-08-18 auf **60 s**
+//! (`PULSE_KEYFRAME_SECONDS`; macOS bleibt bei 2 s), und die Betriebsart
+//! Intra-Refresh ist am 2026-08-21 entfallen. Die Periode oben ist damit
+//! **fps x 60** statt fps x 2 — wer die Tabelle nachfaehrt, rechnet die letzte
+//! Spalte um. Dass der Vollbild-Abstand sie setzt, bleibt unberuehrt.
 //!
 //! **Wie viel der Periode bitgleich bleibt, haengt am Inhalt** — von 0 (AV1 auf
 //! dichtem Text) ueber 6 von 120 (H.264 auf dichtem Text) bis 117 von 120. Das

@@ -20,6 +20,7 @@
  */
 
 import { loadAll, saveAll } from '$lib/stream/persistence';
+import { verwaisteDurchCommunity, verwaisteDurchServer } from '$lib/devices/eintragungAbgleich';
 import { refreshMonitors } from '$lib/stream/captureSource';
 import { streamSettings } from '$lib/stream/settingsState.svelte';
 import { platzMeldungen } from '$lib/devices/platzMeldung.svelte';
@@ -125,9 +126,45 @@ class GeraeteAnmeldung {
   }
 
   /** Nach dem Entfernen vergessen. */
-  async vergessen(deviceId: string): Promise<void> {
-    this.eintragungen = this.eintragungen.filter((e) => e.deviceId !== deviceId);
-    await this.#sichern();
+  vergessen(deviceId: string): Promise<void> {
+    return this.#vergessenViele([deviceId]);
+  }
+
+  /**
+   * Eintragungen räumen, deren Community es auf diesem Server nicht (mehr)
+   * gibt — gerufen aus `ws/handlers/ready.ts` mit der Communityliste des
+   * Rahmens, der dort die alleinige Wahrheit ist.
+   *
+   * **Vor dem Anmelden**, nicht danach: sonst meldete sich der Rechner in
+   * derselben Runde noch einmal als ein Gerät an, das es nicht gibt.
+   */
+  abgleichenMitCommunitys(serverId: string, guildIds: readonly string[]): Promise<void> {
+    return this.#vergessenViele(verwaisteDurchCommunity(this.eintragungen, serverId, guildIds));
+  }
+
+  /** Eintragungen räumen, deren Server aus der Serverliste verschwunden ist. */
+  abgleichenMitServern(serverIds: readonly string[]): Promise<void> {
+    return this.#vergessenViele(verwaisteDurchServer(this.eintragungen, serverIds));
+  }
+
+  /**
+   * Mehrere auf einmal — EIN Schreibvorgang. Unter Electron ist jeder ein
+   * IPC-Umlauf über die ganze Datei (dieselbe Begründung wie beim Laden in
+   * `app/+layout.svelte`).
+   *
+   * **Bewusst nicht `async`.** Der Aufrufer im `ready`-Handler räumt und fragt
+   * unmittelbar danach `fuerServer()` — er darf die geräumte Eintragung dort
+   * nicht mehr sehen. Als `async` deklariert liefe der Rumpf zwar heute
+   * genauso synchron an, das hinge aber an einer Feinheit der Sprache statt an
+   * einer Zusage dieser Datei. So steht sie in der Signatur: der Stand im
+   * Speicher ist mit der Rückkehr fertig, das Versprechen betrifft nur das
+   * Schreiben.
+   */
+  #vergessenViele(deviceIds: readonly string[]): Promise<void> {
+    if (deviceIds.length === 0) return Promise.resolve();
+    const raus = new Set(deviceIds);
+    this.eintragungen = this.eintragungen.filter((e) => !raus.has(e.deviceId));
+    return this.#sichern();
   }
 
   /**

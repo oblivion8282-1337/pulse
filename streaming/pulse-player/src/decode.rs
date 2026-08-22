@@ -394,8 +394,9 @@ impl Sendeart {
 ///
 /// Sie stammt aus der Zeit der wandernden Auffrischung, wo der Sender sie aus
 /// seinem Keyframe-Abstand ableitete (`intraRefreshCnt = gopLength - 1`, damals
-/// Vorgabe 2 s). **Seit dem 2026-08-18 ist Intra-Refresh ueberall abgewaehlt
-/// und die Vorgabe steht auf 60 s** — der Wert hier ist trotzdem geblieben, und
+/// Vorgabe 2 s). **Seit dem 2026-08-18 steht die Vorgabe auf 60 s, und am
+/// 2026-08-21 ist der Intra-Refresh ganz entfallen** — der Wert hier ist
+/// trotzdem geblieben, und
 /// zwar begruendet: er ist nur noch der Notausgang. Die Sperre endet regulaer,
 /// sobald wirklich ein Vollbild ankommt (s. `decode`, `ist_einstiegspunkt`), und
 /// das dauert nach einer Anforderung hoechstens so lange wie die Bremse des
@@ -697,7 +698,7 @@ fn cuda_ausgabe_vorgabe() -> bool {
 ///
 /// Software-Dekodierung ist dafuer nur brauchbar, wenn `libdav1d` im
 /// FFmpeg-Bau steckt — der native AV1-Decoder ist um ein Vielfaches langsamer.
-/// `streaming/ffmpeg-patches/bootstrap-ffmpeg.sh` schaltet es deshalb ein.
+/// `streaming/ffmpeg-bau/bootstrap-ffmpeg.sh` schaltet es deshalb ein.
 fn hwdec_vorgabe() -> bool {
     !matches!(std::env::var("PULSE_PLAYER_HWDEC").as_deref(), Ok("0"))
 }
@@ -1849,9 +1850,11 @@ impl VideoDecoder {
     /// Wartet der Decoder noch auf seinen ersten Einstiegspunkt?
     ///
     /// **Warum das nach aussen muss.** Ohne Einstieg verwirft er JEDE Einheit
-    /// (s. [`VideoDecoder::decode`]) — der Zuschauer sieht nichts. Im
-    /// Intra-Refresh-Betrieb gibt es aber keinen regulaeren Keyframe mehr: das
-    /// einzige Vollbild kommt auf Anforderung. Geht die eine Anforderung
+    /// (s. [`VideoDecoder::decode`]) — der Zuschauer sieht nichts. Beobachtet
+    /// wurde das im Intra-Refresh-Betrieb (bis zum 2026-08-21), wo es gar
+    /// keinen regulaeren Keyframe mehr gab und das einzige Vollbild auf
+    /// Anforderung kam. Es gilt unveraendert weiter: der Vollbild-Abstand steht
+    /// seit dem 2026-08-18 bei 60 s. Geht die eine Anforderung
     /// hinaus, waehrend der Player noch im Verbindungsaufbau steckt, wartet er
     /// danach VERGEBLICH — bis [`MAX_WARTEZEIT_OHNE_KEYFRAME`] die Sitzung
     /// abbricht. Am 2026-07-31 im Pruefstand beobachtet: 150 Sekunden mit

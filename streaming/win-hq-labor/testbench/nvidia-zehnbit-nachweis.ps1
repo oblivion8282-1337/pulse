@@ -4,8 +4,8 @@
 # Diese Datei ist bewusst REIN ASCII, ohne Umlaute und ohne Gedankenstriche:
 # Windows PowerShell 5.1 liest ein `.ps1` ohne BOM als ANSI, und aus dem UTF-8-
 # Byte eines Gedankenstrichs wird dabei ein Anfuehrungszeichen, das mitten im
-# Satz eine Zeichenkette beendet (dieselbe Falle wie in
-# `nvidia-intra-refresh-nachweis.ps1`).
+# Satz eine Zeichenkette beendet (dieselbe Falle wie in den Nachbarskripten;
+# hier stand `nvidia-intra-refresh-nachweis.ps1`, am 2026-08-21 geloescht).
 #
 # ## Warum es dieses Skript gibt
 #
@@ -126,12 +126,14 @@ function Invoke-Lauf {
   # rahmenlose Fenster unten ist damit reine Nebensache und bleibt nur
   # stehen, weil die Messreihe vom 2026-08-11 so gefahren wurde.
   #
-  # **Folge fuer die Nachbarskripte:** `nvidia-intra-refresh-nachweis.ps1` und
-  # `hdr-nachweis.ps1` starten ffplay ohne diese Variable. Auf dieser Maschine
-  # nehmen sie damit heute Schwarz auf -- am 2026-08-04 taten sie es
-  # nachweislich nicht (die Messakte `nvidia-2026-08-04-windows-intra-refresh`
-  # zeigt 700 Bilder bei 4132 kbit/s, das ist echter Inhalt). Was sich
-  # dazwischen geaendert hat, ist NICHT bestimmt; der Treiber ist derselbe
+  # **Folge fuer die Nachbarskripte:** `hdr-nachweis.ps1` -- und bis zum
+  # 2026-08-21 auch `nvidia-intra-refresh-nachweis.ps1`, das an dem Tag mit der
+  # Betriebsart geloescht worden ist -- starteten ffplay ohne diese Variable.
+  # Auf dieser Maschine nehmen sie damit heute Schwarz auf; am 2026-08-04 taten
+  # sie es nachweislich nicht (die Messakte
+  # `nvidia-2026-08-04-windows-intra-refresh`, ebenfalls am 2026-08-21
+  # geloescht, zeigte 700 Bilder bei 4132 kbit/s, das ist echter Inhalt). Was
+  # sich dazwischen geaendert hat, ist NICHT bestimmt; der Treiber ist derselbe
   # (32.0.16.1047). Beide Skripte haben die Variable deshalb nachgetragen
   # bekommen.
   #

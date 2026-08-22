@@ -97,8 +97,9 @@ Null Overhead. Statt „Lücke → PLI → volles Keyframe" fordert der Empfäng
 P-Bild an, das auf die letzte nachweislich heile Langzeit-Referenz zeigt.
 
 **GEMESSEN** (Commit `22734a98`): Vollbilder kosten die vierzigfache Bitrate.
-**GEMESSEN** (`decoder-2026-07-29-intra-refresh.json`): Intra-Refresh heilt
-sich nach Verlust nicht — LTR griffe genau dort.
+**GEMESSEN** (Messakte `decoder-2026-07-29-intra-refresh.json`, am 2026-08-21
+zusammen mit der Betriebsart gelöscht): Intra-Refresh heilte sich nach Verlust
+nicht — LTR griffe genau dort.
 **EXTERN:** Meta berichtet, LTR-P sei 40-50 Prozent kleiner als ein Keyframe
 bei vergleichbarer Qualität, knapp 20 Prozent weniger Keyframes unter Verlust
 ohne mehr Ruckler.

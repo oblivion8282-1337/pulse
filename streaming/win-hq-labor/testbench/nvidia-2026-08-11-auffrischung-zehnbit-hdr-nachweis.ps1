@@ -1,3 +1,26 @@
+# STILLGELEGT AM 2026-08-21 -- DIESE MESSUNG IST SINNLOS GEWORDEN.
+#
+# Intra-Refresh ist an diesem Tag aus Pulse entfernt worden. Das Skript baute
+# seine beiden Arme ausschliesslich ueber `"intra_refresh":true` gegen
+# `"intra_refresh":false` -- und genau dieses Feld verschluckt der Sidecar
+# seither stillschweigend. Beide Arme faehrt er damit IDENTISCH.
+#
+# Ohne diesen Hinweis waere das die gefaehrlichste Sorte Messung: sie liefe
+# durch, fuellte die Tabelle und lieferte fuer "mit" und "ohne" fast dieselben
+# Zahlen -- was wie ein Befund aussieht ("die Auffrischung kostet nichts") und
+# in Wahrheit nur zweimal derselbe Lauf ist. Deshalb bricht das Skript unten
+# ausdruecklich ab, statt lauffaehig zu bleiben.
+#
+# WAS DAVON GUELTIG BLEIBT: die Messwerte, die damit am 2026-08-11 entstanden
+# sind (10 bit und HDR auf `av1_nvenc`), und die Fallen im Aufbau. Die stehen
+# unveraendert unten.
+#
+# WER NUR 10 BIT ODER HDR PRUEFEN WILL, nimmt die Nachbarskripte, die ohne die
+# Betriebsart auskommen: `nvidia-zehnbit-nachweis.ps1` und `hdr-nachweis.ps1`.
+#
+# ------------------------------------------------------------------------
+# Der urspruengliche Kopf, als Historie:
+#
 # Traegt Intra-Refresh auf dieser Karte, heute, in Kombination mit 10 bit und
 # mit HDR? Diese Kombination gab es auf NVIDIA bis zum 2026-08-11 nicht, weil
 # HDR hier erst seit heute freigeschaltet ist (`encode/hdr.rs`,
@@ -22,8 +45,9 @@
 # NUR AV1 wird hier mit 10 bit / HDR kombiniert -- H.264 traegt auf dieser
 # Karte kein 10 bit (`VideoCodec::supports_ten_bit` laesst nur AV1 durch,
 # `encode/hdr.rs`). Die reine Intra-Refresh-Regression (8 bit, beide Codecs)
-# ist NICHT Teil dieses Skripts -- dafuer `nvidia-intra-refresh-nachweis.ps1
-# -Bitrate 12000` unveraendert weiterverwenden.
+# war NICHT Teil dieses Skripts -- dafuer gab es `nvidia-intra-refresh-
+# nachweis.ps1 -Bitrate 12000`, das am 2026-08-21 mit der Betriebsart geloescht
+# worden ist.
 param(
   [int]$Laeufe = 3,
   [int]$Sekunden = 20,
@@ -33,6 +57,11 @@ param(
   [string]$Ablage = ''
 )
 $ErrorActionPreference = 'Stop'
+
+# Der Riegel. Siehe den Kopf: beide Arme dieses Skripts sind seit dem
+# 2026-08-21 derselbe Lauf. Eine Messung, die zwei gleiche Dinge vergleicht,
+# ist gefaehrlicher als eine, die abbricht.
+throw 'Stillgelegt am 2026-08-21: Intra-Refresh ist aus Pulse entfernt, die Arme "mit" und "ohne" sind identisch. Begruendung im Kopf dieser Datei.'
 
 $LaborRoot   = Split-Path $PSScriptRoot -Parent
 $SidecarRoot = Join-Path (Split-Path $LaborRoot -Parent) 'win-hq-sidecar'
@@ -64,13 +93,15 @@ function Invoke-Lauf {
   param([bool]$Auffrischung, [string]$Modus, [string]$Ziel)
 
   if (Test-Path $Ziel) { Remove-Item -Force $Ziel }
-  $ir = if ($Auffrischung) { 'true' } else { 'false' }
+  # `$Auffrischung` steht nur noch fuer die Ablage und die Ausgabe. Das Feld
+  # `intra_refresh`, das den Unterschied ausgemacht hat, gibt es seit dem
+  # 2026-08-21 nicht mehr -- deshalb der Riegel oben.
   $url = $Ziel -replace '\\','\\\\'
   $extra = if ($Modus -eq 'hdr') { '"hdr":true' } else { '"bit_depth":10' }
   $start = '{"op":"start","id":2,"channel":{"id":"1","token":"","push_url":"' + $url +
            '"},"capture":"monitor","audio":{"mode":"Aus"},"overrides":{"codec":"av1' +
            '","bitrate_kbps":' + $Bitrate + ',"fps":' + $Fps + ',"resolution":"' + $Aufloesung +
-           '",' + $extra + ',"intra_refresh":' + $ir + '}}'
+           '",' + $extra + '}}'
 
   # Bewegtbild + Verlaeufe, wie in `nvidia-zehnbit-nachweis.ps1` begruendet:
   # ein einfarbiges Bild sagt weder ueber die Bittiefe noch ueber die

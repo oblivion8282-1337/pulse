@@ -57,7 +57,7 @@ auf halbem Weg stehenbleibt:
 
 | Erst gemessen | Später berichtigt | Wo die Korrektur steht |
 |---|---|---|
-| „AMF kann kein Intra-Refresh" (2026-08-01) | Kann es doch — die Option heißt nur anders | `amf-2026-08-02-intra-refresh-doch` |
+| „AMF kann kein Intra-Refresh" (2026-08-01) | Kann es doch — die Option heißt nur anders | `amf-2026-08-02-intra-refresh-doch`, **am 2026-08-21 mit der Betriebsart gelöscht** |
 | 10-Bit-Magenta liegt am eigenen D3D11-Import | Liegt im Vulkan-Encode-Weg | `amd-2026-08-02-qualitaet-und-browser` |
 | Adaptive Parität repariert nichts (2026-07-31) | Tut sie doch — mit dem NACK statt `fraction lost` als Regelgröße | `fec-2026-08-04-adaptiv-ueber-nack` |
 | Browser bekommen keine FlexFEC-Parität (2026-07-29) | Bekommen sie | `fec-2026-08-01-windows-browser` |
@@ -399,44 +399,46 @@ benannt hatte. Der Weg geht über die echte Leitung (60 ms), der Verlust wird
 gesetzt statt durch Sättigung erzeugt.
 
 Die Vorlage ist `*.mkv` und damit gitignored — sie muss einmal erzeugt werden.
-Echter Intra-Refresh, deshalb über das **gepatchte** FFmpeg
-(`streaming/ffmpeg-patches/bootstrap-ffmpeg.sh`); auf AMD zusätzlich der Umweg
-über eine Pipe, weil dieser Bau kein `lavfi` enthält:
+Gebraucht wird ein Strom mit **genau einem Vollbild, ganz am Anfang**. Das
+liefert ein Vollbild-Abstand, der länger ist als der Ausschnitt (`-g 9999`):
 
 ```bash
-P=~/.cache/pulse/ffmpeg-intra-refresh
 ffmpeg -f lavfi -i "testsrc2=size=1920x1080:rate=60:duration=150" \
        -pix_fmt yuv420p -f yuv4mpegpipe - |
-LD_LIBRARY_PATH=$P/prefix/lib $P/prefix/bin/ffmpeg -y \
-  -vaapi_device /dev/dri/renderD128 -f yuv4mpegpipe -i - \
+ffmpeg -y -vaapi_device /dev/dri/renderD128 -f yuv4mpegpipe -i - \
   -vf 'format=nv12,hwupload' \
-  -c:v av1_vaapi -rc_mode CBR -b:v 4000k -g 9999 \
-  -intra_refresh 1 -intra_refresh_period 120 lang.mkv
-ffmpeg -y -i lang.mkv -t 20 -c copy fec-intraref-20s.mkv   # 1200 Bilder, 1 Vollbild
+  -c:v av1_vaapi -rc_mode CBR -b:v 4000k -bf 0 -g 9999 lang.mkv
+ffmpeg -y -i lang.mkv -t 20 -c copy fec-vorlage-20s.mkv   # 1200 Bilder, 1 Vollbild
 ```
 
-**8 bit ist Pflicht**, nicht Bequemlichkeit: Chromiums dav1d lehnt `bpc != 8`
-ab, ein 10-bit-Lauf ergäbe null Bilder. Und `-force_key_frames` greift bei
-eingeschaltetem Intra-Refresh **nicht** — ein zweiter Einstiegspunkt lässt sich
-so nicht setzen, deshalb der Weg über die kurze Schleife.
+**Bis zum 2026-08-21 entstand dieselbe Vorlage über echten Intra-Refresh**
+(`-intra_refresh 1 -intra_refresh_period 120`, Datei hieß
+`fec-intraref-20s.mkv`) und brauchte dafür das **gepatchte** FFmpeg aus
+`streaming/ffmpeg-patches/` — samt `LD_LIBRARY_PATH`-Umweg und einer Pipe,
+weil jener Bau kein `lavfi` enthielt. Die Betriebsart ist aus Pulse entfernt,
+die Patches mit ihr; das Verzeichnis heißt heute `streaming/ffmpeg-bau/`
+(unveränderter Upstream n8.1.1, `~/.cache/pulse/ffmpeg/prefix`) und
+`av1_vaapi`/`h264_vaapi` kennen `intra_refresh` nicht mehr. Der Prüfstand
+verliert dadurch nichts: gebraucht wurde nie die Betriebsart, sondern das
+Fehlen eines zweiten Einstiegspunkts.
 
-**Auf NVIDIA ist das alles einfacher:** `av1_nvenc` hat Intra-Refresh upstream,
-es braucht also weder den FFmpeg-Patch noch den Umweg über die Pipe (das
-System-FFmpeg kann `lavfi`). Ein Aufruf statt zwei:
+Die Pipe steht trotzdem noch da, aber aus einem anderen Grund: sie erspart es,
+`lavfi` und `hwupload` in einen Aufruf zu zwingen. Wer mit dem System-FFmpeg
+arbeitet, kann beides zusammenziehen.
+
+**8 bit ist Pflicht**, nicht Bequemlichkeit: Chromiums dav1d lehnt `bpc != 8`
+ab, ein 10-bit-Lauf ergäbe null Bilder.
+
+**Auf NVIDIA** genügt ein Aufruf, weil dort kein `hwupload` nötig ist:
 
 ```bash
 ffmpeg -y -f lavfi -i "testsrc2=size=1920x1080:rate=60:duration=150" \
   -c:v av1_nvenc -tune ll -rc cbr -b_ref_mode 0 -preset p2 \
-  -zerolatency 1 -delay 0 -b:v 4000k -g 9999 \
-  -intra-refresh 1 lang.mkv
+  -zerolatency 1 -delay 0 -b:v 4000k -g 9999 lang.mkv
 ```
 
-Der Schalter heißt bei NVENC `-intra-refresh` mit Bindestrich, bei VAAPI
-`-intra_refresh` mit Unterstrich. Und `-single-slice-intra-refresh` gibt es
-**nur** bei `h264_nvenc`/`hevc_nvenc`, nicht bei `av1_nvenc` — an der
-Optionstabelle geprüft, nicht geraten. Die übrigen Werte sind die des
-Sidecars (`live-vorlage.py::SIDECAR_OPTS`), damit die Vorlage dieselbe
-Bitstrom-Struktur bekommt wie ein echter Stream.
+Die übrigen Werte sind die des Sidecars (`live-vorlage.py::SIDECAR_OPTS`),
+damit die Vorlage dieselbe Bitstrom-Struktur bekommt wie ein echter Stream.
 
 Vier Dinge, die nicht offensichtlich sind:
 

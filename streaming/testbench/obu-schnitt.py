@@ -3,12 +3,18 @@
 
 Bildet nach, was ``depacket/mod.rs::Assembler`` bei Paketverlust tut: die
 betroffene Zugriffseinheit wird KOMPLETT verworfen, nicht beschädigt
-weitergereicht. Damit lässt sich die Frage „baut der Decoder nach einem Verlust
-die Intra-Refresh-Streifen wieder ein?" ohne Netz, ohne MediaMTX, ohne Portal
+weitergereicht. Damit lässt sich die Frage „wann zeigt der Decoder nach einem
+Verlust wieder ein richtiges Bild?" ohne Netz, ohne MediaMTX, ohne Portal
 und ohne ``sudo`` beantworten — in Sekunden statt in einer Messreihe.
 
-Gegenstück ist ``heilung.py``, das die dekodierten Bilder auswertet. Der Befund
-vom 2026-07-29 steht in ``profiles/decoder-2026-07-29-intra-refresh.json``.
+**Die Frage lautete bis zum 2026-08-21 anders**: „baut der Decoder die
+Intra-Refresh-Streifen wieder ein?". Die Betriebsart ist aus Pulse entfernt und
+die Messakte dazu (``profiles/decoder-2026-07-29-intra-refresh.json``, Befund
+vom 2026-07-29) mit ihr gelöscht. Das Werkzeug bleibt: die Antwort für einen
+Vollbild-Strom — er heilt am nächsten Vollbild, bei 60 s Abstand also womöglich
+erst in einer Minute — ist genauso zu messen und heute die wichtigere.
+
+Gegenstück ist ``heilung.py``, das die dekodierten Bilder auswertet.
 
 **Encoder-Einstellungen sind nicht egal.** Ein Datei-Encode mit av1_nvenc-
 Defaults enthält versteckte Bilder (Alt-Ref: ein ``FRAME_HDR`` allein in der
@@ -18,14 +24,19 @@ durch. Mit den Live-Einstellungen des Sidecars verschwinden sie::
 
     ffmpeg -f lavfi -i testsrc2=size=1280x720:rate=60:duration=5 \\
       -pix_fmt p010le -c:v av1_nvenc -tune ll -rc cbr -b_ref_mode 0 \\
-      -preset p2 -zerolatency 1 -delay 0 -intra-refresh 1 -forced-idr 1 \\
-      -g 600 -b:v 4000k -f obu live-ir.obu
+      -preset p2 -zerolatency 1 -delay 0 -forced-idr 1 \\
+      -g 600 -b:v 4000k -f obu live.obu
+
+(Bis zum 2026-08-21 stand hier zusätzlich ``-intra-refresh 1``, und die Datei
+hieß ``live-ir.obu``. Die Option gibt es nicht mehr; ``-g 600`` allein — zehn
+Sekunden bei 60 fps — reicht für den Zweck, weil der Schnitt ohnehin lange vor
+dem nächsten Vollbild liegt.)
 
 Danach ist eine Zugriffseinheit genau ein Bild. Die Ausgabe unten meldet die
 Einheitengröße mit; ein zweistelliger Wert ist das Warnzeichen.
 
-    ./obu-schnitt.py live-ir.obu kaputt.obu --weg 150
-    ./obu-schnitt.py live-ir.obu kaputt.obu --weg 150,151,152
+    ./obu-schnitt.py live.obu kaputt.obu --weg 150
+    ./obu-schnitt.py live.obu kaputt.obu --weg 150,151,152
 """
 
 from __future__ import annotations

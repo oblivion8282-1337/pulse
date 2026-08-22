@@ -45,9 +45,15 @@ services:
       - ./certs:/certs:ro
     environment:
       # Der 2-Sekunden-Takt, mit dem MediaMTX jeden WebRTC-Sender nach einem
-      # Vollbild fragt. Für Intra-Refresh ist er Gift — er setzt genau die
-      # Bursts zurück, die das Verfahren vermeidet. RTMP-Sender berührt er
-      # nicht. Leer/unbesetzt = Upstream-Verhalten (2s).
+      # Vollbild fragt. Er muss weg, weil der Vollbild-Takt dem SENDER gehört:
+      # seit dem 2026-08-18 steht er auf 60 s (`PULSE_KEYFRAME_SECONDS`), und
+      # fordert der Server trotzdem alle 2 s eines an, ist der Abstand faktisch
+      # wieder 2 s. RTMP-Sender berührt er nicht. Leer/unbesetzt =
+      # Upstream-Verhalten (2 s).
+      #
+      # Hier stand bis zum 2026-08-21 „für Intra-Refresh ist er Gift" — jene
+      # Betriebsart ist entfernt, der Schalter bleibt aus dem obigen Grund
+      # nötig.
       PULSE_KEYFRAME_INTERVAL: "0"
       # Die Bildmarke (AV1 Dependency Descriptor) ueber die Neuverpackung
       # tragen — Patch 0006. Ohne sie kann der Zuschauer ein VERLORENES Bild
@@ -59,11 +65,13 @@ services:
       # FlexFEC bleibt im Dev-Stack AUS. Sie kostet jeden Zuschauer rund
       # 20 Prozent mehr Daten, unabhängig davon, wie der Stream reinkam —
       # das ist eine eigene Entscheidung und gehört nicht in denselben
-      # Testlauf wie Intra-Refresh. Zum Zuschalten: PULSE_FLEXFEC: "1".
+      # Testlauf wie eine andere Maßnahme gegen Verlust. Zum Zuschalten:
+      # PULSE_FLEXFEC: "1".
       # Dieselbe Einstellung wie auf dem Testserver: feste Rate, auf je 10
       # Medienpakete 2 Paritaetspakete (rund 20 % Aufschlag), NICHT adaptiv.
-      # Zum Abschalten fuer einen Intra-Refresh-Messlauf auf "" setzen — sonst
-      # laufen zwei Massnahmen gegen Verlust im selben Durchgang.
+      # Zum Abschalten fuer einen Messlauf auf "" setzen, der die Wirkung einer
+      # anderen Massnahme gegen Verlust zeigen soll — sonst laufen zwei im
+      # selben Durchgang und keine ist zuzuordnen.
       PULSE_FLEXFEC: ""
       PULSE_FLEXFEC_MEDIA: "10"
       PULSE_FLEXFEC_FEC: "2"

@@ -56,6 +56,15 @@
   const sprachkanaele = $derived(
     (guilds.channelsByGuild[zielGuild] ?? []).filter((c) => c.type === 1),
   );
+  // **Die Kanäle der GEWÄHLTEN Community nachladen** (Bughunt 2026-08-21).
+  // `channelsByGuild` ist nur für Communitys gefüllt, deren Kanalliste schon
+  // einmal geöffnet oder anderswo vorgeladen wurde. Ohne das hier bot der
+  // Community-Wechsel oben eine Auswahl an, deren Kanalfeld darunter leer und
+  // ausgegraut blieb — ein Wechsel, den die Oberfläche anbietet und dann nicht
+  // zu Ende gehen lässt.
+  $effect(() => {
+    if (zielGuild) void guilds.ensureChannels(zielGuild).catch(() => undefined);
+  });
 
   const guildOptionen = $derived(guilds.list.map((g) => ({ value: g.id, label: g.name })));
   const kanalOptionen = $derived(sprachkanaele.map((c) => ({ value: c.id, label: c.name })));

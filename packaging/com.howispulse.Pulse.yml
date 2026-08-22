@@ -323,6 +323,11 @@ modules:
         dest: pulse-whip
         skip:
           - target
+      - type: dir
+        path: ../streaming/pulse-bildmarke
+        dest: pulse-bildmarke
+        skip:
+          - target
       - linux-hq-sidecar-cargo-sources.json
 
   # ── Nativer HQ-Player (Zuschauer-Seite) ────────────────────────────────────
@@ -469,6 +474,11 @@ modules:
       - type: dir
         path: ../streaming/pulse-zeigerbild
         dest: pulse-zeigerbild
+        skip:
+          - target
+      - type: dir
+        path: ../streaming/pulse-bildmarke
+        dest: pulse-bildmarke
         skip:
           - target
       # Der gepatchte webrtc-rs-Zweig, den `Cargo.toml` über

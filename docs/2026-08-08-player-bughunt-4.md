@@ -1067,8 +1067,9 @@ Gegenteil: "Einmal zeichnen, bevor das erste Bild da ist: sonst zeigt das Fenste
 undefinierten Inhalt … und die Bedienoberfläche wäre nicht auffindbar."
 
 Ablauf: `open` fordert einen Redraw an, der Durchgang läuft bis `renderer.render(...)` und
-liefert nichts ab. Bis zum ersten Bild (bei Intra-Refresh bis zu `FIRST_FRAME_TIMEOUT` =
-20 s, bei ausbleibendem Vollbild bis zum Abbruch) zeigt das Fenster undefinierten
+liefert nichts ab. Bis zum ersten Bild (damals im Intra-Refresh-Betrieb, seit dessen
+Wegfall am 2026-08-21 bei langem Vollbild-Abstand: bis zu `FIRST_FRAME_TIMEOUT` = 20 s,
+bei ausbleibendem Vollbild bis zum Abbruch) zeigt das Fenster undefinierten
 Swapchain-Inhalt, und die eigene Bedienleiste (Stumm, Vollbild, Zurück in die Kachel) ist
 weder sichtbar noch anklickbar; auch der Doppelklick-Vollbildumschalter wird nur in
 `paint()` ausgewertet. Das Fenster selbst behält die native Titelleiste, ist also

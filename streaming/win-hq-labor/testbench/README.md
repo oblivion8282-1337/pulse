@@ -23,8 +23,8 @@ keinem der Skripte** und wird in der Ausgabe maskiert. Ausnahmen:
 
 | Datei | Beantwortet |
 |---|---|
-| `intra-refresh-nachweis.ps1` | Läuft Intra-Refresh wirklich — auf dem **Vulkan**-Weg? |
-| `amd-intra-refresh-nachweis.ps1` | Dieselbe Frage für die **herstellereigenen** Wege, samt Einstieg und Erholung |
+| ~~`intra-refresh-nachweis.ps1`~~ | Lief Intra-Refresh wirklich — auf dem **Vulkan**-Weg? **Am 2026-08-21 gelöscht** |
+| ~~`amd-intra-refresh-nachweis.ps1`~~ | Dieselbe Frage für die **herstellereigenen** Wege, samt Einstieg und Erholung. **Am 2026-08-21 gelöscht** |
 | `browser-whep.ps1` + `browser-whep.html` | Sieht ein Browser-Nutzer den Strom? |
 | `hdr-ansehen.ps1` | Sieht das HDR-Bild richtig aus — mit oder ohne Zuschauer, mit Spur |
 | `last-messen.ps1` | Was kostet der Sender auf der **Grafikeinheit**? (Leistungsindikatoren je Prozess) |
@@ -139,10 +139,16 @@ her. Zwei Binaries zu vergleichen wäre schlechter — dann unterschieden sich a
 Übersetzung und Anordnung im Speicher. Beispiel:
 `streaming/testbench/profiles/leistung-2026-08-07-wandlung-im-rueckruf.json`.
 
-## `amd-intra-refresh-nachweis.ps1`
+## `amd-intra-refresh-nachweis.ps1` — am 2026-08-21 gelöscht
 
-Dazugekommen, weil die Annahme „AMF kann kein Intra-Refresh" — die Begründung
-für den ganzen Vulkan-Umweg — am 2026-08-02 gefallen ist.
+> **Das Skript gibt es nicht mehr.** Es ist am 2026-08-21 mit der Betriebsart
+> gelöscht worden, ebenso seine beiden Messakten. Dieser Abschnitt bleibt
+> stehen, weil die Optionsnamen und die beiden Fallen darunter die einzige
+> zusammenhängende Aufschreibung davon sind — als Historie, nicht als Anleitung.
+> Die Befehlszeilen unten laufen ins Leere.
+
+Dazugekommen war es, weil die Annahme „AMF kann kein Intra-Refresh" — die
+Begründung für den ganzen Vulkan-Umweg — am 2026-08-02 gefallen war.
 
 **Jeder Encoder nennt die Option anders**, und ein Name vom Nachbarn misst
 nichts:
@@ -165,6 +171,7 @@ sie fuhr, statt von einer Vorgabe abzuhängen. Die Gegenprobe `-Ohne` schaltet
 über `PULSE_LABOR_KEIN_IR=1` ab.
 
 ```powershell
+# ACHTUNG: das Skript ist am 2026-08-21 geloescht -- die Zeilen laufen ins Leere.
 .\amd-intra-refresh-nachweis.ps1 -Ohne                          # Gegenprobe: 6 Vollbilder
 .\amd-intra-refresh-nachweis.ps1                                # mit Auffrischung: 1
 .\amd-intra-refresh-nachweis.ps1 -Bits 10
@@ -173,8 +180,9 @@ sie fuhr, statt von einer Vorgabe abzuhängen. Die Gegenprobe `-Ohne` schaltet
 .\amd-intra-refresh-nachweis.ps1 -Codec h264 -Modus nur-einstieg -VerlustAb 7 -Sekunden 16
 ```
 
-Ergebnisse in `testbench/profiles/amf-2026-08-02-intra-refresh-doch.json` (AV1)
-und `amd-2026-08-02-h264-intra-refresh.json` (H.264).
+Ergebnisse lagen in `testbench/profiles/amf-2026-08-02-intra-refresh-doch.json`
+(AV1) und `amd-2026-08-02-h264-intra-refresh.json` (H.264) — **beide am
+2026-08-21 gelöscht**.
 
 **Zwei Fallen, beide teuer:**
 
@@ -191,13 +199,18 @@ und `amd-2026-08-02-h264-intra-refresh.json` (H.264).
   encodieren also gleich — die Falle ist weg, und der Schalter heißt heute
   `PULSE_HQ_AMD_D3D12=1` und wirkt andersherum.
 
-## `intra-refresh-nachweis.ps1`
+## `intra-refresh-nachweis.ps1` — am 2026-08-21 gelöscht
 
-Zählt am **Zuschauer**, wie viele der ankommenden Bilder Vollbilder sind. Mit
-Intra-Refresh darf im ganzen Lauf höchstens eines kommen (das auf die
-Einstiegs-Anforderung); der Messstand hat `PULSE_KEYFRAME_INTERVAL=0`, es gibt
-also keinen Takt, der die Zahl von selbst hochtriebe. `-Amf` fährt dieselbe
-Messung gegen das alte Verfahren.
+> **Auch dieses Skript gibt es nicht mehr.** Was hier stehenbleibt, ist die
+> Begründung für „am Zuschauer zählen, nicht an einer Mitschrift" — die gilt für
+> jede AV1-Messung weiter und ist der Grund, warum das Labor überhaupt ein
+> dekodierendes Messwerk hat.
+
+Es zählte am **Zuschauer**, wie viele der ankommenden Bilder Vollbilder sind.
+Mit Intra-Refresh durfte im ganzen Lauf höchstens eines kommen (das auf die
+Einstiegs-Anforderung); der Messstand hatte `PULSE_KEYFRAME_INTERVAL=0`, es gab
+also keinen Takt, der die Zahl von selbst hochgetrieben hätte. `-Amf` fuhr
+dieselbe Messung gegen das alte Verfahren.
 
 **Warum am Zuschauer und nicht an einer Mitschrift.** Der naheliegende Weg —
 Datei schreiben, `ffprobe` zählen lassen — trägt bei AV1 nicht: die rohe
@@ -233,8 +246,9 @@ ein zu kleines `seq_level_idx` von `av1_vulkan` — berichtigt in
 inklusive 10 Bit, bis 1440p.
 
 Nebenbefund, der Arbeit spart: die Browser fordern beim Einstieg **von sich
-aus** ein Vollbild an (`pliCount=2`). Für Intra-Refresh ist das die
-Voraussetzung — im Web-Client braucht es dafür also keinen Sonderweg.
+aus** ein Vollbild an (`pliCount=2`). Für Intra-Refresh war das die
+Voraussetzung — im Web-Client hätte es dafür also keinen Sonderweg gebraucht.
+Der Befund selbst gilt weiter und trägt heute den Einstieg über WHIP.
 
 **Die Schalter, und warum es sie gibt** (alle am 2026-08-02 dazugekommen, jeder
 für eine Bedingung, die sich sonst nicht trennen ließ):

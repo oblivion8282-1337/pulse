@@ -1,4 +1,20 @@
-//! Intra-Refresh auf dem herstellereigenen Weg einschalten.
+//! Intra-Refresh auf dem herstellereigenen Weg einschalten. **STILLGELEGT.**
+//!
+//! **Seit dem 2026-08-21 wirkungslos.** Intra-Refresh ist an dem Tag aus Pulse
+//! entfernt worden, und mit der Betriebsart ist der FFmpeg-Patch
+//! `streaming/ffmpeg-patches/0002-amfenc_av1-…` gelöscht, der `av1_amf`
+//! überhaupt erst `intra_refresh_mode` beibrachte. Das ausgelieferte FFmpeg
+//! kennt die Option nicht mehr; sie landet zwar weiter in
+//! `PULSE_ENCODER_OPTS`, wird beim Öffnen des Encoders aber **stillschweigend
+//! verworfen** — kein Fehler, keine Zeile im Log, kein Unterschied im Strom.
+//!
+//! **Warum die Datei trotzdem stehenbleibt, unverändert:** Umbauen kostet
+//! Aufwand ohne Nutzen. Sie hängt an genau einer Stelle (`main.rs`,
+//! `auffrischung::vorbereiten`), tut ohne Patch nachweislich nichts, und die
+//! Herleitung darunter — welcher Encoder die Option wie nennt — ist die einzige
+//! Aufschreibung davon, die den Bughunt überlebt hat. Wer die Betriebsart je
+//! wieder anfasst, fängt hier an. Vorher gehört der Patch zurück, und ohne ihn
+//! ist jede Messung mit dieser Datei ein Vergleich zweier gleicher Läufe.
 //!
 //! **Warum das hier steht und nicht im Encoder.** Der ausgelieferte Sidecar
 //! setzt die Auffrischungs-Optionen nicht — und er wird für eine Labormessung

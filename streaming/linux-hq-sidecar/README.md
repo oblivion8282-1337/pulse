@@ -14,8 +14,15 @@ WebRTC/WHIP-Push, AV1-Paketierer, FEC), arbeitet **nicht hier**, sondern in
 ## Stack
 - **Capture**: xdg-desktop-portal ScreenCast → PipeWire-DMABUF, zero-copy in den Encoder.
 - **Encode**: VAAPI (AMD/Intel) / NVENC (Nvidia) via `ffmpeg-next` 8.1 gegen den
-  **gepatchten FFmpeg-Eigenbau n8.1.1** (`scripts/hq-bauen.sh`, per pkg-config gefunden,
-  RPATH auf `~/.cache/pulse/ffmpeg-intra-refresh/prefix`) — nicht gegen das der Distribution. Codecs: **nur H264 + AV1** (kein HEVC). Die Encoder-Optionen gehen auf GSR
+  **unveränderten FFmpeg-Eigenbau n8.1.1** (`scripts/hq-bauen.sh`, per pkg-config gefunden,
+  RPATH auf `~/.cache/pulse/ffmpeg/prefix`) — nicht gegen das der Distribution.
+  Eigenbau, weil das Distributions-FFmpeg als Grundlage nicht taugt: Arch steht auf
+  n9.0.1, und `ffmpeg-next = "8.1"` übersetzt dagegen nicht (14 Fehler, neue
+  Enum-Varianten). *(Bis zum 2026-08-21 stand hier „gepatchter Eigenbau" samt Pfad
+  `~/.cache/pulse/ffmpeg-intra-refresh/prefix` — der Bau trug einen Pulse-Patch, der
+  rollenden Intra-Refresh für die VAAPI-Encoder freilegte. Die Betriebsart ist aus Pulse
+  entfernt, der Patch mit ihr; der Versionsgrund bleibt.)*
+  Codecs: **nur H264 + AV1** (kein HEVC). Die Encoder-Optionen gehen auf GSR
   zurück, sind aber **nicht mehr 1:1** — maßgeblich ist `encode/opts.rs`, dort steht an
   jedem Wert die Messung (etwa VAAPI `async_depth=1` statt GSRs 3: der Vorlauf kostete
   zwei Bildabstände, 33,6 → 5,3 ms).

@@ -132,9 +132,15 @@ NV12-Bilder im Hauptspeicher und schiebt sie in **denselben Hardware-Encoder**.
 Und das mitgelieferte FFmpeg enthält bewusst keinen Software-Encoder:
 
 ```
-# streaming/win-hq-sidecar/scripts/build-ffmpeg-patched.ps1:217
-# LGPL bleibt LGPL: KEIN --enable-gpl, KEIN --enable-nonfree, kein libx264.
+# streaming/win-hq-sidecar/scripts/fetch-ffmpeg.ps1
+# LGPL, ohne `--enable-gpl`/`--enable-nonfree`/libx264/libx265.
 ```
+
+> **Nachtrag 2026-08-21:** Der Block stand ursprünglich in
+> `scripts/build-ffmpeg-patched.ps1:217`. Dieses Skript gab es nur, weil das
+> mitgelieferte FFmpeg für den Intra-Refresh gepatcht werden musste; mit der
+> Betriebsart ist es entfallen. Der Sidecar holt seither das unveränderte
+> BtbN-Paket über `fetch-ffmpeg.ps1` — die Lizenzregel ist dieselbe geblieben.
 
 Das ist **kein Versehen, sondern die Lizenzregel aus `CLAUDE.md`** („FFmpeg
 überall LGPL und dynamisch gelinkt — so lassen"). libx264 ist GPL-3.0; es
@@ -240,6 +246,9 @@ Fernsteuerung ist er der falsche Weg.
 > bestehen, für Netze, die UDP sperren. Der Schluss dieses Abschnitts wird
 > davon nicht berührt — er wird sogar stärker: RTMPS kommt für einen normalen
 > Stream gar nicht mehr vor.
+>
+> **Nachtrag 2026-08-21:** Die Betriebsart „Intra-Refresh" gibt es seither gar
+> nicht mehr; „AV1 ohne Intra-Refresh" beschreibt heute schlicht jeden Stream.
 
 ---
 

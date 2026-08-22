@@ -41,12 +41,12 @@ VARIANTEN: list[tuple[str, list[str]]] = [
                  "-zerolatency", "0", "-delay", "2147483647"]),
     ("lookahead", ["-preset", "p2", "-rc-lookahead", "30"]),
     ("ohne_zerolat", ["-preset", "p2", "-zerolatency", "0", "-delay", "2147483647"]),
-    # Intra-Refresh statt periodischer Keyframes — der Ruckel-Fix vom
-    # 2026-07-28 (Keyframe-Bursts serialisieren auf der Leitung). Hier steht
-    # die QUALITAETS-Seite der Abwaegung: verteilte Intra-Zeilen kosten
-    # laufend Bits, sparen aber die IDR-Spitzen.
-    ("intraref", ["-preset", "p2", "-intra-refresh", "1", "-forced-idr", "1",
-                  "-g", "600"]),
+    # Hier stand bis zum 2026-08-21 die Variante `intraref` (`-intra-refresh 1
+    # -forced-idr 1 -g 600`) — die QUALITAETS-Seite der Abwaegung „verteilte
+    # Intra-Zeilen statt IDR-Spitzen". Die Betriebsart ist aus Pulse entfernt
+    # (Begruendung im Wurzel-`CLAUDE.md`), die Variante damit gegenstandslos.
+    # Wer die Abwaegung „Stoss gegen Bilddetail" heute stellen will, stellt sie
+    # ueber den Vollbild-ABSTAND — das misst `vollbild-abstand.py`.
     # Nur Vollbilder (`-g 1`): jedes Bild ist ein eigener Einstiegspunkt, damit
     # faellt der ganze Wiedereinstiegs-Komplex weg (Vollbild auf Anforderung,
     # PLI-Rueckkanal, `MAX_UNITS_WITHOUT_KEYFRAME`). Bezahlt wird das in Bits —
@@ -56,29 +56,32 @@ VARIANTEN: list[tuple[str, list[str]]] = [
 
 # Dasselbe fuer VAAPI (AMD/Intel). Eigene Liste, weil KEINE der Optionen oben
 # dort existiert — `preset`, `zerolatency`, `b_ref_mode`, `forced-idr` sind
-# NVENC-Namen, und `intra-refresh` heisst hier `intra_refresh` (Unterstrich).
+# NVENC-Namen.
 # Die Grundeinstellungen kommen aus `vmaf_common.encode_cmd` (rc_mode=CBR,
 # async_depth=1), also aus `encode/opts.rs`.
 #
-# `intra_refresh` gibt es nur mit dem Patch aus `streaming/ffmpeg-patches/`;
-# ohne ihn bricht ffmpeg mit "Option not found" ab — laut und richtig, statt
-# still einen Keyframe-Lauf unter diesem Namen zu messen.
+# **Bis zum 2026-08-21 stand hier eine dritte Variante `intraref`** samt einem
+# langen Absatz darueber, wie man das gepatchte FFmpeg aus
+# `streaming/ffmpeg-patches/` in den Aufruf bekommt. Beides ist weg: die
+# Betriebsart ist aus Pulse entfernt, und mit ihr die Patches — das Verzeichnis
+# heisst heute `streaming/ffmpeg-bau/` und baut unveraenderten Upstream
+# (n8.1.1). `av1_vaapi`/`h264_vaapi` kennen `intra_refresh` damit nicht mehr.
 #
-# **Dieselbe Meldung kommt aber auch, wenn der Patch SEHR WOHL gebaut ist**
-# (2026-08-18 nachgesehen): `~/.cache/pulse/ffmpeg-intra-refresh/prefix/bin/
-# ffmpeg` traegt keinen RPATH auf sein eigenes `../lib`, der Programmlader nimmt
-# also die Bibliothek der Distribution. Es braucht deshalb BEIDES —
-# `PATH` und `LD_LIBRARY_PATH`:
+# **Die Falle von damals bleibt lesenswert, weil sie den Eigenbau ueberhaupt
+# betrifft** (2026-08-18 aufgelaufen): `~/.cache/pulse/ffmpeg/prefix/bin/ffmpeg`
+# traegt keinen RPATH auf sein eigenes `../lib`, der Programmlader nimmt also
+# die Bibliothek der Distribution. Wer mit dem Eigenbau messen will, braucht
+# deshalb BEIDES — `PATH` und `LD_LIBRARY_PATH`:
 #
-#     P=~/.cache/pulse/ffmpeg-intra-refresh/prefix
+#     P=~/.cache/pulse/ffmpeg/prefix
 #     PATH=$P/bin:$PATH LD_LIBRARY_PATH=$P/lib ./sweep-offline.py …
 #
-# `vollbild-abstand.py::gepatchtes_ffmpeg_bevorzugen` macht genau das von
-# selbst; hier steht es bewusst als Aufruf-Hinweis, damit die vorhandenen
-# Messakten nicht nachtraeglich mit einem anderen FFmpeg entstehen als damals.
+# `vollbild-abstand.py::eigenbau_ffmpeg` macht genau das von selbst. Fuer
+# diesen Sweep ist es freiwillig: die Optionen hier kennt jedes FFmpeg. Wer
+# aber gegen eine vorhandene Messakte vergleicht, nimmt denselben Bau wie
+# damals, sonst entsteht die Zahl unter einem anderen Encoder.
 VARIANTEN_VAAPI: list[tuple[str, list[str]]] = [
     ("heute", []),
-    ("intraref", ["-intra_refresh", "1", "-g", "600"]),
     ("allintra", ["-g", "1"]),
 ]
 

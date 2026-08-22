@@ -35,29 +35,40 @@
 > hinterfragt, findet ihre Begründung in der Messakte oder im Code-Kommentar
 > daneben — dafür braucht es das Bundle nicht.
 
-**Das Ziel:** Intra-Refresh-Streaming soll das reguläre Verfahren mit
-periodischen Vollbildern **ersetzen** — das reguläre ist gebaut und läuft in
-Produktion. Das Labor portiert Intra-Refresh auf diese Plattform.
+**Das Ziel war** (bis zum 2026-08-21): Intra-Refresh-Streaming sollte das
+reguläre Verfahren mit periodischen Vollbildern **ersetzen**; das Labor
+portierte es auf diese Plattform. **Das Ziel gibt es nicht mehr** — die
+Betriebsart ist am 2026-08-21 aus Pulse entfernt, das reguläre Verfahren mit
+periodischen Vollbildern bleibt das einzige. Was das Labor sonst kann (eigener
+WHIP-Sendeweg, AV1-Paketierer, dekodierendes Messwerk, Lastmessung), ist davon
+unberührt.
 
-Der Stand über die Plattformen:
+Der Stand über die Plattformen, wie er am 2026-08-04 war:
 
 | | |
 |---|---|
 | Linux, NVIDIA + AMD | vorangegangen, Referenz (`streaming/hq-labor/`) |
 | **Windows, AMD** | **diese Maschine, hier wird gearbeitet** |
-| Windows, NVIDIA | **Encoder-Seite erledigt** (2026-08-04, RTX 5080) — am ausgelieferten Sidecar gegen einen Dateimitschnitt, ohne dieses Labor: NVENC braucht weder Vulkan noch ein gepatchtes FFmpeg. `testbench/nvidia-intra-refresh-nachweis.ps1`, Messakte `nvidia-2026-08-04-windows-intra-refresh.json`. Offen bleibt dort der Weg zum dekodierenden Zuschauer. |
+| Windows, NVIDIA | **Encoder-Seite erledigt** (2026-08-04, RTX 5080) — am ausgelieferten Sidecar gegen einen Dateimitschnitt, ohne dieses Labor: NVENC braucht weder Vulkan noch ein gepatchtes FFmpeg. `testbench/nvidia-intra-refresh-nachweis.ps1` und Messakte `nvidia-2026-08-04-windows-intra-refresh.json` — **beide am 2026-08-21 gelöscht**. Offen blieb dort der Weg zum dekodierenden Zuschauer. |
 
 ## Die vier Regeln
 
-**1. Fortschritt ist nur, was auf dem Ziel liegt.**
-Der Maßstab ist eine einzige Frage: läuft auf dieser Maschine ein Stream mit
-Intra-Refresh? Encoder-Optionen, Sendeweg, Rückkanal, Messwerkzeuge sind
-Zubringer — sie zählen, wenn sie diesem Ziel dienen, und nicht davon losgelöst.
+> **Die Regeln 1 und 2 hingen am Ziel und sind mit ihm am 2026-08-21 hinfällig
+> geworden.** Sie stehen hier, weil ihre Begründung weiterträgt: eine Messung
+> muss sagen, welchen Weg sie fuhr, und Zubringer zählen nur am Ergebnis.
+> Regel 3 und 4 gelten unverändert.
 
-**2. Jede Messung nennt den Encode-Weg und ob Intra-Refresh aktiv war.**
-Eine Messung über `av1_amf` ist eine Messung am **alten** Verfahren. Sie darf
-nie als Fortschritt am Ziel erscheinen — weder in einer Antwort noch in einer
-Messakte. (Am 2026-08-02 zwei Tage lang genau so passiert.)
+**1. Fortschritt war nur, was auf dem Ziel lag.**
+Der Maßstab war eine einzige Frage: läuft auf dieser Maschine ein Stream mit
+Intra-Refresh? Encoder-Optionen, Sendeweg, Rückkanal, Messwerkzeuge waren
+Zubringer — sie zählten, wenn sie diesem Ziel dienten, und nicht davon
+losgelöst. **Das Ziel ist am 2026-08-21 entfallen.**
+
+**2. Jede Messung nennt den Encode-Weg — und nannte, ob Intra-Refresh aktiv war.**
+Eine Messung über `av1_amf` war eine Messung am **alten** Verfahren und durfte
+nie als Fortschritt am Ziel erscheinen, weder in einer Antwort noch in einer
+Messakte (am 2026-08-02 zwei Tage lang genau so passiert). Die Hälfte über die
+Auffrischung ist gegenstandslos; **den Encode-Weg nennt eine Messung weiterhin.**
 
 **3. Zubringer sind erst fertig, wenn sie angeschlossen sind.**
 Ein gebauter, aber nicht verdrahteter Baustein ist nicht erledigt. Der
@@ -70,16 +81,19 @@ man an der Referenz vorbei — und merkt es spät.
 
 ## Was plattformübergreifend gilt (nicht neu herleiten)
 
-* **Intra-Refresh ist eine Encoder-Option, keine Architektur.** Auf Linux läuft
+* **Intra-Refresh war eine Encoder-Option, keine Architektur.** Auf Linux lief
   es über `av1_nvenc` mit `intra-refresh=1, forced-idr=1, g=600`.
-* **Intra-Refresh heilt nach Verlust NICHT.** Ein einziges verworfenes Bild
-  tötet den Strom dauerhaft — Hardware- wie Software-Decoder
-  (`testbench/profiles/decoder-2026-07-29-intra-refresh.json`). Der Schutz
-  kommt von FEC, NACK und **Vollbild auf Anforderung**. Deshalb ist der
-  Rückkanal Voraussetzung, nicht Zubehör.
-* **Der Nutzen ist belegt:** bei gleicher Bitrate ist Intra-Refresh besser als
-  der heutige Weg (+0,4 VMAF, +2,3 dB PSNR, `allintra-2026-07-29.json`). Das
-  muss keine Plattform neu zeigen.
+* **Intra-Refresh heilte nach Verlust NICHT.** Ein einziges verworfenes Bild
+  tötete den Strom dauerhaft — Hardware- wie Software-Decoder
+  (`testbench/profiles/decoder-2026-07-29-intra-refresh.json`, am 2026-08-21
+  gelöscht). Der Schutz kam von FEC, NACK und **Vollbild auf Anforderung**;
+  deshalb war der Rückkanal Voraussetzung, nicht Zubehör. **Genau dieser Punkt
+  war am 2026-08-21 einer der Gründe, die Betriebsart zu entfernen** — ein
+  Vollbild-Strom repariert sich nach Paketverlust von selbst.
+* **Der Nutzen galt als belegt:** bei gleicher Bitrate sei Intra-Refresh besser
+  als der heutige Weg (+0,4 VMAF, +2,3 dB PSNR, `allintra-2026-07-29.json`).
+  **Bei H.264 hat sich das später als falsch erwiesen** — das Bild war sichtbar
+  schlechter, und auch das gehört zu den Gründen der Entfernung.
 * **Der WHIP-Sendeweg samt AV1-Paketierer** ist geteilt: `whip/mod.rs`,
   `whip/av1.rs` und `whip/pacer.rs` sind wortgleiche Kopien aus dem
   Linux-Labor, Abweichungen dort sind teuer. **`whip/av1_entpacken.rs` ist
@@ -131,11 +145,18 @@ ein neuer Treiber zu prüfen ist. Herleitung: Messakte Abschnitt 11.
 
 ## Der Encode-Weg: seit 2026-08-02 AMF, nicht mehr Vulkan
 
-**Ein nackter Lauf des Labors fährt jetzt den herstellereigenen Weg MIT
-Auffrischung** — für AV1 setzt `auffrischung.rs` die Optionen selbst, bei H.264
-bringt `usage=ultralowlatency` sie ohnehin mit. `PULSE_LABOR_VULKAN=1` holt den
-alten Weg als Vergleichsarm zurück, `PULSE_LABOR_KEIN_IR=1` schaltet die
-Auffrischung ab (beides nur zum Messen).
+**Bis zum 2026-08-21 fuhr ein nackter Lauf des Labors den herstellereigenen Weg
+MIT Auffrischung** — für AV1 setzte `auffrischung.rs` die Optionen selbst, bei
+H.264 brachte `usage=ultralowlatency` sie ohnehin mit. `PULSE_LABOR_VULKAN=1`
+holte den alten Weg als Vergleichsarm zurück, `PULSE_LABOR_KEIN_IR=1` schaltete
+die Auffrischung ab (beides nur zum Messen).
+
+> **Seit dem 2026-08-21 trägt keiner der beiden Wege mehr.** Der AMF-Weg
+> brauchte den FFmpeg-Patch `0002-amfenc_av1-…`, der Vulkan-Weg den Patch
+> `0001-vulkan-encode-intra-refresh.patch` — **beide sind mit der Betriebsart
+> gelöscht**. `auffrischung.rs` und `vulkan_encoder.rs` sind deshalb im
+> Modulkopf als stillgelegt gekennzeichnet. Der Rest des Labors (eigener
+> WHIP-Sendeweg, Messwerk, Lastmessung) läuft unverändert.
 
 Warum umgestellt wurde, in einer Zeile: AMF ist an jedem gemessenen Punkt besser
 (~43 % weniger Bits bei gleicher Qualität), 10 Bit ist dort farblich in Ordnung,
@@ -148,7 +169,8 @@ tatsächlich — bei `-g 60` über 300 Bilder kommt **eines** statt fünf, die
 Bitmenge bleibt gleich und verteilt sich statt in Stößen anzufallen. Das gilt
 für 8 **und** 10 Bit, und das 10-Bit-Bild ist einwandfrei. `continuous` (Modus 2)
 nimmt der Treiber an und tut nichts damit — das ist der Teil der alten Aussage,
-der stimmt. Messung: `testbench/profiles/amf-2026-08-02-intra-refresh-doch.json`.
+der stimmt. Messung: `testbench/profiles/amf-2026-08-02-intra-refresh-doch.json`
+(am 2026-08-21 gelöscht).
 
 **Qualitativ ist AMF dem Vulkan-Weg deutlich überlegen** (2026-08-02, gleiche
 verlustfreie Quelle, feste Quantisierung, Vergleich bei erreichter Bitrate):
@@ -177,7 +199,7 @@ setzt der Sidecar seit dem 2026-07-30 aus Last-Gründen. Der Strom **heilt sich
 danach nach Paketverlust ohne jede Anforderung** (28,5 → 28,9/s) — anders als
 AV1 über denselben Messstand. Die eigentliche Option heißt dort
 `-intra_refresh_mb <Makroblöcke>` und dreht nur noch am laufenden Zyklus.
-Messakte `amd-2026-08-02-h264-intra-refresh.json`.
+Messakte `amd-2026-08-02-h264-intra-refresh.json` (am 2026-08-21 gelöscht).
 
 **Drei Encoder, drei Optionsnamen** (`av1_amf`: `intra_refresh_mode`+`stripes`,
 `h264_amf`: `intra_refresh_mb`, `h264_d3d12va`: `intra_refresh_mode row_based`+
@@ -199,20 +221,27 @@ Gegenprobe-Schalter heißt jetzt `PULSE_HQ_AMD_D3D12=1` und wirkt andersherum
 D3D12 bleibt unbrauchbar. Der Vulkan-Encoder war lange der einzige belegte Weg
 zum Ziel, und das erklärt die ganze Kette, die es sonst nirgends gibt:
 
-1. `av1_vulkan` braucht ein FFmpeg mit `VK_KHR_video_encode_intra_refresh` →
-   der Patch in `ffmpeg-patches/`.
+1. `av1_vulkan` brauchte ein FFmpeg mit `VK_KHR_video_encode_intra_refresh` →
+   der Patch `0001-vulkan-encode-intra-refresh.patch`, **am 2026-08-21
+   gelöscht**. Damit ist Glied 1 der Kette nicht mehr herstellbar.
 2. Der Vulkan-Encoder braucht das Bild in Vulkan, ohne CPU-Umweg → `vkimport.rs`
-   (D3D11-Textur über geteiltes NT-Handle).
-3. Erst dann kann die Pipeline Intra-Refresh fahren.
+   (D3D11-Textur über geteiltes NT-Handle). Dieses Glied steht weiter und trägt
+   auch ohne Intra-Refresh.
+3. Erst dann konnte die Pipeline Intra-Refresh fahren.
 
-**Hier stand „Das mitgelieferte FFmpeg hat die Option NICHT" — das gilt für den
-Vulkan-Teil weiter, für AMF nicht mehr.** Seit dem 2026-08-04 baut der
+**Hier stand „Das mitgelieferte FFmpeg hat die Option NICHT" — das galt für den
+Vulkan-Teil weiter, für AMF ab dem 2026-08-04 nicht mehr.** Von da an baute der
 ausgelieferte Sidecar sein FFmpeg selbst, mit
-`streaming/ffmpeg-patches/0002-amfenc_av1-…` darin; `av1_amf` kennt
-`intra_refresh_mode` dort also. Die Vulkan-Optionen bleiben Labor-Sache.
+`streaming/ffmpeg-patches/0002-amfenc_av1-…` darin; `av1_amf` kannte
+`intra_refresh_mode` dort also.
 
-Der Rechner mit Windows+NVIDIA wird einfacher: NVENC hat `intra-refresh` wie
-unter Linux.
+> **Am 2026-08-21 zurückgedreht.** Der Patch ist gelöscht, der ausgelieferte
+> Sidecar baut sein FFmpeg wieder ohne ihn — `av1_amf` kennt
+> `intra_refresh_mode` seither nirgends mehr. Die Aussage „das mitgelieferte
+> FFmpeg hat die Option NICHT" gilt damit wieder für **beide** Wege.
+
+Der Rechner mit Windows+NVIDIA wäre einfacher gewesen: NVENC hat `intra-refresh`
+wie unter Linux — dort steckte die Option upstream, es fehlte kein Patch.
 
 ## Der Ton (2026-08-02): unversehrt — aber H.264 läuft davon
 
@@ -305,31 +334,38 @@ cargo build --release --bins --examples
 `target/release/` startet, fährt dann eine alte Fassung — sichtbar nur daran,
 dass eine gerade entfernte Log-Zeile noch erscheint. Immer `--bins --examples`.
 
-**Schalter am Encode-Weg** (Standard ist seit 2026-08-02 AMF **mit**
-Auffrischung — ein nackter Lauf braucht keinen davon):
+**Schalter am Encode-Weg** (Standard war von 2026-08-02 bis 2026-08-21 AMF
+**mit** Auffrischung — ein nackter Lauf brauchte keinen davon):
 
 | Variable | Wirkung |
 |---|---|
-| `PULSE_LABOR_VULKAN=1` | den alten Vulkan-Weg als Vergleichsarm |
-| `PULSE_LABOR_KEIN_IR=1` | Auffrischung aus (Gegenprobe, gilt für beide Wege) |
-| `PULSE_ENCODER_OPTS=…` | eigene Encoder-Optionen; sticht die Vorgabe |
+| `PULSE_LABOR_VULKAN=1` | den alten Vulkan-Weg als Vergleichsarm — **seit 2026-08-21 ohne Auffrischung, weil der FFmpeg-Patch fehlt** |
+| ~~`PULSE_LABOR_KEIN_IR=1`~~ | Auffrischung aus. **Wirkungslos seit 2026-08-21**: es gibt nichts mehr abzuschalten |
+| `PULSE_ENCODER_OPTS=…` | eigene Encoder-Optionen; sticht die Vorgabe. Gilt unverändert |
 
 `PULSE_LABOR_AMF` gibt es **nicht mehr** — AMF ist der Standard.
 
 ## Messen
 
-**Die Prüfstrecke ist der Hetzner-Messstand**, nicht die lokale Schleife:
-`https://pulse.unicutmedia.com/whep/<pfad>/whip?token=…` (Caddy prüft das
-Token und setzt Basic-Auth für MediaMTX). Rund 59 ms Umlauf.
+**Die Prüfstrecke war der Hetzner-Messstand**, nicht die lokale Schleife:
+`https://pulse.unicutmedia.com/whep/<pfad>/whip?token=…` (Caddy prüfte das
+Token und setzte Basic-Auth für MediaMTX). Rund 59 ms Umlauf.
 
-Der Server ist für genau diesen Zweck eingerichtet — beide Einstellungen sind
-Absicht und dürfen nicht als Fehler „repariert" werden:
+> **Der Messstand ist seit dem 2026-08-12 gestoppt** — dieselbe Adresse trägt
+> den gemeinsamen Remote-Dev-Stack. Ein Lauf dagegen endet in HTTP 401.
+> Rückholanleitung auf dem Server: `~/messstand-gestoppt-2026-08-12.txt`.
 
-* **`PULSE_KEYFRAME_INTERVAL=0`** — der fest verdrahtete Zwei-Sekunden-Takt ist
-  AUS. Sonst setzte er die Bild-Stöße zurück, gegen die Intra-Refresh antritt,
-  und man misst den Takt statt der Sache.
-* **`PULSE_FLEXFEC=1`, 10:2** — Vorwärtsfehlerkorrektur, weil Intra-Refresh
-  sich nach Verlust nicht selbst heilt.
+Der Server war für genau diesen Zweck eingerichtet — beide Einstellungen waren
+Absicht und durften nicht als Fehler „repariert" werden:
+
+* **`PULSE_KEYFRAME_INTERVAL=0`** — der fest verdrahtete Zwei-Sekunden-Takt war
+  AUS. Sonst setzte er die Bild-Stöße zurück, gegen die Intra-Refresh antrat,
+  und man misst den Takt statt der Sache. **Der Schalter bleibt sinnvoll**, auch
+  ohne Intra-Refresh: er verhindert, dass MediaMTX in einen eigenen Takt
+  hineinredet (Begründung in `infra/prod/mediamtx.yml`).
+* **`PULSE_FLEXFEC=1`, 10:2** — Vorwärtsfehlerkorrektur. Die Begründung war,
+  dass Intra-Refresh sich nach Verlust nicht selbst heilt; **die ist seit dem
+  2026-08-21 hinfällig**, FlexFEC selbst bleibt gemessen nützlich.
 
 Lokal (`127.0.0.1`) ist nur für Werkzeug-Prüfungen gut: dort gibt es keinen
 Verlust, keine Laufzeit, keine Schwankung — FEC und NACK treten gar nicht in
