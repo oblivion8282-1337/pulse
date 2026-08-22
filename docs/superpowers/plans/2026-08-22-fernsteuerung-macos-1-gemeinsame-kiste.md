@@ -59,6 +59,7 @@ Das Format steht heute zweimal im Baum — der Player baut Frames, der Sidecar p
   - `format::{PROTOKOLL_VERSION: u8, OP_HELLO, OP_MAUS_ABS, OP_MAUS_REL, OP_MAUS_KNOPF, OP_MAUS_RAD, OP_TASTE: u8, RASTE: i32, Knopf}`
   - `format::knopf_bekannt(btn: u8) -> bool`
   - `format::scancode_gueltig(scan: u16) -> bool`
+  - **Nicht** `SATZ1_TASTEN` — die Vokabelliste entsteht erst in Task 7, wo sie gefüllt wird. Eine leere Konstante hier hätte einen Test nach sich gezogen, der über nichts iteriert und damit nichts prüft.
   - `rahmen::{InputFrame, ParseError}`, `InputFrame::parse(&[u8]) -> Result<InputFrame, ParseError>`
   - `bauen::{Rahmen, hello, maus_abs, maus_rel, maus_knopf, maus_rad, taste, anteil_zu_u16, Rastensammler, ...}`
 
@@ -142,21 +143,6 @@ pub fn scancode_gueltig(scan: u16) -> bool {
     matches!(scan >> 8, 0x00 | 0xE0)
 }
 
-/// Jeder Scancode, den ein Sender ueberhaupt erzeugen darf — das Vokabular der
-/// Leitung.
-///
-/// **Wozu die Liste.** Sie ist der Pruefstein zwischen den Enden: der Player
-/// prueft, dass er nur daraus sendet, und jeder Injektor prueft, dass er zu
-/// jedem Eintrag ein Ziel hat. Damit ist „kann diese Plattform alles
-/// einspielen, was ein Steuernder schicken kann?" ein Test und keine
-/// Durchsicht. Genutzt wird sie erstmals vom mac-Injektor (Plan 2); die Liste
-/// entsteht hier, weil sie zum Format gehoert und nicht zu einer Plattform.
-///
-/// Gefuellt in Task 7 aus `pulse-player/src/fernsteuerung/tasten.rs` — bis
-/// dahin leer, und der Test daneben haelt fest, dass sie leer sein DARF, aber
-/// niemals einen ungueltigen Code enthalten.
-pub const SATZ1_TASTEN: &[u16] = &[];
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,15 +169,6 @@ mod tests {
         assert!(!scancode_gueltig(0xFFFF));
     }
 
-    /// Die Vokabelliste darf leer sein, aber nie etwas Ungueltiges enthalten —
-    /// sonst behauptete sie ein Ziel fuer einen Code, den kein Injektor
-    /// annehmen darf.
-    #[test]
-    fn das_vokabular_ist_durchweg_gueltig() {
-        for &scan in SATZ1_TASTEN {
-            assert!(scancode_gueltig(scan), "{scan:#06x} steht im Vokabular");
-        }
-    }
 }
 ```
 
@@ -673,7 +650,23 @@ pub trait Umgebung: Sync {
 
     /// Host-Zeiger in die Aufnahme zurueck (`true`) oder heraus (`false`) —
     /// das Cursor-Echo. Ohne laufende Aufnahme folgenlos.
+    ///
+    /// Laeuft bei JEDER Nachricht, deren letzter Frame die Fuehrung wechselt,
+    /// und bei jedem Vorrang-Uebergang. Was nur ans Sitzungsende gehoert, hat
+    /// hier nichts zu suchen — dafuer gibt es [`Self::sitzung_beendet`].
     fn host_zeiger_zeigen(&self, zeigen: bool);
+
+    /// Die Sitzung ist vorbei — was die Plattform an sitzungsgebundenen
+    /// Merkern fuehrt, wird geraeumt.
+    ///
+    /// **Eigener Weg, obwohl das Sitzungsende auch `host_zeiger_zeigen(true)`
+    /// ausloest.** Auf Windows raeumt das den Merker der gemeldeten
+    /// Zeigerform; haenge man es an `host_zeiger_zeigen`, liefe es zusaetzlich
+    /// bei jedem Wechsel von absoluter auf relative Mausfuehrung und bei jedem
+    /// Vorrang-Uebergang — der Sidecar hielte die Form dann fuer unbekannt und
+    /// schickte sie erneut. Das waere eine Verhaltensaenderung, und zwar eine
+    /// mit Kosten auf der Leitung.
+    fn sitzung_beendet(&self);
 
     /// Laeuft gerade eine Fernsteuerung? Der Aufnahme-Takt haengt daran.
     fn fern_aktiv_setzen(&self, aktiv: bool);
@@ -908,6 +901,9 @@ pub struct PruefUmgebung {
     pub zeiger_sichtbar: Mutex<bool>,
     pub fern_aktiv: Mutex<bool>,
     pub meldungen: Mutex<Vec<String>>,
+    /// Wie oft das Sitzungsende gemeldet wurde. Zaehler statt Schalter, damit
+    /// ein Test belegen kann, dass es NICHT bei jedem Zeigerwechsel laeuft.
+    pub beendet: Mutex<u32>,
 }
 
 /// Was [`PruefUmgebung::ziel`] antworten soll — `Zielsuche` selbst ist nicht
@@ -929,6 +925,7 @@ impl Default for PruefUmgebung {
             zeiger_sichtbar: Mutex::new(true),
             fern_aktiv: Mutex::new(false),
             meldungen: Mutex::new(Vec::new()),
+            beendet: Mutex::new(0),
         }
     }
 }
@@ -947,6 +944,9 @@ impl Umgebung for PruefUmgebung {
     }
     fn host_zeiger_zeigen(&self, zeigen: bool) {
         *self.zeiger_sichtbar.lock().unwrap() = zeigen;
+    }
+    fn sitzung_beendet(&self) {
+        *self.beendet.lock().unwrap() += 1;
     }
     fn fern_aktiv_setzen(&self, aktiv: bool) {
         *self.fern_aktiv.lock().unwrap() = aktiv;
@@ -1414,12 +1414,17 @@ impl Sitzung {
     /// liesse entweder den Zeiger fuer alle Zuschauer aus dem Bild verschwunden
     /// oder den Stream dauerhaft im ungeglaetteten Fern-Takt.
     ///
-    /// Die Zeigerform gehoert der Sitzung, die gerade endet — die naechste
-    /// beginnt mit leerem Merker. Das raeumt die Plattform in
-    /// `host_zeiger_zeigen(true)` mit ab.
     fn fern_abschalten(&self) {
         self.umgebung.host_zeiger_zeigen(true);
         self.umgebung.fern_aktiv_setzen(false);
+        // Was die Plattform an sitzungsgebundenen Merkern fuehrt — auf Windows
+        // die zuletzt gemeldete Zeigerform. Ausdruecklich NICHT in
+        // `host_zeiger_zeigen`, das auch bei jedem Fuehrungswechsel und jedem
+        // Vorrang-Uebergang laeuft.
+        self.umgebung.sitzung_beendet();
+        // Die Wache hoert systemweit mit; sie hat nur zu stehen, solange
+        // wirklich jemand steuert. Wartet NICHT auf ihren Faden — dieser Weg
+        // laeuft auch unter der Sitzungssperre und beim Prozessende.
         self.wache.stoppen();
     }
 ```
@@ -1784,12 +1789,16 @@ impl Umgebung for WinUmgebung {
     fn host_zeiger_zeigen(&self, zeigen: bool) {
         if zeigen {
             crate::capture::cursorsteuerung::zeigen();
-            // Die gemeldete Zeigerform gehoert der Sitzung, die gerade endet —
-            // die naechste beginnt mit leerem Merker.
-            zeigerform::zuruecksetzen();
         } else {
             crate::capture::cursorsteuerung::verbergen();
         }
+    }
+
+    fn sitzung_beendet(&self) {
+        // Die gemeldete Zeigerform gehoert der Sitzung, die gerade endet — die
+        // naechste beginnt mit leerem Merker. Genau wie vorher: nur hier, nicht
+        // bei jedem Zeigerwechsel.
+        zeigerform::zuruecksetzen();
     }
 
     fn fern_aktiv_setzen(&self, aktiv: bool) {
@@ -1814,7 +1823,7 @@ impl Umgebung for WinUmgebung {
 }
 ```
 
-**Achtung, ein Unterschied gegenüber vorher:** `host_zeiger_zeigen(true)` ruft `zeigerform::zuruecksetzen()` mit. In der alten Fassung geschah das nur in `fern_abschalten`, nicht beim Vorrang-Übergang. Beim Vorrang meldet die Zeigerform ohnehin `default` — das Zurücksetzen dort ist folgenlos und verhindert, dass zwei Wege dasselbe halb tun. Wenn sich beim CI-Lauf zeigt, dass es doch stört, gehört ein eigenes `Umgebung::zeigerform_zuruecksetzen()` in den Trait.
+**Warum `zeigerform::zuruecksetzen()` in `sitzung_beendet` steht und nicht in `host_zeiger_zeigen`:** Beide werden beim Sitzungsende gerufen, aber `host_zeiger_zeigen(true)` laeuft zusaetzlich bei jedem Wechsel von absoluter auf relative Mausfuehrung und bei jedem Vorrang-Uebergang. Dort den Merker zu raeumen hiesse, dass der Sidecar die Zeigerform fuer unbekannt haelt und sie erneut schickt — eine Verhaltensaenderung mit Kosten auf der Leitung, und die Global Constraint verbietet sie.
 
 - [ ] **Step 4: `wache.rs` auf die gemeinsame Bewegungsschwelle umstellen**
 
@@ -1946,16 +1955,49 @@ grep -o '=> 0x[0-9a-fA-F]\{2,4\}' streaming/pulse-player/src/fernsteuerung/taste
   | sed 's/=> //' | sort -u | tr '\n' ' '
 ```
 
-Die Ausgabe ist die Liste der Scancodes, die der Player erzeugen kann. Sie wird in `streaming/pulse-fernsteuerung/src/format.rs` eingetragen:
+Die Ausgabe ist die Liste der Scancodes, die der Player erzeugen kann. Damit wird die Konstante in `streaming/pulse-fernsteuerung/src/format.rs` **neu angelegt** — sie entsteht erst hier, weil sie erst hier einen Inhalt hat:
 
 ```rust
 /// Jeder Scancode, den ein Sender ueberhaupt erzeugen darf — das Vokabular der
 /// Leitung.
 ///
-/// (Doc-Kommentar aus Task 1 uebernehmen; den Satz „bis dahin leer" streichen.)
+/// **Wozu die Liste.** Sie ist der Pruefstein zwischen den Enden: der Player
+/// prueft, dass er nur daraus sendet (`fernsteuerung/tasten.rs`), und jeder
+/// Injektor prueft, dass er zu jedem Eintrag ein Ziel hat. Damit ist „kann
+/// diese Plattform alles einspielen, was ein Steuernder schicken kann?" ein
+/// Test und keine Durchsicht. Gebraucht wird sie erstmals vom mac-Injektor
+/// (Plan 2); sie steht hier, weil sie zum Format gehoert und nicht zu einer
+/// Plattform.
+///
+/// Aufsteigend sortiert, damit eine neue Taste an ihrem Platz landet und der
+/// Unterschied im Diff eine Zeile ist.
 pub const SATZ1_TASTEN: &[u16] = &[
-    // hier die Ausgabe des grep-Befehls, aufsteigend sortiert
+    // die Ausgabe des grep-Befehls, aufsteigend sortiert
 ];
+```
+
+Dazu der Gueltigkeits-Test, der jetzt etwas zu pruefen hat — ans Ende des Test-Moduls in `format.rs`:
+
+```rust
+    /// Das Vokabular darf nichts fuehren, was kein Injektor annehmen darf —
+    /// sonst behauptete es ein Ziel fuer einen Code, der fail-closed ist.
+    #[test]
+    fn das_vokabular_ist_durchweg_gueltig() {
+        assert!(!SATZ1_TASTEN.is_empty());
+        for &scan in SATZ1_TASTEN {
+            assert!(scancode_gueltig(scan), "{scan:#06x} steht im Vokabular");
+        }
+    }
+
+    /// Aufsteigend und ohne Doppelung — eine Doppelung waere ein Eintrag, den
+    /// die Vollstaendigkeitspruefung drueben zweimal verlangt.
+    #[test]
+    fn das_vokabular_ist_sortiert_und_doppelungsfrei() {
+        assert!(
+            SATZ1_TASTEN.windows(2).all(|p| p[0] < p[1]),
+            "SATZ1_TASTEN muss aufsteigend und doppelungsfrei sein"
+        );
+    }
 ```
 
 - [ ] **Step 4: Die vorhandene Tastenliste heben**
