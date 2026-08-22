@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-22.3",
+      "date": "2026-08-22",
+      "style": "Sachlich",
+      "title": "Fernsteuerung: das Bild läuft wieder mit voller Bildrate",
+      "intro": "Wer einen Windows-Rechner fernsteuert, bekam ein deutlich ruckeligeres Bild als eingestellt: Statt 60 Bildern je Sekunde kamen je nach Bildschirm nur 36 bis 52 an — ohne dass irgendeine Anzeige darauf hinwies. Beim bloßen Zusehen stimmte die Rate dagegen immer. Das ist behoben.",
+      "items": [
+        "Wie stark es ausfiel, hing am Bildschirm des gesteuerten Rechners ab. Bei manchen Wiederholraten kam gut jedes zweite Bild an, bei anderen etwa vier von fünf.",
+        "Ursache war das Zusammenspiel zweier Regeln, die jede für sich richtig waren: Bilder, die kurz zurückgehalten wurden, schoben den Platz für das nächste Bild vor sich her, bis er verfiel.",
+        "Der Zeitvorteil, den das Steuern gegenüber dem Zusehen hat, bleibt dabei erhalten — an Reaktionszeit geht nichts verloren."
+      ],
+      "outro": "Betrifft das Fernsteuern von Windows-Rechnern. Wer nur zusieht, merkt keinen Unterschied — dort war die Bildrate nie betroffen."
+    },
+    {
       "id": "2026-08-22.2",
       "date": "2026-08-22",
       "style": "Sachlich",
