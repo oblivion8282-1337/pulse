@@ -75,18 +75,18 @@ else
   ( cd desktop && pnpm test:unit ) \
     || { echo "✗ desktop-Unit-Tests ROT — Push abgebrochen." >&2; exit 1; }
 
-  # Die gemeinsamen Kisten (`streaming/pulse-*`) laufen in KEINEM Gate — weder
-  # hier noch in ci.yml —, und `cargo test` in einem Programm fuehrt die Tests
-  # seiner Pfad-Abhaengigkeiten nicht mit. Seit 2026-08-22 traegt
+  # Die gemeinsamen Kisten (`streaming/pulse-*`) liefen in KEINEM Gate — weder
+  # hier noch in ci.yml —, und `cargo test` in einem Programm führt die Tests
+  # seiner Pfad-Abhängigkeiten nicht mit. Seit 2026-08-22 trägt
   # pulse-fernsteuerung die Sitzungs-Zustandsmaschine der Fernsteuerung; ihre
-  # Tests sind die schaerfsten im Repo und liefen bis dahin nirgends.
+  # Tests sind die schärfsten im Repo und liefen bis dahin nirgends.
   #
-  # Ohne FFmpeg-Schranke, weil diese Kisten abhaengigkeitsfrei sind und in
-  # Sekunden bauen. Ausnahme: pulse-player traegt denselben Namensstamm
-  # (`streaming/pulse-*`), haengt aber an der gepinnten FFmpeg und wird weiter
-  # unten mit FFMPEG_DIR/LD_LIBRARY_PATH getestet — hier ausdruecklich
+  # Ohne FFmpeg-Schranke, weil diese Kisten abhängigkeitsfrei sind und in
+  # Sekunden bauen. Ausnahme: pulse-player trägt denselben Namensstamm
+  # (`streaming/pulse-*`), hängt aber an der gepinnten FFmpeg und wird weiter
+  # unten mit FFMPEG_DIR/LD_LIBRARY_PATH getestet — hier ausdrücklich
   # ausgenommen, sonst liefe es hier ein zweites Mal, diesmal ohne die
-  # noetige Umgebung, und braeche den Bau eines unveraenderten Crates.
+  # nötige Umgebung, und bräche den Bau eines unveränderten Crates.
   for kiste in $(echo "$changed" | sed -n 's|^\(streaming/pulse-[a-z-]*\)/.*|\1|p' | sort -u); do
     [ "$kiste" = "streaming/pulse-player" ] && continue
     [ -f "$kiste/Cargo.toml" ] || continue
