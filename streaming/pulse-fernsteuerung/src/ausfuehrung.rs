@@ -210,10 +210,6 @@ mod tests {
         Tat { zeiger, ..Tat::default() }
     }
 
-    fn setz_ereignisse(spur: &[Ereignis]) -> usize {
-        spur.iter().filter(|e| matches!(e, Ereignis::Setzen { .. })).count()
-    }
-
     /// **Der Fund (relativ):** `MouseMoveRel` ging ungeklemmt an `SendInput` —
     /// mehrfach `dx = dy = −32768` und der Zeiger stand irgendwo auf dem
     /// Desktop des Hosts. Egal wie oft und wie weit: er darf das Quell-Rechteck
@@ -321,8 +317,10 @@ mod tests {
         einspielen(&mut z, &inj, Some(QUELLE), InputFrame::MouseButton { btn: 0, down: true })
             .unwrap();
         let spur = inj.nimm();
-        assert_eq!(setz_ereignisse(&spur), 1, "Lage behaupten: {spur:?}");
-        assert!(spur.contains(&Ereignis::Knopf { btn: 0, down: true }), "{spur:?}");
+        assert_eq!(spur, vec![
+            Ereignis::Setzen { punkt: (600, 500), zieht: false },
+            Ereignis::Knopf { btn: 0, down: true },
+        ], "erst Lage behaupten, dann feuern");
         assert!(z.druck.knopf_ist_unten(0), "der Druck muss vermerkt sein");
     }
 
@@ -336,11 +334,7 @@ mod tests {
         z.druck.knopf(1, true);
         einspielen(&mut z, &inj, None, InputFrame::MouseButton { btn: 1, down: false }).unwrap();
         let spur = inj.nimm();
-        assert_eq!(
-            spur.iter().filter(|e| **e == Ereignis::Knopf { btn: 1, down: false }).count(),
-            1,
-            "das Hoch-Ereignis muss raus: {spur:?}"
-        );
+        assert_eq!(spur, vec![Ereignis::Knopf { btn: 1, down: false }], "nur das Hoch-Ereignis: {spur:?}");
         assert!(!z.druck.knopf_ist_unten(1));
     }
 
@@ -377,8 +371,10 @@ mod tests {
         einspielen(&mut z, &inj, Some(QUELLE), InputFrame::MouseWheel { dv: 120, dh: -120 })
             .unwrap();
         let spur = inj.nimm();
-        assert_eq!(setz_ereignisse(&spur), 1, "Lage behaupten: {spur:?}");
-        assert!(spur.contains(&Ereignis::Rad { dv: 120, dh: -120 }), "{spur:?}");
+        assert_eq!(spur, vec![
+            Ereignis::Setzen { punkt: (600, 500), zieht: false },
+            Ereignis::Rad { dv: 120, dh: -120 },
+        ], "erst Lage behaupten, dann ein Rad-Aufruf");
     }
 
     /// Ein Scancode außerhalb von Satz 1 wird abgewiesen, statt als eine
