@@ -17,6 +17,7 @@
    * Masse aus dem bestehenden `MessageActionSheet.svelte` (Scrim `black/50`,
    * Griff-Strich, `--safe-bottom`), Eckenradius 22 px nach dem Entwurf.
    */
+  import BottomSheet from '$lib/components/mobile/BottomSheet.svelte';
   import ChannelList from '$lib/components/ChannelList.svelte';
   import type { Channel, Guild } from '$lib/api/types';
   import type { Device } from '$lib/api/devices';
@@ -58,33 +59,27 @@
   }
 </script>
 
-{#if open}
-  <div class="fixed inset-0 z-50 flex flex-col justify-end" data-testid="channel-switcher-sheet">
-    <button
-      type="button"
-      class="absolute inset-0 bg-black/50"
-      aria-label={m.channel_switcher_close()}
-      onclick={schliessen}
-    ></button>
-    <div
-      class="bg-popover text-popover-foreground border-border relative flex max-h-[80dvh] flex-col overflow-y-auto rounded-t-[22px] border-t pb-[var(--safe-bottom)] shadow-2xl"
-    >
-      <div class="bg-border mx-auto mb-1 mt-2 h-1 w-9 shrink-0 rounded-full"></div>
-      <ChannelList
-        variant="sheet"
-        {guild}
-        {channels}
-        {activeChannelId}
-        {canCreate}
-        {activeDeviceId}
-        onSelectDevice={(d) => {
-          onSelectDevice?.(d);
-          schliessen();
-        }}
-        onSelect={waehlen}
-        {onCreateClick}
-        {onChannelDeleted}
-      />
-    </div>
-  </div>
-{/if}
+<BottomSheet
+  {open}
+  testid="channel-switcher-sheet"
+  closeLabel={m.channel_switcher_close()}
+  panelClass="bg-popover text-popover-foreground border-border relative flex max-h-[80dvh] flex-col overflow-y-auto rounded-t-[22px] border-t pb-[var(--safe-bottom)] shadow-2xl"
+  onClose={schliessen}
+>
+  <div class="bg-border mx-auto mb-1 mt-2 h-1 w-9 shrink-0 rounded-full"></div>
+  <ChannelList
+    variant="sheet"
+    {guild}
+    {channels}
+    {activeChannelId}
+    {canCreate}
+    {activeDeviceId}
+    onSelectDevice={(d) => {
+      onSelectDevice?.(d);
+      schliessen();
+    }}
+    onSelect={waehlen}
+    {onCreateClick}
+    {onChannelDeleted}
+  />
+</BottomSheet>

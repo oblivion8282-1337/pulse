@@ -62,88 +62,88 @@
   }
 </script>
 
-      {#if members.length > 0}
-        {@const voiceStreamers = voicePresence.streamingIn(channel.id)}
-        <!-- HQ-Stroeme, die in Wahrheit vom Standplatz-Geraet kommen, gehoeren
-             NICHT an die Zeile des Menschen: das Abzeichen stuende sonst
-             zweimal da (am Rechner und am Besitzer), und beim Besitzer waere es
-             falsch — der muss nicht einmal im Kanal sein. Ein ueber Voice
-             geteilter Bildschirm (`voiceStreamers`) bleibt unangetastet. -->
-        {@const streamers = [
-          ...new Set([
-            ...voiceStreamers,
-            ...streamPresence.streamersIn(channel.id).filter((uid) => !stromGehoertGeraet(channel.id, uid)),
-          ]),
-        ]}
-        {@const speakers =
-          voice.connected && voice.channelId === channel.id
-            ? voice.participants.filter((p) => p.isSpeaking && p.userId).map((p) => p.userId!)
-            : []}
-        {@const memberStates = memberStatesFor(channel.id)}
-        {@const partyHostIds = watchPartyPresence.hostIdsIn(channel.id)}
-        <!-- Who has their webcam on — server-tracked (voice:events), so the CAM
-             badge shows for everyone incl. ourselves and even when we're not
-             connected to this channel. Opening the cam tile still needs a
-             subscribed track, which only exists while connected. -->
-        {@const camUserIds = voicePresence.cameraIn(channel.id)}
-        {@const camIdentityFor = (uid: string) =>
-          !(voice.connected && voice.channelId === channel.id)
-            ? undefined
-            : uid === myId
-              ? 'self' // own preview tile uses the 'self' sentinel id (StreamGrid)
-              : voice.cameraTracks.find((ct) => userIdFromIdentity(ct.identity) === uid)?.identity}
-        <div class="ml-4 flex flex-col" data-testid="voice-presence-list" data-channel-id={channel.id}>
-          <VoiceChannelMembers
-            userIds={members}
-            channelId={channel.id}
-            guildId={channel.guild_id}
-            streamingUserIds={streamers}
-            camUserIds={camUserIds}
-            speakingUserIds={speakers}
-            watchPartyHostUserIds={partyHostIds}
-            userStates={memberStates}
-            onPartyOpen={(uid) => {
-              watchPartyPicker.choose(
-                watchPartyPresence.partiesHostedBy(channel.id, uid).map((party) => ({
-                  id: party.party_id,
-                  party,
-                  open: () => {
-                    openPartyTile(channel.id, party);
-                    onSelect(channel);
-                  }
-                })),
-                m.watch_party_picker_title()
-              );
-            }}
-            onLiveOpen={(uid) => {
-              // Open whichever live source(s) this user actually has.
-              if (streamers.includes(uid)) {
-                chooseHqForUser(channel.id, uid);
+  {#if members.length > 0}
+    {@const voiceStreamers = voicePresence.streamingIn(channel.id)}
+    <!-- HQ-Stroeme, die in Wahrheit vom Standplatz-Geraet kommen, gehoeren
+         NICHT an die Zeile des Menschen: das Abzeichen stuende sonst
+         zweimal da (am Rechner und am Besitzer), und beim Besitzer waere es
+         falsch — der muss nicht einmal im Kanal sein. Ein ueber Voice
+         geteilter Bildschirm (`voiceStreamers`) bleibt unangetastet. -->
+    {@const streamers = [
+      ...new Set([
+        ...voiceStreamers,
+        ...streamPresence.streamersIn(channel.id).filter((uid) => !stromGehoertGeraet(channel.id, uid)),
+      ]),
+    ]}
+    {@const speakers =
+      voice.connected && voice.channelId === channel.id
+        ? voice.participants.filter((p) => p.isSpeaking && p.userId).map((p) => p.userId!)
+        : []}
+    {@const memberStates = memberStatesFor(channel.id)}
+    {@const partyHostIds = watchPartyPresence.hostIdsIn(channel.id)}
+    <!-- Who has their webcam on — server-tracked (voice:events), so the CAM
+         badge shows for everyone incl. ourselves and even when we're not
+         connected to this channel. Opening the cam tile still needs a
+         subscribed track, which only exists while connected. -->
+    {@const camUserIds = voicePresence.cameraIn(channel.id)}
+    {@const camIdentityFor = (uid: string) =>
+      !(voice.connected && voice.channelId === channel.id)
+        ? undefined
+        : uid === myId
+          ? 'self' // own preview tile uses the 'self' sentinel id (StreamGrid)
+          : voice.cameraTracks.find((ct) => userIdFromIdentity(ct.identity) === uid)?.identity}
+    <div class="ml-4 flex flex-col" data-testid="voice-presence-list" data-channel-id={channel.id}>
+      <VoiceChannelMembers
+        userIds={members}
+        channelId={channel.id}
+        guildId={channel.guild_id}
+        streamingUserIds={streamers}
+        camUserIds={camUserIds}
+        speakingUserIds={speakers}
+        watchPartyHostUserIds={partyHostIds}
+        userStates={memberStates}
+        onPartyOpen={(uid) => {
+          watchPartyPicker.choose(
+            watchPartyPresence.partiesHostedBy(channel.id, uid).map((party) => ({
+              id: party.party_id,
+              party,
+              open: () => {
+                openPartyTile(channel.id, party);
+                onSelect(channel);
               }
-              if (voiceStreamers.includes(uid)) {
-                // Screen-share keyed by LiveKit identity — only available
-                // if we're connected to this channel. Outside that, the
-                // tile can't mount anyway (no subscribed track).
-                const ident = voice.connected && voice.channelId === channel.id
-                  ? voice.screenTracks.find((s) => userIdFromIdentity(s.identity) === uid)?.identity
-                  : undefined;
-                if (ident) openedTiles.open('screen', channel.id, ident);
-              }
-              onSelect(channel);
-            }}
-            onCamOpen={(uid) => {
-              const ident = camIdentityFor(uid);
-              if (ident) openedTiles.open('cam', channel.id, ident);
-              onSelect(channel);
-            }}
-          />
-        </div>
-        {#if settings.audio.spatialMode !== 'off' && voice.connected && voice.channelId === channel.id && !viewport.isMobile}
-          <!-- Spatial on + connected here: the drag circle sits BELOW the member
-               list. The list stays for names, badges and stream/cam/party
-               actions; the circle is purely for arranging everyone around you. -->
-          <div data-testid="voice-presence-spatial" data-channel-id={channel.id}>
-            <SpatialPositionerPanel size={200} />
-          </div>
-        {/if}
-      {/if}
+            })),
+            m.watch_party_picker_title()
+          );
+        }}
+        onLiveOpen={(uid) => {
+          // Open whichever live source(s) this user actually has.
+          if (streamers.includes(uid)) {
+            chooseHqForUser(channel.id, uid);
+          }
+          if (voiceStreamers.includes(uid)) {
+            // Screen-share keyed by LiveKit identity — only available
+            // if we're connected to this channel. Outside that, the
+            // tile can't mount anyway (no subscribed track).
+            const ident = voice.connected && voice.channelId === channel.id
+              ? voice.screenTracks.find((s) => userIdFromIdentity(s.identity) === uid)?.identity
+              : undefined;
+            if (ident) openedTiles.open('screen', channel.id, ident);
+          }
+          onSelect(channel);
+        }}
+        onCamOpen={(uid) => {
+          const ident = camIdentityFor(uid);
+          if (ident) openedTiles.open('cam', channel.id, ident);
+          onSelect(channel);
+        }}
+      />
+    </div>
+    {#if settings.audio.spatialMode !== 'off' && voice.connected && voice.channelId === channel.id && !viewport.isMobile}
+      <!-- Spatial on + connected here: the drag circle sits BELOW the member
+           list. The list stays for names, badges and stream/cam/party
+           actions; the circle is purely for arranging everyone around you. -->
+      <div data-testid="voice-presence-spatial" data-channel-id={channel.id}>
+        <SpatialPositionerPanel size={200} />
+      </div>
+    {/if}
+  {/if}

@@ -104,3 +104,65 @@ test.describe('Mobile-Shell: die Layout-Regel', () => {
     await expect(page.getByTestId('guild-rail')).toBeVisible();
   });
 });
+
+/**
+ * Tablet: Liste und Detail nebeneinander statt aufgeschoben.
+ *
+ * Der Test prueft die WIRKUNG, nicht die Klassen: zwei Bereiche gleichzeitig
+ * sichtbar, und der eine links vom anderen. Genau das unterscheidet ein
+ * Tablet-Layout von einem breit gezogenen Handy-Layout.
+ */
+test.describe('Tablet: Master-Detail', () => {
+  let page: Page;
+  const TABLET = { width: 834, height: 1112 };
+
+  test.beforeAll(async ({ browser }) => {
+    page = await browser.newPage({ viewport: TABLET });
+    const name = `tab_${Date.now().toString(36)}`;
+    await page.goto('/register');
+    await page.getByTestId('reg-username').fill(name);
+    await page.getByTestId('reg-email').fill(`${name}@dcc-test.example.com`);
+    await page.getByTestId('reg-password').fill('Passwort123!');
+    await page.getByTestId('reg-submit').click();
+    await page.waitForURL(/\/app/);
+    await page
+      .locator('[data-testid=backup-onboarding-skip-btn]')
+      .click({ timeout: 2500 })
+      .catch(() => undefined);
+  });
+
+  test.afterAll(async () => {
+    await page.close();
+  });
+
+  test('Raeume: Liste links, Platzhalter rechts', async () => {
+    await page.goto('/app/rooms');
+    const liste = page.getByTestId('rooms-page');
+    const platz = page.getByTestId('tablet-placeholder');
+    await expect(liste).toBeVisible();
+    await expect(platz).toBeVisible();
+    const l = await liste.boundingBox();
+    const p = await platz.boundingBox();
+    expect(l!.x).toBeLessThan(p!.x);
+  });
+
+  test('Du: Liste bleibt stehen, das Detail erscheint daneben', async () => {
+    await page.goto('/app/me');
+    await expect(page.getByTestId('me-page')).toBeVisible();
+    await page.getByTestId('me-section-appearance').click();
+    await page.waitForURL(/\/app\/me\/appearance$/);
+    // Die Liste ist NICHT verschwunden — das ist der Unterschied zum Handy.
+    await expect(page.getByTestId('me-page')).toBeVisible();
+    await expect(page.getByTestId('me-section-page')).toBeVisible();
+    // Und ohne Zurueck-Pfeil: der Weg zurueck ist die Liste daneben.
+    await expect(page.getByTestId('me-section-back')).toBeHidden();
+  });
+
+  test('auf dem Handy loest das Detail die Liste ab', async () => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/app/me/appearance');
+    await expect(page.getByTestId('me-section-page')).toBeVisible();
+    await expect(page.getByTestId('me-page')).toBeHidden();
+    await expect(page.getByTestId('me-section-back')).toBeVisible();
+  });
+});

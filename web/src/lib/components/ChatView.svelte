@@ -1,5 +1,8 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import StatusDot from '$lib/components/ui/StatusDot.svelte';
+  import { presence } from '$lib/stores/presence.svelte';
+  import { safeAvatarUrl } from '$lib/avatar';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import HashIcon from '@lucide/svelte/icons/hash';
@@ -37,6 +40,9 @@
     onBack,
     /** Titel antippbar machen: oeffnet den Kanal-Wechsler (nur Kanaele). */
     onSwitchChannel,
+    /** Gegenueber eines privaten Gespraechs — traegt Bild und Anwesenheit im
+     *  Kopf. Fehlt bei Kanaelen. */
+    dmPartnerId,
     showMemberList = true,
     composerDisabled = false,
     composerDisabledReason = '',
@@ -53,6 +59,7 @@
     headerKind?: 'channel' | 'dm';
     onBack?: () => void;
     onSwitchChannel?: () => void;
+    dmPartnerId?: string;
     /** Global-Friends Stufe 1: DMs leben in der Cloud. Bei `true` gehen
      *  Typing-Signale über die Cloud-Connection und "ist das meine Nachricht?"
      *  vergleicht gegen die Cloud-User-ID (auth.user.id) statt gegen die
@@ -239,7 +246,27 @@
           <ChevronLeftIcon class="size-6" />
         </button>
       {/if}
-      {#if headerKind === 'dm'}
+      {#if headerKind === 'dm' && dmPartnerId}
+        <!-- Bild und Anwesenheit statt eines `@`-Symbols (Entwurf 5a). In einem
+             privaten Gespraech ist die Person der Gegenstand des Bildschirms;
+             ein Zeichen, das fuer „irgendeine Direktnachricht" steht, sagt
+             darueber nichts. -->
+        {@const bild = safeAvatarUrl(userCache.get(dmPartnerId)?.avatar_url ?? null)}
+        <span class="relative size-[30px] shrink-0">
+          {#if bild}
+            <img src={bild} alt="" class="size-full rounded-full object-cover" />
+          {:else}
+            <span
+              class="accent-gradient flex size-full items-center justify-center rounded-full text-xs font-bold text-white"
+              >{userCache.displayName(dmPartnerId).slice(0, 1).toUpperCase()}</span
+            >
+          {/if}
+          <StatusDot
+            status={presence.displayStatusForFriend(dmPartnerId)}
+            class="ring-bg-panel absolute -bottom-px -right-px size-2.5 ring-2"
+          />
+        </span>
+      {:else if headerKind === 'dm'}
         <AtSignIcon class="text-primary size-5 shrink-0" />
       {:else}
         <HashIcon class="text-primary size-5 shrink-0" />

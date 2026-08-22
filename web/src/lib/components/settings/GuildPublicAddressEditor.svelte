@@ -22,7 +22,7 @@
   import Checkbox from '$lib/components/form/Checkbox.svelte';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
-  import { chatApi } from '$lib/api/chat';
+  import { chatApi, COMMUNITY_CATEGORIES } from '$lib/api/chat';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
@@ -37,11 +37,26 @@
   const HANDLE_RE = /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])$/;
 
   let handle = $state('');
+  let listed = $state(false);
+  let category = $state('');
   let isPublic = $state(false);
   let loading = $state(true);
   let saving = $state(false);
   let error = $state<string | null>(null);
   let copied = $state(false);
+
+  /** Anzeigenamen der Kategorien — der Server kennt nur die Kennung. */
+  function kategorieName(c: string): string {
+    return c === 'gaming'
+      ? m.community_category_gaming()
+      : c === 'music'
+        ? m.community_category_music()
+        : c === 'tech'
+          ? m.community_category_tech()
+          : c === 'creative'
+            ? m.community_category_creative()
+            : m.community_category_other();
+  }
 
   /** Host-Origin des aktiven Servers (für die kopierbare Adresse). */
   let serverHost = $derived(activeServer.current?.hostname ?? '');
@@ -63,6 +78,8 @@
       const settings = await chatApi.getGuildSettings(guildId);
       handle = settings.handle ?? '';
       isPublic = settings.is_public;
+      listed = settings.listed;
+      category = settings.category ?? '';
     } catch {
       error = m.guild_public_address_load_failed();
     } finally {
@@ -78,12 +95,18 @@
       await chatApi.patchGuildPublicAddress(guildId, {
         handle: handle || null,
         is_public: isPublic,
+        // Ohne oeffentliche Adresse gibt es nichts zu listen — der Server
+        // lehnt ein ausdrueckliches `listed: true` dann ab.
+        listed: isPublic && listed,
+        category: category || '',
       });
       // PATCH /guilds/{id} gibt GuildOut zurück (kein handle/is_public) — frischen
       // State über GET /guilds/{id}/settings holen.
       const settings = await chatApi.getGuildSettings(guildId);
       handle = settings.handle ?? '';
       isPublic = settings.is_public;
+      listed = settings.listed;
+      category = settings.category ?? '';
       toast.success(m.guild_public_address_saved());
     } catch (err) {
       const status = (err as { status?: number }).status;
@@ -159,6 +182,46 @@
           <p class="text-text-muted text-xs">{m.guild_public_address_public_hint()}</p>
         </div>
       </label>
+
+      <!-- Verzeichnis-Schalter.
+           **Eine eigene Zustimmung, nicht dieselbe wie die Adresse.** Eine
+           oeffentliche Adresse heisst „wer den Link kennt, kommt rein"; eine
+           Listung heisst „ich moechte gefunden werden". Deshalb ein zweiter
+           Schalter, Vorgabe aus, und nur bedienbar, solange die Community
+           ueberhaupt oeffentlich ist. -->
+      <label class="flex cursor-pointer items-start gap-3 {isPublic ? '' : 'opacity-50'}">
+        <Checkbox
+          class="mt-0.5"
+          bind:checked={listed}
+          disabled={saving || !isPublic}
+          data-testid="guild-listed-toggle"
+        />
+        <div>
+          <span class="text-text-bright text-sm font-medium"
+            >{m.guild_directory_listed_label()}</span
+          >
+          <p class="text-text-muted text-xs">{m.guild_directory_listed_hint()}</p>
+        </div>
+      </label>
+
+      {#if isPublic && listed}
+        <div class="flex flex-col gap-1.5">
+          <span class="text-text-bright text-sm font-medium"
+            >{m.guild_directory_category_label()}</span
+          >
+          <select
+            bind:value={category}
+            disabled={saving}
+            class="bg-bg-input border-border text-text-bright max-w-[220px] rounded-md border px-2 py-1.5 text-sm"
+            data-testid="guild-category-select"
+          >
+            <option value="">{m.guild_directory_category_none()}</option>
+            {#each COMMUNITY_CATEGORIES as c (c)}
+              <option value={c}>{kategorieName(c)}</option>
+            {/each}
+          </select>
+        </div>
+      {/if}
 
       <!-- Kopierbare Adresse (nur sichtbar wenn Handle gesetzt) -->
       {#if publicUrl}

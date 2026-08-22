@@ -69,9 +69,17 @@ describe('aktiverBereich', () => {
 
 describe('istDetailScreen', () => {
   it('ist falsch auf allen Listen-Ebenen', () => {
-    for (const pfad of ['/app/@me', '/app/rooms', '/app/friends', '/app/me', '/app/discover']) {
+    for (const pfad of ['/app/@me', '/app/rooms', '/app/friends', '/app/me']) {
       assert.equal(istDetailScreen(pfad), false, pfad);
     }
+  });
+
+  it('zaehlt Entdecken als Detail, obwohl es eine eigene Wurzel ist', () => {
+    // Man kommt aus dem Raeume-Bereich dorthin und mit dem Pfeil zurueck —
+    // Zurueck-Pfeil und Bereichs-Leiste gleichzeitig waeren zwei Aussagen
+    // darueber, wo man ist.
+    assert.equal(istDetailScreen('/app/discover'), true);
+    assert.equal(aktiverBereich('/app/discover'), 'rooms');
   });
 
   it('ist wahr, sobald ein Detail geoeffnet ist', () => {

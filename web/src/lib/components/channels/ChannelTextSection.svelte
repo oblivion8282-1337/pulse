@@ -60,95 +60,95 @@
   } = $props();
 </script>
 
-    <div class="text-text-muted px-2.5 pb-1 text-sm font-bold md:text-xs">{m.channel_list_text_channels()}</div>
-    {#each channels as c (c.id)}
-      {@const isUnread = activeChannelId !== c.id && readState.isUnread(c.id)}
-      {@const unreadCount = activeChannelId !== c.id ? readState.getUnreadCount(c.id) : 0}
-      <ContextMenu.Root>
-        <ContextMenu.Trigger>
-          {#snippet child({ props: ctxProps })}
-            <ChannelTopicTooltip topic={c.topic}>
-            {#snippet children(tipProps)}
-            <button
-              {...ctxProps}
-              {...tipProps}
-              class="{CHANNEL_BTN_CLASS} {ziehen.ueber === c.id
-                ? 'border-t-2 border-primary'
-                : ''} {ziehen.id === c.id ? 'opacity-50' : ''}"
-              data-active={activeChannelId === c.id}
-              data-unread={isUnread}
-              onclick={() => onSelect(c)}
-              draggable={canManageChannels}
-              ondragstart={(e) => beginnen(e, c, ziehen, canManageChannels)}
-              ondragover={(e) => darueber(e, c, ziehen, kontext.channels)}
-              ondrop={(e) => void ablegen(e, c, ziehen, kontext)}
-              ondragend={() => beenden(ziehen)}
-              data-testid={`channel-${c.id}`}
-            >
-              <HashIcon class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary group-data-[unread=true]:text-text-bright" />
-              <span class="truncate {isUnread ? 'font-semibold text-text-bright' : ''}" style={channelNameStyle(c)}>{c.name}</span>
-              <span class="ml-auto flex shrink-0 items-center gap-1.5">
-                {#if c.restricted}
-                  <LockIcon
-                    class="text-text-muted size-4 md:size-3.5"
-                    data-testid={`channel-lock-${c.id}`}
-                    aria-label={m.channel_list_restricted()}
-                  />
-                {/if}
-                {#if unreadCount > 0}
-                  <span
-                    class="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-badge-count px-1 text-2xs font-bold leading-none text-white"
-                    data-testid="channel-mention-pill"
-                    data-unread-count={unreadCount}
-                    aria-label={m.channel_list_unread_mentions({ count: unreadCount })}
-                  >{unreadCount > 99 ? '99+' : unreadCount}</span>
-                {:else if isUnread}
-                  <span
-                    class="size-2 shrink-0 rounded-full bg-badge-count"
-                    data-testid="channel-unread-dot"
-                    aria-label={m.channel_list_unread()}
-                  ></span>
-                {/if}
-              </span>
-            </button>
-            {/snippet}
-            </ChannelTopicTooltip>
-          {/snippet}
-        </ContextMenu.Trigger>
-        <ContextMenu.Content>
-          {#if canCreate}
-            <ContextMenu.Item onSelect={() => onRename(c)} data-testid="channel-context-settings">
-              <PencilIcon />
-              {m.channel_list_rename_channel()}
-            </ContextMenu.Item>
-          {/if}
-          {#if canManagePermissions && guild}
-            <ContextMenu.Item
-              onSelect={() => goto(`/app/guilds/${guild!.id}/channels/${c.id}/permissions`)}
-              data-testid={`channel-permissions-${c.id}`}
-            >
-              <ShieldIcon />
-              {m.channel_list_permissions()}
-            </ContextMenu.Item>
-          {/if}
-          <!-- Melden steht jedem Mitglied offen, nicht nur Managern. -->
-          <ContextMenu.Item
-            onSelect={() => onReport(c)}
-            data-testid={`channel-report-${c.id}`}
-          >
-            <FlagIcon />
-            {m.channel_list_report()}
-          </ContextMenu.Item>
-          {#if canCreate}
-            <ContextMenu.Separator />
-            <ContextMenu.Item variant="destructive" onSelect={() => onDelete(c)}>
-              <Trash2Icon />
-              {m.channel_list_delete_channel()}
-            </ContextMenu.Item>
-          {/if}
-        </ContextMenu.Content>
-      </ContextMenu.Root>
-    {/each}
-    {#if channels.length === 0}
-      <p class="text-text-muted px-3 py-2 text-xs">{m.channel_list_no_text_channels()}</p>
-    {/if}
+<div class="text-text-muted px-2.5 pb-1 text-sm font-bold md:text-xs">{m.channel_list_text_channels()}</div>
+{#each channels as c (c.id)}
+  {@const isUnread = activeChannelId !== c.id && readState.isUnread(c.id)}
+  {@const unreadCount = activeChannelId !== c.id ? readState.getUnreadCount(c.id) : 0}
+  <ContextMenu.Root>
+    <ContextMenu.Trigger>
+      {#snippet child({ props: ctxProps })}
+        <ChannelTopicTooltip topic={c.topic}>
+        {#snippet children(tipProps)}
+        <button
+          {...ctxProps}
+          {...tipProps}
+          class="{CHANNEL_BTN_CLASS} {ziehen.ueber === c.id
+            ? 'border-t-2 border-primary'
+            : ''} {ziehen.id === c.id ? 'opacity-50' : ''}"
+          data-active={activeChannelId === c.id}
+          data-unread={isUnread}
+          onclick={() => onSelect(c)}
+          draggable={canManageChannels}
+          ondragstart={(e) => beginnen(e, c, ziehen, canManageChannels)}
+          ondragover={(e) => darueber(e, c, ziehen, kontext.channels)}
+          ondrop={(e) => void ablegen(e, c, ziehen, kontext)}
+          ondragend={() => beenden(ziehen)}
+          data-testid={`channel-${c.id}`}
+        >
+          <HashIcon class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary group-data-[unread=true]:text-text-bright" />
+          <span class="truncate {isUnread ? 'font-semibold text-text-bright' : ''}" style={channelNameStyle(c)}>{c.name}</span>
+          <span class="ml-auto flex shrink-0 items-center gap-1.5">
+            {#if c.restricted}
+              <LockIcon
+                class="text-text-muted size-4 md:size-3.5"
+                data-testid={`channel-lock-${c.id}`}
+                aria-label={m.channel_list_restricted()}
+              />
+            {/if}
+            {#if unreadCount > 0}
+              <span
+                class="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-badge-count px-1 text-2xs font-bold leading-none text-white"
+                data-testid="channel-mention-pill"
+                data-unread-count={unreadCount}
+                aria-label={m.channel_list_unread_mentions({ count: unreadCount })}
+              >{unreadCount > 99 ? '99+' : unreadCount}</span>
+            {:else if isUnread}
+              <span
+                class="size-2 shrink-0 rounded-full bg-badge-count"
+                data-testid="channel-unread-dot"
+                aria-label={m.channel_list_unread()}
+              ></span>
+            {/if}
+          </span>
+        </button>
+        {/snippet}
+        </ChannelTopicTooltip>
+      {/snippet}
+    </ContextMenu.Trigger>
+    <ContextMenu.Content>
+      {#if canCreate}
+        <ContextMenu.Item onSelect={() => onRename(c)} data-testid="channel-context-settings">
+          <PencilIcon />
+          {m.channel_list_rename_channel()}
+        </ContextMenu.Item>
+      {/if}
+      {#if canManagePermissions && guild}
+        <ContextMenu.Item
+          onSelect={() => goto(`/app/guilds/${guild!.id}/channels/${c.id}/permissions`)}
+          data-testid={`channel-permissions-${c.id}`}
+        >
+          <ShieldIcon />
+          {m.channel_list_permissions()}
+        </ContextMenu.Item>
+      {/if}
+      <!-- Melden steht jedem Mitglied offen, nicht nur Managern. -->
+      <ContextMenu.Item
+        onSelect={() => onReport(c)}
+        data-testid={`channel-report-${c.id}`}
+      >
+        <FlagIcon />
+        {m.channel_list_report()}
+      </ContextMenu.Item>
+      {#if canCreate}
+        <ContextMenu.Separator />
+        <ContextMenu.Item variant="destructive" onSelect={() => onDelete(c)}>
+          <Trash2Icon />
+          {m.channel_list_delete_channel()}
+        </ContextMenu.Item>
+      {/if}
+    </ContextMenu.Content>
+  </ContextMenu.Root>
+{/each}
+{#if channels.length === 0}
+  <p class="text-text-muted px-3 py-2 text-xs">{m.channel_list_no_text_channels()}</p>
+{/if}

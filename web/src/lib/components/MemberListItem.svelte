@@ -1,6 +1,7 @@
 <script lang="ts">
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import MemberQuickRoleMenu from './MemberQuickRoleMenu.svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import UserProfilePopover from './UserProfilePopover.svelte';
   import { startUserDrag } from '$lib/voice/userDrag';
   import { userCache } from '$lib/stores/users.svelte';
@@ -145,7 +146,9 @@
   {#snippet extra()}
     {#if canQuickRole}
       <div class="mt-3">
-        <MemberQuickRoleMenu {guildId} userId={member.user_id} />
+        <!-- Im Blatt von unten (Handy) als flache Liste: dort gibt es kein
+             Kontextmenue, in dem ein Untermenue aufklappen koennte. -->
+        <MemberQuickRoleMenu {guildId} userId={member.user_id} flach={viewport.isMobile} />
       </div>
     {/if}
   {/snippet}

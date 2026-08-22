@@ -15,32 +15,62 @@
   import CompassIcon from '@lucide/svelte/icons/compass';
   import { serversStore } from '$lib/api/servers.svelte';
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
-  import { activeServer } from '$lib/stores/active-server.svelte';
   import { guilds as guildsStore } from '$lib/stores/guilds.svelte';
   import { readState } from '$lib/stores/readState.svelte';
+  import { voicePresence } from '$lib/stores/voicePresence.svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
+  import TabletPlaceholder from '$lib/components/mobile/TabletPlaceholder.svelte';
+  import BereichsKopf from '$lib/components/mobile/BereichsKopf.svelte';
+  import { initialen } from '$lib/utils/initialen';
   import { m } from '$lib/paraglide/messages.js';
   import type { Guild } from '$lib/api/types';
-
-  /** Initialen als Ersatz für ein fehlendes Community-Bild — wie in der GuildRail. */
-  function initials(name: string): string {
-    return name
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((w) => w[0]!.toUpperCase())
-      .join('');
-  }
 
   /**
    * Ungelesenes einer Community — nur für den AKTIVEN Server. Für fremde
    * Server liegen die Kanäle gar nicht im Speicher; eine Null dort ist
    * ehrlicher als eine erfundene Zahl.
    */
-  function ungelesen(g: Guild, istAktiverServer: boolean): number {
-    if (!istAktiverServer) return 0;
+  function ungelesen(g: Guild): number {
+    // Wie `leben()`: `channelsByGuild` ist nur fuer den aktiven Server
+    // gefuellt, eine zusaetzliche Server-Abfrage waere nur eine zweite Stelle
+    // zum stummen Ausfallen.
     const kanaele = guildsStore.channelsByGuild[g.id] ?? [];
     return readState.sumUnread(kanaele.map((c) => c.id));
   }
+
+  /**
+   * Die Zeile unter dem Namen.
+   *
+   * **Was gerade lebt, hat Vorrang vor dem, was nur da ist.** Sitzt jemand in
+   * einem Sprachkanal, steht das dort — mit dem Smaragd der Bildmarke, dem
+   * Anwesenheitston der App. Sonst die Zahl der Kanäle: eine ehrliche Angabe,
+   * die die Kachel ausfüllt, statt sie leer zu lassen.
+   *
+   * Fremde Server liefern nichts davon (ihre Kanäle liegen nicht im
+   * Speicher) — dort bleibt die Zeile leer statt eine Zahl zu erfinden.
+   */
+  function leben(g: Guild): { imGespraech: number; kanaele: number } {
+    // KEINE Abfrage auf „aktiver Server" mehr: `channelsByGuild` ist ohnehin
+    // nur fuer den aktiven Server gefuellt, und die zusaetzliche Bedingung war
+    // eine zweite Stelle, an der die Zeile stumm ausfallen konnte — genau das
+    // ist beim ersten Ansehen passiert.
+    const kanaele = guildsStore.channelsByGuild[g.id] ?? [];
+    const imGespraech = kanaele
+      .filter((c) => c.type === 1)
+      .reduce((n, c) => n + voicePresence.usersIn(c.id).length, 0);
+    return { imGespraech, kanaele: kanaele.filter((c) => c.type !== 1).length };
+  }
+
+  // Kanaele der eigenen Communities nachladen. Das Layout laedt sie beim
+  // Start vor, aber wer direkt auf `/app/rooms` einsteigt (Adresse, Neuladen)
+  // saehe die Zeile unter dem Namen sonst leer. `ensureChannels` ist
+  // idempotent, ein zweiter Aufruf kostet nichts.
+  $effect(() => {
+    const ids = guildsStore.list.map((g) => g.id);
+    queueMicrotask(() => {
+      for (const id of ids) void guildsStore.ensureChannels(id).catch(() => undefined);
+    });
+  });
 
   let server = $derived(serversStore.servers);
   let mehrereServer = $derived(server.length > 1);
@@ -54,22 +84,22 @@
   }
 </script>
 
-<div class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl" data-testid="rooms-page">
-  <header class="text-text-bright flex shrink-0 items-center justify-between px-4 pb-2 pt-3.5">
-    <h1 class="text-[22px] font-extrabold tracking-tight">{m.nav_tab_rooms()}</h1>
-    <a
-      href="/app/discover"
-      class="text-text-muted hover:text-primary flex min-h-12 items-center gap-1.5 text-sm font-semibold"
-      data-testid="rooms-discover-link"
-    >
-      <CompassIcon class="size-[22px]" />
-      <span>{m.rooms_discover_cta()}</span>
-    </a>
-  </header>
+<div class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:w-72 md:flex-none md:rounded-2xl" data-testid="rooms-page">
+  <BereichsKopf titel={m.nav_tab_rooms()}>
+    {#snippet handlung()}
+      <a
+        href="/app/discover"
+        class="text-text-muted hover:text-primary flex min-h-12 items-center gap-1.5 text-sm font-semibold"
+        data-testid="rooms-discover-link"
+      >
+        <CompassIcon class="size-[19px]" />
+        <span>{m.rooms_discover_short()}</span>
+      </a>
+    {/snippet}
+  </BereichsKopf>
 
   <div class="flex-1 overflow-y-auto px-3 pb-4">
     {#each server as s (s.id)}
-      {@const istAktiv = s.id === activeServer.serverId}
       {@const liste = serverGuilds.get(s.id)}
       {#if mehrereServer}
         <div class="text-text-muted px-1 pb-1.5 pt-3 text-xs font-bold">
@@ -83,15 +113,16 @@
       {:else}
         <div class="grid grid-cols-2 gap-2.5">
           {#each liste as g (g.id)}
-            {@const zahl = ungelesen(g, istAktiv)}
+            {@const zahl = ungelesen(g)}
+            {@const l = leben(g)}
             <button
-              class="bg-bg-input border-border hover:bg-bg-hover flex min-h-12 flex-col items-start gap-2 rounded-[14px] border p-3 text-left transition-colors"
+              class="bg-bg-input border-border hover:border-primary/40 hover:bg-bg-hover flex flex-col items-start gap-2.5 rounded-[16px] border p-3.5 text-left transition-colors"
               onclick={() => oeffnen(g)}
               data-testid={`room-tile-${g.id}`}
             >
               <span class="relative">
                 <span
-                  class="flex size-11 items-center justify-center overflow-hidden rounded-[14px] text-base font-bold text-white"
+                  class="flex size-14 items-center justify-center overflow-hidden rounded-[18px] text-lg font-bold text-white"
                   style={g.icon_url
                     ? ''
                     : 'background-image: linear-gradient(135deg in oklab, var(--accent-grad-from), var(--accent-grad-to));'}
@@ -99,7 +130,7 @@
                   {#if g.icon_url}
                     <img src={g.icon_url} alt={g.name} class="size-full object-cover" />
                   {:else}
-                    {initials(g.name)}
+                    {initialen(g.name)}
                   {/if}
                 </span>
                 {#if zahl > 0}
@@ -109,7 +140,19 @@
                   >{zahl > 99 ? '99+' : zahl}</span>
                 {/if}
               </span>
-              <span class="text-text-bright w-full truncate text-sm font-semibold">{g.name}</span>
+              <span class="w-full min-w-0">
+                <span class="text-text-bright block truncate text-sm font-semibold">{g.name}</span>
+                {#if l.imGespraech > 0}
+                  <span class="text-text-muted mt-0.5 flex items-center gap-1.5 text-2xs">
+                    <span class="bg-success size-1.5 shrink-0 rounded-full"></span>
+                    {m.rooms_in_voice({ count: l.imGespraech })}
+                  </span>
+                {:else if l.kanaele > 0}
+                  <span class="text-text-muted mt-0.5 block text-2xs"
+                    >{m.rooms_channel_count({ count: l.kanaele })}</span
+                  >
+                {/if}
+              </span>
             </button>
           {/each}
         </div>
@@ -130,3 +173,7 @@
     {/if}
   </div>
 </div>
+
+{#if !viewport.isMobile}
+  <TabletPlaceholder text={m.rooms_pick_community()} />
+{/if}

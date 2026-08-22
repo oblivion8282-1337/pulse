@@ -23,13 +23,13 @@ export const SYMBOLE = {
 } as const;
 
 export function beschriftung(id: TabId): string {
-  return id === 'chats'
-    ? m.nav_tab_chats()
-    : id === 'rooms'
-      ? m.nav_tab_rooms()
-      : id === 'friends'
-        ? m.nav_tab_friends()
-        : m.nav_tab_me();
+  // Nachschlagetabelle statt Ternar-Kette: die vier Faelle sind gleichrangig,
+  // eine Kette suggeriert eine Rangfolge, die es nicht gibt. Der Aufruf steht
+  // IM Tabellenwert, nicht davor — sonst wuerden bei jedem Aufruf alle vier
+  // Texte gebaut, statt des einen, der gebraucht wird.
+  return { chats: m.nav_tab_chats, rooms: m.nav_tab_rooms, friends: m.nav_tab_friends, me: m.nav_tab_me }[
+    id
+  ]();
 }
 
 /**

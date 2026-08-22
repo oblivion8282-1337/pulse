@@ -96,6 +96,12 @@ export function aktiverBereich(pfad: string): TabId | null {
  */
 export function istDetailScreen(pfad: string): boolean {
   const p = normalisieren(pfad);
+  // Entdecken ist ein AUFGESCHOBENER Bildschirm ueber den Raeumen, kein
+  // fuenfter Bereich: man kommt aus dem Raeume-Bereich dorthin und mit dem
+  // Pfeil oben wieder zurueck. Ohne diese Zeile stuenden Zurueck-Pfeil UND
+  // Bereichs-Leiste gleichzeitig da — das liest sich wie zwei Aussagen
+  // darueber, wo man gerade ist.
+  if (p === '/app/discover') return true;
   for (const [wurzel, _id] of WURZELN) {
     if (!liegtUnter(p, wurzel)) continue;
     return p.length > wurzel.length;

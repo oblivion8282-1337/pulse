@@ -147,6 +147,12 @@ class GuildPatchIn(BaseModel):
     # allow the empty string; ``validate_handle`` rejects malformed non-empty values.
     handle: Annotated[str | None, Field(default=None, max_length=32)] = None
     is_public: bool | None = None
+    #: Im Verzeichnis zeigen (Entdecken). Getrennt von ``is_public``: eine
+    #: oeffentliche Adresse ist eine andere Zustimmung als ein durchsuchbares
+    #: Schaufenster. Ohne ``is_public`` lehnt die Route ab.
+    listed: bool | None = None
+    #: Eine Kennung aus ``COMMUNITY_CATEGORIES``; ``""`` loescht sie.
+    category: Annotated[str | None, Field(default=None, max_length=16)] = None
     # Per-guild attachment limits (MANAGE_GUILD). Enforced in attachments.py.
     attachment_max_size_bytes: Annotated[
         int | None, Field(default=None, ge=1024, le=1_073_741_824)
@@ -186,10 +192,37 @@ class GuildSettingsOut(BaseModel):
     # Host-relative public address path, e.g. ``/c/coolserver``. ``None`` until
     # a handle is set (no address exists yet).
     address_path: str | None
+    #: Im Verzeichnis sichtbar (Entdecken-Bereich). Vorgabe aus.
+    listed: bool = False
+    category: str | None = None
 
     @field_serializer("id")
     def _ser_id(self, v: int) -> str:
         return _id_str(v)
+
+
+class DirectoryEntryOut(BaseModel):
+    """Ein Eintrag im Community-Verzeichnis (``GET /c``).
+
+    Traegt bewusst nur, was eine Karte im Entdecken-Bildschirm zeigt. Kein
+    Owner, keine Kanaele, keine Einstellungen — das Verzeichnis ist eine
+    Auslage, keine Auskunftsstelle.
+    """
+
+    id: int
+    handle: str
+    name: str
+    icon_url: str | None = None
+    category: str | None = None
+    member_count: int
+
+    @field_serializer("id")
+    def _ser_id(self, v: int) -> str:
+        return _id_str(v)
+
+
+class DirectoryOut(BaseModel):
+    items: list[DirectoryEntryOut]
 
 
 class TransferOwnershipIn(BaseModel):

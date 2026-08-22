@@ -38,8 +38,8 @@ from sqlalchemy import or_, select
 
 import dcc_chat_gateway.config as _cfg
 from dcc_chat_gateway import s3, watchkeys
-from dcc_chat_gateway.dm_vorschau import letzte_nachrichten
 from dcc_chat_gateway.db import SessionLocal
+from dcc_chat_gateway.dm_vorschau import letzte_nachrichten
 from dcc_chat_gateway.friend_events import (
     load_blocks_in,
     load_blocks_out,
@@ -368,6 +368,9 @@ async def build_and_send_ready_frame(
             dm_channels = []
             for d in dm_rows:
                 other = d.user_b_id if d.user_a_id == user.id else d.user_a_id
+                # Einmal nachschlagen statt dreimal: die drei Vorschau-Felder
+                # stehen oder fallen gemeinsam.
+                letzte = dm_letzte.get(d.id)
                 can_send = (
                     other in friend_set
                     and other not in blocks_out_set
@@ -382,16 +385,12 @@ async def build_and_send_ready_frame(
                         ),
                         "created_at": d.created_at.isoformat(),
                         "can_send": can_send,
-                        "last_message_preview": (
-                            dm_letzte[d.id].text if d.id in dm_letzte else None
-                        ),
+                        "last_message_preview": letzte.text if letzte else None,
                         "last_message_author_id": (
-                            str(dm_letzte[d.id].author_id) if d.id in dm_letzte else None
+                            str(letzte.author_id) if letzte else None
                         ),
                         "last_message_at": (
-                            dm_letzte[d.id].created_at.isoformat()
-                            if d.id in dm_letzte
-                            else None
+                            letzte.created_at.isoformat() if letzte else None
                         ),
                     }
                 )

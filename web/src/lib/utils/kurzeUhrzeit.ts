@@ -28,13 +28,13 @@ export function kurzeUhrzeit(
   if (tage === 0) {
     return d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
   }
-  if (tage === 1) {
-    // Kein eigener Katalog-Schluessel: die Sprachdatei kennt „Gestern"
-    // bereits nicht, und ein Wochentagsname ist hier genauso brauchbar und
-    // kommt ohne neue Uebersetzung aus.
-    return d.toLocaleDateString(locale, { weekday: 'short' });
-  }
   if (tage < 7) {
+    // Gestern und die Tage davor teilen sich eine Antwort: den Wochentagsnamen.
+    //
+    // Fuer „gestern" gibt es bewusst KEINEN eigenen Katalog-Schluessel — die
+    // Sprachdatei kennt das Wort nicht, und ein Wochentagsname ist hier
+    // genauso brauchbar und kommt ohne neue Uebersetzung aus. Damit fallen
+    // beide Faelle zusammen, statt zweimal dasselbe zurueckzugeben.
     return d.toLocaleDateString(locale, { weekday: 'short' });
   }
   return d.toLocaleDateString(locale, { day: '2-digit', month: '2-digit' });

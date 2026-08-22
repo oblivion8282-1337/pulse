@@ -2,14 +2,112 @@
   /**
    * Entdecken — das Verzeichnis öffentlicher Communities.
    *
-   * **Gerüst.** Der Beitritt über eine bekannte Adresse funktioniert bereits
-   * (`GET /c/{handle}` gibt es seit Stufe 4); das durchsuchbare Verzeichnis
-   * mit Kategorien kommt mit dem Server-Endpunkt `GET /c` in Phase 8 dieses
-   * Umbaus.
+   * Zwei Wege hinein, und das ist Absicht: **oben** die Adresse, die dir
+   * jemand geschickt hat (der Weg, den es schon immer gab), **darunter** das
+   * Schaufenster für alles, was gefunden werden möchte.
+   *
+   * Im Schaufenster steht nur, was `is_public` **und** `listed` ist. Eine
+   * öffentliche Adresse heisst „wer den Link kennt, kommt rein"; gelistet
+   * heisst „ich möchte gefunden werden". Der Server hält die beiden
+   * auseinander, und keine bestehende Community wurde ungefragt gelistet.
    */
   import { goto } from '$app/navigation';
+  import { onMount } from 'svelte';
+  import { toast } from 'svelte-sonner';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
+  import SearchIcon from '@lucide/svelte/icons/search';
+  import UsersIcon from '@lucide/svelte/icons/users';
+  import { Button } from '$lib/components/ui/button/index.js';
+  import { Input } from '$lib/components/ui/input/index.js';
+  import { chatApi, COMMUNITY_CATEGORIES, type DirectoryEntry } from '$lib/api/chat';
+  import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
+  import { initialen } from '$lib/utils/initialen';
   import { m } from '$lib/paraglide/messages.js';
+
+  let suche = $state('');
+  let kategorie = $state<string>('');
+  let eintraege = $state<DirectoryEntry[]>([]);
+  let laedt = $state(true);
+  let adresse = $state('');
+  let tretebei = $state(false);
+  let beitreten = $state<string | null>(null);
+
+  // Nachschlagetabelle statt Ternar-Kette: die Kategorien sind gleichrangig.
+  // Eine unbekannte Kennung faellt auf „Sonstiges" — der Server kennt genau
+  // dieselben fuenf (`community_categories.py`), aber ein aelterer Klient soll
+  // an einer neuen Kategorie nicht mit einer leeren Stelle dastehen.
+  const KATEGORIE_NAMEN: Record<string, () => string> = {
+    gaming: m.community_category_gaming,
+    music: m.community_category_music,
+    tech: m.community_category_tech,
+    creative: m.community_category_creative
+  };
+
+  function kategorieName(c: string): string {
+    return (KATEGORIE_NAMEN[c] ?? m.community_category_other)();
+  }
+
+  async function laden() {
+    laedt = true;
+    try {
+      const r = await chatApi.listPublicCommunities({
+        q: suche.trim() || undefined,
+        category: kategorie || undefined
+      });
+      eintraege = r.items;
+    } catch {
+      eintraege = [];
+    } finally {
+      laedt = false;
+    }
+  }
+
+  onMount(laden);
+
+  // Suche und Kategorie neu laden. Die Suche wird entprellt — sonst schickt
+  // jeder Tastendruck eine Anfrage, und die Antworten kaemen in beliebiger
+  // Reihenfolge zurueck.
+  let entprellung: ReturnType<typeof setTimeout> | null = null;
+  function sucheGeaendert() {
+    if (entprellung) clearTimeout(entprellung);
+    entprellung = setTimeout(() => void laden(), 300);
+  }
+
+  function kategorieWaehlen(c: string) {
+    kategorie = kategorie === c ? '' : c;
+    void laden();
+  }
+
+  async function perAdresse() {
+    if (!adresse.trim() || tretebei) return;
+    tretebei = true;
+    try {
+      await joinGuildByInvite(adresse.trim());
+      adresse = '';
+      await goto('/app/rooms');
+    } catch (e) {
+      toast.error(m.discover_join_failed(), {
+        description: e instanceof Error ? e.message : String(e)
+      });
+    } finally {
+      tretebei = false;
+    }
+  }
+
+  async function karteBeitreten(e: DirectoryEntry) {
+    if (beitreten) return;
+    beitreten = e.id;
+    try {
+      await chatApi.joinPublicCommunity(e.handle);
+      await goto('/app/rooms');
+    } catch (err) {
+      toast.error(m.discover_join_failed(), {
+        description: err instanceof Error ? err.message : String(err)
+      });
+    } finally {
+      beitreten = null;
+    }
+  }
 </script>
 
 <div
@@ -28,7 +126,112 @@
     <span class="truncate text-base font-bold tracking-tight">{m.rooms_discover_cta()}</span>
   </header>
 
-  <div class="flex-1 overflow-y-auto px-4 py-6">
-    <p class="text-text-muted text-sm">{m.discover_coming_soon()}</p>
+  <div class="flex-1 overflow-y-auto px-3 pb-4 pt-3">
+    <!-- Suche -->
+    <div class="relative mb-3">
+      <SearchIcon
+        class="text-text-muted pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2"
+      />
+      <Input
+        bind:value={suche}
+        oninput={sucheGeaendert}
+        placeholder={m.discover_search_placeholder()}
+        class="min-h-12 pl-9"
+        data-testid="discover-search"
+      />
+    </div>
+
+    <!-- Beitreten per Link oder Adresse — der Weg, den es schon gab. -->
+    <div class="bg-bg-input border-border mb-4 rounded-[14px] border p-3">
+      <div class="text-text-bright mb-1.5 text-sm font-semibold">
+        {m.discover_join_by_link_label()}
+      </div>
+      <!-- Untereinander statt nebeneinander: auf 393 px blieben dem Feld
+           neben dem Knopf rund 240 px, und der Platzhalter wurde mitten im
+           Wort abgeschnitten. Ein Feld, dessen eigene Beschriftung nicht
+           hineinpasst, sieht kaputt aus, bevor man es angefasst hat. -->
+      <Input
+        bind:value={adresse}
+        placeholder={m.discover_join_by_link_placeholder()}
+        class="min-h-12 w-full"
+        data-testid="discover-join-input"
+        onkeydown={(e: KeyboardEvent) => {
+          if (e.key === 'Enter') void perAdresse();
+        }}
+      />
+      <Button
+        class="mt-2 min-h-12 w-full"
+        disabled={!adresse.trim() || tretebei}
+        onclick={perAdresse}
+        data-testid="discover-join-submit"
+      >
+        {m.discover_join()}
+      </Button>
+    </div>
+
+    <!-- Kategorie-Chips. „Alle" ist derselbe Knopf wie die fuenf anderen, nur
+         mit der leeren Kennung — deshalb ein Schnipsel statt zweier Bloecke,
+         die dieselben acht Klassen tragen. -->
+    {#snippet chip(wert: string, text: string, testid: string)}
+      <button
+        class="flex min-h-12 shrink-0 items-center rounded-full px-3.5 text-[13px] font-semibold transition-colors {kategorie ===
+        wert
+          ? 'bg-[var(--accent-soft)] text-accent-on-soft'
+          : 'bg-bg-input text-text-muted'}"
+        onclick={() => kategorieWaehlen(wert)}
+        data-testid={testid}
+      >{text}</button>
+    {/snippet}
+    <div class="-mx-1 mb-3 flex gap-1.5 overflow-x-auto px-1">
+      {@render chip('', m.discover_category_all(), 'discover-category-all')}
+      {#each COMMUNITY_CATEGORIES as c (c)}
+        {@render chip(c, kategorieName(c), `discover-category-${c}`)}
+      {/each}
+    </div>
+
+    <!-- Karten -->
+    {#if !laedt && eintraege.length === 0}
+      <p class="text-text-muted px-2 py-8 text-center text-sm">{m.discover_empty()}</p>
+    {/if}
+    <div class="flex flex-col gap-2.5">
+      {#each eintraege as e (e.id)}
+        <div
+          class="bg-bg-input border-border flex items-center gap-3 rounded-[14px] border p-3"
+          data-testid={`discover-card-${e.handle}`}
+        >
+          <span
+            class="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-[14px] text-base font-bold text-white"
+            style={e.icon_url
+              ? ''
+              : 'background-image: linear-gradient(135deg in oklab, var(--accent-grad-from), var(--accent-grad-to));'}
+          >
+            {#if e.icon_url}
+              <img src={e.icon_url} alt={e.name} class="size-full object-cover" />
+            {:else}
+              {initialen(e.name)}
+            {/if}
+          </span>
+          <div class="min-w-0 flex-1">
+            <div class="text-text-bright truncate text-sm font-semibold">{e.name}</div>
+            <div class="text-text-muted flex items-center gap-1.5 text-xs">
+              <UsersIcon class="size-3.5" />
+              {m.discover_members({ count: e.member_count })}
+              {#if e.category}
+                <span aria-hidden="true">·</span>
+                <span>{kategorieName(e.category)}</span>
+              {/if}
+            </div>
+          </div>
+          <Button
+            class="min-h-12 shrink-0"
+            disabled={beitreten === e.id}
+            onclick={() => karteBeitreten(e)}
+            data-testid={`discover-join-${e.handle}`}
+          >
+            {m.discover_join()}
+          </Button>
+        </div>
+      {/each}
+    </div>
   </div>
 </div>

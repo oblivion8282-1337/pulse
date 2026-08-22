@@ -48,6 +48,21 @@ class Guild(Base):
         Boolean, nullable=False, server_default=text("false"), default=False
     )
     handle: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Verzeichnis-Listung (Entdecken-Bereich, Mobil-Umbau 2026-08-22).
+    #
+    # **Bewusst getrennt von ``is_public``.** Eine oeffentliche Adresse heisst
+    # „wer den Link kennt, kommt rein"; eine Listung heisst „ich moechte
+    # gefunden werden". Das sind zwei verschiedene Zustimmungen, und die
+    # Migration setzt deshalb NUR die Vorgabe ``false`` ohne Nachziehen — keine
+    # bestehende oeffentliche Community landet ungefragt im Schaufenster.
+    # ``listed`` ohne ``is_public`` ist sinnlos und wird in der Route
+    # abgelehnt; ein Zuruecknehmen von ``is_public`` raeumt die Listung mit.
+    listed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False
+    )
+    # Feste Liste im Code (``COMMUNITY_CATEGORIES``) statt freier Schlagworte —
+    # die Filter-Chips des Verzeichnisses zeigen genau diese.
+    category: Mapped[str | None] = mapped_column(String(16), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

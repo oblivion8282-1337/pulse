@@ -18,6 +18,7 @@
 -->
 <script lang="ts">
   import { ContextMenu as ContextMenuPrimitive } from 'bits-ui';
+  import BottomSheet from '$lib/components/mobile/BottomSheet.svelte';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import FlagIcon from '@lucide/svelte/icons/flag';
   import NicknameDialog from './NicknameDialog.svelte';
@@ -26,6 +27,7 @@
   import PopoverFriendActions from './PopoverFriendActions.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { roles } from '$lib/stores/roles.svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import { nameStyle } from '$lib/utils/nameColor';
   import { Perm } from '$lib/permissions/bitfield';
   import type { Snippet } from 'svelte';
@@ -89,77 +91,111 @@
   let displayNameStyle = $derived(nameStyle(userId, guildId ?? null));
 </script>
 
-<ContextMenuPrimitive.Root bind:open>
-  <ContextMenuPrimitive.Trigger>
-    {#snippet child({ props })}
-      {@render children({ props })}
-    {/snippet}
-  </ContextMenuPrimitive.Trigger>
-  <ContextMenuPrimitive.Portal>
-    <ContextMenuPrimitive.Content
-      class="ring-border bg-popover text-popover-foreground z-50 w-64 rounded-xl p-4 shadow-xl ring-1 outline-none backdrop-blur-xl data-open:animate-in data-closed:animate-out data-open:fade-in-0 data-closed:fade-out-0 data-open:zoom-in-95 data-closed:zoom-out-95"
-      data-testid="user-profile-popover"
-    >
-      <div class="flex items-center gap-3">
-        <Avatar.Root class="size-12 shrink-0">
-          {#if avatarUrl}
-            <Avatar.Image src={avatarUrl} alt={displayName} />
-          {/if}
-          <Avatar.Fallback class="accent-gradient text-primary-foreground text-base font-semibold">
-            {initials(displayName)}
-          </Avatar.Fallback>
-        </Avatar.Root>
-        <div class="min-w-0 flex-1">
-          <!-- w-fit: Box auf Textbreite schrumpfen, sonst füllt der Verlauf
-               (background-clip:text) die volle Spaltenbreite und nur die linke
-               (Primär-)Farbe landet auf dem kurzen Namen. max-w-full hält die
-               Ellipsis-Kürzung bei langen Namen. -->
-          <p
-            class="text-text-bright w-fit max-w-full truncate text-base font-semibold"
-            style={displayNameStyle}
-          >{displayName}</p>
-          {#if isSelf}
-            <p class="text-text-muted text-xs">{m.user_profile_popover_this_is_you()}</p>
-          {/if}
-        </div>
-      </div>
+{#snippet karte()}
+<div class="flex items-center gap-3">
+  <Avatar.Root class="size-12 shrink-0">
+    {#if avatarUrl}
+      <Avatar.Image src={avatarUrl} alt={displayName} />
+    {/if}
+    <Avatar.Fallback class="accent-gradient text-primary-foreground text-base font-semibold">
+      {initials(displayName)}
+    </Avatar.Fallback>
+  </Avatar.Root>
+  <div class="min-w-0 flex-1">
+    <!-- w-fit: Box auf Textbreite schrumpfen, sonst füllt der Verlauf
+         (background-clip:text) die volle Spaltenbreite und nur die linke
+         (Primär-)Farbe landet auf dem kurzen Namen. max-w-full hält die
+         Ellipsis-Kürzung bei langen Namen. -->
+    <p
+      class="text-text-bright w-fit max-w-full truncate text-base font-semibold"
+      style={displayNameStyle}
+    >{displayName}</p>
+    {#if isSelf}
+      <p class="text-text-muted text-xs">{m.user_profile_popover_this_is_you()}</p>
+    {/if}
+  </div>
+</div>
 
-      <PopoverActions
-        {userId}
-        {displayName}
-        {guildId}
-        {isSelf}
-        {canEditNickname}
-        popoverOpen={open}
-        {onAction}
-        onClose={close}
-        onOpenNickDialog={() => (nickDialogOpen = true)}
-      />
+<PopoverActions
+  {userId}
+  {displayName}
+  {guildId}
+  {isSelf}
+  {canEditNickname}
+  popoverOpen={open}
+  {onAction}
+  onClose={close}
+  onOpenNickDialog={() => (nickDialogOpen = true)}
+/>
 
-      {#if !isSelf}
-        <PopoverFriendActions
-          {userId}
-          {displayName}
-          popoverOpen={open}
-          onClose={close}
-          {onAction}
-        />
-        <MenuRow
-          class="mt-2"
-          onclick={() => (reportDialogOpen = true)}
-          data-testid="user-profile-report-btn"
-        >
-          <FlagIcon class="size-3.5" />
-          {m.user_profile_report()}
-        </MenuRow>
-      {/if}
+{#if !isSelf}
+  <PopoverFriendActions
+    {userId}
+    {displayName}
+    popoverOpen={open}
+    onClose={close}
+    {onAction}
+  />
+  <MenuRow
+    class="mt-2"
+    onclick={() => (reportDialogOpen = true)}
+    data-testid="user-profile-report-btn"
+  >
+    <FlagIcon class="size-3.5" />
+    {m.user_profile_report()}
+  </MenuRow>
+{/if}
 
-      {#if extra}
-        {@render extra({ close })}
-      {/if}
-    </ContextMenuPrimitive.Content>
-  </ContextMenuPrimitive.Portal>
-</ContextMenuPrimitive.Root>
+{#if extra}
+  {@render extra({ close })}
+{/if}
+{/snippet}
+
+{#if viewport.isMobile}
+  <!-- Auf dem Handy fuehrt ein normaler TIPP zum Profil, und die Karte faehrt
+       als Blatt von unten herein (Entwurf 11a).
+       Das Kontextmenue darueber oeffnet per Rechtsklick — den es auf einem
+       Telefon nicht gibt; der Weg zum Profil war dort also bestenfalls ein
+       zufaellig funktionierender Langdruck. Und ein Blatt am unteren Rand
+       liegt in Daumenreichweite, eine schwebende Karte in der Bildmitte
+       nicht. -->
+  {@render children({
+    props: {
+      onclick: (e: Event) => {
+        e.preventDefault();
+        e.stopPropagation();
+        open = true;
+      }
+    }
+  })}
+  <BottomSheet
+    {open}
+    testid="user-profile-sheet"
+    closeLabel={m.user_profile_sheet_close()}
+    panelClass="bg-popover text-popover-foreground border-border relative max-h-[80dvh] overflow-y-auto rounded-t-[22px] border-t p-4 pb-[max(1rem,var(--safe-bottom))] shadow-2xl"
+    panelTestid="user-profile-popover"
+    onClose={close}
+  >
+    <div class="bg-border mx-auto mb-3 h-1 w-9 shrink-0 rounded-full"></div>
+    {@render karte()}
+  </BottomSheet>
+{:else}
+  <ContextMenuPrimitive.Root bind:open>
+    <ContextMenuPrimitive.Trigger>
+      {#snippet child({ props })}
+        {@render children({ props })}
+      {/snippet}
+    </ContextMenuPrimitive.Trigger>
+    <ContextMenuPrimitive.Portal>
+      <ContextMenuPrimitive.Content
+        class="ring-border bg-popover text-popover-foreground z-50 w-64 rounded-xl p-4 shadow-xl ring-1 outline-none backdrop-blur-xl data-open:animate-in data-closed:animate-out data-open:fade-in-0 data-closed:fade-out-0 data-open:zoom-in-95 data-closed:zoom-out-95"
+        data-testid="user-profile-popover"
+      >
+        {@render karte()}
+      </ContextMenuPrimitive.Content>
+    </ContextMenuPrimitive.Portal>
+  </ContextMenuPrimitive.Root>
+{/if}
 
 {#if reportDialogOpen}
   <ReportMessageDialog

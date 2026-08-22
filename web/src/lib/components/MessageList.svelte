@@ -408,6 +408,16 @@
   }
 </script>
 
+<!-- **Ein kurzes Gespraech klebt oben statt unten am Eingabefeld**, anders als
+     in den ueblichen Messengern. Am 2026-08-23 versucht und wieder
+     zurueckgenommen: `justify-end` am Rahmen wirkt nur, wenn die VList ihre
+     Hoehe aus dem Inhalt nimmt — virtua setzt sich aber selbst `height:100%`,
+     und mit `height:auto` dagegen verliert es seinen begrenzten Ausschnitt und
+     rendert GAR KEINE Nachricht mehr (nachgemessen, leerer Bildschirm). Die
+     Version hier (virtua 0.49) kennt keinen Umkehr-Schalter. Ein Umbau waere
+     einer an der Virtualisierung selbst — mit Rueckwirkung auf das Nachladen
+     nach oben und die Sprungmarken. Fuer einen kosmetischen Randfall, der nur
+     bei ganz neuen Gespraechen sichtbar ist, ist das der falsche Preis. -->
 <div class="flex-1 min-h-0" bind:this={wrapperEl} data-testid="message-list">
   {#if channel}
     {#if messages.length === 0}
@@ -466,6 +476,7 @@
               canDelete={canDeleteMessage(item.message)}
               canReport={canReportMessage(item.message)}
               isDirect={!channel?.guild_id}
+              guildId={channel?.guild_id ?? undefined}
               onReply={onSetReplyTarget}
               onEditSubmit={onEditMessage}
               onDelete={onDeleteMessage}

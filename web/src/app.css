@@ -31,6 +31,11 @@
   --color-accent: var(--accent);
   --color-accent-hover: var(--brand-hover);
   --color-brand: var(--brand);
+  /* Schrift AUF einer `--accent-soft`-Fläche (aktiver Chip, aktiver Reiter).
+     Nicht `--brand` nehmen: Blau auf blau-durchscheinend liegt im dunklen
+     Erscheinungsbild bei rund 4:1 und liest sich matschig — im Entwurf steht
+     dort ein deutlich helleres Blau. */
+  --color-accent-on-soft: var(--accent-on-soft);
   --color-text-base: var(--text-dim);
   --color-text-muted: var(--text-faint);
   --color-text-bright: var(--text);
@@ -439,6 +444,7 @@
   --brand: #2563eb;
   --brand-hover: #1d4ed8;
   --accent-soft: rgba(37, 99, 235, 0.12);
+  --accent-on-soft: #1d4ed8;
   --accent-grad-from: #2563eb;
   --accent-grad-to: #3b82f6;
   --text: #111827;
@@ -513,6 +519,7 @@
   --brand: #3b82f6;
   --brand-hover: #60a5fa;
   --accent-soft: rgba(37, 99, 235, 0.2);
+  --accent-on-soft: #bcd6ff;
   --accent-grad-from: #2563eb;
   --accent-grad-to: #3b82f6;
   --text: #f0f1f3;

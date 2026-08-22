@@ -15,6 +15,7 @@
    * Ungelesen-Rechnung.
    */
   import PencilIcon from '@lucide/svelte/icons/pencil';
+  import BereichsKopf from './BereichsKopf.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { userCache } from '$lib/stores/users.svelte';
@@ -52,12 +53,9 @@
   function vorschau(dm: DMChannel): string {
     const roh = dm.last_message_preview;
     if (!roh) return '';
-    const text =
-      roh === '__image__'
-        ? m.dm_preview_image()
-        : roh === '__file__'
-          ? m.dm_preview_file()
-          : roh;
+    let text = roh;
+    if (roh === '__image__') text = m.dm_preview_image();
+    else if (roh === '__file__') text = m.dm_preview_file();
     // Private Nachrichten sind cloud-gebunden (`CloudOnly` im Gateway) —
     // die eigene Kennung ist deshalb die des Kontos, nicht die server-lokale.
     const vonMir = !!auth.user && dm.last_message_author_id === auth.user.id;
@@ -69,13 +67,22 @@
   class="glass-panel relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl"
   data-testid="mobile-chats-list"
 >
-  <header class="text-text-bright shrink-0 px-4 pb-2 pt-3.5">
-    <h1 class="text-[22px] font-extrabold tracking-tight">{m.nav_tab_chats()}</h1>
-  </header>
+  <BereichsKopf titel={m.nav_tab_chats()} />
 
   <nav class="flex-1 overflow-y-auto px-2.5 pb-3">
     {#if directMessages.list.length === 0}
-      <p class="text-text-muted px-3 py-6 text-center text-sm">{m.chats_empty()}</p>
+      <!-- Ein leerer Bildschirm ist eine Aufforderung, keine Stimmung. Das
+           Motiv ist der Ping der Bildmarke — hier als das, was er bedeutet:
+           es ist noch niemand da, ruf jemanden. -->
+      <div class="flex flex-col items-center px-8 pt-16 text-center" data-testid="chats-empty">
+        <span class="relative mb-5 flex size-20 items-center justify-center" aria-hidden="true">
+          <span class="border-primary/15 absolute size-20 rounded-full border"></span>
+          <span class="border-primary/25 absolute size-14 rounded-full border"></span>
+          <span class="bg-primary/30 size-2.5 rounded-full"></span>
+        </span>
+        <p class="text-text-bright text-sm font-semibold">{m.chats_empty_title()}</p>
+        <p class="text-text-muted mt-1 text-xs leading-relaxed">{m.chats_empty()}</p>
+      </div>
     {/if}
     {#each directMessages.list as dm (dm.id)}
       {@const ungelesen = readState.isUnread(dm.id)}

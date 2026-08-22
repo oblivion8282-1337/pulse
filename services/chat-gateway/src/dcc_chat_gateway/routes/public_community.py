@@ -43,7 +43,10 @@ from dcc_chat_gateway.membership import (
     is_member as is_instance_member,
 )
 from dcc_chat_gateway.models import Guild, GuildMember
+from dcc_chat_gateway.community_categories import is_valid_category
 from dcc_chat_gateway.schemas import (
+    DirectoryEntryOut,
+    DirectoryOut,
     InviteGuildOut,
     PublicCommunityJoinOut,
     PublicCommunityPreviewOut,
@@ -91,6 +94,73 @@ async def _public_guild_or_404(session, handle: str) -> Guild:
     if guild is None or not guild.is_public:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
     return guild
+
+
+#: Serverseitiger Deckel der Seitengroesse. Der chat-gateway hat KEINEN
+#: Ratenbegrenzer (``slowapi`` laeuft nur im auth-svc), deshalb ist die
+#: Anmeldepflicht unten der eigentliche Riegel und dieser Deckel die zweite,
+#: billige Schranke gegen ein versehentliches „gib mir alles".
+_VERZEICHNIS_MAX = 50
+
+
+@router.get("/c", response_model=DirectoryOut)
+async def list_public_communities(
+    session: SessionDep,
+    current: CurrentUser,
+    q: str | None = None,
+    category: str | None = None,
+    limit: int = 30,
+):
+    """Durchsuchbares Verzeichnis oeffentlicher Communities (Entdecken).
+
+    **``is_public AND listed``, beides.** Eine oeffentliche Adresse heisst „wer
+    den Link kennt, kommt rein" — nicht „stell mich in ein Schaufenster". Wer
+    nur das Erste erlaubt hat, taucht hier nicht auf; ``listed`` kommt mit
+    ``false`` an und wird nirgends nachgezogen.
+
+    **Verlangt eine Anmeldung**, genau wie die Vorschau ``GET /c/{handle}``.
+    Das ist kein zusaetzlicher Riegel, sondern der vorhandene: ohne ihn waere
+    das ein unbegrenzt abfragbarer Endpunkt (s. ``_VERZEICHNIS_MAX``).
+    """
+    if not is_valid_category(category):
+        # Unbekannte Kategorie = leeres Ergebnis, kein Fehler. Ein 400 waere
+        # hier nur eine Auskunft darueber, welche Kennungen es gibt.
+        return DirectoryOut(items=[])
+
+    stmt = select(Guild).where(Guild.is_public.is_(True), Guild.listed.is_(True))
+    if category:
+        stmt = stmt.where(Guild.category == category)
+    if q:
+        begriff = q.strip()
+        if begriff:
+            stmt = stmt.where(Guild.name.ilike(f"%{begriff}%"))
+    stmt = stmt.order_by(Guild.name, Guild.id).limit(
+        max(1, min(limit, _VERZEICHNIS_MAX))
+    )
+    rows = list((await session.execute(stmt)).scalars().all())
+    if not rows:
+        return DirectoryOut(items=[])
+
+    # Mitgliederzahlen in EINER Abfrage statt einer je Community.
+    zaehl_stmt = (
+        select(GuildMember.guild_id, func.count())
+        .where(GuildMember.guild_id.in_([g.id for g in rows]))
+        .group_by(GuildMember.guild_id)
+    )
+    zahlen = {gid: n for gid, n in (await session.execute(zaehl_stmt)).all()}
+    return DirectoryOut(
+        items=[
+            DirectoryEntryOut(
+                id=g.id,
+                handle=g.handle or "",
+                name=g.name,
+                icon_url=g.icon_url,
+                category=g.category,
+                member_count=int(zahlen.get(g.id, 0)),
+            )
+            for g in rows
+        ]
+    )
 
 
 @router.get("/c/{handle}", response_model=PublicCommunityPreviewOut)

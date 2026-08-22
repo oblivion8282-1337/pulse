@@ -10,8 +10,13 @@
    * Aktionsblatt kommen unverändert aus `MessageItem` herein.
    *
    * Kein Avatar in der Unterhaltung — mit wem man schreibt, steht im Kopf des
-   * Bildschirms. Die Uhrzeit steht nur am Ende einer Gruppe, sonst stünde
-   * unter jeder einzelnen Zeile eine.
+   * Bildschirms.
+   *
+   * **Die Uhrzeit sitzt IN der Blase** (Entwurf 7a), unten an ihrer Kante,
+   * und nur am Ende einer Gruppe. Zuerst stand sie darunter — bei einem
+   * Gespräch, in dem sich zwei abwechseln, ist aber jede Nachricht ihre
+   * eigene Gruppe, und es standen vier Zeitzeilen zwischen vier Sätzen. Der
+   * Blick blieb an den Zahlen hängen statt am Text.
    *
    * Ecken nach dem Entwurf: aussen 20 px, an der Sprech-Seite innerhalb einer
    * Gruppe 7 px — dadurch liest sich eine Gruppe als ein Block statt als
@@ -74,10 +79,17 @@
       data-testid="dm-bubble"
     >
       {@render body()}
+      {#if isGroupEnd}
+        <!-- Rechtsbündig unter dem Text, in der Blase. Beim eigenen Verlauf
+             gedämpftes Weiss statt der Grauton-Variable — auf Blau wäre Grau
+             nicht lesbar. -->
+        <span
+          class="mt-0.5 block text-right text-2xs leading-none {eigen
+            ? 'text-white/70'
+            : 'text-text-muted'}">{time}</span
+        >
+      {/if}
     </div>
-    {#if isGroupEnd}
-      <span class="text-text-muted px-1 pt-0.5 text-2xs">{time}</span>
-    {/if}
   </div>
   {@render actions()}
 </div>

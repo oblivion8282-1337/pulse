@@ -94,6 +94,7 @@
   channels={voiceChannels}
   {guild}
   {myId}
+  {activeChannelId}
   {canCreate}
   {canManagePermissions}
   {canManageChannels}

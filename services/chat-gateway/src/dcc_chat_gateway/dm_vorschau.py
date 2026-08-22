@@ -92,10 +92,16 @@ async def letzte_nachrichten(
     if ohne_text:
         anhaenge = (
             await session.execute(
-                select(MessageAttachment).where(
+                select(MessageAttachment)
+                .where(
                     MessageAttachment.message_id.in_(ohne_text),
                     MessageAttachment.deleted_at.is_(None),
                 )
+                # Feste Reihenfolge, damit „der erste Anhang" unten wirklich
+                # einer ist: ohne ORDER BY darf die Datenbank die Zeilen in
+                # beliebiger Folge liefern, und derselbe Kanal zeigte je nach
+                # Abfrage mal „Bild", mal „Datei".
+                .order_by(MessageAttachment.id)
             )
         ).scalars().all()
         for a in anhaenge:

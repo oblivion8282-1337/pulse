@@ -30,6 +30,8 @@
     /** Direktnachricht-Kontext: eine Meldung geht ans Betreiberteam statt an
      *  einen Community-Moderator (es gibt hier keinen). */
     isDirect = false,
+    /** Community-Bezug fuer das Profil hinter Avatar/Name. Fehlt in DMs. */
+    guildId,
     /** Welche Huelle: Zeilen wie bisher, oder Sprechblasen (nur in privaten
      *  Gespraechen — im Kanal tragen Name und Farbe die Orientierung). */
     layout = 'row',
@@ -56,6 +58,7 @@
     canDelete: boolean;
     canReport?: boolean;
     isDirect?: boolean;
+    guildId?: string;
     layout?: 'row' | 'bubble';
     istEigene?: boolean;
     isGroupEnd?: boolean;
@@ -150,6 +153,27 @@
     if (editing || isPending) return;
     sheetOpen = true;
   }
+
+  /**
+   * Die Aktionen einer Nachricht — einmal fuer beide Wege dorthin.
+   *
+   * Die Schwebe-Leiste (`MessageActions`, nur mit Zeiger sichtbar) und das
+   * Aktionsblatt (`MessageActionSheet`, der Weg auf dem Touchgeraet) bieten
+   * genau dasselbe an und bekamen dieselben acht Angaben zweimal
+   * hingeschrieben — samt der dreifachen `&& !isPending`-Sperre. Zwei
+   * Abschriften laufen auseinander, und auf einem Rechner faellt das nie auf:
+   * das Blatt oeffnet dort gar nicht.
+   */
+  const aktionen = $derived({
+    canEdit: canEdit && !isPending,
+    canDelete: canDelete && !isPending,
+    canReport: canReport && !isPending,
+    onReply: () => onReply(message),
+    onEdit: startEdit,
+    onDelete: () => onDelete(message),
+    onReact: (e: string) => handleToggle(e, false),
+    onReport: () => (reportOpen = true)
+  });
 </script>
 
 {#snippet body()}
@@ -198,16 +222,7 @@
 
 {#snippet actions()}
   {#if !editing}
-    <MessageActions
-      canEdit={canEdit && !isPending}
-      canDelete={canDelete && !isPending}
-      canReport={canReport && !isPending}
-      onReply={() => onReply(message)}
-      onEdit={startEdit}
-      onDelete={() => onDelete(message)}
-      onReact={(e) => handleToggle(e, false)}
-      onReport={() => (reportOpen = true)}
-    />
+    <MessageActions {...aktionen} />
   {/if}
 {/snippet}
 
@@ -233,22 +248,13 @@
     {isContinuation}
     {highlight}
     onLongPress={openSheet}
+    {guildId}
     {body}
     {actions}
   />
 {/if}
 
-<MessageActionSheet
-  bind:open={sheetOpen}
-  canEdit={canEdit && !isPending}
-  canDelete={canDelete && !isPending}
-  canReport={canReport && !isPending}
-  onReply={() => onReply(message)}
-  onEdit={startEdit}
-  onDelete={() => onDelete(message)}
-  onReact={(e) => handleToggle(e, false)}
-  onReport={() => (reportOpen = true)}
-/>
+<MessageActionSheet bind:open={sheetOpen} {...aktionen} />
 
 <ReportMessageDialog
   messageId={message.id}

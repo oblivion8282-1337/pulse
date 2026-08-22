@@ -297,6 +297,7 @@
       messages={visibleMessages}
       onSend={sendMessage}
       headerKind="dm"
+      dmPartnerId={activeDM.other_user_id}
       onBack={() => goto('/app/@me')}
       cloudScoped
       showMemberList={false}

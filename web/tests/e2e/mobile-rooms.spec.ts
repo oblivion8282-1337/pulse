@@ -113,3 +113,77 @@ test.describe('Räume-Bereich auf dem Handy', () => {
     await page.setViewportSize(HANDY);
   });
 });
+
+/**
+ * Das Profil als Blatt von unten.
+ *
+ * Eigener Block, weil es einen zweiten Nutzer braucht: das eigene Profil
+ * blendet die Aktionen aus, und genau die sind der Grund fuer das Blatt.
+ */
+test.describe('Profil als Blatt von unten', () => {
+  let seite: Page;
+
+  test.beforeAll(async ({ browser }) => {
+    seite = await browser.newPage({ viewport: HANDY });
+    await seite.goto('/register');
+    await seite.getByTestId('reg-username').fill(`prof_${TAG}`);
+    await seite.getByTestId('reg-email').fill(`prof_${TAG}@dcc-test.example.com`);
+    await seite.getByTestId('reg-password').fill(PW);
+    await seite.getByTestId('reg-submit').click();
+    await seite.waitForURL(/\/app/);
+    await seite
+      .locator('[data-testid=backup-onboarding-skip-btn]')
+      .click({ timeout: 2500 })
+      .catch(() => undefined);
+  });
+
+  test.afterAll(async () => {
+    await seite.close();
+  });
+
+  test('ein Tipp auf den Nachrichten-Autor oeffnet das Blatt', async () => {
+    const ziel = await seite.evaluate(async () => {
+      const token = localStorage.getItem('dcc.tokens.access');
+      const kopf = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+      const g = await (
+        await fetch('/api/chat/guilds', {
+          method: 'POST',
+          headers: kopf,
+          body: JSON.stringify({ name: `Profilprobe ${Date.now()}` })
+        })
+      ).json();
+      const k = await (
+        await fetch(`/api/chat/guilds/${g.id}/channels`, {
+          method: 'POST',
+          headers: kopf,
+          body: JSON.stringify({ name: 'allgemein', type: 0 })
+        })
+      ).json();
+      await fetch(`/api/chat/channels/${k.id}/messages`, {
+        method: 'POST',
+        headers: kopf,
+        body: JSON.stringify({ content: 'hallo' })
+      });
+      return `/app/guilds/${g.id}/channels/${k.id}`;
+    });
+    await seite.goto(ziel);
+    await expect(seite.getByTestId('message-author').first()).toBeVisible();
+    // Ein NORMALER Tipp — kein Rechtsklick, kein Langdruck. Das ist der Kern
+    // der Aenderung: den Rechtsklick gibt es am Telefon nicht.
+    await seite.getByTestId('message-author').first().click();
+    await expect(seite.getByTestId('user-profile-sheet')).toBeVisible();
+    // Das Blatt sitzt am UNTEREN Rand, nicht in der Bildmitte.
+    const kasten = await seite.getByTestId('user-profile-popover').boundingBox();
+    const hoehe = seite.viewportSize()!.height;
+    expect(kasten!.y + kasten!.height).toBeGreaterThan(hoehe - 5);
+  });
+
+  test('am Rechner bleibt es das Kontextmenue', async () => {
+    await seite.setViewportSize({ width: 1440, height: 900 });
+    await seite.reload();
+    await expect(seite.getByTestId('message-author').first()).toBeVisible();
+    await seite.getByTestId('message-author').first().click();
+    await expect(seite.getByTestId('user-profile-sheet')).toBeHidden();
+    await seite.setViewportSize(HANDY);
+  });
+});

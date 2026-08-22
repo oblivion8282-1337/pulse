@@ -22,6 +22,7 @@
   import PendingRequests from '$lib/components/friends/PendingRequests.svelte';
   import BlockedList from '$lib/components/friends/BlockedList.svelte';
   import AddFriendPanel from '$lib/components/friends/AddFriendPanel.svelte';
+  import BereichsKopf from '$lib/components/mobile/BereichsKopf.svelte';
   import type { DMChannel } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -81,12 +82,8 @@
     class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl"
     data-testid="friends-page"
   >
-    <header
-      class="border-border/40 flex flex-col gap-2 border-b px-4 py-3 md:flex-row md:items-center md:gap-4"
-    >
-      <h1
-        class="text-text-bright text-[22px] font-extrabold tracking-tight md:text-base md:font-semibold"
-      >{m.friends_page_title()}</h1>
+    <BereichsKopf titel={m.friends_page_title()} />
+    <div class="border-border/40 shrink-0 border-b px-4 pb-3">
       <!-- Auf dem Handy scrollt die Reiter-Reihe waagerecht, statt in zwei
            Zeilen umzubrechen: fuenf Reiter passen auf 390 px nicht nebeneinander,
            und eine zweite Zeile schoebe die Liste bei jedem Wechsel hoch und
@@ -104,7 +101,7 @@
           <button
             type="button"
             class="hover:bg-bg-hover relative flex min-h-12 shrink-0 items-center rounded-full px-3.5 py-1.5 text-[13px] font-semibold transition-colors md:min-h-0 md:rounded-md md:py-1 md:text-sm md:font-medium {isActive
-              ? 'bg-[var(--accent-soft)] text-primary'
+              ? 'bg-[var(--accent-soft)] text-accent-on-soft'
               : 'text-text-muted hover:text-text-bright'}"
             onclick={() => switchTab(t.key)}
             data-testid={`friends-tab-${t.key}`}
@@ -122,7 +119,7 @@
           </button>
         {/each}
       </nav>
-    </header>
+    </div>
     <div class="flex-1 overflow-y-auto px-4 py-4">
       {#if activeTab === 'online'}
         <FriendList onlineOnly />

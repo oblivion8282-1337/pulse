@@ -17,6 +17,9 @@
   import { roles } from '$lib/stores/roles.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import { geraetPfad } from '$lib/devices/darstellung';
+  import { viewport } from '$lib/stores/viewport.svelte';
+  import TabletPlaceholder from '$lib/components/mobile/TabletPlaceholder.svelte';
+  import { m } from '$lib/paraglide/messages.js';
   import { kanalAnlegen } from '$lib/channels/anlegen';
   import type { Channel } from '$lib/api/types';
   import type { Device } from '$lib/api/devices';
@@ -51,6 +54,10 @@
   onSelectDevice={oeffneGeraet}
   onBack={() => goto('/app/rooms')}
 />
+
+{#if !viewport.isMobile}
+  <TabletPlaceholder text={m.rooms_pick_channel()} />
+{/if}
 
 <CreateChannelDialog
   open={creatingChannel}

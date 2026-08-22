@@ -2,6 +2,24 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-23",
+      "date": "2026-08-23",
+      "style": "Sachlich",
+      "title": "Pulse auf dem Handy: vier Bereiche statt Regal im Regal",
+      "intro": "Auf dem Telefon belegte links dauerhaft eine Leiste mit den Server-Symbolen einen Streifen von etwa einem Daumen Breite — auch dann, wenn du nur mit einer Person geschrieben hast. Diese Leiste ist weg. Stattdessen stehen unten vier Knöpfe: Chats, Räume, Freunde, Du. Am Computer ändert sich nichts.",
+      "items": [
+        "Chats zeigt nur noch deine privaten Gespräche, mit der letzten Nachricht als Vorschau und der Uhrzeit daneben. Im Gespräch selbst stehen die Nachrichten jetzt als Sprechblasen: deine rechts, die der anderen Person links. In den Kanälen einer Community bleibt alles wie gewohnt — dort reden mehrere durcheinander, und Name und Farbe geben dort die Orientierung.",
+        "Räume führt zu deinen Communities: erst die Kacheln, dann die Kanäle, dann der Chat. Im Chat kannst du den Titel oben antippen, dann fährt eine Liste aller Kanäle von unten herein. Die alte Schublade vom linken Bildschirmrand entfällt — sie kam sich mit der Zurück-Geste deines Telefons in die Quere.",
+        "Freunde sortiert nach Anwesenheit statt nach Alter der Freundschaft. Wer online ist, steht oben.",
+        "Du bündelt Profil, Status und Einstellungen. Einstellungen, die es am Telefon gar nicht geben kann, erscheinen dort nicht mehr; Benachrichtigungen stehen jetzt ganz oben.",
+        "Neu ist Entdecken: ein durchsuchbares Verzeichnis öffentlicher Communities mit Kategorien. Wichtig für Community-Leitungen: dort erscheint nur, wer den neuen Schalter „Im Verzeichnis zeigen“ selbst einschaltet. Eine öffentliche Adresse allein genügt nicht — wer bisher nur einen Link zum Teilen hatte, bleibt unverändert nur über diesen Link erreichbar.",
+        "Beim Sprechen sind die Knöpfe größer und bleiben in einer Reihe. Die Lautsprecher-Umschaltung sitzt jetzt in der Statuszeile darüber, der Wechsel zwischen Front- und Rückkamera auf deinem eigenen Kamerabild.",
+        "Profil, Rollen und Melden öffnen sich als Blatt vom unteren Rand statt als Fenster in der Bildmitte — dort erreicht der Daumen sie. Ein Tipp auf den Namen oder das Bild über einer Nachricht führt jetzt zum Profil; vorher führte dort nichts hin.",
+        "Auf dem Tablet stehen Liste und Inhalt nebeneinander, und die vier Knöpfe sitzen als schmale Spalte am linken Rand."
+      ],
+      "outro": "Die Zurück-Geste deines Telefons funktioniert überall wie erwartet, und die Ecken, die dein Gerät selbst belegt — Kerbe oben, Balken unten — bleiben frei."
+    },
+    {
       "id": "2026-08-22.4",
       "date": "2026-08-22",
       "style": "Sachlich",
