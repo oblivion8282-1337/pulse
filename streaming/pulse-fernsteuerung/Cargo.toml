@@ -1,0 +1,11 @@
+[package]
+name = "pulse-fernsteuerung"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Plattformfreier Kern der Pulse-Fernsteuerung — Frame-Format, Sitzung, Klemmrechnung"
+
+# Ohne Abhaengigkeiten — diese Kiste wird vom Windows- und vom mac-Sidecar und
+# vom Player eingebunden und darf deren Bauwege nicht beschweren. Dieselbe
+# Regel wie in `pulse-zeitbasis/Cargo.toml`.
+[dependencies]
