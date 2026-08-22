@@ -724,8 +724,10 @@ impl App {
 
         // Nur wenn das Overlay diesen Durchgang wirklich zeichnet, lohnt sich
         // ueberhaupt Arbeit fuer die Anzeige — sonst faellt hier alles weg.
-        let want_overlay =
-            overlay.as_ref().is_some_and(|o| o.visible() || o.wants_redraw());
+        // Die Bedingung liegt im Overlay (`soll_mitzeichnen`) und nicht hier:
+        // sie war als `visible() || wants_redraw()` ausgeschrieben und uebersah
+        // damit den Fernsteuerungs-Modus, in dem der Griff dauerhaft steht.
+        let want_overlay = overlay.as_ref().is_some_and(Overlay::soll_mitzeichnen);
         let surface_format =
             if want_overlay { renderer.surface_format().to_string() } else { String::new() };
         let frames_presented = renderer.frames_presented();
