@@ -105,6 +105,45 @@ pub fn scancode(code: KeyCode) -> Option<u16> {
 mod tests {
     use super::*;
 
+    /// Jede Taste, die [`super::scancode`] abbildet.
+    ///
+    /// Bis zum 2026-08-22 stand sie im Rumpf von
+    /// [`keine_doppelten_scancodes`]. Herausgehoben, weil sie jetzt zwei Tests
+    /// traegt: die Doppelungspruefung und den Abgleich mit dem gemeinsamen
+    /// Vokabular. Waechst `scancode` um eine Taste, ohne dass sie hier
+    /// dazukommt, faellt das in `keine_doppelten_scancodes` NICHT auf — dafuer
+    /// sorgt der Vokabel-Abgleich unten, denn dann fehlt der Scancode auch im
+    /// Vokabular.
+    const ALLE_TASTEN: &[KeyCode] = &[
+        KeyCode::KeyA, KeyCode::KeyB, KeyCode::KeyC, KeyCode::KeyD, KeyCode::KeyE,
+        KeyCode::KeyF, KeyCode::KeyG, KeyCode::KeyH, KeyCode::KeyI, KeyCode::KeyJ,
+        KeyCode::KeyK, KeyCode::KeyL, KeyCode::KeyM, KeyCode::KeyN, KeyCode::KeyO,
+        KeyCode::KeyP, KeyCode::KeyQ, KeyCode::KeyR, KeyCode::KeyS, KeyCode::KeyT,
+        KeyCode::KeyU, KeyCode::KeyV, KeyCode::KeyW, KeyCode::KeyX, KeyCode::KeyY,
+        KeyCode::KeyZ, KeyCode::Digit0, KeyCode::Digit1, KeyCode::Digit2,
+        KeyCode::Digit3, KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6,
+        KeyCode::Digit7, KeyCode::Digit8, KeyCode::Digit9, KeyCode::Minus,
+        KeyCode::Equal, KeyCode::Backquote, KeyCode::BracketLeft,
+        KeyCode::BracketRight, KeyCode::Backslash, KeyCode::Semicolon,
+        KeyCode::Quote, KeyCode::Comma, KeyCode::Period, KeyCode::Slash,
+        KeyCode::IntlBackslash, KeyCode::Escape, KeyCode::Backspace, KeyCode::Tab,
+        KeyCode::Enter, KeyCode::Space, KeyCode::CapsLock, KeyCode::ShiftLeft,
+        KeyCode::ShiftRight, KeyCode::ControlLeft, KeyCode::AltLeft,
+        KeyCode::ControlRight, KeyCode::AltRight, KeyCode::SuperLeft,
+        KeyCode::SuperRight, KeyCode::ContextMenu, KeyCode::F1, KeyCode::F2,
+        KeyCode::F3, KeyCode::F4, KeyCode::F5, KeyCode::F6, KeyCode::F7,
+        KeyCode::F8, KeyCode::F9, KeyCode::F10, KeyCode::F11, KeyCode::F12,
+        KeyCode::Insert, KeyCode::Delete, KeyCode::Home, KeyCode::End,
+        KeyCode::PageUp, KeyCode::PageDown, KeyCode::ArrowUp, KeyCode::ArrowDown,
+        KeyCode::ArrowLeft, KeyCode::ArrowRight, KeyCode::NumLock,
+        KeyCode::NumpadDivide, KeyCode::NumpadMultiply, KeyCode::NumpadSubtract,
+        KeyCode::NumpadAdd, KeyCode::NumpadEnter, KeyCode::NumpadDecimal,
+        KeyCode::Numpad0, KeyCode::Numpad1, KeyCode::Numpad2, KeyCode::Numpad3,
+        KeyCode::Numpad4, KeyCode::Numpad5, KeyCode::Numpad6, KeyCode::Numpad7,
+        KeyCode::Numpad8, KeyCode::Numpad9, KeyCode::ScrollLock,
+        KeyCode::PrintScreen,
+    ];
+
     #[test]
     fn buchstaben_liegen_auf_ihrer_physischen_position() {
         assert_eq!(scancode(KeyCode::KeyA), Some(0x1e));
@@ -156,42 +195,48 @@ mod tests {
     /// Taste, die als eine andere ankommt, und das faellt beim Lesen nicht auf.
     #[test]
     fn keine_doppelten_scancodes() {
-        let codes = [
-            KeyCode::KeyA, KeyCode::KeyB, KeyCode::KeyC, KeyCode::KeyD, KeyCode::KeyE,
-            KeyCode::KeyF, KeyCode::KeyG, KeyCode::KeyH, KeyCode::KeyI, KeyCode::KeyJ,
-            KeyCode::KeyK, KeyCode::KeyL, KeyCode::KeyM, KeyCode::KeyN, KeyCode::KeyO,
-            KeyCode::KeyP, KeyCode::KeyQ, KeyCode::KeyR, KeyCode::KeyS, KeyCode::KeyT,
-            KeyCode::KeyU, KeyCode::KeyV, KeyCode::KeyW, KeyCode::KeyX, KeyCode::KeyY,
-            KeyCode::KeyZ, KeyCode::Digit0, KeyCode::Digit1, KeyCode::Digit2,
-            KeyCode::Digit3, KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6,
-            KeyCode::Digit7, KeyCode::Digit8, KeyCode::Digit9, KeyCode::Minus,
-            KeyCode::Equal, KeyCode::Backquote, KeyCode::BracketLeft,
-            KeyCode::BracketRight, KeyCode::Backslash, KeyCode::Semicolon,
-            KeyCode::Quote, KeyCode::Comma, KeyCode::Period, KeyCode::Slash,
-            KeyCode::IntlBackslash, KeyCode::Escape, KeyCode::Backspace, KeyCode::Tab,
-            KeyCode::Enter, KeyCode::Space, KeyCode::CapsLock, KeyCode::ShiftLeft,
-            KeyCode::ShiftRight, KeyCode::ControlLeft, KeyCode::AltLeft,
-            KeyCode::ControlRight, KeyCode::AltRight, KeyCode::SuperLeft,
-            KeyCode::SuperRight, KeyCode::ContextMenu, KeyCode::F1, KeyCode::F2,
-            KeyCode::F3, KeyCode::F4, KeyCode::F5, KeyCode::F6, KeyCode::F7,
-            KeyCode::F8, KeyCode::F9, KeyCode::F10, KeyCode::F11, KeyCode::F12,
-            KeyCode::Insert, KeyCode::Delete, KeyCode::Home, KeyCode::End,
-            KeyCode::PageUp, KeyCode::PageDown, KeyCode::ArrowUp, KeyCode::ArrowDown,
-            KeyCode::ArrowLeft, KeyCode::ArrowRight, KeyCode::NumLock,
-            KeyCode::NumpadDivide, KeyCode::NumpadMultiply, KeyCode::NumpadSubtract,
-            KeyCode::NumpadAdd, KeyCode::NumpadEnter, KeyCode::NumpadDecimal,
-            KeyCode::Numpad0, KeyCode::Numpad1, KeyCode::Numpad2, KeyCode::Numpad3,
-            KeyCode::Numpad4, KeyCode::Numpad5, KeyCode::Numpad6, KeyCode::Numpad7,
-            KeyCode::Numpad8, KeyCode::Numpad9, KeyCode::ScrollLock,
-            KeyCode::PrintScreen,
-        ];
         let mut gesehen = std::collections::BTreeMap::new();
-        for code in codes {
-            let scan = scancode(code).unwrap_or_else(|| panic!("{code:?} fehlt in der Tabelle"));
+        for code in ALLE_TASTEN {
+            let scan = scancode(*code).unwrap_or_else(|| panic!("{code:?} fehlt in der Tabelle"));
             if let Some(anderer) = gesehen.insert(scan, code) {
                 panic!("{scan:#x} doppelt: {anderer:?} und {code:?}");
             }
         }
-        assert_eq!(gesehen.len(), codes.len());
+        assert_eq!(gesehen.len(), ALLE_TASTEN.len());
+    }
+
+    /// **Der Pruefstein kommt vom Sender.** Alles, was diese Tabelle erzeugen
+    /// kann, muss im gemeinsamen Vokabular stehen — daran prueft jeder
+    /// Injektor, ob er vollstaendig ist.
+    ///
+    /// Die Lehre vom Zeigerbild (2026-08-17): wer eine Pruefung testet,
+    /// schreibt die Faelle aus derselben Vorstellung auf, aus der er die
+    /// Pruefung geschrieben hat. Ein Test beim Empfaenger allein faende die
+    /// Luecke nie.
+    #[test]
+    fn jeder_gesendete_scancode_steht_im_vokabular() {
+        for code in ALLE_TASTEN {
+            let scan = scancode(*code).unwrap_or_else(|| panic!("{code:?} fehlt in der Tabelle"));
+            assert!(
+                pulse_fernsteuerung::format::SATZ1_TASTEN.contains(&scan),
+                "{code:?} sendet {scan:#06x}, das nicht im Vokabular steht"
+            );
+        }
+    }
+
+    /// Und umgekehrt: das Vokabular darf nichts fuehren, was kein Sender
+    /// erzeugt — sonst muesste jeder Injektor Ziele fuer Codes vorhalten, die
+    /// nie kommen, und die Vollstaendigkeitspruefung drueben waere strenger
+    /// als noetig.
+    #[test]
+    fn das_vokabular_fuehrt_nichts_ueberfluessiges() {
+        let erzeugbar: std::collections::BTreeSet<u16> =
+            ALLE_TASTEN.iter().filter_map(|c| scancode(*c)).collect();
+        for scan in pulse_fernsteuerung::format::SATZ1_TASTEN {
+            assert!(
+                erzeugbar.contains(scan),
+                "{scan:#06x} steht im Vokabular, wird aber von niemandem gesendet"
+            );
+        }
     }
 }

@@ -57,6 +57,7 @@ on:
       - 'streaming/pulse-whip/**'
       - 'streaming/pulse-zeigerbild/**'
       - 'streaming/pulse-bildmarke/**'
+      - 'streaming/pulse-fernsteuerung/**'
       - 'streaming/patches/**'
       - 'packaging/com.howispulse.Pulse.yml'
       - 'packaging/launcher.sh'

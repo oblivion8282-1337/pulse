@@ -71,6 +71,11 @@ bytes = "1"
 pulse-zeigerbild = { path = "../pulse-zeigerbild" }
 pulse-bildmarke = { path = "../pulse-bildmarke" }
 
+# Frame-Format der Fernsteuerung, seit 2026-08-22 gemeinsam mit den Sidecars.
+# Der Sender baute die Frames bis dahin aus eigenen Konstanten, der Empfaenger
+# parste sie mit eigenen, und kein Test hielt die beiden zusammen.
+pulse-fernsteuerung = { path = "../pulse-fernsteuerung" }
+
 # --- Decode (LGPL-FFmpeg, dynamisch gelinkt) ---
 ffmpeg-next = { version = "8.1", default-features = false, features = [
     "codec",

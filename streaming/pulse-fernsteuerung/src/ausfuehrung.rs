@@ -9,7 +9,7 @@
 //! Zwei Frames trugen früher **keinen** Ortsbezug und liefen deshalb an der
 //! Zusage vorbei:
 //!
-//! * `MouseMoveRel` ging ungeklemmt an `SendInput`. Mehrfach `dx = dy = −32768`
+//! * `MouseMoveRel` ging ungeklemmt an den Injektor. Mehrfach `dx = dy = −32768`
 //!   schiebt den Zeiger in die Ecke des Desktops — weit außerhalb des
 //!   Gestreamten.
 //! * `MouseButton` trägt gar keine Position; er feuert dort, wo der Zeiger
@@ -18,7 +18,7 @@
 //!   Rechteck), stünde der Zeiger noch dort, wo der **Host-Nutzer** ihn hat, und
 //!   der nachfolgende Klick landete in dessen Fenster.
 //!
-//! Dass der eigene Player brav ist, ist keine Durchsetzung — dieser Sidecar ist
+//! Dass der eigene Player brav ist, ist keine Durchsetzung — dieser Baustein ist
 //! die fail-closed-Grenze gegen „Fehler oder Angriff".
 //!
 //! ## Die Mechanik: eine mitgeführte Zeigerlage, absolut gesetzt
@@ -40,13 +40,13 @@
 //! eine rohe Relativbewegung, damit das System seine Beschleunigung auflegt.
 //! Genau diese Beschleunigung ist von hier aus aber nicht
 //! vorhersagbar — ein Delta lässt sich damit nicht klemmen. Und die naheliegende
-//! Rückmeldung (`GetCursorPos` nach dem Senden) trägt nicht: `SendInput`
-//! arbeitet asynchron, die gelesene Lage kann noch die alte sein; ein darauf
-//! gestütztes Tor verwürfe echte Klicks. Also: Beschleunigung fällt weg,
-//! Klemmung gilt. Beschleunigung ist Bequemlichkeit, die Klemmung ist die
-//! Sicherheitszusage. (Wenn ein Spiel später wirklich rohe Relativ-Deltas
-//! braucht, ist der Weg zurück eine **belegte** Rückmeldung, nicht ein
-//! ungeklemmtes `SendInput`.)
+//! Rückmeldung (die Zeigerlage nach dem Setzen erneut abfragen) trägt nicht:
+//! die Injektion arbeitet asynchron, die gelesene Lage kann noch die alte
+//! sein; ein darauf gestütztes Tor verwürfe echte Klicks. Also: Beschleunigung
+//! fällt weg, Klemmung gilt. Beschleunigung ist Bequemlichkeit, die Klemmung
+//! ist die Sicherheitszusage. (Wenn ein Spiel später wirklich rohe
+//! Relativ-Deltas braucht, ist der Weg zurück eine **belegte** Rückmeldung,
+//! nicht eine ungeklemmte Injektion.)
 //!
 //! **Die eine Ausnahme:** das Loslassen eines Knopfes, den wir selbst gedrückt
 //! haben, geht immer durch — auch ohne gültige Lage. Sonst klemmte eine

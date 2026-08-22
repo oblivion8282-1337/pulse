@@ -481,6 +481,16 @@ modules:
         dest: pulse-bildmarke
         skip:
           - target
+      # `pulse-fernsteuerung` seit 2026-08-22: das Frame-Format der
+      # Fernsteuerung liegt jetzt hier statt in eigenen Player-Konstanten (s.
+      # `streaming/pulse-player/src/fernsteuerung/rahmen.rs`). Ohne diesen
+      # Eintrag zeigt `path = "../pulse-fernsteuerung"` im offline gebauten
+      # Flatpak ins Leere — dieselbe Falle wie bei `pulse-zeigerbild` oben.
+      - type: dir
+        path: ../streaming/pulse-fernsteuerung
+        dest: pulse-fernsteuerung
+        skip:
+          - target
       # Der gepatchte webrtc-rs-Zweig, den `Cargo.toml` über
       # `[patch.crates-io]` als PFAD einbindet — ohne ihn bricht cargo schon
       # beim Auflösen ab.
