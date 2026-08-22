@@ -38,11 +38,11 @@
 //!   Hello-Handschlag".
 //! * **Der Host hat Vorrang.** Regt sich der Host selbst an Maus oder Tastatur,
 //!   wird die Fremdeingabe verworfen, bis er einige Sekunden Ruhe gegeben hat
-//!   ([`Wache`], [`Sitzung::vorrang_tick`]). Die Sitzung bleibt dabei stehen — es ist ein Stummschalten,
-//!   kein Abbruch; der Not-Aus daneben bleibt der harte Weg. Umgesetzt über
-//!   denselben Verwerf-Pfad wie Sichtschutz und unbekannter Slot, und damit
-//!   samt Freigabe: sonst liefe die W-Taste des Steuernden weiter, während der
-//!   Host übernimmt.
+//!   ([`Wache`], [`Sitzung::vorrang_tick`]). Die Sitzung bleibt dabei stehen —
+//!   es ist ein Stummschalten, kein Abbruch; der Not-Aus daneben bleibt der
+//!   harte Weg. Umgesetzt über denselben Verwerf-Pfad wie Sichtschutz und
+//!   unbekannter Slot, und damit samt Freigabe: sonst liefe die W-Taste des
+//!   Steuernden weiter, während der Host übernimmt.
 //! * **Keine Panik nimmt die Freigabe mit.** Alle Zugriffe auf den Zustand gehen
 //!   über `Sitzung::sperre`, das eine **vergiftete** Sperre übernimmt. Sonst
 //!   panikte ausgerechnet [`Sitzung::beenden_endgueltig`] und alles Gedrückte
@@ -63,6 +63,11 @@ mod vorrang;
 
 /// Was aus einer Nachricht wurde — geht als Antwortfelder zurück an den
 /// Aufrufer und ist damit das, woran die Abnahme misst.
+///
+/// `Debug` nicht der Zierde wegen: ohne es sind `Result::expect_err` und
+/// `unwrap_err` auf `frames` unbenutzbar, und ein Test, der fail-closed
+/// belegen will, muss auf `let Err(…) else` ausweichen.
+#[derive(Debug)]
 pub struct Bericht {
     pub verarbeitet: usize,
     /// `live` · `unknown_slot` · `unresolved_source` · `masked` · `host_active`

@@ -110,6 +110,14 @@ pub enum Zielsuche {
     /// und die gemerkte Zeigerlage entwertet. `sichtbar = false` heisst
     /// Sichtschutz: der Steuernde sieht Schwarzbild und darf nicht blind
     /// klicken.
+    ///
+    /// **Kein Waechter heisst `sichtbar: true`.** Der Sichtschutz ist ein
+    /// Zusatz, den nicht jeder Strom traegt; das Original prueft deshalb
+    /// `wacht.is_some_and(|w| !w.is_source_visible())` und wertet einen Strom
+    /// ohne Waechter als sichtbar. Ein Adapter, der stattdessen `false`
+    /// liefert, legt die Fernsteuerung fuer **jeden** Strom ohne Sichtschutz
+    /// still — und **kein Test dieser Kiste kann das sehen**, weil hier nur
+    /// ankommt, was der Adapter behauptet.
     Gefunden { rechteck: Option<Rechteck>, sichtbar: bool },
     /// Kein Stream auf diesem Platz → still verwerfen, Sitzung bleibt stehen.
     ///
