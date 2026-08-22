@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-22",
+      "date": "2026-08-22",
+      "style": "Sachlich",
+      "title": "Stream-Fenster: die Bedienung ist besser lesbar",
+      "intro": "Im eigenen Fenster für geteilte Bildschirme war die Bedienleiste so durchsichtig, dass das laufende Bild durch Beschriftungen und Knöpfe schimmerte. Sie ist jetzt kräftiger.",
+      "items": [
+        "Die Fläche der Leiste ist heller und deckt fast vollständig. Bisher war sie reines Schwarz mit knapp einem Sechstel Durchsicht — über dunklem Bildinhalt verlor sie ihre Kante ganz.",
+        "Am deutlichsten ändert sich der Unterschied bei den Knöpfen: deren Beschriftung stand bisher zu gut zwei Fünfteln auf dem laufenden Bild.",
+        "An Größe, Anordnung und Bedienung ändert sich nichts — nur an der Deckkraft."
+      ],
+      "outro": "Betrifft das Fenster, in dem geteilte Bildschirme laufen. Die Bedienung im Browser bleibt unverändert."
+    },
+    {
       "id": "2026-08-21.5",
       "date": "2026-08-21",
       "style": "Sachlich",
