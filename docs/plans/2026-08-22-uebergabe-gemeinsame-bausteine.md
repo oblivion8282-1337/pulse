@@ -214,3 +214,106 @@ Damit sind es für Linux drei Dinge:
 3. **Ein echter Stream** mit AV1-Bild beim Zuschauer, der Bildmarken-Zeile im Protokoll und der Schlüssel-Prüfung.
 
 **Was Linux NICHT nachholen muss:** die beiden Test-Befunde von Windows (Zeilenenden, flatternder Verteilungs-Test). Beide waren Windows-eigen und sind behoben; auf Linux waren sie ohnehin grün.
+
+---
+
+# RÜCKMELDUNG LINUX — 2026-08-22
+
+Maschine: CachyOS (Kernel 7.1.8), NVIDIA RTX 4090, niri/Wayland, PipeWire, rustc 1.97.1.
+**Alle drei Punkte oben sind erledigt.** Damit ist der Prüfauftrag auf beiden Maschinen durch.
+
+## Was am Bau geprüft ist
+
+| | Ergebnis |
+|---|---|
+| `linux-hq-sidecar` `cargo test` | **66 grün, 0 rot** |
+| Die fünf Kisten einzeln | redact 12, zeitbasis 6, whip 31, bildmarke 11, zeigerbild 12 — alle grün |
+| Testnetz `zwillinge` | **13 grün** über fünf Suiten (inkl. der beiden neuen Wächter aus der Windows-Runde) |
+| `Cargo.lock` | eingetragen und committet, **27 Zeilen**, ausschliesslich die vier Kisten, die der Sidecar zieht — keine fremde Version hat sich verschoben |
+| `scripts/hq-bauen.sh` | durch, samt eigener Gegenprobe: beide Binärdateien hängen am FFmpeg-Eigenbau (`~/.cache/pulse/ffmpeg/prefix/lib/libavcodec.so.62`) |
+| Rauchtest am Binary | `health` antwortet: NVIDIA, `video_codecs: ["h264","av1"]`, 10 Bit, `tls_backend: openssl` |
+
+## Der Flatpak-Bau — er läuft, und die Pfade stimmen
+
+```
+flatpak-builder --repo=… --force-clean build/flatpak packaging/com.howispulse.Pulse.yml
+→ Commit: 9016d238cbb29d02ebb2335c5549c670dfbbba888377bfd9004d9a855f258578
+→ Content Bytes Written: 391218322 (391,2 MB)
+```
+
+**Beide Binärdateien liegen**: `build/flatpak/files/bin/pulse-linux-hq-sidecar` (12,3 MB)
+und `build/flatpak/files/bin/pulse-player` (25,8 MB).
+
+Die auf dem Mac von Hand nachgerechneten `dir`-Quellen und der Umzug von `vendor/webrtc-rs`
+nach `pulse-player/vendor/webrtc-rs` sind damit im Bau bestätigt — `cargo --offline` fand
+jede Pfad-Abhängigkeit, nichts zeigte ins Leere.
+
+**Und sie tragen die Kisten wirklich in sich**, es ist kein zwischengespeicherter Altstand:
+im Sidecar stehen Pfade aus `pulse-whip/src/{av1,h264,pacer}.rs`, `pulse-bildmarke/src/lib.rs`
+und `pulse-redact/src/lib.rs`, im Player die drei Laufzeitmeldungen aus `pulse-zeigerbild`
+(`ungueltiges Steuerbyte`, `Lauf reicht ueber das Ende hinaus`, `mehr Punkte als das Bild
+fasst`). Das ist der Teil, den ein blosses „der Bau lief durch" nicht abdeckt: `--force-clean`
+räumt den Zielordner, nicht den Modul-Cache.
+
+## Am laufenden Stream geprüft
+
+Über den gemeinsamen Dev-Stack, Sidecar aus `target/release` des Zweigs:
+
+- [x] **AV1-Bild beim Zuschauer** — `Encode-Pfad: NVENC auf /dev/dri/renderD128 (av1, 8 bit)`,
+      `encoder="av1_nvenc" breite=1920 hoehe=1080 fps=144 bitrate_kbps=6000
+      keyframe_abstand_bilder=8640`. Die 8640 sind bei 144 fps **genau 60 s** — die reguläre
+      Vorgabe für den Vollbild-Abstand steht. Bild kam an, vom Nutzer bestätigt.
+- [x] **`[whip] Bildmarke ausgehandelt als extmap 1`** — im Protokoll.
+- [x] **Rückkanal** — `Vollbild angefordert (insgesamt 1/2/3)`, also der Weg durch die
+      gemeinsame `pulse-whip`-Kiste im Betrieb belegt. Verteilung je Bild Soll 2–5 ms /
+      Ist 2,7–5,7 ms, Encode-Latenz im Mittel 1,4 ms, Ausschlag max. 3,0 ms.
+- [x] **Protokoll auf Stream-Schlüssel** — nachgesehen im Sitzungsprotokoll (227 Sidecar-Zeilen)
+      und in der persistierten `~/.config/Pulse/sidecar.log` (1,2 MB) samt `.old`. Die
+      Push-Adresse steht dort dreimal (eingehender Startbefehl, `push_url`-Feld, `argv`-Antwort),
+      jedes Mal maskiert; kein JWT, kein Schlüsselrest.
+- Neun WARN-Zeilen, alle Umgebungsrauschen (zbus-Portal-Eigenschaftscache, MESA-EGL `dri2`
+  auf dem NVIDIA-Deskriptor) — keine aus dem Umbau.
+
+**Zur Reichweite, und warum die Dateiprüfung allein nicht genügt:** die Electron-Schicht
+(`desktop/electron/sidecar-log.ts`) maskiert **über** der Rust-Schicht und schreibt dabei ihr
+eigenes `<redacted>` — an der Datei ist deshalb nicht ablesbar, welche der beiden gefeuert hat.
+Die Rust-Seite ist darum einzeln nachgewiesen, am echten Release-Binary über die
+`build_argv`-Op (die ruft `redact_url`, ohne einen Stream zu starten):
+
+```
+srt://h:8890?streamid=publish:***
+rtmps://h:1936/live/schluessel?pass=***&token=***
+https://h/whep/p/whip?TOKEN=***
+```
+
+Alle drei Präfixe, gross geschrieben, mehrfach in einer Adresse — nichts steht durch. Damit ist
+auch **die eine echte Verhaltensänderung des Umbaus** auf Linux belegt und nicht nur auf Windows.
+
+## Ein Befund — im Prüfauftrag, nicht im Umbau
+
+**Der LINUX-Abschnitt oben nennt schlicht `cargo test`. Das genügt auf dieser Plattform nicht.**
+Es übersetzt zwar, aber die Testbinärdatei startet nicht:
+
+```
+error while loading shared libraries: libavcodec.so.62: cannot open shared object file
+```
+
+Grund ist der in `streaming/linux-hq-sidecar/CLAUDE.md` bereits dokumentierte: der Sidecar hängt
+nicht am Distributions-FFmpeg (Arch steht auf n9.0.1 = `libavcodec.so.63`), sondern am Eigenbau
+n8.1.1 unter `~/.cache/pulse/ffmpeg/prefix`, und den findet er zur Laufzeit nur über den RPATH,
+den `scripts/hq-bauen.sh` setzt. Nacktes `cargo test` liefert also je nach Zustand des Bau-Caches
+entweder 14 Übersetzungsfehler oder ein Binary, das nicht startet — beides sieht nach einem
+kaputten Zweig aus und ist keiner.
+
+Richtig ist:
+
+```bash
+prefix="$HOME/.cache/pulse/ffmpeg/prefix"
+export PKG_CONFIG_PATH="$prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+export RUSTFLAGS="-L native=$prefix/lib -C link-arg=-Wl,-rpath,$prefix/lib -C link-arg=-Wl,--disable-new-dtags"
+cd streaming/linux-hq-sidecar && cargo test
+```
+
+Auf dem Mac ist das nicht sichtbar: dort liegt FFmpeg über `PKG_CONFIG_PATH` und braucht keinen
+RPATH. Dieselbe Sorte Falle wie die Zeilenenden auf Windows — eine Anleitung, die auf der
+schreibenden Maschine vollständig aussieht und auf der lesenden nicht.
