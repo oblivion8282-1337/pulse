@@ -1797,6 +1797,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "pulse-bildmarke"
+version = "0.1.0"
+
+[[package]]
 name = "pulse-linux-hq-sidecar"
 version = "0.1.0"
 dependencies = [
@@ -1809,6 +1813,10 @@ dependencies = [
  "libloading",
  "libspa",
  "pipewire",
+ "pulse-bildmarke",
+ "pulse-redact",
+ "pulse-whip",
+ "pulse-zeitbasis",
  "reqwest",
  "rtcp",
  "serde",
@@ -1818,6 +1826,25 @@ dependencies = [
  "tracing-subscriber",
  "webrtc",
 ]
+
+[[package]]
+name = "pulse-redact"
+version = "0.1.0"
+
+[[package]]
+name = "pulse-whip"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "pulse-bildmarke",
+ "pulse-zeitbasis",
+ "tokio",
+ "webrtc",
+]
+
+[[package]]
+name = "pulse-zeitbasis"
+version = "0.1.0"
 
 [[package]]
 name = "quinn"
