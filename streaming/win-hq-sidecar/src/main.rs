@@ -96,7 +96,7 @@ fn main() -> anyhow::Result<()> {
                     // Dispatch-Faden in `frames()` auf der Sperre warten kann.
                     // Käme der gleich danach dran, drückte er noch etwas —
                     // und niemand wäre mehr da, der es löst.
-                    pulse_win_hq_sidecar::remote_input::Sitzung::singleton().beenden_endgueltig();
+                    pulse_win_hq_sidecar::remote_input::sitzung().beenden_endgueltig();
                     std::process::exit(0);
                 }
                 let json = match serde_json::to_string(&value) {
@@ -178,7 +178,7 @@ fn main() -> anyhow::Result<()> {
     // Eine noch laufende Fernsteuer-Sitzung schließen (gibt Gedrücktes frei),
     // dann einen noch laufenden Stream stoppen. Endgültig: stdin ist zu, es
     // kommt nichts mehr — und was doch noch käme, dürfte nichts mehr drücken.
-    pulse_win_hq_sidecar::remote_input::Sitzung::singleton().beenden_endgueltig();
+    pulse_win_hq_sidecar::remote_input::sitzung().beenden_endgueltig();
     let _ = pulse_win_hq_sidecar::stream_controller::StreamController::singleton().stop();
 
     Ok(())

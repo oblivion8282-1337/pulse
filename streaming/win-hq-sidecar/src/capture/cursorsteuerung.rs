@@ -31,10 +31,11 @@
 //!
 //! `SetIsCursorCaptureEnabled` ist auf der WGC-Session jederzeit erlaubt
 //! (WinRT-agiles Objekt, die Property ist dafür gebaut); die Aufrufe kommen vom
-//! Dispatch-Faden und — seit dem Vorrang des Hosts
-//! (`remote_input::vorrang::tick`) — vom Wecker-Faden der Wache, während der
-//! Capture-Faden liefert. Beides ist der gedeckte Fall, kein Rennen: ein agiles
-//! Objekt verlangt keinen bestimmten Faden und keine eigene COM-Anmeldung.
+//! Dispatch-Faden und — seit dem Vorrang des Hosts (dem Vorrang-Übergang der
+//! Sitzung, angestoßen vom Wecker der Wache) — vom Wecker-Faden der Wache,
+//! während der Capture-Faden liefert. Beides ist der gedeckte Fall, kein
+//! Rennen: ein agiles Objekt verlangt keinen bestimmten Faden und keine eigene
+//! COM-Anmeldung.
 
 use std::sync::Mutex;
 
@@ -56,9 +57,10 @@ struct Platz {
 
 static PLATZ: Mutex<Option<Platz>> = Mutex::new(None);
 
-/// Die Sperre nehmen — auch eine vergiftete, aus demselben Grund wie
-/// [`crate::remote_input::Sitzung::sperre`]: der Wiederherstellungspfad läuft
-/// auch beim Prozessende und darf an keiner fremden Panik scheitern.
+/// Die Sperre nehmen — auch eine vergiftete, aus demselben Grund wie bei der
+/// Sperre der Fernsteuer-Sitzung (`pulse_fernsteuerung::sitzung::Sitzung`):
+/// der Wiederherstellungspfad läuft auch beim Prozessende und darf an keiner
+/// fremden Panik scheitern.
 fn sperre() -> std::sync::MutexGuard<'static, Option<Platz>> {
     PLATZ.lock().unwrap_or_else(|e| e.into_inner())
 }

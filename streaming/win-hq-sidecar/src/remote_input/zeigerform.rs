@@ -55,8 +55,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::PCWSTR;
 
-use super::{base64, wache, zeigerpixel};
+use super::{wache, zeigerpixel};
 use crate::zeigerbild::Zeigerbild;
+use pulse_fernsteuerung::base64;
 
 /// Was gemeldet wird, wenn die Form keinem Standard-Zeiger entspricht — der
 /// eigene Zeiger eines Spiels, ein Werkzeug-Zeiger einer Bildbearbeitung, ein
@@ -69,7 +70,7 @@ const VORGABE: &str = "default";
 /// Wie oft die geltende Form **wiederholt** gemeldet wird, gezählt in Weckern
 /// à 100 ms ([`wache`]) — also einmal je Sekunde.
 ///
-/// Aus demselben Grund wie beim Vorrang ([`super::vorrang`]): die Meldung fährt
+/// Aus demselben Grund wie beim Vorrang (der Vorrang-Meldung der Sitzung): die Meldung fährt
 /// über den `remote_signal`-Weiterleiter des Gateways, und der verwirft über
 /// seinem Sekundendeckel **still**. Ohne Wiederholung bliebe ein verlorener
 /// Wechsel für immer verloren — der Steuernde behielte den I-Balken, während
@@ -130,9 +131,10 @@ const LEER: Merker =
 
 static MERKER: Mutex<Merker> = Mutex::new(LEER);
 
-/// Die Sperre nehmen — auch eine vergiftete, aus demselben Grund wie in
-/// [`super::Sitzung::sperre`]: [`zuruecksetzen`] liegt auf jedem Ausstiegsweg
-/// der Sitzung und darf an keiner fremden Panik scheitern.
+/// Die Sperre nehmen — auch eine vergiftete, aus demselben Grund wie bei der
+/// Sperre der Fernsteuer-Sitzung (`pulse_fernsteuerung::sitzung::Sitzung`):
+/// [`zuruecksetzen`] liegt auf jedem Ausstiegsweg der Sitzung und darf an
+/// keiner fremden Panik scheitern.
 fn sperre() -> std::sync::MutexGuard<'static, Merker> {
     MERKER.lock().unwrap_or_else(|e| e.into_inner())
 }
@@ -324,7 +326,7 @@ pub(super) fn tick() {
     }
     // **Bei Vorrang des Hosts die Vorgabe**, nicht die echte Form: der Host
     // führt dann seinen eigenen Zeiger, der wieder im Bild ist
-    // ([`super::vorrang`]) — der Steuernde soll nicht mit einem I-Balken
+    // (Vorrang-Übergang der Sitzung) — der Steuernde soll nicht mit einem I-Balken
     // dastehen, der zu einer Bewegung gehört, die nicht seine ist. Aus
     // demselben Grund geht dann auch kein Bild hinaus.
     let stand = if wache::host_regt_sich() { Stand::Name(VORGABE) } else { ermitteln() };

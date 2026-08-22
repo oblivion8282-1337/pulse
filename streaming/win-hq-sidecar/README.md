@@ -286,7 +286,7 @@ Drei Dinge, die man beim Lesen sucht:
 - **DPI-Pflicht.** `main.rs` setzt `SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)`
   als allererstes. Ohne das sind alle Koordinaten-Schnittstellen bei Skalierung
   ≠ 100 % virtualisiert und jede Injektion trifft systematisch daneben.
-- **Nichts verlässt das Quell-Rechteck** (`src/remote_input/ausfuehrung.rs`). Der
+- **Nichts verlässt das Quell-Rechteck** (`pulse-fernsteuerung/src/ausfuehrung.rs`). Der
   Sidecar führt die zuletzt von ihm gesetzte Zeigerlage mit; sie ist immer
   geklemmt. **Auch die relative Bewegung** rechnet darauf und wird geklemmt
   **absolut** gesetzt — die Windows-Beschleunigung fällt damit weg, weil ein

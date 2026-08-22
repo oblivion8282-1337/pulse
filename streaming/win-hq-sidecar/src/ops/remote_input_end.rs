@@ -23,10 +23,8 @@
 use anyhow::Result;
 use serde_json::{Map, Value};
 
-use crate::remote_input::Sitzung;
-
 pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
-    let freigegeben = Sitzung::singleton().beenden();
+    let freigegeben = crate::remote_input::sitzung().beenden();
     let mut out = Map::new();
     out.insert("state".to_string(), Value::from("ended"));
     out.insert("released".to_string(), Value::from(freigegeben));

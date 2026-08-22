@@ -131,7 +131,7 @@ impl SourceGuard {
     /// Ist die bewachte Quelle gerade sichtbar (nicht minimiert, nicht
     /// geschlossen)? Die Fernsteuerung verwirft jede Eingabe, solange sie es
     /// nicht ist — der Steuernde sieht dann Schwarzbild und darf nicht blind
-    /// klicken (`remote_input::Sitzung::frames`).
+    /// klicken (`Sitzung::frames` in `pulse_fernsteuerung::sitzung`).
     pub fn is_source_visible(&self) -> bool {
         matches!(self.probe(), MaskVerdict::Show)
     }
