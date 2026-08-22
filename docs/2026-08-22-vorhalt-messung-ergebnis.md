@@ -20,7 +20,7 @@ laufende Messung koppeln lässt, statt sie ein drittes Mal zu raten.
 
 Zwei Läufe, dieselbe Strecke, derselbe Startwert, beide gegen die Cloud
 (`159.195.150.54`, howispulse.com), Linux steuert einen Windows-Rechner. Rohdaten:
-`streaming/testbench/messungen/player-2026-08-22-vorhalt-{a,b}-*.log`.
+`streaming/testbench/messungen/player-2026-08-22-vorhalt-{a,b}-*.txt`.
 
 | | A: fest 30 | B: messgekoppelt |
 |---|---|---|
