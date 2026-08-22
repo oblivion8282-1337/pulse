@@ -233,7 +233,33 @@ mod tests {
     /// des Zeitgebers halten. Grosszuegige 3 ms Toleranz, damit der Test auf
     /// einer belasteten CI-Maschine nicht flattert — der alte Fehler lag mit
     /// +5,2 ms VERTEILUNGSBEDINGT weit darueber, um den geht es.
+    ///
+    /// **Unter Windows uebersprungen, und zwar bewusst nicht mit weiterer
+    /// Toleranz.** Gemessen am 2026-08-22 auf der Windows-Maschine: von drei
+    /// Laeufen waren zwei rot (Ist 28,0 und 16,1 ms bei Soll 12,5), einer
+    /// gruen — der Zeitgeber dort weckt vielfach grobkoerniger als unter Linux
+    /// und macOS, ohne dass die Verteilung etwas falsch macht. Der Test ist
+    /// dort also nicht rot, sondern FLATTRIG, was schlimmer ist: er zeigt
+    /// abwechselnd beides. Eine Toleranz, die das aufnimmt,
+    /// muesste bei etwa 20 ms liegen und waere damit groesser als das Soll
+    /// selbst: der alte Fehler (Ist 20,8 bei Soll 12,5) laege dann INNERHALB
+    /// der Toleranz. Der Test liefe also weiter, koennte aber genau das nicht
+    /// mehr finden, wofuer es ihn gibt — schlechter als ein sichtbar
+    /// uebersprungener Test.
+    ///
+    /// Das ist hier vertretbar, weil **Windows diesen Pacer gar nicht
+    /// benutzt**: es faehrt seinen eigenen (`win-hq-sidecar/src/whip/pacer.rs`,
+    /// anderer Zuschnitt des Sendefensters, s. Modulkopf von `lib.rs`) und
+    /// bindet aus dieser Kiste nur `h264` ein. Geprueft wird die Verteilung
+    /// dort, wo sie laeuft: auf Linux und macOS. Sollte Windows je auf diesen
+    /// Pacer wechseln, gehoert der Test wieder scharf gestellt — dann aber mit
+    /// einem Zeitgeber feiner Aufloesung, nicht mit weiterer Toleranz.
     #[test]
+    #[cfg_attr(
+        windows,
+        ignore = "Windows weckt zu grobkoernig (16-28 ms bei 12,5 ms Soll) und faehrt \
+                  ohnehin seinen eigenen Pacer"
+    )]
     fn verteilung_haelt_ihr_soll() {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_time()
