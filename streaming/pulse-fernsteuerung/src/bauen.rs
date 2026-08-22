@@ -2,8 +2,9 @@
 //!
 //! Verbindlich ist `docs/plans/2026-08-12-input-wire-protokoll-v2.md`. Alles
 //! hier ist **rein**: Bytes bauen, Anteile normieren, Base64 kodieren. Wer die
-//! Ereignisse einsammelt, steht in [`super`]; wer sie parst und injiziert,
-//! steht in `streaming/win-hq-sidecar/src/remote_input.rs`.
+//! Ereignisse einsammelt, steht beim Sender (`fernsteuerung/mod.rs` im
+//! `pulse-player`); wer sie parst, steht nebenan in [`crate::rahmen`]; wer sie
+//! einspielt, im Sidecar der jeweiligen Plattform.
 //!
 //! Little-endian, Byte 0 = Opcode, feste Laengen:
 //!
@@ -60,7 +61,8 @@ impl Rahmen {
     /// unmittelbar vor ihnen stand, klickt der ferne Rechner an einer
     /// beliebigen Stelle — beim Ziehen und Ablegen auch noch an einer anderen
     /// als beim Druecken. Deshalb SCHUETZEN diese Frames ihre Positionierung
-    /// gegen die Flutkontrolle (s. [`super::schlange`]); die Invariante lautet:
+    /// gegen die Flutkontrolle (s. `fernsteuerung::schlange` im Player); die
+    /// Invariante lautet:
     /// entweder gehen Positionierung und Anhaengsel gemeinsam hinaus, oder
     /// keines von beiden.
     ///
@@ -71,7 +73,7 @@ impl Rahmen {
     }
 
     /// Die beiden i16-Werte einer relativen Bewegung. Nur fuer das Aufsummieren
-    /// beim Zusammenfassen (s. [`super::Erfassung`]).
+    /// beim Zusammenfassen (s. `fernsteuerung::Erfassung` im Player).
     pub fn rel_werte(&self) -> Option<(i16, i16)> {
         if self.opcode() != OP_MAUS_REL {
             return None;
