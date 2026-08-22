@@ -848,15 +848,32 @@ impl App {
         //
         // Die Zeile hier fertigstellen, nicht unten: `st` unten leiht die
         // Sitzung bis zum Ende der Funktion aus. (Wie `probe_line` darueber.)
+        // **`knappste Reserve` und `Nutzung` sagen, ob der Vorhalt passt.**
+        // `verspaetet` meldet nur den Extremfall — Vorhalt ganz aufgebraucht.
+        // Diese beiden zeigen den Normalfall darunter: wie viel Reserve das
+        // knappste noch rechtzeitige Bild uebrig liess, und wie sich alle
+        // Bilder auf die Viertel des Vorhalts verteilen (erste Zahl = bis zu
+        // einem Viertel verbraucht). Steht dort alles in der ersten Stufe, ist
+        // der Vorhalt ein Vielfaches dessen, was die Strecke braucht.
+        // Herleitung: `app/takt/reserve.rs`. Eigenes Fenster je Ausgabe, nicht
+        // kumulativ wie die Zaehler daneben.
         let takt_zeile = session.takt.aktiv().then(|| {
+            let reserve = session.takt.reserve_abholen();
+            let knappste =
+                reserve.knappste.map_or_else(|| "-".to_string(), |d| format!("{} ms", d.as_millis()));
             format!(
                 ": Ausgabe-Takt {} ms Vorhalt, verspaetet {}, neu verankert {}, \
-                 nachgezogen {}, verdraengt {}",
+                 nachgezogen {}, verdraengt {}, knappste Reserve {}, Nutzung {}/{}/{}/{}",
                 session.takt.vorhalt_ms(),
                 session.takt.verspaetet(),
                 session.takt.neu_verankert(),
                 session.takt.nachgezogen(),
                 session.takt.verdraengt(),
+                knappste,
+                reserve.stufen[0],
+                reserve.stufen[1],
+                reserve.stufen[2],
+                reserve.stufen[3],
             )
         });
         let st = &session.stats;

@@ -43,11 +43,14 @@
 
 mod anpassung;
 mod fernsteuerung;
+mod reserve;
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use crate::decode::DecodedFrame;
+
+pub(crate) use reserve::Bericht as ReserveBericht;
 
 /// Untergrenze der Warteschlange — auch ohne bekannten Bildabstand.
 ///
@@ -179,6 +182,10 @@ pub struct Ausgabetakt {
     /// Regelt den Vorhalt bei anhaltender Verspaetung nach oben und wieder
     /// zurueck (s. [`anpassung`]).
     anpassung: anpassung::Anpassung,
+    /// Misst mit, wie viel vom Vorhalt die Strecke wirklich braucht — die
+    /// Grundlage dafuer, ihn spaeter auch nach unten an die Leitung zu koppeln
+    /// statt an eine Konstante (s. [`reserve`]). Nur Messung, kein Eingriff.
+    reserve: reserve::Reserve,
 }
 
 impl Ausgabetakt {
@@ -198,6 +205,7 @@ impl Ausgabetakt {
             anpassung: anpassung::Anpassung::neu(Duration::from_millis(u64::from(
                 vorhalt_ms.min(VORHALT_MAX_MS),
             ))),
+            reserve: reserve::Reserve::neu(),
         }
     }
 
@@ -268,6 +276,13 @@ impl Ausgabetakt {
     /// mehr Plaetze braucht, als es gibt.
     pub fn verdraengt(&self) -> u64 {
         self.verdraengt
+    }
+
+    /// Den Reserve-Bericht abholen und das Fenster neu beginnen (s.
+    /// [`reserve`]). Gehoert in die periodische Zusammenfassung — oefter
+    /// abgeholt heisst kuerzere Fenster, nicht mehr Daten.
+    pub fn reserve_abholen(&mut self) -> ReserveBericht {
+        self.reserve.abholen()
     }
 
         /// Vorhalt zur Laufzeit aendern (`set_option`).
@@ -375,6 +390,11 @@ impl Ausgabetakt {
         if ziel <= jetzt && self.aktiv() {
             self.verspaetet += 1;
         }
+        // Wie viel Vorhalt dieses Bild uebrig gelassen hat — **vor**
+        // `anpassen`, das den Vorhalt aendern kann: gemessen wird gegen genau
+        // den Wert, mit dem `ziel` eben gerechnet hat.
+        let wirksam = self.wirksamer_vorhalt();
+        self.reserve.buchen(wirksam, ziel, jetzt);
         // Hier und nicht in einem eigenen Zeitgeber: das ist die Stelle, an der
         // die Verspaetung entsteht, und sie laeuft ohnehin je Bild.
         self.anpassen(jetzt);
