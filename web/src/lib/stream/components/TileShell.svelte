@@ -38,6 +38,7 @@
     video = null,
     forceHud = false,
     volume,
+    volumeMax,
     onVolumeChange,
     onToggleMute,
     audioBlocked = false,
@@ -74,6 +75,9 @@
     forceHud?: boolean;
     /** Gesetzt → Lautstärke-Regler wird gerendert (HQ + Screenshare). */
     volume?: number;
+    /** Obergrenze des Reglers. Vorgabe = Verstärkung bis 200 %; Quellen ohne
+     * Verstärkungsgriff (Watch-Party-Kachel) geben 100 vor. */
+    volumeMax?: number;
     onVolumeChange?: (e: Event) => void;
     onToggleMute?: () => void;
     audioBlocked?: boolean;
@@ -161,6 +165,7 @@
     nameExtra,
     testidPrefix,
     volume,
+    volumeMax,
     onVolumeChange,
     onToggleMute,
     audioBlocked,

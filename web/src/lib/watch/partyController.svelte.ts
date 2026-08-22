@@ -277,21 +277,6 @@ export class PartyController {
     this.#player?.setVolume(Math.max(0, Math.min(100, percent)));
   }
 
-  /** Lautstärke, die der Player WIRKLICH ausspielt (0–100), oder null, solange
-   * er das nicht sagen kann. Die Kachel richtet ihren Regler danach aus, statt
-   * einen Startwert anzunehmen — siehe PlayerHandle.getVolume. */
-  getVolume(): number | null {
-    const v = this.#player?.getVolume?.();
-    return typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : null;
-  }
-
-  /** Stummschaltung des Players — ein von der Lautstärke GETRENNTER Zustand.
-   * null, solange der Player nichts dazu sagt. */
-  isMuted(): boolean | null {
-    const m = this.#player?.isMuted?.();
-    return typeof m === 'boolean' ? m : null;
-  }
-
   /** Stummschalten/aufheben, ohne die Lautstärke anzufassen. */
   setMuted(muted: boolean): void {
     this.#player?.setMuted?.(muted);

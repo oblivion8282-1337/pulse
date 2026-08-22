@@ -89,17 +89,13 @@ export interface PlayerHandle {
    * `setVolume(0)` ist keine Stummschaltung, und `setVolume(80)` hebt eine
    * bestehende NICHT auf — dafür ist {@link setMuted} da. */
   setVolume(percent: number): void;
-  /** Tatsächliche Lautstärke des Players, 0-100.
-   *
-   * Nötig, weil ein Player seinen eigenen Stand mitbringt: der YouTube-Embed
-   * merkt sich Lautstärke UND Stummschaltung über alle Videos hinweg (im
-   * Speicher der youtube.com-Herkunft). Wer stattdessen mit einem angenommenen
-   * Startwert (100) anzeigt, zeigt eine Zahl, die mit dem Ton nichts zu tun
-   * hat. OPTIONAL — ein Player mit eigener Chrome braucht das nicht. */
-  getVolume?(): number;
-  /** Ist der Player stummgeschaltet? Unabhängig von der Lautstärke. */
-  isMuted?(): boolean;
-  /** Stummschalten/aufheben. Die Lautstärke bleibt dabei unangetastet. */
+  /** Stummschaltung des Players setzen — ein von der Lautstärke GETRENNTER
+   * Zustand. Nötig, weil ein Player seinen eigenen Stand mitbringt: der
+   * YouTube-Embed merkt sich Stummschaltung und Lautstärke über alle Videos
+   * hinweg (im Speicher der youtube.com-Herkunft), auch aus einer Party, in der
+   * man Host war. Die Kachel setzt deshalb ihren gemerkten Stand beim Start
+   * durch, statt einen anzunehmen. OPTIONAL — ein Player mit eigener Chrome
+   * braucht das nicht. */
   setMuted?(muted: boolean): void;
   /** Selectable subtitle tracks, empty when the player has none (yet).
    *
