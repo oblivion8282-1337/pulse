@@ -48,6 +48,12 @@
   import { QualityState } from '$lib/watch/qualityState.svelte';
   import { PartyController } from '$lib/watch/partyController.svelte';
   import type { PlayerEvent, PlayerHandle } from '$lib/watch/sync';
+  import {
+    DEFAULT_WATCH_VOLUME,
+    WATCH_VOLUME_MAX,
+    getWatchVolume,
+    setWatchVolume
+  } from '$lib/watch/viewerVolume';
 
   interface Props {
     channelId: string;
@@ -130,36 +136,29 @@
   // YT-Regler fehlt bei controls:0, also reicht die Kachel die Lautstärke über
   // den Controller an den Player durch (0–100). Der Host nutzt weiter den
   // nativen Regler seiner vollen Chrome.
-  // Der Startwert ist ein PLATZHALTER bis zum ersten Abgleich mit dem Player:
-  // YouTube bringt Lautstärke und Stummschaltung aus seinem eigenen Gedächtnis
-  // mit (über alle Videos hinweg, auch aus einer Party, in der man Host war).
-  // Wer hier 100 anzeigt, ohne zu fragen, zeigt eine Zahl neben dem Ton.
-  let viewerVolume = $state(100);
-  let volBeforeMute = 100;
-  // Hat der Zuschauer den Regler schon angefasst? Dann nie wieder vom Player
-  // überschreiben lassen.
-  let viewerVolumeTouched = false;
+  //
+  // Der Regler merkt sich seinen Stand (viewerVolume.ts) und wird beim Start
+  // des Players DURCHGESETZT — nicht nur angezeigt. Grund: YouTube führt sein
+  // eigenes Gedächtnis über Lautstärke und Stummschaltung, das über alle Videos
+  // und Rollen hinweg gilt; wer es nur anzeigt statt zu überschreiben, hat zwei
+  // Gedächtnisse ohne Vorrang. Details in viewerVolume.ts.
+  const gemerkteLautstaerke = getWatchVolume();
+  let viewerVolume = $state(gemerkteLautstaerke);
+  let volBeforeMute = gemerkteLautstaerke > 0 ? gemerkteLautstaerke : DEFAULT_WATCH_VOLUME;
 
-  /** Regler auf den Stand des Players ziehen. Stumm zeigen wir als 0 an — so
-   * liest die Kachel-Leiste die Stummschaltung (Knopf-Symbol hängt an 0). */
-  function adoptPlayerVolume(): void {
-    if (viewerVolumeTouched) return;
-    const vol = controller.getVolume();
-    const muted = controller.isMuted();
-    if (vol === null && muted === null) return;
-    if (vol !== null) volBeforeMute = vol > 0 ? vol : 100;
-    viewerVolume = muted ? 0 : (vol ?? viewerVolume);
+  /** Regler-Stand am Player herstellen. Lautstärke und Stummschaltung sind dort
+   * ZWEI Zustände: eine Lautstärke > 0 muss die Stummschaltung ausdrücklich
+   * aufheben, sonst dreht man am Regler eines stummen Players. */
+  function applyViewerVolume(): void {
+    if (viewerVolume > 0) controller.setVolume(viewerVolume);
+    controller.setMuted(viewerVolume === 0);
   }
 
-  // Slider-Anzeige und Player immer im Gleichschritt setzen. Lautstärke und
-  // Stummschaltung sind am Player zwei Zustände: eine Lautstärke > 0 muss die
-  // Stummschaltung ausdrücklich aufheben, sonst dreht man am Regler eines
-  // stummen Players (genau der Fall nach einer Party, in der man stumm war).
+  // Slider-Anzeige, Player und Gedächtnis immer im Gleichschritt setzen.
   function setViewerVolume(percent: number): void {
-    viewerVolume = percent;
-    viewerVolumeTouched = true;
-    if (percent > 0) controller.setVolume(percent);
-    controller.setMuted(percent === 0);
+    viewerVolume = Math.max(0, Math.min(WATCH_VOLUME_MAX, percent));
+    applyViewerVolume();
+    setWatchVolume(viewerVolume);
   }
   function onViewerVolume(e: Event): void {
     setViewerVolume(Number((e.currentTarget as HTMLInputElement).value));
@@ -169,7 +168,7 @@
       volBeforeMute = viewerVolume;
       setViewerVolume(0);
     } else {
-      setViewerVolume(volBeforeMute || 100);
+      setViewerVolume(volBeforeMute || DEFAULT_WATCH_VOLUME);
     }
   }
   function handleReady(handle: PlayerHandle): void {
@@ -183,8 +182,8 @@
     // later party/role changes.
     controller.syncHeartbeat();
     controller.syncViewer();
-    // Regler an den mitgebrachten Stand des Players anpassen (s. oben).
-    adoptPlayerVolume();
+    // Gemerkte Lautstärke am frischen Player herstellen (s. oben).
+    if (viewerReadonly) applyViewerVolume();
   }
   // Untertitel des Zuschauer-Players: derselbe Weg wie die Lautstärke oben —
   // `controls:0` nimmt ihm den CC-Knopf, die Kachel gibt ihn zurück. Rein
@@ -214,9 +213,9 @@
     // Gleiches Netz für die Auflösung: onPlaybackQualityChange kann vor dem
     // ersten play schon gefeuert sein, ohne dass sich ein Wert gemerkt hat.
     if (e.type === 'play' && quality.quality === null) quality.refresh();
-    // Netz für die Lautstärke: manche Player melden ihren gemerkten Stand erst,
-    // wenn wirklich Ton läuft. Greift nur, solange niemand am Regler war.
-    if (e.type === 'play') adoptPlayerVolume();
+    // Netz für die Lautstärke: YouTube setzt seinen gemerkten Stand teils erst
+    // beim Abspielen durch — dann noch einmal unseren darüberlegen.
+    if (e.type === 'play' && viewerReadonly) applyViewerVolume();
     controller.onEvent(e);
   }
 
@@ -370,6 +369,7 @@
   name={sourceLabel}
   nameTestid="watch-party-source-label"
   volume={viewerReadonly ? viewerVolume : undefined}
+  volumeMax={WATCH_VOLUME_MAX}
   onVolumeChange={viewerReadonly ? onViewerVolume : undefined}
   onToggleMute={viewerReadonly ? onViewerMute : undefined}
   {chatOpen}

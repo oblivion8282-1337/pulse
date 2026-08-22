@@ -5,12 +5,14 @@
       "id": "2026-08-22.4",
       "date": "2026-08-22",
       "style": "Sachlich",
-      "title": "Watch-Party: der Lautstärkeregler zeigt jetzt den echten Ton",
-      "intro": "Wer bei einer Watch-Party zusieht, hat einen eigenen Lautstärkeregler in der Kachel. Der zeigte bisher immer 100 Prozent an, egal wie laut es wirklich war — er war mit dem Player gar nicht verbunden, sondern nur mit sich selbst. Das ist behoben.",
+      "title": "Watch-Party: die Lautstärke stimmt und wird gemerkt",
+      "intro": "Wer bei einer Watch-Party zusieht, hat einen eigenen Lautstärkeregler in der Kachel. Der zeigte bisher immer 100 Prozent an, egal wie laut es wirklich war — er war mit dem Player gar nicht verbunden, sondern nur mit sich selbst. Und beim nächsten Öffnen fing er wieder bei 100 an. Beides ist behoben.",
       "items": [
-        "Der Regler steht beim Öffnen jetzt dort, wo der Ton wirklich ist. Bisher sprang die Lautstärke beim ersten Anfassen hörbar, weil erst dieser Griff die angezeigten 100 Prozent tatsächlich einstellte.",
+        "Die eingestellte Lautstärke wird jetzt gemerkt und beim nächsten Video wiederhergestellt, so wie beim Zusehen bei einem Stream.",
+        "Der Regler stellt beim Öffnen tatsächlich ein, was er anzeigt. Bisher sprang die Lautstärke beim ersten Anfassen hörbar, weil erst dieser Griff die angezeigten 100 Prozent wirksam machte.",
         "Stummschalten und wieder Anschalten führen zurück auf die Lautstärke von vorher statt auf einen Wert, der nur zufällig noch im Regler stand.",
-        "Wer in einer Party stumm geschaltet hatte, hatte in der nächsten Party keinen Ton mehr und sah trotzdem 100 Prozent. Ursache: Stumm und Lautstärke sind zwei getrennte Zustände, die YouTube sich über Videos hinweg merkt — am Regler zu ziehen hob die Stummschaltung nicht auf. Jetzt schon."
+        "Wer in einer Party stumm geschaltet hatte, hatte in der nächsten keinen Ton mehr und sah trotzdem 100 Prozent. Stumm und Lautstärke sind zwei getrennte Zustände, die YouTube sich über Videos hinweg merkt — am Regler zu ziehen hob die Stummschaltung nicht auf. Jetzt gibt der Regler den Ton vor, nicht mehr das Gedächtnis von YouTube.",
+        "Der Regler geht nur noch bis 100 Prozent. Die 200, die er anbot, gab es für dieses Bild nie — der YouTube-Player kennt keine Verstärkung."
       ],
       "outro": "Betrifft Zuschauer einer Watch-Party. Der Host steuert seinen Ton weiter über die gewohnte YouTube-Leiste."
     },
