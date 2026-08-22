@@ -54,19 +54,28 @@ gleichzeitig beschrieben — hier hat nichts encodiert, der Sender war ffmpeg
 von der Platte. Beide Software-Laeufe liefen durch, mit null
 Decoder-Einfrierungen.
 
-**Die Vorlage ist echter Intra-Refresh** (`fec-intraref-20s.mkv`, av1_vaapi mit
-`-intra_refresh 1`, gebaut mit dem gepatchten FFmpeg aus
-`streaming/ffmpeg-patches/`): 1200 Bilder, genau EIN Vollbild, am Anfang.
+**Die Vorlage hat genau EIN Vollbild, am Anfang** (`fec-vorlage-20s.mkv`,
+av1_vaapi, 1200 Bilder). **Bis zum 2026-08-21 kam diese Eigenschaft aus echtem
+Intra-Refresh** (`-intra_refresh 1`, gebaut mit dem gepatchten FFmpeg aus dem
+damaligen `streaming/ffmpeg-patches/`, Datei hiess `fec-intraref-20s.mkv`). Die
+Betriebsart ist aus Pulse entfernt und die Patches mit ihr; dieselbe Vorlage
+entsteht heute schlicht ueber einen Vollbild-Abstand, der laenger ist als der
+Ausschnitt (`-g 9999` und dann 20 s herausschneiden — Rezept im `README.md`).
+Fuer diesen Pruefstand aendert sich dadurch nichts: gebraucht wird nicht die
+Betriebsart, sondern ein Strom ohne zweiten Einstiegspunkt. Er ist heute sogar
+naeher am Produkt, das mit 60 s Vollbild-Abstand faehrt.
 
 Dass sie in Schleife laeuft, ist eine bewusste Einschraenkung mit Grund. Ein
 Zuschauer, der NACH dem einzigen Vollbild einsteigt, bekommt nie ein Bild — im
-ersten Lauf hier reproduziert: 0 Bilder, 99 vergebliche Anforderungen, genau
-der Befund aus `browser-2026-07-31-intra-refresh.json`. Im Produkt loest das
-Patch 0002, indem es die Anforderung des Zuschauers an den Sender weiterreicht;
-ein Sender, der eine Datei durchreicht, KANN darauf nicht antworten. Der
-Schleifenpunkt alle 20 Sekunden steht deshalb stellvertretend fuer genau diesen
-Rettungsweg. Folge fuer die Auswertung: ein Standbild kann nie laenger als bis
-zum naechsten Schleifenpunkt dauern. Das trifft alle Vergleichsarme gleich.
+ersten Lauf hier reproduziert: 0 Bilder, 99 vergebliche Anforderungen (die
+Messakte `browser-2026-07-31-intra-refresh.json` dazu ist am 2026-08-21 mit der
+Betriebsart geloescht worden). Im
+Produkt loest das der Rueckkanal des WHIP-Wegs, ueber den die Anforderung des
+Zuschauers beim Sender ankommt; ein Sender, der eine Datei durchreicht, KANN
+darauf nicht antworten. Der Schleifenpunkt alle 20 Sekunden steht deshalb
+stellvertretend fuer genau diesen Rettungsweg. Folge fuer die Auswertung: ein
+Standbild kann nie laenger als bis zum naechsten Schleifenpunkt dauern. Das
+trifft alle Vergleichsarme gleich.
 
     export PULSE_FERN_PASS=… PULSE_FERN_TOKEN=…      # aus ~/mediamtx-labor/zugang.txt
     ./fec-adaptiv.py --profil verlust --secs 60 --label fest-10-2
@@ -149,8 +158,12 @@ def standbild_sekunden(proben: list[dict]) -> int:
     60 Bilder je Sekunde und zeigte trotzdem ein Standbild — der Decoder gab
     immer dasselbe Bild aus. Kein Zaehler meldete das, `freezeCount`
     eingeschlossen, denn formal kamen ja Bilder. Nur der Fingerabdruck der
-    Pixel entscheidet. Fuer einen Intra-Refresh-Strom ist das DIE Kennzahl:
-    er heilt sich nach Verlust nicht selbst, das Bild bleibt einfach stehen.
+    Pixel entscheidet. Fuer einen Strom ohne nahen Einstiegspunkt ist das DIE
+    Kennzahl — bis zum 2026-08-21 stand hier „fuer einen Intra-Refresh-Strom",
+    weil der sich nach Verlust gar nicht selbst heilte. Die Betriebsart ist
+    entfallen; ein Vollbild-Strom heilt am naechsten Takt, und genau darum
+    misst diese Zahl heute, wie lange dieser Takt sichtbar auf sich warten
+    laesst (Vorgabe im Produkt: 60 s).
     """
     n = 0
     for vorher, jetzt in zip(proben, proben[1:], strict=False):
@@ -365,7 +378,11 @@ def lauf(args) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--quelle", default=str(HERE / "fec-intraref-20s.mkv"))
+    # Hiess bis zum 2026-08-21 `fec-intraref-20s.mkv` und war mit echtem
+    # Intra-Refresh gebaut; die Betriebsart ist entfallen, die Vorlage entsteht
+    # heute ueber einen ueberlangen Vollbild-Abstand (Rezept im `README.md`).
+    # Gebraucht wird unveraendert: EIN Vollbild, ganz am Anfang.
+    ap.add_argument("--quelle", default=str(HERE / "fec-vorlage-20s.mkv"))
     ap.add_argument("--profil", default="verlust", choices=tuple(serverstoerung.PROFILE))
     ap.add_argument("--secs", type=float, default=60)
     ap.add_argument("--label", default="fec")

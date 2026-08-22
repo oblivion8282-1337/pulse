@@ -155,6 +155,13 @@
       geraeteAnmeldung.laden(geraeteSpeicher),
       standplatzProfil.laden(geraeteSpeicher),
     ]);
+    // Eintragungen von Servern raeumen, die es hier nicht mehr gibt. Ein
+    // entfernter Self-Host baut nie wieder eine Verbindung auf, seine
+    // Eintragung wuerde also von keinem `ready` mehr beruehrt — sie haelt aber
+    // weiter den Standplatz-Betrieb am Leben (`DeviceKiosk` fragt nur, OB es
+    // Eintragungen gibt) und damit den Bildschirm dieses Rechners wach.
+    // Nach dem Laden, weil erst dann beide Listen vorliegen.
+    void geraeteAnmeldung.abgleichenMitServern(serversStore.servers.map((s) => s.id));
     void gateway.connect().catch((e) => console.error('gateway connect', e));
     // Global-Friends Stufe 1: die Cloud-Connection ist die globale Social-Quelle
     // (Freunde/DMs/Requests/Blocks/Freund-Presence) und muss dauerhaft connected

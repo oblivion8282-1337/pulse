@@ -42,6 +42,7 @@
     nameExtra,
     testidPrefix,
     volume,
+    volumeMax = VOLUME_BOOST_MAX,
     onVolumeChange,
     onToggleMute,
     audioBlocked = false,
@@ -68,6 +69,7 @@
     nameExtra?: Snippet;
     testidPrefix: string;
     volume?: number;
+    volumeMax?: number;
     onVolumeChange?: (e: Event) => void;
     onToggleMute?: () => void;
     audioBlocked?: boolean;
@@ -155,7 +157,7 @@
         <input
           type="range"
           min="0"
-          max={VOLUME_BOOST_MAX}
+          max={volumeMax}
           value={volume}
           oninput={onVolumeChange}
           class="{wide ? 'w-24' : 'w-16'} {overlay ? 'accent-white' : 'accent-[#d4d4d8]'}"

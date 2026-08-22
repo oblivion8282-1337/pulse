@@ -160,6 +160,11 @@
                 getDuration: () => Number(p()?.getDuration() ?? 0),
                 setPlaybackRate: (r: number) => p()?.setPlaybackRate(r),
                 setVolume: (pp: number) => p()?.setVolume(Math.max(0, Math.min(100, pp))),
+                // Stumm ist ein eigener Zustand: setVolume() hebt eine
+                // Stummschaltung NICHT auf, und YouTube merkt sich seine über
+                // alle Embeds hinweg — ohne diesen Setter blieb ein anderswo
+                // stummgeschalteter Player stumm, egal was der Regler sagt.
+                setMuted: (m: boolean) => (m ? p()?.mute?.() : p()?.unMute?.()),
                 hasCaptionSupport: captions.isAvailable,
                 getCaptionTracks: captions.getCaptionTracks,
                 getActiveCaptionTrack: captions.getActiveCaptionTrack,

@@ -21,29 +21,23 @@ wir die Lizenzpflichten wie folgt:
 - Der **Quellcode** der jeweils verwendeten Version ist über die unten
   verlinkten öffentlichen Quellen erhältlich. Wo Pulse ihn **ändert**, ist das
   in der jeweiligen Tabelle vermerkt, und die Änderung selbst liegt als
-  Patch-Datei im öffentlichen Quellcode-Repository — das betrifft das FFmpeg
-  der Linux- **und** der Windows-Fassung (jeweils ein Patch, siehe dort). Die
-  macOS-Fassung wird unverändert gebaut.
+  Patch-Datei im öffentlichen Quellcode-Repository. **Das FFmpeg wird auf allen
+  drei Plattformen unverändert gebaut** — bis zum 21. August 2026 trugen die
+  Linux- und die Windows-Fassung je einen Pulse-Patch, der ist entfallen.
 
 ## Windows
 
 | Komponente | Version / Pin | Lizenz | Einbindung |
 |---|---|---|---|
-| [FFmpeg](https://ffmpeg.org/) | n8.1.2, eigener Build vom 2026-08-05, **mit einem Pulse-Patch** | LGPL 2.1 (Build ohne `--enable-gpl`/`--enable-nonfree`/libx264/libx265) | Dynamisch verlinkt: als separate `.dll`-Dateien neben `pulse-win-hq-sidecar.exe` ausgeliefert |
+| [FFmpeg](https://ffmpeg.org/) | n8.1, unverändertes LGPL-shared-Fertigpaket (BtbN-Build vom 2026-06-16, eingefroren) | LGPL 2.1 (Build ohne `--enable-gpl`/`--enable-nonfree`/libx264/libx265) | Dynamisch verlinkt: als separate `.dll`-Dateien neben `pulse-win-hq-sidecar.exe` ausgeliefert |
 | [nv-codec-headers](https://github.com/FFmpeg/nv-codec-headers) | n13.0.19.0 | MIT | Nur zur Build-Zeit für NVENC-Unterstützung verwendet, nicht als eigene Datei ausgeliefert |
 
-**Das FFmpeg der Windows-Fassung ist seit dem 5. August 2026 von Pulse
-verändert.** Hier stand vorher, Pulse ändere den Quellcode für diesen Pfad
-nicht und verwende die unveränderte Distribution von BtbN — das trifft nicht
-mehr zu. Der Patch gibt dem AV1-Encoder für AMD-Karten den rollenden
-Intra-Refresh frei; ohne ihn steht diese Betriebsart AMD-Nutzern unter Windows
-gar nicht zur Verfügung. Die Lizenzpflichten sind erfüllt: geändert werden nur
-LGPL-lizenzierte Dateien, der Patch steht selbst unter der LGPL und nicht unter
-der Pulse-Lizenz, die Bibliotheken bleiben dynamisch eingebunden und
-austauschbar, und der Patch liegt offen im Quellcode-Repository unter
-[`streaming/ffmpeg-patches/`](https://github.com/oblivion8282-1337/pulse/tree/main/streaming/ffmpeg-patches).
-Dem ausgelieferten Paket liegen zusätzlich der Lizenztext (`LICENSE.txt`) und
-ein Änderungshinweis (`PULSE-AENDERUNGEN.txt`) bei.
+**Das FFmpeg der Windows-Fassung ist unverändert.** Vom 5. bis zum 21. August
+2026 war das anders: Pulse baute für diesen Pfad ein eigenes FFmpeg mit einem
+Patch, der dem AV1-Encoder für AMD-Karten den rollenden Intra-Refresh freigab.
+Diese Betriebsart ist entfallen, der Patch damit auch — ausgeliefert wird
+wieder das unveränderte LGPL-shared-Fertigpaket. Die Bibliotheken bleiben
+dynamisch eingebunden und austauschbar.
 
 Die FFmpeg-DLLs enthalten u. a. NVENC/AMF/QSV-Hardware-Encoder, Muxer für
 FLV/MPEGTS/WHIP und die TLS-Anbindung über SChannel für den verschlüsselten
@@ -89,21 +83,14 @@ Version 0.1.69 gegen dieselben `.dylib`-Dateien wie der Streaming-Sidecar —
 | Komponente | Version / Pin | Lizenz | Einbindung |
 |---|---|---|---|
 | [Electron](https://www.electronjs.org/) | 43.0.0 | MIT | Offizielles Release-Binary, unverändert gebündelt (`/app/electron/`) |
-| [FFmpeg](https://github.com/FFmpeg/FFmpeg) | Tag `n8.1.1`, **mit einem Pulse-Patch** | LGPLv3 (Build ohne `--enable-gpl`/libx264/libx265) | Aus Quellcode im Flatpak-Sandbox gebaut, dynamisch verlinkt |
+| [FFmpeg](https://github.com/FFmpeg/FFmpeg) | Tag `n8.1.1`, unverändert | LGPLv3 (Build ohne `--enable-gpl`/libx264/libx265) | Aus Quellcode im Flatpak-Sandbox gebaut, dynamisch verlinkt |
 | [gpu-screen-recorder](https://repo.dec05eba.com/gpu-screen-recorder) | gepinnter Commit, mit 3 Pulse-Patches | GPL-3.0-or-later | Aus Quellcode gebaut, als **separates Programm** im Paket enthalten (kein Linking gegen Pulse) |
 
-**Das FFmpeg der Linux-Fassung ist von Pulse verändert.** Hier stand bis zum
-5. August 2026 „aus unverändertem Quellcode gebaut" — das trifft nicht mehr zu.
-Angewendet wird ein Patch, der den rollenden Intra-Refresh der
-VAAPI-Encoder freilegt; ohne ihn steht diese Betriebsart AMD- und
-Intel-Grafikkarten nicht zur Verfügung. Was die LGPL dafür verlangt, ist
-erfüllt: die Änderung betrifft ausschließlich LGPL-lizenzierte Dateien
-(`libavcodec/vaapi_encode*`), sie steht selbst unter der LGPL und nicht unter
-der Pulse-Lizenz, die Bibliothek bleibt dynamisch eingebunden und
-austauschbar, und der Patch liegt im öffentlichen Quellcode-Repository unter
-[`streaming/ffmpeg-patches/`](https://github.com/oblivion8282-1337/pulse/tree/main/streaming/ffmpeg-patches)
-mit eigener Lizenzdatei. Die Windows- und macOS-Fassungen enthalten diesen
-Patch **nicht**.
+**Das FFmpeg der Linux-Fassung wird aus unverändertem Quellcode gebaut.** Vom
+5. bis zum 21. August 2026 war das anders: angewendet wurde ein Patch, der den
+rollenden Intra-Refresh der VAAPI-Encoder freilegte. Diese Betriebsart ist
+entfallen, der Patch damit auch. Die Bibliothek bleibt dynamisch eingebunden
+und austauschbar.
 
 Electrons eigene Drittanbieter-Hinweise (Chromium, Node.js u. a.) liegen
 bereits als Teil des offiziellen Electron-Release-Archivs bei und werden hier

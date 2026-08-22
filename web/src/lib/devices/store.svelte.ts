@@ -16,7 +16,7 @@
  * Der Client filtert nicht nach — er hat gar nicht erst die Daten.
  */
 
-import { SvelteMap } from 'svelte/reactivity';
+import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import {
   devicesApi,
   type Device,
@@ -29,7 +29,7 @@ class DeviceStore {
   readonly byGuild = new SvelteMap<string, Device[]>();
   /** Welche Communitys schon geladen wurden (auch leere — sonst lädt eine
    *  Community ohne Geräte bei jedem Blick neu). */
-  readonly #geladen = new Set<string>();
+  readonly #geladen = new SvelteSet<string>();
   /** Läuft gerade ein Abruf? Verhindert den Schwarm beim Mount mehrerer
    *  Komponenten, die dieselbe Liste brauchen. */
   readonly #laufend = new Map<string, Promise<void>>();
@@ -79,6 +79,35 @@ class DeviceStore {
 
   byId(guildId: string | null | undefined, deviceId: string): Device | null {
     return this.forGuild(guildId).find((d) => d.id === deviceId) ?? null;
+  }
+
+  /**
+   * Alle eigenen Geräte über alle geladenen Communitys — für „Meine Geräte
+   * auf diesem Server" im Standplatz-Reiter. Wie bei `byChannelOwner` reicht
+   * die Suche nur über das, was schon geladen ist: der Reiter lädt vorher
+   * selbst jede Community nach, die der Nutzer sieht.
+   */
+  eigene(ownerId: string | null | undefined): Device[] {
+    if (!ownerId) return [];
+    const treffer: Device[] = [];
+    for (const liste of this.byGuild.values()) {
+      for (const d of liste) {
+        if (d.owner_user_id === ownerId) treffer.push(d);
+      }
+    }
+    return treffer;
+  }
+
+  /**
+   * Wurde die Liste dieser Community schon vollständig abgerufen?
+   *
+   * Der Unterschied zu „`forGuild` ist leer" ist der ganze Zweck: leer heisst
+   * entweder „keine Geräte" oder „noch nicht gefragt", und nur im ersten Fall
+   * darf die Oberfläche daraus schliessen, dass es eine gesuchte Gerätezeile
+   * nicht gibt (`eintragungLage.ts`).
+   */
+  istGeladen(guildId: string | null | undefined): boolean {
+    return !!guildId && this.#geladen.has(guildId);
   }
 
   /** Einmal laden. Fehler werden verschluckt: eine fehlende Geräteliste ist

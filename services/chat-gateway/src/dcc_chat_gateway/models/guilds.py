@@ -86,6 +86,7 @@ class Guild(Base):
     max_members: Mapped[int | None] = mapped_column(Integer, nullable=True)
     max_channels: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     max_roles: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    max_devices_per_owner: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     # Best-effort cap on concurrent live HQ streams in the community. NULL =
     # unlimited. Checked at stream-token issuance against the (poller-maintained,
     # eventually-consistent) live-stream state — catches steady-state over-limit;
@@ -135,6 +136,9 @@ class Guild(Base):
         SmallInteger, nullable=True
     )
     community_max_roles: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    community_max_devices_per_owner: Mapped[int | None] = mapped_column(
+        SmallInteger, nullable=True
+    )
     community_max_concurrent_streams: Mapped[int | None] = mapped_column(
         SmallInteger, nullable=True
     )

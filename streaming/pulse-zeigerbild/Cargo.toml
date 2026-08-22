@@ -1,0 +1,9 @@
+[package]
+name = "pulse-zeigerbild"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Ohne Abhaengigkeiten — diese Crate wird vom Windows-Sidecar und vom Player
+# eingebunden und darf deren Bauwege nicht beschweren.
+[dependencies]

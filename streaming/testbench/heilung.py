@@ -6,8 +6,10 @@ wertet die dekodierten Bilder aus. Verglichen wird die Luma-Ebene Bild für Bild
 gegen das ungestörte Original, mit zwei Größen:
 
 * **PSNR gegen das Original** — 100 dB heißt byte-gleich, unter ~25 dB ist es
-  sichtbar kaputt. Steigt die Kurve nach dem Verlust wieder, baut der Decoder
-  die Intra-Refresh-Streifen ein.
+  sichtbar kaputt. Steigt die Kurve nach dem Verlust wieder, hat der Decoder
+  einen Einstiegspunkt bekommen und das Bild erholt sich. (Bis zum 2026-08-21
+  stand hier „baut die Intra-Refresh-Streifen ein" — die Betriebsart ist
+  entfernt, gemessen wird jetzt die Erholung am nächsten Vollbild.)
 * **Änderung zum Vorbild** — unterscheidet „eingefroren" (100 dB, also
   identisch mit dem Vorgänger) von „läuft, aber falsch".
 
@@ -29,7 +31,9 @@ ffmpeg Bilder und die Zuordnung ist Makulatur::
       -pix_fmt yuv420p10le -f rawvideo kaputt.yuv
     ./heilung.py orig.yuv kaputt.yuv --verlust 150
 
-Befund vom 2026-07-29: ``profiles/decoder-2026-07-29-intra-refresh.json``.
+Der Befund vom 2026-07-29 stand in
+``profiles/decoder-2026-07-29-intra-refresh.json``; die Akte ist am 2026-08-21
+mit der Betriebsart gelöscht worden.
 """
 
 from __future__ import annotations
@@ -41,9 +45,11 @@ from pathlib import Path
 import numpy as np
 
 # Ab hier gilt ein Bild als wieder brauchbar. Bewusst deutlich unter den
-# 100 dB der Byte-Gleichheit: nach einem Keyframe ist die Erholung exakt, nach
-# einem Refresh-Zyklus waere sie es nicht — die Schwelle darf den zweiten Fall
-# nicht wegdefinieren.
+# 100 dB der Byte-Gleichheit: nach einem Keyframe ist die Erholung exakt, bei
+# einer teilweisen Erholung waere sie es nicht — die Schwelle darf den zweiten
+# Fall nicht wegdefinieren. (Der Fall, an dem das bis zum 2026-08-21 haengen
+# blieb, war der Intra-Refresh-Zyklus; die Schwelle bleibt trotzdem grosszuegig,
+# weil auch ein Vollbild-Strom zwischendurch nur naeherungsweise heilt.)
 SAUBER_DB = 40.0
 # Zwei Bilder gelten als identisch, wenn PSNR darueber liegt (Rundung).
 STEHT_DB = 99.0

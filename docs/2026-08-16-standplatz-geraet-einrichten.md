@@ -22,29 +22,29 @@ Sprecherliste auf.
    Community, Standplatz (ein Sprachkanal) und ein Name (`werkstatt-pc`).
    Der Name ist klein geschrieben, ohne Leerzeichen — Geräte sollen nicht wie
    Menschen heissen können.
-3. **Dauerfreigabe erteilen** — im selben Bild. Wer ohne Rückfrage übernehmen
-   darf (einzelne Personen oder jeder mit dem Recht) und wie lange (bis zum
-   Neustart / acht Stunden / dauerhaft).
+3. **Dauerfreigabe erteilen** — im selben Bild, seit 2026-08-20 auch von jedem
+   anderen Rechner des Besitzers aus nachträglich änderbar. Wer ohne Rückfrage
+   übernehmen darf (einzelne Personen, seit 2026-08-20 auch ganze Rollen, oder
+   jeder mit dem Recht) und wie lange (bis zum Neustart / acht Stunden /
+   dauerhaft).
 4. **Übertragungs-Profil für den Fernbetrieb prüfen** — im selben Reiter unter
    „Womit dieser Rechner überträgt, wenn er geweckt wird". Es gilt **nur**,
    wenn jemand das Gerät aus der Ferne weckt; die eigenen Stream-Einstellungen
    des Besitzers bleiben unberührt. Vorgaben: Hauptbildschirm, H.264, native
-   Auflösung, 30 Bilder/s, 8000 kbit/s, periodische Vollbilder, kein HDR und
-   8 bit. **Wählbar ist alles davon**, auch 10 bit und HDR — beides braucht AV1
-   und eine Karte, die es meldet. Ein Wunsch, den der Rechner beim Wecken gerade
-   nicht einlösen kann, fällt still weg, statt den Start abzubrechen; er bleibt
-   gespeichert und greift wieder, sobald die Karte es hergibt. Bedenke beim HDR,
-   dass der Steuernde meist vor einem gewöhnlichen Bildschirm sitzt — dort sieht
-   das Bild ausgewaschen aus.
-   **Die rollende Auffrischung ist einen Versuch wert**, wenn dein Rechner sie
-   kann: sie verteilt die Auffrischung über viele Bilder, statt alle paar
-   Sekunden ein grosses Vollbild zu schicken, das die Leitung kurz dichtmacht —
-   bei 30 Bildern je Sekunde ist das der Unterschied zwischen ruhig und
-   stossweise. Vorgabe ist sie trotzdem nicht: kann der Encoder sie nicht,
-   verweigert der Sidecar den Start, und auf einem unbeaufsichtigten Rechner
-   sieht das niemand. Begründung: Fernsteuern will
-   lesbare Schrift und kurze Wege, Zuschauen will flüssige Bewegung — das sind
-   gegensätzliche Einstellungen, und die Vorgaben bedienen den ersten Fall.
+   Auflösung, 30 Bilder/s, 8000 kbit/s, kein HDR und 8 bit. **Wählbar ist alles
+   davon**, auch 10 bit und HDR — beides braucht AV1 und eine Karte, die es
+   meldet. Ein Wunsch, den der Rechner beim Wecken gerade nicht einlösen kann,
+   fällt still weg, statt den Start abzubrechen; er bleibt gespeichert und
+   greift wieder, sobald die Karte es hergibt. Bedenke beim HDR, dass der
+   Steuernde meist vor einem gewöhnlichen Bildschirm sitzt — dort sieht das Bild
+   ausgewaschen aus. Begründung der Vorgaben: Fernsteuern will lesbare Schrift
+   und kurze Wege, Zuschauen will flüssige Bewegung — das sind gegensätzliche
+   Einstellungen, und die Vorgaben bedienen den ersten Fall.
+
+   *Bis zum 2026-08-21 stand hier ein Wahlschritt mehr: die „rollende
+   Auffrischung" liess sich zuschalten, wenn der Encoder sie trug. Die
+   Betriebsart ist an diesem Tag ersatzlos entfallen — es gibt nur noch
+   periodische Vollbilder, und an dieser Stelle ist dazu nichts mehr zu wählen.*
 5. **Rechte in der Community vergeben**: `REMOTE_CONTROL` (Bit 37) steht **nicht**
    in den Vorgaben für `@everyone`. Ohne ausdrückliche Zuteilung sieht niemand
    den Übernahme-Weg — das ist Absicht und der eigentliche Zugangsriegel.
@@ -132,8 +132,8 @@ Userland-Prozess:
    Tisch anstösst.
 
 Getragen wird also **der angemeldete, entsperrte Desktop**. Das ist die Linie,
-die auch Intra-Refresh und HDR fahren: lieber ansagen, was nicht geht, als es
-stillschweigend halb zu können.
+die auch HDR fährt (und bis zum 2026-08-21 der Intra-Refresh fuhr): lieber
+ansagen, was nicht geht, als es stillschweigend halb zu können.
 
 ## Was am Gerät sichtbar bleibt
 
@@ -152,10 +152,29 @@ stillschweigend halb zu können.
   Die Anmeldung eines Geräts beweist deshalb „eine Verbindung des Besitzers
   behauptet, dieser Rechner zu sein" — nicht, dass es derselbe physische
   Rechner ist wie beim Eintragen. Auf Self-Hosts steht die Kennung bereits in
-  der Sitzung (`SessionClaims.cert_id`).
-* **Rollen in der Dauerfreigabe.** Heute tragen einzelne Nutzer und „jeder mit
-  dem Recht"; Rollen brauchen den serverseitigen Standplatz (Begründung in
-  `standplatz.svelte.ts`).
+  der Sitzung (`SessionClaims.cert_id`). Die Bindung Zeile↔Maschine (`cert_id`
+  in `chat.devices`) wartet auf genau diesen Ausweisbezug.
 * **Ein eigenes Geräte-Konto** (Stufe 3 des Entwurfs, §11.1): dann überlebt ein
   Gerät seinen Besitzer, und der Chat-Zugang fällt bauartbedingt weg statt über
-  einen Sichtschutz.
+  einen Sichtschutz. Eigener Entwurf dazu:
+  `docs/superpowers/specs/2026-08-20-geraete-konto-entwurf.md`.
+
+**Nachtrag 2026-08-20 — Stufe 2, Fernverwaltung** (voller Entwurf:
+`docs/superpowers/specs/2026-08-20-geraeteverwaltung-design.md`): die Schritte
+oben beschreiben weiterhin die Ersteinrichtung, die am Gerät selbst passieren
+muss. Danach gilt aber nicht mehr, dass nur dieses Gerät sich selbst verwalten
+kann:
+
+* **Die Dauerfreigabe (Schritt 3) liegt seither auf dem Server**
+  (`chat.device_grants`), nicht mehr nur lokal in `pulse-stream.json` — lesen
+  und schreiben darf ausschliesslich der Besitzer, von jedem seiner Rechner
+  aus, auch von Linux, macOS oder dem Browser. Die Zustimmung selbst erteilt
+  weiterhin das Gerät, ein lokaler Hauptschalter am Gerät sticht immer, und ein
+  offline stehendes Gerät stimmt weiterhin nie zu. **Rollen sind jetzt
+  freigebbar**, nicht mehr nur einzelne Nutzer und „jeder mit dem Recht" — der
+  Server löst sie auf, wozu der Client nie in der Lage war.
+* **Standplatz und Community lassen sich von jedem Rechner aus ändern**, nicht
+  nur der Kanal — ein Gerät kann damit die Community wechseln, ohne dass
+  jemand am Rechner steht.
+* **Der Geräte-Deckel ist ein Community-Limit** (Vorgabe 25 statt einer festen
+  Zahl je Besitzer), einstellbar in den Limit-Editoren.

@@ -379,8 +379,9 @@ die zugesagte Übernahme. Mausbewegung trägt eine Schwelle (8 px in 250 ms), Kn
 und Taste nicht.
 
 **Ohne Wache keine Fernsteuerung.** Lässt sich der Hook nicht anmelden, verweigert
-schon der Handschlag die Sitzung — dieselbe Linie wie bei Intra-Refresh und HDR:
-lieber gar nicht als still etwas Schwächeres unter demselben Etikett. Nicht
+schon der Handschlag die Sitzung — dieselbe Linie, die HDR fährt (und bis zum
+2026-08-21 der Intra-Refresh fuhr): lieber gar nicht als still etwas Schwächeres
+unter demselben Etikett. Nicht
 erkennbar bleibt ein Hook, den Windows zur Laufzeit wegen Zeitüberschreitung
 entfernt; dagegen hilft nur, dass der Rückruf nichts tut als einen Zeitstempel
 abzulegen (die Übergänge fährt ein eigener Faden).
@@ -502,9 +503,10 @@ data: {form: "default", bild: {id, w, h, hx, hy, daten?}}
   trotzdem immer**, denn sie ist der einzige Weg, auf dem sich ein verlorenes
   oder drüben verworfenes Bild heilt.
 * **`daten`** sind die Punkte als Läufe, Base64. Format, Grenzen und beide
-  Richtungen stehen in `streaming/pulse-player/src/zeigerbild.rs` — **wortgleich
-  gespiegelt** nach `streaming/win-hq-sidecar/src/zeigerbild.rs`, gleiches Muster
-  wie `zeitbasis.rs`.
+  Richtungen stehen seit 2026-08-20 in der gemeinsamen Kiste
+  `streaming/pulse-zeigerbild` — Player und Windows-Sidecar linken beide
+  dagegen, die alten `zeigerbild.rs` in beiden sind nur noch
+  Re-Export-Einzeiler, gleiches Muster wie `pulse-zeitbasis`.
 
 Zwei Grenzen, die dabei zusammenhängen: der Weiterleiter deckelt die Nutzlast
 auf 8 KiB, ein 32×32-Zeiger roh in Base64 sind schon 5464 Byte, und ein 48×48
@@ -552,11 +554,14 @@ und Player (`app/zeigerform.rs`) — und muss synchron bleiben. Ein hier erfunde
 Name käme drüben wortlos als Standardpfeil an; die beiden Rust-Listen hält je
 ein Test fest, im Renderer trägt sie der Typ `Zeigerform` (kein Vitest im Web).
 
-**Das Bildformat dagegen steht an genau einer Stelle**, zweimal wortgleich
-hingelegt (`zeigerbild.rs` in Player und Sidecar). Der Unterschied ist Absicht:
-bei der Formenliste müssen sich drei Sprachen auf Namen einigen, beim Bildformat
-müssen sich zwei Rust-Enden Byte für Byte einig sein — und eine Beschreibung in
-zwei Fassungen läuft auseinander.
+**Das Bildformat dagegen steht seit 2026-08-20 tatsächlich nur noch an einer
+Stelle** — der gemeinsamen Kiste `streaming/pulse-zeigerbild`, gegen die Player
+und Sidecar linken (vorher zweimal wortgleich hingelegt in je einer
+`zeigerbild.rs`). Der Unterschied zur Formenliste ist weiterhin Absicht: bei
+der Formenliste müssen sich drei Sprachen auf Namen einigen (deshalb dort
+weiterhin drei separate Listen), beim Bildformat müssen sich nur zwei
+Rust-Enden Byte für Byte einig sein — dafür reicht jetzt eine einzige Datei
+statt einer Beschreibung in zwei Fassungen, die auseinanderlaufen könnte.
 
 ## Was sich gegenüber v1 geändert hat
 

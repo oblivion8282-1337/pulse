@@ -100,3 +100,55 @@ class Device(Base):
         # Die Liste wird immer je Kanal gelesen (Kanalliste, Mitgliederliste).
         Index("ix_devices_channel", "channel_id"),
     )
+
+
+#: Die drei Arten, auf die eine Freigabe jemanden meinen kann.
+#:
+#: ``everyone`` heisst „jeder, der überhaupt anfragen darf" — also jeder, der am
+#: Standplatz ``REMOTE_CONTROL`` hat. Es ist keine Abkürzung an der
+#: Rechteprüfung vorbei, sondern der Verzicht auf eine ZUSÄTZLICHE Einengung.
+SUBJECT_USER = "user"
+SUBJECT_ROLE = "role"
+SUBJECT_EVERYONE = "everyone"
+SUBJECT_TYPES = (SUBJECT_USER, SUBJECT_ROLE, SUBJECT_EVERYONE)
+
+
+class DeviceGrant(Base):
+    """Eine Dauerfreigabe an einem Gerät.
+
+    **Warum die Zeile keinen Kanal trägt.** Die alte, gerätelokale Fassung
+    speicherte zu jeder Freigabe den Kanal, in dem sie erteilt wurde — sonst
+    stimmte sie einer Anfrage zu, die einen ganz anderen Kanal nannte, und der
+    Standplatz samt seinem Overwrite war umgangen. Hier ist der Ort implizit der
+    Standplatz des Geräts, und geprüft wird ``REMOTE_CONTROL`` genau dort
+    (``device_grants.py::gedeckt``). Das Loch kann damit nicht wiederkommen.
+
+    **Abgelaufene Zeilen werden nicht gefegt**, sondern beim Auflösen ignoriert
+    und beim nächsten Setzen derselben Freigabe überschrieben. Ein Fegelauf wäre
+    ein Hintergrund-Task für Zeilen, die niemanden stören.
+    """
+
+    __tablename__ = "device_grants"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    device_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False
+    )
+    subject_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    #: Nutzer- oder Rollenkennung; NULL bei ``everyone``.
+    subject_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    #: NULL = dauerhaft.
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    created_by_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "device_id", "subject_type", "subject_id", name="uq_device_grants_subject"
+        ),
+        Index("ix_device_grants_device", "device_id"),
+    )

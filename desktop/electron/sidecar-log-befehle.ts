@@ -54,8 +54,9 @@ export const LEBENSZYKLUS_OPS: ReadonlySet<string> = new Set([
  * auf die Platte (Projektregel: niemals Stream-Keys oder Tokens loggen).
  *
  * `url` steht mit drauf, obwohl die meisten URLs harmlos sind: die Push-Adresse
- * trägt den Key als `?token=` oder `?pass=` mit sich (s. `redact.rs` im
- * Sidecar), und welche URL welche ist, entscheidet man nicht am Feldnamen.
+ * trägt den Key als `?token=` oder `?pass=` mit sich (s. `pulse-redact`, die
+ * gemeinsame Maskierungs-Kiste aller drei Sidecars), und welche URL welche
+ * ist, entscheidet man nicht am Feldnamen.
  */
 const GEHEIME_FELDER = ['token', 'secret', 'pass', 'key', 'url', 'credential'];
 

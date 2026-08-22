@@ -248,8 +248,9 @@ Die Ungleichmäßigkeit wurde also wegge­rundet: der Zuschauer bekam Bilder, di
 
 **Geändert**: Encoder-Zeitbasis von `1/fps` auf **1/90000** — dieselbe Uhr, die
 RTP für Video ohnehin führt. Volle Begründung samt Alternativen in
-`streaming/win-hq-sidecar/src/zeitbasis.rs`; die Umrechnung im WHIP-Sendeweg
-wird dadurch zur Identität und kann nicht mehr falsch runden.
+`streaming/pulse-zeitbasis/src/lib.rs` (gemeinsame Kiste fuer alle drei
+Rust-Sidecars seit 2026-08-20); die Umrechnung im WHIP-Sendeweg wird dadurch
+zur Identität und kann nicht mehr falsch runden.
 
 **Nachweis, A/B mit derselben Bewegungsquelle** (je 25 s, 60 fps, H.264,
 Abstände zweier aufeinanderfolgender Bilder im Mitschnitt):

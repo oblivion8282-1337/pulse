@@ -20,9 +20,8 @@
 //!    Verfügung. Das Ergebnis sind sichtbare Ringe in jedem Verlauf. HDR
 //!    schaltet 10 bit deshalb selbst ein, statt es vom Nutzer zu verlangen.
 //!
-//! **Warum hier eine Tabelle steht und keine Abfrage.** Dieselbe Erfahrung wie
-//! beim Intra-Refresh: `avcodec_open2` nimmt Farbfelder, die der Encoder nicht
-//! weiterreicht, klaglos entgegen. Ein `h264_amf`, dem man BT.2020 und PQ
+//! **Warum hier eine Tabelle steht und keine Abfrage.** `avcodec_open2` nimmt
+//! Farbfelder, die der Encoder nicht weiterreicht, klaglos entgegen. Ein `h264_amf`, dem man BT.2020 und PQ
 //! anschreibt, öffnet ohne Murren — und schreibt es nicht in den Strom. Was ein
 //! Encoder wirklich tut, steht am fertigen Strom, und was hier steht, ist dort
 //! nachgesehen (`docs/2026-08-06-hdr-windows-amd.md` für AMD,
@@ -126,13 +125,13 @@ fn mastering_fehlt(encoder: &str) -> Option<&'static str> {
     )
 }
 
-/// Der Encoder, den diese Kombination wirklich öffnen würde — dieselbe Frage
-/// wie in [`super::auffrischung::encoder_name`], und bewusst über dieselbe
-/// Funktion beantwortet. Zwei Fassungen davon liefen mit dem nächsten
-/// Encode-Weg auseinander, und dann meldete eine Stelle eine Fähigkeit für
-/// einen Encoder, den die andere gar nicht startet.
+/// Der Encoder, den diese Kombination wirklich öffnen würde — beantwortet über
+/// [`super::codec::encoder_name`] und bewusst nicht ein zweites Mal
+/// ausgeschrieben. Zwei Fassungen davon liefen mit dem nächsten Encode-Weg
+/// auseinander, und dann meldete eine Stelle eine Fähigkeit für einen Encoder,
+/// den die andere gar nicht startet.
 fn encoder_name(vendor: &str, codec: VideoCodec, push_url: &str) -> Option<&'static str> {
-    super::auffrischung::encoder_name(vendor, codec, push_url)
+    super::codec::encoder_name(vendor, codec, push_url)
 }
 
 /// Kann diese Maschine HDR senden — unabhängig davon, ob der Schirm gerade in

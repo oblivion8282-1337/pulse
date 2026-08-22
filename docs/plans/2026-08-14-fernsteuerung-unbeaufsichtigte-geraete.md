@@ -4,6 +4,19 @@
 das Ergebnis eines Entwurfsgesprächs, damit die Begründungen nicht verloren
 gehen. **§6 (Registrierung) kam am 2026-08-16 dazu** und beantwortet die
 Frage, die vorher als offene Entscheidung in §11.1 stand.
+
+**Korrektur 2026-08-20:** die Aussage in §7, die Dauerfreigabe bleibe „auf dem
+Gerät, nicht auf dem Server", gilt seit dem Nachfolge-Umbau nicht mehr
+wortwörtlich — Nachfolger-Entwurf und aktueller Stand:
+`docs/superpowers/specs/2026-08-20-geraeteverwaltung-design.md`. Die Liste
+liegt jetzt in `chat.device_grants` auf dem Server und darf nur der Besitzer
+lesen und schreiben; die Zustimmung erteilt weiterhin das Gerät, ein lokaler
+Hauptschalter sticht immer. Der ursprüngliche Einwand unten (ein
+serverseitiger Schalter wäre admin-fernaktivierbar) bleibt gewahrt — er ist
+jetzt ein Schreibrecht statt eines Speicherorts. Ebenfalls überholt: Rollen
+in der Freigabe („bleiben draussen", §7) sind seither möglich, und der
+Geräte-Deckel ist kein festes „höchstens 10 Geräte" mehr, sondern ein
+Community-Limit mit Vorgabe 25.
 Der Oberflächen-Entwurf liegt daneben als
 `2026-08-14-geraete-standplatz-mockup.html` (in sich geschlossen, im Browser
 öffnen; benutzt die echten Glasshouse-Tokens aus `web/src/app.css` und die
@@ -256,6 +269,13 @@ kleine Weg zuerst, und deshalb die Marke am Ausweis.
 
 ## 7. Dauerfreigabe — die Zustimmung wird vorverlegt, nicht abgeschafft
 
+> **Nachfolge-Stand 2026-08-20, siehe Korrektur oben:** die Liste dieser
+> Freigabe liegt inzwischen serverseitig (`chat.device_grants`,
+> besitzer-only), nicht mehr in `pulse-stream.json` wie unten beschrieben.
+> Die Zustimmung selbst erteilt weiterhin das Gerät. Rollen und der 10er-Deckel
+> sind ebenfalls überholt (siehe oben). Der Rest dieses Abschnitts ist als
+> historische Begründung für die Stufe-1-Entscheidung stehen gelassen.
+
 Jemand sitzt **einmal** körperlich an dem Rechner und gibt ihn frei. Danach
 beantwortet der Host-Client `remote_request` selbsttätig mit `accept: true`.
 
@@ -297,7 +317,8 @@ für niemanden encodiert, ist Verschwendung.
 Naheliegend wäre, `remote_request` selbst als Weckruf zu nehmen. Dagegen spricht
 ein konkreter Fehlerfall: dann hinge eine **Sitzungszusage an einer
 Encoder-Initialisierung**. Scheitert die — kein Monitor angeschlossen, Encoder
-belegt, Startverweigerung wegen HDR oder Intra-Refresh — stünde eine aktive
+belegt, Startverweigerung wegen HDR (bis zum 2026-08-21 auch wegen
+Intra-Refresh) — stünde eine aktive
 Fernsteuer-Sitzung ohne Bild, und der Fehler wäre nicht lesbar.
 
 Deshalb getrennt: wecken → übertragen → **dann** die unveränderte
@@ -338,8 +359,8 @@ Alle aus derselben Wurzel — der Sidecar ist ein Userland-Prozess:
 Genau deshalb ist „unattended" bei den kommerziellen Werkzeugen ein
 Systemdienst. **Vorschlag für die erste Fassung: den angemeldeten, entsperrten
 Desktop tragen — und das ansagen**, statt es stillschweigend halb zu können.
-Dieselbe Linie wie bei Intra-Refresh und HDR (Startverweigerung statt
-Etikettenschwindel).
+Dieselbe Linie, die HDR fährt und bis zum 2026-08-21 der Intra-Refresh fuhr
+(Startverweigerung statt Etikettenschwindel).
 
 ## 11. Offene Entscheidungen
 

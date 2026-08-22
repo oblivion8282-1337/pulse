@@ -11,8 +11,9 @@
   zusammen — es ist derselbe Speicher-Gedanke, nur zwei Töpfe.
 
   Speichert den vollen Satz über PATCH /owner/communities/{id}/limits; null
-  löscht eine Übersteuerung. Plain inline inputs (no bits-ui dialog) — safe in
-  a re-rendering list.
+  löscht eine Übersteuerung. Inline-Felder ohne Dialog-Editor (das
+  Auflösungs-Dropdown ist ein flüchtiges Popover, kein Zustandsträger) — safe
+  in a re-rendering list.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
@@ -20,6 +21,7 @@
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import Switch from '$lib/components/form/Switch.svelte';
+  import Select from '$lib/components/form/Select.svelte';
   import LimitField from './LimitField.svelte';
   import LimitGroup from './LimitGroup.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
@@ -45,6 +47,9 @@
   /** Instanz-Standard für den Ablage-Speicher — Spiegel von
    *  ``DEFAULT_DROPBOX_QUOTA_BYTES`` (_dropbox_policy.py). Synchron halten. */
   const DEFAULT_DROPBOX_QUOTA_GB = 1;
+  /** Instanz-Standard fuer den Geraete-Deckel je Person -- Spiegel von
+   *  ``DEFAULT_MAX_DEVICES_PER_OWNER`` (guild_limits.py). Synchron halten. */
+  const DEFAULT_MAX_DEVICES_PER_OWNER = 25;
   // "Native" ist ein interner Wert, kein Anzeigetext — Klappmenü und Platzhalter
   // beschriften ihn deshalb über denselben Weg.
   const resLabel = (r: string) => (r === 'Native' ? m.admin_communities_limits_res_native() : r);
@@ -62,6 +67,9 @@
   let maxMembers = $state(untrack(() => community.max_members?.toString() ?? ''));
   let maxChannels = $state(untrack(() => community.max_channels?.toString() ?? ''));
   let maxRoles = $state(untrack(() => community.max_roles?.toString() ?? ''));
+  let maxDevicesPerOwner = $state(
+    untrack(() => community.max_devices_per_owner?.toString() ?? '')
+  );
   let maxStreams = $state(untrack(() => community.max_concurrent_streams?.toString() ?? ''));
   // Ablage: Freigabe (Schalter, kein Erben) + eigener Speicher-Topf.
   let dropboxAllowed = $state(untrack(() => community.dropbox_allowed));
@@ -71,6 +79,19 @@
   let busy = $state(false);
 
   const RES_OPTIONS = ['Native', '4K', '1440p', '1080p', '720p', '480p'];
+
+  // Der Leerwert ist eine WAHL („keine Übersteuerung, es gilt der instanz-
+  // weite Standard") und kein Platzhalter: die Beschriftung nennt den dann
+  // tatsächlich geltenden Wert — deshalb bleibt er ein echter Eintrag.
+  const resAuswahl = $derived([
+    {
+      value: '',
+      label: m.admin_communities_limits_placeholder_default({
+        value: resLabel(capabilities.hqResolutionMax)
+      })
+    },
+    ...RES_OPTIONS.map((r) => ({ value: r, label: resLabel(r) }))
+  ]);
 
   async function save() {
     busy = true;
@@ -86,6 +107,7 @@
         max_members: numOrNull(maxMembers),
         max_channels: numOrNull(maxChannels),
         max_roles: numOrNull(maxRoles),
+        max_devices_per_owner: numOrNull(maxDevicesPerOwner),
         max_concurrent_streams: numOrNull(maxStreams),
         dropbox_allowed: dropboxAllowed,
         dropbox_quota_bytes: unitStrToBytes(dropboxQuotaGB, GB)
@@ -128,20 +150,12 @@
       />
       <label class="flex flex-col gap-1">
         <span class="text-text-muted text-xs font-medium">{m.admin_communities_limits_resolution()}</span>
-        <select
-          bind:value={resolution}
-          class="border-border bg-bg-input text-text-base focus:border-primary rounded-md border px-3 py-1.5 text-sm outline-none"
+        <Select
+          value={resolution}
+          options={resAuswahl}
+          onchange={(v) => (resolution = v)}
           data-testid="community-limit-resolution"
-        >
-          <option value="">
-            {m.admin_communities_limits_placeholder_default({
-              value: resLabel(capabilities.hqResolutionMax)
-            })}
-          </option>
-          {#each RES_OPTIONS as r (r)}
-            <option value={r}>{resLabel(r)}</option>
-          {/each}
-        </select>
+        />
       </label>
     </div>
   </LimitGroup>
@@ -225,6 +239,12 @@
         bind:value={maxRoles}
         fallback="unlimited"
         min="1" testid="community-limit-max-roles"
+      />
+      <LimitField
+        label={m.admin_communities_limits_max_devices()}
+        bind:value={maxDevicesPerOwner}
+        fallback={DEFAULT_MAX_DEVICES_PER_OWNER}
+        min="1" testid="community-limit-max-devices"
       />
       <LimitField
         label={m.admin_communities_limits_max_streams()}

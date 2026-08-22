@@ -1,31 +1,49 @@
 # FFmpeg-Patches des Windows-Labors
 
+> **Intra-Refresh ist am 2026-08-21 aus Pulse entfernt worden.** Die
+> Betriebsart, um die es auf diesem Blatt streckenweise geht, gibt es nicht
+> mehr: kein Kästchen, kein Health-Feld, keine Encoder-Optionen, keine
+> FFmpeg-Patches. Gründe waren das sichtbar schlechtere H.264-Bild, dass macOS
+> sie nie trug, und dass ein Vollbild-Strom sich nach Paketverlust selbst
+> repariert — ein Intra-Refresh-Strom nicht. Die zugehörigen Messakten sind
+> gelöscht, weil sie teils nie bestätigt und teils später widerlegt wurden.
+>
+> **Was hier über die Betriebsart steht, ist Historie und keine Anleitung.**
+> Methodik, Aufbau und alles Übrige gelten weiter.
+
+
 Das Labor linkt gegen ein **selbst gebautes** FFmpeg (`../ffmpeg-patched/`,
-gitignored — Bau-Erzeugnis, rund 40 MB). Diese beiden Patches sind der Grund,
-warum es nicht das ausgelieferte tut.
+gitignored — Bau-Erzeugnis, rund 40 MB). Diese Patches sind der Grund, warum es
+nicht das ausgelieferte tut. **Seit dem 2026-08-21 ist nur noch 0002 übrig**;
+0001 ist mit Intra-Refresh gelöscht worden.
 
 Grundlage: **FFmpeg n8.1.2** (`38b8833 Bump for 8.1.2`).
 
 | Patch | Was ohne ihn fehlt |
 |---|---|
-| `0001-vulkan-encode-intra-refresh.patch` | `-intra_refresh` gibt es an `av1_vulkan`/`h264_vulkan` gar nicht — der Vulkan-Vergleichsarm wäre ohne den Patch nicht messbar |
+| ~~`0001-vulkan-encode-intra-refresh.patch`~~ | `-intra_refresh` gibt es an `av1_vulkan`/`h264_vulkan` gar nicht — der Vulkan-Vergleichsarm war ohne den Patch nicht messbar. **Am 2026-08-21 mit der Betriebsart gelöscht**; der Vergleichsarm läuft seither ohne Auffrischung |
 | `0002-vulkan-encode-h264-tolerate-unparsable-feedback.patch` | `h264_vulkan` lässt sich mit einer Ziel-Bitrate nicht öffnen; nur fester QP geht |
 
-## 0001 — Intra-Refresh durchreichen
+## 0001 — Intra-Refresh durchreichen (am 2026-08-21 gelöscht)
+
+> **Diese Datei existiert nicht mehr.** Sie ist am 2026-08-21 zusammen mit der
+> Betriebsart entfernt worden. Der Abschnitt bleibt, weil er den einzigen
+> Nachweis enthält, dass FFmpeg diese Vulkan-Erweiterung nirgends durchreicht —
+> wer sie je wieder braucht, fängt hier an und nicht bei null.
 
 FFmpeg reicht `VK_KHR_video_encode_intra_refresh` in **keiner** Version durch
-(8.1 und master geprüft). Der Patch bringt `-intra_refresh` und
-`-intra_refresh_period` an `av1_vulkan` und `h264_vulkan` und legt die
+(8.1 und master geprüft). Der Patch brachte `-intra_refresh` und
+`-intra_refresh_period` an `av1_vulkan` und `h264_vulkan` und legte die
 Vulkan-Strukturen dafür an.
 
-**Der Patch ist seit dem 2026-08-02 nicht mehr die Voraussetzung für das Labor,
-sondern nur noch für dessen Vergleichsarm.** Er ist mit der Begründung „AMF
-ignoriert Intra-Refresh byte-identisch" entstanden (gemessen 2026-08-01) — und
-die ist widerlegt: gemessen wurde ein Optionsname, den `av1_amf` nicht kennt, die
-richtige heißt dort `intra_refresh_mode gop_aligned`. Der Standard-Encode-Weg ist
-seither AMF; der Vulkan-Weg bleibt als nachfahrbarer Vergleich stehen, und dafür
-bleibt auch dieser Patch. Herleitung: `../CLAUDE.md`, Abschnitt „Der Encode-Weg",
-und `../../testbench/profiles/amf-2026-08-02-intra-refresh-doch.json`.
+**Ab dem 2026-08-02 war er nicht mehr die Voraussetzung für das Labor, sondern
+nur noch für dessen Vergleichsarm.** Er war mit der Begründung „AMF ignoriert
+Intra-Refresh byte-identisch" entstanden (gemessen 2026-08-01) — und die war
+widerlegt: gemessen wurde ein Optionsname, den `av1_amf` nicht kennt, die
+richtige hieß dort `intra_refresh_mode gop_aligned`. Der Standard-Encode-Weg war
+seither AMF. Herleitung: `../CLAUDE.md`, Abschnitt „Der Encode-Weg", und
+`../../testbench/profiles/amf-2026-08-02-intra-refresh-doch.json` (ebenfalls am
+2026-08-21 gelöscht).
 
 ## 0002 — ein unlesbarer Parametersatz-Abzug darf den Encoder nicht töten
 
@@ -83,7 +101,7 @@ Overrides unterberichten, und dann übersähe man eine echte Änderung.
 ```bash
 git clone --depth 1 --branch n8.1.2 https://git.ffmpeg.org/ffmpeg.git ffmpeg-src
 cd ffmpeg-src
-git apply .../ffmpeg-patches/0001-vulkan-encode-intra-refresh.patch
+# 0001-vulkan-encode-intra-refresh.patch stand hier, gelöscht am 2026-08-21
 git apply .../ffmpeg-patches/0002-vulkan-encode-h264-tolerate-unparsable-feedback.patch
 ```
 

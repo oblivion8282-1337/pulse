@@ -79,6 +79,15 @@ pub struct Zustand {
     /// Die Schleife nimmt das Zeichen ab und fordert an; der Neuaufbau selbst
     /// ist da schon passiert.
     pub vollbild_noetig: AtomicBool,
+    /// Der Zusammensetzer hat Bilddaten weggeworfen (s.
+    /// `depacket::Assembler::verworfen_abholen`).
+    ///
+    /// Die Schleife setzt das Zeichen, der Faden nimmt es ab und reicht es an
+    /// die Einfrier-Wacht weiter — dort trennt es einen haengenden Decoder von
+    /// stehendem Bildinhalt, die einzige Unterscheidung, die am Ausgabebild
+    /// selbst nicht zu treffen ist. Ueber den `Zustand` und nicht direkt, weil
+    /// der Decoder dem Faden gehoert und die Schleife ihn nicht anfassen darf.
+    pub schaden: AtomicBool,
     /// Offene Auftraege in der Warteschlange (s. [`SCHLANGE_MAX`]).
     pub offen: AtomicUsize,
     /// Es ist mindestens ein Bild beim Fenster angekommen.
@@ -196,6 +205,15 @@ fn arbeiten(
         // (die Wacht fuehrt einen eigenen Pruefabstand) und braucht damit den
         // Decoder, den nur dieser Faden besitzt.
         zustand.wartet_auf_einstieg.store(dec.wartet_auf_einstieg(), Relaxed);
+        // VOR der Einfrier-Pruefung: die Meldung entscheidet mit, wie lange das
+        // Bild stehen darf, bevor sie zuschlaegt.
+        if zustand.schaden.swap(false, Relaxed) {
+            dec.schaden_gemeldet();
+        }
+        // Diagnose (`PULSE_PLAYER_ERHOLUNG_LOG=1`): ein stehendes Bild bei
+        // gesunden Zahlen ist von aussen nicht zu sehen — die Wacht weiss es
+        // als einzige. Nur beim Ueberschreiten der Schwelle, nicht je Bild.
+        dec.erholung_melden();
         if dec.eingefroren() {
             dec.wegen_einfrieren_neu();
             zustand.vollbild_noetig.store(true, Relaxed);

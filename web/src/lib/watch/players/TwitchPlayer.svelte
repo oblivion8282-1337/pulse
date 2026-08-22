@@ -138,6 +138,7 @@
             const clamped = Math.max(0, Math.min(100, p));
             player?.setVolume(clamped / 100);
           },
+          setMuted: (m: boolean) => player?.setMuted?.(m),
           destroy: () => {
             // The Embed API has no `destroy`; clearing the container is the
             // documented teardown.

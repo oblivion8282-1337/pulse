@@ -5,6 +5,7 @@
   import { isMobile } from '$lib/platform/runtime';
   import { deviceDisplayName } from '$lib/voice/devices';
   import Checkbox from '$lib/components/form/Checkbox.svelte';
+  import Select from '$lib/components/form/Select.svelte';
   import MicGainControl from './MicGainControl.svelte';
   import OutputVolumeControl from './OutputVolumeControl.svelte';
   import { onDestroy, untrack } from 'svelte';
@@ -126,6 +127,21 @@
   // Die Sprach-Bitrate bestimmt der Server (kein Nutzer-Regler mehr) — Stereo
   // hängt damit nur noch an der Rauschunterdrückung (mono-Worklet).
   let stereoForced = $derived(processorActive);
+
+  // Gerätelisten für die beiden Auswahlfelder. Ohne Geräte bleibt die Liste
+  // leer und der Platzhalter übernimmt („Sprachkanal beitreten …").
+  let eingabeOptionen = $derived(
+    voice.inputDevices.map((d) => ({
+      value: d.deviceId,
+      label: deviceDisplayName(d, m.settings_audio_video_microphone()),
+    })),
+  );
+  let ausgabeOptionen = $derived(
+    voice.outputDevices.map((d) => ({
+      value: d.deviceId,
+      label: deviceDisplayName(d, m.settings_audio_video_output_device_label()),
+    })),
+  );
 </script>
 
 <div class="flex flex-col gap-6" data-testid="settings-audio-video-panel">
@@ -134,20 +150,15 @@
     <!-- Eingabegerät + Pegelanzeige -->
     <div class="flex flex-col gap-2">
       <span class="text-text-bright text-sm font-medium">{m.settings_audio_video_input_device_label()}</span>
-      <select
-        class="bg-bg-input text-text-base h-11 rounded-md px-2 text-sm outline-none md:h-9"
+      <Select
+        class="h-11 md:h-9"
         value={voice.selectedInputDeviceId}
-        onchange={(e) => void onInputChange((e.currentTarget as HTMLSelectElement).value)}
+        options={eingabeOptionen}
+        placeholder={m.settings_audio_video_join_voice_to_see_devices()}
+        onchange={(v) => void onInputChange(v)}
         data-testid="settings-input-device"
         disabled={voice.inputDevices.length === 0}
-      >
-        {#if voice.inputDevices.length === 0}
-          <option value="">{m.settings_audio_video_join_voice_to_see_devices()}</option>
-        {/if}
-        {#each voice.inputDevices as d (d.deviceId)}
-          <option value={d.deviceId}>{deviceDisplayName(d, m.settings_audio_video_microphone())}</option>
-        {/each}
-      </select>
+      />
       <div class="flex items-center gap-2">
         <div class="bg-bg-input relative h-2 flex-1 overflow-hidden rounded-full" data-testid="settings-mic-level">
           <!-- RMS-Füllung: das was die Gate-Schwelle vergleicht (short-window RMS). -->
@@ -230,20 +241,15 @@
     <!-- Ausgabegerät -->
     <div class="flex flex-col gap-2">
       <span class="text-text-bright text-sm font-medium">{m.settings_audio_video_output_device_label()}</span>
-      <select
-        class="bg-bg-input text-text-base h-11 rounded-md px-2 text-sm outline-none md:h-9"
+      <Select
+        class="h-11 md:h-9"
         value={voice.selectedOutputDeviceId}
-        onchange={(e) => void onOutputChange((e.currentTarget as HTMLSelectElement).value)}
+        options={ausgabeOptionen}
+        placeholder={m.settings_audio_video_join_voice_to_see_devices()}
+        onchange={(v) => void onOutputChange(v)}
         data-testid="settings-output-device"
         disabled={voice.outputDevices.length === 0}
-      >
-        {#if voice.outputDevices.length === 0}
-          <option value="">{m.settings_audio_video_join_voice_to_see_devices()}</option>
-        {/if}
-        {#each voice.outputDevices as d (d.deviceId)}
-          <option value={d.deviceId}>{deviceDisplayName(d, m.settings_audio_video_output_device_label())}</option>
-        {/each}
-      </select>
+      />
     </div>
 
     <!-- Wiedergabe-Lautstärke -->

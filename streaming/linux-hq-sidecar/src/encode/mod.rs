@@ -163,7 +163,7 @@ impl VideoEncoder {
     ) -> Result<(Self, Option<AudioEncoder>)> {
         ffmpeg::init().context("ffmpeg::init")?;
 
-        warne_bei_intra_refresh_ohne_rueckkanal(output_path);
+        warne_bei_langem_vollbild_abstand_ohne_rueckkanal(output_path);
 
         // Eigener WebRTC-Sendeweg: kein Container, kein Stream, kein Header.
         // Deshalb VOR dem Oeffnen eines Ausgangs abzweigen — alles Folgende
@@ -638,8 +638,6 @@ unsafe fn open_encoder(
     // SAFETY: der Kontext gehört uns, ist noch nicht geöffnet und lebt
     // über den Aufruf hinaus; `warn_unknown` liest ihn nur.
     unsafe { opts::warn_unknown(encoder.as_mut_ptr(), &o) };
-    // SAFETY: wie oben — derselbe Kontext, nur gelesen.
-    unsafe { opts::intra_refresh_pruefen(encoder.as_mut_ptr(), cfg.vendor, codec_name)? };
     let opened = encoder
         .open_with(o)
         .with_context(|| format!("open hw encoder '{codec_name}' (vendor={:?})", cfg.vendor))?;
@@ -651,18 +649,16 @@ unsafe fn open_encoder(
     // gefährlich: der Prüfstand schreibt seinen WUNSCH in die Messakte, und
     // eine H.264-Messung mit AV1-Etikett sieht vollkommen plausibel aus.
     //
-    // Die BETRIEBSART gehoert mit ins Log, nicht nur der Encoder. Sie kommt aus
-    // den Start-Parametern ODER aus der Umgebung, und ob sie wirklich
-    // angekommen ist, war von aussen bisher gar nicht feststellbar: ein
-    // Intra-Refresh-Lauf, bei dem der Wunsch unterwegs verlorenging, sieht in
-    // jedem anderen Log genau wie ein Keyframe-Lauf aus. Am 2026-08-02 ist
-    // genau das passiert — die Oberflaeche schickte das Feld nicht mit, der
-    // Stream lief mit Vollbildern, und nichts sagte es.
+    // Der VOLLBILD-ABSTAND gehoert mit ins Log, nicht nur der Encoder: er kommt
+    // aus der Umgebung (`PULSE_KEYFRAME_SECONDS`), und ob der gesetzte Wert
+    // wirklich angekommen ist, waere von aussen sonst gar nicht feststellbar.
+    // Fuer eine Messreihe ist das gefaehrlich — ein Lauf, der „60 s" im
+    // Protokoll stehen hat und in Wahrheit mit 2 s lief, sieht vollkommen
+    // plausibel aus.
     tracing::info!(
         target: "stream", encoder = codec_name, vendor = ?cfg.vendor,
         breite = cfg.width, hoehe = cfg.height, fps = cfg.fps,
         bitrate_kbps = cfg.bitrate_kbps,
-        intra_refresh = opts::intra_refresh_gewuenscht(),
         keyframe_abstand_bilder = keyframe_abstand_bilder(cfg.fps),
         "Encoder offen"
     );
@@ -699,40 +695,22 @@ unsafe fn open_encoder(
 /// fiel p99 im 100-ms-Fenster von 12053 auf 5108 kbit/s
 /// (`docs/plans/2026-07-31-av-sync-und-uebertragungsspitzen.md`).
 ///
-/// **Bei eingeschaltetem Intra-Refresh bedeutet der Wert etwas anderes**: dort
-/// ist er die Umlaufdauer der Auffrischungswelle, nicht der Vollbild-Abstand.
-/// Ein langer Wert laesst eine verlorene Bildstelle entsprechend lange stehen.
-///
 /// Ein Wert ausserhalb der Grenzen wird **gemeldet**, nicht stillschweigend
-/// verworfen: die stille Rueckkehr auf die Vorgabe hat genau die Sorte
-/// Messreihe erzeugt, die unter falschem Etikett laeuft (vgl. der
-/// Intra-Refresh-Vorfall vom 2026-08-02 weiter oben).
+/// verworfen: die stille Rueckkehr auf die Vorgabe erzeugt genau die Sorte
+/// Messreihe, die unter falschem Etikett laeuft.
 fn keyframe_abstand_bilder(fps: u32) -> u32 {
-    // **Die Vorgabe haengt an der Betriebsart, seit dem 2026-08-19.** Dieselbe
-    // Zahl steuert zwei verschiedene Dinge: ohne Intra-Refresh den Abstand der
-    // Vollbilder, mit Intra-Refresh die UMLAUFDAUER der Auffrischungswelle
-    // (`-g`, s. `opts::intra_refresh_opts`). 60 s sind als Vollbild-Abstand
-    // gemessen gut und als Umlaufdauer katastrophal — eine verlorene Bildstelle
-    // bliebe eine Minute lang stehen, und der Player verdeckt nur 2 s
-    // (`decode.rs::refresh_dauer`). Eine einzige Vorgabe kann beiden nicht
-    // dienen; genau das war am 2026-08-18 uebersehen worden.
-    let vorgabe = if opts::intra_refresh_gewuenscht() {
-        KEYFRAME_SEKUNDEN_UMLAUF_VORGABE
-    } else {
-        KEYFRAME_SEKUNDEN_VORGABE
-    };
     let sekunden = match std::env::var("PULSE_KEYFRAME_SECONDS").ok().as_deref() {
-        None => vorgabe,
+        None => KEYFRAME_SEKUNDEN_VORGABE,
         Some(roh) => match roh.parse::<f32>() {
             Ok(v) if (KEYFRAME_SEKUNDEN_MIN..=KEYFRAME_SEKUNDEN_MAX).contains(&v) => v,
             _ => {
                 tracing::warn!(
                     target: "stream", wert = roh,
                     min = KEYFRAME_SEKUNDEN_MIN, max = KEYFRAME_SEKUNDEN_MAX,
-                    vorgabe,
+                    vorgabe = KEYFRAME_SEKUNDEN_VORGABE,
                     "PULSE_KEYFRAME_SECONDS unbrauchbar — es gilt die Vorgabe"
                 );
-                vorgabe
+                KEYFRAME_SEKUNDEN_VORGABE
             }
         },
     };
@@ -783,20 +761,10 @@ const KEYFRAME_SEKUNDEN_VORGABE: f32 = 60.0;
 /// * [`KEYFRAME_DROSSEL_DECKEL_MS`] — die Bremse fuer angeforderte Vollbilder.
 ///   Folgte sie 60 s, verwuerfe der Sender eine Anforderung eine Minute lang;
 ///   genau dieser Fehler wurde am 2026-08-18 gefunden und behoben.
-/// * [`warne_bei_intra_refresh_ohne_rueckkanal`] — die Warnschwelle. Folgte sie
-///   der Vorgabe, bliebe ausgerechnet der Normalfall (60 s ueber einen Weg ohne
-///   Rueckkanal) stumm, obwohl er der gefaehrlichste ist.
+/// * [`warne_bei_langem_vollbild_abstand_ohne_rueckkanal`] — die Warnschwelle.
+///   Folgte sie der Vorgabe, bliebe ausgerechnet der Normalfall (60 s ueber
+///   einen Weg ohne Rueckkanal) stumm, obwohl er der gefaehrlichste ist.
 const KEYFRAME_SEKUNDEN_UNBEDENKLICH: f32 = 2.0;
-
-/// Vorgabe fuer die UMLAUFDAUER, wenn Intra-Refresh laeuft.
-///
-/// Bleibt bei 2 s, waehrend der Vollbild-Abstand auf 60 s gewandert ist. Bei
-/// Intra-Refresh ist die Zahl keine Wartezeit zwischen Einstiegspunkten,
-/// sondern wie lange die Auffrischung braucht, um einmal ueber das Bild zu
-/// laufen — und so lange bleibt eine verlorene Bildstelle sichtbar kaputt.
-/// Der Player verdeckt genau diese Zeit (`pulse-player/src/decode.rs::
-/// refresh_dauer`, ebenfalls 2000 ms); die beiden Zahlen gehoeren zusammen.
-const KEYFRAME_SEKUNDEN_UMLAUF_VORGABE: f32 = 2.0;
 
 const KEYFRAME_SEKUNDEN_MIN: f32 = 0.1;
 
@@ -817,7 +785,7 @@ const KEYFRAME_SEKUNDEN_MAX: f32 = 120.0;
 /// Rueckweg stand das Bild nach einem Verlust bis zum naechsten regulaeren
 /// Vollbild, bei zwei Sekunden Abstand also bis zu zwei Sekunden.
 ///
-/// Zweiter Nutzen, und fuer Intra-Refresh der entscheidende: ein neu
+/// Zweiter Nutzen, und bei 60 s Abstand der entscheidende: ein neu
 /// dazukommender Zuschauer braucht EIN Vollbild zum Einstieg. Ohne das sieht er
 /// gar nichts — gemessen 0 Bilder gegen 2228, wenn er vor dem einzigen IDR
 /// beitritt.
@@ -1060,10 +1028,10 @@ fn probe_open(
     // Vorgabe (`vaapi_encode_h264.c`), der Live-Pfad ueberschreibt das mit
     // `set_max_b_frames(0)` — die Probe tat es nicht und pruefte damit eine
     // ANDERE Einstellung als die, die spaeter laeuft. Aufgefallen am
-    // 2026-08-01: mit `PULSE_INTRA_REFRESH=1` scheiterte der h264-Open in der
-    // Probe an "Intra refresh cannot be used together with B-frames", und
-    // H.264 verschwand still aus `health.video_codecs` — obwohl der echte
-    // Encode-Pfad es problemlos konnte.
+    // 2026-08-01: der h264-Open scheiterte in der Probe an einer Option, die
+    // sich mit B-Bildern beisst, und H.264 verschwand still aus
+    // `health.video_codecs` — obwohl der echte Encode-Pfad es problemlos
+    // konnte.
     enc.set_max_b_frames(0);
     unsafe {
         let ctx = enc.as_mut_ptr();
@@ -1099,51 +1067,35 @@ pub fn is_whip_url(url: &str) -> bool {
     url_format_hint(url) == Some("whip")
 }
 
-/// Melden, wenn Intra-Refresh über einen Weg ohne RTCP-Rückkanal geht.
+/// Melden, wenn ein langer Vollbild-Abstand über einen Weg ohne RTCP-Rückkanal
+/// geht.
 ///
-/// Diese Kombination ist für jeden Zuschauer wertlos: In einem
-/// Intra-Refresh-Strom stehen kaum Vollbilder, und ohne Rückkanal kann niemand
-/// eins anfordern — der Zuschauer sieht dauerhaft ein schwarzes Bild, während
-/// Sender und Server nichts Auffälliges melden.
+/// Diese Kombination ist für einen beitretenden Zuschauer wertlos: er wartet
+/// bis zum nächsten regulären Vollbild — bei der Vorgabe bis zu einer Minute —,
+/// und ohne Rückkanal kann er keines anfordern. Er sieht ein schwarzes Bild,
+/// während Sender und Server nichts Auffälliges melden.
 ///
-/// **Warum die Warnung existiert** (2026-08-03): Genau das ist passiert, und
-/// es war von außen nicht zu sehen. Die Oberfläche schickte ihre Wahl nur mit,
-/// wenn sie `true` war; beim Zurückschalten auf den Standardweg fehlte das
-/// Feld, der prozessweite Zustand im Sidecar behielt „an", und der Transport
-/// fiel korrekt auf RTMPS zurück. Der Encoder lief also in einer Betriebsart,
-/// die diesen Transport ausschließt. Beide Seiten für sich waren plausibel —
-/// erst zusammen ergaben sie einen unbrauchbaren Strom.
+/// **Warum die Warnung existiert** (2026-08-18): `pushProtokoll` in der
+/// Oberflaeche waehlte fuer AV1 RTMPS, ausdruecklich begruendet damit, dass
+/// dort „ein Vollbild je zwei Sekunden im Strom" stehe. Als
+/// `PULSE_KEYFRAME_SECONDS` den Abstand streckbar machte, wurde diese
+/// Begruendung falsch, ohne dass jemand die Regel anfasste: bei 30 s Abstand
+/// wartete ein beitretender Zuschauer bis zu dreissig Sekunden auf sein erstes
+/// Bild, und nichts im Log sagte es. Die Oberflaeche nimmt inzwischen immer
+/// WHIP — aber der Sidecar laeuft auch ohne sie (Pruefstand, fremde Aufrufer),
+/// und genau dafuer ist diese Wache da.
 ///
 /// Nur eine Warnung, kein Abbruch und kein stilles Umschalten: Der Prüfstand
 /// fährt den Sidecar ohne Oberfläche und darf diese Kombination messen dürfen.
 /// Dateiziele sind ausgenommen — dort gibt es keinen Zuschauer.
-/// **Seit dem 2026-08-18 deckt sie einen zweiten Fall mit: einen langen
-/// Vollbild-Abstand.** Die Folge ist dieselbe und der Weg dorthin war derselbe
-/// Denkfehler. `pushProtokoll` in der Oberflaeche waehlte fuer AV1 ohne
-/// Intra-Refresh RTMPS, ausdruecklich begruendet damit, dass dort „ein Vollbild
-/// je zwei Sekunden im Strom" stehe. Als `PULSE_KEYFRAME_SECONDS` den Abstand
-/// streckbar machte, wurde diese Begruendung falsch, ohne dass jemand die Regel
-/// anfasste: bei 30 s Abstand wartete ein beitretender Zuschauer bis zu dreissig
-/// Sekunden auf sein erstes Bild. Die Oberflaeche nimmt inzwischen immer WHIP —
-/// aber der Sidecar laeuft auch ohne sie (Pruefstand, fremde Aufrufer), und
-/// genau dafuer ist diese Wache da.
 ///
 /// Die Grenze ist der Abstand, den die Vorgabe erzeugt: bis dahin ist der Strom
 /// so beschaffen wie der, fuer den RTMPS einmal freigegeben wurde.
-fn warne_bei_intra_refresh_ohne_rueckkanal(output_path: &str) {
+fn warne_bei_langem_vollbild_abstand_ohne_rueckkanal(output_path: &str) {
     let Some(format) = url_format_hint(output_path) else {
         return; // Datei, kein Netz-Ziel
     };
     if format == "whip" {
-        return;
-    }
-    if opts::intra_refresh_gewuenscht() {
-        tracing::warn!(
-            target: "stream", format,
-            "Intra-Refresh ohne RTCP-Rueckkanal: dieser Weg kann keine Vollbild-Anforderung \
-             zustellen, und der Strom enthaelt kaum Vollbilder — Zuschauer sehen ein \
-             schwarzes Bild. Intra-Refresh braucht WHIP."
-        );
         return;
     }
     let sekunden = keyframe_abstand_sekunden();
@@ -1286,26 +1238,15 @@ mod keyframe_sperrfrist_tests {
         assert_eq!(keyframe_abstand_bilder(60), vorgabe, "ohne Variable die Vorgabe");
     }
 
-    /// **Der Fund vom 2026-08-19:** dieselbe Einstellung steuert je Betriebsart
-    /// zwei verschiedene Dinge. Ohne Intra-Refresh den Vollbild-Abstand (60 s,
-    /// gemessen gut), mit Intra-Refresh die Umlaufdauer der Auffrischung — und
-    /// 60 s Umlauf hiessen: eine verlorene Bildstelle bleibt eine Minute lang
-    /// kaputt, waehrend der Player nur 2 s verdeckt.
+    /// Die Vorgabe steht auf 60 s, und eine ausdrueckliche Einstellung schlaegt
+    /// sie.
     #[test]
-    fn die_vorgabe_haengt_an_der_betriebsart() {
+    fn die_vorgabe_und_die_einstellung() {
         let _wache = ENV.lock().unwrap_or_else(|p| p.into_inner());
         unsafe { std::env::remove_var("PULSE_KEYFRAME_SECONDS") };
+        assert_eq!(keyframe_abstand_bilder(60), 3600, "Vorgabe: 60 s Vollbild-Abstand");
 
-        opts::intra_refresh_setzen(false);
-        assert_eq!(keyframe_abstand_bilder(60), 3600, "ohne Intra-Refresh: 60 s Vollbild-Abstand");
-
-        opts::intra_refresh_setzen(true);
-        assert_eq!(keyframe_abstand_bilder(60), 120, "mit Intra-Refresh: 2 s Umlaufdauer");
-
-        // Eine ausdrueckliche Einstellung schlaegt beide Vorgaben.
         unsafe { std::env::set_var("PULSE_KEYFRAME_SECONDS", "10") };
-        assert_eq!(keyframe_abstand_bilder(60), 600);
-        opts::intra_refresh_setzen(false);
         assert_eq!(keyframe_abstand_bilder(60), 600);
 
         unsafe { std::env::remove_var("PULSE_KEYFRAME_SECONDS") };

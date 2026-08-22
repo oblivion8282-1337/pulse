@@ -18,8 +18,9 @@
 
 /**
  * Das Bild eines Zeigers, den kein Name trägt. Aufbau und Grenzen stehen in
- * `streaming/pulse-player/src/zeigerbild.rs` — hier wird nur geprüft, dass die
- * Felder überhaupt Felder dieser Art sind; was sie bedeuten, deutet der Player.
+ * `streaming/pulse-zeigerbild/src/lib.rs` (gemeinsame Kiste fuer Player und
+ * Windows-Sidecar seit 2026-08-20) — hier wird nur geprüft, dass die Felder
+ * überhaupt Felder dieser Art sind; was sie bedeuten, deutet der Player.
  *
  * **Es gibt zwei Ausprägungen, und alle Felder ausser `id` gehören zur
  * zweiten:**

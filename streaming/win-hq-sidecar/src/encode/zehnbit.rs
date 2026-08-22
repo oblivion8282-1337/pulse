@@ -87,10 +87,15 @@ pub fn pruefen(disable_zc: bool, pfad: EncodePath) -> Result<()> {
 /// `true`, obwohl Intel über die CPU-Pipeline läuft, die 10 bit strukturell
 /// nicht trägt. Die Zusage war damit auf jeder Intel-Maschine falsch. Jetzt
 /// prüft sie denselben Encode-Weg, den [`pruefen`] beim Start prüft
-/// ([`VideoCodec::encode_path`]) — dieselbe Disziplin wie
-/// `auffrischung::verfuegbar` und `hdr::verfuegbar` nebenan, die beide schon
-/// fragen, welcher Weg WIRKLICH läuft statt nur, ob irgendein Encoder
-/// existiert.
+/// ([`VideoCodec::encode_path`]) — dieselbe Disziplin wie `hdr::verfuegbar`
+/// nebenan, das ebenfalls fragt, welcher Weg WIRKLICH läuft statt nur, ob
+/// irgendein Encoder existiert.
+///
+/// Hier stand bis zum 2026-08-21 zusätzlich `auffrischung::verfuegbar`. Die
+/// Funktion gibt es nicht mehr — mit der Betriebsart ist auch ihre
+/// Verfügbarkeitsfrage entfallen; geblieben ist dort nur
+/// `auffrischung::braucht_selbsttakt`, und das beantwortet eine andere Frage
+/// (ob ein Encoder von sich aus auffrischt).
 ///
 /// `push_url` leer, aus demselben Grund wie dort: die Fähigkeitsmeldung kennt
 /// das Ziel noch nicht, und der Regelweg ist der ohne angemeldeten Sendeweg.

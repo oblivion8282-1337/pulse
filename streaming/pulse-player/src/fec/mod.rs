@@ -27,13 +27,18 @@
 //! Player bot FlexFEC damit gar nicht erst an, und ein Server mit
 //! eingeschalteter Paritaet haette ihren Aufschlag fuer ihn umsonst gezahlt.
 //!
-//! Der Grund fuer die Umstellung liegt in der Bildstruktur: Ein
-//! Intra-Refresh-Strom heilt sich nach einem Verlust NICHT selbst (gemessen
-//! 2026-07-29 — eine verworfene Zugriffseinheit laesst das Bild dauerhaft
+//! Der Grund fuer die Umstellung lag in der Bildstruktur: Ein
+//! Intra-Refresh-Strom heilte sich nach einem Verlust NICHT selbst (gemessen
+//! 2026-07-29 — eine verworfene Zugriffseinheit liess das Bild dauerhaft
 //! stehen, bei av1_cuvid wie bei libdav1d). Wo keine Vollbilder mehr im Strom
-//! stehen, muss der Verlust verhindert werden statt hinterher repariert, und
+//! standen, musste der Verlust verhindert werden statt hinterher repariert, und
 //! die Paritaet ist die Schicht, die weder NACK noch die Vollbild-Anforderung
 //! abdecken: Redundanz, die VOR dem Verlust unterwegs ist.
+//!
+//! **Die Betriebsart ist am 2026-08-21 entfallen, die Begruendung nicht.** Der
+//! Vollbild-Abstand steht seit dem 2026-08-18 bei 60 s: zwischen zwei
+//! Vollbildern liegt jetzt eine Minute statt eines Auffrischungsdurchlaufs,
+//! und in dieser Minute gilt jedes Wort oben unveraendert.
 //!
 //! Die alte Warnung bleibt als Merkposten gueltig: Wer eine Messung fuer „mit
 //! Paritaet" haelt, muss geprueft haben, dass sie im laufenden Binary wirklich

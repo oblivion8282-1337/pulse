@@ -253,7 +253,11 @@ Ehrlich benannt, damit niemand danach sucht:
   (RTX 5080) laeuft er mit Hardware-Dekodierung — `h264_cuvid` und `av1_cuvid`,
   8 wie 10 bit —, geprueft gegen die echte Kette (win-hq-sidecar -> eigener
   WHIP-Sendeweg -> gepatchtes MediaMTX -> Player) samt Ton und nachtraeglichem
-  Einstieg in einen Intra-Refresh-Strom ohne periodische Vollbilder. Seither
+  Einstieg in einen laufenden Strom. *(Der Einstieg lief damals gegen einen
+  Intra-Refresh-Strom ganz ohne periodische Vollbilder. Diese Betriebsart ist am
+  2026-08-21 aus Pulse entfernt worden; der Fall bleibt derselbe, nur kommt das
+  erste Bild heute vom Vollbild-Abstand — 60 s — bzw. auf Anforderung ueber den
+  RTCP-Rueckkanal.)* Seither
   wird er auch im Windows-Installer mitgeliefert (`electron-builder.yml`,
   `win-build.yml`). **Hier stand bis zum 2026-08-20 „macOS bleibt ungeprueft
   und wird nicht ausgeliefert".** Das Zweite ist erledigt: der Player faehrt
@@ -316,12 +320,10 @@ Sonderstellung ist weggefallen (s. „Wer noch mitliest").
 > 255 — Dither, kein Versatz und keine Farbverschiebung), HDR laeuft auf beiden.
 > **Hier stand „die Vorgabe ist trotzdem nicht umgestellt worden: belegt ist die
 > Kostenseite, nicht die Robustheitsseite (Verhalten nach Paketverlust,
-> Wiederaufsetzen, Intra-Refresh-Einstieg) … Wer die Vorgabe drehen will, misst
-> das zuerst."** Genau das ist geschehen: der fehlende Beleg ist noch am
-> 2026-08-11 nachgereicht worden
-> (`streaming/testbench/profiles/player-2026-08-11-robustheit-d3d11va-gegen-cuvid.json`),
-> und die Vorgabe ist gedreht. Die Sonderbehandlungen, die `decode.rs` fuer
-> cuvid fuehrt, sind damit nicht hinfaellig — `*_cuvid` bleibt der Rueckfall.
+> Wiederaufsetzen, nachtraeglicher Einstieg in einen laufenden Strom — bis zum
+> 2026-08-21 stand hier "Intra-Refresh-Einstieg"), und `decode.rs` fuehrt fuer cuvid
+> mehrere hart erarbeitete Sonderbehandlungen, die fuer D3D11VA niemand geprueft
+> hat. Wer die Vorgabe drehen will, misst das zuerst.
 >
 > Bleibt der Fall doch einmal eintreten, ist er sichtbar: der Player schreibt
 > beim ersten Bild `Bildweg ueber den Hauptspeicher — fuer NV12 gibt es auf
@@ -556,11 +558,13 @@ streaming/pulse-player/scripts/bootstrap-webrtc.sh
 ```
 
 **Auf Linux zuerst: das passende FFmpeg holen.** `ffmpeg-next` 8.1 uebersetzt
+
+**Auf Linux zuerst: das passende FFmpeg holen.** `ffmpeg-next` 8.1 übersetzt
 nicht gegen FFmpeg 9, und Arch/CachyOS liefern seit 2026 genau das im System.
 `cargo check` scheitert dann mit 14 Fehlern **in der Crate**, nicht in
 Pulse-Code — Felder wie `pix_fmts`/`sample_fmts` gibt es dort nicht mehr, drei
 Codec-Kennungen sind weg, neue Sorten Zusatzdaten kamen hinzu. Am 2026-08-17
-hat das eine Aenderung am Player ungeprueft in die CI geschickt.
+hat das eine Änderung am Player ungeprüft in die CI geschickt.
 
 ```bash
 streaming/pulse-player/scripts/fetch-ffmpeg-linux.sh   # einmalig, ~57 MB
@@ -570,15 +574,22 @@ cargo check
 ```
 
 **`PKG_CONFIG_PATH` ist der wirksame Hebel, nicht `FFMPEG_DIR`** — auf Linux
-sucht `ffmpeg-sys-next` ueber pkg-config und uebergeht die Verzeichnisvariable,
+sucht `ffmpeg-sys-next` über pkg-config und übergeht die Verzeichnisvariable,
 mit der der Windows-Sidecar auskommt. Mit `FFMPEG_DIR` allein bleiben es
 dieselben 14 Fehler (nachgemessen 2026-08-17).
 
 Der Pfad steht bewusst **nicht** in einer `.cargo/config.toml`: der Flatpak
-baut dieselbe Kiste und faende das Verzeichnis dort nicht. Und was das Skript
-holt, taugt zum Uebersetzen, **nicht zum Ausliefern** — die Auslieferung linkt
-gegen das gebuendelte FFmpeg des Flatpak-Manifests, das den
-VAAPI-Intra-Refresh-Patch und die Decoder-Liste traegt.
+baut dieselbe Kiste und fände das Verzeichnis dort nicht. Und was das Skript
+holt, taugt zum Übersetzen, **nicht zum Ausliefern** — die Auslieferung linkt
+gegen das gebündelte FFmpeg des Flatpak-Manifests, das die zugeschnittene
+Decoder-, Filter- und Hardware-Liste trägt.
+
+*(Hier stand bis zum 2026-08-21 zusätzlich „den VAAPI-Intra-Refresh-Patch". Den
+gibt es nicht mehr: die Betriebsart ist aus Pulse entfernt, der Patch mit ihr,
+und das Manifest baut seither unveränderten Upstream n8.1.1
+— `packaging/com.howispulse.Pulse.yml` sagt das an seiner `sources`-Liste
+ausdrücklich. Der Unterschied zum hier Geladenen ist nur noch die
+Konfiguration.)*
 
 **Dann: rustc >= 1.95.** Seit dem Sprung auf wgpu 30 / egui 0.36
 (2026-08-07) baut die Kiste unter aelteren Fassungen nicht mehr — cargo lehnt
@@ -595,7 +606,7 @@ nehmen die jeweils aktuelle stabile Fassung.
 
 ```
 cd streaming/pulse-player
-cargo test          # 393 Tests, keine Hardware noetig
+cargo test          # 389 Tests gruen, 6 ignoriert (Stand 2026-08-22), keine Hardware noetig
 cargo build --release
 ```
 

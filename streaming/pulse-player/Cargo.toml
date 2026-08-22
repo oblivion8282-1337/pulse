@@ -65,6 +65,12 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] }
 bytes = "1"
 
+# Zeigerbild-Format der Fernsteuerung, seit 2026-08-20 gemeinsam mit dem
+# Windows-Sidecar in einer eigenen Crate. `src/zeigerbild.rs` bleibt als
+# Re-Export bestehen (s. dort).
+pulse-zeigerbild = { path = "../pulse-zeigerbild" }
+pulse-bildmarke = { path = "../pulse-bildmarke" }
+
 # --- Decode (LGPL-FFmpeg, dynamisch gelinkt) ---
 ffmpeg-next = { version = "8.1", default-features = false, features = [
     "codec",

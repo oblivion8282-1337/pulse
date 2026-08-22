@@ -1,5 +1,12 @@
 //! Der Decoder des Messwerks — und das Prüfen einer Mitschrift ohne Netz.
 //!
+//! **Der Vollbild-Zähler weiter unten ist seit dem 2026-08-21 kein Nachweis
+//! mehr**, sondern eine schlichte Zahl: Intra-Refresh ist an dem Tag aus Pulse
+//! entfernt worden, jeder Strom hat wieder periodische Vollbilder. Der Rest des
+//! Moduls (Zeitabschnitte teilen, offline gegenprüfen, Decoder benennen) ist
+//! davon unberührt und der Grund, warum die Datei unverändert bleibt. Volle
+//! Begründung im Kopf von [`super`].
+//!
 //! Steht getrennt von [`super`], weil es eine andere Frage beantwortet: dort
 //! „was kommt an und wann", hier „ist daraus ein Bild zu machen". Genau diese
 //! Trennung war am 2026-08-02 der Unterschied zwischen einer Stunde Suche im
@@ -188,8 +195,9 @@ pub(super) enum Ausgang {
     Bild,
     /// Dasselbe, aber ein **Vollbild**.
     ///
-    /// **Das ist der Nachweis, dass Intra-Refresh läuft**, und zwar am
-    /// Zuschauer statt am Log des Senders: mit Intra-Refresh darf im ganzen
+    /// **Das war der Nachweis, dass Intra-Refresh läuft** (bis 2026-08-21),
+    /// und zwar am Zuschauer statt am Log des Senders: mit Intra-Refresh durfte
+    /// im ganzen
     /// Lauf höchstens eines kommen (das auf die Einstiegs-Anforderung), ohne
     /// sind es beim Zwei-Sekunden-Takt viele. Am 2026-08-02 gewählt, weil der
     /// Umweg über eine Mitschrift bei AV1 nicht trägt: die rohe OBU-Datei hat

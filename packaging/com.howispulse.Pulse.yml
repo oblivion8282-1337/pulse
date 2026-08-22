@@ -9,10 +9,9 @@
 #   - der Rust-Linux-HQ-Sidecar (senden) und der native HQ-Player (zuschauen),
 #     beide gegen dasselbe gebündelte FFmpeg gelinkt.
 #
-# Das gebündelte FFmpeg trägt zwei Dinge, die es sonst nirgends gibt und die
-# beim Kürzen nicht wegfallen dürfen: den VAAPI-Intra-Refresh-Patch (sonst haben
-# AMD/Intel die Betriebsart nicht) und eine Decoder-Liste (sonst zeigt der
-# Player nie ein Bild). Beides steht am ffmpeg-Modul ausführlich begründet.
+# Das gebündelte FFmpeg trägt eine Decoder-Liste, die beim Kürzen nicht
+# wegfallen darf — ohne sie zeigt der Player nie ein Bild. Am ffmpeg-Modul
+# ausführlich begründet.
 #
 # What's NOT inside: the web frontend. The packaged app loads https://howispulse.com remotely
 # (electron/main.ts → PROD_URL, since no PULSE_DEV_URL is set), so web-side fixes are live without a new
@@ -198,23 +197,13 @@ modules:
         url: https://github.com/FFmpeg/FFmpeg.git
         tag: n8.1.1
         commit: 239f2c733de417201d7ad3b3b8b0d9b63285b2b1
-      # Rollender Intra-Refresh fuer die VAAPI-Encoder. FFmpeg reicht die
-      # VA-API-Option in KEINER Version durch, auch nicht in master — ohne
-      # diesen Patch haben AMD- und Intel-Nutzer die Betriebsart schlicht nicht,
-      # und der Sidecar verweigert den Start, statt still Keyframes zu fahren
-      # (`encode/opts.rs::intra_refresh_pruefen`). Auf NVIDIA wird er nicht
-      # gebraucht, `*_nvenc` hat die Option upstream.
+      # **Unveraenderter Upstream-Quelltext.** Bis zum 2026-08-21 lag hier ein
+      # Pulse-Patch, der rollenden Intra-Refresh fuer die VAAPI-Encoder
+      # freilegte; die Betriebsart ist entfallen, der Patch damit auch.
       #
-      # Begruendung, Messreihe und Bauanleitung: `streaming/ffmpeg-patches/`.
-      # Der Patch ist LGPL (von FFmpeg abgeleitet), NICHT Pulse-lizenziert —
-      # eigene LICENSE liegt daneben. Gegen genau den Commit oben geprueft;
-      # beim Anheben von FFmpeg zuerst `git apply --check` gegen den neuen Tag.
-      #
-      # Dev baut denselben Commit mit demselben Patch
-      # (`streaming/ffmpeg-patches/bootstrap-ffmpeg.sh`) — hier gemessene Zahlen
+      # Dev baut denselben Commit
+      # (`streaming/ffmpeg-bau/bootstrap-ffmpeg.sh`) — hier gemessene Zahlen
       # gelten deshalb auch fuer die ausgelieferte App.
-      - type: patch
-        path: ../streaming/ffmpeg-patches/0001-vaapi_encode-rollender-intra-refresh.patch
     modules:
       - name: ffnvcodec
         no-autogen: true
@@ -267,8 +256,11 @@ modules:
         CARGO_HOME: /run/build/pulse-linux-hq-sidecar/cargo
         LIBCLANG_PATH: /usr/lib/sdk/llvm18/lib
     build-commands:
-      - cargo --offline build --release --verbose
-      - install -Dm755 target/release/pulse-linux-hq-sidecar /app/bin/pulse-linux-hq-sidecar
+      # Gebaut wird IM Unterverzeichnis, nicht im Bauwurzel — s. den Kommentar
+      # bei den `dir`-Quellen unten. `cargo/` bleibt an der Wurzel liegen, wo
+      # CARGO_HOME (absoluter Pfad, oben) es erwartet.
+      - cd linux-hq-sidecar && cargo --offline build --release --verbose
+      - install -Dm755 linux-hq-sidecar/target/release/pulse-linux-hq-sidecar /app/bin/pulse-linux-hq-sidecar
     sources:
       # Liegt seit 2026-07-29 IM Repo (vorher eigenes Repo + fest gepinnter
       # Commit). Damit löst eine Sidecar-Änderung wieder automatisch einen
@@ -278,12 +270,62 @@ modules:
       # Bleibt Handarbeit: ändert sich `Cargo.lock`, muss
       # `linux-hq-sidecar-cargo-sources.json` neu generiert werden
       # (flatpak-cargo-generator) — der Flatpak baut Cargo offline.
+      #
+      # ── Seit 2026-08-20 liegen hier VIER Verzeichnisse ───────────────────
+      # Der Sidecar hängt per Pfad-Abhängigkeit an geteilten Crates
+      # (`streaming/pulse-redact`, `streaming/pulse-zeitbasis`,
+      # `streaming/pulse-whip` und weitere), die er sich mit dem Windows- und
+      # dem mac-Sidecar teilt. `type: dir` kopiert **nur den genannten Pfad**;
+      # ohne einen eigenen Eintrag je Crate zeigte `path = "../…"` im
+      # Bauordner ins Leere — und weil der Flatpak `cargo --offline` baut,
+      # gibt es kein Nachladen, der Bau bricht. Windows und macOS bauen
+      # normal und merken davon nichts; der Fehler träfe allein den Flatpak,
+      # und erst in CI.
+      #
+      # Deshalb `dest:` auf jeder Seite: die Geschwister-Lage aus dem Repo
+      # (`streaming/linux-hq-sidecar` neben `streaming/pulse-redact`,
+      # `streaming/pulse-zeitbasis` und `streaming/pulse-whip`) wird im
+      # Bauordner nachgebaut, damit `../pulse-redact`/`../pulse-zeitbasis`/
+      # `../pulse-whip` dort dasselbe bedeuten wie hier. Kommt eine geteilte
+      # Crate dazu, gehört sie hierher — sonst bricht der Flatpak-Bau als
+      # einziger.
+      #
+      # Die Sources-JSON muss dafür NICHT neu erzeugt werden: weder
+      # `pulse-redact` noch `pulse-zeitbasis` haben externe Abhängigkeiten.
+      # `pulse-whip` hat welche (`webrtc`, `anyhow`), aber beide stehen schon
+      # in exakt dieser Fassung in allen drei Sidecars und damit bereits in
+      # `linux-hq-sidecar-cargo-sources.json` (geprüft: `webrtc-0.17.x` und
+      # `anyhow-1.0.x` sind enthalten) — es kommt also kein Crate von
+      # crates.io hinzu. Erst eine geteilte Crate mit einer FREMDABHÄNGIGKEIT,
+      # die noch in keinem der drei Sidecars steckt, verlangt den
+      # Generator-Lauf (flatpak-cargo-generator).
       - type: dir
         path: ../streaming/linux-hq-sidecar
+        dest: linux-hq-sidecar
         # `dir` kopiert das Verzeichnis WÖRTLICH — `.gitignore` gilt hier nicht.
         # Ohne dieses `skip` wandern die lokalen Bauartefakte des Entwicklers in
         # jeden Flatpak-Bau: 1,5 GB, die anschliessend nichts tun (der Bau
         # laeuft in einem anderen Praefix und uebersetzt ohnehin neu).
+        skip:
+          - target
+      - type: dir
+        path: ../streaming/pulse-redact
+        dest: pulse-redact
+        skip:
+          - target
+      - type: dir
+        path: ../streaming/pulse-zeitbasis
+        dest: pulse-zeitbasis
+        skip:
+          - target
+      - type: dir
+        path: ../streaming/pulse-whip
+        dest: pulse-whip
+        skip:
+          - target
+      - type: dir
+        path: ../streaming/pulse-bildmarke
+        dest: pulse-bildmarke
         skip:
           - target
       - linux-hq-sidecar-cargo-sources.json
@@ -383,15 +425,39 @@ modules:
       # /etc, das Skript scheiterte sonst am letzten Schritt.
       - ./rust-toolchain/install.sh --prefix=$PWD/rust --disable-ldconfig
         --components=rustc,cargo,rust-std-x86_64-unknown-linux-gnu
-      - PATH="$PWD/rust/bin:$PATH" cargo --offline build --release --verbose
-      - install -Dm755 target/release/pulse-player /app/bin/pulse-player
+      # Gebaut wird IM Unterverzeichnis, nicht im Bauwurzel — s. den Kommentar
+      # bei den `dir`-Quellen unten (gleiches Muster wie beim
+      # `pulse-linux-hq-sidecar`-Modul). `rust-toolchain/` bleibt an der
+      # Wurzel liegen, deshalb der Ruecksprung `../rust` im PATH.
+      - cd pulse-player && PATH="$PWD/../rust/bin:$PATH" cargo --offline build --release --verbose
+      - install -Dm755 pulse-player/target/release/pulse-player /app/bin/pulse-player
     sources:
       - type: archive
         url: https://static.rust-lang.org/dist/rust-1.97.1-x86_64-unknown-linux-gnu.tar.xz
         sha256: 88f28fa9af20594179f85d6df67078dfd6fa93e2f6da5e1e9b0ac4997988ca4f
         dest: rust-toolchain
+      # ── Seit 2026-08-20 braucht dieses Modul ZWEI Verzeichnisse ─────────
+      # Der Player haengt per Pfad-Abhaengigkeit an der geteilten Crate
+      # `streaming/pulse-zeigerbild` (Zeigerbild-Format der Fernsteuerung,
+      # geteilt mit dem Windows-Sidecar). Gleicher Grund wie beim
+      # `pulse-linux-hq-sidecar`-Modul: `type: dir` kopiert **nur den
+      # genannten Pfad**, `path = "../pulse-zeigerbild"` in `Cargo.toml` zeigte
+      # ohne einen eigenen Eintrag ins Leere, und weil der Flatpak
+      # `cargo --offline` baut, gibt es kein Nachladen — der Bau bricht, nur
+      # hier und erst in CI. Deshalb bekommt die Hauptquelle jetzt `dest:
+      # pulse-player` (vorher direkt an der Wurzel) und `pulse-zeigerbild`
+      # liegt als Geschwister daneben, damit `../pulse-zeigerbild` im
+      # Bauordner dasselbe bedeutet wie im Repo. Das verschiebt zugleich
+      # `vendor/webrtc-rs` und die Patches darunter NACH `pulse-player/…` —
+      # deren Cargo.toml-Pfad `vendor/webrtc-rs/webrtc` ist relativ zur
+      # eigenen Lage und muss mitziehen.
+      #
+      # Die Sources-JSON muss dafuer NICHT neu erzeugt werden: `pulse-zeigerbild`
+      # hat keine externen Abhaengigkeiten (leeres `[dependencies]` in dessen
+      # `Cargo.toml`) — es kommt also kein Crate von crates.io hinzu.
       - type: dir
         path: ../streaming/pulse-player
+        dest: pulse-player
         # `dir` kopiert wörtlich, `.gitignore` gilt hier NICHT — und beide
         # Ausnahmen sind hier nicht bloss Ballast:
         #
@@ -405,6 +471,16 @@ modules:
         skip:
           - target
           - vendor
+      - type: dir
+        path: ../streaming/pulse-zeigerbild
+        dest: pulse-zeigerbild
+        skip:
+          - target
+      - type: dir
+        path: ../streaming/pulse-bildmarke
+        dest: pulse-bildmarke
+        skip:
+          - target
       # Der gepatchte webrtc-rs-Zweig, den `Cargo.toml` über
       # `[patch.crates-io]` als PFAD einbindet — ohne ihn bricht cargo schon
       # beim Auflösen ab.
@@ -419,7 +495,7 @@ modules:
         url: https://github.com/webrtc-rs/webrtc.git
         tag: v0.17.2
         commit: 1da3fe8ee84db8d266322cbcfcb357c745959a8e
-        dest: vendor/webrtc-rs
+        dest: pulse-player/vendor/webrtc-rs
       # Alle drei Patches, in derselben Reihenfolge wie im Skript. Der erste
       # macht die Ströme sichtbar, deren SSRC zu keiner angemeldeten Spur passt
       # (dort liegen die FlexFEC-Paritätspakete), der zweite setzt die
@@ -431,13 +507,13 @@ modules:
       # sondern der Absturzschutz.
       - type: patch
         path: ../streaming/pulse-player/patches/0001-webrtc-rs-expose-undeclared-ssrc-streams.patch
-        dest: vendor/webrtc-rs
+        dest: pulse-player/vendor/webrtc-rs
       - type: patch
         path: ../streaming/pulse-player/patches/0002-nack-generator-resend-delay.patch
-        dest: vendor/webrtc-rs
+        dest: pulse-player/vendor/webrtc-rs
       - type: patch
         path: ../streaming/pulse-player/patches/0003-h264-stapa-bounds-check.patch
-        dest: vendor/webrtc-rs
+        dest: pulse-player/vendor/webrtc-rs
       # Wie beim Sidecar: ändert sich `Cargo.lock`, muss diese Datei neu
       # generiert werden (flatpak-cargo-generator).
       - pulse-player-cargo-sources.json

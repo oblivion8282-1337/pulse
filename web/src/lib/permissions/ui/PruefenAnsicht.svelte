@@ -17,6 +17,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { Label } from '$lib/components/ui/label/index.js';
+  import Select from '$lib/components/form/Select.svelte';
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
   import type { Member } from '$lib/api/types';
   import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
@@ -78,6 +79,15 @@
     mitglieder = geladen.mitglieder;
     rollenIdsJeMitglied = geladen.rollenIdsJeMitglied;
   });
+
+  // Der Leerwert ist der Platzhalter („niemand gewählt"), kein Eintrag: die
+  // Ansicht zeigt darunter bewusst den Leerzustand statt einer Rechnung.
+  const personOptionen = $derived(
+    mitglieder.map((mem) => ({
+      value: mem.user_id,
+      label: mem.nickname ?? userCache.displayName(mem.user_id),
+    })),
+  );
 </script>
 
 <div class="space-y-4" data-testid="perm-check">
@@ -90,17 +100,14 @@
 
   <div class="max-w-sm">
     <Label for="perm-check-person">{m.kanalrechte_pruefen_person()}</Label>
-    <select
+    <Select
       id="perm-check-person"
-      class="bg-bg-input border-border w-full rounded-md border px-3 py-2 text-sm"
-      bind:value={personId}
+      value={personId}
+      options={personOptionen}
+      placeholder={m.kanalrechte_pruefen_platzhalter()}
+      onchange={(v) => (personId = v)}
       data-testid="perm-check-select"
-    >
-      <option value="">{m.kanalrechte_pruefen_platzhalter()}</option>
-      {#each mitglieder as mem (mem.user_id)}
-        <option value={mem.user_id}>{mem.nickname ?? userCache.displayName(mem.user_id)}</option>
-      {/each}
-    </select>
+    />
   </div>
 
   {#if !personId}

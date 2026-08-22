@@ -32,6 +32,25 @@ on:
     paths:
       - 'desktop/**'
       - 'streaming/mac-hq-sidecar/**'
+      # Die gemeinsamen Kisten liegen ausserhalb von mac-hq-sidecar/, obwohl der
+      # Mac-Sidecar dagegen linkt (seit dem Zusammenlegen der vormals mehrfachen
+      # Dateien in gemeinsame Crates). Ohne diese Einträge löst eine Änderung
+      # dort keinen DMG-Build aus, und das ausgelieferte Bundle trüge weiter den
+      # alten Stand. **pulse-zeigerbild gehört seit dem 2026-08-22 dazu**: hier
+      # stand, es werde nicht gebraucht, weil der Mac-Sidecar nicht dagegen linkt
+      # — das stimmte, solange nur er im DMG lag. Seit der native Player
+      # mitgebaut wird, gilt es nicht mehr, denn DER hängt daran. Aufgefallen
+      # ist es nicht beim Lesen, sondern weil bau_ausloeser.rs rot wurde.
+      #
+      # Die Liste muss REKURSIV vollständig sein: pulse-whip hängt selbst an
+      # pulse-zeitbasis und pulse-bildmarke. Nachgerechnet wird das von
+      # streaming/zwillinge/tests/bau_ausloeser.rs — wer hier etwas ändert,
+      # bekommt dort die Gegenprobe.
+      - 'streaming/pulse-redact/**'
+      - 'streaming/pulse-zeitbasis/**'
+      - 'streaming/pulse-whip/**'
+      - 'streaming/pulse-bildmarke/**'
+      - 'streaming/pulse-zeigerbild/**'
       # Der native Player wird seit 2026-08-20 auch im DMG ausgeliefert. Ohne
       # diesen Eintrag löst eine Änderung an ihm keinen Build aus, und das DMG
       # trüge weiter den alten Stand — dieselbe Falle, die win-build.yml beim

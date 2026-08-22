@@ -1,5 +1,17 @@
 # Intra-Refresh auf Windows und macOS — Übergabe
 
+> **Intra-Refresh ist am 2026-08-21 aus Pulse entfernt worden.** Die
+> Betriebsart, um die es auf diesem Blatt streckenweise geht, gibt es nicht
+> mehr: kein Kästchen, kein Health-Feld, keine Encoder-Optionen, keine
+> FFmpeg-Patches. Gründe waren das sichtbar schlechtere H.264-Bild, dass macOS
+> sie nie trug, und dass ein Vollbild-Strom sich nach Paketverlust selbst
+> repariert — ein Intra-Refresh-Strom nicht. Die zugehörigen Messakten sind
+> gelöscht, weil sie teils nie bestätigt und teils später widerlegt wurden.
+>
+> **Was hier über die Betriebsart steht, ist Historie und keine Anleitung.**
+> Methodik, Aufbau und alles Übrige gelten weiter.
+
+
 Linux ist durch (NVIDIA am 2026-07-31, AMD am 2026-08-01). Dieses Blatt war
 der Einstieg für die beiden fehlenden Plattformen.
 
@@ -50,7 +62,7 @@ Geprüft im FFmpeg-8.1.2-Quellbaum:
 | `hevc_amf` | ungemessen | — |
 | `hevc_qsv` | ja | `-int_ref_type` / `-int_ref_cycle_size` |
 | `h264_qsv`, `av1_qsv` | **nein** | — |
-| `*_vaapi` | **nein upstream** | unser Patch, `streaming/ffmpeg-patches/` |
+| `*_vaapi` | **nein upstream** | unser Patch, `streaming/ffmpeg-patches/` — am 2026-08-21 gelöscht |
 | `*_videotoolbox` | **nein, gar nichts** | — |
 
 ## Windows — erledigt am 2026-08-04
@@ -60,8 +72,8 @@ tatsächliche Stand in einer Tabelle:
 
 | Karte | Encoder | Betriebsart |
 |---|---|---|
-| NVIDIA, alle Codecs | `*_nvenc` | `intra-refresh` + `no-scenecut`, upstream. **Am 2026-08-04 auf einer RTX 5080 nachgemessen**: 1 statt 10 Vollbilder bei gleicher Datenrate, H.264 wie AV1, plus 9 recovery points gegen 0. Braucht kein gepatchtes FFmpeg. Messakte `nvidia-2026-08-04-windows-intra-refresh.json`. |
-| AMD, AV1 | `av1_amf` | `intra_refresh_mode=gop_aligned` + `intra_refresh_stripes`. Gemessen: ein Vollbild statt sechs, 8 wie 10 Bit. **Braucht unseren FFmpeg-Patch** (`streaming/ffmpeg-patches/0002-…`) — die Optionen gibt es in keiner FFmpeg-Fassung. |
+| NVIDIA, alle Codecs | `*_nvenc` | `intra-refresh` + `no-scenecut`, upstream. **Am 2026-08-04 auf einer RTX 5080 nachgemessen**: 1 statt 10 Vollbilder bei gleicher Datenrate, H.264 wie AV1, plus 9 recovery points gegen 0. Braucht kein gepatchtes FFmpeg. Messakte `nvidia-2026-08-04-windows-intra-refresh.json`, am 2026-08-21 gelöscht. |
+| AMD, AV1 | `av1_amf` | `intra_refresh_mode=gop_aligned` + `intra_refresh_stripes`. Gemessen: ein Vollbild statt sechs, 8 wie 10 Bit. **Brauchte unseren FFmpeg-Patch** (`streaming/ffmpeg-patches/0002-…`, am 2026-08-21 gelöscht) — die Optionen gibt es in keiner FFmpeg-Fassung. |
 | AMD, H.264 | `h264_amf` | trägt sie **ohne jede Option**: `usage=ultralowlatency`, das der Sidecar ohnehin setzt, frischt von sich aus auf. Kein Patch nötig. |
 | Intel | `*_qsv` | nein, die Option gibt es dort nur bei HEVC. |
 
@@ -72,11 +84,16 @@ tatsächliche Stand in einer Tabelle:
 > `PULSE_HQ_AMD_D3D12=1` und wirkt andersherum. `PULSE_HQ_AMD_D3D11` gibt es im
 > Quelltext nicht mehr.
 
-**Wo der Schalter sitzt:** `win-hq-sidecar/src/encode/auffrischung.rs`, das
+**Wo der Schalter saß:** `win-hq-sidecar/src/encode/auffrischung.rs`, das
 Gegenstück zu den `intra_refresh_*`-Funktionen in
-`linux-hq-sidecar/src/encode/opts.rs`. Der vendor-neutrale Schalter heißt auf
+`linux-hq-sidecar/src/encode/opts.rs`. Der vendor-neutrale Schalter hieß auf
 beiden Plattformen `PULSE_INTRA_REFRESH=1`, damit die Prüfstand-Skripte gleich
-bleiben; aus der Oberfläche kommt `overrides.intra_refresh`.
+blieben; aus der Oberfläche kam `overrides.intra_refresh`. **Am 2026-08-21 ist
+das alles entfallen** — die Umgebungsvariable, das Feld im `start`-Auftrag und
+die `intra_refresh_*`-Funktionen der Linux-Seite. `auffrischung.rs` gibt es im
+Windows-Sidecar weiter, aber mit anderer Aufgabe (es kennt nur noch die
+Encoder, die von sich aus auffrischen und deshalb den bestellten
+Vollbild-Takt verschlucken).
 
 **Der Unterschied zu Linux, und er ist der Kern:** dort genügt die Frage, ob
 das gelinkte FFmpeg die Option kennt — wo sie da ist, wirkt sie auch. Hier
@@ -91,22 +108,27 @@ empfängt, kommt niemand mehr ins Bild. ffmpegs WHIP-Muxer hat keinen und kann
 kein AV1 — also ist die Linux-Fassung des eigenen WebRTC-Sendewegs mit
 portiert (`win-hq-sidecar/src/whip/`, eingehängt über `encode::senke`).
 
-## macOS — der offene Fall
+## macOS — der offene Fall, und wie er ausgegangen ist
 
-`videotoolbox` hat in FFmpeg **keine einzige** Intra-Refresh-Stelle. Damit ist
-der Weg, der auf allen anderen Plattformen funktioniert, dort versperrt.
+> **Am 2026-08-21 entschieden — auf allen Plattformen bei Vollbildern bleiben.**
+> Die unten offen gelassene Produktentscheidung ist damit gefallen, und zwar
+> gegen Intra-Refresh. Der Absatz darunter ist Historie.
 
-Zu klären ist, ob **VideoToolbox selbst** es kann — FFmpeg reicht viele
-VT-Eigenschaften nicht durch. Konkret nachzusehen in
+`videotoolbox` hat in FFmpeg **keine einzige** Intra-Refresh-Stelle. Damit war
+der Weg, der auf allen anderen Plattformen funktionierte, dort versperrt.
+
+Zu klären war, ob **VideoToolbox selbst** es kann — FFmpeg reicht viele
+VT-Eigenschaften nicht durch. Nachzusehen wäre in
 `VTCompressionProperties.h` des SDK nach einem Schlüssel für Intra-Refresh
-bzw. „forced intra rows". Findet sich einer, ist es dieselbe Art Patch wie bei
-VAAPI. Findet sich keiner, **kann macOS es nicht**, und dann ist die
-Produktentscheidung fällig: Intra-Refresh als plattformabhängige Betriebsart
-ausliefern, oder auf allen Plattformen bei Keyframes bleiben.
+bzw. „forced intra rows" gewesen. **Nachgesehen hat es nie jemand**, und die
+Produktentscheidung ist am 2026-08-21 ohne diese Antwort gefallen: nicht
+plattformabhängig ausliefern, sondern überall bei Vollbildern bleiben.
 
-**Das ist der Punkt, an dem „das Feature kann erst raus, wenn alles fertig ist"
-kippen könnte** — nicht an Aufwand, sondern an einer Schnittstelle, die es
-vielleicht nicht gibt. Deshalb gehört macOS zuerst geprüft, nicht zuletzt.
+**Das war der Punkt, an dem „das Feature kann erst raus, wenn alles fertig ist"
+kippen konnte** — nicht an Aufwand, sondern an einer Schnittstelle, die es
+vielleicht nicht gibt. Genau so ist es gekommen; die Lehre bleibt: **die
+Plattform mit der unsichersten Schnittstelle gehört zuerst geprüft, nicht
+zuletzt.**
 
 ## Wie dort gemessen wird
 

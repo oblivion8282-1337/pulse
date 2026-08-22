@@ -1,0 +1,9 @@
+[package]
+name = "pulse-redact"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Ohne Abhaengigkeiten — diese Crate wird von allen drei Sidecars und vom
+# Labor eingebunden und darf deren Bauwege nicht beschweren.
+[dependencies]

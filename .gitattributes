@@ -2,3 +2,25 @@
 # byteweise mit LF-Quellbäumen (webrtc-rs, windows-capture, FFmpeg), und ein
 # per autocrlf=true ausgecheckter CRLF-Patch passt dann nicht mehr.
 *.patch -text
+
+# Pruefsteine ebenso, und aus demselben Grund eine Stufe strenger gedacht: sie
+# werden vom SENDER erzeugt (`bildmarke_pruefstein` in whip/bildmarke.rs,
+# `zeigerform`-Gegenstueck daneben) und vom Test als GANZE ZEICHENKETTE
+# verglichen — nicht als geparstes JSON. Ein per autocrlf ausgecheckter
+# CRLF-Pruefstein laesst den Test auf jeder Windows-Maschine scheitern, obwohl
+# inhaltlich alles stimmt.
+#
+# Genau so am 2026-08-21 aufgelaufen: `bildmarke_pruefstein` war auf Windows nie
+# gelaufen (dort stand nur `cargo build`), und beim ersten `cargo test` fiel er
+# sofort um. Ein Pruefstein, der je nach Auscheck-Maschine andere Bytes hat, ist
+# als Pruefstein wertlos.
+#
+# **Ohne Pfad-Vorsatz**, und das ist kein Schoenheitsfehler: der Bau-Kontext des
+# MediaMTX-Forks (`infra/mediamtx-fork/`) erreicht `streaming/` nicht, deshalb
+# liegt der Bildmarken-Pruefstein dort ein zweites Mal — und
+# `zwillinge.rs::pruefstein_liegt_im_mediamtx_fork_wortgleich` vergleicht die
+# beiden Fassungen roh gegeneinander. Mit `streaming/`-Vorsatz waere die eine
+# Datei geschuetzt und die andere nicht: auf Windows LF gegen CRLF, und der
+# Zwillings-Test faellt um. Vorher stimmten sie wenigstens miteinander ueberein,
+# weil BEIDE umgeschrieben wurden.
+*-formen.json -text

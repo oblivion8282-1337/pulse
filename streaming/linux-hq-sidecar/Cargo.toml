@@ -20,6 +20,20 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
 
+# Token-Maskierung, seit 2026-08-20 gemeinsam mit win/mac in einer eigenen
+# Crate. `src/redact.rs` bleibt als Re-Export bestehen (s. dort).
+pulse-redact = { path = "../pulse-redact" }
+
+# RTP-Taktrechnung, seit 2026-08-20 gemeinsam mit win/mac in einer eigenen
+# Crate. `src/zeitbasis.rs` bleibt als Re-Export bestehen (s. dort).
+pulse-zeitbasis = { path = "../pulse-zeitbasis" }
+
+# AV1-Paketierung + SDP-Aufbau des WHIP-Sendewegs, seit 2026-08-20 gemeinsam
+# mit win/mac in einer eigenen Crate. `src/whip/{av1,sdp}.rs` bleiben als
+# Re-Exports bestehen (s. dort).
+pulse-whip = { path = "../pulse-whip" }
+pulse-bildmarke = { path = "../pulse-bildmarke" }
+
 # Diagnose-Logging auf stderr (Pulse tee't das in sidecar.log). Stufen +
 # Modul-Targets, gesteuert über $PULSE_HQ_LOG (wie RUST_LOG). Siehe src/logging.rs.
 tracing = "0.1"
@@ -32,12 +46,18 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
 
 # FFmpeg als Bibliothek (ab Phase 2: TLS-Probe; Phase 4+: Encode/Mux/RTMPS).
 # Ueber pkg-config gelinkt, aber NICHT gegen das FFmpeg der Distribution:
-# `scripts/hq-bauen.sh` baut n8.1.1 mit dem VAAPI-Intra-Refresh-Patch nach
-# ~/.cache/pulse/ffmpeg-intra-refresh/prefix, und die Binaries bekommen einen
-# RPATH dorthin. Der Patch ist Pflicht — Intra-Refresh fuer VAAPI gibt es
-# upstream in KEINER Version. Das Distributions-FFmpeg taugt hier auch gar
-# nicht mehr als Grundlage: Arch steht auf n9.0.1, und `ffmpeg-next = "8.1"`
-# uebersetzt dagegen nicht (14 Fehler, neue Enum-Varianten).
+# `scripts/hq-bauen.sh` baut n8.1.1 UNVERAENDERT nach ~/.cache/pulse/ffmpeg/prefix,
+# und die Binaries bekommen einen RPATH dorthin. Das Distributions-FFmpeg taugt
+# hier gar nicht als Grundlage: Arch steht auf n9.0.1, und `ffmpeg-next = "8.1"`
+# uebersetzt dagegen nicht (14 Fehler, neue Enum-Varianten). DAS ist der Grund
+# fuer den Eigenbau.
+#
+# Bis zum 2026-08-21 stand hier "mit dem VAAPI-Intra-Refresh-Patch … der Patch
+# ist Pflicht", und der Bau lag unter ~/.cache/pulse/ffmpeg-intra-refresh/prefix.
+# Die Betriebsart rollender Intra-Refresh ist aus Pulse entfernt, der Patch mit
+# ihr, und der Pfad ist mitgewandert. Der Eigenbau bleibt trotzdem noetig — nur
+# aus dem Versionsgrund oben, nicht mehr wegen eines Patches.
+#
 # KEIN `build`-Feature (würde FFmpeg aus Source bauen). `filter` kommt dazu,
 # sobald scale_vaapi für den BGRA→NV12-Convert gebraucht wird (Phase 5).
 ffmpeg-next = { version = "8.1", default-features = false, features = [

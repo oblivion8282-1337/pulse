@@ -6,7 +6,7 @@ publish = false
 # Kein `license`-Feld — es gilt `streaming/LICENSE` (Pulse Client License 1.0),
 # wie bei allen Crates unter `streaming/`. Siehe die Begruendung in
 # `../linux-hq-sidecar/Cargo.toml`.
-description = "Messstand für den experimentellen HQ-Sendeweg (eigener WebRTC/WHIP-Push, AV1-Paketierer, Intra-Refresh). Protokoll-gleich mit dem ausgelieferten Sidecar, aber ein EIGENES Binary — nichts hiervon geht in einen Nutzer-Build."
+description = "Messstand für den experimentellen HQ-Sendeweg (eigener WebRTC/WHIP-Push, AV1-Paketierer; bis zum 2026-08-21 auch Intra-Refresh, das an dem Tag aus Pulse entfernt wurde). Protokoll-gleich mit dem ausgelieferten Sidecar, aber ein EIGENES Binary — nichts hiervon geht in einen Nutzer-Build."
 
 # Ein eigenes Artefakt, absichtlich anders benannt als das ausgelieferte
 # `pulse-linux-hq-sidecar`. Das Flatpak-Manifest baut ausschliesslich jenes;
@@ -38,11 +38,9 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
 
 # FFmpeg als Bibliothek (ab Phase 2: TLS-Probe; Phase 4+: Encode/Mux/RTMPS).
 # Ueber pkg-config gelinkt, aber NICHT gegen das FFmpeg der Distribution:
-# `scripts/hq-bauen.sh` baut n8.1.1 mit dem VAAPI-Intra-Refresh-Patch nach
-# ~/.cache/pulse/ffmpeg-intra-refresh/prefix, und die Binaries bekommen einen
-# RPATH dorthin. Der Patch ist Pflicht — Intra-Refresh fuer VAAPI gibt es
-# upstream in KEINER Version. Das Distributions-FFmpeg taugt hier auch gar
-# nicht mehr als Grundlage: Arch steht auf n9.0.1, und `ffmpeg-next = "8.1"`
+# `scripts/hq-bauen.sh` baut n8.1.1 nach ~/.cache/pulse/ffmpeg/prefix, und die
+# Binaries bekommen einen RPATH dorthin. Das Distributions-FFmpeg taugt hier
+# gar nicht als Grundlage: Arch steht auf n9.0.1, und `ffmpeg-next = "8.1"`
 # uebersetzt dagegen nicht (14 Fehler, neue Enum-Varianten).
 # KEIN `build`-Feature (würde FFmpeg aus Source bauen). `filter` kommt dazu,
 # sobald scale_vaapi für den BGRA→NV12-Convert gebraucht wird (Phase 5).

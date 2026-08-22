@@ -35,6 +35,7 @@ import type { Guild } from '$lib/api/types';
 import { gatewayForServer } from '$lib/ws/connection';
 import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
 import { darfStandplatzSein } from '$lib/remote/darfStandplatzSein';
+import { standplatz } from '$lib/remote/standplatz.svelte';
 
 /** Extra context fields that only the ready handler cares about — kept
  *  separate from `HandlerContext` so other handlers don't see them. */
@@ -157,6 +158,25 @@ export function register(ctx: ReadyContext): void {
       // s. serverDisplayName). null überschreibt einen stale Namen bewusst.
       serversStore.update(sid, { server_name: evt.instance_name ?? null });
     }
+    // **Tote Eintragungen raeumen, BEVOR sich der Rechner meldet.** Die
+    // Communityliste dieses Rahmens ist die alleinige Wahrheit darueber, in
+    // welchen Communitys der Nutzer auf diesem Server steckt (s. oben, der
+    // Server-Teil wirft danach auch verschwundene Communitys aus dem Store).
+    // Steht die Community einer lokalen Eintragung nicht darin, kann diese
+    // Eintragung nichts mehr bedeuten: `device_announce` verwirft sie still,
+    // und die `device_changed`-Meldung, die sie sonst raeumen wuerde, erreicht
+    // uns nie mehr (Bughunt 2026-08-21, `eintragungAbgleich.ts`).
+    //
+    // **Unabhaengig von `darfStandplatzSein()`**: eine Eintragung ueberlebt
+    // einen Plattformwechsel und darf deshalb auch unter Linux/macOS
+    // verschwinden, wenn ihre Community weg ist. Der Abgleich raeumt
+    // synchron, das Schreiben laeuft nebenher.
+    if (sid && Array.isArray(evt.guilds)) {
+      void geraeteAnmeldung.abgleichenMitCommunitys(
+        sid,
+        evt.guilds.map((g) => g.id),
+      );
+    }
     // **Standplatz-Geraet anmelden.** Ist DIESER Rechner auf DIESEM Server als
     // Geraet eingetragen, meldet er sich jetzt — und zwar nach jedem `ready`,
     // nicht nur beim ersten: die Anmeldung haengt am Socket und ist nach einem
@@ -175,10 +195,13 @@ export function register(ctx: ReadyContext): void {
       const eintrag = geraeteAnmeldung.fuerServer(sid);
       const conn = eintrag ? gatewayForServer(sid) : null;
       if (eintrag && conn) {
-        void geraeteAnmeldung.anmelden(
-          (deviceId, monitore) => conn.sendDeviceAnnounce(deviceId, monitore),
-          eintrag,
-        );
+        // Nach der Anmeldung: hier liegen zum ersten Mal beide Dinge vor, die
+        // der einmalige Umzug der alten lokalen Freigabeliste braucht — eine
+        // stehende Verbindung und die Eintragung dieses Geräts auf DIESEM
+        // Server (Begründung `standplatz.svelte.ts::versucheUmzug`).
+        void geraeteAnmeldung
+          .anmelden((deviceId, monitore) => conn.sendDeviceAnnounce(deviceId, monitore), eintrag)
+          .then(() => standplatz.versucheUmzug(eintrag));
       }
     }
     ctx.onReadySeeded();

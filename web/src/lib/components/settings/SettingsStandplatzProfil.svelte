@@ -25,6 +25,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import Checkbox from '$lib/components/form/Checkbox.svelte';
+  import Select from '$lib/components/form/Select.svelte';
   import { stream } from '$lib/stream/state.svelte';
   import {
     standplatzProfil,
@@ -83,6 +84,35 @@
     return Math.min(max, Math.max(min, Math.round(n)));
   }
 
+  /**
+   * **Ein Eintrag je Schirm, der primäre trägt den Stern.** Vorher stand
+   * „Hauptbildschirm" zusätzlich in der Liste, und derselbe Monitor
+   * erschien darunter noch einmal mit seinem Namen — doppelt gemoppelt.
+   * Zusammengelegt heisst: wer den markierten wählt, wählt „der jeweils
+   * primäre" (Wert [`HAUPTBILDSCHIRM`]). Das ist auf einem
+   * unbeaufsichtigten Rechner die haltbarere Zusage: wird umgesteckt
+   * oder der primäre Schirm gewechselt, folgt die Aufnahme, statt auf
+   * eine Nummer zu zeigen, die es vielleicht nicht mehr gibt.
+   * Ohne gemeldete Liste (nie verbunden) bleibt der eine Ersatz-Eintrag.
+   */
+  const quellOptionen = $derived([
+    ...(monitore.length === 0
+      ? [{ value: HAUPTBILDSCHIRM, label: m.standplatz_profil_source_primary() }]
+      : []),
+    ...monitore.map((mon) => ({
+      value: mon.primary ? HAUPTBILDSCHIRM : `${MONITOR_CAPTURE_PREFIX}${mon.index}`,
+      label: `${mon.primary ? '* ' : ''}${mon.name} (${mon.width}×${mon.height})`,
+    })),
+  ]);
+
+  // Statische Listen ohne m.*-Aufruf — einmal berechnet als const, kein
+  // `$derived` (das wäre eine Ableitung ohne Abhängigkeit).
+  const codecOptionen = [
+    { value: 'h264', label: 'H.264' },
+    { value: 'av1', label: 'AV1' },
+  ];
+  const aufloesungOptionen = RESOLUTION_VALUES.map((r) => ({ value: r, label: r }));
+
   function speichern(): void {
     entwurf = {
       ...entwurf,
@@ -102,55 +132,33 @@
   <div class="border-border/60 flex flex-col gap-2 border-t pt-3">
     <label class="flex flex-col gap-1">
       <span class="text-text-muted text-xs">{m.standplatz_profil_source()}</span>
-      <select
-        class="border-border bg-bg-input text-text-bright rounded-lg border px-2 py-1.5 text-sm"
-        bind:value={entwurf.quelle}
+      <Select
+        value={entwurf.quelle}
+        options={quellOptionen}
+        onchange={(v) => (entwurf = { ...entwurf, quelle: v })}
         data-testid="standplatz-profil-quelle"
-      >
-        <!-- **Ein Eintrag je Schirm, der primäre trägt den Stern.** Vorher stand
-             „Hauptbildschirm" zusätzlich in der Liste, und derselbe Monitor
-             erschien darunter noch einmal mit seinem Namen — doppelt gemoppelt.
-             Zusammengelegt heisst: wer den markierten wählt, wählt „der jeweils
-             primäre" (Wert [`HAUPTBILDSCHIRM`]). Das ist auf einem
-             unbeaufsichtigten Rechner die haltbarere Zusage: wird umgesteckt
-             oder der primäre Schirm gewechselt, folgt die Aufnahme, statt auf
-             eine Nummer zu zeigen, die es vielleicht nicht mehr gibt.
-             Ohne gemeldete Liste (nie verbunden) bleibt der eine Ersatz-Eintrag. -->
-        {#if monitore.length === 0}
-          <option value={HAUPTBILDSCHIRM}>{m.standplatz_profil_source_primary()}</option>
-        {/if}
-        {#each monitore as mon (mon.index)}
-          <option value={mon.primary ? HAUPTBILDSCHIRM : `${MONITOR_CAPTURE_PREFIX}${mon.index}`}>
-            {mon.primary ? '* ' : ''}{mon.name} ({mon.width}×{mon.height})
-          </option>
-        {/each}
-      </select>
+      />
     </label>
 
     <div class="grid grid-cols-2 gap-2">
       <label class="flex flex-col gap-1">
         <span class="text-text-muted text-xs">{m.standplatz_profil_codec()}</span>
-        <select
-          class="border-border bg-bg-input text-text-bright rounded-lg border px-2 py-1.5 text-sm"
-          bind:value={entwurf.codec}
+        <Select
+          value={entwurf.codec}
+          options={codecOptionen}
+          onchange={(v) => (entwurf = { ...entwurf, codec: v as 'h264' | 'av1' })}
           data-testid="standplatz-profil-codec"
-        >
-          <option value="h264">H.264</option>
-          <option value="av1">AV1</option>
-        </select>
+        />
       </label>
 
       <label class="flex flex-col gap-1">
         <span class="text-text-muted text-xs">{m.standplatz_profil_resolution()}</span>
-        <select
-          class="border-border bg-bg-input text-text-bright rounded-lg border px-2 py-1.5 text-sm"
-          bind:value={entwurf.aufloesung}
+        <Select
+          value={entwurf.aufloesung}
+          options={aufloesungOptionen}
+          onchange={(v) => (entwurf = { ...entwurf, aufloesung: v })}
           data-testid="standplatz-profil-aufloesung"
-        >
-          {#each RESOLUTION_VALUES as r (r)}
-            <option value={r}>{r}</option>
-          {/each}
-        </select>
+        />
       </label>
 
       <label class="flex flex-col gap-1">
@@ -176,15 +184,6 @@
          Encoder zusätzlich tun soll) und kosten einzeln untereinander mehr
          Höhe als der ganze Rest des Bildes. -->
     <div class="border-border/60 flex flex-wrap items-start gap-x-6 gap-y-2 border-t pt-3">
-      <label class="flex items-start gap-2">
-        <Checkbox
-        class="mt-0.5 shrink-0"
-        bind:checked={entwurf.intra_refresh}
-        disabled={!stream.intraRefreshAvailable}
-        data-testid="standplatz-profil-intra"
-        />
-        <span class="text-text-bright text-sm font-medium">{m.standplatz_profil_intra()}</span>
-      </label>
       <label class="flex items-start gap-2">
         <Checkbox
         class="mt-0.5 shrink-0"

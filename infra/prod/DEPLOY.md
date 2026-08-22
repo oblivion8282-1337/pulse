@@ -22,11 +22,19 @@ container. Unlike the old Watchtower, the migrate one-shots are included, so
 schema migrations apply automatically on deploy (no more manual
 `up -d migrate-*`).
 
+> **Warum `--exclude target --exclude node_modules`.** Ohne sie schiebt der
+> Befehl **Gigabyte Bauschutt** auf den Server: `infra/self-host/direct-adapter/`
+> ist eine Rust-Kiste, und ihr `target/` war am 2026-08-21 lokal 3 GB gross —
+> `rsync` kennt kein `.gitignore`. Beim Deploy der Bildmarke sind so 936 MB in
+> `~/pulse/infra/` gelandet, bevor es auffiel (Platz war reichlich da, es war
+> reiner Müll). Ein Trockenlauf mit `-n` verrät das NICHT zuverlässig: er
+> meldet nur die Dateiliste, nicht die Menge, die wirklich flösse.
+
 ## First-time setup (already done — kept for reference / disaster recovery)
 
 ```sh
 # 1. copy infra/ to the server (no git on the server — rsync the configs)
-rsync -av --exclude .env --exclude secrets infra/ michael@159.195.150.54:~/pulse/infra/
+rsync -av --exclude .env --exclude secrets --exclude target --exclude node_modules infra/ michael@159.195.150.54:~/pulse/infra/
 
 # 2. on the server: secrets
 ssh michael@159.195.150.54
@@ -185,7 +193,7 @@ Voraussetzung: Tasks 1–3 (auth-Endpoint, frps-Container, CI-Env) sind bereits 
 
 4. **Deploy:** Compose-Struktur hat sich geändert (neuer `frps`-Service) → manuell übertragen und hochfahren:
    ```sh
-   rsync -av --exclude .env --exclude secrets infra/ michael@159.195.150.54:~/pulse/infra/
+   rsync -av --exclude .env --exclude secrets --exclude target --exclude node_modules infra/ michael@159.195.150.54:~/pulse/infra/
    cd ~/pulse/infra/prod && docker compose up -d
    ```
    Der Cron-Updater zieht nur App-`:latest`-Images — Struktur-Änderungen (neuer Service, neue Env-Vars) brauchen diesen manuellen Schritt.
@@ -249,7 +257,7 @@ hat die `/registry/token`-Route, compose kennt den `registry`-Service).
 
 4. **Deploy:** neuer `registry`-Service → infra übertragen + hochfahren:
    ```sh
-   rsync -av --exclude .env --exclude secrets infra/ michael@159.195.150.54:~/pulse/infra/
+   rsync -av --exclude .env --exclude secrets --exclude target --exclude node_modules infra/ michael@159.195.150.54:~/pulse/infra/
    cd ~/pulse/infra/prod && docker compose up -d registry auth
    ```
    Der Cron-Updater zieht nur App-`:latest`-Images — neue Services brauchen diesen

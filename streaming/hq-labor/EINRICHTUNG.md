@@ -1,5 +1,17 @@
 # Labor auf einem neuen Rechner einrichten
 
+> **Intra-Refresh ist am 2026-08-21 aus Pulse entfernt worden.** Die
+> Betriebsart, um die es auf diesem Blatt streckenweise geht, gibt es nicht
+> mehr: kein Kästchen, kein Health-Feld, keine Encoder-Optionen, keine
+> FFmpeg-Patches. Gründe waren das sichtbar schlechtere H.264-Bild, dass macOS
+> sie nie trug, und dass ein Vollbild-Strom sich nach Paketverlust selbst
+> repariert — ein Intra-Refresh-Strom nicht. Die zugehörigen Messakten sind
+> gelöscht, weil sie teils nie bestätigt und teils später widerlegt wurden.
+>
+> **Was hier über die Betriebsart steht, ist Historie und keine Anleitung.**
+> Methodik, Aufbau und alles Übrige gelten weiter.
+
+
 Was auf dieser Maschine steht, steht nicht automatisch auf der nächsten. Zwei
 Dinge sind bewusst **nicht** im Repo und müssen hergestellt werden, ein drittes
 liegt auf dem Server.
@@ -133,8 +145,9 @@ PULSE_FERN_SSH=pulse-test`.
 * `sudo` ohne Passwort für `tc` und `tcpdump` — sonst laufen `verluststrecke.py`
   und jede Mitschnitt-Auswertung nicht
 * Kernel-Module `ifb`, `sch_netem`, `act_mirred` (für die Teststrecke)
-* **`libva-dev`** — nur für `testbench/vaapi-intra-refresh-pruefen.c`, das auf
-  AMD-Maschinen klärt, ob die GPU Intra-Refresh kann
+* ~~**`libva-dev`**~~ — brauchte nur `testbench/vaapi-intra-refresh-pruefen.c`,
+  das auf AMD-Maschinen klärte, ob die GPU Intra-Refresh kann. **Die Datei ist
+  am 2026-08-21 gelöscht**; ohne sie braucht das Labor `libva-dev` nicht.
 
 ## 6. Erster Lauf zur Kontrolle
 
@@ -147,29 +160,21 @@ PULSE_PLAYER_FLEXFEC=1 python3 intraref-verlust.py --secs 60 --label probe
 Danach steht `probe.json` da. Die Kontrollzahlen: `nack_deckt_lauf_ab` muss
 `true` sein, `anzahl_ssrcs` genau 2 (Bild und Parität).
 
-## Was auf einer AMD-Maschine zuerst zu tun ist
+## Was bis zum 2026-08-21 auf einer AMD-Maschine zuerst zu tun war
 
-**Die Frage „kann AMD Intra-Refresh?" ist beantwortet: ja** (2026-08-01,
-Radeon 780M/VCN 4, Mesa 26.1.5 — Messakte
-`testbench/profiles/amd-2026-08-01-intra-refresh.json`). Auf einer anderen
-AMD-Karte lohnt die Gegenprobe trotzdem, sie dauert eine Minute:
+> **Dieser Abschnitt ist keine Anleitung mehr.** Intra-Refresh ist am
+> 2026-08-21 aus Pulse entfernt worden, und mit ihm das Prüfprogramm
+> (`testbench/vaapi-intra-refresh-pruefen.c`), der FFmpeg-Patch
+> (`streaming/ffmpeg-patches/`) und die Messakte
+> (`testbench/profiles/amd-2026-08-01-intra-refresh.json`) — **alle drei
+> gelöscht**. Eine frisch eingerichtete AMD-Maschine braucht davon nichts mehr:
+> das Labor läuft mit dem FFmpeg des Systems.
 
-```bash
-cd streaming/testbench
-cc -o /tmp/vaapi-ir vaapi-intra-refresh-pruefen.c -lva -lva-drm
-/tmp/vaapi-ir
-```
-
-Im Weg steht nicht die Hardware, sondern **FFmpeg** — es reicht die
-VA-API-Schnittstelle in keiner Version durch. Für Intra-Refresh auf AMD
-braucht diese Maschine also ein gepatchtes FFmpeg:
-
-```bash
-# Patch, Bauanleitung und Begründung:
-streaming/ffmpeg-patches/README.md
-```
-
-Danach fährt `PULSE_INTRA_REFRESH=1` beide Vendor gleich (der Sidecar wählt
-den richtigen Optionsnamen). Ohne den Patch **bricht der Start ab** statt
-still Keyframes zu fahren — das ist Absicht: ein Keyframe-Lauf unter dem
-Etikett „Intra-Refresh" wäre schlimmer als ein Fehler.
+**Die Frage „kann AMD Intra-Refresh?" war beantwortet: ja** (2026-08-01,
+Radeon 780M/VCN 4, Mesa 26.1.5). Im Weg stand nicht die Hardware, sondern
+**FFmpeg** — es reicht die VA-API-Schnittstelle in keiner Version durch. Für
+Intra-Refresh auf AMD brauchte eine Maschine deshalb ein selbst gebautes,
+gepatchtes FFmpeg. Mit dem Patch fuhr `PULSE_INTRA_REFRESH=1` beide Vendor
+gleich (der Sidecar wählte den richtigen Optionsnamen); ohne ihn **brach der
+Start ab** statt still Keyframes zu fahren — das war Absicht: ein
+Keyframe-Lauf unter dem Etikett „Intra-Refresh" wäre schlimmer als ein Fehler.

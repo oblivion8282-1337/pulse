@@ -39,7 +39,13 @@
 //! jedes ausgelassene Bild (verspaeteter Takt, EAGAIN-Verwurf) verschob die
 //! Video-Uhr dauerhaft gegen Wanduhr und Ton. Fuer AV1 war genau das am
 //! 2026-08-03 behoben worden; H.264 zieht hiermit nach.
+//!
+//! **Und das ist jetzt der einzige Schutz.** Seit `av1.rs` und `sdp.rs` am
+//! 2026-08-20 gemeinsam in `pulse-whip` liegen, sind `mod.rs` und `pacer.rs`
+//! die beiden LETZTEN Dateien des Sendewegs, die noch je Plattform doppelt
+//! vorliegen — und kein Test haelt sie zusammen.
 
+pub mod bildmarke;
 pub mod av1;
 mod pacer;
 mod sdp;
@@ -172,6 +178,35 @@ pub struct WhipSender {
     /// Aus dem `Location`-Kopf der Antwort — fuer das abschliessende DELETE.
     resource_url: Option<String>,
     http: reqwest::Client,
+    /// Die ausgehandelte Nummer der Bildmarke; 0 = nicht ausgehandelt.
+    ///
+    /// Atomar, weil sie erst NACH dem Handschlag feststeht, `send` aber nur
+    /// `&self` hat. Null als „gibt es nicht" ist zulaessig: RFC 8285 vergibt
+    /// die Nummern ab 1.
+    marken_id: std::sync::atomic::AtomicU8,
+}
+
+/// Traegt dieser H.264-Zeitabschnitt ein Vollbild (IDR)?
+///
+/// Der Payloader von webrtc-rs sagt es nicht, und die Bildmarke braucht es fuer
+/// die Wahl der Schablone. Gesucht wird ueber die Annex-B-Startcodes, weil der
+/// Encoder in diesem Format liefert — dasselbe, was `H264Payloader` erwartet.
+///
+/// H.264-Vollbild-Erkennung — liegt seit dem 2026-08-21 gemeinsam in
+/// `pulse-whip::h264`. Hier nur noch durchgereicht, damit die Aufrufstelle
+/// unveraendert bleibt.
+use pulse_whip::h264::h264_ist_vollbild;
+
+/// Wohin die Soll/Ist-Zeile des Pacers geht — hier ueber `tracing`, wie der
+/// Rest dieses Sidecars.
+fn pacer_melder(soll_ms: f64, ist_ms: f64, pakete: usize) {
+    tracing::info!(
+        target: "whip",
+        soll_ms = format!("{soll_ms:.2}"),
+        ist_ms = format!("{ist_ms:.2}"),
+        pakete,
+        "Verteilung je Bild"
+    );
 }
 
 impl WhipSender {
@@ -218,13 +253,17 @@ impl WhipSender {
             // Paket-Gruppen (s. [`pacer`]); `PULSE_WHIP_PACING=0` ist der
             // Gegenmess-Schalter.
             pacer: (std::env::var("PULSE_WHIP_PACING").as_deref() != Ok("0")).then(|| {
-                pacer::Pacer::start(runtime(), Arc::clone(&video_track), frame_duration)
+                pacer::Pacer::start(runtime(), Arc::clone(&video_track), frame_duration, pacer_melder)
             }),
             track: video_track,
         };
         let sender = pc
             .add_track(Arc::clone(&track.track) as Arc<dyn TrackLocal + Send + Sync>)
             .await?;
+        // Zweite Referenz: `sender` wandert gleich in die RTCP-Schleife, die
+        // ausgehandelte Nummer der Bildmarke steht aber erst nach dem
+        // Handschlag fest und wird weiter unten gelesen.
+        let sender_fuer_marke = Arc::clone(&sender);
 
         // Ton-Spur IMMER anbieten, auch wenn kein Ton kommt.
         //
@@ -315,7 +354,37 @@ impl WhipSender {
         });
 
         let (resource_url, http) = Self::negotiate(&pc, url).await?;
-        Ok(Self { track, audio, pc, resource_url, http })
+
+        // Die Nummer, unter der die Bildmarke ausgehandelt wurde. Nach
+        // `set_remote_description` liefert webrtc-rs hier genau die
+        // ausgehandelten Erweiterungen; kennt der Server sie nicht, ist die
+        // Liste leer und wir schreiben nichts. Der Zuschauer urteilt dann gar
+        // nicht — „Marke oder nichts".
+        let marken_id = sender_fuer_marke
+            .get_parameters()
+            .await
+            .rtp_parameters
+            .header_extensions
+            .iter()
+            .find(|e| e.uri == bildmarke::EXTMAP_URI)
+            .map_or(0u8, |e| u8::try_from(e.id).unwrap_or(0));
+        match marken_id {
+            0 => tracing::warn!(
+                target: "whip",
+                "Bildmarke nicht ausgehandelt — der Zuschauer kann fehlende Bilder \
+                 nicht erkennen (Server ohne Patch 0006?)"
+            ),
+            id => tracing::info!(target: "whip", "Bildmarke ausgehandelt als extmap {id}"),
+        }
+
+        Ok(Self {
+            track,
+            audio,
+            pc,
+            resource_url,
+            http,
+            marken_id: std::sync::atomic::AtomicU8::new(marken_id),
+        })
     }
 
     /// Angebot erzeugen, Kandidaten sammeln, POST, Antwort setzen.
@@ -380,23 +449,21 @@ impl WhipSender {
             let (z, paketierer) = &mut *g;
             // Alle Pakete eines Bildes tragen denselben Zeitstempel.
             let ts = z.zeitstempel(pts);
-            // `letztes` = letztes Paket des Bildes (→ Marker-Bit).
-            let mut paket = |daten: Bytes, letztes: bool| Packet {
-                header: Header {
-                    version: 2,
-                    marker: letztes,
-                    sequence_number: z.naechste_seq(),
-                    timestamp: ts,
-                    ..Default::default()
-                },
-                payload: daten,
-            };
-            match paketierer {
+            let marken_id = self.marken_id.load(std::sync::atomic::Ordering::Relaxed);
+            // Erst paketieren, DANN nummerieren. Geht nichts hinaus, wird auch
+            // keine Bildnummer verbraucht — daran erkennt der Zuschauer, dass
+            // nichts verlorenging (`crate::whip::bildmarke`).
+            //
+            // Je Eintrag: Nutzlast, erstes Paket, letztes Paket, Vollbild.
+            let teile: Vec<(Bytes, bool, bool, bool)> = match paketierer {
                 Paketierer::Av1 => av1::paketiere(data, av1::MTU)?
                     .into_iter()
-                    .map(|p| paket(Bytes::from(p.daten), p.letztes))
+                    .map(|p| (Bytes::from(p.daten), p.erstes, p.letztes, p.vollbild))
                     .collect(),
                 Paketierer::H264(p) => {
+                    // Der Payloader von webrtc-rs sagt nicht, ob ein Vollbild
+                    // dabei war; die Bildmarke braucht es fuer die Schablone.
+                    let vollbild = h264_ist_vollbild(data);
                     let teile = p
                         .payload(av1::MTU, &Bytes::copy_from_slice(data))
                         .context("H.264 paketieren")?;
@@ -404,9 +471,44 @@ impl WhipSender {
                     // vom Payloader gemerkt und erst vor dem naechsten
                     // Vollbild ausgegeben.
                     let n = teile.len();
-                    teile.into_iter().enumerate().map(|(i, b)| paket(b, i + 1 == n)).collect()
+                    teile
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, b)| (b, i == 0, i + 1 == n, vollbild))
+                        .collect()
                 }
+            };
+            if teile.is_empty() {
+                return Ok(());
             }
+            let nummer = z.naechste_bildnummer();
+            teile
+                .into_iter()
+                .map(|(daten, erstes, letztes, vollbild)| {
+                    let mut header = Header {
+                        version: 2,
+                        // `letztes` = letztes Paket des Bildes (→ Marker-Bit).
+                        marker: letztes,
+                        sequence_number: z.naechste_seq(),
+                        timestamp: ts,
+                        ..Default::default()
+                    };
+                    if marken_id != 0 {
+                        let marke = bildmarke::Bildmarke {
+                            anfang: erstes,
+                            ende: letztes,
+                            vollbild,
+                            nummer,
+                        };
+                        // Ein Fehler waere hier ein Programmierfehler (unzu-
+                        // laessige Nummer), kein Betriebsfall. Ein Strom ohne
+                        // Marke ist besser als kein Strom, deshalb kein `?`.
+                        let _ = header
+                            .set_extension(marken_id, Bytes::from(bildmarke::schreiben(&marke)));
+                    }
+                    Packet { header, payload: daten }
+                })
+                .collect()
         };
         match pacer {
             Some(p) => p.send(pakete),
@@ -460,6 +562,24 @@ impl WhipSender {
 
 #[cfg(test)]
 mod tests {
+
+    /// Die Bildmarke waehlt ihre Schablone daran. Ein SPS/PPS-Paket ohne
+    /// Vollbild darf NICHT als Vollbild gelten — der Payloader haelt es
+    /// zurueck, und eine Schablone fuer ein Bild, das gar nicht hinausgeht,
+    /// waere schon deshalb falsch.
+    #[test]
+    fn h264_idr_wird_erkannt() {
+        assert!(h264_ist_vollbild(&[0, 0, 0, 1, 0x65, 0xAA]), "langer Startcode, NAL-Typ 5");
+        assert!(h264_ist_vollbild(&[0, 0, 1, 0x65, 0xAA]), "kurzer Startcode, NAL-Typ 5");
+        assert!(!h264_ist_vollbild(&[0, 0, 0, 1, 0x41, 0xAA]), "NAL-Typ 1 ist ein Differenzbild");
+        assert!(
+            h264_ist_vollbild(&[0, 0, 1, 0x67, 0, 0, 1, 0x68, 0, 0, 1, 0x65]),
+            "SPS und PPS vor dem IDR"
+        );
+        assert!(!h264_ist_vollbild(&[0, 0, 1, 0x67, 0, 0, 1, 0x68]), "SPS und PPS allein");
+        assert!(!h264_ist_vollbild(&[]));
+        assert!(!h264_ist_vollbild(&[0, 0, 1]), "Startcode ohne Kopf laeuft nicht ueber");
+    }
     use super::*;
 
     /// **Genau die Rechnung, die webrtc-rs anstellt** — nachgebaut, damit der

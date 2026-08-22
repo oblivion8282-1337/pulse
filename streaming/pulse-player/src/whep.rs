@@ -147,6 +147,13 @@ pub struct WhepSession {
     /// [`Self::sperre_nachfuehren`] an die gemessene Umlaufzeit angepasst.
     /// Vom Erzeuger gemessene Antwortzeit; s. [`Self::rtt_ms`].
     nack_rtt: Arc<std::sync::atomic::AtomicU64>,
+    /// Die ausgehandelte Nummer der Bildmarke; 0 = nicht ausgehandelt.
+    ///
+    /// Steht schon beim Bau fest — sie kommt aus der SDP-Antwort, nicht aus
+    /// einer laufenden Verbindung. Ist sie null, urteilt die Sitzung ueber
+    /// fehlende Bilder gar nicht („Marke oder nichts", Entwurf vom
+    /// 2026-08-21).
+    marken_id: u8,
 }
 
 impl WhepSession {
@@ -175,6 +182,11 @@ impl WhepSession {
         if let Err(e) = self.pc.write_rtcp(&[Box::new(pli)]).await {
             eprintln!("pulse-player: Vollbild-Anforderung nicht zustellbar: {e}");
         }
+    }
+
+    /// Die ausgehandelte Nummer der Bildmarke; 0 = nicht ausgehandelt.
+    pub fn marken_id(&self) -> u8 {
+        self.marken_id
     }
 
     /// Die zuletzt gemessene Antwortzeit auf eigene Nachforderungen, in
@@ -479,11 +491,26 @@ pub async fn connect(
     media
         .register_default_codecs()
         .context("Standard-Codecs konnten nicht registriert werden")?;
+    // Die Bildmarke anfragen. Sie ist die einzige Angabe, die „ein Bild ist
+    // verloren" von „der Sender hat keines erzeugt" trennt; ohne sie urteilt
+    // die Sitzung gar nicht (`crate::bildmarke`). Nimmt die Gegenstelle sie
+    // nicht an, taucht sie in der Antwort nicht auf und alles bleibt wie vor
+    // dem 2026-08-21.
+    media
+        .register_header_extension(
+            webrtc::rtp_transceiver::rtp_codec::RTCRtpHeaderExtensionCapability {
+                uri: crate::bildmarke::EXTMAP_URI.to_owned(),
+            },
+            webrtc::rtp_transceiver::rtp_codec::RTPCodecType::Video,
+            None,
+        )
+        .context("Bildmarke als Header-Erweiterung anmelden")?;
     // FlexFEC anbieten — seit 2026-08-03 der Standardweg, vorher hinter
     // `PULSE_PLAYER_FLEXFEC=1` versteckt; abschaltbar mit `=0` (fuer
     // Vergleichsmessungen und als Notausgang, falls das veraenderte Angebot
-    // einem Server nicht passt). Warum umgestellt wurde — Intra-Refresh heilt
-    // sich nach Verlust nicht selbst — steht im Modul-Kopf von `crate::fec`,
+    // einem Server nicht passt). Warum umgestellt wurde — ein
+    // Intra-Refresh-Strom heilte sich nach Verlust nicht selbst — steht im
+    // Modul-Kopf von `crate::fec`,
     // gleich beim aufgerufenen `eingeschaltet()`.
     //
     // **Was an dieser Zeile haengt.** Ohne das Angebot fehlt FlexFEC im SDP,
@@ -569,12 +596,13 @@ pub async fn connect(
         .context("HTTP-Client")?;
 
     match negotiate(&pc, &http, whep_url).await {
-        Ok(resource_url) => Ok(WhepSession {
+        Ok((resource_url, marken_id)) => Ok(WhepSession {
             pc,
             resource_url,
             http,
             fec: fec_zaehler,
             nack_rtt,
+            marken_id,
         }),
         Err(e) => {
             let _ = pc.close().await;
@@ -600,12 +628,35 @@ pub async fn connect(
 /// unbeantwortbare Frage beantwortet, ist ihren Platz wert.
 fn melde_rueckkanal(answer: &str) {
     let (nack, pli, rtx) = rueckkanal_flags(answer);
+    let marke = bildmarke_id(answer);
     eprintln!(
-        "pulse-player: Rueckkanal — nack {} / pli {} / rtx {}",
+        "pulse-player: Rueckkanal — nack {} / pli {} / rtx {} / bildmarke {}",
         if nack { "ja" } else { "NEIN" },
         if pli { "ja" } else { "NEIN" },
         if rtx { "ja" } else { "NEIN" },
+        if marke != 0 { "ja" } else { "NEIN" },
     );
+}
+
+/// Die Nummer, unter der die Bildmarke ausgehandelt wurde; 0 = gar nicht.
+///
+/// Die ANTWORT ist massgeblich, nicht unser Angebot: sie sagt, unter welcher
+/// Nummer die Gegenstelle schreiben wird. Reine Stringauswertung, aus
+/// demselben Grund von der Meldung getrennt wie [`rueckkanal_flags`] — sie
+/// laesst sich damit ohne Verbindung pruefen.
+///
+/// Das Format ist `a=extmap:<id>[/<richtung>] <uri>[ <attr>]` (RFC 8285); die
+/// Richtungsangabe ist zulaessig und muss abgeschnitten werden, sonst
+/// scheitert das Parsen der Zahl genau dann, wenn eine Gegenstelle sie setzt.
+fn bildmarke_id(answer: &str) -> u8 {
+    answer
+        .lines()
+        .filter_map(|l| l.strip_prefix("a=extmap:"))
+        .filter_map(|rest| rest.split_once(' '))
+        .find(|(_, wert)| wert.split_whitespace().next() == Some(crate::bildmarke::EXTMAP_URI))
+        .and_then(|(id, _)| id.split('/').next())
+        .and_then(|id| id.trim().parse::<u8>().ok())
+        .unwrap_or(0)
 }
 
 /// Wertet aus, welche RTCP-Rueckmeldungen die SDP-Antwort zusagt:
@@ -632,7 +683,9 @@ fn rueckkanal_flags(answer: &str) -> (bool, bool, bool) {
     // Sequenznummern gezaehlt): MediaMTX sagt `rtx NEIN` und liefert
     // trotzdem nach — 505 Wiederholungen bei 5 % Verlust, 4 bei 1 %, und in
     // der Nullkontrolle ueber 56651 Paketen ohne Stoerung exakt null.
-    // Volles Protokoll: `testbench/profiles/decoder-2026-07-29-intra-refresh.json`.
+    // Volles Protokoll stand in der Messakte
+    // `decoder-2026-07-29-intra-refresh.json`, die am 2026-08-21 zusammen mit
+    // der Betriebsart geloescht wurde; die Zahlen oben sind daraus.
     //
     // Die Zeile bleibt trotzdem gemeldet: sie sagt, WELCHEN der beiden Wege
     // die Gegenstelle anbietet, und das ist bei einer fremden Gegenstelle
@@ -645,7 +698,7 @@ async fn negotiate(
     pc: &Arc<RTCPeerConnection>,
     http: &reqwest::Client,
     whep_url: &str,
-) -> Result<Option<String>> {
+) -> Result<(Option<String>, u8)> {
     let offer = pc.create_offer(None).await.context("create_offer")?;
     pc.set_local_description(offer).await.context("set_local_description")?;
 
@@ -700,11 +753,12 @@ async fn negotiate(
         bail!("WHEP-Antwort war kein gueltiges SDP");
     }
     melde_rueckkanal(&answer);
+    let marken_id = bildmarke_id(&answer);
     pc.set_remote_description(RTCSessionDescription::answer(answer)?)
         .await
         .context("set_remote_description")?;
 
-    Ok(location.and_then(|loc| resolve_resource_url(whep_url, &loc)))
+    Ok((location.and_then(|loc| resolve_resource_url(whep_url, &loc)), marken_id))
 }
 
 /// Liest den Antwortkoerper des WHEP-POST **gestreamt** und bricht ab, sobald
@@ -869,6 +923,22 @@ mod tests {
     fn rueckkanal_ohne_zusagen() {
         let answer = "v=0\r\na=rtpmap:96 H264/90000\r\n";
         assert_eq!(rueckkanal_flags(answer), (false, false, false));
+    }
+
+    /// Die Nummer kommt aus der ANTWORT, und die Richtungsangabe hinter dem
+    /// Schraegstrich ist zulaessig — ohne das Abschneiden scheitert das
+    /// Parsen genau dann, wenn eine Gegenstelle sie setzt.
+    #[test]
+    fn bildmarke_id_liest_die_ausgehandelte_nummer() {
+        let uri = crate::bildmarke::EXTMAP_URI;
+        assert_eq!(bildmarke_id(&format!("v=0\r\na=extmap:7 {uri}\r\n")), 7);
+        assert_eq!(bildmarke_id(&format!("v=0\r\na=extmap:12/sendrecv {uri}\r\n")), 12);
+        assert_eq!(
+            bildmarke_id("v=0\r\na=extmap:3 urn:ietf:params:rtp-hdrext:sdes:mid\r\n"),
+            0,
+            "eine fremde Erweiterung zaehlt nicht"
+        );
+        assert_eq!(bildmarke_id("v=0\r\n"), 0, "gar keine Erweiterung");
     }
 
     #[test]

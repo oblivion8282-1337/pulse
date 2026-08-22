@@ -72,8 +72,10 @@ def encode_cmd(ref: Path, pix_fmt: str, w: int, h: int, fps: int, kbps: int,
         # der Sweep eine Einstellung, die nie laeuft: die VAAPI-Encoder setzen
         # `bf=2` als eigene Vorgabe (`vaapi_encode_h264.c`). Bei AV1 faellt es
         # nicht auf, weil der Treiber dort gar keine B-Bilder anbietet; bei
-        # H.264 schon — und mit Intra-Refresh scheitert der Encoder-Open dann
-        # sogar ("Intra refresh cannot be used together with B-frames").
+        # H.264 schon. (Bis zum 2026-08-21 stand hier als zweiter Grund, dass
+        # der Encoder-Open mit Intra-Refresh sonst ganz scheitert — „Intra
+        # refresh cannot be used together with B-frames". Die Betriebsart ist
+        # entfernt, der erste Grund traegt allein.)
         basis = ["-rc_mode", "CBR", "-async_depth", "1", "-bf", "0"]
         geraet = ["-vaapi_device", os.environ.get("PULSE_VAAPI_DEVICE", "/dev/dri/renderD128")]
         # VAAPI encodiert aus einer GPU-Surface — die Rohbilder muessen erst

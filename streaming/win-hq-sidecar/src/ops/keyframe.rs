@@ -12,10 +12,9 @@
 //! sie loest dasselbe aus, ohne dass ein echter Zuschauer, ein Verlustprofil
 //! und der MediaMTX-Patch zusammenkommen muessen.
 //!
-//! Genau deshalb steht sie hier und nicht nur im Labor: die Wirkung von
-//! Intra-Refresh laesst sich damit messen, BEVOR die ganze Kette steht — und
-//! eine Zahl schlaegt eine Erwartung. Das Linux-Labor hat dieselbe Operation
-//! aus demselben Grund (`streaming/hq-labor/src/ops/keyframe.rs`).
+//! Genau deshalb steht sie hier und nicht nur im Labor: die Wirkung eines
+//! Vollbilds laesst sich damit messen, BEVOR die ganze Kette steht — und eine
+//! Zahl schlaegt eine Erwartung.
 //!
 //! Ohne laufenden Stream ist sie folgenlos: der Merker wird beim naechsten
 //! `start` zurueckgesetzt (s. [`crate::keyframe`]).

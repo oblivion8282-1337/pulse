@@ -50,8 +50,7 @@ pub(crate) fn vendor_encoder_opts(
             // die Option mit Bindestrich; die Mechanik dahinter ist eine andere
             // als bei AMF (dort `amfenc.c`, s. AMD-Zweig unten).
             //
-            // **Am 2026-08-04 auf NVIDIA nachgemessen** (RTX 5080, Messakte
-            // `nvidia-2026-08-04-windows-intra-refresh.json`, Abschnitt 5):
+            // **Am 2026-08-04 auf NVIDIA nachgemessen** (RTX 5080):
             // zwei angeforderte Vollbilder, zwei IDR in der Datei, an der
             // erwarteten Stelle — und ausserhalb davon weiter keines. Gezaehlt
             // im Mitschnitt, nicht im Log des Senders; genau dort ist der
@@ -82,9 +81,9 @@ pub(crate) fn vendor_encoder_opts(
             //   14,6 / 14,6 / 33,3 %. Der 8-bit-Lauf desselben Aufbaus liegt
             //   bei 100,0 % — so sähe ein bloßes Etikett aus.
             //
-            // Das bestätigt unabhängig, was die Messakte
-            // `nvidia-2026-08-04-windows-intra-refresh.json` (Abschnitt 7d)
-            // schon einmal gezeigt hatte, auf demselben Treiberstand.
+            // Das bestätigt unabhängig, was am 2026-08-04 auf demselben
+            // Treiberstand schon einmal gemessen wurde (Reste 21,5/29,6/28,8/
+            // 20,1 % gegen 100,0 % im Kontrollfall).
             //
             // **`-highbitdepth` ist NICHT die fehlende Zeile**, obwohl der Name
             // danach klingt: `av1_nvenc` kennt den Schlüssel, aber er heißt

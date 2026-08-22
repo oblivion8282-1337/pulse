@@ -10,7 +10,7 @@
  * Naheliegend wäre, `remote_request` als Weckruf zu nehmen. Dagegen spricht ein
  * konkreter Fehlerfall (Entwurf §8): dann hinge eine **Sitzungszusage an einer
  * Encoder-Initialisierung**. Scheitert die — kein Monitor angeschlossen,
- * Encoder belegt, Startverweigerung wegen HDR oder Intra-Refresh —, stünde eine
+ * Encoder belegt, Startverweigerung wegen HDR —, stünde eine
  * aktive Fernsteuer-Sitzung ohne Bild da, und der Fehler wäre nicht lesbar.
  *
  * Deshalb zwei Vorgänge: **wecken → übertragen → dann die unveränderte

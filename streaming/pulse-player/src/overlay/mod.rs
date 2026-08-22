@@ -288,6 +288,43 @@ impl Overlay {
         self.input_pending || self.stats_dirty || ausblenden_faellig
     }
 
+    /// Soll das Overlay in DIESEM Durchgang mitgezeichnet werden?
+    ///
+    /// Nicht dasselbe wie [`Self::wants_redraw`]: das beantwortet „gibt es
+    /// einen Grund, ueberhaupt einen Durchgang anzustossen". Hier geht es um
+    /// einen Durchgang, der ohnehin stattfindet (ein neues Bild ist da) — die
+    /// Frage ist nur, ob die Bedienung mit hineingezeichnet wird.
+    ///
+    /// **Der dritte Fall ist der Fernsteuerungs-Modus, und er fehlte bis zum
+    /// 2026-08-22.** Dort steht der Griff dauerhaft (`fernbedienung`), er haengt
+    /// also nicht an der letzten Mausbewegung. Die Bedingung im Aufrufer lautete
+    /// aber `visible() || wants_redraw()`, und beide sind nach drei ruhigen
+    /// Sekunden falsch: `visible` laeuft ab, `stats_dirty` wird gar nicht erst
+    /// gesetzt (`mark_stats_dirty` fragt selbst nach `visible`), und der
+    /// Ausblende-Durchgang ist im Fernsteuerungs-Modus ausdruecklich
+    /// ausgenommen. Der Griff verschwand damit aus dem Bild, sobald der Nutzer
+    /// den Zeiger drei Sekunden ruhen liess — und kam erst bei der naechsten
+    /// Mausbewegung zurueck.
+    ///
+    /// Mit gefangenem Zeiger (`pointer_lock`) ist es schlimmer, weil dort gar
+    /// keine Mausbewegung mehr als Fensterereignis ankommt: `CursorMoved`
+    /// schweigt, die Bewegung kommt nur noch als `DeviceEvent::MouseMotion`
+    /// (`App::device_event`), und die ruehrt `last_activity` nicht an. Dann
+    /// halten nur noch Klicks und Tasten den Griff im Bild — und die
+    /// Tastenkombination, die das Menue gerade fuer diesen Fall oeffnen soll
+    /// ([`FERN_MENUE_TASTE`]), zeichnete es genau ein Bild lang.
+    ///
+    /// `set_fernsteuerung` kannte dieselbe Falle schon fuer den Einschaltmoment
+    /// und half sich mit einem einmaligen `input_pending`. Das deckt den
+    /// Uebergang ab, nicht den Dauerbetrieb.
+    ///
+    /// Es kostet fast nichts: ein egui-Durchgang mit nur dem Griff wurde am
+    /// 2026-08-22 mit 3,3 us gemessen, mit offenem Menue 16,6 us — bei 144
+    /// Bildern je Sekunde 0,05 bzw. 0,24 Prozent eines Kerns.
+    pub fn soll_mitzeichnen(&self) -> bool {
+        self.visible() || self.wants_redraw() || self.fernsteuerung
+    }
+
     /// Neue Zahlen liegen vor — beim naechsten Durchgang neu zeichnen, wenn das
     /// Overlay sichtbar ist.
     pub fn mark_stats_dirty(&mut self) {

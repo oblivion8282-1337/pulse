@@ -24,8 +24,8 @@ use super::WhipSender;
 ///
 /// Scheitert der Aufbau, bricht der Start ab — kein stiller Rückfall auf den
 /// Muxer. Der wäre die schlimmere Antwort: der Stream liefe, aber ohne
-/// Rückkanal, und bei Intra-Refresh käme kein Zuschauer mehr ins Bild, ohne
-/// dass irgendwo ein Fehler auftaucht.
+/// Rückkanal, und bei 60 s Vollbild-Abstand wartete ein Zuschauer bis zu eine
+/// Minute auf sein erstes Bild, ohne dass irgendwo ein Fehler auftaucht.
 pub fn baue(auftrag: &SenkenAuftrag) -> Result<Box<dyn PaketSenke>> {
     let sender = WhipSender::connect(
         auftrag.url,

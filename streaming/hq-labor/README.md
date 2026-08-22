@@ -1,5 +1,17 @@
 # HQ-Labor — Messstand für den experimentellen Sendeweg
 
+> **Intra-Refresh ist am 2026-08-21 aus Pulse entfernt worden.** Die
+> Betriebsart, um die es auf diesem Blatt streckenweise geht, gibt es nicht
+> mehr: kein Kästchen, kein Health-Feld, keine Encoder-Optionen, keine
+> FFmpeg-Patches. Gründe waren das sichtbar schlechtere H.264-Bild, dass macOS
+> sie nie trug, und dass ein Vollbild-Strom sich nach Paketverlust selbst
+> repariert — ein Intra-Refresh-Strom nicht. Die zugehörigen Messakten sind
+> gelöscht, weil sie teils nie bestätigt und teils später widerlegt wurden.
+>
+> **Was hier über die Betriebsart steht, ist Historie und keine Anleitung.**
+> Methodik, Aufbau und alles Übrige gelten weiter.
+
+
 Ein **eigenes Artefakt**, kein Umbau des ausgelieferten Sidecars. Was hier
 entsteht, heißt `pulse-hq-labor` und geht in keinen Nutzer-Build: das
 Flatpak-Manifest baut ausschließlich `pulse-linux-hq-sidecar` aus
@@ -8,8 +20,9 @@ Workflow angefasst.
 
 ## Warum getrennt
 
-Der experimentelle Weg (eigener WebRTC/WHIP-Push, AV1-Paketierer,
-Intra-Refresh, FEC) ist kein Anbau, sondern greift mitten in den Sendepfad:
+Der experimentelle Weg (eigener WebRTC/WHIP-Push, AV1-Paketierer, FEC — und
+bis zum 2026-08-21 Intra-Refresh) ist kein Anbau, sondern greift mitten in den
+Sendepfad:
 der Encoder-Ausgang wird von „schreib in den FLV-Muxer" zu einem Enum
 `Muxer | Whip`, der Opus-Encoder wird für beide Wege gemeinsam geöffnet. Über
 den ausgelieferten Stand gelegt, liefe **jeder Nutzer** durch diesen Code —
@@ -81,9 +94,15 @@ cd streaming/testbench
 
 ## Der Server dahinter
 
-Die Gegenstelle ist der Hetzner-Testserver, erreichbar als
-`pulse.unicutmedia.com`. Seit 2026-07-31 läuft dort **nur noch MediaMTX**, als
+Die Gegenstelle war der Hetzner-Testserver, erreichbar als
+`pulse.unicutmedia.com`. Von 2026-07-31 an lief dort **nur noch MediaMTX**, als
 eigenständiger Container `mediamtx-labor`:
+
+> **Der Messstand ist seit dem 2026-08-12 gestoppt** — dieselbe Adresse trägt
+> seither den gemeinsamen Remote-Dev-Stack. Ein Lauf dagegen endet in HTTP 401.
+> Die Rückholanleitung liegt auf dem Server (`~/messstand-gestoppt-2026-08-12.txt`);
+> was hier folgt, beschreibt den Aufbau, wie er dann wieder entsteht.
+
 
 ```
 ~/mediamtx-labor/

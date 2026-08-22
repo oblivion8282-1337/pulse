@@ -11,9 +11,11 @@
 >
 > Der Grund war nicht AV1 allein, sondern der **Rückkanal**: ffmpegs Muxer
 > reicht die Vollbild-Anforderung eines Zuschauers nicht an die Anwendung
-> durch. Für rollenden Intra-Refresh ist das kein Komfortverlust — ein solcher
-> Strom hat nach dem Start kein Vollbild mehr, ohne Anforderung kommt niemand
-> mehr ins Bild.
+> durch. Das war damals kein Komfortverlust, sondern der Ausschlag: ein
+> Intra-Refresh-Strom hatte nach dem Start kein Vollbild mehr, ohne Anforderung
+> kam niemand mehr ins Bild. (Die Betriebsart ist am 2026-08-21 entfallen; das
+> Argument trägt unverändert weiter, weil der Vollbild-Abstand seit dem
+> 2026-08-18 bei 60 s steht.)
 >
 > Was am Blatt gilt: die Token- und Berechtigungs-Seite (media-svc,
 > chat-gateway, auth-hook). **Und der dort beschriebene Weg ist in Produktion

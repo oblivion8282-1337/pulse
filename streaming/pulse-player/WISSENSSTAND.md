@@ -123,7 +123,9 @@ dadurch mit steigender Bildrate — bei 144 fps auf 8,3 s.
 
 ### GEMESSEN
 
-**Intra-Refresh heilt sich nach Verlust NICHT** (`decoder-2026-07-29-intra-refresh.json`).
+**Intra-Refresh heilt sich nach Verlust NICHT** (Messakte
+`decoder-2026-07-29-intra-refresh.json`, am 2026-08-21 zusammen mit der
+Betriebsart gelöscht).
 Ein einziges verworfenes Bild genügt: `av1_cuvid` liefert weiter Bilder ohne
 Fehlermeldung, aber alle 148 danach sind byte-identisch mit dem Vorgänger
 (PSNR 24 dB, nie wieder sauber). `libdav1d` gibt gar nichts mehr aus.
@@ -263,10 +265,14 @@ ist.
    zu bewerten.** Das ist der Engpass, nicht die Frage nach dem Bedarf.
 2. **Reicht ein höherer `jitter_ms`?** Ein Zahlenwert, kein Umbau — aber die
    Annahme dahinter (kostet nichts ohne Störung) ist ungemessen.
-3. **Recorder verträgt kein Intra-Refresh** (wartet auf IDR). Blockiert auch
-   die Qualitätsmessung über den echten Stream.
-4. **Produktisierung Intra-Refresh**: heute nur über `PULSE_ENCODER_OPTS`;
-   MediaMTX-Fork-Patch für die PLI-Weiterleitung ist gebaut, nicht committet.
+3. ~~**Recorder verträgt kein Intra-Refresh** (wartet auf IDR). Blockiert auch
+   die Qualitätsmessung über den echten Stream.~~ **Erledigt 2026-08-21** — die
+   Betriebsart ist entfallen, es gibt nur noch Ströme mit periodischen
+   Vollbildern.
+4. ~~**Produktisierung Intra-Refresh**: heute nur über `PULSE_ENCODER_OPTS`;~~
+   **Hinfällig 2026-08-21** — die Betriebsart ist entfallen. Der
+   MediaMTX-Fork-Patch für die PLI-Weiterleitung war davon unabhängig und ist
+   gebaut, aber nicht committet.
 5. **Entscheidung RTMPS → WHIP** steht beim Nutzer aus (RTMPS ist strukturell
    ruckelig, im TCP nicht behebbar).
 6. **H.264 ist live ~15 ms langsamer als AV1** (41,0 gegen 25,8 ms bei

@@ -59,9 +59,16 @@ fn main() -> anyhow::Result<()> {
     // Bits bei gleicher Bildqualitaet, 10 Bit farblich in Ordnung (ueber Vulkan
     // magenta), eine brauchbare Ratensteuerung (die des Vulkan-Encoders trifft
     // ihr Ziel nicht), und im Browser durchgehend in Hardware. Messakten
-    // `amf-2026-08-02-intra-refresh-doch.json`,
-    // `amd-2026-08-02-h264-intra-refresh.json` und
-    // `amd-2026-08-02-qualitaet-und-browser.json`.
+    // `amf-2026-08-02-intra-refresh-doch.json` und
+    // `amd-2026-08-02-h264-intra-refresh.json` (beide am 2026-08-21 geloescht)
+    // sowie `amd-2026-08-02-qualitaet-und-browser.json`.
+    //
+    // **Der Auffrischungs-Teil dieser Begruendung traegt seit dem 2026-08-21
+    // nicht mehr**: Intra-Refresh ist aus Pulse entfernt, und keiner der beiden
+    // Wege bietet sie noch an (s. `auffrischung.rs` und `vulkan_encoder.rs`,
+    // beide im Modulkopf als stillgelegt gekennzeichnet). Der Rest der
+    // Begruendung -- 43 % weniger Bits, brauchbare Ratensteuerung, Hardware im
+    // Browser -- gilt unveraendert, AMF bleibt der Standardweg.
     //
     // `PULSE_LABOR_VULKAN=1` holt den alten Weg zurueck — er bleibt als
     // Vergleichsarm stehen, damit die Messakten nachvollziehbar bleiben.
@@ -131,6 +138,8 @@ fn main() -> anyhow::Result<()> {
             continue;
         }
 
+        // STILLGELEGT seit 2026-08-21 (s. `auffrischung.rs`): der Aufruf steht
+        // noch, setzt aber eine Option, die kein FFmpeg mehr kennt.
         // Auf dem herstellereigenen Weg die Auffrischung einschalten, bevor der
         // Auftrag hineingeht — der ausgelieferte Sidecar setzt sie nicht, und
         // fuer eine Labormessung wird er nicht angefasst (s. `auffrischung`).

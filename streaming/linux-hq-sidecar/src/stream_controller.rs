@@ -270,6 +270,7 @@ static INSTANCE: OnceLock<StreamController> = OnceLock::new();
 fn emit(event: Event) {
     match &event {
         Event::Log { line } => tracing::info!(target: "stream", "{line}"),
+        Event::Notice { line, .. } => tracing::warn!(target: "stream", "{line}"),
         Event::Error { message } => tracing::error!(target: "stream", "{message}"),
         Event::State { state, running, .. } => {
             tracing::info!(target: "stream", ?state, running, "state")
@@ -754,12 +755,33 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
         });
     }
 
+    // Last-Grenze für 10 bit (Vorfall 2026-08-20, `crate::lastgrenze`): Die
+    // Quellgröße steht erst seit der Portal-Verhandlung fest — HIER, nicht im
+    // Panel, ist der erste Ort, an dem alle drei Zahlen (Größe, Bittiefe,
+    // Bildrate) bekannt sind; das Panel filtert nur vorab, wo es die Größe
+    // schon kennt (benannte Auflösungs-Stufen). Begrenzt wird, nicht
+    // abgebrochen: der Stream soll laufen, nur ohne die Decoder der Zuschauer
+    // zu überfordern — die Meldung geht als `notice` raus, weil sie den Nutzer
+    // vorbildlich erreicht und nicht nur im Log-Fenster steht. Das Web macht
+    // daraus Toast UND Log-Zeile; ein zusätzliches `log`-Ereignis hier hätte
+    // die Zeile im Log-Fenster gedoppelt.
+    let (fps, begrenzt) = crate::lastgrenze::begrenzen(out_w, out_h, params.fps, ten_bit);
+    if begrenzt {
+        emit(Event::Notice {
+            line: format!(
+                "[stream] 10 bit bei {out_w}×{out_h}: Bildrate auf {fps} Bilder/s begrenzt \
+                 — diese Last überfordert die Decoder mancher Zuschauer"
+            ),
+            code: "fps_begrenzt".to_string(),
+        });
+    }
+
     // 5) Encoder mit dem vom Importer vorgegebenen HW-Pixel + Frames-Kontext.
     let (hw_pixel, frames_ctx) = importer.encoder_binding();
     let cfg = EncoderConfig {
         vendor,
         codec,
-        fps: params.fps,
+        fps,
         bitrate_kbps: params.bitrate_kbps,
         width: out_w,
         height: out_h,
@@ -837,7 +859,7 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
         uptime_s: 0,
     });
 
-    let frame_interval = Duration::from_secs_f64(1.0 / params.fps.max(1) as f64);
+    let frame_interval = Duration::from_secs_f64(1.0 / fps.max(1) as f64);
     // Nachfrist für ein knapp verspätetes Bild, bevor dupliziert wird. Läuft
     // die Quelle mit DERSELBEN Rate wie der Encode-Takt (60-Hz-Schirm →
     // 60-fps-Stream, der Normalfall), liegt die Bild-Ankunft irgendwo relativ
@@ -850,8 +872,8 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
     let mut next_slot = Instant::now() + frame_interval;
     // Ein Bildabstand und die Lücken-Schwelle in Takten der Video-Zeitbasis
     // (1/90000 — s. `crate::zeitbasis`, dort steht auch, warum nicht 1/fps).
-    let takt_bild = crate::zeitbasis::takte_je_bild(params.fps);
-    let luecke_ab = crate::zeitbasis::lueckenschwelle(params.fps);
+    let takt_bild = crate::zeitbasis::takte_je_bild(fps);
+    let luecke_ab = crate::zeitbasis::lueckenschwelle(fps);
     // pts des zuletzt encodierten Bildes (Takte). Startet einen Bildabstand
     // vor null, damit auch ein allererstes Duplikat auf 0 landet.
     let mut last_pts: i64 = -takt_bild;
@@ -860,7 +882,7 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
     let mut raw_dump = match crate::encode::raw_dump::RawDump::from_env(
         out_w,
         out_h,
-        params.fps,
+        fps,
     ) {
         Ok(d) => d,
         Err(e) => {
@@ -890,7 +912,7 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
     // (Format-Neuverhandlung, Karte kurz belegt), kurz genug, dass niemand
     // minutenlang ein Standbild sendet und es fuer eine schlechte Leitung haelt.
     let mut import_fehler_in_folge = 0u64;
-    let import_fehler_grenze = (params.fps.max(1) as u64).saturating_mul(2);
+    let import_fehler_grenze = (fps.max(1) as u64).saturating_mul(2);
 
     let run_result = (|| -> Result<()> {
         loop {
@@ -948,7 +970,7 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
                         // sechzig gleiche Zeilen pro Sekunde verstopfen das Log
                         // und sagen ab der zweiten nichts Neues.
                         if import_fehler_in_folge == 1
-                            || import_fehler_in_folge % params.fps.max(1) as u64 == 0
+                            || import_fehler_in_folge % fps.max(1) as u64 == 0
                         {
                             emit(Event::Log {
                                 line: format!(
