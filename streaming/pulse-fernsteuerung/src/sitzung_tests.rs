@@ -7,6 +7,7 @@
 use crate::format::PROTOKOLL_VERSION;
 use crate::pruefstand::{Ereignis, PruefInjektor, PruefUmgebung, PruefWache, ZielAntwort};
 use crate::sitzung::{Sitzung, Zustand};
+use crate::zuordnung::Rechteck;
 
 /// Ein vollständiger Prüfstand samt Sitzung.
 ///
@@ -396,13 +397,18 @@ fn hello_gilt_auch_unter_vorrang() {
 #[test]
 fn vorrang_entwertet_die_zeigerlage() {
     let s = stand();
-    {
-        let mut z = s.sitzung.sperre();
-        z.begruesst = true;
-        z.tat.zeiger = Some((600, 500));
-    }
-    s.wache.regen(true);
+    // **Derselbe Fallstrick wie in `verworfene_nachricht_gibt_trotzdem_frei`**:
+    // die Sitzung muss VORHER stehen (sonst entwertet schon der
+    // Sitzungswechsel die Lage) und die Vorrang-Nachricht darf **kein Hello**
+    // tragen (sonst tut es der Handschlag). Nur dann haengt die Behauptung
+    // wirklich am Vorrang-Uebergang. Gegenprobe: streicht man
+    // `z.tat.zeiger = None` in `vorrang_nachfuehren`, wird dieser Test rot.
     s.sitzung.frames(0, Some("test-vorrang-lage"), &[hello()], false).expect("kein Fehler");
+    s.sitzung.sperre().tat.zeiger = Some((600, 500));
+    s.wache.regen(true);
+    s.sitzung
+        .frames(0, Some("test-vorrang-lage"), &[taste_runter(0x11)], false)
+        .expect("kein Fehler");
     assert_eq!(s.sitzung.sperre().tat.zeiger, None, "die Lage darf nicht stehen bleiben");
     s.sitzung.beenden();
 }
@@ -455,6 +461,274 @@ fn der_uebergang_laeuft_nur_einmal() {
     assert!(
         s.inj.nimm().is_empty(),
         "ein unveränderter Zustand darf nichts erneut freigeben"
+    );
+    s.sitzung.beenden();
+}
+
+// ── Zweige, die auf Windows nicht stellbar waren ─────────────────────────────
+//
+// Sichtschutz, unaufloesbare Quelle, Startverweigerung der Wache, der Wecker
+// und das Cursor-Echo liefen bis zur Umschichtung durch KEINEN Test — nicht
+// aus Nachlaessigkeit, sondern weil der Sidecar-Pruefstand sie nicht stellen
+// konnte. Seit die Plattform ein Feld ist, kostet jeder von ihnen vier Zeilen.
+
+/// **Sicherheitsrelevant:** wer Schwarzbild sieht, darf nicht blind klicken.
+/// Der Sichtschutz verwirft **saemtliche** Eingabe — und gibt dabei frei,
+/// sonst verschluckt genau dieser Pfad das Hoch-Ereignis.
+#[test]
+fn sichtschutz_verwirft_saemtliche_eingabe() {
+    let s = stand();
+    s.sitzung.frames(0, Some("test-sicht"), &[hello()], false).expect("kein Fehler");
+    let _ = s.inj.nimm();
+    gedrueckt(&s.sitzung, &[0x11], &[0]);
+    *s.umg.ziel.lock().unwrap() = ZielAntwort::Gefunden {
+        rechteck: Some(Rechteck { links: 100, oben: 200, rechts: 1100, unten: 800 }),
+        sichtbar: false,
+    };
+
+    let b = s
+        .sitzung
+        .frames(0, Some("test-sicht"), &[taste_runter(0x11)], false)
+        .expect("Sichtschutz ist kein Protokollfehler");
+    assert_eq!(b.zustand, "masked");
+    assert_eq!(b.verarbeitet, 0);
+    assert_eq!(ist_noch_gedrueckt(&s.sitzung), 0, "auch der Sichtschutz gibt frei");
+    let spur = s.inj.nimm();
+    assert!(
+        !spur.contains(&Ereignis::Taste { scan: 0x11, down: true }),
+        "und nichts wird eingespielt: {spur:?}"
+    );
+    assert_eq!(spur.len(), 2, "genau die beiden Freigaben: {spur:?}");
+    s.sitzung.beenden();
+}
+
+/// Quelle nicht aufloesbar (Fenster zu, Bildschirm abgesteckt): verwerfen wie
+/// beim unbekannten Slot, aber unter eigenem Namen — der Steuernde soll den
+/// Unterschied sehen.
+#[test]
+fn unaufloesbare_quelle_wird_verworfen_nicht_beendet() {
+    let s = stand();
+    *s.umg.ziel.lock().unwrap() = ZielAntwort::NichtAufloesbar;
+    let b = s
+        .sitzung
+        .frames(0, Some("test-unaufloesbar"), &[hello()], false)
+        .expect("eine unaufloesbare Quelle ist kein Protokollfehler");
+    assert_eq!(b.zustand, "unresolved_source");
+    assert!(s.sitzung.sperre().begruesst, "der Handschlag ueberlebt auch diesen Zweig");
+    s.sitzung.beenden();
+}
+
+/// Fail-closed: der erste Frame MUSS ein gueltiges Hello sein. Ohne dieses Tor
+/// stuende jede Eingabe offen, die den Handschlag einfach weglaesst.
+#[test]
+fn eingabe_vor_dem_hello_legt_still() {
+    let s = stand();
+    gedrueckt(&s.sitzung, &[0x11], &[]);
+    let fehler = s
+        .sitzung
+        .frames(0, Some("test-ohne-hello"), &[taste_runter(0x1E)], false)
+        .expect_err("Eingabe ohne Handschlag ist fail-closed");
+    assert!(fehler.contains("Hello"), "{fehler}");
+    assert!(s.sitzung.sperre().stillgelegt, "und die Sitzung ist stillgelegt");
+    s.sitzung.beenden();
+}
+
+/// Fail-closed: ein missgeformter Frame auf einem aufgeloesten Ziel legt still
+/// — hier ist es kein Rennen, sondern ein Fehler oder ein Angriff.
+#[test]
+fn missgeformter_frame_legt_still_und_gibt_frei() {
+    let s = stand();
+    s.sitzung.frames(0, Some("test-schrott"), &[hello()], false).expect("kein Fehler");
+    gedrueckt(&s.sitzung, &[0x11], &[]);
+    let _ = s.inj.nimm();
+
+    let fehler = s
+        .sitzung
+        .frames(0, Some("test-schrott"), &[vec![0xFF, 0x00]], false)
+        .expect_err("ein missgeformter Frame ist fail-closed");
+    assert!(fehler.contains("ungültiger Frame"), "{fehler}");
+    assert_eq!(ist_noch_gedrueckt(&s.sitzung), 0, "fail-closed gibt frei");
+    assert!(
+        s.inj.nimm().contains(&Ereignis::Taste { scan: 0x11, down: false }),
+        "wirklich losgelassen"
+    );
+    s.sitzung.beenden();
+}
+
+/// **Ohne Wache keine Fernsteuerung.** Laesst sich der Vorrang des Hosts auf
+/// diesem System nicht durchsetzen, verweigert der Handschlag die Sitzung,
+/// statt still etwas Schwaecheres unter demselben Etikett zu liefern.
+#[test]
+fn ohne_aufstellbare_wache_verweigert_der_handschlag() {
+    let s = stand();
+    *s.wache.aufstellbar.lock().unwrap() = false;
+    let fehler = s
+        .sitzung
+        .frames(0, Some("test-keine-wache"), &[hello()], false)
+        .expect_err("eine nicht einloesbare Zusage verweigert den Start");
+    assert!(fehler.contains("nicht durchsetzbar"), "{fehler}");
+    assert!(!s.sitzung.sperre().begruesst, "und der Handschlag gilt nicht");
+    s.sitzung.beenden();
+}
+
+/// Der meistbegangene Ausstiegsweg: `beenden` gibt frei. Bis hierher belegte
+/// das nur [`Sitzung::beenden_endgueltig`] — `beenden` liess sich leerraeumen,
+/// ohne dass ein Test rot wurde.
+#[test]
+fn beenden_gibt_alles_frei() {
+    let s = stand();
+    gedrueckt(&s.sitzung, &[0x11], &[0]);
+    assert_eq!(s.sitzung.beenden(), 2, "Taste und Knopf");
+    let spur = s.inj.nimm();
+    assert!(spur.contains(&Ereignis::Taste { scan: 0x11, down: false }), "{spur:?}");
+    assert_eq!(knopf_ereignisse(&spur), vec![Ereignis::Knopf { btn: 0, down: false }], "{spur:?}");
+}
+
+/// Das Sitzungsende raeumt die Umgebung — und meldet sich **genau einmal**.
+/// Der Zaehler steht dafuer im Pruefstand: haenge man das Raeumen an
+/// `host_zeiger_zeigen`, liefe es bei jedem Fuehrungswechsel mit.
+#[test]
+fn das_sitzungsende_raeumt_die_umgebung_genau_einmal() {
+    let s = stand();
+    s.sitzung.frames(0, Some("test-ende"), &[hello()], false).expect("kein Fehler");
+    assert!(*s.umg.fern_aktiv.lock().unwrap(), "der Handschlag schaltet den Fern-Takt ein");
+    assert!(*s.wache.steht.lock().unwrap(), "und stellt die Wache auf");
+    assert_eq!(*s.umg.beendet.lock().unwrap(), 0, "und meldet noch kein Ende");
+
+    s.sitzung.beenden();
+    assert_eq!(*s.umg.beendet.lock().unwrap(), 1, "genau einmal");
+    assert!(!*s.umg.fern_aktiv.lock().unwrap(), "der Aufnahme-Takt geht zurueck");
+    assert!(*s.umg.zeiger_sichtbar.lock().unwrap(), "der Host-Zeiger gehoert zurueck ins Bild");
+    assert!(!*s.wache.steht.lock().unwrap(), "die Wache wird abgebaut");
+}
+
+/// Cursor-Echo: absolute Bewegung nimmt den Host-Zeiger aus der Aufnahme
+/// (der Steuernde sieht seinen eigenen), relative legt ihn zurueck
+/// (Zeigerfang — der Host-Zeiger ist dann der einzige, den es gibt).
+#[test]
+fn das_cursor_echo_folgt_dem_letzten_opcode() {
+    let s = stand();
+    s.sitzung.frames(0, Some("test-echo"), &[hello()], false).expect("kein Fehler");
+    assert!(*s.umg.zeiger_sichtbar.lock().unwrap(), "ohne Bewegung bleibt es, wie es war");
+
+    let abs = crate::bauen::maus_abs(30_000, 30_000).as_slice().to_vec();
+    s.sitzung.frames(0, Some("test-echo"), &[abs], false).expect("kein Fehler");
+    assert!(!*s.umg.zeiger_sichtbar.lock().unwrap(), "absolut → Host-Zeiger raus");
+
+    let rel = crate::bauen::maus_rel(5, 5).as_slice().to_vec();
+    s.sitzung.frames(0, Some("test-echo"), &[rel], false).expect("kein Fehler");
+    assert!(*s.umg.zeiger_sichtbar.lock().unwrap(), "relativ → Host-Zeiger zurueck");
+    s.sitzung.beenden();
+}
+
+/// **Reihenfolge:** der Sitzungswechsel laeuft VOR der Stilllegungs-Pruefung.
+/// Andersherum kaeme eine frisch aufgebaute Sitzung nach einem
+/// Protokollfehler nie mehr durch, ohne dass jemand `remote_input_end` ruft.
+#[test]
+fn eine_neue_sitzung_hebt_die_stilllegung_auf() {
+    let s = stand();
+    s.sitzung.frames(0, Some("test-A"), &[hello()], false).expect("kein Fehler");
+    s.sitzung.protokollfehler("slot ist keine Zahl".to_string());
+    assert!(
+        s.sitzung.frames(0, Some("test-A"), &[hello()], false).is_err(),
+        "dieselbe Sitzung bleibt stillgelegt"
+    );
+    let b = s
+        .sitzung
+        .frames(0, Some("test-B"), &[hello()], false)
+        .expect("eine neue Sitzung faengt frei an");
+    assert_eq!(b.zustand, "live");
+    assert_eq!(b.verarbeitet, 1);
+    s.sitzung.beenden();
+}
+
+/// **Der Wecker der Wache** ist der einzige Weg, auf dem ein Vorrang beginnt
+/// oder endet, ohne dass eine Nachricht eintrifft — genau der Fall, fuer den
+/// es ihn gibt: der Steuernde haelt eine Taste und sendet nichts. Bis hierher
+/// lief `vorrang_tick` durch keinen Test.
+#[test]
+fn der_wecker_gibt_frei_und_meldet_ohne_nachricht() {
+    let s = stand();
+    let abs = crate::bauen::maus_abs(30_000, 30_000).as_slice().to_vec();
+    s.sitzung.frames(0, Some("test-wecker"), &[hello(), abs], false).expect("kein Fehler");
+    assert!(!*s.umg.zeiger_sichtbar.lock().unwrap(), "das Cursor-Echo blendet ihn aus");
+    let _ = s.inj.nimm();
+
+    gedrueckt(&s.sitzung, &[0x11], &[]);
+    s.wache.regen(true);
+    s.sitzung.vorrang_tick();
+
+    assert_eq!(ist_noch_gedrueckt(&s.sitzung), 0, "der Wecker allein muss freigeben");
+    assert!(
+        *s.umg.zeiger_sichtbar.lock().unwrap(),
+        "wer selbst steuert, muss seinen Zeiger sehen — und die Zuschauer, was er tut"
+    );
+    assert!(
+        s.inj.nimm().contains(&Ereignis::Taste { scan: 0x11, down: false }),
+        "wirklich losgelassen"
+    );
+    assert_eq!(
+        *s.umg.meldungen.lock().unwrap(),
+        vec!["vorrang=true hold=5000".to_string()],
+        "und genau einmal nach vorn gemeldet"
+    );
+
+    s.wache.regen(false);
+    s.sitzung.vorrang_tick();
+    assert_eq!(
+        s.umg.meldungen.lock().unwrap().last().map(String::as_str),
+        Some("vorrang=false hold=0"),
+        "das Ende wird ebenso gemeldet — sonst bleibt der Steuernde gesperrt"
+    );
+    s.sitzung.beenden();
+}
+
+/// Auch der **Wecker** uebernimmt eine vergiftete Sperre. Gaebe er sie auf,
+/// faende der Vorrang des Hosts nach einer Panik irgendwo unter der Sperre nie
+/// mehr statt — der Steuernde behielte die Maschine, und die Handbewegung, auf
+/// die der Host sich verlaesst, bliebe folgenlos.
+#[test]
+fn der_wecker_uebernimmt_eine_vergiftete_sperre() {
+    let s = stand();
+    let gepanikt = std::thread::scope(|faeden| {
+        faeden
+            .spawn(|| {
+                let _gehalten = s.sitzung.sperre();
+                panic!("absichtliche Panik unter der Sperre (Teil des Tests, kein Fehlschlag)");
+            })
+            .join()
+    });
+    assert!(gepanikt.is_err(), "der Faden muss wirklich panikt haben");
+    assert!(s.sitzung.inner.is_poisoned(), "die Sperre muss vergiftet sein");
+
+    gedrueckt(&s.sitzung, &[0x11], &[]);
+    s.wache.regen(true);
+    s.sitzung.vorrang_tick();
+    assert_eq!(
+        ist_noch_gedrueckt(&s.sitzung),
+        0,
+        "eine vergiftete Sperre darf den Vorrang nicht aufhalten"
+    );
+    s.sitzung.beenden();
+}
+
+/// Ein **geltender** Vorrang wird wiederholt gemeldet — einmal je Sekunde,
+/// also alle zehn Wecker. Der `remote_signal`-Weiterleiter des Gateways
+/// verwirft ueber seinem Sekundendeckel **still**; geht ausgerechnet das
+/// „beginnt" verloren, faellt das spaetere „endet" beim Steuernden in die
+/// Flankenpruefung und wird verschluckt — dann zieht er sein Gehaltenes nie
+/// nach (Bughunt 2026-08-14).
+#[test]
+fn ein_geltender_vorrang_wird_wiederholt_gemeldet() {
+    let s = stand();
+    s.wache.regen(true);
+    for _ in 0..10 {
+        s.sitzung.vorrang_tick();
+    }
+    assert_eq!(
+        *s.umg.meldungen.lock().unwrap(),
+        vec!["vorrang=true hold=5000".to_string(); 2],
+        "der Uebergang und genau eine Wiederholung nach zehn Weckern"
     );
     s.sitzung.beenden();
 }
