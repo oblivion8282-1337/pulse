@@ -2,6 +2,20 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-23.2",
+      "date": "2026-08-23",
+      "style": "Sachlich",
+      "title": "Fernsteuerung jetzt auch auf dem Mac",
+      "intro": "Bisher ließ sich nur ein Windows-Rechner aus der Ferne bedienen. Jetzt auch ein Mac: wer einen Bildschirm teilt, kann Maus und Tastatur an den Zuschauer abgeben. Der Mac fragt dafür zwei Systemfreigaben ab — eine mehr, als man erwartet.",
+      "items": [
+        "Ein Mac kann jetzt ferngesteuert werden. In den Einstellungen gibt es dafür den Reiter „Standplatz“, der dort bisher gefehlt hat.",
+        "macOS verlangt zwei getrennte Freigaben: eine zum Einspielen von Eingaben (Bedienungshilfen) und eine zum Mithören (Eingabeüberwachung). Fehlt die zweite, bleibt die Fernsteuerung aus — ohne sie würde Pulse nicht bemerken, dass du selbst wieder an Maus oder Tastatur gehst, und dir den Rechner nicht zurückgeben.",
+        "Fehlt eine der beiden, steht jetzt im Reiter, welche es ist und wo sie sitzt. Vorher war die Funktion einfach nicht da.",
+        "Nach einem Update muss der Eintrag in den Systemeinstellungen entfernt und neu gesetzt werden, nicht nur der Haken neu geklickt. Die Freigabe hängt an der Signatur des Programms, und die ändert sich mit jeder neuen Fassung."
+      ],
+      "outro": "Cmd+Tab und Passwortfelder bleiben ausgenommen — beides lässt macOS grundsätzlich nicht von außen bedienen."
+    },
+    {
       "id": "2026-08-23",
       "date": "2026-08-23",
       "style": "Sachlich",
