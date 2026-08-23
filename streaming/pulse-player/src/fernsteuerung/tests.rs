@@ -679,7 +679,7 @@ fn rad_ohne_bewegung_erzeugt_nichts() {
 #[test]
 fn base64_hin_und_zurueck() {
     for probe in [&b""[..], b"M", b"Ma", b"Man", b"Manx", &[0x00, 0x02], &[0xff, 0xfe, 0xfd]] {
-        assert_eq!(entziffern(&rahmen::base64(probe)), probe, "{probe:?}");
+        assert_eq!(entziffern(&rahmen::kodiere(probe)), probe, "{probe:?}");
     }
 }
 

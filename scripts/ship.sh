@@ -82,13 +82,21 @@ else
   # Tests sind die schärfsten im Repo und liefen bis dahin nirgends.
   #
   # Ohne FFmpeg-Schranke, weil diese Kisten abhängigkeitsfrei sind und in
-  # Sekunden bauen. Ausnahme: pulse-player trägt denselben Namensstamm
+  # Sekunden bauen. Zwei Ausnahmen: pulse-player trägt denselben Namensstamm
   # (`streaming/pulse-*`), hängt aber an der gepinnten FFmpeg und wird weiter
   # unten mit FFMPEG_DIR/LD_LIBRARY_PATH getestet — hier ausdrücklich
   # ausgenommen, sonst liefe es hier ein zweites Mal, diesmal ohne die
-  # nötige Umgebung, und bräche den Bau eines unveränderten Crates.
+  # nötige Umgebung, und bräche den Bau eines unveränderten Crates. Und
+  # pulse-whip: die zieht webrtc, tokio und anyhow (214 Kisten im
+  # Abhängigkeitsbaum gegen 1 bei pulse-fernsteuerung), ist also weder
+  # abhängigkeitsfrei noch schnell — und ihr `cargo test` löste webrtc von
+  # crates.io auf, nicht über den gepatchten Zweig, den Player und die
+  # Sidecars tatsächlich ausliefern; das Gate prüfte damit eine andere
+  # Abhängigkeit als die ausgelieferte. pulse-whip bleibt deshalb aussen vor
+  # und läuft weiterhin in KEINEM Gate — eine offene Rechnung, kein Versehen.
   for kiste in $(echo "$changed" | sed -n 's|^\(streaming/pulse-[a-z-]*\)/.*|\1|p' | sort -u); do
     [ "$kiste" = "streaming/pulse-player" ] && continue
+    [ "$kiste" = "streaming/pulse-whip" ] && continue
     [ -f "$kiste/Cargo.toml" ] || continue
     echo "  Cargo-Tests $kiste…"
     ( cd "$kiste" && cargo test -q ) \

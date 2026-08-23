@@ -37,6 +37,12 @@ use super::{Sitzung, Zustand};
 /// typischerweise im Vollbild (dieselbe Falle, an der die Verbindungswacht
 /// schon einmal hing, s. `web/src/lib/remote/wachten.ts`). Dieser Faden ist
 /// nativ und wird von niemandem gedrosselt.
+///
+/// **Dieselbe Zahl mit derselben Begründung steht noch einmal** in
+/// `streaming/win-hq-sidecar/src/remote_input/zeigerform.rs::WIEDERHOLUNG_TAKTE`
+/// (dort für die Zeigerform, nicht den Vorrang) — zwei verschiedene Kisten und
+/// Zwecke, deshalb hier nicht zusammenlegbar. Wer den Sekunden-Deckel des
+/// Gateways (`remote_signal`) ändert, muss beide Stellen finden.
 const WIEDERHOLUNG_TAKTE: u64 = 10;
 
 impl Sitzung {

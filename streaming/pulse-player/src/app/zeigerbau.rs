@@ -32,7 +32,7 @@ use std::collections::HashMap;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::CustomCursor;
 
-use crate::fernsteuerung::rahmen::base64_zurueck;
+use crate::fernsteuerung::rahmen::dekodiere;
 use crate::proto::Zeigerbildrahmen;
 use crate::zeigerbild::Zeigerbild;
 
@@ -98,7 +98,7 @@ impl Vorrat {
 /// Einen Rahmen von der Leitung in ein Bild verwandeln.
 fn entpacken(rahmen: &Zeigerbildrahmen) -> Option<Zeigerbild> {
     let daten = rahmen.daten.as_deref()?;
-    let laeufe = base64_zurueck(daten).ok()?;
+    let laeufe = dekodiere(daten).ok()?;
     Zeigerbild::entpacken(rahmen.w, rahmen.h, rahmen.hx, rahmen.hy, &laeufe).ok()
 }
 
@@ -130,7 +130,7 @@ mod tests {
             halt_y: 0,
             punkte: vec![1, 2, 3, 255, 4, 5, 6, 255, 7, 8, 9, 255, 1, 2, 3, 255],
         };
-        let wort = crate::fernsteuerung::rahmen::base64(&vorher.packen().unwrap());
+        let wort = crate::fernsteuerung::rahmen::kodiere(&vorher.packen().unwrap());
         assert_eq!(entpacken(&rahmen(Some(&wort))), Some(vorher));
     }
 

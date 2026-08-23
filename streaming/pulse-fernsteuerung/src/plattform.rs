@@ -1,8 +1,10 @@
 //! Der Schnitt zwischen Kern und Betriebssystem — drei Traits, sonst nichts.
 //!
-//! Wer eine neue Plattform anschliesst, schreibt genau diese drei und sonst
-//! nichts. Umgekehrt gilt: was hier nicht steht, kennt der Kern nicht — und
-//! darf ihn deshalb auch nicht beeinflussen.
+//! Wer eine neue Plattform anschliesst, implementiert diese drei Traits —
+//! und haelt daneben den EINEN Takt ein, den [`Wache`] von ihr verlangt
+//! (s. dort): kein viertes Trait, aber eben doch nicht "sonst nichts". Was
+//! darueber hinaus hier nicht steht, kennt der Kern nicht — und darf ihn
+//! deshalb auch nicht beeinflussen.
 //!
 //! **`Sync`, weil die Sitzung von mehreren Faeden gerufen wird:** vom
 //! Dispatch-Faden (eingehende Nachrichten) und vom Wecker der Wache
@@ -42,6 +44,18 @@ pub trait Injektor: Sync {
 }
 
 /// Sitzt der **Host** gerade selbst an Maus und Tastatur?
+///
+/// **Vertragspflicht, die keine einzelne Methode hier erzwingt:** die
+/// Plattform muss [`crate::sitzung::Sitzung::vorrang_tick`] in einem Takt von
+/// 100 ms treiben, solange eine Sitzung laeuft — vom Aufstellen
+/// ([`Self::starten`]) bis zum Abbau ([`Self::stoppen`]). Grund: der Vorrang
+/// ENDET von selbst, wenn der Host Ruhe gibt, und es kommt kein Ereignis, das
+/// ihn beendet. Hinge das Ende an der naechsten Eingabe-Nachricht, erfuehre
+/// ein Steuernder, der gerade nur eine Taste haelt und nichts sendet, nie
+/// davon — seine Taste bliebe tot, bis er zufaellig die Maus bewegt. Eine
+/// Plattform, die die drei Methoden unten korrekt implementiert, aber diesen
+/// Wecker vergisst, sieht in jedem Test gruen und haelt die Zusage trotzdem
+/// nicht.
 pub trait Wache: Sync {
     /// Die Wache aufstellen. Idempotent.
     ///
