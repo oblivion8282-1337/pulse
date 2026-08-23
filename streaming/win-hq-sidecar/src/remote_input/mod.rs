@@ -140,7 +140,7 @@ impl Umgebung for WinUmgebung {
 
     fn sitzung_beendet(&self) {
         // Die gemeldete Zeigerform gehoert der Sitzung, die gerade endet — die
-        // naechste beginnt mit leerem Merker. Genau wie vorher: nur hier, nicht
+        // naechste beginnt mit leerem Buch. Genau wie vorher: nur hier, nicht
         // bei jedem Zeigerwechsel.
         zeigerform::zuruecksetzen();
     }

@@ -39,7 +39,7 @@ use crate::zeigerbild::Zeigerbild;
 /// Wie viele gebaute Zeiger behalten werden.
 ///
 /// Passt zu dem, was der Host als „drüben bekannt" führt (`MAX_BEKANNT` in
-/// `remote_input/zeigerform.rs`) — beide Seiten sollen zur selben Zeit
+/// `pulse-fernsteuerung/src/zeigerbuch.rs`) — beide Seiten sollen zur selben Zeit
 /// vergessen, sonst schickt der Host eine blosse Kennung für ein Bild, das hier
 /// längst weg ist. Schlimmstenfalls kostet das eine Sekunde Standardpfeil (bis
 /// die Auffrischung das Bild wieder ganz bringt), aber je gleichmässiger die
@@ -146,7 +146,7 @@ mod tests {
     /// Der Prüfstein (`streaming/zeigerbild-formen.json`) hält fest, was der
     /// SENDER erzeugt; dieselbe Datei prüfen der Renderer
     /// (`web/test/zeigerbild-formen.test.ts`) und der Sender selbst
-    /// (`win-hq-sidecar/src/remote_input/zeigerform.rs`). Der Sinn steht in der
+    /// (`pulse-fernsteuerung/src/zeigerbuch.rs`). Der Sinn steht in der
     /// Datei: am 2026-08-17 verlangte die Prüfung im Renderer Felder, die die
     /// Kurzform gar nicht hat — beide Seiten hatten grüne Tests, weil keiner
     /// über die Sprachgrenze sah.

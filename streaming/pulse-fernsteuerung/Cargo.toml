@@ -15,3 +15,11 @@ description = "Plattformfreier Kern der Pulse-Fernsteuerung — Frame-Format, Si
 # hinein.
 [dependencies]
 serde_json = "1"
+
+# Das Zeigerbild-Format der Fernsteuerung — Schwesterkiste, keine Fremdquelle,
+# und selbst abhaengigkeitsfrei. Sie beschwert deshalb keinen Bauweg: die beiden
+# Programme, die an dieser Kiste haengen (win-hq-sidecar, pulse-player), nennen
+# sie ohnehin schon direkt. Gebraucht seit dem 2026-08-23 von `zeigerbuch`, das
+# die Zeigerform-Buchfuehrung traegt und dafuer `Zeigerbild` samt `packen()`
+# und `kennung()` kennen muss.
+pulse-zeigerbild = { path = "../pulse-zeigerbild" }
