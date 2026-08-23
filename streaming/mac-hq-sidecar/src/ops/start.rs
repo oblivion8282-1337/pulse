@@ -41,11 +41,7 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
         .unwrap_or(profile.codec)
         .to_string();
     let codec = resolve_codec(&requested_codec);
-    let fps = overrides
-        .and_then(|o| o.get("fps"))
-        .and_then(Value::as_u64)
-        .unwrap_or(profile.fps as u64)
-        .clamp(1, 120) as u32;
+    let fps = fps_aus(overrides, profile.fps);
     let bitrate_kbps = overrides
         .and_then(|o| o.get("bitrate_kbps"))
         .and_then(Value::as_u64)
@@ -163,6 +159,31 @@ fn parse_window_id(capture: &str) -> Option<u32> {
 /// h264/hevc require even dimensions.
 fn even(n: u32) -> u32 {
     n & !1
+}
+
+/// Die gewuenschte Bildrate, gegen Unsinn abgesichert.
+///
+/// **Die Obergrenze ist eine Vernunftgrenze, keine Richtlinie.** Wie hoch ein
+/// Nutzer gehen darf, entscheidet der Betreiber in den Streaming-Einstellungen
+/// (`hq_fps_max`, Vorgabe 360) und die Community daneben; die Oberflaeche
+/// klemmt bereits darauf. Was hier steht, faengt nur noch Werte ab, die gar
+/// keine Bildrate sein koennen — eine 0 (Division durch null im Taktgeber) und
+/// astronomische Zahlen aus einem kaputten Aufruf.
+///
+/// **Bis zum 2026-08-23 stand hier `clamp(1, 120)`**, ohne ein Wort der
+/// Begruendung, und war damit eine zweite Obergrenze neben der des Betreibers
+/// — an einer Stelle, an der er sie nicht ueberstimmen kann. Wer 144 einstellte,
+/// bekam 120, und zwar unabhaengig von Aufloesung und Maschine; es sah nach
+/// einer Leistungsgrenze aus und war eine Zahl. Der Linux-Zwilling klemmt bei
+/// 1000 und schreibt den Grund daneben ("Frontend clampt zusaetzlich auf den
+/// Admin-Deckel"), Windows klemmt nach oben gar nicht. Diese Fassung folgt
+/// Linux.
+fn fps_aus(overrides: Option<&Map<String, Value>>, profil_fps: u32) -> u32 {
+    overrides
+        .and_then(|o| o.get("fps"))
+        .and_then(Value::as_u64)
+        .unwrap_or(u64::from(profil_fps))
+        .clamp(1, 1000) as u32
 }
 
 /// Das Kuerzel der Oberflaeche in einen Kasten uebersetzen.
@@ -296,8 +317,10 @@ fn build_redacted_argv(
 #[cfg(test)]
 mod codec_resolution_tests {
     use super::{
-        einpassen, kasten_aus, parse_display_index, resolve_codec, resolve_resolution, zielmasse,
+        einpassen, fps_aus, kasten_aus, parse_display_index, resolve_codec, resolve_resolution,
+        zielmasse,
     };
+    use serde_json::{Map, Value};
 
     /// **K-1.** Nicht "die Funktion gibt h264 zurueck" — sondern die
     /// Eigenschaft, um die es geht: der Codec, den `resolve_codec` an den
@@ -385,6 +408,39 @@ mod codec_resolution_tests {
             beim_ersten_schirm.unwrap(),
             "die Aufnahme eines Fensters laeuft in Schirmgroesse — nicht in Fenstergroesse"
         );
+    }
+
+    /// **Der zweite Fehler vom 2026-08-23**: eine feste Obergrenze von 120,
+    /// unabhaengig von Aufloesung und Maschine. Sie sah aus wie eine
+    /// Leistungsgrenze und war eine Zahl ohne Begruendung.
+    #[test]
+    fn die_bildrate_wird_nicht_bei_120_gedeckelt() {
+        let mut o = Map::new();
+        o.insert("fps".to_string(), Value::from(144u64));
+        assert_eq!(fps_aus(Some(&o), 60), 144);
+        o.insert("fps".to_string(), Value::from(180u64));
+        assert_eq!(fps_aus(Some(&o), 60), 180);
+        o.insert("fps".to_string(), Value::from(240u64));
+        assert_eq!(fps_aus(Some(&o), 60), 240);
+    }
+
+    /// Was bleibt, ist eine Vernunftgrenze: eine 0 teilte den Taktgeber durch
+    /// null, und eine astronomische Zahl kommt aus einem kaputten Aufruf.
+    #[test]
+    fn unsinnige_bildraten_werden_abgefangen() {
+        let mut o = Map::new();
+        o.insert("fps".to_string(), Value::from(0u64));
+        assert_eq!(fps_aus(Some(&o), 60), 1, "0 haette den Taktgeber zerlegt");
+        o.insert("fps".to_string(), Value::from(u64::MAX));
+        assert_eq!(fps_aus(Some(&o), 60), 1000);
+    }
+
+    /// Ohne Wunsch gilt die Vorgabe des Profils — und die wird nicht geklemmt,
+    /// solange sie vernuenftig ist.
+    #[test]
+    fn ohne_wunsch_gilt_das_profil() {
+        assert_eq!(fps_aus(None, 60), 60);
+        assert_eq!(fps_aus(Some(&Map::new()), 144), 144);
     }
 
     /// **Der Fehler vom 2026-08-23**: die Oberflaeche schickt Kuerzel, dieser
