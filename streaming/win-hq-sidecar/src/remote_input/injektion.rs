@@ -119,6 +119,25 @@ pub fn taste(scan: u16, down: bool) {
 }
 
 /// Ein fertiges `INPUT` an Windows geben.
+///
+/// **Bewusst ohne Testbau-Riegel** — anders als der macOS-Zwilling, der im
+/// Testbau aufzeichnet statt zu posten. Zwei Gründe, und der zweite wiegt
+/// schwerer:
+///
+/// 1. Der Windows-Injektor entscheidet nichts. Was abgefeuert wird, steht in
+///    [`tasten_ereignis`] und [`ist_erweitert`] — reine Funktionen, die ihre
+///    eigenen Tests haben. Auf macOS entstehen Ereignistyp, Kennzeichnung und
+///    Klickstand dagegen erst beim Bauen des Ereignisses, also hinter dem
+///    Aufruf; dort braucht es die Aufzeichnung, um überhaupt etwas prüfen zu
+///    können.
+/// 2. Ein **stummer** Riegel (nur `return` im Testbau, ohne Aufzeichnung) wäre
+///    hier eine Falle: er machte Injektionstests schreibbar und garantiert
+///    nichtssagend — genau die Sorte Test, die in dieser Etappe fünfmal grün
+///    war, obwohl sie richtig und falsch nicht trennte.
+///
+/// Heute erreicht kein Test diese Zeile. **Wer das ändert, zeichnet auf**,
+/// statt still nichts zu tun; sonst bedient `cargo test` die Maschine des
+/// Entwicklers.
 fn abfeuern(input: INPUT) {
     unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) };
 }
