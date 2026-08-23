@@ -57,8 +57,12 @@ objc2-core-video = { version = "0.3", default-features = false, features = [
 # `CGEvent::new_keyboard_event` genau darauf gattert (`#[cfg(all(feature =
 # "CGEventTypes", feature = "CGRemoteOperation"))]`) — ohne das vierte Merkmal
 # gibt es Maus und Rad, aber keine Tastatur.
+# `CGWindow` kommt fuer die Zielaufloesung dazu (`src/remote_input/ziel.rs`):
+# das Rechteck eines aufgenommenen Fensters muss bei JEDER Eingabe-Nachricht
+# frisch sein, und `SCWindow.frame` taugt dafuer nicht (Begruendung dort).
 objc2-core-graphics = { version = "0.3", default-features = false, features = [
     "std", "CGDirectDisplay", "CGEvent", "CGEventSource", "CGEventTypes", "CGRemoteOperation",
+    "CGWindow",
 ] }
 # CF base layer (already transitive via core-video/-media) — needed to name
 # `CFRetained` for the zero-copy CVPixelBuffer hand-off into VideoToolbox.
@@ -68,7 +72,7 @@ objc2-core-graphics = { version = "0.3", default-features = false, features = [
 # nur, solange eine RunLoop ihn bedient. **Keine neue Abhaengigkeit** — dieselbe
 # Kiste, nur zwei Merkmale mehr.
 objc2-core-foundation = { version = "0.3", default-features = false, features = [
-    "std", "CFBase", "CFMachPort", "CFRunLoop",
+    "std", "CFBase", "CFMachPort", "CFRunLoop", "CFArray", "CFDictionary", "CFString",
 ] }
 objc2-screen-capture-kit = "0.3"
 block2 = "0.6"
