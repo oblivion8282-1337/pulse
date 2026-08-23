@@ -2,8 +2,8 @@
 //!
 //! Sie beantwortet die eine Frage, an der der Vorrang hängt (`super`): der Host
 //! behält sein Gerät, indem er es anfasst — bewegt er die Maus oder tippt er,
-//! wird die Fremdeingabe für [`frist_ms`] verworfen, und jede weitere Regung
-//! schiebt die Frist neu.
+//! wird die Fremdeingabe für [`frist::frist_ms`] verworfen, und jede weitere
+//! Regung schiebt die Frist neu.
 //!
 //! ## Warum ein Hook und nicht ein Blick auf den Zeiger
 //!
@@ -60,12 +60,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use pulse_fernsteuerung::bewegung::{self, Bewegung};
-
-/// Wie lange nach der letzten Regung des Hosts seine Eingabe Vorrang hat.
-const VORRANG_FRIST_MS: u64 = 5_000;
-
-/// Abstand der Übergangsprüfung (s. [`wecker_starten`]).
-const WECKER_MS: u64 = 100;
+use pulse_fernsteuerung::frist;
 
 /// Wann sich der Host zuletzt geregt hat (`jetzt_ms`), `0` = noch nie.
 static LETZTE_REGUNG_MS: AtomicU64 = AtomicU64::new(0);
@@ -92,33 +87,15 @@ fn jetzt_ms() -> u64 {
     START.get_or_init(Instant::now).elapsed().as_millis() as u64
 }
 
-/// Die Frist, einmal gelesen. `PULSE_FERN_VORRANG_MS` setzt sie um — gedacht
-/// für den Zwei-Geräte-Test, wo fünf Sekunden je Durchgang die Messung
-/// beherrschen. Geklemmt, damit ein Vertipper die Zusage nicht aufhebt.
-pub fn frist_ms() -> u64 {
-    static FRIST: OnceLock<u64> = OnceLock::new();
-    *FRIST.get_or_init(|| {
-        std::env::var("PULSE_FERN_VORRANG_MS")
-            .ok()
-            .and_then(|v| v.parse::<u64>().ok())
-            .map(|v| v.clamp(100, 60_000))
-            .unwrap_or(VORRANG_FRIST_MS)
-    })
-}
-
 /// Hat der Host gerade Vorrang?
 pub fn host_regt_sich() -> bool {
-    rest_ms() > 0
+    frist::host_regt_sich(LETZTE_REGUNG_MS.load(Ordering::Relaxed), jetzt_ms())
 }
 
 /// Wie lange der Vorrang noch gilt (0 = kein Vorrang). Geht als Zahl an den
 /// Renderer, damit der Steuernde „noch 4 s" sehen kann statt nur „gesperrt".
 pub fn rest_ms() -> u64 {
-    let letzte = LETZTE_REGUNG_MS.load(Ordering::Relaxed);
-    if letzte == 0 {
-        return 0;
-    }
-    frist_ms().saturating_sub(jetzt_ms().saturating_sub(letzte))
+    frist::rest_ms(LETZTE_REGUNG_MS.load(Ordering::Relaxed), jetzt_ms())
 }
 
 /// Die Wache aufstellen. Idempotent; `Err` heißt **die Zusage ist auf diesem
@@ -195,7 +172,7 @@ fn wecker_starten() {
         .name("pulse-fern-wecker".into())
         .spawn(move || {
             loop {
-                std::thread::sleep(std::time::Duration::from_millis(WECKER_MS));
+                std::thread::sleep(std::time::Duration::from_millis(frist::WECKER_MS));
                 if WECKER_NR.load(Ordering::SeqCst) != nr {
                     return;
                 }
@@ -365,12 +342,15 @@ mod tests {
     /// Ohne Regung gibt es keinen Vorrang — und die Frist ist eine echte Zahl.
     ///
     /// Die Bewegungsschwelle selbst (`bewegung::zaehlt`) samt ihrer acht
-    /// Tests steht jetzt in `pulse_fernsteuerung::bewegung`.
+    /// Tests steht jetzt in `pulse_fernsteuerung::bewegung`, die Frist-Rechnung
+    /// samt ihren Grenzfall-Tests in `pulse_fernsteuerung::frist`. Hier bleibt
+    /// nur der Nachweis, dass die dünnen Weiterleitungen die richtigen Werte
+    /// durchreichen.
     #[test]
     fn ohne_regung_kein_vorrang() {
         LETZTE_REGUNG_MS.store(0, Ordering::Relaxed);
         assert_eq!(rest_ms(), 0);
         assert!(!host_regt_sich());
-        assert!(frist_ms() >= 100);
+        assert!(frist::frist_ms() >= 100);
     }
 }
