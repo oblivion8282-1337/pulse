@@ -84,9 +84,17 @@ describe('istDetailScreen', () => {
 
   it('ist wahr, sobald ein Detail geoeffnet ist', () => {
     assert.equal(istDetailScreen('/app/@me/34'), true);
-    assert.equal(istDetailScreen('/app/rooms/12'), true);
     assert.equal(istDetailScreen('/app/guilds/12/channels/34'), true);
     assert.equal(istDetailScreen('/app/me/appearance'), true);
+  });
+
+  it('die Community-Übersicht ist KEIN Detail — die Leiste bleibt', () => {
+    // Bewusste Entscheidung aus dem Design-Durchgang (9bb5f838): Unter
+    // `/app/rooms/<guildId>` verschwindet die Bereichs-Leiste nicht, erst die
+    // Kanäle darunter sind Details. Dieser Test hielt bis zum 2026-08-24 noch
+    // die ältere Erwartung aus 6fb08399 und war seit 9bb5f838 rot —
+    // aufgefallen am ship-Gate, das seitdem jeden Push stoppte.
+    assert.equal(istDetailScreen('/app/rooms/12'), false);
   });
 
   it('ignoriert einen nachlaufenden Schraegstrich', () => {
