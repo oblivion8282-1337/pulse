@@ -16,7 +16,7 @@
 use std::io::{self, BufRead, Write};
 use std::thread;
 
-use pulse_mac_hq_sidecar::{dispatch, events};
+use pulse_mac_hq_sidecar::{dispatch, events, remote_input};
 
 fn main() -> anyhow::Result<()> {
     let (out_tx, out_rx) = std::sync::mpsc::channel::<serde_json::Value>();
@@ -75,6 +75,16 @@ fn main() -> anyhow::Result<()> {
                 eprintln!("[mac-hq-sidecar] failed to serialize response: {e}");
             }
         }
+    }
+
+    // **Vor dem Abbau der Ausgabe**: eine noch laufende Fernsteuerung wird
+    // beendet, und zwar endgueltig. Ohne das stirbt der Prozess mit einer
+    // physisch gedrueckten Taste, und niemand ist mehr da, der sie loest — das
+    // Betriebssystem haelt sie weiter fuer unten. `beenden_endgueltig` statt
+    // `beenden`, weil danach nichts mehr angenommen werden darf.
+    let freigegeben = remote_input::sitzung().beenden_endgueltig();
+    if freigegeben > 0 {
+        eprintln!("[remote-input] Prozessende: {freigegeben} Taste(n)/Knopf/Knoepfe freigegeben");
     }
 
     // EOF on stdin → let the writer thread finish. Drop the emitter-internal
