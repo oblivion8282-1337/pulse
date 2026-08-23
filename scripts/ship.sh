@@ -125,11 +125,32 @@ else
   # libavcodec.so.62 nicht und sterben mit Exit 127. Beides sieht wie ein
   # kaputter Test aus und ist keiner.
   ffmpeg_prefix="${PULSE_FFMPEG_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/pulse/ffmpeg/prefix}"
+  # **Auf dem Mac liegt FFmpeg woanders**, und das ist im CLAUDE.md so
+  # beschrieben: der Player baut dort über `PKG_CONFIG_PATH` auf
+  # `~/src/ffmpeg-openssl`, nicht über den gepinnten Linux-Vorrat. Ohne diesen
+  # Zweig meldete das Gate am 2026-08-23 „FFmpeg fehlt — Cargo-Tests
+  # ÜBERSPRUNGEN" und liess die 385 Player-Tests aus, obwohl der Player auf
+  # diesem Zweig geänderten Code trug und über den Windows-Installer und das
+  # DMG ausgeliefert wird. Dieselbe Linux-Annahme wie bei den Sidecars eine
+  # Ebene höher, nur leiser: sie warnt wenigstens, statt zu schweigen.
+  mac_pkgconfig=""
+  if [ ! -d "$ffmpeg_prefix/lib" ] && [ "$(uname -s)" = "Darwin" ]; then
+    for kandidat in "${PULSE_FFMPEG_PKGCONFIG:-}" "$HOME/src/ffmpeg-openssl/lib/pkgconfig"; do
+      [ -n "$kandidat" ] && [ -d "$kandidat" ] && { mac_pkgconfig="$kandidat"; break; }
+    done
+  fi
   rust_crates=""
   echo "$changed" | grep -q '^streaming/pulse-player/' && rust_crates="$rust_crates streaming/pulse-player"
   echo "$changed" | grep -q '^streaming/linux-hq-sidecar/' && rust_crates="$rust_crates streaming/linux-hq-sidecar"
   if [ -n "$rust_crates" ]; then
-    if [ ! -d "$ffmpeg_prefix/lib" ]; then
+    if [ -n "$mac_pkgconfig" ]; then
+      for crate in $rust_crates; do
+        # Klammern aus demselben Grund wie oben (bash 3.2 auf macOS).
+        echo "  Cargo-Tests ${crate} (macOS-FFmpeg)…"
+        ( cd "$crate" && PKG_CONFIG_PATH="$mac_pkgconfig" cargo test -q ) \
+          || { echo "✗ Cargo-Tests $crate ROT — Push abgebrochen." >&2; exit 1; }
+      done
+    elif [ ! -d "$ffmpeg_prefix/lib" ]; then
       echo "⚠  Rust-Crates geändert, aber die gepinnte FFmpeg fehlt ($ffmpeg_prefix)." >&2
       echo "   Cargo-Tests ÜBERSPRUNGEN — sie laufen also nicht. Bau sie mit" >&2
       echo "   scripts/hq-bauen.sh, oder setze PULSE_FFMPEG_DIR auf einen eigenen Bau." >&2
