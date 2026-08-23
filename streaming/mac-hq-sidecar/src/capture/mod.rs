@@ -18,6 +18,7 @@
 //! query thread and the worker thread; this is sound for SCK objects.
 
 mod abfrage;
+pub mod cursorsteuerung;
 mod filter;
 mod output;
 
@@ -30,7 +31,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
-use block2::RcBlock;
+use block2::{DynBlock, RcBlock};
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2::AllocAnyThread;
@@ -304,6 +305,16 @@ impl Capturer {
             None => (None, None),
         };
 
+        // Der Cursor-Platz der Fernsteuerung — ab hier laeuft die Aufnahme und
+        // der Host-Zeiger laesst sich am laufenden Strom umschalten.
+        //
+        // **Erst HIER, nicht gleich nach dem Bild-Strom**: scheitert der
+        // Ton-Strom, bricht `start` oben ab, und eine frueher gesetzte
+        // Anmeldung bliebe als Leiche stehen. Angemeldet wird nur der
+        // BILD-Strom mit SEINER Einstellungs-Instanz (der Ton-Strom traegt
+        // keinen Zeiger).
+        cursorsteuerung::anmelden(stream.clone(), config.clone(), show_cursor);
+
         Ok(Self {
             stream: AssumeSend(stream),
             _output: AssumeSend(output),
@@ -319,6 +330,8 @@ impl Capturer {
     /// Bild-Stream, selbst wenn der erste haengt: eine zurueckgelassene
     /// Bildschirmaufnahme kann die naechste Sitzung blockieren.
     pub fn stop(&self) {
+        // Cursor-Platz mit raeumen — die Einstellung stirbt mit der Aufnahme.
+        cursorsteuerung::abmelden();
         if let Some(ton) = &self.ton_stream {
             stoppe_stream(&ton.0);
         }
@@ -326,12 +339,18 @@ impl Capturer {
     }
 }
 
-/// Startet einen Stream und wartet, bis SCK den Erfolg meldet.
+/// Einen SCK-Aufruf mit Abschluss-Block absetzen und warten, bis er sich
+/// meldet.
 ///
-/// Ohne das Warten liefe der Aufrufer weiter, waehrend die Aufnahme noch gar
-/// nicht steht — ein Fehlschlag kaeme dann erst viel spaeter und ohne Bezug
-/// zur Ursache an.
-fn starte_stream(stream: &SCStream) -> Result<(), String> {
+/// Drei Stellen brauchen dasselbe: Start, Stopp und das Umschalten des
+/// Host-Zeigers ([`cursorsteuerung`]). Der Block laeuft auf einer SCK-eigenen
+/// Warteschlange, nicht auf dem hier wartenden Faden — deshalb ist das Warten
+/// kein Selbstschloss; [`abfrage::shareable_content`] macht es seit jeher
+/// genauso, und `list_monitors` lebt davon.
+pub(super) fn mit_abschluss(
+    frist: Duration,
+    absetzen: impl FnOnce(&DynBlock<dyn Fn(*mut NSError)>),
+) -> Result<(), String> {
     let (tx, rx) = channel::<Result<(), String>>();
     let tx = Mutex::new(Some(tx));
     let handler = RcBlock::new(move |error: *mut NSError| {
@@ -347,27 +366,30 @@ fn starte_stream(stream: &SCStream) -> Result<(), String> {
             }
         }
     });
-    unsafe { stream.startCaptureWithCompletionHandler(Some(&handler)) };
-    match rx.recv_timeout(Duration::from_secs(10)) {
+    absetzen(&handler);
+    match rx.recv_timeout(frist) {
         Ok(Ok(())) => Ok(()),
         Ok(Err(msg)) => Err(format!("failed: {msg}")),
         Err(_) => Err("timed out".to_string()),
     }
 }
 
+/// Startet einen Stream und wartet, bis SCK den Erfolg meldet.
+///
+/// Ohne das Warten liefe der Aufrufer weiter, waehrend die Aufnahme noch gar
+/// nicht steht — ein Fehlschlag kaeme dann erst viel spaeter und ohne Bezug
+/// zur Ursache an.
+fn starte_stream(stream: &SCStream) -> Result<(), String> {
+    mit_abschluss(Duration::from_secs(10), |h| unsafe {
+        stream.startCaptureWithCompletionHandler(Some(h))
+    })
+}
+
 /// Stoppt einen Stream, bestmoeglich. Fehler werden geschluckt — beim Abbau
 /// gibt es nichts mehr zu retten, und ein `?` hier liesse den zweiten Stream
 /// stehen.
 fn stoppe_stream(stream: &SCStream) {
-    let (tx, rx) = channel::<()>();
-    let tx = Mutex::new(Some(tx));
-    let handler = RcBlock::new(move |_error: *mut NSError| {
-        if let Ok(mut g) = tx.lock() {
-            if let Some(t) = g.take() {
-                let _ = t.send(());
-            }
-        }
+    let _ = mit_abschluss(Duration::from_secs(5), |h| unsafe {
+        stream.stopCaptureWithCompletionHandler(Some(h))
     });
-    unsafe { stream.stopCaptureWithCompletionHandler(Some(&handler)) };
-    let _ = rx.recv_timeout(Duration::from_secs(5));
 }

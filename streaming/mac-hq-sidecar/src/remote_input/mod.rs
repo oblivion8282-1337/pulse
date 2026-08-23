@@ -150,14 +150,16 @@ impl Umgebung for MacUmgebung {
         ziel::ziel_fuer_slot(slot)
     }
 
-    fn host_zeiger_zeigen(&self, _zeigen: bool) {
-        // **Bewusst noch nichts** — das Cursor-Echo ist Etappe 4, samt Zeigerform
-        // und Zeigerbild. Auf macOS haengt es an `SCStreamConfiguration.showsCursor`
-        // und verlangt ein `updateConfiguration` am laufenden Strom.
-        //
-        // Die Folge heute: der Steuernde sieht zwei Zeiger — den des Hosts im
-        // Bild und seinen eigenen. Unschoen, aber nichts, was jemanden in die
-        // Irre fuehrt. Ein halbes Echo waere schlimmer als keines.
+    fn host_zeiger_zeigen(&self, zeigen: bool) {
+        // Wortgleich mit dem Zwilling. Was macOS hier anders macht
+        // (`updateConfiguration` statt eines Einzelschalters, asynchron statt
+        // sofort), steht in `capture::cursorsteuerung` — hier soll nichts
+        // stehen, das die beiden Plattformen auseinanderlaufen laesst.
+        if zeigen {
+            crate::capture::cursorsteuerung::zeigen();
+        } else {
+            crate::capture::cursorsteuerung::verbergen();
+        }
     }
 
     fn sitzung_beendet(&self) {
