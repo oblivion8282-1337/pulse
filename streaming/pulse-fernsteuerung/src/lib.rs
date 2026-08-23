@@ -26,6 +26,7 @@ mod ausfuehrung;
 pub mod base64;
 pub mod bauen;
 pub mod bewegung;
+pub mod deckung;
 pub mod druck;
 pub mod format;
 pub mod frist;

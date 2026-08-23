@@ -33,6 +33,14 @@ pulse-bildmarke = { path = "../pulse-bildmarke" }
 # macOS-eigen bleibt (u.a. die Tastentabelle), liegt in `src/remote_input/`.
 pulse-fernsteuerung = { path = "../pulse-fernsteuerung" }
 
+# Das Bildformat der Zeigeruebertragung (Laeufe, Kennung, Grenzen) — gemeinsam
+# mit `win-hq-sidecar` und `pulse-player`. Seit dem 2026-08-23 auch von hier
+# gebraucht: der Mac schickt die Zeigerform **immer** als Bild, weil ihm die
+# Namenszuordnung fehlt (Begruendung in `src/remote_input/zeigerform.rs`).
+# Steht in `mac-build.yml` bereits unter `on.push.paths` — nachgerechnet von
+# `streaming/zwillinge/tests/bau_ausloeser.rs`.
+pulse-zeigerbild = { path = "../pulse-zeigerbild" }
+
 # Capture — ScreenCaptureKit (SCStream) + the surrounding CoreMedia/CoreVideo/
 # CoreGraphics types, via the official objc2 framework bindings (no Swift shim).
 # Same objc2 0.3-framework / 0.6-core release train.
@@ -61,8 +69,9 @@ objc2-core-video = { version = "0.3", default-features = false, features = [
 # das Rechteck eines aufgenommenen Fensters muss bei JEDER Eingabe-Nachricht
 # frisch sein, und `SCWindow.frame` taugt dafuer nicht (Begruendung dort).
 objc2-core-graphics = { version = "0.3", default-features = false, features = [
-    "std", "CGDirectDisplay", "CGEvent", "CGEventSource", "CGEventTypes", "CGRemoteOperation",
-    "CGWindow",
+    "std", "objc2", "CGDirectDisplay", "CGEvent", "CGEventSource", "CGEventTypes",
+    "CGRemoteOperation", "CGWindow",
+    "CGImage", "CGBitmapContext", "CGColorSpace", "CGContext", "CGGeometry",
 ] }
 # CF base layer (already transitive via core-video/-media) — needed to name
 # `CFRetained` for the zero-copy CVPixelBuffer hand-off into VideoToolbox.
