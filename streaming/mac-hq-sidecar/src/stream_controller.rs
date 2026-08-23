@@ -6,14 +6,14 @@
 //! afterwards — no self-exit, unlike Windows). `state` returns a snapshot.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{RecvTimeoutError, Sender, channel};
+use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
 
-use crate::capture::{AudioFrame, Capturer};
+use crate::capture::{AudioFrame, Capturer, Postfach};
 use crate::encode::VideoEncoder;
 use crate::events;
 use crate::proto::{Event, StreamState};
@@ -264,7 +264,10 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
         uptime_s: 0.0,
     });
 
-    let (frame_tx, frame_rx) = channel();
+    // Die Bild-Post (Ein-Slot, neuestes gewinnt): der ungebundene Kanal von
+    // vorher konnte bei blockiertem Verbraucher hunderte zurueckbehaltene
+    // 4K-Puffer aufstauen — Begruendung in `capture::postfach`.
+    let bildpost = Arc::new(Postfach::neu());
     let (audio_tx, audio_rx) = if params.enable_audio {
         let (t, r) = channel::<AudioFrame>();
         (Some(t), Some(r))
@@ -279,7 +282,7 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
         params.height as usize,
         params.fps,
         params.show_cursor,
-        frame_tx,
+        bildpost.clone(),
         audio_tx,
     )?;
     let mut enc = VideoEncoder::start(
@@ -375,11 +378,14 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
                     enc.push_audio(&af.samples, anchor)?;
                 }
             }
-            // Grab the freshest captured frame(s); record its capture pts + the
-            // instant it arrived (for duplicate projection). `frisch` survives
-            // the wait phase below: a frame that arrives WHILE waiting is sent
-            // out in the next round (fern) — not held until the deadline.
-            while let Ok(f) = frame_rx.try_recv() {
+            // Das frischeste Bild aus der Post nehmen. Ein-Slot: das Fach hat
+            // bereits alles Aeltere verworfen — der Loop sieht nach einem Stau
+            // den NEUESTEN Stand, nicht den Stall-Anfang; die pts + die
+            // Ankunftszeit gehoeren zur Duplikat-Fortschreibung. `frisch`
+            // ueberlebt die Wartephase darunter: Ein Bild, das WAHREND des
+            // Wartens ankommt, geht in der naechsten Runde sofort hinaus
+            // (Fern) — nicht erst zur Frist.
+            if let Some(f) = bildpost.nehmen() {
                 if epoch_s.is_nan() {
                     epoch_s = f.pts_seconds;
                 }
@@ -427,9 +433,13 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
                 next_emit = frist_nach_versand(fern, next_emit, now, frame_interval);
                 frisch = false;
             } else {
-                // Wait until the next emit deadline or the next captured frame.
-                match frame_rx.recv_timeout(next_emit - now) {
-                    Ok(f) => {
+                // Bis zur Frist warten oder bis ein Bild ankommt. Ein Kanalende
+                // gibt es seit der Bild-Post nicht mehr: Die Post kennt keinen
+                // Verbindungsabbruch, der Loop endet am stop_rx — und den
+                // Stillstand der Quelle traegt der Herzschlag (Duplikat zur
+                // Frist).
+                match bildpost.warten_bis(next_emit) {
+                    Some(f) => {
                         if epoch_s.is_nan() {
                             epoch_s = f.pts_seconds;
                         }
@@ -438,8 +448,7 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
                         last_frame = Some(f);
                         frisch = true;
                     }
-                    Err(RecvTimeoutError::Timeout) => {}
-                    Err(RecvTimeoutError::Disconnected) => break,
+                    None => {}
                 }
             }
         }
