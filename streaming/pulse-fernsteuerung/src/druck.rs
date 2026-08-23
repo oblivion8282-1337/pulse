@@ -82,9 +82,18 @@ impl Druck {
         // `self` ist an dieser Stelle bereits geleert (beide `mem::take` oben)
         // — konsistent mit `ausfuehrung`, das den Injektor ebenfalls VOR dem
         // eigenen Nachtrag ruft: die Menge, die der Injektor sieht, zaehlt
-        // nie das Ereignis mit, das gerade abgefeuert wird. Beim Loslassen
-        // gehen alle auf einmal, also ist "sonst nichts mehr gehalten" hier
-        // fuer jeden einzelnen Aufruf zutreffend.
+        // nie das Ereignis mit, das gerade abgefeuert wird.
+        //
+        // **Hier ist die Menge aber fuer JEDES Hoch-Ereignis leer, nicht nur
+        // fuer das eigene** — und das ist eine ungemessene Annahme, keine
+        // Tatsache. Die Ereignisse gehen nacheinander hinaus, nicht auf
+        // einmal: geht bei gehaltenem Cmd+C das C zuerst hoch, meldet der
+        // Injektor "nichts gehalten", obwohl Cmd erst eine Zeile spaeter
+        // freigegeben wird. Fuer das Ergebnis ("am Ende ist alles oben")
+        // aendert das nichts, denn ein Hoch-Uebergang haengt am Scancode, nicht
+        // an der Kennzeichnung. Ob eine Plattform das je anders sieht, ist
+        // nicht gemessen — auf macOS feuern Tastenkuerzel auf Runter-, nicht
+        // auf Hoch-Ereignissen, dort ist es unauffaellig.
         for scan in tasten {
             injektor.taste(scan, false, self);
         }
