@@ -34,12 +34,8 @@
     type StandplatzProfil,
   } from '$lib/devices/profil.svelte';
   import { streamSettings } from '$lib/stream/settings.svelte';
-  import {
-    FPS_PROFIL_MAX,
-    FPS_PROFIL_MIN,
-    MONITOR_CAPTURE_PREFIX,
-    RESOLUTION_VALUES,
-  } from '$lib/stream/settingsCatalog';
+  import { MONITOR_CAPTURE_PREFIX, RESOLUTION_VALUES } from '$lib/stream/settingsCatalog';
+  import { capabilities } from '$lib/stores/capabilities.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
   // Entwurf im Formular, „Speichern" schreibt fest — wie bei der Dauerfreigabe
@@ -48,6 +44,26 @@
   let entwurf = $state<StandplatzProfil>({ ...standplatzProfil.profil });
 
   const monitore = $derived(streamSettings.available_monitors);
+
+  /**
+   * Die Bildraten-Grenzen kommen aus den **Streaming-Einstellungen des
+   * Betreibers**, nicht aus dieser Datei.
+   *
+   * **Hier stand bis zum 2026-08-23 eine feste 120**, ohne Begründung und im
+   * Widerspruch zum regulären Weg. Der erste Versuch, das zu beheben, ersetzte
+   * sie durch eine feste 144 aus der Stufenliste — und war derselbe Fehler in
+   * neuem Anstrich: eine Obergrenze im Client, wo eine Grenze des Betreibers
+   * hingehört. Wer eine Grenze setzen darf, ist eine Rechtefrage, keine
+   * Geschmacksfrage.
+   *
+   * Die Untergrenze bleibt instanzweit, die Obergrenze ebenso — anders als im
+   * regulären Editor wird hier **nicht** die Community-Grenze genommen: ein
+   * Standplatz-Gerät kann seine Community wechseln (seit 2026-08-20), das
+   * Profil hängt aber am Gerät. Die Community-Grenze klemmt ohnehin beim Start
+   * (`buildStartArgs`) — das Profil ist ein Wunsch, keine Umgehung.
+   */
+  const fpsMin = $derived(capabilities.hqFpsMin);
+  const fpsMax = $derived(capabilities.hqFpsMax);
 
   /**
    * Alte Auswahl nachziehen: wer früher den primären Schirm über seine Nummer
@@ -121,7 +137,7 @@
   function speichern(): void {
     entwurf = {
       ...entwurf,
-      fps: zahl(entwurf.fps, VORGABE.fps, FPS_PROFIL_MIN, FPS_PROFIL_MAX),
+      fps: zahl(entwurf.fps, VORGABE.fps, fpsMin, fpsMax),
       bitrate_kbps: zahl(entwurf.bitrate_kbps, VORGABE.bitrate_kbps, 1000, 10000),
     };
     void standplatzProfil.setzen(entwurf);
@@ -170,8 +186,8 @@
         <span class="text-text-muted text-xs">{m.standplatz_profil_fps()}</span>
         <Input
           type="number"
-          min={FPS_PROFIL_MIN}
-          max={FPS_PROFIL_MAX}
+          min={fpsMin}
+          max={fpsMax}
           bind:value={entwurf.fps}
           data-testid="standplatz-profil-fps"
         />

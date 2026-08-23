@@ -14,8 +14,6 @@ import {
   FPS_VALUES,
   FPS_STANDARD,
   HQ_TEN_BIT_MAX_PIXELS_PER_SEC,
-  FPS_PROFIL_MIN,
-  FPS_PROFIL_MAX,
   fpsAllowed,
   allowedFpsSteps,
   snapFps,
@@ -88,34 +86,4 @@ test('die Last-Grenze ist die vereinbarte 300-Mpix/s-Schwelle', () => {
   // Dieselbe Grenze steht im Sidecar als Spiegel
   // (`linux-hq-sidecar/src/lastgrenze.rs`) und greift dort beim Start, wo
   // die echte Quellgröße bekannt ist — synchron halten.
-});
-
-/**
- * Das Standplatz-Profil nimmt eine freie Zahl statt einer Stufe und klemmte
- * dafuer bis zum 2026-08-23 auf 120 — eine Zahl, die im ganzen Repo nur an
- * jener einen Stelle stand und nirgends begruendet war, waehrend der regulaere
- * Weg 144 anbot. Wer 144 eintippte, bekam wortlos 120 zurueck.
- *
- * Der Test haelt die BEZIEHUNG fest, nicht die Zahl: was der regulaere Weg
- * anbietet, muss das Profil auch annehmen. Wird `FPS_VALUES` einmal erweitert,
- * wandert die Profilgrenze von selbst mit — und wer sie wieder festverdrahtet,
- * faellt hier auf.
- */
-test('die Profilgrenze folgt der hoechsten angebotenen Stufe', () => {
-  assert.equal(FPS_PROFIL_MAX, Math.max(...FPS_VALUES));
-  // Und sie ist keine eigene Zahl neben der Liste: 144 muss durchgehen.
-  assert.ok(FPS_PROFIL_MAX >= 144, `Profil deckelt unter 144: ${FPS_PROFIL_MAX}`);
-});
-
-/**
- * Die Untergrenze liegt bewusst UNTER der kleinsten Stufe. Ein
- * unbeaufsichtigter Rechner wird ferngesteuert, nicht vorgefuehrt — dort ist
- * eine sehr niedrige Rate eine sinnvolle Wahl. Wer die beiden Grenzen
- * versehentlich angleicht, nimmt genau das weg.
- */
-test('die Profil-Untergrenze liegt unter der kleinsten Stufe', () => {
-  assert.ok(
-    FPS_PROFIL_MIN < Math.min(...FPS_VALUES),
-    `Profil laesst nicht weniger zu als die Stufenliste: ${FPS_PROFIL_MIN}`,
-  );
 });

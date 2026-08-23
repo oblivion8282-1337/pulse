@@ -165,31 +165,6 @@ export function clampResolution(res: string, maxRes: string): string {
 export const FPS_VALUES: ReadonlyArray<number> = [25, 30, 60, 90, 120, 144];
 
 /**
- * Die Grenzen des Standplatz-Profils, das eine **freie Zahl** annimmt statt
- * einer Stufe (`SettingsStandplatzProfil.svelte`).
- *
- * **Warum die beiden hier stehen und nicht dort.** Bis zum 2026-08-23 klemmte
- * das Profil auf 120 — eine Zahl, die im ganzen Repo nur an jener einen Stelle
- * vorkam und nirgends begründet war. Der reguläre Weg bot gleichzeitig 144 an.
- * Zwei Wege, zwei Obergrenzen, kein Grund; wer 144 eintippte, bekam wortlos
- * 120 zurück. Neben [`FPS_VALUES`] kann das nicht mehr auseinanderlaufen, und
- * ein Test hält die Beziehung fest.
- *
- * **Die Obergrenze ist die höchste angebotene Stufe** — was der reguläre Weg
- * anbietet, darf ein Standplatz-Gerät auch. Nicht mehr: die Begründung gegen
- * 165/240 an [`FPS_VALUES`] gilt hier genauso.
- *
- * **Die Untergrenze liegt bewusst UNTER der kleinsten Stufe** (10 gegen 25).
- * Das Profil ist kein Stufenwähler, sondern eine Vernunftgrenze um eine freie
- * Zahl, und für einen unbeaufsichtigten Rechner ist eine sehr niedrige Rate
- * eine sinnvolle Wahl: er wird ferngesteuert, nicht vorgeführt. Die Stufen
- * fangen erst bei 25 an, weil darunter kein Quellmaterial üblich ist — das ist
- * ein anderes Argument als „so wenig darf niemand einstellen".
- */
-export const FPS_PROFIL_MIN = 10;
-export const FPS_PROFIL_MAX = FPS_VALUES[FPS_VALUES.length - 1];
-
-/**
  * Was „Standard" im FPS-Feld bedeutet: die Vorgabe der Sidecars, wenn die
  * Oberfläche `fps` nicht mitgibt. Alle vier Sidecars stehen auf 60
  * (`gsr-sidecar/profiles.py`, `linux-hq-sidecar/src/profiles.rs`,
@@ -297,7 +272,6 @@ export const AUDIO_MODES: ReadonlyArray<AudioMode> = [
   'Mikrofon',
   'Desktop + Mikrofon',
 ];
-
 
 
 /** Prefix the sidecar uses to recognise "capture this app's audio" — the
