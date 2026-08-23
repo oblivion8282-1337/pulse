@@ -325,7 +325,10 @@
   watchFehlerWacht();
 </script>
 
-<div class="text-text-base flex h-dvh w-screen flex-col" data-testid="app-shell">
+<!-- `w-full` statt `w-screen`: 100vw ist auf iOS Safari breiter als der
+     sichtbare Bereich (Safe-Areas/Rundungen) — Inhalte wirkten abgeschnitten.
+     100% des Bodys bleibt exakt in der Viewport-Breite. -->
+<div class="text-text-base flex h-dvh w-full flex-col" data-testid="app-shell">
   <!-- KEIN eigener Hintergrund hier: Die App trägt den Standard-Seitengrund
        aus app.css (Body-Verlauf + zarte Blobs + Korn) — derselbe Grund wie in
        der Desktop-App. Die Login-Marine-Ebenen (Verlauf + Glows) waren hier
