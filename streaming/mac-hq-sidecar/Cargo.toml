@@ -28,6 +28,11 @@ pulse-zeitbasis = { path = "../pulse-zeitbasis" }
 pulse-whip = { path = "../pulse-whip" }
 pulse-bildmarke = { path = "../pulse-bildmarke" }
 
+# Plattformfreier Kern der Fernsteuerung (Frame-Format, Sitzung,
+# Klemmrechnung) — macOS wird hier der zweite Host neben Windows. Was
+# macOS-eigen bleibt (u.a. die Tastentabelle), liegt in `src/remote_input/`.
+pulse-fernsteuerung = { path = "../pulse-fernsteuerung" }
+
 # Capture — ScreenCaptureKit (SCStream) + the surrounding CoreMedia/CoreVideo/
 # CoreGraphics types, via the official objc2 framework bindings (no Swift shim).
 # Same objc2 0.3-framework / 0.6-core release train.
