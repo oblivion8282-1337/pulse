@@ -41,6 +41,15 @@
 //! nie weniger. Das Ende der Sitzung ruft `input_capture(enabled: false)`, und
 //! dort wird auch hier freigegeben.
 //!
+//! **Nachgemessen am 2026-08-23 auf `niri`**, nicht nur nach Spezifikation
+//! gebaut: von einem Linux-Rechner aus einen Mac gesteuert, Super-Taste kommt
+//! als Befehlstaste an, Tastenkuerzel des Macs bedienbar. Das ist der Beleg,
+//! der vorher fehlte — der ganze Wayland-Teil wurde auf einem Mac geschrieben
+//! und war bis dahin zwar uebersetzt (Kreuzpruefung gegen
+//! `x86_64-unknown-linux-gnu`), aber nie ausgefuehrt. **Ungemessen bleiben:**
+//! andere Compositoren (Sway, GNOME, KDE), mehr als ein Sitzplatz, und der
+//! Abbau-Weg ueber `exiting()` bei einem Absturz.
+//!
 //! Aufbau: die plattformneutrale Fassade steht hier, der Wayland-Teil in
 //! [`wayland`] und **nur unter Linux**. Auf X11 ist der Linux-Teil ein
 //! Nichtstun ohne Kosten (der Aufbau erkennt am Anzeige-Handle, dass es kein
