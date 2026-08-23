@@ -21,9 +21,16 @@
 
 /// Höchster Platz, den dieser Sidecar überhaupt für möglich hält (0..=98).
 ///
-/// Dieselbe Schranke wie `desktop/electron/sidecar.ts::MAX_STREAM_SLOTS` (99
-/// Plätze) und `_SLOT_MAX` im chat-gateway — wird sie dort bewegt, gehört sie
-/// hier mitgezogen.
+/// Dieselbe Schranke wie an drei weiteren Stellen im Repo. Kanonisch steht sie
+/// in `shared/src/dcc_shared/streaming.py::MAX_SLOTS`/`SLOT_MAX` (chat-gateway
+/// importiert von dort, `_SLOT_MAX` ist dort nur ein Alias); die beiden
+/// TypeScript-Clients halten je eine eigene Kopie, weil kein Importpfad nach
+/// Python führt: `desktop/electron/sidecar.ts::MAX_STREAM_SLOTS` (99 Plätze,
+/// also derselbe Höchstwert 98) und `web/src/lib/stream/state.svelte.ts::MAX_STREAM_SLOTS`
+/// (ebenfalls 99). Eine vierte, unabhängige Kopie trägt
+/// `web/src/lib/remote/p2p.ts::SLOT_MAX` (98, direkt wie hier). Wird die
+/// Schranke an irgendeiner davon bewegt, gehört sie an allen vieren
+/// mitgezogen.
 ///
 /// **Wozu die Schranke hier nochmal.** Ohne sie trüge die Regel „ein Stream
 /// ohne erklärten Platz trägt jeden Platz" auch ein `slot: 999` — eine Zahl,

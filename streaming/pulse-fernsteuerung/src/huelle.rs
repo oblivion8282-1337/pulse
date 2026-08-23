@@ -1,7 +1,7 @@
 //! `remote_input` — Eingabe-Frames der Fernsteuerung einspielen.
 //!
 //! Die Hülle des Serverwegs, eins zu eins wie der Gateway sie durchreicht
-//! (`services/chat-gateway/.../ws_remote_handlers.py::handle_input`):
+//! (`services/chat-gateway/.../routes/ws_remote_input.py::handle_input`):
 //!
 //! ```jsonc
 //! {"op":"remote_input", "id":7,
@@ -130,14 +130,15 @@ fn frames_aus(params: &Map<String, Value>) -> Result<Vec<Vec<u8>>, String> {
     Ok(frames)
 }
 
+/// Was [`huelle_lesen`] liefert: `(slot, session_id, frames)` — die drei
+/// Teile, die `handle()` der jeweiligen Plattform (s. Modulkopf) an
+/// [`crate::sitzung::Sitzung::frames`] weiterreicht.
+pub type Huelle<'a> = (u64, Option<&'a str>, Vec<Vec<u8>>);
+
 /// Die ganze Hülle lesen. Ein Fehler ist an **jeder** Stelle derselbe: ein
 /// Protokollfehler, der die Sitzung stilllegt und alles Gedrückte freigibt.
 ///
-/// Liefert `(slot, session_id, frames)` — die drei Teile, die `handle()` der
-/// jeweiligen Plattform (s. Modulkopf) an [`crate::sitzung::Sitzung::frames`]
-/// weiterreicht. `handle()` selbst gibt es in dieser Kiste absichtlich nicht.
-pub type Huelle<'a> = (u64, Option<&'a str>, Vec<Vec<u8>>);
-
+/// `handle()` selbst gibt es in dieser Kiste absichtlich nicht (s. Modulkopf).
 pub fn huelle_lesen(params: &Map<String, Value>) -> Result<Huelle<'_>, String> {
     Ok((
         slot_aus(params)?,

@@ -150,7 +150,7 @@ geblieben.**
 | Wo | Umfang | Was ein zweiter Sidecar neu schriebe |
 |---|---|---|
 | `ops/remote_input.rs` | ~180 Z., **kein** Windows-Aufruf | die ganze Op-Hülle: Frame-Grenzen (32/1024), `slot_aus` ohne Zurechtbiegen, `sitzungs_id_aus`, `frames_aus`, Fehler über `protokollfehler` statt nacktem `anyhow` |
-| `remote_input/zeigerform.rs` | ~500 von 628 Z. | die Buchführung: `Merker`, beide Zähler, `MAX_BEKANNT` samt Überlaufregel, `meldung_faellig`, `bild_vollstaendig`, `bekannt_aufnehmen`, `bildfeld` — plus der Prüfstein gegen `zeigerbild-formen.json` |
+| `remote_input/zeigerform.rs` | ~500 von 634 Z. | die Buchführung: `Merker`, beide Zähler, `MAX_BEKANNT` samt Überlaufregel, `meldung_faellig`, `bild_vollstaendig`, `bekannt_aufnehmen`, `bildfeld` — plus der Prüfstein gegen `zeigerbild-formen.json` |
 | `remote_input/wache.rs` | ~100 von 376 Z. | `VORRANG_FRIST_MS`, `WECKER_MS`, `frist_ms` mit `PULSE_FERN_VORRANG_MS` und den Klemmgrenzen (eine projektweite Zusage), `rest_ms`, der Wecker samt Laufnummer |
 | `remote_input/ziel.rs` | ~80 von 372 Z. | `SLOT_MAX = 98`, `traegt_slot`, der Ablauf von `bindung_fuer_slot` samt „Aufnahme hat ihr Ziel noch nicht gemeldet" |
 | `capture/cursorsteuerung.rs` | ~90 Z., **eine** WinRT-Zeile | `basis_sichtbar` („nie über den Ausgangszustand hinaus"), der Zustandsfilter, die asymmetrische Fehlerbehandlung |
@@ -169,6 +169,14 @@ nachzieht. Ohne sie schriebe der Mac rund 560 Zeilen ein zweites Mal, darunter
 mindestens fünf Stellen, an denen schon einmal ein Fehler saß und deren
 Begründung nur als Kommentar an der Windows-Fassung hängt. Das ist dieselbe
 Doppelung, gegen die dieser ganze Plan angetreten ist — nur eine Ebene höher.
+
+**Offener Punkt aus der Nacharbeit von Etappe 1b (2026-08-23).**
+`remote_input/zeigerpunkte.rs` trägt mit `entvielfachen` eine sechste
+plattformfreie Stelle (GDIs vorvervielfachtes Alpha zurückrechnen) — auf macOS
+gilt dieselbe Rechnung für CGImage-Zeigerbitmaps, die ebenso vorvervielfacht
+sind. Bewusst **nicht** eines der fünf Stücke oben; wandert sie später doch,
+gehört sie nach `streaming/pulse-fernsteuerung`. Siehe den Kopf von
+`zeigerpunkte.rs`.
 
 ### 3.3 Verhalten bleibt gleich
 
@@ -378,6 +386,8 @@ Sechs Etappen, jede für sich prüfbar und für sich zu landen:
 2b. **Der zweite Schnitt** (§3.2.1) — die rund 560 Zeilen plattformfreier
    Logik nachziehen, die in Windows liegen geblieben sind. **Vor** dem
    mac-Sidecar, sonst entstehen sie ein zweites Mal.
+   *(erledigt 2026-08-23, Plan
+   `docs/superpowers/plans/2026-08-23-fernsteuerung-macos-1b-zweiter-schnitt.md`)*
 3. **Eingabe und Wache auf dem Mac** — ab hier läuft die Ad-hoc-Übernahme im
    Kanal, gemessen gegen das Prüfziel.
 4. **Der Zeiger** — Echo, Form als Bild, Rückfall samt neuem Signal.

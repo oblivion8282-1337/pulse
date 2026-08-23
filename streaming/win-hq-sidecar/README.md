@@ -254,8 +254,9 @@ Wache sitzt je Sidecar-Prozess, und ein Prozess sieht die anderen nicht — nur
 der Renderer des Hosts kennt alle Plätze. Fehlt das Feld, gilt „kein fremder
 Vorrang"; es kann die Eingabe ausschließlich einschränken.
 
-**Vorrang des Hosts** (`remote_input/{wache,vorrang}.rs`): Regt sich der Host
-körperlich an Maus oder Tastatur, wird die Fremdeingabe für 5 s verworfen
+**Vorrang des Hosts** (`remote_input/wache.rs`, die Übergänge selbst seit dem
+2026-08-23 plattformfrei in `pulse-fernsteuerung/src/sitzung/vorrang.rs`): Regt
+sich der Host körperlich an Maus oder Tastatur, wird die Fremdeingabe für 5 s verworfen
 (gleitend, `PULSE_FERN_VORRANG_MS`). Erkannt über einen systemweiten
 Low-Level-Hook; die eigene Injektion trägt dafür `PULSE_MARKE` in
 `dwExtraInfo`. Lässt sich der Hook nicht anmelden, **verweigert der Handschlag
@@ -277,7 +278,11 @@ Drei Dinge, die man beim Lesen sucht:
   (`SLOT_MAX = 98`, dieselbe wie `sidecar.ts::MAX_STREAM_SLOTS`). Ein
   **missgeformter** Platz (`-1`, `1.5`, `"0"`) ist ein Protokollfehler und wird
   nicht auf 0 zurechtgebogen; ein Platz **außerhalb** des Bereichs ist nur
-  „unbekannt". Auflösung und Begründung: `src/remote_input/ziel.rs`.
+  „unbekannt". Seit dem 2026-08-23 plattformfrei in
+  `pulse-fernsteuerung/src/slot.rs` (die Schranke) und
+  `pulse-fernsteuerung/src/huelle.rs` (die Missgeformt-Regel samt
+  Altfehler-Begründung); `src/remote_input/ziel.rs` behält nur noch die
+  Auflösung auf einen laufenden Stream (`bindung_fuer_slot`).
 - **Das Ziel kommt von der Aufnahme.** Welches Fenster bzw. welcher Bildschirm
   gemeint ist, meldet die Aufnahme selbst (`capture/wgc*` →
   `ziel::ziel_gebunden`); die Fernsteuerung löst die Quelle **nicht** ein zweites

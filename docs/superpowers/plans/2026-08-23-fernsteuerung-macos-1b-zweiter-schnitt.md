@@ -6,16 +6,16 @@
 
 **Architecture:** Dieselbe Methode wie Plan 1: bewegen statt neu schreiben, Tests wandern mit und laufen danach auf jeder Maschine, der Windows-Teil bleibt ein dünner Aufsatz. Wo eine Plattform-Schnittstelle im Weg steht, wandert nur die Entscheidung in die Kiste und der Aufruf bleibt draußen.
 
-**Tech Stack:** Rust (edition 2024). `streaming/pulse-fernsteuerung` (heute abhängigkeitsfrei, 109 Tests), `streaming/win-hq-sidecar` (auf der Entwicklungsmaschine **nicht** übersetzbar), `streaming/zwillinge` (Prüfnetz).
+**Tech Stack:** Rust (edition 2024). `streaming/pulse-fernsteuerung` (heute 146 Tests, zwei Abhängigkeiten — `serde_json` und die Schwesterkiste `pulse-zeigerbild`, s. Task 4/5), `streaming/win-hq-sidecar` (auf der Entwicklungsmaschine **nicht** übersetzbar), `streaming/zwillinge` (Prüfnetz).
 
 ## Warum dieser Plan existiert
 
-Die Schlussprüfung von Plan 1 hat die Windows-Seite nach der Auslagerung Datei für Datei durchgesehen. Der Entwurf hatte behauptet, `zeigerform.rs` bleibe „vollständig plattformeigen" — tatsächlich sind dort vier Funktionen echt Windows und rund 500 von 628 Zeilen Format- und Zustandsführung. Insgesamt:
+Die Schlussprüfung von Plan 1 hat die Windows-Seite nach der Auslagerung Datei für Datei durchgesehen. Der Entwurf hatte behauptet, `zeigerform.rs` bleibe „vollständig plattformeigen" — tatsächlich sind dort vier Funktionen echt Windows und rund 500 von 634 Zeilen Format- und Zustandsführung. Insgesamt:
 
 | Wo | Umfang | Was ein zweiter Sidecar neu schriebe |
 |---|---|---|
 | `ops/remote_input.rs` | ~180 Z., **kein** Windows-Aufruf | Op-Hülle: Grenzen 32/1024, `slot_aus` ohne Zurechtbiegen, `sitzungs_id_aus`, `frames_aus`, Fehler über `protokollfehler` |
-| `remote_input/zeigerform.rs` | ~500 von 628 Z. | Buchführung: `Merker`, beide Zähler, `MAX_BEKANNT` + Überlaufregel, `meldung_faellig`, `bild_vollstaendig`, `bekannt_aufnehmen`, `bildfeld`, Prüfstein gegen `zeigerbild-formen.json` |
+| `remote_input/zeigerform.rs` | ~500 von 634 Z. | Buchführung: `Merker`, beide Zähler, `MAX_BEKANNT` + Überlaufregel, `meldung_faellig`, `bild_vollstaendig`, `bekannt_aufnehmen`, `bildfeld`, Prüfstein gegen `zeigerbild-formen.json` |
 | `remote_input/wache.rs` | ~100 von 376 Z. | `VORRANG_FRIST_MS`, `WECKER_MS`, `frist_ms` mit `PULSE_FERN_VORRANG_MS` samt Klemmgrenzen, `rest_ms`, Wecker-Laufnummer |
 | `remote_input/ziel.rs` | ~80 von 372 Z. | `SLOT_MAX = 98`, `traegt_slot`, Ablauf von `bindung_fuer_slot` |
 | `capture/cursorsteuerung.rs` | ~90 Z., **eine** WinRT-Zeile | `basis_sichtbar`, Zustandsfilter, asymmetrische Fehlerbehandlung |
@@ -294,7 +294,7 @@ Expected: PASS. `diff` gegen `git show HEAD:...ops/remote_input.rs` zeigt nur di
 
 ### Task 5: Die Zeigerform-Buchführung
 
-Das größte Stück: rund 500 von 628 Zeilen. Vier Funktionen bleiben Windows (`abbildung`, `ermitteln`, `zu_name` und zwei Tests) — alles andere ist Format- und Zustandsführung, und **der Prüfstein gegen `streaming/zeigerbild-formen.json` gehört dazu.**
+Das größte Stück: rund 500 von 634 Zeilen. Vier Funktionen bleiben Windows (`abbildung`, `ermitteln`, `zu_name` und zwei Tests) — alles andere ist Format- und Zustandsführung, und **der Prüfstein gegen `streaming/zeigerbild-formen.json` gehört dazu.**
 
 **Files:**
 - Create: `streaming/pulse-fernsteuerung/src/zeigerbuch.rs`
@@ -304,7 +304,7 @@ Das größte Stück: rund 500 von 628 Zeilen. Vier Funktionen bleiben Windows (`
 
 Erst lesen, dann schneiden. `zeigerform.rs` durchgehen und **jede** Funktion einer Seite zuordnen; das Ergebnis als Tabelle in den Bericht. Wandern sollen mindestens: `Merker`, `takte`/`bild_takte`, `MAX_BEKANNT` samt Überlaufregel, `meldung_faellig`, `bild_vollstaendig`, `bekannt_aufnehmen`, `buchen`, `bildfeld`, `zuruecksetzen`.
 
-**Der Windows-Rest muss danach unter 350 Zeilen liegen** — die Datei ist heute bei 628 und damit über der harten Grenze; das ist eine der offenen Rechnungen, die dieser Schnitt nebenbei bezahlt.
+**Der Windows-Rest muss danach unter 350 Zeilen liegen** — die Datei ist heute bei 634 und damit über der harten Grenze; das ist eine der offenen Rechnungen, die dieser Schnitt nebenbei bezahlt.
 
 - [ ] **Step 2: Den Prüfstein mitnehmen — er ist der Kern**
 
