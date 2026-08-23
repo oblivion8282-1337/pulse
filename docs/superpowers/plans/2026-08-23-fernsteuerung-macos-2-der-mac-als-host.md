@@ -363,3 +363,20 @@ Nach `docs/plans/2026-08-12-zwei-geraete-test-aufbau.md`, diesmal mit dem Mac al
 ## Danach
 
 Etappe 4 (der Zeiger: Echo, Form, Bild, Rückfall) und Etappe 5 (Standplatz-Gerät). Beide sind eigene Pläne.
+
+### Offen aus dieser Etappe: Fenster-Streams treffen am Rand daneben (W-7)
+
+**Gemessen am 2026-08-23** (Nachtrag 9 der Messakte), **nicht behoben** — die Ursache liegt in `ops/start.rs` und gehört damit zu HQ-Streaming, nicht zur Fernsteuerung.
+
+`parse_display_index("window:2737")` liefert **2737** als Schirmindex; ein Index ausserhalb der Liste fällt auf den ersten Schirm zurück, und `scalesToFit` ist nirgends gesetzt (Apple-Vorgabe: an). Das Fenster wird also seitenverhältnistreu in ein **schirmförmiges** Bild skaliert und der Rest mit Balken gefüllt. Der Steuernde schickt Anteile am ganzen Bild samt Balken; `zuordnung` spreizt sie über das **nackte** Fensterrechteck.
+
+Gerechnet mit zwei zur Messzeit offenen Fenstern: Terminal 1205×854 → 198 px Balken → **124 px Versatz am Rand**; Systemeinstellungen 816×921 → 482 px Balken → **205 px**. In der Bildmitte null, zum Rand linear wachsend, bei hochkanten Fenstern am schlimmsten. **Dieselbe Einschränkung gilt für jede `resolution`-Vorgabe, deren Seitenverhältnis vom Schirm abweicht** — nicht nur für Fenster.
+
+**Windows hat das Problem nicht, und das zeigt die Richtung.** Dort nimmt WGC das Fenster in seiner eigenen Grösse auf, und `remote_input/zuordnung.rs` rechnet gegen `DWMWA_EXTENDED_FRAME_BOUNDS` — Bild und Zielrechteck sind dieselbe Fläche. Der Mac weicht ab, weil die Aufnahmegrösse auf den Hauptschirm zurückfällt. Die Angleichung an Windows (Aufnahmegrösse = Fenstergrösse) behebt beides zugleich: den Versatz **und** die Balken, die heute schon jeder Zuschauer sieht.
+
+**Zwei Dinge, die dabei nicht übersehen werden dürfen:**
+
+* **Ungerade Kantenlängen.** 1205×854 geht so nicht in einen H.264/HEVC-Encoder — auf gerade Masse runden, und zwar bevor die Bitraten-Wahl darauf rechnet.
+* **Die Balken sind nicht gemessen, nur gefolgert.** Dass aus dem ungesetzten `scalesToFit` wirklich Balken werden, steht in Apples Vorgabe, nicht in einem Mitschnitt. Wer das behebt, sieht es sich vorher an — sonst behebt er womöglich etwas anderes, als er glaubt.
+
+**Warum es nicht dringend ist:** heute kostet der Fehler einen Zuschauer nur Balken. Schädlich wird er erst durch die Fernsteuerung, und die ist hinter `REMOTE_CONTROL` (Bit 37, nicht in den Vorgaberechten) unsichtbar. Ein Test hält den Ist-Zustand fest (`ops/start.rs::ein_fenster_strom_nimmt_die_masse_des_hauptschirms`), damit die Behebung nicht unbemerkt daran vorbeigeht.
