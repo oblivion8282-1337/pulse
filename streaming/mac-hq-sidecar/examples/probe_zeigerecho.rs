@@ -53,8 +53,9 @@ fn main() -> anyhow::Result<()> {
 
     eprintln!("Aufnahme MIT Zeiger (show_cursor=true):");
     let cap = aufnahme(true)?;
-    if zeiger_in_der_aufnahme() != Some(true) {
-        fehler.push(format!("Anmeldung: showsCursor={:?}, erwartet Some(true)", zeiger_in_der_aufnahme()));
+    let stand = zeiger_in_der_aufnahme();
+    if stand != Some(true) {
+        fehler.push(format!("Anmeldung: showsCursor={stand:?}, erwartet Some(true)"));
     }
     let mut dauern = Vec::new();
     let (ms, stand) = schalten("verbergen (1. Wechsel)", verbergen);
@@ -74,7 +75,8 @@ fn main() -> anyhow::Result<()> {
     dauern.push(ms2);
     let (ms3, _) = schalten("zeigen (2. Wechsel)", zeigen);
     dauern.push(ms3);
-    if ms_wieder > dauern.iter().cloned().fold(0.0_f64, f64::max) {
+    let langsamste = dauern.iter().copied().fold(0.0_f64, f64::max);
+    if ms_wieder > langsamste {
         fehler.push("der gefilterte Ruf dauerte laenger als ein echter — filtert der Schalter?".into());
     }
     cap.stop();
@@ -92,8 +94,7 @@ fn main() -> anyhow::Result<()> {
     }
     cap.stop();
 
-    let max = dauern.iter().cloned().fold(0.0_f64, f64::max);
-    eprintln!("\n{} echte Umschaltungen, langsamste {max:.3} ms", dauern.len());
+    eprintln!("\n{} echte Umschaltungen, langsamste {langsamste:.3} ms", dauern.len());
     if fehler.is_empty() {
         eprintln!("OK");
         Ok(())

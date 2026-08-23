@@ -347,7 +347,7 @@ impl Capturer {
 /// Warteschlange, nicht auf dem hier wartenden Faden — deshalb ist das Warten
 /// kein Selbstschloss; [`abfrage::shareable_content`] macht es seit jeher
 /// genauso, und `list_monitors` lebt davon.
-pub(super) fn mit_abschluss(
+fn mit_abschluss(
     frist: Duration,
     absetzen: impl FnOnce(&DynBlock<dyn Fn(*mut NSError)>),
 ) -> Result<(), String> {
