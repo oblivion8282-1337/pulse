@@ -36,6 +36,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use objc2_core_foundation::CGPoint;
 use objc2_core_graphics::{
     CGEvent, CGEventSource, CGEventSourceStateID, CGEventTapLocation, CGEventType, CGMouseButton,
+    CGScrollEventUnit,
 };
 use pulse_fernsteuerung::bewegung::SCHWELLE_PX;
 use pulse_fernsteuerung::plattform::{Injektor, Wache};
@@ -62,6 +63,23 @@ fn fremd_bewegen(x: i32, y: i32) {
     if let Some(e) =
         CGEvent::new_mouse_event(Some(&quelle), CGEventType::MouseMoved, ort, CGMouseButton::Left)
     {
+        CGEvent::post(CGEventTapLocation::HIDEventTap, Some(&e));
+    }
+}
+
+/// Ein Rad-Ereignis **ohne** Stempel — der Gegenpart zu `inj.maus_rad`.
+fn fremd_rad() {
+    let Some(quelle) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else {
+        return;
+    };
+    if let Some(e) = CGEvent::new_scroll_wheel_event2(
+        Some(&quelle),
+        CGScrollEventUnit::Line,
+        1,
+        1,
+        0,
+        0,
+    ) {
         CGEvent::post(CGEventTapLocation::HIDEventTap, Some(&e));
     }
 }
@@ -109,9 +127,42 @@ fn lauf_eigen(ohne_marke: bool) -> bool {
         }
         kurz();
     }
+    // **Und jetzt der Zweig, den bis zum 2026-08-23 kein Lauf beruehrt hat**
+    // (Befund W-1 der Pruefung): alles, was KEINE Bewegung ist, geht im
+    // Mithoerer durch `} else if !eigen {` und vermerkt sofort, ohne Schwelle.
+    // Mit `!eigen` → `true` loeste der erste gestempelte Klick des Steuernden
+    // den Vorrang aus und jeder weitere schoebe die Frist — dauerhafter
+    // Selbstausschluss, und die vier alten Laeufe waren alle gruen.
+    //
+    // Gewaehlt sind Rad, Seitenknopf und eine reine Umschalttaste: drei Dinge,
+    // die durch denselben Zweig laufen und am Schirm folgenlos sind. Ein
+    // Linksklick ginge an das Programm im Vordergrund.
+    if ohne_marke {
+        fremd_rad();
+    } else {
+        inj.maus_rad(120, 0);
+    }
+    kurz();
+    if !ohne_marke {
+        // Seitenknopf X1 und Umschalt — beide gestempelt. Ungestempelt lassen
+        // wir sie weg: das Rad oben hat den Fall schon belegt, und ein fremder
+        // Knopfdruck ginge an ein fremdes Fenster.
+        inj.maus_knopf(3, true);
+        kurz();
+        inj.maus_knopf(3, false);
+        kurz();
+        inj.taste(0x2a, true, &leer);
+        kurz();
+        inj.taste(0x2a, false, &leer);
+        kurz();
+    }
     let regt_sich = w.host_regt_sich();
     let gut = urteil(
-        if ohne_marke { "ungestempelte Bewegung" } else { "eigene Injektion" },
+        if ohne_marke {
+            "ungestempelte Bewegung und ungestempeltes Rad"
+        } else {
+            "eigene Injektion: Bewegung, Rad, Knopf und Taste"
+        },
         ohne_marke,
         regt_sich,
     );
@@ -137,12 +188,25 @@ fn lauf_schwelle() -> bool {
     kurz();
     // Zittern: je 2 px hin und zurueck, Summe bleibt unter der Schwelle, weil
     // das Zeitfenster dazwischen ablaeuft.
+    //
+    // **Nach JEDEM Schritt pruefen, nicht am Ende** (Befund der Pruefung): die
+    // Frist steht in diesem Lauf auf 300 ms und die Pausen ebenso — ein
+    // ausgeloester Vorrang waere beim Blick am Ende laengst abgelaufen, und der
+    // Lauf waere auch bei kaputter Schwelle gruen gewesen.
+    let mut gut = true;
     for i in 0..6 {
         let x = 800 + i % 2 * 2;
         fremd_bewegen(x, 400);
+        kurz();
+        if w.host_regt_sich() {
+            gut &= urteil(&format!("Zittern unter der Schwelle (Schritt {i})"), false, true);
+            break;
+        }
         std::thread::sleep(std::time::Duration::from_millis(300));
     }
-    let mut gut = urteil("Zittern unter der Schwelle", false, w.host_regt_sich());
+    if gut {
+        gut &= urteil("Zittern unter der Schwelle (alle 6 Schritte)", false, false);
+    }
     // Und jetzt ein Sprung weit darueber.
     fremd_bewegen(800 + SCHWELLE_PX as i32 * 20, 400);
     kurz();

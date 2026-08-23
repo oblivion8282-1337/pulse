@@ -33,13 +33,31 @@
 //! verpasster Alarm kostet den Host die zugesagte Uebernahme seines eigenen
 //! Rechners.
 //!
-//! ## Was macOS besser kann als Windows
+//! ## Was macOS besser kann als Windows — und was davon gemessen ist
 //!
 //! Beide Systeme haengen einen zu langsamen Mithoerer ab. **Windows sagt es
 //! nie** — dort steht im Code „ein Restrisiko bleibt und ist hier notiert statt
 //! weggeschwiegen". macOS meldet es als [`CGEventType::TapDisabledByTimeout`]
-//! **im Rueckruf**, und `CGEventTapEnable` stellt den Abgriff wieder her. Diese
-//! Luecke ist hier also geschlossen, nicht nur beschrieben (s. [`mithoeren`]).
+//! **im Rueckruf**. Das ist der echte Unterschied, und er bleibt.
+//!
+//! **Hier stand bis zum 2026-08-23 mehr, als sich halten liess** („`CGEventTapEnable`
+//! stellt den Abgriff wieder her. Diese Luecke ist hier also geschlossen").
+//! Nachgemessen (`examples/probe_heilung.rs`, Timeout mit einem absichtlich
+//! langsamen Rueckruf provoziert):
+//!
+//! * im Augenblick der Meldung ist der Abgriff tatsaechlich abgeschaltet
+//!   (`tap_is_enabled == false`),
+//! * **er liefert danach binnen rund 32 ms wieder — mit `CGEventTapEnable` wie
+//!   ohne** (32 ms gegen 34 ms, je ein Lauf; am Ende beider Laeufe
+//!   `tap_is_enabled == true`, obwohl im Gegenprobe-Lauf niemand geheilt hat).
+//!
+//! Ein **hoerender** Abgriff kommt also von selbst zurueck. Der Aufruf in
+//! [`mithoeren`] bleibt trotzdem stehen: er ist der dokumentierte Weg, er
+//! kostet nichts, und ungemessen bleibt, ob ein **filternder** Abgriff sich
+//! ebenso erholt — die Wache benutzt keinen, aber der naechste, der diesen Code
+//! als Vorlage nimmt, koennte es. Was NICHT mehr behauptet wird: dass hier eine
+//! Luecke geschlossen sei, die Windows offen laesst. Gemessen ist die Meldung,
+//! nicht die Rettung.
 //!
 //! ## Die zwei Faeden
 //!
@@ -162,6 +180,22 @@ fn maske() -> CGEventMask {
     ARTEN.iter().fold(0u64, |m, t| m | (1u64 << t.0))
 }
 
+/// Meldet macOS hier, dass es den Abgriff abgehaengt hat?
+///
+/// **Die Entscheidung steht als reine Funktion daneben, damit sie pruefbar
+/// ist** — im Rueckruf selbst waere sie es nicht (der laeuft nur mit einem
+/// echten Abgriff). Was der Aufruf danach bewirkt, ist eine andere Frage: bei
+/// einem hoerenden Abgriff nachweislich nichts, weil er sich ohnehin binnen
+/// rund 32 ms erholt (s. Modulkopf und `examples/probe_heilung.rs`).
+///
+/// Beide Meldungen kommen unabhaengig von der Ereignismaske. Auch
+/// `DisabledByUserInput` wird wieder eingeschaltet: eine still tote Wache
+/// bricht die Zusage des Hosts, und abgebaut wird sie ohnehin nur ueber
+/// [`stoppen`], wo der ganze Faden endet.
+fn ist_abgehaengt(typ: CGEventType) -> bool {
+    typ == CGEventType::TapDisabledByTimeout || typ == CGEventType::TapDisabledByUserInput
+}
+
 /// Der Mithoerer. Laeuft im Wache-Faden, tut so wenig wie moeglich.
 #[cfg_attr(test, allow(dead_code))]
 unsafe extern "C-unwind" fn mithoeren(
@@ -175,7 +209,7 @@ unsafe extern "C-unwind" fn mithoeren(
     // Maske. Auch `DisabledByUserInput` wird wieder eingeschaltet: eine still
     // tote Wache bricht die Zusage des Hosts, und abgebaut wird sie ohnehin
     // nur ueber [`stoppen`], wo der ganze Faden endet.
-    if typ == CGEventType::TapDisabledByTimeout || typ == CGEventType::TapDisabledByUserInput {
+    if ist_abgehaengt(typ) {
         TAP.with_borrow(|t| {
             if let Some(tap) = t.as_ref() {
                 CGEvent::tap_enable(tap, true);

@@ -431,3 +431,58 @@ Nachtrag 6 — beide Ereignisse trugen die Marke noch am Session-Abgriff.
 deutet, sagt diese Messung nicht — der Abgriff liegt davor. Das wäre dann aber
 das Verhalten, das ein lokaler Nutzer mit derselben Taste auch bekäme, und keine
 Eigenheit der Fernsteuerung.
+
+---
+
+## Nachtrag 8 — holt `CGEventTapEnable` einen abgehängten Abgriff zurück?
+
+**Die Behauptung, die geprüft wurde** (und die aus dem Plan stammt, Aufgabe 5
+Schritt 3): macOS melde das Abhängen eines zu langsamen Mithörers, und
+`CGEventTapEnable` stelle ihn wieder her — damit sei hier eine Lücke
+geschlossen, die Windows offen lässt. So stand es im Modulkopf von
+`remote_input/wache.rs`.
+
+Angestossen hat die Messung die unabhängige Prüfung: eine Mutation, die den
+Aufruf `tap_enable(tap, true)` ersatzlos strich, überlebte alle Tests und alle
+Prüfling-Läufe. Der ganze behauptete Vorteil war gebaut und von nichts berührt.
+
+**Aufbau:** `examples/probe_heilung.rs` — ein hörender Abgriff, dessen Rückruf
+beim ersten Ereignis zwei Sekunden schläft. macOS hängt ihn dafür ab. Danach
+läuft eine zweite Welle Injektionen **auf eigener Höhe**, damit sie sich von
+nachlaufenden Ereignissen der ersten unterscheiden lässt. `--ohne-heilung` ist
+die Gegenprobe.
+
+**Ergebnis:**
+
+| | mit `tap_enable(true)` | ohne (Gegenprobe) |
+|---|---|---|
+| Abhängen wird im Rückruf gemeldet | ja (`CGEventType(4294967294)`) | ja |
+| `tap_is_enabled` **im Moment der Meldung** | — | **false** |
+| erstes Ereignis nach der Meldung | **+34 ms** | **+32 ms** |
+| Ereignisse der zweiten Welle | 44 | 44 |
+| `tap_is_enabled` am Ende des Laufs | true | **true** |
+
+**Befund: der hörende Abgriff kommt von selbst zurück.** Er ist im Augenblick
+der Meldung wirklich abgeschaltet, liefert danach aber binnen rund 32 ms wieder
+— ob geheilt wird oder nicht. Der Aufruf ist in diesem Fall **nicht nachweisbar
+wirksam**.
+
+**Was davon bleibt:** die *Meldung* ist der echte Unterschied zu Windows, und
+sie bleibt. Die *Rettung* war zu viel behauptet; der Modulkopf sagt das jetzt.
+Der Aufruf bleibt trotzdem stehen — dokumentierter Weg, kostet nichts, und für
+einen **filternden** Abgriff ist die Selbsterholung ungemessen.
+
+**Zwei Fallen aus diesem Lauf, beide selbst hineingetappt:**
+
+* Die erste Fassung zählte **alle** Ereignisse nach der Abschalt-Meldung. Die
+  Gegenprobe meldete daraufhin 15 Ereignisse ohne jede Heilung — das waren
+  gepufferte Ereignisse der ersten Welle aus der RunLoop-Warteschlange. Ein
+  Lauf, der sie mitzählt, meldet die Heilung als gelungen, auch wenn sie nichts
+  tut. **Die zweite Welle braucht ein eigenes Merkmal**, hier ihre Höhe.
+* `tap_is_enabled` **im Rückruf** gemessen sagt nur, wie es im Augenblick der
+  Meldung stand — dort `false`, am Ende desselben Laufs `true`. Wer nur einmal
+  fragt, bekommt je nach Zeitpunkt die gegenteilige Antwort.
+
+**Ungemessen:** wie lange der Abgriff zwischen dem Abhängen und der Meldung
+blind war (das hängt am Schlaf des Rückrufs, nicht am System), und ob ein
+filternder Abgriff sich ebenso erholt.
