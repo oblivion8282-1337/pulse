@@ -62,7 +62,7 @@ fn ist_noch_gedrueckt(s: &Sitzung) -> usize {
 /// Menge, ihre Reihenfolge ist also nicht festgelegt; **welche** Knöpfe
 /// hochgehen, sehr wohl.
 fn knopf_ereignisse(spur: &[Ereignis]) -> Vec<Ereignis> {
-    spur.iter().filter(|e| matches!(e, Ereignis::Knopf { .. })).copied().collect()
+    spur.iter().filter(|e| matches!(e, Ereignis::Knopf { .. })).cloned().collect()
 }
 
 /// Sagt der Prüfstand „kein Strom auf diesem Platz", ist der Slot unbekannt:
@@ -114,11 +114,11 @@ fn verworfene_nachricht_gibt_trotzdem_frei() {
     // Taste ein Hoch-Ereignis, für den Knopf ein Knopf-Ereignis.
     let spur = s.inj.nimm();
     assert!(
-        spur.contains(&Ereignis::Taste { scan: 0x11, down: false }),
+        spur.contains(&Ereignis::Taste { scan: 0x11, down: false, mods: vec![] }),
         "W-Taste nicht losgelassen: {spur:?}"
     );
     assert!(
-        spur.contains(&Ereignis::Taste { scan: 0xE01D, down: false }),
+        spur.contains(&Ereignis::Taste { scan: 0xE01D, down: false, mods: vec![] }),
         "rechte Strg-Taste nicht losgelassen: {spur:?}"
     );
     assert_eq!(
@@ -151,7 +151,7 @@ fn zweites_hello_gibt_alles_frei_und_beginnt_leer() {
     assert_eq!(z.tat.zeiger, None, "leerer Zustand schließt die Zeigerlage ein");
     let spur = s.inj.nimm();
     assert!(
-        spur.contains(&Ereignis::Taste { scan: 0x11, down: false }),
+        spur.contains(&Ereignis::Taste { scan: 0x11, down: false, mods: vec![] }),
         "die Taste muss wirklich losgelassen worden sein: {spur:?}"
     );
     assert_eq!(
@@ -232,7 +232,7 @@ fn nachricht_ohne_kennung_erbt_die_vorgaengersitzung_nicht() {
     assert_eq!(ist_noch_gedrueckt(&s.sitzung), 0, "das Gedrückte der alten Sitzung");
     assert!(!s.sitzung.sperre().begruesst, "und ihr Handschlag");
     assert!(
-        s.inj.nimm().contains(&Ereignis::Taste { scan: 0x11, down: false }),
+        s.inj.nimm().contains(&Ereignis::Taste { scan: 0x11, down: false, mods: vec![] }),
         "wirklich losgelassen, nicht nur vergessen"
     );
     s.sitzung.beenden();
@@ -248,7 +248,7 @@ fn protokollfehler_der_huelle_gibt_frei_und_legt_still() {
     assert!(fehler.contains("slot"));
     assert_eq!(ist_noch_gedrueckt(&s.sitzung), 0);
     assert!(
-        s.inj.nimm().contains(&Ereignis::Taste { scan: 0x11, down: false }),
+        s.inj.nimm().contains(&Ereignis::Taste { scan: 0x11, down: false, mods: vec![] }),
         "die gedrückte Taste muss losgelassen worden sein"
     );
     // Stillgelegt: weitere Frames werden abgewiesen, bis beendet wird.
@@ -305,7 +305,7 @@ fn vergiftete_sperre_verhindert_die_freigabe_nicht() {
         "eine vergiftete Sperre darf die Freigabe nicht verhindern"
     );
     assert!(
-        s.inj.nimm().contains(&Ereignis::Taste { scan: 0x11, down: false }),
+        s.inj.nimm().contains(&Ereignis::Taste { scan: 0x11, down: false, mods: vec![] }),
         "und die Freigabe muss wirklich rausgegangen sein"
     );
     s.sitzung.beenden(); // den endgültigen Schluss zurücknehmen
@@ -344,11 +344,11 @@ fn vorrang_verwirft_die_eingabe_und_gibt_frei() {
 
     let spur = s.inj.nimm();
     assert!(
-        spur.contains(&Ereignis::Taste { scan: 0x11, down: false }),
+        spur.contains(&Ereignis::Taste { scan: 0x11, down: false, mods: vec![] }),
         "W-Taste nicht losgelassen: {spur:?}"
     );
     assert!(
-        !spur.contains(&Ereignis::Taste { scan: 0x11, down: true }),
+        !spur.contains(&Ereignis::Taste { scan: 0x11, down: true, mods: vec![] }),
         "und nichts Neues gedrückt: {spur:?}"
     );
     s.sitzung.beenden();
@@ -495,7 +495,7 @@ fn sichtschutz_verwirft_saemtliche_eingabe() {
     assert_eq!(ist_noch_gedrueckt(&s.sitzung), 0, "auch der Sichtschutz gibt frei");
     let spur = s.inj.nimm();
     assert!(
-        !spur.contains(&Ereignis::Taste { scan: 0x11, down: true }),
+        !spur.contains(&Ereignis::Taste { scan: 0x11, down: true, mods: vec![] }),
         "und nichts wird eingespielt: {spur:?}"
     );
     assert_eq!(spur.len(), 2, "genau die beiden Freigaben: {spur:?}");
@@ -549,7 +549,7 @@ fn missgeformter_frame_legt_still_und_gibt_frei() {
     assert!(fehler.contains("ungültiger Frame"), "{fehler}");
     assert_eq!(ist_noch_gedrueckt(&s.sitzung), 0, "fail-closed gibt frei");
     assert!(
-        s.inj.nimm().contains(&Ereignis::Taste { scan: 0x11, down: false }),
+        s.inj.nimm().contains(&Ereignis::Taste { scan: 0x11, down: false, mods: vec![] }),
         "wirklich losgelassen"
     );
     s.sitzung.beenden();
@@ -580,7 +580,7 @@ fn beenden_gibt_alles_frei() {
     gedrueckt(&s.sitzung, &[0x11], &[0]);
     assert_eq!(s.sitzung.beenden(), 2, "Taste und Knopf");
     let spur = s.inj.nimm();
-    assert!(spur.contains(&Ereignis::Taste { scan: 0x11, down: false }), "{spur:?}");
+    assert!(spur.contains(&Ereignis::Taste { scan: 0x11, down: false, mods: vec![] }), "{spur:?}");
     assert_eq!(knopf_ereignisse(&spur), vec![Ereignis::Knopf { btn: 0, down: false }], "{spur:?}");
 }
 
@@ -664,7 +664,7 @@ fn der_wecker_gibt_frei_und_meldet_ohne_nachricht() {
         "wer selbst steuert, muss seinen Zeiger sehen — und die Zuschauer, was er tut"
     );
     assert!(
-        s.inj.nimm().contains(&Ereignis::Taste { scan: 0x11, down: false }),
+        s.inj.nimm().contains(&Ereignis::Taste { scan: 0x11, down: false, mods: vec![] }),
         "wirklich losgelassen"
     );
     assert_eq!(

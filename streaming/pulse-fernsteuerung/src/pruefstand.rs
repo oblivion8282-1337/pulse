@@ -18,12 +18,20 @@ use crate::plattform::{Injektor, Umgebung, Wache, Zielsuche};
 use crate::zuordnung::Rechteck;
 
 /// Was ohne Testlauf ans Betriebssystem gegangen waere.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// **Nicht mehr `Copy`** seit `Taste` ein `Vec` traegt — Aufrufer, die frueher
+/// `spur[0]` per Wert gematcht haben, matchen jetzt `&spur[0]`.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Ereignis {
     Setzen { punkt: (i32, i32), zieht: bool },
     Knopf { btn: u8, down: bool },
     Rad { dv: i16, dh: i16 },
-    Taste { scan: u16, down: bool },
+    /// `mods`: die gedrueckten Scancodes zum Zeitpunkt dieses Aufrufs,
+    /// sortiert — genau das, was der Injektor als `gedrueckt` bekommen hat
+    /// (s. `plattform::Injektor::taste`). Ohne dieses Feld waere die
+    /// Trait-Erweiterung von keinem Test gedeckt: sie ginge verloren, ohne
+    /// dass ein Test rot wuerde.
+    Taste { scan: u16, down: bool, mods: Vec<u16> },
 }
 
 #[derive(Default)]
@@ -55,8 +63,8 @@ impl Injektor for PruefInjektor {
     fn maus_rad(&self, dv: i16, dh: i16) {
         self.schreibe(Ereignis::Rad { dv, dh });
     }
-    fn taste(&self, scan: u16, down: bool) {
-        self.schreibe(Ereignis::Taste { scan, down });
+    fn taste(&self, scan: u16, down: bool, gedrueckt: &Druck) {
+        self.schreibe(Ereignis::Taste { scan, down, mods: gedrueckt.tasten_unten() });
     }
 }
 
