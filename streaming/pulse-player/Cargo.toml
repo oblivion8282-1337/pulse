@@ -174,6 +174,33 @@ windows = { version = "0.62", features = [
 ash = "0.38"
 libloading = "0.8"
 
+# --- Tastenkuerzel des Compositors abschalten (s. `src/tastensperre/`) ---
+#
+# Waren VORHER schon im Abhaengigkeitsbaum (alle drei ueber winit) — sie werden
+# hier nur ausdruecklich gemacht, es kommt kein fremder Code hinzu. Lizenz: alle
+# drei MIT, passt.
+#
+# **Es MUESSEN dieselben Fassungen sein, die winit 0.30 zieht** (wayland-client
+# 0.31, wayland-backend 0.3, wayland-protocols 0.32). Dieselbe Falle wie bei
+# `ash` und `windows` oben, nur schaerfer: wir greifen an winits `wl_display`
+# und winits `wl_surface` und schicken sie als Argumente in eigene Anfragen. Bei
+# abweichenden Fassungen waeren das fuer den Compiler verschiedene Typen, obwohl
+# sie dasselbe Objekt bezeichnen. Beim Anheben von winit also mitziehen.
+#
+# `client_system` (bzw. `system` bei wayland-client) ist Pflicht und nicht bloss
+# Geschmack: nur das libwayland-Backend hat `Backend::from_foreign_display` und
+# `ObjectId::from_ptr`, also die beiden Tueren zu einer FREMDEN Verbindung. Ohne
+# das Merkmal fiele `wayland_backend::client` auf die reine Rust-Fassung
+# zurueck, und der Bau braeche mit „Funktion existiert nicht" ab — laut, nicht
+# still, und genau so ist es gemeint.
+#
+# `unstable` bei wayland-protocols: `zwp_keyboard_shortcuts_inhibit_v1` traegt
+# das `z` im Namen und liegt deshalb hinter diesem Merkmal. winit schaltet nur
+# `staging` ein, das reicht nicht.
+wayland-client = { version = "0.31", features = ["system"] }
+wayland-backend = { version = "0.3", features = ["client_system"] }
+wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
+
 [profile.release]
 opt-level = 3
 lto = "thin"

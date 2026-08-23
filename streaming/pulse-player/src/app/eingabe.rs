@@ -71,6 +71,20 @@ impl App {
         // (`takt::Ausgabetakt::fernsteuerung`). Der vorherige Wert kommt danach
         // von selbst zurueck.
         session.takt.fernsteuerung(aktiv);
+        // Und die Tastenkuerzel des Fenstermanagers stehen still, solange
+        // gesteuert wird (s. [`crate::tastensperre`]). Hier und nicht in der
+        // Sitzung nebenan, weil die Sperre am FENSTER haengt: sie gilt je
+        // Flaeche und wird vom Compositor angewendet, sobald diese Flaeche die
+        // Tastatur hat.
+        //
+        // Ohne sie ist von einem Wayland-Rechner aus auf dem gesteuerten Mac
+        // kein einziges Kuerzel erreichbar: die Befehlstaste geht als
+        // Windows-Taste hinaus, und genau die belegt der Compositor als seinen
+        // eigenen Modifikator. Scheitert die Sperre, laeuft die Sitzung
+        // trotzdem — die Begruendung fuer dieses fail-soft steht im Modulkopf
+        // dort und gehoert nicht auf „einheitlich fail-closed" geradegezogen.
+        self.tastensperre.setzen(&mut session.tastensperre, &session.window, aktiv);
+
         // Dieselbe Merk-und-Zurueck-Mechanik fuer die Jitter-Geduld bei
         // Luecken (RTT-gekoppelt, `session`).
         //
