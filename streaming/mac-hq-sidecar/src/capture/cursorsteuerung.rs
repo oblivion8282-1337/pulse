@@ -164,10 +164,9 @@ pub fn zeiger_in_der_aufnahme() -> Option<bool> {
 
 fn setzen(verbergen: bool) {
     let mut platz = sperre();
-    let Some(p) = platz.as_mut() else { return };
     // Feldweise ausgepackt, damit der Schalter veraenderlich geliehen werden
     // kann, waehrend der Verschluss Strom und Einstellung liest.
-    let Platz { strom, einstellungen, schalter } = p;
+    let Some(Platz { strom, einstellungen, schalter }) = platz.as_mut() else { return };
     if ablauf(schalter, verbergen, |v| umstellen(&strom.0, &einstellungen.0, v)) {
         *platz = None;
     }
