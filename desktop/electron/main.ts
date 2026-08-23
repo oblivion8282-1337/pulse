@@ -20,7 +20,7 @@
  * can introduce rendering quirks — not in E1a.)
  */
 
-import { app, BrowserWindow, Menu, dialog, ipcMain, session, desktopCapturer, shell, nativeImage } from 'electron';
+import { app, BrowserWindow, Menu, dialog, ipcMain, session, desktopCapturer, shell, nativeImage, systemPreferences } from 'electron';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -1035,6 +1035,51 @@ function wirePlayer(): void {
   // unabhaengig vom Rest der Aufraeum-Sequenz wegrennt.
 }
 
+// ── Accessibility-Anstoss (macOS, Fernsteuerung Host-Seite) ─────────────────
+// Windows braucht keine Freigabe -- das Op gehoert dort zum Programm
+// (`win-hq-sidecar`, `health.gsr.remote_input` steht fest). Auf dem Mac haengt
+// jede Eingabe-Injektion des Sidecars an der Bedienungshilfen-Freigabe, und
+// TCC ordnet sie dem VERANTWORTLICHEN Prozess zu, nicht dem Kindprozess: der
+// vom Hauptprozess gestartete Sidecar erbt Pulses Freigabe (gemessen,
+// `docs/plans/2026-08-23-macos-eingabe-messungen.md`, Messung 1). Der Anstoss
+// gehoert deshalb genau hierher -- nur hier heisst der Eintrag im
+// Systemdialog "Pulse" statt eines Sidecar-Binaernamens. Der Sidecar selbst
+// prueft live nur noch einmal nach, ob die geerbte Freigabe fuer IHN gilt
+// (`mac-hq-sidecar/src/berechtigung.rs`), fragt aber niemals nach -- ein
+// Sidecar, der beim Gesundheitscheck ungefragt einen Systemdialog aufwirft,
+// waere eine Zumutung.
+function wireAccessibility(): void {
+  ipcMain.handle('accessibility:isTrusted', (_e, prompt: unknown) => {
+    if (process.platform !== 'darwin') {
+      // Keine Bedienungshilfen-Huerde ausserhalb von macOS -- die Frage
+      // stellt sich dort nicht, also gibt es auch nichts zu verweigern.
+      return { trusted: true };
+    }
+    // `prompt=true` wirft bei fehlender Freigabe EINMALIG den Systemdialog auf
+    // (macOS merkt sich pro Prozess-Lebensdauer, dass schon gefragt wurde) --
+    // deshalb geht dieser Aufruf NIE automatisch los, sondern nur auf eine
+    // Nutzerhandlung hin (Knopf in den Einstellungen).
+    const trusted = systemPreferences.isTrustedAccessibilityClient(prompt === true);
+    if (trusted) return { trusted: true };
+    return {
+      trusted: false,
+      // Der Haken in den Systemeinstellungen bleibt nach einem App-Update
+      // sichtbar STEHEN, obwohl er nicht mehr gilt -- die Freigabe haengt an
+      // der Code-Signatur, und das mac-DMG ist nur ad-hoc signiert. Wer nur
+      // "Freigabe erteilen" liest, klickt den bestehenden Haken an und
+      // wundert sich, warum die Fernsteuerung trotzdem nicht geht. Dieser
+      // Hinweistext ist deshalb die einzige Quelle fuer den ganzen Weg --
+      // jede kuenftige Anzeige soll ihn woertlich zeigen, nicht neu erfinden.
+      hint:
+        'Pulse braucht die Bedienungshilfen-Freigabe, um diesen Rechner fernsteuerbar ' +
+        'zu machen. Steht Pulse schon in Systemeinstellungen -> Datenschutz & ' +
+        'Sicherheit -> Bedienungshilfen, wirkt der Haken aber nicht (z. B. nach einem ' +
+        'Update): den Eintrag ENTFERNEN und NEU HINZUFUEGEN -- der Haken bleibt nach ' +
+        'jedem Update sichtbar stehen, auch wenn er nicht mehr gilt.',
+    };
+  });
+}
+
 // ── Settings persistence (E1c) ──────────────────────────────────────────────
 // A tiny key-value store backed by `<userData>/pulse-stream.json` (see store.ts).
 // `initStore()` loads it on app-ready; the renderer talks to it via `store:*`.
@@ -1367,6 +1412,7 @@ async function bootClient(): Promise<void> {
   migriereAufStandardAn();
   wireSidecar();
   wirePlayer();
+  wireAccessibility();
   wireScreenShare();
   wireNotify(() => mainWindow);
   wirePower();
