@@ -31,6 +31,7 @@ pub mod plattform;
 pub mod rahmen;
 pub mod sitzung;
 pub mod slot;
+pub mod zeigerschalter;
 pub mod zuordnung;
 
 #[cfg(test)]
