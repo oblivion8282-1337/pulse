@@ -73,6 +73,57 @@ fn emit(event: Event) {
     }
 }
 
+/// Setzt die Merker des Workers auch dann zurueck, wenn er **panict** —
+/// das Abwickeln laeuft am regulaeren Pfad vorbei.
+///
+/// Ohne das bliebe `running = true` stehen, [`reap_finished`] griffe nie,
+/// `state` meldete ewig „starting", und jeder neue `start` scheiterte mit
+/// „ein Stream laeuft bereits".
+///
+/// **Abgeschaut vom Linux-Zwilling**, der genau diesen Fehler schon hatte
+/// (`linux-hq-sidecar/src/stream_controller.rs`). Die Lehre war dort
+/// aufgeschrieben und ist beim Bau des mac-Sidecars nicht mitgewandert.
+struct WorkerDoneGuard(Arc<Shared>);
+
+impl Drop for WorkerDoneGuard {
+    fn drop(&mut self) {
+        self.0.running.store(false, Ordering::SeqCst);
+        self.0.live.store(false, Ordering::SeqCst);
+        if thread::panicking() {
+            // Nur im Panik-Fall melden: auf dem regulaeren Weg hat der Worker
+            // seine Ereignisse schon selbst geschickt, und ein zweites
+            // `error` waere eine Falschmeldung.
+            emit(Event::Error { message: "hq-stream-Faden abgestuerzt".to_string() });
+            emit(Event::State { state: StreamState::Error, running: false, uptime_s: 0.0 });
+        }
+    }
+}
+
+/// Raeumt einen bereits beendeten, aber nie per `stop` abgeholten Strom ab.
+///
+/// Endet der Worker von selbst — Aufnahmequelle weg, Encoder-Fehler, eine
+/// nicht laufende Ton-App —, setzt er nur `shared.running = false`; `active`
+/// bleibt `Some`, denn nur `stop` ruft `take()`. Ohne dieses Einsammeln
+/// scheitert der naechste `start` faelschlich mit „ein Stream laeuft bereits",
+/// waehrend `state` gleichzeitig `running: false` meldet — der Sidecar sagt
+/// also „es laeuft nichts" und verweigert den Start, weil etwas laeuft.
+/// **Genau so am 2026-08-23 beim Zwei-Geraete-Test aufgefallen**, ausgeloest
+/// von einer Ton-App, die nicht mehr lief.
+///
+/// `worker.join()` kehrt sofort zurueck, der Faden ist ja beendet. Wird nie
+/// aus dem Worker selbst gerufen (nur aus `start`/`state`), also kein
+/// Selbst-Join. Verlangt den gehaltenen `active`-Riegel.
+fn reap_finished(guard: &mut Option<Active>) {
+    let beendet = guard
+        .as_ref()
+        .is_some_and(|a| !a.shared.running.load(Ordering::SeqCst));
+    if beendet {
+        if let Some(tot) = guard.take() {
+            let _ = tot.worker.join();
+        }
+    }
+}
+
 impl StreamController {
     pub fn singleton() -> &'static StreamController {
         INSTANCE.get_or_init(|| StreamController { active: Mutex::new(None) })
@@ -81,6 +132,12 @@ impl StreamController {
     /// Start a stream. `argv` is the redacted diagnostic argv (for `state`).
     pub fn start(&self, params: StartParams, argv: Vec<String>) -> Result<()> {
         let mut guard = self.active.lock().unwrap();
+        // **Diese Zeile ist von keinem Test gedeckt** (nachgemessen: ihre
+        // Entfernung bleibt gruen). `start` verlangt echte Aufnahme, ein
+        // Unit-Test kommt nicht hierher; geprueft ist nur `reap_finished`
+        // selbst. Wer den Aufruf anfasst, hat kein Netz — der Weg dorthin
+        // waere ein Pruefling wie `examples/probe_ziel` beim Zwilling.
+        reap_finished(&mut guard);
         if guard.is_some() {
             return Err(anyhow!("ein Stream läuft bereits"));
         }
@@ -111,6 +168,8 @@ impl StreamController {
         let worker = thread::Builder::new()
             .name("hq-stream".into())
             .spawn(move || {
+                // Steht VOR `run_stream`, damit er auch eine Panik darin faengt.
+                let _fertig = WorkerDoneGuard(shared_worker.clone());
                 let result = run_stream(params, stop_rx, &shared_worker);
                 // **Abmelden ist hier Pflicht, nicht Hoeflichkeit** — der
                 // mac-Sidecar bleibt zwischen zwei Streams warm. Am Ende des
@@ -162,7 +221,10 @@ impl StreamController {
     }
 
     pub fn state(&self) -> StreamSnapshot {
-        let guard = self.active.lock().unwrap();
+        let mut guard = self.active.lock().unwrap();
+        // Auch hier einsammeln: sonst meldet die Auskunft einen toten Strom
+        // als „starting", bis jemand von Hand stoppt.
+        reap_finished(&mut guard);
         match guard.as_ref() {
             Some(a) => {
                 let running = a.shared.running.load(Ordering::SeqCst);
@@ -362,4 +424,63 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
     cap.stop();
     let finish_result = enc.finish();
     run_result.and(finish_result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Ein `Active`, dessen Faden schon beendet ist — genau die Leiche, die
+    /// ein von selbst gestorbener Strom hinterlaesst.
+    fn beendeter_platz(running: bool) -> Active {
+        let (stop_tx, _rx) = channel::<()>();
+        let worker = thread::Builder::new().spawn(|| {}).expect("Faden");
+        // Warten, bis er wirklich durch ist: sonst pruefte der Test eine
+        // Gleichzeitigkeit statt der Regel.
+        while !worker.is_finished() {
+            std::hint::spin_loop();
+        }
+        Active {
+            stop_tx,
+            worker,
+            shared: Arc::new(Shared {
+                running: AtomicBool::new(running),
+                live: AtomicBool::new(false),
+                fps_milli: AtomicU64::new(0),
+                started_at: Mutex::new(None),
+            }),
+            argv: Vec::new(),
+        }
+    }
+
+    /// Die eigentliche Zusage: ein toter Strom blockiert den Platz nicht.
+    ///
+    /// Ohne sie meldet `state` `running: false` und `start` verweigert
+    /// gleichzeitig mit „ein Stream laeuft bereits" — der Sidecar sagt „es
+    /// laeuft nichts" und laesst trotzdem nichts starten.
+    #[test]
+    fn ein_beendeter_strom_wird_eingesammelt() {
+        let mut platz = Some(beendeter_platz(false));
+        reap_finished(&mut platz);
+        assert!(platz.is_none(), "toter Strom blieb liegen");
+    }
+
+    /// Die Gegenprobe, und sie ist die wichtigere: ein LAUFENDER Strom darf
+    /// nicht eingesammelt werden. Ein `reap_finished`, das immer raeumt,
+    /// bestuende den Test oben und risse jeden laufenden Stream ab.
+    #[test]
+    fn ein_laufender_strom_bleibt_stehen() {
+        let mut platz = Some(beendeter_platz(true));
+        reap_finished(&mut platz);
+        assert!(platz.is_some(), "laufender Strom wurde abgeraeumt");
+    }
+
+    /// Auf einem leeren Platz ist das Einsammeln ein Nichts-Tun — `start`
+    /// ruft es bedingungslos.
+    #[test]
+    fn ein_leerer_platz_bleibt_leer() {
+        let mut platz: Option<Active> = None;
+        reap_finished(&mut platz);
+        assert!(platz.is_none());
+    }
 }
