@@ -106,16 +106,26 @@ One JSON object per stdin line = a request; one per stdout line = a response
 (mirrors the request `id`) or an async event (`{"ev": ...}`, no `id`). Full
 contract: `streaming/README.md`.
 
-| Op                       | Day-1 status | Real-impl unlocks                                  |
-|--------------------------|--------------|----------------------------------------------------|
-| `health`                 | real         | hardware codec probe (`caps.rs`)                   |
-| `gpu_info`               | stub         | Metal device query (`MTLCreateSystemDefaultDevice`)|
-| `list_monitors`          | stub (`[]`)  | `SCShareableContent.displays` (or CoreGraphics)    |
-| `list_application_audio` | stub (`[]`)  | `SCShareableContent.applications`                  |
-| `build_argv`             | real         | diagnostic argv (token-redacted)                   |
-| `start`                  | stub (error) | capture + encode + RTMPS (below)                   |
-| `stop`                   | idempotent   | signal the StreamController                         |
-| `state`                  | idle         | StreamController snapshot                           |
+**This table went stale and was corrected on 2026-08-23** — it still described
+day one, listing `start` as a stub while it is 269 lines of working code, and
+omitting `list_windows` entirely. The twin table in `src/ops/mod.rs` says the
+same; **change both or neither.** A status table nobody can trust is worse than
+none.
+
+| Op                       | Status | Backed by                                        |
+|--------------------------|--------|--------------------------------------------------|
+| `health`                 | real   | codec probe (`caps.rs`) + TCC grants (`berechtigung.rs`) |
+| `gpu_info`               | stub   | awaiting `MTLCreateSystemDefaultDevice`          |
+| `list_monitors`          | real   | `capture::list_displays`                         |
+| `list_windows`           | real   | `capture::list_capture_windows`                  |
+| `list_application_audio` | real   | `capture::list_audio_applications`               |
+| `build_argv`             | real   | diagnostic argv (token-redacted)                 |
+| `start`                  | real   | ScreenCaptureKit + VideoToolbox + WHIP/RTMPS     |
+| `stop`                   | real   | `StreamController`, idempotent                   |
+| `state`                  | real   | `StreamController` snapshot                      |
+| `keyframe`               | real   | keyframe on request                              |
+| `remote_input`           | real   | remote control: feed input frames                |
+| `remote_input_end`       | real   | remote control: close the session                |
 
 **Platform difference vs Windows:** the mac sidecar does **not** exit after a
 successful `stop`. The Windows sidecar self-exits (a driver threadpool-timer AV)
