@@ -299,7 +299,7 @@ impl Sitzung {
     }
 
     /// Protokollfehler aus der **Hülle** statt aus einem Frame — missgeformter
-    /// Slot, zu viele Frames, kaputtes Base64 (`ops::remote_input`).
+    /// Slot, zu viele Frames, kaputtes Base64 ([`crate::huelle`]).
     /// Gleiche Folge wie bei einem missgeformten Frame: stilllegen, alles
     /// freigeben, melden. Ohne diesen Weg bliebe Gedrücktes ausgerechnet auf dem
     /// Pfad liegen, auf dem die Gegenseite nachweislich etwas falsch macht.
