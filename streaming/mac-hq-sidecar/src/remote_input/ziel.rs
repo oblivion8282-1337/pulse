@@ -11,6 +11,15 @@
 //! noch sitzt und einer in der Mitte schon nicht mehr. Die Anteilsrechnung der
 //! Kiste (`pulse_fernsteuerung::zuordnung`) rettet den Rest.
 //!
+//! **Und genau dieser letzte Satz gilt nur bei gleichem Seitenverhaeltnis.**
+//! Ein Fenster-Strom laeuft in SCHIRM-Groesse (`ops::start::parse_display_index`
+//! liest die Ziffern der Fensterkennung als Schirmindex, gemessen 2026-08-23),
+//! `scalesToFit` bleibt ungesetzt, und das Fenster wird mit Balken eingepasst.
+//! Der Steuernde schickt dann Anteile am ganzen Bild SAMT Balken, hier kommt das
+//! nackte Fensterrechteck heraus — in der Mitte stimmt es, am Rand fehlen bis zu
+//! 205 px. Zahlen und Abgrenzung: Messakte, Nachtrag 9. **Nicht behoben** — die
+//! Ursache liegt in der Aufnahme, nicht hier.
+//!
 //! ## Zwei Koordinatensysteme, und nur eines ist hier gemeint
 //!
 //! * **Anzeigeraum** (CoreGraphics): Ursprung **oben links** der Hauptanzeige,

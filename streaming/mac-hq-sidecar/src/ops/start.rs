@@ -225,7 +225,7 @@ fn build_redacted_argv(
 
 #[cfg(test)]
 mod codec_resolution_tests {
-    use super::resolve_codec;
+    use super::{parse_display_index, resolve_codec, resolve_resolution};
 
     /// **K-1.** Nicht "die Funktion gibt h264 zurueck" — sondern die
     /// Eigenschaft, um die es geht: der Codec, den `resolve_codec` an den
@@ -265,5 +265,53 @@ mod codec_resolution_tests {
     #[test]
     fn unterstuetzter_codec_bleibt_unveraendert() {
         assert_eq!(resolve_codec("h264"), "h264");
+    }
+
+    /// **Befund W-7 der Pruefung, hier festgehalten — nicht behoben.**
+    ///
+    /// `parse_display_index` filtert die Ziffern aus der Aufnahme-Kennung. Bei
+    /// `"window:2737"` kommt damit **2737** heraus und wird als Schirmindex
+    /// gelesen. Das ist kein Tippfehler in der Kennung, sondern die Bauart der
+    /// Funktion: sie ist fuer `"display:1"` und `"Monitor: 2"` geschrieben.
+    ///
+    /// Die Folge steht im Test darunter.
+    #[test]
+    fn eine_fensterkennung_wird_als_schirmindex_gelesen() {
+        assert_eq!(parse_display_index("window:2737"), 2737);
+        assert_eq!(parse_display_index("window:3931"), 3931);
+        // Zum Vergleich, wofuer die Funktion gedacht ist:
+        assert_eq!(parse_display_index("display:1"), 1);
+        assert_eq!(parse_display_index("Monitor: 2"), 2);
+        assert_eq!(parse_display_index("portal"), 1);
+    }
+
+    /// **Und deshalb bekommt ein Fenster-Strom die Masse des Hauptschirms.**
+    ///
+    /// Ein Index ausserhalb der Schirmliste faellt auf den ersten Schirm
+    /// zurueck — bei einer Fensterkennung ist er das immer. Die Aufnahme laeuft
+    /// also in Schirmgroesse, waehrend das Fenster viel kleiner ist;
+    /// `SCStreamConfiguration.scalesToFit` bleibt ungesetzt (Vorgabe YES), das
+    /// Fenster wird seitenverhaeltnistreu eingepasst und der Rest mit Balken
+    /// gefuellt.
+    ///
+    /// **Warum das die Fernsteuerung angeht:** der Steuernde schickt Anteile am
+    /// **ganzen Bild samt Balken**, `remote_input::ziel` liefert das **nackte**
+    /// Fensterrechteck, und `pulse_fernsteuerung::zuordnung` spreizt das eine
+    /// ueber das andere. In der Mitte stimmt es, zum Rand hin waechst der
+    /// Versatz. Gemessene Zahlen und die Abgrenzung dessen, was NICHT gemessen
+    /// ist, stehen in `docs/plans/2026-08-23-macos-eingabe-messungen.md`,
+    /// Nachtrag 9.
+    ///
+    /// Der Test vergleicht mit Index 1 statt mit festen Zahlen — er soll auf
+    /// jeder Maschine dasselbe sagen.
+    #[test]
+    fn ein_fenster_strom_nimmt_die_masse_des_hauptschirms() {
+        let bei_fensterkennung = resolve_resolution(None, parse_display_index("window:2737"));
+        let beim_ersten_schirm = resolve_resolution(None, 1);
+        assert_eq!(
+            bei_fensterkennung.unwrap(),
+            beim_ersten_schirm.unwrap(),
+            "die Aufnahme eines Fensters laeuft in Schirmgroesse — nicht in Fenstergroesse"
+        );
     }
 }
