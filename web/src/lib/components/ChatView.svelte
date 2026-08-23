@@ -214,7 +214,7 @@
 </script>
 
 <section
-  class="glass-panel relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl"
+  class="glass-panel slide-rein relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl"
   aria-label={channel ? channel.name : pm.chat_view_select_channel()}
   ondragenter={onZoneDragEnter}
   ondragover={onZoneDragOver}

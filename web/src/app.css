@@ -6,6 +6,21 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Mobile Slide-Rein: Detail-Bildschirme (Chat, Community, Entdecken …)
+   schieben sich auf dem Handy von rechts rein — WhatsApp-Prinzip, als
+   einfache Mount-Animation direkt am Bildschirm (keine View-Transition-API:
+   ein onNavigate-Hook brachte in dieser App den Boot zum Absturz). Nur
+   unter md; „Bewegung reduzieren" schaltet ab. */
+@media (max-width: 767.98px) and (prefers-reduced-motion: no-preference) {
+  .slide-rein {
+    animation: 260ms ease both seitenwechsel-rein;
+  }
+}
+@keyframes seitenwechsel-rein {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
 /* "Glasshouse / Graphite" — heller, luftiger Glas-Look mit Electric-Blue-
    Ton-in-Ton-Akzent. Light ist der Default; .dark trägt die dunkle Variante.
    Die Semantik-Tokens unten mappen auf die Glas-Palette, damit die

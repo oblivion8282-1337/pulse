@@ -44,6 +44,7 @@
   }
 </script>
 
+<div class="slide-rein flex h-full min-w-0 flex-1">
 <ChannelList
   {guild}
   {channels}
@@ -54,6 +55,7 @@
   onSelectDevice={oeffneGeraet}
   onBack={() => goto('/app/rooms')}
 />
+</div>
 
 {#if !viewport.isMobile}
   <TabletPlaceholder text={m.rooms_pick_channel()} />

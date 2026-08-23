@@ -195,7 +195,7 @@
   onvisibilitychange={() => { if (document.visibilityState === 'hidden' && voice.pttMode) { voice.pttRelease(); pttPressed = false; } }}
 />
 
-<section class="glass-panel relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl" data-testid="voice-channel-view">
+<section class="glass-panel slide-rein relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl" data-testid="voice-channel-view">
   <header class="flex h-14 items-center gap-2.5 px-3 md:px-5">
     <!-- Mobil: Zurück in die Räume — die Vollbild-Ansicht hat sonst keinen
          Ausgang, nachdem man aufgelegt hat (Detail-Screens ohne Leiste). -->
