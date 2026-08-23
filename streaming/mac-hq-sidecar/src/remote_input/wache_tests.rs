@@ -237,3 +237,33 @@ fn gewoehnliche_ereignisse_gelten_nicht_als_abgehaengt() {
         assert!(!ist_abgehaengt(t), "{t:?} ist keine Abschalt-Meldung");
     }
 }
+
+/// **Befund K-1 der Pruefung, und der schwerste der ganzen Etappe.**
+///
+/// Einspielen und Mithoeren sind zwei verschiedene Freigaben. Der gefaehrliche
+/// Fall ist der asymmetrische: der Host hat die Bedienungshilfen, aber nicht
+/// die Eingabeueberwachung. Dann wirkt die Injektion, der Abgriff wird erstellt
+/// und ist aktiv — **bekommt aber keine Ereignisse**. Der Host tippt und
+/// bekommt seinen Rechner nicht zurueck.
+///
+/// Bis zum 2026-08-23 meldete `starten()` in diesem Fall `Ok`, weil die Prämisse
+/// des Plans („CGEventTapCreate scheitert ohne Accessibility") nicht stimmt: ein
+/// HOERENDER Abgriff wird auch ohne Freigabe erstellt.
+#[test]
+fn ohne_eingabeueberwachung_keine_wache() {
+    assert!(darf_wachen(crate::berechtigung::STAND_ERTEILT).is_ok());
+    for stand in ["denied", "ungefragt", "unbekannt"] {
+        let ergebnis = darf_wachen(stand);
+        assert!(ergebnis.is_err(), "{stand} darf die Wache nicht stehen lassen");
+        let text = ergebnis.unwrap_err();
+        assert!(
+            text.contains(stand),
+            "die Meldung muss den Stand nennen — „verweigert\" und „nie gefragt\" \
+             fuehren den Nutzer an verschiedene Stellen: {text}"
+        );
+        assert!(
+            text.contains("Eingabeueberwachung"),
+            "die Meldung muss die richtige Freigabe nennen, nicht die Bedienungshilfen: {text}"
+        );
+    }
+}

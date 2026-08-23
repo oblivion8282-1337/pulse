@@ -1,20 +1,24 @@
 //! Tests der beiden Fernsteuer-Ops — und damit der Verdrahtung aus Aufgabe 7.
 //!
-//! **Was hier bewusst NICHT vorkommt: ein Frame, der wirklich injiziert.**
-//! Der macOS-Injektor feuert im Testbau echt ab — er hat keinen Riegel, anders
-//! als es der Kommentar in der Windows-Wache fuer seinen Zwilling behauptet
-//! (der hat in Wahrheit auch keinen). Ein Test mit einem Maus- oder
-//! Tastenrahmen wuerde die Maschine des Entwicklers bedienen: Zeiger springt,
-//! Klick geht an das Programm im Vordergrund.
+//! **Hier stand bis zum 2026-08-23, warum ein Frame bis zur Wirkung fehlt:**
+//! der macOS-Injektor feuere im Testbau echt ab, ein solcher Test bediente also
+//! die Maschine des Entwicklers. Das galt — und ist seit
+//! `injektion_spur.rs` erledigt: `Zustand::abfeuern` zeichnet im Testbau auf,
+//! statt zu posten. Der Absatz stand danach noch da und haette den naechsten
+//! von einem Test abgehalten, der laengst moeglich war.
 //!
-//! Deshalb steht hier nur, was ohne Wirkung auf das System auskommt: der
-//! Handschlag (setzt Zustand, injiziert nichts), das Schliessen und die
-//! Fehlerwege der Huelle. Was tatsaechlich am Schirm passiert, nehmen die
-//! Prueflinge `examples/probe_injektor` und `examples/probe_wache` ab.
+//! Geprueft wird deshalb jetzt **gegen die Spur**: welcher Ereignistyp, welche
+//! Marke, welche Kennzeichnung, welcher Klickstand tatsaechlich abgefeuert
+//! worden waeren. Was am Schirm ankommt — also ob der WindowServer daraus macht,
+//! was er soll —, bleibt Sache der Prueflinge `examples/probe_injektor` und
+//! `examples/probe_wache`.
 
 use serde_json::{Map, Value, json};
 
+use crate::remote_input::injektion::{PULSE_MARKE, spur};
 use crate::remote_input::{pruefstand, ziel};
+use objc2_core_graphics::{CGEventType, CGMainDisplayID};
+use pulse_fernsteuerung::format::Knopf;
 use pulse_fernsteuerung::base64::kodiere;
 use pulse_fernsteuerung::bauen;
 
@@ -139,4 +143,91 @@ fn beide_ops_sind_im_dispatch() {
             "{op} ist im Dispatch nicht verdrahtet: {text}"
         );
     }
+}
+
+/// Ein Strom auf dem **echten** Hauptschirm — nur so gibt es ein Rechteck, in
+/// das die Anteile fallen koennen. `CGMainDisplayID` braucht keine Freigabe
+/// (es fragt keine Aufnahme an), anders als die Schirmliste.
+fn strom_auf_dem_hauptschirm() {
+    ziel::strom_gestartet(None, ziel::Quelle::Schirm(CGMainDisplayID()));
+}
+
+fn frames(rahmen: Vec<Vec<u8>>) -> Map<String, Value> {
+    karte(json!({
+        "session_id": "s-1",
+        "slot": 0,
+        "frames": rahmen.iter().map(|r| kodiere(r)).collect::<Vec<_>>(),
+    }))
+}
+
+/// **Der Test, der in Aufgabe 7 fehlte: ein Frame bis zur Wirkung.**
+///
+/// Bis hierher belegte kein Test, dass ueber den Op ueberhaupt etwas abgefeuert
+/// wird — nur, dass die Antwortkarte stimmt. Geprueft wird gegen die Spur, also
+/// gegen das, was `abfeuern` wirklich gesetzt hat.
+#[test]
+fn ein_frame_wird_bis_zur_wirkung_gefuehrt() {
+    let _sperre = pruefstand();
+    strom_auf_dem_hauptschirm();
+    let _ = spur::nehmen();
+
+    let out = super::handle(frames(vec![
+        bauen::hello().as_slice().to_vec(),
+        // Mitte des Schirms — der Anteil ist von der Aufloesung unabhaengig.
+        bauen::maus_abs(32_767, 32_767).as_slice().to_vec(),
+        bauen::maus_knopf(Knopf::Links, true).as_slice().to_vec(),
+        bauen::maus_knopf(Knopf::Links, false).as_slice().to_vec(),
+    ]))
+    .expect("die Frames muessen durchgehen");
+    ziel::strom_beendet();
+
+    assert_eq!(out.get("processed").and_then(Value::as_u64), Some(4));
+    let spur = spur::nehmen();
+    assert!(!spur.is_empty(), "ueber den Op wurde nichts abgefeuert");
+
+    // **Die Marke auf JEDEM Ereignis** — ohne sie haelt die Wache die eigene
+    // Spur fuer den Host und sperrt den Steuernden mit seiner ersten Bewegung
+    // aus.
+    for e in &spur {
+        assert_eq!(e.marke, PULSE_MARKE, "ungestempeltes Ereignis: {e:?}");
+    }
+
+    let typen: Vec<CGEventType> = spur.iter().map(|e| e.typ).collect();
+    assert!(typen.contains(&CGEventType::MouseMoved), "keine Bewegung in {typen:?}");
+    assert!(typen.contains(&CGEventType::LeftMouseDown), "kein Knopf runter in {typen:?}");
+    assert!(typen.contains(&CGEventType::LeftMouseUp), "kein Knopf hoch in {typen:?}");
+
+    // Der erste Klick ist der erste — der Zaehler laeuft ueber den Op-Weg mit.
+    let runter = spur
+        .iter()
+        .find(|e| e.typ == CGEventType::LeftMouseDown)
+        .expect("Knopf runter");
+    assert_eq!(runter.klickstand, 1, "der erste Klick traegt Klickstand 1");
+}
+
+/// **Und bei Vorrang des Hosts darf nichts hinausgehen.** Der Zustand allein
+/// belegt das nicht — er sagt nur, was der Sidecar meldet, nicht was er tut.
+#[test]
+fn bei_vorrang_wird_nichts_abgefeuert() {
+    let _sperre = pruefstand();
+    strom_auf_dem_hauptschirm();
+    // Handschlag zuerst, sonst gaebe es gar keine Sitzung zu maskieren.
+    super::handle(frames(vec![bauen::hello().as_slice().to_vec()])).expect("Handschlag");
+    let _ = spur::nehmen();
+
+    let mut p = frames(vec![
+        bauen::maus_abs(32_767, 32_767).as_slice().to_vec(),
+        bauen::maus_knopf(Knopf::Links, true).as_slice().to_vec(),
+    ]);
+    // Der Renderer des Hosts haengt `host_active` an jede Nachricht, wenn
+    // irgendein Platz Vorrang meldet.
+    p.insert("host_active".to_string(), Value::from(true));
+    let out = super::handle(p).expect("wird angenommen, aber verworfen");
+    ziel::strom_beendet();
+
+    assert_eq!(out.get("state").and_then(Value::as_str), Some("host_active"));
+    assert!(
+        spur::nehmen().is_empty(),
+        "bei Vorrang des Hosts darf kein Ereignis abgefeuert werden"
+    );
 }

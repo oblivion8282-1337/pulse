@@ -180,6 +180,25 @@ fn maske() -> CGEventMask {
     ARTEN.iter().fold(0u64, |m, t| m | (1u64 << t.0))
 }
 
+/// Darf die Wache mit diesem Freigabe-Stand stehen?
+///
+/// **Als reine Rechnung, nicht direkt aus dem FFI-Aufruf** — und der Grund ist
+/// derselbe, aus dem `berechtigung::faehigkeit` so gebaut ist: auf einer
+/// Maschine, die beide Freigaben hat, greift der Verweigerungs-Zweig nie, und
+/// jede Mutation daran ueberlebte. Ein Test, der von der Freigabelage des
+/// Entwicklerrechners abhaengt, prueft nichts. Mit dem Stand als Argument
+/// fallen alle Faelle sofort auf.
+fn darf_wachen(mithoeren_stand: &str) -> Result<(), String> {
+    if mithoeren_stand == crate::berechtigung::STAND_ERTEILT {
+        return Ok(());
+    }
+    Err(format!(
+        "Eingabeueberwachung fehlt ({mithoeren_stand}) — ohne sie sieht die Wache keine \
+         Eingaben des Hosts, und er bekaeme seinen Rechner nicht zurueck. \
+         Systemeinstellungen › Datenschutz & Sicherheit › Eingabeueberwachung"
+    ))
+}
+
 /// Meldet macOS hier, dass es den Abgriff abgehaengt hat?
 ///
 /// **Die Entscheidung steht als reine Funktion daneben, damit sie pruefbar
@@ -270,15 +289,38 @@ fn faden(nr: u64, melden: std::sync::mpsc::Sender<Result<(), String>>) {
         )
     };
     let Some(tap) = tap else {
-        // Der eine Grund, aus dem das scheitert: keine Freigabe in den
-        // Bedienungshilfen. Der Text nennt sie, damit niemand im Sidecar sucht.
+        // **Hier stand bis zum 2026-08-23 „der eine Grund … Bedienungshilfen".
+        // Das war falsch** (Befund K-1 der Pruefung): ein HOERENDER Abgriff wird
+        // auch ohne jede Freigabe erstellt und ist aktiv. Verweigert wird nur
+        // ein filternder. Wenn `tap_create` hier trotzdem `None` liefert, ist es
+        // etwas anderes — deshalb nennt der Text keine Ursache mehr, die er
+        // nicht kennt.
         let _ = melden.send(Err(
-            "Abgriff der Wache nicht anmeldbar — fehlt die Freigabe in \
-             Systemeinstellungen › Datenschutz & Sicherheit › Bedienungshilfen?"
-                .to_string(),
+            "Abgriff der Wache nicht anmeldbar (CGEventTapCreate lieferte nichts)".to_string(),
         ));
         return;
     };
+
+    // **Die eigentliche Vorbedingung, und sie hat einen eigenen Namen.**
+    // Einspielen haengt an `kTCCServicePostEvent` („Bedienungshilfen"), Hoeren an
+    // `kTCCServiceListenEvent` („Eingabeueberwachung") — zwei verschiedene
+    // Freigaben. Der gefaehrliche Fall ist der asymmetrische: der Host hat die
+    // erste, aber nicht die zweite. Dann wirkt die Injektion, der Abgriff wird
+    // erstellt und ist aktiv, bekommt aber keine Ereignisse — **der Host tippt
+    // und bekommt seinen Rechner nicht zurueck.** Genau das „still etwas
+    // Schwaecheres unter demselben Etikett", das die Startverweigerung
+    // verhindern soll.
+    //
+    // **Erst der Abgriff, dann die Pruefung** — die Reihenfolge ist wesentlich:
+    // `IOHIDCheckAccess` meldet „ungefragt", solange der Nutzer nie gefragt
+    // wurde, und gefragt wird er erst durch einen Abgriff-Versuch. Eine
+    // Vorabpruefung baute einen Zustand ohne Ausweg: Verweigerung ohne Dialog,
+    // ohne Listeneintrag, ohne Haken zum Setzen. So scheitert der erste Versuch
+    // sichtbar und hinterlaesst einen Haken; der zweite geht durch.
+    if let Err(grund) = darf_wachen(crate::berechtigung::mithoeren_stand()) {
+        let _ = melden.send(Err(grund));
+        return;
+    }
     let Some(quelle) = CFMachPort::new_run_loop_source(None, Some(&tap), 0) else {
         let _ = melden.send(Err("RunLoop-Quelle des Abgriffs nicht baubar".to_string()));
         return;
