@@ -89,34 +89,86 @@ sind höchstens rund 900 Ereignisse je Sekunde, dynamische Auflösung ist dort
 bedeutungslos — ein generischer `Sitzung<P>` zöge sich dagegen durch jede
 Windows-Datei und blähte den Umstellungs-Diff auf.
 
+**Umgesetzter Stand** (2026-08-23 nachgezogen — dieser Abschnitt beschrieb bis
+dahin einen Entwurfsstand, der so nicht gebaut wurde; wer daraus Plan 2
+ableitet, bekäme falsche Signaturen):
+
 * **`Injektor`** — `maus_setzen(punkt, &Druck)`, `maus_knopf(btn, down)`,
-  `maus_rad(dv, dh)`, `taste(scan, down)`. Ein unbekannter Knopf und ein
-  missgeformter Scancode liefern `Err` und bleiben damit fail-closed.
+  `maus_rad(dv, dh)`, `taste(scan, down)`. Alle vier liefern `()`.
   **Die Gedrückt-Menge geht mit**, weil macOS sie zweimal braucht (§4).
+  Die Prüfung auf unbekannten Knopf und missgeformten Scancode liegt **nicht**
+  hier, sondern in `format::{knopf_bekannt, scancode_gueltig}` — sie ist eine
+  Aussage über das Protokoll, nicht über ein Betriebssystem, und `ausfuehrung`
+  wertet sie vor der Injektion aus (fail-closed bleibt unverändert).
+  **Offene Rechnung für macOS:** dieser Trait kann kein Scheitern melden. Für
+  Windows ist das treu (`SendInput`s Rückgabewert wurde auch vorher nicht
+  ausgewertet), für macOS ist es eine Lücke — wird die Accessibility-Freigabe
+  **mitten** in der Sitzung entzogen, scheitert `CGEventPost` still, und die
+  Sitzung meldet weiter `live`. `Wache::starten()` deckt nur den Beginn ab.
 * **`Wache`** — `starten() -> Result<(), String>`, `stoppen()`,
   `host_regt_sich()`, `rest_ms()`. `Err` beim Starten heißt: die Zusage ist auf
-  diesem System nicht zu halten, die Sitzung wird verweigert.
-* **`Umgebung`** — `ziel(slot) -> Zielsuche`, `host_zeiger_zeigen(bool)`,
-  `melden(serde_json::Value)`.
+  diesem System nicht zu halten, die Sitzung wird verweigert. **Und ein
+  Vertrag, der leicht übersehen wird:** die Plattform muss `vorrang_tick()` in
+  einem Takt von 100 ms treiben, solange eine Sitzung läuft. Der Vorrang endet
+  von selbst; es kommt kein Ereignis, das ihn beendet.
+* **`Umgebung`** — sechs Methoden: `ziel(slot) -> Zielsuche`,
+  `host_zeiger_zeigen(bool)`, `sitzung_beendet()`, `fern_aktiv_setzen(bool)`,
+  `vorrang_melden(gilt, hold_ms)`, `fehler_melden(grund)`. **Typisiert statt
+  über `serde_json::Value`** — sonst hätte die Kiste eine Abhängigkeit, und die
+  Kernbedingung „abhängigkeitsfrei" wäre gebrochen. Aus demselben Grund liefert
+  `Sitzung::frames` ein `Result<_, String>` statt `anyhow::Result`.
 
-Zwei Nebenwirkungen, beide erwünscht: die Tests der Kiste brauchen eine
-**ausdrückliche Prüfstands-Plattform** statt der heutigen
-`#[cfg(not(test))]`-Abfangerei in `injektion.rs` (klarer, und hermetisch auf
-jeder Maschine), und `zeigerform.rs` bleibt vollständig plattformeigen, weil
-Windows benennt und der Mac Bilder schickt — gemeinsam sind dort nur der
-Wechselfilter und die Ein-Sekunden-Wiederholung.
+Dazu die **Prüfstands-Plattform** (`pruefstand.rs`) statt der früheren
+`#[cfg(not(test))]`-Abfangerei in `injektion.rs` — klarer, und hermetisch auf
+jeder Maschine. Zwei Folgen davon stehen offen: der Prüfstand ist `#[cfg(test)]`
+und damit für einen mac-Sidecar-Test **unerreichbar** (der baut die Attrappe
+sonst neu), und das alte Netz um `SendInput` ist ersatzlos entfallen — heute
+harmlos, weil alle verbliebenen Windows-Tests nur Hello-Frames schicken, aber
+der erste Test mit einem Tasten-Frame tippt real auf der Entwicklermaschine.
 
 ### 3.2 Was plattformeigen bleibt
 
 Windows: `injektion` (`SendInput`, `PULSE_MARKE`, DPI-Bewusstsein), das
 Haken-Gerüst der Wache, die Rechteck-Auflösung in `ziel.rs`
-(`GetMonitorInfoW`/DWM), `zeigerform`/`zeigerpixel`/`zeigerpunkte`,
+(`GetMonitorInfoW`/DWM), `zeigerpixel`/`zeigerpunkte`, der WinRT-Aufruf in
 `cursorsteuerung` sowie `zuordnung::virtueller_desktop` und
 `punkt_auf_absolut` — die Normierung auf 0..65535 ist eine `SendInput`-Eigenheit,
 macOS bekommt Punkte direkt.
 
 Player: `tasten.rs` (winit → Satz 1) bleibt beim Player, denn die Kiste soll
 nicht von winit abhängen. Die **Vokabelliste** dagegen zieht in `format` (§7.3).
+
+### 3.2.1 Der Schnitt war zu flach — Etappe 1b
+
+**Hier stand, `zeigerform.rs` bleibe „vollständig plattformeigen … gemeinsam
+sind dort nur der Wechselfilter und die Ein-Sekunden-Wiederholung". Das ist
+nachweislich falsch**, und der Irrtum geht in die teure Richtung. Die
+Schlussprüfung des Zweigs hat die Windows-Seite nach der Auslagerung Datei für
+Datei durchgesehen: **rund 560 Zeilen plattformfreier Logik sind liegen
+geblieben.**
+
+| Wo | Umfang | Was ein zweiter Sidecar neu schriebe |
+|---|---|---|
+| `ops/remote_input.rs` | ~180 Z., **kein** Windows-Aufruf | die ganze Op-Hülle: Frame-Grenzen (32/1024), `slot_aus` ohne Zurechtbiegen, `sitzungs_id_aus`, `frames_aus`, Fehler über `protokollfehler` statt nacktem `anyhow` |
+| `remote_input/zeigerform.rs` | ~500 von 628 Z. | die Buchführung: `Merker`, beide Zähler, `MAX_BEKANNT` samt Überlaufregel, `meldung_faellig`, `bild_vollstaendig`, `bekannt_aufnehmen`, `bildfeld` — plus der Prüfstein gegen `zeigerbild-formen.json` |
+| `remote_input/wache.rs` | ~100 von 376 Z. | `VORRANG_FRIST_MS`, `WECKER_MS`, `frist_ms` mit `PULSE_FERN_VORRANG_MS` und den Klemmgrenzen (eine projektweite Zusage), `rest_ms`, der Wecker samt Laufnummer |
+| `remote_input/ziel.rs` | ~80 von 372 Z. | `SLOT_MAX = 98`, `traegt_slot`, der Ablauf von `bindung_fuer_slot` samt „Aufnahme hat ihr Ziel noch nicht gemeldet" |
+| `capture/cursorsteuerung.rs` | ~90 Z., **eine** WinRT-Zeile | `basis_sichtbar` („nie über den Ausgangszustand hinaus"), der Zustandsfilter, die asymmetrische Fehlerbehandlung |
+
+Vier Funktionen in `zeigerform.rs` sind echt Windows (`abbildung`, `ermitteln`,
+`zu_name` und zwei Tests). Der Rest ist Format- und Zustandsführung.
+
+**Und die Begründung stand genau falsch herum.** Der Bild-Weg, mit dem dieser
+Abschnitt die Trennung rechtfertigte („Windows benennt, der Mac schickt
+Bilder"), ist der **plattformfreie** Teil — und ausgerechnet der, in dem am
+2026-08-17 der Fehler saß, der durch beide Testnetze rutschte, weil Sender und
+Empfänger aus getrennten Vorstellungen geschrieben waren.
+
+**Folge:** Vor dem mac-Sidecar kommt eine **Etappe 1b**, die diese fünf Stücke
+nachzieht. Ohne sie schriebe der Mac rund 560 Zeilen ein zweites Mal, darunter
+mindestens fünf Stellen, an denen schon einmal ein Fehler saß und deren
+Begründung nur als Kommentar an der Windows-Fassung hängt. Das ist dieselbe
+Doppelung, gegen die dieser ganze Plan angetreten ist — nur eine Ebene höher.
 
 ### 3.3 Verhalten bleibt gleich
 
@@ -316,19 +368,28 @@ Entwurfs. Sie gehören vor die Umsetzung, nicht in sie hinein.
 
 ## 9.1 Reihenfolge
 
-Fünf Etappen, jede für sich prüfbar und für sich zu landen:
+Sechs Etappen, jede für sich prüfbar und für sich zu landen:
 
 1. **Messungen** (§9) — ändern den Entwurf, bevor Code entsteht.
 2. **Gemeinsame Kiste** — anlegen, Windows und Player umstellen, Tests laufen
    hier, Windows-Bau über CI. Ohne jede Verhaltensänderung (§3.3).
+   *(erledigt 2026-08-23, Plan
+   `docs/superpowers/plans/2026-08-22-fernsteuerung-macos-1-gemeinsame-kiste.md`)*
+2b. **Der zweite Schnitt** (§3.2.1) — die rund 560 Zeilen plattformfreier
+   Logik nachziehen, die in Windows liegen geblieben sind. **Vor** dem
+   mac-Sidecar, sonst entstehen sie ein zweites Mal.
 3. **Eingabe und Wache auf dem Mac** — ab hier läuft die Ad-hoc-Übernahme im
    Kanal, gemessen gegen das Prüfziel.
 4. **Der Zeiger** — Echo, Form als Bild, Rückfall samt neuem Signal.
 5. **Renderer** — Fähigkeit statt Plattform, Standplatz-Gerät,
    Berechtigungs-Ablauf, Changelog.
 
-Etappe 2 ist die einzige, die Windows berührt, und sie ändert dort nichts am
-Verhalten. Bricht später etwas auf Windows, ist die Ursache damit eingegrenzt.
+Etappe 2 und 2b sind die einzigen, die Windows berühren, und beide ändern dort
+nichts am Verhalten. Bricht später etwas auf Windows, ist die Ursache damit
+eingegrenzt — **deshalb gehören sie in getrennte Zweige mit je einem eigenen
+CI-Lauf.** Der Windows-Sidecar lässt sich auf der Entwicklungsmaschine nicht
+übersetzen; zwei ungeprüfte Umbauten übereinander machen den ersten Bruch
+teuer zu finden.
 
 ## 10. Abnahme
 
