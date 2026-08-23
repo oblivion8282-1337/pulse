@@ -58,6 +58,18 @@ use super::tasten;
 /// Feld, das unveraendert bis zum Mithoerer durchlaeuft. Der Wert ist derselbe
 /// wie dort („PULS" in ASCII); es geht nicht um Geheimhaltung, sondern darum,
 /// die eigene Spur wiederzuerkennen.
+///
+/// **Gemessen 2026-08-23**, nicht angenommen: 13 von 13 injizierten Ereignissen
+/// tragen die Marke noch an `kCGSessionEventTap`, also **hinter** dem
+/// WindowServer, wo die Wache sitzt — auch die beiden Arten, die macOS selbst
+/// umformt (`FlagsChanged` aus einem Tastencode, `*Dragged` aus einer Bewegung
+/// bei gedruecktem Knopf). Zahlen: `docs/plans/2026-08-23-macos-eingabe-messungen.md`,
+/// Nachtrag 6.
+///
+/// Die Messung an `kCGHIDEventTapLocation` — der Stelle, auf die injiziert wird
+/// — sagt darueber **nichts**: dort sieht der Mithoerer das Ereignis, bevor der
+/// WindowServer es angefasst hat. Wer den Stempel so prueft, misst ihn gegen
+/// sich selbst.
 pub const PULSE_MARKE: i64 = 0x5055_4C53;
 
 /// Der macOS-Injektor.

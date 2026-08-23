@@ -323,6 +323,59 @@ Zeichenbereich ist eindeutig.
 * **Ob der Doppelklick-Abstand (500 ms) passt.** Die Nutzereinstellung wird nicht
   ausgelesen (bräuchte AppKit); ob jemand die feste Frist als zu träge oder zu
   hastig empfindet, sagt keine Messung.
-* **Der Stempel `kCGEventSourceUserData`.** Er wird gesetzt, aber erst die Wache
-  aus Aufgabe 5 kann ihn wieder lesen — bis dahin ist unbelegt, dass er den Weg
-  durch den WindowServer übersteht.
+* **Der rechte Mausknopf.** Nachtrag 6 fuhr Knopf 0 (links) und Knopf 3
+  (Seitenknopf), nicht Knopf 1. Er läuft durch denselben Zweig; belegt ist er
+  nicht.
+
+---
+
+## Nachtrag 6 — überlebt der Stempel den WindowServer? (Vorarbeit zu Aufgabe 5)
+
+Die Offen-Liste oben führte den Stempel als unbelegt: gesetzt wird er, aber ob
+`kCGEventSourceUserData` unverändert bis zu einem Mithörer durchläuft, konnte
+Aufgabe 4 nicht zeigen. **Daran hängt die Wache aus Aufgabe 5** — erkennt sie
+die eigene Spur nicht wieder, hält sie die Fremdeingabe für den Host, löst den
+Vorrang aus und sperrt den Steuernden mit seiner ersten Mausbewegung dauerhaft
+aus.
+
+**Aufbau:** `examples/pruef_stempel.rs` (Wegwerf-Prüfling) injiziert über den
+echten `MacInjektor` alle Ereignisarten und liest sie an **zwei** hörenden
+Abgriffen (`CGEventTapCreate`, ListenOnly) zurück.
+
+**Und der zweite Abgriff ist der ganze Punkt.** Injiziert wird auf
+`kCGHIDEventTapLocation`. Ein Abgriff an *derselben* Stelle sieht das Ereignis,
+**bevor** der WindowServer es angefasst hat — er beantwortet die gestellte
+Frage also gar nicht. Die erste Fassung des Prüflings hing genau dort und sah
+13 von 13 Marken; das sah nach einem Beleg aus und war keiner. Die Wache soll
+laut Plan auf `kCGSessionEventTap` sitzen, also **dahinter**. Gemessen wurde
+deshalb an beiden Stellen gleichzeitig, im selben Lauf.
+
+**Ergebnis:**
+
+| Ereignis (CGEventType) | HID (davor) | Session (dahinter) |
+|---|---|---|
+| LeftMouseDown/Up (1, 2) | 2/2 mit Marke | **2/2 mit Marke** |
+| MouseMoved (5) | 1/1 | **1/1** |
+| LeftMouseDragged (6) | 1/1 | **1/1** |
+| KeyDown/Up (10, 11) | 2/2 | **2/2** |
+| FlagsChanged (12) | 2/2 | **2/2** |
+| ScrollWheel (22) | 1/1 | **1/1** |
+| OtherMouseDown/Up (25, 26) | 2/2 | **2/2** |
+| OtherMouseDragged (27) | 1/1 | **1/1** |
+
+**Befund: der Stempel übersteht den WindowServer.** 13 von 13 injizierten
+Ereignissen tragen `PULSE_MARKE` auch an der Session-Position — einschliesslich
+der beiden Arten, die macOS selbst umformt (`FlagsChanged` aus einem
+Tastencode, `*Dragged` aus einer Bewegung bei gedrücktem Knopf).
+
+Das einzige markenlose Ereignis ist ein `NullEvent` (Typ 0), das an **beiden**
+Stellen gleich auftaucht — Fremdrauschen, keine verlorene Marke.
+
+**Folge für Aufgabe 5:** Die Erkennung `kCGEventSourceUserData == PULSE_MARKE`
+trägt an der vorgesehenen Stelle. Kein Ausweichen auf einen zweiten Merkmalsweg
+nötig.
+
+**Eine Falle für spätere Prüflinge:** wer eigene Injektion mit einem Abgriff an
+der Injektionsstelle prüft, misst den Stempel gegen sich selbst. Die Stelle des
+Mithörers muss die des echten Verbrauchers sein, sonst ist ein grünes Ergebnis
+wertlos.
