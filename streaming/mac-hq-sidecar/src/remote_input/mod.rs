@@ -12,8 +12,16 @@
 //! [`klickzaehler`] (der wievielte Klick) sind rein und stehen in Unit-Tests;
 //! [`injektion`] feuert ab und laesst sich nur an einem echten Ziel abnehmen —
 //! dafuer gibt es den Pruefling `examples/probe_injektor/`.
+//!
+//! [`wache`] steht auf derselben Seite wie [`injektion`]: sie haengt an einem
+//! systemweiten Ereignis-Abgriff und stellt im Testbau keinen auf. Was an ihr
+//! rein ist — die Bewegungsschwelle, die Fristrechnung — liegt schon in
+//! `pulse-fernsteuerung` und wird dort geprueft; ihre Wirkung am echten System
+//! belegt `examples/probe_wache.rs` (samt Gegenprobe, denn eine Wache, die
+//! nichts sieht, ist ebenso still wie eine, die richtig filtert).
 
 pub mod abbildung;
 pub mod injektion;
 pub mod klickzaehler;
 pub mod tasten;
+pub mod wache;

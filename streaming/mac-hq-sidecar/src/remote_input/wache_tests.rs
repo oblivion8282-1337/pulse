@@ -1,0 +1,143 @@
+//! Die Tests der Wache.
+//!
+//! **Was sie NICHT erreichen, und das ist der Grund fuer `examples/probe_wache.rs`:**
+//! der Testbau stellt keinen systemweiten Ereignis-Abgriff auf — er liefe auf
+//! der Maschine des Entwicklers. Der Weg, an dem die Zusage haengt (Abgriff
+//! aufstellen, Marke lesen, Schwelle anwenden), ist von hier aus unerreichbar.
+//! Hier stehen die duennen Weiterleitungen, die Reihenfolge in `starten` und
+//! die Startverweigerung; die Wirkung am echten System belegt der Pruefling.
+
+use super::*;
+use std::sync::atomic::AtomicUsize;
+
+/// Die Tests fassen dieselben Statics an — nacheinander, nicht nebeneinander.
+static REIHUM: Mutex<()> = Mutex::new(());
+
+fn stumm() -> MacWache {
+    MacWache::neu(|| {})
+}
+
+/// Ohne Regung gibt es keinen Vorrang — und die Frist ist eine echte Zahl.
+///
+/// Die Bewegungsschwelle selbst (`bewegung::zaehlt`) samt ihren Tests steht
+/// in `pulse_fernsteuerung::bewegung`, die Frist-Rechnung in
+/// `pulse_fernsteuerung::frist`. Hier bleibt der Nachweis, dass die duennen
+/// Weiterleitungen die richtigen Werte durchreichen.
+#[test]
+fn ohne_regung_kein_vorrang() {
+    let _reihum = REIHUM.lock().unwrap_or_else(|e| e.into_inner());
+    LETZTE_REGUNG_MS.store(0, Ordering::Relaxed);
+    let w = stumm();
+    assert_eq!(w.rest_ms(), 0);
+    assert!(!w.host_regt_sich());
+    assert!(frist::frist_ms() >= 100);
+}
+
+/// Eine Regung setzt den Vorrang, und er laeuft von selbst wieder ab.
+#[test]
+fn regung_setzt_vorrang() {
+    let _reihum = REIHUM.lock().unwrap_or_else(|e| e.into_inner());
+    let w = stumm();
+    vermerken();
+    assert!(w.host_regt_sich());
+    assert!(w.rest_ms() > 0);
+    LETZTE_REGUNG_MS.store(0, Ordering::Relaxed);
+    assert!(!w.host_regt_sich());
+}
+
+/// **Der Weg, an dem die Startverweigerung haengt** (Plan, Aufgabe 5,
+/// Schritt 5): laesst sich der Abgriff nicht aufstellen, kommt der Fehler
+/// bis zum Aufrufer durch — und die Wache gilt danach **nicht** als
+/// stehend. Meldete sie faelschlich Erfolg, bekaeme der Host eine Sitzung
+/// ohne Vorrang, also genau das still Schwaechere, das die Startverweigerung
+/// verhindern soll.
+#[test]
+fn scheiternder_abgriff_verweigert_den_start() {
+    let _reihum = REIHUM.lock().unwrap_or_else(|e| e.into_inner());
+    stoppen();
+    TEST_SCHEITERT.store(true, Ordering::SeqCst);
+    let w = stumm();
+    let ergebnis = w.starten();
+    TEST_SCHEITERT.store(false, Ordering::SeqCst);
+    assert!(ergebnis.is_err(), "der Fehler muss durchgereicht werden");
+    assert!(
+        !*LAUFEND.lock().unwrap_or_else(|e| e.into_inner()),
+        "nach einem gescheiterten Start darf die Wache nicht als stehend gelten"
+    );
+}
+
+/// Zweimal starten ist einmal starten — der Handschlag ruft es bei jedem
+/// Hello.
+#[test]
+fn starten_ist_idempotent() {
+    let _reihum = REIHUM.lock().unwrap_or_else(|e| e.into_inner());
+    stoppen();
+    let w = stumm();
+    assert!(w.starten().is_ok());
+    assert!(w.starten().is_ok());
+    w.stoppen();
+    w.stoppen();
+}
+
+/// **Ein laufender Vorrang ueberlebt ein zweites Hello.** Nur ein
+/// Neu-Aufstellen nullt den Zaehler; das zweite `starten` steigt vorher aus.
+/// Ohne diese Reihenfolge loeschte ein Transportwechsel den Vorrang,
+/// waehrend der Host tippt.
+#[test]
+fn zweites_starten_loescht_keinen_laufenden_vorrang() {
+    let _reihum = REIHUM.lock().unwrap_or_else(|e| e.into_inner());
+    stoppen();
+    let w = stumm();
+    w.starten().unwrap();
+    vermerken();
+    w.starten().unwrap();
+    assert!(w.host_regt_sich(), "das zweite Hello darf den Vorrang nicht loeschen");
+    w.stoppen();
+}
+
+/// Das Aufstellen selbst nullt dagegen — sonst begaenne eine neue Sitzung
+/// mit einem Vorrang, den niemand ausgeloest hat (Nachzuegler des alten
+/// Abgriffs, den [`stoppen`] bewusst nicht abwartet).
+#[test]
+fn aufstellen_nullt_die_letzte_regung() {
+    let _reihum = REIHUM.lock().unwrap_or_else(|e| e.into_inner());
+    stoppen();
+    vermerken();
+    let w = stumm();
+    w.starten().unwrap();
+    assert!(!w.host_regt_sich(), "eine neue Wache beginnt ohne Vorrang");
+    w.stoppen();
+}
+
+/// Der Takt ist Vertragspflicht des Traits: ohne ihn endet ein Vorrang nie
+/// von selbst. Der Wecker laeuft nur im Nicht-Testbau — hier wird belegt,
+/// dass der Rueckruf ueberhaupt bis zur Wache durchgereicht wird.
+#[test]
+fn der_takt_wird_durchgereicht() {
+    static GERUFEN: AtomicUsize = AtomicUsize::new(0);
+    let w = MacWache::neu(|| {
+        GERUFEN.fetch_add(1, Ordering::SeqCst);
+    });
+    (w.tick)();
+    assert_eq!(GERUFEN.load(Ordering::SeqCst), 1);
+}
+
+/// Die Maske deckt genau die Arten ab, die der Modulkopf nennt — und
+/// **nicht** die Abschalt-Meldungen: die kommen unabhaengig davon, und ein
+/// Bit dafuer waere ein Hinweis, dass jemand sie fuer maskierbar haelt.
+#[test]
+fn maske_deckt_die_beobachteten_arten() {
+    let m = maske();
+    for t in [
+        CGEventType::MouseMoved,
+        CGEventType::LeftMouseDown,
+        CGEventType::RightMouseUp,
+        CGEventType::OtherMouseDragged,
+        CGEventType::KeyDown,
+        CGEventType::FlagsChanged,
+        CGEventType::ScrollWheel,
+    ] {
+        assert!(m & (1u64 << t.0) != 0, "{t:?} fehlt in der Maske");
+    }
+    assert_eq!(m & (1u64 << CGEventType::Null.0), 0, "Null gehoert nicht in die Maske");
+}
