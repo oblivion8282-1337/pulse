@@ -58,6 +58,8 @@ struct Kette {
     anker: (i32, i32),
     /// Der Zeitpunkt des **letzten** Klicks der Kette.
     zuletzt_ms: u64,
+    /// Der Knopf, der diese Kette begonnen hat.
+    knopf: u8,
     stand: i64,
 }
 
@@ -69,9 +71,23 @@ impl Klickzaehler {
     /// `jetzt_ms` muss aus einer **monotonen** Uhr kommen: liefe die Zeit
     /// rueckwaerts, saehe die Differenz unten null Millisekunden und die Kette
     /// zaehlte weiter, statt neu zu beginnen.
-    pub fn zaehle(&mut self, punkt: (i32, i32), jetzt_ms: u64) -> i64 {
+    ///
+    /// **Ein Knopfwechsel bricht die Kette**, unabhaengig von Frist und Ort:
+    /// Links, rechts, links binnen 500 ms am selben Ort darf den zweiten
+    /// Linksklick nicht zum Doppelklick machen. Ob macOS je Knopf getrennt
+    /// zaehlt oder ebenfalls abbricht, ist nicht gemessen; abbrechen ist die
+    /// vorsichtigere von beiden Auslegungen — ein zu viel gezaehlter Klick
+    /// oeffnet eine Datei, die niemand oeffnen wollte, ein zu wenig gezaehlter
+    /// kostet einen Doppelklick in einer Reihenfolge, die kaum jemand tippt.
+    /// **Bis 2026-08-24 stand diese Entscheidung in `injektion.rs`**, hinter
+    /// `CGEventPost` und damit ausserhalb jedes Unit-Tests (Mutationstest der
+    /// Pruefung vom 2026-08-23, Befund 1) — hierher gehoert sie, weil sie
+    /// reine Rechnung ist wie alles andere in dieser Datei.
+    pub fn zaehle(&mut self, punkt: (i32, i32), jetzt_ms: u64, knopf: u8) -> i64 {
         let fortsetzung = self.kette.as_ref().is_some_and(|k| {
-            jetzt_ms.saturating_sub(k.zuletzt_ms) <= FRIST_MS && nah(k.anker, punkt)
+            k.knopf == knopf
+                && jetzt_ms.saturating_sub(k.zuletzt_ms) <= FRIST_MS
+                && nah(k.anker, punkt)
         });
         match &mut self.kette {
             Some(kette) if fortsetzung => {
@@ -80,7 +96,7 @@ impl Klickzaehler {
                 kette.stand
             }
             platz => {
-                *platz = Some(Kette { anker: punkt, zuletzt_ms: jetzt_ms, stand: 1 });
+                *platz = Some(Kette { anker: punkt, zuletzt_ms: jetzt_ms, knopf, stand: 1 });
                 1
             }
         }
@@ -88,13 +104,10 @@ impl Klickzaehler {
 
     /// Die laufende Kette verwerfen — der naechste Klick beginnt wieder bei 1.
     ///
-    /// **Wofuer:** ein Wechsel des Knopfes. Links, rechts, links binnen 500 ms
-    /// am selben Ort darf den zweiten Linksklick nicht zum Doppelklick machen.
-    /// Ob macOS je Knopf getrennt zaehlt oder ebenfalls abbricht, ist hier nicht
-    /// gemessen; abbrechen ist die vorsichtigere von beiden Auslegungen — ein zu
-    /// viel gezaehlter Klick oeffnet eine Datei, die niemand oeffnen wollte, ein
-    /// zu wenig gezaehlter kostet einen Doppelklick in einer Reihenfolge, die
-    /// kaum jemand tippt.
+    /// Ein Knopfwechsel bricht die Kette bereits von selbst (s.
+    /// [`Self::zaehle`]) — das hier ist der manuelle Weg fuer alles andere,
+    /// wofuer eine Kette absichtlich verworfen werden soll, ohne auf Frist,
+    /// Ort oder Knopf zu warten.
     pub fn kette_brechen(&mut self) {
         self.kette = None;
     }
@@ -111,18 +124,20 @@ mod tests {
     use super::*;
 
     const ORT: (i32, i32) = (400, 300);
+    const LINKS: u8 = 0;
+    const RECHTS: u8 = 1;
 
     #[test]
     fn der_erste_klick_ist_einer() {
         let mut z = Klickzaehler::default();
-        assert_eq!(z.zaehle(ORT, 1_000), 1);
+        assert_eq!(z.zaehle(ORT, 1_000, LINKS), 1);
     }
 
     #[test]
     fn zwei_schnelle_am_selben_ort_sind_zwei() {
         let mut z = Klickzaehler::default();
-        assert_eq!(z.zaehle(ORT, 1_000), 1);
-        assert_eq!(z.zaehle(ORT, 1_080), 2);
+        assert_eq!(z.zaehle(ORT, 1_000, LINKS), 1);
+        assert_eq!(z.zaehle(ORT, 1_080, LINKS), 2);
     }
 
     /// Die Frist ist die Grenze, nicht ihre Umgebung: genau darauf zaehlt es
@@ -131,12 +146,16 @@ mod tests {
     #[test]
     fn nach_der_frist_beginnt_es_von_vorn() {
         let mut z = Klickzaehler::default();
-        assert_eq!(z.zaehle(ORT, 1_000), 1);
-        assert_eq!(z.zaehle(ORT, 1_000 + FRIST_MS), 2, "genau auf der Frist zaehlt noch");
+        assert_eq!(z.zaehle(ORT, 1_000, LINKS), 1);
+        assert_eq!(z.zaehle(ORT, 1_000 + FRIST_MS, LINKS), 2, "genau auf der Frist zaehlt noch");
 
         let mut z = Klickzaehler::default();
-        assert_eq!(z.zaehle(ORT, 1_000), 1);
-        assert_eq!(z.zaehle(ORT, 1_001 + FRIST_MS), 1, "eine Millisekunde darueber nicht mehr");
+        assert_eq!(z.zaehle(ORT, 1_000, LINKS), 1);
+        assert_eq!(
+            z.zaehle(ORT, 1_001 + FRIST_MS, LINKS),
+            1,
+            "eine Millisekunde darueber nicht mehr"
+        );
     }
 
     /// Der Fall, den ein Zeitfenster allein nicht traegt: schnell, aber
@@ -147,16 +166,24 @@ mod tests {
     #[test]
     fn schnell_aber_weit_weg_ist_wieder_einer() {
         let mut z = Klickzaehler::default();
-        assert_eq!(z.zaehle(ORT, 1_000), 1);
-        assert_eq!(z.zaehle((ORT.0 + 200, ORT.1), 1_080), 1, "quer ueber den Schirm");
+        assert_eq!(z.zaehle(ORT, 1_000, LINKS), 1);
+        assert_eq!(z.zaehle((ORT.0 + 200, ORT.1), 1_080, LINKS), 1, "quer ueber den Schirm");
 
         let mut z = Klickzaehler::default();
-        assert_eq!(z.zaehle(ORT, 1_000), 1);
-        assert_eq!(z.zaehle((ORT.0, ORT.1 + RADIUS), 1_080), 2, "genau auf dem Rand zaehlt noch");
+        assert_eq!(z.zaehle(ORT, 1_000, LINKS), 1);
+        assert_eq!(
+            z.zaehle((ORT.0, ORT.1 + RADIUS), 1_080, LINKS),
+            2,
+            "genau auf dem Rand zaehlt noch"
+        );
 
         let mut z = Klickzaehler::default();
-        assert_eq!(z.zaehle(ORT, 1_000), 1);
-        assert_eq!(z.zaehle((ORT.0, ORT.1 + RADIUS + 1), 1_080), 1, "einen Punkt weiter nicht");
+        assert_eq!(z.zaehle(ORT, 1_000, LINKS), 1);
+        assert_eq!(
+            z.zaehle((ORT.0, ORT.1 + RADIUS + 1), 1_080, LINKS),
+            1,
+            "einen Punkt weiter nicht"
+        );
     }
 
     /// Und die Kette bricht nicht bei zwei ab — Dreifachklick markiert auf
@@ -164,9 +191,9 @@ mod tests {
     #[test]
     fn drei_schnelle_sind_drei() {
         let mut z = Klickzaehler::default();
-        assert_eq!(z.zaehle(ORT, 1_000), 1);
-        assert_eq!(z.zaehle(ORT, 1_080), 2);
-        assert_eq!(z.zaehle(ORT, 1_160), 3);
+        assert_eq!(z.zaehle(ORT, 1_000, LINKS), 1);
+        assert_eq!(z.zaehle(ORT, 1_080, LINKS), 2);
+        assert_eq!(z.zaehle(ORT, 1_160, LINKS), 3);
     }
 
     /// Die Frist misst ab dem VORIGEN Klick, nicht ab dem Beginn der Kette:
@@ -175,9 +202,9 @@ mod tests {
     #[test]
     fn die_frist_misst_ab_dem_vorigen_klick() {
         let mut z = Klickzaehler::default();
-        assert_eq!(z.zaehle(ORT, 0), 1);
-        assert_eq!(z.zaehle(ORT, 400), 2);
-        assert_eq!(z.zaehle(ORT, 800), 3);
+        assert_eq!(z.zaehle(ORT, 0, LINKS), 1);
+        assert_eq!(z.zaehle(ORT, 400, LINKS), 2);
+        assert_eq!(z.zaehle(ORT, 800, LINKS), 3);
     }
 
     /// Das Orts-Fenster misst dagegen ab dem BEGINN der Kette: sonst wanderte
@@ -185,9 +212,13 @@ mod tests {
     #[test]
     fn das_orts_fenster_misst_ab_dem_beginn_der_kette() {
         let mut z = Klickzaehler::default();
-        assert_eq!(z.zaehle((0, 0), 0), 1);
-        assert_eq!(z.zaehle((RADIUS, 0), 80), 2, "noch im Fenster um den Beginn");
-        assert_eq!(z.zaehle((2 * RADIUS, 0), 160), 1, "vom Beginn aus zu weit — neue Kette");
+        assert_eq!(z.zaehle((0, 0), 0, LINKS), 1);
+        assert_eq!(z.zaehle((RADIUS, 0), 80, LINKS), 2, "noch im Fenster um den Beginn");
+        assert_eq!(
+            z.zaehle((2 * RADIUS, 0), 160, LINKS),
+            1,
+            "vom Beginn aus zu weit — neue Kette"
+        );
     }
 
     /// Nach einem Kettenbruch beginnt der naechste Klick wieder bei eins, auch
@@ -195,8 +226,22 @@ mod tests {
     #[test]
     fn kette_brechen_beginnt_von_vorn() {
         let mut z = Klickzaehler::default();
-        assert_eq!(z.zaehle(ORT, 1_000), 1);
+        assert_eq!(z.zaehle(ORT, 1_000, LINKS), 1);
         z.kette_brechen();
-        assert_eq!(z.zaehle(ORT, 1_010), 1);
+        assert_eq!(z.zaehle(ORT, 1_010, LINKS), 1);
+    }
+
+    /// **Befund 1 der Pruefung vom 2026-08-23.** Ein Linksklick, dann ein
+    /// Rechtsklick am selben Ort und innerhalb der Frist: der Rechtsklick ist
+    /// Klick 1, nicht Klick 2 — sonst zaehlte „links, dann rechts" als
+    /// Doppelklick, obwohl an keiner Maus je zwei gleiche Knoepfe hintereinander
+    /// niedergehen. Diese Entscheidung sass bis dahin hinter `CGEventPost` in
+    /// `injektion.rs`, unerreichbar fuer einen Unit-Test; die Mutationsprobe
+    /// (Kettenbruch beim Knopfwechsel entfernt) macht genau diesen Test rot.
+    #[test]
+    fn knopfwechsel_bricht_die_kette() {
+        let mut z = Klickzaehler::default();
+        assert_eq!(z.zaehle(ORT, 1_000, LINKS), 1, "Linksklick");
+        assert_eq!(z.zaehle(ORT, 1_080, RECHTS), 1, "Rechtsklick ist Klick 1, nicht 2");
     }
 }

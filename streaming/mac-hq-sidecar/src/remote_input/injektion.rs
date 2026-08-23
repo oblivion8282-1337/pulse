@@ -106,8 +106,6 @@ struct Zustand {
     /// sein Runter-Ereignis — so machen es echte Maeuse, und ein Programm, das
     /// den Doppelklick erst beim Loslassen auswertet, saehe sonst eine 1.
     stand: [i64; 5],
-    /// Welcher Knopf zuletzt gedrueckt wurde (fuer den Kettenbruch).
-    letzter_knopf: Option<u8>,
     /// Monotone Zeitbasis fuer den Klickzaehler.
     beginn: Instant,
 }
@@ -135,7 +133,6 @@ impl MacInjektor {
                 flags: CGEventFlags::empty(),
                 klick: Klickzaehler::default(),
                 stand: [1; 5],
-                letzter_knopf: None,
                 beginn: Instant::now(),
             }),
         })
@@ -168,19 +165,14 @@ impl Zustand {
 
     /// Der Klickstand, den dieses Knopf-Ereignis tragen soll. Warum ein
     /// Hoch-Ereignis denselben bekommt wie sein Runter-Ereignis, steht am Feld
-    /// `stand`; warum ueberhaupt selbst gezaehlt wird, in
-    /// [`super::klickzaehler`].
+    /// `stand`; warum ueberhaupt selbst gezaehlt wird — und warum ein
+    /// Knopfwechsel die Kette bricht —, in [`super::klickzaehler`].
     fn klickstand(&mut self, btn: u8, ort: CGPoint, down: bool) -> i64 {
         if !down {
             return self.stand[btn as usize];
         }
-        // Knopfwechsel bricht die Kette (s. `Klickzaehler::kette_brechen`).
-        if self.letzter_knopf != Some(btn) {
-            self.klick.kette_brechen();
-        }
-        self.letzter_knopf = Some(btn);
         let jetzt = self.jetzt_ms();
-        let stand = self.klick.zaehle((ort.x as i32, ort.y as i32), jetzt);
+        let stand = self.klick.zaehle((ort.x as i32, ort.y as i32), jetzt, btn);
         self.stand[btn as usize] = stand;
         stand
     }
@@ -207,6 +199,23 @@ impl Injektor for MacInjektor {
         z.zeiger = Some(ort);
         z.flags = flags;
         if let Some(e) = CGEvent::new_mouse_event(Some(&z.quelle), typ, ort, knopf) {
+            // Ein Zieh-Ereignis traegt den Klickstand seines ausloesenden
+            // Runter-Ereignisses — echte macOS-Zieh-Ereignisse machen das
+            // genauso (Befund 3 der Pruefung vom 2026-08-23). Ohne das faellt
+            // Doppelklick-und-Ziehen (ein Wort markieren und verschieben) auf
+            // zeichenweise zurueck, obwohl der Stand schon im Zustand liegt —
+            // `knoepfe_unten().first()` ist dieselbe „kleinster Knopf
+            // entscheidet"-Regel wie in `bewegungs_typ`, hier nur zur
+            // Kennzahl statt zum Ereignistyp gewendet. Keine Bewegung ohne
+            // gedrueckten Knopf (`MouseMoved`) heisst `None` — dafuer gibt es
+            // keinen Klickstand zu tragen.
+            if let Some(&btn) = gedrueckt.knoepfe_unten().first() {
+                CGEvent::set_integer_value_field(
+                    Some(&e),
+                    CGEventField::MouseEventClickState,
+                    z.stand[btn as usize],
+                );
+            }
             z.abfeuern(&e, flags);
         }
     }

@@ -318,6 +318,12 @@ Zeichenbereich ist eindeutig.
 
 * **Waagerechtes Rollen.** `wheel2` ist symmetrisch zum senkrechten gebaut, aber
   die Richtung ist ungemessen — TextEdit im Umbruchmodus rollt nicht waagerecht.
+  **Kein neutrales „ungemessen": ein begründeter Verdacht auf Vorzeichenumkehr**
+  (Befund 4 der Prüfung vom 2026-08-23, nachgetragen 2026-08-24). macOS'
+  `wheel2`-Vorzeichen und Windows' `WM_MOUSEHWHEEL` zeigen in jeder
+  Werkzeugkiste, die zwischen beiden abbildet, in entgegengesetzte Richtungen —
+  Qt und Chromium kehren `deltaX` auf macOS eigens um. Wer das misst, sucht
+  zuerst nach einer Vorzeichenumkehr, nicht nach einer beliebigen Abweichung.
 * **Cmd+Tab, Mission Control, sichere Eingabefelder.** Als Grenzen im Modulkopf
   von `injektion.rs` dokumentiert, nicht nachgestellt.
 * **Ob der Doppelklick-Abstand (500 ms) passt.** Die Nutzereinstellung wird nicht
