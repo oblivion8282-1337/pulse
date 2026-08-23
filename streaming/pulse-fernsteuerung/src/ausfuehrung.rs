@@ -141,8 +141,10 @@ pub(crate) fn einspielen(
             }
             // Reihenfolge bewusst so: der Injektor bekommt die Menge VOR
             // diesem Ereignis (s. `plattform::Injektor::taste`), genau wie
-            // bei `bewegen` unten. Ob das eigene Runter-Ereignis noch fehlt,
-            // ist ungemessen — s. Doc-Kommentar der Trait-Methode.
+            // bei `bewegen` unten. Dass das eigene Runter-Ereignis dabei fehlt,
+            // ist am 2026-08-23 gemessen worden und schadet nicht — Cmd+C wirkt
+            // auch dann. Begruendung samt Gegenprobe im Doc-Kommentar der
+            // Trait-Methode.
             injektor.taste(scan, down, &z.druck);
             z.druck.taste(scan, down);
         }

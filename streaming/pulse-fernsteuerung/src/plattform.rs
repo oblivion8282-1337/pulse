@@ -40,8 +40,17 @@ pub trait Injektor: Sync {
     ///
     /// `gedrueckt` sagt, welche Maustasten gerade unten sind. Windows braucht
     /// das nicht; **macOS schon**: eine Bewegung bei gedruecktem Knopf ist
-    /// dort ein eigener Ereignistyp (`LeftMouseDragged` statt `MouseMoved`),
-    /// und ohne diese Unterscheidung zieht in vielen Programmen nichts.
+    /// dort ein eigener Ereignistyp (`LeftMouseDragged` statt `MouseMoved`).
+    ///
+    /// **Wie weit das gemessen ist** (2026-08-23, Nachtrag 4 der Messakte): der
+    /// Unterschied ueberlebt die Leitung — an den Ereigniszaehlern des
+    /// HID-Systems abgelesen berichtigt der WindowServer den Typ **nicht**. Hier
+    /// stand bis dahin „ohne diese Unterscheidung zieht in vielen Programmen
+    /// nichts"; **belegt ist das nicht.** Die beiden geprueften Ziele
+    /// (Textauswahl in TextEdit, Fenster an der Titelleiste verschieben) zogen
+    /// auch mit `MouseMoved` mit. Die Aussage gilt fuer Programme, die streng
+    /// auf `NSEventMaskLeftMouseDragged` hoeren (Spiele, Qt, Chromium) — dafuer
+    /// fehlte ein Ziel. Der richtige Typ bleibt der richtige Typ.
     fn maus_setzen(&self, punkt: (i32, i32), gedrueckt: &Druck);
 
     /// Eine Maustaste. `btn` ist bereits gegen
@@ -68,12 +77,18 @@ pub trait Injektor: Sync {
     /// Scancodes — eine zweite Kopie dessen, was [`Druck`] schon weiss, die
     /// bei jedem Sitzungsende gesondert geraeumt werden muesste.
     ///
-    /// **Ungemessen:** ob ein Cmd-Runter-Ereignis seine EIGENE Kennzeichnung
-    /// tragen muss. `crate::ausfuehrung` ruft den Injektor vor dem eigenen
-    /// Nachtrag in [`Druck`] (wie bei [`Self::maus_setzen`]: der Injektor
-    /// sieht den Zustand VOR seiner eigenen Wirkung) — die Taste steht beim
-    /// eigenen Runter-Ereignis also noch nicht in `gedrueckt`. Eine spaetere
-    /// Messung entscheidet, ob das reicht.
+    /// **Gemessen am 2026-08-23** (Nachtrag 1 der Messakte): ein
+    /// Cmd-Runter-Ereignis muss seine EIGENE Kennzeichnung **nicht** tragen.
+    /// `crate::ausfuehrung` ruft den Injektor vor dem eigenen Nachtrag in
+    /// [`Druck`] (wie bei [`Self::maus_setzen`]: der Injektor sieht den Zustand
+    /// VOR seiner eigenen Wirkung) — die Taste steht beim eigenen
+    /// Runter-Ereignis also noch nicht in `gedrueckt`, und Cmd+C wirkte
+    /// trotzdem. Die Reihenfolge muss fuer macOS nicht gedreht werden.
+    ///
+    /// Die Kehrseite ist mitgemessen: das Cmd-**Hoch** traegt bei dieser
+    /// Reihenfolge noch `.maskCommand`, obwohl es das Ende meldet — Cmd bleibt
+    /// dadurch **nicht** haengen, die naechste gewoehnliche Taste kam als Text
+    /// an.
     fn taste(&self, scan: u16, down: bool, gedrueckt: &Druck);
 }
 
