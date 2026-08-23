@@ -242,3 +242,46 @@ fn ein_durchweg_durchsichtiges_bild_geht_nicht_hinaus() {
         "ein einziger deckender Punkt macht daraus einen Zeiger"
     );
 }
+
+/// **Derselbe Zeiger muss dieselbe Kennung ergeben** — sonst gibt es nie eine
+/// Kurzform.
+///
+/// Die Buchfuehrung ([`pulse_fernsteuerung::zeigerbuch`]) schickt das Bild nur
+/// beim ERSTEN Mal ganz; danach genuegt die Kennung, und ein Wechsel zwischen
+/// zwei Werkzeugzeigern kostet ein paar Byte statt zweier Bilder. Das haengt
+/// vollstaendig daran, dass die Kennung eine Eigenschaft der PUNKTE ist und
+/// nicht des Aufrufs.
+///
+/// **Warum das hier steht und nicht in der gemeinsamen Kiste.** Der Pruefstein
+/// `streaming/zeigerbild-formen.json` belegt, dass beide Auspraegungen richtig
+/// GEBAUT werden, und dieser Test liegt seit Etappe 1b in der Kiste — er gilt
+/// damit fuer jeden Sender. Was er nicht sehen kann, ist diese Seite: waere die
+/// Kennung hier unstabil, entstuende die Kurzform nie. Jede Meldung truege das
+/// volle Bild, der 5900-Byte-Trichter waere bei jedem Wecker belastet, und
+/// beide Seiten meldeten Erfolg. Kein Absturz, keine Meldung — nur zehnmal so
+/// viel auf der Leitung.
+///
+/// Die Gegenprobe gehoert dazu: ein VERAENDERTER Zeiger muss eine ANDERE
+/// Kennung bekommen. Eine Kennung, die sich nie aendert, bestuende die erste
+/// Haelfte und liesse den Steuernden dauerhaft den falschen Zeiger sehen.
+#[test]
+fn dieselben_punkte_ergeben_dieselbe_kennung() {
+    let roh = streifen([64, 64, 64, 128], 9 * 18);
+    let a = bild(9, 18, (4.0, 9.0), &roh, 9 * 4).expect("stimmiges Bild");
+    let b = bild(9, 18, (4.0, 9.0), &roh, 9 * 4).expect("stimmiges Bild");
+    assert_eq!(
+        a.kennung(),
+        b.kennung(),
+        "gleiche Punkte, verschiedene Kennung — die Kurzform entstuende nie"
+    );
+
+    // Gegenprobe: ein anderer Punkt, eine andere Kennung.
+    let mut anders = roh.clone();
+    anders[0] = 255;
+    let c = bild(9, 18, (4.0, 9.0), &anders, 9 * 4).expect("stimmiges Bild");
+    assert_ne!(
+        a.kennung(),
+        c.kennung(),
+        "verschiedene Punkte, gleiche Kennung — der Zeiger bliebe falsch"
+    );
+}
