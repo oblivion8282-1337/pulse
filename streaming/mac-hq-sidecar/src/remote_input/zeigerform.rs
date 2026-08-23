@@ -12,10 +12,15 @@
 //! `ns-resize`, …) und nur ausnahmsweise Pixel. Das ist der bessere Weg, wo er
 //! traegt: ein paar Byte, und gezeichnet wird der lokale Zeiger des Steuernden
 //! in dessen Groesse und Thema. Er traegt hier nicht. Gemessen (macOS 15.7.3,
-//! Entwurf §6.1): `NSCursor.arrow.image` und `NSCursor.iBeam.image` liefern
-//! Groesse (0,0) und gar kein Bild — **ausgerechnet die beiden haeufigsten
-//! Formen sind nicht wiedererkennbar**, und ein Vergleich gegen sie kann
-//! deshalb nichts entscheiden. Es gibt auf macOS auch keine Zeiger-Kennung, die
+//! Entwurf §6.1): **`+[NSCursor arrowCursor]` und `+[NSCursor IBeamCursor]`
+//! liefern selbst `nil`** — es kommt gar nicht erst bis zum Bild.
+//! **Ausgerechnet die beiden haeufigsten Formen sind damit nicht
+//! wiedererkennbar**, und ein Vergleich gegen sie kann nichts entscheiden;
+//! `pointingHandCursor` (32x32) und `crosshairCursor` (24x24) haben dagegen
+//! durchaus ein Bild. (Berichtigt am 2026-08-23 bei der Pruefung: hier stand
+//! „liefern Groesse (0,0) und gar kein Bild", was nicht reproduziert — der
+//! Schluss wird dadurch staerker, nicht schwaecher, aber wer die alte
+//! Beobachtung nachfuhr, sah etwas anderes.) Es gibt auf macOS auch keine Zeiger-Kennung, die
 //! man wie ein Windows-Handle vergleichen koennte; die private CGS-Schnittstelle
 //! haette eine, ist aber ausdruecklich verworfen (Entwurf §2.1, undokumentiert
 //! und braeche beim Nutzer statt beim Bau).
