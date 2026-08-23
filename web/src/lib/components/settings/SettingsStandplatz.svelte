@@ -32,6 +32,7 @@
 <script lang="ts">
   import MonitorCogIcon from '@lucide/svelte/icons/monitor-cog';
   import SettingsGeraeteEintragung from './SettingsGeraeteEintragung.svelte';
+  import SettingsStandplatzBerechtigung from './SettingsStandplatzBerechtigung.svelte';
   import SettingsStandplatzFreigabe from './SettingsStandplatzFreigabe.svelte';
   import SettingsStandplatzProfil from './SettingsStandplatzProfil.svelte';
   import SettingsStandplatzProtokoll from './SettingsStandplatzProtokoll.svelte';
@@ -50,7 +51,13 @@
   const desktop = isElectron();
   // Kann sich dieser Rechner ueberhaupt steuern lassen? Dieselbe Bedingung
   // wie beim Reiter-Gate und bei der Anmeldung (`darfStandplatzSein`).
-  const kannStandplatz = darfStandplatzSein();
+  //
+  // **`$derived`, nicht einmalig beim Einhaengen.** Die Faehigkeit kommt aus
+  // `health.gsr.remote_input` und trifft erst nach einem IPC-Umlauf ein — eine
+  // Momentaufnahme beim Einhaengen zeigte auf einem langsamen Start dauerhaft
+  // „geht nicht", obwohl es geht. Auf macOS ist der Wert ausserdem wechselhaft:
+  // eine zurueckgezogene Systemfreigabe muss hier ankommen.
+  const kannStandplatz = $derived(darfStandplatzSein());
 
   // Die Spanne für „befristet". Vorgabe acht Stunden — ein Arbeitstag, der
   // frühere Festwert; jetzt bloss der Startpunkt statt der einzigen Wahl.
@@ -147,6 +154,11 @@
     <p class="border-border text-text-muted rounded-2xl border border-dashed p-4 text-sm">
       {m.standplatz_settings_platform_only()}
     </p>
+    <!-- Der Grund, falls der Sidecar einen nennt. Heute tut das nur macOS, wo
+         zwei getrennte Systemfreigaben noetig sind und die zweite fast immer
+         fehlt, weil niemand sie erwartet. Ohne diesen Block bliebe es bei
+         „geht nicht" ohne Weg nach vorn. -->
+    <SettingsStandplatzBerechtigung />
     <SettingsGeraeteEintragung />
   {:else}
     <!-- Zustand -->
