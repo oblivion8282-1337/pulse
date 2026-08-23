@@ -39,20 +39,17 @@
 
 use std::sync::Mutex;
 
+use pulse_fernsteuerung::zeigerschalter::{Schalter, Wirkung};
 use windows::Graphics::Capture::GraphicsCaptureSession;
 
 struct Platz {
     session: GraphicsCaptureSession,
-    /// Zeigt der Stream den Cursor von Haus aus (`show_cursor` der
-    /// `start`-Anfrage)? Nur dann gibt es etwas zu verbergen — und „zeigen"
-    /// heißt immer nur: zurück auf diesen Ausgangszustand, nie darüber
-    /// hinaus. Wer ohne Cursor streamt, bekommt ihn durch eine Fernsteuerung
-    /// nicht untergeschoben.
-    basis_sichtbar: bool,
-    /// Ist der Cursor GERADE von uns verborgen? Hält die Property-Aufrufe
-    /// auf Zustandswechsel beschränkt — bei bis zu 125 Eingabe-Nachrichten je
-    /// Sekunde wäre ein WinRT-Aufruf pro Nachricht vermeidbare Arbeit.
-    verborgen: bool,
+    /// Die plattformfreie Zustandsführung — ob es überhaupt etwas zu
+    /// verbergen gibt, ob gerade verborgen ist, und die asymmetrische
+    /// Fehlerbehandlung (samt Begründung und Tests) in
+    /// `pulse_fernsteuerung::zeigerschalter`. Hier bleibt nur noch die eine
+    /// WinRT-Zeile.
+    schalter: Schalter,
 }
 
 static PLATZ: Mutex<Option<Platz>> = Mutex::new(None);
@@ -79,7 +76,7 @@ pub fn anmelden(session: GraphicsCaptureSession, basis_sichtbar: bool) {
         eprintln!("[cursor] IsCursorCaptureEnabled fehlt auf diesem Windows — Cursor-Echo aus");
         return;
     }
-    *sperre() = Some(Platz { session, basis_sichtbar, verborgen: false });
+    *sperre() = Some(Platz { session, schalter: Schalter::neu(basis_sichtbar) });
 }
 
 /// Die Aufnahme ist beendet — Platz räumen. Kein Wiederherstellen nötig: die
@@ -105,34 +102,25 @@ pub fn zeigen() {
 fn setzen(verbergen: bool) {
     let mut platz = sperre();
     let Some(p) = platz.as_mut() else { return };
-    if !p.basis_sichtbar || p.verborgen == verbergen {
-        return;
-    }
-    match p.session.SetIsCursorCaptureEnabled(!verbergen) {
+    // Ob es hier überhaupt etwas zu tun gibt (Ausgangszustand, Zustandswechsel-
+    // Filter) entscheidet der Schalter — die Begründung samt Tests steht in
+    // `pulse_fernsteuerung::zeigerschalter`.
+    let Wirkung::Umschalten(v) = p.schalter.setzen(verbergen) else { return };
+    match p.session.SetIsCursorCaptureEnabled(!v) {
         Ok(()) => {
-            p.verborgen = verbergen;
+            p.schalter.gelungen(v);
             eprintln!(
                 "[cursor] Host-Cursor {} (Fernsteuerung)",
-                if verbergen { "aus dem Stream genommen" } else { "wieder im Stream" }
+                if v { "aus dem Stream genommen" } else { "wieder im Stream" }
             );
         }
-        // Scheitert das VERBERGEN, wird der Platz GERÄUMT statt nur gemeldet:
-        // setzen() läuft je Eingabe-Nachricht — bis 125/s —, und ohne das
-        // Räumen wiederholte sich derselbe WinRT-Fehlschlag samt stderr-Zeile
-        // mit jeder Nachricht (der Zustandswechsel-Filter oben greift nur nach
-        // einem ERFOLG). Eine neue Aufnahme meldet ohnehin frisch an.
-        //
-        // Scheitert dagegen das ZEIGEN, während der Cursor verborgen ist,
-        // bleibt der Platz stehen (Bughunt R2): er ist die EINZIGE
-        // Möglichkeit, den Host-Cursor zurückzuholen — geräumt liefe jedes
-        // weitere zeigen() ins Leere, und alle Zuschauer verlören den Zeiger
-        // bis zum Stream-Ende. Eine Wiederholungsflut gibt es auf diesem Weg
-        // nicht: zeigen() läuft je Sitzungsende bzw. je relativem
-        // Bewegungswechsel, nicht je Nachricht (verbergen bleibt bei
-        // `verborgen == true` ein No-op, bis das Zeigen geglückt ist).
+        // Die asymmetrische Fehlerbehandlung (Scheitert das VERBERGEN, wird
+        // der Platz geräumt; scheitert das ZEIGEN, bleibt er stehen) sitzt in
+        // `Schalter::gescheitert` — hier bleibt nur noch, ihr Ergebnis
+        // umzusetzen: `true` heißt räumen.
         Err(e) => {
-            eprintln!("[cursor] SetIsCursorCaptureEnabled({}): {e}", !verbergen);
-            if verbergen {
+            eprintln!("[cursor] SetIsCursorCaptureEnabled({}): {e}", !v);
+            if p.schalter.gescheitert(v) {
                 eprintln!("[cursor] Cursor-Echo aus");
                 *platz = None;
             }
@@ -144,8 +132,12 @@ fn setzen(verbergen: bool) {
 mod tests {
     // Ohne echte WGC-Session lässt sich hier nur der Leerlauf prüfen: kein
     // Platz angemeldet → beide Richtungen sind stille No-ops und panicken
-    // nicht. Der Rest hängt an einer laufenden Aufnahme und gehört in den
-    // Zwei-Geräte-Test (docs/plans/2026-08-12-zwei-geraete-test-aufbau.md).
+    // nicht. Die drei eigentlichen Zusagen (nie über den Ausgangszustand
+    // hinaus, nur der Zustandswechsel löst aus, die asymmetrische
+    // Fehlerbehandlung) samt ihren Tests stehen jetzt in
+    // `pulse_fernsteuerung::zeigerschalter` — geprüft ohne jede WGC-Session.
+    // Was hier bleibt, hängt wirklich an einer laufenden Aufnahme und gehört
+    // in den Zwei-Geräte-Test (docs/plans/2026-08-12-zwei-geraete-test-aufbau.md).
     #[test]
     fn ohne_aufnahme_sind_beide_richtungen_no_ops() {
         super::abmelden();
