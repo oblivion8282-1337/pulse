@@ -87,7 +87,10 @@ const LABOR_MONITOR: &str = "PULSE_LABOR_EINGABE_MONITOR";
 
 /// Gilt ein Schalter als gesetzt? Wortgleich mit `win-hq-sidecar/src/env.rs` —
 /// alles ausser leer und `"0"` heisst an.
-fn schalter_an(name: &str) -> bool {
+///
+/// `pub(crate)`, weil neben dem Labor auch der Sendetakt danach fragt
+/// (`stream_controller`: A/B-Notausgang `PULSE_HQ_FERN_TICKRASTER`).
+pub(crate) fn schalter_an(name: &str) -> bool {
     std::env::var(name).ok().is_some_and(|v| !v.is_empty() && v != "0")
 }
 
