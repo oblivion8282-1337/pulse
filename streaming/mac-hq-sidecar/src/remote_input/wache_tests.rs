@@ -122,22 +122,118 @@ fn der_takt_wird_durchgereicht() {
     assert_eq!(GERUFEN.load(Ordering::SeqCst), 1);
 }
 
-/// Die Maske deckt genau die Arten ab, die der Modulkopf nennt — und
+/// Die Maske deckt **alle vierzehn** Arten ab, die der Modulkopf nennt — und
 /// **nicht** die Abschalt-Meldungen: die kommen unabhaengig davon, und ein
 /// Bit dafuer waere ein Hinweis, dass jemand sie fuer maskierbar haelt.
+///
+/// **Vorher standen hier sieben von vierzehn.** Das ist keine Kleinigkeit:
+/// fehlte `RightMouseDown`, saehe die Wache den rechtsklickenden Host nicht,
+/// fehlte `LeftMouseDragged`, nicht den ziehenden — beides Faelle, in denen der
+/// Host offensichtlich selbst arbeitet. Das *Entfernen* eines Eintrags faengt
+/// zufaellig der Compiler (`[CGEventType; 14]`), das *Ersetzen* durch ein
+/// Duplikat faengt nur diese Liste.
 #[test]
-fn maske_deckt_die_beobachteten_arten() {
+fn maske_deckt_alle_beobachteten_arten() {
     let m = maske();
+    let erwartet = [
+        CGEventType::LeftMouseDown,
+        CGEventType::LeftMouseUp,
+        CGEventType::RightMouseDown,
+        CGEventType::RightMouseUp,
+        CGEventType::MouseMoved,
+        CGEventType::LeftMouseDragged,
+        CGEventType::RightMouseDragged,
+        CGEventType::KeyDown,
+        CGEventType::KeyUp,
+        CGEventType::FlagsChanged,
+        CGEventType::ScrollWheel,
+        CGEventType::OtherMouseDown,
+        CGEventType::OtherMouseUp,
+        CGEventType::OtherMouseDragged,
+    ];
+    for t in erwartet {
+        assert!(m & (1u64 << t.0) != 0, "{t:?} fehlt in der Maske");
+    }
+    // Und keine doppelt gesetzten Bits verstecken ein fehlendes: genau so viele
+    // gesetzte Bits wie Eintraege.
+    assert_eq!(
+        m.count_ones() as usize,
+        erwartet.len(),
+        "die Maske hat nicht genau {} Bits — ein Eintrag steht doppelt",
+        erwartet.len()
+    );
+    assert_eq!(m & (1u64 << CGEventType::Null.0), 0, "Null gehoert nicht in die Maske");
+}
+
+/// **`stoppen()` hat drei Wirkungen, und jede einzelne war ungeprueft.**
+///
+/// Die dritte wiegt am schwersten: zaehlt `WACHE_NR` nicht hoch, endet der
+/// Abgriff-Faden nie — und da der Sidecar zwischen zwei Streams warm bleibt,
+/// sammelt sich je Sitzung ein weiterer systemweiter Abgriff an.
+#[test]
+fn stoppen_raeumt_alle_drei_merker() {
+    let _reihum = REIHUM.lock().unwrap_or_else(|e| e.into_inner());
+    stoppen();
+    let w = stumm();
+    w.starten().unwrap();
+    vermerken();
+    assert!(w.host_regt_sich(), "Vorbedingung: es gibt einen Vorrang zu raeumen");
+    let wecker_vorher = WECKER_NR.load(Ordering::SeqCst);
+    let wache_vorher = WACHE_NR.load(Ordering::SeqCst);
+
+    w.stoppen();
+
+    assert!(!w.host_regt_sich(), "die letzte Regung wird mit abgeraeumt — sonst meldete ein noch fallender Wecker einen Vorrang fuer eine Sitzung, die es nicht mehr gibt");
+    assert!(
+        WECKER_NR.load(Ordering::SeqCst) > wecker_vorher,
+        "der Wecker geht ueber seine Laufnummer — ohne das Hochzaehlen laeuft er weiter"
+    );
+    assert!(
+        WACHE_NR.load(Ordering::SeqCst) > wache_vorher,
+        "der Abgriff-Faden geht ueber seine Laufnummer — ohne das Hochzaehlen endet er nie und jede Sitzung legt einen weiteren systemweiten Abgriff an"
+    );
+}
+
+/// Zweimal stoppen ist einmal stoppen — und das zweite Mal zaehlt die
+/// Laufnummern **nicht** weiter hoch. Sonst ginge bei jedem Prozessende ein
+/// Zaehler los, den niemand liest.
+#[test]
+fn stoppen_ist_idempotent() {
+    let _reihum = REIHUM.lock().unwrap_or_else(|e| e.into_inner());
+    stoppen();
+    let w = stumm();
+    w.starten().unwrap();
+    w.stoppen();
+    let nach_dem_ersten = WACHE_NR.load(Ordering::SeqCst);
+    w.stoppen();
+    assert_eq!(WACHE_NR.load(Ordering::SeqCst), nach_dem_ersten);
+}
+
+/// **Der Vorteil gegenueber Windows haengt an dieser Entscheidung.** Dort steht
+/// im Code, ein abgehaengter Hook falle stillschweigend aus und das Restrisiko
+/// sei notiert; macOS meldet es, und der Abgriff laesst sich zurueckholen.
+///
+/// Faellt `TapDisabledByTimeout` aus der Bedingung, ist der ganze Vorteil weg —
+/// und zwar lautlos: die Wache stuende noch da und saehe nichts mehr.
+#[test]
+fn beide_abschalt_meldungen_werden_erkannt() {
+    assert!(ist_abgehaengt(CGEventType::TapDisabledByTimeout));
+    assert!(ist_abgehaengt(CGEventType::TapDisabledByUserInput));
+}
+
+/// Und gewoehnliche Ereignisse werden **nicht** dafuer gehalten — sonst
+/// schaltete die Wache bei jeder Mausbewegung ihren Abgriff neu ein, statt sie
+/// zu bewerten.
+#[test]
+fn gewoehnliche_ereignisse_gelten_nicht_als_abgehaengt() {
     for t in [
         CGEventType::MouseMoved,
         CGEventType::LeftMouseDown,
-        CGEventType::RightMouseUp,
-        CGEventType::OtherMouseDragged,
         CGEventType::KeyDown,
         CGEventType::FlagsChanged,
         CGEventType::ScrollWheel,
+        CGEventType::Null,
     ] {
-        assert!(m & (1u64 << t.0) != 0, "{t:?} fehlt in der Maske");
+        assert!(!ist_abgehaengt(t), "{t:?} ist keine Abschalt-Meldung");
     }
-    assert_eq!(m & (1u64 << CGEventType::Null.0), 0, "Null gehoert nicht in die Maske");
 }
