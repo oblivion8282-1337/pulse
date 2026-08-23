@@ -12,7 +12,25 @@
 //! Die Sorten Zeiger, die Windows kennt, und warum alles als 32 bit gelesen
 //! wird, stehen im Kopf von [`super::zeigerpixel`].
 //!
-//! **Offener Punkt, bewusst nicht gewandert (2026-08-23).** [`entvielfachen`]
+//! **ACHTUNG — [`entvielfachen`] liegt seit dem 2026-08-23 DOPPELT.** Die
+//! gemeinsame Fassung steht in `pulse_fernsteuerung::deckung`, diese hier ist
+//! stehengeblieben, weil die Etappe, die sie hinueberzog, Windows-Dateien nicht
+//! anfassen durfte. Die Rechnung ist zeichenweise identisch (geprueft), nur die
+//! Sichtbarkeit unterscheidet sich.
+//!
+//! **Wer diese Datei als Naechstes anfasst, loescht die hiesige Fassung** und
+//! nimmt `use pulse_fernsteuerung::deckung::entvielfachen;` — die Kiste steht in
+//! der `Cargo.toml` bereits. Solange das nicht geschehen ist, gilt die
+//! Repo-Regel: **wer hier etwas an der Rechnung aendert, aendert es dort mit.**
+//! Der Schaden einer Abweichung stuerzt nicht ab, er sieht nur schmutzig aus —
+//! ausgefranste Zeigerraender, und zwar nur auf einer Plattform.
+//!
+//! In `deckung.rs` ist ausserdem ein Kommentar-Fehler berichtigt, der unten noch
+//! steht: „aufgerundet, damit 255 bei voller Deckung wieder 255 ergibt" trifft
+//! die Rechnung nicht — bei voller Deckung teilt sie ohnehin durch 255, der
+//! `+ deckung/2`-Term traegt ausschliesslich den halb deckenden Fall.
+//!
+//! Bisherige Begruendung des Liegenbleibens: [`entvielfachen`]
 //! ist wie der Rest dieser Datei plattformfrei — rund 8 Zeilen Rechnung, 25
 //! Zeilen gemessene Begründung, vier Tests — und einschlägig für macOS:
 //! CGImage-Zeigerbitmaps sind ebenso vorvervielfacht wie GDIs. Es ist
