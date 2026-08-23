@@ -150,7 +150,18 @@ impl Gemeinsam {
         if !self.versucht {
             self.versucht = true;
             match aufbauen(window) {
-                Ok(verbindung) => self.verbindung = Some(verbindung),
+                Ok(verbindung) => {
+                    // Auch der Erfolg wird gemeldet, und zwar genau einmal.
+                    // Ohne diese Zeile sieht „der Compositor kann es nicht"
+                    // im Log genauso aus wie „es hat geklappt, aber der
+                    // Compositor haelt sich nicht daran" — zwei Befunde mit
+                    // voellig verschiedenen Antworten.
+                    eprintln!(
+                        "pulse-player: Tastenkuerzel-Sperre bereit ({} Sitzplatz/-plaetze).",
+                        verbindung.seats.len()
+                    );
+                    self.verbindung = Some(verbindung);
+                }
                 Err(grund) => {
                     // Genau einmal je Prozess, und ohne Drama: die Sitzung
                     // laeuft weiter (s. Modulkopf nebenan).
