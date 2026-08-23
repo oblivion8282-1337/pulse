@@ -26,6 +26,13 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
         .ok()
         .and_then(|p| p.to_str().map(str::to_string));
 
+    // Die Fernsteuerung braucht beide Freigaben; welche fehlt, entscheidet die
+    // Auskunft, nicht dieser Aufrufer.
+    let (fernsteuerbar, grund) = crate::berechtigung::faehigkeit(
+        crate::berechtigung::darf_einspielen(),
+        crate::berechtigung::mithoeren_stand(),
+    );
+
     let mut gsr = json!({
         "available": true,
         "source": "builtin",
@@ -40,12 +47,23 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
         "has_flv_patch": Value::Null,
         // **Live geprueft, nicht behauptet.** Anders als unter Windows (dort
         // fest `true`, weil das Op zum Programm selbst gehoert) haengt die
-        // Faehigkeit hier an einer Bedienungshilfen-Freigabe, die der Nutzer
-        // jederzeit zurueckziehen kann und die bei jedem Update erneut
-        // eingeholt werden muss (ad-hoc-signiertes DMG). Ein festes `true`
-        // liesse einen Mac als fernsteuerbar erscheinen, dessen zugesagte
-        // Sitzung beim ersten Frame wortlos stuerbe — s. `crate::berechtigung`.
-        "remote_input": crate::berechtigung::darf_einspielen(),
+        // Faehigkeit hier an Freigaben, die der Nutzer jederzeit zurueckziehen
+        // kann und die bei jedem Update erneut eingeholt werden muessen
+        // (ad-hoc-signiertes DMG). Ein festes `true` liesse einen Mac als
+        // fernsteuerbar erscheinen, dessen zugesagte Sitzung beim ersten Frame
+        // wortlos stuerbe — s. `crate::berechtigung`.
+        //
+        // **BEIDE Freigaben, nicht nur die zum Einspielen.** Ohne
+        // Eingabeueberwachung sieht die Wache den Host nicht mehr, der sich
+        // seinen Rechner zurueckholen will — die Fernsteuerung waere dann
+        // technisch moeglich und trotzdem unverantwortlich. Bis zum 2026-08-23
+        // stand hier nur `darf_einspielen()`; das meldete genau diesen Rechner
+        // als fernsteuerbar.
+        "remote_input": fernsteuerbar,
+        // Woran es liegt, wenn nicht. Leer, solange alles erteilt ist.
+        // „Verweigert" und „nie gefragt" fuehren den Nutzer an verschiedene
+        // Stellen — deshalb getrennt und nicht als gemeinsames Nein.
+        "remote_input_grund": grund,
     });
     if let Some(p) = path {
         gsr["path"] = Value::String(p);
@@ -75,5 +93,26 @@ mod tests {
         let gsr = out.get("gsr").expect("gsr-Objekt fehlt");
         let feld = gsr.get("remote_input").expect("remote_input fehlt in health.gsr");
         assert!(feld.is_boolean(), "remote_input ist kein Bool: {feld:?}");
+    }
+
+    /// Der Grund und die Faehigkeit muessen zueinander passen — und das laesst
+    /// sich pruefen, **ohne** vom Freigabe-Zustand dieser Maschine abzuhaengen:
+    /// fernsteuerbar heisst leerer Grund, nicht fernsteuerbar heisst genannter
+    /// Grund. Ein spaeterer Umbau, der die Faehigkeit verschaerft und den Grund
+    /// vergisst, liesse den Nutzer ratlos vor einem `false` ohne Erklaerung.
+    #[test]
+    fn grund_und_faehigkeit_widersprechen_sich_nicht() {
+        let out = handle(Map::new()).expect("health schlug fehl");
+        let gsr = out.get("gsr").expect("gsr fehlt");
+        let kann = gsr.get("remote_input").and_then(Value::as_bool).expect("remote_input fehlt");
+        let grund = gsr
+            .get("remote_input_grund")
+            .and_then(Value::as_str)
+            .expect("remote_input_grund fehlt");
+        if kann {
+            assert!(grund.is_empty(), "fernsteuerbar, aber mit Grund: {grund}");
+        } else {
+            assert!(!grund.is_empty(), "nicht fernsteuerbar, aber ohne Grund");
+        }
     }
 }

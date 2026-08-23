@@ -35,8 +35,7 @@ use std::time::Instant;
 
 use objc2_core_foundation::{CFRetained, CGPoint};
 use objc2_core_graphics::{
-    CGEvent, CGEventField, CGEventFlags, CGEventSource, CGEventSourceStateID, CGEventTapLocation,
-    CGScrollEventUnit,
+    CGEvent, CGEventField, CGEventFlags, CGEventSource, CGEventSourceStateID, CGScrollEventUnit,
 };
 use pulse_fernsteuerung::druck::Druck;
 use pulse_fernsteuerung::plattform::Injektor;
@@ -179,6 +178,26 @@ impl Zustand {
 
     /// Stempeln, kennzeichnen, abfeuern. **Der Stempel ist nicht optional** —
     /// s. [`PULSE_MARKE`].
+    ///
+    /// **Im Testbau wird nicht abgefeuert, sondern aufgezeichnet** (s. [`spur`]).
+    /// Zwei Gruende, und der zweite ist der wichtigere:
+    ///
+    /// 1. `cargo test` liefe sonst dem Entwickler ueber Maus und Tastatur. Der
+    ///    Sidecar hat keinen Test, der bis hierher kommt — aber genau das war
+    ///    bis zum 2026-08-23 auch der einzige Grund, aus dem es gutging.
+    /// 2. Vier tragende Zeilen dieser Datei liessen sich sonst **gar nicht**
+    ///    pruefen: Marke, Klickstand, Flags und der Ereignistyp entstehen hier
+    ///    und verschwinden hinter `CGEvent::post`. Jede Mutation daran blieb
+    ///    gruen. Mit der Spur haelt ein Test sie fest.
+    ///
+    /// Dass die Marke die Kette bis hinter den WindowServer **wirklich**
+    /// ueberlebt, sagt die Spur nicht — das ist gemessen (13 von 13,
+    /// Nachtrag 6 der Messakte). Die Messung beweist es einmal, der Test haelt
+    /// es. Keins von beidem ersetzt das andere.
+    ///
+    /// **Grenze, die nicht ueberdehnt werden darf:** `cfg(test)` gilt nur fuer
+    /// Unit-Tests *dieser* Kiste. Ein Integrationstest unter `tests/` bindet die
+    /// Bibliothek ohne `--test` ein und feuerte echt ab.
     fn abfeuern(&self, ereignis: &CGEvent, flags: CGEventFlags) {
         CGEvent::set_integer_value_field(
             Some(ereignis),
@@ -186,7 +205,13 @@ impl Zustand {
             PULSE_MARKE,
         );
         CGEvent::set_flags(Some(ereignis), flags);
-        CGEvent::post(CGEventTapLocation::HIDEventTap, Some(ereignis));
+        #[cfg(test)]
+        spur::vermerken(ereignis);
+        #[cfg(not(test))]
+        {
+            use objc2_core_graphics::CGEventTapLocation;
+            CGEvent::post(CGEventTapLocation::HIDEventTap, Some(ereignis));
+        }
     }
 }
 
@@ -272,3 +297,12 @@ impl Injektor for MacInjektor {
         }
     }
 }
+
+/// Die Spur: was im Testbau **abgefeuert worden waere** (s. [`Zustand::abfeuern`]).
+#[cfg(test)]
+#[path = "injektion_spur.rs"]
+pub mod spur;
+
+#[cfg(test)]
+#[path = "injektion_tests.rs"]
+mod injektion_tests;

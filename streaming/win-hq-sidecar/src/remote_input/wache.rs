@@ -123,11 +123,18 @@ pub fn starten() -> Result<(), String> {
     LETZTE_REGUNG_MS.store(0, Ordering::Relaxed);
     *BEWEGUNG.lock().unwrap_or_else(|e| e.into_inner()) = Bewegung::neu();
 
-    // **Im Testbau keine echten System-Hooks** — aus demselben Grund, aus dem
-    // die Injektion im Testbau nicht wirklich abfeuert: die Tests laufen auf
-    // der Maschine des Entwicklers, und ein systemweiter Eingabe-Hook samt
+    // **Im Testbau keine echten System-Hooks**: die Tests laufen auf der
+    // Maschine des Entwicklers, und ein systemweiter Eingabe-Hook samt
     // Nachrichtenschleife gehört dort nicht hin. Die Wache gilt als stehend;
     // ihre Regungen setzen die Tests direkt über [`vermerken`].
+    //
+    // **Hier stand bis zum 2026-08-23 „aus demselben Grund, aus dem die
+    // Injektion im Testbau nicht wirklich abfeuert". Das stimmte nie** — der
+    // Injektor dieser Datei-Nachbarschaft hat keinen solchen Riegel und feuert
+    // im Testbau echt ab. Gutgegangen ist es nur, weil ihn kein Test erreicht.
+    // Wer das ändern will, liest den Absatz in `super::injektion::abfeuern`,
+    // bevor er dort einen Riegel einzieht: ein stummer wäre schlimmer als
+    // keiner.
     if cfg!(test) {
         *laufend = Some(0);
         return Ok(());
