@@ -11,7 +11,8 @@
         "Ein Mac kann jetzt ferngesteuert werden. In den Einstellungen gibt es dafür den Reiter „Standplatz“, der dort bisher gefehlt hat.",
         "macOS verlangt zwei getrennte Freigaben: eine zum Einspielen von Eingaben (Bedienungshilfen) und eine zum Mithören (Eingabeüberwachung). Fehlt die zweite, bleibt die Fernsteuerung aus — ohne sie würde Pulse nicht bemerken, dass du selbst wieder an Maus oder Tastatur gehst, und dir den Rechner nicht zurückgeben.",
         "Fehlt eine der beiden, steht jetzt im Reiter, welche es ist und wo sie sitzt. Vorher war die Funktion einfach nicht da.",
-        "Nach einem Update muss der Eintrag in den Systemeinstellungen entfernt und neu gesetzt werden, nicht nur der Haken neu geklickt. Die Freigabe hängt an der Signatur des Programms, und die ändert sich mit jeder neuen Fassung."
+        "Nach einem Update muss der Eintrag in den Systemeinstellungen entfernt und neu gesetzt werden, nicht nur der Haken neu geklickt. Die Freigabe hängt an der Signatur des Programms, und die ändert sich mit jeder neuen Fassung.",
+        "Unabhängig davon behoben: im Übertragungs-Profil für Standplatz-Geräte liess sich die Bildrate nicht über 120 stellen — wer 144 eintippte, bekam wortlos 120 zurück, obwohl die regulären Stream-Einstellungen 144 anbieten. Das betraf bisher nur Windows, weil nur dort ein Rechner Standplatz-Gerät sein konnte."
       ],
       "outro": "Cmd+Tab und Passwortfelder bleiben ausgenommen — beides lässt macOS grundsätzlich nicht von außen bedienen."
     },

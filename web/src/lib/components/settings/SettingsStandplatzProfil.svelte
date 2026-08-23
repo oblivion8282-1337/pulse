@@ -34,7 +34,12 @@
     type StandplatzProfil,
   } from '$lib/devices/profil.svelte';
   import { streamSettings } from '$lib/stream/settings.svelte';
-  import { MONITOR_CAPTURE_PREFIX, RESOLUTION_VALUES } from '$lib/stream/settingsCatalog';
+  import {
+    FPS_PROFIL_MAX,
+    FPS_PROFIL_MIN,
+    MONITOR_CAPTURE_PREFIX,
+    RESOLUTION_VALUES,
+  } from '$lib/stream/settingsCatalog';
   import { m } from '$lib/paraglide/messages.js';
 
   // Entwurf im Formular, „Speichern" schreibt fest — wie bei der Dauerfreigabe
@@ -116,7 +121,7 @@
   function speichern(): void {
     entwurf = {
       ...entwurf,
-      fps: zahl(entwurf.fps, VORGABE.fps, 10, 120),
+      fps: zahl(entwurf.fps, VORGABE.fps, FPS_PROFIL_MIN, FPS_PROFIL_MAX),
       bitrate_kbps: zahl(entwurf.bitrate_kbps, VORGABE.bitrate_kbps, 1000, 10000),
     };
     void standplatzProfil.setzen(entwurf);
@@ -163,7 +168,13 @@
 
       <label class="flex flex-col gap-1">
         <span class="text-text-muted text-xs">{m.standplatz_profil_fps()}</span>
-        <Input type="number" min="10" max="120" bind:value={entwurf.fps} data-testid="standplatz-profil-fps" />
+        <Input
+          type="number"
+          min={FPS_PROFIL_MIN}
+          max={FPS_PROFIL_MAX}
+          bind:value={entwurf.fps}
+          data-testid="standplatz-profil-fps"
+        />
       </label>
 
       <label class="flex flex-col gap-1">
