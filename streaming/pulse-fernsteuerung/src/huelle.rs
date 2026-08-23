@@ -188,6 +188,12 @@ mod tests {
     #[test]
     fn platz_wird_genommen_wie_er_dasteht() {
         assert_eq!(slot_aus(&Map::new()), Ok(0));
+        // **`null` zählt wie ein fehlendes Feld**, nicht wie ein missgeformtes.
+        // Der Fall stand seit jeher im Code und war von keinem Test gedeckt:
+        // trennt man ihn versehentlich vom `None`-Zweig ab, fällt er in
+        // fail-closed, und eine Shell, die das Feld als `null` schickt statt es
+        // wegzulassen, könnte keine Fernsteuerung mehr beginnen.
+        assert_eq!(slot_aus(&params(json!(null))), Ok(0));
         assert_eq!(slot_aus(&params(json!(0))), Ok(0));
         assert_eq!(slot_aus(&params(json!(3))), Ok(3));
         // Außerhalb des Bereichs wird NICHT gekappt — eine Ebene tiefer wird
