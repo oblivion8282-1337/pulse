@@ -39,10 +39,12 @@ use super::{Sitzung, Zustand};
 /// nativ und wird von niemandem gedrosselt.
 ///
 /// **Dieselbe Zahl mit derselben Begründung steht noch einmal** in
-/// `streaming/win-hq-sidecar/src/remote_input/zeigerform.rs::WIEDERHOLUNG_TAKTE`
-/// (dort für die Zeigerform, nicht den Vorrang) — zwei verschiedene Kisten und
-/// Zwecke, deshalb hier nicht zusammenlegbar. Wer den Sekunden-Deckel des
-/// Gateways (`remote_signal`) ändert, muss beide Stellen finden.
+/// `crate::zeigerbuch::WIEDERHOLUNG_TAKTE` (dort für die Zeigerform, nicht den
+/// Vorrang) — seit dem 2026-08-23 in derselben Kiste, vorher in zweien.
+/// Zusammengelegt wird sie trotzdem nicht: die eine taktet die
+/// Vorrang-Meldung, die andere die Zeigerform, und wer eine davon verstellt,
+/// meint selten beide. Wer dagegen den Sekunden-Deckel des Gateways
+/// (`remote_signal`) ändert, muss beide Stellen finden.
 const WIEDERHOLUNG_TAKTE: u64 = 10;
 
 impl Sitzung {
