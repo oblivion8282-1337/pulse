@@ -385,3 +385,49 @@ nötig.
 der Injektionsstelle prüft, misst den Stempel gegen sich selbst. Die Stelle des
 Mithörers muss die des echten Verbrauchers sein, sonst ist ein grünes Ergebnis
 wertlos.
+
+---
+
+## Nachtrag 7 — wird eine injizierte F8 zur Medientaste?
+
+**Die Frage.** Auf einem Mac sind F7/F8/F9 ab Werk Zurück/Wiedergabe/Vor. Alle
+drei stehen im Vokabular der Fernsteuerung. Deutet macOS ein injiziertes
+`kVK_F8` in ein Wiedergabe-Ereignis um, dann pausiert ein Steuernder die Musik
+des Hosts, statt F8 zu senden — **ohne dass irgendwo ein Fehler entstuende**.
+Aufgekommen ist sie, weil beim Injektor-Prüflauf eine Berechtigungsnachfrage
+für Musik erschien.
+
+**Aufbau — und er ist der Grund, warum diese Messung nichts auslöst.** Der
+naheliegende Versuch (F8 injizieren, nachsehen ob Musik startet) hat eine
+Nebenwirkung und sagt trotzdem nicht, *was* ankommt. `examples/probe_medientaste.rs`
+hängt stattdessen einen **aktiven** Abgriff (`CGEventTapOptions::Default`, nicht
+`ListenOnly`) an `kCGSessionEventTap` — hinter dem WindowServer, wo eine
+Umdeutung bereits geschehen wäre, und **vor** der Anwendung. Er liest ab, was
+dort liegt, und gibt für Tasten- und Systemereignisse im Messfenster einen
+Nullzeiger zurück: das Ereignis ist damit verworfen und erreicht keine App.
+
+**Ausgangslage:** `com.apple.keyboard.fnState` ist auf der Maschine **nicht
+gesetzt** — Werkseinstellung, die F-Tasten sind also Medientasten. Das ist der
+Fall, in dem eine Umdeutung überhaupt zu erwarten wäre.
+
+**Ergebnis:**
+
+| Was am Session-Abgriff ankam | Tastencode | Marke | |
+|---|---|---|---|
+| Typ 10 (`KeyDown`) | **100** = `kVK_F8` | ja | verworfen |
+| Typ 11 (`KeyUp`) | **100** = `kVK_F8` | ja | verworfen |
+| Typ 14 (`NSSystemDefined`) | — | — | **kam nicht vor** |
+
+**Befund: keine Umdeutung.** Eine injizierte F8 kommt hinter dem WindowServer
+als `kVK_F8` an, auch bei Werkseinstellung. Die Medientasten-Bedeutung entsteht
+im Treiber für die **physische** Taste, nicht für einen injizierten Tastencode.
+Die Tastentabelle braucht für F7/F8/F9 keine Sonderbehandlung.
+
+Gegenprobe zur Nebenwirkungsfreiheit: vor und nach dem Lauf lief keine
+Musik-App (`pgrep -x Music|Spotify|iTunes` leer). Nebenbei ein dritter Beleg für
+Nachtrag 6 — beide Ereignisse trugen die Marke noch am Session-Abgriff.
+
+**Was offen bleibt:** ob eine **Anwendung** ihrerseits `kVK_F8` als Medienbefehl
+deutet, sagt diese Messung nicht — der Abgriff liegt davor. Das wäre dann aber
+das Verhalten, das ein lokaler Nutzer mit derselben Taste auch bekäme, und keine
+Eigenheit der Fernsteuerung.
