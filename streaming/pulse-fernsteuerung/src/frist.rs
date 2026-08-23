@@ -51,8 +51,18 @@ mod tests {
     use super::*;
 
     /// `0` heisst „noch nie geregt" — nicht „vor sehr langer Zeit".
+    ///
+    /// **Die Uhrzeit hier ist der ganze Test.** Mit einem `jetzt` jenseits der
+    /// Frist (etwa 10_000 bei 5_000 Frist) liefert schon die blosse
+    /// Saettigungsrechnung 0, und der Sonderfall liesse sich streichen, ohne
+    /// dass etwas rot wird — genau so stand es hier, und eine Mutationsprobe
+    /// hat es gefunden. Ein `jetzt` INNERHALB der Frist trennt die beiden
+    /// Faelle: ohne den Sonderfall kaeme `frist - 1` heraus.
     #[test]
     fn ohne_regung_kein_vorrang() {
+        assert_eq!(rest_ms(0, 1), 0, "0 heisst nie geregt, nicht 'vor 1 ms'");
+        assert!(!host_regt_sich(0, 1));
+        // Und auch jenseits der Frist bleibt es dabei.
         assert_eq!(rest_ms(0, 10_000), 0);
         assert!(!host_regt_sich(0, 10_000));
     }
