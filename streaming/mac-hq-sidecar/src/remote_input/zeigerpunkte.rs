@@ -54,9 +54,16 @@ use pulse_zeigerbild::{MAX_KANTE, Zeigerbild};
 /// `bild_punkte` wird nicht benutzt, um die Masse zu bestimmen — es ist die
 /// Zahl, die hier ausdruecklich **nicht** gewaehlt wird (s. Modulkopf). Es
 /// dient als Vorhandensein-Probe: ein CGImage ohne Flaeche traegt nichts, was
-/// sich zeichnen liesse, und ist damit der Rueckfall-Fall
-/// (`NSCursor.arrow.image` liefert Groesse (0,0) und gar kein Bild — genau die
-/// Beobachtung, die die Namensuebertragung auf macOS erledigt hat).
+/// sich zeichnen liesse, und ist damit der Rueckfall-Fall.
+///
+/// **Hier stand bis zum 2026-08-23 eine Beobachtung, die nicht reproduziert**
+/// („`NSCursor.arrow.image` liefert Groesse (0,0) und gar kein Bild — genau
+/// die Beobachtung, die die Namensuebertragung auf macOS erledigt hat"). Sie
+/// war im Entwurf und im Kopf von [`super::zeigerform`] schon berichtigt, hier
+/// nicht: nachgemessen liefert bereits `+[NSCursor arrowCursor]` **selbst
+/// `nil`**, es kommt gar nicht bis zum Bild. Der Schluss (macOS schickt das
+/// Bild, nicht den Namen) wird dadurch staerker; diese Zeile behauptet jetzt
+/// nur noch, was sie prueft.
 ///
 /// `None` heisst nie „Fehler", sondern immer „kein uebertragbares Bild" — der
 /// Aufrufer meldet dann die Vorgabe.
@@ -140,10 +147,28 @@ fn entvielfachtes_feld(
     Some(punkte)
 }
 
+/// Deckt das Bild ueberhaupt etwas?
+///
+/// **Der zweite Ausloeser des Rueckfalls** (`super::zeigermeldung`): der Plan
+/// nennt „`nil` **oder ein leeres Bild**", und ein Bild ohne einen einzigen
+/// deckenden Punkt ist genau das. Es waere sonst der leiseste Fehler dieser
+/// Kette — der Steuernde bekaeme einen unsichtbaren Zeiger geschickt und
+/// stuende ganz ohne da, waehrend Sender wie Empfaenger einen Erfolg buchen.
+/// Mit dem Rueckfall bekommt er stattdessen den Zeiger des Hosts aus dem Video.
+///
+/// **Ungemessen:** kein auf dieser Maschine beobachteter Systemzeiger ist
+/// durchweg durchsichtig. Die Probe kostet einen Durchlauf ueber rund vier
+/// Kilobyte (32x32) — dieselbe Groessenordnung wie die Kennung, die ohnehin
+/// darueber laeuft.
+fn deckt_etwas(punkte: &[u8]) -> bool {
+    punkte.chunks_exact(4).any(|p| p[3] != 0)
+}
+
 /// Alles zusammen: aus dem gezeichneten Feld ein sendefertiges [`Zeigerbild`].
 ///
-/// Die letzte Wache vor der Leitung ist `stimmig()` — was hier nicht stimmig
-/// ist, ginge sonst als Bild hinaus, das die Gegenseite nur abweisen kann.
+/// Die letzte Wache vor der Leitung sind `stimmig()` und [`deckt_etwas`] — was
+/// hier nicht stimmig ist, ginge sonst als Bild hinaus, das die Gegenseite nur
+/// abweisen kann.
 ///
 /// **Der 5900-Byte-Trichter wird hier bewusst nicht geprueft.** Er sitzt im
 /// Format (`pulse_zeigerbild::MAX_LAEUFE_BYTE`) und wird von
@@ -159,6 +184,9 @@ pub(super) fn bild(
     bytes_je_zeile: usize,
 ) -> Option<Zeigerbild> {
     let punkte = entvielfachtes_feld(roh, breite, hoehe, bytes_je_zeile)?;
+    if !deckt_etwas(&punkte) {
+        return None;
+    }
     let (halt_x, halt_y) = halt(haltepunkt, breite, hoehe);
     let bild = Zeigerbild { breite, hoehe, halt_x, halt_y, punkte };
     bild.stimmig().then_some(bild)
