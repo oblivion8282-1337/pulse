@@ -24,7 +24,7 @@
 //! verworfen und die Sitzung bleibt stehen. Das ist die eine Abweichung von
 //! fail-closed, und sie hat einen Grund — Streams enden asynchron, ein Slot kann
 //! zwischen Absenden und Ankunft verschwinden. Das ist ein Rennen, kein Angriff.
-//! Dasselbe gilt für einen Platz **außerhalb** der Schranke ([`SLOT_MAX`]).
+//! Dasselbe gilt für einen Platz **außerhalb** der Schranke ([`slot::SLOT_MAX`]).
 //!
 //! ## Das Ziel kommt von der Aufnahme, nicht aus einer zweiten Auflösung
 //!
@@ -50,6 +50,7 @@
 
 use std::sync::Mutex;
 
+use pulse_fernsteuerung::slot;
 use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::Graphics::Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, HMONITOR, MONITORINFO};
@@ -84,21 +85,6 @@ const LABOR_OHNE_STROM: &str = "PULSE_LABOR_EINGABE_OHNE_STREAM";
 /// 2560x1440); ohne diesen Schalter wäre er unerreichbar geblieben.
 const LABOR_MONITOR: &str = "PULSE_LABOR_EINGABE_MONITOR";
 
-/// Höchster Platz, den dieser Sidecar überhaupt für möglich hält (0..=98).
-///
-/// Dieselbe Schranke wie `desktop/electron/sidecar.ts::MAX_STREAM_SLOTS` (99
-/// Plätze) und `_SLOT_MAX` im chat-gateway — wird sie dort bewegt, gehört sie
-/// hier mitgezogen.
-///
-/// **Wozu die Schranke hier nochmal.** Ohne sie trüge die Regel „ein Stream
-/// ohne erklärten Platz trägt jeden Platz" auch ein `slot: 999` — eine Zahl,
-/// die es im ganzen System nicht geben kann, landete auf dem einen Stream
-/// dieses Prozesses. Ein Platz jenseits der Schranke gilt deshalb als
-/// **unbekannt**: still verworfen, Sitzung bleibt stehen. Ausdrücklich **kein**
-/// Protokollfehler — sonst genügte ein `slot: 999`, um eine laufende
-/// Fernsteuerung abzuwürgen (Spezifikation, „Der `slot`").
-pub const SLOT_MAX: u64 = 98;
-
 /// Der laufende Stream dieses Prozesses, für die Fernsteuerung sichtbar.
 /// Gesetzt beim `start`, geleert wenn der Worker endet.
 static AKTIVER_STROM: Mutex<Option<AktiverStrom>> = Mutex::new(None);
@@ -119,13 +105,6 @@ struct AktiverStrom {
     /// Das Ziel, das die **Aufnahme** benutzt. `None` = sie hat es noch nicht
     /// bestimmt (zwischen `start` und dem Anlaufen der Aufnahme).
     bindung: Option<Bindung>,
-}
-
-/// Trägt ein Stream mit diesem erklärten Platz den angefragten? Die beiden
-/// Regeln aus der Modul-Doku: der erklärte Platz gilt strikt, der ungenannte
-/// trägt jeden.
-fn traegt_slot(erklaert: Option<u32>, angefragt: u64) -> bool {
-    erklaert.is_none() || erklaert.map(u64::from) == Some(angefragt)
 }
 
 /// Vom [`crate::stream_controller`] beim Start gerufen — der Platz steht da
@@ -182,15 +161,15 @@ pub struct Bindung {
 /// Ergebnis für die Dauer einer Nachricht halten, nicht für die Sitzung.
 pub fn bindung_fuer_slot(slot: u64) -> Zielsuche {
     // Jenseits der Schranke gibt es diesen Platz nirgends im System —
-    // unbekannt, nicht „vom ungenannten Stream getragen" (s. [`SLOT_MAX`]).
+    // unbekannt, nicht „vom ungenannten Stream getragen" (s. [`slot::SLOT_MAX`]).
     // Vor dem Labor-Rückfall, damit auch der Messweg keinen Fantasieplatz annimmt.
-    if slot > SLOT_MAX {
+    if !slot::im_bereich(slot) {
         return Zielsuche::KeinStrom;
     }
     let eintrag = {
         let reg = registrierung();
         reg.as_ref()
-            .filter(|s| traegt_slot(s.slot, slot))
+            .filter(|s| slot::traegt_slot(s.slot, slot))
             .map(|s| s.bindung)
     };
     match eintrag {
@@ -319,16 +298,6 @@ fn fenster_rechteck(hwnd: HWND) -> Option<RECT> {
 mod tests {
     use super::*;
 
-    /// Der erklärte Platz gilt strikt, der ungenannte trägt jeden — die beiden
-    /// Regeln aus der Modul-Doku, hier festgehalten.
-    #[test]
-    fn slot_regeln() {
-        assert!(traegt_slot(None, 0));
-        assert!(traegt_slot(None, 7));
-        assert!(traegt_slot(Some(1), 1));
-        assert!(!traegt_slot(Some(1), 0));
-    }
-
     /// Ohne Stream und ohne Labor-Schalter ist der Slot unbekannt — und das
     /// **beendet die Sitzung nicht**.
     #[test]
@@ -349,9 +318,7 @@ mod tests {
     fn platz_jenseits_der_schranke_ist_unbekannt() {
         let _sperre = crate::remote_input::pruefstand();
         strom_gestartet(None);
-        assert!(matches!(bindung_fuer_slot(SLOT_MAX + 1), Zielsuche::KeinStrom));
-        // Auch jenseits von u32 — hier wurde früher auf `u32::MAX` gekappt.
-        assert!(matches!(bindung_fuer_slot(5_000_000_000), Zielsuche::KeinStrom));
+        assert!(matches!(bindung_fuer_slot(slot::SLOT_MAX + 1), Zielsuche::KeinStrom));
         strom_beendet();
     }
 
