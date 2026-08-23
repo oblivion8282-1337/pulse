@@ -60,7 +60,14 @@
   } = $props();
 </script>
 
-<div class="text-text-muted px-2.5 pb-1 text-sm font-bold md:text-xs">{m.channel_list_text_channels()}</div>
+<!-- Abschnitts-Überschrift als dezentes Chip-Band (mobil) — Variante C des
+     Rahmen-Entwurfs: keine Voll-Karten um die Zeilen (wirkte klotzig), nur
+     die Sektionsgrenze bekommt eine leichte Fläche. Ab md unverändert offen. -->
+<div
+  class="text-text-muted mb-1.5 inline-block rounded-full border border-border bg-bg-input px-2.5 py-1 text-sm font-bold md:mb-0 md:rounded-none md:border-0 md:bg-transparent md:px-2.5 md:py-0 md:text-xs"
+>
+  {m.channel_list_text_channels()}
+</div>
 {#each channels as c (c.id)}
   {@const isUnread = activeChannelId !== c.id && readState.isUnread(c.id)}
   {@const unreadCount = activeChannelId !== c.id ? readState.getUnreadCount(c.id) : 0}

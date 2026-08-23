@@ -18,6 +18,8 @@
   import { viewport } from '$lib/stores/viewport.svelte';
   import { friendRequests } from '$lib/stores/friendRequests.svelte';
   import { communityInvites } from '$lib/stores/communityInvites.svelte';
+  import { friends } from '$lib/stores/friends.svelte';
+  import { presence } from '$lib/stores/presence.svelte';
   import FriendList from '$lib/components/friends/FriendList.svelte';
   import PendingRequests from '$lib/components/friends/PendingRequests.svelte';
   import BlockedList from '$lib/components/friends/BlockedList.svelte';
@@ -38,6 +40,18 @@
   const activeTab = $derived<TabKey>(
     (TABS.find((t) => t.key === page.url.searchParams.get('tab'))?.key) ?? 'online'
   );
+
+  // DEV-ONLY: ?demo=online markiert alle vorhandenen Freunde rotierend als
+  // online/idle/dnd — für Layout-Tests der Freundesliste ohne echte Peers.
+  // Läuft als Effect (statt einmalig beim Mount), damit auch nachträglich
+  // geladene Freunde erfasst werden; ein echter Cloud-Seed gewinnt jederzeit.
+  if (import.meta.env.DEV) {
+    $effect(() => {
+      if (page.url.searchParams.get('demo') !== 'online') return;
+      const ids = friends.list.map((f) => f.user_id);
+      presence.devSimulateFriendsOnline(ids);
+    });
+  }
 
   async function switchTab(key: TabKey) {
     const url = new URL(page.url);
@@ -83,13 +97,14 @@
     data-testid="friends-page"
   >
     <BereichsKopf titel={m.friends_page_title()} />
-    <div class="border-border/40 shrink-0 border-b px-4 pb-3">
-      <!-- Auf dem Handy scrollt die Reiter-Reihe waagerecht, statt in zwei
-           Zeilen umzubrechen: fuenf Reiter passen auf 390 px nicht nebeneinander,
-           und eine zweite Zeile schoebe die Liste bei jedem Wechsel hoch und
-           runter. -->
+    <div class="shrink-0 px-4 pb-3">
+      <!-- Reiter-Reihe als Karte (gleiche Behandlung wie Profil-/Einstellungs-
+           Karten): bg-bg-input + Rand + runde Ecken. Mobil füllen die fünf
+           Reiter die volle Zeilenbreite (flex-1 je Button, mittig);
+           overflow-x-auto bleibt als Ruckfall für sehr lange Übersetzungen.
+           Ab md natürliche Grösse mit Lücken. -->
       <nav
-        class="-mx-1 flex gap-1.5 overflow-x-auto px-1 md:mx-0 md:flex-wrap md:overflow-visible md:px-0"
+        class="border-border bg-bg-input flex gap-1 overflow-x-auto rounded-[14px] border p-1 card-shadow md:flex-wrap md:gap-1.5 md:overflow-visible"
         data-testid="friends-tabs"
       >
         {#each TABS as t (t.key)}
@@ -100,7 +115,7 @@
               : 0}
           <button
             type="button"
-            class="hover:bg-bg-hover relative flex min-h-12 shrink-0 items-center rounded-full px-3.5 py-1.5 text-[13px] font-semibold transition-colors md:min-h-0 md:rounded-md md:py-1 md:text-sm md:font-medium {isActive
+            class="hover:bg-bg-hover relative flex min-h-12 flex-1 items-center justify-center rounded-full px-2 py-1.5 text-xs font-semibold transition-colors md:min-h-0 md:flex-none md:justify-start md:rounded-md md:px-3.5 md:py-1 md:text-[13px] md:font-medium {isActive
               ? 'bg-[var(--accent-soft)] text-accent-on-soft'
               : 'text-text-muted hover:text-text-bright'}"
             onclick={() => switchTab(t.key)}

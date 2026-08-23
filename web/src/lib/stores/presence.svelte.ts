@@ -186,6 +186,22 @@ class PresenceStore {
     this.friendStatuses = {};
     this.myStatus = 'online';
   }
+
+  /** DEV-ONLY (``?demo=online`` auf der Freunde-Seite): Markiert die
+   *  übergebenen Freunde als online und rotiert deren Status durch
+   *  online/idle/dnd — rein clientseitig, um die Freundesliste mit
+   *  Präsenz zu testen, ohne dass jemand wirklich verbunden ist. Ein
+   *  echter Cloud-``ready``-Seed überschreibt das wieder. Die IDs übergibt
+   *  die Aufrufstelle (friends-Store), damit hier kein Zirkelbezug entsteht. */
+  devSimulateFriendsOnline(friendIds: string[]): void {
+    const rotation: PresenceStatus[] = ['online', 'idle', 'dnd'];
+    const statuses: Record<string, PresenceStatus> = {};
+    friendIds.forEach((id, i) => {
+      statuses[id] = rotation[i % rotation.length];
+    });
+    this.friendOnlineIds = new Set(friendIds);
+    this.friendStatuses = statuses;
+  }
 }
 
 export const presence = new PresenceStore();

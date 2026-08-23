@@ -71,7 +71,7 @@
   <div class="flex max-w-[78%] min-w-0 flex-col {eigen ? 'items-end' : 'items-start'}">
     <div
       class="min-w-0 px-3 py-2 {eigen
-        ? 'accent-gradient text-white'
+        ? 'accent-gradient-deep text-white'
         : 'bg-bg-input text-text-base'}"
       class:ring-2={highlight}
       class:ring-primary={highlight}

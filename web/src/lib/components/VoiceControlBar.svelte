@@ -52,6 +52,14 @@
   const isTouchDevice =
     typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
 
+  // Screenshare braucht getDisplayMedia — iPads (Safari UND Chrome iOS)
+  // haben die API nicht, Android-Tablets und Desktop schon. Faehigkeits-
+  // pruefung statt Bildschirmgrosse: der Knopf taucht nur auf, wo er auch
+  // wirklich funktionieren kann. Handys bleiben bewusst raus (Platz).
+  const kannBildschirmTeilen =
+    typeof window !== 'undefined' &&
+    typeof navigator.mediaDevices?.getDisplayMedia === 'function';
+
   // Gemeinsamer Basiswert für Force-Mute/Deafen-Ableitungen.
   const selfContext = $derived.by(() => {
     const cid = voice.channelId;
@@ -102,7 +110,7 @@
 <StreamStatusBar />
 
 <div
-  class="border-border mx-2 mt-2 rounded-2xl border bg-bg-input/60 p-2 md:p-1.5"
+  class="border-border bg-bg-input mx-2 mb-2 mt-2 rounded-[14px] border p-2 md:p-1.5"
   data-testid="voice-control-bar"
 >
   <div class="flex items-center gap-1.5 px-1 pb-1.5 text-base md:text-xs">
@@ -120,7 +128,12 @@
     {/if}
   </div>
 
-  <div class="flex flex-wrap items-center justify-around gap-2 md:justify-start md:gap-1">
+  <!-- `flex-nowrap` + `md:gap-0.5`: In der schmalen Seitenpalte (240px minus
+       Rand) passten sechs 32px-Knoepfe mit 8px-Luecke nicht — der Auflegen-
+       Knopf brach als erster in eine zweite Zeile. Engere Luecke und kein
+       Umbruch halten alles in EINER Reihe; mobile Dock-Breite ist locker
+       genug, um nichts zu verlieren. -->
+  <div class="flex flex-nowrap items-center justify-around gap-2 md:justify-between md:gap-0.5">
     <Tooltip.Provider delayDuration={300}>
       <Tooltip.Root>
         <Tooltip.Trigger>
@@ -277,7 +290,7 @@
       {/if}
 
       <!-- Screenshare/HQ — auf Mobil ausgeblendet (kein getDisplayMedia auf iOS/Android) -->
-      {#if !viewport.isMobile}
+      {#if !viewport.isMobile && kannBildschirmTeilen}
         <ScreenShareModeButton />
       {/if}
 

@@ -69,7 +69,7 @@
 >
   <BereichsKopf titel={m.nav_tab_chats()} />
 
-  <nav class="flex-1 overflow-y-auto px-2.5 pb-3">
+  <nav class="flex flex-1 flex-col gap-2 overflow-y-auto px-2.5 pb-3">
     {#if directMessages.list.length === 0}
       <!-- Ein leerer Bildschirm ist eine Aufforderung, keine Stimmung. Das
            Motiv ist der Ping der Bildmarke — hier als das, was er bedeutet:
@@ -92,7 +92,7 @@
       {@const name = userCache.displayName(dm.other_user_id)}
       {@const text = vorschau(dm)}
       <button
-        class="hover:bg-bg-hover flex w-full items-center gap-3 rounded-[14px] p-2.5 text-left transition-colors"
+        class="hover:bg-bg-hover border-border bg-bg-input flex w-full items-center gap-3 rounded-[14px] border p-2.5 text-left transition-colors"
         onclick={() => onSelect(dm)}
         data-testid={`chat-row-${dm.id}`}
         data-unread={ungelesen}

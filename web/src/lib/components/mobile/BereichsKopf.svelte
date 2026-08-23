@@ -27,11 +27,19 @@
   } = $props();
 </script>
 
+<!-- Titel mit `min-h-12 flex items-center`: Der Text sitzt damit auf JEDER
+     Bereichs-Seite gleich hoch — auch wenn die Seite (wie Räume → Entdecken)
+     eine Handlung mit 48px-Trefferfläche rechts trägt. Ohne die feste Höhe
+     zentriert der Header den Titel nur DANN mittig, wenn eine hohe Handlung
+     daneben steht; ohne Handlung klebte er gut 10px höher (gemessen: Chats
+     15px vs. Räume 25px). Die 48px-Box um den Text gleicht das aus. -->
 <header
   class="text-text-bright flex shrink-0 items-center justify-between gap-3 px-4 pb-2 pt-3.5"
   data-testid="bereichs-kopf"
 >
-  <h1 class="truncate text-[22px] font-extrabold leading-tight tracking-[-0.02em]">{titel}</h1>
+  <h1
+    class="text-text-bright flex min-h-12 min-w-0 items-center truncate text-[22px] font-extrabold leading-tight tracking-[-0.02em]"
+  >{titel}</h1>
   {#if handlung}
     <div class="shrink-0">{@render handlung()}</div>
   {/if}

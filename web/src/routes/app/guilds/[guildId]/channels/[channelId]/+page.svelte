@@ -118,6 +118,25 @@
       if (!voice.connected && !voice.connecting) void voice.connect(ch.id, ch.name);
     });
   });
+
+  // Mobil: Nach dem Auflegen zurück in die Community-Übersicht — die Voice-
+  // Vollbild-Ansicht ist ein Detail-Screen ohne Leiste; wer auflegt, will
+  // woanders hin, nicht auf einem „Nicht verbunden"-Bildschirm landen. Der
+  // Übergang connected → getrennt (nicht verbindend) löst die Navigation aus.
+  let voiceWasConnected = $state(false);
+  $effect(() => {
+    const connected = voice.connected;
+    if (
+      voiceWasConnected &&
+      !connected &&
+      !voice.connecting &&
+      viewport.isMobile &&
+      isVoiceChannel
+    ) {
+      untrack(() => void goto(`/app/rooms/${guildId}`));
+    }
+    voiceWasConnected = connected;
+  });
   let visibleMessages = $derived(messages.for(channelId));
   // Server-shared Tamagotchi: nur rendern wenn Plugin für die Guild
   // aktiviert (MANAGE_GUILD-Admin-Toggle, siehe `guildPluginsApi`).

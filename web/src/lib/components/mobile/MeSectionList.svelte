@@ -87,7 +87,7 @@
 
   <div class="flex-1 overflow-y-auto px-3 pb-4">
     <!-- Profilblock -->
-    <div class="bg-bg-input border-border mb-4 flex items-center gap-3 rounded-[14px] border p-3">
+    <div class="bg-bg-input border-border mb-4 flex items-center gap-3 rounded-[14px] border p-3 card-shadow">
       <span
         class="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-full text-lg font-bold text-white"
         style={auth.user?.avatar_url
@@ -108,7 +108,9 @@
     </div>
 
     <!-- Einstellungen -->
-    <div class="border-border overflow-hidden rounded-[14px] border">
+    <div
+      class="border-border bg-bg-input overflow-hidden rounded-[14px] border card-shadow"
+    >
       {#each eintraege as eintrag, i (eintrag.id)}
         {@const Symbol = eintrag.icon}
         <button
@@ -132,7 +134,7 @@
 
     <!-- Abmelden -->
     <button
-      class="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-[14px] px-3 py-3 text-sm font-semibold text-red-400 transition-colors hover:bg-red-500/10"
+      class="border-border bg-bg-input hover:bg-red-500/10 mt-8 flex min-h-12 w-full items-center justify-center gap-2 rounded-[14px] border px-3 py-3 text-sm font-semibold text-red-400 card-shadow transition-colors"
       onclick={() => auth.signOut()}
       data-testid="me-sign-out"
     >

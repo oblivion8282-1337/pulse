@@ -104,6 +104,10 @@ export function istDetailScreen(pfad: string): boolean {
   if (p === '/app/discover') return true;
   for (const [wurzel, _id] of WURZELN) {
     if (!liegtUnter(p, wurzel)) continue;
+    // Die Community-Übersicht `/app/rooms/<guildId>` ist KEIN Detail-Screen:
+    // Die Leiste bleibt — die offenen Kanäle darunter (`/app/guilds/…/…`)
+    // sind es weiterhin.
+    if (wurzel === '/app/rooms') return false;
     return p.length > wurzel.length;
   }
   return false;

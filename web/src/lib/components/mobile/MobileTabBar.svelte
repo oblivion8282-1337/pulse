@@ -13,9 +13,11 @@
    * aus (`istDetailScreen`). Eine Komponente, die sich selbst versteckt, wäre
    * die zweite Stelle mit derselben Regel.
    *
-   * Maße aus dem Design-Canvas: Leiste 60 px hoch, Symbol 23 px, Label
-   * 11 px/600. Die Trefferfläche ist über `min-h-12` auf 48 dp gezogen, auch
-   * wo das Symbol optisch kleiner wirkt.
+   * Maße aus dem Design-Canvas: Leiste 60 px, Symbol 23 px (mittlerweile
+   * beschriftungslos 26 px — die Wörter tragen nur noch die Tablet-Spalte,
+   * auf dem Handy liest ein sr-only-Text sie vor). Die Trefferfläche ist
+   * über `min-h-12` auf 48 dp gezogen, auch wo das Symbol optisch
+   * kleiner wirkt.
    */
   import { page } from '$app/state';
   import { BEREICHE, aktiverBereich } from '$lib/navigation/tabs';
@@ -25,8 +27,16 @@
   let aktiv = $derived(aktiverBereich(page.url.pathname));
 </script>
 
+<!-- Karten-Behandlung wie auf der Login-Seite (AppDownloadLinks-Rezept):
+     bg-card/85 + feiner Rand rundum + Schatten + Blur, als schwebende Karte
+     mit seitlichem Abstand über dem Marine-Grund statt randloser Balken mit
+     oberer Trennlinie. -->
+<!-- Gleiche Karten-Behandlung wie der Profilblock der Du-Seite
+     (bg-bg-input + border-border + rounded-[14px], ohne Schatten) — die
+     Leiste soll exakt wie diese Flächen aussehen. Schwebt mit seitlichem
+     Abstand über dem Seitengrund (mx-2 mb-2). -->
 <nav
-  class="border-border bg-bg-panel flex h-[60px] shrink-0 items-center justify-around border-t px-1.5 pb-3 pt-0"
+  class="border-border bg-bg-input mx-2 mb-2 flex h-[72px] shrink-0 items-center justify-around rounded-[14px] border px-1.5 card-shadow"
   data-testid="mobile-tab-bar"
   aria-label={m.nav_tab_bar_label()}
 >
@@ -35,7 +45,8 @@
     <NavTabLink
       {bereich}
       {istAktiv}
-      class="flex min-h-12 flex-col items-center gap-[3px] rounded-xl px-3.5 py-1.5 text-2xs font-semibold transition-colors {istAktiv
+      zeigeBeschriftung={false}
+      class="flex min-h-12 flex-1 items-center justify-center rounded-xl py-1.5 transition-colors {istAktiv
         ? 'text-primary'
         : 'text-text-muted'}"
     />

@@ -9,6 +9,7 @@
   import { initStream } from '$lib/stream/state.svelte';
   import { loadAll as loadPlugins } from '$lib/plugins';
   import ShortcutHost from '$lib/components/ShortcutHost.svelte';
+  import DevMarkingTool from '$lib/components/dev/DevMarkingTool.svelte';
   import ChangelogGate from '$lib/components/ChangelogGate.svelte';
   import ConfirmDialog from '$lib/components/feedback/ConfirmDialog.svelte';
   import DirectTrustDialog from '$lib/components/server/DirectTrustDialog.svelte';
@@ -234,6 +235,12 @@
 </div>
 
 <ShortcutHost />
+
+<!-- Dev-only-Markiermodus: Alt+Klick markiert Elemente für den Coding-Agenten
+     (data-mark + Nummern-Badge). Details in der Komponente. -->
+{#if import.meta.env.DEV}
+  <DevMarkingTool />
+{/if}
 
 <ChangelogGate />
 <!-- Genau einmal: rendert alle Abfragen aus `feedback/confirm.svelte.ts`. -->

@@ -101,7 +101,11 @@
 
 {#if channels.length > 0}
   <div class="my-3 hairline bg-border" aria-hidden="true"></div>
-  <div class="text-text-muted px-2.5 pb-1 text-sm font-bold md:text-xs">{m.channel_list_voice_channels()}</div>
+  <div
+    class="text-text-muted mb-1.5 inline-block rounded-full border border-border bg-bg-input px-2.5 py-1 text-sm font-bold md:mb-0 md:rounded-none md:border-0 md:bg-transparent md:px-2.5 md:py-0 md:text-xs"
+  >
+    {m.channel_list_voice_channels()}
+  </div>
   {#each channels as c (c.id)}
   <ContextMenu.Root>
     <ContextMenu.Trigger>

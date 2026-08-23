@@ -25,16 +25,34 @@
   let {
     bereich,
     istAktiv,
-    class: klasse
+    class: klasse,
+    zeigeBeschriftung = true,
+    symbolGroesse
   }: {
     bereich: Bereich;
     istAktiv: boolean;
     /** Klassen des `<a>` — der einzige echte Unterschied der beiden Leisten. */
     class: string;
+    /** Handy-Leiste ohne Wörter: nur Symbol, Beschriftung als screen-reader-
+        Text. Die Symbole werden dafuer etwas groesser gezogen. */
+    zeigeBeschriftung?: boolean;
+    /** Optionale eigene Symbolgroesse (z. B. schmalere Tablet-Spalte);
+        Default: 23px mit / 40px ohne Beschriftung. */
+    symbolGroesse?: string;
   } = $props();
 
   let Symbol = $derived(SYMBOLE[bereich.id]);
   let zahl = $derived(zahlFuer(bereich.id));
+  let ripple: HTMLSpanElement | null = $state(null);
+
+  /** Einmalige Ping-Welle beim Antippen — startet die Ripple-Animation
+   * neu, auch wenn sie schon läuft (Klassen-Reset + Reflow). */
+  function ping() {
+    if (!ripple) return;
+    ripple.classList.remove('tab-ripple-run');
+    void ripple.offsetWidth;
+    ripple.classList.add('tab-ripple-run');
+  }
 </script>
 
 <a
@@ -43,6 +61,7 @@
   data-testid={`tab-${bereich.id}`}
   data-active={istAktiv}
   aria-current={istAktiv ? 'page' : undefined}
+  onclick={ping}
 >
   <span class="relative flex items-center justify-center">
     <!-- **Der Sonar-Ping.** Die Bildmarke von Pulse ist ein Ping: konzentrische
@@ -50,17 +69,25 @@
          aktive Bereich sitzt deshalb in genau dieser Form statt in einem
          Allerwelts-Pillenhintergrund — sie taucht auf jedem Bildschirm auf und
          macht die Leiste unverwechselbar, ohne laut zu sein.
-         Bewusst OHNE Animation: eine dauernd pulsende Navigation wäre nach
-         zwei Minuten eine Zumutung. Der Ping steht still; bewegt wird an
-         anderer Stelle nur, was wirklich lebt (Anwesenheit). -->
+         Beim Antippen läuft EINE Ping-Welle weg (tab-ripple, unten in
+         app.css) — dieselbe Geste wie die Sprech-Anzeige im Chat, nur
+         ausgelöst durch die Fingerbewegung statt durch Audio. -->
     {#if istAktiv}
       <span class="pointer-events-none absolute inset-0 flex items-center justify-center" aria-hidden="true">
-        <span class="border-primary/25 absolute size-[38px] rounded-full border"></span>
-        <span class="border-primary/45 absolute size-[30px] rounded-full border"></span>
-        <span class="bg-primary/12 absolute size-[30px] rounded-full"></span>
+        <span class="border-primary/25 absolute {zeigeBeschriftung ? 'size-[38px]' : 'size-[56px]'} rounded-full border"></span>
+        <span class="border-primary/45 absolute {zeigeBeschriftung ? 'size-[30px]' : 'size-[46px]'} rounded-full border"></span>
+        <span class="bg-primary/12 absolute {zeigeBeschriftung ? 'size-[30px]' : 'size-[46px]'} rounded-full"></span>
       </span>
     {/if}
-    <Symbol class="relative size-[23px]" />
+    <Symbol
+      class="relative {symbolGroesse ??
+        (zeigeBeschriftung ? 'size-[23px]' : 'size-[40px]')}"
+    />
+    <span
+      bind:this={ripple}
+      class="border-primary/50 pointer-events-none absolute size-[56px] rounded-full border-2 opacity-0"
+      aria-hidden="true"
+    ></span>
     {#if zahl > 0}
       <span
         class="bg-badge-count absolute -right-2 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-extrabold leading-none text-white"
@@ -69,5 +96,9 @@
       >{zahl > 99 ? '99+' : zahl}</span>
     {/if}
   </span>
-  {beschriftung(bereich.id)}
+  {#if zeigeBeschriftung}
+    {beschriftung(bereich.id)}
+  {:else}
+    <span class="sr-only">{beschriftung(bereich.id)}</span>
+  {/if}
 </a>

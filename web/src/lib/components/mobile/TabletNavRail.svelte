@@ -18,17 +18,23 @@
   let aktiv = $derived(aktiverBereich(page.url.pathname));
 </script>
 
+<!-- Als Karte wie die Nachbar-Spalten (glass-panel: Flaeche + Rand + runde
+     Ecken) — vorher nur eine rechte Trennlinie, der Rahmen fehlte zum Teil. -->
 <nav
-  class="border-border bg-bg-panel flex w-[78px] shrink-0 flex-col items-center gap-1 border-r pt-[var(--safe-top)]"
+  class="glass-panel flex w-[78px] shrink-0 flex-col items-center gap-1 rounded-2xl pt-[var(--safe-top)]"
   data-testid="tablet-nav-rail"
   aria-label={m.nav_tab_bar_label()}
 >
   {#each BEREICHE as bereich (bereich.id)}
     {@const istAktiv = aktiv === bereich.id}
+    <!-- Beschriftungslos wie die Handy-Leiste: nur Symbol (dafuer groesser),
+         der Bereichsname bleibt als sr-only fuer Screenreader erhalten. -->
     <NavTabLink
       {bereich}
       {istAktiv}
-      class="mt-1 flex min-h-12 w-[66px] flex-col items-center gap-[3px] rounded-xl px-1 py-2 text-2xs font-semibold transition-colors {istAktiv
+      zeigeBeschriftung={false}
+      symbolGroesse="size-[30px]"
+      class="mt-1 flex min-h-12 w-[66px] items-center justify-center rounded-xl px-1 py-2 transition-colors {istAktiv
         ? 'bg-[var(--accent-soft)] text-accent-on-soft'
         : 'text-text-muted hover:bg-bg-hover'}"
     />

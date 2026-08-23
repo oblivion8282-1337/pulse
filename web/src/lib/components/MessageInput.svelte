@@ -310,9 +310,9 @@
 
   <!-- `items-end` ohne Breakpoint: die Knöpfe sollen bei der Schreibmarke stehen,
        sobald der Text mehrzeilig wird. Bei einer Zeile ist es einerlei, weil der
-       Textkasten genauso hoch ist wie die Knöpfe (36px, siehe unten). -->
+       Textkasten genauso hoch ist wie die Knöpfe (siehe unten). -->
   <div
-    class="bg-bg-input relative flex items-end gap-1.5 border border-border px-3 py-3.5 shadow-[var(--panel-shadow)] backdrop-blur-sm md:gap-2 md:px-4 md:py-3 dark:shadow-none
+    class="bg-bg-input relative flex items-end gap-1.5 border border-border px-3 py-2 shadow-[var(--panel-shadow)] backdrop-blur-sm md:gap-2 md:px-4 md:py-3 dark:shadow-none
            {replyTo || pending.length > 0 ? 'rounded-b-2xl rounded-t-none' : 'rounded-2xl'}"
   >
     {#if isDragging}
@@ -336,6 +336,7 @@
       <Button
         variant="ghost"
         size="icon"
+        class="size-10 md:size-9"
         aria-label={m.message_input_attach_file()}
         onclick={() => fileInput?.click()}
         data-testid="attachment-button"
@@ -343,16 +344,16 @@
         <PaperclipIcon class="size-5" />
       </Button>
     {/if}
-    <!-- `min-h-9` + `py-1.5`: Der Kasten ist damit so hoch wie die Knöpfe daneben
-         (36px) und führt seine Zeile selbst mittig. Vorher war er 24px hoch, und
-         weil die Reihe mit `items-end` unten ausrichtet, klebte seine Unterkante
-         an den Knöpfen — die Textzeile landete dadurch 5,3px UNTER der Feldmitte
-         (gemessen).
+    <!-- `min-h-*` + `py-*` in zwei Grössen: Der Kasten ist damit jeweils so hoch
+         wie die Knöpfe daneben und führt seine Zeile selbst mittig — 44px auf dem
+         Handy (`size-10`-Knöpfe: 24px Zeilenhöhe + 2x8px Abstand), 36px ab
+         Tablet (`md:size-9`: 24px + 2x6px). Weil die Reihe mit `items-end`
+         unten ausrichtet, würde ein niederer Kasten mit seiner Unterkante an
+         den Knöpfen kleben und die Textzeile unter die Feldmitte rutschen
+         (auf dem Handy um gut 4px, gemessen).
 
-         `leading-6` macht es exakt statt nur ungefähr: 24px Zeilenhöhe plus
-         2x6px Abstand ergeben genau die 36px des Kastens, die Zeile füllt ihn
-         also vollständig aus und sitzt zwangsläufig mittig. Mit der geerbten
-         Zeilenhöhe (22,5px) blieben 0,75px Versatz nach oben. -->
+         `leading-6` macht es exakt statt nur ungefähr: die Zeile füllt den
+         Kasten vollständig aus und sitzt zwangsläufig mittig. -->
     <textarea
       bind:this={textarea}
       rows="1"
@@ -365,7 +366,7 @@
       onblur={() => mentionOverlay?.close()}
       placeholder={effectivePlaceholder}
       {disabled}
-      class="text-text-bright placeholder:text-text-muted max-h-40 min-h-9 flex-1 resize-none overflow-y-auto border-0 bg-transparent py-1.5 text-[15px] leading-6 outline-none disabled:cursor-not-allowed disabled:opacity-60"
+      class="text-text-bright placeholder:text-text-muted max-h-40 min-h-10 flex-1 resize-none overflow-y-auto border-0 bg-transparent py-2 text-[15px] leading-6 outline-none disabled:cursor-not-allowed disabled:opacity-60 md:min-h-9 md:py-1.5"
       data-testid="message-input"
     ></textarea>
     <MentionTriggerOverlay
@@ -375,6 +376,8 @@
       {guildId}
       onChange={(t) => (text = t)}
     />
+    <!-- Emoji-Picker nur ab Tablet: auf dem Handy liefert die Tastatur
+         selbst Emojis, der Knopf nahm nur Platz in der kompakten Zeile weg. -->
     <DropdownMenu.Root bind:open={pickerOpen}>
       <DropdownMenu.Trigger>
         {#snippet child({ props })}
@@ -382,6 +385,7 @@
             {...props}
             variant="ghost"
             size="icon"
+            class="hidden size-10 md:inline-flex md:size-9"
             aria-label={m.message_input_insert_emoji()}
             data-testid="emoji-button"
           >
@@ -400,20 +404,19 @@
     </DropdownMenu.Root>
     <!-- Drei beabsichtigte Abweichungen von der Standard-Variante:
          Grösse: `md:size-9` (36px) zieht mit Büroklammer und Emoji daneben
-         gleich, vorher war dieser eine Knopf 32px. `size-11` (44px) auf dem
-         Handy bleibt: dort ist es eine Trefferfläche, keine Optik.
-         Verlauf: `bg-none` löscht den Farbverlauf der Variante, `bg-primary`
-         setzt die einfarbige Fläche, `shadow-none` nimmt den Schlagschatten —
-         zusammen war das die lauteste Fläche im Feld, auch wenn es gar nichts
-         zu senden gab.
+         gleich, vorher war dieser eine Knopf 32px. `size-10` (40px) auf dem
+         Handy: kompakte Zeilenhöhe mit ausreichender Trefferfläche.
+         Verlauf: `accent-gradient` statt der einfarbigen Fläche — direkt unter
+         den eigenen (blauen) Sprechblasen hob sich ein flaches `bg-primary`
+         nicht vom Umfeld ab; der leichte Schatten unterstützt das.
          Gesperrt: die Basis blendet auf 50 % aus, was einen blassblauen Geist
          ergab. `disabled:opacity-100` hebt das auf, erst dadurch werden
          `disabled:bg-secondary`/`disabled:text-text-muted` sichtbar — eine
-         echte graue Fläche statt „halb da". Die drei gehören zusammen. -->
+         echte graue Fläche statt „halb da". Die Abweichungen gehören zusammen. -->
     <Button
       type="submit"
       size="icon"
-      class="size-11 bg-none bg-primary shadow-none disabled:bg-secondary disabled:text-text-muted disabled:opacity-100 md:size-9"
+      class="accent-gradient size-10 text-white shadow-[0_4px_14px_rgba(37,99,235,0.35)] hover:brightness-110 disabled:bg-none disabled:bg-secondary disabled:text-text-muted disabled:opacity-100 disabled:shadow-none md:size-9"
       disabled={sendDisabled}
       data-testid="message-send"
       aria-label={m.message_input_send()}

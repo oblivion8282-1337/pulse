@@ -326,6 +326,12 @@
 </script>
 
 <div class="text-text-base flex h-dvh w-screen flex-col" data-testid="app-shell">
+  <!-- KEIN eigener Hintergrund hier: Die App trägt den Standard-Seitengrund
+       aus app.css (Body-Verlauf + zarte Blobs + Korn) — derselbe Grund wie in
+       der Desktop-App. Die Login-Marine-Ebenen (Verlauf + Glows) waren hier
+       zwischenzeitlich für md+ eingebaut, fielen auf dem Tablet aber aus dem
+       Rahmen; sie leben nur noch auf der Login-Seite selbst. -->
+
   <!-- Phase 4.3: UpdateBanner + SelfHostDisclaimer sitzen ÜBER der Panel-
        Zeile damit sie nicht von der Voice-ControlBar verdeckt werden. -->
   {#if hydrated}

@@ -138,7 +138,7 @@
   }
 </script>
 
-<section class="flex flex-col gap-1" data-testid="friends-list">
+<section class="flex flex-col gap-2" data-testid="friends-list">
   <h2 class="text-text-bright px-1 pb-2 text-xs font-semibold uppercase tracking-wide">
     {onlineOnly ? m.friend_list_heading_online() : m.friend_list_heading_all()} — {visible.length}
   </h2>
@@ -157,7 +157,7 @@
       Object.values(parties).some((p) => p.host_user_id === f.user_id))}
     {@const ctxGuild = vc?.guildId ?? guilds.guildIdForChannel(stream ?? party ?? '')}
     <div
-      class="hover:bg-bg-hover group flex items-center gap-3 rounded-md px-2 py-2"
+      class="hover:bg-bg-hover group border-border bg-bg-input flex items-center gap-3 rounded-[14px] border px-3 py-2.5"
       data-testid="friend-row"
       data-user-id={f.user_id}
     >

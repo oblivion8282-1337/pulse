@@ -114,16 +114,24 @@
   class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl"
   data-testid="discover-page"
 >
-  <header class="border-border text-text-bright flex h-14 shrink-0 items-center gap-1 border-b px-2">
-    <button
-      class="text-text-muted hover:text-primary flex min-h-12 min-w-12 items-center justify-center"
-      onclick={() => goto('/app/rooms')}
-      data-testid="discover-back"
-      aria-label={m.channel_list_back()}
-    >
-      <ChevronLeftIcon class="size-6" />
-    </button>
-    <span class="truncate text-base font-bold tracking-tight">{m.rooms_discover_cta()}</span>
+  <!-- Gleiche Kopfhöhe wie die anderen Bereichs-Screens (BereichsKopf:
+       22px/800, pt-3.5/pb-2) — nur mit Zurück-Pfeil davor, weil Entdecken
+       aus den Räumen heraus erreicht wird. Die alte Fassung war eine
+       Detail-Screen-Leiste (h-14, 16px Titel, Trennlinie) und brach die Höhe. -->
+  <header class="text-text-bright flex shrink-0 items-center justify-between gap-3 px-4 pb-2 pt-3.5">
+    <div class="flex min-w-0 items-center gap-1">
+      <button
+        class="text-text-muted hover:text-primary -ml-2 flex min-h-12 min-w-12 items-center justify-center"
+        onclick={() => goto('/app/rooms')}
+        data-testid="discover-back"
+        aria-label={m.channel_list_back()}
+      >
+        <ChevronLeftIcon class="size-6" />
+      </button>
+      <h1 class="truncate text-[22px] font-extrabold leading-tight tracking-[-0.02em]">
+        {m.rooms_discover_cta()}
+      </h1>
+    </div>
   </header>
 
   <div class="flex-1 overflow-y-auto px-3 pb-4 pt-3">
