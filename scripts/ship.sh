@@ -112,8 +112,8 @@ else
   # (415 Tests) und linux-hq-sidecar (101). Sie liefen bis zum 2026-08-19 in
   # keinem Gate — mit demselben Ergebnis wie bei den Node-Unit-Tests davor: im
   # Player lag ein roter Test monatelang unbemerkt, und ein roter Test meldet
-  # keine Regression mehr. win-/mac-hq-sidecar bleiben draussen, die bauen hier
-  # nicht (Windows-/macOS-Bibliotheken).
+  # keine Regression mehr. win-hq-sidecar bleibt draussen, das baut auf Linux
+  # nicht; die mac-Kisten laufen weiter unten, aber nur auf macOS.
   #
   # Nur bei Änderung am jeweiligen Crate — ein Kaltbau kostet Minuten, und die
   # allermeisten Pushes fassen kein Rust an.
@@ -142,6 +142,38 @@ else
       done
     fi
   fi
+  # --- Die macOS-Kisten, und nur auf macOS ---
+  #
+  # **Hier stand bis zum 2026-08-23 nichts**, mit der Begründung „die bauen
+  # hier nicht (Windows-/macOS-Bibliotheken)". Für Windows stimmt das; für den
+  # mac-Sidecar war es eine Linux-Annahme, die auf einem Mac schlicht falsch
+  # ist — dort baut er in unter einer Sekunde. Ergebnis: 134 Tests des
+  # mac-Sidecars und 43 des mac-Labors liefen in KEINEM Gate, weder lokal noch
+  # in `mac-build.yml` (das nur `cargo build --release` fährt). Sie liefen,
+  # wenn jemand daran dachte.
+  #
+  # Genau das Muster, das dieses Projekt schon zweimal bezahlt hat: ein nicht
+  # ausgeführter Test sieht in der Ausgabe genauso aus wie ein grüner.
+  #
+  # Auf Linux wird gesagt, dass NICHT geprüft wurde — Schweigen läse sich wie
+  # „geprüft".
+  mac_crates=""
+  echo "$changed" | grep -q '^streaming/mac-hq-sidecar/' && mac_crates="$mac_crates streaming/mac-hq-sidecar"
+  echo "$changed" | grep -q '^streaming/mac-hq-labor/' && mac_crates="$mac_crates streaming/mac-hq-labor"
+  if [ -n "$mac_crates" ]; then
+    if [ "$(uname -s)" = "Darwin" ]; then
+      for crate in $mac_crates; do
+        # Klammern aus demselben Grund wie oben (bash 3.2 auf macOS).
+        echo "  Cargo-Tests ${crate}…"
+        ( cd "$crate" && cargo test -q ) \
+          || { echo "✗ Cargo-Tests $crate ROT — Push abgebrochen." >&2; exit 1; }
+      done
+    else
+      echo "⚠  macOS-Kisten geändert ($mac_crates), aber diese Maschine ist kein Mac." >&2
+      echo "   Ihre Tests laufen hier NICHT — vor dem Landen auf einem Mac nachfahren." >&2
+    fi
+  fi
+
   echo "✓ Test-Gate grün."
 fi
 echo

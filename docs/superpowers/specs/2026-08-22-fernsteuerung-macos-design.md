@@ -304,9 +304,17 @@ Auf dieser Maschine (macOS 15.7.3) nachgemessen:
   Bild lassen.
 * **Die Namenszuordnung ist tot.** Der Windows-Trick (Handle gegen
   `LoadCursorW(IDC_*)` vergleichen, Namen übertragen, winit setzt die lokale
-  Entsprechung) hat kein Gegenstück: `NSCursor.arrow.image` und
-  `NSCursor.iBeam.image` liefern Größe (0,0) und gar kein Bild — ausgerechnet
-  die beiden häufigsten Formen sind nicht wiedererkennbar.
+  Entsprechung) hat kein Gegenstück: **`+[NSCursor arrowCursor]` und
+  `+[NSCursor IBeamCursor]` liefern selbst `nil`** — es kommt gar nicht erst
+  bis zum Bild. Ausgerechnet die beiden häufigsten Formen sind damit nicht
+  wiedererkennbar, während `pointingHandCursor` (32×32) und `crosshairCursor`
+  (24×24) durchaus ein Bild haben.
+
+  *(Berichtigt am 2026-08-23 bei der Prüfung von Etappe 4. Hier stand vorher
+  „`NSCursor.arrow.image` … liefert Größe (0,0) und gar kein Bild" — das
+  reproduziert nicht, weil schon der Zeiger `nil` ist. Der Schluss wird dadurch
+  **stärker**, nicht schwächer; aber wer die alte Beobachtung nachfuhr, sah
+  etwas anderes und hätte den ganzen Entwurf für unbelegt halten können.)*
 
 ### 6.2 Der Entwurf
 

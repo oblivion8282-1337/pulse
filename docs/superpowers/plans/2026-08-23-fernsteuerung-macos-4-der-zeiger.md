@@ -9,7 +9,7 @@ Echo, Form, Bild, Rückfall. Grundlage: `docs/superpowers/specs/2026-08-22-ferns
 Nicht neu verhandeln, es steht im Entwurf mit Messung:
 
 - **`NSCursor.currentSystemCursor` trägt prozessübergreifend** (gemessen auf macOS 15.7.3: der Prüfling las den I-Balken des Terminals, 9×18, Aufhängepunkt 4,9) — ist aber **abgekündigt**; der Header sagt wörtlich, die Eigenschaft werde künftig immer `nil` liefern.
-- **Die Namensübertragung ist auf macOS tot.** `NSCursor.arrow.image` und `.iBeam.image` liefern Größe (0,0) und gar kein Bild — ausgerechnet die beiden häufigsten Formen sind nicht wiedererkennbar. **Der Mac schickt deshalb immer das BILD**, nie den Namen. Das dreht den Windows-Entwurf um, und zwar begründet.
+- **Die Namensübertragung ist auf macOS tot.** `+[NSCursor arrowCursor]` und `+[NSCursor IBeamCursor]` liefern **selbst `nil`** — es kommt gar nicht bis zum Bild. Ausgerechnet die beiden häufigsten Formen sind nicht wiedererkennbar. (Nachgemessen 2026-08-23; die frühere Formulierung „liefern Größe (0,0)" reproduzierte nicht.) **Der Mac schickt deshalb immer das BILD**, nie den Namen. Das dreht den Windows-Entwurf um, und zwar begründet.
 - **Die private CGS-Schnittstelle ist verworfen** (§2.1) — vorhanden, wäre strukturell exakt der Windows-Weg, ist aber undokumentiert und bräche beim Nutzer statt beim Bau. Nicht wiederentdecken.
 - **Einfache Auflösung, nicht doppelte.** winit skaliert eigene Zeiger nicht mit; ein 2x-Bild erschiene beim Steuernden doppelt groß, und der 5900-Byte-Trichter würde eng.
 
