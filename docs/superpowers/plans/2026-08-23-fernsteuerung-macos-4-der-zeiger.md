@@ -102,7 +102,11 @@ Das Stück, das die Funktion **altern statt ausfallen** lässt, wenn Apple die A
 
 ### Task 8: Abnahme
 
-- [ ] Zwei-Geräte-Lauf: Linux steuert Mac, Zeiger wechselt über Textfeld, Fensterrand, Timeline.
+- [x] **Zwei-Geräte-Lauf gefahren (2026-08-23): Linux steuert Mac, es klappt.** Ein Zeiger statt zwei, und er trägt die Form des Hosts.
+
+  **Damit sind die beiden Lücken beantwortet, die kein Test fangen konnte** und die deshalb ausdrücklich auf diesen Lauf vertagt waren: der Takt hängt wirklich am Wecker (sonst bliebe die Form stehen), und `zeigen`/`verbergen` sind nicht vertauscht (sonst wäre der Zeiger dauerhaft weg oder dauerhaft doppelt). Dazu die letzte Annahme in `cursorsteuerung.rs`: **SCK wendet `updateConfiguration` am laufenden Strom wirklich an** — bis dahin beruhte das allein auf dessen `Ok`. Beide Fehlbilder wären sofort sichtbar gewesen; keines trat auf.
+
+  **Eine Messung, kein Test.** Wer die betroffenen Zeilen umbaut, hat weiterhin kein Netz und muss erneut fahren; die Vermerke stehen an beiden Stellen im Code.
 - [ ] Rückfall künstlich auslösen (Abfrage auf `nil` zwingen) und prüfen, dass genau **ein** Zeiger sichtbar bleibt.
 - [ ] Changelog (Stil vom Nutzer), Version-Bump — `pulse-player` ist betroffen.
 
