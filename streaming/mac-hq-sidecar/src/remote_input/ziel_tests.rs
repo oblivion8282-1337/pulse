@@ -94,3 +94,35 @@ fn rechteck_nimmt_den_ursprung_mit() {
     assert_eq!(z.rechts, 0);
     assert_eq!(z.unten, 880);
 }
+
+/// **Der Fensterwunsch darf nicht verlorengehen.** Wird er ignoriert und
+/// stattdessen der Schirm genommen, spreizt die Eingabe ueber den ganzen
+/// Schirm, waehrend der Zuschauer ein Fenster sieht — die Klemm-Zusage waere
+/// gebrochen, und zwar lautlos.
+///
+/// Dieser Zweig kommt **ohne Systemfreigabe** aus: er kehrt vor der
+/// Schirmliste zurueck. Den Schirm-Zweig nimmt `examples/probe_ziel.rs` ab,
+/// weil `SCShareableContent` die Aufnahmefreigabe verlangt.
+#[test]
+fn ein_fensterwunsch_wird_nicht_zum_schirm() {
+    assert_eq!(quelle_aus(Some(4711), 1), Some(Quelle::Fenster(4711)));
+    // Auch dann nicht, wenn ein Schirmindex danebensteht — das Fenster gewinnt.
+    assert_eq!(quelle_aus(Some(4711), 7), Some(Quelle::Fenster(4711)));
+}
+
+/// **`sichtbar` ist auf macOS fest `true`, und das ist eine Entscheidung.**
+/// Die Kiste warnt ausdruecklich: ein Adapter, der hier `false` liefert, legt
+/// die Fernsteuerung fuer JEDEN Strom still — und kein Test der Kiste kann das
+/// sehen, weil dort nur ankommt, was der Adapter behauptet. Also hier.
+#[test]
+fn gefundene_ziele_gelten_als_sichtbar() {
+    let _reihum = REIHUM.lock().unwrap_or_else(|e| e.into_inner());
+    strom_gestartet(None, Quelle::Schirm(1));
+    match ziel_fuer_slot(0) {
+        Zielsuche::Gefunden { sichtbar, .. } => {
+            assert!(sichtbar, "ohne Sichtschutz gilt ein Strom als sichtbar");
+        }
+        _ => panic!("angemeldeter Strom muss gefunden werden"),
+    }
+    strom_beendet();
+}

@@ -18,6 +18,14 @@
 //! * `weg` — eine Fensterkennung, die es nicht gibt: es darf **kein** Rechteck
 //!   herauskommen, und nichts darf abstuerzen. Der Pfad durch den leeren
 //!   CFArray.
+//! * `lebenszyklus` — **die Verdrahtung selbst**: meldet der echte
+//!   `StreamController` an und wieder ab? Ein Unit-Test kommt da nicht hin, weil
+//!   `Capturer::start` die Aufnahmefreigabe verlangt. Genau diese beiden
+//!   Aufrufe sind aber die Stelle, an der die Fernsteuerung sonst auf einen
+//!   Strom zielt, den es nicht mehr gibt — der mac-Sidecar bleibt zwischen zwei
+//!   Streams warm, es raeumt hier niemand nebenbei auf.
+//! * `quelle` — `quelle_aus` fuer den Schirm-Zweig (braucht die Freigabe, der
+//!   Fenster-Zweig steht im Unit-Test).
 
 use pulse_fernsteuerung::plattform::Zielsuche;
 use pulse_mac_hq_sidecar::capture;
@@ -95,6 +103,77 @@ fn lauf_fenster() -> bool {
     urteil("Masse stimmen mit SCWindow.frame ueberein", breite == w.width && hoehe == w.height)
 }
 
+/// Der echte Lebenszyklus: `StreamController::start` meldet an, das Ende des
+/// Workers meldet ab.
+///
+/// Gefahren wird mit einer **ungueltigen Fensterkennung** — `Capturer::start`
+/// scheitert daran frueh, ohne dass eine Aufnahme anlaeuft. Der Strom ist
+/// trotzdem angemeldet worden, und genau das ist zu zeigen.
+fn lauf_lebenszyklus() -> bool {
+    use pulse_mac_hq_sidecar::capture::AudioScope;
+    use pulse_mac_hq_sidecar::stream_controller::{StartParams, StreamController};
+
+    ziel::strom_beendet();
+    let params = StartParams {
+        display_index: 1,
+        window_id: Some(u32::MAX),
+        width: 640,
+        height: 360,
+        fps: 30,
+        bitrate_kbps: 1000,
+        codec: "h264".into(),
+        push_url: String::new(),
+        show_cursor: false,
+        enable_audio: false,
+        audio_scope: AudioScope::None,
+        av_offset_ms: 0,
+    };
+    let controller = StreamController::singleton();
+    if let Err(e) = controller.start(params, vec![]) {
+        eprintln!("start schlug schon beim Aufsetzen fehl: {e:#}");
+        return false;
+    }
+    // Sofort nachsehen: der Worker scheitert gleich, aber die Anmeldung steht
+    // vor ihm.
+    let angemeldet = !matches!(ziel::ziel_fuer_slot(0), Zielsuche::KeinStrom);
+    let mut gut = urteil("start meldet den Strom an", angemeldet);
+    // `stop` wartet auf den Worker — danach muss abgemeldet sein.
+    let _ = controller.stop();
+    gut &= urteil(
+        "das Ende des Workers meldet ihn wieder ab",
+        matches!(ziel::ziel_fuer_slot(0), Zielsuche::KeinStrom),
+    );
+    gut
+}
+
+/// `quelle_aus` fuer den Schirm — der Zweig, der die Schirmliste braucht.
+fn lauf_quelle() -> bool {
+    let schirme = match capture::list_displays() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("keine Schirmliste: {e}");
+            return false;
+        }
+    };
+    let Some(erster) = schirme.first() else {
+        eprintln!("kein Schirm gemeldet");
+        return false;
+    };
+    let mut gut = urteil(
+        "der genannte Schirm wird genommen",
+        ziel::quelle_aus(None, erster.index) == Some(Quelle::Schirm(erster.display_id)),
+    );
+    // **Muss deckungsgleich mit der Aufnahme sein:** `resolve_resolution` faellt
+    // bei einem Index ausserhalb der Liste ebenfalls auf den ersten Schirm
+    // zurueck. Liefe das auseinander, zielte die Eingabe auf einen anderen
+    // Schirm als den uebertragenen.
+    gut &= urteil(
+        "ein Index ausserhalb der Liste faellt auf den ersten Schirm",
+        ziel::quelle_aus(None, 999) == Some(Quelle::Schirm(erster.display_id)),
+    );
+    gut
+}
+
 fn lauf_weg() -> bool {
     // Eine Kennung, die kein Fenster traegt. Der Fenster-Server liefert dafuer
     // eine leere Liste — und genau dieser Pfad geht durch den unsafe-Teil.
@@ -108,8 +187,10 @@ fn main() {
         "schirm" => lauf_schirm(),
         "fenster" => lauf_fenster(),
         "weg" => lauf_weg(),
+        "lebenszyklus" => lauf_lebenszyklus(),
+        "quelle" => lauf_quelle(),
         anderes => {
-            eprintln!("unbekannter Lauf: {anderes} (schirm | fenster | weg)");
+            eprintln!("unbekannter Lauf: {anderes} (schirm | fenster | weg | lebenszyklus | quelle)");
             false
         }
     };
