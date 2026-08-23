@@ -158,6 +158,11 @@ pub fn zeigen() {
 /// ausgelieferten Weg ruft das niemand. Und es belegt genau eines: was DIESE
 /// Seite geschrieben hat. Dass SCK es auch angewandt hat, zeigt erst das Bild
 /// beim Zuschauer (Zwei-Geraete-Lauf).
+///
+/// **Gefahren am 2026-08-23: SCK wendet es an.** Linux steuert Mac, der
+/// Host-Zeiger ist aus dem uebertragenen Bild verschwunden und der Steuernde
+/// sieht nur noch seinen eigenen. Das war die letzte Annahme dieser Datei, die
+/// nur auf `Ok` von `updateConfiguration` beruhte.
 pub fn zeiger_in_der_aufnahme() -> Option<bool> {
     sperre().as_ref().map(|p| unsafe { p.einstellungen.0.showsCursor() })
 }

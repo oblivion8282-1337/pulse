@@ -189,6 +189,16 @@ fn lage_aendern(aenderung: impl FnOnce(&mut Zeigerlage)) {
 /// darueber, die aus dem `bool` `zeigen()` oder `verbergen()` machen. Eine
 /// Vertauschung dort faellt erst am Bild auf — `examples/probe_zeigerecho.rs`
 /// und der Zwei-Geraete-Lauf.
+///
+/// **Der Lauf ist gefahren (2026-08-23): Linux steuert Mac, der Steuernde
+/// sieht EINEN Zeiger, und er traegt die Form des Hosts.** Damit ist beides
+/// beantwortet, was hier und am Takt offen stand: die Zeilen sind nicht
+/// vertauscht (sonst waere der Zeiger dauerhaft weg oder dauerhaft doppelt),
+/// und der Takt haengt wirklich am Wecker (sonst bliebe die Form stehen,
+/// statt sich beim Fahren ueber Text und Fensterraender zu aendern).
+/// Beide Fehlbilder waeren sofort sichtbar gewesen; keiner trat auf.
+/// **Eine Messung, kein Test** — wer diese Zeilen umbaut, hat weiterhin kein
+/// Netz und muss erneut fahren.
 fn lage_aendern_mit(aenderung: impl FnOnce(&mut Zeigerlage), anwenden: impl FnOnce(bool)) {
     let mut lage = LAGE.lock().unwrap_or_else(|e| e.into_inner());
     aenderung(&mut lage);
