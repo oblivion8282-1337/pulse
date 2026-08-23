@@ -222,3 +222,23 @@ fn der_trichter_wird_hier_nicht_gezogen() {
     assert!(b.stimmig());
     assert!(b.packen().is_none(), "zu gross fuer die Leitung — das entscheidet das Format");
 }
+
+/// **Ein durchweg durchsichtiges Bild ist kein Bild** — der zweite Ausloeser
+/// des Rueckfalls (`super::super::zeigermeldung`).
+///
+/// Ginge es hinaus, bekaeme der Steuernde einen unsichtbaren Zeiger geschickt
+/// und stuende ganz ohne da, waehrend Sender wie Empfaenger einen Erfolg
+/// buchen — der leiseste Fehlerausgang dieser Kette. Ein einziger deckender
+/// Punkt genuegt dagegen: ein Zeiger darf ueberwiegend durchsichtig sein.
+#[test]
+fn ein_durchweg_durchsichtiges_bild_geht_nicht_hinaus() {
+    let leer = streifen([0, 0, 0, 0], 4);
+    assert!(bild(2, 2, (0.0, 0.0), &leer, 8).is_none(), "nichts zu sehen, nichts zu senden");
+
+    let mut fast_leer = leer.clone();
+    fast_leer[3] = 1;
+    assert!(
+        bild(2, 2, (0.0, 0.0), &fast_leer, 8).is_some(),
+        "ein einziger deckender Punkt macht daraus einen Zeiger"
+    );
+}

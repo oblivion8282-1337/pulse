@@ -135,6 +135,29 @@ and `sidecar.ts` respawns it (win32-only). On macOS the process stays warm —
 second in-process capture session, add `'darwin'` to the respawn gate in
 `sidecar.ts` (line ~305) instead of self-exiting here.
 
+### Remote-control events (async, no `id`)
+
+| Event | Payload | Meaning |
+|---|---|---|
+| `remote_state` | `state`, `hold_ms` / `reason` | session state: `host_active` / `live` / `input_error` |
+| `remote_pointer` | `shape`, optional `bild` | the host cursor's shape. On macOS `shape` is always `default` and the picture carries the information — the platform has no name mapping (`src/remote_input/zeigerform.rs`). The renderer forwards it as `remote_signal` `kind:"zeiger"`. |
+| `remote_pointer_in_frame` | `aktiv` (bool) | **macOS only, since 2026-08-23.** The pointer query returned nothing, so the host cursor was put back into the capture and rides along in the video; the controller must hide his own local one (`aktiv:false` = back to normal). The renderer forwards it as `remote_signal` `kind:"zeiger_im_bild"` with `data:{"aktiv":…}`. Why it exists: `NSCursor.currentSystemCursor` is deprecated and the SDK header says it will return `nil` in a future macOS — this makes the feature *age* instead of failing. |
+
+Two things about `remote_pointer_in_frame` that are easy to get wrong:
+
+* **While the fallback holds it repeats once per second**, like the host-priority
+  signal — the gateway drops `remote_signal` over its per-second cap (60/s,
+  shared with priority, pointer shape and the whole P2P/ICE handshake)
+  **silently**, and a lost `aktiv:true` would leave the controller with two
+  cursors for the rest of the session. `aktiv:false` goes out once; a lost one
+  is caught on the receiving side instead (reset at session end, and the
+  player's own reset when capture stops).
+* **It is not sent at session end.** The session is over by then and the frame
+  would only reach the controller by luck; the receiver resets on session end
+  instead, the same way it already does for the shape.
+
+Full reasoning: `src/remote_input/zeigermeldung.rs`.
+
 ## Planned pipeline (capture → encode → mux → push)
 
 ```

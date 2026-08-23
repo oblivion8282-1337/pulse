@@ -13,6 +13,12 @@
 //! [`injektion`] feuert ab und laesst sich nur an einem echten Ziel abnehmen —
 //! dafuer gibt es den Pruefling `examples/probe_injektor/`.
 //!
+//! Derselbe Schnitt noch einmal beim Zeiger: [`zeigerform`] fragt AppKit und
+//! zeichnet, [`zeigerpunkte`] rechnet um, und [`zeigermeldung`] haengt beides
+//! an den Wecker der Wache, fuehrt die Buchfuehrung aus
+//! `pulse-fernsteuerung` und traegt den Rueckfall („der Host-Zeiger reitet im
+//! Bild mit"), den es auf Windows nicht gibt.
+//!
 //! [`wache`] steht auf derselben Seite wie [`injektion`]: sie haengt an einem
 //! systemweiten Ereignis-Abgriff und stellt im Testbau keinen auf. Was an ihr
 //! rein ist — die Bewegungsschwelle, die Fristrechnung — liegt schon in
@@ -26,6 +32,7 @@ pub mod klickzaehler;
 pub mod tasten;
 pub mod wache;
 pub mod zeigerform;
+mod zeigermeldung;
 mod zeigerpunkte;
 pub mod ziel;
 
@@ -125,7 +132,18 @@ fn hueterin() -> &'static MacHandschlagWache {
     // Der Rueckruf ruft `sitzung()`, und `sitzung()` baut diese Wache — ein
     // Zyklus ist das nicht: gebaut wird hier nur der Verschluss, gerufen wird er
     // erst vom Wecker, und der laeuft erst nach dem Handschlag.
-    W.get_or_init(|| MacHandschlagWache(wache::MacWache::neu(|| sitzung().vorrang_tick())))
+    W.get_or_init(|| {
+        MacHandschlagWache(wache::MacWache::neu(|| {
+            sitzung().vorrang_tick();
+            // Auf demselben Wecker, weil dieselbe Bedingung gilt: er laeuft
+            // genau, solange eine Fernsteuerung laeuft. Die Abfrage der
+            // Zeigerform kostet gemessene 0,16 bis 0,18 ms und darf deshalb
+            // keinen eigenen Faden bekommen (s. `zeigerform`). Gleiche
+            // Anbindung wie auf Windows (`win-hq-sidecar/src/remote_input/
+            // wache.rs::wecker_starten`).
+            zeigermeldung::tick();
+        }))
+    })
 }
 
 /// Laeuft gerade eine Fernsteuerung? Der Aufnahme-Takt darf sich daran haengen.
@@ -153,22 +171,24 @@ impl Umgebung for MacUmgebung {
     }
 
     fn host_zeiger_zeigen(&self, zeigen: bool) {
-        // Wortgleich mit dem Zwilling. Was macOS hier anders macht
-        // (`updateConfiguration` statt eines Einzelschalters, asynchron statt
-        // sofort), steht in `capture::cursorsteuerung` — hier soll nichts
-        // stehen, das die beiden Plattformen auseinanderlaufen laesst.
-        if zeigen {
-            crate::capture::cursorsteuerung::zeigen();
-        } else {
-            crate::capture::cursorsteuerung::verbergen();
-        }
+        // **Seit dem 2026-08-23 NICHT mehr wortgleich mit dem Zwilling**, und
+        // der Grund steht in `zeigermeldung`: auf macOS kann der Rueckfall
+        // verlangen, dass der Host-Zeiger im Bild bleibt, obwohl das
+        // Cursor-Echo ihn heraushaben will. Griffen beide unabhaengig auf
+        // `capture::cursorsteuerung` zu, kaempften sie gegeneinander. Die eine
+        // Regel steht deshalb dort, wo beide Wuensche zusammenkommen — und
+        // nicht hier.
+        zeigermeldung::zeiger_der_sitzung(zeigen);
     }
 
     fn sitzung_beendet(&self) {
-        // Zu raeumen gibt es hier erst etwas, wenn die Zeigerform mitgeht
-        // (Etappe 4). Der Weg steht trotzdem schon, damit ihn niemand spaeter
-        // an `host_zeiger_zeigen` haengt — dort liefe er zusaetzlich bei jedem
-        // Fuehrungswechsel und bei jedem Vorrang-Uebergang.
+        // Die gemeldete Zeigerform und der Rueckfall gehoeren der Sitzung, die
+        // gerade endet — die naechste beginnt mit leerem Buch (Begruendung in
+        // `zeigermeldung::zuruecksetzen`). Ausdruecklich hier und nicht an
+        // `host_zeiger_zeigen`: dort liefe es zusaetzlich bei jedem
+        // Fuehrungswechsel und bei jedem Vorrang-Uebergang, und der Sidecar
+        // hielte danach jede Form fuer unbekannt und schickte sie erneut.
+        zeigermeldung::zuruecksetzen();
     }
 
     fn fern_aktiv_setzen(&self, aktiv: bool) {
