@@ -28,7 +28,7 @@ import { describe, it } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { ZeigerImBild, deuteZeigerImBild, sidecarMeldungImBild } from '../src/lib/remote/zeigerImBild.ts';
+import { ZeigerImBild, deuteZeigerImBild, sidecarMeldungImBild, RueckfallDrossel } from '../src/lib/remote/zeigerImBild.ts';
 
 describe('deuteZeigerImBild — die Nutzlast des Hosts', () => {
   it('blendet nur bei einem ausdrücklichen true aus', () => {
@@ -266,5 +266,35 @@ describe('sidecarMeldungImBild — die Weiterleitung auf der Host-Seite', () => 
         `aktiv=${JSON.stringify(wert)}`,
       );
     }
+  });
+});
+
+describe('RueckfallDrossel — mehrere Sidecar-Prozesse, eine Meldung', () => {
+  it('laesst einen Wechsel SOFORT durch, auch innerhalb der Frist', () => {
+    const d = new RueckfallDrossel();
+    assert.equal(d.melden(true, 1000, 900), true);
+    // Derselbe Stand kurz darauf: geschluckt.
+    assert.equal(d.melden(true, 1100, 900), false);
+    // Aber ein WECHSEL geht durch, obwohl die Frist laeuft. Das ist der Punkt:
+    // wer auch den Wechsel bremst, verzoegert das Ausblenden um bis zu eine
+    // Sekunde — und das sieht der Nutzer.
+    assert.equal(d.melden(false, 1150, 900), true);
+  });
+
+  it('laesst die Wiederholung nach Ablauf der Frist wieder durch', () => {
+    const d = new RueckfallDrossel();
+    assert.equal(d.melden(true, 0, 900), true);
+    assert.equal(d.melden(true, 899, 900), false);
+    // Genau darauf beruht die Heilung: geht die erste Meldung verloren, bringt
+    // die naechste Wiederholung sie nach. Wer sie dauerhaft schluckt, macht
+    // die Wiederholung des Senders wirkungslos.
+    assert.equal(d.melden(true, 900, 900), true);
+  });
+
+  it('schluckt die Wiederholungen mehrerer Sidecars im selben Fenster', () => {
+    const d = new RueckfallDrossel();
+    // Drei Schirme, drei Prozesse, dieselbe Sekunde: eine Meldung.
+    const durch = [d.melden(true, 500, 900), d.melden(true, 510, 900), d.melden(true, 520, 900)];
+    assert.deepEqual(durch, [true, false, false]);
   });
 });

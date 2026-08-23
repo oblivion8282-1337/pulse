@@ -196,6 +196,29 @@ Komfort-Fallback); `"portal"` → Primärmonitor.
 - `error` — `message`
 - `stopped` — kommt direkt nach dem letzten `state=stopped`-Event
 
+**Fernsteuerung** (nur Windows- und macOS-Sidecar; der Renderer reicht sie als
+`remote_signal` an den Steuernden weiter). Hier stand bis zum 2026-08-23 keines
+davon — die Ereignisse waren nur in den READMEs der einzelnen Sidecars
+beschrieben, und wer diese Liste für vollständig hielt, übersah sie:
+
+- `remote_state` — `state ∈ {"host_active","live","input_error"}`, dazu
+  `hold_ms` bzw. `reason`. `host_active` heißt: der Host hat sich selbst an Maus
+  oder Tastatur geregt, die Fremdeingabe wird für `hold_ms` verworfen.
+- `remote_pointer` — `shape`, optional `bild`. Die Form des Host-Zeigers, damit
+  der Steuernde seinen eigenen, verzögerungsfreien Zeiger richtig zeichnet.
+  **Auf macOS ist `shape` immer `default`** und die Information steckt im Bild:
+  die Plattform hat keine Namenszuordnung, weil `+[NSCursor arrowCursor]` und
+  `IBeamCursor` selbst `nil` liefern.
+- `remote_pointer_in_frame` — `aktiv` (bool). **Nur macOS, seit 2026-08-23.**
+  Der Rückfall: die Zeigerabfrage gab nichts her, der Host-Zeiger wurde zurück
+  ins Videobild geschaltet und reitet dort mit — der Steuernde muss seinen
+  eigenen ausblenden, sonst sieht er zwei. `aktiv:false` = zurück zum
+  Regelfall. Warum es das gibt: `NSCursor.currentSystemCursor` ist abgekündigt,
+  der SDK-Kopf sagt wörtlich, sie werde künftig immer `nil` liefern — der
+  Rückfall lässt die Funktion **altern statt ausfallen**. Wird beim
+  Sitzungsende **nicht** geschickt (die Sitzung ist dann vorbei, der Rahmen
+  käme nur durch Zufall an); der Empfänger setzt stattdessen selbst zurück.
+
 ### Beispiel
 
 ```jsonc

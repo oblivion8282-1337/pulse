@@ -63,7 +63,7 @@
 import type { RemoteSignalKind } from '$lib/ws/handlers/types';
 import { aufSidecarEreignisse } from './sidecarInput';
 import { pruefeBild, type Zeigerbild } from './zeigerbildPruefung';
-import { ZeigerImBild, sidecarMeldungImBild } from './zeigerImBild';
+import { RueckfallDrossel, ZeigerImBild, sidecarMeldungImBild } from './zeigerImBild';
 
 export type { Zeigerbild };
 
@@ -138,6 +138,9 @@ class RemoteZeigerform {
   #bild: Zeigerbild | undefined;
   /** Wann der Host zuletzt gesendet hat (`Date.now()`), 0 = noch nie. */
   #gesendetMs = 0;
+  /** Fasst die Rueckfall-Meldungen mehrerer Sidecar-Prozesse zusammen
+   *  (Host-Seite) — Regel und Begruendung in [`./zeigerImBild`]. */
+  #imBildDrossel = new RueckfallDrossel();
   /**
    * Wann zuletzt ein **vollständiges** Bild hinausging (`Date.now()`).
    *
@@ -294,6 +297,18 @@ class RemoteZeigerform {
     // zweiter Ort, an dem sich die Regel ändern kann.
     const imBild = sidecarMeldungImBild(ev);
     if (imBild !== null) {
+      // **Zusammenfassen wie beim Formweg, aus demselben Grund.** Der Zeiger
+      // ist maschinenweit einer, aber bei mehreren Schirmen laeuft je Schirm
+      // ein Sidecar-Prozess, und jeder wiederholt seinen Stand je Sekunde
+      // (gegen den still verwerfenden Sekundendeckel des Gateways). Ohne diese
+      // Zeile gingen N Meldungen je Sekunde hinaus statt einer — gegen
+      // denselben 60/s-Deckel, den sich Vorrang, Zeigerform und der
+      // ICE-Schwall teilen.
+      //
+      // Ein WECHSEL geht immer sofort hinaus; nur die Wiederholung wird
+      // gebremst. Damit bleibt die Heilung erhalten, fuer die der Sender
+      // ueberhaupt wiederholt.
+      if (!this.#imBildDrossel.melden(imBild, Date.now(), AUFFRISCH_MS)) return;
       this.#sendSignal?.('zeiger_im_bild', { aktiv: imBild });
       return;
     }
