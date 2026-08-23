@@ -80,6 +80,39 @@ export function sidecarMeldungImBild(ev: unknown): boolean | null {
 }
 
 /**
+ * **Die Drossel der Host-Seite**: mehrere Sidecar-Prozesse, eine Meldung.
+ *
+ * Der Zeiger ist maschinenweit einer, aber bei mehreren Schirmen laeuft je
+ * Schirm ein Sidecar-Prozess, und jeder wiederholt seinen Stand je Sekunde —
+ * gegen den still verwerfenden Sekundendeckel des Gateways, der sich Vorrang,
+ * Zeigerform, Rueckfall und den ICE-Schwall teilt. Ohne Zusammenfassen gingen
+ * bei drei Schirmen drei Meldungen je Sekunde hinaus statt einer.
+ *
+ * **Ein WECHSEL geht immer sofort hinaus**, nur die Wiederholung wird gebremst.
+ * Das ist der Punkt: der Sender wiederholt ja gerade deshalb, damit ein
+ * verlorenes `aktiv:true` heilt. Wer stattdessen jede Meldung im selben
+ * Zeitfenster schluckt, nimmt der Heilung die Wirkung und verzoegert den
+ * Wechsel um bis zu eine Sekunde.
+ *
+ * Gleiche Regel und gleiche Frist wie der Formweg in [`./zeigerform`].
+ */
+export class RueckfallDrossel {
+  #gemeldet: boolean | null = null;
+  #zuletztMs = 0;
+
+  /**
+   * Soll diese Meldung hinausgehen? `jetzt` kommt herein, damit die
+   * Entscheidung ohne Uhr pruefbar ist.
+   */
+  melden(aktiv: boolean, jetzt: number, fristMs: number): boolean {
+    if (aktiv === this.#gemeldet && jetzt - this.#zuletztMs < fristMs) return false;
+    this.#gemeldet = aktiv;
+    this.#zuletztMs = jetzt;
+    return true;
+  }
+}
+
+/**
  * Der Stand beim Steuernden: steht der Host-Zeiger gerade im Bild?
  *
  * Führt genau einen Wahrheitswert und beantwortet zwei Fragen — muss das
