@@ -5,6 +5,7 @@
    * touch this sheet is the only path to react / reply / edit / delete.
    * Opened via `use:longpress` on the message row.
    */
+  import BottomSheet from '$lib/components/mobile/BottomSheet.svelte';
   import ReplyIcon from '@lucide/svelte/icons/reply';
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
@@ -54,95 +55,86 @@
   }
 </script>
 
-{#if open}
-  <div
-    class="fixed inset-0 z-50 flex flex-col justify-end"
-    data-testid="message-action-sheet"
-  >
-    <button
-      type="button"
-      class="absolute inset-0 bg-black/50"
-      aria-label={m.message_action_sheet_close()}
-      onclick={close}
-    ></button>
-    <div
-      class="bg-popover text-popover-foreground relative max-h-[80dvh] overflow-y-auto rounded-t-2xl border-t border-border pb-[var(--safe-bottom)] shadow-2xl"
-    >
-      <div class="mx-auto mt-2 mb-1 h-1 w-9 shrink-0 rounded-full bg-border"></div>
+<BottomSheet
+  {open}
+  testid="message-action-sheet"
+  closeLabel={m.message_action_sheet_close()}
+  panelClass="bg-popover text-popover-foreground relative max-h-[80dvh] overflow-y-auto rounded-t-2xl border-t border-border pb-[var(--safe-bottom)] shadow-2xl"
+  onClose={close}
+>
+  <div class="mx-auto mt-2 mb-1 h-1 w-9 shrink-0 rounded-full bg-border"></div>
 
-      {#if pickerView}
-        <div class="flex justify-center p-3">
-          <EmojiPicker onPick={react} />
-        </div>
-      {:else}
-        <!-- Quick-reaction strip -->
-        <div class="flex items-center justify-between gap-1 px-3 py-2">
-          {#each QUICK as e (e)}
-            <button
-              type="button"
-              class="flex size-11 items-center justify-center rounded-full text-2xl active:bg-bg-hover"
-              data-testid="sheet-quick-react"
-              data-emoji={e}
-              onclick={() => react(e)}
-            >{e}</button>
-          {/each}
-          <button
-            type="button"
-            class="text-text-muted flex size-11 items-center justify-center rounded-full active:bg-bg-hover"
-            aria-label={m.message_action_sheet_more_emojis()}
-            data-testid="sheet-action-react"
-            onclick={() => (pickerView = true)}
-          >
-            <SmilePlusIcon class="size-5" />
-          </button>
-        </div>
-
-        <div class="my-1 border-t border-border"></div>
-
-        <MenuRow
-          density="comfortable"
-          data-testid="sheet-action-reply"
-          onclick={() => run(onReply)}
-        >
-          <ReplyIcon class="text-text-muted size-5 shrink-0" />
-          {m.message_action_sheet_reply()}
-        </MenuRow>
-
-        {#if canEdit}
-          <MenuRow
-            density="comfortable"
-            data-testid="sheet-action-edit"
-            onclick={() => run(onEdit)}
-          >
-            <PencilIcon class="text-text-muted size-5 shrink-0" />
-            {m.message_action_sheet_edit()}
-          </MenuRow>
-        {/if}
-
-        {#if canDelete}
-          <MenuRow
-            variant="danger"
-            density="comfortable"
-            data-testid="sheet-action-delete"
-            onclick={() => run(onDelete)}
-          >
-            <Trash2Icon class="size-5 shrink-0" />
-            {m.message_action_sheet_delete()}
-          </MenuRow>
-        {/if}
-
-        {#if canReport}
-          <MenuRow
-            variant="warning"
-            density="comfortable"
-            data-testid="sheet-action-report"
-            onclick={() => onReport?.()}
-          >
-            <FlagIcon class="size-5 shrink-0" />
-            {m.message_action_sheet_report()}
-          </MenuRow>
-        {/if}
-      {/if}
+  {#if pickerView}
+    <div class="flex justify-center p-3">
+      <EmojiPicker onPick={react} />
     </div>
-  </div>
-{/if}
+  {:else}
+    <!-- Quick-reaction strip -->
+    <div class="flex items-center justify-between gap-1 px-3 py-2">
+      {#each QUICK as e (e)}
+        <button
+          type="button"
+          class="flex size-11 items-center justify-center rounded-full text-2xl active:bg-bg-hover"
+          data-testid="sheet-quick-react"
+          data-emoji={e}
+          onclick={() => react(e)}
+        >{e}</button>
+      {/each}
+      <button
+        type="button"
+        class="text-text-muted flex size-11 items-center justify-center rounded-full active:bg-bg-hover"
+        aria-label={m.message_action_sheet_more_emojis()}
+        data-testid="sheet-action-react"
+        onclick={() => (pickerView = true)}
+      >
+        <SmilePlusIcon class="size-5" />
+      </button>
+    </div>
+
+    <div class="my-1 border-t border-border"></div>
+
+    <MenuRow
+      density="comfortable"
+      data-testid="sheet-action-reply"
+      onclick={() => run(onReply)}
+    >
+      <ReplyIcon class="text-text-muted size-5 shrink-0" />
+      {m.message_action_sheet_reply()}
+    </MenuRow>
+
+    {#if canEdit}
+      <MenuRow
+        density="comfortable"
+        data-testid="sheet-action-edit"
+        onclick={() => run(onEdit)}
+      >
+        <PencilIcon class="text-text-muted size-5 shrink-0" />
+        {m.message_action_sheet_edit()}
+      </MenuRow>
+    {/if}
+
+    {#if canDelete}
+      <MenuRow
+        variant="danger"
+        density="comfortable"
+        data-testid="sheet-action-delete"
+        onclick={() => run(onDelete)}
+      >
+        <Trash2Icon class="size-5 shrink-0" />
+        {m.message_action_sheet_delete()}
+      </MenuRow>
+    {/if}
+
+    {#if canReport}
+      <MenuRow
+        variant="warning"
+        density="comfortable"
+        data-testid="sheet-action-report"
+        onclick={() => onReport?.()}
+      >
+        <FlagIcon class="size-5 shrink-0" />
+        {m.message_action_sheet_report()}
+      </MenuRow>
+    {/if}
+  {/if}
+</BottomSheet>

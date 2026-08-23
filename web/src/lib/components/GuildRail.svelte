@@ -342,8 +342,13 @@
   }
 </script>
 
+<!-- `hidden lg:flex`: auf Handy und Tablet uebernimmt die Bereichs-Leiste
+     (`MobileTabBar` / `TabletNavRail`) die Navigation; die Server-Icons
+     wohnen dort im Raeume-Bereich. Am Rechner bleibt die Leiste unveraendert
+     stehen. Gatet an EINER Stelle statt an den vier Routen, die sie
+     rendern — sonst haette eine kuenftige fuenfte Route sie wieder. -->
 <nav
-  class="glass-panel flex h-full w-20 flex-col items-center gap-2 overflow-y-auto overflow-x-hidden rounded-none py-3 md:w-16 md:rounded-2xl"
+  class="glass-panel hidden h-full w-20 flex-col items-center gap-2 overflow-y-auto overflow-x-hidden rounded-none py-3 md:w-16 md:rounded-2xl lg:flex"
   data-testid="guild-rail"
   aria-label={m.guild_rail_nav_label()}
 >

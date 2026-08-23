@@ -9,6 +9,8 @@
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import VolumeXIcon from '@lucide/svelte/icons/volume-x';
   import UsersIcon from '@lucide/svelte/icons/users';
+  import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
+  import { goto } from '$app/navigation';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
@@ -24,7 +26,7 @@
   import { watchBackground } from '$lib/watch/watchBackground.svelte';
   import { userIdFromIdentity } from '$lib/voice/identity';
   import { shortcut, type ShortcutEventDetail } from '@svelte-put/shortcut';
-  import { untrack, onMount } from 'svelte';
+  import { untrack } from 'svelte';
   import type { Channel } from '$lib/api/types';
   import FieldError from './feedback/FieldError.svelte';
 
@@ -128,8 +130,8 @@
 
   // Connecting must happen from a user gesture so the browser allows the
   // AudioContext to start. On desktop the "Beitreten"-Button provides that
-  // gesture. On mobile the channel-list tap IS the gesture — SPA navigation
-  // keeps the user-activation alive into onMount, so we auto-join there.
+  // gesture. On mobile the channel-list tap IS the gesture — der gegardete
+  // Auto-Join-Effekt der Kanal-Seite (+page) nutzt diese Aktivierung.
   async function joinChannel() {
     try {
       await voice.connect(channel.id, channel.name);
@@ -140,11 +142,13 @@
     }
   }
 
-  onMount(() => {
-    if (viewport.isMobile && !voice.connected && !voice.connecting) {
-      void joinChannel();
-    }
-  });
+  // KEIN Auto-Join hier: Diese Ansicht wird bei jedem Mount neu bewertet —
+  // auch nach dem Auflegen, wenn der Mobile-Voice-Stapel zur Vollbild-Ansicht
+  // zurückwechselt. Ein Join im onMount hätte die Verbindung SOFORT wieder
+  // aufgebaut („Auflegen → Connecting"-Loop) und kollidierte zudem mit dem
+  // gegardeten Auto-Join der Kanal-Seite (doppelte Identity = Kick-Zyklus).
+  // Landing-Auto-Join macht exklusiv der $effect in der +page (Guard pro
+  // Kanal), Wiedereintritt nach dem Auflegen der „Beitreten"-Knopf.
 
   let isThisChannel = $derived(voice.channelId === channel.id);
   let statusLabel = $derived(
@@ -191,9 +195,21 @@
   onvisibilitychange={() => { if (document.visibilityState === 'hidden' && voice.pttMode) { voice.pttRelease(); pttPressed = false; } }}
 />
 
-<section class="glass-panel relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl" data-testid="voice-channel-view">
+<section class="glass-panel slide-rein relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl" data-testid="voice-channel-view">
   <header class="flex h-14 items-center gap-2.5 px-3 md:px-5">
-    <Volume2Icon class="text-primary size-5 shrink-0" />
+    <!-- Mobil: Zurück in die Räume — die Vollbild-Ansicht hat sonst keinen
+         Ausgang, nachdem man aufgelegt hat (Detail-Screens ohne Leiste). -->
+    <Button
+      variant="ghost"
+      size="icon"
+      class="md:hidden"
+      onclick={() => goto('/app/rooms')}
+      aria-label={m.channel_list_back()}
+      data-testid="voice-back-mobile"
+    >
+      <ChevronLeftIcon class="size-6" />
+    </Button>
+    <Volume2Icon class="text-primary size-5 shrink-0 max-md:hidden" />
     <!-- **Das Thema des Kanals** (2026-08-16). Es liess sich in den
          Kanal-Einstellungen setzen, wurde aber nur in der Kopfzeile eines
          TEXTkanals gezeigt (`ChatView.svelte`) — bei einem Sprachkanal stand es
@@ -232,10 +248,22 @@
   <div class="relative flex min-h-0 flex-1">
    <div class="flex min-h-0 flex-1 flex-col">
     {#if isThisChannel && (voice.connected || voice.connecting)}
-      {#if voice.participants.length === 0}
-        <div class="flex flex-1 items-center justify-center">
-          <p class="text-text-muted text-sm">{m.voice_channel_view_connecting_channel()}</p>
-        </div>
+    {#if voice.participants.length === 0}
+      <div class="flex flex-1 flex-col items-center justify-center gap-4 p-3">
+        <p class="text-text-muted text-sm">{m.voice_channel_view_connecting_channel()}</p>
+        <!-- Mobil ist diese Vollbild-Ansicht die einzige Oberfläche, solange
+             das Dock nicht da ist — ein hängendes „Verbinde…" ohne Fluchtweg
+             schloss den Nutzer ein (serverseitig war der Teilnehmer längst
+             weg, der Client hing im Connecting). Verlassen ist immer da. -->        {#if viewport.isMobile}
+          <Button
+            variant="secondary"
+            onclick={() => void voice.disconnect().catch(() => undefined)}
+            data-testid="voice-leave-mobile"
+          >
+            {m.voice_bar_leave()}
+          </Button>
+        {/if}
+      </div>
       {:else if streamViewOpen}
         <StreamGrid {channel} />
       {:else}
@@ -257,7 +285,18 @@
             <p class="text-text-muted text-sm">{m.voice_channel_view_join_hint()}</p>
             <Button class="mt-4" onclick={joinChannel} data-testid="voice-join">{m.voice_channel_view_join_btn()}</Button>
           {:else}
-            <p class="text-text-muted text-sm">{m.voice_channel_view_status_connecting()}</p>
+            <!-- Nach dem Trennen steht hier bewusst „Nicht verbunden" — vorher
+                 stand der Connecting-Text, und der Bildschirm sah nach dem
+                 Auflegen aus wie eine hängende Verbindung. -->
+            <p class="text-text-muted text-sm">{m.voice_channel_view_status_disconnected()}</p>
+            <Button
+              variant="secondary"
+              class="mt-4"
+              onclick={joinChannel}
+              data-testid="voice-join-mobile"
+            >
+              {m.voice_channel_view_join_btn()}
+            </Button>
           {/if}
         </div>
       </div>

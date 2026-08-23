@@ -147,6 +147,12 @@ class GuildPatchIn(BaseModel):
     # allow the empty string; ``validate_handle`` rejects malformed non-empty values.
     handle: Annotated[str | None, Field(default=None, max_length=32)] = None
     is_public: bool | None = None
+    #: Im Verzeichnis zeigen (Entdecken). Getrennt von ``is_public``: eine
+    #: oeffentliche Adresse ist eine andere Zustimmung als ein durchsuchbares
+    #: Schaufenster. Ohne ``is_public`` lehnt die Route ab.
+    listed: bool | None = None
+    #: Eine Kennung aus ``COMMUNITY_CATEGORIES``; ``""`` loescht sie.
+    category: Annotated[str | None, Field(default=None, max_length=16)] = None
     # Per-guild attachment limits (MANAGE_GUILD). Enforced in attachments.py.
     attachment_max_size_bytes: Annotated[
         int | None, Field(default=None, ge=1024, le=1_073_741_824)
@@ -186,10 +192,37 @@ class GuildSettingsOut(BaseModel):
     # Host-relative public address path, e.g. ``/c/coolserver``. ``None`` until
     # a handle is set (no address exists yet).
     address_path: str | None
+    #: Im Verzeichnis sichtbar (Entdecken-Bereich). Vorgabe aus.
+    listed: bool = False
+    category: str | None = None
 
     @field_serializer("id")
     def _ser_id(self, v: int) -> str:
         return _id_str(v)
+
+
+class DirectoryEntryOut(BaseModel):
+    """Ein Eintrag im Community-Verzeichnis (``GET /c``).
+
+    Traegt bewusst nur, was eine Karte im Entdecken-Bildschirm zeigt. Kein
+    Owner, keine Kanaele, keine Einstellungen — das Verzeichnis ist eine
+    Auslage, keine Auskunftsstelle.
+    """
+
+    id: int
+    handle: str
+    name: str
+    icon_url: str | None = None
+    category: str | None = None
+    member_count: int
+
+    @field_serializer("id")
+    def _ser_id(self, v: int) -> str:
+        return _id_str(v)
+
+
+class DirectoryOut(BaseModel):
+    items: list[DirectoryEntryOut]
 
 
 class TransferOwnershipIn(BaseModel):
@@ -419,8 +452,17 @@ class DMChannelOut(BaseModel):
     last_message_id: int | None = None
     created_at: datetime
     can_send: bool = True
+    #: Ausschnitt der letzten Nachricht fuer die Chats-Liste des Handys
+    #: (Mobil-Umbau 2026-08-22). Bei einer Nachricht ohne Text, aber mit
+    #: Anhang steht hier ein Marker (``__image__`` / ``__file__``), den der
+    #: Klient uebersetzt — der Dateiname geht bewusst NICHT mit, siehe
+    #: ``dm_vorschau.py``. Null, wenn es keine (oder eine geloeschte)
+    #: letzte Nachricht gibt.
+    last_message_preview: str | None = None
+    last_message_author_id: int | None = None
+    last_message_at: datetime | None = None
 
-    @field_serializer("id", "other_user_id", "last_message_id")
+    @field_serializer("id", "other_user_id", "last_message_id", "last_message_author_id")
     def _ser_ids(self, v: int | None) -> str | None:
         return _opt_id_str(v)
 

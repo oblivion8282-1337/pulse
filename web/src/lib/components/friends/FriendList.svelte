@@ -43,10 +43,31 @@
     for (const g of guilds.list) void guilds.ensureChannels(g.id).catch(() => undefined);
   });
 
+  /**
+   * Reihenfolge der Anwesenheit: online, abwesend, bitte-nicht-stoeren, offline
+   * — und innerhalb einer Stufe alphabetisch.
+   *
+   * **Sortiert wird hier und nicht im Speicher.** Der Speicher sortiert nach
+   * Alter der Freundschaft, was fuer andere Leser richtig ist; wer eine LISTE
+   * durchsieht, sucht aber, wer gerade erreichbar ist. Frueher stand ein
+   * Freund von letztem Jahr ganz unten, auch wenn er als Einziger online war.
+   */
+  const RANG: Record<string, number> = { online: 0, idle: 1, dnd: 2, offline: 3 };
+
   const visible = $derived(
-    onlineOnly
+    (onlineOnly
       ? friends.list.filter((f) => presence.displayStatusForFriend(f.user_id) !== 'offline')
       : friends.list
+    )
+      .slice()
+      .sort((a, b) => {
+        const ra = RANG[presence.displayStatusForFriend(a.user_id)] ?? 3;
+        const rb = RANG[presence.displayStatusForFriend(b.user_id)] ?? 3;
+        if (ra !== rb) return ra - rb;
+        return userCache
+          .displayName(a.user_id)
+          .localeCompare(userCache.displayName(b.user_id));
+      })
   );
 
   // Voice-Channel je Freund (Reverse-Lookup über voicePresence.byChannel).
@@ -117,7 +138,7 @@
   }
 </script>
 
-<section class="flex flex-col gap-1" data-testid="friends-list">
+<section class="flex flex-col gap-2" data-testid="friends-list">
   <h2 class="text-text-bright px-1 pb-2 text-xs font-semibold uppercase tracking-wide">
     {onlineOnly ? m.friend_list_heading_online() : m.friend_list_heading_all()} — {visible.length}
   </h2>
@@ -136,7 +157,7 @@
       Object.values(parties).some((p) => p.host_user_id === f.user_id))}
     {@const ctxGuild = vc?.guildId ?? guilds.guildIdForChannel(stream ?? party ?? '')}
     <div
-      class="hover:bg-bg-hover group flex items-center gap-3 rounded-md px-2 py-2"
+      class="hover:bg-bg-hover group border-border bg-bg-input flex items-center gap-3 rounded-[14px] border px-3 py-2.5"
       data-testid="friend-row"
       data-user-id={f.user_id}
     >
@@ -203,6 +224,7 @@
       <Button
         size="sm"
         variant="ghost"
+        class="min-h-12 min-w-12 md:min-h-0 md:min-w-0"
         onclick={() => openDM(f.user_id)}
         data-testid="friend-dm-btn"
         title={m.friend_list_action_send_message()}
@@ -212,6 +234,7 @@
       <Button
         size="sm"
         variant="ghost"
+        class="min-h-12 min-w-12 md:min-h-0 md:min-w-0"
         onclick={() => unfriend(f.user_id)}
         data-testid="friend-remove-btn"
         title={m.friend_list_action_remove()}

@@ -15,6 +15,7 @@
 <script lang="ts">
   import * as ContextMenu from '$lib/components/ui/context-menu/index.js';
   import ShieldIcon from '@lucide/svelte/icons/shield';
+  import CheckIcon from '@lucide/svelte/icons/check';
   import { toast } from 'svelte-sonner';
   import { rolesApi, type Role } from '$lib/api/roles';
   import { m } from '$lib/paraglide/messages.js';
@@ -22,7 +23,24 @@
   import { memberRoles } from '$lib/stores/memberRoles.svelte';
   import { Perm, has, toBitfield } from '$lib/permissions/bitfield';
 
-  let { guildId, userId }: { guildId: string; userId: string } = $props();
+  let {
+    guildId,
+    userId,
+    flach = false
+  }: {
+    guildId: string;
+    userId: string;
+    /**
+     * Flache Liste statt Untermenue.
+     *
+     * Der Normalfall ist ein `ContextMenu.Sub` — der setzt aber ein
+     * `ContextMenu.Root` darum voraus. Auf dem Handy ist das Profil ein Blatt
+     * von unten und KEIN Kontextmenue (es gibt dort keinen Rechtsklick); ein
+     * Untermenue rendert darin nichts. Ausserdem waere eine aufklappende
+     * zweite Ebene in einem Blatt die falsche Geste.
+     */
+    flach?: boolean;
+  } = $props();
 
   // Hidden when the caller can't actually do anything useful here.
   let canManage = $derived(rolesStore.hasGuildPermission(guildId, Perm.MANAGE_ROLES));
@@ -70,6 +88,38 @@
 </script>
 
 {#if canManage && assignable.length > 0}
+  {#if flach}
+    <div class="mt-3" data-testid="member-role-list">
+      <div class="text-text-muted flex items-center gap-1.5 px-1 pb-1 text-xs font-semibold">
+        <ShieldIcon class="size-3.5" />
+        {m.member_quick_role_menu_manage_roles()}
+      </div>
+      {#each assignable as r (r.id)}
+        {@const checked = memberIds.has(r.id)}
+        {@const disabled = locked(r)}
+        <button
+          type="button"
+          class="hover:bg-bg-hover flex min-h-12 w-full items-center gap-2.5 rounded-lg px-2 text-left text-sm disabled:opacity-40"
+          {disabled}
+          onclick={() => toggle(r, !checked)}
+          data-testid={`member-${userId}-role-${r.id}`}
+          aria-pressed={checked}
+        >
+          <span
+            class="border-border flex size-5 shrink-0 items-center justify-center rounded border {checked
+              ? 'bg-primary border-primary text-white'
+              : ''}"
+          >
+            {#if checked}<CheckIcon class="size-3.5" />{/if}
+          </span>
+          <span
+            class="truncate"
+            style={r.color ? `color: #${r.color.toString(16).padStart(6, '0')}` : ''}
+          >{r.name}</span>
+        </button>
+      {/each}
+    </div>
+  {:else}
   <ContextMenu.Sub>
     <ContextMenu.SubTrigger>
       <ShieldIcon />
@@ -92,4 +142,5 @@
       {/each}
     </ContextMenu.SubContent>
   </ContextMenu.Sub>
+  {/if}
 {/if}

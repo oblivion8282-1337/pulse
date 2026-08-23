@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway import ratelimit
+from dcc_chat_gateway.community_categories import is_valid_category
 from dcc_chat_gateway.audit_log import write_audit_log
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.guild_limits import clamp_to_ceilings, effective_wire_limits
@@ -190,6 +191,8 @@ async def get_guild_settings(
         handle=guild.handle,
         is_public=guild.is_public,
         address_path=_address_path(guild.handle),
+        listed=guild.listed,
+        category=guild.category,
     )
 
 
@@ -250,10 +253,32 @@ async def patch_guild(
             400, detail="a public community must have a handle"
         )
 
+    # Verzeichnis-Listung. **Ohne oeffentliche Adresse gibt es nichts zu
+    # listen** — und wer die Adresse zurueckzieht, verschwindet auch aus dem
+    # Schaufenster. Bliebe ``listed`` dabei stehen, waere die Community beim
+    # naechsten Oeffentlichmachen ungefragt wieder auffindbar.
+    new_listed = payload.listed if payload.listed is not None else guild.listed
+    # Der Riegel gilt nur fuer ein AUSDRUECKLICHES „listen" ohne oeffentliche
+    # Adresse. Wird die Adresse zurueckgezogen, waehrend die Listung noch
+    # steht, ist das kein Fehler, sondern der Normalfall — die Listung wird
+    # unten mitgeraeumt. (Erst abgelehnt, dann gemessen: so scheiterte das
+    # Zuruecknehmen mit 400 und die Listung blieb stehen.)
+    if payload.listed is True and not new_is_public:
+        raise HTTPException(
+            400, detail="a listed community must be public"
+        )
+    if payload.category is not None and not is_valid_category(
+        None if payload.category == "" else payload.category
+    ):
+        raise HTTPException(400, detail="unknown category")
+
     if payload.handle is not None:
         guild.handle = new_handle
     if payload.is_public is not None:
         guild.is_public = payload.is_public
+    guild.listed = new_listed and new_is_public
+    if payload.category is not None:
+        guild.category = None if payload.category == "" else payload.category
 
     try:
         await session.commit()

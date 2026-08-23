@@ -3,12 +3,14 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import ChannelList from '$lib/components/ChannelList.svelte';
+  import ChannelSwitcherSheet from '$lib/components/mobile/ChannelSwitcherSheet.svelte';
   import GuildRail from '$lib/components/GuildRail.svelte';
   import ChatView from '$lib/components/ChatView.svelte';
   import VoiceChannelView from '$lib/components/VoiceChannelView.svelte';
   import DeviceView from '$lib/devices/components/DeviceView.svelte';
   import { deviceStore } from '$lib/devices/store.svelte';
   import { geraetPfad } from '$lib/devices/darstellung';
+  import { kanalAnlegen } from '$lib/channels/anlegen';
   import type { Device } from '$lib/api/devices';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import DropboxView from '$lib/components/DropboxView.svelte';
@@ -116,6 +118,25 @@
       if (!voice.connected && !voice.connecting) void voice.connect(ch.id, ch.name);
     });
   });
+
+  // Mobil: Nach dem Auflegen zurück in die Community-Übersicht — die Voice-
+  // Vollbild-Ansicht ist ein Detail-Screen ohne Leiste; wer auflegt, will
+  // woanders hin, nicht auf einem „Nicht verbunden"-Bildschirm landen. Der
+  // Übergang connected → getrennt (nicht verbindend) löst die Navigation aus.
+  let voiceWasConnected = $state(false);
+  $effect(() => {
+    const connected = voice.connected;
+    if (
+      voiceWasConnected &&
+      !connected &&
+      !voice.connecting &&
+      viewport.isMobile &&
+      isVoiceChannel
+    ) {
+      untrack(() => void goto(`/app/rooms/${guildId}`));
+    }
+    voiceWasConnected = connected;
+  });
   let visibleMessages = $derived(messages.for(channelId));
   // Server-shared Tamagotchi: nur rendern wenn Plugin für die Guild
   // aktiviert (MANAGE_GUILD-Admin-Toggle, siehe `guildPluginsApi`).
@@ -132,6 +153,8 @@
   // Which screen the add-community dialog opens on (rail "+" menu).
   let createGuildMode = $state<'create' | 'join'>('create');
   let creatingChannel = $state(false);
+  // Kanal-Wechsler von unten (Handy/Tablet) — loest den seitlichen Drawer ab.
+  let wechslerOffen = $state(false);
   let resolving = $state(true);
   let loadError = $state<string | null>(null);
 
@@ -347,8 +370,10 @@
     // Voice-Kanal auf Mobil: direkt beitreten und die Kanal-Liste offen lassen
     // (keine große Vollbild-Voice-Ansicht). Status erscheint im Dock + inline.
     if (viewport.isMobile && c.type === 1) {
+      // Beitreten und hinnavigieren. Frueher blieb der Drawer dabei offen,
+      // damit die Liste sichtbar blieb; den Drawer gibt es auf dem Handy nicht
+      // mehr, und ohne Ziel-Ansicht saehe man nach dem Tippen nichts.
       void voice.connect(c.id, c.name);
-      navDrawer.open = true;
       if (c.id !== channelId || geraetOffen) await goto(`/app/guilds/${guildId}/channels/${c.id}`);
       return;
     }
@@ -381,46 +406,11 @@
     creatingGuild = false;
   }
 
+  // Die Anlege-Logik lebt in `$lib/channels/anlegen.ts`, weil der
+  // Raeume-Bereich denselben Knopf hat (Mobil-Umbau 2026-08-22).
   async function createChannel(name: string, type: number) {
     if (!activeGuild) return;
-    try {
-      // Type=2 (Dropbox / Ablage) is special — there's at most one per
-      // guild. POST /guilds/{id}/dropbox/channel is idempotent: it
-      // creates with the user-supplied name on first call, hands back
-      // the existing channel on subsequent calls (admin renames via
-      // PATCH instead of creating a new one).
-      let newChannelId: string;
-      if (type === 2) {
-        const ch = await dropboxApi.createDropboxChannel(activeGuild.id, name);
-        guilds.addChannel({
-          id: ch.id,
-          guild_id: ch.guild_id,
-          name: ch.name,
-          type: ch.type,
-          position: ch.position,
-          topic: null,
-          created_at: new Date().toISOString()
-        });
-        newChannelId = ch.id;
-      } else {
-        const ch = await chatApi.createChannel(activeGuild.id, { name, type });
-        guilds.addChannel(ch);
-        newChannelId = ch.id;
-      }
-      creatingChannel = false;
-      await goto(`/app/guilds/${activeGuild.id}/channels/${newChannelId}`);
-    } catch (e) {
-      // 409 vom Ablage-Endpoint = die Community hat ihre Ablage abgeschaltet
-      // (Sicherheitsnetz — der Dialog blendet die Option normalerweise aus,
-      // aber ein Klick vor dem Nachladen des Schalters landet hier).
-      const status = (e as { status?: number })?.status;
-      toast.error(
-        type === 2 && status === 409
-          ? pm.channel_page_dropbox_disabled()
-          : pm.channel_page_create_failed(),
-        { description: e instanceof Error ? e.message : String(e) }
-      );
-    }
+    if (await kanalAnlegen(activeGuild.id, name, type)) creatingChannel = false;
   }
 
   async function onChannelDeleted(deletedId: string) {
@@ -548,9 +538,13 @@
   onGuildDeleted={handleRemoteGuildDeleted}
 />
 
-<!-- Channel-Liste: Desktop dauerhaft; Mobil als eigene Spalte rechts der
-     Guild-Rail, sobald der Drawer offen ist — In-Flow, kein Overlay. -->
-{#if !viewport.isMobile || navDrawer.open}
+<!-- Channel-Liste: ab `md` als Spalte neben dem Chat. Auf dem Handy gibt es
+     sie hier NICHT mehr — dort ist der Kanal-Chat ein Vollbild-Screen, und die
+     Kanaele erreicht man ueber den Wechsler von unten (Titel antippen) oder
+     ueber die Vollbild-Liste unter `/app/rooms/[guildId]`. Der Drawer vom
+     linken Rand ist damit weg und kollidiert nicht mehr mit der
+     System-Zurueck-Geste. -->
+{#if !viewport.isMobile}
   <ChannelList
     guild={activeGuild ?? null}
     channels={channelsForGuild}
@@ -569,6 +563,8 @@
     channel={activeChannel}
     messages={visibleMessages}
     onSend={sendMessage}
+    onBack={() => goto(`/app/rooms/${guildId}`)}
+    onSwitchChannel={() => (wechslerOffen = true)}
     isOwner={!!activeGuild && roles.hasGuildPermission(activeGuild.id, Perm.MANAGE_MESSAGES)}
     onEditMessage={editMessage}
     onDeleteMessage={deleteMessage}
@@ -576,9 +572,14 @@
   />
 {/snippet}
 
-<!-- Chat/Voice: Desktop dauerhaft; Mobil nur solange der Drawer zu ist und der
-     aktive Kanal kein Voice-Kanal ist (Voice = Liste bleibt, keine Vollbild-Seite). -->
-{#if !viewport.isMobile || (!navDrawer.open && !isVoiceChannel)}
+<!-- Chat/Voice fuellt hier immer den Bereich.
+     **Geaendert mit dem Mobil-Umbau:** vorher blieb auf dem Handy bei einem
+     Sprachkanal die Kanalliste stehen, statt eine Vollbild-Ansicht zu oeffnen —
+     das ging nur, WEIL die Liste als Drawer daneben lag. Die Liste ist hier
+     jetzt weg (Kanaele: Wechsler von unten oder `/app/rooms/[guildId]`), also
+     braeuchte dieselbe Bedingung einen leeren Bildschirm. Der Sprachkanal
+     bekommt deshalb auch am Telefon seine eigene Ansicht. -->
+{#if true}
   {#if showVoiceStack && connectedVoiceChannel}
     {@const vc = connectedVoiceChannel}
     <MobileVoiceStack
@@ -656,6 +657,19 @@
   onClose={() => (creatingGuild = false)}
   onCreate={createGuild}
   onJoin={joinGuild}
+/>
+
+<ChannelSwitcherSheet
+  bind:open={wechslerOffen}
+  guild={activeGuild ?? null}
+  channels={channelsForGuild}
+  activeChannelId={activeChannel?.id ?? null}
+  onSelect={selectChannel}
+  onCreateClick={() => (creatingChannel = true)}
+  {onChannelDeleted}
+  canCreate={!!activeGuild && roles.hasGuildPermission(activeGuild.id, Perm.MANAGE_CHANNELS)}
+  activeDeviceId={offenesGeraet?.id ?? null}
+  onSelectDevice={geraetOeffnen}
 />
 
 <CreateChannelDialog

@@ -402,3 +402,106 @@ async def test_join_public_blocked_when_locked_self_host(
             await s.execute(select(InstanceMember.user_identifier))
         ).scalars().all()
     assert str(joiner_uid) not in rows
+
+
+# ---------------------------------------------------------------------------
+# Verzeichnis: GET /c  (Mobil-Umbau 2026-08-22, Entdecken-Bereich)
+# ---------------------------------------------------------------------------
+#
+# **Der sicherheitsrelevante Teil ist `listed`.** Eine oeffentliche Adresse
+# heisst „wer den Link kennt, kommt rein" — nicht „stell mich in ein
+# durchsuchbares Schaufenster". Das sind zwei verschiedene Zustimmungen, und
+# bestehende oeffentliche Communities duerfen durch den neuen Endpunkt NICHT
+# auffindbar werden. Genau das pruefen die ersten beiden Tests.
+
+
+async def _oeffentlich(client, token: str, name: str, handle: str, *, listed: bool,
+                       category: str | None = None) -> dict:
+    g = await _make_guild(client, token, name)
+    await _make_channel(client, token, g["id"])
+    payload: dict = {"handle": handle, "is_public": True}
+    if listed:
+        payload["listed"] = True
+    if category:
+        payload["category"] = category
+    r = await client.patch(f"/guilds/{g['id']}", json=payload, headers=auth(token))
+    assert r.status_code == 200, r.text
+    return g
+
+
+@pytest.mark.asyncio
+async def test_verzeichnis_zeigt_nicht_gelistete_nicht(client, _auth_signer):
+    """Oeffentliche Adresse allein bringt eine Community NICHT ins Schaufenster."""
+    t, _ = await _register_user(_auth_signer)
+    await _oeffentlich(client, t, "still", "stille-ecke", listed=False)
+    r = await client.get("/c", headers=auth(t))
+    assert r.status_code == 200
+    assert [e for e in r.json()["items"] if e["handle"] == "stille-ecke"] == []
+
+
+@pytest.mark.asyncio
+async def test_verzeichnis_zeigt_gelistete(client, _auth_signer):
+    t, _ = await _register_user(_auth_signer)
+    await _oeffentlich(client, t, "offen", "offene-ecke", listed=True)
+    r = await client.get("/c", headers=auth(t))
+    treffer = [e for e in r.json()["items"] if e["handle"] == "offene-ecke"]
+    assert len(treffer) == 1
+    assert treffer[0]["name"] == "offen"
+    assert treffer[0]["member_count"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_verzeichnis_verlangt_anmeldung(client):
+    """Wie die Vorschau — der Gateway hat keinen Ratenbegrenzer."""
+    r = await client.get("/c")
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_verzeichnis_filtert_nach_kategorie(client, _auth_signer):
+    t, _ = await _register_user(_auth_signer)
+    await _oeffentlich(client, t, "zocker", "zocker-ecke", listed=True, category="gaming")
+    await _oeffentlich(client, t, "toene", "toene-ecke", listed=True, category="music")
+    r = await client.get("/c", params={"category": "gaming"}, headers=auth(t))
+    handles = [e["handle"] for e in r.json()["items"]]
+    assert "zocker-ecke" in handles
+    assert "toene-ecke" not in handles
+
+
+@pytest.mark.asyncio
+async def test_verzeichnis_sucht_im_namen(client, _auth_signer):
+    t, _ = await _register_user(_auth_signer)
+    await _oeffentlich(client, t, "Kartoffelfreunde", "kartoffel", listed=True)
+    r = await client.get("/c", params={"q": "kartoffel"}, headers=auth(t))
+    assert [e["handle"] for e in r.json()["items"]] == ["kartoffel"]
+
+
+@pytest.mark.asyncio
+async def test_verzeichnis_deckelt_die_seitengroesse(client, _auth_signer):
+    t, _ = await _register_user(_auth_signer)
+    r = await client.get("/c", params={"limit": 5000}, headers=auth(t))
+    assert r.status_code == 200
+    assert len(r.json()["items"]) <= 50
+
+
+@pytest.mark.asyncio
+async def test_listed_ohne_is_public_wird_abgelehnt(client, _auth_signer):
+    """Ohne oeffentliche Adresse gibt es nichts zu listen."""
+    t, _ = await _register_user(_auth_signer)
+    g = await _make_guild(client, t, "privat")
+    r = await client.patch(f"/guilds/{g['id']}", json={"listed": True}, headers=auth(t))
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_nicht_oeffentlich_stellen_raeumt_die_listung(client, _auth_signer):
+    """Wer die Adresse zurueckzieht, verschwindet auch aus dem Verzeichnis.
+
+    Sonst bliebe ``listed`` still stehen und die Community waere beim naechsten
+    Oeffentlichmachen ungefragt wieder im Schaufenster.
+    """
+    t, _ = await _register_user(_auth_signer)
+    g = await _oeffentlich(client, t, "kurz", "kurz-da", listed=True)
+    await client.patch(f"/guilds/{g['id']}", json={"is_public": False}, headers=auth(t))
+    s = (await client.get(f"/guilds/{g['id']}/settings", headers=auth(t))).json()
+    assert s["listed"] is False

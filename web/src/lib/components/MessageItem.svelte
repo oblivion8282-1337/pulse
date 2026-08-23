@@ -1,5 +1,4 @@
 <script lang="ts">
-  import * as Avatar from '$lib/components/ui/avatar/index.js';
   import type { Message } from '$lib/api/types';
   import CornerDownRightIcon from '@lucide/svelte/icons/corner-down-right';
   import MessageActions from './MessageActions.svelte';
@@ -9,9 +8,10 @@
   import InviteEmbed from './InviteEmbed.svelte';
   import LinkEmbed from './LinkEmbed.svelte';
   import ReportMessageDialog from './chat/ReportMessageDialog.svelte';
+  import MessageRowLayout from './message/MessageRowLayout.svelte';
+  import MessageBubbleLayout from './message/MessageBubbleLayout.svelte';
   import { detectEmbeds } from '$lib/embeds/providers';
   import { renderMessage } from './messageRender';
-  import { longpress } from '$lib/utils/longpress';
   import { m } from '$lib/paraglide/messages.js';
 
   let {
@@ -30,6 +30,16 @@
     /** Direktnachricht-Kontext: eine Meldung geht ans Betreiberteam statt an
      *  einen Community-Moderator (es gibt hier keinen). */
     isDirect = false,
+    /** Community-Bezug fuer das Profil hinter Avatar/Name. Fehlt in DMs. */
+    guildId,
+    /** Welche Huelle: Zeilen wie bisher, oder Sprechblasen (nur in privaten
+     *  Gespraechen — im Kanal tragen Name und Farbe die Orientierung). */
+    layout = 'row',
+    /** Nur fuer Sprechblasen: vom angemeldeten Nutzer selbst. */
+    istEigene = false,
+    /** Nur fuer Sprechblasen: letzte Nachricht ihrer Gruppe — dort steht die
+     *  Uhrzeit, sonst stuende unter jeder einzelnen Zeile eine. */
+    isGroupEnd = true,
     onReply,
     onEditSubmit,
     onDelete,
@@ -48,6 +58,10 @@
     canDelete: boolean;
     canReport?: boolean;
     isDirect?: boolean;
+    guildId?: string;
+    layout?: 'row' | 'bubble';
+    istEigene?: boolean;
+    isGroupEnd?: boolean;
     onReply: (m: Message) => void;
     onEditSubmit: (m: Message, newContent: string) => void;
     onDelete: (m: Message) => void;
@@ -139,6 +153,27 @@
     if (editing || isPending) return;
     sheetOpen = true;
   }
+
+  /**
+   * Die Aktionen einer Nachricht — einmal fuer beide Wege dorthin.
+   *
+   * Die Schwebe-Leiste (`MessageActions`, nur mit Zeiger sichtbar) und das
+   * Aktionsblatt (`MessageActionSheet`, der Weg auf dem Touchgeraet) bieten
+   * genau dasselbe an und bekamen dieselben acht Angaben zweimal
+   * hingeschrieben — samt der dreifachen `&& !isPending`-Sperre. Zwei
+   * Abschriften laufen auseinander, und auf einem Rechner faellt das nie auf:
+   * das Blatt oeffnet dort gar nicht.
+   */
+  const aktionen = $derived({
+    canEdit: canEdit && !isPending,
+    canDelete: canDelete && !isPending,
+    canReport: canReport && !isPending,
+    onReply: () => onReply(message),
+    onEdit: startEdit,
+    onDelete: () => onDelete(message),
+    onReact: (e: string) => handleToggle(e, false),
+    onReport: () => (reportOpen = true)
+  });
 </script>
 
 {#snippet body()}
@@ -187,80 +222,39 @@
 
 {#snippet actions()}
   {#if !editing}
-    <MessageActions
-      canEdit={canEdit && !isPending}
-      canDelete={canDelete && !isPending}
-      canReport={canReport && !isPending}
-      onReply={() => onReply(message)}
-      onEdit={startEdit}
-      onDelete={() => onDelete(message)}
-      onReact={(e) => handleToggle(e, false)}
-      onReport={() => (reportOpen = true)}
-    />
+    <MessageActions {...aktionen} />
   {/if}
 {/snippet}
 
-{#if isContinuation}
-  <div
-    class="group relative mx-2 flex gap-3 rounded-2xl px-3 py-0.5 transition-colors hover:bg-bg-hover"
-    class:ring-2={highlight}
-    class:ring-primary={highlight}
-    data-testid="message-item"
-    data-message-id={message.id}
-    use:longpress={{ onLongPress: openSheet }}
-  >
-    <div class="flex w-10 shrink-0 items-center justify-end">
-      <span class="text-text-muted hidden text-2xs group-hover:block pointer-coarse:block">{time}</span>
-    </div>
-    <div class="min-w-0 flex-1">
-      {@render body()}
-    </div>
-    {@render actions()}
-  </div>
+{#if layout === 'bubble'}
+  <MessageBubbleLayout
+    {message}
+    {time}
+    eigen={istEigene}
+    {isContinuation}
+    {isGroupEnd}
+    {highlight}
+    onLongPress={openSheet}
+    {body}
+    {actions}
+  />
 {:else}
-  <div
-    class="group relative mx-2 flex gap-3 rounded-2xl px-3 py-1.5 transition-colors hover:bg-bg-hover"
-    class:ring-2={highlight}
-    class:ring-primary={highlight}
-    data-testid="message-item"
-    data-message-id={message.id}
-    use:longpress={{ onLongPress: openSheet }}
-  >
-    {#key url}
-      <Avatar.Root class="size-10 shrink-0">
-        {#if url}
-          <Avatar.Image src={url} alt={authorName} />
-        {/if}
-        <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">
-          {authorName.slice(0, 1).toUpperCase()}
-        </Avatar.Fallback>
-      </Avatar.Root>
-    {/key}
-    <div class="min-w-0 flex-1">
-      <div class="flex items-baseline gap-2">
-        <span
-          class="text-text-bright font-semibold"
-          style={authorStyle}
-          data-testid="message-author">{authorName}</span>
-        <span class="text-text-muted text-xs">{time}</span>
-      </div>
-      {@render body()}
-    </div>
-    {@render actions()}
-  </div>
+  <MessageRowLayout
+    {message}
+    {authorName}
+    {authorStyle}
+    {url}
+    {time}
+    {isContinuation}
+    {highlight}
+    onLongPress={openSheet}
+    {guildId}
+    {body}
+    {actions}
+  />
 {/if}
 
-<MessageActionSheet
-  bind:open={sheetOpen}
-  canEdit={canEdit && !isPending}
-  canDelete={canDelete && !isPending}
-  canReport={canReport && !isPending}
-  onReply={() => onReply(message)}
-  onEdit={startEdit}
-  onDelete={() => onDelete(message)}
-  onReact={(e) => handleToggle(e, false)}
-  onReport={() => (reportOpen = true)}
-/>
+<MessageActionSheet bind:open={sheetOpen} {...aktionen} />
 
 <ReportMessageDialog
   messageId={message.id}

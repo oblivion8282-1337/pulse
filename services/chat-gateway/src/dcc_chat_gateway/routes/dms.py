@@ -14,6 +14,8 @@ historical thread without a composer.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
@@ -23,6 +25,7 @@ from dcc_chat_gateway.friend_helpers import (
     block_exists_either_way,
     friendship_exists,
 )
+from dcc_chat_gateway.dm_vorschau import Letzte, letzte_nachrichten
 from dcc_chat_gateway.models import DirectMessageChannel, Friendship, UserBlock
 from dcc_chat_gateway.routes._deps import CloudOnly, dm_member_check
 from dcc_chat_gateway.schemas import DMChannelCreateIn, DMChannelOut
@@ -37,10 +40,16 @@ def _wire(
     caller_id: int,
     *,
     can_send: bool = True,
+    letzte: Letzte | None = None,
 ) -> dict[str, object]:
     """Wire shape with ``other_user_id`` computed from the caller's
     perspective. ``can_send`` is precomputed by the route since it
-    depends on friendship/block state, not the DM row alone."""
+    depends on friendship/block state, not the DM row alone.
+
+    ``letzte`` traegt den Vorschautext der Chats-Liste (Mobil-Umbau). Fehlt er
+    — Einzelabfragen, geloeschte Nachricht —, bleiben die drei Felder null und
+    die Zeile faellt auf Name und Uhrzeit zurueck.
+    """
     other = dm.user_b_id if caller_id == dm.user_a_id else dm.user_a_id
     return {
         "id": dm.id,
@@ -48,6 +57,9 @@ def _wire(
         "last_message_id": dm.last_message_id,
         "created_at": dm.created_at,
         "can_send": can_send,
+        "last_message_preview": letzte.text if letzte else None,
+        "last_message_author_id": letzte.author_id if letzte else None,
+        "last_message_at": letzte.created_at if letzte else None,
     }
 
 
@@ -218,8 +230,9 @@ async def list_dm_channels(
         for d in rows
     }
     can_send = await _can_send_batch(session, current.id, others)
+    letzte = await letzte_nachrichten(session, list(rows))
     return [
-        _wire(d, current.id, can_send=can_send.get(
+        _wire(d, current.id, letzte=letzte.get(d.id), can_send=can_send.get(
             d.user_b_id if d.user_a_id == current.id else d.user_a_id,
             False,
         ))

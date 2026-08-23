@@ -292,7 +292,7 @@
       <!-- cursor-auto: echter Cursor über der Karte zum Tippen/Klicken
            (überschreibt das seitenweite cursor:none). -->
       <form
-        class="bg-card w-full max-w-md cursor-auto space-y-4 rounded-xl p-8 shadow-2xl"
+        class="bg-card border-border/60 w-full max-w-md cursor-auto space-y-4 rounded-xl border p-8 shadow-2xl"
         onsubmit={submit}
         aria-label="login form"
         use:cursorTrack={trackCard}

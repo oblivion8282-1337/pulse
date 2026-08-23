@@ -19,35 +19,19 @@
 
 <script lang="ts">
   import * as Dialog from '$lib/components/ui/dialog/index.js';
-  import SettingsAppearance from './settings/SettingsAppearance.svelte';
-  import SettingsAudioVideo from './settings/SettingsAudioVideo.svelte';
-  import SettingsScreenShare from './settings/SettingsScreenShare.svelte';
-  import SettingsNotifications from './settings/SettingsNotifications.svelte';
-  import SettingsSounds from './settings/SettingsSounds.svelte';
-  import SettingsSecurity from './settings/SettingsSecurity.svelte';
-  import SettingsKeyboard from './settings/SettingsKeyboard.svelte';
-  import SettingsPrivacy from './settings/SettingsPrivacy.svelte';
-  import SettingsProfile from './settings/SettingsProfile.svelte';
-  import SettingsSelfHost from './settings/SettingsSelfHost.svelte';
-  import SettingsApps from './settings/SettingsApps.svelte';
-  import SettingsExperimental from './settings/SettingsExperimental.svelte';
-  import SettingsStandplatz from './settings/SettingsStandplatz.svelte';
+  import SettingsPanel from './settings/SettingsPanel.svelte';
   import SettingsDialogNav from './SettingsDialogNav.svelte';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import { untrack } from 'svelte';
   import { sounds } from '$lib/sounds/engine';
-  import { isCapacitorAndroid, isElectron } from '$lib/platform/runtime';
-  import { darfStandplatzSein } from '$lib/remote/darfStandplatzSein';
-  import { reiterSichtbar } from '$lib/devices/reiterSichtbar';
-  import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
-  import { deviceStore } from '$lib/devices/store.svelte';
-  import { currentServerUserId } from '$lib/stores/currentServerUser';
-  import { activeServer } from '$lib/stores/active-server.svelte';
-  import { guilds } from '$lib/stores/guilds.svelte';
-  import { viewport } from '$lib/stores/viewport.svelte';
+  import { isElectron } from '$lib/platform/runtime';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
   import { getSettingsTabs } from './settingsTabs';
+  import {
+    alleGeraeteVorladen,
+    sichtbareReiterJetzt
+  } from './settings/reiterAuswahl.svelte';
 
   type MobileView = 'list' | 'detail';
 
@@ -85,72 +69,11 @@
     mobileView = 'detail';
   }
 
-  // browserOnly: in der Electron-App / im Android-Wrapper ausgeblendet —
-  // dort ist die App schon installiert, Download-Links wären sinnlos.
-  const inBrowser = !isElectron() && !isCapacitorAndroid();
-
-  // electronOnly: jede Desktop-App, egal welche Plattform. Im Browser gibt es
-  // keinen lokalen Sidecar und keine `sidecar.log`, dort gäbe es also nichts
-  // einzustellen.
-  //
-  // **Hier stand bis 2026-08-06 `linuxOnly`**, aus der Zeit, als der Tab nur
-  // den Rust-Linux-Sidecar umschaltete. Seit der Diagnose-Schalter im
-  // „Experimental"-Tab sitzt,
-  // war das ein stiller Ausschluss: Windows- und macOS-Nutzer sahen den Tab
-  // nicht, konnten die Einwilligung also gar nicht geben — und es kam nie ein
-  // einziger Bericht von dort an. Der Upload-Weg selbst war die ganze Zeit
-  // plattformneutral (`sidecar-log.ts` kennt den Windows-Pfad ausdrücklich),
-  // es fehlte allein der Schalter.
-  const isDesktopApp = isElectron();
-
-  // Zeigt dieser Client den Standplatz-Reiter? Drei Gründe, unabhängig
-  // voneinander (`reiterSichtbar.ts`):
-  //
-  // * Dieser RECHNER kann selbst Standplatz sein (`darfStandplatzSein`) —
-  //   dieselbe Bedingung wie bei der Anmeldung in `ws/handlers/ready.ts`.
-  //   Reiter und Anmeldung liefen am 2026-08-18 schon einmal auseinander: der
-  //   Reiter war unter Linux versteckt, die vorhandene Eintragung meldete
-  //   sich trotzdem weiter an.
-  // * Es liegt bereits eine Eintragung fuer diesen Server vor. Ohne diesen
-  //   Fall waere der Reiter die Falle, die er am 2026-08-18 kurz war — die
-  //   EINZIGE Stelle zum Entfernen einer Eintragung sitzt darin
-  //   (`SettingsGeraeteEintragung`). Wer einen Rechner unter Windows
-  //   eingetragen hat und ihn spaeter unter Linux startet, saehe sonst
-  //   dauerhaft eine Geraetezeile in der Kanalliste und haette keinen Weg
-  //   mehr, sie loszuwerden. Was man anlegen kann, muss man ueberall wieder
-  //   abraeumen koennen.
-  // * Dieser NUTZER besitzt Geraete auf diesem Server, unabhaengig davon, ob
-  //   der Rechner, an dem er gerade sitzt, selbst Standplatz sein kann — der
-  //   neue Fall seit 2026-08-20: auch unter Linux/macOS/Browser soll man die
-  //   eigenen Geraete sehen und entfernen koennen.
-  const zeigtStandplatzReiter = $derived(
-    reiterSichtbar({
-      kannStandplatzSein: darfStandplatzSein(),
-      hatEintragung: !!geraeteAnmeldung.fuerServer(activeServer.serverId),
-      besitztGeraete: deviceStore.eigene(currentServerUserId()).length > 0,
-    }),
-  );
-
-  // Geräte für ALLE Communitys vorladen, sobald der Dialog öffnet — sonst
-  // kennt `deviceStore.eigene()` oben nur die Community, deren Kanalliste
-  // zuletzt offen war, und `zeigtStandplatzReiter` bliebe dauerhaft falsch,
-  // wenn das eigene Gerät woanders steht oder der Dialog aus einer Ansicht
-  // ohne aktive Community geöffnet wird (DM/Freunde, mobile Tabs). Der
-  // einzige bisherige Nachlade-Pfad (`SettingsStandplatzGeraete`) lag HINTER
-  // genau der Sichtbarkeitsentscheidung, die er beheben sollte — ein
-  // Henne-Ei-Problem ohne Selbstheilung (Fix-Runde 1, 2026-08-20).
-  //
-  // `ensureLoaded` ist intern idempotent (bereits geladene Communitys werden
-  // nicht neu geholt) — ein zweites Öffnen löst also keine neuen Anfragen
-  // aus. Blockiert nicht: die Tabs richten sich reaktiv nach, sobald die
-  // Daten da sind. `queueMicrotask` wie beim Vorbild in `app/+layout.svelte`,
-  // wegen des Svelte-Effect-Depth-Guards.
+  // Geräte für ALLE Communitys vorladen, sobald der Dialog öffnet —
+  // Begründung samt Henne-Ei-Fall in `settings/reiterAuswahl.svelte.ts`.
   $effect(() => {
     if (!open) return;
-    const guildIds = guilds.list.map((g) => g.id);
-    queueMicrotask(() => {
-      for (const id of guildIds) void deviceStore.ensureLoaded(id);
-    });
+    alleGeraeteVorladen();
   });
 
   // Für die Teile INNERHALB des Tabs, die es wirklich nur unter Linux gibt
@@ -164,15 +87,10 @@
   // vorherigen `const`-Ausdrucks hier an Ort und Stelle.
   const tabs = getSettingsTabs();
 
-  let visibleTabs = $derived(
-    tabs.filter(
-      (t) =>
-        (!t.desktopOnly || !viewport.isMobile) &&
-        (!t.browserOnly || inBrowser) &&
-        (!t.electronOnly || isDesktopApp) &&
-        (!t.standplatzGate || zeigtStandplatzReiter)
-    )
-  );
+  // Dieselbe Rechnung wie der Du-Bereich des Handys (`/app/me` und
+  // `/app/me/[section]`) — ausgelagert nach `settings/reiterAuswahl.svelte.ts`,
+  // damit es nicht drei davon gibt.
+  let visibleTabs = $derived(sichtbareReiterJetzt(tabs));
 
   let activeLabel = $derived(visibleTabs.find((t) => t.id === activeTab)?.label ?? '');
 </script>
@@ -216,33 +134,7 @@
       </div>
 
       <div class="flex-1 overflow-y-auto pb-6 pl-6 pr-4 pt-14 max-sm:pt-6">
-        {#if activeTab === 'profile'}
-          <SettingsProfile />
-        {:else if activeTab === 'appearance'}
-          <SettingsAppearance />
-        {:else if activeTab === 'audio-video'}
-          <SettingsAudioVideo />
-        {:else if activeTab === 'screen-share'}
-          <SettingsScreenShare />
-        {:else if activeTab === 'standplatz'}
-          <SettingsStandplatz />
-        {:else if activeTab === 'notifications'}
-          <SettingsNotifications />
-        {:else if activeTab === 'sounds'}
-          <SettingsSounds />
-        {:else if activeTab === 'keyboard'}
-          <SettingsKeyboard />
-        {:else if activeTab === 'privacy'}
-          <SettingsPrivacy />
-        {:else if activeTab === 'self-host'}
-          <SettingsSelfHost />
-        {:else if activeTab === 'apps'}
-          <SettingsApps />
-        {:else if activeTab === 'experimental'}
-          <SettingsExperimental />
-        {:else}
-          <SettingsSecurity />
-        {/if}
+        <SettingsPanel tab={activeTab} />
       </div>
     </div>
   </Dialog.Content>

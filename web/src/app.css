@@ -6,6 +6,21 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Mobile Slide-Rein: Detail-Bildschirme (Chat, Community, Entdecken …)
+   schieben sich auf dem Handy von rechts rein — WhatsApp-Prinzip, als
+   einfache Mount-Animation direkt am Bildschirm (keine View-Transition-API:
+   ein onNavigate-Hook brachte in dieser App den Boot zum Absturz). Nur
+   unter md; „Bewegung reduzieren" schaltet ab. */
+@media (max-width: 767.98px) and (prefers-reduced-motion: no-preference) {
+  .slide-rein {
+    animation: 260ms ease both seitenwechsel-rein;
+  }
+}
+@keyframes seitenwechsel-rein {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
 /* "Glasshouse / Graphite" — heller, luftiger Glas-Look mit Electric-Blue-
    Ton-in-Ton-Akzent. Light ist der Default; .dark trägt die dunkle Variante.
    Die Semantik-Tokens unten mappen auf die Glas-Palette, damit die
@@ -31,6 +46,11 @@
   --color-accent: var(--accent);
   --color-accent-hover: var(--brand-hover);
   --color-brand: var(--brand);
+  /* Schrift AUF einer `--accent-soft`-Fläche (aktiver Chip, aktiver Reiter).
+     Nicht `--brand` nehmen: Blau auf blau-durchscheinend liegt im dunklen
+     Erscheinungsbild bei rund 4:1 und liest sich matschig — im Entwurf steht
+     dort ein deutlich helleres Blau. */
+  --color-accent-on-soft: var(--accent-on-soft);
   --color-text-base: var(--text-dim);
   --color-text-muted: var(--text-faint);
   --color-text-bright: var(--text);
@@ -285,6 +305,23 @@
   50%      { opacity: 1;   transform: scale(1.12); }
 }
 
+/* Einmalige Ping-Welle beim Antippen eines Bereichs-Reiters (NavTabLink) —
+   dieselbe Formensprache wie der Sonar-Ping des aktiven Bereichs und die
+   Sprech-Anzeige im Chat. Ausgelöst per Klassen-Reset in NavTabLink.ping();
+   bei reduzierter Bewegung deaktiviert. */
+@keyframes tab-ripple {
+  0%   { transform: scale(0.5); opacity: 0.8; }
+  100% { transform: scale(1.4); opacity: 0; }
+}
+.tab-ripple-run {
+  animation: tab-ripple 600ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tab-ripple-run {
+    animation: none;
+  }
+}
+
 /* Gestaffeltes Einblenden der Text-Blöcke (von unten). */
 @keyframes fade-up {
   0%   { opacity: 0; transform: translateY(12px); }
@@ -311,6 +348,19 @@
        Seiten-Hintergrund (Verlauf/Glow/Korn). */
   }
 
+  /* Vollbild-Flächen (erkennbar am randlosen `rounded-none` des
+     Vollbild-Layouts) zeigen mobil den Seitengrund durch — gleiche
+     Behandlung wie die Freunde-Seite: Hintergrund und Rand weg, der
+     dunkle Grund bzw. Marine-Verlauf trägt die Fläche. Ab md gelten
+     weiterhin Karten (panel-solid + Rand). Dialoge und schwebende Karten
+     tragen kein `rounded-none` und bleiben opak. */
+  @media (max-width: 767.98px) {
+    .glass-panel.rounded-none {
+      background: transparent;
+      border-color: transparent;
+    }
+  }
+
   /* Electric-Blue Ton-in-Ton-Verlauf für primary-Buttons / aktive States /
      Speaking-Glow. */
   .accent-gradient {
@@ -321,6 +371,17 @@
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
+  }
+
+  /* Eigene DM-Sprechblase: eine Stufe dunkler als der Button-Verlauf. Auf
+     dessen hellem Ende (#3b82f6) kommt Weiss nur auf ~3,7:1 — unter den
+     4,5:1 für Fliesstext. Mit #1d4ed8→#2563eb sind es ≥5:1. */
+  .accent-gradient-deep {
+    background-image: linear-gradient(
+      135deg in oklab,
+      rgba(29, 78, 216, 0.76),
+      rgba(37, 99, 235, 0.76)
+    );
   }
 
   /* Inline-Markdown im Chat (marked + DOMPurify rendert b/i/code/a/...). */
@@ -376,6 +437,44 @@
   }
 }
 
+/* Eigene DM-Sprechblase (accent-gradient-deep): Der Nachrichteninhalt bringt
+   eigene Farben mit (`text-text-base` als Utility, Links/Code/Zitate aus dem
+   Markdown-Block oben) — auf dem blauen Verlauf war das im hellen Theme
+   dunkle Schrift auf Blau, unlesbar. Diese Regeln stehen ausserhalb der
+   Layer, damit sie die Utilities sicher schlagen. Betrifft nur die eigene
+   Blase; fremde Blasen und Kanalzeilen bleiben unverändert. */
+.accent-gradient-deep [data-testid='message-content'] {
+  /* Nicht pures Weiss, sondern ein Hauch Grau — wirkt auf dem Verlauf
+     ruhiger; die fremde Blase schreibt auch kein Reinweiss. */
+  color: #e5eaf3;
+}
+.accent-gradient-deep [data-testid='message-content'] a {
+  color: #dbeafe;
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, 0.4);
+}
+.accent-gradient-deep [data-testid='message-content'] code {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+.accent-gradient-deep [data-testid='message-content'] blockquote {
+  border-left-color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.8);
+}
+.accent-gradient-deep [data-testid='message-content'] .mention {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+.accent-gradient-deep [data-testid='message-content'] .mention--self {
+  background: rgba(255, 255, 255, 0.28);
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45);
+}
+/* „bearbeitet"-Marke */
+.accent-gradient-deep [data-testid='message-content'] .text-text-muted {
+  color: rgba(255, 255, 255, 0.7);
+}
+
 /* Hairline-Trenner, skalenrobust gegen Fractional-Display-Scale (Windows
    125 %/150 %): eine 1px-Höhe-Linie muss bei 1.5 dppx auf 1.5 Device-Pixel
    gerastert werden → je Y-Position 1 oder 2 dev-px → wirkt ungleich dick.
@@ -386,6 +485,14 @@
   @media (min-resolution: 1.25dppx) {
     height: 0.5px;
   }
+}
+
+/* Der eine Schlagschatten aller schwebenden Karten (Leisten, Listen-Zeilen,
+   Reiter-Reihen, Tiles): sichtbar dunkel genug für den dunklen Seitengrund,
+   weich genug, um nicht zu kleben. Wer eine Karte baut, hängt `card-shadow`
+   dran — der Wert lebt nur hier. */
+@utility card-shadow {
+  box-shadow: 0 18px 40px -10px rgba(0, 0, 0, 0.7);
 }
 
 /* ---------- Light = Default ---------- */
@@ -439,6 +546,7 @@
   --brand: #2563eb;
   --brand-hover: #1d4ed8;
   --accent-soft: rgba(37, 99, 235, 0.12);
+  --accent-on-soft: #1d4ed8;
   --accent-grad-from: #2563eb;
   --accent-grad-to: #3b82f6;
   --text: #111827;
@@ -513,6 +621,7 @@
   --brand: #3b82f6;
   --brand-hover: #60a5fa;
   --accent-soft: rgba(37, 99, 235, 0.2);
+  --accent-on-soft: #bcd6ff;
   --accent-grad-from: #2563eb;
   --accent-grad-to: #3b82f6;
   --text: #f0f1f3;

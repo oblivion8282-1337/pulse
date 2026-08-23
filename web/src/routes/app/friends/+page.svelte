@@ -18,10 +18,13 @@
   import { viewport } from '$lib/stores/viewport.svelte';
   import { friendRequests } from '$lib/stores/friendRequests.svelte';
   import { communityInvites } from '$lib/stores/communityInvites.svelte';
+  import { friends } from '$lib/stores/friends.svelte';
+  import { presence } from '$lib/stores/presence.svelte';
   import FriendList from '$lib/components/friends/FriendList.svelte';
   import PendingRequests from '$lib/components/friends/PendingRequests.svelte';
   import BlockedList from '$lib/components/friends/BlockedList.svelte';
   import AddFriendPanel from '$lib/components/friends/AddFriendPanel.svelte';
+  import BereichsKopf from '$lib/components/mobile/BereichsKopf.svelte';
   import type { DMChannel } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -37,6 +40,18 @@
   const activeTab = $derived<TabKey>(
     (TABS.find((t) => t.key === page.url.searchParams.get('tab'))?.key) ?? 'online'
   );
+
+  // DEV-ONLY: ?demo=online markiert alle vorhandenen Freunde rotierend als
+  // online/idle/dnd — für Layout-Tests der Freundesliste ohne echte Peers.
+  // Läuft als Effect (statt einmalig beim Mount), damit auch nachträglich
+  // geladene Freunde erfasst werden; ein echter Cloud-Seed gewinnt jederzeit.
+  if (import.meta.env.DEV) {
+    $effect(() => {
+      if (page.url.searchParams.get('demo') !== 'online') return;
+      const ids = friends.list.map((f) => f.user_id);
+      presence.devSimulateFriendsOnline(ids);
+    });
+  }
 
   async function switchTab(key: TabKey) {
     const url = new URL(page.url);
@@ -69,18 +84,29 @@
   }}
 />
 
-{#if !viewport.isMobile || navDrawer.open}
+<!-- Die DM-Spalte gehoert ab `md` neben die Freunde; auf dem Handy sind
+     private Gespraeche ein eigener Bereich (Chats), eine zweite Liste hier
+     waere derselbe Inhalt an zwei Orten. -->
+{#if !viewport.isMobile}
   <DMChannelList activeDMId={null} onSelect={selectDM} />
 {/if}
 
-{#if !viewport.isMobile || !navDrawer.open}
+{#if true}
   <section
     class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl"
     data-testid="friends-page"
   >
-    <header class="border-border/40 flex items-center gap-4 border-b px-4 py-3">
-      <h1 class="text-text-bright text-base font-semibold">{m.friends_page_title()}</h1>
-      <nav class="flex flex-wrap gap-1" data-testid="friends-tabs">
+    <BereichsKopf titel={m.friends_page_title()} />
+    <div class="shrink-0 px-4 pb-3">
+      <!-- Reiter-Reihe als Karte (gleiche Behandlung wie Profil-/Einstellungs-
+           Karten): bg-bg-input + Rand + runde Ecken. Mobil füllen die fünf
+           Reiter die volle Zeilenbreite (flex-1 je Button, mittig);
+           overflow-x-auto bleibt als Ruckfall für sehr lange Übersetzungen.
+           Ab md natürliche Grösse mit Lücken. -->
+      <nav
+        class="border-border bg-bg-input flex gap-1 overflow-x-auto rounded-[14px] border p-1 card-shadow md:flex-wrap md:gap-1.5 md:overflow-visible"
+        data-testid="friends-tabs"
+      >
         {#each TABS as t (t.key)}
           {@const isActive = activeTab === t.key}
           {@const badge =
@@ -89,8 +115,8 @@
               : 0}
           <button
             type="button"
-            class="hover:bg-bg-hover relative rounded-md px-3 py-1 text-sm font-medium transition-colors {isActive
-              ? 'bg-[var(--accent-soft)] text-primary'
+            class="hover:bg-bg-hover relative flex min-h-12 flex-1 items-center justify-center rounded-full px-2 py-1.5 text-xs font-semibold transition-colors md:min-h-0 md:flex-none md:justify-start md:rounded-md md:px-3.5 md:py-1 md:text-[13px] md:font-medium {isActive
+              ? 'bg-[var(--accent-soft)] text-accent-on-soft'
               : 'text-text-muted hover:text-text-bright'}"
             onclick={() => switchTab(t.key)}
             data-testid={`friends-tab-${t.key}`}
@@ -108,7 +134,7 @@
           </button>
         {/each}
       </nav>
-    </header>
+    </div>
     <div class="flex-1 overflow-y-auto px-4 py-4">
       {#if activeTab === 'online'}
         <FriendList onlineOnly />

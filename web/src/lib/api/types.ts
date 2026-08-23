@@ -163,6 +163,17 @@ export type DMChannel = {
   last_message_id: string | null;
   created_at: string;
   /**
+   * Ausschnitt der letzten Nachricht fuer die Chats-Liste des Handys
+   * (Mobil-Umbau 2026-08-22). Zwei feste Marker statt eines Dateinamens,
+   * wenn die Nachricht nur einen Anhang hat: ``__image__`` / ``__file__`` —
+   * der Klient uebersetzt sie. Der Dateiname geht bewusst NICHT ueber die
+   * Leitung (s. ``dm_vorschau.py``). Optional, weil aeltere Testfassungen
+   * und die Einzelabfrage die Felder nicht mitliefern.
+   */
+  last_message_preview?: string | null;
+  last_message_author_id?: string | null;
+  last_message_at?: string | null;
+  /**
    * Server-resolved gate: true iff a friendship exists AND no block sits
    * between the two users in either direction. Drives the hard-cut DM
    * composer disable (Etappe 4). Refreshed on every WS ``ready`` frame

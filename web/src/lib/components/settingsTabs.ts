@@ -74,3 +74,44 @@ export function getSettingsTabs(): SettingsTabDef[] {
     { id: 'experimental', label: m.settings_dialog_tab_diagnostics(), icon: PlugZapIcon, electronOnly: true },
   ];
 }
+
+/**
+ * Die Bedingungen, unter denen ein Reiter sichtbar ist.
+ *
+ * Als Werte hereingereicht statt hier ermittelt: die Quellen sind Runen-Stores
+ * und ein `viewport`, die in einem reinen Datenmodul nichts zu suchen haben.
+ */
+export interface ReiterBedingungen {
+  /** Schmaler Bildschirm — blendet die reinen Rechner-Reiter aus. */
+  istMobil: boolean;
+  /** Läuft im Browser (weder Electron noch Android-Hülle). */
+  imBrowser: boolean;
+  /** Läuft in einer Desktop-App, gleich welcher Plattform. */
+  istDesktopApp: boolean;
+  /** Standplatz-Reiter zeigen — s. `$lib/devices/reiterSichtbar.ts`. */
+  zeigtStandplatz: boolean;
+}
+
+/**
+ * Welche Reiter unter diesen Bedingungen sichtbar sind.
+ *
+ * **Steht hier und nicht im Dialog**, seit der Du-Bereich des Handys
+ * (`/app/me`) dieselben Einstellungen als aufgeschobene Bildschirme zeigt:
+ * zwei Rechnungen für dieselbe Frage liefen auseinander, und zwar in die
+ * gefährliche Richtung — ein Reiter, der am Telefon nichts tun kann, wäre
+ * dort trotzdem erschienen.
+ *
+ * Rein und ohne Runen, damit beide Seiten sie gleich aufrufen können.
+ */
+export function sichtbareReiter(
+  tabs: SettingsTabDef[],
+  b: ReiterBedingungen
+): SettingsTabDef[] {
+  return tabs.filter(
+    (t) =>
+      (!t.desktopOnly || !b.istMobil) &&
+      (!t.browserOnly || b.imBrowser) &&
+      (!t.electronOnly || b.istDesktopApp) &&
+      (!t.standplatzGate || b.zeigtStandplatz)
+  );
+}

@@ -4,6 +4,7 @@
   import { page } from '$app/state';
   import GuildRail from '$lib/components/GuildRail.svelte';
   import DMChannelList from '$lib/components/DMChannelList.svelte';
+  import MobileChatsList from '$lib/components/mobile/MobileChatsList.svelte';
   import ChatView from '$lib/components/ChatView.svelte';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import { auth } from '$lib/stores/auth.svelte';
@@ -270,14 +271,20 @@
   }}
 />
 
-<!-- DM-Liste: Desktop dauerhaft; Mobil als eigene Spalte rechts der
-     Guild-Rail, sobald der Drawer offen ist — In-Flow, kein Overlay. -->
-{#if !viewport.isMobile || navDrawer.open}
+<!-- DM-Liste. Auf dem Handy ist sie der Chats-Bereich und fuellt den
+     Bildschirm, solange kein Gespraech offen ist — kein Drawer mehr, damit der
+     Bildschirmrand der System-Zurueck-Geste gehoert. Ab `md` wieder die
+     schmale Seitenleiste neben dem Chat. -->
+{#if viewport.isMobile}
+  {#if !dmChannelId}
+    <MobileChatsList onSelect={selectDM} onCompose={() => goto('/app/friends')} />
+  {/if}
+{:else}
   <DMChannelList activeDMId={dmChannelId || null} onSelect={selectDM} />
 {/if}
 
-<!-- Chat: Desktop dauerhaft; Mobil nur solange der Drawer zu ist. -->
-{#if !viewport.isMobile || !navDrawer.open}
+<!-- Chat: ab `md` dauerhaft; auf dem Handy nur mit geoeffnetem Gespraech. -->
+{#if !viewport.isMobile || !!dmChannelId}
   {#if loadError}
     <section
       class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 md:rounded-2xl"
@@ -290,6 +297,8 @@
       messages={visibleMessages}
       onSend={sendMessage}
       headerKind="dm"
+      dmPartnerId={activeDM.other_user_id}
+      onBack={() => goto('/app/@me')}
       cloudScoped
       showMemberList={false}
       composerDisabled={activeDM.can_send === false}

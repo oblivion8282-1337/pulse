@@ -17,6 +17,27 @@ import type {
 export type GuildSettings = {
   handle: string | null;
   is_public: boolean;
+  /** Im Entdecken-Verzeichnis zeigen. Getrennt von `is_public`: eine
+   *  oeffentliche Adresse ist eine andere Zustimmung als ein durchsuchbares
+   *  Schaufenster. Vorgabe aus, wird nirgends nachgezogen. */
+  listed: boolean;
+  /** Eine Kennung aus der festen Liste des Servers, oder null. */
+  category: string | null;
+};
+
+/** Kategorien des Verzeichnisses — feste Liste, spiegelt
+ *  `community_categories.py` auf dem Server. **Synchron halten.** */
+export const COMMUNITY_CATEGORIES = ['gaming', 'music', 'tech', 'creative', 'other'] as const;
+export type CommunityCategory = (typeof COMMUNITY_CATEGORIES)[number];
+
+/** Ein Eintrag im Community-Verzeichnis (`GET /c`). */
+export type DirectoryEntry = {
+  id: string;
+  handle: string;
+  name: string;
+  icon_url: string | null;
+  category: string | null;
+  member_count: number;
 };
 
 /** Ein Limit aus Sicht der Community-Leitung: eigener Wert, Obergrenze des
@@ -488,9 +509,26 @@ export const chatApi = {
    *  danach getGuildSettings für den aktualisierten State. */
   patchGuildPublicAddress(
     id: string,
-    payload: { handle?: string | null; is_public?: boolean },
+    payload: {
+      handle?: string | null;
+      is_public?: boolean;
+      listed?: boolean;
+      category?: string | null;
+    },
   ): Promise<Guild> {
     return request<Guild>(`/guilds/${id}`, { method: 'PATCH', body: payload });
+  },
+  /** Durchsuchbares Verzeichnis oeffentlicher Communities (Entdecken).
+   *  Zeigt nur, was `is_public` UND `listed` ist. Verlangt Anmeldung. */
+  listPublicCommunities(
+    params: { q?: string; category?: string; limit?: number } = {},
+  ): Promise<{ items: DirectoryEntry[] }> {
+    const s = new URLSearchParams();
+    if (params.q) s.set('q', params.q);
+    if (params.category) s.set('category', params.category);
+    if (params.limit) s.set('limit', String(params.limit));
+    const qs = s.toString();
+    return request<{ items: DirectoryEntry[] }>(`/c${qs ? `?${qs}` : ''}`);
   },
   /** Öffentliche Community-Vorschau. Erfordert Auth (Backend: CurrentUser).
    *  ``route`` pinnt das Request an einen bestimmten Server — auf der Cloud weglassen. */

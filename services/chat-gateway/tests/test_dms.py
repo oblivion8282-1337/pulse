@@ -280,3 +280,75 @@ async def test_dm_reply_target_must_be_in_same_channel(client, _auth_signer, fri
     )
     assert r2.status_code == 201
     assert r2.json()["reply_to_id"] == parent_id
+
+
+# --- Vorschautext in der DM-Liste (Mobil-Umbau 2026-08-22) -------------------
+#
+# Die Chats-Liste des Handys zeigt unter jedem Namen die letzte Nachricht. Der
+# Server lieferte bis dahin nur `last_message_id` — also die Information, DASS
+# es eine gibt, nicht was drinsteht.
+
+
+@pytest.mark.asyncio
+async def test_dm_liste_traegt_vorschautext(client, _auth_signer, friend_pair):
+    t_a, uid_a, _, _, dm_id = await _make_dm(client, _auth_signer, friend_pair)
+    r = await client.post(
+        f"/channels/{dm_id}/messages", json={"content": "Hallo Welt"}, headers=auth(t_a)
+    )
+    posted_at = r.json()["created_at"]
+    eintrag = (await client.get("/dm-channels", headers=auth(t_a))).json()[0]
+    assert eintrag["last_message_preview"] == "Hallo Welt"
+    assert eintrag["last_message_author_id"] == str(uid_a)
+    assert eintrag["last_message_at"] == posted_at
+
+
+@pytest.mark.asyncio
+async def test_dm_vorschau_ohne_nachricht_ist_null(client, _auth_signer, friend_pair):
+    t_a, _, _, _, _ = await _make_dm(client, _auth_signer, friend_pair)
+    eintrag = (await client.get("/dm-channels", headers=auth(t_a))).json()[0]
+    assert eintrag["last_message_preview"] is None
+    assert eintrag["last_message_author_id"] is None
+    assert eintrag["last_message_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_dm_vorschau_wird_gekuerzt(client, _auth_signer, friend_pair):
+    """Eine lange Nachricht darf die Liste nicht aufblaehen — 80 Zeichen."""
+    t_a, _, _, _, dm_id = await _make_dm(client, _auth_signer, friend_pair)
+    await client.post(
+        f"/channels/{dm_id}/messages", json={"content": "a" * 500}, headers=auth(t_a)
+    )
+    eintrag = (await client.get("/dm-channels", headers=auth(t_a))).json()[0]
+    assert len(eintrag["last_message_preview"]) <= 80
+
+
+@pytest.mark.asyncio
+async def test_dm_vorschau_ohne_zeilenumbrueche(client, _auth_signer, friend_pair):
+    """Eine Zeile in der Liste ist EINE Zeile — sonst springt das Layout."""
+    t_a, _, _, _, dm_id = await _make_dm(client, _auth_signer, friend_pair)
+    await client.post(
+        f"/channels/{dm_id}/messages",
+        json={"content": "erste\nzweite\r\ndritte"},
+        headers=auth(t_a),
+    )
+    vorschau = (await client.get("/dm-channels", headers=auth(t_a))).json()[0][
+        "last_message_preview"
+    ]
+    assert "\n" not in vorschau and "\r" not in vorschau
+    assert vorschau == "erste zweite dritte"
+
+
+@pytest.mark.asyncio
+async def test_dm_vorschau_einer_geloeschten_nachricht_ist_null(
+    client, _auth_signer, friend_pair
+):
+    """Geloescht heisst geloescht — auch in der Vorschau der Liste."""
+    t_a, _, _, _, dm_id = await _make_dm(client, _auth_signer, friend_pair)
+    r = await client.post(
+        f"/channels/{dm_id}/messages", json={"content": "weg damit"}, headers=auth(t_a)
+    )
+    mid = r.json()["id"]
+    d = await client.delete(f"/messages/{mid}", headers=auth(t_a))
+    assert d.status_code in (200, 204)
+    eintrag = (await client.get("/dm-channels", headers=auth(t_a))).json()[0]
+    assert eintrag["last_message_preview"] is None
