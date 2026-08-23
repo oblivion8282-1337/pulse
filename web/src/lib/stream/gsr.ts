@@ -54,8 +54,14 @@ export interface GsrHealth {
      *  Windows-Schalter zeigt. Fehlt das Feld, heißt das "nein". */
     hdr?: boolean;
     /** Kann dieser Sidecar Eingaben einspielen, ist dieser Rechner also
-     *  fernsteuerbar? Heute meldet das **nur der Windows-Sidecar** — er ist der
-     *  einzige mit einem `remote_input`-Modul.
+     *  fernsteuerbar? Windows meldet es, und **seit 2026-08-23 auch macOS**;
+     *  der Linux-Sidecar hat kein `remote_input`-Modul.
+     *
+     *  **Windows und macOS beantworten die Frage verschieden.** Unter Windows
+     *  gehört das Op zum Programm selbst, der Wert ist fest `true`. Auf macOS
+     *  hängt er an zwei Systemfreigaben, die der Nutzer jederzeit zurückziehen
+     *  kann und die bei jedem Update neu einzuholen sind (ad-hoc signiertes
+     *  DMG) — dort wird bei jedem Gesundheitscheck live geprüft.
      *
      *  Der Wert reist von hier über den Stream-Token bis in die WHEP-Antwort
      *  beim Zuschauer und entscheidet dort, ob der Knopf „Fernsteuerung
@@ -63,6 +69,12 @@ export interface GsrHealth {
      *  fail-closed, denn ein angebotener Knopf, der beim Gegenüber nichts
      *  bewirken kann, holt sich erst eine Zustimmung und scheitert dann. */
     remote_input?: boolean;
+    /** Warum `remote_input` false ist. Leer bzw. fehlend, wenn es nichts zu
+     *  erklären gibt. Heute nur von macOS gefüllt: `"bedienungshilfen"` oder
+     *  `"eingabeueberwachung:<denied|ungefragt>"`. Gedeutet wird er in
+     *  `lib/remote/freigabeText.ts`, und zwar so, dass ein **unbekannter**
+     *  Grund durchgereicht statt verschluckt wird. */
+    remote_input_grund?: string;
   };
 }
 

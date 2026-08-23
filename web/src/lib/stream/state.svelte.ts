@@ -68,12 +68,21 @@ export const stream = $state({
    *  und die 10-bit-Einstellung wird gar nicht angeboten. */
   tenBitAvailable: false,
   /** True iff der Sidecar Eingaben einspielen kann (`gsr.remote_input`), also
-   *  ferngesteuert werden KANN. Heute meldet das nur der Windows-Sidecar; unter
-   *  Linux gibt es das Modul nicht, und auf Wayland wäre es auch keine
-   *  Kleinigkeit (jedes Programm darf dort nur seine eigenen Fenster bedienen).
-   *  Der Wert reist mit dem Stream bis zum Zuschauer — dort entscheidet er, ob
-   *  „Fernsteuerung anfragen" überhaupt erscheint. */
+   *  ferngesteuert werden KANN. Windows und **seit 2026-08-23 auch macOS**
+   *  melden das; unter Linux gibt es das Modul nicht, und auf Wayland wäre es
+   *  auch keine Kleinigkeit (jedes Programm darf dort nur seine eigenen Fenster
+   *  bedienen). Der Wert reist mit dem Stream bis zum Zuschauer — dort
+   *  entscheidet er, ob „Fernsteuerung anfragen" überhaupt erscheint. */
   fernsteuerbar: false,
+  /** Warum nicht, falls nicht (`gsr.remote_input_grund`). Leer, solange es
+   *  nichts zu erklären gibt.
+   *
+   *  **Warum das ein eigenes Feld verdient:** auf macOS hängt die Fähigkeit an
+   *  ZWEI getrennten Systemfreigaben — Bedienungshilfen fürs Einspielen,
+   *  Eingabeüberwachung fürs Mithören. Die zweite fehlt fast immer, weil
+   *  niemand sie erwartet. Ohne den Grund sähe der Nutzer eine tote Funktion
+   *  ohne Erklärung. Text dazu in `lib/remote/freigabeText.ts`. */
+  fernsteuerbarGrund: '',
   /** True iff dieser Rechner HDR senden kann (`gsr.hdr`) — also einen Encoder
    *  hat, der PQ/BT.2020 bis in den Strom trägt. **Nicht** die Frage, ob HDR
    *  in Windows gerade eingeschaltet ist: die beantwortet erst der Start, und
@@ -214,6 +223,9 @@ export async function initStream(): Promise<() => void> {
       stream.gsrAvailable = !!h.gsr?.available;
       stream.tenBitAvailable = !!h.gsr?.ten_bit;
       stream.fernsteuerbar = !!h.gsr?.remote_input;
+      // Der Grund reist mit, damit eine abgeschaltete Fernsteuerung erklaerbar
+      // ist statt nur abwesend — s. `lib/remote/freigabeText.ts`.
+      stream.fernsteuerbarGrund = h.gsr?.remote_input_grund ?? '';
       stream.hdrAvailable = !!h.gsr?.hdr;
     }
   } catch (e) {
