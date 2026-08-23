@@ -49,6 +49,20 @@ impl Druck {
         v
     }
 
+    /// Welche Tasten gerade unten sind.
+    ///
+    /// **Fuer den Injektor, nicht fuer den Kern** — dasselbe Prinzip wie
+    /// [`Self::knoepfe_unten`]: macOS braucht die Menge, um ein
+    /// Tastatur-Ereignis mit der richtigen Umschalttasten-Kennzeichnung
+    /// (`.maskCommand` &c.) abzufeuern; Windows fuellt das selbst. Sortiert
+    /// aus demselben Grund wie dort: die Antwort darf nicht von der Streuung
+    /// der Menge abhaengen.
+    pub fn tasten_unten(&self) -> Vec<u16> {
+        let mut v: Vec<u16> = self.tasten.iter().copied().collect();
+        v.sort_unstable();
+        v
+    }
+
     pub fn anzahl(&self) -> usize {
         self.knoepfe.len() + self.tasten.len()
     }
@@ -65,8 +79,14 @@ impl Druck {
         for btn in knoepfe {
             injektor.maus_knopf(btn, false);
         }
+        // `self` ist an dieser Stelle bereits geleert (beide `mem::take` oben)
+        // — konsistent mit `ausfuehrung`, das den Injektor ebenfalls VOR dem
+        // eigenen Nachtrag ruft: die Menge, die der Injektor sieht, zaehlt
+        // nie das Ereignis mit, das gerade abgefeuert wird. Beim Loslassen
+        // gehen alle auf einmal, also ist "sonst nichts mehr gehalten" hier
+        // fuer jeden einzelnen Aufruf zutreffend.
         for scan in tasten {
-            injektor.taste(scan, false);
+            injektor.taste(scan, false, self);
         }
         n
     }
@@ -110,7 +130,10 @@ mod tests {
         assert_eq!(d.anzahl(), 0);
         let spur = inj.nimm();
         assert!(spur.contains(&Ereignis::Knopf { btn: 1, down: false }), "{spur:?}");
-        assert!(spur.contains(&Ereignis::Taste { scan: 0xE01D, down: false }), "{spur:?}");
+        assert!(
+            spur.contains(&Ereignis::Taste { scan: 0xE01D, down: false, mods: vec![] }),
+            "{spur:?}"
+        );
     }
 
     /// Zweimal loslassen feuert nicht zweimal — sonst kaeme bei jedem
@@ -136,5 +159,17 @@ mod tests {
             d.knopf(btn, true);
         }
         assert_eq!(d.knoepfe_unten(), vec![0, 2, 4]);
+    }
+
+    /// Dieselbe Zusage fuer Tasten — der macOS-Injektor braucht sie fuer die
+    /// Umschalttasten-Kennzeichnung, und die Antwort darf nicht von der
+    /// Streuung der Menge abhaengen.
+    #[test]
+    fn tasten_unten_ist_sortiert() {
+        let mut d = Druck::default();
+        for scan in [0x1Du16, 0x2A, 0x11] {
+            d.taste(scan, true);
+        }
+        assert_eq!(d.tasten_unten(), vec![0x11, 0x1D, 0x2A]);
     }
 }

@@ -139,7 +139,11 @@ pub(crate) fn einspielen(
                     "missgeformter Scancode {scan:#06x} — Satz 1 kennt nur 0x00xx und 0xE0xx"
                 ));
             }
-            injektor.taste(scan, down);
+            // Reihenfolge bewusst so: der Injektor bekommt die Menge VOR
+            // diesem Ereignis (s. `plattform::Injektor::taste`), genau wie
+            // bei `bewegen` unten. Ob das eigene Runter-Ereignis noch fehlt,
+            // ist ungemessen — s. Doc-Kommentar der Trait-Methode.
+            injektor.taste(scan, down, &z.druck);
             z.druck.taste(scan, down);
         }
     }
@@ -256,9 +260,9 @@ mod tests {
         assert_eq!(z.zeiger, Some((QUELLE.links, QUELLE.oben)));
         let spur = inj.nimm();
         assert_eq!(spur.len(), 1, "{spur:?}");
-        match spur[0] {
+        match &spur[0] {
             Ereignis::Setzen { punkt, .. } => {
-                assert_eq!(punkt, (QUELLE.links, QUELLE.oben));
+                assert_eq!(*punkt, (QUELLE.links, QUELLE.oben));
             }
             andere => panic!("Mausbewegung erwartet, war {andere:?}"),
         }
@@ -405,7 +409,30 @@ mod tests {
         let inj = PruefInjektor::default();
         let mut z = zustand(None);
         einspielen(&mut z, &inj, None, InputFrame::Key { scan: 0x11, down: true }).unwrap();
-        assert_eq!(inj.nimm(), vec![Ereignis::Taste { scan: 0x11, down: true }]);
+        assert_eq!(inj.nimm(), vec![Ereignis::Taste { scan: 0x11, down: true, mods: vec![] }]);
         assert_eq!(z.druck.anzahl(), 1);
+    }
+
+    /// **Die Lücke, die Task 1 schließt:** der Injektor bekommt beim
+    /// Tasten-Ereignis dieselbe Gedrückt-Menge wie bei einer Mausbewegung —
+    /// macOS braucht sie, um Tastatur-Ereignisse mit `.maskCommand` &c. zu
+    /// kennzeichnen, sonst bleibt Cmd+C wirkungslos (nachgemessen 2026-08-23,
+    /// s. Doc-Kommentar von `plattform::Injektor::taste`). Hier steht schon
+    /// eine Taste (Platzhalter für einen gehaltenen Modifikator), bevor
+    /// `scan` gedrückt wird — der Injektor muss genau sie in `mods` sehen,
+    /// **nicht** die neue Taste selbst, denn `ausfuehrung` schreibt
+    /// `z.druck` erst NACH diesem Aufruf fort.
+    #[test]
+    fn taste_traegt_die_zuvor_gedrueckte_menge_an_den_injektor() {
+        let inj = PruefInjektor::default();
+        let mut z = zustand(None);
+        z.druck.taste(0x1D, true); // bereits gehalten (Platzhalter fuer Cmd)
+        einspielen(&mut z, &inj, None, InputFrame::Key { scan: 0x2E, down: true }).unwrap();
+        assert_eq!(
+            inj.nimm(),
+            vec![Ereignis::Taste { scan: 0x2E, down: true, mods: vec![0x1D] }],
+            "der Injektor muss die vorher gedrueckte Taste in `mods` sehen"
+        );
+        assert_eq!(z.druck.anzahl(), 2, "danach stehen beide im Druckzustand");
     }
 }

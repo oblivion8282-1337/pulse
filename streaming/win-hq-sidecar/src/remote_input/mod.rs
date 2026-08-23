@@ -93,7 +93,10 @@ impl Injektor for WinInjektor {
         }
     }
 
-    fn taste(&self, scan: u16, down: bool) {
+    fn taste(&self, scan: u16, down: bool, _gedrueckt: &Druck) {
+        // Windows fuellt die Umschalttasten-Kennzeichnung eines
+        // Tastaturereignisses von selbst — die Menge wird hier nicht
+        // gebraucht (s. Doc-Kommentar von `Injektor::taste`, macOS-Fund).
         injektion::taste(scan, down);
     }
 }

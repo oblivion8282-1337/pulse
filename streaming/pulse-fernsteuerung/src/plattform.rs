@@ -56,7 +56,25 @@ pub trait Injektor: Sync {
 
     /// Eine Taste per Scancode Satz 1. `scan` ist bereits gegen
     /// [`crate::format::scancode_gueltig`] geprueft.
-    fn taste(&self, scan: u16, down: bool);
+    ///
+    /// `gedrueckt` ist dieselbe Menge, die [`Self::maus_setzen`] schon
+    /// bekommt. **Windows braucht sie nicht**: das System fuellt die
+    /// Umschalttasten-Kennzeichnung eines Tastaturereignisses von selbst.
+    /// **macOS braucht sie** — nachgemessen am 2026-08-23: nach einem echten
+    /// Cmd-Runter, C-Runter/C-Hoch, Cmd-Hoch blieb die Zwischenablage
+    /// unveraendert; erst als die C-Ereignisse ausdruecklich `.maskCommand`
+    /// trugen, kam der Text an. Ohne diesen Parameter baute sich ein
+    /// macOS-Injektor eine eigene Modifikator-Buchfuehrung aus den gesehenen
+    /// Scancodes — eine zweite Kopie dessen, was [`Druck`] schon weiss, die
+    /// bei jedem Sitzungsende gesondert geraeumt werden muesste.
+    ///
+    /// **Ungemessen:** ob ein Cmd-Runter-Ereignis seine EIGENE Kennzeichnung
+    /// tragen muss. `crate::ausfuehrung` ruft den Injektor vor dem eigenen
+    /// Nachtrag in [`Druck`] (wie bei [`Self::maus_setzen`]: der Injektor
+    /// sieht den Zustand VOR seiner eigenen Wirkung) — die Taste steht beim
+    /// eigenen Runter-Ereignis also noch nicht in `gedrueckt`. Eine spaetere
+    /// Messung entscheidet, ob das reicht.
+    fn taste(&self, scan: u16, down: bool, gedrueckt: &Druck);
 }
 
 /// Sitzt der **Host** gerade selbst an Maus und Tastatur?
