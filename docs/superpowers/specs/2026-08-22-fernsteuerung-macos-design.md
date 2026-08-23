@@ -208,6 +208,15 @@ als `LeftMouseDragged` / `RightMouseDragged` / `OtherMouseDragged` gehen, nicht
 als `MouseMoved` — sonst zieht in vielen Programmen nichts. Deshalb bekommt
 `maus_setzen` die Gedrückt-Menge.
 
+> **Nachgemessen in Aufgabe 4 (Nachtrag 4), und die Begründung hält nur halb.**
+> Der Typunterschied überlebt die Leitung — an den Ereigniszählern des
+> HID-Systems abgelesen bleibt `MouseMoved` ein `MouseMoved`, der WindowServer
+> berichtigt nichts. Der behauptete **Schaden** ist aber an diesem Rechner nicht
+> belegt: die beiden geprüften Ziele (Textauswahl in TextEdit, Fenster an der
+> Titelleiste verschieben) zogen auch mit `MouseMoved` mit. Die Aussage gilt für
+> Programme, die streng auf `NSEventMaskLeftMouseDragged` hören (Spiele, Qt,
+> Chromium) — dafür fehlte ein Ziel. Der richtige Typ bleibt eingebaut.
+
 **Doppelklicks — gemessen am 2026-08-23, der Zähler wird gebraucht.**
 `kCGMouseEventClickState` muss beim zweiten Klick auf 2 stehen. Nachgemessen:
 mit `clickState = 1` für beide Klicks bleibt es bei der Einfügemarke, mit 2 für
@@ -222,17 +231,25 @@ bei Cmd+C unverändert; erst mit `.maskCommand` auf den C-Ereignissen kommt der
 Text an. **Der Injektor muss die Flags selbst setzen.** Er bekommt die
 Gedrückt-Menge heute aber nur bei `maus_setzen`, nicht bei `taste` — beim
 Schreiben von Plan 2 zu schliessen (bevorzugt symmetrisch, `taste` bekommt
-ebenfalls `&Druck`; die Sitzung führt die Menge ohnehin). Ungemessen bleibt, ob
-ein Cmd-Runter-Ereignis **seine eigene** Kennzeichnung tragen muss.
+ebenfalls `&Druck`; die Sitzung führt die Menge ohnehin). **Erledigt in Plan 2,
+Aufgabe 4** — samt der damals offenen Frage: ein Cmd-Runter-Ereignis muss seine
+**eigene** Kennzeichnung nicht tragen (Nachtrag 1 der Messakte). Und die
+Kennzeichnung gilt für **Maus**-Ereignisse genauso, was hier noch offen war
+(Nachtrag 3: Umschalt+Klick erweitert die Auswahl nur mit gesetzter
+Kennzeichnung).
 
 **Rad — gemessen am 2026-08-23, keine Gegenrechnung nötig.**
 `CGEventCreateScrollWheelEvent2` mit Zeileneinheit. Nachgemessen in beiden
 Stellungen von „natürlichem Scrollen": die Richtung ist **dieselbe**, und sie
 entspricht der Windows-Bedeutung von `dv > 0`. Die Systemeinstellung wirkt also
 **nicht** auf injizierte Ereignisse; Host und Steuernder dürfen sie beliebig
-verschieden haben. **Offen:** die Umrechnung Raste → Zeile ist nicht glatt 1:1
-(eine Raste bewegte einmal eine Zeile, fünf Rasten bewegten drei). Für die
-Richtung ohne Belang, fürs Scrollgefühl zu messen, wenn das Rad gebaut wird.
+verschieden haben. **Offen war:** die Umrechnung Raste → Zeile ist nicht glatt
+1:1. **In Aufgabe 4 gemessen** (Nachtrag 5): rund 0,75 bis 0,8 Zeilen je Raste —
+fünf Rasten bewegten vier Zeilen, vierzig bewegten dreissig. Die Richtung stimmt.
+Was daran offen **bleibt**, ist eine Frage des Gefühls, keine der Richtigkeit:
+Windows rollt je Raste standardmässig **drei** Zeilen
+(`SPI_GETWHEELSCROLLLINES`), der ferngesteuerte Mac also rund viermal träger als
+der Rechner, den der Steuernde kennt.
 
 **Tastentabelle** Satz 1 → `kVK_*` in `remote_input/tasten.rs`, rein und mit
 Tests.

@@ -50,8 +50,15 @@ objc2-core-audio-types = { version = "0.3", default-features = false, features =
 objc2-core-video = { version = "0.3", default-features = false, features = [
     "std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn", "CVPixelFormatDescription",
 ] }
+# `CGEvent`/`CGEventSource`/`CGEventTypes` tragen die Fernsteuer-Injektion
+# (`src/remote_input/injektion.rs`). **Keine neue Abhaengigkeit** — die Kiste
+# stand schon fuer `CGDirectDisplay` da, es fehlten nur die Bindungen.
+# `CGRemoteOperation` kommt dazu, weil `CGKeyCode` dort liegt und
+# `CGEvent::new_keyboard_event` genau darauf gattert (`#[cfg(all(feature =
+# "CGEventTypes", feature = "CGRemoteOperation"))]`) — ohne das vierte Merkmal
+# gibt es Maus und Rad, aber keine Tastatur.
 objc2-core-graphics = { version = "0.3", default-features = false, features = [
-    "std", "CGDirectDisplay",
+    "std", "CGDirectDisplay", "CGEvent", "CGEventSource", "CGEventTypes", "CGRemoteOperation",
 ] }
 # CF base layer (already transitive via core-video/-media) — needed to name
 # `CFRetained` for the zero-copy CVPixelBuffer hand-off into VideoToolbox.

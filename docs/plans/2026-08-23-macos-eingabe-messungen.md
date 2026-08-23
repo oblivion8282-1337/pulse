@@ -162,3 +162,167 @@ baut — eine Windows-Raste (120) soll dort einer Zeile entsprechen.
 Alle drei Messungen sprechen für den Entwurf, mit **einer** echten Lücke: die
 fehlende Gedrückt-Menge in `Injektor::taste`. Sie ist beim Schreiben von Plan 2
 zu schliessen.
+
+---
+
+# Nachträge — am gebauten Injektor gemessen (2026-08-23, Aufgabe 4)
+
+Die Messungen oben liefen über Swift-Prüflinge, **vor** dem Code. Die folgenden
+laufen über den gebauten `MacInjektor` selbst: `streaming/mac-hq-sidecar/examples/probe_injektor/`,
+zu fahren mit `cargo run --example probe_injektor -- <lauf>` (dieselbe
+Bedienungshilfen-Freigabe wie oben; der Prüfling bricht ab, statt einen leeren
+Befund zu melden, wenn sie fehlt). Ziel ist jedes Mal ein eigenes
+TextEdit-Fenster auf einer eigenen Datei unter `$TMPDIR`, das Ergebnis wird aus
+der Zwischenablage oder über die Bedienungshilfen zurückgelesen — nicht
+angeschaut.
+
+Maschine unverändert: MacBook, macOS 15.7.3 (24G419), Apple Silicon.
+
+## Nachtrag 1 — muss ein Cmd-**Runter** seine eigene Kennzeichnung tragen?
+
+Die offene Frage aus Messung 2b und aus dem Doc-Kommentar von
+`Injektor::taste`. `pulse_fernsteuerung::ausfuehrung` ruft den Injektor **vor**
+dem Nachtrag in `Druck` — beim eigenen Runter-Ereignis steht die Taste also noch
+nicht in der Menge, das Cmd-Runter geht ohne `.maskCommand` hinaus.
+
+**Aufbau:** Wort per Doppelklick markiert, Zwischenablage auf einen Merkwert
+gesetzt, dann Cmd-runter, C-runter, C-hoch, Cmd-hoch über den `MacInjektor`.
+Zweiter Lauf mit `--eigen`: dort wird `Druck` **vor** dem Injektor-Aufruf
+fortgeschrieben, das Cmd-Runter trägt seine Kennzeichnung dann selbst.
+
+| Lauf | Zwischenablage danach |
+|---|---|
+| Reihenfolge wie in `ausfuehrung` (Cmd-Runter ohne eigene Kennzeichnung) | `Hallo` |
+| `--eigen` (Cmd-Runter mit eigener Kennzeichnung) | `Hallo` |
+
+**Befund: nein.** Ein Cmd-Runter braucht seine eigene Kennzeichnung nicht. Die
+Reihenfolge in `ausfuehrung` trägt, und sie muss für macOS nicht gedreht werden.
+
+**Die Kehrseite gleich mitgemessen**, weil dieselbe Reihenfolge sie erzeugt: das
+Cmd-**Hoch** trägt bei dieser Reihenfolge noch `.maskCommand`, obwohl es das
+Ende von Cmd meldet — `Druck` wird erst danach fortgeschrieben. Bleibt Cmd
+dadurch hängen, wäre die nächste gewöhnliche Taste ein Tastenkürzel. Geprüft mit
+„e" (als Text ersetzt es die Auswahl, als Cmd+E tut es nichts Sichtbares): in
+**beiden** Läufen stand danach `e Welt Pulse Fernsteuerung` in der Datei. **Cmd
+hängt nicht.**
+
+## Nachtrag 2 — der Klickzähler am eigenen Code
+
+Messung 2 oben belegte den Befund an einem Swift-Prüfling. Hier dasselbe durch
+den gebauten Zähler, mit Gegenprobe: `--ohne-zaehler` gibt dem zweiten Klick
+einen **frischen** Injektor, dessen Kette leer ist — sein Klick trägt damit
+`clickState = 1`, ohne dass am Zähler etwas verstellt werden müsste.
+
+| Lauf | Auswahl danach |
+|---|---|
+| Klickzähler an | `Hallo` — das Wort ist markiert |
+| `--ohne-zaehler` | nichts markiert |
+
+**Befund: der Zähler ist tragend**, und zwar im gebauten Code, nicht nur im
+Entwurf.
+
+## Nachtrag 3 — die Kennzeichnung gilt für **Maus**-Ereignisse genauso
+
+Messung 2b prüfte nur die Tastatur. Der Entwurf verlangt die Kennzeichnung auch
+auf Maus-Ereignissen („ein Cmd-Klick ist so verbreitet wie ein Cmd-C") — das war
+bis hierher unbelegt.
+
+**Aufbau:** Klick an eine Stelle, 900 ms warten (damit der zweite Klick nicht als
+Doppelklick zählt), Umschalttaste runter, Klick 90 Punkte weiter rechts,
+Umschalttaste hoch, Cmd+C. Umschalt+Klick erweitert in TextEdit die Auswahl.
+Gegenprobe `--ohne-flags`: `maus_setzen` bekommt eine **leere** Gedrückt-Menge,
+obwohl die Umschalttaste körperlich unten ist.
+
+| Lauf | Auswahl danach |
+|---|---|
+| Kennzeichnung auf dem Maus-Ereignis | `llo Welt Pulse` |
+| `--ohne-flags` | nichts markiert |
+
+**Befund: der WindowServer füllt die Kennzeichnung auch für Maus-Ereignisse
+nicht.** Sie muss auf Bewegung, Knopf und Rad genauso mit.
+
+Nebenbei belegt das den Umweg im Injektor: `Injektor::maus_knopf` bekommt gar
+keine Gedrückt-Menge, die Kennzeichnung kommt dort aus dem gemerkten Stand des
+letzten Aufrufs, der eine hatte (`maus_setzen`/`taste`). Dieser Umweg trägt —
+weil `ausfuehrung` vor jedem Knopf-Runter und jedem Rad-Ereignis die Zeigerlage
+noch einmal behauptet.
+
+## Nachtrag 4 — Ziehen: der Typ überlebt, der behauptete Schaden ist unbelegt
+
+Der Entwurf begründet den eigenen Zieh-Ereignistyp mit „sonst zieht in vielen
+Programmen nichts". Zwei Gegenproben mit `MouseMoved` bei gedrücktem Knopf:
+
+| Ziel | mit Zieh-Typ | mit `MouseMoved` |
+|---|---|---|
+| Textauswahl in TextEdit | `llo Welt P` | `llo Welt P` — **zieht auch** |
+| TextEdit-Fenster an der Titelleiste verschieben | (213,75) → (333,125) | (213,75) → (333,125) — **zieht auch** |
+
+Damit stand die Frage im Raum, ob der WindowServer den Typ selbst berichtigt.
+Direkt gemessen an den Ereigniszählern des HID-Systems
+(`CGEventSourceCounterForEventType`, Lauf `zieh-typ`), je zehn Bewegungen:
+
+| Lauf | `MouseMoved` | `LeftMouseDragged` |
+|---|---|---|
+| leere Gedrückt-Menge | **+10** | +0 |
+| linker Knopf gedrückt | +0 | **+10** |
+
+**Befund: der WindowServer berichtigt nichts** — der Typ geht so hinaus und
+kommt so an. Die beiden geprüften Ziele sind bloss tolerant: AppKits
+Verfolgungsschleifen nehmen `MouseMoved` mit.
+
+**Was daraus folgt:** der Zieh-Typ bleibt richtig und bleibt eingebaut (er ist
+der Typ, den Apples Ereignismodell für diesen Fall vorsieht). Aber die
+**Schadensaussage** des Entwurfs ist an diesem Rechner **nicht belegt**. Sie
+gilt für Programme, die streng auf `NSEventMaskLeftMouseDragged` hören (Spiele,
+Qt, Chromium), und dafür fehlt hier ein Ziel. Wer sie belegen will, braucht ein
+Programm ausserhalb von AppKit.
+
+## Nachtrag 5 — das Rad: Richtung bestätigt, Weite gemessen
+
+Messung 3 klärte die Richtung, liess die Umrechnung Raste → Zeile aber offen
+(„Randbeobachtung, ungeklärt"). Der Entwurf setzt eine Windows-Raste (120) auf
+eine Zeile; so ist es gebaut. Gemessen am sichtbaren Zeichenbereich der
+TextEdit-Textfläche (`AXVisibleCharacterRange`, durch die feste Zeilenlänge
+geteilt), Datei mit 400 nummerierten Zeilen:
+
+| Eingabe | oberste Zeile | Schritt |
+|---|---|---|
+| Start (nach 40 Rasten abwärts) | 31 | — |
+| +1 Raste | 31 | 0 Zeilen |
+| +5 Rasten | 27 | **−4 Zeilen** |
+| −1 Raste | 27 | 0 Zeilen |
+| −5 Rasten | 31 | **+4 Zeilen** |
+
+**Richtung bestätigt** — positive Rasten machen die Zeilennummer kleiner, also
+die Windows-Bedeutung von `dv > 0`, ohne Gegenrechnung.
+
+**Weite: rund 0,75 bis 0,8 Zeilen je Raste**, nicht eine. Fünf Rasten bewegten
+vier Zeilen, vierzig Rasten dreissig. macOS legt auf ein Zeilen-Rollereignis
+noch seine eigene Beschleunigungskurve; einzelne Rasten verschwinden dabei im
+Rest (deshalb die Nullschritte oben — die Textfläche rollt in Bildpunkten, die
+Zeilennummer springt erst beim Überlaufen).
+
+**Offen, und bewusst nicht in Aufgabe 4 entschieden:** Windows rollt je Raste
+standardmässig **drei** Zeilen (`SPI_GETWHEELSCROLLLINES`). Gegenüber dem, was
+der Steuernde von seinem eigenen Rechner kennt, rollt der ferngesteuerte Mac
+damit rund viermal träger. Das ist eine Frage des Scrollgefühls, keine der
+Richtigkeit — und eine, die gemessen gehört statt geraten.
+
+**Eine Falle für spätere Messungen:** `scroll bar 1 of scroll area 1 of window 1`
+ist bei TextEdit der **waagerechte** Rollbalken. Sein Wert steht still, egal wie
+weit gerollt wird. Ein Lauf, der ihn abliest, meldet „das Rad tut nichts" — und
+das sah zwischenzeitlich wie ein echter Befund aus. Der sichtbare
+Zeichenbereich ist eindeutig.
+
+## Was in Aufgabe 4 **nicht** gemessen werden konnte
+
+* **Waagerechtes Rollen.** `wheel2` ist symmetrisch zum senkrechten gebaut, aber
+  die Richtung ist ungemessen — TextEdit im Umbruchmodus rollt nicht waagerecht.
+* **Cmd+Tab, Mission Control, sichere Eingabefelder.** Als Grenzen im Modulkopf
+  von `injektion.rs` dokumentiert, nicht nachgestellt.
+* **Ob der Doppelklick-Abstand (500 ms) passt.** Die Nutzereinstellung wird nicht
+  ausgelesen (bräuchte AppKit); ob jemand die feste Frist als zu träge oder zu
+  hastig empfindet, sagt keine Messung.
+* **Der Stempel `kCGEventSourceUserData`.** Er wird gesetzt, aber erst die Wache
+  aus Aufgabe 5 kann ihn wieder lesen — bis dahin ist unbelegt, dass er den Weg
+  durch den WindowServer übersteht.
