@@ -60,13 +60,36 @@ use std::sync::Mutex;
 
 use objc2_core_foundation::{CFArray, CFDictionary, CGRect};
 use objc2_core_graphics::{
-    CGDirectDisplayID, CGDisplayBounds, CGWindowID, CGWindowListCopyWindowInfo, CGWindowListOption,
+    CGDirectDisplayID, CGDisplayBounds, CGMainDisplayID, CGWindowID, CGWindowListCopyWindowInfo, CGWindowListOption,
     kCGWindowBounds,
 };
 
 use pulse_fernsteuerung::plattform::Zielsuche;
 use pulse_fernsteuerung::slot;
 use pulse_fernsteuerung::zuordnung::Rechteck;
+
+/// Labor-Schalter: Eingaben auch **ohne laufenden Strom** zulassen und einen
+/// Bildschirm als Ersatz-Rechteck nehmen.
+///
+/// **Nichts im ausgelieferten Weg setzt die Variable.** Sie hebt die Kopplung
+/// „du kannst nur dorthin klicken, wo du auch hinsiehst" auf und bietet ein
+/// Rechteck an, das mit keiner Aufnahme belegt ist — damit laesst sich die
+/// Treffgenauigkeit auf **einer** Maschine messen, ohne einen zweiten Rechner
+/// und ohne echten Strom. Gegenstueck zum Windows-Labor
+/// (`win-hq-sidecar/src/remote_input/ziel.rs`), **gleicher Name mit Absicht**:
+/// die Messwerkzeuge sollen auf beiden Seiten gleich bedient werden.
+const LABOR_OHNE_STROM: &str = "PULSE_LABOR_EINGABE_OHNE_STREAM";
+
+/// Labor-Schalter: WELCHER Bildschirm als Quell-Rechteck dient, wenn
+/// [`LABOR_OHNE_STROM`] an ist. 1-basiert wie in `ops::list_monitors`; ohne die
+/// Variable der Hauptbildschirm.
+const LABOR_MONITOR: &str = "PULSE_LABOR_EINGABE_MONITOR";
+
+/// Gilt ein Schalter als gesetzt? Wortgleich mit `win-hq-sidecar/src/env.rs` —
+/// alles ausser leer und `"0"` heisst an.
+fn schalter_an(name: &str) -> bool {
+    std::env::var(name).ok().is_some_and(|v| !v.is_empty() && v != "0")
+}
 
 /// Woraus dieser Strom sein Bild nimmt.
 ///
@@ -151,7 +174,7 @@ pub fn ziel_fuer_slot(angefragt: u64) -> Zielsuche {
         let reg = registrierung();
         match reg.as_ref().filter(|s| slot::traegt_slot(s.slot, angefragt)) {
             Some(s) => s.quelle,
-            None => return Zielsuche::KeinStrom,
+            None => return labor_rueckfall(angefragt),
         }
     };
     // **`sichtbar` ist auf macOS immer `true`**, und das ist kein Versehen: den
@@ -160,6 +183,64 @@ pub fn ziel_fuer_slot(angefragt: u64) -> Zielsuche {
     // das verschwindet, liefert kein Rechteck, und das ist der Fall unten.
     // Ein pauschales `false` legte die Fernsteuerung fuer JEDEN Strom still.
     Zielsuche::Gefunden { rechteck: rechteck(quelle), sichtbar: true }
+}
+
+/// Ohne laufenden Strom: unbekannter Platz (Regelfall) — oder, mit gesetztem
+/// Labor-Schalter, ein Bildschirm als Ersatz-Rechteck.
+fn labor_rueckfall(slot: u64) -> Zielsuche {
+    if !schalter_an(LABOR_OHNE_STROM) {
+        return Zielsuche::KeinStrom;
+    }
+    let schirme = match crate::capture::list_displays() {
+        Ok(s) => s.iter().map(|d| (d.index, d.display_id)).collect::<Vec<_>>(),
+        Err(e) => {
+            return Zielsuche::NichtAufloesbar(format!(
+                "{LABOR_OHNE_STROM}: Schirmliste nicht abfragbar ({e}) — fehlt die \
+                 Bildschirmaufnahme-Freigabe?"
+            ));
+        }
+    };
+    let wunsch = std::env::var(LABOR_MONITOR).ok();
+    match labor_schirm_waehlen(wunsch.as_deref(), &schirme) {
+        Ok((id, woher)) => {
+            eprintln!(
+                "[remote-input] {LABOR_OHNE_STROM}: Platz {slot} ohne Strom → {woher} als \
+                 Quell-Rechteck (Messweg, kein Produktweg)"
+            );
+            Zielsuche::Gefunden { rechteck: rechteck(Quelle::Schirm(id)), sichtbar: true }
+        }
+        Err(e) => Zielsuche::NichtAufloesbar(e),
+    }
+}
+
+/// Welchen Bildschirm meint der Labor-Schalter? Reine Auswahl, damit sie ohne
+/// Maschine pruefbar ist.
+///
+/// **Ein unbrauchbarer Wert wird NICHT stillschweigend auf den Hauptschirm
+/// zurueckgedreht** (dieselbe Regel wie auf Windows, und aus demselben Grund):
+/// wer den Schalter setzt, misst gezielt einen bestimmten Bildschirm. Ein
+/// stiller Rueckfall lieferte Zahlen fuer den falschen — also ein Ergebnis, das
+/// plausibel aussieht und nichts belegt.
+fn labor_schirm_waehlen(
+    wunsch: Option<&str>,
+    schirme: &[(usize, CGDirectDisplayID)],
+) -> Result<(CGDirectDisplayID, String), String> {
+    match wunsch.map(str::trim).filter(|w| !w.is_empty()) {
+        Some(roh) => {
+            let n: usize = roh
+                .parse()
+                .map_err(|_| format!("{LABOR_MONITOR}={roh:?} ist keine Zahl (1-basiert)"))?;
+            let (_, id) = schirme
+                .iter()
+                .find(|(i, _)| *i == n)
+                .ok_or_else(|| format!("{LABOR_MONITOR}={n}: so viele Bildschirme gibt es nicht"))?;
+            Ok((*id, format!("Bildschirm {n}")))
+        }
+        // Ohne Wunsch der Hauptbildschirm — und zwar ueber `CGMainDisplayID`,
+        // nicht ueber „der erste in der Liste": die Reihenfolge von
+        // `SCShareableContent` ist nicht zugesichert.
+        None => Ok((CGMainDisplayID(), "Hauptbildschirm".to_string())),
+    }
 }
 
 /// Das Quell-Rechteck in Punkten, oder `None`, wenn die Quelle gerade nicht

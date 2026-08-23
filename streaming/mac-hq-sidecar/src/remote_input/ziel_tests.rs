@@ -126,3 +126,53 @@ fn gefundene_ziele_gelten_als_sichtbar() {
     }
     strom_beendet();
 }
+
+/// Der Labor-Schalter waehlt den gewuenschten Bildschirm — und **nur** ihn.
+#[test]
+fn labor_waehlt_den_gewuenschten_schirm() {
+    let schirme = [(1usize, 11u32), (2, 22), (3, 33)];
+    assert_eq!(labor_schirm_waehlen(Some("2"), &schirme).unwrap().0, 22);
+    assert_eq!(labor_schirm_waehlen(Some(" 3 "), &schirme).unwrap().0, 33);
+}
+
+/// **Ein unbrauchbarer Wert faellt NICHT still auf den Hauptschirm zurueck.**
+///
+/// Wer den Schalter setzt, misst gezielt einen bestimmten Bildschirm. Ein
+/// stiller Rueckfall lieferte Zahlen fuer den falschen — ein Ergebnis, das
+/// plausibel aussieht und nichts belegt. Dieselbe Regel wie auf Windows.
+#[test]
+fn labor_dreht_unbrauchbare_werte_nicht_still_zurueck() {
+    let schirme = [(1usize, 11u32), (2, 22)];
+    for kaputt in ["null", "-1", "zwei", "1,5"] {
+        assert!(
+            labor_schirm_waehlen(Some(kaputt), &schirme).is_err(),
+            "{kaputt:?} muss einen Fehler geben, keinen stillen Rueckfall"
+        );
+    }
+    // Und eine Nummer, die es nicht gibt, ebenso.
+    let fehler = labor_schirm_waehlen(Some("9"), &schirme).unwrap_err();
+    assert!(fehler.contains("9"), "die Meldung muss die verlangte Nummer nennen: {fehler}");
+}
+
+/// Ohne Wunsch der Hauptbildschirm — **nicht** „der erste in der Liste": die
+/// Reihenfolge von `SCShareableContent` ist nicht zugesichert.
+#[test]
+fn labor_ohne_wunsch_nimmt_den_hauptschirm() {
+    let schirme = [(1usize, 11u32), (2, 22)];
+    for leer in [None, Some(""), Some("   ")] {
+        let (id, woher) = labor_schirm_waehlen(leer, &schirme).unwrap();
+        assert_eq!(id, CGMainDisplayID(), "ohne Wunsch gilt der Hauptbildschirm");
+        assert!(woher.contains("Hauptbildschirm"), "{woher}");
+    }
+}
+
+/// **Ohne gesetzten Schalter aendert sich nichts.** Der Labor-Weg darf im
+/// Regelbetrieb nicht aufgehen — sonst koennte ein Steuernder auf einen
+/// Bildschirm klicken, den niemand ueberträgt.
+#[test]
+fn ohne_schalter_bleibt_es_bei_kein_strom() {
+    let _reihum = REIHUM.lock().unwrap_or_else(|e| e.into_inner());
+    strom_beendet();
+    assert!(!schalter_an(LABOR_OHNE_STROM), "Vorbedingung: der Schalter ist im Testlauf aus");
+    assert!(ist_kein_strom(&ziel_fuer_slot(0)));
+}
