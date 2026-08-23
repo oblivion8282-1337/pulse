@@ -101,6 +101,15 @@ Das Stück, das die Funktion **altern statt ausfallen** lässt, wenn Apple die A
 - [ ] Rückfall künstlich auslösen (Abfrage auf `nil` zwingen) und prüfen, dass genau **ein** Zeiger sichtbar bleibt.
 - [ ] Changelog (Stil vom Nutzer), Version-Bump — `pulse-player` ist betroffen.
 
+## Rückwirkende Befunde über Windows (aus Task 1, gelesen — nicht gemessen)
+
+Beim Lesen des Zwillings sind zwei **Netzlücken auf der Windows-Seite** aufgefallen. Sachlich ist dort nichts falsch; es fehlt Prüfbarkeit. Hier festgehalten, nicht behoben — Windows baut auf dieser Maschine nicht, und blind eingesetzte Windows-Änderungen sind in diesem Projekt schon teuer gewesen.
+
+1. **Windows hat die Naht nicht.** Sein `setzen` ruft `SetIsCursorCaptureEnabled` direkt; die einzige plattformeigene Prüfung ist der Leerlauf-No-op. Genau die zwei Mutationen, die auf der macOS-Seite rot werden — `gelungen` in den Fehlerzweig schieben, `gelungen` **vor** den Aufruf ziehen —, blieben dort von der gesamten Testsuite unbemerkt: die Tests des gemeinsamen `zeigerschalter` prüfen den Schalter, nicht seinen **Gebrauch**. Dieselbe Naht (Verschluss statt direktem Plattform-Aufruf) wäre mit wenigen Zeilen zu haben.
+2. **Die Durchreichung von `include_cursor` hat auf Windows gar kein Netz**, auch nicht im `win-hq-labor`. macOS hat dafür jetzt einen Prüfling, Windows nichts.
+
+Wer das angeht, braucht einen Windows-Rechner oder einen CI-Lauf — nicht diese Etappe.
+
 ## Was diese Etappe NICHT tut
 
 - **Kein „Fern-Modus"-Takt** (§2.1 verworfen).
