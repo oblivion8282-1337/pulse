@@ -90,6 +90,16 @@ impl StreamController {
         // `keyframe::reset`). Zwilling: `win-hq-sidecar` ruft es an derselben
         // Stelle im Ablauf.
         crate::keyframe::reset();
+        // Die Fernsteuerung braucht zu wissen, worauf dieser Strom zeigt.
+        // **Der Platz bleibt `None`**: der mac-`start` liest keinen `slot`, und
+        // damit gilt „ein Strom ohne erklaerten Platz traegt jeden Platz"
+        // (Begruendung in `remote_input::ziel`).
+        match crate::remote_input::ziel::quelle_aus(params.window_id, params.display_index) {
+            Some(quelle) => crate::remote_input::ziel::strom_gestartet(None, quelle),
+            None => eprintln!(
+                "[remote-input] Aufnahmequelle nicht bestimmbar — dieser Strom traegt keine Fernsteuerung"
+            ),
+        }
         let (stop_tx, stop_rx) = channel::<()>();
         let shared = Arc::new(Shared {
             running: AtomicBool::new(true),
@@ -102,6 +112,12 @@ impl StreamController {
             .name("hq-stream".into())
             .spawn(move || {
                 let result = run_stream(params, stop_rx, &shared_worker);
+                // **Abmelden ist hier Pflicht, nicht Hoeflichkeit** — der
+                // mac-Sidecar bleibt zwischen zwei Streams warm. Am Ende des
+                // Workers und nicht in `stop`, weil der Strom auch von selbst
+                // enden kann (Fehler, Quelle weg); `stop` wartet ohnehin auf
+                // diesen Faden.
+                crate::remote_input::ziel::strom_beendet();
                 shared_worker.running.store(false, Ordering::SeqCst);
                 shared_worker.live.store(false, Ordering::SeqCst);
                 if let Err(e) = result {
