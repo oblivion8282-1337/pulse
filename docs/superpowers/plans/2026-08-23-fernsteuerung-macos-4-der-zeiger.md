@@ -88,10 +88,15 @@ Das Stück, das die Funktion **altern statt ausfallen** lässt, wenn Apple die A
 - [ ] `Umgebung::sitzung_beendet` füllen: `Zeigerbuch::zuruecksetzen()`.
 - [ ] **Nicht an `host_zeiger_zeigen` hängen** — dort liefe es zusätzlich bei jedem Führungswechsel und jedem Vorrang-Übergang, und der Sidecar schickte die Form erneut. Die Begründung steht am Trait; der getrennte Weg existiert genau dafür.
 
-### Task 7: Der Prüfstein
+### Task 7: Der Prüfstein — durch die Bauweise bereits erfüllt
 
-- [ ] Ein **mac-seitiger Sender-Test**, der belegt, dass **beide** Ausprägungen entstehen: Kurzform `{id}` und Vollform mit Massen.
-- [ ] Gegen `streaming/zeigerbild-formen.json` (stammt heute vom Windows-Sender).
+**Der Plan verlangte hier einen mac-seitigen Test gegen `streaming/zeigerbild-formen.json`. Der wäre redundant**, und das ist beim Bauen aufgefallen: der Prüfstein-Test ist in Etappe 1b in die gemeinsame Kiste gewandert (`zeigerbuch.rs::bildfeld_erzeugt_genau_die_formen_des_pruefsteins`, dort ausdrücklich begründet — „er gilt damit für JEDEN Sender, der diese Kiste nutzt, statt nur für den einen, bei dem er zufällig entstand"). Der mac-Sender geht durch `Zeigerbuch::nachricht`; beide Ausprägungen und ihre Abfolge sind dort mit sieben Tests belegt. Ein zweiter Test daneben prüfte dieselbe Kiste noch einmal.
+
+- [x] **Stattdessen die eine Eigenschaft geprüft, die der Prüfstein NICHT sehen kann** (`zeigerpunkte_tests.rs::dieselben_punkte_ergeben_dieselbe_kennung`): dass derselbe Zeiger zweimal dieselbe Kennung ergibt.
+
+  Wäre sie unstabil, entstünde die Kurzform **nie**. Jede Meldung trüge das volle Bild, der 5900-Byte-Trichter wäre bei jedem Wecker belastet, und beide Seiten meldeten Erfolg — kein Absturz, keine Meldung, nur zehnmal so viel auf der Leitung. Der Prüfstein kann das nicht fangen: er belegt, dass beide Ausprägungen richtig *gebaut* werden, nicht dass beide *vorkommen*.
+
+  Die Gegenprobe gehört dazu (ein veränderter Zeiger muss eine andere Kennung bekommen) — eine Kennung, die sich nie ändert, bestünde die erste Hälfte und liesse den Steuernden dauerhaft den falschen Zeiger sehen.
 
 **Warum ausgerechnet das:** am 2026-08-17 verlangte die Renderer-Prüfung die Masse als Pflichtfelder und verwarf damit **jede Kurzform**. Beide Testnetze waren grün — die Rust-Seite hielt die Kurzform fest, die TS-Seite verlangte sie mit, niemand sah über die Sprachgrenze. **Die Masse gehören zu den DATEN, nicht zur Kennung.** Ein Test auf der Empfängerseite allein hätte es nicht gefunden.
 
