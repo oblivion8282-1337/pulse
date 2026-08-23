@@ -25,6 +25,8 @@ pub mod injektion;
 pub mod klickzaehler;
 pub mod tasten;
 pub mod wache;
+pub mod zeigerform;
+mod zeigerpunkte;
 pub mod ziel;
 
 use std::sync::OnceLock;
