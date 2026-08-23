@@ -1,0 +1,37 @@
+[package]
+name = "pulse-mac-hq-labor"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "pulse_mac_hq_labor"
+path = "src/lib.rs"
+
+# Das Pruefziel selbst — das Fenster, das auffaengt und protokolliert.
+[[bin]]
+name = "eingabe-pruefziel"
+path = "src/bin/eingabe-pruefziel.rs"
+
+# Der Treiber: faehrt echte Frames durch den echten Sidecar gegen das Pruefziel.
+[[bin]]
+name = "fern-eingabe-nachweis"
+path = "src/bin/fern-eingabe-nachweis.rs"
+
+[dependencies]
+serde_json = "1"
+winit = "0.30"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSGeometry"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std", "NSEvent", "NSResponder", "NSWindow", "NSView", "NSTextField",
+    "NSControl", "NSColor", "NSFont",
+    # `block2` traegt den Abgriff (`addLocalMonitorForEventsMatchingMask:`),
+    # `objc2-core-foundation` die Radwerte (`deltaY` & Co. sind `CGFloat`).
+    # Beides sind Merkmale, keine zusaetzlichen Fremdquellen.
+    "block2", "objc2-core-foundation",
+] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFBase", "CFArray", "CFDictionary", "CFString", "CFNumber"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGWindow", "CGGeometry", "CGEvent", "CGEventSource", "CGEventTypes", "CGRemoteOperation", "CGDirectDisplay"] }
+block2 = "0.6"
+pulse-fernsteuerung = { path = "../pulse-fernsteuerung" }

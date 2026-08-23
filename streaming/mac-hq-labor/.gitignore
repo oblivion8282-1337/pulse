@@ -1,0 +1,9 @@
+# Bau-Erzeugnisse. Wie in jeder anderen Kiste unter `streaming/` liegt die Regel
+# hier und nicht im Wurzel-`.gitignore` — dann gilt sie auch in einem Zweig, in
+# dem es dieses Verzeichnis noch nicht gab.
+/target
+
+# Protokolle und Messakten der Laeufe. Sie entstehen bei jedem Lauf neu und
+# gehoeren, wenn sie etwas belegen sollen, als Zahl in eine Messakte unter
+# `docs/plans/` — nicht als Rohdatei ins Repo.
+*.jsonl
