@@ -30,7 +30,7 @@ import type { GatewayConnection } from '$lib/ws/connection';
 import { setRemoteSessionConnection } from '$lib/ws/dispatch-rules';
 import { m } from '$lib/paraglide/messages.js';
 import { eingabeFreigeben, eingabeMoeglich } from './sidecarInput';
-import { isWindows } from '$lib/platform/runtime';
+import { stream } from '$lib/stream/state.svelte';
 import { remoteP2P } from './p2p';
 import { remoteVorrang } from './vorrang';
 import { remoteZeigerform } from './zeigerform';
@@ -333,17 +333,19 @@ class RemoteSessionStore {
   ): void {
     if (this.phase !== 'idle') return; // schon beschäftigt — Server-Gate (4054) deckt das ab
     // Kann dieser Rechner überhaupt ferngesteuert werden? Ohne Brücke
-    // (Browser, Android) oder außerhalb von Windows (der einzige Sidecar mit
-    // Injektion) wird OHNE Dialog abgelehnt (Bughunt R2): der reguläre Weg
-    // zeigt den Anfrage-Knopf nur an fernsteuerbaren Streams, aber der
-    // Gateway prüft die Fähigkeit bewusst nicht — eine selbstgebaute Anfrage
-    // brächte sonst den vollen Zustimmungs-Dialog auf einen Rechner, dessen
-    // zugestimmte Sitzung beim ersten Frame wortlos stürbe. Ein Dialog, dem
-    // man nur zustimmen kann, damit nichts passiert, ist der falsche Dialog.
+    // (Browser, Android) oder ohne die Fähigkeit (`stream.fernsteuerbar`,
+    // gespeist aus `health.gsr.remote_input` — heute Windows und macOS mit
+    // erteilter Accessibility-Freigabe, auf dem Mac jederzeit widerrufbar)
+    // wird OHNE Dialog abgelehnt (Bughunt R2): der reguläre Weg zeigt den
+    // Anfrage-Knopf nur an fernsteuerbaren Streams, aber der Gateway prüft
+    // die Fähigkeit bewusst nicht — eine selbstgebaute Anfrage brächte sonst
+    // den vollen Zustimmungs-Dialog auf einen Rechner, dessen zugestimmte
+    // Sitzung beim ersten Frame wortlos stürbe. Ein Dialog, dem man nur
+    // zustimmen kann, damit nichts passiert, ist der falsche Dialog.
     // Meint die Anfrage ein anderes Gerät, lehnt sie dort still ab — sonst
     // bediente der Steuernde am Ende den falschen Rechner.
     if (geraet.fremdesGeraetAblehnen(sessionId, deviceId)) return;
-    if (!eingabeMoeglich() || !isWindows()) {
+    if (!eingabeMoeglich() || !stream.fernsteuerbar) {
       // Seit dem Bughunt 2026-08-16 SCHWEIGEND statt mit einer Absage: die
       // Einladung geht an alle Fenster des Hosts, der Gateway nimmt die erste
       // Antwort. Ein Browser-Tab desselben Kontos — der hier immer landet —

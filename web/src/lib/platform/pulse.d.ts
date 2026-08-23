@@ -204,6 +204,43 @@ export interface PulseShortcutsApi {
   onTrigger(cb: (id: string) => void): () => void;
 }
 
+/** Antwort von `pulse.accessibility.isTrusted()`. */
+export interface PulseAccessibilityResult {
+  /** Ist DIESER Prozess (also der vom Hauptprozess gestartete Sidecar,
+   *  s. `main.ts::wireAccessibility`) aktuell fuer Eingabe-Injektion vertraut?
+   *  Ausserhalb von macOS immer `true` — dort gibt es keine Huerde. */
+  trusted: boolean;
+  /** Nur gesetzt, wenn `trusted === false`. Der vorgeschriebene Hinweistext
+   *  (main-seitig gebaut, damit er nie neu erfunden und dabei verkuerzt wird):
+   *  die Freigabe haengt an der Code-Signatur, das mac-DMG ist nur ad-hoc
+   *  signiert, und nach jedem Update bleibt der Haken in den
+   *  Systemeinstellungen SICHTBAR STEHEN, obwohl er nicht mehr gilt. Eine
+   *  Anzeige, die nur "Freigabe fehlt" sagt, fuehrt dazu, dass jemand den
+   *  bestehenden (wirkungslosen) Haken anklickt und sich wundert. */
+  hint?: string;
+}
+
+/**
+ * macOS-Anstoss zur Bedienungshilfen-Freigabe (Fernsteuerung, Host-Seite).
+ *
+ * Sitzt im Electron-Hauptprozess statt im Sidecar, weil TCC die Freigabe dem
+ * VERANTWORTLICHEN Prozess zuordnet: ein vom Hauptprozess gestarteter
+ * Sidecar erbt Pulses Freigabe, der Systemdialog nennt also "Pulse" statt
+ * eines Sidecar-Binaernamens (gemessen,
+ * `docs/plans/2026-08-23-macos-eingabe-messungen.md`, Messung 1). Der
+ * Sidecar selbst prueft nur noch einmal live nach, ob die geerbte Freigabe
+ * fuer IHN gilt (`mac-hq-sidecar/src/berechtigung.rs`), fragt aber nie nach.
+ */
+export interface PulseAccessibilityApi {
+  /**
+   * `prompt=true` wirft bei fehlender Freigabe EINMALIG den macOS-Systemdialog
+   * auf (pro Prozess-Lebensdauer merkt sich macOS, dass schon gefragt wurde)
+   * — deshalb nur auf eine Nutzerhandlung hin rufen, nie automatisch beim
+   * Gesundheitscheck. `prompt=false`/weggelassen fragt nur den Ist-Zustand ab.
+   */
+  isTrusted(prompt?: boolean): Promise<PulseAccessibilityResult>;
+}
+
 // ── Host-Lifecycle types (③a) ────────────────────────────────────────────────
 
 /** Zustand des lokalen Self-Host-Stacks (Phasen-Modell). */
@@ -380,6 +417,10 @@ export interface PulseApi {
   shortcuts?: PulseShortcutsApi;
   clipboard?: PulseClipboardApi;
   files?: PulseFilesApi;
+  /** macOS-Anstoss zur Bedienungshilfen-Freigabe (Fernsteuerung, Host-Seite).
+   *  Nur unter Electron vorhanden; ausserhalb von macOS liefert sie stets
+   *  `{trusted:true}` zurueck. */
+  accessibility?: PulseAccessibilityApi;
   /** Host-Lifecycle-Bridge (③a). Nur unter Electron vorhanden. */
   host?: PulseHostApi;
   /** Tray-Status overlay: Renderer pusht Status + gerendertes Badge-Image;

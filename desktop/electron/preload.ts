@@ -408,6 +408,16 @@ contextBridge.exposeInMainWorld('pulse', {
     },
   },
 
+  // macOS-Anstoss zur Bedienungshilfen-Freigabe (Fernsteuerung, Host-Seite).
+  // Auf anderen Plattformen liefert der Hauptprozess einfach {trusted:true}
+  // zurueck -- dort gibt es keine Huerde. Begruendung, wieso das hierher statt
+  // in den Sidecar gehoert (TCC-Vererbung auf den Elternprozess), und der
+  // vorgeschriebene Hinweistext stehen in `main.ts::wireAccessibility`.
+  accessibility: {
+    isTrusted: (prompt?: boolean): Promise<{ trusted: boolean; hint?: string }> =>
+      ipcRenderer.invoke('accessibility:isTrusted', prompt === true),
+  },
+
   // Host-Lifecycle bridge (③a/③c) — steuert den lokalen Self-Host-Stack.
   // window.pulse.host.* ist der IPC-Kanal zwischen Renderer und HostLifecycle (main.ts).
   host: {
