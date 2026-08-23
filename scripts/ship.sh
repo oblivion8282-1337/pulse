@@ -98,7 +98,12 @@ else
     [ "$kiste" = "streaming/pulse-player" ] && continue
     [ "$kiste" = "streaming/pulse-whip" ] && continue
     [ -f "$kiste/Cargo.toml" ] || continue
-    echo "  Cargo-Tests $kiste…"
+    # `${kiste}` mit Klammern, und das ist kein Schoenheitsfehler: macOS
+    # liefert bis heute bash 3.2 aus, und die zaehlt das erste Byte des
+    # folgenden UTF-8-Zeichens zum Variablennamen. `$kiste…` wird dort zu
+    # `kiste\xe2` und stirbt unter `set -u` mit „unbound variable" — mitten im
+    # Test-Gate, also genau dann, wenn jemand landen will.
+    echo "  Cargo-Tests ${kiste}…"
     ( cd "$kiste" && cargo test -q ) \
       || { echo "✗ Cargo-Tests $kiste ROT — Push abgebrochen." >&2; exit 1; }
   done
@@ -130,7 +135,8 @@ else
       echo "   scripts/hq-bauen.sh, oder setze PULSE_FFMPEG_DIR auf einen eigenen Bau." >&2
     else
       for crate in $rust_crates; do
-        echo "  Cargo-Tests $crate…"
+        # Klammern aus demselben Grund wie oben (bash 3.2 auf macOS).
+        echo "  Cargo-Tests ${crate}…"
         ( cd "$crate" && FFMPEG_DIR="$ffmpeg_prefix" LD_LIBRARY_PATH="$ffmpeg_prefix/lib" cargo test -q ) \
           || { echo "✗ Cargo-Tests $crate ROT — Push abgebrochen." >&2; exit 1; }
       done
