@@ -64,6 +64,38 @@ fn main() -> anyhow::Result<()> {
         // process stays warm across streams and `sidecar.ts` keeps the child
         // alive (Windows-only respawn). So there's no `exit_after` flag here —
         // the loop runs until stdin EOF.
+
+        // Auflist-Ops auf einen EIGENEN Faden. `SCShareableContent` hat Fristen
+        // bis 8 s (capture/abfrage.rs), und dieselbe Leseschleife traegt die
+        // Eingabe einer Fernsteuerung (bis 125 Nachrichten/s): Liefen die
+        // Auflistungen inline, stand jede Eingabe bis zu 8 s hinter einem
+        // Fenster-Listen-Aufruf — spuerbar als Eingabe-Spitze, wann immer die
+        // Oberflaeche parallel aufzaehlt (Audit 2026-08-24). Antworten tragen
+        // ihre `id`, die Reihenfolge auf stdout ist dem Elternprozess deshalb
+        // gleichgueltig; der Writer-Faden serialisiert ohnehin. Ein beim
+        // stdin-EOF noch laufender Aufruf haelt seinen Sender-Klon, der Writer
+        // liefert die Antwort noch und endet erst danach.
+        let op = serde_json::from_str::<serde_json::Value>(trimmed)
+            .ok()
+            .and_then(|v| v.get("op").and_then(|o| o.as_str()).map(str::to_owned));
+        if op.as_deref().is_some_and(ist_aufzaehlung) {
+            let zeile = trimmed.to_string();
+            let ausgang = out_tx.clone();
+            if thread::Builder::new()
+                .name("aufzaehlung".into())
+                .spawn(move || {
+                    let response = dispatch::handle_request_line(&zeile);
+                    if let Ok(v) = serde_json::to_value(&response) {
+                        let _ = ausgang.send(v);
+                    }
+                })
+                .is_ok()
+            {
+                continue; // Antwort kommt vom Faden; weiterlesen ohne Zu warten.
+            }
+            // Spawn gescheitert (Ressourcen): inline weiter, wie vorher.
+        }
+
         let response = dispatch::handle_request_line(trimmed);
         match serde_json::to_value(&response) {
             Ok(v) => {
@@ -97,4 +129,11 @@ fn main() -> anyhow::Result<()> {
     // TODO(capture): once StreamController lands, stop any running stream here.
 
     Ok(())
+}
+
+/// Die Ops, die `SCShareableContent`-Gesamtanschnappschuesse ziehen und darum
+/// Sekunden dauern koennen — alles, was die Eingabe einer Fernsteuerung nicht
+/// ausbremsen darf (s. der Block am Anfang der Leseschleife).
+fn ist_aufzaehlung(op: &str) -> bool {
+    matches!(op, "list_monitors" | "list_windows" | "list_application_audio")
 }
