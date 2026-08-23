@@ -3,8 +3,9 @@
  *
  * **Warum es diesen Test gibt.** Der Vorrang des Hosts hat auf beiden Seiten
  * eine Uhr: der Sidecar wiederholt einen geltenden Vorrang je Sekunde
- * (`remote_input/vorrang.rs::WIEDERHOLUNG_TAKTE`), der Steuernde gibt ihn nach
- * `GEDULD_MS` Schweigen als beendet auf und zieht das Gehaltene nach.
+ * (`pulse-fernsteuerung/src/sitzung/vorrang.rs::WIEDERHOLUNG_TAKTE`), der
+ * Steuernde gibt ihn nach `GEDULD_MS` Schweigen als beendet auf und zieht das
+ * Gehaltene nach.
  * Dazwischen sass im Host ein reiner Flankenfilter (`if (aktiv === this.#aktiv)
  * return;`), der jede Wiederholung verschluckte. Die Mindestfrist des Vorrangs
  * ist aber 5 s: die Geduld lief also mitten im geltenden Vorrang ab, das

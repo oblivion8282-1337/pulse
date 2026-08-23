@@ -107,8 +107,10 @@ mod tests {
     use crate::fernsteuerung::rahmen::anteil_zu_u16;
 
     /// **Die Rueckrechnung des Hosts, Byte fuer Byte wie sie drueben steht**
-    /// (`win-hq-sidecar/src/remote_input/zuordnung.rs::anteil_auf_punkt`):
-    /// ganzzahlig, mit Aufrundungszugabe, auf `Breite − 1` bezogen.
+    /// (`pulse-fernsteuerung/src/zuordnung.rs::anteil_auf_punkt`, seit dem
+    /// 2026-08-22 gemeinsam fuer alle Plattformen — vorher lag sie nur im
+    /// Windows-Sidecar): ganzzahlig, mit Aufrundungszugabe, auf `Breite − 1`
+    /// bezogen.
     ///
     /// Sie nimmt den **quantisierten** Wert der Leitung, nicht den `f64`-Anteil
     /// — dazwischen liegen die 65536 Stufen der Wire-Spec, und genau die

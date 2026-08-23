@@ -251,6 +251,6 @@ impl Schlange {
     }
 
     fn leeren(&mut self) -> Vec<String> {
-        self.frames.drain(..).map(|r| rahmen::base64(r.as_slice())).collect()
+        self.frames.drain(..).map(|r| rahmen::kodiere(r.as_slice())).collect()
     }
 }

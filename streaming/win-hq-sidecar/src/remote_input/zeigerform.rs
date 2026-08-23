@@ -76,6 +76,12 @@ const VORGABE: &str = "default";
 /// Wechsel für immer verloren — der Steuernde behielte den I-Balken, während
 /// der Host längst wieder auf dem Desktop steht. Eine Nachricht je Sekunde
 /// fällt gegen den 60/s-Deckel nicht ins Gewicht.
+///
+/// **Dieselbe Zahl mit derselben Begründung steht noch einmal** in
+/// `streaming/pulse-fernsteuerung/src/sitzung/vorrang.rs::WIEDERHOLUNG_TAKTE`
+/// (dort für den Host-Vorrang, nicht die Zeigerform) — verschiedene Kisten und
+/// Zwecke, deshalb hier nicht zusammenlegbar. Wer den Sekunden-Deckel des
+/// Gateways (`remote_signal`) ändert, muss beide Stellen finden.
 const WIEDERHOLUNG_TAKTE: u64 = 10;
 
 /// Wie viele Zeigerbilder als „drüben bekannt" geführt werden.

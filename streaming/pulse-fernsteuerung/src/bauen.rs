@@ -1,8 +1,9 @@
 //! Das Frame-Format der Fernsteuerung — Byte fuer Byte.
 //!
 //! Verbindlich ist `docs/plans/2026-08-12-input-wire-protokoll-v2.md`. Alles
-//! hier ist **rein**: Bytes bauen, Anteile normieren, Base64 kodieren. Wer die
-//! Ereignisse einsammelt, steht beim Sender (`fernsteuerung/mod.rs` im
+//! hier ist **rein**: Bytes bauen, Anteile normieren. Base64 kodieren/dekodieren
+//! liegt seit dem Zusammenlegen der beiden Fassungen in [`crate::base64`]. Wer
+//! die Ereignisse einsammelt, steht beim Sender (`fernsteuerung/mod.rs` im
 //! `pulse-player`); wer sie parst, steht nebenan in [`crate::rahmen`]; wer sie
 //! einspielt, im Sidecar der jeweiligen Plattform.
 //!
@@ -220,104 +221,9 @@ pub fn ganze_punkte(rest: &mut f64, wert: f64) -> i16 {
     ganz as i16
 }
 
-const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-/// Base64 mit Auffuellzeichen, wie es die Huelle auf der Leitung verlangt.
-///
-/// **Selbst geschrieben statt als Abhaengigkeit**: fuenfundzwanzig Zeilen gegen
-/// eine weitere Kiste im Lizenz- und Pflegehaushalt, und die laengste Eingabe
-/// hier ist fuenf Byte lang.
-pub fn base64(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for block in bytes.chunks(3) {
-        let b = [block[0], *block.get(1).unwrap_or(&0), *block.get(2).unwrap_or(&0)];
-        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
-        let zeichen = |verschiebung: u32| B64[((n >> verschiebung) & 0x3f) as usize] as char;
-        out.push(zeichen(18));
-        out.push(zeichen(12));
-        out.push(if block.len() > 1 { zeichen(6) } else { '=' });
-        out.push(if block.len() > 2 { zeichen(0) } else { '=' });
-    }
-    out
-}
-
-/// Die Gegenrichtung zu [`base64`] — gebraucht fuer das **Zeigerbild** des
-/// Hosts (`app/zeigerbau.rs`), das als einziges etwas Binaeres in DIESE Richtung
-/// schickt.
-///
-/// **Streng, nicht grosszuegig**, gleichlautend mit dem Sidecar
-/// (`crate::base64::dekodiere`): nur das Standard-Alphabet, kein
-/// URL-safe, keine Leerzeichen, keine Zeilenumbrueche, und die Fuellung ist
-/// Pflicht. Der einzige Sender fuellt ohnehin auf; wer hier nachsichtig waere,
-/// naehme Woerter an, die keine Gegenstelle je erzeugt.
-///
-/// Fehler ohne Text: der Aufrufer faellt auf den Namen des Zeigers zurueck und
-/// hat mit einer Begruendung nichts anzufangen — sie kaeme im Takt der
-/// Auffrischung immer wieder.
-pub fn base64_zurueck(wort: &str) -> Result<Vec<u8>, ()> {
-    let roh = wort.as_bytes();
-    if roh.len() % 4 != 0 {
-        return Err(());
-    }
-    let kern = roh.strip_suffix(b"==").or_else(|| roh.strip_suffix(b"=")).unwrap_or(roh);
-    if kern.contains(&b'=') {
-        return Err(());
-    }
-    let mut aus = Vec::with_capacity(kern.len() * 3 / 4);
-    let mut sammler: u32 = 0;
-    let mut bits: u32 = 0;
-    for &z in kern {
-        let wert = match z {
-            b'A'..=b'Z' => z - b'A',
-            b'a'..=b'z' => z - b'a' + 26,
-            b'0'..=b'9' => z - b'0' + 52,
-            b'+' => 62,
-            b'/' => 63,
-            _ => return Err(()),
-        };
-        sammler = (sammler << 6) | u32::from(wert);
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            aus.push((sammler >> bits) as u8);
-        }
-    }
-    Ok(aus)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Der Dekodierer gegen bekannte Woerter — dieselben, an denen der
-    /// Kodierer im Sidecar haengt (`crate::base64`).
-    #[test]
-    fn base64_zurueck_liest_bekannte_woerter() {
-        assert_eq!(base64_zurueck("AAI="), Ok(vec![0x00, 0x02]));
-        assert_eq!(base64_zurueck("AwAB"), Ok(vec![0x03, 0x00, 0x01]));
-        assert_eq!(base64_zurueck("/w=="), Ok(vec![0xFF]));
-        assert_eq!(base64_zurueck("+w=="), Ok(vec![0xFB]));
-        assert_eq!(base64_zurueck(""), Ok(vec![]));
-    }
-
-    /// **Die eigentliche Zusage:** kodieren und zurueck ergibt dasselbe, ueber
-    /// alle drei Restlaengen — die Fuellung ist genau dort die Fehlerquelle.
-    #[test]
-    fn base64_hin_und_zurueck_ergibt_dasselbe() {
-        for laenge in 0..40usize {
-            let bytes: Vec<u8> = (0..laenge).map(|i| (i * 37 % 256) as u8).collect();
-            assert_eq!(base64_zurueck(&base64(&bytes)), Ok(bytes), "Laenge {laenge}");
-        }
-    }
-
-    /// Fremdmaterial wird abgewiesen: fehlende Fuellung, Fuellung mitten im
-    /// Wort, URL-safe-Zeichen, Leerraum.
-    #[test]
-    fn base64_zurueck_weist_fremdes_ab() {
-        for wort in ["AAA", "A===", "A=AA", "-w==", "_w==", "AA I", "AA\nI", "A"] {
-            assert!(base64_zurueck(wort).is_err(), "{wort:?}");
-        }
-    }
 
     #[test]
     fn hello_traegt_version_zwei() {
@@ -483,18 +389,5 @@ mod tests {
         assert_eq!(ganze_punkte(&mut rest, 0.0), 0, "kein Nachlauf aus dem Rest");
         assert_eq!(ganze_punkte(&mut rest, f64::NAN), 0);
         assert_eq!(ganze_punkte(&mut rest, 2.0), 2, "nach Unsinn wieder brauchbar");
-    }
-
-    #[test]
-    fn base64_kodiert_mit_auffuellung() {
-        assert_eq!(base64(&[]), "");
-        assert_eq!(base64(b"M"), "TQ==");
-        assert_eq!(base64(b"Ma"), "TWE=");
-        assert_eq!(base64(b"Man"), "TWFu");
-        assert_eq!(base64(b"Manx"), "TWFueA==");
-        assert_eq!(base64(&[0xff, 0xff, 0xff]), "////");
-        assert_eq!(base64(&[0xfb, 0xff, 0xfe]), "+//+");
-        // Der Hello-Frame, wie ihn die Gegenseite sieht.
-        assert_eq!(base64(hello().as_slice()), "AAI=");
     }
 }

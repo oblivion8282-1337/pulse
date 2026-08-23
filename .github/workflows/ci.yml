@@ -136,10 +136,20 @@ jobs:
       - name: Zwillinge prüfen
         run: cargo test --manifest-path streaming/zwillinge/Cargo.toml
       # Dieselbe Begründung wie oben: die gemeinsamen Kisten (streaming/pulse-*,
-      # ausgenommen pulse-player) sind abhängigkeitsfrei und bauen in Sekunden.
-      # Sie liefen bis 2026-08-22 in KEINEM Gate — weder hier noch in
-      # scripts/ship.sh —, und `cargo test` in einem Programm führt die Tests
-      # seiner Pfad-Abhängigkeiten nicht mit.
+      # ausgenommen pulse-player UND pulse-whip) sind abhängigkeitsfrei und
+      # bauen in Sekunden. Sie liefen bis 2026-08-22 in KEINEM Gate — weder
+      # hier noch in scripts/ship.sh —, und `cargo test` in einem Programm
+      # führt die Tests seiner Pfad-Abhängigkeiten nicht mit.
+      #
+      # pulse-whip gehört NICHT zu den abhängigkeitsfreien Kisten: sie zieht
+      # webrtc, tokio und anyhow (214 Kisten im Abhängigkeitsbaum gegen 1 bei
+      # pulse-fernsteuerung) und bräuchte deshalb einen Cargo-Cache, den dieser
+      # Job bewusst nicht hat (s. oben, „Sekunden, kein Cache nötig"). Schwerer
+      # wiegt: ihr `cargo test` löste webrtc von crates.io auf, NICHT über den
+      # gepatchten Zweig, den Player und die Sidecars tatsächlich ausliefern —
+      # das Gate prüfte also eine andere Abhängigkeit als die ausgelieferte.
+      # pulse-whip bleibt deshalb ausgenommen und läuft weiterhin in KEINEM
+      # Gate — eine offene Rechnung, kein Versehen.
       - name: Gemeinsame Kisten
         run: |
           for k in streaming/pulse-*/Cargo.toml; do
@@ -148,7 +158,10 @@ jobs:
             # FFmpeg + Plattform-SDKs) und wird in den Plattform-Workflows
             # (win-/mac-build.yml) gebaut und getestet — hier ausgenommen,
             # sonst schlüge dieser Schritt auf dem nackten Runner fehl.
-            case "$k" in streaming/pulse-player/*) continue ;; esac
+            #
+            # pulse-whip ebenso ausgenommen (Begründung oben) — anders als
+            # pulse-player läuft es dadurch aktuell in KEINEM Workflow.
+            case "$k" in streaming/pulse-player/*|streaming/pulse-whip/*) continue ;; esac
             echo "== $k"
             cargo test --manifest-path "$k"
           done

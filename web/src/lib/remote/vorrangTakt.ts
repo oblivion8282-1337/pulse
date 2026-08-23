@@ -23,13 +23,14 @@
 /**
  * In welchem Takt der Sidecar einen geltenden Vorrang wiederholt.
  *
- * `remote_input/vorrang.rs::WIEDERHOLUNG_TAKTE = 10` bei 100 ms Wecker — also
- * eine Sekunde. **Das ist die Zahl, die auf der Leitung wirklich gilt**, und
- * an ihr hängt die Geduld des Steuernden (`GEDULD_MS` in [`./vorrang`]): der
- * Deckel unten kann den Takt nur nach oben begrenzen, nicht beschleunigen.
- * Sie ist eher noch optimistisch — `vorrang.rs::tick()` überspringt den Zähler,
- * wenn die Sitzungssperre gerade belegt ist (`try_lock` → `WouldBlock`), unter
- * Eingabelast wird der Abstand also größer als eine Sekunde.
+ * `pulse-fernsteuerung/src/sitzung/vorrang.rs::WIEDERHOLUNG_TAKTE = 10` bei
+ * 100 ms Wecker — also eine Sekunde. **Das ist die Zahl, die auf der Leitung
+ * wirklich gilt**, und an ihr hängt die Geduld des Steuernden (`GEDULD_MS` in
+ * [`./vorrang`]): der Deckel unten kann den Takt nur nach oben begrenzen,
+ * nicht beschleunigen. Sie ist eher noch optimistisch —
+ * `Sitzung::vorrang_tick()` überspringt den Zähler, wenn die Sitzungssperre
+ * gerade belegt ist (`try_lock` → `WouldBlock`), unter Eingabelast wird der
+ * Abstand also größer als eine Sekunde.
  */
 export const SIDECAR_TAKT_MS = 1_000;
 

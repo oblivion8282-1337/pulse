@@ -6,5 +6,6 @@
 //! vorher aus eigenen Konstanten, der Empfaenger parste sie mit eigenen — und
 //! kein Zwillings-Test hielt die beiden zusammen.
 
+pub use pulse_fernsteuerung::base64::{dekodiere, kodiere};
 pub use pulse_fernsteuerung::bauen::*;
 pub use pulse_fernsteuerung::format::*;

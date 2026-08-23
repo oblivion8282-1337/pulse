@@ -1,4 +1,10 @@
-//! Base64-Dekodierung für das `frames`-Feld — von Hand, mit Absicht.
+//! Base64 für das `frames`-Feld — von Hand, mit Absicht, in beide Richtungen.
+//!
+//! **Die einzige Fassung in dieser Kiste.** Bis zum Zusammenlegen lag hier nur
+//! [`dekodiere`], und `bauen.rs` führte eine zweite, vollständige Kopie
+//! (`B64`/`base64`/`base64_zurueck`) — über Kreuz benutzt: der Player kodierte
+//! mit der Kopie, der Sidecar dekodierte mit dem Original. Jetzt bauen beide
+//! Richtungen auf demselben Alphabet.
 //!
 //! **Warum keine Kiste dafür:** die Eingabe-Frames sind 2 bis 5 Byte groß, die
 //! Nachricht höchstens 1024 Byte (Grenze aus der Spezifikation, gateway-seitig
@@ -11,7 +17,7 @@
 //! wer hier großzügiger wäre, ließe Frames durch, die eine Ebene tiefer nie
 //! ankommen dürfen — und die Fernsteuerung ist der falsche Ort, um beim Format
 //! zu raten (fail-closed). Beide Sender füllen ohnehin auf (`btoa` im Renderer,
-//! `pulse-player::fernsteuerung::rahmen::base64`), es gibt also niemanden, der
+//! `pulse-player::fernsteuerung::rahmen::kodiere`), es gibt also niemanden, der
 //! auf Nachsicht angewiesen wäre.
 
 /// Ein Base64-Wort dekodieren. Fehler → der Aufrufer weist die ganze Nachricht
@@ -158,6 +164,7 @@ mod tests {
     #[test]
     fn kaputte_laenge_und_fuellung() {
         assert!(dekodiere("A").is_err());
+        assert!(dekodiere("AAA").is_err());
         assert!(dekodiere("AAAAA").is_err());
         assert!(dekodiere("A=AA").is_err());
     }
@@ -185,5 +192,22 @@ mod tests {
             assert_eq!(wort.len() % 4, 0, "Länge {laenge} ist nicht gefüllt");
             assert_eq!(dekodiere(&wort).unwrap(), bytes, "Länge {laenge}");
         }
+    }
+
+    /// Die klassischen Lehrbuch-Beispiele, dazu die beiden Fälle, in denen ein
+    /// Sechs-Bit-Wert genau auf den letzten Index des Alphabets fällt (63 =
+    /// `/`) bzw. den vorletzten (62 = `+`) — hierher gezogen aus `bauen.rs`,
+    /// das bis zum Zusammenlegen eine zweite, über Kreuz benutzte Fassung
+    /// dieses Moduls war (Sidecar dekodierte hier, Player kodierte dort).
+    #[test]
+    fn kodiert_klassische_beispiele() {
+        assert_eq!(kodiere(b"M"), "TQ==");
+        assert_eq!(kodiere(b"Ma"), "TWE=");
+        assert_eq!(kodiere(b"Man"), "TWFu");
+        assert_eq!(kodiere(b"Manx"), "TWFueA==");
+        assert_eq!(kodiere(&[0xff, 0xff, 0xff]), "////");
+        assert_eq!(kodiere(&[0xfb, 0xff, 0xfe]), "+//+");
+        // Der Hello-Frame, wie ihn die Gegenseite sieht.
+        assert_eq!(kodiere(crate::bauen::hello().as_slice()), "AAI=");
     }
 }
