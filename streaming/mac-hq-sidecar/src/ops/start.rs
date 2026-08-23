@@ -165,23 +165,71 @@ fn even(n: u32) -> u32 {
     n & !1
 }
 
+/// Das Kuerzel der Oberflaeche in einen Kasten uebersetzen.
+///
+/// **Die Oberflaeche schickt Kuerzel, keine Zahlen** — `RESOLUTION_VALUES` in
+/// `web/src/lib/stream/settingsCatalog.ts` kennt `Native`, `4K`, `1440p`,
+/// `1080p`, `720p`, `480p`. Bis zum 2026-08-23 verstand dieser Sidecar als
+/// einziger nur `BREITExHOEHE`, scheiterte an jedem Kuerzel und fiel
+/// stillschweigend auf die native Bildschirmgroesse zurueck: wer 720p
+/// einstellte, streamte weiter in voller Groesse, ohne Meldung. Die Tabelle
+/// ist wortgleich zu `win-hq-sidecar/src/ops/start.rs` und
+/// `linux-hq-sidecar`s `ResolutionRequest::parse`.
+///
+/// `Native` und Unbekanntes liefern `None` — dann gilt die native Groesse.
+/// Bewusst kein Raten bei einem Tippfehler: lieber die volle Groesse als
+/// heimlich eine andere als die dastehende.
+fn kasten_aus(kuerzel: &str) -> Option<(u32, u32)> {
+    Some(match kuerzel {
+        "4K" => (3840, 2160),
+        "1440p" => (2560, 1440),
+        "1080p" => (1920, 1080),
+        "720p" => (1280, 720),
+        "480p" => (854, 480),
+        // Auch Zahlenpaare gelten als Kasten, nicht als Sollmass — s.
+        // [`einpassen`]. Der Weg ist heute unbenutzt (die Oberflaeche schickt
+        // Kuerzel), aber ein `1280x720` soll sich nicht anders verhalten als
+        // `720p`.
+        _ => {
+            let (b, h) = kuerzel.split_once('x')?;
+            let (b, h) = (b.trim().parse::<u32>().ok()?, h.trim().parse::<u32>().ok()?);
+            if b == 0 || h == 0 {
+                return None;
+            }
+            (b, h)
+        }
+    })
+}
+
+/// Die native Groesse in den Kasten einpassen — **seitenverhaeltnistreu und
+/// nie vergroessernd**.
+///
+/// Wortgleiche Regel wie `fit_within_box` auf Windows und
+/// `ResolutionRequest::target_for` auf Linux. Windows nahm den Kasten frueher
+/// woertlich und stauchte damit jeden Ultrawide-Schirm auf 16:9; die Lehre
+/// steht dort im Kommentar und wandert hiermit mit.
+///
+/// Kein Hochskalieren: aus einem 1280x720-Schirm wird mit dem Wunsch „1080p"
+/// kein Full-HD-Bild, sondern weiterhin 1280x720. Eine Vergroesserung kostet
+/// Bandbreite und bringt kein Detail.
+fn einpassen(nativ_b: u32, nativ_h: u32, kasten_b: u32, kasten_h: u32) -> (u32, u32) {
+    let faktor = f64::min(
+        f64::from(kasten_b) / f64::from(nativ_b.max(1)),
+        f64::from(kasten_h) / f64::from(nativ_h.max(1)),
+    )
+    .min(1.0);
+    let b = (f64::from(nativ_b) * faktor).round() as u32;
+    let h = (f64::from(nativ_h) * faktor).round() as u32;
+    (even(b).max(2), even(h).max(2))
+}
+
 fn resolve_resolution(
     overrides: Option<&Map<String, Value>>,
     display_index: usize,
 ) -> Result<(u32, u32)> {
-    if let Some(res) = overrides
-        .and_then(|o| o.get("resolution"))
-        .and_then(Value::as_str)
-    {
-        if let Some((w, h)) = res.split_once('x') {
-            if let (Ok(w), Ok(h)) = (w.trim().parse::<u32>(), h.trim().parse::<u32>()) {
-                if w > 0 && h > 0 {
-                    return Ok((even(w), even(h)));
-                }
-            }
-        }
-    }
-    // Default to the chosen display's native size.
+    // Erst die native Groesse bestimmen — sie ist sowohl der Rueckfall als
+    // auch die Grundlage des Einpassens.
+    let mut nativ = (1920u32, 1080u32);
     if let Ok(displays) = capture::list_displays() {
         let idx = if display_index >= 1 && display_index <= displays.len() {
             display_index - 1
@@ -190,11 +238,33 @@ fn resolve_resolution(
         };
         if let Some(d) = displays.get(idx) {
             if d.width > 0 && d.height > 0 {
-                return Ok((even(d.width as u32), even(d.height as u32)));
+                nativ = (d.width as u32, d.height as u32);
             }
         }
     }
-    Ok((1920, 1080))
+    let kasten = overrides
+        .and_then(|o| o.get("resolution"))
+        .and_then(Value::as_str)
+        .and_then(kasten_aus);
+    Ok(zielmasse(nativ, kasten))
+}
+
+/// Aus nativer Groesse und gewuenschtem Kasten die Zielmasse.
+///
+/// **Eigene Funktion, damit sie ohne Bildschirm pruefbar ist.** Solange die
+/// Entscheidung in [`resolve_resolution`] stand, hing jeder Test an
+/// `capture::list_displays()` — und auf einem 16:9-Entwicklerschirm liefert
+/// „einpassen" dasselbe wie „Kasten woertlich nehmen". Die Mutation
+/// „stauchen statt einpassen" ueberlebte deshalb jede Pruefung, obwohl sie
+/// genau der Fehler ist, den Windows schon einmal hatte. Gemessen am
+/// 2026-08-23; hier faellt sie sofort auf.
+///
+/// Gleicher Name und gleiche Aufgabe wie `zielmasse` im Windows-Zwilling.
+fn zielmasse(nativ: (u32, u32), kasten: Option<(u32, u32)>) -> (u32, u32) {
+    match kasten {
+        Some((kb, kh)) => einpassen(nativ.0, nativ.1, kb, kh),
+        None => (even(nativ.0).max(2), even(nativ.1).max(2)),
+    }
 }
 
 fn build_redacted_argv(
@@ -225,7 +295,9 @@ fn build_redacted_argv(
 
 #[cfg(test)]
 mod codec_resolution_tests {
-    use super::{parse_display_index, resolve_codec, resolve_resolution};
+    use super::{
+        einpassen, kasten_aus, parse_display_index, resolve_codec, resolve_resolution, zielmasse,
+    };
 
     /// **K-1.** Nicht "die Funktion gibt h264 zurueck" — sondern die
     /// Eigenschaft, um die es geht: der Codec, den `resolve_codec` an den
@@ -313,5 +385,98 @@ mod codec_resolution_tests {
             beim_ersten_schirm.unwrap(),
             "die Aufnahme eines Fensters laeuft in Schirmgroesse — nicht in Fenstergroesse"
         );
+    }
+
+    /// **Der Fehler vom 2026-08-23**: die Oberflaeche schickt Kuerzel, dieser
+    /// Sidecar verstand als einziger nur Zahlenpaare. Jedes Kuerzel scheiterte
+    /// still, und der Strom lief in voller Groesse weiter — wer 720p
+    /// einstellte, bekam Full-HD ohne jede Meldung.
+    #[test]
+    fn jedes_kuerzel_der_oberflaeche_wird_verstanden() {
+        // Genau die Liste aus `web/src/lib/stream/settingsCatalog.ts`.
+        assert_eq!(kasten_aus("4K"), Some((3840, 2160)));
+        assert_eq!(kasten_aus("1440p"), Some((2560, 1440)));
+        assert_eq!(kasten_aus("1080p"), Some((1920, 1080)));
+        assert_eq!(kasten_aus("720p"), Some((1280, 720)));
+        assert_eq!(kasten_aus("480p"), Some((854, 480)));
+        // „Native" ist kein Kasten, sondern die Abwesenheit eines Wunsches.
+        assert_eq!(kasten_aus("Native"), None);
+    }
+
+    /// Ein Tippfehler darf nicht heimlich etwas anderes einstellen als
+    /// dasteht — dann lieber die volle Groesse.
+    #[test]
+    fn unsinn_ist_kein_kasten() {
+        for k in ["", "720", "p720", "1080i", "x", "0x0", "1280x", "abcxdef"] {
+            assert_eq!(kasten_aus(k), None, "{k:?} haette kein Kasten sein duerfen");
+        }
+    }
+
+    /// Der eigentliche Zweck: 720p auf einem Full-HD-Schirm ist 1280x720 und
+    /// nicht 1920x1080.
+    #[test]
+    fn ein_kuerzel_verkleinert_wirklich() {
+        assert_eq!(einpassen(1920, 1080, 1280, 720), (1280, 720));
+        // **852, nicht 854** — und das ist richtig, nicht schlampig: der
+        // uebliche 480p-Kasten 854x480 ist mit 1,779 gar nicht exakt 16:9.
+        // Weil die Regel das Verhaeltnis der QUELLE wahrt, stoesst die Hoehe
+        // zuerst an und die Breite bleibt zwei Punkte darunter. Wer hier 854
+        // erwartet, verlangt in Wahrheit eine Stauchung.
+        assert_eq!(einpassen(1920, 1080, 854, 480), (852, 480));
+    }
+
+    /// **Seitenverhaeltnistreu, nicht gestaucht.** Windows nahm den Kasten
+    /// frueher woertlich und presste jeden Ultrawide-Schirm auf 16:9. Ein
+    /// 21:9-Schirm muss in der Breite anstossen und in der Hoehe Luft lassen.
+    #[test]
+    fn ultrawide_wird_nicht_gestaucht() {
+        let (b, h) = einpassen(3440, 1440, 1920, 1080);
+        assert_eq!(b, 1920, "Breite muss den Kasten ausfuellen");
+        assert!(h < 1080, "Hoehe darf den Kasten NICHT ausfuellen: {h}");
+        // Und das Verhaeltnis bleibt erhalten (auf Rundung genau).
+        let vorher = 3440.0 / 1440.0;
+        let nachher = f64::from(b) / f64::from(h);
+        assert!((vorher - nachher).abs() < 0.01, "{vorher} gegen {nachher}");
+    }
+
+    /// Nie vergroessern: ein kleiner Schirm bleibt klein, auch wenn ein
+    /// grosser Kasten gewuenscht ist. Hochskalieren kostet Bandbreite und
+    /// bringt kein Detail.
+    #[test]
+    fn ein_kleiner_schirm_wird_nicht_aufgeblasen() {
+        assert_eq!(einpassen(1280, 720, 3840, 2160), (1280, 720));
+        assert_eq!(einpassen(1280, 720, 1920, 1080), (1280, 720));
+    }
+
+    /// **Der Kasten ist eine Obergrenze, kein Sollmass.** Diese Pruefung
+    /// braucht eine Quelle, die NICHT 16:9 ist — auf einem 16:9-Schirm
+    /// liefern „einpassen" und „Kasten woertlich nehmen" dasselbe, und die
+    /// Stauchung bliebe unsichtbar. Genau daran ist die erste Fassung
+    /// vorbeigelaufen.
+    #[test]
+    fn der_kasten_staucht_nicht() {
+        // 21:9-Schirm, 16:9-Kasten.
+        let (b, h) = zielmasse((3440, 1440), Some((1920, 1080)));
+        assert_eq!((b, h), (1920, 804), "Kasten woertlich genommen?");
+        // 4:3-Schirm, 16:9-Kasten: die Hoehe stoesst an, die Breite bleibt frei.
+        let (b, h) = zielmasse((1600, 1200), Some((1920, 1080)));
+        assert_eq!((b, h), (1440, 1080));
+    }
+
+    /// Ohne Wunsch bleibt die native Groesse — nur auf gerade Kanten gebracht.
+    #[test]
+    fn ohne_kasten_bleibt_die_native_groesse() {
+        assert_eq!(zielmasse((3440, 1440), None), (3440, 1440));
+        assert_eq!(zielmasse((1367, 769), None), (1366, 768));
+    }
+
+    /// Encoder in 4:2:0 verlangen gerade Kantenlaengen.
+    #[test]
+    fn die_kanten_sind_immer_gerade() {
+        for (nb, nh, kb, kh) in [(1366u32, 768u32, 1280u32, 720u32), (1080, 1920, 1280, 720)] {
+            let (b, h) = einpassen(nb, nh, kb, kh);
+            assert_eq!(b % 2, 0, "Breite ungerade: {b}");
+            assert_eq!(h % 2, 0, "Hoehe ungerade: {h}");
+        }
     }
 }
