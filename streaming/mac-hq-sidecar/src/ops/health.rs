@@ -38,6 +38,14 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
         // SCK can capture a display, a window or a region.
         "capture_options": ["display", "window", "region"],
         "has_flv_patch": Value::Null,
+        // **Live geprueft, nicht behauptet.** Anders als unter Windows (dort
+        // fest `true`, weil das Op zum Programm selbst gehoert) haengt die
+        // Faehigkeit hier an einer Bedienungshilfen-Freigabe, die der Nutzer
+        // jederzeit zurueckziehen kann und die bei jedem Update erneut
+        // eingeholt werden muss (ad-hoc-signiertes DMG). Ein festes `true`
+        // liesse einen Mac als fernsteuerbar erscheinen, dessen zugesagte
+        // Sitzung beim ersten Frame wortlos stuerbe — s. `crate::berechtigung`.
+        "remote_input": crate::berechtigung::darf_einspielen(),
     });
     if let Some(p) = path {
         gsr["path"] = Value::String(p);
@@ -46,4 +54,26 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
     let mut out = Map::new();
     out.insert("gsr".to_string(), gsr);
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Der WERT von `remote_input` haengt am Freigabe-Zustand dieser Maschine
+    /// (s. `crate::berechtigung::darf_einspielen`) — das ist hier nicht
+    /// pruefbar, ohne eine Wette auf die Entwicklermaschine einzugehen.
+    /// Pruefbar und hier geprueft ist das DRUMHERUM: dass `health` das Feld
+    /// ueberhaupt fuehrt (ohne das Feld sieht der Zuschauer den Knopf
+    /// „Fernsteuerung anfragen" nie, egal wie die Maschine steht) und dass es
+    /// ein Bool ist, kein `null`/String/Zahl (der Konsument, `state.svelte.ts`,
+    /// unterscheidet `false` von „Feld fehlt" nicht, ein falscher Typ waere
+    /// also eine stille Fehldeutung statt eines Fehlers).
+    #[test]
+    fn feld_remote_input_ist_vorhanden_und_bool() {
+        let out = handle(Map::new()).expect("health darf nicht fehlschlagen");
+        let gsr = out.get("gsr").expect("gsr-Objekt fehlt");
+        let feld = gsr.get("remote_input").expect("remote_input fehlt in health.gsr");
+        assert!(feld.is_boolean(), "remote_input ist kein Bool: {feld:?}");
+    }
 }

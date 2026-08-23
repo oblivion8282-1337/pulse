@@ -4,6 +4,7 @@
 //! `streaming/win-hq-sidecar/`). See the crate README for the porting roadmap
 //! and `streaming/README.md` for the wire protocol.
 
+pub mod berechtigung;
 pub mod caps;
 pub mod capture;
 pub mod dispatch;
