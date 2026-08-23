@@ -42,6 +42,16 @@
  * hier trägt sie der Typ [`Zeigerform`] — ein hier erfundener Name fiele erst
  * beim Player auf, und zwar als wortloser Standardpfeil.
  *
+ * ## Der Rückfall, wenn der Host die Form gar nicht mehr kennt
+ *
+ * macOS liest die Zeigerform über eine von Apple **abgekündigte** Abfrage. Fällt
+ * sie eines Tages aus, legt der Mac seinen Zeiger zurück ins Videobild und
+ * meldet das als `remote_signal` der Art 'zeiger_im_bild' ([`_signalImBild`]);
+ * der Player blendet dann seinen lokalen Zeiger aus, damit nicht zwei zu sehen
+ * sind. Der Host-Zeiger ist danach formrichtig, aber der Hand um die
+ * Übertragungszeit hinterher — schlechter, nicht kaputt. Die Entscheidung dazu
+ * steht in [`./zeigerImBild`].
+ *
  * **Die Prüfung des BILDES steht nebenan** ([`./zeigerbildPruefung`]), und
  * zwar, damit sie ausführbar ist: dieses Modul importiert `./sidecarInput` zur
  * Laufzeit, und ein solcher Import macht eine Datei für Nodes Testläufer
@@ -53,11 +63,18 @@
 import type { RemoteSignalKind } from '$lib/ws/handlers/types';
 import { aufSidecarEreignisse } from './sidecarInput';
 import { pruefeBild, type Zeigerbild } from './zeigerbildPruefung';
+import { ZeigerImBild } from './zeigerImBild';
 
 export type { Zeigerbild };
 
 type SignalSender = (kind: RemoteSignalKind, data: unknown) => boolean;
-type Senke = (form: Zeigerform, bild?: Zeigerbild) => void;
+/**
+ * Wohin Form und Bild beim Steuernden fließen. `imBild` ist der Rückfall: gilt
+ * er, blendet der Player seinen lokalen Zeiger ganz aus und der Host-Zeiger
+ * reitet im Videobild mit (s. [`./zeigerImBild`]). Die Form geht trotzdem mit —
+ * sie gilt wieder, sobald der Rückfall endet.
+ */
+type Senke = (form: Zeigerform, bild?: Zeigerbild, imBild?: boolean) => void;
 
 /**
  * Die Formen, die über die Leitung dürfen — Namen aus der CSS-Zeigerliste, die
@@ -132,6 +149,12 @@ class RemoteZeigerform {
    * mehrmals je Sekunde).
    */
   #vollstaendigMs = 0;
+  /**
+   * Steht der Host-Zeiger gerade im Videobild statt in einer Formmeldung?
+   * Eigener Baustein, weil dort auch das Zurücksetzen beim Sitzungsende sitzt
+   * und geprüft wird (s. [`./zeigerImBild`]).
+   */
+  #imBild = new ZeigerImBild();
 
   /** Mit dem Übergang der Sitzung nach 'active' rufen — wie `remoteP2P.start`. */
   start(rolle: 'controller' | 'host', sendSignal: SignalSender): void {
@@ -148,8 +171,18 @@ class RemoteZeigerform {
     // behielte sein Fenster die letzte Form der Sitzung. Der Player setzt beim
     // Ende der Erfassung ebenfalls zurück — doppelt, weil die beiden Wege
     // (Sitzungsende, Fenster zu) nicht immer in derselben Reihenfolge laufen.
-    if (this.#rolle === 'controller' && (this.#form !== VORGABE || this.#bildId)) {
-      this.#senke?.(VORGABE);
+    //
+    // **Der Rückfall gehört unbedingt dazu.** Lief er, ist der lokale Zeiger
+    // des Steuernden gerade AUSGEBLENDET — bliebe er das, säße der Nutzer nach
+    // dem Ende der Fernsteuerung ohne Zeiger vor seinem eigenen Rechner. Das
+    // ist der schlimmste denkbare Ausgang dieser Funktion, und deshalb steht
+    // die Rückstellung an derselben Stelle wie die der Form, nicht daneben.
+    const rueckfallStand = this.#imBild.beenden();
+    if (
+      this.#rolle === 'controller' &&
+      (this.#form !== VORGABE || this.#bildId || rueckfallStand)
+    ) {
+      this.#senke?.(VORGABE, undefined, false);
     }
     this.#abmelden?.();
     this.#abmelden = null;
@@ -171,7 +204,9 @@ class RemoteZeigerform {
    */
   setSenke(senke: Senke | null): void {
     this.#senke = senke;
-    if (senke && this.#rolle === 'controller') senke(this.#form, this.#bild);
+    if (senke && this.#rolle === 'controller') {
+      senke(this.#form, this.#bild, this.#imBild.aktiv);
+    }
   }
 
   /**
@@ -211,7 +246,30 @@ class RemoteZeigerform {
     // es; sonst (und wenn das Bild ganz wegfällt) fällt es weg.
     if (gueltigesBild?.daten) this.#bild = gueltigesBild;
     else if (this.#bild?.id !== kennung) this.#bild = undefined;
-    this.#senke?.(gueltig, gueltigesBild);
+    this.#senke?.(gueltig, gueltigesBild, this.#imBild.aktiv);
+  }
+
+  /**
+   * Ein `remote_signal` der Art 'zeiger_im_bild' vom Gegenüber — der
+   * **Rückfall**: der Host kann seine Zeigerform nicht mehr melden und hat
+   * seinen Zeiger zurück ins Videobild gelegt.
+   *
+   * Der Player blendet daraufhin seinen lokalen Zeiger aus; sonst stünden zwei
+   * Zeiger im Bild, und der falsche wäre der schnellere. Endet der Rückfall,
+   * kommt der lokale zurück und die zuletzt gemeldete Form gilt wieder —
+   * deshalb geht sie hier weiter mit.
+   *
+   * **Nur der Steuernde hört zu**, aus demselben Grund wie bei [`_signal`]: der
+   * Host ist die Quelle dieser Auskunft.
+   *
+   * Die Deutung der Nutzlast steht in [`./zeigerImBild`] und ist bewusst
+   * streng — im Zweifel gilt „Zeiger sichtbar".
+   */
+  _signalImBild(data: unknown): void {
+    if (this.#rolle !== 'controller') return;
+    // Wiederholungen schluckt der Baustein selbst; nur ein WECHSEL kostet IPC.
+    if (!this.#imBild.signal(data)) return;
+    this.#senke?.(this.#form, this.#bild, this.#imBild.aktiv);
   }
 
   // ── Host-Seite ────────────────────────────────────────────────────────────

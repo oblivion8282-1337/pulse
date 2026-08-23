@@ -94,6 +94,10 @@ export function register(): void {
     // 'zeiger' ebenso: die Form des Host-Zeigers, die das Cursor-Echo aus dem
     // Bild nimmt (`$lib/remote/zeigerform.ts`).
     else if (evt.kind === 'zeiger') remoteZeigerform._signal(evt.data);
+    // 'zeiger_im_bild' ist der Rückfall dazu: der Host kann die Form nicht mehr
+    // melden und legt seinen Zeiger zurück ins Videobild. Der Player blendet
+    // dann seinen lokalen aus (`$lib/remote/zeigerImBild.ts`).
+    else if (evt.kind === 'zeiger_im_bild') remoteZeigerform._signalImBild(evt.data);
     else remoteP2P.signal(evt.kind, evt.data);
   });
   // Frames, die über den DataChannel hereinkommen, laufen durch DENSELBEN

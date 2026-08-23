@@ -507,8 +507,19 @@ export interface PulsePlayerApi {
    *  `bild` traegt die Pixel fuer Zeiger, die kein Name abbildet
    *  (Werkzeugzeiger von Schnitt-, Bild- und 3D-Programmen). Der Player nimmt
    *  sie, wenn er sie bauen kann, und faellt sonst auf `shape` zurueck. Eine
-   *  aeltere Shell reicht das Feld nicht durch — dann greift ebenfalls `shape`. */
-  pointerShape?(session: number, shape: string, bild?: unknown): Promise<PulsePlayerResult>;
+   *  aeltere Shell reicht das Feld nicht durch — dann greift ebenfalls `shape`.
+   *
+   *  `zeigerImBild` ist der Rueckfall: kann der Host die Form gar nicht mehr
+   *  melden, legt er seinen Zeiger zurueck ins Videobild und der Player blendet
+   *  den lokalen aus, damit nicht zwei zu sehen sind
+   *  (`$lib/remote/zeigerImBild.ts`). Fehlt das Feld — aeltere Shell, aelterer
+   *  Player —, bleibt der lokale Zeiger sichtbar; das ist der sichere Fall. */
+  pointerShape?(
+    session: number,
+    shape: string,
+    bild?: unknown,
+    zeigerImBild?: boolean,
+  ): Promise<PulsePlayerResult>;
   /** Fernsteuerung: die Bildschirme des fernen Rechners fuers Menue am Griff.
    *  Optional wie `pointerShape` — eine aeltere Shell kennt den Op nicht, und
    *  dann bleibt das Menue eben ohne Bildschirmliste. */
