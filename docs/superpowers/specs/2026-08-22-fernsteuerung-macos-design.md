@@ -208,19 +208,31 @@ als `LeftMouseDragged` / `RightMouseDragged` / `OtherMouseDragged` gehen, nicht
 als `MouseMoved` — sonst zieht in vielen Programmen nichts. Deshalb bekommt
 `maus_setzen` die Gedrückt-Menge.
 
-**Doppelklicks.** `kCGMouseEventClickState` muss beim zweiten Klick auf 2 stehen,
-sonst gibt es kein Doppelklick-Markieren. Windows zählt selbst. Umgesetzt als
-kleiner reiner Zähler (Zeit- und Ortsfenster) neben dem Injektor — testbar, und
-unschädlich, falls die Messung (§9) zeigt, dass der WindowServer es doch tut.
+**Doppelklicks — gemessen am 2026-08-23, der Zähler wird gebraucht.**
+`kCGMouseEventClickState` muss beim zweiten Klick auf 2 stehen. Nachgemessen:
+mit `clickState = 1` für beide Klicks bleibt es bei der Einfügemarke, mit 2 für
+den zweiten wird das Wort markiert. **macOS zählt NICHT selbst** (Windows
+schon). Umgesetzt als kleiner reiner Zähler über Zeit- und Ortsfenster neben
+dem Injektor. Ohne ihn fehlt jedes Doppelklick-Markieren, **ohne dass
+irgendetwas fehlschlägt oder eine Meldung erzeugt**.
 
-**Umschalttasten.** Jedes macOS-Tastenereignis trägt ein Flag-Feld. Am HID-Punkt
-sollte der WindowServer es aus dem echten Tastenzustand füllen; tut er es nicht,
-setzen wir es über `CGEventSetFlags` aus unserer eigenen Gedrückt-Menge — wieder
-derselbe Wert, den der Injektor ohnehin bekommt.
+**Umschalttasten — gemessen am 2026-08-23, und hier klafft eine Lücke im
+Trait.** Nachgemessen: nach einem echten Cmd-Runter bleibt die Zwischenablage
+bei Cmd+C unverändert; erst mit `.maskCommand` auf den C-Ereignissen kommt der
+Text an. **Der Injektor muss die Flags selbst setzen.** Er bekommt die
+Gedrückt-Menge heute aber nur bei `maus_setzen`, nicht bei `taste` — beim
+Schreiben von Plan 2 zu schliessen (bevorzugt symmetrisch, `taste` bekommt
+ebenfalls `&Druck`; die Sitzung führt die Menge ohnehin). Ungemessen bleibt, ob
+ein Cmd-Runter-Ereignis **seine eigene** Kennzeichnung tragen muss.
 
-**Rad:** `CGEventCreateScrollWheelEvent2` mit Zeileneinheit, eine
-Windows-Raste (120) = eine Zeile. Vorzeichen und das Verhalten bei „natürlichem
-Scrollen" werden gemessen (§9), nicht angenommen.
+**Rad — gemessen am 2026-08-23, keine Gegenrechnung nötig.**
+`CGEventCreateScrollWheelEvent2` mit Zeileneinheit. Nachgemessen in beiden
+Stellungen von „natürlichem Scrollen": die Richtung ist **dieselbe**, und sie
+entspricht der Windows-Bedeutung von `dv > 0`. Die Systemeinstellung wirkt also
+**nicht** auf injizierte Ereignisse; Host und Steuernder dürfen sie beliebig
+verschieden haben. **Offen:** die Umrechnung Raste → Zeile ist nicht glatt 1:1
+(eine Raste bewegte einmal eine Zeile, fünf Rasten bewegten drei). Für die
+Richtung ohne Belang, fürs Scrollgefühl zu messen, wenn das Rad gebaut wird.
 
 **Tastentabelle** Satz 1 → `kVK_*` in `remote_input/tasten.rs`, rein und mit
 Tests.
@@ -360,7 +372,24 @@ Prüfstein kommt vom Sender, wie es die Zeigerbild-Lehre verlangt.
 * **Ein Linux-Host.** Derselbe Kern wäre danach verfügbar, aber Linux hat keine
   einheitliche Eingabe-Injektion (X11 gegen Wayland) und ist eine eigene Frage.
 
-## 9. Drei Messungen, bevor Code entsteht
+## 9. Drei Messungen, bevor Code entsteht — **erledigt 2026-08-23**
+
+**Alle drei sind gefahren.** Befunde, Aufbau und Zahlen:
+`docs/plans/2026-08-23-macos-eingabe-messungen.md`. Kurzfassung:
+
+1. **TCC-Zuordnung:** der Kindprozess **erbt** die Freigabe des verantwortlichen
+   Programms — kein eigener Eintrag nötig, der Dialog nennt das startende
+   Programm. §7.2 trägt. (Gegenversuch mit `Pulse.app` als Elternprozess statt
+   des Terminals steht noch aus; der Mechanismus ist derselbe.)
+2. **Doppelklick:** macOS zählt **nicht** selbst, der Zähler wird gebraucht.
+   **Umschalttasten:** die Flags müssen selbst gesetzt werden — und
+   `Injektor::taste` bekommt die Gedrückt-Menge dafür heute nicht (§4).
+3. **Rad:** „natürliches Scrollen" wirkt **nicht** auf injizierte Ereignisse,
+   die Vorzeichen passen ohne Umrechnung.
+
+Der ursprüngliche Wortlaut der drei Fragen steht unten, weil er die Aufbauten
+beschreibt.
+
 
 Alle drei sind an einem halben Tag zu beantworten und ändern je einen Teil des
 Entwurfs. Sie gehören vor die Umsetzung, nicht in sie hinein.
