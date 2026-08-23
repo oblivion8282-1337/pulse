@@ -5,7 +5,13 @@ edition = "2024"
 publish = false
 description = "Plattformfreier Kern der Pulse-Fernsteuerung — Frame-Format, Sitzung, Klemmrechnung"
 
-# Ohne Abhaengigkeiten — diese Kiste wird vom Windows- und vom mac-Sidecar und
-# vom Player eingebunden und darf deren Bauwege nicht beschweren. Dieselbe
-# Regel wie in `pulse-zeitbasis/Cargo.toml`.
+# Grundsatz bleibt: keine Abhaengigkeit, die einen Bauweg beschwert. Dieselbe
+# Regel wie in `pulse-zeitbasis/Cargo.toml`. Eine Ausnahme, nachgemessen:
+# `serde_json` steht bereits in allen vier Verbrauchern (win-hq-sidecar,
+# mac-hq-sidecar, linux-hq-sidecar, pulse-player) — es beschwert deshalb
+# keinen Bauweg, der nicht ohnehin schon dafuer bezahlt. Die Grenze bleibt
+# hart: jede WEITERE Abhaengigkeit braucht dieselbe Nachmessung und eine
+# eigene Entscheidung, sonst rutscht die naechste mit derselben Begruendung
+# hinein.
 [dependencies]
+serde_json = "1"

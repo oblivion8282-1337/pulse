@@ -27,6 +27,7 @@ pub mod bewegung;
 pub mod druck;
 pub mod format;
 pub mod frist;
+pub mod huelle;
 pub mod plattform;
 pub mod rahmen;
 pub mod sitzung;
