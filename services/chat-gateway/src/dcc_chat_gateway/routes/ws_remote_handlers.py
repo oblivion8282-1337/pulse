@@ -98,22 +98,28 @@ _SIGNAL_MAX_MESSAGES_PER_S = 60
 _SIGNAL_MAX_DATA_BYTES = 8 * 1024
 
 # Welche Arten der Weiterleiter durchlaesst. Drei davon sind die Verhandlung des
-# direkten Eingabekanals (SDP/ICE); ``vorrang`` und ``zeiger`` sind die beiden
-# Auskuenfte, die in die GEGENRICHTUNG laufen — der Host meldet, dass er selbst
-# an Maus und Tastatur sitzt und die Fremdeingabe deshalb gerade verwirft
-# (``streaming/win-hq-sidecar/src/remote_input/wache.rs``), bzw. welche FORM
-# sein Zeiger gerade hat, damit der Steuernde I-Balken und Groessenpfeile sieht,
-# obwohl das Cursor-Echo den Host-Zeiger aus dem Bild nimmt
+# direkten Eingabekanals (SDP/ICE); ``vorrang``, ``zeiger`` und
+# ``zeiger_im_bild`` sind die Auskuenfte, die in die GEGENRICHTUNG laufen — der
+# Host meldet, dass er selbst an Maus und Tastatur sitzt und die Fremdeingabe
+# deshalb gerade verwirft (``streaming/win-hq-sidecar/src/remote_input/wache.rs``),
+# bzw. welche FORM sein Zeiger gerade hat, damit der Steuernde I-Balken und
+# Groessenpfeile sieht, obwohl das Cursor-Echo den Host-Zeiger aus dem Bild nimmt
 # (``.../remote_input/zeigerform.rs``). Sie reiten hier mit, statt eigene Ops zu
 # bekommen: derselbe Empfaenger, dieselbe Bindung an die per Consent bestaetigte
 # Sitzung, derselbe Deckel — und ein paar Nachrichten je Sekunde fallen daneben
 # nicht ins Gewicht.
 #
+# ``zeiger_im_bild`` ist der RUECKFALL zu ``zeiger``: kann der Host die Form
+# nicht mehr abfragen (macOS liest sie ueber eine von Apple abgekuendigte
+# Schnittstelle), legt er seinen Zeiger zurueck ins Videobild und meldet das —
+# der Steuernde blendet daraufhin seinen eigenen aus, damit nicht zwei zu sehen
+# sind (``$lib/remote/zeigerImBild.ts``, ``pulse-player/src/app/zeigersicht.rs``).
+#
 # Der Gateway deutet den Inhalt so wenig wie bei SDP/ICE; wer eine Art an die
 # falsche Seite schickt, findet dort keinen Abnehmer (``$lib/remote/vorrang.ts``
 # und ``$lib/remote/zeigerform.ts`` hoeren nur als Steuernder zu). **Mit
 # ``RemoteSignalKind`` synchron halten** (``web/src/lib/ws/handlers/types.ts``).
-_SIGNAL_KINDS = ("offer", "answer", "ice", "vorrang", "zeiger")
+_SIGNAL_KINDS = ("offer", "answer", "ice", "vorrang", "zeiger", "zeiger_im_bild")
 
 
 def _int_or_none(value: object) -> int | None:

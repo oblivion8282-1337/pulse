@@ -148,6 +148,17 @@ pub struct Request {
     #[serde(default)]
     pub bild: Option<Zeigerbildrahmen>,
 
+    /// Der Host hat seinen Zeiger zurueck ins Videobild gelegt und meldet
+    /// deshalb keine Form mehr — dann blendet dieses Fenster seinen LOKALEN
+    /// Zeiger aus, sonst waeren zwei zu sehen und der falsche waere der
+    /// schnellere (s. [`crate::app::zeigersicht`]).
+    ///
+    /// **Ein fehlendes Feld heisst „nicht im Bild".** Das ist der sichere Fall:
+    /// eine aeltere Shell, die es nicht mitschickt, laesst den Zeiger sichtbar.
+    /// Umgekehrt saesse der Nutzer im Zweifel ohne Zeiger da.
+    #[serde(default)]
+    pub zeiger_im_bild: Option<bool>,
+
     // --- remote_anfragbar ---
     /// Darf dieser Zuschauer eine Fernsteuerung anfragen? Der Player zeigt
     /// daraufhin einen Knopf in der Bedienleiste und meldet den Klick als

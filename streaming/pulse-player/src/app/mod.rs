@@ -14,6 +14,7 @@ mod requests;
 mod takt;
 mod zeigerbau;
 mod zeigerform;
+mod zeigersicht;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -225,6 +226,10 @@ struct Session {
     /// gemerkten Wunsch waere beim Zurueckkommen nicht zu wissen, ob er
     /// erneuert werden muss (s. `App::fokus_gewechselt`).
     fang_gewuenscht: bool,
+    /// Ob der lokale Zeiger im Fenster zu sehen ist — und aus welchen Gruenden
+    /// nicht (Zeigerfang, Rueckfall „Zeiger im Bild"). Beide rechnen zusammen,
+    /// weil sie gleichzeitig gelten koennen (s. [`zeigersicht`]).
+    zeigersicht: zeigersicht::Zeigersicht,
     /// Anzeigetext des Eingabewegs waehrend einer Fernsteuerung
     /// („Direktverbindung", „Serverweg — …"); leer = nichts gemeldet. Kommt
     /// per `remote_transport`-RPC aus dem Renderer (s. `eingabe.rs`).
@@ -630,6 +635,7 @@ impl App {
                 state: SessionState::Connecting,
                 eingabe: crate::fernsteuerung::Erfassung::neu(),
                 fang_gewuenscht: false,
+                zeigersicht: zeigersicht::Zeigersicht::default(),
                 fern_transport: String::new(),
                 eingabe_frames: 0,
                 can_reattach: req.can_reattach.unwrap_or(true),

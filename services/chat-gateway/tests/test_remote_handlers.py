@@ -835,6 +835,54 @@ async def test_zeigerform_signal_reaches_the_controller(ws_app, _auth_signer):
 
 
 @pytest.mark.asyncio
+async def test_zeiger_im_bild_signal_reaches_the_controller(ws_app, _auth_signer):
+    """Der RUECKFALL zur Formmeldung: kann der Host die Zeigerform gar nicht
+    mehr abfragen (macOS liest sie ueber eine von Apple abgekuendigte
+    Schnittstelle, die kuenftig immer ``nil`` liefert), legt er seinen Zeiger
+    zurueck ins Videobild und meldet das. Der Steuernde blendet daraufhin
+    seinen eigenen aus — sonst staenden zwei Zeiger im Bild, und der falsche
+    waere der schnellere.
+
+    Steht die Art nicht in der Pruefliste, faellt sie still aus: der Host holt
+    sich ein 4050 ab, der Steuernde sieht doppelt und niemand sucht danach.
+    Der Gateway deutet die Nutzlast selbst nicht — sie geht unveraendert
+    durch (``$lib/remote/zeigerImBild.ts`` prueft sie).
+    """
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, member_token, member_uid, _, cid = _setup_remote(
+                tc, _auth_signer
+            )
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ctrl_ws, \
+                 tc.websocket_connect(f"/ws?token={member_token}") as host_ws:
+                skip_init_frames(ctrl_ws)
+                skip_init_frames(host_ws)
+                sid = _open_session(ctrl_ws, host_ws, cid, member_uid)
+                host_ws.send_json({
+                    "op": "remote_signal",
+                    "session_id": sid,
+                    "kind": "zeiger_im_bild",
+                    "data": {"aktiv": True},
+                })
+                sig = _drain_for(ctrl_ws, "remote_signal")
+                assert sig["kind"] == "zeiger_im_bild"
+                assert sig["data"] == {"aktiv": True}
+
+                # Und das Ende des Rueckfalls ebenso — genau diese Meldung gibt
+                # dem Steuernden seinen Zeiger zurueck.
+                host_ws.send_json({
+                    "op": "remote_signal",
+                    "session_id": sid,
+                    "kind": "zeiger_im_bild",
+                    "data": {"aktiv": False},
+                })
+                assert _drain_for(ctrl_ws, "remote_signal")["data"] == {"aktiv": False}
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
 async def test_remote_respond_decline(ws_app, _auth_signer):
     def _run():
         with TestClient(ws_app) as tc:

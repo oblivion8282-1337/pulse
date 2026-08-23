@@ -35,7 +35,7 @@ impl App {
         if !fang_gewuenscht {
             zeiger_fangen(&session.window, false);
         }
-        session.window.set_cursor_visible(!fang);
+        session.zeigersicht.fang_setzen(fang);
         // Der WUNSCH wird getrennt vom Erreichten aufgehoben: nach einem
         // Fokuswechsel muss er neu vollzogen werden (s. [`Self::fokus_gewechselt`]).
         session.fang_gewuenscht = fang_gewuenscht;
@@ -57,7 +57,16 @@ impl App {
             // Fernsteuerung weiter einen I-Balken ueber einem Bild, in dem es
             // nichts zu schreiben gibt.
             session.window.set_cursor(winit::window::CursorIcon::Default);
+            // **Und der Rueckfall „Zeiger im Bild" wird zurueckgenommen.**
+            // Lief er, ist der lokale Zeiger gerade ausgeblendet; bliebe er
+            // das, saesse der Nutzer nach dem Ende der Fernsteuerung ohne
+            // Zeiger vor seinem eigenen Rechner (s. [`super::zeigersicht`]).
+            session.zeigersicht.erfassung_aus();
         }
+        // Erst jetzt ans Fenster: beide Gruende sind gesetzt, und ein
+        // zwischendurch gesetztes `set_cursor_visible` liesse den Zeiger
+        // aufblitzen.
+        session.window.set_cursor_visible(session.zeigersicht.sichtbar());
         // Die Bedienung im Fenster wechselt mit: waehrend der Fernsteuerung
         // tritt der verschiebbare Griff an die Stelle der Leiste, die sonst bei
         // jeder Mausbewegung aufginge und einen Streifen ueber die volle Breite
@@ -203,6 +212,14 @@ impl App {
             Some(zeiger) => session.window.set_cursor(zeiger),
             None => session.window.set_cursor(zeigerform(req.shape.as_deref().unwrap_or_default())),
         }
+        // Der Rueckfall: kann der Host die Form gar nicht mehr abfragen, legt er
+        // seinen Zeiger zurueck ins Videobild und meldet das. Dann muss der
+        // lokale weichen — sonst stehen zwei im Bild, und der falsche ist der
+        // schnellere. **Ein fehlendes Feld heisst „nicht im Bild"** (aeltere
+        // Shell): im Zweifel lieber zwei Zeiger als keiner. Die Form wird
+        // trotzdem gesetzt — sie gilt wieder, sobald der Rueckfall endet.
+        session.zeigersicht.im_bild_setzen(req.zeiger_im_bild.unwrap_or(false));
+        session.window.set_cursor_visible(session.zeigersicht.sichtbar());
         Ok(())
     }
 
@@ -264,7 +281,8 @@ impl App {
         if !fang {
             zeiger_fangen(&session.window, false);
         }
-        session.window.set_cursor_visible(!fang);
+        session.zeigersicht.fang_setzen(fang);
+        session.window.set_cursor_visible(session.zeigersicht.sichtbar());
         session.eingabe.zeigerfang_nachfuehren(fang);
     }
 
@@ -307,6 +325,12 @@ impl App {
         let stdout = self.stdout.clone();
         let Some(session) = self.sessions.get_mut(&id) else { return };
         session.fang_gewuenscht = false;
+        // Zweiter Riegel fuer den Rueckfall: dieser Weg laeuft, wenn das
+        // Fenster von sich aus zugeht, und dann kommt kein `input_capture`
+        // mehr. Der Zeiger gehoert dem Nutzer zurueck, solange es das Fenster
+        // noch gibt.
+        session.zeigersicht.erfassung_aus();
+        session.window.set_cursor_visible(session.zeigersicht.sichtbar());
         session.eingabe.ausschalten();
         if let Some(frames) = session.eingabe.raeumen() {
             stdout.send(&eingabe_ereignis(id, session.eingabe.slot(), frames));

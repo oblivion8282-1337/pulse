@@ -74,6 +74,11 @@ export async function transportMelden(fensterSitzung: number, transport: string)
  * kann, und faellt sonst auf `form` zurueck — deshalb geht die Form **immer**
  * mit, auch wenn ein Bild dabei ist.
  *
+ * `imBild` ist der Rueckfall: kann der Host die Form gar nicht mehr melden,
+ * legt er seinen Zeiger zurueck ins Videobild, und der Player blendet dann
+ * seinen lokalen aus — sonst waeren zwei zu sehen, und der falsche waere der
+ * schnellere (`$lib/remote/zeigerImBild.ts`).
+ *
  * Best-effort wie die Transport-Anzeige: eine ausgebliebene Form kostet
  * Rueckmeldung, keine Eingabe, und darf den Fluss nicht beruehren.
  */
@@ -81,9 +86,10 @@ export async function zeigerformMelden(
   fensterSitzung: number,
   form: Zeigerform,
   bild?: Zeigerbild,
+  imBild?: boolean,
 ): Promise<void> {
   try {
-    await player()?.pointerShape?.(fensterSitzung, form, bild);
+    await player()?.pointerShape?.(fensterSitzung, form, bild, imBild);
   } catch (e) {
     console.warn('[remote] Zeigerform warf:', e);
   }

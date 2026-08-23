@@ -21,13 +21,21 @@ import type { PresenceStatus, OwnPresenceStatus } from '$lib/stores/presence.sve
 import type { Device, DeviceMonitor, DeviceState } from '$lib/api/devices';
 
 /** Art einer `remote_signal`-Nutzlast: SDP-Angebot, SDP-Antwort, ICE-Kandidat
- *  (`$lib/remote/p2p.ts`) — und die beiden Auskünfte, die vom Host zum
- *  Steuernden fließen: der Vorrang des Hosts (`$lib/remote/vorrang.ts`) und die
- *  Form seines Zeigers (`$lib/remote/zeigerform.ts`).
+ *  (`$lib/remote/p2p.ts`) — und die Auskünfte, die vom Host zum Steuernden
+ *  fließen: der Vorrang des Hosts (`$lib/remote/vorrang.ts`), die Form seines
+ *  Zeigers (`$lib/remote/zeigerform.ts`) und der Rückfall, bei dem der Host
+ *  seinen Zeiger stattdessen im Videobild mitlaufen lässt
+ *  (`$lib/remote/zeigerImBild.ts`).
  *  An EINER Stelle, weil derselbe Satz Werte in beiden Richtungen der Leitung
  *  und in jedem Sender-Baustein auftaucht. **Mit der Prüfliste des Gateways
  *  synchron halten** (`ws_remote_handlers.py::handle_signal`). */
-export type RemoteSignalKind = 'offer' | 'answer' | 'ice' | 'vorrang' | 'zeiger';
+export type RemoteSignalKind =
+  | 'offer'
+  | 'answer'
+  | 'ice'
+  | 'vorrang'
+  | 'zeiger'
+  | 'zeiger_im_bild';
 
 export type ChannelPayload = {
   id: string;

@@ -168,9 +168,14 @@ contextBridge.exposeInMainWorld('pulse', {
      *  Zeiger in seiner eigenen Groesse und seinem Thema. `bild` kommt nur fuer
      *  Zeiger mit, die kein Name abbildet (Werkzeugzeiger von Schnitt-, Bild-
      *  und 3D-Programmen); geprueft wurde es im Renderer, gedeutet wird es im
-     *  Player, und `shape` bleibt in beiden Faellen der Rueckfall. */
-    pointerShape: (session: number, shape: string, bild?: unknown) =>
-      playerCall('remote_pointer', { session, shape, bild }),
+     *  Player, und `shape` bleibt in beiden Faellen der Rueckfall.
+     *
+     *  `zeigerImBild` sagt, dass der Host seinen Zeiger gar nicht mehr melden
+     *  kann und ihn stattdessen im Videobild mitlaufen laesst — dann blendet
+     *  der Player den lokalen aus, sonst staenden zwei im Bild
+     *  (`$lib/remote/zeigerImBild.ts`). */
+    pointerShape: (session: number, shape: string, bild?: unknown, zeigerImBild?: boolean) =>
+      playerCall('remote_pointer', { session, shape, bild, zeiger_im_bild: zeigerImBild }),
     /** Fernsteuerung: welche Bildschirme der ferne Rechner hat. Das Fenster
      *  zeigt sie im Menue am Griff und meldet die Wahl als
      *  `player:remoteScreen` zurueck — angefordert wird in der App
