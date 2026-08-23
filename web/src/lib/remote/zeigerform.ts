@@ -63,7 +63,7 @@
 import type { RemoteSignalKind } from '$lib/ws/handlers/types';
 import { aufSidecarEreignisse } from './sidecarInput';
 import { pruefeBild, type Zeigerbild } from './zeigerbildPruefung';
-import { ZeigerImBild } from './zeigerImBild';
+import { ZeigerImBild, sidecarMeldungImBild } from './zeigerImBild';
 
 export type { Zeigerbild };
 
@@ -278,6 +278,25 @@ class RemoteZeigerform {
     if (this.#rolle !== 'host') return;
     if (!ev || typeof ev !== 'object') return;
     const m = ev as { ev?: unknown; shape?: unknown; bild?: unknown };
+    // **Der Rückfall reist über denselben Weg**, aber mit eigener Art. Der
+    // Sidecar meldet ihn als `remote_pointer_in_frame`, wenn seine Abfrage
+    // nichts hergab und er den Host-Zeiger zurück ins Bild geschaltet hat.
+    //
+    // **Diese Weiterleitung fehlte bis zum 2026-08-23**, und das war eine
+    // Lücke genau zwischen zwei Hälften: der Sidecar meldete, der Player
+    // konnte es deuten, der README beschrieb es — nur reichte niemand es
+    // weiter, und `#vomSidecar` verwarf die Art wortlos. Der Steuernde hätte
+    // seinen Zeiger nie ausgeblendet und immer zwei gesehen. Kein Absturz,
+    // keine Meldung: der Rückfall wäre stillschweigend wirkungslos gewesen.
+    //
+    // Nicht gedeutet wird hier: `aktiv` geht roh hinaus, die Gegenseite
+    // entscheidet (`./zeigerImBild`). Ein zweiter Deutungsort wäre ein
+    // zweiter Ort, an dem sich die Regel ändern kann.
+    const imBild = sidecarMeldungImBild(ev);
+    if (imBild !== null) {
+      this.#sendSignal?.('zeiger_im_bild', { aktiv: imBild });
+      return;
+    }
     if (m.ev !== 'remote_pointer') return;
     // Was der eigene Sidecar meldet, ist nicht Fremdeingabe — geprüft wird es
     // trotzdem, damit eine ältere oder neuere Sidecar-Fassung nichts über die

@@ -28,7 +28,7 @@ import { describe, it } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { ZeigerImBild, deuteZeigerImBild } from '../src/lib/remote/zeigerImBild.ts';
+import { ZeigerImBild, deuteZeigerImBild, sidecarMeldungImBild } from '../src/lib/remote/zeigerImBild.ts';
 
 describe('deuteZeigerImBild — die Nutzlast des Hosts', () => {
   it('blendet nur bei einem ausdrücklichen true aus', () => {
@@ -171,9 +171,17 @@ describe('Verdrahtung in zeigerform.ts', () => {
       /data/,
       '_signalImBild darf die Nutzlast nicht selbst deuten',
     );
+    // **Bewusst nicht die ganze Import-Liste festnageln.** Diese Prüfung hiess
+    // bis zum 2026-08-23 `\{\s*ZeigerImBild\s*\}` und verlangte damit, dass
+    // aus dieser Datei GENAU EIN Name importiert wird. Als die Weiterleitung
+    // `sidecarMeldungImBild` dazukam — eine Änderung, die die Zusage stärkt,
+    // weil sie eine weitere Deutung aus `zeigerform.ts` heraushält — fiel der
+    // Test um. Ein Test, der bei einer Verbesserung rot wird, erzieht dazu,
+    // ihn abzuschalten. Geprüft wird deshalb, dass `ZeigerImBild` von dort
+    // kommt, nicht, dass sonst nichts von dort kommt.
     assert.match(
       quelleZeigerform(),
-      /import\s*\{\s*ZeigerImBild\s*\}\s*from\s*'\.\/zeigerImBild'/,
+      /import\s*\{[^}]*\bZeigerImBild\b[^}]*\}\s*from\s*'\.\/zeigerImBild'/,
       'die Entscheidung muss aus zeigerImBild kommen — sonst prüft der Test oben etwas anderes',
     );
   });
@@ -219,3 +227,44 @@ function methodenKoerper(name: string): string {
     .replace(/\/\/[^\n]*/g, '')
     .replace(/\s+/g, '');
 }
+
+describe('sidecarMeldungImBild — die Weiterleitung auf der Host-Seite', () => {
+/**
+ * **Die Weiterleitung auf der Host-Seite** — sie fehlte bis zum 2026-08-23
+ * ganz, und zwar in einer Luecke zwischen zwei Arbeiten: der Sidecar meldete
+ * `remote_pointer_in_frame`, der Player konnte es deuten, die Doku beschrieb
+ * es, und niemand reichte es weiter. Verworfen wurde es wortlos.
+ *
+ * Ein Absturz waere aufgefallen. Ein stillschweigend wirkungsloser Rueckfall
+ * nicht: der Steuernde haette einfach immer zwei Zeiger gesehen, und niemand
+ * haette die Ursache in einer fehlenden Zeile gesucht.
+ */
+  it('die Rueckfall-Meldung des Sidecars wird erkannt', () => {
+    assert.equal(sidecarMeldungImBild({ ev: 'remote_pointer_in_frame', aktiv: true }), true);
+    assert.equal(sidecarMeldungImBild({ ev: 'remote_pointer_in_frame', aktiv: false }), false);
+  });
+
+  it('andere Sidecar-Meldungen gehen den Rueckfall nichts an', () => {
+    // `null` heisst „nicht meine Sache" und ist NICHT dasselbe wie `false`:
+    // bei `false` geht eine Meldung hinaus, bei `null` faehrt der Aufrufer mit
+    // seiner gewohnten Behandlung fort. Wer beides zusammenzieht, schickt bei
+    // jeder Formmeldung zusaetzlich ein „nicht im Bild".
+    assert.equal(sidecarMeldungImBild({ ev: 'remote_pointer', shape: 'text' }), null);
+    assert.equal(sidecarMeldungImBild({ ev: 'remote_state', state: 'live' }), null);
+    assert.equal(sidecarMeldungImBild(null), null);
+    assert.equal(sidecarMeldungImBild('remote_pointer_in_frame'), null);
+    assert.equal(sidecarMeldungImBild(undefined), null);
+  });
+
+  it('ein unklares aktiv gilt als nicht aktiv', () => {
+    // Derselbe sichere Fall wie beim Empfaenger: ein doppelter Zeiger ist ein
+    // Schoenheitsfehler, ein fehlender kostet die Bedienbarkeit.
+    for (const wert of ['ja', 1, {}, null, undefined]) {
+      assert.equal(
+        sidecarMeldungImBild({ ev: 'remote_pointer_in_frame', aktiv: wert }),
+        false,
+        `aktiv=${JSON.stringify(wert)}`,
+      );
+    }
+  });
+});

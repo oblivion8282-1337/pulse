@@ -54,6 +54,32 @@ export function deuteZeigerImBild(data: unknown): boolean {
 }
 
 /**
+ * **Die Host-Seite**: ist diese Sidecar-Meldung der Rückfall, und was sagt sie?
+ *
+ * `null` heisst „geht mich nichts an" — der Aufrufer macht mit seiner
+ * gewohnten Behandlung weiter. Sonst der rohe Wahrheitswert, so wie er über
+ * die Leitung gehen soll.
+ *
+ * **Warum das hier steht und nicht in [`./zeigerform`]:** dort fehlte die
+ * Weiterleitung bis zum 2026-08-23 ganz, und zwar in einer Lücke genau
+ * zwischen zwei Arbeiten — der Sidecar meldete, der Player konnte es deuten,
+ * die Doku beschrieb es, und niemand reichte es weiter. Verworfen wurde es
+ * wortlos. Ein Absturz wäre aufgefallen; ein stillschweigend wirkungsloser
+ * Rückfall nicht: der Steuernde hätte einfach immer zwei Zeiger gesehen. Als
+ * reine Funktion hat die Weiterleitung jetzt ein Netz, das ohne Bundler läuft.
+ *
+ * **Gedeutet wird hier NICHT**, ob ausgeblendet werden soll — das entscheidet
+ * die Gegenseite mit [`deuteZeigerImBild`]. Zwei Deutungsorte wären zwei
+ * Stellen, an denen sich die Regel auseinanderentwickeln kann.
+ */
+export function sidecarMeldungImBild(ev: unknown): boolean | null {
+  if (!ev || typeof ev !== 'object') return null;
+  const m = ev as { ev?: unknown; aktiv?: unknown };
+  if (m.ev !== 'remote_pointer_in_frame') return null;
+  return m.aktiv === true;
+}
+
+/**
  * Der Stand beim Steuernden: steht der Host-Zeiger gerade im Bild?
  *
  * Führt genau einen Wahrheitswert und beantwortet zwei Fragen — muss das
