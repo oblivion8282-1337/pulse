@@ -40,6 +40,7 @@ mod render;
 mod rpc;
 mod session;
 mod stockung;
+mod tastensperre;
 mod theme;
 mod whep;
 mod zeigerbild;

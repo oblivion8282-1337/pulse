@@ -242,6 +242,10 @@ struct Session {
     /// Haelt die REIHENFOLGE der Patches auf dem Weg in die Sitzung: jede neue
     /// wartet auf diese hier, bevor sie sendet.
     optionskette: Option<tokio::task::JoinHandle<()>>,
+    /// Ob die Tastenkuerzel des Fenstermanagers fuer DIESES Fenster gerade
+    /// stillstehen (s. [`crate::tastensperre`]). Ausserhalb von Linux/Wayland
+    /// ein leerer Wert ohne Kosten.
+    tastensperre: crate::tastensperre::Tastensperre,
 }
 
 pub struct App {
@@ -265,6 +269,14 @@ pub struct App {
     /// gebauter Zeiger am Ereignisschleifen-Zeiger haengt und derselbe ferne
     /// Rechner ueber mehrere Fenster gesteuert werden kann.
     zeigervorrat: zeigerbau::Vorrat,
+    /// Die Verbindung, ueber die waehrend einer Fernsteuerung die Tastenkuerzel
+    /// des Fenstermanagers stillgelegt werden (s. [`crate::tastensperre`]).
+    ///
+    /// **Steht NACH `sessions`**, und das ist keine Kosmetik: die Sperren der
+    /// Fenster haengen an dieser Verbindung, und Felder fallen in der
+    /// Reihenfolge ihrer Deklaration. Andersherum faenden die Sperren beim
+    /// Abbau eine Verbindung vor, die es nicht mehr gibt.
+    tastensperre: crate::tastensperre::Gemeinsam,
 }
 
 /// Wie lange nach dem letzten Bild des Hauptstroms das Auffangnetz noch
@@ -288,6 +300,7 @@ impl App {
             runtime,
             stdout: StdoutWriter::new(),
             zeigervorrat: zeigerbau::Vorrat::default(),
+            tastensperre: crate::tastensperre::Gemeinsam::default(),
         }
     }
 
@@ -621,6 +634,7 @@ impl App {
                 eingabe_frames: 0,
                 can_reattach: req.can_reattach.unwrap_or(true),
                 optionskette: None,
+                tastensperre: crate::tastensperre::Tastensperre::default(),
             },
         );
         // Einmal zeichnen, bevor das erste Bild da ist: sonst zeigt das Fenster
@@ -1193,6 +1207,13 @@ impl App {
     fn close_session(&mut self, id: u64) {
         // VOR dem Entfernen: danach gibt es die Warteschlange nicht mehr.
         self.eingabe_raeumen(id);
+        // Dasselbe fuer die Tastenkuerzel des Fenstermanagers. `Halter::drop`
+        // faenge es zwar auch auf — aber nur ohne das `flush` danach, und der
+        // Nutzer soll seine Kuerzel jetzt zurueckbekommen und nicht beim
+        // naechsten Durchgang von winit.
+        if let Some(session) = self.sessions.get_mut(&id) {
+            self.tastensperre.freigeben(&mut session.tastensperre);
+        }
         if let Some(session) = self.sessions.remove(&id) {
             self.by_window.remove(&session.window.id());
             let tx = session.commands;
@@ -1320,6 +1341,24 @@ impl App {
 
 impl ApplicationHandler<UserEvent> for App {
     fn resumed(&mut self, _event_loop: &ActiveEventLoop) {}
+
+    /// Die Ereignisschleife endet.
+    ///
+    /// **Die einzige Stelle, an der die Tastenkuerzel-Sperre noch geordnet
+    /// abgebaut werden kann.** Danach gibt winit seine Wayland-Anzeige frei —
+    /// und zwar bevor `App` selbst faellt, weil `run_app` die Schleife
+    /// verschlingt (`main.rs`). Wer den Abbau dem `Drop` von `App`
+    /// ueberliesse, griffe auf eine Anzeige zu, die es nicht mehr gibt.
+    ///
+    /// Erst jede offene Sperre einzeln aufheben — die Kuerzel des Nutzers
+    /// muessen zurueck, auch wenn der Player aus einer laufenden Fernsteuerung
+    /// heraus beendet wird —, dann die Verbindung.
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        for session in self.sessions.values_mut() {
+            self.tastensperre.freigeben(&mut session.tastensperre);
+        }
+        self.tastensperre.schliessen();
+    }
 
     /// Weckruf fuer den Ausgabe-Takt.
     ///
