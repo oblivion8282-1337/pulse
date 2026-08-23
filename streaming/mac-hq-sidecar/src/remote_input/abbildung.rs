@@ -123,30 +123,37 @@ pub fn bewegungs_typ(gedrueckt: &Druck) -> (CGEventType, CGMouseButton) {
     }
 }
 
+/// Wie viele Zeilen dieser Injektor je Windows-Raste ([`RASTE`]) an
+/// CoreGraphics uebergibt.
+///
+/// **Produktentscheidung, keine Richtigkeitsfrage — und offen** (Befund 5 der
+/// Pruefung vom 2026-08-23). Nachgemessen kommen dabei effektiv 0,75 bis 0,8
+/// Zeilen je Raste **an**, nicht eine (Nachtrag 5 der Messakte,
+/// `docs/plans/2026-08-23-macos-eingabe-messungen.md`): macOS legt auf ein
+/// Zeilen-Rollereignis noch seine eigene Beschleunigungskurve, dieser Wert
+/// wird davor eingespeist. „Wie Windows" ist dabei gar kein wohldefiniertes
+/// Ziel: Windows' DREI Zeilen je Raste (`SPI_GETWHEELSCROLLLINES`) sind eine
+/// HOST-Einstellung, zu der macOS kein Gegenstueck hat — und die gemessenen
+/// 0,75-0,8 sind an TextEdits Weichroll-Rundung abgelesen, nicht an einem
+/// Systemfaktor. **Die Entscheidung faellt durch Nebeneinander-Benutzen,
+/// nicht durch eine weitere Zahl** — deshalb bleibt der Wert hier bei 1.
+const ZEILEN_JE_RASTE: i32 = 1;
+
 /// Windows-Rastschritte -> Zeilen.
 ///
 /// **Gemessen am 2026-08-23** (Messung 3): „natuerliches Scrollen" wirkt nicht
 /// auf injizierte Ereignisse, die Richtung ist in beiden Stellungen dieselbe
 /// und entspricht der Windows-Bedeutung von `dv > 0`. **Keine Gegenrechnung.**
 ///
-/// Eine Windows-Raste (120) ist eine Zeile. Der eigene Sender schickt immer
-/// ganze Vielfache davon (`pulse_fernsteuerung::bauen::Rastensammler` hebt
+/// Eine Windows-Raste ([`RASTE`]) ist [`ZEILEN_JE_RASTE`] Zeile(n) — s. dort
+/// fuer die Begruendung des Werts. Der eigene Sender schickt immer ganze
+/// Vielfache einer Raste (`pulse_fernsteuerung::bauen::Rastensammler` hebt
 /// Bruchteile ueber Ereignisse hinweg auf); ein Bruchteil kann nur von einem
 /// fremden Sender kommen und wird auf **eine** Zeile in seine Richtung
 /// aufgerundet statt verschluckt — ein verschlucktes Rad sieht aus wie eine
 /// tote Leitung.
-///
-/// **Was dabei herauskommt, ist nachgemessen** (Nachtrag 5 der Messakte):
-/// fuenf Rasten bewegten TextEdit um vier Zeilen, vierzig um dreissig — also
-/// rund 0,75 bis 0,8 Zeilen je Raste statt einer. macOS legt auf ein
-/// Zeilen-Rollereignis noch seine eigene Beschleunigungskurve. **Offen und
-/// bewusst nicht hier entschieden:** Windows rollt je Raste standardmaessig
-/// DREI Zeilen (`SPI_GETWHEELSCROLLLINES`) — gegenueber dem, was der Steuernde
-/// von seinem eigenen Rechner kennt, rollt der Mac damit rund viermal traeger.
-/// Das ist eine Frage des Scrollgefuehls, keine der Richtigkeit, und gehoert
-/// gemessen statt geraten.
 pub fn zeilen(delta: i16) -> i32 {
-    let ganze = delta as i32 / RASTE;
+    let ganze = delta as i32 / RASTE * ZEILEN_JE_RASTE;
     if ganze == 0 { delta.signum() as i32 } else { ganze }
 }
 

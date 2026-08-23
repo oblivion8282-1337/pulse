@@ -143,8 +143,9 @@ pub(crate) fn einspielen(
             // diesem Ereignis (s. `plattform::Injektor::taste`), genau wie
             // bei `bewegen` unten. Dass das eigene Runter-Ereignis dabei fehlt,
             // ist am 2026-08-23 gemessen worden und schadet nicht — Cmd+C wirkt
-            // auch dann. Begruendung samt Gegenprobe im Doc-Kommentar der
-            // Trait-Methode.
+            // auch dann. **Belegt ist das fuer AppKits Tastenkuerzel-Abgleich**,
+            // nicht fuer jede Art, wie ein Programm Modifikatoren liest —
+            // Einschraenkung samt Gegenprobe im Doc-Kommentar der Trait-Methode.
             injektor.taste(scan, down, &z.druck);
             z.druck.taste(scan, down);
         }

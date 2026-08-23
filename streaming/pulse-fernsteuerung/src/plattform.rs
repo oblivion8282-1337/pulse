@@ -78,12 +78,29 @@ pub trait Injektor: Sync {
     /// bei jedem Sitzungsende gesondert geraeumt werden muesste.
     ///
     /// **Gemessen am 2026-08-23** (Nachtrag 1 der Messakte): ein
-    /// Cmd-Runter-Ereignis muss seine EIGENE Kennzeichnung **nicht** tragen.
-    /// `crate::ausfuehrung` ruft den Injektor vor dem eigenen Nachtrag in
-    /// [`Druck`] (wie bei [`Self::maus_setzen`]: der Injektor sieht den Zustand
-    /// VOR seiner eigenen Wirkung) — die Taste steht beim eigenen
-    /// Runter-Ereignis also noch nicht in `gedrueckt`, und Cmd+C wirkte
-    /// trotzdem. Die Reihenfolge muss fuer macOS nicht gedreht werden.
+    /// Cmd-Runter-Ereignis muss seine EIGENE Kennzeichnung **nicht** tragen,
+    /// damit Cmd+C ueber die Zwischenablage wirkt. `crate::ausfuehrung` ruft
+    /// den Injektor vor dem eigenen Nachtrag in [`Druck`] (wie bei
+    /// [`Self::maus_setzen`]: der Injektor sieht den Zustand VOR seiner
+    /// eigenen Wirkung) — die Taste steht beim eigenen Runter-Ereignis also
+    /// noch nicht in `gedrueckt`, und Cmd+C wirkte trotzdem.
+    ///
+    /// **Was das belegt, ist enger als es klingt — diese Datei ist
+    /// plattformuebergreifend und liest sich sonst auch als Aussage ueber
+    /// Windows.** Cmd+C ist ein AppKit-Tastenkuerzel: gemessen ist, dass
+    /// AppKits Tastenkuerzel-Abgleich greift — und der liest die
+    /// Kennzeichnung des **C**-Runter-Ereignisses, nicht die des
+    /// Cmd-Ereignisses selbst. Das injizierte Cmd-Ereignis ist ein
+    /// `FlagsChanged` und traegt den Zustand **vor** dem Uebergang (Umschalt-
+    /// runter meldet „keine Umschalttaste", Umschalt-hoch meldet
+    /// „Umschalttaste"). **Offen:** wer den Modifikator-Zustand nicht aus
+    /// jedem Tastenereignis, sondern nur aus `flagsChanged` selbst fuehrt —
+    /// Spiele, Chromium und Safari ueber `getModifierState`, Qt — saehe ihn
+    /// damit womoeglich um ein Ereignis versetzt. Ob der WindowServer das
+    /// selbst berichtigt, ist an dieser Messung nicht geprueft. Die
+    /// Reihenfolge muss fuer macOS **fuer den gemessenen Fall** nicht gedreht
+    /// werden — das ist eine Aussage ueber AppKit-Tastenkuerzel, keine ueber
+    /// jede Art, wie ein Programm Modifikatoren liest.
     ///
     /// Die Kehrseite ist mitgemessen: das Cmd-**Hoch** traegt bei dieser
     /// Reihenfolge noch `.maskCommand`, obwohl es das Ende meldet — Cmd bleibt
