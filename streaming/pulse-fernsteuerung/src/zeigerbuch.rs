@@ -221,10 +221,10 @@ impl Zeigerbuch {
 
         let auftrag = self.buchen(form, kennung.as_deref())?;
         let mut nachricht = serde_json::json!({ "ev": "remote_pointer", "shape": form });
-        if let Some((b, k)) = bild.zip(kennung.as_deref()) {
-            if let Some(feld) = bildfeld(b, k, auftrag.vollstaendig) {
-                nachricht["bild"] = feld;
-            }
+        if let Some((b, k)) = bild.zip(kennung.as_deref())
+            && let Some(feld) = bildfeld(b, k, auftrag.vollstaendig)
+        {
+            nachricht["bild"] = feld;
         }
         Some(nachricht)
     }

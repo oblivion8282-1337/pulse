@@ -1,10 +1,26 @@
-//! Der Schnitt zwischen Kern und Betriebssystem — drei Traits, sonst nichts.
+//! Der Schnitt zwischen Kern und Betriebssystem — drei Traits, dazu eine
+//! kurze Liste weiterer Pflichten, die keine Trait-Signatur allein einfaengt.
 //!
-//! Wer eine neue Plattform anschliesst, implementiert diese drei Traits —
-//! und haelt daneben den EINEN Takt ein, den [`Wache`] von ihr verlangt
-//! (s. dort): kein viertes Trait, aber eben doch nicht "sonst nichts". Was
-//! darueber hinaus hier nicht steht, kennt der Kern nicht — und darf ihn
-//! deshalb auch nicht beeinflussen.
+//! Wer eine neue Plattform anschliesst, implementiert die drei Traits unten —
+//! und haelt sich zusaetzlich an die vier Punkte hier. Kein viertes Trait,
+//! aber eben doch nicht "sonst nichts". Was darueber hinaus hier nicht steht,
+//! kennt der Kern nicht — und darf ihn deshalb auch nicht beeinflussen.
+//!
+//! 1. **Der 100-ms-Takt** fuer [`Wache::rest_ms`] samt `vorrang_tick` (s.
+//!    [`Wache`] unten) — derselbe Wecker treibt zugleich
+//!    `crate::zeigerbuch::Zeigerbuch::nachricht`, s. Punkt 2.
+//! 2. **Drei Pflichten aus dem Kopf von `crate::zeigerbuch`:** der Takt aus
+//!    Punkt 1 angewandt auf das Zeigerbuch, die Vorrang-Weiche (bei
+//!    Host-Vorrang geht `Stand::Name(VORGABE)` hinaus, OHNE vorher den echten
+//!    Zeiger zu ermitteln) und das Einreihen der fertigen Meldung
+//!    ausserhalb der eigenen Sperre.
+//! 3. **Das Protokoll aus dem Kopf von `crate::zeigerschalter`:** `setzen` →
+//!    Plattform-Aufruf → `gelungen`/`gescheitert`, wobei `gescheitert(true)`
+//!    heisst: raeumen.
+//! 4. **`handle()`** — laut Kopf von `crate::huelle` bleibt es bei der
+//!    Plattform: es holt die eine Sitzung des Prozesses, ruft `huelle_lesen`
+//!    und [`crate::sitzung::Sitzung::frames`] auf und huellt einen
+//!    Protokollfehler in die eigene Fehlerbehandlung.
 //!
 //! **`Sync`, weil die Sitzung von mehreren Faeden gerufen wird:** vom
 //! Dispatch-Faden (eingehende Nachrichten) und vom Wecker der Wache
@@ -141,5 +157,16 @@ pub enum Zielsuche {
     KeinStrom,
     /// Stream da, Quelle aber nicht aufloesbar → auch verwerfen, aber mit
     /// Begruendung in der Diagnose.
+    ///
+    /// **Warum die Begruendung eine rohe Zeichenkette bleibt, keine eigene
+    /// Sorte.** Beim Umzug aus `win-hq-sidecar/src/remote_input/ziel.rs`
+    /// (2026-08-23) sind nur die Schranken gewandert (`crate::slot::{SLOT_MAX,
+    /// im_bereich, traegt_slot}`) — der ganze Ablauf von `bindung_fuer_slot`
+    /// haengt an Windows-eigenen Typen (`AktiverStrom`, `Bindung`,
+    /// `InjectTarget`) und blieb deshalb dort. Die Zeichenkette fuer genau
+    /// diesen Fall ("die Aufnahme hat ihr Ziel noch nicht gemeldet …") tippt
+    /// eine zweite Plattform also selbst und moeglicherweise mit anderem
+    /// Wortlaut — bewusst nicht vereinheitlicht, weil dafuer der ganze Ablauf
+    /// haette wandern muessen, nicht nur seine Schranken.
     NichtAufloesbar(String),
 }

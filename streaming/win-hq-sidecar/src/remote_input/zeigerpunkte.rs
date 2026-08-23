@@ -11,6 +11,19 @@
 //!
 //! Die Sorten Zeiger, die Windows kennt, und warum alles als 32 bit gelesen
 //! wird, stehen im Kopf von [`super::zeigerpixel`].
+//!
+//! **Offener Punkt, bewusst nicht gewandert (2026-08-23).** [`entvielfachen`]
+//! ist wie der Rest dieser Datei plattformfrei — rund 8 Zeilen Rechnung, 25
+//! Zeilen gemessene Begründung, vier Tests — und einschlägig für macOS:
+//! CGImage-Zeigerbitmaps sind ebenso vorvervielfacht wie GDIs. Es ist
+//! **nicht** eines der fünf Stücke aus
+//! `docs/superpowers/plans/2026-08-23-fernsteuerung-macos-1b-zweiter-schnitt.md`
+//! und deshalb hier liegen geblieben; ein macOS-Autor, der das nicht weiß,
+//! schreibt dieselbe Rundung neu oder lässt sie weg und bekommt schmutzige
+//! Ränder, die nicht abstürzen. Wandert sie doch, gehört sie nach
+//! `streaming/pulse-fernsteuerung`. `farbzeiger`/`maskenzeiger`/
+//! `maske_gesetzt` sind dagegen echte GDI-Konventionen und bleiben zu Recht
+//! hier.
 
 /// Ist an dieser Stelle der Maske ein Bit gesetzt? Als 32 bit gelesen heisst
 /// gesetzt „weiss"; ein einzelner Farbkanal genügt zur Unterscheidung.

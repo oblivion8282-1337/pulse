@@ -11,9 +11,11 @@
 //!
 //! **Was hier NICHT steht:** alles, was ein Betriebssystem kennt. Der Schnitt
 //! sind die drei Traits in `plattform` — Injektion, Wache, Umgebung. Wer eine
-//! neue Plattform anschliesst, implementiert diese drei — und haelt daneben
-//! den Takt ein, den `plattform::Wache` von ihr verlangt (100 ms, s. dort);
-//! das ist die eine Pflicht, die keine Trait-Signatur allein einfaengt.
+//! neue Plattform anschliesst, implementiert diese drei — das ist aber nicht
+//! die ganze Pflichtenliste: der Kopf von `plattform` zaehlt vollstaendig auf,
+//! was daneben noch gilt (der 100-ms-Takt, dazu je eine Pflicht aus den
+//! Koepfen von `zeigerbuch`, `zeigerschalter` und `huelle`), und wohin man
+//! dafuer sieht.
 //!
 //! **Kein globaler Zustand.** Die Sitzung traegt ihre Plattform als Feld. Das
 //! ist nicht Geschmack: die Tests brauchen dadurch keine prozessweite

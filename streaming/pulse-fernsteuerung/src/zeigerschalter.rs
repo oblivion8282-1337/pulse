@@ -87,8 +87,8 @@ impl Schalter {
     /// `true`, wenn der Platz zu räumen ist — siehe die Modul-Doku für die
     /// Begründung der Asymmetrie. Der interne Zustand bleibt unangetastet:
     /// er spiegelt weiterhin, was zuletzt wirklich glückte, egal wie hier
-    /// entschieden wird.
-    pub fn gescheitert(&mut self, verbergen: bool) -> bool {
+    /// entschieden wird — deshalb `&self`, ohne `mut`.
+    pub fn gescheitert(&self, verbergen: bool) -> bool {
         verbergen
     }
 }
@@ -128,7 +128,7 @@ mod tests {
     /// Stream-Ende.
     #[test]
     fn scheitern_wirkt_in_beide_richtungen_verschieden() {
-        let mut s = Schalter::neu(true);
+        let s = Schalter::neu(true);
         assert!(s.gescheitert(true), "verbergen gescheitert -> raeumen");
         let mut s = Schalter::neu(true);
         s.setzen(true);
