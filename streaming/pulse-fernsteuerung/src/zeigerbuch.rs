@@ -65,14 +65,20 @@
 //!    eine Reihenfolge macht, an der sich später jemand verklemmt.
 //!
 //!    **Was dabei sehr wohl unter der Sperre des Aufrufers liegt**, seit die
-//!    Buchführung hier steht: das Packen der Läufe und die Base64-Kodierung in
-//!    [`Zeigerbuch::nachricht`]. Im Windows-Sidecar lagen die vor dem
-//!    2026-08-23 daneben. Das ist bedacht und nicht übersehen: es ist reine
-//!    Rechnung auf eigenen Daten — höchstens `MAX_LAEUFE_BYTE` Byte, keine
-//!    zweite Sperre, kein fremder Kanal —, und die Gefahr, gegen die der alte
-//!    Kommentar geschrieben war, ist die Verschachtelung, nicht die Dauer. Wer
-//!    hier später etwas hineinlegt, das seinerseits sperrt, muss den Schnitt
-//!    neu ziehen.
+//!    Buchführung hier steht: [`Zeigerbild::kennung`] — der FNV-Lauf über den
+//!    ganzen RGBA-Puffer, in [`Zeigerbuch::nachricht`] noch VOR dem Buchen
+//!    berechnet — sowie das Packen der Läufe und die Base64-Kodierung, beide
+//!    ebenfalls dort. Im Windows-Sidecar lagen alle drei vor dem 2026-08-23
+//!    daneben, die Kennung sogar ausdrücklich vor dem Buchen. Das ist bedacht
+//!    und nicht übersehen: es ist reine Rechnung auf eigenen Daten, keine
+//!    zweite Sperre, kein fremder Kanal. Gedeckelt wird sie nicht durch
+//!    `MAX_LAEUFE_BYTE` — das deckelt nur die AUSGABE von `packen()` — sondern
+//!    durch die Punktzahl, an der auch `kennung()` hängt: `MAX_KANTE` (256,
+//!    `pulse_zeigerbild::MAX_KANTE`) begrenzt sie auf höchstens
+//!    256×256×4 = 256 KiB im schlimmsten Fall, real bei einem 32×32-Zeiger
+//!    4 KiB. Die Gefahr, gegen die der alte Kommentar geschrieben war, ist die
+//!    Verschachtelung, nicht die Dauer. Wer hier später etwas hineinlegt, das
+//!    seinerseits sperrt, muss den Schnitt neu ziehen.
 //!
 //! ## Was hier bewusst NICHT entschieden wird
 //!
@@ -538,17 +544,23 @@ mod tests {
         assert!(!kurz.is_empty(), "der Prüfstein muss eine Kurzform enthalten");
         assert!(!voll.is_empty(), "der Prüfstein muss eine Vollform enthalten");
 
+        // Über ALLE Einträge, nicht nur den ersten — sonst bliebe eine vierte
+        // Form mit abweichendem Feldsatz ungeprüft.
         let bild = zeiger(9);
-        assert_eq!(
-            felder(&bildfeld(&bild, "abc", false).expect("Kurzform")),
-            kurz[0],
-            "die Kurzform weicht vom Prüfstein ab"
-        );
-        assert_eq!(
-            felder(&bildfeld(&bild, "abc", true).expect("Vollform")),
-            voll[0],
-            "die Vollform weicht vom Prüfstein ab"
-        );
+        for (i, feldsatz) in kurz.iter().enumerate() {
+            assert_eq!(
+                felder(&bildfeld(&bild, "abc", false).expect("Kurzform")),
+                *feldsatz,
+                "die Kurzform weicht vom Prüfstein ab (Eintrag {i})"
+            );
+        }
+        for (i, feldsatz) in voll.iter().enumerate() {
+            assert_eq!(
+                felder(&bildfeld(&bild, "abc", true).expect("Vollform")),
+                *feldsatz,
+                "die Vollform weicht vom Prüfstein ab (Eintrag {i})"
+            );
+        }
     }
 
     /// Ein Bild über der Nutzlastgrenze geht **gar nicht** hinaus — der Name
@@ -564,7 +576,7 @@ mod tests {
     // Die Prüfungen oben treffen je eine Bedingung. Sie ließen bis zum
     // 2026-08-23 eine Lücke: `buchen` selbst — die Stelle, die aus den drei
     // Regeln einen Auftrag macht — war von KEINEM Test berührt. Eine Mutation
-    // dort (`vollstaendig = false`) blieb deshalb grün. Die fünf Prüfungen
+    // dort (`vollstaendig = false`) blieb deshalb grün. Die sechs Prüfungen
     // hier gehen den Weg, den auch der Sidecar geht: Wecker für Wecker über
     // `nachricht`.
 
@@ -610,6 +622,52 @@ mod tests {
         assert!(
             auffrischung["bild"]["daten"].is_string(),
             "die Auffrischung trägt das Bild GANZ, auch wenn die Gegenseite es kennt"
+        );
+    }
+
+    /// **Der Rückwechsel auf ein bekanntes Bild bleibt Kurzform — auch NACH
+    /// einer Auffrischung.**
+    ///
+    /// Der Test daneben
+    /// (`der_rueckwechsel_auf_ein_bekanntes_bild_geht_als_kurzform`) bleibt
+    /// unter drei Weckern und deckt eine Mutation nicht auf, bei der
+    /// `self.bild_takte = 0;` in [`Zeigerbuch::buchen`] entfällt: ohne den
+    /// Reset zählt der Bild-Zähler ab dem allerersten vollständigen Bild
+    /// ungebremst weiter, und sobald er einmal über `WIEDERHOLUNG_TAKTE`
+    /// steht, gilt danach JEDES Bild als „über der Schwelle" — die ganze
+    /// Ersparnis der Bekannt-Liste fiele weg, jede Meldung trüge das volle
+    /// Bild. Der Fall, der es zeigt: erst muss eine Auffrischung stattfinden,
+    /// und DANACH der Wechsel auf ein Bild, das schon bekannt ist.
+    #[test]
+    fn der_rueckwechsel_nach_einer_auffrischung_bleibt_kurzform() {
+        let mut buch = Zeigerbuch::LEER;
+        let a = Stand::Eigen(zeiger(9));
+        let b = Stand::Eigen(zeiger(4));
+
+        buch.nachricht(&a).expect("A geht zuerst voll hinaus");
+        buch.nachricht(&b).expect("B ist neu, geht ebenfalls voll hinaus");
+        buch.nachricht(&a).expect("der Rückwechsel zu A meldet (Bildwechsel)");
+
+        // Bei A bleiben, bis die Auffrischung fällig wird — derselbe Weg wie
+        // in `die_auffrischung_traegt_das_bild_auch_ueber_die_ganze_runde_ganz`.
+        for takt in 1..WIEDERHOLUNG_TAKTE {
+            assert!(buch.nachricht(&a).is_none(), "Wecker {takt} hätte schweigen müssen");
+        }
+        let auffrischung = buch.nachricht(&a).expect("nach zehn Weckern frischt es auf");
+        assert!(
+            auffrischung["bild"]["daten"].is_string(),
+            "die Auffrischung trägt das Bild ganz"
+        );
+
+        // Der eigentliche Fall: NACH der Auffrischung auf ein Bild wechseln,
+        // das längst bekannt ist (B ging weiter oben schon einmal ganz
+        // hinaus). Ohne den Reset des Bild-Zählers gälte er weiter als „über
+        // der Schwelle", und B ginge fälschlich wieder ganz hinaus statt als
+        // blosse Kennung.
+        let rueckwechsel = buch.nachricht(&b).expect("der Bildwechsel zu B meldet");
+        assert!(
+            rueckwechsel["bild"].get("daten").is_none(),
+            "ein drüben bekanntes Bild bleibt Kurzform, auch direkt nach einer Auffrischung"
         );
     }
 
