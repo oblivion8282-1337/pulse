@@ -3,8 +3,9 @@
  * schickt?
  *
  * **Der Prüfstein kommt vom SENDER**, nicht von hier:
- * `streaming/zeigerbild-formen.json` hält die Formen fest, die
- * `bildfeld` im Sidecar erzeugt, und dieselbe Datei prüfen auch die beiden
+ * `streaming/zeigerbild-formen.json` hält die Formen fest, die `bildfeld`
+ * in `pulse-fernsteuerung/src/zeigerbuch.rs` erzeugt (seit 2026-08-23 dort,
+ * vorher im Windows-Sidecar), und dieselbe Datei prüfen auch die beiden
  * Rust-Enden. Der Grund steht ausführlich in der Datei — kurz: am 2026-08-17
  * verlangte [`istBild`] vier Zahlenfelder, die die Kurzform gar nicht hat.
  * Beide Seiten hatten grüne Tests, weil keiner über die Sprachgrenze sah.
