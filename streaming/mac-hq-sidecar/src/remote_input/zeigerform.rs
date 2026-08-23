@@ -216,63 +216,9 @@ fn zeichnen(bild: &CGImage, breite: u16, hoehe: u16) -> Option<(Vec<u8>, usize)>
     Some((roh, bytes_je_zeile))
 }
 
+// Die Tests liegen daneben, wie bei `zeigerpunkte` — seit sie auch
+// [`zeichnen`] abdecken, sind es mehr Zeilen als das Modul selbst hat. Was sie
+// koennen und warum es ohne Fenster-Server geht, steht in ihrem Kopf.
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::cell::Cell;
-
-    fn probe_bild(farbe: u8) -> Zeigerbild {
-        Zeigerbild {
-            breite: 1,
-            hoehe: 1,
-            halt_x: 0,
-            halt_y: 0,
-            punkte: vec![farbe, farbe, farbe, 255],
-        }
-    }
-
-    fn kennung_von(stand: &Stand) -> String {
-        match stand {
-            Stand::Eigen(b) => b.kennung(),
-            Stand::Name(n) => panic!("erwartet war ein eigenes Bild, gemeldet wurde {n}"),
-        }
-    }
-
-    /// **Die Mutationsprobe dieses Moduls.** Zwei Runden, zwei verschiedene
-    /// Zeiger — wer das Ergebnis der Abfrage zwischenspeichert, meldet in der
-    /// zweiten Runde noch den ersten und faellt hier durch. Der Zaehler haelt
-    /// zusaetzlich fest, dass wirklich zweimal gefragt wurde: ein
-    /// zwischengespeichertes `Stand` waere sonst an der Kennung allein nicht
-    /// von einem unveraenderten Zeiger zu unterscheiden.
-    #[test]
-    fn jede_runde_fragt_neu() {
-        let runden = Cell::new(0u8);
-        let abfrage = || {
-            runden.set(runden.get() + 1);
-            Some(probe_bild(runden.get()))
-        };
-        let erste = kennung_von(&ermitteln_mit(abfrage));
-        let zweite = kennung_von(&ermitteln_mit(abfrage));
-        assert_eq!(runden.get(), 2, "die Abfrage wurde nicht in jeder Runde gestellt");
-        assert_ne!(erste, zweite, "der Zeiger hat gewechselt, die Meldung nicht");
-    }
-
-    /// Kein Bild heisst Vorgabe, nicht Absturz und nicht Schweigen — an diesem
-    /// Zweig haengt der Rueckfall, wenn Apple die Abfrage abschaltet.
-    #[test]
-    fn ohne_bild_gilt_die_vorgabe() {
-        match ermitteln_mit(|| None) {
-            Stand::Name(n) => assert_eq!(n, VORGABE),
-            Stand::Eigen(_) => panic!("aus dem Nichts darf kein Bild entstehen"),
-        }
-    }
-
-    /// Ein Bild geht als [`Stand::Eigen`] hinaus — und **nicht** unter einem
-    /// erfundenen Namen. Auf macOS gibt es keine Namenstabelle (Modulkopf);
-    /// waere hier je eine, verlore der Steuernde genau die Formen, fuer die das
-    /// Bild gebaut wurde.
-    #[test]
-    fn ein_bild_geht_als_eigenes_hinaus() {
-        assert_eq!(kennung_von(&ermitteln_mit(|| Some(probe_bild(7)))), probe_bild(7).kennung());
-    }
-}
+#[path = "zeigerform_tests.rs"]
+mod zeigerform_tests;
