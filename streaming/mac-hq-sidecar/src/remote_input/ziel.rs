@@ -25,7 +25,14 @@
 //! ## Warum das Fensterrechteck NICHT aus `SCWindow.frame` kommt
 //!
 //! Naheliegend waere, das `SCWindow` der laufenden Aufnahme zu behalten und
-//! seinen `frame` zu lesen. Dagegen spricht die Bauart: ein `SCWindow` stammt
+//! seinen `frame` zu lesen.
+//!
+//! **Der Sidecar haelt gar keines** — und schon das entscheidet: ein erneutes
+//! `frame` verlangte je Eingabe-Nachricht einen frischen, asynchronen
+//! `SCShareableContent`-Schnappschuss. Bei bis zu 125 Nachrichten je Sekunde
+//! ist das nicht bezahlbar. Dieser Grund braucht keine Messung.
+//!
+//! Dazu kommt die Bauart: ein `SCWindow` stammt
 //! aus einem `SCShareableContent`-Schnappschuss, sein `frame` ist also der Stand
 //! **der Abfrage**. Der Vertrag verlangt aber ausdruecklich jedes Mal frisch,
 //! „Fenster bewegen sich". Gefragt wird deshalb der Fenster-Server selbst

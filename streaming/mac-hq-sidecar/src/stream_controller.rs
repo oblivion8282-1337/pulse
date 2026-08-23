@@ -135,7 +135,16 @@ impl StreamController {
                 });
                 emit(Event::Stopped { code: None });
             })
-            .map_err(|e| anyhow!("spawn hq-stream thread: {e}"))?;
+            .map_err(|e| {
+                // **Die Anmeldung zuruecknehmen, wenn der Faden nicht kommt.**
+                // Sie steht bewusst VOR der Spawn und wird nicht dahinter
+                // geschoben: der Worker meldet am Ende ab, und ein sofort
+                // scheiterndes `run_stream` koennte das tun, bevor eine
+                // nachgelagerte Anmeldung ueberhaupt laeuft — dann bliebe eine
+                // Leiche stehen. Hier ist die Reihenfolge eindeutig.
+                crate::remote_input::ziel::strom_beendet();
+                anyhow!("spawn hq-stream thread: {e}")
+            })?;
 
         *guard = Some(Active { stop_tx, worker, shared, argv });
         Ok(())
