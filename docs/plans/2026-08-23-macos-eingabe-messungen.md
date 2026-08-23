@@ -486,3 +486,51 @@ einen **filternden** Abgriff ist die Selbsterholung ungemessen.
 **Ungemessen:** wie lange der Abgriff zwischen dem Abhängen und der Meldung
 blind war (das hängt am Schlaf des Rückrufs, nicht am System), und ob ein
 filternder Abgriff sich ebenso erholt.
+
+---
+
+## Nachtrag 9 — Fenster-Streams: Bild und Zielrechteck passen nicht zusammen
+
+**Befund W-7 der unabhängigen Prüfung, hier nachgemessen.** Er liegt nicht in
+der Fernsteuerung, sondern in der Aufnahmegeometrie — trifft aber genau ihre
+Klemm-Zusage.
+
+**Gemessen** (Tests in `ops/start.rs`, auf dieser Maschine):
+
+* `parse_display_index("window:2737")` liefert **2737**. Die Funktion filtert
+  die Ziffern aus der Aufnahme-Kennung; sie ist für `"display:1"` und
+  `"Monitor: 2"` geschrieben, und eine Fensterkennung fällt still hindurch.
+* Ein Index ausserhalb der Schirmliste fällt auf den ersten Schirm zurück. Bei
+  einer Fensterkennung ist er das immer. **Ein Fenster-Strom läuft damit in
+  Schirmgrösse**, nicht in Fenstergrösse — festgehalten als Vergleich mit
+  Index 1, damit der Test auf jeder Maschine dasselbe sagt.
+* `SCStreamConfiguration.scalesToFit` wird nirgends gesetzt (nur `setWidth` /
+  `setHeight`). Die Vorgabe ist laut Apple-Doku `YES`.
+
+**Gerechnet** aus diesen Zahlen, mit zwei Fenstern, die zur Messzeit offen waren
+(Schirm 1920×1080):
+
+| Fenster | Grösse | Balken je Seite | sichtbarer Anteil | Versatz am Rand |
+|---|---|---|---|---|
+| Terminal | 1205×854 | 198 px | 0,103 .. 0,897 | **124 px** |
+| Systemeinstellungen | 816×921 | 482 px | 0,251 .. 0,749 | **205 px** |
+
+Der Steuernde schickt Anteile am **ganzen Bild samt Balken**;
+`remote_input::ziel` liefert das **nackte** Fensterrechteck, und
+`pulse_fernsteuerung::zuordnung` spreizt das eine über das andere. In der Mitte
+stimmt es, zum Rand hin wächst der Versatz linear. Bei einem hochkanten Fenster
+ist er am grössten — dort geht ein Viertel des Bildes je Seite an Balken.
+
+**Was NICHT gemessen ist:** die Balken selbst im übertragenen Bild. Belegt sind
+die Indexableitung, die gewählte Aufnahmegrösse und das ungesetzte
+`scalesToFit`; dass daraus im Bild Balken werden, folgt aus der
+Apple-Vorgabe, nicht aus einem Mitschnitt. Wer das behebt, sollte es vorher
+sehen.
+
+**Nicht behoben.** Die Ursache liegt in der Aufnahme (`ops/start.rs`), nicht in
+`remote_input`, und die Wahl zwischen „Aufnahmegrösse aufs Fenster setzen" und
+„`scalesToFit` aus, dafür Zuschnitt" gehört zu HQ-Streaming, nicht zur
+Fernsteuerung. Der Satz „Die Anteilsrechnung der Kiste rettet den Rest" im
+Modulkopf von `ziel.rs` gilt nur bei gleichem Seitenverhältnis — **dasselbe
+gilt für jede `resolution`-Vorgabe, die vom Seitenverhältnis des Schirms
+abweicht**, auch bei einer Vollbild-Aufnahme.
