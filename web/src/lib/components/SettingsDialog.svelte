@@ -4,6 +4,7 @@
   export type SettingsTab =
     | 'profile'
     | 'appearance'
+    | 'layout'
     | 'audio-video'
     | 'screen-share'
     | 'notifications'

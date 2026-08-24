@@ -11,6 +11,7 @@
    */
   import type { SettingsTab } from '../SettingsDialog.svelte';
   import SettingsAppearance from './SettingsAppearance.svelte';
+  import SettingsLayout from './SettingsLayout.svelte';
   import SettingsAudioVideo from './SettingsAudioVideo.svelte';
   import SettingsScreenShare from './SettingsScreenShare.svelte';
   import SettingsNotifications from './SettingsNotifications.svelte';
@@ -31,6 +32,8 @@
   <SettingsProfile />
 {:else if tab === 'appearance'}
   <SettingsAppearance />
+{:else if tab === 'layout'}
+  <SettingsLayout />
 {:else if tab === 'audio-video'}
   <SettingsAudioVideo />
 {:else if tab === 'screen-share'}

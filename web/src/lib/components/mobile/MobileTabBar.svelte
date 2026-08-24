@@ -20,7 +20,8 @@
    * kleiner wirkt.
    */
   import { page } from '$app/state';
-  import { BEREICHE, aktiverBereich } from '$lib/navigation/tabs';
+  import { aktiverBereich } from '$lib/navigation/tabs';
+  import { bereichsReihenfolge } from '$lib/navigation/darstellung.svelte';
   import NavTabLink from './NavTabLink.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -40,7 +41,7 @@
   data-testid="mobile-tab-bar"
   aria-label={m.nav_tab_bar_label()}
 >
-  {#each BEREICHE as bereich (bereich.id)}
+  {#each bereichsReihenfolge() as bereich (bereich.id)}
     {@const istAktiv = aktiv === bereich.id}
     <NavTabLink
       {bereich}
