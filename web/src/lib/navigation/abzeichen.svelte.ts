@@ -15,13 +15,16 @@ import { friendRequests } from '$lib/stores/friendRequests.svelte';
 import { readState } from '$lib/stores/readState.svelte';
 
 /**
- * Ungelesene private Gespräche — die **Anzahl der Gespräche**, nicht die der
- * Nachrichten. An einer Leiste interessiert „wie viele warten auf mich", nicht
- * „wie viel Text ist aufgelaufen"; eine Zahl im dreistelligen Bereich sagt
- * einem Nutzer nichts mehr.
+ * Ungelesene private Nachrichten — die **zusammengezählte Anzahl** über alle
+ * Gespräche, nicht die Anzahl der Gespräche (Umstellung 2026-08-24 auf
+ * Nutzerwunsch): zwei neue Nachrichten im selben Chat sind eine 2, nicht eine
+ * 1. Gekappt wird erst in der Anzeige (99+), nicht hier.
  */
 export function ungeleseneChats(): number {
-  return directMessages.list.filter((dm) => readState.isUnread(dm.id)).length;
+  return directMessages.list.reduce(
+    (sum, dm) => sum + readState.getUnreadCount(dm.id),
+    0
+  );
 }
 
 /** Eingehende Freundschaftsanfragen — dieselbe Quelle wie die Liste im Bereich. */

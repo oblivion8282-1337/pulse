@@ -15,6 +15,8 @@
    * Ungelesen-Rechnung.
    */
   import PencilIcon from '@lucide/svelte/icons/pencil';
+  import SearchIcon from '@lucide/svelte/icons/search';
+  import XIcon from '@lucide/svelte/icons/x';
   import BereichsKopf from './BereichsKopf.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
@@ -25,6 +27,7 @@
   import { safeAvatarUrl } from '$lib/avatar';
   import { kurzeUhrzeit } from '$lib/utils/kurzeUhrzeit';
   import StatusDot from '$lib/components/ui/StatusDot.svelte';
+  import { chatApi, type DMMessageSearchHit } from '$lib/api/chat';
   import type { DMChannel } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -35,6 +38,64 @@
     onSelect: (dm: DMChannel) => void;
     onCompose: () => void;
   } = $props();
+
+  // ---- Suche (WhatsApp-artig: Personen aus der Liste, Nachrichten aus
+  // der Historie via `/dm-channels-search`) ---------------------------------
+  let suche = $state('');
+  let treffer = $state<DMMessageSearchHit[]>([]);
+  let sucht = $state(false);
+
+  /** Gefilterte Gespräche nach Namen — lokal über den Store, kein Roundtrip. */
+  let personenTreffer = $derived(
+    suche.trim()
+      ? directMessages.list.filter((dm) =>
+          userCache
+            .displayName(dm.other_user_id)
+            .toLowerCase()
+            .includes(suche.trim().toLowerCase())
+        )
+      : []
+  );
+
+  // Nachrichtensuche mit 300 ms Entprellung; überholte Antworten verwerfen.
+  let suchlauf = 0;
+  $effect(() => {
+    const q = suche.trim();
+    const lauf = ++suchlauf;
+    if (q.length < 2) {
+      treffer = [];
+      sucht = false;
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const ergebnis = await chatApi.searchDMMessages(q);
+        if (lauf === suchlauf) treffer = ergebnis;
+      } catch {
+        if (lauf === suchlauf) treffer = [];
+      } finally {
+        if (lauf === suchlauf) sucht = false;
+      }
+    }, 300);
+    sucht = true;
+    return () => clearTimeout(timer);
+  });
+
+  /** Gespräch öffnen — auch für Treffer, deren Kanal noch nicht im Store ist. */
+  async function oeffneTreffer(hit: DMMessageSearchHit) {
+    const bekannt = directMessages.byId[hit.dm_channel_id];
+    if (bekannt) {
+      onSelect(bekannt);
+      return;
+    }
+    try {
+      const dm = await chatApi.getDMChannel(hit.dm_channel_id);
+      directMessages.upsert(dm);
+      onSelect(dm);
+    } catch {
+      /* Kanal weg — Liste neu hydraten bleibt dem Store überlassen. */
+    }
+  }
 
   // Namen und Bilder der Gegenüber in den Zwischenspeicher holen. Der Store
   // bündelt die Anfragen, mehrfaches Anmelden kostet nichts.
@@ -67,9 +128,116 @@
   class="glass-panel relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl"
   data-testid="mobile-chats-list"
 >
-  <BereichsKopf titel={m.nav_tab_chats()} />
+  <BereichsKopf titel={m.nav_tab_chats()}>
+    {#snippet handlung()}
+      <!-- Neues Gespräch — oben rechts in der Kopfzeile statt als schwebender
+           Knopf: die Handlung gehört zur Frage „wo stehe ich", nicht zum
+           Inhalt, und der untere rechte Winkel gehört jetzt der Suche. -->
+      <button
+        type="button"
+        class="accent-gradient flex size-11 items-center justify-center rounded-[14px] text-white shadow-[0_8px_18px_-6px_rgba(37,99,235,.7)]"
+        onclick={onCompose}
+        data-testid="chats-compose"
+        aria-label={m.chats_compose()}
+      >
+        <PencilIcon class="size-5" />
+      </button>
+    {/snippet}
+  </BereichsKopf>
+
+  <!-- Suchleiste: filtert die Gespräche lokal und durchsucht ab zwei Zeichen
+       die ganze DM-Historie serverseitig. -->
+  <div class="px-5 pb-5" data-testid="chats-search-wrap">
+    <label class="border-border bg-bg-input flex items-center gap-2 rounded-full border px-3 py-2">
+      <SearchIcon class="text-text-muted size-4 shrink-0" />
+      <input
+        type="search"
+        bind:value={suche}
+        placeholder={m.chats_search_placeholder()}
+        class="placeholder:text-text-muted min-w-0 flex-1 bg-transparent text-sm outline-none"
+        data-testid="chats-search-input"
+        aria-label={m.chats_search_placeholder()}
+      />
+      {#if suche}
+        <button
+          type="button"
+          onclick={() => (suche = '')}
+          class="text-text-muted hover:text-text-bright shrink-0"
+          data-testid="chats-search-clear"
+          aria-label={m.chats_search_clear()}
+        >
+          <XIcon class="size-4" />
+        </button>
+      {/if}
+    </label>
+  </div>
 
   <nav class="flex flex-1 flex-col gap-2 overflow-y-auto px-2.5 pb-3">
+    {#if suche.trim()}
+      <!-- Suchergebnisse: erst passende Personen, dann Nachrichtentreffer. -->
+      {#if personenTreffer.length === 0 && treffer.length === 0 && !sucht}
+        <p class="text-text-muted px-4 pt-8 text-center text-xs" data-testid="chats-search-empty">
+          {m.chats_search_no_results()}
+        </p>
+      {/if}
+      {#if personenTreffer.length > 0}
+        <span class="text-text-muted px-2 pt-1 text-[11px] font-semibold uppercase tracking-wide">
+          {m.chats_search_section_people()}
+        </span>
+      {/if}
+      {#each personenTreffer as dm (dm.id)}
+        {@const name = userCache.displayName(dm.other_user_id)}
+        {@const bild = safeAvatarUrl(userCache.get(dm.other_user_id)?.avatar_url ?? null)}
+        <button
+          class="hover:bg-bg-hover border-border bg-bg-input flex w-full items-center gap-3 rounded-[14px] border p-2.5 text-left transition-colors"
+          onclick={() => onSelect(dm)}
+          data-testid={`search-row-person-${dm.id}`}
+        >
+          <span class="size-[38px] shrink-0">
+            {#if bild}
+              <img src={bild} alt="" class="size-full rounded-full object-cover" />
+            {:else}
+              <span
+                class="flex size-full items-center justify-center rounded-full text-sm font-bold text-white"
+                style="background-image: linear-gradient(135deg in oklab, var(--accent-grad-from), var(--accent-grad-to));"
+              >{initialen(name)}</span>
+            {/if}
+          </span>
+          <span
+            class="truncate text-sm font-semibold"
+            style={nameStyle(dm.other_user_id)}>{name}</span
+          >
+        </button>
+      {/each}
+      {#if treffer.length > 0 || sucht}
+        <span class="text-text-muted px-2 pt-1 text-[11px] font-semibold uppercase tracking-wide">
+          {m.chats_search_section_messages()}
+        </span>
+      {/if}
+      {#if sucht}
+        <p class="text-text-muted px-4 py-3 text-xs">{m.chats_searching()}</p>
+      {/if}
+      {#each treffer as hit (hit.message_id)}
+        {@const name = userCache.displayName(hit.other_user_id)}
+        {@const vonMir = !!auth.user && hit.author_id === auth.user.id}
+        <button
+          class="hover:bg-bg-hover border-border bg-bg-input flex w-full flex-col gap-1 rounded-[14px] border p-2.5 text-left transition-colors"
+          onclick={() => oeffneTreffer(hit)}
+          data-testid={`search-row-message-${hit.message_id}`}
+        >
+          <span class="flex items-center gap-2">
+            <span class="truncate text-sm font-semibold" style={nameStyle(hit.other_user_id)}
+              >{name}</span>
+            <time class="text-text-muted ml-auto shrink-0 text-2xs"
+              >{kurzeUhrzeit(hit.created_at)}</time
+            >
+          </span>
+          <span class="text-text-muted line-clamp-2 text-xs"
+            >{vonMir ? m.dm_preview_own_prefix() : ''}{hit.content}</span
+          >
+        </button>
+      {/each}
+    {:else}
     {#if directMessages.list.length === 0}
       <!-- Ein leerer Bildschirm ist eine Aufforderung, keine Stimmung. Das
            Motiv ist der Ping der Bildmarke — hier als das, was er bedeutet:
@@ -143,16 +311,6 @@
         </span>
       </button>
     {/each}
+    {/if}
   </nav>
-
-  <!-- Neues Gespräch. Sitzt über der Bereichs-Leiste, nicht darunter — der
-       Daumen erreicht die untere rechte Ecke am leichtesten. -->
-  <button
-    class="accent-gradient absolute bottom-4 right-4 flex size-[52px] items-center justify-center rounded-[16px] text-white shadow-[0_10px_22px_-6px_rgba(37,99,235,.7)]"
-    onclick={onCompose}
-    data-testid="chats-compose"
-    aria-label={m.chats_compose()}
-  >
-    <PencilIcon class="size-5" />
-  </button>
 </div>
