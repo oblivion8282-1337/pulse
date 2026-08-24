@@ -193,22 +193,24 @@ impl Overlay {
                         // Karte mit einem einzigen Kaestchen zeigt nichts, was
                         // der Nutzer nicht schon vor sich hat.
                         //
-                        // **Ob die Karte ueberhaupt etwas zeichnen kann, wird
-                        // VOR der Ueberschrift geprueft** (`darstellbar`, C1 aus
-                        // der Review vom 2026-08-24) — nicht erst, wenn
-                        // `zeichnen` schon leer zurueckkommt. Meldet der ferne
-                        // Rechner keine Lage (aeltere Gegenstelle — Host und
-                        // Steuernder sind zwei Rechner mit eigenem Update-Takt,
-                        // das ist der NORMALFALL direkt nach der Auslieferung,
-                        // nicht ein Randfall) oder liegen zwei Schirme
-                        // deckungsgleich uebereinander (gescheiterte
-                        // Lage-Abfrage am Host, `list_monitors.rs`), gaebe eine
-                        // ungeprueft gezeichnete Ueberschrift „Bildschirme" ohne
-                        // Karte darunter genau die leere, verwirrende Gruppe, die
-                        // der Satz „Alle Bildschirme sind bereits offen" bis
-                        // 2026-08-17 verhindern sollte. Der Rueckfall ist deshalb
-                        // die ALTE Knopfliste — die Schirme sind ja da, nur ohne
-                        // verwertbare Lage.
+                        // **Die Ueberschrift steht unbedingt; DARUNTER
+                        // entscheidet `darstellbar`** (C1 aus der Review vom
+                        // 2026-08-24) zwischen Karte und Knopfliste — nicht
+                        // erst, wenn `zeichnen` schon leer zurueckkommt. Das
+                        // war schon im alten Code so (die Ueberschrift stand
+                        // unbedingt ueber der Liste); neu ist nur, dass jetzt
+                        // ZWEI Zweige moeglich sind statt einem. Meldet der
+                        // ferne Rechner keine Lage (aeltere Gegenstelle — Host
+                        // und Steuernder sind zwei Rechner mit eigenem
+                        // Update-Takt, das ist der NORMALFALL direkt nach der
+                        // Auslieferung, nicht ein Randfall) oder liegen zwei
+                        // Schirme deckungsgleich uebereinander (gescheiterte
+                        // Lage-Abfrage am Host, `list_monitors.rs`), zeigt
+                        // dieser Zweig die ALTE Knopfliste. Entscheidend ist,
+                        // dass BEIDE Zweige etwas zeigen: nie eine
+                        // Ueberschrift ohne Inhalt darunter — genau die leere,
+                        // verwirrende Gruppe, die der Satz „Alle Bildschirme
+                        // sind bereits offen" seit 2026-08-17 verhindern soll.
                         if self.fern_schirme.len() > 1 {
                             ui.add_space(6.0);
                             ui.label(
