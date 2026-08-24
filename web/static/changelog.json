@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-24.2",
+      "date": "2026-08-24",
+      "style": "Sachlich",
+      "title": "Stream-Ton folgt jetzt dem gewählten Ausgabegerät",
+      "intro": "Wer beim Zuschauen eines Streams gleichzeitig in einem Sprachkanal war und das Ausgabegerät wechselte (z. B. von Kopfhörer auf Lautsprecher), hörte die Sprachkanal-Teilnehmer über das neue Gerät, den Stream aber weiter über das alte — beide Tonquellen liefen aus unterschiedlichen Geräten gleichzeitig.",
+      "items": [
+        "Der Stream-Ton folgt jetzt demselben Ausgabegerät wie der Sprachkanal-Ton, auch während ein Wechsel mitten in einer laufenden Wiedergabe passiert."
+      ]
+    },
+    {
       "id": "2026-08-24",
       "date": "2026-08-24",
       "style": "Sachlich",
