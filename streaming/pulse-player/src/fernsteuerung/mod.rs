@@ -161,6 +161,11 @@ impl Erfassung {
 
     /// Wohin die naechsten Frames gehen. Gleich [`Self::slot`], solange nicht
     /// ueber die Fenstergrenze gezielt wird.
+    ///
+    /// Ausserhalb von Tests ungenutzt (`ziel_am_zeiger` liest das Feld
+    /// direkt) — deshalb `#[cfg(test)]`, sonst meldet ein Nicht-Test-Bau
+    /// `dead_code`.
+    #[cfg(test)]
     pub fn ziel_slot(&self) -> u32 {
         self.ziel_slot
     }

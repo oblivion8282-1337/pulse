@@ -973,6 +973,35 @@ fn loslassen_im_nachbarn_geht_an_dessen_platz() {
     assert_eq!(hoch[2], 0, "runter=false");
 }
 
+/// **Regression:** `ausstehend` muss beim Stromwechsel MITVERWORFEN werden,
+/// nicht ueberleben. Fuellen wir es erst per Zielwechsel (Zug in den
+/// Nachbarn bei nicht leerer Warteschlange) und schalten dann mit einer
+/// FREMDEN Sitzung neu ein (`strom_beginnen(false)`), darf das alte Buendel
+/// nicht vor dem neuen Hello hinausgehen — sonst saehe der ferne Rechner
+/// Fremdeingabe VOR dem Handschlag und bliebe fail-closed stehen.
+#[test]
+fn ausstehendes_wird_beim_stromwechsel_mitverworfen() {
+    let mut e = eingeschaltet();
+    e.nachbarschaft_setzen(Some((0.0, 0.0)), zwei_fenster());
+    // Erst im eigenen Fenster bewegen (die Warteschlange ist danach nicht
+    // leer), dann in den Nachbarn ziehen: `ziel_wechseln` legt die Bewegung
+    // als `ausstehend` (Platz 0) beiseite, bevor `ziel_slot` auf 1 springt.
+    e.on_window_event(&zeiger_ereignis(100.0, 100.0), Some(lage()), false);
+    e.on_window_event(&zeiger_ereignis(2880.0, 540.0), Some(lage()), false);
+
+    // Eine FREMDE Sitzung schaltet ein: `selbes_ziel` ist falsch, also laeuft
+    // `strom_beginnen(false)` und muss `ausstehend` mit leeren.
+    e.einschalten(0, false, Some("sit-fremd"));
+
+    let buendel = alles_mit_platz(&mut e);
+    assert_eq!(buendel.len(), 1, "kein liegengebliebenes Buendel vor dem Hello: {buendel:?}");
+    assert_eq!(
+        buendel[0].1,
+        vec![vec![0x00, 0x02]],
+        "das erste (und einzige) Buendel ist genau das neue Hello, nichts Altes davor",
+    );
+}
+
 /// Ein Punkt, der in keinem Fenster liegt (Luecke, eigener Desktop), sendet
 /// nichts — und aendert das Ziel nicht.
 #[test]
