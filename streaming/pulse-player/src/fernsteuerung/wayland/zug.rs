@@ -181,14 +181,17 @@ impl Gastverbindung {
     /// **`true` heisst „Anfrage raus", NICHT „Zug laeuft"** (Review-Befund
     /// C-1). Ob er wirklich laeuft, sagt erst das erste `Enter` —
     /// [`super::Gastverbindung::zug_bestaetigt`]. Deshalb setzt diese Methode
-    /// den Merker [`super::Zustand::eigener_zug`] (ab jetzt gehoeren
-    /// `Enter`/`Motion`/`Drop`/`Leave` UNS, s. Fundament-Modulkopf) und
-    /// raeumt beides ab, was von einem vorigen Zug uebrig sein koennte.
+    /// den Merker `Zustand::eigener_zug` (ab jetzt gehoeren
+    /// `Enter`/`Motion`/`Drop`/`Leave` UNS, s. Fundament-Modulkopf) und stellt
+    /// die Anlauf-Frist.
     ///
-    /// **Vor dem Abraeumen muss der Aufrufer ein noch offenes Ende abgeholt
-    /// haben** (`app::App::wayland_zug_beginnen` tut das) — sonst verschluckt
-    /// dieser Start das Ende des vorigen Zugs, und dessen Maustaste bliebe am
-    /// fernen Rechner unten.
+    /// **Sie raeumt NICHTS ab** (Review 1 der fuenften Runde). Das tut der eine
+    /// Abbau, den der Aufrufer unmittelbar davor ruft
+    /// (`app::App::wayland_zug_beginnen` -> `wayland_zug_abbau(false)`). Hier
+    /// standen bis dahin fuenf der sechs Felder ein zweites Mal — und beim
+    /// sechsten (`fremder_zug`) fiel gleich in derselben Runde auf, was ein
+    /// zweiter Abbau-Pfad kostet: er war vergessen. Es gibt nur eine Stelle, an
+    /// der steht, was zu einem Zug gehoert; das hier ist nicht sie.
     pub fn zug_beginnen(&mut self, fenster: &Window) -> bool {
         let Some(serial) = self.letzte_druck_nummer() else { return false };
         let Some(ursprung) = flaeche(&self.conn, fenster) else { return false };
@@ -196,11 +199,9 @@ impl Gastverbindung {
             geraet.start_drag(None, &ursprung, None, serial);
         }
         let _ = self.conn.flush();
-        // Ab hier gehoeren die Datengeraet-Ereignisse UNS — und zwar
-        // unbelastet von dem, was ein voriger Zug hinterlassen hat.
-        self.zustand.ende = Default::default();
-        self.zustand.zug = ZugLage::default();
-        self.zustand.bestaetigt = false;
+        // Ab hier gehoeren die Datengeraet-Ereignisse UNS. Was von einem
+        // vorigen Zug uebrig war, hat der Abbau beim Aufrufer schon geraeumt
+        // (s. Doc oben) — hier wird nur noch gesetzt, was diesen Zug ausmacht.
         self.zustand.eigener_zug = true;
         // Ab jetzt laeuft die Anlauf-Frist (Review C-B): bleibt das erste
         // `Enter` aus, verfaellt der Merker, statt bis zum Prozessende zu

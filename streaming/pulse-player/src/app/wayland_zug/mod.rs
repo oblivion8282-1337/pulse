@@ -19,10 +19,11 @@
 //! es erkennen und abbauen ([`entscheidung`]).
 //!
 //! **Was zu einem Zug gehoert und wer es raeumt, steht an EINER Stelle:**
-//! `App::wayland_zug_abbau(freigeben)` in [`entscheidung`]. Beenden und
-//! Aufgeben sind derselbe Abbau mit verschiedenem Schalter. Vor der vierten
-//! Review-Runde waren es zwei Trichter, die verschiedene Teilmengen desselben
-//! Zustands raeumten — die Ursache dreier Befund-Runden.
+//! `App::wayland_zug_abbau(freigeben)` in [`entscheidung`]. Beenden, Aufgeben
+//! und der Beginn eines neuen Zugs sind derselbe Abbau, nur mit verschiedenem
+//! Schalter. Vor der vierten Review-Runde waren es zwei Trichter, die
+//! verschiedene Teilmengen desselben Zustands raeumten — die Ursache dreier
+//! Befund-Runden; der dritte (`zug_beginnen`) fiel eine Runde spaeter auf.
 //!
 //! ## Die fuenf Wege hier hinein
 //!
@@ -36,7 +37,8 @@
 //!    kann nicht schaden, spaeter binden kann eine Seriennummer kosten, und
 //!    ohne Seriennummer gibt es kein `start_drag` (Review-Befund I-A: der
 //!    ERSTE Druck konnte deshalb nie einen Zug starten, erst der zweite).
-//! 2. **[`App::wayland_zug_beginnen`]** — beim angenommenen Mausdruck.
+//! 2. **[`App::wayland_zug_beginnen`]** — beim angenommenen Mausdruck; raeumt
+//!    zuerst ueber den Trichter ab und faengt dann an.
 //! 3. **[`App::wayland_zug_nachfassen`]** — in jedem Schleifendurchlauf.
 //! 4. **`App::wayland_zug_griff_pruefen`** ([`entscheidung`]) — bei jedem
 //!    Fensterereignis, s. unten. Holt bei einem DRUCK ausserdem einen noch
@@ -52,11 +54,14 @@
 //! * **Dispatchen ohne den Schluss abzuholen** geht nicht mehr:
 //!   `Gastverbindung::nachfassen` GIBT ihn zurueck und ist `#[must_use]`.
 //!   Dasselbe fuer den Beweisweg (`griff_vorbei`). Ein liegengebliebenes Ende
-//!   war Review-Befund C-1.
+//!   war Review-Befund C-1 — und weil `zugschluss` konsumiert, ist ein
+//!   weggeworfenes Ende nicht aufgeschoben, sondern vernichtet.
 //! * **Ein zweites `nachfassen()` in `wayland_zug_beginnen`** faellt aus
-//!   demselben Grund als Warnung auf — und Warnungen sind hier ein hartes Tor.
-//!   (Es waere ein Fehler: es koennte ein `Drop` dispatchen, das `zug_beginnen`
-//!   gleich darauf abraeumt.)
+//!   demselben Grund auf — und zwar als BAUFEHLER, nicht als Warnung:
+//!   `main.rs` traegt dafuer `#![deny(unused_must_use)]`. (Ohne das waere es
+//!   nur eine Warnung; dieses Projekt hat kein `-D warnings`, weder in
+//!   `ship.sh` noch in den Workflows — der Prueflauf der fuenften Runde hat
+//!   das eigens nachgesehen.)
 //! * **`griff_pruefen` vor `Erfassung::on_window_event`** liess sich NICHT
 //!   erzwingen — es sind zwei Aufrufe in `App::window_event`, und beide
 //!   Aufrufer sind fremde Nachbarn. Die Regel steht deshalb an drei Stellen im
@@ -123,10 +128,11 @@
 //! **Ungeprueft bleibt der Zusammenbau als Ganzes:** es fehlt ein Handlauf mit
 //! zwei Player-Fenstern an einem echten ferngesteuerten Rechner (s. Bericht).
 //! Gemessen ist das PROTOKOLL darunter (zwei Fenster, ein Datengeraet, ein
-//! echter Zug — s. `wayland::ende`); nachrechenbar sind die beiden Stellen, an
+//! echter Zug — s. `wayland::ende`); nachrechenbar sind die Stellen, an
 //! denen dieses Vorhaben typischerweise bricht — die Einheit der Koordinaten
 //! ([`zuordnung::logisch_zu_physisch`]), der Abbauplan
-//! (`entscheidung::abbauplan`) und, eine Ebene tiefer, die
+//! (`entscheidung::abbauplan`), was der Abbau an der Erfassung tut
+//! (`fernsteuerung::Erfassung::zug_abbau`) und, eine Ebene tiefer, die
 //! Ereignis-Zugehoerigkeit und der Zugschluss (`wayland::zustand`) — alle mit
 //! eigenen Tests.
 
@@ -231,6 +237,17 @@ impl App {
         if session.eingabe.zeigerfang() {
             return;
         }
+        // **Erst abbauen, dann anfangen** (Review 1 der fuenften Runde). Der
+        // Abbau ist die eine Stelle, an der steht, was zu einem Zug gehoert —
+        // `zug_beginnen` setzte bis dahin fuenf derselben Felder ein zweites
+        // Mal und vergass dabei prompt das sechste. **Ohne Freigabe:** ein
+        // etwaiges Ende ist im selben `window_event` schon in
+        // `griff_pruefen` abgeholt worden (mitsamt Freigabe); was hier noch
+        // stehen kann, ist der Rest eines Zugs, den niemand mehr verfolgt —
+        // und der Knopf, der gleich einen neuen Zug traegt, ist gerade erst
+        // gedrueckt worden.
+        self.wayland_zug_abbau(false);
+        let Some(session) = self.sessions.get(&id) else { return };
         let Some(verbindung) = self.wayland_zug.inner.verbindung.as_mut() else { return };
         if verbindung.zug_beginnen(&session.window) {
             self.wayland_zug.inner.session = Some(id);

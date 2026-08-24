@@ -1114,6 +1114,59 @@ fn wayland_ziel_ausserhalb_des_bildes_sendet_nichts() {
     assert!(alles(&mut e).is_empty());
 }
 
+// ── Wayland: `zug_abbau` — die Erfassungs-Haelfte des einen Trichters ───────
+
+/// **Der Regressionstest fuer Review-Befund C-1 der vierten Runde**, an der
+/// Stelle, die die Entscheidung wirklich trifft.
+///
+/// Aufgeben heisst: das Wayland-Ziel geht weg (sonst zeigte jeder spaetere
+/// Klick im eigenen Fenster weiter auf Platz und Bildlage des FREMDEN), aber
+/// nichts wird losgelassen (der Nutzer haelt die Taste womoeglich noch).
+/// Der vorherige Test dieser Regel fuhr eine reine Durchreiche und haette das
+/// Loeschen des Ziels nicht gemerkt.
+#[test]
+fn zug_abbau_ohne_freigabe_raeumt_das_ziel_und_laesst_nichts_los() {
+    let mut e = eingeschaltet(); // eigener Platz 0
+    e.wayland_ziel_setzen(Some((9, andere_lage())));
+    e.on_window_event(&zeiger_ereignis(500.0, 500.0), Some(lage()), false);
+    let druck = maus_ereignis(ElementState::Pressed, MouseButton::Left);
+    e.on_window_event(&druck, Some(lage()), false);
+    let vorlauf = alles_mit_platz(&mut e);
+    assert_eq!(vorlauf.last().expect("Bewegung und Druck").0, 9, "Vorlauf ging an Platz 9");
+
+    e.zug_abbau(false);
+    assert!(alles(&mut e).is_empty(), "aufgeben laesst NICHTS los");
+
+    // Und das Ziel ist wirklich weg: die naechste Bewegung geht wieder an das
+    // eigene Bild, nicht an Platz 9.
+    e.on_window_event(&zeiger_ereignis(960.0, 540.0), Some(lage()), false);
+    let buendel = alles_mit_platz(&mut e);
+    assert_eq!(buendel[0].0, 0, "wieder der eigene Platz: {buendel:?}");
+}
+
+/// Die Gegenprobe: beenden raeumt dasselbe Ziel UND gibt den gehaltenen Knopf
+/// frei. Ohne sie liesse sich der Test oben auch mit einem `zug_abbau` gruen
+/// halten, das gar nichts tut.
+#[test]
+fn zug_abbau_mit_freigabe_raeumt_das_ziel_und_laesst_los() {
+    let mut e = eingeschaltet();
+    e.wayland_ziel_setzen(Some((9, andere_lage())));
+    e.on_window_event(&zeiger_ereignis(500.0, 500.0), Some(lage()), false);
+    let druck = maus_ereignis(ElementState::Pressed, MouseButton::Left);
+    e.on_window_event(&druck, Some(lage()), false);
+    let _ = alles(&mut e);
+
+    e.zug_abbau(true);
+    let frames = alles(&mut e);
+    assert_eq!(frames.len(), 1, "{frames:?}");
+    assert_eq!(frames[0][0], 0x03, "Opcode MouseButton");
+    assert_eq!(frames[0][2], 0, "runter=false");
+
+    e.on_window_event(&zeiger_ereignis(960.0, 540.0), Some(lage()), false);
+    let buendel = alles_mit_platz(&mut e);
+    assert_eq!(buendel[0].0, 0, "auch hier ist das Ziel geraeumt: {buendel:?}");
+}
+
 // ── Wayland: `zug_beendet` ──────────────────────────────────────────────────
 
 /// Ein gehaltener Mausknopf geht beim Zug-Ende als Hoch-Ereignis hinaus, auch

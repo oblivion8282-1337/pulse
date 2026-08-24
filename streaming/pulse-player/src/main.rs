@@ -13,6 +13,19 @@
 //! optional hierher umschalten.
 //!
 //! stdout gehoert dem JSON-RPC. Diagnose geht ausschliesslich nach stderr.
+//!
+//! **Ein weggeworfener `#[must_use]`-Wert ist hier ein Fehler, keine
+//! Warnung.** Der Anlass ist `fernsteuerung::wayland::Gastverbindung`: ihr
+//! `nachfassen`/`griff_vorbei` gibt den [`Zugschluss`] zurueck und
+//! **konsumiert** ihn dabei — ein weggeworfenes „beendet" ist nicht
+//! aufgeschoben, sondern vernichtet, und die Maustaste ginge am ferngesteuerten
+//! Rechner nie mehr hoch. `#[must_use]` allein ist dagegen nur eine Warnung,
+//! und dieses Projekt hat kein `-D warnings` (weder in `ship.sh` noch in den
+//! Workflows). Die Zusicherung „das faellt beim Bauen auf" gab es also nicht,
+//! bis diese Zeile hier stand.
+//!
+//! [`Zugschluss`]: fernsteuerung::wayland::Zugschluss
+#![deny(unused_must_use)]
 
 #[cfg(test)]
 mod ablage;

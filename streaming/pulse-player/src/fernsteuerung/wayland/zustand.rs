@@ -15,12 +15,19 @@
 //! unserer". Zwischen unserem `start_drag` und seinem ersten `Enter` steht er,
 //! ohne dass ein Zug von uns laeuft — traf in diesem Fenster ein fremder Zug
 //! ein, sprach er wieder fuer uns. Der Diskriminator steckt im Protokoll und
-//! ist gemessen: unser eigener Zug faehrt `source = NULL`, sein `Enter` traegt
-//! deshalb **nie** ein `wl_data_offer` (Messung 2026-08-24, s.
-//! [`super::zug`]-Modulkopf: `Enter { … id: None }`), und der Zug eines
-//! FREMDEN Klienten mit `source = NULL` erreicht uns gar nicht erst — solche
-//! Ereignisse gehen laut Protokoll nur an den Klienten, der den Zug begonnen
-//! hat. „Mit Angebot" heisst damit sicher „nicht unserer".
+//! steht im Protokoll: unser eigener Zug faehrt `source = NULL`, sein `Enter`
+//! traegt deshalb kein `wl_data_offer` — **gefolgert, und die Messung vom
+//! 2026-08-24 deckt einen Compositor** (`Enter { … id: None }`, s.
+//! [`super::zug`]-Modulkopf). Und der Zug eines FREMDEN Klienten mit
+//! `source = NULL` erreicht uns gar nicht erst: solche Ereignisse gehen laut
+//! Protokoll nur an den Klienten, der den Zug begonnen hat.
+//!
+//! **Die gefaehrliche Fehlrichtung ist die zweite.** „Mit Angebot" heisst
+//! sicher „nicht unserer" — daran haengt kein Risiko. Haenge dagegen an einem
+//! EIGENEN `Enter` je doch ein Angebot, gaelte unser Zug als fremd: er wuerde
+//! nicht verfolgt, sein `Drop` fiele heraus, und die Maustaste bliebe am
+//! fernen Rechner unten. Wer dieses Modul auf einen anderen Compositor bringt,
+//! prueft zuerst das.
 
 use std::time::{Duration, Instant};
 
@@ -239,9 +246,17 @@ pub(super) fn zug_ereignis(zustand: &mut Zustand, ereignis: Zugereignis, jetzt: 
     }
 }
 
-/// Ist der Zug zu Ende — und warum? **Konsumierend**, genau wie das [`Zugende`]
-/// darunter: ein zweiter Aufruf ohne neues Ende liefert wieder
-/// [`Zugschluss::Offen`].
+/// Ist der Zug zu Ende — und warum?
+///
+/// **Nur [`Zugschluss::Beendet`] ist konsumierend** (wie das [`Zugende`]
+/// darunter): ein zweiter Aufruf ohne neues Ende liefert wieder
+/// [`Zugschluss::Offen`]. **[`Zugschluss::Verfallen`] ist es NICHT** — es ist
+/// keine Flanke, sondern ein Dauerzustand („angefordert, unbestaetigt, seit
+/// zu lange"), und aufgeloest wird er allein vom Abbau. Wer ihn ignoriert,
+/// bekommt ihn bei jedem Aufruf erneut, samt Log-Zeile aus
+/// [`super::Gastverbindung::nachfassen`]. Beides ist so gewollt: ein
+/// verschlucktes Ende laesst eine Taste unten, ein verschluckter Verfall nur
+/// ein Log volllaufen.
 ///
 /// **Das Ende wird IMMER abgeholt, auch ohne eigenen Merker** (Review C-1): ein
 /// `Beendet`, das liegenbliebe, waere die Ladung fuer den naechsten Zug.

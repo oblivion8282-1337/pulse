@@ -241,12 +241,11 @@ impl Erfassung {
     /// Tastatur blieb beim Steuernden, und sie faelschlich mit loszulassen
     /// liesse eine wirklich noch gehaltene Taste am fernen Rechner haengen.
     ///
-    /// **Nur auf Linux ausserhalb von Tests aufgerufen**
-    /// (`app::wayland_zug::entscheidung`, dort hinter
-    /// `#[cfg(target_os = "linux")]`) — derselbe Grund wie beim `cfg_attr` an
-    /// [`Erfassung::wayland_ziel_setzen`].
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    pub fn zug_beendet(&mut self) {
+    /// **Nur ueber [`Self::zug_abbau`] zu erreichen**, nie einzeln: das
+    /// Freigeben ist die halbe Wahrheit eines Zug-Endes, die andere Haelfte
+    /// ist das Wayland-Ziel. Die beiden auseinanderlaufen zu lassen war die
+    /// Ursache mehrerer Review-Runden (s. dort).
+    pub(super) fn zug_beendet(&mut self) {
         if !self.aktiv {
             return;
         }
@@ -254,6 +253,37 @@ impl Erfassung {
             if let Some(knopf) = knopf_aus_nummer(nummer) {
                 self.einreihen(rahmen::maus_knopf(knopf, false));
             }
+        }
+    }
+
+    /// **Die Erfassungs-Haelfte des einen Abbaus** (die andere haelt
+    /// `app::wayland_zug::entscheidung::App::wayland_zug_abbau`, s. dort fuer
+    /// die vollstaendige Liste dessen, was zu einem Zug gehoert).
+    ///
+    /// Zwei Dinge, und der Unterschied zwischen ihnen ist der ganze Sinn des
+    /// Schalters:
+    /// * **Das Wayland-Ziel geht IMMER.** Ein Ziel, das einen Zug ueberlebt,
+    ///   zeigt weiter auf Platz und Bildlage eines FREMDEN Fensters — jeder
+    ///   spaetere Klick im eigenen Fenster landete dann auf dem anderen
+    ///   Bildschirm, an einer aus der falschen Bildlage gerechneten Stelle.
+    ///   Genau das blieb beim Fokusverlust stehen (Review C-1 der vierten
+    ///   Runde), weil der Weg dorthin `ausschalten()` nicht durchlief.
+    /// * **Freigegeben wird nur auf Ansage.** `freigeben = true` heisst „der
+    ///   Zug ist wirklich zu Ende, die Maustaste ist physisch los" — dann muss
+    ///   das Hoch-Ereignis hinaus, denn waehrend eines Zugs liefert winit
+    ///   keins. `false` heisst „wir hoeren nur auf zuzusehen" (Fokusverlust,
+    ///   Erfassung aus, verfallene Anlauf-Frist); dann haelt der Nutzer die
+    ///   Taste womoeglich noch, und ein Hoch-Ereignis waere Fremdeingabe.
+    ///
+    /// **Nur auf Linux ausserhalb von Tests aufgerufen**
+    /// (`app::wayland_zug::entscheidung`, dort hinter
+    /// `#[cfg(target_os = "linux")]`) — derselbe Grund wie beim `cfg_attr` an
+    /// [`Erfassung::wayland_ziel_setzen`].
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub fn zug_abbau(&mut self, freigeben: bool) {
+        self.wayland_ziel = None;
+        if freigeben {
+            self.zug_beendet();
         }
     }
 
