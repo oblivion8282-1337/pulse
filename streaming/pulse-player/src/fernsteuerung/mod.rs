@@ -213,14 +213,15 @@ impl Erfassung {
                 let Some(lage) = lage else { return };
                 self.zeigerposition(lage, position.x, position.y);
             }
-            // Zeiger aus dem Fenster: ohne Nachbarschaft sagt seine letzte Lage
-            // nichts mehr. MIT Nachbarschaft sehr wohl — er kann ueber einem
-            // anderen Player-Fenster stehen, und waehrend eines Zuges bekommt
-            // dieses Fenster die Bewegungen weiter zugestellt (Zeigerfang des
-            // Systems). Hier zu vergessen hiesse, den Zug an der Fenstergrenze
-            // abzuschneiden.
+            // Zeiger aus dem Fenster: seine letzte Lage sagt nur dann noch
+            // etwas, wenn eine Maustaste unten ist — GENAU DANN zieht jemand
+            // ueber die Fenstergrenze, und das System stellt die Bewegungen
+            // (Zeigerfang des Systems) weiterhin DIESEM Fenster zu. Ohne
+            // gehaltenen Knopf ist „ausser Sicht" wieder „kein Klick" (auch
+            // ausserhalb von Wayland — dort ist ein Zeiger ausser Sicht der
+            // Normalfall, kein Zug).
             WindowEvent::CursorLeft { .. } => {
-                if self.eigener_ursprung.is_none() {
+                if self.knoepfe_unten.is_empty() {
                     self.letzte_zeigerlage = None;
                 }
             }
@@ -229,26 +230,21 @@ impl Erfassung {
                 // Host die Sitzung, also wird er gar nicht erst gesendet.
                 let Some(knopf) = knopf_von_winit(*button) else { return };
                 let runter = *state == ElementState::Pressed;
-                // **Der DRUCK gehoert ins Bild** (Wire-Spec, praezisiert am
-                // 2026-08-12): sonst kommt ein Klick auf dem Briefkasten-Rand
-                // oder auf der Bedienleiste beim Host dort an, wo der Zeiger
-                // zuletzt IM Bild stand — also irgendwo.
-                //
-                // **Das LOSLASSEN geht immer durch**, sofern der Knopf beim
-                // Host wirklich unten ist (das prueft [`Self::knopf`]). Wer
-                // im Bild drueckt und auf dem Rand loslaesst, haette sonst
-                // einen klemmenden Knopf am fremden Rechner.
-                if runter && !self.zeiger_im_bild(lage, leiste_greift) {
-                    return;
+                // Der DRUCK gehoert ins Bild und zielt dabei frisch — der
+                // Platz kommt vom Tor, nicht vom zuletzt per Bewegung
+                // bestaetigten `ziel_slot` (s. [`Self::ziel_am_zeiger`]).
+                // Das LOSLASSEN geht immer durch, OHNE das Ziel zu wechseln:
+                // es gehoert dorthin, wohin die Bewegung gezielt hat.
+                if runter {
+                    let Some(slot) = self.ziel_am_zeiger(lage, leiste_greift) else { return };
+                    self.ziel_wechseln(slot);
                 }
                 self.knopf(knopf, runter);
             }
+            // Rad ebenso: zielt aus demselben Grund frisch wie der Druck.
             WindowEvent::MouseWheel { delta, .. } => {
-                // Rad ebenso: ein Streichen ueber der Leiste oder dem Rand ist
-                // keine Eingabe fuer den fernen Rechner.
-                if !self.zeiger_im_bild(lage, leiste_greift) {
-                    return;
-                }
+                let Some(slot) = self.ziel_am_zeiger(lage, leiste_greift) else { return };
+                self.ziel_wechseln(slot);
                 let (senkrecht, waagerecht) = rad_von_winit(*delta);
                 self.rad(senkrecht, waagerecht);
             }
@@ -274,22 +270,32 @@ impl Erfassung {
         }
     }
 
-    /// Steht der Zeiger auf dem BILDINHALT — und zwar so, dass ein Klick dort
-    /// gemeint ist?
+    /// Welcher Platz ist unter dem Zeiger gemeint — und zwar so, dass ein
+    /// Klick dort gemeint ist? `None` heisst: kein Platz, kein Klick.
+    ///
+    /// **Liefert den Platz mit, statt ihn wegzuwerfen.** Knopf und Rad
+    /// stempeln damit denselben frisch bestimmten Platz, den dieses Tor gerade
+    /// geprueft hat — nicht den zuletzt per BEWEGUNG bestaetigten `ziel_slot`.
+    /// Beides lief auseinander, wenn ein `CursorMoved` ohne eigenes Bild
+    /// (`lage: None`) die Zeigerlage zwar merkte, `zeigerposition` und damit
+    /// `ziel_wechseln` aber nie erreichte: der naechste Klick haette sonst mit
+    /// veraltetem Ziel gestempelt, obwohl der Zeiger laengst ueber dem
+    /// Nachbarn stand.
     ///
     /// Bei gefangenem Zeiger gegenstandslos: der Zeiger steht still, der ferne
     /// wird ueber Differenzen gefuehrt, und die Leiste ist dann nicht zu
-    /// treffen. Ohne bekannte Zeigerlage lautet die Antwort **nein** — der Host
-    /// ist fail-closed, und wo wir nicht hinsehen, klicken wir nicht.
-    fn zeiger_im_bild(&self, lage: Option<Bildlage>, leiste_greift: bool) -> bool {
+    /// treffen — das Ziel bleibt einfach das laufende. Ohne bekannte
+    /// Zeigerlage lautet die Antwort **kein Platz** — der Host ist
+    /// fail-closed, und wo wir nicht hinsehen, klicken wir nicht.
+    fn ziel_am_zeiger(&self, lage: Option<Bildlage>, leiste_greift: bool) -> Option<u32> {
         if self.zeigerfang {
-            return true;
+            return Some(self.ziel_slot);
         }
         if leiste_greift {
-            return false;
+            return None;
         }
-        let Some((x, y)) = self.letzte_zeigerlage else { return false };
-        self.ziel_bestimmen(lage, x, y).is_some()
+        let (x, y) = self.letzte_zeigerlage?;
+        self.ziel_bestimmen(lage, x, y).map(|(slot, _)| slot)
     }
 
     /// Taste als winit-Kennung. Getrennt von [`Self::taste`], weil hier die
