@@ -35,6 +35,8 @@ import logging
 import time
 from typing import Any
 
+from dcc_shared.streaming import MAX_MONITORS
+
 from dcc_chat_gateway.db import SessionLocal
 from dcc_chat_gateway.models import Device
 from dcc_chat_gateway.permissions import (
@@ -65,11 +67,16 @@ def _sitzungen(mgr: Any):
     return getattr(mgr, "_session_factory", None) or SessionLocal
 
 
-#: Wie viele Bildschirme ein Gerät melden darf. Vier 4K-Schirme sind schon eine
-#: sehr grosszügige Arbeitsplatz-Annahme; die Grenze ist kein Schutz vor einem
-#: Angreifer (der Anmeldende ist der Besitzer), sondern gegen eine kaputte
-#: Client-Fassung, die eine endlose Liste schickt.
-MAX_MONITORS = 8
+#: Wie viele Bildschirme ein Gerät melden darf — und zugleich die höchste
+#: Bildschirm-Nummer.
+#:
+#: **Steht seit 2026-08-25 in ``dcc_shared.streaming``**, samt Begründung: die
+#: Nummer entsteht hier und reist über den Streaming-Weg (chat-gateway →
+#: media-svc) bis zum Zuschauer. Solange dort eine andere (weitere) Schranke
+#: galt, war eine Nummer 9..99 auf dem Streaming-Weg gültig, konnte hier aber
+#: nie einem gemeldeten Monitor entsprechen — gültig und trotzdem wertlos. Der
+#: Import oben hält den Namen hier weiterhin bereit (Aufrufstellen und Tests
+#: sprechen ihn unverändert über dieses Modul an).
 
 #: Mindestpause zwischen zwei Geräte-Ops derselben Verbindung. Dieselbe Grösse
 #: und dieselbe Begründung wie bei ``remote_request``

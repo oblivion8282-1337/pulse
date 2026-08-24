@@ -23,7 +23,7 @@
 import type { Device, DeviceMonitor } from '$lib/api/devices';
 import { geraetWecken } from './wecken';
 import { streamPresence } from '$lib/stores/streamPresence.svelte';
-import { zuordneStroeme, zuordnungIstEindeutig } from '$lib/stream/settingsCatalog';
+import { zuordneStroeme, type Zuordnungslage } from '$lib/stream/quellenummer';
 import { schirmFuerFenster } from '$lib/stream/schirmFuerFenster';
 import { openedTiles } from '$lib/stream/openedTiles.svelte';
 import { hqTileId } from '$lib/stream/hqTile';
@@ -74,6 +74,24 @@ function monitorListe(device: Device): DeviceMonitor[] {
 }
 
 /**
+ * Was die Zuordnung ausser Strömen und Bildschirmen noch wissen muss: ob
+ * [`monitorListe`] gerade eine ECHTE Liste geliefert hat oder ihren einen
+ * erfundenen Ersatz-Eintrag.
+ *
+ * **Warum das nach unten durchgereicht werden muss:** der Ersatz-Eintrag trägt
+ * `index: 0`, eine echte Bildschirm-Nummer (ab 1) kann darauf nie passen. Die
+ * Regel dort schliesst nummerierte Ströme sonst vom Notbehelf aus — mit gutem
+ * Grund, aber eben nur gegen eine echte Liste. Gegen die erfundene fiel ein
+ * Gerät heraus, dessen `refreshMonitors()` beim Anmelden einmal fehlschlug
+ * (`anmeldung.svelte.ts` fängt still, es gibt kein Nachmelden): sein Strom trug
+ * `monitor_index: 1`, passte auf nichts, galt nicht als namenlos — der
+ * Ersatz-Schirm blieb „frei", und ein Klick darauf lief ins Leere.
+ */
+function lage(device: Device): Zuordnungslage {
+  return { listeGemeldet: device.monitors.length > 0 };
+}
+
+/**
  * Welcher Strom zeigt welchen Bildschirm — die **eine** Zuordnung, an der beide
  * Fragen hängen: „läuft der schon?" und „welchen Strom mache ich auf, wenn
  * jemand zusehen will?".
@@ -82,11 +100,11 @@ function monitorListe(device: Device): DeviceMonitor[] {
  * dessen Strom sich nicht finden lässt — dann steht ein Knopf da, der wortlos
  * nichts tut. Genau diese Sorte Fehler soll hier verschwinden.
  *
- * **Die eigentliche Regel sitzt importfrei in
- * `settingsCatalog.ts::zuordneStroeme`** — diese Funktion zieht nur die
- * Store-Daten (`stroemeVon`, `monitorListe`, `device.stream_slots`) zusammen
- * und ruft sie auf. So kann Nodes eingebauter Testläufer die Regel prüfen,
- * obwohl diese Datei selbst für ihn unerreichbar ist (Stores).
+ * **Die eigentliche Regel sitzt in `stream/quellenummer.ts::zuordneStroeme`** —
+ * diese Funktion zieht nur die Store-Daten (`stroemeVon`, `monitorListe`,
+ * `device.stream_slots`, [`lage`]) zusammen und ruft sie auf. So kann Nodes
+ * eingebauter Testläufer die Regel prüfen, obwohl diese Datei selbst für ihn
+ * unerreichbar ist (Stores).
  *
  * **Der Hauptbildschirm bekommt zusätzlich einen Strom des Geräts zugeordnet,
  * dessen Name zu keinem Schirm passt** (Bughunt 2026-08-17, Notbehelf in
@@ -112,34 +130,14 @@ function monitorListe(device: Device): DeviceMonitor[] {
  * er es nicht — dann fehlt der Hauptbildschirm in der Auswahl, obwohl er zu
  * holen wäre. Das ist die harmlosere Hälfte: ein Eintrag zu wenig fällt auf,
  * ein Eintrag, der wortlos nichts tut, fällt nicht auf. Für die andere Hälfte
- * — dass dieser Eintrag NICHT sicher ist — s. {@link zuordnungEindeutig}.
+ * — dass dieser Eintrag NICHT sicher ist — s.
+ * `quellenummer.ts::zuordnungIstEindeutig`, an der [`schirmeVonFuerFenster`]
+ * über `schirmFuerFenster` hängt.
  */
 function zuordnung(device: Device): Map<number, Strom> {
   const geraetePlaetze = new Set(device.stream_slots ?? []);
-  return zuordneStroeme(stroemeVon(device), monitorListe(device), geraetePlaetze).karte;
-}
-
-/** Ist die Zuordnung Strom → Bildschirm fuer dieses Geraet eindeutig?
- *
- *  Unklar wird sie durch zwei unabhaengige Faelle (Regel in
- *  `settingsCatalog.ts::zuordnungIstEindeutig`):
- *  - ein Strom OHNE Nummer passt auf mehr als einen Bildschirm — zwei
- *    baugleiche Monitore beim Host und ein Klient, der die Nummer noch nicht
- *    mitschickt;
- *  - ein Eintrag stammt aus dem NOTBEHELF fuer den namenlosen Hauptbildschirm
- *    (s. `zuordnung()`) statt aus einem echten Treffer. **Null Treffer heisst
- *    hier GERATEN, nicht eindeutig** — der Notbehelf liefert zuverlaessig
- *    dasselbe Ergebnis, aber nicht zuverlaessig das richtige.
- *
- *  Teil 2 behauptet in beiden Faellen kein „du bist hier": ein fehlender
- *  Hinweis faellt auf und ist harmlos, ein falscher faellt nicht auf.
- *
- *  Rechnet ueber dieselbe `zuordneStroeme` wie `zuordnung()` selbst — keine
- *  zweite Aufloesung daneben, sonst liefen beide auseinander. Ein Strom MIT
- *  Nummer gilt immer als eindeutig — genau deshalb wurde sie eingefuehrt. */
-export function zuordnungEindeutig(device: Device): boolean {
-  const geraetePlaetze = new Set(device.stream_slots ?? []);
-  return zuordnungIstEindeutig(stroemeVon(device), monitorListe(device), geraetePlaetze);
+  return zuordneStroeme(stroemeVon(device), monitorListe(device), geraetePlaetze, lage(device))
+    .karte;
 }
 
 /** Die Bildschirme eines Geräts, jeder mit „läuft schon". */
@@ -161,8 +159,8 @@ export interface SchirmStandFuerFenster extends SchirmStand {
  * Bildschirm bekommt `dieses_fenster: true`.
  *
  * Reine Regel in `stream/schirmFuerFenster.ts` — auch hier fail-visible: ist
- * die Zuordnung nicht eindeutig, bleibt jeder Eintrag unmarkiert (s.
- * {@link zuordnungEindeutig}).
+ * die Zuordnung nicht eindeutig, bleibt jeder Eintrag unmarkiert (Regel in
+ * `quellenummer.ts::zuordnungIstEindeutig`).
  */
 export function schirmeVonFuerFenster(device: Device, fensterSlot: number): SchirmStandFuerFenster[] {
   const geraetePlaetze = new Set(device.stream_slots ?? []);
@@ -171,6 +169,7 @@ export function schirmeVonFuerFenster(device: Device, fensterSlot: number): Schi
     monitorListe(device),
     geraetePlaetze,
     fensterSlot,
+    lage(device),
   );
   return schirmeVon(device).map((s) => ({ ...s, dieses_fenster: s.index === gemeint }));
 }

@@ -16,6 +16,8 @@
  * HQ GSR/WHEP stream this store is about.
  */
 
+import { MONITOR_INDEX_MIN } from '$lib/stream/quellenummer';
+
 /** One live HQ stream: a `(user_id, slot)` pair. `slot` (0, 1, …) is the stable
  *  per-user stream index, so one user can run several streams at once (e.g. two
  *  monitors as separate tiles). `label` is an optional human-readable hint
@@ -24,7 +26,7 @@
  *  is the screen number the streamer's device actually captured — when
  *  present, it decides the stream→screen mapping on its own; `label` stays a
  *  fallback for older clients that don't send it yet (`stromPasstZuMonitor`
- *  in `settingsCatalog.ts`). */
+ *  in `stream/quellenummer.ts`). 1-based — a 0 never arrives here. */
 export type StreamDescriptor = {
   user_id: string;
   slot: number;
@@ -52,9 +54,22 @@ function normalizeStreams(streams: StreamDescriptor[] | undefined): StreamDescri
     const entry: StreamDescriptor = { user_id: String(s.user_id), slot: Number(s.slot ?? 0) || 0 };
     if (typeof s.label === 'string' && s.label) entry.label = s.label;
     // Streng geprueft, nicht bloss `typeof === 'number'`: eine verbogene Zahl
-    // (NaN, Bruch, negativ) zeigte dem Zuschauer auf den falschen Bildschirm,
-    // statt harmlos auf den Namensvergleich zurueckzufallen.
-    if (typeof s.monitor_index === 'number' && Number.isInteger(s.monitor_index) && s.monitor_index >= 0) {
+    // (NaN, Bruch, 0, negativ) traefe drueben KEINEN Bildschirm — und weil
+    // `stromPasstZuMonitor` allein auf die Nummer schaut, sobald eine da ist,
+    // faellt der Strom damit auch aus dem Namensvergleich heraus. Der Gewinn
+    // der strengen Pruefung ist also nicht „zeigt sonst auf den falschen
+    // Bildschirm", sondern: `monitor_index` bleibt `undefined`, und der
+    // Namens-Rueckfall bleibt erhalten.
+    //
+    // `>= MONITOR_INDEX_MIN` und nicht `>= 0`: die 0 bedeutet beim Klienten
+    // „keine Nummer" und ist als Index des erfundenen Ersatz-Bildschirms
+    // vergeben (`devices/schirme.svelte.ts`), sie wuerde dort also zufaellig
+    // passen. Begruendung in `stream/quellenummer.ts`.
+    if (
+      typeof s.monitor_index === 'number' &&
+      Number.isInteger(s.monitor_index) &&
+      s.monitor_index >= MONITOR_INDEX_MIN
+    ) {
       entry.monitor_index = s.monitor_index;
     }
     out.push(entry);

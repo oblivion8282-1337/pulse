@@ -40,6 +40,45 @@ MAX_SLOTS = 99
 SLOT_MAX = MAX_SLOTS - 1
 
 
+# ---- Bildschirm-Nummern ----------------------------------------------------
+
+# Wie viele Bildschirme ein Rechner haben darf — und damit zugleich die hoechste
+# Bildschirm-NUMMER, die ein Strom tragen kann (die Nummern sind 1-basiert,
+# s. ``MONITOR_INDEX_MIN``).
+#
+# **Bewusst NICHT ``MAX_SLOTS``.** Der begrenzt, wie viele Stream-PLAETZE ein
+# Nutzer gleichzeitig belegen darf, nicht wie viele Monitore an seiner Maschine
+# haengen — zwei verschiedene Sachverhalte, die nur zufaellig beide eine
+# Obergrenze brauchen.
+#
+# **Warum EINE Zahl statt zweier**: die Nummer entsteht am Geraete-Weg
+# (``ws_device_handlers.MAX_MONITORS``, wo ein Geraet seine Bildschirmliste
+# meldet) und reist ueber den Streaming-Weg (chat-gateway → media-svc →
+# auth-hook → Poller) zum Zuschauer. Standen dort zwei verschiedene Schranken,
+# passierte eine Nummer den einen Weg und traf am anderen Ende nie einen
+# gemeldeten Monitor — sie waere gueltig und trotzdem wertlos. Vier 4K-Schirme
+# sind schon eine sehr grosszuegige Arbeitsplatz-Annahme; die Grenze ist kein
+# Schutz vor einem Angreifer (der Anmeldende ist der Besitzer), sondern gegen
+# eine kaputte Client-Fassung, die eine endlose Liste schickt.
+MAX_MONITORS = 8
+
+# Kleinste legale Bildschirm-Nummer. **1, nicht 0** — und das ist keine
+# Formalie: die 0 ist im Klienten bereits vergeben. ``schirme.svelte.ts``
+# erfindet fuer ein Geraet ohne gemeldete Bildschirmliste genau einen
+# Ersatz-Eintrag mit ``index: 0``, und ``wecken.ts`` liest eine 0 als „keine
+# Nummer, nimm die Quelle aus deinem Profil". Eine durchgelassene 0 wuerde
+# drueben also zufaellig auf diesen Ersatz-Eintrag passen und einen Strom dem
+# falschen Bildschirm zuschlagen. Alle drei Sidecars zaehlen ohnehin ab 1
+# (``ops/list_monitors.rs`` auf Windows und macOS; Linux nimmt den Portal-Weg
+# und schickt gar keine Nummer), es geht also nichts verloren.
+MONITOR_INDEX_MIN = 1
+
+# Hoechste legale Bildschirm-Nummer — die Form, die die Request-Validatoren
+# wollen. Anders als bei den Plaetzen ist die Nummer selbst 1-basiert, hier
+# also kein ``- 1``.
+MONITOR_INDEX_MAX = MAX_MONITORS
+
+
 # ---- Lese-Token je Zuschauer ----------------------------------------------
 
 # Nachschlage-Schluessel fuer das WHEP-Lese-Token EINES Zuschauers auf EINEN

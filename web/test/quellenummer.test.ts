@@ -6,7 +6,7 @@ import {
   stromPasstZuMonitor,
   zuordneStroeme,
   zuordnungIstEindeutig,
-} from '../src/lib/stream/settingsCatalog.ts';
+} from '../src/lib/stream/quellenummer.ts';
 import { schirmFuerFenster } from '../src/lib/stream/schirmFuerFenster.ts';
 
 test('eine Monitor-Quelle liefert ihre Nummer', () => {
@@ -32,6 +32,11 @@ test('Unfug ergibt keine Nummer statt NaN', () => {
   assert.equal(monitorNummer('Monitor: '), undefined);
   assert.equal(monitorNummer('Monitor: 1.5'), undefined, 'nur ganze Zahlen');
   assert.equal(monitorNummer('Monitor: -1'), undefined, 'keine negativen');
+  assert.equal(
+    monitorNummer('Monitor: 0'),
+    undefined,
+    'die Nummern sind 1-basiert; die 0 ist als „keine Nummer" vergeben',
+  );
 });
 
 test('die Nummer gewinnt gegen den Namen', () => {
@@ -109,6 +114,76 @@ test('ein unpassender Strom, der nicht zum Geraet gehoert, loest den Notbehelf g
   assert.equal(karte.has(haupt.index), false);
   assert.equal(geraten.size, 0);
   assert.equal(zuordnungIstEindeutig([strom], [haupt], geraetePlaetze), true);
+});
+
+test('die Nummer gewinnt auch ZWISCHEN zwei Stroemen, nicht nur innerhalb eines', () => {
+  // Normale Aufstellung: der Besitzer uebertraegt „Dell" nebenher von Hand
+  // (Platz 0, nur Name), sein Standplatz-Geraet zeigt DENSELBEN Schirm mit
+  // ausdruecklicher Nummer auf Platz 1. Die Liste kommt nach (user, slot)
+  // sortiert an — Platz 0 also zuerst.
+  const dell = { index: 1, name: 'Dell U2723', primary: true };
+  const benq = { index: 2, name: 'BenQ 24', primary: false };
+  const vonHand = { slot: 0, label: 'Dell U2723' };
+  const vomGeraet = { slot: 1, monitor_index: 1 };
+  const geraetePlaetze = new Set([1]);
+
+  const { karte } = zuordneStroeme([vonHand, vomGeraet], [dell, benq], geraetePlaetze);
+  assert.equal(
+    karte.get(dell.index),
+    vomGeraet,
+    'der nummerierte Strom sticht den namensgleichen, obwohl der frueher in der Liste steht',
+  );
+
+  // Und die Folge davon, die vorher still falsch war: das Fenster von Platz 1
+  // findet seinen Bildschirm.
+  assert.equal(
+    schirmFuerFenster([vonHand, vomGeraet], [dell, benq], geraetePlaetze, 1),
+    1,
+    'sonst zeigte ein Klick auf „Monitor 1" das von Hand gestartete Fenster',
+  );
+});
+
+test('ohne Nummer bleibt es bei der Reihenfolge der Liste — der Namenstreffer zaehlt', () => {
+  // Gegenprobe zum Fall darueber: traegt KEINER eine Nummer, aendert die neue
+  // Vorrunde nichts, und der erste Namenstreffer gewinnt wie bisher.
+  const dell = { index: 1, name: 'Dell U2723', primary: true };
+  const erster = { slot: 0, label: 'Dell U2723' };
+  const zweiter = { slot: 1, label: 'Dell U2723' };
+  const { karte } = zuordneStroeme([erster, zweiter], [dell], new Set([0, 1]));
+  assert.equal(karte.get(dell.index), erster);
+});
+
+test('ohne gemeldete Bildschirmliste greift der Notbehelf AUCH fuer einen nummerierten Strom', () => {
+  // `refreshMonitors()` ist beim Anmelden einmal fehlgeschlagen: das Geraet
+  // meldet keine Schirme, `monitorListe` erfindet den einen Ersatz-Eintrag mit
+  // `index: 0`. Der Strom traegt trotzdem `monitor_index: 1` — eine Nummer,
+  // die in dieser Liste gar nicht vorkommen KANN.
+  const ersatz = { index: 0, name: 'Hauptbildschirm', primary: true };
+  const strom = { slot: 0, monitor_index: 1 };
+  const geraetePlaetze = new Set([0]);
+
+  const { karte, geraten } = zuordneStroeme([strom], [ersatz], geraetePlaetze, {
+    listeGemeldet: false,
+  });
+  assert.equal(karte.get(ersatz.index), strom, 'sonst galte der Ersatz-Schirm als frei');
+  assert.equal(geraten.has(ersatz.index), true, 'und zwar geraten, nicht getroffen');
+  assert.equal(
+    zuordnungIstEindeutig([strom], [ersatz], geraetePlaetze, { listeGemeldet: false }),
+    false,
+    'geraten heisst nicht eindeutig — auch bei einem Strom MIT Nummer',
+  );
+});
+
+test('mit gemeldeter Liste bleibt ein nummerierter Strom vom Notbehelf ausgeschlossen', () => {
+  // Gegenprobe: hier ist die Liste echt, die Nummer zeigt nur auf einen Schirm,
+  // den es (nicht mehr) gibt. Dann ist sie eine ausdrueckliche Angabe und darf
+  // NICHT auf den Hauptbildschirm umgebogen werden.
+  const haupt = { index: 1, name: 'Dell U2723', primary: true };
+  const strom = { slot: 0, monitor_index: 7 };
+  const geraetePlaetze = new Set([0]);
+  const { karte, geraten } = zuordneStroeme([strom], [haupt], geraetePlaetze);
+  assert.equal(karte.has(haupt.index), false);
+  assert.equal(geraten.size, 0);
 });
 
 test('schirmFuerFenster findet den Bildschirm ueber den Sende-Platz DIESES Fensters', () => {

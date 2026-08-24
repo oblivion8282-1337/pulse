@@ -25,6 +25,7 @@ async def _put_token(
     slot: int = 0,
     label: str | None = None,
     ten_bit: bool = False,
+    monitor_index: int | None = None,
     ttl: int = 3600,
 ):
     record = {
@@ -41,6 +42,8 @@ async def _put_token(
         record["label"] = label
     if ten_bit:  # nur bei True gesetzt (matches media-svc)
         record["ten_bit"] = True
+    if monitor_index is not None:  # nur wenn gesetzt (matches media-svc)
+        record["monitor_index"] = monitor_index
     await redis.set(TOKEN_KEY.format(token=token), json.dumps(record, separators=(",", ":")), ex=ttl)
 
 
@@ -206,6 +209,46 @@ async def test_publish_copies_label_into_active_record(client, redis):
         rec = json.loads((await redis.get(active_key(cid, uid, 0))).decode())
         assert rec["label"] == "Chrome"
         assert rec["user_id"] == uid
+    finally:
+        await redis.delete(TOKEN_KEY.format(token=token), active_key(cid, uid, 0))
+
+
+@pytest.mark.asyncio
+async def test_publish_copies_monitor_index_into_active_record(client, redis):
+    """``monitor_index`` wird wie ``label`` aus dem Token-Record in den
+    ``stream:active``-Record kopiert — die einzige Stelle, an der der Poller die
+    Bildschirm-Nummer findet.
+
+    Der Wert reist hier ueber einen Redis-Umweg statt in einer Antwort: bliebe
+    er aus, saehe niemand einen Fehler, der Zuschauer bekaeme nur nie eine
+    Nummer und fiele stillschweigend auf den Namensvergleich zurueck. Deshalb
+    ein eigener Test statt Vertrauen auf den ``label``-Zwilling."""
+    cid = _unique_cid()
+    uid = "42"
+    token = "tok-" + uuid.uuid4().hex
+    await _put_token(redis, token, channel_id=cid, user_id=uid, monitor_index=2)
+    try:
+        r = await client.post("/", json=_body("publish", _ch_path(cid, uid), password=token))
+        assert r.status_code == 200, r.text
+        rec = json.loads((await redis.get(active_key(cid, uid, 0))).decode())
+        assert rec["monitor_index"] == 2
+    finally:
+        await redis.delete(TOKEN_KEY.format(token=token), active_key(cid, uid, 0))
+
+
+@pytest.mark.asyncio
+async def test_publish_without_monitor_index_leaves_active_record_unchanged(client, redis):
+    """Ohne ``monitor_index`` im Token traegt der ``stream:active``-Record den
+    Schluessel gar nicht — dieselbe byte-gleiche Alt-Form wie bei ``label``."""
+    cid = _unique_cid()
+    uid = "42"
+    token = "tok-" + uuid.uuid4().hex
+    await _put_token(redis, token, channel_id=cid, user_id=uid)
+    try:
+        r = await client.post("/", json=_body("publish", _ch_path(cid, uid), password=token))
+        assert r.status_code == 200, r.text
+        rec = json.loads((await redis.get(active_key(cid, uid, 0))).decode())
+        assert "monitor_index" not in rec
     finally:
         await redis.delete(TOKEN_KEY.format(token=token), active_key(cid, uid, 0))
 
