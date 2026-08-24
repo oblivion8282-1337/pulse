@@ -15,6 +15,7 @@
 //! pruefen. In `app/mod.rs` hineingeschrieben waere davon nichts testbar.
 
 mod bildlage;
+mod nachbarn;
 pub(crate) mod rahmen;
 mod schlange;
 mod strom;
@@ -22,6 +23,7 @@ mod tasten;
 mod winit_abbild;
 
 pub use bildlage::Bildlage;
+pub use nachbarn::{vorrang, Nachbar};
 pub use rahmen::Knopf;
 pub use schlange::Abgabe;
 
