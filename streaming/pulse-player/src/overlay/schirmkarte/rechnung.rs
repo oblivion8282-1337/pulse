@@ -5,6 +5,7 @@
 
 use egui::Rect;
 
+use crate::app::anordnen::ueberschneiden;
 use crate::overlay::Schirm;
 
 /// Ab wann gilt eine Achse ueberhaupt als gestaffelt: ihre Spannweite muss den
@@ -95,14 +96,22 @@ pub fn kaestchen(schirme: &[Schirm], breite: f32, hoehe_max: f32) -> Vec<(usize,
 ///   Lage (aeltere Gegenstelle, s. `Schirm`-Doku) oder nur fuer einen
 ///   einzigen, gibt es nichts zu vergleichen — eine Karte mit hoechstens
 ///   einem Kaestchen ist keine Karte.
-/// * **Zwei brauchbare Schirme liegen exakt deckungsgleich.** Scheitert die
-///   Lage-Abfrage am Host, meldet er bewusst `0/0` statt das Feld
-///   wegzulassen (`win-hq-sidecar/src/ops/list_monitors.rs`) — „erkennbar
-///   falsch und hier behandelbar" steht dort woertlich; das hier ist die
-///   Behandlung. Ohne sie zeichnete [`kaestchen`] zwei Rechtecke exakt
-///   uebereinander: nur eines waere sichtbar, und das obenauf liegende
-///   `ui.interact`-Rechteck schluckte jeden Klick auf das andere. Erfasst
-///   nebenbei echte Bildschirmspiegelung, die real dieselbe Lage traegt.
+/// * **Zwei brauchbare Schirme UEBERSCHNEIDEN sich.** Zwei Wege fuehren
+///   dahin. Erstens die gescheiterte Lage-Abfrage: Windows meldet dann
+///   bewusst `0/0`, statt das Feld wegzulassen
+///   (`win-hq-sidecar/src/ops/list_monitors.rs`) — bei einem SEKUNDAEREN
+///   Monitor ergibt das dieselbe Lage wie beim Primaerbildschirm, aber in
+///   aller Regel eine andere Aufloesung. Zweitens echte
+///   Bildschirmspiegelung, die real dieselbe Lage traegt, und zwar auch bei
+///   verschiedenen Aufloesungen (MacBook 2880x1800 auf Beamer 1920x1080).
+///   In beiden Faellen sind die Rechtecke nicht deckungsgleich, sondern
+///   ineinander geschoben — eine Pruefung auf Gleichheit (so stand es hier
+///   bis zum 2026-08-25) liess sie durch: [`kaestchen`] zeichnete zwei
+///   Rechtecke uebereinander, das spaeter gemalte uebermalte das fruehere,
+///   und sein `ui.interact`-Rechteck schluckte dessen Klicks (egui: das
+///   letzte Widget an einer Stelle gewinnt). Der uebermalte Schirm war
+///   unsichtbar UND unerreichbar, und die Karte behauptete eine Anordnung,
+///   die es nicht gibt.
 ///
 /// Der Aufrufer faellt bei `false` auf die alte Knopfliste zurueck — die
 /// Schirme SIND ja da, nur ohne verwertbare Lage.
@@ -114,7 +123,7 @@ pub fn darstellbar(schirme: &[Schirm]) -> bool {
     for i in 0..brauchbar.len() {
         for j in (i + 1)..brauchbar.len() {
             let (a, b) = (&brauchbar[i], &brauchbar[j]);
-            if a.x == b.x && a.y == b.y && a.w == b.w && a.h == b.h {
+            if ueberschneiden((a.x, a.y, a.w, a.h), (b.x, b.y, b.w, b.h)) {
                 return false;
             }
         }
@@ -345,15 +354,33 @@ mod tests {
     fn deckungsgleiche_schirme_sind_nicht_darstellbar() {
         // Scheitert die Lage-Abfrage am Host, meldet er `0/0` statt das Feld
         // wegzulassen (`win-hq-sidecar/src/ops/list_monitors.rs`) — zwei
-        // Schirme mit gescheiterter Abfrage liegen dann deckungsgleich
-        // uebereinander. Dieselbe Lage traegt auch echte Bildschirmspiegelung.
+        // Schirme mit gescheiterter Abfrage liegen dann uebereinander.
+        // Dieselbe Lage traegt auch echte Bildschirmspiegelung.
         let a = schirm(1, 0, 0, 1920, 1080);
         let b = schirm(2, 0, 0, 1920, 1080);
         assert!(!darstellbar(&[a, b]), "deckungsgleich -> keine Karte");
+    }
 
-        // Ein Pixel Unterschied reicht schon, um wieder darstellbar zu sein.
-        let c = schirm(3, 1, 0, 1920, 1080);
-        assert!(darstellbar(&[schirm(1, 0, 0, 1920, 1080), c]));
+    /// **Der Fall, den die alte Gleichheitspruefung durchliess:** zwei
+    /// Monitore mit gescheiterter Lage-Abfrage melden beide `0/0`, haben aber
+    /// verschiedene Aufloesungen — sie sind ineinander geschoben, nicht
+    /// deckungsgleich. Genauso eine Spiegelung MacBook auf Beamer.
+    #[test]
+    fn ueberlappende_schirme_sind_nicht_darstellbar() {
+        let gross = schirm(1, 0, 0, 2880, 1800);
+        let klein = schirm(2, 0, 0, 1920, 1080);
+        assert!(!darstellbar(&[gross, klein]), "ineinander geschoben -> keine Karte");
+    }
+
+    /// Beruehrende Monitore ueberlappen NICHT — der Normalfall darf nicht in
+    /// die Knopfliste fallen.
+    #[test]
+    fn beruehrende_schirme_bleiben_darstellbar() {
+        assert!(darstellbar(&[schirm(1, 0, 0, 1920, 1080), schirm(2, 1920, 0, 1920, 1080)]));
+        assert!(darstellbar(&[schirm(1, 0, 0, 1920, 1080), schirm(2, 0, 1080, 3840, 2160)]));
+        // Verschieden gross und verschieden hoch aufgehaengt, aber ohne
+        // gemeinsame Flaeche.
+        assert!(darstellbar(&[schirm(1, 0, 0, 1920, 1080), schirm(2, 1920, -540, 2560, 1440)]));
     }
 
     // ── satz / richtungswort ─────────────────────────────────────────────

@@ -117,6 +117,12 @@ pub struct Overlay {
     /// Leer, solange die App nichts gemeldet hat — dann zeigt das Menue den
     /// Abschnitt gar nicht, statt einen leeren Kasten zu oeffnen.
     fern_schirme: Vec<typen::Schirm>,
+    /// Wuerde der Knopf „Fenster wie drueben anordnen" etwas bewirken? Setzt
+    /// die App vor jedem Durchgang (`app::anordnen::anwenden`), weil nur sie
+    /// alle Fenster der Sitzung kennt — dieses Fenster sieht in
+    /// [`Self::fern_schirme`] nur seine eigene Kopie und kann daraus weder die
+    /// Lagen der anderen Fenster noch deren Sitzung ablesen.
+    fern_anordenbar: bool,
 }
 
 impl Overlay {
@@ -171,6 +177,7 @@ impl Overlay {
             fern_menue_offen: false,
             fern_anfragbar: false,
             fern_schirme: Vec::new(),
+            fern_anordenbar: false,
         })
     }
 
@@ -541,6 +548,7 @@ impl Overlay {
             // Zeigerform beim Ausschalten zurueckgesetzt werden
             // (`app/eingabe.rs::input_capture`).
             self.fern_schirme.clear();
+            self.fern_anordenbar = false;
         }
         // **Einen Durchgang anfordern, sonst bleibt der Griff aus.** Der Ruf
         // kommt aus `input_capture`, also ohne Mausbewegung: `visible()` ist
@@ -559,6 +567,21 @@ impl Overlay {
     /// sonst auf dem alten Stand, bis der Nutzer zufaellig die Maus bewegt.
     pub fn set_fern_schirme(&mut self, schirme: Vec<typen::Schirm>) {
         self.fern_schirme = schirme;
+        self.input_pending = true;
+    }
+
+    /// Ob der Knopf „Fenster wie drueben anordnen" etwas bewirken wuerde (s.
+    /// [`Self::fern_anordenbar`]).
+    ///
+    /// **Nur bei Aenderung einen Durchgang anfordern**, anders als bei
+    /// [`Self::set_fern_schirme`]: die App ruft das vor JEDEM Durchgang, ein
+    /// unbedingtes `input_pending` liesse die Schleife danach ohne Unterlass
+    /// weiterzeichnen.
+    pub fn set_fern_anordenbar(&mut self, anordenbar: bool) {
+        if self.fern_anordenbar == anordenbar {
+            return;
+        }
+        self.fern_anordenbar = anordenbar;
         self.input_pending = true;
     }
 
