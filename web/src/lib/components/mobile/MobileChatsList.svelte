@@ -15,7 +15,15 @@
    * Ungelesen-Rechnung.
    */
   import PencilIcon from '@lucide/svelte/icons/pencil';
+  import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
+  import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
+  import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
+  import * as Dialog from '$lib/components/ui/dialog/index.js';
   import SearchIcon from '@lucide/svelte/icons/search';
+  import { friends } from '$lib/stores/friends.svelte';
+  import { guilds } from '$lib/stores/guilds.svelte';
+  import HashIcon from '@lucide/svelte/icons/hash';
+  import { goto } from '$app/navigation';
   import XIcon from '@lucide/svelte/icons/x';
   import BereichsKopf from './BereichsKopf.svelte';
   import { auth } from '$lib/stores/auth.svelte';
@@ -26,18 +34,49 @@
   import { nameStyle } from '$lib/utils/nameColor';
   import { safeAvatarUrl } from '$lib/avatar';
   import { kurzeUhrzeit } from '$lib/utils/kurzeUhrzeit';
+  import { suchnorm, namePasst } from '$lib/utils/suche';
   import StatusDot from '$lib/components/ui/StatusDot.svelte';
   import { chatApi, type DMMessageSearchHit } from '$lib/api/chat';
   import type { DMChannel } from '$lib/api/types';
+  import type { Channel as ChannelTyp } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
+  import { toast } from 'svelte-sonner';
 
   let {
-    onSelect,
-    onCompose
+    onSelect
   }: {
     onSelect: (dm: DMChannel) => void;
-    onCompose: () => void;
   } = $props();
+
+  // ---- Neues Gespräch: Freundesliste im Dialog statt Sprung zum Freunde-Tab.
+  // Der Weg dorthin ist der_same wie in FriendList.svelte (openDM): Kanal
+  // holen oder erzeugen, in den Store, Gespräch öffnen.
+  let neuesGespraech = $state(false);
+
+  /** Nur Freunde OHNE bestehendes Gespräch — mit wem schon ein Chat offen
+   *  ist, steht in der Chats-Liste; hier geht es um NEUE Gespräche. */
+  let freundeOhneChat = $derived.by(() => {
+    const mitChat = new Set(directMessages.list.map((dm) => dm.other_user_id));
+    return friends.list.filter((f) => !mitChat.has(f.user_id));
+  });
+
+  $effect(() => {
+    if (neuesGespraech) for (const f of freundeOhneChat) userCache.queue(f.user_id);
+  });
+
+  async function starteDM(userId: string) {
+    try {
+      const dm = await chatApi.createOrGetDMChannel(userId);
+      directMessages.upsert(dm);
+      neuesGespraech = false;
+      onSelect(dm);
+      await goto(`/app/@me/${dm.id}`);
+    } catch (e) {
+      toast.error(m.friend_list_dm_open_failed(), {
+        description: e instanceof Error ? e.message : undefined
+      });
+    }
+  }
 
   // ---- Suche (WhatsApp-artig: Personen aus der Liste, Nachrichten aus
   // der Historie via `/dm-channels-search`) ---------------------------------
@@ -45,24 +84,57 @@
   let treffer = $state<DMMessageSearchHit[]>([]);
   let sucht = $state(false);
 
-  /** Gefilterte Gespräche nach Namen — lokal über den Store, kein Roundtrip. */
+  /** Ab drei ZEICHEN wird gesucht — gerechnet wird über die normalisierte
+   *  Eingabe, damit „a -" noch lange keine Suche auslöst. */
+  let suchbegriff = $derived.by(() => {
+    const norm = suchnorm(suche.trim());
+    return norm.length >= 3 ? norm : null;
+  });
+
+  /** Gefilterte Gespräche nach Namen — lokal über den Store, kein Roundtrip.
+   *  Namen mit Zahlen werden über alle drei Pfade getroffen (`namePasst`). */
   let personenTreffer = $derived(
-    suche.trim()
+    suchbegriff
       ? directMessages.list.filter((dm) =>
-          userCache
-            .displayName(dm.other_user_id)
-            .toLowerCase()
-            .includes(suche.trim().toLowerCase())
+          namePasst(userCache.displayName(dm.other_user_id), suchbegriff)
         )
       : []
   );
+
+  /** Text-Kanäle der eigenen Communities, deren Name passt. Kanäle sind pro
+   *  Guild gecached; wer noch nie in einer Community war, hat nichts im
+   *  Cache — daher werden sie beim ersten Suchen nachgeladen (entprellt über
+   *  denselben Effekt wie die Nachrichtensuche). */
+  let kanalTreffer = $derived.by(() => {
+    if (!suchbegriff) return [];
+    const treffer: { guild: { id: string; name: string }; kanal: ChannelTyp }[] = [];
+    for (const g of guilds.list) {
+      for (const c of guilds.channelsByGuild[g.id] ?? []) {
+        if (c.type !== 0) continue; // nur Text-Kanäle
+        if (suchnorm(c.name).includes(suchbegriff)) {
+          treffer.push({ guild: { id: g.id, name: g.name }, kanal: c });
+        }
+      }
+    }
+    return treffer;
+  });
+
+  // Kanal-Cache der Communities auffüllen, sobald zum ersten Mal gesucht
+  // wird — ohne das bliebe die Kanal-Suche bei Nutzern leer, die noch in
+  // keiner Community unterwegs waren.
+  $effect(() => {
+    if (!suchbegriff) return;
+    for (const g of guilds.list) {
+      void guilds.ensureChannels(g.id).catch(() => undefined);
+    }
+  });
 
   // Nachrichtensuche mit 300 ms Entprellung; überholte Antworten verwerfen.
   let suchlauf = 0;
   $effect(() => {
     const q = suche.trim();
     const lauf = ++suchlauf;
-    if (q.length < 2) {
+    if (!suchbegriff) {
       treffer = [];
       sucht = false;
       return;
@@ -130,18 +202,33 @@
 >
   <BereichsKopf titel={m.nav_tab_chats()}>
     {#snippet handlung()}
-      <!-- Neues Gespräch — oben rechts in der Kopfzeile statt als schwebender
-           Knopf: die Handlung gehört zur Frage „wo stehe ich", nicht zum
-           Inhalt, und der untere rechte Winkel gehört jetzt der Suche. -->
-      <button
-        type="button"
-        class="accent-gradient flex size-11 items-center justify-center rounded-[14px] text-white shadow-[0_8px_18px_-6px_rgba(37,99,235,.7)]"
-        onclick={onCompose}
-        data-testid="chats-compose"
-        aria-label={m.chats_compose()}
-      >
-        <PencilIcon class="size-5" />
-      </button>
+      <!-- Neues Gespräch — oben rechts in der Kopfzeile, hinter einem
+           Drei-Punkte-Menü: Platz für künftige Handlungen (Gruppen, Einstellungen),
+           ohne die Kopfzeile erneut umzubauen. -->
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger>
+          {#snippet child({ props })}
+            <button
+              {...props}
+                class="text-text-muted hover:bg-bg-hover hover:text-text-bright flex size-11 items-center justify-center rounded-[14px] transition-colors"
+              data-testid="chats-menu"
+              aria-label={m.chats_menu()}
+            >
+              <EllipsisIcon class="size-6" />
+            </button>
+          {/snippet}
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Content align="end" class="w-52">
+          <DropdownMenu.Item
+            onclick={() => (neuesGespraech = true)}
+            data-testid="chats-menu-new-chat"
+            class="flex items-center gap-2"
+          >
+            <PencilIcon class="size-4" />
+            {m.chats_compose()}
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Root>
     {/snippet}
   </BereichsKopf>
 
@@ -151,7 +238,7 @@
     <label class="border-border bg-bg-input flex items-center gap-2 rounded-full border px-3 py-2">
       <SearchIcon class="text-text-muted size-4 shrink-0" />
       <input
-        type="search"
+        type="text"
         bind:value={suche}
         placeholder={m.chats_search_placeholder()}
         class="placeholder:text-text-muted min-w-0 flex-1 bg-transparent text-sm outline-none"
@@ -173,9 +260,9 @@
   </div>
 
   <nav class="flex flex-1 flex-col gap-2 overflow-y-auto px-2.5 pb-3">
-    {#if suche.trim()}
+    {#if suchbegriff}
       <!-- Suchergebnisse: erst passende Personen, dann Nachrichtentreffer. -->
-      {#if personenTreffer.length === 0 && treffer.length === 0 && !sucht}
+      {#if personenTreffer.length === 0 && kanalTreffer.length === 0 && treffer.length === 0 && !sucht}
         <p class="text-text-muted px-4 pt-8 text-center text-xs" data-testid="chats-search-empty">
           {m.chats_search_no_results()}
         </p>
@@ -207,6 +294,26 @@
             class="truncate text-sm font-semibold"
             style={nameStyle(dm.other_user_id)}>{name}</span
           >
+        </button>
+      {/each}
+      {#if kanalTreffer.length > 0}
+        <span class="text-text-muted px-2 pt-1 text-[11px] font-semibold uppercase tracking-wide">
+          {m.chats_search_section_channels()}
+        </span>
+      {/if}
+      {#each kanalTreffer as t_k (t_k.kanal.id)}
+        <button
+          class="hover:bg-bg-hover border-border bg-bg-input flex w-full items-center gap-3 rounded-[14px] border p-2.5 text-left transition-colors"
+          onclick={() => goto(`/app/guilds/${t_k.guild.id}/channels/${t_k.kanal.id}`)}
+          data-testid={`search-row-channel-${t_k.kanal.id}`}
+        >
+          <span class="text-text-muted flex size-[38px] shrink-0 items-center justify-center rounded-full bg-bg-hover">
+            <HashIcon class="size-5" />
+          </span>
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-sm font-semibold">{t_k.kanal.name}</span>
+            <span class="text-text-muted block truncate text-xs">{t_k.guild.name}</span>
+          </span>
         </button>
       {/each}
       {#if treffer.length > 0 || sucht}
@@ -313,4 +420,52 @@
     {/each}
     {/if}
   </nav>
+
+  <!-- Neues Gespräch: die Freunde als Liste mit Chat-Symbol — ein Tipp
+       öffnet direkt das Gespräch, ohne den Umweg über den Freunde-Bereich. -->
+  <Dialog.Root bind:open={neuesGespraech}>
+    <Dialog.Content class="max-w-sm" data-testid="chats-new-chat-dialog">
+      <Dialog.Header>
+        <Dialog.Title>{m.chats_compose()}</Dialog.Title>
+        <Dialog.Description>{m.chats_new_chat_hint()}</Dialog.Description>
+      </Dialog.Header>
+      <div class="flex max-h-[60vh] flex-col gap-1 overflow-y-auto">
+        {#if freundeOhneChat.length === 0}
+          <p class="text-text-muted px-2 py-6 text-center text-xs">
+            {m.chats_new_chat_no_friends()}
+          </p>
+        {/if}
+        {#each freundeOhneChat as f (f.user_id)}
+          {@const name = userCache.displayName(f.user_id)}
+          {@const bild = safeAvatarUrl(userCache.get(f.user_id)?.avatar_url ?? null)}
+          <button
+            type="button"
+            class="hover:bg-bg-hover flex w-full items-center gap-3 rounded-xl p-2 text-left transition-colors"
+            onclick={() => starteDM(f.user_id)}
+            data-testid={`new-chat-friend-${f.user_id}`}
+          >
+            <span class="relative size-10 shrink-0">
+              {#if bild}
+                <img src={bild} alt="" class="size-full rounded-full object-cover" />
+              {:else}
+                <span
+                  class="flex size-full items-center justify-center rounded-full text-sm font-bold text-white"
+                  style="background-image: linear-gradient(135deg in oklab, var(--accent-grad-from), var(--accent-grad-to));"
+                >{initialen(name)}</span>
+              {/if}
+              <StatusDot
+                status={presence.displayStatusForFriend(f.user_id)}
+                class="ring-bg-panel absolute -bottom-px -right-px size-3.5 ring-[3px]"
+              />
+            </span>
+            <span
+              class="truncate text-sm font-semibold"
+              style={nameStyle(f.user_id)}>{name}</span
+            >
+            <MessageCircleIcon class="text-text-muted ml-auto size-5 shrink-0" />
+          </button>
+        {/each}
+      </div>
+    </Dialog.Content>
+  </Dialog.Root>
 </div>

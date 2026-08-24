@@ -27,11 +27,20 @@
   import { friendsApi } from '$lib/api/friends';
   import { chatApi } from '$lib/api/chat';
   import { safeAvatarUrl } from '$lib/avatar';
+  import { suchnorm, namePasst } from '$lib/utils/suche';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
   import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
 
-  let { onlineOnly = false }: { onlineOnly?: boolean } = $props();
+  let { onlineOnly = false, suche = '' }: { onlineOnly?: boolean; suche?: string } = $props();
+
+  /** Dieselbe Such-Norm wie die Chats-Suche (`$lib/utils/suche`): erst ab
+   *  drei Zeichen wird gefiltert, und Namen mit Zahlen werden über alle
+   *  drei Pfade getroffen (`namePasst`). */
+  let suchbegriff = $derived.by(() => {
+    const norm = suchnorm(suche.trim());
+    return norm.length >= 3 ? norm : null;
+  });
 
   $effect(() => {
     for (const f of friends.list) userCache.queue(f.user_id);
@@ -59,6 +68,9 @@
       ? friends.list.filter((f) => presence.displayStatusForFriend(f.user_id) !== 'offline')
       : friends.list
     )
+      // Suchfilter — NUR Freunde nach Namen, keine Nachrichten/Kanäle: das
+      // hier ist die Liste, kein globales Suchfeld.
+      .filter((f) => !suchbegriff || namePasst(userCache.displayName(f.user_id), suchbegriff))
       .slice()
       .sort((a, b) => {
         const ra = RANG[presence.displayStatusForFriend(a.user_id)] ?? 3;
@@ -68,6 +80,15 @@
           .displayName(a.user_id)
           .localeCompare(userCache.displayName(b.user_id));
       })
+  );
+
+  /** Online-Gruppe (alles außer offline) und Offline-Gruppe — getrennt
+   *  gerendert, damit der Abschnitt darunter sichtbar abgesetzt ist. */
+  const sichtbarOnline = $derived(
+    visible.filter((f) => presence.displayStatusForFriend(f.user_id) !== 'offline')
+  );
+  const sichtbarOffline = $derived(
+    visible.filter((f) => presence.displayStatusForFriend(f.user_id) === 'offline')
   );
 
   // Voice-Channel je Freund (Reverse-Lookup über voicePresence.byChannel).
@@ -139,15 +160,33 @@
 </script>
 
 <section class="flex flex-col gap-2" data-testid="friends-list">
-  <h2 class="text-text-bright px-1 pb-2 text-xs font-semibold uppercase tracking-wide">
-    {onlineOnly ? m.friend_list_heading_online() : m.friend_list_heading_all()} — {visible.length}
-  </h2>
   {#if visible.length === 0}
     <p class="text-text-muted px-1 py-4 text-sm" data-testid="friends-empty">
       {onlineOnly ? m.friend_list_empty_online() : m.friend_list_empty_all()}
     </p>
   {/if}
-  {#each visible as f (f.user_id)}
+  <!-- Online oben, Offline ABGETRENNT darunter: die Trennung ist eine
+       Überschrift mit Zählern, kein zweiter Karten-Stapel — die Zeilen
+       bleiben dieselben, nur die Gruppierung wird sichtbar. -->
+  {#if sichtbarOnline.length > 0}
+    <h2 class="text-text-bright px-1 pb-1 text-xs font-semibold uppercase tracking-wide">
+      {m.friend_list_heading_online()} — {sichtbarOnline.length}
+    </h2>
+  {/if}
+  {#each sichtbarOnline as f (f.user_id)}
+    {@render zeile(f)}
+  {/each}
+  {#if sichtbarOffline.length > 0}
+    <h2 class="border-border text-text-muted mt-3 border-t px-1 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide">
+      {m.friend_list_heading_offline()} — {sichtbarOffline.length}
+    </h2>
+  {/if}
+  {#each sichtbarOffline as f (f.user_id)}
+    {@render zeile(f)}
+  {/each}
+</section>
+
+{#snippet zeile(f: (typeof friends.list)[number])}
     {@const u = userCache.get(f.user_id)}
     {@const avatar = safeAvatarUrl(u?.avatar_url ?? null)}
     {@const status = presence.displayStatusForFriend(f.user_id)}
@@ -242,5 +281,4 @@
         <UserMinusIcon class="size-4" />
       </Button>
     </div>
-  {/each}
-</section>
+{/snippet}
