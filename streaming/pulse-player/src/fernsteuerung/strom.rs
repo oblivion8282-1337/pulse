@@ -241,9 +241,10 @@ impl Erfassung {
     /// Tastatur blieb beim Steuernden, und sie faelschlich mit loszulassen
     /// liesse eine wirklich noch gehaltene Taste am fernen Rechner haengen.
     ///
-    /// **Nur auf Linux ausserhalb von Tests aufgerufen** (`app::wayland_zug`,
-    /// dort hinter `#[cfg(target_os = "linux")]`) — derselbe Grund wie beim
-    /// `cfg_attr` an [`Erfassung::wayland_ziel_setzen`].
+    /// **Nur auf Linux ausserhalb von Tests aufgerufen**
+    /// (`app::wayland_zug::entscheidung`, dort hinter
+    /// `#[cfg(target_os = "linux")]`) — derselbe Grund wie beim `cfg_attr` an
+    /// [`Erfassung::wayland_ziel_setzen`].
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub fn zug_beendet(&mut self) {
         if !self.aktiv {

@@ -126,7 +126,7 @@ impl App {
             });
         }
         session.window.request_redraw();
-        Ok(serde_json::json!({
+        let antwort = serde_json::json!({
             "enabled": aktiv,
             // Der Platz, der WIRKLICH gilt — nicht der erfragte. Beim
             // Ausschalten ist das der noch laufende, nicht die 0 aus einem
@@ -147,7 +147,21 @@ impl App {
             // an der Eingabe verschwindet.
             "emergency_resets": session.eingabe.notbremsen(),
             "dropped_frames": session.eingabe.verworfene_frames(),
-        }))
+        });
+        // **Wayland: die Gastverbindung fuer den Zug ueber die Fenstergrenze
+        // entsteht HIER**, beim Einschalten — nicht beim ersten Druck (Review
+        // I-A). Der zweite `wl_pointer` muss stehen, BEVOR die Taste faellt:
+        // `wl_pointer.button` wird an eine neu gebundene Ressource nicht
+        // nachgeliefert, und ohne Seriennummer gibt es kein `start_drag`.
+        // Steht sie schon, kostet der Aufruf ein `if`; auf X11, Windows und
+        // macOS ist er ein Nichtstun (s. `app::wayland_zug`-Modulkopf).
+        //
+        // Nach dem `json!` und damit nach der Ausleihe von `session`:
+        // `wayland_zug_bereitstellen` braucht `&mut self`.
+        if aktiv {
+            self.wayland_zug_bereitstellen(session_id);
+        }
+        Ok(antwort)
     }
 
     /// `remote_transport` — der Eingabeweg fuers Statistik-Feld.

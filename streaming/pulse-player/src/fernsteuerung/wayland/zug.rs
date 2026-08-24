@@ -78,7 +78,16 @@
 //!
 //! **Das EINE Datengeraet lieferte `Enter` fuer BEIDE eigenen Flaechen**,
 //! nacheinander, innerhalb desselben Zugs — die Frage ist damit positiv
-//! beantwortet, nicht nur plausibel gemacht. `zeiger_ueber` ist deshalb ganz
+//! beantwortet, nicht nur plausibel gemacht.
+//!
+//! **Nachgemessen am selben Tag, mit Umlauf- und Zeitstempeln** (Review-Befund
+//! I-C, Protokoll und Zahlen in [`super::ende`]): zwischen dem `Leave` von A
+//! und dem `Enter` von B liegt die Zeit, die der Zeiger ZWISCHEN den Fenstern
+//! verbringt — in der Messung 21 ms und ein eigener Lesevorgang, denn zwischen
+//! zwei gekachelten Fenstern klafft eine Luecke (16 px bei `niri`), und ueber
+//! die Luecke zwischen zwei Monitoren werden daraus Sekunden. Die beiden
+//! Ereignisse liegen also **nicht** im selben Umlauf; wer das annimmt, bricht
+//! die Zieh-Geste genau an der Fenstergrenze ab. `zeiger_ueber` ist deshalb ganz
 //! bewusst generisch geblieben (s. u.): es nimmt jede vom Compositor
 //! gemeldete [`ObjectId`] entgegen, ohne sie gegen eine "erwartete" Flaeche
 //! zu pruefen. Nebenbefund derselben Messung: die zwei `wl_pointer` auf dem
@@ -167,6 +176,18 @@ impl Gastverbindung {
     /// also folgenlos. Nur der Sitzplatz, dessen Ergreifung wirklich passt,
     /// startet den Zug wirklich. **Aus dem Protokolltext gefolgert, nicht am
     /// Compositor gemessen** (s. Bericht).
+    ///
+    /// **`true` heisst „Anfrage raus", NICHT „Zug laeuft"** (Review-Befund
+    /// C-1). Ob er wirklich laeuft, sagt erst das erste `Enter` —
+    /// [`super::Gastverbindung::zug_bestaetigt`]. Deshalb setzt diese Methode
+    /// den Merker [`super::Zustand::eigener_zug`] (ab jetzt gehoeren
+    /// `Enter`/`Motion`/`Drop`/`Leave` UNS, s. Fundament-Modulkopf) und
+    /// raeumt beides ab, was von einem vorigen Zug uebrig sein koennte.
+    ///
+    /// **Vor dem Abraeumen muss der Aufrufer ein noch offenes Ende abgeholt
+    /// haben** (`app::App::wayland_zug_beginnen` tut das) — sonst verschluckt
+    /// dieser Start das Ende des vorigen Zugs, und dessen Maustaste bliebe am
+    /// fernen Rechner unten.
     pub fn zug_beginnen(&mut self, fenster: &Window) -> bool {
         let Some(serial) = self.letzte_druck_nummer() else { return false };
         let Some(ursprung) = flaeche(&self.conn, fenster) else { return false };
@@ -174,6 +195,12 @@ impl Gastverbindung {
             geraet.start_drag(None, &ursprung, None, serial);
         }
         let _ = self.conn.flush();
+        // Ab hier gehoeren die Datengeraet-Ereignisse UNS — und zwar
+        // unbelastet von dem, was ein voriger Zug hinterlassen hat.
+        self.zustand.ende = Default::default();
+        self.zustand.zug = ZugLage::default();
+        self.zustand.bestaetigt = false;
+        self.zustand.eigener_zug = true;
         true
     }
 

@@ -186,19 +186,6 @@ impl Erfassung {
         self.zeigerfang
     }
 
-    /// Ist gerade irgendein Mausknopf unten?
-    ///
-    /// Fuer `app::wayland_zug`: ein Zug soll nur beginnen, wenn der Druck, der
-    /// ihn ausloeste, auch WIRKLICH bei [`Self::knopf`] ankam — ein Druck auf
-    /// der Bedienleiste oder ausserhalb des Bildes bricht in
-    /// `on_window_event`s `MouseInput`-Zweig VOR `self.knopf(...)` ab,
-    /// `knoepfe_unten` bleibt dann leer. `aktiv()` allein sagt das nicht: die
-    /// Erfassung kann aktiv sein, ohne dass dieser eine Druck gesendet wurde.
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    pub fn irgendein_knopf_unten(&self) -> bool {
-        !self.knoepfe_unten.is_empty()
-    }
-
     /// Zu welcher Fernsteuerungs-Sitzung diese Erfassung gehoert.
     ///
     /// Nur zum Vergleichen — gedeutet wird die Kennung hier nicht und ueber die

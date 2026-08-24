@@ -1589,6 +1589,18 @@ impl ApplicationHandler<UserEvent> for App {
         // wieder bei 0), die Sitzungskennung nicht — ohne diesen Filter koennte
         // ein Fenster einer FREMDEN Steuerung eine Platznummer beisteuern, die
         // drueben einen ganz anderen Bildschirm meint.
+        // **Ganz vorne, vor jeder Auswertung des Ereignisses:** liefert winit
+        // wieder ein Zeigerereignis, ist ein laufender Wayland-Zug vorbei (s.
+        // `wayland_zug`-Modulkopf, „Stolperstein 2"). Muss VOR
+        // `Erfassung::on_window_event` laufen — sonst stuende ein Druck, der
+        // gleich einen neuen Zug beginnt, schon in `knoepfe_unten`, wenn das
+        // Ende des ALTEN Zugs alles Gedrueckte freigibt, und ginge am fernen
+        // Rechner sofort wieder hoch. Auf Nicht-Linux und auf X11 ein
+        // Nichtstun.
+        self.wayland_zug_griff_pruefen(&event);
+        // Ob DIESER Druck bei der Erfassung ankam — das Tor fuer den Zug
+        // ueber die Fenstergrenze weiter unten (Review M-a).
+        let mut druck_angenommen = false;
         let eigene = self.sessions.get(&id).filter(|s| s.eingabe.aktiv());
         let erfasst = eigene.is_some();
         // **Besitzen, nicht ausleihen:** eine geliehene Kennung hielte die
@@ -1693,31 +1705,29 @@ impl ApplicationHandler<UserEvent> for App {
                     render::zoom_ausschnitt(&session.options),
                 );
                 session.eingabe.nachbarschaft_setzen(eigener_ursprung, kandidaten);
-                session.eingabe.on_window_event(&event, lage, antwort.verbraucht);
+                druck_angenommen =
+                    session.eingabe.on_window_event(&event, lage, antwort.verbraucht);
             }
         }
         // Wayland: der Zug ueber die Fenstergrenze beginnt im selben Zug, in
         // dem eben `Erfassung::knopf(..., true)` lief (s. `on_window_event`
         // oben, MouseInput-Zweig) — NACH der Ausleihe von `session` oben
         // (die braucht `wayland_zug_beginnen` selbst wieder, ueber `&mut
-        // self`). Nur bei einem echten Druck.
+        // self`).
         //
-        // **`irgendein_knopf_unten()`, NICHT `aktiv()`** (Review I2): `aktiv()`
-        // sagt nur, ob die Erfassung eingeschaltet ist — nicht, ob GENAU
-        // DIESER Druck bei ihr ankam. `on_window_event`s MouseInput-Zweig
-        // bricht vor `self.knopf(...)` ab, wenn die Bedienleiste den Zeiger
-        // greift oder er ausserhalb des Bildes steht; mit `aktiv()` allein
-        // haette ein Druck auf den Griff selbst oder auf den
-        // Lautstaerkeregler trotzdem einen Zug angestossen — `start_drag`
-        // haette dem GANZEN Fenster den Zeigerfokus fuer die Zug-Dauer
-        // entzogen, und egui haette danach weder Bewegung noch Loslassen
-        // gesehen: der Griff waere nicht mehr verschiebbar, der Regler nicht
-        // mehr ziehbar gewesen, genau waehrend einer laufenden
-        // Fernsteuerung. Auf Nicht-Linux und auf X11 ein Nichtstun (s.
-        // `wayland_zug`-Modulkopf).
-        if matches!(&event, WindowEvent::MouseInput { state: winit::event::ElementState::Pressed, .. })
-            && self.sessions.get(&id).is_some_and(|s| s.eingabe.irgendein_knopf_unten())
-        {
+        // **Das Tor ist DIESER Druck, nicht das Umfeld** (Review I2/M-a):
+        // `on_window_event` meldet zurueck, ob es ihn angenommen hat. `aktiv()`
+        // sagte nur, dass die Erfassung eingeschaltet ist;
+        // `irgendein_knopf_unten()` nur, dass irgendetwas unten ist — bei
+        // einem schon gehaltenen anderen Knopf oeffnete auch ein VERWORFENER
+        // Druck (auf dem Griff, auf dem Lautstaerkeregler, ausserhalb des
+        // Bildes) das Tor. `start_drag` haette dem GANZEN Fenster den
+        // Zeigerfokus fuer die Zug-Dauer entzogen, und egui haette danach
+        // weder Bewegung noch Loslassen gesehen: der Griff waere nicht mehr
+        // verschiebbar, der Regler nicht mehr ziehbar gewesen, genau waehrend
+        // einer laufenden Fernsteuerung. Auf Nicht-Linux und auf X11 ein
+        // Nichtstun (s. `wayland_zug`-Modulkopf).
+        if druck_angenommen {
             self.wayland_zug_beginnen(id);
         }
         match event {
