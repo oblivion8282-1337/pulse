@@ -834,7 +834,16 @@ In `streaming/pulse-player/src/app/mod.rs::window_event`, zwischen Zeile 1476 (`
         // verworfen. Das waere schlimmer als nichts zu tun — jede verworfene
         // Nachricht gibt beim Host ALLES Gedrueckte frei und risse die
         // Zieh-Geste ab.
-        let mut kandidaten: Vec<crate::fernsteuerung::Nachbar> = self
+        // **Nur wenn dieses Fenster ueberhaupt erfasst.** `window_event` laeuft
+        // bei jeder Mausbewegung — bis zu 144-mal je Sekunde. Eine Liste zu
+        // bauen und zu sortieren, waehrend die Fernsteuerung aus ist (die
+        // Vorgabe), waere genau die Art Kosten, die der Kommentar weiter unten
+        // ausdruecklich vermeidet („kostet das nur dieses `if`").
+        let erfasst = self.sessions.get(&id).is_some_and(|s| s.eingabe.aktiv());
+        let mut kandidaten: Vec<crate::fernsteuerung::Nachbar> = if !erfasst {
+            Vec::new()
+        } else {
+            self
             .sessions
             .iter()
             .filter(|(_, s)| s.eingabe.aktiv())
@@ -857,7 +866,8 @@ In `streaming/pulse-player/src/app/mod.rs::window_event`, zwischen Zeile 1476 (`
                     lage,
                 })
             })
-            .collect();
+            .collect()
+        };
         crate::fernsteuerung::vorrang(&mut kandidaten, id, self.zuletzt_fokussiert);
         // Die eigene Lage getrennt: sie macht aus fensterlokalen Zeigerpunkten
         // Desktop-Punkte. Fehlt sie, bleibt die Nachbarschaft ungenutzt.
@@ -1040,13 +1050,19 @@ Ohne diesen Schritt erreicht die Änderung **keinen einzigen Windows-Bestandscli
 
 - [ ] **Step 2: Changelog-Eintrag**
 
-Als **obersten** Eintrag in `entries` von `web/static/changelog.json`. Keine Emojis, echte Umlaute:
+Als **obersten** Eintrag in `entries` von `web/static/changelog.json`. Keine Emojis, echte Umlaute.
+
+**Die Kennung ist `2026-08-24.4`, nicht `2026-08-24`** — an diesem Tag stehen schon drei Einträge aus anderer Arbeit, der oberste ist `2026-08-24.3`. Vor dem Schreiben nachsehen und gegebenenfalls weiterzählen:
+
+```bash
+python3 -c "import json;print(json.load(open('web/static/changelog.json'))['entries'][0]['id'])"
+```
 
 ```json
 {
-  "id": "2026-08-24",
+  "id": "2026-08-24.4",
   "date": "2026-08-24",
-  "style": "sachlich",
+  "style": "Sachlich",
   "title": "Fernsteuerung: zwischen zwei Bildschirmen ziehen",
   "intro": "Wer einen Rechner mit mehreren Bildschirmen fernsteuert, kann jetzt mit gedrueckter Maustaste von einem Player-Fenster ins andere ziehen.",
   "items": [
