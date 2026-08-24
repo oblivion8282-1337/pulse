@@ -18,6 +18,7 @@
  */
 import type { GsrMonitor, GsrWindow } from './gsr';
 import { windowDisplayName } from './windowName';
+import { monitorNummer } from './settingsCatalog';
 import {
   MONITOR_CAPTURE_PREFIX,
   WINDOW_CAPTURE_PREFIX,
@@ -30,6 +31,16 @@ export type StreamIcon = 'monitor' | 'app' | 'generic';
 export interface StreamLabel {
   label: string;
   icon: StreamIcon;
+  /**
+   * Welchen Bildschirm des Hosts dieser Strom zeigt — 1-basiert, passend zur
+   * Aufnahmequelle `Monitor: <index>`.
+   *
+   * **Der Name allein reicht nicht.** Zwei baugleiche Monitore heissen gleich;
+   * wer nur den Namen ueber den Draht schickt, macht die Zuordnung beim
+   * Zuschauer unmoeglich (Fehler vom 2026-08-24). `undefined` bei
+   * Fenster-Aufnahmen und beim Linux-Portal.
+   */
+  monitorIndex?: number;
 }
 
 export interface StreamCatalogs {
@@ -49,10 +60,10 @@ export function resolveStreamLabel(
   if (!src || src === 'portal') return fallback;
 
   if (src.startsWith(MONITOR_CAPTURE_PREFIX)) {
-    const idx = Number(src.slice(MONITOR_CAPTURE_PREFIX.length));
-    const mon = catalogs.monitors.find((m) => m.index === idx);
-    if (mon?.name) return { label: mon.name, icon: 'monitor' };
-    if (Number.isInteger(idx)) return { label: `Monitor ${idx}`, icon: 'monitor' };
+    const idx = monitorNummer(src);
+    const mon = idx === undefined ? undefined : catalogs.monitors.find((m) => m.index === idx);
+    if (mon?.name) return { label: mon.name, icon: 'monitor', monitorIndex: idx };
+    if (idx !== undefined) return { label: `Monitor ${idx}`, icon: 'monitor', monitorIndex: idx };
     return fallback;
   }
 
