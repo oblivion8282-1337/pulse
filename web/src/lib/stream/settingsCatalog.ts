@@ -311,6 +311,39 @@ export function monitorNummer(captureSource: string | undefined | null): number 
   return Number.isInteger(n) && n >= 0 ? n : undefined;
 }
 
+/** Was die Zuordnung von einem Strom braucht. Absichtlich schmal — so laesst
+ *  sie sich ohne Stores pruefen. */
+export interface StromKennung {
+  label?: string;
+  monitor_index?: number;
+}
+
+/** Und was sie von einem Bildschirm braucht. */
+export interface MonitorKennung {
+  index: number;
+  name: string;
+}
+
+/**
+ * Zeigt dieser Strom diesen Bildschirm?
+ *
+ * **Die Nummer gewinnt.** Traegt der Strom eine, entscheidet allein sie — auch
+ * wenn der Name danebenliegt (umbenannter Monitor, andere Sprache, fehlender
+ * EDID-Name). Der Namensvergleich bleibt als Rueckfall fuer Klienten, die die
+ * Nummer noch nicht mitschicken; er ist nachsichtig bei Rand und
+ * Gross-/Kleinschreibung, weil ein Unterschied dort nicht auffaellt, sondern
+ * still das Falsche tut.
+ *
+ * **Der Grund fuer die Nummer:** zwei baugleiche Monitore heissen gleich. Ohne
+ * sie passt derselbe Strom auf beide, und die Zuordnung ist nicht zu treffen.
+ */
+export function stromPasstZuMonitor(strom: StromKennung, mon: MonitorKennung): boolean {
+  if (typeof strom.monitor_index === 'number') return strom.monitor_index === mon.index;
+  const a = strom.label?.trim().toLowerCase();
+  if (!a) return false;
+  return a === mon.name.trim().toLowerCase() || a === `monitor ${mon.index}`;
+}
+
 export function isAppAudioMode(mode: string): boolean {
   return mode.startsWith(APP_AUDIO_PREFIX);
 }

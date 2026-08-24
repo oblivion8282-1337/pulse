@@ -23,6 +23,7 @@
 import type { Device, DeviceMonitor } from '$lib/api/devices';
 import { geraetWecken } from './wecken';
 import { streamPresence } from '$lib/stores/streamPresence.svelte';
+import { stromPasstZuMonitor } from '$lib/stream/settingsCatalog';
 import { openedTiles } from '$lib/stream/openedTiles.svelte';
 import { hqTileId } from '$lib/stream/hqTile';
 import { nativeWindowRequests } from '$lib/player/wuensche.svelte';
@@ -62,20 +63,21 @@ type Strom = ReturnType<typeof stroemeVon>[number];
 /**
  * Zeigt dieser Strom diesen Bildschirm?
  *
- * Verglichen wird der **Name**, den das Gerät beim Start mitgeschickt hat
- * (`stream/starten.ts` nimmt ihn aus der wirklich aufgenommenen Quelle) — das
- * ist der einzige Weg, auf dem die Zuordnung Strom→Bildschirm über den Draht
- * kommt. Beide Enden lesen ihn aus derselben Aufzählung, gleich sollten sie
- * also sein; **verglichen wird trotzdem nachsichtig** (Rand und Gross-/
- * Kleinschreibung egal), weil ein Unterschied hier nicht auffällt, sondern
- * still das Falsche tut: der Schirm gälte als frei und stünde erneut zur Wahl.
+ * **Die Nummer gewinnt, wenn sie da ist** (`monitor_index`, die Bildschirm-
+ * Nummer, die das Gerät beim Start wirklich aufgenommen hat) — die reine Regel
+ * dazu sitzt in `settingsCatalog.ts::stromPasstZuMonitor`, importfrei und
+ * daher für Nodes eingebauten Testläufer erreichbar (diese Datei zieht Stores
+ * und ist es nicht). Nur Klienten, die die Nummer noch nicht mitschicken,
+ * fallen auf den **Namen** zurück, den das Gerät beim Start mitgeschickt hat
+ * (`stream/starten.ts` nimmt ihn aus der wirklich aufgenommenen Quelle);
+ * **verglichen wird dort nachsichtig** (Rand und Gross-/Kleinschreibung egal),
+ * weil ein Unterschied hier nicht auffällt, sondern still das Falsche tut: der
+ * Schirm gälte als frei und stünde erneut zur Wahl.
  */
-function passt(strom: { label?: string }, mon: DeviceMonitor): boolean {
-  // Ohne Namen ist nichts zuzuordnen — dann passt dieser Strom zu keinem
-  // Bildschirm. Genau dieser Fall greift unten den Hauptbildschirm auf.
-  const a = strom.label?.trim().toLowerCase();
-  if (!a) return false;
-  return a === mon.name.trim().toLowerCase() || a === `monitor ${mon.index}`;
+function passt(strom: { label?: string; monitor_index?: number }, mon: DeviceMonitor): boolean {
+  // Ohne Nummer und ohne Namen ist nichts zuzuordnen — dann passt dieser Strom
+  // zu keinem Bildschirm. Genau dieser Fall greift unten den Hauptbildschirm auf.
+  return stromPasstZuMonitor(strom, mon);
 }
 
 /**
@@ -132,14 +134,43 @@ function zuordnung(device: Device): Map<number, Strom> {
     if (treffer) karte.set(mon.index, treffer);
   }
   const geraetePlaetze = new Set(device.stream_slots ?? []);
+  // Ein Strom MIT Nummer ist nie "namenlos" — auch dann nicht, wenn seine
+  // Nummer zu keinem aktuell gemeldeten Schirm passt (Profil auf eine
+  // inzwischen verschwundene Quelle gestellt). Er darf über diesen Notbehelf
+  // nie einem anderen Bildschirm zugeschlagen werden: die Nummer ist eine
+  // ausdrueckliche, verlaessliche Angabe, kein Ratefall wie ein fehlender Name.
   const namenlos = stroeme.find(
-    (s) => geraetePlaetze.has(s.slot) && !liste.some((mon) => passt(s, mon)),
+    (s) =>
+      s.monitor_index === undefined &&
+      geraetePlaetze.has(s.slot) &&
+      !liste.some((mon) => passt(s, mon)),
   );
   const haupt = liste.find((mon) => mon.primary);
   // Einen Schirm, der schon seinen eigenen Strom hat, nicht überschreiben:
   // der zugeordnete ist der genauere.
   if (namenlos && haupt && !karte.has(haupt.index)) karte.set(haupt.index, namenlos);
   return karte;
+}
+
+/** Ist die Zuordnung Strom → Bildschirm fuer dieses Geraet eindeutig?
+ *
+ *  Unklar wird sie, wenn ein Strom OHNE Nummer auf mehr als einen Bildschirm
+ *  passen wuerde — zwei baugleiche Monitore beim Host und ein Klient, der die
+ *  Nummer noch nicht mitschickt. Teil 2 behauptet dann kein „du bist hier":
+ *  ein fehlender Hinweis faellt auf und ist harmlos, ein falscher faellt nicht
+ *  auf.
+ *
+ *  Rechnet ueber dieselben Bausteine wie `zuordnung()` (`stroemeVon`,
+ *  `monitorListe`, `passt`) — keine zweite Aufloesung daneben, sonst liefen
+ *  beide auseinander. Ein Strom MIT Nummer gilt immer als eindeutig — genau
+ *  deshalb wurde sie eingefuehrt. */
+export function zuordnungEindeutig(device: Device): boolean {
+  const stroeme = stroemeVon(device);
+  const liste = monitorListe(device);
+  return stroeme.every((s) => {
+    if (s.monitor_index !== undefined) return true;
+    return liste.filter((mon) => passt(s, mon)).length <= 1;
+  });
 }
 
 /** Die Bildschirme eines Geräts, jeder mit „läuft schon". */

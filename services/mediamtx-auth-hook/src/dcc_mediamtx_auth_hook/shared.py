@@ -41,7 +41,8 @@ CHANNEL_STATE_KEY = "stream:channel:{channel_id}"
 
 # Pub/Sub channel — media-svc publishes per-channel stream-state changes here,
 # chat-gateway subscribes and re-broadcasts. Payload (full set after the change):
-#   {"channel_id": "<id>", "user_ids": ["<id>", ...], "streams"?: [{"user_id", "slot"}]}
+#   {"channel_id": "<id>", "user_ids": ["<id>", ...],
+#    "streams"?: [{"user_id", "slot", "label"?, "monitor_index"?}]}
 STREAM_EVENTS_CHANNEL = "stream:events"
 
 
