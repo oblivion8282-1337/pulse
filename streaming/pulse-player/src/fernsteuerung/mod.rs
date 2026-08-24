@@ -20,6 +20,8 @@ pub(crate) mod rahmen;
 mod schlange;
 mod strom;
 mod tasten;
+#[cfg(target_os = "linux")]
+mod wayland;
 mod winit_abbild;
 mod ziel;
 
