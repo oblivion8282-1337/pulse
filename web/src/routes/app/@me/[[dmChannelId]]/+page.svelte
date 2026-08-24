@@ -277,7 +277,7 @@
      schmale Seitenleiste neben dem Chat. -->
 {#if viewport.isMobile}
   {#if !dmChannelId}
-    <MobileChatsList onSelect={selectDM} onCompose={() => goto('/app/friends')} />
+    <MobileChatsList onSelect={selectDM} />
   {/if}
 {:else}
   <DMChannelList activeDMId={dmChannelId || null} onSelect={selectDM} />
