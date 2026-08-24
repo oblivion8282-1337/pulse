@@ -48,10 +48,11 @@
         "Mit gedrückter Maustaste lässt sich von einem Fenster ins andere ziehen: ein Fenster auf den anderen Bildschirm schieben, eine Datei zwischen zwei Anwendungen ablegen.",
         "Der Zeiger folgt dabei Ihrer eigenen Maus. Sobald sie über dem anderen Fenster steht, springt er auf die passende Stelle des zugehörigen Bildschirms.",
         "Das Menü zeigt eine maßstäbliche Karte der Bildschirme des fernen Rechners. Sie sehen, welchen davon Sie gerade vor sich haben und wo er drüben steht.",
+        "Ein Antippen holt den zugehörigen Bildschirm dazu, oder sein Fenster nach vorne, wenn es schon offen ist.",
         "Ein Knopf ordnet Ihre Fenster so an, wie die Bildschirme drüben stehen.",
         "Jeder Bildschirm wird jetzt eindeutig seinem Fenster zugeordnet. Bisher konnte bei gleich benannten Bildschirmen der falsche erwischt werden."
       ],
-      "outro": "Der ferngesteuerte Rechner muss Windows oder macOS sein."
+      "outro": "Der ferngesteuerte Rechner muss Windows oder macOS sein. Mehrere Fenster gibt es bei eingetragenen Standplatz-Geräten."
     },
     {
       "id": "2026-08-24.3",
