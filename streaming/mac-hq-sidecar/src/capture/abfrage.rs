@@ -63,6 +63,19 @@ pub(super) fn shareable_content() -> Result<Retained<SCShareableContent>> {
     }
 }
 
+/// One edge of a display rect, as an integer for the wire.
+///
+/// `CGDisplayBounds` returns `CGRectNull` for an invalid display id, and
+/// `CGRectNull`'s origin is **infinite**, not zero. A plain `as i64` saturates
+/// to `i64::MAX` in Rust — which is neither a plausible coordinate nor the
+/// `0`/`0` fallback the Windows sidecar sends when its own lookup fails, and
+/// which the player's screen map is built around (see `DisplayInfo::x`).
+/// Unreachable in practice (the ids come from `SCShareableContent.displays()`),
+/// three lines cheaper than a wrong number on the wire.
+fn bildschirmkante(wert: f64) -> i64 {
+    if wert.is_finite() { wert as i64 } else { 0 }
+}
+
 /// Enumerate displays for `list_monitors`.
 pub fn list_displays() -> Result<Vec<DisplayInfo>> {
     let content = shareable_content()?;
@@ -77,8 +90,8 @@ pub fn list_displays() -> Result<Vec<DisplayInfo>> {
         // Top-left corner in screen coordinates. Same source `remote_input/
         // ziel.rs::rechteck` already uses for the click-mapping rectangle.
         let bounds = CGDisplayBounds(display_id);
-        let x = bounds.origin.x as i64;
-        let y = bounds.origin.y as i64;
+        let x = bildschirmkante(bounds.origin.x);
+        let y = bildschirmkante(bounds.origin.y);
         out.push(DisplayInfo {
             index: i + 1,
             display_id,

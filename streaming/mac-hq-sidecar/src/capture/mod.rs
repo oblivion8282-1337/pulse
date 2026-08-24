@@ -90,10 +90,21 @@ pub struct DisplayInfo {
     pub height: i64,
     pub refresh_hz: i64,
     /// Top-left corner in screen coordinates (`CGDisplayBounds`), for the
-    /// screen map in the player. `CGDisplayBounds` cannot fail (unlike
-    /// Windows' `GetMonitorInfoW`) — an unresolvable display id yields a zero
-    /// rect, so `x`/`y` come out `0`/`0` on their own, same convention as the
-    /// explicit Windows fallback.
+    /// screen map in the player.
+    ///
+    /// `CGDisplayBounds` has no failure return, but for an invalid display id
+    /// Apple documents `CGRectNull` — and `CGRectNull` is **not** the zero
+    /// rect: its origin is infinite. `f64::INFINITY as i64` saturates in Rust,
+    /// so a raw cast would put `9223372036854775807` on the wire, not `0`.
+    /// That is why `abfrage.rs` maps a non-finite origin to `0` explicitly —
+    /// only with that step is this the same convention as the explicit Windows
+    /// fallback (`win-hq-sidecar/src/ops/list_monitors.rs`), which is what the
+    /// player's screen map expects.
+    ///
+    /// Unreachable in practice: the ids come from `SCShareableContent
+    /// .displays()`, so they are valid by construction. The comment that stood
+    /// here until 2026-08-25 ("yields a zero rect") was inferred from the docs
+    /// and wrong.
     pub x: i64,
     pub y: i64,
 }

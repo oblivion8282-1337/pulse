@@ -60,8 +60,19 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
                 .or_else(|_| m.device_name())
                 .unwrap_or_else(|_| format!("Monitor {index}"));
             // Schlägt `GetMonitorInfoW` fehl, wird 0/0 gemeldet statt das Feld
-            // wegzulassen — ein fehlendes Feld liesse die Karte im Player raten,
-            // 0/0 ist erkennbar falsch und dort behandelbar.
+            // wegzulassen — ein fehlendes Feld liesse die Karte im Player raten.
+            //
+            // **0/0 ist NICHT von einem echten 0/0 unterscheidbar**, und der
+            // Satz „erkennbar falsch und dort behandelbar", der hier bis zum
+            // 2026-08-25 stand, hielt nur für den Sonderfall gleicher
+            // Auflösung: bei einem sekundären Monitor mit anderer Auflösung
+            // liegt sein Rechteck dann nicht deckungsgleich über dem des
+            // Primärmonitors, sondern ineinander geschoben. Behandelt wird das
+            // im Player über eine Überschneidungs-Prüfung
+            // (`pulse-player/src/app/anordnen::ueberschneiden`) — die erwischt
+            // beides und nebenbei echte Bildschirmspiegelung; erkennen kann
+            // sie den Fehler trotzdem nicht, sie fällt nur auf die Knopfliste
+            // zurück, statt eine Anordnung zu behaupten.
             let (x, y) = monitor_rect(m).map(|r| (r.left, r.top)).unwrap_or((0, 0));
             json!({
                 "index": index,

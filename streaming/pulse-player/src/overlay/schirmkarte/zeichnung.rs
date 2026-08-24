@@ -47,6 +47,7 @@ pub(crate) fn zeichnen(
     let markiert = schirme.iter().any(|s| s.dieses_fenster);
 
     let mut schliessen = false;
+    let auf_der_karte: Vec<usize> = plaetze.iter().map(|(i, _)| *i).collect();
     for (i, lokal) in plaetze {
         let schirm = &schirme[i];
         let bereich = lokal.translate(karte.min.to_vec2());
@@ -73,9 +74,69 @@ pub(crate) fn zeichnen(
         }
     }
 
+    schliessen |= nachzuegler(ui, schirme, &auf_der_karte, markiert, actions);
+
     if let Some(text) = satz(schirme) {
         ui.add_space(4.0);
         ui.label(egui::RichText::new(text).font(theme::font_xs()).color(theme::TEXT_DIM));
+    }
+    schliessen
+}
+
+/// Schirme, fuer die die Karte keinen Platz hat — als Knopf unter der Karte
+/// nachgereicht.
+///
+/// **Warum es die ueberhaupt gibt:** [`kaestchen`] verlangt alle vier
+/// Lagezahlen mit einer Groesse groesser Null (`rechnung::brauchbare`), und
+/// die koennen einzeln fehlen — schon eine gescheiterte Groessen-Abfrage an
+/// EINEM Monitor genuegt (`win-hq-sidecar/src/ops/list_monitors.rs` schickt
+/// dafuer `0`). Sind die anderen zwei vollstaendig, wird die Karte gezeichnet
+/// und der dritte taucht **gar nicht** auf: auch nicht als „+"-Knopf, denn
+/// die Knopfliste in [`super::super::fernbedienung`] greift nur, wenn
+/// [`super::rechnung::darstellbar`] insgesamt nein sagt. Ohne diese Zeilen
+/// verschwaende mit dem Kaestchen auch die Moeglichkeit, den Schirm zu holen.
+///
+/// Die Klick-Regeln sind dieselben wie bei den Kaestchen: das eigene Fenster
+/// ist tot, ein offenes fremdes holt sein Fenster nach vorn (aber nur, wenn
+/// eine Markierung existiert — sonst faende die Fokus-Suche in `app::anordnen`
+/// kein Ziel), ein nicht offenes schaltet dazu.
+fn nachzuegler(
+    ui: &mut egui::Ui,
+    schirme: &[Schirm],
+    auf_der_karte: &[usize],
+    markiert: bool,
+    actions: &mut Vec<OverlayAction>,
+) -> bool {
+    let mut schliessen = false;
+    for (i, schirm) in schirme.iter().enumerate() {
+        if auf_der_karte.contains(&i) || schirm.dieses_fenster || (schirm.open && !markiert) {
+            continue;
+        }
+        // Beide Sidecars fuellen den Namen immer; ein leerer Knopf waere aber
+        // nicht zu treffen, und die Nummer steht ohnehin fest.
+        let name = if schirm.name.is_empty() {
+            format!("Bildschirm {}", schirm.index)
+        } else {
+            schirm.name.clone()
+        };
+        let beschriftung = if schirm.open { name } else { format!("+ {name}") };
+        if ui
+            .add(
+                egui::Button::new(
+                    egui::RichText::new(beschriftung).font(theme::font_xs()).color(theme::TEXT),
+                )
+                .fill(theme::GRUPPE_BG)
+                .corner_radius(theme::RADIUS_MD),
+            )
+            .clicked()
+        {
+            schliessen = true;
+            actions.push(if schirm.open {
+                OverlayAction::RemoteScreenFocus(schirm.index)
+            } else {
+                OverlayAction::RemoteScreen(schirm.index)
+            });
+        }
     }
     schliessen
 }

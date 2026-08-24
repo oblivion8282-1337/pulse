@@ -732,6 +732,12 @@ impl App {
     /// was der Nutzer im Fenster ausgeloest hat — angewandt wird es erst danach
     /// (`apply_overlay_action`), weil dafuer die Sitzung erneut geliehen wird.
     fn draw(&mut self, id: u64) -> Vec<OverlayAction> {
+        // **Vor der Ausleihe auf EINE Sitzung.** Ob der Knopf „Fenster wie
+        // drueben anordnen" etwas bewirken wuerde, haengt an ALLEN Fenstern
+        // dieser Fernsteuerungs-Sitzung — `draw_inner` haelt aber gleich nur
+        // noch eine davon. Begruendung, warum das je Durchgang und nicht bei
+        // jeder Aenderung geschieht: `anordnen::anwenden`.
+        self.anordnen_bereitschaft_nachziehen(id);
         let draw_uhr = std::time::Instant::now();
         let ergebnis = self.draw_inner(id);
         let us = draw_uhr.elapsed().as_micros() as u64;
@@ -1250,13 +1256,13 @@ impl App {
             // Gesucht wird ueber ALLE Sitzungen: dieses Fenster (das den
             // Klick ausgeloest hat) kennt nur seine EIGENE Kopie von
             // `remote_screens` und weiss nicht, welche Sitzungsnummer der
-            // andere Bildschirm traegt. Gefunden ist die Sitzung, deren
-            // eigene Liste den Bildschirm als `dieses_fenster` fuehrt.
+            // andere Bildschirm traegt. Die Suche selbst liegt in
+            // `anordnen::anwenden` — sie ist dasselbe Zielkriterium, das der
+            // Anordnen-Knopf braucht (Bildschirmnummer UND laufende Erfassung
+            // UND dieselbe Fernsteuerungs-Sitzung), und stand hier bis zum
+            // 2026-08-25 ohne die letzten beiden.
             OverlayAction::RemoteScreenFocus(monitor) => {
-                let ziel = self.sessions.values().find(|s| {
-                    s.fern_schirme.iter().any(|schirm| schirm.index == monitor && schirm.dieses_fenster)
-                });
-                if let Some(session) = ziel {
+                if let Some(session) = self.fenster_fuer_schirm(id, monitor) {
                     session.window.focus_window();
                 }
             }
@@ -1607,7 +1613,15 @@ impl ApplicationHandler<UserEvent> for App {
         // Ausleihe auf `self.sessions` bis hinter das `get_mut` weiter unten.
         let eigene_sitzung = eigene.and_then(|s| s.eingabe.sitzung()).map(str::to_owned);
         let eigene_skalierung = eigene.map(|s| s.window.scale_factor());
-        let mut kandidaten: Vec<crate::fernsteuerung::Nachbar> = if !erfasst {
+        // **Ohne eigene Sitzungskennung gibt es keine Nachbarschaft.**
+        // `Erfassung::einschalten` laesst `sitzung: None` ausdruecklich zu
+        // („unbekannt", `fernsteuerung/strom.rs`) — der Vergleich unten waere
+        // dann `None == None` und damit ein TREFFER, also das Gegenteil der
+        // Zusage „wer nicht weiss, wem er etwas schickt, schickt es nicht".
+        // Einmal hier statt in der Bedingung darunter: die haengt in einer
+        // Schleife ueber alle Sitzungen, die Antwort ist fuer alle dieselbe.
+        let ohne_ziel = !erfasst || eigene_sitzung.is_none();
+        let mut kandidaten: Vec<crate::fernsteuerung::Nachbar> = if ohne_ziel {
             Vec::new()
         } else {
             self

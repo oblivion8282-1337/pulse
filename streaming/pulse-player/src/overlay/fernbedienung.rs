@@ -230,15 +230,30 @@ impl Overlay {
                             } else {
                                 self.bildschirm_knopfliste(ui, actions);
                             }
-                            // **Nur bei mehr als einem OFFENEN Schirm** — bei
-                            // einem gibt es nichts anzuordnen — **und nur,
-                            // wenn die Oberflaeche Fenster ueberhaupt setzen
-                            // kann.** Unter Wayland ist `set_outer_position`
-                            // ein stiller Leerlauf (`anordnen::
-                            // fenster_setzen_moeglich`); ein Knopf, der dort
-                            // wortlos nichts tut, ist schlimmer als keiner.
-                            let offene = self.fern_schirme.iter().filter(|s| s.open).count();
-                            if offene > 1 && anordnen::fenster_setzen_moeglich(window) {
+                            // **Nur, wenn der Knopf auch etwas bewirkt** — ein
+                            // Knopf, der wortlos nichts tut, ist schlimmer als
+                            // keiner. Zwei Bedingungen, und beide stammen aus
+                            // genau den Daten, an denen auch die Wirkung
+                            // haengt:
+                            //
+                            // * `fern_anordenbar` rechnet die App aus den
+                            //   Schirmen ALLER Fenster dieser Sitzung — mit
+                            //   derselben Sammlung und demselben Tor, die
+                            //   `App::fenster_anordnen` danach benutzt
+                            //   (`app::anordnen`). Hier stand bis zum
+                            //   2026-08-25 „mehr als ein offener Schirm", und
+                            //   das war eine unabhaengig formulierte zweite
+                            //   Bedingung: bei einer aelteren Gegenstelle ohne
+                            //   Lagen, bei mehrdeutiger Zuordnung
+                            //   Strom-zu-Bildschirm und bei nur EINEM Fenster
+                            //   mit vollstaendiger Lage stand der Knopf da und
+                            //   tat nichts.
+                            // * Unter Wayland ist `set_outer_position` ein
+                            //   stiller Leerlauf (`anordnen::
+                            //   fenster_setzen_moeglich`). Das haengt an der
+                            //   Oberflaeche und nicht an den Schirmen, deshalb
+                            //   fragt es dieses Fenster selbst.
+                            if self.fern_anordenbar && anordnen::fenster_setzen_moeglich(window) {
                                 ui.add_space(6.0);
                                 if ui
                                     .add(
