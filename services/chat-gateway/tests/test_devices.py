@@ -803,6 +803,114 @@ async def test_bildschirmnummern_ueber_der_grenze_fallen_weg():
     assert [m["index"] for m in _monitore(roh)] == [1]
 
 
+# ── Lage und Groesse eines gemeldeten Bildschirms (Bildschirm-Karte) ────────
+
+
+def test_monitor_mit_lage_und_groesse_kommt_vollstaendig_durch():
+    """Meldet ein Gerät alle vier Zahlen, reisen sie unverändert mit — die
+    Bildschirm-Karte im Overlay braucht sie, um massstäblich zu zeichnen."""
+    from dcc_chat_gateway.routes.ws_device_handlers import _monitore
+
+    roh = [
+        {
+            "index": 1,
+            "name": "HDMI-1",
+            "primary": True,
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+        }
+    ]
+    [monitor] = _monitore(roh)
+    assert monitor == {
+        "index": 1,
+        "name": "HDMI-1",
+        "primary": True,
+        "x": 0,
+        "y": 0,
+        "width": 1920,
+        "height": 1080,
+    }
+
+
+def test_monitor_ohne_lage_kommt_weiterhin_durch():
+    """Ein älteres Gerät, dessen Sidecar die vier Zahlen noch nicht kennt,
+    darf nicht aus der Liste fallen — nur die vier Felder fehlen dann."""
+    from dcc_chat_gateway.routes.ws_device_handlers import _monitore
+
+    roh = [{"index": 1, "name": "HDMI-1", "primary": True}]
+    [monitor] = _monitore(roh)
+    assert monitor == {"index": 1, "name": "HDMI-1", "primary": True}
+    assert "x" not in monitor
+    assert "y" not in monitor
+    assert "width" not in monitor
+    assert "height" not in monitor
+
+
+def test_negative_lage_ist_gueltig():
+    """**Der Fund, der lautlos zuschlägt:** ein Monitor links vom
+    Hauptbildschirm hat ein negatives ``x``, einer darüber ein negatives
+    ``y`` — die häufigste Mehrschirm-Aufstellung. Eine ``>= 0``-Prüfung würfe
+    genau diesen Fall weg."""
+    from dcc_chat_gateway.routes.ws_device_handlers import _monitore
+
+    roh = [{"index": 2, "x": -1920, "y": -200, "width": 1920, "height": 1080}]
+    [monitor] = _monitore(roh)
+    assert monitor["x"] == -1920
+    assert monitor["y"] == -200
+
+
+def test_unfug_wird_je_feld_weggelassen_monitor_bleibt():
+    """Zeichenkette, ``null``, Kommazahl und ein nicht-positiver Wert führen
+    zum Weglassen NUR des betroffenen Felds — nie zum Verwerfen des ganzen
+    Monitors, und es wird keine Zahl geraten."""
+    from dcc_chat_gateway.routes.ws_device_handlers import _monitore
+
+    roh = [
+        {
+            "index": 1,
+            "name": "HDMI-1",
+            "x": "links",  # Zeichenkette
+            "y": None,  # null
+            "width": 1920.5,  # Kommazahl
+            "height": 0,  # nicht positiv — Breite/Höhe müssen es sein
+        }
+    ]
+    [monitor] = _monitore(roh)
+    assert monitor["index"] == 1
+    assert monitor["name"] == "HDMI-1"
+    assert "x" not in monitor
+    assert "y" not in monitor
+    assert "width" not in monitor
+    assert "height" not in monitor
+
+
+def test_negative_breite_und_hoehe_fallen_weg():
+    """Anders als ``x``/``y`` müssen ``width``/``height`` positiv sein — ein
+    Bildschirm ohne Ausdehnung ist Unfug, keine gültige Lage."""
+    from dcc_chat_gateway.routes.ws_device_handlers import _monitore
+
+    roh = [{"index": 1, "width": -1920, "height": 1080}]
+    [monitor] = _monitore(roh)
+    assert "width" not in monitor
+    assert monitor["height"] == 1080
+
+
+def test_max_monitors_bleibt_wirksam_mit_lage_und_groesse():
+    """Die vier zusätzlichen Zahlen dürfen die Acht-Schirme-Grenze nicht
+    aufweichen — dieselbe Kürzung wie zuvor, jetzt mit vollen Monitoren."""
+    from dcc_chat_gateway.routes.ws_device_handlers import MAX_MONITORS, _monitore
+
+    roh = [
+        {"index": i, "x": i, "y": i, "width": 1920, "height": 1080}
+        for i in range(1, MAX_MONITORS + 2)
+    ]
+    ergebnis = _monitore(roh)
+    assert len(ergebnis) == MAX_MONITORS
+    assert all(m["width"] == 1920 for m in ergebnis)
+
+
 # ── Die Bindung einer Fernsteuer-Anfrage an den Standplatz ──────────────────
 #
 # Der schwerste Fund des Hunts: die Anfrage prüfte die Rechte in dem Kanal, den

@@ -4,6 +4,7 @@
  * Builder → der gegebene `sendRaw` queuet sie.
  */
 
+import type { DeviceMonitor } from '$lib/api/devices';
 import type { ClientEvent, RemoteSignalKind } from './handlers/types';
 
 export type SendRaw = (evt: ClientEvent) => boolean;
@@ -163,7 +164,9 @@ export function sendRemoteSignal(
 export function sendDeviceAnnounce(
   send: SendRaw,
   deviceId: string,
-  monitors: { index: number; name: string; primary: boolean }[] = [],
+  // `DeviceMonitor` statt eines eigenen Inline-Typs — s. Kommentar dort
+  // (`$lib/api/devices.ts`): dieselbe Form geht raus wie später zurückkommt.
+  monitors: DeviceMonitor[] = [],
 ): boolean {
   // Die Bildschirme reisen mit der Anmeldung, weil nur der Rechner sie kennt —
   // und weil der Steuernde sie braucht, um „Monitor 2 dazuschalten" ueberhaupt

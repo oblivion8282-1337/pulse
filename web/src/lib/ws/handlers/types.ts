@@ -503,7 +503,10 @@ export type ClientEvent =
   | {
       op: 'device_announce';
       device_id: string;
-      monitors: { index: number; name: string; primary: boolean }[];
+      // `DeviceMonitor` statt eines eigenen Inline-Typs — s. Kommentar dort
+      // (`$lib/api/devices.ts`): dieselbe Form wie im eingehenden
+      // `device_state` oben (L434), nur diesmal ausgehend.
+      monitors: DeviceMonitor[];
     }
   | { op: 'device_wake'; device_id: string; monitor?: number }
   // „Ich sende gerade auf diesen Plaetzen." Der Server kann es nicht ableiten:

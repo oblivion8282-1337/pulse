@@ -98,13 +98,45 @@ def _takt_frei(ctx: Any, feld: str) -> bool:
     return True
 
 
+#: Grenze für die Lage (``x``/``y``) und Grösse (``width``/``height``) eines
+#: gemeldeten Bildschirms, in Bildpunkten. Grosszügig genug für eine breite
+#: Mehrschirm-Aufstellung (mehrere 8K-Panels nebeneinander bleiben weit
+#: darunter), aber eng genug, um eine offensichtlich kaputte Zahl abzufangen.
+_MONITOR_KOORDINATE_GRENZE = 100_000
+
+
+def _ganzzahl(wert: Any, *, minimum: int, maximum: int = _MONITOR_KOORDINATE_GRENZE) -> int | None:
+    """Eine gemeldete Zahl entweder als echte, plausible Ganzzahl zurückgeben
+    oder ``None`` — nie geraten, nie stillschweigend gerundet oder
+    umgewandelt. ``bool`` ist in Python eine ``int``-Unterklasse (``True``
+    wäre sonst still die 1) und wird deshalb ausdrücklich ausgeschlossen.
+    """
+    if isinstance(wert, bool) or not isinstance(wert, int):
+        return None
+    if not minimum <= wert <= maximum:
+        return None
+    return wert
+
+
 def _monitore(roh: Any) -> list[dict]:
     """Die gemeldete Bildschirmliste auf das Nötige eindampfen.
 
-    Übernommen wird nur, was die Geräteansicht wirklich zeigt — Nummer, Name,
-    ob es der Hauptbildschirm ist. Alles andere (Auflösung, Bildwiederholrate)
-    stünde hier als Zahl, die niemand liest und die beim nächsten Umstecken
-    falsch ist.
+    Übernommen werden Nummer, Name, ob es der Hauptbildschirm ist — und, wenn
+    das Gerät sie meldet, Lage (``x``/``y``) und Grösse (``width``/
+    ``height``). Hier stand früher die gegenteilige Begründung („Auflösung
+    steht hier als Zahl, die niemand liest"); sie stimmt nicht mehr, seit die
+    Bildschirm-Karte im Overlay genau diese vier Zahlen liest, um die Schirme
+    massstäblich zu zeichnen.
+
+    Jede der vier Zahlen wird EINZELN geprüft und EINZELN weggelassen, wenn
+    sie fehlt oder Unfug ist (Zeichenkette, ``null``, Kommazahl, ausserhalb
+    des plausiblen Bereichs) — der Monitor selbst bleibt in der Liste, und
+    ein älteres Gerät, dessen Sidecar die vier Zahlen noch nicht kennt, kommt
+    weiterhin sauber durch. ``x``/``y`` dürfen NEGATIV sein — ein Monitor
+    links vom oder über dem Hauptbildschirm hat eine negative Lage, und das
+    ist die häufigste Mehrschirm-Aufstellung, nicht die Ausnahme. ``width``/
+    ``height`` müssen dagegen positiv sein: ein Bildschirm ohne Ausdehnung
+    ist Unfug.
     """
     if not isinstance(roh, list):
         return []
@@ -120,13 +152,24 @@ def _monitore(roh: Any) -> list[dict]:
         # sind davon aber unberuehrt.
         if not isinstance(index, int) or not 1 <= index <= MAX_MONITORS:
             continue
-        raus.append(
-            {
-                "index": index,
-                "name": str(eintrag.get("name") or f"Monitor {index}")[:64],
-                "primary": eintrag.get("primary") is True,
-            }
-        )
+        monitor: dict = {
+            "index": index,
+            "name": str(eintrag.get("name") or f"Monitor {index}")[:64],
+            "primary": eintrag.get("primary") is True,
+        }
+        lage_x = _ganzzahl(eintrag.get("x"), minimum=-_MONITOR_KOORDINATE_GRENZE)
+        if lage_x is not None:
+            monitor["x"] = lage_x
+        lage_y = _ganzzahl(eintrag.get("y"), minimum=-_MONITOR_KOORDINATE_GRENZE)
+        if lage_y is not None:
+            monitor["y"] = lage_y
+        breite = _ganzzahl(eintrag.get("width"), minimum=1)
+        if breite is not None:
+            monitor["width"] = breite
+        hoehe = _ganzzahl(eintrag.get("height"), minimum=1)
+        if hoehe is not None:
+            monitor["height"] = hoehe
+        raus.append(monitor)
     return raus
 
 

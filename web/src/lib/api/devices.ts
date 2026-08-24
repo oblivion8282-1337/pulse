@@ -14,12 +14,33 @@ import { request } from './client';
 /** Zustand aus dem Verbindungsregister des Gateways, nicht aus der Datenbank. */
 export type DeviceState = 'ready' | 'busy' | 'offline';
 
-/** Ein Bildschirm des Geräts, wie er beim Anmelden gemeldet wurde. */
+/**
+ * Ein Bildschirm des Geräts, wie er beim Anmelden gemeldet wurde.
+ *
+ * **Dieselbe Form wird auch für die AUSGEHENDE `device_announce`-Meldung
+ * benutzt** (`$lib/devices/anmeldung.svelte.ts`, `$lib/ws/gateway-senders.ts`)
+ * statt eines eigenen, wortgleichen Typs dort — der Gateway-Filter
+ * (`ws_device_handlers.py::_monitore`) validiert genau diese vier zusätzlichen
+ * Felder ohnehin einzeln und lässt sie unverändert durch, wenn sie plausibel
+ * sind. Ein eigener Sende-Typ wäre eine vierte Stelle, die bei der nächsten
+ * Erweiterung erneut synchron gehalten werden müsste.
+ */
 export interface DeviceMonitor {
   /** 1-basiert, passt zur Aufnahmequelle `Monitor: <index>`. */
   index: number;
   name: string;
   primary: boolean;
+  /** Lage und Grösse in Bildpunkten — für die massstäbliche Bildschirm-Karte
+   *  im Fernsteuer-Overlay. Alle vier **optional**: ältere Geräte (Sidecar
+   *  vor 2026-08-24, oder Linux) melden sie nicht, und der Gateway-Filter
+   *  lässt jede der vier Zahlen einzeln weg, wenn sie fehlt oder Unfug ist.
+   *  `x`/`y` dürfen negativ sein (ein Monitor links vom oder über dem
+   *  Hauptbildschirm hat eine negative Lage); `width`/`height` sind immer
+   *  positiv. */
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
 }
 
 export interface Device {
