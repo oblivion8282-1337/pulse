@@ -4,7 +4,7 @@
 //!   - [`list_displays`] — synchronous display enumeration (drives `list_monitors`),
 //!     via `SCShareableContent`.
 //!   - [`Capturer`] — starts an `SCStream` for one display and pushes BGRA
-//!     [`Frame`]s onto an `mpsc` channel for the encoder.
+//!     [`Frame`]s into a one-slot [`Postfach`] (latest wins) for the encoder.
 //!
 //! ScreenCaptureKit delivers frames asynchronously on a dispatch queue, so the
 //! frame sink is an `SCStreamOutput` delegate defined here with objc2's
@@ -21,13 +21,15 @@ mod abfrage;
 pub mod cursorsteuerung;
 mod filter;
 mod output;
+mod postfach;
 
 use abfrage::{find_window, pick_display, resolve_applications, shareable_content};
 use output::FrameOutput;
 pub use abfrage::{list_audio_applications, list_capture_windows, list_displays};
+pub use postfach::Postfach;
 
 use std::sync::mpsc::{Sender, channel};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
@@ -169,6 +171,8 @@ unsafe impl Send for Capturer {}
 impl Capturer {
     /// Start capturing `display_index` (1-based; falls back to the main display
     /// if out of range). `width`/`height` are the output pixel dimensions.
+    /// `post` ist die Bild-Post: Ein-Slot, neuestes gewinnt (Begruendung in
+    /// [`postfach`]).
     pub fn start(
         display_index: usize,
         window_id: Option<u32>,
@@ -177,7 +181,7 @@ impl Capturer {
         height: usize,
         fps: u32,
         show_cursor: bool,
-        tx: Sender<Frame>,
+        post: Arc<Postfach<Frame>>,
         audio_tx: Option<Sender<AudioFrame>>,
     ) -> Result<Self> {
         let want_audio = audio_tx.is_some();
@@ -214,7 +218,7 @@ impl Capturer {
             // Bewusst KEINE Audio-Einstellungen: dieser Stream traegt nur Bild.
         }
 
-        let output = FrameOutput::new(Some(tx), None);
+        let output = FrameOutput::new(Some(post), None);
         let stream = unsafe {
             SCStream::initWithFilter_configuration_delegate(SCStream::alloc(), &bild, &config, None)
         };

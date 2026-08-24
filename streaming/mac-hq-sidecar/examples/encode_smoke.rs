@@ -3,9 +3,10 @@
 //! Needs Screen-Recording permission. Verify with `ffprobe` afterwards.
 
 use std::sync::mpsc::channel;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use pulse_mac_hq_sidecar::capture::{AudioFrame, AudioScope, Capturer};
+use pulse_mac_hq_sidecar::capture::{AudioFrame, AudioScope, Capturer, Postfach};
 use pulse_mac_hq_sidecar::encode::VideoEncoder;
 
 fn main() -> anyhow::Result<()> {
@@ -16,7 +17,7 @@ fn main() -> anyhow::Result<()> {
     let with_audio = std::env::args().nth(2).as_deref() == Some("audio");
     let (w, h, fps) = (1280u32, 720u32, 30u32);
 
-    let (tx, rx) = channel();
+    let bildpost = Arc::new(Postfach::neu());
     let (atx, arx) = channel::<AudioFrame>();
     let cap = Capturer::start(
         1,
@@ -26,7 +27,7 @@ fn main() -> anyhow::Result<()> {
         h as usize,
         fps,
         true,
-        tx,
+        bildpost.clone(),
         if with_audio { Some(atx) } else { None },
     )?;
     let mut enc = VideoEncoder::start(&out, w, h, fps, 4000, "h264", with_audio)?;
@@ -42,7 +43,7 @@ fn main() -> anyhow::Result<()> {
                 a += 1;
             }
         }
-        if let Ok(f) = rx.recv_timeout(Duration::from_millis(500)) {
+        if let Some(f) = bildpost.warten_bis(Instant::now() + Duration::from_millis(500)) {
             let pts = (start.elapsed().as_secs_f64() * fps as f64) as i64;
             enc.push_pixel_buffer(f.retained_ptr(), pts)?;
             n += 1;

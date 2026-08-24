@@ -16,22 +16,32 @@
 //! (braucht die Bildschirmaufnahme-Freigabe fuer das rufende Terminal; nimmt
 //! ~1 s lang auf und schiebt nichts irgendwohin).
 
-use std::sync::mpsc::channel;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use pulse_mac_hq_sidecar::capture::cursorsteuerung::{
     verbergen, zeigen, zeiger_in_der_aufnahme,
 };
-use pulse_mac_hq_sidecar::capture::{AudioScope, Capturer};
+use pulse_mac_hq_sidecar::capture::{AudioScope, Capturer, Postfach};
 
 /// Eine kurze Aufnahme mit dem gewuenschten Ausgangszustand, gefahren bis das
 /// erste Bild da ist — vorher ist ein `updateConfiguration` nicht aussagekraeftig.
 fn aufnahme(zeiger_an: bool) -> anyhow::Result<Capturer> {
-    let (tx, rx) = channel();
-    let cap = Capturer::start(1, None, AudioScope::None, 1280, 720, 30, zeiger_an, tx, None)?;
-    match rx.recv_timeout(Duration::from_secs(5)) {
-        Ok(_) => Ok(cap),
-        Err(_) => {
+    let bildpost = Arc::new(Postfach::neu());
+    let cap = Capturer::start(
+        1,
+        None,
+        AudioScope::None,
+        1280,
+        720,
+        30,
+        zeiger_an,
+        bildpost.clone(),
+        None,
+    )?;
+    match bildpost.warten_bis(Instant::now() + Duration::from_secs(5)) {
+        Some(_) => Ok(cap),
+        None => {
             cap.stop();
             anyhow::bail!("kein Bild binnen 5 s (Freigabe? Bildschirm 1?)")
         }

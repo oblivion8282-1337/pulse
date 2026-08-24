@@ -6,14 +6,14 @@
 //! afterwards — no self-exit, unlike Windows). `state` returns a snapshot.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{RecvTimeoutError, Sender, channel};
+use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
 
-use crate::capture::{AudioFrame, Capturer};
+use crate::capture::{AudioFrame, Capturer, Postfach};
 use crate::encode::VideoEncoder;
 use crate::events;
 use crate::proto::{Event, StreamState};
@@ -264,7 +264,10 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
         uptime_s: 0.0,
     });
 
-    let (frame_tx, frame_rx) = channel();
+    // Die Bild-Post (Ein-Slot, neuestes gewinnt): der ungebundene Kanal von
+    // vorher konnte bei blockiertem Verbraucher hunderte zurueckbehaltene
+    // 4K-Puffer aufstauen — Begruendung in `capture::postfach`.
+    let bildpost = Arc::new(Postfach::neu());
     let (audio_tx, audio_rx) = if params.enable_audio {
         let (t, r) = channel::<AudioFrame>();
         (Some(t), Some(r))
@@ -279,7 +282,7 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
         params.height as usize,
         params.fps,
         params.show_cursor,
-        frame_tx,
+        bildpost.clone(),
         audio_tx,
     )?;
     let mut enc = VideoEncoder::start(
@@ -310,17 +313,43 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
         uptime_s: 0.0,
     });
 
-    // Constant-frame-rate output: emit a frame every `frame_interval`,
-    // regardless of how fast ScreenCaptureKit delivers. SCK throttles on a
-    // static screen and is slow to deliver the first frame on a cold start, so
-    // raw passthrough lets the stream's media-time crawl behind the wall clock
-    // — MediaMTX then waits out its 10s readTimeout before registering the
-    // publish (the intermittent "i/o timeout" failure). Steady realtime output
-    // (latest frame, a duplicate when static, black before the first frame)
-    // keeps media-time == wall-clock so MediaMTX registers in ~2s, and it keeps
-    // the video in sync with the always-realtime audio.
+    // Sendetakt — zwei Arten, je nachdem, wer zusieht:
+    //
+    // * **ZUSEHEN**: festes Raster. Alle `frame_interval` geht das neueste Bild
+    //   hinaus, identisch dupliziert, wenn die Quelle stillsteht. Das Raster
+    //   glaettet, und SCK liefert bei statischem Bild gar nichts — ohne die
+    //   stete Ausgabe kroeche die Medienzeit hinter der Wanduhr her und
+    //   MediaMTX naehme den Publish erst nach seinem 10-s-readTimeout an (der
+    //   seinerzeitige „i/o timeout"-Fehler); Ton ist immer echtzeit, das Bild
+    //   muss mit ihm Schritt halten.
+    // * **FERNSTEUERUNG**: Versand bei ANKUNFT. Ein frisch erfasstes Bild
+    //   wartet nicht auf den naechsten Rasterschlag — der kostete im Mittel
+    //   einen halben Bildabstand (8,3 ms bei 60 fps), und beim Steuern zahlt
+    //   der geschlossene Kreis aus Eingabe hin und Bild zurueck (Herleitung
+    //   und A/B-Zahlen: `win-hq-sidecar/src/pipeline_hw/warten.rs`, derselbe
+    //   Umbau dort vom 2026-08-13). Die Frist bleibt als Herzschlag stehen:
+    //   Kommt laenger als ein Bildabstand nichts, geht das letzte Bild
+    //   dupliziert hinaus — MediaMTX und A/V-Sync brauchen das auch mitten in
+    //   einer Sitzung mit stillstehendem Bild.
+    //
+    //   **Keine PTS-Platz-Bremse wie im Zwilling** (`Bildplatz::traegt` haelt
+    //   dort die Encoderate auf fps): SCK liefert wegen des
+    //   `setMinimumFrameInterval` oben ohnehin hoechstens alle `frame_interval`
+    //   ein Bild — oefter als die Zielrate kann nichts ankommen. Trottet eine
+    //   Ankunft dennoch knapp hinter einem Herzschlag her (Uhrendrift zwischen
+    //   Display- und Wanduhr), geht sie sofort hinaus; `push_pixel_buffer`
+    //   klemmt den pts monoton, ein Zusammenrasseln bleibt folgenlos.
+    //
+    //   A/B-Notausgang, wortgleich mit dem Zwilling:
+    //   `PULSE_HQ_FERN_TICKRASTER=1` erzwingt das feste Raster auch waehrend
+    //   einer Fernsteuerung.
     let frame_interval = Duration::from_secs_f64(1.0 / params.fps.max(1) as f64);
+    let fern_sofort = !crate::remote_input::ziel::schalter_an("PULSE_HQ_FERN_TICKRASTER");
     let mut next_emit = Instant::now();
+    // Ein Bild ist seit dem letzten Versand angekommen — egal ob im Abholen
+    // oder im Wartefenster darunter. Nur der Fern-Wert versendet daraufhin
+    // sofort; das Zusehen-Raster ignoriert ihn.
+    let mut frisch = false;
     let mut last_frame = None;
     let mut window_start = Instant::now();
     let mut window_frames = 0u64;
@@ -332,6 +361,9 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
                 Ok(()) | Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
+            // Fernsteuerung aktiv? Pro Runde neu gelesen — der Sendetakt
+            // wechselt mit der Sitzung, nicht mit dem Stream.
+            let fern = fern_sofort && crate::remote_input::fern_aktiv();
             // Drain pending audio (non-blocking). Anchor the first frame to the
             // audio sample's own capture pts (shared epoch with video) + the
             // manual trim — so audio sits where it was captured, not where it
@@ -346,25 +378,33 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
                     enc.push_audio(&af.samples, anchor)?;
                 }
             }
-            // Grab the freshest captured frame(s); record its capture pts + the
-            // instant it arrived (for duplicate projection).
-            while let Ok(f) = frame_rx.try_recv() {
+            // Das frischeste Bild aus der Post nehmen. Ein-Slot: das Fach hat
+            // bereits alles Aeltere verworfen — der Loop sieht nach einem Stau
+            // den NEUESTEN Stand, nicht den Stall-Anfang; die pts + die
+            // Ankunftszeit gehoeren zur Duplikat-Fortschreibung. `frisch`
+            // ueberlebt die Wartephase darunter: Ein Bild, das WAHREND des
+            // Wartens ankommt, geht in der naechsten Runde sofort hinaus
+            // (Fern) — nicht erst zur Frist.
+            if let Some(f) = bildpost.nehmen() {
                 if epoch_s.is_nan() {
                     epoch_s = f.pts_seconds;
                 }
                 last_frame_pts_s = f.pts_seconds;
                 last_frame_at = Instant::now();
                 last_frame = Some(f);
+                frisch = true;
             }
 
             let now = Instant::now();
-            if now >= next_emit {
-                // Constant-rate emit: the latest captured frame, re-sent as a
-                // duplicate when the screen is static (SCK stops delivering). The
-                // frame is zero-copy — `retained_ptr()` hands the encoder a
-                // retained CVPixelBuffer. Before the first frame arrives we just
-                // wait (no black pre-roll on the hw path); SCK delivers the first
-                // frame within a frame or two of start.
+            // Versand: zur Frist (Zusehen-Raster oder Fern-Herzschlag) — oder,
+            // nur waehrend einer Fernsteuerung, sofort bei frischer Ankunft.
+            if now >= next_emit || (fern && frisch) {
+                // Neuestes Bild hinaus, identisch dupliziert bei stehender
+                // Quelle (SCK liefert dann nichts). Zero-Copy:
+                // `retained_ptr()` reicht den zurueckbehaltenen CVPixelBuffer
+                // direkt an den Encoder. Vor dem ersten Bild wird nur gewartet
+                // (kein Schwarz-Vorlauf auf dem hw-Weg); SCK liefert es ein,
+                // zwei Bildabstaende nach dem Start.
                 if let Some(f) = &last_frame {
                     // Video pts from the frame's capture time (shared epoch with
                     // audio → A/V sync), projecting the last real frame forward by
@@ -385,24 +425,30 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
                         window_frames = 0;
                     }
                 }
-                next_emit += frame_interval;
-                if next_emit <= now {
-                    // Fell behind (long encode stall) — resync, don't spiral.
-                    next_emit = now + frame_interval;
-                }
+                // Die Frist zieht erst weiter, wenn diese Runde ein Bild
+                // hinausgeschickt hat (oder anlaufweise leer ausging) — ein
+                // Durchlauf, der nur haelt, schiebt sie nicht vor sich her,
+                // sonst bricht die Bildrate ein (selbe Lehre wie im Zwilling,
+                // `bildplatz.rs`, Fehler vom 2026-08-22).
+                next_emit = frist_nach_versand(fern, next_emit, now, frame_interval);
+                frisch = false;
             } else {
-                // Wait until the next emit deadline or the next captured frame.
-                match frame_rx.recv_timeout(next_emit - now) {
-                    Ok(f) => {
+                // Bis zur Frist warten oder bis ein Bild ankommt. Ein Kanalende
+                // gibt es seit der Bild-Post nicht mehr: Die Post kennt keinen
+                // Verbindungsabbruch, der Loop endet am stop_rx — und den
+                // Stillstand der Quelle traegt der Herzschlag (Duplikat zur
+                // Frist).
+                match bildpost.warten_bis(next_emit) {
+                    Some(f) => {
                         if epoch_s.is_nan() {
                             epoch_s = f.pts_seconds;
                         }
                         last_frame_pts_s = f.pts_seconds;
                         last_frame_at = Instant::now();
                         last_frame = Some(f);
+                        frisch = true;
                     }
-                    Err(RecvTimeoutError::Timeout) => {}
-                    Err(RecvTimeoutError::Disconnected) => break,
+                    None => {}
                 }
             }
         }
@@ -424,6 +470,29 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
     cap.stop();
     let finish_result = enc.finish();
     run_result.and(finish_result)
+}
+
+/// Wie die Frist nach einem Rasterschlag weiterzieht — Fern und Zusehen
+/// unterschiedlich:
+///
+/// * **Zusehen** bleibt im Raster (`frist + abstand`): genau diese
+///   Phasen-Verankerung ist die Glaettung, um derentwegen das Raster existiert.
+///   Liegt das Raster bereits zurueck (langer Encode-Stall), wird auf `jetzt`
+///   resynct statt eine Aufholjagd zu fahren.
+/// * **Fern** haengt die Frist an `jetzt`: Herzschlag und Bildabstands-Bremse
+///   in einem. Sie wird erst nach einem echten Versand vergeben — ein
+///   Durchlauf, der nur haelt, schiebt sie nicht vor sich her.
+fn frist_nach_versand(fern: bool, frist: Instant, jetzt: Instant, abstand: Duration) -> Instant {
+    if fern {
+        jetzt + abstand
+    } else {
+        let raster = frist + abstand;
+        if raster <= jetzt {
+            jetzt + abstand
+        } else {
+            raster
+        }
+    }
 }
 
 #[cfg(test)]
@@ -482,5 +551,53 @@ mod tests {
         let mut platz: Option<Active> = None;
         reap_finished(&mut platz);
         assert!(platz.is_none());
+    }
+
+    /// Zusehen: die Frist bleibt im Raster verankert — ein Versand, der nach
+    /// dem Rasterschlag passiert, verschiebt die Phase nicht. Genau diese
+    /// Verankerung ist die Glaettung des Zusehen-Wegs.
+    #[test]
+    fn zusehen_bleibt_im_raster_verankert() {
+        let t0 = Instant::now();
+        let abstand = Duration::from_millis(16);
+        let frist = t0 + abstand;
+        let jetzt = frist + Duration::from_millis(3);
+        assert_eq!(
+            frist_nach_versand(false, frist, jetzt, abstand),
+            t0 + 2 * abstand,
+            "die naechste Frist muss beim naechsten Rasterschlag liegen, nicht 3 ms dahinter"
+        );
+    }
+
+    /// Zusehen hinter dem Raster: Resync auf jetzt statt Aufholjagd — der
+    /// Rueckstand wuerde sonst mit jeder Runde weiter wachsen.
+    #[test]
+    fn zusehen_hinter_dem_raster_resynct() {
+        let t0 = Instant::now();
+        let abstand = Duration::from_millis(16);
+        let frist = t0;
+        let jetzt = t0 + 3 * abstand;
+        assert_eq!(
+            frist_nach_versand(false, frist, jetzt, abstand),
+            jetzt + abstand,
+            "drei Raster Rueckstand duerfen nicht aufgeholt werden"
+        );
+    }
+
+    /// Fern: die Frist haengt am echten Versandzeitpunkt, nicht am Raster —
+    /// eine Ankunft VOR der alten Frist verschiebt auch die naechste nach
+    /// vorn. Das ist der Kern der Ereignissteuerung: die Frist folgt der
+    /// Ankunft, das Raster hat dabei nichts zu sagen.
+    #[test]
+    fn fern_vergibt_die_frist_ab_jetzt() {
+        let t0 = Instant::now();
+        let abstand = Duration::from_millis(16);
+        let frist = t0 + abstand;
+        let versand = t0 + abstand - Duration::from_millis(5);
+        assert_eq!(
+            frist_nach_versand(true, frist, versand, abstand),
+            versand + abstand,
+            "die Frist muss ab dem Versand neu beginnen, nicht am alten Raster haengen"
+        );
     }
 }

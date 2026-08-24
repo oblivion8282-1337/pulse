@@ -9,6 +9,7 @@
 //! von Bild und Ton auf 707 Zeilen gewachsen war (Projektgrenze 350). Reiner
 //! Umzug, kein Umbau.
 
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::mpsc::Sender;
 
@@ -20,15 +21,16 @@ use objc2_core_video::{CVPixelBufferGetHeight, CVPixelBufferGetWidth};
 use objc2_foundation::{NSObject, NSObjectProtocol};
 use objc2_screen_capture_kit::{SCStream, SCStreamOutput, SCStreamOutputType};
 
-use super::{AudioFrame, CFRelease, Frame, SendPixelBuffer, cmtime_seconds};
+use super::{AudioFrame, CFRelease, Frame, Postfach, SendPixelBuffer, cmtime_seconds};
 
 // ── Frame-output delegate (SCStreamOutput) ───────────────────────────────────
 
-/// Beide Kanaele sind optional, weil seit dem 2026-08-20 zwei Streams laufen:
-/// der Bild-Stream traegt nur Bild, der Ton-Stream nur Ton. Ein Wegwerf-Kanal
-/// fuer die jeweils andere Haelfte waere eine Falle — niemand leerte ihn.
+/// Bild geht in die Post (Ein-Slot, neuestes gewinnt), Ton in den Kanal (FIFO,
+/// Anker an pts — Reihenfolge gehoert zum Ton). Beide optional, weil seit dem
+/// 2026-08-20 zwei Streams laufen; ein Wegwerfkanal fuer die jeweils andere
+/// Haelfte waere eine Falle — niemand leerte ihn.
 pub(super) struct OutputIvars {
-    video_tx: Mutex<Option<Sender<Frame>>>,
+    video_post: Mutex<Option<Arc<Postfach<Frame>>>>,
     audio_tx: Mutex<Option<Sender<AudioFrame>>>,
 }
 
@@ -63,11 +65,11 @@ define_class!(
 
 impl FrameOutput {
     pub(super) fn new(
-        video_tx: Option<Sender<Frame>>,
+        video_post: Option<Arc<Postfach<Frame>>>,
         audio_tx: Option<Sender<AudioFrame>>,
     ) -> Retained<Self> {
         let this = Self::alloc().set_ivars(OutputIvars {
-            video_tx: Mutex::new(video_tx),
+            video_post: Mutex::new(video_post),
             audio_tx: Mutex::new(audio_tx),
         });
         // SAFETY: NSObject's init is correct.
@@ -90,9 +92,12 @@ impl FrameOutput {
             pts_seconds: pts,
             pixel_buffer: SendPixelBuffer(image_buffer),
         };
-        if let Ok(tx) = self.ivars().video_tx.lock() {
-            if let Some(tx) = tx.as_ref() {
-                let _ = tx.send(frame);
+        // Einwerfen statt senden: ueberholt der Medien-Loop das Bild (Mux-Stau,
+        // rw_timeout bis 10 s), verwirft das Fach das aeltere samt Puffer —
+        // ein ungebundener Kanal staute sie stattdessen auf (s. `postfach`).
+        if let Ok(post) = self.ivars().video_post.lock() {
+            if let Some(post) = post.as_ref() {
+                post.einwerfen(frame);
             }
         }
     }
