@@ -610,6 +610,18 @@ ein vollständiger, echter Zug — kein Protokollfehler, keine Verbindungstrennu
 
 Das `Enter` kam auf der **eigenen** Fläche — der Kern des Ansatzes, belegt.
 
+**3. Ein Datengerät genügt für mehrere Fenster.** Nachgemessen mit zwei echten
+Flächen desselben Klienten und **einem** Datengerät:
+
+```
+Enter(A) → 44x Motion quer durch A → Leave → Enter(B) → Drop → Leave
+```
+
+Damit ist auch das mehrfenstrige Ziehen belegt und nicht nur aus dem
+Protokolltext hergeleitet. Der Zusammenhang ist wichtig: `wl_data_device` hängt
+am **Sitzplatz**, nicht an einer Fläche — „je Fenster ein eigenes Gerät" wäre gar
+kein Ausweg gewesen, sondern hätte nur die Ereignisse verdoppelt.
+
 **Damit entfällt der winit-Patch.** Der Weg ist derselbe wie bei `tastensperre`:
 Gast-Backend auf winits Verbindung, Seat und Zeiger selbst binden.
 
