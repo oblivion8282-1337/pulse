@@ -168,21 +168,28 @@ export class EingabeWeiche {
     if (!zuordnung) return [];
     const frames = frameListe(ev.frames);
     if (frames.length === 0) return [];
-    // **Sitzung und Platz sind ein Paar.** Beide stammen aus DEMSELBEN
-    // `input_capture`; sie zu trennen hiesse, Frames mit der Kennung der einen
-    // Steuerung an den Bildschirm einer anderen zu schicken.
+    // **Sitzung und Platz stammen aus DEMSELBEN `input_capture`.** Die Sitzung
+    // gewinnt immer die angemeldete — Frames mit der Kennung der einen
+    // Steuerung an den Bildschirm einer anderen zu schicken, waere ein Fehler.
+    // Fuer den PLATZ gilt die Lockerung unten.
     //
-    // Hier gewann bis zum 2026-08-12 der Platz aus dem Ereignis. Das klang nach
-    // „frischere Quelle" und war eine Falle: kam von unten eine 0 (ein
-    // Vorgabewert statt eines echten Platzes), gingen die Frames an Platz 0 —
-    // einen fremden, laufenden Stream, dessen Sidecar nie ein Hello gesehen
-    // hatte und der deshalb fail-closed stehenblieb.
+    // **Ein fremder Platz ist erlaubt, wenn ein anderes Fenster DERSELBEN
+    // Sitzung ihn angemeldet hat** (seit 2026-08-24, Zug ueber die
+    // Fenstergrenze): das Fenster, in dem gedrueckt wurde, behaelt die Geste
+    // und zielt auf den Bildschirm um, ueber dem der Zeiger steht.
     //
-    // Weicht der Platz ab, wird deshalb weder das eine noch das andere
-    // genommen, sondern gar nichts: die Frames gehoeren zu einer Erfassung, die
-    // diese Zuordnung nicht beschreibt. Verworfen wird still, wie bei einer
-    // unbekannten Sitzung — es ist dasselbe Rennen und kein Angriff.
-    if (typeof ev.slot === 'number' && ev.slot !== zuordnung.slot) return [];
+    // Der Schutz von 2026-08-12 bleibt vollstaendig: dort war das Problem eine
+    // 0 als VORGABEWERT, die an einen fremden, nie begruessten Strom ging. Ein
+    // angemeldeter Platz derselben Sitzung ist per Definition begruesst — genau
+    // die Eigenschaft, die damals fehlte. Alles andere wird weiter still
+    // verworfen, wie bei einer unbekannten Sitzung.
+    if (typeof ev.slot === 'number' && ev.slot !== zuordnung.slot) {
+      const bekannt = [...this.zuordnungen.values()].some(
+        (z) => z.sessionId === zuordnung.sessionId && z.slot === ev.slot,
+      );
+      if (!bekannt) return [];
+      return buendeln(zuordnung.sessionId, ev.slot, frames);
+    }
     return buendeln(zuordnung.sessionId, zuordnung.slot, frames);
   }
 }
