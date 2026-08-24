@@ -103,6 +103,15 @@ export interface GsrMonitor {
   width: number;
   height: number;
   refresh_hz: number;
+  /** Bildschirm-Koordinaten in Bildpunkten, seit 2026-08-24 gemeldet
+   *  (Windows über `GetMonitorInfoW`, macOS über `CGDisplayBounds`) — für die
+   *  massstäbliche Bildschirm-Karte im Fernsteuer-Overlay. **Optional**, weil
+   *  der Linux-Sidecar sie noch nicht meldet und weil eine ältere Sidecar-
+   *  Fassung auf Windows/macOS ebenfalls ohne sie ankommen kann; negative
+   *  Werte sind gültig (ein Monitor links vom oder über dem Hauptbildschirm
+   *  hat eine negative Lage). */
+  x?: number;
+  y?: number;
 }
 export interface GsrListMonitors {
   ok: boolean;

@@ -19,6 +19,7 @@
  * Cloud und auf einem Self-Host je eine eigene Eintragung haben.
  */
 
+import type { DeviceMonitor } from '$lib/api/devices';
 import { loadAll, saveAll } from '$lib/stream/persistence';
 import { verwaisteDurchCommunity, verwaisteDurchServer } from '$lib/devices/eintragungAbgleich';
 import { refreshMonitors } from '$lib/stream/captureSource';
@@ -96,19 +97,29 @@ class GeraeteAnmeldung {
    * seinen Hauptbildschirm beschränkt.
    */
   async anmelden(
-    senden: (
-      deviceId: string,
-      monitore: { index: number; name: string; primary: boolean }[],
-    ) => void,
+    // `DeviceMonitor` statt eines eigenen Inline-Typs — s. Kommentar dort
+    // (`$lib/api/devices.ts`): dieselbe Form geht raus wie später über
+    // `device_state`/REST zurückkommt, ein eigener Sende-Typ wäre eine
+    // weitere Stelle, die bei der nächsten Erweiterung mitgezogen werden
+    // müsste.
+    senden: (deviceId: string, monitore: DeviceMonitor[]) => void,
     eintrag: Eintragung,
   ): Promise<void> {
-    let monitore: { index: number; name: string; primary: boolean }[] = [];
+    let monitore: DeviceMonitor[] = [];
     try {
       await refreshMonitors();
       monitore = streamSettings.available_monitors.map((mon) => ({
         index: mon.index,
         name: mon.name,
         primary: mon.primary,
+        // Lage/Grösse reisen mit, wenn der Sidecar sie kennt — `GsrMonitor.x`/
+        // `.y` sind optional (Linux/ältere Sidecars melden sie nicht), und ein
+        // `undefined`-Feld verschwindet beim Senden einfach aus dem JSON,
+        // statt eine geratene Zahl zu tragen.
+        x: mon.x,
+        y: mon.y,
+        width: mon.width,
+        height: mon.height,
       }));
     } catch {
       // Ohne Liste anmelden — s. oben.
