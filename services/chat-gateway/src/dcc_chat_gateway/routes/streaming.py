@@ -33,7 +33,7 @@ from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.routes._deps import channel_membership, require_member
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.guild_limits import LIMITS_BY_KEY, effective
-from dcc_shared.streaming import SLOT_MAX
+from dcc_shared.streaming import MONITOR_INDEX_MAX, MONITOR_INDEX_MIN, SLOT_MAX
 
 log = logging.getLogger(__name__)
 
@@ -46,15 +46,18 @@ router = APIRouter()
 _SLOT_MAX = SLOT_MAX
 SlotQuery = Annotated[int, Query(ge=0, le=_SLOT_MAX)]
 
-# Eigene Obergrenze fuer die Bildschirm-NUMMER — bewusst NICHT ``_SLOT_MAX``
-# wiederverwendet: der begrenzt, wie viele STREAM-PLAETZE ein Nutzer
-# gleichzeitig belegen darf, nicht wie viele Monitore seine Maschine hat.
-# Beide Zahlen landen zufaellig bei derselben grosszuegigen Schranke (niemand
-# hat 99 Bildschirme — dieselbe Begruendung wie fuer ``MAX_SLOTS`` in
-# ``dcc_shared.streaming``), aber das ist Zufall, kein gemeinsamer
-# Sachverhalt, und verdient eine eigene Konstante statt einer stillschweigend
-# uebernommenen.
-_MONITOR_INDEX_MAX = 99
+# Grenzen der Bildschirm-NUMMER — bewusst NICHT ``_SLOT_MAX`` wiederverwendet:
+# der begrenzt, wie viele STREAM-PLAETZE ein Nutzer gleichzeitig belegen darf,
+# nicht wie viele Monitore seine Maschine hat. Die beiden Zahlen sind
+# verschieden (99 gegen 8) und meinen Verschiedenes.
+#
+# Aus ``dcc_shared.streaming`` geholt statt hier gesetzt, weil die Nummer am
+# GERAETE-Weg entsteht (``ws_device_handlers.MAX_MONITORS``) und ueber DIESEN
+# Weg reist: eine eigene, weitere Schranke hier liesse Nummern durch, die
+# drueben nie einen gemeldeten Monitor treffen koennen. Die Begruendung fuer
+# beide Zahlen steht dort.
+_MONITOR_INDEX_MIN = MONITOR_INDEX_MIN
+_MONITOR_INDEX_MAX = MONITOR_INDEX_MAX
 
 
 class StreamTokenIn(BaseModel):
@@ -78,12 +81,15 @@ class StreamTokenIn(BaseModel):
     # Forwarded verbatim to media-svc, which bounds/strips + threads it through
     # the token → active → poller → stream_state path.
     label: Annotated[str | None, Field(default=None, max_length=80)] = None
-    # Welchen Bildschirm des Hosts dieser Strom zeigt (1-basiert). Wird wie
-    # ``label`` nur weitergereicht; media-sve faedelt es ueber Token-Record →
-    # auth-hook → ``stream:active`` → Poller bis zum Zuschauer. Dort macht es
-    # die Zuordnung Strom → Monitor eindeutig, die der Name bei baugleichen
-    # Geraeten nicht leisten kann.
-    monitor_index: Annotated[int | None, Field(default=None, ge=0, le=_MONITOR_INDEX_MAX)] = None
+    # Welchen Bildschirm des Hosts dieser Strom zeigt (1-basiert — die 0 ist
+    # beim Klienten als „keine Nummer" vergeben, s. ``MONITOR_INDEX_MIN`` in
+    # ``dcc_shared.streaming``). Wird wie ``label`` nur weitergereicht;
+    # media-svc faedelt es ueber Token-Record → auth-hook → ``stream:active``
+    # → Poller bis zum Zuschauer. Dort macht es die Zuordnung Strom → Monitor
+    # eindeutig, die der Name bei baugleichen Geraeten nicht leisten kann.
+    monitor_index: Annotated[
+        int | None, Field(default=None, ge=_MONITOR_INDEX_MIN, le=_MONITOR_INDEX_MAX)
+    ] = None
     # Streamt der Client mit 10 bit Farbtiefe? Wird nur weitergereicht;
     # media-svc fädelt es über Token-Record → auth-hook → ``stream:active``
     # bis in die WHEP-Antwort, aus der der Zuschauer seinen Wiedergabeweg

@@ -18,7 +18,7 @@
  */
 import type { GsrMonitor, GsrWindow } from './gsr';
 import { windowDisplayName } from './windowName';
-import { monitorNummer } from './settingsCatalog';
+import { monitorNummer } from './quellenummer';
 import {
   MONITOR_CAPTURE_PREFIX,
   WINDOW_CAPTURE_PREFIX,
@@ -38,7 +38,8 @@ export interface StreamLabel {
    * **Der Name allein reicht nicht.** Zwei baugleiche Monitore heissen gleich;
    * wer nur den Namen ueber den Draht schickt, macht die Zuordnung beim
    * Zuschauer unmoeglich (Fehler vom 2026-08-24). `undefined` bei
-   * Fenster-Aufnahmen und beim Linux-Portal.
+   * Fenster-Aufnahmen, beim Linux-Portal — und bei einer 0, die beim Klienten
+   * „keine Nummer" bedeutet (s. `quellenummer.ts::MONITOR_INDEX_MIN`).
    */
   monitorIndex?: number;
 }

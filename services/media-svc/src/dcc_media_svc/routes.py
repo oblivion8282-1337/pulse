@@ -33,7 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from redis.asyncio import Redis
 
 from dcc_shared.events import StreamDescriptor
-from dcc_shared.streaming import SLOT_MAX
+from dcc_shared.streaming import MONITOR_INDEX_MAX, MONITOR_INDEX_MIN, SLOT_MAX
 
 from dcc_media_svc.config import get_settings
 from dcc_media_svc.security import CurrentUser
@@ -134,13 +134,18 @@ router = APIRouter()
 # chat-gateway via ``dcc_shared.streaming``, which carries the reasoning.
 _SLOT_MAX = SLOT_MAX
 
-# Eigene Schranke fuer die Bildschirm-NUMMER — nicht ``_SLOT_MAX`` (der
-# begrenzt Stream-PLAETZE, nicht Monitore). Beide landen zufaellig bei
-# derselben grosszuegigen Zahl (niemand hat 99 Bildschirme, s. Kommentar zu
-# ``MAX_SLOTS`` in ``dcc_shared.streaming``); das ist Zufall, kein
-# gemeinsamer Sachverhalt. Spiegelt chat-gateways gleichnamige Konstante —
-# beide Dienste validieren unabhaengig, wie bei ``label``/``ten_bit``.
-_MONITOR_INDEX_MAX = 99
+# Grenzen der Bildschirm-NUMMER — nicht ``_SLOT_MAX`` (der begrenzt
+# Stream-PLAETZE, nicht Monitore). Die beiden Zahlen sind verschieden (99
+# gegen 8) und meinen Verschiedenes.
+#
+# Aus ``dcc_shared.streaming`` geholt, aus demselben Grund wie ``SLOT_MAX``:
+# die Nummer entsteht am Geraete-Weg des chat-gateway
+# (``ws_device_handlers.MAX_MONITORS``) und muss diesen Weg hier passieren.
+# Eine eigene, weitere Schranke liesse Nummern durch, die beim Zuschauer nie
+# einen gemeldeten Monitor treffen koennen. Beide Dienste validieren weiterhin
+# unabhaengig (wie bei ``label``/``ten_bit``) — nur eben gegen dieselbe Zahl.
+_MONITOR_INDEX_MIN = MONITOR_INDEX_MIN
+_MONITOR_INDEX_MAX = MONITOR_INDEX_MAX
 
 ChannelId = Annotated[str, Field(min_length=1, max_length=64, pattern=r"^\d+$")]
 UserIdQuery = Annotated[str, Query(min_length=1, max_length=64, pattern=r"^\d+$")]
@@ -165,11 +170,15 @@ class StreamTokenIn(BaseModel):
     # apart. Stripped + bounded here; empty/``None`` → omitted from the token
     # record so the legacy single-stream shape stays byte-identical.
     label: Annotated[str | None, Field(default=None, max_length=80)] = None
-    # Welchen Bildschirm des Hosts dieser Strom zeigt (1-basiert). Reist wie
-    # ``label`` weiter bis in den Token-Record → auth-hook → ``stream:active``
-    # → Poller, wo es dem Zuschauer die Zuordnung Strom → Monitor eindeutig
-    # macht (der Name allein kann das bei baugleichen Geraeten nicht).
-    monitor_index: Annotated[int | None, Field(default=None, ge=0, le=_MONITOR_INDEX_MAX)] = None
+    # Welchen Bildschirm des Hosts dieser Strom zeigt (1-basiert — die 0 ist
+    # beim Klienten als „keine Nummer" vergeben, s. ``MONITOR_INDEX_MIN`` in
+    # ``dcc_shared.streaming``). Reist wie ``label`` weiter bis in den
+    # Token-Record → auth-hook → ``stream:active`` → Poller, wo es dem
+    # Zuschauer die Zuordnung Strom → Monitor eindeutig macht (der Name allein
+    # kann das bei baugleichen Geraeten nicht).
+    monitor_index: Annotated[
+        int | None, Field(default=None, ge=_MONITOR_INDEX_MIN, le=_MONITOR_INDEX_MAX)
+    ] = None
     # Sendet der Streamer mit 10 bit Farbtiefe? Fährt denselben Weg wie
     # ``label`` (Token-Record → auth-hook → ``stream:active``) und wird dem
     # Zuschauer in der WHEP-Antwort gemeldet: nur der native Player kann mehr
@@ -607,9 +616,15 @@ async def stop_stream(
                     str(u) for u in (data.get("user_ids") or []) if u and str(u) != uid
                 )
 
-    # ``streams`` is only meaningful while some user still runs slot ≥ 1; once
-    # everyone is back to a single stream we drop it and the legacy shape returns.
-    multi = any(d["slot"] >= 1 for d in remaining_streams)
+    # ``streams`` is only meaningful while it says more than ``user_ids``
+    # already does; once nothing extra survives we drop it and the legacy shape
+    # returns. **Same condition as the poller's ``_needs_streams``** — a stream
+    # carrying a ``label`` or a ``monitor_index`` needs the list even on slot 0,
+    # otherwise the viewer loses the screen number the moment a second streamer
+    # stops (and the poller would have to put it back on its next pass).
+    multi = any(
+        d["slot"] >= 1 or "label" in d or "monitor_index" in d for d in remaining_streams
+    )
     publish_streams = remaining_streams if multi else None
     if remaining_uids:
         new_state: dict[str, Any] = {

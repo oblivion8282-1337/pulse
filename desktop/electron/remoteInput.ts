@@ -178,11 +178,18 @@ export class EingabeWeiche {
     // Fenstergrenze): das Fenster, in dem gedrueckt wurde, behaelt die Geste
     // und zielt auf den Bildschirm um, ueber dem der Zeiger steht.
     //
-    // Der Schutz von 2026-08-12 bleibt vollstaendig: dort war das Problem eine
+    // Der KERN des Schutzes von 2026-08-12 bleibt: dort war das Problem eine
     // 0 als VORGABEWERT, die an einen fremden, nie begruessten Strom ging. Ein
     // angemeldeter Platz derselben Sitzung ist per Definition begruesst — genau
     // die Eigenschaft, die damals fehlte. Alles andere wird weiter still
     // verworfen, wie bei einer unbekannten Sitzung.
+    //
+    // **Nicht mehr vollstaendig ist der Schutz gegen Fehlzielung ueberhaupt**:
+    // eine versehentliche 0 aus dem Renderer wird jetzt zugestellt, sobald
+    // irgendein Fenster DERSELBEN Sitzung den Platz 0 angemeldet hat. Das ist
+    // der Preis des Zugs ueber die Fenstergrenze und bewusst bezahlt — die
+    // Fehlzielung bleibt dann innerhalb einer Sitzung, deren Plaetze der
+    // Steuernde ohnehin alle bedienen darf.
     if (typeof ev.slot === 'number' && ev.slot !== zuordnung.slot) {
       const bekannt = [...this.zuordnungen.values()].some(
         (z) => z.sessionId === zuordnung.sessionId && z.slot === ev.slot,

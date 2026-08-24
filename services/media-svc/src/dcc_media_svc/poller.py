@@ -76,10 +76,33 @@ def _stream_descriptors(
     return out
 
 
-def _is_multi(pairs: set[Pair]) -> bool:
-    """True once any user runs slot ≥ 1 — only then is ``streams`` carried (it
-    adds nothing over ``user_ids`` when everyone is on slot 0)."""
-    return any(slot != "0" for _uid, slot in pairs)
+def _needs_streams(
+    pairs: set[Pair],
+    cid: str,
+    label_of: dict[tuple[str, str, str], str],
+    monitor_index_of: dict[tuple[str, str, str], int],
+) -> bool:
+    """True once ``streams`` carries something ``user_ids`` doesn't already say:
+    a slot ≥ 1, a ``label``, or a ``monitor_index``. Until 2026-08-25 only the
+    slot counted.
+
+    **Why the other two had to be added**: a standplatz device takes slot 0 on
+    its first wake-up, so a channel with nothing else running was "not multi" —
+    ``streams`` fell off the wire and the viewer's store invented
+    ``{user_id, slot: 0}`` descriptors with neither label nor number. Exactly
+    the case the screen number was built for (host with two monitors, viewer
+    fetching monitor 2), and the number never arrived in it.
+
+    A channel that really carries nothing extra still keeps the legacy
+    ``{user_ids, since}`` shape byte-identically — that is what this check buys
+    over simply always emitting ``streams``.
+    """
+    if any(slot != "0" for _uid, slot in pairs):
+        return True
+    return any(
+        (cid, uid, slot) in label_of or (cid, uid, slot) in monitor_index_of
+        for uid, slot in pairs
+    )
 
 
 def _pairs_from_state(state: dict[str, Any]) -> set[Pair]:
@@ -358,10 +381,21 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
         changed: list[tuple[str, list[str], list[dict[str, Any]] | None]] = []
         for cid, prs in publishers.items():
             new_uids = _user_ids(prs)
-            multi = _is_multi(prs)
+            traegt_zusatz = _needs_streams(prs, cid, label_of, monitor_index_of)
+            neue_streams = (
+                _stream_descriptors(prs, cid, label_of, monitor_index_of)
+                if traegt_zusatz
+                else []
+            )
             prev = prev_states.get(cid)
             prev_pairs = _pairs_from_state(prev) if prev else set()
-            if prev is not None and prev_pairs == prs:
+            # Unverändert heisst: dieselben (user, slot)-Paare UND dieselben
+            # Deskriptoren. Der zweite Teil kam 2026-08-25 dazu — ohne ihn trüge
+            # der Fix an ``_needs_streams`` nur die Hälfte: ein Strom, der über
+            # das Deploy hinweg lief, behielte für immer seinen alten, kürzeren
+            # Datensatz (die Paare stimmten ja). Für einen ruhigen Strom sind
+            # beide Listen gleich — kein zusätzliches Schreiben, kein Ereignis.
+            if prev is not None and prev_pairs == prs and streams_from_state(prev) == neue_streams:
                 pipe.expire(CHANNEL_STATE_KEY.format(channel_id=cid), ttl)
                 for uid, slot in prs:
                     pipe.expire(active_key(cid, uid, int(slot)), ttl)
@@ -377,10 +411,12 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
                 "user_ids": new_uids,
                 "since": since or datetime.now(UTC).isoformat(),
             }
-            # ``streams`` is additive — only when a user runs slot ≥ 1, so a
-            # single-stream channel keeps the legacy {user_ids, since} record.
-            if multi:
-                new_state["streams"] = _stream_descriptors(prs, cid, label_of, monitor_index_of)
+            # ``streams`` is additive — carried only when it says more than
+            # ``user_ids`` already does (slot ≥ 1, a label, or a monitor
+            # number), so a plain single-stream channel keeps the legacy
+            # {user_ids, since} record. See ``_needs_streams``.
+            if traegt_zusatz:
+                new_state["streams"] = neue_streams
             pipe.set(
                 CHANNEL_STATE_KEY.format(channel_id=cid),
                 json.dumps(new_state, separators=(",", ":")),

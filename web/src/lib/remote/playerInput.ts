@@ -12,6 +12,7 @@
  */
 
 import type { PulseRemoteInputNachricht } from '$lib/platform/pulse.d';
+import type { SchirmStandFuerFenster } from '$lib/devices/schirme.svelte';
 import type { Zeigerbild, Zeigerform } from './zeigerform';
 
 function player() {
@@ -105,6 +106,11 @@ export async function zeigerformMelden(
  * (`devices/schirme.svelte.ts::schirmeVonFuerFenster`) — fail-visible auf
  * `false` ueberall, wenn die Zuordnung nicht eindeutig ist.
  *
+ * Die Form ist **`SchirmStandFuerFenster` selbst**, nicht von Hand
+ * nachgeschrieben (Befund der Schlusspruefung 2026-08-25): eine ausgeschriebene
+ * Kopie war die sechste im Baum und bereits auseinandergelaufen — ihr fehlte
+ * `primary`, das der Aufrufer per `{...s}` trotzdem mitschickt. Ein reiner
+ * Typ-Import, also kein Laufzeit-Ring zwischen `remote/` und `devices/`.
  * `x`/`y`/`width`/`height` sind Lage und Groesse in Bildpunkten auf dem fernen
  * Rechner, alle optional: eine aeltere Gegenstelle (App ODER Geraet) meldet
  * sie nicht.
@@ -115,16 +121,7 @@ export async function zeigerformMelden(
  */
 export async function bildschirmeMelden(
   fensterSitzung: number,
-  schirme: {
-    index: number;
-    name: string;
-    open: boolean;
-    x?: number;
-    y?: number;
-    width?: number;
-    height?: number;
-    dieses_fenster: boolean;
-  }[],
+  schirme: SchirmStandFuerFenster[],
 ): Promise<void> {
   try {
     await player()?.screens?.(fensterSitzung, schirme);

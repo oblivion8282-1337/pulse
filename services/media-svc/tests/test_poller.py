@@ -350,6 +350,197 @@ async def test_two_slots_surface_labels_from_active_records(redis, pubsub):
 
 
 @pytest.mark.asyncio
+async def test_two_slots_surface_monitor_index_from_active_records(redis, pubsub):
+    """Der Poller reicht die Bildschirm-NUMMER genauso durch wie ``label`` —
+    Endstation der Kette Sidecar → Gateway → media-svc → auth-hook → Redis →
+    hier. Slot 0 traegt eine, Slot 1 nicht (aelterer Klient); der fehlende Wert
+    ergibt einen Deskriptor ohne den Schluessel.
+
+    Eigener Test neben dem ``label``-Zwilling, weil der Wert an dieser Station
+    nur ueber einen Redis-Umweg reist: ein Weglassen bliebe still, der
+    Zuschauer bekaeme nur nie eine Nummer."""
+    cid = _unique_cid()
+    await redis.set(
+        active_key(cid, "55", 0),
+        json.dumps({
+            "user_id": "55",
+            "started_at": "2026-07-05T00:00:00+00:00",
+            "path": f"channel-{cid}-55-{'deadbeef' * 4}",
+            "label": "Dell U2723",
+            "monitor_index": 2,
+        }),
+    )
+    await redis.set(
+        active_key(cid, "55", 1),
+        json.dumps({
+            "user_id": "55",
+            "started_at": "2026-07-05T00:00:00+00:00",
+            "path": f"channel-{cid}-55-s1-{'cafebabe' * 4}",
+        }),
+    )
+    client = _FakeMediaMtxClient(
+        _paths(
+            (f"channel-{cid}-55-{'deadbeef' * 4}", True),
+            (f"channel-{cid}-55-s1-{'cafebabe' * 4}", True),
+        )
+    )
+    try:
+        await reconcile_once(redis, client)
+        state = json.loads((await redis.get(CHANNEL_STATE_KEY.format(channel_id=cid))).decode())
+        assert state["streams"] == [
+            {"user_id": "55", "slot": 0, "label": "Dell U2723", "monitor_index": 2},
+            {"user_id": "55", "slot": 1},
+        ]
+        ev = json.loads((await _drain_one(pubsub))["data"])
+        assert ev["streams"] == [
+            {"user_id": "55", "slot": 0, "label": "Dell U2723", "monitor_index": 2},
+            {"user_id": "55", "slot": 1},
+        ]
+    finally:
+        await redis.delete(
+            CHANNEL_STATE_KEY.format(channel_id=cid),
+            active_key(cid, "55", 0),
+            active_key(cid, "55", 1),
+        )
+
+
+@pytest.mark.asyncio
+async def test_single_slot_zero_stream_still_carries_monitor_index(redis, pubsub):
+    """**Ein einzelner Strom auf Platz 0 traegt ``streams``, sobald er eine
+    Bildschirm-Nummer hat.**
+
+    Bis 2026-08-25 haengte ``streams`` allein an „irgendwer laeuft auf Platz
+    >= 1". Ein Standplatz-Geraet nimmt beim ersten Wecken aber Platz 0, und
+    laeuft im Kanal sonst nichts, fiel ``streams`` vom Draht — der Zuschauer
+    erfand sich ``{user_id, slot: 0}`` ohne Namen und ohne Nummer. Genau der
+    Fall, fuer den die Nummer gebaut wurde (Host mit zwei Monitoren, Zuschauer
+    holt Monitor 2), erreichte sie nie."""
+    cid = _unique_cid()
+    await redis.set(
+        active_key(cid, "55", 0),
+        json.dumps({
+            "user_id": "55",
+            "started_at": "2026-07-05T00:00:00+00:00",
+            "path": f"channel-{cid}-55-{'deadbeef' * 4}",
+            "monitor_index": 2,
+        }),
+    )
+    client = _FakeMediaMtxClient(_paths((f"channel-{cid}-55-{'deadbeef' * 4}", True)))
+    try:
+        await reconcile_once(redis, client)
+        state = json.loads((await redis.get(CHANNEL_STATE_KEY.format(channel_id=cid))).decode())
+        assert state["user_ids"] == ["55"]
+        assert state["streams"] == [{"user_id": "55", "slot": 0, "monitor_index": 2}]
+        ev = json.loads((await _drain_one(pubsub))["data"])
+        assert ev["streams"] == [{"user_id": "55", "slot": 0, "monitor_index": 2}]
+    finally:
+        await redis.delete(CHANNEL_STATE_KEY.format(channel_id=cid), active_key(cid, "55", 0))
+
+
+@pytest.mark.asyncio
+async def test_single_slot_zero_stream_with_label_carries_streams(redis, pubsub):
+    """Dasselbe fuer ``label`` allein: auch ein Name ist mehr, als ``user_ids``
+    schon sagt — sonst verlor der Zuschauer-Waehler ihn im haeufigsten Fall
+    (ein Streamer, ein Strom)."""
+    cid = _unique_cid()
+    await redis.set(
+        active_key(cid, "55", 0),
+        json.dumps({
+            "user_id": "55",
+            "started_at": "2026-07-05T00:00:00+00:00",
+            "path": f"channel-{cid}-55-{'deadbeef' * 4}",
+            "label": "Chrome",
+        }),
+    )
+    client = _FakeMediaMtxClient(_paths((f"channel-{cid}-55-{'deadbeef' * 4}", True)))
+    try:
+        await reconcile_once(redis, client)
+        state = json.loads((await redis.get(CHANNEL_STATE_KEY.format(channel_id=cid))).decode())
+        assert state["streams"] == [{"user_id": "55", "slot": 0, "label": "Chrome"}]
+    finally:
+        await redis.delete(CHANNEL_STATE_KEY.format(channel_id=cid), active_key(cid, "55", 0))
+
+
+@pytest.mark.asyncio
+async def test_single_slot_zero_stream_without_extras_stays_legacy(redis, pubsub):
+    """Die Gegenprobe, die den Zuschnitt traegt: ein Strom auf Platz 0 OHNE
+    Namen und OHNE Nummer bleibt byte-gleich bei der Alt-Form
+    ``{user_ids, since}``. Waere ``streams`` einfach immer dabei, gaebe es
+    diesen Unterschied nicht mehr — und keinen Grund fuer die Fallunterscheidung
+    in ``_needs_streams``."""
+    cid = _unique_cid()
+    client = _FakeMediaMtxClient(_paths((f"channel-{cid}-55-{'deadbeef' * 4}", True)))
+    try:
+        await reconcile_once(redis, client)
+        state = json.loads((await redis.get(CHANNEL_STATE_KEY.format(channel_id=cid))).decode())
+        assert "streams" not in state
+        ev = json.loads((await _drain_one(pubsub))["data"])
+        assert "streams" not in ev
+    finally:
+        await redis.delete(CHANNEL_STATE_KEY.format(channel_id=cid))
+
+
+@pytest.mark.asyncio
+async def test_poller_heals_a_state_that_predates_the_monitor_index(redis, pubsub):
+    """Ein Kanal-Datensatz in der Alt-Form wird nachgezogen, sobald der
+    ``stream:active``-Record eine Bildschirm-Nummer hergibt — auch wenn sich die
+    (Nutzer, Platz)-Paare nicht geaendert haben.
+
+    Genau der Zustand, den ein Deploy hinterlaesst: der Strom lief schon, seine
+    Paare stimmen, und ein Vergleich, der nur die Paare ansieht, haette den
+    Datensatz fuer immer so gelassen."""
+    cid = _unique_cid()
+    await redis.set(
+        CHANNEL_STATE_KEY.format(channel_id=cid),
+        json.dumps({"user_ids": ["55"], "since": "2026-01-01T00:00:00+00:00"}),
+    )
+    await redis.set(
+        active_key(cid, "55", 0),
+        json.dumps({
+            "user_id": "55",
+            "started_at": "2026-07-05T00:00:00+00:00",
+            "path": f"channel-{cid}-55-{'deadbeef' * 4}",
+            "monitor_index": 2,
+        }),
+    )
+    client = _FakeMediaMtxClient(_paths((f"channel-{cid}-55-{'deadbeef' * 4}", True)))
+    try:
+        await reconcile_once(redis, client)
+        state = json.loads((await redis.get(CHANNEL_STATE_KEY.format(channel_id=cid))).decode())
+        assert state["streams"] == [{"user_id": "55", "slot": 0, "monitor_index": 2}]
+        # ``since`` bleibt stehen — der Zuschauer soll nicht sehen, der Strom
+        # habe gerade erst begonnen.
+        assert state["since"] == "2026-01-01T00:00:00+00:00"
+    finally:
+        await redis.delete(CHANNEL_STATE_KEY.format(channel_id=cid), active_key(cid, "55", 0))
+
+
+@pytest.mark.asyncio
+async def test_poller_leaves_an_unchanged_state_alone(redis, pubsub):
+    """Gegenprobe zur Selbstheilung: stimmen Paare UND Deskriptoren, wird nichts
+    geschrieben und nichts veroeffentlicht. Ohne diese Zusicherung waere der
+    erweiterte Vergleich ein Dauer-Sender."""
+    cid = _unique_cid()
+    await redis.set(
+        active_key(cid, "55", 0),
+        json.dumps({
+            "user_id": "55",
+            "started_at": "2026-07-05T00:00:00+00:00",
+            "path": f"channel-{cid}-55-{'deadbeef' * 4}",
+            "monitor_index": 2,
+        }),
+    )
+    client = _FakeMediaMtxClient(_paths((f"channel-{cid}-55-{'deadbeef' * 4}", True)))
+    try:
+        await reconcile_once(redis, client)
+        assert await _drain_one(pubsub) is not None  # der erste Lauf meldet
+        await reconcile_once(redis, client)
+        assert await _drain_one(pubsub, attempts=10) is None, "der zweite Lauf schweigt"
+    finally:
+        await redis.delete(CHANNEL_STATE_KEY.format(channel_id=cid), active_key(cid, "55", 0))
+
+
+@pytest.mark.asyncio
 async def test_non_channel_paths_ignored(redis, pubsub):
     # Paths missing any segment (uid, nonce) or with non-numeric channel are
     # all ignored — must be `channel-<digits>-<digits>-<32 hex>`.

@@ -15,6 +15,7 @@ from dcc_media_svc.streamkeys import (
     active_key,
     stopping_key,
 )
+from dcc_shared.streaming import MAX_MONITORS
 
 
 def _auth(token: str) -> dict[str, str]:
@@ -160,6 +161,28 @@ async def test_stream_token_monitor_index_stamped_into_record(client, auth_signe
         assert "monitor_index" not in rec2
     finally:
         await redis.delete(TOKEN_KEY.format(token=token2))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", [0, -1, MAX_MONITORS + 1, 99])
+async def test_stream_token_rejects_monitor_index_outside_the_screen_range(
+    client, auth_signer, bad
+):
+    """Die Bildschirm-Nummer ist 1..``MAX_MONITORS`` — dieselbe Spanne, in der
+    ein Gerät seine Schirme melden darf (``ws_device_handlers``).
+
+    **Die 0 gehört ausdrücklich dazu**: sie bedeutet beim Klienten „keine
+    Nummer" und ist als Index des erfundenen Ersatz-Bildschirms vergeben, würde
+    dort also zufällig passen. Und **99 war bis 2026-08-25 gültig** — eine
+    Nummer, die alles passierte und drüben nie einen gemeldeten Monitor treffen
+    konnte."""
+    access = auth_signer.issue_access(4242, "alice")
+    r = await client.post(
+        f"/channels/{_unique_cid()}/stream-token",
+        json={"monitor_index": bad},
+        headers=_auth(access),
+    )
+    assert r.status_code == 422, r.text
 
 
 @pytest.mark.asyncio

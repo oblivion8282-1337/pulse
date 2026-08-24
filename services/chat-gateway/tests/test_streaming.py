@@ -22,6 +22,7 @@ import dcc_chat_gateway.routes.streaming as streaming_routes
 import httpx
 import pytest
 import pytest_asyncio
+from dcc_shared.streaming import MAX_MONITORS
 from redis.asyncio import Redis
 from starlette.testclient import TestClient
 from .conftest import receive_skipping
@@ -297,6 +298,33 @@ async def test_stream_token_monitor_index_forwarded(
     )
     assert r.status_code == 200, r.text
     assert mock_media_svc.calls[0][3] == {"protocol": "rtmp", "slot": 0, **forwarded}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", [0, -1, MAX_MONITORS + 1, 99])
+async def test_stream_token_rejects_monitor_index_outside_the_screen_range(
+    client, _auth_signer, mock_media_svc, bad
+):
+    """Der Gateway weist eine Bildschirm-Nummer ausserhalb 1..``MAX_MONITORS``
+    selbst ab, statt sie weiterzureichen — dieselbe Spanne wie beim Melden der
+    Bildschirmliste (``ws_device_handlers``), damit eine Nummer nicht gültig
+    sein kann, die drüben nie einen Monitor trifft.
+
+    Die 0 ist ausdrücklich dabei: sie heisst beim Klienten „keine Nummer"."""
+    token, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(token)
+        )
+    ).json()
+    r = await client.post(
+        f"/channels/{vc['id']}/stream-token",
+        json={"monitor_index": bad},
+        headers=_auth(token),
+    )
+    assert r.status_code == 422, r.text
+    assert mock_media_svc.calls == [], "media-svc darf das gar nicht erst sehen"
 
 
 @pytest.mark.asyncio
