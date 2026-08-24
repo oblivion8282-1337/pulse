@@ -3,7 +3,7 @@
 **Stand:** 2026-08-24 · **Zustand:** Teil 1 umgesetzt, Teile 2–4 offen
 **Betrifft:** Fernsteuerung, `pulse-player`, `desktop/electron`, Sidecars (nur Teil 2)
 
-Vier Dinge, die zusammen ein Thema sind: Wer einen fremden Rechner mit mehreren
+Fünf Dinge, die zusammen ein Thema sind: Wer einen fremden Rechner mit mehreren
 Bildschirmen steuert, hat mehrere Player-Fenster offen — und die verhalten sich
 heute wie voneinander unabhängige Fernrohre. Man kann nichts von einem ins andere
 ziehen, man sieht nicht, wie die Bildschirme drüben zueinander stehen, die
@@ -11,7 +11,7 @@ Zuordnung „welches Fenster zeigt welchen Monitor" ist ratbar statt gewusst, un
 die Fenster liegen auf dem eigenen Schirm irgendwie statt so wie drüben.
 
 Die Teile sind **unabhängig auslieferbar**. Bauen in der Reihenfolge
-**1 → 3 → 2 → 4** (Teil 3 ist Voraussetzung dafür, dass Teil 2 nicht lügt;
+**1 → 3 → 2 → 4 → 5** (Teil 3 ist Voraussetzung dafür, dass Teil 2 nicht lügt;
 Teil 4 braucht die Anordnung aus Teil 2).
 
 Vorgeschichte: `docs/plans/2026-08-11-fernsteuerung-neubewertung.md` hielt unter
@@ -475,6 +475,83 @@ nebeneinander gelegte Fenster sich nicht überlappen.
 
 ---
 
+## Teil 5 — Wayland: der Zug über Waylands eigenes Datengerät
+
+**Nachgetragen am 2026-08-24**, nachdem Teil 1 auf einem Wayland-Sitz nachweislich
+wirkungslos blieb.
+
+### Warum Teil 1 dort nicht greift
+
+Teil 1 rechnet aus Fensterlagen aus, über welchem Fenster der Zeiger steht.
+Wayland gibt einer Anwendung ihre Fensterlage **grundsätzlich nicht** heraus
+(`Window::inner_position()` → `NotSupportedError`, winit 0.30.13
+`platform_impl/linux/wayland/window/mod.rs:268`). Der Rückfall greift sauber, aber
+das Ziehen über die Fenstergrenze gibt es dort schlicht nicht.
+
+### Der Denkfehler, und was ihn auflöst
+
+Die Frage „**wo liegt Fenster B?**" ist nur ein Lösungsweg, nicht das Problem.
+Das Problem lautet „**steht der Zeiger über Fenster B, und wo darin?**". Windows
+und macOS beantworten das indirekt über Fensterlagen; **Wayland beantwortet es
+direkt** — über das Datengerät des Kern-Protokolls:
+
+```
+wl_data_device.enter:
+  serial · surface (welche Flaeche betreten wurde) · x, y (flaechenlokal)
+```
+
+Beim Mausdruck erklärt Fenster A dem Compositor den Beginn eines Zuges
+(`wl_data_device.start_drag`). Ab da stellt der Compositor bei jeder Bewegung der
+Fläche unter dem Zeiger zu, was gebraucht wird — **auch der eigenen zweiten
+Fläche**, während A den Zug hält. Genau die Auskunft, die Teil 1 sich mühsam
+errechnet.
+
+### Warum das besser ist als der Windows-Weg
+
+| | Windows/macOS (Teil 1) | Wayland (Teil 5) |
+|---|---|---|
+| Herkunft der Position | selbst errechnet aus Fensterlagen | vom Compositor geliefert |
+| Skalierungs-Falle | ja, daher der macOS-Riegel | entfällt, Koordinaten sind flächenlokal |
+| Veraltet bei verschobenem Fenster | möglich | unmöglich |
+| Fenster müssen angeordnet sein | ja | nein |
+
+### Der Haken: winit
+
+winit kennt das Datengerät nicht (kein `data_device`, kein `start_drag` in der
+Kiste), und `start_drag` verlangt laut Protokoll „an active implicit grab that
+matches the serial" — die laufende Nummer des Mausdrucks, die winit ebenfalls
+nicht herausgibt. Es braucht also einen **Patch an winit**, der Seat und
+Zeigernummer nach aussen reicht; danach bindet der Player das Datengerät selbst.
+`wayland-client 0.31`, `wayland-protocols 0.32` und `smithay-client-toolkit 0.19`
+hängen ohnehin schon im Baum (von winit gezogen).
+
+Fremde Kisten zu patchen ist hier eingeführte Praxis: `windows-capture` wird fürs
+Cursor-Echo gepatcht (`scripts/bootstrap-windows-capture.sh`), `webrtc-rs` liegt
+vendored daneben.
+
+### Preis, offen benannt
+
+Ein Zug ist für den Compositor ein echter Zug. Fährt der Zeiger dabei über ein
+**fremdes** Programm, sieht dieses einen Ziehvorgang mit einem Datentyp, den
+niemand annimmt — je nach Oberfläche erscheint kurz ein „geht nicht"-Zeiger. Auf
+Windows und macOS passiert das nicht. Bewusst in Kauf genommen: sichtbar, aber
+harmlos, und deutlich kleiner als „auf Wayland gar nicht" oder „nimm XWayland".
+
+**XWayland wurde ausdrücklich verworfen** (2026-08-24): es löst zwar das
+Fensterlagen-Problem, aber es ist ein Sonderweg mit eigenen Nachteilen (HiDPI,
+variable Bildrate), den jeder Wayland-Nutzer kennen und setzen müsste. Ebenso
+verworfen: beide Host-Bildschirme in **ein** Player-Fenster zu legen — das löst
+Wayland, ändert aber die Bedienung für alle und macht jeden Schirm kleiner.
+
+### Zuschnitt
+
+Teil 5 ersetzt auf Wayland **nur die Zielbestimmung**, nicht den Rest von Teil 1.
+Warteschlange, Zielwechsel, Buchführung und die Electron-Weiche bleiben, wie sie
+sind — es kommt eine zweite Quelle für „welcher Platz, welcher Anteil" daneben.
+`ziel_bestimmen` ist die Naht.
+
+---
+
 ## Reihenfolge und Auslieferung
 
 | Schritt | Teil | Hängt ab von |
@@ -483,8 +560,9 @@ nebeneinander gelegte Fenster sich nicht überlappen.
 | 2 | Eindeutige Zuordnung (Teil 3) | nichts |
 | 3 | Bildschirm-Karte (Teil 2) | Teil 3 |
 | 4 | Fenster wie beim Host anordnen (Teil 4) | Teil 2 |
+| 5 | Wayland über das Datengerät (Teil 5) | Teil 1 |
 
-**Windows-Version-Bump ist Pflicht** für die Teile 1, 2 und 4: alle drei ändern
+**Windows-Version-Bump ist Pflicht** für die Teile 1, 2, 4 und 5: alle ändern
 `streaming/pulse-player/**`, und das wird über den Installer ausgeliefert —
 electron-updater ignoriert gleiche Versionen stillschweigend (`CLAUDE.md`).
 Teil 2 ändert zusätzlich `streaming/win-hq-sidecar/**` und
