@@ -27,9 +27,13 @@ use zwillinge::{kisten_von, wurzel};
 
 /// Je Bau-Ablauf: welche Programme baut er?
 ///
-/// `mac-build.yml` baut den Player NICHT mit — er wird unter macOS nicht
-/// ausgeliefert. Deshalb steht dort auch `pulse-zeigerbild` nicht, und das ist
-/// richtig so.
+/// **Der Kommentar, der hier bis zum 2026-08-24 stand, war seit dem 2026-08-22
+/// falsch**: er behauptete, `mac-build.yml` baue den Player nicht mit und trage
+/// deshalb `pulse-zeigerbild` zu Recht nicht. Die Tabelle darunter listet für
+/// `mac-build.yml` aber `pulse-player`, und `mac-build.yml` erklärt in eigener
+/// Prosa, warum `pulse-zeigerbild` dort sehr wohl steht. Der Test war richtig,
+/// nur seine Begründung war die alte Fassung — und man liest sie genau dann,
+/// wenn er rot wird, also im ungünstigsten Moment.
 const ABLAEUFE: &[(&str, &[&str])] = &[
     ("win-build.yml", &["win-hq-sidecar", "pulse-player"]),
     ("mac-build.yml", &["mac-hq-sidecar", "pulse-player"]),

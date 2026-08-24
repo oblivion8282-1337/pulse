@@ -163,6 +163,12 @@ Seit dem 2026-08-12 (PR #321) zusätzlich:
 - **Grenze, bewusst akzeptiert**: Zwei Streams sind zwei Bilder. Der Zeiger
   springt zwischen ihnen, statt über die Bildschirmkante zu wandern; ein Fenster
   von Monitor 1 nach 2 zu ziehen geht nicht.
+  > **Aufgehoben am 2026-08-24.** Ziehen über die Fenstergrenze ist gebaut —
+  > das Ursprungsfenster behält die Geste und zielt um, statt sie zu übergeben.
+  > Der Zeiger springt weiterhin, statt über die Kante zu wandern; das bleibt.
+  > Siehe `docs/superpowers/specs/2026-08-24-mehrere-host-bildschirme-design.md`
+  > (Teil 1 für Windows/macOS/X11, Teil 5 für Wayland). Die Begründung hier
+  > bleibt stehen, weil sie den damaligen Stand richtig beschreibt.
 - Verworfen: alle Monitore in **ein** Bild (vier 4K nebeneinander = 15360×2160;
   auf eine übliche Box heruntergerechnet ist jeder Monitor darin briefmarkengroß).
 - Billige Zwischenstufe, die Sunshine so fährt: **Monitor-Umschalten per

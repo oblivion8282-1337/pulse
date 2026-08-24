@@ -1,6 +1,6 @@
 # Mehrere Host-Bildschirme aus Sicht des Steuernden
 
-**Stand:** 2026-08-24 · **Zustand:** Teil 1 umgesetzt, Teile 2–5 offen
+**Stand:** 2026-08-24 · **Zustand:** Teile 1–5 umgesetzt (`feat/ziehen-ueber-die-fenstergrenze`)
 **Betrifft:** Fernsteuerung, `pulse-player`, `desktop/electron`, Sidecars (nur Teil 2)
 
 Fünf Dinge, die zusammen ein Thema sind: Wer einen fremden Rechner mit mehreren

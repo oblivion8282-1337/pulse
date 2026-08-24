@@ -174,7 +174,12 @@ windows = { version = "0.62", features = [
 ash = "0.38"
 libloading = "0.8"
 
-# --- Tastenkuerzel des Compositors abschalten (s. `src/tastensperre/`) ---
+# --- Wayland-Direktzugriff (s. `src/tastensperre/` UND `src/fernsteuerung/wayland/`) ---
+#
+# ACHTUNG beim Aufraeumen: seit 2026-08-24 haengt der Zug ueber die Fenstergrenze
+# (`fernsteuerung/wayland/`, `wl_data_device`) an denselben Kisten wie die
+# Tastensperre. Wer sie fuer entbehrlich haelt, weil er die Tastensperre ausbaut,
+# reisst den Wayland-Zug mit.
 #
 # Waren VORHER schon im Abhaengigkeitsbaum (alle drei ueber winit) — sie werden
 # hier nur ausdruecklich gemacht, es kommt kein fremder Code hinzu. Lizenz: alle
