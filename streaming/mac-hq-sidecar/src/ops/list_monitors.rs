@@ -5,8 +5,12 @@
 //! ```jsonc
 //! {"ok": true,
 //!  "monitors": [{"index": 1, "name": "Display 1", "primary": true,
-//!                "width": 5120, "height": 2880, "refresh_hz": 0}, ...]}
+//!                "width": 5120, "height": 2880, "refresh_hz": 0,
+//!                "x": 0, "y": 0}, ...]}
 //! ```
+//!
+//! `x`/`y` are the top-left corner in screen coordinates — same field names
+//! as the Windows sidecar, the web side doesn't branch on platform.
 //!
 //! `index` is 1-based and round-trips as the `capture: "display:<index>"` request
 //! the renderer sends back. Backed by `SCShareableContent` (requires
@@ -29,6 +33,8 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
                 "width": d.width,
                 "height": d.height,
                 "refresh_hz": d.refresh_hz,
+                "x": d.x,
+                "y": d.y,
             })
         })
         .collect();
