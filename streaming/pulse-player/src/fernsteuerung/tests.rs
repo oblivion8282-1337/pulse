@@ -961,6 +961,11 @@ fn loslassen_im_nachbarn_geht_an_dessen_platz() {
     );
 
     let buendel = alles_mit_platz(&mut e);
+    // Druck (eigenes Fenster, Platz 0) und Loslassen (Nachbar, Platz 1)
+    // liegen in getrennten Buendeln — sonst haette eines der beiden den
+    // falschen Platz mitbekommen.
+    assert_eq!(buendel.len(), 2, "Druck und Loslassen gehoeren getrennten Buendeln: {buendel:?}");
+    assert_eq!(buendel[0].0, 0, "der Druck geschah im eigenen Fenster: {buendel:?}");
     let letztes = buendel.last().expect("Buendel");
     assert_eq!(letztes.0, 1, "Loslassen gehoert dem Nachbarn: {buendel:?}");
     let hoch = letztes.1.last().expect("Frame");
@@ -981,13 +986,81 @@ fn punkt_in_der_luecke_sendet_nichts() {
 
 /// Ohne bekannte Nachbarschaft (Wayland gibt keine Fensterlagen heraus) bleibt
 /// alles beim Verhalten von vorher: eigenes Bild, eigener Platz.
+///
+/// **Eingeschaltet wird mit Platz 3, nicht ueber [`eingeschaltet`]** (das
+/// nimmt 0): 0 ist zugleich der Vorgabewert des Rueckfalls, ein
+/// `ziel_bestimmen`, das dort faelschlich die Konstante 0 statt `self.slot`
+/// lieferte, bestuende den Test sonst trotzdem.
 #[test]
 fn ohne_nachbarschaft_bleibt_es_beim_eigenen_bild() {
-    let mut e = eingeschaltet();
+    let mut e = Erfassung::neu();
+    e.einschalten(3, false, Some(SITZUNG));
     e.nachbarschaft_setzen(None, Vec::new());
     e.on_window_event(&zeiger_ereignis(960.0, 540.0), Some(lage()), false);
     let buendel = alles_mit_platz(&mut e);
     assert_eq!(buendel.len(), 1);
-    assert_eq!(buendel[0].0, 0);
-    assert_eq!(e.ziel_slot(), 0);
+    assert_eq!(buendel[0].0, 3, "der Platz bleibt der eigene (3), nicht die Rueckfall-Konstante 0");
+    assert_eq!(e.ziel_slot(), 3);
+}
+
+/// **C1, der Kern-Regressionstest:** eine `CursorMoved` merkt die Zeigerlage
+/// IMMER (auch ohne eigenes Bild), erreicht `zeigerposition`/`ziel_wechseln`
+/// aber nur MIT einem. Ohne eigenes Bild bleibt `ziel_slot` also auf dem
+/// alten Stand — ein nachfolgender Knopfdruck darf sich davon trotzdem nicht
+/// stempeln lassen: das Orts-Tor muss den Platz frisch bestimmen, nicht den
+/// zuletzt per Bewegung bestaetigten `ziel_slot` nehmen. Sonst zielt ein
+/// Klick ueber dem Nachbarn noch auf das eigene Fenster.
+#[test]
+fn knopfdruck_zielt_frisch_auch_ohne_bestaetigende_bewegung() {
+    let mut e = eingeschaltet();
+    e.nachbarschaft_setzen(Some((0.0, 0.0)), zwei_fenster());
+    // Kein eigenes Bild bekannt: die Lage wird gemerkt, aber `zeigerposition`
+    // (und damit `ziel_wechseln`) laeuft NICHT.
+    e.on_window_event(&zeiger_ereignis(2880.0, 540.0), None, false);
+    assert_eq!(e.ziel_slot(), 0, "ohne eigenes Bild bleibt ziel_slot unveraendert");
+
+    e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), Some(lage()), false);
+
+    let buendel = alles_mit_platz(&mut e);
+    assert_eq!(buendel.len(), 1, "{buendel:?}");
+    assert_eq!(buendel[0].0, 1, "der Druck gehoert dem Nachbarn, nicht dem veralteten Ziel 0");
+    assert_eq!(e.ziel_slot(), 1);
+}
+
+/// I3: `CursorLeft` loescht die Zeigerlage nur, wenn KEIN Knopf unten ist.
+/// Waehrend eines Zuges (Knopf unten) bleibt sie stehen, weil das
+/// Betriebssystem die Ereignisse weiterhin diesem Fenster zustellt — ein
+/// weiterer Druck geht danach noch hinaus. Ohne gehaltenen Knopf ist „ausser
+/// Sicht" wieder „kein Klick": derselbe Druck bleibt fail-closed aus.
+#[test]
+fn cursor_left_haelt_die_lage_nur_bei_gehaltenem_knopf() {
+    let mut mit_knopf = eingeschaltet();
+    mit_knopf.on_window_event(
+        &maus_ereignis(ElementState::Pressed, MouseButton::Left),
+        Some(lage()),
+        false,
+    );
+    let _ = alles(&mut mit_knopf); // den Druck selbst wegnehmen
+    mit_knopf.on_window_event(&WindowEvent::CursorLeft { device_id: DeviceId::dummy() }, Some(lage()), false);
+    mit_knopf.on_window_event(
+        &maus_ereignis(ElementState::Pressed, MouseButton::Right),
+        Some(lage()),
+        false,
+    );
+    assert!(
+        !alles(&mut mit_knopf).is_empty(),
+        "mit gehaltenem Knopf bleibt die Lage bekannt, ein weiterer Druck geht hinaus"
+    );
+
+    let mut ohne_knopf = eingeschaltet();
+    ohne_knopf.on_window_event(&WindowEvent::CursorLeft { device_id: DeviceId::dummy() }, Some(lage()), false);
+    ohne_knopf.on_window_event(
+        &maus_ereignis(ElementState::Pressed, MouseButton::Right),
+        Some(lage()),
+        false,
+    );
+    assert!(
+        alles(&mut ohne_knopf).is_empty(),
+        "ohne gehaltenen Knopf loescht CursorLeft die Lage, der Druck bleibt aus"
+    );
 }

@@ -135,6 +135,16 @@ impl Erfassung {
     /// zufaellig steht.
     pub(super) fn strom_beginnen(&mut self, uebernehmen: bool) {
         self.warteschlange.neuer_strom(rahmen::hello(), uebernehmen);
+        if !uebernehmen {
+            // Buendel aus einem fremden Ziel oder einer fremden Sitzung
+            // draengeln sich sonst vor das neue Hello: `abholen()` gibt
+            // `ausstehend` vor allem anderen heraus, und beim Host waeren
+            // diese Frames Fremdeingabe VOR dem Handschlag — derselbe
+            // fail-closed-Fall, gegen den die Warteschlange oben schon
+            // geschuetzt wird. Ein Grenzuebertritt kurz vor einem Ziel- oder
+            // Sitzungswechsel fuellt genau dieses Feld.
+            self.ausstehend.clear();
+        }
         self.tasten_unten.clear();
         self.knoepfe_unten.clear();
         // Der Zeiger kann inzwischen woanders stehen, und Reste einer alten
