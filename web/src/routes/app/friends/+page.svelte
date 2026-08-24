@@ -173,28 +173,13 @@
         </DropdownMenu.Root>
       {/snippet}
     </BereichsKopf>
-    <div class="flex-1 overflow-y-auto px-4 py-4">
-      {#if activeTab === 'pending' || activeTab === 'blocked' || activeTab === 'add'}
-        <!-- Unteransicht mit Zurück-Zeile statt Reiter: die Menü-Punkte sind
-             Ausnahmefälle, kein parallel sichtbarer Zustand. -->
-        <button
-          type="button"
-          class="text-text-muted hover:text-text-bright mb-3 flex items-center gap-1 text-sm font-semibold"
-          onclick={() => switchTab('all')}
-          data-testid="friends-back"
-        >
-          <ChevronLeftIcon class="size-5" />
-          {untertitel()}
-        </button>
-        {#if activeTab === 'pending'}
-          <PendingRequests />
-        {:else if activeTab === 'blocked'}
-          <BlockedList />
-        {:else}
-          <AddFriendPanel />
-        {/if}
-      {:else}
-        <label class="border-border bg-bg-input mb-4 flex items-center gap-2 rounded-full border px-3 py-2">
+    <!-- Suchleiste außerhalb des Scroll-Bereichs, in derselben Hülle wie die
+         der Chats (px-5 pb-5, gleiche Label-Klassen): gleiche Größe, gleiche
+         Höhe — zwei Bereiche, dieselbe Frage „wo suche ich\" sollen sich
+         nicht durch Versatz verraten. -->
+    {#if activeTab !== 'pending' && activeTab !== 'blocked' && activeTab !== 'add'}
+      <div class="px-5 pb-5" data-testid="friends-search-wrap">
+        <label class="border-border bg-bg-input flex items-center gap-2 rounded-full border px-3 py-2">
           <SearchIcon class="text-text-muted size-4 shrink-0" />
           <input
             type="text"
@@ -216,6 +201,29 @@
             </button>
           {/if}
         </label>
+      </div>
+    {/if}
+    <div class="flex-1 overflow-y-auto px-4 pb-4">
+      {#if activeTab === 'pending' || activeTab === 'blocked' || activeTab === 'add'}
+        <!-- Unteransicht mit Zurück-Zeile statt Reiter: die Menü-Punkte sind
+             Ausnahmefälle, kein parallel sichtbarer Zustand. -->
+        <button
+          type="button"
+          class="text-text-muted hover:text-text-bright mb-3 flex items-center gap-1 pt-4 text-sm font-semibold"
+          onclick={() => switchTab('all')}
+          data-testid="friends-back"
+        >
+          <ChevronLeftIcon class="size-5" />
+          {untertitel()}
+        </button>
+        {#if activeTab === 'pending'}
+          <PendingRequests />
+        {:else if activeTab === 'blocked'}
+          <BlockedList />
+        {:else}
+          <AddFriendPanel />
+        {/if}
+      {:else}
         <FriendList suche={freundeSuche} />
       {/if}
     </div>
