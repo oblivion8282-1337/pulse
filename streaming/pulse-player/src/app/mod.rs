@@ -282,6 +282,13 @@ pub struct App {
     /// Reihenfolge ihrer Deklaration. Andersherum faenden die Sperren beim
     /// Abbau eine Verbindung vor, die es nicht mehr gibt.
     tastensperre: crate::tastensperre::Gemeinsam,
+    /// Welches Fenster zuletzt den Tastaturfokus bekam.
+    ///
+    /// Stellvertreter fuer „liegt oben": winit gibt die Stapelreihenfolge nicht
+    /// heraus, aber ein Fenster wird durch Anklicken zugleich fokussiert und
+    /// nach vorne geholt. Entscheidet bei ueberlappenden Player-Fenstern, wer
+    /// einen Punkt bekommt (s. `fernsteuerung::nachbarn::vorrang`).
+    zuletzt_fokussiert: Option<u64>,
 }
 
 /// Wie lange nach dem letzten Bild des Hauptstroms das Auffangnetz noch
@@ -306,6 +313,7 @@ impl App {
             stdout: StdoutWriter::new(),
             zeigervorrat: zeigerbau::Vorrat::default(),
             tastensperre: crate::tastensperre::Gemeinsam::default(),
+            zuletzt_fokussiert: None,
         }
     }
 
@@ -1474,6 +1482,56 @@ impl ApplicationHandler<UserEvent> for App {
     ) {
         let _belegt = diagnose::Belegt::neu();
         let Some(&id) = self.by_window.get(&window_id) else { return };
+        // **VOR der veraenderlichen Ausleihe.** Die Nachbarschaft braucht alle
+        // Sitzungen zugleich, `get_mut` gleich darunter genau eine — beides
+        // zusammen lehnt der Borrow-Checker ab. Kopiert werden nur Zahlen.
+        //
+        // Nur erfassende Fenster kommen hinein: ein Fenster ohne Erfassung hat
+        // beim Host keinen Handschlag, und Frames dorthin wuerden dort
+        // verworfen. Das waere schlimmer als nichts zu tun — jede verworfene
+        // Nachricht gibt beim Host ALLES Gedrueckte frei und risse die
+        // Zieh-Geste ab.
+        // **Nur wenn dieses Fenster ueberhaupt erfasst.** `window_event` laeuft
+        // bei jeder Mausbewegung — bis zu 144-mal je Sekunde. Eine Liste zu
+        // bauen und zu sortieren, waehrend die Fernsteuerung aus ist (die
+        // Vorgabe), waere genau die Art Kosten, die der Kommentar weiter unten
+        // ausdruecklich vermeidet („kostet das nur dieses `if`").
+        let erfasst = self.sessions.get(&id).is_some_and(|s| s.eingabe.aktiv());
+        let mut kandidaten: Vec<crate::fernsteuerung::Nachbar> = if !erfasst {
+            Vec::new()
+        } else {
+            self
+            .sessions
+            .iter()
+            .filter(|(_, s)| s.eingabe.aktiv())
+            .filter_map(|(sid, s)| {
+                // Wayland gibt Fensterlagen grundsaetzlich nicht heraus. Dann
+                // gibt es keine Nachbarschaft, und alles bleibt beim eigenen
+                // Bild — bewusst still, es ist kein Fehler, sondern eine
+                // Eigenschaft der Oberflaeche.
+                let pos = s.window.inner_position().ok()?;
+                let fenster = s.window.inner_size();
+                let lage = crate::fernsteuerung::Bildlage::neu(
+                    (fenster.width, fenster.height),
+                    (s.stats.width, s.stats.height),
+                    render::zoom_ausschnitt(&s.options),
+                )?;
+                Some(crate::fernsteuerung::Nachbar {
+                    id: *sid,
+                    slot: s.eingabe.slot(),
+                    ursprung: (f64::from(pos.x), f64::from(pos.y)),
+                    lage,
+                })
+            })
+            .collect()
+        };
+        crate::fernsteuerung::vorrang(&mut kandidaten, id, self.zuletzt_fokussiert);
+        // Die eigene Lage getrennt: sie macht aus fensterlokalen Zeigerpunkten
+        // Desktop-Punkte. Fehlt sie, bleibt die Nachbarschaft ungenutzt.
+        let eigener_ursprung = kandidaten
+            .iter()
+            .find(|n| n.id == id)
+            .map(|n| n.ursprung);
         if let Some(session) = self.sessions.get_mut(&id) {
             // egui zuerst sehen lassen: es braucht auch Groessen- und
             // Skalierungswechsel. Fuer die vier Faelle unten (Fokus,
@@ -1507,6 +1565,7 @@ impl ApplicationHandler<UserEvent> for App {
                     (session.stats.width, session.stats.height),
                     render::zoom_ausschnitt(&session.options),
                 );
+                session.eingabe.nachbarschaft_setzen(eigener_ursprung, kandidaten);
                 session.eingabe.on_window_event(&event, lage, antwort.verbraucht);
             }
         }

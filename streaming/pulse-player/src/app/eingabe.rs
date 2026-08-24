@@ -270,6 +270,9 @@ impl App {
     /// wieder sichtbar gemacht: ein unsichtbarer Zeiger ueber einem Fenster,
     /// das gerade nicht bedient wird, ist ein verlorener Zeiger.
     pub(super) fn fokus_gewechselt(&mut self, id: u64, fokus: bool) {
+        if fokus {
+            self.zuletzt_fokussiert = Some(id);
+        }
         let Some(session) = self.sessions.get_mut(&id) else { return };
         if !session.eingabe.aktiv() && !session.fang_gewuenscht {
             return;
