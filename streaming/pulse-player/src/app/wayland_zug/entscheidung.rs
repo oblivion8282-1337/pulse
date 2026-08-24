@@ -12,21 +12,30 @@
 //! verschiedene Teilmengen desselben Zustands raeumten: Beenden raeumte
 //! Sitzung, Fehler-Merker, `wayland_ziel` und liess los; Aufgeben raeumte
 //! Sitzung, Fehler-Merker, den Wayland-Merker — und `wayland_ziel` **nicht**.
-//! Dass das jahrelang nicht auffiel, lag daran, dass zwei der drei Aufrufer es
-//! zufaellig anderswo mitmachten; der dritte (Fokusverlust) nicht, und dort
-//! zeigte dann jeder Klick im eigenen Fenster auf den fremden Bildschirm.
+//! Dass es die vier Tage bis zum Befund ueberlebte, lag daran, dass zwei der
+//! drei Aufrufer es zufaellig anderswo mitmachten; der dritte (Fokusverlust)
+//! nicht, und dort zeigte dann jeder Klick im eigenen Fenster auf den fremden
+//! Bildschirm.
 //!
 //! Deshalb gibt es jetzt genau eine Abbau-Stelle — [`App::wayland_zug_abbau`]
 //! — mit genau einem Parameter: ob dabei freigegeben wird. **Was zu einem Zug
 //! gehoert, steht dort einmal und nirgends sonst.** Beenden ist
-//! `abbau(true)`, Aufgeben ist `abbau(false)`; ein kuenftiges Feld kann in
-//! keinem der Wege mehr vergessen werden, weil es keine zwei Wege mehr gibt.
+//! `abbau(true)`, Aufgeben ist `abbau(false)`.
 //!
-//! Die drei Wege dorthin:
+//! Die vier Wege dorthin:
 //! * **Ende** ([`Zugschluss::Beendet`]) — `Drop`, Beweisweg oder Notfrist.
 //! * **Verfall** ([`Zugschluss::Verfallen`]) — die Anlauf-Frist.
 //! * **Abbruch** ([`App::wayland_zug_abbrechen`]) — Fokusverlust, Erfassung
 //!   aus, Fenster zu.
+//! * **Ein neuer Zugbeginn** — `App::wayland_zug_beginnen` raeumt zuerst ab,
+//!   dann faengt es an.
+//!
+//! **Der vierte kam erst in der fuenften Runde dazu, und sein Fehlen war der
+//! Beweis der These:** `zug_beginnen` setzte fuenf derselben sechs Felder ein
+//! zweites Mal zurueck — und beim sechsten (`fremder_zug`, in derselben Runde
+//! eingefuehrt) war es prompt vergessen. Ein zweiter Weg, der „dasselbe" tut,
+//! faengt sofort an zu driften; das ist keine Vermutung, sondern in diesem
+//! Modul zweimal passiert.
 
 use super::App;
 #[cfg(target_os = "linux")]
@@ -73,7 +82,11 @@ impl App {
     /// 2. **App** — welche Sitzung den Zug traegt, und der Melde-Merker fuer
     ///    die nicht zuzuordnende Flaeche.
     /// 3. **Erfassung** — das Wayland-Ziel; und **nur bei `freigeben`** die
-    ///    Hoch-Ereignisse fuer alles Gedrueckte.
+    ///    Hoch-Ereignisse fuer alles Gedrueckte (beides in
+    ///    `Erfassung::zug_abbau`, mit eigenen Tests).
+    ///
+    /// **Nicht dabei, und das mit Absicht: die Druck-Seriennummer** (s.
+    /// `Gastverbindung::zug_aufgeben`). Sie gehoert dem Druck, nicht dem Zug.
     ///
     /// **Freigeben heisst: die Maustaste geht am fernen Rechner hoch.** Das ist
     /// richtig, wenn der Zug wirklich zu Ende ist (der Nutzer hat losgelassen,
@@ -91,10 +104,11 @@ impl App {
             Abbauplan::Nichts => {}
             Abbauplan::Sitzung { id, freigeben } => {
                 if let Some(session) = self.sessions.get_mut(&id) {
-                    session.eingabe.wayland_ziel_setzen(None);
-                    if freigeben {
-                        session.eingabe.zug_beendet();
-                    }
+                    // Die Erfassungs-Haelfte steht als eigene, geprüfte
+                    // Methode daneben (`Erfassung::zug_abbau`) — die
+                    // Entscheidung „Ziel immer, Freigabe nur auf Ansage" hing
+                    // sonst an zwei Zeilen hier, die kein Test erreicht.
+                    session.eingabe.zug_abbau(freigeben);
                 }
             }
         }
@@ -224,12 +238,13 @@ impl App {
     /// `eingabe_raeumen` -> `ausschalten`); eine zweite Freigabe von hier waere
     /// bestenfalls ueberfluessig.
     ///
-    /// **Das WAYLAND-ZIEL raeumt dagegen nur dieser Weg** — und genau daran
-    /// fehlte es (Review C-1 der vierten Runde): zwei der drei Aufrufer nehmen
-    /// es ueber `Erfassung::ausschalten` mit, der Fokusverlust nicht. Blieb es
-    /// stehen, zeigte danach jeder Klick im eigenen Fenster auf Platz und
-    /// Bildlage des anderen. Seit es EINEN Abbau gibt, kann das nicht mehr an
-    /// einem Weg vorbeigehen.
+    /// **Das WAYLAND-ZIEL raeumt der Abbau dagegen selbst** — und genau daran
+    /// fehlte es hier (Review C-1 der vierten Runde). Zwei der drei Aufrufer
+    /// nehmen es ohnehin ueber `Erfassung::ausschalten` mit, der Fokusverlust
+    /// nicht; blieb es stehen, zeigte danach jeder Klick im eigenen Fenster auf
+    /// Platz und Bildlage des anderen, und der Weg, der es sonst geraeumt
+    /// haette, war unerreichbar. Seit es EINEN Abbau gibt, kann das an keinem
+    /// Weg mehr vorbeigehen.
     ///
     /// **Nur fuer die Sitzung, die den Zug traegt.** Ein anderes Fenster, das
     /// den Fokus verliert, geht diesen Zug nichts an.

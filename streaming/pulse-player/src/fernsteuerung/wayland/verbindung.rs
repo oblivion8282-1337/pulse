@@ -81,9 +81,16 @@ impl Gastverbindung {
     /// ueberhaupt kein Ereignis mehr kommt. Beide melden sich im Log: sie sind,
     /// anders als die uebrigen Ende-Wege, echte Ausnahmefaelle (Review I-1).
     ///
-    /// **Raeumt selbst nichts ab.** Was zu einem Zug gehoert, raeumt der eine
-    /// Trichter in `app::wayland_zug::entscheidung` — diese Methode sagt nur,
-    /// dass er zu rufen ist, und mit welchem Schalter.
+    /// **Raeumt genau eines ab, und das unwiderruflich: das [`Zugende`].**
+    /// `zugschluss` konsumiert es (sonst meldete derselbe Ende-Rahmen sich bei
+    /// jedem Tick erneut) — wer den Rueckgabewert wegwirft, hat das Ende nicht
+    /// aufgeschoben, sondern **vernichtet**, und die Maustaste ginge am fernen
+    /// Rechner nie mehr hoch. Genau deshalb das `#[must_use]` unten und das
+    /// `#![deny(unused_must_use)]` in `main.rs`.
+    ///
+    /// Alles ANDERE, was zu einem Zug gehoert, raeumt der eine Trichter in
+    /// `app::wayland_zug::entscheidung` — diese Methode sagt nur, dass er zu
+    /// rufen ist, und mit welchem Schalter.
     #[must_use = "der Schluss muss angewandt werden — sonst bleibt ein Ende liegen (Review C-1)"]
     pub fn nachfassen(&mut self) -> Zugschluss {
         let _ = self.queue.dispatch_pending(&mut self.zustand);
@@ -154,6 +161,14 @@ impl Gastverbindung {
     /// **Die Verbindungs-Haelfte des Abbaus**: alles vergessen, was zu einem
     /// Zug gehoert — Merker, Bestaetigung, Zugehoerigkeit, Anlauf-Frist, Ende
     /// und Lage.
+    ///
+    /// **Nicht dabei, und das mit Absicht: `druck` (die Seriennummer).** Sie
+    /// gehoert dem DRUCK, nicht dem Zug — sie entsteht am `wl_pointer.button`
+    /// und wird von `Drop`/`Leave` entwertet (s. `zustand::zug_ereignis`).
+    /// Sie hier mitzuraeumen hiesse, nach jedem Abbau einen frischen Druck zu
+    /// verlangen, obwohl der Nutzer die Taste noch haelt; sie stehenzulassen
+    /// kostet nichts, weil ein `start_drag` mit unpassender Nummer laut
+    /// Protokoll folgenlos bleibt.
     ///
     /// **Nur aus dem einen Trichter rufen** (`App::wayland_zug_abbau`), nie
     /// direkt: die andere Haelfte (Sitzung, Ziel, Gedruecktes) liegt in der
