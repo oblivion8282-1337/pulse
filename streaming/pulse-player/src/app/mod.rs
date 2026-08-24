@@ -1496,14 +1496,24 @@ impl ApplicationHandler<UserEvent> for App {
         // bauen und zu sortieren, waehrend die Fernsteuerung aus ist (die
         // Vorgabe), waere genau die Art Kosten, die der Kommentar weiter unten
         // ausdruecklich vermeidet („kostet das nur dieses `if`").
-        let erfasst = self.sessions.get(&id).is_some_and(|s| s.eingabe.aktiv());
+        //
+        // **Und nur dieselbe Fernsteuerungs-Sitzung.** Fensternummern und
+        // Plaetze wiederholen sich zwischen Sitzungen (Plaetze zaehlen je Host
+        // wieder bei 0), die Sitzungskennung nicht — ohne diesen Filter koennte
+        // ein Fenster einer FREMDEN Steuerung eine Platznummer beisteuern, die
+        // drueben einen ganz anderen Bildschirm meint.
+        let eigene = self.sessions.get(&id).filter(|s| s.eingabe.aktiv());
+        let erfasst = eigene.is_some();
+        // **Besitzen, nicht ausleihen:** eine geliehene Kennung hielte die
+        // Ausleihe auf `self.sessions` bis hinter das `get_mut` weiter unten.
+        let eigene_sitzung = eigene.and_then(|s| s.eingabe.sitzung()).map(str::to_owned);
         let mut kandidaten: Vec<crate::fernsteuerung::Nachbar> = if !erfasst {
             Vec::new()
         } else {
             self
             .sessions
             .iter()
-            .filter(|(_, s)| s.eingabe.aktiv())
+            .filter(|(_, s)| s.eingabe.aktiv() && s.eingabe.sitzung() == eigene_sitzung.as_deref())
             .filter_map(|(sid, s)| {
                 // Wayland gibt Fensterlagen grundsaetzlich nicht heraus. Dann
                 // gibt es keine Nachbarschaft, und alles bleibt beim eigenen
@@ -1559,6 +1569,20 @@ impl ApplicationHandler<UserEvent> for App {
             // und Rad gehoeren ins Bild"). Ist die Erfassung aus (die Vorgabe),
             // kostet das nur dieses `if`.
             if session.eingabe.aktiv() {
+                // **Zweite Berechnung derselben Bildlage.** Die erste steckt
+                // oben in `kandidaten` (als `Nachbar::lage` fuer dieses
+                // Fenster) und wird hier absichtlich nicht wiederverwendet —
+                // beide lesen dieselben Felder (`window.inner_size()`,
+                // `stats.width/height`, `zoom_ausschnitt(&options)`) aus
+                // DERSELBEN `session` im selben synchronen Durchlauf von
+                // `window_event`, dazwischen laeuft nur egui. Sie koennen
+                // deshalb heute nicht auseinanderlaufen. Das ist eine
+                // Zusage, kein Beweis von hier aus: schoebe jemand zwischen
+                // dem Einsammeln oben und dieser Stelle einen `.await`, einen
+                // Resize-Handler oder sonst eine Mutation an `session.stats`/
+                // `session.options`/der Fenstergroesse ein, faellt die
+                // Zusage — und die eigene Position in `kandidaten` (fuer die
+                // Nachbarn) wich dann von der hier verwendeten `lage` ab.
                 let fenster = session.window.inner_size();
                 let lage = crate::fernsteuerung::Bildlage::neu(
                     (fenster.width, fenster.height),
