@@ -2,11 +2,20 @@
 //! denen `app::wayland_zug` seine Entscheidungen zieht.
 //!
 //! Abgetrennt von [`super`], wo der Dispatch wohnt (welches Ereignis welchen
-//! Zustand bewegt). Groessen-Begruendung wie ueberall hier (`PLAN.md` §12.1):
-//! `mod.rs` lag bei 489 von hart 500 Produktivzeilen, und der Merker aus
-//! Review C-B braucht Platz fuer seine Begruendung.
+//! Zustand bewegt), und von [`super::zustand`], wo die Entscheidungen darauf
+//! als reine Funktionen stehen. Groessen-Begruendung wie ueberall hier
+//! (`PLAN.md` §12.1).
+//!
+//! **Zwei Reihenfolge-Regeln sind hier in die Typen gewandert** statt als
+//! Prosa in Doc-Kommentaren zu stehen (Review der vierten Runde):
+//! * `nachfassen` gibt den Schluss **zurueck**, statt ihn liegenzulassen —
+//!   „dispatchen ohne das Ende abzuholen" ist damit gar nicht mehr
+//!   formulierbar. Ein `Beendet`, das liegenbleibt, war Review-Befund C-1.
+//! * Beide schluss-liefernden Methoden sind `#[must_use]`. Ein zweites,
+//!   unbedachtes `nachfassen()` (Review C-A) faellt damit als Warnung auf —
+//!   und Warnungen sind in diesem Projekt ein hartes Tor.
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
 use wayland_backend::sys::client::Backend;
@@ -17,40 +26,7 @@ use winit::window::Window;
 
 use super::ende::Zugende;
 use super::zug::ZugLage;
-use super::zustand::Zustand;
-
-/// Wie lange ein ANGEFORDERTER, aber nie bestaetigter Zug den Merker halten
-/// darf, bevor er verfaellt.
-///
-/// **Wozu das noetig ist** (Review C-B, 2026-08-25): `eigener_zug` hatte nur
-/// zwei Ausgaenge — ein abgeholtes Ende und das ausdrueckliche Aufgeben beim
-/// Loslassen. Wer zwischen Druck und Loslassen den Fokus verliert oder das
-/// Fenster schliesst, sah beides nie; der Merker blieb fuer den Rest der
-/// Prozesslaufzeit stehen, und ab da sprach **jeder fremde Zug wieder fuer
-/// uns** — samt fernem Zeiger, der einer fremden Datei hinterherspringt. Die
-/// drei bekannten Wege raeumt `app::wayland_zug` jetzt ausdruecklich auf; diese
-/// Frist ist der Guertel dazu, fuer den Weg, den niemand vorhergesehen hat —
-/// und fuer einen Compositor, der `start_drag` ergreift, ohne je ein `Enter`
-/// zu schicken (gemessen haben wir EINEN Compositor).
-///
-/// **Warum sie so lang ist.** Zwischen `start_drag` und dem ersten `Enter`
-/// liegt kein Round-Trip, sondern die erste Zeigerbewegung des Nutzers
-/// (gemessen 2026-08-24: 427 ms, weil so lange nicht bewegt wurde). Wer
-/// drueckt und in Ruhe ueberlegt, bevor er zieht, haelt einen voellig gesunden
-/// Zug beliebig lange unbestaetigt. Verfaellt der Merker zu frueh und der
-/// Nutzer zieht DANN los, laeuft der Zug im Compositor weiter, waehrend wir
-/// ihn nicht mehr verfolgen: seine Bewegungen gehen verloren und sein `Drop`
-/// ebenso — die Maustaste bliebe am fernen Rechner unten, bis der Fokus
-/// wechselt, die Erfassung endet oder der naechste Zug endet. 30 s sind
-/// laenger als jedes plausible Zoegern und immer noch kurz gegen eine
-/// Prozesslaufzeit.
-///
-/// **Verfallen heisst AUFGEBEN, nicht Beenden.** Ein Ende wuerde alles
-/// Gedrueckte freigeben — und wenn der Nutzer die Taste in diesem Moment
-/// wirklich haelt, waere das genau der schlimmste Ausgang dieses Vorhabens.
-/// Aufgeben laesst im schlimmsten Fall eine Taste unten, die ein anderer Weg
-/// noch loest.
-pub(super) const ANLAUFFRIST: Duration = Duration::from_secs(30);
+use super::zustand::{zugschluss, Zugschluss, Zustand, ANLAUFFRIST};
 
 /// Verbindung, Seats, der zweite Zeiger je Seat und das Datengeraet je Seat —
 /// alles, was der Zug ueber die Fenstergrenze auf Wayland braucht.
@@ -89,54 +65,46 @@ pub struct Gastverbindung {
 }
 
 impl Gastverbindung {
-    /// Warteschlange leeren, nicht blockierend.
+    /// Warteschlange leeren und **den Schluss abholen** — untrennbar, s.
+    /// Modulkopf.
     ///
-    /// Muss sein, weil die Registry weiter jedes kommende und gehende Global
-    /// hineinlegt und weil sonst kein `button`- oder `Drop`/`Leave`-Ereignis
-    /// je den `Zustand` erreicht. Blockiert nicht: gelesen wird der Socket
-    /// von winit, hier wird nur abgeholt, was schon dort liegt.
+    /// Das Leeren muss sein, weil die Registry weiter jedes kommende und
+    /// gehende Global hineinlegt und weil sonst kein `button`- oder
+    /// `Drop`/`Leave`-Ereignis je den `Zustand` erreicht. Blockiert nicht:
+    /// gelesen wird der Socket von winit, hier wird nur abgeholt, was schon
+    /// dort liegt.
     ///
     /// **Traegt beide Fristen** — die [`super::ende::NOTFRIST`] fuer ein
     /// unaufgeloestes `Leave` und die [`ANLAUFFRIST`] fuer einen nie
-    /// bestaetigten Zug. Hier und nicht im Dispatch, weil beide gerade dann
-    /// greifen sollen, wenn ueberhaupt kein Ereignis mehr kommt. Beide melden
-    /// sich im Log: sie sind, anders als die uebrigen Ende-Wege, echte
-    /// Ausnahmefaelle (Review I-1).
-    pub fn nachfassen(&mut self) {
+    /// bestaetigten Zug (beide schliessen sich aus, s. `zustand::zugschluss`).
+    /// Hier und nicht im Dispatch, weil beide gerade dann greifen sollen, wenn
+    /// ueberhaupt kein Ereignis mehr kommt. Beide melden sich im Log: sie sind,
+    /// anders als die uebrigen Ende-Wege, echte Ausnahmefaelle (Review I-1).
+    ///
+    /// **Raeumt selbst nichts ab.** Was zu einem Zug gehoert, raeumt der eine
+    /// Trichter in `app::wayland_zug::entscheidung` — diese Methode sagt nur,
+    /// dass er zu rufen ist, und mit welchem Schalter.
+    #[must_use = "der Schluss muss angewandt werden — sonst bleibt ein Ende liegen (Review C-1)"]
+    pub fn nachfassen(&mut self) -> Zugschluss {
         let _ = self.queue.dispatch_pending(&mut self.zustand);
-        let jetzt = Instant::now();
-        if self.zustand.ende.frist_pruefen(jetzt) {
-            eprintln!(
+        let schluss = zugschluss(&mut self.zustand, Instant::now());
+        match schluss {
+            Zugschluss::Beendet { notfrist: true } => eprintln!(
                 "pulse-player: Wayland-Zug — der Zeiger hat {} s lang kein Player-Fenster \
                  beruehrt und winit hat sich nicht zurueckgemeldet; der Zug gilt als beendet \
                  und alles Gedrueckte wird freigegeben. Lief er in Wirklichkeit noch, ist die \
                  Geste ab hier tot (s. `wayland::ende::NOTFRIST`).",
                 super::ende::NOTFRIST.as_secs()
-            );
-        }
-        if self.anlauf_verfallen(jetzt) {
-            eprintln!(
-                "pulse-player: Wayland-Zug — seit {} s angefordert, aber nie begonnen; \
-                 der Merker wird aufgegeben (es wird nichts losgelassen).",
+            ),
+            Zugschluss::Verfallen => eprintln!(
+                "pulse-player: Wayland-Zug — seit {} s angefordert, ohne dass er begonnen hat \
+                 und ohne ein einziges Zeigerereignis dazwischen; der Merker wird aufgegeben \
+                 (es wird nichts losgelassen).",
                 ANLAUFFRIST.as_secs()
-            );
-            self.zug_aufgeben();
+            ),
+            _ => {}
         }
-    }
-
-    /// Ist ein angeforderter Zug ueber die [`ANLAUFFRIST`] hinaus unbestaetigt
-    /// geblieben? Ein bereits stehendes Ende hat Vorrang — es wird abgeholt,
-    /// nicht weggeraeumt.
-    fn anlauf_verfallen(&self, jetzt: Instant) -> bool {
-        if !self.zustand.eigener_zug
-            || self.zustand.bestaetigt
-            || self.zustand.ende != Zugende::Keins
-        {
-            return false;
-        }
-        self.zustand
-            .angefordert_seit
-            .is_some_and(|seit| jetzt.saturating_duration_since(seit) >= ANLAUFFRIST)
+        schluss
     }
 
     /// Die Seriennummer des letzten Drucks — `None`, solange keiner
@@ -157,47 +125,44 @@ impl Gastverbindung {
         self.zustand.bestaetigt
     }
 
-    /// Ist der laufende Zug soeben endgueltig zuende — durch `Drop`, durch den
-    /// Beweisweg ([`Self::griff_vorbei`]) oder durch die abgelaufene
-    /// [`super::ende::NOTFRIST`]? EREIGNISGETRIEBEN, nicht aus einer
-    /// Momentaufnahme von `zeiger_ueber` (s. [`super::ende`], Review-Befunde
-    /// C2/I3) — **konsumierend**: ein zweiter Aufruf ohne neues Ende liefert
-    /// `false`.
+    /// Bezeugen, dass der angeforderte Zug (noch) NICHT laeuft — die
+    /// [`ANLAUFFRIST`] faengt von vorne an.
     ///
-    /// Mit dem Ende faellt auch der Merker: der naechste fremde Zug spricht
-    /// nicht mehr fuer uns (C-1).
-    pub fn zug_zuende(&mut self) -> bool {
-        let zuende = self.zustand.ende.konsumiere_beendet();
-        if zuende {
-            self.zustand.eigener_zug = false;
-            self.zustand.bestaetigt = false;
-            self.zustand.angefordert_seit = None;
+    /// Gerufen bei jedem winit-Zeigerereignis waehrend eines unbestaetigten
+    /// Zugs: solange winit zustellt, hat der Compositor nachweislich nicht
+    /// ergriffen (s. [`super::ende`]-Modulkopf), der Merker ist also nicht
+    /// verwaist. **Damit misst die Frist Stille statt Zeit** (Review I-1 der
+    /// vierten Runde) — vorher lief sie ab `start_drag` und auch dann weiter,
+    /// wenn laufend das Gegenteil bewiesen wurde.
+    pub fn anlauf_bezeugen(&mut self) {
+        if self.zustand.eigener_zug && !self.zustand.bestaetigt {
+            self.zustand.angefordert_seit = Some(Instant::now());
         }
-        zuende
     }
 
     /// Der Beweis von der anderen Seite: winit liefert wieder
     /// `CursorMoved`/`MouseInput`, der Griff des Compositors ist also vorbei
     /// (s. [`super::ende`]-Modulkopf). Loest ein offenes `Leave` auf — und
     /// **nur** das, nicht einen gesunden Zug (Begruendung an
-    /// `Zugende::griff_vorbei`). Der Aufrufer holt das Ergebnis im selben Zug
-    /// mit [`Self::zug_zuende`] ab.
-    pub fn griff_vorbei(&mut self) {
+    /// `Zugende::griff_vorbei`) — und holt den Schluss gleich mit ab.
+    #[must_use = "der Schluss muss angewandt werden — sonst bleibt ein Ende liegen (Review C-1)"]
+    pub fn griff_vorbei(&mut self) -> Zugschluss {
         self.zustand.ende.griff_vorbei();
+        zugschluss(&mut self.zustand, Instant::now())
     }
 
-    /// Den eigenen Zug aufgeben, OHNE ein Ende zu melden.
+    /// **Die Verbindungs-Haelfte des Abbaus**: alles vergessen, was zu einem
+    /// Zug gehoert — Merker, Bestaetigung, Zugehoerigkeit, Anlauf-Frist, Ende
+    /// und Lage.
     ///
-    /// Fuer die Faelle, in denen es nichts zu beenden gibt: `start_drag` ging
-    /// hinaus, aber der Compositor hat die Anfrage still verworfen (unpassende
-    /// Seriennummer, s. `super::zug::Gastverbindung::zug_beginnen`) oder der
-    /// Zug ist an uns vorbei zu Ende gegangen (Fokusverlust, Erfassung aus,
-    /// Fenster zu — s. `app::wayland_zug`). Dann liegt der Knopf noch beim
-    /// gewoehnlichen `MouseInput`-Weg, und ein gemeldetes Ende wuerde ihn
-    /// mitten in der Geste freigeben.
+    /// **Nur aus dem einen Trichter rufen** (`App::wayland_zug_abbau`), nie
+    /// direkt: die andere Haelfte (Sitzung, Ziel, Gedruecktes) liegt in der
+    /// `Erfassung`, und die beiden Haelften auseinanderlaufen zu lassen war die
+    /// Ursache dreier Review-Runden.
     pub fn zug_aufgeben(&mut self) {
         self.zustand.eigener_zug = false;
         self.zustand.bestaetigt = false;
+        self.zustand.fremder_zug = false;
         self.zustand.angefordert_seit = None;
         self.zustand.ende = Zugende::default();
         self.zustand.zug = ZugLage::default();

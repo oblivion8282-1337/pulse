@@ -16,7 +16,13 @@
 //! die Datei ist ueber der Groessen-Grenze (`PLAN.md` §12.1), und dieser Teil
 //! laesst sich sauber abtrennen. Aus demselben Grund noch einmal geschnitten:
 //! die Zuordnung Flaeche->Fenster ([`zuordnung`]) und das ENDE eines Zugs —
-//! es erkennen und anwenden ([`entscheidung`]).
+//! es erkennen und abbauen ([`entscheidung`]).
+//!
+//! **Was zu einem Zug gehoert und wer es raeumt, steht an EINER Stelle:**
+//! `App::wayland_zug_abbau(freigeben)` in [`entscheidung`]. Beenden und
+//! Aufgeben sind derselbe Abbau mit verschiedenem Schalter. Vor der vierten
+//! Review-Runde waren es zwei Trichter, die verschiedene Teilmengen desselben
+//! Zustands raeumten — die Ursache dreier Befund-Runden.
 //!
 //! ## Die fuenf Wege hier hinein
 //!
@@ -33,12 +39,39 @@
 //! 2. **[`App::wayland_zug_beginnen`]** — beim angenommenen Mausdruck.
 //! 3. **[`App::wayland_zug_nachfassen`]** — in jedem Schleifendurchlauf.
 //! 4. **`App::wayland_zug_griff_pruefen`** ([`entscheidung`]) — bei jedem
-//!    Fensterereignis, s. unten. Holt bei einem DRUCK ausserdem ein noch
-//!    offenes Ende ab, und zwar VOR `Erfassung::on_window_event` (Review C-A).
+//!    Fensterereignis, s. unten. Holt bei einem DRUCK ausserdem einen noch
+//!    offenen Schluss ab, und zwar VOR `Erfassung::on_window_event`
+//!    (Review C-A).
 //! 5. **`App::wayland_zug_abbrechen`** ([`entscheidung`]) — bei Fokusverlust,
 //!    beim Ausschalten der Erfassung und beim Schliessen des Fensters. Ohne
 //!    diese drei Wege bliebe der Merker „eigener Zug" stehen, sobald ein Zug
 //!    nicht regulaer endet (Review C-B).
+//!
+//! ## Drei Reihenfolge-Regeln, zwei davon erzwungen
+//!
+//! * **Dispatchen ohne den Schluss abzuholen** geht nicht mehr:
+//!   `Gastverbindung::nachfassen` GIBT ihn zurueck und ist `#[must_use]`.
+//!   Dasselbe fuer den Beweisweg (`griff_vorbei`). Ein liegengebliebenes Ende
+//!   war Review-Befund C-1.
+//! * **Ein zweites `nachfassen()` in `wayland_zug_beginnen`** faellt aus
+//!   demselben Grund als Warnung auf — und Warnungen sind hier ein hartes Tor.
+//!   (Es waere ein Fehler: es koennte ein `Drop` dispatchen, das `zug_beginnen`
+//!   gleich darauf abraeumt.)
+//! * **`griff_pruefen` vor `Erfassung::on_window_event`** liess sich NICHT
+//!   erzwingen — es sind zwei Aufrufe in `App::window_event`, und beide
+//!   Aufrufer sind fremde Nachbarn. Die Regel steht deshalb an drei Stellen im
+//!   Klartext: hier, an `griff_pruefen` und an der Aufrufstelle selbst.
+//!
+//! ## Ein Modus, in dem der Beweis nie kommt: gefangener Zeiger
+//!
+//! Bei `CursorGrabMode::Locked` (Zeigerfang, `input_capture` mit
+//! `pointer_lock`) steht der Zeiger still und winit liefert **kein**
+//! `CursorMoved` mehr — die Bewegung kommt als `DeviceEvent::MouseMotion` und
+//! erreicht `griff_pruefen` nie. Der Beweisweg fiele dort auf `MouseInput`
+//! zusammen, und ein abgebrochener Zug haenge bis zur Notfrist. Ein Zug ergibt
+//! in diesem Modus ohnehin keinen Sinn (es gibt keine Fenstergrenze, ueber die
+//! ein stillstehender Zeiger laufen koennte), deshalb stoesst
+//! [`App::wayland_zug_beginnen`] dort gar keinen erst an (Review I-2).
 //!
 //! ## Stolperstein 2: waehrend eines Zugs schweigt winit
 //!
@@ -46,8 +79,9 @@
 //! `CursorMoved`/`MouseInput` mehr — die komplette Bewegung UND das Loslassen
 //! der Maustaste laufen ab dann ausschliesslich ueber
 //! [`App::wayland_zug_nachfassen`]: Bewegung ueber `zeiger_ueber`, Loslassen
-//! ueber das EREIGNISGETRIEBENE `zug_zuende` (s. `wayland::ende`) — **nicht**
-//! ueber eine Momentaufnahme von `zeiger_ueber`.
+//! ueber den EREIGNISGETRIEBENEN `Zugschluss` (s. `wayland::ende` und
+//! `wayland::zustand`) — **nicht** ueber eine Momentaufnahme von
+//! `zeiger_ueber`.
 //!
 //! **Gemessen am 2026-08-24** (Protokoll im Bericht zu Task 3, Zahlen in
 //! `wayland::ende`): mit dem Beginn des Zugs kam `wl_pointer.leave`, danach
@@ -91,8 +125,10 @@
 //! Gemessen ist das PROTOKOLL darunter (zwei Fenster, ein Datengeraet, ein
 //! echter Zug — s. `wayland::ende`); nachrechenbar sind die beiden Stellen, an
 //! denen dieses Vorhaben typischerweise bricht — die Einheit der Koordinaten
-//! ([`zuordnung::logisch_zu_physisch`]) und die Ende-Entscheidung
-//! (`entscheidung::ende_entscheiden`), beide mit eigenen Tests.
+//! ([`zuordnung::logisch_zu_physisch`]), der Abbauplan
+//! (`entscheidung::abbauplan`) und, eine Ebene tiefer, die
+//! Ereignis-Zugehoerigkeit und der Zugschluss (`wayland::zustand`) — alle mit
+//! eigenen Tests.
 
 mod entscheidung;
 #[cfg(target_os = "linux")]
@@ -219,24 +255,16 @@ impl App {
     /// gehaltenen Mausknopf loslassen.
     #[cfg(target_os = "linux")]
     pub(super) fn wayland_zug_nachfassen(&mut self) {
-        // **Das Ende wird IMMER abgeholt**, auch ohne eigene Sitzung (Review
-        // C-1). Ein `Beendet`, das hier liegenbliebe, waere die Ladung fuer
-        // den naechsten Zug: dessen erster Tick holte es ab und deutete es als
-        // sein eigenes Ende — die gerade gedrueckte Maustaste ginge sofort
-        // wieder hoch. Deshalb VOR jedem `else { return }`.
-        let (zuende, lage, angefordert) = {
+        // **Der Schluss wird IMMER abgeholt**, auch ohne eigene Sitzung
+        // (Review C-1): `nachfassen` gibt ihn zurueck und ist `#[must_use]` —
+        // liegenlassen ist gar nicht mehr formulierbar. Ein `Beendet`, das
+        // hier haengenbliebe, waere die Ladung fuer den naechsten Zug: dessen
+        // erster Tick holte es ab und deutete es als sein eigenes Ende — die
+        // gerade gedrueckte Maustaste ginge sofort wieder hoch.
+        let (schluss, lage) = {
             let Some(verbindung) = self.wayland_zug.inner.verbindung.as_mut() else { return };
-            verbindung.nachfassen();
-            (verbindung.zug_zuende(), verbindung.zeiger_ueber(), verbindung.zug_angefordert())
+            (verbindung.nachfassen(), verbindung.zeiger_ueber())
         };
-        // Die Anlauf-Frist kann den Merker in `nachfassen` haben verfallen
-        // lassen (Review C-B, `wayland::verbindung::ANLAUFFRIST`) — dann traegt
-        // niemand mehr einen Zug, und die gemerkte Sitzung gehoert weggeraeumt.
-        // Ohne Ende, also ohne Loslassen: verfallen heisst aufgeben.
-        if !angefordert && !zuende {
-            self.wayland_zug.inner.session = None;
-            self.wayland_zug.inner.ziel_fehler_gemeldet = false;
-        }
 
         // Bewegung zuerst anwenden: eine letzte Position kurz vor dem Ende
         // soll noch ankommen, wenn eine da ist.
@@ -274,7 +302,7 @@ impl App {
             }
         }
 
-        self.wayland_zug_ende_anwenden(zuende);
+        self.wayland_zug_schluss_anwenden(schluss);
     }
 
     #[cfg(not(target_os = "linux"))]
