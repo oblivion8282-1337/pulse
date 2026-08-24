@@ -1,3 +1,5 @@
+import { applySinkId } from '$lib/audio/applySinkId';
+
 /**
  * Volume control for a WebRTC `MediaStream` that can go above 100% via a Web
  * Audio GainNode. `HTMLMediaElement.volume` is clamped to [0, 1] by the HTML
@@ -24,6 +26,11 @@ export class VolumeBoost {
   private gain: GainNode | null = null;
   private attachedStream: MediaStream | null = null;
   private currentGain = 1.0;
+  /** Sink chosen in settings — applied to a freshly-created context and
+   *  reapplied by rebuilding on `setOutputDevice()` (a live `setSinkId` on a
+   *  running context fed by a `MediaStreamAudioSourceNode` does not reliably
+   *  reroute, same caveat as `RemoteAudioElements.setOutputDevice`). */
+  private outputDeviceId = '';
 
   /** Notified whenever the underlying AudioContext changes between
    *  `running` and `suspended`. Component wires this into its audio-blocked
@@ -51,6 +58,7 @@ export class VolumeBoost {
         this.ctx.onstatechange = () => {
           this.onStateChange?.(this.ctx?.state !== 'running');
         };
+        if (this.outputDeviceId) void applySinkId(this.ctx, this.outputDeviceId);
       }
       this.src = this.ctx.createMediaStreamSource(new MediaStream(audioTracks));
       this.gain = this.ctx.createGain();
@@ -79,6 +87,24 @@ export class VolumeBoost {
   setVolume(v: number): void {
     this.currentGain = Math.max(0, v);
     if (this.gain) this.gain.gain.value = this.currentGain;
+  }
+
+  /**
+   * Switch the audible sink to `deviceId`. Without a live context yet, the
+   * next `attach()` binds to it directly. With one already running, rebuild
+   * it (see the class-level caveat above `outputDeviceId`) — the retained
+   * `attachedStream` lets `attach()` re-point the graph at the fresh context.
+   */
+  setOutputDevice(deviceId: string): void {
+    if (this.outputDeviceId === deviceId) return;
+    this.outputDeviceId = deviceId;
+    if (!this.ctx) return;
+    const stream = this.attachedStream;
+    const oldCtx = this.ctx;
+    this._teardownGraph();
+    this.ctx = null;
+    if (stream) this.attach(stream);
+    void oldCtx.close().catch(() => undefined);
   }
 
   dispose(): void {
