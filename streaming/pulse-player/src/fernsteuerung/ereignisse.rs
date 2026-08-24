@@ -31,14 +31,24 @@ impl Erfassung {
     /// nicht bauen** (das Feld `platform_specific` ist `pub(crate)`), ein Test
     /// gegen `WindowEvent::KeyboardInput` ist also unmoeglich — geprueft werden
     /// deshalb [`Self::taste`] und [`super::tasten::scancode`] einzeln.
+    ///
+    /// **Der Rueckgabewert beantwortet genau eine Frage: kam DIESER Druck bei
+    /// der Erfassung an?** (Review M-a.) Nur dann darf auf Wayland ein Zug
+    /// ueber die Fenstergrenze beginnen — `start_drag` nimmt dem GANZEN
+    /// Fenster den Zeigerfokus, und ein Druck, der hier verworfen wurde (auf
+    /// der Bedienleiste, ausserhalb des Bildes), gehoert der Leiste. Vorher
+    /// stand dort `irgendein_knopf_unten()`, also „ist irgendetwas unten": ein
+    /// verworfener Druck bei bereits gehaltenem anderen Knopf (Zug im Bild
+    /// nicht gestartet, dann Rechtsklick auf die Leiste) oeffnete das Tor
+    /// trotzdem. Es muss der Druck selbst sein, nicht sein Umfeld.
     pub fn on_window_event(
         &mut self,
         ereignis: &WindowEvent,
         lage: Option<Bildlage>,
         leiste_greift: bool,
-    ) {
+    ) -> bool {
         if !self.aktiv {
-            return;
+            return false;
         }
         match ereignis {
             WindowEvent::CursorMoved { position, .. } => {
@@ -47,9 +57,9 @@ impl Erfassung {
                 // entscheiden, ob sie ins Bild gehoeren.
                 self.letzte_zeigerlage = Some((position.x, position.y));
                 if self.zeigerfang || leiste_greift {
-                    return;
+                    return false;
                 }
-                let Some(lage) = lage else { return };
+                let Some(lage) = lage else { return false };
                 self.zeigerposition(lage, position.x, position.y);
             }
             // Zeiger aus dem Fenster: seine letzte Lage sagt nur dann noch
@@ -67,7 +77,7 @@ impl Erfassung {
             WindowEvent::MouseInput { state, button, .. } => {
                 // `Other` faellt hier weg — ein unbekannter Knopf beendet beim
                 // Host die Sitzung, also wird er gar nicht erst gesendet.
-                let Some(knopf) = knopf_von_winit(*button) else { return };
+                let Some(knopf) = knopf_von_winit(*button) else { return false };
                 let runter = *state == ElementState::Pressed;
                 // Der DRUCK gehoert ins Bild und zielt dabei frisch — der
                 // Platz kommt vom Tor, nicht vom zuletzt per Bewegung
@@ -75,21 +85,25 @@ impl Erfassung {
                 // Das LOSLASSEN geht immer durch, OHNE das Ziel zu wechseln:
                 // es gehoert dorthin, wohin die Bewegung gezielt hat.
                 if runter {
-                    let Some(slot) = self.ziel_am_zeiger(lage, leiste_greift) else { return };
+                    let Some(slot) = self.ziel_am_zeiger(lage, leiste_greift) else {
+                        return false;
+                    };
                     self.ziel_wechseln(slot);
                 }
                 self.knopf(knopf, runter);
+                // Genau hier, und nur hier, ist ein Druck angekommen.
+                return runter;
             }
             // Rad ebenso: zielt aus demselben Grund frisch wie der Druck.
             WindowEvent::MouseWheel { delta, .. } => {
-                let Some(slot) = self.ziel_am_zeiger(lage, leiste_greift) else { return };
+                let Some(slot) = self.ziel_am_zeiger(lage, leiste_greift) else { return false };
                 self.ziel_wechseln(slot);
                 let (senkrecht, waagerecht) = rad_von_winit(*delta);
                 self.rad(senkrecht, waagerecht);
             }
             WindowEvent::ModifiersChanged(neu) => self.modifikatoren = neu.state(),
             WindowEvent::KeyboardInput { event, .. } => {
-                let PhysicalKey::Code(code) = event.physical_key else { return };
+                let PhysicalKey::Code(code) = event.physical_key else { return false };
                 let runter = event.state == ElementState::Pressed;
                 // Die Kombination fuer das Menue am Griff bleibt HIER. Sie geht
                 // nicht hinaus, weil sie sonst auf dem gesteuerten Rechner
@@ -97,7 +111,7 @@ impl Erfassung {
                 // beide Seiten sehen, keines ist. Das Umschalten selbst macht
                 // das Overlay (es bekommt dieselben Ereignisse ueber egui).
                 if self.menue_kombination(code, runter) {
-                    return;
+                    return false;
                 }
                 self.taste_von_code(code, runter);
             }
@@ -107,6 +121,7 @@ impl Erfassung {
             WindowEvent::Focused(false) => self.alles_loslassen(),
             _ => {}
         }
+        false
     }
 
     /// Welcher Platz ist unter dem Zeiger gemeint — und zwar so, dass ein
