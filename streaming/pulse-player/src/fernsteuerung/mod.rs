@@ -169,6 +169,14 @@ impl Erfassung {
         self.zeigerfang
     }
 
+    /// Zu welcher Fernsteuerungs-Sitzung diese Erfassung gehoert.
+    ///
+    /// Nur zum Vergleichen — gedeutet wird die Kennung hier nicht und ueber die
+    /// Leitung geht sie ohnehin nicht.
+    pub fn sitzung(&self) -> Option<&str> {
+        self.sitzung.as_deref()
+    }
+
     pub fn verworfene_bewegungen(&self) -> u64 {
         self.warteschlange.verworfene_bewegungen()
     }
