@@ -12,6 +12,12 @@
 //! ueber deren echte Lagen. Zusammenzuschieben hiesse, eine andere Anordnung zu
 //! behaupten als die, die drueben besteht.
 //!
+//! **`anordnen()` selbst bleibt reine Rechnung ohne winit** — alles, was
+//! wirklich ein Fenster anfasst (die Wayland-Auskunft
+//! [`fenster_setzen_moeglich`], das Anwenden in [`App::fenster_anordnen`]),
+//! steht in eigenen Funktionen darunter, damit die Rechnung selbst ohne
+//! Fenster pruefbar bleibt.
+//!
 //! **Verwandt, aber bewusst nicht geteilt:** [`crate::overlay::schirmkarte::rechnung`]
 //! passt dieselbe Art Rechteck ein — Huellrechteck, ein gemeinsamer Massstab,
 //! Seitenverhaeltnis bleibt. Dort ist das Ziel eine `egui::Rect`-Zeichenflaeche,
@@ -28,6 +34,9 @@
 //! Funktion bräuchte deshalb einen Rundungs-Strategie-Parameter, der an jeder
 //! Aufrufstelle wieder alles Wissen ueber die jeweiligen Regeln bräuchte — das
 //! waere mehr Kopplung als die paar geteilten Zeilen wert sind.
+
+use winit::dpi::{PhysicalPosition, PhysicalSize};
+use winit::window::Window;
 
 /// Lage und Groesse eines Bildschirms beim Host, physische Punkte.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -117,6 +126,107 @@ pub fn anordnen(schirme: &[Schirmlage], flaeche: (i32, i32, u32, u32)) -> Vec<Fe
             Fensterlage { index: s.index, x, y, breite, hoehe }
         })
         .collect()
+}
+
+/// Kann diese Oberflaeche Fenster ueberhaupt setzen?
+///
+/// **Unter Wayland nicht.** `Window::set_outer_position` ist dort ein stiller
+/// Leerlauf (winit 0.30.13, `platform_impl/linux/wayland/window/mod.rs:273-275`,
+/// woertlich „Not possible on Wayland") — ein Klient darf seine Fenster dort
+/// nicht selbst platzieren. Der Knopf wird deshalb gar nicht erst angeboten;
+/// einer, der wortlos nichts tut, ist schlimmer als keiner.
+///
+/// **Nur unter Linux eine echte Frage.** Derselbe Bau laeuft dort unter X11
+/// UND Wayland — ein `cfg(target_os)` allein kann die beiden nicht
+/// unterscheiden, die Antwort muss zur LAUFZEIT fallen. Sie kommt ueber das
+/// Anzeige-Handle (`RawDisplayHandle::Wayland` = nein, `Xlib`/`Xcb` = ja) —
+/// genau das Muster, das `crate::tastensperre::wayland::aufbauen` fuer die
+/// Tastenkuerzel-Sperre schon nutzt. Auf Windows und macOS gibt es kein
+/// Wayland, dort ist die Antwort immer ja; ein zweites `cfg(target_os)`
+/// erspart dort jede Laufzeit-Abfrage — dasselbe Muster wie
+/// `super::skalierung_taugt`.
+///
+/// Ein fehlgeschlagenes Anzeige-Handle zaehlt als NEIN: lieber fehlt der
+/// Knopf, als dass er auf einer ungeklaerten Oberflaeche wortlos nichts tut.
+#[cfg(target_os = "linux")]
+pub(crate) fn fenster_setzen_moeglich(fenster: &Window) -> bool {
+    use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
+    fenster.display_handle().is_ok_and(|h| !matches!(h.as_raw(), RawDisplayHandle::Wayland(_)))
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn fenster_setzen_moeglich(_fenster: &Window) -> bool {
+    true
+}
+
+impl super::App {
+    /// Knopf „Fenster wie drueben anordnen": legt alle offenen Fenster
+    /// DIESER Fernsteuerungs-Sitzung auf dem Bildschirm, auf dem das
+    /// AUSLOESENDE Fenster (`id`) liegt, so an, wie die Host-Monitore
+    /// zueinander liegen.
+    ///
+    /// Einmalig — danach merkt sich niemand etwas, wer von Hand nachzieht,
+    /// behaelt seine Anordnung (s. Modulkopf).
+    pub(super) fn fenster_anordnen(&mut self, id: u64) {
+        let Some(session) = self.sessions.get(&id) else { return };
+        // Wayland: der Knopf war ohnehin nicht sichtbar (s.
+        // `fenster_setzen_moeglich`) — hier nur die zweite, billige
+        // Absicherung gegen einen veralteten Frame.
+        if !fenster_setzen_moeglich(&session.window) {
+            return;
+        }
+        // Zielflaeche: der Bildschirm DIESES Fensters. `current_monitor`
+        // liefert `None`, wenn winit ihn nicht ermitteln kann — dann bleibt
+        // nichts anderes uebrig, als nichts zu tun: es gibt keine Flaeche,
+        // in die sich etwas einpassen liesse.
+        let Some(monitor) = session.window.current_monitor() else { return };
+        let pos = monitor.position();
+        let size = monitor.size();
+        let flaeche = (pos.x, pos.y, size.width, size.height);
+
+        // Nur die EIGENE, aktive Fernsteuerungs-Sitzung zaehlt — dasselbe
+        // Zielkriterium wie beim Einsammeln der Nachbarschaft in
+        // `App::window_event` (Begruendung dort): Fenster- und Platznummern
+        // wiederholen sich zwischen Sitzungen, die Sitzungskennung nicht.
+        if !session.eingabe.aktiv() {
+            return;
+        }
+        let Some(eigene_sitzung) = session.eingabe.sitzung().map(str::to_owned) else { return };
+
+        // **VOR jeder weiteren Ausleihe der Sitzungen:** kopiert werden nur
+        // Zahlen, genau wie beim Einsammeln der Nachbarschaft — eine Liste
+        // aus geliehenen `&Session` hielte die Ausleihe von `self.sessions`
+        // bis in die zweite Runde unten offen.
+        let schirme: Vec<Schirmlage> = self
+            .sessions
+            .values()
+            .filter(|s| s.eingabe.aktiv() && s.eingabe.sitzung() == Some(eigene_sitzung.as_str()))
+            .filter_map(|s| s.fern_schirme.iter().find(|schirm| schirm.dieses_fenster))
+            .filter_map(|schirm| {
+                Some(Schirmlage {
+                    index: schirm.index,
+                    x: schirm.x?,
+                    y: schirm.y?,
+                    breite: schirm.width?,
+                    hoehe: schirm.height?,
+                })
+            })
+            .collect();
+
+        for lage in anordnen(&schirme, flaeche) {
+            let ziel = self.sessions.values().find(|s| {
+                s.eingabe.aktiv()
+                    && s.eingabe.sitzung() == Some(eigene_sitzung.as_str())
+                    && s
+                        .fern_schirme
+                        .iter()
+                        .any(|schirm| schirm.dieses_fenster && schirm.index == lage.index)
+            });
+            let Some(ziel) = ziel else { continue };
+            ziel.window.set_outer_position(PhysicalPosition::new(lage.x, lage.y));
+            let _ = ziel.window.request_inner_size(PhysicalSize::new(lage.breite, lage.hoehe));
+        }
+    }
 }
 
 #[cfg(test)]

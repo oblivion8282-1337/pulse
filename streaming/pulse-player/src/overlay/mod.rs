@@ -406,7 +406,7 @@ impl Overlay {
                     let oben = fernbedienung::RAND + fernbedienung::GRIFF + 8.0;
                     self.build_stats(ctx, oben, stats);
                 }
-                self.build_fernbedienung(ctx, is_fullscreen, &mut actions);
+                self.build_fernbedienung(ctx, is_fullscreen, window, &mut actions);
                 return;
             }
             // Doppelklick ins Bild schaltet Vollbild — auch wenn das Overlay
