@@ -156,6 +156,33 @@ fn ev_kanal_groesse() -> usize {
         .unwrap_or(32)
 }
 
+/// Taugt die Skalierung dieses Fensters fuer die Rechnung mit dem eigenen?
+///
+/// **Nur auf macOS eine echte Frage.** Dort gibt winit Fensterlage und
+/// Zeigerlage je in der Skalierung DES JEWEILIGEN Fensters heraus
+/// (`macos/window_delegate.rs::inner_position`, `macos/view.rs`s
+/// `CursorMoved`) — die Differenz zweier Fenster kuerzt sich deshalb nur, wenn
+/// beide gleich skaliert sind. Ein MacBook mit externem Monitor ist genau der
+/// Fall, in dem sie es nicht sind.
+///
+/// **Auf Windows und X11 waere derselbe Riegel ein Eigentor.** Dort sind beide
+/// Angaben physische Bildpunkte EINES globalen Raums (winit macht den Prozess
+/// per `become_dpi_aware()` DPI-bewusst, `windows/event_loop.rs:199`), und
+/// `scale_factor()` darf je Monitor verschieden sein, ohne dass die Rechnung
+/// daran etwas merkt — Laptop auf 150 % neben einem externen Schirm auf 100 %
+/// ist dort ueblich. Ein Riegel darauf schaltete das Ziehen ueber die
+/// Fenstergrenze auf genau diesen Rechnern lautlos ab.
+#[cfg(target_os = "macos")]
+fn skalierung_taugt(fenster: &Window, eigene: Option<f64>) -> bool {
+    // Mit Toleranz, es sind f64.
+    eigene.is_some_and(|e| (fenster.scale_factor() - e).abs() < 1e-6)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn skalierung_taugt(_fenster: &Window, _eigene: Option<f64>) -> bool {
+    true
+}
+
 /// Ereignisse, die von aussen in die Fenster-Schleife getragen werden.
 pub enum UserEvent {
     Request(Box<Request>),
@@ -1517,16 +1544,18 @@ impl ApplicationHandler<UserEvent> for App {
             .filter(|(_, s)| {
                 s.eingabe.aktiv()
                     && s.eingabe.sitzung() == eigene_sitzung.as_deref()
-                    // **Nur Fenster derselben Skalierung.** winit liefert auf macOS Fensterlage UND
-                    // Zeigerlage je in der Skalierung DES JEWEILIGEN Fensters
-                    // (`window_delegate.rs::inner_position`, `view.rs`s `CursorMoved`). Die
-                    // Differenz zweier Fenster kuerzt sich deshalb nur bei gleicher Skalierung —
-                    // auf einem MacBook mit externem Monitor eben nicht. Auf Windows und X11 ist
-                    // der Desktop ein einziger Pixelraum, dort ist die Bedingung immer erfuellt.
+                    // **Nur auf macOS ein Skalierungs-Riegel.** Dort kuerzt sich die
+                    // Differenz zweier Fensterlagen nur bei gleicher Skalierung, sonst
+                    // nicht (Begruendung an `skalierung_taugt`). Auf Windows und X11 ist
+                    // der Riegel eine no-op — ein gemeinsamer Pixelraum bedeutet dort
+                    // NICHT gleichen `scale_factor()` je Fenster (unterschiedliche
+                    // Monitor-DPI ist dort ueblich), und ein Riegel darauf schaltete das
+                    // Ziehen ueber die Fenstergrenze genau dort ab.
                     //
-                    // Lieber gar nicht zielen als falsch: ungleich skaliert faellt das Fenster aus
-                    // der Nachbarschaft, und es bleibt beim Verhalten von vor diesem Zweig.
-                    && eigene_skalierung.is_some_and(|e| (s.window.scale_factor() - e).abs() < 1e-6)
+                    // Lieber gar nicht zielen als falsch: auf macOS faellt ein ungleich
+                    // skaliertes Fenster aus der Nachbarschaft, und es bleibt beim
+                    // Verhalten von vor diesem Zweig.
+                    && skalierung_taugt(&s.window, eigene_skalierung)
             })
             .filter_map(|(sid, s)| {
                 // Wayland gibt Fensterlagen grundsaetzlich nicht heraus. Dann

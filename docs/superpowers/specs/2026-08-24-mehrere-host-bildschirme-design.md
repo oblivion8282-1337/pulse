@@ -188,6 +188,20 @@ sie wurde nur noch nie umgestellt.
   `window.scale_factor()` wie das eigene zählen als Nachbar. Fail-closed statt
   falsch — auf so einem Aufbau bleibt es beim Verhalten von vor diesem Teil
   (kein Zug über die Fenstergrenze, aber auch kein Fehlklick).
+  **Nachtrag Schlussprüfung 2 (2026-08-24): der Riegel greift ausdrücklich nur
+  auf macOS** (`app/mod.rs::skalierung_taugt`, `#[cfg(target_os = "macos")]`).
+  Auf Windows und X11 ist der Riegel eine no-op (immer `true`) und muss es
+  bleiben: dort ist der Desktop zwar ein einziger physischer Pixelraum
+  (winit macht den Prozess per-Monitor-DPI-bewusst), aber `scale_factor()`
+  darf trotzdem je Fenster verschieden sein — ein Laptop-Panel auf 150 % neben
+  einem externen Monitor auf 100 % ist dort die übliche Aufstellung, nicht die
+  Ausnahme. Ein gemeinsamer Pixelraum bedeutet dort gerade NICHT gleichen
+  `scale_factor()`. Der ursprüngliche Bau dieses Teils hatte den Riegel
+  plattformübergreifend gesetzt und damit das Ziehen über die Fenstergrenze
+  auf genau dieser häufigen Windows-Aufstellung lautlos abgeschaltet — auf der
+  Plattform, für die Teil 1 in erster Linie gebaut ist. Gefixt, indem der
+  Riegel mit demselben Fail-closed-Gedanken wie oben auf macOS beschränkt
+  wurde, statt die Bedingung irgendwie zu lockern.
 - **Ein GESTEUERTER Mac bekommt den Zug, verliert dabei aber den
   Zieh-Ereignistyp und die Umschalttasten-Kennzeichnung auf dem zweiten
   Bildschirm** (derselbe Nachtrag). Der Sidecar leitet den Ereignistyp
