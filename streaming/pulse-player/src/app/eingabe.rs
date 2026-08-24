@@ -309,9 +309,19 @@ impl App {
             // auch die implizite Ergreifung ab; das Loslassen der Maustaste
             // erreicht uns danach weder als `MouseInput` noch als `Drop`.
             // Ohne diese Zeile bliebe der Merker „eigener Zug" bis zum
-            // Prozessende stehen. Nichts wird dabei losgelassen — das
-            // besorgt `Erfassung::alles_loslassen`, das im selben
-            // Fensterereignis schon gelaufen ist.
+            // Prozessende stehen.
+            //
+            // Was der Abbau hier raeumt, steht vollstaendig an
+            // `App::wayland_zug_abbau`: Merker, Sitzung UND das Wayland-Ziel.
+            // Das Ziel ist der Grund, warum dieser Weg nicht ohne den Trichter
+            // auskommt — anders als beim Ausschalten der Erfassung laeuft hier
+            // KEIN `Erfassung::ausschalten`, das es sonst mitnaehme (Review
+            // C-1 der vierten Runde: genau dieses Feld blieb hier stehen und
+            // liess danach jeden Klick im eigenen Fenster auf den fremden
+            // Bildschirm zeigen). Gedruecktes gibt der Abbau NICHT frei — das
+            // hat `Erfassung::alles_loslassen` im selben Fensterereignis schon
+            // getan (`WindowEvent::Focused(false)` in `on_window_event`, das
+            // vor dieser Stelle laeuft).
             self.wayland_zug_abbrechen(id);
         }
         let Some(session) = self.sessions.get_mut(&id) else { return };

@@ -118,33 +118,8 @@ use wayland_client::{
 };
 
 pub use verbindung::{aufbauen, Gastverbindung};
+pub use zustand::Zugschluss;
 use zustand::{zug_ereignis, Zugereignis, Zustand};
-
-/// Die reine Zustandsfuehrung hinter [`Gastverbindung::letzte_druck_nummer`]:
-/// welche Wayland-Seriennummer gerade als „zuletzter Druck" gilt.
-///
-/// Getrennt vom Dispatch-Code, damit sie ohne Wayland-Verbindung und ohne
-/// Compositor testbar bleibt (s. Modulkopf, „Ungeprueft bleibt").
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-struct DruckNummer(Option<u32>);
-
-impl DruckNummer {
-    /// Ein `wl_pointer.button`-Ereignis mit `state == Pressed` ist eingetroffen.
-    fn druecken(&mut self, seriennummer: u32) {
-        self.0 = Some(seriennummer);
-    }
-
-    /// Die Zugsitzung ist vorbei (`wl_data_device::Event::Drop`/`Leave`) —
-    /// die zugehoerige implizite Ergreifung existiert nicht mehr, ein
-    /// erneuter `start_drag` mit dieser Nummer griffe ins Leere.
-    fn entwerten(&mut self) {
-        self.0 = None;
-    }
-
-    fn aktuell(&self) -> Option<u32> {
-        self.0
-    }
-}
 
 impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Zustand {
     fn event(
@@ -228,8 +203,18 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for Zustand {
             _ => {}
         }
         let uebersetzt = match ereignis {
-            wl_data_device::Event::Enter { surface, x, y, .. } => {
-                Some(Zugereignis::Betreten(surface.id(), x, y))
+            // **`id` wird hier NICHT weggeworfen** (Review I-2 der vierten
+            // Runde): ob ein Angebot dranhaengt, ist die Zugehoerigkeit des
+            // Zugs — unser eigener faehrt `source = NULL` und traegt nie eins
+            // (gemessen, s. `zug`-Modulkopf). Vorher entschied allein der
+            // Merker, und der sagt nur „haben wir gefragt".
+            wl_data_device::Event::Enter { surface, x, y, ref id, .. } => {
+                Some(Zugereignis::Betreten {
+                    flaeche: surface.id(),
+                    x,
+                    y,
+                    mit_angebot: id.is_some(),
+                })
             }
             wl_data_device::Event::Motion { x, y, .. } => Some(Zugereignis::Bewegt(x, y)),
             wl_data_device::Event::Drop => Some(Zugereignis::Fallengelassen),
@@ -254,62 +239,4 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for Zustand {
     event_created_child!(Zustand, wl_data_device::WlDataDevice, [
         wl_data_device::EVT_DATA_OFFER_OPCODE => (wl_data_offer::WlDataOffer, ()),
     ]);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::DruckNummer;
-
-    #[test]
-    fn frische_nummer_ist_leer() {
-        assert_eq!(DruckNummer::default().aktuell(), None);
-    }
-
-    #[test]
-    fn druck_liefert_die_gedrueckte_seriennummer() {
-        let mut nummer = DruckNummer::default();
-        nummer.druecken(42);
-        assert_eq!(nummer.aktuell(), Some(42));
-    }
-
-    #[test]
-    fn ein_zweiter_druck_ueberschreibt_den_ersten() {
-        // Zwischen zwei Druecken liegt kein Entwerten — der zweite Druck
-        // (derselbe Zeiger oder ein anderer Sitzplatz, s. Modulkopf
-        // „Mehrere Sitzplaetze kollabieren") gilt einfach als der neue.
-        let mut nummer = DruckNummer::default();
-        nummer.druecken(1);
-        nummer.druecken(2);
-        assert_eq!(nummer.aktuell(), Some(2));
-    }
-
-    #[test]
-    fn entwerten_macht_die_nummer_wieder_leer() {
-        let mut nummer = DruckNummer::default();
-        nummer.druecken(7);
-        nummer.entwerten();
-        assert_eq!(nummer.aktuell(), None);
-    }
-
-    #[test]
-    fn entwerten_ohne_vorherigen_druck_bleibt_folgenlos() {
-        // Der Fall bei Sitzungsstart: ein `Leave` kann eintreffen, bevor
-        // ueberhaupt je gedrueckt wurde (z. B. Fokuswechsel). Darf nicht
-        // knallen und aendert nichts an „leer".
-        let mut nummer = DruckNummer::default();
-        nummer.entwerten();
-        assert_eq!(nummer.aktuell(), None);
-    }
-
-    #[test]
-    fn nach_entwerten_gilt_ein_neuer_druck_wieder() {
-        // Genau der Fall aus dem Modulkopf: eine Zugsitzung endet (Drop/
-        // Leave), und die naechste braucht einen frischen Druck — die alte
-        // Nummer darf nicht wiederauferstehen.
-        let mut nummer = DruckNummer::default();
-        nummer.druecken(5);
-        nummer.entwerten();
-        nummer.druecken(9);
-        assert_eq!(nummer.aktuell(), Some(9));
-    }
 }

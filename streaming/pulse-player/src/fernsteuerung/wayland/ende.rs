@@ -11,8 +11,8 @@
 //! genau in dieser Luecke saehe ebenfalls wie ein Ende aus, waere aber keins.
 //!
 //! [`Zugende`] ist deshalb EREIGNISGETRIEBEN statt abgetastet: nur `Drop`/
-//! `Enter`/`Leave` bewegen ihn voran, [`super::Gastverbindung::zug_zuende`]
-//! konsumiert das Ergebnis genau einmal.
+//! `Enter`/`Leave` bewegen ihn voran, `super::zustand::zugschluss` konsumiert
+//! das Ergebnis genau einmal.
 //!
 //! **Wer ihn speist, entscheidet der Merker „eigener Zug" in [`super`]** — das
 //! Datengeraet bekommt `Enter`/`Drop`/`Leave` auch fuer FREMDE Zuege (jemand
