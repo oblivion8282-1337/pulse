@@ -18,6 +18,7 @@
 import DownloadIcon from '@lucide/svelte/icons/download';
 import PlugZapIcon from '@lucide/svelte/icons/plug-zap';
 import PaletteIcon from '@lucide/svelte/icons/palette';
+import PanelTopIcon from '@lucide/svelte/icons/panel-top';
 import MicIcon from '@lucide/svelte/icons/mic';
 import MonitorIcon from '@lucide/svelte/icons/monitor';
 import BellIcon from '@lucide/svelte/icons/bell';
@@ -61,6 +62,7 @@ export function getSettingsTabs(): SettingsTabDef[] {
   return [
     { id: 'profile', label: m.settings_dialog_tab_profile(), icon: UserIcon },
     { id: 'appearance', label: m.settings_dialog_tab_appearance(), icon: PaletteIcon },
+    { id: 'layout', label: m.settings_dialog_tab_layout(), icon: PanelTopIcon },
     { id: 'audio-video', label: m.settings_dialog_tab_audio_video(), icon: MicIcon },
     { id: 'screen-share', label: m.settings_dialog_tab_screen_share(), icon: MonitorIcon, desktopOnly: true },
     { id: 'standplatz', label: m.settings_dialog_tab_standplatz(), icon: MonitorCogIcon, standplatzGate: true },

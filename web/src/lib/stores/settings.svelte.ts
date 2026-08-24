@@ -69,10 +69,12 @@ import {
   type NotificationSettings
 } from '$lib/settings-registry/sections/notifications';
 import { SOUNDS_SECTION } from '$lib/settings-registry/sections/sounds';
+import { LAYOUT_SECTION, type LayoutSettings } from '$lib/settings-registry/sections/layout';
 import { SHORTCUTS_SECTION } from '$lib/settings-registry/sections/shortcuts';
 import { clampSoundVolume, type SoundCategoryKey, type SoundsSettings } from '$lib/sounds/persistence';
 import { DEFAULT_SHORTCUTS, type ShortcutsSettings } from '$lib/shortcuts/persistence';
 import type { ActionId } from '$lib/shortcuts/actions';
+import type { TabId } from '$lib/navigation/tabs';
 
 export type {
   NoiseSuppressionMode,
@@ -139,6 +141,7 @@ class SettingsStore {
   #notifications: SectionStore<NotificationSettings>;
   #sounds: SectionStore<SoundsSettings>;
   #shortcuts: SectionStore<ShortcutsSettings>;
+  #layout: SectionStore<LayoutSettings>;
 
   constructor() {
     this.#appearance = registerSettingsSection('appearance', APPEARANCE_SECTION);
@@ -149,6 +152,7 @@ class SettingsStore {
     this.#notifications = registerSettingsSection('notifications', NOTIFICATIONS_SECTION);
     this.#sounds = registerSettingsSection('sounds', SOUNDS_SECTION);
     this.#shortcuts = registerSettingsSection('shortcuts', SHORTCUTS_SECTION);
+    this.#layout = registerSettingsSection('layout', LAYOUT_SECTION);
   }
 
   // --- reactive read accessors (delegate to the underlying rune store) ---
@@ -178,6 +182,9 @@ class SettingsStore {
   }
   get shortcuts() {
     return this.#shortcuts.value;
+  }
+  get layout() {
+    return this.#layout.value;
   }
 
   /** Pushes the persisted theme preference into mode-watcher. Call once
@@ -328,6 +335,12 @@ class SettingsStore {
   }
   resetAllShortcuts(): void {
     this.#shortcuts.replace({ ...DEFAULT_SHORTCUTS });
+  }
+
+  // --- layout setters ---
+  /** Vollständige Reihenfolge setzen; `null` setzt auf die Standardordnung. */
+  setNavOrder(order: TabId[] | null): void {
+    this.#layout.set('navOrder', order ?? undefined);
   }
 
   /** Run every registered section's sign-out policy. Replaces the old

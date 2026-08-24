@@ -11,7 +11,8 @@
    * unbemerkt auseinander, weil man nie beide Größen gleichzeitig sieht.
    */
   import { page } from '$app/state';
-  import { BEREICHE, aktiverBereich } from '$lib/navigation/tabs';
+  import { aktiverBereich } from '$lib/navigation/tabs';
+  import { bereichsReihenfolge } from '$lib/navigation/darstellung.svelte';
   import NavTabLink from './NavTabLink.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -25,7 +26,7 @@
   data-testid="tablet-nav-rail"
   aria-label={m.nav_tab_bar_label()}
 >
-  {#each BEREICHE as bereich (bereich.id)}
+  {#each bereichsReihenfolge() as bereich (bereich.id)}
     {@const istAktiv = aktiv === bereich.id}
     <!-- Beschriftungslos wie die Handy-Leiste: nur Symbol (dafuer groesser),
          der Bereichsname bleibt als sr-only fuer Screenreader erhalten. -->
