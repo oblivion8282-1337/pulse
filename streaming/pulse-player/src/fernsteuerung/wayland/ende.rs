@@ -33,12 +33,21 @@
 //! ```
 //!
 //! **`Leave` und `Enter(B)` liegen NICHT im selben Umlauf** — weder im selben
-//! `dispatch_pending` noch im selben Socket-Lesevorgang. Dazwischen liegt
-//! genau so viel Zeit, wie der Zeiger ZWISCHEN den Fenstern verbringt: hier
-//! 21 ms, weil der synthetische Zug in 22-px-Schritten alle 21 ms lief und
-//! genau ein Schritt in die 16 px breite Luecke zwischen den beiden Kacheln
-//! fiel. Von Hand, ueber die Luecke zwischen zwei Monitoren, sind daraus
-//! leicht Sekunden.
+//! `dispatch_pending` noch im selben Socket-Lesevorgang. Zwischen den beiden
+//! Kacheln klafft eine Luecke (16 px bei `niri`), und solange der Zeiger darin
+//! steht, gehoert er KEINER eigenen Flaeche: es kommt nichts.
+//!
+//! **Die 21 ms sind dabei die Abtastrate der Messung, keine gemessene
+//! Verweildauer** (Review M-1): der synthetische Zug lief in 22-px-Schritten
+//! alle 21 ms, genau ein Schritt fiel in die Luecke. Wie lange ein Mensch
+//! dort verbringt, ist damit NICHT gemessen — es folgt aber aus dem Aufbau,
+//! dass es beliebig lang sein kann: die Zeit haengt an der Breite der Luecke,
+//! an der Handgeschwindigkeit, an fremden Fenstern dazwischen und schlicht am
+//! Innehalten. (Was hier bis zum 2026-08-25 stand — „ueber die Luecke
+//! zwischen zwei Monitoren sind es Sekunden" — war schief: im Zeigerraum
+//! grenzen zwei Monitore ohne Luecke aneinander. Lang wird das Intervall
+//! durch das, was ZWISCHEN den Player-FENSTERN liegt, nicht durch die
+//! Monitorgrenze.)
 //!
 //! Daraus folgt zweierlei:
 //! * Die **Ein-Umlauf-Kulanz der ersten Fassung war nachweislich zu kurz** —
@@ -77,10 +86,11 @@ use std::time::{Duration, Instant};
 /// Review vom 2026-08-24 gab 200 ms vor, unter der Annahme, ein `Leave` ohne
 /// `Drop` sei „der seltene Fall Abbruch". Die Messung desselben Tages (s.
 /// Modulkopf) zeigt das Gegenteil: der Normalfall eines `Leave` ist „der
-/// Zeiger ist gerade zwischen zwei Fenstern", und diese Zeit haengt allein an
-/// Handgeschwindigkeit und Fensterabstand — 21 ms in der Messung ueber eine
-/// 16-px-Luecke, aber ueber die Luecke zwischen zwei Monitoren ohne weiteres
-/// Sekunden. Eine kurze Frist zerrisse dann GENAU die Geste, fuer die dieser
+/// Zeiger ist gerade zwischen zwei Fenstern". Wie lange das dauert, ist NICHT
+/// gemessen (die 21 ms des Messlaufs sind dessen Schrittweite, s. Modulkopf) —
+/// es haengt an der Breite der Luecke zwischen den Player-Fenstern, an der
+/// Handgeschwindigkeit und daran, ob der Nutzer innehaelt, und ist damit nach
+/// oben offen. Eine kurze Frist zerrisse dann GENAU die Geste, fuer die dieser
 /// ganze Weg gebaut ist, und zwar still.
 ///
 /// Die Abwaegung ist einseitig, nur anders herum als angenommen:
@@ -94,6 +104,17 @@ use std::time::{Duration, Instant};
 /// Haus dieselbe Abwaegung schon einmal getroffen hat: lieber eine womoeglich
 /// gehaltene Taste in Kauf nehmen als eine laufende Sitzung toeten
 /// (`CLAUDE.md`, Fernsteuerung).
+///
+/// **Der „zu kurz"-Schaden ist mit 5 s nicht weg, nur selten** (Review I-1),
+/// und was dann bleibt, gehoert benannt: `Unklar` entsteht bei JEDEM `Leave` —
+/// auch wenn der Nutzer nur innehaelt oder ueber ein fremdes Fenster zieht.
+/// Laeuft die Frist waehrend eines gesunden Zugs ab, steht danach eine halbe
+/// Sitzung: der Player hat losgelassen und seine Sitzung vergessen, der Zug
+/// im Compositor laeuft weiter. Das folgende `Enter`, alle `Motion` und das
+/// `Drop` fallen dann heraus — der Nutzer sieht seinen Zeiger drueben
+/// ankommen, die Taste ist weg, das Fenster faellt nicht. Deshalb meldet
+/// [`Zugende::frist_pruefen`] ihr Ausloesen ins Log; von den drei Ende-Wegen
+/// ist dieser der einzige echte Ausnahmefall.
 pub(super) const NOTFRIST: Duration = Duration::from_secs(5);
 
 /// Ob der laufende eigene Zug (aus Sicht des Datengeraets) zuende ist — und ob
@@ -157,18 +178,27 @@ impl Zugende {
     }
 
     /// Ist die [`NOTFRIST`] eines `Unklar` abgelaufen? Dann gilt es jetzt als
-    /// beendet.
+    /// beendet — und der Rueckgabewert sagt, dass das GERADE passiert ist.
     ///
     /// Aufgerufen aus [`super::Gastverbindung::nachfassen`], nicht aus dem
     /// Dispatch selbst: dort gibt es keinen Anlass, die Uhr anzusehen — ein
     /// abgelaufenes `Unklar` soll gerade auch dann beendet werden, wenn gar
-    /// kein Ereignis mehr kommt (genau das ist der Abbruch ohne `Drop`).
-    pub(super) fn frist_pruefen(&mut self, jetzt: Instant) {
+    /// kein Ereignis mehr kommt.
+    ///
+    /// **Der Rueckgabewert traegt ein Log** (Review I-1). Von den drei Wegen,
+    /// auf denen ein Zug endet, ist dieser der einzige, der wirklich ein
+    /// Ausnahmefall ist — und der einzige, der einen GESUNDEN Zug zerreissen
+    /// kann (s. [`NOTFRIST`]). Was danach steht, sieht von aussen wie ein
+    /// Defekt aus: der Zeiger kommt drueben noch an, die Taste ist weg, das
+    /// Fenster faellt nicht. Ohne die Zeile im Log gaebe es dafuer keine Spur.
+    pub(super) fn frist_pruefen(&mut self, jetzt: Instant) -> bool {
         if let Self::Unklar(seit) = *self {
             if jetzt.saturating_duration_since(seit) >= NOTFRIST {
                 *self = Self::Beendet;
+                return true;
             }
         }
+        false
     }
 
     /// Der Beweis von der anderen Seite: winit liefert wieder Zeigerereignisse,
@@ -308,7 +338,7 @@ mod tests {
         let jetzt = t0();
         let mut ende = Zugende::default();
         ende.verlassen(jetzt);
-        ende.frist_pruefen(jetzt + Duration::from_micros(21_091));
+        assert!(!ende.frist_pruefen(jetzt + Duration::from_micros(21_091)));
         assert_eq!(ende, Zugende::Unklar(jetzt), "21 ms zwischen den Fenstern sind kein Ende");
         ende.betreten();
         assert_eq!(ende, Zugende::Keins);
@@ -319,10 +349,14 @@ mod tests {
         let jetzt = t0();
         let mut ende = Zugende::default();
         ende.verlassen(jetzt);
-        ende.frist_pruefen(jetzt + NOTFRIST - Duration::from_millis(1));
+        assert!(!ende.frist_pruefen(jetzt + NOTFRIST - Duration::from_millis(1)));
         assert_eq!(ende, Zugende::Unklar(jetzt), "kurz vor Ablauf noch nicht");
-        ende.frist_pruefen(jetzt + NOTFRIST);
+        assert!(ende.frist_pruefen(jetzt + NOTFRIST), "das Ausloesen wird gemeldet (Log)");
         assert_eq!(ende, Zugende::Beendet);
+        assert!(
+            !ende.frist_pruefen(jetzt + NOTFRIST * 2),
+            "und nur EINMAL — sonst schriebe der Takt das Log voll"
+        );
     }
 
     /// Ein zweites `Leave` ohne `Enter` dazwischen darf die Frist nicht neu
@@ -334,7 +368,7 @@ mod tests {
         let mut ende = Zugende::default();
         ende.verlassen(jetzt);
         ende.verlassen(jetzt + NOTFRIST - Duration::from_millis(1));
-        ende.frist_pruefen(jetzt + NOTFRIST);
+        assert!(ende.frist_pruefen(jetzt + NOTFRIST));
         assert_eq!(ende, Zugende::Beendet);
     }
 

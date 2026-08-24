@@ -18,20 +18,27 @@
 //! die Zuordnung Flaeche->Fenster ([`zuordnung`]) und das ENDE eines Zugs —
 //! es erkennen und anwenden ([`entscheidung`]).
 //!
-//! ## Die vier Wege hier hinein
+//! ## Die fuenf Wege hier hinein
 //!
 //! 1. **[`App::wayland_zug_bereitstellen`]** — beim EINSCHALTEN der Erfassung
 //!    (`input_capture`). Dort und nicht beim ersten Druck: der zweite
-//!    `wl_pointer` muss stehen, BEVOR die Taste faellt. `wl_pointer.button`
-//!    wird an eine neu gebundene Ressource **nicht** nachgeliefert (anders als
-//!    `enter`) — eine erst beim Druck gebaute Verbindung haette fuer genau
-//!    diesen Druck keine Seriennummer, und ohne Seriennummer kein `start_drag`
-//!    (Review-Befund I-A: der ERSTE Druck konnte deshalb nie einen Zug
-//!    starten, erst der zweite).
+//!    `wl_pointer` muss stehen, BEVOR die Taste faellt. Dass
+//!    `wl_pointer.button` an eine neu gebundene Ressource **nicht**
+//!    nachgeliefert wird (anders als `enter`), ist aus dem Protokoll
+//!    gefolgert, nicht gemessen — die Messung vom 2026-08-24 hatte den Zeiger
+//!    von Anfang an gebunden. Die Richtung ist trotzdem sicher: frueher binden
+//!    kann nicht schaden, spaeter binden kann eine Seriennummer kosten, und
+//!    ohne Seriennummer gibt es kein `start_drag` (Review-Befund I-A: der
+//!    ERSTE Druck konnte deshalb nie einen Zug starten, erst der zweite).
 //! 2. **[`App::wayland_zug_beginnen`]** — beim angenommenen Mausdruck.
 //! 3. **[`App::wayland_zug_nachfassen`]** — in jedem Schleifendurchlauf.
 //! 4. **`App::wayland_zug_griff_pruefen`** ([`entscheidung`]) — bei jedem
-//!    Fensterereignis, s. unten.
+//!    Fensterereignis, s. unten. Holt bei einem DRUCK ausserdem ein noch
+//!    offenes Ende ab, und zwar VOR `Erfassung::on_window_event` (Review C-A).
+//! 5. **`App::wayland_zug_abbrechen`** ([`entscheidung`]) — bei Fokusverlust,
+//!    beim Ausschalten der Erfassung und beim Schliessen des Fensters. Ohne
+//!    diese drei Wege bliebe der Merker „eigener Zug" stehen, sobald ein Zug
+//!    nicht regulaer endet (Review C-B).
 //!
 //! ## Stolperstein 2: waehrend eines Zugs schweigt winit
 //!
@@ -169,19 +176,25 @@ impl App {
         // nach dem `input_capture` entstanden): hier noch einmal. Kostet ein
         // `if`, wenn sie schon steht.
         self.wayland_zug_bereitstellen(id);
-        // C1: erst nachfassen, DANN die Druck-Seriennummer lesen (s.
-        // Modulkopf). Und im selben Zug ein noch offenes Ende der VORIGEN
-        // Zugsitzung abarbeiten — `zug_beginnen` raeumt den Zustand ab, ein
-        // nicht abgeholtes Ende waere danach verloren und die Maustaste bliebe
-        // am fernen Rechner unten (Review C-1).
-        let zuende = {
-            let Some(verbindung) = self.wayland_zug.inner.verbindung.as_mut() else { return };
-            verbindung.nachfassen();
-            verbindung.zug_zuende()
-        };
-        self.wayland_zug_ende_anwenden(zuende);
-
+        // C1 (`nachfassen()` vor `letzte_druck_nummer()`) UND das Abholen
+        // eines noch offenen Endes sind beide schon gelaufen — in
+        // `wayland_zug_griff_pruefen`, ganz vorne im selben `window_event`
+        // (Review C-A; die Begruendung, warum es dort und nicht hier steht,
+        // ebenda). **Hier darf kein zweites `nachfassen()` stehen:** es koennte
+        // ein `Drop` dispatchen, das gleich darauf von `zug_beginnen`
+        // weggeraeumt wuerde — und dann bliebe die Maustaste des vorigen Zugs
+        // am fernen Rechner unten.
         let Some(session) = self.sessions.get(&id) else { return };
+        // **Bei gefangenem Zeiger gar nicht erst anstossen** (Review I-2). Ein
+        // Zug ueber die Fenstergrenze ist dann sinnlos — der Zeiger steht
+        // still, gesteuert wird ueber Differenzen (`DeviceEvent::MouseMotion`),
+        // und es gibt keine Fenstergrenze, ueber die er laufen koennte. Er
+        // waere sogar schaedlich: der Beweisweg haengt an `CursorMoved`, und
+        // genau das liefert winit bei `CursorGrabMode::Locked` nicht mehr —
+        // ein abgebrochener Zug haenge dann bis zur Notfrist.
+        if session.eingabe.zeigerfang() {
+            return;
+        }
         let Some(verbindung) = self.wayland_zug.inner.verbindung.as_mut() else { return };
         if verbindung.zug_beginnen(&session.window) {
             self.wayland_zug.inner.session = Some(id);
@@ -211,11 +224,19 @@ impl App {
         // den naechsten Zug: dessen erster Tick holte es ab und deutete es als
         // sein eigenes Ende — die gerade gedrueckte Maustaste ginge sofort
         // wieder hoch. Deshalb VOR jedem `else { return }`.
-        let (zuende, lage) = {
+        let (zuende, lage, angefordert) = {
             let Some(verbindung) = self.wayland_zug.inner.verbindung.as_mut() else { return };
             verbindung.nachfassen();
-            (verbindung.zug_zuende(), verbindung.zeiger_ueber())
+            (verbindung.zug_zuende(), verbindung.zeiger_ueber(), verbindung.zug_angefordert())
         };
+        // Die Anlauf-Frist kann den Merker in `nachfassen` haben verfallen
+        // lassen (Review C-B, `wayland::verbindung::ANLAUFFRIST`) — dann traegt
+        // niemand mehr einen Zug, und die gemerkte Sitzung gehoert weggeraeumt.
+        // Ohne Ende, also ohne Loslassen: verfallen heisst aufgeben.
+        if !angefordert && !zuende {
+            self.wayland_zug.inner.session = None;
+            self.wayland_zug.inner.ziel_fehler_gemeldet = false;
+        }
 
         // Bewegung zuerst anwenden: eine letzte Position kurz vor dem Ende
         // soll noch ankommen, wenn eine da ist.

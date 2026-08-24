@@ -83,34 +83,42 @@
 //! stehengebliebenes `Beendet`, das der NAECHSTE eigene Zug abholte und in
 //! seinem ersten Tick als Ende deutete — die gerade gedrueckte Maustaste ging
 //! am fernen Rechner sofort wieder hoch, waehrend der Nutzer sie hielt. Deshalb
-//! der Merker [`Zustand::eigener_zug`]: die Zug-Auswertung laeuft nur, solange
+//! der Merker `Zustand::eigener_zug`: die Zug-Auswertung laeuft nur, solange
 //! ein EIGENER Zug angefordert ist. Was NICHT am Merker haengt, ist die
 //! Angebots-Verwaltung — die verlangt das Protokoll fuer jeden Zug, auch fremde.
+//! Die Abbildung „welches Ereignis darf was bewegen" steht als reine Funktion
+//! in [`zustand`] und ist damit pruefbar, statt im `Dispatch`-Rumpf zu stehen
+//! (Review M-4).
+//!
+//! **Aufgeteilt** (`PLAN.md` §12.1): hier stehen nur noch der Dispatch und
+//! [`DruckNummer`]; die Verbindung samt Aufbau und Fristen in [`verbindung`],
+//! der Zustand und die Ereignis-Abbildung in [`zustand`], `start_drag` und die
+//! Zug-Lage in [`zug`], das Ende in [`ende`].
 //!
 //! **Ungeprueft bleibt alles, was eine echte Wayland-Sitzung braucht**
 //! (Verbindungsaufbau, Registry, Binden, Dispatch). Geprueft ist die reine
 //! Zustandsfuehrung ohne Wayland-Abhaengigkeit: [`DruckNummer`] hier,
-//! [`ende::Zugende`] und [`zug::ZugLage`] daneben.
+//! `ende::Zugende`, `zug::ZugLage` und `zustand::zug_ereignis` daneben.
 
 mod ende;
+mod verbindung;
 mod zug;
+mod zustand;
 
 use std::time::Instant;
 
-use ende::Zugende;
-use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
-use wayland_backend::sys::client::Backend;
-use wayland_client::globals::{registry_queue_init, GlobalListContents};
+use wayland_client::globals::GlobalListContents;
 use wayland_client::protocol::{
     wl_data_device, wl_data_device_manager, wl_data_offer,
     wl_pointer::{self, ButtonState},
     wl_registry, wl_seat,
 };
 use wayland_client::{
-    delegate_noop, event_created_child, Connection, Dispatch, EventQueue, Proxy, QueueHandle,
-    WEnum,
+    delegate_noop, event_created_child, Connection, Dispatch, Proxy, QueueHandle, WEnum,
 };
-use winit::window::Window;
+
+pub use verbindung::{aufbauen, Gastverbindung};
+use zustand::{zug_ereignis, Zugereignis, Zustand};
 
 /// Die reine Zustandsfuehrung hinter [`Gastverbindung::letzte_druck_nummer`]:
 /// welche Wayland-Seriennummer gerade als „zuletzter Druck" gilt.
@@ -136,54 +144,6 @@ impl DruckNummer {
     fn aktuell(&self) -> Option<u32> {
         self.0
     }
-}
-
-/// Der Dispatch-Zustand. Anders als in [`crate::tastensperre::wayland`], wo
-/// `Zustand` leer ist (s. Modulkopf, „Was anders ist"), traegt er hier:
-/// - [`DruckNummer`] — die zuletzt gedrueckte Seriennummer.
-/// - [`zug::ZugLage`] — welche eigene Flaeche der Zeiger waehrend eines
-///   laufenden Zugs beruehrt und wo darin (s. [`zug`]).
-/// - [`Zugende`] — EREIGNISGETRIEBEN, ob/wie sicher der Zug zuende ist (s.
-///   [`ende`], Review-Befunde C2/I3).
-/// - `eigener_zug`/`bestaetigt` — der Merker aus Review-Befund C-1 (s.
-///   Modulkopf) und seine Bestaetigung.
-/// - `angebot` — das `wl_data_offer`, das ein `Enter` gerade eingefuehrt hat.
-#[derive(Default)]
-struct Zustand {
-    druck: DruckNummer,
-    zug: zug::ZugLage,
-    ende: Zugende,
-    /// **Haben WIR einen Zug angefordert?** Gesetzt von
-    /// [`Gastverbindung::zug_beginnen`], sobald `start_drag` hinausgegangen
-    /// ist; geloescht, sobald das Ende abgeholt oder der Zug aufgegeben wurde.
-    /// Nur solange er steht, speisen `Enter`/`Motion`/`Drop`/`Leave` die
-    /// Zug-Auswertung — ohne ihn spricht ein fremder Zug fuer uns (s.
-    /// Modulkopf, C-1).
-    ///
-    /// **„Angefordert" ist nicht „laeuft".** `start_drag` ist eine
-    /// Feuer-und-vergessen-Anfrage ohne Antwort; passt die Seriennummer nicht
-    /// zum Sitzplatz, verwirft der Compositor sie still. Deshalb daneben:
-    eigener_zug: bool,
-    /// **Laeuft er wirklich?** Wird beim ersten `Enter` DIESES Zugs gesetzt.
-    /// Vorher ist alles, was winit noch an Zeigerereignissen liefert,
-    /// mehrdeutig (es koennen Ereignisse sein, die der Compositor schon vor
-    /// unserem `start_drag` abgeschickt hatte); danach ist ein
-    /// winit-Zeigerereignis der BEWEIS, dass der Griff vorbei ist (s.
-    /// [`ende`]-Modulkopf, Messung 2026-08-24: waehrend des ganzen Zugs kam
-    /// kein einziges `wl_pointer`-Ereignis). `app::wayland_zug` fragt beides
-    /// ab und zieht daraus die Folgerung.
-    ///
-    /// Gemessen dazu: das erste `Enter` kommt NICHT mit `start_drag`, sondern
-    /// erst mit der ersten Zeigerbewegung danach (427 ms im Messlauf, weil so
-    /// lange nicht bewegt wurde).
-    bestaetigt: bool,
-    /// Muss beim `Leave` zerstoert werden, das verlangt das Protokoll
-    /// ausdruecklich. **Haengt bewusst NICHT am Merker `eigener_zug`**: bei
-    /// unserem eigenen Zug (`source = None`) ist es ohnehin immer `None` (s.
-    /// [`zug`]-Modulkopf), belegt wird es also nur von FREMDEN Zuegen — und
-    /// genau die muessen aufgeraeumt werden. `Selection` (die Zwischenablage)
-    /// befuellt es nie, dieser Match hat keinen Arm dafuer.
-    angebot: Option<wl_data_offer::WlDataOffer>,
 }
 
 impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Zustand {
@@ -243,14 +203,10 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for Zustand {
     /// `wl_data_offer` merken und beim `Leave` zerstoeren — „The client must
     /// destroy the wl_data_offer introduced at enter time at this point".
     ///
-    /// Erst danach, und **nur bei gesetztem [`Zustand::eigener_zug`]**, die
-    /// Auswertung UNSERES Zugs: `Enter`/`Motion` speisen [`zug::ZugLage`]
-    /// (welche eigene Flaeche, wo darin — s. [`zug`] fuer die Einheit der
-    /// Koordinaten), `Enter` loest ausserdem ein `Unklar` in [`Zugende`] auf,
-    /// `Drop`/`Leave` entwerten die gemerkte Druck-Nummer (s. Modulkopf, „Die
-    /// Nummer gilt nicht ueber einen Zug hinweg"), raeumen die Zug-Lage und
-    /// bewegen [`Zugende`] voran (`Drop` sofort definitiv, `Leave` nur
-    /// „unklar" — s. [`ende`]).
+    /// Erst danach die Auswertung UNSERES Zugs, und die steht nicht hier,
+    /// sondern als reine Funktion in [`zustand`] ([`zug_ereignis`], samt
+    /// Merker-Pruefung und Tests dazu). Diese Stelle uebersetzt nur noch
+    /// wayland-eigene Typen in [`Zugereignis`].
     ///
     /// `Selection`/`DataOffer` bleiben unausgewertet — die Zwischenablage ist
     /// nicht Sache dieses Moduls.
@@ -271,29 +227,17 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for Zustand {
             }
             _ => {}
         }
-        if !zustand.eigener_zug {
-            return;
-        }
-        match ereignis {
+        let uebersetzt = match ereignis {
             wl_data_device::Event::Enter { surface, x, y, .. } => {
-                zustand.zug.betreten(surface.id(), x, y);
-                zustand.ende.betreten();
-                zustand.bestaetigt = true;
+                Some(Zugereignis::Betreten(surface.id(), x, y))
             }
-            wl_data_device::Event::Motion { x, y, .. } => {
-                zustand.zug.bewegt(x, y);
-            }
-            wl_data_device::Event::Drop => {
-                zustand.druck.entwerten();
-                zustand.zug.verlassen();
-                zustand.ende.fallengelassen();
-            }
-            wl_data_device::Event::Leave => {
-                zustand.druck.entwerten();
-                zustand.zug.verlassen();
-                zustand.ende.verlassen(Instant::now());
-            }
-            _ => {}
+            wl_data_device::Event::Motion { x, y, .. } => Some(Zugereignis::Bewegt(x, y)),
+            wl_data_device::Event::Drop => Some(Zugereignis::Fallengelassen),
+            wl_data_device::Event::Leave => Some(Zugereignis::Verlassen),
+            _ => None,
+        };
+        if let Some(uebersetzt) = uebersetzt {
+            zug_ereignis(zustand, uebersetzt, Instant::now());
         }
     }
 
@@ -310,181 +254,6 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for Zustand {
     event_created_child!(Zustand, wl_data_device::WlDataDevice, [
         wl_data_device::EVT_DATA_OFFER_OPCODE => (wl_data_offer::WlDataOffer, ()),
     ]);
-}
-
-/// Verbindung, Seats, der zweite Zeiger je Seat und das Datengeraet je Seat —
-/// alles, was der Zug ueber die Fenstergrenze auf Wayland braucht.
-/// `zug_beginnen`/`zeiger_ueber` (s. [`zug`]) sind die Methoden, die ihn
-/// tatsaechlich ausloesen bzw. auswerten, verdrahtet in `app::wayland_zug`.
-///
-/// **`qh`/`manager`/`seats`/`zeiger` werden nach [`aufbauen`] nie wieder
-/// GELESEN** — der Compiler sieht das erst, seit dieses Modul ueberhaupt
-/// benutzt wird, und meldet es sonst als `dead_code`. Gehalten werden sie
-/// trotzdem: `seats`/`zeiger` sind die Bindungen, aus denen `datengeraete`
-/// entstand (dieselbe Rolle wie `seats` in
-/// `crate::tastensperre::wayland::Verbindung`), `qh` und `manager` gehoeren
-/// zur selben Verbindung und wuerden sonst am Ende von [`aufbauen`] gleich
-/// wieder fallen. Keins davon ist ein Aufraeum-Versehen, das nachgeholt
-/// werden muesste.
-#[allow(dead_code)]
-pub struct Gastverbindung {
-    conn: Connection,
-    queue: EventQueue<Zustand>,
-    qh: QueueHandle<Zustand>,
-    manager: wl_data_device_manager::WlDataDeviceManager,
-    /// Alle Sitzplaetze — winit gibt nicht heraus, welchen es selbst benutzt
-    /// (dieselbe Begruendung wie in der Vorlage).
-    seats: Vec<wl_seat::WlSeat>,
-    /// Je Seat ein EIGENER zweiter Zeiger, nicht winits. Bekommt dieselben
-    /// `button`-Ereignisse mit identischer Seriennummer (Messung 2026-08-24)
-    /// — das ist der ganze Zweck dieses Felds.
-    zeiger: Vec<wl_pointer::WlPointer>,
-    /// Je Seat ein Datengeraet.
-    datengeraete: Vec<wl_data_device::WlDataDevice>,
-    zustand: Zustand,
-}
-
-impl Gastverbindung {
-    /// Warteschlange leeren, nicht blockierend.
-    ///
-    /// Muss sein, weil die Registry weiter jedes kommende und gehende Global
-    /// hineinlegt und weil sonst kein `button`- oder `Drop`/`Leave`-Ereignis
-    /// je den `Zustand` erreicht. Blockiert nicht: gelesen wird der Socket
-    /// von winit, hier wird nur abgeholt, was schon dort liegt.
-    ///
-    /// **Prueft dabei die [`ende::NOTFRIST`]** — das letzte Netz fuer ein
-    /// `Leave`, das weder von einem `Enter` noch vom Beweisweg aufgeloest
-    /// wurde (Begruendung samt Messung in [`ende`]). Hier und nicht im
-    /// Dispatch, weil ein abgelaufenes `Unklar` gerade dann beendet werden
-    /// soll, wenn ueberhaupt kein Ereignis mehr kommt.
-    pub fn nachfassen(&mut self) {
-        let _ = self.queue.dispatch_pending(&mut self.zustand);
-        self.zustand.ende.frist_pruefen(Instant::now());
-    }
-
-    /// Die Seriennummer des letzten Drucks — `None`, solange keiner
-    /// stattfand oder die letzte Zugsitzung schon beendet ist (s. Modulkopf).
-    pub fn letzte_druck_nummer(&self) -> Option<u32> {
-        self.zustand.druck.aktuell()
-    }
-
-    /// Haben wir selbst einen Zug angefordert (s. [`Zustand::eigener_zug`])?
-    pub fn zug_angefordert(&self) -> bool {
-        self.zustand.eigener_zug
-    }
-
-    /// Laeuft der angeforderte Zug nachweislich (erstes `Enter` gesehen, s.
-    /// [`Zustand::bestaetigt`])?
-    pub fn zug_bestaetigt(&self) -> bool {
-        self.zustand.bestaetigt
-    }
-
-    /// Ist der laufende Zug soeben endgueltig zuende — durch `Drop`, durch den
-    /// Beweisweg ([`Self::griff_vorbei`]) oder durch die abgelaufene
-    /// [`ende::NOTFRIST`]? EREIGNISGETRIEBEN, nicht aus einer Momentaufnahme
-    /// von [`Self::zeiger_ueber`] (s. [`ende`], Review-Befunde C2/I3) —
-    /// **konsumierend**: ein zweiter Aufruf ohne neues Ende liefert `false`.
-    ///
-    /// Mit dem Ende faellt auch der Merker: der naechste fremde Zug spricht
-    /// nicht mehr fuer uns (C-1).
-    pub fn zug_zuende(&mut self) -> bool {
-        let zuende = self.zustand.ende.konsumiere_beendet();
-        if zuende {
-            self.zustand.eigener_zug = false;
-            self.zustand.bestaetigt = false;
-        }
-        zuende
-    }
-
-    /// Der Beweis von der anderen Seite: winit liefert wieder
-    /// `CursorMoved`/`MouseInput`, der Griff des Compositors ist also vorbei
-    /// (s. [`ende`]-Modulkopf). Loest ein offenes `Leave` auf — und **nur**
-    /// das, nicht einen gesunden Zug (Begruendung an [`Zugende::griff_vorbei`]).
-    /// Der Aufrufer holt das Ergebnis im selben Zug mit [`Self::zug_zuende`]
-    /// ab.
-    pub fn griff_vorbei(&mut self) {
-        self.zustand.ende.griff_vorbei();
-    }
-
-    /// Den eigenen Zug aufgeben, OHNE ein Ende zu melden.
-    ///
-    /// Fuer den einen Fall, in dem es gar keinen Zug gab: `start_drag` ging
-    /// hinaus, der Compositor hat die Anfrage aber still verworfen (unpassende
-    /// Seriennummer, s. [`zug::Gastverbindung::zug_beginnen`]), und winit
-    /// liefert unbeirrt weiter Zeigerereignisse. Dann ist nichts zu beenden —
-    /// der Knopf liegt noch beim gewoehnlichen `MouseInput`-Weg, und ein
-    /// gemeldetes Ende wuerde ihn dort mitten in der Geste freigeben.
-    pub fn zug_aufgeben(&mut self) {
-        self.zustand.eigener_zug = false;
-        self.zustand.bestaetigt = false;
-        self.zustand.ende = Zugende::default();
-        self.zustand.zug = zug::ZugLage::default();
-    }
-}
-
-/// Gast-Backend auf winits Anzeige legen, Datengeraet-Manager und Sitzplaetze
-/// binden, je Sitzplatz einen zweiten Zeiger und ein Datengeraet dazu.
-///
-/// Der Fehlerfall traegt einen Grund fuer den Aufrufer-seitigen Log (s.
-/// [`crate::tastensperre::wayland::aufbauen`] fuer das Vorbild) — auf X11
-/// und auf Windows/macOS (dort baut das Modul gar nicht erst, s.
-/// `fernsteuerung/mod.rs`) ist ein `Err` hier der Normalfall, kein Defekt.
-pub fn aufbauen(window: &Window) -> Result<Gastverbindung, String> {
-    let anzeige = window.display_handle().map_err(|e| format!("kein Anzeige-Handle: {e}"))?;
-    let RawDisplayHandle::Wayland(anzeige) = anzeige.as_raw() else {
-        return Err("kein Wayland (X11 kennt das Protokoll nicht)".into());
-    };
-
-    // SICHERHEIT: Der Zeiger kommt aus winits Anzeige-Handle und ist damit
-    // ein gueltiger `wl_display`. Er muss das Backend ueberleben — dieselbe
-    // Zusage wie in der Vorlage (dort uebernimmt `Gemeinsam::schliessen`/
-    // `Drop` das; dieses Fundament hat noch keinen Aufrufer, der das
-    // uebernehmen koennte — s. Bericht). `from_foreign_display` legt das
-    // Backend im Gast-Modus an: es schliesst die Verbindung beim Abbau NICHT.
-    let backend = unsafe { Backend::from_foreign_display(anzeige.display.as_ptr().cast()) };
-    let conn = Connection::from_backend(backend);
-
-    let (globals, queue) = registry_queue_init::<Zustand>(&conn)
-        .map_err(|e| format!("Registry nicht lesbar: {e}"))?;
-    let qh = queue.handle();
-
-    let manager: wl_data_device_manager::WlDataDeviceManager = globals
-        .bind(&qh, 1..=1, ())
-        .map_err(|e| format!("wl_data_device_manager: {e}"))?;
-
-    // `GlobalList::bind` ist fuer Globals mit genau einer Ausfertigung
-    // gedacht; `wl_seat` kann mehrfach vorkommen. Deshalb hier ueber die
-    // Liste, damit wirklich JEDER Platz einen Zeiger und ein Datengeraet
-    // bekommt (Begruendung an `seats`, wie in der Vorlage).
-    let plaetze: Vec<u32> = globals.contents().with_list(|liste| {
-        liste
-            .iter()
-            .filter(|global| global.interface == wl_seat::WlSeat::interface().name)
-            .map(|global| global.name)
-            .collect()
-    });
-    let seats: Vec<wl_seat::WlSeat> =
-        plaetze.into_iter().map(|name| globals.registry().bind(name, 1, &qh, ())).collect();
-    if seats.is_empty() {
-        return Err("kein wl_seat angekuendigt".into());
-    }
-
-    let zeiger: Vec<wl_pointer::WlPointer> =
-        seats.iter().map(|seat| seat.get_pointer(&qh, ())).collect();
-    let datengeraete: Vec<wl_data_device::WlDataDevice> =
-        seats.iter().map(|seat| manager.get_data_device(seat, &qh, ())).collect();
-
-    let _ = conn.flush();
-    Ok(Gastverbindung {
-        conn,
-        queue,
-        qh,
-        manager,
-        seats,
-        zeiger,
-        datengeraete,
-        zustand: Zustand::default(),
-    })
 }
 
 #[cfg(test)]
