@@ -25,7 +25,7 @@
 //! schluckt genau diese Kombination, statt sie weiterzureichen
 //! (`crate::fernsteuerung::Erfassung::menue_kombination`).
 
-use super::{Overlay, OverlayAction};
+use super::{Overlay, OverlayAction, schirmkarte};
 use crate::theme;
 
 /// Kantenlaenge des Griffs. Bewusst groesser als ein Leisten-Symbol: er ist ein
@@ -180,21 +180,18 @@ impl Overlay {
                                 );
                             },
                         );
-                        // **Die Bildschirme des fernen Rechners, die noch NICHT
-                        // laufen.** Das Menue heisst „dazuschalten"; ein Schirm,
-                        // der schon sein Fenster hat, gehoert nicht in eine
-                        // Liste von Dingen, die man holen kann — er stand dort
-                        // bis 2026-08-16 und sah aus wie ein zweiter, den es
-                        // nicht gibt. Wer sein Fenster sucht, findet es ueber
-                        // die Fensterverwaltung des Systems; wer es schliesst,
-                        // bekommt den Eintrag hier von selbst zurueck.
+                        // **Die massstaebliche Karte der Bildschirme des fernen
+                        // Rechners.** Ersetzt seit 2026-08-24 die fruehere Liste
+                        // von „+ Name"-Knoepfen fuer die noch nicht offenen
+                        // Schirme: eine Karte zeigt ALLE — auch die schon
+                        // offenen, samt Markierung, welcher davon dieses
+                        // Fenster ist. Die Filterung wandert damit von „welche
+                        // Liste" zu „welche Kaestchen sind antippbar"
+                        // (`schirmkarte::zeichnen`).
                         //
-                        // Warum hier und nicht in der App: wer gerade steuert,
-                        // sieht dieses Fenster. Ein Knopf in der App hiesse
-                        // hin- und herwechseln, nur um einen zweiten Schirm zu
-                        // holen — genau das, was der Griff hier vermeidet.
-                        let zuschaltbar: Vec<_> =
-                            self.fern_schirme.iter().filter(|s| !s.open).cloned().collect();
+                        // Bewusst weiter nur bei MEHR als einem Schirm: eine
+                        // Karte mit einem einzigen Kaestchen zeigt nichts, was
+                        // der Nutzer nicht schon vor sich hat.
                         if self.fern_schirme.len() > 1 {
                             ui.add_space(6.0);
                             ui.label(
@@ -202,36 +199,9 @@ impl Overlay {
                                     .font(theme::font_xs())
                                     .color(theme::TEXT_DIM),
                             );
-                            // **Ist keiner mehr zu holen, steht es da** (2026-08-17).
-                            // Vorher verschwand die ganze Gruppe: wer wusste, dass
-                            // der Rechner drei Schirme hat, suchte dann nach einem
-                            // Menuepunkt, den es aus gutem Grund nicht mehr gab —
-                            // und hielt das Fehlen fuer einen Fehler. Ein Satz ist
-                            // billiger als diese Suche.
-                            if zuschaltbar.is_empty() {
-                                ui.label(
-                                    egui::RichText::new("Alle Bildschirme sind bereits offen")
-                                        .font(theme::font_xs())
-                                        .color(theme::TEXT_DIM),
-                                );
-                            }
-                            for schirm in &zuschaltbar {
-                                let beschriftung = format!("+ {}", schirm.name);
-                                if ui
-                                    .add(
-                                        egui::Button::new(
-                                            egui::RichText::new(beschriftung)
-                                                .font(theme::font_xs())
-                                                .color(theme::TEXT),
-                                        )
-                                        .fill(theme::GRUPPE_BG)
-                                        .corner_radius(theme::RADIUS_MD),
-                                    )
-                                    .clicked()
-                                {
-                                    self.fern_menue_offen = false;
-                                    actions.push(OverlayAction::RemoteScreen(schirm.index));
-                                }
+                            let breite = ui.available_width();
+                            if schirmkarte::zeichnen(ui, breite, &self.fern_schirme, actions) {
+                                self.fern_menue_offen = false;
                             }
                             ui.add_space(6.0);
                         }

@@ -37,6 +37,7 @@
 
 mod controls;
 mod fernbedienung;
+mod schirmkarte;
 mod typen;
 
 pub use typen::{Ereignisantwort, OverlayAction, Schirm, StatsView};

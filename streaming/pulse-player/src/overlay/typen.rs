@@ -60,14 +60,19 @@ pub enum OverlayAction {
     /// und nicht nur in der App: wer gerade steuert, sieht das Fenster, nicht
     /// die Kachel dahinter.
     RemoteDisconnect,
-    /// Einen weiteren Bildschirm des ferngesteuerten Rechners anfordern (oder
-    /// dessen schon offenes Fenster nach vorne holen). Die Nummer ist die des
-    /// Bildschirms auf dem fernen Rechner.
+    /// Einen weiteren Bildschirm des ferngesteuerten Rechners anfordern. Die
+    /// Nummer ist die des Bildschirms auf dem fernen Rechner.
     ///
     /// **Das Fenster tut hier nichts selbst.** Es kennt weder das Geraet noch
     /// die Sitzung beim Server; anfordern kann nur die App. Dasselbe Muster wie
     /// bei [`OverlayAction::Chat`] und [`OverlayAction::RemoteDisconnect`].
     RemoteScreen(u32),
+    /// Ein Kaestchen der Bildschirm-Karte antippen, das schon offen ist — aber
+    /// in einem ANDEREN Fenster als diesem. Anders als
+    /// [`OverlayAction::RemoteScreen`] wird hier nichts neu angefordert: das
+    /// Fenster existiert im selben Prozess bereits, es soll nur nach vorne.
+    /// Die Nummer ist die des Bildschirms auf dem fernen Rechner.
+    RemoteScreenFocus(u32),
 }
 
 /// Ein Bildschirm des ferngesteuerten Rechners, wie ihn die App ins Fenster

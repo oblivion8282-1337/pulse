@@ -27,7 +27,7 @@ use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::window::{Window, WindowId};
 
 use crate::decode::{self};
-use crate::overlay::{Overlay, OverlayAction, StatsView};
+use crate::overlay::{Overlay, OverlayAction, Schirm, StatsView};
 use crate::proto::{Event, PlayerOptions, Request, SessionState};
 use crate::render;
 use crate::rpc::StdoutWriter;
@@ -270,6 +270,13 @@ struct Session {
     /// Bedienoberflaeche nicht aufgebaut werden konnte). Deshalb hier zusaetzlich
     /// direkt an der Sitzung, statt sie ueber das Overlay umzuleiten.
     can_reattach: bool,
+    /// Kopie von `remote_screens` (s. `overlay::Overlay::set_fern_schirme`) —
+    /// aus demselben Grund zusaetzlich hier wie `can_reattach`: ein Klick auf
+    /// ein FREMDES offenes Kaestchen der Bildschirm-Karte
+    /// (`OverlayAction::RemoteScreenFocus`) muss ueber ALLE Sitzungen nach dem
+    /// Fenster suchen, das diesen Bildschirm zeigt — dafuer reicht weder das
+    /// (optionale) `overlay` dieser einen Sitzung noch ein Umweg ueber es.
+    fern_schirme: Vec<Schirm>,
     /// Die zuletzt losgeschickte Options-Task (s. `requests::apply_options`).
     /// Haelt die REIHENFOLGE der Patches auf dem Weg in die Sitzung: jede neue
     /// wartet auf diese hier, bevor sie sendet.
@@ -674,6 +681,7 @@ impl App {
                 fern_transport: String::new(),
                 eingabe_frames: 0,
                 can_reattach: req.can_reattach.unwrap_or(true),
+                fern_schirme: Vec::new(),
                 optionskette: None,
                 tastensperre: crate::tastensperre::Tastensperre::default(),
             },
@@ -1209,6 +1217,25 @@ impl App {
                     "player:remoteScreen",
                     serde_json::json!({ "session": id, "monitor": monitor }),
                 ));
+            }
+            // Klick auf ein FREMDES, schon offenes Kaestchen der Bildschirm-
+            // Karte: das Fenster dafuer existiert im selben Prozess bereits,
+            // es muss nur nach vorne. Anders als bei `RemoteScreen` wird hier
+            // nichts an die App gemeldet — sie kennt die Sitzungsnummern der
+            // Fenster ohnehin nicht, nur dieser Prozess tut das.
+            //
+            // Gesucht wird ueber ALLE Sitzungen: dieses Fenster (das den
+            // Klick ausgeloest hat) kennt nur seine EIGENE Kopie von
+            // `remote_screens` und weiss nicht, welche Sitzungsnummer der
+            // andere Bildschirm traegt. Gefunden ist die Sitzung, deren
+            // eigene Liste den Bildschirm als `dieses_fenster` fuehrt.
+            OverlayAction::RemoteScreenFocus(monitor) => {
+                let ziel = self.sessions.values().find(|s| {
+                    s.fern_schirme.iter().any(|schirm| schirm.index == monitor && schirm.dieses_fenster)
+                });
+                if let Some(session) = ziel {
+                    session.window.focus_window();
+                }
             }
         }
     }
