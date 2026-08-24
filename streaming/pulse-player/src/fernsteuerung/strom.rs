@@ -125,9 +125,22 @@ impl Erfassung {
     ///   (`uebernehmen`, s. [`Self::einschalten`]).
     /// * Vor dem Hello duerfen sie trotzdem nicht liegen: hat der Host in
     ///   diesem Strom noch kein Hello gesehen, beendet ihn schon das erste
-    ///   Frame davor. Dahinter sind sie hoechstens ueberfluessig, denn der Host
-    ///   gibt beim Hello ohnehin alles frei — und genau deshalb vergisst der
-    ///   Player hier auch seine eigene Menge des Gedrueckten.
+    ///   Frame davor. Dahinter sind sie hoechstens ueberfluessig — **aber nur
+    ///   fuer den Platz, an den DIESES Hello geht.** Das Hello traegt
+    ///   `ziel_slot` in der Huelle und erreicht damit genau EINEN
+    ///   Sidecar-Prozess, nicht "den Host" als Ganzes — seit dem Ziehen ueber
+    ///   die Fenstergrenze ist `ziel_slot` nicht mehr zwingend derselbe wie
+    ///   der eigene `slot`. Deshalb setzt diese Funktion `ziel_slot` weiter
+    ///   unten auf den EIGENEN Platz zurueck, bevor der Rest laeuft — sonst
+    ///   ginge das Hello an ein Fenster, ueber das der vorige Strom zufaellig
+    ///   zuletzt gezogen hatte. Und genau deshalb vergisst der Player hier
+    ///   auch seine eigene Menge des Gedrueckten: sie gilt fuer den Platz, an
+    ///   den das neue Hello tatsaechlich geht. **Was das nicht heilt:** ein
+    ///   Zug, der bei einem NACHBARN endete (dessen Sidecar also das zuletzt
+    ///   Gedrueckte haelt), bekommt durch diese Notbremse keine Freigabe —
+    ///   die Taste kann dort bis zum Sitzungsende gedrueckt bleiben. Das zu
+    ///   beheben braucht Gehaltenes je ZIEL nachzuziehen, nicht nur den
+    ///   eigenen Platz zu befreien, und ist eigene Entwurfsarbeit.
     ///
     /// Ueberholte Bewegungen fallen: die Wire-Spec erlaubt genau das. Eine
     /// Bewegung, an der ein Knopf oder das Rad haengt, faellt **nicht**
@@ -135,6 +148,13 @@ impl Erfassung {
     /// zufaellig steht.
     pub(super) fn strom_beginnen(&mut self, uebernehmen: bool) {
         self.warteschlange.neuer_strom(rahmen::hello(), uebernehmen);
+        // Das neue Hello geht an den EIGENEN Platz — ein Ziel aus dem vorigen
+        // Lauf (ein Zug ueber die Fenstergrenze kurz vor dieser Stelle) darf
+        // nicht ueberleben. `einschalten` setzt `ziel_slot` gleich danach
+        // ohnehin nochmal auf den neuen Platz (macht das hier redundant); die
+        // NOTBREMSE (`notbremse_pruefen`) ruft `strom_beginnen` aber OHNE
+        // `einschalten` und bliebe sonst auf einem fremden Ziel stehen.
+        self.ziel_slot = self.slot;
         if !uebernehmen {
             // Buendel aus einem fremden Ziel oder einer fremden Sitzung
             // draengeln sich sonst vor das neue Hello: `abholen()` gibt

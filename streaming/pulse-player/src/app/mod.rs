@@ -1507,13 +1507,27 @@ impl ApplicationHandler<UserEvent> for App {
         // **Besitzen, nicht ausleihen:** eine geliehene Kennung hielte die
         // Ausleihe auf `self.sessions` bis hinter das `get_mut` weiter unten.
         let eigene_sitzung = eigene.and_then(|s| s.eingabe.sitzung()).map(str::to_owned);
+        let eigene_skalierung = eigene.map(|s| s.window.scale_factor());
         let mut kandidaten: Vec<crate::fernsteuerung::Nachbar> = if !erfasst {
             Vec::new()
         } else {
             self
             .sessions
             .iter()
-            .filter(|(_, s)| s.eingabe.aktiv() && s.eingabe.sitzung() == eigene_sitzung.as_deref())
+            .filter(|(_, s)| {
+                s.eingabe.aktiv()
+                    && s.eingabe.sitzung() == eigene_sitzung.as_deref()
+                    // **Nur Fenster derselben Skalierung.** winit liefert auf macOS Fensterlage UND
+                    // Zeigerlage je in der Skalierung DES JEWEILIGEN Fensters
+                    // (`window_delegate.rs::inner_position`, `view.rs`s `CursorMoved`). Die
+                    // Differenz zweier Fenster kuerzt sich deshalb nur bei gleicher Skalierung —
+                    // auf einem MacBook mit externem Monitor eben nicht. Auf Windows und X11 ist
+                    // der Desktop ein einziger Pixelraum, dort ist die Bedingung immer erfuellt.
+                    //
+                    // Lieber gar nicht zielen als falsch: ungleich skaliert faellt das Fenster aus
+                    // der Nachbarschaft, und es bleibt beim Verhalten von vor diesem Zweig.
+                    && eigene_skalierung.is_some_and(|e| (s.window.scale_factor() - e).abs() < 1e-6)
+            })
             .filter_map(|(sid, s)| {
                 // Wayland gibt Fensterlagen grundsaetzlich nicht heraus. Dann
                 // gibt es keine Nachbarschaft, und alles bleibt beim eigenen

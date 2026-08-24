@@ -1,6 +1,6 @@
 # Mehrere Host-Bildschirme aus Sicht des Steuernden
 
-**Stand:** 2026-08-24 · **Zustand:** Entwurf, nichts gebaut
+**Stand:** 2026-08-24 · **Zustand:** Teil 1 umgesetzt, Teile 2–4 offen
 **Betrifft:** Fernsteuerung, `pulse-player`, `desktop/electron`, Sidecars (nur Teil 2)
 
 Vier Dinge, die zusammen ein Thema sind: Wer einen fremden Rechner mit mehreren
@@ -171,6 +171,39 @@ sie wurde nur noch nie umgestellt.
   (**Für Teil 4 ist derselbe Umstand schärfer:** `set_outer_position` ist unter
   Wayland ein stiller Leerlauf. Der Knopf dort muss ausgeblendet werden oder
   sagen, dass es nicht geht — sonst drückt man ihn und nichts passiert.)
+- **Ein STEUERNDER Mac mit unterschiedlich skalierten Bildschirmen bekommt den
+  Zug nicht** (Nachtrag, Schlussprüfung 2026-08-24). winit liefert auf macOS
+  Fensterlage (`inner_position()`) UND Zeigerlage (`CursorMoved`) je in der
+  Skalierung DES JEWEILIGEN Fensters (winit 0.30.13,
+  `platform_impl/macos/window_delegate.rs:928-932` bzw. `view.rs:1084`) —
+  anders als auf Windows und X11, wo der Desktop ein einziger Pixelraum ist.
+  `ziel_bestimmen` bildet den globalen Punkt als Summe aus eigenem Ursprung
+  und Fensterpunkt (in der Skalierung des EIGENEN Fensters), `nachbarn::treffer`
+  zieht davon den Ursprung des Nachbarn ab (in DESSEN Skalierung) — das kürzt
+  sich nur, wenn beide gleich sind. Auf einem MacBook (2×) mit externem
+  1×-Monitor, der häufigsten Mac-Aufstellung, sonst: entweder kein Treffer
+  oder ein Treffer an der falschen Stelle, also ein Klick beim Host dort, wo
+  niemand hingezeigt hat. Der Riegel dagegen sitzt beim Einsammeln der
+  Kandidaten in `app/mod.rs::window_event`: nur Fenster mit derselben
+  `window.scale_factor()` wie das eigene zählen als Nachbar. Fail-closed statt
+  falsch — auf so einem Aufbau bleibt es beim Verhalten von vor diesem Teil
+  (kein Zug über die Fenstergrenze, aber auch kein Fehlklick).
+- **Ein GESTEUERTER Mac bekommt den Zug, verliert dabei aber den
+  Zieh-Ereignistyp und die Umschalttasten-Kennzeichnung auf dem zweiten
+  Bildschirm** (derselbe Nachtrag). Der Sidecar leitet den Ereignistyp
+  (`LeftMouseDragged` statt `MouseMoved`) und die Modifikator-Flags aus seiner
+  eigenen Menge des gerade Gedrückten ab
+  (`mac-hq-sidecar/src/remote_input/abbildung.rs`, `bewegungs_typ` und
+  `flags_aus`) — diese Menge liegt je Sidecar-PROZESS, und es läuft ein
+  Prozess je Platz. Läuft eine Geste über zwei Plätze, hat der zweite Prozess
+  eine leere Menge: er meldet `MouseMoved` statt `LeftMouseDragged` und ohne
+  Modifikator-Kennzeichnung. Umschalt-, Alt- (kopieren) und Cmd-Ziehen wirken
+  auf dem zweiten Bildschirm deshalb nicht — genau die Gesten, für die man
+  über die Bildschirmgrenze zieht. Auf Windows tritt das nicht auf, weil der
+  dortige Injektor diese Menge nicht braucht. Eine Behebung müsste Gehaltenes
+  beim Zielwechsel zwischen den Prozessen nachziehen und braucht vorher eine
+  Messung — ein zweites Runter-Ereignis derselben Maustaste kann als
+  Doppelklick durchgehen. Eigene Entwurfsarbeit, hier nicht enthalten.
 
 ### Prüfen
 
