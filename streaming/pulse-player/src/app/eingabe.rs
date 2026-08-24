@@ -251,8 +251,14 @@ impl App {
     pub(super) fn remote_screens(&mut self, req: &Request) -> Result<(), String> {
         let session_id = req.session.ok_or("session fehlt")?;
         let session = self.sessions.get_mut(&session_id).ok_or("unbekannte Sitzung")?;
+        let schirme = req.screens.clone().unwrap_or_default();
+        // Zusaetzlich direkt an der Sitzung (wie `can_reattach`, s. dort):
+        // `RemoteScreenFocus` sucht ueber ALLE Sitzungen nach dem Fenster
+        // eines fremden Bildschirms und braucht dafuer eine Kopie, die ohne
+        // das (optionale) `overlay` auskommt.
+        session.fern_schirme = schirme.clone();
         if let Some(overlay) = session.overlay.as_mut() {
-            overlay.set_fern_schirme(req.screens.clone().unwrap_or_default());
+            overlay.set_fern_schirme(schirme);
         }
         session.window.request_redraw();
         Ok(())
