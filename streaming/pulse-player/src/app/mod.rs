@@ -271,11 +271,17 @@ struct Session {
     /// direkt an der Sitzung, statt sie ueber das Overlay umzuleiten.
     can_reattach: bool,
     /// Kopie von `remote_screens` (s. `overlay::Overlay::set_fern_schirme`) —
-    /// aus demselben Grund zusaetzlich hier wie `can_reattach`: ein Klick auf
-    /// ein FREMDES offenes Kaestchen der Bildschirm-Karte
-    /// (`OverlayAction::RemoteScreenFocus`) muss ueber ALLE Sitzungen nach dem
-    /// Fenster suchen, das diesen Bildschirm zeigt — dafuer reicht weder das
-    /// (optionale) `overlay` dieser einen Sitzung noch ein Umweg ueber es.
+    /// aus demselben Grund zusaetzlich hier wie `can_reattach`, NICHT weil ein
+    /// Getter auf `Overlay` unmoeglich waere (privaten Feldern eines Typs
+    /// koennen Kindmodule lesen, ein `impl Overlay` liesse sich also auch in
+    /// `overlay::schirmkarte` schreiben, ohne `overlay/mod.rs` anzufassen).
+    /// Der Grund ist `overlay: Option<Overlay>`: schlaegt der Aufbau der
+    /// Bedienoberflaeche fehl, laeuft das Fenster ohne sie weiter (Bild und
+    /// Fernsteuerung funktionieren trotzdem), ein Getter auf `Overlay` haette
+    /// dann aber nichts, worauf er zeigen koennte. Die Fokus-Suche
+    /// (`OverlayAction::RemoteScreenFocus`) muss ueber ALLE Sitzungen gehen,
+    /// auch die ohne Overlay — deshalb die eigene Kopie, aktualisiert IMMER,
+    /// nicht nur wenn `session.overlay.is_some()`.
     fern_schirme: Vec<Schirm>,
     /// Die zuletzt losgeschickte Options-Task (s. `requests::apply_options`).
     /// Haelt die REIHENFOLGE der Patches auf dem Weg in die Sitzung: jede neue

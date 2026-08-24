@@ -52,6 +52,12 @@ impl App {
             // endet — stehen bleiben duerfte er nur, um beim naechsten Start
             // etwas Falsches zu behaupten.
             session.fern_transport.clear();
+            // Dasselbe fuer die Kopie der Bildschirmliste (s. Doku am Feld):
+            // sonst behauptete sie nach dem Ende der Fernsteuerung weiter,
+            // dieses Fenster zeige Bildschirm N — die Fokus-Suche
+            // (`OverlayAction::RemoteScreenFocus`) koennte dann ein Fenster
+            // nach vorne holen, das diesen Schirm laengst nicht mehr zeigt.
+            session.fern_schirme.clear();
             // Dasselbe fuer die Zeigerform: sie gehoert dem fernen Rechner.
             // Bliebe sie stehen, behauptete das Fenster nach dem Ende der
             // Fernsteuerung weiter einen I-Balken ueber einem Bild, in dem es
