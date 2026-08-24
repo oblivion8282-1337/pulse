@@ -72,6 +72,10 @@ impl Erfassung {
         self.strom_beginnen(selbes_ziel);
         self.aktiv = true;
         self.slot = slot;
+        // Ein neuer Strom beginnt immer beim eigenen Bildschirm. Ein Ziel aus
+        // dem vorigen Lauf zeigte auf ein Fenster, das es vielleicht nicht mehr
+        // gibt.
+        self.ziel_slot = slot;
         self.zeigerfang = zeigerfang;
         self.sitzung = sitzung.map(str::to_owned);
     }

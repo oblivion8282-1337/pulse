@@ -14,7 +14,7 @@ use winit::event_loop::ActiveEventLoop;
 
 use super::App;
 use super::zeigerform::zeigerform;
-use crate::fernsteuerung::Abgabe;
+use crate::fernsteuerung::Eingabeabgabe;
 use crate::proto::{Event, Request};
 
 impl App {
@@ -301,15 +301,22 @@ impl App {
         let stdout = self.stdout.clone();
         let mut frueheste: Option<std::time::Instant> = None;
         for (id, session) in self.sessions.iter_mut() {
-            match session.eingabe.abholen(jetzt) {
-                Abgabe::Nichts => {}
-                Abgabe::Spaeter(t) => {
-                    frueheste = Some(frueheste.map_or(t, |f: std::time::Instant| f.min(t)));
-                }
-                Abgabe::Jetzt(frames) => {
-                    // Zaehler fuers Statistik-Feld: was WIRKLICH hinausgeht.
-                    session.eingabe_frames += frames.len() as u64;
-                    stdout.send(&eingabe_ereignis(*id, session.eingabe.slot(), frames));
+            // Schleife statt Einzelabholung: beim Zielwechsel koennen mehrere
+            // Buendel mit verschiedenen Plaetzen bereitstehen, und jedes braucht
+            // seine eigene Nachricht.
+            loop {
+                match session.eingabe.abholen(jetzt) {
+                    Eingabeabgabe::Nichts => break,
+                    Eingabeabgabe::Spaeter(t) => {
+                        frueheste =
+                            Some(frueheste.map_or(t, |f: std::time::Instant| f.min(t)));
+                        break;
+                    }
+                    Eingabeabgabe::Jetzt { slot, frames } => {
+                        // Zaehler fuers Statistik-Feld: was WIRKLICH hinausgeht.
+                        session.eingabe_frames += frames.len() as u64;
+                        stdout.send(&eingabe_ereignis(*id, slot, frames));
+                    }
                 }
             }
         }
@@ -332,8 +339,8 @@ impl App {
         session.zeigersicht.erfassung_aus();
         session.window.set_cursor_visible(session.zeigersicht.sichtbar());
         session.eingabe.ausschalten();
-        if let Some(frames) = session.eingabe.raeumen() {
-            stdout.send(&eingabe_ereignis(id, session.eingabe.slot(), frames));
+        for (slot, frames) in session.eingabe.raeumen() {
+            stdout.send(&eingabe_ereignis(id, slot, frames));
         }
         // Bilanz am Ende der Erfassung — die einzigen Stellen, an denen eine
         // Eingabe lautlos verschwindet.

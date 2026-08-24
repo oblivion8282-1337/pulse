@@ -43,6 +43,12 @@ pub struct Erfassung {
     /// Welcher Stream des Hosts gemeint ist. Steht in der Huelle, nicht im
     /// Frame (s. Wire-Spec) — die Erfassung traegt ihn nur mit.
     slot: u32,
+    /// Wohin die naechsten Frames gehen. Weicht vom eigenen `slot` ab, sobald
+    /// der Zeiger ueber einem anderen Player-Fenster steht (s. `nachbarn`).
+    ziel_slot: u32,
+    /// Fertige Buendel, die noch ihren ALTEN Platz tragen — entstehen beim
+    /// Zielwechsel und gehen vor allem anderen hinaus.
+    ausstehend: Vec<(u32, Vec<String>)>,
     /// Zeiger gefangen? Dann werden relative Bewegungen gesendet statt
     /// absoluter. Es gibt dafuer keinen Protokollschalter: der Host behandelt
     /// beide Opcodes zustandslos.
@@ -88,6 +94,20 @@ pub struct Erfassung {
     menue_geschluckt: bool,
 }
 
+/// Was beim Abholen herauskommt — **mit dem Platz, zu dem die Frames gehoeren**.
+///
+/// Der Platz muss am BUENDEL haengen, nicht an der Erfassung: sobald ueber die
+/// Fenstergrenze gezielt wird, koennen Frames zweier Plaetze kurz nacheinander
+/// entstehen, und die Huelle traegt genau einen. Wer den Platz erst beim
+/// Absetzen liest, schickte die letzte Bewegung des alten Bildschirms an den
+/// neuen.
+#[derive(Debug)]
+pub enum Eingabeabgabe {
+    Nichts,
+    Spaeter(Instant),
+    Jetzt { slot: u32, frames: Vec<String> },
+}
+
 impl Default for Erfassung {
     fn default() -> Self {
         Self::neu()
@@ -99,6 +119,8 @@ impl Erfassung {
         Self {
             aktiv: false,
             slot: 0,
+            ziel_slot: 0,
+            ausstehend: Vec::new(),
             zeigerfang: false,
             warteschlange: Schlange::default(),
             tasten_unten: BTreeSet::new(),
@@ -122,6 +144,12 @@ impl Erfassung {
 
     pub fn slot(&self) -> u32 {
         self.slot
+    }
+
+    /// Wohin die naechsten Frames gehen. Gleich [`Self::slot`], solange nicht
+    /// ueber die Fenstergrenze gezielt wird.
+    pub fn ziel_slot(&self) -> u32 {
+        self.ziel_slot
     }
 
     pub fn zeigerfang(&self) -> bool {
@@ -389,15 +417,32 @@ impl Erfassung {
     }
 
     /// Abholen, wenn es Zeit ist (s. [`Schlange::abholen`]).
-    pub fn abholen(&mut self, jetzt: Instant) -> Abgabe {
-        self.warteschlange.abholen(jetzt)
+    ///
+    /// **Ausstehende Buendel gehen vor**: sie tragen einen alten Platz und
+    /// duerfen sich nicht mit dem laufenden mischen. Der Aufrufer ruft in einer
+    /// Schleife, bis nichts mehr kommt (s. `app::eingabe::eingaben_abgeben`).
+    pub fn abholen(&mut self, jetzt: Instant) -> Eingabeabgabe {
+        if !self.ausstehend.is_empty() {
+            let (slot, frames) = self.ausstehend.remove(0);
+            return Eingabeabgabe::Jetzt { slot, frames };
+        }
+        match self.warteschlange.abholen(jetzt) {
+            Abgabe::Nichts => Eingabeabgabe::Nichts,
+            Abgabe::Spaeter(t) => Eingabeabgabe::Spaeter(t),
+            Abgabe::Jetzt(frames) => Eingabeabgabe::Jetzt { slot: self.ziel_slot, frames },
+        }
     }
 
     /// Alles herausnehmen, ohne auf den Takt zu warten. Fuer den Abbau einer
-    /// Sitzung: die Hoch-Ereignisse aus [`Self::ausschalten`] duerfen nicht mit dem
-    /// Fenster verschwinden.
-    pub fn raeumen(&mut self) -> Option<Vec<String>> {
-        self.warteschlange.raeumen()
+    /// Sitzung: die Hoch-Ereignisse aus [`Self::ausschalten`] duerfen nicht mit
+    /// dem Fenster verschwinden — und sie gehoeren dem Platz, der zuletzt
+    /// gesteuert wurde, nicht dem, mit dem eingeschaltet wurde.
+    pub fn raeumen(&mut self) -> Vec<(u32, Vec<String>)> {
+        let mut alles = std::mem::take(&mut self.ausstehend);
+        if let Some(frames) = self.warteschlange.raeumen() {
+            alles.push((self.ziel_slot, frames));
+        }
+        alles
     }
 }
 
