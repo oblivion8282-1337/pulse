@@ -1032,6 +1032,132 @@ fn ohne_nachbarschaft_bleibt_es_beim_eigenen_bild() {
     assert_eq!(e.ziel_slot(), 3);
 }
 
+// ── Wayland: `wayland_ziel` als dritter Weg in `ziel_bestimmen` ────────────
+
+/// Zweite Bildlage mit einem anderen Fenster-Seitenverhaeltnis als [`lage`] —
+/// damit die drei Tests unten nicht zufaellig bestehen, weil beide Lagen
+/// ohnehin gleich rechnen.
+fn andere_lage() -> Bildlage {
+    Bildlage::neu((1000, 1000), (1000, 1000), [0.0, 0.0, 1.0, 1.0]).expect("Lage")
+}
+
+/// **Der Kern des dritten Wegs:** `wayland_ziel` geht VOR dem eigenen Bild,
+/// mit dem PLATZ und der BILDLAGE, die dort hinterlegt sind — nicht mit
+/// `self.slot` oder der `lage`, die `on_window_event` sonst mitbringt.
+#[test]
+fn wayland_ziel_geht_vor_dem_eigenen_bild() {
+    let mut e = Erfassung::neu();
+    e.einschalten(3, false, Some(SITZUNG)); // Hello, noch am eigenen Platz 3
+    e.wayland_ziel_setzen(Some((9, andere_lage())));
+    // `lage()` (960x540-Mitte) waere im EIGENEN Bild gueltig, aber die
+    // uebergebene `lage` wird bei gesetztem `wayland_ziel` ignoriert — nur
+    // `andere_lage()` (500,500 = Mitte von 1000x1000) zaehlt.
+    e.on_window_event(&zeiger_ereignis(500.0, 500.0), Some(lage()), false);
+    let buendel = alles_mit_platz(&mut e);
+    // Der Platzwechsel 3 -> 9 trennt das schon wartende Hello von der
+    // Bewegung (s. `Erfassung::ziel_wechseln`) — zwei Buendel, nicht eins.
+    assert_eq!(buendel.len(), 2, "{buendel:?}");
+    assert_eq!(buendel[0].0, 3, "das Hello gehoert noch dem eigenen Platz: {buendel:?}");
+    assert_eq!(buendel[1].0, 9, "der Platz kommt aus `wayland_ziel`, nicht aus `self.slot` (3)");
+    assert_eq!(e.ziel_slot(), 9);
+}
+
+/// **Und `wayland_ziel` geht auch vor der Nachbarschaft** — der Compositor
+/// hat die Zuordnung schon geleistet, `nachbarn::treffer` wird gar nicht erst
+/// befragt. (Auf echtem Wayland kollidieren beide ohnehin nie, s. Doc an
+/// `ziel_bestimmen` — dieser Test haelt den Vorrang trotzdem fest, falls das
+/// je nicht mehr gilt.)
+#[test]
+fn wayland_ziel_geht_vor_der_nachbarschaft() {
+    let mut e = eingeschaltet();
+    e.nachbarschaft_setzen(Some((0.0, 0.0)), zwei_fenster());
+    e.wayland_ziel_setzen(Some((9, andere_lage())));
+    // 2880,540 traefe im Nachbarschafts-Weg Platz 1 (s.
+    // `bewegung_ueber_dem_nachbarn_traegt_dessen_platz`) — hier zaehlt aber
+    // `andere_lage()`, in der dieser Punkt ausserhalb des Bildes liegt.
+    let buendel_leer = alles_mit_platz(&mut e);
+    assert!(buendel_leer.is_empty(), "Vorlauf schon geleert");
+    e.on_window_event(&zeiger_ereignis(2880.0, 540.0), Some(lage()), false);
+    assert!(alles_mit_platz(&mut e).is_empty(), "ausserhalb von `andere_lage()` geht nichts hinaus");
+
+    // Innerhalb von `andere_lage()` geht es an deren Platz 9, nicht an
+    // Platz 1 der Nachbarschaft.
+    e.on_window_event(&zeiger_ereignis(500.0, 500.0), Some(lage()), false);
+    let buendel = alles_mit_platz(&mut e);
+    assert_eq!(buendel[0].0, 9, "{buendel:?}");
+}
+
+/// Zurueckgesetzt (`None`) faellt `ziel_bestimmen` wieder auf die beiden
+/// bestehenden Wege — wichtig fuer das Ende eines Zugs, wo der Aufrufer genau
+/// das tut (s. `app::wayland_zug`).
+#[test]
+fn wayland_ziel_zurueckgesetzt_faellt_auf_die_nachbarschaft_zurueck() {
+    let mut e = eingeschaltet();
+    e.nachbarschaft_setzen(Some((0.0, 0.0)), zwei_fenster());
+    e.wayland_ziel_setzen(Some((9, andere_lage())));
+    e.wayland_ziel_setzen(None);
+    e.on_window_event(&zeiger_ereignis(2880.0, 540.0), Some(lage()), false);
+    let buendel = alles_mit_platz(&mut e);
+    assert_eq!(buendel[0].0, 1, "wieder der Nachbar, nicht mehr Platz 9: {buendel:?}");
+}
+
+/// Ausserhalb der `wayland_ziel`-Bildlage sendet nichts — dieselbe Rand-Regel
+/// wie ueberall sonst, s. `Bildlage::anteil`.
+#[test]
+fn wayland_ziel_ausserhalb_des_bildes_sendet_nichts() {
+    let mut e = Erfassung::neu();
+    e.einschalten(3, false, Some(SITZUNG));
+    let _ = alles(&mut e); // das Hello wegnehmen, es geht hier nur um die Bewegung
+    e.wayland_ziel_setzen(Some((9, andere_lage())));
+    e.on_window_event(&zeiger_ereignis(-5.0, 500.0), Some(lage()), false);
+    assert!(alles(&mut e).is_empty());
+}
+
+// ── Wayland: `zug_beendet` ──────────────────────────────────────────────────
+
+/// Ein gehaltener Mausknopf geht beim Zug-Ende als Hoch-Ereignis hinaus, auch
+/// OHNE ein passendes `MouseInput`-Ereignis — genau der Fall, den das
+/// Datengeraet nicht liefert (s. `zug_beendet`-Doc).
+#[test]
+fn zug_beendet_laesst_einen_gehaltenen_mausknopf_los() {
+    let mut e = eingeschaltet();
+    e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), Some(lage()), false);
+    let _ = alles(&mut e);
+    e.zug_beendet();
+    let frames = alles(&mut e);
+    assert_eq!(frames.len(), 1, "{frames:?}");
+    assert_eq!(frames[0][0], 0x03, "Opcode MouseButton");
+    assert_eq!(frames[0][2], 0, "runter=false");
+}
+
+/// Tasten bleiben unberuehrt — anders als bei [`Erfassung::alles_loslassen`]
+/// (Fokusverlust) wechselte hier nur der Zeigerfokus.
+#[test]
+fn zug_beendet_laesst_tasten_unberuehrt() {
+    let mut e = eingeschaltet();
+    e.taste(0x1e, true);
+    let _ = alles(&mut e);
+    e.zug_beendet();
+    assert!(alles(&mut e).is_empty(), "keine Taste geht mit los");
+}
+
+/// Nichts gehalten: ein Nichtstun, kein leerer Frame.
+#[test]
+fn zug_beendet_ohne_gehaltenen_knopf_bleibt_folgenlos() {
+    let mut e = eingeschaltet();
+    e.zug_beendet();
+    assert!(alles(&mut e).is_empty());
+}
+
+/// Ausgeschaltet sendet nichts — dieselbe Regel wie jede andere Erfassungs-
+/// Methode.
+#[test]
+fn zug_beendet_ausgeschaltet_tut_nichts() {
+    let mut e = Erfassung::neu();
+    e.zug_beendet();
+    assert!(matches!(e.abholen(Instant::now()), Eingabeabgabe::Nichts));
+}
+
 /// **C1, der Kern-Regressionstest:** eine `CursorMoved` merkt die Zeigerlage
 /// IMMER (auch ohne eigenes Bild), erreicht `zeigerposition`/`ziel_wechseln`
 /// aber nur MIT einem. Ohne eigenes Bild bleibt `ziel_slot` also auf dem

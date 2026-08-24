@@ -17,6 +17,7 @@ pub mod diagnose;
 mod eingabe;
 mod requests;
 mod takt;
+mod wayland_zug;
 mod zeigerbau;
 mod zeigerform;
 mod zeigersicht;
@@ -334,6 +335,16 @@ pub struct App {
     /// nach vorne geholt. Entscheidet bei ueberlappenden Player-Fenstern, wer
     /// einen Punkt bekommt (s. `fernsteuerung::nachbarn::vorrang`).
     zuletzt_fokussiert: Option<u64>,
+    /// Wayland: der Zug ueber die Fenstergrenze ueber das Datengeraet (s.
+    /// [`wayland_zug`]). Liegt an der App wie `tastensperre`, aus demselben
+    /// Grund: dieselbe Verbindung bedient alle Fenster.
+    ///
+    /// Auf Nicht-Linux ist [`wayland_zug::WaylandZug`] ein leerer Typ und
+    /// wird auch nirgends gelesen (die dortigen Methoden sind dort reine
+    /// No-ops, s. Modulkopf) — ohne den `cfg_attr` meldete ein Windows-/
+    /// macOS-Bau dieses Feld faelschlich als toten Code.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    wayland_zug: wayland_zug::WaylandZug,
 }
 
 /// Wie lange nach dem letzten Bild des Hauptstroms das Auffangnetz noch
@@ -359,6 +370,7 @@ impl App {
             zeigervorrat: zeigerbau::Vorrat::default(),
             tastensperre: crate::tastensperre::Gemeinsam::default(),
             zuletzt_fokussiert: None,
+            wayland_zug: wayland_zug::WaylandZug::default(),
         }
     }
 
@@ -1677,6 +1689,18 @@ impl ApplicationHandler<UserEvent> for App {
                 session.eingabe.nachbarschaft_setzen(eigener_ursprung, kandidaten);
                 session.eingabe.on_window_event(&event, lage, antwort.verbraucht);
             }
+        }
+        // Wayland: der Zug ueber die Fenstergrenze beginnt im selben Zug, in
+        // dem eben `Erfassung::knopf(..., true)` lief (s. `on_window_event`
+        // oben, MouseInput-Zweig) — NACH der Ausleihe von `session` oben
+        // (die braucht `wayland_zug_beginnen` selbst wieder, ueber `&mut
+        // self`). Nur bei einem echten Druck und nur, wenn diese Sitzung
+        // ferngesteuert erfasst; auf Nicht-Linux und auf X11 ein Nichtstun
+        // (s. `wayland_zug`-Modulkopf).
+        if matches!(&event, WindowEvent::MouseInput { state: winit::event::ElementState::Pressed, .. })
+            && self.sessions.get(&id).is_some_and(|s| s.eingabe.aktiv())
+        {
+            self.wayland_zug_beginnen(id);
         }
         match event {
             // Der Zeigerfang ueberlebt den Fokuswechsel NICHT (s.

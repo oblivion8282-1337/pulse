@@ -215,6 +215,36 @@ impl Erfassung {
         }
     }
 
+    /// Ein Wayland-Zug ist beendet (`Drop`/`Leave`, s.
+    /// `wayland::zug`-Modulkopf „Die Nummer gilt nicht ueber einen Zug
+    /// hinweg") — die Maustaste ist damit physisch los, auch wenn dafuer NIE
+    /// ein `MouseInput`-Ereignis bei diesem Fenster ankommt: waehrend eines
+    /// Zugs ist das Datengeraet die EINZIGE Quelle, winit liefert keins mehr
+    /// (s. `app::wayland_zug` Modulkopf, „Stolperstein 2"). Jeder noch
+    /// gehaltene Mausknopf geht deshalb hier als Hoch-Ereignis hinaus, an den
+    /// zuletzt gueltigen `ziel_slot` — dieselbe Kodierung wie
+    /// [`Self::alles_loslassen`], nur ohne dessen zweite Haelfte.
+    ///
+    /// **Tasten bleiben unberuehrt.** Anders als bei [`Self::alles_loslassen`]
+    /// (Tastaturfokus-Verlust) wechselte hier nur der ZEIGERFOKUS — die
+    /// Tastatur blieb beim Steuernden, und sie faelschlich mit loszulassen
+    /// liesse eine wirklich noch gehaltene Taste am fernen Rechner haengen.
+    ///
+    /// **Nur auf Linux ausserhalb von Tests aufgerufen** (`app::wayland_zug`,
+    /// dort hinter `#[cfg(target_os = "linux")]`) — derselbe Grund wie beim
+    /// `cfg_attr` an [`Erfassung::wayland_ziel_setzen`].
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub fn zug_beendet(&mut self) {
+        if !self.aktiv {
+            return;
+        }
+        for nummer in std::mem::take(&mut self.knoepfe_unten) {
+            if let Some(knopf) = knopf_aus_nummer(nummer) {
+                self.einreihen(rahmen::maus_knopf(knopf, false));
+            }
+        }
+    }
+
     /// Einen unverwerfbaren Frame einreihen — der einzige Weg dorthin.
     ///
     /// **Hier haengt die Notbremse** (s. `schlange::MAX_GESAMT`): eine reine

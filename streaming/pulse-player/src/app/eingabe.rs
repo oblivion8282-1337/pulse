@@ -311,6 +311,13 @@ impl App {
         &mut self,
         jetzt: std::time::Instant,
     ) -> Option<std::time::Instant> {
+        // Wayland: die Warteschlange des Datengeraets leeren (sonst waechst
+        // sie, s. `wayland_zug`-Modulkopf) und eine laufende Zug-Bewegung
+        // weiterreichen. Hier und nicht anderswo, weil diese Methode ohnehin
+        // bei jedem Schleifendurchlauf laeuft (`about_to_wait`) — dieselbe
+        // Stelle, an der die Aufgabenstellung `nachfassen` verortet. Auf
+        // Nicht-Linux und ohne laufenden Zug ein Nichtstun.
+        self.wayland_zug_nachfassen();
         // Den Schreiber vorher ausleihen: `send` nimmt `&self`, und darunter
         // laeuft eine veraenderliche Schleife ueber die Sitzungen.
         let stdout = self.stdout.clone();
