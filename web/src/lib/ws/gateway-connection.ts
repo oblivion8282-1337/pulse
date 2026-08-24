@@ -40,6 +40,7 @@ import {
 import * as senders from './gateway-senders';
 import { compareVersions } from '$lib/utils/semver';
 import type { ServerEvent, ClientEvent, RemoteSignalKind } from './handlers/types';
+import type { DeviceMonitor } from '$lib/api/devices';
 
 const BUFFER_BEFORE_READY: ReadonlySet<ServerEvent['op']> = new Set([
   'channel_created', 'channel_updated', 'channel_deleted', 'channel_bump', 'dm_bump',
@@ -730,9 +731,12 @@ export class GatewayConnection {
     sessionId: string, kind: RemoteSignalKind, data: unknown,
   ): boolean => senders.sendRemoteSignal(this._raw, sessionId, kind, data);
 
+  // `DeviceMonitor` statt eines eigenen Inline-Typs — s. Kommentar dort
+  // (`$lib/api/devices.ts`): dieselbe Form wie in `gateway-senders.ts`, das
+  // dieser Wrapper direkt durchreicht.
   sendDeviceAnnounce = (
     deviceId: string,
-    monitors: { index: number; name: string; primary: boolean }[] = [],
+    monitors: DeviceMonitor[] = [],
   ): boolean => senders.sendDeviceAnnounce(this._raw, deviceId, monitors);
 
   sendDeviceStreams = (deviceId: string, slots: number[]): boolean =>

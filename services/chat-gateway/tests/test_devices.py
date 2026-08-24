@@ -897,6 +897,39 @@ def test_negative_breite_und_hoehe_fallen_weg():
     assert monitor["height"] == 1080
 
 
+def test_bool_als_zahl_faellt_weg():
+    """**Der Fallstrick, der die ``isinstance(wert, bool)``-Prüfung trägt:**
+    Python zählt ``bool`` als ``int``-Unterklasse — ohne den Ausschluss würde
+    ``True`` still zur 1. Der Monitor bleibt, nur das Feld fehlt."""
+    from dcc_chat_gateway.routes.ws_device_handlers import _monitore
+
+    roh = [{"index": 1, "x": True, "width": 1920, "height": 1080}]
+    [monitor] = _monitore(roh)
+    assert "x" not in monitor
+    assert monitor["width"] == 1920
+
+
+def test_zahl_ueber_der_plausiblen_grenze_faellt_weg():
+    """Eine Zahl ausserhalb des plausiblen Bereichs ist ebenso Unfug wie eine
+    Zeichenkette — nur das Feld fällt weg, der Monitor bleibt in der Liste."""
+    from dcc_chat_gateway.routes.ws_device_handlers import (
+        _MONITOR_KOORDINATE_GRENZE,
+        _monitore,
+    )
+
+    roh = [
+        {
+            "index": 1,
+            "x": _MONITOR_KOORDINATE_GRENZE + 1,
+            "width": 1920,
+            "height": 1080,
+        }
+    ]
+    [monitor] = _monitore(roh)
+    assert "x" not in monitor
+    assert monitor["width"] == 1920
+
+
 def test_max_monitors_bleibt_wirksam_mit_lage_und_groesse():
     """Die vier zusätzlichen Zahlen dürfen die Acht-Schirme-Grenze nicht
     aufweichen — dieselbe Kürzung wie zuvor, jetzt mit vollen Monitoren."""
