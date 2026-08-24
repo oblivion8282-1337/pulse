@@ -193,10 +193,13 @@ impl super::App {
         }
         let Some(eigene_sitzung) = session.eingabe.sitzung().map(str::to_owned) else { return };
 
-        // **VOR jeder weiteren Ausleihe der Sitzungen:** kopiert werden nur
-        // Zahlen, genau wie beim Einsammeln der Nachbarschaft — eine Liste
-        // aus geliehenen `&Session` hielte die Ausleihe von `self.sessions`
-        // bis in die zweite Runde unten offen.
+        // **Erst ALLE Schirme sammeln, dann rechnen** — und zwar nicht wegen
+        // der Ausleihe (unten wird `self.sessions` ebenfalls nur gelesen, eine
+        // Liste aus `&Session` uebersetzte hier also auch), sondern weil
+        // `anordnen()` einen GEMEINSAMEN Massstab ueber alle Schirme legt: es
+        // muss die gesamte Anordnung des Hosts kennen, bevor es das erste
+        // Fenster setzen kann. Ein Durchlauf, der Fenster einzeln setzt,
+        // waehrend er sie noch einsammelt, gibt es deshalb nicht.
         let schirme: Vec<Schirmlage> = self
             .sessions
             .values()
