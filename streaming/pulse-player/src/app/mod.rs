@@ -8,6 +8,7 @@
 //!
 //! Was die einzelnen RPC-Operationen bedeuten, steht in [`requests`].
 
+mod anordnen;
 pub mod diagnose;
 mod eingabe;
 mod requests;
