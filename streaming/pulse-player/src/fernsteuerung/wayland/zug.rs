@@ -83,11 +83,12 @@
 //! **Nachgemessen am selben Tag, mit Umlauf- und Zeitstempeln** (Review-Befund
 //! I-C, Protokoll und Zahlen in [`super::ende`]): zwischen dem `Leave` von A
 //! und dem `Enter` von B liegt die Zeit, die der Zeiger ZWISCHEN den Fenstern
-//! verbringt — in der Messung 21 ms und ein eigener Lesevorgang, denn zwischen
-//! zwei gekachelten Fenstern klafft eine Luecke (16 px bei `niri`), und ueber
-//! die Luecke zwischen zwei Monitoren werden daraus Sekunden. Die beiden
-//! Ereignisse liegen also **nicht** im selben Umlauf; wer das annimmt, bricht
-//! die Zieh-Geste genau an der Fenstergrenze ab. `zeiger_ueber` ist deshalb ganz
+//! verbringt — zwischen zwei gekachelten Fenstern klafft eine Luecke (16 px bei
+//! `niri`), und dort gehoert er keiner eigenen Flaeche. Die beiden Ereignisse
+//! liegen damit **nicht** im selben Umlauf; wer das annimmt, bricht die
+//! Zieh-Geste genau an der Fenstergrenze ab. Wie lang das Intervall wird, ist
+//! nicht gemessen (die 21 ms des Laufs sind seine Schrittweite) und nach oben
+//! offen. `zeiger_ueber` ist deshalb ganz
 //! bewusst generisch geblieben (s. u.): es nimmt jede vom Compositor
 //! gemeldete [`ObjectId`] entgegen, ohne sie gegen eine "erwartete" Flaeche
 //! zu pruefen. Nebenbefund derselben Messung: die zwei `wl_pointer` auf dem
@@ -201,6 +202,10 @@ impl Gastverbindung {
         self.zustand.zug = ZugLage::default();
         self.zustand.bestaetigt = false;
         self.zustand.eigener_zug = true;
+        // Ab jetzt laeuft die Anlauf-Frist (Review C-B): bleibt das erste
+        // `Enter` aus, verfaellt der Merker, statt bis zum Prozessende zu
+        // stehen und fremde Zuege fuer uns sprechen zu lassen.
+        self.zustand.angefordert_seit = Some(std::time::Instant::now());
         true
     }
 

@@ -92,6 +92,27 @@ impl App {
         if !matches!(ereignis, WindowEvent::CursorMoved { .. } | WindowEvent::MouseInput { .. }) {
             return;
         }
+        // **Bei einem DRUCK zuerst dispatchen und ein offenes Ende abholen**
+        // (Review C-A, 2026-08-25) — und zwar unabhaengig davon, ob wir gerade
+        // einen Zug fuehren. Das gehoerte bis dahin in `wayland_zug_beginnen`,
+        // und das laeuft NACH `Erfassung::on_window_event`: das Loslassen des
+        // vorigen Zugs und der neue Druck koennen im selben winit-Umlauf
+        // eintreffen (unter Last, mit 4K-Dekode zwischen zwei Reads, sind das
+        // leicht 15-30 ms). Dann stand der frische Druck schon in
+        // `knoepfe_unten`, wenn das nachgeholte `Drop` „alles Gedrueckte"
+        // freigab — der neue Zug lief ohne gedrueckte Taste weiter: keine
+        // klemmende Taste, aber eine tote Geste ohne jede Meldung. Der
+        // C1-Auflage der ersten Runde (`nachfassen()` vor
+        // `letzte_druck_nummer()`) ist damit weiter genuege getan; sie rueckt
+        // nur frueher im selben `window_event`.
+        if matches!(ereignis, WindowEvent::MouseInput { state: ElementState::Pressed, .. }) {
+            let zuende = {
+                let Some(verbindung) = self.wayland_zug.inner.verbindung.as_mut() else { return };
+                verbindung.nachfassen();
+                verbindung.zug_zuende()
+            };
+            self.wayland_zug_ende_anwenden(zuende);
+        }
         let (angefordert, bestaetigt) = {
             let Some(verbindung) = self.wayland_zug.inner.verbindung.as_ref() else { return };
             (verbindung.zug_angefordert(), verbindung.zug_bestaetigt())
@@ -121,6 +142,43 @@ impl App {
         _ereignis: &winit::event::WindowEvent,
     ) {
     }
+
+    /// Einen laufenden Zug **abbrechen**, weil die Grundlage weggefallen ist:
+    /// Fokusverlust, Erfassung aus, Fenster zu.
+    ///
+    /// **Warum das sein muss** (Review C-B, 2026-08-25): der Merker „eigener
+    /// Zug" hatte nur zwei Ausgaenge — ein abgeholtes Ende und das Aufgeben
+    /// beim Loslassen. Wer zwischen Druck und Loslassen den Fokus verliert
+    /// (Alt-Tab; der Compositor bricht die implizite Ergreifung ab, das
+    /// Loslassen erreicht uns nie) oder dessen Fenster zugeht, sah beides nie.
+    /// Der Merker blieb dann fuer den Rest der Prozesslaufzeit stehen — und ab
+    /// da sprach **jeder fremde Zug wieder fuer uns**: sein `Motion` schickte
+    /// den fernen Zeiger dorthin, wo ein Fremder eine Datei zieht, und sein
+    /// `Leave` gab am fernen Rechner frei, was der Nutzer gerade haelt. Das
+    /// ist genau der Schaden, gegen den C-1 angetreten war.
+    ///
+    /// **Abbrechen heisst aufgeben, nicht beenden** — es wird nichts
+    /// losgelassen. Alle drei Aufrufer geben das Gedrueckte ohnehin selbst
+    /// frei (`Focused(false)` -> `alles_loslassen`, `input_capture(false)`/
+    /// `eingabe_raeumen` -> `ausschalten`); ein zweites Freigeben von hier
+    /// waere bestenfalls ueberfluessig.
+    ///
+    /// **Nur fuer die Sitzung, die den Zug traegt.** Ein anderes Fenster, das
+    /// den Fokus verliert, geht diesen Zug nichts an.
+    #[cfg(target_os = "linux")]
+    pub(in crate::app) fn wayland_zug_abbrechen(&mut self, id: u64) {
+        if self.wayland_zug.inner.session != Some(id) {
+            return;
+        }
+        if let Some(verbindung) = self.wayland_zug.inner.verbindung.as_mut() {
+            verbindung.zug_aufgeben();
+        }
+        self.wayland_zug.inner.session = None;
+        self.wayland_zug.inner.ziel_fehler_gemeldet = false;
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    pub(in crate::app) fn wayland_zug_abbrechen(&mut self, _id: u64) {}
 
     /// Ein abgeholtes Ende anwenden — der eine Trichter fuer alle drei Wege,
     /// auf denen ein Zug endet (`Drop`, Beweisweg, Notfrist).

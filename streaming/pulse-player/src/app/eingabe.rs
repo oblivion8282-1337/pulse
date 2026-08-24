@@ -160,6 +160,11 @@ impl App {
         // `wayland_zug_bereitstellen` braucht `&mut self`.
         if aktiv {
             self.wayland_zug_bereitstellen(session_id);
+        } else {
+            // Und beim AUSSCHALTEN einen etwa laufenden Zug abbrechen (Review
+            // C-B): sonst bliebe der Merker stehen, und der naechste FREMDE
+            // Zug ueber ein Player-Fenster spraeche wieder fuer uns.
+            self.wayland_zug_abbrechen(session_id);
         }
         Ok(antwort)
     }
@@ -298,6 +303,16 @@ impl App {
     pub(super) fn fokus_gewechselt(&mut self, id: u64, fokus: bool) {
         if fokus {
             self.zuletzt_fokussiert = Some(id);
+        } else {
+            // **Fokus weg heisst: der Zug ist vorbei, und wir erfahren es
+            // sonst nie** (Review C-B). Der Compositor bricht mit dem Fokus
+            // auch die implizite Ergreifung ab; das Loslassen der Maustaste
+            // erreicht uns danach weder als `MouseInput` noch als `Drop`.
+            // Ohne diese Zeile bliebe der Merker „eigener Zug" bis zum
+            // Prozessende stehen. Nichts wird dabei losgelassen — das
+            // besorgt `Erfassung::alles_loslassen`, das im selben
+            // Fensterereignis schon gelaufen ist.
+            self.wayland_zug_abbrechen(id);
         }
         let Some(session) = self.sessions.get_mut(&id) else { return };
         if !session.eingabe.aktiv() && !session.fang_gewuenscht {
@@ -365,6 +380,11 @@ impl App {
     /// gingen die mit dem Fenster verloren, bliebe beim Host eine Taste
     /// gedrueckt, bis er selbst aufraeumt.
     pub(super) fn eingabe_raeumen(&mut self, id: u64) {
+        // Das Fenster geht zu — ein laufender Zug gehoert abgebrochen, bevor
+        // die Sitzung verschwindet (Review C-B). Sonst haelt der Merker
+        // „eigener Zug" eine Sitzung am Leben, die es nicht mehr gibt, und
+        // fremde Zuege sprechen wieder fuer uns.
+        self.wayland_zug_abbrechen(id);
         let stdout = self.stdout.clone();
         let Some(session) = self.sessions.get_mut(&id) else { return };
         session.fang_gewuenscht = false;
