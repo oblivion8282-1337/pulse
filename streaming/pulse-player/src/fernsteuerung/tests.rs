@@ -902,3 +902,92 @@ fn abgabe_traegt_den_eigenen_platz() {
     assert_eq!(batches[0].0, 3, "Platz der Abgabe");
     assert_eq!(e.ziel_slot(), 3);
 }
+
+/// Zwei Fenster nebeneinander, jedes 1920 breit. Fenster A ist das eigene.
+fn zwei_fenster() -> Vec<Nachbar> {
+    vec![
+        Nachbar { id: 1, slot: 0, ursprung: (0.0, 0.0), lage: lage() },
+        Nachbar { id: 2, slot: 1, ursprung: (1920.0, 0.0), lage: lage() },
+    ]
+}
+
+/// **Der Kern des Ganzen:** eine Bewegung, deren Punkt im NACHBARN liegt, geht
+/// mit dessen Platz hinaus — obwohl sie in diesem Fenster erfasst wurde.
+#[test]
+fn bewegung_ueber_dem_nachbarn_traegt_dessen_platz() {
+    let mut e = eingeschaltet();
+    e.nachbarschaft_setzen(Some((0.0, 0.0)), zwei_fenster());
+    // 2880 auf dem Desktop = Mitte des zweiten Fensters (1920 + 960).
+    e.on_window_event(&zeiger_ereignis(2880.0, 540.0), Some(lage()), false);
+
+    // `eingeschaltet()` hat die Warteschlange schon geleert — beim Zielwechsel
+    // steht also nichts Altes mehr an, und es bleibt bei EINEM Buendel.
+    let buendel = alles_mit_platz(&mut e);
+    assert_eq!(buendel.len(), 1, "{buendel:?}");
+    assert_eq!(buendel[0].0, 1, "die Bewegung gehoert Platz 1");
+    assert_eq!(buendel[0].1[0][0], 0x01, "Opcode MouseMoveAbs");
+    assert_eq!(e.ziel_slot(), 1);
+}
+
+/// Beim Zielwechsel muss das Liegengebliebene VORHER hinaus, mit dem alten
+/// Platz. Ein Buendel traegt genau einen — sonst landete eine Bewegung des
+/// einen Bildschirms auf dem anderen.
+#[test]
+fn zielwechsel_trennt_die_buendel() {
+    let mut e = eingeschaltet();
+    e.nachbarschaft_setzen(Some((0.0, 0.0)), zwei_fenster());
+    // Erst im eigenen Fenster bewegen, dann in den Nachbarn.
+    e.on_window_event(&zeiger_ereignis(100.0, 100.0), Some(lage()), false);
+    e.on_window_event(&zeiger_ereignis(2880.0, 540.0), Some(lage()), false);
+
+    let buendel = alles_mit_platz(&mut e);
+    assert_eq!(buendel.len(), 2, "{buendel:?}");
+    assert_eq!(buendel[0].0, 0, "das Liegengebliebene gehoert Platz 0");
+    assert_eq!(buendel[1].0, 1, "das Neue gehoert Platz 1");
+}
+
+/// Der Zug endet im Nachbarn: das Loslassen geht an DESSEN Platz. Genau daran
+/// haengt, ob das gezogene Fenster drueben abgelegt wird.
+#[test]
+fn loslassen_im_nachbarn_geht_an_dessen_platz() {
+    let mut e = eingeschaltet();
+    e.nachbarschaft_setzen(Some((0.0, 0.0)), zwei_fenster());
+    e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), Some(lage()), false);
+    e.on_window_event(&zeiger_ereignis(2880.0, 540.0), Some(lage()), false);
+    e.on_window_event(
+        &maus_ereignis(ElementState::Released, MouseButton::Left),
+        Some(lage()),
+        false,
+    );
+
+    let buendel = alles_mit_platz(&mut e);
+    let letztes = buendel.last().expect("Buendel");
+    assert_eq!(letztes.0, 1, "Loslassen gehoert dem Nachbarn: {buendel:?}");
+    let hoch = letztes.1.last().expect("Frame");
+    assert_eq!(hoch[0], 0x03, "Opcode MouseButton");
+    assert_eq!(hoch[2], 0, "runter=false");
+}
+
+/// Ein Punkt, der in keinem Fenster liegt (Luecke, eigener Desktop), sendet
+/// nichts — und aendert das Ziel nicht.
+#[test]
+fn punkt_in_der_luecke_sendet_nichts() {
+    let mut e = eingeschaltet();
+    e.nachbarschaft_setzen(Some((0.0, 0.0)), zwei_fenster());
+    e.on_window_event(&zeiger_ereignis(-500.0, 540.0), Some(lage()), false);
+    assert!(alles(&mut e).is_empty(), "ausserhalb aller Fenster geht nichts hinaus");
+    assert_eq!(e.ziel_slot(), 0, "das Ziel bleibt, wo es war");
+}
+
+/// Ohne bekannte Nachbarschaft (Wayland gibt keine Fensterlagen heraus) bleibt
+/// alles beim Verhalten von vorher: eigenes Bild, eigener Platz.
+#[test]
+fn ohne_nachbarschaft_bleibt_es_beim_eigenen_bild() {
+    let mut e = eingeschaltet();
+    e.nachbarschaft_setzen(None, Vec::new());
+    e.on_window_event(&zeiger_ereignis(960.0, 540.0), Some(lage()), false);
+    let buendel = alles_mit_platz(&mut e);
+    assert_eq!(buendel.len(), 1);
+    assert_eq!(buendel[0].0, 0);
+    assert_eq!(e.ziel_slot(), 0);
+}

@@ -21,6 +21,7 @@ mod schlange;
 mod strom;
 mod tasten;
 mod winit_abbild;
+mod ziel;
 
 pub use bildlage::Bildlage;
 pub use nachbarn::{vorrang, Nachbar};
@@ -49,6 +50,16 @@ pub struct Erfassung {
     /// Fertige Buendel, die noch ihren ALTEN Platz tragen — entstehen beim
     /// Zielwechsel und gehen vor allem anderen hinaus.
     ausstehend: Vec<(u32, Vec<String>)>,
+    /// Linke obere Ecke der eigenen Fensterinnenflaeche auf dem Desktop.
+    ///
+    /// `None` heisst „Lage unbekannt" — unter Wayland gibt winit sie
+    /// grundsaetzlich nicht heraus (`inner_position()` liefert dort
+    /// `NotSupportedError`), und die Tests brauchen sie nicht. Dann bleibt es
+    /// beim eigenen Bild und beim eigenen Platz.
+    eigener_ursprung: Option<(f64, f64)>,
+    /// Alle erfassenden Player-Fenster derselben Fernsteuerungs-Sitzung, in der
+    /// Reihenfolge, in der sie befragt werden (s. `nachbarn::vorrang`).
+    kandidaten: Vec<Nachbar>,
     /// Zeiger gefangen? Dann werden relative Bewegungen gesendet statt
     /// absoluter. Es gibt dafuer keinen Protokollschalter: der Host behandelt
     /// beide Opcodes zustandslos.
@@ -121,6 +132,8 @@ impl Erfassung {
             slot: 0,
             ziel_slot: 0,
             ausstehend: Vec::new(),
+            eigener_ursprung: None,
+            kandidaten: Vec::new(),
             zeigerfang: false,
             warteschlange: Schlange::default(),
             tasten_unten: BTreeSet::new(),
@@ -200,9 +213,17 @@ impl Erfassung {
                 let Some(lage) = lage else { return };
                 self.zeigerposition(lage, position.x, position.y);
             }
-            // Zeiger aus dem Fenster: seine letzte Lage sagt nichts mehr, und
-            // ein Rad-Ereignis danach gehoert nicht mehr ins Bild.
-            WindowEvent::CursorLeft { .. } => self.letzte_zeigerlage = None,
+            // Zeiger aus dem Fenster: ohne Nachbarschaft sagt seine letzte Lage
+            // nichts mehr. MIT Nachbarschaft sehr wohl — er kann ueber einem
+            // anderen Player-Fenster stehen, und waehrend eines Zuges bekommt
+            // dieses Fenster die Bewegungen weiter zugestellt (Zeigerfang des
+            // Systems). Hier zu vergessen hiesse, den Zug an der Fenstergrenze
+            // abzuschneiden.
+            WindowEvent::CursorLeft { .. } => {
+                if self.eigener_ursprung.is_none() {
+                    self.letzte_zeigerlage = None;
+                }
+            }
             WindowEvent::MouseInput { state, button, .. } => {
                 // `Other` faellt hier weg — ein unbekannter Knopf beendet beim
                 // Host die Sitzung, also wird er gar nicht erst gesendet.
@@ -267,8 +288,8 @@ impl Erfassung {
         if leiste_greift {
             return false;
         }
-        let (Some(lage), Some((x, y))) = (lage, self.letzte_zeigerlage) else { return false };
-        lage.anteil(x, y).is_some()
+        let Some((x, y)) = self.letzte_zeigerlage else { return false };
+        self.ziel_bestimmen(lage, x, y).is_some()
     }
 
     /// Taste als winit-Kennung. Getrennt von [`Self::taste`], weil hier die
@@ -334,13 +355,14 @@ impl Erfassung {
         self.taste(scan, runter);
     }
 
-    /// Absolute Zeigerposition (physische Fensterpunkte). Ausserhalb des
+    /// Absolute Zeigerposition (physische Fensterpunkte). Ausserhalb jedes
     /// Bildrechtecks wird nichts gesendet — so verlangt es die Wire-Spec.
     pub fn zeigerposition(&mut self, lage: Bildlage, x: f64, y: f64) {
         if !self.aktiv {
             return;
         }
-        let Some((u, v)) = lage.anteil(x, y) else { return };
+        let Some((slot, (u, v))) = self.ziel_bestimmen(Some(lage), x, y) else { return };
+        self.ziel_wechseln(slot);
         let (x, y) = (rahmen::anteil_zu_u16(u), rahmen::anteil_zu_u16(v));
         self.bewegung_einreihen(rahmen::maus_abs(x, y));
     }
