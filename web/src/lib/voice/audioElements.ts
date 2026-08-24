@@ -1,11 +1,10 @@
 import type { RemoteAudioTrack } from 'livekit-client';
 import { isMobile } from '$lib/platform/runtime';
 import type { SpatialMode } from '$lib/stores/settings.svelte';
+import { applySinkId } from '$lib/audio/applySinkId';
 import type { SpatialLayout } from './spatial/layout';
 import { loadResonance } from './spatial/resonanceLoader';
 import { SpatialScene, resolveQuality } from './spatial/spatialScene';
-
-type SinkCapable = { setSinkId?: (id: string) => Promise<void> };
 
 interface AudioNodeBundle {
   /** Null on the mobile path — there the `<audio>` element is the audible
@@ -112,7 +111,7 @@ export class RemoteAudioElements {
     if (this.#ctx && this.#ctx.state !== 'closed') return this.#ctx;
     if (this.#ctx?.state === 'closed') this.#ctx = null;
     const ctx = new AudioContext();
-    if (this.outputDeviceId) void this.#setSink(ctx, this.outputDeviceId);
+    if (this.outputDeviceId) void applySinkId(ctx, this.outputDeviceId);
     this.#ctx = ctx;
     return ctx;
   }
@@ -138,7 +137,7 @@ export class RemoteAudioElements {
       // screen lock where an AudioContext would be suspended.
       anchor.muted = this.deafened;
       anchor.volume = this.#elementVolume(userId);
-      if (this.outputDeviceId) void this.#setSink(anchor, this.outputDeviceId);
+      if (this.outputDeviceId) void applySinkId(anchor, this.outputDeviceId);
       document.body.appendChild(anchor);
       const node: AudioNodeBundle = {
         source: null,
@@ -243,7 +242,7 @@ export class RemoteAudioElements {
   async setOutputDevice(deviceId: string): Promise<void> {
     this.outputDeviceId = deviceId;
     if (this.#mobile) {
-      await Promise.all([...this.#nodes.values()].map((n) => this.#setSink(n.anchor, deviceId)));
+      await Promise.all([...this.#nodes.values()].map((n) => applySinkId(n.anchor, deviceId)));
       return;
     }
     // No context yet → the next attach() builds one already bound to this sink.
@@ -264,7 +263,7 @@ export class RemoteAudioElements {
     const oldCtx = this.#ctx;
     const ctx = new AudioContext();
     this.#ctx = ctx;
-    if (deviceId) await this.#setSink(ctx, deviceId);
+    if (deviceId) await applySinkId(ctx, deviceId);
     for (const e of live) if (e.stream) this.#attachDesktopNode(ctx, e.sid, e.userId, e.stream, e.anchor);
     if (spatialMode !== 'off') void this.setSpatialMode(spatialMode);
     if (ctx.state === 'suspended') void ctx.resume().catch(() => undefined);
@@ -485,16 +484,5 @@ export class RemoteAudioElements {
     this.#spatial = null;
     const ctx = this.#ctx;
     if (ctx) for (const node of this.#nodes.values()) this.#rewireOutput(node, ctx);
-  }
-
-  async #setSink(target: AudioContext | HTMLAudioElement, deviceId: string): Promise<void> {
-    if (!deviceId) return;
-    const cap = target as unknown as SinkCapable;
-    if (typeof cap.setSinkId !== 'function') return;
-    try {
-      await cap.setSinkId(deviceId);
-    } catch {
-      /* setSinkId not supported everywhere (Firefox/Safari/iOS). */
-    }
   }
 }

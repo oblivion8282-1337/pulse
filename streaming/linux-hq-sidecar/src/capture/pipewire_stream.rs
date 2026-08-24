@@ -241,12 +241,15 @@ pub struct PipewireCapture {
 
 impl PipewireCapture {
     /// Starte den Capture-Worker. `pw_fd` vom Portal (`open_pipewire_remote`),
-    /// `node_id` vom Portal-`Start`.
+    /// `node_id` vom Portal-`Start`. `fps` ist die Stream-Einstellung — sie
+    /// wandert als BEVORZUGTER Wert in die Format-Verhandlung (s.
+    /// [`build_format_pod`]).
     pub fn start(
         pw_fd: OwnedFd,
         node_id: u32,
         width: u32,
         height: u32,
+        fps: u32,
     ) -> anyhow::Result<(Arc<FrameMailbox>, Self)> {
         // Ein-Slot-Mailbox statt Kanal: bounded (max 1 Frame + 1 in-flight →
         // kein EMFILE bei Backpressure) UND „latest wins" (der Consumer sieht
@@ -258,7 +261,7 @@ impl PipewireCapture {
         let worker = thread::Builder::new()
             .name("pipewire-capture".into())
             .spawn(move || {
-                if let Err(e) = run_pipewire(pw_fd, node_id, width, height, frame_tx, stop_rx) {
+                if let Err(e) = run_pipewire(pw_fd, node_id, width, height, fps, frame_tx, stop_rx) {
                     tracing::error!(target: "pipewire", "Capture-Thread: {e:#}");
                 }
             })?;
@@ -341,11 +344,20 @@ fn zehn_bit_aufnahme_gewuenscht() -> bool {
 /// Baue ein EnumFormat-POD. Mit `modifiers` kommt die Modifier-Property als
 /// Choice-Enum von Longs mit MANDATORY|DONT_FIXATE dazu (DMABUF-Verhandlung
 /// laut PipeWire-DMABUF-Doku); ohne bleibt es ein SHM-taugliches Format.
+///
+/// `fps` ist der BEVORZUGTE Wert der Bildrate — bis zum 2026-08-24 stand hier
+/// fest 60, und der Wunsch aus der Stream-Einstellung erreichte die Verhandlung
+/// nie. KWin ignoriert das Preferred ohnehin und verhandelt variabel bis zur
+/// Monitor-Rate (gemessen 2026-08-24: framerate=0/1, max=144.006 bei einem
+/// 144-Hz-Schirm — die 144-fps-Einstellung war dort also immer echt). Ein
+/// Compositor, der auf Preferred fixiert, bekam aber stillos 60 statt des
+/// Wunsches — genau der Fall, den der Log-Kommentar weiter unten beschreibt.
 fn build_format_pod(
     fmt: VideoFormat,
     modifiers: Option<&[u64]>,
     width: u32,
     height: u32,
+    fps: u32,
 ) -> anyhow::Result<Vec<u8>> {
     let mut properties = vec![
         spa::pod::property!(FormatProperties::MediaType, Id, MediaType::Video),
@@ -379,7 +391,7 @@ fn build_format_pod(
         Choice,
         Range,
         Fraction,
-        Fraction { num: 60, denom: 1 },
+        Fraction { num: fps, denom: 1 },
         Fraction { num: 0, denom: 1 },
         // Deckt den vollen fps-Bereich des Encoders ab (clamp 1..=1000 in
         // ops::start) — der Compositor liefert eh nur bei Damage.
@@ -469,6 +481,7 @@ fn run_pipewire(
     node_id: u32,
     width: u32,
     height: u32,
+    fps: u32,
     frame_tx: FrameSender,
     stop_rx: pw::channel::Receiver<()>,
 ) -> anyhow::Result<()> {
@@ -523,10 +536,10 @@ fn run_pipewire(
     for &fmt in &formats {
         let fourcc = video_format_to_drm_fourcc(fmt).map(|f| f as u32);
         let mods = fourcc.and_then(|f| modifier_map.get(&f)).cloned().unwrap_or_default();
-        enum_format_bytes.push(build_format_pod(fmt, Some(&mods), width, height)?);
+        enum_format_bytes.push(build_format_pod(fmt, Some(&mods), width, height, fps)?);
     }
     for &fmt in &formats {
-        enum_format_bytes.push(build_format_pod(fmt, None, width, height)?);
+        enum_format_bytes.push(build_format_pod(fmt, None, width, height, fps)?);
     }
 
     let data = StreamData {
@@ -684,12 +697,16 @@ fn run_pipewire(
                 height = ud.height,
                 modifier = format!("{:#018x}", ud.modifier),
                 dmabuf = has_modifier,
-                // Die VERHANDELTE Bildrate. Bis 2026-07-26 stand sie nirgends,
-                // obwohl `build_format_pod` einen fest verdrahteten Default von
-                // 60 bewirbt (der Wunsch aus `params.fps` erreicht die Capture
-                // gar nicht). Fixiert der Compositor darauf, sind bei 144
-                // gesendeten Bildern 84 davon Duplikate — und der Sender meldet
-                // trotzdem sauber „144 fps".
+                // Die VERHANDELTE Bildrate — der Beweis, was wirklich herauskam.
+                // Bis 2026-07-26 stand sie nirgends; bis 2026-08-24 bewarb
+                // `build_format_pod` daneben fest 60 (der Wunsch aus
+                // `params.fps` erreichte die Verhandlung nie). Jetzt ist das
+                // Preferred die Einstellung. KWin ignoriert es trotzdem
+                // (gemessen 2026-08-24: 0/1 variabel, max = Monitor-Rate), ein
+                // fixierender Compositor bekommt jetzt den echten Wunsch statt
+                // stillos 60 — und der Fall „84 Duplikate bei 144 gesendeten
+                // Bildern, Meldung trotzdem sauber „144 fps"" kann ihm nicht
+                // mehr still passieren.
                 framerate = format!("{}/{}", info.framerate().num, info.framerate().denom),
                 max_framerate =
                     format!("{}/{}", info.max_framerate().num, info.max_framerate().denom),

@@ -30,6 +30,8 @@ import { getStreamVolume, setStreamVolume } from './streamVolume';
 import { FreezeRecycler, FREEZE_RECYCLE_MAX } from './freezeRecycle';
 import { chatApi } from '$lib/api/chat';
 import { isPlayerAvailable } from '$lib/player/client';
+import { settings } from '$lib/stores/settings.svelte';
+import { applySinkId } from '$lib/audio/applySinkId';
 import { m } from '$lib/paraglide/messages.js';
 
 // Retry-Backoff: Publisher evtl. noch nicht online (404) oder transienter
@@ -107,6 +109,14 @@ export class ManagedHqStream {
   #freeze = new FreezeRecycler();
   // Letzte Nicht-Null-Lautstärke für den Mute-Toggle.
   #prevVolume = 100;
+  // Ausgabegerät (`settings.audio.outputDeviceId`) — anders als die
+  // Voice-Channel-Teilnehmer (`RemoteAudioElements`) hing der Stream-Ton hier
+  // bis 2026-08-24 gar nicht am Umschalter: `#boost`s AudioContext lief immer
+  // auf dem System-Standardgerät. Deshalb hier gespiegelt statt live gelesen —
+  // ein neuer Manager (Stream-Tile geöffnet, nachdem der Nutzer schon
+  // umgeschaltet hatte) muss den aktuellen Wert von Anfang an kennen, nicht
+  // erst beim nächsten `hqStreams.setOutputDevice()`-Aufruf.
+  #outputDeviceId = settings.audio.outputDeviceId;
 
   constructor(channelId: string, userId: string, slot = 0) {
     this.channelId = channelId;
@@ -115,6 +125,7 @@ export class ManagedHqStream {
     const v = getStreamVolume(userId);
     this.volume = v;
     this.#prevVolume = v > 0 ? v : 100;
+    this.#boost.setOutputDevice(this.#outputDeviceId);
     this.#boost.onStateChange = (suspended) => {
       this.audioBlocked = suspended;
     };
@@ -269,6 +280,15 @@ export class ManagedHqStream {
     this.#boost.setVolume(v);
   }
 
+  // ---- Ausgabegerät ---------------------------------------------------------
+  /** Vom `voice.audioDevices`-Umschalter gerufen (`hqStreams.setOutputDevice`),
+   *  für JEDEN offenen Stream — Gegenstück zu `RemoteAudioElements.setOutputDevice`. */
+  setOutputDevice(deviceId: string): void {
+    this.#outputDeviceId = deviceId;
+    this.#boost.setOutputDevice(deviceId);
+    if (this.#audioEl) void applySinkId(this.#audioEl, deviceId);
+  }
+
   // ---- Audio-Senke --------------------------------------------------------
   #ensureAudioEl(): HTMLAudioElement {
     if (!this.#audioEl) {
@@ -276,6 +296,7 @@ export class ManagedHqStream {
       el.autoplay = true;
       el.style.display = 'none';
       document.body.appendChild(el);
+      if (this.#outputDeviceId) void applySinkId(el, this.#outputDeviceId);
       this.#audioEl = el;
     }
     return this.#audioEl;
@@ -638,5 +659,13 @@ export const hqStreams = {
       }
     }
     for (const w of wanted) this.ensure(w.channelId, w.userId, w.slot);
+  },
+
+  /** Ausgabegerät-Wechsel an ALLE offenen HQ-Streams weiterreichen — vom
+   *  selben Aufrufer wie `RemoteAudioElements.setOutputDevice`
+   *  (`voice/audioDevices.svelte.ts::setOutput`), sonst folgt der Stream-Ton
+   *  dem Umschalter nicht (siehe `ManagedHqStream#outputDeviceId`). */
+  setOutputDevice(deviceId: string): void {
+    for (const m of registry.values()) m.setOutputDevice(deviceId);
   }
 };

@@ -2,6 +2,7 @@ import type { Room } from 'livekit-client';
 import { settings } from '$lib/stores/settings.svelte';
 import { matchDevice, enumerate } from './devices';
 import type { RemoteAudioElements } from './audioElements';
+import { hqStreams } from '$lib/stream/hqStreamManager.svelte';
 
 /**
  * Owns the lists of audio input/output devices and the currently selected ones.
@@ -52,6 +53,11 @@ export class AudioDevices {
       }
     }
     await this.#audioEls.setOutputDevice(deviceId);
+    // Der HQ-Stream-Ton hängt nicht an `#audioEls` (eigener Audio-Graph, s.
+    // `stream/volumeBoost.ts`) und muss deshalb separat mitgenommen werden —
+    // sonst bleibt ein zeitgleich gehörter Stream auf dem alten Gerät hängen,
+    // während die Voice-Channel-Teilnehmer schon umgeschaltet sind.
+    hqStreams.setOutputDevice(deviceId);
   }
 
   /** Re-enumerate devices and re-match the persisted selections. */
@@ -74,6 +80,7 @@ export class AudioDevices {
       this.#audioEls.outputDeviceId = outMatch.deviceId;
       if (room) await this.#switch(room, 'audiooutput', outMatch.deviceId);
       await this.#audioEls.setOutputDevice(outMatch.deviceId);
+      hqStreams.setOutputDevice(outMatch.deviceId);
     }
   }
 

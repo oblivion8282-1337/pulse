@@ -2,7 +2,7 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
-      "id": "2026-08-24",
+      "id": "2026-08-24.3",
       "date": "2026-08-24",
       "style": "Sachlich",
       "title": "Kleiner Feinschliff an der Übertragung: schnellere Mac-Fernsteuerung, ehrlichere Linux-Bildrate",
@@ -11,6 +11,16 @@
         "Beim Fernsteuern eines Macs geht jedes Bild jetzt auf die Reise, sobald es vom Bildschirm erfasst ist. Vorher wartete es auf einen festen Takt — im Schnitt rund acht Millisekunden bei 60 Bildern pro Sekunde. Beim Zusehen ohne Fernsteuerung ändert sich nichts; dort glättet der Takt weiterhin das Bild.",
         "Auf Linux-Rechnern fragt Pulse bei der Bildschirm-Übernahme jetzt die eingestellte Bildrate an — vorher stand dort fest 60, egal was du eingestellt hattest. Die meisten Fenstermanager haben diesen Wunsch ohnehin ignoriert und geliefert, was der Bildschirm hergab. Wer ihn aber übernahm, bekam bei höheren Einstellungen still höchstens 60 echte Bilder pro Sekunde — den Rest füllte Pulse mit Kopien auf, und die Anzeige meldete trotzdem die eingestellte Zahl.",
         "Und zwei stille Risiken auf dem Mac behoben: Wenn die Verbindung stockte, konnten sich bereitgestellte Bilder im Speicher auftürmen — im Extremfall Gigabyte. Pulse behält jetzt nur das jeweils neueste. Und das Auflisten von Fenstern und Bildschirmen blockierte zeitweise die Verarbeitung von Maus- und Tastatur-Eingaben einer Fernsteuerung — beides läuft jetzt getrennt voneinander."
+      ]
+    },
+    {
+      "id": "2026-08-24.2",
+      "date": "2026-08-24",
+      "style": "Sachlich",
+      "title": "Stream-Ton folgt jetzt dem gewählten Ausgabegerät",
+      "intro": "Wer beim Zuschauen eines Streams gleichzeitig in einem Sprachkanal war und das Ausgabegerät wechselte (z. B. von Kopfhörer auf Lautsprecher), hörte die Sprachkanal-Teilnehmer über das neue Gerät, den Stream aber weiter über das alte — beide Tonquellen liefen aus unterschiedlichen Geräten gleichzeitig.",
+      "items": [
+        "Der Stream-Ton folgt jetzt demselben Ausgabegerät wie der Sprachkanal-Ton, auch während ein Wechsel mitten in einer laufenden Wiedergabe passiert."
       ]
     },
     {

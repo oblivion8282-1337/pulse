@@ -62,8 +62,13 @@ fn main() -> anyhow::Result<()> {
         "[capture_encode] portal: node={} {}x{}",
         session.node_id, session.width, session.height
     );
-    let (rx, mut cap) =
-        PipewireCapture::start(session.pw_fd, session.node_id, session.width, session.height)?;
+    let (rx, mut cap) = PipewireCapture::start(
+        session.pw_fd,
+        session.node_id,
+        session.width,
+        session.height,
+        fps,
+    )?;
 
     // Erster Frame bestimmt die realen (negotiierten) Maße.
     let first = rx

@@ -33,11 +33,14 @@ fn main() {
         session.node_id, session.width, session.height
     );
 
+    // 60 als Verhandlungs-Wunsch: der Smoke-Test kennt keine Stream-Einstellung,
+    // er will nur Frames sehen (und KWin ignoriert das Preferred ohnehin).
     let (rx, mut cap) = match PipewireCapture::start(
         session.pw_fd,
         session.node_id,
         session.width,
         session.height,
+        60,
     ) {
         Ok(v) => v,
         Err(e) => {

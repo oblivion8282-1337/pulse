@@ -552,12 +552,16 @@ fn run_stream(params: StartParams, stop_rx: Receiver<()>, shared: &Shared) -> Re
         ),
     });
 
-    // 2) PipeWire-Capture auf fd + node_id starten.
+    // 2) PipeWire-Capture auf fd + node_id starten. Die fps-Einstellung reist
+    //    mit: sie ist seit dem 2026-08-24 der BEVORZUGTE Wert in der Format-
+    //    Verhandlung (vorher stand dort fest 60 — Begruendung an
+    //    `build_format_pod`).
     let (frames, mut cap) = PipewireCapture::start(
         session.pw_fd,
         session.node_id,
         session.width,
         session.height,
+        params.fps,
     )?;
 
     // 3) Auf den ersten DMABUF-Frame warten → verbindliche (negotiierte) Maße.
