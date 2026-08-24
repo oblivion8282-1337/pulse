@@ -369,3 +369,35 @@ test('das Ausschalten braucht keine Sitzungskennung', () => {
   assert.equal(gelesen.auftrag.enabled, false);
   assert.equal(gelesen.auftrag.sessionId, '');
 });
+
+test('ein fremder Platz DERSELBEN Sitzung geht durch — der Zug ueber die Fenstergrenze', () => {
+  const w = new EingabeWeiche();
+  w.anmelden(1, 'sit-a', 0);
+  w.anmelden(2, 'sit-a', 1);
+  // Fenster 1 zielt auf Platz 2 um, weil der Zeiger ueber Fenster 2 steht.
+  const n = w.verteilen({ session: 1, slot: 1, frames: ['f0'] });
+  assert.equal(n.length, 1);
+  assert.equal(n[0].slot, 1, 'der Platz aus dem Ereignis gewinnt');
+  assert.equal(n[0].session_id, 'sit-a');
+});
+
+test('ein Platz einer ANDEREN Sitzung bleibt verworfen', () => {
+  const w = new EingabeWeiche();
+  w.anmelden(1, 'sit-a', 0);
+  w.anmelden(2, 'sit-b', 1);
+  assert.deepEqual(w.verteilen({ session: 1, slot: 1, frames: ['f0'] }), []);
+});
+
+test('ein Platz, den kein Fenster angemeldet hat, bleibt verworfen', () => {
+  const w = new EingabeWeiche();
+  w.anmelden(1, 'sit-a', 0);
+  assert.deepEqual(w.verteilen({ session: 1, slot: 7, frames: ['f0'] }), []);
+});
+
+test('ohne Platz im Ereignis gilt weiterhin der angemeldete', () => {
+  const w = new EingabeWeiche();
+  w.anmelden(1, 'sit-a', 3);
+  const n = w.verteilen({ session: 1, frames: ['f0'] });
+  assert.equal(n.length, 1);
+  assert.equal(n[0].slot, 3);
+});
