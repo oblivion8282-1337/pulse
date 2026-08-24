@@ -129,6 +129,40 @@ async def test_stream_token_label_stamped_into_record(client, auth_signer, redis
 
 
 @pytest.mark.asyncio
+async def test_stream_token_monitor_index_stamped_into_record(client, auth_signer, redis):
+    """``monitor_index`` reist wie ``label`` ins Token-Record, damit der
+    auth-hook es in ``stream:active`` kopieren kann. Fehlt es, bleibt der
+    Record ohne das Feld (legacy-Form byte-identisch)."""
+    access = auth_signer.issue_access(4242, "alice")
+    cid = _unique_cid()
+    r = await client.post(
+        f"/channels/{cid}/stream-token",
+        json={"slot": 1, "monitor_index": 2},
+        headers=_auth(access),
+    )
+    assert r.status_code == 200, r.text
+    token = r.json()["token"]
+    try:
+        rec = json.loads((await redis.get(TOKEN_KEY.format(token=token))).decode())
+        assert rec["slot"] == 1
+        assert rec["monitor_index"] == 2
+    finally:
+        await redis.delete(TOKEN_KEY.format(token=token))
+
+    # Fehlt die Angabe → kein ``monitor_index``-Schluessel im Record.
+    r2 = await client.post(
+        f"/channels/{cid}/stream-token", json={}, headers=_auth(access)
+    )
+    assert r2.status_code == 200, r2.text
+    token2 = r2.json()["token"]
+    try:
+        rec2 = json.loads((await redis.get(TOKEN_KEY.format(token=token2))).decode())
+        assert "monitor_index" not in rec2
+    finally:
+        await redis.delete(TOKEN_KEY.format(token=token2))
+
+
+@pytest.mark.asyncio
 async def test_stream_token_rejects_out_of_range_slot(client, auth_signer):
     """Slot is clamped to the 0.._SLOT_MAX range; a slot past it is rejected, not
     silently accepted (which would mint an un-viewable path). Derived from the

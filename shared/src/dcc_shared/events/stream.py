@@ -23,11 +23,17 @@ class StreamDescriptor(_EventBase):
     ``"Chrome"``) the streamer sends at start so a viewer facing several of his
     streams can tell them apart in the picker. Omitted on legacy/single-stream
     records and when the streamer's platform can't name the source (Linux
-    portal) — clients fall back to a generic ``"Stream N"``."""
+    portal) — clients fall back to a generic ``"Stream N"``.
+
+    ``monitor_index`` is the 1-based screen number the stream shows (only set
+    for monitor captures). ``label`` alone can't disambiguate two identically
+    named monitors, so this rides alongside it exactly the same way: optional,
+    omitted when unset, no migration (added 2026-08-24)."""
 
     user_id: str
     slot: int = 0
     label: str | None = None
+    monitor_index: int | None = None
 
     @model_serializer(mode="wrap")
     def _drop_none_fields(self, handler) -> dict[str, Any]:

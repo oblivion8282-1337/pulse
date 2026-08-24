@@ -28,8 +28,8 @@ CHANNEL_USER_PATH_RE = re.compile(r"^channel-(\d+)-(\d+)(?:-s(\d+))?-([0-9a-f]{3
 # Redis keys (see dcc_media_svc.streamkeys for the authoritative comments).
 #   stream:token:<token>                        → JSON {channel_id, user_id, nonce, scope, protocol,
 #                                                  created_at, slot? (omitted when 0), label? (omitted when empty),
-#                                                  ten_bit? (omitted when false)}
-#   stream:active:channel-<cid>-<uid>[-s<slot>] → JSON {user_id, started_at, path, label?, ten_bit?}  (written here on publish-auth)
+#                                                  ten_bit? (omitted when false), monitor_index? (omitted when unset)}
+#   stream:active:channel-<cid>-<uid>[-s<slot>] → JSON {user_id, started_at, path, label?, ten_bit?, monitor_index?}  (written here on publish-auth)
 #   stream:channel:<cid>                        → JSON {user_ids: [...], streams?: [...], since}  (owned by poller)
 # ``TOKEN_KEY`` steht seit 2026-08-13 kanonisch in ``dcc_shared.streaming``
 # (chat-gateway loescht den Datensatz beim Bann). Diese Kopie bleibt bewusst

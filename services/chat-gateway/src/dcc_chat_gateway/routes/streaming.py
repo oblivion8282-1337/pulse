@@ -46,6 +46,16 @@ router = APIRouter()
 _SLOT_MAX = SLOT_MAX
 SlotQuery = Annotated[int, Query(ge=0, le=_SLOT_MAX)]
 
+# Eigene Obergrenze fuer die Bildschirm-NUMMER — bewusst NICHT ``_SLOT_MAX``
+# wiederverwendet: der begrenzt, wie viele STREAM-PLAETZE ein Nutzer
+# gleichzeitig belegen darf, nicht wie viele Monitore seine Maschine hat.
+# Beide Zahlen landen zufaellig bei derselben grosszuegigen Schranke (niemand
+# hat 99 Bildschirme — dieselbe Begruendung wie fuer ``MAX_SLOTS`` in
+# ``dcc_shared.streaming``), aber das ist Zufall, kein gemeinsamer
+# Sachverhalt, und verdient eine eigene Konstante statt einer stillschweigend
+# uebernommenen.
+_MONITOR_INDEX_MAX = 99
+
 
 class StreamTokenIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -68,6 +78,12 @@ class StreamTokenIn(BaseModel):
     # Forwarded verbatim to media-svc, which bounds/strips + threads it through
     # the token → active → poller → stream_state path.
     label: Annotated[str | None, Field(default=None, max_length=80)] = None
+    # Welchen Bildschirm des Hosts dieser Strom zeigt (1-basiert). Wird wie
+    # ``label`` nur weitergereicht; media-sve faedelt es ueber Token-Record →
+    # auth-hook → ``stream:active`` → Poller bis zum Zuschauer. Dort macht es
+    # die Zuordnung Strom → Monitor eindeutig, die der Name bei baugleichen
+    # Geraeten nicht leisten kann.
+    monitor_index: Annotated[int | None, Field(default=None, ge=0, le=_MONITOR_INDEX_MAX)] = None
     # Streamt der Client mit 10 bit Farbtiefe? Wird nur weitergereicht;
     # media-svc fädelt es über Token-Record → auth-hook → ``stream:active``
     # bis in die WHEP-Antwort, aus der der Zuschauer seinen Wiedergabeweg
@@ -204,6 +220,8 @@ async def issue_stream_token(
     token_body: dict[str, object] = {"protocol": payload.protocol, "slot": payload.slot}
     if payload.label is not None:
         token_body["label"] = payload.label
+    if payload.monitor_index is not None:
+        token_body["monitor_index"] = payload.monitor_index
     # Wie ``label`` nur bei Bedarf mitschicken, damit der Body im Normalfall
     # unverändert bleibt.
     if payload.ten_bit:

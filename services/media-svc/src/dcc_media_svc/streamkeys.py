@@ -45,7 +45,7 @@ CHANNEL_USER_PATH_RE = re.compile(r"^channel-(\d+)-(\d+)(?:-s(\d+))?-([0-9a-f]{3
 
 # stream:token:<token>                   → JSON {channel_id, user_id, nonce, scope:"publish", protocol,
 #                                          created_at, slot? (omitted when 0), label? (omitted when empty),
-#                                          ten_bit? (omitted when false)}
+#                                          ten_bit? (omitted when false), monitor_index? (omitted when unset)}
 #                                          issued by media-svc with TTL = TOKEN_TTL_S, consumed by the hook.
 #                                          ``ten_bit`` rides along so the viewer can pick a playback path
 #                                          BEFORE decoding (only the native player renders >8 bit) — the hook
@@ -53,13 +53,16 @@ CHANNEL_USER_PATH_RE = re.compile(r"^channel-(\d+)-(\d+)(?:-s(\d+))?-([0-9a-f]{3
 #                                          This line listed neither field until 2026-08-04, while
 #                                          ``routes.py`` had been writing them for weeks; the auth-hook copy
 #                                          (which calls THIS file authoritative) already carried them.
-# stream:active:channel-<cid>-<uid>[-s<slot>] → JSON {user_id, started_at, path, label?, ten_bit?}
+#                                          ``monitor_index`` rides the same way (added 2026-08-24): the
+#                                          screen NUMBER the stream shows, because two identically named
+#                                          monitors are otherwise indistinguishable to the viewer.
+# stream:active:channel-<cid>-<uid>[-s<slot>] → JSON {user_id, started_at, path, label?, ten_bit?, monitor_index?}
 #                                          written by the hook on a successful publish-auth (path carries the
-#                                          nonce so viewers can locate the live MediaMTX path). ``label`` is
-#                                          copied from the token record so the poller can surface it without
-#                                          a second lookup source. TTL self-heal.
+#                                          nonce so viewers can locate the live MediaMTX path). ``label``/
+#                                          ``monitor_index`` are copied from the token record so the poller can
+#                                          surface them without a second lookup source. TTL self-heal.
 #                                          Build via ``active_key()`` — slot 0 drops the ``-s0`` suffix.
-# stream:channel:<cid>                   → JSON {user_ids: [str, ...], streams?: [{user_id, slot, label?}], since: iso8601}
+# stream:channel:<cid>                   → JSON {user_ids: [str, ...], streams?: [{user_id, slot, label?, monitor_index?}], since: iso8601}
 #                                          the public per-channel set of HQ streamers, owned by the poller.
 #                                          ``streams`` is additive + only present when a user runs slot ≥ 1.
 #
@@ -85,8 +88,8 @@ STOPPING_KEY = "stream:stopping:channel-{channel_id}-{user_id}"
 # Pub/Sub channel — media-svc publishes per-channel stream-state changes here;
 # chat-gateway subscribes and re-broadcasts. Event payload (the *full* current
 # set after the change): {"channel_id": "<id>", "user_ids": ["<id>", ...],
-# "streams"?: [{"user_id", "slot", "label"?}]} — ``streams`` only when a user
-# runs slot ≥ 1.
+# "streams"?: [{"user_id", "slot", "label"?, "monitor_index"?}]} — ``streams``
+# only when a user runs slot ≥ 1.
 STREAM_EVENTS_CHANNEL = "stream:events"
 
 
@@ -127,9 +130,11 @@ def stopping_key(channel_id: str, user_id: str, slot: int = 0) -> str:
 
 def streams_from_state(state: dict[str, Any]) -> list[dict[str, Any]]:
     """Pull the additive ``streams`` list out of a ``stream:channel`` record,
-    normalised to ``[{"user_id": str, "slot": int, "label"?: str}]`` and
-    tolerant of legacy records that have no ``streams`` key (→ ``[]``). ``label``
-    is carried only when present + non-empty so legacy records stay byte-identical."""
+    normalised to ``[{"user_id": str, "slot": int, "label"?: str,
+    "monitor_index"?: int}]`` and tolerant of legacy records that have no
+    ``streams`` key (→ ``[]``). ``label``/``monitor_index`` are carried only
+    when present (+ non-empty for ``label``) so legacy records stay
+    byte-identical."""
     out: list[dict[str, Any]] = []
     for d in state.get("streams") or []:
         if not isinstance(d, dict):
@@ -145,5 +150,8 @@ def streams_from_state(state: dict[str, Any]) -> list[dict[str, Any]]:
         label = d.get("label")
         if isinstance(label, str) and label:
             entry["label"] = label
+        monitor_index = d.get("monitor_index")
+        if isinstance(monitor_index, int) and not isinstance(monitor_index, bool):
+            entry["monitor_index"] = monitor_index
         out.append(entry)
     return out

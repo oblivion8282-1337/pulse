@@ -264,6 +264,42 @@ async def test_stream_token_ten_bit_forwarded(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "monitor_index, forwarded", [(2, {"monitor_index": 2}), (None, {})]
+)
+async def test_stream_token_monitor_index_forwarded(
+    client, _auth_signer, mock_media_svc, monitor_index, forwarded
+):
+    """``monitor_index`` reist wie ``label``/``ten_bit`` nur bei Bedarf mit —
+    fehlt es, bleibt der Body identisch zu dem, was ältere Clients senden."""
+    token, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(token)
+        )
+    ).json()
+    mock_media_svc.responses.append(
+        _resp(
+            200,
+            {
+                "token": "tok123",
+                "mediamtx_path": f"channel-{vc['id']}-1",
+                "push_protocol": "rtmp",
+                "push_url": "rtmps://localhost:1936/x",
+                "expires_in_s": 14400,
+            },
+        )
+    )
+    body = {} if monitor_index is None else {"monitor_index": monitor_index}
+    r = await client.post(
+        f"/channels/{vc['id']}/stream-token", json=body, headers=_auth(token)
+    )
+    assert r.status_code == 200, r.text
+    assert mock_media_svc.calls[0][3] == {"protocol": "rtmp", "slot": 0, **forwarded}
+
+
+@pytest.mark.asyncio
 async def test_whep_proxy_passes_ten_bit_to_viewer(client, _auth_signer, mock_media_svc):
     """Die Bittiefe muss den Proxy überleben: der Zuschauer entscheidet daran, ob
     er den nativen Player nimmt. Fehlt sie in media-svcs Antwort (älterer
