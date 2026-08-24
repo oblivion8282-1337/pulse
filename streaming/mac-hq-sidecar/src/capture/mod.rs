@@ -26,7 +26,7 @@ mod postfach;
 use abfrage::{find_window, pick_display, resolve_applications, shareable_content};
 use output::FrameOutput;
 pub use abfrage::{list_audio_applications, list_capture_windows, list_displays};
-pub(crate) use postfach::Postfach;
+pub use postfach::Postfach;
 
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
