@@ -581,24 +581,53 @@ direkt deren eigenen Platz zu wählen und `Bildlage::anteil(x, y)` zu rufen.
 `eigener_ursprung` bleibt auf Wayland ohnehin für immer `None` — es gibt keine
 Kollision mit dem bestehenden Zweig.
 
-### Offen, und vor dem Bau zu prüfen
+### Gemessen am 2026-08-24 — beide Annahmen bestätigt
 
-Zwei Annahmen tragen den ganzen Ansatz und sind **aus dem Protokolltext nicht
-belegbar**:
+Die zwei tragenden Annahmen waren aus dem Protokolltext nicht belegbar und wurden
+deshalb **vor** der Umsetzung gemessen: eigenständiges Wegwerf-Programm, reines
+`wayland-client` in den Fassungen des Players, echte Maus-Ereignisse über
+`ydotool` (uinput, keine klientseitige Simulation).
 
-1. **Bekommen mehrere `wl_pointer`-Objekte desselben Klienten für denselben Seat
-   alle dieselben `button`-Ereignisse samt Nummer?** Das Protokoll verbietet
-   mehrfaches `get_pointer` nicht und spricht im `capabilities`-Ereignis von „the
-   wl_pointer **objects**" (Mehrzahl) — rechnet also erkennbar mit dem Fall. Eine
-   Zusicherung ist das nicht.
-2. **Ist die so empfangene Nummer dieselbe, die den impliziten Griff erzeugt hat,
-   den winit hält — und akzeptiert `start_drag` sie?** Ein Seat hat einen
-   gemeinsamen Nummernraum, das ist plausibel, aber nirgends zugesichert.
+**1. Zwei `wl_pointer` auf demselben Seat bekommen dieselben Ereignisse mit
+derselben Nummer.** Vier von vier beobachteten Paaren (`enter`, `button`,
+`leave`, erneutes `enter`) waren nummerngleich, keine einzige Abweichung:
 
-**Beides gehört vor die Umsetzung**, mit einem kleinen eigenständigen
-Prüfprogramm: zwei `wl_pointer` auf einem Seat, Nummern vergleichen, dann ein
-echter `start_drag`-Versuch. Fällt die Prüfung negativ aus, bleibt der
-winit-Patch als Rückfall — dann ist er begründet statt vermutet.
+```
+[pointer1] BUTTON serial=1529396 button=0x110 pressed=true
+[pointer2] BUTTON serial=1529396 button=0x110 pressed=true
+```
+
+**2. `start_drag` akzeptiert die Nummer des zweitgebundenen Zeigers.** Mit
+`source=None`, `icon=None` und der Nummer aus dem **zweiten** `wl_pointer` lief
+ein vollständiger, echter Zug — kein Protokollfehler, keine Verbindungstrennung:
+
+```
+[data_device] Enter { serial: 1529397, surface: eigene wl_surface, x:1893.0, y:1092.0, id: None }
+[data_device] Motion { ... }
+[data_device] Drop
+[data_device] Leave
+```
+
+Das `Enter` kam auf der **eigenen** Fläche — der Kern des Ansatzes, belegt.
+
+**Damit entfällt der winit-Patch.** Der Weg ist derselbe wie bei `tastensperre`:
+Gast-Backend auf winits Verbindung, Seat und Zeiger selbst binden.
+
+### Vier Stolpersteine aus der Messung
+
+1. **`event_created_child` für `wl_data_device` ist Pflicht**, sonst gibt es beim
+   ersten `data_offer` einen Absturz — und das kommt **schon beim Start** über
+   `Selection`, nicht erst beim Ziehen. Leicht zu übersehen, wenn man das
+   Datengerät nur für `start_drag` benutzt.
+2. **`start_drag` beendet sofort den normalen Zeigerfokus** (`wl_pointer::Leave`
+   auf beiden Objekten); er kommt erst nach `Drop`/`Leave` zurück, mit einer
+   **neuen** Nummer. Alte Nummern dürfen nicht zwischengespeichert werden.
+3. **Die Reihenfolge zwischen den beiden Zeiger-Objekten ist nicht zugesichert.**
+   Welches man zum Abgreifen nimmt, ist egal; Code, der „bis beide es gesehen
+   haben" wartet, darf sich auf keine Reihenfolge verlassen.
+4. **Gemessen wurde nur auf `niri`.** Mutter, KWin und Sway sind ungeprüft. Das
+   Protokoll verbietet nichts davon, aber die Zusicherung steht nirgends — beim
+   ersten Bericht von einer anderen Oberfläche hier nachtragen.
 
 **XWayland wurde ausdrücklich verworfen** (2026-08-24): es löst zwar das
 Fensterlagen-Problem, aber es ist ein Sonderweg mit eigenen Nachteilen (HiDPI,
