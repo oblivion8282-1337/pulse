@@ -99,13 +99,32 @@ export async function zeigerformMelden(
  * Die Bildschirme des fernen Rechners ins Player-Fenster melden — fuers Menue
  * am Griff (`overlay/fernbedienung.rs`).
  *
+ * **Die Liste ist je Fenster verschieden** (Teil 3 der Bildschirm-Karte): der
+ * Aufrufer meldet fuer JEDES Fenster seine eigene, mit `dieses_fenster` auf
+ * genau dem Bildschirm, den DIESES Fenster gerade zeigt
+ * (`devices/schirme.svelte.ts::schirmeVonFuerFenster`) — fail-visible auf
+ * `false` ueberall, wenn die Zuordnung nicht eindeutig ist.
+ *
+ * `x`/`y`/`width`/`height` sind Lage und Groesse in Bildpunkten auf dem fernen
+ * Rechner, alle optional: eine aeltere Gegenstelle (App ODER Geraet) meldet
+ * sie nicht.
+ *
  * Best-effort wie die Transport-Anzeige: eine ausgebliebene Liste kostet einen
  * Menuepunkt, keine Eingabe. Eine aeltere Shell kennt den Op nicht; dann bleibt
  * das Menue schlicht ohne Bildschirme.
  */
 export async function bildschirmeMelden(
   fensterSitzung: number,
-  schirme: { index: number; name: string; open: boolean }[],
+  schirme: {
+    index: number;
+    name: string;
+    open: boolean;
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+    dieses_fenster: boolean;
+  }[],
 ): Promise<void> {
   try {
     await player()?.screens?.(fensterSitzung, schirme);

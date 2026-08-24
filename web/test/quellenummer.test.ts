@@ -7,6 +7,7 @@ import {
   zuordneStroeme,
   zuordnungIstEindeutig,
 } from '../src/lib/stream/settingsCatalog.ts';
+import { schirmFuerFenster } from '../src/lib/stream/schirmFuerFenster.ts';
 
 test('eine Monitor-Quelle liefert ihre Nummer', () => {
   assert.equal(monitorNummer('Monitor: 3'), 3);
@@ -108,4 +109,44 @@ test('ein unpassender Strom, der nicht zum Geraet gehoert, loest den Notbehelf g
   assert.equal(karte.has(haupt.index), false);
   assert.equal(geraten.size, 0);
   assert.equal(zuordnungIstEindeutig([strom], [haupt], geraetePlaetze), true);
+});
+
+test('schirmFuerFenster findet den Bildschirm ueber den Sende-Platz DIESES Fensters', () => {
+  const links = { index: 1, name: 'Links', primary: true };
+  const rechts = { index: 2, name: 'Rechts', primary: false };
+  const stromLinks = { slot: 0, monitor_index: 1 };
+  const stromRechts = { slot: 1, monitor_index: 2 };
+  const geraetePlaetze = new Set([0, 1]);
+  assert.equal(
+    schirmFuerFenster([stromLinks, stromRechts], [links, rechts], geraetePlaetze, 0),
+    1,
+  );
+  assert.equal(
+    schirmFuerFenster([stromLinks, stromRechts], [links, rechts], geraetePlaetze, 1),
+    2,
+  );
+});
+
+test('schirmFuerFenster: kein Treffer fuer einen Platz, der zu keinem Bildschirm gehoert', () => {
+  const haupt = { index: 1, name: 'Links', primary: true };
+  const strom = { slot: 0, monitor_index: 1 };
+  const geraetePlaetze = new Set([0]);
+  assert.equal(schirmFuerFenster([strom], [haupt], geraetePlaetze, 99), null);
+});
+
+test('schirmFuerFenster ist fail-visible: uneindeutig heisst KEINE Markierung, auch wenn der Platz technisch passt', () => {
+  const haupt = { index: 1, name: 'Dell U2723', primary: true };
+  // Derselbe Notbehelf-Fall wie oben: geraten, nicht getroffen — der Platz
+  // waere zwar der einzig moegliche Treffer, zaehlt hier aber nicht.
+  const strom = { slot: 0, label: 'Bildschirmfreigabe' };
+  const geraetePlaetze = new Set([0]);
+  assert.equal(schirmFuerFenster([strom], [haupt], geraetePlaetze, 0), null);
+});
+
+test('schirmFuerFenster: zwei baugleiche Monitore ohne Nummer bleiben unmarkiert', () => {
+  const a = { index: 1, name: 'Dell U2723', primary: true };
+  const b = { index: 2, name: 'Dell U2723', primary: false };
+  const strom = { slot: 0, label: 'Dell U2723' };
+  const geraetePlaetze = new Set([0]);
+  assert.equal(schirmFuerFenster([strom], [a, b], geraetePlaetze, 0), null);
 });

@@ -73,6 +73,10 @@ pub enum OverlayAction {
 /// Ein Bildschirm des ferngesteuerten Rechners, wie ihn die App ins Fenster
 /// meldet. Reine Anzeige — die Entscheidung, was ein Klick ausloest, faellt in
 /// der App.
+///
+/// **Alle neuen Felder (`x`/`y`/`width`/`height`/`dieses_fenster`) tragen
+/// `#[serde(default)]`**, damit eine aeltere Gegenstelle — App ODER Geraet —
+/// nichts bricht: sie kennt die Felder schlicht nicht und laesst sie weg.
 #[derive(Clone, Debug, serde::Deserialize)]
 pub struct Schirm {
     /// Nummer auf dem fernen Rechner (1-basiert).
@@ -83,6 +87,28 @@ pub struct Schirm {
     /// nach vorne, statt eine zweite Uebertragung zu starten.
     #[serde(default)]
     pub open: bool,
+    /// Lage und Groesse in Bildpunkten auf dem fernen Rechner — Grundlage der
+    /// massstaeblichen Bildschirm-Karte. `x`/`y` duerfen negativ sein (ein
+    /// Monitor links vom oder ueber dem Hauptbildschirm hat eine negative
+    /// Lage); `width`/`height` sind immer positiv. Fehlt eine der vier, ist
+    /// die Lage insgesamt unbekannt — die Karte zeichnet dann nichts fuer
+    /// diesen Bildschirm, statt zu raten.
+    #[serde(default)]
+    pub x: Option<i32>,
+    #[serde(default)]
+    pub y: Option<i32>,
+    #[serde(default)]
+    pub width: Option<u32>,
+    #[serde(default)]
+    pub height: Option<u32>,
+    /// Zeigt DIESES Fenster genau diesen Bildschirm? Die App markiert je
+    /// Fenster hoechstens EINEN Eintrag — und **keinen**, wenn sie die
+    /// Zuordnung Strom-zu-Bildschirm nicht sicher treffen kann
+    /// (fail-visible, `web/src/lib/stream/schirmFuerFenster.ts`): lieber gar
+    /// keine Markierung als eine falsche, die auf den falschen Bildschirm
+    /// schickt.
+    #[serde(default)]
+    pub dieses_fenster: bool,
 }
 
 /// Alles, was das Statistik-Feld anzeigt. Als Kopie herein, damit das Overlay
@@ -153,5 +179,42 @@ impl PresentRate {
     /// Frischer Bezugspunkt: ab jetzt zaehlen, noch keine Rate.
     pub(super) fn neu() -> Self {
         Self { at: Instant::now(), frames: 0, per_second: None }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Eine aeltere Gegenstelle (App ODER Geraet) kennt die vier
+    /// Lage-Felder und `dieses_fenster` noch nicht — genau das Versprechen
+    /// hinter `#[serde(default)]` an jedem der fuenf Felder.
+    #[test]
+    fn schirm_ohne_neue_felder_bleibt_deserialisierbar() {
+        let s: Schirm = serde_json::from_str(r#"{"index":1,"name":"Bildschirm 1"}"#).unwrap();
+        assert_eq!(s.index, 1);
+        assert_eq!(s.name, "Bildschirm 1");
+        assert!(!s.open);
+        assert_eq!(s.x, None);
+        assert_eq!(s.y, None);
+        assert_eq!(s.width, None);
+        assert_eq!(s.height, None);
+        assert!(!s.dieses_fenster);
+    }
+
+    /// Die volle Meldung mit Lage, Groesse und Markierung.
+    #[test]
+    fn schirm_mit_lage_und_markierung() {
+        let s: Schirm = serde_json::from_str(
+            r#"{"index":2,"name":"Rechts","open":true,"x":-1920,"y":0,
+                "width":1920,"height":1080,"dieses_fenster":true}"#,
+        )
+        .unwrap();
+        assert!(s.open);
+        assert_eq!(s.x, Some(-1920));
+        assert_eq!(s.y, Some(0));
+        assert_eq!(s.width, Some(1920));
+        assert_eq!(s.height, Some(1080));
+        assert!(s.dieses_fenster);
     }
 }

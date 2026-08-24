@@ -30,7 +30,7 @@
     bildschirmeMelden,
   } from '$lib/remote/playerInput';
   import { deviceStore } from '$lib/devices/store.svelte';
-  import { schirmWarten, schirmeVon } from '$lib/devices/schirme.svelte';
+  import { schirmWarten, schirmeVon, schirmeVonFuerFenster } from '$lib/devices/schirme.svelte';
   import { remoteZeigerform } from '$lib/remote/zeigerform';
   import { onPlayerWindowRequest } from '$lib/player/client';
 
@@ -239,9 +239,14 @@
     if (!steuernd || !channelId || !hostId) return;
     const geraet = deviceStore.byChannelOwner(channelId, hostId);
     if (!geraet) return;
-    const schirme = schirmeVon(geraet);
+    // **Jedes Fenster bekommt seine EIGENE Liste** (Teil 3 der
+    // Bildschirm-Karte): sein eigener Sende-Platz (`s.slot`) entscheidet,
+    // welcher Eintrag darin als „dieses Fenster" markiert ist — dieselbe
+    // Liste an alle zu schicken ginge künftig nicht mehr.
     for (const s of nativePlayerSessions.fuerHost(channelId, hostId)) {
-      if (s.fensterSitzung !== null) void bildschirmeMelden(s.fensterSitzung, schirme);
+      if (s.fensterSitzung !== null) {
+        void bildschirmeMelden(s.fensterSitzung, schirmeVonFuerFenster(geraet, s.slot));
+      }
     }
     // Ein angefordertes Bild einlösen, auch wenn die Geräteansicht gar nicht
     // offen ist — der Wunsch kann aus dem Player-Fenster gekommen sein.
