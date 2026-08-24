@@ -42,14 +42,16 @@
       "id": "2026-08-24.4",
       "date": "2026-08-24",
       "style": "Sachlich",
-      "title": "Fernsteuerung: zwischen zwei Bildschirmen ziehen",
-      "intro": "Wer einen Rechner mit mehreren Bildschirmen fernsteuert, kann jetzt mit gedrückter Maustaste von einem Player-Fenster ins andere ziehen.",
+      "title": "Fernsteuerung mit mehreren Bildschirmen",
+      "intro": "Wer einen Rechner mit mehreren Bildschirmen fernsteuert, öffnet für jeden Bildschirm ein eigenes Fenster. Diese Fenster arbeiten jetzt zusammen.",
       "items": [
-        "Ein Fenster lässt sich vom einen Bildschirm des fernen Rechners auf den anderen ziehen.",
-        "Dateien lassen sich zwischen Anwendungen auf verschiedenen Bildschirmen ablegen.",
-        "Der Zeiger folgt dabei Ihrer eigenen Maus: sobald sie über dem anderen Fenster steht, springt er auf die passende Stelle des zugehörigen Bildschirms."
+        "Mit gedrückter Maustaste lässt sich von einem Fenster ins andere ziehen: ein Fenster auf den anderen Bildschirm schieben, eine Datei zwischen zwei Anwendungen ablegen.",
+        "Der Zeiger folgt dabei Ihrer eigenen Maus. Sobald sie über dem anderen Fenster steht, springt er auf die passende Stelle des zugehörigen Bildschirms.",
+        "Das Menü zeigt eine maßstäbliche Karte der Bildschirme des fernen Rechners. Sie sehen, welchen davon Sie gerade vor sich haben und wo er drüben steht.",
+        "Ein Knopf ordnet Ihre Fenster so an, wie die Bildschirme drüben stehen.",
+        "Jeder Bildschirm wird jetzt eindeutig seinem Fenster zugeordnet. Bisher konnte bei gleich benannten Bildschirmen der falsche erwischt werden."
       ],
-      "outro": "Gilt für Windows als ferngesteuerten Rechner."
+      "outro": "Der ferngesteuerte Rechner muss Windows oder macOS sein."
     },
     {
       "id": "2026-08-24.3",
