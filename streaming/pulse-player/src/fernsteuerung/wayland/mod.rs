@@ -1,12 +1,15 @@
 //! Die Wayland-Gastverbindung fuer den Zug ueber die Fenstergrenze —
-//! **Fundament, von niemandem aufgerufen** (s. `#![allow(dead_code)]` unten
-//! und die Modulzeile in `fernsteuerung/mod.rs`). Waylands Datengeraet
+//! **von niemandem aufgerufen** (s. `#![allow(dead_code)]` unten und die
+//! Modulzeile in `fernsteuerung/mod.rs`: das Verdrahten in die eigentliche
+//! Ereignisschleife ist eine spaetere Aufgabe). Waylands Datengeraet
 //! beantwortet direkt, welches Fenster unter dem Zeiger liegt — auf einem
 //! Compositor gibt es dafuer keine abfragbaren Fensterlagen wie unter X11
 //! oder Windows. Was hier steht: die Verbindung, der Seat, ein eigener
 //! zweiter Zeiger (liefert die Seriennummer, die `start_drag` verlangt) und
-//! das Datengeraet. Das eigentliche `start_drag` und die Enter/Motion/Drop-
-//! Auswertung sind eine spaetere Aufgabe.
+//! das Datengeraet. `start_drag` selbst sowie die Enter/Motion/Drop/Leave-
+//! Auswertung stehen in [`zug`] daneben — Begruendungen (Einheit der
+//! Koordinaten, die offene Frage zu mehreren eigenen Flaechen) dort im
+//! Modulkopf.
 //!
 //! **Dieselbe Vorlage wie [`crate::tastensperre::wayland`], bewusst
 //! nachgebaut statt neu erfunden** — beide binden Wayland-Protokolle NEBEN
@@ -26,11 +29,11 @@
 //!   zuletzt gedrueckte Seriennummer Aufrufe ueberleben — deshalb haelt
 //!   [`Gastverbindung`] ihren `Zustand` als eigenes Feld und reicht
 //!   **denselben** Wert bei jedem `nachfassen` erneut hinein.
-//! - **Keine Flaeche wird rekonstruiert.** Die Vorlage braucht `wl_surface`,
-//!   weil ein Inhibitor an eine bestimmte Flaeche gebunden wird. Dieses
-//!   Fundament bindet nichts an eine Flaeche — das (Ursprungs-/Icon-Flaeche
-//!   fuer `start_drag`) ist Sache der Aufgabe, die den Zug tatsaechlich
-//!   ausloest.
+//! - **Die Flaeche wird erst in [`zug`] rekonstruiert, nicht hier.** Die
+//!   Vorlage braucht `wl_surface` sofort beim Aufbau, weil ein Inhibitor an
+//!   eine bestimmte Flaeche gebunden wird. Dieses Modul bindet nichts an eine
+//!   Flaeche — die Ursprungsflaeche fuer `start_drag` entsteht erst bei
+//!   jedem Zugversuch aus dem dann uebergebenen Fenster (s. [`zug`]).
 //! - **`event_created_child` ist hier Pflicht, dort ungenutzt.**
 //!   `wl_data_device` erzeugt `wl_data_offer`-Kindobjekte;
 //!   `zwp_keyboard_shortcuts_inhibitor_v1` erzeugt gar keine. S. die
@@ -75,11 +78,13 @@
 //! selbst, die reine Zustandsfuehrung ohne jede Wayland-Abhaengigkeit (s.
 //! Tests unten).
 
-// Noch nicht verdrahtet: nichts im Rest des Crates ruft `aufbauen` oder
-// irgendeine Methode von `Gastverbindung` auf — das ist Sache einer
-// spaeteren Aufgabe, die den Zug tatsaechlich ausloest. Faellt weg, sobald
+// Noch nicht verdrahtet: nichts im Rest des Crates ruft `aufbauen`,
+// `zug_beginnen` oder `zeiger_ueber` auf — das Einhaengen in die eigentliche
+// Ereignisschleife ist Sache einer spaeteren Aufgabe. Faellt weg, sobald
 // diese Aufgabe kommt.
 #![allow(dead_code)]
+
+mod zug;
 
 use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
 use wayland_backend::sys::client::Backend;
@@ -121,12 +126,21 @@ impl DruckNummer {
     }
 }
 
-/// Der Dispatch-Zustand. Traegt genau ein Datum ([`DruckNummer`]) — anders
-/// als in [`crate::tastensperre::wayland`], wo `Zustand` leer ist (s.
-/// Modulkopf, „Was anders ist").
+/// Der Dispatch-Zustand. Anders als in [`crate::tastensperre::wayland`], wo
+/// `Zustand` leer ist (s. Modulkopf, „Was anders ist"), traegt er hier drei
+/// Daten:
+/// - [`DruckNummer`] — die zuletzt gedrueckte Seriennummer.
+/// - [`zug::ZugLage`] — welche eigene Flaeche der Zeiger waehrend eines
+///   laufenden Zugs beruehrt und wo darin (s. [`zug`]).
+/// - `angebot` — das `wl_data_offer`, das ein `Enter` gerade eingefuehrt hat
+///   (nur bei einem FREMDEN Zug oder der Zwischenablage belegt, s. dortiger
+///   Match-Arm) — muss beim `Leave` zerstoert werden, das verlangt das
+///   Protokoll ausdruecklich.
 #[derive(Default)]
 struct Zustand {
     druck: DruckNummer,
+    zug: zug::ZugLage,
+    angebot: Option<wl_data_offer::WlDataOffer>,
 }
 
 impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Zustand {
@@ -150,7 +164,10 @@ delegate_noop!(Zustand: wl_data_device_manager::WlDataDeviceManager);
 // Die Angebote selbst werden nicht ausgewertet (kein Mime-Type-Abgleich,
 // kein `receive`) — `ignore` statt der knallenden Form, weil sie ganz
 // regulaer eintreffen und entgegengenommen werden MUESSEN (s.
-// `event_created_child` unten).
+// `event_created_child` unten). Zerstoert werden sie trotzdem — nicht hier
+// (das waere die REAKTION auf ihre EIGENEN Ereignisse, wie `offer`), sondern
+// im `wl_data_device`-Dispatch unten, beim `Leave` des Zugs, der sie
+// eingefuehrt hat.
 delegate_noop!(Zustand: ignore wl_data_offer::WlDataOffer);
 
 impl Dispatch<wl_pointer::WlPointer, ()> for Zustand {
@@ -176,11 +193,13 @@ impl Dispatch<wl_pointer::WlPointer, ()> for Zustand {
 }
 
 impl Dispatch<wl_data_device::WlDataDevice, ()> for Zustand {
-    /// `Drop`/`Leave` entwerten die gemerkte Druck-Nummer (s. Modulkopf,
-    /// „Die Nummer gilt nicht ueber einen Zug hinweg"). Alles andere
-    /// (Enter/Motion/Selection/DataOffer) ist fuer dieses Fundament ohne
-    /// Bedeutung — Fortschritt eines Zugs auszuwerten ist Sache der Aufgabe,
-    /// die ihn tatsaechlich fuehrt.
+    /// `Enter`/`Motion` speisen [`zug::ZugLage`] (welche eigene Flaeche, wo
+    /// darin — s. [`zug`] fuer die Einheit der Koordinaten). `Drop`/`Leave`
+    /// entwerten die gemerkte Druck-Nummer (s. Modulkopf, „Die Nummer gilt
+    /// nicht ueber einen Zug hinweg") UND raeumen die Zug-Lage; `Leave`
+    /// zerstoert zusaetzlich ein noch offenes `wl_data_offer` (s. Feld-Doc an
+    /// [`Zustand`]). `Selection`/`DataOffer` bleiben unausgewertet — die
+    /// Zwischenablage ist nicht Sache dieses Moduls.
     fn event(
         zustand: &mut Self,
         _: &wl_data_device::WlDataDevice,
@@ -190,8 +209,29 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for Zustand {
         _: &QueueHandle<Self>,
     ) {
         match ereignis {
-            wl_data_device::Event::Drop | wl_data_device::Event::Leave => {
+            wl_data_device::Event::Enter { surface, x, y, id, .. } => {
+                zustand.zug.betreten(surface.id(), x, y);
+                zustand.angebot = id;
+            }
+            wl_data_device::Event::Motion { x, y, .. } => {
+                zustand.zug.bewegt(x, y);
+            }
+            wl_data_device::Event::Drop => {
                 zustand.druck.entwerten();
+                zustand.zug.verlassen();
+            }
+            wl_data_device::Event::Leave => {
+                zustand.druck.entwerten();
+                zustand.zug.verlassen();
+                // Protokoll (`wl_data_device::leave`): "The client must
+                // destroy the wl_data_offer introduced at enter time at this
+                // point." Fuer UNSEREN eigenen Zug (`source=None`) war `id`
+                // beim `Enter` immer `None` (s. Modulkopf [`zug`]) — dieser
+                // Zweig greift nur, wenn ein FREMDER Zug oder die
+                // Zwischenablage uns ein Angebot hinterlassen hat.
+                if let Some(angebot) = zustand.angebot.take() {
+                    angebot.destroy();
+                }
             }
             _ => {}
         }
@@ -213,8 +253,10 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for Zustand {
 }
 
 /// Verbindung, Seats, der zweite Zeiger je Seat und das Datengeraet je Seat —
-/// alles, was der Zug ueber die Fenstergrenze auf Wayland braucht, aber noch
-/// nichts, was ihn ausloest (s. Modulkopf).
+/// alles, was der Zug ueber die Fenstergrenze auf Wayland braucht.
+/// `zug_beginnen`/`zeiger_ueber` (s. [`zug`]) sind die Methoden, die ihn
+/// tatsaechlich ausloesen bzw. auswerten; von aussen ruft sie noch niemand
+/// (s. Modulkopf).
 pub struct Gastverbindung {
     conn: Connection,
     queue: EventQueue<Zustand>,
