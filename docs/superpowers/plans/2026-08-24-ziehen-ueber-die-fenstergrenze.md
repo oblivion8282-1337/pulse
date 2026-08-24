@@ -511,8 +511,13 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ## Task 3: Umzielen über die Fenstergrenze
 
 **Files:**
-- Modify: `streaming/pulse-player/src/fernsteuerung/mod.rs` (Felder, `nachbarschaft_setzen`, `ziel_bestimmen`, `ziel_wechseln`, `zeigerposition`, `zeiger_im_bild`, `CursorLeft`)
+- Create: `streaming/pulse-player/src/fernsteuerung/ziel.rs` (`nachbarschaft_setzen`, `ziel_bestimmen`, `ziel_wechseln`)
+- Modify: `streaming/pulse-player/src/fernsteuerung/mod.rs` (Modulliste, zwei Felder, `zeigerposition`, `zeiger_im_bild`, `CursorLeft`)
 - Test: `streaming/pulse-player/src/fernsteuerung/tests.rs`
+
+**Warum ein eigenes Modul:** `mod.rs` steht nach Task 2 bei 450 Zeilen, die harte Grenze ist 500 (`PLAN.md` §12.1) — die neue Logik passt dort nicht mehr hinein. Das Muster gibt es schon: `strom.rs` ist ein Kindmodul mit `impl Erfassung`, abgetrennt aus genau diesem Grund, und kommt als Kindmodul an die privaten Felder, ohne Zugänge zu öffnen, die sonst niemand braucht. Die **Felder** bleiben in `mod.rs` — sie gehören zur Struktur.
+
+**Sichtbarkeiten nach Hausstil** (s. `strom.rs`): `pub` für das, was von ausserhalb gerufen wird, `pub(super)` für das, was nur `mod.rs` ruft.
 
 **Interfaces:**
 - Consumes: `nachbarn::{Nachbar, treffer}` aus Task 1; `Eingabeabgabe`, `ziel_slot()`, `raeumen()` aus Task 2
@@ -646,9 +651,31 @@ In `Erfassung::neu()`:
             kandidaten: Vec::new(),
 ```
 
-Und die Setz-Methode neben `zeigerfang()` (hinter Zeile 127):
+Und in der Modulliste von `mod.rs` (alphabetisch, hinter `mod winit_abbild;` bzw. an der passenden Stelle) das neue Kindmodul anmelden:
 
 ```rust
+mod ziel;
+```
+
+- [ ] **Step 4: Das neue Modul `ziel.rs`**
+
+Datei `streaming/pulse-player/src/fernsteuerung/ziel.rs` anlegen:
+
+```rust
+//! Wohin die Frames gehen: eigener Bildschirm oder der eines Nachbarfensters.
+//!
+//! Abgetrennt von [`super`], weil dort die UEBERSETZUNG einzelner Ereignisse
+//! wohnt (welches winit-Ereignis welchen Frame ergibt) und hier die Frage, an
+//! WELCHEN Bildschirm sie gehen. Dieselbe Trennung wie bei
+//! [`super::strom`] — und dieselbe Ursache: `mod.rs` war ueber die
+//! Groessen-Grenze gewachsen (`PLAN.md` §12.1).
+//!
+//! Als Kindmodul kommt das an die privaten Felder von [`super::Erfassung`],
+//! ohne dafuer Zugaenge zu oeffnen, die sonst niemand braucht.
+
+use super::{nachbarn, Bildlage, Erfassung, Nachbar};
+
+impl Erfassung {
     /// Wo dieses Fenster liegt und welche Fenster sonst noch erfassen.
     ///
     /// Vom Aufrufer VOR dem Ereignis gesetzt (`app::window_event`), weil nur
@@ -662,19 +689,13 @@ Und die Setz-Methode neben `zeigerfang()` (hinter Zeile 127):
         self.eigener_ursprung = ursprung;
         self.kandidaten = kandidaten;
     }
-```
 
-- [ ] **Step 4: Die Zielbestimmung und der Wechsel**
-
-Neben `zeiger_im_bild` einfügen (hinter Zeile 242):
-
-```rust
     /// Welcher Platz ist gemeint, und wo in dessen Bild?
     ///
     /// Ohne bekannte eigene Fensterlage bleibt es beim eigenen Bild — dieselbe
     /// Antwort wie vor der Nachbarschaft, damit Wayland und die Tests
     /// unveraendert laufen.
-    fn ziel_bestimmen(
+    pub(super) fn ziel_bestimmen(
         &self,
         lage: Option<Bildlage>,
         x: f64,
@@ -692,7 +713,7 @@ Neben `zeiger_im_bild` einfügen (hinter Zeile 242):
     /// Buendel heraus, bevor der neue gilt: die Huelle traegt genau einen Platz,
     /// und die Reihenfolge ist bedeutungstragend (ein Klick, der seine
     /// Positionierung ueberholt, landet am falschen Ort).
-    fn ziel_wechseln(&mut self, neu: u32) {
+    pub(super) fn ziel_wechseln(&mut self, neu: u32) {
         if neu == self.ziel_slot {
             return;
         }
@@ -701,7 +722,10 @@ Neben `zeiger_im_bild` einfügen (hinter Zeile 242):
         }
         self.ziel_slot = neu;
     }
+}
 ```
+
+Damit ist `ziel.rs` vollständig — die schliessende Klammer oben schliesst den `impl Erfassung`-Block, der bei `nachbarschaft_setzen` beginnt.
 
 - [ ] **Step 5: `zeigerposition` und `zeiger_im_bild` umstellen**
 
@@ -756,10 +780,10 @@ Erwartet: alle grün, inklusive der sechs neuen. Die alten Tests rufen `nachbars
 - [ ] **Step 7: Grössen-Policy prüfen**
 
 ```bash
-wc -l streaming/pulse-player/src/fernsteuerung/mod.rs
+wc -l streaming/pulse-player/src/fernsteuerung/*.rs
 ```
 
-Bleibt die Datei über 500 Zeilen, muss vor dem Commit etwas heraus (Vorschlag: `ziel_bestimmen`/`ziel_wechseln` samt Feldern in ein eigenes `ziel.rs`). Unter 500 ist es tragbar, unter 350 wäre es sauber.
+`mod.rs` stand vor dieser Aufgabe bei 450 Zeilen und darf die harte Grenze von 500 nicht reissen. Weil die drei neuen Methoden in `ziel.rs` liegen, sollte `mod.rs` nur um die zwei Felder und die Änderungen in `zeigerposition`/`zeiger_im_bild`/`CursorLeft` wachsen — grob ein Dutzend Zeilen. Steht es trotzdem über 500, muss vor dem Commit mehr heraus; dann ist `zeigerposition` samt `zeiger_im_bild` der nächste Kandidat für `ziel.rs`.
 
 - [ ] **Step 8: Commit**
 
