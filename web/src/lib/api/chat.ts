@@ -13,6 +13,17 @@ import type {
   ReactionUserList
 } from './types';
 
+/** Ein Treffer der DM-Nachrichten-Suche (`GET /dm-channels-search`).
+ *  Spiegelt die Route in `services/chat-gateway/src/dcc_chat_gateway/routes/dms.py`. */
+export type DMMessageSearchHit = {
+  message_id: string;
+  dm_channel_id: string;
+  other_user_id: string;
+  author_id: string;
+  content: string;
+  created_at: string;
+};
+
 /** Response of `GET /guilds/{id}/settings` (MANAGE_GUILD-gated). */
 export type GuildSettings = {
   handle: string | null;
@@ -472,6 +483,15 @@ export const chatApi = {
   },
   getDMChannel(dmChannelId: string): Promise<DMChannel> {
     return request<DMChannel>(`/dm-channels/${dmChannelId}`, {}, cloudRoute());
+  },
+  /** Ein Treffer der DM-Nachrichten-Suche (`GET /dm-channels-search`). */
+  searchDMMessages(q: string): Promise<DMMessageSearchHit[]> {
+    const params = new URLSearchParams({ q });
+    return request<DMMessageSearchHit[]>(
+      `/dm-channels-search?${params.toString()}`,
+      {},
+      cloudRoute()
+    );
   },
 
   // Invites
