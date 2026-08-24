@@ -38,16 +38,26 @@ fn entziffern(text: &str) -> Vec<u8> {
     out
 }
 
-fn rahmen_von(abgabe: Abgabe) -> Vec<Vec<u8>> {
+fn rahmen_von(abgabe: Eingabeabgabe) -> Vec<Vec<u8>> {
     match abgabe {
-        Abgabe::Jetzt(frames) => frames.iter().map(|f| entziffern(f)).collect(),
+        Eingabeabgabe::Jetzt { frames, .. } => frames.iter().map(|f| entziffern(f)).collect(),
         andere => panic!("Frames erwartet, bekam {andere:?}"),
     }
 }
 
-/// Alles herausholen, ohne auf den Bewegungstakt zu warten.
+/// Alles herausholen, ohne auf den Bewegungstakt zu warten. Die Buendel werden
+/// dabei zusammengelegt — wer die Plaetze auseinanderhalten will, nimmt
+/// [`alles_mit_platz`].
 fn alles(e: &mut Erfassung) -> Vec<Vec<u8>> {
-    e.raeumen().map_or_else(Vec::new, |f| f.iter().map(|s| entziffern(s)).collect())
+    e.raeumen().into_iter().flat_map(|(_, f)| f).map(|s| entziffern(&s)).collect()
+}
+
+/// Wie [`alles`], aber je Buendel mit dem Platz, unter dem es hinausginge.
+fn alles_mit_platz(e: &mut Erfassung) -> Vec<(u32, Vec<Vec<u8>>)> {
+    e.raeumen()
+        .into_iter()
+        .map(|(slot, f)| (slot, f.iter().map(|s| entziffern(s)).collect()))
+        .collect()
 }
 
 fn lage() -> Bildlage {
@@ -96,7 +106,10 @@ fn standard_ist_aus() {
     e.on_window_event(&zeiger_ereignis(100.0, 100.0), Some(lage()), false);
     e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), None, false);
     e.taste(0x1e, true);
-    assert_eq!(e.abholen(Instant::now()), Abgabe::Nichts, "ausgeschaltet kodiert nichts");
+    assert!(
+        matches!(e.abholen(Instant::now()), Eingabeabgabe::Nichts),
+        "ausgeschaltet kodiert nichts"
+    );
 }
 
 /// Der Hello-Frame MUSS der erste der Sitzung sein (Wire-Spec), und er traegt
@@ -135,7 +148,7 @@ fn wiederholtes_einschalten_beginnt_einen_neuen_strom() {
     assert_eq!(alles(&mut e), vec![vec![0x00, 0x02]], "ein zweites Hello, sonst nichts");
 
     e.ausschalten();
-    assert!(e.raeumen().is_none(), "W hat der Host beim Hello selbst freigegeben");
+    assert!(e.raeumen().is_empty(), "W hat der Host beim Hello selbst freigegeben");
 }
 
 /// Zweimal ausschalten reicht die Hoch-Ereignisse nicht zweimal nach.
@@ -147,7 +160,7 @@ fn wiederholtes_ausschalten_reicht_nichts_doppelt_nach() {
     e.ausschalten();
     assert_eq!(alles(&mut e).len(), 1);
     e.ausschalten();
-    assert!(e.raeumen().is_none());
+    assert!(e.raeumen().is_empty());
 }
 
 // ── Jeder Opcode einmal ─────────────────────────────────────────────────────
@@ -202,7 +215,7 @@ fn randwerte_der_normierung_am_ganzen_weg() {
 fn ohne_bild_keine_bewegung() {
     let mut e = eingeschaltet();
     e.on_window_event(&zeiger_ereignis(10.0, 10.0), None, false);
-    assert_eq!(e.abholen(Instant::now()), Abgabe::Nichts);
+    assert!(matches!(e.abholen(Instant::now()), Eingabeabgabe::Nichts));
 }
 
 /// Der Rand des Fensters gehoert nicht zum Bild und wird nicht gesendet.
@@ -211,7 +224,7 @@ fn rand_wird_nicht_gesendet() {
     let mut e = eingeschaltet();
     let breit = Bildlage::neu((2000, 1000), (1920, 1080), [0.0, 0.0, 1.0, 1.0]).expect("Lage");
     e.on_window_event(&zeiger_ereignis(5.0, 500.0), Some(breit), false);
-    assert_eq!(e.abholen(Instant::now()), Abgabe::Nichts);
+    assert!(matches!(e.abholen(Instant::now()), Eingabeabgabe::Nichts));
 }
 
 // ── „Auch Knopf und Rad gehoeren ins Bild" ──────────────────────────────────
@@ -229,7 +242,7 @@ fn klick_und_rad_auf_dem_rand_gehen_nicht_hinaus() {
 
     e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), Some(breit), false);
     e.on_window_event(&rad_ereignis(MouseScrollDelta::LineDelta(0.0, 3.0)), Some(breit), false);
-    assert!(e.raeumen().is_none(), "vom Rand geht weder Klick noch Rad hinaus");
+    assert!(e.raeumen().is_empty(), "vom Rand geht weder Klick noch Rad hinaus");
 
     // Ein Punkt im Bild derselben Lage geht dagegen durch.
     e.on_window_event(&zeiger_ereignis(1000.0, 500.0), Some(breit), false);
@@ -245,7 +258,7 @@ fn klick_auf_der_bedienleiste_geht_nicht_hinaus() {
     let mut e = eingeschaltet();
     e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), Some(lage()), true);
     e.on_window_event(&rad_ereignis(MouseScrollDelta::LineDelta(0.0, 3.0)), Some(lage()), true);
-    assert!(e.raeumen().is_none(), "der Lautstaerkeregler ist kein Klick am fernen Rechner");
+    assert!(e.raeumen().is_empty(), "der Lautstaerkeregler ist kein Klick am fernen Rechner");
 }
 
 /// **Die Kehrseite, und sie ist die wichtigere:** wer im Bild drueckt und
@@ -272,7 +285,7 @@ fn loslassen_ausserhalb_des_bildes_geht_trotzdem_hinaus() {
 fn loslassen_ohne_druck_wird_nicht_gesendet() {
     let mut e = eingeschaltet();
     e.on_window_event(&maus_ereignis(ElementState::Released, MouseButton::Left), Some(lage()), false);
-    assert!(e.raeumen().is_none());
+    assert!(e.raeumen().is_empty());
 }
 
 /// Verlaesst der Zeiger das Fenster, ist seine letzte Lage wertlos — ein
@@ -283,7 +296,7 @@ fn nach_cursor_left_ist_die_lage_unbekannt() {
     e.on_window_event(&WindowEvent::CursorLeft { device_id: DeviceId::dummy() }, None, false);
     e.on_window_event(&rad_ereignis(MouseScrollDelta::LineDelta(0.0, 3.0)), Some(lage()), false);
     e.on_window_event(&maus_ereignis(ElementState::Pressed, MouseButton::Left), Some(lage()), false);
-    assert!(e.raeumen().is_none(), "ohne bekannte Lage wird nicht geklickt");
+    assert!(e.raeumen().is_empty(), "ohne bekannte Lage wird nicht geklickt");
 }
 
 /// Bei gefangenem Zeiger ist die Frage gegenstandslos: der Zeiger steht still,
@@ -353,7 +366,7 @@ fn relative_bruchteile_gehen_nicht_verloren() {
     for _ in 0..2 {
         e.zeigerbewegung(0.4, -0.4);
     }
-    assert!(e.raeumen().is_none(), "0,8 Punkte sind noch kein Punkt");
+    assert!(e.raeumen().is_empty(), "0,8 Punkte sind noch kein Punkt");
     e.zeigerbewegung(0.4, -0.4);
     let frames = alles(&mut e);
     assert_eq!(frames.len(), 1, "der dritte Bruchteil fuellt den Punkt");
@@ -382,7 +395,7 @@ fn der_bewegungsrest_ueberlebt_den_stromwechsel_nicht() {
     e.einschalten(0, true, Some(SITZUNG));
     let _ = alles(&mut e);
     e.zeigerbewegung(0.2, 0.2);
-    assert!(e.raeumen().is_none(), "0,9 aus dem alten Strom zaehlt nicht mit");
+    assert!(e.raeumen().is_empty(), "0,9 aus dem alten Strom zaehlt nicht mit");
 }
 
 /// Der Kern der Flutkontrolle: staut sich die Abgabe, fallen **Bewegungen** —
@@ -429,11 +442,11 @@ fn bewegungen_warten_auf_den_takt_tasten_nicht() {
     let mut e = eingeschaltet();
     let t0 = Instant::now();
     e.on_window_event(&zeiger_ereignis(100.0, 100.0), Some(lage()), false);
-    assert!(matches!(e.abholen(t0), Abgabe::Jetzt(_)), "die erste Abgabe darf sofort");
+    assert!(matches!(e.abholen(t0), Eingabeabgabe::Jetzt { .. }), "die erste Abgabe darf sofort");
 
     e.on_window_event(&zeiger_ereignis(200.0, 100.0), Some(lage()), false);
     match e.abholen(t0) {
-        Abgabe::Spaeter(termin) => assert_eq!(termin, t0 + BEWEGUNGSTAKT),
+        Eingabeabgabe::Spaeter(termin) => assert_eq!(termin, t0 + BEWEGUNGSTAKT),
         andere => panic!("Bewegung muss warten, bekam {andere:?}"),
     }
     // Eine Taste daneben hebt die Wartezeit auf.
@@ -443,14 +456,14 @@ fn bewegungen_warten_auf_den_takt_tasten_nicht() {
 
     // Nach dem Takt darf die Bewegung wieder.
     e.on_window_event(&zeiger_ereignis(300.0, 100.0), Some(lage()), false);
-    assert!(matches!(e.abholen(t0 + BEWEGUNGSTAKT), Abgabe::Jetzt(_)));
+    assert!(matches!(e.abholen(t0 + BEWEGUNGSTAKT), Eingabeabgabe::Jetzt { .. }));
 }
 
 #[test]
 fn leere_warteschlange_meldet_nichts() {
     let mut e = eingeschaltet();
-    assert_eq!(e.abholen(Instant::now()), Abgabe::Nichts);
-    assert!(e.raeumen().is_none());
+    assert!(matches!(e.abholen(Instant::now()), Eingabeabgabe::Nichts));
+    assert!(e.raeumen().is_empty());
 }
 
 // ── Alles loslassen ─────────────────────────────────────────────────────────
@@ -486,7 +499,7 @@ fn losgelassenes_wird_nicht_nachgereicht() {
     e.on_window_event(&maus_ereignis(ElementState::Released, MouseButton::Right), Some(lage()), false);
     let _ = alles(&mut e);
     e.ausschalten();
-    assert!(e.raeumen().is_none(), "nichts mehr nachzureichen");
+    assert!(e.raeumen().is_empty(), "nichts mehr nachzureichen");
 }
 
 /// Fokus weg heisst: das Hoch-Ereignis kommt nie an. Also selbst nachreichen —
@@ -548,7 +561,7 @@ fn verlorener_zeigerfang_schaltet_auf_absolute_bewegungen_zurueck() {
     e.einschalten(0, true, Some(SITZUNG));
     let _ = alles(&mut e);
     e.on_window_event(&zeiger_ereignis(960.0, 540.0), Some(lage()), false);
-    assert!(e.raeumen().is_none(), "gefangen: die Fensterposition sagt nichts");
+    assert!(e.raeumen().is_empty(), "gefangen: die Fensterposition sagt nichts");
 
     e.zeigerfang_nachfuehren(false); // Fokus weg, Griff aufgeloest
     assert!(!e.zeigerfang());
@@ -558,7 +571,7 @@ fn verlorener_zeigerfang_schaltet_auf_absolute_bewegungen_zurueck() {
     e.zeigerfang_nachfuehren(true); // Fokus zurueck, neu gefangen
     assert!(e.zeigerfang());
     e.on_window_event(&zeiger_ereignis(100.0, 100.0), Some(lage()), false);
-    assert!(e.raeumen().is_none());
+    assert!(e.raeumen().is_empty());
     e.zeigerbewegung(4.0, 0.0);
     assert_eq!(alles(&mut e)[0][0], 0x02, "und wieder die relative");
 }
@@ -582,7 +595,7 @@ fn tasten_ohne_abbildung_werden_gezaehlt_statt_zu_verschwinden() {
     e.taste_von_code(KeyCode::F13, true);
     e.taste_von_code(KeyCode::F13, false);
     e.taste_von_code(KeyCode::MediaPlayPause, true);
-    assert!(e.raeumen().is_none(), "geraten wird weiterhin nicht");
+    assert!(e.raeumen().is_empty(), "geraten wird weiterhin nicht");
     assert_eq!(e.unbekannte_tasten(), 3);
 
     // Was abgebildet ist, geht davon unberuehrt hinaus.
@@ -636,7 +649,7 @@ fn teilrasten_sammeln_sich_ueber_ereignisse() {
     for _ in 0..3 {
         e.on_window_event(&stups, Some(lage()), false);
     }
-    assert!(e.raeumen().is_none(), "drei Drittel sind noch keine ganze Raste");
+    assert!(e.raeumen().is_empty(), "drei Drittel sind noch keine ganze Raste");
     e.on_window_event(&stups, Some(lage()), false);
     assert_eq!(alles(&mut e), vec![vec![0x04, 0x78, 0x00, 0x00, 0x00]], "jetzt eine Raste");
 
@@ -658,14 +671,14 @@ fn teilrasten_sammeln_sich_ueber_ereignisse() {
 fn der_radrest_ueberlebt_den_stromwechsel_nicht() {
     let mut e = eingeschaltet();
     e.on_window_event(&rad_ereignis(MouseScrollDelta::LineDelta(0.0, 0.9)), Some(lage()), false);
-    assert!(e.raeumen().is_none());
+    assert!(e.raeumen().is_empty());
     e.einschalten(0, false, Some(SITZUNG)); // neuer Strom
     // Der neue Strom weiss noch nicht, wo der Zeiger steht — erst damit ist das
     // Rad ueberhaupt wieder im Bild.
     e.on_window_event(&zeiger_ereignis(960.0, 540.0), Some(lage()), false);
     let _ = alles(&mut e);
     e.on_window_event(&rad_ereignis(MouseScrollDelta::LineDelta(0.0, 0.2)), Some(lage()), false);
-    assert!(e.raeumen().is_none(), "0,9 aus dem alten Strom zaehlt nicht mit");
+    assert!(e.raeumen().is_empty(), "0,9 aus dem alten Strom zaehlt nicht mit");
 }
 
 /// Ein Rad-Ereignis ohne Bewegung erzeugt keinen Frame.
@@ -673,7 +686,7 @@ fn der_radrest_ueberlebt_den_stromwechsel_nicht() {
 fn rad_ohne_bewegung_erzeugt_nichts() {
     let mut e = eingeschaltet();
     e.on_window_event(&rad_ereignis(MouseScrollDelta::LineDelta(0.0, 0.0)), Some(lage()), false);
-    assert_eq!(e.abholen(Instant::now()), Abgabe::Nichts);
+    assert!(matches!(e.abholen(Instant::now()), Eingabeabgabe::Nichts));
 }
 
 #[test]
@@ -877,4 +890,15 @@ fn eine_knopfflut_deckelt_die_warteschlange() {
     let frames = alles(&mut e);
     assert!(frames.len() <= MAX_GESAMT + 1, "{}", frames.len());
     assert!(e.notbremsen() >= 1);
+}
+
+/// Solange niemand umzielt, traegt die Abgabe den eingeschalteten Platz.
+#[test]
+fn abgabe_traegt_den_eigenen_platz() {
+    let mut e = Erfassung::neu();
+    e.einschalten(3, false, Some(SITZUNG));
+    let batches = e.raeumen();
+    assert_eq!(batches.len(), 1, "das Hello sollte in einem Buendel stehen");
+    assert_eq!(batches[0].0, 3, "Platz der Abgabe");
+    assert_eq!(e.ziel_slot(), 3);
 }
