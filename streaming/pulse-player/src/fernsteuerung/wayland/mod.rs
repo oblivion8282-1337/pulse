@@ -119,12 +119,101 @@ impl DruckNummer {
     }
 }
 
+/// Ob der laufende Zug (aus Sicht des Datengeraets) zuende ist — und ob das
+/// schon SICHER ist.
+///
+/// **Getrennt von [`zug::ZugLage`], weil deren Momentaufnahme
+/// (`aktuell() == None`) das Ende NICHT zuverlaessig anzeigt** — Review-
+/// Befunde C2/I3 vom 2026-08-24: ein ganzer Zug kann VOLLSTAENDIG zwischen
+/// zwei Abtastungen ablaufen (`Enter -> Motion -> Drop -> Leave` in einem
+/// einzigen `dispatch_pending`, wenn Druck und Loslassen sehr schnell
+/// aufeinander folgen — dann war `ZugLage::aktuell()` nie von aussen als
+/// `Some` sichtbar, und ein Ende-Erkenner, der darauf wartet, sieht es nie).
+/// Und ein Flaechenwechsel innerhalb DESSELBEN Zugs raeumt `ZugLage` per
+/// `Leave` kurz VOR dem naechsten `Enter` derselben Zugsitzung (gemessene
+/// Abfolge `Enter(A) -> Leave -> Enter(B)`, s. [`zug`]-Modulkopf) — eine
+/// Abtastung genau in dieser Luecke saehe ebenfalls wie ein Ende aus, waere
+/// aber keins.
+///
+/// `Zugende` ist deshalb EREIGNISGETRIEBEN statt abgetastet: nur `Drop`/
+/// `Enter`/`Leave` bewegen ihn voran, [`Gastverbindung::zug_zuende`]
+/// konsumiert das Ergebnis genau einmal.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum Zugende {
+    #[default]
+    Keins,
+    /// Ein `Leave` kam, OHNE dass zuvor in dieser Zugsitzung ein `Drop` fiel
+    /// — koennte ein Flaechenwechsel sein (dann kommt gleich ein `Enter` und
+    /// hebt das wieder auf, s. [`Zugende::betreten`]) oder ein Abbruch ohne
+    /// Ablage. Bleibt es einen GANZEN `nachfassen`-Umlauf lang unwiderlegt,
+    /// gilt es als [`Zugende::Beendet`] (s. [`Gastverbindung::nachfassen`]).
+    Unklar,
+    /// Definitiv vorbei: `Drop` kam (sofort, ohne auf das abschliessende
+    /// `Leave` zu warten — ein `Drop` ohne vorheriges Loesen der Maustaste
+    /// gibt es im Protokoll nicht), oder [`Zugende::Unklar`] hat einen
+    /// Umlauf ueberlebt.
+    Beendet,
+}
+
+impl Zugende {
+    /// `wl_data_device::Event::Enter` — widerlegt ein vorheriges `Unklar`
+    /// (Flaechenwechsel bestaetigt: die Zugsitzung geht weiter). Ein bereits
+    /// definitives `Beendet` bleibt dagegen unangetastet: das kaeme nur vor,
+    /// wenn eine NEUE Zugsitzung beginnt, bevor [`Gastverbindung::zug_zuende`]
+    /// das alte Ende abgeholt hat — und dann darf dieses alte Ende nicht
+    /// verlorengehen, sonst bliebe ein Mausknopf am fernen Rechner haengen.
+    fn betreten(&mut self) {
+        if *self == Self::Unklar {
+            *self = Self::Keins;
+        }
+    }
+
+    /// `Drop` — sofort und unbedingt definitiv (s. Typ-Doku).
+    fn fallengelassen(&mut self) {
+        *self = Self::Beendet;
+    }
+
+    /// `Leave` — nur „unklar", wenn nicht schon `Drop` das Ende gesetzt hat.
+    /// Sonst wuerde das abschliessende `Leave` NACH einem `Drop` das
+    /// definitive Ende faelschlich wieder auf „unklar" zuruecksetzen.
+    fn verlassen(&mut self) {
+        if *self != Self::Beendet {
+            *self = Self::Unklar;
+        }
+    }
+
+    /// Nach einem vollen `dispatch_pending`-Umlauf, der mit `Unklar` BEGANN:
+    /// ist es immer noch `Unklar` (kein `Enter` kam dazwischen), gilt es
+    /// jetzt als sicher beendet. Aufgerufen aus
+    /// [`Gastverbindung::nachfassen`], nicht aus dem Dispatch selbst — dort
+    /// gibt es keinen Begriff von „ein Umlauf ist vorbei".
+    fn umlauf_ohne_widerspruch(&mut self, war_unklar_davor: bool) {
+        if war_unklar_davor && *self == Self::Unklar {
+            *self = Self::Beendet;
+        }
+    }
+
+    /// Konsumierend: `true` GENAU EINMAL, wenn [`Self::Beendet`] gilt —
+    /// danach wieder [`Self::Keins`]. Ohne das Konsumieren wuerde derselbe
+    /// Ende-Frame bei jedem Tick erneut gemeldet.
+    fn konsumiere_beendet(&mut self) -> bool {
+        if *self == Self::Beendet {
+            *self = Self::Keins;
+            true
+        } else {
+            false
+        }
+    }
+}
+
 /// Der Dispatch-Zustand. Anders als in [`crate::tastensperre::wayland`], wo
-/// `Zustand` leer ist (s. Modulkopf, „Was anders ist"), traegt er hier drei
+/// `Zustand` leer ist (s. Modulkopf, „Was anders ist"), traegt er hier vier
 /// Daten:
 /// - [`DruckNummer`] — die zuletzt gedrueckte Seriennummer.
 /// - [`zug::ZugLage`] — welche eigene Flaeche der Zeiger waehrend eines
 ///   laufenden Zugs beruehrt und wo darin (s. [`zug`]).
+/// - [`Zugende`] — EREIGNISGETRIEBEN, ob/wie sicher der Zug zuende ist (s.
+///   dortige Typ-Doku, Review-Befunde C2/I3).
 /// - `angebot` — das `wl_data_offer`, das ein `Enter` gerade eingefuehrt hat
 ///   (nur bei einem FREMDEN Zug belegt, s. dortiger Match-Arm; `Selection`
 ///   — die Zwischenablage — wird nicht ausgewertet und befuellt dieses Feld
@@ -134,6 +223,7 @@ impl DruckNummer {
 struct Zustand {
     druck: DruckNummer,
     zug: zug::ZugLage,
+    ende: Zugende,
     angebot: Option<wl_data_offer::WlDataOffer>,
 }
 
@@ -188,12 +278,14 @@ impl Dispatch<wl_pointer::WlPointer, ()> for Zustand {
 
 impl Dispatch<wl_data_device::WlDataDevice, ()> for Zustand {
     /// `Enter`/`Motion` speisen [`zug::ZugLage`] (welche eigene Flaeche, wo
-    /// darin — s. [`zug`] fuer die Einheit der Koordinaten). `Drop`/`Leave`
-    /// entwerten die gemerkte Druck-Nummer (s. Modulkopf, „Die Nummer gilt
-    /// nicht ueber einen Zug hinweg") UND raeumen die Zug-Lage; `Leave`
-    /// zerstoert zusaetzlich ein noch offenes `wl_data_offer` (s. Feld-Doc an
-    /// [`Zustand`]). `Selection`/`DataOffer` bleiben unausgewertet — die
-    /// Zwischenablage ist nicht Sache dieses Moduls.
+    /// darin — s. [`zug`] fuer die Einheit der Koordinaten) UND widerlegen ein
+    /// vorheriges `Unklar` in [`Zugende`]. `Drop`/`Leave` entwerten die
+    /// gemerkte Druck-Nummer (s. Modulkopf, „Die Nummer gilt nicht ueber
+    /// einen Zug hinweg"), raeumen die Zug-Lage UND bewegen [`Zugende`] voran
+    /// (`Drop` sofort definitiv, `Leave` nur „unklar" — s. dortige Typ-Doku);
+    /// `Leave` zerstoert zusaetzlich ein noch offenes `wl_data_offer` (s.
+    /// Feld-Doc an [`Zustand`]). `Selection`/`DataOffer` bleiben
+    /// unausgewertet — die Zwischenablage ist nicht Sache dieses Moduls.
     fn event(
         zustand: &mut Self,
         _: &wl_data_device::WlDataDevice,
@@ -205,6 +297,7 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for Zustand {
         match ereignis {
             wl_data_device::Event::Enter { surface, x, y, id, .. } => {
                 zustand.zug.betreten(surface.id(), x, y);
+                zustand.ende.betreten();
                 zustand.angebot = id;
             }
             wl_data_device::Event::Motion { x, y, .. } => {
@@ -213,10 +306,12 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for Zustand {
             wl_data_device::Event::Drop => {
                 zustand.druck.entwerten();
                 zustand.zug.verlassen();
+                zustand.ende.fallengelassen();
             }
             wl_data_device::Event::Leave => {
                 zustand.druck.entwerten();
                 zustand.zug.verlassen();
+                zustand.ende.verlassen();
                 // Protokoll (`wl_data_device::leave`): "The client must
                 // destroy the wl_data_offer introduced at enter time at this
                 // point." Fuer UNSEREN eigenen Zug (`source=None`) war `id`
@@ -287,14 +382,34 @@ impl Gastverbindung {
     /// hineinlegt und weil sonst kein `button`- oder `Drop`/`Leave`-Ereignis
     /// je den `Zustand` erreicht. Blockiert nicht: gelesen wird der Socket
     /// von winit, hier wird nur abgeholt, was schon dort liegt.
+    ///
+    /// **Traegt auch die Ein-Umlauf-Kulanz fuer [`Zugende::Unklar`]** (Review
+    /// C2/I3): `war_unklar` haelt fest, ob der Zustand VOR diesem Dispatch
+    /// schon „unklar" war; blieb er es auch NACH diesem Dispatch (kein
+    /// `Enter` widerlegte es dazwischen), gilt er jetzt als sicher beendet.
+    /// Das gibt einem `Enter`, das den Flaechenwechsel bestaetigt, einen
+    /// vollen `nachfassen`-Umlauf Zeit, bevor ein blosses `Leave` als Ende
+    /// gilt — **kein Beweis, dass das immer reicht** (s. Bericht), aber
+    /// deutlich enger als eine reine Momentaufnahme.
     pub fn nachfassen(&mut self) {
+        let war_unklar = self.zustand.ende == Zugende::Unklar;
         let _ = self.queue.dispatch_pending(&mut self.zustand);
+        self.zustand.ende.umlauf_ohne_widerspruch(war_unklar);
     }
 
     /// Die Seriennummer des letzten Drucks — `None`, solange keiner
     /// stattfand oder die letzte Zugsitzung schon beendet ist (s. Modulkopf).
     pub fn letzte_druck_nummer(&self) -> Option<u32> {
         self.zustand.druck.aktuell()
+    }
+
+    /// Ist der laufende Zug soeben (durch `Drop`, oder durch ein unwiderlegt
+    /// gebliebenes `Leave`) endgueltig zuende? EREIGNISGETRIEBEN, nicht aus
+    /// einer Momentaufnahme von [`Self::zeiger_ueber`] (s. [`Zugende`]-Doku,
+    /// Review-Befunde C2/I3) — **konsumierend**: ein zweiter Aufruf ohne ein
+    /// neues Ende liefert wieder `false`.
+    pub fn zug_zuende(&mut self) -> bool {
+        self.zustand.ende.konsumiere_beendet()
     }
 }
 
@@ -365,7 +480,7 @@ pub fn aufbauen(window: &Window) -> Result<Gastverbindung, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::DruckNummer;
+    use super::{DruckNummer, Zugende};
 
     #[test]
     fn frische_nummer_ist_leer() {
@@ -418,5 +533,124 @@ mod tests {
         nummer.entwerten();
         nummer.druecken(9);
         assert_eq!(nummer.aktuell(), Some(9));
+    }
+
+    // ── Zugende (Review-Befunde C2/I3) ──────────────────────────────────
+
+    #[test]
+    fn frisch_ist_keins() {
+        assert_eq!(Zugende::default(), Zugende::Keins);
+    }
+
+    #[test]
+    fn drop_ist_sofort_definitiv() {
+        let mut ende = Zugende::default();
+        ende.fallengelassen();
+        assert_eq!(ende, Zugende::Beendet);
+    }
+
+    #[test]
+    fn leave_ohne_vorheriges_drop_ist_nur_unklar() {
+        let mut ende = Zugende::default();
+        ende.verlassen();
+        assert_eq!(ende, Zugende::Unklar, "noch nicht definitiv — koennte ein Flaechenwechsel sein");
+    }
+
+    /// **Der Flaechenwechsel-Fall (I3):** `Leave(A)` gefolgt von `Enter(B)`
+    /// IM SELBEN Zug widerlegt das `Unklar` wieder — kein Ende.
+    #[test]
+    fn enter_widerlegt_ein_unklares_leave() {
+        let mut ende = Zugende::default();
+        ende.verlassen();
+        ende.betreten();
+        assert_eq!(ende, Zugende::Keins, "der Flaechenwechsel wurde bestaetigt, kein Ende");
+    }
+
+    /// Ein bereits definitives `Beendet` (durch `Drop`) darf ein danach
+    /// eintreffendes `Enter` NICHT verlieren — sonst verschluckt eine neue
+    /// Zugsitzung, die beginnt, bevor `zug_zuende()` das alte Ende abgeholt
+    /// hat, genau dieses Ende.
+    #[test]
+    fn enter_laesst_ein_bereits_definitives_ende_unangetastet() {
+        let mut ende = Zugende::default();
+        ende.fallengelassen();
+        ende.betreten();
+        assert_eq!(ende, Zugende::Beendet);
+    }
+
+    /// Das abschliessende `Leave` NACH einem `Drop` (gemessene Abfolge
+    /// `Drop -> Leave`, s. `zug`-Modulkopf) darf das definitive Ende nicht
+    /// wieder auf „unklar" zuruecksetzen.
+    #[test]
+    fn leave_nach_drop_bleibt_beendet() {
+        let mut ende = Zugende::default();
+        ende.fallengelassen();
+        ende.verlassen();
+        assert_eq!(ende, Zugende::Beendet);
+    }
+
+    /// **Der C2-Kernfall:** ein ganzer Zug (`Enter -> Motion -> Drop ->
+    /// Leave`) lief vollstaendig ab, ohne dass je eine Abtastung dazwischen
+    /// kam — `Zugende` ist trotzdem korrekt `Beendet`, weil `Drop` sofort
+    /// definitiv ist, unabhaengig von jeder Momentaufnahme.
+    #[test]
+    fn ein_ganzer_schneller_zug_ergibt_beendet_ohne_zwischenabtastung() {
+        let mut ende = Zugende::default();
+        ende.betreten(); // Enter
+        // Motion beruehrt `Zugende` nicht.
+        ende.fallengelassen(); // Drop
+        ende.verlassen(); // Leave
+        assert_eq!(ende, Zugende::Beendet);
+    }
+
+    #[test]
+    fn konsumiere_beendet_liefert_einmal_true_und_dann_wieder_false() {
+        let mut ende = Zugende::default();
+        ende.fallengelassen();
+        assert!(ende.konsumiere_beendet());
+        assert!(!ende.konsumiere_beendet(), "ein zweiter Aufruf ohne neues Ende liefert false");
+        assert_eq!(ende, Zugende::Keins);
+    }
+
+    #[test]
+    fn konsumiere_beendet_ohne_ende_liefert_false() {
+        assert!(!Zugende::default().konsumiere_beendet());
+        let mut unklar = Zugende::default();
+        unklar.verlassen();
+        assert!(!unklar.konsumiere_beendet(), "unklar ist noch nicht beendet");
+    }
+
+    /// **Die Ein-Umlauf-Kulanz, isoliert getestet:** blieb `Unklar` ueber
+    /// einen GANZEN Umlauf hinweg unwiderlegt (kein `Enter` dazwischen),
+    /// wird es beendet.
+    #[test]
+    fn unklar_wird_nach_einem_umlauf_ohne_widerspruch_beendet() {
+        let mut ende = Zugende::default();
+        ende.verlassen(); // Leave, kein vorheriges Drop -> Unklar
+        ende.umlauf_ohne_widerspruch(true);
+        assert_eq!(ende, Zugende::Beendet);
+    }
+
+    /// Widerlegt ein `Enter` das `Unklar` INNERHALB desselben Umlaufs (bevor
+    /// `umlauf_ohne_widerspruch` geprueft wird), bleibt es beim
+    /// Flaechenwechsel — keine faelschliche Beendigung.
+    #[test]
+    fn ein_enter_im_selben_umlauf_verhindert_die_beendigung() {
+        let mut ende = Zugende::default();
+        ende.verlassen(); // Leave -> Unklar
+        ende.betreten(); // Enter im selben Umlauf -> Keins
+        ende.umlauf_ohne_widerspruch(true);
+        assert_eq!(ende, Zugende::Keins, "das Enter hat widersprochen, kein Ende");
+    }
+
+    /// `war_unklar_davor = false` darf ein Unklar, das ERST WAEHREND dieses
+    /// Umlaufs entstand, nicht sofort beenden — es braucht seinen EIGENEN
+    /// vollen Umlauf unwiderlegt, nicht nur irgendeinen.
+    #[test]
+    fn ein_frisch_entstandenes_unklar_braucht_einen_eigenen_umlauf() {
+        let mut ende = Zugende::default();
+        ende.verlassen(); // Unklar, entstand JETZT
+        ende.umlauf_ohne_widerspruch(false);
+        assert_eq!(ende, Zugende::Unklar, "noch keinen vollen Umlauf ueberlebt");
     }
 }

@@ -1453,6 +1453,12 @@ impl ApplicationHandler<UserEvent> for App {
             self.tastensperre.freigeben(&mut session.tastensperre);
         }
         self.tastensperre.schliessen();
+        // Review C3: derselbe geordnete Abbau wie bei `tastensperre` — ohne
+        // dieses Rufziel wuerden die Wayland-Objekte des Zugs (Verbindung,
+        // Warteschlange, Proxys) beim Fallen von `self` ihre Zerstoerung auf
+        // einer Anzeige versuchen, die winits `run_app` bereits freigegeben
+        // hat (s. `wayland_zug`-Modulkopf).
+        self.wayland_zug.schliessen();
     }
 
     /// Weckruf fuer den Ausgabe-Takt.
@@ -1694,11 +1700,23 @@ impl ApplicationHandler<UserEvent> for App {
         // dem eben `Erfassung::knopf(..., true)` lief (s. `on_window_event`
         // oben, MouseInput-Zweig) — NACH der Ausleihe von `session` oben
         // (die braucht `wayland_zug_beginnen` selbst wieder, ueber `&mut
-        // self`). Nur bei einem echten Druck und nur, wenn diese Sitzung
-        // ferngesteuert erfasst; auf Nicht-Linux und auf X11 ein Nichtstun
-        // (s. `wayland_zug`-Modulkopf).
+        // self`). Nur bei einem echten Druck.
+        //
+        // **`irgendein_knopf_unten()`, NICHT `aktiv()`** (Review I2): `aktiv()`
+        // sagt nur, ob die Erfassung eingeschaltet ist — nicht, ob GENAU
+        // DIESER Druck bei ihr ankam. `on_window_event`s MouseInput-Zweig
+        // bricht vor `self.knopf(...)` ab, wenn die Bedienleiste den Zeiger
+        // greift oder er ausserhalb des Bildes steht; mit `aktiv()` allein
+        // haette ein Druck auf den Griff selbst oder auf den
+        // Lautstaerkeregler trotzdem einen Zug angestossen — `start_drag`
+        // haette dem GANZEN Fenster den Zeigerfokus fuer die Zug-Dauer
+        // entzogen, und egui haette danach weder Bewegung noch Loslassen
+        // gesehen: der Griff waere nicht mehr verschiebbar, der Regler nicht
+        // mehr ziehbar gewesen, genau waehrend einer laufenden
+        // Fernsteuerung. Auf Nicht-Linux und auf X11 ein Nichtstun (s.
+        // `wayland_zug`-Modulkopf).
         if matches!(&event, WindowEvent::MouseInput { state: winit::event::ElementState::Pressed, .. })
-            && self.sessions.get(&id).is_some_and(|s| s.eingabe.aktiv())
+            && self.sessions.get(&id).is_some_and(|s| s.eingabe.irgendein_knopf_unten())
         {
             self.wayland_zug_beginnen(id);
         }

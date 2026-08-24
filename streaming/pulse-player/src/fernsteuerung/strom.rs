@@ -102,6 +102,11 @@ impl Erfassung {
         // Wie in `strom_beginnen`: kein Merker darf die Erfassung ueberleben,
         // sonst schluckt der naechste Lauf ein Loslassen, das ihm nicht gehoert.
         self.menue_geschluckt = false;
+        // Review M1: `wayland_ziel` ebenso — bleibt es stehen und wird die
+        // Erfassung DANACH ohne einen neuen `app::wayland_zug`-Umlauf wieder
+        // eingeschaltet, zielte die erste Bewegung noch auf den Platz/die
+        // Bildlage eines laengst beendeten Zugs, statt auf den eigenen.
+        self.wayland_ziel = None;
     }
 
     /// Einen neuen Eingabestrom beginnen: Hello nach VORN, Zustand auf null.
@@ -180,6 +185,12 @@ impl Erfassung {
         // waehrend sein Druck hinausging. Beim Gesteuerten liefe die
         // Tastenwiederholung dann bis zum Ende der Erfassung weiter.
         self.menue_geschluckt = false;
+        // Review M1: `wayland_ziel` ebenso zuruecksetzen — ein neuer Strom
+        // (Ziel-, Sitzungswechsel oder Notbremse) beginnt immer beim eigenen
+        // Bildschirm (s. `ziel_slot` zwei Zeilen oben); ein liegengebliebenes
+        // `wayland_ziel` uebersteuerte das fuer die naechste Bewegung, bis
+        // `app::wayland_zug` es selbst wieder setzt oder loescht.
+        self.wayland_ziel = None;
     }
 
     /// Den Zeigerfang nachfuehren, ohne den Strom anzufassen.
