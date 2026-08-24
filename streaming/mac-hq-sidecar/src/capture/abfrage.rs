@@ -17,7 +17,7 @@ use anyhow::{Result, anyhow};
 use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::Message;
-use objc2_core_graphics::CGMainDisplayID;
+use objc2_core_graphics::{CGDisplayBounds, CGMainDisplayID};
 use objc2_foundation::NSError;
 use objc2_screen_capture_kit::{
     SCDisplay, SCRunningApplication, SCShareableContent, SCWindow,
@@ -74,6 +74,11 @@ pub fn list_displays() -> Result<Vec<DisplayInfo>> {
         let display_id = unsafe { display.displayID() };
         let width = unsafe { display.width() } as i64;
         let height = unsafe { display.height() } as i64;
+        // Top-left corner in screen coordinates. Same source `remote_input/
+        // ziel.rs::rechteck` already uses for the click-mapping rectangle.
+        let bounds = CGDisplayBounds(display_id);
+        let x = bounds.origin.x as i64;
+        let y = bounds.origin.y as i64;
         out.push(DisplayInfo {
             index: i + 1,
             display_id,
@@ -83,6 +88,8 @@ pub fn list_displays() -> Result<Vec<DisplayInfo>> {
             height,
             // TODO(stage: polish): CGDisplayCopyDisplayMode → refresh rate.
             refresh_hz: 0,
+            x,
+            y,
         });
     }
     Ok(out)

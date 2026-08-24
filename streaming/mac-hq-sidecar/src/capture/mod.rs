@@ -89,6 +89,13 @@ pub struct DisplayInfo {
     pub width: i64,
     pub height: i64,
     pub refresh_hz: i64,
+    /// Top-left corner in screen coordinates (`CGDisplayBounds`), for the
+    /// screen map in the player. `CGDisplayBounds` cannot fail (unlike
+    /// Windows' `GetMonitorInfoW`) — an unresolvable display id yields a zero
+    /// rect, so `x`/`y` come out `0`/`0` on their own, same convention as the
+    /// explicit Windows fallback.
+    pub x: i64,
+    pub y: i64,
 }
 
 /// One capturable on-screen window, for the app/window source picker.
