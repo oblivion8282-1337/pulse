@@ -1,7 +1,6 @@
-//! Die Wayland-Gastverbindung fuer den Zug ueber die Fenstergrenze —
-//! **von niemandem aufgerufen** (s. `#![allow(dead_code)]` unten und die
-//! Modulzeile in `fernsteuerung/mod.rs`: das Verdrahten in die eigentliche
-//! Ereignisschleife ist eine spaetere Aufgabe). Waylands Datengeraet
+//! Die Wayland-Gastverbindung fuer den Zug ueber die Fenstergrenze — verdrahtet
+//! in `app::wayland_zug` (`aufbauen`/`zug_beginnen` beim Mausdruck,
+//! `nachfassen`/`zeiger_ueber` im Takt). Waylands Datengeraet
 //! beantwortet direkt, welches Fenster unter dem Zeiger liegt — auf einem
 //! Compositor gibt es dafuer keine abfragbaren Fensterlagen wie unter X11
 //! oder Windows. Was hier steht: die Verbindung, der Seat, ein eigener
@@ -77,12 +76,6 @@
 //! laufenden Compositor nicht ausfuehrbar). Geprueft ist nur [`DruckNummer`]
 //! selbst, die reine Zustandsfuehrung ohne jede Wayland-Abhaengigkeit (s.
 //! Tests unten).
-
-// Noch nicht verdrahtet: nichts im Rest des Crates ruft `aufbauen`,
-// `zug_beginnen` oder `zeiger_ueber` auf — das Einhaengen in die eigentliche
-// Ereignisschleife ist Sache einer spaeteren Aufgabe. Faellt weg, sobald
-// diese Aufgabe kommt.
-#![allow(dead_code)]
 
 mod zug;
 
@@ -258,8 +251,18 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for Zustand {
 /// Verbindung, Seats, der zweite Zeiger je Seat und das Datengeraet je Seat —
 /// alles, was der Zug ueber die Fenstergrenze auf Wayland braucht.
 /// `zug_beginnen`/`zeiger_ueber` (s. [`zug`]) sind die Methoden, die ihn
-/// tatsaechlich ausloesen bzw. auswerten; von aussen ruft sie noch niemand
-/// (s. Modulkopf).
+/// tatsaechlich ausloesen bzw. auswerten, verdrahtet in `app::wayland_zug`.
+///
+/// **`qh`/`manager`/`seats`/`zeiger` werden nach [`aufbauen`] nie wieder
+/// GELESEN** — der Compiler sieht das erst, seit dieses Modul ueberhaupt
+/// benutzt wird, und meldet es sonst als `dead_code`. Gehalten werden sie
+/// trotzdem: `seats`/`zeiger` sind die Bindungen, aus denen `datengeraete`
+/// entstand (dieselbe Rolle wie `seats` in
+/// `crate::tastensperre::wayland::Verbindung`), `qh` und `manager` gehoeren
+/// zur selben Verbindung und wuerden sonst am Ende von [`aufbauen`] gleich
+/// wieder fallen. Keins davon ist ein Aufraeum-Versehen, das nachgeholt
+/// werden muesste.
+#[allow(dead_code)]
 pub struct Gastverbindung {
     conn: Connection,
     queue: EventQueue<Zustand>,

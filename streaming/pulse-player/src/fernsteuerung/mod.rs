@@ -21,7 +21,7 @@ mod schlange;
 mod strom;
 mod tasten;
 #[cfg(target_os = "linux")]
-mod wayland;
+pub(crate) mod wayland;
 mod winit_abbild;
 mod ziel;
 
@@ -62,6 +62,11 @@ pub struct Erfassung {
     /// Alle erfassenden Player-Fenster derselben Fernsteuerungs-Sitzung, in der
     /// Reihenfolge, in der sie befragt werden (s. `nachbarn::vorrang`).
     kandidaten: Vec<Nachbar>,
+    /// Wayland: Platz und Bildlage des Fensters, ueber dem der Zeiger laut
+    /// Datengeraet gerade steht. `None` ohne laufenden Zug. Gesetzt/gelesen
+    /// nur in `ziel.rs` (s. dortige Doku an `wayland_ziel_setzen`/
+    /// `ziel_bestimmen`), dieselbe Arbeitsteilung wie `eigener_ursprung`.
+    wayland_ziel: Option<(u32, Bildlage)>,
     /// Zeiger gefangen? Dann werden relative Bewegungen gesendet statt
     /// absoluter. Es gibt dafuer keinen Protokollschalter: der Host behandelt
     /// beide Opcodes zustandslos.
@@ -136,6 +141,7 @@ impl Erfassung {
             ausstehend: Vec::new(),
             eigener_ursprung: None,
             kandidaten: Vec::new(),
+            wayland_ziel: None,
             zeigerfang: false,
             warteschlange: Schlange::default(),
             tasten_unten: BTreeSet::new(),
