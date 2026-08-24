@@ -246,10 +246,12 @@ pub use schlange::Abgabe;
 
 ```bash
 cd streaming/pulse-player
-FFMPEG_DIR=$PWD/ffmpeg-dist/n8.1-lgpl-shared cargo test --lib fernsteuerung::nachbarn
+FFMPEG_DIR=$PWD/ffmpeg-dist/n8.1-lgpl-shared cargo test --bins fernsteuerung::nachbarn
 ```
 
-Erwartet: 6 Tests, alle grün. (Auf macOS statt `FFMPEG_DIR`: `PKG_CONFIG_PATH=$HOME/src/ffmpeg-openssl/lib/pkgconfig`.)
+Erwartet: 7 Tests, alle grün. (Auf macOS statt `FFMPEG_DIR`: `PKG_CONFIG_PATH=$HOME/src/ffmpeg-openssl/lib/pkgconfig`.)
+
+**`--bins`, nicht `--lib`:** `pulse-player` ist ein Binary-Crate ohne Library-Target; `--lib` bricht mit „no library targets found" ab.
 
 Schlägt der Bau mit `'libavutil/avutil.h' file not found` fehl, fehlt die Umgebungsvariable — nicht FFmpeg.
 
@@ -311,7 +313,7 @@ fn abgabe_traegt_den_eigenen_platz() {
 
 ```bash
 cd streaming/pulse-player
-FFMPEG_DIR=$PWD/ffmpeg-dist/n8.1-lgpl-shared cargo test --lib fernsteuerung::tests::abgabe_traegt_den_eigenen_platz
+FFMPEG_DIR=$PWD/ffmpeg-dist/n8.1-lgpl-shared cargo test --bins fernsteuerung::tests::abgabe_traegt_den_eigenen_platz
 ```
 
 Erwartet: Übersetzungsfehler — `ziel_slot` gibt es nicht, und `raeumen()` liefert `Option<Vec<String>>` statt einer Liste von Bündeln.
@@ -482,7 +484,7 @@ fn alles_mit_platz(e: &mut Erfassung) -> Vec<(u32, Vec<Vec<u8>>)> {
 
 ```bash
 cd streaming/pulse-player
-FFMPEG_DIR=$PWD/ffmpeg-dist/n8.1-lgpl-shared cargo test --lib fernsteuerung
+FFMPEG_DIR=$PWD/ffmpeg-dist/n8.1-lgpl-shared cargo test --bins fernsteuerung
 ```
 
 Erwartet: alle bestehenden Tests weiter grün plus `abgabe_traegt_den_eigenen_platz`. **Bricht ein alter Test, ist die Umstellung falsch, nicht der Test** — bis hierher darf sich kein Verhalten geändert haben.
@@ -615,7 +617,7 @@ fn ohne_nachbarschaft_bleibt_es_beim_eigenen_bild() {
 
 ```bash
 cd streaming/pulse-player
-FFMPEG_DIR=$PWD/ffmpeg-dist/n8.1-lgpl-shared cargo test --lib fernsteuerung::tests
+FFMPEG_DIR=$PWD/ffmpeg-dist/n8.1-lgpl-shared cargo test --bins fernsteuerung::tests
 ```
 
 Erwartet: Übersetzungsfehler — `nachbarschaft_setzen` gibt es nicht.
@@ -746,7 +748,7 @@ Neben `zeiger_im_bild` einfügen (hinter Zeile 242):
 
 ```bash
 cd streaming/pulse-player
-FFMPEG_DIR=$PWD/ffmpeg-dist/n8.1-lgpl-shared cargo test --lib fernsteuerung
+FFMPEG_DIR=$PWD/ffmpeg-dist/n8.1-lgpl-shared cargo test --bins fernsteuerung
 ```
 
 Erwartet: alle grün, inklusive der sechs neuen. Die alten Tests rufen `nachbarschaft_setzen` nie und laufen deshalb auf dem unveränderten Weg.
@@ -893,10 +895,12 @@ Im Block `if session.eingabe.aktiv() {` (Zeilen 1503-1511) direkt vor `session.e
 ```bash
 cd streaming/pulse-player
 FFMPEG_DIR=$PWD/ffmpeg-dist/n8.1-lgpl-shared cargo build
-FFMPEG_DIR=$PWD/ffmpeg-dist/n8.1-lgpl-shared cargo test --lib fernsteuerung
+FFMPEG_DIR=$PWD/ffmpeg-dist/n8.1-lgpl-shared cargo test --bins fernsteuerung
 ```
 
-Erwartet: Bau ohne Fehler und ohne Warnungen, alle Tests grün.
+Erwartet: Bau ohne Fehler, alle Tests grün.
+
+**Zu den Warnungen:** Der Baum bringt **drei bestehende** mit, die nicht zu dieser Arbeit gehören (`value assigned to 'jetzt' is never read`, dreimal in `src/app/takt/mod.rs`). Die bleiben stehen und werden hier **nicht** angefasst. Verschwinden muss dagegen die eine, die seit Task 1 stand: `unused imports: 'Nachbar' and 'vorrang'` — spätestens jetzt werden beide gerufen. Steht sie noch da, ist die Verdrahtung unvollständig.
 
 Meldet der Compiler „cannot borrow `self.sessions` as mutable", steht das Einsammeln noch nach `get_mut` — es muss davor.
 
@@ -1094,7 +1098,7 @@ Im Abschnitt „Teil 1 — Grenzen" von `docs/superpowers/specs/2026-08-24-mehre
 ```bash
 cd /home/michael/Dokumente/pulse
 FFMPEG_DIR=$PWD/streaming/pulse-player/ffmpeg-dist/n8.1-lgpl-shared \
-  cargo test --manifest-path streaming/pulse-player/Cargo.toml --lib fernsteuerung
+  cargo test --manifest-path streaming/pulse-player/Cargo.toml --bins fernsteuerung
 ( cd desktop && pnpm test:unit )
 ( cd web && pnpm check && pnpm build && pnpm test:unit )
 REDIS_URL=redis://localhost:6380/0 PULSE_INSTANCE_MODE=cloud uv run --all-packages pytest -q
