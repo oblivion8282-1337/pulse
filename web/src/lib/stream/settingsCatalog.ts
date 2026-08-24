@@ -290,6 +290,27 @@ export const MONITOR_CAPTURE_PREFIX = 'Monitor: ';
  *  — id is the HWND on Windows, the CoreGraphics window id on macOS. */
 export const WINDOW_CAPTURE_PREFIX = 'window:';
 
+/**
+ * Aus einer Aufnahmequelle die Bildschirm-Nummer lesen.
+ *
+ * **Warum hier und nicht in `label.ts`:** Diese Datei ist importfrei und haelt
+ * den Vorsatz bereits — damit gibt es genau eine Wahrheit, und Nodes
+ * eingebauter Testlaeufer kann die Rechnung pruefen (`label.ts` importiert
+ * `./settings.svelte` und ist fuer ihn unerreichbar, s. `CLAUDE.md`).
+ *
+ * `undefined` fuer alles, was kein Monitor ist — Fenster-Aufnahmen, der
+ * Linux-Portal-Platzhalter, Unfug. Geraten wird nichts: eine erfundene Nummer
+ * zeigte beim Zuschauer auf den falschen Bildschirm.
+ */
+export function monitorNummer(captureSource: string | undefined | null): number | undefined {
+  const src = (captureSource ?? '').trim();
+  if (!src.startsWith(MONITOR_CAPTURE_PREFIX)) return undefined;
+  const roh = src.slice(MONITOR_CAPTURE_PREFIX.length).trim();
+  if (roh === '') return undefined;
+  const n = Number(roh);
+  return Number.isInteger(n) && n >= 0 ? n : undefined;
+}
+
 export function isAppAudioMode(mode: string): boolean {
   return mode.startsWith(APP_AUDIO_PREFIX);
 }
