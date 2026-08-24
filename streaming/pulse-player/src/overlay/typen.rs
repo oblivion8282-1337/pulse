@@ -74,9 +74,26 @@ pub enum OverlayAction {
 /// meldet. Reine Anzeige — die Entscheidung, was ein Klick ausloest, faellt in
 /// der App.
 ///
-/// **Alle neuen Felder (`x`/`y`/`width`/`height`/`dieses_fenster`) tragen
-/// `#[serde(default)]`**, damit eine aeltere Gegenstelle — App ODER Geraet —
-/// nichts bricht: sie kennt die Felder schlicht nicht und laesst sie weg.
+/// **Alle fuenf neuen Felder (`x`/`y`/`width`/`height`/`dieses_fenster`)
+/// tragen `#[serde(default)]` — aus zwei VERSCHIEDENEN Gruenden, nicht aus
+/// einem gemeinsamen:**
+///
+/// * An `dieses_fenster` (`bool`, kein `Option`) ist die Annotation
+///   **tragend**: serde verlangt ein `bool`-Feld ohne Angabe standardmaessig
+///   als vorhanden und bricht sonst mit „missing field" ab. Gemessen, nicht
+///   angenommen (Wegwerf-Probe gegen serde direkt) — der Test
+///   `dieses_fenster_fehlt_und_defaultet_auf_false` unten haelt genau diesen
+///   Fall fest.
+/// * An `x`/`y`/`width`/`height` (alle `Option<T>`) ist sie dagegen nur
+///   **Deutlichkeit**: serde behandelt ein `Option<T>`-Feld schon eingebaut
+///   als optional und liest ein fehlendes als `None` — mit oder ohne die
+///   Annotation, kein Test kann daran also je etwas festmachen. Sie steht
+///   trotzdem an allen vieren, weil eine Datei, in der vier Felder die
+///   Angabe tragen und eines nicht, ohne erkennbaren Grund verwirrt; mit
+///   diesem Kommentar ist der Grund sichtbar.
+///
+/// Damit bricht eine aeltere Gegenstelle — App ODER Geraet, die keines der
+/// fuenf Felder kennt — an keiner Stelle.
 #[derive(Clone, Debug, serde::Deserialize)]
 pub struct Schirm {
     /// Nummer auf dem fernen Rechner (1-basiert).
@@ -92,7 +109,8 @@ pub struct Schirm {
     /// Monitor links vom oder ueber dem Hauptbildschirm hat eine negative
     /// Lage); `width`/`height` sind immer positiv. Fehlt eine der vier, ist
     /// die Lage insgesamt unbekannt — die Karte zeichnet dann nichts fuer
-    /// diesen Bildschirm, statt zu raten.
+    /// diesen Bildschirm, statt zu raten. `#[serde(default)]` ist hier reine
+    /// Deutlichkeit, s. Erklaerung am Typ oben — kein Test haengt daran.
     #[serde(default)]
     pub x: Option<i32>,
     #[serde(default)]
@@ -106,7 +124,8 @@ pub struct Schirm {
     /// Zuordnung Strom-zu-Bildschirm nicht sicher treffen kann
     /// (fail-visible, `web/src/lib/stream/schirmFuerFenster.ts`): lieber gar
     /// keine Markierung als eine falsche, die auf den falschen Bildschirm
-    /// schickt.
+    /// schickt. `#[serde(default)]` ist hier TRAGEND, s. Erklaerung am Typ
+    /// oben.
     #[serde(default)]
     pub dieses_fenster: bool,
 }
@@ -186,9 +205,17 @@ impl PresentRate {
 mod tests {
     use super::*;
 
-    /// Eine aeltere Gegenstelle (App ODER Geraet) kennt die vier
-    /// Lage-Felder und `dieses_fenster` noch nicht — genau das Versprechen
-    /// hinter `#[serde(default)]` an jedem der fuenf Felder.
+    /// Eine aeltere Gegenstelle (App ODER Geraet) kennt die vier Lage-Felder
+    /// und `dieses_fenster` noch nicht und laesst alle fuenf im JSON weg —
+    /// die Nachricht bleibt trotzdem lesbar.
+    ///
+    /// **Sagt NICHT aus, welches `#[serde(default)]` dafuer sorgt.** Bei
+    /// `x`/`y`/`width`/`height` (`Option<T>`) waere dieser Test genauso
+    /// gruen, wenn man die Annotation dort entfernt — serde liest ein
+    /// fehlendes `Option`-Feld eingebaut als `None`. Nur bei `dieses_fenster`
+    /// (`bool`) ist sie tragend; das isoliert
+    /// `dieses_fenster_fehlt_und_defaultet_auf_false` unten eigens, weil
+    /// dieser Test hier es nicht leistet.
     #[test]
     fn schirm_ohne_neue_felder_bleibt_deserialisierbar() {
         let s: Schirm = serde_json::from_str(r#"{"index":1,"name":"Bildschirm 1"}"#).unwrap();
@@ -199,6 +226,22 @@ mod tests {
         assert_eq!(s.y, None);
         assert_eq!(s.width, None);
         assert_eq!(s.height, None);
+        assert!(!s.dieses_fenster);
+    }
+
+    /// Isoliert das EINE Feld, an dem `#[serde(default)]` wirklich traegt:
+    /// alle vier Lage-Felder UND `open` sind im JSON gesetzt, nur
+    /// `dieses_fenster` fehlt. Ohne die Annotation an `dieses_fenster` waere
+    /// das ein Deserialisierungsfehler („missing field"); mit ihr defaultet
+    /// es auf `false` — der Fall, den eine App meldet, die die Markierung
+    /// noch nicht kennt, aber die Lage schon.
+    #[test]
+    fn dieses_fenster_fehlt_und_defaultet_auf_false() {
+        let s: Schirm = serde_json::from_str(
+            r#"{"index":1,"name":"Bildschirm 1","open":true,"x":0,"y":0,
+                "width":1920,"height":1080}"#,
+        )
+        .unwrap();
         assert!(!s.dieses_fenster);
     }
 
