@@ -26,7 +26,7 @@ from dcc_chat_gateway.friend_helpers import (
     friendship_exists,
 )
 from dcc_chat_gateway.dm_vorschau import Letzte, letzte_nachrichten
-from dcc_chat_gateway.models import DirectMessageChannel, Friendship, UserBlock
+from dcc_chat_gateway.models import DirectMessageChannel, Friendship, Message, UserBlock
 from dcc_chat_gateway.routes._deps import CloudOnly, dm_member_check
 from dcc_chat_gateway.schemas import DMChannelCreateIn, DMChannelOut
 from dcc_chat_gateway.security import CurrentUser
@@ -237,6 +237,64 @@ async def list_dm_channels(
             False,
         ))
         for d in rows
+    ]
+
+
+@router.get("/dm-channels-search")
+async def search_dm_messages(
+    q: str,
+    session: SessionDep,
+    current: CurrentUser,
+):
+    """WhatsApp-artige Suche über die eigene DM-Historie.
+
+    Volltext-Suche per ``ilike`` über alle Nachrichten in DM-Kanälen, in
+    denen der Aufrufer Mitglied ist (Gegenstück-IDs aus der Kanalzeile —
+    der Join macht den Membership-Check, kein separater Lookup nötig).
+    Gelöschte Nachrichten bleiben draußen. Neueste zuerst, 20 Treffer —
+    eine Suchleiste will Treffer, keine Chronologie.
+    """
+    needle = q.strip()
+    if not needle:
+        return []
+    stmt = (
+        select(
+            Message.id,
+            Message.channel_id,
+            Message.author_id,
+            Message.content,
+            Message.created_at,
+            DirectMessageChannel.user_a_id,
+            DirectMessageChannel.user_b_id,
+        )
+        .join(
+            DirectMessageChannel,
+            DirectMessageChannel.id == Message.channel_id,
+        )
+        .where(
+            or_(
+                DirectMessageChannel.user_a_id == current.id,
+                DirectMessageChannel.user_b_id == current.id,
+            ),
+            Message.deleted_at.is_(None),
+            Message.content.ilike(f"%{needle}%"),
+        )
+        .order_by(Message.id.desc())
+        .limit(20)
+    )
+    rows = (await session.execute(stmt)).all()
+    return [
+        {
+            "message_id": r.id,
+            "dm_channel_id": r.channel_id,
+            "other_user_id": (
+                r.user_b_id if r.user_a_id == current.id else r.user_a_id
+            ),
+            "author_id": r.author_id,
+            "content": r.content,
+            "created_at": r.created_at,
+        }
+        for r in rows
     ]
 
 
