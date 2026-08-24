@@ -279,4 +279,42 @@ mod tests {
         lage.betreten(irgendeine_flaeche(), 2.0, 2.0);
         assert_eq!(lage.aktuell(), Some((irgendeine_flaeche(), 2.0, 2.0)));
     }
+
+    /// **Der Kernfall, fuer den dieses ganze Vorhaben existiert** — die von
+    /// der Messung 2026-08-24 belegte Abfolge `Enter(A) → Leave → Enter(B)`
+    /// IM SELBEN Zug (s. Modulkopf): eine Flaeche wird verlassen, und im
+    /// selben Zug wird eine ANDERE betreten. Keiner der Tests oben verkettet
+    /// `betreten → verlassen → betreten`; die Zustandsfuehrung ist zwar
+    /// trivial korrekt (sie ueberschreibt das Tupel unbedingt, ohne
+    /// Sonderfall "gleiche gegen andere Flaeche"), aber ein spaeterer Umbau,
+    /// der genau einen solchen Sonderfall einfuehrt ("wenn dieselbe Flaeche,
+    /// dann nicht ueberschreiben"), braeche die Sequenz — und ohne diesen
+    /// Test wuerde es niemand melden.
+    ///
+    /// **Ehrliche Luecke:** eine ECHTE zweite, von der ersten
+    /// UNTERSCHEIDBARE `ObjectId` gibt es ausserhalb einer laufenden
+    /// Wayland-Verbindung nicht — `ObjectId::null()` ist der einzige sichere
+    /// Konstruktor ohne Compositor (s. `irgendeine_flaeche` oben), und der
+    /// unsichere `ObjectId::from_ptr` verlangt einen echten `wl_proxy`.
+    /// Dieser Test betritt deshalb zweimal **dieselbe** Kennung. Er prueft
+    /// damit die FORM der Sequenz — `verlassen` raeumt vollstaendig, ein
+    /// `betreten` danach faengt wieder frisch an, keine liegengebliebene
+    /// alte Lage —, aber NICHT, dass ein Wechsel auf eine WIRKLICH andere
+    /// Flaeche sich ebenso verhaelt wie ein erneuter Eintritt in dieselbe.
+    /// Diese Luecke (Sonderfall "gleiche gegen echte andere Flaeche") kann
+    /// kein Test dieses Moduls schliessen, solange er ohne Compositor laeuft
+    /// — nur die Messung selbst (Wegwerf-Programm, s. Bericht) deckt sie ab.
+    #[test]
+    fn verlassen_und_erneutes_betreten_im_selben_zug_ist_der_kernfall_der_messung() {
+        let mut lage = ZugLage::default();
+        lage.betreten(irgendeine_flaeche(), 1.0, 1.0);
+        lage.verlassen();
+        assert_eq!(lage.aktuell(), None, "verlassen raeumt vollstaendig, bevor die naechste Flaeche kommt");
+        lage.betreten(irgendeine_flaeche(), 2.0, 2.0);
+        assert_eq!(
+            lage.aktuell(),
+            Some((irgendeine_flaeche(), 2.0, 2.0)),
+            "das erneute betreten faengt frisch an, ohne Rest der alten Lage"
+        );
+    }
 }

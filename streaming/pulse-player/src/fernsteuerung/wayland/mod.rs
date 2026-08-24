@@ -133,9 +133,10 @@ impl DruckNummer {
 /// - [`zug::ZugLage`] — welche eigene Flaeche der Zeiger waehrend eines
 ///   laufenden Zugs beruehrt und wo darin (s. [`zug`]).
 /// - `angebot` — das `wl_data_offer`, das ein `Enter` gerade eingefuehrt hat
-///   (nur bei einem FREMDEN Zug oder der Zwischenablage belegt, s. dortiger
-///   Match-Arm) — muss beim `Leave` zerstoert werden, das verlangt das
-///   Protokoll ausdruecklich.
+///   (nur bei einem FREMDEN Zug belegt, s. dortiger Match-Arm; `Selection`
+///   — die Zwischenablage — wird nicht ausgewertet und befuellt dieses Feld
+///   deshalb NIE, s. Bedenken im Bericht) — muss beim `Leave` zerstoert
+///   werden, das verlangt das Protokoll ausdruecklich.
 #[derive(Default)]
 struct Zustand {
     druck: DruckNummer,
@@ -227,8 +228,10 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for Zustand {
                 // destroy the wl_data_offer introduced at enter time at this
                 // point." Fuer UNSEREN eigenen Zug (`source=None`) war `id`
                 // beim `Enter` immer `None` (s. Modulkopf [`zug`]) — dieser
-                // Zweig greift nur, wenn ein FREMDER Zug oder die
-                // Zwischenablage uns ein Angebot hinterlassen hat.
+                // Zweig greift nur, wenn ein FREMDER Zug uns ein Angebot
+                // hinterlassen hat. Die Zwischenablage (`Selection`) befuellt
+                // `angebot` NIE — dieser Match hat keinen Arm dafuer (s. oben,
+                // „Selection/DataOffer bleiben unausgewertet").
                 if let Some(angebot) = zustand.angebot.take() {
                     angebot.destroy();
                 }
