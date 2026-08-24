@@ -20,11 +20,16 @@
  *  per-user stream index, so one user can run several streams at once (e.g. two
  *  monitors as separate tiles). `label` is an optional human-readable hint
  *  (e.g. "Monitor 1", "Chrome") the streamer sent at start so a viewer facing
- *  several of his streams can tell them apart in the picker. */
+ *  several of his streams can tell them apart in the picker. `monitor_index`
+ *  is the screen number the streamer's device actually captured — when
+ *  present, it decides the stream→screen mapping on its own; `label` stays a
+ *  fallback for older clients that don't send it yet (`stromPasstZuMonitor`
+ *  in `settingsCatalog.ts`). */
 export type StreamDescriptor = {
   user_id: string;
   slot: number;
   label?: string;
+  monitor_index?: number;
 };
 
 export type StreamChannelState = {
@@ -37,8 +42,8 @@ export type StreamChannelState = {
   streams?: StreamDescriptor[];
 };
 
-/** Normalise a wire `streams` array to `{user_id: string, slot: number, label?}[]`,
- *  dropping malformed entries. */
+/** Normalise a wire `streams` array to `{user_id: string, slot: number, label?,
+ *  monitor_index?}[]`, dropping malformed entries. */
 function normalizeStreams(streams: StreamDescriptor[] | undefined): StreamDescriptor[] {
   if (!Array.isArray(streams)) return [];
   const out: StreamDescriptor[] = [];
@@ -46,6 +51,12 @@ function normalizeStreams(streams: StreamDescriptor[] | undefined): StreamDescri
     if (!s?.user_id) continue;
     const entry: StreamDescriptor = { user_id: String(s.user_id), slot: Number(s.slot ?? 0) || 0 };
     if (typeof s.label === 'string' && s.label) entry.label = s.label;
+    // Streng geprueft, nicht bloss `typeof === 'number'`: eine verbogene Zahl
+    // (NaN, Bruch, negativ) zeigte dem Zuschauer auf den falschen Bildschirm,
+    // statt harmlos auf den Namensvergleich zurueckzufallen.
+    if (typeof s.monitor_index === 'number' && Number.isInteger(s.monitor_index) && s.monitor_index >= 0) {
+      entry.monitor_index = s.monitor_index;
+    }
     out.push(entry);
   }
   return out;
