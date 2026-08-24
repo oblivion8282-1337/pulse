@@ -163,6 +163,14 @@ sie wurde nur noch nie umgestellt.
   nächste Bewegung korrigiert es. Nicht wegzudesignen, nur zu benennen.
 - **Linux als gesteuerter Rechner kann das nicht** — `linux-hq-sidecar` hat gar
   kein `remote_input`. Betrifft Windows und macOS als Host.
+- **Als steuernde Seite braucht es Fensterlagen, und Wayland gibt sie nicht
+  heraus.** `Window::inner_position()` liefert dort `NotSupportedError`
+  (winit 0.30.13, `platform_impl/linux/wayland/window/mod.rs:268`). Auf einem
+  Wayland-Sitz bleibt es deshalb beim Verhalten von vorher — kein Zug über die
+  Fenstergrenze, aber auch kein Fehler. Windows, macOS und X11 können es.
+  (**Für Teil 4 ist derselbe Umstand schärfer:** `set_outer_position` ist unter
+  Wayland ein stiller Leerlauf. Der Knopf dort muss ausgeblendet werden oder
+  sagen, dass es nicht geht — sonst drückt man ihn und nichts passiert.)
 
 ### Prüfen
 
