@@ -3,14 +3,16 @@
 **Stand:** 2026-08-24 · **Zustand:** Entwurf, nichts gebaut
 **Betrifft:** Fernsteuerung, `pulse-player`, `desktop/electron`, Sidecars (nur Teil 2)
 
-Drei Dinge, die zusammen ein Thema sind: Wer einen fremden Rechner mit mehreren
+Vier Dinge, die zusammen ein Thema sind: Wer einen fremden Rechner mit mehreren
 Bildschirmen steuert, hat mehrere Player-Fenster offen — und die verhalten sich
 heute wie voneinander unabhängige Fernrohre. Man kann nichts von einem ins andere
-ziehen, man sieht nicht, wie die Bildschirme drüben zueinander stehen, und die
-Zuordnung „welches Fenster zeigt welchen Monitor" ist ratbar statt gewusst.
+ziehen, man sieht nicht, wie die Bildschirme drüben zueinander stehen, die
+Zuordnung „welches Fenster zeigt welchen Monitor" ist ratbar statt gewusst, und
+die Fenster liegen auf dem eigenen Schirm irgendwie statt so wie drüben.
 
-Die drei Teile sind **unabhängig auslieferbar**. Bauen in der Reihenfolge
-**1 → 3 → 2** (Teil 3 ist Voraussetzung dafür, dass Teil 2 nicht lügt).
+Die Teile sind **unabhängig auslieferbar**. Bauen in der Reihenfolge
+**1 → 3 → 2 → 4** (Teil 3 ist Voraussetzung dafür, dass Teil 2 nicht lügt;
+Teil 4 braucht die Anordnung aus Teil 2).
 
 Vorgeschichte: `docs/plans/2026-08-11-fernsteuerung-neubewertung.md` hielt unter
 „Grenze, bewusst akzeptiert" fest, ein Fenster von Monitor 1 nach 2 zu ziehen
@@ -88,8 +90,15 @@ Reine Rechnung, ohne Fremdbezüge, mit Tests im Modul — nach dem Muster von
 - Regeln:
   - Das **eigene** Fenster hat Vorrang, wenn der Punkt darin liegt (der Normalfall
     kostet dann keine Suche).
-  - Sonst der erste Nachbar, in dessen **Bild** der Punkt liegt. Der schwarze Rand
+  - Sonst der Nachbar, in dessen **Bild** der Punkt liegt. Der schwarze Rand
     zählt nicht als Treffer — das erledigt `Bildlage::anteil` ohnehin.
+  - **Passen mehrere, gewinnt das zuletzt fokussierte** (entschieden 2026-08-24).
+    Begründung: winit gibt die Stapelreihenfolge nicht heraus, aber der Fokus ist
+    ein guter Stellvertreter dafür — ein Fenster wird durch Anklicken zugleich
+    fokussiert und nach vorne geholt. Im Zieh-Fall trifft die Regel sogar per
+    Bauart richtig: das ziehende Fenster ist zwangsläufig das fokussierte, liegt
+    also oben, und im überlappenden Bereich sieht man genau dieses. Über dem frei
+    sichtbaren Teil des anderen passt ohnehin nur der andere.
   - Kein Treffer heisst „nichts senden", nicht „klemmen".
 
 **2. `app/mod.rs::window_event` (heute L1503-1511)**
@@ -142,8 +151,9 @@ sie wurde nur noch nie umgestellt.
   Bildschirmkante. Bewusst gewählt: die Alternative verlangte die Monitor-Anordnung
   des Hosts **und** ein Umsetzen der echten Maus des Steuernden, wodurch beide
   Zeiger auseinanderlaufen könnten.
-- **Überlappende Player-Fenster** sind mehrdeutig. Vorschlag: das zuletzt
-  fokussierte gewinnt. Siehe offene Entscheidungen.
+- **Überlappende Player-Fenster** sind mehrdeutig; das zuletzt fokussierte
+  gewinnt (Begründung oben bei `nachbarn.rs`). Teil 4 nimmt dem Fall zusätzlich
+  die Schärfe, indem es die Fenster nebeneinander legt.
 - **In der Lücke** zwischen den Fenstern wird nichts gesendet; der Host-Zeiger
   wartet an seiner letzten Stelle. Loslassen dort kommt trotzdem an — A hat weiter
   alle Ereignisse. Keine klemmende Taste.
@@ -327,8 +337,25 @@ Grenze der Grössen-Policy steht (`PLAN.md` §12.1).
   **Richtungswort nur, wenn es die Richtung gibt**: bei zwei Monitoren
   nebeneinander „links"/„rechts", aber kein „oben"/„unten", sonst behauptet der
   Satz eine Anordnung, die es nicht gibt.
-- Antippen eines nicht offenen Schirms löst `OverlayAction::RemoteScreen(index)`
-  aus — der bestehende Weg (`fernbedienung.rs:233`).
+- **Antippen** (entschieden 2026-08-24):
+  - *nicht offen* → `OverlayAction::RemoteScreen(index)`, der bestehende Weg
+    (`fernbedienung.rs:233`). Der Schirm wird geholt.
+  - *offen* → **das zugehörige Fenster kommt nach vorne.** Bei drei oder vier
+    offenen Fenstern ist genau das die Not, und es kostet fast nichts: alle
+    Player-Fenster leben im selben Prozess, `Window::focus_window()` genügt.
+  - *das eigene Kästchen (HIER)* → nichts. Es liegt schon vorn.
+
+  Nebenwirkung, geprüft und in Ordnung: das Hervorholen wechselt den Fokus, und
+  `Focused(false)` löst im alten Fenster `alles_loslassen()` aus
+  (`fernsteuerung/mod.rs:218-221`). Wer im Menü tippt, hält nichts — und beim
+  Verlassen eines Fensters ist Freigeben ohnehin das Richtige.
+
+  Damit weicht die Karte bewusst von der heutigen Regel ab, offene Schirme gar
+  nicht anzubieten (`fernbedienung.rs:183-190`). Deren Begründung — „wer sein
+  Fenster sucht, findet es über die Fensterverwaltung des Systems" — galt für
+  eine Liste von Dingen, die man **holen** kann. In einer Karte sind die offenen
+  Schirme zwangsläufig sichtbar, sonst zeigt sie die Anordnung nicht; ein
+  Kästchen, das wie ein Knopf aussieht und nichts tut, wäre die schlechtere Wahl.
 
 **Die Karte ersetzt die Liste** (`fernbedienung.rs:196-237`), sie kommt nicht
 dazu. Zwei Wege zum selben Ziel liefen auseinander, und die Knöpfe „+ Dell U2723"
@@ -347,15 +374,62 @@ nicht an ihr.
 
 ---
 
+## Teil 4 — „Fenster wie beim Host anordnen"
+
+Ein Knopf im Menü am Griff, der die offenen Player-Fenster auf dem eigenen
+Schirm so hinlegt, wie die Monitore beim Host hängen.
+
+### Warum das den Kantenübergang ersetzt
+
+In Teil 1 wurde bewusst gewählt, dass der Host-Zeiger beim Übertritt **springt**
+statt über die echte Bildschirmkante zu wandern. Der Kantenübergang hätte zwei
+Dinge gebraucht: die Monitor-Anordnung des Hosts (nach Teil 2 vorhanden) **und**
+ein Umsetzen der echten Maus des Steuernden — und genau das ist der heikle Teil,
+weil einem dabei die Hand geführt wird und die beiden Zeiger auseinanderlaufen
+können.
+
+Teil 4 erreicht dasselbe Gefühl von der anderen Seite: **nicht die Maus
+versetzen, sondern die Fenster.** Liegen die Player-Fenster so wie die Monitore
+drüben, dann ist die natürliche Handbewegung von A nach B bereits der
+Kantenübergang. Nichts fasst die Maus an, und Teil 1 bleibt unverändert.
+
+Nebeneffekt: es entschärft den Überlappungsfall aus Teil 1, weil ordentlich
+nebeneinander gelegte Fenster sich nicht überlappen.
+
+### Was es tut
+
+- Hüllrechteck der Host-Monitore (aus Teil 2), proportional in die Arbeitsfläche
+  **des eigenen Bildschirms** eingepasst, auf dem das Menü geöffnet wurde.
+- Jedes offene Player-Fenster bekommt Lage und Grösse seines Monitors in diesem
+  Massstab (`Window::set_outer_position`, `request_inner_size`).
+- **Nicht offene Schirme lassen ihre Lücke stehen**, statt die übrigen
+  zusammenzuschieben — sonst stimmte die Anordnung nicht mehr, und genau die ist
+  der Zweck.
+- **Einmalig auf Knopfdruck, kein Dauerzustand.** Eine bleibende Zwangsanordnung
+  würde mit der Fensterverwaltung des Nutzers streiten.
+
+### Grenzen
+
+- Drei oder vier Host-Monitore auf einen eigenen Schirm gelegt ergibt **kleine
+  Fenster**. Das ist die Natur der Sache und kein Fehler; wer gross will, legt
+  von Hand um.
+- Der Massstab richtet sich nach dem eigenen Bildschirm, nicht nach dem Host —
+  die Fenster sind also nicht so gross wie drüben, nur so **angeordnet**.
+- Auf einem Rechner mit mehreren eigenen Bildschirmen wird nur einer bespielt.
+  Alles andere wäre eine Anordnungs-Verwaltung, und die hat das Betriebssystem.
+
+---
+
 ## Reihenfolge und Auslieferung
 
 | Schritt | Teil | Hängt ab von |
 |---|---|---|
-| 1 | Ziehen über die Fenstergrenze | nichts |
+| 1 | Ziehen über die Fenstergrenze (Teil 1) | nichts |
 | 2 | Eindeutige Zuordnung (Teil 3) | nichts |
 | 3 | Bildschirm-Karte (Teil 2) | Teil 3 |
+| 4 | Fenster wie beim Host anordnen (Teil 4) | Teil 2 |
 
-**Windows-Version-Bump ist Pflicht** für Teil 1 und Teil 2: beide ändern
+**Windows-Version-Bump ist Pflicht** für die Teile 1, 2 und 4: alle drei ändern
 `streaming/pulse-player/**`, und das wird über den Installer ausgeliefert —
 electron-updater ignoriert gleiche Versionen stillschweigend (`CLAUDE.md`).
 Teil 2 ändert zusätzlich `streaming/win-hq-sidecar/**` und
@@ -367,19 +441,27 @@ in denselben Eintrag wie der Teil, mit dem er ausgeliefert wird.
 
 ---
 
-## Offene Entscheidungen
+## Entschieden am 2026-08-24
 
-1. **Überlappende Player-Fenster:** Regel „zuletzt fokussiertes gewinnt"
-   bestätigen — oder gibt es eine bessere?
-2. **Antippen eines schon offenen Kästchens:** nichts tun, oder das Fenster nach
-   vorne holen? Das heutige Menü lässt offene Schirme bewusst weg und verweist
-   auf die Fensterverwaltung des Systems (`fernbedienung.rs:183-190`). In einer
-   Karte sind sie zwangsläufig sichtbar — die Begründung von damals gilt für sie
-   nicht mehr unverändert.
-3. **Karte auch in der Geräteansicht der App?** Dieselbe Rechnung, andere
-   Zeichenfläche. Nützlich, bevor man überhaupt ein Fenster öffnet — aber eine
-   zweite Umsetzung, die auseinanderlaufen kann.
-4. **Kantenübergang statt Sprung** (Teil 1): verworfen, nicht vergessen. Käme
-   erst in Frage, wenn die Monitor-Positionen aus Teil 2 ohnehin vorliegen —
-   dann fehlte nur noch das Umsetzen der echten Maus, und genau das ist der
-   heikle Teil.
+1. **Überlappende Player-Fenster:** das zuletzt fokussierte gewinnt. Der Fokus
+   ist der Stellvertreter für „liegt oben", den winit uns nicht gibt; im
+   Zieh-Fall stimmt er per Bauart. Die echte Stapelreihenfolge abzufragen wurde
+   verworfen — sie bräuchte drei plattformeigene Sonderwege (unter Wayland teils
+   gar nicht abfragbar) für einen Fall, den Teil 4 ohnehin entschärft.
+2. **Antippen eines offenen Kästchens** holt das Fenster nach vorne; das eigene
+   bleibt tot. Begründung bei Teil 2.
+3. **Die Karte kommt zuerst nur ins Player-Overlay.** Die Fassung für die
+   Geräteansicht der App ist ein späterer Nachzug, ausdrücklich nicht Teil dieses
+   Vorhabens: Die x/y-Zahlen liegen nach Teil 2 ohnehin in `DeviceMonitor`, die
+   abgeleiteten Angaben (läuft schon, welcher Strom) kommen aus
+   `schirme.svelte.ts` — es bliebe fast nur das Zeichnen. Durch Warten geht also
+   nichts verloren, und der Plan bleibt schlank.
+4. **Kantenübergang statt Sprung:** verworfen, ersetzt durch Teil 4. Statt die
+   Maus des Steuernden zu versetzen, werden die Fenster gelegt.
+
+## Offen
+
+- **Stabile Monitor-Kennung statt der Nummer** (Teil 3): vertagt, das Feld bleibt
+  erweiterbar. Gewinn nur beim Umstecken eines Monitors.
+- **Zweiter Meldeweg für beliebige Hosts** (Teil 2): heute nur eingetragene
+  Geräte. Über `remote_signal` nachrüstbar, ohne die Zeichnung anzufassen.
