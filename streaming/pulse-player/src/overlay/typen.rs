@@ -73,6 +73,18 @@ pub enum OverlayAction {
     /// Fenster existiert im selben Prozess bereits, es soll nur nach vorne.
     /// Die Nummer ist die des Bildschirms auf dem fernen Rechner.
     RemoteScreenFocus(u32),
+    /// Knopf „Fenster wie drueben anordnen": alle offenen Fenster DIESER
+    /// Fernsteuerungs-Sitzung auf dem eigenen Bildschirm so legen, wie die
+    /// Host-Monitore zueinander liegen. Zielflaeche ist der Bildschirm, auf
+    /// dem GENAU DIESES Fenster liegt. Einmalig auf Knopfdruck, kein
+    /// Dauerzustand — wer danach von Hand nachzieht, behaelt seine Anordnung.
+    ///
+    /// **Das Fenster tut hier nichts selbst.** Es kennt weder die Fenster-
+    /// Objekte der anderen Sitzungen noch, ob die Oberflaeche das Setzen von
+    /// Fensterlagen ueberhaupt zulaesst (unter Wayland nicht) — beides liegt
+    /// in der App (`crate::app::anordnen`). Der Knopf erscheint deshalb nur,
+    /// wenn beides zutrifft.
+    FensterAnordnen,
 }
 
 /// Ein Bildschirm des ferngesteuerten Rechners, wie ihn die App ins Fenster

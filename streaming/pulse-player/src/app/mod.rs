@@ -8,7 +8,11 @@
 //!
 //! Was die einzelnen RPC-Operationen bedeuten, steht in [`requests`].
 
-mod anordnen;
+// **`pub(crate)`, nicht `pub`:** `overlay::fernbedienung` muss die Wayland-
+// Auskunft (`anordnen::fenster_setzen_moeglich`) erreichen, um den Knopf zu
+// gaten — das ist die einzige Stelle ausserhalb von `app`, die etwas von hier
+// braucht. Weiter als bis zum eigenen Crate muss niemand.
+pub(crate) mod anordnen;
 pub mod diagnose;
 mod eingabe;
 mod requests;
@@ -1244,6 +1248,10 @@ impl App {
                     session.window.focus_window();
                 }
             }
+            // Knopf „Fenster wie drueben anordnen". Die Rechnung UND das
+            // Anwenden (Fenster-Objekte, Wayland-Riegel) liegen in
+            // `anordnen::fenster_anordnen` — hier wird nur aufgefangen.
+            OverlayAction::FensterAnordnen => self.fenster_anordnen(id),
         }
     }
 

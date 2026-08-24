@@ -25,7 +25,10 @@
 //! schluckt genau diese Kombination, statt sie weiterzureichen
 //! (`crate::fernsteuerung::Erfassung::menue_kombination`).
 
+use winit::window::Window;
+
 use super::{Overlay, OverlayAction, schirmkarte};
+use crate::app::anordnen;
 use crate::theme;
 
 /// Kantenlaenge des Griffs. Bewusst groesser als ein Leisten-Symbol: er ist ein
@@ -48,6 +51,7 @@ impl Overlay {
         &mut self,
         ctx: &egui::Context,
         is_fullscreen: bool,
+        window: &Window,
         actions: &mut Vec<OverlayAction>,
     ) {
         let griff = egui::Area::new(egui::Id::new("pulse-fern-griff"))
@@ -225,6 +229,32 @@ impl Overlay {
                                 }
                             } else {
                                 self.bildschirm_knopfliste(ui, actions);
+                            }
+                            // **Nur bei mehr als einem OFFENEN Schirm** — bei
+                            // einem gibt es nichts anzuordnen — **und nur,
+                            // wenn die Oberflaeche Fenster ueberhaupt setzen
+                            // kann.** Unter Wayland ist `set_outer_position`
+                            // ein stiller Leerlauf (`anordnen::
+                            // fenster_setzen_moeglich`); ein Knopf, der dort
+                            // wortlos nichts tut, ist schlimmer als keiner.
+                            let offene = self.fern_schirme.iter().filter(|s| s.open).count();
+                            if offene > 1 && anordnen::fenster_setzen_moeglich(window) {
+                                ui.add_space(6.0);
+                                if ui
+                                    .add(
+                                        egui::Button::new(
+                                            egui::RichText::new("Fenster wie drueben anordnen")
+                                                .font(theme::font_xs())
+                                                .color(theme::TEXT),
+                                        )
+                                        .fill(theme::GRUPPE_BG)
+                                        .corner_radius(theme::RADIUS_MD),
+                                    )
+                                    .clicked()
+                                {
+                                    self.fern_menue_offen = false;
+                                    actions.push(OverlayAction::FensterAnordnen);
+                                }
                             }
                             ui.add_space(6.0);
                         }
