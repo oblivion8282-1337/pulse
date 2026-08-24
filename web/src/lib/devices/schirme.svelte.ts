@@ -24,6 +24,7 @@ import type { Device, DeviceMonitor } from '$lib/api/devices';
 import { geraetWecken } from './wecken';
 import { streamPresence } from '$lib/stores/streamPresence.svelte';
 import { zuordneStroeme, zuordnungIstEindeutig } from '$lib/stream/settingsCatalog';
+import { schirmFuerFenster } from '$lib/stream/schirmFuerFenster';
 import { openedTiles } from '$lib/stream/openedTiles.svelte';
 import { hqTileId } from '$lib/stream/hqTile';
 import { nativeWindowRequests } from '$lib/player/wuensche.svelte';
@@ -145,6 +146,33 @@ export function zuordnungEindeutig(device: Device): boolean {
 export function schirmeVon(device: Device): SchirmStand[] {
   const karte = zuordnung(device);
   return monitorListe(device).map((mon) => ({ ...mon, open: karte.has(mon.index) }));
+}
+
+/** Ein Bildschirm aus Sicht EINES bestimmten Player-Fensters — zusätzlich
+ *  markiert, ob er genau dieses Fenster ist. */
+export interface SchirmStandFuerFenster extends SchirmStand {
+  dieses_fenster: boolean;
+}
+
+/**
+ * Die Bildschirmliste für GENAU EIN Fenster — anders als `schirmeVon` geht sie
+ * nicht identisch an jedes Fenster desselben Geräts: `fensterSlot` ist der
+ * Sende-Platz, den DIESES Fenster gerade zeigt, und nur der zugehörige
+ * Bildschirm bekommt `dieses_fenster: true`.
+ *
+ * Reine Regel in `stream/schirmFuerFenster.ts` — auch hier fail-visible: ist
+ * die Zuordnung nicht eindeutig, bleibt jeder Eintrag unmarkiert (s.
+ * {@link zuordnungEindeutig}).
+ */
+export function schirmeVonFuerFenster(device: Device, fensterSlot: number): SchirmStandFuerFenster[] {
+  const geraetePlaetze = new Set(device.stream_slots ?? []);
+  const gemeint = schirmFuerFenster(
+    stroemeVon(device),
+    monitorListe(device),
+    geraetePlaetze,
+    fensterSlot,
+  );
+  return schirmeVon(device).map((s) => ({ ...s, dieses_fenster: s.index === gemeint }));
 }
 
 /** Der laufende Strom eines Bildschirms, oder `undefined`. */
