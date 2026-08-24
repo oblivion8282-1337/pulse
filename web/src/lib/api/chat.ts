@@ -570,7 +570,11 @@ export const chatApi = {
     tenBit = false,
     /** Kann der eigene Sidecar Eingaben einspielen? Reist bis zum Zuschauer und
      *  entscheidet dort, ob der Anfrage-Knopf der Fernsteuerung erscheint. */
-    remoteInput = false
+    remoteInput = false,
+    /** Welchen Bildschirm des Hosts dieser Strom zeigt (1-basiert). Reist bis
+     *  zum Zuschauer und macht dort die Zuordnung Strom -> Monitor eindeutig;
+     *  der Name allein kann das bei baugleichen Geraeten nicht. */
+    monitorIndex?: number
   ): Promise<StreamTokenResponse> {
     return request<StreamTokenResponse>(`/channels/${channelId}/stream-token`, {
       method: 'POST',
@@ -579,7 +583,8 @@ export const chatApi = {
         slot,
         ...(label ? { label } : {}),
         ...(tenBit ? { ten_bit: true } : {}),
-        ...(remoteInput ? { remote_input: true } : {})
+        ...(remoteInput ? { remote_input: true } : {}),
+        ...(monitorIndex === undefined ? {} : { monitor_index: monitorIndex })
       }
     });
   },

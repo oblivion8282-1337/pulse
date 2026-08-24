@@ -134,6 +134,14 @@ router = APIRouter()
 # chat-gateway via ``dcc_shared.streaming``, which carries the reasoning.
 _SLOT_MAX = SLOT_MAX
 
+# Eigene Schranke fuer die Bildschirm-NUMMER — nicht ``_SLOT_MAX`` (der
+# begrenzt Stream-PLAETZE, nicht Monitore). Beide landen zufaellig bei
+# derselben grosszuegigen Zahl (niemand hat 99 Bildschirme, s. Kommentar zu
+# ``MAX_SLOTS`` in ``dcc_shared.streaming``); das ist Zufall, kein
+# gemeinsamer Sachverhalt. Spiegelt chat-gateways gleichnamige Konstante —
+# beide Dienste validieren unabhaengig, wie bei ``label``/``ten_bit``.
+_MONITOR_INDEX_MAX = 99
+
 ChannelId = Annotated[str, Field(min_length=1, max_length=64, pattern=r"^\d+$")]
 UserIdQuery = Annotated[str, Query(min_length=1, max_length=64, pattern=r"^\d+$")]
 SlotQuery = Annotated[int, Query(ge=0, le=_SLOT_MAX)]
@@ -157,6 +165,11 @@ class StreamTokenIn(BaseModel):
     # apart. Stripped + bounded here; empty/``None`` → omitted from the token
     # record so the legacy single-stream shape stays byte-identical.
     label: Annotated[str | None, Field(default=None, max_length=80)] = None
+    # Welchen Bildschirm des Hosts dieser Strom zeigt (1-basiert). Reist wie
+    # ``label`` weiter bis in den Token-Record → auth-hook → ``stream:active``
+    # → Poller, wo es dem Zuschauer die Zuordnung Strom → Monitor eindeutig
+    # macht (der Name allein kann das bei baugleichen Geraeten nicht).
+    monitor_index: Annotated[int | None, Field(default=None, ge=0, le=_MONITOR_INDEX_MAX)] = None
     # Sendet der Streamer mit 10 bit Farbtiefe? Fährt denselben Weg wie
     # ``label`` (Token-Record → auth-hook → ``stream:active``) und wird dem
     # Zuschauer in der WHEP-Antwort gemeldet: nur der native Player kann mehr
@@ -308,6 +321,8 @@ async def issue_stream_token(
     label = (payload.label or "").strip()
     if label:
         record["label"] = label
+    if payload.monitor_index is not None:
+        record["monitor_index"] = payload.monitor_index
     # Wie ``label``: nur bei True mitschreiben, damit der Record im Normalfall
     # byte-identisch zur alten Form bleibt.
     if payload.ten_bit:

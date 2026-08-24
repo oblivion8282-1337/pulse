@@ -157,6 +157,7 @@ return 1
 async def _consume_token_and_mark_active(
     redis: Redis, token: str, channel_id: str, user_id: str, slot: str, path: str,
     label: str | None = None, ten_bit: bool = False, remote_input: bool = False,
+    monitor_index: int | None = None,
 ) -> bool:
     """Atomically consume the token and write the publisher-active record.
 
@@ -175,7 +176,11 @@ async def _consume_token_and_mark_active(
     poller can surface it in ``stream:channel``/``stream:events`` without a
     second lookup source. ``ten_bit`` reist genauso mit — media-svc gibt es in
     der WHEP-Antwort an den Zuschauer weiter, der daran den Wiedergabeweg
-    wählt (nur der native Player kann mehr als 8 bit ausgeben)."""
+    wählt (nur der native Player kann mehr als 8 bit ausgeben). ``monitor_index``
+    reist ebenfalls genauso mit — der Poller surfaced sie neben ``label`` in
+    ``stream:channel``/``stream:events``, wo sie beim Zuschauer die Zuordnung
+    Strom → Monitor eindeutig macht (der Name allein kann das bei baugleichen
+    Geräten nicht)."""
     settings = get_settings()
     active: dict[str, Any] = {
         "user_id": user_id,
@@ -184,6 +189,8 @@ async def _consume_token_and_mark_active(
     }
     if isinstance(label, str) and label:
         active["label"] = label
+    if monitor_index is not None:
+        active["monitor_index"] = monitor_index
     # Nur bei True schreiben: der Record bleibt im Normalfall byte-identisch.
     if ten_bit:
         active["ten_bit"] = True
@@ -261,10 +268,21 @@ async def _handle(req: AuthRequest, redis: Redis) -> None:
         # token record into the active record (None/empty → omitted).
         label_val = rec.get("label")
         label = label_val if isinstance(label_val, str) and label_val else None
+        # Dieselbe Sorgfalt wie bei ``label``: Typpruefung statt blindem
+        # Vertrauen in den Redis-Inhalt (``bool`` ist in Python ein ``int`` —
+        # ausdruecklich ausgeschlossen, sonst wuerde ein verirrtes ``true`` als
+        # Monitor 1 durchgehen).
+        monitor_index_val = rec.get("monitor_index")
+        monitor_index = (
+            monitor_index_val
+            if isinstance(monitor_index_val, int) and not isinstance(monitor_index_val, bool)
+            else None
+        )
         if not await _consume_token_and_mark_active(
             redis, req.credential, channel_id, path_user_id, path_slot, req.path, label,
             rec.get("ten_bit") is True,
             rec.get("remote_input") is True,
+            monitor_index,
         ):
             raise _deny("publish_token_already_consumed", path=req.path)
         log.info(

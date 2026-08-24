@@ -59,7 +59,7 @@ export async function streamStarten(
     // irgendwann für diesen Platz gewählt hat. Der Steuernde bekäme dann eine
     // Kachel „Monitor 1", die Monitor 3 zeigt — bei mehreren Schirmen genau die
     // Verwechslung, die er nicht bemerken würde.
-    const label = standplatz
+    const aufgeloest = standplatz
       ? resolveStreamLabel(
           standplatz.quelle,
           {
@@ -67,8 +67,8 @@ export async function streamStarten(
             windows: streamSettings.available_windows,
           },
           slot,
-        ).label
-      : resolveSlotLabel(slot).label;
+        )
+      : resolveSlotLabel(slot);
     tok = await chatApi.getStreamToken(
       channelId,
       // Warum Betriebsart UND Codec den Transport mitentscheiden: s.
@@ -76,7 +76,7 @@ export async function streamStarten(
       // PROFILS — sonst holt der Client ein Token für den falschen Weg.
       pushProtokoll(standplatz?.uebersteuerung),
       slot,
-      label,
+      aufgeloest.label,
       // 10 bit gibt es auch im Fernbetrieb (Profil-Feld `zehn_bit`,
       // `devices/profil.svelte.ts`) — der Wunsch kommt dann aus dem Profil,
       // nicht aus den Stream-Einstellungen des abwesenden Besitzers. Dieselbe
@@ -89,6 +89,9 @@ export async function streamStarten(
       // heute allein der Windows-Sidecar. Der Wert reist mit dem Stream bis zum
       // Zuschauer und entscheidet dort, ob der Anfrage-Knopf erscheint.
       stream.fernsteuerbar,
+      // Dieselbe Nummer, die `resolveStreamLabel` schon fuer die eigene
+      // Statuszeile aufgeloest hat — kein zweiter Aufloese-Weg noetig.
+      aufgeloest.monitorIndex,
     );
   } catch (fehler) {
     return { ok: false, stufe: 'token', fehler };
