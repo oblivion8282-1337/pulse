@@ -515,27 +515,90 @@ errechnet.
 | Veraltet bei verschobenem Fenster | möglich | unmöglich |
 | Fenster müssen angeordnet sein | ja | nein |
 
-### Der Haken: winit
+### Kein winit-Patch nötig — das Muster gibt es schon
 
-winit kennt das Datengerät nicht (kein `data_device`, kein `start_drag` in der
-Kiste), und `start_drag` verlangt laut Protokoll „an active implicit grab that
-matches the serial" — die laufende Nummer des Mausdrucks, die winit ebenfalls
-nicht herausgibt. Es braucht also einen **Patch an winit**, der Seat und
-Zeigernummer nach aussen reicht; danach bindet der Player das Datengerät selbst.
-`wayland-client 0.31`, `wayland-protocols 0.32` und `smithay-client-toolkit 0.19`
-hängen ohnehin schon im Baum (von winit gezogen).
+**Korrigiert am 2026-08-24 nach Belegrecherche.** Hier stand, es brauche einen
+Patch an winit, der Seat und Zeigernummer herausreicht. Das ist so nicht richtig:
 
-Fremde Kisten zu patchen ist hier eingeführte Praxis: `windows-capture` wird fürs
-Cursor-Echo gepatcht (`scripts/bootstrap-windows-capture.sh`), `webrtc-rs` liegt
-vendored daneben.
+`streaming/pulse-player/src/tastensperre/wayland.rs` (281 Zeilen) bindet **bereits
+heute** Wayland-Protokolle neben winit, und zwar vollständig ohne winit-Änderung:
 
-### Preis, offen benannt
+- **Dieselbe Verbindung, keine zweite:** über `RawDisplayHandle::Wayland` an winits
+  `wl_display`, darum ein Gast-Backend (`Backend::from_foreign_display`, das die
+  Verbindung beim Abbau **nicht** schliesst). Zwingend, weil sich Objekte zweier
+  Verbindungen nicht mischen lassen.
+- **Eigene Ereigniswarteschlange, kein eigener Faden:** `registry_queue_init` legt
+  sie an; den Socket liest weiterhin winit, libwayland verteilt beim Lesen auf
+  alle Warteschlangen. Geleert wird bei Gelegenheit (`dispatch_pending`).
+- **Die Fläche** wird aus dem rohen `wl_surface`-Zeiger rekonstruiert
+  (`ObjectId::from_ptr` + `Proxy::from_id`), bei jeder Anforderung frisch.
+- **Den Seat holt es sich selbst**, nicht von winit: es liest die Registry der
+  Gast-Verbindung durch, filtert alle Globals mit Interface `wl_seat` und bindet
+  **jeden einzelnen** — weil winit nicht herausgibt, welchen es selbst benutzt.
 
-Ein Zug ist für den Compositor ein echter Zug. Fährt der Zeiger dabei über ein
-**fremdes** Programm, sieht dieses einen Ziehvorgang mit einem Datentyp, den
-niemand annimmt — je nach Oberfläche erscheint kurz ein „geht nicht"-Zeiger. Auf
-Windows und macOS passiert das nicht. Bewusst in Kauf genommen: sichtbar, aber
-harmlos, und deutlich kleiner als „auf Wayland gar nicht" oder „nimm XWayland".
+Damit ist die Seat-Frage erledigt. Offen bleibt allein die **Zeigernummer**, und
+auch dafür gibt es einen Weg ohne Patch: über denselben Seat ein **eigenes**
+`wl_pointer` binden, das die `button`-Ereignisse samt Nummer mitbekommt.
+**Das ist noch nicht belegt** — siehe die offenen Punkte unten.
+
+Abhängigkeiten sind vorhanden und in `Cargo.toml` begründet: `wayland-client 0.31`
+(`system`), `wayland-backend 0.3` (`client_system` — nur dieses Backend hat
+`from_foreign_display` und `ObjectId::from_ptr`), `wayland-protocols 0.32`. Sie
+**müssen** dieselben Fassungen sein, die winit zieht, sonst wären `wl_surface`
+hier und dort für den Compiler verschiedene Typen. `wl_data_device`, `wl_pointer`
+und `wl_seat` liegen im Kern-Protokoll, es braucht kein neues Feature.
+
+### Der Preis ist kleiner als gedacht: `source = null`
+
+**Korrigiert am 2026-08-24.** Hier stand, fremde Programme sähen den Zug und
+zeigten kurz ein „geht nicht"-Symbol. Das Protokoll sagt zu `start_drag`
+wörtlich:
+
+> If source is NULL, enter, leave and motion events are sent **only to the client
+> that initiated the drag** and the client is expected to handle the data passing
+> internally.
+
+Genau unser Fall: Wir wollen keinen Datentransfer, nur die Auskunft „der Zeiger
+ist jetzt bei x,y in dieser Fläche". Mit `source = null` entfällt damit die
+`wl_data_source` samt MIME-Typen **und** die Sichtbarkeit für fremde Programme.
+Das Zieh-Symbol ist ebenfalls optional (`icon` ist `allow-null`).
+
+### Was der Compositor liefert
+
+`wl_data_device.enter(serial, surface, x, y, id)` — `x`/`y` **flächenlokal**;
+dazu `motion(time, x, y)`, `leave()` und `drop()`. Belegt ist auch der Kern der
+Idee: `enter` wird gesendet, wenn der Zeiger „a surface **owned by the client**"
+betritt — die eigene zweite Fläche zählt also mit. Voraussetzung: **jedes Fenster
+braucht sein eigenes `wl_data_device`** für denselben Seat.
+
+### Warum das auf Wayland sogar einfacher ist
+
+Der Windows-Weg rechnet aus Fensterlagen aus, welches Fenster gemeint ist
+(`ziel_bestimmen` → `nachbarn::treffer`). Auf Wayland entfällt diese Rechnung
+**ganz**: der Compositor hat die Zuordnung schon geleistet und liefert die
+Koordinaten fensterlokal. Es genügt, beim `enter`/`motion` auf einer Fläche
+direkt deren eigenen Platz zu wählen und `Bildlage::anteil(x, y)` zu rufen.
+`eigener_ursprung` bleibt auf Wayland ohnehin für immer `None` — es gibt keine
+Kollision mit dem bestehenden Zweig.
+
+### Offen, und vor dem Bau zu prüfen
+
+Zwei Annahmen tragen den ganzen Ansatz und sind **aus dem Protokolltext nicht
+belegbar**:
+
+1. **Bekommen mehrere `wl_pointer`-Objekte desselben Klienten für denselben Seat
+   alle dieselben `button`-Ereignisse samt Nummer?** Das Protokoll verbietet
+   mehrfaches `get_pointer` nicht und spricht im `capabilities`-Ereignis von „the
+   wl_pointer **objects**" (Mehrzahl) — rechnet also erkennbar mit dem Fall. Eine
+   Zusicherung ist das nicht.
+2. **Ist die so empfangene Nummer dieselbe, die den impliziten Griff erzeugt hat,
+   den winit hält — und akzeptiert `start_drag` sie?** Ein Seat hat einen
+   gemeinsamen Nummernraum, das ist plausibel, aber nirgends zugesichert.
+
+**Beides gehört vor die Umsetzung**, mit einem kleinen eigenständigen
+Prüfprogramm: zwei `wl_pointer` auf einem Seat, Nummern vergleichen, dann ein
+echter `start_drag`-Versuch. Fällt die Prüfung negativ aus, bleibt der
+winit-Patch als Rückfall — dann ist er begründet statt vermutet.
 
 **XWayland wurde ausdrücklich verworfen** (2026-08-24): es löst zwar das
 Fensterlagen-Problem, aber es ist ein Sonderweg mit eigenen Nachteilen (HiDPI,
