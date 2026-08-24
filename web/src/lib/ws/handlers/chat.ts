@@ -20,6 +20,7 @@ import { dispatchingUserId } from '$lib/stores/currentServerUser';
 import { guilds } from '$lib/stores/guilds.svelte';
 import { fireInPageNotification, isDnd } from '$lib/notifications/inPage';
 import { sichtschutzAktiv } from '$lib/remote/sichtschutz';
+import { viewport } from '$lib/stores/viewport.svelte';
 import { sounds } from '$lib/sounds/engine';
 import { goto } from '$app/navigation';
 import { toast } from 'svelte-sonner';
@@ -27,6 +28,21 @@ import { registerWsHandler } from '../handler-registry';
 import { isRecentMention, markRecentMention } from './_mentionSuppression';
 import type { HandlerContext } from './context';
 import { m } from '$lib/paraglide/messages.js';
+
+// Vorschau-Auffrischung nach dm_bump: der Bump-Envelope trägt bewusst keinen
+// Inhalt (Privacy-Design für E2EE), also kann `upsertFromBump` nur die
+// Reihenfolge reparieren — Vorschautext und Uhrzeit kämen erst beim nächsten
+// hydrate. Statt den Inhalt in den Event zu ziehen (und damit die
+// Inhalt-Freiheit des Envelopes aufzugeben), wird hier die Liste nachgeladen,
+// entprellt: wer schnell hintereinander schreibt, löst EINEN Request aus.
+let dmVorschauTimer: ReturnType<typeof setTimeout> | null = null;
+function dmVorschauAuffrischen(): void {
+  if (dmVorschauTimer) clearTimeout(dmVorschauTimer);
+  dmVorschauTimer = setTimeout(() => {
+    dmVorschauTimer = null;
+    void directMessages.hydrate();
+  }, 1500);
+}
 
 export function register(ctx: HandlerContext): void {
   registerWsHandler('message', (evt) => {
@@ -114,6 +130,7 @@ export function register(ctx: HandlerContext): void {
         readState.markRead(evt.channel_id, evt.message_id);
       } else {
         readState.incUnread(evt.channel_id);
+        dmVorschauAuffrischen();
         // Not currently in this DM. Toast the user. We intentionally
         // surface only the sender's name, not the message content,
         // so the UX stays identical when DMs go E2EE in Phase 2.
@@ -129,7 +146,10 @@ export function register(ctx: HandlerContext): void {
         // z-index 999999999 und lag damit ÜBER dem Riegel des ferngesteuerten
         // Standplatz-Geräts — der Name des Absenders stand mitten auf dem
         // Bild, das gerade ein Fremder sieht (`$lib/remote/sichtschutz.ts`).
-        if (!isDnd() && !sichtschutzAktiv()) {
+        // Am Handy ebenfalls keiner: dort ist die Chats-Liste selbst die
+        // Benachrichtigung (Badge + Vorschau), und ein Toast überdeckt die
+        // Bereichs-Leiste unten, die man gerade benutzen will.
+        if (!isDnd() && !sichtschutzAktiv() && !viewport.isMobile) {
           toast.message(m.chat_handler_dm_new_message({ senderLabel }), {
             action: {
               label: m.chat_handler_dm_open(),

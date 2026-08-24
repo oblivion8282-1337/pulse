@@ -21,6 +21,8 @@
     zahlFuer,
     zahlBeschriftung
   } from '$lib/navigation/darstellung.svelte';
+  import { auth } from '$lib/stores/auth.svelte';
+  import { safeAvatarUrl } from '$lib/avatar';
 
   let {
     bereich,
@@ -42,6 +44,11 @@
   } = $props();
 
   let Symbol = $derived(SYMBOLE[bereich.id]);
+  /** Der Du-Bereich zeigt statt des Symbols das Profilbild des angemeldeten
+   *  Accounts — das Icon bleibt der Fallback für Accounts ohne Bild. */
+  let avatarUrl = $derived(
+    bereich.id === 'me' ? safeAvatarUrl(auth.user?.avatar_url) : null
+  );
   let zahl = $derived(zahlFuer(bereich.id));
   let ripple: HTMLSpanElement | null = $state(null);
 
@@ -79,10 +86,19 @@
         <span class="bg-primary/12 absolute {zeigeBeschriftung ? 'size-[30px]' : 'size-[46px]'} rounded-full"></span>
       </span>
     {/if}
-    <Symbol
-      class="relative {symbolGroesse ??
-        (zeigeBeschriftung ? 'size-[23px]' : 'size-[40px]')}"
-    />
+    {#if avatarUrl}
+      <img
+        src={avatarUrl}
+        alt={beschriftung(bereich.id)}
+        class="relative rounded-full object-cover {symbolGroesse ??
+          (zeigeBeschriftung ? 'size-[23px]' : 'size-[40px]')}"
+      />
+    {:else}
+      <Symbol
+        class="relative {symbolGroesse ??
+          (zeigeBeschriftung ? 'size-[23px]' : 'size-[40px]')}"
+      />
+    {/if}
     <span
       bind:this={ripple}
       class="border-primary/50 pointer-events-none absolute size-[56px] rounded-full border-2 opacity-0"
