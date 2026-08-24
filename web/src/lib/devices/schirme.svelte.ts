@@ -23,7 +23,7 @@
 import type { Device, DeviceMonitor } from '$lib/api/devices';
 import { geraetWecken } from './wecken';
 import { streamPresence } from '$lib/stores/streamPresence.svelte';
-import { stromPasstZuMonitor } from '$lib/stream/settingsCatalog';
+import { zuordneStroeme, zuordnungIstEindeutig } from '$lib/stream/settingsCatalog';
 import { openedTiles } from '$lib/stream/openedTiles.svelte';
 import { hqTileId } from '$lib/stream/hqTile';
 import { nativeWindowRequests } from '$lib/player/wuensche.svelte';
@@ -61,26 +61,6 @@ function stroemeVon(device: Device) {
 type Strom = ReturnType<typeof stroemeVon>[number];
 
 /**
- * Zeigt dieser Strom diesen Bildschirm?
- *
- * **Die Nummer gewinnt, wenn sie da ist** (`monitor_index`, die Bildschirm-
- * Nummer, die das Gerät beim Start wirklich aufgenommen hat) — die reine Regel
- * dazu sitzt in `settingsCatalog.ts::stromPasstZuMonitor`, importfrei und
- * daher für Nodes eingebauten Testläufer erreichbar (diese Datei zieht Stores
- * und ist es nicht). Nur Klienten, die die Nummer noch nicht mitschicken,
- * fallen auf den **Namen** zurück, den das Gerät beim Start mitgeschickt hat
- * (`stream/starten.ts` nimmt ihn aus der wirklich aufgenommenen Quelle);
- * **verglichen wird dort nachsichtig** (Rand und Gross-/Kleinschreibung egal),
- * weil ein Unterschied hier nicht auffällt, sondern still das Falsche tut: der
- * Schirm gälte als frei und stünde erneut zur Wahl.
- */
-function passt(strom: { label?: string; monitor_index?: number }, mon: DeviceMonitor): boolean {
-  // Ohne Nummer und ohne Namen ist nichts zuzuordnen — dann passt dieser Strom
-  // zu keinem Bildschirm. Genau dieser Fall greift unten den Hauptbildschirm auf.
-  return stromPasstZuMonitor(strom, mon);
-}
-
-/**
  * Die Bildschirme, die dieses Gerät hat.
  *
  * Meldet es keine (nie verbunden oder ältere Fassung), bleibt genau ein Eintrag
@@ -101,17 +81,24 @@ function monitorListe(device: Device): DeviceMonitor[] {
  * dessen Strom sich nicht finden lässt — dann steht ein Knopf da, der wortlos
  * nichts tut. Genau diese Sorte Fehler soll hier verschwinden.
  *
+ * **Die eigentliche Regel sitzt importfrei in
+ * `settingsCatalog.ts::zuordneStroeme`** — diese Funktion zieht nur die
+ * Store-Daten (`stroemeVon`, `monitorListe`, `device.stream_slots`) zusammen
+ * und ruft sie auf. So kann Nodes eingebauter Testläufer die Regel prüfen,
+ * obwohl diese Datei selbst für ihn unerreichbar ist (Stores).
+ *
  * **Der Hauptbildschirm bekommt zusätzlich einen Strom des Geräts zugeordnet,
- * dessen Name zu keinem Schirm passt** (Bughunt 2026-08-17). Der Grund steht in
- * `wecken.ts::quelleFuerMonitor`: der Haupt-Knopf („Übernehmen")
- * schickt **keine** Nummer mit, das Gerät nimmt dann die Quelle seines
- * Standplatz-Profils — und das ist per Vorgabe sein Hauptbildschirm. Trägt
- * dieser erste Strom einen Namen, der nicht trifft (Profil auf eine andere
- * Quelle gestellt, Bildschirmliste seit dem Start verändert, allgemeiner
- * Ersatzname), galt der Hauptbildschirm als frei und wurde erneut angeboten.
- * Ein Klick darauf lief dann ins Nichts: das Gerät erkennt die schon laufende
- * Quelle und verwirft den Ruf (`wecken.ts`), es ging kein zweites Fenster auf,
- * und für den Steuernden sah es aus, als sei der Player verschwunden.
+ * dessen Name zu keinem Schirm passt** (Bughunt 2026-08-17, Notbehelf in
+ * `zuordneStroeme`). Der Grund steht in `wecken.ts::quelleFuerMonitor`: der
+ * Haupt-Knopf („Übernehmen") schickt **keine** Nummer mit, das Gerät nimmt
+ * dann die Quelle seines Standplatz-Profils — und das ist per Vorgabe sein
+ * Hauptbildschirm. Trägt dieser erste Strom einen Namen, der nicht trifft
+ * (Profil auf eine andere Quelle gestellt, Bildschirmliste seit dem Start
+ * verändert, allgemeiner Ersatzname), galt der Hauptbildschirm als frei und
+ * wurde erneut angeboten. Ein Klick darauf lief dann ins Nichts: das Gerät
+ * erkennt die schon laufende Quelle und verwirft den Ruf (`wecken.ts`), es
+ * ging kein zweites Fenster auf, und für den Steuernden sah es aus, als sei
+ * der Player verschwunden.
  *
  * **Nur Ströme des Geräts zählen dafür** (`device.stream_slots`, dieselbe
  * Quelle wie in `darstellung.ts::stromGehoertGeraet`): was der Besitzer von
@@ -123,54 +110,35 @@ function monitorListe(device: Device): DeviceMonitor[] {
  * der Hauptbildschirm ist. Steht im Profil ausdrücklich ein anderer Schirm, ist
  * er es nicht — dann fehlt der Hauptbildschirm in der Auswahl, obwohl er zu
  * holen wäre. Das ist die harmlosere Hälfte: ein Eintrag zu wenig fällt auf,
- * ein Eintrag, der wortlos nichts tut, fällt nicht auf.
+ * ein Eintrag, der wortlos nichts tut, fällt nicht auf. Für die andere Hälfte
+ * — dass dieser Eintrag NICHT sicher ist — s. {@link zuordnungEindeutig}.
  */
 function zuordnung(device: Device): Map<number, Strom> {
-  const stroeme = stroemeVon(device);
-  const liste = monitorListe(device);
-  const karte = new Map<number, Strom>();
-  for (const mon of liste) {
-    const treffer = stroeme.find((s) => passt(s, mon));
-    if (treffer) karte.set(mon.index, treffer);
-  }
   const geraetePlaetze = new Set(device.stream_slots ?? []);
-  // Ein Strom MIT Nummer ist nie "namenlos" — auch dann nicht, wenn seine
-  // Nummer zu keinem aktuell gemeldeten Schirm passt (Profil auf eine
-  // inzwischen verschwundene Quelle gestellt). Er darf über diesen Notbehelf
-  // nie einem anderen Bildschirm zugeschlagen werden: die Nummer ist eine
-  // ausdrueckliche, verlaessliche Angabe, kein Ratefall wie ein fehlender Name.
-  const namenlos = stroeme.find(
-    (s) =>
-      s.monitor_index === undefined &&
-      geraetePlaetze.has(s.slot) &&
-      !liste.some((mon) => passt(s, mon)),
-  );
-  const haupt = liste.find((mon) => mon.primary);
-  // Einen Schirm, der schon seinen eigenen Strom hat, nicht überschreiben:
-  // der zugeordnete ist der genauere.
-  if (namenlos && haupt && !karte.has(haupt.index)) karte.set(haupt.index, namenlos);
-  return karte;
+  return zuordneStroeme(stroemeVon(device), monitorListe(device), geraetePlaetze).karte;
 }
 
 /** Ist die Zuordnung Strom → Bildschirm fuer dieses Geraet eindeutig?
  *
- *  Unklar wird sie, wenn ein Strom OHNE Nummer auf mehr als einen Bildschirm
- *  passen wuerde — zwei baugleiche Monitore beim Host und ein Klient, der die
- *  Nummer noch nicht mitschickt. Teil 2 behauptet dann kein „du bist hier":
- *  ein fehlender Hinweis faellt auf und ist harmlos, ein falscher faellt nicht
- *  auf.
+ *  Unklar wird sie durch zwei unabhaengige Faelle (Regel in
+ *  `settingsCatalog.ts::zuordnungIstEindeutig`):
+ *  - ein Strom OHNE Nummer passt auf mehr als einen Bildschirm — zwei
+ *    baugleiche Monitore beim Host und ein Klient, der die Nummer noch nicht
+ *    mitschickt;
+ *  - ein Eintrag stammt aus dem NOTBEHELF fuer den namenlosen Hauptbildschirm
+ *    (s. `zuordnung()`) statt aus einem echten Treffer. **Null Treffer heisst
+ *    hier GERATEN, nicht eindeutig** — der Notbehelf liefert zuverlaessig
+ *    dasselbe Ergebnis, aber nicht zuverlaessig das richtige.
  *
- *  Rechnet ueber dieselben Bausteine wie `zuordnung()` (`stroemeVon`,
- *  `monitorListe`, `passt`) — keine zweite Aufloesung daneben, sonst liefen
- *  beide auseinander. Ein Strom MIT Nummer gilt immer als eindeutig — genau
- *  deshalb wurde sie eingefuehrt. */
+ *  Teil 2 behauptet in beiden Faellen kein „du bist hier": ein fehlender
+ *  Hinweis faellt auf und ist harmlos, ein falscher faellt nicht auf.
+ *
+ *  Rechnet ueber dieselbe `zuordneStroeme` wie `zuordnung()` selbst — keine
+ *  zweite Aufloesung daneben, sonst liefen beide auseinander. Ein Strom MIT
+ *  Nummer gilt immer als eindeutig — genau deshalb wurde sie eingefuehrt. */
 export function zuordnungEindeutig(device: Device): boolean {
-  const stroeme = stroemeVon(device);
-  const liste = monitorListe(device);
-  return stroeme.every((s) => {
-    if (s.monitor_index !== undefined) return true;
-    return liste.filter((mon) => passt(s, mon)).length <= 1;
-  });
+  const geraetePlaetze = new Set(device.stream_slots ?? []);
+  return zuordnungIstEindeutig(stroemeVon(device), monitorListe(device), geraetePlaetze);
 }
 
 /** Die Bildschirme eines Geräts, jeder mit „läuft schon". */
