@@ -192,6 +192,23 @@ impl Overlay {
                         // Bewusst weiter nur bei MEHR als einem Schirm: eine
                         // Karte mit einem einzigen Kaestchen zeigt nichts, was
                         // der Nutzer nicht schon vor sich hat.
+                        //
+                        // **Ob die Karte ueberhaupt etwas zeichnen kann, wird
+                        // VOR der Ueberschrift geprueft** (`darstellbar`, C1 aus
+                        // der Review vom 2026-08-24) — nicht erst, wenn
+                        // `zeichnen` schon leer zurueckkommt. Meldet der ferne
+                        // Rechner keine Lage (aeltere Gegenstelle — Host und
+                        // Steuernder sind zwei Rechner mit eigenem Update-Takt,
+                        // das ist der NORMALFALL direkt nach der Auslieferung,
+                        // nicht ein Randfall) oder liegen zwei Schirme
+                        // deckungsgleich uebereinander (gescheiterte
+                        // Lage-Abfrage am Host, `list_monitors.rs`), gaebe eine
+                        // ungeprueft gezeichnete Ueberschrift „Bildschirme" ohne
+                        // Karte darunter genau die leere, verwirrende Gruppe, die
+                        // der Satz „Alle Bildschirme sind bereits offen" bis
+                        // 2026-08-17 verhindern sollte. Der Rueckfall ist deshalb
+                        // die ALTE Knopfliste — die Schirme sind ja da, nur ohne
+                        // verwertbare Lage.
                         if self.fern_schirme.len() > 1 {
                             ui.add_space(6.0);
                             ui.label(
@@ -199,9 +216,13 @@ impl Overlay {
                                     .font(theme::font_xs())
                                     .color(theme::TEXT_DIM),
                             );
-                            let breite = ui.available_width();
-                            if schirmkarte::zeichnen(ui, breite, &self.fern_schirme, actions) {
-                                self.fern_menue_offen = false;
+                            if schirmkarte::darstellbar(&self.fern_schirme) {
+                                let breite = ui.available_width();
+                                if schirmkarte::zeichnen(ui, breite, &self.fern_schirme, actions) {
+                                    self.fern_menue_offen = false;
+                                }
+                            } else {
+                                self.bildschirm_knopfliste(ui, actions);
                             }
                             ui.add_space(6.0);
                         }
@@ -225,5 +246,48 @@ impl Overlay {
                         }
                     });
             });
+    }
+
+    /// Rueckfall, wenn [`schirmkarte::darstellbar`] nein sagt: die Liste, die
+    /// es vor der Karte gab. Zeigt nur die noch NICHT laufenden Schirme —
+    /// ohne Lage laesst sich ohnehin keine Karte zeichnen, aber „dazuschalten"
+    /// bleibt moeglich, denn dafuer braucht es nur `index`/`name`/`open`.
+    ///
+    /// Ein Schirm, der schon sein Fenster hat, gehoert nicht in eine Liste von
+    /// Dingen, die man holen kann — er stand hier bis 2026-08-16 und sah aus
+    /// wie ein zweiter, den es nicht gibt. Wer sein Fenster sucht, findet es
+    /// ueber die Fensterverwaltung des Systems; wer es schliesst, bekommt den
+    /// Eintrag hier von selbst zurueck.
+    fn bildschirm_knopfliste(&mut self, ui: &mut egui::Ui, actions: &mut Vec<OverlayAction>) {
+        let zuschaltbar: Vec<_> = self.fern_schirme.iter().filter(|s| !s.open).cloned().collect();
+        // **Ist keiner mehr zu holen, steht es da** (2026-08-17). Vorher
+        // verschwand die ganze Gruppe: wer wusste, dass der Rechner drei
+        // Schirme hat, suchte dann nach einem Menuepunkt, den es aus gutem
+        // Grund nicht mehr gab — und hielt das Fehlen fuer einen Fehler. Ein
+        // Satz ist billiger als diese Suche.
+        if zuschaltbar.is_empty() {
+            ui.label(
+                egui::RichText::new("Alle Bildschirme sind bereits offen")
+                    .font(theme::font_xs())
+                    .color(theme::TEXT_DIM),
+            );
+            return;
+        }
+        for schirm in &zuschaltbar {
+            let beschriftung = format!("+ {}", schirm.name);
+            if ui
+                .add(
+                    egui::Button::new(
+                        egui::RichText::new(beschriftung).font(theme::font_xs()).color(theme::TEXT),
+                    )
+                    .fill(theme::GRUPPE_BG)
+                    .corner_radius(theme::RADIUS_MD),
+                )
+                .clicked()
+            {
+                self.fern_menue_offen = false;
+                actions.push(OverlayAction::RemoteScreen(schirm.index));
+            }
+        }
     }
 }

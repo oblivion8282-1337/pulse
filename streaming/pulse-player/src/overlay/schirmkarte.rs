@@ -2,10 +2,14 @@
 //! ersetzt im Menue am Griff die fruehere Liste von „+ Name"-Knoepfen.
 //!
 //! **Rechnung und Zeichnung getrennt**, wie bei [`crate::fernsteuerung::nachbarn`]
-//! und [`crate::fernsteuerung::bildlage`]: [`kaestchen`] und [`satz`] nehmen
-//! nur Zahlen, kein egui-Kontext — pruefbar ohne Fenster. Das Malen
-//! ([`zeichnen`]) liegt duenn darueber und ruft nur egui-Grundfunktionen auf,
-//! wie [`super::fernbedienung`] es fuer den Griff vormacht.
+//! und [`crate::fernsteuerung::bildlage`]: [`kaestchen`], [`satz`] und
+//! [`darstellbar`] nehmen nur Zahlen, kein egui-Kontext — pruefbar ohne
+//! Fenster. Das Malen ([`zeichnen`]) liegt duenn darueber und ruft nur
+//! egui-Grundfunktionen auf, wie [`super::fernbedienung`] es fuer den Griff
+//! vormacht. `zeichnen` selbst entscheidet NICHT, ob eine Karte ueberhaupt
+//! sinnvoll ist — das prueft der Aufrufer vorab ueber `darstellbar` und
+//! faellt sonst auf die alte Knopfliste zurueck (s. dort in
+//! `fernbedienung.rs`).
 
 use egui::{Align2, Color32, FontFamily, FontId, Rect, Sense, Stroke, StrokeKind, pos2, vec2};
 
@@ -101,6 +105,48 @@ pub fn kaestchen(schirme: &[Schirm], breite: f32, hoehe_max: f32) -> Vec<(usize,
         .collect()
 }
 
+/// Kann aus `schirme` ueberhaupt eine sinnvolle Karte werden? Zwei
+/// unabhaengige Gruende sprechen dagegen, EIN Tor fuer beide:
+///
+/// * **Weniger als zwei brauchbare Schirme.** Meldet der ferne Rechner keine
+///   Lage (aeltere Gegenstelle, s. `Schirm`-Doku) oder nur fuer einen
+///   einzigen, gibt es nichts zu vergleichen — eine Karte mit hoechstens
+///   einem Kaestchen ist keine Karte.
+/// * **Zwei brauchbare Schirme liegen exakt deckungsgleich.** Scheitert die
+///   Lage-Abfrage am Host, meldet er bewusst `0/0` statt das Feld
+///   wegzulassen (`win-hq-sidecar/src/ops/list_monitors.rs`) — „erkennbar
+///   falsch und hier behandelbar" steht dort woertlich; das hier ist die
+///   Behandlung. Ohne sie zeichnete [`kaestchen`] zwei Rechtecke exakt
+///   uebereinander: nur eines waere sichtbar, und das obenauf liegende
+///   `ui.interact`-Rechteck schluckte jeden Klick auf das andere. Erfasst
+///   nebenbei echte Bildschirmspiegelung, die real dieselbe Lage traegt.
+///
+/// Der Aufrufer faellt bei `false` auf die alte Knopfliste zurueck — die
+/// Schirme SIND ja da, nur ohne verwertbare Lage.
+pub fn darstellbar(schirme: &[Schirm]) -> bool {
+    let brauchbar = brauchbare(schirme);
+    if brauchbar.len() < 2 {
+        return false;
+    }
+    for i in 0..brauchbar.len() {
+        for j in (i + 1)..brauchbar.len() {
+            let (a, b) = (&brauchbar[i], &brauchbar[j]);
+            if a.x == b.x && a.y == b.y && a.w == b.w && a.h == b.h {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Mittelpunkt eines brauchbaren Schirms auf der jeweiligen Achse.
+fn mitte_x_von(b: &Brauchbar) -> f32 {
+    b.x as f32 + b.w as f32 / 2.0
+}
+fn mitte_y_von(b: &Brauchbar) -> f32 {
+    b.y as f32 + b.h as f32 / 2.0
+}
+
 /// Wie [`Schirm::dieses_fenster`] zu den anderen brauchbaren Schirmen steht —
 /// „links", „unten", „in der Mitte", eine Kombination wie „oben links", oder
 /// `None`, wenn keine Achse gestaffelt ist (z. B. nur ein Schirm) oder dieses
@@ -111,6 +157,17 @@ pub fn kaestchen(schirme: &[Schirm], breite: f32, hoehe_max: f32) -> Vec<(usize,
 /// gibt es kein drittes Wort, weil „oben"/„unten" bei zwei gestapelten
 /// Schirmen die gebraeuchlichen sind und ein „in der Mitte" dort nichts
 /// beitraegt, das nicht schon durch die Nicht-Nennung gesagt waere.
+///
+/// **„in der Mitte" verlangt zusaetzlich, dass es links UND rechts
+/// tatsaechlich etwas gibt.** Der Abstand zur Huellrechteck-Mitte allein
+/// reicht nicht: ein sehr viel groesserer Schirm zieht diese Mitte zu sich
+/// heran und faellt dadurch selbst ins Mittelband — obwohl er bei genau ZWEI
+/// Schirmen unmoeglich „in der Mitte" sein kann, es gibt niemanden auf beiden
+/// Seiten (Beispiel: 3840 breit neben 1024 breit, direkt nebeneinander — der
+/// grosse Schirm landet ohne diese Zusatzpruefung faelschlich „in der
+/// Mitte"). Landet ein Schirm im Mittelband, ohne dass beide Seiten belegt
+/// sind, gewinnt stattdessen die Seite, auf der niemand ist — dort steht er
+/// dann selbst.
 fn richtungswort(schirme: &[Schirm]) -> Option<String> {
     let brauchbar = brauchbare(schirme);
     let eigener = brauchbar.iter().find(|b| schirme[b.i].dieses_fenster)?;
@@ -123,8 +180,8 @@ fn richtungswort(schirme: &[Schirm]) -> Option<String> {
 
     let mitte_x = (min_x + max_x) as f32 / 2.0;
     let mitte_y = (min_y + max_y) as f32 / 2.0;
-    let eigene_x = eigener.x as f32 + eigener.w as f32 / 2.0;
-    let eigene_y = eigener.y as f32 + eigener.h as f32 / 2.0;
+    let eigene_x = mitte_x_von(eigener);
+    let eigene_y = mitte_y_von(eigener);
 
     let mut worte = Vec::new();
     if senk {
@@ -135,12 +192,19 @@ fn richtungswort(schirme: &[Schirm]) -> Option<String> {
         }
     }
     if waag {
+        let hat_links = brauchbar.iter().any(|b| b.i != eigener.i && mitte_x_von(b) < eigene_x);
+        let hat_rechts = brauchbar.iter().any(|b| b.i != eigener.i && mitte_x_von(b) > eigene_x);
         if eigene_x < mitte_x - breiteste * MITTE_TOLERANZ {
             worte.push("links");
         } else if eigene_x > mitte_x + breiteste * MITTE_TOLERANZ {
             worte.push("rechts");
-        } else {
+        } else if hat_links && hat_rechts {
             worte.push("in der Mitte");
+        } else if hat_rechts {
+            // Niemand links von mir, aber jemand rechts -> ich bin der Linke.
+            worte.push("links");
+        } else if hat_links {
+            worte.push("rechts");
         }
     }
     (!worte.is_empty()).then(|| worte.join(" "))
@@ -181,17 +245,32 @@ pub(super) fn zeichnen(
     let kartenhoehe = plaetze.iter().fold(0.0_f32, |h, (_, r)| h.max(r.max.y));
     let (karte, _) = ui.allocate_exact_size(vec2(breite, kartenhoehe), Sense::hover());
 
+    // Ist die Zuordnung „welcher Schirm ist dieses Fenster" mehrdeutig, ist
+    // sie fail-visible bei KEINEM Eintrag gesetzt (Task 3) — `open` kommt
+    // aber unabhaengig davon weiter von der App, ein offenes Kaestchen bliebe
+    // also anklickbar, ohne dass die Fokus-Suche in `app/mod.rs` je ein Ziel
+    // faende: ein Klick, der das Menue schliesst und wortlos nichts tut. Ein
+    // offenes Kaestchen ist deshalb nur antippbar, wenn IRGENDWO im System
+    // ueberhaupt eine Markierung existiert.
+    let markiert = schirme.iter().any(|s| s.dieses_fenster);
+
     let mut schliessen = false;
     for (i, lokal) in plaetze {
         let schirm = &schirme[i];
         let bereich = lokal.translate(karte.min.to_vec2());
         // Das eigene Kaestchen ist tot — weder ein zweiter Strom noch ein
         // Vorne-Holen des schon aktiven Fensters ergibt einen Sinn.
-        let antippbar = !schirm.dieses_fenster;
+        let antippbar = if schirm.dieses_fenster {
+            false
+        } else if schirm.open {
+            markiert
+        } else {
+            true
+        };
         let sense = if antippbar { Sense::click() } else { Sense::hover() };
         let id = ui.make_persistent_id(("pulse-schirmkarte", schirm.index));
         let antwort = ui.interact(bereich, id, sense);
-        zeichne_kaestchen(ui.painter(), bereich.shrink(LUECKE / 2.0), schirm, &antwort);
+        zeichne_kaestchen(ui.painter(), bereich.shrink(LUECKE / 2.0), schirm, antippbar, &antwort);
         if antwort.clicked() {
             schliessen = true;
             actions.push(if schirm.open {
@@ -211,16 +290,26 @@ pub(super) fn zeichnen(
 
 /// Ein einzelnes Kaestchen: Rahmen und Fuellung nach Zustand, dann die
 /// Beschriftung.
-fn zeichne_kaestchen(painter: &egui::Painter, rect: Rect, schirm: &Schirm, antwort: &egui::Response) {
+fn zeichne_kaestchen(
+    painter: &egui::Painter,
+    rect: Rect,
+    schirm: &Schirm,
+    antippbar: bool,
+    antwort: &egui::Response,
+) {
     if schirm.dieses_fenster {
         // Dieses Fenster: Akzentrahmen, kraeftig gefuellt.
         painter.rect_filled(rect, theme::RADIUS_MD, theme::GRUPPE_BG);
         painter.rect_filled(rect, theme::RADIUS_MD, primaer_getoent(56));
         painter.rect_stroke(rect, theme::RADIUS_MD, Stroke::new(2.0, theme::PRIMARY), StrokeKind::Inside);
     } else if schirm.open {
-        // Offen, aber ein anderes Fenster: normal.
+        // Offen, aber ein anderes Fenster: normal. Hellt beim Zeiger nur auf,
+        // wenn der Klick auch etwas bewirkt (`antippbar`) — sonst saehe ein im
+        // mehrdeutigen Fall totes Kaestchen trotzdem wie ein Knopf aus, der
+        // gerade reagiert (I2).
         painter.rect_filled(rect, theme::RADIUS_MD, theme::GRUPPE_BG);
-        let rahmen = if antwort.hovered() { theme::TEXT } else { theme::SLIDER_RAIL };
+        let rahmen =
+            if antippbar && antwort.hovered() { theme::TEXT } else { theme::SLIDER_RAIL };
         painter.rect_stroke(rect, theme::RADIUS_MD, Stroke::new(1.0, rahmen), StrokeKind::Inside);
     } else {
         // Nicht offen: gedaempft, gestrichelt, antippbar — hellt beim
@@ -393,6 +482,44 @@ mod tests {
         assert!(kaestchen(&[], 300.0, 100.0).is_empty());
     }
 
+    // ── darstellbar ──────────────────────────────────────────────────────
+
+    #[test]
+    fn zwei_brauchbare_schirme_sind_darstellbar() {
+        let s = [schirm(1, 0, 0, 1920, 1080), schirm(2, 1920, 0, 1920, 1080)];
+        assert!(darstellbar(&s));
+    }
+
+    #[test]
+    fn weniger_als_zwei_brauchbare_schirme_sind_nicht_darstellbar() {
+        // Aeltere Gegenstelle meldet gar keine Lage (Task 3) — der Normalfall
+        // direkt nach der Auslieferung, solange Host und Steuernder
+        // unterschiedliche Versionen fahren.
+        let mut ohne_lage_1 = schirm(1, 0, 0, 1920, 1080);
+        ohne_lage_1.x = None;
+        let mut ohne_lage_2 = schirm(2, 1920, 0, 1920, 1080);
+        ohne_lage_2.x = None;
+        assert!(!darstellbar(&[ohne_lage_1, ohne_lage_2]), "keine Lage -> keine Karte");
+
+        assert!(!darstellbar(&[schirm(1, 0, 0, 1920, 1080)]), "nur einer -> nichts zu vergleichen");
+        assert!(!darstellbar(&[]));
+    }
+
+    #[test]
+    fn deckungsgleiche_schirme_sind_nicht_darstellbar() {
+        // Scheitert die Lage-Abfrage am Host, meldet er `0/0` statt das Feld
+        // wegzulassen (`win-hq-sidecar/src/ops/list_monitors.rs`) — zwei
+        // Schirme mit gescheiterter Abfrage liegen dann deckungsgleich
+        // uebereinander. Dieselbe Lage traegt auch echte Bildschirmspiegelung.
+        let a = schirm(1, 0, 0, 1920, 1080);
+        let b = schirm(2, 0, 0, 1920, 1080);
+        assert!(!darstellbar(&[a, b]), "deckungsgleich -> keine Karte");
+
+        // Ein Pixel Unterschied reicht schon, um wieder darstellbar zu sein.
+        let c = schirm(3, 1, 0, 1920, 1080);
+        assert!(darstellbar(&[schirm(1, 0, 0, 1920, 1080), c]));
+    }
+
     // ── satz / richtungswort ─────────────────────────────────────────────
 
     #[test]
@@ -479,5 +606,74 @@ mod tests {
             Some("Du schaust auf Bildschirm 2".to_string()),
             "die Nummer steht immer fest, auch ohne Lage — nur die Richtung fehlt"
         );
+    }
+
+    /// Regression fuer M4: ein sehr viel groesserer Schirm neben einem sehr
+    /// viel kleineren zieht die Huellrechteck-Mitte zu sich heran und faellt
+    /// dadurch selbst ins Mittelband — obwohl er bei genau ZWEI Schirmen
+    /// unmoeglich „in der Mitte" sein kann. Exakt die Zahlen aus der
+    /// Code-Review (3840 neben 1024, direkt nebeneinander).
+    #[test]
+    fn grosser_schirm_neben_kleinem_bekommt_nicht_faelschlich_die_mitte() {
+        let mut gross = schirm(1, 0, 0, 3840, 2160);
+        gross.dieses_fenster = true;
+        let klein = schirm(2, 3840, 0, 1024, 2160);
+        assert_eq!(
+            satz(&[gross.clone(), klein.clone()]),
+            Some("Du schaust auf Bildschirm 1 — links".to_string()),
+            "der grosse Schirm ist der linke von zweien, nicht die Mitte"
+        );
+
+        let mut klein_hier = klein;
+        klein_hier.dieses_fenster = true;
+        let mut gross_dort = gross;
+        gross_dort.dieses_fenster = false;
+        assert_eq!(
+            satz(&[gross_dort, klein_hier]),
+            Some("Du schaust auf Bildschirm 2 — rechts".to_string())
+        );
+    }
+
+    /// „in der Mitte" bleibt moeglich, wenn tatsaechlich links UND rechts
+    /// etwas steht — und die Achsen kombinieren sich zu „oben links" &co.
+    #[test]
+    fn vier_schirme_im_raster_kombinieren_oben_unten_mit_links_rechts() {
+        let raster = |hier: u32| {
+            let mut s = [
+                schirm(1, 0, 0, 1920, 1080),
+                schirm(2, 1920, 0, 1920, 1080),
+                schirm(3, 0, 1080, 1920, 1080),
+                schirm(4, 1920, 1080, 1920, 1080),
+            ];
+            s[(hier - 1) as usize].dieses_fenster = true;
+            s
+        };
+        assert_eq!(satz(&raster(1)), Some("Du schaust auf Bildschirm 1 — oben links".to_string()));
+        assert_eq!(satz(&raster(2)), Some("Du schaust auf Bildschirm 2 — oben rechts".to_string()));
+        assert_eq!(satz(&raster(3)), Some("Du schaust auf Bildschirm 3 — unten links".to_string()));
+        assert_eq!(satz(&raster(4)), Some("Du schaust auf Bildschirm 4 — unten rechts".to_string()));
+    }
+
+    /// `STAFFELUNG_SCHWELLE` (1,15) exakt an ihrer Grenze — die bisherigen
+    /// Tests trafen sie nur beim Groessenverhaeltnis 1,0 (gleich breite
+    /// Schirme haben bei Beruehrung immer 200% Spannweite, weit ueber der
+    /// Schwelle). Bei exakt 1150 von 1000 (=115%) ist die Spannweite NICHT
+    /// groesser als die Schwelle (`>`, nicht `>=`) — keine Staffelung, kein
+    /// Richtungswort.
+    #[test]
+    fn staffelung_am_schwellenwert_zaehlt_noch_nicht_als_gestaffelt() {
+        let mut a = schirm(1, 0, 0, 1000, 1080);
+        a.dieses_fenster = true;
+        let b = schirm(2, 150, 0, 1000, 1080);
+        assert_eq!(satz(&[a, b]), Some("Du schaust auf Bildschirm 1".to_string()));
+    }
+
+    /// Ein Punkt ueber der Schwelle: jetzt zaehlt die Achse als gestaffelt.
+    #[test]
+    fn staffelung_knapp_ueber_dem_schwellenwert_zaehlt_als_gestaffelt() {
+        let mut a = schirm(1, 0, 0, 1000, 1080);
+        a.dieses_fenster = true;
+        let b = schirm(2, 151, 0, 1000, 1080);
+        assert_eq!(satz(&[a, b]), Some("Du schaust auf Bildschirm 1 — links".to_string()));
     }
 }
