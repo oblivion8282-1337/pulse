@@ -52,16 +52,42 @@
 //! stillschweigend falsche Einheit ergaebe einen Klick am falschen Ort, genau
 //! der Fehler, gegen den dieses Vorhaben gebaut ist.
 //!
-//! **Offene Frage aus der Aufgabenstellung, geklaert per Protokolltext statt
-//! per Messung:** liefert EIN Datengeraet je Sitzplatz `enter` fuer MEHRERE
-//! eigene Flaechen (mehrere Player-Fenster derselben Fernsteuerungs-Sitzung,
-//! s. `CLAUDE.md` "Mehrere Bildschirme")? Diese Maschine hat keinen
-//! laufenden Compositor (s. Fundament-Modulkopf) — eine Messung mit zwei
-//! Flaechen war deshalb nicht moeglich, und ein Subagent, der sie anderswo
-//! haette fahren koennen, war fuer diese Aufgabe nicht erlaubt.
+//! **Offene Frage aus der Aufgabenstellung — GEMESSEN, nicht nur per
+//! Protokolltext gefolgert.** Liefert EIN Datengeraet je Sitzplatz `enter`
+//! fuer MEHRERE eigene Flaechen (mehrere Player-Fenster derselben
+//! Fernsteuerungs-Sitzung, s. `CLAUDE.md` "Mehrere Bildschirme")? Die erste
+//! Fassung dieses Modulkopfs hielt das fuer unbelegt (angeblich kein
+//! laufender Compositor auf dieser Maschine) — das war falsch: **`niri`
+//! laeuft hier** (`WAYLAND_DISPLAY=wayland-1`), nur eben nicht ueber die
+//! ueblichen Umgebungsvariablen einer interaktiven Sitzung sichtbar.
+//! Nachgemessen am 2026-08-24 mit einem eigenstaendigen Wegwerf-Programm
+//! (reines `wayland-client`, kein winit, in `/tmp` gebaut und nach der
+//! Messung geloescht): zwei echte `xdg_toplevel`-Fenster desselben Klienten
+//! (von `niri` automatisch nebeneinander gekachelt), EIN `wl_data_device`,
+//! Mausbewegung und -klick per `ydotool` synthetisiert. Beobachtete
+//! Ereignisfolge auf dem einen Datengeraet:
+//!
+//! ```text
+//! Enter { surface: A, x=454.6, y=180.0, id: None }
+//! Motion { x: 479.6 .. 1504.6, y: 180.0 }   (44 Schritte quer durch A)
+//! Leave
+//! Enter { surface: B, x=1.6, y=180.0, id: None }
+//! Drop
+//! Leave
+//! ```
+//!
+//! **Das EINE Datengeraet lieferte `Enter` fuer BEIDE eigenen Flaechen**,
+//! nacheinander, innerhalb desselben Zugs — die Frage ist damit positiv
+//! beantwortet, nicht nur plausibel gemacht. `zeiger_ueber` ist deshalb ganz
+//! bewusst generisch geblieben (s. u.): es nimmt jede vom Compositor
+//! gemeldete [`ObjectId`] entgegen, ohne sie gegen eine "erwartete" Flaeche
+//! zu pruefen. Nebenbefund derselben Messung: die zwei `wl_pointer` auf dem
+//! Sitzplatz meldeten denselben Druck mit identischer Seriennummer — dieselbe
+//! Zusage wie im Fundament, hier ein zweites Mal bestaetigt.
 //!
 //! Die im Auftrag angebotene Ausweich-Option — "je Fenster ein eigenes
-//! Datengeraet" — wurde geprueft und verworfen: `wl_data_device_manager.
+//! Datengeraet" — wurde VOR der Messung geprueft und verworfen, aus einem
+//! Grund, den die Messung nicht beruehrt: `wl_data_device_manager.
 //! get_data_device` nimmt nur einen SITZPLATZ entgegen, keine Flaeche: es
 //! gibt auf Protokollebene gar keinen Weg, ein Datengeraet an EIN Fenster zu
 //! binden. Und da [`super::Gastverbindung::aufbauen`] winits VORHANDENE
@@ -71,20 +97,6 @@
 //! Verbindung) — der Compositor kann sie nicht auseinanderhalten. Ein
 //! zweites Datengeraet auf demselben Sitzplatz haette die Mehrdeutigkeit
 //! also nicht aufgeloest, sondern hoechstens Ereignisse verdoppelt.
-//!
-//! Stattdessen spricht der Protokolltext selbst fuer die einfachere Annahme:
-//! `enter` heisst wortwoertlich "sent when an active drag-and-drop pointer
-//! enters **a surface owned by the client**" — nicht "die Flaeche, fuer die
-//! dieses Datengeraet angelegt wurde" (den Begriff gibt es nicht, s. oben).
-//! Dieselbe Formulierung gilt fuer `wl_pointer.enter`, und dass EIN
-//! `wl_pointer` Eintritt/Austritt fuer ALLE Flaechen eines Clients liefert
-//! (nicht nur eine), ist etablierte, im ganzen `winit`-Wayland-Backend
-//! vorausgesetzte Praxis. `zeiger_ueber` ist deshalb bewusst generisch
-//! gebaut: es nimmt JEDE vom Compositor gemeldete [`ObjectId`] entgegen, ohne
-//! sie gegen eine "erwartete" Flaeche zu pruefen — das kostet nichts und
-//! passt zu einem einzelnen wie zu mehreren eigenen Fenstern gleichermassen.
-//! **Diese Schlussfolgerung bleibt unbelegt** (kein Compositor-Lauf mit zwei
-//! Flaechen) — sie steht auf Protokolltext und Analogie, nicht auf Messung.
 
 use wayland_backend::sys::client::ObjectId;
 use wayland_client::protocol::wl_surface;
