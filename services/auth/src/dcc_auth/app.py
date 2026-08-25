@@ -47,8 +47,16 @@ from dcc_auth.routes_suspended_instances import router as suspended_instances_ro
 from dcc_auth.routes_totp import router as totp_router
 from dcc_auth.routes_webauthn import router as webauthn_router
 from dcc_auth.routes_webauthn_login import router as webauthn_login_router
+from dcc_shared.logging_setup import konfiguriere_logging
 
 log = logging.getLogger(__name__)
+
+# Sichtbarkeit der Meldungen festlegen, BEVOR irgendetwas loggt. Ohne diesen
+# Aufruf steht der Wurzel-Logger auf WARNING ohne Handler (uvicorn richtet nur
+# seine eigenen drei ein) — jedes `log.info` im Dienst waere unsichtbar.
+# Volle Begruendung samt Messung: dcc_shared/logging_setup.py
+konfiguriere_logging()
+
 
 
 @asynccontextmanager

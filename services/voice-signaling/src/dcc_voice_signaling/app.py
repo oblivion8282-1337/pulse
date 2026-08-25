@@ -12,8 +12,15 @@ from redis.asyncio import Redis
 
 from dcc_voice_signaling.config import get_settings
 from dcc_voice_signaling.routes import chat_gateway as _chat_gateway
+from dcc_shared.logging_setup import konfiguriere_logging
 
 log = structlog.get_logger(__name__)
+
+# Auch hier, obwohl dieser Dienst selbst structlog nutzt: drei seiner Module
+# (`routes/chat_gateway`, `routes/overrides_state`, `routes/livekit_client`)
+# loggen ueber die Standard-Bibliothek und waeren sonst stumm.
+konfiguriere_logging()
+
 
 
 def _livekit_api_host(settings) -> str:  # noqa: ANN001

@@ -45,6 +45,31 @@ async def test_issue_with_cookie_returns_cert(client):
 
 
 @pytest.mark.asyncio
+async def test_cert_traegt_keinen_admin_claim(client):
+    """Der Identitaets-Ausweis darf das Cloud-Admin-Flag NICHT mitfuehren.
+
+    Vom 2026-06-28 bis 2026-08-25 stand ``"admin": bool(user.is_admin)`` im
+    Cert-Payload — eingebaut als Fix gegen „der Self-Hoster ist kein Admin",
+    obwohl ihn nie jemand gelesen hat: ``_selfhost_payload`` im chat-gateway
+    reicht seit dem 2026-05-29 den ``admin``-Claim des SESSION-Tokens durch,
+    und der stammt aus dem Owner-Vergleich im Cert-Login.
+
+    Der Claim war damit ein No-Op, der einen gemeldeten Fehler faelschlich als
+    erledigt gelten liess — und eine offene Einladung: wer ihn wieder liest,
+    macht jeden Cloud-Admin zum Admin auf jedem fremden Self-Host.
+    """
+    cookie, _ = await _reg_and_login(client)
+    r = await _issue(client, cookie)
+    payload = pyjwt.decode(r.json()["cert"], options={"verify_signature": False})
+    assert "admin" not in payload, (
+        "Der Ausweis traegt wieder ein admin-Flag. Admin auf einem Self-Host "
+        "entsteht ausschliesslich in cert_login.is_owner_admin."
+    )
+    # Gegenprobe, dass der Test ueberhaupt am richtigen Objekt zieht.
+    assert payload["typ"] == "credential"
+
+
+@pytest.mark.asyncio
 async def test_issue_without_cookie_returns_401(client):
     r = await client.post("/credentials/issue", json={"device_pubkey": _PUBKEY, "device_label": "X"})
     assert r.status_code == 401

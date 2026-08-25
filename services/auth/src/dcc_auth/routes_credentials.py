@@ -308,13 +308,22 @@ def _sign_credential_jwt(user: User, cred: IssuedCredential, session_row: UserSe
         "pairwise_seed": base64.urlsafe_b64encode(user.pairwise_salt).rstrip(b"=").decode(),
         "amr": session_row.amr,
         "acr": session_row.acr,
-        # Self-Host-WS-Auth (``chat-gateway/routes/ws.py:104`` und
-        # ``security.py:308``) liest ``payload.get("admin", False)`` — ohne
-        # diesen Claim war der lokale ``is_admin`` IMMER False, auch wenn
-        # ``cert_login.is_owner_admin`` korrekt auf True stand. Cloud-Admins
-        # kriegen den Flag ebenfalls durchgereicht (semantisch dasselbe wie
-        # das ``is_admin`` in der ``users``-Tabelle).
-        "admin": bool(user.is_admin),
+        # HIER GEHOERT KEIN ``admin``-CLAIM HIN. Es stand einer drin
+        # (2026-06-28 bis 2026-08-25, ``bool(user.is_admin)``) mit der
+        # Begruendung, der Self-Host-WS-Auth lese ihn aus dem Cert und ohne ihn
+        # sei der lokale ``is_admin`` immer False. Das stimmte nie:
+        # ``_selfhost_payload`` in ``chat-gateway/security.py`` reicht seit dem
+        # 2026-05-29 — vier Wochen VOR jenem Commit — den ``admin``-Claim des
+        # SESSION-Tokens durch, und der stammt aus dem Owner-Vergleich im
+        # Cert-Login. Der Cert-Claim wurde von keiner Fassung je gelesen
+        # (``CertClaims`` hat kein solches Feld, und als Bearer-Token faellt ein
+        # Cert an ``typ != "access"``). Der Fix war ein No-Op und hat einen
+        # gemeldeten Fehler faelschlich als erledigt gelten lassen.
+        #
+        # Wer ihn wieder einbaut, macht JEDEN Cloud-Admin zum Admin auf JEDEM
+        # fremden Self-Host: ``user.is_admin`` ist das Plattform-Flag, nicht der
+        # Besitzer dieser Instanz. Admin auf einem Self-Host entsteht an genau
+        # einer Stelle — ``cert_login.is_owner_admin``.
         "iat": int(time.time()),
         "exp": int(expires_at.timestamp()),
     }
