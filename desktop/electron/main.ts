@@ -68,6 +68,7 @@ import { provision, deleteInstanceRegistration, fetchCloudStatus } from './serve
 import { runGiveUp } from './serverGiveUp';
 import { checkReachability } from './localBackend/reachability';
 import { mapMediaPorts } from './localBackend/portMapper';
+import { diagnostiziere } from './localBackend/netdiag';
 import { checkCredsSupersede } from './serverSupersede';
 
 /** Intervall für den periodischen Ablöse-Check (③c-Ergänzung) — 10 Min sind
@@ -1048,6 +1049,25 @@ function wirePlayer(): void {
 // (`mac-hq-sidecar/src/berechtigung.rs`), fragt aber niemals nach -- ein
 // Sidecar, der beim Gesundheitscheck ungefragt einen Systemdialog aufwirft,
 // waere eine Zumutung.
+// Netzdiagnose für einen Self-Host-Server. Der Renderer sieht jeden
+// Fehlschlag als denselben `TypeError: Failed to fetch` — Node kann die Kette
+// einzeln abgehen (netdiag.ts). Rein lesend: der Aufruf öffnet keinen Datenweg
+// und trifft keine Vertrauensentscheidung, er beschreibt nur, was er vorfindet.
+function wireNetdiag(): void {
+  ipcMain.handle('netdiag:check', async (_e, hostname: unknown) => {
+    if (typeof hostname !== 'string' || hostname.length > 255) return null;
+    // Nur die beiden Schemata, unter denen ein Pulse-Server überhaupt läuft.
+    // Ohne die Schranke wäre der Kanal ein Werkzeug, mit dem der Renderer den
+    // Hauptprozess zu beliebigen Verbindungen bewegt.
+    if (!/^https?:\/\//i.test(hostname)) return null;
+    try {
+      return await diagnostiziere(hostname);
+    } catch {
+      return null;
+    }
+  });
+}
+
 function wireAccessibility(): void {
   ipcMain.handle('accessibility:isTrusted', (_e, prompt: unknown) => {
     if (process.platform !== 'darwin') {
@@ -1413,6 +1433,7 @@ async function bootClient(): Promise<void> {
   wireSidecar();
   wirePlayer();
   wireAccessibility();
+  wireNetdiag();
   wireScreenShare();
   wireNotify(() => mainWindow);
   wirePower();

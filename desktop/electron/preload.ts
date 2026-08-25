@@ -423,6 +423,16 @@ contextBridge.exposeInMainWorld('pulse', {
       ipcRenderer.invoke('accessibility:isTrusted', prompt === true),
   },
 
+  // Netzdiagnose eines Self-Host-Servers. Der Renderer bekommt von Chromium
+  // fuer jeden Fehlschlag denselben `TypeError: Failed to fetch`; der
+  // Hauptprozess kann die Kette einzeln abgehen (Namensaufloesung, TCP, TLS,
+  // HTTP) und benennt den Schritt, an dem es klemmt. `null` heisst „keine
+  // Aussage" — nie „alles gut".
+  netdiag: {
+    check: (hostname: string): Promise<unknown[] | null> =>
+      ipcRenderer.invoke('netdiag:check', hostname),
+  },
+
   // Host-Lifecycle bridge (③a/③c) — steuert den lokalen Self-Host-Stack.
   // window.pulse.host.* ist der IPC-Kanal zwischen Renderer und HostLifecycle (main.ts).
   host: {

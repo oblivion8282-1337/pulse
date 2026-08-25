@@ -13,6 +13,37 @@
 import { compareVersions } from '$lib/utils/semver';
 import { normalizeHostname } from '$lib/utils/hostname';
 import { MIN_SERVER_VERSION } from './constants';
+import { deuteAbrufFehler } from './verbindungsbefund';
+
+/**
+ * Gegenprobe ohne CORS-Anspruch: antwortet unter dieser Adresse überhaupt
+ * etwas? `mode:'no-cors'` verlangt keine Header und liefert bei einem
+ * laufenden Server eine opaque Antwort — lesen lässt sie sich nicht, aber
+ * dass sie kam, ist die ganze Aussage.
+ *
+ * Bewusst gegen `/health` statt gegen das well-known: `/health` ist auf jedem
+ * Self-Host öffentlich (Caddyfile-Template) und antwortet auch dann noch, wenn
+ * Datenbank oder Redis liegen — es geht hier um das Netz, nicht um die
+ * Gesundheit. Ein einfacher GET, also kein Preflight.
+ */
+async function antwortetUeberhaupt(hostname: string, timeoutMs: number): Promise<boolean> {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  try {
+    await fetch(`${hostname}/health`, {
+      method: 'GET',
+      mode: 'no-cors',
+      credentials: 'omit',
+      cache: 'no-store',
+      signal: ac.signal,
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export type ServerInfo = {
   server_version: string;
@@ -71,10 +102,23 @@ export async function preCheckServer(
   } catch (err) {
     clearTimeout(timer);
     const msg = (err as Error)?.message ?? '';
-    // Browser maskiert echte CORS-Fehler als generic TypeError "Failed to
-    // fetch" — wir können sie nicht zuverlässig vom Network-Down trennen.
-    // Fallback: 'unreachable' deckt beide UX-mäßig sauber ab.
-    return { ok: false, reason: 'unreachable', details: msg };
+    // Der Browser maskiert einen CORS-Block als denselben generischen
+    // `TypeError: Failed to fetch` wie ein totes Netz — aus dem Fehler ALLEIN
+    // ist das nicht zu trennen. Trennbar ist es über eine Gegenprobe mit
+    // `mode:'no-cors'`: die verlangt keine Header und liefert bei einem
+    // laufenden Server eine (opaque) Antwort. Kommt die, steht der Server und
+    // es fehlen nur die Header — ein Befund, zu dem es eine andere Handlung
+    // gibt (Proxy-/CORS_ALLOW_ORIGINS-Konfiguration statt DNS/Firewall).
+    //
+    // Was die Gegenprobe NICHT trennt: ein ungültiges Zertifikat scheitert
+    // hier genauso wie ein totes Netz. Der Browser gibt dazu nichts her; die
+    // genaue Auskunft holt die Electron-Diagnose (`netdiag`), die den
+    // Handschlag selbst führen kann.
+    return {
+      ok: false,
+      reason: deuteAbrufFehler(await antwortetUeberhaupt(hostname, opts.timeoutMs ?? 8000)),
+      details: msg,
+    };
   }
   clearTimeout(timer);
 
