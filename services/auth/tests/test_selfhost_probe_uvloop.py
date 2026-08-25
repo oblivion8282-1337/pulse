@@ -33,8 +33,8 @@ import asyncio
 import inspect
 
 import uvloop
-
-from dcc_auth import selfhost_probe, selfhost_probe_dienst as dienst
+from dcc_auth import selfhost_probe
+from dcc_auth import selfhost_probe_dienst as dienst
 
 #: RFC 5737 TEST-NET-3 — garantiert nicht geroutet, antwortet nie. Der Aufruf
 #: endet entweder sofort mit OSError (keine Route) oder in der Frist; beides
