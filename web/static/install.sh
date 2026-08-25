@@ -225,10 +225,16 @@ decide_mode() {
     static-caddy|static-nginx)
       if [ -n "$PROXY_NET" ]; then MODE=static-docker; else MODE=hostproxy; fi ;;
     none)
-      # Haelt unser eigener laufender Container die Ports, ist das KEIN fremder
-      # Proxy — dann gilt der Modus aus der vorhandenen pulse.env, sonst
-      # greenfield.
-      if eigener_container_laeuft; then
+      # Veroeffentlicht unser eigener laufender Container 80/443 SELBST, ist
+      # das KEIN fremder Proxy, sondern der greenfield-Modus eines fruehreren
+      # Laufs — der Container haelt die Ports dann zurecht. Blosses "laeuft"
+      # reicht nicht: im hostproxy-Modus laeuft der Container ebenso, bindet
+      # aber nur Loopback (s. build_run_args) — 80/443 gehoeren dann einem
+      # host-nativen Reverse-Proxy, den `docker ps` gar nicht sieht. Ohne die
+      # Veroeffentlichungs-Pruefung wuerde genau dieser gueltige, gleichwertige
+      # Fall auf greenfield umgestellt und beim naechsten `docker run` die
+      # eigenen 80/443 gegen den fremden Proxy verlieren.
+      if eigener_container_laeuft && publishes_web_port "$CONTAINER"; then
         MODE=greenfield
       elif port_busy 80 || port_busy 443; then
         MODE=hostproxy
