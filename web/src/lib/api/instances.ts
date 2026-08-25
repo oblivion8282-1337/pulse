@@ -132,6 +132,23 @@ export interface RotateSecretResult {
   warning: string;
 }
 
+/** Ein Prüfschritt der Erreichbarkeitsprüfung (routes_selfhost_diagnose.py —
+ *  **mit den Befund-Schlüsseln in lib/diagnose/befunde.ts synchron halten**). */
+export interface DiagnoseSchritt {
+  schritt: string;
+  ok: boolean;
+  befund: string;
+  einzelheit: string | null;
+}
+
+/** Spiegelt DiagnoseAus. `gesamt` ist 'ok' oder der Name des ERSTEN Schritts,
+ *  der nicht sass — nicht des letzten: alles danach ist Folge, nicht Ursache. */
+export interface DiagnoseErgebnis {
+  hostname: string;
+  gesamt: string;
+  schritte: DiagnoseSchritt[];
+}
+
 /** Spiegelt BootstrapTokenOut — One-Time-Token für den Ein-Befehl-Installer. */
 export interface BootstrapToken {
   token: string;
@@ -220,6 +237,21 @@ export const instancesApi = {
     return cookieFetch<BootstrapToken>(`/me/instances/${instanceId}/bootstrap-token`, {
       method: 'POST',
       body: opts?.reset ? { reset: true } : undefined
+    });
+  },
+
+  /**
+   * Erreichbarkeitsprüfung von aussen: die Cloud geht die ganze Kette ab
+   * (DNS, TCP, Zertifikat, /health, Identität, CORS, WebSocket-Upgrade, UDP)
+   * und benennt das Glied, das fehlt. Das ist das Einzige, was der Server über
+   * sich selbst nicht sagen kann.
+   *
+   * Dauert bis zu 40 s (der Server deckelt), deshalb ein eigener Zeitrahmen im
+   * Aufrufer statt eines Spinners ins Blaue.
+   */
+  diagnose(instanceId: string): Promise<DiagnoseErgebnis> {
+    return cookieFetch<DiagnoseErgebnis>(`/selfhost/diagnose/${instanceId}`, {
+      method: 'POST'
     });
   },
 

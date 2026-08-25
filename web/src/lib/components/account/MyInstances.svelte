@@ -15,6 +15,7 @@
   import { removeServerLocally } from '$lib/api/server-removal';
   import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
   import InstanceSetupDialog from './InstanceSetupDialog.svelte';
+  import InstanceDiagnose from './InstanceDiagnose.svelte';
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
@@ -132,6 +133,13 @@
               {inst.status === 'active' ? m.my_instances_status_active() : m.my_instances_status_suspended()}
             </span>
           </div>
+          <!-- Ob der Server von draussen ankommt, kann er selbst nicht sagen —
+               und die Statusmarke oben sagt nur, ob die CLOUD ihn gesperrt hat.
+               Nur für VPS: ein App-Host hat keine eigene Adresse, gegen die
+               eine Prüfung von aussen etwas aussagen würde. -->
+          {#if inst.origin !== 'app_host'}
+            <InstanceDiagnose instanceId={inst.id} />
+          {/if}
           <div class="flex flex-wrap gap-2 mt-1">
             {#if inst.origin !== 'app_host'}
               <!-- Nur VPS: App-Hosts pairen über die Server-App, nicht über

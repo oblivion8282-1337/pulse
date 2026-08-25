@@ -83,6 +83,50 @@ port_busy() {
   fi
 }
 
+udp_port_busy() {
+  if command -v ss >/dev/null 2>&1; then
+    ss -Hlun "sport = :$1" 2>/dev/null | grep -q .
+  elif command -v netstat >/dev/null 2>&1; then
+    netstat -lun 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$1\$"
+  else
+    return 1
+  fi
+}
+
+# --- Alle Ports prüfen, die wir binden werden --------------------------- #
+#
+# Warum VOR dem Token-Einlösen: der Token ist einmalig und wird in Schritt 2
+# verbrannt, `docker run` läuft erst in Schritt 4. Ein belegter Port 3478 (ein
+# anderer coturn, gar nicht selten) liess das Script unter `set -e` sterben —
+# mit verbranntem Token und einer rohen Docker-Fehlermeldung. Zwei Sekunden
+# vorher war das erkennbar.
+#
+# Übersprungen bei einer Neuinstallation: dort hält der ALTE Pulse-Container
+# die Ports noch, und `docker run` bekommt sie, weil er vorher entfernt wird.
+# Ohne diese Ausnahme meldete das Script bei jedem zweiten Lauf einen Konflikt
+# mit sich selbst.
+check_ports() {
+  docker inspect "$CONTAINER" >/dev/null 2>&1 && return 0
+  local belegt=""
+  local p
+  case "$MODE" in
+    greenfield) for p in 80 443; do port_busy "$p" && belegt="${belegt} ${p}/tcp"; done ;;
+    hostproxy)  port_busy "$HTTP_PORT" && belegt="${belegt} ${HTTP_PORT}/tcp" ;;
+  esac
+  port_busy 3478 && belegt="${belegt} 3478/tcp"
+  port_busy 1936 && belegt="${belegt} 1936/tcp"
+  udp_port_busy 3478 && belegt="${belegt} 3478/udp"
+  udp_port_busy 8189 && belegt="${belegt} 8189/udp"
+  for p in $(seq 7882 7892); do
+    udp_port_busy "$p" && belegt="${belegt} ${p}/udp"
+  done
+  [ -z "$belegt" ] && return 0
+  die "These ports are already in use:${belegt}
+  Pulse needs them for voice and screen sharing. Free them (or stop whatever
+  is listening) and run this command again — your setup token is still valid,
+  nothing has been consumed yet."
+}
+
 # --- Helfer: erstes nicht-triviales Docker-Netz eines Containers --------- #
 first_user_network() {
   docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{"\n"}}{{end}}' "$1" 2>/dev/null \
@@ -383,6 +427,9 @@ if [ -n "$DRY_RUN" ]; then
   exit 0
 fi
 
+# 1b) Ports prüfen, solange der Token noch unverbraucht ist.
+check_ports
+
 # 2) Token einlösen (verbraucht ihn, rotiert das Secret).
 log "Redeeming bootstrap token at ${CLOUD_ORIGIN}…"
 RESP="$(curl -fsSL -X POST "${CLOUD_ORIGIN}/api/auth/selfhost/bootstrap" \
@@ -458,28 +505,83 @@ if [ -z "${PULSE_NO_AUTOUPDATE:-${PULSE_NO_WATCHTOWER:-}}" ]; then
   fi
 fi
 
-# 6) Health-Check.
-log "Waiting for startup (migrations + TLS, may take ~1 min)…"
-case "$MODE" in
-  hostproxy) HEALTH_URL="http://127.0.0.1:${HTTP_PORT}/api/chat/health" ;;
-  *)         HEALTH_URL="https://${SRV_HOST}/api/chat/health" ;;
-esac
-OK=""
+# 6) Startfortschritt verfolgen — mitlaufende Checkliste statt Stille.
+#
+# Gelesen wird der Fortschritt AUS DEM CONTAINER (`docker exec … cat
+# /data/setup-status`, geschrieben von cont-init-main.sh), nicht über HTTP.
+# Das ist der einzige Weg, der in jedem Modus funktioniert: im Modus
+# `greenfield` ist der externe HTTPS-Weg genau so lange tot, wie Caddy noch
+# kein Zertifikat hat — also genau während der Phase, über die man etwas
+# wissen will. Und im Modus `static-docker` gibt es überhaupt keinen Weg von
+# aussen, bevor der Betreiber die Route unten angelegt hat.
+schritt_text() {
+  case "$1" in
+    start)               echo "container started" ;;
+    10-check-cloud-creds) echo "configuration checked" ;;
+    01-init-data-dirs)   echo "data directory prepared" ;;
+    03-init-secrets)     echo "keys generated" ;;
+    02-init-postgres)    echo "database initialised" ;;
+    04-init-coturn)      echo "TURN configured" ;;
+    05-init-livekit)     echo "voice server configured" ;;
+    07-render-env)       echo "runtime configuration written" ;;
+    08-init-mediamtx)    echo "screen-share relay configured" ;;
+    09-init-caddy)       echo "web server configured" ;;
+    11-render-frpc)      echo "tunnel configured" ;;
+    06-run-migrations)   echo "database migrated" ;;
+    fertig)              echo "startup complete" ;;
+    *)                   echo "$1" ;;
+  esac
+}
+
+log "Starting up — this takes about a minute:"
+GESEHEN=0
+FERTIG=""
+ABBRUCH=""
 for _ in $(seq 1 60); do
-  if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then OK=1; break; fi
+  STATUS_ROH="$(docker exec "$CONTAINER" cat /data/setup-status 2>/dev/null || true)"
+  if [ -n "$STATUS_ROH" ]; then
+    ZEILEN="$(printf '%s\n' "$STATUS_ROH" | wc -l)"
+    if [ "$ZEILEN" -gt "$GESEHEN" ]; then
+      printf '%s\n' "$STATUS_ROH" | tail -n +$((GESEHEN + 1)) | while IFS="$(printf '\t')" read -r _t name zustand; do
+        [ -z "$name" ] && continue
+        if [ "$zustand" = "ok" ]; then
+          printf '    \033[1;32m+\033[0m %s\n' "$(schritt_text "$name")"
+        else
+          printf '    \033[1;31mx\033[0m %s — FAILED\n' "$(schritt_text "$name")"
+        fi
+      done
+      GESEHEN="$ZEILEN"
+    fi
+    printf '%s\n' "$STATUS_ROH" | grep -q "$(printf '\t')fertig$(printf '\t')ok" && { FERTIG=1; break; }
+    # Merker statt `exit` in der Regel: ein `exit` dort springt nach END,
+    # und dessen `exit` ueberschreibt den Status wieder — die Erkennung waere
+    # damit immer falsch.
+    printf '%s\n' "$STATUS_ROH" \
+      | awk -F"$(printf '\t')" '$3 != "" && $3 != "ok" { gefunden=1 } END { exit !gefunden }' \
+      && { ABBRUCH=1; break; }
+  fi
+  # Ein Container, der nicht mehr läuft, wird auch nicht mehr fertig.
+  if ! docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -q true; then
+    ABBRUCH=1; break
+  fi
   sleep 5
 done
 
 echo
-if [ -n "$OK" ]; then
-  log "Pulse is running → https://${SRV_HOST}"
-else
-  warn "Health check not green yet — the container may still be starting. Check:"
-  warn "  docker logs -f ${CONTAINER}"
-  [ "$MODE" = "greenfield" ] && warn "For 'greenfield': does the DNS A record for ${SRV_HOST} already point to this server? (Let's Encrypt needs it)" || true
+if [ -n "$ABBRUCH" ]; then
+  err "Startup aborted. The step marked FAILED above is where it stopped."
+  err "  docker logs ${CONTAINER} 2>&1 | tail -50"
+  exit 1
 fi
+[ -n "$FERTIG" ] || warn "Startup is taking longer than expected — check: docker logs -f ${CONTAINER}"
 
 # 7) Falls eine Route nötig ist, sie + den Reload-Befehl konkret ausgeben.
+#
+# BEVOR geprüft wird, nicht danach: im Modus `static-docker` hat der Container
+# keinen veröffentlichten Port, er ist also über https://<hostname> erst
+# erreichbar, NACHDEM diese Route steht. Früher stand die Prüfung davor und
+# lief zwangsläufig fünf Minuten ins Leere, bevor der Betreiber überhaupt
+# erfuhr, was er noch zu tun hat.
 if [ "$MODE" = "static-docker" ] || [ "$MODE" = "hostproxy" ]; then
   if [ "$MODE" = "static-docker" ]; then TARGET="${CONTAINER}:${HTTP_PORT}"; else TARGET="127.0.0.1:${HTTP_PORT}"; fi
   # Reload-Befehl nach erkanntem Proxy (bei dockerisiertem statischem Proxy
@@ -511,8 +613,64 @@ if [ "$MODE" = "static-docker" ] || [ "$MODE" = "hostproxy" ]; then
   Then reload the proxy:
       ${RELOAD_CMD}
   ----------------------------------------------------------------
+
 EOF
+  # Ohne die Route kann keine Prüfung von aussen gelingen — also erst fragen.
+  printf '  Press Enter once the route is in place (or Ctrl-C to check later)… '
+  # Mit Frist: ein unbeaufsichtigter Lauf mit Terminal haenge sonst fuer immer.
+  read -r -t 600 _ </dev/tty 2>/dev/null || true
+  echo
 fi
+
+# Bericht der Aussen-Pruefung. Eigene Variable, damit Python seine eigenen
+# Anfuehrungszeichen behalten darf (s. pruefung_von_aussen).
+PY_BERICHT='
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+for s in d.get("schritte", []):
+    mark = "\033[1;32m+\033[0m" if s.get("ok") else "\033[1;31mx\033[0m"
+    rest = s.get("einzelheit") or ""
+    if rest:
+        rest = " (" + str(rest) + ")"
+    print("    {0} {1}: {2}{3}".format(mark, s.get("schritt"), s.get("befund"), rest))
+print()
+if d.get("gesamt") == "ok":
+    print("  reachable from the internet")
+else:
+    print("  first problem: " + str(d.get("gesamt")))
+'
+
+# 8) Die Prüfung von aussen — das Einzige, was der Server über sich selbst
+# NICHT sagen kann. Die Cloud geht die ganze Kette ab (DNS, Zertifikat,
+# Routing, CORS, WebSocket-Upgrade, UDP) und benennt das Glied, das fehlt.
+pruefung_von_aussen() {
+  local antwort
+  antwort="$(curl -fsS -m 60 -X POST \
+    "${CLOUD_ORIGIN}/api/auth/selfhost/diagnose/${INSTANCE_ID}" \
+    -H "X-Pulse-Client-Id: ${CLIENT_ID}" \
+    -H "X-Pulse-Client-Secret: ${CLIENT_SECRET}" 2>/dev/null)" || return 1
+  [ -n "$antwort" ] || return 1
+  command -v python3 >/dev/null 2>&1 || { printf '%s\n' "$antwort"; return 0; }
+  # Der Code steht in einer Variablen statt direkt hinter `python3 -c '...'`:
+  # so bleiben einfache Anfuehrungszeichen in Python frei benutzbar. Frueher
+  # standen dort `\"`-Escapes in f-Ausdruecken — die erlaubt erst Python 3.12
+  # (PEP 701), und Debian 12 bringt 3.11 mit.
+  printf '%s' "$antwort" | python3 -c "$PY_BERICHT"
+}
+
+log "Checking from the outside (this is what your users will see):"
+if pruefung_von_aussen; then
+  :
+else
+  warn "Could not run the external check right now."
+  warn "Run it any time in the Pulse app: Settings → Self-Host → Check connection."
+fi
+
+echo
+log "Pulse should now be at https://${SRV_HOST}"
 
 # Kernel-UDP-Puffer: NUR ein Hinweis, ausdruecklich kein Eingriff.
 #
