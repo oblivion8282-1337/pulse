@@ -398,21 +398,134 @@ test('das Abtastfenster von container_laeuft_stabil bleibt bei 15s, nur feiner a
   // 'true'. Das Intervall schrumpft deshalb von 1s auf 0,2s, bei
   // entsprechend mehr Versuchen (75 statt 15) — das GESAMTFENSTER (die
   // Kulanzzeit für einen langsam startenden, gesunden Container) muss dabei
-  // exakt gleich bleiben. Ein Textvergleich statt eines echten 15-Sekunden-
-  // Laufs, aus demselben Grund, aus dem die anderen Tests VERSUCHE/INTERVALL
-  // per Env überschreiben: niemand soll für einen Konstanten-Check wirklich
-  // warten müssen.
+  // exakt gleich bleiben. Ein Rechen- statt eines Textvergleichs, aus
+  // demselben Grund, aus dem die anderen Tests VERSUCHE/INTERVALL per Env
+  // überschreiben: niemand soll für einen Konstanten-Check wirklich warten
+  // müssen.
+  //
+  // Befund 2 (Kleinkram-Audit): ein reiner Textvergleich auf '75' und '0.2'
+  // prüft die SCHREIBWEISE, nicht die Invariante dahinter — er bleibt grün,
+  // wenn jemand nur EINEN der beiden Werte ändert und dabei das Fenster
+  // verschiebt, und wird rot, wenn jemand beide Werte gleichwertig neu
+  // schreibt (z. B. 150 Versuche à 0,1s — dasselbe 15s-Fenster, anders
+  // aufgeteilt). Das ist genau falsch herum. Deshalb werden beide Zahlen aus
+  // dem Funktionstext gelesen und ihr PRODUKT gegen 15s geprüft.
   const quelle = readFileSync(SKRIPT, 'utf8');
   const funktionstext = funktion(quelle, 'container_laeuft_stabil');
 
-  assert.match(
-    funktionstext,
-    /PULSE_UPDATE_STABIL_VERSUCHE:-75\}/,
-    `Default-Versuche nicht bei 75 — Funktion: ${funktionstext}`
+  const versucheTreffer = funktionstext.match(/PULSE_UPDATE_STABIL_VERSUCHE:-(\d+(?:\.\d+)?)\}/);
+  const intervallTreffer = funktionstext.match(/PULSE_UPDATE_STABIL_INTERVALL:-(\d+(?:\.\d+)?)\}/);
+  assert.ok(versucheTreffer, `Default-Versuche nicht gefunden — Funktion: ${funktionstext}`);
+  assert.ok(intervallTreffer, `Default-Intervall nicht gefunden — Funktion: ${funktionstext}`);
+
+  const versuche = Number(versucheTreffer![1]);
+  const intervall = Number(intervallTreffer![1]);
+  const fenster = versuche * intervall;
+
+  assert.ok(
+    Math.abs(fenster - 15) < 1e-9,
+    `Versuche (${versuche}) × Intervall (${intervall}) = ${fenster}s, erwartet 15s Gesamtfenster`
   );
-  assert.match(
-    funktionstext,
-    /PULSE_UPDATE_STABIL_INTERVALL:-0\.2\}/,
-    `Default-Intervall nicht bei 0,2s — Funktion: ${funktionstext}`
+});
+
+/**
+ * Befund 3 (Kleinkram-Audit): der Kommentar über `container_laeuft_stabil()`
+ * behauptet, der erzeugte Updater laufe immer unter bash, nie unter
+ * `/bin/sh` — getragen von der Shebang-plus-execve-Kette (der Kernel liest
+ * die Shebang-Zeile eines über seinen ausführbaren Pfad gestarteten
+ * Skripts), nicht von der Abwesenheit eines expliziten `sh $UPDATE_SH`.
+ * Nichts im Repo band diese Behauptung bisher an Code — genau das Muster,
+ * das CLAUDE.md als Falle festhält: ein Kommentar, der aufzählt, was ein Weg
+ * TRÄGT, veraltet still, wenn sich der Weg ändert. Dieser Test nagelt die
+ * drei tragenden Tatsachen fest, geprüft an den ERZEUGTEN Artefakten (nicht
+ * am Quelltext von install.sh):
+ *   1. Zeile 1 des generierten Updaters ist '#!/usr/bin/env bash'.
+ *   2. Die 'ExecStart='-Zeile der systemd-Unit ruft den Pfad direkt auf.
+ *   3. Der Cron-Eintrag ebenso.
+ */
+test('der generierte Updater läuft ohne vorangestellte Shell — Shebang, ExecStart und Cron-Zeile', () => {
+  const quelle = readFileSync(SKRIPT, 'utf8');
+  const arbeitsdir = mkdtempSync(join(tmpdir(), 'pulse-updater-shell-'));
+  const pulseDir = join(arbeitsdir, 'pulse');
+  const updateSh = join(pulseDir, 'pulse-update.sh');
+  const sandboxEtc = join(arbeitsdir, 'etc-systemd-system');
+  mkdirSync(sandboxEtc, { recursive: true });
+  const crontabOut = join(arbeitsdir, 'crontab-out.txt');
+
+  // Derselbe Trick wie in install-anweisungen.test.ts: /etc/systemd/system/
+  // im Testharness auf ein Sandbox-Verzeichnis umbiegen — die echte Funktion
+  // läuft unverändert. Guard: schlägt die Ersetzung ins Leere (Skript
+  // umgebaut), muss der Test das melden statt eine leere Shell zu prüfen.
+  const originalTimerFn = funktion(quelle, 'install_update_timer');
+  const timerFn = originalTimerFn.split('/etc/systemd/system/').join(`${sandboxEtc}/`);
+  assert.notEqual(
+    timerFn,
+    originalTimerFn,
+    'kein /etc/systemd/system/-Pfad in install_update_timer gefunden — Skript umgebaut?'
+  );
+
+  writeFileSync(join(arbeitsdir, 'systemctl'), `#!/bin/bash\nexit 0\n`, { mode: 0o755 });
+  chmodSync(join(arbeitsdir, 'systemctl'), 0o755);
+  writeFileSync(
+    join(arbeitsdir, 'crontab'),
+    `#!/bin/bash
+case "$1" in
+  -l) exit 1 ;;
+  -) cat > "$CRONTAB_OUT"; exit 0 ;;
+esac
+`,
+    { mode: 0o755 }
+  );
+  chmodSync(join(arbeitsdir, 'crontab'), 0o755);
+
+  const skript = `
+set -euo pipefail
+PULSE_DIR="${pulseDir}"
+UPDATE_SH="${updateSh}"
+IMAGE="ghcr.io/beispiel/pulse-allinone:edge"
+CONTAINER="pulse"
+CLIENT_ID="dummy-client"
+CLIENT_SECRET="dummy-secret"
+RUN_ARGS=( -d --name "$CONTAINER" --restart unless-stopped "$IMAGE" )
+warn() { printf '__WARN__%s\\n' "$*"; }
+${funktion(quelle, 'write_update_script')}
+${timerFn}
+${funktion(quelle, 'install_update_cron')}
+write_update_script
+install_update_timer
+install_update_cron
+`;
+  execFileSync('bash', ['-c', skript], {
+    env: { ...process.env, PATH: `${arbeitsdir}:${process.env.PATH}`, CRONTAB_OUT: crontabOut },
+    encoding: 'utf8'
+  });
+
+  // 1) Shebang — am ERZEUGTEN Updater geprüft, nicht am Quelltext des Heredocs.
+  const ersteZeile = readFileSync(updateSh, 'utf8').split('\n')[0];
+  assert.equal(
+    ersteZeile,
+    '#!/usr/bin/env bash',
+    `Shebang des generierten Updaters: ${JSON.stringify(ersteZeile)}`
+  );
+
+  // 2) ExecStart ruft den nackten Pfad auf — kein 'bash '/'sh '-Präfix.
+  const unitInhalt = readFileSync(join(sandboxEtc, 'pulse-update.service'), 'utf8');
+  const execStartZeile = unitInhalt.split('\n').find((z) => z.startsWith('ExecStart='));
+  assert.ok(execStartZeile, `keine ExecStart=-Zeile gefunden:\n${unitInhalt}`);
+  assert.equal(
+    execStartZeile,
+    `ExecStart=${updateSh}`,
+    `ExecStart ruft nicht den nackten Pfad auf: ${JSON.stringify(execStartZeile)}`
+  );
+
+  // 3) Die Cron-Zeile ebenso — fünf Zeitfelder, dann der nackte Pfad.
+  const cronInhalt = readFileSync(crontabOut, 'utf8');
+  const cronZeile = cronInhalt.split('\n').find((z) => z.includes(updateSh));
+  assert.ok(cronZeile, `kein Cron-Eintrag für den Updater gefunden:\n${cronInhalt}`);
+  const felder = cronZeile!.trim().split(/\s+/);
+  assert.equal(
+    felder[5],
+    updateSh,
+    `Cron ruft nicht den nackten Pfad als sechstes Feld auf: ${JSON.stringify(cronZeile)}`
   );
 });
