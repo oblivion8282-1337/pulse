@@ -41,6 +41,7 @@ testpaths = [
     "services/voice-signaling/tests",
     "services/media-svc/tests",
     "services/mediamtx-auth-hook/tests",
+    "infra/self-host/tests",
 ]
 
 [dependency-groups]
