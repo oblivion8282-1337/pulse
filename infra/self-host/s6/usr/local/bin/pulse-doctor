@@ -95,8 +95,8 @@ else
     # Server, der noch nie erfolgreich hinausgekommen ist.
     rat "Ausgehendes HTTPS ist gesperrt. Hat dieser Server die Cloud noch nie"
     rat "erreicht, kann sich niemand per Zertifikat anmelden (401"
-    rat "cert_invalid) — eine schon geladene Schluesselliste gilt fuer einen"
-    rat "spaeteren Ausfall weiter. Sobald die Verbindung steht, heilt sich"
+    rat "cert_invalid) — eine schon geladene Schlüsselliste gilt für einen"
+    rat "späteren Ausfall weiter. Sobald die Verbindung steht, heilt sich"
     rat "das binnen Sekunden von selbst."
 fi
 
