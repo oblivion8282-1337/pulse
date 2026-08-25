@@ -129,7 +129,16 @@ interface Uebernahme {
  * `$CONTAINER` (Erstinstallation auf einer frischen Maschine) — `docker
  * inspect` scheitert dann komplett, kein Konflikt möglich, kein Abbruch.
  */
-function pruefeUebernahme(container: { image: string } | null): Uebernahme {
+function pruefeUebernahme(
+  container: { image: string } | null,
+  /**
+   * Das AKTUELL konfigurierte `$IMAGE` — normalerweise irrelevant für diese
+   * Tests, aber Fund 3 (Schlussprüfung) prüft genau das: `ist_unser_container`
+   * akzeptiert seit dort zusätzlich einen exakten Treffer gegen `$IMAGE`,
+   * nicht nur den `pulse-allinone`-Substring.
+   */
+  konfiguriertesImage = 'registry.howispulse.com/pulse-allinone:edge'
+): Uebernahme {
   const quelle = readFileSync(SKRIPT, 'utf8');
   const dir = mkdtempSync(join(tmpdir(), 'pulse-fremder-container-'));
 
@@ -161,6 +170,7 @@ esac
   const skript = `
 set -uo pipefail
 CONTAINER=pulse
+IMAGE="${konfiguriertesImage}"
 die() { printf '__DIE__%s\\n' "$*"; exit 9; }
 ${funktion(quelle, 'ist_unser_container')}
 ${funktion(quelle, 'pruefe_container_konflikt')}
@@ -292,8 +302,16 @@ JSON
   const skript = `
 set -uo pipefail
 CONTAINER=pulse
+IMAGE="registry.howispulse.com/pulse-allinone:edge"
 MODE=greenfield
 HTTP_PORT=8080
+# Der wörtliche Ausschnitt reicht seit Fund 4 (Schlussprüfung) über den
+# Dry-Run-Zweig UND pruefe_pulse_dir_schreibbar hinweg (beide liegen jetzt
+# zwischen pruefe_container_konflikt und der Token-Einlösung) — ohne diese
+# beiden Variablen bricht das Skript unter set -u an "\$DRY_RUN ist nicht
+# gesetzt" ab, lange bevor es überhaupt bei curl ankommt.
+PULSE_DIR="${join(dir, 'pulsedir')}"
+DRY_RUN=""
 CLOUD_ORIGIN=http://cloud.invalid
 TOKEN=testtoken
 log()  { :; }
@@ -306,6 +324,7 @@ ${funktion(quelle, 'eigener_container_laeuft')}
 ${funktion(quelle, 'ist_unser_container')}
 ${funktion(quelle, 'pruefe_container_konflikt')}
 ${funktion(quelle, 'check_ports')}
+${funktion(quelle, 'pruefe_pulse_dir_schreibbar')}
 ${funktion(quelle, 'jget')}
 ${bereich(quelle, 'check_ports', 'log "Instance: ${SRV_HOST} (ID ${INSTANCE_ID})"')}
 echo __UEBERLEBT__
@@ -355,6 +374,29 @@ test('ein eigenes Image an einem eigenen Spiegel wird trotz anderem Registry-Pfa
   // bleibt. Gegenprobe zum Substring-Kriterium.
   const ergebnis = pruefeUebernahme({ image: 'ghcr.io/eigenerfork/pulse-allinone:v2' });
   assert.equal(ergebnis.abgebrochen, false);
+});
+
+test('ein eigener Spiegel OHNE "pulse-allinone" im Namen wird erkannt, wenn er exakt dem konfigurierten IMAGE entspricht', () => {
+  // Fund 3 (Schlussprüfung): der Substring-Vergleich allein sperrt einen
+  // Betreiber aus, der PULSE_IMAGE auf einen komplett anders benannten
+  // Spiegel/Fork gesetzt hat (kein "pulse-allinone" im Repository-Namen) —
+  // sein eigener Container gälte unter demselben Containernamen für immer
+  // als fremd, und ein erneuter Lauf des Installers könnte nie wieder auf
+  // ihn zugreifen. Der zusätzliche exakte Vergleich mit dem AKTUELL
+  // konfigurierten IMAGE schliesst das.
+  const image = 'ghcr.io/eigenerfork/mein-server:v2';
+  const ergebnis = pruefeUebernahme({ image }, image);
+  assert.equal(ergebnis.abgebrochen, false);
+});
+
+test('ein anders benannter FREMDER Container (weder pulse-allinone noch passendes IMAGE) bleibt geschützt', () => {
+  // Gegenprobe — sonst bestünde der Test oben auch, wenn ist_unser_container
+  // nach der Erweiterung JEDEN Container akzeptierte.
+  const ergebnis = pruefeUebernahme(
+    { image: 'ghcr.io/eigenerfork/mein-server:v1' }, // andere Version als konfiguriert
+    'ghcr.io/eigenerfork/mein-server:v2'
+  );
+  assert.equal(ergebnis.abgebrochen, true);
 });
 
 test('keine Kollision, wenn noch gar kein Container existiert', () => {

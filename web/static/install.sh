@@ -133,6 +133,25 @@ check_ports() {
   nothing has been consumed yet."
 }
 
+# --- $PULSE_DIR muss beschreibbar sein — vor der Token-Einloesung -------- #
+#
+# `mkdir -p "$PULSE_DIR"` war bisher der ERSTE Dateisystemzugriff des ganzen
+# Laufs und lief NACH der Token-Einloesung (s. "3) Config schreiben" weiter
+# unten). Wer PULSE_DIR=/opt/pulse ohne Schreibrechte setzt, verbrannte den
+# Token trotzdem — eine rohe mkdir-Fehlermeldung unter set -e sagt nicht,
+# dass der Token weg ist, und ein neuer Versuch braucht einen kompletten
+# neuen Antrag (Single-Bootstrap pro Antrag, s. CLAUDE.md). Legt das
+# Verzeichnis hier bereits an (idempotent, kein Test-und-wieder-Löschen)
+# statt es nur zu prüfen — die spätere `mkdir -p` bei der Config wird damit
+# zu einem reinen No-op und bleibt dort trotzdem stehen, falls sich der
+# Ablauf dazwischen je trennt.
+pruefe_pulse_dir_schreibbar() {
+  mkdir -p "$PULSE_DIR" 2>/dev/null && [ -w "$PULSE_DIR" ] || die "Cannot create or write to '${PULSE_DIR}'.
+  Check the permissions on that path, or set PULSE_DIR=<a writable path> and
+  run this command again — your setup token is still valid, nothing has
+  been consumed yet."
+}
+
 # --- Helfer: alle Nutzer-Netze eines Containers, eines je Zeile ---------- #
 #
 # `|| true`, weil "kein Treffer" ein normaler Zustand ist (der Proxy haengt
@@ -195,15 +214,25 @@ eigener_container_laeuft() {
 # sondern der Grund, warum dieser Helfer existiert.
 #
 # Geprüft wird das Image, nicht der Name — der Name ist ja gerade die
-# Kollisionsquelle. Ein Substring-Vergleich auf `pulse-allinone` statt ein
-# exakter Vergleich mit `$IMAGE`: `PULSE_IMAGE` ist überschreibbar und ein
-# Betreiber mit eigenem Spiegel/Fork (eigene Registry, eigener Tag) soll den
-# Installer trotzdem benutzen können, solange der Repository-Name erhalten
-# bleibt. Ein Docker-LABEL wäre robuster (unabhängig vom Namen), existiert
-# im Image aber nicht — das einzuführen läge ausserhalb dieser Behebung.
+# Kollisionsquelle. ZWEI Wege gelten als "unser Container":
+#   1. Ein Substring-Vergleich auf `pulse-allinone` — `PULSE_IMAGE` ist
+#      überschreibbar und ein Betreiber mit eigenem Spiegel/Fork (eigene
+#      Registry, eigener Tag) soll den Installer trotzdem benutzen können,
+#      solange der Repository-Name erhalten bleibt.
+#   2. Ein exakter Vergleich mit dem AKTUELL konfigurierten `$IMAGE` (Fund 3,
+#      Schlussprüfung) — Weg 1 allein sperrt einen Betreiber aus, der
+#      `PULSE_IMAGE` auf einen anders benannten Spiegel/Fork gesetzt hat
+#      (kein `pulse-allinone` im Namen): sein eigener Container gälte dann
+#      unter demselben Containernamen für immer als fremd, und ein erneuter
+#      Lauf des Installers könnte nie wieder auf ihn zugreifen.
+# Ein Docker-LABEL wäre robuster (unabhängig von beidem), existiert im
+# Image aber nicht — das einzuführen läge ausserhalb dieser Behebung.
 ist_unser_container() {
-  case "$(docker inspect -f '{{.Config.Image}}' "$CONTAINER" 2>/dev/null)" in
+  local img
+  img="$(docker inspect -f '{{.Config.Image}}' "$CONTAINER" 2>/dev/null)"
+  case "$img" in
     *pulse-allinone*) return 0 ;;
+    "$IMAGE") return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -432,13 +461,21 @@ decide_mode() {
 
   case "$FORCE_TLS_MODE" in
     auto)
-      MODE=greenfield ;;
+      # PROXY_NET hier leeren, nicht nur MODE setzen: ein gleichzeitig
+      # gesetztes PULSE_NETWORK hat den Block darüber vielleicht schon
+      # gefüllt, aber greenfield hängt den Container an KEIN Netz
+      # (build_run_args kennt --network nur für discovery/static-docker).
+      # Bliebe PROXY_NET stehen, meldete print_plan weiterhin "network
+      # <name>", obwohl das Netz gerade verworfen wurde — ein Override, der
+      # still wirkungslos bleibt und trotzdem als wirksam gilt.
+      MODE=greenfield; PROXY_NET="" ;;
     provided)
       # `provided` teilt sich die Port-Topologie mit `auto` (Caddy bindet
       # 80/443 fuer die Site, nur ohne ACME, s. 09-init-caddy.sh) — MODE
       # kennt aber nur Netzwerk-/Port-Topologie, nicht die Cert-Herkunft.
       # Das eigentliche TLS_MODE=provided setzt build_run_args separat.
-      MODE=greenfield ;;
+      # PROXY_NET leeren aus demselben Grund wie bei `auto` oben.
+      MODE=greenfield; PROXY_NET="" ;;
     behind-proxy)
       # Nur der Loopback-Ersatz zaehlt als "noch unentschieden" — ein bereits
       # erkannter Proxy (discovery/static-docker) bleibt unangetastet, sonst
@@ -837,6 +874,21 @@ decide_mode
 build_run_args
 print_plan
 
+# 1b) Ports prüfen, solange der Token noch unverbraucht ist. VOR dem
+# Dry-Run-Ausstieg (Fund 4, Schlussprüfung): diese Prüfung liest nur und
+# verbraucht nichts, und der Vorschau-Modus ist gerade der, in dem ein
+# Betreiber einen Konflikt sehen will — vorher meldete ein Dry-Run auf einer
+# Maschine mit belegtem Port trotzdem einen grünen Plan.
+check_ports
+
+# 1c) Denselben Grund wie 1b, ebenfalls VOR dem Dry-Run-Ausstieg: lieber
+# jetzt scheitern als nach dem Verbrauch. Die Freigabe ist Single-Bootstrap
+# pro Antrag (s. CLAUDE.md) — ein hier unentdeckter Fremdkonflikt kostet
+# nicht nur einen neuen Tokenlauf, sondern einen kompletten neuen Antrag samt
+# erneuter Freigabe durch den Cloud-Betreiber. Ersetzt NICHT die gleiche
+# Prüfung in `sichere_container_ersetzung` weiter unten (s. Begründung dort).
+pruefe_container_konflikt "Your setup token is still valid — nothing has been consumed yet."
+
 if [ -n "$DRY_RUN" ]; then
   echo
   log "DRY RUN — nothing changed, no token consumed."
@@ -845,16 +897,12 @@ if [ -n "$DRY_RUN" ]; then
   exit 0
 fi
 
-# 1b) Ports prüfen, solange der Token noch unverbraucht ist.
-check_ports
-
-# 1c) Denselben Grund wie 1b: lieber jetzt scheitern als nach dem Verbrauch.
-# Die Freigabe ist Single-Bootstrap pro Antrag (s. CLAUDE.md) — ein hier
-# unentdeckter Fremdkonflikt kostet nicht nur einen neuen Tokenlauf, sondern
-# einen kompletten neuen Antrag samt erneuter Freigabe durch den
-# Cloud-Betreiber. Ersetzt NICHT die gleiche Prüfung in
-# `sichere_container_ersetzung` weiter unten (s. Begründung dort).
-pruefe_container_konflikt "Your setup token is still valid — nothing has been consumed yet."
+# 1d) $PULSE_DIR muss beschreibbar sein, ebenfalls vor der Token-Einlösung —
+# NACH dem Dry-Run-Ausstieg (anders als 1b/1c): ein Dry-Run verspricht
+# "nothing changed", und diese Prüfung legt das Verzeichnis tatsächlich an
+# (s. Begründung bei der Funktion), das wäre in einem Dry-Run ein echter,
+# wenn auch harmloser Seiteneffekt.
+pruefe_pulse_dir_schreibbar
 
 # 2) Token einlösen (verbraucht ihn, rotiert das Secret).
 log "Redeeming bootstrap token at ${CLOUD_ORIGIN}…"
