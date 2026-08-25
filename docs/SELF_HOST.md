@@ -112,12 +112,18 @@ bleiben.
 ### 4. Prüfen und einloggen
 
 ```bash
-curl https://chat.firma.de/health   # {"status":"ok"}
-docker compose logs -f              # Start verfolgen
+curl https://chat.firma.de/health         # {"status":"ok"}
+curl https://chat.firma.de/health/setup   # wie weit der Erststart kam
+docker exec pulse pulse-doctor            # Rundum-Prüfung von innen
 ```
 
 Dann auf [howispulse.com](https://howispulse.com) → **Server hinzufügen** →
 deinen Hostname eintragen. Als Owner wirst du automatisch Admin der Instanz.
+
+Danach einmal **Einstellungen → Self-Host → Meine Instanzen → „Verbindung
+prüfen"**: das ist die Prüfung von aussen, und sie sieht die Dinge, die von
+innen unsichtbar bleiben — allen voran einen Reverse-Proxy, der WebSockets
+nicht durchreicht (dann funktioniert alles ausser dem Chat selbst).
 
 > Rufst du deine Server-Domain direkt im Browser auf, siehst du eine **leere
 > Seite** — das ist Absicht. Ein Self-Host hat keine eigene Login-/Anmeldeseite;
@@ -160,6 +166,34 @@ docker compose exec pulse pg_dump -U pulse pulse > backup-$(date +%Y%m%d).sql
 
 ## Troubleshooting
 
+### Zuerst: die beiden Werkzeuge
+
+**Von aussen** — in der App unter **Einstellungen → Self-Host → Meine
+Instanzen → „Verbindung prüfen"**. Die Cloud geht die ganze Kette ab (Name,
+Port, Zertifikat, Weiterleitung, Browser-Freigabe, Live-Verbindung, die Ports
+für Ton und Bild) und nennt das Glied, das fehlt. Das ist das Einzige, was ein
+Server über sich selbst nicht sagen kann.
+
+**Von innen** — auf dem Server:
+
+```bash
+docker exec pulse pulse-doctor
+```
+
+Trennt drei Richtungen: laufen die Dienste, erreicht der Container die Cloud,
+ist der eigene Name ansprechbar. Innen grün und aussen rot heisst DNS,
+Firewall oder Proxy — nicht der Server.
+
+> Der Selbstaufruf über den eigenen Namen wird als **unklar** gemeldet und
+> nicht als Fehler: etliche Router können den eigenen öffentlichen Namen von
+> innen nicht auflösen (fehlendes Hairpin-NAT). Entschieden wird das nur von
+> aussen.
+
+Wie weit der Erststart gekommen ist, steht ausserdem unter
+`https://<hostname>/health/setup` (öffentlich, nur Phasennamen).
+
+### Die häufigsten Fälle
+
 **Caddy startet nicht / kein Zertifikat.** Fast immer: DNS-A-Record zeigt noch
 nicht auf die richtige IP, oder Port 80 ist durch eine vorgelagerte Firewall
 gesperrt. DNS und Firewall prüfen, dann `docker compose restart`.
@@ -172,12 +206,26 @@ docker compose logs pulse 2>&1 | grep -i "caddy\|tls\|acme"
 (`db` = Postgres, `redis` = Redis, `jwks` = Cloud nicht erreichbar, `disk` =
 unter 20 % frei). `docker compose logs pulse | tail -50` zeigt die Ursache.
 
-**Chat geht, Voice nicht.** Die UDP-Ports (3478, 7882–7892) sind nicht offen —
-Voice läuft am HTTP-Proxy vorbei direkt zum Container.
+**Alles sieht gut aus, aber der Chat bleibt leer.** Der Reverse-Proxy davor
+reicht WebSocket-Verbindungen nicht durch — die häufigste Falle überhaupt, und
+die einzige, die man mit `curl` nicht sieht: `/health`, das Hinzufügen des
+Servers und das Anmelden funktionieren alle. Bei nginx fehlen die
+`Upgrade`-Kopfzeilen, beim Nginx Proxy Manager der Haken „WebSockets Support".
+Die Prüfung von aussen meldet das als **Live-Verbindung**.
 
-**WS-Verbindungen schlagen fehl.** Der Server erreicht die Cloud nicht
-(`curl https://howispulse.com/.well-known/jwks.json` testen) — ausgehendes HTTPS
-muss funktionieren.
+**Chat geht, Voice nicht.** Die UDP-Ports (3478, 7882–7892) sind nicht offen —
+Voice läuft am HTTP-Proxy vorbei direkt zum Container. Die Prüfung von aussen
+meldet das als **Sprachverbindung (UDP)**.
+
+**Anmelden schlägt fehl, der Server läuft aber.** Der Server erreicht die
+Cloud nicht (`curl https://howispulse.com/.well-known/jwks.json` auf dem
+Server testen) — ausgehendes HTTPS muss funktionieren. Ohne die JWKS lehnt der
+Gateway jede Verbindung ab, und von aussen sieht das aus, als wäre er kaputt.
+
+**Der Installer bricht mit „ports already in use" ab.** Ein anderer Dienst
+hält einen der Ports, die Pulse für Ton und Bild braucht. Der Abbruch kommt
+absichtlich, BEVOR der Einrichtungs-Token verbraucht wird — der Befehl bleibt
+also gültig, sobald der Port frei ist.
 
 ---
 

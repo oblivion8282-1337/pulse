@@ -136,6 +136,44 @@ run manually, or wrapped in a host cron/systemd timer (replicating the
 installer's approach: `docker pull` → digest diff → recreate). End-user docs:
 `docs/SELF_HOST.md` → "Was passiert bei Updates".
 
+## Diagnose
+
+Drei Auskünfte, absichtlich getrennt — sie beantworten verschiedene Fragen:
+
+| Werkzeug | Frage | Auth |
+|---|---|---|
+| `GET /health` | Läuft der Dienst? (Docker-Healthcheck) | keine |
+| `GET /health/setup` | Wie weit ist der **Erststart** gekommen? | keine |
+| `docker exec pulse pulse-doctor` | Was ist von **innen** sichtbar? | Shell-Zugriff |
+| „Verbindung prüfen" in der App | Kommt jemand von **aussen** an? | Besitzer |
+
+`/health/setup` liest `/data/setup-status`, das `cont-init-main.sh` zeilenweise
+mitschreibt (`<epoche>\t<name>\t<ok|fehler>`). Die Instrumentierung sitzt in
+der **einen** Datei, die die Startskripte der Reihe nach ruft — nicht in den
+Skripten selbst; neue Schritte sind damit von allein erfasst. Zeilenformat statt
+JSON, weil JSON aus der Shell heisst, jedes Anführungszeichen von Hand zu
+behandeln, und ein kaputter Status wäre schlimmer als gar keiner.
+
+Ob Caddy sein Zertifikat hat, wird am **Zertifikatsvorrat** abgelesen
+(`/data/caddy/caddy/certificates/*/<host>/<host>.crt`), nicht am Log: ein
+Log-Scraper müsste Caddys Ausgabeformat kennen und bräche bei jedem
+Versionswechsel still.
+
+`pulse-doctor` trennt drei Richtungen — innen, hinaus (erreicht der Container
+die Cloud?), herein (ist der eigene Name ansprechbar?). Innen grün und aussen
+rot heisst DNS, Firewall oder Proxy. Der Selbstaufruf über den eigenen Namen
+wird ausdrücklich als **unklar** gemeldet und nicht als Fehler: etliche Router
+können den eigenen öffentlichen Namen von innen nicht auflösen (fehlendes
+Hairpin-NAT), und das als Fehler zu verkaufen schickte den Betreiber auf die
+Suche nach einem Problem, das es womöglich gar nicht gibt.
+
+Die Prüfung von **aussen** (`POST /selfhost/diagnose/{id}` in der Cloud,
+`services/auth/src/dcc_auth/selfhost_probe*.py`) ist das Einzige, was ein
+Server über sich selbst nicht sagen kann. Sie sieht insbesondere den
+Reverse-Proxy, der WebSockets nicht durchreicht — dabei funktionieren
+`/health`, das Hinzufügen des Servers und das Anmelden alle, und erst der Chat
+bleibt leer.
+
 ## Architecture
 
 s6-overlay v3 (s6-rc.d):
