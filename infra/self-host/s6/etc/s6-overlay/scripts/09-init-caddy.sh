@@ -40,7 +40,15 @@ if [[ "$TLS_MODE" == "provided" ]]; then
     # Caddy liest `tls /pfad/cert.pem /pfad/key.pem` als explizites Cert.
     TLS_LINE="    tls ${CERT} ${KEY}"
     # Einfügen nach der Zeile '{$PULSE_HOSTNAME} {'
-    sed -i "/{\\$PULSE_HOSTNAME} {/a\\\\n${TLS_LINE}" "$TARGET"
+    # Escaping als Zeichenklasse [\$] (wie im behind-proxy-Zweig unten) — ein
+    # einzelner Backslash vor $PULSE_HOSTNAME wurde von bash zum WERT expandiert,
+    # der Treffer schlug dadurch still fehl (sed-Exit 0, Datei unverändert).
+    sed -i "/{[\$]PULSE_HOSTNAME} {/a\\
+${TLS_LINE}" "$TARGET"
+    if ! grep -qF "$CERT" "$TARGET"; then
+        echo "[07-init-caddy] FEHLER: TLS-Zeile konnte nicht eingefügt werden." >&2
+        exit 1
+    fi
     echo "[07-init-caddy] Verwende bereitgestelltes Cert: ${CERT}"
 elif [[ "$TLS_MODE" == "behind-proxy" ]]; then
     # Site-Adresse Hostname → ":PORT" umschreiben. Eine reine Port-Site ist in
