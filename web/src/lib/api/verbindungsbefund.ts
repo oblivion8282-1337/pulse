@@ -38,7 +38,8 @@ const SCHLIESSCODE = {
    *  Ausgang: der Gateway hat geantwortet, also steht die ganze Kette. */
   TOKEN_ABGELEHNT: 4001,
   SERVER_ZU_ALT: 4044,
-  /** Der Gateway hat seine JWKS noch nicht — er erreicht die Cloud nicht. */
+  /** Der Gateway hat seine JWKS noch nicht — der Dienst nebenan (auth-svc,
+   *  im selben Container) antwortet noch nicht darauf. */
   JWKS_KALT: 4046,
   /** Instanz von der Cloud gesperrt oder gelöscht. */
   INSTANZ_GESPERRT: 4070,
@@ -61,8 +62,10 @@ export type Verbindungsbefund =
   /** Der Upgrade kam durch, aber es antwortete kein Pulse-Gateway: der Proxy
    *  hat die Verbindung selbst beendet oder zeigt ins Leere. */
   | 'kein-gateway'
-  /** Der Server läuft, erreicht aber die Cloud nicht (JWKS kalt) — ausgehendes
-   *  HTTPS ist bei IHM zu, nicht eingehendes bei uns. */
+  /** Der Server läuft, aber seine JWKS sind kalt: der Dienst nebenan
+   *  (auth-svc, im selben Container) hat noch nicht geantwortet. Nach
+   *  aussen ist die Kette hier bereits vollständig bewiesen — DNS, TCP,
+   *  TLS, Proxy, CORS und das WS-Upgrade sind alle durch. */
   | 'server-ohne-cloud'
   /** Die Instanz ist in der Cloud gesperrt oder gelöscht. */
   | 'server-gesperrt'

@@ -155,9 +155,10 @@ async def pruefe_websocket(host: str, adresse: str, port: int) -> Schritt:
 
     Der Gateway ruft ``accept()`` VOR der Token-Prüfung (``routes/ws.py``) —
     ein Aufruf mit Wegwerf-Token bekommt deshalb einen sauberen Schliesscode
-    zurück, und der trennt: 4001 = die ganze Kette steht · 4046 = der Server
-    erreicht die Cloud nicht · 4070 = Instanz gesperrt · kein 101 = der Proxy
-    reicht WebSockets nicht durch (die häufigste Falle beim Self-Hosten).
+    zurück, und der trennt: 4001 = die ganze Kette steht · 4046 = der Dienst
+    nebenan (auth-svc, ``AUTH_JWKS_URL``) antwortet noch nicht · 4070 =
+    Instanz gesperrt · kein 101 = der Proxy reicht WebSockets nicht durch
+    (die häufigste Falle beim Self-Hosten).
 
     Von Hand statt mit einer Bibliothek, weil der Dienst keine WebSocket-
     Abhängigkeit hat und ein Handschlag plus ein Close-Rahmen zusammen weniger
