@@ -316,3 +316,15 @@ def test_ungueltiger_containername_faellt_auf_pulse_zurueck(roh) -> None:
 @pytest.mark.parametrize("roh", ["pulse", "mein-server", "pulse_2", "a", "Server.1"])
 def test_gueltiger_containername_bleibt_erhalten(roh: str) -> None:
     assert dt.container_name(roh) == roh
+
+
+def test_eingebettetes_zeilenende_wird_nicht_durchgelassen() -> None:
+    """``$`` passt in Python auch VOR einem abschließenden Zeilenende — mit
+    ``.match()`` ließe "pulse\\n" den Anker unbemerkt passieren, und die
+    Funktion gibt dabei ``roh`` UNVERÄNDERT zurück (nicht nur den
+    getroffenen Teil), also mit dem Newline im Ergebnis. Die zweite
+    Zusicherung ist die schärfere: fällt "mein-server\\n" auf die Vorgabe
+    "pulse" zurück, ist das eindeutig eine Ablehnung — nicht zufällig
+    dieselbe Zeichenkette wie ein abgeschnittener Treffer."""
+    assert dt.container_name("pulse\n") == "pulse"
+    assert dt.container_name("mein-server\n") == "pulse"
