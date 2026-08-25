@@ -119,14 +119,18 @@ set -uo pipefail
 CONTAINER=pulse
 FORCE_TLS_MODE=""
 FORCE_NETWORK=""
-${funktion(quelle, 'first_user_network')}
+${funktion(quelle, 'proxy_netze')}
 ${funktion(quelle, 'publishes_web_port')}
 ${funktion(quelle, 'detect_proxy')}
 ${funktion(quelle, 'eigener_container_laeuft')}
 ${funktion(quelle, 'decide_mode')}
 port_busy() { ${konfig.portBelegt ? 'return 0' : 'return 1'}; }
+# Vereinfachte Fassung von _set_proxy: dieser Test prueft greenfield/hostproxy
+# ueber den eigenen Container, nicht die Mehrdeutigkeits-Pruefung — die hat
+# ihre eigenen Tests in install-proxy-erkennung.test.ts. Das gefaelschte
+# docker liefert hier ohnehin nie mehr als eine Zeile.
 PROXY_KIND=none; PROXY_CONTAINER=""; PROXY_NET=""
-_set_proxy() { PROXY_CONTAINER="$1"; PROXY_KIND="$2"; PROXY_NET="$(first_user_network "$1")"; }
+_set_proxy() { PROXY_CONTAINER="$1"; PROXY_KIND="$2"; PROXY_NET="$(proxy_netze "$1")"; }
 decide_mode
 echo "$MODE"
 `;

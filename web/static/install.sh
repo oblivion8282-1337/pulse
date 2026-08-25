@@ -133,10 +133,15 @@ check_ports() {
   nothing has been consumed yet."
 }
 
-# --- Helfer: erstes nicht-triviales Docker-Netz eines Containers --------- #
-first_user_network() {
+# --- Helfer: alle Nutzer-Netze eines Containers, eines je Zeile ---------- #
+#
+# `|| true`, weil "kein Treffer" ein normaler Zustand ist (der Proxy haengt
+# nur im Default-Bridge-Netz) und `grep`s Exit 1 unter `pipefail` sonst den
+# ganzen Lauf beendet — samt der Warnung in `decide_mode`, die genau fuer
+# diesen Fall geschrieben wurde und deshalb nie erscheinen konnte.
+proxy_netze() {
   docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{"\n"}}{{end}}' "$1" 2>/dev/null \
-    | grep -vE '^(host|none|bridge|)$' | head -1
+    | grep -vE '^(host|none|bridge)$' | grep -v '^$' || true
 }
 
 # --- Helfer: veroeffentlicht dieser Container 80 oder 443 nach aussen? --- #
@@ -238,7 +243,34 @@ detect_traefik_certresolver() {
 # Setzt: PROXY_KIND (none|caddy-docker-proxy|traefik|nginx-proxy|static-caddy|
 #        static-nginx), PROXY_CONTAINER, PROXY_NET
 PROXY_KIND=none; PROXY_CONTAINER=""; PROXY_NET=""
-_set_proxy() { PROXY_CONTAINER="$1"; PROXY_KIND="$2"; PROXY_NET="$(first_user_network "$1")"; }
+# PULSE_NETWORK ist ein harter Override (s. Kopf) und gewinnt bedingungslos —
+# auch VOR jeder Mehrdeutigkeits-Pruefung. `decide_mode` wendet ihn am Ende
+# zwar ohnehin nochmal an (fuer den Fall, dass ueberhaupt kein Proxy erkannt
+# wurde), aber die MODE-Wahl direkt nach `detect_proxy` braucht schon HIER
+# ein nicht-leeres PROXY_NET: sonst faellt ein erkannter Proxy in mehreren
+# Netzen trotz gesetztem PULSE_NETWORK zunaechst auf den Loopback-Modus
+# zurueck, und der spaetere Override kommt zu spaet, um das MODE noch zu
+# reparieren — der Admin liefe nach der Abbruch-Meldung unten in eine
+# Sackgasse.
+_set_proxy() {
+  PROXY_CONTAINER="$1"; PROXY_KIND="$2"
+  if [ -n "$FORCE_NETWORK" ]; then
+    PROXY_NET="$FORCE_NETWORK"
+    return
+  fi
+  local netze
+  netze="$(proxy_netze "$1")"
+  if [ -n "$netze" ] && [ "$(printf '%s\n' "$netze" | grep -c .)" -gt 1 ]; then
+    die "Proxy '${PROXY_CONTAINER}' is attached to more than one Docker network:
+$(printf '%s\n' "$netze" | sed 's/^/    - /')
+  Picking one automatically would be a guess — on a real machine, that guess
+  once put Pulse into a different project's network. Nothing has been
+  consumed yet; this check runs before the setup token is redeemed.
+  Set PULSE_NETWORK=<name> to the one Pulse should join and run this command
+  again."
+  fi
+  PROXY_NET="$netze"
+}
 
 detect_proxy() {
   local name image
