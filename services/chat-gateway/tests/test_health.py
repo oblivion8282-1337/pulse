@@ -185,3 +185,104 @@ async def test_health_probe_ok(client):
         assert "instance_mode" in body
     finally:
         cfg.get_settings = original  # type: ignore[assignment]
+
+
+# ---------------------------------------------------------------------------
+# GET /health/setup — Erststart-Fortschritt
+# ---------------------------------------------------------------------------
+#
+# Warum es diese Tests gibt: der Endpunkt IST die Auskunft, die es vorher nur
+# im `docker logs` gab. Sein teuerster Fehlausgang ist nicht „ungenau", sondern
+# „meldet fertig, obwohl abgebrochen" — dann sucht der Betreiber den Fehler
+# überall ausser dort, wo er ist.
+
+
+def _statusdatei(tmp_path, zeilen: str):
+    """Legt eine Statusdatei an und richtet die Modul-Konstanten darauf aus."""
+    import dcc_chat_gateway.routes.health as h
+
+    pfad = tmp_path / "setup-status"
+    pfad.write_text(zeilen, encoding="utf-8")
+    return h, str(pfad)
+
+
+async def test_setup_ohne_statusdatei_ist_unbekannt(client, monkeypatch, tmp_path):
+    import dcc_chat_gateway.routes.health as h
+
+    monkeypatch.setattr(h, "_SETUP_STATUS", str(tmp_path / "gibtsnicht"))
+    monkeypatch.setattr(h, "_DATA_DIR", str(tmp_path))
+    r = await client.get("/health/setup")
+    assert r.status_code == 200
+    # „fertig" wäre hier eine Behauptung — ein Container von vor dieser Version
+    # oder einer ohne beschreibbares /data sieht genauso aus.
+    assert r.json()["stand"] == "unbekannt"
+
+
+async def test_setup_meldet_fehler_auch_wenn_spaeter_ok_kaeme(client, monkeypatch, tmp_path):
+    h, pfad = _statusdatei(
+        tmp_path,
+        "1000\tstart\tok\n1001\t02-init-postgres\tfehler\n1002\tfertig\tok\n",
+    )
+    monkeypatch.setattr(h, "_SETUP_STATUS", pfad)
+    monkeypatch.setattr(h, "_DATA_DIR", str(tmp_path))
+    r = await client.get("/health/setup")
+    # Ein einziger Fehlschlag schlägt jede spätere Erfolgsmeldung. Sonst
+    # verdeckte eine „fertig"-Zeile den Abbruch davor.
+    assert r.json()["stand"] == "fehler"
+    assert [p["name"] for p in r.json()["phasen"]] == [
+        "start",
+        "02-init-postgres",
+        "fertig",
+    ]
+
+
+async def test_setup_laeuft_solange_fertig_fehlt(client, monkeypatch, tmp_path):
+    h, pfad = _statusdatei(tmp_path, "1000\tstart\tok\n1001\t03-init-secrets\tok\n")
+    monkeypatch.setattr(h, "_SETUP_STATUS", pfad)
+    monkeypatch.setattr(h, "_DATA_DIR", str(tmp_path))
+    assert (await client.get("/health/setup")).json()["stand"] == "laeuft"
+
+
+async def test_setup_fertig(client, monkeypatch, tmp_path):
+    h, pfad = _statusdatei(tmp_path, "1000\tstart\tok\n1002\tfertig\tok\n")
+    monkeypatch.setattr(h, "_SETUP_STATUS", pfad)
+    monkeypatch.setattr(h, "_DATA_DIR", str(tmp_path))
+    assert (await client.get("/health/setup")).json()["stand"] == "fertig"
+
+
+async def test_setup_ueberspringt_kaputte_zeilen(client, monkeypatch, tmp_path):
+    # Halbgeschriebene Zeilen entstehen, wenn der Container mitten im Start
+    # abgeräumt wird. Sie dürfen den Endpunkt nicht umbringen — sonst gäbe es
+    # genau dann keine Auskunft, wenn man sie am dringendsten braucht.
+    h, pfad = _statusdatei(
+        tmp_path,
+        "1000\tstart\tok\nmuell\n\t\t\nkeine-zahl\tx\tok\n1002\tfertig\tok\n",
+    )
+    monkeypatch.setattr(h, "_SETUP_STATUS", pfad)
+    monkeypatch.setattr(h, "_DATA_DIR", str(tmp_path))
+    r = await client.get("/health/setup")
+    assert r.status_code == 200
+    assert [p["name"] for p in r.json()["phasen"]] == ["start", "fertig"]
+    assert r.json()["stand"] == "fertig"
+
+
+async def test_setup_zertifikat_nur_im_auto_modus(client, monkeypatch, tmp_path):
+    import dcc_chat_gateway.routes.health as h
+
+    monkeypatch.setattr(h, "_SETUP_STATUS", str(tmp_path / "nix"))
+    monkeypatch.setattr(h, "_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("PULSE_HOSTNAME", "chat.firma.de")
+
+    monkeypatch.setenv("PULSE_TLS_MODE", "behind-proxy")
+    assert (await client.get("/health/setup")).json()["zertifikat"] == "nicht_zutreffend"
+
+    monkeypatch.setenv("PULSE_TLS_MODE", "auto")
+    assert (await client.get("/health/setup")).json()["zertifikat"] == "fehlt"
+
+    # Caddy legt es unter <data>/caddy/caddy/certificates/<aussteller>/<host>/.
+    # Das Aussteller-Verzeichnis wird bewusst NICHT festgeschrieben — es wechselt
+    # mit dem Aussteller.
+    ordner = tmp_path / "caddy" / "caddy" / "certificates" / "irgendein-aussteller" / "chat.firma.de"
+    ordner.mkdir(parents=True)
+    (ordner / "chat.firma.de.crt").write_text("x", encoding="utf-8")
+    assert (await client.get("/health/setup")).json()["zertifikat"] == "vorhanden"

@@ -8,6 +8,10 @@ GET /health — öffentlich, kein Auth.
     503 nur bei echter Degradation (DB/Redis weg).
     Kein User-Bezug, kein Privacy-Leak — safe für externen Monitoring.
 
+GET /health/setup — öffentlich, kein Auth.
+    Wie weit ist der Erststart gekommen (cont-init-Phasen + Zertifikat)?
+    Für den Installer, der sonst fünf Minuten stumm wartet.
+
 GET /internal/health-probe — JWT-validiert (purpose=health-probe).
     Für Cloud-Health-Probe nach Update-Webhook (DE 10c).
     Detailliertes JSON: version, services, last_migration, jwks_status, disk_usage.
@@ -17,6 +21,7 @@ GET /internal/health-probe — JWT-validiert (purpose=health-probe).
 from __future__ import annotations
 
 import asyncio
+import glob
 import hmac
 import logging
 import os
@@ -195,5 +200,101 @@ async def health_probe(
             },
             "disk_usage": disk,
             "disk_warning": _disk_warning(disk),
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /health/setup — öffentlich, wie /health
+# ---------------------------------------------------------------------------
+
+#: Die Phasen schreibt ``cont-init-main.sh`` zeilenweise mit — JSON aus der
+#: Shell zu bauen hiesse, jedes Anführungszeichen von Hand zu behandeln, und ein
+#: kaputter Status wäre schlimmer als gar keiner.
+_SETUP_STATUS = os.path.join(_DATA_DIR, "setup-status")
+
+
+def _lies_phasen(pfad: str) -> list[dict[str, object]]:
+    """``<epoche>\\t<name>\\t<ok|fehler>`` je Zeile. Kaputte Zeilen fallen weg."""
+    try:
+        with open(pfad, encoding="utf-8") as f:
+            roh = f.read()
+    except OSError:
+        return []
+    phasen: list[dict[str, object]] = []
+    for zeile in roh.splitlines():
+        teile = zeile.split("\t")
+        if len(teile) != 3:
+            continue
+        try:
+            zeitpunkt = int(teile[0])
+        except ValueError:
+            continue
+        phasen.append({"name": teile[1], "ok": teile[2] == "ok", "t": zeitpunkt})
+    return phasen
+
+
+def _zertifikat_da(datenpfad: str, hostname: str) -> bool:
+    """Hat Caddy ein Zertifikat für diesen Namen geholt?
+
+    Gelesen wird der Zertifikatsvorrat, NICHT das Log. Ein Log-Scraper müsste
+    Caddys Ausgabeformat kennen und bräche bei jedem Versionswechsel still; die
+    Datei dagegen ist die Tatsache selbst. Das Aussteller-Verzeichnis dazwischen
+    (``acme-v02.api.letsencrypt.org-directory``) wechselt mit dem Aussteller und
+    wird deshalb nicht festgeschrieben.
+    """
+    if not hostname:
+        return False
+    wurzel = os.path.join(datenpfad, "caddy", "caddy", "certificates")
+    return any(
+        glob.glob(os.path.join(wurzel, muster, hostname, f"{hostname}.crt"))
+        for muster in ("*", "*/*")
+    )
+
+
+@router.get("/health/setup")
+async def health_setup() -> JSONResponse:
+    """Wie weit ist der Erststart gekommen?
+
+    Öffentlich wie ``/health`` und aus demselben Grund: der Installer muss das
+    lesen können, BEVOR es irgendwelche Zugangsdaten gibt — genau in den ersten
+    Minuten, in denen sonst nur ein stummer Fortschrittsbalken läuft. Preis-
+    gegeben wird nur, welche Startschritte durchliefen; keine Namen, keine
+    Pfade, keine Geheimnisse.
+    """
+    settings = chat_cfg.get_settings()
+    phasen = _lies_phasen(_SETUP_STATUS)
+    namen = {str(p["name"]) for p in phasen}
+
+    if any(not p["ok"] for p in phasen):
+        stand = "fehler"
+    elif "fertig" in namen:
+        stand = "fertig"
+    elif phasen:
+        stand = "laeuft"
+    else:
+        # Kein Statusfile: entweder ein Container von vor dieser Version oder
+        # einer, der /data nicht beschreiben konnte. „unbekannt" ist die
+        # ehrliche Antwort — „fertig" wäre eine Behauptung.
+        stand = "unbekannt"
+
+    tls_modus = os.environ.get("PULSE_TLS_MODE", "auto")
+    hostname = os.environ.get("PULSE_HOSTNAME", "")
+    if tls_modus == "auto":
+        # Ohne Zertifikat ist der Server über HTTPS nicht ansprechbar, ganz
+        # gleich wie gesund er innen ist. Fast immer dahinter: der DNS-Eintrag
+        # stand beim Start noch nicht, oder Port 80 ist zu.
+        zertifikat = "vorhanden" if _zertifikat_da(_DATA_DIR, hostname) else "fehlt"
+    else:
+        zertifikat = "nicht_zutreffend"
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "stand": stand,
+            "phasen": phasen,
+            "tls_modus": tls_modus,
+            "zertifikat": zertifikat,
+            "instance_mode": settings.pulse_instance_mode,
         },
     )
