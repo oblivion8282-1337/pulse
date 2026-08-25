@@ -191,9 +191,12 @@ async def pruefe_websocket(host: str, adresse: str, port: int) -> Schritt:
                 schreiber.write(anfrage)
                 await schreiber.drain()
                 kopf = await leser.readuntil(b"\r\n\r\n")
-                if b" 101 " not in kopf.split(b"\r\n", 1)[0]:
-                    status = kopf.split(b"\r\n", 1)[0].decode(errors="replace")
-                    return Schritt("websocket", False, "kein_upgrade", status)
+                statuszeile = kopf.split(b"\r\n", 1)[0]
+                if b" 101 " not in statuszeile:
+                    return Schritt(
+                        "websocket", False, "kein_upgrade",
+                        statuszeile.decode(errors="replace"),
+                    )
                 code = await _lies_schliesscode(leser)
             finally:
                 await _schliesse(schreiber)
@@ -220,24 +223,24 @@ async def _lies_schliesscode(leser: asyncio.StreamReader) -> int | None:
     Server-Rahmen sind unmaskiert, und ein Close trägt seinen Code als zwei
     Byte in Netz-Reihenfolge. Mehr vom Protokoll wird hier nicht gebraucht.
     """
-    try:
-        kopf = await leser.readexactly(2)
-    except (asyncio.IncompleteReadError, OSError):
-        return None
-    opcode = kopf[0] & 0x0F
-    laenge = kopf[1] & 0x7F
-    if opcode != 0x8 or laenge < 2:
-        return None
-    if laenge == 126:
+
+    async def lies(n: int) -> bytes | None:
         try:
-            await leser.readexactly(2)
+            return await leser.readexactly(n)
         except (asyncio.IncompleteReadError, OSError):
             return None
-    try:
-        nutz = await leser.readexactly(2)
-    except (asyncio.IncompleteReadError, OSError):
+
+    kopf = await lies(2)
+    if kopf is None:
         return None
-    return int.from_bytes(nutz, "big")
+    # Steuer-Rahmen tragen ihre Länge immer in den unteren sieben Bit (RFC 6455
+    # §5.5: höchstens 125 Byte, nie fragmentiert) — die erweiterten Längenfelder
+    # kann ein Close-Rahmen gar nicht haben, also gibt es hier auch nichts zu
+    # überspringen.
+    if (kopf[0] & 0x0F) != 0x8 or (kopf[1] & 0x7F) < 2:
+        return None
+    nutz = await lies(2)
+    return None if nutz is None else int.from_bytes(nutz, "big")
 
 
 # ---------------------------------------------------------------------------

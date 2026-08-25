@@ -113,7 +113,12 @@ push_source() {
   # „mkdir … failed". Über die wiederverwendete Verbindung kostet das nichts.
   ssh_run "mkdir -p '$DIR/src'"
   if have rsync; then
-    rsync -az --delete --rsh="ssh ${SSH_OPTS[*]}" "${RSYNC_EXCLUDES[@]}" \
+    # --no-perms/-o/-g: das Ziel gehört je nach Nutzer einer anderen UID
+    # (michael oder der externe Mobile-Entwickler), und chmod/chown darf nur
+    # der Eigentümer. Die Rechte am Ziel regelt die gemeinsame Gruppe mit
+    # setgid auf den Verzeichnissen (siehe infra/dev-remote/README.md).
+    rsync -az --delete --no-perms --no-owner --no-group \
+      --rsh="ssh ${SSH_OPTS[*]}" "${RSYNC_EXCLUDES[@]}" \
       -R "${PATHS[@]}" "$HOST:$DIR/src/"
   else
     tar czf - "${TAR_EXCLUDES[@]}" "${PATHS[@]}" | ssh_run "tar xzf - -C '$DIR/src'"

@@ -165,6 +165,46 @@ pnpm dev:sync
 cd ~/pulse-test && docker compose up -d
 ```
 
+## Zugang für externe Entwickler (z. B. Mobile) — User `devmob`
+
+Seit 2026-08-25 gibt es einen zweiten, bewusst eingeschränkten Zugang für
+Mitarbeiter, die Backend-Änderungen auf dem Remote-Dev-Stack testen müssen,
+ohne sonstigen Zugriff auf den Server (dort laufen Prod-Stack und fremde
+Projekte):
+
+- **Linux-User `devmob`** — kein sudo, keine Docker-Gruppe, kein Shell-Zugang.
+- Sein SSH-Schlüssel erzwingt ein **zweistufiges Gateway**
+  (`/usr/local/bin/pulse-dev-gateway.sh` → `pulse-dev-inner.sh`): jede
+  Anfrage wird gegen eine Whitelist geprüft, die exakt die Befehle von
+  `dev:sync`/`dev:remote` erlaubt — rsync/tar in `src/` und `web-build/`,
+  `docker compose up migrate-*`, `restart <5 Dienste>`,
+  `logs -f --tail=50 <5 Dienste>`. Alles andere wird abgelehnt und in
+  `~/pulse-dev-gateway.log` (User michael) protokolliert.
+- Ausgeführt wird **alles als `michael`** (die innere Stufe) — so gehört der
+  Code-Baum einem Eigentümer und rsync darf chmod/utime setzen.
+- **Der Mitarbeiter bemerkt davon nichts**: bei ihm läuft unverändert
+  `pnpm dev:remote` + `pnpm dev:sync`, nur mit anderem SSH-Ziel. Seine
+  `~/.ssh/config`:
+  ```
+  Host pulse-devmob
+    HostName 77.42.71.166
+    User devmob
+    IdentityFile ~/.ssh/pulse-dev-mitarbeiter   # der ausgehändigte Key
+    IdentitiesOnly yes
+  ```
+  und dann `PULSE_DEV_HOST=pulse-devmob pnpm dev:sync` bzw. in der Shell
+  vorher `export PULSE_DEV_HOST=pulse-devmob`.
+- **Wichtig:** die Befehle dürfen nicht abgewandelt werden (z. B. anderes
+  `--tail`) — die Whitelist ist exakt. Wer eigene Remote-Befehle braucht,
+  muss die Whitelist in `pulse-dev-inner.sh` erweitern (Root-Zugang nötig).
+- **Grenze:** Wer Backend-Code syncen kann, besitzt damit den Dev-Stack
+  (sein Code läuft dort) — inkl. der Dev-DB-Zugangsdaten in den
+  Container-Umgebungen. Das Gateway schützt den *Rest des Servers*, nicht
+  den Dev-Stack vor dem Entwickler.
+- **Key sperren:** Zeile in `/home/devmob/.ssh/authorized_keys` löschen
+  (Root). Der zugehörige private Schlüssel liegt beim Herausgeber
+  (`~/.ssh/pulse-dev-mitarbeiter`).
+
 ## Rückfall
 
 Es geht nichts verloren: die Images sind unverändert, der Datenbestand liegt
