@@ -16,6 +16,7 @@
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import { settings } from '$lib/stores/settings.svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import ChevronUpIcon from '@lucide/svelte/icons/chevron-up';
@@ -24,7 +25,21 @@
 
   let { channel }: { channel: Channel } = $props();
 
-  let collapsed = $derived(settings.appearance.streamParticipantsCollapsed);
+  // Mobil startet der Streifen ZUGEKLAPPT: der Stream soll den Bildschirm
+  // füllen, die Teilnehmerzahl steht trotzdem da. Einmal klappen gilt nur für
+  // diese Ansicht (lokale Entscheidung), am Rechner bleibt der persistierte
+  // Einstellungs-Wert die Vorgabe und wird weiter in die Einstellungen
+  // geschrieben.
+  let lokalZu = $state<boolean | null>(null);
+  let collapsed = $derived.by(() => {
+    if (lokalZu !== null) return lokalZu;
+    return settings.appearance.streamParticipantsCollapsed || viewport.istHandy;
+  });
+  function umschalten(): void {
+    const next = !collapsed;
+    lokalZu = next;
+    if (!viewport.istHandy) settings.setStreamParticipantsCollapsed(next);
+  }
   let toggleLabel = $derived(
     collapsed
       ? m.stream_grid_participants_expand_aria()
@@ -87,7 +102,7 @@
   ></span>
 {/snippet}
 
-<div class="flex shrink-0 items-center gap-1 px-1" data-testid="voice-participants-row">
+<div class="flex min-w-0 shrink-0 items-center gap-1 px-1" data-testid="voice-participants-row">
   <div class="relative min-w-0 flex-1">
     <div
       bind:this={stripEl}
@@ -103,7 +118,12 @@
         </span>
       {:else}
         {#each voice.participants as p (p.identity)}
-          <VoiceParticipantTile {p} channelId={channel.id} guildId={channel.guild_id} />
+          <!-- shrink-0: die Kacheln behalten ihre Breite und die Reihe lässt
+               sich WAAGERECHT WISCHEN — ohne würden sie gestaucht, statt zu
+               überlaufen. -->
+          <div class="shrink-0">
+            <VoiceParticipantTile {p} channelId={channel.id} guildId={channel.guild_id} />
+          </div>
         {/each}
       {/if}
     </div>
@@ -118,7 +138,7 @@
     variant="ghost"
     size="icon"
     class="shrink-0"
-    onclick={() => settings.setStreamParticipantsCollapsed(!collapsed)}
+    onclick={umschalten}
     aria-expanded={!collapsed}
     aria-label={toggleLabel}
     title={toggleLabel}

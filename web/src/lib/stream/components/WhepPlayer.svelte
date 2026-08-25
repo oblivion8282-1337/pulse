@@ -19,6 +19,7 @@
 -->
 <script lang="ts">
   import { m } from '$lib/paraglide/messages.js';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import { formatDiagnostic } from '../whep-stats';
   import { hqStreams, type ManagedHqStream } from '../hqStreamManager.svelte';
   import { acquireWakeLock } from '$lib/platform/wakeLock';
@@ -233,8 +234,8 @@
   // Der Schieber schreibt weiter auf `mgr` — dort haengt die Persistenz je
   // Streamer und der angezeigte Wert. Gibt das Fenster den Ton aus, ist `mgr`
   // stummgeschaltet (`nativeAudio`), also muss der Wert zusaetzlich dorthin.
-  function handleVolume(e: Event) {
-    const v = Number((e.currentTarget as HTMLInputElement).value);
+  function handleVolume(e: Event | number) {
+    const v = typeof e === 'number' ? e : Number((e.currentTarget as HTMLInputElement).value);
     mgr?.setVolume(v);
     native.session?.setVolume(v);
   }
@@ -390,12 +391,15 @@
            Messwerte und der Weg zurueck zum Fenster stehen im Panel. -->
       <NativeWindowPanel session={native.session} />
     {:else}
+      <!-- IMMER das ganze Bild (contain) — Beschneiden ist keine Option. Mobil
+           ohne schwarzen Grund: behält das Bild ein anderes Seitenformat, geht
+           der Rand im Panel-Ton auf statt als harte Balken. -->
       <!-- svelte-ignore a11y_media_has_caption -->
       <video
         bind:this={videoEl}
         autoplay
         playsinline
-        class="h-full w-full bg-black object-contain"
+        class="h-full w-full {viewport.isMobile ? 'object-contain' : 'bg-black object-contain'}"
       ></video>
     {/if}
   {/snippet}

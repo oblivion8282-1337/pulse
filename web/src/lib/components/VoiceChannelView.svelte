@@ -196,7 +196,17 @@
 />
 
 <section class="glass-panel slide-rein relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl" data-testid="voice-channel-view">
-  <header class="flex h-14 items-center gap-2.5 px-3 md:px-5">
+  <!-- Mobil verschwindet die Kopfzeile, sobald ein Stream läuft: der Bildschirm
+       gehört dann dem Video, Navigation übernimmt die Bereichs-Leiste unten.
+       Zurück bleibt der Kopf für den Normalzustand (Kacheln, nicht verbunden). -->
+  <header
+    class="flex h-14 items-center gap-2.5 px-3 md:px-5 {viewport.istHandy &&
+    streamViewOpen &&
+    isThisChannel &&
+    (voice.connected || voice.connecting)
+      ? 'hidden'
+      : ''}"
+  >
     <!-- Mobil: Zurück in die Räume — die Vollbild-Ansicht hat sonst keinen
          Ausgang, nachdem man aufgelegt hat (Detail-Screens ohne Leiste). -->
     <Button
@@ -219,16 +229,18 @@
          und nicht zwei Bruchstücke hintereinander in derselben Zeile hängen. -->
     <ChannelHeading name={channel.name} topic={channel.topic} meta={statusLabel} />
     <div class="ml-auto flex items-center gap-1">
-      <Button
-        variant="ghost"
-        size="icon"
-        class="max-md:hidden"
-        onclick={toggleMemberList}
-        aria-label={m.voice_channel_view_toggle_member_list_aria()}
-        data-testid="member-list-toggle"
-      >
-        <UsersIcon class="text-text-muted size-4" />
-      </Button>
+      {#if !viewport.istHandy}
+        <Button
+          variant="ghost"
+          size="icon"
+          class="max-md:hidden"
+          onclick={toggleMemberList}
+          aria-label={m.voice_channel_view_toggle_member_list_aria()}
+          data-testid="member-list-toggle"
+        >
+          <UsersIcon class="text-text-muted size-4" />
+        </Button>
+      {/if}
     </div>
   </header>
 
@@ -246,7 +258,10 @@
   {/if}
 
   <div class="relative flex min-h-0 flex-1">
-   <div class="flex min-h-0 flex-1 flex-col">
+   <!-- min-w-0: ohne es bläht der ausgeklappte Teilnehmer-Streifen diese
+        Spalte (und mit ihr den Stream) über den Bildschirm auf — rechts
+        wurden Stream-Rand und Schließen-X abgeschnitten. -->
+   <div class="flex min-h-0 min-w-0 flex-1 flex-col">
     {#if isThisChannel && (voice.connected || voice.connecting)}
     {#if voice.participants.length === 0}
       <div class="flex flex-1 flex-col items-center justify-center gap-4 p-3">
@@ -305,7 +320,7 @@
 
     <!-- Rechter Slot inline (md+) — nur Mitgliederliste. Stream- und Watch-
          Chats leben jetzt INNERHALB des jeweiligen Stream-Tiles. -->
-    {#if !viewport.isMobile && memberListOpen}
+    {#if !viewport.istHandy && memberListOpen}
       <MemberList guildId={channel.guild_id} />
     {/if}
   </div>

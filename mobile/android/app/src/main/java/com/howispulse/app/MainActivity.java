@@ -2,6 +2,7 @@ package com.howispulse.app;
 
 import android.Manifest;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -49,9 +50,13 @@ public class MainActivity extends BridgeActivity {
         // MUSS vor super.onCreate registriert werden, damit die Bridge das Plugin
         // kennt, bevor die WebView lädt (Capacitor-Konvention).
         registerPlugin(AudioRoutePlugin.class);
+        registerPlugin(OrientationLockPlugin.class);
         super.onCreate(savedInstanceState);
         speakerRouter = new SpeakerphoneRouter(this, this, ContextCompat.getMainExecutor(this));
         speakerRouter.start();
+        // Querformat nur mit Stream (s. OrientationLockPlugin): Start immer
+        // hochkant — das Web gibt die Sperre frei, sobald ein Stream läuft.
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT);
     }
 
     /** Vom {@link AudioRoutePlugin} genutzt, damit der UI-Umschalter und das

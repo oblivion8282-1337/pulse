@@ -11,6 +11,9 @@
 -->
 <script lang="ts">
   import VoiceParticipantStrip from './VoiceParticipantStrip.svelte';
+  import VoiceParticipantTile from './VoiceParticipantTile.svelte';
+  import UsersIcon from '@lucide/svelte/icons/users';
+  import { m } from '$lib/paraglide/messages.js';
   import { voice } from '$lib/voice/livekit.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
@@ -27,6 +30,11 @@
   import type { Channel } from '$lib/api/types';
 
   let { channel }: { channel: Channel } = $props();
+
+  // Handy quer mit Stream: keine Leisten, kein Streifen — der Nutzer-Knopf
+  // oben rechts trägt die Teilnehmer (mit Stumm-/Streaming-Status). Hochkant
+  // und am Rechner bleibt der Streifen unter dem Stream.
+  let nutzerOffen = $state(false);
 
   // What the viewer has actually opened, in this channel, per kind.
   // Detached tiles are excluded — they're showing in a separate window.
@@ -144,16 +152,18 @@
   // `grid-cols-*`, so we set it as a style binding instead.
   let gridStyle = $derived.by(() => {
     // Mobile: always 1 column; multiple tiles share the height (auto-rows-fr).
-    if (viewport.isMobile) return 'grid-template-columns: minmax(0, 1fr);';
+    if (viewport.istHandy) return 'grid-template-columns: minmax(0, 1fr);';
     const cols =
       videoTileCount <= 1 ? 1 : videoTileCount <= 4 ? 2 : videoTileCount <= 9 ? 3 : 4;
     return `grid-template-columns: repeat(${cols}, minmax(0, 1fr));`;
   });
 </script>
 
-<div class="relative flex min-h-0 flex-1 flex-col gap-2 p-2 md:p-3" data-testid="stream-area">
+<!-- Mobil randlos (p-0, gap-0): das Video füllt den Bildschirm, Kantenrundung
+     und Rand macht TileShell mobil ebenfalls weg. Ab md wie bisher mit Polster. -->
+<div class="relative flex min-h-0 min-w-0 flex-1 flex-col gap-0 p-0 md:gap-2 md:p-3" data-testid="stream-area">
   <div
-    class="grid min-h-0 flex-1 auto-rows-fr gap-2"
+    class="grid min-h-0 flex-1 auto-rows-fr gap-0 md:gap-2"
     style={gridStyle}
     data-testid="stream-grid"
   >
@@ -194,5 +204,33 @@
     {/each}
   </div>
 
-  <VoiceParticipantStrip {channel} />
+  {#if viewport.istHandy && !viewport.isMobile}
+    <button
+      type="button"
+      class="border-border bg-bg-panel/90 absolute top-2 right-2 z-30 flex h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold text-white shadow-lg backdrop-blur-sm"
+      onclick={() => (nutzerOffen = !nutzerOffen)}
+      aria-expanded={nutzerOffen}
+      aria-label={m.voice_channel_view_toggle_member_list_aria()}
+      data-testid="stream-participants-toggle"
+    >
+      <UsersIcon class="size-4" />
+      {voice.participants.length}
+    </button>
+    {#if nutzerOffen}
+      <div
+        class="border-border bg-bg-panel/95 absolute top-12 right-2 z-30 flex max-h-[75%] w-56 flex-col gap-1 overflow-y-auto rounded-2xl border p-2 shadow-xl backdrop-blur-md"
+        data-testid="stream-participants-list"
+        role="dialog"
+        aria-label={m.voice_channel_view_toggle_member_list_aria()}
+      >
+        {#each voice.participants as p (p.identity)}
+          <div class="rounded-xl px-1 py-0.5">
+            <VoiceParticipantTile {p} channelId={channel.id} guildId={channel.guild_id} />
+          </div>
+        {/each}
+      </div>
+    {/if}
+  {:else}
+    <VoiceParticipantStrip {channel} />
+  {/if}
 </div>

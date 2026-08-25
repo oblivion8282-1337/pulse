@@ -45,6 +45,8 @@
   import MobileTabBar from '$lib/components/mobile/MobileTabBar.svelte';
   import TabletNavRail from '$lib/components/mobile/TabletNavRail.svelte';
   import { istDetailScreen } from '$lib/navigation/tabs';
+  import { openedTiles } from '$lib/stream/openedTiles.svelte';
+  import { orientierungSperren } from '$lib/platform/orientation';
   import { page } from '$app/state';
   import UpdateBanner from '$lib/components/server/UpdateBanner.svelte';
   import SelfHostDisclaimer from '$lib/components/server/SelfHostDisclaimer.svelte';
@@ -315,10 +317,40 @@
   // Auf einem Detail-Bildschirm (offenes Gespraech, Kanal, Einstellungsseite)
   // verschwindet die Leiste, damit der Bildschirm dem Inhalt gehoert; zurueck
   // fuehrt der Pfeil oder die System-Geste.
-  let zeigeLeisteUnten = $derived(
-    hydrated && viewport.isMobile && !istDetailScreen(page.url.pathname)
+  //
+  // AUSNAHME Sprach-/Stream-Kanal: der ist laufender Zustand, nicht ein
+  // Durchgangs-Bildschirm — die Leiste bleibt (2026-08-25, Nutzerwunsch), der
+  // Stream füllt die Fläche, Teilnehmer und Controls schweben darüber.
+  const KANAL_BILDSCHIRM = /^\/app\/guilds\/[^/]+\/channels\/[^/]+$/;
+  // Quer-Handy MIT offenem Stream: reines Stream-Vollbild — Bereichs-Leiste
+  // und Voice-Dock bleiben aus (Steuerung schwebt auf dem Bild). Ohne Stream
+  // bleibt quer alles wie hochkant: die normale mobile Ansicht, nur breiter.
+  let kanalQuerStream = $derived(
+    viewport.istHandy &&
+      !viewport.isMobile &&
+      KANAL_BILDSCHIRM.test(page.url.pathname) &&
+      voice.connected &&
+      !!voice.channelId &&
+      openedTiles.hasAny(voice.channelId)
   );
-  let zeigeSpalteLinks = $derived(hydrated && viewport.isTablet);
+  let zeigeLeisteUnten = $derived(
+    hydrated &&
+      viewport.istHandy &&
+      !kanalQuerStream &&
+      (!istDetailScreen(page.url.pathname) || KANAL_BILDSCHIRM.test(page.url.pathname))
+  );
+  // Handy quer ist KEIN Tablet: keine linke Spalte, die mobile Navigation
+  // (unten) gilt weiter.
+  let zeigeSpalteLinks = $derived(hydrated && viewport.isTablet && !viewport.istHandy);
+
+  // Android-Hülle: Querformat nur mit offenem Stream. Ein Stream in JEDEM
+  // Kanal reicht (auch im Hintergrund weiterlaufende geöffnete Kacheln) —
+  // wer zusieht, will kippen dürfen; sonst nicht.
+  $effect(() => {
+    const streamOffen =
+      voice.connected && !!voice.channelId && openedTiles.hasAny(voice.channelId);
+    void orientierungSperren(!streamOffen);
+  });
 
   // Ablehnungen des Servers zur Watch-Party sichtbar machen. Einmal je
   // Fenster — Begruendung in `watch/fehlerwacht.svelte.ts`.
@@ -359,8 +391,10 @@
        Eigene Flex-Zeile → der Drawer (absolute in der Panel-Zeile) kann sie
        nicht überdecken; Auflegen ist immer erreichbar. Desktop: Controls
        leben im Sidebar-Footer (s. SidebarFooter). -->
-  {#if viewport.isMobile && (voice.connected || voice.connecting)}
-    <div class="shrink-0 {zeigeLeisteUnten ? '' : 'pb-[var(--safe-bottom)]'}">
+  {#if viewport.istHandy && !kanalQuerStream && (voice.connected || voice.connecting)}
+    <!-- `mb-2`, wenn die Bereichs-Leiste darunter steht: Abstand statt
+         Kleben — das Dock sitzt damit spürbar über der Navigation. -->
+    <div class="shrink-0 {zeigeLeisteUnten ? 'mb-2' : 'pb-[var(--safe-bottom)]'}">
       <VoiceControlBar />
     </div>
   {/if}
