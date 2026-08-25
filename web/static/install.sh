@@ -106,7 +106,13 @@ udp_port_busy() {
 # Ohne diese Ausnahme meldete das Script bei jedem zweiten Lauf einen Konflikt
 # mit sich selbst.
 check_ports() {
-  docker inspect "$CONTAINER" >/dev/null 2>&1 && return 0
+  # Nur ein LAUFENDER eigener Container darf die Prüfung überspringen — er
+  # hält die Ports selbst und gibt sie beim `docker run` nach dem `rm -f`
+  # wieder frei. Ein gestoppter (`created`/`exited`) hält nichts: `docker
+  # inspect` gelingt für ihn genauso, aber ohne diese Unterscheidung prüfte
+  # ein zweiter Lauf nach einem Teilabbruch gar keinen Port mehr, und ein
+  # echter Fremdkonflikt hätte den Einmal-Token doch noch verbrannt.
+  eigener_container_laeuft && return 0
   local belegt=""
   local p
   case "$MODE" in
@@ -155,6 +161,49 @@ publishes_web_port() {
 # nur die Moduswahl kannte sie nicht.
 eigener_container_laeuft() {
   [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null)" = "true" ]
+}
+
+# --- Helfer: gehört der vorhandene $CONTAINER wirklich zu Pulse? --------- #
+#
+# Nicht zu verwechseln mit `eigener_container_laeuft` oben — die fragt nur
+# den Laufzustand ab und geht (wie an ihrem eigenen Aufrufort begründet)
+# unausgesprochen davon aus, dass unter dem Namen "$CONTAINER" ohnehin nur
+# Pulse selbst laufen kann. Genau diese Annahme prüft diese Funktion nach:
+# ein FREMDER Container, der zufällig denselben Namen trägt (der
+# Vorgabename `pulse` ist nicht reserviert), ist keine Randbedingung,
+# sondern der Grund, warum dieser Helfer existiert.
+#
+# Geprüft wird das Image, nicht der Name — der Name ist ja gerade die
+# Kollisionsquelle. Ein Substring-Vergleich auf `pulse-allinone` statt ein
+# exakter Vergleich mit `$IMAGE`: `PULSE_IMAGE` ist überschreibbar und ein
+# Betreiber mit eigenem Spiegel/Fork (eigene Registry, eigener Tag) soll den
+# Installer trotzdem benutzen können, solange der Repository-Name erhalten
+# bleibt. Ein Docker-LABEL wäre robuster (unabhängig vom Namen), existiert
+# im Image aber nicht — das einzuführen läge ausserhalb dieser Behebung.
+ist_unser_container() {
+  case "$(docker inspect -f '{{.Config.Image}}' "$CONTAINER" 2>/dev/null)" in
+    *pulse-allinone*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# --- Vorhandenen Container nur ersetzen, wenn er nachweislich unserer ist  #
+#
+# `docker rm -f` fragt nicht nach; ohne diese Hülle wäre ein fremder
+# Container namens "$CONTAINER" ohne Rückfrage weg. Bricht bei einem
+# Fremdtreffer ab, statt ihn stillschweigend zu übergehen — der Admin muss
+# selbst entscheiden, ob er umbenennt/entfernt oder Pulse auf einen anderen
+# Namen ausweicht.
+sichere_container_ersetzung() {
+  if docker inspect "$CONTAINER" >/dev/null 2>&1 && ! ist_unser_container; then
+    die "A container named '${CONTAINER}' already exists, but its image
+  ($(docker inspect -f '{{.Config.Image}}' "$CONTAINER" 2>/dev/null)) doesn't look like a Pulse
+  installation. Refusing to remove it — it might belong to something else
+  entirely.
+  Rename or remove that container yourself and run this command again, or
+  set PULSE_CONTAINER=<a different name> to make Pulse use its own name."
+  fi
+  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 }
 
 # --- Helfer: Traefik-certresolver von vorhandenen Containern erben ------- #
@@ -615,7 +664,7 @@ case "$IMAGE" in
 esac
 log "Pulling image ${IMAGE}…"
 docker pull "$IMAGE"
-docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+sichere_container_ersetzung
 log "Starting Pulse (${MODE})…"
 docker run "${RUN_ARGS[@]}" >/dev/null
 
