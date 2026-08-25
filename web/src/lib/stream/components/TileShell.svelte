@@ -21,6 +21,10 @@
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import VideoIcon from '@lucide/svelte/icons/video';
   import ClapperboardIcon from '@lucide/svelte/icons/clapperboard';
+  import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
+  import MaximizeIcon from '@lucide/svelte/icons/maximize';
+  import MinusIcon from '@lucide/svelte/icons/minus';
+  import PlusIcon from '@lucide/svelte/icons/plus';
   import { m } from '$lib/paraglide/messages.js';
   import { toggleFullscreen } from '../fullscreen';
   import { statsVisible } from '../statsVisible.svelte';
@@ -78,7 +82,9 @@
     /** Obergrenze des Reglers. Vorgabe = Verstärkung bis 200 %; Quellen ohne
      * Verstärkungsgriff (Watch-Party-Kachel) geben 100 vor. */
     volumeMax?: number;
-    onVolumeChange?: (e: Event) => void;
+    /** Lautstärke-Änderung. `Event` kommt vom Regler im Dock; `number` von
+     *  den mobilischen 5er-Schritt-Knöpfen. */
+    onVolumeChange?: (e: Event | number) => void;
     onToggleMute?: () => void;
     audioBlocked?: boolean;
     onEnableAudio?: () => void;
@@ -115,6 +121,16 @@
   );
 
   let containerEl = $state<HTMLDivElement | null>(null);
+
+  // Mobil wird ein krummer Lautstärke-Wert (z.B. 87, vom Desktop-Regler
+  // mitgenommen) AKTIV auf den nächsten 5er pegelt — nicht nur angezeigt.
+  // Rundet kaufmännisch (87 → 85, 88 → 90); nach dem Pegeln steht der Wert
+  // im Raster und der Effekt beruhigt sich.
+  $effect(() => {
+    if (!viewport.istHandy || volume === undefined || !onVolumeChange) return;
+    if (Number.isInteger(volume / 5)) return;
+    onVolumeChange(Math.round(volume / 5) * 5);
+  });
   let leftColEl = $state<HTMLDivElement | null>(null);
   let isFullscreen = $state(false);
   // Nur im Vollbild relevant: die Overlay-Leiste fadet nach Inaktivität.
@@ -134,7 +150,7 @@
   // im Vollbild an den Fade gekoppelt.
   const showStats = $derived(!!stats && statsVisible.on && (!isFullscreen || hudEffective));
   // Detach gibt's nicht im Vollbild und nicht auf Mobile.
-  const showDetach = $derived(!!onDetach && !isFullscreen && !viewport.isMobile);
+  const showDetach = $derived(!!onDetach && !isFullscreen && !viewport.istHandy);
 
   function pokeHud(): void {
     if (!isFullscreen) return;
@@ -147,10 +163,10 @@
 
   function handleCatcherClick(): void {
     // Im Vollbild auf Touch: Tap blendet die Overlay-Leiste ein/aus.
-    if (viewport.isMobile && isFullscreen) hudVisible = !hudVisible;
+    if (viewport.istHandy && isFullscreen) hudVisible = !hudVisible;
   }
   function handleCatcherDblClick(): void {
-    if (!viewport.isMobile) toggleFs();
+    if (!viewport.istHandy) toggleFs();
   }
 
   function toggleFs(): void {
@@ -220,7 +236,7 @@
   bind:this={containerEl}
   class="bg-bg-chat flex h-full overflow-hidden {isFullscreen
     ? 'rounded-none border-0'
-    : 'rounded-2xl border border-border'}"
+    : 'rounded-2xl border border-border max-md:rounded-none max-md:border-0'}"
   data-testid={containerTestid}
   data-identity={identity}
 >
@@ -244,6 +260,69 @@
         ></div>
       {/if}
 
+      <!-- Mobil (nicht Vollbild): zwei schwebende Knöpfe AUF dem Video —
+           oben links der Pfeil zum Schließen der Kachel, unten rechts
+           Vollbild. Im Vollbild übernimmt das fadende Overlay-Dock; am
+           Rechner bleiben Dock-Leiste und Doppelklick wie bisher. -->
+      {#if viewport.istHandy && !isFullscreen}
+        {#if onHide}
+          <button
+            type="button"
+            class="absolute top-2 left-2 z-20 flex size-10 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-colors hover:bg-black/65"
+            onclick={onHide}
+            aria-label={m.tile_shell_hide_tile()}
+            data-testid={`${testidPrefix}-close-float`}
+          >
+            <ChevronLeftIcon class="size-5" />
+          </button>
+        {/if}
+        <button
+          type="button"
+          class="absolute right-2 bottom-2 z-20 flex size-10 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-colors hover:bg-black/65"
+          onclick={() => toggleFullscreen(containerEl, video ?? null)}
+          aria-label={m.tile_shell_fullscreen_enter()}
+          data-testid={`${testidPrefix}-fullscreen-float`}
+        >
+          <MaximizeIcon class="size-5" />
+        </button>
+        <!-- Lautstärke in 5er-Schritten statt Regler: Ein ferner Daumen trifft
+             zwei Knöpfe sicherer als einen Schieberegler. Pille unten links,
+             Gegenstück zum Vollbild-Knopf unten rechts. -->
+        {#if onVolumeChange !== undefined && volume !== undefined}
+          {@const maxV = volumeMax ?? 200}
+          <!-- Am Handy wird die Lautstärke IMMER auf 5er gerastert — angezeigt
+               UND gesetzt: ein Wert wie 87 (vom Desktop-Regler mitgenommen)
+               zeigt hier 85, der nächste Tipp geht auf 90. Keine Mischwerte. -->
+          {@const gerastert = Math.round(volume / 5) * 5}
+          <div
+            class="absolute bottom-2 left-2 z-20 flex items-center gap-0.5 rounded-full bg-black/45 px-1 text-white backdrop-blur-sm"
+            data-testid={`${testidPrefix}-volume-stepper`}
+          >
+            <button
+              type="button"
+              class="flex size-9 items-center justify-center rounded-full transition-colors hover:bg-black/65"
+              onclick={() => onVolumeChange?.(Math.max(0, gerastert - 5))}
+              aria-label={m.tile_shell_volume_down()}
+              data-testid={`${testidPrefix}-volume-down`}
+            >
+              <MinusIcon class="size-4" />
+            </button>
+            <span class="w-10 text-center font-mono text-xs tabular-nums" data-testid={`${testidPrefix}-volume-value`}
+              >{gerastert}%</span
+            >
+            <button
+              type="button"
+              class="flex size-9 items-center justify-center rounded-full transition-colors hover:bg-black/65"
+              onclick={() => onVolumeChange?.(Math.min(maxV, gerastert + 5))}
+              aria-label={m.tile_shell_volume_up()}
+              data-testid={`${testidPrefix}-volume-up`}
+            >
+              <PlusIcon class="size-4" />
+            </button>
+          </div>
+        {/if}
+      {/if}
+
       <!-- Diagnose-Stats oben links — nur wenn global eingeschaltet -->
       {#if showStats}
         <div class="absolute left-2 top-2 {isFullscreen ? fadeClass : ''}">
@@ -264,32 +343,34 @@
       {#if isFullscreen && chatOpen}
         {@render chatOverlay?.()}
       {/if}
-      {#if chatOpen && !isFullscreen && viewport.isMobile}
+      {#if chatOpen && !isFullscreen && viewport.istHandy}
         <!-- Mobile: Chat als Vollflächen-Overlay statt Seitenpanel. -->
         <div class="absolute inset-0 z-20">
           {@render chatPanel?.()}
         </div>
       {/if}
-      {#if queueOpen && !isFullscreen && viewport.isMobile}
+      {#if queueOpen && !isFullscreen && viewport.istHandy}
         <div class="absolute inset-0 z-20">
           {@render queuePanel?.()}
         </div>
       {/if}
     </div>
 
-    <!-- Solide Steuerleiste UNTER dem Video, nur außerhalb des Vollbilds.
-         Im Vollbild übernimmt das fadende Overlay oben. -->
-    {#if !isFullscreen && !hideDock}
+    <!-- Solide Steuerleiste UNTER dem Video, nur außerhalb des Vollbilds —
+         und am Handy gar nicht: dort steuern die schwebenden Knöpfe (Schließen,
+         Vollbild, Lautstärke) das Bild direkt, eine Leiste darunter kostet
+         nur Höhe vom Stream. Im Vollbild übernimmt das fadende Overlay. -->
+    {#if !isFullscreen && !hideDock && !viewport.istHandy}
       <div class="bg-bg-panel border-t border-border">
         <TileDock {...dockProps} overlay={false} wide={dockWide} />
       </div>
     {/if}
   </div>
 
-  {#if chatOpen && !isFullscreen && !viewport.isMobile}
+  {#if chatOpen && !isFullscreen && !viewport.istHandy}
     {@render chatPanel?.()}
   {/if}
-  {#if queueOpen && !isFullscreen && !viewport.isMobile}
+  {#if queueOpen && !isFullscreen && !viewport.istHandy}
     {@render queuePanel?.()}
   {/if}
 </div>

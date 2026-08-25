@@ -13,6 +13,11 @@
    */
   import { goto } from '$app/navigation';
   import CompassIcon from '@lucide/svelte/icons/compass';
+  import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
+  import SearchIcon from '@lucide/svelte/icons/search';
+  import XIcon from '@lucide/svelte/icons/x';
+  import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
+  import { suchnorm, namePasst } from '$lib/utils/suche';
   import { serversStore } from '$lib/api/servers.svelte';
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
   import { guilds as guildsStore } from '$lib/stores/guilds.svelte';
@@ -74,6 +79,18 @@
 
   let server = $derived(serversStore.servers);
   let mehrereServer = $derived(server.length > 1);
+
+  // ---- Suche über die EIGENEN Communities (nur die, in denen man drin ist —
+  // Entdecken ist der Menü-Punkt, nicht Teil des Suchergebnisses). Gleiche
+  // Norm wie Chats/Freunde: ab 3 Zeichen, Zahlen-freundlich (`namePasst`).
+  let suche = $state('');
+  let suchbegriff = $derived.by(() => {
+    const norm = suchnorm(suche.trim());
+    return norm.length >= 3 ? norm : null;
+  });
+  function passtZuSuche(name: string): boolean {
+    return !suchbegriff || namePasst(name, suchbegriff);
+  }
   // Nirgends eine Community: dann NUR der grosse Leerzustand mit dem Weg
   // nach draussen. Sonst stuenden zwei Saetze uebereinander, die dasselbe
   // sagen — je Server einer und darunter nochmal der globale.
@@ -87,29 +104,78 @@
 <div class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:w-72 md:flex-none md:rounded-2xl" data-testid="rooms-page">
   <BereichsKopf titel={m.nav_tab_rooms()}>
     {#snippet handlung()}
-      <a
-        href="/app/discover"
-        class="text-text-muted hover:text-primary flex min-h-12 items-center gap-1.5 text-sm font-semibold"
-        data-testid="rooms-discover-link"
-      >
-        <CompassIcon class="size-[19px]" />
-        <span>{m.rooms_discover_short()}</span>
-      </a>
+      <!-- Drei-Punkte wie in Chats und Freunde: Entdecken ist der Ausgang ins
+           Verzeichnis, kein dauerhaft sichtbarer Zustand der eigenen Räume. -->
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger>
+          {#snippet child({ props })}
+            <button
+              {...props}
+              class="text-text-muted hover:bg-bg-hover hover:text-text-bright flex size-11 items-center justify-center rounded-[14px] transition-colors"
+              data-testid="rooms-menu"
+              aria-label={m.chats_menu()}
+            >
+              <EllipsisIcon class="size-6" />
+            </button>
+          {/snippet}
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Content align="end" class="w-52">
+          <DropdownMenu.Item
+            onclick={() => void goto('/app/discover')}
+            data-testid="rooms-menu-discover"
+            class="flex items-center gap-2"
+          >
+            <CompassIcon class="size-4" />
+            {m.rooms_discover_short()}
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Root>
     {/snippet}
   </BereichsKopf>
 
+  <!-- Suchleiste in derselben Hülle wie Chats und Freunde — gleiche Größe,
+       gleiche Höhe, dieselbe Frage „wo suche ich". -->
+  <div class="px-5 pb-5" data-testid="rooms-search-wrap">
+    <label class="border-border bg-bg-input flex items-center gap-2 rounded-full border px-3 py-2">
+      <SearchIcon class="text-text-muted size-4 shrink-0" />
+      <input
+        type="text"
+        bind:value={suche}
+        placeholder={m.rooms_search_placeholder()}
+        class="placeholder:text-text-muted min-w-0 flex-1 bg-transparent text-sm outline-none"
+        data-testid="rooms-search-input"
+        aria-label={m.rooms_search_placeholder()}
+      />
+      {#if suche}
+        <button
+          type="button"
+          onclick={() => (suche = '')}
+          class="text-text-muted hover:text-text-bright shrink-0"
+          data-testid="rooms-search-clear"
+          aria-label={m.chats_search_clear()}
+        >
+          <XIcon class="size-4" />
+        </button>
+      {/if}
+    </label>
+  </div>
+
   <div class="flex-1 overflow-y-auto px-3 pb-4">
     {#each server as s (s.id)}
-      {@const liste = serverGuilds.get(s.id)}
+      {@const liste = serverGuilds.get(s.id).filter((g) => passtZuSuche(g.name))}
+      {@const listeUngefiltert = serverGuilds.get(s.id)}
       {#if mehrereServer}
         <div class="text-text-muted px-1 pb-1.5 pt-3 text-xs font-bold">
           {s.server_name ?? s.label}
         </div>
       {/if}
-      {#if liste.length === 0}
+      {#if listeUngefiltert.length === 0}
         {#if !ueberallLeer}
           <p class="text-text-muted px-1 py-2 text-xs">{m.rooms_empty_server()}</p>
         {/if}
+      {:else if liste.length === 0}
+        <!-- Server hat Communities, aber keine passen zur Suche — still leer
+             lassen; der globale „nichts gefunden"-Hinweis steht unten. -->
       {:else}
         <div class="grid grid-cols-2 gap-2.5">
           {#each liste as g (g.id)}
@@ -159,7 +225,13 @@
       {/if}
     {/each}
 
-    {#if ueberallLeer}
+    {#if suchbegriff && server.every((s) => serverGuilds.get(s.id).every((g) => !passtZuSuche(g.name)))}
+      <p class="text-text-muted px-4 py-10 text-center text-xs" data-testid="rooms-search-empty">
+        {m.chats_search_no_results()}
+      </p>
+    {/if}
+
+    {#if ueberallLeer && !suchbegriff}
       <div class="flex flex-col items-center gap-3 px-6 py-12 text-center">
         <p class="text-text-muted text-sm">{m.rooms_empty_all()}</p>
         <a

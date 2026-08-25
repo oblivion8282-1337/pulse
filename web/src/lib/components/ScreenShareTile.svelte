@@ -8,6 +8,7 @@
 -->
 <script lang="ts">
   import { onMount, onDestroy, mount, unmount } from 'svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import type { RemoteAudioTrack, RemoteVideoTrack } from 'livekit-client';
   import { ReceiveStatsReader, type ReceiveStats } from '$lib/voice/screenShareStats';
   import { voice } from '$lib/voice/livekit.svelte';
@@ -199,8 +200,8 @@
     return () => { at.detach(el); };
   });
 
-  function handleVolume(e: Event) {
-    volume = Number((e.currentTarget as HTMLInputElement).value);
+  function handleVolume(e: Event | number) {
+    volume = typeof e === 'number' ? e : Number((e.currentTarget as HTMLInputElement).value);
     if (volume > 0) prevVolume = volume;
     applyVolume();
   }
@@ -290,11 +291,14 @@
   >
     {#snippet media()}
       <!-- svelte-ignore a11y_media_has_caption -->
+      <!-- IMMER das ganze Bild (contain) — Beschneiden ist keine Option. Mobil
+           ohne schwarzen Grund: behält das Bild ein anderes Seitenformat, geht
+           der Rand im Panel-Ton auf statt als harte Balken. -->
       <video
         bind:this={videoEl}
         autoplay
         playsinline
-        class="h-full w-full bg-black object-contain"
+        class="h-full w-full {viewport.isMobile ? 'object-contain' : 'bg-black object-contain'}"
       ></video>
       <!-- hidden audio element for screen-share audio track -->
       <!-- svelte-ignore a11y_media_has_caption -->

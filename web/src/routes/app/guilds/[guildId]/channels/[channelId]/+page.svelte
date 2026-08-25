@@ -526,6 +526,10 @@
   }
 </script>
 
+<!-- Guild-Rail + Channel-Liste: Spalten für Tablet/Rechner. Ein Handy quer
+     behält die mobile Ansicht — die linke Spalte bliebe sonst neben der
+     Bereichs-Leiste unten stehen. -->
+{#if !viewport.istHandy}
 <!-- Guild-Rail: immer sichtbar (auch Mobil), Discord-Style. -->
 <GuildRail
   guilds={guilds.list}
@@ -544,7 +548,7 @@
      ueber die Vollbild-Liste unter `/app/rooms/[guildId]`. Der Drawer vom
      linken Rand ist damit weg und kollidiert nicht mehr mit der
      System-Zurueck-Geste. -->
-{#if !viewport.isMobile}
+{#if !viewport.istHandy}
   <ChannelList
     guild={activeGuild ?? null}
     channels={channelsForGuild}
@@ -556,6 +560,7 @@
     activeDeviceId={offenesGeraet?.id ?? null}
     onSelectDevice={geraetOeffnen}
   />
+{/if}
 {/if}
 
 {#snippet chatBody()}

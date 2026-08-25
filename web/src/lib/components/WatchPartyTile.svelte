@@ -160,8 +160,10 @@
     applyViewerVolume();
     setWatchVolume(viewerVolume);
   }
-  function onViewerVolume(e: Event): void {
-    setViewerVolume(Number((e.currentTarget as HTMLInputElement).value));
+  function onViewerVolume(e: Event | number): void {
+    setViewerVolume(
+      typeof e === 'number' ? e : Number((e.currentTarget as HTMLInputElement).value)
+    );
   }
   function onViewerMute(): void {
     if (viewerVolume > 0) {
