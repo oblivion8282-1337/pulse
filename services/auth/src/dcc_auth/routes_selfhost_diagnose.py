@@ -33,7 +33,7 @@ from pydantic import BaseModel
 
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
-from dcc_auth.diagnose_texte import SCHRITTE, erklaerung, sprache_aus_header, titel
+from dcc_auth.diagnose_texte import SCHRITTE, container_name, erklaerung, sprache_aus_header, titel
 from dcc_auth.models_instances import RegisteredInstance
 from dcc_auth.routes import _check_rate
 from dcc_auth.routes_admin_instances import _require_cloud
@@ -171,6 +171,7 @@ async def diagnose(
     db: SessionDep,
     x_pulse_client_id: Annotated[str | None, Header()] = None,
     x_pulse_client_secret: Annotated[str | None, Header()] = None,
+    x_pulse_container_name: Annotated[str | None, Header()] = None,
     accept_language: Annotated[str | None, Header()] = None,
 ) -> DiagnoseAus:
     settings = get_settings()
@@ -192,6 +193,18 @@ async def diagnose(
     erster_fehler = next((s.schritt for s in schritte if not s.ok), None)
     sprache = sprache_aus_header(accept_language)
 
+    # Nur Weg 2 (die Instanz weist sich per client_id/client_secret selbst
+    # aus — der Installer) kennt den tatsächlichen Containernamen und schickt
+    # ihn mit. Weg 1 (der Besitzer per Sitzung, „Verbindung prüfen" in der
+    # App) hat keinen Zugriff auf die Maschine und damit keinen Namen —
+    # ``container_name(None)`` liefert dort die Vorgabe ``pulse``.
+    # Das ist eine bewusste Grenze dieses Tasks: wer den Container umbenannt
+    # hat und die Diagnose später aus der App heraus startet, sieht in den
+    # Handgriffen weiterhin „pulse" statt seines echten Namens. Den Namen
+    # dauerhaft an der Instanz zu hinterlegen (eine eigene Spalte) wäre ein
+    # eigener Task.
+    container = container_name(x_pulse_container_name)
+
     # Was die Kette ausgelassen hat. `_fuehre_pruefung` bricht bewusst ab, wo
     # ein weiterer Schritt nur dieselbe Ursache wiederholte — das darf sich
     # aber nicht wie ein bestandener Rest lesen.
@@ -200,7 +213,7 @@ async def diagnose(
 
     ausgaben: list[SchrittAus] = []
     for s in schritte:
-        was_ist, was_tun = erklaerung(s.schritt, s.befund, s.ok, sprache)
+        was_ist, was_tun = erklaerung(s.schritt, s.befund, s.ok, sprache, container=container)
         ausgaben.append(
             SchrittAus(
                 schritt=s.schritt,
