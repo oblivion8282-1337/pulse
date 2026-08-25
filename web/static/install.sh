@@ -352,8 +352,23 @@ decide_mode() {
   case "$PROXY_KIND" in
     caddy-docker-proxy|traefik|nginx-proxy)
       if [ -n "$PROXY_NET" ]; then MODE=discovery
-      else die "Proxy '${PROXY_CONTAINER}' is only on the default Docker bridge network — Pulse has no reachable address to hand it.
-  A loopback address (127.0.0.1) would be the PROXY CONTAINER's own loopback, not the host's; it could never reach Pulse from there.
+      # Ein host-vernetzter Auto-Discovery-Proxy (`--network host`) hat
+      # ebenfalls kein eigenes Docker-Netz (PROXY_NET bleibt leer, wie beim
+      # Default-Bridge-Fall unten) — er teilt aber den Netzwerk-Namensraum
+      # des Hosts und erreicht 127.0.0.1:8080 unmittelbar. Nachgewiesen an
+      # einem echten Docker-Daemon mit echtem Listener auf 127.0.0.1:
+      # Standard-Bridge scheitert mit "connection refused" (eigenes
+      # Loopback), ueber die Bridge-Gateway-Adresse mit Zeitueberschreitung,
+      # --network host gelingt. Diese Bedingung unterscheidet nur diese zwei
+      # nachgewiesenen Faelle, nicht jede denkbare Netzwerk-Topologie
+      # (Macvlan, IPv6-only, rootless Docker mit abweichendem NAT sind
+      # ungeprueft).
+      elif nutzt_host_netzwerk "$PROXY_CONTAINER"; then MODE=hostproxy
+      # Steht hier weder ein Netz noch Host-Networking fest, kennt der Code
+      # nur, DASS keine gemeinsame Adresse existiert — nicht WARUM (default
+      # Bridge? "none"-Netz?). Die Meldung behauptet deshalb keine Ursache,
+      # die nie geprueft wurde.
+      else die "Proxy '${PROXY_CONTAINER}' has no Docker network Pulse could join to reach it — the only address it could offer, a loopback (127.0.0.1), would be inside the PROXY CONTAINER itself, not the host's, and could never reach Pulse from there.
   Set PULSE_NETWORK=<name> to a network Pulse and '${PROXY_CONTAINER}' can both join, and run this command again.
   Nothing has been consumed yet; this check runs before the setup token is redeemed."; fi ;;
     static-caddy|static-nginx)
