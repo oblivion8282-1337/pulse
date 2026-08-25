@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-25.2",
+      "date": "2026-08-25",
+      "style": "Sachlich",
+      "title": "Der Installationsbefehl für einen eigenen Server wurde durchgeprüft",
+      "intro": "Ein Betreiber hat beim Einrichten einen Fehler gemeldet, der uns dazu gebracht hat, den ganzen Befehl Zeile für Zeile durchzugehen. Was dabei herauskam, betrifft alle, die einen eigenen Server betreiben.",
+      "items": [
+        "Wer den Installationsbefehl für einen eigenen Server ein zweites Mal ausführt, nimmt den laufenden Server damit nicht mehr versehentlich vom Netz. Bisher hielt der Installer den eigenen Server fälschlich für einen fremden Webserver und stellte ihn auf einen Betrieb um, in dem er von aussen nicht mehr erreichbar war.",
+        "Die automatische Aktualisierung erkennt jetzt, ob die neue Fassung wirklich läuft, bevor sie den Rückweg zur alten verwirft. Bisher genügte es, dass der Server gestartet wurde — stürzte er unmittelbar danach ab, waren die alte Fassung und ihr Rückweg bereits gelöscht.",
+        "Die erste Installation auf einem Rechner ohne Administratorrechte bricht nicht mehr stumm ab, bevor sie sagt, welcher letzte Schritt noch fehlt.",
+        "Ein fremder Container, der zufällig denselben Namen trägt, wird beim Installieren nicht mehr ohne Rückfrage entfernt — und die Prüfung läuft, bevor der einmalige Einrichtungsschlüssel verbraucht wird."
+      ]
+    },
+    {
       "id": "2026-08-25",
       "date": "2026-08-25",
       "style": "Sachlich",
@@ -14,11 +27,7 @@
         "Wer einen Server einrichtet, sieht beim Start jetzt mit, wie weit er gekommen ist, statt eine Minute lang gar nichts. Bricht etwas ab, steht der Schritt da, an dem es abbrach.",
         "Am Ende der Installation steht das Ergebnis der Prüfung jetzt als Checkliste im Terminal — jedes Glied mit Haken oder Kreuz, und beim ersten Kreuz in ganzen Sätzen, was gemessen wurde und was zu tun ist. Vorher standen dort nur interne Stichwörter.",
         "Glieder, die wegen eines früheren Fehlers gar nicht mehr geprüft wurden, werden ausdrücklich als ungeprüft ausgewiesen statt weggelassen.",
-        "Die Prüfung im Container vergleicht zusätzlich, worauf der Name zeigt und als was sich die Maschine nach aussen meldet. Weichen die beiden voneinander ab, ist das der häufigste Grund dafür, dass kein Zertifikat zustande kommt.",
-        "Wer den Installationsbefehl für einen eigenen Server ein zweites Mal ausführt, nimmt den laufenden Server damit nicht mehr versehentlich vom Netz. Bisher hielt der Installer den eigenen Server fälschlich für einen fremden Webserver und stellte ihn auf einen Betrieb um, in dem er von aussen nicht mehr erreichbar war.",
-        "Die automatische Aktualisierung erkennt jetzt, ob die neue Fassung wirklich läuft, bevor sie den Rückweg zur alten verwirft. Bisher genügte es, dass der Server gestartet wurde — stürzte er unmittelbar danach ab, waren die alte Fassung und ihr Rückweg bereits gelöscht.",
-        "Die erste Installation auf einem Rechner ohne Administratorrechte bricht nicht mehr stumm ab, bevor sie sagt, welcher letzte Schritt noch fehlt.",
-        "Ein fremder Container, der zufällig denselben Namen trägt, wird beim Installieren nicht mehr ohne Rückfrage entfernt — und die Prüfung läuft, bevor der einmalige Einrichtungsschlüssel verbraucht wird."
+        "Die Prüfung im Container vergleicht zusätzlich, worauf der Name zeigt und als was sich die Maschine nach aussen meldet. Weichen die beiden voneinander ab, ist das der häufigste Grund dafür, dass kein Zertifikat zustande kommt."
       ]
     },
     {
