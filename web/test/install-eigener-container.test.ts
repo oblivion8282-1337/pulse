@@ -17,6 +17,17 @@
  * auf dem PATH ausgeführt, das `ps` und `inspect` kennt. Zusätzlich zu
  * `detect_proxy` wird hier `decide_mode` selbst ausgeführt — sie ist die
  * Stelle, die den Fehler enthielt.
+ *
+ * **Zweite Runde.** Der erste Fix setzte `MODE=greenfield`, sobald der eigene
+ * Container läuft — egal, ob er 80/443 überhaupt veröffentlicht. Das bricht
+ * einen gleichwertigen, gültigen Fall: ein Server hinter einem host-nativen
+ * Reverse-Proxy (nginx/Caddy auf dem Host, nicht in Docker — Fall 4 im
+ * Kopfkommentar). `detect_proxy` sieht dort nichts (kein Docker-Container),
+ * der eigene Container läuft im `hostproxy`-Modus aber nur auf Loopback
+ * (`-p 127.0.0.1:8080:8080`, s. `build_run_args`), veröffentlicht 80/443 also
+ * nicht. Das unterscheidende Merkmal ist deshalb nicht „läuft der Container",
+ * sondern „veröffentlicht er 80/443" — dieselbe Prüfung, die `publishes_web_port`
+ * schon für die Proxy-Erkennung liefert.
  */
 
 import { test } from 'node:test';
@@ -126,8 +137,8 @@ echo "$MODE"
   return { mode: ausgabe };
 }
 
-test('ein zweiter Lauf laesst einen greenfield-Server greenfield', () => {
-  // Pulses EIGENER Container laeuft und haelt 80/443.
+test('ein zweiter Lauf lässt einen greenfield-Server greenfield', () => {
+  // Pulses EIGENER Container läuft und veröffentlicht 80/443 selbst.
   const ergebnis = entscheide({
     container: [{ name: 'pulse', image: 'registry.howispulse.com/pulse-allinone:edge', publiziert: true }],
     portBelegt: true
@@ -135,11 +146,26 @@ test('ein zweiter Lauf laesst einen greenfield-Server greenfield', () => {
   assert.equal(ergebnis.mode, 'greenfield');
 });
 
-test('ein FREMDER Proxy auf 80/443 fuehrt weiterhin zu hostproxy', () => {
-  // Gegenprobe — sonst bestuende der Test auch, wenn die Erkennung tot waere.
+test('ein FREMDER Proxy auf 80/443 führt weiterhin zu hostproxy', () => {
+  // Gegenprobe — sonst bestünde der Test auch, wenn die Erkennung tot wäre.
   const ergebnis = entscheide({
     container: [{ name: 'nginx-vom-nachbarn', image: 'nginx:1.27', publiziert: true }],
     portBelegt: true
   });
   assert.notEqual(ergebnis.mode, 'greenfield');
+});
+
+test('ein eigener Container ohne veröffentlichte 80/443 bleibt bei einem host-nativen Proxy hostproxy', () => {
+  // Genau der Fall aus der zweiten Runde: Pulse läuft im hostproxy-Modus (nur
+  // Loopback gebunden), 80/443 gehören einem host-nativen Reverse-Proxy, den
+  // `docker ps` gar nicht sieht. Wer hier bedingungslos auf
+  // `eigener_container_laeuft` abstellt, würde einen laufenden, korrekt
+  // konfigurierten Server per Fehleinschätzung auf greenfield umstellen und
+  // beim nächsten `docker run` die eigenen 80/443 gegen den fremden Proxy
+  // verlieren.
+  const ergebnis = entscheide({
+    container: [{ name: 'pulse', image: 'registry.howispulse.com/pulse-allinone:edge', publiziert: false }],
+    portBelegt: true
+  });
+  assert.equal(ergebnis.mode, 'hostproxy');
 });
