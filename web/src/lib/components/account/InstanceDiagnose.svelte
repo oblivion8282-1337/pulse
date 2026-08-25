@@ -9,11 +9,16 @@
   Die Reihenfolge der Zeilen ist die Reihenfolge der Kette. Der oberste rote
   Eintrag ist die Ursache; was darunter steht, ist meist nur die Folge —
   deshalb wird der erste Fehlschlag hervorgehoben und nicht der letzte.
+
+  **Die Sätze stehen nicht hier.** Sie kommen fertig vom Server
+  (`dcc_auth/diagnose_texte.py`), weil dasselbe Ergebnis auch im Terminal des
+  Installers erscheint. Zwei Kataloge beschrieben denselben Zustand nach
+  wenigen Monaten mit verschiedenen Worten; die Sprache wählt der Server
+  anhand von `Accept-Language`.
 -->
 <script lang="ts">
   import { m } from '$lib/paraglide/messages.js';
   import { instancesApi, type DiagnoseErgebnis } from '$lib/api/instances';
-  import { schrittSchluessel, befundSchluessel } from '$lib/diagnose/befunde';
   import { Button } from '$lib/components/ui/button';
   import CheckIcon from '@lucide/svelte/icons/check';
   import XIcon from '@lucide/svelte/icons/x';
@@ -43,13 +48,6 @@
       laeuft = false;
     }
   }
-
-  // Die Schlüssel kommen aus einer geprüften Liste (lib/diagnose/befunde.ts):
-  // ein Test hält jeden erzeugbaren gegen beide Sprachdateien, ein unbekannter
-  // fällt dort schon auf einen Sammelbegriff zurück. Der Zugriff kann hier
-  // also nicht ins Leere greifen.
-  const text = (schluessel: string): string =>
-    (m as unknown as Record<string, () => string>)[schluessel]();
 </script>
 
 <div class="flex flex-col gap-3" data-testid="instance-diagnose-{instanceId}">
@@ -88,7 +86,6 @@
 
       <ul class="flex flex-col gap-1.5">
         {#each ergebnis.schritte as schritt, i (schritt.schritt + i)}
-          {@const erklaerung = befundSchluessel(schritt.schritt, schritt.befund, schritt.ok)}
           <li class="flex items-start gap-2 text-xs">
             {#if schritt.ok}
               <CheckIcon class="text-success mt-0.5 size-3.5 shrink-0" />
@@ -97,14 +94,15 @@
             {/if}
             <div class="flex min-w-0 flex-col gap-0.5">
               <span class={schritt.ok ? 'text-text-muted' : 'text-text-bright font-medium'}>
-                {text(schrittSchluessel(schritt.schritt))}
+                {schritt.titel}
               </span>
-              {#if erklaerung}
-                <!-- Nur der ERSTE Fehlschlag bekommt die volle Erklärung. Bei
-                     den folgenden stünde dieselbe Ursache noch dreimal da und
-                     verstellte den Blick auf den Anfang der Kette. -->
-                {#if i === ersterFehler}
-                  <span class="text-text-muted leading-relaxed">{text(erklaerung)}</span>
+              <!-- Nur der ERSTE Fehlschlag bekommt die volle Erklärung. Bei den
+                   folgenden stünde dieselbe Ursache noch dreimal da und
+                   verstellte den Blick auf den Anfang der Kette. -->
+              {#if i === ersterFehler}
+                <span class="text-text-muted leading-relaxed">{schritt.was_ist}</span>
+                {#if schritt.was_tun}
+                  <span class="text-text-bright mt-1 leading-relaxed">{schritt.was_tun}</span>
                 {/if}
               {/if}
               {#if schritt.einzelheit}
@@ -116,6 +114,16 @@
           </li>
         {/each}
       </ul>
+
+      <!-- Was die Kette ausgelassen hat. Ohne diese Zeile läse sich ein
+           Abbruch wie ein vollständiger Durchlauf, und der Betreiber hielte
+           Ungeprüftes für heil. -->
+      {#if ergebnis.nicht_geprueft.length > 0}
+        <p class="text-text-muted text-[11px]" data-testid="instance-diagnose-unchecked">
+          {m.diagnose_nicht_geprueft()}
+          {ergebnis.nicht_geprueft.join(', ')}
+        </p>
+      {/if}
     </div>
   {/if}
 </div>

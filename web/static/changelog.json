@@ -11,7 +11,10 @@
         "Beim Hinzufügen eines Servers unterscheidet Pulse jetzt, ob der Server gar nicht antwortet oder ob er antwortet und nur die Freigabe für den Browser fehlt. Auf dem Rechner (nicht im Browser) kommt noch dazu, ob der Name überhaupt aufgelöst wird, ob der Port offen ist und ob das Zertifikat taugt.",
         "Neu geprüft wird ausserdem, ob der Server Live-Verbindungen durchlässt. Fehlt das, funktionierte bisher alles — Server hinzufügen, anmelden, alles grün — und nur der Chat blieb leer, ohne jeden Hinweis worauf.",
         "Unter Einstellungen, Self-Host, Meine Instanzen gibt es „Verbindung prüfen\": Pulse geht von aussen die ganze Kette durch, so wie deine Nutzer sie erleben, und nennt das Glied, das fehlt.",
-        "Wer einen Server einrichtet, sieht beim Start jetzt mit, wie weit er gekommen ist, statt eine Minute lang gar nichts. Bricht etwas ab, steht der Schritt da, an dem es abbrach."
+        "Wer einen Server einrichtet, sieht beim Start jetzt mit, wie weit er gekommen ist, statt eine Minute lang gar nichts. Bricht etwas ab, steht der Schritt da, an dem es abbrach.",
+        "Am Ende der Installation steht das Ergebnis der Prüfung jetzt als Checkliste im Terminal — jedes Glied mit Haken oder Kreuz, und beim ersten Kreuz in ganzen Sätzen, was gemessen wurde und was zu tun ist. Vorher standen dort nur interne Stichwörter.",
+        "Glieder, die wegen eines früheren Fehlers gar nicht mehr geprüft wurden, werden ausdrücklich als ungeprüft ausgewiesen statt weggelassen.",
+        "Die Prüfung im Container vergleicht zusätzlich, worauf der Name zeigt und als was sich die Maschine nach aussen meldet. Weichen die beiden voneinander ab, ist das der häufigste Grund dafür, dass kein Zertifikat zustande kommt."
       ]
     },
     {

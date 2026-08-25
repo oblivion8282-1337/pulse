@@ -622,51 +622,139 @@ EOF
   echo
 fi
 
-# Bericht der Aussen-Pruefung. Eigene Variable, damit Python seine eigenen
-# Anfuehrungszeichen behalten darf (s. pruefung_von_aussen).
-PY_BERICHT='
-import json, sys
+# Bericht der Aussen-Pruefung — eine Checkliste, kein Protokollauszug.
+#
+# Der Adressat sitzt genau hier: er hat gerade installiert, steht auf der
+# Maschine und kann sofort handeln. Deshalb je Glied ein Haken oder ein Kreuz,
+# und fuer das ERSTE Kreuz der volle Klartext samt Handgriff — die Glieder
+# danach wiederholen in aller Regel nur dieselbe Ursache.
+#
+# Die Saetze kommen vom Server (`dcc_auth/diagnose_texte.py`) und nicht von
+# hier. Sonst stuenden sie ein zweites Mal im Repo und beschrieben nach ein
+# paar Monaten denselben Zustand anders als die App.
+#
+# Der Code steht in einer Variablen statt direkt hinter `python3 -c '...'`:
+# im zitierten Here-Doc bleiben beide Anfuehrungszeichen frei benutzbar. Kein
+# f-String mit eigenen Anfuehrungszeichen — das erlaubt erst Python 3.12
+# (PEP 701), und Debian 12 bringt 3.11 mit.
+PY_BERICHT=$(cat <<'PYEOF'
+import json, os, sys, textwrap
+
+def wrap(text, einzug):
+    breite = max(28, 74 - len(einzug))
+    zeilen = []
+    for absatz in str(text).split("\n"):
+        zeilen.extend(textwrap.wrap(absatz, breite) or [""])
+    return "\n".join(einzug + z for z in zeilen)
+
 try:
     d = json.load(sys.stdin)
 except Exception:
     sys.exit(1)
-for s in d.get("schritte", []):
-    mark = "\033[1;32m+\033[0m" if s.get("ok") else "\033[1;31mx\033[0m"
-    rest = s.get("einzelheit") or ""
-    if rest:
-        rest = " (" + str(rest) + ")"
-    print("    {0} {1}: {2}{3}".format(mark, s.get("schritt"), s.get("befund"), rest))
+
+# Farben nur am Terminal. Wer die Ausgabe in eine Datei leitet, um sie zu
+# verschicken, soll Text bekommen und keine Steuerzeichen.
+if sys.stdout.isatty():
+    GRUEN, ROT, GELB, AUS = "\033[1;32m", "\033[1;31m", "\033[1;33m", "\033[0m"
+else:
+    GRUEN = ROT = GELB = AUS = ""
+LINIE = "  " + "-" * 66
+
+schritte = d.get("schritte", [])
+print()
+for s in schritte:
+    marke = GRUEN + "[ ok ]" + AUS if s.get("ok") else ROT + "[FAIL]" + AUS
+    print("    {0} {1}".format(marke, s.get("titel") or s.get("schritt")))
+
+# Eine abgebrochene Kette darf sich nicht wie eine vollstaendige lesen.
+offen = d.get("nicht_geprueft") or []
+if offen:
+    print()
+    print("    " + GELB + "[ -- ]" + AUS + " not checked, the chain stopped before them:")
+    print(wrap(", ".join(offen), "           "))
+
 print()
 if d.get("gesamt") == "ok":
-    print("  reachable from the internet")
-else:
-    print("  first problem: " + str(d.get("gesamt")))
-'
+    print(LINIE)
+    print("  " + GRUEN + "YOUR SERVER IS REACHABLE FROM THE INTERNET." + AUS)
+    print("  Every link answered. Your users can sign in.")
+    print(LINIE)
+    sys.exit(0)
+
+fehler = None
+for s in schritte:
+    if not s.get("ok"):
+        fehler = s
+        break
+if fehler is None:
+    sys.exit(0)
+
+print(LINIE)
+print("  " + ROT + "THIS IS WHERE IT BREAKS: " + str(fehler.get("titel") or fehler.get("schritt")) + AUS)
+print()
+print(wrap(fehler.get("was_ist") or fehler.get("befund"), "    "))
+if fehler.get("einzelheit"):
+    print()
+    print("    measured: " + str(fehler.get("einzelheit")))
+
+# Zeigt der Name auf eine ANDERE Maschine als die, auf der wir stehen?
+# Beides ist moeglich — ein falscher DNS-Eintrag oder ein Firmennetz mit
+# getrenntem Ein- und Ausgang — und der Unterschied entscheidet ueber den
+# Handgriff. Deshalb werden beide Adressen nebeneinandergestellt und beide
+# Deutungen genannt, statt eine zu behaupten.
+eigene = (os.environ.get("PULSE_EIGENE_IP") or "").strip()
+aufgeloest = ""
+for s in schritte:
+    if s.get("schritt") == "dns" and s.get("ok"):
+        aufgeloest = str(s.get("einzelheit") or "").strip()
+if eigene and aufgeloest and eigene not in [a.strip() for a in aufgeloest.split(",")]:
+    print()
+    print(wrap(
+        "Note: the name resolves to " + aufgeloest + ", but this machine reports "
+        "its own outgoing address as " + eigene + ". Either the DNS record points "
+        "at a different machine, or a firewall in front of it is not forwarding "
+        "to this one. Both look the same from outside.", "    "))
+
+if fehler.get("was_tun"):
+    print()
+    print("    " + GELB + "WHAT TO DO" + AUS)
+    print(wrap(fehler.get("was_tun"), "    "))
+
+print()
+print("  Fix this first, then check again from this machine:")
+print("      docker exec " + (os.environ.get("PULSE_CONTAINER_NAME") or "pulse") + " pulse-doctor")
+print(LINIE)
+PYEOF
+)
 
 # 8) Die Prüfung von aussen — das Einzige, was der Server über sich selbst
 # NICHT sagen kann. Die Cloud geht die ganze Kette ab (DNS, Zertifikat,
 # Routing, CORS, WebSocket-Upgrade, UDP) und benennt das Glied, das fehlt.
+#
+# Die eigene Aussenadresse kommt AUS DEM CONTAINER, nicht aus einem zweiten
+# Aufruf an einen fremden Dienst: dort steht genau die Zahl, mit der Pulse
+# selbst arbeitet (04-init-coturn), und es entsteht keine neue Abhaengigkeit.
 pruefung_von_aussen() {
-  local antwort
+  local antwort eigene
   antwort="$(curl -fsS -m 60 -X POST \
     "${CLOUD_ORIGIN}/api/auth/selfhost/diagnose/${INSTANCE_ID}" \
     -H "X-Pulse-Client-Id: ${CLIENT_ID}" \
     -H "X-Pulse-Client-Secret: ${CLIENT_SECRET}" 2>/dev/null)" || return 1
   [ -n "$antwort" ] || return 1
   command -v python3 >/dev/null 2>&1 || { printf '%s\n' "$antwort"; return 0; }
-  # Der Code steht in einer Variablen statt direkt hinter `python3 -c '...'`:
-  # so bleiben einfache Anfuehrungszeichen in Python frei benutzbar. Frueher
-  # standen dort `\"`-Escapes in f-Ausdruecken — die erlaubt erst Python 3.12
-  # (PEP 701), und Debian 12 bringt 3.11 mit.
-  printf '%s' "$antwort" | python3 -c "$PY_BERICHT"
+  eigene="$(docker exec "$CONTAINER" sed -n 's/^external-ip=//p' \
+    /etc/coturn/turnserver.conf 2>/dev/null | tr -d '\r' | head -n1 || true)"
+  printf '%s' "$antwort" \
+    | PULSE_EIGENE_IP="$eigene" PULSE_CONTAINER_NAME="$CONTAINER" python3 -c "$PY_BERICHT"
 }
 
-log "Checking from the outside (this is what your users will see):"
+log "Checking your server from the outside — this is what your users will see:"
 if pruefung_von_aussen; then
   :
 else
   warn "Could not run the external check right now."
-  warn "Run it any time in the Pulse app: Settings → Self-Host → Check connection."
+  warn "Run it on this machine any time:  docker exec $CONTAINER pulse-doctor"
+  warn "Or in the Pulse app: My Instances → Check connection."
 fi
 
 echo

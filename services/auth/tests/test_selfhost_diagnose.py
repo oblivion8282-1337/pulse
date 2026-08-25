@@ -204,6 +204,81 @@ async def test_alle_schritte_kommen_mit(client, alice, instance, ohne_netz):
 
 
 # ---------------------------------------------------------------------------
+# Der Klartext auf der Leitung
+#
+# Der Installer im Terminal hat keinen eigenen Textkatalog — er zeigt an, was
+# hier ankommt. Fehlt eines dieser Felder, steht dort wieder ein Stichwort wie
+# „kein_handschlag", und genau daran ist der Fall vom 2026-07-29 gescheitert.
+# ---------------------------------------------------------------------------
+
+
+async def test_jeder_schritt_traegt_titel_und_klartext(client, alice, instance, ohne_netz):
+    ohne_netz(
+        [
+            Schritt("dns", True, "aufgeloest", "203.0.113.7"),
+            Schritt("tls", False, "kein_handschlag", "chat.firma.de"),
+        ]
+    )
+    r = await client.post(
+        f"/selfhost/diagnose/{instance['id']}", headers={"Cookie": alice["cookie"]}
+    )
+    dns, tls = r.json()["schritte"]
+
+    assert dns["titel"] and dns["was_ist"]
+    # Ein gelungener Schritt bekommt keinen Handgriff — es gibt nichts zu tun.
+    assert dns["was_tun"] == ""
+
+    assert tls["titel"] == "Encryption"
+    assert tls["was_ist"]
+    assert "behind-proxy" in tls["was_tun"], "der Handgriff muss die Betriebsart nennen"
+    # Der maschinenlesbare Schlüssel bleibt daneben stehen.
+    assert tls["befund"] == "kein_handschlag"
+
+
+async def test_sprache_folgt_dem_accept_language(client, alice, instance, ohne_netz):
+    ohne_netz([Schritt("tls", False, "kein_handschlag", "chat.firma.de")])
+    r = await client.post(
+        f"/selfhost/diagnose/{instance['id']}",
+        headers={"Cookie": alice["cookie"], "Accept-Language": "de-DE,de;q=0.9"},
+    )
+    schritt = r.json()["schritte"][0]
+    assert schritt["titel"] == "Verschlüsselung"
+    assert "Firewall" in schritt["was_tun"]
+
+
+async def test_ausgelassene_glieder_werden_benannt(client, alice, instance, ohne_netz):
+    """Eine abgebrochene Kette darf sich nicht wie eine vollständige lesen.
+
+    Ohne diese Liste hielte der Betreiber die vier nie geprüften Glieder für
+    heil — und suchte den Fehler an einer Stelle, über die niemand etwas weiss.
+    """
+    ohne_netz(
+        [
+            Schritt("dns", True, "aufgeloest", "203.0.113.7"),
+            Schritt("tcp443", True, "offen"),
+            Schritt("tls", False, "kein_handschlag"),
+            Schritt("stun", True, "antwortet"),
+            Schritt("rtmps", True, "offen"),
+        ]
+    )
+    r = await client.post(
+        f"/selfhost/diagnose/{instance['id']}", headers={"Cookie": alice["cookie"]}
+    )
+    offen = r.json()["nicht_geprueft"]
+    assert offen == ["Server condition", "Identity", "Browser access", "Live connection"]
+
+
+async def test_vollstaendige_kette_laesst_nichts_offen(client, alice, instance, ohne_netz):
+    ohne_netz([Schritt(name, True, "ok") for name in diag.SCHRITTE])
+    r = await client.post(
+        f"/selfhost/diagnose/{instance['id']}", headers={"Cookie": alice["cookie"]}
+    )
+    daten = r.json()
+    assert daten["gesamt"] == "ok"
+    assert daten["nicht_geprueft"] == []
+
+
+# ---------------------------------------------------------------------------
 # Der Abbruch der Kette
 # ---------------------------------------------------------------------------
 
