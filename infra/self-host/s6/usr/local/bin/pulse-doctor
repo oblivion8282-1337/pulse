@@ -93,9 +93,11 @@ else
     # aussen tadellos erreichbar ist. Schon geladene JWKS bleiben gueltig,
     # bis sie ueberschrieben werden — betroffen ist vor allem ein frischer
     # Server, der noch nie erfolgreich hinausgekommen ist.
-    rat "Ausgehendes HTTPS ist gesperrt. Ohne das kann sich niemand per"
-    rat "Zertifikat anmelden (401 cert_invalid) — sobald die Verbindung"
-    rat "steht, heilt sich das binnen Sekunden von selbst."
+    rat "Ausgehendes HTTPS ist gesperrt. Hat dieser Server die Cloud noch nie"
+    rat "erreicht, kann sich niemand per Zertifikat anmelden (401"
+    rat "cert_invalid) — eine schon geladene Schluesselliste gilt fuer einen"
+    rat "spaeteren Ausfall weiter. Sobald die Verbindung steht, heilt sich"
+    rat "das binnen Sekunden von selbst."
 fi
 
 # ── 4. Herein: ist der eigene Name ansprechbar? ───────────────────────────
