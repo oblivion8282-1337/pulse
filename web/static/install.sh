@@ -40,7 +40,7 @@ HTTP_PORT="${PULSE_HTTP_PORT:-8080}"
 ENV_FILE="${PULSE_DIR}/pulse.env"
 UPDATE_SH="${PULSE_DIR}/pulse-update.sh"
 # Optionale harte Overrides:
-#   PULSE_TLS_MODE = auto | behind-proxy ; PULSE_NETWORK = Docker-Netz
+#   PULSE_TLS_MODE = auto | provided | behind-proxy ; PULSE_NETWORK = Docker-Netz
 FORCE_TLS_MODE="${PULSE_TLS_MODE:-}"
 FORCE_NETWORK="${PULSE_NETWORK:-}"
 
@@ -373,12 +373,59 @@ decide_mode() {
         MODE=greenfield
       fi ;;
   esac
-  # Harte Overrides
-  if [ "$FORCE_TLS_MODE" = "auto" ]; then MODE=greenfield; fi
+  # --- Harte Overrides ----------------------------------------------------
+  # Reihenfolge ist Teil der Korrektheit, nicht nur Geschmack:
+  #   1. PULSE_TLS_MODE validieren — VOR jeder Wirkung und vor allem vor der
+  #      Token-Einloesung weiter unten im Skript. Der Container kennt nur
+  #      auto|provided|behind-proxy (s. 09-init-caddy.sh:20-62); ein
+  #      unbekannter Wert (Tippfehler oder ein hier nicht abgebildeter Name)
+  #      wirkte bisher STILL gar nicht — der Admin haette es erst am
+  #      laufenden Server gemerkt.
+  #   2. PULSE_NETWORK — es aendert nur PROXY_NET und hebt den Loopback-
+  #      Ersatz `hostproxy` (wie `greenfield`) auf `static-docker`. Vorher
+  #      wirkte das NUR aus `greenfield` heraus, obwohl `hostproxy` genau der
+  #      Fall ist, in dem ein Admin die Fehlerkennung korrigieren will (ein
+  #      Docker-Proxy, den `detect_proxy` uebersehen hat). Ist schon ein
+  #      Proxy erkannt (discovery/static-docker, `_set_proxy` hat
+  #      PULSE_NETWORK dort laengst verbaut), steht MODE hier bereits
+  #      richtig — dieser Block aendert dann nichts mehr.
+  #   3. PULSE_TLS_MODE zuletzt — sonst zoege ein gleichzeitig gesetztes
+  #      PULSE_NETWORK ein ausdrueckliches `auto` (Schritt 2 laeuft ja davor)
+  #      wieder auf `static-docker`, obwohl der Admin ausdruecklich eigenes
+  #      Let's-Encrypt-Auto-TLS verlangt hat.
+  case "$FORCE_TLS_MODE" in
+    ''|auto|provided|behind-proxy) ;;
+    *) die "Unknown PULSE_TLS_MODE='${FORCE_TLS_MODE}'.
+  Allowed values: auto | provided | behind-proxy
+  Nothing has been consumed yet; this check runs before the setup token is
+  redeemed." ;;
+  esac
+
   if [ -n "$FORCE_NETWORK" ]; then
     PROXY_NET="$FORCE_NETWORK"
-    if [ "$MODE" = "greenfield" ]; then MODE=static-docker; fi
+    case "$MODE" in
+      greenfield|hostproxy) MODE=static-docker ;;
+    esac
   fi
+
+  case "$FORCE_TLS_MODE" in
+    auto)
+      MODE=greenfield ;;
+    provided)
+      # `provided` teilt sich die Port-Topologie mit `auto` (Caddy bindet
+      # 80/443 fuer die Site, nur ohne ACME, s. 09-init-caddy.sh) — MODE
+      # kennt aber nur Netzwerk-/Port-Topologie, nicht die Cert-Herkunft.
+      # Das eigentliche TLS_MODE=provided setzt build_run_args separat.
+      MODE=greenfield ;;
+    behind-proxy)
+      # Nur der Loopback-Ersatz zaehlt als "noch unentschieden" — ein bereits
+      # erkannter Proxy (discovery/static-docker) bleibt unangetastet, sonst
+      # wuerfe dieses Override z. B. die Auto-Discovery-Labels weg, obwohl
+      # der Admin nur bestaetigt, was ohnehin schon richtig erkannt wurde.
+      case "$MODE" in
+        greenfield) MODE=hostproxy ;;
+      esac ;;
+  esac
   return 0   # nie über den Exit-Status der letzten Bedingung stolpern (set -e)
 }
 
@@ -440,6 +487,11 @@ build_run_args() {
       TLS_MODE=behind-proxy
       RUN_ARGS+=( -p "127.0.0.1:${HTTP_PORT}:${HTTP_PORT}" ) ;;
   esac
+  # PULSE_TLS_MODE=provided ueberschreibt zuletzt: es teilt sich MODE=greenfield
+  # mit `auto` (s. decide_mode), verlangt vom Container aber ein anderes
+  # Cert-Herkunfts-Etikett im env-file. `if` statt `[ … ] && …` — unter
+  # set -e reisst ein fehlschlagender `&&`-Test sonst den ganzen Lauf ab.
+  if [ "${FORCE_TLS_MODE:-}" = "provided" ]; then TLS_MODE=provided; fi
   RUN_ARGS+=( "$IMAGE" )
 }
 
