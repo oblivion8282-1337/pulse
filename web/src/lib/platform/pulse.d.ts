@@ -204,6 +204,25 @@ export interface PulseShortcutsApi {
   onTrigger(cb: (id: string) => void): () => void;
 }
 
+/**
+ * Ein Schritt der Electron-Netzdiagnose (`desktop/electron/localBackend/netdiag.ts`
+ * — **mit dieser Datei und mit `preload.ts` synchron halten**).
+ *
+ * Die Kette bricht beim ersten harten Fehlschlag ab, die Liste ist also kurz
+ * und endet auf dem Schritt, der klemmt.
+ */
+export type PulseNetdiagSchritt =
+  | { schritt: 'dns'; ok: boolean; adressen: string[]; fehler?: string }
+  | { schritt: 'tcp'; ok: boolean; adresse: string; port: number; fehler?: string }
+  | { schritt: 'tls'; ok: boolean; befund: string; namen: string[] }
+  | { schritt: 'http'; ok: boolean; status?: number; fehler?: string };
+
+export interface PulseNetdiagApi {
+  /** `null` heisst „keine Aussage" (ungueltige Adresse, Diagnose gescheitert) —
+   *  nie „alles gut". */
+  check(hostname: string): Promise<PulseNetdiagSchritt[] | null>;
+}
+
 /** Antwort von `pulse.accessibility.isTrusted()`. */
 export interface PulseAccessibilityResult {
   /** Ist DIESER Prozess (also der vom Hauptprozess gestartete Sidecar,
@@ -421,6 +440,8 @@ export interface PulseApi {
    *  Nur unter Electron vorhanden; ausserhalb von macOS liefert sie stets
    *  `{trusted:true}` zurueck. */
   accessibility?: PulseAccessibilityApi;
+  /** Netzdiagnose eines Self-Host-Servers (nur Electron). */
+  netdiag?: PulseNetdiagApi;
   /** Host-Lifecycle-Bridge (③a). Nur unter Electron vorhanden. */
   host?: PulseHostApi;
   /** Tray-Status overlay: Renderer pusht Status + gerendertes Badge-Image;
