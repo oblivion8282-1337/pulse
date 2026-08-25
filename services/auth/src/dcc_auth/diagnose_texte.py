@@ -189,9 +189,9 @@ _BEFUNDE: dict[tuple[str, str], tuple[tuple[str, str], tuple[str, str]]] = {
          "A proxy in front answers OPTIONS requests itself or drops them. It must pass them through to Pulse unchanged."),
     ),
     ("cors", "kein_header"): (
-        ("Der Server erlaubt dem Browser den Zugriff nicht. Ohne diese Freigabe scheitert das Anmelden mit einer nichtssagenden Fehlermeldung.",
+        ("Der Server erlaubt einem Browser, der auf einer ANDEREN Adresse steht, den Zugriff nicht. Das betrifft das Hinzufügen dieses Servers von dort aus — nicht das gewöhnliche Anmelden, wenn du bereits direkt auf dieser Adresse bist.",
          "Ein Proxy davor entfernt vermutlich Antwort-Kopfzeilen. Pulse setzt sie selbst — sie müssen unverändert durchkommen."),
-        ("The server does not grant the browser access. Without it, signing in fails with a meaningless error message.",
+        ("The server does not grant access to a browser sitting at a DIFFERENT address. This affects adding this server from there — not ordinary sign-in once you are already directly at this address.",
          "A proxy in front is probably stripping response headers. Pulse sets them itself — they must pass through unchanged."),
     ),
     ("cors", "doppelter_header"): (
@@ -219,10 +219,10 @@ _BEFUNDE: dict[tuple[str, str], tuple[tuple[str, str], tuple[str, str]]] = {
          "Check the proxy's forwarding for the path /ws — it must point at the same container as everything else."),
     ),
     ("websocket", "server_ohne_cloud"): (
-        ("Der Server erreicht howispulse.com nicht und lehnt deshalb jede Anmeldung ab. Das ist die AUSGEHENDE Richtung — bei ihm, nicht bei deinen Nutzern.",
-         "Die Firewall des Servers muss ausgehende HTTPS-Verbindungen zu howispulse.com erlauben. Prüfen von der Maschine aus: curl -sS https://howispulse.com/.well-known/jwks.json"),
-        ("The server cannot reach howispulse.com and therefore refuses every sign-in. This is the OUTBOUND direction — on its end, not your users'.",
-         "The server's firewall must allow outbound HTTPS to howispulse.com. Check from the machine: curl -sS https://howispulse.com/.well-known/jwks.json"),
+        ("Der Chat-Dienst im Container hat noch keine Antwort von seinem eigenen Anmelde-Dienst (auth-svc) bekommen und lehnt deshalb jede Anmeldung ab. Das Problem sitzt IM Container — nicht an der Verbindung zu howispulse.com.",
+         "Sieh von innen nach, welcher Dienst hängt: docker exec pulse pulse-doctor, Abschnitt „Dienste im Container“. Meist ist der Anmelde-Dienst noch nicht gestartet oder abgestürzt."),
+        ("The chat service inside the container has not yet gotten an answer from its own sign-in service (auth-svc) and therefore refuses every sign-in. The problem sits INSIDE the container — not in the connection to howispulse.com.",
+         "Check from the inside which service is stuck: docker exec pulse pulse-doctor, \"Dienste im Container\" section. Usually the sign-in service has not started yet or has crashed."),
     ),
     ("websocket", "instanz_gesperrt"): (
         ("Diese Instanz ist in der Cloud gesperrt. Anmeldungen werden abgelehnt, die Daten sind unangetastet.",

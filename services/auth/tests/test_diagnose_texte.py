@@ -184,6 +184,56 @@ def test_unbekannter_befund_faellt_auf_den_sammeltext() -> None:
         assert was_ist.strip() and was_tun.strip()
 
 
+def test_websocket_server_ohne_cloud_zeigt_auf_den_container_nicht_auf_die_firewall() -> None:
+    """4046 entsteht, weil ``chat-gateway`` (routes/ws.py) die JWKS seines
+    EIGENEN ``auth-svc`` noch nicht laden konnte (``jwks_pinning.py``:
+    ``jwks_ready`` bleibt ``False``, bis ``settings.auth_jwks_url`` einmal
+    antwortet). Im Self-Host-Container zeigt ``AUTH_JWKS_URL`` auf
+    ``http://127.0.0.1:8001/.well-known/jwks.json`` — den lokalen ``auth-svc``
+    im selben Container
+    (``infra/self-host/s6/etc/s6-overlay/scripts/07-render-env.sh``), NICHT
+    auf howispulse.com. 4046 sagt also „der Dienst nebenan antwortet nicht",
+    nicht „kein Internet". Der Text darf den Betreiber deshalb nicht auf seine
+    ausgehende Firewall schicken — das wäre die Suche am falschen Ende.
+    """
+    for sprache in dt.SPRACHEN:
+        was_ist, was_tun = dt.erklaerung("websocket", "server_ohne_cloud", False, sprache)
+        text = f"{was_ist} {was_tun}".lower()
+        assert "firewall" not in text, f"schickt den Betreiber auf die Firewall ({sprache}): {text}"
+        assert "ausgehend" not in text and "outbound" not in text, (
+            f"behauptet weiter eine ausgehende Verbindung sei das Problem ({sprache}): {text}"
+        )
+        assert "pulse-doctor" in was_tun, (
+            f"kein Verweis auf den Blick von innen (pulse-doctor) ({sprache}): {was_tun}"
+        )
+
+
+def test_cors_kein_header_grenzt_auf_das_hinzufuegen_ein_nicht_auf_den_login() -> None:
+    """Der CORS-Schritt (``selfhost_probe_dienst.py::pruefe_cors``) schickt ein
+    Preflight mit fremder ``Origin`` — genau der Cross-Origin-Aufruf aus
+    ``web/src/lib/api/server-info.ts::preCheckServer``, den ``joinByHost.ts``
+    beim HINZUFÜGEN eines Servers von einer anderen Adresse aus macht. Ein
+    normaler Login direkt auf der eigenen Adresse des Servers ist same-origin
+    und braucht kein CORS. Der Text darf also nicht pauschal behaupten, ohne
+    diese Freigabe scheitere „das Anmelden" — das verweist Leute mit einem
+    anderen Login-Problem auf die falsche Fährte.
+    """
+    verboten = {"de": "scheitert das anmelden", "en": "signing in fails"}
+    hinweis_auf_fremde_herkunft = {
+        "de": ("andere", "fremde", "hinzufüg", "wechseln"),
+        "en": ("different", "another", "adding", "add this server"),
+    }
+    for sprache in dt.SPRACHEN:
+        was_ist, was_tun = dt.erklaerung("cors", "kein_header", False, sprache)
+        text = f"{was_ist} {was_tun}"
+        assert verboten[sprache] not in text.lower(), (
+            f"pauschale Anmelde-Behauptung noch da ({sprache}): {text}"
+        )
+        assert any(w.lower() in text.lower() for w in hinweis_auf_fremde_herkunft[sprache]), (
+            f"kein Hinweis auf die fremde Herkunft/das Hinzufügen ({sprache}): {text}"
+        )
+
+
 def test_sprachwahl() -> None:
     assert dt.sprache_aus_header("de") == "de"
     assert dt.sprache_aus_header("de-DE,de;q=0.9,en;q=0.8") == "de"
