@@ -24,11 +24,15 @@ if [ -n "${MISSING}" ]; then
     cat >&2 <<EOF
 [10-check-cloud-creds] FATAL: missing required env var(s):${MISSING}
 
-Set these in your \`docker run\` (or compose file). Example:
+Set these in your \`docker run\` (or compose file). The registry needs a login
+first — an anonymous pull is rejected with 401. Example:
+
+  docker login registry.howispulse.com -u <client_id> -p <client_secret>
 
   docker run -d --name pulse \\
     -v pulse-data:/data \\
     -p 443:443 -p 80:80 -p 7882-7892:7882-7892/udp -p 3478:3478 -p 3478:3478/udp \\
+    -p 1936:1936/tcp -p 8189:8189/udp \\
     -e PULSE_HOSTNAME=chat.firma.de \\
     -e PULSE_INSTANCE_ID=... \\
     -e PULSE_INSTANCE_OWNER_ID=... \\
