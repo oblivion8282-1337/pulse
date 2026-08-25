@@ -132,13 +132,22 @@ export interface RotateSecretResult {
   warning: string;
 }
 
-/** Ein Prüfschritt der Erreichbarkeitsprüfung (routes_selfhost_diagnose.py —
- *  **mit den Befund-Schlüsseln in lib/diagnose/befunde.ts synchron halten**). */
+/** Ein Glied der Kette (spiegelt SchrittAus in routes_selfhost_diagnose.py).
+ *
+ *  `titel`, `was_ist` und `was_tun` kommen FERTIG vom Server
+ *  (`dcc_auth/diagnose_texte.py`) und werden hier nur noch angezeigt. Der
+ *  Grund steht dort: dieselben Sätze erscheinen im Installer-Terminal, und
+ *  zwei Kataloge beschrieben denselben Zustand nach kurzer Zeit verschieden.
+ *  `befund` bleibt der maschinenlesbare Schlüssel — für Tests und Protokolle. */
 export interface DiagnoseSchritt {
   schritt: string;
   ok: boolean;
   befund: string;
   einzelheit: string | null;
+  titel: string;
+  was_ist: string;
+  /** Leer, wenn der Schritt sitzt. */
+  was_tun: string;
 }
 
 /** Spiegelt DiagnoseAus. `gesamt` ist 'ok' oder der Name des ERSTEN Schritts,
@@ -147,6 +156,10 @@ export interface DiagnoseErgebnis {
   hostname: string;
   gesamt: string;
   schritte: DiagnoseSchritt[];
+  /** Glieder, die wegen eines früheren Fehlschlags gar nicht geprüft wurden.
+   *  Müssen sichtbar bleiben — sonst liest sich eine abgebrochene Kette wie
+   *  eine vollständige. */
+  nicht_geprueft: string[];
 }
 
 /** Spiegelt BootstrapTokenOut — One-Time-Token für den Ein-Befehl-Installer. */

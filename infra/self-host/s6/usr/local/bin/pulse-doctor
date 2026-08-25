@@ -126,6 +126,47 @@ else
     fi
 fi
 
+# ── 4b. Zeigt der Name ueberhaupt auf DIESE Maschine? ─────────────────────
+#
+# Der Fall, der am 2026-07-29 zwei Tage gekostet hat: der A-Eintrag zeigte auf
+# 217.111.109.226, die Maschine meldete sich nach draussen als .228. Caddy holte
+# vergeblich ein Zertifikat, und aus dem Log war das nur zu erkennen, wenn man
+# zwei weit auseinanderliegende Zeilen nebeneinanderhielt.
+#
+# Das Ergebnis ist bewusst „unklar" und kein Fehler: ein Firmennetz DARF ein-
+# und ausgehend verschiedene Adressen haben. Beide Deutungen werden genannt,
+# weil sie zu verschiedenen Handgriffen fuehren.
+if [ -n "$HOST" ] && [ "$TLS_MODE" != "behind-proxy" ]; then
+    titel "Zeigt der Name auf diese Maschine?"
+    # Mit Leerzeichen umschlossen, damit der Vergleich unten ganze Adressen
+    # trifft: ohne die Grenzen fände „1.2.3.4" auch in „11.2.3.40" einen Treffer.
+    NAME_IPS="$(getent ahostsv4 "$HOST" 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ')"
+    NAME_IPS_ANZEIGE="$(printf '%s' "$NAME_IPS" | sed 's/ *$//; s/ /, /g')"
+    # Die eigene Aussenadresse steht schon in der TURN-Konfiguration; sie wurde
+    # beim Start ermittelt (04-init-coturn). Kein zweiter Aufruf nach draussen.
+    EIGENE_IP="$(sed -n 's/^external-ip=//p' /etc/coturn/turnserver.conf 2>/dev/null | head -n1)"
+    if [ -z "$NAME_IPS" ]; then
+        nein "${HOST} laesst sich von hier nicht aufloesen"
+        rat "Trage beim Domain-Anbieter einen A-Eintrag auf die oeffentliche"
+        rat "IP-Adresse dieses Servers ein."
+    elif [ -z "$EIGENE_IP" ]; then
+        hm "eigene Aussenadresse unbekannt — Vergleich nicht moeglich"
+        rat "Name zeigt auf: ${NAME_IPS_ANZEIGE}"
+    elif printf '%s' " $NAME_IPS " | grep -qF " ${EIGENE_IP} "; then
+        ja "${HOST} zeigt auf diese Maschine (${EIGENE_IP})"
+    else
+        hm "${HOST} zeigt auf ${NAME_IPS_ANZEIGE} — diese Maschine ist ${EIGENE_IP}"
+        rat "Zwei Moeglichkeiten, und sie brauchen verschiedene Handgriffe:"
+        rat "  1. Der A-Eintrag zeigt auf einen anderen Rechner. Dann dort"
+        rat "     korrigieren."
+        rat "  2. Das Netz hat getrennte Ein- und Ausgaenge (Firmen-Firewall)."
+        rat "     Dann muss sie Port 80 und 443 auf diese Maschine"
+        rat "     weiterleiten, und Pulse gehoert mit"
+        rat "     PULSE_TLS_MODE=behind-proxy gestartet — sonst versucht es"
+        rat "     vergeblich, sich selbst ein Zertifikat zu holen."
+    fi
+fi
+
 # ── 5. Zertifikat ─────────────────────────────────────────────────────────
 titel "Zertifikat"
 case "$TLS_MODE" in
@@ -136,6 +177,9 @@ case "$TLS_MODE" in
             nein "kein Zertifikat für ${HOST:-<kein Hostname>}"
             rat "Caddy bekommt nur eins, wenn der DNS-A-Eintrag auf diese"
             rat "Maschine zeigt UND Port 80 von aussen offen ist."
+            rat "Steht eine fremde Firewall oder ein Proxy davor, der das"
+            rat "Zertifikat selbst haelt: Pulse mit PULSE_TLS_MODE=behind-proxy"
+            rat "starten. Dann hoert es auf, es selbst zu versuchen."
         fi ;;
     provided)
         if [ -r "${DATA}/certs/cert.pem" ] && [ -r "${DATA}/certs/key.pem" ]; then

@@ -33,6 +33,7 @@ from pydantic import BaseModel
 
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
+from dcc_auth.diagnose_texte import SCHRITTE, erklaerung, sprache_aus_header, titel
 from dcc_auth.models_instances import RegisteredInstance
 from dcc_auth.routes import _check_rate
 from dcc_auth.routes_admin_instances import _require_cloud
@@ -63,6 +64,12 @@ class SchrittAus(BaseModel):
     ok: bool
     befund: str
     einzelheit: str | None = None
+    #: Überschrift in Alltagssprache — „Verschlüsselung" statt „tls".
+    titel: str = ""
+    #: Was gemessen wurde, als Satz.
+    was_ist: str = ""
+    #: Der nächste Handgriff. Leer, wenn der Schritt sitzt.
+    was_tun: str = ""
 
 
 class DiagnoseAus(BaseModel):
@@ -70,6 +77,10 @@ class DiagnoseAus(BaseModel):
     #: ``ok`` nur, wenn jeder Schritt sitzt. Sonst der Name des ersten, der nicht.
     gesamt: str
     schritte: list[SchrittAus]
+    #: Überschriften der Glieder, die wegen eines früheren Fehlschlags gar nicht
+    #: erst geprüft wurden. Ohne diese Liste läse sich eine abgebrochene Kette
+    #: wie eine vollständige — der Betreiber hielte Ungeprüftes für heil.
+    nicht_geprueft: list[str] = []
 
 
 async def _instanz_oder_404(
@@ -160,6 +171,7 @@ async def diagnose(
     db: SessionDep,
     x_pulse_client_id: Annotated[str | None, Header()] = None,
     x_pulse_client_secret: Annotated[str | None, Header()] = None,
+    accept_language: Annotated[str | None, Header()] = None,
 ) -> DiagnoseAus:
     settings = get_settings()
     await _check_rate(request, "selfhost_diagnose", settings.rate_limit_selfhost_diagnose)
@@ -178,11 +190,32 @@ async def diagnose(
         schritte = [Schritt("gesamt", False, "zeitueberschreitung")]
 
     erster_fehler = next((s.schritt for s in schritte if not s.ok), None)
+    sprache = sprache_aus_header(accept_language)
+
+    # Was die Kette ausgelassen hat. `_fuehre_pruefung` bricht bewusst ab, wo
+    # ein weiterer Schritt nur dieselbe Ursache wiederholte — das darf sich
+    # aber nicht wie ein bestandener Rest lesen.
+    gelaufen = {s.schritt for s in schritte}
+    nicht_geprueft = [titel(name, sprache) for name in SCHRITTE if name not in gelaufen]
+
+    ausgaben: list[SchrittAus] = []
+    for s in schritte:
+        was_ist, was_tun = erklaerung(s.schritt, s.befund, s.ok, sprache)
+        ausgaben.append(
+            SchrittAus(
+                schritt=s.schritt,
+                ok=s.ok,
+                befund=s.befund,
+                einzelheit=s.einzelheit,
+                titel=titel(s.schritt, sprache),
+                was_ist=was_ist,
+                was_tun=was_tun,
+            )
+        )
+
     return DiagnoseAus(
         hostname=host,
         gesamt=erster_fehler or "ok",
-        schritte=[
-            SchrittAus(schritt=s.schritt, ok=s.ok, befund=s.befund, einzelheit=s.einzelheit)
-            for s in schritte
-        ],
+        schritte=ausgaben,
+        nicht_geprueft=nicht_geprueft,
     )

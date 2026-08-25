@@ -166,7 +166,40 @@ docker compose exec pulse pg_dump -U pulse pulse > backup-$(date +%Y%m%d).sql
 
 ## Troubleshooting
 
-### Zuerst: die beiden Werkzeuge
+### Der Installer sagt es dir schon
+
+Am Ende jeder Installation läuft die Prüfung von aussen automatisch, und das
+Ergebnis steht **im Terminal**, nicht nur in der App:
+
+```
+    [ ok ] Name lookup
+    [ ok ] Reachability (port 443)
+    [FAIL] Encryption
+
+    [ -- ] not checked, the chain stopped before them:
+           Server condition, Identity, Browser access, Live connection
+
+  ------------------------------------------------------------------
+  THIS IS WHERE IT BREAKS: Encryption
+
+    The connection on port 443 is accepted, but no encrypted connection
+    is established. So something answers there — just not Pulse.
+
+    WHAT TO DO
+    Usually a foreign firewall or a different server sits at this
+    address. First check whether the A record really points at this
+    machine. ...
+```
+
+Zwei Dinge daran sind Absicht. **Nur das erste Kreuz** bekommt die lange
+Erklärung — die Glieder danach wiederholen in aller Regel dieselbe Ursache.
+Und die ausgelassenen Glieder werden **benannt**: eine abgebrochene Kette darf
+sich nicht wie eine vollständige lesen.
+
+Läuft die Prüfung gerade nicht (kein Netz, Cloud nicht erreichbar), kommst du
+jederzeit über `docker exec pulse pulse-doctor` an dieselben Sätze.
+
+### Die beiden Werkzeuge für später
 
 **Von aussen** — in der App unter **Einstellungen → Self-Host → Meine
 Instanzen → „Verbindung prüfen"**. Die Cloud geht die ganze Kette ab (Name,
@@ -188,6 +221,22 @@ Firewall oder Proxy — nicht der Server.
 > nicht als Fehler: etliche Router können den eigenen öffentlichen Namen von
 > innen nicht auflösen (fehlendes Hairpin-NAT). Entschieden wird das nur von
 > aussen.
+
+`pulse-doctor` vergleicht ausserdem, **worauf dein Name zeigt** und **als was
+sich diese Maschine nach draussen meldet**. Sind die beiden verschieden, ist
+das der häufigste Grund für „das Zertifikat kommt nicht":
+
+```
+Zeigt der Name auf diese Maschine?
+  unklar  chat.firma.de zeigt auf 203.0.113.226 — diese Maschine ist 203.0.113.228
+```
+
+Auch das ist bewusst **unklar** und kein Fehler, denn es gibt zwei Deutungen
+mit verschiedenen Handgriffen: der A-Eintrag zeigt auf den falschen Rechner —
+oder das Netz hat getrennte Ein- und Ausgänge (Firmen-Firewall). Im zweiten
+Fall muss die Firewall Port 80 und 443 hierher weiterleiten, **und** Pulse
+gehört mit `PULSE_TLS_MODE=behind-proxy` gestartet; sonst versucht es
+vergeblich, sich selbst ein Zertifikat zu holen.
 
 Wie weit der Erststart gekommen ist, steht ausserdem unter
 `https://<hostname>/health/setup` (öffentlich, nur Phasennamen).

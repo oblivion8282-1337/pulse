@@ -1,0 +1,194 @@
+"""Hält den Textkatalog gegen die Stellen, die Befunde ERZEUGEN.
+
+Warum nicht gegen eine Liste im Test
+------------------------------------
+Wer eine Prüfung testet, schreibt die Fälle aus derselben Vorstellung auf, aus
+der er die Prüfung geschrieben hat — ein Befund, an den beim Bauen niemand
+dachte, fehlt dann auch im Test. Deshalb liest dieser Test die Befunde aus dem
+Quelltext der beiden Probe-Module: neu erfundene Befunde tauchen hier von
+selbst auf, ohne dass jemand daran denken muss.
+
+Was ein Fehlschlag hier bedeutet: irgendwo meldet die Prüfung etwas, wofür es
+keinen Satz gibt. Der Nutzer bekäme dann den Sammeltext — kein Absturz, aber
+eine Sackgasse, und zwar in dem Moment, in dem er ohnehin ein Problem hat.
+"""
+
+from __future__ import annotations
+
+import ast
+import pathlib
+
+import pytest
+
+from dcc_auth import diagnose_texte as dt
+
+_QUELLEN = ("selfhost_probe.py", "selfhost_probe_dienst.py")
+
+
+def _modul_pfad(name: str) -> pathlib.Path:
+    return pathlib.Path(dt.__file__).with_name(name)
+
+
+def _strings(knoten: ast.AST) -> set[str]:
+    """Zeichenketten, die als WERT herauskommen können — nicht jede im Baum.
+
+    Der Unterschied ist nicht theoretisch: bei
+    ``"falscher_name" if "hostname" in str(exc) else "nicht_vertrauenswuerdig"``
+    ist ``"hostname"`` ein Prüfwort und kein Befund. Ein blindes ``ast.walk``
+    nähme es mit und verlangte dafür einen Text, den es nie geben wird.
+    """
+    if isinstance(knoten, ast.Constant):
+        return {knoten.value} if isinstance(knoten.value, str) else set()
+    if isinstance(knoten, ast.IfExp):
+        return _strings(knoten.body) | _strings(knoten.orelse)
+    if isinstance(knoten, ast.Dict):
+        return {s for wert in knoten.values for s in _strings(wert)}
+    return {
+        k.value for k in ast.walk(knoten) if isinstance(k, ast.Constant) and isinstance(k.value, str)
+    }
+
+
+def _aufgeloest(name: str, funktion: ast.AST) -> set[str]:
+    """Welche Zeichenketten kann die Variable ``name`` in dieser Funktion tragen?
+
+    Zwei Formen kommen im Bestand vor und beide müssen erfasst werden:
+    die direkte Zuweisung (auch als Bedingungsausdruck mit zwei Zweigen) und
+    ``kodes.get(...)`` auf ein zuvor zugewiesenes Wörterbuch — dort stehen die
+    Befunde in den Werten, nicht am Zuweisungsziel.
+    """
+    treffer: set[str] = set()
+    woerterbuecher: dict[str, ast.Dict] = {}
+
+    for knoten in ast.walk(funktion):
+        if not isinstance(knoten, ast.Assign):
+            continue
+        ziele = [z.id for z in knoten.targets if isinstance(z, ast.Name)]
+        if isinstance(knoten.value, ast.Dict):
+            for ziel in ziele:
+                woerterbuecher[ziel] = knoten.value
+        if name not in ziele:
+            continue
+        wert = knoten.value
+        if isinstance(wert, ast.Call) and isinstance(wert.func, ast.Attribute):
+            # `{...}.get(...)` oder `kodes.get(...)` — die Befunde stehen in den
+            # Werten des Wörterbuchs, nicht am Zuweisungsziel. Beide Schreib-
+            # weisen kommen im Bestand vor: `pruefe_tls` schreibt das Wörterbuch
+            # direkt in den Aufruf.
+            quelle = wert.func.value
+            if isinstance(quelle, ast.Dict):
+                treffer |= _strings(quelle)
+            elif isinstance(quelle, ast.Name) and quelle.id in woerterbuecher:
+                treffer |= _strings(woerterbuecher[quelle.id])
+            treffer |= {s for a in wert.args for s in _strings(a)}
+        else:
+            treffer |= _strings(wert)
+    return treffer
+
+
+def _erzeugte_paare() -> set[tuple[str, str]]:
+    """Jedes ``Schritt(<schritt>, False, <befund>)`` aus den Probe-Modulen.
+
+    Nur die Fehlschläge — ein gelungener Schritt trägt keinen Befund, der
+    erklärt werden müsste, und sein Satz kommt aus ``_GELUNGEN``.
+
+    **Blinder Fleck, bewusst:** ``pruefe_tcp`` bekommt den Schrittnamen als
+    Parameter (``tcp443`` bzw. ``rtmps`` erst beim Aufruf), seine Befunde
+    tauchen hier deshalb nicht auf. Das ist tragbar, solange die Funktion
+    genau einen Fehlschlag kennt; wer ihr einen zweiten gibt, muss den Text
+    von Hand nachtragen. ``gesamt/zeitueberschreitung`` entsteht erst in der
+    Route und fehlt aus demselben Grund.
+    """
+    paare: set[tuple[str, str]] = set()
+    for datei in _QUELLEN:
+        baum = ast.parse(_modul_pfad(datei).read_text(encoding="utf-8"))
+        for funktion in ast.walk(baum):
+            # `async def` ist ein eigener Knotentyp — die Probe-Funktionen sind
+            # alle asynchron, ein Test nur auf FunctionDef fände nichts.
+            if not isinstance(funktion, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            for knoten in ast.walk(funktion):
+                if not (
+                    isinstance(knoten, ast.Call)
+                    and isinstance(knoten.func, ast.Name)
+                    and knoten.func.id == "Schritt"
+                    and len(knoten.args) >= 3
+                ):
+                    continue
+                schritt, gelungen, befund = knoten.args[0], knoten.args[1], knoten.args[2]
+                if not (isinstance(schritt, ast.Constant) and isinstance(schritt.value, str)):
+                    continue
+                if not (isinstance(gelungen, ast.Constant) and gelungen.value is False):
+                    continue
+                if isinstance(befund, ast.Constant) and isinstance(befund.value, str):
+                    paare.add((schritt.value, befund.value))
+                elif isinstance(befund, ast.Name):
+                    for wert in _aufgeloest(befund.id, funktion):
+                        paare.add((schritt.value, wert))
+    return paare
+
+
+def test_quellen_liefern_ueberhaupt_befunde() -> None:
+    """Schutz vor einem Test, der nichts mehr prüft.
+
+    Findet die Erkennung oben nichts (weil jemand ``Schritt`` umbenannt oder
+    die Aufrufe umgebaut hat), liefe alles Weitere über eine leere Menge und
+    wäre wortlos grün — genau die Sorte Test, die niemandem auffällt.
+    """
+    paare = _erzeugte_paare()
+    assert len(paare) >= 20, f"nur {len(paare)} Befunde erkannt — Erkennung kaputt?"
+    # Zwei, die es geben MUSS: der häufigste Proxy-Fehler und der teuerste.
+    assert ("websocket", "kein_upgrade") in paare
+    assert ("tls", "kein_handschlag") in paare
+
+
+@pytest.mark.parametrize("sprache", dt.SPRACHEN)
+def test_jeder_erzeugbare_befund_hat_beide_saetze(sprache: str) -> None:
+    ohne: list[tuple[str, str]] = []
+    for schritt, befund in sorted(_erzeugte_paare()):
+        was_ist, was_tun = dt.erklaerung(schritt, befund, False, sprache)
+        sammeltext = dt.erklaerung(schritt, "gibt-es-nicht", False, sprache)
+        if (was_ist, was_tun) == sammeltext or not was_tun.strip():
+            ohne.append((schritt, befund))
+    assert not ohne, f"ohne eigenen Text ({sprache}): {ohne}"
+
+
+@pytest.mark.parametrize("sprache", dt.SPRACHEN)
+def test_katalog_ist_vollstaendig_ausgefuellt(sprache: str) -> None:
+    """Kein Eintrag darf halb leer sein — ``was_tun`` ist das Kernstück."""
+    for schritt, befund in dt.alle_paare():
+        was_ist, was_tun = dt.erklaerung(schritt, befund, False, sprache)
+        assert was_ist.strip(), f"{schritt}/{befund} ohne was_ist ({sprache})"
+        assert was_tun.strip(), f"{schritt}/{befund} ohne was_tun ({sprache})"
+
+
+@pytest.mark.parametrize("sprache", dt.SPRACHEN)
+def test_jeder_schritt_hat_titel_und_erfolgssatz(sprache: str) -> None:
+    for schritt in (*dt.SCHRITTE, "gesamt"):
+        assert dt.titel(schritt, sprache).strip()
+        was_ist, was_tun = dt.erklaerung(schritt, "ok", True, sprache)
+        assert was_ist.strip(), f"{schritt} ohne Erfolgssatz ({sprache})"
+        assert was_tun == "", "ein gelungener Schritt braucht keinen Handgriff"
+
+
+def test_katalog_kennt_nur_echte_schritte() -> None:
+    """Ein Tippfehler im Schrittnamen macht den Eintrag unerreichbar."""
+    erlaubt = {*dt.SCHRITTE, "gesamt"}
+    fremd = sorted({s for s, _ in dt.alle_paare()} - erlaubt)
+    assert not fremd, f"Einträge für unbekannte Schritte: {fremd}"
+
+
+def test_unbekannter_befund_faellt_auf_den_sammeltext() -> None:
+    """Der Server darf neuer sein als der Installer, den jemand vor Monaten zog."""
+    for sprache in dt.SPRACHEN:
+        was_ist, was_tun = dt.erklaerung("tls", "ganz-neuer-befund", False, sprache)
+        assert was_ist.strip() and was_tun.strip()
+
+
+def test_sprachwahl() -> None:
+    assert dt.sprache_aus_header("de") == "de"
+    assert dt.sprache_aus_header("de-DE,de;q=0.9,en;q=0.8") == "de"
+    assert dt.sprache_aus_header("en-US,en;q=0.9") == "en"
+    assert dt.sprache_aus_header(None) == "en"
+    assert dt.sprache_aus_header("") == "en"
+    # „de" darf nicht in einem anderen Sprachnamen mitgelesen werden.
+    assert dt.sprache_aus_header("nl-BE") == "en"
