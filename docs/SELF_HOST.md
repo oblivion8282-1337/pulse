@@ -183,7 +183,9 @@ wer zu lange auf einer alten Version bleibt, riskiert eine inkompatible
 Protokoll-Version gegenüber der Cloud — dann blockt der Verbindungs-Check.
 
 Der Installer-Weg macht dasselbe automatisch, prüft aber zusätzlich, ob der
-neue Container wirklich stabil läuft, und macht sonst selbst einen Rollback —
+neue Container seit dem Start wirklich durchgehend läuft — ohne einen
+einzigen Neustart, nicht nur "läuft gerade" —, und macht sonst selbst einen
+Rollback —
 Mechanik samt der beiden Fein-Regler `PULSE_UPDATE_STABIL_VERSUCHE`/
 `PULSE_UPDATE_STABIL_INTERVALL` (nur für den generierten Updater selbst
 relevant, nicht für den `curl`-Aufruf) stehen unter
