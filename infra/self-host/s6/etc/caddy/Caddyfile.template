@@ -40,6 +40,16 @@
     # ------------------------------------------------------------------ #
     # Health (öffentlich, kein Auth) — für Monitoring/Uptime-Checks      #
     # ------------------------------------------------------------------ #
+    # Erststart-Fortschritt (cont-init-Phasen + Zertifikat). Eigener Block,
+    # weil `handle /health` in Caddy GENAU diesen Pfad trifft und nicht das
+    # Unterverzeichnis — ohne diese Zeile fiele /health/setup auf die leere
+    # SPA-Antwort ganz unten durch und der Installer bekäme HTML statt JSON.
+    handle /health/setup {
+        reverse_proxy 127.0.0.1:8002 {
+            header_up X-Forwarded-For {remote_host}
+        }
+    }
+
     handle /health {
         reverse_proxy 127.0.0.1:8002 {
             # Overwrite any client-supplied X-Forwarded-For with the real peer.

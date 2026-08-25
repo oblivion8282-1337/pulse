@@ -1,0 +1,161 @@
+#!/bin/bash
+# pulse-doctor — Was ist mit diesem Server los?  `docker exec pulse pulse-doctor`
+#
+# Der Unterschied zu `pulse-health`: das ist ein Ja/Nein für Docker, das hier
+# ist eine Auskunft für einen Menschen. Es hält nicht beim ersten Fehlschlag an
+# (der erste sagt selten am meisten), es schaut auch nach DRAUSSEN, und es
+# nennt zu jedem Befund die Stelle, an der man etwas tun kann.
+#
+# Drei Richtungen, und die Trennung ist der ganze Witz:
+#   1. innen   — laufen die Dienste im Container?
+#   2. hinaus  — erreicht der Container die Cloud? (JWKS, Sperrliste)
+#   3. herein  — ist der Server unter seinem eigenen Namen ansprechbar?
+# Ist 1 grün und 3 rot, liegt es an DNS, Firewall oder Proxy — nicht am Server.
+# Genau diese Unterscheidung fehlte, und ohne sie sucht man an der falschen
+# Stelle.
+#
+# Nichts hier verändert etwas. Keine Geheimnisse in der Ausgabe.
+
+set -u
+
+DATA="${PULSE_DATA_PATH:-/data}"
+CLOUD="${PULSE_CLOUD_ORIGIN:-https://howispulse.com}"
+HOST="${PULSE_HOSTNAME:-}"
+TLS_MODE="${PULSE_TLS_MODE:-auto}"
+HTTP_PORT="${PULSE_HTTP_PORT:-8080}"
+
+# Farben nur, wenn die Ausgabe wirklich auf einem Terminal landet.
+if [ -t 1 ]; then
+    GRUEN=$'\033[32m'; ROT=$'\033[31m'; GELB=$'\033[33m'; AUS=$'\033[0m'
+else
+    GRUEN=""; ROT=""; GELB=""; AUS=""
+fi
+
+FEHLER=0
+
+ja()   { printf '  %sok%s      %s\n' "$GRUEN" "$AUS" "$1"; }
+nein() { printf '  %sfehlt%s   %s\n' "$ROT" "$AUS" "$1"; FEHLER=$((FEHLER + 1)); }
+hm()   { printf '  %sunklar%s  %s\n' "$GELB" "$AUS" "$1"; }
+titel(){ printf '\n%s\n' "$1"; }
+rat()  { printf '          %s\n' "$1"; }
+
+tcp_offen() { timeout 1 bash -c "</dev/tcp/127.0.0.1/$1" 2>/dev/null; }
+
+pruefe_port() {
+    if tcp_offen "$1"; then ja "$2 ($1)"; else nein "$2 ($1) antwortet nicht"; fi
+}
+
+# ── 1. Innen ───────────────────────────────────────────────────────────────
+titel "Dienste im Container"
+if curl -fsS -o /dev/null --max-time 3 http://127.0.0.1:8002/health; then
+    ja "chat-gateway (8002)"
+else
+    nein "chat-gateway (8002) — /health antwortet nicht"
+    rat "docker logs <container> 2>&1 | tail -50"
+fi
+pruefe_port 8001 "auth-svc"
+pruefe_port 8003 "voice-signaling"
+pruefe_port 8004 "media-svc"
+pruefe_port 5432 "Postgres"
+pruefe_port 6379 "Redis"
+pruefe_port 7880 "LiveKit"
+pruefe_port 9000 "MinIO"
+
+# ── 2. Erststart ───────────────────────────────────────────────────────────
+titel "Erststart"
+STATUS="${DATA}/setup-status"
+if [ -r "$STATUS" ]; then
+    # Nur die Fehlschläge und den Abschluss nennen — die vollständige Liste
+    # steht unter /health/setup und interessiert hier niemanden.
+    if awk -F'\t' '$3 != "ok" { gefunden=1 } END { exit !gefunden }' "$STATUS"; then
+        nein "Ein Startschritt ist abgebrochen:"
+        awk -F'\t' '$3 != "ok" { printf "          %s\n", $2 }' "$STATUS"
+        rat "docker logs <container> 2>&1 | grep -A5 cont-init"
+    elif grep -q $'\tfertig\t' "$STATUS"; then
+        ja "alle Startschritte durchgelaufen"
+    else
+        hm "Start läuft noch (kein Abschluss vermerkt)"
+    fi
+else
+    hm "keine Startprotokolle unter ${STATUS} (älterer Container?)"
+fi
+
+# ── 3. Hinaus: erreicht der Container die Cloud? ──────────────────────────
+titel "Verbindung zur Cloud (ausgehend)"
+if curl -fsS -o /dev/null --max-time 5 "${CLOUD}/.well-known/jwks.json"; then
+    ja "${CLOUD} erreichbar"
+else
+    nein "${CLOUD} nicht erreichbar"
+    # Ohne JWKS lehnt der Gateway jede WS-Verbindung mit 4046 ab — der Server
+    # sieht dann von aussen aus wie kaputt, obwohl bei IHM die AUSGEHENDE
+    # Richtung klemmt. Das ist die Verwechslung, die am meisten Zeit kostet.
+    rat "Ausgehendes HTTPS ist gesperrt. Ohne das lehnt der Server jede"
+    rat "Anmeldung ab (WS-Code 4046), auch wenn er von aussen erreichbar ist."
+fi
+
+# ── 4. Herein: ist der eigene Name ansprechbar? ───────────────────────────
+titel "Erreichbarkeit unter dem eigenen Namen"
+if [ -z "$HOST" ]; then
+    nein "PULSE_HOSTNAME ist nicht gesetzt"
+elif [ "$TLS_MODE" = "behind-proxy" ]; then
+    # Hier terminiert ein fremder Proxy. Von innen lässt sich nur sagen, ob
+    # der interne Caddy überhaupt lauscht; ob der Proxy davor richtig zeigt,
+    # weiss nur die Prüfung aus der Cloud.
+    if tcp_offen "$HTTP_PORT"; then
+        ja "interner Caddy lauscht auf ${HTTP_PORT} (TLS macht der Proxy davor)"
+        rat "Ob der Proxy richtig zeigt, sagt nur die Prüfung von aussen:"
+        rat "in der App unter Meine Instanzen -> Verbindung pruefen."
+    else
+        nein "interner Caddy lauscht NICHT auf ${HTTP_PORT}"
+    fi
+else
+    if curl -fsS -o /dev/null --max-time 5 "https://${HOST}/health"; then
+        ja "https://${HOST}/health antwortet"
+    else
+        # WICHTIG: das ist KEIN Beweis für „von aussen unerreichbar". Etliche
+        # Router können den eigenen öffentlichen Namen von innen nicht
+        # erreichen (kein Hairpin-NAT). Diesen Befund als Fehler zu verkaufen
+        # schickte den Betreiber auf eine Suche nach einem Problem, das es
+        # womöglich gar nicht gibt.
+        hm "https://${HOST}/health antwortet von INNEN nicht"
+        rat "Das kann zweierlei heissen: der Server ist von aussen wirklich"
+        rat "nicht erreichbar — ODER dieses Netz kann den eigenen"
+        rat "oeffentlichen Namen nicht aufloesen (fehlendes Hairpin-NAT)."
+        rat "Entschieden wird das nur von aussen: in der App unter"
+        rat "Meine Instanzen -> Verbindung pruefen."
+    fi
+fi
+
+# ── 5. Zertifikat ─────────────────────────────────────────────────────────
+titel "Zertifikat"
+case "$TLS_MODE" in
+    auto)
+        if [ -n "$HOST" ] && find "${DATA}/caddy" -name "${HOST}.crt" 2>/dev/null | grep -q .; then
+            ja "Let's-Encrypt-Zertifikat für ${HOST} vorhanden"
+        else
+            nein "kein Zertifikat für ${HOST:-<kein Hostname>}"
+            rat "Caddy bekommt nur eins, wenn der DNS-A-Eintrag auf diese"
+            rat "Maschine zeigt UND Port 80 von aussen offen ist."
+        fi ;;
+    provided)
+        if [ -r "${DATA}/certs/cert.pem" ] && [ -r "${DATA}/certs/key.pem" ]; then
+            ja "eigenes Zertifikat unter ${DATA}/certs/ vorhanden"
+        else
+            nein "PULSE_TLS_MODE=provided, aber ${DATA}/certs/{cert,key}.pem fehlen"
+        fi ;;
+    behind-proxy)
+        ja "TLS macht der vorgelagerte Proxy (nichts zu prüfen)" ;;
+    *)
+        nein "unbekannter PULSE_TLS_MODE='${TLS_MODE}'" ;;
+esac
+
+# ── Schluss ───────────────────────────────────────────────────────────────
+echo
+if [ "$FEHLER" -eq 0 ]; then
+    printf '%sNichts gefunden, was von hier aus sichtbar wäre.%s\n' "$GRUEN" "$AUS"
+    echo "Ob der Server von DRAUSSEN ankommt, sagt nur die Prüfung aus der Cloud:"
+    echo "in der App unter Meine Instanzen -> Verbindung pruefen."
+else
+    printf '%s%d Punkt(e) offen.%s\n' "$ROT" "$FEHLER" "$AUS"
+fi
+exit 0
