@@ -3,13 +3,23 @@
  * Installer als eigenständiges Skript auf den Host schreibt (systemd-Timer
  * oder Cron, alle fünf Minuten).
  *
- * **Warum es diesen Test gibt.** `docker run -d` liefert Exit-Code 0, sobald
- * der Container ERZEUGT wurde — nicht, wenn er tatsächlich läuft. Der
- * Updater wertete das bislang als Erfolg: er löschte die Rollback-Kopie
+ * **Warum es diesen Test gibt (Task 2).** `docker run -d` liefert Exit-Code 0,
+ * sobald der Container ERZEUGT wurde — nicht, wenn er tatsächlich läuft. Der
+ * Updater wertete das ursprünglich als Erfolg: er löschte die Rollback-Kopie
  * (`<name>-old`) UND das zuletzt funktionierende Image. Da `IMAGE` ein
  * rollender Tag ist (`:edge`), ist die Vorversion danach nicht mehr
  * adressierbar — ein Image, das startet und sofort wieder stirbt, reisst
  * damit JEDEN Self-Host gleichzeitig um, ohne Rückweg, binnen fünf Minuten.
+ * Task 2 hat dagegen eine 15-Sekunden-Stabilitätsprüfung nach `docker run`
+ * eingezogen.
+ *
+ * **Der Rest der Lücke (Task 2b).** Ein Container, der die 15 Sekunden
+ * übersteht und danach stirbt, galt bis hier weiter als Erfolg — beide
+ * Rückwege waren da schon gelöscht. Fix: der Erfolgszweig löscht `<name>-old`
+ * und das alte Image nicht mehr sofort, sondern erst der NÄCHSTE Lauf, und
+ * auch nur dann, wenn er `<name>-old` vorfindet UND der aktuelle Container zu
+ * diesem Zeitpunkt nachweislich noch läuft. Das Beobachtungsfenster wird
+ * damit der ganze Fünf-Minuten-Takt statt einer 15-Sekunden-Stichprobe.
  *
  * **Wie das geht — zweistufig, weil das Prüfobjekt nicht `install.sh`
  * selbst ist, sondern das Skript, das `install.sh` GENERIERT:**
@@ -17,9 +27,13 @@
  *      Fake-Konfiguration ausgeführt — sie schreibt einen echten Updater auf
  *      die Platte. Das ist der eigentliche Prüfling.
  *   2. Dieser generierte Updater wird gegen ein gefälschtes `docker` auf dem
- *      PATH ausgeführt, das jeden Aufruf mitprotokolliert und `run -d`
- *      erfolgreich, `inspect -f '{{.State.Running}}'` aber je nach Szenario
- *      `true` oder `false` beantwortet.
+ *      PATH ausgeführt. Anders als bei Task 2 muss dieses `docker` jetzt
+ *      ZUSTANDSBEHAFTET sein: die Aufräumfrage aus Task 2b lässt sich nicht
+ *      innerhalb eines einzigen Laufs beantworten, sie braucht zwei — Lauf 1
+ *      legt den Rückweg an, Lauf 2 entscheidet, ob er bleibt oder geht. Der
+ *      Zustand (welcher Container existiert, mit welchem Image, läuft er)
+ *      liegt dafür in Dateien unter einem gemeinsamen `STATE_DIR` und
+ *      überlebt mehrere Aufrufe des generierten Updaters.
  *
  * Ein Test, der nur `write_update_script` prüft (Textvergleich am
  * generierten Skript), würde eine Regression in der SHELL-LOGIK selbst nicht
@@ -29,7 +43,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, chmodSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -69,25 +83,69 @@ function funktion(quelle: string, name: string): string {
   assert.fail(`kein Ende fuer ${name}() gefunden — Skript umgebaut?`);
 }
 
-interface Szenario {
-  /** Antwort von `docker inspect -f '{{.State.Running}}' <container>` nach dem Start. */
-  laeuftStabil: boolean;
+interface Umgebung {
+  /** Enthält das gefälschte `docker` — kommt bei jedem Lauf auf den PATH. */
+  arbeitsdir: string;
+  /** Eine Datei je Containername (`image=…`/`running=…`), überlebt mehrere Läufe. */
+  stateDir: string;
+  dockerLog: string;
+  updateSh: string;
+}
+
+interface LaufOptionen {
+  /** Antwort von `docker image inspect --format '{{.Id}}'` — die "neu gepullte" Image-Kennung. */
+  neuesImage: string;
+  /** Stirbt der frisch erzeugte Container sofort (Stabilitätsprüfung schlägt fehl)? Default nein. */
+  stirbtSofort?: boolean;
+}
+
+function containerDatei(umgebung: Umgebung, name: string): string {
+  return join(umgebung.stateDir, `container-${name}`);
+}
+
+/** Legt einen Container-Zustand an oder überschreibt ihn — ohne einen einzigen `docker`-Aufruf. */
+function initContainer(umgebung: Umgebung, name: string, image: string, laeuft: boolean): void {
+  writeFileSync(containerDatei(umgebung, name), `image=${image}\nrunning=${laeuft}\n`);
+}
+
+/** Liest den aktuellen Zustand eines Containers — `null`, wenn er (mehr) existiert. */
+function zustandVon(umgebung: Umgebung, name: string): { image: string; laeuft: boolean } | null {
+  const pfad = containerDatei(umgebung, name);
+  if (!existsSync(pfad)) return null;
+  const inhalt = readFileSync(pfad, 'utf8');
+  const image = /^image=(.*)$/m.exec(inhalt)?.[1] ?? '';
+  const laeuft = /^running=(.*)$/m.exec(inhalt)?.[1] === 'true';
+  return { image, laeuft };
+}
+
+/**
+ * Simuliert, dass ein Container OHNE Zutun des Updaters stirbt (Absturz,
+ * OOM-Kill …) — direkt an der Zustandsdatei vorbei an `docker`, weil genau
+ * das der Punkt ist: der Updater bekommt davon zwischen zwei Läufen nichts
+ * mit, ausser durch seine eigene nächste `docker inspect`-Abfrage.
+ */
+function containerToeten(umgebung: Umgebung, name: string): void {
+  const bisher = zustandVon(umgebung, name);
+  assert.ok(bisher, `Container ${name} existiert nicht — kann nicht sterben`);
+  initContainer(umgebung, name, bisher!.image, false);
 }
 
 /**
  * Erzeugt via `write_update_script` einen echten Updater auf der Platte und
- * führt IHN gegen ein gefälschtes `docker` aus. Gibt jede protokollierte
- * `docker`-Aufrufzeile zurück (Argumente, space-getrennt, ohne `docker`
- * selbst — z. B. `"rm -f pulse-old"`).
+ * ein gefälschtes, zustandsbehaftetes `docker` daneben. Beides liegt fest;
+ * nur der Aufruf des Updaters selbst (`laufAusfuehren`) passiert wiederholt.
  */
-function fahreUpdate(szenario: Szenario): string[] {
+function neueUmgebung(): Umgebung {
   const quelle = readFileSync(SKRIPT, 'utf8');
   const funktionstext = funktion(quelle, 'write_update_script');
 
   const arbeitsdir = mkdtempSync(join(tmpdir(), 'pulse-updater-'));
+  const stateDir = join(arbeitsdir, 'state');
+  mkdirSync(stateDir);
   const pulseDir = join(arbeitsdir, 'pulse');
   const updateSh = join(pulseDir, 'pulse-update.sh');
   const dockerLog = join(arbeitsdir, 'docker-aufrufe.log');
+  writeFileSync(dockerLog, '');
 
   // Schritt 1: den echten Updater erzeugen. Kein Docker im Spiel — reines
   // Schreiben. IMAGE zeigt bewusst NICHT auf registry.howispulse.com, damit
@@ -109,38 +167,78 @@ write_update_script
 `;
   execFileSync('bash', ['-c', generator], { encoding: 'utf8' });
 
-  // Schritt 2: gefälschtes `docker` — protokolliert jeden Aufruf vollständig
-  // und antwortet auf `inspect -f '{{.State.Running}}'` gemäss Szenario. Der
-  // Formatstring (falls vorhanden) kann bei `inspect` an beliebiger Position
-  // stehen (`-f FMT ZIEL` oder `--format FMT ZIEL`) — deshalb wird über alle
-  // Argumente nach einem `{{…}}`-Muster gesucht statt eine feste Position
-  // anzunehmen.
+  // Schritt 2: gefälschtes, zustandsbehaftetes `docker`. Zustand liegt unter
+  // $STATE_DIR als eine Datei je Containername (`image=…`/`running=…`).
+  // `inspect`-Aufrufe parsen `-f`/`--format` an beliebiger Position (beide
+  // Formen kommen im generierten Skript vor). Ein "docker run" liest den
+  // Zielnamen aus `--name` und legt ihn mit $NEW_IMAGE_ID und $NEU_LAEUFT an
+  // — beide werden je Lauf frisch über die Umgebung hereingereicht
+  // (`laufAusfuehren`), nicht hier fest eingebacken.
   writeFileSync(
     join(arbeitsdir, 'docker'),
     `#!/bin/bash
-printf '%s\\n' "$*" >> "\${DOCKER_LOG}"
+printf '%s\\n' "$*" >> "$DOCKER_LOG"
+
+datei() { printf '%s/container-%s' "$STATE_DIR" "$1"; }
+
 case "$1" in
+  login) exit 0 ;;
   pull) exit 0 ;;
   image)
     case "$2" in
-      inspect) echo 'sha256:neu'; exit 0 ;;
-      rm) exit 0 ;;
+      inspect) printf '%s\\n' "$NEW_IMAGE_ID" ;;
     esac
     exit 0 ;;
-  inspect)
-    format=""
+  run)
+    name=""
+    vorher=""
     for arg in "$@"; do
-      case "$arg" in
-        *'{{'*) format="$arg" ;;
-      esac
+      if [ "$vorher" = "--name" ]; then name="$arg"; fi
+      vorher="$arg"
     done
+    printf 'image=%s\\nrunning=%s\\n' "$NEW_IMAGE_ID" "\${NEU_LAEUFT:-true}" > "$(datei "$name")"
+    exit 0 ;;
+  rename)
+    quelle="$(datei "$2")"
+    ziel="$(datei "$3")"
+    [ -f "$quelle" ] && mv "$quelle" "$ziel"
+    exit 0 ;;
+  stop)
+    f="$(datei "$2")"
+    if [ -f "$f" ]; then
+      bild="$(sed -n 's/^image=//p' "$f")"
+      printf 'image=%s\\nrunning=false\\n' "$bild" > "$f"
+    fi
+    exit 0 ;;
+  start)
+    f="$(datei "$2")"
+    if [ -f "$f" ]; then
+      bild="$(sed -n 's/^image=//p' "$f")"
+      printf 'image=%s\\nrunning=true\\n' "$bild" > "$f"
+    fi
+    exit 0 ;;
+  rm)
+    # in diesem Skript immer "rm -f <name>"
+    rm -f "$(datei "$3")"
+    exit 0 ;;
+  inspect)
+    shift
+    format=""
+    name=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        -f|--format) shift; format="$1" ;;
+        *) name="$1" ;;
+      esac
+      shift
+    done
+    f="$(datei "$name")"
+    [ -f "$f" ] || exit 1
     case "$format" in
-      *State.Running*)
-        if [ "\${LAEUFT_STABIL}" = "1" ]; then echo 'true'; else echo 'false'; fi
-        exit 0 ;;
-      *Image*) echo 'sha256:alt'; exit 0 ;;
-      *) exit 0 ;;
-    esac ;;
+      *State.Running*) sed -n 's/^running=//p' "$f" ;;
+      *Image*) sed -n 's/^image=//p' "$f" ;;
+    esac
+    exit 0 ;;
 esac
 exit 0
 `,
@@ -148,74 +246,173 @@ exit 0
   );
   chmodSync(join(arbeitsdir, 'docker'), 0o755);
 
-  // Schritt 3: den generierten Updater wirklich ausführen — das ist der
-  // Prüfling, nicht sein Quelltext. VERSUCHE/INTERVALL auf das Minimum
-  // gesetzt, damit der Testlauf nicht die produktiven 15 Sekunden wartet.
-  // Der Rollback-Zweig endet bewusst mit `exit 1` — das ist hier ein
-  // gültiges Testergebnis, kein Infrastrukturfehler, also wird der Exit-Code
-  // nicht durchgereicht.
+  return { arbeitsdir, stateDir, dockerLog, updateSh };
+}
+
+/**
+ * Führt den generierten Updater EINMAL aus und gibt die docker-Aufrufe DIESES
+ * Laufs zurück (das Log wird vorher geleert — Zustand in $STATE_DIR bleibt
+ * über den Aufruf hinaus bestehen). Der Rollback-Zweig endet bewusst mit
+ * `exit 1` — das ist hier ein gültiges Testergebnis, kein Infrastrukturfehler,
+ * also wird nur DIESER Exit-Code geschluckt.
+ */
+function laufAusfuehren(umgebung: Umgebung, optionen: LaufOptionen): string[] {
+  writeFileSync(umgebung.dockerLog, '');
   try {
-    execFileSync(updateSh, [], {
+    execFileSync(umgebung.updateSh, [], {
       env: {
         ...process.env,
-        PATH: `${arbeitsdir}:${process.env.PATH}`,
-        DOCKER_LOG: dockerLog,
-        LAEUFT_STABIL: szenario.laeuftStabil ? '1' : '0',
+        PATH: `${umgebung.arbeitsdir}:${process.env.PATH}`,
+        DOCKER_LOG: umgebung.dockerLog,
+        STATE_DIR: umgebung.stateDir,
+        NEW_IMAGE_ID: optionen.neuesImage,
+        NEU_LAEUFT: optionen.stirbtSofort ? 'false' : 'true',
         PULSE_UPDATE_STABIL_VERSUCHE: '1',
         PULSE_UPDATE_STABIL_INTERVALL: '0'
       },
       encoding: 'utf8'
     });
   } catch (fehler) {
-    // Nur ein regulärer Nicht-Null-Exit (Rollback) ist erwartet — alles
-    // andere (z. B. das Skript wurde gar nicht gefunden/ausgeführt) soll
-    // durchschlagen.
     const status = (fehler as { status?: number | null }).status;
     if (status !== 1) throw fehler;
   }
-
-  return readFileSync(dockerLog, 'utf8')
+  return readFileSync(umgebung.dockerLog, 'utf8')
     .split('\n')
     .filter((z) => z.length > 0);
 }
 
+/** Ausgangslage der Mehr-Lauf-Tests: ein erster Lauf, der erfolgreich durchläuft. */
+function ersterLaufErfolgreich(umgebung: Umgebung, neuesImage: string): void {
+  initContainer(umgebung, 'pulse', 'sha256:alt', true);
+  laufAusfuehren(umgebung, { neuesImage });
+}
+
 test('ein Container, der sofort stirbt, gilt NICHT als erfolgreicher Start', () => {
-  const befehle = fahreUpdate({ laeuftStabil: false });
+  const umgebung = neueUmgebung();
+  initContainer(umgebung, 'pulse', 'sha256:alt', true);
 
-  // "rm -f <name>-old" darf hier nur EINMAL vorkommen — die Aufräumzeile VOR
-  // dem Update (Rest eines früheren Fehlversuchs). Die zweite, die den
-  // Rollback-Container nach einem vermeintlichen Erfolg löscht, darf nicht
-  // laufen.
+  const befehle = laufAusfuehren(umgebung, { neuesImage: 'sha256:neu', stirbtSofort: true });
+
+  // Kein "rm -f *-old" auf einem frischen ersten Lauf: die frühere
+  // bedingungslose Vorab-Räumung ("Rest eines früheren Fehlversuchs") ist mit
+  // Task 2b entfallen. Ihr Fall (ein abgebrochener früherer Lauf) deckt jetzt
+  // derselbe Aufräum-Block ab, der einen bestätigt erfolgreichen Wechsel
+  // erkennt — s. die Mehr-Lauf-Tests unten.
   const rmAlt = befehle.filter((z) => z.startsWith('rm -f') && z.endsWith('-old')).length;
-  assert.equal(rmAlt, 1, `erwartet genau 1x "rm -f *-old", bekommen: ${JSON.stringify(befehle)}`);
+  assert.equal(rmAlt, 0, `erwartet 0x "rm -f *-old", bekommen: ${JSON.stringify(befehle)}`);
 
-  // Das alte Image darf nicht weg sein — sonst ist die Vorversion nicht mehr
-  // adressierbar (rollender Tag).
   assert.equal(
     befehle.some((z) => z.startsWith('image rm')),
     false,
     'das alte Image wurde entfernt, obwohl der neue Container nicht stabil lief'
   );
 
-  // Der Rollback muss tatsächlich stattgefunden haben: der alte Container
-  // kommt zurück und wird gestartet.
   assert.ok(befehle.includes('rename pulse-old pulse'), 'Rollback fehlt: pulse-old wurde nicht zu pulse zurückbenannt');
   assert.ok(befehle.includes('start pulse'), 'Rollback fehlt: pulse wurde nach dem Zurückbenennen nicht gestartet');
+
+  // Der Rollback muss auch WIRKLICH die alte Version zurückgebracht haben.
+  assert.deepEqual(zustandVon(umgebung, 'pulse'), { image: 'sha256:alt', laeuft: true });
+  assert.equal(zustandVon(umgebung, 'pulse-old'), null, 'pulse-old haette nach dem Rollback nicht mehr existieren duerfen');
 });
 
-test('ein Container, der stabil läuft, gilt als Erfolg', () => {
-  // Gegenprobe — sonst bestünde der erste Test auch, wenn der Updater nach
-  // einem erfolgreichen Update gar nichts mehr täte.
-  const befehle = fahreUpdate({ laeuftStabil: true });
+test('ein Container, der stabil läuft, gilt als Erfolg — der Rückweg bleibt aber bis zum nächsten Lauf stehen', () => {
+  // Gegenprobe zum vorigen Test — sonst bestünde er auch, wenn der Updater
+  // nach einem erfolgreichen Update gar nichts mehr täte.
+  const umgebung = neueUmgebung();
+  initContainer(umgebung, 'pulse', 'sha256:alt', true);
 
-  const rmAlt = befehle.filter((z) => z.startsWith('rm -f') && z.endsWith('-old')).length;
-  assert.equal(rmAlt, 2, `erwartet 2x "rm -f *-old" (vorher + Erfolgspfad), bekommen: ${JSON.stringify(befehle)}`);
+  const befehle = laufAusfuehren(umgebung, { neuesImage: 'sha256:neu' });
 
+  // Der Kern von Task 2b: anders als bei Task 2 räumt der Erfolgszweig NICHT
+  // mehr sofort auf — genau das war die verbliebene Lücke (ein Container, der
+  // die 15-Sekunden-Stichprobe übersteht und danach stirbt, wäre sonst ohne
+  // Rückweg gewesen). Das Aufräumen verschiebt sich auf den nächsten Lauf.
+  assert.equal(
+    befehle.some((z) => z.startsWith('rm -f') && z.endsWith('-old')),
+    false,
+    'der Rückweg wurde bereits im Erfolgszweig entfernt — er muss bis zum nächsten Lauf stehen bleiben'
+  );
   assert.equal(
     befehle.some((z) => z.startsWith('image rm')),
-    true,
-    'das alte Image wurde nach einem erfolgreichen Update nicht entfernt'
+    false,
+    'das alte Image wurde bereits im Erfolgszweig entfernt'
   );
-
   assert.ok(!befehle.includes('start pulse'), 'kein Rollback erwartet, aber pulse wurde neu gestartet');
+
+  assert.deepEqual(zustandVon(umgebung, 'pulse'), { image: 'sha256:neu', laeuft: true });
+  assert.deepEqual(
+    zustandVon(umgebung, 'pulse-old'),
+    { image: 'sha256:alt', laeuft: false },
+    'der Rückweg fehlt — genau das darf nach einem erfolgreichen Lauf nicht sein'
+  );
+});
+
+test('läuft der Container beim nächsten Takt noch, räumt DIESER Lauf den Rückweg auf — auch ohne neues Image', () => {
+  const umgebung = neueUmgebung();
+  ersterLaufErfolgreich(umgebung, 'sha256:neu');
+  assert.ok(zustandVon(umgebung, 'pulse-old'), 'Vorbedingung: Rückweg muss nach Lauf 1 noch existieren');
+
+  // Lauf 2 mit demselben Image (kein neues verfügbar) — prüft zugleich, dass
+  // der Digest-Kurzschluss ("bereits aktuell", `exit 0` vor jedem Update)
+  // das Aufräumen nicht überspringt: der Aufräum-Block steht davor.
+  const befehle = laufAusfuehren(umgebung, { neuesImage: 'sha256:neu' });
+
+  assert.ok(befehle.includes('rm -f pulse-old'), `Rückweg wurde nicht entfernt: ${JSON.stringify(befehle)}`);
+  assert.ok(
+    befehle.some((z) => z.startsWith('image rm')),
+    'das alte Image wurde nicht entfernt'
+  );
+  assert.equal(zustandVon(umgebung, 'pulse-old'), null);
+
+  // Und: kein neuer Update-Versuch — der Digest war identisch.
+  assert.ok(
+    !befehle.some((z) => z.startsWith('run ')),
+    'ein neuer Container wurde erzeugt, obwohl kein neues Image vorlag'
+  );
+});
+
+test('stirbt der Container zwischen zwei Läufen, bleibt der Rückweg beim nächsten Takt stehen', () => {
+  const umgebung = neueUmgebung();
+  ersterLaufErfolgreich(umgebung, 'sha256:neu');
+  containerToeten(umgebung, 'pulse'); // stirbt ohne Zutun des Updaters, z. B. nach 2 Minuten
+
+  const befehle = laufAusfuehren(umgebung, { neuesImage: 'sha256:neu' });
+
+  assert.ok(
+    !befehle.includes('rm -f pulse-old'),
+    `Rückweg wurde fälschlich entfernt, obwohl der Container tot ist: ${JSON.stringify(befehle)}`
+  );
+  assert.ok(
+    !befehle.some((z) => z.startsWith('image rm')),
+    'das alte Image wurde fälschlich entfernt, obwohl der Container tot ist'
+  );
+  assert.ok(zustandVon(umgebung, 'pulse-old'), 'Rückweg fehlt — genau der Schaden, den Task 2b verhindern soll');
+});
+
+test('das Abtastfenster von container_laeuft_stabil bleibt bei 15s, nur feiner aufgeteilt', () => {
+  // Nachtrag zu Task 2b: die Schleife bricht beim ersten fehlgeschlagenen
+  // Check sofort ab — sie sitzt also nichts aus. Was tatsächlich zählt, ist
+  // die LÜCKE zwischen zwei Stichproben: ein Container in einer
+  // Neustartschleife ('--restart unless-stopped') kann zwischen zwei
+  // Ein-Sekunden-Proben sterben UND wieder hochkommen, jede Probe sähe dann
+  // 'true'. Das Intervall schrumpft deshalb von 1s auf 0,2s, bei
+  // entsprechend mehr Versuchen (75 statt 15) — das GESAMTFENSTER (die
+  // Kulanzzeit für einen langsam startenden, gesunden Container) muss dabei
+  // exakt gleich bleiben. Ein Textvergleich statt eines echten 15-Sekunden-
+  // Laufs, aus demselben Grund, aus dem die anderen Tests VERSUCHE/INTERVALL
+  // per Env überschreiben: niemand soll für einen Konstanten-Check wirklich
+  // warten müssen.
+  const quelle = readFileSync(SKRIPT, 'utf8');
+  const funktionstext = funktion(quelle, 'container_laeuft_stabil');
+
+  assert.match(
+    funktionstext,
+    /PULSE_UPDATE_STABIL_VERSUCHE:-75\}/,
+    `Default-Versuche nicht bei 75 — Funktion: ${funktionstext}`
+  );
+  assert.match(
+    funktionstext,
+    /PULSE_UPDATE_STABIL_INTERVALL:-0\.2\}/,
+    `Default-Intervall nicht bei 0,2s — Funktion: ${funktionstext}`
+  );
 });

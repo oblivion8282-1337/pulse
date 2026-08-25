@@ -394,20 +394,65 @@ trap _trim_log EXIT
 # (z. B. ':edge'), ist die Vorversion danach nicht mehr adressierbar.
 #
 # Versuche/Intervall ueber Env steuerbar, damit Tests nicht 15 Sekunden je
-# Fall warten muessen. Im Betrieb bleibt es beim Defaultwert: ein frisch
-# gestarteter Container kann kurz brauchen (eigene Migration, langsamer
-# Healthcheck), bevor er dauerhaft laeuft — ein einzelner Check waere zu
-# ungeduldig.
+# Fall warten muessen. Im Betrieb bleibt das GESAMTFENSTER beim Defaultwert
+# von 15 Sekunden: ein frisch gestarteter Container kann kurz brauchen
+# (eigene Migration, langsamer Healthcheck), bevor er dauerhaft laeuft — ein
+# einzelner Check waere zu ungeduldig.
+#
+# Das INTERVALL selbst ist bewusst klein (0,2 s statt 1 s, bei entsprechend
+# mehr Versuchen — dasselbe Gesamtfenster, nur feiner abgetastet) — NICHT
+# wegen Genauigkeit um ihrer selbst willen. Die Schleife bricht beim ersten
+# fehlgeschlagenen Check sofort ab, sitzt also nichts aus; was tatsächlich
+# zählt, ist die LÜCKE zwischen zwei Stichproben. Gestartet wird mit
+# '--restart unless-stopped': ein Container in einer Neustartschleife kann
+# zwischen zwei Ein-Sekunden-Proben sterben UND wieder hochkommen — jede
+# Probe sähe dann 'true', der Fehler wäre durchgerutscht. Mit 0,2 s wird
+# dieses Fenster fünfmal kleiner, ohne die Kulanzzeit für einen langsam
+# startenden, gesunden Container zu verkürzen. Kostet ein paar zusätzliche
+# 'docker inspect'-Aufrufe — vernachlässigbar. Bruchteilssekunden bei
+# 'sleep' sind keine GNU-Besonderheit: das Skript setzt an keiner Stelle eine
+# bestimmte Distribution voraus, und sowohl GNU coreutils als auch BusyBox
+# (Alpine 3.20 sowie busybox:1.36 direkt geprüft) akzeptieren 'sleep 0.2'.
 container_laeuft_stabil() {
   local i versuche intervall
-  versuche="${PULSE_UPDATE_STABIL_VERSUCHE:-15}"
-  intervall="${PULSE_UPDATE_STABIL_INTERVALL:-1}"
+  versuche="${PULSE_UPDATE_STABIL_VERSUCHE:-75}"
+  intervall="${PULSE_UPDATE_STABIL_INTERVALL:-0.2}"
   for i in $(seq 1 "$versuche"); do
     [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" = "true" ] || return 1
     sleep "$intervall"
   done
   return 0
 }
+
+# Rückweg der letzten Aktualisierung aufräumen — NICHT im Erfolgszweig unten
+# (siehe dort), sondern erst hier, am Anfang des NÄCHSTEN Laufs. `docker run`
+# und die Stabilitätsprüfung oben decken nur den häufigsten Fall ab: einen
+# Container, der sofort wieder stirbt. Einen, der zwei Minuten läuft und DANN
+# stirbt, wiesen sie fälschlich als Erfolg aus — beide Rückwege wären da
+# schon gelöscht. Läuft $CONTAINER genau JETZT, beim nächsten Timer-Takt fünf
+# Minuten später, war der letzte Wechsel tatsächlich dauerhaft erfolgreich:
+# das Beobachtungsfenster wird damit der ganze Fünf-Minuten-Takt statt einer
+# kurzen Stichprobe direkt nach dem Start.
+#
+# Muss VOR dem Digest-Kurzschluss unten stehen — sonst räumt ein Lauf ohne
+# neues Image (der häufigste) nie auf, und der Rückweg bliebe für immer liegen.
+#
+# Ersetzt die frühere bedingungslose "docker rm -f ${CONTAINER}-old # Rest
+# eines früheren Fehlversuchs" direkt vor dem Umbenennen weiter unten: die
+# hätte nach diesem Umbau auch einen noch nicht bestätigten, gültigen
+# Rückweg gelöscht. Ihren eigentlichen Fall — ein abgebrochener früherer Lauf
+# (Host stirbt zwischen Umbenennen und Neustart) — deckt weiterhin etwas ab:
+# entweder existiert "$CONTAINER" danach gar nicht mehr (dann greift das
+# "if docker inspect $CONTAINER" unten erst gar nicht, keine Namenskollision
+# möglich) oder er läuft wieder — und genau den räumt dieser Block hier beim
+# nächsten Takt auf.
+if docker inspect "${CONTAINER}-old" >/dev/null 2>&1 \
+   && [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null)" = "true" ]; then
+  backup_image_id="$(docker inspect -f '{{.Image}}' "${CONTAINER}-old" 2>/dev/null || true)"
+  docker rm -f "${CONTAINER}-old" >/dev/null 2>&1 || true
+  # Nur das damalige Rückweg-Image entfernen — kein host-weites 'image prune'.
+  { [ -n "$backup_image_id" ] && docker image rm "$backup_image_id" >/dev/null 2>&1; } || true
+fi
 
 if [ -n "${REG_PASS:-}" ]; then
   docker login "$REGISTRY" -u "$REG_USER" -p "$REG_PASS" >/dev/null 2>&1 \
@@ -424,16 +469,12 @@ echo "pulse-update: updating $CONTAINER -> $new_id"
 # Alten Container beiseitestellen statt sofort löschen → Rollback bei Fehlstart.
 # Single-Container mit festen Ports: der alte MUSS vor dem neuen gestoppt werden
 # (kurze Downtime unvermeidbar), aber er bleibt als '<name>-old' erhalten, bis
-# der neue nachweislich läuft.
-docker rm -f "${CONTAINER}-old" >/dev/null 2>&1 || true   # Rest eines früheren Fehlversuchs
+# der Aufräum-Block oben ihn beim nächsten bestätigt erfolgreichen Lauf entfernt.
 if docker inspect "$CONTAINER" >/dev/null 2>&1; then
   docker rename "$CONTAINER" "${CONTAINER}-old" >/dev/null 2>&1 || true
   docker stop "${CONTAINER}-old" >/dev/null 2>&1 || true
 fi
 if docker run "${RUN_ARGS[@]}" >/dev/null && container_laeuft_stabil "$CONTAINER"; then
-  docker rm -f "${CONTAINER}-old" >/dev/null 2>&1 || true
-  # Nur das vorige Pulse-Image entfernen — kein host-weites 'image prune'.
-  { [ -n "$cur_id" ] && [ "$cur_id" != "$new_id" ] && docker image rm "$cur_id" >/dev/null 2>&1; } || true
   echo "pulse-update: done"
 else
   echo "pulse-update: new container failed to start — rolling back" >&2
