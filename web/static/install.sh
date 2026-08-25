@@ -533,7 +533,15 @@ EOF
 install_update_cron() {
   local entry="*/5 * * * * ${UPDATE_SH} >> ${PULSE_DIR}/pulse-update.log 2>&1"
   # Bestehenden Eintrag für unser Skript ersetzen (idempotent), Rest behalten.
-  { crontab -l 2>/dev/null | grep -vF "$UPDATE_SH"; echo "$entry"; } | crontab -
+  # `crontab -l` endet bei leerer/fehlender Crontab mit 1 und schweigt; bleibt
+  # nach dem Herausfiltern nichts übrig (leere Crontab ODER eine Crontab, die
+  # bisher NUR unseren eigenen Eintrag enthielt), endet `grep -vF` ebenfalls
+  # mit 1 — hier ist das ein Normalzustand, kein Fehler. Ohne das `|| true`
+  # reisst `pipefail` + `set -e` (Skriptkopf) die Gruppe ab, BEVOR
+  # `echo "$entry"` läuft: die Crontab würde leer installiert, und der
+  # gesamte Installer stirbt danach still mit Exit 1 — nachdem der Container
+  # schon läuft und bevor die Proxy-Route ausgegeben wird.
+  { crontab -l 2>/dev/null | grep -vF "$UPDATE_SH" || true; echo "$entry"; } | crontab -
 }
 
 # ======================================================================== #
