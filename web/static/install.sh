@@ -413,6 +413,13 @@ trap _trim_log EXIT
 # 'sleep' sind keine GNU-Besonderheit: das Skript setzt an keiner Stelle eine
 # bestimmte Distribution voraus, und sowohl GNU coreutils als auch BusyBox
 # (Alpine 3.20 sowie busybox:1.36 direkt geprüft) akzeptieren 'sleep 0.2'.
+# Welche Shell interpretiert, spielt dabei ohnehin keine Rolle — 'sleep' ist
+# ein externes Programm, kein Shell-Builtin, in bash genau wie in dash/sh.
+# Der erzeugte Updater läuft trotzdem immer unter bash, nie unter /bin/sh:
+# Zeile 1 ist '#!/usr/bin/env bash' (s. HEADER-Heredoc oben, direkt geprüft
+# am generierten Skript), und beide Aufrufwege — 'ExecStart=${UPDATE_SH}' im
+# systemd-Unit sowie der Cron-Eintrag — starten die Datei über ihren
+# ausführbaren Pfad (chmod 700), nicht über ein explizites 'sh $UPDATE_SH'.
 container_laeuft_stabil() {
   local i versuche intervall
   versuche="${PULSE_UPDATE_STABIL_VERSUCHE:-75}"
