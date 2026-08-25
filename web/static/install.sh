@@ -645,9 +645,13 @@ trap _trim_log EXIT
 # ein externes Programm, kein Shell-Builtin, in bash genau wie in dash/sh.
 # Der erzeugte Updater läuft trotzdem immer unter bash, nie unter /bin/sh:
 # Zeile 1 ist '#!/usr/bin/env bash' (s. HEADER-Heredoc oben, direkt geprüft
-# am generierten Skript), und beide Aufrufwege — 'ExecStart=${UPDATE_SH}' im
-# systemd-Unit sowie der Cron-Eintrag — starten die Datei über ihren
-# ausführbaren Pfad (chmod 700), nicht über ein explizites 'sh $UPDATE_SH'.
+# am generierten Skript). Der tragende Grund ist NICHT die Abwesenheit eines
+# expliziten 'sh $UPDATE_SH' — Cron ruft seine Zeilen sehr wohl über
+# '/bin/sh -c' auf. Das ist nur egal, weil dieses 'sh' den Updater als
+# EXTERNES Kommando über seinen ausführbaren Pfad (chmod 700) startet: der
+# Kernel liest dabei selbst die Shebang-Zeile und exec't bash, nicht sh.
+# Dieselbe Shebang-plus-execve-Kette gilt für 'ExecStart=${UPDATE_SH}' im
+# systemd-Unit.
 container_laeuft_stabil() {
   local i versuche intervall
   versuche="${PULSE_UPDATE_STABIL_VERSUCHE:-75}"
@@ -680,7 +684,12 @@ container_laeuft_stabil() {
 # entweder existiert "$CONTAINER" danach gar nicht mehr (dann greift das
 # "if docker inspect $CONTAINER" unten erst gar nicht, keine Namenskollision
 # möglich) oder er läuft wieder — und genau den räumt dieser Block hier beim
-# nächsten Takt auf.
+# nächsten Takt auf. Existiert "$CONTAINER" stattdessen weiter, aber gestoppt
+# (Absturz zwischen zwei Läufen, "${CONTAINER}-old" schon vorhanden), greift
+# dieser Block nicht (er verlangt laufendes $CONTAINER) — dann scheitern
+# weiter unten sowohl das Umbenennen als auch "docker run" an der
+# Namenskollision, und der Updater fällt in den Rollback-Zweig, der den
+# alten, funktionierenden Container wiederherstellt.
 if docker inspect "${CONTAINER}-old" >/dev/null 2>&1 \
    && [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null)" = "true" ]; then
   backup_image_id="$(docker inspect -f '{{.Image}}' "${CONTAINER}-old" 2>/dev/null || true)"
