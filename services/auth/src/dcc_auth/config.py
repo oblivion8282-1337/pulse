@@ -122,6 +122,10 @@ class Settings(BaseSettings):
     rate_limit_bootstrap_redeem: str = "10/minute"
     rate_limit_relay_tls_check: str = "60/minute"
     rate_limit_reachability_probe: str = "10/minute"
+    # Eine Prüfung dauert bis zu 40 s und öffnet ein Dutzend Verbindungen zu
+    # einem fremden Rechner — sie ist teuer für uns UND für ihn. Sechs pro
+    # Minute reichen für „ich probiere es nochmal", nicht für Dauerbetrieb.
+    rate_limit_selfhost_diagnose: str = "6/minute"
     # Direktpfad-Telefonbuch (Plan 2026-07-09-direct-path-webrtc): Heartbeat
     # kommt alle ~120 s pro Instanz; Lookup ist session-gated (Client-Öffnen).
     rate_limit_directory_heartbeat: str = "10/minute"
@@ -270,6 +274,7 @@ class Settings(BaseSettings):
         "rate_limit_bootstrap_redeem",
         "rate_limit_relay_tls_check",
         "rate_limit_reachability_probe",
+        "rate_limit_selfhost_diagnose",
         "rate_limit_directory_heartbeat",
         "rate_limit_directory_lookup",
         "rate_limit_directory_offer",

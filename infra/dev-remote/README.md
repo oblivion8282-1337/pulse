@@ -5,6 +5,14 @@ Hier läuft die **untere Hälfte** stattdessen einmal zentral auf dem Hetzner
 (`77.42.71.166`, https://pulse.unicutmedia.com), und jeder Arbeitsrechner
 startet nur noch Vite und Electron.
 
+Seit 2026-08-25 liegt der Stack physisch auf dem Hetzner-Volume
+`/mnt/HC_Volume_106700849/` (30 GB): Compose-Projekt in
+`/mnt/HC_Volume_106700849/pulse-test`, Postgres-/MinIO-Daten als Bind-Mounts
+in `/mnt/HC_Volume_106700849/pulse-test-data/` (die Named Volumes `pgdata` /
+`miniodata` gibt es nicht mehr — bei einem `docker volume rm`-Deko sind die
+Daten damit sicherer). `~/pulse-test` ist ein Symlink dorthin, alle Skripte
+und `PULSE_DEV_DIR`-Defaults funktionieren unverändert.
+
 | Teil | Wo | Warum |
 |---|---|---|
 | Postgres, Redis, MinIO | Hetzner | Ein Zustand, von allen Rechnern aus. Ein Konto, eine Community, überall dieselbe. |
