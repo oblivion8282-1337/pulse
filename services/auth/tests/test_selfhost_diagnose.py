@@ -339,3 +339,63 @@ async def test_kein_close_rahmen_ergibt_keinen_code():
     # Abgeschnitten mitten im Rahmen: keine Aussage, kein Absturz.
     assert await dienst._lies_schliesscode(_Leser(b"\x88")) is None
     assert await dienst._lies_schliesscode(_Leser(b"\x88\x02\x0f")) is None
+
+
+# ---------------------------------------------------------------------------
+# Die Festnagelung auf die geprüfte Adresse
+# ---------------------------------------------------------------------------
+#
+# ``pruefe_dns`` hält die aufgelösten Adressen gegen die internen Netze. Löste
+# ein späterer Aufruf den Namen ERNEUT auf, wäre diese Prüfung eine
+# Momentaufnahme ohne Wirkung: wer die Zone kontrolliert, liefert beim ersten
+# Mal eine öffentliche Adresse und beim zweiten 127.0.0.1. Blind wäre das nicht
+# einmal — der CORS-Schritt gibt einen Antwort-Kopf zurück, der Identitäts-
+# Schritt ein Feld aus dem Körper.
+
+
+def test_ziel_verbindet_zur_ip_und_nennt_den_namen():
+    z = dienst.Ziel("chat.firma.de", "203.0.113.7")
+    assert z.url("/health") == "https://203.0.113.7/health"
+    assert z.kopf()["Host"] == "chat.firma.de"
+    # Der TLS-Name bleibt der echte — nur so prüft das Zertifikat noch etwas.
+    assert z.sni == {"sni_hostname": "chat.firma.de"}
+
+
+def test_ziel_klammert_ipv6():
+    z = dienst.Ziel("chat.firma.de", "2606:4700::1111")
+    assert z.url("/health") == "https://[2606:4700::1111]/health"
+
+
+def test_ziel_haengt_zusatzkoepfe_an_ohne_host_zu_verlieren():
+    z = dienst.Ziel("chat.firma.de", "203.0.113.7")
+    kopf = z.kopf({"Origin": "https://cloud"})
+    assert kopf["Host"] == "chat.firma.de"
+    assert kopf["Origin"] == "https://cloud"
+
+
+async def test_http_schritte_loesen_den_namen_nicht_erneut_auf():
+    """Kein Schritt darf den Hostnamen in die URL setzen."""
+
+    gesehen: list[tuple[str, dict, dict]] = []
+
+    class _Klient:
+        async def get(self, url, headers=None, extensions=None):
+            gesehen.append((url, headers or {}, extensions or {}))
+            raise RuntimeError("Antwort egal — geprüft wird die Anfrage")
+
+        async def options(self, url, headers=None, extensions=None):
+            gesehen.append((url, headers or {}, extensions or {}))
+            raise RuntimeError("Antwort egal — geprüft wird die Anfrage")
+
+    z = dienst.Ziel("chat.firma.de", "203.0.113.7")
+    k = _Klient()
+    await dienst.pruefe_health(k, z)
+    await dienst.pruefe_identitaet(k, z, "1")
+    await dienst.pruefe_cors(k, z, "https://cloud")
+
+    assert len(gesehen) == 3
+    for url, kopf, ext in gesehen:
+        assert "chat.firma.de" not in url, f"Name in der URL: {url}"
+        assert url.startswith("https://203.0.113.7/")
+        assert kopf["Host"] == "chat.firma.de"
+        assert ext["sni_hostname"] == "chat.firma.de"
