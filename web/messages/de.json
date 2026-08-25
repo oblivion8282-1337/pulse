@@ -23,7 +23,7 @@
   "add_server_dialog_error_no_gateway": "Unter dieser Adresse antwortet etwas, aber kein Pulse-Server. Zeigt die Proxy-Regel wirklich auf Pulse?",
   "add_server_dialog_error_no_ws_upgrade": "Der Server antwortet, aber der Proxy davor reicht WebSocket-Verbindungen nicht durch. Ohne die bleibt der Chat leer. Beim Betreiber: im Reverse-Proxy die Upgrade-Weiterleitung einschalten.",
   "add_server_dialog_error_port_closed": "Die Adresse gibt es, aber auf Port 443 antwortet nichts. Läuft der Server, und ist der Port in der Firewall offen?",
-  "add_server_dialog_error_server_without_cloud": "Der Server läuft, erreicht aber howispulse.com nicht. Bei ihm ist die ausgehende Verbindung gesperrt — nicht bei dir.",
+  "add_server_dialog_error_server_without_cloud": "Der Server ist erreichbar, aber intern noch nicht vollständig gestartet. Gleich noch einmal versuchen; hält es an, den Betreiber des Servers ansprechen.",
   "add_server_dialog_error_timeout": "Der Server hat nicht rechtzeitig geantwortet. Gleich noch einmal versuchen.",
   "add_server_dialog_error_too_old": "Server-Update läuft vermutlich, in ein paar Minuten erneut versuchen.",
   "add_server_dialog_error_unreachable": "Server nicht erreichbar — URL prüfen oder VPN?",

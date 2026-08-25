@@ -186,3 +186,50 @@ describe('deuteNetdiag — die genaue Auskunft aus dem Desktop', () => {
     assert.equal(deuteNetdiag([{ schritt: 'tls', ok: false, befund: 'laeuft-bald-ab' }]), null);
   });
 });
+
+/**
+ * Der Text hinter `server-ohne-cloud` (Schliesscode 4046, „Server hinzufügen"-
+ * Dialog).
+ *
+ * **Warum dieser Test die AUSSAGE prüft, nicht den Wortlaut.** 4046 heisst:
+ * der chat-gateway hat die JWKS seines eigenen auth-svc-Nachbarn noch nicht
+ * laden können — ein Container-interner Zustand, NICHTS mit der Verbindung
+ * zu howispulse.com. Der frühere Text behauptete genau das Gegenteil („bei
+ * ihm ist die ausgehende Verbindung gesperrt"). Ausserdem sitzt der Leser
+ * hier nicht auf dem Server — er will einen FREMDEN Server hinzufügen und hat
+ * keinen Zugriff darauf; ein Handgriff wie `docker exec … pulse-doctor`
+ * (passend im server-seitigen Katalog, `diagnose_texte.py`) wäre hier
+ * wertlos. Ein reiner Wortlaut-Vergleich hätte den nächsten Formulierungs-
+ * versuch grün gestellt, selbst wenn er wieder howispulse.com beschuldigt.
+ */
+describe('Text zu server-ohne-cloud — die Behauptung, nicht der Wortlaut', () => {
+  function text(datei: string): string {
+    const quelle: Record<string, string> = JSON.parse(
+      readFileSync(join(import.meta.dirname, '..', 'messages', datei), 'utf8'),
+    );
+    const wert = quelle.add_server_dialog_error_server_without_cloud;
+    assert.ok(wert, `Schlüssel add_server_dialog_error_server_without_cloud fehlt in ${datei}`);
+    return wert;
+  }
+
+  for (const datei of ['de.json', 'en.json']) {
+    it(`${datei}: nennt howispulse.com nicht als Ursache`, () => {
+      const t = text(datei).toLowerCase();
+      // Die Ursache ist ein Nachbardienst IM Container — die Verbindung nach
+      // aussen zu howispulse.com kommt darin gar nicht vor.
+      assert.ok(!t.includes('howispulse.com'), `darf howispulse.com nicht nennen: "${t}"`);
+    });
+
+    it(`${datei}: verlangt keinen Handgriff, den nur der Betreiber ausführen kann`, () => {
+      const t = text(datei).toLowerCase();
+      assert.ok(!t.includes('docker exec'), `kein Server-Zugriffs-Befehl erwartet: "${t}"`);
+      assert.ok(!t.includes('pulse-doctor'), `kein Server-Zugriffs-Befehl erwartet: "${t}"`);
+    });
+
+    it(`${datei}: verweist auf den Betreiber statt auf Eigenhandeln`, () => {
+      const t = text(datei);
+      const verweistAufBetreiber = /betreiber|operator/i.test(t);
+      assert.ok(verweistAufBetreiber, `muss auf den Betreiber verweisen: "${t}"`);
+    });
+  }
+});

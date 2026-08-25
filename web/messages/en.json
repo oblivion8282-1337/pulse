@@ -23,7 +23,7 @@
   "add_server_dialog_error_no_gateway": "Something answers at this address, but it is not a Pulse server. Does the proxy rule really point at Pulse?",
   "add_server_dialog_error_no_ws_upgrade": "The server answers, but the proxy in front of it does not pass WebSocket connections through. Chat stays empty without them. The operator needs to enable upgrade forwarding in the reverse proxy.",
   "add_server_dialog_error_port_closed": "The address exists, but nothing answers on port 443. Is the server running, and is the port open in the firewall?",
-  "add_server_dialog_error_server_without_cloud": "The server is running but cannot reach howispulse.com. Its outbound connection is blocked — not yours.",
+  "add_server_dialog_error_server_without_cloud": "The server is reachable, but has not finished starting up internally yet. Try again in a moment; if it persists, contact the server's operator.",
   "add_server_dialog_error_timeout": "The server did not answer in time. Try again in a moment.",
   "add_server_dialog_error_too_old": "Server update likely in progress — try again in a few minutes.",
   "add_server_dialog_error_unreachable": "Server unreachable — check the URL or try a VPN?",
