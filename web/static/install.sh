@@ -387,6 +387,28 @@ _trim_log() {
 }
 trap _trim_log EXIT
 
+# `docker run -d` liefert 0, sobald der Container ERZEUGT wurde — nicht, wenn
+# er tatsaechlich laeuft. Ein Image, das startet und sofort wieder stirbt,
+# gaelte sonst als Erfolg: der Updater loeschte daraufhin die Rollback-Kopie
+# UND das zuletzt funktionierende Image. Da IMAGE ein rollender Tag ist
+# (z. B. ':edge'), ist die Vorversion danach nicht mehr adressierbar.
+#
+# Versuche/Intervall ueber Env steuerbar, damit Tests nicht 15 Sekunden je
+# Fall warten muessen. Im Betrieb bleibt es beim Defaultwert: ein frisch
+# gestarteter Container kann kurz brauchen (eigene Migration, langsamer
+# Healthcheck), bevor er dauerhaft laeuft — ein einzelner Check waere zu
+# ungeduldig.
+container_laeuft_stabil() {
+  local i versuche intervall
+  versuche="${PULSE_UPDATE_STABIL_VERSUCHE:-15}"
+  intervall="${PULSE_UPDATE_STABIL_INTERVALL:-1}"
+  for i in $(seq 1 "$versuche"); do
+    [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" = "true" ] || return 1
+    sleep "$intervall"
+  done
+  return 0
+}
+
 if [ -n "${REG_PASS:-}" ]; then
   docker login "$REGISTRY" -u "$REG_USER" -p "$REG_PASS" >/dev/null 2>&1 \
     || { echo "pulse-update: registry login failed, will retry next run" >&2; exit 0; }
@@ -408,7 +430,7 @@ if docker inspect "$CONTAINER" >/dev/null 2>&1; then
   docker rename "$CONTAINER" "${CONTAINER}-old" >/dev/null 2>&1 || true
   docker stop "${CONTAINER}-old" >/dev/null 2>&1 || true
 fi
-if docker run "${RUN_ARGS[@]}" >/dev/null; then
+if docker run "${RUN_ARGS[@]}" >/dev/null && container_laeuft_stabil "$CONTAINER"; then
   docker rm -f "${CONTAINER}-old" >/dev/null 2>&1 || true
   # Nur das vorige Pulse-Image entfernen — kein host-weites 'image prune'.
   { [ -n "$cur_id" ] && [ "$cur_id" != "$new_id" ] && docker image rm "$cur_id" >/dev/null 2>&1; } || true
