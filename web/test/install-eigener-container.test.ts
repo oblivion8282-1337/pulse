@@ -64,13 +64,20 @@ interface Konfiguration {
   portBelegt: boolean;
 }
 
+interface Entschieden {
+  mode: string;
+  /** Hat `decide_mode` mit `die` abgebrochen (Task 10b: Proxy-Container ohne Nutzer-Netz)? */
+  abgebrochen: boolean;
+  meldung: string;
+}
+
 /**
  * Führt `decide_mode` gegen eine erfundene Container-Liste aus und gibt den
  * gewählten Modus zurück. `docker ps` listet nur LAUFENDE Container — ein
  * Container aus `konfig.container` gilt deshalb im gefälschten `docker`
  * immer als laufend, genau wie im echten.
  */
-function entscheide(konfig: Konfiguration): { mode: string } {
+function entscheide(konfig: Konfiguration): Entschieden {
   const quelle = readFileSync(SKRIPT, 'utf8');
   const dir = mkdtempSync(join(tmpdir(), 'pulse-eigener-container-'));
 
@@ -119,6 +126,8 @@ set -uo pipefail
 CONTAINER=pulse
 FORCE_TLS_MODE=""
 FORCE_NETWORK=""
+err() { printf '[pulse] ERROR: %s\\n' "$*" >&2; }
+die() { err "$*"; exit 1; }
 ${funktion(quelle, 'proxy_netze')}
 ${funktion(quelle, 'publishes_web_port')}
 ${funktion(quelle, 'detect_proxy')}
@@ -134,11 +143,20 @@ _set_proxy() { PROXY_CONTAINER="$1"; PROXY_KIND="$2"; PROXY_NET="$(proxy_netze "
 decide_mode
 echo "$MODE"
 `;
-  const ausgabe = execFileSync('bash', ['-c', skript], {
-    env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
-    encoding: 'utf8'
-  }).trim();
-  return { mode: ausgabe };
+  // Seit Task 10b kann decide_mode selbst abbrechen (ein erkannter
+  // Proxy-CONTAINER ohne Nutzer-Netz bekommt keine Loopback-Anweisung mehr,
+  // s. install-anweisungen.test.ts) — deshalb try/catch statt eines nackten
+  // execFileSync wie vor diesem Fix.
+  try {
+    const ausgabe = execFileSync('bash', ['-c', skript], {
+      env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+      encoding: 'utf8'
+    }).trim();
+    return { mode: ausgabe, abgebrochen: false, meldung: '' };
+  } catch (fehler) {
+    const f = fehler as { status?: number; stderr?: string };
+    return { mode: '', abgebrochen: true, meldung: f.stderr ?? '' };
+  }
 }
 
 test('ein zweiter Lauf lässt einen greenfield-Server greenfield', () => {
@@ -150,13 +168,27 @@ test('ein zweiter Lauf lässt einen greenfield-Server greenfield', () => {
   assert.equal(ergebnis.mode, 'greenfield');
 });
 
-test('ein FREMDER Proxy auf 80/443 führt weiterhin zu hostproxy', () => {
+test('ein fremder DOCKER-Proxy auf 80/443 wird jedenfalls nicht faelschlich greenfield', () => {
   // Gegenprobe — sonst bestünde der Test auch, wenn die Erkennung tot wäre.
+  //
+  // Bis Task 10b (II·6) hieß dieser Test „…führt weiterhin zu hostproxy":
+  // das gefälschte `docker` hier liefert für `nginx-vom-nachbarn` keine
+  // Netzliste (nur `ps`/`inspect …State.Running`/`…Ports` sind verdrahtet,
+  // keine `…NetworkSettings.Networks`) — genau die Lage „Proxy-CONTAINER nur
+  // am Default-Bridge-Netz", die seit Task 10b nicht mehr in den
+  // Loopback-Rückfall `hostproxy` fällt, sondern abbricht und nach
+  // PULSE_NETWORK fragt (s. install-anweisungen.test.ts, dort ausführlich
+  // begründet: 127.0.0.1:8080 wäre aus DIESEM Container heraus dessen
+  // eigenes Loopback, nie erreichbar). `hostproxy` ist seither host-nativen
+  // Proxies vorbehalten, die `docker ps` gar nicht sieht — nicht mehr
+  // erkannten Docker-Proxy-Containern ohne Netz.
   const ergebnis = entscheide({
     container: [{ name: 'nginx-vom-nachbarn', image: 'nginx:1.27', publiziert: true }],
     portBelegt: true
   });
   assert.notEqual(ergebnis.mode, 'greenfield');
+  assert.equal(ergebnis.abgebrochen, true, `erwartet Abbruch statt Modus '${ergebnis.mode}'`);
+  assert.match(ergebnis.meldung, /PULSE_NETWORK/);
 });
 
 test('ein eigener Container ohne veröffentlichte 80/443 bleibt bei einem host-nativen Proxy hostproxy', () => {
