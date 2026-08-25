@@ -26,17 +26,55 @@ from dcc_auth.selfhost_probe import FRIST_S, Schritt, _schliesse, _tls_kontext
 # ---------------------------------------------------------------------------
 
 
-async def _hole(klient: httpx.AsyncClient, url: str, **kw) -> httpx.Response | None:
+class Ziel:
+    """Der Server, auf die bereits geprüfte Adresse festgenagelt.
+
+    **Warum nicht einfach ``https://<hostname>/…``:** ``pruefe_dns`` hat die
+    aufgelösten Adressen gegen die internen Netze gehalten, aber ein zweiter
+    Aufruf löst den Namen ERNEUT auf. Wer die Zone zu einem genehmigten
+    Hostnamen kontrolliert, könnte beim ersten Mal eine öffentliche Adresse
+    liefern und beim zweiten ``127.0.0.1`` — und die Cloud führte die Anfrage
+    dann ins eigene Innere aus. Der Rückkanal wäre nicht einmal blind: der
+    CORS-Schritt gibt einen Antwort-Kopf zurück, der Identitäts-Schritt ein
+    Feld aus dem Antwortkörper.
+
+    Deshalb geht die Verbindung an die **IP**, während der TLS-Name und der
+    ``Host``-Kopf den echten Namen tragen. Die Zertifikatsprüfung bleibt damit
+    vollständig — nachgemessen: mit falschem SNI-Namen scheitert sie.
+    """
+
+    __slots__ = ("host", "adresse")
+
+    def __init__(self, host: str, adresse: str) -> None:
+        self.host = host
+        # IPv6 gehört in eckige Klammern, sonst frisst der URL-Parser die
+        # Doppelpunkte als Port.
+        self.adresse = f"[{adresse}]" if ":" in adresse else adresse
+
+    def url(self, pfad: str) -> str:
+        return f"https://{self.adresse}{pfad}"
+
+    def kopf(self, weitere: dict[str, str] | None = None) -> dict[str, str]:
+        return {"Host": self.host, **(weitere or {})}
+
+    @property
+    def sni(self) -> dict[str, str]:
+        return {"sni_hostname": self.host}
+
+
+async def _hole(klient: httpx.AsyncClient, ziel: Ziel, pfad: str) -> httpx.Response | None:
     try:
         async with asyncio.timeout(FRIST_S):
-            return await klient.get(url, **kw)
+            return await klient.get(
+                ziel.url(pfad), headers=ziel.kopf(), extensions=ziel.sni
+            )
     except Exception:
         return None
 
 
-async def pruefe_health(klient: httpx.AsyncClient, basis: str) -> Schritt:
+async def pruefe_health(klient: httpx.AsyncClient, ziel: Ziel) -> Schritt:
     """``/health`` ist auf jedem Self-Host öffentlich (Caddyfile-Template)."""
-    antwort = await _hole(klient, f"{basis}/health")
+    antwort = await _hole(klient, ziel, "/health")
     if antwort is None:
         return Schritt("health", False, "keine_antwort")
     if antwort.status_code >= 500:
@@ -53,7 +91,7 @@ async def pruefe_health(klient: httpx.AsyncClient, basis: str) -> Schritt:
 
 
 async def pruefe_identitaet(
-    klient: httpx.AsyncClient, basis: str, erwartete_id: str
+    klient: httpx.AsyncClient, ziel: Ziel, erwartete_id: str
 ) -> Schritt:
     """Antwortet unter dieser Adresse wirklich DIESE Instanz?
 
@@ -61,7 +99,7 @@ async def pruefe_identitaet(
     Pulse-Instanz zeigt, in jedem anderen Schritt grün aus — und der Betreiber
     sucht den Fehler überall ausser dort.
     """
-    antwort = await _hole(klient, f"{basis}/.well-known/pulse-server-info")
+    antwort = await _hole(klient, ziel, "/.well-known/pulse-server-info")
     if antwort is None or antwort.status_code >= 400:
         return Schritt("identitaet", False, "keine_auskunft")
     try:
@@ -76,7 +114,7 @@ async def pruefe_identitaet(
     return Schritt("identitaet", True, "stimmt", str(daten.get("server_version") or ""))
 
 
-async def pruefe_cors(klient: httpx.AsyncClient, basis: str, origin: str) -> Schritt:
+async def pruefe_cors(klient: httpx.AsyncClient, ziel: Ziel, origin: str) -> Schritt:
     """Prüft genau das, was der Browser prüft.
 
     Ein CORS-Block erreicht den Nutzer als „Failed to fetch" und ist von einem
@@ -85,11 +123,11 @@ async def pruefe_cors(klient: httpx.AsyncClient, basis: str, origin: str) -> Sch
     try:
         async with asyncio.timeout(FRIST_S):
             antwort = await klient.options(
-                f"{basis}/.well-known/pulse-server-info",
-                headers={
-                    "Origin": origin,
-                    "Access-Control-Request-Method": "GET",
-                },
+                ziel.url("/.well-known/pulse-server-info"),
+                headers=ziel.kopf(
+                    {"Origin": origin, "Access-Control-Request-Method": "GET"}
+                ),
+                extensions=ziel.sni,
             )
     except Exception:
         return Schritt("cors", False, "keine_antwort")

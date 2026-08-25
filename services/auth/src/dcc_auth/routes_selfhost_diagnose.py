@@ -39,6 +39,7 @@ from dcc_auth.routes_admin_instances import _require_cloud
 from dcc_auth.security import verify_password
 from dcc_auth.selfhost_probe import Schritt, pruefe_dns, pruefe_tcp, pruefe_tls
 from dcc_auth.selfhost_probe_dienst import (
+    Ziel,
     pruefe_cors,
     pruefe_health,
     pruefe_identitaet,
@@ -116,7 +117,6 @@ async def _fuehre_pruefung(hostname: str, instanz_id: str, cloud_origin: str) ->
     laufen deshalb auch dann noch — sie betreffen Ton und Bild, und die sind
     ein eigenes Thema mit einer eigenen Firewall-Regel.
     """
-    basis = f"https://{hostname}"
     schritte: list[Schritt] = []
 
     dns = await pruefe_dns(hostname)
@@ -136,12 +136,15 @@ async def _fuehre_pruefung(hostname: str, instanz_id: str, cloud_origin: str) ->
     schritte.append(tls)
 
     if tls.ok:
-        # Ein eigener Klient je Prüfung wäre Verschwendung; Umleitungen bleiben
-        # aus, damit die Antwort wirklich von DIESER Adresse kommt.
+        # Ein eigener Klient je Prüfung wäre Verschwendung. Umleitungen bleiben
+        # aus, und `Ziel` nagelt jede Anfrage auf die oben geprüfte Adresse
+        # fest — sonst löste jeder Aufruf den Namen erneut auf und die Prüfung
+        # aus `pruefe_dns` wäre eine Momentaufnahme ohne Wirkung.
+        ziel = Ziel(hostname, adresse)
         async with httpx.AsyncClient(follow_redirects=False, verify=True) as klient:
-            schritte.append(await pruefe_health(klient, basis))
-            schritte.append(await pruefe_identitaet(klient, basis, instanz_id))
-            schritte.append(await pruefe_cors(klient, basis, cloud_origin))
+            schritte.append(await pruefe_health(klient, ziel))
+            schritte.append(await pruefe_identitaet(klient, ziel, instanz_id))
+            schritte.append(await pruefe_cors(klient, ziel, cloud_origin))
         schritte.append(await pruefe_websocket(hostname, adresse, 443))
 
     # Ton und Bild: eigene Ports, eigene Firewall-Regel, eigener Befund.
