@@ -379,7 +379,9 @@ RUN groupadd -g 10001 pulse \
 #   1936              — MediaMTX RTMPS ingest (HQ-stream push; raw TCP, can't go via Caddy)
 #   8189/udp          — MediaMTX WebRTC/WHEP ICE (HQ-stream playback media plane)
 # Internal-only (NOT exposed): 5432 (pg), 6379 (redis), 7880 (livekit ws),
-#   8002–8005 (python services), 8888/8889 (mediamtx hls/whep, proxied via Caddy),
+#   8002–8005 (python services), 8889 (mediamtx whep, proxied via Caddy),
+#   8888 (mediamtx hls — listening, but NO Caddy route and not published:
+#         unreachable from outside; see the note in 08-init-mediamtx.sh),
 #   9000 (minio S3 API, proxied via Caddy /pulse-attachments/*), 9997 (mediamtx api).
 EXPOSE 80 443 8080 1936 3478 3478/udp 7882-7892/udp 8189/udp
 

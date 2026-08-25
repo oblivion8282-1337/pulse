@@ -56,6 +56,16 @@ webrtcEncryption: no
 webrtcLocalUDPAddress: :8189
 webrtcIPsFromInterfaces: no
 
+# HLS: laeuft, ist aber von aussen NICHT erreichbar — es gibt keine
+# Caddy-Route auf :8888 (nur /whep → :8889) und der Port wird nicht
+# veroeffentlicht. Ausserdem steht der Muxer hier unter derselben Bedingung,
+# derentwegen die Cloud ihn ABGESCHALTET hat: bei gestrecktem Vollbild-Abstand
+# (Vorgabe 60 s) fehlen ihm die Vollbilder, siehe die Begruendung an `hls: no`
+# in `infra/prod/mediamtx.yml`. `hlsAlwaysRemux: yes` laesst ihn zusaetzlich
+# auch ohne Zuschauer durchlaufen.
+# Bewusst NICHT in diesem Zug geaendert: das Abschalten waere eine
+# Verhaltensaenderung am ausgelieferten Container und braucht einen eigenen
+# Durchgang mit eigener Pruefung. Wer hier vorbeikommt, entscheidet es.
 hls: yes
 hlsAddress: :8888
 hlsAlwaysRemux: yes
