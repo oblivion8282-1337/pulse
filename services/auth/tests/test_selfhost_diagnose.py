@@ -235,6 +235,35 @@ async def test_jeder_schritt_traegt_titel_und_klartext(client, alice, instance, 
     assert tls["befund"] == "kein_handschlag"
 
 
+async def test_container_name_header_landet_im_handgriff(client, alice, instance, ohne_netz):
+    """Hält die ganze Kette Header → Route → ``erklaerung()`` zusammen — nicht
+    nur ihre Bausteine einzeln. Ein Mutationstest, der ``container_name(...)``
+    in der Route durch ``container_name(None)`` ersetzt (der Header wird
+    gelesen und dann ignoriert), muss diesen Test reissen."""
+    ohne_netz([Schritt("tls", False, "abgelaufen")])
+    r = await client.post(
+        f"/selfhost/diagnose/{instance['id']}",
+        headers={"Cookie": alice["cookie"], "X-Pulse-Container-Name": "mein-server"},
+    )
+    tls = r.json()["schritte"][0]
+    assert "docker restart mein-server" in tls["was_tun"]
+    assert "docker restart pulse" not in tls["was_tun"]
+
+
+async def test_ohne_container_name_header_bleibt_es_bei_der_vorgabe(
+    client, alice, instance, ohne_netz
+):
+    """Gegenprobe zum Test oben: ohne Header (der Weg des Besitzers per
+    Sitzung — er kennt die Maschine nicht) muss die Vorgabe ``pulse`` im Text
+    stehen, nicht ein leerer oder unaufgelöster Platzhalter."""
+    ohne_netz([Schritt("tls", False, "abgelaufen")])
+    r = await client.post(
+        f"/selfhost/diagnose/{instance['id']}", headers={"Cookie": alice["cookie"]}
+    )
+    tls = r.json()["schritte"][0]
+    assert "docker restart pulse" in tls["was_tun"]
+
+
 async def test_sprache_folgt_dem_accept_language(client, alice, instance, ohne_netz):
     ohne_netz([Schritt("tls", False, "kein_handschlag", "chat.firma.de")])
     r = await client.post(

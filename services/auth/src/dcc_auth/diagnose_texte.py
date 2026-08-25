@@ -275,8 +275,10 @@ def _index(sprache: str) -> int:
 #: Vorgabe, wenn kein (gültiger) Containername mitkommt.
 _CONTAINER_STANDARD = "pulse"
 
-#: Was Docker für Containernamen überhaupt erlaubt.
-_CONTAINER_MUSTER = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
+#: Was Docker für Containernamen überhaupt erlaubt. ``\Z`` statt ``$`` bewusst:
+#: ``$`` passt in Python auch VOR einem abschließenden Zeilenende — ein Wert
+#: mit eingebettetem Newline käme damit unbemerkt durch das Muster.
+_CONTAINER_MUSTER = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*\Z")
 
 
 def container_name(roh: str | None) -> str:
