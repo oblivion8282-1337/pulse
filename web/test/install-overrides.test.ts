@@ -92,6 +92,8 @@ interface Ergebnis {
   mode: string;
   tlsMode: string;
   runArgs: string[];
+  /** Ausgabe von `print_plan` (via der gefälschten `log()`, eine Zeile je Aufruf). */
+  plan: string[];
   abgebrochen: boolean;
   meldung: string;
 }
@@ -105,6 +107,11 @@ set -euo pipefail
 err() { printf '[pulse] ERROR: %s\\n' "$*" >&2; }
 die() { err "$*"; exit 1; }
 warn() { :; }
+# Fund 2 (Schlussprüfung): print_plan muss wirklich mitlaufen, nicht nur
+# MODE/RUN_ARGS — sonst bestünde ein Override, der nur DAS TUN korrigiert,
+# aber weiter falsch ANKÜNDIGT, unbemerkt. 'PLAN:'-Präfix statt der echten
+# ANSI-Farbcodes, damit die Zeilen unten trivial herauszufiltern sind.
+log() { printf 'PLAN:%s\\n' "$*"; }
 
 # Sonden fuer den PROXY_KIND=none-Zweig von decide_mode — kein docker auf dem
 # PATH noetig, die Container-Wahl selbst hat ihre eigenen Tests.
@@ -125,9 +132,11 @@ FORCE_NETWORK="${optionen.netzwerk ?? ''}"
 
 ${funktion(quelle, 'decide_mode')}
 ${funktion(quelle, 'build_run_args')}
+${funktion(quelle, 'print_plan')}
 
 decide_mode
 build_run_args
+print_plan
 echo "MODE:\${MODE}"
 echo "TLS:\${TLS_MODE}"
 printf 'ARG:%s\\n' "\${RUN_ARGS[@]}"
@@ -139,10 +148,11 @@ printf 'ARG:%s\\n' "\${RUN_ARGS[@]}"
     const mode = zeilen.find((z) => z.startsWith('MODE:'))?.slice(5) ?? '';
     const tlsMode = zeilen.find((z) => z.startsWith('TLS:'))?.slice(4) ?? '';
     const runArgs = zeilen.filter((z) => z.startsWith('ARG:')).map((z) => z.slice(4));
-    return { mode, tlsMode, runArgs, abgebrochen: false, meldung: '' };
+    const plan = zeilen.filter((z) => z.startsWith('PLAN:')).map((z) => z.slice(5));
+    return { mode, tlsMode, runArgs, plan, abgebrochen: false, meldung: '' };
   } catch (fehler) {
     const e = fehler as { status?: number; stderr?: string };
-    return { mode: '', tlsMode: '', runArgs: [], abgebrochen: true, meldung: e.stderr ?? '' };
+    return { mode: '', tlsMode: '', runArgs: [], plan: [], abgebrochen: true, meldung: e.stderr ?? '' };
   }
 }
 
@@ -190,6 +200,22 @@ test('PULSE_TLS_MODE=auto wird von PULSE_NETWORK nicht ueberstimmt', () => {
   assert.equal(e.tlsMode, 'auto');
   assert.equal(e.mode, 'greenfield');
   assert.ok(e.runArgs.includes('80:80'), `erwartet eigene Port-Bindung: ${JSON.stringify(e.runArgs)}`);
+
+  // Fund 2 (Schlussprüfung): das Netz wird hier tatsächlich verworfen — kein
+  // '--network' in RUN_ARGS, weil greenfield keins benutzt (s. build_run_args).
+  // Die Planzeile darf das dann nicht als wirksam ankündigen — der
+  // ursprüngliche Fund: sie nannte weiterhin "network mein-netz", obwohl
+  // greenfield gar kein Netz anfasst.
+  assert.ok(
+    !e.runArgs.includes('--network'),
+    `Netz wurde trotz erzwungenem greenfield verbaut: ${JSON.stringify(e.runArgs)}`
+  );
+  const planZeile = e.plan.find((z) => z.startsWith('Detected mode:'));
+  assert.ok(planZeile, `keine "Detected mode"-Zeile in der Planausgabe: ${JSON.stringify(e.plan)}`);
+  assert.ok(
+    !planZeile!.includes('mein-netz'),
+    `Planzeile kündigt ein Netz an, das gar nicht benutzt wird: ${JSON.stringify(planZeile)}`
+  );
 });
 
 test('PULSE_TLS_MODE=provided wird ehrlich durchgereicht, nicht auf auto/behind-proxy verschluckt', () => {
@@ -203,6 +229,25 @@ test('PULSE_TLS_MODE=provided wird ehrlich durchgereicht, nicht auf auto/behind-
   assert.equal(e.tlsMode, 'provided');
   assert.equal(e.mode, 'greenfield');
   assert.ok(e.runArgs.includes('80:80'));
+});
+
+test('PULSE_TLS_MODE=provided verwirft ein gleichzeitiges PULSE_NETWORK ebenso ehrlich', () => {
+  // Gegenprobe zu Fund 2 fuer den zweiten Zweig, der MODE=greenfield setzt —
+  // derselbe Fund traf `provided` genauso wie `auto`.
+  const e = entscheide({ tlsMode: 'provided', netzwerk: 'mein-netz' });
+  assert.equal(e.abgebrochen, false, e.meldung);
+  assert.equal(e.tlsMode, 'provided');
+  assert.equal(e.mode, 'greenfield');
+  assert.ok(
+    !e.runArgs.includes('--network'),
+    `Netz wurde trotz erzwungenem greenfield verbaut: ${JSON.stringify(e.runArgs)}`
+  );
+  const planZeile = e.plan.find((z) => z.startsWith('Detected mode:'));
+  assert.ok(planZeile, `keine "Detected mode"-Zeile in der Planausgabe: ${JSON.stringify(e.plan)}`);
+  assert.ok(
+    !planZeile!.includes('mein-netz'),
+    `Planzeile kündigt ein Netz an, das gar nicht benutzt wird: ${JSON.stringify(planZeile)}`
+  );
 });
 
 test('leerer PULSE_TLS_MODE bricht nicht ab (weiterhin optional)', () => {
