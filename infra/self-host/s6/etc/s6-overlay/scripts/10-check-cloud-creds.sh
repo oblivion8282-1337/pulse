@@ -35,7 +35,7 @@ Set these in your \`docker run\` (or compose file). Example:
     -e PULSE_CLOUD_CLIENT_ID=... \\
     -e PULSE_CLOUD_CLIENT_SECRET=... \\
     -e PULSE_ADMIN_EMAIL=admin@firma.de \\
-    ghcr.io/oblivion8282-1337/pulse-allinone:stable
+    registry.howispulse.com/pulse-allinone:stable
 
 instance_id, owner_id, client_id and client_secret all come from approval on
 howispulse.com — copy the ready-to-use .env from "Meine Instanzen" (Download)
