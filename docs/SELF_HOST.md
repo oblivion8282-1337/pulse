@@ -276,6 +276,31 @@ hält einen der Ports, die Pulse für Ton und Bild braucht. Der Abbruch kommt
 absichtlich, BEVOR der Einrichtungs-Token verbraucht wird — der Befehl bleibt
 also gültig, sobald der Port frei ist.
 
+**Ich bin auf meinem eigenen Server kein Admin.** Dann bist du mit einem
+anderen Cloud-Konto angemeldet als dem, mit dem du den Server beantragt hast.
+Der Server sagt dir beides — beim Start, wem er laut Konfiguration gehört, und
+bei jeder Anmeldung, wer sich gerade angemeldet hat:
+
+```bash
+docker logs pulse 2>&1 | grep -i "Cloud-Konto\|Cert-User"
+```
+
+```
+Diese Instanz gehoert Cloud-Konto 4711 — nur dieses Konto wird hier Admin
+Cert-User 9999 ist NICHT der Instanz-Owner (konfiguriert: 4711) — kein Admin
+```
+
+Zwei verschiedene Zahlen heisst: falsches Konto. Melde dich mit dem Konto an,
+mit dem du den Antrag gestellt hast.
+
+Wer den Server auf ein anderes Konto umschreiben muss, ändert
+`PULSE_INSTANCE_OWNER_ID` in der `.env` und startet neu — in der Oberfläche
+gibt es dafür bislang nichts.
+
+> Kommt keine dieser Zeilen, läuft der Container auf einer zu leisen Stufe.
+> `PULSE_LOG_LEVEL=info` in der `.env` setzen (das ist die Vorgabe) und neu
+> starten. Ohne `info` ist diese Auskunft abgeschaltet.
+
 ---
 
 ## Deinstallation

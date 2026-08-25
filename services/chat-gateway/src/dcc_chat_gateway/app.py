@@ -20,6 +20,7 @@ from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.crl_poller import crl_poller_loop
 from dcc_chat_gateway.db import engine
 from dcc_chat_gateway.jwks_pinning import jwks_retry_loop
+from dcc_chat_gateway.owner_admin_log import log_owner_konfiguration
 from dcc_chat_gateway.plugins import (
     ensure_hello_in_allowlist,
     list_allowed_names,
@@ -34,8 +35,16 @@ from dcc_chat_gateway.routes import router
 from dcc_chat_gateway.routes.attachments import reaper_loop as attachments_reaper
 from dcc_chat_gateway.suspend_poller import suspend_poller_loop
 from dcc_chat_gateway.voice_pull_cleanup import voice_pull_reaper_loop
+from dcc_shared.logging_setup import konfiguriere_logging
 
 log = logging.getLogger(__name__)
+
+# Sichtbarkeit der Meldungen festlegen, BEVOR irgendetwas loggt. Ohne diesen
+# Aufruf steht der Wurzel-Logger auf WARNING ohne Handler (uvicorn richtet nur
+# seine eigenen drei ein) — jedes `log.info` im Dienst waere unsichtbar.
+# Volle Begruendung samt Messung: dcc_shared/logging_setup.py
+konfiguriere_logging()
+
 
 # How long a background task gets to act on its cancel before shutdown abandons
 # it. Fits inside Docker's 10s SIGTERM→SIGKILL window; every loop here cancels
@@ -306,6 +315,9 @@ async def lifespan(app: FastAPI):
                 name="dcc-jwks-retry",
             )
         app.state.jwks_changed_unexpectedly = False
+        # Wem gehoert diese Instanz? Einmal je Start, damit die Antwort auch
+        # dann im Protokoll steht, wenn sich noch niemand angemeldet hat.
+        log_owner_konfiguration(settings)
         # Plugin-System: log startup warning if permission mode is not 'strict'.
         log_startup_mode_warning()
         # Plugin-System: Allowlist-gegateter Load.
