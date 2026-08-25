@@ -86,11 +86,16 @@ if curl -fsS -o /dev/null --max-time 5 "${CLOUD}/.well-known/jwks.json"; then
     ja "${CLOUD} erreichbar"
 else
     nein "${CLOUD} nicht erreichbar"
-    # Ohne JWKS lehnt der Gateway jede WS-Verbindung mit 4046 ab — der Server
-    # sieht dann von aussen aus wie kaputt, obwohl bei IHM die AUSGEHENDE
-    # Richtung klemmt. Das ist die Verwechslung, die am meisten Zeit kostet.
-    rat "Ausgehendes HTTPS ist gesperrt. Ohne das lehnt der Server jede"
-    rat "Anmeldung ab (WS-Code 4046), auch wenn er von aussen erreichbar ist."
+    # Ohne diese Verbindung kann der crl_poller die Cloud-JWKS nie laden
+    # (auth:cloud_jwks:cached bleibt leer, ein neuer Versuch alle 10 s) —
+    # und ohne die lehnt validate_cert() jede Zertifikats-Anmeldung mit
+    # 401 cert_invalid ab (routes/cert_login.py), auch wenn der Server von
+    # aussen tadellos erreichbar ist. Schon geladene JWKS bleiben gueltig,
+    # bis sie ueberschrieben werden — betroffen ist vor allem ein frischer
+    # Server, der noch nie erfolgreich hinausgekommen ist.
+    rat "Ausgehendes HTTPS ist gesperrt. Ohne das kann sich niemand per"
+    rat "Zertifikat anmelden (401 cert_invalid) — sobald die Verbindung"
+    rat "steht, heilt sich das binnen Sekunden von selbst."
 fi
 
 # ── 4. Herein: ist der eigene Name ansprechbar? ───────────────────────────
