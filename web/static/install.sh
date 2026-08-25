@@ -352,9 +352,16 @@ decide_mode() {
   case "$PROXY_KIND" in
     caddy-docker-proxy|traefik|nginx-proxy)
       if [ -n "$PROXY_NET" ]; then MODE=discovery
-      else warn "Proxy '${PROXY_CONTAINER}' is only on the default bridge — cannot auto-wire, using loopback."; MODE=hostproxy; fi ;;
+      else die "Proxy '${PROXY_CONTAINER}' is only on the default Docker bridge network — Pulse has no reachable address to hand it.
+  A loopback address (127.0.0.1) would be the PROXY CONTAINER's own loopback, not the host's; it could never reach Pulse from there.
+  Set PULSE_NETWORK=<name> to a network Pulse and '${PROXY_CONTAINER}' can both join, and run this command again.
+  Nothing has been consumed yet; this check runs before the setup token is redeemed."; fi ;;
     static-caddy|static-nginx)
-      if [ -n "$PROXY_NET" ]; then MODE=static-docker; else MODE=hostproxy; fi ;;
+      if [ -n "$PROXY_NET" ]; then MODE=static-docker
+      else die "Proxy '${PROXY_CONTAINER}' is only on the default Docker bridge network — Pulse has no reachable address to hand it.
+  A loopback address (127.0.0.1) would be the PROXY CONTAINER's own loopback, not the host's; it could never reach Pulse from there.
+  Set PULSE_NETWORK=<name> to a network Pulse and '${PROXY_CONTAINER}' can both join, and run this command again.
+  Nothing has been consumed yet; this check runs before the setup token is redeemed."; fi ;;
     none)
       # Veroeffentlicht unser eigener laufender Container 80/443 SELBST, ist
       # das KEIN fremder Proxy, sondern der greenfield-Modus eines fruehreren
@@ -727,8 +734,15 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 EOF
-  systemctl daemon-reload
-  systemctl enable --now pulse-update.timer >/dev/null 2>&1
+  # Auto-Update ist optional, die Proxy-Route weiter unten im Hauptablauf
+  # nicht: ein scheiterndes systemd (z. B. in einer Umgebung ohne echtes PID
+  # 1 systemd) darf den Installer nicht abbrechen, nachdem der Container
+  # schon läuft und BEVOR die Pflicht-Anweisung für die Route ausgegeben
+  # wurde — ohne dieses `|| warn` riss genau das unter `set -e` ab.
+  systemctl daemon-reload \
+    || warn "systemctl daemon-reload failed — auto-update timer not installed. Update manually anytime: ${UPDATE_SH}"
+  systemctl enable --now pulse-update.timer >/dev/null 2>&1 \
+    || warn "systemctl enable failed — auto-update timer not active. Update manually anytime: ${UPDATE_SH}"
 }
 
 # --- Host-Updater: User-Crontab (Fallback ohne root/systemd) ------------- #
@@ -747,7 +761,12 @@ install_update_cron() {
   # `echo "$entry"` läuft: die Crontab würde leer installiert, und der
   # gesamte Installer stirbt danach still mit Exit 1 — nachdem der Container
   # schon läuft und bevor die Proxy-Route ausgegeben wird.
-  { crontab -l 2>/dev/null | grep -vF "$UPDATE_SH" || true; echo "$entry"; } | crontab -
+  #
+  # Derselbe Grund gilt für das `crontab -` am Ende: Auto-Update ist optional,
+  # die Route nicht. Ein scheiterndes `crontab -` (kaputte cron-Installation,
+  # kein Cron-Daemon) darf den Installer ebenfalls nicht mitreissen.
+  { crontab -l 2>/dev/null | grep -vF "$UPDATE_SH" || true; echo "$entry"; } | crontab - \
+    || warn "Could not write to your crontab — auto-update not scheduled. Update manually anytime: ${UPDATE_SH}"
 }
 
 # ======================================================================== #
