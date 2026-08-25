@@ -253,6 +253,14 @@ export class ManagedHqStream {
     if (v > 0) this.#prevVolume = v;
     this.volume = v;
     this.#applyVolume();
+    // Android-WebView: der Web-Audio-Kontext (nötig für >100 % Boost) startet
+    // `suspended` (Autoplay-Policy). Ein Lautstärke-Tipp IST die Nutzer-Geste —
+    // hier resumen und danach erneut anwenden, sonst wirkt „lauter" über 100 %
+    // nicht, obwohl der Wert angezeigt wird.
+    void this.#boost
+      .resume()
+      .then(() => this.#applyVolume())
+      .catch(() => undefined);
     setStreamVolume(this.userId, v);
   }
 

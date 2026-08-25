@@ -52,7 +52,8 @@
 
 {#each shown as o, i (o.partyId)}
   {@const rect = watchBackground.anchorRect(o.channelId, o.partyId)}
-  <WatchBackgroundFrame {rect} index={i} onReturn={() => returnTo(o.channelId)}>
+  <WatchBackgroundFrame {rect} index={i} onReturn={() => returnTo(o.channelId)}
+    onClose={() => watchBackground.closeParty(o.channelId, o.partyId)}>
     <WatchPartyTile channelId={o.channelId} party={o.party!} />
   </WatchBackgroundFrame>
 {/each}

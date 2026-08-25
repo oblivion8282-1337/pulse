@@ -29,7 +29,8 @@
     istAktiv,
     class: klasse,
     zeigeBeschriftung = true,
-    symbolGroesse
+    symbolGroesse,
+    ziel
   }: {
     bereich: Bereich;
     istAktiv: boolean;
@@ -41,6 +42,9 @@
     /** Optionale eigene Symbolgroesse (z. B. schmalere Tablet-Spalte);
         Default: 23px mit / 40px ohne Beschriftung. */
     symbolGroesse?: string;
+    /** Überschreibt das Link-Ziel (bereich.href) — z. B. zeigt der Räume-Tab
+        bei aktiver Voice-Verbindung direkt auf den Room, in dem man steckt. */
+    ziel?: string;
   } = $props();
 
   let Symbol = $derived(SYMBOLE[bereich.id]);
@@ -63,7 +67,7 @@
 </script>
 
 <a
-  href={bereich.href}
+  href={ziel ?? bereich.href}
   class={klasse}
   data-testid={`tab-${bereich.id}`}
   data-active={istAktiv}

@@ -113,7 +113,8 @@
   {@const entry = resolveCam(e.id)}
   {#if entry}
     {@const rect = liveKitBackground.anchorRect(e.channelId, e.id)}
-    <WatchBackgroundFrame {rect} index={i} onReturn={() => returnTo(e.channelId)}>
+    <WatchBackgroundFrame {rect} index={i} onReturn={() => returnTo(e.channelId)}
+      onClose={() => openedTiles.close('cam', e.channelId, e.id)}>
       <CameraTile
         channelId={e.channelId}
         track={entry.track}
@@ -129,7 +130,8 @@
   {@const entry = resolveScreen(e.id)}
   {#if entry}
     {@const rect = liveKitBackground.anchorRect(e.channelId, e.id)}
-    <WatchBackgroundFrame {rect} index={camCount + i} onReturn={() => returnTo(e.channelId)}>
+    <WatchBackgroundFrame {rect} index={camCount + i} onReturn={() => returnTo(e.channelId)}
+      onClose={() => openedTiles.close('screen', e.channelId, e.id)}>
       <ScreenShareTile
         channelId={e.channelId}
         streamerId={entry.streamerId}

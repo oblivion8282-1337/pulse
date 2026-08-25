@@ -84,7 +84,8 @@
 
 {#each shown as e, i (e.channelId + '::' + e.tileId)}
   {@const rect = hqStreamBackground.anchorRect(e.channelId, e.tileId)}
-  <WatchBackgroundFrame {rect} index={i} onReturn={() => returnTo(e.channelId)}>
+  <WatchBackgroundFrame {rect} index={i} onReturn={() => returnTo(e.channelId)}
+      onClose={() => openedTiles.close('hq', e.channelId, e.tileId)}>
     <WhepPlayer
       channelId={e.channelId}
       userId={e.userId}

@@ -21,6 +21,13 @@
   to { transform: translateX(0); }
 }
 
+/* PiP-Eckfenster (WatchBackgroundFrame, corner mode): die eigenen schwebenden
+   Knöpfe der Kachel (Schließen, Vollbild, Lautstärke) bleiben versteckt —
+   die Steuerung übernimmt die PiP-Fläche (Tap → Vollbild/Schließen). */
+.pip-eckfenster [data-pip-hide] {
+  display: none;
+}
+
 /* "Glasshouse / Graphite" — heller, luftiger Glas-Look mit Electric-Blue-
    Ton-in-Ton-Akzent. Light ist der Default; .dark trägt die dunkle Variante.
    Die Semantik-Tokens unten mappen auf die Glas-Palette, damit die
