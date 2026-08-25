@@ -8,10 +8,18 @@
       "title": "Der Installationsbefehl für einen eigenen Server wurde durchgeprüft",
       "intro": "Ein Betreiber hat beim Einrichten einen Fehler gemeldet, der uns dazu gebracht hat, den ganzen Befehl Zeile für Zeile durchzugehen. Was dabei herauskam, betrifft alle, die einen eigenen Server betreiben.",
       "items": [
+        "Der Installer erkennt jetzt zuverlässig, welcher Webserver auf der Maschine tatsächlich die Anfragen aus dem Internet annimmt. Bisher genügte ein passender Name — eine beliebige Anwendung konnte dafür gehalten werden —, und hing der erkannte Webserver in mehreren Netzen, entschied die alphabetische Reihenfolge. So landete der eigene Server im Netz eines fremden Projekts, dessen Namen der Installer dann auch noch ausgab. Es funktionierte zufällig, hätte aber jederzeit auseinanderfallen können.",
         "Wer den Installationsbefehl für einen eigenen Server ein zweites Mal ausführt, nimmt den laufenden Server damit nicht mehr versehentlich vom Netz. Bisher hielt der Installer den eigenen Server fälschlich für einen fremden Webserver und stellte ihn auf einen Betrieb um, in dem er von aussen nicht mehr erreichbar war.",
         "Die automatische Aktualisierung erkennt jetzt, ob die neue Fassung wirklich läuft, bevor sie den Rückweg zur alten verwirft. Bisher genügte es, dass der Server gestartet wurde — stürzte er unmittelbar danach ab, waren die alte Fassung und ihr Rückweg bereits gelöscht.",
         "Die erste Installation auf einem Rechner ohne Administratorrechte bricht nicht mehr stumm ab, bevor sie sagt, welcher letzte Schritt noch fehlt.",
-        "Ein fremder Container, der zufällig denselben Namen trägt, wird beim Installieren nicht mehr ohne Rückfrage entfernt — und die Prüfung läuft, bevor der einmalige Einrichtungsschlüssel verbraucht wird."
+        "Ein fremder Container, der zufällig denselben Namen trägt, wird beim Installieren nicht mehr ohne Rückfrage entfernt — und die Prüfung läuft, bevor der einmalige Einrichtungsschlüssel verbraucht wird.",
+        "Wer sein eigenes Zertifikat mitbringt, bekommt es jetzt auch eingetragen. Diese Betriebsart hat bisher nie funktioniert: der Server startete, benutzte das Zertifikat aber nicht.",
+        "Server, deren Adresse einen Punkt enthält — also praktisch alle —, werden von einem vorgelagerten Traefik jetzt richtig eingetragen. Bisher verwarf Traefik die gesamte Konfiguration des Containers wortlos.",
+        "Die beiden Schalter, mit denen man die Automatik überstimmen kann, wirken jetzt an allen Stellen. Bisher wirkten sie nur an einigen — man hielt die Sache für erledigt und bekam trotzdem das automatische Verhalten.",
+        "Findet der Installer keinen Weg, dem vorgelagerten Webserver eine erreichbare Adresse zu geben, sagt er das und nennt den Schalter, mit dem man es löst. Bisher gab er eine Anweisung aus, die von dort aus gar nicht erfüllbar war.",
+        "Die Prüfung, ob ein Server von aussen erreichbar ist, funktioniert jetzt überhaupt. Sie brach in der ausgelieferten Fassung mit einem internen Fehler ab — ausgerechnet dann, wenn der Server in Ordnung war.",
+        "Meldet die App, dass ein Server läuft, aber noch nicht bereit ist, beschreibt der Text jetzt die richtige Ursache. Bisher schickte er auf die Suche nach einer blockierten Verbindung nach aussen, die es gar nicht gab.",
+        "Die Diagnose im Container nennt die Handgriffe jetzt mit dem Namen, den der eigene Container wirklich trägt — und sagt beim Thema Internetverbindung, was wirklich davon abhängt."
       ]
     },
     {
