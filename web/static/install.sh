@@ -133,6 +133,17 @@ first_user_network() {
     | grep -vE '^(host|none|bridge|)$' | head -1
 }
 
+# --- Helfer: veroeffentlicht dieser Container 80 oder 443 nach aussen? --- #
+#
+# `.NetworkSettings.Ports` bildet Container-Port -> Host-Bindungen ab. Ein
+# Container, der 80 nur EXPONIERT (Wert null), taucht damit nicht auf — genau
+# der Unterschied zwischen einem Reverse-Proxy und einer App, die zufaellig
+# nginx im Image hat.
+publishes_web_port() {
+  docker inspect -f '{{range $p, $c := .NetworkSettings.Ports}}{{if $c}}{{$p}} {{end}}{{end}}' "$1" 2>/dev/null \
+    | grep -qE '(^| )(80|443)/tcp'
+}
+
 # --- Helfer: Traefik-certresolver von vorhandenen Containern erben ------- #
 detect_traefik_certresolver() {
   docker ps -q 2>/dev/null | while read -r id; do
@@ -160,9 +171,27 @@ detect_proxy() {
       *nginxproxy/nginx-proxy*|*jwilder/nginx-proxy*) _set_proxy "$name" nginx-proxy; return ;;
     esac
   done < <(docker ps --format '{{.Names}}'$'\t''{{.Image}}' 2>/dev/null)
-  # 2) Statische dockerisierte Proxies — nur relevant, wenn 80/443 belegt
+  # 2) Statische dockerisierte Proxies — nur relevant, wenn 80/443 belegt.
+  #
+  # Anders als oben sind die Muster hier GENERISCH (`*caddy*`, `*nginx*`) und
+  # treffen deshalb auch Container, die bloss zufaellig nginx im Image haben.
+  # Deswegen zaehlt nur, wer 80/443 auch wirklich veroeffentlicht — das ist die
+  # einzige Eigenschaft, die einen Reverse-Proxy von einer App unterscheidet.
+  #
+  # Ohne diese Bedingung nahm die Schleife den ERSTEN Namenstreffer aus
+  # `docker ps`, und das sortiert nach Erstellzeit (neueste zuerst). Am
+  # 2026-08-25 gewann so `pulsetest_web` (nginx:1.27-alpine, Port 80 nur
+  # intern, die Weboberflaeche des Dev-Stacks) gegen den echten `caddy`, der
+  # zwei Monate aelter war — der Installer haette den Betreiber angewiesen,
+  # eine Route in einen Container einzutragen, der gar kein Proxy ist.
+  #
+  # Faellt hier nichts an, bleibt PROXY_KIND=none und `decide_mode` waehlt bei
+  # belegtem 80/443 den Modus `hostproxy` — richtig fuer einen Proxy auf dem
+  # Host und auch fuer einen mit `network_mode: host` (der veroeffentlicht
+  # nichts und hat ohnehin kein eigenes Docker-Netz).
   if port_busy 80 || port_busy 443; then
     while IFS=$'\t' read -r name image; do
+      publishes_web_port "$name" || continue
       case "$image" in
         *caddy*) _set_proxy "$name" static-caddy; return ;;
         *nginx*) _set_proxy "$name" static-nginx; return ;;
