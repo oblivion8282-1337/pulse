@@ -144,6 +144,19 @@ publishes_web_port() {
     | grep -qE '(^| )(80|443)/tcp'
 }
 
+# --- Helfer: ist das unser eigener, laufender Container? ----------------- #
+#
+# Ohne diese Frage stuft sich der Installer beim ZWEITEN Lauf selbst herunter:
+# im greenfield-Modus haelt Pulse 80 und 443, das Image passt auf kein
+# Proxy-Muster, und der Zweig `none` schliesst daraus auf einen fremden
+# Reverse-Proxy. Ergebnis: TLS kippt auf behind-proxy, ACME stellt ein, der
+# Server verschwindet aus dem Internet — waehrend der Container laeuft und die
+# Checkliste gruen ist. `check_ports` kennt diese Ausnahme laengst (s. dort);
+# nur die Moduswahl kannte sie nicht.
+eigener_container_laeuft() {
+  [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null)" = "true" ]
+}
+
 # --- Helfer: Traefik-certresolver von vorhandenen Containern erben ------- #
 detect_traefik_certresolver() {
   docker ps -q 2>/dev/null | while read -r id; do
@@ -212,7 +225,16 @@ decide_mode() {
     static-caddy|static-nginx)
       if [ -n "$PROXY_NET" ]; then MODE=static-docker; else MODE=hostproxy; fi ;;
     none)
-      if port_busy 80 || port_busy 443; then MODE=hostproxy; else MODE=greenfield; fi ;;
+      # Haelt unser eigener laufender Container die Ports, ist das KEIN fremder
+      # Proxy — dann gilt der Modus aus der vorhandenen pulse.env, sonst
+      # greenfield.
+      if eigener_container_laeuft; then
+        MODE=greenfield
+      elif port_busy 80 || port_busy 443; then
+        MODE=hostproxy
+      else
+        MODE=greenfield
+      fi ;;
   esac
   # Harte Overrides
   if [ "$FORCE_TLS_MODE" = "auto" ]; then MODE=greenfield; fi
