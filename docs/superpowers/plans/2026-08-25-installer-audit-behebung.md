@@ -8,7 +8,7 @@
 
 **Tech Stack:** bash (install.sh, cont-init), Python 3.13/pytest (Cloud + neue Container-Tests), Node-Testläufer (Installer-Tests, kein Vitest).
 
-**Spec:** `docs/superpowers/plans/2026-08-25-installer-audit-bericht.md` (Befundbericht, siehe Artefakt) — die Befund-Nummern I·1 … IV stammen von dort.
+**Spec:** `docs/superpowers/specs/2026-08-25-installer-audit-bericht.md` (Befundbericht) — die Befund-Nummern I·1 … IV stammen von dort.
 
 ## Global Constraints
 
