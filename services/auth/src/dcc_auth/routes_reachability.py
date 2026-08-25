@@ -19,22 +19,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from dcc_auth.config import get_settings
 from dcc_auth.routes import _check_rate, _client_ip
 from dcc_auth.routes_admin_instances import _require_cloud
+from dcc_auth.selfhost_probe import INTERNE_NETZE
 
-# Ranges that must never be probed (SSRF-Schutz).
-# Enthält RFC-1918, Loopback, Link-Local — NICHT RFC-5737-Dokumentationsadressen,
-# die in Tests und öffentlichen Deployment-Anleitungen vorkommen.
-_INTERNAL_NETS = [
-    ipaddress.ip_network("10.0.0.0/8"),
-    ipaddress.ip_network("172.16.0.0/12"),
-    ipaddress.ip_network("192.168.0.0/16"),
-    ipaddress.ip_network("100.64.0.0/10"),   # shared address space (RFC 6598)
-    ipaddress.ip_network("127.0.0.0/8"),
-    ipaddress.ip_network("169.254.0.0/16"),
-    ipaddress.ip_network("0.0.0.0/8"),
-    ipaddress.ip_network("::1/128"),
-    ipaddress.ip_network("fc00::/7"),
-    ipaddress.ip_network("fe80::/10"),
-]
+# Die Netze, in die nie geprobt wird, stehen kanonisch in ``selfhost_probe``
+# (dieselbe Liste an zwei Stellen wäre genau die Art Behauptung, die
+# auseinanderläuft — CLAUDE.md „Eine Behauptung wird nie an nur EINER
+# Stelle korrigiert").
+_INTERNAL_NETS = INTERNE_NETZE
 
 ALLOWED_UDP = frozenset({7882, 8189})
 ALLOWED_TCP = frozenset({7881, 1936})
