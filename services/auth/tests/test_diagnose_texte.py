@@ -242,3 +242,77 @@ def test_sprachwahl() -> None:
     assert dt.sprache_aus_header("") == "en"
     # „de" darf nicht in einem anderen Sprachnamen mitgelesen werden.
     assert dt.sprache_aus_header("nl-BE") == "en"
+
+
+# ---------------------------------------------------------------------------
+# Der Containername (III·2)
+#
+# install.sh unterstützt PULSE_CONTAINER und parametrisiert seine eigene
+# pulse-doctor-Zeile damit korrekt — die Cloud-Texte taten das nicht: fünf
+# Befehle (docker restart/exec/logs) nagelten den Namen "pulse" fest. Wer den
+# Container umbenannt hat, bekam von der Cloud-Diagnose vier Befehle, die alle
+# mit "No such container" scheitern.
+# ---------------------------------------------------------------------------
+
+
+def test_kein_text_nagelt_den_containernamen_fest():
+    """Der Installer erlaubt PULSE_CONTAINER und parametrisiert seine eigene
+    Zeile korrekt — die Cloud-Texte taten es nicht. Fuer jeden, der den Namen
+    geaendert hat, scheitern vier Befehle mit "No such container".
+    """
+    import re
+
+    treffer = []
+    for schritt, befund in dt.alle_paare():
+        for sprache in dt.SPRACHEN:
+            for text in dt.erklaerung(schritt, befund, False, sprache):
+                if re.search(r"docker \w+ pulse\b", text):
+                    treffer.append((schritt, befund, sprache))
+    assert not treffer, f"fester Containername in: {treffer}"
+
+
+def test_container_wird_bei_angabe_eingesetzt() -> None:
+    """Wird ein Name mitgegeben, taucht er auch im Text auf — sonst wäre die
+    Parametrisierung aus dem vorigen Test nur Selbstzweck."""
+    was_ist, was_tun = dt.erklaerung("tls", "abgelaufen", False, "de", container="mein-server")
+    assert "docker restart mein-server" in was_tun
+    assert "docker restart pulse" not in was_tun
+
+
+def test_sammeltext_nagelt_ebenfalls_keinen_containernamen_fest() -> None:
+    """``_ALLGEMEIN`` (der Sammeltext für unbekannte Befunde) steht nicht in
+    ``_BEFUNDE`` und taucht deshalb in ``alle_paare()`` nicht auf — genau dort
+    saß die fünfte im Audit gemessene Fundstelle (``docker logs pulse``),
+    vom Test oben unentdeckt."""
+    import re
+
+    for sprache in dt.SPRACHEN:
+        for text in dt.erklaerung("irgendein-schritt", "irgendein-befund", False, sprache):
+            assert not re.search(r"docker \w+ pulse\b", text), text
+
+
+@pytest.mark.parametrize(
+    "roh",
+    [
+        "pulse; rm -rf /",
+        "pulse && curl evil.example",
+        "$(whoami)",
+        "-pulse",
+        "pulse\ndocker rm -f pulse",
+        "pulse container",
+        "",
+        None,
+    ],
+)
+def test_ungueltiger_containername_faellt_auf_pulse_zurueck(roh) -> None:
+    """Der Name kommt von außen und landet in einem Befehl, den ein Mensch in
+    seine Shell kopiert. Docker erlaubt für Containernamen nur
+    ``[a-zA-Z0-9][a-zA-Z0-9_.-]*`` — alles andere UND ein fehlendes/leeres
+    Feld (ältere Installer melden den Namen gar nicht) fallen auf "pulse"
+    zurück, statt den rohen Text in den Handgriff zu übernehmen."""
+    assert dt.container_name(roh) == "pulse"
+
+
+@pytest.mark.parametrize("roh", ["pulse", "mein-server", "pulse_2", "a", "Server.1"])
+def test_gueltiger_containername_bleibt_erhalten(roh: str) -> None:
+    assert dt.container_name(roh) == roh

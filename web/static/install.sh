@@ -1107,7 +1107,8 @@ pruefung_von_aussen() {
   antwort="$(curl -fsS -m 60 -X POST \
     "${CLOUD_ORIGIN}/api/auth/selfhost/diagnose/${INSTANCE_ID}" \
     -H "X-Pulse-Client-Id: ${CLIENT_ID}" \
-    -H "X-Pulse-Client-Secret: ${CLIENT_SECRET}" 2>/dev/null)" || return 1
+    -H "X-Pulse-Client-Secret: ${CLIENT_SECRET}" \
+    -H "X-Pulse-Container-Name: ${CONTAINER}" 2>/dev/null)" || return 1
   [ -n "$antwort" ] || return 1
   command -v python3 >/dev/null 2>&1 || { printf '%s\n' "$antwort"; return 0; }
   eigene="$(docker exec "$CONTAINER" sed -n 's/^external-ip=//p' \

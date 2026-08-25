@@ -29,6 +29,8 @@ bekommt Englisch — eine leere Zeile wäre schlimmer als die falsche Sprache.
 
 from __future__ import annotations
 
+import re
+
 #: Die Kette in ihrer Reihenfolge. ``gesamt`` ist kein Glied, sondern der
 #: Sammelbefund, wenn die ganze Prüfung in ihre Frist läuft.
 SCHRITTE: tuple[str, ...] = (
@@ -118,15 +120,15 @@ _BEFUNDE: dict[tuple[str, str], tuple[tuple[str, str], tuple[str, str]]] = {
     ),
     ("tls", "abgelaufen"): (
         ("Das Zertifikat ist abgelaufen. Browser brechen die Verbindung ab.",
-         "Normalerweise erneuert der Server es von selbst; dafür muss Port 80 von aussen offen sein. Port 80 öffnen, dann: docker restart pulse"),
+         "Normalerweise erneuert der Server es von selbst; dafür muss Port 80 von aussen offen sein. Port 80 öffnen, dann: docker restart {container}"),
         ("The certificate has expired. Browsers will refuse the connection.",
-         "The server normally renews it on its own, but that needs port 80 open from the outside. Open port 80, then: docker restart pulse"),
+         "The server normally renews it on its own, but that needs port 80 open from the outside. Open port 80, then: docker restart {container}"),
     ),
     ("tls", "selbstsigniert"): (
         ("Das Zertifikat ist selbst ausgestellt — kein Browser nimmt es an.",
-         "Ein echtes bekommt der Server nur, wenn der A-Eintrag auf diese Maschine zeigt UND Port 80 von aussen offen ist. Beides prüfen, dann: docker restart pulse"),
+         "Ein echtes bekommt der Server nur, wenn der A-Eintrag auf diese Maschine zeigt UND Port 80 von aussen offen ist. Beides prüfen, dann: docker restart {container}"),
         ("The certificate is self-issued; no browser will accept it.",
-         "The server can only obtain a real one once the A record points at this machine AND port 80 is open from the outside. Check both, then: docker restart pulse"),
+         "The server can only obtain a real one once the A record points at this machine AND port 80 is open from the outside. Check both, then: docker restart {container}"),
     ),
     ("tls", "kette_unvollstaendig"): (
         ("Dem Zertifikat fehlt ein Teil seiner Kette. Am Rechner geht es oft trotzdem, auf Handys fast nie.",
@@ -154,9 +156,9 @@ _BEFUNDE: dict[tuple[str, str], tuple[tuple[str, str], tuple[str, str]]] = {
     ),
     ("health", "server_krank"): (
         ("Der Server läuft, meldet sich aber selbst als gestört.",
-         "Der Zusatz nennt den betroffenen Teil. Einzelheiten von innen: docker exec pulse pulse-doctor"),
+         "Der Zusatz nennt den betroffenen Teil. Einzelheiten von innen: docker exec {container} pulse-doctor"),
         ("The server is running but reports itself as impaired.",
-         "The detail names the affected part. For details from the inside: docker exec pulse pulse-doctor"),
+         "The detail names the affected part. For details from the inside: docker exec {container} pulse-doctor"),
     ),
     ("health", "unerwartete_antwort"): (
         ("Der Server antwortet, aber nicht wie ein Pulse-Server.",
@@ -220,9 +222,9 @@ _BEFUNDE: dict[tuple[str, str], tuple[tuple[str, str], tuple[str, str]]] = {
     ),
     ("websocket", "server_ohne_cloud"): (
         ("Der Chat-Dienst im Container hat noch keine Antwort von seinem eigenen Anmelde-Dienst (auth-svc) bekommen und lehnt deshalb jede Anmeldung ab. Das Problem sitzt IM Container — nicht an der Verbindung zu howispulse.com.",
-         "Sieh von innen nach, welcher Dienst hängt: docker exec pulse pulse-doctor, Abschnitt „Dienste im Container“. Meist ist der Anmelde-Dienst noch nicht gestartet oder abgestürzt."),
+         "Sieh von innen nach, welcher Dienst hängt: docker exec {container} pulse-doctor, Abschnitt „Dienste im Container“. Meist ist der Anmelde-Dienst noch nicht gestartet oder abgestürzt."),
         ("The chat service inside the container has not yet gotten an answer from its own sign-in service (auth-svc) and therefore refuses every sign-in. The problem sits INSIDE the container — not in the connection to howispulse.com.",
-         "Check from the inside which service is stuck: docker exec pulse pulse-doctor, \"Dienste im Container\" section. Usually the sign-in service has not started yet or has crashed."),
+         "Check from the inside which service is stuck: docker exec {container} pulse-doctor, \"Dienste im Container\" section. Usually the sign-in service has not started yet or has crashed."),
     ),
     ("websocket", "instanz_gesperrt"): (
         ("Diese Instanz ist in der Cloud gesperrt. Anmeldungen werden abgelehnt, die Daten sind unangetastet.",
@@ -260,14 +262,38 @@ _BEFUNDE: dict[tuple[str, str], tuple[tuple[str, str], tuple[str, str]]] = {
 #: sein als der Installer, den jemand vor Monaten heruntergeladen hat.
 _ALLGEMEIN = (
     ("Hier ist etwas nicht in Ordnung.",
-     "Einzelheiten stehen in den Protokollen des Servers: docker logs pulse"),
+     "Einzelheiten stehen in den Protokollen des Servers: docker logs {container}"),
     ("Something is wrong here.",
-     "The server logs have the details: docker logs pulse"),
+     "The server logs have the details: docker logs {container}"),
 )
 
 
 def _index(sprache: str) -> int:
     return 0 if sprache == "de" else 1
+
+
+#: Vorgabe, wenn kein (gültiger) Containername mitkommt.
+_CONTAINER_STANDARD = "pulse"
+
+#: Was Docker für Containernamen überhaupt erlaubt.
+_CONTAINER_MUSTER = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
+
+
+def container_name(roh: str | None) -> str:
+    """Der Containername für die Handgriffe (``docker restart/exec/logs …``).
+
+    Der Name kommt von außen — der Installer schickt ihn mit dem
+    Diagnose-Aufruf mit — und landet in einem Befehl, den ein Mensch
+    anschließend ungeprüft in seine Shell kopiert. Ungeprüft übernommen
+    könnte jeder, der einen Diagnose-Aufruf absetzen darf, beliebigen Text in
+    diesen Befehl einschleusen. Docker erlaubt für Containernamen nur
+    ``[a-zA-Z0-9][a-zA-Z0-9_.-]*`` — alles andere fällt auf ``pulse`` zurück,
+    ebenso ein fehlendes ODER leeres Feld (ältere Installer melden den Namen
+    gar nicht mit; ``roh`` ist dann ``None`` oder ``""``, beides muss greifen).
+    """
+    if roh and _CONTAINER_MUSTER.match(roh):
+        return roh
+    return _CONTAINER_STANDARD
 
 
 def sprache_aus_header(accept_language: str | None) -> str:
@@ -291,16 +317,28 @@ def titel(schritt: str, sprache: str = "en") -> str:
     return _TITEL.get(schritt, _TITEL_UNBEKANNT)[_index(sprache)]
 
 
-def erklaerung(schritt: str, befund: str, ok: bool, sprache: str = "en") -> tuple[str, str]:
+def erklaerung(
+    schritt: str, befund: str, ok: bool, sprache: str = "en", container: str | None = None
+) -> tuple[str, str]:
     """``(was_ist, was_tun)``.
 
     Bei einem gelungenen Schritt ist ``was_tun`` leer — es gibt nichts zu tun,
     und ein Pflichtsatz an der Stelle wäre Füllwerk.
+
+    Manche Handgriffe nennen den Docker-Container beim Namen (``docker
+    restart``/``exec``/``logs``) — die Vorlagen tragen dafür den Platzhalter
+    ``{container}``. Ohne ``container`` bleibt der Platzhalter unaufgelöst in
+    ``was_tun`` stehen: diese Funktion nagelt selbst keinen Namen fest, das
+    tut ``container_name()`` beim Aufrufer (der Route). So bleibt sichtbar,
+    welcher Aufrufer den Namen tatsächlich kennt und welcher nur die Vorgabe
+    einsetzt.
     """
     if ok:
         return _GELUNGEN.get(schritt, _GELUNGEN_UNBEKANNT)[_index(sprache)], ""
-    eintrag = _BEFUNDE.get((schritt, befund), _ALLGEMEIN)
-    return eintrag[_index(sprache)]
+    was_ist, was_tun = _BEFUNDE.get((schritt, befund), _ALLGEMEIN)[_index(sprache)]
+    if container is not None:
+        was_tun = was_tun.format(container=container)
+    return was_ist, was_tun
 
 
 def alle_paare() -> list[tuple[str, str]]:
