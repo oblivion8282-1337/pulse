@@ -154,7 +154,7 @@ Expected: 3 passed
 
 ```bash
 git add pyproject.toml infra/self-host/tests
-git commit -m "test(self-host): ein Zuhause fuer die Shell-Skripte des Containers
+git commit -m "test(self-host): ein Zuhause für die Shell-Skripte des Containers
 
 Die cont-init-Skripte hatten bisher keinen Testort. Ohne den laesst sich an
 ihnen nicht nach TDD arbeiten — und genau dort sass der still kaputte
@@ -322,7 +322,7 @@ Aufruf: `if docker run "${RUN_ARGS[@]}" && container_laeuft_stabil "$CONTAINER";
 - [ ] **Step 5: Commit**
 
 ```bash
-git commit -m "fix(self-host): der Updater hielt einen abstuerzenden Container fuer erfolgreich"
+git commit -m "fix(self-host): der Updater hielt einen abstürzenden Container für erfolgreich"
 ```
 
 ### Task 3: Leere crontab darf den Installer nicht töten (I·3)
@@ -364,7 +364,7 @@ test('ein bestehender Fremdeintrag bleibt erhalten', () => {
 - [ ] **Step 5: Commit**
 
 ```bash
-git commit -m "fix(self-host): leere crontab toetete den Installer vor der Routen-Anweisung"
+git commit -m "fix(self-host): leere crontab tötete den Installer vor der Routen-Anweisung"
 ```
 
 ### Task 4: Fremden Container nicht zerstören, tote Container nicht als Portschutz werten (I·4, H5)
@@ -420,7 +420,7 @@ ist_unser_container() {
 - [ ] **Step 5: Commit**
 
 ```bash
-git commit -m "fix(self-host): fremder Container namens pulse wurde kommentarlos zerstoert"
+git commit -m "fix(self-host): fremder Container namens pulse wurde kommentarlos zerstört"
 ```
 
 ### Task 5: Phase A landen
@@ -722,7 +722,7 @@ test('ein fehlgeschlagenes Auto-Update unterdrueckt die Routen-Anweisung nicht',
 - [ ] **Step 5: Commit**
 
 ```bash
-git commit -m "fix(self-host): unerfuellbare Routen-Anweisung und unterdrueckte Pflichtschritte"
+git commit -m "fix(self-host): unerfüllbare Routen-Anweisung und unterdrückte Pflichtschritte"
 ```
 
 ### Task 11: Phase B landen — Gate, Changelog, ship.
