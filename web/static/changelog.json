@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-25",
+      "date": "2026-08-25",
+      "style": "Sachlich",
+      "title": "Wenn ein eigener Server nicht erreichbar ist, sagt Pulse jetzt woran es liegt",
+      "intro": "Bisher hiess es in jedem Fall nur „Server nicht erreichbar\" — egal ob der Name nicht aufgelöst wurde, das Zertifikat abgelaufen war oder ein vorgelagerter Proxy die Live-Verbindung verschluckt hat. Das ist jetzt getrennt, und zu jedem Fall steht dabei, wo er sich beheben lässt.",
+      "items": [
+        "Beim Hinzufügen eines Servers unterscheidet Pulse jetzt, ob der Server gar nicht antwortet oder ob er antwortet und nur die Freigabe für den Browser fehlt. Auf dem Rechner (nicht im Browser) kommt noch dazu, ob der Name überhaupt aufgelöst wird, ob der Port offen ist und ob das Zertifikat taugt.",
+        "Neu geprüft wird ausserdem, ob der Server Live-Verbindungen durchlässt. Fehlt das, funktionierte bisher alles — Server hinzufügen, anmelden, alles grün — und nur der Chat blieb leer, ohne jeden Hinweis worauf.",
+        "Unter Einstellungen, Self-Host, Meine Instanzen gibt es „Verbindung prüfen\": Pulse geht von aussen die ganze Kette durch, so wie deine Nutzer sie erleben, und nennt das Glied, das fehlt.",
+        "Wer einen Server einrichtet, sieht beim Start jetzt mit, wie weit er gekommen ist, statt eine Minute lang gar nichts. Bricht etwas ab, steht der Schritt da, an dem es abbrach."
+      ]
+    },
+    {
       "id": "2026-08-24.3",
       "date": "2026-08-24",
       "style": "Sachlich",
