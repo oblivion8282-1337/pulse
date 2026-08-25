@@ -627,17 +627,37 @@ trap _trim_log EXIT
 # (eigene Migration, langsamer Healthcheck), bevor er dauerhaft laeuft — ein
 # einzelner Check waere zu ungeduldig.
 #
-# Das INTERVALL selbst ist bewusst klein (0,2 s statt 1 s, bei entsprechend
-# mehr Versuchen — dasselbe Gesamtfenster, nur feiner abgetastet) — NICHT
-# wegen Genauigkeit um ihrer selbst willen. Die Schleife bricht beim ersten
-# fehlgeschlagenen Check sofort ab, sitzt also nichts aus; was tatsächlich
-# zählt, ist die LÜCKE zwischen zwei Stichproben. Gestartet wird mit
-# '--restart unless-stopped': ein Container in einer Neustartschleife kann
-# zwischen zwei Ein-Sekunden-Proben sterben UND wieder hochkommen — jede
-# Probe sähe dann 'true', der Fehler wäre durchgerutscht. Mit 0,2 s wird
-# dieses Fenster fünfmal kleiner, ohne die Kulanzzeit für einen langsam
-# startenden, gesunden Container zu verkürzen. Kostet ein paar zusätzliche
-# 'docker inspect'-Aufrufe — vernachlässigbar. Bruchteilssekunden bei
+# GEPRUEFT WIRD '.RestartCount' + '.State.Status', NICHT '.State.Running'.
+# Docker haelt '.State.Running' waehrend der GESAMTEN Neustart-Rueckstufung
+# auf 'true' — ein Container, der sofort stirbt und in der Schleife haengt
+# (gestartet mit '--restart unless-stopped', s. build_run_args), meldet
+# 'true' bei JEDER Probe, egal wie fein das Intervall ist. Zweimal
+# unabhaengig an einem echten Docker-Daemon gemessen ('alpine sh -c "exit 1"'
+# + '--restart unless-stopped'): 75 von 75 Proben 'true', waehrend
+# 'status=restarting' und 'restarts' im selben Moment bei 5-8 stand.
+# '.State.Restarting' waere die naheliegende Alternative, ist aber ebenfalls
+# unbrauchbar: gemessen liefert es bei 'status=restarting' teils 'false'
+# zurueck (Momentaufnahme-Rennen zwischen Zyklus-Ende und naechstem Start).
+# '.RestartCount' dagegen ist ein monoton wachsender, dauerhafter Zaehler seit
+# der Erzeugung des Containers — einmal ueber 0 gestiegen, faellt er nie
+# zurueck. Der Container ist hier gerade frisch per 'docker run' erzeugt
+# worden, sein Zaehler MUSS also ueber das ganze Fenster 0 bleiben, sonst ist
+# der Start nicht stabil. Zusaetzlich wird '.State.Status = "running"'
+# verlangt: das faengt den Moment ab, in dem der Container gerade zwischen
+# zwei Neustarts steht ('restarting'/'exited'), der Zaehler die naechste
+# Erhoehung aber noch nicht eingetragen hat.
+#
+# Das INTERVALL bleibt trotzdem fein (0,2 s statt 1 s, bei entsprechend mehr
+# Versuchen — dasselbe Gesamtfenster, nur feiner abgetastet), aber aus einem
+# ANDEREN Grund als frueher hier stand: nicht mehr, weil eine grobe Probe
+# eine kurze Neustartschleife zwischen zwei Proben verpassen koennte (das
+# kann sie nicht mehr — '.RestartCount' faellt nie zurueck, eine einzige
+# Erhoehung bleibt fuer den Rest des Fensters bei JEDER Abtastrate sichtbar).
+# Die Schleife bricht beim ersten fehlgeschlagenen Check weiterhin sofort ab
+# (sitzt also nichts aus); ein feines Intervall erkennt einen echten Absturz
+# lediglich frueher, ohne die Kulanzzeit fuer einen langsam startenden,
+# gesunden Container zu verkuerzen. Kostet ein paar zusaetzliche
+# 'docker inspect'-Aufrufe — vernachlaessigbar. Bruchteilssekunden bei
 # 'sleep' sind keine GNU-Besonderheit: das Skript setzt an keiner Stelle eine
 # bestimmte Distribution voraus, und sowohl GNU coreutils als auch BusyBox
 # (Alpine 3.20 sowie busybox:1.36 direkt geprüft) akzeptieren 'sleep 0.2'.
@@ -653,11 +673,14 @@ trap _trim_log EXIT
 # Dieselbe Shebang-plus-execve-Kette gilt für 'ExecStart=${UPDATE_SH}' im
 # systemd-Unit.
 container_laeuft_stabil() {
-  local i versuche intervall
+  local i versuche intervall werte restarts status
   versuche="${PULSE_UPDATE_STABIL_VERSUCHE:-75}"
   intervall="${PULSE_UPDATE_STABIL_INTERVALL:-0.2}"
   for i in $(seq 1 "$versuche"); do
-    [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" = "true" ] || return 1
+    werte="$(docker inspect -f '{{.RestartCount}} {{.State.Status}}' "$1" 2>/dev/null)" || return 1
+    restarts="${werte%% *}"
+    status="${werte#* }"
+    [ "$restarts" = "0" ] && [ "$status" = "running" ] || return 1
     sleep "$intervall"
   done
   return 0
@@ -666,12 +689,19 @@ container_laeuft_stabil() {
 # Rückweg der letzten Aktualisierung aufräumen — NICHT im Erfolgszweig unten
 # (siehe dort), sondern erst hier, am Anfang des NÄCHSTEN Laufs. `docker run`
 # und die Stabilitätsprüfung oben decken nur den häufigsten Fall ab: einen
-# Container, der sofort wieder stirbt. Einen, der zwei Minuten läuft und DANN
-# stirbt, wiesen sie fälschlich als Erfolg aus — beide Rückwege wären da
-# schon gelöscht. Läuft $CONTAINER genau JETZT, beim nächsten Timer-Takt fünf
-# Minuten später, war der letzte Wechsel tatsächlich dauerhaft erfolgreich:
-# das Beobachtungsfenster wird damit der ganze Fünf-Minuten-Takt statt einer
-# kurzen Stichprobe direkt nach dem Start.
+# Container, der sofort wieder stirbt oder gleich in eine Neustartschleife
+# fällt. Einen, der zwei Minuten sauber läuft und DANN erst abstürzt, wiesen
+# sie fälschlich als Erfolg aus — beide Rückwege wären da schon gelöscht.
+#
+# Geprüft wird HIER, genau wie in container_laeuft_stabil() oben, ob
+# '.RestartCount' seit der Erzeugung bei 0 steht (statt '.State.Running',
+# das in einer Neustartschleife durchgehend 'true' bleibt — Begründung
+# oben) — dieselbe Probe, aber diesmal EINMALIG statt in einer Schleife.
+# Das genügt trotzdem: '.RestartCount' ist ein kumulativer Zähler, eine
+# einzelne Abfrage jetzt zeigt deshalb den GANZEN Fünf-Minuten-Takt seit dem
+# letzten 'docker run', nicht nur den Moment der Abfrage. Ist $CONTAINER
+# seit seiner Erzeugung nie neu gestartet worden UND läuft er gerade, war
+# der letzte Wechsel tatsächlich dauerhaft erfolgreich.
 #
 # Muss VOR dem Digest-Kurzschluss unten stehen — sonst räumt ein Lauf ohne
 # neues Image (der häufigste) nie auf, und der Rückweg bliebe für immer liegen.
@@ -690,12 +720,16 @@ container_laeuft_stabil() {
 # weiter unten sowohl das Umbenennen als auch "docker run" an der
 # Namenskollision, und der Updater fällt in den Rollback-Zweig, der den
 # alten, funktionierenden Container wiederherstellt.
-if docker inspect "${CONTAINER}-old" >/dev/null 2>&1 \
-   && [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null)" = "true" ]; then
-  backup_image_id="$(docker inspect -f '{{.Image}}' "${CONTAINER}-old" 2>/dev/null || true)"
-  docker rm -f "${CONTAINER}-old" >/dev/null 2>&1 || true
-  # Nur das damalige Rückweg-Image entfernen — kein host-weites 'image prune'.
-  { [ -n "$backup_image_id" ] && docker image rm "$backup_image_id" >/dev/null 2>&1; } || true
+if docker inspect "${CONTAINER}-old" >/dev/null 2>&1; then
+  werte="$(docker inspect -f '{{.RestartCount}} {{.State.Status}}' "$CONTAINER" 2>/dev/null)" || werte=""
+  restarts="${werte%% *}"
+  status="${werte#* }"
+  if [ "$restarts" = "0" ] && [ "$status" = "running" ]; then
+    backup_image_id="$(docker inspect -f '{{.Image}}' "${CONTAINER}-old" 2>/dev/null || true)"
+    docker rm -f "${CONTAINER}-old" >/dev/null 2>&1 || true
+    # Nur das damalige Rückweg-Image entfernen — kein host-weites 'image prune'.
+    { [ -n "$backup_image_id" ] && docker image rm "$backup_image_id" >/dev/null 2>&1; } || true
+  fi
 fi
 
 if [ -n "${REG_PASS:-}" ]; then

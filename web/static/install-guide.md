@@ -345,13 +345,18 @@ which direction failed.
   (≤5 min after a new image is published). Manual: run `pulse-update.sh` (in
   the config dir) — it pulls and, if the digest changed, renames the current
   container to `<name>-old`, stops it, and starts the new one. It then waits
-  (75 tries × 0.2 s ≈ 15 s by default) to confirm the new container is
-  actually *running*, not just created, before declaring success; if it
-  isn't, it rolls back automatically — removes the failed container, restarts
-  the renamed old one. The `<name>-old` backup (and its image) is only
-  cleaned up on the *next* update run, once it has confirmed the current
-  container survived a full 5-minute timer interval — so seeing a stopped
-  `<name>-old` container briefly after an update is expected, not a leak.
+  (75 tries × 0.2 s ≈ 15 s by default) to confirm the new container hasn't
+  needed a single restart yet — a container that dies immediately and keeps
+  getting restarted by Docker's own `--restart unless-stopped` policy still
+  reports as "running", so a plain running-check would wrongly declare it a
+  success; if it isn't stable, it rolls back automatically — removes the
+  failed container, restarts the renamed old one. The `<name>-old` backup
+  (and its image) is only cleaned up on the *next* update run, once it has
+  confirmed the current container's restart count is still zero since it was
+  created — since that counter never resets, checking it once really does
+  cover the whole interval since the last update, not just a snapshot. So
+  seeing a stopped `<name>-old` container briefly after an update is
+  expected, not a leak.
   Tunable via `PULSE_UPDATE_STABIL_VERSUCHE`/`PULSE_UPDATE_STABIL_INTERVALL`
   in the environment that *runs* `pulse-update.sh` (the systemd unit's
   `Environment=` line, or the crontab entry) — not via the installer's own

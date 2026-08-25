@@ -97,6 +97,14 @@ interface LaufOptionen {
   neuesImage: string;
   /** Stirbt der frisch erzeugte Container sofort (Stabilitätsprüfung schlägt fehl)? Default nein. */
   stirbtSofort?: boolean;
+  /**
+   * Fällt der frisch erzeugte Container statt eines sauberen Todes in eine
+   * Neustartschleife (`--restart unless-stopped`): `State.Running` bleibt
+   * `true`, `State.Status` steht auf `restarting`, `RestartCount` > 0. Der
+   * Fund, den `stirbtSofort` NICHT abbildet — der bildet einen Container OHNE
+   * Neustart-Regel ab, den es im Auslieferpfad gar nicht gibt. Default nein.
+   */
+  crashtInSchleife?: boolean;
 }
 
 function containerDatei(umgebung: Umgebung, name: string): string {
@@ -128,6 +136,23 @@ function containerToeten(umgebung: Umgebung, name: string): void {
   const bisher = zustandVon(umgebung, name);
   assert.ok(bisher, `Container ${name} existiert nicht — kann nicht sterben`);
   initContainer(umgebung, name, bisher!.image, false);
+}
+
+/**
+ * Simuliert eine Neustartschleife OHNE Zutun des Updaters (Absturz + Restart
+ * durch `--restart unless-stopped`, z. B. nach der Aufräum-Entscheidung des
+ * VORIGEN Laufs). Für Docker bleibt der Container dabei "running" —
+ * `State.Running` steht während der GESAMTEN Neustart-Rückstufung auf
+ * `true` —, aber `RestartCount` ist bereits > 0. Genau der Fall aus Fund 1:
+ * eine reine Running-Prüfung bemerkt das nicht.
+ */
+function containerCrashenLassen(umgebung: Umgebung, name: string, restarts = 3): void {
+  const bisher = zustandVon(umgebung, name);
+  assert.ok(bisher, `Container ${name} existiert nicht — kann nicht in eine Neustartschleife fallen`);
+  writeFileSync(
+    containerDatei(umgebung, name),
+    `image=${bisher!.image}\nrunning=true\nstatus=restarting\nrestarts=${restarts}\n`
+  );
 }
 
 /**
@@ -196,7 +221,15 @@ case "$1" in
       if [ "$vorher" = "--name" ]; then name="$arg"; fi
       vorher="$arg"
     done
-    printf 'image=%s\\nrunning=%s\\n' "$NEW_IMAGE_ID" "\${NEU_LAEUFT:-true}" > "$(datei "$name")"
+    if [ "\${NEU_CRASHT:-false}" = "true" ]; then
+      # Neustartschleife von Anfang an: State.Running bleibt true, aber der
+      # Container hat schon vor der ersten Probe mehrfach neu gestartet —
+      # genau das misst der reale Docker-Daemon bei einem Image, das sofort
+      # wieder stirbt (s. Kommentar in install.sh).
+      printf 'image=%s\\nrunning=true\\nstatus=restarting\\nrestarts=3\\n' "$NEW_IMAGE_ID" > "$(datei "$name")"
+    else
+      printf 'image=%s\\nrunning=%s\\n' "$NEW_IMAGE_ID" "\${NEU_LAEUFT:-true}" > "$(datei "$name")"
+    fi
     exit 0 ;;
   rename)
     quelle="$(datei "$2")"
@@ -235,6 +268,26 @@ case "$1" in
     f="$(datei "$name")"
     [ -f "$f" ] || exit 1
     case "$format" in
+      # Kombinierte Probe von container_laeuft_stabil() UND dem Aufräumblock
+      # (Fund 1) — EIN Aufruf für beide Werte. 'restarts'/'status' fehlen bei
+      # Zustandsdateien, die initContainer()/containerToeten() geschrieben
+      # haben (kennen nur image/running) — dann gelten die Docker-Vorgaben
+      # für einen frisch erzeugten Container: restarts=0, status aus running
+      # abgeleitet.
+      *RestartCount*State.Status*|*State.Status*RestartCount*)
+        restarts="$(sed -n 's/^restarts=//p' "$f")"
+        status="$(sed -n 's/^status=//p' "$f")"
+        if [ -z "$status" ]; then
+          laeuft="$(sed -n 's/^running=//p' "$f")"
+          status="exited"
+          [ "$laeuft" = "true" ] && status="running"
+        fi
+        printf '%s %s\n' "\${restarts:-0}" "$status" ;;
+      # Nicht mehr vom generierten Updater selbst aufgerufen (Fund 1 hat beide
+      # Stellen auf die kombinierte Probe oben umgestellt), bleibt aber
+      # stehen: der Mutationstest der Schlussprüfung führt DIESES Fake gegen
+      # eine unveränderte, alte install.sh — die fragt noch '.State.Running'
+      # ab. Ein echter Docker-Daemon kennt beide Formate gleichzeitig.
       *State.Running*) sed -n 's/^running=//p' "$f" ;;
       *Image*) sed -n 's/^image=//p' "$f" ;;
     esac
@@ -267,6 +320,7 @@ function laufAusfuehren(umgebung: Umgebung, optionen: LaufOptionen): string[] {
         STATE_DIR: umgebung.stateDir,
         NEW_IMAGE_ID: optionen.neuesImage,
         NEU_LAEUFT: optionen.stirbtSofort ? 'false' : 'true',
+        NEU_CRASHT: optionen.crashtInSchleife ? 'true' : 'false',
         PULSE_UPDATE_STABIL_VERSUCHE: '1',
         PULSE_UPDATE_STABIL_INTERVALL: '0'
       },
@@ -311,6 +365,36 @@ test('ein Container, der sofort stirbt, gilt NICHT als erfolgreicher Start', () 
   assert.ok(befehle.includes('start pulse'), 'Rollback fehlt: pulse wurde nach dem Zurückbenennen nicht gestartet');
 
   // Der Rollback muss auch WIRKLICH die alte Version zurückgebracht haben.
+  assert.deepEqual(zustandVon(umgebung, 'pulse'), { image: 'sha256:alt', laeuft: true });
+  assert.equal(zustandVon(umgebung, 'pulse-old'), null, 'pulse-old haette nach dem Rollback nicht mehr existieren duerfen');
+});
+
+test('ein Container, der in einer Neustartschleife hängt (State.Running bleibt true), gilt NICHT als erfolgreicher Start', () => {
+  // Fund 1 (Schlussprüfung): 'stirbtSofort' oben bildet einen Container OHNE
+  // Neustart-Regel ab — den gibt es im Auslieferpfad nicht, jeder Container
+  // läuft mit '--restart unless-stopped'. Ein Image, das sofort wieder
+  // stirbt, hängt deshalb in einer Neustartschleife, und Docker hält
+  // '.State.Running' dabei durchgehend auf 'true' (zweimal unabhängig an
+  // einem echten Docker-Daemon gemessen — s. Kommentar in install.sh). Eine
+  // reine Running-Prüfung hätte diesen Fall fälschlich als Erfolg gewertet.
+  const umgebung = neueUmgebung();
+  initContainer(umgebung, 'pulse', 'sha256:alt', true);
+
+  const befehle = laufAusfuehren(umgebung, { neuesImage: 'sha256:neu', crashtInSchleife: true });
+
+  assert.equal(
+    befehle.filter((z) => z.startsWith('rm -f') && z.endsWith('-old')).length,
+    0,
+    `erwartet 0x "rm -f *-old", bekommen: ${JSON.stringify(befehle)}`
+  );
+  assert.equal(
+    befehle.some((z) => z.startsWith('image rm')),
+    false,
+    'das alte Image wurde entfernt, obwohl der neue Container in einer Neustartschleife hängt'
+  );
+  assert.ok(befehle.includes('rename pulse-old pulse'), 'Rollback fehlt: pulse-old wurde nicht zu pulse zurückbenannt');
+  assert.ok(befehle.includes('start pulse'), 'Rollback fehlt: pulse wurde nach dem Zurückbenennen nicht gestartet');
+
   assert.deepEqual(zustandVon(umgebung, 'pulse'), { image: 'sha256:alt', laeuft: true });
   assert.equal(zustandVon(umgebung, 'pulse-old'), null, 'pulse-old haette nach dem Rollback nicht mehr existieren duerfen');
 });
@@ -389,19 +473,44 @@ test('stirbt der Container zwischen zwei Läufen, bleibt der Rückweg beim näch
   assert.ok(zustandVon(umgebung, 'pulse-old'), 'Rückweg fehlt — genau der Schaden, den Task 2b verhindern soll');
 });
 
+test('hängt der Container beim nächsten Takt in einer Neustartschleife (State.Running bleibt true), bleibt der Rückweg stehen', () => {
+  // Fund 1, zweite Stelle: der Aufräumblock am Anfang des NÄCHSTEN Laufs
+  // stellt dieselbe Frage wie container_laeuft_stabil() oben — einmalig
+  // statt in einer Schleife. Fällt 'pulse' zwischen zwei Läufen in eine
+  // Neustartschleife (z. B. weil eine als stabil geltende Version erst nach
+  // Minuten anfängt zu crashen), bleibt 'State.Running' weiterhin 'true' —
+  // der Rückweg darf trotzdem nicht verschwinden.
+  const umgebung = neueUmgebung();
+  ersterLaufErfolgreich(umgebung, 'sha256:neu');
+  containerCrashenLassen(umgebung, 'pulse');
+
+  const befehle = laufAusfuehren(umgebung, { neuesImage: 'sha256:neu' });
+
+  assert.ok(
+    !befehle.includes('rm -f pulse-old'),
+    `Rückweg wurde fälschlich entfernt, obwohl pulse in einer Neustartschleife hängt: ${JSON.stringify(befehle)}`
+  );
+  assert.ok(
+    !befehle.some((z) => z.startsWith('image rm')),
+    'das alte Image wurde fälschlich entfernt, obwohl pulse in einer Neustartschleife hängt'
+  );
+  assert.ok(zustandVon(umgebung, 'pulse-old'), 'Rückweg fehlt — genau der Schaden, den Fund 1 verhindern soll');
+});
+
 test('das Abtastfenster von container_laeuft_stabil bleibt bei 15s, nur feiner aufgeteilt', () => {
   // Nachtrag zu Task 2b: die Schleife bricht beim ersten fehlgeschlagenen
-  // Check sofort ab — sie sitzt also nichts aus. Was tatsächlich zählt, ist
-  // die LÜCKE zwischen zwei Stichproben: ein Container in einer
-  // Neustartschleife ('--restart unless-stopped') kann zwischen zwei
-  // Ein-Sekunden-Proben sterben UND wieder hochkommen, jede Probe sähe dann
-  // 'true'. Das Intervall schrumpft deshalb von 1s auf 0,2s, bei
-  // entsprechend mehr Versuchen (75 statt 15) — das GESAMTFENSTER (die
-  // Kulanzzeit für einen langsam startenden, gesunden Container) muss dabei
-  // exakt gleich bleiben. Ein Rechen- statt eines Textvergleichs, aus
-  // demselben Grund, aus dem die anderen Tests VERSUCHE/INTERVALL per Env
-  // überschreiben: niemand soll für einen Konstanten-Check wirklich warten
-  // müssen.
+  // Check sofort ab — sie sitzt also nichts aus. Das Intervall ist trotzdem
+  // fein (0,2s statt 1s, bei entsprechend mehr Versuchen: 75 statt 15) —
+  // NICHT (mehr) weil eine Neustartschleife zwischen zwei groben Proben
+  // durchrutschen könnte (Fund 1, Schlussprüfung: das kann sie nicht — die
+  // Prüfung liest '.RestartCount', ein monoton wachsender Zähler, der nie
+  // zurückfällt; eine einzige Erhöhung bleibt für den Rest des Fensters bei
+  // JEDER Abtastrate sichtbar), sondern damit ein echter Absturz möglichst
+  // früh erkannt wird. Das GESAMTFENSTER (die Kulanzzeit für einen langsam
+  // startenden, gesunden Container) muss dabei exakt gleich bleiben. Ein
+  // Rechen- statt eines Textvergleichs, aus demselben Grund, aus dem die
+  // anderen Tests VERSUCHE/INTERVALL per Env überschreiben: niemand soll für
+  // einen Konstanten-Check wirklich warten müssen.
   //
   // Befund 2 (Kleinkram-Audit): ein reiner Textvergleich auf '75' und '0.2'
   // prüft die SCHREIBWEISE, nicht die Invariante dahinter — er bleibt grün,
