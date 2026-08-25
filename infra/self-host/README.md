@@ -1,6 +1,6 @@
 # Pulse Self-Host — Single-Container Image (Phase 6.A)
 
-`ghcr.io/oblivion8282-1337/pulse-allinone:stable` — one container that bundles every
+`registry.howispulse.com/pulse-allinone:stable` — one container that bundles every
 Pulse-Backend-Service, an embedded Postgres + Redis, LiveKit (voice SFU),
 MediaMTX (HQ-stream relay), MinIO (S3 object store for message attachments),
 coturn (TURN/STUN), and Caddy (reverse proxy + auto-TLS), supervised by
@@ -9,6 +9,21 @@ coturn (TURN/STUN), and Caddy (reverse proxy + auto-TLS), supervised by
 This file documents the **build + run** flow for the image. End-user setup
 docs (Cloud-approval, DNS, port-forwarding) land in `docs/SELF_HOST.md` —
 written in Phase 6.B.
+
+**Two registries, one image.** `.github/workflows/allinone.yml` builds and
+pushes to `ghcr.io/oblivion8282-1337/pulse-allinone` first, then its `merge`
+job mirrors every tag (`imagetools create`) to `registry.howispulse.com/pulse-allinone`
+under the identical tag name. **Operators pull from `registry.howispulse.com`,
+never from GHCR** — the `pulse-*` GHCR packages are private, while
+`registry.howispulse.com` gates access per-instance via the `PULSE_CLOUD_CLIENT_ID`/
+`PULSE_CLOUD_CLIENT_SECRET` from the Cloud approval (`docker login
+registry.howispulse.com -u <client_id> -p <client_secret>`). Both `:edge`
+(every `main` push) and `:stable` (tagged releases) exist on both registries;
+during the current early/security phase every `main` push tags **both**
+identically (see the `PHASEN-POLICY` comment in `allinone.yml`) — they diverge
+once real tagged releases start. The installer (`web/static/install.sh`)
+defaults to `:edge`, overridable via `PULSE_IMAGE`; this file's Compose/`docker
+run` examples below pin `:stable`.
 
 ## Build
 
@@ -53,6 +68,7 @@ Updates verwaltet der Compose-Pfad bewusst selbst — kein Auto-Updater-Containe
 ## Run (manuell, ohne Compose)
 
 ```bash
+docker login registry.howispulse.com -u <client_id> -p <client_secret>  # aus dem .env-Download
 docker run -d --name pulse \
     -v pulse-data:/data \
     -p 443:443 -p 80:80 \
@@ -65,7 +81,7 @@ docker run -d --name pulse \
     -e PULSE_CLOUD_CLIENT_ID=... \
     -e PULSE_CLOUD_CLIENT_SECRET=... \
     -e PULSE_ADMIN_EMAIL=admin@firma.de \
-    ghcr.io/oblivion8282-1337/pulse-allinone:stable
+    registry.howispulse.com/pulse-allinone:stable
 ```
 
 Updates richtest du auf dem manuellen Pfad (Compose wie `docker run`) selbst
@@ -85,8 +101,8 @@ in `/data/jwt_keys/` and persisted across container restarts.
 |---|---|---|---|
 | s6-overlay | v3.2.0.2 | github.com/just-containers/s6-overlay | SHA-256 pinned per artifact |
 | Caddy | v2.8.4 | github.com/caddyserver/caddy | SHA-256 pinned per artifact |
-| LiveKit | v1.11.0 | github.com/livekit/livekit | SHA-256 pinned per artifact |
-| MediaMTX | v1.17.1 | github.com/bluenviron/mediamtx | SHA-256 pinned per artifact |
+| LiveKit | v1.13.3 | github.com/livekit/livekit | SHA-256 pinned per artifact |
+| MediaMTX | v1.19.1 | github.com/bluenviron/mediamtx | SHA-256 pinned per artifact |
 | MinIO | RELEASE.2025-09-07T16-13-09Z | dl.min.io | SHA-256 pinned (upstream .sha256sum) |
 | Postgres | 15 (Debian Bookworm) | apt | — (Debian-signed package) |
 | Redis | 7 (Debian Bookworm) | apt | — (Debian-signed package) |

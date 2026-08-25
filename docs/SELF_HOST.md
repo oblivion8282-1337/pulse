@@ -50,8 +50,43 @@ für Voice und HQ-Streaming nötig.
 
   Das war's. Details: `https://howispulse.com/install/guide`.
 
+  > Der Installer zieht standardmässig `registry.howispulse.com/pulse-allinone:edge`
+  > — den rollenden Kanal, nicht `:stable`. In der aktuellen Früh-/Security-Phase
+  > taggt jeder Push auf `main` beide Kanäle identisch (dieselbe Version steht
+  > hinter `:edge` und `:stable`), das ändert sich erst mit echten getaggten
+  > Releases. Willst du schon jetzt fest auf `:stable` pinnen (oder ein eigenes
+  > Image), setze `PULSE_IMAGE`:
+  > ```bash
+  > curl -fsSL https://howispulse.com/install | PULSE_BOOTSTRAP_TOKEN=<TOKEN> \
+  >   PULSE_IMAGE=registry.howispulse.com/pulse-allinone:stable bash
+  > ```
+
 - **Manuell mit Docker Compose** — wenn du den Stack selbst verwalten willst
   (eigener Proxy, eigene Update-Strategie). Das ist der Rest dieser Anleitung.
+
+### Installer: Umgebungsvariablen
+
+Der Installer liest weitere `PULSE_*`-Variablen als Overrides — vor dem Aufruf
+per Env setzen (wie bei `PULSE_IMAGE` oben). Alle haben einen automatisch
+ermittelten Default; nötig sind sie nur in Sonderfällen. Gilt nur für den
+Installer-Weg, nicht für Compose (dort steuert die `.env`, siehe
+`infra/self-host/.env.example`).
+
+| Variable | Wirkung | Default |
+|---|---|---|
+| `PULSE_IMAGE` | Anderes Image/Tag/Registry ziehen | `registry.howispulse.com/pulse-allinone:edge` |
+| `PULSE_CONTAINER` | Name des Containers | `pulse` |
+| `PULSE_VOLUME` | Name des Docker-Volumes | `pulse-data` |
+| `PULSE_DIR` | Verzeichnis auf dem Host für `.env` + Update-Skript | `/opt/pulse` (root) bzw. `~/.pulse` |
+| `PULSE_NETWORK` | Docker-Netz, dem der Container beitritt. **Pflicht**, wenn der erkannte Reverse-Proxy in mehr als einem Docker-Netz hängt — der Installer bricht sonst ab, statt zu raten, welches gemeint ist | automatisch erkannt |
+| `PULSE_HTTP_PORT` | Interner HTTP-Port im Behind-Proxy-Modus | `8080` |
+| `PULSE_TLS_MODE` | Erzwingt `auto` oder `behind-proxy`, statt die Proxy-Erkennung selbst entscheiden zu lassen | automatisch erkannt |
+| `PULSE_NO_AUTOUPDATE` | `1` deaktiviert den Host-Update-Timer/-Cronjob (Alias: `PULSE_NO_WATCHTOWER`) | aus (Updates aktiv) |
+| `PULSE_CLOUD_ORIGIN` | Cloud-Endpunkt für Bootstrap-Redeem + Poller — nur zum Testen gegen eine andere als die Produktions-Cloud | `https://howispulse.com` |
+
+`PULSE_NETWORK=<name>` steht als Selbsthilfe auch direkt in der Fehlermeldung,
+wenn sie zuschlägt — ohne diese Tabelle bliebe der Hinweis ohne Erklärung, was
+der Wert eigentlich bewirkt.
 
 ---
 
@@ -159,8 +194,16 @@ Verschlüsselung der Backups ist Host-Sache (LUKS, ZFS-Encryption o. Ä.) —
 am besten das ganze `/data`-Volume auf ein verschlüsseltes Device legen.
 
 ```bash
-docker compose exec pulse pg_dump -U pulse pulse > backup-$(date +%Y%m%d).sql
+docker compose exec pulse pg_dump -h 127.0.0.1 -U pulse dcc > backup-$(date +%Y%m%d).sql
 ```
+
+Die Datenbank heisst intern `dcc`, nicht `pulse` — nur die Rolle heisst `pulse`.
+`-h 127.0.0.1` ist Pflicht: Postgres im Container lauscht zusätzlich zum
+Unix-Socket auch auf `127.0.0.1`, aber der Socket-Pfad ist nicht der
+Standardpfad (`-k /var/run/pulse`), den `pg_dump` ohne `-h` suchen würde. Der
+automatische Backup-Dienst im Container macht denselben Dump im
+komprimierten `--format=custom` (per `pg_restore` wiederherstellbar); der
+Befehl hier nutzt bewusst das einfache SQL-Textformat.
 
 ---
 
@@ -251,9 +294,14 @@ gesperrt. DNS und Firewall prüfen, dann `docker compose restart`.
 docker compose logs pulse 2>&1 | grep -i "caddy\|tls\|acme"
 ```
 
-**Health meldet `degraded`.** `GET /health` zeigt im `failed`-Feld, was klemmt
-(`db` = Postgres, `redis` = Redis, `jwks` = Cloud nicht erreichbar, `disk` =
-unter 20 % frei). `docker compose logs pulse | tail -50` zeigt die Ursache.
+**Health meldet `degraded`.** `GET /health` liefert dann 503 mit einem
+`failed`-Feld — das enthält ausschliesslich `db` (Postgres) und/oder `redis`.
+Fehlt nur die JWKS (Cloud noch nicht erreicht, direkt nach dem Start normal),
+bleibt der Status bei 200: `{"status":"warming_up","warming":["jwks"]}` — kein
+Fehlerfall. Die Speicherplatzbelegung steht in `/health` gar nicht; sie liefert
+nur der interne, secret-geschützte `/internal/health-probe`-Endpunkt
+(`disk_usage`/`disk_warning`, braucht den `X-Pulse-Internal-Secret`-Header).
+`docker compose logs pulse | tail -50` zeigt die Ursache.
 
 **Alles sieht gut aus, aber der Chat bleibt leer.** Der Reverse-Proxy davor
 reicht WebSocket-Verbindungen nicht durch — die häufigste Falle überhaupt, und
@@ -275,6 +323,17 @@ Gateway jede Verbindung ab, und von aussen sieht das aus, als wäre er kaputt.
 hält einen der Ports, die Pulse für Ton und Bild braucht. Der Abbruch kommt
 absichtlich, BEVOR der Einrichtungs-Token verbraucht wird — der Befehl bleibt
 also gültig, sobald der Port frei ist.
+
+Diese Ports lassen sich **nicht** einfach auf einen anderen umlegen (kein
+`-p 9882:7882/udp`): WebRTC trägt seine Portnummer selbst in den
+ICE-Kandidaten, die es dem anderen Ende ankündigt — eine Docker-Umleitung
+ändert die tatsächlich lauschende Portnummer nicht mit, und die Verbindung
+scheitert, weil der Server weiterhin 7882 ansagt, während aussen 9882 offen
+ist. Wer den Port wirklich belegt braucht (z. B. ein zweiter Dienst auf
+derselben Portnummer), weicht stattdessen auf eine **zweite IP** für Pulse
+aus: `-p <IP>:7882-7892:7882-7892/udp` (entsprechend für 3478 und 8189) bindet
+Pulse an eine eigene Adresse, ohne den bestehenden Dienst auf der ersten IP
+anzufassen.
 
 **Ich bin auf meinem eigenen Server kein Admin.** Dann bist du mit einem
 anderen Cloud-Konto angemeldet als dem, mit dem du den Server beantragt hast.
@@ -305,10 +364,32 @@ gibt es dafür bislang nichts.
 
 ## Deinstallation
 
+Der Befehl unterscheidet sich danach, mit welchem der beiden Wege oben du
+installiert hast — die Volume-Namen sind nicht dieselben.
+
+**Installer-Weg** (rohes `docker run`, kein Compose-Projekt): Container heisst
+schlicht `pulse`, Volume schlicht `pulse-data` — ohne Projekt-Präfix. Wurde
+beim Installieren `PULSE_CONTAINER`/`PULSE_VOLUME` gesetzt, gelten die
+abweichenden Namen von dort.
+
 ```bash
-docker compose down          # Container stoppen
+docker rm -f pulse           # Container stoppen und entfernen
 docker volume rm pulse-data  # ALLE Daten löschen (vorher sichern!)
 ```
+
+**Compose-Weg**: Docker Compose stellt dem Volume-Namen den Projektnamen
+voran — beim `mkdir pulse && cd pulse` aus Schritt 2 oben also `pulse` als
+Projektname, das Volume heisst damit `pulse_pulse-data`, nicht `pulse-data`.
+`docker compose down -v` kennt den richtigen Namen automatisch:
+
+```bash
+docker compose down -v   # Container stoppen UND das Volume (pulse_pulse-data) löschen
+```
+
+Nur `docker compose down` (ohne `-v`) lässt das Volume stehen — praktisch für
+einen Reinstall ohne Datenverlust, aber dann bleibt danach zusätzlicher
+Aufräumbedarf mit `docker volume rm pulse_pulse-data`, falls die Daten am Ende
+doch weg sollen.
 
 Danach die Instanz in der App unter **Einstellungen → Meine Instanzen** löschen
 (gibt den Hostnamen frei). Der Server verschwindet nicht automatisch aus den
