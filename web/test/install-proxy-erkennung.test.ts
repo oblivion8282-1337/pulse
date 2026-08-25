@@ -66,6 +66,12 @@ interface FakeContainer {
   image: string;
   /** Veröffentlicht der Container 80/443 nach aussen? */
   publiziert: boolean;
+  /**
+   * `.HostConfig.NetworkMode` — nur gesetzt, wenn der Container mit
+   * `network_mode: host` läuft (dann leer statt 'bridge' etc., s.
+   * `nutzt_host_netzwerk` im Skript).
+   */
+  netzwerkModus?: string;
 }
 
 /**
@@ -86,6 +92,13 @@ function erkenne(container: FakeContainer[]): string {
   const inspectFaelle = container
     .map((c) => `    ${c.name}) echo '${c.publiziert ? '80/tcp 443/tcp ' : ''}' ;;`)
     .join('\n');
+  // Zweite Tabelle fuer `docker inspect -f '{{.HostConfig.NetworkMode}}' …`
+  // — eigens vom Ports-Format unterschieden (Routing unten ueber `$*`),
+  // sonst laese `nutzt_host_netzwerk` dieselbe Ports-Kanne wie
+  // `publishes_web_port` und haette nie eine Chance auf 'host'.
+  const netzwerkFaelle = container
+    .map((c) => `    ${c.name}) echo '${c.netzwerkModus ?? ''}' ;;`)
+    .join('\n');
   writeFileSync(
     join(dir, 'docker'),
     `#!/bin/bash
@@ -94,9 +107,17 @@ case "$1" in
   inspect)
     # letztes Argument ist der Containername
     for letztes in "$@"; do :; done
-    case "$letztes" in
+    case "$*" in
+      *HostConfig.NetworkMode*)
+        case "$letztes" in
+${netzwerkFaelle}
+          *) echo '' ;;
+        esac ;;
+      *)
+        case "$letztes" in
 ${inspectFaelle}
-      *) echo '' ;;
+          *) echo '' ;;
+        esac ;;
     esac ;;
 esac
 `,
@@ -108,6 +129,7 @@ esac
 set -uo pipefail
 ${funktion(quelle, 'proxy_netze')}
 ${funktion(quelle, 'publishes_web_port')}
+${funktion(quelle, 'nutzt_host_netzwerk')}
 ${funktion(quelle, 'detect_proxy')}
 # 80/443 gelten als belegt — das ist die Vorbedingung des zweiten Abschnitts.
 port_busy() { return 0; }
@@ -152,14 +174,50 @@ test('ein echter nginx-Proxy wird weiterhin erkannt', () => {
   assert.equal(ergebnis, 'static-nginx:proxy');
 });
 
-test('Traefik gewinnt ueber den Image-Namen, ohne auf Ports zu warten', () => {
-  // Abschnitt 1 bleibt absichtlich unberührt: wer das Traefik-Image faehrt,
-  // IST ein Proxy — auch mit `network_mode: host`, wo er nichts veroeffentlicht.
+test('Traefik-Auto-Discovery gewinnt ueber die generische Caddy-Erkennung', () => {
+  // Abschnitt 1 (Auto-Discovery) laeuft vor Abschnitt 2 (statisch) und
+  // gewinnt deshalb, wenn beide zutreffen. Seit Task 9 gilt das aber nur
+  // noch, wenn Traefik sich auch selbst beweist — hier veroeffentlicht es
+  // 80/443 genau wie caddy. (Vorher stand hier `publiziert: false` fuer
+  // Traefik: das war die Luecke selbst, nicht die Gegenprobe dazu — s.
+  // 'traefik/whoami kapert die Erkennung nicht' unten.)
   const ergebnis = erkenne([
     { name: 'caddy', image: 'caddy:2-alpine', publiziert: true },
-    { name: 'traefik', image: 'traefik:v3', publiziert: false }
+    { name: 'traefik', image: 'traefik:v3', publiziert: true }
   ]);
   assert.equal(ergebnis, 'traefik:traefik');
+});
+
+test('ein echter Traefik mit Host-Networking wird weiterhin erkannt', () => {
+  // Die Ausnahme mit Absicht: `network_mode: host` veroeffentlicht nichts
+  // und ist trotzdem ein Proxy. Dafuer gibt es `nutzt_host_netzwerk` statt
+  // eines host-weiten `port_busy` (s. Test direkt unten, warum das noetig ist).
+  const ergebnis = erkenne([
+    { name: 'traefik', image: 'traefik:v3', publiziert: false, netzwerkModus: 'host' }
+  ]);
+  assert.equal(ergebnis, 'traefik:traefik');
+});
+
+test('traefik/whoami kapert die Erkennung nicht', () => {
+  // Das Demo-Image aus jeder Traefik-Anleitung. Es veroeffentlicht nichts
+  // und laeuft nicht mit Host-Netzwerk — nichts beweist, dass es ein Proxy
+  // ist.
+  const ergebnis = erkenne([{ name: 'demo', image: 'traefik/whoami:latest', publiziert: false }]);
+  assert.equal(ergebnis, 'none:');
+});
+
+test('ein fremder veroeffentlichter Port bewaffnet traefik/whoami nicht', () => {
+  // Die Abgrenzungsfrage: ein host-weiter `port_busy 80`-Check waere HIER
+  // keine gueltige Ersatz-Bedingung fuer `publishes_web_port` — er wuesste
+  // nur, dass IRGENDETWAS auf der Maschine 80/443 haelt, nicht dieser
+  // Container. caddy haelt hier tatsaechlich einen Port; traefik/whoami
+  // bleibt trotzdem aussen vor, weil `nutzt_host_netzwerk` je Container
+  // prueft statt global.
+  const ergebnis = erkenne([
+    { name: 'caddy', image: 'caddy:2-alpine', publiziert: true },
+    { name: 'demo', image: 'traefik/whoami:latest', publiziert: false }
+  ]);
+  assert.equal(ergebnis, 'static-caddy:caddy');
 });
 
 test('ohne Container bleibt es bei none', () => {

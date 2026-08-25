@@ -155,6 +155,22 @@ publishes_web_port() {
     | grep -qE '(^| )(80|443)/tcp'
 }
 
+# --- Helfer: laeuft dieser Container mit network_mode: host? ------------- #
+#
+# `publishes_web_port` sieht so einen Proxy nie: `--network host` traegt
+# keine Eintraege in `.NetworkSettings.Ports` (es gibt keinen eigenen
+# Netzwerk-Namespace, den Docker dort abbilden koennte). Ohne diesen
+# zweiten, ebenfalls container-eigenen Beweis muesste die Ausnahme fuer
+# Host-Networking auf einen host-weiten `port_busy`-Check ausweichen — der
+# aber nur zeigt, dass IRGENDETWAS auf der Maschine 80/443 haelt, nicht
+# dieser Container. Auf einer Maschine mit mehreren Projekten (z.B. dem
+# Produktiv-VPS) haette das einem unveroeffentlichten `traefik/whoami`
+# denselben Freifahrtschein zurueckgegeben, den die Beweisregel gerade
+# schliessen soll — nur ueber einen fremden Port statt ueber den Image-Namen.
+nutzt_host_netzwerk() {
+  [ "$(docker inspect -f '{{.HostConfig.NetworkMode}}' "$1" 2>/dev/null)" = "host" ]
+}
+
 # --- Helfer: ist das unser eigener, laufender Container? ----------------- #
 #
 # Ohne diese Frage stuft sich der Installer beim ZWEITEN Lauf selbst herunter:
@@ -281,6 +297,16 @@ detect_proxy() {
     esac
   done < <(docker ps --format '{{.Names}}'$'\t''{{.Image}}' 2>/dev/null)
   while IFS=$'\t' read -r name image; do
+    # Dieselbe Beweisregel wie unten im statischen Zweig: ein Image-Name
+    # allein ist kein Beweis, sonst kapert `traefik/whoami` — das Demo-Image
+    # aus jeder Traefik-Anleitung — die Erkennung. Die Ausnahme ist
+    # absichtlich container-eigen (`nutzt_host_netzwerk`, nicht ein
+    # host-weiter `port_busy`): ein Proxy mit `network_mode: host`
+    # veroeffentlicht nichts und IST trotzdem einer, aber ein host-weiter
+    # Check wuesste nur, dass IRGENDETWAS auf der Maschine 80/443 haelt, nicht
+    # dieser Container — auf einer Maschine mit mehreren Projekten reisst das
+    # genau die Luecke wieder auf, die diese Regel schliessen soll.
+    publishes_web_port "$name" || nutzt_host_netzwerk "$name" || continue
     case "$image" in
       *traefik*)                              _set_proxy "$name" traefik;     return ;;
       *nginxproxy/nginx-proxy*|*jwilder/nginx-proxy*) _set_proxy "$name" nginx-proxy; return ;;
