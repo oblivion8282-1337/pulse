@@ -510,10 +510,18 @@ print_plan() {
 # Newlines werden hart entfernt: die Werte landen zeilenweise in der .env.
 jget() {
   if command -v python3 >/dev/null 2>&1; then
-    printf '%s' "$1" | python3 -c "import sys,json;print(json.load(sys.stdin).get('$2',''))" | tr -d '\r\n'
+    # `.get('$2','')` liefert das Vorgabe-'' nur, wenn der Schlüssel FEHLT —
+    # steht er mit JSON-`null` im Feld (z. B. admin_email ohne hinterlegte
+    # Mail), kommt echtes `None` zurück und `print(None)` schreibt den
+    # literalen Text "None" in die .env. `or ''` fängt beides ab.
+    printf '%s' "$1" | python3 -c "import sys,json;print(json.load(sys.stdin).get('$2','') or '')" | tr -d '\r\n'
   else
+    # Kein Treffer lässt `grep -o` mit Exit 1 enden; unter `set -euo
+    # pipefail` (Skriptkopf) tötet das sonst die Zuweisung `VAR="$(jget …)"`
+    # wortlos, unmittelbar nach dem Einlösen des Bootstrap-Tokens. Ein
+    # fehlendes/leeres Feld ist hier ein Normalzustand, kein Fehler.
     printf '%s' "$1" | grep -o "\"$2\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -1 \
-      | sed 's/.*:[[:space:]]*"//; s/"$//' | tr -d '\r\n'
+      | sed 's/.*:[[:space:]]*"//; s/"$//' | tr -d '\r\n' || true
   fi
 }
 
