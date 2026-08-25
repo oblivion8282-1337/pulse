@@ -163,6 +163,9 @@ Drei Auskünfte, absichtlich getrennt — sie beantworten verschiedene Fragen:
 | `docker exec pulse pulse-doctor` | Was ist von **innen** sichtbar? | Shell-Zugriff |
 | „Verbindung prüfen" in der App | Kommt jemand von **aussen** an? | Besitzer |
 
+(`pulse` ist der Vorgabename — wurde beim Installieren `PULSE_CONTAINER`
+gesetzt, gilt der abweichende Name.)
+
 `/health/setup` liest `/data/setup-status`, das `cont-init-main.sh` zeilenweise
 mitschreibt (`<epoche>\t<name>\t<ok|fehler>`). Die Instrumentierung sitzt in
 der **einen** Datei, die die Startskripte der Reihe nach ruft — nicht in den
@@ -211,8 +214,8 @@ cont-init  (oneshot — runs cont-init-main.sh, blocks until all secrets/configs
   └── caddy               (waits for chat-gateway/voice-signaling/media-svc/auth)
 ```
 
-Each longrun unit has a `./finish` script that gates restarts: more than
-5 crashes in 60s → halt the container (Docker's `restart: unless-stopped`
+Each longrun unit has a `./finish` script that gates restarts: 5 or more
+crashes within 60s → halt the container (Docker's `restart: unless-stopped`
 performs a clean restart, breaking any data-corruption-induced loop).
 
 ## File layout
@@ -306,7 +309,11 @@ Beim Ändern also beide Stellen mitziehen.
 - **No Flatpak interaction** — the Flatpak desktop client talks to a self-host
   the same way it talks to Cloud (via HTTPS to PULSE_HOSTNAME). No extra
   wiring needed inside this image.
-- **`livekit.yaml.template` + `mediamtx.yml.template` noch nicht abstrahiert** —
-  beide werden derzeit inline in `05-init-livekit.sh` / `08-init-mediamtx.sh`
-  geschrieben (kein externes Template). Für Operatoren mit eigenen Configs
-  als Folge-Arbeit.
+- **`mediamtx.yml.template` noch nicht abstrahiert** — wird derzeit inline in
+  `08-init-mediamtx.sh` geschrieben (kein externes Template unter
+  `infra/self-host/templates/`, nur ein Fallback-Pfad im Skript, der immer
+  greift). `livekit.yaml.template` existiert bereits
+  (`infra/self-host/templates/livekit.yaml.template`, von
+  `05-init-livekit.sh` gerendert) — dieser Punkt gilt seit dessen Einführung
+  nur noch für MediaMTX. Für Operatoren mit eigenen MediaMTX-Configs als
+  Folge-Arbeit.

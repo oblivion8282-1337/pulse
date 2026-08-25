@@ -70,23 +70,22 @@ Der Installer liest weitere `PULSE_*`-Variablen als Overrides — vor dem Aufruf
 per Env setzen (wie bei `PULSE_IMAGE` oben). Alle haben einen automatisch
 ermittelten Default; nötig sind sie nur in Sonderfällen. Gilt nur für den
 Installer-Weg, nicht für Compose (dort steuert die `.env`, siehe
-`infra/self-host/.env.example`).
+`infra/self-host/.env.example`). Die vollständige Liste (u. a. `PULSE_CONTAINER`,
+`PULSE_VOLUME`, `PULSE_DIR`, `PULSE_HTTP_PORT`, `PULSE_NO_AUTOUPDATE`,
+`PULSE_CLOUD_ORIGIN`) steht kanonisch unter
+`https://howispulse.com/install/guide` → Abschnitt „Environment overrides" —
+dort zuerst eintragen, wenn ein neuer Schalter dazukommt. Hier nur die beiden,
+auf die sich Text weiter unten in diesem Dokument stützt:
 
 | Variable | Wirkung | Default |
 |---|---|---|
-| `PULSE_IMAGE` | Anderes Image/Tag/Registry ziehen | `registry.howispulse.com/pulse-allinone:edge` |
-| `PULSE_CONTAINER` | Name des Containers | `pulse` |
-| `PULSE_VOLUME` | Name des Docker-Volumes | `pulse-data` |
-| `PULSE_DIR` | Verzeichnis auf dem Host für `.env` + Update-Skript | `/opt/pulse` (root) bzw. `~/.pulse` |
 | `PULSE_NETWORK` | Docker-Netz, dem der Container beitritt. **Pflicht**, wenn der erkannte Reverse-Proxy in mehr als einem Docker-Netz hängt — der Installer bricht sonst ab, statt zu raten, welches gemeint ist | automatisch erkannt |
-| `PULSE_HTTP_PORT` | Interner HTTP-Port im Behind-Proxy-Modus | `8080` |
-| `PULSE_TLS_MODE` | Erzwingt `auto` oder `behind-proxy`, statt die Proxy-Erkennung selbst entscheiden zu lassen | automatisch erkannt |
-| `PULSE_NO_AUTOUPDATE` | `1` deaktiviert den Host-Update-Timer/-Cronjob (Alias: `PULSE_NO_WATCHTOWER`) | aus (Updates aktiv) |
-| `PULSE_CLOUD_ORIGIN` | Cloud-Endpunkt für Bootstrap-Redeem + Poller — nur zum Testen gegen eine andere als die Produktions-Cloud | `https://howispulse.com` |
+| `PULSE_TLS_MODE` | Erzwingt `auto`, `provided` oder `behind-proxy`, statt die Proxy-Erkennung selbst entscheiden zu lassen | automatisch erkannt |
 
 `PULSE_NETWORK=<name>` steht als Selbsthilfe auch direkt in der Fehlermeldung,
 wenn sie zuschlägt — ohne diese Tabelle bliebe der Hinweis ohne Erklärung, was
-der Wert eigentlich bewirkt.
+der Wert eigentlich bewirkt. `PULSE_TLS_MODE=provided` ist der Weg zu einem
+selbst mitgebrachten Zertifikat, siehe „Mehr" ganz unten.
 
 ---
 
@@ -183,6 +182,13 @@ Bei Bedarf in einen Host-Cron oder systemd-Timer packen. **Updates sind Pflicht:
 wer zu lange auf einer alten Version bleibt, riskiert eine inkompatible
 Protokoll-Version gegenüber der Cloud — dann blockt der Verbindungs-Check.
 
+Der Installer-Weg macht dasselbe automatisch, prüft aber zusätzlich, ob der
+neue Container wirklich stabil läuft, und macht sonst selbst einen Rollback —
+Mechanik samt der beiden Fein-Regler `PULSE_UPDATE_STABIL_VERSUCHE`/
+`PULSE_UPDATE_STABIL_INTERVALL` (nur für den generierten Updater selbst
+relevant, nicht für den `curl`-Aufruf) stehen unter
+`https://howispulse.com/install/guide` → Abschnitt 7.
+
 ### Backups
 
 Der Container macht automatisch periodische `pg_dump`-Snapshots nach
@@ -208,6 +214,11 @@ Befehl hier nutzt bewusst das einfache SQL-Textformat.
 ---
 
 ## Troubleshooting
+
+> Die Befehle unten nennen den Container beim Vorgabenamen `pulse`. Über den
+> Compose-Weg ist der fest (`container_name: pulse` in der Compose-Datei);
+> beim Installer-Skript gilt statt dessen dein `PULSE_CONTAINER`, falls du
+> ihn beim Einrichten gesetzt hast.
 
 ### Der Installer sagt es dir schon
 
