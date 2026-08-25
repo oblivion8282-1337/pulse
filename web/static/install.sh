@@ -187,22 +187,43 @@ ist_unser_container() {
   esac
 }
 
-# --- Vorhandenen Container nur ersetzen, wenn er nachweislich unserer ist  #
+# --- Fremdkonflikt am Containernamen erkennen (liest nur, löscht nichts) - #
 #
-# `docker rm -f` fragt nicht nach; ohne diese Hülle wäre ein fremder
-# Container namens "$CONTAINER" ohne Rückfrage weg. Bricht bei einem
-# Fremdtreffer ab, statt ihn stillschweigend zu übergehen — der Admin muss
-# selbst entscheiden, ob er umbenennt/entfernt oder Pulse auf einen anderen
-# Namen ausweicht.
-sichere_container_ersetzung() {
-  if docker inspect "$CONTAINER" >/dev/null 2>&1 && ! ist_unser_container; then
-    die "A container named '${CONTAINER}' already exists, but its image
+# Wird an ZWEI Stellen aufgerufen: FRÜH, direkt nach `check_ports` und damit
+# vor der Token-Einlösung — und SPÄT, direkt vor dem tatsächlichen
+# `docker rm -f` in `sichere_container_ersetzung`. Die frühe Prüfung allein
+# würde nicht reichen: zwischen ihr und dem eigentlichen Ersetzen liegen die
+# Token-Einlösung und der Image-Pull, spürbare Zeit, in der sich der
+# Containername theoretisch neu belegen liesse — ein Fremdkonflikt, der
+# GENAU in dieser Lücke entsteht, fände die frühe Prüfung nicht mehr. Die
+# späte Prüfung allein würde den Token unnötig verbrennen (s. dort). Beide
+# zusammen schliessen das Fenster; keine der beiden ersetzt die andere.
+#
+# $1 = zusätzlicher Satz für die Meldung (früh: Hinweis auf den noch
+# unverbrauchten Token; spät: Hinweis, dass er es nicht mehr ist).
+pruefe_container_konflikt() {
+  local zusatz="${1:-}"
+  docker inspect "$CONTAINER" >/dev/null 2>&1 || return 0
+  ist_unser_container && return 0
+  local meldung="A container named '${CONTAINER}' already exists, but its image
   ($(docker inspect -f '{{.Config.Image}}' "$CONTAINER" 2>/dev/null)) doesn't look like a Pulse
   installation. Refusing to remove it — it might belong to something else
   entirely.
   Rename or remove that container yourself and run this command again, or
   set PULSE_CONTAINER=<a different name> to make Pulse use its own name."
-  fi
+  [ -n "$zusatz" ] && meldung="${meldung}
+  ${zusatz}"
+  die "$meldung"
+}
+
+# --- Vorhandenen Container nur ersetzen, wenn er nachweislich unserer ist  #
+#
+# `docker rm -f` fragt nicht nach; ohne die vorangehende Prüfung wäre ein
+# fremder Container namens "$CONTAINER" ohne Rückfrage weg. Die eigentliche
+# Prüfung sitzt in `pruefe_container_konflikt` (s. dort) — hier nur noch der
+# Aufruf plus das Entfernen selbst.
+sichere_container_ersetzung() {
+  pruefe_container_konflikt "Your setup token has already been redeemed for this run — it cannot be reused. You'll need a fresh one to try again."
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 }
 
@@ -613,6 +634,14 @@ fi
 
 # 1b) Ports prüfen, solange der Token noch unverbraucht ist.
 check_ports
+
+# 1c) Denselben Grund wie 1b: lieber jetzt scheitern als nach dem Verbrauch.
+# Die Freigabe ist Single-Bootstrap pro Antrag (s. CLAUDE.md) — ein hier
+# unentdeckter Fremdkonflikt kostet nicht nur einen neuen Tokenlauf, sondern
+# einen kompletten neuen Antrag samt erneuter Freigabe durch den
+# Cloud-Betreiber. Ersetzt NICHT die gleiche Prüfung in
+# `sichere_container_ersetzung` weiter unten (s. Begründung dort).
+pruefe_container_konflikt "Your setup token is still valid — nothing has been consumed yet."
 
 # 2) Token einlösen (verbraucht ihn, rotiert das Secret).
 log "Redeeming bootstrap token at ${CLOUD_ORIGIN}…"
