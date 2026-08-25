@@ -17,8 +17,13 @@ import { connect as tlsConnect } from 'node:tls';
 import { request as httpsRequest } from 'node:https';
 import { deuteZertifikat, zertifikatsNamen, type Zertifikatsbefund } from './netbefund.ts';
 
+/** Der DNS-Schritt einzeln benannt: nur er trägt die Adressen, und die Kette
+ *  danach braucht sie. Ohne eigenen Namen liefert `pruefeDns` die ganze Union
+ *  zurück und `.adressen` ist von aussen nicht mehr erreichbar. */
+export type DnsSchritt = { schritt: 'dns'; ok: boolean; adressen: string[]; fehler?: string };
+
 export type DiagSchritt =
-  | { schritt: 'dns'; ok: boolean; adressen: string[]; fehler?: string }
+  | DnsSchritt
   | { schritt: 'tcp'; ok: boolean; adresse: string; port: number; fehler?: string }
   | { schritt: 'tls'; ok: boolean; befund: Zertifikatsbefund; namen: string[] }
   | { schritt: 'http'; ok: boolean; status?: number; fehler?: string };
@@ -30,7 +35,7 @@ function mitFrist<T>(p: Promise<T>, ms: number): Promise<T | null> {
   return Promise.race([p, new Promise<null>((r) => setTimeout(() => r(null), ms).unref?.())]);
 }
 
-async function pruefeDns(host: string): Promise<DiagSchritt> {
+async function pruefeDns(host: string): Promise<DnsSchritt> {
   try {
     const treffer = await lookup(host, { all: true });
     const adressen = treffer.map((t) => t.address);
@@ -144,8 +149,8 @@ export async function diagnostiziere(hostname: string): Promise<DiagSchritt[]> {
 
   const schritte: DiagSchritt[] = [];
 
-  const dns = (await mitFrist(pruefeDns(host), FRIST_MS)) ?? {
-    schritt: 'dns' as const, ok: false, adressen: [], fehler: 'ETIMEDOUT',
+  const dns: DnsSchritt = (await mitFrist(pruefeDns(host), FRIST_MS)) ?? {
+    schritt: 'dns', ok: false, adressen: [], fehler: 'ETIMEDOUT',
   };
   schritte.push(dns);
   if (!dns.ok || dns.adressen.length === 0) return schritte;
