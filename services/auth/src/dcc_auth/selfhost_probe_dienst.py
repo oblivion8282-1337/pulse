@@ -15,7 +15,6 @@ import asyncio
 import base64
 import os
 import secrets
-import socket
 
 import httpx
 
@@ -250,6 +249,32 @@ async def _lies_schliesscode(leser: asyncio.StreamReader) -> int | None:
 _STUN_KEKS = 0x2112A442
 
 
+class _StunEmpfaenger(asyncio.DatagramProtocol):
+    """Nimmt das erste Datagramm entgegen und weckt den Wartenden.
+
+    **Warum nicht ``loop.sock_sendto`` auf einem eigenen Socket:** uvloop
+    implementiert das nicht (``NotImplementedError``), und uvicorn faehrt
+    uvloop, sobald es installiert ist — ``uvicorn[standard]`` zieht es mit.
+    Unter Pythons Standardschleife, auf der die Tests laufen, existiert die
+    Methode; die Pruefung war deshalb im Test gruen und in Produktion tot.
+    ``create_datagram_endpoint`` gibt es auf beiden Schleifen.
+    """
+
+    def __init__(self, fertig: asyncio.Future[bytes]) -> None:
+        self._fertig = fertig
+
+    def datagram_received(self, daten: bytes, _absender: object) -> None:
+        if not self._fertig.done():
+            self._fertig.set_result(daten)
+
+    def error_received(self, exc: Exception) -> None:
+        # Ein ICMP „port unreachable" kommt hier an, nicht als Ausnahme am
+        # Empfang — ohne diesen Zweig liefe die Pruefung in die volle Frist,
+        # obwohl die Antwort schon da ist.
+        if not self._fertig.done():
+            self._fertig.set_exception(exc)
+
+
 async def pruefe_stun(adresse: str, port: int = 3478) -> Schritt:
     """Echter STUN-Binding-Request an coturn.
 
@@ -267,17 +292,26 @@ async def pruefe_stun(adresse: str, port: int = 3478) -> Schritt:
     paket = (
         (0x0001).to_bytes(2, "big") + (0).to_bytes(2, "big") + _STUN_KEKS.to_bytes(4, "big") + kennung
     )
-    sock = socket.socket(socket.AF_INET6 if ":" in adresse else socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setblocking(False)
     schleife = asyncio.get_running_loop()
+    fertig: asyncio.Future[bytes] = schleife.create_future()
     try:
-        await schleife.sock_sendto(sock, paket, (adresse, port))
+        transport, _ = await schleife.create_datagram_endpoint(
+            lambda: _StunEmpfaenger(fertig), remote_addr=(adresse, port)
+        )
+    except OSError:
+        return Schritt("stun", False, "kein_durchkommen", f"{adresse}:{port}/udp")
+    try:
+        transport.sendto(paket)
         async with asyncio.timeout(FRIST_S):
-            antwort = await schleife.sock_recv(sock, 1024)
+            antwort = await fertig
     except (TimeoutError, OSError):
         return Schritt("stun", False, "kein_durchkommen", f"{adresse}:{port}/udp")
     finally:
-        sock.close()
+        transport.close()
+        # Sonst meldet asyncio beim Aufräumen „exception was never retrieved",
+        # wenn nach der Frist doch noch ein ICMP-Fehler eintrudelt.
+        if not fertig.done():
+            fertig.cancel()
 
     # Die Kennung muss zurückkommen — sonst war es irgendein Datagramm.
     if len(antwort) < 20 or antwort[8:20] != kennung:
