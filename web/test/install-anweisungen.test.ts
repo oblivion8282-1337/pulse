@@ -3,16 +3,29 @@
  * II·6, II·7).
  *
  * **Fall 1 — der Loopback-Rückfall in `decide_mode`.** Erkennt `detect_proxy`
- * einen Proxy-CONTAINER (statisch oder Auto-Discovery), aber der hängt nur
- * am Default-Bridge-Netz (kein eigenes Nutzer-Netz), fiel der Modus bisher
- * auf `hostproxy`: Pulse bindet `127.0.0.1:8080` auf dem HOST, und die
- * Anweisung unten lautet, die Proxy-Route auf `127.0.0.1:8080` zu legen.
- * Gemessen: das Ziel wäre innerhalb des Proxy-CONTAINERS dessen EIGENES
- * Loopback — weder über `127.0.0.1` noch über die Bridge-IP von dort aus
- * erreichbar. Der Betreiber bekäme eine Anweisung, die nie funktionieren
- * kann. Fix: statt des Rückfalls wird jetzt abgebrochen und nach
- * `PULSE_NETWORK` gefragt — genau der Weg, den `_set_proxy` bei mehreren
- * Netzen schon lange geht (s. `install-proxy-erkennung.test.ts`).
+ * einen Proxy-CONTAINER (statisch oder Auto-Discovery) ohne ein gemeinsames
+ * Docker-Netz mit Pulse, fiel der Modus bisher auf `hostproxy`: Pulse bindet
+ * `127.0.0.1:8080` NUR auf dem Loopback des HOSTS (`install.sh:495`, nicht
+ * `0.0.0.0`), und die Anweisung unten lautet, die Proxy-Route darauf zu
+ * legen. Ein Proxy-CONTAINER hat aber einen eigenen Netzwerk-Namensraum —
+ * sein `127.0.0.1` ist nicht das des Hosts, und über die Bridge-Gateway-
+ * Adresse ebenfalls nicht, weil die Bindung auf dem Host-Loopback liegt (der
+ * Adressraum ist gar nicht von aussen gemeint). Der Betreiber bekäme eine
+ * Anweisung, die nie funktionieren kann. Fix: statt des Rückfalls wird
+ * jetzt abgebrochen und nach `PULSE_NETWORK` gefragt — genau der Weg, den
+ * `_set_proxy` bei mehreren Netzen schon lange geht (s.
+ * `install-proxy-erkennung.test.ts`).
+ *
+ * **Ausnahme (Korrekturrunde 1):** ein Auto-Discovery-Proxy mit
+ * `--network host` hat ebenfalls kein eigenes Docker-Netz (`PROXY_NET`
+ * bleibt leer) — teilt aber den Netzwerk-Namensraum des Hosts und erreicht
+ * `127.0.0.1:8080` unmittelbar. Für diesen einen Fall bleibt `hostproxy`
+ * richtig; `decide_mode` fragt dafür zusätzlich `nutzt_host_netzwerk`
+ * (Task 9), bevor sie abbricht. **Gemessen** — diesmal wörtlich: der Prüfer
+ * hat es an einem echten Docker-Daemon mit echtem Listener auf `127.0.0.1`
+ * nachgestellt (nicht dieser Testlauf hier) — Standard-Bridge scheitert mit
+ * „connection refused", über die Bridge-Gateway-Adresse mit
+ * Zeitüberschreitung, `--network host` gelingt.
  *
  * **Fall 2 — `systemctl`/`crontab` unterdrückten die Pflicht-Route.** Die
  * Auto-Update-Einrichtung (`install_update_timer`/`install_update_cron`)
@@ -152,6 +165,11 @@ ${funktion(quelle, 'proxy_netze')}
 ${funktion(quelle, '_set_proxy')}
 ${funktion(quelle, 'decide_mode')}
 detect_proxy() { _set_proxy '${optionen.proxyContainer}' '${optionen.proxyKind ?? 'static-caddy'}'; }
+# Seit Korrekturrunde 1 fragt decide_mode im ersten Zweig zusaetzlich
+# nutzt_host_netzwerk — dieser Test hier gilt Containern OHNE Host-Networking
+# (das hat seinen eigenen Test unten, mit echtem detect_proxy statt Stub),
+# deshalb reicht ein einfacher "nein"-Stub statt der echten Funktion.
+nutzt_host_netzwerk() { return 1; }
 FORCE_NETWORK=""
 FORCE_TLS_MODE=""
 decide_mode
@@ -171,8 +189,8 @@ echo "MODE:\${MODE}"
 }
 
 test('ein Proxy-Container ohne Nutzer-Netz bekommt keine Loopback-Anweisung', () => {
-  // Das Ziel 127.0.0.1:8080 wäre im Proxy-CONTAINER dessen eigenes Loopback.
-  // Gemessen: weder über 127.0.0.1 noch über die Bridge-IP erreichbar.
+  // Herleitung s. Dateikopf ("Fall 1"): 127.0.0.1:8080 wäre im
+  // Proxy-CONTAINER dessen eigenes Loopback, nicht das des Hosts.
   const e = entscheide({ proxyContainer: 'caddy', proxyNetze: [] });
   assert.equal(e.abgebrochen, true);
   // Der Brief prüft hier `/Netz/` — dieses Skript ist aber user-facing
@@ -198,6 +216,88 @@ test('Gegenprobe: mit einem echten Nutzer-Netz wird weiterhin nicht abgebrochen'
   const e = entscheide({ proxyContainer: 'caddy', proxyNetze: ['pulse-selfhost-net'] });
   assert.equal(e.abgebrochen, false);
   assert.equal(e.mode, 'static-docker');
+});
+
+interface HostNetzErgebnis {
+  mode: string;
+  abgebrochen: boolean;
+  meldung: string;
+}
+
+/**
+ * Führt `decide_mode` GEGEN DEN ECHTEN `detect_proxy` aus (nicht gestubbt
+ * wie in `entscheide()` oben) — gegen einen Auto-Discovery-Proxy (`traefik`)
+ * mit `--network host`. Genau der Fund aus Korrekturrunde 1: ein Test, der
+ * `detect_proxy` direkt stubbt, bringt `nutzt_host_netzwerk` nie ins Spiel
+ * und hätte diese Lücke wieder nicht gefangen. Das gefälschte `docker`
+ * bedient deshalb ALLE drei von `detect_proxy`/`_set_proxy` gebrauchten
+ * Abfragen (`ps`, `inspect -f '{{.HostConfig.NetworkMode}}'`,
+ * `inspect -f '{{range …Ports…}}'`) — nach dem Vorbild aus
+ * `install-proxy-erkennung.test.ts` (dort für `HostConfig.NetworkMode` +
+ * `Ports` verdrahtet), ergänzt um den dritten, für `proxy_netze` nötigen
+ * Fall (`NetworkSettings.Networks`): ein host-vernetzter Container meldet
+ * dort keine Einträge, der Fallzweig `*) echo ''` deckt das ab.
+ */
+function entscheideHostNetzwerk(): HostNetzErgebnis {
+  const quelle = readFileSync(SKRIPT, 'utf8');
+  const dir = mkdtempSync(join(tmpdir(), 'pulse-anweisungen-hostnetz-'));
+
+  writeFileSync(
+    join(dir, 'docker'),
+    `#!/bin/bash
+case "$1" in
+  ps) printf '%b\\n' 'traefik\\ttraefik:v3' ;;
+  inspect)
+    format="$3"
+    case "$format" in
+      *HostConfig.NetworkMode*) echo 'host' ;;
+      *) echo '' ;;
+    esac ;;
+esac
+`,
+    { mode: 0o755 }
+  );
+  chmodSync(join(dir, 'docker'), 0o755);
+
+  const skript = `
+set -euo pipefail
+err() { printf '[pulse] ERROR: %s\\n' "$*" >&2; }
+die() { err "$*"; exit 1; }
+warn() { :; }
+FORCE_NETWORK=""
+FORCE_TLS_MODE=""
+${funktion(quelle, 'proxy_netze')}
+${funktion(quelle, 'publishes_web_port')}
+${funktion(quelle, 'nutzt_host_netzwerk')}
+${funktion(quelle, '_set_proxy')}
+${funktion(quelle, 'detect_proxy')}
+${funktion(quelle, 'decide_mode')}
+decide_mode
+echo "MODE:\${MODE}"
+`;
+  try {
+    const ausgabe = execFileSync('bash', ['-c', skript], {
+      env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+      encoding: 'utf8'
+    });
+    const zeile = ausgabe.split('\n').find((z) => z.startsWith('MODE:')) ?? 'MODE:';
+    return { mode: zeile.slice(5), abgebrochen: false, meldung: '' };
+  } catch (fehler) {
+    const f = fehler as { status?: number; stderr?: string };
+    return { mode: '', abgebrochen: true, meldung: f.stderr ?? '' };
+  }
+}
+
+test('ein host-vernetzter Auto-Discovery-Proxy (--network host) bleibt hostproxy statt abzubrechen', () => {
+  // Er hat kein eigenes Docker-Netz (PROXY_NET bleibt leer, wie beim
+  // Default-Bridge-Fall oben) — teilt aber den Netzwerk-Namensraum des
+  // Hosts und erreicht 127.0.0.1:8080 unmittelbar. Nachgewiesen an einem
+  // echten Docker-Daemon (Korrekturrunde 1, s. Bericht): Standard-Bridge
+  // scheitert mit "connection refused", über die Bridge-Gateway-Adresse mit
+  // Zeitüberschreitung, --network host gelingt.
+  const e = entscheideHostNetzwerk();
+  assert.equal(e.abgebrochen, false, e.meldung);
+  assert.equal(e.mode, 'hostproxy');
 });
 
 // --------------------------------------------------------------------- //
