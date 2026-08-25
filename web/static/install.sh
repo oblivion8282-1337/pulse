@@ -291,21 +291,24 @@ $(printf '%s\n' "$netze" | sed 's/^/    - /')
 detect_proxy() {
   local name image
   # 1) Auto-Discovery-Proxies (höchste Priorität)
+  # Dieselbe Beweisregel wie unten im statischen Zweig gilt fuer BEIDE
+  # Auto-Discovery-Schleifen, nicht nur die zweite: ein Image-Name allein
+  # ist kein Beweis, sonst kapert ein Container, der zufaellig
+  # `caddy-docker-proxy`/`traefik`/`nginx-proxy` im Namen traegt (Demo-,
+  # Test- oder Fork-Image), die Erkennung. Die Ausnahme ist absichtlich
+  # container-eigen (`nutzt_host_netzwerk`, nicht ein host-weiter
+  # `port_busy`): ein Proxy mit `network_mode: host` veroeffentlicht nichts
+  # und IST trotzdem einer, aber ein host-weiter Check wuesste nur, dass
+  # IRGENDETWAS auf der Maschine 80/443 haelt, nicht dieser Container — auf
+  # einer Maschine mit mehreren Projekten reisst das genau die Luecke
+  # wieder auf, die diese Regel schliessen soll.
   while IFS=$'\t' read -r name image; do
+    publishes_web_port "$name" || nutzt_host_netzwerk "$name" || continue
     case "$image" in
       *caddy-docker-proxy*) _set_proxy "$name" caddy-docker-proxy; return ;;
     esac
   done < <(docker ps --format '{{.Names}}'$'\t''{{.Image}}' 2>/dev/null)
   while IFS=$'\t' read -r name image; do
-    # Dieselbe Beweisregel wie unten im statischen Zweig: ein Image-Name
-    # allein ist kein Beweis, sonst kapert `traefik/whoami` — das Demo-Image
-    # aus jeder Traefik-Anleitung — die Erkennung. Die Ausnahme ist
-    # absichtlich container-eigen (`nutzt_host_netzwerk`, nicht ein
-    # host-weiter `port_busy`): ein Proxy mit `network_mode: host`
-    # veroeffentlicht nichts und IST trotzdem einer, aber ein host-weiter
-    # Check wuesste nur, dass IRGENDETWAS auf der Maschine 80/443 haelt, nicht
-    # dieser Container — auf einer Maschine mit mehreren Projekten reisst das
-    # genau die Luecke wieder auf, die diese Regel schliessen soll.
     publishes_web_port "$name" || nutzt_host_netzwerk "$name" || continue
     case "$image" in
       *traefik*)                              _set_proxy "$name" traefik;     return ;;

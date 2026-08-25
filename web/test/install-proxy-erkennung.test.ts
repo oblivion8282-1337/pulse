@@ -220,6 +220,28 @@ test('ein fremder veroeffentlichter Port bewaffnet traefik/whoami nicht', () => 
   assert.equal(ergebnis, 'static-caddy:caddy');
 });
 
+test('caddy-docker-proxy ohne Beweis gewinnt nicht', () => {
+  // Dieselbe Luecke wie bei traefik/whoami, nur in der ERSTEN
+  // Auto-Discovery-Schleife: die lief bis Korrekturrunde 1 unbedingt — ein
+  // Image-Name reichte, auch ohne veroeffentlichten Port und ohne
+  // Host-Netzwerk. Zwei nebeneinander widerspruechliche Regeln in
+  // derselben Funktion waeren sonst genau die fuenfte Instanz des Musters
+  // gewesen, das dieser ganze Auftrag behebt.
+  const ergebnis = erkenne([
+    { name: 'demo', image: 'lucaslorentz/caddy-docker-proxy:2.9-alpine', publiziert: false }
+  ]);
+  assert.equal(ergebnis, 'none:');
+});
+
+test('ein echter caddy-docker-proxy wird weiterhin erkannt', () => {
+  // Die Gegenprobe — sonst wuerde der Test oben auch bestehen, wenn die
+  // Erkennung gar nichts mehr fände.
+  const ergebnis = erkenne([
+    { name: 'proxy', image: 'lucaslorentz/caddy-docker-proxy:2.9-alpine', publiziert: true }
+  ]);
+  assert.equal(ergebnis, 'caddy-docker-proxy:proxy');
+});
+
 test('ohne Container bleibt es bei none', () => {
   assert.equal(erkenne([]), 'none:');
 });
