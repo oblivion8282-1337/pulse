@@ -189,6 +189,16 @@ test('ein zweiter Lauf laesst einen greenfield-Server greenfield', () => {
   assert.equal(ergebnis.mode, 'greenfield');
 });
 
+test('ein hostproxy-Server hinter host-nativem Proxy bleibt hostproxy', () => {
+  // Der eigene Container laeuft, veroeffentlicht 80/443 aber NICHT — die Ports
+  // gehoeren einem Proxy ausserhalb von Docker, den `docker ps` nie sieht.
+  const ergebnis = entscheide({
+    container: [{ name: 'pulse', image: 'registry.howispulse.com/pulse-allinone:edge', publiziert: false }],
+    portBelegt: true
+  });
+  assert.equal(ergebnis.mode, 'hostproxy');
+});
+
 test('ein FREMDER Proxy auf 80/443 fuehrt weiterhin zu hostproxy', () => {
   // Gegenprobe — sonst bestuende der Test auch, wenn die Erkennung tot waere.
   const ergebnis = entscheide({
@@ -227,10 +237,19 @@ In `decide_mode`, den `none`-Zweig ersetzen:
 
 ```bash
     none)
-      # Haelt unser eigener laufender Container die Ports, ist das KEIN fremder
-      # Proxy — dann gilt der Modus aus der vorhandenen pulse.env, sonst
-      # greenfield.
-      if eigener_container_laeuft; then
+      # Haelt unser eigener laufender Container die Ports 80/443, ist das KEIN
+      # fremder Proxy — dann bleibt es greenfield.
+      #
+      # Die zweite Bedingung ist nicht schmueckendes Beiwerk: im Modus hostproxy
+      # laeuft unser Container ebenfalls, bindet aber nur `127.0.0.1:8080`. Ohne
+      # sie wuerde ein Server hinter einem host-nativen Proxy beim zweiten Lauf
+      # auf greenfield hochgestuft, `docker run -p 80:80` scheiterte an den
+      # fremd belegten Ports — und zwar NACH `docker rm -f`. Also derselbe
+      # Schaden wie der Fehler oben, nur in der anderen Richtung.
+      #
+      # Dieselbe Beweisregel wie bei der Proxy-Erkennung: der Name ist kein
+      # Beweis, die Portveroeffentlichung schon.
+      if eigener_container_laeuft && publishes_web_port "$CONTAINER"; then
         MODE=greenfield
       elif port_busy 80 || port_busy 443; then
         MODE=hostproxy
