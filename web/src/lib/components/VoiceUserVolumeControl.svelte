@@ -5,7 +5,10 @@
   background.
 
   Range goes from 0 to USER_VOLUME_MAX*100 (default 200%) so users can
-  boost a quiet member above their own LiveKit gain.
+  boost a quiet member above their own LiveKit gain. Mobile caps at 100%:
+  the `<audio>`-Element playback path there can't exceed 1.0 anyway
+  (HTMLMediaElement.volume spec clamp) — a slider beyond 100% would
+  promise a boost that never happens.
 -->
 <script lang="ts">
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
@@ -13,13 +16,16 @@
   import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
   import { settings, USER_VOLUME_MAX } from '$lib/stores/settings.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
+  import { isMobile } from '$lib/platform/runtime';
   import { m } from '$lib/paraglide/messages.js';
   import MenuRow from '$lib/components/menu/MenuRow.svelte';
 
   let { userId, name }: { userId: string; name: string } = $props();
 
-  const SLIDER_MAX = USER_VOLUME_MAX * 100;
-  let volumePct = $derived(Math.round(settings.getUserVolume(userId) * 100));
+  const SLIDER_MAX = isMobile() ? 100 : USER_VOLUME_MAX * 100;
+  let volumePct = $derived(
+    Math.min(SLIDER_MAX, Math.round(settings.getUserVolume(userId) * 100))
+  );
 
   function applyVolumePct(pct: number): void {
     const clamped = Math.max(0, Math.min(SLIDER_MAX, Math.round(pct)));

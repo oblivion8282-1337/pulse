@@ -23,15 +23,32 @@ class Viewport {
   }
 
   #inited = false;
-
+  #read() {
+    this.width = window.innerWidth;
+    this.height = window.innerHeight;
+  }
+  /** Android-WebView: `resize` feuert bei Drehung manchmal gar nicht oder
+   *  liefert noch die ALTEN Maße (innerWidth/innerHeight hinken dem physischen
+   *  Drehen um Frames hinterher). Deshalb wird nach jedem Event mehrfach
+   *  verzögert neu gelesen, bis die Werte stabil sind. */
+  #scheduleReread() {
+    for (const delay of [60, 200, 450]) {
+      setTimeout(() => this.#read(), delay);
+    }
+  }
   init() {
     if (this.#inited || typeof window === 'undefined') return;
     this.#inited = true;
     const on = () => {
-      this.width = window.innerWidth;
-      this.height = window.innerHeight;
+      this.#read();
+      this.#scheduleReread();
     };
     window.addEventListener('resize', on, { passive: true });
+    window.addEventListener('orientationchange', on, { passive: true });
+    // matchMedia feuert zuverlässig, wenn die Orientierung die (Breiten-)
+    // MediaQuery-Klasse wechselt — zweites Netz neben `resize`.
+    window.matchMedia('(orientation: landscape)').addEventListener('change', on);
+    window.visualViewport?.addEventListener('resize', on, { passive: true });
     on();
   }
 }

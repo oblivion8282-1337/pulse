@@ -343,13 +343,19 @@
   // (unten) gilt weiter.
   let zeigeSpalteLinks = $derived(hydrated && viewport.isTablet && !viewport.istHandy);
 
-  // Android-Hülle: Querformat nur mit offenem Stream. Ein Stream in JEDEM
-  // Kanal reicht (auch im Hintergrund weiterlaufende geöffnete Kacheln) —
-  // wer zusieht, will kippen dürfen; sonst nicht.
+  // Android-Hülle: Querformat nur mit ANGEDOCKTEM Stream. Ein Stream im
+  // Popup-Eckfenster (Corner-Mode: man hat den Kanal verlassen) lockt
+  // trotzdem auf Hochformat — quer ist nur fürs Stream-Vollbild auf dem
+  // Kanal-Bildschirm gedacht. Bedingung = kanalQuerStream OHNE die
+  // Viewport-Anteile (die hängen am aktuellen Format und würden die Sperre
+  // sonst selbst blockieren: gesperrtes Hochformat ⇒ nie breit ⇒ nie frei).
   $effect(() => {
-    const streamOffen =
-      voice.connected && !!voice.channelId && openedTiles.hasAny(voice.channelId);
-    void orientierungSperren(!streamOffen);
+    const streamAngedockt =
+      KANAL_BILDSCHIRM.test(page.url.pathname) &&
+      voice.connected &&
+      !!voice.channelId &&
+      openedTiles.hasAny(voice.channelId);
+    void orientierungSperren(!streamAngedockt);
   });
 
   // Ablehnungen des Servers zur Watch-Party sichtbar machen. Einmal je
@@ -360,7 +366,10 @@
 <!-- `w-full` statt `w-screen`: 100vw ist auf iOS Safari breiter als der
      sichtbare Bereich (Safe-Areas/Rundungen) — Inhalte wirkten abgeschnitten.
      100% des Bodys bleibt exakt in der Viewport-Breite. -->
-<div class="text-text-base flex h-dvh w-full flex-col" data-testid="app-shell">
+<div
+  class="text-text-base flex h-dvh w-full flex-col overflow-hidden"
+  data-testid="app-shell"
+>
   <!-- KEIN eigener Hintergrund hier: Die App trägt den Standard-Seitengrund
        aus app.css (Body-Verlauf + zarte Blobs + Korn) — derselbe Grund wie in
        der Desktop-App. Die Login-Marine-Ebenen (Verlauf + Glows) waren hier

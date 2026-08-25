@@ -136,7 +136,7 @@
   // Nur im Vollbild relevant: die Overlay-Leiste fadet nach Inaktivität.
   let hudVisible = $state(true);
   let hideTimer: ReturnType<typeof setTimeout> | null = null;
-  const HUD_HIDE_AFTER_MS = 2500;
+  const HUD_HIDE_AFTER_MS = 3000;
   // Reicht die Kachelbreite für alle Controls inline? Sonst kollabiert TileDock
   // in ein ⋯-Menü. Im Vollbild ist die Kachel groß → immer wide.
   let dockWide = $state(true);
@@ -162,8 +162,10 @@
   }
 
   function handleCatcherClick(): void {
-    // Im Vollbild auf Touch: Tap blendet die Overlay-Leiste ein/aus.
-    if (viewport.istHandy && isFullscreen) hudVisible = !hudVisible;
+    // Im Vollbild auf Touch: Tap blendet die schwebende Steuerung ein und
+    // startet den Ausblend-Timer neu (kein Toggle mehr — Nutzerwunsch: nach
+    // HUD_HIDE_AFTER_MS ohne Tap weg, Tap zeigt sie wieder).
+    if (viewport.istHandy && isFullscreen) pokeHud();
   }
   function handleCatcherDblClick(): void {
     if (!viewport.istHandy) toggleFs();
@@ -232,6 +234,39 @@
   });
 </script>
 
+<!-- Lautstärke-Pille in 5er-Schritten statt Regler: Ein ferner Daumen trifft
+     zwei Knöpfe sicherer als einen Schieberegler. Am Handy wird die Lautstärke
+     IMMER auf 5er gerastert — angezeigt UND gesetzt: ein Wert wie 87 (vom
+     Desktop-Regler mitgenommen) zeigt hier 85, der nächste Tipp geht auf 90. -->
+{#snippet volumePille(maxV: number, gerastert: number)}
+  <div
+    class="flex items-center gap-0.5 rounded-full bg-black/45 px-1 text-white backdrop-blur-sm"
+    data-pip-hide data-testid={`${testidPrefix}-volume-stepper`}
+  >
+    <button
+      type="button"
+      class="flex size-9 items-center justify-center rounded-full transition-colors hover:bg-black/65"
+      onclick={() => onVolumeChange?.(Math.max(0, gerastert - 5))}
+      aria-label={m.tile_shell_volume_down()}
+      data-testid={`${testidPrefix}-volume-down`}
+    >
+      <MinusIcon class="size-4" />
+    </button>
+    <span class="w-10 text-center font-mono text-xs tabular-nums" data-testid={`${testidPrefix}-volume-value`}
+      >{gerastert}%</span
+    >
+    <button
+      type="button"
+      class="flex size-9 items-center justify-center rounded-full transition-colors hover:bg-black/65"
+      onclick={() => onVolumeChange?.(Math.min(maxV, gerastert + 5))}
+      aria-label={m.tile_shell_volume_up()}
+      data-testid={`${testidPrefix}-volume-up`}
+    >
+      <PlusIcon class="size-4" />
+    </button>
+  </div>
+{/snippet}
+
 <div
   bind:this={containerEl}
   class="bg-bg-chat flex h-full overflow-hidden {isFullscreen
@@ -262,8 +297,10 @@
 
       <!-- Mobil (nicht Vollbild): zwei schwebende Knöpfe AUF dem Video —
            oben links der Pfeil zum Schließen der Kachel, unten rechts
-           Vollbild. Im Vollbild übernimmt das fadende Overlay-Dock; am
-           Rechner bleiben Dock-Leiste und Doppelklick wie bisher. -->
+           Vollbild, unten links die Lautstärke-Pille. Im Vollbild gilt
+           dieselbe neue Steuerung als fadende Overlay-Variante unten rechts
+           (Exit-Knopf + Pille); am Rechner bleiben Dock-Leiste und
+           Doppelklick wie bisher. -->
       {#if viewport.istHandy && !isFullscreen}
         {#if onHide}
           <button
@@ -271,7 +308,7 @@
             class="absolute top-2 left-2 z-20 flex size-10 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-colors hover:bg-black/65"
             onclick={onHide}
             aria-label={m.tile_shell_hide_tile()}
-            data-testid={`${testidPrefix}-close-float`}
+            data-pip-hide data-testid={`${testidPrefix}-close-float`}
           >
             <ChevronLeftIcon class="size-5" />
           </button>
@@ -281,7 +318,7 @@
           class="absolute right-2 bottom-2 z-20 flex size-10 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-colors hover:bg-black/65"
           onclick={() => toggleFullscreen(containerEl, video ?? null)}
           aria-label={m.tile_shell_fullscreen_enter()}
-          data-testid={`${testidPrefix}-fullscreen-float`}
+          data-pip-hide data-testid={`${testidPrefix}-fullscreen-float`}
         >
           <MaximizeIcon class="size-5" />
         </button>
@@ -289,36 +326,28 @@
              zwei Knöpfe sicherer als einen Schieberegler. Pille unten links,
              Gegenstück zum Vollbild-Knopf unten rechts. -->
         {#if onVolumeChange !== undefined && volume !== undefined}
-          {@const maxV = volumeMax ?? 200}
-          <!-- Am Handy wird die Lautstärke IMMER auf 5er gerastert — angezeigt
-               UND gesetzt: ein Wert wie 87 (vom Desktop-Regler mitgenommen)
-               zeigt hier 85, der nächste Tipp geht auf 90. Keine Mischwerte. -->
-          {@const gerastert = Math.round(volume / 5) * 5}
-          <div
-            class="absolute bottom-2 left-2 z-20 flex items-center gap-0.5 rounded-full bg-black/45 px-1 text-white backdrop-blur-sm"
-            data-testid={`${testidPrefix}-volume-stepper`}
-          >
-            <button
-              type="button"
-              class="flex size-9 items-center justify-center rounded-full transition-colors hover:bg-black/65"
-              onclick={() => onVolumeChange?.(Math.max(0, gerastert - 5))}
-              aria-label={m.tile_shell_volume_down()}
-              data-testid={`${testidPrefix}-volume-down`}
-            >
-              <MinusIcon class="size-4" />
-            </button>
-            <span class="w-10 text-center font-mono text-xs tabular-nums" data-testid={`${testidPrefix}-volume-value`}
-              >{gerastert}%</span
-            >
-            <button
-              type="button"
-              class="flex size-9 items-center justify-center rounded-full transition-colors hover:bg-black/65"
-              onclick={() => onVolumeChange?.(Math.min(maxV, gerastert + 5))}
-              aria-label={m.tile_shell_volume_up()}
-              data-testid={`${testidPrefix}-volume-up`}
-            >
-              <PlusIcon class="size-4" />
-            </button>
+          {@render volumePille(volumeMax ?? 200, Math.round(volume / 5) * 5)}
+        {/if}
+      {/if}
+
+      <!-- Mobil im Vollbild: die NEUE Steuerung als fadendes Overlay — oben
+           links ein Pfeil, der den Stream minimiert (Vollbild verlassen),
+           unten links die Lautstärke-Pille. Kein altes Dock und kein
+           Vollbild-Symbol am Handy. Tap aufs Video blendet die Steuerung
+           wieder ein, nach HUD_HIDE_AFTER_MS ohne Tap verschwindet sie. -->
+      {#if viewport.istHandy && isFullscreen}
+        <button
+          type="button"
+          class="absolute top-2 left-2 z-30 flex size-10 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-colors hover:bg-black/65 {fadeClass}"
+          onclick={toggleFs}
+          aria-label={m.tile_shell_fullscreen_exit()}
+          data-testid={`${testidPrefix}-fullscreen-exit-float`}
+        >
+          <ChevronLeftIcon class="size-5" />
+        </button>
+        {#if onVolumeChange !== undefined && volume !== undefined}
+          <div class="absolute bottom-2 left-2 z-30 {fadeClass}">
+            {@render volumePille(volumeMax ?? 200, Math.round(volume / 5) * 5)}
           </div>
         {/if}
       {/if}
@@ -330,9 +359,10 @@
         </div>
       {/if}
 
-      <!-- Vollbild: Leiste als fadendes Overlay über dem unteren Bildrand,
-           das nach Inaktivität (HUD_HIDE_AFTER_MS) ausgeblendet wird. -->
-      {#if isFullscreen && !hideDock}
+      <!-- Vollbild am RECHNER: Leiste als fadendes Overlay über dem unteren
+           Bildrand, das nach Inaktivität (HUD_HIDE_AFTER_MS) ausgeblendet
+           wird. Am Handy greift stattdessen die neue schwebende Steuerung. -->
+      {#if isFullscreen && !hideDock && !viewport.istHandy}
         <div
           class="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/85 via-black/45 to-transparent pt-10 {fadeClass}"
         >

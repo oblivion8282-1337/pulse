@@ -207,13 +207,14 @@
       ? 'hidden'
       : ''}"
   >
-    <!-- Mobil: Zurück in die Räume — die Vollbild-Ansicht hat sonst keinen
-         Ausgang, nachdem man aufgelegt hat (Detail-Screens ohne Leiste). -->
+    <!-- Mobil: Zurück in die Raum-Ansicht desselben Raums (Kanalliste) —
+         nicht in die Räume-ÜBERSICHT; gleiche Tiefe wie der Pfeil im
+         Textkanal (ChatView.onBack → /app/rooms/[guildId]). -->
     <Button
       variant="ghost"
       size="icon"
       class="md:hidden"
-      onclick={() => goto('/app/rooms')}
+      onclick={() => goto(`/app/rooms/${channel.guild_id}`)}
       aria-label={m.channel_list_back()}
       data-testid="voice-back-mobile"
     >

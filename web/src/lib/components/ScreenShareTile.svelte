@@ -204,6 +204,15 @@
     volume = typeof e === 'number' ? e : Number((e.currentTarget as HTMLInputElement).value);
     if (volume > 0) prevVolume = volume;
     applyVolume();
+    // Android-WebView: Web-Audio-Kontext (nötig für >100 %) startet suspended
+    // — der Tipp auf den Lautstärke-Knopf ist die Nutzer-Geste, die ihn weckt.
+    void boost
+      ?.resume()
+      .then(() => {
+        applyVolume();
+        localBlocked = boost ? boost.suspended : localBlocked;
+      })
+      .catch(() => undefined);
   }
 
   function toggleMute() {

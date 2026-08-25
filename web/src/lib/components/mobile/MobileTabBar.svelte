@@ -24,8 +24,20 @@
   import { bereichsReihenfolge } from '$lib/navigation/darstellung.svelte';
   import NavTabLink from './NavTabLink.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import { voice } from '$lib/voice/livekit.svelte';
+  import { guilds } from '$lib/stores/guilds.svelte';
 
   let aktiv = $derived(aktiverBereich(page.url.pathname));
+
+  // Wer mit Voice in einem Kanal eines Servers steckt und über die Leiste
+  // woanders hin wechselt (Chat, Freunde, Du), will beim Rückkehr-Tap auf
+  // „Räume" DEN Room sehen, in dem man verbunden ist — nicht die Übersicht
+  // aller Rooms. Ohne Verbindung bleibt die Übersicht das Ziel.
+  let raeumeZiel = $derived.by(() => {
+    if (!voice.connected || !voice.channelId) return undefined;
+    const gid = guilds.guildIdForChannel(voice.channelId);
+    return gid ? `/app/rooms/${gid}` : undefined;
+  });
 </script>
 
 <!-- Karten-Behandlung wie auf der Login-Seite (AppDownloadLinks-Rezept):
@@ -46,6 +58,7 @@
     <NavTabLink
       {bereich}
       {istAktiv}
+      ziel={bereich.id === 'rooms' ? raeumeZiel : undefined}
       zeigeBeschriftung={false}
       class="flex min-h-12 flex-1 items-center justify-center rounded-xl py-1.5 transition-colors {istAktiv
         ? 'text-primary'
