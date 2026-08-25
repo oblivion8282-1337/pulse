@@ -45,7 +45,7 @@ describe('deuteProbe — was der WebSocket-Probe aussagt', () => {
 
   it('trennt die vier Ursachen, für die es verschiedene Handlungen gibt', () => {
     assert.equal(deuteProbe(false, 1006), 'kein-upgrade');       // Proxy reicht nicht durch
-    assert.equal(deuteProbe(true, 4046), 'server-ohne-cloud');   // ER erreicht die Cloud nicht
+    assert.equal(deuteProbe(true, 4046), 'server-ohne-cloud');   // JWKS kalt, Dienst nebenan antwortet noch nicht
     assert.equal(deuteProbe(true, 4070), 'server-gesperrt');     // Cloud hat gesperrt
     assert.equal(deuteProbe(true, 4044), 'server-zu-alt');
   });

@@ -298,8 +298,8 @@ async def lifespan(app: FastAPI):
             asyncio.get_event_loop(), manager
         )
         # JWKS cold-start handling (Phase 3.1 Punkt 12): if Redis has no
-        # cached JWKS at startup (cold cache + Cloud unreachable), mark
-        # jwks_ready=False and launch a retry loop that polls every 30 s.
+        # cached JWKS at startup (cold cache + auth-svc not answering yet),
+        # mark jwks_ready=False and launch a retry loop that polls every 30 s.
         # WS connections return 4046 while jwks_ready is False.
         raw_jwks = await redis.get("auth:jwks:cached")
         if raw_jwks:

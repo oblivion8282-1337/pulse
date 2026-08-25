@@ -87,7 +87,7 @@ Kein Backend-Eingriff, sofort spürbar beim „Server hinzufügen".
   |---|---|
   | Close 4001 | die ganze Kette steht (DNS→TLS→Proxy-Upgrade→Gateway) |
   | Close 4070 | Instanz ist in der Cloud gesperrt |
-  | Close 4046 | **der Server erreicht die Cloud nicht** (Ausgangsrichtung) |
+  | Close 4046 | **der Dienst nebenan (auth-svc) antwortet noch nicht** (JWKS kalt) |
   | kein Upgrade | der Proxy reicht WebSockets nicht durch |
   Der Token-Query ist Pflicht (`token: str = Query(...)`) — ohne ihn antwortet
   FastAPI mit 422 vor dem `accept()`, der Probe braucht also einen Dummy-Wert.

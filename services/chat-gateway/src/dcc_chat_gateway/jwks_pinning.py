@@ -21,7 +21,8 @@ Pin lifecycle
 
 JWKS cold-start handling (Punkt 12)
 -------------------------------------
-If Redis is cold (no cached JWKS) *and* the Cloud is unreachable at
+If Redis is cold (no cached JWKS) *and* auth-svc (``settings.auth_jwks_url``,
+by default a service in the same network resp. container) does not answer at
 startup, ``jwks_ready`` stays ``False``.  A background retry-loop
 (``jwks_retry_loop``) polls every 30 s and sets ``jwks_ready = True``
 once a JWKS can be fetched.  WS connections return close-code **4046**
