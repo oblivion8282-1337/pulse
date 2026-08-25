@@ -375,7 +375,22 @@ build_run_args() {
           RUN_ARGS+=( --label "caddy=${SRV_HOST}"
                       --label "caddy.reverse_proxy={{upstreams ${HTTP_PORT}}}" ) ;;
         traefik)
-          local r="pulse-${SRV_HOST}"
+          # Traefik zerlegt Label-SCHLUESSEL an Punkten (Reflection auf eine
+          # verschachtelte Struktur, "field not found, node: …" bei jedem
+          # Bruch) und verwirft dabei die GESAMTE Label-Konfiguration des
+          # Containers — nicht nur das eine Label. Am echten Traefik v3.5
+          # gemessen, nicht nur aus der Doku (die verbietet ausdruecklich nur
+          # "@"): ein FQDN als Router-Name hat den discovery-Modus fuer
+          # KEINEN echten Hostnamen je funktionieren lassen, obwohl print_plan
+          # "the proxy picks it up automatically. No manual step." verspricht.
+          # tr -c '[:alnum:]' ersetzt bewusst ALLES ausser Buchstaben/Ziffern
+          # (nicht nur Punkte) — jedes Zeichen, dem Traefiks Parser irgendwo
+          # eine Sonderbedeutung gibt (Punkt als Feldtrenner, "@" als
+          # Provider-Trenner, "[...]" als Index-Syntax), soll draussen
+          # bleiben, ohne dass jedes einzelne davon hier aufgezaehlt wird. Die
+          # HOST-REGEL unten bekommt weiterhin den echten SRV_HOST — dort ist
+          # der Hostname ein Label-WERT, den Traefik nicht aufspaltet.
+          local r="pulse-$(printf '%s' "$SRV_HOST" | tr -c '[:alnum:]' '-')"
           RUN_ARGS+=( --label "traefik.enable=true"
                       --label "traefik.http.routers.${r}.rule=Host(\`${SRV_HOST}\`)"
                       --label "traefik.http.routers.${r}.entrypoints=websecure"
