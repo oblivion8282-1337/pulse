@@ -1706,6 +1706,7 @@
   "mod_unban_notice_title": "Ban lifted",
   "mod_unban_rejoin_failed": "Rejoin failed",
   "mod_unban_rejoin_success": "You rejoined „{guild}“.",
+  "monitor_picker_ausweichend": "The selected display is currently unavailable. Recording {ersatz} until it returns — your choice is kept and applies again as soon as it is back.",
   "monitor_picker_empty": "(no displays detected — click Refresh; primary display will be streamed)",
   "monitor_picker_group_displays": "Displays",
   "monitor_picker_group_windows": "Windows",

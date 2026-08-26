@@ -38,9 +38,9 @@ import {
 } from './settingsCatalog';
 import { streamSettings, persistSettings, loadPersisted } from './settingsState.svelte';
 import {
-  captureSourceForSlot,
+  aktiveQuelleFuerSlot,
   resetCaptureSourcesToPortal,
-  resolveMonitorCaptureSource,
+  verfalleneWahlenErsetzen,
 } from './captureSource';
 
 export * from './settingsCatalog';
@@ -177,7 +177,7 @@ export async function loadCatalogs(): Promise<void> {
     // source is platform-dependent — Linux always uses the Wayland portal,
     // Windows + macOS pick a concrete monitor (persisted choice wins if valid).
     if (isWindows() || isMac()) {
-      resolveMonitorCaptureSource();
+      verfalleneWahlenErsetzen();
     } else {
       // Linux: every slot uses the Wayland portal — each start opens its own
       // portal dialog so the user picks a (different) screen per stream.
@@ -353,7 +353,9 @@ export function buildStartArgs(
     },
     // Each slot captures its own source (a different monitor); the rest of the
     // settings — profile, audio, overrides — are shared across both streams.
-    capture: standplatz ? standplatz.quelle : captureSourceForSlot(slot),
+    // Die aktive, nicht die gemerkte Quelle: fehlt der gewählte Bildschirm
+    // gerade, liefe eine Nummer an den Sidecar, die es nicht gibt.
+    capture: standplatz ? standplatz.quelle : aktiveQuelleFuerSlot(slot).quelle,
     audio: {
       // **Beim Standplatz-Gerät entscheidet der Rufer über den Ton, nicht die
       // Einstellung des Besitzers.** Der erste Bildschirm einer Sitzung trägt

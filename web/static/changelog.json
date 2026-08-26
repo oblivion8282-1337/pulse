@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-26.5",
+      "date": "2026-08-26",
+      "style": "Sachlich",
+      "title": "Die gewählte Bildschirmquelle geht nicht mehr verloren",
+      "intro": "Wer mit mehreren Bildschirmen streamt und den Rechner zwischendurch sperrt, fand danach mitunter den falschen Bildschirm im Stream — oder zweimal denselben.",
+      "items": [
+        "Die Auswahl im Quellen-Dialog bleibt jetzt gespeichert, auch wenn ein Bildschirm vorübergehend verschwindet. Beim Sperren des Rechners meldet Windows angeschlossene Bildschirme kurzzeitig ab; bisher wurde die Auswahl in diesem Moment durch eine Ersatzauswahl überschrieben und war damit endgültig weg. Kommt der Bildschirm zurück, gilt wieder die eigene Wahl.",
+        "Fehlt der gewählte Bildschirm gerade wirklich, wird für diesen Stream auf einen vorhandenen ausgewichen — und der Dialog sagt jetzt, dass er das tut und welchen er nimmt. Bisher geschah das stillschweigend, was wie eine Verwechslung aussah.",
+        "Nicht behoben ist der eigentliche Grund: Bildschirme werden intern über ihre Position in der Liste des Betriebssystems angesprochen, und die verschiebt sich, wenn einer wegfällt. Daran arbeiten wir getrennt."
+      ]
+    },
+    {
       "id": "2026-08-26.4",
       "date": "2026-08-26",
       "style": "Sachlich",

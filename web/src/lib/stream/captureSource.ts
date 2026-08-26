@@ -16,7 +16,7 @@
  */
 
 import { isMac, isWindows } from '$lib/platform/runtime';
-import type { GsrMonitor } from './gsr';
+import { quelleFuerStart, vorgabeFuerPlatz, wahlBleibt } from './monitorZuordnung';
 import { gsr } from './gsr';
 import { streamSettings } from './settingsState.svelte';
 import {
@@ -26,41 +26,37 @@ import {
 } from './settingsCatalog';
 
 /**
- * Die Monitore in der Reihenfolge, in der sie an die Slots verteilt werden:
- * Hauptmonitor zuerst, danach die übrigen so, wie der Sidecar sie meldet.
+ * Die GEMERKTE Wahl dieses Platzes (0 = erster Stream).
+ *
+ * Bewusst die gemerkte und nicht die gerade mögliche: fehlt ihr Bildschirm
+ * gerade, soll der Nutzer trotzdem sehen, was er gewählt hat. Womit wirklich
+ * aufgenommen wird, sagt {@link aktiveQuelleFuerSlot}.
  */
-function monitorOrder(): GsrMonitor[] {
-  const mons = streamSettings.available_monitors;
-  const primary = mons.find((mon) => mon.primary) ?? mons[0];
-  if (!primary) return [];
-  return [primary, ...mons.filter((mon) => mon !== primary)];
+export function captureSourceForSlot(slot: number): string {
+  if (slot <= 0) return streamSettings.capture_source;
+  return (
+    streamSettings.capture_sources[String(slot)] ??
+    vorgabeFuerPlatz(slot, streamSettings.available_monitors)
+  );
 }
 
 /**
- * Die Vorgabe für einen Slot, für den der Nutzer noch nichts gewählt hat: der
- * N-te Monitor der Reihe. Ein Nutzer mit zwei Schirmen bekommt so ohne Zutun je
- * einen Stream pro Schirm.
+ * Womit dieser Platz JETZT aufnimmt — und ob das die gewählte Quelle ist.
  *
- * Gehen die Monitore aus, fängt die Reihe von vorn an (Slot 2 auf zwei Schirmen
- * landet wieder auf dem Hauptmonitor). Doppelt geht nicht anders — mehr Streams
- * als Schirme sind erlaubt —, und reihum verteilt es sich wenigstens
- * gleichmäßig, statt alle überzähligen Streams auf denselben Schirm zu legen.
- * Ohne gemeldeten Monitor bleibt es beim Portal-Wert.
- *
- * Bewusst beim LESEN gerechnet statt beim Laden in die Einstellungen
- * geschrieben: sonst stünden für jeden möglichen Slot Einträge in der
- * gespeicherten Datei, auch für die 90-plus, die nie jemand benutzt.
+ * Der Unterschied zur gemerkten Wahl fällt genau dann an, wenn ein Bildschirm
+ * gerade fehlt. Dann wird für DIESEN Start ausgewichen, ohne die Wahl
+ * anzutasten; kommt der Bildschirm zurück, greift sie wieder. Der Start und
+ * die Beschriftung müssen beide hierher gehen — eine Nummer, die es nicht
+ * gibt, liefe im Sidecar auf einen Fehler, und beim Zuschauer stünde eine
+ * Beschriftung, die nicht zum Bild passt.
  */
-function defaultCaptureSourceForSlot(slot: number): string {
-  const order = monitorOrder();
-  if (order.length === 0) return 'portal';
-  return `${MONITOR_CAPTURE_PREFIX}${order[slot % order.length].index}`;
-}
-
-/** The capture source for a given stream slot (0 = primary stream). */
-export function captureSourceForSlot(slot: number): string {
-  if (slot <= 0) return streamSettings.capture_source;
-  return streamSettings.capture_sources[String(slot)] ?? defaultCaptureSourceForSlot(slot);
+export function aktiveQuelleFuerSlot(slot: number): { quelle: string; ausweichend: boolean } {
+  return quelleFuerStart(
+    captureSourceForSlot(slot),
+    Math.max(slot, 0),
+    streamSettings.available_monitors,
+    streamSettings.available_windows.map((w) => w.id),
+  );
 }
 
 /** Set the capture source for a given stream slot. */
@@ -96,7 +92,7 @@ export function resetCaptureSourcesToPortal(): void {
  * fast immer dessen Ton, und die Auswahl steht sichtbar im Dialog, bevor der
  * Stream startet. Wer etwas anderes will (oder gar keinen Ton), stellt es
  * danach um; das überlebt, weil hier NUR beim aktiven Klick auf eine Quelle
- * aufgerufen wird — nicht aus `resolveSlotCaptureSource`, das beim Öffnen des
+ * aufgerufen wird — nicht aus `verfalleneWahlErsetzen`, das beim Öffnen des
  * Dialogs läuft und sonst jedes Mal die gespeicherte Ton-Wahl überschriebe.
  *
  * Der Prozessname passt ohne Übersetzung: `list_windows` liefert `app`
@@ -132,47 +128,56 @@ export function applyAudioForCaptureSource(value: string, slot = 0): void {
 }
 
 /**
- * Windows + macOS: resolve one slot's capture source to a concrete target from
- * the enumerated sources. A persisted choice wins if it still matches a live
- * window (`window:<id>`) or monitor (`Monitor: <n>`); otherwise fall back to
- * this slot's default — which is `'portal'` when no monitor is enumerated.
+ * Eine Wahl, die endgültig ins Leere zeigt, durch die Vorgabe ersetzen.
+ *
+ * **Das betrifft nur Fenster.** Ein geschlossenes Fenster kommt nicht wieder —
+ * seine Kennung wird vom Betriebssystem neu vergeben und zeigte sonst
+ * irgendwann auf ein fremdes. Eine Bildschirm-Wahl dagegen bleibt stehen, auch
+ * wenn ihr Bildschirm gerade fehlt; die Begründung steht bei
+ * `monitorZuordnung.wahlBleibt`, und sie ist der Kern der Meldung vom
+ * 2026-08-26: hier wurde die Wahl weggeschrieben, sobald die Liste einmal
+ * unvollständig war — und beim Aufwachen aus der Bildschirmsperre ist sie das.
  */
-function resolveSlotCaptureSource(slot: number): void {
+function verfalleneWahlErsetzen(slot: number): void {
   const current = captureSourceForSlot(slot);
-  // A still-valid window pick wins — don't snap a chosen app back to a monitor.
+  if (wahlBleibt(current)) return;
   const wins = streamSettings.available_windows;
   if (wins.some((w) => `${WINDOW_CAPTURE_PREFIX}${w.id}` === current)) return;
-
-  const m = /^Monitor: (\d+)$/.exec(current);
-  if (m && streamSettings.available_monitors.some((mon) => mon.index === Number(m[1]))) return;
-  setCaptureSourceForSlot(slot, defaultCaptureSourceForSlot(slot));
+  setCaptureSourceForSlot(slot, vorgabeFuerPlatz(slot, streamSettings.available_monitors));
 }
 
 /**
- * Gespeicherte Quellen gegen die aktuell vorhandenen Monitore und Fenster
- * prüfen (Windows + macOS) — ein abgestecktes Kabel oder ein geschlossenes
- * Fenster darf nicht als Auswahl stehen bleiben.
+ * Gespeicherte Quellen gegen die aktuell vorhandenen Fenster prüfen
+ * (Windows + macOS) — ein geschlossenes Fenster darf nicht als Auswahl stehen
+ * bleiben. Eine Bildschirm-Wahl dagegen bleibt hier immer stehen, auch wenn ihr
+ * Bildschirm gerade fehlt (`verfalleneWahlErsetzen` via `wahlBleibt`).
+ *
+ * **Der frühere Name `resolveMonitorCaptureSource` passte nicht mehr**: seit
+ * dem 2026-08-26 fasst diese Funktion Bildschirm-Wahlen gar nicht mehr an, und
+ * ein Name, der das Gegenteil ankündigt, führt beim nächsten Mal genau dorthin
+ * zurück, wo der Fehler herkam.
  *
  * Durchgegangen werden Slot 0 (der hat immer einen gespeicherten Wert) und die
  * Slots, für die der Nutzer wirklich etwas gewählt hat. Alle übrigen holen ihre
- * Vorgabe ohnehin aus `defaultCaptureSourceForSlot`, das immer aus der
- * aktuellen Monitorliste rechnet und darum gar nicht veralten kann.
+ * Vorgabe ohnehin aus `vorgabeFuerPlatz`, das immer aus der aktuellen
+ * Monitorliste rechnet und darum gar nicht veralten kann.
  */
-export function resolveMonitorCaptureSource(): void {
-  resolveSlotCaptureSource(0);
+export function verfalleneWahlenErsetzen(): void {
+  verfalleneWahlErsetzen(0);
   for (const key of Object.keys(streamSettings.capture_sources)) {
-    resolveSlotCaptureSource(Number(key));
+    verfalleneWahlErsetzen(Number(key));
   }
 }
 
 /** Refresh the monitor list (Windows + macOS; called from the monitor picker).
- *  Re-resolves the capture source so a now-unplugged monitor doesn't linger. */
+ *  Re-resolves the capture source — a closed window's pick doesn't linger; a
+ *  monitor pick is kept even while its monitor is briefly gone. */
 export async function refreshMonitors(): Promise<void> {
   try {
     const r = await gsr.listMonitors();
     if (r?.ok) {
       streamSettings.available_monitors = r.monitors ?? [];
-      resolveMonitorCaptureSource();
+      verfalleneWahlenErsetzen();
     }
   } catch {
     // tolerate — keep the previous list
@@ -208,7 +213,7 @@ export async function refreshWindows(): Promise<void> {
     const r = await gsr.listWindows();
     if (r?.ok) {
       streamSettings.available_windows = r.windows ?? [];
-      resolveMonitorCaptureSource();
+      verfalleneWahlenErsetzen();
     }
   } catch {
     // tolerate — keep the previous list
