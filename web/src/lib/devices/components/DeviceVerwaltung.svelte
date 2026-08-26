@@ -2,11 +2,17 @@
   DeviceVerwaltung — ein Gerät von JEDEM Rechner aus verwalten, nicht nur von
   ihm selbst.
 
-  Umbenennen und Entfernen darf der Besitzer ODER wer `MANAGE_GUILD` hat.
-  Umstellen (Kanal und Community) darf NUR der Besitzer — der Standplatz ist
-  der Rechteanker, und wer ihn setzt, bestimmt, wer den Rechner übernehmen
-  darf. Ein Verwalter ohne Besitzrecht bekommt die beiden Felder deshalb gar
-  nicht erst angeboten.
+  **Alles hier darf nur der Besitzer** — Umbenennen, Umstellen, Entfernen. Der
+  Rechner gehört nicht der Community, er steht nur darin; wer ihn zur Verfügung
+  stellt, entscheidet allein über ihn. Wer nicht Besitzer ist, bekommt kein
+  einziges Feld angeboten, und der Gateway lehnt es zusätzlich ab
+  (`routes/devices.py::_require_owner`).
+
+  Bis zum 2026-08-26 durfte `MANAGE_GUILD` umbenennen und entfernen; das
+  Namensfeld war sogar **völlig ungegatet** und stand jedem Betrachter offen —
+  die Route liess es durch, solange er `MANAGE_GUILD` hatte. Was der Verwaltung
+  bleibt, betrifft ihren Raum: übernehmen nach den Kanalrechten und eine
+  laufende Sitzung beenden.
 
   `$state` mit Nachführung statt `bind:value` direkt auf die Gerätezeile: die
   kommt über `device_changed` von der WebSocket herein und würde eine gerade
@@ -22,7 +28,10 @@
   import { m } from '$lib/paraglide/messages.js';
   import type { Device } from '$lib/api/devices';
 
-  let { device, darfVerwalten }: { device: Device; darfVerwalten: boolean } = $props();
+  // Kein `darfVerwalten` mehr: es steuerte nur noch den Entfernen-Knopf, und
+  // seit der Besitzer allein entscheidet, gibt es nichts, was ein Verwalter
+  // hier dürfte. Ein Merker, der immer dasselbe bedeutet, ist einer zu viel.
+  let { device }: { device: Device } = $props();
 
   const istBesitzer = $derived(device.owner_user_id === currentServerUserId());
 
@@ -96,17 +105,16 @@
 <div class="border-border flex w-full max-w-sm flex-col gap-3 rounded-2xl border p-4 text-left">
   <span class="text-text-bright text-sm font-semibold">{m.device_manage_title()}</span>
 
-  <label class="flex flex-col gap-1">
-    <span class="text-text-muted text-xs">{m.device_manage_name_label()}</span>
-    <Input
-      bind:value={name}
-      disabled={geraeteVerwaltung.laeuft}
-      onblur={umbenennen}
-      data-testid="device-manage-name"
-    />
-  </label>
-
   {#if istBesitzer}
+    <label class="flex flex-col gap-1">
+      <span class="text-text-muted text-xs">{m.device_manage_name_label()}</span>
+      <Input
+        bind:value={name}
+        disabled={geraeteVerwaltung.laeuft}
+        onblur={umbenennen}
+        data-testid="device-manage-name"
+      />
+    </label>
     <label class="flex flex-col gap-1">
       <span class="text-text-muted text-xs">{m.device_manage_guild_label()}</span>
       <Select
@@ -141,7 +149,7 @@
     {/if}
   {/if}
 
-  {#if istBesitzer || darfVerwalten}
+  {#if istBesitzer}
     <Button
       size="sm"
       variant="destructive"
