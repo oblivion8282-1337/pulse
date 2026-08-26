@@ -74,8 +74,12 @@ test.describe('Räume-Bereich auf dem Handy', () => {
     await page.waitForURL(new RegExp(`/app/rooms/${guildId}$`));
     await expect(page.getByTestId('channel-list')).toBeVisible();
     await expect(page.getByTestId(`channel-${kanalId}`)).toBeVisible();
-    // Auf einer Detail-Ebene ist die Bereichs-Leiste weg.
-    await expect(page.getByTestId('mobile-tab-bar')).toBeHidden();
+    // Die Bereichs-Leiste BLEIBT hier. `/app/rooms/<guildId>` ist die zweite
+    // Ebene des Räume-Bereichs, kein Detail-Bildschirm — `tabs.ts` hält das
+    // ausdrücklich fest („Die Community-Übersicht ist KEIN Detail-Screen"),
+    // Detail sind erst die offenen Kanäle darunter. Der Test verlangte das
+    // Gegenteil und war seit jener Entscheidung dauerhaft rot.
+    await expect(page.getByTestId('mobile-tab-bar')).toBeVisible();
     await page.getByTestId('channel-list-back').click();
     await page.waitForURL(/\/app\/rooms$/);
     await expect(page.getByTestId('mobile-tab-bar')).toBeVisible();

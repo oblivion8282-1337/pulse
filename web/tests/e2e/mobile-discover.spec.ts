@@ -98,8 +98,11 @@ test.describe('Entdecken', () => {
   });
 
   test('der Raeume-Bereich fuehrt hierher', async () => {
+    // Entdecken sitzt seit dem Menue-Umbau im Drei-Punkte-Menue der Kopfzeile,
+    // nicht mehr als eigener Knopf (`rooms-discover-link` gibt es nicht mehr).
     await page.goto('/app/rooms');
-    await page.getByTestId('rooms-discover-link').click();
+    await page.getByTestId('rooms-menu').click();
+    await page.getByTestId('rooms-menu-discover').click();
     await page.waitForURL(/\/app\/discover$/);
     await expect(page.getByTestId('discover-page')).toBeVisible();
   });
