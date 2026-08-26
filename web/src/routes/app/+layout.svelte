@@ -45,6 +45,7 @@
   import MobileTabBar from '$lib/components/mobile/MobileTabBar.svelte';
   import TabletNavRail from '$lib/components/mobile/TabletNavRail.svelte';
   import { istDetailScreen } from '$lib/navigation/tabs';
+  import { kanalAusPfad, istAktiverSprachKanal } from '$lib/navigation/kanalBildschirm';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { orientierungSperren } from '$lib/platform/orientation';
   import { registriereZurueckTaste } from '$lib/platform/zurueckTaste';
@@ -322,26 +323,40 @@
   // verschwindet die Leiste, damit der Bildschirm dem Inhalt gehoert; zurueck
   // fuehrt der Pfeil oder die System-Geste.
   //
-  // AUSNAHME Sprach-/Stream-Kanal: der ist laufender Zustand, nicht ein
-  // Durchgangs-Bildschirm — die Leiste bleibt (2026-08-25, Nutzerwunsch), der
-  // Stream füllt die Fläche, Teilnehmer und Controls schweben darüber.
-  const KANAL_BILDSCHIRM = /^\/app\/guilds\/[^/]+\/channels\/[^/]+$/;
+  // AUSNAHME Sprachkanal: der ist laufender Zustand, nicht ein Durchgangs-
+  // Bildschirm — die Leiste bleibt (2026-08-25, Nutzerwunsch), der Stream
+  // füllt die Fläche, Teilnehmer und Controls schweben darüber. Ein TEXTkanal
+  // ist die Ausnahme ausdrücklich NICHT: dort stünden Zurück-Pfeil und
+  // Bereichs-Leiste gleichzeitig da, und der Verfasser verlöre die Höhe.
+  let kanalAufSchirm = $derived(kanalAusPfad(page.url.pathname));
+  let istSprachBildschirm = $derived.by(() => {
+    const k = kanalAufSchirm;
+    if (!k) return false;
+    return (guilds.channelsByGuild[k.guildId] ?? []).some(
+      (c) => c.id === k.channelId && c.type === 1
+    );
+  });
   // Quer-Handy MIT offenem Stream: reines Stream-Vollbild — Bereichs-Leiste
   // und Voice-Dock bleiben aus (Steuerung schwebt auf dem Bild). Ohne Stream
   // bleibt quer alles wie hochkant: die normale mobile Ansicht, nur breiter.
+  //
+  // Geprüft wird der Kanal, in dem der Stream WIRKLICH läuft. „Irgendein
+  // Kanal-Bildschirm" genügte nicht: wer aus dem Sprachkanal mit Stream in
+  // einen Textkanal wechselt und dann kippt, verlöre sonst Leiste, Dock,
+  // Community-Leiste und Kanalliste gleichzeitig — auf einem Textchat, der
+  // von dem Stream gar nichts weiss.
   let kanalQuerStream = $derived(
     viewport.istHandy &&
       !viewport.isMobile &&
-      KANAL_BILDSCHIRM.test(page.url.pathname) &&
       voice.connected &&
-      !!voice.channelId &&
-      openedTiles.hasAny(voice.channelId)
+      istAktiverSprachKanal(page.url.pathname, voice.channelId) &&
+      openedTiles.hasAny(voice.channelId!)
   );
   let zeigeLeisteUnten = $derived(
     hydrated &&
       viewport.istHandy &&
       !kanalQuerStream &&
-      (!istDetailScreen(page.url.pathname) || KANAL_BILDSCHIRM.test(page.url.pathname))
+      (!istDetailScreen(page.url.pathname) || istSprachBildschirm)
   );
   // Handy quer ist KEIN Tablet: keine linke Spalte, die mobile Navigation
   // (unten) gilt weiter.
@@ -363,10 +378,9 @@
   // sonst selbst blockieren: gesperrtes Hochformat ⇒ nie breit ⇒ nie frei).
   $effect(() => {
     const streamAngedockt =
-      KANAL_BILDSCHIRM.test(page.url.pathname) &&
       voice.connected &&
-      !!voice.channelId &&
-      openedTiles.hasAny(voice.channelId);
+      istAktiverSprachKanal(page.url.pathname, voice.channelId) &&
+      openedTiles.hasAny(voice.channelId!);
     void orientierungSperren(!streamAngedockt);
   });
 
