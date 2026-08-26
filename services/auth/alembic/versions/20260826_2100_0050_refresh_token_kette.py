@@ -19,6 +19,11 @@ Die beiden Spalten beantworten die zwei Fragen, die dafuer fehlten:
   nie eingeloest, war der Aufruf unterwegs abgerissen (Ruhezustand,
   Netzwechsel) und der wiederholte Token ist harmlos. Wurde er benutzt, sind
   zwei Parteien im Umlauf und der Verdacht bleibt bestehen.
+* ``nachgereicht`` — **wie oft ging das in dieser Kette schon so?** Ohne diese
+  Grenze faengt die Frage nach dem Nachfolger den mitlaufenden Dieb nicht: er
+  liegt nie zwei Schritte zurueck und bliebe unbegrenzt unerkannt (nachgemessen,
+  s. ``refresh_kette.NACHREICH_LIMIT``). Der Zaehler wandert bei jeder Rotation
+  mit — an der einzelnen Zeile waere er wirkungslos.
 
 Backfill und Uebergang
 ----------------------
@@ -33,10 +38,12 @@ vorgelegter Token deshalb nicht heilbar — der Nutzer sieht dort noch einmal ei
 401, seine anderen Geraete aber bleiben schon verschont. Mit dem ersten
 ``/refresh`` nach dem Ausrollen traegt jede weiterlaufende Kette den Verweis.
 
-Beide Spalten sind **nullable und ohne Vorgabewert**. Das ist Absicht: waehrend
-des Ausrollens schreibt der alte Code noch Zeilen, und der kennt die Spalten
-nicht. Ein ``NOT NULL`` liesse in genau diesem Fenster jede Anmeldung
-auflaufen. ``NULL`` heisst im Code "steht allein" (s. ``refresh_kette``).
+``family_id`` und ``replaced_by`` sind **nullable und ohne Vorgabewert**. Das
+ist Absicht: waehrend des Ausrollens schreibt der alte Code noch Zeilen, und der
+kennt die Spalten nicht. Ein ``NOT NULL`` liesse in genau diesem Fenster jede
+Anmeldung auflaufen. ``NULL`` heisst im Code "steht allein"
+(s. ``refresh_kette``). ``nachgereicht`` kann dagegen NOT NULL sein, weil sein
+Wert fuer jede Zeile derselbe ist und eine Vorgabe ihn deshalb tragen kann.
 
 Revision ID: 0050_refresh_token_kette
 Revises: 0049_refresh_token_session_link
@@ -68,6 +75,17 @@ def upgrade() -> None:
         sa.Column("replaced_by", postgresql.UUID(as_uuid=True), nullable=True),
         schema=SCHEMA,
     )
+    # NOT NULL mit Vorgabe: der alte Code kennt die Spalte waehrend des
+    # Ausrollens nicht und schreibt sie nicht mit — die Vorgabe traegt seine
+    # Zeilen, ohne dass eine Anmeldung auflaeuft. Bei den beiden Spalten oben
+    # geht das nicht, weil ihr Wert je Zeile verschieden ist.
+    op.add_column(
+        "refresh_tokens",
+        sa.Column(
+            "nachgereicht", sa.Integer(), nullable=False, server_default=sa.text("0")
+        ),
+        schema=SCHEMA,
+    )
     # Jede Bestandszeile wird ihre eigene Kette (s. Kopf). Ein einzelnes UPDATE
     # ueber eine Tabelle dieser Groessenordnung — rund 12 000 Zeilen zum
     # Zeitpunkt des Schreibens — ist in einem Wimpernschlag durch.
@@ -87,5 +105,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index("ix_refresh_tokens_family_active", "refresh_tokens", schema=SCHEMA)
+    op.drop_column("refresh_tokens", "nachgereicht", schema=SCHEMA)
     op.drop_column("refresh_tokens", "replaced_by", schema=SCHEMA)
     op.drop_column("refresh_tokens", "family_id", schema=SCHEMA)

@@ -30,7 +30,11 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from dcc_auth.refresh_kette import protokolliere_abweisung, protokolliere_nachgereicht
+from dcc_auth.refresh_kette import (
+    NACHREICH_LIMIT,
+    protokolliere_abweisung,
+    protokolliere_nachgereicht,
+)
 from dcc_shared.logging_setup import konfiguriere_logging
 
 REG = {
@@ -200,8 +204,8 @@ def test_verdacht_erscheint_bei_der_vorgabe_der_cloud(monkeypatch, capsys):
     """Ohne gesetzten Schalter — also so, wie die Cloud laeuft."""
     _frisch_einrichten(monkeypatch)
     protokolliere_abweisung(
-        _zeile(replaced_by=uuid.uuid4()), jetzt=datetime(2026, 8, 26, 8, 30, 0, tzinfo=UTC),
-        widerrufen=6, ua_jetzt="Firefox/153",
+        _zeile(), jetzt=datetime(2026, 8, 26, 8, 30, 0, tzinfo=UTC),
+        widerrufen=6, ua_jetzt="Firefox/153", ereignis="refresh_verdacht",
     )
     ausgabe = capsys.readouterr().err
     assert "refresh_verdacht" in ausgabe
@@ -214,8 +218,17 @@ def test_verdacht_erscheint_bei_der_vorgabe_der_cloud(monkeypatch, capsys):
 def test_nachgereicht_erscheint_bei_der_vorgabe_der_cloud(monkeypatch, capsys):
     """Der haeufige Fall ist der interessante — er darf nicht leiser sein."""
     _frisch_einrichten(monkeypatch)
-    protokolliere_nachgereicht(_zeile(), jetzt=datetime(2026, 8, 26, 8, 30, 0, tzinfo=UTC))
-    assert "refresh_nachgereicht" in capsys.readouterr().err
+    protokolliere_nachgereicht(
+        _zeile(), jetzt=datetime(2026, 8, 26, 8, 30, 0, tzinfo=UTC),
+        nachgereicht=1, ua_jetzt="Firefox/153",
+    )
+    ausgabe = capsys.readouterr().err
+    assert "refresh_nachgereicht" in ausgabe
+    # Beide Kennungen — das ist der einzige Weg, auf dem die Lockerung etwas
+    # herausgibt; ohne die Kennung der Anfrage sieht man dem Fall nicht an, ob
+    # dasselbe Geraet stolperte oder ein fremdes bedient wurde.
+    assert "Edge/151" in ausgabe and "Firefox/153" in ausgabe
+    assert "1/3" in ausgabe, "der Stand des Kontingents gehoert in die Zeile"
 
 
 def test_die_gegenprobe_ist_eine_info_zeile(monkeypatch, capsys):
@@ -235,7 +248,7 @@ def test_kein_ausweis_steht_im_protokoll(monkeypatch, capsys):
     zeile = _zeile()
     protokolliere_abweisung(
         zeile, jetzt=datetime(2026, 8, 26, 8, 30, 0, tzinfo=UTC),
-        widerrufen=1, ua_jetzt=None,
+        widerrufen=1, ua_jetzt=None, ereignis="refresh_verdacht",
     )
     ausgabe = capsys.readouterr().err
     assert str(zeile.family_id) not in ausgabe
@@ -253,7 +266,13 @@ async def test_abmelden_erzeugt_keine_diebstahlswarnung(client, monkeypatch, cap
     protokolliert werden, sonst ist die Warnung beim Auswerten wertlos.
     """
     tokens = (await client.post("/register", json=REG)).json()
-    await client.post("/logout", json={"refresh_token": tokens["refresh_token"]})
+    # MIT vorheriger Rotation: die vorgelegte Zeile traegt dann einen
+    # Nachfolger, obwohl ihn nie jemand eingeloest hat. Ohne diesen Schritt
+    # prueft der Test den einen Pfad, der auch vorher schon stimmte.
+    neu = (
+        await client.post("/refresh", json={"refresh_token": tokens["refresh_token"]})
+    ).json()["refresh_token"]
+    await client.post("/logout", json={"refresh_token": neu})
 
     _frisch_einrichten(monkeypatch)
     replay = await client.post("/refresh", json={"refresh_token": tokens["refresh_token"]})
@@ -262,3 +281,133 @@ async def test_abmelden_erzeugt_keine_diebstahlswarnung(client, monkeypatch, cap
     ausgabe = capsys.readouterr().err
     assert "refresh_verdacht" not in ausgabe, "eine Abmeldung ist kein Diebstahlsverdacht"
     assert "refresh_abgewiesen" in ausgabe
+
+
+# ---------------------------------------------------------------------------
+# Der Deckel: Nachreichen ist Kulanz, kein Dauerzustand
+# ---------------------------------------------------------------------------
+#
+# Ohne ihn ist die Erkennung nicht verzoegert, sondern aufgehoben — nachgemessen
+# am 2026-08-26: zwei Parteien, die beide mitlaufen, bekommen in jeder Runde
+# denselben Ausweis nachgereicht und laufen nie auseinander; und wer immer nur
+# denselben alten Token vorlegt, bekommt beliebig oft ein frisches Zugriffs-
+# token. Beides endet erst am Deckel.
+
+
+@pytest.mark.asyncio
+async def test_zwei_mitlaufende_parteien_werden_erkannt(client):
+    """Der Fall, den die Nachfolger-Frage allein NICHT faengt.
+
+    Wer den Ausweis abgegriffen hat und einfach mitpollt, liegt nie zwei
+    Schritte zurueck — der Nachfolger ist jedes Mal noch uneingeloest, und ohne
+    Deckel liefe das endlos.
+    """
+    tokens = (await client.post("/register", json=REG)).json()
+    opfer = dieb = tokens["refresh_token"]
+
+    for runde in range(NACHREICH_LIMIT + 1):
+        r_opfer = await client.post("/refresh", json={"refresh_token": opfer})
+        r_dieb = await client.post("/refresh", json={"refresh_token": dieb})
+        if r_dieb.status_code == 401:
+            assert runde <= NACHREICH_LIMIT, "haette frueher auffallen muessen"
+            break
+        opfer, dieb = r_opfer.json()["refresh_token"], r_dieb.json()["refresh_token"]
+    else:
+        pytest.fail("zwei mitlaufende Parteien blieben unerkannt")
+
+
+@pytest.mark.asyncio
+async def test_wer_immer_denselben_vorlegt_kommt_nicht_unbegrenzt_durch(client):
+    """Derselbe alte Token, immer wieder — irgendwann ist Schluss."""
+    tokens = (await client.post("/register", json=REG)).json()
+    alt = tokens["refresh_token"]
+    await client.post("/refresh", json={"refresh_token": alt})
+
+    ergebnisse = [
+        (await client.post("/refresh", json={"refresh_token": alt})).status_code
+        for _ in range(NACHREICH_LIMIT + 2)
+    ]
+    assert 401 in ergebnisse, f"blieb unbegrenzt gueltig: {ergebnisse}"
+    # Und danach ist die Kette tot, nicht nur diese eine Anfrage abgewiesen.
+    assert ergebnisse[-1] == 401
+
+
+@pytest.mark.asyncio
+async def test_ein_verlorener_rundlauf_kostet_kein_ganzes_kontingent(client):
+    """Der Deckel darf den Normalfall nicht anknabbern.
+
+    Ein abgerissener Rundlauf ist EINE Nachreichung. Wer danach normal
+    weiterarbeitet, muss den vollen Rest behalten — sonst waere der Deckel eine
+    schleichende Frist auf die Sitzung statt einer Grenze gegen Missbrauch.
+    """
+    tokens = (await client.post("/register", json=REG)).json()
+    alt = tokens["refresh_token"]
+    neu = (await client.post("/refresh", json={"refresh_token": alt})).json()["refresh_token"]
+    await client.post("/refresh", json={"refresh_token": alt})  # die eine Nachreichung
+
+    # Ab hier laeuft die Kette gesund weiter, viele Rotationen lang.
+    for _ in range(NACHREICH_LIMIT + 3):
+        r = await client.post("/refresh", json={"refresh_token": neu})
+        assert r.status_code == 200, "eine gesunde Kette darf nie am Deckel sterben"
+        neu = r.json()["refresh_token"]
+
+
+@pytest.mark.asyncio
+async def test_gesperrtes_konto_ueberschreibt_den_widerrufs_zeitpunkt_nicht(
+    client, session_factory
+):
+    """Der Zeitstempel der Rotation ist die Spur, an der der Abstand haengt.
+
+    Der Sperr-Zweig setzt ``revoked_at`` auf die vorgelegte Zeile. Seit die
+    Kontopruefung VOR der Weiche steht, trifft er erstmals auch bereits
+    rotierte Zeilen — und ueberschriebe dort einen Zeitstempel, der zu ihrer
+    Rotation gehoert und aus dem ``widerrufen_vor`` gerechnet wird.
+    """
+    from dcc_auth.models import RefreshToken, User
+    from sqlalchemy import select
+    from sqlalchemy import update as sa_update
+
+    tokens = (await client.post("/register", json=REG)).json()
+    alt = tokens["refresh_token"]
+    await client.post("/refresh", json={"refresh_token": alt})
+
+    async with session_factory() as s:
+        vorher = (
+            await s.execute(select(RefreshToken).where(RefreshToken.replaced_by.is_not(None)))
+        ).scalars().one().revoked_at
+        await s.execute(sa_update(User).values(disabled=True))
+        await s.commit()
+
+    assert (await client.post("/refresh", json={"refresh_token": alt})).status_code == 401
+
+    async with session_factory() as s:
+        nachher = (
+            await s.execute(select(RefreshToken).where(RefreshToken.replaced_by.is_not(None)))
+        ).scalars().one().revoked_at
+    assert nachher == vorher, "der Zeitstempel der Rotation wurde ueberschrieben"
+
+
+@pytest.mark.asyncio
+async def test_ein_aufgebrauchtes_kontingent_ist_eine_eigene_meldung(
+    client, monkeypatch, capsys
+):
+    """Der aussagekraeftigste Fall darf nicht wie eine Abmeldung aussehen.
+
+    Wer den Deckel reisst, hat in EINER Kette auffaellig oft nachreichen
+    lassen — das ist der wahrscheinlichste Hinweis auf einen Mitlaeufer, den
+    dieser Dienst ueberhaupt produziert. Als ``refresh_abgewiesen`` (die
+    Meldung fuer gewoehnliche Abmeldungen) ginge er beim Auswerten unter.
+    """
+    tokens = (await client.post("/register", json=REG)).json()
+    alt = tokens["refresh_token"]
+    await client.post("/refresh", json={"refresh_token": alt})
+    for _ in range(NACHREICH_LIMIT):
+        await client.post("/refresh", json={"refresh_token": alt})
+
+    _frisch_einrichten(monkeypatch)
+    abgewiesen = await client.post("/refresh", json={"refresh_token": alt})
+    assert abgewiesen.status_code == 401
+
+    ausgabe = capsys.readouterr().err
+    assert "refresh_kontingent" in ausgabe
+    assert "refresh_abgewiesen" not in ausgabe
