@@ -581,13 +581,13 @@ jget() {
     # Mail), kommt echtes `None` zurück und `print(None)` schreibt den
     # literalen Text "None" in die .env. `or ''` fängt beides ab.
     #
-    # `|| true` am Ende — derselbe Grund wie beim Rückfallzweig unten, hier
-    # nur der Verweis statt der vollen Begründung: eine Antwort mit
+    # `|| true` am Ende, aus demselben Grund wie beim Rückfallzweig unten
+    # (dort steht nur noch der Verweis hierher): eine Antwort mit
     # Statuscode 200, die kein gültiges JSON ist (Captive Portal,
     # transparenter Proxy, WAF-Zwischenseite — `curl -fsSL` folgt
     # Weiterleitungen, `-f` greift nur bei Nicht-2xx), lässt `json.load` mit
     # `JSONDecodeError` abbrechen. Ohne `|| true` tötet das unter `set -euo
-    # pipefail` + `pipefail` die Zuweisung `VAR="$(jget …)"` wortlos, mit
+    # pipefail` (Skriptkopf) die Zuweisung `VAR="$(jget …)"` wortlos, mit
     # einem Python-Traceback als letzter Ausgabe, unmittelbar nach dem
     # Einlösen des Bootstrap-Tokens.
     printf '%s' "$1" | python3 -c "import sys,json;print(json.load(sys.stdin).get('$2','') or '')" | tr -d '\r\n' || true
