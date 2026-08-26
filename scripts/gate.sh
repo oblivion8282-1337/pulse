@@ -121,6 +121,10 @@ bereich_hash() {
 BEREICH_backend="services shared plugins uv.lock pyproject.toml conftest.py"
 BEREICH_web="web plugins pnpm-lock.yaml package.json"
 BEREICH_desktop="desktop pnpm-lock.yaml package.json"
+# Der Auslieferer auf dem VPS läuft per Cron und meldet sich nur, wenn er etwas
+# tut — ein Fehler darin sieht aus wie „es passiert nichts". Seine
+# Entscheidungslogik hat deshalb einen eigenen Prüfstand.
+BEREICH_infra="infra/prod"
 
 haupt_baum=""
 git rev-parse -q --verify origin/main >/dev/null 2>&1 &&
@@ -152,11 +156,14 @@ noetig() {
 backend_grund="$(noetig backend $BEREICH_backend)"
 web_grund="$(noetig web $BEREICH_web)"
 desktop_grund="$(noetig desktop $BEREICH_desktop)"
+# shellcheck disable=SC2086
+infra_grund="$(noetig infra $BEREICH_infra)"
 
 echo "→ Test-Gate:"
 echo "   Backend  : $backend_grund"
 echo "   Web      : $web_grund"
 echo "   Desktop  : $desktop_grund"
+echo "   Infra    : $infra_grund"
 
 if [ "$trocken" = true ]; then
   exit 0
@@ -225,6 +232,15 @@ if [ "${desktop_grund#ja}" != "$desktop_grund" ]; then
     || { echo "✗ desktop-Unit-Tests ROT — abgebrochen." >&2; exit 1; }
   # shellcheck disable=SC2086
   stempeln desktop $BEREICH_desktop
+fi
+
+# ── Infra (Auslieferer) ─────────────────────────────────────────────────────
+if [ "${infra_grund#ja}" != "$infra_grund" ]; then
+  echo "  Auslieferer-Fälle (infra/prod)…"
+  bash infra/prod/tests/pulse-update-faelle.sh \
+    || { echo "✗ pulse-update-Fälle ROT — abgebrochen." >&2; exit 1; }
+  # shellcheck disable=SC2086
+  stempeln infra $BEREICH_infra
 fi
 
 # ── Rust ────────────────────────────────────────────────────────────────────
