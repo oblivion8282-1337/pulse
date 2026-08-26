@@ -7,7 +7,7 @@ A patched MediaMTX image, built as a multi-stage Dockerfile, published to
 
 ## What it does
 
-**Five patches, in two groups.** The Dockerfile header carries the full
+**Six patches, in two groups.** The Dockerfile header carries the full
 rationale for each; this is the map.
 
 `patches/` — applied to the MediaMTX source right after clone:

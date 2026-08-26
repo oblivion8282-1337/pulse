@@ -20,17 +20,29 @@ changed="${1:-}"
 # (`streaming/pulse-*`), hängt aber an der gepinnten FFmpeg und wird weiter
 # unten mit FFMPEG_DIR/LD_LIBRARY_PATH getestet — hier ausdrücklich
 # ausgenommen, sonst liefe es hier ein zweites Mal, diesmal ohne die
-# nötige Umgebung, und bräche den Bau eines unveränderten Crates. Und
-# pulse-whip: die zieht webrtc, tokio und anyhow (214 Kisten im
-# Abhängigkeitsbaum gegen 1 bei pulse-fernsteuerung), ist also weder
-# abhängigkeitsfrei noch schnell — und ihr `cargo test` löste webrtc von
-# crates.io auf, nicht über den gepatchten Zweig, den Player und die
-# Sidecars tatsächlich ausliefern; das Gate prüfte damit eine andere
-# Abhängigkeit als die ausgelieferte. pulse-whip bleibt deshalb aussen vor
-# und läuft weiterhin in KEINEM Gate — eine offene Rechnung, kein Versehen.
+# nötige Umgebung, und bräche den Bau eines unveränderten Crates.
+#
+# **pulse-whip lief bis zum 2026-08-27 in KEINEM Gate**, und die Begründung
+# dafür stimmte nicht. Sie lautete: ihr `cargo test` löse webrtc von
+# crates.io auf statt „über den gepatchten Zweig, den Player und die
+# Sidecars tatsächlich ausliefern". Nachgesehen: `[patch.crates-io]` für
+# webrtc steht NUR in `pulse-player/Cargo.toml` (auf `vendor/webrtc-rs`).
+# Die drei Sidecars führen schlicht `webrtc = "0.17"` von crates.io — und
+# ausser ihnen hängt niemand an pulse-whip. Der Gate-Lauf prüfte also
+# genau die ausgelieferte Abhängigkeit, nicht eine andere.
+#
+# Der zweite Einwand (214 Kisten im Abhängigkeitsbaum) bleibt richtig und
+# ist trotzdem kein Grund: der Baum wird für pulse-player ohnehin gebaut,
+# und ein Lauf nach einer Änderung an der Kiste selbst kostet gemessen 1 s
+# (2026-08-27, warmer Cache). Bezahlt wird nur der erste Kaltbau, wie bei
+# jedem Crate hier.
+#
+# Was dahinter lag: 31 Tests, die genau das festhalten, wofür es diesen
+# Sendeweg gibt — dass `ccm fir`/`nack pli` wirklich im Angebot stehen, dass
+# `stereo=1` es hinausschafft, dass die H.264-Stufe die gerechnete ist. Jeder
+# einzelne hält einen Fehler fest, der schon einmal da war.
 for kiste in $(echo "$changed" | sed -n 's|^\(streaming/pulse-[a-z-]*\)/.*|\1|p' | sort -u); do
   [ "$kiste" = "streaming/pulse-player" ] && continue
-  [ "$kiste" = "streaming/pulse-whip" ] && continue
   [ -f "$kiste/Cargo.toml" ] || continue
   # `${kiste}` mit Klammern, und das ist kein Schoenheitsfehler: macOS
   # liefert bis heute bash 3.2 aus, und die zaehlt das erste Byte des

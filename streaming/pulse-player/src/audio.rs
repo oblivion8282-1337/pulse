@@ -673,26 +673,25 @@ mod tests {
         (samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32).sqrt()
     }
 
-    /// BEFUND (Bug, nicht behoben): `resample_for_device()` liefert bei jeder
-    /// Zielkanalzahl > 1 einen Panic statt Samples. `converted.plane::<f32>(0)`
-    /// hat laut ffmpeg-next-Doku/-Quelle IMMER Laenge `converted.samples()`
+    /// Haelt einen BEHOBENEN Absturz fest: `resample_for_device()` griff bei
+    /// jeder Zielkanalzahl > 1 ueber das Ende der Slice hinaus.
+    /// `converted.plane::<f32>(0)` hat immer Laenge `converted.samples()`
     /// (Anzahl Frames, nicht Frames*Kanaele) — auch fuer gepackte
-    /// Multi-Kanal-Formate. Der Code rechnet aber
-    /// `samples = converted.samples() * out_channels` und slice't
-    /// `plane[..samples]`, was fuer out_channels >= 2 IMMER ausserhalb der
-    /// von plane() zurueckgegebenen Slice liegt.
+    /// Multi-Kanal-Formate —, gerechnet wurde aber
+    /// `converted.samples() * out_channels`:
     ///
-    /// Reproduktion (mit echten, per libopus erzeugten Stereo-Paketen):
     ///   thread panicked at src/audio.rs:309:37:
     ///   range end index 1920 out of range for slice of length 960
-    /// (960 = converted.samples(), 1920 = 960*2 = der falsch berechnete Index)
     ///
-    /// Auswirkung: JEDER Stereo- (oder Mehrkanal-)Opus-Frame crasht den
-    /// Ausgabe-Thread beim ersten Paket. Der Tonpfad ist fuer praktisch jedes
-    /// reale Ausgabegeraet (fast nie Mono) vollstaendig kaputt — nicht nur
-    /// falsch, sondern abstuerzend. Nur out_channels=1 (Mono-Geraet) geht
-    /// gut, weil dort samples == converted.samples() ist und die Slice genau
-    /// passt.
+    /// Das traf jedes reale Ausgabegeraet (fast nie Mono) beim ersten
+    /// Stereo-Paket. Behoben in `audio/opus.rs` (`converted.data(0)` statt der
+    /// Plane-Indizierung); der Nachbar-Test
+    /// `jede_zielkanalzahl_liefert_brauchbare_samples` haelt genau das fest.
+    ///
+    /// **Bis zum 2026-08-27 stand hier „BEFUND (Bug, nicht behoben)".** Der Satz
+    /// hat den Fix ueberlebt — und ein Kommentar, der einen erledigten Absturz
+    /// als offen fuehrt, ist teurer als keiner: er laedt dazu ein, gegen ein
+    /// Gespenst zu entscheiden (etwa Mehrkanal-Ausgabe abzuschalten).
     ///
     /// Env: PULSE_PLAYER_OPUS_STEREO_FIXTURE = Pfad zur .opus/.ogg-Datei
     /// (2s, 440 Hz Sinus, Stereo, 48 kHz — siehe opus_packets_from_ogg()).

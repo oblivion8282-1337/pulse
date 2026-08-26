@@ -1,8 +1,22 @@
 //! Offene Anforderung eines Vollbilds.
 //!
-//! **Wozu.** Paketverlust ist in der heutigen Kette nicht reparierbar: es gibt
-//! keine Nachlieferung, und der Zuschauer wartet nach jeder Luecke bis zum
-//! naechsten regulaeren Vollbild. Ueber RTMPS gibt es dafuer gar keinen
+//! **Wozu.** Ein Verlust, den die Nachlieferung nicht mehr einholt, laesst den
+//! Zuschauer sonst bis zum naechsten regulaeren Vollbild warten — bei 60 s
+//! Abstand also bis zu eine Minute.
+//!
+//! Hier stand bis zum 2026-08-27 „Paketverlust ist in der heutigen Kette nicht
+//! reparierbar: es gibt keine Nachlieferung". Das ist falsch und war es schon,
+//! als es geschrieben wurde: pion — auf dem MediaMTX aufsetzt — liefert ein
+//! angefordertes Paket unveraendert auf demselben Strom nach, ohne RTX. Der
+//! Player haelt genau das mit einer Messung fest
+//! (`pulse-player/src/whep.rs::rueckkanal_flags`: 505 Wiederholungen bei 5 %
+//! Verlust, null in der Nullkontrolle), und sendeseitig haengt der
+//! NACK-Responder von webrtc-rs an jeder Bildspur, weil unser Angebot `nack`
+//! fuehrt (`pulse-whip::sdp::video_rtcp_feedback`).
+//!
+//! Die Vollbild-Anforderung bleibt trotzdem noetig — sie deckt ab, was die
+//! Nachlieferung nicht kann: einen Verlust, dessen Antwort nach dem
+//! Anzeigetermin eintrifft, und den Einstieg eines neuen Zuschauers. Ueber RTMPS gibt es dafuer gar keinen
 //! Rueckkanal — der eigene WHIP-Sendeweg (`whip::mod`) ist der erste Weg, auf
 //! dem die Anforderung eines Zuschauers den Encoder ueberhaupt erreicht.
 //!

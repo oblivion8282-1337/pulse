@@ -108,6 +108,26 @@ pub struct FfmpegD3d12Encoder {
     /// `async_depth` veraendert (Default 2 bei den d3d12va-Encodern);
     /// `last_send_us` sieht ihn NICHT.
     enc_latency: EncodeLatency,
+    /// Vollbilder auf Anforderung: abholen, zaehlen, gedrosselt melden
+    /// (s. `crate::keyframe::Anforderungen`).
+    ///
+    /// **Fehlte hier bis zum 2026-08-27**, wie im CPU-Weg (`encoder.rs`) und
+    /// aus demselben Grund: `crate::keyframe::request_keyframe()` setzt nur
+    /// einen prozessweiten Merker, abgeholt hat ihn allein `encoder_hw.rs`.
+    /// Ein Zuschauer, der auf diesem Weg ein Vollbild anforderte, bekam keines
+    /// — und wartete bis zum regulaeren Takt, seit dem 2026-08-18 also bis zu
+    /// 60 s.
+    ///
+    /// Weniger schwer als im CPU-Weg, weil dieser Zweig nur ueber
+    /// `PULSE_HQ_AMD_D3D12=1` erreichbar ist (`codec.rs::amd_forces_d3d12`) —
+    /// eine Gegenprobe, kein Auslieferweg. Genau deshalb aber mitgezogen: eine
+    /// Gegenprobe, die den Rueckkanal nicht bedient, misst etwas anderes als
+    /// den Regelweg und faellt als Vergleich still aus.
+    ///
+    /// Kein `Selbsttakt` daneben wie in `encoder_hw.rs`: den braucht nur
+    /// `h264_amf` (s. `auffrischung::braucht_selbsttakt`), und der laeuft
+    /// nicht ueber d3d12va.
+    vollbilder_angefordert: crate::keyframe::Anforderungen,
 }
 
 impl FfmpegD3d12Encoder {
@@ -147,6 +167,24 @@ impl FfmpegD3d12Encoder {
         encoder.set_bit_rate((cfg.bitrate_kbps as usize).saturating_mul(1000));
         encoder.set_max_bit_rate((cfg.bitrate_kbps as usize).saturating_mul(1000));
         encoder.set_gop(crate::keyframe::abstand_bilder(cfg.fps));
+        // Farbgebung ANSAGEN, weil wir sie hier selbst herstellen.
+        //
+        // `d3d12_convert.rs` rechnet mit einem eigenen HLSL-Shader nach
+        // **BT.709 limited** (`rgb_to_yuv709_limited`, Y auf 16..235 gestaucht)
+        // — der Strom sagte das bis zum 2026-08-27 aber nicht. Ein Empfaenger
+        // ohne Angabe raet, und die uebliche Annahme fuer SD-Material ist
+        // BT.601: dieselbe Verwechslung, die auf Linux fuer VAAPI gemessen und
+        // nachgezogen wurde (`linux-hq-sidecar/src/encode/mod.rs`, dort weiss
+        // Y=255 statt 235).
+        //
+        // **Warum hier und nicht im AMF-/NVENC-Weg** (`encoder.rs`,
+        // Zero-Copy-Zweig): dort wandelt der Encoder intern nach eigener
+        // Konvention. Etwas anzusagen, das wir nicht herstellen, verstellte
+        // einen funktionierenden Weg auf Verdacht. Die Trennlinie ist nicht
+        // die Plattform, sondern die Frage, wer die Umrechnung macht — genau
+        // so steht sie auch im Linux-Zwilling.
+        encoder.set_colorspace(ffmpeg::color::Space::BT709);
+        encoder.set_color_range(ffmpeg::color::Range::MPEG);
         if global_header {
             encoder.set_flags(codec::Flags::GLOBAL_HEADER);
         }
@@ -155,6 +193,11 @@ impl FfmpegD3d12Encoder {
             let ctx = encoder.as_mut_ptr();
             (*ctx).pix_fmt = AVPixelFormat::AV_PIX_FMT_D3D12;
             (*ctx).max_b_frames = 0;
+            // Zur Farbgebung oben: Primaries und Uebertragungskurve kennt
+            // ffmpeg-next nicht als Setter, deshalb ueber den Zeiger — wie im
+            // Linux-Zwilling.
+            (*ctx).color_primaries = AVColorPrimaries::AVCOL_PRI_BT709;
+            (*ctx).color_trc = AVColorTransferCharacteristic::AVCOL_TRC_BT709;
             let new_ref = av_buffer_ref(frames_ref);
             if new_ref.is_null() {
                 return Err(anyhow!("av_buffer_ref(frames_ref) returned NULL"));
@@ -208,6 +251,7 @@ impl FfmpegD3d12Encoder {
             last_send_us: 0,
             last_mux_us: 0,
             enc_latency: EncodeLatency::default(),
+            vollbilder_angefordert: Default::default(),
         })
     }
 
@@ -256,6 +300,24 @@ impl FfmpegD3d12Encoder {
     /// (1/90000 — s. `crate::zeitbasis`).
     pub fn send_frame(&mut self, frame: &mut OwnedD3d12Frame, pts: i64) -> Result<()> {
         unsafe { (*frame.frame).pts = pts };
+        // Vollbild auf Anforderung eines Zuschauers (s. `crate::keyframe`).
+        //
+        // **Vor dem Stempel**, nicht danach — dieselbe Begruendung wie im
+        // Zwilling `encoder_hw.rs::send_avframe`: die gedrosselte Meldung
+        // schreibt auf stderr, und im Messfenster truege `last_send_us`
+        // ausgerechnet auf den interessanten Bildern die Schreibzeit mit.
+        let angefordert = self.vollbilder_angefordert.naechstes_bild(pts);
+        unsafe {
+            // **Pro Bild ZURUECKSETZEN**, deshalb `if/else` und nicht `if`:
+            // die Frames kommen aus einem Pool. Bliebe `I` kleben, waere jedes
+            // folgende Bild ein Vollbild und die Bildqualitaet braeche bei
+            // fester Bitrate zusammen.
+            (*frame.frame).pict_type = if angefordert {
+                AVPictureType::AV_PICTURE_TYPE_I
+            } else {
+                AVPictureType::AV_PICTURE_TYPE_NONE
+            };
+        }
         // VOR dem Einschieben stempeln (s. `latency.rs`).
         let t_send = std::time::Instant::now();
         let ret = unsafe { avcodec_send_frame(self.encoder.as_mut_ptr(), frame.frame) };

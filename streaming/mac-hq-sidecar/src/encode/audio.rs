@@ -93,7 +93,32 @@ impl AudioEncoder {
         if global_header {
             enc.set_flags(codec::Flags::GLOBAL_HEADER);
         }
-        enc.open_with(Dictionary::new()).context("open libopus encoder")
+        // In-Band-Fehlerkorrektur — die einzige Absicherung, die die Tonspur
+        // ueberhaupt haben kann (MediaMTX erzeugt FlexFEC nur fuer die
+        // Videospur, s. `infra/mediamtx-fork/patches/0003-flexfec-on-whep`).
+        //
+        // **Bis hierher war sie auf macOS als einzigem Sidecar aus.** Das SDP
+        // sagt sie auf allen drei zu — `useinbandfec=1` steht in der
+        // gemeinsamen `pulse-whip::sdp::opus_capability` —, eingeschaltet
+        // haben sie nur Linux (`encode/audio.rs`) und Windows
+        // (`encode/audio/mod.rs`). Eine Zusage ohne Einloesung: der Empfaenger
+        // richtet sich darauf ein, dass ein verlorenes Paket aus dem naechsten
+        // teilweise wiederherstellbar ist, und bekam auf macOS nichts.
+        //
+        // `packet_loss` ist Pflicht, nicht Zierde: libopus legt die Redundanz
+        // nach der ERWARTETEN Verlustrate aus, bei 0 entsteht keine und `fec=1`
+        // bleibt folgenlos. Werte wortgleich von den beiden Zwillingen
+        // uebernommen — nicht gemessen, wer sie dreht, misst nach.
+        //
+        // Keine Abfrage der Paketlaenge wie auf Linux: LBRR ist ein
+        // SILK-Merkmal und gibt es unter 10 ms nicht, dieser Sidecar sendet
+        // aber fest 20 ms (s. [`OPUS_FRAME_SAMPLES`]) und hat keinen Schalter
+        // dafuer. Eine Bedingung haette hier nur einen Fall, der nicht
+        // eintreten kann.
+        let mut aopts = Dictionary::new();
+        aopts.set("fec", "1");
+        aopts.set("packet_loss", "5");
+        enc.open_with(aopts).context("open libopus encoder")
     }
 
     /// Create the libopus encoder + add an audio stream to `output`. Must run
