@@ -91,6 +91,9 @@ export function register(): void {
       // Die Bildschirme kommen über denselben Anlass herein wie der Zustand
       // (die Anmeldung des Geräts). Fehlen sie im Rahmen, bleibt die zuletzt
       // bekannte Liste stehen — eine ältere Gegenstelle soll sie nicht löschen.
+      // Dasselbe gilt für eine LEERE Liste, und das entscheidet `_state`: der
+      // Server sendet sie bei jedem nie angemeldeten oder gerade eingeschlafenen
+      // Gerät mit (Begründung dort).
       Array.isArray(evt.monitors) ? evt.monitors : undefined,
       // Dieselbe Lesart wie bei den Bildschirmen: fehlt das Feld im Rahmen,
       // bleibt der letzte Stand stehen. Eine LEERE Liste ist dagegen eine

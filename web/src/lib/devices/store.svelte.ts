@@ -168,11 +168,28 @@ class DeviceStore {
       ...neu[i],
       state,
       busy_with: busyWith,
-      ...(monitors ? { monitors } : {}),
-      // **`undefined` und leere Liste bedeuten Verschiedenes.** Fehlt das Feld,
-      // bleibt der letzte Stand (ältere Gegenstelle); eine leere Liste ist die
-      // Aussage „sendet nicht mehr" und muss ankommen, sonst klebt das
-      // LIVE-Abzeichen an einem eingeschlafenen Gerät.
+      // **Eine leere Bildschirmliste ist keine Aussage, sondern eine Lücke** —
+      // anders als bei den Plätzen darunter, wo das Gegenteil gilt. Der Server
+      // hält diese Regel beim SPEICHERN bereits ein (`device_registry.py`:
+      // „Eine leere Liste NICHT übernehmen … die zuletzt bekannten sind dann
+      // die bessere Auskunft als ‚hat keine'"), beim SENDEN aber nicht:
+      // `device_monitors()` gibt `[]` zurück, wenn nichts hinterlegt ist, und
+      // `device_forget()` löscht die Liste, sobald das Gerät offline geht.
+      // Jeder `device_state` eines nie angemeldeten oder gerade eingeschlafenen
+      // Geräts trägt damit `monitors: []` — und überschrieb hier eine bereits
+      // richtige Liste. Danach fiel die Geräteansicht auf ihren synthetischen
+      // Einzel-Eintrag zurück (`schirme.svelte.ts::monitorListe`): ein Rechner
+      // mit zwei Schirmen bot nur noch einen zum Wecken an.
+      //
+      // Ein Gerät, das wirklich einen Schirm verliert, meldet eine Liste mit
+      // einem Eintrag, keine leere — der Fall kommt also weiterhin an. Und ein
+      // Rechner ganz ohne Bildschirm hat nichts zu übertragen, kann also
+      // ohnehin kein Standplatz sein.
+      ...(monitors && monitors.length > 0 ? { monitors } : {}),
+      // **Bei den Plätzen bedeuten `undefined` und leere Liste Verschiedenes.**
+      // Fehlt das Feld, bleibt der letzte Stand (ältere Gegenstelle); eine leere
+      // Liste ist die Aussage „sendet nicht mehr" und muss ankommen, sonst klebt
+      // das LIVE-Abzeichen an einem eingeschlafenen Gerät.
       ...(streamSlots ? { stream_slots: streamSlots } : {}),
     };
     this.byGuild.set(guildId, neu);
