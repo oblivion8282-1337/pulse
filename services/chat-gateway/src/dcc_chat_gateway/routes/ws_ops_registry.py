@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from dcc_chat_gateway.pubsub import ConnectionManager
+    from dcc_chat_gateway.routes.ws_token_renewal import TokenExpiryWatch
     from dcc_chat_gateway.security import AuthenticatedUser
 
 
@@ -129,6 +130,11 @@ class WSOpContext:
     # (``ws_device_handlers._takt_frei``).
     last_device_announce: float = 0.0
     last_device_wake: float = 0.0
+    # Wecker, der den Socket beim Ablauf seines Tokens schliesst. Liegt hier,
+    # damit ``token_refresh`` sein Ziel verschieben kann, ohne dass der
+    # Op-Loop einen Rueckkanal fuer eine lokale Variable braucht. ``None``,
+    # wenn das Token kein ``exp`` trug.
+    token_expiry: "TokenExpiryWatch | None" = None
     # Optional DB session passed from the plugin op-gate to avoid double
     # session acquisition. Only set for plugin ops that pass the gate.
     # Internal use only; handlers should not rely on this being set.
@@ -177,6 +183,8 @@ CORE_OPS: frozenset[str] = frozenset({
     "remote_end",
     "remote_reclaim",
     "profile_statement",
+    # Token-Austausch am offenen Socket (statt Reconnect bei Ablauf).
+    "token_refresh",
 })
 
 

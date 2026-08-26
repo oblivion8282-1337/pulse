@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-26.2",
+      "date": "2026-08-26",
+      "style": "Sachlich",
+      "title": "Freunde flackern nicht mehr in der Liste",
+      "intro": "Verbundene Nutzer verschwanden in festen Abständen kurz aus der Freundes- und Mitgliederliste und tauchten sofort wieder auf.",
+      "items": [
+        "Wer online ist, bleibt in der Liste stehen. Bisher verschwand jeder Nutzer alle paar Minuten für ein bis zwei Sekunden und kam sofort zurück — sichtbar als Sprung in der Freundesliste, beim Filter „nur online\" als kurzes Verschwinden.",
+        "Ursache war kein Netzproblem, sondern ein regelmäßiger Neuaufbau der Verbindung: die Anmeldung der App lief nach einer festen Zeit ab, und die Verbindung wurde dafür neu aufgebaut. Die Anmeldung wird jetzt an der bestehenden Verbindung erneuert, die Verbindung bleibt stehen."
+      ]
+    },
+    {
       "id": "2026-08-26",
       "date": "2026-08-26",
       "style": "Sachlich",

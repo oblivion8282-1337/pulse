@@ -74,6 +74,14 @@ async function reauth(serverId: string): Promise<boolean> {
     const conn = gatewayPool.peek(serverId);
     if (conn && (conn.state === 'closed' || conn.state === 'idle')) {
       void conn.connect().catch(() => undefined);
+    } else if (conn && conn.state === 'open') {
+      // Steht die Verbindung noch, bekommt sie den neuen Token gereicht statt
+      // ihn erst beim nächsten Aufbau zu sehen. Der Server hängt die
+      // Lebensdauer des Sockets an das ``exp`` des Tokens, mit dem verbunden
+      // wurde — ohne diese Meldung schliesst er ihn beim alten Ablauf, obwohl
+      // längst ein frischer Token vorliegt. Genau das war der 5-Minuten-Takt,
+      // in dem ein Self-Host-Nutzer aus den Listen der anderen flackerte.
+      conn.pushToken(result.session_token);
     }
     return true;
   } catch (err) {

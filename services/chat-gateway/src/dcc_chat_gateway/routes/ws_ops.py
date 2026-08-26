@@ -13,10 +13,8 @@ ops without touching this file.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-import time
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -34,22 +32,13 @@ from dcc_chat_gateway.plugins.ws_op_gate import check_plugin_op_gate, parse_plug
 from dcc_chat_gateway.routes import ws_ops_handlers  # noqa: F401
 from dcc_chat_gateway.routes import ws_device_handlers, ws_remote_teardown, ws_watch
 from dcc_chat_gateway.routes.ws_ops_registry import WSOpContext, get_handler
+from dcc_chat_gateway.routes.ws_token_renewal import TokenExpiryWatch
 from dcc_chat_gateway.security import AuthenticatedUser
 
 log = logging.getLogger(__name__)
 
 _MAX_WS_FRAME_BYTES = 16 * 1024
 _MAX_OVERSIZE_FRAMES = 5
-
-
-async def _close_when_token_expires(websocket: WebSocket, exp: float) -> None:
-    delay = exp - time.time()
-    if delay > 0:
-        await asyncio.sleep(delay)
-    try:
-        await websocket.close(code=4001, reason="token expired")
-    except Exception:  # noqa: BLE001
-        pass
 
 
 async def run_session_op_loop(
@@ -69,14 +58,13 @@ async def run_session_op_loop(
     oversize_frames = 0
 
     # Tie the connection's lifetime to the token's ``exp``: when it passes,
-    # the background task closes the socket with 4001 (the client then
-    # refreshes + reconnects).
-    expiry_task: asyncio.Task | None = None
+    # the watch closes the socket with 4001. Anders als frueher ist das Ziel
+    # verschiebbar — der ``token_refresh``-Op reicht ein frisches Token nach
+    # und der Socket bleibt bestehen, statt im Token-Takt neu aufgebaut zu
+    # werden (und dabei jedes Mal ein Praesenz-Flackern auszuloesen, s.
+    # ``ws_token_renewal.py``). Bleibt die Erneuerung aus, gilt der alte Weg.
     if isinstance(exp, (int, float)):
-        expiry_task = asyncio.create_task(
-            _close_when_token_expires(websocket, float(exp)),
-            name="dcc-ws-token-expiry",
-        )
+        ctx.token_expiry = TokenExpiryWatch(websocket, float(exp))
 
     try:
         while True:
@@ -194,12 +182,9 @@ async def run_session_op_loop(
                     await gate_session.close()
                     ctx._db_session = None
     finally:
-        if expiry_task is not None:
-            expiry_task.cancel()
-            try:
-                await expiry_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
+        if ctx.token_expiry is not None:
+            ctx.token_expiry.cancel()
+            await ctx.token_expiry.wait_cancelled()
         # Watch parties: leave the watcher registry for every party this
         # socket watched and promote a new host (or end the party) where this
         # user was the host. Must run before remove_socket so the registry's
