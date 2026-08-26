@@ -467,6 +467,33 @@ class DMChannelOut(BaseModel):
         return _opt_id_str(v)
 
 
+class DMMessageSearchHit(BaseModel):
+    """Ein Treffer der DM-Nachrichten-Suche (``GET /dm-channels-search``).
+
+    **Existiert allein wegen der Snowflake-Serialisierung.** Die Route gab
+    anfangs ein rohes ``dict`` zurück; damit gingen alle vier Kennungen als
+    JSON-ZAHLEN über die Leitung, obwohl der Klient sie als Zeichenkette
+    deklariert. Der Vergleich „habe ich das geschrieben?" war deshalb immer
+    falsch (``number === string``), und die Kanal-Kennung verlor beim
+    Umweg über ``Number`` ihre unteren Stellen — der Tipp auf einen Treffer
+    öffnete nichts. Jede andere Antwort dieser Datei geht über ein Modell mit
+    ``field_serializer``; diese nun auch.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    message_id: int
+    dm_channel_id: int
+    other_user_id: int
+    author_id: int
+    content: str
+    created_at: datetime
+
+    @field_serializer("message_id", "dm_channel_id", "other_user_id", "author_id")
+    def _ser_ids(self, v: int) -> str:
+        return _id_str(v)
+
+
 class MemberIn(BaseModel):
     user_id: SnowflakeId
 
