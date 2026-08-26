@@ -21,6 +21,7 @@
 use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
 use ffmpeg::{Packet, Rational, codec, format, frame, software::scaling};
+use ffmpeg::ffi::AVPictureType;
 
 use super::audio::AudioPipeline;
 use super::latency::EncodeLatency;
@@ -107,6 +108,29 @@ pub struct FfmpegEncoder {
     /// Einschieben → Paket, s. `latency.rs`. Das ist der Posten, den
     /// `async_depth` (AMF/QSV) verändert; `last_send_us` sieht ihn NICHT.
     enc_latency: EncodeLatency,
+    /// Vollbilder auf Anforderung: abholen, zählen, gedrosselt melden
+    /// (s. `crate::keyframe::Anforderungen`).
+    ///
+    /// **Fehlte hier bis zum 2026-08-27, und das war der teuerste Fund des
+    /// Streaming-Audits.** `crate::keyframe::request_keyframe()` (gerufen aus
+    /// `whip/mod.rs`, wenn ein Zuschauer PLI oder FIR schickt) setzt nur einen
+    /// prozessweiten Merker; abgeholt hat ihn ausschliesslich
+    /// `encoder_hw.rs`. Dieser Weg hier — Intel/QSV und der CPU-Rückfall —
+    /// setzte zwar `set_gop` auf den regulaeren Abstand, las den Merker aber
+    /// nie. Folge: auf einem Intel-Rechner kam ein Vollbild NUR im regulaeren
+    /// Takt, seit dem 2026-08-18 also alle 60 s. Ein Zuschauer, der beitritt
+    /// oder ein Paket verliert, sah bis zu eine Minute nichts beziehungsweise
+    /// ein kaputtes Bild — ohne eine einzige Log-Zeile, denn aus Sicht des
+    /// Senders lief alles.
+    ///
+    /// Genau die Fehlerklasse, vor der die Wurzel-`CLAUDE.md` beim
+    /// Vollbild-Abstand warnt: die Umstellung wurde auf dem Hauptweg
+    /// durchgezogen und im Rückfall-Zweig nicht mitgedacht.
+    ///
+    /// Kein `Selbsttakt` daneben wie in `encoder_hw.rs`: den braucht nur
+    /// `h264_amf` (s. `auffrischung::braucht_selbsttakt`), und der laeuft
+    /// niemals ueber diesen Weg.
+    vollbilder_angefordert: crate::keyframe::Anforderungen,
 }
 
 impl FfmpegEncoder {
@@ -263,6 +287,7 @@ impl FfmpegEncoder {
             last_send_us: 0,
             last_mux_us: 0,
             enc_latency: EncodeLatency::default(),
+            vollbilder_angefordert: Default::default(),
         })
     }
 
@@ -327,6 +352,19 @@ impl FfmpegEncoder {
             ));
         }
 
+        // Vollbild auf Anforderung eines Zuschauers (s. `crate::keyframe`).
+        //
+        // **Hier oben und nicht unten am Frame**, wo die Zuweisung steht: ab
+        // dem `match` weiter unten haelt `frame` eine `&mut`-Ausleihe auf
+        // `self.encoder_frame`, und `self.vollbilder_angefordert` waere daneben
+        // eine zweite auf `self` — das uebersetzt nicht. Ausserdem liegt der
+        // Aufruf so ausserhalb BEIDER Messfenster (`t_convert`, `t_send`): die
+        // gedrosselte Meldung schreibt auf stderr, und im Messfenster truege
+        // ausgerechnet das interessante Bild die Schreibzeit mit. Der Zwilling
+        // `encoder_hw.rs::send_avframe` loest dasselbe an Ort und Stelle, weil
+        // er den Frame als rohen Zeiger bekommt und gar nicht erst ausleiht.
+        let angefordert = self.vollbilder_angefordert.naechstes_bild(pts);
+
         let t_convert = std::time::Instant::now();
         // Der Encoder (QSV/AMF async submit-queue) kann das zuletzt gesendete
         // Frame noch referenziert halten. Bevor wir denselben `encoder_frame`-
@@ -362,6 +400,18 @@ impl FfmpegEncoder {
         self.last_convert_us = t_convert.elapsed().as_micros() as u64;
 
         frame.set_pts(Some(pts));
+        unsafe {
+            // **Pro Bild ZURÜCKSETZEN**, deshalb `if/else` und nicht `if`: der
+            // Frame wird wiederverwendet (`av_frame_make_writable` oben hält
+            // nur den Inhalt sauber, nicht die Felder). Bliebe `I` kleben,
+            // wäre JEDES folgende Bild ein Vollbild, und bei fester Bitrate
+            // bräche die Bildqualität zusammen.
+            (*frame.as_mut_ptr()).pict_type = if angefordert {
+                AVPictureType::AV_PICTURE_TYPE_I
+            } else {
+                AVPictureType::AV_PICTURE_TYPE_NONE
+            };
+        }
 
         // VOR dem Einschieben stempeln: mit abgeschaltetem Vorlauf liefert der
         // Encoder das Paket im selben Aufruf zurück (s. `latency.rs`).

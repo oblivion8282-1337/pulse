@@ -12,7 +12,7 @@
 # 1.19.1 establishes it instantly. The AV1 temporal-delimiter patch below still
 # applies cleanly and is still needed (no upstream AV1 fix in 1.18/1.19).
 #
-# Why we maintain this fork — five patches, two groups:
+# Why we maintain this fork — six patches, two groups:
 #
 #   patches/         go against the MediaMTX source, applied right after clone
 #     0001  AMD-VAAPI-encoded AV1 freezes in WHEP after a few seconds because
@@ -59,6 +59,21 @@ ARG MEDIAMTX_VERSION=1.19.1
 #
 # **Hochzaehlen, sobald sich der Patch-Satz aendert** — nicht bei einem
 # MediaMTX-Bump, der bewegt `MEDIAMTX_VERSION`.
+#
+# **Und genau das ist einmal unterblieben (gefunden 2026-08-27, NICHT
+# behoben).** Patch `0006-bildmarke-durchreichen` kam mit `8185e1ba` dazu, die
+# Revision blieb auf 5. Damit traegt `1.19.1-pulse5` zwei verschiedene
+# Bildinhalte — einen mit und einen ohne 0006 —, also genau die Mehrdeutigkeit,
+# gegen die dieser Zaehler gebaut wurde. Wer heute ein Problem gegen
+# „pulse5" meldet, sagt nicht, welches der beiden er meint.
+#
+# Warum hier nur die Notiz und keine Korrektur: das Hochzaehlen bewegt den
+# Bildnamen, und der steht in `infra/prod/docker-compose.yml`,
+# `infra/dev-remote/docker-compose.yml` und `streaming/server/docker-compose.yml`.
+# Die Reihenfolge ist zwingend erst Bau, dann Umstellung — eine Zeile zuerst zu
+# aendern, holt ein Bild, das es noch nicht gibt. Der Handgriff, wenn er
+# gemacht wird: hier auf 6, Workflow bauen lassen, danach die drei
+# compose-Dateien auf `1.19.1-pulse6`.
 ARG PULSE_REVISION=5
 ARG GO_VERSION=1.26
 
