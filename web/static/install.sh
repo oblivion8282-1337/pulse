@@ -199,6 +199,13 @@ nutzt_host_netzwerk() {
 # Server verschwindet aus dem Internet — waehrend der Container laeuft und die
 # Checkliste gruen ist. `check_ports` kennt diese Ausnahme laengst (s. dort);
 # nur die Moduswahl kannte sie nicht.
+#
+# Bewusst die LOSE Lesart von `.State.Running` (anders als Fund 1,
+# Schlussprüfung, `container_laeuft_stabil()`): hier zählt nur „existiert er
+# und hält er die Ports", nicht „läuft er stabil". Ein Container in einer
+# Neustartschleife ist da und kommt wieder — ihn als abwesend zu behandeln
+# wäre genau der Fehler, den Task 1 behoben hat (der zweite Lauf stufte einen
+# laufenden Server auf `hostproxy` herunter und nahm ihn vom Netz).
 eigener_container_laeuft() {
   [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null)" = "true" ]
 }
@@ -1011,6 +1018,7 @@ log "Starting up — this takes about a minute:"
 GESEHEN=0
 FERTIG=""
 ABBRUCH=""
+ABBRUCH_CRASH=""
 for _ in $(seq 1 60); do
   STATUS_ROH="$(docker exec "$CONTAINER" cat /data/setup-status 2>/dev/null || true)"
   if [ -n "$STATUS_ROH" ]; then
@@ -1034,15 +1042,38 @@ for _ in $(seq 1 60); do
       | awk -F"$(printf '\t')" '$3 != "" && $3 != "ok" { gefunden=1 } END { exit !gefunden }' \
       && { ABBRUCH=1; break; }
   fi
-  # Ein Container, der nicht mehr läuft, wird auch nicht mehr fertig.
-  if ! docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -q true; then
+  # Ein Container, der nicht mehr läuft, wird auch nicht mehr fertig — UND
+  # einer, der immer wieder abstürzt und neu startet, macht ebenso wenig
+  # Fortschritt, meldet dabei aber '.State.Running' durchgehend 'true' (Fund
+  # 1, Schlussprüfung: Docker hält den Wert während der GESAMTEN
+  # Neustart-Rückstufung auf 'true', s. container_laeuft_stabil() weiter
+  # oben). Ohne diese Unterscheidung wartete die Schleife eine Absturzschleife
+  # bis zum Zeitlimit aus, statt sie sofort zu erkennen — und das ist der
+  # wahrscheinlichste Fehlschlag einer Erstinstallation überhaupt.
+  #
+  # '.RestartCount' + '.State.Status' in einem Aufruf, wie in Fund 1: steigt
+  # der Zähler, ist es keine Erstinstallation, sondern eine Schleife — dafür
+  # unten eine EIGENE Meldung, nicht "the step marked FAILED above", denn
+  # oben steht in diesem Fall gar kein FAILED — der Container starb, bevor er
+  # überhaupt einen weiteren Schritt in setup-status schreiben konnte.
+  WERTE="$(docker inspect -f '{{.RestartCount}} {{.State.Status}}' "$CONTAINER" 2>/dev/null)"
+  RESTARTS="${WERTE%% *}"
+  STATUS="${WERTE#* }"
+  if [ "${RESTARTS:-0}" != "0" ]; then
+    ABBRUCH=1; ABBRUCH_CRASH=1; break
+  elif [ -z "$WERTE" ] || [ "$STATUS" != "running" ]; then
     ABBRUCH=1; break
   fi
+  # Zustandserkennung Ende — hier weiter mit 'sleep 5' im echten Ablauf.
   sleep 5
 done
 
 echo
-if [ -n "$ABBRUCH" ]; then
+if [ -n "$ABBRUCH_CRASH" ]; then
+  err "Startup aborted — the container is stuck in a restart loop. It keeps crashing before it can make further progress."
+  err "  docker logs ${CONTAINER} 2>&1 | tail -50"
+  exit 1
+elif [ -n "$ABBRUCH" ]; then
   err "Startup aborted. The step marked FAILED above is where it stopped."
   err "  docker logs ${CONTAINER} 2>&1 | tail -50"
   exit 1
