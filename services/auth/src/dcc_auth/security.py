@@ -182,6 +182,34 @@ class JwtSigner:
         }
         return self._sign(payload), jti, exp
 
+    def reissue_refresh(self, user_id: int, jti: uuid.UUID, exp: int) -> str:
+        """Einen BEREITS ausgestellten Refresh-Token noch einmal ausgeben.
+
+        Gebraucht von ``/refresh``, wenn die Antwort einer Rotation den Klienten
+        nie erreicht hat: er legt dann seinen alten Token erneut vor, und die
+        richtige Antwort ist derselbe Nachfolger, den er schon haette haben
+        sollen — nicht ein zweiter daneben, der die Kette gabeln wuerde.
+
+        ``jti`` und ``exp`` kommen aus der Datenbankzeile, sind also unveraendert;
+        der Token ist damit derselbe Ausweis, nicht bloss ein aehnlicher.
+        Neu signiert werden muss er trotzdem, weil hier niemand den JWT-Text
+        aufbewahrt — gespeichert ist nur, DASS es ihn gibt (``jti``), nie sein
+        Inhalt. Einzig ``iat`` faellt dadurch spaeter aus als beim ersten Mal;
+        die Zahl wird nirgends geprueft (``decode`` verlangt ``exp``/``aud``/
+        ``iss``/``typ``), und die Lebensdauer haengt allein am uebergebenen
+        ``exp``, laesst sich also nicht verlaengern.
+        """
+        payload = {
+            "iss": self._settings.jwt_issuer,
+            "aud": self._settings.jwt_audience,
+            "sub": str(user_id),
+            "iat": int(time.time()),
+            "exp": exp,
+            "jti": str(jti),
+            "typ": "refresh",
+        }
+        return self._sign(payload)
+
     def issue_registry_token(
         self,
         *,

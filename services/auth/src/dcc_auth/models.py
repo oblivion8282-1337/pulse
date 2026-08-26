@@ -345,6 +345,39 @@ class RefreshToken(Base):
         nullable=True,
     )
 
+    # Die Anmelde-KETTE, zu der diese Zeile gehoert (Migration 0050): beim
+    # Anmelden neu vergeben, bei jeder Rotation an den Nachfolger vererbt. Sie
+    # ist die Reichweite der Reuse-Erkennung — vorher war das das ganze Konto,
+    # und ein stolpernder Zweitbrowser meldete jedes andere Geraet des Nutzers
+    # gleich mit ab (2026-08-26 in der Produktionsdatenbank nachgewiesen: ein
+    # Vorfall riss sechs Ketten mit, zwei davon aus der Vorwoche).
+    #
+    # Bestandszeilen fasst die Migration NICHT zusammen — welche alte Zeile zu
+    # welcher Anmeldung gehoerte, steht nirgends. Jede bekommt ihre eigene
+    # Kennung; eine geratene Zusammenfassung meldete beim ersten Vorfall fremde
+    # Geraete mit ab.
+    #
+    # Nullable ist die Spalte aus einem anderen Grund: waehrend des Ausrollens
+    # schreibt der alte Code noch Zeilen, und der kennt sie nicht. Ein
+    # ``NOT NULL`` liesse in genau diesem Fenster jede Anmeldung auflaufen.
+    # ``NULL`` heisst deshalb „steht allein" (s. ``refresh_kette``), und nur
+    # dort kann es auftreten — nach dem Backfill traegt jede Bestandszeile
+    # einen Wert.
+    family_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+    # Der Nachfolger aus der Rotation dieser Zeile. Damit laesst sich die eine
+    # Frage beantworten, an der alles haengt: Hat der Klient den Nachfolger je
+    # bekommen? Ist er nie eingeloest worden, war der Roundtrip abgebrochen und
+    # der wiederholt vorgelegte Token ist harmlos; wurde er benutzt, sind zwei
+    # Parteien im Umlauf und der Verdacht bleibt.
+    #
+    # Bewusst OHNE Fremdschluessel auf ``jti``: der Sweeper loescht alte Zeilen
+    # (``cleanup.py``), und ein FK zwaenge ihn in eine Reihenfolge oder liesse
+    # die Loeschung auflaufen. Ein ins Leere zeigender Verweis ist hier
+    # unschaedlich — er wird nur gelesen, um eine bereits gefundene Zeile
+    # nachzuschlagen, und ein fehlender Nachfolger faellt in denselben Zweig
+    # wie ein eingeloester (kein Heilen, s. ``routes.refresh``).
+    replaced_by: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+
     __table_args__ = (
         Index(
             "ix_refresh_tokens_user_active",
@@ -353,6 +386,7 @@ class RefreshToken(Base):
         ),
         Index("ix_refresh_tokens_user_revoked", "user_id", "revoked_at"),
         Index("ix_refresh_tokens_session_id", "session_id"),
+        Index("ix_refresh_tokens_family_active", "family_id", postgresql_where="revoked_at IS NULL"),
     )
 
 

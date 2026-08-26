@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-26.4",
+      "date": "2026-08-26",
+      "style": "Sachlich",
+      "title": "Man wird nicht mehr grundlos abgemeldet",
+      "intro": "Wer länger angemeldet war, landete gelegentlich ohne erkennbaren Anlass wieder auf der Anmeldeseite — besonders häufig nach einer Pause, in der der Rechner geschlafen hat.",
+      "items": [
+        "Die Anmeldung hält jetzt über Pausen hinweg. Bisher tauschte die App ihren Ausweis im Hintergrund regelmäßig gegen einen neuen; ging die Antwort dabei verloren, weil der Rechner in dem Moment einschlief, hielt der Server den nächsten Versuch für einen Missbrauchsversuch und beendete die Sitzung.",
+        "Ein solcher Fall betraf bisher alle Geräte und Browser des Kontos gleichzeitig. Jetzt bleibt jede Anmeldung für sich: was in einem Browser schiefgeht, meldet die anderen nicht mehr mit ab.",
+        "Der Schutz gegen tatsächlich gestohlene Zugänge bleibt bestehen."
+      ]
+    },
+    {
       "id": "2026-08-26.3",
       "date": "2026-08-26",
       "style": "Sachlich",

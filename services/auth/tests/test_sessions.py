@@ -6,7 +6,6 @@ import base64
 from datetime import UTC, datetime, timedelta
 
 import pytest
-
 from dcc_auth.models import UserSession
 
 REG_PAYLOAD = {
@@ -410,7 +409,14 @@ async def test_link_follows_session_renew(client, session_factory):
 
 @pytest.mark.asyncio
 async def test_refresh_token_reuse_also_kills_the_cookies(client):
-    """Wiederverwendung = Diebstahlverdacht: die Cookies der Familie fallen mit."""
+    """Diebstahlverdacht: das Cookie DIESER Anmeldung faellt mit — nur dieses.
+
+    Ein ``pulse_session`` ueberlebte den Widerruf sonst, mitsamt dem Recht, sich
+    damit ein Geraete-Zertifikat auszustellen. Die Reichweite ist seit dem
+    2026-08-26 die Anmelde-Kette und nicht mehr das Konto (s.
+    ``refresh_kette``): dass die Registrierungs-Sitzung hier ueberlebt, ist der
+    Kern der Korrektur und kein Nebeneffekt.
+    """
     reg = await client.post("/register", json=REG_PAYLOAD)
     device = await _login_response(client, user_agent="Stolen/1")
     sid = device.cookies["pulse_session"]
@@ -420,11 +426,52 @@ async def test_refresh_token_reuse_also_kills_the_cookies(client):
         "/refresh", json={"refresh_token": device.json()["refresh_token"]}
     )
     assert first.status_code == 200
-    # Zweite Vorlage desselben (bereits rotierten) Tokens -> Familien-Widerruf.
+    # Den Nachfolger einloesen: erst damit sind zwei Parteien im Umlauf und der
+    # wiederholte Token ist ein Verdacht statt eines abgerissenen Aufrufs.
+    await client.post("/refresh", json={"refresh_token": first.json()["refresh_token"]})
     replay = await client.post(
         "/refresh", json={"refresh_token": device.json()["refresh_token"]}
     )
     assert replay.status_code == 401
 
     assert not await _cookie_alive(client, sid)
-    assert not await _cookie_alive(client, reg_sid)
+    assert await _cookie_alive(client, reg_sid), (
+        "eine fremde Anmeldung desselben Kontos darf am Verdacht nicht mitsterben"
+    )
+
+
+@pytest.mark.asyncio
+async def test_verdacht_trifft_auch_eine_zeile_aus_dem_ausrollfenster(client, session_factory):
+    """Eine Zeile ohne Kettenkennung darf beim Verdacht nicht davonkommen.
+
+    Waehrend des Ausrollens von Migration 0050 schreibt der alte Code noch
+    Zeilen ohne ``family_id`` (deshalb ist die Spalte nullable). Fuer die gibt
+    es keine Kette zum Absuchen — getroffen werden muss die vorgelegte Zeile
+    dann trotzdem, sonst ueberlebt ihr ``pulse_session``-Cookie den Verdacht
+    und damit das Recht, sich ein Geraete-Zertifikat auszustellen.
+    """
+    from dcc_auth.models import RefreshToken
+    from sqlalchemy import update as sa_update
+
+    await client.post("/register", json=REG_PAYLOAD)
+    device = await _login_response(client, user_agent="Altbestand/1")
+    sid = device.cookies["pulse_session"]
+
+    erste = await client.post(
+        "/refresh", json={"refresh_token": device.json()["refresh_token"]}
+    )
+    # Nachfolger einloesen -> aus dem abgerissenen Roundtrip wird ein Verdacht.
+    await client.post("/refresh", json={"refresh_token": erste.json()["refresh_token"]})
+
+    # Jetzt der Zustand, den das Ausrollfenster hinterlaesst: keine Kennung.
+    async with session_factory() as s:
+        await s.execute(sa_update(RefreshToken).values(family_id=None))
+        await s.commit()
+
+    replay = await client.post(
+        "/refresh", json={"refresh_token": device.json()["refresh_token"]}
+    )
+    assert replay.status_code == 401
+    assert not await _cookie_alive(client, sid), (
+        "das Cookie der vorgelegten Zeile muss auch ohne Kettenkennung sterben"
+    )

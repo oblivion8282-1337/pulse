@@ -89,10 +89,17 @@ async def change_password(
     current.password_hash = await asyncio.to_thread(hash_password, payload.new_password)
 
     # Log out every device. DELETE the refresh tokens rather than soft-revoking
-    # them: a soft-revoked token, when an old device replays it, trips the
-    # reuse-detection in /refresh which revokes the WHOLE family — and that would
-    # also kill the fresh token we mint below for THIS device. A deleted row just
-    # 404s on replay (no cascade), so the current device stays signed in.
+    # them: eine geloeschte Zeile laeuft beim Replay eines alten Geraets glatt
+    # ins 401, eine weich widerrufene dagegen in den Verdachtszweig von
+    # ``/refresh`` — und schriebe damit eine Diebstahlswarnung ins Protokoll
+    # fuer einen Vorgang, den der Nutzer selbst ausgeloest hat.
+    #
+    # Bis zum 2026-08-26 stand hier ein zweiter, staerkerer Grund: der Verdacht
+    # widerrief damals ALLE Token des Kontos und haette das frische Paar von
+    # unten gleich mit erschlagen. Das kann nicht mehr passieren — der Widerruf
+    # reicht nur noch ueber die Anmelde-Kette, und das frische Paar beginnt eine
+    # eigene (s. ``refresh_kette``). Der Satz bleibt trotzdem stehen, damit
+    # niemand den heutigen Grund fuer den alten haelt.
     await session.execute(
         delete(RefreshToken).where(RefreshToken.user_id == current.id)
     )
