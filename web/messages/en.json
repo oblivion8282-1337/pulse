@@ -2201,7 +2201,7 @@
   "self_host_application_submitting": "Submitting…",
   "self_host_contact_confirm_cancel": "Cancel",
   "self_host_contact_confirm_confirm": "Got it, continue",
-  "self_host_contact_confirm_hint": "You are leaving the Pulse Cloud. Once you continue, this server can see connection metadata (e.g. your IP address, the time, and a server-specific pseudonym).",
+  "self_host_contact_confirm_hint": "The operator of this external server will see your IP address.",
   "self_host_contact_confirm_intro": "This invitation leads to an external server you don't know yet:",
   "self_host_contact_confirm_title": "Contact external server?",
   "self_host_disclaimer_ack": "Got it",
