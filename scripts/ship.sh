@@ -73,15 +73,73 @@ fi
 
 # Rebase-Merge, Branch-Delete nach Erfolg, Auto-Merge sobald die Checks grün sind.
 # Über die NUMMER statt über den Branch-Namen — die ist eindeutig.
-gh pr merge "$pr" --rebase --delete-branch --auto
+# ── Landen: Auto-Merge oder Admin-Merge ─────────────────────────────────────
+#
+# `main` verlangt EINEN genehmigenden Review. Den eigenen PR kann niemand
+# selbst genehmigen — für den Eigentümer, der allein arbeitet, steht damit
+# JEDER PR dauerhaft auf `BLOCKED`, und der gesetzte Auto-Merge kann
+# prinzipiell nie feuern. Das sah lange wie eine GitHub-Störung aus und ist
+# eine Regel des Repos (nachgesehen am 2026-08-26:
+# `required_approving_review_count: 1`, `enforce_admins: false` — der
+# Admin-Merge ist also der ausdrücklich vorgesehene Ausweg).
+#
+# Die Regel bleibt trotzdem stehen, weil sie für MITARBEITER gilt: deren
+# Änderungen sollen gesehen werden, bevor sie auf main landen. Der Ausweg ist
+# deshalb MASCHINEN-LOKAL zu schalten und steht bewusst nicht im Repo:
+#
+#     git config --local pulse.adminmerge true     # nur dieser Klon
+#     git config --global pulse.adminmerge true    # dieser Rechner, alle Klone
+#     PULSE_ADMIN_MERGE=1 bash scripts/ship.sh     # einmalig
+#
+# **Umgangen wird nur der REVIEW-Zwang, nie ein roter Check.** Das Skript
+# wartet vorher auf die Pflicht-Checks (heute nur `CLAAssistant`) und bricht
+# ab, wenn einer rot ist — ein `--admin` ohne diese Wartezeit würde auch die
+# CLA-Schranke überspringen, und die steht aus rechtlichen Gründen dort.
+admin_merge="${PULSE_ADMIN_MERGE:-$(git config --get pulse.adminmerge || echo false)}"
+case "$admin_merge" in 1|true|yes|on) admin_merge=true ;; *) admin_merge=false ;; esac
 
-# Nachprüfen statt behaupten: ohne das war die Erfolgsmeldung oben eine reine
-# Vermutung, und genau daran ist es einmal vorbeigelaufen.
-if [ "$(gh pr view "$pr" --json autoMergeRequest --jq '.autoMergeRequest != null')" != "true" ]; then
-  echo "✗ Auto-Merge wurde für PR #$pr NICHT gesetzt — bitte von Hand prüfen." >&2
-  exit 1
+if [ "$admin_merge" = true ]; then
+  echo "→ Admin-Merge aktiv (pulse.adminmerge). Warte auf die Pflicht-Checks…"
+  if ! gh pr checks "$pr" --required --watch --interval 15; then
+    # `gh pr checks --required` endet auch dann ungleich 0, wenn es GAR KEINE
+    # Pflicht-Checks gibt. Beides auseinanderhalten, sonst bricht das Skript
+    # bei einem Repo ohne Pflicht-Checks ab, obwohl nichts rot ist.
+    if [ -z "$(gh pr view "$pr" --json statusCheckRollup --jq '[.statusCheckRollup[]?]|length|select(.>0)')" ]; then
+      echo "  (keine Checks gemeldet — nichts zum Abwarten)"
+    else
+      echo "✗ Ein Pflicht-Check ist ROT — nicht gemergt. Erst grün ziehen." >&2
+      exit 1
+    fi
+  fi
+  gh pr merge "$pr" --admin --rebase --delete-branch
+  merged="$(gh pr view "$pr" --json mergedAt --jq '.mergedAt // empty')"
+  if [ -z "$merged" ]; then
+    echo "✗ PR #$pr wurde NICHT gemergt — bitte von Hand prüfen." >&2
+    exit 1
+  fi
+  echo
+  echo "✓ PR #$pr per Admin-Merge gelandet ($merged) — der Deploy läuft an."
+else
+  gh pr merge "$pr" --rebase --delete-branch --auto
+
+  # Nachprüfen statt behaupten: ohne das war die Erfolgsmeldung oben eine reine
+  # Vermutung, und genau daran ist es einmal vorbeigelaufen.
+  if [ "$(gh pr view "$pr" --json autoMergeRequest --jq '.autoMergeRequest != null')" != "true" ]; then
+    echo "✗ Auto-Merge wurde für PR #$pr NICHT gesetzt — bitte von Hand prüfen." >&2
+    exit 1
+  fi
+
+  echo
+  echo "✓ PR #$pr auf Auto-Merge gesetzt — landet auf main, sobald die Pflicht-Checks grün sind."
+  echo "  Status:  gh pr checks $pr --watch"
+  # Ehrlich bleiben: solange main einen Review verlangt, feuert der Auto-Merge
+  # für einen selbst geschriebenen PR nie. Wer hier allein arbeitet, will den
+  # Schalter oben.
+  if [ "$(gh api "repos/{owner}/{repo}/branches/main/protection" \
+            --jq '.required_pull_request_reviews.required_approving_review_count // 0' 2>/dev/null)" -gt 0 ]; then
+    echo
+    echo "⚠  main verlangt einen genehmigenden Review — den eigenen PR kann man nicht"
+    echo "   selbst genehmigen. Ohne einen zweiten Menschen bleibt der PR BLOCKED."
+    echo "   Als Eigentümer: git config --local pulse.adminmerge true"
+  fi
 fi
-
-echo
-echo "✓ PR #$pr auf Auto-Merge gesetzt — landet auf main, sobald die Pflicht-Checks grün sind."
-echo "  Status:  gh pr checks $pr --watch"
