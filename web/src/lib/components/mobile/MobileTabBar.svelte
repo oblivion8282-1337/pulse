@@ -24,20 +24,15 @@
   import { bereichsReihenfolge } from '$lib/navigation/darstellung.svelte';
   import NavTabLink from './NavTabLink.svelte';
   import { m } from '$lib/paraglide/messages.js';
-  import { voice } from '$lib/voice/livekit.svelte';
-  import { guilds } from '$lib/stores/guilds.svelte';
+  import { letzterRaumPfad } from '$lib/navigation/letzterRaumBereich.svelte';
 
   let aktiv = $derived(aktiverBereich(page.url.pathname));
 
-  // Wer mit Voice in einem Kanal eines Servers steckt und über die Leiste
-  // woanders hin wechselt (Chat, Freunde, Du), will beim Rückkehr-Tap auf
-  // „Räume" DEN Room sehen, in dem man verbunden ist — nicht die Übersicht
-  // aller Rooms. Ohne Verbindung bleibt die Übersicht das Ziel.
-  let raeumeZiel = $derived.by(() => {
-    if (!voice.connected || !voice.channelId) return undefined;
-    const gid = guilds.guildIdForChannel(voice.channelId);
-    return gid ? `/app/rooms/${gid}` : undefined;
-  });
+  // Räume-Tab-Rückkehrziel: der ZULETZT angezeigte Bildschirm im Räume-
+  // Bereich — jede Ebene (Sprachkanal, Chat, Raum-Ansicht, Übersicht),
+  // gemerkt bei jeder Navigation innerhalb des Bereichs. Frischer App-
+  // Start ohne Gedächtnis → Übersicht.
+  let raeumeZiel = $derived(letzterRaumPfad() ?? undefined);
 </script>
 
 <!-- Karten-Behandlung wie auf der Login-Seite (AppDownloadLinks-Rezept):
