@@ -11,16 +11,22 @@
  * Modul-Zustand (kein Persistenz): nach App-Neustart ist nichts gemerkt,
  * der Räume-Tab startet auf der Übersicht.
  */
+import { aktiverBereich } from './tabs';
+
 let letzterPfad = $state<string | null>(null);
 
-/** Pfade, die zum Räume-Bereich gehören (gleiche Wurzeln wie tabs.ts). */
+/**
+ * Pfade, die zum Räume-Bereich gehören.
+ *
+ * **Fragt `tabs.ts`, statt die Wurzeln erneut aufzuzählen.** Eine eigene Liste
+ * stand hier und wich in einer Kleinigkeit ab: sie verglich mit blossem
+ * `startsWith`, ohne die Segmentgrenze, die `aktiverBereich` mitbringt — eine
+ * künftige Route `/app/roomsomething` zählte damit für die eine Kopie zu den
+ * Räumen und für die andere nicht. `tabs.ts` ist ausdrücklich die einzige
+ * Stelle, die „welcher Bereich" entscheidet; hier wird sie nur gefragt.
+ */
 export function istRaumBereich(pfad: string): boolean {
-  return (
-    pfad === '/app/rooms' ||
-    pfad.startsWith('/app/rooms/') ||
-    pfad.startsWith('/app/guilds/') ||
-    pfad === '/app/discover'
-  );
+  return aktiverBereich(pfad) === 'rooms';
 }
 
 /** Von app/+layout bei jeder Navigation gerufen, die im Räume-Bereich landet. */

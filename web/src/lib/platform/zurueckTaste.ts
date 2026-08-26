@@ -15,6 +15,7 @@ import { App as CapApp } from '@capacitor/app';
 import { goto } from '$app/navigation';
 import { page } from '$app/state';
 import { isCapacitorAndroid } from './runtime';
+import { BEREICHE } from '$lib/navigation/tabs';
 
 /** Pfad → übergeordnete Route. Erster Treffer gewinnt. */
 const ELTERN: { test: RegExp; ziel: (m: RegExpMatchArray) => string }[] = [
@@ -29,11 +30,22 @@ const ELTERN: { test: RegExp; ziel: (m: RegExpMatchArray) => string }[] = [
   // Entdecken ist der Ausgang aus der Räume-Leere → zurück in die Räume.
   { test: /^\/app\/discover$/, ziel: () => '/app/rooms' },
   // DM-Chat → Chats-Liste.
-  { test: /^\/app\/@me\/[^/]+$/, ziel: () => '/app/@me' }
+  { test: /^\/app\/@me\/[^/]+$/, ziel: () => '/app/@me' },
+  // Einstellungs-Unterseite → Du-Bereich. Fehlte, und ohne Regel fiel die
+  // Taste dort auf `history.back()` durch: was davor kam, entschied dann der
+  // Zufall statt der Bildschirm-Aufbau.
+  { test: /^\/app\/me\/[^/]+$/, ziel: () => '/app/me' }
 ];
 
-/** Die vier Bereichs-Wurzeln — hier beendet Zurück die Navigation. */
-const WURZELN = new Set(['/app/rooms', '/app/@me', '/app/friends', '/app/me']);
+/**
+ * Die Bereichs-Wurzeln — hier beendet Zurück die Navigation.
+ *
+ * **Aus `tabs.ts` gezogen, nicht abgeschrieben.** Die Aufzählung stand hier
+ * ein zweites Mal; die vier Namen sind dieselben, und sobald ein fünfter
+ * Bereich dazukäme, hinge die Zurück-Taste an einer Liste, die niemand
+ * mitpflegt.
+ */
+const WURZELN = new Set(BEREICHE.map((b) => b.href));
 
 function elterVon(pfad: string): string | null {
   for (const regel of ELTERN) {

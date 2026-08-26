@@ -9,6 +9,12 @@
   the `<audio>`-Element playback path there can't exceed 1.0 anyway
   (HTMLMediaElement.volume spec clamp) — a slider beyond 100% would
   promise a boost that never happens.
+
+  Gekappt wird dabei nur der REGLER. Die Prozentzahl daneben zeigt den
+  tatsächlich wirksamen Wert, auch wenn er über dem Anschlag liegt (am Rechner
+  gesetzt, über die Einstellungen mitgereist) — sonst behauptete die
+  Oberfläche 100 %, während 150 % zu hören sind, und die Zurücksetzen-Zeile
+  hielte sich für überflüssig.
 -->
 <script lang="ts">
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
@@ -23,9 +29,13 @@
   let { userId, name }: { userId: string; name: string } = $props();
 
   const SLIDER_MAX = isMobile() ? 100 : USER_VOLUME_MAX * 100;
-  let volumePct = $derived(
-    Math.min(SLIDER_MAX, Math.round(settings.getUserVolume(userId) * 100))
-  );
+  // Die ANGEZEIGTE Zahl ist der echte Wert, nicht der gekappte — der Regler
+  // deckelt nur sich selbst. Beides zu kappen war eine stille Lüge: wer am
+  // Rechner 150 % eingestellt hatte, las am Telefon 100 %, hörte aber weiter
+  // 150 %, und die Zurücksetzen-Zeile war durch den gekappten Wert obendrein
+  // deaktiviert — es gab keinen Weg zurück auf 100 %.
+  let volumePct = $derived(Math.round(settings.getUserVolume(userId) * 100));
+  let reglerWert = $derived(Math.min(SLIDER_MAX, volumePct));
 
   function applyVolumePct(pct: number): void {
     const clamped = Math.max(0, Math.min(SLIDER_MAX, Math.round(pct)));
@@ -50,7 +60,7 @@
     min="0"
     max={SLIDER_MAX}
     step="5"
-    value={volumePct}
+    value={reglerWert}
     oninput={(e) => applyVolumePct(Number((e.currentTarget as HTMLInputElement).value))}
     class="w-full accent-emerald-500"
     aria-label={m.voice_user_volume_label({ name })}
