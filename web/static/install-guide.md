@@ -365,9 +365,22 @@ which direction failed.
   preserved; the volume is never deleted.
 - **Reinstall/secret rotation:** re-running the installer with a new token is
   always safe; it rotates the pairing secret and rewrites `pulse.env`.
-- **Removal:** `docker rm -f pulse` (substitute `PULSE_CONTAINER` if you set
-  one), then `systemctl disable --now pulse-update.timer` and remove
-  `/etc/systemd/system/pulse-update.{service,timer}` (`systemctl daemon-reload`).
-  Optionally `docker volume rm pulse-data` (destroys all data — substitute
-  `PULSE_VOLUME` if you set one) and delete the config dir (which also holds
-  `pulse-update.sh`).
+- **Removal:** stop auto-update FIRST, before touching the container — the
+  timer/cron entry has no idea the container is gone and will happily
+  recreate it from the still-cached image on its next cycle (≤5 min): the
+  generated updater's early exits only trigger on a matching digest
+  (`cur_id` from a *missing* container reads as empty, `new_id` is still
+  set, so `[ "$new_id" = "$cur_id" ]` is false and it proceeds to `docker
+  run`). Which one applies was logged at install time ("Auto-updates
+  enabled (…)"); if in doubt, run both — the one that doesn't apply just
+  fails harmlessly:
+  - root install (systemd): `systemctl disable --now pulse-update.timer`,
+    remove `/etc/systemd/system/pulse-update.{service,timer}`, `systemctl
+    daemon-reload`.
+  - non-root install (user crontab): `crontab -l | grep -v pulse-update.sh |
+    crontab -`.
+
+  Only then `docker rm -f pulse` (substitute `PULSE_CONTAINER` if you set
+  one). Optionally `docker volume rm pulse-data` (destroys all data —
+  substitute `PULSE_VOLUME` if you set one) and delete the config dir (which
+  also holds `pulse-update.sh`).
