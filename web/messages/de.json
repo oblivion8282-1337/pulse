@@ -1706,6 +1706,7 @@
   "mod_unban_notice_title": "Sperre aufgehoben",
   "mod_unban_rejoin_failed": "Wieder beitreten fehlgeschlagen",
   "mod_unban_rejoin_success": "Du bist „{guild}“ wieder beigetreten.",
+  "monitor_picker_ausweichend": "Der gewählte Bildschirm ist gerade nicht da. Es wird solange {ersatz} aufgenommen — deine Auswahl bleibt gespeichert und greift wieder, sobald er zurück ist.",
   "monitor_picker_empty": "(keine Bildschirme erkannt — Refresh klicken; gestreamt wird der Primärmonitor)",
   "monitor_picker_group_displays": "Bildschirme",
   "monitor_picker_group_windows": "Fenster",

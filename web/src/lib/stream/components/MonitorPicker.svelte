@@ -29,6 +29,7 @@
     persistSettings,
     refreshMonitors,
     refreshWindows,
+    aktiveQuelleFuerSlot,
     captureSourceForSlot,
     setCaptureSourceForSlot,
     applyAudioForCaptureSource,
@@ -44,6 +45,16 @@
 
   let refreshing = $state(false);
   let captureSource = $derived(captureSourceForSlot(slot));
+  // Was gerade WIRKLICH aufgenommen würde. Weicht es von der Auswahl ab, ist
+  // der gewählte Bildschirm nicht da (s. den Hinweis unten im Markup).
+  let aktiv = $derived(aktiveQuelleFuerSlot(slot));
+  let ausweichend = $derived(aktiv.ausweichend);
+  // Der Name des Ersatzes — eine blosse Nummer sagt dem Nutzer nichts.
+  let ersatzName = $derived(
+    streamSettings.available_monitors.find(
+      (mon) => `${MONITOR_CAPTURE_PREFIX}${mon.index}` === aktiv.quelle,
+    )?.name ?? aktiv.quelle,
+  );
   // Anzeigenamen, die mehrfach vorkommen (drei Terminal-Fenster o.ä.) — für
   // die zeigt die Kachel den Titel statt der Auflösung, sonst wären sie
   // ununterscheidbar.
@@ -91,6 +102,19 @@
       Refresh
     </Button>
   </div>
+
+  <!--
+    Der Rückfall darf nicht stumm sein. Fehlt der gewählte Bildschirm gerade —
+    beim Aufwachen aus der Bildschirmsperre ist die Liste unvollständig —, wird
+    für diesen Start ausgewichen. Ohne diesen Hinweis sieht der Nutzer einen
+    fremden Bildschirm im Stream und hält es für eine Verwechslung durch Pulse;
+    genau so wurde es am 2026-08-26 gemeldet. Die Auswahl selbst bleibt stehen.
+  -->
+  {#if ausweichend}
+    <p class="text-warning text-2xs" data-testid="stream-monitor-ausweichend">
+      {m.monitor_picker_ausweichend({ ersatz: ersatzName })}
+    </p>
+  {/if}
 
   {#if streamSettings.available_monitors.length === 0 && streamSettings.available_windows.length === 0}
     <EmptyState message={m.monitor_picker_empty()} testId="stream-monitor-empty" />

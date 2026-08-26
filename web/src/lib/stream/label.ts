@@ -22,7 +22,7 @@ import { monitorNummer } from './quellenummer';
 import {
   MONITOR_CAPTURE_PREFIX,
   WINDOW_CAPTURE_PREFIX,
-  captureSourceForSlot,
+  aktiveQuelleFuerSlot,
   streamSettings,
 } from './settings.svelte';
 
@@ -84,8 +84,12 @@ export function resolveStreamLabel(
  *  (capture source + the enumerated monitor/window catalogs). Read inside a
  *  `$derived` for reactivity. */
 export function resolveSlotLabel(slot: number): StreamLabel {
+  // Die aktive Quelle: wird gerade ausgewichen, muss die Beschriftung den
+  // Bildschirm nennen, der WIRKLICH läuft — sie reist als `monitor_index` bis
+  // zum Zuschauer, und eine Nummer, die nicht zum Bild passt, ist genau die
+  // Verwechslung, die gemeldet wurde.
   return resolveStreamLabel(
-    captureSourceForSlot(slot),
+    aktiveQuelleFuerSlot(slot).quelle,
     {
       monitors: streamSettings.available_monitors,
       windows: streamSettings.available_windows,
