@@ -36,11 +36,12 @@ Versionen, die der Stack erwartet (Stand 2026-05-27):
 ```fish
 git clone https://github.com/oblivion8282-1337/pulse.git
 cd pulse
-git switch feat/cert-modell-self-host
 ```
 
-Wenn `main` schon den Cert-Modell-Merge enthält, einfach auf `main`
-bleiben.
+Auf `main` bleiben. (Hier stand bis 2026-08-26 ein `git switch
+feat/cert-modell-self-host` — dieser Zweig ist seit dem Merge des
+Cert-Modells weg, wer der Anleitung wörtlich folgte, scheiterte in
+Schritt 1.)
 
 ## 2. Secrets
 
@@ -130,18 +131,66 @@ und wird nicht live aktualisiert. Im Frontend macht sich das durch
 
 ## 6. Tests laufen lassen
 
+**Der verbindliche Weg ist ein Skript**, nicht eine Handvoll Befehle:
+
 ```fish
-# Backend
+bash scripts/gate.sh --maschine   # einmalig: hat diese Maschine alles?
+bash scripts/gate.sh              # das Test-Gate — dasselbe, das ship.sh fährt
+bash scripts/gate.sh --trocken    # nur sagen, was liefe und warum
+```
+
+Dass es dasselbe Skript ist, ist der Punkt: ein grüner Lauf hier zählt
+beim späteren `scripts/ship.sh` und wird dort nicht wiederholt. Das Gate
+merkt sich den Baum-Hash der geprüften Bereiche in `.git/` und
+vergleicht ausserdem gegen `origin/main` — was dieser Zweig nicht
+angefasst hat, läuft gar nicht erst.
+
+Der Stempel ist **maschinen-lokal und soll es bleiben**: ein grüner Lauf
+auf einem anderen Rechner beweist hier nichts (andere Toolchain, anderes
+OS). Der Vergleich mit `origin/main` braucht dagegen keinen Zustand und
+wirkt auf einem frischen Klon sofort.
+
+Einzelne Teile von Hand, wenn man sie gezielt braucht:
+
+```fish
+# Backend (seriell)
 REDIS_URL=redis://localhost:6380/0 uv run --all-packages pytest -q
+
+# Backend parallel — braucht `redis-server` im PATH, s.u.
+REDIS_URL=redis://localhost:6380/1 uv run --all-packages pytest -q -n 8
 
 # Frontend
 cd web
 pnpm check                # svelte-check (TypeScript-Validierung)
 pnpm build                # production build
+pnpm test:unit            # Nodes eingebauter Läufer, kein Vitest
 pnpm exec playwright test # E2E (braucht den dev-Stack)
 ```
 
-Stand 2026-05-27: 1205 Backend-Tests + 86 Playwright-E2Es, alle grün.
+### `redis-server` — warum das Pflicht ist, wenn parallel gefahren wird
+
+Im Parallelbetrieb startet der Wurzel-`conftest.py` **je Worker einen
+eigenen `redis-server`** auf einem freien Port. Das ist kein Luxus:
+Redis-Pubsub ist **server-global, nicht pro Datenbank** (nachgemessen —
+eine auf DB 7 veröffentlichte Nachricht kommt bei einem Abonnenten auf
+DB 2 an). Eine eigene Datenbank je Worker trennt also die Schlüssel, aber
+nicht den Ereignisbus (`guild:events`, `stream:events`, `voice:events`),
+an dem ein grosser Teil der Suite hängt.
+
+Fehlt das Binary, **bricht der parallele Lauf ab** statt scheinbar zu
+laufen — ein Lauf, dessen Worker sich gegenseitig die Ereignisse
+wegfangen, produziert Fehlschläge, die wie flackernde Tests aussehen und
+keine sind. Ohne `redis-server` also seriell fahren:
+`PULSE_GATE_JOBS=1 bash scripts/gate.sh`.
+
+Installation: Arch `sudo pacman -S redis`, Debian/Ubuntu
+`sudo apt install redis-server`, macOS `brew install redis`. Der Dienst
+muss **nicht** laufen — nur das Binary muss auffindbar sein, die Tests
+starten ihre eigenen Prozesse.
+
+Stand 2026-08-26: 2308 Backend-Tests (seriell 7:23, parallel 1:15) +
+136 Playwright-E2Es grün; drei E2Es sind auf `main` rot (mobile-rooms,
+mobile-treffflaechen, plugins).
 
 ## 7. Optional — CDP-Toolkit für Multi-User-Tests
 

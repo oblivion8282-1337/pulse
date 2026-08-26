@@ -30,8 +30,65 @@
 # Aufruf:
 #   bash scripts/gate.sh              # prüfen, bei Grün stempeln
 #   bash scripts/gate.sh --trocken    # nur sagen, was liefe und warum
+#   bash scripts/gate.sh --maschine   # Voraussetzungen dieser Maschine prüfen
 #   PULSE_GATE_VOLL=1 bash scripts/gate.sh   # nichts überspringen
+#   PULSE_GATE_JOBS=1 bash scripts/gate.sh   # seriell (kein redis-server nötig)
 set -euo pipefail
+
+# ── Voraussetzungen dieser Maschine ─────────────────────────────────────────
+# Das Gate reist über das Repo mit, die Werkzeuge nicht. Ohne diesen Modus
+# merkt eine frisch aufgesetzte Maschine erst beim ersten Landen, dass ihr
+# etwas fehlt — und dann mitten in einem Lauf, den sie eigentlich abschliessen
+# wollte.
+if [ "${1:-}" = "--maschine" ]; then
+  fehlt=0
+  pruefe() {  # pruefe <name> <pflicht|optional> <wofuer>
+    if command -v "$1" >/dev/null 2>&1; then
+      printf '  ✓ %-14s %s\n' "$1" "$3"
+    elif [ "$2" = pflicht ]; then
+      printf '  ✗ %-14s FEHLT — %s\n' "$1" "$3"; fehlt=1
+    else
+      printf '  ○ %-14s fehlt (optional) — %s\n' "$1" "$3"
+    fi
+  }
+  echo "Werkzeuge:"
+  pruefe git    pflicht  "Baum-Hashes, Vergleich mit origin/main"
+  pruefe uv     pflicht  "Backend-Tests"
+  pruefe pnpm   pflicht  "Frontend-Prüfungen"
+  pruefe docker pflicht  "Test-Infra (Redis/Postgres)"
+  pruefe redis-server optional "eigener Redis je Worker im Parallellauf"
+  pruefe cargo  optional "Rust-Kisten (nur bei Änderung daran)"
+  if ! command -v redis-server >/dev/null 2>&1; then
+    echo "     → ohne redis-server läuft das Gate seriell: PULSE_GATE_JOBS=1"
+    echo "       (Grund: Redis-Pubsub ist server-global; eine eigene DB je"
+    echo "        Worker reicht NICHT, s. Wurzel-conftest.py)"
+  fi
+  echo "Git-Identität (sonst blockt der CLA-Bot jeden PR):"
+  mail="$(git config user.email || true)"
+  erwartet="249562202+oblivion8282-1337@users.noreply.github.com"
+  if [ "$mail" = "$erwartet" ]; then
+    printf '  ✓ user.email    %s\n' "$mail"
+  else
+    printf '  ✗ user.email    ist "%s", erwartet "%s"\n' "${mail:-<leer>}" "$erwartet"; fehlt=1
+  fi
+  echo "Cargo-Tests brauchen zusätzlich die gepinnte FFmpeg:"
+  ffm=""
+  for k in "${PULSE_FFMPEG_DIR:-}" \
+           "${XDG_CACHE_HOME:-$HOME/.cache}/pulse/ffmpeg/prefix" \
+           "$(git rev-parse --show-toplevel)/streaming/pulse-player/ffmpeg-dist/n8.1-lgpl-shared"; do
+    [ -n "$k" ] && [ -d "$k/lib" ] && { ffm="$k"; break; }
+  done
+  if [ -n "$ffm" ]; then
+    printf '  ✓ FFmpeg        %s\n' "$ffm"
+  elif [ "$(uname -s)" = "Darwin" ] && [ -d "$HOME/src/ffmpeg-openssl/lib/pkgconfig" ]; then
+    printf '  ✓ FFmpeg        macOS-Pfad ~/src/ffmpeg-openssl\n'
+  else
+    printf '  ○ FFmpeg        fehlt — Cargo-Tests werden übersprungen (scripts/hq-bauen.sh)\n'
+  fi
+  [ "$fehlt" = 0 ] && echo "✓ Diese Maschine kann das Gate fahren." || {
+    echo "✗ Es fehlt etwas Pflichtiges (s. oben)." >&2; exit 1; }
+  exit 0
+fi
 
 trocken=false
 [ "${1:-}" = "--trocken" ] && trocken=true
