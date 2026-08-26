@@ -97,8 +97,16 @@ pub struct Overlay {
     input_rate: PresentRate,
     /// Wer hier streamt — steht links in der Leiste, wie in der App.
     title: String,
-    /// Statistikfeld sichtbar. Vorgabe AN: es war bisher immer zu sehen, und
-    /// ein Schalter darf einem nicht die gewohnte Anzeige wegnehmen.
+    /// Statistikfeld sichtbar. **Vorgabe AUS** (seit 2026-08-26): Codec, Bildrate
+    /// und Bitrate interessieren beim Zusehen niemanden, der nicht gerade einen
+    /// Fehler sucht — dieselbe Begründung, mit der die Kachel in der Web-App es
+    /// seit jeher aus hat (`web/src/lib/stream/statsVisible.svelte.ts`).
+    ///
+    /// Hier stand bis dahin AN, begründet mit „es war bisher immer zu sehen, und
+    /// ein Schalter darf einem nicht die gewohnte Anzeige wegnehmen". Das war ein
+    /// Argument für den Tag, an dem der Schalter dazukam, und hat sich überlebt:
+    /// wer die Zahlen sucht, findet den Schalter — wer sie nie brauchte, musste
+    /// sie bei jedem Zusehen wegklicken.
     stats_visible: bool,
     /// Gibt es ein Zurueck in die Kachel? Bei 10 bit nicht — dort kann das
     /// `<video>` der App das Bild nicht darstellen (gemessen 2026-07-26).
@@ -171,7 +179,7 @@ impl Overlay {
             present_rate: PresentRate::neu(),
             input_rate: PresentRate::neu(),
             title: String::new(),
-            stats_visible: true,
+            stats_visible: false,
             can_reattach: true,
             fernsteuerung: false,
             fern_menue_offen: false,
