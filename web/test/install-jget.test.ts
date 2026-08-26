@@ -127,8 +127,38 @@ jget ${shQuote(json)} ${shQuote(feld)}
   }
 }
 
+/**
+ * Ruft `jget` MIT echtem python3 auf dem PATH auf, fängt einen Abbruch aber
+ * ab statt ihn als Testinfrastruktur-Fehler zu werten — für N7
+ * (Nachprüfung): eine Antwort mit Statuscode 200, die kein gültiges JSON
+ * ist (Captive Portal, transparenter Proxy, WAF-Zwischenseite — `curl
+ * -fsSL` folgt Weiterleitungen, `-f` greift nur bei Nicht-2xx), lässt
+ * `json.load` mit `JSONDecodeError` abbrechen.
+ */
+function jgetMitPython3RobustAufrufen(json: string, feld: string): Ergebnis {
+  const quelle = readFileSync(SKRIPT, 'utf8');
+  const skript = `
+set -euo pipefail
+${funktion(quelle, 'jget')}
+jget ${shQuote(json)} ${shQuote(feld)}
+`;
+  try {
+    const wert = execFileSync(BASH_ABS, ['-c', skript], { encoding: 'utf8' }).trim();
+    return { exit: 0, wert };
+  } catch (fehler) {
+    const f = fehler as { status?: number | null };
+    return { exit: f.status ?? 1, wert: '' };
+  }
+}
+
 test('JSON-null wird zu leer, nicht zum Text None', () => {
   assert.equal(jget('{"admin_email":null}', 'admin_email'), '');
+});
+
+test('N7: der python3-Zweig stirbt nicht wortlos an einer 200er-Antwort, die kein JSON ist', () => {
+  const e = jgetMitPython3RobustAufrufen('<html><body>Captive Portal</body></html>', 'instance_id');
+  assert.equal(e.exit, 0, `jget starb (Exit ${e.exit}) statt leer zurückzugeben`);
+  assert.equal(e.wert, '');
 });
 
 test('der Rueckfallzweig ohne python3 toetet den Installer nicht', () => {

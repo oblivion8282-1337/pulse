@@ -580,12 +580,23 @@ jget() {
     # steht er mit JSON-`null` im Feld (z. B. admin_email ohne hinterlegte
     # Mail), kommt echtes `None` zurück und `print(None)` schreibt den
     # literalen Text "None" in die .env. `or ''` fängt beides ab.
-    printf '%s' "$1" | python3 -c "import sys,json;print(json.load(sys.stdin).get('$2','') or '')" | tr -d '\r\n'
+    #
+    # `|| true` am Ende — derselbe Grund wie beim Rückfallzweig unten, hier
+    # nur der Verweis statt der vollen Begründung: eine Antwort mit
+    # Statuscode 200, die kein gültiges JSON ist (Captive Portal,
+    # transparenter Proxy, WAF-Zwischenseite — `curl -fsSL` folgt
+    # Weiterleitungen, `-f` greift nur bei Nicht-2xx), lässt `json.load` mit
+    # `JSONDecodeError` abbrechen. Ohne `|| true` tötet das unter `set -euo
+    # pipefail` + `pipefail` die Zuweisung `VAR="$(jget …)"` wortlos, mit
+    # einem Python-Traceback als letzter Ausgabe, unmittelbar nach dem
+    # Einlösen des Bootstrap-Tokens.
+    printf '%s' "$1" | python3 -c "import sys,json;print(json.load(sys.stdin).get('$2','') or '')" | tr -d '\r\n' || true
   else
     # Kein Treffer lässt `grep -o` mit Exit 1 enden; unter `set -euo
     # pipefail` (Skriptkopf) tötet das sonst die Zuweisung `VAR="$(jget …)"`
     # wortlos, unmittelbar nach dem Einlösen des Bootstrap-Tokens. Ein
-    # fehlendes/leeres Feld ist hier ein Normalzustand, kein Fehler.
+    # fehlendes/leeres Feld ist hier ein Normalzustand, kein Fehler — wie
+    # beim python3-Zweig oben.
     printf '%s' "$1" | grep -o "\"$2\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -1 \
       | sed 's/.*:[[:space:]]*"//; s/"$//' | tr -d '\r\n' || true
   fi
@@ -684,10 +695,11 @@ trap _trim_log EXIT
 # zurueck (Momentaufnahme-Rennen zwischen Zyklus-Ende und naechstem Start).
 # '.RestartCount' dagegen ist ein monoton wachsender Zaehler INNERHALB einer
 # Neustartschleife — dort faellt er nie zurueck. Er faellt aber sehr wohl
-# zurueck bei einem MANUELLEN Neustart: 'docker restart' nullt ihn (Docker
-# ruft dabei intern ResetRestartManager(true) auf), gemessen 6 im Karussell,
-# 1 direkt nach 'docker restart' desselben Containers. Fuer DIESES Fenster
-# ist das folgenlos — es liegt unmittelbar nach 'docker run', niemand startet
+# zurueck bei einem MANUELLEN Neustart: 'docker restart' setzt ihn auf 0
+# zurueck (gemessen: 5 im Karussell, unmittelbar nach 'docker restart' 0 —
+# bei einem schnell wieder abstuerzenden Container steigt er von dort aus
+# binnen Sekunden erneut). Fuer DIESES Fenster ist das folgenlos — es liegt
+# unmittelbar nach 'docker run', niemand startet
 # hier von Hand neu. Der Container ist hier gerade frisch erzeugt worden,
 # sein Zaehler MUSS also ueber das ganze Fenster 0 bleiben, sonst ist der
 # Start nicht stabil. Zusaetzlich wird '.State.Status = "running"' verlangt:
@@ -754,9 +766,11 @@ container_laeuft_stabil() {
 # letzten 'docker run' ab, SOLANGE niemand den Container von Hand neu
 # gestartet hat.
 #
-# BEKANNTE LÜCKE, nicht behoben: 'docker restart' nullt '.RestartCount'
-# (gemessen: 6 im Karussell, 1 direkt danach) — und genau das rät die
-# eigene Diagnose bei einem abgelaufenen oder selbstsignierten Zertifikat
+# BEKANNTE LÜCKE, nicht behoben: 'docker restart' setzt '.RestartCount' auf
+# 0 zurück (gemessen: 5 im Karussell, unmittelbar nach 'docker restart' 0 —
+# bei einem langsam sterbenden Container bleibt er danach den ganzen
+# Fünf-Minuten-Takt auf 0, nicht nur kurz) — und genau das rät die eigene
+# Diagnose bei einem abgelaufenen oder selbstsignierten Zertifikat
 # (dcc_auth/diagnose_texte.py, s. auch SELF_HOST.md-Troubleshooting). Hing
 # $CONTAINER im Fünf-Minuten-Fenster im Absturzkarussell und wurde dann per
 # 'docker restart' neu gestartet, gilt er hier fälschlich als dauerhaft
