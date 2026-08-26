@@ -81,9 +81,17 @@ test.describe('Trefferflächen auf dem Handy', () => {
     expect(polster).not.toBeNull();
   });
 
-  test('die Bereichs-Leiste liegt am unteren Rand', async () => {
+  test('die Bereichs-Leiste sitzt unten, als schwebende Karte', async () => {
+    // Die Leiste KLEBT bewusst nicht am Rand: sie ist eine Karte mit Luft
+    // ringsum (`mx-2 mb-2` in MobileTabBar, dieselbe Behandlung wie der
+    // Profilblock der Du-Seite). Der Test verlangte vorher Randbündigkeit und
+    // war seit dieser Gestaltung dauerhaft rot — ein roter Test meldet keine
+    // Regression mehr. Geprüft wird deshalb, was wirklich gilt: die Leiste
+    // liegt im untersten Zehntel, und unter ihr steht nur die Kartenluft.
     const kasten = await page.getByTestId('mobile-tab-bar').boundingBox();
     const hoehe = page.viewportSize()!.height;
-    expect(kasten!.y + kasten!.height).toBeGreaterThan(hoehe - 2);
+    const unterkante = kasten!.y + kasten!.height;
+    expect(unterkante).toBeGreaterThan(hoehe * 0.9);
+    expect(hoehe - unterkante).toBeLessThanOrEqual(16);
   });
 });

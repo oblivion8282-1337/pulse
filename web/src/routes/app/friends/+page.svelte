@@ -128,7 +128,7 @@
             {#snippet child({ props })}
               <button
                 {...props}
-                class="text-text-muted hover:bg-bg-hover hover:text-text-bright flex size-11 items-center justify-center rounded-[14px] transition-colors"
+                class="text-text-muted hover:bg-bg-hover hover:text-text-bright flex size-12 items-center justify-center rounded-[14px] transition-colors"
                 data-testid="friends-menu"
                 aria-label={m.chats_menu()}
               >

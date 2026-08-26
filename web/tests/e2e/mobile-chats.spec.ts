@@ -107,12 +107,19 @@ test.describe.serial('Chats-Bereich auf dem Handy', () => {
     await expect(zeile).toContainText('Alles klar');
   });
 
-  test('der Knopf fuer ein neues Gespraech ist da und gross genug', async () => {
-    const fab = a.getByTestId('chats-compose');
-    await expect(fab).toBeVisible();
-    const kasten = await fab.boundingBox();
+  test('ein neues Gespraech ist ueber das Kopfmenue erreichbar', async () => {
+    // Der freistehende Knopf ist einem Drei-Punkte-Menue gewichen (Platz fuer
+    // kuenftige Handlungen). Geprueft wird deshalb der Weg, nicht der alte
+    // Knopf: Menue gross genug, Eintrag da, Dialog geht auf.
+    const menue = a.getByTestId('chats-menu');
+    await expect(menue).toBeVisible();
+    const kasten = await menue.boundingBox();
     expect(kasten!.width).toBeGreaterThanOrEqual(48);
     expect(kasten!.height).toBeGreaterThanOrEqual(48);
+    await menue.click();
+    await a.getByTestId('chats-menu-new-chat').click();
+    await expect(a.getByTestId('chats-new-chat-dialog')).toBeVisible();
+    await a.keyboard.press('Escape');
   });
 
   test('im Gespraech stehen Sprechblasen, eigene rechts', async () => {
