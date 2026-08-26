@@ -8,12 +8,39 @@ class Viewport {
   get isMobile() {
     return this.width < 768; // < md
   }
-  /** Ein Handy bleibt ein Handy, auch quer (844×390): die KURZE Kante verrät
-   *  das Gerät. Die mobile Oberfläche (Leisten, Stream-Vollbild, schwebende
-   *  Knöpfe) gilt nach dieser Kante — quer ohne Stream bleibt die Ansicht
-   *  einfach die gewohnte mobile, nur breiter. */
+  /**
+   * Grober Zeiger = Finger. `(pointer: coarse)` beschreibt den PRIMÄREN
+   * Zeiger, ein Notebook mit Touchscreen und Maus bleibt also `fine`.
+   *
+   * Reaktiv gehalten, obwohl sich der Wert im Betrieb praktisch nie ändert:
+   * er wird vor `init()` gelesen (Komponenten rendern früher), und ein
+   * einmal falsch eingefrorener Wert wäre nicht mehr zu korrigieren.
+   */
+  zeigerGrob = $state(
+    typeof window !== 'undefined'
+      ? (window.matchMedia?.('(pointer: coarse)').matches ?? false)
+      : false
+  );
+
+  /**
+   * Ein Handy bleibt ein Handy, auch quer (844×390): dort verrät die KURZE
+   * Kante das Gerät. Die mobile Oberfläche (Leisten, Stream-Vollbild,
+   * schwebende Knöpfe) gilt nach dieser Kante — quer ohne Stream bleibt die
+   * Ansicht einfach die gewohnte mobile, nur breiter.
+   *
+   * **Die kurze Kante allein genügt NICHT**, und das ist der Kern: sie ist am
+   * Rechner die Fensterhöhe. Ein maximiertes 1366×768-Notebook hat rund 640 px
+   * Innenhöhe, ein Electron-Fenster einmal kleiner gezogen ebenso (Vorgabe
+   * 1280×832) — beide gälten als Handy, und das Drei-Spalten-Layout samt
+   * Kachel-Leiste und Doppelklick-Vollbild verschwände am Schreibtisch.
+   * Deshalb zählt die kurze Kante nur zusammen mit einem Finger als Zeiger.
+   *
+   * Die Breiten-Bedingung steht bewusst UNVERÄNDERT davor: ein schmales
+   * Fenster war schon immer die mobile Ansicht (`isMobile`), daran ändert die
+   * Querformat-Erweiterung nichts.
+   */
   get istHandy() {
-    return Math.min(this.width, this.height) < 768;
+    return this.isMobile || (this.zeigerGrob && Math.min(this.width, this.height) < 768);
   }
   get isTablet() {
     return this.width >= 768 && this.width < 1024;
@@ -49,6 +76,11 @@ class Viewport {
     // MediaQuery-Klasse wechselt — zweites Netz neben `resize`.
     window.matchMedia('(orientation: landscape)').addEventListener('change', on);
     window.visualViewport?.addEventListener('resize', on, { passive: true });
+    // Der Zeigertyp wechselt, wenn ein Tablet angedockt/abgedockt wird oder
+    // eine Maus dazukommt — selten, aber dann soll die Oberfläche folgen.
+    const grob = window.matchMedia?.('(pointer: coarse)');
+    grob?.addEventListener('change', (e) => (this.zeigerGrob = e.matches));
+    if (grob) this.zeigerGrob = grob.matches;
     on();
   }
 }
