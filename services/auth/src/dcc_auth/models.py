@@ -377,6 +377,18 @@ class RefreshToken(Base):
     # nachzuschlagen, und ein fehlender Nachfolger faellt in denselben Zweig
     # wie ein eingeloester (kein Heilen, s. ``routes.refresh``).
     replaced_by: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+    # Wie oft in DIESER Kette schon nachgereicht wurde (Migration 0050). Der
+    # Zaehler wandert bei jeder Rotation mit und wird nie zurueckgesetzt; die
+    # Begruendung fuer beides — und warum ein Zaehler an der einzelnen Zeile
+    # wirkungslos waere — steht bei ``refresh_kette.NACHREICH_LIMIT``.
+    #
+    # ``server_default`` ist noetig, nicht bloss der Python-Default: waehrend
+    # des Ausrollens schreibt der alte Code Zeilen ohne diese Spalte, und ohne
+    # Vorgabe stuende dort NULL. Die Spalte ist NOT NULL, weil es keinen
+    # sinnvollen dritten Zustand gibt — „noch nie nachgereicht" ist die Null.
+    nachgereicht: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )
 
     __table_args__ = (
         Index(

@@ -35,9 +35,9 @@ from dcc_auth.models import (
     WebAuthnCredential,
 )
 from dcc_auth.refresh_kette import (
-    nachfolger_zum_nachreichen,
     protokolliere_abweisung,
     protokolliere_nachgereicht,
+    pruefe_wiedervorlage,
     widerrufe_kette,
 )
 from dcc_auth.schemas import (
@@ -183,6 +183,7 @@ async def _issue_tokens(
         last_used_at=now,
         session_id=as_sid(session_id),  # type: ignore[arg-type]
         family_id=(vorgaenger.family_id if vorgaenger is not None else None) or jti,
+        nachgereicht=(vorgaenger.nachgereicht if vorgaenger is not None else 0),
     )
     session.add(rt)
     if vorgaenger is not None:
@@ -677,21 +678,39 @@ async def refresh(
     if user.disabled or user.is_suspended:
         # Disabled/suspended accounts can't extend their session — also revoke this rt so
         # repeated attempts don't repeatedly hit the password verification path.
-        rt.revoked_at = now
-        await session.commit()
+        #
+        # Nur eine noch lebende Zeile: seit die Kontopruefung VOR der Weiche
+        # steht, kommen hier auch bereits rotierte Zeilen an, und deren
+        # ``revoked_at`` gehoert zu ihrer Rotation. Es ist die Spur, aus der
+        # ``widerrufen_vor`` gerechnet wird — ueberschrieben zeigte sie auf den
+        # Sperr-Zeitpunkt statt auf den Vorfall.
+        if rt.revoked_at is None:
+            rt.revoked_at = now
+            await session.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="account disabled")
 
     # Ablauf und Kontostand werden VOR dieser Weiche geprueft, damit sie fuer
     # beide Ausgaenge gleich gelten: ein abgelaufener oder gesperrter Ausweis
     # wird auch dann nicht nachgereicht, wenn der Roundtrip nur abgerissen war.
     if rt.revoked_at is not None:
-        nachfolger = await nachfolger_zum_nachreichen(session, rt)
-        if nachfolger is not None:
+        befund = await pruefe_wiedervorlage(session, rt, jetzt=now)
+        if (nachfolger := befund.nachfolger) is not None:
             # Der Klient hat seinen Nachfolger nie bekommen. Genau den reichen
             # wir nach — nichts wird widerrufen, nichts neu angelegt. Das
             # Zugriffs-Token ist frisch, weil es nur 15 Minuten lebt und
             # ohnehin neu gebraucht wird; die Kette bleibt unveraendert.
-            protokolliere_nachgereicht(rt, jetzt=now)
+            # Das Kontingent der Kette schrumpft mit jeder Nachreichung, und
+            # es haengt am Nachfolger — der ist die lebende Spitze und vererbt
+            # den Stand bei der naechsten Rotation weiter.
+            nachfolger.nachgereicht += 1
+            # Die Kette lebt weiter, also muss die Sitzungsliste das auch
+            # zeigen: ohne diese Zeile stuende dort das Datum der letzten
+            # gelungenen Rotation, und wer nach einer Uebernahme sucht, laese
+            # eine Sitzung als eingeschlafen, die gerade benutzt wird.
+            nachfolger.last_used_at = now
+            protokolliere_nachgereicht(
+                rt, jetzt=now, nachgereicht=nachfolger.nachgereicht, ua_jetzt=user_agent
+            )
             await session.commit()
             return TokensOut(
                 access_token=signer.issue_access(
@@ -723,7 +742,11 @@ async def refresh(
         betroffen = await widerrufe_kette(session, rt, jetzt=now)
         await revoke_sessions_of_tokens(session, betroffen, now=now)
         protokolliere_abweisung(
-            rt, jetzt=now, widerrufen=len(betroffen), ua_jetzt=user_agent
+            rt,
+            jetzt=now,
+            widerrufen=len(betroffen),
+            ua_jetzt=user_agent,
+            ereignis=befund.ereignis,
         )
         await session.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="refresh token not active")
