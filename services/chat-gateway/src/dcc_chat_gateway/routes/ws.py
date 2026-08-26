@@ -226,10 +226,15 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     # Hello-frame: sent immediately after accept, before ready.
     # Phase-4 frontend checks server_version against its MIN_SERVER_VERSION
     # build constant. Backend never validates the client version here.
+    # ``capabilities`` sagt dem Klienten, welche Wege dieser Server kennt —
+    # ``token_refresh`` erneuert das Token am offenen Socket, statt ihn beim
+    # Ablauf zu schliessen (s. ``ws_token_renewal.py``). Ein neuer Klient an
+    # einem alten Server sieht den Eintrag nicht und faellt wortlos auf den
+    # Reconnect-Weg zurueck; ein alter Klient ignoriert ihn ohnehin.
     await websocket.send_json({
         "op": "hello",
         "server_version": __version__,
-        "capabilities": [],
+        "capabilities": ["token_refresh"],
     })
 
     app = websocket.app

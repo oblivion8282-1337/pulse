@@ -14,8 +14,8 @@ import { isDirectOnly } from '$lib/direct/policy';
 import { DirectUnavailableError } from '$lib/direct/transport';
 import { serversStore } from '$lib/api/servers.svelte';
 import { directStatus } from '$lib/stores/directStatus.svelte';
-import { currentAccessToken, request } from '$lib/api/client';
-import { isAccessExpired, loadTokens } from '$lib/api/storage';
+import { currentAccessToken, getCloudBearer, request } from '$lib/api/client';
+import { isAccessExpired, jwtPayload, loadTokens } from '$lib/api/storage';
 import { sessionTokens } from '$lib/api/session_tokens.svelte';
 import { activeServer } from '$lib/stores/active-server.svelte';
 import {
@@ -38,6 +38,11 @@ import {
   remoteSessionEligible,
 } from './dispatch-rules';
 import * as senders from './gateway-senders';
+import {
+  RENEW_RETRY_MS,
+  erneuerungsAbstandMs,
+  wiederholungLohnt,
+} from './token-erneuerung';
 import { compareVersions } from '$lib/utils/semver';
 import type { ServerEvent, ClientEvent, RemoteSignalKind } from './handlers/types';
 import type { DeviceMonitor } from '$lib/api/devices';
@@ -147,6 +152,10 @@ export class GatewayConnection {
   private wantConnected = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  /** Timer für den Token-Austausch am offenen Socket (nur Cloud — auf einem
+   *  Self-Host stösst `api/self-host-reauth.ts` den Austausch an, sobald es
+   *  einen neuen Session-Token gemintet hat). Siehe `token-erneuerung.ts`. */
+  private renewTimer: ReturnType<typeof setTimeout> | null = null;
   private lastPongAt = 0;
   private connectPromise: Promise<void> | null = null;
   private forceRefreshNext = false;
@@ -459,6 +468,15 @@ export class GatewayConnection {
           this.lastPongAt = Date.now();
           return;
         }
+        // Bestätigter Token-Austausch: der Server hat seinen Ablauf-Wecker
+        // verschoben. Nächste Erneuerung aus dem NEUEN `exp` planen. Der
+        // Rahmen ist kein Ereignis für die Stores — hier abfangen, sonst
+        // meldet der Dispatcher ihn als unbekannte Op.
+        const tokenRenewed = evt as unknown as { op: string; exp?: number };
+        if (tokenRenewed.op === 'token_renewed') {
+          this._planeTokenErneuerungAus(tokenRenewed.exp ?? null);
+          return;
+        }
         if (firstFrame) {
           firstFrame = false;
           if ((evt as unknown as { op: string }).op === 'hello') {
@@ -472,6 +490,10 @@ export class GatewayConnection {
               try { ws.close(WS_CLOSE.SERVER_TOO_OLD, 'server too old'); } catch { /* noop */ }
               return;
             }
+            // Erst hier bekannt, ob der Server den Token-Austausch kennt —
+            // deshalb wird die Erneuerung im hello geplant und nicht im
+            // `open`-Zweig (der läuft, bevor das erste Frame da ist).
+            this._planeTokenErneuerung();
             return; // Hello selbst geht NICHT in den Handler-Dispatcher
           }
           // Fallback: älterer Server ohne hello-Support → durchlassen.
@@ -482,6 +504,7 @@ export class GatewayConnection {
       ws.addEventListener('close', (event) => {
         this.ws = null;
         this._stopHeartbeat();
+        this._stopTokenErneuerung();
         // Vor jeder Zustands-Abbildung und vor dem Reconnect: die Hörer sollen
         // den Abriss erfahren, egal ob danach neu gewählt wird oder nicht.
         // Kopie, weil ein Hörer sich im Ruf abmelden darf.
@@ -629,6 +652,85 @@ export class GatewayConnection {
     this._sendRaw({ op: 'ping' });
   }
 
+  // ── Token-Austausch am offenen Socket ─────────────────────────────────────
+  // Warum das existiert: der Gateway schloss den Socket beim Ablauf des Tokens
+  // (4001), der Klient verband neu — und weil ein Verbindungsabbau sofort
+  // „offline" an alle meldet, flackerte JEDER Nutzer im Token-Takt aus der
+  // Freundesliste (Cloud alle 15 min, Self-Host alle 5 min). Statt neu zu
+  // verbinden reichen wir vor dem Ablauf ein frisches Token nach. Rechnung in
+  // `token-erneuerung.ts`.
+
+  /** Kennt dieser Server den Austausch? Ein älterer Server sendet die
+   *  Fähigkeit nicht — dann bleibt es beim alten Reconnect-Weg. */
+  private _kannTokenTauschen(): boolean {
+    return (this.helloMeta?.capabilities ?? []).includes('token_refresh');
+  }
+
+  /** Frisches Token an den offenen Socket schieben. Öffentlich, weil der
+   *  Self-Host-Weg von aussen kommt: `api/self-host-reauth.ts` mintet den
+   *  Session-Token 60 s vor Ablauf selbst neu und meldet ihn hier an. Ohne
+   *  diese Meldung wüsste der Server nichts davon und schlösse den Socket
+   *  trotzdem — genau das war der 5-Minuten-Takt auf Self-Hosts. */
+  pushToken(token: string): void {
+    if (!token || !this._kannTokenTauschen()) return;
+    this._sendRaw({ op: 'token_refresh', token });
+  }
+
+  private _stopTokenErneuerung(): void {
+    if (this.renewTimer) {
+      clearTimeout(this.renewTimer);
+      this.renewTimer = null;
+    }
+  }
+
+  /** Nächste Erneuerung aus dem aktuellen Cloud-Access-Token planen. */
+  private _planeTokenErneuerung(): void {
+    if (!this.isCloud) return; // Self-Host: s. `pushToken`
+    const exp = jwtPayload(currentAccessToken() ?? '')?.exp;
+    this._planeTokenErneuerungAus(typeof exp === 'number' ? exp : null);
+  }
+
+  private _planeTokenErneuerungAus(expSekunden: number | null): void {
+    if (!this.isCloud || !this._kannTokenTauschen()) {
+      this._stopTokenErneuerung();
+      return;
+    }
+    const abstand = erneuerungsAbstandMs(expSekunden, Date.now());
+    if (abstand === null) return;
+    this._planeTokenErneuerungIn(abstand);
+  }
+
+  private _planeTokenErneuerungIn(abstandMs: number): void {
+    this._stopTokenErneuerung();
+    this.renewTimer = setTimeout(() => {
+      this.renewTimer = null;
+      void this._erneuereToken();
+    }, abstandMs);
+  }
+
+  private async _erneuereToken(): Promise<void> {
+    if (!this.isCloud || !this.ws || this.state !== 'open') return;
+    const altesExp = jwtPayload(currentAccessToken() ?? '')?.exp;
+    // `force`, weil das Token im Vorlauf-Fenster noch gültig ist — ohne
+    // Zwang gäbe der Client dasselbe zurück. Derselbe Aufruf lief bisher
+    // beim Reconnect nach 4001, die Last bleibt also gleich; parallele Tabs
+    // teilen sich den Roundtrip über `navigator.locks` in `client.ts`.
+    const frisch = await getCloudBearer(true);
+    if (!frisch) {
+      // Netz weg. Solange das alte Token noch trägt, später erneut versuchen;
+      // sonst nichts tun — dann greift der gewöhnliche 4001-Reconnect.
+      if (wiederholungLohnt(typeof altesExp === 'number' ? altesExp : null, Date.now())) {
+        this._planeTokenErneuerungIn(RENEW_RETRY_MS);
+      }
+      return;
+    }
+    // Antwort ist `token_renewed` (plant die nächste Runde) oder ein
+    // Fehlerrahmen 4015 — dann bleibt es beim Ablauf und dem Reconnect, der
+    // in die volle Eintrittsprüfung des Servers läuft. Genau so gewollt: die
+    // Erneuerung darf nie ein Ersatz für eine echte Ablehnung sein.
+    this.pushToken(frisch);
+  }
+
   private _scheduleReconnect(): void {
     if (this.reconnectTimer) return;
     const wait =
@@ -643,6 +745,7 @@ export class GatewayConnection {
   disconnect(): void {
     this.wantConnected = false;
     this._stopHeartbeat();
+    this._stopTokenErneuerung();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

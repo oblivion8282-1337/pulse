@@ -43,6 +43,7 @@ from dcc_chat_gateway.routes import (
     ws_remote_input,
     ws_remote_reconnect,
     ws_remote_teardown,
+    ws_token_renewal,
     ws_typing,
     ws_watch,
     ws_watch_queue,
@@ -397,6 +398,11 @@ register_ws_op("typing", ws_typing.handle_typing)
 # ``send`` op is registered in routes.ws_op_send. Re-register here so
 # importing this module wires every built-in op in one shot.
 register_ws_op("send", handle_send)
+
+
+# ``token_refresh`` liegt in routes.ws_token_renewal (eigenes Modul, weil dort
+# auch der Wecker wohnt, den der Op verschiebt). Gleiches Muster wie oben.
+register_ws_op("token_refresh", ws_token_renewal.handle_token_refresh)
 
 
 @register_ws_op("profile_statement")

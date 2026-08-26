@@ -519,6 +519,11 @@ export type ClientEvent =
   // ready stale (Live-voice/stream/watch-Events seit Connect fehlen darin) —
   // resync holt den aktuellen Stand, statt den stale Cache zu replayen.
   | { op: 'resync' }
+  // Frisches Token am OFFENEN Socket (`$lib/ws/token-erneuerung.ts`). Der
+  // Server haengt die Lebensdauer des Sockets an das ``exp`` seines Tokens;
+  // ohne diesen Austausch schliesst er ihn beim Ablauf und der Nutzer
+  // flackerte im Token-Takt aus den Listen der anderen.
+  | { op: 'token_refresh'; token: string }
   | { op: 'ping' };
 
 /** Narrow `ServerEvent` to the variant that has the given `op`. Used by
