@@ -67,6 +67,10 @@ export interface Instance {
    *  (Das Backend führt zusätzlich ein dormantes ``user_label`` — der
    *  persönliche Server-Name wurde entfernt; den Namen bestimmt der Admin.) */
   notification_mode: 'all' | 'mentions' | 'none';
+  /** Eigene Rolle auf dieser Instanz. Die Liste enthält AUCH Server, denen man
+   *  nur beigetreten ist (damit sie auf allen Geräten in der Server-Leiste
+   *  stehen) — nur `owner` darf einrichten und löschen. */
+  role: 'owner' | 'member';
 }
 
 /** Spiegelt ApplicationOut (Admin-Route — trägt applicant_username). */

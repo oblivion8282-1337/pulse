@@ -5,7 +5,8 @@ POST   /me/instances/{id}/env-file            -- fertige .env (inkl. frischem Se
 POST   /me/instances/{id}/bootstrap-token     -- One-Time-Installer-Token
 
 Die Antrags-Endpoints (``/me/instance-applications``) leben seit dem vereinten
-Antragssystem (Migration 0044) in ``routes_applications.py``.
+Antragssystem (Migration 0044) in ``routes_applications.py``; Beitritt, Austritt
+und die Server-Präferenzen in ``routes_instance_membership.py`` (Größen-Policy).
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy import select
 
 from dcc_auth.bootstrap import (
@@ -111,15 +112,12 @@ class InstanceOut(BaseModel):
     # geräteübergreifend). NULL/Default, wenn keine Membership im Kontext.
     user_label: str | None = None
     notification_mode: Literal["all", "mentions", "none"] = "mentions"
-
-
-class InstancePreferencesIn(BaseModel):
-    """Partielles Update der geräteübergreifenden Server-Präferenzen. Nur
-    gesetzte Felder werden geändert (``model_fields_set``); ``label=None``
-    setzt den Anzeigenamen explizit zurück (= Hostname anzeigen)."""
-
-    label: str | None = Field(default=None, max_length=100)
-    notification_mode: Literal["all", "mentions", "none"] | None = None
+    # Eigene Rolle auf DIESER Instanz. Die Liste beantwortet „mit welchen
+    # Servern habe ich zu tun", nicht „welche gehören mir" — ein per Einladung
+    # beigetretener Server steht mit ``member`` darin, damit er auf allen
+    # Geräten in der Server-Leiste erscheint. Ohne dieses Feld kann die
+    # Oberfläche Besitz und Mitgliedschaft nicht unterscheiden.
+    role: Literal["owner", "member"]
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +126,9 @@ class InstancePreferencesIn(BaseModel):
 
 
 def _instance_to_out(
-    inst: RegisteredInstance, membership: UserInstanceMembership | None = None
+    inst: RegisteredInstance,
+    viewer_id: int,
+    membership: UserInstanceMembership | None = None,
 ) -> InstanceOut:
     return InstanceOut(
         id=str(inst.id),
@@ -159,6 +159,11 @@ def _instance_to_out(
         notification_mode=(
             membership.notification_mode if membership else "mentions"  # type: ignore[arg-type]
         ),
+        # BEWUSST aus ``registered_by``, nicht aus ``membership.role``: die
+        # Verwaltungs-Routen (env-file, bootstrap-token, DELETE) verriegeln
+        # genau gegen dieses Feld. Eine Rollen-Spalte, die davon abwiche, ließe
+        # die Oberfläche Knöpfe zeigen, die anschließend 404 laufen.
+        role="owner" if inst.registered_by == viewer_id else "member",
     )
 
 
@@ -196,120 +201,7 @@ async def list_my_instances(
         .order_by(RegisteredInstance.registered_at.desc())
     )
     rows = (await db.execute(stmt)).all()
-    return [_instance_to_out(inst, membership) for inst, membership in rows]
-
-
-@router.post(
-    "/me/instances/{instance_id}/membership",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-async def join_instance_membership(
-    instance_id: str,
-    request: Request,
-    db: SessionDep,
-) -> None:
-    """Den eingeloggten Cloud-User als Mitglied einer Self-Host-Instanz
-    eintragen — so erscheint ein per Einladung beigetretener Server auch auf
-    anderen Geräten (Account-basierte Server-Liste, ``GET /me/instances``).
-
-    Bisher legte nur der Owner-Pfad (Approval/Bootstrap-Redeem) eine Membership
-    an; ein eingeladener Nicht-Owner hatte nur den gerätelokalen
-    ``pulse.servers``-Eintrag → im Browser unsichtbar. Dieser Endpoint schließt
-    die Lücke (die in ``UserInstanceMembership`` vorbereitete Phase-4-6-Rolle).
-
-    Idempotent. Eine bestehende ``owner``-Rolle wird NICHT herabgestuft. Die
-    Cloud verifiziert die Self-Host-seitige Mitgliedschaft bewusst NICHT
-    (Cert-Modell: Self-Hosts sind isolierte DB-Welten) — die Server-Liste war
-    immer nur eine schwache Tracking-Dimension, kein Zugriffsbeweis. Ohne echten
-    Cert-Grant kommt der User auf dem Self-Host trotzdem nicht rein; der Client
-    ruft den Endpoint ohnehin erst nach erfolgreichem Cert-Login auf.
-    """
-    user = await _require_user(request, db)
-    try:
-        iid = int(instance_id)
-    except ValueError:
-        # ``from None`` an allen diesen Stellen: eine nicht-numerische ID ist
-        # erwartetes Verhalten, kein Fehlerfall — ein angehaengter Traceback
-        # waere nur Log-Laerm.
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden"
-        ) from None
-    inst = await db.get(RegisteredInstance, iid)
-    if inst is None or inst.status == "deleted":
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
-    if await db.get(UserInstanceMembership, (user.id, iid)) is None:
-        db.add(
-            UserInstanceMembership(user_id=user.id, instance_id=iid, role="member")
-        )
-        await db.commit()
-
-
-@router.delete(
-    "/me/instances/{instance_id}/membership",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-async def leave_instance_membership(
-    instance_id: str,
-    request: Request,
-    db: SessionDep,
-) -> None:
-    """Cloud-seitige Membership entfernen, wenn der User einen Self-Host-Server
-    entfernt (= austritt). Gegenstück zu :func:`join_instance_membership` —
-    ohne das würde der Server beim nächsten ``GET /me/instances`` auf anderen
-    Geräten wieder auftauchen.
-
-    Der Owner kann seine Membership so NICHT wegwerfen (er bleibt Owner; zum
-    Loswerden dient ``DELETE /me/instances/{id}`` = Instanz löschen) → 403.
-    Idempotent: keine Membership → 204.
-    """
-    user = await _require_user(request, db)
-    try:
-        iid = int(instance_id)
-    except ValueError:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden"
-        ) from None
-    existing = await db.get(UserInstanceMembership, (user.id, iid))
-    if existing is None:
-        return
-    if existing.role == "owner":
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN, detail="owner_cannot_leave_instance"
-        )
-    await db.delete(existing)
-    await db.commit()
-
-
-@router.patch(
-    "/me/instances/{instance_id}/preferences",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-async def update_instance_preferences(
-    instance_id: str,
-    payload: InstancePreferencesIn,
-    request: Request,
-    db: SessionDep,
-) -> None:
-    """Geräteübergreifende Server-Präferenzen (Anzeigename + Notification-Modus)
-    setzen. Damit gelten Umbenennung und Stummschaltung eines Self-Host-Servers
-    auf allen Geräten, nicht nur lokal. Partiell: nur gesetzte Felder ändern.
-    404, wenn der User keine Membership auf der Instanz hat."""
-    user = await _require_user(request, db)
-    try:
-        iid = int(instance_id)
-    except ValueError:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden"
-        ) from None
-    membership = await db.get(UserInstanceMembership, (user.id, iid))
-    if membership is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
-    fields = payload.model_fields_set
-    if "label" in fields:
-        membership.user_label = payload.label
-    if "notification_mode" in fields and payload.notification_mode is not None:
-        membership.notification_mode = payload.notification_mode
-    await db.commit()
+    return [_instance_to_out(inst, user.id, membership) for inst, membership in rows]
 
 
 class ReissueIn(BaseModel):

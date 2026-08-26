@@ -674,6 +674,39 @@ async def test_join_membership_makes_instance_visible(
 
 
 @pytest.mark.asyncio
+async def test_role_unterscheidet_besitzer_von_mitglied(
+    client, alice_cookie, bob_cookie, alice_instance
+):
+    """Der Beigetretene sieht den Server als ``member``, die Besitzerin als
+    ``owner`` — ohne das Feld kann die Oberfläche beides nicht auseinanderhalten
+    und bietet einem Mitglied Einrichten/Löschen für einen fremden Server an.
+    Gegenprobe unten: die Routen dahinter sind owner-verriegelt, der Fehler war
+    also die Anzeige, nicht der Zugriff.
+    """
+    join = await client.post(
+        f"/me/instances/{alice_instance.id}/membership",
+        headers={"Cookie": bob_cookie},
+    )
+    assert join.status_code == 204, join.text
+
+    bob_sicht = (await client.get("/me/instances", headers={"Cookie": bob_cookie})).json()
+    assert [i["role"] for i in bob_sicht] == ["member"]
+
+    alice_sicht = (await client.get("/me/instances", headers={"Cookie": alice_cookie})).json()
+    assert [i["role"] for i in alice_sicht] == ["owner"]
+
+    # Gegenprobe: Bob kommt an keine der Verwaltungs-Routen heran.
+    for weg in ("env-file", "bootstrap-token"):
+        r = await client.post(
+            f"/me/instances/{alice_instance.id}/{weg}",
+            headers={"Cookie": bob_cookie},
+        )
+        assert r.status_code == 404, (weg, r.text)
+    r = await client.delete(f"/me/instances/{alice_instance.id}", headers={"Cookie": bob_cookie})
+    assert r.status_code == 404, r.text
+
+
+@pytest.mark.asyncio
 async def test_join_membership_idempotent(client, bob_cookie, alice_instance):
     """Zweimal joinen ändert nichts (kein 409, eine Zeile)."""
     for _ in range(2):
