@@ -11,6 +11,7 @@
 
 import { toast } from 'svelte-sonner';
 import { gsr, type GsrEvent } from './gsr';
+import { gesundheitTor } from './gesundheitTor';
 import { m } from '$lib/paraglide/messages.js';
 
 const MAX_LOG_LINES = 50;
@@ -208,6 +209,9 @@ export async function initStream(): Promise<() => void> {
   if (!stream.available) {
     // Reset the guard so a later call can retry if the bridge appears.
     initialised = false;
+    // Tor auf, obwohl nichts gemessen wurde: „kein Sidecar" ist eine Antwort.
+    // Wer darauf wartet, soll weitergehen — s. `gesundheitTor.ts`.
+    gesundheitTor.oeffnen();
     return () => {};
   }
 
@@ -228,6 +232,9 @@ export async function initStream(): Promise<() => void> {
       stream.fernsteuerbarGrund = h.gsr?.remote_input_grund ?? '';
       stream.hdrAvailable = !!h.gsr?.hdr;
     }
+    // Ab hier steht `stream.fernsteuerbar` auf einem gemessenen Wert statt auf
+    // seiner Vorgabe. Erst jetzt darf die Standplatz-Anmeldung ihn lesen.
+    gesundheitTor.oeffnen();
   } catch (e) {
     stream.available = false;
     stream.gsrAvailable = false;
@@ -236,6 +243,10 @@ export async function initStream(): Promise<() => void> {
     stream.error = String(e);
     // Reset the guard so a later call can retry if the sidecar recovers.
     initialised = false;
+    // Auch der Fehlschlag ist eine Antwort: der Sidecar antwortet nicht, also
+    // kann dieser Rechner nicht Standplatz sein. Ohne dieses Öffnen bliebe ein
+    // Wartender für immer stehen.
+    gesundheitTor.oeffnen();
     return () => {};
   }
 

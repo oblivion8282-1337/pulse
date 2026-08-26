@@ -35,6 +35,7 @@ import type { Guild } from '$lib/api/types';
 import { gatewayForServer } from '$lib/ws/connection';
 import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
 import { darfStandplatzSein } from '$lib/remote/darfStandplatzSein';
+import { gesundheitTor } from '$lib/stream/gesundheitTor';
 import { standplatz } from '$lib/remote/standplatz.svelte';
 
 /** Extra context fields that only the ready handler cares about — kept
@@ -191,19 +192,42 @@ export function register(ctx: ReadyContext): void {
     // munter weiter an: er stand fuer alle als „bereit", waehrend jede
     // Uebernahme in `remote/session.svelte.ts` schweigend verworfen wurde. Ohne
     // Anmeldung steht er als offline — das entspricht der Wahrheit.
-    if (sid && darfStandplatzSein()) {
-      const eintrag = geraeteAnmeldung.fuerServer(sid);
-      const conn = eintrag ? gatewayForServer(sid) : null;
-      if (eintrag && conn) {
-        // Nach der Anmeldung: hier liegen zum ersten Mal beide Dinge vor, die
-        // der einmalige Umzug der alten lokalen Freigabeliste braucht — eine
-        // stehende Verbindung und die Eintragung dieses Geräts auf DIESEM
-        // Server (Begründung `standplatz.svelte.ts::versucheUmzug`).
-        void geraeteAnmeldung
-          .anmelden((deviceId, monitore) => conn.sendDeviceAnnounce(deviceId, monitore), eintrag)
-          .then(() => standplatz.versucheUmzug(eintrag));
-      }
+    //
+    // **Und erst, wenn die Fähigkeit gemessen ist.** `darfStandplatzSein()`
+    // liest `stream.fernsteuerbar`, und das steht nach dem Start eine Weile auf
+    // seiner Vorgabe `false` — nicht weil der Rechner nichts kann, sondern weil
+    // noch niemand gefragt hat. Die erste Abfrage muss dafür den Sidecar
+    // starten (lazy beim ersten `gsr:call`), die WebSocket-Verbindung braucht
+    // keinen Prozessstart und ist deshalb regelmässig früher da. Hier stand die
+    // Prüfung bis zum 2026-08-26 unmittelbar, gewann das Rennen fast immer —
+    // und da es kein Nachmelden gibt, blieb das Gerät die ganze Sitzung lang
+    // für alle anderen „offline". Das Tor wartet auf die Messung statt auf eine
+    // geratene Frist (`stream/gesundheitTor.ts`).
+    if (sid) {
+      void gesundheitTor.bekannt().then(() => standplatzAnmelden(sid));
     }
     ctx.onReadySeeded();
   });
+}
+
+/**
+ * Dieses Gerät auf DIESEM Server als Standplatz anmelden — sofern es dort
+ * eingetragen ist und dieser Rechner sich überhaupt steuern lassen kann.
+ *
+ * Ausgelagert, weil der Aufruf seit dem Warten auf das Gesundheits-Tor in einem
+ * eigenen Ablauf steht: die Verbindung kann in der Zwischenzeit weg sein, und
+ * `gatewayForServer` beantwortet das erst im Moment des Anmeldens richtig.
+ */
+function standplatzAnmelden(sid: string): void {
+  if (!darfStandplatzSein()) return;
+  const eintrag = geraeteAnmeldung.fuerServer(sid);
+  const conn = eintrag ? gatewayForServer(sid) : null;
+  if (!eintrag || !conn) return;
+  // Nach der Anmeldung: hier liegen zum ersten Mal beide Dinge vor, die der
+  // einmalige Umzug der alten lokalen Freigabeliste braucht — eine stehende
+  // Verbindung und die Eintragung dieses Geräts auf DIESEM Server (Begründung
+  // `standplatz.svelte.ts::versucheUmzug`).
+  void geraeteAnmeldung
+    .anmelden((deviceId, monitore) => conn.sendDeviceAnnounce(deviceId, monitore), eintrag)
+    .then(() => standplatz.versucheUmzug(eintrag));
 }
