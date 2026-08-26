@@ -59,9 +59,23 @@ if [ "${1:-}" = "--maschine" ]; then
   pruefe redis-server optional "eigener Redis je Worker im Parallellauf"
   pruefe cargo  optional "Rust-Kisten (nur bei Änderung daran)"
   if ! command -v redis-server >/dev/null 2>&1; then
-    echo "     → ohne redis-server läuft das Gate seriell: PULSE_GATE_JOBS=1"
+    echo "     → ohne redis-server läuft das Gate SERIELL (~6x langsamer):"
+    case "$(uname -s)" in
+      Darwin) echo "       brew install redis" ;;
+      Linux)  echo "       sudo pacman -S redis   /   sudo apt install redis-server" ;;
+      *)      echo "       (Binary redis-server im PATH nötig; unter Windows: WSL)" ;;
+    esac
+    echo "       Der Dienst muss NICHT laufen — die Tests starten eigene Prozesse."
     echo "       (Grund: Redis-Pubsub ist server-global; eine eigene DB je"
     echo "        Worker reicht NICHT, s. Wurzel-conftest.py)"
+  fi
+  echo "Landen (scripts/ship.sh):"
+  if [ "$(git config --get pulse.adminmerge || echo false)" = "true" ]; then
+    printf '  ✓ %-14s %s\n' "adminmerge" "Admin-Merge aktiv — PRs landen ohne Fremd-Review"
+  else
+    printf '  ○ %-14s %s\n' "adminmerge" "aus: main verlangt einen Review, den eigenen PR kann"
+    echo "                    man nicht selbst genehmigen → ship.sh bliebe auf BLOCKED."
+    echo "                    Als Eigentümer: git config --local pulse.adminmerge true"
   fi
   echo "Git-Identität (sonst blockt der CLA-Bot jeden PR):"
   mail="$(git config user.email || true)"
@@ -197,6 +211,23 @@ if [ "${backend_grund#ja}" != "$backend_grund" ]; then
   # flackernder Test. `PULSE_GATE_JOBS=1` schaltet zurueck auf seriell.
   jobs="${PULSE_GATE_JOBS:-$( { nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2; } )}"
   [ "$jobs" -gt 8 ] && jobs=8
+  # **Ohne `redis-server` NICHT parallel starten.** Der Wurzel-`conftest.py`
+  # ist fail-closed: fehlt das Binary, wirft jeder Worker — das Gate wäre auf
+  # so einer Maschine also nicht langsam, sondern ROT, und die Meldung stünde
+  # 2308-mal untereinander. Fail-closed ist im conftest richtig (wer `-n`
+  # ausdrücklich verlangt, soll keine vermischten Läufe bekommen); WER DEN
+  # LAUF AUSWÄHLT, muss aber vorher nachsehen. Hier läuft es seriell weiter,
+  # und es steht eine Zeile da, warum.
+  if [ "$jobs" -gt 1 ] && ! command -v redis-server >/dev/null 2>&1; then
+    echo "  Hinweis: kein redis-server im PATH → serieller Lauf (~6x langsamer)."
+    case "$(uname -s)" in
+      Darwin) echo "           Für den Parallellauf: brew install redis" ;;
+      Linux)  echo "           Für den Parallellauf: sudo pacman -S redis  /  sudo apt install redis-server" ;;
+      *)      echo "           Für den Parallellauf wird das Binary redis-server im PATH gebraucht." ;;
+    esac
+    echo "           (Der Dienst muss NICHT laufen — die Tests starten eigene Prozesse.)"
+    jobs=1
+  fi
   parallel=""
   [ "$jobs" -gt 1 ] && parallel="-n $jobs"
   echo "  Backend-Tests (${jobs} Prozesse)…"
