@@ -226,8 +226,6 @@
   const hideDock = $derived(useNative && native.phase === 'playing');
 
   const phase = $derived(useNative ? native.phase : (mgr?.phase ?? 'connecting'));
-  $effect(() => {
-  });
   const detail = $derived(useNative ? native.detail : (mgr?.detail ?? ''));
   const stats = $derived(mgr?.stats ?? null);
   const audioBlocked = $derived(mgr?.audioBlocked ?? false);
