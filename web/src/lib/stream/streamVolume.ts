@@ -9,7 +9,7 @@
  * sessions.
  *
  * Why localStorage and not the Electron ``pulse.store``: WHEP *viewing* runs
- * in any browser (only GSR *publishing* is Electron-gated), so this must work
+ * in any browser (only HQ *publishing* is Electron-gated), so this must work
  * outside the desktop shell. Plain JSON blob, same pattern as `dcc.settings`.
  *
  * Value semantics mirror the slider: 0 = muted, 100 = unity, up to

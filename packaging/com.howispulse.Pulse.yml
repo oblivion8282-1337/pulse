@@ -3,11 +3,15 @@
 # What's inside the Flatpak:
 #   - the Electron 43 runtime (bundled binary from the GitHub release)
 #   - electron/dist/{main,preload}.cjs  (esbuild-bundled — run `pnpm --filter @dcc/desktop build:electron` first)
-#   - the pure-stdlib Python GSR sidecar (streaming/gsr-sidecar/*.py) → /app/share/pulse/gsr-sidecar/
-#   - a custom-built `gpu-screen-recorder` (FFmpeg-with-NVENC + GSR-from-source + the FLV-Opus / Vulkan-stub patches),
-#     the FFmpeg/GSR module stack lifted verbatim from the proven gsr-streamer manifest.
 #   - der Rust-Linux-HQ-Sidecar (senden) und der native HQ-Player (zuschauen),
 #     beide gegen dasselbe gebündelte FFmpeg gelinkt.
+#
+# **Bis zum 2026-08-27 lagen hier zwei weitere Bausteine**: ein Python-Aufsatz
+# und ein selbst gebautes `gpu-screen-recorder`, der ältere Aufnahmeweg unter
+# Linux. Der Rust-Sidecar hat ihn seit 2026-07-17 ersetzt, seit 2026-08-16 war
+# er für Nutzer gar nicht mehr erreichbar. Das **ffmpeg-Modul unten bleibt** —
+# es wurde zwar für jenen Weg aufgenommen, aber der Rust-Sidecar UND der Player
+# linken dagegen.
 #
 # Das gebündelte FFmpeg trägt eine Decoder-Liste, die beim Kürzen nicht
 # wegfallen darf — ohne sie zeigt der Player nie ein Bild. Am ffmpeg-Modul
@@ -15,7 +19,7 @@
 #
 # What's NOT inside: the web frontend. The packaged app loads https://howispulse.com remotely
 # (electron/main.ts → PROD_URL, since no PULSE_DEV_URL is set), so web-side fixes are live without a new
-# Flatpak — only native changes (Electron main/preload, the sidecar, the GSR binary) need a rebuild.
+# Flatpak — only native changes (Electron main/preload, sidecar, player) need a rebuild.
 #
 # Local build/install (user scope, no sudo):  packaging/build.fish
 # (or:  pnpm --filter @dcc/desktop build:electron
@@ -65,9 +69,9 @@ finish-args:
   - --socket=wayland
   - --share=ipc
   # Network: the remote web app, REST/WSS to the Pulse services, LiveKit (voice/WebRTC),
-  # WHEP playback, and the RTMPS push from GSR.
+  # WHEP playback, and the WHIP/RTMPS push from the sidecar.
   - --share=network
-  # Audio: voice + GSR desktop/app audio capture
+  # Audio: voice + Desktop-/Anwendungston für den HQ-Stream
   - --socket=pulseaudio
   - --filesystem=xdg-run/pipewire-0:ro
   # Read-only access to the user's files so drag-&-drop + paste of an *on-disk*
@@ -79,7 +83,7 @@ finish-args:
   - --filesystem=host:ro
   # GPU for NVENC / VAAPI. NVIDIA's /dev/nvidia* sit outside /dev/dri → need --device=all.
   - --device=all
-  # Wayland screencast portal — GSR `-w portal` capture + Chromium's getDisplayMedia (browser screen share)
+  # Wayland screencast portal — Bildschirmaufnahme des Sidecars + Chromiums getDisplayMedia (Browser-Bildschirmfreigabe)
   - --talk-name=org.freedesktop.portal.Desktop
   - --talk-name=org.freedesktop.portal.ScreenCast
   # System tray (Discord-style close-to-tray). KDE/Plasma/Hyprland use the
@@ -98,12 +102,16 @@ finish-args:
 # NB: do NOT add an `add-extensions` block for org.freedesktop.Platform.GL — the
 # org.freedesktop.Platform//24.08 runtime already declares it (with the right
 # directory/merge-dirs). Overriding it breaks EGL on Mesa. (Same as the official
-# GSR Flathub manifest — it inherits GL from the runtime.)
+# gpu-screen-recorder-Flathub-Manifest — it inherits GL from the runtime.)
 
 modules:
   # ── FFmpeg with NVENC + CUDA + VAAPI + Vulkan ───────────────────────────────
-  # The runtime's FFmpeg has no NVENC, so GSR would fail with "h264 not supported
-  # by hardware". Build our own. Spec lifted from the official GSR Flathub manifest.
+  # Das FFmpeg der Runtime hat kein NVENC. Bauen wir selbst; die Spezifikation
+  # ist wortgleich aus dem offiziellen gpu-screen-recorder-Flathub-Manifest
+  # übernommen. **Der Grund für dieses Modul ist inzwischen ein anderer als der
+  # Anlass**: aufgenommen wurde es für den alten GSR-Weg (entfernt 2026-08-27),
+  # gebraucht wird es heute vom Rust-Sidecar und vom nativen Player, die beide
+  # dagegen linken.
   - name: ffmpeg
     config-opts:
       # --enable-version3 ist Pflicht fuer OpenSSL 3 (Apache-2.0 vertraegt sich
@@ -160,9 +168,17 @@ modules:
       - --disable-sndio
       - --disable-xlib
       - --disable-cuda-llvm
-      # amix: GSR (Desktop+Mikro-Mix). buffer/buffersink/hwmap/scale_vaapi: der
-      # Rust-Sidecar-VAAPI-Pfad (DMABUF→DRM_PRIME→hwmap→scale_vaapi-CSC) — ohne
-      # sie scheitert der AMD/Intel-Encode ("Filter fehlt").
+      # buffer/buffersink/hwmap/scale_vaapi: der VAAPI-Pfad des Rust-Sidecars
+      # (DMABUF→DRM_PRIME→hwmap→scale_vaapi-CSC) — ohne sie scheitert der
+      # AMD/Intel-Encode („Filter fehlt").
+      #
+      # **amix hängt hier ohne Nutzer.** Es kam für den Desktop-Mikro-Mix des
+      # alten GSR-Wegs herein (entfernt 2026-08-27); weder der Rust-Sidecar noch
+      # der Player rufen einen amix-Filter (nachgesehen 2026-08-27, kein
+      # Treffer). Bewusst stehen gelassen: ein Filter weniger spart nichts
+      # Messbares, und ihn zu streichen wäre eine Änderung am ausgelieferten
+      # FFmpeg ohne einen einzigen Beleg, dass sie nichts kostet. Wer den Bau
+      # ohnehin anfasst und ihn misst, darf ihn nehmen.
       - --enable-filter=amix,buffer,buffersink,hwmap,scale_vaapi
       - --enable-nvenc
       - --enable-ffnvcodec
@@ -171,8 +187,8 @@ modules:
       # libdrm ist Pflicht für den DRM-hwdevice-Kontext (AV_HWDEVICE_TYPE_DRM)
       # des Rust-Sidecars: --disable-autodetect schaltet es sonst ab, und
       # av_hwdevice_ctx_create(DRM) failt dann irreführend mit rc=-12 (ENOMEM).
-      # GSR braucht das nicht (nutzt AV_HWDEVICE_TYPE_VAAPI direkt) — deshalb
-      # fiel es dort nie auf.
+      # Dem alten GSR-Weg fiel das nie auf: der nutzte
+      # AV_HWDEVICE_TYPE_VAAPI direkt und brauchte den DRM-Kontext gar nicht.
       - --enable-libdrm
       - --enable-vulkan
       - --enable-openssl
@@ -185,11 +201,11 @@ modules:
       # mitzuliefern macht uns zum Distributor einer eigenen AVC-Implementierung.
       # Encodiert wird bei uns ausschliesslich per h264_nvenc/h264_vaapi bzw.
       # av1_*, deren Lizenz beim GPU-Hersteller liegt. Genutzt wurde x264 ohnehin
-      # nie: GSR greift nur im `-encoder cpu`-Modus darauf zu, den unser argv
-      # (stream_controller.py) nicht setzt, und der Rust-Sidecar kennt nur die
-      # vier HW-Encoder. Verifiziert 2026-07-24: Build ohne x264 liefert
-      # bit-identische libav*-Symbole. Beim Abgleich mit dem gsr-streamer-
-      # Manifest (von dem dieser Stack stammt) NICHT versehentlich zurückholen.
+      # nie: der Rust-Sidecar kennt nur die vier HW-Encoder, und der frühere
+      # GSR-Weg griff x264 nur im `-encoder cpu`-Modus ab, den unser argv nie
+      # setzte. Verifiziert 2026-07-24: Build ohne x264 liefert bit-identische
+      # libav*-Symbole. Beim Abgleich mit dem gsr-streamer-Manifest (von dem
+      # dieser Stack stammt) NICHT versehentlich zurückholen.
     cleanup:
       - /share/ffmpeg/examples
     sources:
@@ -217,32 +233,11 @@ modules:
             tag: n13.0.19.0
             commit: e844e5b26f46bb77479f063029595293aa8f812d
 
-  # ── gpu-screen-recorder (custom build: FLV-Opus whitelist + Vulkan-encoder stub + portal-cursor EMBEDDED) ──
-  # The Vulkan-encoder stub is harmless — Pulse uses NVENC/VAAPI, never Vulkan encode.
-  # Pinned: upstream force-pushes master and our patches are line-anchored, so a
-  # moving HEAD breaks the Flatpak CI. Bump deliberately when refreshing GSR;
-  # re-run `patch -p1 --dry-run < streaming/patches/000*.patch` against the new
-  # tree first and rewrite the patch if upstream rearranged the source.
-  - name: gpu-screen-recorder
-    buildsystem: meson
-    config-opts:
-      - --buildtype=release
-    sources:
-      - type: git
-        url: https://repo.dec05eba.com/gpu-screen-recorder
-        commit: 0349083cfe4578dbc8bc600e31187e8e09318add
-      - type: patch
-        path: ../streaming/patches/0001-opus-flv-whitelist.patch
-      - type: patch
-        path: ../streaming/patches/0002-stub-vulkan-encoder.patch
-      - type: patch
-        path: ../streaming/patches/0003-portal-cursor-embedded.patch
-
   # ── Rust-Linux-HQ-Sidecar (Standard-Aufnahmeweg seit 2026-07-17) ────────────
-  # Baut das Rust-Binary → /app/bin/pulse-linux-hq-sidecar. sidecar.ts nimmt es
-  # standardmässig; der Store-Key useLegacyGsrSidecar=true ist die Notbremse
-  # zurück auf den Python/GSR-Weg (Kompatibilitäts-Tab). Fehlt das Binary, fällt
-  # sidecar.ts automatisch auf GSR zurück. Linkt gegen das oben gebaute
+  # Baut das Rust-Binary → /app/bin/pulse-linux-hq-sidecar. Seit dem 2026-08-27
+  # ist das unter Linux der einzige Aufnahmeweg: fehlt das Binary, meldet
+  # `sidecar.ts` das und die Oberfläche blendet den Übertragen-Knopf aus, statt
+  # still auf etwas anderes auszuweichen. Linkt gegen das oben gebaute
   # ffmpeg-Modul via pkg-config (/app/lib/pkgconfig ist im default PKG_CONFIG_PATH).
   # libEGL/libcuda werden zur LAUFZEIT per dlopen geladen (GL-Extension) — kein
   # Build-Link. Offline-Cargo: linux-hq-sidecar-cargo-sources.json (via
@@ -356,8 +351,8 @@ modules:
   #
   # Drei Wege standen zur Wahl, zwei sind verworfen:
   # * `rust-nightly//24.08` haette gereicht (1.99), waere aber der einzige
-  #   unpinnbare Baustein im ganzen Manifest — FFmpeg, GSR, webrtc-rs und
-  #   MediaMTX haengen alle an festen Commits. Ein Nightly-Regress braeche den
+  #   unpinnbare Baustein im ganzen Manifest — FFmpeg, webrtc-rs und MediaMTX
+  #   haengen alle an festen Commits. Ein Nightly-Regress braeche den
   #   Flatpak-Bau zu einem beliebigen Zeitpunkt, ohne dass sich hier etwas
   #   geaendert haette.
   # * Runtime auf 25.08 anheben waere die saubere Dauerloesung, ist aber eine
@@ -549,9 +544,6 @@ modules:
       - install -m644 app-dist/preload.cjs /app/pulse/preload.cjs
       - install -m644 packaging/pulse-app.package.json /app/pulse/package.json
       - install -Dm644 icon.png /app/icon.png
-      # The pure-stdlib Python GSR sidecar — path matches sidecar.ts's Flatpak default.
-      - install -d /app/share/pulse/gsr-sidecar
-      - install -m644 gsr-sidecar/control.py gsr-sidecar/profiles.py gsr-sidecar/stream_controller.py gsr-sidecar/gsr_binary.py gsr-sidecar/redact.py gsr-sidecar/__init__.py /app/share/pulse/gsr-sidecar/
       # Launcher + desktop integration
       - install -Dm755 packaging/launcher.sh /app/bin/pulse
       - install -Dm644 packaging/com.howispulse.Pulse.desktop /app/share/applications/com.howispulse.Pulse.desktop
@@ -577,9 +569,6 @@ modules:
       - type: dir
         path: ../desktop/electron/dist
         dest: app-dist
-      - type: dir
-        path: ../streaming/gsr-sidecar
-        dest: gsr-sidecar
       - type: dir
         path: ../packaging
         dest: packaging

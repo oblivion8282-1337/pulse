@@ -94,7 +94,7 @@ authHTTPExclude:
 
 # Pulse HQ channel streams use DYNAMIC paths (channel-<id>-<uid>-<nonce>).
 # MediaMTX rejects any path not listed here as "not configured" → without this
-# catch-all EVERY publish is refused and the GSR push dies silently (no error).
+# catch-all EVERY publish is refused and the HQ push dies silently (no error).
 # The auth hook (authMethod: http) still allows/denies each connection per
 # path + token; this only lets MediaMTX accept the dynamic path names at all.
 # Mirrors infra/prod/mediamtx.yml.

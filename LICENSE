@@ -40,7 +40,7 @@ Full text: LICENSE-CLIENT.md
     web/
     desktop/
     mobile/
-    streaming/          (except streaming/patches/, see section 3)
+    streaming/
     plugins/
     packaging/
     Logo/
@@ -59,13 +59,6 @@ free of charge. No licence needs to be purchased to use Pulse as an end user.
 -------------------------
 Parts of this repository are not owned by the copyright holder and keep their
 original licences:
-
-    streaming/patches/              GPL-3.0-or-later
-        Patches against gpu-screen-recorder. Derivative works of GPL-licensed
-        source and therefore GPL-licensed themselves. The recorder itself is
-        not contained in this repository; it is fetched at build time from
-        https://repo.dec05eba.com/gpu-screen-recorder and bundled into the
-        Linux package as a separate program.
 
     infra/mediamtx-fork/patches/    MIT
         Patches against MediaMTX (https://github.com/bluenviron/mediamtx).

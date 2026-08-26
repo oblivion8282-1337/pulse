@@ -29,7 +29,7 @@ GUILD_EVENTS_CHANNEL = "guild:events"
 # Payload: {"channel_id": "<id>", "active": true|false, "user_id": "<id>"|null}
 # — one event per state change. We rebroadcast as {"op": "stream_state", ...}
 # to every connected WebSocket; clients filter by their guilds. The mirror of
-# the voice-presence mechanism, just for the MediaMTX/GSR HQ stream.
+# the voice-presence mechanism, just for the MediaMTX HQ stream.
 STREAM_EVENTS_CHANNEL = "stream:events"
 
 # Public per-channel stream state, written by the media-svc poller. We read

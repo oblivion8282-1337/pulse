@@ -5,10 +5,18 @@
 ## What's in it
 - Electron 43 (bundled binary), launched via `zypak-wrapper` (sandbox shim from `org.electronjs.Electron2.BaseApp`).
 - `electron/dist/{main,preload}.cjs` (esbuild bundle) → `/app/pulse/`.
-- The pure-stdlib Python GSR sidecar (`streaming/gsr-sidecar/*.py`) → `/app/share/pulse/gsr-sidecar/` (matches `sidecar.ts`'s Flatpak default path).
-- A custom `gpu-screen-recorder` (`/app/bin/gpu-screen-recorder`): FFmpeg-with-NVENC + GSR-from-source + the `streaming/patches/` (FLV-Opus whitelist, Vulkan-encoder stub). The FFmpeg/GSR module stack is lifted verbatim from the proven gsr-streamer manifest.
+- The Rust Linux HQ sidecar (`streaming/linux-hq-sidecar/`, capture+encode+push) and the native HQ player
+  (`streaming/pulse-player/`, playback) — both `type: dir` sources, both linked against the same bundled `ffmpeg`
+  module.
 
-**Not** in it: the web frontend. The packaged app loads `https://howispulse.com` remotely (`electron/main.ts` → `PROD_URL`, no `PULSE_DEV_URL`). So web fixes are live without a new Flatpak; only native changes (Electron main/preload, the sidecar, the GSR binary) need a rebuild.
+**Until 2026-08-27** there were two more building blocks here: a vendored Python sidecar and a self-built
+`gpu-screen-recorder` — the older Linux capture path. The Rust sidecar replaced it as the default on 2026-07-17 and
+it stopped being reachable at all on 2026-08-16; both it and the `gpu-screen-recorder` module are now gone. The
+**`ffmpeg` module stays** — it was pulled in for that older path, but the Rust sidecar and the player link against
+it now. Its decoder/codec-list build args must not be trimmed on the assumption they served only the old path —
+without them the player never shows a picture (reasoning lives on the module itself in the manifest).
+
+**Not** in it: the web frontend. The packaged app loads `https://howispulse.com` remotely (`electron/main.ts` → `PROD_URL`, no `PULSE_DEV_URL`). So web fixes are live without a new Flatpak; only native changes (Electron main/preload, the sidecar, the player) need a rebuild.
 
 ## Build & install locally
 ```fish
@@ -46,7 +54,9 @@ flatpak run com.howispulse.Pulse
 > an install straight off the published channel legitimately shows up as
 > `pulse1-origin`. A local `build.fish` install is recognisable by its
 > `file:///…/.flatpak-builder/cache` URL.
-First run pulls runtimes (`org.freedesktop.{Platform,Sdk}//24.08`, `org.electronjs.Electron2.BaseApp//24.08`) and builds FFmpeg + GSR from source — ~15-30 min.
+First run pulls runtimes (`org.freedesktop.{Platform,Sdk}//24.08`, `org.electronjs.Electron2.BaseApp//24.08`) and
+builds FFmpeg from source. That used to also build GSR from source; that build step is gone since 2026-08-27, so
+the first run is now shorter than the ~15-30 min this used to say — not re-measured since, so no new number here.
 
 ## Distribution — self-updating Flatpak repo
 
@@ -62,10 +72,8 @@ republish, and the authoritative list is the `paths:` filter in
 `.github/workflows/flatpak.yml` — do not reproduce it from memory, read it:
 
 - `desktop/electron/**`, `desktop/package.json` — the Electron bundle
-- `streaming/linux-hq-sidecar/**` — the **Rust** sidecar, the default on Linux
-  since 2026-07-17
-- `streaming/gsr-sidecar/**`, `streaming/patches/**` — the Python/GSR sidecar,
-  still shipped as the fallback when the Rust binary is missing
+- `streaming/linux-hq-sidecar/**` — the **Rust** sidecar, the only Linux
+  capture path since 2026-08-27 (default since 2026-07-17)
 - `streaming/pulse-player/**` — the player
 - `packaging/*-cargo-sources.json` — the offline Cargo manifests for both Rust
   crates; a `Cargo.lock` change means regenerating these, or the Flatpak build
@@ -98,14 +106,14 @@ upstream FFmpeg (`com.howispulse.Pulse.yml`, the `ffmpeg` module).
 ```fish
 packaging/publish.fish
 ```
-→ `flatpak-builder --repo=build/repo` (FFmpeg/GSR come from the `.flatpak-builder`
+→ `flatpak-builder --repo=build/repo` (FFmpeg comes from the `.flatpak-builder`
 cache — fast after the first time) → `flatpak build-update-repo --generate-static-deltas
 --prune` (small incremental updates) → regenerates `com.howispulse.Pulse.flatpakref`
 → `rsync build/repo/ → VPS:~/pulse/flatpak-repo/`.
 
 **Automatic on push:** the `.githooks/pre-push` hook runs `publish.fish` for you
 whenever a push touches anything bundled into the Flatpak (`desktop/electron/`,
-`desktop/package.json`, `streaming/gsr-sidecar/`, `streaming/patches/`, the
+`desktop/package.json`, `streaming/linux-hq-sidecar/`, `streaming/pulse-player/`, the
 `packaging/` manifest/launcher/desktop files). Web/backend/docs-only pushes skip
 it. Needs the signing key + `fish`; non-blocking (a failure warns, push proceeds);
 `git push --no-verify` skips it. Enable once per clone: `git config core.hooksPath .githooks`.
@@ -165,7 +173,7 @@ ever touch the `pulse` module's `archive` source, keep it at `0`.
 
 ## Files
 - `com.howispulse.Pulse.yml` — the manifest
-- `launcher.sh` — `/app/bin/pulse`: sets `GSR_BINARY`/`PULSE_SIDECAR_PY`, passes `--ozone-platform-hint=auto` (override: `PULSE_OZONE=x11`/`wayland`), then `exec zypak-wrapper /app/electron/electron /app/pulse/main.cjs`
+- `launcher.sh` — `/app/bin/pulse`: passes `--ozone-platform-hint=auto` (override: `PULSE_OZONE=x11`/`wayland`), then `exec zypak-wrapper /app/electron/electron --class=com.howispulse.Pulse /app/pulse`
 - `com.howispulse.Pulse.desktop` / `.metainfo.xml` / `.svg` — desktop integration (the `.svg` is `web/static/pulse-mark.svg`)
 - `build.fish` — local build + `--user --install` (dev box). **Replaces the installed app and repoints its origin at the local cache** — see the warning above; for a build-only check use `--repo=` into a throwaway directory.
 - `gen-signing-key.fish` — one-time: create the repo signing key in `packaging/.gpg/`

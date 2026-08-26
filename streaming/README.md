@@ -5,45 +5,34 @@ den Stream per WHEP.
 
 | Plattform | Sidecar | liegt in |
 |---|---|---|
-| **Linux (Standard)** | `pulse-linux-hq-sidecar` (Rust, PipeWire + VAAPI/NVENC) | `linux-hq-sidecar/` (Rust) — seit 2026-07-29 im Baum, Flatpak baut ihn per `type: dir` |
-| **Linux (Fallback)** | GPU Screen Recorder | `gsr-sidecar/` (Python) |
+| Linux | `pulse-linux-hq-sidecar` (Rust, PipeWire + VAAPI/NVENC) | `linux-hq-sidecar/` (Rust) — seit 2026-07-29 im Baum, Flatpak baut ihn per `type: dir` |
 | Windows | WGC + WASAPI + ffmpeg-next | `win-hq-sidecar/` (Rust) |
 | macOS | ScreenCaptureKit + VideoToolbox | `mac-hq-sidecar/` (Rust) |
 
-Auf Linux wählt `desktop/electron/sidecar.ts::resolveLinuxSpawn()`: Rust zuerst, bei fehlendem Binary **automatisch**
-GSR. Der Kompatibilitäts-Tab zeigt, welcher Weg läuft, und erlaubt das erzwungene Zurückschalten
-(`useLegacyGsrSidecar`). Bis 2026-07-17 war es umgekehrt — Rust war ein Opt-in-Experiment.
-
-GSR-Teil ist vendored aus `~/Dokumente/GPU_Screen_Recorder/` (2026-05-11). Das **Original-Repo bleibt unangetastet** —
-es ist das bewährte Standalone-GSR-Setup mit Qt-UI und eigenem Flatpak; hier liegt nur die für Pulse gebrauchte
-Teilmenge plus ein stdio-Sidecar statt der Qt-UI.
+`desktop/electron/sidecar.ts::resolveSidecarSpawn()` löst auf Linux direkt das Rust-Binary auf (`resolveLinuxRustBinaryPath()`). **Bis zum
+2026-08-27 gab es hier einen Fallback**: fehlte das Rust-Binary, sprang der Weg automatisch auf einen
+vendorten Python/GPU-Screen-Recorder-Sidecar um (Kompatibilitäts-Tab, `useLegacyGsrSidecar`-Notbremse). Der
+Fallback ist ersatzlos entfernt — der einzige Op, den nur er kannte (`list_profiles`), hatte nie einen
+Konsumenten (s. Op-Tabelle unten). Fehlt das Rust-Binary heute, bleibt das Verhalten wie seit 2026-08-16:
+fail-closed, `gsrAvailable=false`, Übertragen-Knopf versteckt — kein Absturz.
 
 ## Layout
 
 ```
 streaming/
-├── gsr-sidecar/             Linux: pure-stdlib Python-Sidecar
-│   ├── profiles.py          Stream-/ServerProfile (+ ServerProfile.from_channel)
-│   ├── stream_controller.py subprocess.Popen-Wrapper für GSR (statt QProcess)
-│   ├── gsr_binary.py        Binary-Resolver + --info-Parser
-│   ├── control.py           stdio-Loop, JSON-RPC-Protokoll
-│   └── __init__.py
 ├── win-hq-sidecar/          Windows: Rust-Sidecar — s. unten
 │   ├── src/                 WGC-Capture + WASAPI + ffmpeg-next-Encode
 │   ├── ffmpeg-dist/         FFmpeg LGPL n8.1.2-shared, selbst gebaut + gepatcht
 │   ├── mediamtx-dist/       MediaMTX-Binary für lokale Smoke-Tests
 │   └── examples/            cargo-runnable Smoke-Driver
-├── linux-hq-sidecar/        Linux: Rust-Sidecar (PipeWire + VAAPI/NVENC), der Standard
+├── linux-hq-sidecar/        Linux: Rust-Sidecar (PipeWire + VAAPI/NVENC), der einzige Weg
 ├── mac-hq-sidecar/          macOS: Rust-Sidecar (ScreenCaptureKit + VideoToolbox)
 ├── pulse-player/            nativer HQ-Player — der einzige Weg für AV1 10 bit
 ├── hq-labor/                Messstand Linux — NICHT ausgeliefert (s.u.)
 ├── win-hq-labor/            Messstand Windows — NICHT ausgeliefert (s.u.)
 ├── testbench/               Messwerkzeuge + `profiles/` = die Messakten
 ├── ffmpeg-bau/              baut das gepinnte FFmpeg fuer Linux-Sidecar + Player
-├── patches/                 GSR-C++-Patches (FLV-Opus, Vulkan-Stub) — verbatim
 ├── server/                  MediaMTX-Setup (Template + docker-compose + Player)
-├── bootstrap-gsr.fish       Custom-GSR-Build mit Patches (für T6 Flatpak)
-├── pyproject.toml           uv-Workspace-Member "gsr-sidecar" (package=false)
 └── README.md                hier
 ```
 
@@ -66,30 +55,16 @@ Sender — und nur so lässt sich belegen, was beim Zuschauer wirklich ankommt. 
 lag bis 2026-08-04 nur auf einem lokalen Zweig; das war ein Versehen, kein
 Entwurf.
 
-## Was vom Original-Repo NICHT mitkopiert wurde
-
-- Qt-UI: `ui/main.py`, `ui/stream_window.py` — Funktionalität wird in T3
-  als Svelte neu gebaut.
-- Build-/Binär-Artefakte: `mediamtx`-Binary (~50 MB), `*.flatpak`, `build/`,
-  `.flatpak-builder/`, `*.log`.
-- **`server/.stream-key` und das generierte `server/mediamtx.yml`** — die
-  enthalten den echten Stream-Key. Beide Pfade sind in der Worktree-
-  `.gitignore` blockiert.
-- `bootstrap.fish` (lädt nur MediaMTX-Binary für Standalone-Lokal-Tests;
-  wir brauchen das hier nicht — der Server läuft auf dem VPS).
-- `packaging/` (Flatpak-Manifest) — wird in T6 zu einem kombinierten Manifest
-  (Tauri + Sidecar + GSR-Build) zusammengeführt.
-
-## GSR-Original bleibt unangetastet
-
-`~/Dokumente/GPU_Screen_Recorder/` wird ausschließlich gelesen. Das
-Original-Repo ist die Heimat des Standalone-GSR-Streamers (eigene
-Flatpak, Qt-UI). Änderungen an Streaming-Logik werden **nur** hier in
-`streaming/` gemacht.
+**Bis zum 2026-08-27** lag hier zusätzlich ein aus `~/Dokumente/GPU_Screen_Recorder/`
+vendorter Python-Sidecar (`gsr-sidecar/`) samt drei GPL-Patches gegen den GSR-C++-Quellcode
+(`patches/`) — der Linux-Fallback aus dem Abschnitt oben. Beides ist ersatzlos entfernt;
+`~/Dokumente/GPU_Screen_Recorder/` bleibt weiterhin READ-ONLY, wird aber von Pulse nicht mehr
+gelesen. `streaming/patches/` war die einzige GPL-Komponente im Repo — mit ihrem Wegfall ist
+Pulse durchgängig GPL-frei (`CLAUDE.md`).
 
 ## Sidecar — Protokoll
 
-Der Sidecar (`gsr-sidecar/control.py`) liest pro **stdin-Zeile** einen
+Jeder Sidecar liest pro **stdin-Zeile** einen
 JSON-Request und schreibt pro Antwort/Event eine JSON-Zeile auf stdout:
 
 - **Response** hat `"id"` (gespiegelt vom Request, kann `null` sein) und
@@ -100,13 +75,13 @@ JSON-Request und schreibt pro Antwort/Event eine JSON-Zeile auf stdout:
 
 | op | Request-Felder | Response (zusätzlich zu `ok`+`id`) |
 |---|---|---|
-| `health` | — | `gsr: {available, source, path?, version?, vendor?, is_flatpak, video_codecs?, has_flv_patch?, ten_bit?, hdr?, ...}` — `ten_bit` melden Linux- und Windows-Sidecar, `hdr` **nur Windows**; macOS und der Python-Auffang melden keines davon. **`undefined` heißt „nein"**, nie „unbekannt, probier's mal" |
+| `health` | — | `gsr: {available, source, path?, version?, vendor?, is_flatpak, video_codecs?, has_flv_patch?, ten_bit?, hdr?, ...}` — `ten_bit` melden Linux- und Windows-Sidecar, `hdr` **nur Windows**; macOS meldet keines davon. **`undefined` heißt „nein"**, nie „unbekannt, probier's mal" |
 | `gpu_info` | — | `vendor, card_path, display_server, video_codecs` (re-probe falls noch nicht da) |
-| `list_profiles` | — | `profiles, servers (immer `[]`), audio_modes, app_label_prefix` — **nur noch GSR-Sidecar** (Linux-Auffangnetz). Die Rust-Sidecars haben die Op 2026-07-19 verloren: der Katalog hatte nie einen Konsumenten (das HQ-Panel setzt hart `profile_name='Custom'` + `use_overrides=true`) und alle vier Einträge trugen dieselben 4000 kbps / 60 fps. Nicht gesetzte Overrides fallen dort jetzt auf einen einzelnen Sockel (`profiles::BASELINE`, h264/opus/flv, 4000 kbps, 60 fps) zurück — dieselben Werte wie der frühere `Custom`-Eintrag. |
+| `list_profiles` | — | Bis zum 2026-07-19 gab es diese Op nur im inzwischen entfernten Linux-Python-Auffangnetz (`profiles, servers (immer `[]`), audio_modes, app_label_prefix`). Sie hatte nie einen Konsumenten — das HQ-Panel setzt hart `profile_name='Custom'` + `use_overrides=true`, und alle vier Katalog-Einträge trugen ohnehin dieselben 4000 kbps / 60 fps. Kein Rust-Sidecar kennt sie; nicht gesetzte Overrides fallen dort auf einen einzelnen Sockel (`profiles::BASELINE`, h264/opus/flv, 4000 kbps, 60 fps) zurück — dieselben Werte wie der frühere `Custom`-Eintrag. |
 | `list_monitors` | — | `monitors: [{index (1-basiert), name, primary, width, height, refresh_hz, x, y}, ...]` — **Windows- und mac-Sidecar** (Linux nutzt den Portal-Picker und gibt eine leere Liste zurück). `x`/`y` seit 2026-08-24: die Lage des Bildschirms im Desktop-Raum, negativ erlaubt (Monitor links vom Hauptbildschirm). Windows über `GetMonitorInfoW`, macOS über `CGDisplayBounds`; schlägt die Abfrage fehl, wird `0/0` gemeldet **statt das Feld wegzulassen** — ein fehlendes Feld liesse die Bildschirm-Karte raten, `0/0` ist erkennbar falsch. Ältere Sidecars melden die Felder gar nicht; die Karte fällt dann auf die Knopfliste zurück. |
 | `list_windows` | — | `windows: [{id (HWND-Zahl), title, app, width, height}, ...]` — **nur Windows-Sidecar**: Quelle für den In-App-Fenster-Picker (Linux nutzt den Portal-Dialog) |
 | `list_application_audio` | — | `applications: [name, ...]` (Apps mit Audio-Output) |
-| `build_argv` | siehe `start` | `binary, argv` — **baut die Argumentliste ohne GSR zu starten** (Test/Debug) |
+| `build_argv` | siehe `start` | `binary, argv` — **baut die Argumentliste ohne die Aufnahme zu starten** (Test/Debug) |
 | `start` | `profile, channel: {id, token, push_url?, mediamtx_endpoint?, push_protocol?}, capture, audio: {mode, excluded_apps}, overrides? {codec, bitrate_kbps, fps, resolution, bit_depth, hdr}` | `argv` (die gleiche Liste) — danach kommen Events |
 | `stop` | — | `ok` |
 | `state` | — | `running, state, fps, uptime_s, argv` |
@@ -132,7 +107,7 @@ Wiedergabeweg entscheiden, BEVOR sie dekodiert. Fehlt das Feld (älterer Server
 oder Streamer), gilt 8 bit und die Kachel bleibt im `<video>`.
 
 `overrides.bit_depth` (8|10) und `health.gsr.ten_bit` sind **Zusatzfelder des
-Linux-Rust-Sidecars** (seit 2026-07-26). Python-, Windows- und macOS-Sidecar
+Linux-Rust-Sidecars** (seit 2026-07-26). Windows- und macOS-Sidecar
 melden `ten_bit` nicht und ignorieren `bit_depth` stillschweigend — Konsumenten
 müssen `undefined` als „kann kein 10 bit" lesen, nie als „unbekannt, probier's".
 10 bit ist dort an **AV1** gebunden: die 10-bit-Variante von H.264 wäre
@@ -146,9 +121,9 @@ Frontend schickt ihn deshalb nur, wenn er erfüllbar ist
 Voice-Channel:
 
 - `channel: {id, token, push_url?, mediamtx_endpoint?, push_protocol?}` — Pulse-
-  Channel-Pfad (`ServerProfile.from_channel()`). `push_url` (von media-svc, mit
-  Token drin) wird wenn gesetzt verbatim an GSR `-o` gereicht; sonst werden
-  `mediamtx_endpoint` + `push_protocol` als Fallback genutzt.
+  Channel-Pfad. `push_url` (von media-svc, mit Token drin) wird wenn gesetzt
+  verbatim als Ziel-URL genutzt; sonst werden `mediamtx_endpoint` +
+  `push_protocol` als Fallback genutzt.
 - **Push-Protokoll entscheidet der SERVER** (media-svc
   `MEDIAMTX_PUSH_PROTOCOL`): Default `rtmp` → `rtmps://<host>:1936/...`-URL.
   App-gehostete Instanzen minten für Gäste `whip` →
@@ -163,8 +138,8 @@ Voice-Channel:
   Längenfelder ab 128 falsch), H.264 webrtc-rs' `H264Payloader` — **beide
   stempeln seit 2026-08-14 selbst aus dem Encoder-`pts`** (bis dahin lief
   H.264 als Sample-Spur mit aus fester Bilddauer hochgezählter Zeit, was bei
-  jedem ausgelassenen Bild die Video-Uhr verschob). Der Python-GSR-Sidecar
-  kann kein WHIP. Plan: `docs/plans/2026-07-12-whip-guest-publish.md`.
+  jedem ausgelassenen Bild die Video-Uhr verschob). Plan:
+  `docs/plans/2026-07-12-whip-guest-publish.md`.
   - **Die AV1-Sperre liegt an ffmpegs Muxer, nicht an WHIP** (nachgeprüft
     2026-07-28, damit es niemand aus dem Satz oben falsch schließt): `whip.c`
     trägt `.p.video_codec = AV_CODEC_ID_H264` und genau einen Payload-Typ (106),
@@ -185,8 +160,8 @@ Komfort-Fallback); `"portal"` → Primärmonitor.
 ### Events (`{"ev": "..."}`)
 
 - `state` — `state ∈ {"idle","starting","live","error","stopped"}`, `running`, `uptime_s`
-- `fps` — `fps`, `uptime_s` (kommt sobald GSR "update fps: N" auf stderr meldet → impliziert "live")
-- `log` — `line` (eine Roh-Zeile GSR-stderr; gemerged inklusive stdout)
+- `fps` — `fps`, `uptime_s` (einmal pro Sekunde, sobald der Stream läuft → impliziert "live")
+- `log` — `line` (eine Roh-Zeile aus dem Aufnahme-/Encode-Log des Sidecars)
 - `notice` — `line`, `code` — bedeutsame, aber nicht-fehlerhafte Mitteilung; gehört
   vor den Nutzer (das Web zeigt sie als Toast) und zusätzlich ins Log-Fenster. Bisher
   nur der Linux-Rust-Sidecar, bisher ein Code: `fps_begrenzt` (10-bit-Bildrate am
@@ -225,7 +200,7 @@ beschrieben, und wer diese Liste für vollständig hielt, übersah sie:
 // → stdin
 {"op": "health", "id": 1}
 // ← stdout
-{"id":1,"ok":true,"gsr":{"available":true,"source":"system","path":"/usr/bin/gpu-screen-recorder","is_flatpak":false,"version":"5.13.4","vendor":"nvidia",...}}
+{"id":1,"ok":true,"gsr":{"available":true,"source":"builtin","is_flatpak":false,"vendor":"nvidia","display_server":"wayland","video_codecs":["h264","av1"],"ten_bit":true,"has_flv_patch":true,"tls_backend":"gnutls","path":"/app/bin/pulse-linux-hq-sidecar"}}
 
 // → stdin
 {"op": "build_argv", "id": 2,
@@ -236,34 +211,28 @@ beschrieben, und wer diese Liste für vollständig hielt, übersah sie:
  "audio": {"mode": "Desktop", "excluded_apps": []},
  "overrides": {"codec": "av1", "resolution": "1080p", "bitrate_kbps": 4000, "fps": 60}}
 // ← stdout
-{"id":2,"ok":true,"binary":"/usr/bin/gpu-screen-recorder","argv":["/usr/bin/gpu-screen-recorder","-w","portal","-f","60","-c","flv","-k","av1","-bm","cbr","-q","4000","-ac","opus","-a","default_output","-s","1920x1080","-o","rtmps://stream.example.com:1936/channel-123-9?user=pulse&pass=TOKEN"]}
+{"id":2,"ok":true,"binary":"pulse-linux-hq-sidecar","argv":["pulse-linux-hq-sidecar","--profile","AV1 Effizient","--capture","portal","--codec","av1","--bit-depth","10","--fps","60","--bitrate","4000k","--audio","Desktop","--resolution","1080p","--out","rtmps://stream.example.com:1936/channel-123-9?user=pulse&pass=***"]}
 ```
+
+`argv` ist auch hier **diagnostisch, nicht literal**: die echte Pipeline treibt FFmpeg per API-Aufrufen, nicht per
+`exec`. `source: "builtin"` heißt: `available=true` bedeutet „der Sidecar selbst kann capturen+encoden+pushen" —
+seit dem Wegfall des Python-Fallbacks gibt es kein externes Binary mehr, das erst gefunden werden müsste.
 
 ## Sidecar standalone testen
 
+Jeder Rust-Sidecar hat sein eigenes `cargo build` + einen `health`-Smoke-Test
+per stdin — kein `start` dabei, das würde tatsächlich Capture öffnen und an
+MediaMTX pushen:
+
 ```bash
-# Im Worktree-Root:
-python streaming/gsr-sidecar/control.py < <(printf '%s\n' \
-  '{"op":"health","id":1}' \
-  '{"op":"gpu_info","id":2}' \
-  '{"op":"list_profiles","id":3}' \
-  '{"op":"build_argv","id":4,"profile":"AV1 Effizient","channel":{"id":"123","token":"TESTKEY","push_url":"rtmps://stream.example.com:1936/channel-123-9?user=pulse&pass=TESTKEY"},"capture":"portal","audio":{"mode":"Desktop","excluded_apps":[]},"overrides":{"codec":"av1","resolution":"1080p","bitrate_kbps":4000,"fps":60}}')
+# Linux, im Worktree-Root:
+cd streaming/linux-hq-sidecar
+cargo build --release
+echo '{"op":"health","id":1}' | ./target/release/pulse-linux-hq-sidecar
 ```
 
-Antworten kommen als JSON-Lines auf stdout. **Kein `start` im Test** —
-das würde den Wayland-Portal-Capture-Dialog öffnen und tatsächlich an
-MediaMTX pushen. Das macht der User selbst.
-
-## GSR-Binary-Resolver
-
-Reihenfolge: `$GSR_BINARY` → Flatpak (`/app/bin/gpu-screen-recorder` wenn
-`/.flatpak-info` oder `$FLATPAK_ID`) → Custom-Build
-(`$XDG_CACHE_HOME/pulse/gsr/gpu-screen-recorder/build/gpu-screen-recorder`,
-gebaut von `bootstrap-gsr.fish`; Legacy-Fallback `/tmp/gsr-analysis/...` für
-alte, noch nicht migrierte Builds) → System-PATH (`gpu-screen-recorder`).
-
-Wenn nichts gefunden wird, antwortet `health` mit `gsr.available=false`
-und `start` schlägt sauber fehl statt zu crashen.
+Details (weitere Beispiele, echter Smoke gegen lokales MediaMTX) stehen in
+`linux-hq-sidecar/README.md`; für Windows im Abschnitt weiter unten.
 
 ## Stream-Key / Secrets
 
@@ -272,11 +241,11 @@ und `start` schlägt sauber fehl statt zu crashen.
 und `streaming/server/.stream-key` sind **gitignored** (im Worktree-
 Root-`.gitignore`). Sidecar-RPC sieht den Stream-Key/Token nur transient
 als Request-Field — er wird **nicht** persistiert, **nicht** geloggt und
-landet ausschließlich in der Push-URL (GSR auf Linux, ffmpeg-next auf Windows).
+landet ausschließlich in der Push-URL (ffmpeg-as-lib auf Linux, ffmpeg-next auf Windows).
 
 ## Windows-Sidecar (`win-hq-sidecar/`)
 
-Rust-Binary, gleiches stdio-JSON-RPC wie der Linux-GSR-Sidecar (alle Ops/Events
+Rust-Binary, gleiches stdio-JSON-RPC wie der Linux-Sidecar (alle Ops/Events
 identisch). Stack: `windows-capture` v2 (WGC; gepatchter Zweig unter
 `win-hq-sidecar/vendor/`, s. dortiges README — Cursor-Echo der Fernsteuerung),
 `wasapi` (Desktop-Loopback +

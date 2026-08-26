@@ -12,8 +12,8 @@
     <p>
       Pulse is a Discord-like chat, voice and streaming client. The desktop app
       is a thin Electron shell over the web app at howispulse.com; on
-      Linux it adds high-quality, GPU-encoded screen streaming via a bundled
-      gpu-screen-recorder.
+      Linux it adds high-quality, GPU-encoded screen streaming and a native
+      viewer, both built into the package.
     </p>
   </description>
   <launchable type="desktop-id">com.howispulse.Pulse.desktop</launchable>
@@ -43,7 +43,7 @@
     </release>
     <release version="0.1.0" date="2026-05-12">
       <description>
-        <p>First packaged build: Electron shell loading the deployed web app, plus the local GSR streaming bridge.</p>
+        <p>First packaged build: Electron shell loading the deployed web app, plus the local screen-streaming bridge.</p>
       </description>
     </release>
   </releases>

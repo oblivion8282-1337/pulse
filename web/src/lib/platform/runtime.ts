@@ -3,7 +3,7 @@
  *
  * The web app ships in a few shapes: a plain browser SPA, and the same SPA
  * inside the Electron desktop shell (`desktop/electron/`). A few features
- * (global push-to-talk, native notifications, the GSR streaming UI) only make
+ * (global push-to-talk, native notifications, the HQ streaming UI) only make
  * sense in the desktop shell, some additionally only on Linux. Gate on these
  * helpers, never on a hand-rolled `navigator.userAgent` sniff scattered around
  * the codebase.
@@ -51,7 +51,7 @@ export const isCapacitorAndroid = (): boolean => {
 /**
  * Best-effort "are we on Linux?" check.
  *
- * A UA-based guess is good enough for our gates (the GSR streaming UI also
+ * A UA-based guess is good enough for our gates (the HQ streaming UI also
  * checks `isElectron()` and a sidecar health probe). TODO: if we ever need a
  * rock-solid OS check, surface `process.platform` from the Electron preload.
  */

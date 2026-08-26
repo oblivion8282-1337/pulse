@@ -1,21 +1,22 @@
 /**
- * Pulse desktop — Python GSR-sidecar manager (Electron, E1b).
+ * Pulse desktop — Sidecar-Verwaltung (Electron).
  *
- * Spawns `streaming/gsr-sidecar/control.py` as a child process the first time
- * any caller needs it (lazy — someone who never streams never starts Python)
- * and bridges the newline-JSON protocol:
+ * Startet den Plattform-Sidecar beim ersten Aufruf, der ihn braucht (lazy — wer
+ * nie streamt, startet ihn nie), und vermittelt das Zeilen-JSON-Protokoll:
  *
- *   request  `{"op": ..., "id": <n>, ...}`            (one JSON object per stdin line)
- *   response `{"id": <n>, "ok": <bool>, ...}`         (id mirrored from the request)
- *   event    `{"ev": ..., ...}`                       (async, no id/ok — forwarded via onEvent)
+ *   Anfrage  `{"op": ..., "id": <n>, ...}`     (ein JSON-Objekt je stdin-Zeile)
+ *   Antwort  `{"id": <n>, "ok": <bool>, ...}`  (id aus der Anfrage gespiegelt)
+ *   Ereignis `{"ev": ..., ...}`                (ohne id/ok — via onEvent weiter)
  *
- * This is the Electron-side equivalent of the old Tauri Rust bridge
- * (`desktop/src-tauri/src/streaming/`, removed in E1c): same request-id routing,
- * same event-forwarding idea — `main.ts` registers an `onEvent` callback that
- * relays events to the renderer over `webContents.send('gsr:event', ev)`.
+ * Alle drei Plattformen sprechen dasselbe Protokoll: Linux
+ * `streaming/linux-hq-sidecar/`, Windows `streaming/win-hq-sidecar/`, macOS
+ * `streaming/mac-hq-sidecar/`.
  *
- * The Python sidecar itself is unchanged — it just speaks newline-JSON on stdio
- * regardless of who spawns it.
+ * **Der IPC-Name heisst weiter `gsr:*`** (`gsr:call`, `gsr:event`,
+ * `window.pulse.gsr.*`). Das ist ein Namensrelikt aus der Zeit, als Linux über
+ * einen Python-Aufsatz um `gpu-screen-recorder` lief; die Bezeichnung bedient
+ * heute alle drei Rust-Sidecars. Umbenennen wäre eine Änderung an Renderer,
+ * Vorlader, drei Sidecars und den Tests — ohne Gegenwert.
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
@@ -32,11 +33,6 @@ import {
 import { storeGet } from './store';
 
 // ── Config ──────────────────────────────────────────────────────────────────
-
-/** Python interpreter to run the Linux GSR sidecar. Developer-only override via
- *  $PULSE_PYTHON; ignored in packaged builds to prevent malicious .desktop files
- *  or wrapper scripts from redirecting to an attacker-controlled executable. */
-const PYTHON_BIN = !app.isPackaged ? (process.env.PULSE_PYTHON ?? 'python3') : 'python3';
 
 /** Per-op request timeout (ms). `start` opens the Wayland portal dialog (Linux)
  *  or initialises WGC + NVENC/AMF/QSV (Windows) so it needs a long fuse; `stop`
@@ -56,15 +52,12 @@ const SHUTDOWN_SIGTERM_GRACE_MS = 2_000;
 
 // ── Sidecar resolver ────────────────────────────────────────────────────────
 //
-// Four implementations of the same newline-JSON-over-stdio protocol:
+// Drei Umsetzungen desselben Zeilen-JSON-über-stdio-Protokolls:
 //
-//   - Linux:   der Rust-Crate `pulse-linux-hq-sidecar` (Standard; liegt seit
-//              2026-07-29 im Baum unter `streaming/linux-hq-sidecar/`, das
+//   - Linux:   der Rust-Crate `pulse-linux-hq-sidecar` (liegt seit 2026-07-29
+//              im Baum unter `streaming/linux-hq-sidecar/`, das
 //              Flatpak-Manifest baut ihn per `type: dir` nach `/app/bin/` —
-//              es gibt KEINEN gepinnten Commit mehr, den man nachziehen muss)
-//              — mit `streaming/gsr-sidecar/control.py` (Python, GSR +
-//              Wayland-Portal + PipeWire — see `streaming/README.md`) als
-//              Auffangnetz.
+//              es gibt KEINEN gepinnten Commit mehr, den man nachziehen muss).
 //   - Windows: `streaming/win-hq-sidecar/` (Rust, drives WGC + WASAPI +
 //              NVENC/AMF/QSV via FFmpeg — see `WINDOWS_HQ_SIDECAR.md`).
 //   - macOS:   `streaming/mac-hq-sidecar/` (Rust, drives ScreenCaptureKit +
@@ -84,35 +77,16 @@ interface SpawnTarget {
   args: string[];
 }
 
-/** Welcher Linux-Sidecar tatsächlich läuft — und warum. Der Renderer zeigt das
- *  im Kompatibilitäts-Tab an: ein stiller Rückfall, den niemand sieht, ist nur
- *  eine andere Sorte Blindflug.
- *
- *   - `rust`/`default`   → Normalfall.
- *   - `gsr`/`forced`     → User hat bewusst auf GSR zurückgestellt.
- *   - `gsr`/`fallback`   → Rust-Binary fehlt (alte Flatpak-Version, Dev ohne
- *                          $PULSE_LINUX_HQ_SIDECAR, kaputter Build). `detail`
- *                          trägt die Resolver-Fehlermeldung. */
-export interface LinuxBackendInfo {
-  kind: 'rust' | 'gsr';
-  reason: 'default' | 'forced' | 'fallback';
-  detail?: string;
-}
 
 /** Cached result of the first successful `resolveSidecarSpawn()` call.
  *  The resolved path never changes during a session; memoising it avoids
  *  repeated filesystem walks on Windows respawns (finding 159). */
 let _cachedSpawnTarget: SpawnTarget | null = null;
-/** Begleitinfo zu `_cachedSpawnTarget` auf Linux; wird nur gesetzt, wenn die
- *  Auflösung wirklich geglückt ist (sonst meldeten wir einen Sidecar, den es
- *  gar nicht gibt). */
-let _linuxBackend: LinuxBackendInfo | null = null;
-
 function resolveSidecarSpawn(): SpawnTarget {
   if (_cachedSpawnTarget) return _cachedSpawnTarget;
   let target: SpawnTarget;
   if (process.platform === 'linux') {
-    target = resolveLinuxSpawn();
+    target = { command: resolveLinuxRustBinaryPath(), args: [] };
   } else if (process.platform === 'win32') {
     target = { command: resolveBinaryPath(), args: [] };
   } else if (process.platform === 'darwin') {
@@ -120,7 +94,7 @@ function resolveSidecarSpawn(): SpawnTarget {
   } else {
     throw new Error(
       `Pulse HQ sidecar: no implementation for ${process.platform} ` +
-        '(Linux: streaming/gsr-sidecar/, Windows: streaming/win-hq-sidecar/, ' +
+        '(Linux: streaming/linux-hq-sidecar/, Windows: streaming/win-hq-sidecar/, ' +
         'macOS: streaming/mac-hq-sidecar/).',
     );
   }
@@ -129,74 +103,23 @@ function resolveSidecarSpawn(): SpawnTarget {
 }
 
 /**
- * Unter Linux nimmt HQ-Streaming den Rust-Sidecar. Punkt.
- *
- * **Bis 2026-08-16 gab es zwei Wege**, und der zweite war der ältere
- * Python/GSR-Sidecar: erzwingbar über einen Schalter im Experimental-Tab, und
- * automatisch, sobald das Rust-Binary nicht auffindbar war. Beides ist weg:
- *
- *  * Der **Schalter** lud zum Ausprobieren ein und beantwortete keine Frage,
- *    die ein Nutzer hat. Wer ihn einmal umlegte, blieb still auf dem alten Weg
- *    — samt dessen Eigenheiten, die dann als Fehler des ganzen Programms
- *    ankamen.
- *  * Der **automatische Rückfall** war gut gemeint, hat den Fall aber
- *    verschleiert statt behoben: der Nutzer streamte über ein anderes
- *    Verfahren, ohne es zu wissen, und jede Fehlersuche begann mit der falschen
- *    Annahme. Ein fehlendes Rust-Binary ist ein kaputter Einbau — das gehört
- *    gemeldet, nicht überdeckt. Der Wurf hier führt zu `gsrAvailable = false`,
- *    die UI blendet den Übertragen-Knopf aus.
- *
- * **GSR bleibt im Baum**, nur nicht mehr im Weg eines Nutzers: für Messungen
- * und Vergleiche schaltet `PULSE_LEGACY_GSR=1` ihn zurück. Ein Umgebungswert
- * verlangt eine bewusste Handlung und überlebt keinen Doppelklick auf das
- * Symbol — genau der Unterschied zum alten Schalter.
- */
-function resolveLinuxSpawn(): SpawnTarget {
-  if (process.env.PULSE_LEGACY_GSR === '1') {
-    const script = resolveScriptPath();
-    _linuxBackend = { kind: 'gsr', reason: 'forced' };
-    return { command: PYTHON_BIN, args: [script] };
-  }
-  const binary = resolveLinuxRustBinaryPath();
-  _linuxBackend = { kind: 'rust', reason: 'default' };
-  return { command: binary, args: [] };
-}
-
-/** Welcher Sidecar läuft (Linux) — für die Anzeige im Kompatibilitäts-Tab.
- *  Löst bei Bedarf auf; `null` auf anderen Plattformen oder wenn gar kein
- *  Sidecar auffindbar ist. */
-export function getLinuxBackend(): LinuxBackendInfo | null {
-  if (process.platform !== 'linux') return null;
-  try {
-    resolveSidecarSpawn();
-  } catch {
-    return null;
-  }
-  return _linuxBackend;
-}
-
-/** Invalidiert das memoisierte Spawn-Target.
- *
- *  Seit 2026-08-16 gibt es unter Linux nur noch einen Weg, also auch nichts
- *  mehr umzuschalten — die Tests brauchen es weiterhin, um zwischen zwei
- *  Umgebungen aufzuloesen. */
-export function resetSpawnTargetCache(): void {
-  _cachedSpawnTarget = null;
-  _linuxBackend = null;
-}
-
-/**
  * Locate the Rust Linux HQ sidecar binary (Linux only, the default backend).
  *
  * Order:
- *   1. `$PULSE_LINUX_HQ_SIDECAR` override (absolute path, dev-only) — der Rust-
- *      Crate liegt außerhalb dieses Repos, daher kein Walk-up wie beim Python-
- *      control.py; im Dev zeigt man mit dieser Var auf `…/target/release/…`.
+ *   1. `$PULSE_LINUX_HQ_SIDECAR` override (absolute path, dev-only) — im Dev
+ *      zeigt man mit dieser Var auf `…/target/release/…`.
  *   2. Flatpak/packaged default `/app/bin/pulse-linux-hq-sidecar` (das
  *      Flatpak-Cargo-Modul installiert das Binary dorthin).
  *
- * Wirft, wenn nichts gefunden wird — `resolveLinuxSpawn()` fängt das und fällt
- * auf GSR zurück.
+ * Wirft, wenn nichts gefunden wird, und der Wurf ist die Absicht: er führt zu
+ * `gsrAvailable = false`, die Oberfläche blendet den Übertragen-Knopf aus.
+ *
+ * **Bis 2026-08-16 fiel Pulse hier auf einen Python-Aufsatz um
+ * `gpu-screen-recorder` zurück, seit dem 2026-08-27 gibt es den nicht mehr im
+ * Baum.** Der Rückfall war gut gemeint und hat den Fall verschleiert statt
+ * behoben: der Nutzer streamte über ein anderes Verfahren, ohne es zu wissen,
+ * und jede Fehlersuche begann mit der falschen Annahme. Ein fehlendes Binary
+ * ist ein kaputter Einbau — das gehört gemeldet, nicht überdeckt.
  */
 function resolveLinuxRustBinaryPath(): string {
   const override = !app.isPackaged ? process.env.PULSE_LINUX_HQ_SIDECAR : undefined;
@@ -211,48 +134,6 @@ function resolveLinuxRustBinaryPath(): string {
   throw new Error(
     'Could not locate the Rust Linux sidecar (pulse-linux-hq-sidecar). ' +
       'It ships at /app/bin/ in the Flatpak; in dev set $PULSE_LINUX_HQ_SIDECAR to the built binary.',
-  );
-}
-
-/**
- * Locate `control.py` (Linux only).
- *
- * Order:
- *   1. `$PULSE_SIDECAR_PY` override (absolute path to control.py, dev-only).
- *   2. Walk up from this module's directory looking for
- *      `<X>/streaming/gsr-sidecar/control.py`. In dev the bundled `main.cjs`
- *      lives at `desktop/electron/dist/`, so `../../../streaming/...` from there
- *      hits the repo root; the walk-up also tolerates other layouts.
- *   3. Flatpak default `/app/share/pulse/gsr-sidecar/control.py`.
- */
-function resolveScriptPath(): string {
-  // Developer-only override; ignored in packaged builds to prevent malicious
-  // .desktop files or wrapper scripts from redirecting to an attacker binary.
-  const override = !app.isPackaged ? process.env.PULSE_SIDECAR_PY : undefined;
-  if (override) {
-    if (!fs.existsSync(override)) {
-      throw new Error(`PULSE_SIDECAR_PY points at a non-existent file: ${override}`);
-    }
-    return override;
-  }
-
-  const rel = path.join('streaming', 'gsr-sidecar', 'control.py');
-  let dir = __dirname;
-  // Walk up to (but not past) the filesystem root.
-  for (;;) {
-    const candidate = path.join(dir, rel);
-    if (fs.existsSync(candidate)) return candidate;
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-
-  const flatpakDefault = '/app/share/pulse/gsr-sidecar/control.py';
-  if (fs.existsSync(flatpakDefault)) return flatpakDefault;
-
-  throw new Error(
-    'Could not locate streaming/gsr-sidecar/control.py (walked up from ' +
-      `${__dirname}). Set PULSE_SIDECAR_PY to override.`,
   );
 }
 
@@ -539,7 +420,7 @@ class SidecarManager {
       // fresh with no race against a still-dying process.
       //
       // Windows-only: the restart bug is in the WGC/D3D11/NVENC pipeline. The
-      // Linux GSR sidecar has no such issue, so its process stays warm. macOS
+      // Der Linux-Sidecar hat das Problem nicht, sein Prozess bleibt warm. macOS
       // (ScreenCaptureKit + VideoToolbox) is not yet evaluated — add 'darwin'
       // here if a second in-process capture session misbehaves once the
       // mac-hq-sidecar lands.
@@ -551,9 +432,10 @@ class SidecarManager {
 
   /** Graceful shutdown. Best-effort, resolves even if the child was never
    *  spawned. Sequence: close stdin (the sidecar's loop ends on EOF and stops a
-   *  running GSR) → wait briefly for a clean exit → SIGTERM → SIGKILL after a
-   *  short grace. (Closing stdin first avoids the sidecar's signal handler
-   *  hitting a reentrant `sys.stdin.close()` while it's blocked reading stdin.) */
+   *  running capture) → wait briefly for a clean exit → SIGTERM → SIGKILL after a
+   *  short grace. Stdin zuerst zu schliessen ist die schonendste Stufe: der
+   *  Sidecar beendet seine Leseschleife von selbst, statt mitten im Lesen ein
+   *  Signal zu bekommen. */
   async shutdown(): Promise<void> {
     if (this._shuttingDown) return this._shuttingDown;
 
@@ -590,7 +472,7 @@ class SidecarManager {
       this.cleanupChild();
       return;
     }
-    // 2) Still alive → SIGTERM (the sidecar's handler stops a running GSR).
+    // 2) Still alive → SIGTERM (the sidecar's handler stops a running capture).
     try {
       child.kill('SIGTERM');
     } catch {
@@ -631,8 +513,8 @@ class SidecarManager {
       // of other voice participants isn't recaptured into the stream → echo.
       // The sidecar is a direct child of this process, so process.pid is the
       // tree root of all Chromium children incl. the audio-service. Mirror of
-      // the Linux `app-inverse:Pulse` path (PULSE_PROP in main.ts). The Linux
-      // Python sidecar ignores the var.
+      // the Linux `app-inverse:Pulse` path (PULSE_PROP in main.ts) — der
+      // Linux-Sidecar ignoriert die Variable.
       env: { ...process.env, PULSE_SELF_PID: String(process.pid) },
     }) as ChildProcessWithoutNullStreams;
     this.child = child;
@@ -650,7 +532,7 @@ class SidecarManager {
       for (const line of chunk.split('\n')) {
         if (line.trim()) {
           logSidecar('err', line);
-          console.error(`[gsr-sidecar] ${line}`);
+          console.error(`[sidecar] ${line}`);
         }
       }
     });
@@ -664,7 +546,7 @@ class SidecarManager {
     child.stdin.on('error', (err) => {
       if (this.child !== child) return;
       logSidecar('lifecycle', `stdin error: ${err.message}`);
-      console.error('[gsr-sidecar] stdin error:', err);
+      console.error('[sidecar] stdin error:', err);
     });
 
     child.on('error', (err) => {
@@ -674,7 +556,7 @@ class SidecarManager {
       // child's readline and fail its pending requests.
       if (this.child !== child) return;
       logSidecar('lifecycle', `spawn error: ${err.message}`);
-      console.error('[gsr-sidecar] spawn error:', err);
+      console.error('[sidecar] spawn error:', err);
       this.failAllPending(new Error(`gsr sidecar process error: ${err.message}`));
       this.cleanupChild();
     });
@@ -684,7 +566,7 @@ class SidecarManager {
       const reason =
         signal !== null ? `signal ${signal}` : code !== null ? `code ${code}` : 'unknown';
       logSidecar('lifecycle', `exited (${reason})`);
-      console.error(`[gsr-sidecar] exited (${reason})`);
+      console.error(`[sidecar] exited (${reason})`);
       // Silent native crash: the child was streaming (WGC/D3D11/NVENC can crash
       // in native FFI past Rust's catch_unwind) and exited WITHOUT ever emitting
       // a `stopped`/`error`/`state:false` — so the renderer would sit forever on
@@ -697,7 +579,7 @@ class SidecarManager {
         try {
           this.eventCb?.({ ev: 'stopped', reason: 'sidecar_exit' });
         } catch (err) {
-          console.error('[gsr-sidecar] synth-stopped callback threw:', err);
+          console.error('[sidecar] synth-stopped callback threw:', err);
         }
       }
       this.failAllPending(new Error(`gsr sidecar exited (${reason})`));
@@ -715,11 +597,11 @@ class SidecarManager {
     try {
       msg = JSON.parse(text);
     } catch (err) {
-      console.error(`[gsr-sidecar] unparseable stdout line: ${text}`, err);
+      console.error(`[sidecar] unparseable stdout line: ${text}`, err);
       return;
     }
     if (typeof msg !== 'object' || msg === null) {
-      console.error('[gsr-sidecar] stdout line was not a JSON object:', text);
+      console.error('[sidecar] stdout line was not a JSON object:', text);
       return;
     }
     const obj = msg as SidecarMessage;
@@ -730,7 +612,7 @@ class SidecarManager {
       try {
         this.eventCb?.(obj);
       } catch (err) {
-        console.error('[gsr-sidecar] event callback threw:', err);
+        console.error('[sidecar] event callback threw:', err);
       }
       return;
     }
@@ -739,7 +621,7 @@ class SidecarManager {
     if (typeof obj.id === 'number') {
       const pending = this.pending.get(obj.id);
       if (!pending) {
-        console.error(`[gsr-sidecar] response for unknown id ${obj.id}:`, text);
+        console.error(`[sidecar] response for unknown id ${obj.id}:`, text);
         return;
       }
       this.pending.delete(obj.id);
@@ -751,7 +633,7 @@ class SidecarManager {
     // `{"id": null, ...}` — sidecar's generic error for malformed input it
     // couldn't attribute to a request. We never send a request without an id,
     // so just log it.
-    console.error('[gsr-sidecar] unattributable message:', text);
+    console.error('[sidecar] unattributable message:', text);
   }
 
   private failAllPending(err: Error): void {

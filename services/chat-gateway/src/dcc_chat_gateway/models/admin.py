@@ -78,7 +78,7 @@ class ChatSettings(Base):
     guild_sound_max_size_bytes: Mapped[int] = mapped_column(
         BigInteger, nullable=False, server_default="524288"
     )
-    # Global HQ-stream quality limits (the GSR desktop stream). Enforced
+    # Global HQ-stream quality limits (the HQ desktop stream). Enforced
     # client-side in the stream panel + buildStartArgs — media-svc/MediaMTX
     # never see these params (no transcoding, PLAN.md anti-pattern), so this
     # is a best-effort cap, same as the long-standing client-side bitrate max.

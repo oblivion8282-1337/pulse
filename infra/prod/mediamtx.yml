@@ -10,7 +10,7 @@
 #     `channel-<channel_id>`,
 #   - read/playback (WHEP/HLS) for `channel-*` paths,
 #   - api/metrics/pprof (also excluded here via authHTTPExclude).
-# No internal users, no fixed stream key — the GSR sidecar gets its push URL
+# No internal users, no fixed stream key — the HQ sidecar gets its push URL
 # (token in `?pass=…` or `streamid=publish:<path>:pulse:<token>`) from media-svc.
 #
 # Public ingest/egress ports must be open in UFW: 1936/tcp (RTMPS) and

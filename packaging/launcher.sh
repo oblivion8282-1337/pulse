@@ -1,21 +1,20 @@
 #!/bin/sh
 # Launcher inside the Pulse Flatpak.
 #
-# - Points the GSR sidecar at the bundled, FLV-Opus-patched `gpu-screen-recorder`
-#   (`/app/bin/gpu-screen-recorder`, built from source in the manifest) and at the
-#   bundled Python sidecar (`/app/share/pulse/gsr-sidecar/control.py`).
 # - Runs Electron through `zypak-wrapper` (from org.electronjs.Electron2.BaseApp) —
 #   Chromium's setuid sandbox doesn't work inside a Flatpak; zypak replaces it with
 #   a bubblewrap-based one.
 # - The packaged app loads the live web app remotely (https://howispulse.com)
 #   — no PULSE_DEV_URL is set, so electron/main.ts uses PROD_URL. Web-side fixes are
-#   visible without a new Flatpak; only native changes (Electron/sidecar/GSR) need a
-#   rebuild. Set PULSE_DEVTOOLS=1 to auto-open DevTools.
+#   visible without a new Flatpak; only native changes (Electron, Sidecar, Player)
+#   need a rebuild. Set PULSE_DEVTOOLS=1 to auto-open DevTools.
+#
+# Hier standen bis zum 2026-08-27 drei `export`-Zeilen, die den alten
+# Python/GSR-Aufnahmeweg verdrahteten (`GSR_BINARY`, `PULSE_SIDECAR_PY`,
+# `PULSE_PYTHON`). Der Weg ist entfernt; der Rust-Sidecar liegt unter
+# `/app/bin/pulse-linux-hq-sidecar` und wird von `sidecar.ts` dort ohne
+# Umgebungsvariable gefunden.
 set -e
-
-export GSR_BINARY="${GSR_BINARY:-/app/bin/gpu-screen-recorder}"
-export PULSE_SIDECAR_PY="${PULSE_SIDECAR_PY:-/app/share/pulse/gsr-sidecar/control.py}"
-export PULSE_PYTHON="${PULSE_PYTHON:-python3}"
 
 # Display backend: let Electron pick it (`--ozone-platform-hint=auto` → native
 # Wayland when a Wayland session is available, X11/XWayland otherwise). The manifest

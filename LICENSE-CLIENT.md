@@ -50,7 +50,13 @@ software.
 
 Parts of this repository are not owned by the copyright holder and keep their
 original licenses. They are listed in `LICENSE` and are unaffected by this
-document — most notably `streaming/patches/`, which is GPL-3.0-or-later.
+document.
+
+Until 2026-08-27 this section named `streaming/patches/` (GPL-3.0-or-later,
+patches against gpu-screen-recorder). Those patches, the recorder and the
+Python bridge that drove them were the older Linux capture path; it has been
+removed in favour of the Rust sidecar, and with it the only GPL-licensed
+component this repository carried.
 
 Dependencies resolved at build time (Python, Node and Rust packages, FFmpeg)
 carry their own licenses and are not relicensed by this document.

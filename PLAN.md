@@ -5,6 +5,14 @@
 **Ziel-Plattformen:** Web (alle Browser), Desktop via Tauri 2 (Linux/Windows/Mac), PWA-installierbar
 **Beziehung zum Streamer:** `~/Dokumente/GPU_Screen_Recorder/` bleibt **unverändert**. Linux-Power-User bekommen einen kleinen GSR-Helper-Daemon, der die existierende `stream_controller.py` als Library importiert.
 
+> **Überholt, 2026-08-27.** Diese Datei ist ein Plandokument vom Mai 2026 und
+> wird als solches gelesen, nicht als Beschreibung des Ist-Zustands. Zwei
+> Annahmen darin sind inzwischen ganz weggefallen: der Desktop läuft über
+> Electron statt Tauri, und die Linux-Aufnahme über einen eigenen Rust-Sidecar
+> (`streaming/linux-hq-sidecar/`) statt über `gpu-screen-recorder`. Alles, was
+> unten von GSR, `stream_controller.py` oder einem Helper-Daemon handelt, ist
+> Geschichte. Der Ist-Zustand steht in `CLAUDE.md` und `streaming/README.md`.
+
 ---
 
 ## 1. Architektur-Grundsatz

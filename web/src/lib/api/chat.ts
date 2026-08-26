@@ -94,7 +94,7 @@ export type StreamTokenResponse = {
   token: string;
   mediamtx_path: string;
   push_protocol: string;
-  /** Full push URL including the token, ready for the GSR sidecar. */
+  /** Full push URL including the token, ready for the HQ sidecar. */
   push_url: string;
   expires_in_s: number;
 };
@@ -280,7 +280,7 @@ export const chatApi = {
   }> {
     return request(`/guilds/${guildId}/voice-state`, {}, route);
   },
-  /** HQ-Stream-Snapshot einer Community per REST (GSR → MediaMTX → WHEP).
+  /** HQ-Stream-Snapshot einer Community per REST (HQ-Sidecar → MediaMTX → WHEP).
    *  Spiegelt `stream_states` aus dem `ready`-Frame; `streams` fehlt bei
    *  einslotigen Streams (Legacy-Shape). Dient dem Rail-Tooltip fremder
    *  Server, um die LIVE-Badge neben der reinen Screen-Share zu füllen. */

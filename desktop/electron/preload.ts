@@ -101,7 +101,6 @@ contextBridge.exposeInMainWorld('pulse', {
     /** Welcher Linux-Sidecar läuft (rust/gsr) und warum — für die Anzeige im
      *  Kompatibilitäts-Tab. Eigener Kanal, kein `gsr:call`: das ist eine
      *  Main-Prozess-Auskunft über die Pfadauflösung, keine Sidecar-Op. */
-    backend: () => ipcRenderer.invoke('gsr:backend'),
 
     /**
      * Fernsteuerung, HOST-Seite: Eingabe-Frames in den Sidecar des gemeinten

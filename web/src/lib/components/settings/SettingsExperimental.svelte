@@ -20,14 +20,14 @@
   eigener Opt-in, auf jeder Plattform. Begründung in
   `desktop/electron/experimental-log-upload.ts`.
 
-  **Das Aufnahme-Verfahren stand bis 2026-08-16 hier**: eine Statuszeile (Rust
-  oder GSR) und eine Notbremse zurück auf den älteren Python/GSR-Sidecar. Beides
-  ist weg, weil die Wahl keine mehr ist — der Rust-Sidecar ist unter Linux der
-  Weg, GSR nur noch das automatische Auffangnetz, wenn das Rust-Binary fehlt
-  (`sidecar.ts::resolveLinuxSpawn`). Ein Schalter, der auf ein Auffangnetz
-  zurückstellt, lädt zum Ausprobieren ein und beantwortet keine Frage, die ein
-  Nutzer hat. Der GSR-Weg selbst bleibt geparkt; wer ihn zum Messen braucht,
-  setzt `PULSE_LEGACY_GSR=1`.
+  **Das Aufnahme-Verfahren stand bis 2026-08-16 hier**: eine Statuszeile und
+  eine Notbremse zurück auf einen älteren Python-Aufsatz um
+  `gpu-screen-recorder`. Der Schalter fiel damals, weil die Wahl keine mehr war;
+  der zweite Weg selbst blieb als Auffangnetz noch im Baum und ist am 2026-08-27
+  entfernt worden. Unter Linux gibt es seither genau einen Sidecar
+  (`streaming/linux-hq-sidecar/`). Fehlt sein Binary, meldet Pulse das, statt
+  still auf etwas anderes auszuweichen — die Oberfläche blendet den
+  Übertragen-Knopf aus.
 -->
 <script lang="ts">
   import PlugZapIcon from '@lucide/svelte/icons/plug-zap';

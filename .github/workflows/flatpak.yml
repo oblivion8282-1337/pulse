@@ -34,7 +34,6 @@ on:
     paths:
       - 'desktop/electron/**'
       - 'desktop/package.json'
-      - 'streaming/gsr-sidecar/**'
       - 'streaming/linux-hq-sidecar/**'
       - 'packaging/linux-hq-sidecar-cargo-sources.json'
       - 'streaming/pulse-player/**'
@@ -58,7 +57,6 @@ on:
       - 'streaming/pulse-zeigerbild/**'
       - 'streaming/pulse-bildmarke/**'
       - 'streaming/pulse-fernsteuerung/**'
-      - 'streaming/patches/**'
       - 'packaging/com.howispulse.Pulse.yml'
       - 'packaging/launcher.sh'
       - 'packaging/com.howispulse.Pulse.desktop'
@@ -100,8 +98,9 @@ jobs:
         run: |
           sudo apt-get update
           # elfutils provides `eu-strip` + `eu-elfcompress` — flatpak-builder
-          # uses them to strip debug symbols from built binaries (e.g. the GSR
-          # binary). Without them, the build fails after the compile step.
+          # uses them to strip debug symbols from built binaries (FFmpeg, der
+          # Rust-Sidecar, der Player). Without them, the build fails after the
+          # compile step.
           # librsvg2-common ships the gdk-pixbuf SVG loader that flatpak-builder
           # invokes when it validates exported app icons (`hicolor/scalable/…
           # .svg`). With --no-install-recommends it's not pulled in, and the
@@ -111,11 +110,13 @@ jobs:
           flatpak remote-add --user --if-not-exists \
             flathub https://flathub.org/repo/flathub.flatpakrepo
 
-      # ── Caches (huge speedup: FFmpeg + GSR built from source) ──
+      # ── Caches (huge speedup: FFmpeg wird aus der Quelle gebaut) ──
       # Two-step pattern (separate restore + save with if: always()) so cache
       # gets saved even when a later step fails. With actions/cache@v4 (single
       # action) the save would be skipped on job failure → every failed retry
-      # would have to rebuild FFmpeg+GSR from scratch (~15 min).
+      # would have to rebuild FFmpeg from scratch. (Der GSR-Bau, der hier
+      # mitgemeint war, ist am 2026-08-27 entfallen — der Kaltbau ist seither
+      # kuerzer, um wie viel ist nicht nachgemessen.)
       - name: Restore flatpak runtimes cache
         id: cache-runtimes
         uses: actions/cache/restore@v4
@@ -131,7 +132,7 @@ jobs:
           path: .flatpak-builder
           # head_sha invalidates the cache when electron/dist/ changes,
           # since that path is gitignored and hashFiles can't see it.
-          key: flatpak-builder-${{ runner.os }}-${{ github.event.head_sha }}-${{ hashFiles('packaging/com.howispulse.Pulse.yml', 'streaming/patches/**') }}
+          key: flatpak-builder-${{ runner.os }}-${{ github.event.head_sha }}-${{ hashFiles('packaging/com.howispulse.Pulse.yml') }}
           restore-keys: |
             flatpak-builder-${{ runner.os }}-
 
@@ -201,7 +202,7 @@ jobs:
 
       # ── Save caches (always, even on later failure) ──
       # The save happens BEFORE the rsync/publish steps so a network failure
-      # later doesn't prevent us from keeping the expensive FFmpeg+GSR build.
+      # later doesn't prevent us from keeping the expensive FFmpeg build.
       # `if: always()` makes save run even if Build & sign Flatpak partially
       # populated .flatpak-builder/ccache before crashing.
       - name: Save flatpak runtimes cache
