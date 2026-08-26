@@ -58,7 +58,26 @@ done
 # LD_LIBRARY_PATH übersetzt es zwar, aber die Testbinaries finden
 # libavcodec.so.62 nicht und sterben mit Exit 127. Beides sieht wie ein
 # kaputter Test aus und ist keiner.
-ffmpeg_prefix="${PULSE_FFMPEG_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/pulse/ffmpeg/prefix}"
+# **Drei Kandidaten, nicht einer.** Bis zum 2026-08-26 stand hier nur der
+# Cache-Pfad — auf einer Maschine, die FFmpeg über
+# `streaming/pulse-player/scripts/fetch-ffmpeg-linux.sh` in den Baum geholt
+# hat (der übliche Weg laut `streaming/pulse-player/README.md`), zeigte das
+# Gate deshalb bei JEDER Rust-Änderung „FFmpeg fehlt — Cargo-Tests
+# ÜBERSPRUNGEN" und lief weiter. Eine Warnung, die im Rauschen untergeht, und
+# 415 + 101 Tests, die niemand fährt. Dieselbe Fehlerklasse wie bei den
+# Node-Unit-Tests (2026-08-17) und den mac-Kisten (2026-08-23).
+ffmpeg_prefix=""
+for _kandidat in \
+  "${PULSE_FFMPEG_DIR:-}" \
+  "${XDG_CACHE_HOME:-$HOME/.cache}/pulse/ffmpeg/prefix" \
+  "$(git rev-parse --show-toplevel)/streaming/pulse-player/ffmpeg-dist/n8.1-lgpl-shared"
+do
+  [ -n "$_kandidat" ] && [ -d "$_kandidat/lib" ] && { ffmpeg_prefix="$_kandidat"; break; }
+done
+# Leer lassen wäre falsch: die Zweige unten prüfen `-d "$ffmpeg_prefix/lib"`
+# und sollen bei keinem Treffer in die WARNUNG laufen, nicht in einen Bau mit
+# leerem FFMPEG_DIR (der zöge die zu neue System-FFmpeg).
+ffmpeg_prefix="${ffmpeg_prefix:-/nicht-vorhanden}"
 # **Auf dem Mac liegt FFmpeg woanders**, und das ist im CLAUDE.md so
 # beschrieben: der Player baut dort über `PKG_CONFIG_PATH` auf
 # `~/src/ffmpeg-openssl`, nicht über den gepinnten Linux-Vorrat. Ohne diesen
