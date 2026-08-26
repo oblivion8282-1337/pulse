@@ -34,6 +34,12 @@ from dcc_auth.models import (
     UserSession,
     WebAuthnCredential,
 )
+from dcc_auth.refresh_kette import (
+    nachfolger_zum_nachreichen,
+    protokolliere_abweisung,
+    protokolliere_nachgereicht,
+    widerrufe_kette,
+)
 from dcc_auth.schemas import (
     LoginIn,
     LoginMfaPending,
@@ -134,6 +140,7 @@ async def _issue_tokens(
     user_agent: str | None,
     ip_hash: str | None = None,
     session_id: uuid.UUID | str | None = None,
+    vorgaenger: RefreshToken | None = None,
 ) -> TokensOut:
     """Zugriffs- + Refresh-Token ausstellen und die Refresh-Zeile schreiben.
 
@@ -143,6 +150,17 @@ async def _issue_tokens(
     "Sitzung beenden" spaeter auch das Cookie und nicht bloss den Token
     (siehe ``session_link.py``). Deshalb legen die Aufrufer das Cookie VOR
     den Token an: der Fremdschluessel verlangt die Zeile.
+
+    ``vorgaenger`` setzt nur ``/refresh``: die Zeile, aus der hier rotiert wird
+    (Migration 0050). Sie vererbt ihre Anmelde-Kette an die neue Zeile und
+    bekommt im Gegenzug den Rueckverweis auf sie. Beides gehoert zusammen und
+    steht deshalb an EINER Stelle — eine Kette ohne Rueckverweis koennte einen
+    abgerissenen Roundtrip nicht mehr von einem Diebstahl unterscheiden, ein
+    Rueckverweis ohne Kette traefe beim Widerruf die falschen Zeilen.
+
+    Jeder ANDERE Aufrufer ist ein frischer Anmeldevorgang und laesst den
+    Vorgaenger weg: dann beginnt hier eine neue Kette. Genau das ist der Punkt,
+    an dem die Geraete eines Nutzers voneinander getrennt werden.
     """
     blocked = await _email_gate_blocked(session, user)
     access = signer.issue_access(
@@ -164,8 +182,11 @@ async def _issue_tokens(
         ip_hash=ip_hash,
         last_used_at=now,
         session_id=as_sid(session_id),  # type: ignore[arg-type]
+        family_id=(vorgaenger.family_id if vorgaenger is not None else None) or jti,
     )
     session.add(rt)
+    if vorgaenger is not None:
+        vorgaenger.replaced_by = jti
     await session.flush()
     return TokensOut(access_token=access, refresh_token=refresh)
 
@@ -643,28 +664,6 @@ async def refresh(
     if rt is None or rt.user_id != user_id:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="refresh token not active")
     now = datetime.now(tz=UTC)
-    if rt.revoked_at is not None:
-        # Reuse of an already-rotated token. Either the legitimate user's token
-        # was stolen and replayed, or vice versa — we can't tell, so revoke the
-        # whole family (all of the user's still-active refresh tokens). This is
-        # the standard OAuth refresh-token-reuse mitigation.
-        family = (
-            await session.execute(
-                select(RefreshToken).where(
-                    RefreshToken.user_id == user_id,
-                    RefreshToken.revoked_at.is_(None),
-                )
-            )
-        ).scalars().all()
-        for row in family:
-            row.revoked_at = now
-        # Und die zugehörigen Cookies: die Wiederverwendung ist der Verdacht
-        # eines gestohlenen Tokens, und ein ``pulse_session``-Cookie überlebt
-        # den Familien-Widerruf sonst — mitsamt dem Recht, sich damit ein
-        # Geräte-Zertifikat auszustellen.
-        await revoke_sessions_of_tokens(session, list(family), now=now)
-        await session.commit()
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="refresh token not active")
     # SQLite returns naive datetimes; coerce to UTC for the comparison.
     expires_at = (
         rt.expires_at if rt.expires_at.tzinfo is not None else rt.expires_at.replace(tzinfo=UTC)
@@ -682,6 +681,53 @@ async def refresh(
         await session.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="account disabled")
 
+    # Ablauf und Kontostand werden VOR dieser Weiche geprueft, damit sie fuer
+    # beide Ausgaenge gleich gelten: ein abgelaufener oder gesperrter Ausweis
+    # wird auch dann nicht nachgereicht, wenn der Roundtrip nur abgerissen war.
+    if rt.revoked_at is not None:
+        nachfolger = await nachfolger_zum_nachreichen(session, rt)
+        if nachfolger is not None:
+            # Der Klient hat seinen Nachfolger nie bekommen. Genau den reichen
+            # wir nach — nichts wird widerrufen, nichts neu angelegt. Das
+            # Zugriffs-Token ist frisch, weil es nur 15 Minuten lebt und
+            # ohnehin neu gebraucht wird; die Kette bleibt unveraendert.
+            protokolliere_nachgereicht(rt, jetzt=now)
+            await session.commit()
+            return TokensOut(
+                access_token=signer.issue_access(
+                    user.id,
+                    user.username,
+                    is_admin=user.is_admin,
+                    is_owner=user.is_owner,
+                    email_blocked=await _email_gate_blocked(session, user),
+                ),
+                refresh_token=signer.reissue_refresh(
+                    user.id,
+                    nachfolger.jti,
+                    int(
+                        (
+                            nachfolger.expires_at
+                            if nachfolger.expires_at.tzinfo is not None
+                            else nachfolger.expires_at.replace(tzinfo=UTC)
+                        ).timestamp()
+                    ),
+                ),
+            )
+        # Nichts nachzureichen: entweder ist der Nachfolger im Umlauf und zwei
+        # Parteien haben denselben Ausweis, oder diese Zeile wurde nie rotiert
+        # (Abmeldung, Sitzungs-Widerruf, Kontosperre). Beide enden hier gleich —
+        # die Anmelde-Kette stirbt, und mit ihr die zugehoerigen Cookies, denn
+        # ein ``pulse_session`` ueberlebte den Widerruf sonst, mitsamt dem Recht,
+        # sich damit ein Geraete-Zertifikat auszustellen. Auseinanderhalten muss
+        # die beiden nur das Protokoll (s. ``protokolliere_abweisung``).
+        betroffen = await widerrufe_kette(session, rt, jetzt=now)
+        await revoke_sessions_of_tokens(session, betroffen, now=now)
+        protokolliere_abweisung(
+            rt, jetzt=now, widerrufen=len(betroffen), ua_jetzt=user_agent
+        )
+        await session.commit()
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="refresh token not active")
+
     # Rotate: revoke old, issue new — only now that the row is locked. The
     # rotated-out row keeps its original ``last_used_at`` (audit trail); the
     # newly-issued row gets a fresh stamp inside ``_issue_tokens``.
@@ -689,6 +735,8 @@ async def refresh(
     # Die Verknüpfung zum Browser-Cookie wandert mit: die Rotation wechselt den
     # Token, nicht das Gerät. Ohne das Mitziehen verlöre die Sitzungsliste nach
     # der ersten Rotation ihren Zugriff auf die zweite Hälfte der Sitzung.
+    # Dasselbe gilt für die Anmelde-Kette: sie beschreibt das Gerät, nicht den
+    # einzelnen Ausweis, und muss die Rotation deshalb überleben.
     tokens = await _issue_tokens(
         session,
         user,
@@ -696,6 +744,7 @@ async def refresh(
         user_agent=user_agent,
         ip_hash=_hash_ip(request),
         session_id=rt.session_id,
+        vorgaenger=rt,
     )
     await session.commit()
     return tokens

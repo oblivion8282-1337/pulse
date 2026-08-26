@@ -164,7 +164,14 @@ async function refreshIfNeeded(force = false): Promise<Tokens | null> {
     try {
       // Cross-window mutex über die Web-Locks-API — verhindert dass Popups
       // (`watchPartyDetach`/`stream/detach`) parallel zum Hauptfenster
-      // `/refresh` feuern und damit Token-Reuse → Familie-Revoke triggern.
+      // `/refresh` feuern und denselben Token doppelt vorlegen.
+      //
+      // Seit 2026-08-26 ist das kein Rauswurf mehr: der Server reicht denselben
+      // Nachfolger noch einmal heraus, wenn ihn nie jemand eingelöst hat
+      // (`services/auth/.../refresh_kette.py`). Das Schloss bleibt trotzdem —
+      // es spart den zweiten Roundtrip, und es deckt den Fall NICHT ab, der
+      // die Rauswürfe wirklich verursacht hat: eine Antwort, die unterwegs
+      // verloren geht. Gegen den hilft nur die Serverseite.
       const body = (): Promise<Tokens | null> => doRefresh(tokens.refresh_token);
       if (typeof navigator !== 'undefined' && navigator.locks?.request) {
         return await navigator.locks.request('pulse:refresh', body);

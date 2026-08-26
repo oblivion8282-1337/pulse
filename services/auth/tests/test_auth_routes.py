@@ -217,28 +217,13 @@ async def test_refresh_rotation(client):
     new_tokens = r.json()
     assert new_tokens["refresh_token"] != old_refresh
 
-    # Old refresh must now be revoked.
+    # Der alte Token dreht nicht ein zweites Mal: er gibt denselben Nachfolger
+    # heraus, den er schon herausgegeben hat. Was daran haengt — und warum er
+    # ueberhaupt noch etwas herausgibt statt die Sitzung zu beenden — steht in
+    # ``test_refresh_familie.py``.
     r2 = await client.post("/refresh", json={"refresh_token": old_refresh})
-    assert r2.status_code == 401
-
-
-@pytest.mark.asyncio
-async def test_refresh_reuse_revokes_family(client):
-    # Audit #4: replaying an already-rotated refresh token must invalidate the
-    # whole family (the new token issued by the legitimate rotation included).
-    tokens = (await client.post("/register", json=REG_PAYLOAD)).json()
-    old_refresh = tokens["refresh_token"]
-
-    rotated = (await client.post("/refresh", json={"refresh_token": old_refresh})).json()
-    new_refresh = rotated["refresh_token"]
-
-    # Replay the old (now revoked) token -> reuse detected.
-    r_replay = await client.post("/refresh", json={"refresh_token": old_refresh})
-    assert r_replay.status_code == 401
-
-    # The freshly-issued token must now also be dead.
-    r_new = await client.post("/refresh", json={"refresh_token": new_refresh})
-    assert r_new.status_code == 401
+    assert r2.status_code == 200
+    assert r2.json()["refresh_token"] == new_tokens["refresh_token"]
 
 
 @pytest.mark.asyncio
