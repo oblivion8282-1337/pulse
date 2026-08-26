@@ -138,7 +138,7 @@ esac
   chmodSync(join(dir, 'docker'), 0o755);
 
   const skript = `
-set -uo pipefail
+set -euo pipefail
 CONTAINER=pulse
 IMAGE="registry.howispulse.com/pulse-allinone:edge"
 HTTP_PORT=8080
