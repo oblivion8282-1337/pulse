@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-27.2",
+      "date": "2026-08-27",
+      "style": "Sachlich",
+      "title": "Streams kommen auf Intel-Rechnern sofort statt nach bis zu einer Minute",
+      "intro": "Eine Prüfung der gesamten Streaming-Kette hat einen Fehler zutage gefördert, der nur bestimmte Rechner traf — dort aber schwer.",
+      "items": [
+        "Wer einem laufenden Stream beitritt, bittet den Sender um ein vollständiges Bild. Auf Windows-Rechnern mit Intel-Grafik kam diese Bitte nie an: dort erschien ein vollständiges Bild nur im festen Takt, also bis zu eine Minute lang gar nichts. Dasselbe galt nach einem Aussetzer der Verbindung — das Bild blieb bis zu eine Minute beschädigt. Die Bitte wird jetzt auf allen Wegen beantwortet.",
+        "Auf dem Mac war die Fehlerkorrektur für den Ton angekündigt, aber nicht eingeschaltet. Ein verlorenes Tonpaket liess sich dadurch nicht ausgleichen, obwohl die Gegenstelle damit rechnete. Sie ist jetzt aktiv — auf Windows und Linux war sie es bereits.",
+        "Auf einem Teil der AMD-Rechner konnte das Bild beim Zuschauer leicht verfärbt ankommen, weil der Stream nicht mitteilte, nach welcher Farbregel er gerechnet wurde. Er sagt es jetzt."
+      ]
+    },
+    {
       "id": "2026-08-27",
       "date": "2026-08-27",
       "style": "Sachlich",
