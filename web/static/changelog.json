@@ -2,6 +2,21 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-26",
+      "date": "2026-08-26",
+      "style": "Sachlich",
+      "title": "Ein Remote-Rechner gehört dem, der ihn hinstellt",
+      "intro": "Drei Korrekturen an den Remote-Rechnern. Eine betrifft, wer über einen fremden Rechner bestimmen darf, zwei betreffen die Bildschirme, die dabei überhaupt zur Auswahl standen.",
+      "items": [
+        "Umbenennen und Entfernen eines Remote-Rechners darf jetzt nur noch, wer ihn selbst eingetragen hat. Bisher durfte das auch die Verwaltung der Community — der Rechner gehört ihr aber nicht, er steht nur in ihrem Kanal. Der Verwaltung bleibt, was ihren Raum betrifft: übernehmen, soweit die Kanalrechte es erlauben, und eine laufende Sitzung beenden.",
+        "Wer nicht Eigentümer ist, sieht die Verwaltungskarte gar nicht mehr. Vorher stand dort ein Namensfeld, das jedem Betrachter offenstand.",
+        "In den Einstellungen unter „Remote-Rechner\" werden die eigenen Bildschirme wieder alle aufgeführt. Bisher stand dort oft nur „Hauptbildschirm\", auch auf einem Rechner mit mehreren Schirmen — die Liste wurde an dieser Stelle nie abgefragt.",
+        "Ein Rechner meldet sich zuverlässig als Remote-Rechner an. Bisher entschied ein Wettlauf beim Start darüber: war die Verbindung schneller als die Prüfung der eigenen Fähigkeiten, unterblieb die Anmeldung, und der Rechner stand für alle anderen bis zum nächsten Neustart auf „offline\".",
+        "Die Bildschirmliste eines fremden Geräts bleibt erhalten, wenn es offline geht. Vorher ging sie verloren, und danach liess sich nur noch ein einziger Schirm aufwecken statt aller.",
+        "Das Statistikfeld im Player-Fenster ist jetzt standardmässig aus, wie die entsprechende Anzeige auf den Kacheln in der App. Wer Codec, Bildrate und Bitrate sehen will, schaltet sie über das Symbol in der Leiste ein."
+      ]
+    },
+    {
       "id": "2026-08-25.2",
       "date": "2026-08-25",
       "style": "Sachlich",
