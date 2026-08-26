@@ -8,10 +8,14 @@ Browser-Player. Sieben parallele Leseläufe plus eigene Gegenproben.
 Vollbild-Abstand von 60 s ist auf allen drei Sidecars sauber umgesetzt, die
 beiden Zahlen, die ihm ausdrücklich NICHT folgen dürfen, sind überall
 entkoppelt und durch Tests festgehalten; das SDP-Angebot sagt genau zu, was
-gesendet wird; NACK trägt in beide Richtungen. Gefunden wurden **ein schwerer
-Fehler**, mehrere Zusagen ohne Einlösung, eine strukturelle Lücke, die keine
-Fehlkonfiguration ist, sondern eine offene Rechnung — und eine Reihe
-Kommentare, die mehr behaupten, als sie halten.
+gesendet wird; NACK trägt in beide Richtungen; FlexFEC wird ausgehandelt und
+erzeugt.
+
+Gefunden wurden **ein schwerer Fehler** (1.1), mehrere Zusagen ohne Einlösung,
+eine Kiste, deren 31 Tests in keinem Gate liefen, und eine Reihe Kommentare,
+die mehr behaupten, als sie halten. Dazu ein gemeldeter Grossfund, der sich
+beim Nachprüfen aufgelöst hat — er steht als 2.1 trotzdem drin, weil die
+Lehre daraus wertvoller ist als der Befund gewesen wäre.
 
 ---
 
@@ -104,40 +108,46 @@ einen Fehler fest, der schon einmal da war. Gemessene Laufzeit nach einer
 
 ---
 
-## 2. Gefunden, bewusst NICHT behoben
+## 2. Offen — bewusst nicht behoben, mit Begründung
 
-### 2.1 FlexFEC erreicht keinen Browser-Zuschauer — die wichtigste Erkenntnis
+### 2.1 FlexFEC im Browser: der gemeldete Befund war falsch, der Rest gilt
 
-Der 60-s-Vollbild-Abstand ist damit begründet, dass drei Schichten davor
-liegen: NACK, FlexFEC und die Vollbild-Anforderung. **Für einen
-Browser-Zuschauer sind es nur zwei.**
+Ein Leselauf meldete als schwersten Fund, FlexFEC erreiche keinen
+Browser-Zuschauer — Chromium handle `flexfec-03` über die
+Standard-Schnittstelle grundsätzlich nicht aus, die 60-s-Entscheidung stütze
+sich dort also auf zwei Schichten statt auf drei.
 
-MediaMTX erzeugt Parität nur, wenn der Zuschauer `flexfec-03` aushandelt
-(Patch 0004). Chromium bietet FlexFEC über die Standard-PeerConnection-API
-grundsätzlich nicht an — belegt am aufgezeichneten Chrome-Angebot
-(`streaming/testbench/sdp-chrome-fec.txt`: VP8/VP9/H264/AV1 samt `rtx/90000`,
-kein einziges `flexfec-03`). Der native Player meldet sie dagegen von Hand an
-(`pulse-player/src/whep.rs::flexfec_anbieten`, PT 110).
+**Das stimmt nicht, und die als Beleg angeführte Datei belegt das Gegenteil.**
+In `streaming/testbench/sdp-chrome-fec.txt`, einem echten Mitschnitt, steht
+Nutzlast-Nummer 49 in der `m=video`-Zeile des Chrome-ANGEBOTS, dazu
+`a=rtpmap:49 flexfec-03/90000` im Angebot UND in der Antwort und
+`a=ssrc-group:FEC-FR`. Eine ältere Messreihe (2026-07-31,
+`browser-2026-07-31-fec-und-codecs.json`) hält zusätzlich fest, dass in jeder
+Antwort unseres Forks `a=ssrc-group:FEC-FR` steht und je Lauf 1352 bis 5788
+Paritätspakete beim Browser ankamen. Auch die Messreihe, mit der die adaptive
+Parität begründet ist (2026-08-04), lief mit headless Chromium als Zuschauer
+und weist echte Paritäts-Aufschläge aus — das wäre unmöglich, wenn nichts
+ausgehandelt würde.
 
-Die Prod-Konfiguration bezeichnet FEC als „Bedingung dafür, dass ein Verlust
-überlebt wird". Das gilt heute nur für native Zuschauer. Reisst beim Browser
-NACK (Paket zu alt fürs Fenster, Antwort nach dem Anzeigetermin), bleibt das
-Bild bis zum nächsten regulären Vollbild kaputt — bis zu 60 s.
+Die Lehre gehört mit in diesen Bericht, weil sie teurer ist als der Befund:
+**ein Leselauf hat aus einem Dateinamen und einem Patch-Kommentar geschlossen,
+statt die Datei zu öffnen** — und hätte damit fast eine Änderung am Medienweg
+jedes Zuschauers ausgelöst, die nichts repariert hätte.
 
-Dazu kommt: die Messung, mit der die Prod-Einstellung begründet ist („358 s,
-fünf Sättigungsphasen, null Standbilder"), stammt aus der Intra-Refresh-Ära,
-und ihre Messakte wurde am 2026-08-21 mit jener Betriebsart gelöscht. Ob dabei
-für den Browser überhaupt FEC lief, ist nach dem Obigen zweifelhaft.
+**Was tatsächlich offen bleibt**, unverändert seit dem 2026-07-31: dass die
+Parität beim Browser ANKOMMT, ist belegt. Ob sie dort auch REPARIERT, ist
+ungemessen — alle Wirkungsmessungen liefen über den nativen Player mit eigenem
+FEC-Empfänger. Ebenfalls offen und unabhängig davon: bei gebündeltem Verlust
+bringt XOR-Parität nichts (Bündel sind im Mittel 2,5 Pakete lang, eine Gruppe
+löst nur eine Unbekannte); die Idee, über FlexFEC-Bitmasken jedes fünfte statt
+fünf benachbarte Pakete zu schützen, ist notiert und ungebaut.
 
-**Warum nicht behoben:** die Reparatur wäre eine SDP-Manipulation in
-`whep.ts`, die `flexfec-03` in das Chromium-Angebot einträgt. Das ist ein
-Eingriff in den Medienweg jedes Zuschauers, und ob Chromium eine so
-hineingeschriebene Zeile überhaupt bedient, ist ungemessen. Das gehört in einen
-eigenen Durchgang mit eigener Messung — nicht in eine Nacht ohne Rückfrage.
-
-**Wenn sich das nicht bestätigt, ist die eigentliche Frage eine andere:** ob
-60 s für Browser-Zuschauer der richtige Wert ist, oder ob die Oberfläche für
-diese Zuschauergruppe einen kürzeren Abstand anfordern müsste.
+**Ein echter Unterschied bleibt trotzdem:** der lokale Dev-Stack
+(`streaming/server/docker-compose.yml`) fährt die Parität bewusst aus, Cloud
+und Remote-Dev-Stack fahren sie an und verlustgeregelt. Ein Verhalten, das an
+der Parität hängt, ist lokal also nicht nachstellbar. Zwei widersprüchliche
+Kommentare darüber sind in 1.5 berichtigt; ob der lokale Stack angeglichen
+werden soll, ist eine Entscheidung und keine Fehlkonfiguration.
 
 ### 2.2 REMB wird nur unter Windows ausgewertet
 
@@ -262,9 +272,9 @@ Damit das nicht untergeht — geprüft und in Ordnung befunden:
 1. **Die Windows- und macOS-Änderungen aus 1.1–1.3 auf einer echten Maschine
    übersetzen und laufen lassen.** Sie sind auf einem Linux-Rechner
    geschrieben; das Gate sagt das ausdrücklich an, prüft es aber nicht.
-2. **2.1 messen** — ob Chromium eine hineingeschriebene `flexfec-03`-Zeile
-   bedient. Davon hängt ab, ob die 60-s-Entscheidung für Browser-Zuschauer
-   trägt.
+2. **2.1 messen** — ob die Parität im Browser nicht nur ankommt, sondern auch
+   repariert. Das ist seit dem 2026-07-31 die offene Frage und die einzige,
+   die an der 60-s-Entscheidung für Browser-Zuschauer wirklich hängt.
 3. **2.2 umsetzen**, wenn ohnehin ein Windows-Bau ansteht: `bandbreite.rs` nach
    `pulse-whip`, alle drei daran.
 4. **2.7 nachziehen**, sobald der nächste MediaMTX-Bau fällig ist.
