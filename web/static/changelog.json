@@ -2,6 +2,22 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-27",
+      "date": "2026-08-27",
+      "style": "Sachlich",
+      "title": "Am Telefon: Suche in Chats und Räumen, Vollbild beim Kippen, eigene Reihenfolge der Bereiche",
+      "intro": "Eine grössere Runde für die Bedienung am Handy. Am Rechner ändert sich nichts.",
+      "items": [
+        "Der Chats-Bereich hat eine Suche. Sie findet Personen aus deinen Gesprächen, Text-Kanäle deiner Communities und — neu — Nachrichten aus deiner gesamten Verlaufsgeschichte. Ein Tipp auf einen Treffer öffnet das passende Gespräch.",
+        "Auch die Freunde-Liste und die Räume haben eine Suche und ein Menü in der Kopfzeile bekommen.",
+        "Drehst du das Telefon quer, während ein Stream offen ist, geht das Bild von selbst ins Vollbild — und beim Zurückdrehen wieder heraus. Querformat gibt es dabei nur dort, wo es etwas nützt; sonst bleibt die App hochkant.",
+        "Ein Stream lässt sich als kleines Fenster über die App legen: mit dem Finger verschieben, mit zwei Fingern an gegenüberliegenden Ecken grösser oder kleiner ziehen, ein Tipp zeigt Schliessen und Zurück-zum-Kanal.",
+        "Die Reihenfolge der vier Bereiche unten kannst du jetzt selbst festlegen — in den Einstellungen unter „Layout“ per Ziehen und Ablegen.",
+        "Der Räume-Bereich merkt sich, wo du zuletzt warst, und kehrt beim Antippen genau dorthin zurück. Die Android-Zurück-Taste geht die Bildschirme jetzt sauber rückwärts durch, statt die App zu schliessen.",
+        "Die Bedienelemente auf einem Stream sind am Telefon vollständig: neben Schliessen, Vollbild und Lautstärke jetzt auch Stummschalten, Stream-Chat, die Watch-Party-Warteschlange und der Knopf, mit dem du den Ton freigibst, wenn der Browser ihn blockiert hat."
+      ]
+    },
+    {
       "id": "2026-08-26.5",
       "date": "2026-08-26",
       "style": "Sachlich",
