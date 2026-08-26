@@ -36,10 +36,8 @@ const SERVER_MODE = __APP_MODE__ === 'server';
 import {
   MAX_STREAM_SLOTS,
   allSidecars,
-  getLinuxBackend,
   getSidecar,
   onSidecarCreated,
-  resetSpawnTargetCache,
   sidecarRunning,
 } from './sidecar';
 import { playerManager } from './player';
@@ -82,16 +80,19 @@ const SUPERSEDE_CHECK_INTERVAL_MS = 10 * 60_000;
 const CONTAINER_UPDATE_INTERVAL_MS = 24 * 60 * 60_000;
 
 // Linux audio: name our PulseAudio/PipeWire streams "Pulse" instead of the
-// Chromium default. The GSR HQ-stream excludes our own audio from desktop
-// capture via `app-inverse:Pulse` (else our playback of voice participants is
-// recaptured into the stream → echo). PULSE_PROP is read by libpulse when
-// Chromium's audio service connects; setting it here (before any Electron API)
-// propagates to that child process. No-op on Windows/macOS.
-//   IMPORTANT: the GSR sidecar STRIPS PULSE_PROP before launching
-//   gpu-screen-recorder — GSR is a grandchild and would otherwise rename its
-//   OWN libpulse capture node ("gsr-combined-*") to "Pulse", breaking its
-//   internal self-linking and yielding a SILENT stream. See
-//   streaming/gsr-sidecar/stream_controller.py.
+// Chromium default. Der HQ-Stream schliesst den eigenen Ton damit von der
+// Desktop-Aufnahme aus (sonst wird die Wiedergabe der Sprach-Teilnehmer wieder
+// mit aufgenommen → Echo); der Sidecar hängt seinen Ausschluss an genau diesen
+// `node.name` (`capture/audio_router.rs`). PULSE_PROP liest libpulse, wenn
+// Chromiums Audio-Dienst sich verbindet; hier gesetzt (vor jedem Electron-API)
+// erbt der Kindprozess ihn. Kein Effekt auf Windows/macOS.
+//
+//   Hier stand bis zum 2026-08-27 ein Warnhinweis, der Sidecar müsse
+//   PULSE_PROP vor dem Start abstreifen: der alte Python-Weg startete
+//   `gpu-screen-recorder` als ENKELPROZESS, und der hätte sonst seinen eigenen
+//   Aufnahme-Knoten in „Pulse" umbenannt und sich selbst stummgeschaltet. Der
+//   Rust-Sidecar nimmt über PipeWire selbst auf, es gibt keinen Enkel mehr —
+//   der Hinweis ist mit dem Python-Weg gegenstandslos geworden.
 if (process.platform === 'linux' && !process.env.PULSE_PROP) {
   process.env.PULSE_PROP = 'node.name=Pulse';
 }
@@ -886,12 +887,6 @@ function wireSidecar(): void {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   });
-
-  // Welcher Linux-Sidecar läuft (rust/gsr) und warum — der Kompatibilitäts-Tab
-  // zeigt das an. Reine Pfadauflösung, startet nichts; `null` auf anderen
-  // Plattformen oder wenn gar kein Sidecar auffindbar ist (getLinuxBackend()
-  // wirft nicht — Auflösungsfehler sind dort bereits `null`).
-  ipcMain.handle('gsr:backend', () => getLinuxBackend());
 
   // Fernsteuerung, Host-Seite: die im Renderer empfangenen `remote_input`-Frames
   // in den Sidecar des gemeinten Stream-Platzes. Eigene Kanäle statt `gsr:call`

@@ -1,7 +1,7 @@
 /**
  * HQ-stream presence store — mirrors `voicePresence.svelte.ts`.
  *
- * Tracks, per channel, *which users* currently have an HQ stream (GSR → MediaMTX)
+ * Tracks, per channel, *which users* currently have an HQ stream (Sidecar → MediaMTX)
  * running into it — several people can stream into the same voice channel at
  * once (each gets their own MediaMTX path / WHEP URL). Fed from two sources,
  * exactly like voice presence is fed from `voice:room:*`:
@@ -13,7 +13,7 @@
  *
  * Distinct from `voicePresence.streamingByChannel`, which tracks LiveKit
  * *screen-share* tracks (the in-call browser screen share), not the per-channel
- * HQ GSR/WHEP stream this store is about.
+ * HQ/WHEP stream this store is about.
  */
 
 import { MONITOR_INDEX_MIN } from '$lib/stream/quellenummer';

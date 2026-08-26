@@ -208,33 +208,18 @@ _info "Electron Build"
 pushd desktop >/dev/null
 PATH=$HOME/.local/bin:$PATH pnpm run build:electron >/dev/null 2>&1; or _die "electron build failed"
 
-set -l gsr_env ""
-# bootstrap-gsr.fish baut nach $XDG_CACHE_HOME/pulse/gsr/... — der Pfad
-# überlebt Reboots (im Gegensatz zum alten /tmp/gsr-analysis-Standort).
-# Wir checken den XDG-Pfad zuerst, das Legacy-/tmp-Verzeichnis als Fallback.
-set -l cache_root (test -n "$XDG_CACHE_HOME"; and echo "$XDG_CACHE_HOME"; or echo "$HOME/.cache")
-set -l gsr_bin "$cache_root/pulse/gsr/gpu-screen-recorder/build/gpu-screen-recorder"
-if not test -x $gsr_bin
-    set gsr_bin "/tmp/gsr-analysis/gpu-screen-recorder/build/gpu-screen-recorder"
-end
-if test -x $gsr_bin
-    set gsr_env "GSR_BINARY=$gsr_bin PULSE_SIDECAR_PY=$repo_root/streaming/gsr-sidecar/control.py"
-else
-    _warn "GSR-Binary fehlt — HQ-Stream-Button bleibt versteckt. (`streaming/bootstrap-gsr.fish` baut es.)"
-end
-
-# Rust-Linux-HQ-Sidecar = der Standard-Weg. Die Dev-App findet ihn über
-# $PULSE_LINUX_HQ_SIDECAR (im Flatpak liegt er unter /app/bin/). Der Crate liegt
+# Rust-Linux-HQ-Sidecar = der einzige Aufnahmeweg unter Linux (der ältere
+# Python/GSR-Weg ist am 2026-08-27 entfernt worden). Die Dev-App findet ihn über
+# $PULSE_LINUX_HQ_SIDECAR; im Flatpak liegt er unter /app/bin/. Der Crate liegt
 # seit 2026-07-29 im Repo (streaming/linux-hq-sidecar), muss aber gebaut sein:
 # `cd streaming/linux-hq-sidecar && cargo build --release`.
-# Ist er nicht gebaut, fällt Pulse automatisch auf den GSR-Weg zurück; der
-# Kompatibilitäts-Tab zeigt das dann als Rückfall an.
+set -l gsr_env ""
 set -l rust_sidecar "$repo_root/streaming/linux-hq-sidecar/target/release/pulse-linux-hq-sidecar"
 if test -x $rust_sidecar
-    set gsr_env "$gsr_env PULSE_LINUX_HQ_SIDECAR=$rust_sidecar"
-    _ok "" "Rust-Linux-Sidecar da (Standard-Aufnahmeweg)"
+    set gsr_env "PULSE_LINUX_HQ_SIDECAR=$rust_sidecar"
+    _ok "" "Rust-Linux-Sidecar da (HQ-Aufnahme möglich)"
 else
-    _info "Rust-Linux-Sidecar nicht gebaut — Dev nutzt den GSR-Fallback"
+    _warn "Rust-Linux-Sidecar nicht gebaut — der Übertragen-Knopf bleibt versteckt. Bauen: cd streaming/linux-hq-sidecar; and cargo build --release"
 end
 
 # Nativer Player. Electron findet ihn in Dev von selbst (Aufwärtssuche nach

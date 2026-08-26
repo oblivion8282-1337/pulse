@@ -4,7 +4,7 @@ Each live stream (channel × user) has its own short-lived chat — separate fro
 the channel's regular text chat so viewers can react without bothering members
 who aren't watching. "Live" covers both transports:
 
-  * HQ GSR/RTMPS pipeline → ``stream:active:channel-<cid>-<uid>`` (written by
+  * HQ push pipeline → ``stream:active:channel-<cid>-<uid>`` (written by
     ``mediamtx-auth-hook`` on publish).
   * Browser screen-share via LiveKit → ``voice:room:channel-<cid>:streaming``
     SET membership (written by ``voice-signaling``'s LiveKit-webhook handler

@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     # How often the presence poller hits the MediaMTX API.
     poll_interval_s: float = 3.0
 
-    # Ingest endpoint for building the publish push-URL handed to the GSR sidecar.
+    # Ingest endpoint for building the publish push-URL handed to the HQ sidecar.
     # The "rtmp" protocol is served over TLS (rtmps://) so the token isn't on the
     # wire in cleartext — RTMPS lives on its own port (1936 in prod).
     mediamtx_ingest_host: str = "localhost"

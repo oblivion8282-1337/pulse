@@ -6,7 +6,7 @@
  * the local user. A fresh starter whose uid is ``me`` triggers the
  * self-start confirmation tone instead of the generic user-start
  * sound; there is intentionally no ``stream.self_stop`` because the
- * streamer has first-hand visual feedback (the GSR sidecar state
+ * streamer has first-hand visual feedback (the HQ sidecar state
  * already drives the controls bar) and a "you stopped" ping is just
  * noise.
  *

@@ -31,7 +31,7 @@ function guildForChannel(channelId: string | null | undefined) {
   return gid ? guilds.byId[gid] : undefined;
 }
 
-/** HQ-stream (GSR desktop) effective ceilings for the channel's community. */
+/** HQ-stream (desktop) effective ceilings for the channel's community. */
 export function effectiveHqLimits(channelId: string | null | undefined): {
   bitrateMaxKbps: number;
   fpsMax: number;

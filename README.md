@@ -46,8 +46,11 @@ obigen source-available-Lizenzen und separate kommerzielle Lizenzen.
 
 ### Drittsoftware
 
-`streaming/` enthält das Pulse-eigene Tooling rund um den **GPU Screen Recorder**
-(GSR). Der GSR selbst ist **nicht** Teil dieses Repositorys — er wird zur
-Laufzeit aus dem Upstream gebaut (`streaming/bootstrap-gsr.fish`) bzw. im
-Flatpak gebündelt und steht unter seiner eigenen Lizenz. GSR läuft als separater
-Subprozess-Sidecar (kein Linking).
+`streaming/` enthält die Pulse-eigenen Rust-Sidecars fürs HQ-Screen-Streaming
+(Aufnahme+Encode je Plattform) und den nativen Player. Sie linken gegen ein
+gepinntes FFmpeg (LGPL, dynamisch gelinkt) — nicht Teil dieses Repositorys,
+gebaut aus dem Upstream bzw. im Flatpak gebündelt, unter eigener Lizenz.
+
+**Bis zum 2026-08-27** gehörte hierzu zusätzlich der **GPU Screen Recorder**
+(GSR) als separater Subprozess-Sidecar unter Linux. Der Rust-Sidecar hat ihn
+ersetzt; GSR ist kein Bestandteil mehr.

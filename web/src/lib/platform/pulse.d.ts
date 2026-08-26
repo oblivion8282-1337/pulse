@@ -9,6 +9,12 @@
  * without touching the preload; `gsr.ts` does the precise casting on its side.
  *
  * `window.pulse` is `undefined` in a plain browser — always optional-chain it.
+ *
+ * **Der Name `gsr` ist ein Relikt.** Er stammt von einem Python-Aufsatz um
+ * `gpu-screen-recorder`, der unter Linux bis 2026-08-27 der ältere
+ * Aufnahmeweg war. Die Bezeichnung bedient heute alle drei Rust-Sidecars
+ * (Linux, Windows, macOS); umbenennen hiesse Renderer, Vorlader, drei Sidecars
+ * und Tests anzufassen, ohne dass sich etwas ändert.
  */
 
 /** Async sidecar event payload (`{ev:..,...}`). The narrow union lives in
@@ -31,18 +37,6 @@ export interface PulseStoreApi {
   setAll(values: Record<string, unknown>): Promise<void>;
 }
 
-/** Welcher Linux-Sidecar läuft — und warum. Spiegelt `LinuxBackendInfo` in
- *  `desktop/electron/sidecar.ts`.
- *   - `rust`/`default`  → Normalfall.
- *   - `gsr`/`forced`    → bewusst auf den älteren Weg zurückgestellt.
- *   - `gsr`/`fallback`  → Rust-Binary fehlt, automatisch zurückgefallen;
- *                         `detail` trägt die Resolver-Fehlermeldung. */
-export interface PulseLinuxBackend {
-  kind: 'rust' | 'gsr';
-  reason: 'default' | 'forced' | 'fallback';
-  detail?: string;
-}
-
 export interface PulseGsrApi {
   health(): Promise<unknown>;
   gpuInfo(): Promise<unknown>;
@@ -59,9 +53,6 @@ export interface PulseGsrApi {
   /** `grund` ist reine Diagnose — er landet in der Protokollzeile des Befehls
    *  (`sidecar-log-befehle.ts`) und wird vom Sidecar ignoriert. */
   stop(slot?: number, grund?: string): Promise<unknown>;
-  /** Welcher Linux-Sidecar läuft und warum. `null` auf anderen Plattformen
-   *  oder wenn gar kein Sidecar auffindbar ist. Startet nichts. */
-  backend(): Promise<PulseLinuxBackend | null>;
   /**
    * Fernsteuerung, HOST-Seite: Eingabe-Frames in den Sidecar des gemeinten
    * Stream-Platzes einspielen. Der Renderer empfaengt sie als `remote_input`

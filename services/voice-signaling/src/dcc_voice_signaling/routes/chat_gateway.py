@@ -196,7 +196,7 @@ def _publish_sources_for(perms: int) -> tuple[bool, list[str]]:
         sources.append("camera")
     if perms & _PERM_STREAM:
         # Browser screenshare publishes Track.Source.ScreenShare in
-        # LiveKit; the HQ GSR push goes through MediaMTX and bypasses
+        # LiveKit; the HQ push goes through MediaMTX and bypasses
         # the LiveKit grant entirely. The STREAM bit gates the
         # ScreenShare track here so browser-screenshare permission
         # matches the HQ-stream permission semantically.

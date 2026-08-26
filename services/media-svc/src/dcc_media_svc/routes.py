@@ -232,7 +232,7 @@ def _get_redis(request: Request) -> Redis:
 
 
 def _push_url(path: str, protocol: str, token: str) -> str:
-    """Full push URL incl. the stream-token, ready for the GSR sidecar.
+    """Full push URL incl. the stream-token, ready for the HQ sidecar.
 
     RTMP: ``rtmps://host:port/<path>?user=pulse&pass=<token>`` —
           over TLS so the token isn't on the wire in cleartext; MediaMTX maps
@@ -550,7 +550,7 @@ async def stop_stream(
     streaming" click); ``slot=N`` → stop only that one stream, leaving the
     caller's other slot live.
 
-    The media plane (WebRTC) stalls the instant the GSR sidecar stops pushing,
+    The media plane (WebRTC) stalls the instant the HQ sidecar stops pushing,
     but presence is otherwise derived by polling MediaMTX every few seconds —
     and MediaMTX keeps the path "ready" until its own publisher-disconnect
     detection fires (~readTimeout). So without this, the "live" badge lingers
