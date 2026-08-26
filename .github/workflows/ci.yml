@@ -279,5 +279,12 @@ jobs:
           tags: |
             ghcr.io/oblivion8282-1337/pulse-${{ matrix.name }}:latest
             ghcr.io/oblivion8282-1337/pulse-${{ matrix.name }}:sha-${{ steps.sha.outputs.short }}
+          # Der Commit steht als OCI-Label IM Image, nicht nur als Tag daneben.
+          # Der Updater auf dem VPS (`infra/prod/pulse-update.sh`) liest ihn aus
+          # dem gezogenen Image aus und liefert nur aus, wenn alle sieben Images
+          # DENSELBEN Commit tragen. Ein Tag hilft ihm dabei nicht: dem Image
+          # ist nicht anzusehen, unter welchen Tags es in der Registry liegt.
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
