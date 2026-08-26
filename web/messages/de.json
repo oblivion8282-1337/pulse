@@ -2201,7 +2201,7 @@
   "self_host_application_submitting": "Wird eingereicht…",
   "self_host_contact_confirm_cancel": "Abbrechen",
   "self_host_contact_confirm_confirm": "Verstanden, fortfahren",
-  "self_host_contact_confirm_hint": "Du verlässt die Pulse-Cloud. Der Server kann Verbindungs-Metadaten (z. B. deine IP-Adresse, den Zeitpunkt und ein server-eigenes Pseudonym) sehen, sobald du fortfährst.",
+  "self_host_contact_confirm_hint": "Der Betreiber dieses externen Servers sieht dabei deine IP-Adresse.",
   "self_host_contact_confirm_intro": "Diese Einladung führt zu einem externen Server, den du noch nicht kennst:",
   "self_host_contact_confirm_title": "Externen Server kontaktieren?",
   "self_host_disclaimer_ack": "Verstanden",
