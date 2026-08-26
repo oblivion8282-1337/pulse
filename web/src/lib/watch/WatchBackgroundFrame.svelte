@@ -5,7 +5,8 @@
   Docked <-> corner changes only the wrapper position/size, never reparents the
   tile (and thus its <video>/iframe) — so playback never resets.
 
-  Corner mode behaves like Android's picture-in-picture:
+  Corner mode behaves like Android's picture-in-picture — ABER NUR AM FINGER
+  (`viewport.zeigerGrob`):
   * grab the window anywhere and drag → moves it,
   * hold BOTH ends of a diagonal (top-left + bottom-right OR top-right +
     bottom-left) and pinch → resizes it (smaller and bigger, any corner pair),
@@ -13,12 +14,30 @@
     channel (fullscreen) bottom-right — which auto-hide after HUD_HIDE_MS.
   The tile's own floating buttons are hidden via `[data-pip-hide]` (app.css)
   so exactly ONE set of controls exists.
+
+  **Am Rechner bleibt es beim Greifstreifen oben** — dort rendert `TileShell`
+  weiterhin seine Leiste `TileDock` unter dem Bild, und die trägt kein
+  `data-pip-hide`. Eine ganzflächige Zieh-Ebene läge darüber und schluckte
+  jeden Klick auf Stummschaltung, Lautstärke, Chat, Warteschlange, Statistik
+  und Vollbild; genau daran ist ein früherer Versuch schon einmal gescheitert
+  (der Hinweis stand hier und ging beim Umbau auf PiP verloren). Am Finger
+  gibt es diese Leiste nicht — dort ist die volle Fläche richtig.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import Maximize2Icon from '@lucide/svelte/icons/maximize-2';
   import XIcon from '@lucide/svelte/icons/x';
   import { m } from '$lib/paraglide/messages.js';
+  import { viewport } from '$lib/stores/viewport.svelte';
+  import {
+    abstand,
+    einpassen,
+    eckeVon,
+    istDiagonale,
+    skalieren,
+    MARGIN,
+    TAP_TOLERANZ
+  } from './eckfensterGesten';
 
   let {
     rect,
@@ -37,17 +56,12 @@
 
   const CORNER_W = 360;
   const CORNER_H = 248;
-  const MARGIN = 16;
   // Top offset clears the channel header (h-14 = 56px) so the corner window sits
   // in free space below it — and, crucially, well away from the message
   // composer at the bottom, which it used to overlap.
   const TOP_MARGIN = 72;
   const STACK = 28; // offset per stacked corner window
   const HUD_HIDE_MS = 3000;
-  const TAP_TOLERANZ = 8; // px — darunter gilt ein Pointer-Down als Tap, nicht Drag
-  const ECKEN_TOLERANZ = 34; // px — ab hier gilt ein Griff als „an der Ecke"
-  const MIN_W = 160;
-  const MIN_H = 100;
 
   let frameEl: HTMLDivElement;
   // User-dragged position (viewport px, top/left). Null = use the default
@@ -62,7 +76,18 @@
   let hudTimer: ReturnType<typeof setTimeout> | null = null;
   // Pointer + frame origin captured on grab; deltas from here drive the move.
   let dragStart = { x: 0, y: 0, top: 0, left: 0 };
-  let zeigteBewegung = false;
+  /**
+   * Hat sich der Finger seit dem Aufsetzen weiter als `TAP_TOLERANZ` bewegt?
+   *
+   * **`$state`, nicht bloss `let`** — der Wert steht im Markup: an ihm hängt
+   * die durchsichtige Decke, die während des Ziehens über der Kachel liegt und
+   * verhindert, dass ein `<iframe>`/`<video>` den Zeiger mitten in der
+   * Bewegung schluckt (dokumentübergreifende Ereignisse brächen den Zug ab).
+   * Als lose Variable wurde der Wechsel false→true nicht gemeldet: er passiert
+   * mitten in `onPointerMove`, wo sich `dragging` gerade nicht ändert — die
+   * Decke erschien deshalb gar nicht. svelte-check hatte das gemeldet.
+   */
+  let zeigteBewegung = $state(false);
 
   // Aktive Pointer auf der PiP-Fläche (Pointer-Id → Position).
   const pointer = new Map<number, { x: number; y: number }>();
@@ -90,27 +115,9 @@
     return `top:${top}px;right:${right}px;width:${breite}px;height:${hoehe}px;`;
   });
 
-  // Keep the window fully on-screen.
+  /** Kurzform: die Rechnung selbst steht in `eckfensterGesten.ts`. */
   function clamp(top: number, left: number): { top: number; left: number } {
-    const maxTop = Math.max(MARGIN, window.innerHeight - hoehe - MARGIN);
-    const maxLeft = Math.max(MARGIN, window.innerWidth - breite - MARGIN);
-    return {
-      top: Math.min(Math.max(MARGIN, top), maxTop),
-      left: Math.min(Math.max(MARGIN, left), maxLeft)
-    };
-  }
-
-  /** Welche Ecke (falls nahe genug)? 'ol' | 'or' | 'ul' | 'ur' | null. */
-  function eckeVon(r: DOMRect, x: number, y: number): 'ol' | 'or' | 'ul' | 'ur' | null {
-    const links = x - r.left <= ECKEN_TOLERANZ;
-    const rechts = r.right - x <= ECKEN_TOLERANZ;
-    const oben = y - r.top <= ECKEN_TOLERANZ;
-    const unten = r.bottom - y <= ECKEN_TOLERANZ;
-    if (!((links || rechts) && (oben || unten))) return null;
-    if (links && oben) return 'ol';
-    if (rechts && oben) return 'or';
-    if (links && unten) return 'ul';
-    return 'ur';
+    return einpassen({ top, left }, { w: breite, h: hoehe }, window);
   }
 
   function onFensterDown(e: PointerEvent): void {
@@ -121,13 +128,9 @@
       // (ol+ur oder or+ul) — dann Skalieren statt Verschieben.
       const [r1, r2] = [...pointer.values()];
       const box = frameEl.getBoundingClientRect();
-      const e1 = eckeVon(box, r1.x, r1.y);
-      const e2 = eckeVon(box, r2.x, r2.y);
-      const diagonal =
-        (e1 && e2 && e1 !== e2 && e1[0] !== e2[0] && e1[1] !== e2[1]) ?? false;
-      if (diagonal) {
+      if (istDiagonale(eckeVon(box, r1.x, r1.y), eckeVon(box, r2.x, r2.y))) {
         pinch = {
-          dist: Math.hypot(r2.x - r1.x, r2.y - r1.y),
+          dist: abstand(r1, r2),
           w: breite,
           h: hoehe,
           cx: (r1.x + r2.x) / 2,
@@ -151,12 +154,13 @@
     // Pinch: Größe proportional zum Fingerabstand, Mittelpunkt bleibt fix.
     if (pinch && pointer.size >= 2) {
       const [r1, r2] = [...pointer.values()];
-      const dist = Math.hypot(r2.x - r1.x, r2.y - r1.y);
-      const skalierung = dist / Math.max(1, pinch.dist);
-      const w = Math.max(MIN_W, Math.min(window.innerWidth - 2 * MARGIN, pinch.w * skalierung));
-      const h = Math.max(MIN_H, Math.min(window.innerHeight - 2 * MARGIN, pinch.h * skalierung));
+      const { w, h } = skalieren(pinch, pinch.dist, abstand(r1, r2), window);
       groesse = { w, h };
-      pos = clamp(pinch.cy - h / 2, pinch.cx - w / 2);
+      pos = einpassen(
+        { top: pinch.cy - h / 2, left: pinch.cx - w / 2 },
+        { w, h },
+        window
+      );
       return;
     }
     if (!dragging) return;
@@ -205,54 +209,65 @@
   </div>
 
   {#if !rect}
-    <!-- PiP-Fläche: fängt ALLE Pointer-Events des Eckfensters — Ziehen verschiebt
+    <!-- PiP-Fläche: fängt die Pointer-Events des Eckfensters — Ziehen verschiebt
          das Fenster, zwei Finger auf gegenüberliegenden Ecken skalieren es
          (Pinch), ein Tap (unter der Toleranz) zeigt/versteckt die Steuerung.
          Die Steuerungs-Knöpfe stoppen ihr pointerdown, damit sie nicht als
-         Ziehen/Tap durchschlagen. -->
+         Ziehen/Tap durchschlagen.
+
+         Ganzflächig NUR am Finger; mit Maus bleibt es der Streifen oben, unter
+         dem die Bedienleiste der Kachel klickbar bleibt (s. Kopfkommentar). -->
     <div
-      class="absolute inset-0 z-10 touch-none select-none {dragging ? 'cursor-grabbing' : 'cursor-grab'}"
+      class="absolute z-10 touch-none select-none {viewport.zeigerGrob
+        ? 'inset-0'
+        : 'inset-x-0 top-0 h-7'} {dragging ? 'cursor-grabbing' : 'cursor-grab'}"
       onpointerdown={onFensterDown}
       role="presentation"
       data-testid="pip-touch"
-    >
-      {#if hud}
-        <div class="absolute inset-0 z-20 bg-black/40">
-          <!-- Schließen oben links -->
-          {#if onClose}
-            <button
-              type="button"
-              class="absolute top-1 left-1 z-20 flex size-9 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm transition-colors hover:bg-black/80"
-              onpointerdown={(e) => e.stopPropagation()}
-              onclick={() => {
-                hud = false;
-                onClose?.();
-              }}
-              data-testid="pip-close"
-              aria-label={m.tile_shell_hide_tile()}
-              title={m.tile_shell_hide_tile()}
-            >
-              <XIcon class="size-4" />
-            </button>
-          {/if}
-          <!-- Vollbild (zurück zum Kanal) unten rechts -->
+    ></div>
+
+    <!-- Die Steuerung liegt NEBEN der Greiffläche, nicht darin: mit Maus ist
+         die Fläche nur der Streifen oben, die Knöpfe gehören aber an die Ecken
+         des ganzen Fensters. `pointer-events-none` auf der Ebene, `auto` auf
+         den Knöpfen — so bleibt der abgedunkelte Grund durchlässig: bei Touch
+         zählt ein Tipp darauf weiter als Tipp auf die Greiffläche, mit Maus
+         bleibt die Bedienleiste der Kachel darunter klickbar. -->
+    {#if hud}
+      <div class="pointer-events-none absolute inset-0 z-20 bg-black/40">
+        <!-- Schließen oben links -->
+        {#if onClose}
           <button
             type="button"
-            class="absolute right-1 bottom-1 z-20 flex size-9 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm transition-colors hover:bg-black/80"
+            class="pointer-events-auto absolute top-1 left-1 z-20 flex size-9 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm transition-colors hover:bg-black/80"
             onpointerdown={(e) => e.stopPropagation()}
             onclick={() => {
               hud = false;
-              onReturn();
+              onClose?.();
             }}
-            data-testid="pip-return"
-            aria-label={m.watch_pip_return()}
-            title={m.watch_pip_return()}
+            data-testid="pip-close"
+            aria-label={m.tile_shell_hide_tile()}
+            title={m.tile_shell_hide_tile()}
           >
-            <Maximize2Icon class="size-4" />
+            <XIcon class="size-4" />
           </button>
-        </div>
-      {/if}
-    </div>
+        {/if}
+        <!-- Vollbild (zurück zum Kanal) unten rechts -->
+        <button
+          type="button"
+          class="pointer-events-auto absolute right-1 bottom-1 z-20 flex size-9 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm transition-colors hover:bg-black/80"
+          onpointerdown={(e) => e.stopPropagation()}
+          onclick={() => {
+            hud = false;
+            onReturn();
+          }}
+          data-testid="pip-return"
+          aria-label={m.watch_pip_return()}
+          title={m.watch_pip_return()}
+        >
+        <Maximize2Icon class="size-4" />
+      </button>
+      </div>
+    {/if}
   {/if}
 </div>
 

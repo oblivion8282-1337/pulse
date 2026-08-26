@@ -15,22 +15,18 @@
   native Controls der Fänger sonst blockieren würde.
 -->
 <script lang="ts">
-  import type { Snippet } from 'svelte';
   import { onMount } from 'svelte';
   import RocketIcon from '@lucide/svelte/icons/rocket';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import VideoIcon from '@lucide/svelte/icons/video';
   import ClapperboardIcon from '@lucide/svelte/icons/clapperboard';
-  import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
-  import MaximizeIcon from '@lucide/svelte/icons/maximize';
-  import MinusIcon from '@lucide/svelte/icons/minus';
-  import PlusIcon from '@lucide/svelte/icons/plus';
   import { m } from '$lib/paraglide/messages.js';
   import { toggleFullscreen } from '../fullscreen';
   import { statsVisible } from '../statsVisible.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import TileDock from './TileDock.svelte';
-  import type { TileKind } from '../openedTiles.svelte';
+  import TileMobilSteuerung from './TileMobilSteuerung.svelte';
+  import type { TileShellProps } from './tileShellProps';
 
   let {
     kind,
@@ -63,55 +59,7 @@
     chatPanel,
     chatOverlay,
     queuePanel
-  }: {
-    kind: TileKind;
-    /** data-testid des äußeren Containers (kind-spezifisch, kein Schema). */
-    containerTestid: string;
-    /** Prefix für alle inneren Testids: `${prefix}-mute`, `-fullscreen`, … */
-    testidPrefix: string;
-    /** Optionales data-identity am Container (Screenshare/Webcam-LiveKit-ID). */
-    identity?: string;
-    name: string;
-    nameTestid?: string;
-    /** <video>-Element für den iOS-Fullscreen-Fallback. iframe → null. */
-    video?: HTMLVideoElement | null;
-    /** HUD im Vollbild erzwungen sichtbar (Verbinde-/Fehler-Overlay). */
-    forceHud?: boolean;
-    /** Gesetzt → Lautstärke-Regler wird gerendert (HQ + Screenshare). */
-    volume?: number;
-    /** Obergrenze des Reglers. Vorgabe = Verstärkung bis 200 %; Quellen ohne
-     * Verstärkungsgriff (Watch-Party-Kachel) geben 100 vor. */
-    volumeMax?: number;
-    /** Lautstärke-Änderung. `Event` kommt vom Regler im Dock; `number` von
-     *  den mobilischen 5er-Schritt-Knöpfen. */
-    onVolumeChange?: (e: Event | number) => void;
-    onToggleMute?: () => void;
-    audioBlocked?: boolean;
-    onEnableAudio?: () => void;
-    chatOpen?: boolean;
-    onToggleChat?: () => void;
-    /** Watch Party: gleicher Seitenpanel-Slot wie der Chat, aber für die
-     *  Warteschlange. Chat + Queue schliessen sich gegenseitig aus (der Aufrufer
-     *  regelt das), es liegt also immer nur eins rechts. */
-    queueOpen?: boolean;
-    onToggleQueue?: () => void;
-    onDetach?: () => void;
-    /** Beschriftung des Abkoppel-Knopfs (s. TileDock). */
-    detachLabel?: string;
-    /** Steuerleiste ganz weglassen. Der HQ-Stream setzt das, sobald sein Bild
-     *  im eigenen Player-Fenster laeuft: dessen Leiste ist dann die einzige
-     *  Bedienung, zwei uebereinander waeren nur verwirrend. */
-    hideDock?: boolean;
-    onHide?: () => void;
-    media: Snippet;
-    overlay?: Snippet;
-    stats?: Snippet;
-    nameExtra?: Snippet;
-    controlsExtra?: Snippet;
-    chatPanel?: Snippet;
-    chatOverlay?: Snippet;
-    queuePanel?: Snippet;
-  } = $props();
+  }: TileShellProps = $props();
 
   const KindIcon = $derived(
     { hq: RocketIcon, screen: MonitorIcon, cam: VideoIcon, party: ClapperboardIcon }[kind]
@@ -177,20 +125,35 @@
 
   // Auto-Vollbild beim Kippen (Nutzerwunsch 2026-08-26): Handy quer + Video-
   // Kachel offen → DIREKT ins Element-Vollbild, ohne vorheriges Tippen auf
-  // das Vollbild-Symbol. Zurück im Hochformat (isMobile wieder wahr) wird es
-  // automatisch verlassen. Schlägt die Anforderung fehl (WebView verlangt
-  // eine Nutzer-Geste), bleibt das Layout-Vollbild von kanalQuerStream als
-  // Fallback — Steuerung dann über die schwebenden Knöpfe wie bisher.
+  // das Vollbild-Symbol. Zurück im Hochformat wird es automatisch verlassen.
+  // Schlägt die Anforderung fehl (WebView verlangt eine Nutzer-Geste), bleibt
+  // das Layout-Vollbild von kanalQuerStream als Fallback — Steuerung dann über
+  // die schwebenden Knöpfe wie bisher.
+  //
+  // **Der Effekt darf `isFullscreen` NICHT lesen.** Täte er es, wäre das
+  // Vollbild unverlassbar: Esc setzt `isFullscreen = false`, die Abhängigkeit
+  // ändert sich, der Effekt fordert sofort wieder an. Ausgelöst wird deshalb
+  // allein der ÜBERGANG ins Querformat, gemerkt in `warQuer` — und ein einmal
+  // verlassenes Vollbild bleibt verlassen, bis das Gerät wieder hoch und
+  // erneut quer gedreht wird.
+  let warQuer = false;
   $effect(() => {
+    const quer = viewport.istHandy && !viewport.isMobile;
     if (kind === 'party') return; // iframe: kein requestFullscreen auf dem Div
-    if (viewport.istHandy && !viewport.isMobile && containerEl && !isFullscreen) {
+    if (quer && !warQuer && containerEl) {
       containerEl.requestFullscreen?.().catch(() => {
         /* Fallback: Layout-Vollbild übernimmt */
       });
     }
+    warQuer = quer;
   });
+  // Zurück im Hochformat: Vollbild verlassen. Gilt für jedes Gerät, auf dem
+  // der Kipp-Effekt oben greifen konnte — die Bedingung ist deshalb das
+  // Gegenstück zu `quer` und nicht bloss `isMobile` (auf einem breiten
+  // Handy-Querformat wäre `isMobile` schon vorher falsch gewesen und das
+  // Vollbild liesse sich gar nicht mehr automatisch schliessen).
   $effect(() => {
-    if (viewport.isMobile && isFullscreen) {
+    if (!(viewport.istHandy && !viewport.isMobile) && isFullscreen && warQuer) {
       document.exitFullscreen?.().catch(() => {});
     }
   });
@@ -254,39 +217,6 @@
   });
 </script>
 
-<!-- Lautstärke-Pille in 5er-Schritten statt Regler: Ein ferner Daumen trifft
-     zwei Knöpfe sicherer als einen Schieberegler. Am Handy wird die Lautstärke
-     IMMER auf 5er gerastert — angezeigt UND gesetzt: ein Wert wie 87 (vom
-     Desktop-Regler mitgenommen) zeigt hier 85, der nächste Tipp geht auf 90. -->
-{#snippet volumePille(maxV: number, gerastert: number)}
-  <div
-    class="flex items-center gap-0.5 rounded-full bg-black/45 px-1 text-white backdrop-blur-sm"
-    data-pip-hide data-testid={`${testidPrefix}-volume-stepper`}
-  >
-    <button
-      type="button"
-      class="flex size-9 items-center justify-center rounded-full transition-colors hover:bg-black/65"
-      onclick={() => onVolumeChange?.(Math.max(0, gerastert - 5))}
-      aria-label={m.tile_shell_volume_down()}
-      data-testid={`${testidPrefix}-volume-down`}
-    >
-      <MinusIcon class="size-4" />
-    </button>
-    <span class="w-10 text-center font-mono text-xs tabular-nums" data-testid={`${testidPrefix}-volume-value`}
-      >{gerastert}%</span
-    >
-    <button
-      type="button"
-      class="flex size-9 items-center justify-center rounded-full transition-colors hover:bg-black/65"
-      onclick={() => onVolumeChange?.(Math.min(maxV, gerastert + 5))}
-      aria-label={m.tile_shell_volume_up()}
-      data-testid={`${testidPrefix}-volume-up`}
-    >
-      <PlusIcon class="size-4" />
-    </button>
-  </div>
-{/snippet}
-
 <div
   bind:this={containerEl}
   class="bg-bg-chat flex h-full overflow-hidden {isFullscreen
@@ -315,64 +245,32 @@
         ></div>
       {/if}
 
-      <!-- Mobil (nicht Vollbild): zwei schwebende Knöpfe AUF dem Video —
-           oben links der Pfeil zum Schließen der Kachel, unten rechts
-           Vollbild, unten links die Lautstärke-Pille. Im Vollbild gilt
-           dieselbe neue Steuerung als fadende Overlay-Variante unten rechts
-           (Exit-Knopf + Pille); am Rechner bleiben Dock-Leiste und
+      <!-- Mobil: die schwebenden Knöpfe AUF dem Video ersetzen die Leiste
+           darunter — in der Kachel wie im Vollbild dieselbe Komponente, im
+           Vollbild nur fadend. Der Pfeil „Vollbild verlassen" steht NUR im
+           Hochformat: quer ist das Vollbild automatisch (Kippen) und wird
+           genauso automatisch verlassen, ein Pfeil wäre redundant
+           (Nutzerwunsch 2026-08-26). Am Rechner bleiben Dock-Leiste und
            Doppelklick wie bisher. -->
-      {#if viewport.istHandy && !isFullscreen}
-        {#if onHide}
-          <button
-            type="button"
-            class="absolute top-2 left-2 z-20 flex size-10 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-colors hover:bg-black/65"
-            onclick={onHide}
-            aria-label={m.tile_shell_hide_tile()}
-            data-pip-hide data-testid={`${testidPrefix}-close-float`}
-          >
-            <ChevronLeftIcon class="size-5" />
-          </button>
-        {/if}
-        <button
-          type="button"
-          class="absolute right-2 bottom-2 z-20 flex size-10 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-colors hover:bg-black/65"
-          onclick={() => toggleFullscreen(containerEl, video ?? null)}
-          aria-label={m.tile_shell_fullscreen_enter()}
-          data-pip-hide data-testid={`${testidPrefix}-fullscreen-float`}
-        >
-          <MaximizeIcon class="size-5" />
-        </button>
-        <!-- Lautstärke in 5er-Schritten statt Regler: Ein ferner Daumen trifft
-             zwei Knöpfe sicherer als einen Schieberegler. Pille unten links,
-             Gegenstück zum Vollbild-Knopf unten rechts. -->
-        {#if onVolumeChange !== undefined && volume !== undefined}
-          {@render volumePille(volumeMax ?? 200, Math.round(volume / 5) * 5)}
-        {/if}
-      {/if}
-
-      <!-- Mobil im Vollbild: die NEUE Steuerung als fadendes Overlay — unten
-           links die Lautstärke-Pille. Der Pfeil oben links (Vollbild
-           verlassen) steht NUR im Hochformat: Im Querformat ist das Vollbild
-           automatisch (Kippen) und wird genauso automatisch verlassen — ein
-           Pfeil wäre redundant (Nutzerwunsch 2026-08-26). Tap aufs Video
-           blendet die Steuerung ein, nach HUD_HIDE_AFTER_MS verschwindet sie. -->
-      {#if viewport.istHandy && isFullscreen}
-        {#if viewport.isMobile}
-          <button
-            type="button"
-            class="absolute top-2 left-2 z-30 flex size-10 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-colors hover:bg-black/65 {fadeClass}"
-            onclick={toggleFs}
-            aria-label={m.tile_shell_fullscreen_exit()}
-            data-testid={`${testidPrefix}-fullscreen-exit-float`}
-          >
-            <ChevronLeftIcon class="size-5" />
-          </button>
-        {/if}
-        {#if onVolumeChange !== undefined && volume !== undefined}
-          <div class="absolute bottom-2 left-2 z-30 {fadeClass}">
-            {@render volumePille(volumeMax ?? 200, Math.round(volume / 5) * 5)}
-          </div>
-        {/if}
+      {#if viewport.istHandy}
+        <TileMobilSteuerung
+          {testidPrefix}
+          {isFullscreen}
+          fadeClass={isFullscreen ? fadeClass : ''}
+          zeigeVollbildAus={viewport.isMobile}
+          {volume}
+          {volumeMax}
+          {onVolumeChange}
+          {onToggleMute}
+          {audioBlocked}
+          {onEnableAudio}
+          {chatOpen}
+          {onToggleChat}
+          {queueOpen}
+          {onToggleQueue}
+          {onHide}
+          onToggleFullscreen={toggleFs}
+        />
       {/if}
 
       <!-- Diagnose-Stats oben links — nur wenn global eingeschaltet -->
