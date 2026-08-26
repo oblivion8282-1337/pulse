@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-26.3",
+      "date": "2026-08-26",
+      "style": "Sachlich",
+      "title": "Unter „Meine Instanzen“ stehen wieder nur die eigenen Server",
+      "items": [
+        "In den Einstellungen unter Self-Host, „Meine Instanzen“, stehen jetzt nur noch Server, die man selbst betreibt. Bisher standen dort auch Server, denen man lediglich beigetreten ist — samt der Knöpfe zum Einrichten und Löschen. Gedrückt hätten sie ohnehin nichts bewirkt, der Server hat sie immer schon abgewiesen; sie sahen nur so aus, als könnte man einen fremden Server verwalten.",
+        "In der Server-Leiste ändert sich nichts: beigetretene Server erscheinen dort weiterhin auf allen Geräten."
+      ]
+    },
+    {
       "id": "2026-08-26.2",
       "date": "2026-08-26",
       "style": "Sachlich",

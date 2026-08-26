@@ -71,7 +71,13 @@
       // App-Host-Instanzen erscheinen als reduzierte Zeile (Status + Löschen):
       // der VPS-Flow ("Server einrichten"-Terminal, .env) ergibt für sie keinen
       // Sinn, aber der Löschweg muss im Client existieren.
-      instances = await instancesApi.listMyInstances();
+      //
+      // Nur EIGENE Instanzen: die Antwort enthält auch Server, denen man bloß
+      // beigetreten ist (Account-basierte Server-Liste) — die gehören in die
+      // Server-Leiste, nicht in "Meine Instanzen". Ohne den Filter bot dieser
+      // Tab einem Mitglied Einrichten und Löschen für einen fremden Server an;
+      // die Routen sind owner-verriegelt, die Knöpfe sahen nur echt aus.
+      instances = (await instancesApi.listMyInstances()).filter((i) => i.role === 'owner');
     } catch {
       // Nicht kritisch
     } finally {
