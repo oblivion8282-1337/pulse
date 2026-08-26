@@ -385,6 +385,27 @@ schlicht `pulse`, Volume schlicht `pulse-data` — ohne Projekt-Präfix. Wurde
 beim Installieren `PULSE_CONTAINER`/`PULSE_VOLUME` gesetzt, gelten die
 abweichenden Namen von dort.
 
+**Zuerst den Auto-Update-Takt abbauen — VOR `docker rm`.** Sonst holt der
+nächste Fünf-Minuten-Takt den gerade gelöschten Container mitsamt leerem
+Volume zurück: der generierte Updater bricht nicht ab, nur weil `$CONTAINER`
+fehlt (ohne Container ist `cur_id` leer, `new_id` bleibt gesetzt — der
+Digest-Vergleich schlägt fehl, kein früher Ausstieg) und startet ihn
+stattdessen aus dem noch lokal liegenden Image neu. Welcher Weg gilt, stand
+bei der Installation in der Ausgabe ("Auto-updates enabled …"); im Zweifel
+beide versuchen, der jeweils andere schlägt folgenlos fehl:
+
+```bash
+# root-Install (systemd):
+sudo systemctl disable --now pulse-update.timer
+sudo rm /etc/systemd/system/pulse-update.{service,timer}
+sudo systemctl daemon-reload
+
+# non-root-Install (User-Crontab):
+crontab -l | grep -v pulse-update.sh | crontab -
+```
+
+Erst danach:
+
 ```bash
 docker rm -f pulse           # Container stoppen und entfernen
 docker volume rm pulse-data  # ALLE Daten löschen (vorher sichern!)
