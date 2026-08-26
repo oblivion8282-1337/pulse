@@ -25,16 +25,39 @@ ausdrücklich mit ``uvloop.run`` gefahren.
 ``uvloop`` wird bewusst OHNE ``importorskip`` importiert: fehlt es, weicht die
 Testumgebung von der Produktion ab, und genau das soll auffallen — laut, nicht
 als übersprungener Test.
+
+**Ausser auf Windows, und das ist keine Aufweichung** (2026-08-26): ``uvloop``
+unterstützt Windows nicht und lässt sich dort gar nicht installieren. Die
+Aussage „fehlt es, weicht die Testumgebung von der Produktion ab" ist dort nicht
+erfüllbar — Produktion läuft auf Linux, eine Windows-Entwicklermaschine kann ihr
+in diesem Punkt nie entsprechen. Der laute Abbruch informierte dort nicht, er
+blockierte: ein Import-Fehler auf Modulebene beendet die **Sammelphase**, und
+damit fiel nicht dieser eine Test aus, sondern alle 2299 liefen nicht mehr. Das
+traf jeden Volllauf auf Windows und damit auch das Gate von ``scripts/ship.sh``.
+
+Der Riegel steht deshalb ausdrücklich auf der Plattform, nicht auf dem Modul:
+auf Linux und macOS — wo Produktion läuft und CI baut — schlägt ein fehlendes
+``uvloop`` weiterhin laut fehl. Ein ``importorskip`` täte das nicht und bliebe
+auch dort still.
 """
 
 from __future__ import annotations
 
 import asyncio
 import inspect
+import sys
 
-import uvloop
-from dcc_auth import selfhost_probe
-from dcc_auth import selfhost_probe_dienst as dienst
+import pytest
+
+if sys.platform == "win32":
+    pytest.skip(
+        "uvloop unterstuetzt Windows nicht — s. Modul-Docstring",
+        allow_module_level=True,
+    )
+
+import uvloop  # noqa: E402  (muss hinter den Plattform-Riegel)
+from dcc_auth import selfhost_probe  # noqa: E402
+from dcc_auth import selfhost_probe_dienst as dienst  # noqa: E402
 
 #: RFC 5737 TEST-NET-3 — garantiert nicht geroutet, antwortet nie. Der Aufruf
 #: endet entweder sofort mit OSError (keine Route) oder in der Frist; beides
