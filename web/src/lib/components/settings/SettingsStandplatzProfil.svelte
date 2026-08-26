@@ -33,6 +33,7 @@
     VORGABE,
     type StandplatzProfil,
   } from '$lib/devices/profil.svelte';
+  import { monitoreSicherstellen } from '$lib/stream/captureSource';
   import { streamSettings } from '$lib/stream/settings.svelte';
   import { MONITOR_CAPTURE_PREFIX, RESOLUTION_VALUES } from '$lib/stream/settingsCatalog';
   import { capabilities } from '$lib/stores/capabilities.svelte';
@@ -44,6 +45,14 @@
   let entwurf = $state<StandplatzProfil>({ ...standplatzProfil.profil });
 
   const monitore = $derived(streamSettings.available_monitors);
+
+  // Die Liste selbst beschaffen, statt zu hoffen, dass sie jemand anders schon
+  // geholt hat: befüllt wird sie sonst nur vom HQ-Stream-Dialog und von der
+  // Geräte-Anmeldung. Wer keines von beidem ausgelöst hat, sah hier nur den
+  // Ersatz-Eintrag „Hauptbildschirm" (Begründung in `monitoreSicherstellen`).
+  $effect(() => {
+    void monitoreSicherstellen();
+  });
 
   /**
    * Die Bildraten-Grenzen kommen aus den **Streaming-Einstellungen des

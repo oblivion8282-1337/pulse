@@ -15,6 +15,7 @@
  * Quelle bleibt `'portal'`.
  */
 
+import { isMac, isWindows } from '$lib/platform/runtime';
 import type { GsrMonitor } from './gsr';
 import { gsr } from './gsr';
 import { streamSettings } from './settingsState.svelte';
@@ -176,6 +177,27 @@ export async function refreshMonitors(): Promise<void> {
   } catch {
     // tolerate — keep the previous list
   }
+}
+
+/**
+ * Die Monitorliste beschaffen, **falls noch keine da ist**.
+ *
+ * Für Ansichten, die Bildschirme anzeigen, ohne sie selbst zu holen. `loadCatalogs()`
+ * hängt am HQ-Stream-Dialog und `refreshMonitors()` an dessen Knopf — wer keines
+ * von beidem öffnet, sah bis zum 2026-08-26 eine leere Liste. Im Reiter
+ * „Remote-Rechner" hiess das: statt der Schirme stand dort nur der Ersatz-Eintrag
+ * „Hauptbildschirm", ein Rechner mit zwei Monitoren sah aus wie einer mit einem.
+ *
+ * **Nur wenn leer**, damit ein Aufruf aus einem `$effect` nicht bei jeder
+ * Neuberechnung den Sidecar befragt; wer eine frische Liste WILL, nimmt
+ * weiterhin `refreshMonitors()`. Linux bleibt aussen vor — dort wählt der
+ * Wayland-Portal-Dialog beim Start, es gibt nichts aufzuzählen (gleiche
+ * Bedingung wie in `settings.svelte.ts::loadCatalogs`).
+ */
+export async function monitoreSicherstellen(): Promise<void> {
+  if (streamSettings.available_monitors.length > 0) return;
+  if (!isWindows() && !isMac()) return;
+  await refreshMonitors();
 }
 
 /** Refresh the capturable-window list (Windows + macOS; called from the source
