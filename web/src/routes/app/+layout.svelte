@@ -47,6 +47,8 @@
   import { istDetailScreen } from '$lib/navigation/tabs';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { orientierungSperren } from '$lib/platform/orientation';
+  import { registriereZurueckTaste } from '$lib/platform/zurueckTaste';
+  import { istRaumBereich, merkeRaumPfad } from '$lib/navigation/letzterRaumBereich.svelte';
   import { page } from '$app/state';
   import UpdateBanner from '$lib/components/server/UpdateBanner.svelte';
   import SelfHostDisclaimer from '$lib/components/server/SelfHostDisclaimer.svelte';
@@ -125,6 +127,8 @@
 
   onMount(async () => {
     viewport.init();
+    // Android-Hülle: Zurück-Taste navigiert in der App hoch statt zu schließen.
+    registriereZurueckTaste();
     await auth.hydrate();
     if (!auth.isAuthenticated) {
       await goto('/login', { replaceState: true });
@@ -342,6 +346,14 @@
   // Handy quer ist KEIN Tablet: keine linke Spalte, die mobile Navigation
   // (unten) gilt weiter.
   let zeigeSpalteLinks = $derived(hydrated && viewport.isTablet && !viewport.istHandy);
+
+  // Räume-Bereich-Gedächtnis: jede Navigation, die im Räume-Bereich landet
+  // (Räume, Raum-Ansicht, Kanal, Entdecken), wird als letzter Stand gemerkt
+  // — der Räume-Tab der Navigationsleiste kehrt genau dorthin zurück.
+  $effect(() => {
+    const pfad = page.url.pathname;
+    if (istRaumBereich(pfad)) merkeRaumPfad(pfad);
+  });
 
   // Android-Hülle: Querformat nur mit ANGEDOCKTEM Stream. Ein Stream im
   // Popup-Eckfenster (Corner-Mode: man hat den Kanal verlassen) lockt

@@ -85,18 +85,18 @@
   );
   let isVoiceChannel = $derived(activeChannel?.type === 1);
   let isDropboxChannel = $derived(activeChannel?.type === 2);
-  // Mobil + im Voice + Text-Kanal derselben Community angesehen → Karten-Stapel.
+  // Mobil + im Voice + Text-Kanal derselben Community: KEIN Karten-Stapel
+  // mehr (2026-08-26, Nutzerwunsch) — die rausschauende Voice-Karte über dem
+  // Chat galt als verbuggt. Der Text-Kanal füllt den Bildschirm normal; die
+  // Voice-Verbindung läuft weiter und bleibt über das Voice-Dock unter der
+  // Navigationsleiste steuerbar. Zurück zum Sprachkanal: Räume-Tab (führt
+  // zuletzt dorthin) oder Kanal-Wechsler.
   let connectedVoiceChannel = $derived<Channel | null>(
     voice.connected && voice.channelId
       ? (channelsForGuild.find((c: Channel) => c.id === voice.channelId) ?? null)
       : null
   );
-  let showVoiceStack = $derived(
-    viewport.isMobile &&
-      !!connectedVoiceChannel &&
-      connectedVoiceChannel.id !== channelId &&
-      activeChannel?.type === 0
-  );
+  let showVoiceStack = $derived(false);
 
   // Auf Mobil hat ein Voice-Kanal keine eigene Vollbild-Seite: stattdessen
   // bleibt die Kanal-Liste sichtbar (oben Text-, unten Sprachkanäle). Zusätzlich

@@ -2,6 +2,7 @@ package com.howispulse.app;
 
 import android.Manifest;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.os.Build;
@@ -9,6 +10,9 @@ import android.os.Bundle;
 
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.getcapacitor.BridgeActivity;
 
@@ -86,6 +90,36 @@ public class MainActivity extends BridgeActivity {
         // Chromium kann den Audio-Modus zwischen Sessions umstellen; bei jeder
         // Rückkehr in den Vordergrund den Lautsprecher erneut erzwingen.
         if (speakerRouter != null) speakerRouter.apply();
+        // Nach Rückkehr gilt die aktuelle Orientierung wieder (z. B. quer
+        // gesperrt mit Stream → Leisten bleiben weg).
+        wendeLeistenAn(getResources().getConfiguration().orientation);
+    }
+
+    /**
+     * Immersive Mode im Querformat (Nutzerwunsch 2026-08-26): Status- und
+     * Navigationsleiste werden ausgeblendet, sobald das Handy quer liegt —
+     * quer gehört dem Inhalt (Stream/Vollbild), hochkant der Navigation.
+     * Ein Wischen vom Rand zeigt die Leisten transient (BEHAVIOR_SHOW_…_BY_SWIPE).
+     */
+    private void wendeLeistenAn(int orientation) {
+        WindowInsetsControllerCompat c =
+                WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+        if (c == null) return;
+        if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            c.setSystemBarsBehavior(
+                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            c.hide(WindowInsetsCompat.Type.systemBars());
+        } else {
+            c.show(WindowInsetsCompat.Type.systemBars());
+        }
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        // configChanges im Manifest fängt die Drehung ohne Activity-Neubau ab —
+        // hier wird nur der Leisten-Zustand nachgezogen.
+        wendeLeistenAn(newConfig.orientation);
     }
 
     @Override

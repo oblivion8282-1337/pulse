@@ -175,6 +175,26 @@
     toggleFullscreen(containerEl, video);
   }
 
+  // Auto-Vollbild beim Kippen (Nutzerwunsch 2026-08-26): Handy quer + Video-
+  // Kachel offen → DIREKT ins Element-Vollbild, ohne vorheriges Tippen auf
+  // das Vollbild-Symbol. Zurück im Hochformat (isMobile wieder wahr) wird es
+  // automatisch verlassen. Schlägt die Anforderung fehl (WebView verlangt
+  // eine Nutzer-Geste), bleibt das Layout-Vollbild von kanalQuerStream als
+  // Fallback — Steuerung dann über die schwebenden Knöpfe wie bisher.
+  $effect(() => {
+    if (kind === 'party') return; // iframe: kein requestFullscreen auf dem Div
+    if (viewport.istHandy && !viewport.isMobile && containerEl && !isFullscreen) {
+      containerEl.requestFullscreen?.().catch(() => {
+        /* Fallback: Layout-Vollbild übernimmt */
+      });
+    }
+  });
+  $effect(() => {
+    if (viewport.isMobile && isFullscreen) {
+      document.exitFullscreen?.().catch(() => {});
+    }
+  });
+
   const dockProps = $derived({
     kindIcon: KindIcon,
     kindIconColor,
@@ -330,21 +350,24 @@
         {/if}
       {/if}
 
-      <!-- Mobil im Vollbild: die NEUE Steuerung als fadendes Overlay — oben
-           links ein Pfeil, der den Stream minimiert (Vollbild verlassen),
-           unten links die Lautstärke-Pille. Kein altes Dock und kein
-           Vollbild-Symbol am Handy. Tap aufs Video blendet die Steuerung
-           wieder ein, nach HUD_HIDE_AFTER_MS ohne Tap verschwindet sie. -->
+      <!-- Mobil im Vollbild: die NEUE Steuerung als fadendes Overlay — unten
+           links die Lautstärke-Pille. Der Pfeil oben links (Vollbild
+           verlassen) steht NUR im Hochformat: Im Querformat ist das Vollbild
+           automatisch (Kippen) und wird genauso automatisch verlassen — ein
+           Pfeil wäre redundant (Nutzerwunsch 2026-08-26). Tap aufs Video
+           blendet die Steuerung ein, nach HUD_HIDE_AFTER_MS verschwindet sie. -->
       {#if viewport.istHandy && isFullscreen}
-        <button
-          type="button"
-          class="absolute top-2 left-2 z-30 flex size-10 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-colors hover:bg-black/65 {fadeClass}"
-          onclick={toggleFs}
-          aria-label={m.tile_shell_fullscreen_exit()}
-          data-testid={`${testidPrefix}-fullscreen-exit-float`}
-        >
-          <ChevronLeftIcon class="size-5" />
-        </button>
+        {#if viewport.isMobile}
+          <button
+            type="button"
+            class="absolute top-2 left-2 z-30 flex size-10 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-colors hover:bg-black/65 {fadeClass}"
+            onclick={toggleFs}
+            aria-label={m.tile_shell_fullscreen_exit()}
+            data-testid={`${testidPrefix}-fullscreen-exit-float`}
+          >
+            <ChevronLeftIcon class="size-5" />
+          </button>
+        {/if}
         {#if onVolumeChange !== undefined && volume !== undefined}
           <div class="absolute bottom-2 left-2 z-30 {fadeClass}">
             {@render volumePille(volumeMax ?? 200, Math.round(volume / 5) * 5)}
