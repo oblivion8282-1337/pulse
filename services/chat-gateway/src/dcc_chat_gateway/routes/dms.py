@@ -15,8 +15,9 @@ historical thread without a composer.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 
@@ -28,7 +29,7 @@ from dcc_chat_gateway.friend_helpers import (
 from dcc_chat_gateway.dm_vorschau import Letzte, letzte_nachrichten
 from dcc_chat_gateway.models import DirectMessageChannel, Friendship, Message, UserBlock
 from dcc_chat_gateway.routes._deps import CloudOnly, dm_member_check
-from dcc_chat_gateway.schemas import DMChannelCreateIn, DMChannelOut
+from dcc_chat_gateway.schemas import DMChannelCreateIn, DMChannelOut, DMMessageSearchHit
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 
@@ -240,23 +241,54 @@ async def list_dm_channels(
     ]
 
 
-@router.get("/dm-channels-search")
+#: Obergrenze der Trefferliste. Eine Suchleiste will Treffer, keine
+#: Chronologie — wer weiter zurück will, sucht genauer.
+_SUCHE_LIMIT = 20
+
+
+def _like_maskieren(needle: str) -> str:
+    """Die Sonderzeichen von ``LIKE`` entschärfen.
+
+    Ohne das ist die Eingabe ein Muster statt eines Wortes: ein getipptes
+    ``%`` trifft jede Nachricht, und eine Kette wie ``%_%_%_%_…`` treibt den
+    Musterabgleich in pathologisches Zurücksetzen. Der Backslash muss zuerst
+    ersetzt werden, sonst maskiert der zweite Durchgang die eben erst
+    eingefügten Maskierungen erneut.
+    """
+    return needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+@router.get("/dm-channels-search", response_model=list[DMMessageSearchHit])
 async def search_dm_messages(
-    q: str,
     session: SessionDep,
     current: CurrentUser,
-):
+    q: Annotated[str, Query(min_length=2, max_length=100)],
+) -> list[dict]:
     """WhatsApp-artige Suche über die eigene DM-Historie.
 
-    Volltext-Suche per ``ilike`` über alle Nachrichten in DM-Kanälen, in
-    denen der Aufrufer Mitglied ist (Gegenstück-IDs aus der Kanalzeile —
-    der Join macht den Membership-Check, kein separater Lookup nötig).
-    Gelöschte Nachrichten bleiben draußen. Neueste zuerst, 20 Treffer —
-    eine Suchleiste will Treffer, keine Chronologie.
+    Gesucht wird per ``ilike`` in den Nachrichten der DM-Kanäle, in denen der
+    Aufrufer Mitglied ist. Gelöschte Nachrichten bleiben draußen, neueste
+    zuerst.
+
+    **Die Kanalmenge steht als Unterabfrage, nicht als JOIN**, und das ist
+    keine Geschmacksfrage: ``messages`` ist die größte Tabelle des Schemas und
+    trägt Nachrichten ALLER Communities. Ein Join filterte erst nach dem Lesen;
+    mit ``channel_id IN (…)`` kann Postgres dagegen ``ix_messages_channel_id_desc``
+    rückwärts lesen und rührt nur die eigenen Gespräche an. Zusammen mit der
+    Mindestlänge von ``q`` und der Maskierung der ``LIKE``-Sonderzeichen ist
+    das der Grund, warum eine gedrückt gehaltene Taste hier nicht die
+    gemeinsame Datenbank festsetzt — einen Ratenbegrenzer hat der
+    chat-gateway nicht (``slowapi`` sitzt nur im auth-svc).
     """
     needle = q.strip()
-    if not needle:
+    if len(needle) < 2:
         return []
+    meine_kanaele = select(DirectMessageChannel.id).where(
+        or_(
+            DirectMessageChannel.user_a_id == current.id,
+            DirectMessageChannel.user_b_id == current.id,
+        )
+    )
     stmt = (
         select(
             Message.id,
@@ -272,15 +304,12 @@ async def search_dm_messages(
             DirectMessageChannel.id == Message.channel_id,
         )
         .where(
-            or_(
-                DirectMessageChannel.user_a_id == current.id,
-                DirectMessageChannel.user_b_id == current.id,
-            ),
+            Message.channel_id.in_(meine_kanaele),
             Message.deleted_at.is_(None),
-            Message.content.ilike(f"%{needle}%"),
+            Message.content.ilike(f"%{_like_maskieren(needle)}%", escape="\\"),
         )
         .order_by(Message.id.desc())
-        .limit(20)
+        .limit(_SUCHE_LIMIT)
     )
     rows = (await session.execute(stmt)).all()
     return [
