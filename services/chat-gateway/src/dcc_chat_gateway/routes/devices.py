@@ -25,14 +25,23 @@ abstellen — ein eingetragenes Gerät kann nichts, was ein Mensch mit demselben
 Recht in demselben Kanal nicht auch könnte. ``MANAGE_CHANNELS`` zu verlangen
 hiesse, dass ein Nutzer für seinen eigenen Rechner einen Verwalter braucht.
 
-**Umbenennen und Entfernen** darf der Besitzer, und ausserdem ``MANAGE_GUILD``:
-ein Gerät steht im Raum einer Community, und deren Verwaltung muss es auch dann
-räumen können, wenn der Besitzer nicht erreichbar ist.
+**Umbenennen, Umstellen und Entfernen darf nur der Besitzer** — auch
+``MANAGE_GUILD`` nicht. Der Rechner gehört nicht der Community, er steht nur
+darin; wer ihn zur Verfügung stellt, entscheidet allein, wie er heisst und ob er
+dort noch steht. Bis zum 2026-08-26 durfte die Verwaltung umbenennen und
+entfernen, begründet mit „räumen können, wenn der Besitzer nicht erreichbar
+ist" — das verwechselte den Raum mit dem, was darin steht.
 
-**Umstellen darf nur der Besitzer.** Der Standplatz ist der Rechteanker — wer
-ihn setzt, bestimmt, wer den Rechner übernehmen darf. „Räumen können" trägt das
-nicht: mit ``MANAGE_GUILD`` allein liesse sich ein fremder Rechner in einen
-Kanal schieben, in dem ``@everyone`` ``REMOTE_CONTROL`` hat.
+Für das **Umstellen** kam ein zweiter Grund dazu, der unverändert gilt: der
+Standplatz ist der Rechteanker, wer ihn setzt, bestimmt, wer den Rechner
+übernehmen darf. Mit ``MANAGE_GUILD`` allein liesse sich ein fremder Rechner
+sonst in einen Kanal schieben, in dem ``@everyone`` ``REMOTE_CONTROL`` hat.
+
+Der Verwaltung bleibt, was ihren Raum betrifft: übernehmen nach den
+Kanalrechten, und eine laufende Sitzung beenden. Verlässt ein Besitzer die
+Community oder wird er gebannt, bleibt seine Eintragung als **toter** Eintrag
+stehen (siehe ``_require_owner``) — ohne Verbindung meldet sich das Gerät nie
+wieder an und steht dauerhaft auf „offline".
 
 Was hier NICHT steht
 --------------------
@@ -74,7 +83,6 @@ from dcc_chat_gateway.models import (
 )
 from dcc_chat_gateway.permissions import (
     Permissions,
-    check_permission,
     has_permission,
     resolve_permissions,
 )
@@ -106,9 +114,9 @@ class DeviceCreate(BaseModel):
 
 class DevicePatch(BaseModel):
     #: Zielcommunity. Nur der Besitzer darf sie ändern — der Standplatz ist der
-    #: Rechteanker, und ``MANAGE_GUILD`` soll räumen können, nicht umwidmen
-    #: (dieselbe Begründung wie beim Kanal). Zusammen mit ``channel_id``
-    #: anzugeben: ein Kanal ohne seine Community wäre nicht auflösbar.
+    #: Rechteanker (dieselbe Begründung wie beim Kanal). Zusammen mit
+    #: ``channel_id`` anzugeben: ein Kanal ohne seine Community wäre nicht
+    #: auflösbar.
     guild_id: SnowflakeId | None = None
     channel_id: SnowflakeId | None = None
     name: str | None = Field(default=None, min_length=1, max_length=DEVICE_NAME_MAX_LEN)
@@ -192,16 +200,31 @@ async def _load_device(session, guild_id: int, device_id: int) -> Device:
     return device
 
 
-async def _require_owner_or_manager(session, user, device: Device) -> None:
-    if device.owner_user_id == user.id:
-        return
-    await check_permission(
-        session,
-        user,
-        device.guild_id,
-        Permissions.MANAGE_GUILD,
-        detail="only the device owner or a community manager can do this",
-    )
+async def _require_owner(session, user, device: Device) -> None:
+    """Umbenennen und Entfernen darf **nur der Besitzer**.
+
+    Bis zum 2026-08-26 durfte das auch ``MANAGE_GUILD``, begründet mit „die
+    Verwaltung muss räumen können, wenn der Besitzer nicht erreichbar ist". Das
+    verwechselt zwei Dinge: der Rechner gehört nicht der Community, er steht nur
+    darin. Wer ihn zur Verfügung stellt, entscheidet allein, wie er heisst und
+    ob er dort noch steht — alles andere ist Verfügung über fremdes Eigentum.
+    Der Verwaltung bleibt, was ihr Raum betrifft: übernehmen darf sie nach den
+    Kanalrechten, und eine laufende Sitzung beenden.
+
+    **Der Fall, den das offenlässt**, ist geprüft und trägt: verlässt der
+    Besitzer die Community oder wird er gebannt, bleibt seine Eintragung stehen
+    (weder ``leave_guild`` noch ``kick_member`` noch ``ban_member`` räumen
+    Geräte — nur die Kontolöschung tut es, ``user_purge``). Der Eintrag ist dann
+    aber **tot**: ohne Verbindung meldet sich das Gerät nie wieder an, steht
+    dauerhaft auf „offline", und laufende Sitzungen hat ``remote_guard``
+    ohnehin sofort beendet. Ein toter Listeneintrag ist der geringere Preis
+    dafür, dass niemand sonst über einen fremden Rechner verfügt.
+    """
+    if device.owner_user_id != user.id:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="only the device owner can do this",
+        )
 
 
 @router.get("", response_model=list[DeviceOut])
@@ -297,7 +320,7 @@ async def patch_device(
 ) -> DevicePatchOut:
     await require_member(session, guild_id, user.id)
     device = await _load_device(session, guild_id, device_id)
-    await _require_owner_or_manager(session, user, device)
+    await _require_owner(session, user, device)
 
     if body.name is not None:
         device.name = _normalise_name(body.name)
@@ -311,10 +334,15 @@ async def patch_device(
         # Standplatz ist der Rechteanker des Geräts: wer ihn setzt, bestimmt,
         # wer den Rechner übernehmen darf. Mit ``MANAGE_GUILD`` allein liesse
         # sich ein fremder Rechner in einen Kanal schieben, in dem ``@everyone``
-        # ``REMOTE_CONTROL`` hat — die Verwaltung soll räumen können, nicht
-        # umwidmen. Löschen und Umbenennen bleiben deshalb bei ihr. Gilt
-        # unverändert für den Community-Wechsel: er ist nur eine weitere Form
-        # des Umstellens.
+        # ``REMOTE_CONTROL`` hat. Gilt unverändert für den Community-Wechsel: er
+        # ist nur eine weitere Form des Umstellens.
+        #
+        # Diese Prüfung ist seit dem 2026-08-26 die zweite ihrer Art: seither
+        # verlangt schon ``_require_owner`` oben den Besitzer, für JEDE Änderung.
+        # Sie bleibt trotzdem stehen — sie trägt den eigenen, schwereren Grund
+        # (Umwidmung statt Verfügung), und ihre Fehlermeldung benennt genau den
+        # Fall. Wer die obere Regel je wieder lockert, soll diese hier nicht
+        # versehentlich mitlockern.
         if device.owner_user_id != user.id:
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN,
@@ -404,7 +432,7 @@ async def delete_device(
 ) -> None:
     await require_member(session, guild_id, user.id)
     device = await _load_device(session, guild_id, device_id)
-    await _require_owner_or_manager(session, user, device)
+    await _require_owner(session, user, device)
     await sitzung_beenden(request, device)
     # Der letzte Stand VOR dem Löschen: der Client braucht die Kennung zum
     # Austragen, und der Name macht eine Meldung lesbar.

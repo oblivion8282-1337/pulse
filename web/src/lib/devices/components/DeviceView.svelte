@@ -40,14 +40,15 @@
   import { darfFernsteuern } from '$lib/remote/darfSteuern';
   import { m } from '$lib/paraglide/messages.js';
 
+  // Kein `darfVerwalten` mehr (2026-08-26): es trug allein die Verwaltungskarte,
+  // und die steht seither nur noch dem Besitzer offen. Ein durchgereichtes
+  // `MANAGE_GUILD`, das nirgends mehr etwas entscheidet, lädt beim nächsten
+  // Umbau nur dazu ein, wieder etwas daran zu hängen.
   let {
     device,
-    darfVerwalten,
     onOpenChannel,
   }: {
     device: Device;
-    /** `MANAGE_GUILD` in der Community, in der das Gerät steht. */
-    darfVerwalten: boolean;
     /** Zum Standplatz wechseln, sobald das Bild da ist. */
     onOpenChannel: (channelId: string) => void;
   } = $props();
@@ -206,14 +207,19 @@
        davon unabhängig: ob und wie ein Gerät gerade übertragt, ändert nichts
        daran, wer es umbenennen, umstellen oder entfernen darf.
 
-       **Nur für Besitzer/Verwalter im DOM** (Fix zu Prüfbefund W-4,
-       2026-08-20): innen sind zwar die Umstell-Felder an `istBesitzer` und der
-       Entfernen-Knopf an `istBesitzer || darfVerwalten` gebunden, aber das
-       Namensfeld war für JEDEN freigeschaltet und feuerte beim Verlassen ein
-       `PATCH`, das der Server ohnehin mit 403 abweist — ein gewöhnliches
-       Mitglied sah eine Karte „Verwalten" mit einem Feld, das nichts tut. -->
-  {#if eigenes || darfVerwalten}
-    <DeviceVerwaltung {device} {darfVerwalten} />
+       **Nur für den Besitzer im DOM.** Stand hier bis zum 2026-08-26 als
+       `eigenes || darfVerwalten` — richtig, solange `MANAGE_GUILD` umbenennen
+       und entfernen durfte. Seit das dem Besitzer allein zusteht
+       (`routes/devices.py::_require_owner`), zeigte die Bedingung einem
+       Verwalter eine Karte, deren letztes wirksames Feld ihm genommen wurde.
+
+       Der ältere Fix zu Prüfbefund W-4 (2026-08-20) bleibt damit gültig, nur
+       enger: das Namensfeld war einmal für JEDEN freigeschaltet und feuerte
+       beim Verlassen ein `PATCH`, das der Server mit 403 abwies — ein
+       Mitglied sah eine Karte „Verwalten" mit einem Feld, das nichts tut.
+       Dieselbe Falle, eine Rechtestufe höher. -->
+  {#if eigenes}
+    <DeviceVerwaltung {device} />
   {/if}
 
   <!-- Freigabeliste — nur für den Besitzer, und dafür nicht bloss

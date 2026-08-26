@@ -168,7 +168,16 @@ async def test_wer_den_standplatz_nicht_sehen_darf_sieht_das_geraet_nicht(
 
 
 @pytest.mark.asyncio
-async def test_nur_besitzer_oder_verwaltung_darf_entfernen(client, _auth_signer):
+async def test_nur_besitzer_darf_entfernen(client, _auth_signer):
+    """Auch ``MANAGE_GUILD`` darf ein fremdes Gerät weder umbenennen noch
+    entfernen (seit 2026-08-26).
+
+    Vorher hiess dieser Test „…oder_verwaltung…" und prüfte trotzdem nur ein
+    Mitglied OHNE Rechte — die Verwaltungs-Hälfte seines eigenen Namens deckte
+    er nie ab. Der Fall steht jetzt ausdrücklich drin, und zwar für beide
+    Änderungswege: eine Regel, die nur für DELETE geprüft wird, wandert beim
+    nächsten Umbau still aus PATCH heraus.
+    """
     owner_token, _ = await _make_token(_auth_signer)
     gid = await _guild(client, owner_token)
     cid = await _voice_channel(client, owner_token, gid)
@@ -190,6 +199,41 @@ async def test_nur_besitzer_oder_verwaltung_darf_entfernen(client, _auth_signer)
         f"/guilds/{gid}/devices/{device['id']}", headers=_auth(fremd_token)
     )
     assert r.status_code == 403
+
+    # Und derselbe Riegel gegen einen echten Verwalter: MANAGE_GUILD ist ein
+    # Recht am Raum, kein Recht an dem, was jemand anderes hineingestellt hat.
+    verwalter_token, verwalter_uid = await _mitglied(client, owner_token, gid, _auth_signer)
+    rolle = (
+        await client.post(
+            f"/guilds/{gid}/roles",
+            json={"name": "verwaltung", "permissions": str(int(Permissions.MANAGE_GUILD))},
+            headers=_auth(owner_token),
+        )
+    ).json()
+    await client.put(
+        f"/guilds/{gid}/members/{verwalter_uid}/roles/{rolle['id']}",
+        headers=_auth(owner_token),
+    )
+
+    r = await client.patch(
+        f"/guilds/{gid}/devices/{device['id']}",
+        json={"name": "umbenannt"},
+        headers=_auth(verwalter_token),
+    )
+    assert r.status_code == 403, r.text
+
+    r = await client.delete(
+        f"/guilds/{gid}/devices/{device['id']}", headers=_auth(verwalter_token)
+    )
+    assert r.status_code == 403, r.text
+
+    # Der Besitzer selbst darf beides.
+    r = await client.patch(
+        f"/guilds/{gid}/devices/{device['id']}",
+        json={"name": "werkstatt-pc2"},
+        headers=_auth(owner_token),
+    )
+    assert r.status_code == 200, r.text
 
     r = await client.delete(
         f"/guilds/{gid}/devices/{device['id']}", headers=_auth(owner_token)
@@ -555,8 +599,15 @@ async def test_rauswurf_ueber_die_route_entfernt_die_geraete(client, _auth_signe
 async def test_umstellen_bleibt_dem_besitzer_vorbehalten(client, _auth_signer):
     """**Der Fund:** ``MANAGE_GUILD`` durfte ein fremdes Gerät umstellen — in
     einen Kanal, in dem ``@everyone`` ``REMOTE_CONTROL`` hat. Der Standplatz ist
-    der Rechteanker; „räumen können" trägt das Umwidmen nicht. Löschen und
-    Umbenennen bleiben bei der Verwaltung."""
+    der Rechteanker; „räumen können" trägt das Umwidmen nicht.
+
+    Seit dem 2026-08-26 darf die Verwaltung auch nicht mehr umbenennen und
+    entfernen — hier stand vorher „Löschen und Umbenennen bleiben bei ihr".
+    Dieser Test prüft trotzdem weiter den Kanalwechsel getrennt: er hat einen
+    eigenen, schwereren Grund (Umwidmung statt Verfügung) und eine eigene
+    Prüfung in ``patch_device``. Wer die allgemeine Regel je wieder lockert,
+    soll diese hier nicht mitlockern.
+    """
     owner_token, _ = await _make_token(_auth_signer)
     gid = await _guild(client, owner_token)
     alt = await _voice_channel(client, owner_token, gid, "werkbank")
@@ -577,15 +628,22 @@ async def test_umstellen_bleibt_dem_besitzer_vorbehalten(client, _auth_signer):
         headers=_auth(owner_token),
     )
     assert r.status_code == 403
-    # Umbenennen darf er weiterhin, und entfernen auch.
+    # Und umbenennen ebenso wenig — der Rechner gehört ihm nicht.
     r = await client.patch(
         f"/guilds/{gid}/devices/{device['id']}",
         json={"name": "abgestellt"},
         headers=_auth(owner_token),
     )
+    assert r.status_code == 403, r.text
+    # Der Besitzer dagegen darf beides: umstellen und entfernen.
+    r = await client.patch(
+        f"/guilds/{gid}/devices/{device['id']}",
+        json={"channel_id": str(neu)},
+        headers=_auth(fremd_token),
+    )
     assert r.status_code == 200, r.text
     assert (
-        await client.delete(f"/guilds/{gid}/devices/{device['id']}", headers=_auth(owner_token))
+        await client.delete(f"/guilds/{gid}/devices/{device['id']}", headers=_auth(fremd_token))
     ).status_code == 204
 
 

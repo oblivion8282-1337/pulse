@@ -94,7 +94,7 @@
     </span>
     <!-- `darfVerwalten={false}`: Verwaltungs-Rechte spielen hier keine Rolle —
          dies ist der eigene Rechner, und Besitzer ist man. -->
-    <DeviceVerwaltung device={geraet} darfVerwalten={false} />
+    <DeviceVerwaltung device={geraet} />
   {:else if lage === 'verwaist'}
     <div
       class="border-border flex flex-col gap-3 rounded-2xl border p-4"
