@@ -1565,6 +1565,14 @@ name = "pulse-bildmarke"
 version = "0.1.0"
 
 [[package]]
+name = "pulse-fernsteuerung"
+version = "0.1.0"
+dependencies = [
+ "pulse-zeigerbild",
+ "serde_json",
+]
+
+[[package]]
 name = "pulse-redact"
 version = "0.1.0"
 
@@ -1588,6 +1596,7 @@ dependencies = [
  "bytes",
  "ffmpeg-next",
  "pulse-bildmarke",
+ "pulse-fernsteuerung",
  "pulse-redact",
  "pulse-whip",
  "pulse-zeigerbild",
