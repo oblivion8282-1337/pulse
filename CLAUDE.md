@@ -287,6 +287,48 @@ Top-Level `plugins/` (Referenz `hello` + `tamagotchi`). Manifest `plugin.toml` (
 - **media-svc**: `MEDIAMTX_API_URL=http://localhost:9997/v3/paths/list`. MediaMTX down → nur `mediamtx_poll_failed`-Log.
 Einzel-Infra: MediaMTX `docker compose -f streaming/server/docker-compose.yml up -d`, LiveKit `docker compose --profile voice up -d`.
 
+## Eine neue Maschine einrichten (ZUERST lesen, wenn dieses Repo hier frisch geklont ist)
+
+Die Werkzeugkette reist über das Repo mit, die **Systemwerkzeuge und die
+persönlichen Git-Einstellungen nicht**. Ein Rechner, auf dem nur `git pull`
+lief, ist deshalb funktionsfähig, aber langsam — und kann nicht landen.
+
+**Ein Befehl sagt, was fehlt:**
+
+```bash
+bash scripts/gate.sh --maschine
+```
+
+Er prüft Werkzeuge, `redis-server`, die CLA-Mailadresse, den FFmpeg-Pfad und
+den Admin-Schalter, und bricht ab, wenn etwas Pflichtiges fehlt. Die zwei
+Dinge, die er üblicherweise anmahnt:
+
+| Fehlt | Folge | Behebung (einmal pro Rechner) |
+|---|---|---|
+| `redis-server` | Backend-Tests laufen **seriell: ~7 min statt ~1:15** | `sudo pacman -S redis` · `sudo apt install redis-server` · `brew install redis` |
+| `pulse.adminmerge` | `ship.sh` bleibt auf `BLOCKED` hängen — sieht aus wie eine GitHub-Störung | `git config --local pulse.adminmerge true` |
+
+Zum zweiten Punkt: `main` verlangt einen genehmigenden Review, und den eigenen
+PR kann niemand selbst genehmigen. Der Schalter ist **bewusst maschinen-lokal
+und nur für den Eigentümer** — im Repo abgelegt nähme er auch Mitarbeitern den
+Review-Zwang, und dann kann die Regel gleich weg. Begründung im Kopf von
+`scripts/ship.sh`.
+
+`redis-server` muss **nicht als Dienst laufen**; es genügt das Binary im PATH,
+die Tests starten eigene Prozesse (je Worker einen — Redis-Pubsub ist
+server-global, s. Wurzel-`conftest.py`).
+
+**Die Betriebssysteme sind NICHT gleichwertig:**
+
+| | Tests parallel | Gate/ship (bash) | Lokaler Dev-Stack |
+|---|---|---|---|
+| **Linux** | ja | ja | `scripts/dev-up.fish` |
+| **macOS** | ja (`brew install redis`) | ja (`nproc`-Ersatz ist eingebaut) | `dev-up.fish` (fish nötig) |
+| **Windows** | **nein** — kein `redis-server`, läuft seriell | nur über **Git Bash** | **gar nicht** (fish-only) → Remote-Dev-Stack, s. `infra/dev-remote/README.md` |
+
+Wer unter Windows Tempo braucht, nimmt WSL. Ausführliche Einrichtung:
+`docs/ONBOARDING.md` (§6 für die Tests).
+
 ## Tests
 
 - **Das Test-Gate ist ein eigenes Skript: `bash scripts/gate.sh`** (seit 2026-08-26; `--trocken` sagt nur, was liefe und warum). `ship.sh` ruft dasselbe Skript — wer während der Arbeit damit prüft, dessen Ergebnis zählt beim Landen. Davor lag das Gate ausschliesslich in `ship.sh`, und jeder von Hand gefahrene pytest-Lauf wurde beim Landen ein zweites Mal gefahren.

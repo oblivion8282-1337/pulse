@@ -15,6 +15,32 @@ Was im Git liegt und was nicht — Kurzfassung:
 | Test-Suites + CDP-Toolkit | Postgres-Daten (Test-Accounts, Gilden) |
 | `CLAUDE.md` + `STATUS_NACHT_*.md` | Browser-Profile, Logs, alles unter `/tmp/` |
 
+## Der schnellste Weg: die Maschine sich selbst prüfen lassen
+
+Wenn das Repo schon geklont ist, sagt ein Befehl, was diesem Rechner fehlt:
+
+```bash
+bash scripts/gate.sh --maschine
+```
+
+Er prüft Werkzeuge, `redis-server`, die CLA-Mailadresse, den FFmpeg-Pfad und
+den Admin-Schalter fürs Landen. Die zwei Dinge, die er üblicherweise anmahnt:
+
+| Fehlt | Folge | Behebung (einmal pro Rechner) |
+|---|---|---|
+| `redis-server` | Backend-Tests seriell: **~7 min statt ~1:15** | `sudo pacman -S redis` · `sudo apt install redis-server` · `brew install redis` |
+| `pulse.adminmerge` | `scripts/ship.sh` bleibt auf `BLOCKED` | `git config --local pulse.adminmerge true` |
+
+Die Betriebssysteme sind dabei **nicht gleichwertig**:
+
+| | Tests parallel | gate.sh / ship.sh | Lokaler Dev-Stack |
+|---|---|---|---|
+| **Linux** | ja | ja | `scripts/dev-up.fish` |
+| **macOS** | ja (`brew install redis`) | ja | `dev-up.fish` (fish nötig) |
+| **Windows** | **nein** (kein `redis-server`) → seriell | nur über **Git Bash** | **gar nicht** (fish-only) → Remote-Dev-Stack (`infra/dev-remote/README.md`) |
+
+Wer unter Windows Tempo braucht, nimmt WSL.
+
 ## Voraussetzungen
 
 System-Tools (Arch-Beispiel — auf anderen Distros analog):
