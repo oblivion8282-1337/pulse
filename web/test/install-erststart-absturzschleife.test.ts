@@ -29,6 +29,14 @@
  *      umgeht — die Wiederholung selbst ist nicht Teil des Fundes, nur die
  *      Erkennung innerhalb einer Runde).
  *   2. Der Meldungsblock danach, der entscheidet, welcher Text erscheint.
+ *
+ * **`set -euo pipefail`, nicht nur `-uo pipefail` (Nachtrag, Nachprüfung
+ * N3).** Das echte `install.sh` läuft mit `-e`; ohne sie in diesem
+ * Testgeschirr hätte die Suite N1 (unten) gar nicht fangen können — eine
+ * ungeschützte `WERTE="$(docker inspect … )"` OHNE `|| WERTE=""` stirbt
+ * unter `-e` wortlos, wenn `docker inspect` fehlschlägt, bleibt aber unter
+ * blossem `-u` folgenlos (die Variable wird einfach leer). Das war der
+ * blinde Fleck, durch den der Fehler durchrutschte.
  */
 
 import { test } from 'node:test';
@@ -56,15 +64,28 @@ function bereich(quelle: string, vonZeile: string, bisZeileEnthaelt: string): st
 }
 
 interface RundenOptionen {
-  /** '.RestartCount' laut Docker. */
-  restartCount: number;
+  /** '.RestartCount' laut Docker. Ignoriert, wenn `inspectSchlaegtFehl`. */
+  restartCount?: number;
   /** '.State.Status' laut Docker (z. B. 'running', 'restarting', 'exited'). */
-  status: string;
+  status?: string;
+  /**
+   * `docker inspect` schlägt komplett fehl (leere Ausgabe, Exit ungleich 0)
+   * — der Fall aus N1 (Nachprüfung): der Container ist zwischen zwei Runden
+   * ganz verschwunden, oder die Docker-API hustet einmal.
+   */
+  inspectSchlaegtFehl?: boolean;
 }
 
 interface RundenErgebnis {
   abbruch: boolean;
   abbruchCrash: boolean;
+  /**
+   * Ist das Skript VOR "__UEBERLEBT__" gestorben? N1: eine ungeschützte
+   * Kommandosubstitution unter `set -e` tötet das Skript wortlos, sobald
+   * `docker inspect` fehlschlägt — kein `ABBRUCH`, keine Meldung, einfach
+   * nichts mehr.
+   */
+  abgestuerzt: boolean;
 }
 
 /**
@@ -82,7 +103,12 @@ function laufeRunde(optionen: RundenOptionen): RundenErgebnis {
     `#!/bin/bash
 case "$1" in
   exec) exit 1 ;;
-  inspect) printf '%s %s\\n' "${optionen.restartCount}" "${optionen.status}" ;;
+  inspect)
+    ${
+      optionen.inspectSchlaegtFehl
+        ? 'exit 1'
+        : `printf '%s %s\\n' "${optionen.restartCount ?? 0}" "${optionen.status ?? 'running'}"`
+    } ;;
 esac
 `,
     { mode: 0o755 }
@@ -93,8 +119,12 @@ esac
   // 'break' (aus dem uebernommenen awk-Zweig UND der neuen Erkennung) —
   // ausserhalb einer echten Schleife meldet bash das als Warnung auf
   // stderr, statt einfach den naechsten Schleifendurchlauf zu beenden.
+  //
+  // 'set -euo pipefail', nicht nur '-uo pipefail' — s. Dateikopf (N3). Die
+  // ECHTE install.sh läuft mit '-e'; das Testgeschirr muss das auch, sonst
+  // kann es N1 (ungeschützte Kommandosubstitution) gar nicht sehen.
   const skript = `
-set -uo pipefail
+set -euo pipefail
 CONTAINER=pulse
 GESEHEN=0
 FERTIG=""
@@ -109,22 +139,38 @@ ${bereich(
 done
 echo "ABBRUCH=$ABBRUCH"
 echo "ABBRUCH_CRASH=$ABBRUCH_CRASH"
+echo "__UEBERLEBT__"
 `;
-  const ausgabe = execFileSync('bash', ['-c', skript], {
-    env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
-    encoding: 'utf8'
-  });
-  return {
-    abbruch: /^ABBRUCH=1$/m.test(ausgabe),
-    abbruchCrash: /^ABBRUCH_CRASH=1$/m.test(ausgabe)
-  };
+  try {
+    const ausgabe = execFileSync('bash', ['-c', skript], {
+      env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+      encoding: 'utf8'
+    });
+    return {
+      abbruch: /^ABBRUCH=1$/m.test(ausgabe),
+      abbruchCrash: /^ABBRUCH_CRASH=1$/m.test(ausgabe),
+      abgestuerzt: !ausgabe.includes('__UEBERLEBT__')
+    };
+  } catch (fehler) {
+    // Ein nicht-abgefangener Fehler (set -e) beendet bash mit Exit != 0 —
+    // execFileSync wirft dann, statt die Ausgabe schlicht zurückzugeben.
+    // Genau DAS ist der Fall, den N1 beschreibt: kein 'ABBRUCH=…', keine
+    // Meldung, das Skript ist einfach weg.
+    const f = fehler as { stdout?: string };
+    const ausgabe = f.stdout ?? '';
+    return {
+      abbruch: /^ABBRUCH=1$/m.test(ausgabe),
+      abbruchCrash: /^ABBRUCH_CRASH=1$/m.test(ausgabe),
+      abgestuerzt: true
+    };
+  }
 }
 
 /** Führt den Meldungsblock nach der Schleife aus und liefert die stderr-Ausgabe. */
 function meldungFuer(abbruch: boolean, abbruchCrash: boolean): string {
   const quelle = readFileSync(SKRIPT, 'utf8');
   const skript = `
-set -uo pipefail
+set -euo pipefail
 CONTAINER=pulse
 FERTIG=""
 ABBRUCH="${abbruch ? '1' : ''}"
@@ -153,6 +199,27 @@ test('Gegenprobe: eine gesunde, noch laufende Erstinstallation bricht nicht ab',
   // fälschlich als Absturzschleife werten würde.
   const ergebnis = laufeRunde({ restartCount: 0, status: 'running' });
   assert.equal(ergebnis.abbruch, false);
+  assert.equal(ergebnis.abbruchCrash, false);
+});
+
+test('N1: ein fehlschlagender docker inspect tötet die Warteschleife nicht wortlos', () => {
+  // Nachprüfung, N1 (landungskritisch): 'WERTE="$(docker inspect …)"' ohne
+  // '|| WERTE=""' — unter 'set -e' ist der Exit-Status einer einfachen
+  // Zuweisung der Exit-Status der Kommandosubstitution. Schlägt
+  // 'docker inspect' fehl (Container zwischen zwei Runden verschwunden,
+  // Docker-API hustet einmal), stirbt das Skript an dieser Stelle sofort
+  // und wortlos — kein ABBRUCH, keine Meldung, einfach nichts mehr. Nach
+  // verbranntem Token, vor der Routen-Anweisung, vor der Aussen-Prüfung.
+  const ergebnis = laufeRunde({ inspectSchlaegtFehl: true });
+  assert.equal(
+    ergebnis.abgestuerzt,
+    false,
+    'das Skript ist wortlos gestorben, statt geordnet weiterzulaufen'
+  );
+  // Kein Container mehr erreichbar ist derselbe Fall wie "existiert nicht
+  // mehr" — generischer Abbruch, keine Absturzschleife (die ist ja gerade
+  // NICHT nachgewiesen, nur nicht mehr erreichbar).
+  assert.equal(ergebnis.abbruch, true);
   assert.equal(ergebnis.abbruchCrash, false);
 });
 

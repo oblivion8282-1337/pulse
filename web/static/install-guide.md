@@ -353,10 +353,14 @@ which direction failed.
   failed container, restarts the renamed old one. The `<name>-old` backup
   (and its image) is only cleaned up on the *next* update run, once it has
   confirmed the current container's restart count is still zero since it was
-  created — since that counter never resets, checking it once really does
-  cover the whole interval since the last update, not just a snapshot. So
-  seeing a stopped `<name>-old` container briefly after an update is
-  expected, not a leak.
+  created — that counter accumulates for as long as nobody restarts the
+  container manually, so checking it once covers the whole interval since
+  the last update, not just a snapshot. (Known gap, not fixed here: a manual
+  `docker restart` resets the counter to zero, so restarting a container
+  that's actually stuck in a crash loop — as our own diagnosis advises for
+  an expired or self-signed certificate — would make it look permanently
+  successful on the next cycle and drop its backup.) So seeing a stopped
+  `<name>-old` container briefly after an update is expected, not a leak.
   Tunable via `PULSE_UPDATE_STABIL_VERSUCHE`/`PULSE_UPDATE_STABIL_INTERVALL`
   in the environment that *runs* `pulse-update.sh` (the systemd unit's
   `Environment=` line, or the crontab entry) — not via the installer's own

@@ -168,7 +168,7 @@ esac
   // mit welcher Meldung. Eine Markerzeile NACH dem Aufruf zeigt den
   // Nicht-Abbruch-Pfad an (dasselbe Muster wie in install-crontab.test.ts).
   const skript = `
-set -uo pipefail
+set -euo pipefail
 CONTAINER=pulse
 IMAGE="${konfiguriertesImage}"
 die() { printf '__DIE__%s\\n' "$*"; exit 9; }
@@ -223,7 +223,7 @@ esac
   chmodSync(join(dir, 'docker'), 0o755);
 
   const skript = `
-set -uo pipefail
+set -euo pipefail
 CONTAINER=pulse
 MODE=greenfield
 HTTP_PORT=8080
@@ -300,7 +300,7 @@ JSON
   chmodSync(join(dir, 'curl'), 0o755);
 
   const skript = `
-set -uo pipefail
+set -euo pipefail
 CONTAINER=pulse
 IMAGE="registry.howispulse.com/pulse-allinone:edge"
 MODE=greenfield

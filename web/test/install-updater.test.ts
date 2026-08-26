@@ -503,9 +503,12 @@ test('das Abtastfenster von container_laeuft_stabil bleibt bei 15s, nur feiner a
   // fein (0,2s statt 1s, bei entsprechend mehr Versuchen: 75 statt 15) —
   // NICHT (mehr) weil eine Neustartschleife zwischen zwei groben Proben
   // durchrutschen könnte (Fund 1, Schlussprüfung: das kann sie nicht — die
-  // Prüfung liest '.RestartCount', ein monoton wachsender Zähler, der nie
-  // zurückfällt; eine einzige Erhöhung bleibt für den Rest des Fensters bei
-  // JEDER Abtastrate sichtbar), sondern damit ein echter Absturz möglichst
+  // Prüfung liest '.RestartCount', ein monoton wachsender Zähler, der
+  // INNERHALB einer Neustartschleife nie zurückfällt (ein manueller
+  // 'docker restart' würde ihn nullen — nachgemessen, s. install.sh — aber
+  // niemand startet in diesem 15-s-Fenster unmittelbar nach 'docker run'
+  // von Hand neu); eine einzige Erhöhung bleibt für den Rest des Fensters
+  // bei JEDER Abtastrate sichtbar), sondern damit ein echter Absturz möglichst
   // früh erkannt wird. Das GESAMTFENSTER (die Kulanzzeit für einen langsam
   // startenden, gesunden Container) muss dabei exakt gleich bleiben. Ein
   // Rechen- statt eines Textvergleichs, aus demselben Grund, aus dem die

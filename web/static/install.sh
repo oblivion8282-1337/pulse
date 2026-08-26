@@ -682,21 +682,30 @@ trap _trim_log EXIT
 # '.State.Restarting' waere die naheliegende Alternative, ist aber ebenfalls
 # unbrauchbar: gemessen liefert es bei 'status=restarting' teils 'false'
 # zurueck (Momentaufnahme-Rennen zwischen Zyklus-Ende und naechstem Start).
-# '.RestartCount' dagegen ist ein monoton wachsender, dauerhafter Zaehler seit
-# der Erzeugung des Containers — einmal ueber 0 gestiegen, faellt er nie
-# zurueck. Der Container ist hier gerade frisch per 'docker run' erzeugt
-# worden, sein Zaehler MUSS also ueber das ganze Fenster 0 bleiben, sonst ist
-# der Start nicht stabil. Zusaetzlich wird '.State.Status = "running"'
-# verlangt: das faengt den Moment ab, in dem der Container gerade zwischen
-# zwei Neustarts steht ('restarting'/'exited'), der Zaehler die naechste
+# '.RestartCount' dagegen ist ein monoton wachsender Zaehler INNERHALB einer
+# Neustartschleife — dort faellt er nie zurueck. Er faellt aber sehr wohl
+# zurueck bei einem MANUELLEN Neustart: 'docker restart' nullt ihn (Docker
+# ruft dabei intern ResetRestartManager(true) auf), gemessen 6 im Karussell,
+# 1 direkt nach 'docker restart' desselben Containers. Fuer DIESES Fenster
+# ist das folgenlos — es liegt unmittelbar nach 'docker run', niemand startet
+# hier von Hand neu. Der Container ist hier gerade frisch erzeugt worden,
+# sein Zaehler MUSS also ueber das ganze Fenster 0 bleiben, sonst ist der
+# Start nicht stabil. Zusaetzlich wird '.State.Status = "running"' verlangt:
+# das faengt den Moment ab, in dem der Container gerade zwischen zwei
+# Neustarts steht ('restarting'/'exited'), der Zaehler die naechste
 # Erhoehung aber noch nicht eingetragen hat.
+#
+# Bei der EINMALIGEN Probe im Aufraeum-Tor weiter unten ist derselbe
+# Rueckfall keineswegs folgenlos — dort steht die bekannte Luecke im
+# Kommentar an ihrem eigenen Ort.
 #
 # Das INTERVALL bleibt trotzdem fein (0,2 s statt 1 s, bei entsprechend mehr
 # Versuchen — dasselbe Gesamtfenster, nur feiner abgetastet), aber aus einem
 # ANDEREN Grund als frueher hier stand: nicht mehr, weil eine grobe Probe
 # eine kurze Neustartschleife zwischen zwei Proben verpassen koennte (das
-# kann sie nicht mehr — '.RestartCount' faellt nie zurueck, eine einzige
-# Erhoehung bleibt fuer den Rest des Fensters bei JEDER Abtastrate sichtbar).
+# kann sie nicht mehr — '.RestartCount' faellt INNERHALB der Schleife nie
+# zurueck, s. Einschraenkung oben, eine einzige Erhoehung bleibt fuer den
+# Rest des Fensters bei JEDER Abtastrate sichtbar).
 # Die Schleife bricht beim ersten fehlgeschlagenen Check weiterhin sofort ab
 # (sitzt also nichts aus); ein feines Intervall erkennt einen echten Absturz
 # lediglich frueher, ohne die Kulanzzeit fuer einen langsam startenden,
@@ -741,11 +750,20 @@ container_laeuft_stabil() {
 # '.RestartCount' seit der Erzeugung bei 0 steht (statt '.State.Running',
 # das in einer Neustartschleife durchgehend 'true' bleibt — Begründung
 # oben) — dieselbe Probe, aber diesmal EINMALIG statt in einer Schleife.
-# Das genügt trotzdem: '.RestartCount' ist ein kumulativer Zähler, eine
-# einzelne Abfrage jetzt zeigt deshalb den GANZEN Fünf-Minuten-Takt seit dem
-# letzten 'docker run', nicht nur den Moment der Abfrage. Ist $CONTAINER
-# seit seiner Erzeugung nie neu gestartet worden UND läuft er gerade, war
-# der letzte Wechsel tatsächlich dauerhaft erfolgreich.
+# Eine einzelne Abfrage jetzt deckt den GANZEN Fünf-Minuten-Takt seit dem
+# letzten 'docker run' ab, SOLANGE niemand den Container von Hand neu
+# gestartet hat.
+#
+# BEKANNTE LÜCKE, nicht behoben: 'docker restart' nullt '.RestartCount'
+# (gemessen: 6 im Karussell, 1 direkt danach) — und genau das rät die
+# eigene Diagnose bei einem abgelaufenen oder selbstsignierten Zertifikat
+# (dcc_auth/diagnose_texte.py, s. auch SELF_HOST.md-Troubleshooting). Hing
+# $CONTAINER im Fünf-Minuten-Fenster im Absturzkarussell und wurde dann per
+# 'docker restart' neu gestartet, gilt er hier fälschlich als dauerhaft
+# erfolgreich und verliert seinen Rückweg. Kein Umbau hier: die richtige
+# Lösung wäre '.State.StartedAt' gegen die Taktlänge zu prüfen (misst, seit
+# wann der AKTUELLE Prozess läuft, unabhängig vom Zähler) — eine eigene
+# Entscheidung mit eigener Messung, nicht diese Korrektur.
 #
 # Muss VOR dem Digest-Kurzschluss unten stehen — sonst räumt ein Lauf ohne
 # neues Image (der häufigste) nie auf, und der Rückweg bliebe für immer liegen.
@@ -1056,7 +1074,7 @@ for _ in $(seq 1 60); do
   # unten eine EIGENE Meldung, nicht "the step marked FAILED above", denn
   # oben steht in diesem Fall gar kein FAILED — der Container starb, bevor er
   # überhaupt einen weiteren Schritt in setup-status schreiben konnte.
-  WERTE="$(docker inspect -f '{{.RestartCount}} {{.State.Status}}' "$CONTAINER" 2>/dev/null)"
+  WERTE="$(docker inspect -f '{{.RestartCount}} {{.State.Status}}' "$CONTAINER" 2>/dev/null)" || WERTE=""
   RESTARTS="${WERTE%% *}"
   STATUS="${WERTE#* }"
   if [ "${RESTARTS:-0}" != "0" ]; then
