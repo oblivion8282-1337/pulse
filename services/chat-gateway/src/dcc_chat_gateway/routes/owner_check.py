@@ -68,6 +68,12 @@ router = APIRouter()
 #: (heute ausserdem ``watchtower-update``).
 ZWECK = "owner-check"
 
+#: Zugestandener Uhrenversatz gegenueber der Cloud, in Sekunden. Gleich der
+#: Lebensdauer des Tokens (``selfhost_probe_betreiber.TOKEN_FRIST_S``): mehr
+#: waere geschenkte Gueltigkeit, weniger liesse einen leicht falsch gehenden
+#: Server durchfallen, obwohl an seiner Konfiguration nichts fehlt.
+ZEITTOLERANZ_S = 60
+
 
 class OwnerCheckAus(BaseModel):
     """Drei Ja/Nein-Bits — genau die drei Bedingungen aus ``cert_login.py``."""
@@ -114,7 +120,19 @@ async def _cloud_claims(token: str, redis: Any, eigene_instanz: int) -> dict[str
             token,
             schluessel,
             algorithms=["RS256"],  # nie aus dem Token-Kopf ableiten
-            options={"verify_aud": False},
+            # Uhrenversatz zwischen Cloud und Instanz ist hier ein realer Fall,
+            # kein theoretischer: ``user_profile_cache.py`` behandelt ihn an
+            # derselben Grenze schon. Das Token lebt nur eine Minute — ginge die
+            # Uhr dieses Servers eine Minute vor, waere das Glied dauerhaft tot,
+            # und der Befund zeigte auf eine falsche Ursache.
+            #
+            # ``verify_iat=False``: ein ``iat`` in der (lokalen) Zukunft ist
+            # Versatz, kein Angriff. ``leeway`` deckt dieselbe Spanne auf der
+            # ``exp``-Seite ab. Zusammen: bis ZEITTOLERANZ_S Versatz in beide
+            # Richtungen wird geprueft wie gewollt, darueber hinaus abgelehnt —
+            # und dafuer nennt der Befundtext die Uhr ausdruecklich.
+            leeway=ZEITTOLERANZ_S,
+            options={"verify_aud": False, "verify_iat": False},
         )
     except jwt.PyJWTError:
         raise abgelehnt from None

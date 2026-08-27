@@ -22,6 +22,7 @@ import jwt
 import pytest
 
 from dcc_chat_gateway.credential_validator import REDIS_CLOUD_JWKS_KEY, REDIS_JWKS_KEY
+from dcc_chat_gateway.routes import owner_check
 
 PFAD = "/.well-known/pulse-owner-check"
 MEINE_INSTANZ = 86083174400004096
@@ -63,6 +64,7 @@ def _cloud_token(
     instance_id: int | str = MEINE_INSTANZ,
     owner_user_id: int | str = MEIN_KONTO,
     exp_delta: int = 60,
+    iat_versatz: int = 0,
 ) -> str:
     """Ein Token, wie die Cloud es fuer die Erreichbarkeitspruefung ausstellt."""
     now = int(time.time())
@@ -71,7 +73,7 @@ def _cloud_token(
             "purpose": purpose,
             "instance_id": str(instance_id),
             "owner_user_id": str(owner_user_id),
-            "iat": now,
+            "iat": now + iat_versatz,
             "exp": now + exp_delta,
         },
         signer._private_key,
@@ -162,12 +164,50 @@ async def test_ohne_token(client, app, _auth_signer, _isolate_chat_settings):
 
 @pytest.mark.asyncio
 async def test_abgelaufenes_token(client, app, _auth_signer, _isolate_chat_settings):
+    """Deutlich abgelaufen — jenseits jeder zugestandenen Uhr-Toleranz."""
     _isolate_chat_settings.pulse_instance_id = MEINE_INSTANZ
     await _jwks_bereitstellen(app, _auth_signer)
 
-    token = _cloud_token(_auth_signer, exp_delta=-10)
+    token = _cloud_token(_auth_signer, exp_delta=-(owner_check.ZEITTOLERANZ_S + 30))
 
     assert (await client.get(PFAD, headers=_kopf(token))).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_nachgehende_serveruhr_verhindert_die_auskunft_nicht(
+    client, app, _auth_signer, _isolate_chat_settings
+):
+    """Geht die Uhr dieses Servers nach, ist das Token aus SEINER Sicht knapp
+    abgelaufen, obwohl die Cloud es gerade erst ausgestellt hat.
+
+    Ohne Toleranz waere das Glied auf so einer Maschine dauerhaft tot — und der
+    Befund zeigte auf „hat die Cloud nie erreicht" statt auf die Uhr.
+    """
+    _isolate_chat_settings.pulse_instance_id = MEINE_INSTANZ
+    _isolate_chat_settings.pulse_instance_owner_id = MEIN_KONTO
+    await _jwks_bereitstellen(app, _auth_signer)
+
+    token = _cloud_token(_auth_signer, exp_delta=-(owner_check.ZEITTOLERANZ_S // 2))
+
+    antwort = await client.get(PFAD, headers=_kopf(token))
+    assert antwort.status_code == 200
+    assert antwort.json()["stimmt_ueberein"] is True
+
+
+@pytest.mark.asyncio
+async def test_vorgehende_serveruhr_verhindert_die_auskunft_nicht(
+    client, app, _auth_signer, _isolate_chat_settings
+):
+    """Der umgekehrte Fall: aus Sicht des Servers liegt das Token in der
+    Zukunft. PyJWT wirft dafuer ``ImmatureSignatureError`` — ein ``iat`` in der
+    lokalen Zukunft ist hier Versatz, kein Angriff."""
+    _isolate_chat_settings.pulse_instance_id = MEINE_INSTANZ
+    _isolate_chat_settings.pulse_instance_owner_id = MEIN_KONTO
+    await _jwks_bereitstellen(app, _auth_signer)
+
+    token = _cloud_token(_auth_signer, iat_versatz=600, exp_delta=660)
+
+    assert (await client.get(PFAD, headers=_kopf(token))).status_code == 200
 
 
 @pytest.mark.asyncio
