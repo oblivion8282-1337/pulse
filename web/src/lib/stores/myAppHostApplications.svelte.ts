@@ -201,8 +201,10 @@ class MyAppHostApplications {
           // damit die Karte ohne App-Neustart aus dem „gesperrt"-Zustand kommt
           // und den Download zeigt.
           void auth.refreshUser();
-          // Die auto-provisionierte App-Host-Instanz sofort in die
-          // Server-Leiste ziehen (statt auf den nächsten Login zu warten).
+          // Liste angleichen (statt auf den nächsten Login zu warten). Die
+          // auto-provisionierte App-Host-Instanz steht dabei seit 2026-08-27
+          // erst dann in der Server-Leiste, wenn ihre Zugangsdaten abgeholt
+          // sind — beim App-Hosting also nach dem Pairing der Server-App.
           void serversStore.hydrateFromBackend();
         } else if (app.status === 'rejected') {
           const reason = app.rejection_reason ? ` — ${app.rejection_reason}` : '';

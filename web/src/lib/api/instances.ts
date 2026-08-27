@@ -71,6 +71,12 @@ export interface Instance {
    *  nur beigetreten ist (damit sie auf allen Geräten in der Server-Leiste
    *  stehen) — nur `owner` darf einrichten und löschen. */
   role: 'owner' | 'member';
+  /** Sind die Zugangsdaten dieses Servers schon abgeholt worden (Installer
+   *  eingelöst oder `.env` geladen)? Erst dann nimmt `serversStore` ihn in die
+   *  Server-Leiste auf — vorher steht er nur unter „Eigener Server".
+   *  Optional, weil ein älterer Cloud-Stand das Feld noch nicht schickt; wird
+   *  dort wie `false` behandelt (s. `hydrateFromBackend`). */
+  set_up?: boolean;
 }
 
 /** Spiegelt ApplicationOut (Admin-Route — trägt applicant_username). */

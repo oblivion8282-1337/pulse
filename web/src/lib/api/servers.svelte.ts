@@ -413,6 +413,24 @@ class ServersStore {
           continue;
         }
 
+        // Noch nicht versorgt = noch nicht eingerichtet: kein Eintrag in der
+        // Leiste. Bis 2026-08-27 entstand er in der Sekunde der Freigabe, und
+        // der Nutzer sah einen Server, den es nirgends gab — mit totem
+        // Status-Punkt und einer Erklärung, die nur im Tooltip stand. Bis
+        // dahin lebt die Instanz unter „Eigener Server", wo auch der Knopf
+        // sitzt, mit dem man sie einrichtet.
+        //
+        // Nur der NEUE Eintrag hängt daran. Bestehende bleiben unangetastet:
+        // dieser Store entfernt grundsätzlich nichts (der Sweep gelöschter
+        // Instanzen ist der einzige Löschpfad und hängt an ganz anderen
+        // Bedingungen) — und ein Löschen träfe sonst auch einen laufenden
+        // Server, dessen Pairing die Cloud nicht kennt.
+        //
+        // Fehlt das Feld (ältere Cloud), gilt „nicht eingerichtet" NICHT: dann
+        // wäre die Leiste auf einen Schlag leer, obwohl sich nichts geändert
+        // hat. Deshalb `=== false` statt `!inst.set_up`.
+        if (inst.set_up === false) continue;
+
         this.servers = [
           ...this.servers,
           {

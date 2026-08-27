@@ -164,8 +164,11 @@ class MyInstanceApplications {
           toast.success(m.instance_app_approved_toast_title(), {
             description: m.instance_app_approved_toast_body({ hostname: app.hostname })
           });
-          // Die genehmigte Instanz sofort in die Server-Leiste ziehen —
-          // ohne das erschien sie erst nach Reload/Re-Login.
+          // Liste angleichen. Seit 2026-08-27 erscheint die genehmigte
+          // Instanz hier NICHT mehr in der Server-Leiste — dafür fehlen ihr
+          // die abgeholten Zugangsdaten (`set_up`). Der Abgleich lohnt
+          // trotzdem: er ist der Weg, auf dem sie auftaucht, sobald der
+          // Installer gelaufen ist, ohne dass jemand neu anmelden muss.
           void serversStore.hydrateFromBackend();
         } else if (app.status === 'rejected') {
           const reason = app.rejection_reason ? ` — ${app.rejection_reason}` : '';
