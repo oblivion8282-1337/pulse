@@ -4,11 +4,13 @@
 //! Identitaeten, Sitzungen und Umschlaege — mehr nicht.
 
 pub mod fehler;
+pub mod gruppe;
 pub mod identitaet;
 pub mod sitzung;
 pub mod umschlag;
 
 pub use fehler::KryptoFehler;
+pub use gruppe::{Gruppenempfang, Gruppennachricht, Gruppensitzung};
 pub use identitaet::{Identitaet, Identitaetsschluessel};
 pub use sitzung::Sitzung;
 pub use umschlag::{Umschlag, Umschlagart};
