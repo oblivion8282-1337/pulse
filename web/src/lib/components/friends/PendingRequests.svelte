@@ -60,8 +60,8 @@
 <section class="flex flex-col gap-6" data-testid="pending-tab">
   <!-- Community-Einladungen (Nutzername-Einladungen) — gleiche Schiene wie
        Freundschaftsanfragen, darum hier im Pending-Tab. -->
-  <div>
-    <h2 class="text-text-bright px-1 pb-2 text-xs font-semibold uppercase tracking-wide">
+  <div class="flex flex-col gap-2">
+    <h2 class="text-text-bright px-1 text-xs font-semibold uppercase tracking-wide">
       {m.pending_requests_incoming_heading({ count: friendRequests.incomingList.length })}
     </h2>
     {#if friendRequests.incomingList.length === 0}
@@ -71,7 +71,7 @@
       {@const u = userCache.get(r.sender_id)}
       {@const avatar = safeAvatarUrl(u?.avatar_url ?? null)}
       <div
-        class="hover:bg-bg-hover flex items-center gap-3 rounded-md px-2 py-2"
+        class="hover:bg-bg-hover border-border bg-bg-input flex items-center gap-3 rounded-[14px] border px-3 py-2.5"
         data-testid="pending-in-row"
         data-request-id={r.id}
       >
@@ -110,8 +110,8 @@
       </div>
     {/each}
   </div>
-  <div>
-    <h2 class="text-text-bright px-1 pb-2 text-xs font-semibold uppercase tracking-wide">
+  <div class="flex flex-col gap-2">
+    <h2 class="text-text-bright px-1 text-xs font-semibold uppercase tracking-wide">
       {m.pending_requests_outgoing_heading({ count: friendRequests.outgoingList.length })}
     </h2>
     {#if friendRequests.outgoingList.length === 0}
@@ -121,7 +121,7 @@
       {@const u = userCache.get(r.receiver_id)}
       {@const avatar = safeAvatarUrl(u?.avatar_url ?? null)}
       <div
-        class="hover:bg-bg-hover flex items-center gap-3 rounded-md px-2 py-2"
+        class="hover:bg-bg-hover border-border bg-bg-input flex items-center gap-3 rounded-[14px] border px-3 py-2.5"
         data-testid="pending-out-row"
         data-request-id={r.id}
       >

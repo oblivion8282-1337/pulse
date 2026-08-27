@@ -64,15 +64,18 @@
 </script>
 
 {#if communityInvites.list.length > 0}
-  <div>
-    <h2 class="text-text-bright px-1 pb-2 text-xs font-semibold uppercase tracking-wide">
+  <div class="flex flex-col gap-2">
+    <h2 class="text-text-bright px-1 text-xs font-semibold uppercase tracking-wide">
       {m.community_invites_heading({ count: communityInvites.list.length })}
     </h2>
+    <!-- Zeilenform wie in FriendList: eigener Grund + Rand statt bloss eines
+         Hover-Effekts. Eine Einladung wartet auf eine Entscheidung; sie soll
+         als Karte lesbar sein, nicht als Listenzeile. -->
     {#each communityInvites.list as inv (inv.id)}
       {@const u = userCache.get(inv.inviter_user_id)}
       {@const avatar = safeAvatarUrl(u?.avatar_url ?? null)}
       <div
-        class="hover:bg-bg-hover flex items-center gap-3 rounded-md px-2 py-2"
+        class="hover:bg-bg-hover border-border bg-bg-input flex items-center gap-3 rounded-[14px] border px-3 py-2.5"
         data-testid="community-invite-row"
         data-invite-id={inv.id}
       >
