@@ -163,7 +163,13 @@ async def test_create_schreibt_keine_nachricht(
 async def test_create_cloud_ziel_ohne_host(
     client, _auth_signer, friend_pair, session_factory
 ):
-    """Cloud-Ziel: ``target_host`` bleibt leer, der Beitritt laeuft hier."""
+    """Cloud-Ziel: ``target_host`` bleibt leer, der Beitritt laeuft hier.
+
+    Der Test hiess schon so und sagte es auch im Satz — geprueft hat er bis
+    2026-08-27 das Gegenteil (``== "howispulse.com"``) und hielt damit den
+    gemeldeten Fehler fest: unter jeder Cloud-Einladung stand die eigene
+    Adresse. Name und Beschreibung waren die ganze Zeit richtig.
+    """
     from dcc_chat_gateway.models import CommunityInviteNotification
 
     t_a, uid_a = await _register(_auth_signer)
@@ -179,7 +185,7 @@ async def test_create_cloud_ziel_ohne_host(
     async with session_factory() as s:
         zeile = await s.get(CommunityInviteNotification, int(r.json()["id"]))
     assert zeile is not None
-    assert zeile.target_host == "howispulse.com"
+    assert zeile.target_host is None
 
 
 @pytest.mark.asyncio
@@ -385,3 +391,50 @@ async def test_self_host_returns_404(client, _auth_signer, _isolate_chat_setting
         "/community-invites", json=_payload(uid_b), headers=auth(t_a)
     )
     assert r_post.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# target_host — „NULL = Cloud-Ziel" (gemeldet 2026-08-27)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cloud_ziel_traegt_keinen_host(client, _auth_signer, friend_pair):
+    """Der Absender schickt seine ``server.hostname`` — fuer die Cloud die
+    eigene Adresse. Gespeichert und ausgeliefert werden darf sie nicht: die
+    Karte blendet den Host nur bei FREMDEN Servern ein, sonst stand unter jeder
+    Cloud-Einladung „https://howispulse.com"."""
+    t_a, uid_a = await _register(_auth_signer)
+    t_b, uid_b = await _register(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+
+    r = await client.post(
+        "/community-invites",
+        json=_payload(uid_b, target_host="https://howispulse.com"),
+        headers=auth(t_a),
+    )
+    assert r.status_code == 201, r.text
+
+    r = await client.get("/me/community-invites", headers=auth(t_b))
+    assert r.status_code == 200, r.text
+    eintraege = r.json()
+    assert len(eintraege) == 1
+    assert eintraege[0]["target_host"] is None
+
+
+@pytest.mark.asyncio
+async def test_fremder_host_bleibt_stehen(client, _auth_signer, friend_pair):
+    """Gegenprobe: ein echter Self-Host kommt durch — nackt, ohne Schema."""
+    t_a, uid_a = await _register(_auth_signer)
+    t_b, uid_b = await _register(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+
+    r = await client.post(
+        "/community-invites",
+        json=_payload(uid_b, target_host="https://chat.firma.de"),
+        headers=auth(t_a),
+    )
+    assert r.status_code == 201, r.text
+
+    r = await client.get("/me/community-invites", headers=auth(t_b))
+    assert r.json()[0]["target_host"] == "chat.firma.de"

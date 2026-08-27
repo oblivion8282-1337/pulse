@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.invite_host import fremder_host
 from dcc_chat_gateway.guild_caps import enforce_member_cap
 from dcc_chat_gateway.friend_events import publish_friend_event
 from dcc_chat_gateway.friend_helpers import block_exists_either_way
@@ -83,7 +84,11 @@ def _to_out(row: CommunityInviteNotification, guild_name: str) -> CommunityInvit
         guild_name=guild_name,
         inviter_user_id=str(row.inviter_user_id),
         invitee_user_id=str(row.invitee_user_id),
-        target_host=row.target_host,
+        # Durch `fremder_host`: die Spalte MEINT „NULL = Cloud", geschrieben
+        # wurde aber lange die eigene Adresse. Hier gefiltert heilen die
+        # bestehenden Zeilen von selbst — die Karte zeigte sonst
+        # „https://howispulse.com" unter jeder Cloud-Einladung.
+        target_host=fremder_host(row.target_host),
         created_at=row.created_at.isoformat(),
     )
 

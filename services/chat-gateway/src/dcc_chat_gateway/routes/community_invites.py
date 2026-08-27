@@ -37,6 +37,7 @@ from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.friend_helpers import block_exists_either_way, friendship_exists
 from dcc_chat_gateway.friend_events import publish_friend_event
+from dcc_chat_gateway.invite_host import bare_host, fremder_host
 from dcc_chat_gateway.models import CommunityInviteNotification, GuildMember
 from dcc_chat_gateway.ratelimit import check as ratelimit_check
 from dcc_chat_gateway.routes._deps import CloudOnly
@@ -48,22 +49,6 @@ from dcc_chat_gateway.snowflake import next_id
 log = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=[CloudOnly])
-
-
-def _bare_host(host: str) -> str:
-    """Strip scheme + trailing slash, lower-case → bare FQDN.
-
-    ``target_host`` arrives either as a full ``https://…`` origin (the
-    frontend sends ``server.hostname``) or as a bare FQDN (older callers /
-    tests). Normalise both to the bare host the invite-link ``?host=`` param
-    and the Cloud-origin comparison expect.
-    """
-    h = host.strip().lower().rstrip("/")
-    for scheme in ("https://", "http://"):
-        if h.startswith(scheme):
-            h = h[len(scheme) :]
-            break
-    return h.rstrip("/")
 
 
 def _invite_link(inv: CommunityInvite) -> str:
@@ -82,8 +67,8 @@ def _invite_link(inv: CommunityInvite) -> str:
     settings = get_settings()
     cloud_origin = settings.pulse_cloud_origin.strip().rstrip("/")
     base = f"{cloud_origin}/invite/{inv.code}"
-    target = _bare_host(inv.target_host) if inv.target_host else ""
-    cloud_host = _bare_host(cloud_origin)
+    target = bare_host(inv.target_host) if inv.target_host else ""
+    cloud_host = bare_host(cloud_origin)
     if not target or target == cloud_host:
         return base
     return f"{base}?host={quote(target, safe='')}"
@@ -177,7 +162,7 @@ async def create_community_invite(
         # anzulegen: der Code kann frisch sein (der Einladende hat einen neuen
         # geholt), die Karte beim Empfaenger soll aber dieselbe bleiben.
         vorhanden.inviter_user_id = current.id
-        vorhanden.target_host = payload.target_host
+        vorhanden.target_host = fremder_host(payload.target_host)
         vorhanden.target_instance_id = payload.target_instance_id
         vorhanden.guild_name = payload.target_guild_name
         vorhanden.code = payload.code
@@ -189,7 +174,11 @@ async def create_community_invite(
             guild_id=payload.target_guild_id,
             inviter_user_id=current.id,
             invitee_user_id=payload.invitee_id,
-            target_host=payload.target_host,
+            # Ein Cloud-Ziel wird zu NULL — so meint es die Spalte, und so
+            # liest es der Klient (die Karte zeigt den Host nur bei fremden
+            # Servern). Der Absender schickt hier seine `server.hostname`, die
+            # für die Cloud die eigene Adresse ist.
+            target_host=fremder_host(payload.target_host),
             target_instance_id=payload.target_instance_id,
             code=payload.code,
             guild_name=payload.target_guild_name,
