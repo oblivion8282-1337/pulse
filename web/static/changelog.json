@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-27.4",
+      "date": "2026-08-27",
+      "style": "Sachlich",
+      "title": "Eigene Server konnten sich fälschlicherweise als gesperrt melden",
+      "intro": "Ein Fehler traf Server, die nach einer Löschung neu aufgesetzt wurden.",
+      "items": [
+        "Wer seinen eigenen Server gelöscht und danach einen neuen aufgesetzt hat, konnte erleben, dass dieser sich dauerhaft für gesperrt hielt: Anmeldungen wurden abgewiesen, Sprachkanäle und Bildschirmübertragung blieben tot. Die Meldung war falsch — der Server war die ganze Zeit freigeschaltet. Er merkte sich schlicht den Zustand seines Vorgängers und hatte keinen Anlass mehr, ihn zu überprüfen.",
+        "Der Zustand wird jetzt dem Server zugeordnet, zu dem er gehört. Betroffene Server geben sich beim nächsten Abgleich von selbst wieder frei."
+      ]
+    },
+    {
       "id": "2026-08-27.3",
       "date": "2026-08-27",
       "style": "Sachlich",
