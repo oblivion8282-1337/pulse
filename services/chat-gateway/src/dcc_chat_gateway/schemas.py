@@ -1154,3 +1154,38 @@ class OwnerReportedContentOut(BaseModel):
     @field_serializer("guild_id", "channel_id", "message_id", "author_id")
     def _ser_opt_ids(self, v: int | None) -> str | None:
         return _opt_id_str(v)
+
+
+# ---------------------------------------------------------------------------
+# Geraete-Schluesselverzeichnis (Etappe B, E2E-DM)
+# ---------------------------------------------------------------------------
+
+
+class BundleVeroeffentlichenRequest(BaseModel):
+    """Rumpf von ``PUT /keys/bundle``.
+
+    ``device_pubkey`` und ``cert_id`` stehen bewusst NICHT hier — sie kommen
+    ausschliesslich aus dem geprueften Zertifikat (s. ``schluessel_nachweis.py``),
+    ein Wert aus dem Rumpf koennte gefaelscht sein.
+    """
+
+    cert: str
+    #: Base64url(Ed25519-Unterschrift) ueber ``baue_nutzlast("buendel", …)``.
+    signatur: str
+    curve25519: str
+    rueckfallschluessel: str | None = None
+    rueckfall_signatur: str | None = None
+
+
+class EinmalschluesselHinzufuegenRequest(BaseModel):
+    """Rumpf von ``POST /keys/onetime``."""
+
+    cert: str
+    #: Base64url(Ed25519-Unterschrift) ueber
+    #: ``baue_nutzlast("einmalschluessel", *schluessel)``.
+    signatur: str
+    schluessel: list[str] = Field(min_length=1)
+
+
+class EinmalschluesselVorratOut(BaseModel):
+    vorrat: int
