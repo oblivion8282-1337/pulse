@@ -41,7 +41,16 @@ changed="${1:-}"
 # Sendeweg gibt — dass `ccm fir`/`nack pli` wirklich im Angebot stehen, dass
 # `stereo=1` es hinausschafft, dass die H.264-Stufe die gerechnete ist. Jeder
 # einzelne hält einen Fehler fest, der schon einmal da war.
-for kiste in $(echo "$changed" | sed -n 's|^\(streaming/pulse-[a-z-]*\)/.*|\1|p' | sort -u); do
+#
+# `krypto/pulse-krypto` ist seit dem 2026-08-28 dabei und steht bewusst in
+# derselben Schleife statt in einer eigenen: es ist eine gemeinsame Kiste wie
+# die anderen — ohne Fremdbau, ohne FFmpeg, `cargo test` genügt. Wäre das
+# Muster hier auf `streaming/` beschränkt geblieben, hätte der Krypto-Kern am
+# Tag seiner Entstehung 11 Tests gehabt, die in KEINEM Gate laufen — dieselbe
+# Fehlerklasse, die dieser Block überhaupt erst begründet hat.
+for kiste in $(echo "$changed" | sed -n \
+  -e 's|^\(streaming/pulse-[a-z-]*\)/.*|\1|p' \
+  -e 's|^\(krypto/pulse-[a-z-]*\)/.*|\1|p' | sort -u); do
   [ "$kiste" = "streaming/pulse-player" ] && continue
   [ -f "$kiste/Cargo.toml" ] || continue
   # `${kiste}` mit Klammern, und das ist kein Schoenheitsfehler: macOS
