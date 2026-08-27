@@ -2,6 +2,21 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-27.10",
+      "date": "2026-08-27",
+      "style": "Sachlich",
+      "title": "Community-Einladungen haben jetzt einen eigenen Ort",
+      "intro": "Bisher kamen sie als Nachricht im Direktnachrichten-Verlauf an. Das ändert sich.",
+      "items": [
+        "Einladungen stehen jetzt unter „Einladungen“ in der Nachrichten-Spalte, mit eigener Zahl daneben. Der Verlauf mit einer Person bleibt damit das, was ihr geschrieben habt.",
+        "Der Hintergrund: Für eine Einladung im Verlauf musste der Server eine Nachricht im Namen des Einladenden anlegen. Bei Direktnachrichten, die künftig Ende zu Ende verschlüsselt sind, kann er das nicht mehr — er hat den Schlüssel nicht und soll ihn nie haben.",
+        "Angenommene und abgelehnte Einladungen verschwinden aus der Liste. Es gibt kein Register darüber, wer wen wann eingeladen hat.",
+        "Einladungen zu einer Community auf einem eigenen Server zeigen dir vor dem Antippen, auf welchen Server du trittst.",
+        "Am Rechner erreichst du „Hinzufügen“, „Ausstehend“ und „Blockiert“ in der Freundesliste jetzt direkt über drei Symbole in der Kopfzeile statt über das Drei-Punkte-Menü. Die rote Zahl steht damit dort, wo auch ihr Inhalt liegt.",
+        "Einladungen und Freundschaftsanfragen erscheinen als Karten mit eigenem Rand statt als blosse Zeilen."
+      ]
+    },
+    {
       "id": "2026-08-27.9",
       "date": "2026-08-27",
       "style": "Sachlich",
