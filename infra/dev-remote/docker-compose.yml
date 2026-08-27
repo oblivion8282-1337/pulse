@@ -304,7 +304,7 @@ services:
   # weiterhin CI und einen neuen Tag — Quellcode-Sync hilft dabei nicht.
   mediamtx:
     <<: *base
-    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse5
+    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse6
     container_name: pulsetest_mediamtx
     environment:
       PULSE_KEYFRAME_INTERVAL: "0"

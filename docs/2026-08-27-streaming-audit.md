@@ -265,12 +265,18 @@ gebaut wurde.
 Der Zähler steht jetzt auf 6, und der Workflow liest ihn direkt aus dem
 Dockerfile — der nächste Bau heißt also `1.19.1-pulse6`.
 
-**Die drei compose-Dateien zeigen absichtlich noch auf `pulse5`.** Die
-Reihenfolge ist zwingend: erst muss das Bild gebaut sein, dann dürfen die
-Server darauf zeigen. Andersherum holen sie ein Bild, das es noch nicht gibt,
-und der Streaming-Server läuft nicht mehr an. Das Umstellen ist der zweite,
-getrennte Handgriff — er gehört mit einem Deploy zusammen und nicht in
-denselben Commit.
+Die drei compose-Dateien sind im zweiten Schritt nachgezogen, nachdem der
+Workflow `1.19.1-pulse6` gebaut und gepusht hatte (belegt am Log:
+`pushing manifest … done`, `sha256:bc99c3d5…`). Die Reihenfolge ist zwingend —
+andersherum holen die Server ein Bild, das es noch nicht gibt.
+
+**Damit ist es im Repository richtig, aber noch nicht auf der Cloud.** Der
+Auto-Update-Cron zieht `:latest` für die Dienst-Bilder; MediaMTX hängt dagegen
+an einem festen Tag in der compose-Datei, die AUF DEM SERVER liegt. Die neue
+Zeile erreicht ihn erst über `rsync infra/ → ~/pulse/infra/` und ein
+`docker compose up -d pulse_mediamtx`. Das ist ein Handgriff am laufenden
+System und unterbricht kurz alle laufenden Streams — er gehört bewusst nicht
+in einen automatischen Deploy.
 
 
 ### 2.8 Kleinere Punkte
