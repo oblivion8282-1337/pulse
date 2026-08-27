@@ -9,6 +9,7 @@
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
+  import { darfCommunityAnlegen } from '$lib/servers/erstellrecht';
   import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { roles } from '$lib/stores/roles.svelte';
@@ -22,13 +23,18 @@
   import type { DMChannel } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
 
-  // Admins können immer erstellen — auf der Cloud via ``auth.user.is_admin``,
-  // auf einem Self-Host via ``serverAdmin`` (Ready-Frame; Cert-User hat dort
-  // kein auth/me). Sonst greift der server-weite ``allow_guild_creation``-Flag.
+  // Darf ich auf dem AKTIVEN Server eine Community anlegen? Rechnung in
+  // ``lib/servers/erstellrecht.ts`` (eine Stelle für alle drei Aufrufer).
   const canCreateGuild = $derived(
-    !!auth.user?.is_admin ||
-      serverAdmin.isAdmin(activeServer.serverId) ||
-      capabilities.allowGuildCreation
+    darfCommunityAnlegen({
+      istCloud: activeServer.current?.isCloud ?? false,
+      cloudAdmin: !!auth.user?.is_admin,
+      rolleLautCloud: activeServer.current?.role ?? null,
+      adminLautServer: serverAdmin.has(activeServer.serverId)
+        ? serverAdmin.isAdmin(activeServer.serverId)
+        : null,
+      offenFuerAlle: capabilities.allowGuildCreation,
+    }),
   );
 
   let creating = $state(false);
