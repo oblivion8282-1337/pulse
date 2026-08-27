@@ -10,7 +10,8 @@
       "items": [
         "„Self-Hoster“ war bisher ein Reiter in den Einstellungen. Beantragen, Einrichten und Verwalten eigener Server ist aber keine Einstellung, sondern eine eigene Sache mit eigenem Verlauf — sie hat jetzt einen eigenen Ort.",
         "Am Rechner führt der neue Knopf unten in der Server-Leiste dorthin, direkt über dem Admin-Symbol. Auf Tablet und Telefon steht er am Fuss der Liste unter „Räume“.",
-        "Der Hinweispunkt „dein Antrag ist freigeschaltet“ ist mitgewandert: Er sitzt jetzt an diesem Knopf statt am Profilbild und führt damit direkt dahin, wo etwas zu tun ist."
+        "Der Hinweispunkt „dein Antrag ist freigeschaltet“ ist mitgewandert: Er sitzt jetzt an diesem Knopf statt am Profilbild und führt damit direkt dahin, wo etwas zu tun ist.",
+        "„Server einrichten“ klappt jetzt in der Liste auf, statt ein Fenster über sie zu legen. Damit bleibt sichtbar, zu welchem Server die Einrichtung gehört; auf schmalen Geräten war das Fenster ohnehin bildschirmfüllend. Es ist immer nur eine Einrichtung offen — zwei gültige Installer-Befehle nebeneinander laden dazu ein, den falschen Server einzurichten."
       ]
     },
     {
