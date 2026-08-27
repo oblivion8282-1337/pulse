@@ -11,10 +11,22 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# "experimental-session-config" ist kein Zusatz-Paket, sondern schaltet an
-# der bereits genehmigten Abhaengigkeit vodozemac nur SessionConfig::version_2()
-# frei (Olm/Megolm V2 ohne MAC-Truncation) — ohne dieses Feature existiert die
-# Funktion im Quelltext gar nicht (`#[cfg(feature = "experimental-session-config")]`).
+# "experimental-session-config" ist kein Zusatz-Paket, sondern schaltet an der
+# bereits genehmigten Abhaengigkeit vodozemac eine Funktion frei, die ohne das
+# Feature gar nicht uebersetzt wird: `olm::SessionConfig::version_2()`
+# (`#[cfg(feature = ...)]`, session_config.rs:47).
+#
+# WARUM wir sie brauchen: Olm v1 kuerzt den Authentifizierungs-Anhang auf
+# 8 Bytes, v2 laesst ihn ungekuerzt. v1 ist die Vorgabe der Kiste und existiert
+# nur zur Kompatibilitaet mit libolm — "experimental" heisst hier NICHT
+# "unfertige Krypto", sondern "im Matrix-Oekosystem noch nicht ueberall
+# gesprochen". Pulse spricht ausschliesslich mit Pulse; dieser Grund entfaellt
+# also, und der ungekuerzte MAC ist strikt besser.
+#
+# ACHTUNG bei einer spaeteren Aenderung: die Fassung wird in den eingefrorenen
+# Sitzungszustand mitgeschrieben. Ein Wechsel bricht bestehende Sitzungen.
+#
+# Megolm ist hiervon NICHT betroffen — dort gibt es nur version_1().
 vodozemac = { version = "0.10.0", features = ["experimental-session-config"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

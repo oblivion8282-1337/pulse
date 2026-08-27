@@ -1001,6 +1001,16 @@ Erwartet: grün, und der neue Test taucht in der Ausgabe **namentlich** auf.
 Erscheint er nicht, greift das Glob `web/test/*.test.ts` nicht — dann liegt
 die Datei falsch.
 
+**Offener Punkt für die Folge-Etappe, hier bewusst nicht gelöst:** `web/vite.config.ts`
+kennt heute **keine** WASM-Behandlung (nachgesehen am 2026-08-28: nur
+SvelteKit, Tailwind und Paraglide). Die Ausgabe von `wasm-pack --target web`
+lädt ihr `.wasm` selbst über `import.meta.url`; ob Vite das im Bau richtig als
+Asset mitnimmt, ist **ungeprüft** und gehört in die Etappe, die den Kern
+tatsächlich in die Oberfläche einbindet. Diese Aufgabe prüft nur über Nodes
+Läufer, wo die Frage nicht auftritt. Wer es später einbindet, rechnet mit
+einem zusätzlichen Vite-Plugin — und fragt vorher nach, weil das eine neue
+Abhängigkeit wäre.
+
 - [ ] **Schritt 7: `pkg/` von Git ausschliessen**
 
 Gebaute Artefakte gehoeren nicht ins Repo. `krypto/pulse-krypto/.gitignore`
@@ -1015,26 +1025,31 @@ git commit -m "feat(krypto): WASM-Ausgabe und Ansprache aus TypeScript"
 
 ---
 
-### Task 5: Android-Cross-Build (nur übersetzen)
+### Task 5: Android-Cross-Build — **entfällt**
 
-**Vorbedingung:** Android-NDK. Ist keines eingerichtet, **diese Aufgabe
-zurueckstellen und das sagen** — nicht heimlich ueberspringen.
+Das Übergabedokument führte einen nativen Android-Bau (NDK,
+`aarch64-linux-android`) als eigene Aufgabe. **In dieser Architektur wird er
+nicht gebraucht**, und das ist am 2026-08-28 beim Nachsehen aufgefallen, nicht
+vorher bedacht worden:
 
-- [ ] **Schritt 1: Ziele hinzufügen**
+Die Android-App ist eine Capacitor-Hülle mit
+`server.url = https://howispulse.com/app` (`mobile/capacitor.config.json`) —
+sie lädt dieselbe entfernte Web-App wie Electron. Die Krypto läuft dort also
+als **WASM in der WebView**, genau wie im Browser. Es gibt keinen zweiten
+Quellcode und damit auch keine JNI-Grenze zu bedienen.
 
-```bash
-rustup target add aarch64-linux-android armv7-linux-androideabi
-```
+Ein nativer Pfad entstünde nur, wenn im Hintergrund **ohne** laufende WebView
+entschlüsselt werden müsste — also für Benachrichtigungen. Genau das schliesst
+der Entwurf aber aus (§8 der Spec: generische Meldung, Entschlüsseln erst beim
+Öffnen, weil zwei Stellen am selben Double-Ratchet-Zustand ihn beschädigen).
 
-- [ ] **Schritt 2: Übersetzen**
+**Was das erspart:** NDK, ein JDK und die Android-Kommandozeilenwerkzeuge —
+auf dieser Maschine ist keines davon vorhanden, und keines wird gebraucht.
 
-```bash
-cd krypto/pulse-krypto && cargo build --target aarch64-linux-android
-```
-Erwartet: baut durch. **Ausfuehren ist nicht Teil dieser Aufgabe** — das
-braucht ein Geraet.
-
-- [ ] **Schritt 3: Committen** (nur falls Konfigurationsdateien entstanden sind)
+**Wann diese Aufgabe zurückkommt:** wenn Pulse je eine eigenständige
+Android-App bekommt, die ihre Oberfläche mitbringt statt sie zu laden. Dann ist
+`crate-type = ["cdylib", "rlib"]` bereits richtig gesetzt und es fehlt nur die
+JNI-Hülle neben `src/wasm.rs`.
 
 ---
 

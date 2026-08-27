@@ -148,6 +148,12 @@ Beide Apps laden dieselbe entfernte Web-App (`mobile/capacitor.config.json`:
 App-Quellcode — die Erkennung ist `isElectron()` / `isCapacitorAndroid()` aus
 `web/src/lib/platform/runtime.ts`, und der Krypto-Kern ist überall derselbe.
 
+**Daraus folgt, dass es keinen nativen Android-Krypto-Pfad braucht.** Die
+Kiste läuft auf dem Telefon als WASM in der WebView, nicht über JNI. Ein
+nativer Bau (NDK) wäre erst nötig, wenn Pulse eine eigenständige Android-App
+bekäme, die ihre Oberfläche mitbringt statt sie zu laden — oder wenn im
+Hintergrund ohne WebView entschlüsselt werden müsste, was §8 ausschliesst.
+
 Daraus folgt:
 
 | Lage | Verhalten |
@@ -364,7 +370,7 @@ Jede Etappe braucht vor der Umsetzung einen eigenen Plan.
 
 | | Etappe | Prüfbar durch | Hängt an |
 |---|---|---|---|
-| A | Krypto-Kern: Rust-Kiste `pulse-krypto` um vodozemac (Olm **und** Megolm), WASM-Ausgabe, Android-Cross-Build | `cargo test`, Node-Läufer | nichts |
+| A | Krypto-Kern: Rust-Kiste `pulse-krypto` um vodozemac (Olm **und** Megolm), WASM-Ausgabe | `cargo test`, Node-Läufer | nichts |
 | B | Schlüsselverzeichnis: Veröffentlichen, Abrufen, Einmalschlüssel-Vorrat und Nachfüllen | pytest, Playwright | A |
 | C | Lokaler Verlauf im Klienten, noch mit lesbaren Daten | Node-Läufer, Playwright | nichts (parallel zu A/B möglich) |
 | D | Verschlüsselte Zustellung: Postfach (Nutzlast + Zustellung), Quittung, Frist | pytest | A, B, C |
