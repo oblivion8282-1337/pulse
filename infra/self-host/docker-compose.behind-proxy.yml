@@ -5,13 +5,26 @@
 # macht nur HTTP-Routing auf 127.0.0.1:8080 (PULSE_TLS_MODE=behind-proxy ist
 # unten fest gesetzt — die .env muss dafür nicht angefasst werden).
 #
-#   1. .env.example nach .env kopieren und die 6 Pflicht-Vars eintragen
-#      (am einfachsten: howispulse.com → "Meine Instanzen" → .env-Download).
-#   2. docker compose -f docker-compose.behind-proxy.yml up -d
-#   3. EINE Regel im eigenen Proxy anlegen:
+#   1. Fertige Konfiguration in der App holen: Einstellungen → Self-Host →
+#      Meine Instanzen → "Server einrichten" → "Manuelle Installation" →
+#      ".env herunterladen". Sie ist komplett ausgefüllt — Instanz-ID,
+#      Client-ID und Secret vergibt die Cloud bei der Freigabe, das Secret
+#      zeigt sie genau einmal.
+#
+#   2. Die Datei hierher legen und in .env umbenennen:
+#
+#        mv ~/Downloads/pulse-instance-*.env .env
+#
+#   3. docker compose -f docker-compose.behind-proxy.yml up -d
+#   4. EINE Regel im eigenen Proxy anlegen:
 #        pulse.deine-domain  →  http://127.0.0.1:8080
 #      WebSocket-Upgrade muss durchgereicht werden (bei NPM: "WebSocket Support"
 #      aktivieren). Copy-paste-Snippets für Caddy/nginx/NPM: docs/SELF_HOST.md.
+#
+#   Optionale Schalter (eigenes Zertifikat, PULSE_PUBLIC_IP hinter NAT,
+#   Sicherungs-Takt, Log-Stufe) stehen in der kommentierten Referenz
+#   https://howispulse.com/self-host/env.example — zum Nachschlagen, nicht
+#   zum Ausfüllen.
 #
 # WICHTIG: Voice + HQ-Streaming laufen über WebRTC/UDP DIREKT zum Server, am
 # HTTP-Proxy vorbei — die UDP-/Media-Ports unten müssen offen bleiben. Ohne sie
