@@ -65,10 +65,9 @@
 {/snippet}
 
 <div class="flex flex-col gap-8" data-testid="self-host-panel">
-  <!-- Keine eigene Ueberschrift mehr: den Titel traegt der Kopf der Route
-       (`BereichsKopf` bzw. der Zurueck-Kopf auf dem Handy). Als Reiter im
-       Dialog brauchte das Panel ihn, als Seite stuende er zweimal da. -->
-  <p class="text-text-muted text-xs">{m.settings_self_host_description()}</p>
+  <!-- Weder Ueberschrift noch Einleitung: den Namen traegt der Kopf der Route,
+       und die Aufforderung steht als Titel IN der Karte, die sie meint — davor
+       stand derselbe Satz zweimal untereinander. -->
 
   <!-- App-Hosting (Stufe 2): gehostet wird in der separaten Server-App, hier
        steht nur Antrag + Download. Der Schalter blendet den ganzen Weg aus,
@@ -82,10 +81,10 @@
 
   <!-- Eigener Server (Stufe 3): dauerhafter VPS, braucht Cloud-Freischaltung. -->
   <section class={SECTION_CLASS} data-testid="self-host-server-section">
-    <!-- Kein Untertitel: der Satz stand hier und oben, und die zweite Hälfte
-         („nach Admin-Prüfung einmalig dein Client-Secret") beschrieb Mechanik,
-         die der Nutzer an dieser Stelle nicht braucht — das Secret taucht auf,
-         wenn es soweit ist, samt Warnung. -->
+    <!-- Titel = die Aufforderung selbst, kein Untertitel. Der frühere Zusatz
+         („nach Admin-Prüfung einmalig dein Client-Secret") beschrieb Mechanik
+         an einer Stelle, an der noch nichts beantragt ist; das Secret erklärt
+         sich, wo es auftaucht — die Warnung am .env-Download sagt es. -->
     {@render cardHeader(ServerIcon, m.self_host_server_title(), '')}
     {@render serverBody()}
   </section>
