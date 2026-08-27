@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { paraglideVitePlugin } from '@inlang/paraglide-js';
@@ -47,8 +48,46 @@ function apiProxy(port: string, opts: { ws?: boolean } = {}) {
   return { target: `${schema}://127.0.0.1:${port}`, changeOrigin: true, ...opts };
 }
 
+// Die Dateien des manuellen Self-Host-Pfads im Dev bedienen. In Produktion
+// kopiert sie `web/Dockerfile` ins nginx-Wurzelverzeichnis und
+// `web-nginx.conf` liefert sie unter `/self-host/` aus — Vite kennt nur
+// `web/`, dort liefen die Download-Knöpfe im Einrichtungs-Dialog also gegen
+// 404, und das sähe nach einem kaputten Knopf aus statt nach einer fehlenden
+// Dev-Weiche. Die Zuordnung spiegelt den Dockerfile-COPY; wer dort eine Datei
+// ergänzt, ergänzt sie hier mit (sonst ist sie nur in Produktion prüfbar).
+const SELF_HOST_DATEIEN: Record<string, string> = {
+  'docker-compose.yml': '../infra/self-host/docker-compose.yml',
+  'docker-compose.behind-proxy.yml': '../infra/self-host/docker-compose.behind-proxy.yml',
+  'env.example': '../infra/self-host/.env.example',
+  guide: '../docs/SELF_HOST.md'
+};
+
+/** Dev-Weiche für `/self-host/*` — in Produktion macht das nginx. */
+function selfHostDateien() {
+  return {
+    name: 'pulse-self-host-dateien',
+    apply: 'serve' as const,
+    configureServer(server: { middlewares: { use: (fn: unknown) => void } }) {
+      server.middlewares.use(
+        (req: { url?: string }, res: Record<string, never>, next: () => void) => {
+          const name = req.url?.match(/^\/self-host\/([^?]+)/)?.[1];
+          const quelle = name ? SELF_HOST_DATEIEN[name] : undefined;
+          if (!quelle) return next();
+          const antwort = res as unknown as {
+            setHeader: (k: string, v: string) => void;
+            end: (body: string) => void;
+          };
+          antwort.setHeader('Content-Type', 'text/plain; charset=utf-8');
+          antwort.end(readFileSync(new URL(quelle, import.meta.url), 'utf-8'));
+        }
+      );
+    }
+  };
+}
+
 export default defineConfig({
   plugins: [
+    selfHostDateien(),
     tailwindcss(),
     sveltekit(),
     // i18n (Paraglide). baseLocale=de (Quelle), Ziel=en. Kompiliert die
