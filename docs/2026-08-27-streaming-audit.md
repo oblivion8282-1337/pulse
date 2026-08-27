@@ -39,10 +39,18 @@ Das ist genau die Fehlerklasse, vor der die Wurzel-`CLAUDE.md` beim
 Vollbild-Abstand warnt — auf dem Hauptweg durchgezogen, im Rückfall-Zweig nicht
 mitgedacht. Sie hat sich damit ein zweites Mal materialisiert.
 
-Der D3D12-Weg hängt an `PULSE_HQ_AMD_D3D12=1` und ist damit eine Gegenprobe,
-kein Auslieferweg. Mitgezogen wurde er trotzdem: eine Gegenprobe, die den
-Rückkanal nicht bedient, misst etwas anderes als der Regelweg und fällt als
-Vergleich still aus.
+Der D3D12-Weg ist ebenfalls betroffen, und **schwerer, als hier zuerst stand.**
+Die erste Fassung dieses Abschnitts nannte ihn „eine Gegenprobe, kein
+Auslieferweg", weil `PULSE_HQ_AMD_D3D12=1` dorthin führt. Das ist nur der eine
+Weg. Der andere ist ein automatischer Rückfall: scheitert auf AMD das Öffnen
+des AMF-Encoders (AMF-Issue #455), gibt `bildencoder.rs::baue_mit_rueckfall`
+ohne Zutun des Nutzers an diesen Zweig ab. Ein AMD-Rechner, auf dem das Issue
+zuschlägt, fährt also den D3D12-Weg — und traf dort auf dieselbe Lücke wie ein
+Intel-Rechner, nur dass niemand sie ihm ansah.
+
+Die Fehleinschätzung ist selbst ein Beispiel für das, was dieser Bericht sonst
+an anderen bemängelt: es wurde die eine Stelle gelesen, die den Zweig anbietet
+(`codec.rs::amd_forces_d3d12`), und nicht die andere, die ihn erzwingt.
 
 ### 1.2 macOS sagte Opus-Inband-Fehlerkorrektur zu und schaltete sie nie ein
 
