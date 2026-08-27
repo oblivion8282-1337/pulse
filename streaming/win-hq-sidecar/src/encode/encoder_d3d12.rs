@@ -118,11 +118,16 @@ pub struct FfmpegD3d12Encoder {
     /// — und wartete bis zum regulaeren Takt, seit dem 2026-08-18 also bis zu
     /// 60 s.
     ///
-    /// Weniger schwer als im CPU-Weg, weil dieser Zweig nur ueber
-    /// `PULSE_HQ_AMD_D3D12=1` erreichbar ist (`codec.rs::amd_forces_d3d12`) —
-    /// eine Gegenprobe, kein Auslieferweg. Genau deshalb aber mitgezogen: eine
-    /// Gegenprobe, die den Rueckkanal nicht bedient, misst etwas anderes als
-    /// den Regelweg und faellt als Vergleich still aus.
+    /// **Dieser Zweig ist ein Auslieferweg, kein blosser Schalter.** Hier stand
+    /// bis kurz nach dem 2026-08-27 das Gegenteil ("nur ueber
+    /// `PULSE_HQ_AMD_D3D12=1` erreichbar — eine Gegenprobe"). Das ist die halbe
+    /// Wahrheit: der Schalter ist der eine Weg hierher, der andere ist ein
+    /// automatischer Rueckfall. Scheitert auf AMD das Oeffnen des AMF-Encoders
+    /// (AMF-Issue #455, `SubmitInput`-Integer-Divide-by-Zero bei `h264_amf` auf
+    /// D3D11-Eingang), gibt `bildencoder.rs::baue_mit_rueckfall` an diesen
+    /// Zweig ab, statt den Stream fallen zu lassen — ohne Zutun des Nutzers.
+    /// Ein AMD-Rechner, auf dem das Issue zuschlaegt, landet also hier, und
+    /// der Fehler traf ihn in voller Schwere.
     ///
     /// Kein `Selbsttakt` daneben wie in `encoder_hw.rs`: den braucht nur
     /// `h264_amf` (s. `auffrischung::braucht_selbsttakt`), und der laeuft
