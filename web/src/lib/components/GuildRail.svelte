@@ -11,6 +11,7 @@
   mit Umbenennen/Löschen.
 -->
 <script lang="ts">
+  import { goto } from '$app/navigation';
   import * as Tooltip from '$lib/components/ui/tooltip/index.js';
   import * as ContextMenu from '$lib/components/ui/context-menu/index.js';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
@@ -48,7 +49,6 @@
     type ServerEntry
   } from '$lib/api/servers.svelte';
   import { leaveAndRemoveServer, notifyLeaveOutcome } from '$lib/api/server-removal';
-  import { uiOverlays } from '$lib/stores/uiOverlays.svelte';
   import { directStatus } from '$lib/stores/directStatus.svelte';
   import { directFailureMessageKey } from '$lib/direct/policy';
   import { activeServer } from '$lib/stores/active-server.svelte';
@@ -61,6 +61,7 @@
   import RenameGuildDialog from './RenameGuildDialog.svelte';
   import UserFooter from './UserFooter.svelte';
   import ServerAdminButton from './ServerAdminButton.svelte';
+  import SelfHostRailButton from '$lib/components/selfhost/SelfHostRailButton.svelte';
   import GuildSettingsDialog from './settings/GuildSettingsDialog.svelte';
   import GuildVoiceTooltip from './GuildVoiceTooltip.svelte';
   import type { Guild } from '$lib/api/types';
@@ -720,10 +721,12 @@
 
   </Tooltip.Provider>
 
-  <!-- Unten in der Rail (mt-auto schiebt den Block ans Ende): das Server-Admin-
-       Symbol (nur für Admins) und – auf Mobil – das eigene Avatar-Symbol
-       (Desktop hat den User im Sidebar-Footer mit Name). -->
+  <!-- Unten in der Rail (mt-auto schiebt den Block ans Ende): der Einstieg in
+       den eigenen Server (nur in der Cloud), das Server-Admin-Symbol (nur für
+       Admins) und – auf Mobil – das eigene Avatar-Symbol (Desktop hat den User
+       im Sidebar-Footer mit Name). -->
   <div class="mt-auto flex shrink-0 flex-col items-center gap-2 pt-1">
+    <SelfHostRailButton />
     <ServerAdminButton />
     {#if viewport.isMobile}
       <UserFooter compact />
@@ -760,7 +763,7 @@
     <AlertDialog.Footer>
       <AlertDialog.Cancel>{m.guild_rail_cancel()}</AlertDialog.Cancel>
       <AlertDialog.Action
-        onclick={() => { ownerLeaveOpen = false; uiOverlays.openSettings('self-host'); }}
+        onclick={() => { ownerLeaveOpen = false; void goto('/app/server'); }}
         data-testid="owner-leave-open-settings"
       >
         {m.guild_rail_owner_leave_open_settings()}

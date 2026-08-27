@@ -4,9 +4,6 @@
   import { goto } from '$app/navigation';
   import { auth } from '$lib/stores/auth.svelte';
   import { nameStyle } from '$lib/utils/nameColor';
-  import { activeServer } from '$lib/stores/active-server.svelte';
-  import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
-  import { myAppHostApplications } from '$lib/stores/myAppHostApplications.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { messages } from '$lib/stores/messages.svelte';
   import { gateway } from '$lib/ws/connection';
@@ -33,16 +30,11 @@
 
   let avatarUrl = $derived(safeAvatarUrl(auth.user?.avatar_url));
 
-  // Avatar-Punkt: ein EIGENER Antrag (Self-Host ODER App-Hosting) wurde
-  // freigeschaltet und auf diesem Gerät noch nicht angesehen → der Punkt führt
-  // den User über das Menü zu den Einstellungen. Ein User-Hinweis, kein
-  // Admin-Alert — die Admin-Benachrichtigungen sitzen jetzt am eigenen
-  // Server-Admin-Button (ServerAdminButton.svelte). Nur auf der Cloud relevant
-  // (dort lebt die Self-Host-Verwaltung).
-  let showOwnerSetupBadge = $derived(
-    (activeServer.current?.isCloud ?? false) &&
-      (myInstanceApplications.pendingSetup > 0 || myAppHostApplications.pendingSetup > 0)
-  );
+  // Der „dein Antrag ist durch"-Punkt sass bis 2026-08-27 HIER am Avatar und
+  // führte über das Konto-Menü in die Einstellungen. Mit dem Self-Host-Bereich
+  // ist er auf dessen Einstiege gewandert (SelfHostRailButton /
+  // SelfHostRoomsButton, Rechnung in `lib/selfhost/hinweis.svelte.ts`) — am
+  // Avatar hätte er auf eine Fläche gezeigt, die den Reiter nicht mehr hat.
 
   async function onSignOut() {
     const t = loadTokens();
@@ -71,13 +63,6 @@
           {initial}
         </Avatar.Fallback>
       </Avatar.Root>
-      {#if showOwnerSetupBadge}
-        <span
-          class="ring-bg-input absolute -right-0.5 -top-0.5 size-3 rounded-full bg-red-500 ring-2"
-          data-testid="user-footer-dot"
-          aria-label={m.instance_app_setup_badge_aria()}
-        ></span>
-      {/if}
     </div>
   {/key}
 {/snippet}

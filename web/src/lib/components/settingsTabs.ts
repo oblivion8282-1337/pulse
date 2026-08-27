@@ -71,7 +71,6 @@ export function getSettingsTabs(): SettingsTabDef[] {
     { id: 'keyboard', label: m.settings_dialog_tab_keyboard(), icon: KeyboardIcon, desktopOnly: true },
     { id: 'privacy', label: m.settings_dialog_tab_privacy(), icon: LockIcon },
     { id: 'security', label: m.settings_dialog_tab_security(), icon: ShieldIcon },
-    { id: 'self-host', label: m.settings_dialog_tab_self_host(), icon: ServerIcon },
     { id: 'apps', label: m.settings_dialog_tab_apps(), icon: DownloadIcon, browserOnly: true },
     { id: 'experimental', label: m.settings_dialog_tab_diagnostics(), icon: PlugZapIcon, electronOnly: true },
   ];

@@ -39,6 +39,14 @@ describe('aktiverBereich', () => {
     assert.equal(aktiverBereich('/app/discover'), 'rooms');
   });
 
+  it('ordnet den eigenen Server den Raeumen zu', () => {
+    // `/app/server` ist der Self-Host-Bereich, erreichbar aus dem Fuss der
+    // Rail (Desktop) und dem Fuss der Raeume-Liste (Tablet/Handy). Ohne
+    // Eintrag stuende auf schmalen Geraeten kein Bereich hervorgehoben da,
+    // waehrend man aus den Raeumen kommt.
+    assert.equal(aktiverBereich('/app/server'), 'rooms');
+  });
+
   it('unterscheidet /app/me von /app/@me', () => {
     assert.equal(aktiverBereich('/app/me'), 'me');
     assert.equal(aktiverBereich('/app/@me'), 'chats');

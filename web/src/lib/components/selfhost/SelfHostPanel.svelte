@@ -1,5 +1,14 @@
 <!--
-  Self-Hoster-Tab in den Einstellungen.
+  Der Self-Host-Bereich — Inhalt der Route `/app/server`.
+
+  **Kein Einstellungs-Reiter mehr** (bis 2026-08-27 war er einer). Der Grund
+  ist nicht Geschmack: `settingsTabs.ts` speist DREI Oberflaechen (Dialog am
+  Rechner, Liste im Du-Bereich, aufgeschobener Bildschirm `/app/me/[section]`)
+  — ein Reiter ist also nie nur ein Reiter. Der Einstieg sitzt jetzt dort, wo
+  die eigenen Server ohnehin stehen: am Fuss der GuildRail (>= lg) und am Fuss
+  der Raeume-Liste (darunter). Diese Datei bleibt die EINZIGE Stelle mit dem
+  Inhalt; nur der Rahmen unterscheidet sich.
+
   Zwei klar getrennte Karten:
     1. App-Hosting  — Stufe 2, eigenes Gerät via separater Server-App
        (nur noch Download/Status: ServerAppDownload — der ANTRAG läuft über
@@ -21,6 +30,8 @@
 
   // Der User ist da, wohin ihn der rote Punkt führen sollte → Punkt löschen.
   // (Gegenstück zu MyInstances, das den Self-Host-Punkt quittiert.)
+  // Wandert mit dem Inhalt mit: bliebe das Quittieren am alten Ort, zeigte
+  // der Punkt auf eine Fläche, die ihn nicht mehr löschen kann.
   onMount(() => myAppHostApplications.acknowledge());
 
   const SECTION_CLASS =
@@ -53,11 +64,11 @@
   <MyInstances />
 {/snippet}
 
-<div class="flex flex-col gap-8" data-testid="settings-self-host-panel">
-  <div class="flex flex-col gap-1">
-    <h2 class="text-text-bright text-base font-semibold">{m.settings_dialog_tab_self_host()}</h2>
-    <p class="text-text-muted text-xs">{m.settings_self_host_description()}</p>
-  </div>
+<div class="flex flex-col gap-8" data-testid="self-host-panel">
+  <!-- Keine eigene Ueberschrift mehr: den Titel traegt der Kopf der Route
+       (`BereichsKopf` bzw. der Zurueck-Kopf auf dem Handy). Als Reiter im
+       Dialog brauchte das Panel ihn, als Seite stuende er zweimal da. -->
+  <p class="text-text-muted text-xs">{m.settings_self_host_description()}</p>
 
   <!-- App-Hosting (Stufe 2): gehostet wird in der separaten Server-App, hier
        steht nur Antrag + Download. Der Schalter blendet den ganzen Weg aus,

@@ -20,7 +20,6 @@
   import SettingsKeyboard from './SettingsKeyboard.svelte';
   import SettingsPrivacy from './SettingsPrivacy.svelte';
   import SettingsProfile from './SettingsProfile.svelte';
-  import SettingsSelfHost from './SettingsSelfHost.svelte';
   import SettingsApps from './SettingsApps.svelte';
   import SettingsExperimental from './SettingsExperimental.svelte';
   import SettingsStandplatz from './SettingsStandplatz.svelte';
@@ -48,8 +47,6 @@
   <SettingsKeyboard />
 {:else if tab === 'privacy'}
   <SettingsPrivacy />
-{:else if tab === 'self-host'}
-  <SettingsSelfHost />
 {:else if tab === 'apps'}
   <SettingsApps />
 {:else if tab === 'experimental'}
