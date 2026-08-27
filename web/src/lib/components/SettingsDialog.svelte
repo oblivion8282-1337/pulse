@@ -12,7 +12,6 @@
     | 'keyboard'
     | 'security'
     | 'privacy'
-    | 'self-host'
     | 'standplatz'
     | 'apps'
     | 'experimental';

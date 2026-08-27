@@ -38,8 +38,8 @@ export const BEREICHE: readonly Bereich[] = [
 /**
  * Alle Pfad-Wurzeln je Bereich, laengste zuerst geprueft.
  *
- * `/app/guilds/...` und `/app/discover` gehoeren zu „Raeume", obwohl sie
- * nicht unter `/app/rooms` liegen: der Kanal-Chat ist die dritte Ebene des
+ * `/app/guilds/...`, `/app/discover` und `/app/server` gehoeren zu „Raeume",
+ * obwohl sie nicht unter `/app/rooms` liegen: der Kanal-Chat ist die dritte Ebene des
  * Raeume-Bereichs, und Entdecken ist der Ausgang aus seinem Leerzustand. Wer
  * hier nur das erste Segment vergleicht, verliert im offenen Kanal die
  * Hervorhebung.
@@ -51,6 +51,11 @@ const WURZELN: readonly (readonly [string, TabId])[] = [
   ['/app/rooms', 'rooms'],
   ['/app/guilds', 'rooms'],
   ['/app/discover', 'rooms'],
+  // Der eigene Server gehoert zu „Raeume", obwohl er nicht darunter liegt:
+  // beide Einstiege sitzen am Fuss der Community-Liste (Rail am Rechner,
+  // `/app/rooms` auf Tablet und Handy). Ohne den Eintrag stuende beim
+  // Oeffnen kein Bereich mehr hervorgehoben da.
+  ['/app/server', 'rooms'],
   ['/app/friends', 'friends'],
   ['/app/me', 'me']
 ];

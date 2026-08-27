@@ -14,8 +14,10 @@ class UIOverlays {
    *  SettingsDialog wendet ihn nur auf der Open-Transition an. */
   settingsInitialTab = $state<SettingsTab>('audio-video');
 
-  /** Einstellungen gezielt auf einem Tab öffnen (z.B. 'self-host' aus dem
-   *  Betreiber-Hinweis der Server-Leiste). */
+  /** Einstellungen gezielt auf einem Tab öffnen. (Das frühere Beispiel hier
+   *  war 'self-host' aus dem Betreiber-Hinweis der Server-Leiste — den Reiter
+   *  gibt es seit 2026-08-27 nicht mehr, der Self-Host-Bereich ist die eigene
+   *  Route `/app/server`.) */
   openSettings(tab: SettingsTab = 'audio-video'): void {
     this.settingsInitialTab = tab;
     this.settingsOpen = true;

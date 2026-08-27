@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-27.8",
+      "date": "2026-08-27",
+      "style": "Sachlich",
+      "title": "Der eigene Server ist keine Einstellung mehr",
+      "intro": "Wer selbst hostet, findet den Bereich jetzt dort, wo seine Server ohnehin stehen.",
+      "items": [
+        "„Self-Hoster“ war bisher ein Reiter in den Einstellungen. Beantragen, Einrichten und Verwalten eigener Server ist aber keine Einstellung, sondern eine eigene Sache mit eigenem Verlauf — sie hat jetzt einen eigenen Ort.",
+        "Am Rechner führt der neue Knopf unten in der Server-Leiste dorthin, direkt über dem Admin-Symbol. Auf Tablet und Telefon steht er am Fuss der Liste unter „Räume“.",
+        "Der Hinweispunkt „dein Antrag ist freigeschaltet“ ist mitgewandert: Er sitzt jetzt an diesem Knopf statt am Profilbild und führt damit direkt dahin, wo etwas zu tun ist."
+      ]
+    },
+    {
       "id": "2026-08-27.7",
       "date": "2026-08-27",
       "style": "Sachlich",

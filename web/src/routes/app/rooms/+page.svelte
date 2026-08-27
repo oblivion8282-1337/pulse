@@ -21,6 +21,7 @@
   import { serversStore } from '$lib/api/servers.svelte';
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
   import CommunityAnlegenKnopf from '$lib/components/mobile/CommunityAnlegenKnopf.svelte';
+  import SelfHostRoomsButton from '$lib/components/selfhost/SelfHostRoomsButton.svelte';
   import { guilds as guildsStore } from '$lib/stores/guilds.svelte';
   import { readState } from '$lib/stores/readState.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
@@ -249,6 +250,14 @@
         </a>
       </div>
     {/if}
+
+    <!-- Der eigene Server ganz unten: die GuildRail ist auf Tablet und Handy
+         ausgeblendet, ihr Fussknopf braucht hier seine Entsprechung. Hinter
+         ALLEN Zweigen, nicht zwischen ihnen — im Leerzustand stuende er sonst
+         zwischen den beiden „Community erstellen"-Knoepfen und laese sich wie
+         einer von ihnen. Ausserhalb der Suchzweige, damit er waehrend einer
+         Suche nicht verschwindet. -->
+    <SelfHostRoomsButton />
   </div>
 </div>
 
