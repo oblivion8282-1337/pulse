@@ -122,15 +122,19 @@
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <p class="text-text-bright text-sm font-medium truncate">{inst.hostname}</p>
+              <!-- Nur das Datum (bei App-Hosts davor, um welche Art Server es
+                   geht). Hier standen bis 2026-08-27 zusätzlich die auf zwölf
+                   Zeichen abgeschnittene client_id — zu kurz zum Kopieren oder
+                   Vergleichen, und sie steht ohnehin in der .env — sowie die
+                   Snowflake-Worker-Nummern. Interne Mechanik gehört nicht ins
+                   Interface; sichtbar ist, woran eine Handlung hängt. -->
               <p class="text-text-muted text-xs mt-0.5">
                 {#if inst.origin === 'app_host'}
                   {m.my_instances_apphost_label()} ·
-                  {new Date(inst.registered_at).toLocaleDateString('de-DE')}
-                {:else}
-                  ID: {inst.client_id.slice(0, 12)}… ·
-                  Workers: {inst.worker_id_chat}/{inst.worker_id_voice}/{inst.worker_id_media} ·
-                  {new Date(inst.registered_at).toLocaleDateString('de-DE')}
                 {/if}
+                {m.my_instances_approved_on({
+                  date: new Date(inst.registered_at).toLocaleDateString('de-DE')
+                })}
               </p>
             </div>
             <!-- Die Pille sagt GENAU eine Sache: ob die Cloud diesen Server
