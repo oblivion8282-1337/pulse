@@ -43,7 +43,6 @@ infra/prod/.env.production
 infra/prod/secrets
 
 # Big assets / patches / streamkeys not used by any runtime stack
-streaming/patches
 streaming/server/mediamtx.yml
 streaming/server/.stream-key
 Logo

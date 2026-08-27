@@ -7,9 +7,10 @@ publish = false
 # es gilt `streaming/LICENSE` (Pulse Client License 1.0). Bis 2026-07-31 stand
 # hier "AGPL-3.0-only" — ein Ueberbleibsel aus dem eigenen Repo, aus dem dieser
 # Code kam; im Hauptrepo ist Pulse seit 2026-07-25 nicht mehr AGPL. GPL bleibt
-# allein, was von GPU Screen Recorder abgeleitet ist (`streaming/patches/`),
-# und dieser Sidecar ersetzt GSR, statt davon abzustammen.
-description = "Pulse Linux HQ-streaming sidecar — stdio JSON-RPC over newline-delimited JSON, mirrors streaming/gsr-sidecar/control.py and the win/mac Rust sidecars. FFmpeg als Bibliothek (VAAPI/NVENC), PipeWire-Capture."
+# GPL trug allein, was von GPU Screen Recorder abgeleitet war
+# (`streaming/patches/`) — entfernt am 2026-08-27 zusammen mit jenem
+# Aufnahmeweg. Dieser Sidecar ersetzt ihn, statt davon abzustammen.
+description = "Pulse Linux HQ-streaming sidecar — stdio JSON-RPC over newline-delimited JSON, same stdio protocol as the win/mac Rust sidecars. FFmpeg als Bibliothek (VAAPI/NVENC), PipeWire-Capture."
 
 [[bin]]
 name = "pulse-linux-hq-sidecar"

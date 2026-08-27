@@ -20,10 +20,12 @@ had not been. `cargo metadata` over all three shipped Rust trees (native
 player, Windows sidecar, Linux sidecar; the 44 crates unique to the Linux tree
 were looked up individually on crates.io because that tree does not resolve on
 a Windows host), plus `pnpm licenses list --prod` over the pnpm workspace.
-Result: **no AGPL, no GPL-only, no MPL-only anywhere.** The only copyleft that
-ships is FFmpeg (LGPL, dynamically linked everywhere) and gpu-screen-recorder
-(GPL-3.0, shipped as a separate program in the Flatpak, not linked against
-Pulse). Three dual licences resolve to their permissive side and are recorded
+Result: **no AGPL, no GPL-only, no MPL-only anywhere.** Since 2026-08-27 the
+only copyleft that ships is FFmpeg (LGPL, dynamically linked everywhere).
+Until that date the Flatpak also bundled gpu-screen-recorder (GPL-3.0, shipped
+as a separate program, never linked against Pulse) for the older Linux capture
+path; that path has been removed in favour of the in-tree Rust sidecar, and
+with it the last GPL component. Three dual licences resolve to their permissive side and are recorded
 where they occur: `self_cell` (`Apache-2.0 OR GPL-2.0-only` → Apache-2.0),
 `r-efi` (`MIT OR Apache-2.0 OR LGPL-2.1-or-later` → MIT) and `dompurify`
 (`MPL-2.0 OR Apache-2.0` → Apache-2.0). Re-run the sweep when a dependency
@@ -106,7 +108,6 @@ availability applies equally to the player binary, not just the sidecar.
 | Electron | `43.0.0` | MIT | `com.howispulse.Pulse.yml:267` (official release zip), bundled unmodified into `/app/electron/` |
 | FFmpeg — **unmodified** | git tag `n8.1.1`, commit `239f2c733de417201d7ad3b3b8b0d9b63285b2b1` | LGPLv3 (`--enable-version3`, no `--enable-gpl`/libx264) | `com.howispulse.Pulse.yml` (ffmpeg module) |
 | nv-codec-headers | git tag `n13.0.19.0`, commit `e844e5b26f46bb77479f063029595293aa8f812d` | MIT (headers only, build-time) | `com.howispulse.Pulse.yml:169-179` |
-| gpu-screen-recorder | commit `0349083cfe4578dbc8bc600e31187e8e09318add` + 3 Pulse patches | GPL-3.0-or-later | `com.howispulse.Pulse.yml:187-200`, `streaming/patches/LICENSE` |
 | pulse-linux-hq-sidecar (Rust) | in-tree at `streaming/linux-hq-sidecar/`, built via `type: dir` | Pulse's own client code (not third-party) | `com.howispulse.Pulse.yml` (linux-hq-sidecar module) |
 | pulse-player (native HQ player, Rust) | in-tree at `streaming/pulse-player/`, built to `/app/bin/pulse-player` | Pulse's own client code; third-party tree in its own section below | `com.howispulse.Pulse.yml` (pulse-player module) |
 
@@ -165,15 +166,13 @@ left out (`com.howispulse.Pulse.yml:147-160`, verified 2026-07-24 to produce
 bit-identical `libav*` symbols with or without it) so the resulting build
 stays LGPL rather than GPL.
 
-`gpu-screen-recorder` is fetched and built at Flatpak build time, then bundled
-as a **separate program** in the Linux package — it is not linked against
-Pulse's own binary. The three patches Pulse applies to it
-(`streaming/patches/0001-opus-flv-whitelist.patch`,
-`0002-stub-vulkan-encoder.patch`, `0003-portal-cursor-embedded.patch`) modify
-only `gpu-screen-recorder`'s own source and are themselves licensed
-GPL-3.0-or-later as derivative works — see `streaming/patches/LICENSE`, which
-is explicitly carved out from the Pulse licenses covering the rest of this
-repository.
+**`gpu-screen-recorder` is no longer part of this package (2026-08-27).** It
+was fetched and built at Flatpak build time and bundled as a separate program
+(never linked against Pulse's own binary), together with three Pulse patches
+against its source that were themselves GPL-3.0-or-later. It served the older
+Linux capture path; that path is gone, replaced by the in-tree Rust sidecar.
+The patches and their carve-out in the Pulse licenses have been removed with
+it. Nothing GPL-licensed ships any more.
 
 `pulse-linux-hq-sidecar` lives in its own repository and is Pulse's own
 client-side code (falls under the Pulse Client License, not this notice

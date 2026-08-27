@@ -169,28 +169,17 @@ function resolveNativeParts() {
   const rel = (...seg) => path.join(REPO, ...seg);
 
   if (process.platform === 'linux') {
-    // bootstrap-gsr.fish baut in den XDG-Cache; der frühere /tmp-Ort lag auf
-    // tmpfs und war nach jedem Neustart weg.
-    const cacheRoot = process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache');
-    const gsrCandidates = [
-      path.join(cacheRoot, 'pulse/gsr/gpu-screen-recorder/build/gpu-screen-recorder'),
-      '/tmp/gsr-analysis/gpu-screen-recorder/build/gpu-screen-recorder'
-    ];
-    const gsr = gsrCandidates.find(exists);
-    if (gsr) {
-      env.GSR_BINARY = gsr;
-      env.PULSE_SIDECAR_PY = rel('streaming/gsr-sidecar/control.py');
-    }
-
+    // Seit dem 2026-08-27 gibt es unter Linux genau einen Aufnahme-Sidecar.
+    // Der frühere Python-Aufsatz um `gpu-screen-recorder` (samt Cache-Bau) ist
+    // entfernt; fehlt das Binary, bleibt der Knopf versteckt statt still auf
+    // ein anderes Verfahren auszuweichen.
     const rust = rel('streaming/linux-hq-sidecar/target/release/pulse-linux-hq-sidecar');
     if (exists(rust)) {
       env.PULSE_LINUX_HQ_SIDECAR = rust;
-      report.push('✓ Rust-Linux-Sidecar da (Standard-Aufnahmeweg)');
+      report.push('✓ Linux-Sidecar da (HQ-Aufnahme möglich)');
       report.push(...sidecarReport(rust));
-    } else if (gsr) {
-      report.push('ℹ Rust-Linux-Sidecar nicht gebaut — es läuft der GSR-Rückfall (scripts/hq-bauen.sh)');
     } else {
-      report.push('⚠ Kein Aufnahme-Sidecar gebaut — der HQ-Knopf bleibt versteckt (scripts/hq-bauen.sh)');
+      report.push('⚠ Linux-Sidecar nicht gebaut — der HQ-Knopf bleibt versteckt (scripts/hq-bauen.sh)');
     }
   } else {
     const sub = process.platform === 'win32' ? 'win' : 'mac';
