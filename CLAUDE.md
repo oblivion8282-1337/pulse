@@ -171,6 +171,42 @@ Minecraft-Modell: Identität zentral über die Cloud (howispulse.com), Server si
 - **Tote Stelle, nicht anfassen ohne sie zu bauen:** `/internal/trigger-update` hat eine Caddy-Route (`Caddyfile.template`) und einen Cloud-Sender mit signiertem JWT (`routes_suspended_instances.py::broadcast_update`), aber **keinen Handler** im chat-gateway — jede Instanz antwortet 404. Legacy aus der Watchtower-Zeit; Auto-Update läuft heute über den Host-Timer. Wäre der natürliche Träger für kooperative Prüfungen (Cloud bittet die Instanz, ein UDP-Paket zu senden).
 - **Account-basierte Server-Liste** in `auth.user_instance_memberships` (Cloud-DB, Migration 0037); beim Bootstrap-Redeem automatisch eingetragen, `GET /me/instances` liest sie. Inhalts-Privacy unverändert (isolierte DB-Welten); der frühere E2E-Vault ist **komplett entfernt**. Nicht-Owner-Erweiterung für Phase 4-6 (`role`-Feld vorbereitet).
 
+## Krypto-Kern `krypto/pulse-krypto` (Etappe A von E2E-DMs, seit 2026-08-28)
+
+Rust-Kiste um **vodozemac 0.10.0** (Apache-2.0) für künftig verschlüsselte
+Direktnachrichten und private Gruppen. **Noch an nichts angeschlossen** — sie
+kennt weder Datenmodelle noch Netzwerk, nur Identitäten, Sitzungen, Umschläge.
+Entwurf: `docs/superpowers/specs/2026-08-28-e2e-dm-design.md`, Plan:
+`docs/superpowers/plans/2026-08-28-etappe-a-krypto-kern.md`.
+- **Neuer Top-Level-Bereich, Client-lizenziert** (läuft im Browser und auf dem
+  Telefon, nicht am Server) — in `LICENSE` und `README.md` nachgezogen,
+  `krypto/LICENSE` angelegt. `LICENSE-CLIENT.md` führt keine Verzeichnisliste.
+- **Kein nativer Android-Bau, und das bleibt so.** Die Capacitor-App lädt
+  dieselbe entfernte Web-App wie Electron → die Krypto läuft dort als **WASM in
+  der WebView**, es gibt keine JNI-Grenze. Ein NDK wäre erst nötig, wenn Pulse
+  eine eigenständige Android-App bekäme. Das Übergabedokument führte diesen
+  Cross-Build noch als eigene Aufgabe; sie ist ersatzlos entfallen.
+- **Olm läuft auf `SessionConfig::version_2()`, hinter dem Feature
+  `experimental-session-config`.** Das Wort täuscht: v1 kürzt den MAC auf
+  8 Bytes und existiert nur zur libolm-Kompatibilität, „experimentell" heißt
+  hier *im Matrix-Ökosystem noch nicht überall gesprochen*. Pulse spricht nur
+  mit Pulse. **Die Fassung steckt im eingefrorenen Sitzungszustand — ein
+  Wechsel bricht bestehende Sitzungen.** Megolm hat keine v2.
+- **Zwei `getrandom`-Hauptversionen sind Absicht** (0.2 über `rand_core` 0.6,
+  0.3 direkt): im Browser braucht **jede** eine Wasm-Quelle, sonst bricht der
+  Bau an der älteren, obwohl nur die neuere genannt ist.
+- **An der Grenze nur Base64 und Zahlen** — dieselbe Grenze überquert JS über
+  WASM. `src/wasm.rs` ist reine Übersetzung ohne Logik; was dort stünde, wäre
+  von `cargo test` nicht erreichbar.
+- **Im Gate seit Anfang an**: `scripts/gate-rust.sh` matcht `streaming/pulse-*`
+  **und** `krypto/pulse-*`. Ohne die zweite Zeile wären die 11 Tests in keinem
+  Gate gelaufen.
+- **`web/vite.config.ts` kennt keine WASM-Behandlung.** Für die Kiste selbst
+  egal (geprüft über Nodes Läufer), für die spätere Einbindung in die
+  Oberfläche offen — rechnet mit einem zusätzlichen Vite-Plugin, also Rückfrage.
+- Bauen: `bash krypto/pulse-krypto/bauen-wasm.sh` (`wasm-pack` liegt unter
+  `~/.cargo/bin`, das nicht in jedem PATH steht).
+
 ## Plugin-System (Stufe A)
 
 Top-Level `plugins/` (Referenz `hello` + `tamagotchi`). Manifest `plugin.toml` (Backend) + `manifest.ts` (Frontend-Spiegel, **manuell synchron halten**). Loader `chat_gateway/plugins/loader.py` + `web/src/lib/plugins/loader.ts`. Ops colon-namespaced (`tamagotchi:feed`). Stufe B/C → `docs/PLUGIN_ROADMAP.md`.
