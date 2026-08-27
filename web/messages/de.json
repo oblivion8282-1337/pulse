@@ -1746,7 +1746,7 @@
   "my_instances_guide_worker_ids": "Worker-IDs (Chat/Voice/Media):",
   "my_instances_guide_worker_ids_suffix": "— eingetragen im .env-Snippet.",
   "my_instances_loading": "Lade…",
-  "my_instances_status_active": "Aktiv",
+  "my_instances_status_active": "Freigegeben",
   "my_instances_status_suspended": "Gesperrt",
   "my_instances_title": "Meine Instanzen",
   "native_panel_focus_window": "Fenster nach vorne holen",
