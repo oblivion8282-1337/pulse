@@ -109,8 +109,14 @@
 
 <StreamStatusBar />
 
+<!-- `mb-2` NUR auf dem Handy: dort schwebt die Leiste als Dock über der
+     Bereichs-Leiste und braucht den Abstand. Am Rechner sitzt dieselbe Leiste
+     im Fuss der Seitenspalte, und der Nutzer-Kasten darunter bringt seinen
+     Abstand schon selbst mit (`m-2`) — zusammen waren es 16 px, also doppelt
+     so viel wie zwischen Stream-Statusleiste und Sprachleiste darüber (8 px
+     aus `mt-2`). Die Leiste sass dadurch sichtbar zu hoch. -->
 <div
-  class="border-border bg-bg-input mx-2 mb-2 mt-2 rounded-[14px] border p-2 md:p-1.5"
+  class="border-border bg-bg-input mx-2 mb-2 mt-2 rounded-[14px] border p-2 md:mb-0 md:p-1.5"
   data-testid="voice-control-bar"
 >
   <div class="flex items-center gap-1.5 px-1 pb-1.5 text-base md:text-xs">
