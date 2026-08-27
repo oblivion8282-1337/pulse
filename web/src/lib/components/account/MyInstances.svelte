@@ -197,7 +197,6 @@
   {/if}
 </div>
 
-
 <!-- Lösch-Bestätigung -->
 <AlertDialog.Root bind:open={deleteConfirmOpen}>
   <AlertDialog.Content data-testid="instance-delete-dialog">

@@ -29,10 +29,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.invite_host import fremder_host
-from dcc_chat_gateway.guild_caps import enforce_member_cap
 from dcc_chat_gateway.friend_events import publish_friend_event
 from dcc_chat_gateway.friend_helpers import block_exists_either_way
+from dcc_chat_gateway.guild_caps import enforce_member_cap
+from dcc_chat_gateway.invite_host import fremder_host
 from dcc_chat_gateway.models import (
     CommunityInviteNotification,
     Guild,

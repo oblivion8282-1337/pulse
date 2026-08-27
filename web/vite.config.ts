@@ -51,8 +51,8 @@ function apiProxy(port: string, opts: { ws?: boolean } = {}) {
 // Die Dateien des manuellen Self-Host-Pfads im Dev bedienen. In Produktion
 // kopiert sie `web/Dockerfile` ins nginx-Wurzelverzeichnis und
 // `web-nginx.conf` liefert sie unter `/self-host/` aus — Vite kennt nur
-// `web/`, dort liefen die Download-Knöpfe im Einrichtungs-Dialog also gegen
-// 404, und das sähe nach einem kaputten Knopf aus statt nach einer fehlenden
+// `web/`, dort liefen die Download-Knöpfe der Einrichtung also gegen 404, und
+// das sähe nach einem kaputten Knopf aus statt nach einer fehlenden
 // Dev-Weiche. Die Zuordnung spiegelt den Dockerfile-COPY; wer dort eine Datei
 // ergänzt, ergänzt sie hier mit (sonst ist sie nur in Produktion prüfbar).
 const SELF_HOST_DATEIEN: Record<string, string> = {

@@ -28,16 +28,14 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime, timedelta
-from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import select
 
-from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.friend_helpers import block_exists_either_way, friendship_exists
 from dcc_chat_gateway.friend_events import publish_friend_event
-from dcc_chat_gateway.invite_host import bare_host, fremder_host
+from dcc_chat_gateway.friend_helpers import block_exists_either_way, friendship_exists
+from dcc_chat_gateway.invite_host import fremder_host
 from dcc_chat_gateway.models import CommunityInviteNotification, GuildMember
 from dcc_chat_gateway.ratelimit import check as ratelimit_check
 from dcc_chat_gateway.routes._deps import CloudOnly
@@ -49,29 +47,6 @@ from dcc_chat_gateway.snowflake import next_id
 log = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=[CloudOnly])
-
-
-def _invite_link(inv: CommunityInvite) -> str:
-    """Build the user-facing invite link the DM carries.
-
-    Cloud-community → ``<cloud-origin>/invite/<code>``.
-    Self-Host       → ``<cloud-origin>/invite/<code>?host=<fqdn>`` (the bare
-    host, url-encoded so ``MessageItem``'s ``INVITE_RE`` + the
-    ``decodeURIComponent`` on the receiving side round-trip it).
-
-    The link always points at the Cloud origin: the invite card + join flow
-    live in the web app served from the Cloud, regardless of where the target
-    community is hosted (``joinGuildByInvite`` routes to the Self-Host from the
-    ``?host=`` param).
-    """
-    settings = get_settings()
-    cloud_origin = settings.pulse_cloud_origin.strip().rstrip("/")
-    base = f"{cloud_origin}/invite/{inv.code}"
-    target = bare_host(inv.target_host) if inv.target_host else ""
-    cloud_host = bare_host(cloud_origin)
-    if not target or target == cloud_host:
-        return base
-    return f"{base}?host={quote(target, safe='')}"
 
 
 @router.post(
