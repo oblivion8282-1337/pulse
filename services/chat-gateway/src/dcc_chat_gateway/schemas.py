@@ -588,6 +588,13 @@ class InvitePreviewOut(BaseModel):
 class InviteAcceptOut(BaseModel):
     guild: InviteGuildOut
     channel_id: int | None
+    # Nur bei einer Einladung auf einen fremden Host gesetzt. Die Cloud legt
+    # dort keine Mitgliedschaft an (sie hat auf dem Host keine) — sie reicht
+    # Ziel und Code zurueck, und der Klient geht seinen normalen Beitrittsweg,
+    # bei dem der Host den Code live prueft. Ein Server-zu-Server-Aufruf waere
+    # sinnlos: die Cloud kann einen fremden Code gar nicht verifizieren.
+    target_host: str | None = None
+    code: str | None = None
 
     @field_serializer("channel_id")
     def _ser_channel(self, v: int | None) -> str | None:

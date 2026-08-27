@@ -6,6 +6,7 @@
 -->
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
   import { Button } from '$lib/components/ui/button/index.js';
   import CheckIcon from '@lucide/svelte/icons/check';
   import XIcon from '@lucide/svelte/icons/x';
@@ -26,6 +27,15 @@
     try {
       const res = await communityInvitesApi.accept(id);
       communityInvites.remove(id);
+      if (res.target_host && res.code) {
+        // Fremder Server: die Cloud hat dort keine Mitgliedschaft anlegen
+        // koennen (sie kann den Code nicht einmal pruefen). Wir gehen denselben
+        // Weg wie bei einem geklickten Einladungslink — der Host prueft live.
+        await joinGuildByInvite(
+          `https://app/invite/${encodeURIComponent(res.code)}?host=${encodeURIComponent(res.target_host)}`
+        );
+        return;
+      }
       // Frisch beigetretene Community sofort laden + hinein navigieren.
       await guilds.hydrate();
       await goto(
@@ -81,6 +91,12 @@
           <p class="text-text-muted truncate text-xs">
             {m.community_invite_row_body({ guild: inv.guild_name })}
           </p>
+          {#if inv.target_host}
+            <!-- Nur bei fremdem Server: der Eingeladene soll vor dem Antippen
+                 sehen, wohin er tritt. Bei Cloud-Zielen waere die Zeile
+                 Rauschen. -->
+            <p class="text-primary truncate font-mono text-2xs">{inv.target_host}</p>
+          {/if}
         </div>
         <Button
           size="sm"

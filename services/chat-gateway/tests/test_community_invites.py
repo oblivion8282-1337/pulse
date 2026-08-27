@@ -79,14 +79,18 @@ def _ops_for(captured, target_uid: int) -> list[str]:
 
 
 @pytest.mark.asyncio
-async def test_create_returns_row_and_no_user_push(
-    client, _auth_signer, captured_events, friend_pair
+async def test_create_liefert_zeile_und_benachrichtigt(
+    client, _auth_signer, captured_events, friend_pair, session_factory
 ):
-    """POST returns the broker row and emits NO ``community_invite_*`` push.
+    """POST liefert unveraendert das Broker-Format und stellt in die Inbox zu.
 
-    Delivery is now the DM card (asserted in the DM tests below); the old
-    per-user push to the invitee is gone, so neither party gets one.
+    Das Antwortformat ist bewusst feldgleich geblieben, obwohl die Zeile jetzt
+    aus einer anderen Tabelle stammt — ein Refactoring darf das Verhalten nach
+    aussen nicht aendern. Zugestellt wird ueber ``community_invite_received``,
+    dieselbe Schiene wie bei der Nutzername-Einladung.
     """
+    from dcc_chat_gateway.models import CommunityInviteNotification
+
     t_a, uid_a = await _register(_auth_signer)
     _, uid_b = await _register(_auth_signer)
     await friend_pair(uid_a, uid_b)
@@ -100,38 +104,49 @@ async def test_create_returns_row_and_no_user_push(
     assert body["target_host"] == "pulse.firma.de"
     assert body["target_guild_name"] == "Cool Community"
     assert body["code"] == "ABCD1234"
-    # No more friends-tab card → no ``community_invite_received``/_removed push
-    # to either party (the DM is the delivery channel now).
-    assert _ops_for(captured_events, uid_b) == []
+
+    assert _ops_for(captured_events, uid_b) == ["community_invite_received"]
+    # Der Einladende bekommt nichts — er hat keine Liste offener Einladungen.
     assert _ops_for(captured_events, uid_a) == []
 
+    async with session_factory() as s:
+        zeile = await s.get(CommunityInviteNotification, int(body["id"]))
+    assert zeile is not None
+    assert zeile.invitee_user_id == uid_b
+    assert zeile.target_host == "pulse.firma.de"
+    assert zeile.code == "ABCD1234"
+    assert zeile.guild_name == "Cool Community"
+
 
 @pytest.mark.asyncio
-async def test_create_drops_invite_dm_self_host(
+async def test_create_schreibt_keine_nachricht(
     client, _auth_signer, friend_pair, session_factory
 ):
-    """A self-host invite lands as a DM whose content is the host-tagged link.
+    """Die eigentliche Zusage dieser Etappe: KEINE Nachricht, kein DM-Kanal.
 
-    The DM must be authored by the inviter, sit in the inviter↔invitee DM
-    channel, and carry ``…/invite/<code>?host=<fqdn>`` so the receiving
-    client's ``INVITE_RE`` renders the "Beitreten"-card.
+    Bis 2026-08-27 legte der Broker eine ``Message`` mit der ``author_id`` des
+    Einladenden an — eine Nachricht im Namen eines Dritten. Mit
+    Ende-zu-Ende-verschluesselten Direktnachrichten ist das unmoeglich, dem
+    Server fehlt dafuer der Schluessel. Ohne diesen Test koennte ein spaeterer
+    Umbau die Zusage stillschweigend zuruecknehmen.
     """
+    from sqlalchemy import func, select
+
     from dcc_chat_gateway.models import DirectMessageChannel, Message
 
     t_a, uid_a = await _register(_auth_signer)
     _, uid_b = await _register(_auth_signer)
     await friend_pair(uid_a, uid_b)
     r = await client.post(
-        "/community-invites",
-        json=_payload(uid_b, target_host="pulse.firma.de", code="ABCD1234"),
-        headers=auth(t_a),
+        "/community-invites", json=_payload(uid_b), headers=auth(t_a)
     )
     assert r.status_code == 201, r.text
 
     lo, hi = sorted((uid_a, uid_b))
     async with session_factory() as s:
-        from sqlalchemy import select
-
+        nachrichten = (
+            await s.execute(select(func.count()).select_from(Message))
+        ).scalar_one()
         dm = (
             await s.execute(
                 select(DirectMessageChannel).where(
@@ -140,59 +155,31 @@ async def test_create_drops_invite_dm_self_host(
                 )
             )
         ).scalars().first()
-        assert dm is not None, "invite did not create the DM channel"
-        msgs = (
-            await s.execute(
-                select(Message).where(Message.channel_id == dm.id)
-            )
-        ).scalars().all()
-    assert len(msgs) == 1
-    msg = msgs[0]
-    assert msg.author_id == uid_a
-    assert (
-        msg.content == "https://howispulse.com/invite/ABCD1234?host=pulse.firma.de"
-    )
+    assert nachrichten == 0, "die Einladung hat eine Nachricht geschrieben"
+    assert dm is None, "die Einladung hat einen DM-Kanal angelegt"
 
 
 @pytest.mark.asyncio
-async def test_create_drops_invite_dm_cloud(
+async def test_create_cloud_ziel_ohne_host(
     client, _auth_signer, friend_pair, session_factory
 ):
-    """A Cloud invite (target_host == Cloud origin) yields a host-less link."""
-    from dcc_chat_gateway.models import DirectMessageChannel, Message
+    """Cloud-Ziel: ``target_host`` bleibt leer, der Beitritt laeuft hier."""
+    from dcc_chat_gateway.models import CommunityInviteNotification
 
     t_a, uid_a = await _register(_auth_signer)
     _, uid_b = await _register(_auth_signer)
     await friend_pair(uid_a, uid_b)
     r = await client.post(
         "/community-invites",
-        json=_payload(
-            uid_b, target_host="https://howispulse.com", code="CLOUD000"
-        ),
+        json=_payload(uid_b, target_host="howispulse.com", target_instance_id=None),
         headers=auth(t_a),
     )
     assert r.status_code == 201, r.text
 
-    lo, hi = sorted((uid_a, uid_b))
     async with session_factory() as s:
-        from sqlalchemy import select
-
-        dm = (
-            await s.execute(
-                select(DirectMessageChannel).where(
-                    DirectMessageChannel.user_a_id == lo,
-                    DirectMessageChannel.user_b_id == hi,
-                )
-            )
-        ).scalars().first()
-        assert dm is not None
-        msg = (
-            await s.execute(
-                select(Message).where(Message.channel_id == dm.id)
-            )
-        ).scalars().first()
-    assert msg is not None
-    assert msg.content == "https://howispulse.com/invite/CLOUD000"
+        zeile = await s.get(CommunityInviteNotification, int(r.json()["id"]))
+    assert zeile is not None
+    assert zeile.target_host == "howispulse.com"
 
 
 @pytest.mark.asyncio
@@ -302,223 +289,63 @@ async def test_create_requires_auth(client, _auth_signer):
 
 
 @pytest.mark.asyncio
-async def test_create_dedupes_same_inviter_invitee_guild(
+async def test_create_dedupes_pro_guild_und_empfaenger(
     client, _auth_signer, friend_pair, session_factory
 ):
-    """A repeat invite (same inviter→invitee→guild) collapses to one row, with
-    the newest code winning — AND the existing DM card is rewritten in place
-    (no second card stacked, the stale code is gone from the thread)."""
-    from dcc_chat_gateway.models import CommunityInvite, DirectMessageChannel, Message
+    """Zweimal einladen erzeugt EINE Zeile, kein Stapel."""
+    from sqlalchemy import func, select
+
+    from dcc_chat_gateway.models import CommunityInviteNotification
 
     t_a, uid_a = await _register(_auth_signer)
     _, uid_b = await _register(_auth_signer)
     await friend_pair(uid_a, uid_b)
-    await client.post(
-        "/community-invites",
-        json=_payload(uid_b, code="OLD00000"),
-        headers=auth(t_a),
-    )
-    await client.post(
-        "/community-invites",
-        json=_payload(uid_b, code="NEW00000"),
-        headers=auth(t_a),
-    )
 
-    from sqlalchemy import select
+    r1 = await client.post("/community-invites", json=_payload(uid_b), headers=auth(t_a))
+    r2 = await client.post("/community-invites", json=_payload(uid_b), headers=auth(t_a))
+    assert r1.status_code == 201 and r2.status_code == 201, r2.text
+    # Dieselbe Zeile, nicht zwei — die Kennung bleibt stabil, damit die Karte
+    # beim Empfaenger nicht springt.
+    assert r1.json()["id"] == r2.json()["id"]
 
-    lo, hi = sorted((uid_a, uid_b))
     async with session_factory() as s:
-        # Exactly one broker row, newest code wins.
-        rows = (
+        anzahl = (
             await s.execute(
-                select(CommunityInvite).where(
-                    CommunityInvite.inviter_id == uid_a,
-                    CommunityInvite.invitee_id == uid_b,
-                )
+                select(func.count()).select_from(CommunityInviteNotification)
             )
-        ).scalars().all()
-        assert len(rows) == 1
-        assert rows[0].code == "NEW00000"
-        # Exactly one DM card; it points at the new code, the old one is gone.
-        dm = (
-            await s.execute(
-                select(DirectMessageChannel).where(
-                    DirectMessageChannel.user_a_id == lo,
-                    DirectMessageChannel.user_b_id == hi,
-                )
-            )
-        ).scalars().first()
-        msgs = (
-            await s.execute(
-                select(Message).where(
-                    Message.channel_id == dm.id,
-                    Message.deleted_at.is_(None),
-                )
-            )
-        ).scalars().all()
-    assert len(msgs) == 1
-    assert "NEW00000" in msgs[0].content
-    assert "OLD00000" not in msgs[0].content
-    # Rewritten in place → marked edited.
-    assert msgs[0].edited_at is not None
+        ).scalar_one()
+    assert anzahl == 1
 
 
 @pytest.mark.asyncio
-async def test_reinvite_same_code_does_not_stack_card(
+async def test_reinvite_schreibt_frischen_code_fort(
     client, _auth_signer, friend_pair, session_factory
 ):
-    """Re-invite mit IDENTISCHEM Code erzeugt genau EINE DM-Karte.
+    """Erneut einladen aktualisiert den Code auf der vorhandenen Zeile.
 
-    Bug N9: die alte Bedingung ``old_code and old_code != inv.code`` schloss
-    den Gleich-Code-Fall aus → ``_find_prior_invite_dm`` wurde nie gerufen →
-    zweite identische Karte wurde gepostet statt die bestehende zu finden.
+    Der Einladende holt sich beim zweiten Anlauf einen frischen host-gepraegten
+    Code; die Einladung beim Empfaenger muss darauf zeigen, ohne dass eine
+    zweite danebensteht.
     """
-    from dcc_chat_gateway.models import DirectMessageChannel, Message
-    from sqlalchemy import select
+    from dcc_chat_gateway.models import CommunityInviteNotification
 
     t_a, uid_a = await _register(_auth_signer)
     _, uid_b = await _register(_auth_signer)
     await friend_pair(uid_a, uid_b)
 
-    # Erster Invite mit Code SAME0000.
     r1 = await client.post(
-        "/community-invites",
-        json=_payload(uid_b, code="SAME0000"),
-        headers=auth(t_a),
+        "/community-invites", json=_payload(uid_b, code="ALT12345"), headers=auth(t_a)
     )
-    assert r1.status_code == 201, r1.text
-
-    # Zweiter Invite mit IDENTISCHEM Code.
     r2 = await client.post(
-        "/community-invites",
-        json=_payload(uid_b, code="SAME0000"),
-        headers=auth(t_a),
+        "/community-invites", json=_payload(uid_b, code="NEU67890"), headers=auth(t_a)
     )
-    assert r2.status_code == 201, r2.text
-
-    lo, hi = sorted((uid_a, uid_b))
-    async with session_factory() as s:
-        dm = (
-            await s.execute(
-                select(DirectMessageChannel).where(
-                    DirectMessageChannel.user_a_id == lo,
-                    DirectMessageChannel.user_b_id == hi,
-                )
-            )
-        ).scalars().first()
-        assert dm is not None
-        msgs = (
-            await s.execute(
-                select(Message).where(
-                    Message.channel_id == dm.id,
-                    Message.deleted_at.is_(None),
-                )
-            )
-        ).scalars().all()
-    # Genau eine Karte — keine Doppelung trotz identischem Code.
-    assert len(msgs) == 1
-    assert "SAME0000" in msgs[0].content
-
-
-@pytest.mark.asyncio
-async def test_reinvite_after_card_deleted_posts_fresh(
-    client, _auth_signer, friend_pair, session_factory
-):
-    """If the inviter deleted the old card, the re-invite posts a fresh DM
-    rather than failing to find one to rewrite."""
-    from dcc_chat_gateway.models import CommunityInvite, DirectMessageChannel, Message
-
-    t_a, uid_a = await _register(_auth_signer)
-    _, uid_b = await _register(_auth_signer)
-    await friend_pair(uid_a, uid_b)
-    await client.post(
-        "/community-invites",
-        json=_payload(uid_b, code="OLD00000"),
-        headers=auth(t_a),
-    )
-
-    from datetime import UTC, datetime
-
-    from sqlalchemy import select, update
-
-    lo, hi = sorted((uid_a, uid_b))
-    async with session_factory() as s:
-        # Simulate the user deleting the first card.
-        await s.execute(
-            update(Message)
-            .where(Message.author_id == uid_a)
-            .values(deleted_at=datetime.now(tz=UTC))
-        )
-        await s.commit()
-
-    await client.post(
-        "/community-invites",
-        json=_payload(uid_b, code="NEW00000"),
-        headers=auth(t_a),
-    )
-    async with session_factory() as s:
-        dm = (
-            await s.execute(
-                select(DirectMessageChannel).where(
-                    DirectMessageChannel.user_a_id == lo,
-                    DirectMessageChannel.user_b_id == hi,
-                )
-            )
-        ).scalars().first()
-        live = (
-            await s.execute(
-                select(Message).where(
-                    Message.channel_id == dm.id,
-                    Message.deleted_at.is_(None),
-                )
-            )
-        ).scalars().all()
-        broker = (
-            await s.execute(
-                select(CommunityInvite).where(CommunityInvite.invitee_id == uid_b)
-            )
-        ).scalars().all()
-    assert len(broker) == 1
-    assert len(live) == 1
-    assert "NEW00000" in live[0].content
-
-
-@pytest.mark.asyncio
-async def test_unique_dedupe_index_rejects_duplicate_triple(session_factory):
-    """The dedupe index is UNIQUE — the DB itself rejects a second row for the
-    same (inviter, invitee, guild). That's what makes the broker's collapse
-    race-safe: a concurrent double-POST can't stack two rows / two cards (the
-    route catches the resulting IntegrityError and resolves to the winner's
-    row). Guards against the model index silently losing ``unique=True``."""
-    from sqlalchemy.exc import IntegrityError
-
-    from dcc_chat_gateway.models import CommunityInvite
-    from dcc_chat_gateway.snowflake import next_id
-
-    def _row() -> CommunityInvite:
-        return CommunityInvite(
-            id=next_id(),
-            inviter_id=111,
-            invitee_id=222,
-            target_host="pulse.firma.de",
-            target_instance_id=100,
-            target_guild_id=42,
-            target_guild_name="Cool Community",
-            code="ABCD1234",
-        )
+    assert r1.status_code == 201 and r2.status_code == 201, r2.text
+    assert r1.json()["id"] == r2.json()["id"]
+    assert r2.json()["code"] == "NEU67890"
 
     async with session_factory() as s:
-        s.add(_row())
-        await s.commit()
-
-    # Same triple, fresh id → the unique index must reject the second insert.
-    async with session_factory() as s:
-        s.add(_row())
-        with pytest.raises(IntegrityError):
-            await s.commit()
-
-
-# ---- rate limit ------------------------------------------------------------
+        zeile = await s.get(CommunityInviteNotification, int(r2.json()["id"]))
+    assert zeile is not None and zeile.code == "NEU67890"
 
 
 @pytest.mark.asyncio

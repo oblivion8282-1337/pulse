@@ -25,6 +25,7 @@ from dcc_chat_gateway.guild_limits import clamp_to_ceilings, effective_wire_limi
 from dcc_chat_gateway.guild_caps import enforce_member_cap
 from dcc_chat_gateway.models import (
     Channel,
+    CommunityInviteNotification,
     Guild,
     GuildMember,
     GuildSoundOverride,
@@ -354,6 +355,17 @@ async def delete_guild(
         GuildSoundOverride.guild_id == guild_id
     )
     s3_keys_to_purge.extend((await session.execute(sound_keys_stmt)).scalars())
+    # Offene Einladungen in diese Community von Hand raeumen. Bis Migration
+    # 0063 erledigte das ein ON DELETE CASCADE; der Fremdschluessel musste
+    # weichen, weil ``guild_id`` seither auch auf eine Community auf einem
+    # fremden Host zeigen kann, fuer die es in der Cloud keine Zeile gibt.
+    # Ohne diese Zeile bliebe die Einladung als Karteileiche in der Inbox des
+    # Empfaengers stehen und liefe beim Annehmen ins 404.
+    await session.execute(
+        sa_delete(CommunityInviteNotification).where(
+            CommunityInviteNotification.guild_id == guild_id
+        )
+    )
     await session.delete(guild)
     await session.commit()
     # Purge MinIO objects only after the commit succeeds — a rollback must not

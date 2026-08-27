@@ -8,9 +8,10 @@
  *   POST /community-invites  {invitee_id, target_host, target_instance_id?,
  *                             target_guild_id, target_guild_name, code}
  *
- * Der Broker erzeugt serverseitig eine DM mit „Beitreten"-Karte an den
- * Invitee (`routes/community_invites.py`). Es gibt deshalb KEINE separate
- * Pending-Liste mehr — entsprechend kein GET/DELETE-Wrapper hier.
+ * Der Broker legt seit 2026-08-27 eine Zeile in der Einladungs-Inbox an und
+ * schickt `community_invite_received` (`routes/community_invites.py`) —
+ * KEINE DM mehr. Gelesen und beantwortet wird über `communityInvites.ts`;
+ * deshalb gibt es hier weiterhin nur den Erstell-Aufruf.
  */
 
 import { request } from './client';

@@ -74,14 +74,18 @@ async def test_invite_happy_path_creates_row(client, _auth_signer, session_facto
     r = await invite(client, t_a, gid, name_b)
     assert r.status_code == 201, r.text
     body = r.json()
-    assert body["status"] == "pending"
     assert body["invitee_user_id"] == str(uid_b)
     assert body["inviter_user_id"] == str(uid_a)
     assert body["guild_name"] == "Invite Guild"
+    # Cloud-Ziel → kein Host. Die Karte zeigt ihn nur bei fremden Servern.
+    assert body["target_host"] is None
 
     async with session_factory() as s:
         row = await s.get(CommunityInviteNotification, int(body["id"]))
-        assert row is not None and row.status == "pending"
+        # Seit 2026-08-27 gibt es keine status-Spalte mehr: dass die Zeile da
+        # ist, IST der offene Zustand.
+        assert row is not None
+        assert row.guild_name == "Invite Guild"
 
 
 @pytest.mark.asyncio
@@ -191,9 +195,9 @@ async def test_accept_creates_membership(client, _auth_signer, session_factory):
 
     async with session_factory() as s:
         assert (await s.get(GuildMember, (int(gid), uid_b))) is not None
-        row = await s.get(CommunityInviteNotification, int(inv_id))
-        assert row.status == "accepted"
-    # Entschieden → nicht mehr in der Pending-Liste.
+        # Angenommen → Zeile weg (kein Verlaufsregister ueber Einladungen).
+        assert (await s.get(CommunityInviteNotification, int(inv_id))) is None
+    # Entschieden → nicht mehr in der offenen Liste.
     r = await client.get("/me/community-invites", headers=auth(t_b))
     assert r.json() == []
 
@@ -209,9 +213,11 @@ async def test_decline_leaves_no_membership(client, _auth_signer, session_factor
     assert r.status_code == 204
     async with session_factory() as s:
         assert (await s.get(GuildMember, (int(gid), uid_b))) is None
-        row = await s.get(CommunityInviteNotification, int(inv_id))
-        assert row.status == "declined"
-    # Nach Ablehnung darf ein NEUER Invite gestellt werden (Guard prüft nur pending).
+        # Abgelehnt → Zeile weg. Bewusst keine Ablehnungs-Historie ueber
+        # Personen; gegen Einladungs-Stapel schuetzt der Rate-Limiter.
+        assert (await s.get(CommunityInviteNotification, int(inv_id))) is None
+    # Nach Ablehnung darf sofort neu eingeladen werden — der Guard sieht keine
+    # offene Zeile mehr.
     assert (await invite(client, t_a, gid, name_b)).status_code == 201
 
 

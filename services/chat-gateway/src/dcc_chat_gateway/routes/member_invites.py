@@ -69,7 +69,10 @@ class CommunityInviteNotificationOut(BaseModel):
     guild_name: str
     inviter_user_id: str
     invitee_user_id: str
-    status: str
+    # NULL = Cloud-Ziel. Die Karte zeigt ihn an, damit der Eingeladene sieht,
+    # auf welchen Server er tritt. Der ``code`` wird hier bewusst NICHT
+    # ausgegeben — er wird erst beim Annehmen gebraucht.
+    target_host: str | None
     created_at: str
 
 
@@ -80,7 +83,7 @@ def _to_out(row: CommunityInviteNotification, guild_name: str) -> CommunityInvit
         guild_name=guild_name,
         inviter_user_id=str(row.inviter_user_id),
         invitee_user_id=str(row.invitee_user_id),
-        status=row.status,
+        target_host=row.target_host,
         created_at=row.created_at.isoformat(),
     )
 
@@ -88,22 +91,23 @@ def _to_out(row: CommunityInviteNotification, guild_name: str) -> CommunityInvit
 async def load_pending_invites_with_guild(
     session, invitee_user_id: int
 ) -> list[CommunityInviteNotificationOut]:
-    """Pending Einladungen + Guild-Name in einem JOIN — geteilt zwischen
-    ``GET /me/community-invites`` und der ready-Frame-Hydration. Zeilen,
-    deren Guild verschwunden ist, fallen durch den INNER JOIN heraus
-    (der FK-CASCADE räumt sie ohnehin ab)."""
+    """Offene Einladungen des Empfängers — geteilt zwischen
+    ``GET /me/community-invites`` und der ready-Frame-Hydration.
+
+    **LEFT JOIN, nicht INNER:** ein Self-Host-Ziel hat in der Cloud keine
+    ``guilds``-Zeile, ein INNER JOIN würde genau diese Einladungen
+    verschlucken. Der Name kommt bevorzugt aus der denormalisierten Spalte
+    und nur ersatzweise aus der Guild-Tabelle (Zeilen von vor Migration 0063
+    haben die Spalte noch nicht gefüllt)."""
     rows = (
         await session.execute(
             select(CommunityInviteNotification, Guild.name)
-            .join(Guild, Guild.id == CommunityInviteNotification.guild_id)
-            .where(
-                CommunityInviteNotification.invitee_user_id == invitee_user_id,
-                CommunityInviteNotification.status == "pending",
-            )
+            .outerjoin(Guild, Guild.id == CommunityInviteNotification.guild_id)
+            .where(CommunityInviteNotification.invitee_user_id == invitee_user_id)
             .order_by(CommunityInviteNotification.created_at.desc())
         )
     ).all()
-    return [_to_out(row, name) for row, name in rows]
+    return [_to_out(row, row.guild_name or name or "") for row, name in rows]
 
 
 async def _resolve_username(session, username: str) -> int:
@@ -168,7 +172,6 @@ async def create_member_invite(
             select(CommunityInviteNotification.id).where(
                 CommunityInviteNotification.guild_id == guild_id,
                 CommunityInviteNotification.invitee_user_id == invitee_id,
-                CommunityInviteNotification.status == "pending",
             )
         )
     ).first()
@@ -180,7 +183,7 @@ async def create_member_invite(
         guild_id=guild_id,
         inviter_user_id=current.id,
         invitee_user_id=invitee_id,
-        status="pending",
+        guild_name=guild.name,
     )
     session.add(row)
     await session.commit()
@@ -211,10 +214,12 @@ async def list_my_community_invites(session: SessionDep, current: CurrentUser):
 async def _load_pending_for_invitee(
     session, invite_id: int, user_id: int
 ) -> CommunityInviteNotification:
-    """Zeile laden; 404 wenn fremd oder schon entschieden (kein Existence-Leak
-    an Dritte — wie ``load_request_for_caller`` im Friend-System)."""
+    """Zeile laden; 404 wenn fremd oder nicht mehr da (kein Existence-Leak an
+    Dritte — wie ``load_request_for_caller`` im Friend-System). Eine
+    entschiedene Einladung ist gelöscht, „schon entschieden" und „gab es nie"
+    sind hier also derselbe Fall."""
     row = await session.get(CommunityInviteNotification, invite_id, with_for_update=True)
-    if row is None or row.invitee_user_id != user_id or row.status != "pending":
+    if row is None or row.invitee_user_id != user_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="invite_not_found")
     return row
 
@@ -226,15 +231,36 @@ async def accept_community_invite(
     current: CurrentUser,
     request: Request,
 ):
-    """Einladung annehmen → Membership anlegen (identische Seiteneffekte wie
-    der Invite-Code-Beitritt: Ban-Gate, GuildMember-Insert,
-    ``guild_member_added``-Broadcast, Ziel-Channel für die Navigation)."""
+    """Einladung annehmen.
+
+    Zwei Fälle. **Cloud-Ziel:** Mitgliedschaft anlegen, mit identischen
+    Seiteneffekten wie der Invite-Code-Beitritt (Ban-Gate, GuildMember-Insert,
+    ``guild_member_added``-Broadcast, Ziel-Channel für die Navigation).
+    **Fremder Host:** die Cloud gibt ``{target_host, code}`` zurück und der
+    Klient geht seinen normalen Beitrittsweg gegen den Host, der den Code live
+    prüft. In beiden Fällen ist die Zeile danach weg — entschieden ist
+    entschieden, ein Verlaufsregister führen wir nicht.
+    """
     row = await _load_pending_for_invitee(session, invite_id, current.id)
+
+    if row.target_host:
+        # Kein Ban-Gate, kein Member-Cap: beides gehört dem Host, und die Cloud
+        # kann es nicht kennen. Der Host lehnt beim Einlösen ab, wenn nötig.
+        ausgabe = InviteAcceptOut(
+            guild=InviteGuildOut(id=row.guild_id, name=row.guild_name or "", icon_url=None),
+            channel_id=None,
+            target_host=row.target_host,
+            code=row.code,
+        )
+        await session.delete(row)
+        await session.commit()
+        return ausgabe
 
     guild = await session.get(Guild, row.guild_id)
     if guild is None:
-        # Community wurde gelöscht, während die Einladung offen war — Zeile
-        # aufräumen (defensiv; der FK-CASCADE erledigt das normalerweise).
+        # Community wurde gelöscht, während die Einladung offen war. Seit
+        # Migration 0063 gibt es keinen FK-CASCADE mehr, der das nebenbei
+        # erledigt — hier wird tatsächlich aufgeräumt, nicht nur defensiv.
         await session.delete(row)
         await session.commit()
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="invite_not_found")
@@ -249,7 +275,7 @@ async def accept_community_invite(
         await enforce_member_cap(session, row.guild_id)
         session.add(GuildMember(guild_id=row.guild_id, user_id=current.id))
         actually_added = True
-    row.status = "accepted"
+    await session.delete(row)
     await session.commit()
 
     if actually_added:
@@ -270,10 +296,14 @@ async def decline_community_invite(
     session: SessionDep,
     current: CurrentUser,
 ):
-    """Einladung ablehnen — Zeile bleibt als Historie. Bewusst KEIN Event an
-    den Einlader (anders als der Friend-Request-Decline, wo der Sender seine
+    """Einladung ablehnen — die Zeile wird gelöscht. Bewusst KEIN Event an den
+    Einlader (anders als der Friend-Request-Decline, wo der Sender seine
     Outgoing-Liste pflegt): der Einlader hat keine Pending-Liste im UI, und
-    stilles Ablehnen vermeidet sozialen Druck."""
+    stilles Ablehnen vermeidet sozialen Druck.
+
+    Folge des Löschens: derselbe Einladende kann sofort erneut einladen. Das
+    ist der bewusst gezahlte Preis dafür, keine Ablehnungs-Historie über
+    Personen zu führen; gegen Stapel schützt der Rate-Limiter."""
     row = await _load_pending_for_invitee(session, invite_id, current.id)
-    row.status = "declined"
+    await session.delete(row)
     await session.commit()

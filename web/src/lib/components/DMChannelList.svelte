@@ -1,6 +1,7 @@
 <script lang="ts">
   import AtSignIcon from '@lucide/svelte/icons/at-sign';
   import UsersIcon from '@lucide/svelte/icons/users';
+  import MailIcon from '@lucide/svelte/icons/mail';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { directMessages } from '$lib/stores/directMessages.svelte';
@@ -8,6 +9,7 @@
   import { nameStyle } from '$lib/utils/nameColor';
   import { readState } from '$lib/stores/readState.svelte';
   import { friendRequests } from '$lib/stores/friendRequests.svelte';
+  import { communityInvites } from '$lib/stores/communityInvites.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
   import SidebarFooter from './SidebarFooter.svelte';
   import type { DMChannel } from '$lib/api/types';
@@ -22,6 +24,10 @@
 
   const friendsActive = $derived(page.url.pathname.startsWith('/app/friends'));
   const pendingCount = $derived(friendRequests.incomingList.length);
+  const invitesActive = $derived(page.url.pathname.startsWith('/app/invites'));
+  // Getrennt vom Freunde-Zaehler: der Sinn des eigenen Eintrags ist, dass die
+  // Zahl vor dem Klick sagt, WORUM es geht. Eine Summe aus beidem tut das nicht.
+  const invitesCount = $derived(communityInvites.count);
 
   // Make sure the other-user's profile (name + avatar) is in the user cache.
   // The store debounces a batch fetch, so spamming queue() is cheap.
@@ -42,12 +48,11 @@
     <span class="truncate text-base font-bold tracking-tight">@me</span>
   </header>
 
-  <nav class="flex-1 overflow-y-auto px-2.5 pb-3 pt-1">
-    <p
-      class="text-text-muted px-3 pb-1 pt-2 text-2xs font-semibold uppercase tracking-wider"
-    >
-      Freunde
-    </p>
+  <nav class="flex-1 overflow-y-auto px-2.5 pb-3 pt-2">
+    <!-- Kein Gruppentitel ueber diesen beiden: er hiess "Freunde" und stand
+         damit direkt ueber dem gleichnamigen Knopf. Die zwei Eintraege
+         beschriften sich selbst; die Trennlinie darunter grenzt sie von den
+         Direktnachrichten ab. -->
     <button
       class="group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
       data-active={friendsActive}
@@ -64,6 +69,25 @@
           data-testid="sidebar-friends-badge"
         >
           {pendingCount}
+        </span>
+      {/if}
+    </button>
+    <button
+      class="group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
+      data-active={invitesActive}
+      onclick={() => goto('/app/invites')}
+      data-testid="sidebar-invites-link"
+    >
+      <MailIcon
+        class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary"
+      />
+      <span class="truncate {invitesCount === 0 ? 'text-text-muted' : ''}">Einladungen</span>
+      {#if invitesCount > 0}
+        <span
+          class="bg-rose-500 text-white ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-2xs font-semibold leading-none"
+          data-testid="sidebar-invites-badge"
+        >
+          {invitesCount}
         </span>
       {/if}
     </button>
