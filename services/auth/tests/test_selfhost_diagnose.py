@@ -294,7 +294,13 @@ async def test_ausgelassene_glieder_werden_benannt(client, alice, instance, ohne
         f"/selfhost/diagnose/{instance['id']}", headers={"Cookie": alice["cookie"]}
     )
     offen = r.json()["nicht_geprueft"]
-    assert offen == ["Server condition", "Identity", "Browser access", "Live connection"]
+    assert offen == [
+        "Server condition",
+        "Identity",
+        "Owner recognition",
+        "Browser access",
+        "Live connection",
+    ]
 
 
 async def test_vollstaendige_kette_laesst_nichts_offen(client, alice, instance, ohne_netz):
@@ -328,7 +334,7 @@ async def test_ohne_dns_wird_nichts_weiter_versucht(monkeypatch):
     monkeypatch.setattr(diag, "pruefe_tls", darf_nicht)
     monkeypatch.setattr(diag, "pruefe_stun", darf_nicht)
 
-    schritte = await diag._fuehre_pruefung("x.example.com", "1", "https://cloud")
+    schritte = await diag._fuehre_pruefung("x.example.com", "1", "https://cloud", 4242)
     assert gerufen == ["dns"]
     assert len(schritte) == 1
 
@@ -369,7 +375,7 @@ async def test_ohne_gueltiges_zertifikat_keine_http_schritte(monkeypatch):
     monkeypatch.setattr(diag, "pruefe_cors", http_darf_nicht)
     monkeypatch.setattr(diag, "pruefe_websocket", http_darf_nicht)
 
-    schritte = await diag._fuehre_pruefung("x.example.com", "1", "https://cloud")
+    schritte = await diag._fuehre_pruefung("x.example.com", "1", "https://cloud", 4242)
     assert "http" not in gerufen
     assert "stun" in gerufen and "rtmps" in gerufen
     assert [s.schritt for s in schritte] == ["dns", "tcp443", "tls", "stun", "rtmps"]

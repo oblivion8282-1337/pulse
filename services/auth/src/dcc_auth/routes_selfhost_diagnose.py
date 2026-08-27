@@ -39,6 +39,7 @@ from dcc_auth.routes import _check_rate
 from dcc_auth.routes_admin_instances import _require_cloud
 from dcc_auth.security import verify_password
 from dcc_auth.selfhost_probe import Schritt, pruefe_dns, pruefe_tcp, pruefe_tls
+from dcc_auth.selfhost_probe_betreiber import pruefe_betreiber
 from dcc_auth.selfhost_probe_dienst import (
     Ziel,
     pruefe_cors,
@@ -118,7 +119,9 @@ async def _instanz_oder_404(
     return inst
 
 
-async def _fuehre_pruefung(hostname: str, instanz_id: str, cloud_origin: str) -> list[Schritt]:
+async def _fuehre_pruefung(
+    hostname: str, instanz_id: str, cloud_origin: str, owner_id: int | None
+) -> list[Schritt]:
     """Geht die Kette ab und bricht ab, wo ein weiterer Schritt nur dieselbe
     Ursache ein zweites Mal meldete.
 
@@ -155,6 +158,15 @@ async def _fuehre_pruefung(hostname: str, instanz_id: str, cloud_origin: str) ->
         async with httpx.AsyncClient(follow_redirects=False, verify=True) as klient:
             schritte.append(await pruefe_health(klient, ziel))
             schritte.append(await pruefe_identitaet(klient, ziel, instanz_id))
+            # Achtes Glied: erreichen reicht nicht, der Server muss den
+            # Fragenden auch als Betreiber kennen. Ohne `owner_id` weiss die
+            # Cloud selbst nicht, wen sie erwartet (`registered_by` ist per
+            # ON DELETE SET NULL loeschbar) — dann bleibt der Schritt aus,
+            # statt eine Erwartung zu erfinden.
+            if owner_id:
+                schritte.append(
+                    await pruefe_betreiber(klient, ziel, int(instanz_id), owner_id)
+                )
             schritte.append(await pruefe_cors(klient, ziel, cloud_origin))
         schritte.append(await pruefe_websocket(hostname, adresse, 443))
 
@@ -186,7 +198,9 @@ async def diagnose(
 
     try:
         async with asyncio.timeout(GESAMTFRIST_S):
-            schritte = await _fuehre_pruefung(host, str(inst.id), settings.pulse_oidc_issuer)
+            schritte = await _fuehre_pruefung(
+                host, str(inst.id), settings.pulse_oidc_issuer, inst.registered_by
+            )
     except TimeoutError:
         schritte = [Schritt("gesamt", False, "zeitueberschreitung")]
 

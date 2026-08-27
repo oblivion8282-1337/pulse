@@ -10,8 +10,11 @@
  * aus demselben Grund.
  *
  * **Warum es diese Deutung überhaupt gibt.** Ein Self-Host muss sieben Glieder
- * hintereinander bestehen — DNS, TCP/443, Zertifikat, Routing durch einen
- * fremden Proxy, CORS-Header, WebSocket-Upgrade, UDP-Medienports. Bis 2026-08
+ * hintereinander bestehen, um ERREICHBAR zu sein — DNS, TCP/443, Zertifikat,
+ * Routing durch einen fremden Proxy, CORS-Header, WebSocket-Upgrade,
+ * UDP-Medienports. (Die Server-Diagnose kennt seit 2026-08-27 ein achtes
+ * Glied, die Betreiber-Erkennung; die ist keine Erreichbarkeitsfrage und
+ * hier deshalb nicht vertreten.) Bis 2026-08
  * fasste der Client alles davon zu einem einzigen „nicht erreichbar" zusammen
  * (`server-info.ts` fing DNS-, TLS-, CORS- und Zeitfehler in EINEM `catch`),
  * und der Betreiber stand ohne Anhaltspunkt da. Jede Zeile hier trennt einen

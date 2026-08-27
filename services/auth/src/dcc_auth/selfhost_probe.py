@@ -6,6 +6,11 @@ UDP-Medienports). Bis 2026-08 prüfte niemand davon irgendetwas von AUSSEN: der
 Client meldete jeden Fehlschlag als „nicht erreichbar", und die Cloud kannte
 zwar den Hostnamen, sah ihn aber nie an.
 
+Ein achtes Glied kam am 2026-08-27 dazu und steht in ``selfhost_probe_betreiber``:
+Es fragt nicht, ob man den Server ERREICHT, sondern ob man auf ihm etwas DARF —
+eine andere Frage mit einer anderen Ursache, und die einzige, die auch bei sieben
+grünen Gliedern noch reissen kann.
+
 Hier steht die Prüfung. Jeder Schritt liefert einen eigenen Befund, und jeder
 Befund hat eine andere Handlung dahinter — Befunde ohne eigene Handlung gehören
 nicht in die Liste, sie machen sie nur länger.

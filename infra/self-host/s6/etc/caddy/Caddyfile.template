@@ -92,6 +92,16 @@
             header_up X-Forwarded-For {remote_host}
         }
     }
+    # pulse-owner-check beantwortet der Erreichbarkeitsprüfung, ob dieser
+    # Server den Fragenden als Betreiber kennt. Ohne diese Zeile greift der
+    # SPA-Rückfall unten und liefert HTML — die Prüfung sähe dann einen
+    # älteren Server statt einer fehlenden Route. Ebenfalls chat-gateway.
+    handle /.well-known/pulse-owner-check {
+        reverse_proxy 127.0.0.1:8002 {
+            header_up Host {host}
+            header_up X-Forwarded-For {remote_host}
+        }
+    }
 
     # chat-gateway (8002)
     handle_path /api/chat/* {
