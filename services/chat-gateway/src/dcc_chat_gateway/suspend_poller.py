@@ -24,8 +24,10 @@ bekannte Zustand stehen. Andernfalls würde ein Cloud-Ausfall jeden Self-Host
 der Welt gleichzeitig aussperren — der Schaden wäre größer als der Nutzen.
 
 Redis, damit alle Worker denselben Stand sehen:
-  ``auth:instance:suspended``  ""|"suspended"|"deleted"
-  ``auth:instance:suspended:etag``
+  ``auth:instance:suspended``       ""|"suspended"|"deleted"
+  ``auth:instance:suspended:etag``  ``<instanz_id>|<etag>`` — die ID gehoert
+                                    zwingend dazu, s. den Block bei
+                                    ``_etag_marke``.
 """
 
 from __future__ import annotations
@@ -89,6 +91,57 @@ async def raise_if_suspended(redis: Any) -> None:
         )
 
 
+# ---------------------------------------------------------------------------
+# ETag
+# ---------------------------------------------------------------------------
+#
+# Der ETag der Cloud beschreibt die LISTE. Gespeichert wird hier aber der
+# daraus abgeleitete Zustand DIESER Instanz — eine Funktion aus (Liste ×
+# eigener ID). Ein Cache-Schlüssel muss alles tragen, wovon sein Ergebnis
+# abhängt; deshalb steht die Instanz-ID mit im Wert.
+#
+# Ohne sie meldete sich am 2026-08-27 eine echte Instanz dauerhaft als
+# gesperrt, obwohl die Cloud sie als aktiv führte (nachgemessen: Liste ohne
+# ihre ID, Schliesscode 4070 an der Leitung). Ihr Betreiber hatte den
+# Vorgänger gelöscht und neu aufgesetzt — seine Löschung war die letzte
+# Änderung an der Liste überhaupt, jeder Abruf danach bekam 304, und der
+# Zustand der toten Vorgänger-Instanz blieb stehen. Er liegt in Redis, ein
+# Neustart des Dienstes räumt ihn also nicht ab; gekippt hätte ihn erst die
+# nächste Änderung an der Liste — eine Sperre oder Löschung irgendeiner
+# beliebigen anderen Instanz auf der Welt.
+
+_MARKE_TRENNER = "|"
+
+
+def _etag_marke(instanz_id: int, etag: str) -> str:
+    """``<instanz_id>|<etag>`` — der ETag und die ID, gegen die er ausgewertet
+    wurde, in EINEM Wert."""
+    return f"{instanz_id}{_MARKE_TRENNER}{etag}"
+
+
+def _gueltiger_etag(roh: Any, instanz_id: int) -> str | None:
+    """Der gespeicherte ETag, sofern er zu DIESER Instanz gehört — sonst None.
+
+    None heisst: ohne ``If-None-Match`` abrufen. Das kostet eine volle Antwort
+    (ein paar hundert Byte, einmal) und liefert dafür einen Zustand, der zur
+    laufenden Instanz gehört.
+
+    Ein Wert ohne Marke stammt aus der Zeit vor dieser Änderung und ist keiner
+    Instanz zuzuordnen — er verfällt. Das ist die Selbstheilung für den
+    Bestand: der erste Abruf nach dem Update rechnet neu, eine bereits falsch
+    gesperrte Instanz gibt sich damit von selbst wieder frei.
+    """
+    if not roh:
+        return None
+    wert = roh.decode() if isinstance(roh, bytes) else str(roh)
+    marke, trenner, etag = wert.partition(_MARKE_TRENNER)
+    # `partition` teilt am ERSTEN Trenner; ein ETag darf selbst welche
+    # enthalten und bleibt dabei vollständig.
+    if not trenner or marke != str(instanz_id):
+        return None
+    return etag or None
+
+
 async def _fetch(
     client: httpx.AsyncClient, url: str, etag: str | None
 ) -> tuple[dict | None, str | None]:
@@ -123,8 +176,7 @@ async def suspend_poll_once(
 ) -> None:
     """Ein Abruf. Bei jedem Fehler bleibt der letzte Stand stehen (fail-open)."""
     url = f"{cloud_origin.rstrip('/')}/.well-known/pulse-suspended-instances"
-    raw_etag = await redis.get(REDIS_SUSPENDED_ETAG_KEY)
-    etag = (raw_etag.decode() if isinstance(raw_etag, bytes) else raw_etag) if raw_etag else None
+    etag = _gueltiger_etag(await redis.get(REDIS_SUSPENDED_ETAG_KEY), instance_id)
 
     try:
         body, new_etag = await _fetch(client, url, etag)
@@ -137,14 +189,17 @@ async def suspend_poll_once(
         return
 
     if body is None:
-        return  # 304
+        # 304 — und der ETag, der ihn ausgelöst hat, gehört zu DIESER Instanz
+        # (`_gueltiger_etag` lässt keinen anderen durch). Die Liste ist
+        # unverändert, der daraus abgeleitete Zustand also auch.
+        return
 
     neu = _state_for(body, instance_id)
     alt = await read_state(redis)
     pipe = redis.pipeline()
     pipe.set(REDIS_SUSPENDED_KEY, neu)
     if new_etag:
-        pipe.set(REDIS_SUSPENDED_ETAG_KEY, new_etag)
+        pipe.set(REDIS_SUSPENDED_ETAG_KEY, _etag_marke(instance_id, new_etag))
     await pipe.execute()
 
     if neu != alt:
