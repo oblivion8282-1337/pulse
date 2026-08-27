@@ -1,22 +1,30 @@
-"""Periodic cleanup of long-idle Web-Push subscriptions.
+"""Periodic cleanup: long-idle Web-Push subscriptions + abgelaufene
+Community-Einladungen.
 
-``push.py`` already removes a sub on a 404/410 response from the push
-provider (``pywebpush`` raises with the dead endpoint). What it does
-**not** catch are subs whose endpoints still answer 2xx but belong to
-browsers / devices the user no longer opens — they just stay subscribed
-and we keep pushing into the void.
+**Web-Push:** ``push.py`` entfernt eine Subscription bereits bei einer
+404/410-Antwort vom Push-Provider (``pywebpush`` wirft mit dem toten
+Endpoint). Was das **nicht** erfasst, sind Subs, deren Endpoint weiter 2xx
+antwortet, aber zu einem Browser/Gerät gehört, das der Nutzer nicht mehr
+öffnet — sie bleiben abonniert und wir pushen ins Leere.
 
-The sweep below deletes a row when:
+Der Sweep löscht eine Zeile, wenn:
 
-  * ``created_at`` is older than ``push_subscription_idle_days``
-    (default 60 d) — fresh subs are kept regardless of usage, so users
-    who subscribe but only see a notification weeks later don't lose
-    their channel,
-  * **and** either ``last_used_at`` is NULL or it's older than the same
-    cutoff — so a sub that recently delivered something stays.
+  * ``created_at`` älter als ``push_subscription_idle_days`` ist
+    (Vorgabe 60 Tage) — frische Subs bleiben unabhängig von Nutzung
+    stehen, damit ein Nutzer, der abonniert aber erst Wochen später eine
+    Benachrichtigung sieht, seinen Kanal nicht verliert,
+  * **und** ``last_used_at`` entweder NULL ist oder ebenfalls älter als
+    dieselbe Grenze — eine kürzlich zustellende Sub bleibt also stehen.
 
-Same pattern as ``routes.attachments.reaper_loop`` (sleep-driven asyncio
-loop, errors logged + swallowed, ``CancelledError`` re-raised).
+**Community-Einladungen:** ``community_invite_notifications`` trägt
+``expires_at`` (nullable), das beim Erstellen befüllt wird, aber bis
+2026-08-28 nie ausgewertet wurde — eine abgelaufene Einladung blieb in
+der Inbox stehen und der Annehmen-Versuch lief ins Leere. Der Sweep
+räumt sie weg (Details bei ``sweep_abgelaufene_einladungen``).
+
+Gleiches Muster wie ``routes.attachments.reaper_loop`` (sleep-getriebene
+asyncio-Schleife, Fehler geloggt + geschluckt, ``CancelledError`` erneut
+geworfen).
 """
 
 from __future__ import annotations
@@ -27,16 +35,42 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import or_
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from dcc_chat_gateway.config import Settings
-from dcc_chat_gateway.models import WebPushSubscription
+from dcc_chat_gateway.models import CommunityInviteNotification, WebPushSubscription
 
 log = logging.getLogger(__name__)
 
 
+async def sweep_abgelaufene_einladungen(session: AsyncSession) -> int:
+    """Löscht Community-Einladungen, deren ``expires_at`` in der Vergangenheit liegt.
+
+    ``expires_at IS NULL`` heisst „verfällt nie" (Cloud-Ziel) und wird deshalb
+    **ausdrücklich** ausgeschlossen — SQLs Drei-Werte-Logik würde einen
+    ``< now()``-Vergleich mit NULL ohnehin als unbekannt (nicht wahr) werten,
+    aber das soll hier keine implizite Nebenwirkung sein, sondern lesbar im
+    Code stehen. Committet nicht selbst (Aufrufer entscheidet).
+    """
+    now = datetime.now(UTC)
+    res = await session.execute(
+        sa_delete(CommunityInviteNotification).where(
+            CommunityInviteNotification.expires_at.is_not(None),
+            CommunityInviteNotification.expires_at < now,
+        )
+    )
+    deleted = res.rowcount or 0
+    log.info("community_invite_cleanup_done deleted=%d", deleted)
+    return deleted
+
+
 async def _run_once(engine: AsyncEngine, settings: Settings) -> int:
-    """Execute one sweep. Returns the number of rows deleted."""
+    """Führt einen Sweep-Durchlauf beider Aufräumarten aus.
+
+    Returns die Zahl der gelöschten Web-Push-Subscriptions (der bisherige,
+    von Aufrufern ausgewertete Rückgabewert bleibt unverändert; die
+    Einladungs-Aufräumung läuft in derselben Transaktion mit).
+    """
     cutoff = datetime.now(UTC) - timedelta(days=settings.push_subscription_idle_days)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as session:
@@ -49,6 +83,7 @@ async def _run_once(engine: AsyncEngine, settings: Settings) -> int:
                 ),
             )
         )
+        await sweep_abgelaufene_einladungen(session)
         await session.commit()
     deleted = res.rowcount or 0
     log.info("push_subscription_cleanup_done deleted=%d", deleted)
@@ -56,10 +91,13 @@ async def _run_once(engine: AsyncEngine, settings: Settings) -> int:
 
 
 async def cleanup_loop(settings: Settings, engine: AsyncEngine) -> None:
-    """Runs forever; sweeps stale subscriptions once per ``cleanup_interval_seconds``.
+    """Läuft dauerhaft; sweept stale Subscriptions UND abgelaufene
+    Community-Einladungen einmal pro ``cleanup_interval_seconds`` (eine
+    einzige Schleife, kein zweiter Timer für die Einladungen).
 
-    Errors are logged and the loop continues. ``CancelledError`` re-raises
-    so the lifespan shutdown actually stops the task.
+    Fehler werden geloggt, die Schleife läuft weiter. ``CancelledError``
+    wird erneut geworfen, damit der Lifespan-Shutdown den Task tatsächlich
+    stoppt.
     """
     interval_s = settings.cleanup_interval_seconds
     log.info(
@@ -80,4 +118,4 @@ async def cleanup_loop(settings: Settings, engine: AsyncEngine) -> None:
             log.exception("push_subscription_cleanup_failed")
 
 
-__all__ = ["cleanup_loop", "_run_once"]
+__all__ = ["cleanup_loop", "_run_once", "sweep_abgelaufene_einladungen"]

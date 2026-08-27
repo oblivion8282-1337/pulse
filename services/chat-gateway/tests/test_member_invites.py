@@ -261,3 +261,38 @@ async def test_accept_after_guild_deleted_404_and_cleans_row(
             )
         ).scalars().all()
         assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_abgelaufene_einladung_wird_gefegt(session_factory):
+    """Eine Einladung mit vergangenem expires_at verschwindet beim Aufraeumen.
+
+    Eine Zeile ohne expires_at (Cloud-Ziel, das nie verfaellt) bleibt stehen —
+    NULL darf nicht als 'laengst abgelaufen' gelesen werden.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from dcc_chat_gateway.cleanup import sweep_abgelaufene_einladungen
+    from dcc_chat_gateway.models import CommunityInviteNotification
+    from dcc_chat_gateway.snowflake import next_id
+
+    alt_id, ewig_id = next_id(), next_id()
+    async with session_factory() as s:
+        s.add(CommunityInviteNotification(
+            id=alt_id, guild_id=1, inviter_user_id=2, invitee_user_id=3,
+            guild_name="Alt", expires_at=datetime.now(UTC) - timedelta(hours=1),
+        ))
+        s.add(CommunityInviteNotification(
+            id=ewig_id, guild_id=1, inviter_user_id=2, invitee_user_id=4,
+            guild_name="Ewig", expires_at=None,
+        ))
+        await s.commit()
+
+    async with session_factory() as s:
+        entfernt = await sweep_abgelaufene_einladungen(s)
+        await s.commit()
+    assert entfernt == 1
+
+    async with session_factory() as s:
+        assert (await s.get(CommunityInviteNotification, alt_id)) is None
+        assert (await s.get(CommunityInviteNotification, ewig_id)) is not None
