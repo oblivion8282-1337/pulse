@@ -438,7 +438,7 @@ services:
     # instantly. The AV1 temporal-delimiter patch still applies cleanly and is
     # kept. Rollback: revert this commit → `:1.17.1-pulse` (image still in GHCR
     # and cached on the host) + `docker compose up -d pulse_mediamtx`.
-    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse5
+    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse6
     container_name: pulse_mediamtx
     restart: unless-stopped
     network_mode: host
