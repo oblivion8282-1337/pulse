@@ -30,20 +30,17 @@ import logging
 from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
 
-from dcc_shared.events import DmBumpEvent, MessageUpdateEvent
 from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.friend_helpers import block_exists_either_way, friendship_exists
-from dcc_chat_gateway.message_helpers import broadcast as _broadcast
-from dcc_chat_gateway.message_helpers import serialize_message
-from dcc_chat_gateway.models import CommunityInvite, GuildMember, Message
+from dcc_chat_gateway.friend_events import publish_friend_event
+from dcc_chat_gateway.models import CommunityInviteNotification, GuildMember
 from dcc_chat_gateway.ratelimit import check as ratelimit_check
 from dcc_chat_gateway.routes._deps import CloudOnly
-from dcc_chat_gateway.routes.dms import ensure_dm_channel
+from dcc_chat_gateway.routes.member_invites import _to_out
 from dcc_chat_gateway.schemas import CommunityInviteOut, CreateCommunityInviteIn
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
@@ -90,120 +87,6 @@ def _invite_link(inv: CommunityInvite) -> str:
     if not target or target == cloud_host:
         return base
     return f"{base}?host={quote(target, safe='')}"
-
-
-async def _find_prior_invite_dm(
-    session, channel_id: int, inviter_id: int, old_code: str
-) -> Message | None:
-    """Find the inviter's most recent live invite-DM for ``old_code``.
-
-    On a re-invite (dedupe) the host may mint a fresh code; the prior DM card
-    then points at the now-stale code. We look it up by ``…/invite/<old_code>``
-    so we can rewrite it in place instead of stacking a second card. Returns
-    ``None`` if the user deleted it / it can't be found (→ post a fresh DM).
-    """
-    needle = f"/invite/{old_code}"
-    stmt = (
-        select(Message)
-        .where(
-            Message.channel_id == channel_id,
-            Message.author_id == inviter_id,
-            Message.deleted_at.is_(None),
-            Message.content.contains(needle),
-        )
-        .order_by(Message.id.desc())
-        .limit(1)
-    )
-    return (await session.execute(stmt)).scalars().first()
-
-
-async def _send_invite_dm(
-    request: Request,
-    session,
-    inv: CommunityInvite,
-    *,
-    old_code: str | None = None,
-) -> None:
-    """Best-effort: surface the invite link in the inviter↔invitee DM thread.
-
-    The link renders as a "Beitreten"-card in the conversation (``InviteEmbed``
-    via ``MessageItem``'s ``INVITE_RE``). Persisted + broadcast exactly like a
-    normal DM ``post_message`` so it shows live for both parties AND survives a
-    reload (message history). Never raises — a failure here must not undo the
-    already-committed broker row + push.
-
-    Re-invite (``old_code`` set + a prior card still in the thread): the
-    existing card is **rewritten in place** to the new link (``message_update``)
-    instead of posting a second one — keeps the thread to a single, current
-    card. Falls back to a fresh post if the prior card is gone.
-    """
-    link = _invite_link(inv)
-    try:
-        dm = await ensure_dm_channel(session, inv.inviter_id, inv.invitee_id)
-        prior = (
-            await _find_prior_invite_dm(session, dm.id, inv.inviter_id, old_code)
-            if old_code
-            else None
-        )
-        if prior is not None:
-            # Rewrite the stale card in place.
-            prior.content = link
-            prior.edited_at = datetime.now(tz=UTC)
-            session.add(prior)
-            await session.commit()
-            await session.refresh(prior)
-            await _broadcast(
-                request, dm.id, MessageUpdateEvent(data=serialize_message(prior))
-            )
-            return
-        msg = Message(
-            id=next_id(),
-            channel_id=dm.id,
-            author_id=inv.inviter_id,
-            content=link,
-        )
-        session.add(msg)
-        dm.last_message_id = msg.id
-        session.add(dm)
-        await session.commit()
-    except Exception:
-        log.exception(
-            "failed to create invite DM for community_invite %s", inv.id
-        )
-        return
-    # Commit succeeded → the DM is persisted. Refresh + live-notify happen
-    # OUTSIDE the try so a refresh hiccup here can't swallow the broadcast
-    # (the message would otherwise be saved but never delivered live).
-    try:
-        await session.refresh(msg)
-    except Exception:
-        log.exception("invite DM refresh failed for message %s", msg.id)
-    # Broadcast on the DM channel topic (live for whoever is viewing it) + the
-    # DmBumpEvent (so a non-viewing client flags the thread as having activity)
-    # — the same two-step fan-out ``post_message`` does for a DM. Guarded so a
-    # serialize/broadcast hiccup is logged (not silently swallowed) and still
-    # honours the "never raises" contract for the already-committed message.
-    try:
-        await _broadcast(request, dm.id, serialize_message(msg))
-    except Exception:
-        log.exception("invite DM broadcast failed for dm %s", dm.id)
-    mgr = getattr(request.app.state, "connection_manager", None)
-    if mgr is not None:
-        try:
-            await mgr.publish_guild_event(
-                DmBumpEvent(
-                    channel_id=str(dm.id),
-                    user_a_id=str(dm.user_a_id),
-                    user_b_id=str(dm.user_b_id),
-                    message_id=str(msg.id),
-                    author_id=str(inv.inviter_id),
-                )
-            )
-        except Exception:
-            log.exception("invite DM bump publish failed for dm %s", dm.id)
-
-
-# ---- POST /community-invites ----------------------------------------------
 
 
 @router.post(
@@ -273,80 +156,72 @@ async def create_community_invite(
             seconds=payload.expires_in_seconds
         )
 
-    # Dedupe: collapse a repeat invite (same inviter→invitee→guild) onto a
-    # single live row so a spammed "invite" button can't pile up cards.
-    #
-    # Race-safe: ``SELECT … FOR UPDATE`` locks an existing triple, so two
-    # concurrent re-invites serialise (the second blocks until the first
-    # commits, then rewrites the SAME row + card). For the first-ever invite
-    # there is no row to lock — two concurrent inserts can both pass the SELECT,
-    # but the UNIQUE ``ix_community_invites_dedupe`` index then rejects the
-    # loser's INSERT (IntegrityError, caught below → resolves to the winner's
-    # row, no second card). We read the prior code first to rewrite the stale DM
-    # card in place, and UPDATE in place (no delete+insert) so the PK stays
-    # stable and the row is never briefly missing.
-    existing = (
+    # Dedupe: EIN offener Antrag pro (guild, invitee) — egal von wem. Gleiche
+    # Regel wie beim Nutzername-Weg (``member_invites.py``), damit ein
+    # gedrueckt gehaltener Einladen-Knopf keinen Stapel erzeugt. Guard-Query
+    # statt partiellem Unique-Index (SQLite in den Tests); das Race-Fenster ist
+    # akzeptiert, wie bei der Freundschaftsanfrage-Pruefung.
+    vorhanden = (
         await session.execute(
-            select(CommunityInvite)
+            select(CommunityInviteNotification)
             .where(
-                CommunityInvite.inviter_id == current.id,
-                CommunityInvite.invitee_id == payload.invitee_id,
-                CommunityInvite.target_guild_id == payload.target_guild_id,
+                CommunityInviteNotification.guild_id == payload.target_guild_id,
+                CommunityInviteNotification.invitee_user_id == payload.invitee_id,
             )
             .with_for_update()
         )
     ).scalars().first()
 
-    prior_code = existing.code if existing is not None else None
-    if existing is not None:
-        existing.target_host = payload.target_host
-        existing.target_instance_id = payload.target_instance_id
-        existing.target_guild_name = payload.target_guild_name
-        existing.code = payload.code
-        existing.expires_at = expires_at
-        invite = existing
+    if vorhanden is not None:
+        # Erneut einladen schreibt die vorhandene Zeile fort statt eine zweite
+        # anzulegen: der Code kann frisch sein (der Einladende hat einen neuen
+        # geholt), die Karte beim Empfaenger soll aber dieselbe bleiben.
+        vorhanden.inviter_user_id = current.id
+        vorhanden.target_host = payload.target_host
+        vorhanden.target_instance_id = payload.target_instance_id
+        vorhanden.guild_name = payload.target_guild_name
+        vorhanden.code = payload.code
+        vorhanden.expires_at = expires_at
+        zeile = vorhanden
     else:
-        invite = CommunityInvite(
+        zeile = CommunityInviteNotification(
             id=next_id(),
-            inviter_id=current.id,
-            invitee_id=payload.invitee_id,
+            guild_id=payload.target_guild_id,
+            inviter_user_id=current.id,
+            invitee_user_id=payload.invitee_id,
             target_host=payload.target_host,
             target_instance_id=payload.target_instance_id,
-            target_guild_id=payload.target_guild_id,
-            target_guild_name=payload.target_guild_name,
             code=payload.code,
+            guild_name=payload.target_guild_name,
             expires_at=expires_at,
         )
-        session.add(invite)
+        session.add(zeile)
 
-    try:
-        await session.commit()
-    except IntegrityError:
-        # Lost the first-invite race: a concurrent identical invite already
-        # created the row (unique dedupe index) and dropped the card. Roll back
-        # and return the winner's row WITHOUT posting a second card.
-        await session.rollback()
-        winner = (
-            await session.execute(
-                select(CommunityInvite).where(
-                    CommunityInvite.inviter_id == current.id,
-                    CommunityInvite.invitee_id == payload.invitee_id,
-                    CommunityInvite.target_guild_id == payload.target_guild_id,
-                )
-            )
-        ).scalars().first()
-        if winner is None:
-            raise
-        return CommunityInviteOut.model_validate(winner)
-    await session.refresh(invite)
+    await session.commit()
+    await session.refresh(zeile)
 
-    out = CommunityInviteOut.model_validate(invite)
-    # Deliver the invite as a DM: the link renders as a "Beitreten"-card in the
-    # inviter↔invitee conversation (replaces the old separate friends-tab list —
-    # there is no more ``community_invite_received`` push). Best-effort; a
-    # DM-write hiccup must not undo the already-committed broker row. The broker
-    # row above is committed, so this opens a fresh transaction on the same
-    # ``session``. On re-invite, ``prior_code`` lets it rewrite the existing
-    # card in place instead of stacking a second one.
-    await _send_invite_dm(request, session, invite, old_code=prior_code)
-    return out
+    # Zustellung als Ereignis auf derselben Schiene wie die
+    # Freundschaftsanfrage — NICHT mehr als Nachricht im DM-Verlauf. Der alte
+    # Weg schrieb eine ``Message`` mit der ``author_id`` des Einladenden, also
+    # im Namen eines Dritten; mit verschluesselten Direktnachrichten ist das
+    # unmoeglich, dem Server fehlt dafuer der Schluessel. Offline-Empfaenger
+    # holen die Einladung ueber den ready-Rahmen nach.
+    await publish_friend_event(
+        request,
+        target_user_id=payload.invitee_id,
+        op="community_invite_received",
+        data=_to_out(zeile, payload.target_guild_name).model_dump(mode="json"),
+    )
+
+    return CommunityInviteOut(
+        id=zeile.id,
+        inviter_id=zeile.inviter_user_id,
+        invitee_id=zeile.invitee_user_id,
+        target_host=payload.target_host,
+        target_instance_id=zeile.target_instance_id,
+        target_guild_id=zeile.guild_id,
+        target_guild_name=payload.target_guild_name,
+        code=payload.code,
+        created_at=zeile.created_at,
+        expires_at=zeile.expires_at,
+    )

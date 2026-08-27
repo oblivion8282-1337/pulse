@@ -12,7 +12,6 @@
   import CheckIcon from '@lucide/svelte/icons/check';
   import XIcon from '@lucide/svelte/icons/x';
   import { friendRequests } from '$lib/stores/friendRequests.svelte';
-  import CommunityInviteCards from './CommunityInviteCards.svelte';
   import { friends } from '$lib/stores/friends.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { friendsApi } from '$lib/api/friends';
@@ -61,7 +60,6 @@
 <section class="flex flex-col gap-6" data-testid="pending-tab">
   <!-- Community-Einladungen (Nutzername-Einladungen) — gleiche Schiene wie
        Freundschaftsanfragen, darum hier im Pending-Tab. -->
-  <CommunityInviteCards />
   <div>
     <h2 class="text-text-bright px-1 pb-2 text-xs font-semibold uppercase tracking-wide">
       {m.pending_requests_incoming_heading({ count: friendRequests.incomingList.length })}

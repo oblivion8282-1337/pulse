@@ -1,10 +1,13 @@
 /**
- * Einladungs-Benachrichtigungen an Nicht-Freunde (Cloud-only, v1).
+ * Community-Einladungen — die eine Schiene.
  *
- * Spiegelt ``routes/member_invites.py`` im chat-gateway. Fährt auf den
- * Schienen der Freundschaftsanfragen (Annehmen/Ablehnen beim Empfänger),
- * NICHT als DM — DMs bleiben strikt friends-only. Alle Calls laufen gegen
- * den Cloud-Server (Social-Plane), wie ``friendsApi``.
+ * Spiegelt ``routes/member_invites.py`` im chat-gateway. Seit 2026-08-27
+ * laufen BEIDE Wege hierüber (unter Freunden und per Nutzername); der frühere
+ * Weg als Karte im DM-Verlauf ist entfallen, weil der Server dafür eine
+ * Nachricht im Namen des Einladenden hätte schreiben müssen — mit
+ * verschlüsselten Direktnachrichten unmöglich.
+ *
+ * Alle Calls laufen gegen den Cloud-Server (Social-Plane), wie ``friendsApi``.
  */
 
 import { request } from './client';
@@ -17,13 +20,19 @@ export type CommunityInviteNotification = {
   guild_name: string;
   inviter_user_id: string;
   invitee_user_id: string;
-  status: 'pending' | 'accepted' | 'declined';
+  /** null = Cloud-Ziel. Sonst der Server, auf dem die Community lebt. */
+  target_host: string | null;
   created_at: string;
 };
 
 export type CommunityInviteAcceptResult = {
   guild: { id: string; name: string; icon_url: string | null };
   channel_id: string | null;
+  /** Nur bei einer Einladung auf einen fremden Server gesetzt: die Cloud legt
+   *  dort keine Mitgliedschaft an, sondern reicht Ziel und Code zurück — der
+   *  Beitritt läuft danach über den normalen Einladungsweg gegen den Host. */
+  target_host?: string | null;
+  code?: string | null;
 };
 
 function cloudRoute(): { serverId?: string } {
