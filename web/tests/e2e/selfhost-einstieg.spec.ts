@@ -43,6 +43,11 @@ test.describe('Eigener Server: Einstieg und Route', () => {
     await expect(page.getByTestId('self-host-page')).toBeVisible();
     // Der Inhalt ist derselbe wie im frueheren Reiter — nicht nur ein Rahmen.
     await expect(page.getByTestId('self-host-panel')).toBeVisible();
+
+    // Und wieder heraus. Am Rechner gab es dafuer zuerst nur den Umweg ueber
+    // das Pulse-Zeichen in der Leiste — einen Ausgang, den man kennen muss.
+    await page.getByTestId('self-host-back').click();
+    await page.waitForURL((u) => !u.pathname.startsWith('/app/server'));
     await page.close();
   });
 
@@ -84,6 +89,10 @@ test.describe('Eigener Server: Einstieg und Route', () => {
       await knopf.click();
       await page.waitForURL(/\/app\/server/);
       await expect(page.getByTestId('self-host-panel')).toBeVisible();
+
+      // Zurueck fuehrt dorthin, wo der Einstieg steht.
+      await page.getByTestId('self-host-back').click();
+      await page.waitForURL(/\/app\/rooms/);
       await page.close();
     }
   });
