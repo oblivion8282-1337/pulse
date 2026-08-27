@@ -39,6 +39,16 @@ export type ServerEntry = {
   // klassischer Self-Host. null = unbekannt (Alt-Eintrag/Cloud) → wie vps.
   origin?: 'vps' | 'app_host' | null;
   isCloud: boolean;           // true für howispulse.com (Hard-Default)
+  // Eigene Rolle auf DIESEM Server, aus GET /me/instances (die Cloud weiss aus
+  // ``registered_instances.registered_by``, wem ein Server gehoert — und zwar
+  // OHNE Verbindung zu ihm). Sie fuellt die Luecke, solange der Server selbst
+  // nichts gemeldet hat: sein ``is_admin`` kommt nur aus dem ready-Rahmen, und
+  // den gibt es nur ueber eine bestehende WebSocket, die die App allein zum
+  // AKTIVEN Server aufbaut. Ohne dieses Feld sah ein Betreiber auf seinem
+  // eigenen, gerade nicht aktiven Server keinen Weg, eine Community anzulegen
+  // (2026-08-27). Auswertung: ``lib/servers/erstellrecht.ts``.
+  // null = unbekannt (Alt-Eintrag oder Cloud).
+  role?: 'owner' | 'member' | null;
   notification_mode: 'all' | 'mentions' | 'none';
   added_at: number;           // Date.now() ms
 };
@@ -373,7 +383,8 @@ class ServersStore {
             hostChanged ||
             idChanged ||
             existing.notification_mode !== inst.notification_mode ||
-            existing.origin !== inst.origin
+            existing.origin !== inst.origin ||
+            existing.role !== inst.role
           ) {
             this.servers = this.servers.map((s) =>
               s.id === existing.id
@@ -391,6 +402,9 @@ class ServersStore {
                     // Herkunft nachziehen (Direct-only-Weiche braucht sie;
                     // Alt-Einträge haben sie noch nicht).
                     origin: inst.origin,
+                    // Rolle nachziehen: ein Besitzerwechsel (Owner-Transfer)
+                    // aendert sie, und Alt-Eintraege haben sie noch gar nicht.
+                    role: inst.role,
                   }
                 : s,
             );
@@ -410,6 +424,7 @@ class ServersStore {
             origin: inst.origin,
             pairwise_sub: null, // wird beim ersten Connect via Cert-Login gesetzt
             isCloud: false,
+            role: inst.role,
             notification_mode: inst.notification_mode,
             added_at: Date.now(),
           },

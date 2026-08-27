@@ -23,6 +23,7 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { capabilities } from '$lib/stores/capabilities.svelte';
+  import { darfCommunityAnlegen } from '$lib/servers/erstellrecht';
   import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
@@ -57,15 +58,18 @@
   let activeGuild = $derived<typeof guilds.byId[string] | undefined>(
     guilds.byId[guildId] ?? serverGuilds.findGuild(guildId)
   );
-  // Community-Erstellung darf, wer Admin des *aktiven* Servers ist (Cloud:
-  // ``auth.user.is_admin``; Self-Host: ``serverAdmin`` aus dem Ready-Frame —
-  // ein Cert-User hat dort kein auth/me) ODER wenn der Server das offen
-  // geschaltet hat (``allow_guild_creation``). Ohne den serverAdmin-Zweig
-  // konnte ein Self-Host-Admin keine Community anlegen.
+  // Darf ich auf dem AKTIVEN Server eine Community anlegen? Rechnung in
+  // ``lib/servers/erstellrecht.ts`` (eine Stelle für alle drei Aufrufer).
   let canCreateGuild = $derived(
-    !!auth.user?.is_admin ||
-      serverAdmin.isAdmin(activeServer.serverId) ||
-      capabilities.allowGuildCreation
+    darfCommunityAnlegen({
+      istCloud: activeServer.current?.isCloud ?? false,
+      cloudAdmin: !!auth.user?.is_admin,
+      rolleLautCloud: activeServer.current?.role ?? null,
+      adminLautServer: serverAdmin.has(activeServer.serverId)
+        ? serverAdmin.isAdmin(activeServer.serverId)
+        : null,
+      offenFuerAlle: capabilities.allowGuildCreation,
+    }),
   );
   // Admin/Betreiber des aktiven Servers? Cloud → auth.user.is_admin; Self-Host →
   // serverAdmin aus dem Ready-Frame. Admins sind von einer Sperre serverseitig

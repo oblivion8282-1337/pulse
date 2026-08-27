@@ -20,6 +20,7 @@
   import { suchnorm, namePasst } from '$lib/utils/suche';
   import { serversStore } from '$lib/api/servers.svelte';
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
+  import CommunityAnlegenKnopf from '$lib/components/mobile/CommunityAnlegenKnopf.svelte';
   import { guilds as guildsStore } from '$lib/stores/guilds.svelte';
   import { readState } from '$lib/stores/readState.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
@@ -99,6 +100,7 @@
   function oeffnen(g: Guild) {
     void goto(`/app/rooms/${g.id}`);
   }
+
 </script>
 
 <div class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:w-72 md:flex-none md:rounded-2xl" data-testid="rooms-page">
@@ -173,6 +175,7 @@
         {#if !ueberallLeer}
           <p class="text-text-muted px-1 py-2 text-xs">{m.rooms_empty_server()}</p>
         {/if}
+        <CommunityAnlegenKnopf server={s} />
       {:else if liste.length === 0}
         <!-- Server hat Communities, aber keine passen zur Suche — still leer
              lassen; der globale „nichts gefunden"-Hinweis steht unten. -->
@@ -234,6 +237,9 @@
     {#if ueberallLeer && !suchbegriff}
       <div class="flex flex-col items-center gap-3 px-6 py-12 text-center">
         <p class="text-text-muted text-sm">{m.rooms_empty_all()}</p>
+        {#each server as s (s.id)}
+          <CommunityAnlegenKnopf server={s} breit />
+        {/each}
         <a
           href="/app/discover"
           class="accent-gradient inline-flex min-h-12 items-center rounded-xl px-4 text-sm font-semibold text-white"

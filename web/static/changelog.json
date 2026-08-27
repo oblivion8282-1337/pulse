@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-27.6",
+      "date": "2026-08-27",
+      "style": "Sachlich",
+      "title": "Auf dem eigenen Server lässt sich die erste Community jetzt anlegen",
+      "intro": "Zwei Wege dorthin waren zu, ausgerechnet für die, die sie am dringendsten brauchen.",
+      "items": [
+        "Wer einen eigenen Server betreibt, fand darauf keinen Weg, die erste Community anzulegen: Im Plus-Menü stand nur „Beitreten“. Der Grund war eine Zwickmühle — die App erfuhr erst beim Verbinden, dass du auf diesem Server der Betreiber bist, und verbunden wurde nur der gerade ausgewählte Server. Ausgewählt wird er normalerweise durch Antippen einer seiner Communities, und genau die gibt es am Anfang noch nicht. Jetzt weiss die App von vornherein, welche Server dir gehören.",
+        "Auf dem Telefon, auf Tablets und in schmalen Fenstern gab es gar keinen Weg: Unter „Räume“ stand bei einem leeren Server nur „Entdecken“. Dort steht jetzt „Community erstellen“, wenn du darfst."
+      ]
+    },
+    {
       "id": "2026-08-27.5",
       "date": "2026-08-27",
       "style": "Sachlich",

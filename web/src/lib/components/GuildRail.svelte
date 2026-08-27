@@ -52,6 +52,7 @@
   import { directStatus } from '$lib/stores/directStatus.svelte';
   import { directFailureMessageKey } from '$lib/direct/policy';
   import { activeServer } from '$lib/stores/active-server.svelte';
+  import { darfCommunityAnlegen } from '$lib/servers/erstellrecht';
   import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
   import { serverState } from '$lib/ws/server-state.svelte';
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
@@ -294,14 +295,22 @@
     onSelect(g);
   }
 
-  // Darf der User auf DIESEM Server eine Community erstellen? Admin des Servers
-  // (Cloud: ``auth.user.is_admin``; Self-Host: ``serverAdmin`` aus dem
-  // Ready-Frame) ODER der Server hat ``allow_guild_creation`` offen. Der
-  // Capabilities-Flag wird pro Server geladen (serverCapabilities); solange er
-  // fehlt, zeigt das „+" nur für Admins (kein optimistisches Flackern).
+  // Darf der User auf DIESEM Server eine Community erstellen? Die Rechnung
+  // liegt in ``lib/servers/erstellrecht.ts`` — sie wurde hier und in zwei
+  // Routen dreimal geführt und war bereits auseinandergelaufen.
+  //
+  // ``serverAdmin.has()`` trennt „der Server sagt nein" von „der Server hat
+  // nichts gesagt". Ohne diese Trennung fiel ein noch nicht verbundener
+  // Server auf „nein", und ein Betreiber sah auf seinem eigenen Server keinen
+  // Weg, eine Community anzulegen (2026-08-27).
   function canCreateOnServer(server: ServerEntry): boolean {
-    if (isAdminOnServer(server)) return true;
-    return serverCapabilities.get(server.id)?.allowGuildCreation ?? false;
+    return darfCommunityAnlegen({
+      istCloud: server.isCloud,
+      cloudAdmin: !!auth.user?.is_admin,
+      rolleLautCloud: server.role ?? null,
+      adminLautServer: serverAdmin.has(server.id) ? serverAdmin.isAdmin(server.id) : null,
+      offenFuerAlle: serverCapabilities.get(server.id)?.allowGuildCreation ?? false,
+    });
   }
 
   // Per-Server-„+"-Aktionen: erst den Server aktivieren (falls nötig), dann den
