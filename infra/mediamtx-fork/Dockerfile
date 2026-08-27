@@ -60,21 +60,25 @@ ARG MEDIAMTX_VERSION=1.19.1
 # **Hochzaehlen, sobald sich der Patch-Satz aendert** — nicht bei einem
 # MediaMTX-Bump, der bewegt `MEDIAMTX_VERSION`.
 #
-# **Und genau das ist einmal unterblieben (gefunden 2026-08-27, NICHT
-# behoben).** Patch `0006-bildmarke-durchreichen` kam mit `8185e1ba` dazu, die
-# Revision blieb auf 5. Damit traegt `1.19.1-pulse5` zwei verschiedene
-# Bildinhalte — einen mit und einen ohne 0006 —, also genau die Mehrdeutigkeit,
-# gegen die dieser Zaehler gebaut wurde. Wer heute ein Problem gegen
-# „pulse5" meldet, sagt nicht, welches der beiden er meint.
+# **Einmal unterblieben, am 2026-08-27 nachgeholt.** Patch
+# `0006-bildmarke-durchreichen` kam mit `8185e1ba` dazu, die Revision blieb auf
+# 5 stehen. Damit trug `1.19.1-pulse5` zwei verschiedene Bildinhalte — einen
+# mit und einen ohne 0006 —, also genau die Mehrdeutigkeit, gegen die dieser
+# Zaehler gebaut wurde: wer ein Problem gegen „pulse5" meldete, sagte nicht,
+# welches der beiden er meinte.
 #
-# Warum hier nur die Notiz und keine Korrektur: das Hochzaehlen bewegt den
+# **Die Reihenfolge beim Hochzaehlen ist zwingend, und sie ist der Grund, warum
+# hier ueber Nacht erst nur eine Notiz stand:** dieser Wert bildet den
 # Bildnamen, und der steht in `infra/prod/docker-compose.yml`,
 # `infra/dev-remote/docker-compose.yml` und `streaming/server/docker-compose.yml`.
-# Die Reihenfolge ist zwingend erst Bau, dann Umstellung — eine Zeile zuerst zu
-# aendern, holt ein Bild, das es noch nicht gibt. Der Handgriff, wenn er
-# gemacht wird: hier auf 6, Workflow bauen lassen, danach die drei
-# compose-Dateien auf `1.19.1-pulse6`.
-ARG PULSE_REVISION=5
+# Erst muss der Workflow das neue Bild GEBAUT haben, danach duerfen die drei
+# Dateien darauf zeigen. Andersherum holen die Server ein Bild, das es noch
+# nicht gibt — und der Streaming-Server laeuft nicht mehr an.
+#
+# `1.19.1-pulse5` bleibt in der Registry unangetastet und ist damit weiterhin
+# der Rueckweg; welche der beiden Fassungen dort liegt, ist die zuletzt
+# gebaute (mit 0006).
+ARG PULSE_REVISION=6
 ARG GO_VERSION=1.26
 
 # ── Stage 1: build the patched binary ──────────────────────────────────────

@@ -157,20 +157,28 @@ der Parität hängt, ist lokal also nicht nachstellbar. Zwei widersprüchliche
 Kommentare darüber sind in 1.5 berichtigt; ob der lokale Stack angeglichen
 werden soll, ist eine Entscheidung und keine Fehlkonfiguration.
 
-### 2.2 REMB wird nur unter Windows ausgewertet
+### 2.2 REMB wurde nur unter Windows ausgewertet — BEHOBEN am 2026-08-27
 
-Das gemeinsame SDP bietet `goog-remb` auf allen drei Plattformen an. Ausgewertet
-wird es nur im Windows-Sidecar (`whip/bandbreite.rs`, `BandbreitenWacht`):
-Hysterese über 3 s, meldet `bandwidth_low`/`bandwidth_ok`, ändert bewusst keine
-Bitrate. Linux und macOS verwerfen jedes REMB-Paket still — keine Meldung, kein
-Log. Eine zu enge Leitung zahlt der Nutzer dort als wachsende Latenz, ohne dass
-irgendwo eine Zahl steht.
+Das gemeinsame SDP bot `goog-remb` auf allen drei Plattformen an, ausgewertet
+wurde es nur im Windows-Sidecar. Linux und macOS verwarfen jeden Bericht still.
 
-**Warum nicht behoben:** der richtige Weg ist, `bandbreite.rs` in die
-gemeinsame Kiste `pulse-whip` zu ziehen (wie zuvor Taktgeber und SDP) und alle
-drei daran zu hängen. Das berührt drei Plattformen, zwei davon lassen sich auf
-diesem Rechner nicht übersetzen, und diese Nacht trägt bereits ungeprüfte
-Windows-Änderungen. Eine Umsetzung nur für Linux verschöbe die Drift bloss.
+Behoben: die Zustandsmaschine (`bandbreite.rs`) liegt jetzt in `pulse-whip` —
+abhängigkeitsfrei, sie lag ohne Grund plattformeigen —, alle drei Sidecars
+werten sie aus, und ihre Tests laufen seit 1.4 im Gate mit.
+
+**Beim Umsetzen kam heraus, dass der Befund noch zu wohlwollend war:** die
+Meldung `bandwidth_low` hatte auch unter Windows **keinen Empfänger**. Der
+Sidecar verschickte sie, und im ganzen Klienten hörte niemand zu; die Zahl
+landete allein im Diagnoseprotokoll. Der Streamer bekommt jetzt einen Hinweis
+mit beiden Zahlen und der Handlungsempfehlung, eine kleinere Qualitätsstufe zu
+wählen. Die Entwarnung kommt als kurze Information — ohne sie stünde die
+Warnung unwiderrufen im Raum.
+
+**Weiterhin bewusst keine automatische Anpassung der Datenrate**: sie steht
+beim Öffnen des Encoders fest, sie im Betrieb zu ändern hieße Encoder-Neubau
+samt Vollbild und sichtbarem Ruckler. Das bleibt ein eigenes, zu messendes
+Vorhaben — hier entsteht die Zahl, an der es später zu beurteilen wäre.
+
 
 ### 2.3 `transport-cc` wird ausgehandelt und von niemandem benutzt
 
@@ -186,24 +194,57 @@ Windows gelesen, s. 2.2). Der Kommentar in `sdp.rs` ist dabei ungenau: er sagt,
 `register_default_interceptors` hänge seine Rückmeldungen an die Video-Fassungen
 — tatsächlich auch an Opus.
 
-### 2.4 Kein Sidecar merkt einen ICE-Abriss
+### 2.4 Kein Sidecar merkte einen ICE-Abriss — BEHOBEN am 2026-08-27
 
-In keinem der drei `whip/mod.rs` gibt es
-`on_ice_connection_state_change`/`on_peer_connection_state_change`. Ein
-Verbindungsabriss nach erfolgreichem Handschlag wird nirgends aktiv erkannt
-oder geloggt; die Erkennung läuft indirekt über Schreibfehler beim Senden. Ob
-ein reiner ICE-Ausfall bei bestehendem SRTP-Kontext zeitnah einen Schreibfehler
-auslöst oder Pakete lokal „erfolgreich" ins Leere gehen, ist offen.
+In keinem der drei `whip/mod.rs` gab es `on_ice_connection_state_change` oder
+`on_peer_connection_state_change`. Ein Abriss nach dem Handschlag wurde nur
+indirekt bemerkt: irgendwann scheitert ein Schreibvorgang, und der Sendefaden
+endet. Was fehlte, war die Aussage.
 
-### 2.5 macOS bemerkt keinen Quellverlust
+Behoben: die Einordnung liegt als reine Rechnung in `pulse-whip::verbindung`
+(mit Tests), das Absetzen bei den drei Sidecars in ihrer jeweiligen
+Log-Sprache.
 
-`SCStream::initWithFilter_configuration_delegate` bekommt überall `None` als
-Delegate → kein `stream:didStopWithError:`. Bricht ScreenCaptureKit selbst ab
-(Quelle weg, Berechtigung entzogen, Fenster geschlossen), läuft der Medien-Loop
-weiter und dupliziert das letzte Bild. Beim Zuschauer sieht das aus wie ein
-Standbild, nicht wie ein Abbruch. Damit ist macOS an dieser Stelle schlechter
-gestellt als Windows, wo wenigstens Fenster-Quellen erkannt werden (Monitore
-nicht — der bekannte, in `CLAUDE.md` offen geführte Punkt).
+**Zwei Entscheidungen darin sind wesentlich.** Erstens werden „gestört" und
+„verloren" getrennt: ein Gerät, das vom WLAN ins Mobilfunknetz wechselt, läuft
+durch `Disconnected` und kommt zurück — wer beides gleich behandelt, meldet bei
+jedem Netzwechsel einen Abriss. Zweitens **beendet die Überwachung nichts**.
+Der Abbau hängt weiterhin allein am Schreibfehler; ein zweiter Weg, der bei
+`Failed` von sich aus aufräumt, liefe mit dem ersten um die Wette, und ein
+Wettlauf im Verbindungsabbau ist in diesem Projekt schon einmal teuer geworden
+(die Gnadenfrist der Fernsteuerung, zwei Bughunt-Runden).
+
+Offen bleibt die Frage aus dem Leselauf, ob ein reiner ICE-Ausfall bei
+bestehendem SRTP-Kontext zeitnah einen Schreibfehler auslöst. Sie ist durch die
+Meldung jetzt wenigstens **beantwortbar** — vorher gab es keine Spur, an der
+man sie hätte prüfen können.
+
+
+### 2.5 macOS bemerkte keinen Quellverlust — BEHOBEN am 2026-08-27
+
+`SCStream::initWithFilter_configuration_delegate` bekam `None` als Delegat.
+macOS hatte damit keine Möglichkeit, ein selbst herbeigeführtes Ende zu melden
+(Fenster geschlossen, Bildschirm abgezogen, Berechtigung entzogen, „Teilen
+beenden" im System-Menü). Die Medienschleife dupliziert bei stehender Quelle
+das letzte Bild weiter — beim Zuschauer sah ein Abbruch deshalb aus wie ein
+**Standbild**.
+
+Behoben: `capture/waechter.rs` implementiert `SCStreamDelegate`; die
+Medienschleife fragt den Merker je Durchlauf ab und beendet den Strom über den
+regulären Fehlerweg, der `error` samt Begründung und danach `stopped` meldet.
+
+**Die Abfrage steht VOR der Bildabholung**, und das ist kein Schönheitsfehler:
+bei weggefallener Quelle liefert die Post nichts mehr, der Durchlauf fände
+unten das letzte Bild vor und schöbe es ein weiteres Mal hinaus — die Schleife
+täte also genau das, was hier gerade beendet werden soll.
+
+**Nicht mitgemacht:** Windows meldet in diesem Fall `reason: "source_closed"`,
+worauf der Klient einen eigenen, freundlicheren Text zeigt. macOS trägt an
+seinem `stopped` ein `code`-Feld statt `reason`. Das anzugleichen ist eine
+Protokolländerung über Sidecar und Klient und gehört in einen eigenen
+Durchgang; bis dahin endet der Strom auf macOS sichtbar, nur mit dem
+allgemeinen Fehlertext statt dem besonderen.
+
 
 ### 2.6 Der CPU-/Intel-Weg signalisiert den Farbraum ebenfalls nicht — aber die
 naheliegende Korrektur wäre falsch
@@ -215,13 +256,22 @@ Fehler grösser statt kleiner. Richtig wäre, swscale ausdrücklich auf BT.709
 limited zu stellen UND das anzusagen — zwei Änderungen, die zusammengehören und
 auf Windows gemessen sein wollen.
 
-### 2.7 `PULSE_REVISION` wurde für Patch 0006 nie hochgezählt
+### 2.7 `PULSE_REVISION` wurde für Patch 0006 nie hochgezählt — HALB behoben
 
-`1.19.1-pulse5` trägt zwei verschiedene Bildinhalte, einen mit und einen ohne
+`1.19.1-pulse5` trug zwei verschiedene Bildinhalte, einen mit und einen ohne
 die Bildmarken-Durchreichung. Genau die Mehrdeutigkeit, gegen die der Zähler
-gebaut wurde. Nicht behoben, weil das Hochzählen den Bildnamen bewegt: erst
-bauen lassen, dann die drei compose-Dateien umstellen — die andere Reihenfolge
-holt ein Bild, das es noch nicht gibt. Als Notiz im Dockerfile festgehalten.
+gebaut wurde.
+
+Der Zähler steht jetzt auf 6, und der Workflow liest ihn direkt aus dem
+Dockerfile — der nächste Bau heißt also `1.19.1-pulse6`.
+
+**Die drei compose-Dateien zeigen absichtlich noch auf `pulse5`.** Die
+Reihenfolge ist zwingend: erst muss das Bild gebaut sein, dann dürfen die
+Server darauf zeigen. Andersherum holen sie ein Bild, das es noch nicht gibt,
+und der Streaming-Server läuft nicht mehr an. Das Umstellen ist der zweite,
+getrennte Handgriff — er gehört mit einem Deploy zusammen und nicht in
+denselben Commit.
+
 
 ### 2.8 Kleinere Punkte
 
@@ -275,15 +325,21 @@ Damit das nicht untergeht — geprüft und in Ordnung befunden:
 
 ---
 
-## 4. Empfohlene Reihenfolge für das, was offen ist
+## 4. Was danach noch offen ist
 
-1. **Die Windows- und macOS-Änderungen aus 1.1–1.3 auf einer echten Maschine
-   übersetzen und laufen lassen.** Sie sind auf einem Linux-Rechner
-   geschrieben; das Gate sagt das ausdrücklich an, prüft es aber nicht.
+1. **Die Windows- und macOS-Änderungen auf einer echten Maschine übersetzen.**
+   Sie sind auf einem Linux-Rechner geschrieben; `win-build` und `mac-build`
+   sind der erste echte Übersetzungsversuch. Für den macOS-Wächter gilt das
+   besonders: die Bibliothek liegt auf dem Schreib-Rechner nicht einmal vor,
+   die Schnittstelle wurde gegen den heruntergeladenen Quellcode der Crate
+   geprüft.
 2. **2.1 messen** — ob die Parität im Browser nicht nur ankommt, sondern auch
-   repariert. Das ist seit dem 2026-07-31 die offene Frage und die einzige,
-   die an der 60-s-Entscheidung für Browser-Zuschauer wirklich hängt.
-3. **2.2 umsetzen**, wenn ohnehin ein Windows-Bau ansteht: `bandbreite.rs` nach
-   `pulse-whip`, alle drei daran.
-4. **2.7 nachziehen**, sobald der nächste MediaMTX-Bau fällig ist.
-5. 2.4–2.6 nach Bedarf.
+   repariert. Seit dem 2026-07-31 die offene Frage.
+3. **2.7 zu Ende bringen**: nach dem Bau von `1.19.1-pulse6` die drei
+   compose-Dateien umstellen.
+4. **Den macOS-Quellverlust auf `reason: "source_closed"` heben** (s. 2.5), damit
+   der Zuschauer denselben Text bekommt wie unter Windows.
+5. **Die Tests des Mac-Sidecars in ein Gate bringen.** `mac-build` baut nur;
+   134 Tests laufen weiterhin nur, wenn jemand daran denkt. Dieselbe
+   Fehlerklasse, die dieser Bericht unter 1.4 beschreibt.
+6. 2.3 und 2.6 nach Bedarf.

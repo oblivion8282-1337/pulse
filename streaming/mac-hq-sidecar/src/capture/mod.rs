@@ -22,9 +22,11 @@ pub mod cursorsteuerung;
 mod filter;
 mod output;
 mod postfach;
+mod waechter;
 
 use abfrage::{find_window, pick_display, resolve_applications, shareable_content};
 use output::FrameOutput;
+use waechter::{QuelleWeg, StreamWaechter};
 pub use abfrage::{list_audio_applications, list_capture_windows, list_displays};
 pub use postfach::Postfach;
 
@@ -48,7 +50,7 @@ unsafe extern "C" {
 use objc2_core_foundation::CFRetained;
 use objc2_core_video::CVImageBuffer;
 use objc2_foundation::NSError;
-use objc2_screen_capture_kit::{SCStream, SCStreamConfiguration, SCStreamOutputType};
+use objc2_screen_capture_kit::{SCStream, SCStreamConfiguration, SCStreamDelegate, SCStreamOutputType};
 
 // The sidecar's parent process is the Electron ("Pulse") main process (it
 // spawns us) — used to exclude Pulse's own audio from a Desktop capture so the
@@ -181,6 +183,18 @@ pub struct Capturer {
     _output: AssumeSend<Retained<FrameOutput>>,
     ton_stream: Option<AssumeSend<Retained<SCStream>>>,
     _ton_output: Option<AssumeSend<Retained<FrameOutput>>>,
+    /// Die Waechter muessen am Leben bleiben, solange die Stroeme laufen.
+    ///
+    /// `initWithFilter_configuration_delegate` nimmt eine REFERENZ
+    /// (`Option<&ProtocolObject<…>>`), uebernimmt also nichts — auf unserer
+    /// Seite haelt den Waechter niemand, wenn nicht dieses Feld. Ob
+    /// Objective-C ihn intern zusaetzlich festhaelt, ist nicht dokumentiert;
+    /// sich darauf zu verlassen hiesse, an einem undokumentierten Detail zu
+    /// haengen. Aus genau demselben Grund liegen `_output`/`_ton_output`
+    /// daneben — `addStreamOutput` nimmt ebenfalls nur eine Referenz.
+    _waechter: Vec<AssumeSend<Retained<StreamWaechter>>>,
+    /// `Some(grund)`, sobald einer der Stroeme von sich aus geendet hat.
+    quelle_weg: QuelleWeg,
 }
 
 // SAFETY: SCStream operations are thread-safe; see the module note.
@@ -237,8 +251,22 @@ impl Capturer {
         }
 
         let output = FrameOutput::new(Some(post), None);
+        // Der Waechter: ohne ihn hat macOS keine Moeglichkeit, ein Ende zu
+        // melden — s. `waechter.rs`.
+        let quelle_weg: QuelleWeg = Arc::new(Mutex::new(None));
+        let bild_waechter = StreamWaechter::new(Arc::clone(&quelle_weg), "Bild");
+        // Sammelt die Waechter, damit sie die Stroeme ueberleben (s. Feld
+        // `_waechter`). Gefuellt wird waehrend des Aufbaus, nicht danach: der
+        // Ton-Waechter entsteht in einem `match`-Arm, aus dem er sonst
+        // einzeln herausgereicht werden muesste.
+        let mut waechter = vec![AssumeSend(Retained::clone(&bild_waechter))];
         let stream = unsafe {
-            SCStream::initWithFilter_configuration_delegate(SCStream::alloc(), &bild, &config, None)
+            SCStream::initWithFilter_configuration_delegate(
+                SCStream::alloc(),
+                &bild,
+                &config,
+                Some(ProtocolObject::from_ref(&*bild_waechter)),
+            )
         };
         unsafe {
             stream
@@ -280,12 +308,14 @@ impl Capturer {
                 }
 
                 let ton_output = FrameOutput::new(None, Some(audio_tx));
+                let ton_waechter = StreamWaechter::new(Arc::clone(&quelle_weg), "Ton");
+                waechter.push(AssumeSend(Retained::clone(&ton_waechter)));
                 let ton_stream = unsafe {
                     SCStream::initWithFilter_configuration_delegate(
                         SCStream::alloc(),
                         &ton_filter,
                         &ton_config,
-                        None,
+                        Some(ProtocolObject::from_ref(&*ton_waechter)),
                     )
                 };
                 unsafe {
@@ -342,7 +372,21 @@ impl Capturer {
             _output: AssumeSend(output),
             ton_stream,
             _ton_output: ton_output,
+            _waechter: waechter,
+            quelle_weg,
         })
+    }
+
+    /// Hat macOS die Aufnahme von sich aus beendet? `Some(grund)` = ja.
+    ///
+    /// Wird von der Medienschleife je Durchlauf abgefragt. **Fragt nicht den
+    /// Strom, sondern den Merker**: die Antwort kam ueber eine fremde
+    /// Dispatch-Queue und liegt seitdem bereit (s. `waechter.rs`).
+    ///
+    /// Eine vergiftete Sperre gilt als „nicht weg": lieber weitersenden als
+    /// einen laufenden Strom wegen eines Sperrfehlers abbrechen.
+    pub fn quelle_weg(&self) -> Option<String> {
+        self.quelle_weg.lock().ok().and_then(|g| g.clone())
     }
 
     /// Stop the capture session (blocks until stopped, best-effort).

@@ -234,6 +234,7 @@ impl VideoEncoder {
             params.fps,
             params.width,
             params.height,
+            params.bitrate_kbps,
         )
         .with_context(|| format!("WHIP-Aufbau zu {}", crate::redact::redact_url(push_url)))?;
 

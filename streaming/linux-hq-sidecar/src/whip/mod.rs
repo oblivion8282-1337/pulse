@@ -59,6 +59,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use bytes::Bytes;
 use rtcp::payload_feedbacks::full_intra_request::FullIntraRequest;
 use rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
+use rtcp::payload_feedbacks::receiver_estimated_maximum_bitrate::ReceiverEstimatedMaximumBitrate;
 use tokio::runtime::Runtime;
 use webrtc::api::media_engine::MIME_TYPE_AV1;
 use webrtc::ice_transport::ice_server::RTCIceServer;
@@ -209,16 +210,113 @@ fn pacer_melder(soll_ms: f64, ist_ms: f64, pakete: usize) {
     );
 }
 
+/// Zustandswechsel der Verbindung ins Log bringen.
+///
+/// Bis zum 2026-08-27 sah hier niemand hin: ein Abriss nach dem Handschlag
+/// wurde nur stumm bemerkt, wenn irgendwann ein Schreibfehler den Sendefaden
+/// beendete. Einordnung und Wortlaut liegen gemeinsam in
+/// [`pulse_whip::verbindung`], damit die drei Sidecars nicht drei
+/// Formulierungen fuer dieselbe Lage erfinden; abgesetzt wird hier, weil nur
+/// dieser Sidecar `tracing` benutzt.
+///
+/// **Beendet nichts.** Der Abbau haengt weiterhin allein am Schreibfehler —
+/// Begruendung im Kopf des gemeinsamen Moduls.
+fn verbindung_ueberwachen(pc: &Arc<RTCPeerConnection>) {
+    pc.on_peer_connection_state_change(Box::new(move |zustand| {
+        if let Some(lage) = pulse_whip::verbindung::peer_lage(zustand) {
+            melde_lage("peer", lage, &format!("{zustand:?}"));
+        }
+        Box::pin(async {})
+    }));
+    pc.on_ice_connection_state_change(Box::new(move |zustand| {
+        if let Some(lage) = pulse_whip::verbindung::ice_lage(zustand) {
+            melde_lage("ice", lage, &format!("{zustand:?}"));
+        }
+        Box::pin(async {})
+    }));
+}
+
+/// Eine Lage absetzen — `Weg` als Warnung, alles andere als Information.
+fn melde_lage(ebene: &str, lage: pulse_whip::verbindung::Lage, zustand: &str) {
+    if lage == pulse_whip::verbindung::Lage::Weg {
+        tracing::warn!(target: "whip", ebene, zustand, "{}", lage.text());
+    } else {
+        tracing::info!(target: "whip", ebene, zustand, "{}", lage.text());
+    }
+}
+
+/// Eine REMB-Schaetzung der Gegenseite einordnen: melden, was die Wacht sagt,
+/// und im eigenen Takt eine Zeile fuers Messprotokoll.
+///
+/// **Bis zum 2026-08-27 gab es das hier nicht.** `goog-remb` steht im
+/// gemeinsamen Angebot ([`pulse_whip::sdp`]) auf allen drei Plattformen, die
+/// Auswertung lag aber nur unter Windows — Linux bat also um Berichte und warf
+/// sie wortlos weg. Fuer den Nutzer hiess das: eine zu enge Leitung bricht das
+/// Bild nicht, sie staut sich als wachsende Verzoegerung auf, und nirgends
+/// stand eine Zahl.
+///
+/// **Bewusst KEINE automatische Anpassung der Datenrate.** FFmpeg legt sie bei
+/// den Hardware-Encodern beim Oeffnen fest; sie im Betrieb zu aendern hiesse
+/// Encoder-Neubau samt Vollbild und sichtbarem Ruckler. Das ist ein eigenes,
+/// zu messendes Vorhaben — hier entsteht die Zahl, an der es spaeter zu
+/// beurteilen waere.
+fn remb_auswerten(
+    wacht: &mut pulse_whip::bandbreite::BandbreitenWacht,
+    bps: f32,
+    ziel_kbps: u32,
+) {
+    use pulse_whip::bandbreite::Meldung;
+    let jetzt = std::time::Instant::now();
+    if let Some(meldung) = wacht.messung(bps, jetzt) {
+        let (ev, schaetzung_kbps) = match meldung {
+            Meldung::Eng { schaetzung_kbps } => {
+                tracing::warn!(
+                    target: "whip", schaetzung_kbps, ziel_kbps,
+                    "Leitung eng: die Gegenseite schaetzt weniger als das Ziel"
+                );
+                ("bandwidth_low", schaetzung_kbps)
+            }
+            Meldung::Erholt { schaetzung_kbps } => {
+                tracing::info!(
+                    target: "whip", schaetzung_kbps, ziel_kbps,
+                    "Leitung wieder tragfaehig"
+                );
+                ("bandwidth_ok", schaetzung_kbps)
+            }
+        };
+        crate::events::emit(serde_json::json!({
+            "ev": ev,
+            "estimate_kbps": schaetzung_kbps,
+            "target_kbps": ziel_kbps,
+        }));
+    }
+    if wacht.log_faellig(jetzt) {
+        tracing::info!(target: "whip", kbps = bps / 1000.0, "REMB-Schaetzung der Gegenseite");
+    }
+}
+
 impl WhipSender {
     /// Baut die Sitzung auf und kehrt zurueck, sobald das Angebot beantwortet
     /// ist. Blockiert den aufrufenden (synchronen) Faden waehrenddessen.
-    pub fn connect(url: &str, codec: &str, fps: u32, breite: u32, hoehe: u32) -> Result<Self> {
+    pub fn connect(
+        url: &str,
+        codec: &str,
+        fps: u32,
+        breite: u32,
+        hoehe: u32,
+        bitrate_kbps: u32,
+    ) -> Result<Self> {
         let cap = sdp::codec_capability(codec, breite, hoehe, fps)?;
         let fps = fps.max(1);
-        runtime().block_on(async move { Self::connect_async(url, cap, fps).await })
+        runtime().block_on(async move { Self::connect_async(url, cap, fps, bitrate_kbps).await })
     }
 
-    async fn connect_async(url: &str, cap: RTCRtpCodecCapability, fps: u32) -> Result<Self> {
+    async fn connect_async(
+        url: &str,
+        cap: RTCRtpCodecCapability,
+        fps: u32,
+        bitrate_kbps: u32,
+    ) -> Result<Self> {
         // Der echte Bildabstand — geht an den Taktgeber (`pacer`). Die
         // Bild-Zeitstempel selbst kommen aus dem Encoder-`pts`
         // (`av1::SpurZustand::zeitstempel`), nicht aus einer Dauer.
@@ -234,6 +332,7 @@ impl WhipSender {
         // STUN-Server waere ein zusaetzlicher Aussenkontakt ohne Nutzen.
         let config = RTCConfiguration { ice_servers: vec![RTCIceServer::default()], ..Default::default() };
         let pc = Arc::new(api.new_peer_connection(config).await?);
+        verbindung_ueberwachen(&pc);
 
         // Beide Codecs stempeln selbst; nur der Zerleger unterscheidet sich
         // (Grund und Nachweis in [`av1`] bzw. im Modulkopf).
@@ -300,6 +399,7 @@ impl WhipSender {
         let antworten = std::env::var("PULSE_WHIP_IGNORE_PLI").as_deref() != Ok("1");
         tokio::spawn(async move {
             let mut angefordert: u64 = 0;
+            let mut bandbreite = pulse_whip::bandbreite::BandbreitenWacht::neu(bitrate_kbps);
             // Fehler beim Lesen duerfen den Rueckkanal NICHT dauerhaft
             // schliessen.
             //
@@ -331,6 +431,9 @@ impl WhipSender {
                 };
                 for p in &pakete {
                     let any = p.as_any();
+                    if let Some(remb) = any.downcast_ref::<ReceiverEstimatedMaximumBitrate>() {
+                        remb_auswerten(&mut bandbreite, remb.bitrate, bitrate_kbps);
+                    }
                     if any.downcast_ref::<PictureLossIndication>().is_some()
                         || any.downcast_ref::<FullIntraRequest>().is_some()
                     {

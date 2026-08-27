@@ -319,6 +319,28 @@ function applyEvent(ev: GsrEvent): void {
   if (ev.ev === 'notice' && ev.code === 'fps_begrenzt') {
     toast.warning(m.stream_fps_capped(), { description: ev.line });
   }
+  // Die Leitung trägt die gewählte Qualität nicht. Das Bild bricht dabei NICHT
+  // ab — die Daten stauen sich im Netz, und Zuschauer sehen alles zunehmend
+  // verzögert. Genau deshalb gehört es vor den Nutzer: ohne Ansage gibt es
+  // kein Symptom, an dem er es festmachen könnte.
+  //
+  // Die Hysterese sitzt im Sidecar (drei Sekunden anhaltend eng, Entwarnung
+  // erst oberhalb einer höheren Schwelle), nicht hier — sonst flackerte der
+  // Toast an der Grenze.
+  if (ev.ev === 'bandwidth_low') {
+    toast.warning(m.stream_bandwidth_low(), {
+      description: m.stream_bandwidth_low_desc({
+        estimate: String(ev.estimate_kbps),
+        target: String(ev.target_kbps)
+      })
+    });
+  }
+  // Entwarnung bewusst als kurze Information, nicht als Warnung: sie ist die
+  // gute Nachricht, und ohne sie stünde die Warnung von eben unwiderrufen im
+  // Raum.
+  if (ev.ev === 'bandwidth_ok') {
+    toast.info(m.stream_bandwidth_ok());
+  }
 }
 
 /**

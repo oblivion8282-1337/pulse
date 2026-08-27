@@ -207,6 +207,18 @@ export type GsrEventBody =
   // Quelle größer ausfiel als im Panel annehmbar — Linux-Portal). Nur der
   // Linux-Sidecar sendet sie heute; Verbraucher müssen sie tolerieren.
   | { ev: 'notice'; line: string; code: string }
+  // Bandbreiten-Schätzung der Gegenstelle (`goog-remb` über den
+  // RTCP-Rückkanal), mit Hysterese: `bandwidth_low` erst, wenn die Schätzung
+  // drei Sekunden am Stück deutlich unter dem Ziel liegt, `bandwidth_ok` erst
+  // wieder oberhalb einer höheren Schwelle. Seit dem 2026-08-27 senden ALLE
+  // drei Sidecars sie; davor nur Windows — und dort hörte niemand zu.
+  //
+  // **Der Sender regelt daraufhin NICHTS.** Die Datenrate steht beim Öffnen
+  // des Encoders fest; sie im Betrieb zu ändern hieße Encoder-Neubau samt
+  // Vollbild und sichtbarem Ruckler. Die Meldung ist eine Ansage an den
+  // Menschen, keine Regelung.
+  | { ev: 'bandwidth_low'; estimate_kbps: number; target_kbps: number }
+  | { ev: 'bandwidth_ok'; estimate_kbps: number; target_kbps: number }
   // `code` is an optional machine-readable tag (Windows sidecar; e.g.
   // 'capture_size_changed' → the client auto-restarts the stream). The Linux
   // sidecar doesn't send it yet — consumers must tolerate its absence.

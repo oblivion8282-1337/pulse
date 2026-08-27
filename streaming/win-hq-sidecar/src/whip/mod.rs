@@ -47,7 +47,6 @@
 
 pub mod bildmarke;
 pub mod av1;
-mod bandbreite;
 mod sdp;
 pub mod senke;
 
@@ -240,6 +239,26 @@ pub struct WhipSender {
     marken_id: std::sync::atomic::AtomicU8,
 }
 
+/// Zustandswechsel der Verbindung ins Log bringen — s. [`pulse_whip::verbindung`].
+///
+/// Bis zum 2026-08-27 sah hier niemand hin. **Beendet nichts**: der Abbau
+/// haengt weiterhin allein am Schreibfehler (Begruendung im gemeinsamen
+/// Modul).
+fn verbindung_ueberwachen(pc: &Arc<RTCPeerConnection>) {
+    pc.on_peer_connection_state_change(Box::new(move |zustand| {
+        if let Some(lage) = pulse_whip::verbindung::peer_lage(zustand) {
+            eprintln!("[whip] peer {zustand:?}: {}", lage.text());
+        }
+        Box::pin(async {})
+    }));
+    pc.on_ice_connection_state_change(Box::new(move |zustand| {
+        if let Some(lage) = pulse_whip::verbindung::ice_lage(zustand) {
+            eprintln!("[whip] ice {zustand:?}: {}", lage.text());
+        }
+        Box::pin(async {})
+    }));
+}
+
 /// Eine REMB-Schaetzung der Gegenseite einordnen: melden, was die Wacht sagt,
 /// und im eigenen Takt eine Zeile fuers Messprotokoll.
 ///
@@ -247,18 +266,22 @@ pub struct WhipSender {
 /// nicht von Bandbreite. Die beiden Meldungen unterscheiden sich NUR im
 /// Ereignisnamen und im Wortlaut der Log-Zeile — das Ereignis selbst wird
 /// deshalb an einer Stelle abgesetzt.
-fn remb_auswerten(wacht: &mut bandbreite::BandbreitenWacht, bps: f32, ziel_kbps: u32) {
+fn remb_auswerten(
+    wacht: &mut pulse_whip::bandbreite::BandbreitenWacht,
+    bps: f32,
+    ziel_kbps: u32,
+) {
     let jetzt = std::time::Instant::now();
     if let Some(meldung) = wacht.messung(bps, jetzt) {
         let (ev, schaetzung_kbps) = match meldung {
-            bandbreite::Meldung::Eng { schaetzung_kbps } => {
+            pulse_whip::bandbreite::Meldung::Eng { schaetzung_kbps } => {
                 eprintln!(
                     "[whip] Leitung eng: Gegenseite schätzt {schaetzung_kbps} kbps, \
                      Ziel {ziel_kbps} kbps"
                 );
                 ("bandwidth_low", schaetzung_kbps)
             }
-            bandbreite::Meldung::Erholt { schaetzung_kbps } => {
+            pulse_whip::bandbreite::Meldung::Erholt { schaetzung_kbps } => {
                 eprintln!(
                     "[whip] Leitung wieder tragfähig: {schaetzung_kbps} kbps (Ziel {ziel_kbps})"
                 );
@@ -324,6 +347,7 @@ impl WhipSender {
         // STUN-Server waere ein zusaetzlicher Aussenkontakt ohne Nutzen.
         let config = RTCConfiguration { ice_servers: vec![RTCIceServer::default()], ..Default::default() };
         let pc = Arc::new(api.new_peer_connection(config).await?);
+        verbindung_ueberwachen(&pc);
 
         // Beide Codecs stempeln selbst; nur der Zerleger unterscheidet sich
         // (Grund und Nachweis in [`av1`] bzw. im Modulkopf).
@@ -397,8 +421,8 @@ impl WhipSender {
             let mut angefordert: u64 = 0;
             // REMB nicht mehr wegwerfen: die Bandbreitenschätzung der
             // Gegenseite wird eingeordnet und als Event gemeldet
-            // (`bandbreite.rs` — Meldung, keine automatische Adaption).
-            let mut bandbreite = bandbreite::BandbreitenWacht::neu(bitrate_kbps);
+            // (`pulse_whip::bandbreite` — Meldung, keine automatische Adaption).
+            let mut bandbreite = pulse_whip::bandbreite::BandbreitenWacht::neu(bitrate_kbps);
             // Fehler beim Lesen duerfen den Rueckkanal NICHT dauerhaft
             // schliessen.
             //
