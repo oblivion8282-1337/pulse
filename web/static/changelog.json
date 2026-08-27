@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-27.3",
+      "date": "2026-08-27",
+      "style": "Sachlich",
+      "title": "Pulse sagt jetzt Bescheid, wenn die Leitung zu schmal ist oder die Aufnahme abbricht",
+      "intro": "Drei Fälle, in denen bisher etwas schieflief, ohne dass jemand es erfuhr.",
+      "items": [
+        "Reicht deine Upload-Leitung für die gewählte Qualität nicht aus, bekommst du das jetzt gesagt — mit der geschätzten Geschwindigkeit und dem, was gerade gesendet wird. Das Bild bricht in diesem Fall nämlich nicht ab: die Daten stauen sich, und Zuschauer sehen alles zunehmend verzögert. Bisher gab es dafür kein Anzeichen. Wenn sich die Leitung erholt, kommt eine kurze Entwarnung.",
+        "Auf dem Mac wurde ein Ende der Bildschirmaufnahme nicht bemerkt — etwa wenn du das geteilte Fenster schliesst, einen Bildschirm absteckst oder im System auf „Teilen beenden“ drückst. Der Stream lief dann weiter und wiederholte einfach das letzte Bild; für Zuschauer sah das aus wie ein Standbild statt wie ein Abbruch. Jetzt endet der Stream und sagt, warum.",
+        "Reisst die Verbindung zum Server mitten im Stream ab, steht das jetzt im Diagnoseprotokoll. Eine vorübergehende Störung — etwa beim Wechsel vom WLAN ins Mobilfunknetz — wird dabei ausdrücklich von einem echten Abbruch unterschieden und beendet nichts."
+      ]
+    },
+    {
       "id": "2026-08-27.2",
       "date": "2026-08-27",
       "style": "Sachlich",

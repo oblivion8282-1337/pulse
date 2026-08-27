@@ -368,7 +368,7 @@ impl VideoEncoder {
         // Erst NACH dem Oeffnen der Encoder verbinden: schlaegt einer von ihnen
         // fehl, waere eine offene Sitzung beim Server ein Karteileichen-Pfad,
         // den erst ein Zeitablauf aufraeumt.
-        let sender = WhipSender::connect(url, &cfg.codec, cfg.fps, cfg.width, cfg.height)
+        let sender = WhipSender::connect(url, &cfg.codec, cfg.fps, cfg.width, cfg.height, cfg.bitrate_kbps)
             .with_context(|| format!("WHIP-Aufbau zu {}", redact_url(url)))?;
 
         let tb = Rational::new(1, crate::zeitbasis::VIDEO_HZ as i32);

@@ -68,6 +68,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use bytes::Bytes;
 use rtcp::payload_feedbacks::full_intra_request::FullIntraRequest;
 use rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
+use rtcp::payload_feedbacks::receiver_estimated_maximum_bitrate::ReceiverEstimatedMaximumBitrate;
 use tokio::runtime::Runtime;
 use webrtc::api::media_engine::MIME_TYPE_AV1;
 use webrtc::ice_transport::ice_server::RTCIceServer;
@@ -199,16 +200,88 @@ fn pacer_melder(soll_ms: f64, ist_ms: f64, pakete: usize) {
     eprintln!("[whip] Verteilung je Bild: soll {soll_ms:.2} ms, ist {ist_ms:.2} ms ({pakete} Pakete)");
 }
 
+/// Zustandswechsel der Verbindung ins Log bringen — s. [`pulse_whip::verbindung`].
+///
+/// Bis zum 2026-08-27 sah hier niemand hin. **Beendet nichts**: der Abbau
+/// haengt weiterhin allein am Schreibfehler (Begruendung im gemeinsamen
+/// Modul).
+fn verbindung_ueberwachen(pc: &Arc<RTCPeerConnection>) {
+    pc.on_peer_connection_state_change(Box::new(move |zustand| {
+        if let Some(lage) = pulse_whip::verbindung::peer_lage(zustand) {
+            eprintln!("[whip] peer {zustand:?}: {}", lage.text());
+        }
+        Box::pin(async {})
+    }));
+    pc.on_ice_connection_state_change(Box::new(move |zustand| {
+        if let Some(lage) = pulse_whip::verbindung::ice_lage(zustand) {
+            eprintln!("[whip] ice {zustand:?}: {}", lage.text());
+        }
+        Box::pin(async {})
+    }));
+}
+
+/// Eine REMB-Schaetzung der Gegenseite einordnen.
+///
+/// **Bis zum 2026-08-27 gab es das hier nicht** — `goog-remb` stand im
+/// gemeinsamen Angebot, ausgewertet hat es nur Windows. Bewusst KEINE
+/// automatische Anpassung der Datenrate; volle Begruendung am Zwilling im
+/// Linux-Sidecar.
+fn remb_auswerten(
+    wacht: &mut pulse_whip::bandbreite::BandbreitenWacht,
+    bps: f32,
+    ziel_kbps: u32,
+) {
+    use pulse_whip::bandbreite::Meldung;
+    let jetzt = std::time::Instant::now();
+    if let Some(meldung) = wacht.messung(bps, jetzt) {
+        let (ev, schaetzung_kbps) = match meldung {
+            Meldung::Eng { schaetzung_kbps } => {
+                eprintln!(
+                    "[whip] Leitung eng: Gegenseite schaetzt {schaetzung_kbps} kbps, \
+                     Ziel {ziel_kbps} kbps"
+                );
+                ("bandwidth_low", schaetzung_kbps)
+            }
+            Meldung::Erholt { schaetzung_kbps } => {
+                eprintln!(
+                    "[whip] Leitung wieder tragfaehig: {schaetzung_kbps} kbps (Ziel {ziel_kbps})"
+                );
+                ("bandwidth_ok", schaetzung_kbps)
+            }
+        };
+        crate::events::emit(serde_json::json!({
+            "ev": ev,
+            "estimate_kbps": schaetzung_kbps,
+            "target_kbps": ziel_kbps,
+        }));
+    }
+    if wacht.log_faellig(jetzt) {
+        eprintln!("[whip] REMB: Gegenseite schaetzt {:.0} kbps", bps / 1000.0);
+    }
+}
+
 impl WhipSender {
     /// Baut die Sitzung auf und kehrt zurueck, sobald das Angebot beantwortet
     /// ist. Blockiert den aufrufenden (synchronen) Faden waehrenddessen.
-    pub fn connect(url: &str, codec: &str, fps: u32, breite: u32, hoehe: u32) -> Result<Self> {
+    pub fn connect(
+        url: &str,
+        codec: &str,
+        fps: u32,
+        breite: u32,
+        hoehe: u32,
+        bitrate_kbps: u32,
+    ) -> Result<Self> {
         let cap = sdp::codec_capability(codec, breite, hoehe, fps)?;
         let fps = fps.max(1);
-        runtime().block_on(async move { Self::connect_async(url, cap, fps).await })
+        runtime().block_on(async move { Self::connect_async(url, cap, fps, bitrate_kbps).await })
     }
 
-    async fn connect_async(url: &str, cap: RTCRtpCodecCapability, fps: u32) -> Result<Self> {
+    async fn connect_async(
+        url: &str,
+        cap: RTCRtpCodecCapability,
+        fps: u32,
+        bitrate_kbps: u32,
+    ) -> Result<Self> {
         // Der echte Bildabstand — geht an den Taktgeber (`pacer`). Die
         // Bild-Zeitstempel selbst kommen aus dem Encoder-`pts`
         // (`av1::SpurZustand::zeitstempel`), nicht aus einer Dauer.
@@ -224,6 +297,7 @@ impl WhipSender {
         // STUN-Server waere ein zusaetzlicher Aussenkontakt ohne Nutzen.
         let config = RTCConfiguration { ice_servers: vec![RTCIceServer::default()], ..Default::default() };
         let pc = Arc::new(api.new_peer_connection(config).await?);
+        verbindung_ueberwachen(&pc);
 
         // Beide Codecs stempeln selbst; nur der Zerleger unterscheidet sich
         // (Grund und Nachweis in [`av1`] bzw. im Modulkopf).
@@ -290,6 +364,7 @@ impl WhipSender {
         let antworten = std::env::var("PULSE_WHIP_IGNORE_PLI").as_deref() != Ok("1");
         tokio::spawn(async move {
             let mut angefordert: u64 = 0;
+            let mut bandbreite = pulse_whip::bandbreite::BandbreitenWacht::neu(bitrate_kbps);
             // Fehler beim Lesen duerfen den Rueckkanal NICHT dauerhaft
             // schliessen.
             //
@@ -321,6 +396,9 @@ impl WhipSender {
                 };
                 for p in &pakete {
                     let any = p.as_any();
+                    if let Some(remb) = any.downcast_ref::<ReceiverEstimatedMaximumBitrate>() {
+                        remb_auswerten(&mut bandbreite, remb.bitrate, bitrate_kbps);
+                    }
                     if any.downcast_ref::<PictureLossIndication>().is_some()
                         || any.downcast_ref::<FullIntraRequest>().is_some()
                     {

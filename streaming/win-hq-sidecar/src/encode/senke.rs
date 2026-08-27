@@ -85,7 +85,7 @@ pub struct SenkenAuftrag<'a> {
     pub breite: u32,
     pub hoehe: u32,
     /// Ziel-Bitrate des Encoders. Kein Aufbau-Parameter, sondern der Maßstab
-    /// für den REMB-Rückkanal (`whip::bandbreite`): erst mit dem Ziel wird aus
+    /// für den REMB-Rückkanal (`pulse_whip::bandbreite`): erst mit dem Ziel wird aus
     /// der Bandbreitenschätzung der Gegenseite eine Aussage („die Leitung
     /// trägt das Ziel nicht"). `0` = unbekannt, die Wacht bleibt dann stumm.
     pub bitrate_kbps: u32,

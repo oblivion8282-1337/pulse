@@ -7,8 +7,18 @@
 //!
 //! **Was hier bewusst NICHT liegt:**
 //!
-//! * `mod.rs` — plattformeigen. Windows traegt dort zusaetzlich eine
-//!   Bandbreiten-Schaetzung, die die anderen nicht haben.
+//! * `mod.rs` — plattformeigen. Es bleibt die einzige Datei, die dreimal
+//!   vorliegt: sie verdrahtet die Aufnahme, und die ist je Plattform eine
+//!   andere. Auch die Log-Sprache unterscheidet sich (Linux `tracing`,
+//!   Windows/macOS `eprintln!`), weshalb hier reine RECHNUNGEN liegen und
+//!   dort das Absetzen von Meldung und Ereignis.
+//!
+//! **`bandbreite.rs` stand bis zum 2026-08-27 in dieser Liste** und lag nur
+//! unter Windows. `goog-remb` bietet das gemeinsame [`sdp`] aber auf ALLEN
+//! drei Plattformen an — Linux und macOS baten also um Berichte, die sie
+//! anschliessend wortlos wegwarfen. Genau der Fall „im Angebot zugesagt, im
+//! Code ignoriert". Die Zustandsmaschine ist abhaengigkeitsfrei und lag ohne
+//! Grund plattformeigen; hier liegt sie einmal und ihre Tests laufen im Gate.
 //!
 //! **`pacer.rs` stand bis zum 2026-08-22 auch in dieser Liste** — Windows
 //! trug einen eigenen Zuschnitt, und welcher besser sei, war nicht gemessen.
@@ -29,7 +39,9 @@
 //! wie in allen drei Sidecars.
 
 pub mod av1;
+pub mod bandbreite;
 pub mod h264;
 pub mod pacer;
 pub mod sdp;
+pub mod verbindung;
 pub mod zeitbasis;

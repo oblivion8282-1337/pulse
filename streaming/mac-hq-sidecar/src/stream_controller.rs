@@ -378,6 +378,24 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
                     enc.push_audio(&af.samples, anchor)?;
                 }
             }
+            // Hat macOS die Aufnahme von sich aus beendet?
+            //
+            // **Diese Abfrage MUSS vor der Bildabholung stehen**, nicht danach.
+            // Bei weggefallener Quelle liefert die Post nichts mehr, und der
+            // Durchlauf faende unten `last_frame` vor und schoebe es ein
+            // weiteres Mal hinaus — die Schleife wuerde also genau das tun, was
+            // sie hier gerade beenden soll.
+            //
+            // Der Abbruch geht ueber `?` in den regulaeren Fehlerweg des
+            // Workers: der setzt `running`/`live` zurueck, meldet `error` mit
+            // dieser Begruendung und danach `stopped`. Beim Zuschauer endet der
+            // Strom damit sichtbar, statt als Standbild stehen zu bleiben —
+            // der Zustand, den es bis zum 2026-08-27 gab (s.
+            // `capture/waechter.rs`).
+            if let Some(grund) = cap.quelle_weg() {
+                anyhow::bail!("{grund}");
+            }
+
             // Das frischeste Bild aus der Post nehmen. Ein-Slot: das Fach hat
             // bereits alles Aeltere verworfen — der Loop sieht nach einem Stau
             // den NEUESTEN Stand, nicht den Stall-Anfang; die pts + die
