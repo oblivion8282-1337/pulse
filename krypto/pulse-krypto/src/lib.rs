@@ -8,6 +8,7 @@ pub mod gruppe;
 pub mod identitaet;
 pub mod sitzung;
 pub mod umschlag;
+pub mod wasm;
 
 pub use fehler::KryptoFehler;
 pub use gruppe::{Gruppenempfang, Gruppennachricht, Gruppensitzung};

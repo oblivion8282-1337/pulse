@@ -31,4 +31,10 @@ vodozemac = { version = "0.10.0", features = ["experimental-session-config"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
+# vodozemac braucht Zufall auf zwei Wegen, ueber zwei verschiedene
+# getrandom-Hauptversionen (rand_core 0.6 zieht 0.2, jede eigene
+# Abhaengigkeit direkt 0.3) — im Browser muss BEIDE eine Wasm-Quelle kennen,
+# sonst bricht der Bau an der aelteren Version, obwohl nur die neuere hier
+# direkt genannt ist. "js"/"wasm_js" ist dieselbe Idee unter altem/neuem Namen.
+getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
 getrandom = { version = "0.3", features = ["wasm_js"] }
