@@ -100,16 +100,14 @@
 </script>
 
 <div class="flex flex-col gap-5" data-testid="my-instances">
-  <div class="flex items-start gap-3">
+  <!-- `items-center` und kein Wrapper mehr: der Untertitel ist weg, ein am
+       oberen Rand ausgerichtetes 36-px-Symbol neben einer einzelnen Zeile
+       säße sichtbar zu hoch. -->
+  <div class="flex items-center gap-3">
     <span class="bg-bg-input text-text-muted flex size-9 shrink-0 items-center justify-center rounded-full">
       <ServerIcon class="size-5" />
     </span>
-    <div>
-      <h3 class="text-text-bright text-sm font-semibold">{m.my_instances_title()}</h3>
-      <p class="text-text-muted text-xs mt-0.5">
-        {m.my_instances_subtitle()}
-      </p>
-    </div>
+    <h3 class="text-text-bright text-sm font-semibold">{m.my_instances_title()}</h3>
   </div>
 
   {#if loading}
@@ -117,13 +115,6 @@
   {:else if instances.length === 0}
     <EmptyState message={m.my_instances_empty()} />
   {:else}
-    <!-- Setup-Hinweis — nur wenn es überhaupt eine Instanz gibt -->
-    <div class="border-border bg-bg-input/40 flex gap-2 rounded-xl border p-3">
-      <p class="text-text-muted text-xs leading-relaxed">
-        {m.my_instances_secret_hint()}
-      </p>
-    </div>
-
     <div class="flex flex-col gap-2">
       {#each instances as inst (inst.id)}
         <div class="border-border bg-bg-input/30 rounded-xl border p-3 flex flex-col gap-2"
