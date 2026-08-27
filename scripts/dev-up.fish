@@ -83,6 +83,15 @@ end
 _info "Container starten (Postgres + Redis + MinIO + LiveKit)"
 docker compose --profile voice up -d >/dev/null 2>&1; or _die "docker compose root failed"
 
+# PULSE_DEV_SKIP_MEDIAMTX=1 laesst MediaMTX weg — fuer Arbeiten an Chat, Voice
+# oder UI, die den Streaming-Pfad gar nicht anfassen. Grund fuer den Schalter:
+# das Image liegt in einer PRIVATEN GHCR-Registry, und ein `gh`-Token ohne
+# `read:packages` scheitert beim Pull mit "denied". Ohne diesen Schalter reisst
+# das den ganzen Stack ab (`_die`), obwohl die 5 Dienste davon unberuehrt sind.
+if test "$PULSE_DEV_SKIP_MEDIAMTX" = 1
+    _warn "MediaMTX uebersprungen (PULSE_DEV_SKIP_MEDIAMTX=1) — HQ-Streaming ist tot"
+else
+
 _info "MediaMTX starten"
 cd $repo_root/streaming/server
 if not test -f mediamtx.yml
@@ -105,6 +114,7 @@ else if not diff -q (grep -vE '^\s*(#|$)' mediamtx.yml.template | psub) \
 end
 docker compose up -d mediamtx >/dev/null 2>&1; or _die "docker compose mediamtx failed"
 cd $repo_root
+end
 
 # Wait for Postgres healthy
 for i in (seq 1 20)
