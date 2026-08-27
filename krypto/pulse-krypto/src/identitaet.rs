@@ -73,6 +73,52 @@ impl Identitaet {
             .map_err(|_| KryptoFehler::AuftauenFehlgeschlagen)?;
         Ok(Self { account: Account::from_pickle(pickle) })
     }
+
+    /// Baut die Sitzung auf, wenn WIR zuerst schreiben. Braucht die
+    /// veroeffentlichten Schluessel der Gegenstelle.
+    pub fn sitzung_ausgehend(
+        &self,
+        gegenstelle_curve25519: &str,
+        einmalschluessel: &str,
+    ) -> Result<crate::sitzung::Sitzung, KryptoFehler> {
+        use vodozemac::Curve25519PublicKey;
+        let gegenstelle = Curve25519PublicKey::from_base64(gegenstelle_curve25519)
+            .map_err(|_| KryptoFehler::SchluesselUnlesbar)?;
+        let einmal = Curve25519PublicKey::from_base64(einmalschluessel)
+            .map_err(|_| KryptoFehler::SchluesselUnlesbar)?;
+        let session = self
+            .account
+            .create_outbound_session(vodozemac::olm::SessionConfig::version_2(), gegenstelle, einmal)
+            .map_err(|_| KryptoFehler::SitzungsaufbauFehlgeschlagen)?;
+        Ok(crate::sitzung::Sitzung { session })
+    }
+
+    /// Baut die Sitzung auf, wenn die GEGENSTELLE zuerst geschrieben hat.
+    /// Gibt die Sitzung und den Klartext der ersten Nachricht zurueck — der
+    /// steckt bereits im Sitzungsaufbau und ginge sonst verloren.
+    pub fn sitzung_eingehend(
+        &mut self,
+        absender_curve25519: &str,
+        umschlag: &crate::umschlag::Umschlag,
+    ) -> Result<(crate::sitzung::Sitzung, Vec<u8>), KryptoFehler> {
+        use vodozemac::Curve25519PublicKey;
+        use vodozemac::olm::OlmMessage;
+
+        let absender = Curve25519PublicKey::from_base64(absender_curve25519)
+            .map_err(|_| KryptoFehler::SchluesselUnlesbar)?;
+        let OlmMessage::PreKey(vorschluessel) = umschlag.zu_olm()? else {
+            return Err(KryptoFehler::FalscheUmschlagart);
+        };
+        let ergebnis = self
+            .account
+            .create_inbound_session(
+                vodozemac::olm::SessionConfig::version_2(),
+                absender,
+                &vorschluessel,
+            )
+            .map_err(|_| KryptoFehler::SitzungsaufbauFehlgeschlagen)?;
+        Ok((crate::sitzung::Sitzung { session: ergebnis.session }, ergebnis.plaintext))
+    }
 }
 
 #[cfg(test)]

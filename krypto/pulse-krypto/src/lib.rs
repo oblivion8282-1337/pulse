@@ -5,6 +5,10 @@
 
 pub mod fehler;
 pub mod identitaet;
+pub mod sitzung;
+pub mod umschlag;
 
 pub use fehler::KryptoFehler;
 pub use identitaet::{Identitaet, Identitaetsschluessel};
+pub use sitzung::Sitzung;
+pub use umschlag::{Umschlag, Umschlagart};
