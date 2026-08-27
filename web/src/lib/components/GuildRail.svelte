@@ -95,15 +95,19 @@
     onGuildDeleted?: (guildId: string) => void;
   } = $props();
 
-  // Drives the red dot on the home button so the user sees there's something
-  // waiting on /app/@me without navigating there first. Covers everything that
-  // lives in the home area: unread DMs *and* incoming friend requests.
-  // Computed live — flips off as the user reads the DM (markRead bumps
-  // lastRead) / actions the request, and is hidden entirely while the user is
-  // already on the home view (`!homeActive` in the markup below).
   // Zahl im roten Kreis am Puls-Symbol: ungelesene DM-Nachrichten + offene
-  // Freundschaftsanfragen — alles, was im Home-Bereich auf Aufmerksamkeit
-  // wartet. Flippt auf 0 (Kreis weg), sobald gelesen / aktioniert.
+  // Freundschaftsanfragen + offene Community-Einladungen — alles, was im
+  // Home-Bereich auf Aufmerksamkeit wartet, damit man es sieht, ohne erst
+  // hinzunavigieren. Wird live gerechnet und flippt auf 0 (Kreis weg), sobald
+  // gelesen bzw. bearbeitet; während man schon im Home-Bereich steht, ist er
+  // ganz ausgeblendet (`!homeActive` im Markup unten).
+  //
+  // Eine SUMME ist hier richtig, an den Reitern darunter nicht: dieser Kreis
+  // sagt „dort wartet etwas" und führt in einen Bereich, der alle drei Sorten
+  // enthält. Ein Reiter-Zähler dagegen benennt genau EINE Liste — der
+  // „Ausstehend"-Zähler der Freunde zählte bis 2026-08-27 die Einladungen mit,
+  // die längst unter /app/invites wohnen, und schickte einen zu einer leeren
+  // Liste (vgl. den getrennten Zähler in DMChannelList).
   let homeBadgeCount = $derived(
     readState.sumUnread(directMessages.list.map((dm) => dm.id)) +
       friendRequests.incomingList.length + communityInvites.count

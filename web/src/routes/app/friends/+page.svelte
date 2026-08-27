@@ -17,7 +17,6 @@
   import { navDrawer } from '$lib/stores/navDrawer.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { friendRequests } from '$lib/stores/friendRequests.svelte';
-  import { communityInvites } from '$lib/stores/communityInvites.svelte';
   import { friends } from '$lib/stores/friends.svelte';
   import { presence } from '$lib/stores/presence.svelte';
   import FriendList from '$lib/components/friends/FriendList.svelte';
@@ -41,8 +40,14 @@
   // Filtern (ab 3 Zeichen, sonderzeichen-frei) macht FriendList selbst.
   let freundeSuche = $state('');
 
-  /** Anfragen-Zahl fürs Menü-Badge (Freundschafts- + Community-Einladungen). */
-  const pendingBadge = $derived(friendRequests.incomingList.length + communityInvites.count);
+  /** Anfragen-Zahl fürs Menü-Badge — NUR eingehende Freundschaftsanfragen.
+   *
+   *  Bis 2026-08-27 zählte sie die Community-Einladungen mit. Die sind mit dem
+   *  Umbau nach `/app/invites` gezogen; die Zahl blieb stehen und behauptete
+   *  seither etwas, das hinter „Ausstehend" gar nicht zu finden war — vier
+   *  Einladungen liessen den Reiter melden, dort lägen vier Anfragen, und wer
+   *  hinsah, fand nichts. Ein Zähler darf nur zählen, was hinter ihm liegt. */
+  const pendingBadge = $derived(friendRequests.incomingList.length);
 
   /** Titel der Unteransicht — steht neben dem Zurück-Pfeil. */
   function untertitel(): string {

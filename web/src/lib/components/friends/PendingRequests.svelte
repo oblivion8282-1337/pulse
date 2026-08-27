@@ -58,8 +58,6 @@
 </script>
 
 <section class="flex flex-col gap-6" data-testid="pending-tab">
-  <!-- Community-Einladungen (Nutzername-Einladungen) — gleiche Schiene wie
-       Freundschaftsanfragen, darum hier im Pending-Tab. -->
   <div class="flex flex-col gap-2">
     <h2 class="text-text-bright px-1 text-xs font-semibold uppercase tracking-wide">
       {m.pending_requests_incoming_heading({ count: friendRequests.incomingList.length })}
