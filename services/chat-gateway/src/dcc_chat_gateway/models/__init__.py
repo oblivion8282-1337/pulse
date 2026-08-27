@@ -38,6 +38,7 @@ from dcc_chat_gateway.models.friendships import (
     UserBlock,
     UserPrivacy,
 )
+from dcc_chat_gateway.models.geraete_schluessel import DeviceKeyBundle, DeviceOneTimeKey
 from dcc_chat_gateway.models.guilds import Guild, GuildBan, GuildInvite, GuildMember
 from dcc_chat_gateway.models.membership import InstanceMember
 from dcc_chat_gateway.models.messages import (
@@ -84,6 +85,8 @@ __all__ = [
     "DEVICE_NAME_MAX_LEN",
     "Device",
     "DeviceGrant",
+    "DeviceKeyBundle",
+    "DeviceOneTimeKey",
     "DirectMessageChannel",
     "DropboxConfig",
     "DropboxFile",
