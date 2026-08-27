@@ -1,0 +1,22 @@
+[package]
+name = "pulse-krypto"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Kapselt vodozemac (Apache-2.0). Diese Kiste kennt weder Pulse-Datenmodelle
+# noch Netzwerk — nur Identitaeten, Sitzungen und Umschlaege.
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# "experimental-session-config" ist kein Zusatz-Paket, sondern schaltet an
+# der bereits genehmigten Abhaengigkeit vodozemac nur SessionConfig::version_2()
+# frei (Olm/Megolm V2 ohne MAC-Truncation) — ohne dieses Feature existiert die
+# Funktion im Quelltext gar nicht (`#[cfg(feature = "experimental-session-config")]`).
+vodozemac = { version = "0.10.0", features = ["experimental-session-config"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+getrandom = { version = "0.3", features = ["wasm_js"] }
