@@ -16,7 +16,7 @@
 repo_root=$(git rev-parse --show-toplevel)
 
 # Paths whose change means the Flatpak must be rebuilt + republished.
-native_paths='desktop/electron/ desktop/package.json streaming/gsr-sidecar/ streaming/patches/ packaging/com.howispulse.Pulse.yml packaging/launcher.sh packaging/com.howispulse.Pulse.desktop packaging/com.howispulse.Pulse.metainfo.xml packaging/com.howispulse.Pulse.svg'
+native_paths='desktop/electron/ desktop/package.json streaming/linux-hq-sidecar/ streaming/pulse-player/ packaging/com.howispulse.Pulse.yml packaging/launcher.sh packaging/com.howispulse.Pulse.desktop packaging/com.howispulse.Pulse.metainfo.xml packaging/com.howispulse.Pulse.svg'
 
 is_zero() { [ -z "$(printf '%s' "$1" | tr -d 0)" ]; }   # all-zero OID = ref create/delete
 

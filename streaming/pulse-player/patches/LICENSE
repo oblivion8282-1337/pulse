@@ -9,10 +9,14 @@ Warum das ausdruecklich dastehen muss: die Pulse Client License 1.0 untersagt
 Aendern, abgeleitete Werke und Weitergabe. Fuer fremden, permissiv
 lizenzierten Code kann sie das nicht — ohne diesen Vermerk sieht es aber so
 aus, als taete sie es, weil `streaming/LICENSE` sonst das ganze Verzeichnis
-erfasst. Die beiden anderen Patch-Verzeichnisse tragen aus genau demselben
-Grund je eine eigene LICENSE: `streaming/patches/` (GPL-3.0-or-later, von
+erfasst. Hier fehlte sie bis 2026-08-05.
+
+Bis zum 2026-08-27 nannte dieser Absatz zwei Geschwister, die aus demselben
+Grund eine eigene LICENSE trugen: `streaming/patches/` (GPL-3.0-or-later, von
 gpu-screen-recorder abgeleitet) und `streaming/ffmpeg-patches/`
-(LGPL-2.1-or-later, von FFmpeg abgeleitet). Hier fehlte sie bis 2026-08-05.
+(LGPL-2.1-or-later). Das erste ist mit dem alten Linux-Aufnahmeweg entfallen,
+das zweite existierte zu diesem Zeitpunkt schon nicht mehr. Dieses Verzeichnis
+ist damit das einzige seiner Art im Repository.
 
 Geaendert werden gegenueber dem Stand v0.17.2:
 

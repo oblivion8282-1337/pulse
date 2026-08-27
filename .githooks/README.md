@@ -12,8 +12,9 @@ somewhere stale, re-run the line above.)
 ## Hooks
 
 - **`pre-push`** — when a push includes changes to anything bundled into the Pulse
-  Flatpak (`desktop/electron/`, `desktop/package.json`, `streaming/gsr-sidecar/`,
-  `streaming/patches/`, `packaging/com.howispulse.Pulse.yml`, `packaging/launcher.sh`,
+  Flatpak (`desktop/electron/`, `desktop/package.json`,
+  `streaming/linux-hq-sidecar/`, `streaming/pulse-player/`,
+  `packaging/com.howispulse.Pulse.yml`, `packaging/launcher.sh`,
   the `.desktop`/`.metainfo.xml`/`.svg`), it runs `packaging/publish.fish` →
   rebuilds the signed OSTree repo and rsyncs it to the VPS, so installed clients
   pick it up via `flatpak update`. Web/backend/docs-only pushes are skipped

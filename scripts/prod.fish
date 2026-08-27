@@ -30,19 +30,14 @@ _info "Electron-Bundle bauen"
 pushd desktop >/dev/null
 PATH=$HOME/.local/bin:$PATH pnpm run build:electron >/dev/null 2>&1; or _die "build:electron failed"
 
-# Optional: GSR-Binary für HQ-Streaming.
-# bootstrap-gsr.fish baut nach $XDG_CACHE_HOME/pulse/gsr/... (überlebt Reboots);
-# XDG-Pfad zuerst, das Legacy-/tmp-Verzeichnis als Fallback (analog dev-up.fish).
+# Aufnahme-Sidecar für HQ-Streaming. Seit dem 2026-08-27 gibt es unter Linux
+# genau einen; der frühere Python-Aufsatz um `gpu-screen-recorder` ist entfernt.
 set -l gsr_env ""
-set -l cache_root (test -n "$XDG_CACHE_HOME"; and echo "$XDG_CACHE_HOME"; or echo "$HOME/.cache")
-set -l gsr_bin "$cache_root/pulse/gsr/gpu-screen-recorder/build/gpu-screen-recorder"
-if not test -x $gsr_bin
-    set gsr_bin "/tmp/gsr-analysis/gpu-screen-recorder/build/gpu-screen-recorder"
-end
-if test -x $gsr_bin
-    set gsr_env "GSR_BINARY=$gsr_bin PULSE_SIDECAR_PY=$repo_root/streaming/gsr-sidecar/control.py"
+set -l rust_sidecar "$repo_root/streaming/linux-hq-sidecar/target/release/pulse-linux-hq-sidecar"
+if test -x $rust_sidecar
+    set gsr_env "PULSE_LINUX_HQ_SIDECAR=$rust_sidecar"
 else
-    _warn "GSR-Binary fehlt — HQ-Stream-Button bleibt versteckt."
+    _warn "Linux-Sidecar nicht gebaut — der Übertragen-Knopf bleibt versteckt (scripts/hq-bauen.sh)."
 end
 
 _info "Electron starten (→ howispulse.com)"

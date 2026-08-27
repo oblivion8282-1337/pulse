@@ -84,7 +84,6 @@ Version 0.1.69 gegen dieselben `.dylib`-Dateien wie der Streaming-Sidecar —
 |---|---|---|---|
 | [Electron](https://www.electronjs.org/) | 43.0.0 | MIT | Offizielles Release-Binary, unverändert gebündelt (`/app/electron/`) |
 | [FFmpeg](https://github.com/FFmpeg/FFmpeg) | Tag `n8.1.1`, unverändert | LGPLv3 (Build ohne `--enable-gpl`/libx264/libx265) | Aus Quellcode im Flatpak-Sandbox gebaut, dynamisch verlinkt |
-| [gpu-screen-recorder](https://repo.dec05eba.com/gpu-screen-recorder) | gepinnter Commit, mit 3 Pulse-Patches | GPL-3.0-or-later | Aus Quellcode gebaut, als **separates Programm** im Paket enthalten (kein Linking gegen Pulse) |
 
 **Das FFmpeg der Linux-Fassung wird aus unverändertem Quellcode gebaut.** Vom
 5. bis zum 21. August 2026 war das anders: angewendet wurde ein Patch, der den
@@ -96,12 +95,14 @@ Electrons eigene Drittanbieter-Hinweise (Chromium, Node.js u. a.) liegen
 bereits als Teil des offiziellen Electron-Release-Archivs bei und werden hier
 nicht dupliziert.
 
-Die drei Patches, mit denen Pulse `gpu-screen-recorder` für den eigenen
-Anwendungsfall anpasst, verändern ausschließlich dessen Quellcode und sind
-damit selbst als Bearbeitung eines GPL-3.0-or-later-Werks lizenziert — Details
-und der Patch-Quellcode liegen unter `streaming/patches/` im Repository
-(eigene `LICENSE`-Datei dort). `gpu-screen-recorder` wird als eigenständiges,
-zur Build-Zeit bezogenes Programm ausgeliefert, nicht mit Pulse verlinkt.
+**Seit dem 27. August 2026 enthält die Linux-Fassung kein
+`gpu-screen-recorder` mehr.** Bis dahin wurde es zur Build-Zeit aus dem
+Quellcode gebaut und als eigenständiges Programm mitgeliefert — nicht mit
+Pulse verlinkt —, zusammen mit drei Pulse-Patches gegen seinen Quellcode, die
+als Bearbeitung eines GPL-3.0-or-later-Werks selbst unter dieser Lizenz
+standen. Es bediente den älteren Weg, den Bildschirm aufzunehmen; dieser Weg
+ist durch eine eigene Umsetzung ersetzt worden. Damit liegt in Pulse keine
+Komponente mehr unter der GPL.
 
 ## Nativer HQ-Player (Desktop, optional)
 

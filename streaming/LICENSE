@@ -1,17 +1,17 @@
 Pulse client component — Pulse Client License 1.0
 
 Everything in this directory is licensed under the Pulse Client License 1.0
-(full text: ../LICENSE-CLIENT.md), WITH ONE EXCEPTION:
+(full text: ../LICENSE-CLIENT.md).
 
-    streaming/patches/    GPL-3.0-or-later
+Until 2026-08-27 this file carved out one exception: `streaming/patches/`,
+GPL-3.0-or-later, patches against gpu-screen-recorder. That directory, the
+recorder it patched and the Python bridge that drove them were the older Linux
+capture path; all three have been removed in favour of the Rust sidecar in
+`linux-hq-sidecar/`. There is no exception left — and with it, no GPL-licensed
+source anywhere in this repository.
 
-Those files are patches against gpu-screen-recorder, a GPL-3.0 program. They
-are derivative works of GPL-licensed source and remain under the GPL. See
-streaming/patches/LICENSE.
-
-For everything else in this directory you may use it freely, including
-commercially, and you may read and audit its source. You may NOT modify it,
-create derivative works from it, redistribute it, republish it, or reuse its
-code in another project.
+You may use everything here freely, including commercially, and you may read
+and audit its source. You may NOT modify it, create derivative works from it,
+redistribute it, republish it, or reuse its code in another project.
 
 Repository-wide licensing overview: ../LICENSE

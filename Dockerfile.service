@@ -34,7 +34,6 @@ COPY services/chat-gateway/pyproject.toml services/chat-gateway/pyproject.toml
 COPY services/voice-signaling/pyproject.toml services/voice-signaling/pyproject.toml
 COPY services/media-svc/pyproject.toml services/media-svc/pyproject.toml
 COPY services/mediamtx-auth-hook/pyproject.toml services/mediamtx-auth-hook/pyproject.toml
-COPY streaming/pyproject.toml streaming/pyproject.toml
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-workspace --package "dcc-${SVC_DIR}"
 
