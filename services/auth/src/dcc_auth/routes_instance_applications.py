@@ -74,7 +74,25 @@ async def _require_user(request: Request, db) -> User:
 
 
 def _require_self_host_enabled(user: User) -> None:
-    """Cloud-Gate (④) — sitzt BEWUSST nur auf ``generate_env_file``.
+    """Cloud-Gate (④) — sitzt nur auf ``generate_env_file``, und dort nur fuer
+    ``origin == "app_host"``.
+
+    **Einschraenkung 2026-08-27 (gemeldeter Fehler).** Das Flag ist durchweg ein
+    APP-HOST-Begriff: ``_guard_app_host`` sperrt damit Doppelantraege, der
+    Widerruf loescht es und suspendiert dabei genau die ``app_host``-Instanzen.
+    ``_approve_vps`` setzt es deshalb nie (festgehalten in
+    ``test_unified_applications``) — womit es fuer einen VPS-Eigentuemer nicht
+    ein Gate war, sondern eine Mauer: der ``.env``-Download, also Schritt 1 des
+    manuellen Compose-Wegs, war fuer die einzige Zielgruppe dieses Wegs
+    dauerhaft zu. Der Absatz unten wusste das schon („Flag greift bei denen
+    nie") und zog daraus nur den Schluss fuer den Mint. Sichtbar wurde es nie,
+    weil die Oberflaeche jeden 403 als „schon heruntergeladen" auslegte.
+
+    Den VPS-Fall deckt seither dasselbe wie den Bootstrap-Mint (s.u.), der
+    dieselben Zugangsdaten liefert: Eigentuemer-Check plus eine vom Admin
+    genehmigte, **aktive** Instanz — der Status wird dafuer jetzt ausdruecklich
+    geprueft, vorher stand dort nur „nicht geloescht", eine suspendierte
+    Instanz haette also frische Zugangsdaten ziehen koennen.
 
     Entscheidung 2026-07-13 (der frühere Docstring verlangte das Gate auch auf
     ``mint_bootstrap_token`` — das war veraltet, nicht der Code): Der
@@ -84,9 +102,10 @@ def _require_self_host_enabled(user: User) -> None:
     außerdem mit ``reset=true`` zur Crash-/Gerätewechsel-Recovery — ein
     ``self_host_enabled``-Gate dort würde App-Host-Owner nach einem Admin-
     Revoke+Re-Approve-Zyklus oder VPS-Owner (Flag greift bei denen nie)
-    aussperren. Das Flag bleibt nur für den env-File-Download nötig, weil der
-    jederzeit ein frisches ``client_secret`` rotieren kann (s. CLAUDE.md
-    „Self-Host-Approval-Flow")."""
+    aussperren. Fuer App-Host-Instanzen bleibt
+    das Flag am env-File-Download noetig, weil der jederzeit ein frisches
+    ``client_secret`` rotieren kann und das Loeschen des Flags dort der
+    Widerruf IST (s. CLAUDE.md „Self-Host-Approval-Flow")."""
     if not user.self_host_enabled:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="self-hosting not enabled")
 
@@ -229,7 +248,9 @@ async def generate_env_file(
 ) -> Response:
     """Erzeugt die komplette, sofort lauffähige ``.env`` für den allinone-Container.
 
-    Nur der Eigentümer (404 statt 403 gegen Existence-Leak). Anders als ein
+    Nur der Eigentümer einer **aktiven** Instanz (404 statt 403 gegen
+    Existence-Leak; bei ``origin == "app_host"`` zusaetzlich das
+    ``self_host_enabled``-Flag, s. ``_require_self_host_enabled``). Anders als ein
     bloßes Template enthält diese ``.env`` ALLE Werte gesetzt — inklusive eines
     **frisch generierten** ``PULSE_CLOUD_CLIENT_SECRET``.
 
@@ -256,7 +277,6 @@ async def generate_env_file(
     müssen) steht in ``instance_env_file.py``.
     """
     user = await _require_user(request, db)
-    _require_self_host_enabled(user)
     settings = get_settings()
     await _check_rate(request, "bootstrap_mint", settings.rate_limit_bootstrap_mint)
 
@@ -271,6 +291,17 @@ async def generate_env_file(
     if inst is None or inst.registered_by != user.id or inst.status == "deleted":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
 
+    # Das Recht haengt an DIESER Instanz, nicht am Nutzer (s. Docstring):
+    # gesperrt heisst gesperrt, und das Nutzer-Flag zaehlt nur dort, wo es
+    # ueberhaupt etwas widerruft — bei App-Host-Instanzen.
+    if inst.status != "active":
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Diese Instanz ist gesperrt — keine neuen Zugangsdaten",
+        )
+    if inst.origin == "app_host":
+        _require_self_host_enabled(user)
+
     # „Schon versorgt" heisst: ueber DIESEN Weg (env_file_downloaded_at) ODER
     # ueber den Schnellinstaller (eingeloestes Bootstrap-Token). Beide liefern
     # dieselben Credentials und rotieren dasselbe Secret — der zweite Weg macht
@@ -282,9 +313,16 @@ async def generate_env_file(
     if bereits_versorgt and not (payload and payload.reset):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
+            # Fuehrender Code, weil dieser Endpunkt DREI verschiedene 403
+            # kennt (Sperre der Instanz, App-Host-Flag, diese Kollision) und
+            # nur bei diesem einen „neu ausstellen" hilft. Die Oberflaeche las
+            # frueher jeden 403 als „schon heruntergeladen" und bot einen
+            # Ausweg an, der die anderen beiden Faelle nicht loesen konnte.
+            # Der Prosa-Teil bleibt: er steht in Fehlerberichten und Logs.
             detail=(
-                "Dieser Server wurde bereits eingerichtet — neu ausstellen ist moeglich, "
-                "der bisher laufende Server verliert dabei seinen Zugang"
+                "already_provisioned: Dieser Server wurde bereits eingerichtet — "
+                "neu ausstellen ist moeglich, der bisher laufende Server verliert "
+                "dabei seinen Zugang"
             ),
         )
 
