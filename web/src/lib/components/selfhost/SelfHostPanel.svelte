@@ -40,7 +40,11 @@
 
 {#snippet cardHeader(icon: Component, title: string, subtitle: string)}
   {@const Icon = icon}
-  <div class="flex items-start gap-3">
+  <!-- Ohne Untertitel MITTIG: `items-start` richtet die Oberkante des
+       36-px-Kreises an der Oberkante einer 20-px-Zeile aus — der Titel steht
+       dann sichtbar zu hoch. Mit Untertitel bleibt oben richtig, sonst rutschte
+       das Symbol auf die Mitte des ganzen Textblocks. -->
+  <div class="flex gap-3 {subtitle ? 'items-start' : 'items-center'}">
     <span
       class="bg-bg-input text-text-muted flex size-9 shrink-0 items-center justify-center rounded-full"
     >
