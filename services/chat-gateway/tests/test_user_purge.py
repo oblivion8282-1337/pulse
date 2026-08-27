@@ -1189,3 +1189,72 @@ async def test_purge_closes_open_report_targeting_deleted_user_directly(
         report = await s.get(Report, int(report_id))
     assert report is not None
     assert report.status in ("resolved", "dismissed")
+
+
+# ---------------------------------------------------------------------------
+# Nachtrag 2026-08-28 — Einladungs-Inbox blieb beim Konto-Purge unangetastet
+
+
+@pytest.mark.asyncio
+async def test_purge_entfernt_offene_einladungen_der_inbox(
+    client, session_factory, _auth_signer, _internal_secret_set
+):
+    """Migration 0063 hat die Einladungen von der alten ``community_invites``-
+    Broker-Tabelle in ``community_invite_notifications`` uebernommen, dabei
+    aber den Aufraeumer beim Konto-Purge nicht mitgezogen — der raeumte bis
+    dahin nur die alte Tabelle (der jetzt entfernte ``CommunityInvite``-Block
+    in ``user_purge.py``). Eine offene Einladung, in der der geloeschte
+    Nutzer Einladender ODER Eingeladener ist, muss verschwinden; eine dritte
+    Zeile zwischen zwei unbeteiligten Nutzern bleibt stehen."""
+    from dcc_chat_gateway.models import CommunityInviteNotification
+    from dcc_chat_gateway.snowflake import next_id
+
+    t_a, uid_a = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
+    _, uid_c = await _register(_auth_signer)
+    _, uid_d = await _register(_auth_signer)
+    assert t_a  # A braucht keinen weiteren API-Aufruf, nur die Registrierung
+
+    als_einladender_id = next_id()
+    als_eingeladener_id = next_id()
+    unbeteiligt_id = next_id()
+
+    async with session_factory() as s:
+        s.add(
+            CommunityInviteNotification(
+                id=als_einladender_id,
+                guild_id=1,
+                inviter_user_id=uid_a,
+                invitee_user_id=uid_b,
+                guild_name="Von A",
+            )
+        )
+        s.add(
+            CommunityInviteNotification(
+                id=als_eingeladener_id,
+                guild_id=1,
+                inviter_user_id=uid_c,
+                invitee_user_id=uid_a,
+                guild_name="An A",
+            )
+        )
+        s.add(
+            CommunityInviteNotification(
+                id=unbeteiligt_id,
+                guild_id=1,
+                inviter_user_id=uid_c,
+                invitee_user_id=uid_d,
+                guild_name="Ohne A",
+            )
+        )
+        await s.commit()
+
+    r = await client.post(
+        f"/internal/users/{uid_a}/purge", headers=_internal_headers()
+    )
+    assert r.status_code == 204, r.text
+
+    async with session_factory() as s:
+        assert (await s.get(CommunityInviteNotification, als_einladender_id)) is None
+        assert (await s.get(CommunityInviteNotification, als_eingeladener_id)) is None
+        assert (await s.get(CommunityInviteNotification, unbeteiligt_id)) is not None

@@ -34,6 +34,7 @@ from dcc_chat_gateway.device_meldungen import device_out
 from dcc_chat_gateway.models import (
     MENTION_TYPE_USER,
     Channel,
+    CommunityInviteNotification,
     Device,
     DirectMessageChannel,
     FriendRequest,
@@ -358,6 +359,20 @@ async def _purge_db(
     )
     await session.execute(
         sa_delete(UserPrivacy).where(UserPrivacy.user_id == user_id)
+    )
+
+    # 10b. Open community-invite inbox rows (Migration 0063 moved these off
+    # the old broker table onto community_invite_notifications, but never
+    # took the purge sweep along — it only ever cleared the old table). Drop
+    # every pending invite the user sent or received, same shape as the
+    # removed CommunityInvite block above.
+    await session.execute(
+        sa_delete(CommunityInviteNotification).where(
+            or_(
+                CommunityInviteNotification.inviter_user_id == user_id,
+                CommunityInviteNotification.invitee_user_id == user_id,
+            )
+        )
     )
 
     # 11. User-preferences (Schritt 3b plugin/server-side-sync rows).
