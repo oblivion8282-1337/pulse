@@ -75,19 +75,24 @@ BEFUNDE: dict[tuple[str, str], tuple[tuple[str, str], tuple[str, str]]] = {
     ("betreiber", "signatur_abgelehnt"): (
         (
             "Der Server hat die Anfrage abgewiesen, weil er sie nicht als von howispulse.com kommend "
-            "bestätigen konnte. Fast immer heisst das: Er hat die Cloud selbst noch nie erreicht — "
-            "dann funktioniert auch die Anmeldung über dein Konto dort nicht.",
-            "Prüfe, ob der Server ins Internet hinaus darf: docker exec {container} pulse-doctor, "
-            "Abschnitt „Verbindung zur Cloud“. Ein ausgehender Sperrfilter oder ein Proxy-Zwang ist "
-            "die übliche Ursache.",
+            "bestätigen konnte. Dafür gibt es zwei Ursachen: Entweder hat er die Cloud selbst noch "
+            "nie erreicht — dann funktioniert auch die Anmeldung über dein Konto dort nicht. Oder "
+            "seine Uhr geht mehr als eine Minute falsch; dann hält er die Anfrage für abgelaufen, "
+            "obwohl sie gerade erst gestellt wurde.",
+            "Prüfe beides auf der Maschine: die Uhr mit date -u (sie muss auf die Minute stimmen; "
+            "wenn nicht, Zeitabgleich einschalten mit sudo timedatectl set-ntp true), und den Weg "
+            "nach draussen mit docker exec {container} pulse-doctor, Abschnitt „Verbindung zur "
+            "Cloud“. Ein ausgehender Sperrfilter oder ein Proxy-Zwang ist dort die übliche Ursache.",
         ),
         (
             "The server rejected the request because it could not confirm it came from howispulse.com. "
-            "Almost always this means it has never reached the cloud itself — in that case signing in "
-            "with your account there does not work either.",
-            "Check whether the server is allowed to reach the internet: docker exec {container} "
-            "pulse-doctor, \"Verbindung zur Cloud\" section. An outbound firewall or a mandatory proxy "
-            "is the usual cause.",
+            "There are two causes: either it has never reached the cloud itself — in that case signing "
+            "in with your account there does not work either. Or its clock is off by more than a "
+            "minute, so it considers the request expired even though it was just made.",
+            "Check both on the machine: the clock with date -u (it must be correct to the minute; if "
+            "not, enable time sync with sudo timedatectl set-ntp true), and the route outwards with "
+            "docker exec {container} pulse-doctor, \"Verbindung zur Cloud\" section. An outbound "
+            "firewall or a mandatory proxy is the usual cause there.",
         ),
     ),
     ("betreiber", "keine_auskunft"): (
