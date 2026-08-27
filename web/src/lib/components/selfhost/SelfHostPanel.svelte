@@ -82,7 +82,11 @@
 
   <!-- Eigener Server (Stufe 3): dauerhafter VPS, braucht Cloud-Freischaltung. -->
   <section class={SECTION_CLASS} data-testid="self-host-server-section">
-    {@render cardHeader(ServerIcon, m.self_host_server_title(), m.self_host_application_intro())}
+    <!-- Kein Untertitel: der Satz stand hier und oben, und die zweite Hälfte
+         („nach Admin-Prüfung einmalig dein Client-Secret") beschrieb Mechanik,
+         die der Nutzer an dieser Stelle nicht braucht — das Secret taucht auf,
+         wenn es soweit ist, samt Warnung. -->
+    {@render cardHeader(ServerIcon, m.self_host_server_title(), '')}
     {@render serverBody()}
   </section>
 </div>
