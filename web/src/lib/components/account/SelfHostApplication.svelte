@@ -189,7 +189,7 @@
     {#if mode === 'vps'}
       <div class="flex flex-col gap-1">
         <FieldLabel class="text-text-bright text-xs font-medium" for="sha-hostname" required>
-          {m.self_host_application_hostname_label()} <span class="text-text-muted font-normal">{m.self_host_application_hostname_hint()}</span>
+          {m.self_host_application_hostname_label()}
         </FieldLabel>
         <Input
           id="sha-hostname"

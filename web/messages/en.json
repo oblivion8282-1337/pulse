@@ -2176,7 +2176,6 @@
   "screen_share_tile_reattach": "Reattach",
   "screen_share_tile_stats_tooltip": "Codec: {codec}\nResolution: {res}\nFPS: {fps}\nBitrate: {bitrate}",
   "self_host_app_subtitle": "Your computer is the server. Set up in minutes — no cloud, no VPS needed.",
-  "self_host_application_hostname_hint": "(FQDN, e.g. pulse.example.org)",
   "self_host_application_hostname_label": "Hostname",
   "self_host_application_hostname_required": "Hostname is required.",
   "self_host_application_my_applications": "My applications",
