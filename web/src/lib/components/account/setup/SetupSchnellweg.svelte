@@ -26,7 +26,18 @@
   import CheckIcon from '@lucide/svelte/icons/check';
   import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 
-  let { instance, base }: { instance: Instance; base: string } = $props();
+  let {
+    instance,
+    base,
+    befehl = $bindable('')
+  }: {
+    instance: Instance;
+    base: string;
+    /** Der fertige Befehl nach aussen: die KI-Hilfe sitzt seit der Umsortierung
+     *  UNTER der manuellen Installation und braucht ihn dort. Leer, solange
+     *  kein gültiges Token vorliegt — abgelaufen zählt nicht. */
+    befehl?: string;
+  } = $props();
 
   let token = $state<string | null>(null);
   let expiresAtMs = $state(0);
@@ -38,8 +49,6 @@
   let consumed = $state(false);
   let resetting = $state(false);
   let copied = $state(false);
-  let aiCopied = $state(false);
-  let showExplain = $state(false);
   let nowMs = $state(Date.now());
 
   // Env-Form statt argv (`bash -s -- <token>`): Argumente sind während der
@@ -47,13 +56,6 @@
   // nur für Owner/Root. Das Script liest beides (install.sh: PULSE_BOOTSTRAP_TOKEN).
   let command = $derived(
     token ? `curl -fsSL ${base}/install | PULSE_BOOTSTRAP_TOKEN=${token} bash` : ''
-  );
-  // Fertiger Prompt für KI-Assistenten: Referenz-URL + personalisierter
-  // Befehl in einem. Die Referenz (/install/guide) beschreibt Installer,
-  // Architektur und Troubleshooting — damit kann eine KI bei Fehlern
-  // (Proxy/DNS/Ports) gezielt helfen statt zu raten.
-  let aiPrompt = $derived(
-    command ? m.instance_setup_ai_prompt({ guideUrl: `${base}/install/guide`, command }) : ''
   );
   let remainingMs = $derived(Math.max(0, expiresAtMs - nowMs));
   let expired = $derived(token !== null && expiresAtMs > 0 && remainingMs <= 0);
@@ -103,6 +105,13 @@
       toast.error(m.instance_setup_error());
     }
   }
+
+  // Nach aussen: nur ein GÜLTIGER Befehl. Ein abgelaufener taugt weder zum
+  // Ausführen noch als Vorlage für eine KI — die Hilfe darunter verschwindet
+  // dann mit ihm, statt eine tote Zeile anzubieten.
+  $effect(() => {
+    befehl = token && !expired ? command : '';
+  });
 
   onMount(() => {
     void mint();
@@ -166,52 +175,3 @@
     </div>
   </div>
 {/if}
-
-<!-- KI-Assistent: fertiger Prompt mit Befehl + Referenz-URL -->
-{#if token && !expired}
-  <div class="border-border rounded-xl border p-3">
-    <p class="text-text-bright mb-1 text-xs font-semibold">{m.instance_setup_ai_title()}</p>
-    <p class="text-text-muted mb-2 text-xs">{m.instance_setup_ai_hint()}</p>
-    <div class="flex flex-wrap items-center gap-3">
-      <Button
-        variant="outline"
-        size="xs"
-        onclick={() => void inZwischenablage(aiPrompt, (v) => (aiCopied = v))}
-        data-testid="instance-setup-ai-copy"
-      >
-        {#if aiCopied}
-          <CheckIcon class="size-3.5 text-success" />
-        {:else}
-          <CopyIcon class="size-3.5" />
-        {/if}
-        {m.instance_setup_ai_copy()}
-      </Button>
-      <a
-        href="{base}/install/guide"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="text-text-muted hover:text-text-bright text-xs underline"
-      >
-        {m.instance_setup_ai_guide_link()}
-      </a>
-    </div>
-  </div>
-{/if}
-
-<div>
-  <Button variant="link" size="xs" onclick={() => (showExplain = !showExplain)}>
-    {m.instance_setup_explain_toggle()}
-  </Button>
-  {#if showExplain}
-    <ul class="text-text-muted mt-2 flex list-disc flex-col gap-1 pl-4 text-xs">
-      <li>{m.instance_setup_explain_1()}</li>
-      <li>{m.instance_setup_explain_2()}</li>
-      <li>{m.instance_setup_explain_3()}</li>
-      <li>
-        <a href="{base}/install" target="_blank" rel="noopener noreferrer" class="text-primary underline"
-          >{m.instance_setup_explain_inspect()}</a
-        >
-      </li>
-    </ul>
-  {/if}
-</div>
