@@ -12,6 +12,7 @@
 -->
 <script lang="ts">
   import { m } from '$lib/paraglide/messages.js';
+  import { Button } from '$lib/components/ui/button';
   import FileDownIcon from '@lucide/svelte/icons/file-down';
 
   let { base }: { base: string } = $props();
@@ -29,15 +30,20 @@
   <p class="text-text-muted text-xs">{m.instance_setup_manual_compose_hint()}</p>
   <div class="flex flex-wrap gap-2">
     {#each DATEIEN as datei (datei.name)}
-      <a
+      <!-- `Button` mit `href` statt eines eigens gestylten Links: der
+           .env-Download direkt darüber ist ein `variant="outline" size="xs"`,
+           und zwei Downloads nebeneinander sollen nicht zwei Formsprachen
+           haben. `download` reicht die Komponente als Fremdattribut durch. -->
+      <Button
+        variant="outline"
+        size="xs"
         href="{base}/self-host/{datei.name}"
         download={datei.name}
-        class="border-border hover:bg-bg-input text-text-bright flex items-center gap-2 rounded-md border px-3 py-2 text-xs font-medium"
         data-testid="instance-setup-compose-{datei.name}"
       >
         <FileDownIcon class="size-3.5" />
         {datei.label()}
-      </a>
+      </Button>
     {/each}
   </div>
 </div>
