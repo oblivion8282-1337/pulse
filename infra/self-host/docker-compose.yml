@@ -1,8 +1,21 @@
 # Pulse Self-Host — Docker Compose (manueller Pfad, Standardfall: Auto-TLS).
 #
-#   1. .env.example nach .env kopieren und die 6 Pflicht-Vars eintragen
-#      (am einfachsten: howispulse.com → "Meine Instanzen" → .env-Download).
-#   2. docker compose up -d
+#   1. Fertige Konfiguration in der App holen: Einstellungen → Self-Host →
+#      Meine Instanzen → "Server einrichten" → "Manuelle Installation" →
+#      ".env herunterladen". Sie ist komplett ausgefüllt — Instanz-ID,
+#      Client-ID und Secret vergibt die Cloud bei der Freigabe, das Secret
+#      zeigt sie genau einmal.
+#
+#   2. Die Datei hierher legen und in .env umbenennen:
+#
+#        mv ~/Downloads/pulse-instance-*.env .env
+#
+#   3. docker compose up -d
+#
+#   Optionale Schalter (eigenes Zertifikat, PULSE_PUBLIC_IP hinter NAT,
+#   Sicherungs-Takt, Log-Stufe) stehen in der kommentierten Referenz
+#   https://howispulse.com/self-host/env.example — zum Nachschlagen, nicht
+#   zum Ausfüllen.
 #
 # Voraussetzung für Auto-TLS: Port 80 + 443 sind öffentlich erreichbar und der
 # DNS-A-Record von PULSE_HOSTNAME zeigt auf diese Maschine — der eingebettete

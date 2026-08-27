@@ -69,8 +69,9 @@ für Voice und HQ-Streaming nötig.
 Der Installer liest weitere `PULSE_*`-Variablen als Overrides — vor dem Aufruf
 per Env setzen (wie bei `PULSE_IMAGE` oben). Alle haben einen automatisch
 ermittelten Default; nötig sind sie nur in Sonderfällen. Gilt nur für den
-Installer-Weg, nicht für Compose (dort steuert die `.env`, siehe
-`infra/self-host/.env.example`). Die vollständige Liste (u. a. `PULSE_CONTAINER`,
+Installer-Weg, nicht für Compose (dort steuert die `.env`; was darin möglich
+ist, erklärt die Referenz `https://howispulse.com/self-host/env.example`, im
+Repo `infra/self-host/.env.example`). Die vollständige Liste (u. a. `PULSE_CONTAINER`,
 `PULSE_VOLUME`, `PULSE_DIR`, `PULSE_HTTP_PORT`, `PULSE_NO_AUTOUPDATE`,
 `PULSE_CLOUD_ORIGIN`) steht kanonisch unter
 `https://howispulse.com/install/guide` → Abschnitt „Environment overrides" —
@@ -436,7 +437,9 @@ Server-Listen deiner Mitglieder — die entfernen ihn selbst per Rechtsklick →
 
 - **Datenschutz-Vorlage** für deine Domain (DSGVO): `docs/PRIVACY_SELF_HOST_TEMPLATE.md`
 - **Alle `.env`-Optionen** (Log-Level, coturn abschalten, öffentliche IP setzen):
-  Kommentare in `infra/self-host/.env.example`
+  die kommentierte Referenz unter `https://howispulse.com/self-host/env.example`
+  (im Repo `infra/self-host/.env.example`). Sie ist zum Nachschlagen da — die
+  `.env`, mit der du startest, lädst du fertig aus der App.
 - **Eigenes Zertifikat** statt Auto-TLS (für Cloudflare Tunnel, Tailscale Funnel,
   internes Netz): `PULSE_TLS_MODE=provided` setzen und Cert + Key unter
   `/data/certs/cert.pem` + `key.pem` ablegen.
