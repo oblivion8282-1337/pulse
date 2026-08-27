@@ -137,6 +137,18 @@ class InstanceOut(BaseModel):
     # Geräten in der Server-Leiste erscheint. Ohne dieses Feld kann die
     # Oberfläche Besitz und Mitgliedschaft nicht unterscheiden.
     role: Literal["owner", "member"]
+    # „Sind die Zugangsdaten dieses Servers schon abgeholt worden?" — der
+    # Installer wurde eingelöst ODER die ``.env`` heruntergeladen (dieselbe
+    # Frage wie ``bootstrap_redeemed``, s. ``_versorgte_instanzen``).
+    #
+    # Der Klient nimmt einen Server erst DANN in seine Leiste auf. Vorher steht
+    # er nur unter „Eigener Server", wo auch der Knopf sitzt, mit dem man ihn
+    # einrichtet. Ohne das Feld erschien er in der Sekunde der Freigabe — mit
+    # totem Status-Punkt und einer Erklärung, die nur im Tooltip stand.
+    #
+    # Vorgabe ``False``: ein Feld, das im Zweifel „eingerichtet" behauptet,
+    # brächte genau den Zustand zurück, den es abstellen soll.
+    set_up: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +160,8 @@ def _instance_to_out(
     inst: RegisteredInstance,
     viewer_id: int,
     membership: UserInstanceMembership | None = None,
+    *,
+    set_up: bool = False,
 ) -> InstanceOut:
     return InstanceOut(
         id=str(inst.id),
@@ -183,12 +197,49 @@ def _instance_to_out(
         # genau gegen dieses Feld. Eine Rollen-Spalte, die davon abwiche, ließe
         # die Oberfläche Knöpfe zeigen, die anschließend 404 laufen.
         role="owner" if inst.registered_by == viewer_id else "member",
+        set_up=set_up,
     )
 
 
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
+
+async def _versorgte_instanzen(db, instanz_ids: list[int]) -> set[int]:
+    """Welche dieser Instanzen haben ihre Zugangsdaten schon bekommen?
+
+    Dieselbe Frage wie ``bootstrap_redeemed`` — nur für viele Instanzen auf
+    einmal, weil die Liste sie sonst einzeln stellen müsste (N+1). Und wie
+    dort zählen BEIDE Wege: das eingelöste Installer-Token und der
+    ``.env``-Download. Ein bloss ausgestelltes Token zählt nicht; wer den
+    Befehl nie ausgeführt hat, hat nichts eingerichtet.
+
+    Der Klient hängt daran, ob er den Server in seine Leiste aufnimmt: bis
+    2026-08-27 tat er das, sobald die Instanz genehmigt war — der Nutzer sah
+    dort einen Server, den es noch nirgends gab, samt totem Status-Punkt.
+    """
+    if not instanz_ids:
+        return set()
+    eingeloest = (
+        await db.execute(
+            select(InstanceBootstrapToken.instance_id)
+            .where(
+                InstanceBootstrapToken.instance_id.in_(instanz_ids),
+                InstanceBootstrapToken.consumed_at.is_not(None),
+            )
+            .distinct()
+        )
+    ).scalars().all()
+    geladen = (
+        await db.execute(
+            select(RegisteredInstance.id).where(
+                RegisteredInstance.id.in_(instanz_ids),
+                RegisteredInstance.env_file_downloaded_at.is_not(None),
+            )
+        )
+    ).scalars().all()
+    return set(eingeloest) | set(geladen)
 
 
 @router.get(
@@ -220,7 +271,11 @@ async def list_my_instances(
         .order_by(RegisteredInstance.registered_at.desc())
     )
     rows = (await db.execute(stmt)).all()
-    return [_instance_to_out(inst, user.id, membership) for inst, membership in rows]
+    versorgt = await _versorgte_instanzen(db, [inst.id for inst, _ in rows])
+    return [
+        _instance_to_out(inst, user.id, membership, set_up=inst.id in versorgt)
+        for inst, membership in rows
+    ]
 
 
 class ReissueIn(BaseModel):

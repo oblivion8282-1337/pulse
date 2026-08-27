@@ -402,6 +402,70 @@ async def test_get_instances_only_own(client, alice_cookie, bob_cookie, alice_in
 
 
 # ---------------------------------------------------------------------------
+# set_up — „ist dieser Server schon versorgt worden"
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_set_up_ist_falsch_solange_keine_zugangsdaten_geholt_wurden(
+    client, alice_cookie, alice_instance
+):
+    """Eine frisch genehmigte Instanz ist NICHT eingerichtet.
+
+    Der Client haengt daran, ob er sie in die Server-Leiste aufnimmt: bis
+    2026-08-27 tat er das in der Sekunde der Freigabe, und der Nutzer sah einen
+    Server, der nirgends lief.
+    """
+    r = await client.get("/me/instances", headers={"Cookie": alice_cookie})
+    assert r.status_code == 200, r.text
+    eintrag = next(i for i in r.json() if i["id"] == str(alice_instance.id))
+    assert eintrag["set_up"] is False
+
+
+@pytest.mark.asyncio
+async def test_set_up_nach_env_download(client, alice_cookie, alice_instance):
+    """Der manuelle Weg zaehlt: die Zugangsdaten sind beim Nutzer."""
+    r = await client.post(
+        f"/me/instances/{alice_instance.id}/env-file",
+        headers={"Cookie": alice_cookie},
+    )
+    assert r.status_code == 200, r.text
+
+    r = await client.get("/me/instances", headers={"Cookie": alice_cookie})
+    eintrag = next(i for i in r.json() if i["id"] == str(alice_instance.id))
+    assert eintrag["set_up"] is True
+
+
+@pytest.mark.asyncio
+async def test_set_up_nach_eingeloestem_bootstrap_token(
+    client, alice_cookie, alice_instance, session_factory
+):
+    """Der Installer-Weg zaehlt ebenso — geprueft wird das EINGELOESTE Token,
+    nicht das blosse Ausstellen: ein ungenutzter Mint richtet nichts ein."""
+    r = await client.post(
+        f"/me/instances/{alice_instance.id}/bootstrap-token",
+        headers={"Cookie": alice_cookie},
+    )
+    assert r.status_code == 201, r.text
+
+    r = await client.get("/me/instances", headers={"Cookie": alice_cookie})
+    eintrag = next(i for i in r.json() if i["id"] == str(alice_instance.id))
+    assert eintrag["set_up"] is False, "ausgestellt ist nicht eingeloest"
+
+    async with session_factory() as session:
+        await session.execute(
+            update(InstanceBootstrapToken)
+            .where(InstanceBootstrapToken.instance_id == alice_instance.id)
+            .values(consumed_at=datetime.now(UTC))
+        )
+        await session.commit()
+
+    r = await client.get("/me/instances", headers={"Cookie": alice_cookie})
+    eintrag = next(i for i in r.json() if i["id"] == str(alice_instance.id))
+    assert eintrag["set_up"] is True
+
+
+# ---------------------------------------------------------------------------
 # POST /me/instances/{id}/env-file
 # ---------------------------------------------------------------------------
 
