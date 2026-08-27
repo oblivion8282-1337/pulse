@@ -133,6 +133,13 @@
                 {/if}
               </p>
             </div>
+            <!-- Die Pille sagt GENAU eine Sache: ob die Cloud diesen Server
+                 gesperrt hat (`registered_instances.status`, gesetzt bei
+                 Freigabe, Sperre und Widerruf). Sie sagt NICHT, ob er läuft
+                 oder erreichbar ist — deshalb „Freigegeben" und nicht „Aktiv":
+                 letzteres las sich wie eine Zustandsmeldung und stand auch an
+                 einem Server, auf dem noch nie ein Befehl gelaufen war. Was
+                 „läuft er?" beantwortet, ist die Verbindungsprüfung darunter. -->
             <span class="rounded-full px-2 py-0.5 text-xs font-medium shrink-0 {statusClass(inst.status)}">
               {inst.status === 'active' ? m.my_instances_status_active() : m.my_instances_status_suspended()}
             </span>

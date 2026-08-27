@@ -1746,7 +1746,7 @@
   "my_instances_guide_worker_ids": "Worker IDs (Chat/Voice/Media):",
   "my_instances_guide_worker_ids_suffix": "— already set in the .env snippet.",
   "my_instances_loading": "Loading…",
-  "my_instances_status_active": "Active",
+  "my_instances_status_active": "Approved",
   "my_instances_status_suspended": "Suspended",
   "my_instances_title": "My Instances",
   "native_panel_focus_window": "Bring window to front",
