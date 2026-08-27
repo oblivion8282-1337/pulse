@@ -13,6 +13,7 @@
   import { instancesApi, type Instance } from '$lib/api/instances';
   import BootstrapConsumedPanel from './BootstrapConsumedPanel.svelte';
   import EnvReissuePanel from './EnvReissuePanel.svelte';
+  import ComposeDownloadLinks from './ComposeDownloadLinks.svelte';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { Button } from '$lib/components/ui/button';
   import CopyIcon from '@lucide/svelte/icons/copy';
@@ -133,12 +134,18 @@
       envConsumed = false;
       toast.success(m.instance_setup_manual_downloaded());
     } catch (e) {
-      // 403 = One-Shot bereits verbraucht. Kein Toast: der erklärt zwar den
-      // Grund, verschwindet aber wieder und bietet keinen Ausweg. Stattdessen
-      // der erklärte Zustand mit bewusstem Neu-Ausstellen-Pfad — analog zum
-      // Bootstrap-Token (BootstrapConsumedPanel).
+      // NUR die One-Shot-Kollision wird zum Neu-Ausstellen-Zustand (kein Toast:
+      // der erklärt zwar den Grund, verschwindet aber wieder und bietet keinen
+      // Ausweg — analog zum Bootstrap-Token, BootstrapConsumedPanel).
+      //
+      // Die Route kennt drei verschiedene 403, und „jeder 403 heißt schon
+      // heruntergeladen" war falsch: eine gesperrte Instanz und das
+      // App-Host-Flag landeten in derselben Anzeige, die dann eine erledigte
+      // Handlung behauptete und ein „neu ausstellen" anbot, das im selben 403
+      // endet. Deshalb entscheidet der Code des Servers, nicht der Status.
       if (e instanceof ApiError && e.status === 403) {
-        envConsumed = true;
+        if (String(e.message).startsWith('already_provisioned')) envConsumed = true;
+        else toast.error(m.instance_setup_env_blocked());
       } else {
         toast.error(m.instance_setup_error());
       }
@@ -326,6 +333,8 @@
             </Button>
             <p class="text-warning text-xs">{m.instance_setup_manual_download_warning()}</p>
           {/if}
+
+          <ComposeDownloadLinks base={installBase} />
 
           <p class="text-text-muted text-xs">{m.instance_setup_manual_steps()}</p>
           <a

@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-27.7",
+      "date": "2026-08-27",
+      "style": "Sachlich",
+      "title": "Self-Hosting: Compose-Dateien direkt aus der App",
+      "items": [
+        "Im Einrichtungs-Dialog unter „Manuelle Installation“ stehen jetzt beide docker-compose-Dateien als Download bereit — die Standardvariante und die für eine Maschine, auf der schon ein Reverse-Proxy auf Port 80 und 443 läuft.",
+        "Vorher musste man sie sich aus der Anleitung per curl-Befehl holen; die Anleitung wird als reiner Text ausgeliefert, klickbar war dort nichts.",
+        "Der Download der .env schlug für alle fehl, die einen eigenen VPS betreiben: Die App meldete „Server bereits eingerichtet“, obwohl die Datei nie geholt worden war. Der Grund war eine Berechtigung, die nur für aus der App gehostete Server gedacht ist und bei VPS-Betreibern nie gesetzt wird. Damit war der manuelle Weg für seine einzige Zielgruppe von Schritt 1 an zu."
+      ]
+    },
+    {
       "id": "2026-08-27.6",
       "date": "2026-08-27",
       "style": "Sachlich",
