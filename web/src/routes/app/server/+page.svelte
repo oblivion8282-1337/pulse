@@ -15,7 +15,6 @@
   import { goto } from '$app/navigation';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import GuildRail from '$lib/components/GuildRail.svelte';
-  import BereichsKopf from '$lib/components/mobile/BereichsKopf.svelte';
   import SelfHostPanel from '$lib/components/selfhost/SelfHostPanel.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
@@ -27,6 +26,11 @@
   // Auf einem fremden Server kennt die auth-API `/me/instances` nicht — statt
   // einer Fläche, die still leer bleibt oder in Fehler läuft, der Grund.
   let inDerCloud = $derived(selfHostEinstiegSichtbar());
+
+  // Zurück dorthin, wo der Einstieg steht: unter `lg` die Räume-Liste, darüber
+  // die Startseite (dort ist die Server-Leiste selbst der Ort des Knopfes).
+  // 1024 = der `lg`-Bruchpunkt, an dem die Leiste erscheint (`hidden lg:flex`).
+  let zurueckZiel = $derived(viewport.width < 1024 ? '/app/rooms' : '/app');
 
   async function selectGuild(g: { id: string }) {
     navDrawer.open = true;
@@ -47,23 +51,22 @@
   class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl"
   data-testid="self-host-page"
 >
-  {#if viewport.isMobile}
-    <!-- Auf dem Handy ist das ein aufgeschobener Bildschirm: der Weg zurück
-         gehört sichtbar dazu, wie bei `/app/me/[section]`. -->
-    <header class="border-border text-text-bright flex h-14 shrink-0 items-center gap-1 border-b px-2">
-      <button
-        class="text-text-muted hover:text-primary flex min-h-12 min-w-12 items-center justify-center"
-        onclick={() => goto('/app/rooms')}
-        data-testid="self-host-back"
-        aria-label={m.settings_dialog_back()}
-      >
-        <ChevronLeftIcon class="size-6" />
-      </button>
-      <span class="truncate text-base font-bold tracking-tight">{m.self_host_entry_label()}</span>
-    </header>
-  {:else}
-    <BereichsKopf titel={m.self_host_entry_label()} />
-  {/if}
+  <!-- Der Weg zurück gehört auf JEDE Größe, nicht nur aufs Handy: das hier ist
+       ein aufgeschobener Bildschirm, keine der vier Bereichs-Seiten. Am
+       Rechner blieb sonst nur der Umweg über das Pulse-Zeichen in der Leiste —
+       ein Ausgang, den man kennen muss, statt einen, den man sieht. Deshalb
+       auch kein `BereichsKopf` (der trägt bewusst keine Zurück-Geste). -->
+  <header class="border-border text-text-bright flex h-14 shrink-0 items-center gap-1 border-b px-2">
+    <button
+      class="text-text-muted hover:text-primary flex min-h-12 min-w-12 items-center justify-center"
+      onclick={() => goto(zurueckZiel)}
+      data-testid="self-host-back"
+      aria-label={m.settings_dialog_back()}
+    >
+      <ChevronLeftIcon class="size-6" />
+    </button>
+    <span class="truncate text-base font-bold tracking-tight">{m.self_host_entry_label()}</span>
+  </header>
 
   <div class="flex-1 overflow-y-auto p-4 md:p-6">
     {#if inDerCloud}
