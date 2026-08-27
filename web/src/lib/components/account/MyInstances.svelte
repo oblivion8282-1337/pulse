@@ -1,10 +1,17 @@
 <!--
-  Liste der eigenen Self-Host-Instanzen im Einstellungs-Dialog.
+  Liste der eigenen Self-Host-Instanzen (Route `/app/server`).
   Endpoint: GET /me/instances (Cookie-Auth via instancesApi).
 
-  Der Server wird ausschließlich über „Server einrichten" (Ein-Befehl-Installer,
-  InstanceSetupDialog) aufgesetzt — die Zugangsdaten werden dabei automatisch
-  und sicher übertragen. Kein manueller .env-/Secret-Umgang mehr.
+  „Server einrichten" KLAPPT AUF, statt einen Dialog zu öffnen (seit
+  2026-08-27): der Dialog legte sich über die Liste, aus der er kam, und auf
+  schmalen Geräten füllte er ohnehin den Bildschirm — dann ist er ein
+  Bildschirmwechsel, der sich nur nicht so nennt. Aufgeklappt bleibt sichtbar,
+  zu welcher Zeile die Einrichtung gehört.
+
+  Höchstens eine Zeile ist offen: zwei gleichzeitig hiessen zwei gültige
+  Installer-Befehle nebeneinander, und der falsche davon richtet den falschen
+  Server ein. Das Zuklappen hängt das Panel aus — sein Zustand (Token,
+  Countdown) ist damit weg, ohne eigenes Aufräumen.
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
@@ -14,7 +21,7 @@
   import { serversStore } from '$lib/api/servers.svelte';
   import { removeServerLocally } from '$lib/api/server-removal';
   import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
-  import InstanceSetupDialog from './InstanceSetupDialog.svelte';
+  import InstanceSetupPanel from './setup/InstanceSetupPanel.svelte';
   import InstanceDiagnose from './InstanceDiagnose.svelte';
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
@@ -22,19 +29,19 @@
   import { Button } from '$lib/components/ui/button';
   import ServerIcon from '@lucide/svelte/icons/server';
   import TerminalIcon from '@lucide/svelte/icons/terminal';
+  import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
 
   let instances = $state<Instance[]>([]);
   let loading = $state(true);
-  let setupOpen = $state(false);
-  let setupInstance = $state<Instance | null>(null);
+  /** Die Instanz, deren Einrichtung gerade aufgeklappt ist (höchstens eine). */
+  let offeneEinrichtung = $state<string | null>(null);
   let deleteTarget = $state<Instance | null>(null);
   let deleteConfirmOpen = $state(false);
   let deleting = $state(false);
 
-  function openSetup(inst: Instance) {
-    setupInstance = inst;
-    setupOpen = true;
+  function einrichtungUmschalten(inst: Instance) {
+    offeneEinrichtung = offeneEinrichtung === inst.id ? null : inst.id;
   }
 
   function openDelete(inst: Instance) {
@@ -152,11 +159,18 @@
                    Installer-Befehl/.env. -->
               <Button
                 size="xs"
-                onclick={() => openSetup(inst)}
+                onclick={() => einrichtungUmschalten(inst)}
                 data-testid="instance-setup-btn-{inst.id}"
+                aria-expanded={offeneEinrichtung === inst.id}
+                aria-controls="einrichtung-{inst.id}"
               >
                 <TerminalIcon class="size-3.5" />
                 {m.instance_setup_button()}
+                <ChevronDownIcon
+                  class="size-3.5 transition-transform {offeneEinrichtung === inst.id
+                    ? 'rotate-180'
+                    : ''}"
+                />
               </Button>
             {/if}
             <Button
@@ -169,14 +183,18 @@
               {m.my_instances_delete_button()}
             </Button>
           </div>
+
+          {#if offeneEinrichtung === inst.id}
+            <div id="einrichtung-{inst.id}">
+              <InstanceSetupPanel instance={inst} />
+            </div>
+          {/if}
         </div>
       {/each}
     </div>
   {/if}
 </div>
 
-<!-- Ein-Befehl-Installer -->
-<InstanceSetupDialog bind:open={setupOpen} instance={setupInstance} />
 
 <!-- Lösch-Bestätigung -->
 <AlertDialog.Root bind:open={deleteConfirmOpen}>
