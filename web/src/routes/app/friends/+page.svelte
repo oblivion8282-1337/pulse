@@ -23,6 +23,7 @@
   import FriendList from '$lib/components/friends/FriendList.svelte';
   import PendingRequests from '$lib/components/friends/PendingRequests.svelte';
   import BlockedList from '$lib/components/friends/BlockedList.svelte';
+  import FriendsKopfAktionen from '$lib/components/friends/FriendsKopfAktionen.svelte';
   import AddFriendPanel from '$lib/components/friends/AddFriendPanel.svelte';
   import BereichsKopf from '$lib/components/mobile/BereichsKopf.svelte';
   import SearchIcon from '@lucide/svelte/icons/search';
@@ -50,9 +51,11 @@
     return m.friends_tab_add();
   }
 
-  type TabKey = 'online' | 'all' | 'pending' | 'blocked' | 'add';
+  // 'online' ist 2026-08-27 entfallen: die Seite hat `onlineOnly` nie an
+  // FriendList durchgereicht, der Reiter zeigte also dasselbe wie 'all'.
+  // FriendList gruppiert ohnehin selbst in Online- und Offline-Block.
+  type TabKey = 'all' | 'pending' | 'blocked' | 'add';
   const TABS: { key: TabKey; label: () => string }[] = [
-    { key: 'online', label: () => m.friends_tab_online() },
     { key: 'all', label: () => m.friends_tab_all() },
     { key: 'add', label: () => m.friends_tab_add() },
     { key: 'pending', label: () => m.friends_tab_pending() },
@@ -60,7 +63,7 @@
   ];
 
   const activeTab = $derived<TabKey>(
-    (TABS.find((t) => t.key === page.url.searchParams.get('tab'))?.key) ?? 'online'
+    (TABS.find((t) => t.key === page.url.searchParams.get('tab'))?.key) ?? 'all'
   );
 
   // DEV-ONLY: ?demo=online markiert alle vorhandenen Freunde rotierend als
@@ -123,6 +126,8 @@
         <!-- Drei-Punkte statt Reiter-Leiste (wie beim Chats-Bereich): die
              Liste gehört dem Inhalt, Seltenes (Hinzufügen, Anfragen, Blockiert)
              steckt im Menü. Die Anfragen-Zahl wandert als Badge mit. -->
+        <FriendsKopfAktionen {activeTab} {pendingBadge} onSwitch={switchTab} />
+        <div class="md:hidden">
         <DropdownMenu.Root>
           <DropdownMenu.Trigger>
             {#snippet child({ props })}
@@ -171,6 +176,7 @@
             </DropdownMenu.Item>
           </DropdownMenu.Content>
         </DropdownMenu.Root>
+        </div>
       {/snippet}
     </BereichsKopf>
     <!-- Suchleiste außerhalb des Scroll-Bereichs, in derselben Hülle wie die
@@ -209,7 +215,7 @@
              Ausnahmefälle, kein parallel sichtbarer Zustand. -->
         <button
           type="button"
-          class="text-text-muted hover:text-text-bright mb-3 flex items-center gap-1 pt-4 text-sm font-semibold"
+          class="text-text-muted hover:text-text-bright mb-3 flex items-center gap-1 pt-4 text-sm font-semibold md:hidden"
           onclick={() => switchTab('all')}
           data-testid="friends-back"
         >
