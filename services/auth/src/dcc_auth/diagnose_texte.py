@@ -31,6 +31,12 @@ from __future__ import annotations
 
 import re
 
+# Die Saetze zum Betreiber-Glied liegen in einem eigenen Modul, damit diese
+# Datei unter der Groessen-Grenze bleibt (PLAN.md §12.1). Sie werden unten in
+# die drei Tabellen gemischt — die EINZIGE Quelle fuer Diagnose-Texte bleibt
+# dieses Modul hier.
+from dcc_auth import diagnose_texte_betreiber as _betreiber
+
 #: Die Kette in ihrer Reihenfolge. ``gesamt`` ist kein Glied, sondern der
 #: Sammelbefund, wenn die ganze Prüfung in ihre Frist läuft.
 SCHRITTE: tuple[str, ...] = (
@@ -39,6 +45,7 @@ SCHRITTE: tuple[str, ...] = (
     "tls",
     "health",
     "identitaet",
+    "betreiber",
     "cors",
     "websocket",
     "stun",
@@ -56,6 +63,7 @@ _TITEL: dict[str, tuple[str, str]] = {
     "tls": ("Verschlüsselung", "Encryption"),
     "health": ("Zustand des Servers", "Server condition"),
     "identitaet": ("Identität", "Identity"),
+    "betreiber": _betreiber.TITEL,
     "cors": ("Browser-Freigabe", "Browser access"),
     "websocket": ("Live-Verbindung", "Live connection"),
     "stun": ("Sprachverbindung (UDP)", "Voice connection (UDP)"),
@@ -73,6 +81,7 @@ _GELUNGEN: dict[str, tuple[str, str]] = {
     "tls": ("Das Zertifikat ist gültig und wird anerkannt.", "The certificate is valid and trusted."),
     "health": ("Der Server meldet sich gesund.", "The server reports itself healthy."),
     "identitaet": ("Es ist wirklich dein Server.", "It really is your server."),
+    "betreiber": _betreiber.GELUNGEN,
     "cors": ("Der Browser darf zugreifen.", "Browsers are allowed access."),
     "websocket": ("Live-Verbindungen kommen durch.", "Live connections get through."),
     "stun": ("UDP kommt an — Sprache funktioniert.", "UDP arrives — voice works."),
@@ -279,6 +288,10 @@ _CONTAINER_STANDARD = "pulse"
 #: ``$`` passt in Python auch VOR einem abschließenden Zeilenende — ein Wert
 #: mit eingebettetem Newline käme damit unbemerkt durch das Muster.
 _CONTAINER_MUSTER = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*\Z")
+
+
+#: Die Saetze zum Betreiber-Glied dazu — s. den Import oben.
+_BEFUNDE.update(_betreiber.BEFUNDE)
 
 
 def container_name(roh: str | None) -> str:

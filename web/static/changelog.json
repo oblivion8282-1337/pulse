@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-27.5",
+      "date": "2026-08-27",
+      "style": "Sachlich",
+      "title": "„Verbindung prüfen“ sagt jetzt auch, ob dein Server dich als Betreiber kennt",
+      "intro": "Ein achter Prüfschritt für alle, die einen eigenen Server betreiben.",
+      "items": [
+        "Bisher prüfte „Verbindung prüfen“ nur, ob dein Server erreichbar ist. Er kann aber erreichbar sein und dich trotzdem nicht als seinen Betreiber führen — dann bist du auf deinem eigenen Server ein gewöhnliches Mitglied: keine Community anlegen, keine Server-Einstellungen. Genau das ist vorgekommen, und es war von aussen nicht zu erkennen.",
+        "Der neue Schritt beantwortet das direkt und nennt den Handgriff dazu. Er unterscheidet dabei, woran es liegt: eine fehlende Angabe, eine falsche Angabe oder eine falsche Betriebsart brauchen verschiedene Korrekturen.",
+        "Läuft dein Server noch mit einer älteren Fassung, sagt der Schritt das und meldet keinen Fehler. Er beantwortet die Frage, sobald dein Server sich aktualisiert hat."
+      ]
+    },
+    {
       "id": "2026-08-27.4",
       "date": "2026-08-27",
       "style": "Sachlich",

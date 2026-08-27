@@ -22,7 +22,7 @@ import pytest
 
 from dcc_auth import diagnose_texte as dt
 
-_QUELLEN = ("selfhost_probe.py", "selfhost_probe_dienst.py")
+_QUELLEN = ("selfhost_probe.py", "selfhost_probe_dienst.py", "selfhost_probe_betreiber.py")
 
 
 def _modul_pfad(name: str) -> pathlib.Path:
