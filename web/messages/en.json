@@ -3033,5 +3033,8 @@
   "rooms_discover_short": "Discover",
   "rooms_in_voice": "{count} in voice",
   "rooms_channel_count": "{count} channels",
-  "chats_empty_title": "No conversations yet"
+  "chats_empty_title": "No conversations yet",
+  "dm_schloss_verschluesselt_label": "End-to-end encrypted",
+  "dm_schloss_verschluesselt_hinweis": "This conversation can run end-to-end encrypted: both sides have the app installed. Whether an individual message is encrypted is decided when it is sent.",
+  "dm_schloss_ohne_app_hinweis": "Not encrypted — the other side has not installed the app."
 }

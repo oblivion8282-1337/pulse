@@ -75,7 +75,7 @@ async def einmalschluessel_budget_uebrig(redis, anfragender_id: int, ziel_id: in
     Vorrat soll das Budget des Anfragenden nicht schonen, sonst liesse sich
     das Budget durch Abklopfen leerer Buendel umgehen. Aufrufer laesst das
     eigene Konto aus (Multi-Geraet-Sync ist kein Angriff auf sich selbst,
-    s. ``_darf_schluessel_holen`` in ``routes/schluessel.py``)."""
+    s. ``darf_schluessel_holen`` in ``schluessel_zugriff.py``)."""
     settings = chat_config.get_settings()
     schluessel = f"keys:claim-budget:{anfragender_id}:{ziel_id}"
     aktuell = await redis.incr(schluessel)

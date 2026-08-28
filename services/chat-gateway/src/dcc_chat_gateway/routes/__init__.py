@@ -54,6 +54,7 @@ from dcc_chat_gateway.routes import (
     role_members,
     roles,
     schluessel,
+    schluessel_auskunft,
     server_info,
     sounds,
     stream_chat,
@@ -111,6 +112,7 @@ router.include_router(attachments.router)
 router.include_router(capabilities.router)
 router.include_router(cert_login.router)
 router.include_router(schluessel.router)
+router.include_router(schluessel_auskunft.router)
 router.include_router(postfach.router)
 router.include_router(private_gruppen.router)
 router.include_router(postfach_abholen.router)

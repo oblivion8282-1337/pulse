@@ -38,7 +38,7 @@ Bytes.
 | Heutiger Sendeweg (Klartext, bleibt unangetastet) | `routes/ws_op_send.py:68`, veröffentlicht auf `chat:channel:{id}` (`:281`), dazu `dm_bump` (`:337-345`) und Web-Push (`:354`) |
 | Gerät weist sich mit Zertifikat + Unterschrift aus | `schluessel_nachweis.py::pruefe_geraet(cert_jwt, nutzlast, signatur_b64, user, redis)` (Etappe B) |
 | Verzeichnis der Geräte | `models/geraete_schluessel.py::DeviceKeyBundle` (Etappe B) |
-| Wer darf wem schreiben | `routes/schluessel.py::_darf_schluessel_holen` bzw. `routes/dms.py` (Block- und Freundschaftsprüfung) |
+| Wer darf wem schreiben | `schluessel_zugriff.py::darf_schluessel_holen` bzw. `routes/dms.py` (Block- und Freundschaftsprüfung) |
 | Aufräum-Schleife, in die ein zweiter Gegenstand gehört | `cleanup.py::_run_once` + `cleanup_loop` — trägt seit dem 2026-08-28 bereits zwei Gegenstände |
 | Redis-Kanalnamen | `pubsub_channels.py` |
 

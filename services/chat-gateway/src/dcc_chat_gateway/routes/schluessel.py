@@ -23,7 +23,6 @@ from sqlalchemy import delete, func, select
 import dcc_chat_gateway.config as chat_config
 from dcc_chat_gateway.credential_validator import REDIS_REVOKED_SET
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.friend_helpers import block_exists_either_way, friendship_exists
 from dcc_chat_gateway.models import DeviceKeyBundle, DeviceOneTimeKey
 from dcc_chat_gateway.schemas import (
     BundleVeroeffentlichenRequest,
@@ -37,6 +36,7 @@ from dcc_chat_gateway.schluessel_grenzen import (
     platz_fuer_neues_geraet_schaffen,
 )
 from dcc_chat_gateway.schluessel_nachweis import baue_nutzlast, pruefe_geraet
+from dcc_chat_gateway.schluessel_zugriff import darf_schluessel_holen
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 
@@ -234,25 +234,6 @@ async def _einmalschluessel_holen(session, bundle_id: int) -> str | None:
     return None
 
 
-async def _darf_schluessel_holen(session, anfragender_id: int, ziel_id: int) -> bool:
-    """Dieselbe Zugriffsregel wie beim DM-Anlegen
-    (``routes/dms.py::create_or_get_dm_channel``): geblockt oder nicht
-    befreundet -> keine Schluessel. Wer Schluessel fuer jemanden abholen
-    kann, mit dem er gar nicht schreiben darf, koennte eine Sitzung
-    aufbauen, die nie eine Nachricht tragen wird — reine Vorratsverschwendung
-    und eine Moeglichkeit, den Vorrat eines Fremden leerzuziehen.
-
-    Das eigene Konto ist immer erlaubt (weder befreundet noch geblockt
-    ergibt fuer sich selbst einen Sinn) — ein Geraet holt so die Buendel der
-    EIGENEN anderen Geraete, um auch fuer sie zu verschluesseln
-    (Multi-Geraet-Sync)."""
-    if anfragender_id == ziel_id:
-        return True
-    if await block_exists_either_way(session, anfragender_id, ziel_id):
-        return False
-    return await friendship_exists(session, anfragender_id, ziel_id)
-
-
 @router.post("/keys/claim", response_model=dict[str, list[GeraeteSchluesselOut]])
 async def schluessel_abholen(
     body: SchluesselAbholenRequest,
@@ -277,7 +258,7 @@ async def schluessel_abholen(
     for ziel_id in dict.fromkeys(body.user_ids):  # Duplikate raus, Reihenfolge bleibt.
         schluessel_key = str(ziel_id)
         ergebnis[schluessel_key] = []
-        if not await _darf_schluessel_holen(session, user.id, ziel_id):
+        if not await darf_schluessel_holen(session, user.id, ziel_id):
             continue
 
         buendel = (
@@ -307,7 +288,8 @@ async def schluessel_abholen(
 
             # Budget-Wache (FIX 2) — nur fuer FREMDE Ziele: das eigene Konto
             # zieht ausschliesslich am eigenen Vorrat, das ist kein Angriff
-            # auf jemand anderen (s. ``_darf_schluessel_holen``-Docstring).
+            # auf jemand anderen (s. ``darf_schluessel_holen``-Docstring,
+            # ``schluessel_zugriff.py``).
             # Ist das Budget erschoepft, wird wie bei leerem Vorrat verfahren
             # (``einmal = None`` -> Rueckfallschluessel) statt gar nichts zu
             # liefern — ein Sitzungsaufbau soll trotzdem moeglich bleiben,

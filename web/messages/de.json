@@ -3033,5 +3033,8 @@
   "rooms_discover_short": "Entdecken",
   "rooms_in_voice": "{count} im Gespräch",
   "rooms_channel_count": "{count} Kanäle",
-  "chats_empty_title": "Noch keine Gespräche"
+  "chats_empty_title": "Noch keine Gespräche",
+  "dm_schloss_verschluesselt_label": "Ende-zu-Ende-verschlüsselt",
+  "dm_schloss_verschluesselt_hinweis": "Dieses Gespräch kann Ende-zu-Ende verschlüsselt laufen: beide Seiten haben die App installiert. Ob eine einzelne Nachricht verschlüsselt geht, entscheidet sich beim Absenden.",
+  "dm_schloss_ohne_app_hinweis": "Nicht verschlüsselt — die Gegenseite hat die App nicht installiert."
 }

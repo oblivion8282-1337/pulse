@@ -66,6 +66,21 @@ export const keysApi = {
     );
   },
 
+  /** Ob ein Gespraech mit diesem Konto verschluesselt laufen kann — reine
+   *  Auskunft, die KEINEN Einmalschluessel verbraucht (im Unterschied zu
+   *  `claim`, s. `routes/schluessel_auskunft.py`). Fehlende Berechtigung
+   *  ergibt `false`, keine 403. */
+  verschluesselbar(
+    userId: string,
+    route: { serverId?: string } = {}
+  ): Promise<{ verschluesselbar: boolean }> {
+    return request<{ verschluesselbar: boolean }>(
+      `/keys/verschluesselbar/${encodeURIComponent(userId)}`,
+      {},
+      route
+    );
+  },
+
   /** Holt die Buendel aller Geraete jedes angefragten Nutzers ab. */
   claim(
     userIds: string[],

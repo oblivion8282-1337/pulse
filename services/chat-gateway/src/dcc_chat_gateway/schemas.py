@@ -1231,6 +1231,18 @@ class GeraeteSchluesselOut(BaseModel):
     dauerhaft: bool = False
 
 
+class VerschluesselbarOut(BaseModel):
+    """Antwort von ``GET /keys/verschluesselbar/{ziel_id}``.
+
+    Bewusst nur ein Bit. Die Geraeteliste des Ziels gehoert NICHT hierher —
+    fuer ein Schloss im Kopf des Gespraechs braucht sie niemand, und jedes
+    zusaetzliche Feld waere Metadaten, die ``POST /keys/claim`` nur gegen
+    Vorratsverbrauch herausgibt.
+    """
+
+    verschluesselbar: bool
+
+
 # ---------------------------------------------------------------------------
 # Postfach — Einliefern verschluesselter Umschlaege (Etappe D, E2E-DM)
 # ---------------------------------------------------------------------------

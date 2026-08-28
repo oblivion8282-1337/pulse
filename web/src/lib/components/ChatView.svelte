@@ -12,6 +12,7 @@
   import MessageList from './MessageList.svelte';
   import MemberList from './MemberList.svelte';
   import ComposerDisabledBanner from './ComposerDisabledBanner.svelte';
+  import DmSchloss from './chat/DmSchloss.svelte';
   import { plainifyMentions } from './messageRender';
   import { Button } from '$lib/components/ui/button';
   import type { Channel, Message } from '$lib/api/types';
@@ -315,6 +316,11 @@
           topic={channel.topic}
           nameStyle={headerKind === 'dm' ? '' : channelNameStyle(channel)}
         />
+      {/if}
+      {#if headerKind === 'dm' && dmPartnerId}
+        <!-- Abruf, Sperre gegen Mehrfachabrufe und Schalter-Gate stecken in
+             der Komponente — hier steht nur, WO das Kennzeichen haengt. -->
+        <DmSchloss userId={dmPartnerId} />
       {/if}
       {#if showMemberList}
         <Button

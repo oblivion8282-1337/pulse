@@ -179,7 +179,7 @@ test('Rueckfallschluessel erscheint, sobald der Einmalschluessel-Vorrat erschoep
     .toMatchObject({ device_pubkey: pubkey, curve25519: expect.any(String) });
 
   // Vorrat vollstaendig leerziehen — jeder Claim gegen das eigene Geraet
-  // (`_darf_schluessel_holen` erlaubt das eigene Konto immer) verbraucht
+  // (`darf_schluessel_holen` erlaubt das eigene Konto immer) verbraucht
   // server-seitig GENAU einen Einmalschluessel und liefert ihn in derselben
   // Antwort. NACHFUELL_BATCH ist 30, die Obergrenze hier ist bewusst
   // grosszuegiger, damit der Test nicht an einer internen Zahl haengt, die

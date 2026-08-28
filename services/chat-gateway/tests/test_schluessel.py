@@ -402,6 +402,7 @@ async def _buendel_seeden(
     cert_id: str = "cert-empfaenger",
     rueckfallschluessel: str | None = None,
     einmalschluessel: list[str] = (),
+    dauerhaft: bool = False,
 ) -> int:
     """Legt ein Buendel direkt in die DB, ohne den Nachweis-Umweg — Task 3
     prueft das ABHOLEN, nicht das Veroeffentlichen; das ist bereits in
@@ -419,6 +420,7 @@ async def _buendel_seeden(
                 curve25519="curve-empfaenger",
                 signatur="sig-empfaenger",
                 rueckfallschluessel=rueckfallschluessel,
+                dauerhaft=dauerhaft,
                 cert_id=cert_id,
             )
         )
@@ -749,3 +751,106 @@ async def test_claim_budget_gilt_nicht_fuer_die_eigenen_geraete(
         )
         assert r.status_code == 200, r.text
         assert r.json()[str(uid)][0]["einmalschluessel"] == erwartet
+
+
+# ---------------------------------------------------------------------------
+# Schloss-Kennzeichen — GET /keys/verschluesselbar/{ziel_id}
+#
+# Der Kern des Vorhabens: die Auskunft, ob ein Gespraech verschluesselt laufen
+# kann, darf den Vorrat der Gegenseite NICHT anfassen. Ueber ``POST
+# /keys/claim`` (die einzige Auskunft, die es vorher gab) wuerde das blosse
+# Oeffnen eines Gespraechs je Geraet einen Einmalschluessel kosten.
+# ---------------------------------------------------------------------------
+
+
+async def _vorrat_zaehlen(session_factory, bundle_id: int) -> int:
+    from dcc_chat_gateway.models import DeviceOneTimeKey
+    from sqlalchemy import func, select
+
+    async with session_factory() as s:
+        return (
+            await s.execute(
+                select(func.count())
+                .select_from(DeviceOneTimeKey)
+                .where(DeviceOneTimeKey.bundle_id == bundle_id)
+            )
+        ).scalar_one()
+
+
+@pytest.mark.asyncio
+async def test_auskunft_verbraucht_keinen_einmalschluessel(
+    client, session_factory, cloud_mode, _auth_signer, friend_pair
+):
+    """DIE Gegenprobe des Vorhabens: dreimal fragen laesst den Vorrat
+    unangetastet. Ueber ``POST /keys/claim`` waeren nach denselben drei
+    Aufrufen alle drei Schluessel weg (das haelt
+    ``test_abholen_verbraucht_den_einmalschluessel`` fest) — und genau deshalb
+    gab es bis heute kein Schloss im Kopf des Gespraechs."""
+    sender_token, sender_uid = _register(_auth_signer)
+    _, empf_uid = _register(_auth_signer)
+    await friend_pair(sender_uid, empf_uid)
+    bid = await _buendel_seeden(
+        session_factory,
+        user_id=empf_uid,
+        einmalschluessel=["otk-1", "otk-2", "otk-3"],
+        dauerhaft=True,
+    )
+    assert await _vorrat_zaehlen(session_factory, bid) == 3
+
+    for _ in range(3):
+        r = await client.get(
+            f"/keys/verschluesselbar/{empf_uid}",
+            headers={"Authorization": f"Bearer {sender_token}"},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json() == {"verschluesselbar": True}
+
+    assert await _vorrat_zaehlen(session_factory, bid) == 3
+
+
+@pytest.mark.asyncio
+async def test_auskunft_bleibt_einem_fremden_verschlossen(
+    client, session_factory, cloud_mode, _auth_signer
+):
+    """Wer nicht abholen darf, bekommt auch keine Auskunft — dieselbe
+    ``darf_schluessel_holen``-Regel wie beim Abholen (``schluessel_zugriff.py``).
+
+    Das Ziel hat hier sehr wohl ein dauerhaftes Geraet: ohne die Pruefung
+    stuende hier ``True``, und ein Fremder koennte fuer ein beliebiges Konto
+    ablesen, ob die Person die App installiert hat."""
+    sender_token, sender_uid = _register(_auth_signer)
+    _, fremd_uid = _register(_auth_signer)
+    # Bewusst KEIN friend_pair — die beiden sind einander fremd.
+    await _buendel_seeden(session_factory, user_id=fremd_uid, dauerhaft=True)
+
+    r = await client.get(
+        f"/keys/verschluesselbar/{fremd_uid}",
+        headers={"Authorization": f"Bearer {sender_token}"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == {"verschluesselbar": False}
+
+
+@pytest.mark.asyncio
+async def test_konto_ohne_dauerhaftes_geraet_ist_nicht_verschluesselbar(
+    client, session_factory, cloud_mode, _auth_signer, friend_pair
+):
+    """Die Koexistenz-Regel (Spec §3) und nicht blosses "irgendein Buendel
+    existiert": ein Konto, das nur aus einem Browser-Tab heraus veroeffentlicht
+    hat, kann nichts verlaesslich behalten. Wuerde das Schloss hier erscheinen,
+    verspraeche es etwas, das der Sendeweg gleich darauf verweigert
+    (``empfaengerGeraete.ts::zielgeraeteBerechnen`` liefert dann eine leere
+    Liste und faellt auf Klartext zurueck)."""
+    sender_token, sender_uid = _register(_auth_signer)
+    _, empf_uid = _register(_auth_signer)
+    await friend_pair(sender_uid, empf_uid)
+    await _buendel_seeden(
+        session_factory, user_id=empf_uid, einmalschluessel=["otk-1"], dauerhaft=False
+    )
+
+    r = await client.get(
+        f"/keys/verschluesselbar/{empf_uid}",
+        headers={"Authorization": f"Bearer {sender_token}"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == {"verschluesselbar": False}
