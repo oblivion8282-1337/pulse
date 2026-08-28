@@ -15,9 +15,17 @@
 #
 #        mv ~/Downloads/pulse-instance-*.env .env
 #
-#   3. docker compose -f docker-compose.behind-proxy.yml up -d
-#   4. EINE Regel im eigenen Proxy anlegen:
-#        pulse.deine-domain  →  http://127.0.0.1:8080
+#   3. An der Registry anmelden (sonst: "pull access denied"):
+#        docker login registry.howispulse.com \
+#          -u "$(grep -oP '^PULSE_CLOUD_CLIENT_ID=\K.*' .env)" \
+#          -p "$(grep -oP '^PULSE_CLOUD_CLIENT_SECRET=\K.*' .env)"
+#   4. docker compose -f docker-compose.behind-proxy.yml up -d
+#   5. EINE Regel im eigenen Proxy anlegen:
+#        chat.firma.de  →  http://127.0.0.1:8080
+#      Läuft dein Proxy SELBST in einem Container, erreicht er 127.0.0.1 des
+#      Hosts nicht — dann brauchen beide ein gemeinsames Docker-Netz und die
+#      Regel zeigt auf den Container-Namen (`pulse:8080`). Anleitung dazu:
+#      docs/SELF_HOST.md → "Die Proxy-Regel anlegen".
 #      WebSocket-Upgrade muss durchgereicht werden (bei NPM: "WebSocket Support"
 #      aktivieren). Copy-paste-Snippets für Caddy/nginx/NPM: docs/SELF_HOST.md.
 #
