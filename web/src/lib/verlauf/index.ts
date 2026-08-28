@@ -8,6 +8,18 @@
  * sondern ein leerer Verlauf ohne Erklaerung. Jeder Fehlschlag meldet sich
  * deshalb bei `verlaufZustand`, das der Oberflaeche den Grund gibt — wirft
  * aber weiterhin nie nach aussen, s. einzelne Funktionen.
+ *
+ * SEIT dem E2E-Bughunt (2026-08-28): fuer den Krypto-Pfad ist die lokale
+ * Ablage die EINZIGE Kopie — der Server sieht den Klartext nie (`senden.ts`)
+ * bzw. hat den Umschlag nach der Quittung geloescht (`empfangen.ts`). Das
+ * "wirft nie"-Versprechen von `verlaufSpeichern` waere dort kein Komfort,
+ * sondern ein stiller, endgueltiger Datenverlust: eine Quittung nach einem
+ * fehlgeschlagenen Schreiben loescht die einzige Kopie auf dem Server, ohne
+ * dass je eine zweite entstanden waere. `verlaufSpeichernPflicht` ist deshalb
+ * dieselbe Rechnung wie `verlaufSpeichern`, aber OHNE das schluckende
+ * `.catch` — ein Fehlschlag wird zu einer abgelehnten Promise, die ein
+ * vergessenes `await`/`catch` als sichtbare "unhandled rejection" auffallen
+ * laesst statt sie in einen stillen Rueckgabewert `0` zu verwandeln.
  */
 import { zuSatz, sortierSchluessel, satzZuNachricht, type SatzAlsNachricht } from './satz';
 import { verlaufPutSaetze, verlaufMarkiereGeloescht, verlaufLesenSaetze } from './db';
@@ -26,19 +38,29 @@ function istDmKanal(kanalId: string): boolean {
   return kanalId in directMessages.byId;
 }
 
-/**
- * Legt ankommende Nachrichten eines Kanals im lokalen Verlauf ab (nur wenn es
- * ein DM-Kanal ist). Gibt zurück, wie viele Sätze abgelegt wurden — der
- * Rückgabewert ist reine Diagnose, kein Aufrufer wertet ihn heute aus.
- * Wirft nie: siehe Kommentar oben.
- */
-export function verlaufSpeichern(kanalId: string, nachrichten: unknown[]): Promise<number> {
-  if (!istDmKanal(kanalId)) return Promise.resolve(0);
-  const saetze = [];
+/** Baut die zu schreibenden Saetze — geteilte Rechnung von
+ *  `verlaufSpeichern`/`verlaufSpeichernPflicht`. Kein expliziter Rueckgabetyp:
+ *  `Satz` (aus `satz.ts`) ist absichtlich nicht exportiert (importfrei-Pflicht
+ *  dort), die Inferenz aus `zuSatz` traegt hier genauso. */
+function baueSaetze(kanalId: string, nachrichten: unknown[]) {
+  const saetze: NonNullable<ReturnType<typeof zuSatz>>[] = [];
   for (const nachricht of nachrichten) {
     const satz = zuSatz(kanalId, nachricht);
     if (satz) saetze.push(satz);
   }
+  return saetze;
+}
+
+/**
+ * Legt ankommende Nachrichten eines Kanals im lokalen Verlauf ab (nur wenn es
+ * ein DM-Kanal ist). Gibt zurück, wie viele Sätze abgelegt wurden — der
+ * Rückgabewert ist reine Diagnose, kein Aufrufer wertet ihn heute aus.
+ * Wirft nie: siehe Kommentar oben. Fuer den C1/C2-Lesepfad (der Server hat
+ * ohnehin eine eigene Kopie) — der Krypto-Pfad braucht `verlaufSpeichernPflicht`.
+ */
+export function verlaufSpeichern(kanalId: string, nachrichten: unknown[]): Promise<number> {
+  if (!istDmKanal(kanalId)) return Promise.resolve(0);
+  const saetze = baueSaetze(kanalId, nachrichten);
   if (saetze.length === 0) return Promise.resolve(0);
   return verlaufPutSaetze(saetze)
     .then(() => saetze.length)
@@ -46,6 +68,23 @@ export function verlaufSpeichern(kanalId: string, nachrichten: unknown[]): Promi
       verlaufZustand.melde(err);
       return 0;
     });
+}
+
+/**
+ * Wie `verlaufSpeichern`, aber fuer Aufrufer, denen der lokale Speicher die
+ * EINZIGE Kopie einer Nachricht ist (`krypto/senden.ts`, `krypto/empfangen.ts`)
+ * — wirft bei einem Fehlschlag, statt ihn zu verschlucken (s. Modulkopf). Ein
+ * Aufrufer MUSS reagieren: entweder die Quittung/den Abschluss zurückhalten,
+ * oder den Fehler an den Nutzer weitergeben.
+ */
+export function verlaufSpeichernPflicht(
+  kanalId: string,
+  nachrichten: unknown[]
+): Promise<number> {
+  if (!istDmKanal(kanalId)) return Promise.resolve(0);
+  const saetze = baueSaetze(kanalId, nachrichten);
+  if (saetze.length === 0) return Promise.resolve(0);
+  return verlaufPutSaetze(saetze).then(() => saetze.length);
 }
 
 /**

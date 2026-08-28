@@ -33,6 +33,16 @@
  * Ein voruebergehender Fehler waere sonst ein endgueltiger Verlust; die
  * serverseitige Frist raeumt sie irgendwann auf, wenn sie wirklich nie zu
  * oeffnen ist (s. Plan, „was dieser Plan NICHT loest").
+ *
+ * **Ebenso NICHT quittiert (Bughunt 2026-08-28, FIX 1): eine Zustellung, die
+ * zwar entschluesselt, aber lokal NICHT abgelegt werden konnte.** Die alte
+ * Fassung quittierte unbedingt, sobald etwas entschluesselt war — ein
+ * fehlgeschlagenes Schreiben war dann endgueltig: die Quittung hatte den
+ * Server-Umschlag schon geloescht, und die Olm-Sitzung war laengst ueber die
+ * Nachricht hinaus weitergedreht. Jetzt wird je Kanal erst nach einer
+ * ERFOLGREICHEN Ablage quittiert (`verlaufSpeichernPflicht`); ein
+ * Fehlschlag laesst nur die Zustellungen DIESES Kanals unquittiert, der
+ * naechste Weckruf versucht sie erneut.
  */
 import type { Message } from '../api/types';
 import type { Identitaet } from '../../../../krypto/pulse-krypto/pkg/pulse_krypto.js';
@@ -40,7 +50,8 @@ import { Umschlag } from '../../../../krypto/pulse-krypto/pkg/pulse_krypto.js';
 import { certStore } from '../identity/cert.svelte';
 import { loadKeypair } from '../identity/keypair.svelte';
 import { directMessages } from '../stores/directMessages.svelte';
-import { verlaufSpeichern } from '../verlauf';
+import { verlaufSpeichernPflicht } from '../verlauf';
+import { verlaufZustand } from '../verlauf/zustand.svelte';
 import { postfachApi, type PostfachZustellung } from '../api/postfach';
 import { kryptoAccountLaden } from './account.svelte';
 import {
@@ -52,6 +63,7 @@ import {
 import { baueNutzlast } from './nutzlast';
 import { signiereNutzlast } from './nachweis';
 import { absenderErmitteln } from './absenderErmitteln';
+import { quittierbareIds, type KanalGruppe } from './quittierbareIds';
 
 /** Die Nachricht einer erfolgreich geoeffneten Zustellung — `null`, wenn der
  *  Absender nicht ermittelbar ist: der Server liefert keinen
@@ -125,24 +137,29 @@ async function postfachZyklus(): Promise<Message[]> {
 
   const ident = await kryptoAccountLaden();
   const geoeffnet: Message[] = [];
-  const quittierbar: string[] = [];
-  // `verlaufSpeichern` nimmt einen Kanal je Aufruf — gleich beim Oeffnen nach
-  // Kanal gruppieren, eine Abholung kann mehrere Gespraeche mitbringen.
-  const nachKanal = new Map<string, Message[]>();
+  // `verlaufSpeichernPflicht` nimmt einen Kanal je Aufruf — gleich beim
+  // Oeffnen nach Kanal gruppieren, eine Abholung kann mehrere Gespraeche
+  // mitbringen.
+  const nachKanal = new Map<string, KanalGruppe>();
 
   for (const z of zustellungen) {
     const nachricht = await zustellungOeffnen(ident, z);
     if (!nachricht) continue;
     geoeffnet.push(nachricht);
-    quittierbar.push(z.id);
-    const liste = nachKanal.get(nachricht.channel_id);
-    if (liste) liste.push(nachricht);
-    else nachKanal.set(nachricht.channel_id, [nachricht]);
+    const gruppe = nachKanal.get(nachricht.channel_id);
+    if (gruppe) {
+      gruppe.nachrichten.push(nachricht);
+      gruppe.ids.push(z.id);
+    } else {
+      nachKanal.set(nachricht.channel_id, { nachrichten: [nachricht], ids: [z.id] });
+    }
   }
 
-  for (const [kanalId, liste] of nachKanal) {
-    await verlaufSpeichern(kanalId, liste);
-  }
+  const quittierbar = await quittierbareIds(
+    nachKanal,
+    (kanalId, nachrichten) => verlaufSpeichernPflicht(kanalId, nachrichten as Message[]),
+    (err) => verlaufZustand.melde(err)
+  );
 
   if (quittierbar.length > 0) {
     // ERST JETZT quittieren, s. Modulkopf.
