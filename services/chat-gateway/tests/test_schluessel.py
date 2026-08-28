@@ -249,6 +249,46 @@ async def test_erneutes_veroeffentlichen_ersetzt_statt_zu_haeufen(
         assert zeilen[0].curve25519 == "zweite-runde"
 
 
+@pytest.mark.asyncio
+async def test_rueckfallschluessel_wird_mit_veroeffentlicht_und_gespeichert(
+    client, app, session_factory, cloud_mode, access_token
+):
+    """Der Lueckenschluss dieses PRs: ein Geraet, das seinen
+    Rueckfallschluessel mitschickt, bekommt ihn auch gespeichert — und die
+    HAUPT-Signatur (kein separates ``rueckfall_signatur``-Feld mehr) deckt
+    ihn ab, weil er als drittes Stueck Teil derselben Nutzlast ist.
+    """
+    from dcc_chat_gateway.models import DeviceKeyBundle
+    from sqlalchemy import select
+
+    token, uid = access_token
+    await _seed_jwks(app)
+    priv, pubkey = _make_device()
+    cert = _make_cert(user_id=str(uid), device_pubkey=pubkey)
+    nutzlast = baue_nutzlast("buendel", "curve-pub", "rueckfall-pub")
+    sig = _sign(priv, nutzlast)
+
+    r = await client.put(
+        "/keys/bundle",
+        json={
+            "cert": cert,
+            "signatur": sig,
+            "curve25519": "curve-pub",
+            "rueckfallschluessel": "rueckfall-pub",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 204, r.text
+
+    async with session_factory() as s:
+        zeile = (
+            await s.execute(
+                select(DeviceKeyBundle).where(DeviceKeyBundle.device_pubkey == pubkey)
+            )
+        ).scalar_one()
+        assert zeile.rueckfallschluessel == "rueckfall-pub"
+
+
 # ---------------------------------------------------------------------------
 # Task 3 — Abholen: einmal ist einmal
 # ---------------------------------------------------------------------------

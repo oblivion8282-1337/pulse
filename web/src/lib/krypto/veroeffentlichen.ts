@@ -1,11 +1,13 @@
 /**
- * Veroeffentlicht das Schluessel-Buendel dieses Geraets und fuellt den
- * Einmalschluessel-Vorrat auf, wenn er zur Neige geht (E2E-DM Etappe B2).
+ * Veroeffentlicht das Schluessel-Buendel dieses Geraets, sorgt fuer einen
+ * veroeffentlichten Rueckfallschluessel und fuellt den Einmalschluessel-Vorrat
+ * auf, wenn er zur Neige geht (E2E-DM Etappe B2, Rueckfallschluessel
+ * nachgereicht — s. `docs/superpowers/specs/2026-08-28-e2e-dm-design.md` §2).
  *
- * Rueckfallschluessel bleiben ausserhalb dieser Etappe: das Buendel traegt
- * das Feld, aber niemand befuellt es hier — der Server behandelt ein
- * fehlendes Feld korrekt (kein Rueckfallschluessel angeboten). Das Nachliefern
- * dieser Etappe deckt nur den Einmalschluessel-Vorrat ab.
+ * Ohne veroeffentlichten Rueckfallschluessel wird ein Geraet unerreichbar,
+ * sobald sein Einmalschluessel-Vorrat erschoepft ist — `POST /keys/claim`
+ * liefert dann fuer dieses Geraet gar keinen Schluessel mehr, und eine neue
+ * Sitzung laesst sich nicht mehr aufbauen.
  *
  * Best-effort ueberall: fehlt Geraeteschluessel oder Cert (noch nicht
  * angemeldet, Issue-Flow zuvor fehlgeschlagen), passiert nichts — die
@@ -17,7 +19,11 @@ import type { IdentityCert } from '../identity/cert.svelte';
 import { loadKeypair, signChallenge } from '../identity/keypair.svelte';
 import type { StoredKeypair } from '../identity/keypair.svelte';
 import { keysApi } from '../api/keys';
-import { kryptoAccountLaden, kryptoAccountSichern } from './account.svelte';
+import {
+  kryptoAccountLaden,
+  kryptoAccountSichern,
+  rueckfallschluesselSicherstellen
+} from './account.svelte';
 import { baueNutzlast } from './nutzlast';
 
 /** Unter diesem Vorrat wird nachgefuellt (s. `ONE_TIME_KEY_CAP = 100` im
@@ -49,13 +55,15 @@ export async function veroeffentlicheSchluessel(): Promise<void> {
   if (!keypair || !cert) return;
 
   const ident = await kryptoAccountLaden();
+  const rueckfallschluessel = await rueckfallschluesselSicherstellen(ident);
 
-  const buendelNutzlast = baueNutzlast('buendel', ident.curve25519(), '');
+  const buendelNutzlast = baueNutzlast('buendel', ident.curve25519(), rueckfallschluessel);
   const buendelSignatur = await signiereNutzlast(keypair, buendelNutzlast);
   await keysApi.publishBundle({
     cert: cert.raw,
     signatur: buendelSignatur,
-    curve25519: ident.curve25519()
+    curve25519: ident.curve25519(),
+    rueckfallschluessel
   });
 
   await nachfuellenWennNoetig(ident, keypair, cert);

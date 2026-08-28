@@ -57,8 +57,20 @@ impl Identitaet {
     /// Der Rueckfallschluessel greift, wenn der Vorrat an Einmalschluesseln
     /// leer ist — sonst koennte niemand mehr an ein laenger ausgeschaltetes
     /// Geraet schreiben.
+    ///
+    /// **Falle, gegen die diese Funktion bewusst gebaut ist:** vodozemacs
+    /// `Account::generate_fallback_key()` gibt den Rueckgabewert des
+    /// *vorherigen* Rueckfallschluessels zurueck (nur fuer Logging gedacht),
+    /// nicht den gerade neu erzeugten — der ist ausschliesslich ueber
+    /// `Account::fallback_key()` erreichbar, solange er nicht als
+    /// veroeffentlicht markiert wurde. Ein direktes Durchreichen von
+    /// `generate_fallback_key()`s Rueckgabewert wuerde also entweder den alten
+    /// Schluessel liefern oder (beim allerersten Aufruf, wenn es noch keinen
+    /// vorherigen gibt) `None` — in beiden Faellen den falschen bzw. gar
+    /// keinen Schluessel zum Veroeffentlichen.
     pub fn rueckfallschluessel_erzeugen(&mut self) -> Option<String> {
-        self.account.generate_fallback_key().map(|k| k.to_base64())
+        self.account.generate_fallback_key();
+        self.account.fallback_key().into_values().next().map(|k| k.to_base64())
     }
 
     // `einfrieren` gibt hier `Result` zurueck, obwohl `encrypt` nicht
@@ -161,5 +173,41 @@ mod tests {
         assert_eq!(ich.offene_einmalschluessel().len(), 3);
         ich.als_veroeffentlicht_markieren();
         assert!(ich.offene_einmalschluessel().is_empty());
+    }
+
+    #[test]
+    fn rueckfallschluessel_erzeugen_liefert_den_neuen_nicht_den_alten() {
+        // Regressionstest fuer die Falle im Doc-Kommentar oben: ein naives
+        // `generate_fallback_key().map(...)` haette hier `None` geliefert
+        // (kein vorheriger Rueckfallschluessel existiert beim ersten Aufruf).
+        let mut ich = Identitaet::neu();
+        let erster = ich.rueckfallschluessel_erzeugen();
+        assert!(erster.is_some(), "erster Aufruf muss einen Schluessel liefern, nicht None");
+
+        // Ein zweiter Aufruf erzeugt einen ANDEREN Schluessel (echte Rotation,
+        // kein zufaelliger Treffer auf denselben Wert).
+        let zweiter = ich.rueckfallschluessel_erzeugen();
+        assert!(zweiter.is_some());
+        assert_ne!(erster, zweiter);
+    }
+
+    #[test]
+    fn rueckfallschluessel_ueberlebt_das_einfrieren() {
+        // Derselbe Grund wie bei den Einmalschluesseln: ohne korrektes
+        // Pickle-Roundtrip waere der Rueckfallschluessel nach einem
+        // Neustart weg, ohne dass es irgendwo auffiele.
+        let schluessel = [9u8; 32];
+        let mut ich = Identitaet::neu();
+        let erzeugt = ich.rueckfallschluessel_erzeugen().expect("rueckfallschluessel");
+
+        let gefroren = ich.einfrieren(&schluessel).expect("einfrieren");
+        let wieder = Identitaet::auftauen(&gefroren, &schluessel).expect("auftauen");
+
+        assert_eq!(wieder.schluessel().curve25519, ich.schluessel().curve25519);
+        // `fallback_key()` liefert den Schluessel nur, solange er nicht als
+        // veroeffentlicht markiert ist — direkt nach dem Auftauen gilt das noch.
+        let wieder_key =
+            wieder.account.fallback_key().into_values().next().map(|k| k.to_base64());
+        assert_eq!(wieder_key, Some(erzeugt));
     }
 }

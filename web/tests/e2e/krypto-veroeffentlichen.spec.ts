@@ -21,6 +21,11 @@ const ALICE = {
   email: `alice_krypto_${ts}@dcc-test.example.com`,
   password: 'sup3r-secret-pass'
 };
+const BOB = {
+  username: `bob_krypto_${ts}`,
+  email: `bob_krypto_${ts}@dcc-test.example.com`,
+  password: 'sup3r-secret-pass'
+};
 
 async function register(page: Page, u: { username: string; email: string; password: string }) {
   await page.goto('/register');
@@ -71,10 +76,14 @@ async function devicePubkey(page: Page): Promise<string> {
   throw new Error('device_pubkey nie in pulse-identity aufgetaucht — Issue-Flow lief nicht durch');
 }
 
-async function keysClaimSelf(
-  page: Page,
-  userId: string
-): Promise<Array<{ device_pubkey: string; curve25519: string; einmalschluessel: string | null }>> {
+interface GeraeteSchluessel {
+  device_pubkey: string;
+  curve25519: string;
+  einmalschluessel: string | null;
+  rueckfallschluessel: string | null;
+}
+
+async function keysClaimSelf(page: Page, userId: string): Promise<GeraeteSchluessel[]> {
   const antwort = await page.evaluate(async (uid) => {
     const token = localStorage.getItem('dcc.tokens.access');
     const r = await fetch('/api/chat/keys/claim', {
@@ -87,10 +96,7 @@ async function keysClaimSelf(
   if (antwort.status !== 200) {
     throw new Error(`keys/claim fehlgeschlagen ${antwort.status}: ${antwort.body}`);
   }
-  const geparst = JSON.parse(antwort.body) as Record<
-    string,
-    Array<{ device_pubkey: string; curve25519: string; einmalschluessel: string | null }>
-  >;
+  const geparst = JSON.parse(antwort.body) as Record<string, GeraeteSchluessel[]>;
   return geparst[userId] ?? [];
 }
 
@@ -137,7 +143,55 @@ test('Anmelden veroeffentlicht Buendel und Einmalschluessel dieses Geraets', asy
   const eigenes = buendel.find((b) => b.device_pubkey === pubkey);
   expect(eigenes).toBeTruthy();
   // Genau EINES der beiden Felder ist gesetzt (Server-Invariante,
-  // `GeraeteSchluesselOut`-Docstring) — ohne Rueckfallschluessel in dieser
-  // Etappe muss es der Einmalschluessel sein.
+  // `GeraeteSchluesselOut`-Docstring): solange der Einmalschluessel-Vorrat
+  // nicht leer ist, liefert der Server einen Einmalschluessel, keinen
+  // Rueckfallschluessel.
   expect(eigenes!.einmalschluessel).not.toBeNull();
+});
+
+test('Rueckfallschluessel erscheint, sobald der Einmalschluessel-Vorrat erschoepft ist', async ({
+  page
+}) => {
+  // Der eigentliche Lueckenschluss dieses PRs (docs/superpowers/specs/
+  // 2026-08-28-e2e-dm-design.md §2): vorher blieb `rueckfallschluessel` im
+  // Buendel-Rumpf immer leer, und ein Geraet mit erschoepftem Vorrat wurde
+  // unerreichbar — `POST /keys/claim` haette fuer dieses Geraet gar nichts
+  // mehr geliefert. Dieser Test zieht den Vorrat wirklich leer (statt nur
+  // die Byte-Nutzlast zu pruefen, s. `krypto-nutzlast.test.ts`) und
+  // verlangt, dass an genau dieser Stelle ein Rueckfallschluessel steht.
+  await page.route('**/changelog.json', (route) => route.fulfill({ json: { entries: [] } }));
+
+  await register(page, BOB);
+  const userId = await currentUserId(page);
+  const pubkey = await devicePubkey(page);
+
+  // Erst abwarten, bis das Buendel wirklich veroeffentlicht ist (wie im
+  // ersten Test) — sonst waere eine leere Antwort unten nicht von "noch
+  // nicht veroeffentlicht" zu unterscheiden.
+  await expect
+    .poll(
+      async () => {
+        const buendel = await keysClaimSelf(page, userId);
+        return buendel.find((b) => b.device_pubkey === pubkey) ?? null;
+      },
+      { timeout: 15_000 }
+    )
+    .toMatchObject({ device_pubkey: pubkey, curve25519: expect.any(String) });
+
+  // Vorrat vollstaendig leerziehen — jeder Claim gegen das eigene Geraet
+  // (`_darf_schluessel_holen` erlaubt das eigene Konto immer) verbraucht
+  // server-seitig GENAU einen Einmalschluessel und liefert ihn in derselben
+  // Antwort. NACHFUELL_BATCH ist 30, die Obergrenze hier ist bewusst
+  // grosszuegiger, damit der Test nicht an einer internen Zahl haengt, die
+  // sich unabhaengig von diesem PR aendern kann.
+  for (let versuch = 0; versuch < 200; versuch += 1) {
+    const buendel = await keysClaimSelf(page, userId);
+    const eigenes = buendel.find((b) => b.device_pubkey === pubkey);
+    expect(eigenes).toBeTruthy();
+    if (eigenes!.einmalschluessel === null) {
+      expect(eigenes!.rueckfallschluessel).toEqual(expect.any(String));
+      return;
+    }
+  }
+  throw new Error('Einmalschluessel-Vorrat nach 200 Abholungen immer noch nicht leer');
 });
