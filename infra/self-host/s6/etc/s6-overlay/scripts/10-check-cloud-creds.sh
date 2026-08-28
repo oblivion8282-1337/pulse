@@ -44,7 +44,7 @@ first — an anonymous pull is rejected with 401. Example:
 instance_id, owner_id, client_id and client_secret all come from approval on
 howispulse.com — copy the ready-to-use .env from "Meine Instanzen" (Download)
 and fill in the client_secret you saved at approval time.
-(see docs/SELF_HOST.md → "Manuelle Installation → Deine Werte bereitlegen").
+(see https://howispulse.com/self-host/guide → step 1, "Download the .env").
 EOF
     exit 1
 fi

@@ -771,7 +771,8 @@ container_laeuft_stabil() {
 # bei einem langsam sterbenden Container bleibt er danach den ganzen
 # Fünf-Minuten-Takt auf 0, nicht nur kurz) — und genau das rät die eigene
 # Diagnose bei einem abgelaufenen oder selbstsignierten Zertifikat
-# (dcc_auth/diagnose_texte.py, s. auch SELF_HOST.md-Troubleshooting). Hing
+# (dcc_auth/diagnose_texte.py, s. auch die Anleitung unter
+# docs/self-host-guide.html, Abschnitt "When something is wrong"). Hing
 # $CONTAINER im Fünf-Minuten-Fenster im Absturzkarussell und wurde dann per
 # 'docker restart' neu gestartet, gilt er hier fälschlich als dauerhaft
 # erfolgreich und verliert seinen Rückweg. Kein Umbau hier: die richtige

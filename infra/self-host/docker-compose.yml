@@ -1,42 +1,48 @@
-# Pulse Self-Host — Docker Compose (manueller Pfad, Standardfall: Auto-TLS).
+# Pulse self-host — Docker Compose (manual path, default case: auto-TLS).
 #
-#   1. Fertige Konfiguration in der App holen: Einstellungen → Self-Host →
-#      Meine Instanzen → "Server einrichten" → "Manuelle Installation" →
-#      ".env herunterladen". Sie ist komplett ausgefüllt — Instanz-ID,
-#      Client-ID und Secret vergibt die Cloud bei der Freigabe, das Secret
-#      zeigt sie genau einmal.
+#   1. Get the ready-made config in the app: Settings → Your own server →
+#      My Instances → "Set up server" → "Manual installation" → "Download .env".
+#      It is filled in completely — the Cloud assigns instance ID, client ID and
+#      secret on approval, and shows the secret exactly once.
 #
-#   2. Die Datei hierher legen und in .env umbenennen:
+#   2. Put the file here and rename it to .env:
 #
 #        mv ~/Downloads/pulse-instance-*.env .env
 #
-#   3. docker compose up -d
+#   3. Sign in to the registry (otherwise: "pull access denied"):
 #
-#   Optionale Schalter (eigenes Zertifikat, PULSE_PUBLIC_IP hinter NAT,
-#   Sicherungs-Takt, Log-Stufe) stehen in der kommentierten Referenz
-#   https://howispulse.com/self-host/env.example — zum Nachschlagen, nicht
-#   zum Ausfüllen.
+#        grep -oP '^PULSE_CLOUD_CLIENT_SECRET=\K.*' .env \
+#          | docker login registry.howispulse.com \
+#              -u "$(grep -oP '^PULSE_CLOUD_CLIENT_ID=\K.*' .env)" --password-stdin
 #
-# Voraussetzung für Auto-TLS: Port 80 + 443 sind öffentlich erreichbar und der
-# DNS-A-Record von PULSE_HOSTNAME zeigt auf diese Maschine — der eingebettete
-# Caddy holt das Let's-Encrypt-Zertifikat dann selbst.
+#   4. docker compose up -d
 #
-# Läuft auf der Maschine SCHON ein Reverse-Proxy auf 80/443 (nginx/Traefik/
-# Caddy/NPM)? Dann stattdessen docker-compose.behind-proxy.yml nehmen.
+#   Optional switches (own certificate, PULSE_PUBLIC_IP behind NAT, backup
+#   interval, log level) are in the commented reference at
+#   https://howispulse.com/self-host/env.example — for looking up, not for
+#   filling in.
 #
-# Updates — bewusst KEIN Auto-Updater-Container in dieser Datei (ein Updater
-# mit gemountetem Docker-Socket ist root-äquivalent auf dem Host):
+# Requirement for auto-TLS: ports 80 + 443 are publicly reachable and the DNS A
+# record for PULSE_HOSTNAME points at this machine — the embedded Caddy then
+# fetches the Let's Encrypt certificate itself.
+#
+# Is a reverse proxy ALREADY running on 80/443 (nginx/Traefik/Caddy/NPM)? Then
+# use docker-compose.behind-proxy.yml instead.
+#
+# Updates — deliberately NO auto-updater container in this file (an updater with
+# a mounted Docker socket is root-equivalent on the host):
 #   docker compose pull && docker compose up -d
-# manuell oder als Host-Cron/Timer. Der One-Command-Installer (docs/SELF_HOST.md)
-# richtet so einen Host-systemd-Timer automatisch ein — wer den manuellen
-# Compose-Pfad wählt, verwaltet Updates selbst.
+# manually or as a host cron/timer. The one-command installer (see the guide at
+# https://howispulse.com/self-host/guide)
+# sets up such a host systemd timer automatically — if you take the manual
+# Compose path, you manage updates yourself.
 
 services:
   pulse:
-    # Self-Host-Registry (per-Instance-Credentials). Vor dem ersten
-    # `docker compose pull` einmalig einloggen:
-    #   docker login registry.howispulse.com -u <client_id> -p <client_secret>
-    # (Credentials aus dem Bootstrap- bzw. Env-Download).
+    # Self-host registry (per-instance credentials). Sign in once before the
+    # first `docker compose pull` — see step 3 in the header above. Use
+    # --password-stdin, not -p: the latter puts the secret into `ps aux` and
+    # your shell history.
     image: registry.howispulse.com/pulse-allinone:stable
     container_name: pulse
     restart: unless-stopped

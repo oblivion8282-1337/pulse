@@ -41,8 +41,8 @@ if [ -n "$PUBLIC_IP" ]; then
     EXTERNAL_IP_LINE="external-ip=${PUBLIC_IP}"
     echo "[04-init-coturn] external-ip=${PUBLIC_IP}"
 else
-    echo "[04-init-coturn] WARN: keine öffentliche IP ermittelt — setze PULSE_PUBLIC_IP," \
-         "sonst ist das TURN-Relay hinter NAT unbrauchbar."
+    echo "[04-init-coturn] WARN: could not determine a public IP — set PULSE_PUBLIC_IP," \
+         "otherwise the TURN relay is useless behind NAT."
 fi
 
 cat > /etc/coturn/turnserver.conf <<EOF

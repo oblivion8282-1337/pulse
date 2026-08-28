@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-28.4",
+      "date": "2026-08-28",
+      "style": "Sachlich",
+      "title": "Server einrichten — aufgeräumt",
+      "intro": "Zwei Kleinigkeiten in der Server-Einrichtung.",
+      "items": [
+        "Der Block „Mit einem KI-Assistenten installieren?“ ist entfallen. Er täuschte einen dritten Weg vor, wo es nur zwei gibt — den schnellen Befehl und die manuelle Installation.",
+        "Der Link zur ausführlichen Anleitung heißt jetzt „Installationsanleitung“ und führt auf eine neu gestaltete, übersichtlichere Seite statt auf reinen Text."
+      ]
+    },
+    {
       "id": "2026-08-28.3",
       "date": "2026-08-28",
       "style": "Sachlich",
