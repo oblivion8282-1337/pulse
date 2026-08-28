@@ -25,9 +25,7 @@ import { setSelfHostReauthHandler as setGatewayReauth } from '$lib/ws/gateway-co
 import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
 import { serversStore } from './servers.svelte';
 import { sessionTokens } from './session_tokens.svelte';
-import { certLogin, CertLoginError } from './cert-login';
 import { holeTicket, loeseTicketEin, TicketFehler } from './server-ticket';
-import { waehleAnmeldeweg } from '$lib/servers/anmeldeweg';
 import { instancesApi } from './instances';
 import type { ServerEntry } from './servers.svelte';
 import { merkeGrund, vergissGrund } from './anmelde-fehler';
@@ -105,6 +103,12 @@ async function ueberTicket(serverId: string, server: ServerEntry): Promise<strin
     if (err instanceof TicketFehler) {
       merkeGrund(serverId, err.code);
       console.warn(`[self-host-reauth] ${serverId}: ${err.code}`);
+      // Auf dieser Instanz gebannt → die Cloud-Mitgliedschaft wegräumen, sonst
+      // zeigt der Server bei `GET /me/instances` weiter auf allen anderen
+      // Geräten. Best-effort.
+      if (err.code === 'instance banned' && server.instance_id) {
+        void instancesApi.leaveInstanceMembership(server.instance_id).catch(() => undefined);
+      }
     } else {
       console.warn(`[self-host-reauth] ${serverId}: unexpected`, err);
     }
@@ -120,54 +124,10 @@ async function reauth(serverId: string): Promise<boolean> {
   // abgelaufenen Bearer verwendet während die Re-Auth läuft.
   sessionTokens.clear(serverId);
 
-  // Weiche nach FÄHIGKEIT, nicht nach Version: Die Web-App kommt von der Cloud
-  // und ist für alle sofort neu, ein Self-Host aktualisiert sich wann er will.
-  // Kennt dieser Server den Ticket-Weg noch nicht, bleibt es beim Zertifikat.
-  const faehigkeiten = gatewayPool.peek(serverId)?.helloMeta?.capabilities ?? null;
-  if (waehleAnmeldeweg(faehigkeiten) === 'ticket') {
-    const token = await ueberTicket(serverId, server);
-    if (token) {
-      await nachAnmeldung(serverId, server, server.instance_id ?? null, token);
-      return true;
-    }
-    // Kein Rückfall auf den Zertifikats-Weg: Sagt der Server, dass er den
-    // Ticket-Weg kann, und scheitert er trotzdem, hat das einen Grund — und der
-    // steht bereits in der Konsole. Ein stiller Rückfall verschleierte ihn und
-    // liesse den Nutzer über ein anderes Verfahren hereinkommen, ohne es zu
-    // wissen. Dieselbe Lehre wie beim Linux-Sidecar (s. CLAUDE.md).
-    return false;
-  }
-
-  try {
-    const result = await certLogin(server.hostname);
-    sessionTokens.set(serverId, result.session_token, Date.now() + result.expires_in * 1000);
-    // pairwise_sub kann sich nicht ändern (deterministisch) — nur setzen,
-    // falls der Server-Eintrag noch keine hat (Backfill aus früheren Builds).
-    if (!server.pairwise_sub) {
-      serversStore.update(serverId, { pairwise_sub: result.pairwise_sub });
-    }
-    await nachAnmeldung(
-      serverId,
-      server,
-      result.instance_id ?? server.instance_id ?? null,
-      result.session_token,
-    );
-    return true;
-  } catch (err) {
-    if (err instanceof CertLoginError) {
-      merkeGrund(serverId, err.reason);
-      console.warn(`[self-host-reauth] ${serverId}: ${err.reason}`);
-      // Auf dieser Instanz gebannt → die Cloud-Membership wegräumen, sonst
-      // zeigt der Server bei ``GET /me/instances`` weiter auf allen anderen
-      // Geräten. Best-effort.
-      if (err.reason === 'instance-banned' && server.instance_id) {
-        void instancesApi.leaveInstanceMembership(server.instance_id).catch(() => undefined);
-      }
-    } else {
-      console.warn(`[self-host-reauth] ${serverId}: unexpected`, err);
-    }
-    return false;
-  }
+  const token = await ueberTicket(serverId, server);
+  if (!token) return false;
+  await nachAnmeldung(serverId, server, server.instance_id ?? null, token);
+  return true;
 }
 
 function reauthOnce(serverId: string): Promise<boolean> {

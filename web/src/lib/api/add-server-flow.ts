@@ -7,7 +7,7 @@
  *   3. (optional) Invite-Code akzeptieren gegen den neuen Server
  *   4. Disclaimer-Flags + activeServer.set werden vom Caller gemacht
  *
- * Bei Cert-Login-Fail: ServerEntry wird wieder entfernt (Rollback).
+ * Bei Anmelde-Fehler: ServerEntry wird wieder entfernt (Rollback).
  * Bei Invite-Fail: ServerEntry bleibt, der Fehler wird durchgereicht — der
  *   User hat den Server hinzugefügt, der Invite hat nur nicht geklappt.
  *
@@ -20,7 +20,8 @@ import { instancesApi } from './instances';
 import { persistDisclaimerAck } from './disclaimer-ack';
 import { serversStore, type ServerEntry } from './servers.svelte';
 import { sessionTokens } from './session_tokens.svelte';
-import { certLogin, CertLoginError, type CertLoginReason } from './cert-login';
+import { holeServerInfo, holeTicket, loeseTicketEin, TicketFehler } from './server-ticket';
+import { MELDUNGSSCHLUESSEL, istAblehnungscode } from './anmelde-fehler-codes';
 import type { AcceptInviteResult, InvitePreview } from './types';
 
 type AddServerSuccess = {
@@ -90,9 +91,26 @@ export async function addServerWithCertLogin(args: {
 }): Promise<AddServerSuccess> {
   const entry = serversStore.add(args.hostname, args.label, args.instanceId);
 
-  let result;
+  // Erstkontakt über das Ticket. Der Server nennt seine Kennung öffentlich
+  // (`/.well-known/pulse-server-info`) — ohne diesen Schritt wüsste die Cloud
+  // nicht, für WEN sie das Ticket ausstellen soll. Die Invite- und
+  // Public-Join-Pfade kennen die Kennung beim `add()` nämlich nicht; nur der
+  // AddServerDialog hat sie aus dem Pre-Check.
+  //
+  // Die Auskunft ist unbeglaubigt und muss es nicht sein: Ein Ticket mit
+  // falschem `aud` weist der Server selbst ab. Ein Host kann sich damit nicht
+  // die Identität eines anderen erschleichen.
+  let instanzId: string;
+  let sitzung;
   try {
-    result = await certLogin(args.hostname, args.communityGrantCode, args.publicJoinHandle);
+    const info = await holeServerInfo(args.hostname);
+    if (!info.instance_id) throw new TicketFehler('ticket_wrong_audience');
+    instanzId = info.instance_id;
+    const ticket = await holeTicket(instanzId);
+    sitzung = await loeseTicketEin(args.hostname, ticket, {
+      communityGrantCode: args.communityGrantCode,
+      publicJoinHandle: args.publicJoinHandle,
+    });
   } catch (err) {
     // Rollback — ServerEntry war provisional.
     try { serversStore.remove(entry.id); } catch { /* Cloud nie hier */ }
@@ -100,17 +118,13 @@ export async function addServerWithCertLogin(args: {
     throw err;
   }
 
-  sessionTokens.set(entry.id, result.session_token, Date.now() + result.expires_in * 1000);
+  sessionTokens.set(entry.id, sitzung.session_token, Date.now() + sitzung.expires_in * 1000);
   serversStore.update(entry.id, {
-    pairwise_sub: result.pairwise_sub,
-    // instance_id aus der Verify-Antwort nachziehen: die Invite-/Public-Join-
-    // Pfade übergeben beim add() keine (nur der AddServerDialog kennt sie aus
-    // dem Pre-Check). Ohne sie kann der Sweep gelöschter Instanzen
-    // (deleted-instance-sweep.ts) den Eintrag nicht matchen.
-    ...(entry.instance_id == null && result.instance_id
-      ? { instance_id: result.instance_id }
-      : {}),
+    // Ohne die Kennung kann der Sweep gelöschter Instanzen
+    // (deleted-instance-sweep.ts) den Eintrag nicht zuordnen.
+    ...(entry.instance_id == null ? { instance_id: instanzId } : {}),
   });
+  const result = { instance_id: instanzId };
 
   // Cloud-Membership eintragen, damit dieser Self-Host-Server auch im Browser /
   // auf anderen Geräten in der Server-Liste (``GET /me/instances``) auftaucht.
@@ -169,24 +183,23 @@ export function leaveInstanceOn(route: { serverId: string }): Promise<void> {
 // 250-Z.-Cap bleibt.
 // ---------------------------------------------------------------------------
 
-/** Fehlermeldung für einen CertLoginError.reason. */
-export function mapCertLoginReason(reason: CertLoginReason): string {
-  if (reason === 'no-cert' || reason === 'no-keypair')
-    return m.add_server_flow_no_cert();
-  if (reason === 'cert-invalid')
-    return m.add_server_flow_cert_invalid();
-  if (reason === 'challenge-expired') return m.add_server_flow_challenge_expired();
-  if (reason === 'signature-invalid')
-    return m.add_server_flow_signature_invalid();
-  if (reason === 'rate-limited') return m.add_server_flow_rate_limited();
-  // Getrennt halten (join_locked ≠ join_not_permitted): "gesperrt" ist ein
-  // Admin-Zustand des Servers, "verlangt Einladung" ist ein lösbarer Zustand —
-  // das Universal-Beitrittsfeld blendet dafür ein Code-Feld ein.
-  if (reason === 'join-closed') return m.add_server_flow_join_locked();
-  if (reason === 'join-requires-invite') return m.add_server_flow_join_requires_invite();
-  if (reason === 'instance-banned') return m.add_server_flow_instance_banned();
-  if (reason === 'network') return m.add_server_flow_network_error();
-  return m.add_server_flow_cert_login_failed();
+/**
+ * Fehlermeldung für einen `TicketFehler.code`.
+ *
+ * Die Texte stehen im gemeinsamen Katalog (`anmelde-fehler-codes.ts`), damit
+ * derselbe Grund überall denselben Satz und denselben Handgriff bekommt — im
+ * Hinzufügen-Dialog wie im laufenden Betrieb. Die Vorgängerfassung führte
+ * eigene Sätze und lief deshalb langsam auseinander.
+ *
+ * `join_not_permitted` bleibt bewusst von `join_locked` getrennt: „gesperrt" ist
+ * ein Admin-Zustand des Servers, „verlangt Einladung" ein lösbarer Zustand —
+ * das Beitrittsfeld blendet dafür ein Code-Feld ein.
+ */
+export function anmeldeFehlerText(code: string): string {
+  const katalog = m as unknown as Record<string, (() => string) | undefined>;
+  const schluessel = istAblehnungscode(code) ? MELDUNGSSCHLUESSEL[code] : null;
+  const fn = schluessel ? katalog[schluessel] : undefined;
+  return typeof fn === 'function' ? fn() : m.add_server_flow_cert_login_failed();
 }
 
 /** Markiert den Disclaimer als bestätigt: hostname-Flag lokal (Erstkontakt-

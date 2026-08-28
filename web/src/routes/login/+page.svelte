@@ -22,9 +22,7 @@
   import { m } from '$lib/paraglide/messages.js';
   import { cursorTrack } from '$lib/actions/cursor-track';
   import LoginMfaForm from '$lib/components/auth/LoginMfaForm.svelte';
-  import { runIssueFlow } from '$lib/identity/issue-flow';
   import { startProfileRefresh } from '$lib/identity/profile-refresh.svelte';
-  import { startCertRotation } from '$lib/identity/cert-rotation.svelte';
   import { isElectron } from '$lib/platform/runtime';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
 
@@ -100,23 +98,12 @@
   });
 
   async function completeLogin() {
-    // `await`: der Account-Switch-Cleanup in setUser muss VOR runIssueFlow
-    // abgeschlossen sein, sonst läse der Issue-Flow evtl. das Keypair eines
-    // Vorgängers (Account-Wechsel am selben Gerät ohne Sign-out).
     await auth.setUser(await me());
 
-    // Identity-Flow: Cert ausstellen + Profile-Statement holen. Fehler werden
-    // geschluckt (Cert-Features degradieren gracefully, Timer starten NICHT
-    // wenn der Issue-Flow selbst scheitert — Cert-Rotation retry't später).
-    try {
-      await runIssueFlow();
-      if (auth.isAuthenticated) {
-        void startProfileRefresh();
-        void startCertRotation();
-      }
-    } catch (err) {
-      console.warn('[identity] issue-flow fehlgeschlagen:', err);
-    }
+    // Profil-Auffrischung starten. Der Ausweis-Fluss, der hier früher lief, ist
+    // mit dem Gerätezertifikat entfallen: Es gibt kein lokales Schlüsselpaar
+    // mehr, das ein Account-Wechsel am selben Gerät verwechseln könnte.
+    if (auth.isAuthenticated) void startProfileRefresh();
 
     // Pending-Community-Adresse: nach dem Login beitreten (D-Flow Stufe 4).
     // Format: `?pendingAddress=<handle>` oder `?pendingAddress=<handle>&pendingHost=<fqdn>`

@@ -12,9 +12,7 @@
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';
   import LegalFooter from '$lib/components/LegalFooter.svelte';
-  import { runIssueFlow } from '$lib/identity/issue-flow';
   import { startProfileRefresh } from '$lib/identity/profile-refresh.svelte';
-  import { startCertRotation } from '$lib/identity/cert-rotation.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
   let username = $state('');
@@ -48,21 +46,11 @@
       // (Konsistenz mit dem Login-Pfad; bei frischer Registration ohnehin No-Op).
       await auth.setUser(await me());
 
-      // Identity-Flow: Cert + Profile-Statement ausstellen + Refresh-Timer
-      // starten. Fire-and-forget, weil das ``await`` die Navigation blockieren
-      // und in Playwright-Tests zu Race-Conditions mit dem Settings-Button
-      // führen würde. Bei frischer Registration existiert noch kein IDB-Keypair
-      // → runIssueFlow generiert sofort ein neues + issued das Cert.
-      void runIssueFlow()
-        .then(() => {
-          if (auth.isAuthenticated) {
-            void startProfileRefresh();
-            void startCertRotation();
-          }
-        })
-        .catch((err: unknown) => {
-          console.warn('[identity] issue-flow fehlgeschlagen:', err);
-        });
+      // Profil-Auffrischung starten. Der Ausweis-Fluss, der hier früher lief,
+      // ist mit dem Gerätezertifikat entfallen — es gibt nichts mehr
+      // auszustellen. Fire-and-forget, weil ein ``await`` die Navigation
+      // blockieren und in Playwright-Tests mit dem Settings-Knopf rennen würde.
+      if (auth.isAuthenticated) void startProfileRefresh();
 
       await goto('/app');
     } catch (err) {

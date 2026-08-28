@@ -24,7 +24,6 @@
   import PasskeysSection from './PasskeysSection.svelte';
   import SessionsSection from './SessionsSection.svelte';
   import DangerZoneSection from './DangerZoneSection.svelte';
-  import DeviceManagement from './DeviceManagement.svelte';
   import PublicComputerSafety from './PublicComputerSafety.svelte';
 
   let enableOpen = $state(false);
@@ -101,8 +100,6 @@
   <ChangePasswordSection />
 
   <PasskeysSection />
-
-  <DeviceManagement />
 
   <SessionsSection />
 

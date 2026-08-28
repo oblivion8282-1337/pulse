@@ -55,6 +55,7 @@ export async function holeTicket(instanceId: string): Promise<string> {
 export async function loeseTicketEin(
   serverHostname: string,
   ticket: string,
+  zugang: { communityGrantCode?: string; publicJoinHandle?: string } = {},
 ): Promise<SitzungAntwort> {
   let resp: Response;
   try {
@@ -63,7 +64,15 @@ export async function loeseTicketEin(
       mode: 'cors',
       credentials: 'omit',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ticket }),
+      body: JSON.stringify({
+        ticket,
+        // Ein Ticket beweist, WER jemand ist — nicht, dass er hier
+        // hereindarf. Wer noch kein Mitglied ist, legt hier seine Erlaubnis vor.
+        ...(zugang.communityGrantCode
+          ? { community_grant_code: zugang.communityGrantCode }
+          : {}),
+        ...(zugang.publicJoinHandle ? { public_join_handle: zugang.publicJoinHandle } : {}),
+      }),
     });
   } catch {
     // Ein Netzfehler ist ein eigener Grund und kein „ungültiges Ticket". Die
@@ -83,4 +92,45 @@ export async function loeseTicketEin(
   }
 
   return (await resp.json()) as SitzungAntwort;
+}
+
+/** Was ein Server öffentlich über sich sagt. */
+export type ServerInfo = {
+  server_version: string;
+  pulse_oidc_issuer: string;
+  instance_id: string | null;
+  capabilities: string[];
+};
+
+/**
+ * Fragt einen Server, wer er ist und was er kann — ohne Anmeldung.
+ *
+ * Das löst das Henne-Ei-Problem beim ERSTEN Besuch: Für ein Ticket braucht die
+ * Cloud die Instanz-Kennung, und die kannte der Klient bisher erst aus der
+ * Antwort des Anmelde-Vorgangs. Beim Beitritt über eine Einladung oder eine
+ * öffentliche Adresse hat er sie vorher gar nicht.
+ *
+ * Die Auskunft ist unbeglaubigt — sie sagt nur, wofür der Klient ein Ticket
+ * holen soll. Ob sie stimmt, entscheidet der Server selbst: Ein Ticket mit
+ * falschem `aud` weist er ab (`ticket_wrong_audience`). Ein Server kann sich
+ * hier also nicht die Identität eines anderen erschleichen.
+ */
+export async function holeServerInfo(serverHostname: string): Promise<ServerInfo> {
+  let resp: Response;
+  try {
+    resp = await fetch(`${serverHostname}/.well-known/pulse-server-info`, {
+      mode: 'cors',
+      credentials: 'omit',
+    });
+  } catch {
+    throw new TicketFehler('network');
+  }
+  if (!resp.ok) throw new TicketFehler('network', resp.status);
+  try {
+    return (await resp.json()) as ServerInfo;
+  } catch {
+    // 200 ohne JSON: der SPA-Rückfall liefert die Startseite, weil die Route
+    // im Proxy fehlt. Dieselbe Falle, die die Cloud-Poller schon erwischt hat.
+    throw new TicketFehler('network', resp.status);
+  }
 }
