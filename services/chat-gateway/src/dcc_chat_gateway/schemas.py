@@ -1171,10 +1171,15 @@ class BundleVeroeffentlichenRequest(BaseModel):
 
     cert: str
     #: Base64url(Ed25519-Unterschrift) ueber ``baue_nutzlast("buendel", …)``.
+    #: Deckt BEIDE Teile ab, ``curve25519`` und ``rueckfallschluessel`` — der
+    #: Rueckfallschluessel ist als drittes Stueck Teil derselben Nutzlast
+    #: (``baue_nutzlast("buendel", curve25519, rueckfallschluessel or "")``).
+    #: Eine zweite Signatur nur fuer den Rueckfallschluessel gab es bis
+    #: Migration 0068 (``rueckfall_signatur``) — sie wurde nirgends geprueft
+    #: und war damit reine Redundanz, kein zusaetzlicher Schutz.
     signatur: str
     curve25519: str
     rueckfallschluessel: str | None = None
-    rueckfall_signatur: str | None = None
 
 
 class EinmalschluesselHinzufuegenRequest(BaseModel):

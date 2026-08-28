@@ -25,7 +25,6 @@ export const keysApi = {
     signatur: string;
     curve25519: string;
     rueckfallschluessel?: string | null;
-    rueckfall_signatur?: string | null;
   }): Promise<void> {
     return request<void>('/keys/bundle', { method: 'PUT', body });
   },
