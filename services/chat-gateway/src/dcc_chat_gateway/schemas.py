@@ -1210,3 +1210,33 @@ class GeraeteSchluesselOut(BaseModel):
     signatur: str
     einmalschluessel: str | None = None
     rueckfallschluessel: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Postfach — Einliefern verschluesselter Umschlaege (Etappe D, E2E-DM)
+# ---------------------------------------------------------------------------
+
+
+class PostfachNutzlastIn(BaseModel):
+    """Ein Umschlag innerhalb von ``POST /postfach``.
+
+    ``empfaenger`` traegt die Geraete-Pubkeys, fuer die diese Nutzlast
+    verschluesselt wurde — bei einer DM meist eines, bei einer kuenftigen
+    Gruppe (Megolm) mehrere, weil dieselbe Nutzlast fuer alle gilt.
+    """
+
+    art: int
+    #: Base64 — dasselbe Format wie ``daten`` auf ``DmNutzlast``.
+    daten: str
+    empfaenger: list[str] = Field(min_length=1)
+
+
+class PostfachEinliefernRequest(BaseModel):
+    """Rumpf von ``POST /postfach``."""
+
+    channel_id: SnowflakeId
+    #: Wie ``BundleVeroeffentlichenRequest`` — Zertifikat + Unterschrift
+    #: weisen das einliefernde Geraet nach (``schluessel_nachweis.py``).
+    cert: str
+    signatur: str
+    nutzlasten: list[PostfachNutzlastIn] = Field(min_length=1)
