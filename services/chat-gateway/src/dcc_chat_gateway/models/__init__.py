@@ -59,6 +59,7 @@ from dcc_chat_gateway.models.plugin_activation import (
     InstancePluginAllowlist,
 )
 from dcc_chat_gateway.models.postfach import DmNutzlast, DmZustellung
+from dcc_chat_gateway.models.private_gruppen import PrivateGroupChannel, PrivateGroupMember
 from dcc_chat_gateway.models.roles import MemberRole, PermissionOverwrite, Role
 from dcc_chat_gateway.models.sounds import GuildSoundOverride
 from dcc_chat_gateway.models.user_preferences import UserPreference
@@ -111,6 +112,8 @@ __all__ = [
     "MessageMention",
     "MessageReaction",
     "PermissionOverwrite",
+    "PrivateGroupChannel",
+    "PrivateGroupMember",
     "Role",
     "SUBJECT_EVERYONE",
     "SUBJECT_ROLE",
