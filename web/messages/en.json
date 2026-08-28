@@ -2977,6 +2977,7 @@
   "chats_search_section_people": "People",
   "chats_search_section_messages": "Messages",
   "chats_search_section_channels": "Channels",
+  "chats_search_encrypted_hint": "Encrypted messages only show up on devices that received them.",
   "chats_compose": "New conversation",
   "chats_menu": "More options",
   "chats_new_chat_hint": "Tap a friend to open the conversation.",

@@ -2977,6 +2977,7 @@
   "chats_search_section_people": "Personen",
   "chats_search_section_messages": "Nachrichten",
   "chats_search_section_channels": "Kanäle",
+  "chats_search_encrypted_hint": "Verschlüsselte Nachrichten findest du nur auf Geräten, die sie empfangen haben.",
   "chats_compose": "Neues Gespräch",
   "chats_menu": "Mehr Optionen",
   "chats_new_chat_hint": "Tippe einen Freund an, um das Gespräch zu öffnen.",

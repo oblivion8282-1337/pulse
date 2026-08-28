@@ -96,7 +96,11 @@ export function postfachAbholenUndAnzeigen(istAboniert: (kanalId: string) => boo
           directMessages.upsertFromEncrypted({
             channel_id: nachricht.channel_id,
             message_id: nachricht.id,
-            otherUserId
+            otherUserId,
+            inhalt: nachricht.content,
+            autorId: nachricht.author_id,
+            erstelltAm: nachricht.created_at,
+            anhaenge: nachricht.attachments
           });
         }
         if (nachricht.author_id !== me) {

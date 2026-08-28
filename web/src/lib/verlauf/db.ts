@@ -236,6 +236,36 @@ export function verlaufLesenSaetze(
 }
 
 /**
+ * Liest ALLE Saetze ueber ALLE Kanaele hinweg — fuer die lokale DM-Suche
+ * (Etappe C5, `sucheLokal.ts`). Ein voller Scan, kein Bereich ueber den
+ * `nach_kanal`-Index: die Suche ist kanaluebergreifend (WhatsApp-artig, wie
+ * die serverseitige `GET /dm-channels-search`), IndexedDB hat keinen
+ * Volltextindex ueber `inhalt`, und der Speicher ist auf den eigenen
+ * DM-Verlauf EINES Nutzers begrenzt — vertretbar fuer eine Suchleiste, die
+ * ohnehin per Tastendruck entprellt wird (`MobileChatsSuche.svelte`).
+ */
+export function verlaufAlleLesen(): Promise<Satz[]> {
+  return mitVerbindung(
+    (db) =>
+      new Promise<Satz[]>((resolve, reject) => {
+        const tx = db.transaction(STORE_NACHRICHTEN, 'readonly');
+        const alle: Satz[] = [];
+        const req = tx.objectStore(STORE_NACHRICHTEN).openCursor();
+        req.onsuccess = () => {
+          const cursor = req.result;
+          if (!cursor) {
+            resolve(alle);
+            return;
+          }
+          alle.push(cursor.value as Satz);
+          cursor.continue();
+        };
+        req.onerror = () => reject(req.error);
+      })
+  );
+}
+
+/**
  * Legt die entschluesselten Bytes eines Anhangs ab (Etappe E). `put` =
  * Upsert — ein zweiter Empfang derselben Kennung ueberschreibt gefahrlos.
  *

@@ -270,7 +270,11 @@ export async function sendeVerschluesselt(
   directMessages.upsertFromEncrypted({
     channel_id: kanalId,
     message_id: nachricht.id,
-    otherUserId: empfaengerUserId
+    otherUserId: empfaengerUserId,
+    inhalt: klartext,
+    autorId: eigeneUserId,
+    erstelltAm: nachricht.created_at,
+    anhaenge: nachricht.attachments
   });
 
   return { art: 'verschluesselt', nachricht };
