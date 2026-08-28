@@ -276,7 +276,11 @@ async def test_einliefern_legt_je_empfaenger_eine_zustellung_an(
             "empfaenger": ["empf-0", "empf-1", "empf-2"],
         }],
     )
-    assert r.status_code == 204, r.text
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["zustellungen_angelegt"] == 3
+    assert body["uebersprungene_empfaenger"] == []
+    assert body["verworfene_nutzlasten"] == 0
 
     async with session_factory() as s:
         nutzlasten = (await s.execute(select(DmNutzlast))).scalars().all()
@@ -354,7 +358,11 @@ async def test_unbekanntes_empfaengergeraet_wird_uebergangen(
             "empfaenger": ["empf-bekannt", "empf-unbekannt"],
         }],
     )
-    assert r.status_code == 204, r.text
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["zustellungen_angelegt"] == 1
+    assert body["uebersprungene_empfaenger"] == ["empf-unbekannt"]
+    assert body["verworfene_nutzlasten"] == 0
 
     async with session_factory() as s:
         zustellungen = (await s.execute(select(DmZustellung))).scalars().all()
@@ -382,7 +390,7 @@ async def test_einliefern_weckt_die_empfaenger(
             client, app, token=token_a, uid=uid_a, channel_id=dm_id,
             nutzlasten=[{"art": 1, "daten": daten, "empfaenger": ["empf-weckruf"]}],
         )
-        assert r.status_code == 204, r.text
+        assert r.status_code == 200, r.text
 
         empfangen = None
         for _ in range(20):
@@ -444,6 +452,100 @@ async def test_zustellung_an_ein_kanalfremdes_geraet_wird_abgewiesen(
         assert (await s.execute(select(DmZustellung))).scalars().all() == []
 
 
+@pytest.mark.asyncio
+async def test_alle_empfaenger_uebersprungen_wird_gemeldet_statt_still_204(
+    client, app, session_factory, _auth_signer, friend_pair, _isolate_chat_settings, monkeypatch
+):
+    """FIX 1. Sind ALLE angefragten Empfaenger einer Nutzlast uebersprungen
+    (hier: Kontingent voll), entsteht nirgends eine Zeile — ein unbedingtes
+    ``204`` liesse den Absender glauben, die Nachricht sei zugestellt. Die
+    Antwort muss das ehrlich melden."""
+    from dcc_chat_gateway.models import DmNutzlast, DmZustellung
+    from sqlalchemy import select
+
+    monkeypatch.setattr(_isolate_chat_settings, "postfach_max_offene_zustellungen_je_geraet", 0)
+
+    token_a, uid_a = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+    dm_id = await _dm_erstellen(client, token_a, uid_b)
+    await _bundel_seeden(session_factory, user_id=uid_b, device_pubkey="empf-voll")
+
+    daten = base64.b64encode(b"olm-umschlag").decode()
+    r = await _einliefern(
+        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        nutzlasten=[{"art": 1, "daten": daten, "empfaenger": ["empf-voll"]}],
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["zustellungen_angelegt"] == 0
+    assert body["uebersprungene_empfaenger"] == ["empf-voll"]
+    assert body["verworfene_nutzlasten"] == 1
+
+    async with session_factory() as s:
+        assert (await s.execute(select(DmNutzlast))).scalars().all() == []
+        assert (await s.execute(select(DmZustellung))).scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_kollidierender_pubkey_unter_fremdem_konto_bricht_die_anfrage_nicht(
+    client, app, session_factory, _auth_signer, friend_pair
+):
+    """FIX 2. Die DB-Eindeutigkeit ist das Paar ``(user_id, device_pubkey)``
+    (``UniqueConstraint`` in ``models/geraete_schluessel.py``), NICHT der
+    Pubkey allein — zwei Konten koennen theoretisch denselben Pubkey fuehren,
+    z. B. ein geloeschtes und neu registriertes Konto mit demselben lokal
+    gespeicherten Geraeteschluessel. Eine ungescopte Suche wirft dann
+    ``MultipleResultsFound`` und reisst die ganze Anfrage mit sich — auch die
+    Zustellung an einen voellig unbeteiligten, echten Empfaenger im selben
+    Kanal."""
+    from dcc_chat_gateway.models import DmZustellung
+    from sqlalchemy import select
+
+    token_a, uid_a = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
+    _, uid_fremd = await _register(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+    dm_id = await _dm_erstellen(client, token_a, uid_b)
+
+    pubkey = "kollidierend"
+    await _bundel_seeden(session_factory, user_id=uid_b, device_pubkey=pubkey)
+    await _bundel_seeden(session_factory, user_id=uid_fremd, device_pubkey=pubkey)
+
+    daten = base64.b64encode(b"olm-umschlag").decode()
+    r = await _einliefern(
+        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        nutzlasten=[{"art": 1, "daten": daten, "empfaenger": [pubkey]}],
+    )
+    assert r.status_code == 200, r.text
+
+    async with session_factory() as s:
+        zustellungen = (await s.execute(select(DmZustellung))).scalars().all()
+        assert len(zustellungen) == 1
+        assert zustellungen[0].empfaenger_user_id == uid_b
+
+
+@pytest.mark.asyncio
+async def test_zu_viele_empfaenger_je_nutzlast_wird_abgelehnt(client, app, _auth_signer):
+    """FIX 4, defence in depth. ``empfaenger`` hatte keine Obergrenze —
+    anders als ``nutzlasten`` (settings-gepruefte 100 je Anfrage). Analog zu
+    ``user_ids`` (``schemas.py``, max_length=64)."""
+    token_a, _ = await _register(_auth_signer)
+    daten = base64.b64encode(b"olm-umschlag").decode()
+    r = await client.post(
+        "/postfach",
+        json={
+            "channel_id": "1", "cert": "x", "signatur": "y",
+            "nutzlasten": [{
+                "art": 1, "daten": daten,
+                "empfaenger": [f"pub-{i}" for i in range(65)],
+            }],
+        },
+        headers=_auth(token_a),
+    )
+    assert r.status_code == 422, r.text
+
+
 # ---------------------------------------------------------------------------
 # Task 3 — Abholen und Quittieren
 # ---------------------------------------------------------------------------
@@ -470,7 +572,7 @@ async def test_abholen_liefert_nur_die_eigenen(
         client, app, token=token_a, uid=uid_a, channel_id=dm_id,
         nutzlasten=[{"art": 1, "daten": daten, "empfaenger": [pub_1]}],
     )
-    assert r.status_code == 204, r.text
+    assert r.status_code == 200, r.text
 
     # Das belieferte Geraet sieht genau eine Zustellung.
     r = await _abholen(client, app, token=token_b, uid=uid_b, priv=priv_1, pubkey=pub_1)
@@ -503,7 +605,7 @@ async def test_abholen_loescht_noch_nichts(
         client, app, token=token_a, uid=uid_a, channel_id=dm_id,
         nutzlasten=[{"art": 1, "daten": daten, "empfaenger": [pub]}],
     )
-    assert r.status_code == 204, r.text
+    assert r.status_code == 200, r.text
 
     erster = await _abholen(client, app, token=token_b, uid=uid_b, priv=priv, pubkey=pub)
     zweiter = await _abholen(client, app, token=token_b, uid=uid_b, priv=priv, pubkey=pub)
@@ -527,7 +629,7 @@ async def test_quittung_loescht_die_zustellung(
         client, app, token=token_a, uid=uid_a, channel_id=dm_id,
         nutzlasten=[{"art": 1, "daten": daten, "empfaenger": [pub]}],
     )
-    assert r.status_code == 204, r.text
+    assert r.status_code == 200, r.text
 
     abgeholt = await _abholen(client, app, token=token_b, uid=uid_b, priv=priv, pubkey=pub)
     zustellung_id = abgeholt.json()[0]["id"]
@@ -566,7 +668,7 @@ async def test_letzte_quittung_raeumt_die_nutzlast_mit(
         client, app, token=token_a, uid=uid_a, channel_id=dm_id,
         nutzlasten=[{"art": 1, "daten": daten, "empfaenger": [pub_1, pub_2]}],
     )
-    assert r.status_code == 204, r.text
+    assert r.status_code == 200, r.text
 
     async def _nutzlasten_anzahl() -> int:
         async with session_factory() as s:
@@ -623,7 +725,7 @@ async def test_fremde_zustellungs_id_quittiert_nichts(
         client, app, token=token_a, uid=uid_a, channel_id=dm_id,
         nutzlasten=[{"art": 1, "daten": daten, "empfaenger": [pub]}],
     )
-    assert r.status_code == 204, r.text
+    assert r.status_code == 200, r.text
     async with session_factory() as s:
         zustellung_id = (
             (await s.execute(select(DmZustellung))).scalars().one().id
@@ -677,7 +779,7 @@ async def test_absender_user_id_zeigt_das_sendegeraet_auch_beim_eigenen_zweitger
         },
         headers=_auth(token_a),
     )
-    assert r.status_code == 204, r.text
+    assert r.status_code == 200, r.text
 
     r = await _abholen(client, app, token=token_a, uid=uid_a, priv=empf_priv, pubkey=empf_pub)
     assert r.status_code == 200, r.text
@@ -720,7 +822,7 @@ async def test_absender_user_id_ist_null_wenn_sendegeraet_abgemeldet_ist(
         },
         headers=_auth(token_a),
     )
-    assert r.status_code == 204, r.text
+    assert r.status_code == 200, r.text
 
     # Das Sendegeraet meldet sich ab — sein Buendel verschwindet, die
     # Zustellung selbst bleibt unberuehrt liegen (kein Fremdschluessel

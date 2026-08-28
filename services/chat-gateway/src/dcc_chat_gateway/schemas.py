@@ -1233,7 +1233,11 @@ class PostfachNutzlastIn(BaseModel):
     art: int
     #: Base64 — dasselbe Format wie ``daten`` auf ``DmNutzlast``.
     daten: str
-    empfaenger: list[str] = Field(min_length=1)
+    #: Obergrenze wie bei ``user_ids`` weiter unten (max_length=64) — eine
+    #: DM braucht heute meist eines, eine kuenftige Megolm-Gruppe bis zu
+    #: ``private_group_max_members`` (Vorgabe 50). Ohne Obergrenze koennte
+    #: ein einzelner Umschlag beliebig viele Zustellungszeilen erzwingen.
+    empfaenger: list[str] = Field(min_length=1, max_length=64)
 
 
 class PostfachEinliefernRequest(BaseModel):
@@ -1245,6 +1249,28 @@ class PostfachEinliefernRequest(BaseModel):
     cert: str
     signatur: str
     nutzlasten: list[PostfachNutzlastIn] = Field(min_length=1)
+
+
+class PostfachEinliefernResponse(BaseModel):
+    """Antwort von ``POST /postfach`` — ersetzt das vorherige blosse ``204``.
+
+    Ein einzelner Empfaenger darf uebersprungen werden (unbekanntes Buendel,
+    Kontingent voll), OHNE dass die Anfrage scheitert — aber wenn das fuer
+    ALLE Empfaenger einer Nutzlast gilt, entsteht nirgends eine Zeile. Ein
+    unbedingtes ``204`` liesse den Absender glauben, die Nachricht sei
+    zugestellt, obwohl sie nirgends existiert (Bughunt 2026-08-28, FIX 1).
+    """
+
+    #: Ueber die ganze Anfrage hinweg tatsaechlich angelegte Zustellungen.
+    zustellungen_angelegt: int
+    #: Geraete-Pubkeys, die in mindestens einer Nutzlast als Empfaenger
+    #: angefragt, aber NICHT beliefert wurden — dedupliziert ueber die ganze
+    #: Anfrage. Kein Fehler fuer sich, nur eine ehrliche Auskunft.
+    uebersprungene_empfaenger: list[str]
+    #: Anzahl der Nutzlasten, fuer die ÜBERHAUPT KEINE Zustellung entstand
+    #: (alle angefragten Empfaenger uebersprungen) — der Fall, den der
+    #: Absender NICHT als Erfolg lesen darf.
+    verworfene_nutzlasten: int
 
 
 # ---------------------------------------------------------------------------
