@@ -51,6 +51,7 @@ from fastapi import APIRouter, HTTPException, Query, WebSocket
 from dcc_chat_gateway import __version__
 from dcc_chat_gateway.client_ip import ws_client_ip
 from dcc_chat_gateway.config import get_settings
+from dcc_chat_gateway.faehigkeiten import SERVER_FAEHIGKEITEN
 from dcc_chat_gateway.credential_validator import CertClaims, resolve_user_identifier
 from dcc_chat_gateway.routes.ws_ops import run_session_op_loop
 from dcc_chat_gateway.routes.ws_ready import build_and_send_ready_frame
@@ -241,7 +242,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
         # trifft deshalb wochenlang auf alte Server, und die muessen weiter den
         # Cert-Weg bekommen. Muss mit ``web/src/lib/servers/anmeldeweg.ts``
         # uebereinstimmen.
-        "capabilities": ["token_refresh", "server-ticket"],
+        "capabilities": list(SERVER_FAEHIGKEITEN),
     })
 
     app = websocket.app
