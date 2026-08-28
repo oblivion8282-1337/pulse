@@ -197,18 +197,24 @@ async def gruppe_erstellen(
     # FIX 5) — ``private_group_max_members`` bindet nur die Groesse einer
     # einzelnen Gruppe, nicht ihre Anzahl; ohne diese Grenze legt ein Konto
     # beliebig viele leere Kanal- plus Mitgliedszeilen an.
+    #
+    # Gezaehlt wird gegen ``erstellt_von_id``, NICHT ``ersteller_id`` (die
+    # uebertragbare Besitzerrolle — Begruendung + Missbrauchsfall in deren
+    # Modell-Docstring, ``models/private_gruppen.py``, Migration 0072).
     settings = chat_config.get_settings()
     eigene_gruppen = (
         await session.execute(
             select(func.count())
             .select_from(PrivateGroupChannel)
-            .where(PrivateGroupChannel.ersteller_id == user.id)
+            .where(PrivateGroupChannel.erstellt_von_id == user.id)
         )
     ).scalar_one()
     if eigene_gruppen >= settings.private_group_max_gruppen_je_ersteller:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="gruppen_limit_erreicht")
 
-    gruppe = PrivateGroupChannel(id=next_id(), ersteller_id=user.id, name=clean_name)
+    gruppe = PrivateGroupChannel(
+        id=next_id(), ersteller_id=user.id, erstellt_von_id=user.id, name=clean_name
+    )
     session.add(gruppe)
     session.add(PrivateGroupMember(id=next_id(), gruppe_id=gruppe.id, user_id=user.id))
     await session.commit()

@@ -34,6 +34,16 @@ class PrivateGroupChannel(Base):
 
     id: Mapped[int] = snowflake_pk()
     ersteller_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # Wer die Gruppe TATSAECHLICH angelegt hat — im Unterschied zu
+    # ``ersteller_id`` (der uebertragbaren Besitzerrolle, s. dort) einmal bei
+    # der Erstellung gesetzt und danach NIE mehr veraendert, auch nicht bei
+    # der Vererbung (``ersteller_erbe_uebertragen``). Traeger der Obergrenze
+    # ``private_group_max_gruppen_je_ersteller`` (``routes/private_gruppen.py``)
+    # — Befund 2026-08-28 (Missbrauch): gegen ``ersteller_id`` gezaehlt liess
+    # sich das Kontingent eines Unbeteiligten fremdbefuellen (Gruppe mit dem
+    # Opfer anlegen, sofort verlassen, Rolle wandert automatisch). Migration
+    # 0072.
+    erstellt_von_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     name: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

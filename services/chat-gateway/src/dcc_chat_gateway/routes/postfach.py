@@ -43,6 +43,7 @@ import dcc_chat_gateway.config as chat_config
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.friend_helpers import block_exists_either_way, friendship_exists
 from dcc_chat_gateway.models import DeviceKeyBundle, DirectMessageChannel, DmNutzlast, DmZustellung
+from dcc_chat_gateway.push import fan_out_dm_push_encrypted
 from dcc_chat_gateway.routes._deps import resolve_channel_for_user
 from dcc_chat_gateway.schemas import PostfachEinliefernRequest, PostfachEinliefernResponse
 from dcc_chat_gateway.schluessel_nachweis import baue_nutzlast, pruefe_geraet
@@ -201,6 +202,10 @@ async def postfach_einliefern(
     offene_je_sender_und_geraet: dict[str, int] = {}
     gesamt_zustellungen = 0
     verworfene_nutzlasten = 0
+    # Fremde Konten mit mindestens einer Zustellung -> Grundlage fuer den
+    # Push in Schritt 6 (dedupliziert: mehrere Nutzlasten an denselben
+    # Empfaenger loesen nur EINEN Push aus).
+    push_empfaenger: set[int] = set()
     # Ueber die ganze Anfrage dedupliziert, Reihenfolge egal — ``dict`` statt
     # ``set`` nur, damit die Reihenfolge fuer die Antwort stabil bleibt.
     uebersprungene_empfaenger: dict[str, None] = {}
@@ -323,6 +328,12 @@ async def postfach_einliefern(
                     verfaellt_am=verfaellt_am,
                 )
             )
+            # Nur FREMDE Konten pushen — ``teilnehmer`` deckt beide Seiten
+            # ab, ein Empfaengergeraet kann also auch ein WEITERES Geraet
+            # des Absenders selbst sein (Multi-Device). Wie der Klartext-Weg
+            # (``messages.py``/``ws_op_send.py``): nur der jeweils andere.
+            if empf_user_id != user.id:
+                push_empfaenger.add(empf_user_id)
         gesamt_zustellungen += len(empfaenger_zeilen)
 
     await session.commit()
@@ -341,6 +352,18 @@ async def postfach_einliefern(
                 )
             except Exception:
                 log.exception("postfach wake publish failed for channel %s", cid_int)
+
+    # 6. Geschlossene-Browser-Benachrichtigung — der WS-Weckruf oben erreicht
+    # nur offene Tabs. Der Server kennt den Inhalt nie; der Push traegt
+    # deshalb weder Nachrichteninhalt noch Dateiname, nur Absender und Kanal
+    # (dieselbe Grenze wie beim Klartext-Push). Best-effort — kein ``try``
+    # noetig, ``_fan_out_payload`` faengt selbst jede Ausnahme ab.
+    if push_empfaenger:
+        await fan_out_dm_push_encrypted(
+            recipient_ids=push_empfaenger,
+            author_name=user.username,
+            channel_id=cid_int,
+        )
 
     return PostfachEinliefernResponse(
         zustellungen_angelegt=gesamt_zustellungen,

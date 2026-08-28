@@ -38,7 +38,9 @@ async def test_dieselbe_person_ist_nur_einmal_mitglied(session_factory):
 
     gid = next_id()
     async with session_factory() as s:
-        s.add(PrivateGroupChannel(id=gid, ersteller_id=1, name="Testgruppe"))
+        s.add(
+            PrivateGroupChannel(id=gid, ersteller_id=1, erstellt_von_id=1, name="Testgruppe")
+        )
         s.add(PrivateGroupMember(id=next_id(), gruppe_id=gid, user_id=2))
         await s.commit()
 
@@ -58,7 +60,7 @@ async def test_mitglieder_verschwinden_mit_der_gruppe(session_factory):
 
     gid = next_id()
     async with session_factory() as s:
-        s.add(PrivateGroupChannel(id=gid, ersteller_id=3, name="Gruppe"))
+        s.add(PrivateGroupChannel(id=gid, ersteller_id=3, erstellt_von_id=3, name="Gruppe"))
         s.add(PrivateGroupMember(id=next_id(), gruppe_id=gid, user_id=3))
         s.add(PrivateGroupMember(id=next_id(), gruppe_id=gid, user_id=4))
         await s.commit()
@@ -267,6 +269,51 @@ async def test_obergrenze_selbst_erstellter_gruppen(
     r = await client.post("/gruppen", json={"name": "g2"}, headers=_auth(t_a))
     assert r.status_code == 403, r.text
     assert r.json()["detail"] == "gruppen_limit_erreicht"
+
+
+@pytest.mark.asyncio
+async def test_obergrenze_laesst_sich_nicht_gegen_ein_opfer_wenden(
+    client, _auth_signer, gruppen_an
+):
+    """Befund 2026-08-28 (Missbrauch): ``ersteller_id`` ist NICHT fest — sie
+    wandert bei ``ersteller_erbe_uebertragen`` automatisch an das
+    dienstaelteste verbleibende Mitglied, ohne dessen Zustimmung. Ein
+    Angreifer legt eine Gruppe mit dem Opfer an und verlaesst sie sofort
+    wieder: die Rolle (und damit das Kontingent) landet beim Opfer, ohne dass
+    das Opfer je selbst eine Gruppe angelegt haette. Wiederholt bis zur
+    Grenze, kann das Opfer danach KEINE EIGENE Gruppe mehr anlegen — mit
+    einer Meldung, die den wahren Grund nicht nennt.
+
+    Grenze fuer den Test klein gehalten (statt echter 100), damit er schnell
+    bleibt."""
+    grenze = 3
+    gruppen_an.private_group_max_gruppen_je_ersteller = grenze
+
+    t_opfer, uid_opfer = await _register(_auth_signer)
+
+    for _ in range(grenze):
+        t_angreifer, _ = await _register(_auth_signer)
+        r = await client.post("/gruppen", json={"name": "koeder"}, headers=_auth(t_angreifer))
+        assert r.status_code == 201, r.text
+        gid = r.json()["id"]
+
+        r = await client.post(
+            f"/gruppen/{gid}/mitglieder",
+            json={"user_id": str(uid_opfer)},
+            headers=_auth(t_angreifer),
+        )
+        assert r.status_code == 201, r.text
+
+        # Angreifer verlaesst sofort wieder — das Opfer ist als einziges
+        # verbleibendes Mitglied automatisch dienstaeltestes und erbt.
+        r = await client.post(f"/gruppen/{gid}/verlassen", headers=_auth(t_angreifer))
+        assert r.status_code == 200, r.text
+        assert r.json()["ersteller_id"] == str(uid_opfer)
+
+    # Das Opfer hat NIE selbst ``POST /gruppen`` aufgerufen und muss deshalb
+    # weiterhin eine eigene Gruppe anlegen koennen.
+    r = await client.post("/gruppen", json={"name": "eigene"}, headers=_auth(t_opfer))
+    assert r.status_code == 201, r.text
 
 
 @pytest.mark.asyncio
