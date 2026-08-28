@@ -1240,3 +1240,50 @@ class PostfachEinliefernRequest(BaseModel):
     cert: str
     signatur: str
     nutzlasten: list[PostfachNutzlastIn] = Field(min_length=1)
+
+
+# ---------------------------------------------------------------------------
+# Postfach — Abholen und Quittieren (Etappe D, Task 3)
+# ---------------------------------------------------------------------------
+
+
+class PostfachAbholenRequest(BaseModel):
+    """Rumpf von ``POST /postfach/abholen``.
+
+    Kein Inhalt zu binden — die Unterschrift beweist nur, welches Geraet
+    fragt (Zweck ``"postfach-abholen"``, s. ``routes/postfach_abholen.py``).
+    """
+
+    cert: str
+    signatur: str
+
+
+class PostfachZustellungOut(BaseModel):
+    """Eine offene Zustellung in der Antwort von ``POST /postfach/abholen``."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    absender_device_pubkey: str
+    #: 1 = Sitzungsaufbau, 2 = laufende Nachricht — wie ``PostfachNutzlastIn.art``.
+    art: int
+    #: Base64, wie ``PostfachNutzlastIn.daten``.
+    daten: str
+    groesse: int
+
+    @field_serializer("id")
+    def _ser_id(self, v: int) -> str:
+        return _id_str(v)
+
+
+class PostfachQuittungRequest(BaseModel):
+    """Rumpf von ``POST /postfach/quittung``.
+
+    ``zustellung_ids`` bindet in die Unterschrift ein (Zweck
+    ``"postfach-quittung"``) — die Liste ist Teil dessen, wofuer das Geraet
+    buergt.
+    """
+
+    cert: str
+    signatur: str
+    zustellung_ids: list[SnowflakeId] = Field(min_length=1)

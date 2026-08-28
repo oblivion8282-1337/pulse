@@ -132,6 +132,49 @@ async def _einliefern(
     return r
 
 
+async def _abholen(
+    client, app, *, token: str, uid: int, priv: Ed25519PrivateKey, pubkey: str
+):
+    """Baut Zertifikat + Unterschrift des ABHOLENDEN Geraets und ruft ab."""
+    await _seed_jwks(app)
+    cert = _make_cert(user_id=str(uid), device_pubkey=pubkey)
+    sig = _sign(priv, baue_nutzlast("postfach-abholen"))
+    return await client.post(
+        "/postfach/abholen", json={"cert": cert, "signatur": sig}, headers=_auth(token)
+    )
+
+
+async def _quittieren(
+    client, app, *, token: str, uid: int, priv: Ed25519PrivateKey, pubkey: str,
+    zustellung_ids: list[str],
+):
+    """Baut Zertifikat + Unterschrift des QUITTIERENDEN Geraets und quittiert."""
+    await _seed_jwks(app)
+    cert = _make_cert(user_id=str(uid), device_pubkey=pubkey)
+    sig = _sign(
+        priv, baue_nutzlast("postfach-quittung", *[str(i) for i in zustellung_ids])
+    )
+    return await client.post(
+        "/postfach/quittung",
+        json={
+            "cert": cert, "signatur": sig,
+            "zustellung_ids": [str(i) for i in zustellung_ids],
+        },
+        headers=_auth(token),
+    )
+
+
+async def _bundel_seeden_echtes_geraet(
+    session_factory, *, user_id: int
+) -> tuple[Ed25519PrivateKey, str]:
+    """Wie ``_bundel_seeden``, aber mit einem echten Ed25519-Schluesselpaar —
+    fuer Tests, die als dieses Geraet spaeter selbst signieren muessen
+    (Abholen/Quittieren), statt nur eine Zeichenkette als Pubkey zu haben."""
+    priv, pubkey = _make_device()
+    await _bundel_seeden(session_factory, user_id=user_id, device_pubkey=pubkey)
+    return priv, pubkey
+
+
 @pytest_asyncio.fixture(autouse=True)
 async def _enable_sqlite_foreign_keys(engine):
     """SQLite ignoriert ``ON DELETE CASCADE`` ohne ``PRAGMA foreign_keys=ON``
@@ -399,3 +442,202 @@ async def test_zustellung_an_ein_kanalfremdes_geraet_wird_abgewiesen(
     async with session_factory() as s:
         assert (await s.execute(select(DmNutzlast))).scalars().all() == []
         assert (await s.execute(select(DmZustellung))).scalars().all() == []
+
+
+# ---------------------------------------------------------------------------
+# Task 3 — Abholen und Quittieren
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_abholen_liefert_nur_die_eigenen(
+    client, app, session_factory, _auth_signer, friend_pair
+):
+    """Das Geraet eines anderen Nutzers darf nichts davon sehen — und das
+    Geraet DESSELBEN Nutzers auch nicht: ein Umschlag ist fuer genau ein
+    Geraet verschluesselt."""
+    token_a, uid_a = await _register(_auth_signer)
+    token_b, uid_b = await _register(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+    dm_id = await _dm_erstellen(client, token_a, uid_b)
+
+    # Zwei Geraete des Empfaengers — nur eines bekommt den Umschlag.
+    priv_1, pub_1 = await _bundel_seeden_echtes_geraet(session_factory, user_id=uid_b)
+    priv_2, pub_2 = await _bundel_seeden_echtes_geraet(session_factory, user_id=uid_b)
+
+    daten = base64.b64encode(b"olm-umschlag").decode()
+    r = await _einliefern(
+        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        nutzlasten=[{"art": 1, "daten": daten, "empfaenger": [pub_1]}],
+    )
+    assert r.status_code == 204, r.text
+
+    # Das belieferte Geraet sieht genau eine Zustellung.
+    r = await _abholen(client, app, token=token_b, uid=uid_b, priv=priv_1, pubkey=pub_1)
+    assert r.status_code == 200, r.text
+    zustellungen = r.json()
+    assert len(zustellungen) == 1
+    assert zustellungen[0]["daten"] == daten
+
+    # Das ZWEITE Geraet DESSELBEN Nutzers sieht nichts.
+    r = await _abholen(client, app, token=token_b, uid=uid_b, priv=priv_2, pubkey=pub_2)
+    assert r.status_code == 200, r.text
+    assert r.json() == []
+
+
+@pytest.mark.asyncio
+async def test_abholen_loescht_noch_nichts(
+    client, app, session_factory, _auth_signer, friend_pair
+):
+    """Zweimal abholen ohne Quittung liefert dasselbe. Wer beim Ausliefern
+    loescht, verliert die Nachricht, wenn die Antwort unterwegs verlorengeht
+    — und genau das passiert bei einem Handy im Funkloch staendig."""
+    token_a, uid_a = await _register(_auth_signer)
+    token_b, uid_b = await _register(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+    dm_id = await _dm_erstellen(client, token_a, uid_b)
+    priv, pub = await _bundel_seeden_echtes_geraet(session_factory, user_id=uid_b)
+
+    daten = base64.b64encode(b"olm-umschlag").decode()
+    r = await _einliefern(
+        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        nutzlasten=[{"art": 1, "daten": daten, "empfaenger": [pub]}],
+    )
+    assert r.status_code == 204, r.text
+
+    erster = await _abholen(client, app, token=token_b, uid=uid_b, priv=priv, pubkey=pub)
+    zweiter = await _abholen(client, app, token=token_b, uid=uid_b, priv=priv, pubkey=pub)
+    assert [z["id"] for z in erster.json()] == [z["id"] for z in zweiter.json()]
+    assert len(zweiter.json()) == 1
+
+
+@pytest.mark.asyncio
+async def test_quittung_loescht_die_zustellung(
+    client, app, session_factory, _auth_signer, friend_pair
+):
+    """Der Normalfall."""
+    token_a, uid_a = await _register(_auth_signer)
+    token_b, uid_b = await _register(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+    dm_id = await _dm_erstellen(client, token_a, uid_b)
+    priv, pub = await _bundel_seeden_echtes_geraet(session_factory, user_id=uid_b)
+
+    daten = base64.b64encode(b"olm-umschlag").decode()
+    r = await _einliefern(
+        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        nutzlasten=[{"art": 1, "daten": daten, "empfaenger": [pub]}],
+    )
+    assert r.status_code == 204, r.text
+
+    abgeholt = await _abholen(client, app, token=token_b, uid=uid_b, priv=priv, pubkey=pub)
+    zustellung_id = abgeholt.json()[0]["id"]
+
+    r = await _quittieren(
+        client, app, token=token_b, uid=uid_b, priv=priv, pubkey=pub,
+        zustellung_ids=[zustellung_id],
+    )
+    assert r.status_code == 204, r.text
+
+    rest = await _abholen(client, app, token=token_b, uid=uid_b, priv=priv, pubkey=pub)
+    assert rest.json() == []
+
+
+@pytest.mark.asyncio
+async def test_letzte_quittung_raeumt_die_nutzlast_mit(
+    client, app, session_factory, _auth_signer, friend_pair
+):
+    """Eine Nutzlast, die niemand mehr abholen kann, ist Muell. Bei einer
+    Gruppe faellt sie erst mit der LETZTEN Zustellung."""
+    from dcc_chat_gateway.models import DmNutzlast
+    from sqlalchemy import select
+
+    token_a, uid_a = await _register(_auth_signer)
+    token_b, uid_b = await _register(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+    dm_id = await _dm_erstellen(client, token_a, uid_b)
+
+    # Zwei Geraete desselben Empfaengers -> EINE Nutzlast, ZWEI Zustellungen
+    # (der Gruppenfall im Kleinen, s. test_eine_nutzlast_traegt_mehrere_zustellungen).
+    priv_1, pub_1 = await _bundel_seeden_echtes_geraet(session_factory, user_id=uid_b)
+    priv_2, pub_2 = await _bundel_seeden_echtes_geraet(session_factory, user_id=uid_b)
+
+    daten = base64.b64encode(b"olm-umschlag").decode()
+    r = await _einliefern(
+        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        nutzlasten=[{"art": 1, "daten": daten, "empfaenger": [pub_1, pub_2]}],
+    )
+    assert r.status_code == 204, r.text
+
+    async def _nutzlasten_anzahl() -> int:
+        async with session_factory() as s:
+            return len((await s.execute(select(DmNutzlast))).scalars().all())
+
+    assert await _nutzlasten_anzahl() == 1
+
+    id_1 = (await _abholen(
+        client, app, token=token_b, uid=uid_b, priv=priv_1, pubkey=pub_1
+    )).json()[0]["id"]
+    id_2 = (await _abholen(
+        client, app, token=token_b, uid=uid_b, priv=priv_2, pubkey=pub_2
+    )).json()[0]["id"]
+
+    # Erste Quittung: die Nutzlast bleibt (Geraet 2 hat noch nicht quittiert).
+    r = await _quittieren(
+        client, app, token=token_b, uid=uid_b, priv=priv_1, pubkey=pub_1,
+        zustellung_ids=[id_1],
+    )
+    assert r.status_code == 204, r.text
+    assert await _nutzlasten_anzahl() == 1
+
+    # Zweite (letzte) Quittung: jetzt faellt auch die Nutzlast.
+    r = await _quittieren(
+        client, app, token=token_b, uid=uid_b, priv=priv_2, pubkey=pub_2,
+        zustellung_ids=[id_2],
+    )
+    assert r.status_code == 204, r.text
+    assert await _nutzlasten_anzahl() == 0
+
+
+@pytest.mark.asyncio
+async def test_fremde_zustellungs_id_quittiert_nichts(
+    client, app, session_factory, _auth_signer, friend_pair
+):
+    """Eine erratene ID darf nicht die Zustellung eines anderen loeschen.
+    Die Quittung filtert auf das eigene Geraet, nicht nur auf die ID."""
+    from dcc_chat_gateway.models import DmZustellung
+    from sqlalchemy import select
+
+    token_a, uid_a = await _register(_auth_signer)
+    token_b, uid_b = await _register(_auth_signer)
+    token_fremd, uid_fremd = await _register(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+    dm_id = await _dm_erstellen(client, token_a, uid_b)
+    priv, pub = await _bundel_seeden_echtes_geraet(session_factory, user_id=uid_b)
+    # Ein Geraet, das mit dieser Zustellung nichts zu tun hat.
+    priv_fremd, pub_fremd = await _bundel_seeden_echtes_geraet(
+        session_factory, user_id=uid_fremd
+    )
+
+    daten = base64.b64encode(b"olm-umschlag").decode()
+    r = await _einliefern(
+        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        nutzlasten=[{"art": 1, "daten": daten, "empfaenger": [pub]}],
+    )
+    assert r.status_code == 204, r.text
+    async with session_factory() as s:
+        zustellung_id = (
+            (await s.execute(select(DmZustellung))).scalars().one().id
+        )
+
+    # Der Fremde reicht die (erratene oder abgelauschte) ID mit SEINEM
+    # eigenen, nachgewiesenen Geraet ein.
+    r = await _quittieren(
+        client, app, token=token_fremd, uid=uid_fremd, priv=priv_fremd, pubkey=pub_fremd,
+        zustellung_ids=[str(zustellung_id)],
+    )
+    assert r.status_code == 204, r.text  # stilles Uebergehen, kein Fehler
+
+    async with session_factory() as s:
+        rest = (await s.execute(select(DmZustellung))).scalars().all()
+        assert len(rest) == 1
+        assert rest[0].id == zustellung_id
