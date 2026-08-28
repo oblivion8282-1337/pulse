@@ -75,6 +75,28 @@
  * und laedt `ident` fuer die naechste FRISCH aus IndexedDB (den zuletzt
  * durabel gesicherten Stand, ohne die verlorene Mutation). Alle anderen
  * Zustellungen dieses Zyklus laufen normal weiter.
+ *
+ * **Dritter Bughunt (Runde 3), FIX 3 — eine abgelegte, aber nicht quittierte
+ * Zustellung darf nicht dauerhaft haengen bleiben.** Scheitert NACH
+ * erfolgreicher Ablage NUR `POST /postfach/quittung`, bleibt die Zustellung
+ * auf dem Server liegen und kommt unveraendert zurueck — aber die Olm-
+ * Sitzung ist laengst ueber sie hinaus geratscht: ein zweiter Entschluesse-
+ * lungsversuch scheitert GRUNDSAETZLICH, die Zustellung bliebe bis zur
+ * 30-Tage-Frist unquittiert liegen (einer von 500 offenen Zustellungs-
+ * Plaetzen dauerhaft belegt). `zustellungOeffnen` prueft deshalb GANZ ZU
+ * BEGINN — vor Sitzungssperre, `absenderErmitteln`, jedem Entschluesseln —,
+ * ob unter (`channel_id`, `id`) bereits ein Satz im lokalen Verlauf liegt
+ * (`verlaufSchonAbgelegt`, `verlauf/db.ts::verlaufSatzVorhanden`). Ein Treffer
+ * ist der Beweis, dass GENAU DIESE Zustellung schon einmal durch echtes
+ * Entschluesseln abgelegt wurde — sie darf dann OHNE erneutes Entschluesseln
+ * quittiert werden. **Bewusst NICHT entsteht** dafuer ein neuer, persistenter
+ * Cache aus Klartext oder "quittierbar"-Markierungen, indiziert allein ueber
+ * die vom Server vergebene Zustellungs-ID — das waere ein Vertrauens-Speicher,
+ * den ein Server durch Wiederverwenden einer ID fuellen koennte, ohne dass
+ * der Klient je wieder prueft, was wirklich drinsteht. Die Pruefung fragt
+ * stattdessen den EIGENEN, bereits durch echtes Entschluesseln geschriebenen
+ * Bestand — ein Treffer heisst nur "wir haben das schon selbst abgelegt",
+ * nie "der Server behauptet etwas ueber diese ID".
  */
 import type { Message } from '../api/types';
 import type { Identitaet } from '../../../../krypto/pulse-krypto/pkg/pulse_krypto.js';
@@ -82,7 +104,7 @@ import { Umschlag } from '../../../../krypto/pulse-krypto/pkg/pulse_krypto.js';
 import { certStore } from '../identity/cert.svelte';
 import { loadKeypair } from '../identity/keypair.svelte';
 import { directMessages } from '../stores/directMessages.svelte';
-import { verlaufSpeichernPflicht } from '../verlauf';
+import { verlaufSpeichernPflicht, verlaufSchonAbgelegt } from '../verlauf';
 import { verlaufZustand } from '../verlauf/zustand.svelte';
 import { postfachApi, type PostfachZustellung } from '../api/postfach';
 import { serversStore } from '../api/servers.svelte';
@@ -121,6 +143,16 @@ function cloudRoute(): { serverId?: string } {
   return { serverId: serversStore.cloudId() };
 }
 
+/** Ergebnis eines Oeffnungsversuchs — entweder eine neu entschluesselte
+ *  Nachricht, oder eine Zustellung, die schon frueher entschluesselt und
+ *  abgelegt wurde und nur noch die (bislang fehlgeschlagene) Quittung
+ *  braucht (Bughunt-Runde 3, FIX 3, s. Modulkopf). `null`, wenn sie liegen
+ *  bleiben muss. */
+type ZustellungOffenErgebnis =
+  | { art: 'neu'; nachricht: Message }
+  | { art: 'schonAbgelegt'; channelId: string; id: string }
+  | null;
+
 /** Die Nachricht einer erfolgreich geoeffneten Zustellung — `null`, wenn der
  *  Absender nicht ermittelbar ist: der Server liefert keinen
  *  `absender_user_id` (Sendegeraet zwischenzeitlich abgemeldet, s.
@@ -131,7 +163,14 @@ function cloudRoute(): { serverId?: string } {
 async function zustellungOeffnen(
   ident: Identitaet,
   z: PostfachZustellung
-): Promise<Message | null> {
+): Promise<ZustellungOffenErgebnis> {
+  // FIX 3 (Bughunt-Runde 3, s. Modulkopf) — ZUERST pruefen, noch vor jeder
+  // Sitzungssperre und jedem Entschluesseln: liegt der Klartext schon lokal,
+  // braucht es beides nicht mehr.
+  if (await verlaufSchonAbgelegt(z.channel_id, z.id)) {
+    return { art: 'schonAbgelegt', channelId: z.channel_id, id: z.id };
+  }
+
   const absenderUserId = absenderErmitteln(
     z.absender_user_id,
     directMessages.byId[z.channel_id]?.other_user_id
@@ -177,14 +216,17 @@ async function zustellungOeffnen(
       }
 
       return {
-        // Snowflake der Zustellung: digit-only wie ein echter Server-
-        // Snowflake, sortiert also im lokalen Verlauf korrekt nach Zeit.
-        id: z.id,
-        channel_id: z.channel_id,
-        author_id: absenderUserId,
-        content: new TextDecoder().decode(klartextBytes),
-        nonce: null,
-        created_at: new Date().toISOString()
+        art: 'neu',
+        nachricht: {
+          // Snowflake der Zustellung: digit-only wie ein echter Server-
+          // Snowflake, sortiert also im lokalen Verlauf korrekt nach Zeit.
+          id: z.id,
+          channel_id: z.channel_id,
+          author_id: absenderUserId,
+          content: new TextDecoder().decode(klartextBytes),
+          nonce: null,
+          created_at: new Date().toISOString()
+        }
       };
     } catch (err) {
       if (err instanceof KontoSicherungFehlgeschlagen) {
@@ -221,7 +263,7 @@ async function postfachZyklus(): Promise<Message[]> {
   // durabel gesicherte Stand, ohne die verlorene Mutation), damit kein
   // weiterer Aufruf den kompromittierten Zwischenstand einfrieren kann. Alle
   // anderen Zustellungen dieses Zyklus laufen normal weiter.
-  const geoeffnetOderLeer = await verarbeiteMitWiederherstellung(
+  const ergebnisse = await verarbeiteMitWiederherstellung(
     zustellungen,
     (z) => zustellungOeffnen(ident, z),
     (err) => err instanceof KontoSicherungFehlgeschlagen,
@@ -231,14 +273,25 @@ async function postfachZyklus(): Promise<Message[]> {
   );
 
   const geoeffnet: Message[] = [];
+  // Zustellungen, deren Klartext schon vor diesem Zyklus abgelegt war (FIX 3,
+  // Runde 3) — direkt quittierbar, ohne Umweg ueber `verlaufSpeichernPflicht`
+  // (es gibt nichts mehr abzulegen) und OHNE Eintrag in `geoeffnet` (sonst
+  // wuerde `ws/handlers/chat.ts` sie ein zweites Mal als neu/ungelesen
+  // behandeln).
+  const schonQuittierbar: string[] = [];
   // `verlaufSpeichernPflicht` nimmt einen Kanal je Aufruf — gleich beim
   // Oeffnen nach Kanal gruppieren, eine Abholung kann mehrere Gespraeche
   // mitbringen. `nachricht.id` ist die Zustellungs-ID (`id: z.id` in
   // `zustellungOeffnen`), ein separates Nachschlagen der Zustellung entfaellt.
   const nachKanal = new Map<string, KanalGruppe>();
 
-  for (const nachricht of geoeffnetOderLeer) {
-    if (!nachricht) continue;
+  for (const ergebnis of ergebnisse) {
+    if (!ergebnis) continue;
+    if (ergebnis.art === 'schonAbgelegt') {
+      schonQuittierbar.push(ergebnis.id);
+      continue;
+    }
+    const nachricht = ergebnis.nachricht;
     geoeffnet.push(nachricht);
     const gruppe = nachKanal.get(nachricht.channel_id);
     if (gruppe) {
@@ -249,11 +302,14 @@ async function postfachZyklus(): Promise<Message[]> {
     }
   }
 
-  const quittierbar = await quittierbareIds(
-    nachKanal,
-    (kanalId, nachrichten) => verlaufSpeichernPflicht(kanalId, nachrichten as Message[]),
-    (err) => verlaufZustand.melde(err)
-  );
+  const quittierbar = [
+    ...(await quittierbareIds(
+      nachKanal,
+      (kanalId, nachrichten) => verlaufSpeichernPflicht(kanalId, nachrichten as Message[]),
+      (err) => verlaufZustand.melde(err)
+    )),
+    ...schonQuittierbar
+  ];
 
   if (quittierbar.length > 0) {
     // ERST JETZT quittieren, s. Modulkopf.

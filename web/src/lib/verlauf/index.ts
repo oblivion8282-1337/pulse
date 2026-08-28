@@ -43,7 +43,12 @@
  * ist, gelingt der Schreibvorgang.
  */
 import { zuSatz, sortierSchluessel, satzZuNachricht, type SatzAlsNachricht } from './satz';
-import { verlaufPutSaetze, verlaufMarkiereGeloescht, verlaufLesenSaetze } from './db';
+import {
+  verlaufPutSaetze,
+  verlaufMarkiereGeloescht,
+  verlaufLesenSaetze,
+  verlaufSatzVorhanden
+} from './db';
 import { verlaufZustand } from './zustand.svelte';
 import { zusammenfuegen, type Mergeposten } from './zusammenfuegen';
 import { VerlaufSpeichernFehlgeschlagen, pruefeSpeicherErgebnis } from './speichernPflicht';
@@ -152,6 +157,23 @@ export function verlaufLesen(
       verlaufZustand.melde(err);
       return [];
     });
+}
+
+/**
+ * `true`, wenn fuer diese Nachrichten-ID im DM-Kanal bereits ein Satz liegt —
+ * fuer `krypto/empfangen.ts` FIX 3 (Bughunt-Runde 3, s. dortigen Modulkopf):
+ * eine Zustellung, deren Quittung zuletzt fehlschlug, aber deren Klartext
+ * schon sicher abgelegt ist, darf ohne erneutes Entschluesseln quittiert
+ * werden. Wirft nie (wie die uebrigen Lesefunktionen hier) — ein Lesefehler
+ * heisst hier nur "sicherheitshalber wie neu behandeln", der Aufrufer bleibt
+ * dann beim bestehenden, langsameren Pfad.
+ */
+export function verlaufSchonAbgelegt(kanalId: string, nachrichtId: string): Promise<boolean> {
+  if (!istDmKanal(kanalId)) return Promise.resolve(false);
+  return verlaufSatzVorhanden(kanalId, nachrichtId).catch((err) => {
+    verlaufZustand.melde(err);
+    return false;
+  });
 }
 
 /** Ein Merge-Posten fuer `zusammenfuegen` — trägt die anzuzeigende Nachricht
