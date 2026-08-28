@@ -17,7 +17,10 @@ Alle Pruefungen sind fail-closed, in dieser Reihenfolge:
    heute nur DMs (Gruppen sind Etappe G) — eine Gilden-Kanal-ID wird deshalb
    ebenfalls abgewiesen.
 3. Obergrenzen (Groesse je Umschlag, Anzahl Nutzlasten je Anfrage, offene
-   Zustellungen je Empfaengergeraet).
+   Zustellungen je Empfaengergeraet — insgesamt UND je Absender, Bughunt
+   2026-08-28 (Missbrauch) FIX 3, s.
+   ``postfach_max_offene_zustellungen_je_absender_und_geraet`` in
+   ``config.py``).
 
 Der Server kann keinen Umschlag oeffnen — deshalb wird ``daten`` nirgends
 geloggt, auch nicht in Fehlermeldungen.
@@ -179,6 +182,14 @@ async def postfach_einliefern(
     # einem erneuten COUNT auftauchen).
     verfaellt_am = datetime.now(UTC) + timedelta(days=settings.postfach_frist_tage)
     offene_je_geraet: dict[str, int] = {}
+    # Wie ``offene_je_geraet``, aber je (Absender-Geraet, Empfaengergeraet) —
+    # FIX 3: die GESAMT-Obergrenze allein zaehlt ueber alle Absender hinweg,
+    # ein einzelner angenommener Kontakt kann sie also allein fuellen und
+    # damit jeden ANDEREN Absender an dieses Geraet aussperren. Absender ist
+    # innerhalb dieser Anfrage konstant (``claims.device_pubkey``, ein
+    # Geraete-Nachweis pro Aufruf), der Cache-Schluessel ist deshalb einfach
+    # der Empfaenger-Pubkey.
+    offene_je_sender_und_geraet: dict[str, int] = {}
     gesamt_zustellungen = 0
     verworfene_nutzlasten = 0
     # Ueber die ganze Anfrage dedupliziert, Reihenfolge egal — ``dict`` statt
@@ -234,15 +245,32 @@ async def postfach_einliefern(
                         .where(DmZustellung.empfaenger_device_pubkey == pubkey)
                     )
                 ).scalar_one()
-            if offene_je_geraet[pubkey] >= settings.postfach_max_offene_zustellungen_je_geraet:
-                # Geraet ist voll — wie ein unbekanntes Geraet uebersprungen,
-                # nicht die ganze Anfrage abgewiesen.
+            if pubkey not in offene_je_sender_und_geraet:
+                offene_je_sender_und_geraet[pubkey] = (
+                    await session.execute(
+                        select(func.count())
+                        .select_from(DmZustellung)
+                        .join(DmNutzlast, DmNutzlast.id == DmZustellung.nutzlast_id)
+                        .where(
+                            DmZustellung.empfaenger_device_pubkey == pubkey,
+                            DmNutzlast.absender_device_pubkey == claims.device_pubkey,
+                        )
+                    )
+                ).scalar_one()
+            if (
+                offene_je_geraet[pubkey] >= settings.postfach_max_offene_zustellungen_je_geraet
+                or offene_je_sender_und_geraet[pubkey]
+                >= settings.postfach_max_offene_zustellungen_je_absender_und_geraet
+            ):
+                # Geraet ist voll (insgesamt ODER fuer diesen Absender allein,
+                # FIX 3) — wie ein unbekanntes Geraet uebersprungen, nicht die
+                # ganze Anfrage abgewiesen.
                 #
-                # **Diese Grenze ist naeherungsweise, nicht scharf**, und das
-                # gehoert gesagt: der Zaehler wird VOR dem Einfuegen gelesen,
-                # gleichzeitige Anfragen sehen also denselben alten Stand und
-                # koennen ihn zusammen ueberschreiten. Ein scharfer Wert
-                # brauchte eine Zaehlerzeile mit bewachtem UPDATE.
+                # **Beide Grenzen sind naeherungsweise, nicht scharf**, und
+                # das gehoert gesagt: die Zaehler werden VOR dem Einfuegen
+                # gelesen, gleichzeitige Anfragen sehen also denselben alten
+                # Stand und koennen ihn zusammen ueberschreiten. Ein scharfer
+                # Wert brauchte eine Zaehlerzeile mit bewachtem UPDATE.
                 #
                 # Vertretbar ist die Naeherung erst, seit oben geprueft wird,
                 # dass ein Empfaengergeraet zu DIESEM Gespraech gehoert: das
@@ -254,6 +282,7 @@ async def postfach_einliefern(
                 continue
             empfaenger_zeilen.append((pubkey, bundle.user_id))
             offene_je_geraet[pubkey] += 1
+            offene_je_sender_und_geraet[pubkey] += 1
 
         if not empfaenger_zeilen:
             # Keine Zustellung moeglich -> keine Nutzlast anlegen (sonst

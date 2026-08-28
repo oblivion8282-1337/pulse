@@ -160,6 +160,28 @@ async def _einliefern(
     return r
 
 
+async def _einliefern_mit_geraet(
+    client, app, *, token: str, uid: int, channel_id: str,
+    nutzlasten: list[dict], priv: Ed25519PrivateKey, pubkey: str,
+):
+    """Wie ``_einliefern``, aber mit einem VORGEGEBENEN Sendegeraet statt
+    einem frisch erzeugten je Aufruf — noetig, um mehrere Einlieferungen
+    DESSELBEN Absendegeraets nachzustellen (FIX 3: die Fairness-Grenze
+    haengt am Sendegeraet, nicht an der Anfrage)."""
+    await _seed_jwks(app)
+    cert = _make_cert(user_id=str(uid), device_pubkey=pubkey)
+    daten_liste = [n["daten"] for n in nutzlasten]
+    sig = _sign(priv, baue_nutzlast("postfach", str(channel_id), *daten_liste))
+    return await client.post(
+        "/postfach",
+        json={
+            "channel_id": str(channel_id), "cert": cert, "signatur": sig,
+            "nutzlasten": nutzlasten,
+        },
+        headers=_auth(token),
+    )
+
+
 async def _abholen(
     client, app, *, token: str, uid: int, priv: Ed25519PrivateKey, pubkey: str
 ):
@@ -608,6 +630,69 @@ def test_envelope_groesse_verlangt_den_polsterungs_nachtrag() -> None:
     unpolstert = base64.b64encode(roh).rstrip(b"=").decode()
 
     assert _envelope_groesse(unpolstert) == len(roh)
+
+
+# ---------------------------------------------------------------------------
+# Bughunt 2026-08-28 (Missbrauch) — Fairness je Absender (FIX 3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_ein_absender_verdraengt_nicht_die_anderen(
+    client, app, session_factory, _auth_signer, friend_pair, _isolate_chat_settings,
+):
+    """Die Gesamt-Obergrenze je Empfaengergeraet zaehlt ueber ALLE Absender
+    hinweg — ein einzelner angenommener Kontakt kann sie mit ein paar
+    Anfragen allein fuellen und damit jeden ANDEREN Absender aussperren.
+    Hier mit einer kuenstlich kleinen Absender-Grenze von 2 nachgestellt: A
+    fuellt sein eigenes Kontingent, B darf trotzdem noch zustellen."""
+    settings = _isolate_chat_settings
+    settings.postfach_max_offene_zustellungen_je_absender_und_geraet = 2
+
+    token_a, uid_a = await _register(_auth_signer)
+    token_b, uid_b = await _register(_auth_signer)
+    _, uid_c = await _register(_auth_signer)
+    await friend_pair(uid_a, uid_c)
+    await friend_pair(uid_b, uid_c)
+    dm_ac = await _dm_erstellen(client, token_a, uid_c)
+    dm_bc = await _dm_erstellen(client, token_b, uid_c)
+    await _bundel_seeden(session_factory, user_id=uid_c, device_pubkey="empf-fair")
+
+    # A liefert drei Umschlaege VOM SELBEN GERAET an dasselbe Empfaenger-
+    # geraet -- nur zwei duerfen ankommen, der dritte wird uebersprungen
+    # (nicht die Anfrage abgewiesen). Dasselbe Sendegeraet ueber alle drei
+    # Aufrufe: die Fairness-Grenze haengt am Sendegeraet (``_einliefern``
+    # wuerde je Aufruf ein NEUES erzeugen und die Grenze so umgehen).
+    priv_a, pubkey_a = _make_device()
+    for i in range(2):
+        daten = _b64_unpadded(f"umschlag-a-{i}-nicht-durch-drei".encode())
+        r = await _einliefern_mit_geraet(
+            client, app, token=token_a, uid=uid_a, channel_id=dm_ac,
+            nutzlasten=[{"art": 1, "daten": daten, "empfaenger": ["empf-fair"]}],
+            priv=priv_a, pubkey=pubkey_a,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["zustellungen_angelegt"] == 1, r.text
+
+    daten_dritter = _b64_unpadded(b"dritter-umschlag-a-nicht-durch-drei")
+    r = await _einliefern_mit_geraet(
+        client, app, token=token_a, uid=uid_a, channel_id=dm_ac,
+        nutzlasten=[{"art": 1, "daten": daten_dritter, "empfaenger": ["empf-fair"]}],
+        priv=priv_a, pubkey=pubkey_a,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["zustellungen_angelegt"] == 0
+    assert r.json()["uebersprungene_empfaenger"] == ["empf-fair"]
+
+    # B ist ein ANDERER Absender an dasselbe Geraet -- A's ausgeschoepftes
+    # Kontingent darf B nicht betreffen.
+    daten_b = _b64_unpadded(b"umschlag-b-nicht-durch-drei-teilbar")
+    r = await _einliefern(
+        client, app, token=token_b, uid=uid_b, channel_id=dm_bc,
+        nutzlasten=[{"art": 1, "daten": daten_b, "empfaenger": ["empf-fair"]}],
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["zustellungen_angelegt"] == 1, r.text
 
 
 # ---------------------------------------------------------------------------
