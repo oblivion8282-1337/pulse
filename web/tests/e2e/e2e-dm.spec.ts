@@ -202,6 +202,39 @@ function anzahlNutzlasten(channelId: string): number {
   );
 }
 
+/** Holt `daten` aller Nutzlasten eines Kanals — leer, wenn (noch/schon)
+ *  keine da ist. Genutzt fuer die eigentliche Ciphertext-Pruefung unten,
+ *  NICHT nur fuer Zeilenzahlen: eine "Verschluesselung", die zu
+ *  Base64-kodiertem Klartext entartet waere, bestuende jede reine
+ *  Zaehl-Pruefung anstandslos. */
+function nutzlastDatenFuerKanal(channelId: string): string[] {
+  const raw = pgQuery(
+    `SELECT string_agg(daten, '|') FROM chat.dm_nutzlasten WHERE channel_id = ${channelId};`
+  );
+  return raw ? raw.split('|') : [];
+}
+
+/** Pollt auf `nutzlastDatenFuerKanal`, bis mindestens eine Zeile da ist —
+ *  im Unterschied zu `expect.poll` GIBT diese Funktion den gefangenen Wert
+ *  zurueck, den die eigentliche Pruefung braucht. Muss direkt nach dem
+ *  Absenden aufgerufen werden, VOR dem Warten auf bobs sichtbare Nachricht:
+ *  die Quittung (die die Zeile wieder loescht) kann erst nach der
+ *  Zustellung laufen (WS-Weckruf -> abholen -> entschluesseln, s.
+ *  `empfangen.ts`), dieser Moment ist also die fruehest- und
+ *  zuverlaessigste Gelegenheit, den Umschlag noch im Postfach zu sehen. */
+async function nutzlastDatenBisVorhanden(
+  channelId: string,
+  timeoutMs = 5_000
+): Promise<string[]> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const gefunden = nutzlastDatenFuerKanal(channelId);
+    if (gefunden.length > 0) return gefunden;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return [];
+}
+
 test.describe.serial('E2E-verschluesselte Direktnachrichten (Etappe D2, Nachweis)', () => {
   let aliceCtx: BrowserContext;
   let alicePage: Page;
@@ -264,16 +297,39 @@ test.describe.serial('E2E-verschluesselte Direktnachrichten (Etappe D2, Nachweis
     await alicePage.getByTestId('message-input').fill(KLARTEXT_1);
     await alicePage.getByTestId('message-input').press('Enter');
 
-    // 1. Die Grundbehauptung: bob sieht den Klartext, live per WS.
+    // 1. Die eigentliche Behauptung des ganzen Vorhabens, direkt am
+    // gespeicherten Byte-Inhalt geprueft, NICHT nur an Zeilenzahlen: der
+    // Server sieht den Klartext nie — auch nicht als Base64-verpackten
+    // Klartext, was jede reine Zaehl-Pruefung unten anstandslos bestuende.
+    // Muss VOR dem Warten auf bobs sichtbare Nachricht laufen, s.
+    // `nutzlastDatenBisVorhanden`-Docstring.
+    const umschlaege = await nutzlastDatenBisVorhanden(dmChannelId);
+    expect(
+      umschlaege.length,
+      'kein Umschlag im Postfach gefunden — entweder kam er nie an, oder die ' +
+        'Quittung war schneller als diese Pruefung (siehe Docstring)'
+    ).toBeGreaterThan(0);
+    for (const daten of umschlaege) {
+      // Roh: eine Verschluesselung, die den Klartext unveraendert mitfuehrt
+      // (z. B. angehaengt statt ersetzt), faellt schon hier auf.
+      expect(daten).not.toContain(KLARTEXT_1);
+      // Dekodiert: der eigentliche Regressionsfall — "Verschluesselung", die
+      // zu blossem Base64(Klartext) entartet ist. Node toleriert fehlendes
+      // Padding beim Dekodieren (der Krypto-Kern liefert ohnehin unpolstert,
+      // s. `krypto/pulse-krypto`-Modul-Docstring in `CLAUDE.md`).
+      const dekodiert = Buffer.from(daten, 'base64').toString('utf8');
+      expect(dekodiert).not.toContain(KLARTEXT_1);
+    }
+
+    // 2. Die Grundbehauptung: bob sieht den Klartext, live per WS.
     await expect(
       bobPage.locator('[data-testid="message-content"]', { hasText: KLARTEXT_1 })
     ).toBeVisible({ timeout: 10_000 });
 
-    // 2. Die eigentliche Behauptung des ganzen Vorhabens: der Server hat den
-    // Klartext NIE gesehen. `chat.messages` bleibt fuer diesen Kanal leer —
-    // waere die verschluesselte Zustellung stillschweigend auf den
-    // Klartext-Weg zurueckgefallen (Koexistenz-Bug oder Schalter-Patch
-    // wirkungslos), stuende hier eine Zeile.
+    // 3. `chat.messages` bleibt fuer diesen Kanal leer — waere die
+    // verschluesselte Zustellung stillschweigend auf den Klartext-Weg
+    // zurueckgefallen (Koexistenz-Bug oder Schalter-Patch wirkungslos),
+    // stuende hier eine Zeile.
     expect(anzahlKlartextNachrichten(dmChannelId)).toBe(0);
 
     // Und nach der Quittung (asynchron, s. `empfangen.ts`: erst ablegen,
