@@ -223,12 +223,20 @@ def issue_session_token(
     *,
     key_path: str = "./data/jwt_keys/session_signing.pem",
     admin: bool = False,
+    ttl_seconds: int = SESSION_TTL_SECONDS,
 ) -> str:
-    """Issue a 5-minute self-host session token.
+    """Issue a self-host session token.
 
     Signed with the local Ed25519 key. ``user_identifier`` is the pairwise_sub
     (self-host) or direct user_id (cloud mode). ``admin`` marks the instance
     owner (see cert-login owner-match) so the session carries admin rights.
+
+    ``ttl_seconds`` ist eine Vorgabe, keine Konstante, weil zwei Anmeldewege
+    nebeneinander laufen: Der Cert-Weg behaelt seine fuenf Minuten — sie waren
+    die Antwort auf die Zertifikats-Sperrliste, und die gibt es dort noch. Der
+    Ticket-Weg hat keine Sperrliste mehr und setzt eine Stunde; bei fuenf
+    Minuten bliebe der stille Wiederanmelde-Sturm bestehen, gegen den der
+    Ticket-Weg gebaut wurde.
     """
     priv, _ = _get_keys(key_path)
     now = int(time.time())
@@ -239,7 +247,7 @@ def issue_session_token(
         "cert_id": cert_id,
         "admin": admin,
         "iat": now,
-        "exp": now + SESSION_TTL_SECONDS,
+        "exp": now + ttl_seconds,
         "typ": "session",
     }
     # PyJWT encodes Ed25519 via algorithm "EdDSA"

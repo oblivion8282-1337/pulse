@@ -146,3 +146,29 @@ def test_different_users_get_different_tokens(_tmp_key):
     t_a = issue_session_token("user-a", "cert-1", key_path=_tmp_key)
     t_b = issue_session_token("user-b", "cert-1", key_path=_tmp_key)
     assert t_a != t_b
+
+
+def test_ttl_ist_ueberschreibbar_und_bleibt_sonst_bei_fuenf_minuten(tmp_path):
+    """Zwei Anmeldewege, zwei Fristen, eine Funktion.
+
+    Die fuenf Minuten waren die Antwort auf die Zertifikats-Sperrliste: Ein
+    widerrufenes Zertifikat sollte schnell wirken, also durfte keine Sitzung
+    lange gelten. Der Cert-Weg behaelt sie, solange es ihn gibt. Der Ticket-Weg
+    hat diese Sperrliste nicht mehr und setzt eine Stunde - sonst bliebe der
+    stille Wiederanmelde-Sturm alle vier Minuten bestehen, der den ganzen Umbau
+    ausgeloest hat.
+    """
+    from dcc_shared.session_tokens import (
+        SESSION_TTL_SECONDS,
+        issue_session_token,
+        validate_session_token,
+    )
+
+    pfad = str(tmp_path / "session_signing.pem")
+    kurz = issue_session_token("nutzer", "kein-cert", key_path=pfad)
+    lang = issue_session_token("nutzer", "kein-cert", key_path=pfad, ttl_seconds=3600)
+
+    k = validate_session_token(kurz, key_path=pfad)
+    lg = validate_session_token(lang, key_path=pfad)
+    assert k.exp - k.iat == SESSION_TTL_SECONDS
+    assert lg.exp - lg.iat == 3600
