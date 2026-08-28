@@ -5,6 +5,7 @@
   import { plainifyMentions } from './messageRender';
   import { chatApi } from '$lib/api/chat';
   import { messages as messageStore } from '$lib/stores/messages.svelte';
+  import { verlaufSpeichern } from '$lib/verlauf';
   import type { Channel, Message } from '$lib/api/types';
   import { auth } from '$lib/stores/auth.svelte';
   import { userCache } from '$lib/stores/users.svelte';
@@ -136,6 +137,7 @@
       // (und damit data.length) wächst, also innerhalb des tick()-Flushes.
       prependShift = true;
       const added = messageStore.prepend(channel.id, older);
+      void verlaufSpeichern(channel.id, older);
       await tick();
       prependShift = false;
       // Historie-Ende: nichts Neues kam dazu, oder die Seite war unvollständig.

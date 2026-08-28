@@ -19,6 +19,7 @@
 import { messages } from '$lib/stores/messages.svelte';
 import { chatApi } from '$lib/api/chat';
 import { compareSnowflakeId } from '$lib/utils/snowflake';
+import { verlaufSpeichern } from '$lib/verlauf';
 
 const GAP_FILL_LIMIT = 100;
 
@@ -45,6 +46,7 @@ export async function gapFillChannel(cid: string, refetchOnOverflow: boolean): P
         // Channel-switch path: no page-effect reload to fall back to, so
         // adopt the latest page as the new history.
         messages.setInitial(cid, page);
+        void verlaufSpeichern(cid, page);
       } else {
         // Reconnect path: drop the cache so the page-effect in
         // `routes/app/.../+page.svelte` triggers a full reload.
@@ -53,6 +55,7 @@ export async function gapFillChannel(cid: string, refetchOnOverflow: boolean): P
       return;
     }
     messages.mergeGap(cid, page);
+    void verlaufSpeichern(cid, page);
     // `reconcile` re-syncs content/edited_at/reactions of messages we
     // ALREADY hold — but `page` (`after=lastId`) is by construction only
     // ids strictly newer than anything we hold, so it can never overlap with
@@ -63,6 +66,7 @@ export async function gapFillChannel(cid: string, refetchOnOverflow: boolean): P
     // and it does overlap with what we already hold.
     const recent = await chatApi.listMessages(cid, { limit: GAP_FILL_LIMIT });
     messages.reconcile(cid, recent);
+    void verlaufSpeichern(cid, recent);
   } catch {
     // Best-effort. A 401 means the token already rotated again (unlikely
     // but possible); the next reconnect/switch will retry.

@@ -13,6 +13,7 @@
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { messages } from '$lib/stores/messages.svelte';
+  import { verlaufSpeichern } from '$lib/verlauf';
   import { chatApi } from '$lib/api/chat';
   import { cloudGateway } from '$lib/ws/connection';
   import { serversStore } from '$lib/api/servers.svelte';
@@ -86,7 +87,10 @@
     void chatApi
       .listMessages(cid, {}, cloudRoute)
       .then((history) => {
-        if (untrack(() => prevDM) === cid) messages.setInitial(cid, history);
+        if (untrack(() => prevDM) === cid) {
+          messages.setInitial(cid, history);
+          void verlaufSpeichern(cid, history);
+        }
       })
       .catch(() => {
         /* user-driven retry via navigation */
@@ -142,6 +146,7 @@
         const history = await chatApi.listMessages(cid, {}, cloudRoute);
         if (isStale()) return;
         messages.setInitial(cid, history);
+        void verlaufSpeichern(cid, history);
       }
     } catch (err) {
       if (isStale()) return;
@@ -200,7 +205,10 @@
     // Pure-text messages stay on the WS fast-path.
     if (attachmentIds.length > 0) {
       chatApi.postMessage(cid, text, { nonce, replyToId, attachmentIds }, cloudRoute)
-        .then((real) => messages.upsert(real))
+        .then((real) => {
+          messages.upsert(real);
+          void verlaufSpeichern(cid, [real]);
+        })
         .catch((e) => {
           messages.removeOptimistic(cid, tmpId);
           toast.error(m.dm_page_send_failed(), { description: (e as Error).message });

@@ -11,6 +11,7 @@
  */
 import { messages } from '$lib/stores/messages.svelte';
 import { directMessages } from '$lib/stores/directMessages.svelte';
+import { verlaufSpeichern, verlaufNachrichtGeloescht } from '$lib/verlauf';
 import { streamChat } from '$lib/stores/streamChat.svelte';
 import { watchChat } from '$lib/stores/watchChat.svelte';
 import { readState } from '$lib/stores/readState.svelte';
@@ -47,6 +48,7 @@ function dmVorschauAuffrischen(): void {
 export function register(ctx: HandlerContext): void {
   registerWsHandler('message', (evt) => {
     messages.upsert(evt.data);
+    void verlaufSpeichern(evt.data.channel_id, [evt.data]);
     // A delivered message means the author just stopped typing — drop their
     // "X schreibt …" immediately instead of waiting out the 6s TTL.
     typing.clear(evt.data.channel_id, evt.data.author_id);
@@ -63,10 +65,12 @@ export function register(ctx: HandlerContext): void {
 
   registerWsHandler('message_update', (evt) => {
     messages.update(evt.data);
+    void verlaufSpeichern(evt.data.channel_id, [evt.data]);
   });
 
   registerWsHandler('message_delete', (evt) => {
     messages.remove(evt.data.channel_id, evt.data.id);
+    verlaufNachrichtGeloescht(evt.data.channel_id, evt.data.id);
   });
 
   registerWsHandler('reaction_add', (evt) => {
