@@ -1713,7 +1713,16 @@ git commit -m "feat(web): Ticket-Anmeldung mit Gruenden statt Sammelmeldung"
 
 ---
 
-### Aufgabe 11: Der Test, der den Vorfall verhindert hätte
+### Aufgabe 11: Der Test, der den Vorfall verhindert hätte — VERWORFEN (2026-08-28)
+
+**Ergebnis der Umsetzung: gestrichen, mit Grund.** Der Test wurde geschrieben, lief grün — und blieb grün, als der alte Fehler testweise wieder eingebaut wurde. Die Playwright-Suite fährt gegen eine **Cloud**-Instanz, und dort gibt es keine Zertifikats-Anmeldung; geprüft wurde also „zwei Browser können beide in der Cloud angemeldet sein", was nie kaputt war.
+
+Ein Test, der aus dem falschen Grund grün ist, erzeugt falsche Sicherheit — schlimmer als keiner. Gewacht wird stattdessen von `test_zwei_browser_mit_gleichem_label_bleiben_beide_gueltig` (auth-Backend), das die Gegenprobe besteht. Die Begründung steht in dessen Docstring, damit der nächste, der die Idee hat, sie nicht noch einmal baut.
+
+Wer es doch als E2E will, braucht einen zweiten Backend-Stand im Testaufbau. Das ist ein eigener Task.
+
+<details><summary>Ursprünglicher Aufgabentext</summary>
+
 
 **Dateien:**
 - Anlegen: `web/tests/e2e/zwei-browser-gleichzeitig.spec.ts`
@@ -1787,6 +1796,10 @@ Erwartet: grün.
 git add web/tests/e2e/zwei-browser-gleichzeitig.spec.ts
 git commit -m "test(e2e): zwei Browser desselben Kontos bleiben beide angemeldet"
 ```
+
+---
+
+</details>
 
 ---
 

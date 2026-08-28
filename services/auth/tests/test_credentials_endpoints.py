@@ -121,6 +121,14 @@ async def test_zwei_browser_mit_gleichem_label_bleiben_beide_gueltig(client, app
     Idempotenz-Pfad einen bereits widerrufenen Pass nicht mehr trifft, warfen
     sich zwei Browser endlos abwechselnd hinaus — beide dauerhaft kaputt, ohne
     dass eine Neuausstellung half.
+
+    **Dies ist die einzige Stelle, die das prueft.** Ein E2E-Test mit zwei
+    Browser-Kontexten waere naheliegend, ist hier aber wertlos: Die
+    Playwright-Suite faehrt gegen eine CLOUD-Instanz, und dort gibt es keine
+    Zertifikats-Anmeldung. Ein solcher Test bliebe gruen, auch wenn man den
+    Fehler wieder einbaut — nachgemessen am 2026-08-28. Wer Gordons Fall in
+    einem E2E nachstellen will, braucht einen zweiten Backend-Stand im
+    Testaufbau; bis dahin ist dieser Test der Waechter.
     """
     cookie, _ = await _reg_and_login(client)
     r1 = await _issue(
