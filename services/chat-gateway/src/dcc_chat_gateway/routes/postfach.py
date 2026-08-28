@@ -107,8 +107,10 @@ async def postfach_einliefern(
     )
     claims = await pruefe_geraet(body.cert, nutzlast_bytes, body.signatur, user, redis)
 
-    # 2. Kanalzugang.
-    await _channel_zugriff_pruefen(session, cid_int, user.id)
+    # 2. Kanalzugang. Der Kanal liefert zugleich die Menge der Konten, an die
+    # ueberhaupt zugestellt werden darf (s. Pruefung weiter unten).
+    dm_obj = await _channel_zugriff_pruefen(session, cid_int, user.id)
+    teilnehmer = {dm_obj.user_a_id, dm_obj.user_b_id}
 
     # 3. Obergrenzen.
     if len(body.nutzlasten) > settings.postfach_max_nutzlasten_je_anfrage:
@@ -141,6 +143,21 @@ async def postfach_einliefern(
                 # Schluessel-Abholen und Absenden verschwunden — Alltag,
                 # kein Fehler fuer die uebrigen Empfaenger.
                 continue
+            # **Das Geraet muss zu DIESEM Gespraech gehoeren.**
+            #
+            # Die Kanalpruefung oben belegt nur, dass der Absender in DIESEM
+            # Kanal schreiben darf — nicht, an WEN zugestellt wird. Die
+            # Empfaengerkennungen kommen aus dem Anfrage-Rumpf; ohne diese
+            # Zeile koennte jeder mit einer einzigen legitimen DM Umschlaege
+            # in das Postfach JEDES Geraets JEDES Nutzers legen, auch von
+            # Leuten, die ihn geblockt haben, und dabei deren Kontingent
+            # vollschreiben.
+            #
+            # Kein stilles Ueberspringen wie beim unbekannten Geraet: ein
+            # fremdes Geraet ist kein Alltagsfall, sondern ein Klientenfehler
+            # oder ein Angriff. Fail-closed und laut.
+            if bundle.user_id not in teilnehmer:
+                raise HTTPException(status_code=403, detail="empfaenger_nicht_im_kanal")
             if pubkey not in offene_je_geraet:
                 offene_je_geraet[pubkey] = (
                     await session.execute(
@@ -152,6 +169,19 @@ async def postfach_einliefern(
             if offene_je_geraet[pubkey] >= settings.postfach_max_offene_zustellungen_je_geraet:
                 # Geraet ist voll — wie ein unbekanntes Geraet uebersprungen,
                 # nicht die ganze Anfrage abgewiesen.
+                #
+                # **Diese Grenze ist naeherungsweise, nicht scharf**, und das
+                # gehoert gesagt: der Zaehler wird VOR dem Einfuegen gelesen,
+                # gleichzeitige Anfragen sehen also denselben alten Stand und
+                # koennen ihn zusammen ueberschreiten. Ein scharfer Wert
+                # brauchte eine Zaehlerzeile mit bewachtem UPDATE.
+                #
+                # Vertretbar ist die Naeherung erst, seit oben geprueft wird,
+                # dass ein Empfaengergeraet zu DIESEM Gespraech gehoert: das
+                # Kontingent eines Fremden ist damit unerreichbar, und wer es
+                # ueberschreiten kann, ist jemand, mit dem man befreundet ist
+                # und schreibt — dessen Ueberschuss zudem nach
+                # ``postfach_frist_tage`` von selbst verfaellt.
                 continue
             empfaenger_zeilen.append((pubkey, bundle.user_id))
             offene_je_geraet[pubkey] += 1

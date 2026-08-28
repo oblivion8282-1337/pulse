@@ -356,3 +356,46 @@ async def test_einliefern_weckt_die_empfaenger(
     finally:
         await pubsub.unsubscribe(CHANNEL_KEY.format(channel_id=dm_id))
         await pubsub.aclose()
+
+
+@pytest.mark.asyncio
+async def test_zustellung_an_ein_kanalfremdes_geraet_wird_abgewiesen(
+    client, app, session_factory, _auth_signer, friend_pair
+):
+    """Die Kanalpruefung belegt, WO geschrieben werden darf — nicht, an WEN.
+
+    Die Empfaengerkennungen kommen aus dem Anfrage-Rumpf. Ohne diese Pruefung
+    koennte jeder mit einer einzigen legitimen DM Umschlaege in das Postfach
+    JEDES Geraets JEDES Nutzers legen — auch von Leuten, die ihn geblockt
+    haben — und dabei deren Kontingent vollschreiben. Gemeldet von der
+    Sicherheitspruefung am 2026-08-28.
+
+    Kein stilles Ueberspringen wie beim unbekannten Geraet: ein fremdes Geraet
+    ist kein Alltagsfall, sondern ein Klientenfehler oder ein Angriff.
+    """
+    from dcc_chat_gateway.models import DmNutzlast, DmZustellung
+    from sqlalchemy import select
+
+    token_a, uid_a = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
+    _, uid_fremd = await _register(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+    dm_id = await _dm_erstellen(client, token_a, uid_b)
+
+    # Ein Geraet des Gespraechspartners und eines eines voellig Unbeteiligten.
+    await _bundel_seeden(session_factory, user_id=uid_b, device_pubkey="empf-ok")
+    await _bundel_seeden(session_factory, user_id=uid_fremd, device_pubkey="empf-fremd")
+
+    daten = base64.b64encode(b"olm-umschlag").decode()
+    r = await _einliefern(
+        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        nutzlasten=[{"art": 1, "daten": daten, "empfaenger": ["empf-ok", "empf-fremd"]}],
+    )
+    assert r.status_code == 403, r.text
+    assert "empfaenger_nicht_im_kanal" in r.text
+
+    # Und nichts davon darf geschrieben worden sein — auch nicht die
+    # zulaessige Haelfte derselben Anfrage.
+    async with session_factory() as s:
+        assert (await s.execute(select(DmNutzlast))).scalars().all() == []
+        assert (await s.execute(select(DmZustellung))).scalars().all() == []
