@@ -2156,7 +2156,6 @@
   "self_host_application_submit": "Submit application",
   "self_host_application_submitted_toast": "Application submitted. You will be notified once your application has been reviewed.",
   "self_host_application_submitting": "Submitting…",
-  "self_host_cloud_only": "You manage your own servers where your account lives. Switch to howispulse.com to apply for a server or set one up.",
   "self_host_contact_confirm_cancel": "Cancel",
   "self_host_contact_confirm_confirm": "Got it, continue",
   "self_host_contact_confirm_hint": "The operator of this external server will see your IP address.",
@@ -3015,5 +3014,6 @@
   "anmeldung_instanz_geloescht": "This server was deleted. Remove it from your server list.",
   "anmeldung_netzfehler": "The server cannot be reached right now. Check your connection; if the problem persists, the operator can run a reachability check.",
   "anmeldung_server_speicher": "The server cannot reach its cache right now and is refusing sign-ins. This usually passes; if it persists, the operator needs to check that Redis is running.",
-  "anmeldung_server_ohne_kennung": "This server is missing its own identifier. The operator needs to set PULSE_INSTANCE_ID in the configuration file and restart the server."
+  "anmeldung_server_ohne_kennung": "This server is missing its own identifier. The operator needs to set PULSE_INSTANCE_ID in the configuration file and restart the server.",
+  "guild_rail_server_manage_own": "Manage your servers"
 }
