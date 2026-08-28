@@ -43,6 +43,10 @@ import dcc_chat_gateway.config as chat_config
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.friend_helpers import block_exists_either_way
 from dcc_chat_gateway.models import PrivateGroupChannel, PrivateGroupMember
+from dcc_chat_gateway.private_gruppen_atomar import (
+    ersteller_erbe_uebertragen,
+    gruppe_loeschen_wenn_leer,
+)
 from dcc_chat_gateway.routes._deps import CloudOnly
 from dcc_chat_gateway.schemas import (
     PrivateGroupCreateIn,
@@ -130,25 +134,43 @@ async def _gruppe_fuer_mitglied_laden(
 async def _entferne_mitglied(session, gruppe: PrivateGroupChannel, user_id: int) -> bool:
     """Entfernt ``user_id`` aus ``gruppe`` und setzt die Festlegungen 1+2 aus
     dem Modul-Docstring um. Rueckgabe: ``True``, wenn die Gruppe dabei
-    komplett geloescht wurde (letztes Mitglied)."""
+    komplett geloescht wurde (letztes Mitglied).
+
+    Die eigentliche Atomaritaet steckt in ``private_gruppen_atomar.py``
+    (Begruendung + Bug dort); hier nur die Reihenfolge: erst die eigene
+    Mitgliedszeile weg und COMMITTET, dann — jeweils mit eigenem Commit —
+    entweder die Gruppe loeschen oder die Ersteller-Rolle weiterreichen.
+    Jeder Commit ist die Stelle, an der eine gleichzeitige zweite Anfrage
+    (derselbe Zweig, ein anderer Nutzer) dazwischenfunken UND sich wieder
+    einordnen kann — dasselbe Muster wie ``_einmalschluessel_holen``
+    (``routes/schluessel.py``): erst nach dem Commit sehen die naechsten
+    Schritte den wirklich aktuellen Stand."""
     await session.execute(
         sa_delete(PrivateGroupMember).where(
             PrivateGroupMember.gruppe_id == gruppe.id,
             PrivateGroupMember.user_id == user_id,
         )
     )
-    verbleibend = await _mitglieder_laden(session, gruppe.id)
-    if not verbleibend:
-        # Festlegung 2: eine Gruppe mit null Mitgliedern ist nichts.
-        await session.delete(gruppe)
+    await session.commit()
+
+    if await gruppe_loeschen_wenn_leer(session, gruppe.id):
         await session.commit()
         return True
-    if gruppe.ersteller_id == user_id:
-        # Festlegung 1: das dienstaelteste verbleibende Mitglied erbt.
-        erbe = min(verbleibend, key=lambda m: (m.beigetreten_am, m.id))
-        gruppe.ersteller_id = erbe.user_id
+
+    await ersteller_erbe_uebertragen(session, gruppe.id, user_id)
     await session.commit()
-    return False
+    # ``gruppe`` kann durch den Erbe-Uebergang veraltet sein (expire_on_commit
+    # steht in dieser App aus, s. db.py) — der Aufrufer braucht die frische
+    # ``ersteller_id`` fuer die Wire-Antwort. ``session.get(...,
+    # populate_existing=True)`` statt ``session.refresh``: zwischen unserem
+    # eigenen „nicht leer"-Befund und diesem Commit kann eine gleichzeitige
+    # dritte Anfrage (der wirklich letzte Austritt) die Gruppe inzwischen
+    # doch geloescht haben — ``refresh`` wirft dann
+    # ``InvalidRequestError``, ``get`` liefert schlicht ``None``. Dank der
+    # Identity Map ist ``gruppe`` bei einem Treffer dasselbe Objekt, der
+    # Aufrufer sieht die frischen Werte automatisch.
+    aktuelle = await session.get(PrivateGroupChannel, gruppe.id, populate_existing=True)
+    return aktuelle is None
 
 
 # ─── Routen ─────────────────────────────────────────────────────────────────
