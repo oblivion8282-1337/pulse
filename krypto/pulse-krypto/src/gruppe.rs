@@ -23,8 +23,8 @@
 //! nicht" — ohne einen Umweg ueber `InboundGroupSession::export_at`.
 
 use vodozemac::megolm::{
-    GroupSession, GroupSessionPickle, InboundGroupSession, MegolmMessage, SessionConfig,
-    SessionKey,
+    GroupSession, GroupSessionPickle, InboundGroupSession, InboundGroupSessionPickle,
+    MegolmMessage, SessionConfig, SessionKey,
 };
 
 use crate::fehler::KryptoFehler;
@@ -97,6 +97,21 @@ impl Gruppenempfang {
             zaehler: entschluesselt.message_index,
         })
     }
+
+    /// Spiegelt `Gruppensitzung::einfrieren` — ohne das wuerde ein
+    /// App-Neustart jeden noch offenen Gruppenempfang verwerfen, und weil
+    /// Megolm-Ratchets nur vorwaerts laufen (s. Modulkopf), waere er
+    /// UNWIEDERBRINGLICH verloren, nicht nur neu aufzubauen.
+    pub fn einfrieren(&self, schluessel: &[u8; 32]) -> Result<String, KryptoFehler> {
+        Ok(self.session.pickle().encrypt(schluessel))
+    }
+
+    /// Spiegelt `Gruppensitzung::auftauen`.
+    pub fn auftauen(gefroren: &str, schluessel: &[u8; 32]) -> Result<Self, KryptoFehler> {
+        let pickle = InboundGroupSessionPickle::from_encrypted(gefroren, schluessel)
+            .map_err(|_| KryptoFehler::AuftauenFehlgeschlagen)?;
+        Ok(Self { session: InboundGroupSession::from_pickle(pickle) })
+    }
 }
 
 #[cfg(test)]
@@ -161,5 +176,31 @@ mod tests {
             e.entschluesseln(&nachricht).expect("entschluesseln").klartext,
             b"nach dem Neustart"
         );
+    }
+
+    #[test]
+    fn gruppenempfang_ueberlebt_das_einfrieren() {
+        // Ohne diesen Weg (FIX 4) wuerde ein App-Neustart jeden offenen
+        // Gruppenempfang verwerfen — und weil Megolm-Ratchets nur vorwaerts
+        // laufen, kaeme man an bereits eingetroffene Nachrichten danach nie
+        // wieder heran.
+        let mut senderin = Gruppensitzung::neu();
+        let schluessel = senderin.verteilschluessel();
+        let eins = senderin.verschluesseln(b"eins");
+        let zwei = senderin.verschluesseln(b"zwei");
+
+        let mut empfang = Gruppenempfang::aus_verteilschluessel(&schluessel).expect("empfang");
+        assert_eq!(empfang.entschluesseln(&eins).expect("eins").zaehler, 0);
+
+        let gefroren = empfang.einfrieren(&[5u8; 32]).expect("einfrieren");
+        let mut wieder = Gruppenempfang::auftauen(&gefroren, &[5u8; 32]).expect("auftauen");
+
+        // Der Ratchet-Stand nach dem Neustart entschluesselt weiterhin die
+        // NAECHSTE Nachricht (Vorwaerts-Lauf, s. Modulkopf) — nicht mehr die
+        // bereits gelesene erste.
+        assert_eq!(wieder.entschluesseln(&zwei).expect("zwei").zaehler, 1);
+
+        let falscher_schluessel = [6u8; 32];
+        assert!(Gruppenempfang::auftauen(&gefroren, &falscher_schluessel).is_err());
     }
 }

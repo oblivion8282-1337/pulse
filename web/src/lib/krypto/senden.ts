@@ -14,10 +14,20 @@
  *     Rueckfallschluessel).
  *  3. Verschluesseln, Sitzung SICHERN (VOR dem Einliefern — der Ratchet ist
  *     schon weitergedreht, ein Absturz danach darf den neuen Zustand nicht
- *     verlieren, s. `sitzungen.ts`), Umschlag sammeln.
+ *     verlieren, s. `sitzungen.ts`), Umschlag sammeln. Lauft je Zielgeraet
+ *     unter `mitSitzungssperre` — zwei gleichzeitige Sendungen an dasselbe
+ *     Geraet duerfen nicht dieselbe geladene Sitzung unabhaengig weiterdrehen
+ *     (s. `sitzungen.ts` Modulkopf).
  *  4. Einliefern — ein `POST /postfach` mit allen Umschlaegen.
  *  5. Lokal ablegen — der eigene Klartext geht in den lokalen Verlauf
- *     (Etappe C1); der Server bekommt ihn nie.
+ *     (Etappe C1); der Server bekommt ihn nie, es gibt also keine zweite
+ *     Kopie (Bughunt 2026-08-28, FIX 1). Schlaegt das fehl, ist die
+ *     Nachricht trotzdem zugestellt (Schritt 4 ist schon durch) — ein
+ *     erneutes Einliefern waere ein Duplikat. Der Fehlschlag wird deshalb
+ *     NICHT verschluckt, sondern via `verlaufZustand` sichtbar gemacht
+ *     (dieselbe Anzeige, die C2 fuer den Lesepfad nutzt); die Nachricht
+ *     bleibt trotzdem in der Rueckgabe, denn sie IST beim Empfaenger
+ *     angekommen.
  *
  * **Koexistenz (Spec §3):** hat der Empfaenger kein Geraet (und man selbst
  * auch keine weiteren), gibt es kein einziges Zielgeraet — dann wird NICHTS
@@ -30,9 +40,10 @@ import { certStore } from '../identity/cert.svelte';
 import { loadKeypair } from '../identity/keypair.svelte';
 import { keysApi } from '../api/keys';
 import { postfachApi, type PostfachNutzlast } from '../api/postfach';
-import { verlaufSpeichern } from '../verlauf';
+import { verlaufSpeichernPflicht } from '../verlauf';
+import { verlaufZustand } from '../verlauf/zustand.svelte';
 import { kryptoAccountLaden } from './account.svelte';
-import { sitzungLaden, sitzungSichern } from './sitzungen';
+import { sitzungLaden, sitzungSichern, mitSitzungssperre } from './sitzungen';
 import { baueNutzlast } from './nutzlast';
 import { signiereNutzlast } from './nachweis';
 import { zielgeraeteBerechnen } from './empfaengerGeraete';
@@ -86,15 +97,19 @@ export async function sendeVerschluesselt(
   const nutzlasten: PostfachNutzlast[] = [];
 
   for (const { geraet } of ziel) {
-    let sitzung = await sitzungLaden(kanalId, geraet.device_pubkey);
-    if (!sitzung) {
-      const einmal = geraet.einmalschluessel ?? geraet.rueckfallschluessel;
-      if (!einmal) continue; // Kein Schluessel veroeffentlicht -> Geraet gerade unerreichbar.
-      sitzung = ident.sitzungAusgehend(geraet.curve25519, einmal);
-    }
-    const umschlag = sitzung.verschluesseln(klartextBytes);
-    // Sichern VOR dem Einliefern — s. Modulkopf.
-    await sitzungSichern(kanalId, geraet.device_pubkey, sitzung);
+    const umschlag = await mitSitzungssperre(kanalId, geraet.device_pubkey, async () => {
+      let sitzung = await sitzungLaden(kanalId, geraet.device_pubkey);
+      if (!sitzung) {
+        const einmal = geraet.einmalschluessel ?? geraet.rueckfallschluessel;
+        if (!einmal) return null; // Kein Schluessel veroeffentlicht -> Geraet gerade unerreichbar.
+        sitzung = ident.sitzungAusgehend(geraet.curve25519, einmal);
+      }
+      const umschlag = sitzung.verschluesseln(klartextBytes);
+      // Sichern VOR dem Einliefern — s. Modulkopf.
+      await sitzungSichern(kanalId, geraet.device_pubkey, sitzung);
+      return umschlag;
+    });
+    if (!umschlag) continue;
     nutzlasten.push({
       art: umschlag.art(),
       daten: umschlag.daten(),
@@ -120,8 +135,16 @@ export async function sendeVerschluesselt(
     nonce: null,
     created_at: new Date().toISOString()
   };
-  // Der Server bekommt den Klartext nie — ausschliesslich lokal.
-  await verlaufSpeichern(kanalId, [nachricht]);
+  // Der Server bekommt den Klartext nie — ausschliesslich lokal. Die
+  // Zustellung (Schritt 4) ist zu diesem Zeitpunkt schon durch, ein
+  // Fehlschlag hier darf deshalb NICHT als "nicht gesendet" behandelt
+  // werden (das wuerde ueber den Klartext-Rueckfall ein Duplikat beim
+  // Empfaenger erzeugen) — stattdessen wird er sichtbar gemacht, s. Modulkopf.
+  try {
+    await verlaufSpeichernPflicht(kanalId, [nachricht]);
+  } catch (err) {
+    verlaufZustand.melde(err);
+  }
 
   return { art: 'verschluesselt', nachricht };
 }
