@@ -3030,5 +3030,17 @@
   "rooms_discover_short": "Discover",
   "rooms_in_voice": "{count} in voice",
   "rooms_channel_count": "{count} channels",
-  "chats_empty_title": "No conversations yet"
+  "chats_empty_title": "No conversations yet",
+  "anmeldung_ticket_abgelaufen": "Signing in took too long. This will be retried automatically.",
+  "anmeldung_ticket_verbraucht": "This sign-in was already used. This will be retried automatically.",
+  "anmeldung_ticket_falscher_server": "The pass belongs to a different server. Check your settings for a duplicate entry of this server and remove the extra one.",
+  "anmeldung_ticket_falscher_aussteller": "This server expects passes from a different source. Contact the server's operator.",
+  "anmeldung_ticket_ungueltig": "The pass was rejected. Sign out and back in; if that does not help, contact the server's operator.",
+  "anmeldung_server_ohne_cloud": "This server has never reached howispulse.com and therefore cannot verify passes. Its operator needs to allow outgoing connections.",
+  "anmeldung_server_geschlossen": "This server is currently not admitting anyone new. Ask the operator to let you in.",
+  "anmeldung_kein_zugang": "You do not have access to this server. You need an invitation from the operator or from a community hosted there.",
+  "anmeldung_gesperrt": "You are banned on this server. Only the operator can lift that.",
+  "anmeldung_instanz_gesperrt": "This server is currently suspended. Its operator can find the reason in their Pulse account.",
+  "anmeldung_instanz_geloescht": "This server was deleted. Remove it from your server list.",
+  "anmeldung_netzfehler": "The server cannot be reached right now. Check your connection; if the problem persists, the operator can run a reachability check."
 }

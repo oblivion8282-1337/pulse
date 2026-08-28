@@ -3030,5 +3030,17 @@
   "rooms_discover_short": "Entdecken",
   "rooms_in_voice": "{count} im Gespräch",
   "rooms_channel_count": "{count} Kanäle",
-  "chats_empty_title": "Noch keine Gespräche"
+  "chats_empty_title": "Noch keine Gespräche",
+  "anmeldung_ticket_abgelaufen": "Die Anmeldung hat zu lange gedauert. Wird gleich noch einmal versucht.",
+  "anmeldung_ticket_verbraucht": "Diese Anmeldung wurde schon verwendet. Wird gleich noch einmal versucht.",
+  "anmeldung_ticket_falscher_server": "Der Ausweis gehört zu einem anderen Server. Prüfe in den Einstellungen, ob dieser Server doppelt in deiner Liste steht, und entferne den überzähligen Eintrag.",
+  "anmeldung_ticket_falscher_aussteller": "Dieser Server erwartet Ausweise von einer anderen Stelle. Wende dich an den Betreiber des Servers.",
+  "anmeldung_ticket_ungueltig": "Der Ausweis wurde abgelehnt. Melde dich ab und wieder an; hilft das nicht, wende dich an den Betreiber des Servers.",
+  "anmeldung_server_ohne_cloud": "Dieser Server hat howispulse.com noch nie erreicht und kann Ausweise deshalb nicht prüfen. Der Betreiber muss dem Server ausgehende Verbindungen erlauben.",
+  "anmeldung_server_geschlossen": "Der Server nimmt zurzeit niemanden neu auf. Frag den Betreiber, ob er dich freischaltet.",
+  "anmeldung_kein_zugang": "Du hast keinen Zugang zu diesem Server. Du brauchst eine Einladung vom Betreiber oder von einer Community auf diesem Server.",
+  "anmeldung_gesperrt": "Du bist auf diesem Server gesperrt. Nur der Betreiber kann das aufheben.",
+  "anmeldung_instanz_gesperrt": "Dieser Server ist zurzeit gesperrt. Der Betreiber findet den Grund in seinem Pulse-Konto.",
+  "anmeldung_instanz_geloescht": "Dieser Server wurde gelöscht. Entferne ihn aus deiner Serverliste.",
+  "anmeldung_netzfehler": "Der Server ist gerade nicht erreichbar. Prüfe deine Verbindung; besteht das Problem, kann der Betreiber die Erreichbarkeit seines Servers prüfen lassen."
 }
