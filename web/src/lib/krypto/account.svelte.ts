@@ -19,7 +19,9 @@ import { openIdentityDb, idbGetIdentity, idbPutIdentity } from '../identity/idb-
 import { loadKeypair, signChallenge } from '../identity/keypair.svelte';
 import { pickelschluesselAbleiten } from './pickelschluessel';
 
-const IDB_KEY = 'pulse.krypto-account';
+/** Exportiert, weil `sitzungen.ts::sitzungMitKontoAtomarSichern` denselben
+ *  Schluessel braucht — s. dort. */
+export const IDB_KEY = 'pulse.krypto-account';
 /** Cache des OEFFENTLICHEN Rueckfallschluessels, ausserhalb des Pickles —
  *  Begruendung an `rueckfallschluesselSicherstellen`. */
 const IDB_KEY_RUECKFALLSCHLUESSEL = 'pulse.krypto-rueckfallschluessel';

@@ -8,7 +8,16 @@
  *  1. Sitzung laden. Gibt es noch keine UND ist es ein Sitzungsaufbau
  *     (`art === 0`), ueber `sitzungEingehend` eine neue anlegen — der
  *     Klartext der ersten Nachricht kommt dabei gleich mit.
- *  2. Sitzung SICHERN.
+ *  2. Sitzung SICHERN — beim Sitzungsaufbau ATOMAR mit dem Account (Bughunt
+ *     2026-08-28, FIX 2): `sitzungEingehend` verbraucht einen Einmalschluessel
+ *     AUF DEM ACCOUNT (`&mut self` in `identitaet.rs`). Ein blosses
+ *     Nachreichen von `kryptoAccountSichern` waere hier die falsche
+ *     Reparatur: schlaegt danach das Sichern der Sitzung fehl, ist der
+ *     Einmalschluessel vom Account verschwunden, waehrend nirgends eine
+ *     Sitzung dafuer liegt — die noch unquittierte Zustellung kaeme beim
+ *     naechsten Versuch zurueck und waere dann NIE MEHR zu oeffnen.
+ *     `sitzungMitKontoAtomarSichern` (s. `sitzungen.ts`) schreibt deshalb
+ *     beide Pickles in EINER Transaktion.
  *  3. Klartext in den lokalen Verlauf ablegen.
  *  4. **Erst DANACH quittieren** (`POST /postfach/quittung`) — die wichtigste
  *     Reihenfolge des ganzen Vorhabens. Die Quittung loescht den Umschlag auf
@@ -32,7 +41,7 @@ import { directMessages } from '../stores/directMessages.svelte';
 import { verlaufSpeichern } from '../verlauf';
 import { postfachApi, type PostfachZustellung } from '../api/postfach';
 import { kryptoAccountLaden } from './account.svelte';
-import { sitzungLaden, sitzungSichern } from './sitzungen';
+import { sitzungLaden, sitzungSichern, sitzungMitKontoAtomarSichern } from './sitzungen';
 import { baueNutzlast } from './nutzlast';
 import { signiereNutzlast } from './nachweis';
 import { absenderErmitteln } from './absenderErmitteln';
@@ -60,6 +69,8 @@ async function zustellungOeffnen(
 
     if (sitzung) {
       klartextBytes = sitzung.entschluesseln(new Umschlag(z.art, z.daten));
+      // Sichern VOR dem Quittieren — s. Modulkopf.
+      await sitzungSichern(z.channel_id, z.absender_device_pubkey, sitzung);
     } else {
       if (z.art !== 0 || z.absender_curve25519 === null) {
         // Laufende Nachricht ohne bekannte Sitzung, oder Sitzungsaufbau
@@ -72,10 +83,9 @@ async function zustellungOeffnen(
       );
       sitzung = ergebnis.sitzung();
       klartextBytes = ergebnis.klartext();
+      // ATOMAR mit dem Konto sichern — s. Modulkopf.
+      await sitzungMitKontoAtomarSichern(ident, z.channel_id, z.absender_device_pubkey, sitzung);
     }
-
-    // Sichern VOR dem Quittieren — s. Modulkopf.
-    await sitzungSichern(z.channel_id, z.absender_device_pubkey, sitzung);
 
     return {
       // Snowflake der Zustellung: digit-only wie ein echter Server-
