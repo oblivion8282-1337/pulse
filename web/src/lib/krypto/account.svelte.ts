@@ -20,6 +20,9 @@ import { loadKeypair, signChallenge } from '../identity/keypair.svelte';
 import { pickelschluesselAbleiten } from './pickelschluessel';
 
 const IDB_KEY = 'pulse.krypto-account';
+/** Cache des OEFFENTLICHEN Rueckfallschluessels, ausserhalb des Pickles —
+ *  Begruendung an `rueckfallschluesselSicherstellen`. */
+const IDB_KEY_RUECKFALLSCHLUESSEL = 'pulse.krypto-rueckfallschluessel';
 
 /** Trennt diese Ableitung von jeder anderen Signatur, die derselbe
  *  Geraeteschluessel leistet (z. B. Cert-Login-Challenges). */
@@ -86,4 +89,51 @@ export async function kryptoAccountSichern(ident: Identitaet): Promise<void> {
   const db = await openIdentityDb();
   await idbPutIdentity(db, IDB_KEY, gefroren);
   db.close();
+}
+
+/**
+ * Liefert den oeffentlichen Rueckfallschluessel dieses Geraets — erzeugt ihn
+ * beim allerersten Aufruf, danach immer denselben.
+ *
+ * **Warum ein eigener Cache, statt bei jedem Aufruf frisch zu fragen:**
+ * vodozemacs `Account::fallback_key()` (hinter `rueckfallschluesselErzeugen`,
+ * s. Doc-Kommentar dort) liefert einen Schluessel nur, solange er nicht als
+ * veroeffentlicht markiert ist. `veroeffentlicheSchluessel` markiert aber im
+ * selben Lauf die Einmalschluessel als veroeffentlicht — und
+ * `mark_keys_as_published()` markiert BEIDES, Einmalschluessel UND
+ * Rueckfallschluessel, in einem Aufruf. Ohne diesen Cache waere der
+ * Rueckfallschluessel schon beim naechsten Aufruf von
+ * `veroeffentlicheSchluessel` (naechster Login, naechste Cert-Rotation)
+ * nicht mehr abrufbar — `PUT /keys/bundle` ist ein voller Zeilen-Ersatz
+ * (s. `schluessel.py`), ein fehlendes Feld ueberschreibt den zuvor
+ * gespeicherten Rueckfallschluessel mit NULL.
+ *
+ * Ein `generate_fallback_key()` bei jedem Aufruf waere die falsche
+ * Alternative: es ERSETZT den aktuellen Rueckfallschluessel unbedingt
+ * (echte Rotation), was bei jedem Login/jeder Cert-Rotation unnoetig waere.
+ */
+export async function rueckfallschluesselSicherstellen(ident: Identitaet): Promise<string> {
+  const db = await openIdentityDb();
+  const gecacht = (await idbGetIdentity(db, IDB_KEY_RUECKFALLSCHLUESSEL)) as string | undefined;
+  if (gecacht) {
+    db.close();
+    return gecacht;
+  }
+
+  const neu = ident.rueckfallschluesselErzeugen();
+  if (!neu) {
+    // Laut vodozemac-Semantik kann ein Aufruf, der wirklich generiert hat,
+    // nicht leer zurueckkommen (s. Rust-Doc-Kommentar an der Funktion) —
+    // dieser Zweig ist eine Absicherung gegen eine kuenftige Aenderung dort,
+    // kein erwarteter Pfad.
+    db.close();
+    throw new Error('RUECKFALLSCHLUESSEL_FEHLGESCHLAGEN');
+  }
+
+  // Mutiert den Account — MUSS gesichert werden, s. Doc-Kommentar oben an
+  // `kryptoAccountSichern`.
+  await kryptoAccountSichern(ident);
+  await idbPutIdentity(db, IDB_KEY_RUECKFALLSCHLUESSEL, neu);
+  db.close();
+  return neu;
 }

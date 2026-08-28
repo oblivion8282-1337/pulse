@@ -30,9 +30,11 @@ class DeviceKeyBundle(Base):
     curve25519: Mapped[str] = mapped_column(Text, nullable=False)
     #: Base64, Ed25519-Unterschrift des Geraets ueber sein eigenes Buendel.
     signatur: Mapped[str] = mapped_column(Text, nullable=False)
-    #: Greift, wenn der Vorrat an Einmalschluesseln leer ist.
+    #: Greift, wenn der Vorrat an Einmalschluesseln leer ist. Eine eigene
+    #: Signatur dafuer gibt es bewusst NICHT (mehr) — ``signatur`` oben deckt
+    #: ihn bereits mit ab, s. Kommentar an ``BundleVeroeffentlichenRequest``
+    #: in ``schemas.py``.
     rueckfallschluessel: Mapped[str | None] = mapped_column(Text, nullable=True)
-    rueckfall_signatur: Mapped[str | None] = mapped_column(Text, nullable=True)
     cert_id: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
