@@ -696,6 +696,52 @@ async def test_ein_absender_verdraengt_nicht_die_anderen(
 
 
 # ---------------------------------------------------------------------------
+# Bughunt 2026-08-28 (Missbrauch) — billig vor teuer (FIX 4)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_billige_grenzen_vor_teurer_kryptoverifikation(
+    client, app, session_factory, _auth_signer, friend_pair, _isolate_chat_settings,
+):
+    """Die Obergrenze der Nutzlasten je Anfrage ist ein reiner Strukturcheck
+    auf dem Rumpf und muss VOR der Ed25519-Verifikation laufen. Nachgewiesen
+    mit einer absichtlich FALSCHEN Unterschrift: laeuft die teure
+    Kryptoverifikation zuerst, kommt 403 (falsche Unterschrift) zurueck;
+    laufen die billigen Grenzen zuerst, kommt 400 (zu viele Nutzlasten)
+    zurueck, bevor die Unterschrift ueberhaupt geprueft wird."""
+    settings = _isolate_chat_settings
+    settings.postfach_max_nutzlasten_je_anfrage = 1
+
+    token_a, uid_a = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+    dm_id = await _dm_erstellen(client, token_a, uid_b)
+
+    await _seed_jwks(app)
+    priv, pubkey = _make_device()
+    cert = _make_cert(user_id=str(uid_a), device_pubkey=pubkey)
+    # Unterschrift ueber eine ANDERE Nutzlast als im Rumpf behauptet --
+    # wuerde die Kryptoverifikation ueberhaupt laufen, schluege sie fehl.
+    sig = _sign(priv, baue_nutzlast("postfach", "etwas-ganz-anderes"))
+
+    daten = _b64_unpadded(b"umschlag-eins-nicht-durch-drei-teilb")
+    r = await client.post(
+        "/postfach",
+        json={
+            "channel_id": str(dm_id), "cert": cert, "signatur": sig,
+            "nutzlasten": [
+                {"art": 1, "daten": daten, "empfaenger": ["empf-egal"]},
+                {"art": 1, "daten": daten, "empfaenger": ["empf-egal"]},
+            ],
+        },
+        headers=_auth(token_a),
+    )
+    assert r.status_code == 400, r.text
+    assert r.json()["detail"] == "zu_viele_nutzlasten"
+
+
+# ---------------------------------------------------------------------------
 # Task 3 — Abholen und Quittieren
 # ---------------------------------------------------------------------------
 

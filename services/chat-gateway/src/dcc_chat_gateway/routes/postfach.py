@@ -6,21 +6,23 @@ Zeile je Geraet in ``DmZustellung``, die auf eine ``DmNutzlast`` zeigt.
 Abholen und Quittieren (Task 3) sowie der Verfallslauf (Task 4) folgen in
 eigenen Aenderungen — hier nur das Einliefern.
 
-Alle Pruefungen sind fail-closed, in dieser Reihenfolge:
+Alle Pruefungen sind fail-closed, in dieser Reihenfolge (billig vor teuer,
+Bughunt 2026-08-28 (Missbrauch), FIX 4 — vorher liefen Kryptoverifikation UND
+Kanalzugang vor den reinen Strukturchecks):
 
-1. Geraete-Nachweis (``schluessel_nachweis.py``, eigener Zweck ``"postfach"``
+1. Obergrenzen auf dem rohen Rumpf (Groesse je Umschlag, Anzahl Nutzlasten
+   je Anfrage) — kein DB-Zugriff, keine Kryptografie.
+2. Geraete-Nachweis (``schluessel_nachweis.py``, eigener Zweck ``"postfach"``
    — eine fuer ein Schluesselbuendel geleistete Unterschrift darf hier nicht
    gelten).
-2. Kanalzugang — DIESELBE Regel wie im Klartext-Sendeweg
+3. Kanalzugang — DIESELBE Regel wie im Klartext-Sendeweg
    (``ws_op_send.py:139-151``): DM-Kanal laden, Mitgliedschaft pruefen,
    ``block_exists_either_way`` + ``friendship_exists``. Postfach traegt
    heute nur DMs (Gruppen sind Etappe G) — eine Gilden-Kanal-ID wird deshalb
    ebenfalls abgewiesen.
-3. Obergrenzen (Groesse je Umschlag, Anzahl Nutzlasten je Anfrage, offene
-   Zustellungen je Empfaengergeraet — insgesamt UND je Absender, Bughunt
-   2026-08-28 (Missbrauch) FIX 3, s.
-   ``postfach_max_offene_zustellungen_je_absender_und_geraet`` in
-   ``config.py``).
+4. Offene Zustellungen je Empfaengergeraet — insgesamt UND je Absender
+   (FIX 3, s. ``postfach_max_offene_zustellungen_je_absender_und_geraet``
+   in ``config.py``).
 
 Der Server kann keinen Umschlag oeffnen — deshalb wird ``daten`` nirgends
 geloggt, auch nicht in Fehlermeldungen.
@@ -143,7 +145,22 @@ async def postfach_einliefern(
     redis = _require_redis(request)
     cid_int = int(body.channel_id)
 
-    # 1. Geraete-Nachweis. Signatur bindet Kanal + alle Umschlaege — sonst
+    # 1. Obergrenzen ZUERST (Bughunt 2026-08-28 (Missbrauch), FIX 4) —
+    # reiner Strukturcheck auf dem Rumpf, keine DB, keine Kryptografie.
+    # Vorher liefen Geraete-Nachweis (Ed25519-Verifikation) UND Kanalzugang
+    # schon, bevor ueberhaupt geprueft wurde, ob die Anfrage die eigenen
+    # Grenzen einhaelt — nginx deckelt den Body zwar bei 16 MB, aber bis zu
+    # dieser Deckelung war die teure Verifikation ueber die GESAMTE
+    # angehaengte Nutzlast schon gelaufen, fuer eine Anfrage, die ohnehin
+    # abgelehnt wird.
+    if len(body.nutzlasten) > settings.postfach_max_nutzlasten_je_anfrage:
+        raise HTTPException(status_code=400, detail="zu_viele_nutzlasten")
+    groessen = [_envelope_groesse(n.daten) for n in body.nutzlasten]
+    for groesse in groessen:
+        if groesse > settings.postfach_max_umschlag_bytes:
+            raise HTTPException(status_code=400, detail="umschlag_zu_gross")
+
+    # 2. Geraete-Nachweis. Signatur bindet Kanal + alle Umschlaege — sonst
     # koennte eine fuer einen anderen Kanal/Inhalt geleistete Unterschrift
     # hier wiederverwendet werden.
     nutzlast_bytes = baue_nutzlast(
@@ -151,18 +168,10 @@ async def postfach_einliefern(
     )
     claims = await pruefe_geraet(body.cert, nutzlast_bytes, body.signatur, user, redis)
 
-    # 2. Kanalzugang. Der Kanal liefert zugleich die Menge der Konten, an die
+    # 3. Kanalzugang. Der Kanal liefert zugleich die Menge der Konten, an die
     # ueberhaupt zugestellt werden darf (s. Pruefung weiter unten).
     dm_obj = await _channel_zugriff_pruefen(session, cid_int, user.id)
     teilnehmer = {dm_obj.user_a_id, dm_obj.user_b_id}
-
-    # 3. Obergrenzen.
-    if len(body.nutzlasten) > settings.postfach_max_nutzlasten_je_anfrage:
-        raise HTTPException(status_code=400, detail="zu_viele_nutzlasten")
-    groessen = [_envelope_groesse(n.daten) for n in body.nutzlasten]
-    for groesse in groessen:
-        if groesse > settings.postfach_max_umschlag_bytes:
-            raise HTTPException(status_code=400, detail="umschlag_zu_gross")
 
     # 4. Anlegen. Zuerst das EIGENE Buendel des einliefernden Geraets — es
     # liefert den Curve25519-Identitaetsschluessel, den ein Empfaenger fuer
