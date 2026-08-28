@@ -92,6 +92,9 @@ selbst mitgebrachten Zertifikat, siehe „Mehr" ganz unten.
 
 ## Manuelle Installation
 
+Sechs Schritte. Arbeite sie der Reihe nach ab — Schritt 2 entscheidet, welche
+Datei du überhaupt brauchst, und Schritt 3 wird gern vergessen.
+
 ### 1. Fertige `.env` holen
 
 In der App: **Einstellungen → Self-Host → Server einrichten** → Abschnitt
@@ -105,60 +108,202 @@ eintragen.
 > internen Geheimnisse (DB-Passwort, JWT-/LiveKit-/MinIO-Keys) erzeugt der
 > Container beim ersten Start selbst im `/data`-Volume.
 
-### 2. Dateien holen und starten
+**Sieh dir vorher zwei Werte an**, das erspart später Arbeit:
+
+```bash
+grep -E "^PULSE_(HOSTNAME|INSTANCE_ID|INSTANCE_OWNER_ID|INSTANCE_MODE)=" .env
+```
+
+- `PULSE_INSTANCE_OWNER_ID` ist die Konto-Kennung dessen, der die Instanz
+  beantragt hat. **Nur dieses Konto wird auf dem Server automatisch Admin.**
+  Dafür gibt es kein Auffangnetz: Meldest du dich später mit einem anderen
+  Konto an, bist du dort ein gewöhnlicher Nutzer, und das lässt sich nur noch
+  in der Datenbank ändern. Passt es nicht, stell den Antrag neu — jetzt ist es
+  billig, nach dem ersten Start nicht mehr.
+- `PULSE_HOSTNAME` muss exakt der Name sein, unter dem der Server später
+  erreichbar ist. Daran hängt die Bindung des Anmelde-Tickets: Die Cloud stellt
+  es auf genau diesen Namen aus, und der Server prüft, dass er gemeint ist.
+
+`PULSE_TLS_MODE` steht absichtlich nicht in der Datei — den setzt die
+Compose-Variante aus Schritt 2.
+
+### 2. Die richtige Compose-Datei holen
+
+Es gibt zwei, und die Wahl hängt an einer einzigen Frage: **Läuft auf der
+Maschine schon etwas auf Port 80 und 443?**
+
+| | Datei | Wann |
+|---|---|---|
+| **Nein** | `docker-compose.yml` | Die Maschine gehört Pulse allein. Der eingebettete Caddy holt sich selbst ein Let's-Encrypt-Zertifikat. |
+| **Ja** | `docker-compose.behind-proxy.yml` | Es läuft schon ein Proxy (nginx, Traefik, Caddy, Nginx Proxy Manager). Pulse fasst 80/443 nicht an und bietet nur HTTP auf `8080` an; TLS macht weiterhin dein Proxy. |
+
+Nimmst du die falsche, kommt der Container nicht hoch — und im schlechtesten
+Fall reisst er die anderen Seiten auf der Maschine mit. Im Zweifel nachsehen:
+
+```bash
+ss -tlnp | grep -E ':(80|443)\s'
+```
+
+Dann Verzeichnis anlegen, Datei holen, `.env` daneben legen:
 
 ```bash
 mkdir pulse && cd pulse
 curl -fsSLO https://howispulse.com/self-host/docker-compose.yml
-# die in Schritt 1 heruntergeladene Datei hierher legen und in ".env" umbenennen:
+# oder, hinter eigenem Proxy:
+curl -fsSLO https://howispulse.com/self-host/docker-compose.behind-proxy.yml
+
 mv ~/Downloads/pulse-instance-*.env .env
-docker compose up -d
 ```
 
-Der eingebettete Caddy holt jetzt selbst ein Let's-Encrypt-Zertifikat (Port
-80 + 443 müssen erreichbar sein, DNS muss stimmen). Der erste Start dauert
-60–120 Sekunden (Datenbank-Init, Migrationen, Cert-Holen).
+Der Dateiname `.env` ist Pflicht — Compose sucht genau den im selben Ordner.
 
-### 3. Hinter einem vorhandenen Reverse-Proxy
+### 3. An der Registry anmelden
 
-Läuft auf dem Host **schon** ein Proxy auf 80/443 (nginx, Traefik, Caddy, Nginx
-Proxy Manager)? Dann nimm die Behind-Proxy-Variante — der Container belegt keine
-80/443 und macht nur HTTP-Routing auf `127.0.0.1:8080`:
+Das Image liegt in einer geschlossenen Registry; ohne Anmeldung antwortet sie
+mit `401 unauthorized`, und der Start scheitert mit `pull access denied`. Die
+Zugangsdaten stehen in deiner `.env`, du musst sie nicht abtippen:
 
 ```bash
-curl -fsSLO https://howispulse.com/self-host/docker-compose.behind-proxy.yml
+docker login registry.howispulse.com \
+  -u "$(grep -oP '^PULSE_CLOUD_CLIENT_ID=\K.*' .env)" \
+  -p "$(grep -oP '^PULSE_CLOUD_CLIENT_SECRET=\K.*' .env)"
+```
+
+Erwartete Ausgabe: eine Warnung, dass das Passwort als Argument übergeben wurde,
+und darunter `Login Succeeded`. Die Warnung ist hier folgenlos — dasselbe Secret
+steht ohnehin im Klartext in der `.env` daneben.
+
+### 4. Starten
+
+```bash
+docker compose up -d
+# oder, hinter eigenem Proxy:
 docker compose -f docker-compose.behind-proxy.yml up -d
 ```
 
-In deinem Proxy genügt **eine** Regel auf `http://127.0.0.1:8080` — der Container
-übernimmt das gesamte interne Routing. WebSocket-Upgrade muss durchgereicht
-werden (bei Nginx Proxy Manager: „WebSocket Support" anhaken). Für Caddy reicht:
+Der erste Start dauert 60–120 Sekunden: Datenbank anlegen, Migrationen fahren,
+auf dem Standardweg zusätzlich das Zertifikat holen. Warte, bis hier `(healthy)`
+steht:
+
+```bash
+docker ps --filter name=pulse --format '{{.Names}}\t{{.Status}}'
+```
+
+Die Logs melden beim ersten Start **immer** ein paar Dinge, die wie Fehler
+aussehen und keine sind:
+
+| Zeile | Bedeutung |
+|---|---|
+| `STUN CHANGE_REQUEST … only one IP address` | coturn mit einer IP-Adresse. Für NAT-Traversal genügt das. |
+| `caddyfile: Unnecessary header_up …` | Der Caddy **im** Container, nicht deiner. Kosmetik. |
+| `MinIO: Host local has more than 0 drives` | Einzelknoten-Betrieb, so gewollt. |
+| `relation "…" does not exist` | Eine Abfrage kam der Migration zuvor. Bei leerer Datenbank gibt es nichts zu finden. |
+| `pubsub: drained 0/7 subscribe acks` | Reihenfolge beim Hochfahren. |
+| `jwks_cold_start` | Die Cloud-Schlüssel sind noch nicht geholt. Der Poller läuft alle 30 s, das heilt sich selbst — eine Anmeldung in den ersten Sekunden scheitert aber mit `jwks_cold`. Dann einfach noch einmal versuchen. |
+| `vapid_auto_generated` | Push-Benachrichtigungen bekommen neue Schlüssel. Merken für später: Ohne feste `VAPID_*`-Werte verfallen Push-Abos bei jedem Neustart still. |
+
+Alles andere liest du am besten so:
+
+```bash
+docker logs pulse 2>&1 | grep -iE "error|fatal|traceback" | tail -20
+```
+
+### 5. Die Proxy-Regel anlegen
+
+Nur auf dem Behind-Proxy-Weg. In deinem Proxy genügt **eine** Regel — den Rest
+routet der Container selbst. **WebSocket-Upgrade muss durchgereicht werden**
+(bei Nginx Proxy Manager: „WebSocket Support" anhaken); ohne das funktioniert
+die Anmeldung, aber der Chat selbst nicht.
+
+**Läuft dein Proxy direkt auf dem Host?** Dann zeigt die Regel auf die
+Loopback-Adresse:
 
 ```caddy
-pulse.firma.de {
+chat.firma.de {
     reverse_proxy 127.0.0.1:8080
 }
 ```
 
-**Wichtig:** Voice und HQ-Streaming laufen über UDP **direkt** zum Server, am
-HTTP-Proxy vorbei — die UDP-/Media-Ports aus den Voraussetzungen müssen offen
-bleiben.
+**Läuft dein Proxy selbst in einem Container?** Dann kommt er an `127.0.0.1`
+des Hosts **nicht** heran — das ist sein eigenes Loopback. Beide müssen sich
+ein Docker-Netz teilen, dann sprechen sie über den Container-Namen:
 
-### 4. Prüfen und einloggen
+```bash
+docker network create pulse-net
+docker network connect pulse-net <name-deines-proxy-containers>
+```
+
+In der Compose-Datei zwei Blöcke ergänzen. Beim Dienst `pulse`, eingerückt wie
+`ports:` und `volumes:`:
+
+```yaml
+    networks:
+      - pulse-net
+```
+
+und ganz am Dateiende, neben dem vorhandenen `volumes:`-Block:
+
+```yaml
+networks:
+  pulse-net:
+    external: true
+```
+
+`external: true` heisst: Compose legt das Netz nicht selbst an, sondern benutzt
+das, an dem dein Proxy schon hängt. Die beiden Blöcke heissen zufällig gleich,
+meinen aber Verschiedenes — der eingerückte sagt „dieser Dienst hängt in dem
+Netz", der linksbündige „so ist das Netz definiert". Die Regel zeigt danach auf
+den Container-Namen:
+
+```caddy
+chat.firma.de {
+    reverse_proxy pulse:8080
+}
+```
+
+Nach dem Ändern der YAML-Datei prüfen, ohne zu starten:
+
+```bash
+docker compose -f docker-compose.behind-proxy.yml config >/dev/null && echo "YAML ok"
+```
+
+**Wichtig, unabhängig vom Proxy:** Voice und HQ-Streaming laufen über UDP
+**direkt** zum Server, am HTTP-Proxy vorbei — die UDP-/Media-Ports aus den
+Voraussetzungen müssen offen bleiben. Fehlen sie, ist das Muster eindeutig:
+Chat geht, Voice nicht.
+
+### 6. Prüfen und einloggen
+
+Erst von aussen, in dieser Reihenfolge:
 
 ```bash
 curl https://chat.firma.de/health         # {"status":"ok"}
+curl https://chat.firma.de/.well-known/pulse-server-info
+```
+
+Die zweite Zeile ist die aussagekräftigste. Darin muss stehen:
+
+- deine **`instance_id`** — dieselbe Zahl wie in der `.env`,
+- in **`capabilities`** der Eintrag **`server-ticket`**. Daran erkennt die App,
+  dass der Server den heutigen Anmeldeweg spricht. Fehlt er, nimmt der Server
+  niemanden mehr auf, und ein Update allein genügt nicht — dann läuft dort ein
+  Stand von vor dem 2026-08-28 und muss neu aufgesetzt werden.
+
+Für den Blick von innen:
+
+```bash
+docker exec pulse pulse-doctor            # Rundum-Prüfung
 curl https://chat.firma.de/health/setup   # wie weit der Erststart kam
-docker exec pulse pulse-doctor            # Rundum-Prüfung von innen
 ```
 
 Dann auf [howispulse.com](https://howispulse.com) → **Server hinzufügen** →
-deinen Hostname eintragen. Als Owner wirst du automatisch Admin der Instanz.
+deinen Hostname eintragen. Melde dich mit dem Konto an, das die Instanz
+beantragt hat (siehe Schritt 1) — nur das wird automatisch Admin.
 
 Danach einmal **Einstellungen → Self-Host → Meine Instanzen → „Verbindung
 prüfen"**: das ist die Prüfung von aussen, und sie sieht die Dinge, die von
 innen unsichtbar bleiben — allen voran einen Reverse-Proxy, der WebSockets
-nicht durchreicht (dann funktioniert alles ausser dem Chat selbst).
+nicht durchreicht.
 
 > Rufst du deine Server-Domain direkt im Browser auf, siehst du eine **leere
 > Seite** — das ist Absicht. Ein Self-Host hat keine eigene Login-/Anmeldeseite;
