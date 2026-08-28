@@ -20,6 +20,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from sqlalchemy import delete, func, select
 
+import dcc_chat_gateway.config as chat_config
 from dcc_chat_gateway.credential_validator import REDIS_REVOKED_SET
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.friend_helpers import block_exists_either_way, friendship_exists
@@ -30,6 +31,10 @@ from dcc_chat_gateway.schemas import (
     EinmalschluesselVorratOut,
     GeraeteSchluesselOut,
     SchluesselAbholenRequest,
+)
+from dcc_chat_gateway.schluessel_grenzen import (
+    einmalschluessel_budget_uebrig,
+    platz_fuer_neues_geraet_schaffen,
 )
 from dcc_chat_gateway.schluessel_nachweis import baue_nutzlast, pruefe_geraet
 from dcc_chat_gateway.security import CurrentUser
@@ -90,6 +95,7 @@ async def bundle_veroeffentlichen(
         vorhanden.cert_id = claims.cert_id
         vorhanden.updated_at = func.now()
     else:
+        await platz_fuer_neues_geraet_schaffen(session, user.id)
         session.add(
             DeviceKeyBundle(
                 id=next_id(),
@@ -265,6 +271,7 @@ async def schluessel_abholen(
     ist ohnehin die richtige Antwortform fuer "hier gibt es nichts zu holen".
     """
     redis = _require_redis(request)
+    settings = chat_config.get_settings()
     ergebnis: dict[str, list[GeraeteSchluesselOut]] = {}
 
     for ziel_id in dict.fromkeys(body.user_ids):  # Duplikate raus, Reihenfolge bleibt.
@@ -275,7 +282,13 @@ async def schluessel_abholen(
 
         buendel = (
             await session.execute(
-                select(DeviceKeyBundle).where(DeviceKeyBundle.user_id == ziel_id)
+                select(DeviceKeyBundle)
+                .where(DeviceKeyBundle.user_id == ziel_id)
+                # Defensive Obergrenze, deckungsgleich mit FIX 1
+                # (``schluessel_max_buendel_je_konto``) — das Konto kann so
+                # viele Zeilen gar nicht mehr anhaeufen, dieses ``limit``
+                # bewacht nur den Fall alter Bestandsdaten von vor FIX 1.
+                .limit(settings.schluessel_max_buendel_je_konto)
             )
         ).scalars().all()
 
@@ -292,7 +305,20 @@ async def schluessel_abholen(
             if await redis.sismember(REDIS_REVOKED_SET, b.cert_id):
                 continue
 
-            einmal = await _einmalschluessel_holen(session, b.id)
+            # Budget-Wache (FIX 2) — nur fuer FREMDE Ziele: das eigene Konto
+            # zieht ausschliesslich am eigenen Vorrat, das ist kein Angriff
+            # auf jemand anderen (s. ``_darf_schluessel_holen``-Docstring).
+            # Ist das Budget erschoepft, wird wie bei leerem Vorrat verfahren
+            # (``einmal = None`` -> Rueckfallschluessel) statt gar nichts zu
+            # liefern — ein Sitzungsaufbau soll trotzdem moeglich bleiben,
+            # nur ohne den knappen Einmalschluessel des Ziels weiter zu
+            # kosten.
+            if user.id != ziel_id and not await einmalschluessel_budget_uebrig(
+                redis, user.id, ziel_id
+            ):
+                einmal = None
+            else:
+                einmal = await _einmalschluessel_holen(session, b.id)
             ergebnis[schluessel_key].append(
                 GeraeteSchluesselOut(
                     device_pubkey=b.device_pubkey,

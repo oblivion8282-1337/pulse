@@ -6,18 +6,23 @@ Zeile je Geraet in ``DmZustellung``, die auf eine ``DmNutzlast`` zeigt.
 Abholen und Quittieren (Task 3) sowie der Verfallslauf (Task 4) folgen in
 eigenen Aenderungen — hier nur das Einliefern.
 
-Alle Pruefungen sind fail-closed, in dieser Reihenfolge:
+Alle Pruefungen sind fail-closed, in dieser Reihenfolge (billig vor teuer,
+Bughunt 2026-08-28 (Missbrauch), FIX 4 — vorher liefen Kryptoverifikation UND
+Kanalzugang vor den reinen Strukturchecks):
 
-1. Geraete-Nachweis (``schluessel_nachweis.py``, eigener Zweck ``"postfach"``
+1. Obergrenzen auf dem rohen Rumpf (Groesse je Umschlag, Anzahl Nutzlasten
+   je Anfrage) — kein DB-Zugriff, keine Kryptografie.
+2. Geraete-Nachweis (``schluessel_nachweis.py``, eigener Zweck ``"postfach"``
    — eine fuer ein Schluesselbuendel geleistete Unterschrift darf hier nicht
    gelten).
-2. Kanalzugang — DIESELBE Regel wie im Klartext-Sendeweg
+3. Kanalzugang — DIESELBE Regel wie im Klartext-Sendeweg
    (``ws_op_send.py:139-151``): DM-Kanal laden, Mitgliedschaft pruefen,
    ``block_exists_either_way`` + ``friendship_exists``. Postfach traegt
    heute nur DMs (Gruppen sind Etappe G) — eine Gilden-Kanal-ID wird deshalb
    ebenfalls abgewiesen.
-3. Obergrenzen (Groesse je Umschlag, Anzahl Nutzlasten je Anfrage, offene
-   Zustellungen je Empfaengergeraet).
+4. Offene Zustellungen je Empfaengergeraet — insgesamt UND je Absender
+   (FIX 3, s. ``postfach_max_offene_zustellungen_je_absender_und_geraet``
+   in ``config.py``).
 
 Der Server kann keinen Umschlag oeffnen — deshalb wird ``daten`` nirgends
 geloggt, auch nicht in Fehlermeldungen.
@@ -140,7 +145,22 @@ async def postfach_einliefern(
     redis = _require_redis(request)
     cid_int = int(body.channel_id)
 
-    # 1. Geraete-Nachweis. Signatur bindet Kanal + alle Umschlaege — sonst
+    # 1. Obergrenzen ZUERST (Bughunt 2026-08-28 (Missbrauch), FIX 4) —
+    # reiner Strukturcheck auf dem Rumpf, keine DB, keine Kryptografie.
+    # Vorher liefen Geraete-Nachweis (Ed25519-Verifikation) UND Kanalzugang
+    # schon, bevor ueberhaupt geprueft wurde, ob die Anfrage die eigenen
+    # Grenzen einhaelt — nginx deckelt den Body zwar bei 16 MB, aber bis zu
+    # dieser Deckelung war die teure Verifikation ueber die GESAMTE
+    # angehaengte Nutzlast schon gelaufen, fuer eine Anfrage, die ohnehin
+    # abgelehnt wird.
+    if len(body.nutzlasten) > settings.postfach_max_nutzlasten_je_anfrage:
+        raise HTTPException(status_code=400, detail="zu_viele_nutzlasten")
+    groessen = [_envelope_groesse(n.daten) for n in body.nutzlasten]
+    for groesse in groessen:
+        if groesse > settings.postfach_max_umschlag_bytes:
+            raise HTTPException(status_code=400, detail="umschlag_zu_gross")
+
+    # 2. Geraete-Nachweis. Signatur bindet Kanal + alle Umschlaege — sonst
     # koennte eine fuer einen anderen Kanal/Inhalt geleistete Unterschrift
     # hier wiederverwendet werden.
     nutzlast_bytes = baue_nutzlast(
@@ -148,18 +168,10 @@ async def postfach_einliefern(
     )
     claims = await pruefe_geraet(body.cert, nutzlast_bytes, body.signatur, user, redis)
 
-    # 2. Kanalzugang. Der Kanal liefert zugleich die Menge der Konten, an die
+    # 3. Kanalzugang. Der Kanal liefert zugleich die Menge der Konten, an die
     # ueberhaupt zugestellt werden darf (s. Pruefung weiter unten).
     dm_obj = await _channel_zugriff_pruefen(session, cid_int, user.id)
     teilnehmer = {dm_obj.user_a_id, dm_obj.user_b_id}
-
-    # 3. Obergrenzen.
-    if len(body.nutzlasten) > settings.postfach_max_nutzlasten_je_anfrage:
-        raise HTTPException(status_code=400, detail="zu_viele_nutzlasten")
-    groessen = [_envelope_groesse(n.daten) for n in body.nutzlasten]
-    for groesse in groessen:
-        if groesse > settings.postfach_max_umschlag_bytes:
-            raise HTTPException(status_code=400, detail="umschlag_zu_gross")
 
     # 4. Anlegen. Zuerst das EIGENE Buendel des einliefernden Geraets — es
     # liefert den Curve25519-Identitaetsschluessel, den ein Empfaenger fuer
@@ -179,6 +191,14 @@ async def postfach_einliefern(
     # einem erneuten COUNT auftauchen).
     verfaellt_am = datetime.now(UTC) + timedelta(days=settings.postfach_frist_tage)
     offene_je_geraet: dict[str, int] = {}
+    # Wie ``offene_je_geraet``, aber je (Absender-Geraet, Empfaengergeraet) —
+    # FIX 3: die GESAMT-Obergrenze allein zaehlt ueber alle Absender hinweg,
+    # ein einzelner angenommener Kontakt kann sie also allein fuellen und
+    # damit jeden ANDEREN Absender an dieses Geraet aussperren. Absender ist
+    # innerhalb dieser Anfrage konstant (``claims.device_pubkey``, ein
+    # Geraete-Nachweis pro Aufruf), der Cache-Schluessel ist deshalb einfach
+    # der Empfaenger-Pubkey.
+    offene_je_sender_und_geraet: dict[str, int] = {}
     gesamt_zustellungen = 0
     verworfene_nutzlasten = 0
     # Ueber die ganze Anfrage dedupliziert, Reihenfolge egal — ``dict`` statt
@@ -234,15 +254,32 @@ async def postfach_einliefern(
                         .where(DmZustellung.empfaenger_device_pubkey == pubkey)
                     )
                 ).scalar_one()
-            if offene_je_geraet[pubkey] >= settings.postfach_max_offene_zustellungen_je_geraet:
-                # Geraet ist voll — wie ein unbekanntes Geraet uebersprungen,
-                # nicht die ganze Anfrage abgewiesen.
+            if pubkey not in offene_je_sender_und_geraet:
+                offene_je_sender_und_geraet[pubkey] = (
+                    await session.execute(
+                        select(func.count())
+                        .select_from(DmZustellung)
+                        .join(DmNutzlast, DmNutzlast.id == DmZustellung.nutzlast_id)
+                        .where(
+                            DmZustellung.empfaenger_device_pubkey == pubkey,
+                            DmNutzlast.absender_device_pubkey == claims.device_pubkey,
+                        )
+                    )
+                ).scalar_one()
+            if (
+                offene_je_geraet[pubkey] >= settings.postfach_max_offene_zustellungen_je_geraet
+                or offene_je_sender_und_geraet[pubkey]
+                >= settings.postfach_max_offene_zustellungen_je_absender_und_geraet
+            ):
+                # Geraet ist voll (insgesamt ODER fuer diesen Absender allein,
+                # FIX 3) — wie ein unbekanntes Geraet uebersprungen, nicht die
+                # ganze Anfrage abgewiesen.
                 #
-                # **Diese Grenze ist naeherungsweise, nicht scharf**, und das
-                # gehoert gesagt: der Zaehler wird VOR dem Einfuegen gelesen,
-                # gleichzeitige Anfragen sehen also denselben alten Stand und
-                # koennen ihn zusammen ueberschreiten. Ein scharfer Wert
-                # brauchte eine Zaehlerzeile mit bewachtem UPDATE.
+                # **Beide Grenzen sind naeherungsweise, nicht scharf**, und
+                # das gehoert gesagt: die Zaehler werden VOR dem Einfuegen
+                # gelesen, gleichzeitige Anfragen sehen also denselben alten
+                # Stand und koennen ihn zusammen ueberschreiten. Ein scharfer
+                # Wert brauchte eine Zaehlerzeile mit bewachtem UPDATE.
                 #
                 # Vertretbar ist die Naeherung erst, seit oben geprueft wird,
                 # dass ein Empfaengergeraet zu DIESEM Gespraech gehoert: das
@@ -254,6 +291,7 @@ async def postfach_einliefern(
                 continue
             empfaenger_zeilen.append((pubkey, bundle.user_id))
             offene_je_geraet[pubkey] += 1
+            offene_je_sender_und_geraet[pubkey] += 1
 
         if not empfaenger_zeilen:
             # Keine Zustellung moeglich -> keine Nutzlast anlegen (sonst

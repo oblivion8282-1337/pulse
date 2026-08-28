@@ -252,6 +252,24 @@ async def test_obergrenze_der_mitgliederzahl(
 
 
 @pytest.mark.asyncio
+async def test_obergrenze_selbst_erstellter_gruppen(
+    client, _auth_signer, gruppen_an
+):
+    """Bughunt 2026-08-28 (Missbrauch), FIX 5. ``private_group_max_members``
+    bindet nur die Groesse EINER Gruppe, nicht ihre Anzahl — ohne eigene
+    Grenze legt ein Konto beliebig viele leere Gruppen an."""
+    gruppen_an.private_group_max_gruppen_je_ersteller = 1
+
+    t_a, _ = await _register(_auth_signer)
+    r = await client.post("/gruppen", json={"name": "g1"}, headers=_auth(t_a))
+    assert r.status_code == 201, r.text
+
+    r = await client.post("/gruppen", json={"name": "g2"}, headers=_auth(t_a))
+    assert r.status_code == 403, r.text
+    assert r.json()["detail"] == "gruppen_limit_erreicht"
+
+
+@pytest.mark.asyncio
 async def test_ersteller_geht_dienstaeltestes_mitglied_erbt(
     client, _auth_signer, gruppen_an
 ):

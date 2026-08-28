@@ -238,6 +238,19 @@ class Settings(BaseSettings):
     # weitere Einlieferungen an EIN so volles Geraet werden uebersprungen
     # (wie ein unbekanntes Geraet), nicht die ganze Anfrage abgewiesen.
     postfach_max_offene_zustellungen_je_geraet: int = 500
+    # Offene Zustellungen je (Absender-Geraet, Empfaengergeraet) — Bughunt
+    # 2026-08-28 (Missbrauch), FIX 3. Ohne diese zweite, engere Grenze zaehlt
+    # die obige Obergrenze ueber ALLE Absender hinweg: ein einzelner
+    # akzeptierter Kontakt kann sie mit ein paar Anfragen alleine fuellen
+    # (256 KiB je Umschlag, ~62 je 16-MB-Anfragekoerper), danach werden
+    # Zustellungen JEDES ANDEREN Freundes an dieses Geraet stillschweigend
+    # uebersprungen, bis die 30-Tage-Frist der aeltesten ablaeuft. 50 ist
+    # bewusst ein Zehntel der Gesamtgrenze: ein Geraet mit 10 aktiven
+    # Korrespondenten kann sein Kontingent dann rechnerisch ausschoepfen,
+    # ohne dass irgendein einzelner mehr als sein Zehntel beansprucht — kein
+    # gemessener Wert, sondern aus der Gesamtgrenze abgeleitet, damit beide
+    # Zahlen zueinander passen.
+    postfach_max_offene_zustellungen_je_absender_und_geraet: int = 50
 
     # Private Gruppen (Etappe G1) — Vorgabe AUS, am Vorbild von
     # ``cloud_dm_attachments_enabled`` oben. Grund: die Kanalart wird HIER
@@ -256,6 +269,43 @@ class Settings(BaseSettings):
     # bewusst kein Politikwert, den ein Betreiber je Instanz hochdrehen
     # sollte, ohne die G2-Verteil-Kosten neu abzuschaetzen.
     private_group_max_members: int = 50
+    # Obergrenze der SELBST ERSTELLTEN Gruppen je Konto (Bughunt 2026-08-28
+    # (Missbrauch), FIX 5) — ``private_group_max_members`` bindet nur die
+    # Groesse EINER Gruppe, nicht ihre Anzahl. Ohne diese Grenze legt ein
+    # Konto beliebig viele leere Kanal-Zeilen an, jede mit eigenem
+    # Mitgliederindex-Eintrag. 100 ist grosszuegig fuer echte Nutzung
+    # (Etappe G1 hat keine UI, also ohnehin kein organisches Wachstum ueber
+    # ein paar Dutzend hinaus) und bewusst kein Politikwert je Instanz, s.
+    # Kommentar an ``private_group_max_members``.
+    private_group_max_gruppen_je_ersteller: int = 100
+
+    # Geraete-Schluesselverzeichnis (Etappe B, E2E-DM) — Bughunt 2026-08-28
+    # (Missbrauch), FIX 1. Obergrenze der gleichzeitig gespeicherten Buendel
+    # je Konto. Auth-svc laesst bis zu 20 gleichzeitig gueltige Zertifikate
+    # je Konto zu (rollierendes Fenster, ``routes_credentials.py``) — das
+    # ist die tatsaechliche Zahl legitimer Geraete zu jedem Zeitpunkt. Ein
+    # Buendel haengt bewusst an ``device_pubkey``, nicht an ``cert_id`` (s.
+    # ``models/geraete_schluessel.py``): ein Geraet, das seinen
+    # Signierschluessel wechselt (Neuinstallation, verlorenes Geraet),
+    # hinterliesse sonst eine Buendelzeile plus bis zu ``ONE_TIME_KEY_CAP``
+    # Einmalschluessel fuer immer — nur eine vollstaendige Kontoloeschung
+    # raeumte sie weg. Dieselbe Zahl wie der Cert-Cap, nicht groesser: mehr
+    # als 20 gleichzeitig gueltige Zertifikate kann ein Konto ohnehin nicht
+    # haben.
+    schluessel_max_buendel_je_konto: int = 20
+    # Bughunt 2026-08-28 (Missbrauch), FIX 2. Budget verbrauchter
+    # Einmalschluessel je (Absender, Ziel) und Zeitfenster — sonst leert
+    # ~100 billige ``POST /keys/claim``-Aufrufe den gesamten Vorrat eines
+    # Kontakts, und JEDER Absender faellt danach auf den wiederverwendeten
+    # Rueckfallschluessel (keine Forward Secrecy je Sitzung) zurueck. 30
+    # liegt knapp ueber ``schluessel_max_buendel_je_konto`` (20): ein
+    # legitimer Erstkontakt mit einem Ziel, das alle 20 moeglichen Geraete
+    # gleichzeitig betreibt, verbraucht in einem einzigen ``claim``-Aufruf
+    # bis zu 20 Einmalschluessel (einen je Geraet) — das Budget muss das in
+    # EINEM Fenster tragen, ohne einem Angreifer viel Spielraum darueber
+    # hinaus zu lassen.
+    schluessel_claim_budget_je_ziel: int = 30
+    schluessel_claim_fenster_sekunden: int = 3600  # 1 h.
 
     @property
     def effective_database_url(self) -> str:
