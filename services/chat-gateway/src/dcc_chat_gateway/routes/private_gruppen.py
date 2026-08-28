@@ -35,7 +35,7 @@ Hinzufuegen NICHT gegen eine Blockierung geprueft werden kann.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select
 
@@ -53,7 +53,31 @@ from dcc_chat_gateway.schemas import (
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 
-router = APIRouter(tags=["private-gruppen"], dependencies=[CloudOnly])
+
+async def require_private_groups_enabled() -> None:
+    """FastAPI-Dependency — 403, solange der Schalter aus ist.
+
+    Vorher stand diese Pruefung NUR in ``POST /gruppen`` — die anderen fuenf
+    Routen (Liste/Einzelabruf/Hinzufuegen/Entfernen/Verlassen) liefen auch
+    bei ausgeschaltetem Schalter ungehindert weiter. Der Schalter garantierte
+    damit nur „keine NEUE Gruppe entsteht", nicht „keine Gruppe ist
+    erreichbar" — die Spec verlangt aber Letzteres (s. Modul-Docstring).
+    Als Router-Dependency neben ``CloudOnly`` kann eine kuenftige Route das
+    nicht mehr vergessen: sie muesste die Dependency aktiv abbestellen.
+
+    Later-Import wie bei ``require_cloud`` (``routes/_deps.py``): Test-
+    Fixtures ersetzen ``dcc_chat_gateway.config.get_settings`` erst zur
+    Aufrufzeit, nicht zur Importzeit."""
+    import dcc_chat_gateway.config as _cfg  # noqa: PLC0415
+
+    if not _cfg.get_settings().private_groups_enabled:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="private_groups_disabled")
+
+
+router = APIRouter(
+    tags=["private-gruppen"],
+    dependencies=[CloudOnly, Depends(require_private_groups_enabled)],
+)
 
 
 # ─── Laden + Wire-Form ──────────────────────────────────────────────────────
@@ -134,16 +158,9 @@ async def _entferne_mitglied(session, gruppe: PrivateGroupChannel, user_id: int)
 async def gruppe_erstellen(
     body: PrivateGroupCreateIn, session: SessionDep, user: CurrentUser
 ) -> PrivateGroupOut:
-    settings = chat_config.get_settings()
-    if not settings.private_groups_enabled:
-        # Der wichtigste Guard dieser Etappe: solange der Schalter aus ist,
-        # darf keine Gruppe entstehen — sonst gaebe es unverschluesselten
-        # Altbestand, sobald G2 (Megolm) kommt, und die Spec verliert ihren
-        # groessten Vorteil (Gruppen sind von Geburt an verschluesselt, weil
-        # es sie vorher nicht gab).
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN, detail="private_groups_disabled"
-        )
+    # Der Schalter selbst sitzt seit ``require_private_groups_enabled`` als
+    # Router-Dependency (oben) — sie deckt jetzt alle sechs Routen ab, nicht
+    # nur diese hier.
     gruppe = PrivateGroupChannel(id=next_id(), ersteller_id=user.id, name=body.name)
     session.add(gruppe)
     session.add(PrivateGroupMember(id=next_id(), gruppe_id=gruppe.id, user_id=user.id))

@@ -297,6 +297,51 @@ async def test_letztes_mitglied_loescht_die_gruppe(client, _auth_signer, gruppen
 
 
 # ---------------------------------------------------------------------------
+# Bughunt Etappe G1 (2026-08-28) — FIX 1
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_abgeschaltet_blockiert_auch_die_anderen_fuenf_routen(
+    client, _auth_signer, gruppen_an
+):
+    """FIX 1: der Schalter galt bisher nur fuer ``POST /gruppen`` — Liste,
+    Einzelabruf, Hinzufuegen, Entfernen und Verlassen liefen bei
+    ausgeschaltetem Schalter ungehindert weiter. Die Gruppe entsteht hier
+    WAEHREND der Schalter an ist, wird danach ausgeschaltet — jede der fuenf
+    anderen Routen muss jetzt 403 liefern, nicht nur die Erstellung."""
+    t_a, uid_a = await _register(_auth_signer)
+    t_b, uid_b = await _register(_auth_signer)
+
+    r = await client.post("/gruppen", json={"name": "g"}, headers=_auth(t_a))
+    gid = r.json()["id"]
+    r = await client.post(
+        f"/gruppen/{gid}/mitglieder", json={"user_id": str(uid_b)}, headers=_auth(t_a)
+    )
+    assert r.status_code == 201, r.text
+
+    gruppen_an.private_groups_enabled = False
+
+    r = await client.get("/gruppen", headers=_auth(t_a))
+    assert r.status_code == 403, r.text
+    assert r.json()["detail"] == "private_groups_disabled"
+
+    r = await client.get(f"/gruppen/{gid}", headers=_auth(t_a))
+    assert r.status_code == 403, r.text
+
+    r = await client.post(
+        f"/gruppen/{gid}/mitglieder", json={"user_id": str(uid_b)}, headers=_auth(t_a)
+    )
+    assert r.status_code == 403, r.text
+
+    r = await client.delete(f"/gruppen/{gid}/mitglieder/{uid_b}", headers=_auth(t_a))
+    assert r.status_code == 403, r.text
+
+    r = await client.post(f"/gruppen/{gid}/verlassen", headers=_auth(t_a))
+    assert r.status_code == 403, r.text
+
+
+# ---------------------------------------------------------------------------
 # Konto-Loeschung (user_purge.py)
 # ---------------------------------------------------------------------------
 
