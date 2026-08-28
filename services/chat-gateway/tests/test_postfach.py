@@ -643,6 +643,101 @@ async def test_fremde_zustellungs_id_quittiert_nichts(
         assert rest[0].id == zustellung_id
 
 
+@pytest.mark.asyncio
+async def test_absender_user_id_zeigt_das_sendegeraet_auch_beim_eigenen_zweitgeraet(
+    client, app, session_factory, _auth_signer, friend_pair
+):
+    """Der Kern des Bugs, den die Etappe D2 offen liess: eine verschluesselte
+    DM liefert denselben Umschlag auch an die EIGENEN anderen Geraete des
+    Senders aus (so kommt eine vom Handy gesendete Nachricht auf dem
+    Desktop an). `absender_user_id` muss in diesem Fall den SENDER
+    zuschreiben — NICHT den Kanal-Gegenpart, den ein rein clientseitiger
+    Kanal->User-Lookup faelschlich liefern wuerde."""
+    token_a, uid_a = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+    dm_id = await _dm_erstellen(client, token_a, uid_b)
+
+    # Sendegeraet UND Empfaengergeraet gehoeren BEIDE A — der Gegenpart des
+    # Kanals ist B, aber der Absender dieser Zustellung ist A selbst.
+    sender_priv, sender_pub = await _bundel_seeden_echtes_geraet(
+        session_factory, user_id=uid_a
+    )
+    empf_priv, empf_pub = await _bundel_seeden_echtes_geraet(session_factory, user_id=uid_a)
+
+    await _seed_jwks(app)
+    cert = _make_cert(user_id=str(uid_a), device_pubkey=sender_pub)
+    daten = base64.b64encode(b"olm-umschlag").decode()
+    sig = _sign(sender_priv, baue_nutzlast("postfach", str(dm_id), daten))
+    r = await client.post(
+        "/postfach",
+        json={
+            "channel_id": str(dm_id), "cert": cert, "signatur": sig,
+            "nutzlasten": [{"art": 1, "daten": daten, "empfaenger": [empf_pub]}],
+        },
+        headers=_auth(token_a),
+    )
+    assert r.status_code == 204, r.text
+
+    r = await _abholen(client, app, token=token_a, uid=uid_a, priv=empf_priv, pubkey=empf_pub)
+    assert r.status_code == 200, r.text
+    zustellungen = r.json()
+    assert len(zustellungen) == 1
+    assert zustellungen[0]["absender_user_id"] == str(uid_a)
+
+
+@pytest.mark.asyncio
+async def test_absender_user_id_ist_null_wenn_sendegeraet_abgemeldet_ist(
+    client, app, session_factory, _auth_signer, friend_pair
+):
+    """Das Sendegeraet kann sich zwischen Einliefern und Abholen abmelden —
+    sein Schluessel-Buendel ist dann weg, und der OUTER Join findet nichts
+    mehr. `absender_user_id` wird `None`, statt dass die Abholung crasht
+    oder die Zustellung verschwindet (der Klient faellt in diesem Fall auf
+    den Kanal-Gegenpart zurueck, s. `absenderErmitteln.ts`)."""
+    from dcc_chat_gateway.models import DeviceKeyBundle
+    from sqlalchemy import delete
+
+    token_a, uid_a = await _register(_auth_signer)
+    token_b, uid_b = await _register(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+    dm_id = await _dm_erstellen(client, token_a, uid_b)
+
+    sender_priv, sender_pub = await _bundel_seeden_echtes_geraet(
+        session_factory, user_id=uid_a
+    )
+    empf_priv, empf_pub = await _bundel_seeden_echtes_geraet(session_factory, user_id=uid_b)
+
+    await _seed_jwks(app)
+    cert = _make_cert(user_id=str(uid_a), device_pubkey=sender_pub)
+    daten = base64.b64encode(b"olm-umschlag").decode()
+    sig = _sign(sender_priv, baue_nutzlast("postfach", str(dm_id), daten))
+    r = await client.post(
+        "/postfach",
+        json={
+            "channel_id": str(dm_id), "cert": cert, "signatur": sig,
+            "nutzlasten": [{"art": 1, "daten": daten, "empfaenger": [empf_pub]}],
+        },
+        headers=_auth(token_a),
+    )
+    assert r.status_code == 204, r.text
+
+    # Das Sendegeraet meldet sich ab — sein Buendel verschwindet, die
+    # Zustellung selbst bleibt unberuehrt liegen (kein Fremdschluessel
+    # zwischen den beiden Tabellen, s. Modul-Docstring von models/postfach.py).
+    async with session_factory() as s:
+        await s.execute(
+            delete(DeviceKeyBundle).where(DeviceKeyBundle.device_pubkey == sender_pub)
+        )
+        await s.commit()
+
+    r = await _abholen(client, app, token=token_b, uid=uid_b, priv=empf_priv, pubkey=empf_pub)
+    assert r.status_code == 200, r.text
+    zustellungen = r.json()
+    assert len(zustellungen) == 1
+    assert zustellungen[0]["absender_user_id"] is None
+
+
 # ---------------------------------------------------------------------------
 # Task 4 — Verfall
 # ---------------------------------------------------------------------------

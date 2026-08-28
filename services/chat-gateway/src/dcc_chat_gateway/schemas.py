@@ -1322,6 +1322,17 @@ class PostfachZustellungOut(BaseModel):
     #: Argument, s. Migration 0069) — ``None``, wenn das einliefernde Geraet
     #: zum Zeitpunkt des Einlieferns kein Buendel veroeffentlicht hatte.
     absender_curve25519: str | None = None
+    #: Vom Server aus ``DeviceKeyBundle.user_id`` (join ueber
+    #: ``absender_device_pubkey``) hergeleitet — der Klient kann das NICHT
+    #: selbst bestimmen: er kennt zu einer Zustellung nur den Kanal, und eine
+    #: verschluesselte DM liefert auch an die EIGENEN anderen Geraete des
+    #: Senders aus (so kommt eine vom Handy gesendete Nachricht auf dem
+    #: Desktop an) — "Kanal-Gegenpart" ist in diesem Fall die FALSCHE
+    #: Zuschreibung. ``None``, wenn das Sendegeraet sich zwischen Einliefern
+    #: und Abholen abgemeldet und sein Buendel damit geloescht hat; der
+    #: Klient faellt dann auf den bisherigen Kanal-Gegenpart zurueck
+    #: (``web/src/lib/krypto/empfangen.ts``) statt abzustuerzen.
+    absender_user_id: int | None = None
     #: 0 = Sitzungsaufbau, 1 = laufende Nachricht — wie ``PostfachNutzlastIn.art``.
     art: int
     #: Base64, wie ``PostfachNutzlastIn.daten``.
@@ -1331,6 +1342,10 @@ class PostfachZustellungOut(BaseModel):
     @field_serializer("id", "channel_id")
     def _ser_id(self, v: int) -> str:
         return _id_str(v)
+
+    @field_serializer("absender_user_id")
+    def _ser_absender_user_id(self, v: int | None) -> str | None:
+        return _opt_id_str(v)
 
 
 class PostfachQuittungRequest(BaseModel):

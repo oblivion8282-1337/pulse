@@ -25,7 +25,7 @@ from fastapi import APIRouter, Request, Response, status
 from sqlalchemy import delete, exists, select
 
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import DmNutzlast, DmZustellung
+from dcc_chat_gateway.models import DeviceKeyBundle, DmNutzlast, DmZustellung
 from dcc_chat_gateway.routes.postfach import _require_redis
 from dcc_chat_gateway.schemas import (
     PostfachAbholenRequest,
@@ -61,11 +61,23 @@ async def postfach_abholen(
                 DmNutzlast.channel_id,
                 DmNutzlast.absender_device_pubkey,
                 DmNutzlast.absender_curve25519,
+                # Wer die Zustellung geschrieben hat, NICHT der Kanal-
+                # Gegenpart — eine verschluesselte DM liefert auch an die
+                # eigenen anderen Geraete des Senders aus (s.
+                # ``PostfachZustellungOut.absender_user_id``). Ein OUTER Join:
+                # das Sendegeraet kann sich zwischen Einliefern und Abholen
+                # abgemeldet haben, dann ist sein Buendel weg und die Spalte
+                # NULL, statt dass die ganze Zustellung fehlt.
+                DeviceKeyBundle.user_id.label("absender_user_id"),
                 DmNutzlast.art,
                 DmNutzlast.daten,
                 DmNutzlast.groesse,
             )
             .join(DmNutzlast, DmNutzlast.id == DmZustellung.nutzlast_id)
+            .outerjoin(
+                DeviceKeyBundle,
+                DeviceKeyBundle.device_pubkey == DmNutzlast.absender_device_pubkey,
+            )
             .where(
                 # NICHT nur auf den Empfaenger-Pubkey filtern (obwohl er
                 # faktisch geraeteweit eindeutig ist) — das Konto zusaetzlich

@@ -34,6 +34,14 @@ export interface PostfachZustellung {
    *  einliefernde Geraet beim Einliefern kein Buendel veroeffentlicht
    *  hatte. */
   absender_curve25519: string | null;
+  /** Vom Server hergeleitet (join `DeviceKeyBundle` ueber
+   *  `absender_device_pubkey`) — der Klient kennt zu einer Zustellung nur
+   *  den Kanal, und eine verschluesselte DM liefert auch an die EIGENEN
+   *  anderen Geraete des Senders aus, sodass "der andere Kanal-Teilnehmer"
+   *  in diesem Fall falsch waere. `null`, wenn sich das Sendegeraet
+   *  zwischen Einliefern und Abholen abgemeldet hat — dann bleibt nur der
+   *  Kanal-Gegenpart als Rueckfall (s. `krypto/empfangen.ts`). */
+  absender_user_id: string | null;
   /** Wie `PostfachNutzlast.art`. */
   art: number;
   /** Base64. */
