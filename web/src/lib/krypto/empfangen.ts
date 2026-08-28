@@ -43,6 +43,31 @@
  * ERFOLGREICHEN Ablage quittiert (`verlaufSpeichernPflicht`); ein
  * Fehlschlag laesst nur die Zustellungen DIESES Kanals unquittiert, der
  * naechste Weckruf versucht sie erneut.
+ *
+ * **Zweiter Bughunt (2026-08-28, FIX 2): EIN geladenes `Identitaet`-Objekt
+ * fuer den GANZEN Abholzyklus, mutiert von jedem Sitzungsaufbau.** Ein
+ * eingehender Sitzungsaufbau (`ident.sitzungEingehend`) verbraucht einen
+ * Einmalschluessel AUF DEM ACCOUNT, im Arbeitsspeicher, sofort — unabhaengig
+ * davon, ob das anschliessende `sitzungMitKontoAtomarSichern` gelingt. Wirft
+ * dieses Sichern (z. B. voller Speicher, kurzzeitig blockierte IndexedDB),
+ * wird die Zustellung korrekt NICHT quittiert — aber der bereits verbrauchte
+ * Einmalschluessel bleibt im mutierten `ident` stehen. Kommt DANACH in
+ * DERSELBEN Schleife eine WEITERE Zustellung, deren Sitzungsaufbau erfolgreich
+ * sichert, friert dieser Aufruf den KUMULIERTEN Kontostand ein — inklusive
+ * des Einmalschluessels der ersten, nie gesicherten Zustellung. Der ist damit
+ * dauerhaft weg, obwohl fuer die erste Zustellung nie eine Sitzung gelandet
+ * ist: sie kommt beim naechsten Weckruf zurueck und ist dann NIE MEHR zu
+ * oeffnen (derselbe curve25519-Schluessel wird kein zweites Mal ausgegeben).
+ * Die Atomaritaet von `sitzungMitKontoAtomarSichern` deckt nur den
+ * SCHREIBVORGANG — nicht den Umstand, dass zwei Zustellungen sich denselben
+ * mutierbaren Zustand im Arbeitsspeicher teilen. Deshalb bricht
+ * `postfachZyklus` den Rest des Zyklus ab, sobald ein Konto-Sichern
+ * fehlschlaegt (`KontoSicherungFehlgeschlagen`, s. dort): kein weiterer
+ * Aufruf bekommt die Chance, den kompromittierten Zwischenstand einzufrieren.
+ * Bereits erfolgreich geoeffnete/gesicherte Zustellungen VOR dem Abbruch
+ * bleiben gueltig und werden ganz normal quittiert. Der naechste Weckruf laedt
+ * `ident` frisch aus IndexedDB — also exakt den zuletzt durabel gesicherten
+ * Stand, ohne die verlorene Mutation.
  */
 import type { Message } from '../api/types';
 import type { Identitaet } from '../../../../krypto/pulse-krypto/pkg/pulse_krypto.js';
@@ -64,6 +89,18 @@ import { baueNutzlast } from './nutzlast';
 import { signiereNutzlast } from './nachweis';
 import { absenderErmitteln } from './absenderErmitteln';
 import { quittierbareIds, type KanalGruppe } from './quittierbareIds';
+import { verarbeiteBisAbbruch } from './postfachSchleife';
+
+/**
+ * Markiert, dass `sitzungMitKontoAtomarSichern` fuer eine Zustellung
+ * fehlgeschlagen ist, NACHDEM `ident` bereits mutiert wurde (Bughunt
+ * 2026-08-28, FIX 2, s. Modulkopf). Absichtlich eine eigene Klasse statt
+ * eines rohen Fehlers: `zustellungOeffnen`s Catch-Block muss sie von einem
+ * gewoehnlichen Entschluesselungsfehler (unlesbarer Umschlag — dort bleibt
+ * die Zustellung einfach liegen, der Zyklus laeuft normal weiter) unterscheiden
+ * koennen.
+ */
+class KontoSicherungFehlgeschlagen extends Error {}
 
 /** Die Nachricht einer erfolgreich geoeffneten Zustellung — `null`, wenn der
  *  Absender nicht ermittelbar ist: der Server liefert keinen
@@ -103,8 +140,21 @@ async function zustellungOeffnen(
         );
         sitzung = ergebnis.sitzung();
         klartextBytes = ergebnis.klartext();
-        // ATOMAR mit dem Konto sichern — s. Modulkopf.
-        await sitzungMitKontoAtomarSichern(ident, z.channel_id, z.absender_device_pubkey, sitzung);
+        // ATOMAR mit dem Konto sichern — s. Modulkopf. Ab hier ist `ident`
+        // bereits mutiert (der Einmalschluessel ist verbraucht); ein
+        // Fehlschlag hier muss den Rest des Zyklus abbrechen (FIX 2), darum
+        // ein eigener, nicht-schluckbarer Fehlertyp statt des normalen
+        // "unlesbar liegenlassen".
+        try {
+          await sitzungMitKontoAtomarSichern(
+            ident,
+            z.channel_id,
+            z.absender_device_pubkey,
+            sitzung
+          );
+        } catch (err) {
+          throw new KontoSicherungFehlgeschlagen('Konto/Sitzung nicht sicherbar', { cause: err });
+        }
       }
 
       return {
@@ -117,7 +167,14 @@ async function zustellungOeffnen(
         nonce: null,
         created_at: new Date().toISOString()
       };
-    } catch {
+    } catch (err) {
+      if (err instanceof KontoSicherungFehlgeschlagen) {
+        // Weiterreichen, NICHT hier verschlucken — `postfachZyklus` muss den
+        // Rest des Zyklus abbrechen (FIX 2, s. Modulkopf), sonst friert die
+        // naechste erfolgreiche Zustellung den kompromittierten
+        // Zwischenstand von `ident` ein.
+        throw err;
+      }
       // Entschluesseln fehlgeschlagen (fremde/kaputte Sitzung, korrupter
       // Umschlag) — NICHT quittieren, s. Modulkopf.
       return null;
@@ -136,22 +193,35 @@ async function postfachZyklus(): Promise<Message[]> {
   if (zustellungen.length === 0) return [];
 
   const ident = await kryptoAccountLaden();
+  // FIX 2, s. Modulkopf: bricht den Rest des Zyklus ab, sobald
+  // `KontoSicherungFehlgeschlagen` auftritt — `ident` traegt ab dann eine
+  // Mutation, die nicht durabel gesichert wurde, und darf keiner weiteren
+  // erfolgreichen Zustellung mehr als eingefrorener Zwischenstand
+  // untergeschoben werden. Bereits geoeffnete Zustellungen bleiben gueltig
+  // und werden unten normal quittiert; der naechste Weckruf laedt `ident`
+  // frisch und versucht die abgebrochene(n) Zustellung(en) erneut.
+  const { ergebnisse: geoeffnetOderLeer } = await verarbeiteBisAbbruch(
+    zustellungen,
+    (z) => zustellungOeffnen(ident, z),
+    (err) => err instanceof KontoSicherungFehlgeschlagen
+  );
+
   const geoeffnet: Message[] = [];
   // `verlaufSpeichernPflicht` nimmt einen Kanal je Aufruf — gleich beim
   // Oeffnen nach Kanal gruppieren, eine Abholung kann mehrere Gespraeche
-  // mitbringen.
+  // mitbringen. `nachricht.id` ist die Zustellungs-ID (`id: z.id` in
+  // `zustellungOeffnen`), ein separates Nachschlagen der Zustellung entfaellt.
   const nachKanal = new Map<string, KanalGruppe>();
 
-  for (const z of zustellungen) {
-    const nachricht = await zustellungOeffnen(ident, z);
+  for (const nachricht of geoeffnetOderLeer) {
     if (!nachricht) continue;
     geoeffnet.push(nachricht);
     const gruppe = nachKanal.get(nachricht.channel_id);
     if (gruppe) {
       gruppe.nachrichten.push(nachricht);
-      gruppe.ids.push(z.id);
+      gruppe.ids.push(nachricht.id);
     } else {
-      nachKanal.set(nachricht.channel_id, { nachrichten: [nachricht], ids: [z.id] });
+      nachKanal.set(nachricht.channel_id, { nachrichten: [nachricht], ids: [nachricht.id] });
     }
   }
 
