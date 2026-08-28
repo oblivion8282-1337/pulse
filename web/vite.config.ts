@@ -142,7 +142,12 @@ export default defineConfig({
       // hoeher und wird ohne diese Erweiterung mit "outside of Vite serving
       // allow list" abgewiesen — erst beim echten Testen im Dev-Server
       // aufgefallen (Playwright-Nachweis dieser Etappe), nicht beim Bauen.
-      allow: ['..']
+      // GENAU dieses eine Verzeichnis, nicht `'..'`. Der Elternpfad wäre die
+      // Wurzel des Arbeitsbaums, und der Dev-Server würde damit auch
+      // `secrets/jwt_private.pem` und `.env` ausliefern, wenn jemand danach
+      // fragt. Auf localhost, aber es gibt keinen Grund dafür: gebraucht wird
+      // ausschliesslich die WASM-Ausgabe des Krypto-Kerns.
+      allow: ['./', '../krypto/pulse-krypto/pkg']
     },
     // NIE still auf den nächsten freien Port ausweichen. Der Port wird von
     // außen fest adressiert — Playwright über `baseURL`, die Electron-Dev-App

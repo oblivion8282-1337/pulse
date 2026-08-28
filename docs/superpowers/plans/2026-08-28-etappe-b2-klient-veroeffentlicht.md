@@ -36,7 +36,13 @@ aus — `rnnoise` aus der Rauschunterdrückung
 Muster. Vites Asset-Behandlung für WebAssembly ist hier also kein neuer Pfad,
 sondern ein bereits benutzter.
 
-**Kein zusätzliches Plugin, keine neue Abhängigkeit, keine Rückfrage.** Der
+**Kein zusätzliches Plugin, keine neue Abhängigkeit, keine Rückfrage.**
+
+**Nachtrag: diese Messung war unvollständig.** Sie prüfte nur den Bau. Der
+Dev-Server hat eine eigene `server.fs.allow`-Liste, und `pkg/` liegt eine
+Ebene über `web/` — ohne Eintrag scheitert der Import dort mit „outside of
+Vite serving allow list". Aufgefallen erst beim Playwright-Nachweis dieser
+Etappe. Ein grüner `pnpm build` beweist nichts über den Dev-Server. Der
 frühere Vorbehalt in `docs/superpowers/plans/2026-08-28-etappe-a-krypto-kern.md`
 ist damit erledigt.
 

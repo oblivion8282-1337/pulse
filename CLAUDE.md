@@ -201,13 +201,20 @@ Entwurf: `docs/superpowers/specs/2026-08-28-e2e-dm-design.md`, Plan:
 - **Im Gate seit Anfang an**: `scripts/gate-rust.sh` matcht `streaming/pulse-*`
   **und** `krypto/pulse-*`. Ohne die zweite Zeile wären die 11 Tests in keinem
   Gate gelaufen.
-- **Vite trägt das WASM-Paket ohne Zutun** — gemessen am 2026-08-28, nicht
-  vermutet: `pnpm build` legt `pulse_krypto_bg.<hash>.wasm` (531 kB) unter
+- **Vite trägt das WASM-Paket, aber Bau und Dev-Server sind zwei Fragen.**
+  `pnpm build` legt `pulse_krypto_bg.<hash>.wasm` (531 kB) unter
   `build/_app/immutable/assets/` und schreibt den gehashten Pfad in die
-  `new URL(…, import.meta.url)` der wasm-pack-Ausgabe. Kein zusätzliches
-  Plugin. Der Beleg liegt im Bestand: die App liefert mit `rnnoise`
-  (Rauschunterdrückung) längst ein `.wasm` nach demselben Muster aus. Ein
-  früherer Vorbehalt hier vermutete das Gegenteil.
+  `new URL(…, import.meta.url)` der wasm-pack-Ausgabe — **kein zusätzliches
+  Plugin**; die App liefert mit `rnnoise` längst ein `.wasm` nach demselben
+  Muster aus. **Der Dev-Server hat davon unabhängig eine eigene
+  `server.fs.allow`-Liste** (Vorgabe: der `web/`-Baum), und
+  `krypto/pulse-krypto/pkg/` liegt eine Ebene höher — ohne Eintrag „outside
+  of Vite serving allow list". Der Eintrag nennt **genau dieses Verzeichnis**,
+  nicht `'..'`: der Elternpfad wäre die Wurzel des Arbeitsbaums, und der
+  Dev-Server lieferte damit auch `secrets/` und `.env` aus.
+  **Die Lehre: ein grüner `pnpm build` beweist nichts über den Dev-Server.**
+  Der erste Befund hier prüfte nur den Bau und behauptete „ohne Zutun"; der
+  Unterschied fiel erst beim echten Testen im Dev-Server auf.
 - Bauen: `bash krypto/pulse-krypto/bauen-wasm.sh` (`wasm-pack` liegt unter
   `~/.cargo/bin`, das nicht in jedem PATH steht).
 
