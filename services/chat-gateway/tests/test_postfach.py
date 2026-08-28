@@ -92,6 +92,19 @@ async def _seed_jwks(app) -> None:
     await app.state.redis.set("auth:jwks:cached", _jwks_json())
 
 
+@pytest_asyncio.fixture(autouse=True)
+async def _redis_fixture_daten_aufraeumen(app):
+    """``_seed_jwks`` schreibt unter dem ECHTEN Produktions-Key
+    ``auth:jwks:cached`` in ein reales Redis — dasselbe ``dcc_night_redis``,
+    das auch der lokale Dev-Stack und die Playwright-E2E-Suite benutzen (s.
+    CLAUDE.md „Port-Mapping"). Ohne Aufraeumen ueberlebt die Fixture-JWKS den
+    Testlauf: jeder echte Aufrufer, der denselben Redis-Index trifft, sieht
+    danach ``test-postfach-key-1`` statt der echten Cloud-JWKS und jedes echte
+    Zertifikat schlaegt mit 403 fehl."""
+    yield
+    await app.state.redis.delete("auth:jwks:cached")
+
+
 async def _register(_auth_signer) -> tuple[str, int]:
     uid = random.randint(1, 1_000_000)
     return _auth_signer.issue_access(uid, f"u{uid}"), uid
