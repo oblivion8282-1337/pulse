@@ -242,6 +242,21 @@ if [ "${backend_grund#ja}" != "$backend_grund" ]; then
   stempeln backend $BEREICH_backend
 fi
 
+# ── Rust ────────────────────────────────────────────────────────────────────
+# Die Cargo-Teile hängen an den GEÄNDERTEN Pfaden (nicht an Bereichs-Hashes):
+# ein Kaltbau kostet Minuten, und die allermeisten Pushes fassen kein Rust an.
+# Basis ist der Vergleich gegen origin/main — inklusive noch nicht committeter
+# Arbeit, damit das Gate mitten in der Sitzung dasselbe prüft wie beim Landen.
+#
+# **Steht VOR dem Web-Teil, und das ist keine Geschmacksfrage:** gate-rust.sh
+# baut das WASM-Paket des Krypto-Kerns, und `pnpm test:unit` braucht es. Stünde
+# der Rust-Teil wie ursprünglich am Ende, würden die drei WASM-Grenz-Tests im
+# ERSTEN Lauf auf einer frischen Maschine übersprungen und erst im zweiten
+# greifen — ein Gate, das beim ersten Mal weniger prüft als beim zweiten.
+mergebase="$(git merge-base origin/main HEAD 2>/dev/null || true)"
+changed="$(git diff --name-only "${mergebase:-HEAD~1}" -- 2>/dev/null || true)"
+bash "$(dirname "${BASH_SOURCE[0]}")/gate-rust.sh" "$changed"
+
 # ── Web ─────────────────────────────────────────────────────────────────────
 if [ "${web_grund#ja}" != "$web_grund" ]; then
   echo "  Frontend check + build…"
@@ -273,14 +288,5 @@ if [ "${infra_grund#ja}" != "$infra_grund" ]; then
   # shellcheck disable=SC2086
   stempeln infra $BEREICH_infra
 fi
-
-# ── Rust ────────────────────────────────────────────────────────────────────
-# Die Cargo-Teile hängen an den GEÄNDERTEN Pfaden (nicht an Bereichs-Hashes):
-# ein Kaltbau kostet Minuten, und die allermeisten Pushes fassen kein Rust an.
-# Basis ist der Vergleich gegen origin/main — inklusive noch nicht committeter
-# Arbeit, damit das Gate mitten in der Sitzung dasselbe prüft wie beim Landen.
-mergebase="$(git merge-base origin/main HEAD 2>/dev/null || true)"
-changed="$(git diff --name-only "${mergebase:-HEAD~1}" -- 2>/dev/null || true)"
-bash "$(dirname "${BASH_SOURCE[0]}")/gate-rust.sh" "$changed"
 
 echo "✓ Test-Gate grün."
