@@ -138,9 +138,6 @@ class User(Base):
     sessions: Mapped[list["UserSession"]] = relationship(
         "UserSession", back_populates="user", cascade="all, delete-orphan"
     )
-    issued_credentials: Mapped[list["IssuedCredential"]] = relationship(
-        "IssuedCredential", back_populates="user", cascade="all, delete-orphan"
-    )
 
     __table_args__ = (
         # Case-insensitive lookup indexes for username + display_name searches.
@@ -545,7 +542,7 @@ class UserSession(Base):
     cookie (``pulse_session=<session_id>``).  Cloud-only — Self-Hosts never
     issue these (they use the Cert-Model + local Session-Token instead).
 
-    The ``amr`` / ``acr`` values are inherited by any ``IssuedCredential``
+    The ``amr`` / ``acr`` values are carried into the server ticket
     created while this session is active, so the Cert carries the correct
     authentication-context claims.
     """
@@ -605,8 +602,6 @@ class UserSession(Base):
 # Re-export für Alembic-Discovery + bestehende Imports.
 # ---------------------------------------------------------------------------
 from dcc_auth.models_credentials import (  # noqa: E402, F401
-    IssuedCredential,
-    RevokedCredential,
     UsernameReservation,
 )
 

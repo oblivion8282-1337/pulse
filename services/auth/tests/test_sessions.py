@@ -272,37 +272,6 @@ async def test_delete_session_also_kills_the_browser_cookie(client):
 
 
 @pytest.mark.asyncio
-async def test_ended_session_cannot_issue_a_device_certificate(client):
-    """Der Kern der Zusage: nach dem Widerruf stellt das Geraet nichts mehr aus.
-
-    ``/credentials/issue`` authentifiziert ausschliesslich ueber das Cookie —
-    ueberlebt es den Widerruf, kann sich ein gekapertes Geraet weiter frische
-    Identitaets-Zertifikate ziehen.
-    """
-    own = await client.post("/register", json=REG_PAYLOAD)
-    access = own.json()["access_token"]
-    other = await _login_response(client, user_agent="OtherDevice/1")
-    other_sid = other.cookies["pulse_session"]
-
-    target = await _session_id_for_ua(client, access, "OtherDevice/1")
-    assert (
-        await client.delete(
-            f"/sessions/{target}", headers={"Authorization": f"Bearer {access}"}
-        )
-    ).status_code == 204
-
-    r = await client.post(
-        "/credentials/issue",
-        json={
-            "device_pubkey": base64.b64encode(b"\x07" * 32).decode(),
-            "device_label": "gekapert",
-        },
-        headers={"Cookie": f"pulse_session={other_sid}"},
-    )
-    assert r.status_code == 401, r.text
-
-
-@pytest.mark.asyncio
 async def test_delete_all_sessions_kills_other_cookies_only(client):
     """"Alle anderen beenden" nimmt die fremden Cookies mit, das eigene nicht."""
     await client.post("/register", json=REG_PAYLOAD)

@@ -332,7 +332,7 @@ async def login_totp(
     # bekommen 2FA-User keinen pulse_session-Cookie und die cookie-only Cert-/
     # Backup-/Profile-Endpoints (runIssueFlow → /credentials/issue) liefern 401.
     # acr="1": ein zweiter Faktor wurde geprüft → erfüllt den
-    # mfa_step_up_required-Gate (routes_credentials.py::issue_credential).
+    # mfa_step_up_required-Gate (mit dem Geraetezertifikat entfallen).
     # amr reflects the factor that *actually* verified, not what the payload
     # carried: a client may send both a TOTP code and a backup code, in which
     # case the TOTP branch wins above and no backup code is consumed.
