@@ -62,6 +62,11 @@ async def test_hello_kuendigt_token_refresh_an(ws_app, _auth_signer):
                 hello = ws.receive_json()
                 assert hello["op"] == "hello"
                 assert "token_refresh" in hello["capabilities"]
+                # Der Klient entscheidet ueber die Faehigkeit, nicht ueber die
+                # Version: Die Web-App kommt von der Cloud und ist fuer alle
+                # sofort neu, ein Self-Host aktualisiert sich wann er will. Eine
+                # neue App trifft also wochenlang auf alte Server.
+                assert "server-ticket" in hello["capabilities"]
 
     await asyncio.to_thread(_run)
 
