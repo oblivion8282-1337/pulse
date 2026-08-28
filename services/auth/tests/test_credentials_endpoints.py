@@ -107,26 +107,43 @@ async def test_device_limit_rolls_oldest(client, app):
 
 
 @pytest.mark.asyncio
-async def test_issue_same_label_supersedes_old_device(client, app):
-    """Re-login of the same device (same label, fresh keypair) replaces the old
-    pass instead of stacking — stale certs from wiped browsers self-clean."""
+async def test_zwei_browser_mit_gleichem_label_bleiben_beide_gueltig(client, app):
+    """Zwei Browser derselben Familie auf demselben System melden sich nicht
+    gegenseitig ab.
+
+    Das Label ist ``<Browser> · <OS>`` ohne Rechnername (Privacy, s.
+    ``web/src/lib/identity/issue-flow.ts``) — Chrome, Edge, ein zweites Profil
+    und ein Inkognitofenster tragen auf demselben Windows-Rechner alle
+    ``Chrome · Windows``. Es taugt deshalb NICHT als Geraete-Identitaet.
+
+    Vorher zog eine Neuausstellung jeden aktiven Pass mit gleichem Label
+    zurueck. Da ``runIssueFlow`` bei JEDER Cloud-Anmeldung laeuft und der
+    Idempotenz-Pfad einen bereits widerrufenen Pass nicht mehr trifft, warfen
+    sich zwei Browser endlos abwechselnd hinaus — beide dauerhaft kaputt, ohne
+    dass eine Neuausstellung half.
+    """
     cookie, _ = await _reg_and_login(client)
     r1 = await _issue(
-        client, cookie, pubkey=base64.b64encode(bytes([1]) * 32).decode(), label="Chrome · Linux"
+        client, cookie, pubkey=base64.b64encode(bytes([31]) * 32).decode(), label="Chrome · Windows"
     )
     assert r1.status_code == 200, r1.text
     app.state.rate_buckets = {}
     r2 = await _issue(
-        client, cookie, pubkey=base64.b64encode(bytes([2]) * 32).decode(), label="Chrome · Linux"
+        client, cookie, pubkey=base64.b64encode(bytes([32]) * 32).decode(), label="Chrome · Windows"
     )
     assert r2.status_code == 200, r2.text
-    # Exactly one active "Chrome · Linux" pass remains — the new one.
+
     lst = await client.get("/credentials/list", headers={"Cookie": cookie})
-    labels = [d["device_label"] for d in lst.json()["devices"]]
-    assert labels.count("Chrome · Linux") == 1
+    devices = lst.json()["devices"]
+    assert [d["device_label"] for d in devices].count("Chrome · Windows") == 2
+
+    # Beide Paesse sind aktiv — entscheidend ist, dass der ERSTE ueberlebt.
     c1 = pyjwt.decode(r1.json()["cert"], options={"verify_signature": False})
     c2 = pyjwt.decode(r2.json()["cert"], options={"verify_signature": False})
     assert c1["cert_id"] != c2["cert_id"]
+    aktive = {d["cert_id"] for d in devices}
+    assert c1["cert_id"] in aktive
+    assert c2["cert_id"] in aktive
 
 
 @pytest.mark.asyncio

@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-28",
+      "date": "2026-08-28",
+      "style": "Sachlich",
+      "title": "Zwei Browser gleichzeitig, ohne dass einer den anderen abmeldet",
+      "intro": "Wer Pulse in einem zweiten Browser auf demselben Rechner öffnete, verlor damit den Zugang im ersten.",
+      "items": [
+        "Betroffen war der Zugang zu Servern, die nicht in der Pulse-Cloud liegen. Dort meldete sich die App danach mit „Anmeldung abgelaufen oder Server nicht erreichbar“, obwohl der Server einwandfrei lief.",
+        "Besonders zäh war, dass ein Ausweichen auf einen anderen Browser den Zustand nicht behob, sondern erzeugte: Jede Anmeldung im einen Browser nahm dem anderen den Zugang, und umgekehrt.",
+        "Chrome, Edge, ein zweites Browser-Profil und ein Fenster im privaten Modus galten dabei als ein und dasselbe Gerät. Das ist jetzt nicht mehr so, es sind eigene Einträge in der Geräteliste.",
+        "In den Einstellungen unter „Geräte“ können mehrere gleichnamige Einträge stehen. Sie sind am Ausstellungsdatum und an der Markierung für das aktuelle Gerät zu unterscheiden; einzeln abmelden geht wie zuvor."
+      ]
+    },
+    {
       "id": "2026-08-27.10",
       "date": "2026-08-27",
       "style": "Sachlich",
