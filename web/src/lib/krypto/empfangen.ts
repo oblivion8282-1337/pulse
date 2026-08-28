@@ -35,16 +35,23 @@ import { kryptoAccountLaden } from './account.svelte';
 import { sitzungLaden, sitzungSichern } from './sitzungen';
 import { baueNutzlast } from './nutzlast';
 import { signiereNutzlast } from './nachweis';
+import { absenderErmitteln } from './absenderErmitteln';
 
 /** Die Nachricht einer erfolgreich geoeffneten Zustellung — `null`, wenn der
- *  Kanal lokal (noch) nicht bekannt ist, der Absender also nicht ermittelbar
- *  war (kann bei einer brandneuen DM knapp vor dem `ready`-Rahmen passieren;
- *  die naechste Abholung holt sie dann nach, s. Modulkopf „unlesbar"). */
+ *  Absender nicht ermittelbar ist: der Server liefert keinen
+ *  `absender_user_id` (Sendegeraet zwischenzeitlich abgemeldet, s.
+ *  `absenderErmitteln.ts`), UND der Kanal ist lokal (noch) nicht als
+ *  Rueckfall bekannt (kann bei einer brandneuen DM knapp vor dem
+ *  `ready`-Rahmen passieren; die naechste Abholung holt sie dann nach, s.
+ *  Modulkopf „unlesbar"). */
 async function zustellungOeffnen(
   ident: Identitaet,
   z: PostfachZustellung
 ): Promise<Message | null> {
-  const absenderUserId = directMessages.byId[z.channel_id]?.other_user_id;
+  const absenderUserId = absenderErmitteln(
+    z.absender_user_id,
+    directMessages.byId[z.channel_id]?.other_user_id
+  );
   if (!absenderUserId) return null;
 
   try {
