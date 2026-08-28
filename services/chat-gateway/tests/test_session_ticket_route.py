@@ -26,17 +26,26 @@ NUTZER = "73315227868860416"
 
 @pytest_asyncio.fixture
 async def jwks_in_redis(app, _auth_signer):
-    """Legt die Cloud-JWKS dorthin, wo ein Self-Host sie sucht.
+    """Legt die Cloud-JWKS dorthin, wo der Server sie sucht.
 
-    Self-Host liest ``auth:cloud_jwks:cached`` (vom crl_poller warmgehalten),
-    Cloud-Modus dagegen ``auth:jwks:cached``. Die Testumgebung läuft im
-    Self-Host-Modus, also der Cloud-Schlüssel.
+    **Beide** Schlüssel, mit Absicht: ``_get_jwks_keys`` wählt zwischen
+    ``auth:cloud_jwks:cached`` (Self-Host) und ``auth:jwks:cached`` (Cloud)
+    anhand der Betriebsart — und die liest es aus einer Stelle, die der conftest
+    nicht patcht. Im Einzellauf gilt deshalb der eine, im Gate (dort steht die
+    Umgebung auf ``cloud``) der andere. Nur einen zu setzen hiesse, dass diese
+    Tests je nach Umgebung etwas anderes prüfen, und das ist schlimmer als ein
+    überzähliger Schlüssel im Test-Redis.
     """
-    from dcc_chat_gateway.credential_validator import REDIS_CLOUD_JWKS_KEY
+    from dcc_chat_gateway.credential_validator import (
+        REDIS_CLOUD_JWKS_KEY,
+        REDIS_JWKS_KEY,
+    )
 
-    await app.state.redis.set(REDIS_CLOUD_JWKS_KEY, json.dumps(_auth_signer.jwks()))
+    roh = json.dumps(_auth_signer.jwks())
+    await app.state.redis.set(REDIS_CLOUD_JWKS_KEY, roh)
+    await app.state.redis.set(REDIS_JWKS_KEY, roh)
     yield
-    await app.state.redis.delete(REDIS_CLOUD_JWKS_KEY)
+    await app.state.redis.delete(REDIS_CLOUD_JWKS_KEY, REDIS_JWKS_KEY)
 
 
 @pytest.fixture
@@ -192,12 +201,26 @@ async def test_zweite_einloesung_wird_abgelehnt(
 
 
 @pytest.mark.asyncio
-async def test_ohne_cloud_schluessel_eigener_grund(client, ticket_bauer):
-    """Kein ``jwks_in_redis``: Der Server hat die Cloud nie erreicht.
+async def test_ohne_cloud_schluessel_eigener_grund(client, app, ticket_bauer):
+    """Der Server hat die Cloud nie erreicht — ein eigener Grund.
 
-    Das ist kein ungueltiges Ticket, sondern ein anderer Handgriff — der Server
+    Das ist kein ungueltiges Ticket, sondern ein anderer Handgriff: Der Server
     muss ans Netz. Deshalb ein eigener Code.
+
+    BEIDE Schluessel werden ausdruecklich geloescht. Zwei Gruende, beide
+    nachgemessen: Redis ist in der Suite geteilt, ein anderer Test hatte den
+    Schluessel hinterlassen (Einzellauf gruen, Gesamtlauf rot). Und
+    ``_get_jwks_keys`` waehlt zwischen ``auth:cloud_jwks:cached`` und
+    ``auth:jwks:cached`` anhand der Betriebsart — die es aus einer NICHT vom
+    conftest gepatchten Stelle liest, weshalb im Gate (dort steht die Umgebung
+    auf ``cloud``) der jeweils andere Schluessel gilt als im Einzellauf.
     """
+    from dcc_chat_gateway.credential_validator import (
+        REDIS_CLOUD_JWKS_KEY,
+        REDIS_JWKS_KEY,
+    )
+
+    await app.state.redis.delete(REDIS_CLOUD_JWKS_KEY, REDIS_JWKS_KEY)
     r = await client.post("/session", json={"ticket": ticket_bauer()})
     assert r.status_code == 403
     assert r.json()["detail"] == "jwks_cold"
