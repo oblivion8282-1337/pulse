@@ -198,6 +198,25 @@ Entwurf: `docs/superpowers/specs/2026-08-28-e2e-dm-design.md`, Plan:
 - **An der Grenze nur Base64 und Zahlen** — dieselbe Grenze überquert JS über
   WASM. `src/wasm.rs` ist reine Übersetzung ohne Logik; was dort stünde, wäre
   von `cargo test` nicht erreichbar.
+- **`generate_fallback_key()` liefert den VORHERIGEN Schlüssel, nicht den
+  neuen** — steht so in vodozemacs Doc-Kommentar („mostly useful for logging
+  purposes"). Der neue kommt aus `fallback_key()` danach. Die erste Fassung
+  reichte den Rückgabewert durch: auf einem frischen Account war das `None`,
+  nach einem Wechsel der **alte** Schlüssel — Absender hätten an einen
+  Schlüssel verschlüsselt, den das Gerät verworfen hat, und die Nachrichten
+  wären unlesbar gewesen, ohne dass irgendwo ein Fehler erscheint.
+  **Die Lehre, die über diese eine Funktion hinausgeht:** die API war am
+  Quelltext gepinnt — aber nur die **Signatur**, nicht die **Bedeutung**.
+  Ein `-> Option<Curve25519PublicKey>` sieht bei „gib mir einen neuen
+  Schlüssel" genau richtig aus. Wer eine fremde Funktion einbindet, liest den
+  Doc-Kommentar, nicht die Zeile darunter. Aufgefallen ist es erst beim
+  ersten echten Gebrauch, weil der Rückfallschlüssel keinen Test hatte.
+- **`fallback_key()` gibt nur einen UNVERÖFFENTLICHTEN Schlüssel zurück**, und
+  `mark_keys_as_published()` betrifft ihn mit. Der Klient hält ihn deshalb
+  zwischengespeichert (`account.svelte.ts::rueckfallschluesselSicherstellen`);
+  ohne das wäre er nach dem ersten Veröffentlichen nicht mehr auslesbar, und
+  `PUT /keys/bundle` (ersetzt die Zeile vollständig) würde ihn beim nächsten
+  Mal auf NULL setzen.
 - **Im Gate seit Anfang an**: `scripts/gate-rust.sh` matcht `streaming/pulse-*`
   **und** `krypto/pulse-*`. Ohne die zweite Zeile wären die 11 Tests in keinem
   Gate gelaufen.
