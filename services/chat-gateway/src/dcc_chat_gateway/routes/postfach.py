@@ -89,9 +89,23 @@ async def _bundle_laden(session, device_pubkey: str) -> DeviceKeyBundle | None:
 
 def _envelope_groesse(daten_b64: str) -> int:
     """Bytes VOR der Base64-Kodierung — nie den Inhalt in der Fehlermeldung,
-    nur, DASS er ungueltig war."""
+    nur, DASS er ungueltig war.
+
+    **Padding nachtragen, sonst scheitert JEDER echte Umschlag.** Der
+    Krypto-Kern kodiert mit vodozemacs ``base64_encode``
+    (`STANDARD`-Alphabet, `NO_PAD` — `krypto/pulse-krypto/src/
+    utilities/mod.rs`), liefert also nie ein Vielfaches von 4 Zeichen mit
+    Fuellzeichen. Pythons ``b64decode`` verlangt Padding IMMER, auch mit
+    ``validate=False`` (das Flag steuert nur, ob Zeichen ausserhalb des
+    Alphabets stillschweigend uebersprungen werden) — ohne den Zusatz warf
+    diese Funktion bei jeder echten Nutzlast, weil ``daten`` fast nie zufaellig
+    auf ein Vielfaches von 4 laenge trifft. Ueberschuessiges Padding ignoriert
+    Python anstandslos, deshalb reicht ein fester Anhang von zwei
+    Gleichheitszeichen (dasselbe Muster wie ``schluessel_nachweis.py::_b64``
+    fuer base64url-Werte aus demselben Krypto-Kern).
+    """
     try:
-        return len(base64.b64decode(daten_b64, validate=False))
+        return len(base64.b64decode(daten_b64 + "==", validate=False))
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail="ungueltige_nutzlast") from exc
 
