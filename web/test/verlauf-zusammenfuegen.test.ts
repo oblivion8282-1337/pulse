@@ -60,6 +60,31 @@ test('die Reihenfolge bleibt die der Nachrichten-IDs', () => {
   );
 });
 
+test('eine AELTERE verschluesselte Nachricht sortiert vor einer NEUEREN unverschluesselten', () => {
+  // Kern des Bughunt-Fund 1: `krypto/senden.ts::lokaleNachrichtId()` praegt
+  // eine FEST 20-stellige ID (13-stelliger Date.now() + 7 Zufallsstellen),
+  // eine echte Snowflake hat heute 17 Stellen. Ein reiner GROESSENVERGLEICH
+  // der rohen IDs — ob "Laenge zuerst" (der Fehler) oder "auf gemeinsame
+  // Breite auffuellen, dann lexikografisch" (die im Bugreport vorgeschlagene
+  // Reparatur) — liefert fuer dieses Paar IMMER dasselbe Ergebnis: eine
+  // 20-stellige Zahl ist immer groesser als eine 17-stellige, unabhaengig
+  // vom Zeitpunkt. Deshalb dekodiert `vergleicheId` stattdessen die
+  // eingebettete Unix-Millisekunde aus beiden ID-Schemata (s. Kommentar
+  // dort) und vergleicht DIE — das faengt genau diesen Fall auf.
+  //
+  // Lokale ID: Date.now() = 1700000000000 (2023-11-14) + Zufall "1234567".
+  const verschluesseltAelter = posten('17000000000001234567', 'verschluesselt, aelter');
+  // Echte Snowflake: 5000 ms nach dem Snowflake-Epoch (2026-01-01 + 5 s) —
+  // deutlich SPAETER als die lokale ID oben, obwohl numerisch/laengenmaessig
+  // "kleiner". delta_ms(5000) << 22 Bit = 5000 * 4194304 = 20971520000.
+  const klartextNeuer = posten('20971520000', 'klartext, neuer');
+  const ergebnis = zusammenfuegen([verschluesseltAelter], [klartextNeuer]);
+  assert.deepEqual(
+    ergebnis.map((p) => p.id),
+    ['17000000000001234567', '20971520000']
+  );
+});
+
 test('ein rein lokaler Posten ohne Server-Gegenstueck bleibt erhalten', () => {
   // Der Server liefert nur ein Fenster (z.B. die neuesten 50) — aeltere
   // lokale Historie darf dadurch nicht verschwinden.
