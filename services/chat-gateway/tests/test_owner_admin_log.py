@@ -78,7 +78,11 @@ def test_owner_wird_als_admin_vermerkt(caplog):
     with caplog.at_level(logging.INFO, logger=_MODUL):
         log_owner_admin_decision(_einstellungen(), 4711, True)
     assert "4711" in caplog.text
-    assert "Admin" in caplog.text
+    # Ohne Ruecksicht auf Gross-/Kleinschreibung: geprueft wird, DASS der
+    # Ausgang vermerkt ist, nicht wie das Wort gesetzt ist. Die Meldungen sind
+    # seit 2026-08-28 englisch ("… — admin"), weil sie im Log eines fremden
+    # Betreibers landen.
+    assert "admin" in caplog.text.lower()
 
 
 def test_fremder_nutzer_bekommt_BEIDE_kennungen_zu_sehen(caplog):

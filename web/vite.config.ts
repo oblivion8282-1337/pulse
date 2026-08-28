@@ -59,7 +59,14 @@ const SELF_HOST_DATEIEN: Record<string, string> = {
   'docker-compose.yml': '../infra/self-host/docker-compose.yml',
   'docker-compose.behind-proxy.yml': '../infra/self-host/docker-compose.behind-proxy.yml',
   'env.example': '../infra/self-host/.env.example',
-  guide: '../docs/SELF_HOST.md'
+  guide: '../docs/self-host-guide.html'
+};
+
+// Der Typ haengt an der Datei, nicht am Verzeichnis: die Compose-/env-Dateien
+// sollen im Browser LESBAR sein (text/plain), die Anleitung ist eine Seite.
+// Waere hier pauschal text/plain gesetzt, zeigte der Dev-Server ihren Quelltext.
+const TYP_JE_DATEI: Record<string, string> = {
+  guide: 'text/html; charset=utf-8'
 };
 
 /** Dev-Weiche für `/self-host/*` — in Produktion macht das nginx. */
@@ -77,7 +84,7 @@ function selfHostDateien() {
             setHeader: (k: string, v: string) => void;
             end: (body: string) => void;
           };
-          antwort.setHeader('Content-Type', 'text/plain; charset=utf-8');
+          antwort.setHeader('Content-Type', TYP_JE_DATEI[name!] ?? 'text/plain; charset=utf-8');
           antwort.end(readFileSync(new URL(quelle, import.meta.url), 'utf-8'));
         }
       );

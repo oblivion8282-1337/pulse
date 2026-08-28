@@ -76,6 +76,21 @@ class Settings(BaseSettings):
     # the prod .env sets it to ``cloud`` on howispulse.com.
     pulse_instance_mode: Literal["cloud", "self-host"] = "self-host"
 
+    # Versions-Richtlinie, ausgeliefert unter
+    # /.well-known/pulse-version-policy.json (routes_version_policy.py).
+    #
+    # ``min_version`` bedeutet: "aelter als das nimmt die Cloud nicht mehr an".
+    # Die Vorgabe 0.0.0 heisst ausdruecklich KEINE Untergrenze — den Vergleich
+    # baut heute ohnehin niemand, und ein Vorgabewert, der die aktuelle Version
+    # spiegelt, wuerde in dem Moment, in dem jemand ihn baut, jeden nicht
+    # taggleich aktualisierten Server aussperren. Eine Untergrenze ist eine
+    # Entscheidung und gehoert in die .env.
+    pulse_policy_current_version: str = "0.8.0"
+    pulse_policy_min_version: str = "0.0.0"
+    #: ISO-8601, wann die Richtlinie zuletzt geaendert wurde. Leer = unbekannt;
+    #: die Route liefert dann ``null`` statt einer erfundenen Zeit.
+    pulse_policy_updated_at: str = ""
+
     # Mandatory-SSO default: on a self-host instance, local password
     # registration is OFF — users sign in with their howispulse.com identity
     # (cert-login). A self-hoster who wants a sealed, cloud-independent island

@@ -44,6 +44,7 @@ from dcc_auth.routes_selfhost_relay import router as selfhost_relay_router
 from dcc_auth.routes_selfhost_signal import router as selfhost_signal_router
 from dcc_auth.routes_sessions import router as sessions_router
 from dcc_auth.routes_suspended_instances import router as suspended_instances_router
+from dcc_auth.routes_version_policy import router as version_policy_router
 from dcc_auth.routes_totp import router as totp_router
 from dcc_auth.routes_webauthn import router as webauthn_router
 from dcc_auth.routes_webauthn_login import router as webauthn_login_router
@@ -136,6 +137,7 @@ def create_app() -> FastAPI:
     app.include_router(complaints_router)
     app.include_router(experimental_logs_router)
     app.include_router(suspended_instances_router)
+    app.include_router(version_policy_router)
     app.include_router(profile_router)
     app.include_router(applications_router)
     app.include_router(app_host_compat_router)

@@ -17,8 +17,6 @@
   import type { Instance } from '$lib/api/instances';
   import SetupSchnellweg from './SetupSchnellweg.svelte';
   import SetupManuell from './SetupManuell.svelte';
-  import SetupKiHilfe from './SetupKiHilfe.svelte';
-  import SetupErklaerung from './SetupErklaerung.svelte';
 
   let { instance }: { instance: Instance } = $props();
 
@@ -26,11 +24,6 @@
     typeof location !== 'undefined' ? location.origin : 'https://howispulse.com'
   );
 
-  // Der Befehl entsteht im Schnellweg (dort wird das Token gemintet), gebraucht
-  // wird er auch von der KI-Hilfe weiter unten. Er reist deshalb hier durch,
-  // statt das Token ein zweites Mal auszustellen — jedes Ausstellen rotiert
-  // serverseitig das Secret und entwertet das vorherige.
-  let befehl = $state('');
 </script>
 
 <div
@@ -39,12 +32,12 @@
 >
   <p class="text-text-base text-xs">{m.instance_setup_intro()}</p>
 
-  <!-- Reihenfolge: die beiden ECHTEN Wege zuerst (schnell, dann von Hand),
-       danach die Hilfe zu ihnen und das Kleingedruckte. -->
-  <SetupSchnellweg {instance} {base} bind:befehl />
+  <!-- Reihenfolge: die beiden Wege, schnell dann von Hand. Bis 2026-08-28
+       standen hier zusätzlich der KI-Assistenten-Block (täuschte einen
+       dritten Weg vor) und „Was macht dieser Befehl?" darunter — beide
+       entfernt. -->
+  <SetupSchnellweg {instance} {base} />
   <SetupManuell {instance} {base} />
-  <SetupKiHilfe {befehl} {base} />
-  <SetupErklaerung {base} />
 
   <div class="border-border rounded-xl border p-3">
     <p class="text-text-bright mb-1.5 text-xs font-semibold">{m.instance_setup_prereqs_title()}</p>

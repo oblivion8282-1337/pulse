@@ -144,11 +144,12 @@ def ensure_vapid(settings: Settings | None = None) -> VapidKeys | None:
     callers reuse the same in-memory pair. Tests can reset by calling
     ``reset_vapid_cache_for_tests``.
 
-    Emits a one-shot WARN log when we auto-generate a keypair on first
-    startup (i.e. neither env vars nor an on-disk file were available).
-    Operators running without a persistent volume on ``vapid_key_file``
-    would otherwise silently invalidate every push subscription on each
-    restart — the log makes that footgun visible.
+    Emits a one-shot log when we auto-generate a keypair on first startup
+    (i.e. neither env vars nor an on-disk file were available): INFO if it
+    was persisted to disk, WARNING if it could not be — operators running
+    without a persistent volume on ``vapid_key_file`` would otherwise
+    silently invalidate every push subscription on each restart, and the
+    warning makes that footgun visible.
     """
     global _VAPID
     if _VAPID is not None:
@@ -180,19 +181,29 @@ def ensure_vapid(settings: Settings | None = None) -> VapidKeys | None:
         # rather than a user-facing crash.
         log.exception("could not persist VAPID key to %s", path)
         persisted = False
-    # NB: stdlib logging reserves the ``message`` key on LogRecord — use
-    # ``note`` so ``log.warning(..., extra={...})`` doesn't raise KeyError.
-    log.warning(
-        "vapid_auto_generated — Generated new VAPID keypair on first startup. "
-        "In production set VAPID_PRIVATE_KEY/VAPID_PUBLIC_KEY env vars "
-        "to a persistent keypair. Without persistence "
-        "(e.g. Docker volume on vapid_key_file path), "
-        "every restart will invalidate all push subscriptions silently.",
-        extra={
-            "vapid_key_file": str(settings.vapid_key_file),
-            "persisted_to_disk": persisted,
-        },
-    )
+    # Report what ACTUALLY happened, not the worst case. Until 2026-08-28 this
+    # was a single warning claiming that "every restart will invalidate all
+    # push subscriptions" — even when the keypair had just been written to disk
+    # successfully, which is the normal path: the self-host container points
+    # ``VAPID_KEY_FILE`` at ``/data/jwt_keys/vapid.json``, and ``/data`` is the
+    # Docker volume. Operators read that line on every fresh install and went
+    # looking for a problem that was not there. A warning that fires when
+    # nothing is wrong trains people to ignore warnings.
+    if persisted:
+        log.info(
+            "vapid_auto_generated — generated a VAPID keypair on first start "
+            "and stored it at %s. It survives restarts as long as that path is "
+            "on a persistent volume.",
+            settings.vapid_key_file,
+        )
+    else:
+        log.warning(
+            "vapid_auto_generated — generated a VAPID keypair but COULD NOT "
+            "store it at %s. Every restart will mint a new one and silently "
+            "invalidate all push subscriptions. Fix the path, or set "
+            "VAPID_PRIVATE_KEY/VAPID_PUBLIC_KEY to a fixed keypair.",
+            settings.vapid_key_file,
+        )
     _VAPID = fresh
     return _VAPID
 
