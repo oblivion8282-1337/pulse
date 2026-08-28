@@ -1304,19 +1304,31 @@ class PostfachAbholenRequest(BaseModel):
 
 
 class PostfachZustellungOut(BaseModel):
-    """Eine offene Zustellung in der Antwort von ``POST /postfach/abholen``."""
+    """Eine offene Zustellung in der Antwort von ``POST /postfach/abholen``.
+
+    ``channel_id`` MUSS mitgegeben werden — ohne sie kann der Klient nicht
+    wissen, zu welchem Gespraech eine Zustellung gehoert, und weder die
+    richtige Olm-Sitzung (Schluessel ist Kanal+Geraet, s.
+    ``web/src/lib/krypto/sitzungsschluessel.ts``) noch den richtigen
+    lokalen Verlaufseintrag treffen.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    channel_id: int
     absender_device_pubkey: str
-    #: 1 = Sitzungsaufbau, 2 = laufende Nachricht — wie ``PostfachNutzlastIn.art``.
+    #: Fuer einen frischen Sitzungsaufbau noetig (Olm braucht ihn als eigenes
+    #: Argument, s. Migration 0069) — ``None``, wenn das einliefernde Geraet
+    #: zum Zeitpunkt des Einlieferns kein Buendel veroeffentlicht hatte.
+    absender_curve25519: str | None = None
+    #: 0 = Sitzungsaufbau, 1 = laufende Nachricht — wie ``PostfachNutzlastIn.art``.
     art: int
     #: Base64, wie ``PostfachNutzlastIn.daten``.
     daten: str
     groesse: int
 
-    @field_serializer("id")
+    @field_serializer("id", "channel_id")
     def _ser_id(self, v: int) -> str:
         return _id_str(v)
 

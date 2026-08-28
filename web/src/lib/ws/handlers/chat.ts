@@ -12,6 +12,7 @@
 import { messages } from '$lib/stores/messages.svelte';
 import { directMessages } from '$lib/stores/directMessages.svelte';
 import { verlaufSpeichern, verlaufNachrichtGeloescht } from '$lib/verlauf';
+import { E2E_DMS_ENABLED } from '$lib/krypto/schalter';
 import { streamChat } from '$lib/stores/streamChat.svelte';
 import { watchChat } from '$lib/stores/watchChat.svelte';
 import { readState } from '$lib/stores/readState.svelte';
@@ -182,6 +183,27 @@ export function register(ctx: HandlerContext): void {
         }
       }
     }
+  });
+
+  registerWsHandler('postfach_neu', () => {
+    // Der Schalter ist aus (s. `$lib/krypto/schalter.ts`) — solange bleibt
+    // dieser Weckruf wirkungslos, jede DM laeuft ueber `message` weiter.
+    if (!E2E_DMS_ENABLED) return;
+    // Dynamischer Import: der Krypto-Kern (WASM) soll nicht in jedem
+    // Session-Start geladen werden, wenn er nie gebraucht wird.
+    void import('$lib/krypto/empfangen')
+      .then(({ postfachAbholenUndEntschluesseln }) => postfachAbholenUndEntschluesseln())
+      // Abgelegt hat `empfangen.ts` schon selbst; hier kommt nur noch die
+      // Anzeige dazu.
+      .then((neue) => {
+        for (const nachricht of neue) messages.upsert(nachricht);
+      })
+      .catch(() => {
+        // Nicht quittierte Umschlaege bleiben auf dem Server liegen (s.
+        // `empfangen.ts`) — der naechste Weckruf holt sie nach. Kein Log:
+        // eine Fehlermeldung hier duerfte nichts ueber den Inhalt sagen und
+        // saehe fuer den Nutzer wie ein Zustellfehler aus, der es nicht ist.
+      });
   });
 
   registerWsHandler('mention_added', (evt) => {

@@ -75,6 +75,18 @@ async def _channel_zugriff_pruefen(
     return dm_obj
 
 
+async def _bundle_laden(session, device_pubkey: str) -> DeviceKeyBundle | None:
+    """Der Verzeichnis-Eintrag eines Geraets, oder ``None`` — ein Geraet ohne
+    veroeffentlichtes Buendel ist Alltag (noch nicht veroeffentlicht, gerade
+    abgemeldet), kein Fehler; wie damit umzugehen ist, entscheidet die
+    jeweilige Aufrufstelle."""
+    return (
+        await session.execute(
+            select(DeviceKeyBundle).where(DeviceKeyBundle.device_pubkey == device_pubkey)
+        )
+    ).scalar_one_or_none()
+
+
 def _envelope_groesse(daten_b64: str) -> int:
     """Bytes VOR der Base64-Kodierung — nie den Inhalt in der Fehlermeldung,
     nur, DASS er ungueltig war."""
@@ -120,7 +132,17 @@ async def postfach_einliefern(
         if groesse > settings.postfach_max_umschlag_bytes:
             raise HTTPException(status_code=400, detail="umschlag_zu_gross")
 
-    # 4. Anlegen. ``offene_je_geraet`` ist ein In-Request-Cache: eine
+    # 4. Anlegen. Zuerst das EIGENE Buendel des einliefernden Geraets — es
+    # liefert den Curve25519-Identitaetsschluessel, den ein Empfaenger fuer
+    # einen frischen Sitzungsaufbau braucht (Olm-Standardverhalten, s.
+    # Migration 0069). ``claims.device_pubkey`` ist bereits durch den
+    # Geraete-Nachweis geprueft, kein neuer Vertrauensschritt. Fehlt das
+    # Buendel, bleibt die Spalte NULL — der Server erzwingt sie nicht, er
+    # oeffnet den Umschlag ja nie.
+    absender_bundle = await _bundle_laden(session, claims.device_pubkey)
+    absender_curve25519 = absender_bundle.curve25519 if absender_bundle else None
+
+    # ``offene_je_geraet`` ist ein In-Request-Cache: eine
     # Anfrage mit mehreren Umschlaegen an dasselbe volle Geraet soll dieses
     # Geraet nicht mehrfach abfragen, und der lokale Zaehler wird bei jeder
     # neu angelegten Zustellung mitgefuehrt (sonst zaehlte er innerhalb der
@@ -133,11 +155,7 @@ async def postfach_einliefern(
     for eintrag, groesse in zip(body.nutzlasten, groessen, strict=True):
         empfaenger_zeilen: list[tuple[str, int]] = []
         for pubkey in dict.fromkeys(eintrag.empfaenger):  # Duplikate raus.
-            bundle = (
-                await session.execute(
-                    select(DeviceKeyBundle).where(DeviceKeyBundle.device_pubkey == pubkey)
-                )
-            ).scalar_one_or_none()
+            bundle = await _bundle_laden(session, pubkey)
             if bundle is None:
                 # Kein Buendel im Verzeichnis: das Geraet ist zwischen
                 # Schluessel-Abholen und Absenden verschwunden — Alltag,
@@ -197,6 +215,7 @@ async def postfach_einliefern(
                 id=nutzlast_id,
                 channel_id=cid_int,
                 absender_device_pubkey=claims.device_pubkey,
+                absender_curve25519=absender_curve25519,
                 art=eintrag.art,
                 daten=eintrag.daten,
                 groesse=groesse,
