@@ -46,6 +46,12 @@ class DeviceKeyBundle(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "device_pubkey", name="uq_device_key_bundles_geraet"),
         Index("ix_device_key_bundles_user", "user_id"),
+        # Fuer die beiden Abfragen, die NUR nach device_pubkey suchen
+        # (routes/postfach.py, routes/postfach_abholen.py) — der obige
+        # Unique-Constraint und der user_id-Index beginnen beide mit
+        # user_id und koennen eine reine device_pubkey-Suche nicht
+        # bedienen (Migration 0070).
+        Index("ix_device_key_bundles_pubkey", "device_pubkey"),
     )
 
 

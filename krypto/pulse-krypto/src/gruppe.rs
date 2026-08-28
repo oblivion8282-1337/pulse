@@ -179,6 +179,26 @@ mod tests {
     }
 
     #[test]
+    fn manipulierter_geheimtext_wird_abgelehnt() {
+        // Megolm-Nachrichten tragen ebenfalls ein MAC — ein gekipptes Bit
+        // muss beim Entschluesseln auffliegen. Per Sonde nachgewiesen
+        // (Bughunt 2026-08-28), aber bislang ohne Test — ein
+        // vodozemac-Versionswechsel koennte das lautlos verschweigen.
+        let mut senderin = Gruppensitzung::neu();
+        let schluessel = senderin.verteilschluessel();
+        let echt = senderin.verschluesseln(b"unversehrt");
+
+        let mut bytes = vodozemac::base64_decode(&echt).expect("base64");
+        let letztes_byte = bytes.len() - 1;
+        bytes[letztes_byte] ^= 0xFF;
+        let manipuliert = vodozemac::base64_encode(&bytes);
+
+        let mut empfaenger =
+            Gruppenempfang::aus_verteilschluessel(&schluessel).expect("empfang");
+        assert!(empfaenger.entschluesseln(&manipuliert).is_err());
+    }
+
+    #[test]
     fn gruppenempfang_ueberlebt_das_einfrieren() {
         // Ohne diesen Weg (FIX 4) wuerde ein App-Neustart jeden offenen
         // Gruppenempfang verwerfen — und weil Megolm-Ratchets nur vorwaerts

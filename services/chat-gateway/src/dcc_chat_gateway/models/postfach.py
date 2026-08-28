@@ -101,4 +101,10 @@ class DmZustellung(Base):
         Index("ix_dm_zustellungen_empfaenger", "empfaenger_device_pubkey", "id"),
         # Fuer den Verfallslauf (postfach_pflege.py, Task 4).
         Index("ix_dm_zustellungen_verfaellt", "verfaellt_am"),
+        # Fuer die NOT-EXISTS-Pruefung beim Quittieren
+        # (routes/postfach_abholen.py) und sweep_verwaiste_nutzlasten
+        # (postfach_pflege.py) — beide filtern direkt auf diese Spalte,
+        # der Empfaenger-Index oben beginnt mit einer anderen Spalte und
+        # kann das nicht bedienen (Migration 0070).
+        Index("ix_dm_zustellungen_nutzlast", "nutzlast_id"),
     )
