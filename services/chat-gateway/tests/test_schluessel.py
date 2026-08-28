@@ -619,3 +619,50 @@ async def test_nicht_erreichbares_ziel_liefert_leer_statt_403(
     )
     assert r.status_code == 200, r.text
     assert r.json() == {str(fremd_uid): []}
+
+
+# ---------------------------------------------------------------------------
+# Bughunt 2026-08-28 (Missbrauch) — Obergrenze gespeicherter Buendel (FIX 1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_buendel_obergrenze_evictiert_das_aelteste(
+    client, app, session_factory, cloud_mode, access_token
+):
+    """Ohne Obergrenze haeuft ein Konto, das seinen Geraete-Signierschluessel
+    oft wechselt, fuer immer Buendelzeilen an — hier mit einer kuenstlich
+    kleinen Grenze von 2 nachgestellt: das DRITTE Geraet darf noch
+    veroeffentlichen, aber das ERSTE (am laengsten unangetastete) muss dafuer
+    weichen, nicht das zweite."""
+    from dcc_chat_gateway import config as chat_config
+    from dcc_chat_gateway.models import DeviceKeyBundle
+    from sqlalchemy import select
+
+    settings = chat_config.get_settings()
+    settings.schluessel_max_buendel_je_konto = 2
+
+    token, uid = access_token
+    await _seed_jwks(app)
+
+    pubkeys = []
+    for i in range(3):
+        priv, pubkey = _make_device()
+        pubkeys.append(pubkey)
+        cert = _make_cert(user_id=str(uid), device_pubkey=pubkey, cert_id=f"cert-{i}")
+        nutzlast = baue_nutzlast("buendel", f"curve-{i}", "")
+        sig = _sign(priv, nutzlast)
+        r = await client.put(
+            "/keys/bundle",
+            json={"cert": cert, "signatur": sig, "curve25519": f"curve-{i}"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert r.status_code == 204, r.text
+
+    async with session_factory() as s:
+        uebrig = (
+            await s.execute(
+                select(DeviceKeyBundle.device_pubkey).where(DeviceKeyBundle.user_id == uid)
+            )
+        ).scalars().all()
+    assert set(uebrig) == {pubkeys[1], pubkeys[2]}, uebrig

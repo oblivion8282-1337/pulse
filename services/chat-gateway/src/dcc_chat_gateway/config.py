@@ -257,6 +257,21 @@ class Settings(BaseSettings):
     # sollte, ohne die G2-Verteil-Kosten neu abzuschaetzen.
     private_group_max_members: int = 50
 
+    # Geraete-Schluesselverzeichnis (Etappe B, E2E-DM) — Bughunt 2026-08-28
+    # (Missbrauch), FIX 1. Obergrenze der gleichzeitig gespeicherten Buendel
+    # je Konto. Auth-svc laesst bis zu 20 gleichzeitig gueltige Zertifikate
+    # je Konto zu (rollierendes Fenster, ``routes_credentials.py``) — das
+    # ist die tatsaechliche Zahl legitimer Geraete zu jedem Zeitpunkt. Ein
+    # Buendel haengt bewusst an ``device_pubkey``, nicht an ``cert_id`` (s.
+    # ``models/geraete_schluessel.py``): ein Geraet, das seinen
+    # Signierschluessel wechselt (Neuinstallation, verlorenes Geraet),
+    # hinterliesse sonst eine Buendelzeile plus bis zu ``ONE_TIME_KEY_CAP``
+    # Einmalschluessel fuer immer — nur eine vollstaendige Kontoloeschung
+    # raeumte sie weg. Dieselbe Zahl wie der Cert-Cap, nicht groesser: mehr
+    # als 20 gleichzeitig gueltige Zertifikate kann ein Konto ohnehin nicht
+    # haben.
+    schluessel_max_buendel_je_konto: int = 20
+
     @property
     def effective_database_url(self) -> str:
         if self.database_url:
