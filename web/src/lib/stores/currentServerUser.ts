@@ -1,51 +1,38 @@
 import { auth } from './auth.svelte';
-import { activeServer } from './active-server.svelte';
-import { serverUser } from './serverUser.svelte';
-import { dispatchingServerId } from '$lib/ws/gateway-connection';
 
 /**
- * This account's user id ON THE ACTIVE SERVER.
+ * Die eigene Nutzer-Kennung.
  *
- * The Cloud and each self-host give you a *different* user id (cert-login /
- * pairwise). Every "is this mine?" check against a **server-local** id — a
- * message's ``author_id``, a guild's ``owner_id``, a WS event's ``user_id``, a
- * watch-party ``host_user_id`` — must compare against THIS, never
- * ``auth.user.id`` (which is always the Cloud id and so never matches on a
- * self-host: you couldn't edit/delete your own messages, owner-only options
- * vanished, "report" showed on your own message, etc.).
+ * **Diese Funktion ist seit dem 2026-08-28 trivial**, und das ist der Punkt.
  *
- * Cloud: the ready frame's ``user_id`` == ``auth.user.id`` → unchanged.
- * Fallback to ``auth.user.id`` while the ready frame hasn't seeded ``serverUser``
- * yet (e.g. mocked E2E frames without ``user_id``).
+ * Vorher gab die Cloud dir eine Kennung und jeder Self-Host eine andere (ein
+ * Pseudonym je Server). Jede Prüfung „gehört das mir?" gegen eine
+ * server-lokale Kennung — die `author_id` einer Nachricht, die `owner_id` einer
+ * Community, ein `user_id` in einem WS-Ereignis — musste deshalb gegen DIESE
+ * Kennung vergleichen und niemals gegen `auth.user.id`; sonst konnte man auf
+ * einem Self-Host seine eigenen Nachrichten nicht bearbeiten, Besitzer-Optionen
+ * verschwanden, und „melden" erschien auf der eigenen Nachricht. Der Umbau, der
+ * das reparierte, ging durch 28 Dateien.
  *
- * Safe inside WS handlers too: only the *active* connection dispatches events
- * (see ``gateway-connection._handle``), so the active server is always the
- * right context when a handler runs.
- *
- * Reads reactive store state — call it inside ``$derived`` / templates (or at
- * event time in a handler) and it stays correct across server switches.
+ * Mit dem Ticket-Weg gibt es nur noch eine Kennung: Der Self-Host führt
+ * dieselbe Zahl wie die Cloud. Die Funktion bleibt vorerst stehen, damit die
+ * rund 40 Aufrufstellen unverändert bleiben — sie sind ab jetzt nur noch ein
+ * längerer Weg zu `auth.user?.id`. Wer sie auflöst, tut es als eigene,
+ * mechanische Änderung; hier zusammen mit dem Umbau wäre es ein Diff, in dem
+ * niemand mehr das Wesentliche fände.
  */
 export function currentServerUserId(): string | null {
-  return serverUser.idFor(activeServer.current?.id) ?? auth.user?.id ?? null;
+  return auth.user?.id ?? null;
 }
 
 /**
- * This account's user id ON THE *DISPATCHING* SERVER — use this inside WS
- * handlers that can now run for **either** the active connection (guild
- * events) **or** the Cloud-Background connection (global Friends/DMs/Presence,
- * Stufe 1). For active-only ops this equals ``currentServerUserId()`` (the
- * dispatching connection *is* the active one); for a Cloud-background DM-bump
- * while a self-host is active it resolves to the **Cloud** id, so the DM
- * member-check (``user_a_id === me``) matches instead of comparing against the
- * self-host's pairwise id and silently dropping the event.
+ * Früher: die eigene Kennung auf dem *sendenden* Server — nötig, weil ein
+ * Ereignis von der Cloud-Hintergrundverbindung eine andere Kennung betraf als
+ * eine vom aktiven Self-Host.
  *
- * MUST be read synchronously at event time (before any ``await``): the gateway
- * sets the dispatching connection synchronously right before ``dispatch()``.
- * Falls back to the active-server id (then ``auth.user.id``) when no dispatch
- * is in flight (e.g. a direct/unit call outside the WS path).
+ * Auch das ist mit der einen Kennung gegenstandslos. Der Name bleibt, solange
+ * die Aufrufstellen ihn benutzen.
  */
 export function dispatchingUserId(): string | null {
-  const sid = dispatchingServerId();
-  if (sid) return serverUser.idFor(sid) ?? auth.user?.id ?? null;
-  return currentServerUserId();
+  return auth.user?.id ?? null;
 }
