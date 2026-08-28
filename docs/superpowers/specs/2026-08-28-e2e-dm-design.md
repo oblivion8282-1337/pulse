@@ -85,6 +85,24 @@ es selbst tut.
 Der private Teil bleibt auf dem Gerät. Der Sitzungszustand wird über
 `pickle`/`from_pickle` eingefroren und überlebt damit einen Neustart.
 
+### Der Einmalschlüssel-Vorrat ist erschöpfbar, und das ist eingeplant
+
+Wer an ein Gerät schreibt, verbraucht einen von dessen Einmalschlüsseln. Ein
+Gerät, das lange nicht online war, kann seinen Vorrat nicht nachfüllen — und
+ein Gegenüber kann ihn, ohne etwas zu brechen, aufbrauchen. Deshalb hat jedes
+Gerät zusätzlich einen **Rückfallschlüssel**, der nicht verbraucht wird.
+
+Der Preis ist ehrlich zu benennen: Sitzungen, die über den Rückfallschlüssel
+aufgebaut werden, haben schwächere Vorwärtssicherheit als solche über einen
+frischen Einmalschlüssel — derselbe Schlüssel trägt dann mehrere Sitzungsanfänge.
+Signal und Matrix machen dasselbe und aus demselben Grund: die Alternative wäre,
+an ein ausgeschaltetes Telefon gar nicht mehr schreiben zu können.
+
+Gemildert wird es an zwei Stellen: Schlüssel bekommt nur, wer der Person auch
+schreiben dürfte (dieselbe Freundschafts- und Blockregel wie beim Anlegen einer
+DM) — ein Fremder kann einen Vorrat also nicht leerziehen. Und der Klient füllt
+nach, sobald er online ist und der Vorrat unter eine Schwelle fällt.
+
 ### Der Server hält zwei Dinge, und keine Inhalte
 
 1. **Ein Verzeichnis:** welches Konto hat welche Geräte, mit welchem
