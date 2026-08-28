@@ -69,6 +69,16 @@ class SessionClaims(BaseModel):
     exp: int
     # True when the cert-holder is this instance's owner (self-host admin).
     admin: bool = False
+    #: Welche Form ``user_identifier`` hat. ``"pairwise"`` (Vorgabe, der
+    #: Cert-Weg) heisst: ein Base64url-Pseudonym, das erst in eine Zahl
+    #: uebersetzt werden muss. ``"cloud"`` (der Ticket-Weg) heisst: die
+    #: Cloud-Kennung selbst, bereits eine Zahl.
+    #:
+    #: Ein ausdruecklicher Claim statt einer Heuristik („sieht aus wie eine
+    #: Zahl"): Ein Pseudonym KANN aus lauter Ziffern bestehen — selten, aber
+    #: nicht unmoeglich —, und dieser Nutzer bekaeme dann stillschweigend eine
+    #: fremde Identitaet.
+    idform: str = "pairwise"
 
 
 # ---------------------------------------------------------------------------
@@ -212,6 +222,9 @@ def validate_session_token(
             iat=claims["iat"],
             exp=claims["exp"],
             admin=bool(claims.get("admin", False)),
+            # Alte Token (vor dem Ticket-Weg) tragen den Claim nicht — sie
+            # kommen alle vom Cert-Weg, also die Vorgabe.
+            idform=str(claims.get("idform") or "pairwise"),
         )
     except (KeyError, ValueError):
         return None
@@ -224,6 +237,7 @@ def issue_session_token(
     key_path: str = "./data/jwt_keys/session_signing.pem",
     admin: bool = False,
     ttl_seconds: int = SESSION_TTL_SECONDS,
+    idform: str = "pairwise",
 ) -> str:
     """Issue a self-host session token.
 
@@ -249,6 +263,7 @@ def issue_session_token(
         "iat": now,
         "exp": now + ttl_seconds,
         "typ": "session",
+        "idform": idform,
     }
     # PyJWT encodes Ed25519 via algorithm "EdDSA"
     return jwt.encode(payload, priv, algorithm="EdDSA")

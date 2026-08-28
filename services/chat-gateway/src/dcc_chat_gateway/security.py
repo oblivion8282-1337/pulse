@@ -203,7 +203,15 @@ def _decode_self_host_session_token(token: str) -> dict[str, Any]:
     claims = validate_session_token(token, key_path=key_path)
     if claims is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token")
-    synthetic_id = synthesize_self_host_user_id(claims.user_identifier)
+    # Der Cert-Weg liefert ein Base64url-Pseudonym, das erst in eine Zahl
+    # uebersetzt werden muss (die Spalten sind BIGINT). Der Ticket-Weg liefert
+    # die Cloud-Kennung selbst — sie IST bereits die Zahl, und sie noch einmal
+    # zu hashen machte aus einer Identitaet wieder zwei. Genau das war der Punkt
+    # des Umbaus.
+    if claims.idform == "cloud":
+        synthetic_id = int(claims.user_identifier)
+    else:
+        synthetic_id = synthesize_self_host_user_id(claims.user_identifier)
     # Shape-compatible with the Cloud Access-JWT path: ``sub`` is a decimal
     # int-string, ``typ`` mirrors the historical access-token shape so any
     # downstream code that asserts ``typ == "access"`` keeps working.  The
