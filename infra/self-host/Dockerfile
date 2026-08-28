@@ -115,6 +115,24 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 RUN test -f /opt/pulse/services/auth/alembic.ini \
     && test -f /opt/pulse/services/chat-gateway/alembic.ini
 
+# ── Stage 1b ───────────────────────────────────────────────────────────────
+# Krypto-Kern (`krypto/pulse-krypto/`) als WASM-Paket — `pkg/` ist ein
+# Bauergebnis und gitignored (krypto/pulse-krypto/.gitignore), landet also nie
+# im Build-Kontext. web/src/lib/krypto/{account.svelte,sitzungen,empfangen,
+# veroeffentlichen}.ts importieren es STATISCH und obenauf, und veroeffent-
+# lichen.ts wiederum aus identity/issue-flow.ts + cert-rotation.svelte.ts —
+# dem normalen Login-/Zertifikatspfad, nicht hinter einem Feature-Flag. Ohne
+# diese Stage bricht `pnpm --filter @dcc/web build` in Stage 2 mit
+# UNRESOLVED_IMPORT. Eigene, schlanke Stage statt eines Rust-Toolchains im
+# web-build-Stage — die Laufzeit-Stage bekommt dadurch keinen Rust-Toolchain
+# zu Gesicht.
+# ──────────────────────────────────────────────────────────────────────────
+FROM rust:1-slim-bookworm AS wasm-build
+RUN cargo install wasm-pack --locked
+WORKDIR /build
+COPY krypto/ krypto/
+RUN cd krypto/pulse-krypto && wasm-pack build --target web --out-dir pkg
+
 # ── Stage 2 ────────────────────────────────────────────────────────────────
 # Frontend SPA (SvelteKit, adapter-static) — served by Caddy in runtime
 # ──────────────────────────────────────────────────────────────────────────
@@ -128,6 +146,9 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
 COPY web/ web/
 COPY plugins/ plugins/
+# WASM-Paket an die Stelle, die die vier krypto/*.ts-Importe erwarten
+# (relativ zu web/src/lib/krypto/: ../../../../krypto/pulse-krypto/pkg/).
+COPY --from=wasm-build /build/krypto/pulse-krypto/pkg krypto/pulse-krypto/pkg
 RUN pnpm --filter @dcc/web build
 
 # ── Stage 2b ───────────────────────────────────────────────────────────────

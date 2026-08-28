@@ -221,6 +221,26 @@ build — see `streaming/pulse-player/Cargo.toml` and `README.md`.
 The AV1 RTP depacketizer in `src/depacket/av1.rs` is Pulse's own code, written
 because the `rtp` crate ships only an AV1 payloader.
 
+## Web crypto core (WASM, `krypto/pulse-krypto/`)
+
+The end-to-end-encrypted DM crypto core wraps
+[vodozemac](https://github.com/matrix-org/vodozemac) (Matrix's Olm/Megolm
+implementation in Rust) and is compiled to WebAssembly for the browser via
+`wasm-pack`/`wasm-bindgen`; the resulting `pulse_krypto.js`/`.wasm` ship as
+part of the web bundle (see `web/Dockerfile` and `infra/self-host/Dockerfile`,
+`wasm-builder`/`wasm-build` stage).
+
+| Component | Version | License |
+|---|---|---|
+| [vodozemac](https://github.com/matrix-org/vodozemac) | 0.10.0 | Apache-2.0 |
+| [wasm-bindgen](https://github.com/rustwasm/wasm-bindgen) | 0.2.127 | MIT OR Apache-2.0 |
+| [getrandom](https://github.com/rust-random/getrandom) (0.2 + 0.3, both with the `js`/`wasm_js` feature) | 0.2.17 / 0.3.4 | MIT OR Apache-2.0 |
+
+`vodozemac`'s own transitive dependency tree (curve25519-dalek, ed25519-dalek,
+hkdf, sha2, aes, ...) is not separately re-verified here — same scope as the
+"Not covered here" note below for the statically-linked sidecar crates; all
+are permissively licensed by upstream convention.
+
 ## Not covered here
 
 Rust crates statically compiled into Pulse's own sidecar binaries (e.g.
