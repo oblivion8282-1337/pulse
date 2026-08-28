@@ -60,11 +60,49 @@ function openVerlaufDb(): Promise<IDBDatabase> {
   return _dbPromise;
 }
 
+/**
+ * Fuehrt `aktion` gegen die geteilte Verbindung aus — und heilt EINEN
+ * konkreten Rennlauf selbst: `db.onversionchange` oben schliesst die
+ * Verbindung wirklich (`realClose()`) und setzt `_dbPromise = null`, aber
+ * ein Aufrufer kann seine `IDBDatabase`-Referenz schon VOR dem Reset
+ * gehalten haben — `db.transaction()` darauf wirft dann synchron
+ * `InvalidStateError`. Mit `DB_VERSION` fest auf 1 (s. `schema.ts`) kann das
+ * heute nicht auftreten (kein Schema-Bump loest je ein `onversionchange`
+ * aus) — die Absicherung greift erst, sobald eine Migration `DB_VERSION`
+ * anhebt.
+ *
+ * Ohne diese Absicherung landete der Fehler unveraendert bei
+ * `speicherfehler.ts::deuteSpeicherfehler`, das JEDES `InvalidStateError`
+ * als "privater Modus" deutet (Safari wirft dasselbe bei echter
+ * Nichtverfuegbarkeit) — ein voruebergehendes Rennen sah dann dauerhaft wie
+ * ein blockierter Browser aus, obwohl ein einfacher Neuversuch reicht.
+ *
+ * Die Unterscheidung "Rennen vs. echte Nichtverfuegbarkeit" haengt NICHT an
+ * der Fehlerart (beide sind `InvalidStateError`), sondern daran, ob
+ * `_dbPromise` sich seit dem Beginn dieses Aufrufs veraendert hat: nur dann
+ * war es das `onversionchange`-Rennen. Ein `_openFresh()`-Fehlschlag beim
+ * NEUEN Versuch (z. B. tatsaechlich privater Modus) faellt dagegen normal
+ * durch — kein zweiter, sinnloser Neuversuch.
+ */
+async function mitVerbindung<T>(aktion: (db: IDBDatabase) => Promise<T>): Promise<T> {
+  const versucht = openVerlaufDb();
+  const db = await versucht;
+  try {
+    return await aktion(db);
+  } catch (err) {
+    const warRennen =
+      err instanceof DOMException && err.name === 'InvalidStateError' && _dbPromise !== versucht;
+    if (!warRennen) throw err;
+    const frischeDb = await openVerlaufDb();
+    return aktion(frischeDb);
+  }
+}
+
 /** Legt mehrere Sätze in einer einzigen Transaktion ab (put = Upsert über den
  *  Primärschlüssel — ein Grabstein überschreibt seine frühere Fassung). */
 export function verlaufPutSaetze(saetze: Satz[]): Promise<void> {
   if (saetze.length === 0) return Promise.resolve();
-  return openVerlaufDb().then(
+  return mitVerbindung(
     (db) =>
       new Promise<void>((resolve, reject) => {
         const tx = db.transaction(STORE_NACHRICHTEN, 'readwrite');
@@ -84,7 +122,7 @@ export function verlaufPutSaetze(saetze: Satz[]): Promise<void> {
  * (Nachricht nie gesehen, z. B. ein Guild-Kanal), ist das ein stiller No-Op.
  */
 export function verlaufMarkiereGeloescht(schluessel: string): Promise<void> {
-  return openVerlaufDb().then(
+  return mitVerbindung(
     (db) =>
       new Promise<void>((resolve, reject) => {
         const tx = db.transaction(STORE_NACHRICHTEN, 'readwrite');
@@ -127,7 +165,7 @@ export function verlaufLesenSaetze(
       : sortierSchluessel(kanalId, OBERE_ID);
   const bereich = IDBKeyRange.bound(untereGrenze, obereGrenze, false, opts.vor !== undefined);
 
-  return openVerlaufDb().then(
+  return mitVerbindung(
     (db) =>
       new Promise<Satz[]>((resolve, reject) => {
         const tx = db.transaction(STORE_NACHRICHTEN, 'readonly');
