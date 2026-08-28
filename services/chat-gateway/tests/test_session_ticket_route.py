@@ -260,3 +260,34 @@ async def test_ticket_sitzung_erfuellt_die_bedingungen_der_erneuerung(
     assert payload["sub"] == NUTZER, "Erneuerung wuerde als fremder Nutzer abgelehnt"
     assert payload["admin"] is True, "Erneuerung wuerde als Rechte-Aenderung abgelehnt"
     assert payload["exp"] > time.time(), "Erneuerung wuerde als abgelaufen abgelehnt"
+
+
+@pytest.mark.asyncio
+async def test_beitritt_mit_einladung_ueber_das_ticket(
+    client, ticket_bauer, jwks_in_redis, session_factory
+):
+    """Ein Neuling kommt mit einem Community-Einladungscode herein.
+
+    Der alte Weg (``cert-login/verify``) nahm ``community_grant_code`` und
+    ``public_join_handle`` entgegen und reichte sie ans Beitritts-Gate. Ohne
+    dieselben Felder hier stirbt mit dem Cert-Weg auch der Beitritt per
+    Einladung — und das faellt erst auf, wenn jemand einen Server BETRETEN
+    will, nicht beim Wiederanmelden eines Mitglieds.
+    """
+    from sqlalchemy import text
+
+    # Eine oeffentliche Community auf dieser Instanz ist ihre eigene Erlaubnis.
+    async with session_factory() as s:
+        await s.execute(
+            text(
+                "INSERT INTO guilds (id, name, owner_id, is_public, handle) "
+                "VALUES (777, 'Offen', 1, 1, 'offen')"
+            )
+        )
+        await s.commit()
+
+    r = await client.post(
+        "/session",
+        json={"ticket": ticket_bauer(), "public_join_handle": "offen"},
+    )
+    assert r.status_code == 200, r.text
