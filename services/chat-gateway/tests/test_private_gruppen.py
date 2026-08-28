@@ -469,6 +469,20 @@ async def test_gleichzeitiges_hinzufuegen_derselben_person_gibt_409(
     assert r.json()["detail"] == "already_a_member"
 
 
+@pytest.mark.asyncio
+async def test_gruppenname_wird_gegen_pfad_traversal_gehaertet(
+    client, _auth_signer, gruppen_an
+):
+    """FIX 4: der Gruppenname ist ein Display-string-sink genau wie ein
+    Kanalname (dieselbe UI zeigt ihn identisch an) und muss deshalb durch
+    ``validate_name`` (``routes/_dropbox_helpers.py``) — derselbe Fall wie
+    ``test_dropbox_races.py::test_ordner_mit_vollbreiten_punkten_wird_
+    abgelehnt``. Vor dem Fix lief ein solcher Name unveraendert durch."""
+    token, _ = await _register(_auth_signer)
+    r = await client.post("/gruppen", json={"name": "../evil"}, headers=_auth(token))
+    assert r.status_code == 422, r.text
+
+
 # ---------------------------------------------------------------------------
 # Konto-Loeschung (user_purge.py)
 # ---------------------------------------------------------------------------

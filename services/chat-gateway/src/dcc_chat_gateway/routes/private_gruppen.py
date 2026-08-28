@@ -49,6 +49,7 @@ from dcc_chat_gateway.private_gruppen_atomar import (
     gruppe_loeschen_wenn_leer,
 )
 from dcc_chat_gateway.routes._deps import CloudOnly
+from dcc_chat_gateway.routes._dropbox_helpers import validate_name
 from dcc_chat_gateway.schemas import (
     PrivateGroupCreateIn,
     PrivateGroupMemberAddIn,
@@ -184,7 +185,14 @@ async def gruppe_erstellen(
     # Der Schalter selbst sitzt seit ``require_private_groups_enabled`` als
     # Router-Dependency (oben) — sie deckt jetzt alle sechs Routen ab, nicht
     # nur diese hier.
-    gruppe = PrivateGroupChannel(id=next_id(), ersteller_id=user.id, name=body.name)
+    # Display-string sink: der Gruppenname wird der UI genauso vorgesetzt
+    # wie ein Kanalname (``routes/channels.py``), also derselbe Filter gegen
+    # Pfad-Traversal/Bidi-Override/Homoglyphen.
+    try:
+        clean_name = validate_name(body.name)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    gruppe = PrivateGroupChannel(id=next_id(), ersteller_id=user.id, name=clean_name)
     session.add(gruppe)
     session.add(PrivateGroupMember(id=next_id(), gruppe_id=gruppe.id, user_id=user.id))
     await session.commit()
