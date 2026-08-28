@@ -7,6 +7,7 @@ hier — s. Umsetzungsplan.
 
 from __future__ import annotations
 
+import asyncio
 import random
 
 import pytest
@@ -297,6 +298,192 @@ async def test_letztes_mitglied_loescht_die_gruppe(client, _auth_signer, gruppen
 
 
 # ---------------------------------------------------------------------------
+# Bughunt Etappe G1 (2026-08-28) — FIX 1 + FIX 2 (Route-Haelfte)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_abgeschaltet_blockiert_auch_die_anderen_fuenf_routen(
+    client, _auth_signer, gruppen_an
+):
+    """FIX 1: der Schalter galt bisher nur fuer ``POST /gruppen`` — Liste,
+    Einzelabruf, Hinzufuegen, Entfernen und Verlassen liefen bei
+    ausgeschaltetem Schalter ungehindert weiter. Die Gruppe entsteht hier
+    WAEHREND der Schalter an ist, wird danach ausgeschaltet — jede der fuenf
+    anderen Routen muss jetzt 403 liefern, nicht nur die Erstellung."""
+    t_a, uid_a = await _register(_auth_signer)
+    t_b, uid_b = await _register(_auth_signer)
+
+    r = await client.post("/gruppen", json={"name": "g"}, headers=_auth(t_a))
+    gid = r.json()["id"]
+    r = await client.post(
+        f"/gruppen/{gid}/mitglieder", json={"user_id": str(uid_b)}, headers=_auth(t_a)
+    )
+    assert r.status_code == 201, r.text
+
+    gruppen_an.private_groups_enabled = False
+
+    r = await client.get("/gruppen", headers=_auth(t_a))
+    assert r.status_code == 403, r.text
+    assert r.json()["detail"] == "private_groups_disabled"
+
+    r = await client.get(f"/gruppen/{gid}", headers=_auth(t_a))
+    assert r.status_code == 403, r.text
+
+    r = await client.post(
+        f"/gruppen/{gid}/mitglieder", json={"user_id": str(uid_b)}, headers=_auth(t_a)
+    )
+    assert r.status_code == 403, r.text
+
+    r = await client.delete(f"/gruppen/{gid}/mitglieder/{uid_b}", headers=_auth(t_a))
+    assert r.status_code == 403, r.text
+
+    r = await client.post(f"/gruppen/{gid}/verlassen", headers=_auth(t_a))
+    assert r.status_code == 403, r.text
+
+
+@pytest.mark.asyncio
+async def test_gleichzeitiges_verlassen_verwaist_die_gruppe_nicht(
+    client, _auth_signer, gruppen_an, session_factory
+):
+    """FIX 2 (Route): zwei Mitglieder einer Zweiergruppe gehen ECHT
+    gleichzeitig (``asyncio.gather``, zwei ``client.post``-Aufrufe — jeder
+    bekommt ueber ``SessionDep`` eine EIGENE ``AsyncSession``, s.
+    ``test_schluessel.py::test_zwei_gleichzeitige_abholungen_bekommen_
+    verschiedene`` fuer die Begruendung, warum das auf der gemeinsamen
+    SQLite-Verbindung trotzdem echte Nebenlaeufigkeit ist: die Koroutinen
+    werden vom Event-Loop verzahnt ausgefuehrt, und zwischen den vielen
+    Commits in ``_entferne_mitglied`` liegen genug Await-Punkte fuer echtes
+    Verzahnen — beim Entwickeln dieses Fixes loeste genau diese Verzahnung
+    tatsaechlich einen ``session.refresh``-Fehlschlag aus, der erst den
+    Wechsel auf ``session.get(..., populate_existing=True)`` erzwang).
+
+    **Ehrlich zur Grenze der Gegenprobe:** gegen den ALTEN Code (ein
+    einziger Commit ganz am Ende von ``_entferne_mitglied``) faellt dieser
+    Test auf dieser Test-Infrastruktur NICHT zuverlaessig rot. Die
+    Test-Engine ist ein einziges SQLite-``:memory:`` an einem
+    ``StaticPool`` — eine geteilte, physische Verbindung ohne echte
+    Transaktionsisolation zwischen den beiden „gleichzeitigen" Sitzungen:
+    jede Sitzung sieht die Schreibzugriffe der anderen sofort, auch vor
+    deren Commit. Der alte Code haelt seine gesamte Rechnung in EINER
+    Transaktion, die dadurch faktisch als Ganzes serialisiert wird (die
+    zweite Anfrage sieht beim eigenen Lesen laengst den fertigen Stand der
+    ersten) — genau das Fenster, das den Bug unter echtem READ COMMITTED
+    (Produktion: Postgres, getrennte Verbindungen) ausloest, entsteht auf
+    dieser einen Verbindung nicht zuverlaessig. Wiederholtes Ausfuehren
+    gegen den alten Code zeigt das: der Test besteht durchgaengig, aber
+    SQLAlchemy warnt dabei sichtbar („DELETE statement on table
+    'private_group_channels' expected to delete 1 row(s); 0 were
+    matched") — der Beleg, dass BEIDE Anfragen den Loeschversuch machten
+    (Zufalls-Selbstheilung dieser Verbindung), nicht dass die Bedingung
+    selbst atomar war. Dieser Test bleibt trotzdem sinnvoll: er ist eine
+    echte Nebenlaeufigkeits-Regression fuer den NEUEN Code (s. o., der
+    ``populate_existing``-Fund), und die Atomaritaet des Fixes folgt direkt
+    aus der SQL-Semantik von ``NOT EXISTS``/``EXISTS`` im selben Statement
+    wie die Aenderung — unabhaengig von dieser Testinfrastruktur."""
+    t_a, uid_a = await _register(_auth_signer)
+    t_b, uid_b = await _register(_auth_signer)
+
+    r = await client.post("/gruppen", json={"name": "g"}, headers=_auth(t_a))
+    gid = r.json()["id"]
+    r = await client.post(
+        f"/gruppen/{gid}/mitglieder", json={"user_id": str(uid_b)}, headers=_auth(t_a)
+    )
+    assert r.status_code == 201, r.text
+
+    ergebnis_a, ergebnis_b = await asyncio.gather(
+        client.post(f"/gruppen/{gid}/verlassen", headers=_auth(t_a)),
+        client.post(f"/gruppen/{gid}/verlassen", headers=_auth(t_b)),
+    )
+    assert ergebnis_a.status_code == 200, ergebnis_a.text
+    assert ergebnis_b.status_code == 200, ergebnis_b.text
+
+    from sqlalchemy import select
+
+    from dcc_chat_gateway.models import PrivateGroupChannel, PrivateGroupMember
+
+    async with session_factory() as s:
+        gruppe = await s.get(PrivateGroupChannel, int(gid))
+        mitglieder = (
+            (
+                await s.execute(
+                    select(PrivateGroupMember).where(
+                        PrivateGroupMember.gruppe_id == int(gid)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    # Keine verwaiste Gruppe: entweder ist die Zeile ganz weg, oder sie hat
+    # noch mindestens ein Mitglied. "existiert, aber niemand mehr drin" ist
+    # genau der Fehlerzustand, den dieser Fix schliesst.
+    assert gruppe is None or len(mitglieder) > 0, (
+        f"Gruppe {gid} existiert mit {len(mitglieder)} Mitgliedern — verwaist"
+    )
+
+
+@pytest.mark.asyncio
+async def test_gleichzeitiges_hinzufuegen_derselben_person_gibt_409(
+    client, session_factory, _auth_signer, gruppen_an, monkeypatch
+):
+    """FIX 3: **wie das Rennen hergestellt wird** — derselbe Trick wie
+    ``test_dropbox_races.py::test_kollision_nach_bestandener_vorpruefung_
+    gibt_409``. In das Fenster zwischen der ``bereits``-Vorpruefung und dem
+    Commit legt der Test die konkurrierende Mitgliedszeile hinein (ueber
+    eine eigene Sitzung, aus ``block_exists_either_way`` heraus — der
+    einzige Await zwischen Vorpruefung und INSERT). Die Anfrage hat ihre
+    Pruefung dann nachweislich bestanden und laeuft trotzdem in
+    ``uq_private_group_members_mitglied``. Gegen den alten Code (kein
+    ``except IntegrityError`` um den Commit) ist das ein unbehandelter
+    500er."""
+    import dcc_chat_gateway.routes.private_gruppen as pg_mod
+    from dcc_chat_gateway.models import PrivateGroupMember
+    from dcc_chat_gateway.snowflake import next_id
+
+    t_a, uid_a = await _register(_auth_signer)
+    t_b, uid_b = await _register(_auth_signer)
+
+    r = await client.post("/gruppen", json={"name": "g"}, headers=_auth(t_a))
+    gid = int(r.json()["id"])
+
+    echt = pg_mod.block_exists_either_way
+    gelegt = False
+
+    async def dazwischen(session, a, b):
+        nonlocal gelegt
+        if not gelegt:
+            gelegt = True
+            async with session_factory() as s:
+                s.add(PrivateGroupMember(id=next_id(), gruppe_id=gid, user_id=uid_b))
+                await s.commit()
+        return await echt(session, a, b)
+
+    monkeypatch.setattr(pg_mod, "block_exists_either_way", dazwischen)
+
+    r = await client.post(
+        f"/gruppen/{gid}/mitglieder", json={"user_id": str(uid_b)}, headers=_auth(t_a)
+    )
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"] == "already_a_member"
+
+
+@pytest.mark.asyncio
+async def test_gruppenname_wird_gegen_pfad_traversal_gehaertet(
+    client, _auth_signer, gruppen_an
+):
+    """FIX 4: der Gruppenname ist ein Display-string-sink genau wie ein
+    Kanalname (dieselbe UI zeigt ihn identisch an) und muss deshalb durch
+    ``validate_name`` (``routes/_dropbox_helpers.py``) — derselbe Fall wie
+    ``test_dropbox_races.py::test_ordner_mit_vollbreiten_punkten_wird_
+    abgelehnt``. Vor dem Fix lief ein solcher Name unveraendert durch."""
+    token, _ = await _register(_auth_signer)
+    r = await client.post("/gruppen", json={"name": "../evil"}, headers=_auth(token))
+    assert r.status_code == 422, r.text
+
+
+# ---------------------------------------------------------------------------
 # Konto-Loeschung (user_purge.py)
 # ---------------------------------------------------------------------------
 
@@ -371,3 +558,76 @@ async def test_purge_loescht_gruppe_ohne_verbleibendes_mitglied(
     async with session_factory() as s:
         rest = await s.get(PrivateGroupChannel, gid)
     assert rest is None
+
+
+@pytest.mark.asyncio
+async def test_gleichzeitiger_purge_und_austritt_verwaisen_den_ersteller_nicht(
+    client, session_factory, _auth_signer, gruppen_an, _internal_secret_set
+):
+    """FIX 2 (Purge-Haelfte, ``user_purge_gruppen.py``): die Konto-Loeschung
+    des Erstellers und der Austritt eines ANDEREN Mitglieds laufen ECHT
+    gleichzeitig (``asyncio.gather``, zwei unabhaengige Anfragen mit je
+    eigener Sitzung — dieselbe Begruendung wie bei der Routen-Gegenprobe
+    ``test_gleichzeitiges_verlassen_verwaist_die_gruppe_nicht`` oben).
+
+    Der alte Purge-Code berechnete Loeschen/Erben aus einem in Python
+    gehaltenen Schnappschuss der verbleibenden Mitglieder. Lief die
+    gleichzeitige Austritts-Anfrage dazwischen durch, konnte der
+    Schnappschuss veraltet sein: der Purge waehlte als „Erbin" jemanden, der
+    im selben Moment schon gegangen war — ``ersteller_id`` zeigte danach auf
+    ein Konto, das gar nicht mehr Mitglied ist. Genau das Versprechen des
+    Purge-Moduls (keine haengenden Zeilen) waere gebrochen.
+
+    **Ehrlich zur Grenze** (dieselbe wie bei der Routen-Gegenprobe oben):
+    das genaue Interleaving, das den alten Bug ausloest, laesst sich auf der
+    einzigen SQLite-Testverbindung nicht erzwingen, nur beobachten. Die
+    Zusicherung unten ist deshalb bewusst eine Invariante, die in JEDER
+    moeglichen Ausfuehrungsreihenfolge gelten muss — nicht nur in der einen,
+    die den alten Bug ausloeste: existiert die Gruppe noch, muss
+    ``ersteller_id`` auf ein wirklich verbleibendes Mitglied zeigen."""
+    from sqlalchemy import select
+
+    from dcc_chat_gateway.models import PrivateGroupChannel, PrivateGroupMember
+
+    t_a, uid_a = await _register(_auth_signer)
+    t_b, uid_b = await _register(_auth_signer)
+    t_c, uid_c = await _register(_auth_signer)
+
+    r = await client.post("/gruppen", json={"name": "g"}, headers=_auth(t_a))
+    gid = int(r.json()["id"])
+    await client.post(
+        f"/gruppen/{gid}/mitglieder", json={"user_id": str(uid_b)}, headers=_auth(t_a)
+    )
+    await client.post(
+        f"/gruppen/{gid}/mitglieder", json={"user_id": str(uid_c)}, headers=_auth(t_a)
+    )
+
+    purge_ergebnis, verlassen_ergebnis = await asyncio.gather(
+        client.post(
+            f"/internal/users/{uid_a}/purge",
+            headers={"X-Pulse-Internal-Secret": _PURGE_SECRET},
+        ),
+        client.post(f"/gruppen/{gid}/verlassen", headers=_auth(t_b)),
+    )
+    assert purge_ergebnis.status_code == 204, purge_ergebnis.text
+    # B ist die ganze Zeit Mitglied (der Purge betrifft nur A) — der eigene
+    # Austritt gelingt unabhaengig von der Verzahnung.
+    assert verlassen_ergebnis.status_code == 200, verlassen_ergebnis.text
+
+    async with session_factory() as s:
+        gruppe = await s.get(PrivateGroupChannel, gid)
+        # Mindestens C ist immer noch da — die Gruppe muss ueberleben.
+        assert gruppe is not None
+        mitglieder_ids = {
+            m.user_id
+            for m in (
+                await s.execute(
+                    select(PrivateGroupMember).where(PrivateGroupMember.gruppe_id == gid)
+                )
+            )
+            .scalars()
+            .all()
+        }
+    assert gruppe.ersteller_id in mitglieder_ids, (
+        f"ersteller_id={gruppe.ersteller_id} ist kein Mitglied mehr ({mitglieder_ids})"
+    )

@@ -35,15 +35,21 @@ Hinzufuegen NICHT gegen eine Blockierung geprueft werden kann.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 import dcc_chat_gateway.config as chat_config
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.friend_helpers import block_exists_either_way
 from dcc_chat_gateway.models import PrivateGroupChannel, PrivateGroupMember
+from dcc_chat_gateway.private_gruppen_atomar import (
+    ersteller_erbe_uebertragen,
+    gruppe_loeschen_wenn_leer,
+)
 from dcc_chat_gateway.routes._deps import CloudOnly
+from dcc_chat_gateway.routes._dropbox_helpers import validate_name
 from dcc_chat_gateway.schemas import (
     PrivateGroupCreateIn,
     PrivateGroupMemberAddIn,
@@ -53,7 +59,31 @@ from dcc_chat_gateway.schemas import (
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 
-router = APIRouter(tags=["private-gruppen"], dependencies=[CloudOnly])
+
+async def require_private_groups_enabled() -> None:
+    """FastAPI-Dependency — 403, solange der Schalter aus ist.
+
+    Vorher stand diese Pruefung NUR in ``POST /gruppen`` — die anderen fuenf
+    Routen (Liste/Einzelabruf/Hinzufuegen/Entfernen/Verlassen) liefen auch
+    bei ausgeschaltetem Schalter ungehindert weiter. Der Schalter garantierte
+    damit nur „keine NEUE Gruppe entsteht", nicht „keine Gruppe ist
+    erreichbar" — die Spec verlangt aber Letzteres (s. Modul-Docstring).
+    Als Router-Dependency neben ``CloudOnly`` kann eine kuenftige Route das
+    nicht mehr vergessen: sie muesste die Dependency aktiv abbestellen.
+
+    Later-Import wie bei ``require_cloud`` (``routes/_deps.py``): Test-
+    Fixtures ersetzen ``dcc_chat_gateway.config.get_settings`` erst zur
+    Aufrufzeit, nicht zur Importzeit."""
+    import dcc_chat_gateway.config as _cfg  # noqa: PLC0415
+
+    if not _cfg.get_settings().private_groups_enabled:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="private_groups_disabled")
+
+
+router = APIRouter(
+    tags=["private-gruppen"],
+    dependencies=[CloudOnly, Depends(require_private_groups_enabled)],
+)
 
 
 # ─── Laden + Wire-Form ──────────────────────────────────────────────────────
@@ -106,25 +136,43 @@ async def _gruppe_fuer_mitglied_laden(
 async def _entferne_mitglied(session, gruppe: PrivateGroupChannel, user_id: int) -> bool:
     """Entfernt ``user_id`` aus ``gruppe`` und setzt die Festlegungen 1+2 aus
     dem Modul-Docstring um. Rueckgabe: ``True``, wenn die Gruppe dabei
-    komplett geloescht wurde (letztes Mitglied)."""
+    komplett geloescht wurde (letztes Mitglied).
+
+    Die eigentliche Atomaritaet steckt in ``private_gruppen_atomar.py``
+    (Begruendung + Bug dort); hier nur die Reihenfolge: erst die eigene
+    Mitgliedszeile weg und COMMITTET, dann — jeweils mit eigenem Commit —
+    entweder die Gruppe loeschen oder die Ersteller-Rolle weiterreichen.
+    Jeder Commit ist die Stelle, an der eine gleichzeitige zweite Anfrage
+    (derselbe Zweig, ein anderer Nutzer) dazwischenfunken UND sich wieder
+    einordnen kann — dasselbe Muster wie ``_einmalschluessel_holen``
+    (``routes/schluessel.py``): erst nach dem Commit sehen die naechsten
+    Schritte den wirklich aktuellen Stand."""
     await session.execute(
         sa_delete(PrivateGroupMember).where(
             PrivateGroupMember.gruppe_id == gruppe.id,
             PrivateGroupMember.user_id == user_id,
         )
     )
-    verbleibend = await _mitglieder_laden(session, gruppe.id)
-    if not verbleibend:
-        # Festlegung 2: eine Gruppe mit null Mitgliedern ist nichts.
-        await session.delete(gruppe)
+    await session.commit()
+
+    if await gruppe_loeschen_wenn_leer(session, gruppe.id):
         await session.commit()
         return True
-    if gruppe.ersteller_id == user_id:
-        # Festlegung 1: das dienstaelteste verbleibende Mitglied erbt.
-        erbe = min(verbleibend, key=lambda m: (m.beigetreten_am, m.id))
-        gruppe.ersteller_id = erbe.user_id
+
+    await ersteller_erbe_uebertragen(session, gruppe.id, user_id)
     await session.commit()
-    return False
+    # ``gruppe`` kann durch den Erbe-Uebergang veraltet sein (expire_on_commit
+    # steht in dieser App aus, s. db.py) — der Aufrufer braucht die frische
+    # ``ersteller_id`` fuer die Wire-Antwort. ``session.get(...,
+    # populate_existing=True)`` statt ``session.refresh``: zwischen unserem
+    # eigenen „nicht leer"-Befund und diesem Commit kann eine gleichzeitige
+    # dritte Anfrage (der wirklich letzte Austritt) die Gruppe inzwischen
+    # doch geloescht haben — ``refresh`` wirft dann
+    # ``InvalidRequestError``, ``get`` liefert schlicht ``None``. Dank der
+    # Identity Map ist ``gruppe`` bei einem Treffer dasselbe Objekt, der
+    # Aufrufer sieht die frischen Werte automatisch.
+    aktuelle = await session.get(PrivateGroupChannel, gruppe.id, populate_existing=True)
+    return aktuelle is None
 
 
 # ─── Routen ─────────────────────────────────────────────────────────────────
@@ -134,17 +182,17 @@ async def _entferne_mitglied(session, gruppe: PrivateGroupChannel, user_id: int)
 async def gruppe_erstellen(
     body: PrivateGroupCreateIn, session: SessionDep, user: CurrentUser
 ) -> PrivateGroupOut:
-    settings = chat_config.get_settings()
-    if not settings.private_groups_enabled:
-        # Der wichtigste Guard dieser Etappe: solange der Schalter aus ist,
-        # darf keine Gruppe entstehen — sonst gaebe es unverschluesselten
-        # Altbestand, sobald G2 (Megolm) kommt, und die Spec verliert ihren
-        # groessten Vorteil (Gruppen sind von Geburt an verschluesselt, weil
-        # es sie vorher nicht gab).
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN, detail="private_groups_disabled"
-        )
-    gruppe = PrivateGroupChannel(id=next_id(), ersteller_id=user.id, name=body.name)
+    # Der Schalter selbst sitzt seit ``require_private_groups_enabled`` als
+    # Router-Dependency (oben) — sie deckt jetzt alle sechs Routen ab, nicht
+    # nur diese hier.
+    # Display-string sink: der Gruppenname wird der UI genauso vorgesetzt
+    # wie ein Kanalname (``routes/channels.py``), also derselbe Filter gegen
+    # Pfad-Traversal/Bidi-Override/Homoglyphen.
+    try:
+        clean_name = validate_name(body.name)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    gruppe = PrivateGroupChannel(id=next_id(), ersteller_id=user.id, name=clean_name)
     session.add(gruppe)
     session.add(PrivateGroupMember(id=next_id(), gruppe_id=gruppe.id, user_id=user.id))
     await session.commit()
@@ -220,7 +268,24 @@ async def mitglied_hinzufuegen(
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="member_limit_reached")
 
     session.add(PrivateGroupMember(id=next_id(), gruppe_id=gruppe_id, user_id=ziel_id))
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Zwei gleichzeitige Hinzufuegungen derselben Person schlagen beide
+        # am ``bereits``-SELECT oben durch (Lese-dann-Schreib-Fenster) und
+        # verletzen dann ``uq_private_group_members_mitglied`` — ohne diesen
+        # Fang ein unbehandelter 500er. Dieselbe Zeile wie in einem guten
+        # Dutzend anderer Routen dieses Dienstes (``dms.py``, ``blocks.py``,
+        # ``devices.py`` …). Die Mitglieder-Obergrenze direkt darueber hat
+        # dieselbe Check-then-Insert-Form und dieselbe Luecke (kann um eins
+        # ueberschritten werden), aber KEINE Datenbank-Bedingung, die eine
+        # ``IntegrityError`` daraus machen wuerde — dieser Fang deckt sie
+        # nicht mit ab. Eine atomare Obergrenze braeuchte ein INSERT mit
+        # eingebauter Zaehl-Bedingung (``INSERT … SELECT … WHERE COUNT(*) <
+        # cap``), eine groessere Umstellung fuer einen Ein-Personen-Ausreisser
+        # an der Grenze — bewusst nicht Teil dieses Fixes.
+        await session.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="already_a_member") from None
     mitglieder = await _mitglieder_laden(session, gruppe_id)
     return _wire(gruppe, mitglieder)
 

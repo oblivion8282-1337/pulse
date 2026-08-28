@@ -12,7 +12,11 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dcc_chat_gateway.models import PrivateGroupChannel, PrivateGroupMember
+from dcc_chat_gateway.models import PrivateGroupMember
+from dcc_chat_gateway.private_gruppen_atomar import (
+    ersteller_erbe_uebertragen,
+    gruppe_loeschen_wenn_leer,
+)
 
 
 async def purge_private_group_memberships(session: AsyncSession, user_id: int) -> None:
@@ -28,6 +32,19 @@ async def purge_private_group_memberships(session: AsyncSession, user_id: int) -
     ``test_purge_raeumt_gruppenmitgliedschaften_und_vererbt_ersteller``
     (``tests/test_private_gruppen.py``).
 
+    **Loeschen/Erben laufen ueber ``private_gruppen_atomar.py``**, nicht
+    mehr ueber eine hier gelesene ``verbleibend``-Liste: die fruehere
+    Fassung berechnete Loeschen/Erben in Python aus einem SELECT-Schnappschuss
+    und schrieb ihn bedingungslos zurueck. Laeuft eine zweite Purge- oder
+    Austritts-Transaktion auf derselben Gruppe drueber (zwei Mitglieder eines
+    Zweier-Kreises werden im selben Moment geloescht/verlassen die Gruppe),
+    konnte dieser Schnappschuss veraltet sein — mit der schlimmeren Folge als
+    beim Austritt: ``ersteller_id`` zeigte danach auf ein LAENGST GELOESCHTES
+    Konto, ein Widerspruch zum eigenen Versprechen dieses Purge-Moduls
+    („keine haengenden Zeilen"). Die atomaren Bausteine pruefen ihre
+    Bedingung (leer? noch Ersteller?) beim Ausfuehren frisch gegen die DB,
+    nicht gegen diesen Schnappschuss.
+
     Kein Commit hier — laeuft innerhalb derselben Transaktion wie der Rest
     von ``user_purge.py::_purge_db`` (dessen Modul-Docstring: „a half-purge
     can't leave dangling rows")."""
@@ -42,31 +59,10 @@ async def purge_private_group_memberships(session: AsyncSession, user_id: int) -
     )
     if not gruppe_ids:
         return
-    gruppen = {
-        g.id: g
-        for g in (
-            await session.execute(
-                select(PrivateGroupChannel).where(PrivateGroupChannel.id.in_(gruppe_ids))
-            )
-        ).scalars()
-    }
     await session.execute(
         sa_delete(PrivateGroupMember).where(PrivateGroupMember.user_id == user_id)
     )
     for gid in gruppe_ids:
-        gruppe = gruppen.get(gid)
-        if gruppe is None:
+        if await gruppe_loeschen_wenn_leer(session, gid):
             continue
-        verbleibend = list(
-            (
-                await session.execute(
-                    select(PrivateGroupMember).where(PrivateGroupMember.gruppe_id == gid)
-                )
-            ).scalars()
-        )
-        if not verbleibend:
-            await session.delete(gruppe)
-            continue
-        if gruppe.ersteller_id == user_id:
-            erbe = min(verbleibend, key=lambda m: (m.beigetreten_am, m.id))
-            gruppe.ersteller_id = erbe.user_id
+        await ersteller_erbe_uebertragen(session, gid, user_id)
