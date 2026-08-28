@@ -1240,3 +1240,43 @@ class PostfachEinliefernRequest(BaseModel):
     cert: str
     signatur: str
     nutzlasten: list[PostfachNutzlastIn] = Field(min_length=1)
+
+
+# ---------------------------------------------------------------------------
+# Private Gruppen (Etappe G1, die Kanal-Haelfte) — ohne Krypto, ohne UI.
+# ---------------------------------------------------------------------------
+
+
+class PrivateGroupCreateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+
+
+class PrivateGroupMemberOut(BaseModel):
+    user_id: int
+    beigetreten_am: datetime
+
+    @field_serializer("user_id")
+    def _ser_user_id(self, v: int) -> str:
+        return _id_str(v)
+
+
+class PrivateGroupOut(BaseModel):
+    """Wire-Darstellung eines privaten Gruppenkanals samt Mitgliederliste —
+    die Mitgliederzahl ist klein genug (Obergrenze
+    ``private_group_max_members``), dass ein Sub-Query je Antwort keine
+    Sorge ist, anders als bei einer Community mit Rollen/Overwrites."""
+
+    id: int
+    ersteller_id: int
+    name: str
+    created_at: datetime
+    last_message_id: int | None = None
+    members: list[PrivateGroupMemberOut]
+
+    @field_serializer("id", "ersteller_id", "last_message_id")
+    def _ser_ids(self, v: int | None) -> str | None:
+        return _opt_id_str(v)
+
+
+class PrivateGroupMemberAddIn(BaseModel):
+    user_id: SnowflakeId

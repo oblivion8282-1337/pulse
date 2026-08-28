@@ -239,6 +239,24 @@ class Settings(BaseSettings):
     # (wie ein unbekanntes Geraet), nicht die ganze Anfrage abgewiesen.
     postfach_max_offene_zustellungen_je_geraet: int = 500
 
+    # Private Gruppen (Etappe G1) — Vorgabe AUS, am Vorbild von
+    # ``cloud_dm_attachments_enabled`` oben. Grund: die Kanalart wird HIER
+    # gebaut, aber die Krypto (Megolm, Etappe G2) kommt erst spaeter — private
+    # Gruppen sollen von Geburt an verschluesselt sein, ohne Altbestand und
+    # ohne Umschaltmoment (Spec §9). Solange der Schalter aus ist, kann
+    # ``POST /gruppen`` keine Zeile anlegen; die Oberflaeche zeigt die
+    # Kanalart ohnehin nicht (kein UI in dieser Etappe). Reversibel per
+    # ``PRIVATE_GROUPS_ENABLED=true`` — gedacht fuer G2, nicht fuer diese
+    # Etappe.
+    private_groups_enabled: bool = False
+    # Obergrenze der Mitgliederzahl. In G2 wird der Gruppenschluessel an JEDES
+    # Geraet JEDES Mitglieds verteilt — ohne Obergrenze waere eine einzelne
+    # Mitgliedschaftsaenderung in einer grossen Gruppe ein Schwall kleiner
+    # Schluesselumschlaege. 50 ist grosszuegig fuer eine private Gruppe und
+    # bewusst kein Politikwert, den ein Betreiber je Instanz hochdrehen
+    # sollte, ohne die G2-Verteil-Kosten neu abzuschaetzen.
+    private_group_max_members: int = 50
+
     @property
     def effective_database_url(self) -> str:
         if self.database_url:

@@ -84,6 +84,12 @@ def _isolate_chat_settings():
     _TEST_SETTINGS.cloud_dm_attachments_enabled = False
     _TEST_SETTINGS.cloud_dropbox_enabled = False
     _TEST_SETTINGS.cloud_attachment_mime_prefixes = "image/"
+    # Private Gruppen (Etappe G1): derselbe Leak-Grund wie oben — Tests, die
+    # den Schalter oder die Mitgliederobergrenze fuer sich brauchen (s.
+    # test_private_gruppen.py), setzen sie ueber dasselbe Settings-Objekt
+    # direkt, nicht per monkeypatch.
+    _TEST_SETTINGS.private_groups_enabled = False
+    _TEST_SETTINGS.private_group_max_members = 50
 
     def _provider() -> chat_cfg.Settings:
         return _TEST_SETTINGS

@@ -56,6 +56,7 @@ from dcc_chat_gateway.models import (
 )
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments
 from dcc_chat_gateway.routes.dropbox_admin import purge_guild_dropbox_objects
+from dcc_chat_gateway.user_purge_gruppen import purge_private_group_memberships
 from dcc_chat_gateway.user_purge_nachlauf import evict_voice_sessions, forget_devices
 from dcc_chat_gateway.voice_evict import voice_channels_for_guild
 
@@ -329,6 +330,11 @@ async def _purge_db(
     # whole channel + every message in it).
     dm_ids = await _collect_dm_channel_ids(session, user_id)
     await _delete_dm_channels(session, dm_ids)
+
+    # 9b. Private-Gruppen-Mitgliedschaften (Etappe G1) — s. Docstring von
+    # ``user_purge_gruppen.purge_private_group_memberships`` fuer die
+    # Erb-/Loesch-Regel.
+    await purge_private_group_memberships(session, user_id)
 
     # 10. Friendship system (Etappe 1): friendships, pending friend-
     # requests, blocks both directions, privacy row. Same pattern as
