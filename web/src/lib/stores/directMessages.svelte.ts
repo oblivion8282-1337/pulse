@@ -88,6 +88,37 @@ class DirectMessageStore {
     return true;
   }
 
+  /**
+   * Bump fuer den verschluesselten Weg (Bughunt 2026-08-28, FIX 3). Anders
+   * als `upsertFromBump` gibt es hier KEIN Server-Ereignis mit `user_a_id`/
+   * `user_b_id` — der `postfach_neu`-Weckruf ist bewusst inhaltslos (Spec
+   * §4), und beim Senden weiss der Server nicht einmal, dass dieses Geraet
+   * gerade selbst verschickt hat. Aufrufer (`krypto/senden.ts` beim Senden,
+   * `ws/handlers/chat.ts` beim Empfangen) kennen die Gegenstelle bereits aus
+   * dem entschluesselten Kontext und uebergeben sie direkt, statt sie aus
+   * einem Ereignis herzuleiten.
+   */
+  upsertFromEncrypted(args: {
+    channel_id: string;
+    message_id: string;
+    otherUserId: string;
+  }): void {
+    const { channel_id, message_id, otherUserId } = args;
+    const existing = this.byId[channel_id];
+    const next: DMChannel = existing
+      ? { ...existing, last_message_id: message_id }
+      : {
+          id: channel_id,
+          other_user_id: otherUserId,
+          last_message_id: message_id,
+          // Wie bei `upsertFromBump`: die echte `created_at` kennen wir
+          // hier nicht — der naechste hydrate/ready ueberschreibt sie.
+          created_at: new Date().toISOString(),
+          ...(blocks.loaded && blocks.has(otherUserId) ? { can_send: false } : {}),
+        };
+    this.byId = { ...this.byId, [channel_id]: next };
+  }
+
   clear(): void {
     this.byId = {};
     this.loaded = false;

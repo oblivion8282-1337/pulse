@@ -36,6 +36,11 @@
  *     `verlaufZustand` sichtbar gemacht (dieselbe Anzeige, die C2 fuer den
  *     Lesepfad nutzt); die Nachricht bleibt trotzdem in der Rueckgabe, denn
  *     sie IST beim Empfaenger angekommen.
+ *  6. Die DM-Liste nachziehen (Bughunt 2026-08-28, FIX 3): der verschluesselte
+ *     Weg loest — anders als der Klartext-Weg — kein `dm_bump`-Ereignis aus
+ *     (der Server sieht den Inhalt nie und weiss nicht einmal, dass DIESES
+ *     Geraet gerade selbst gesendet hat). Ohne diesen Schritt ruecke die
+ *     eigene, gerade abgeschickte Nachricht nicht an den Kopf der DM-Liste.
  *
  * **Koexistenz (Spec §3):** hat der Empfaenger kein Geraet (und man selbst
  * auch keine weiteren), gibt es kein einziges Zielgeraet — dann wird NICHTS
@@ -49,6 +54,7 @@ import { loadKeypair } from '../identity/keypair.svelte';
 import { keysApi } from '../api/keys';
 import { postfachApi, type PostfachNutzlast } from '../api/postfach';
 import { isElectron, isCapacitorAndroid } from '../platform/runtime';
+import { directMessages } from '../stores/directMessages.svelte';
 import { verlaufSpeichernPflicht } from '../verlauf';
 import { verlaufZustand } from '../verlauf/zustand.svelte';
 import { kryptoAccountLaden } from './account.svelte';
@@ -170,6 +176,16 @@ export async function sendeVerschluesselt(
   } catch (err) {
     verlaufZustand.melde(err);
   }
+
+  // Die DM-Liste nachziehen (Bughunt 2026-08-28, FIX 3) — s. Modulkopf
+  // Schritt 6. Der Server kennt den Empfaenger bereits (er stand im
+  // Kanalzugriff-Check von `POST /postfach`), es muss hier also nichts neu
+  // ermittelt werden.
+  directMessages.upsertFromEncrypted({
+    channel_id: kanalId,
+    message_id: nachricht.id,
+    otherUserId: empfaengerUserId
+  });
 
   return { art: 'verschluesselt', nachricht };
 }

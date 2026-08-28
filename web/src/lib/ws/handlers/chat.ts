@@ -13,6 +13,7 @@ import { messages } from '$lib/stores/messages.svelte';
 import { directMessages } from '$lib/stores/directMessages.svelte';
 import { verlaufSpeichern, verlaufNachrichtGeloescht } from '$lib/verlauf';
 import { E2E_DMS_ENABLED } from '$lib/krypto/schalter';
+import { dmGegenstelle } from '$lib/krypto/dmGegenstelle';
 import { streamChat } from '$lib/stores/streamChat.svelte';
 import { watchChat } from '$lib/stores/watchChat.svelte';
 import { readState } from '$lib/stores/readState.svelte';
@@ -196,7 +197,37 @@ export function register(ctx: HandlerContext): void {
       // Abgelegt hat `empfangen.ts` schon selbst; hier kommt nur noch die
       // Anzeige dazu.
       .then((neue) => {
-        for (const nachricht of neue) messages.upsert(nachricht);
+        const me = dispatchingUserId();
+        for (const nachricht of neue) {
+          messages.upsert(nachricht);
+          // Die DM-Liste nachziehen (Bughunt 2026-08-28, FIX 3) — der
+          // verschluesselte Weg loest kein `dm_bump` aus, das die
+          // Reihenfolge/den Ungelesen-Stand sonst besorgt. Gegenstelle:
+          // der Absender, ausser er ist man selbst (eigenes anderes
+          // Geraet) — dann bleibt nur der bereits bekannte Kanal-Gegenpart,
+          // s. `upsertFromEncrypted`-Docstring.
+          if (!me) continue;
+          const otherUserId = dmGegenstelle(
+            nachricht.author_id,
+            me,
+            directMessages.byId[nachricht.channel_id]?.other_user_id
+          );
+          if (otherUserId) {
+            directMessages.upsertFromEncrypted({
+              channel_id: nachricht.channel_id,
+              message_id: nachricht.id,
+              otherUserId
+            });
+          }
+          if (nachricht.author_id !== me) {
+            readState.recordSeen(nachricht.channel_id, nachricht.id);
+            if (ctx.subs.has(nachricht.channel_id)) {
+              readState.markRead(nachricht.channel_id, nachricht.id);
+            } else {
+              readState.incUnread(nachricht.channel_id);
+            }
+          }
+        }
       })
       .catch(() => {
         // Nicht quittierte Umschlaege bleiben auf dem Server liegen (s.
