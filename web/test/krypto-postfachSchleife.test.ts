@@ -1,74 +1,82 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-// FIX 2 (Bughunt 2026-08-28): `postfachZyklus` (`empfangen.ts`) teilt EIN
-// geladenes `Identitaet`-Objekt ueber die ganze Abholschleife. Scheitert das
-// atomare Konto+Sitzungs-Sichern fuer eine Zustellung, bleibt das Konto im
-// Arbeitsspeicher mit einer verbrauchten, aber nicht durabel gesicherten
-// Mutation zurueck — eine SPAETERE erfolgreiche Zustellung wuerde diesen
-// Zwischenstand sonst kumulativ mit einfrieren. Geprueft wird die
-// importfreie Abbruch-Schleife, s. deren Modulkopf.
-import { verarbeiteBisAbbruch } from '../src/lib/krypto/postfachSchleife.ts';
+// Bughunt-Runde 3, FIX 2: eine einzelne dauerhaft scheiternde Zustellung darf
+// nicht mehr jede nachfolgende Zustellung blockieren (das war die VORHERIGE
+// Fassung dieser Datei, s. Modulkopf `postfachSchleife.ts`). Geprueft wird
+// die importfreie Verarbeitungs-Schleife.
+import { verarbeiteMitWiederherstellung } from '../src/lib/krypto/postfachSchleife.ts';
 
-class Abbruchfehler extends Error {}
+class Wiederherstellbar extends Error {}
 class AndererFehler extends Error {}
 
-test('bricht NACH dem ersten Abbruchgrund ab und verarbeitet Nachfolgende nicht', async () => {
+test('eine wiederherstellbar scheiternde Zustellung wird uebersprungen, die naechste trotzdem versucht', async () => {
   const versucht: number[] = [];
-  const verarbeite = async (n: number) => {
-    versucht.push(n);
-    if (n === 2) throw new Abbruchfehler('Konto/Sitzung nicht sicherbar');
-    return n * 10;
-  };
+  let wiederherstellungen = 0;
 
-  const { ergebnisse, abgebrochen } = await verarbeiteBisAbbruch(
+  const ergebnisse = await verarbeiteMitWiederherstellung(
     [1, 2, 3, 4],
-    verarbeite,
-    (err) => err instanceof Abbruchfehler
+    async (n) => {
+      versucht.push(n);
+      if (n === 2) throw new Wiederherstellbar('Konto/Sitzung nicht sicherbar');
+      return n * 10;
+    },
+    (err) => err instanceof Wiederherstellbar,
+    async () => {
+      wiederherstellungen++;
+    }
   );
 
-  // Element 1 wurde erfolgreich verarbeitet, Element 2 hat abgebrochen —
-  // Elemente 3 und 4 duerfen GAR NICHT versucht worden sein: haette die
-  // Schleife weitergelaufen, koennte eine ihrer erfolgreichen Verarbeitungen
-  // genau den kompromittierten Zwischenstand einfrieren, den FIX 2
-  // verhindern soll.
-  assert.deepEqual(versucht, [1, 2]);
-  assert.deepEqual(ergebnisse, [10]);
-  assert.equal(abgebrochen, true);
+  // GEGENPROBE zur alten Abbruch-Fassung: 3 und 4 muessen versucht worden
+  // sein, obwohl 2 gescheitert ist — bei der alten `verarbeiteBisAbbruch`
+  // war genau das NICHT der Fall (sie brach nach 2 komplett ab).
+  assert.deepEqual(versucht, [1, 2, 3, 4]);
+  assert.deepEqual(ergebnisse, [10, 30, 40]);
+  assert.equal(wiederherstellungen, 1);
 });
 
-test('bereits erfolgreich verarbeitete Elemente bleiben im Ergebnis', async () => {
-  const { ergebnisse } = await verarbeiteBisAbbruch(
+test('mehrere wiederherstellbare Fehlschlaege rufen die Wiederherstellung mehrfach auf', async () => {
+  let wiederherstellungen = 0;
+  const ergebnisse = await verarbeiteMitWiederherstellung(
     [1, 2, 3],
     async (n) => {
-      if (n === 3) throw new Abbruchfehler('kaputt');
-      return `ok-${n}`;
+      if (n !== 3) throw new Wiederherstellbar('kaputt');
+      return 'ok';
     },
-    (err) => err instanceof Abbruchfehler
+    (err) => err instanceof Wiederherstellbar,
+    async () => {
+      wiederherstellungen++;
+    }
   );
-  assert.deepEqual(ergebnisse, ['ok-1', 'ok-2']);
+  assert.deepEqual(ergebnisse, ['ok']);
+  assert.equal(wiederherstellungen, 2);
 });
 
-test('ein anderer Fehler wird weitergereicht, statt die Schleife nur anzuhalten', async () => {
+test('ein anderer Fehler wird weitergereicht, statt die Zustellung nur zu ueberspringen', async () => {
   await assert.rejects(
-    verarbeiteBisAbbruch(
+    verarbeiteMitWiederherstellung(
       [1, 2],
       async (n) => {
         if (n === 1) throw new AndererFehler('unlesbarer Umschlag');
         return n;
       },
-      (err) => err instanceof Abbruchfehler
+      (err) => err instanceof Wiederherstellbar,
+      async () => {}
     ),
     AndererFehler
   );
 });
 
-test('ohne Fehler laeuft die gesamte Liste durch', async () => {
-  const { ergebnisse, abgebrochen } = await verarbeiteBisAbbruch(
+test('ohne Fehler laeuft die gesamte Liste durch, ohne Wiederherstellung', async () => {
+  let wiederherstellungen = 0;
+  const ergebnisse = await verarbeiteMitWiederherstellung(
     [1, 2, 3],
     async (n) => n * 2,
-    (err) => err instanceof Abbruchfehler
+    () => true,
+    async () => {
+      wiederherstellungen++;
+    }
   );
   assert.deepEqual(ergebnisse, [2, 4, 6]);
-  assert.equal(abgebrochen, false);
+  assert.equal(wiederherstellungen, 0);
 });

@@ -37,6 +37,7 @@ import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
 import { darfStandplatzSein } from '$lib/remote/darfStandplatzSein';
 import { gesundheitTor } from '$lib/stream/gesundheitTor';
 import { standplatz } from '$lib/remote/standplatz.svelte';
+import { postfachAbholenUndAnzeigen } from './chat';
 
 /** Extra context fields that only the ready handler cares about — kept
  *  separate from `HandlerContext` so other handlers don't see them. */
@@ -144,6 +145,22 @@ export function register(ctx: ReadyContext): void {
       // Freundes-Präsenz nicht überschreiben. Nur die Cloud befüllt ihn.
       presence.seedFriends(evt.online_user_ids ?? []);
       presence.seedFriendStatuses(evt.user_presence_statuses ?? {});
+      // Verpasste verschluesselte DMs nachholen (Bughunt-Runde 3, FIX 1) —
+      // DMs sind cloud-only (s. `krypto/empfangen.ts`), deshalb hier im
+      // Cloud-Zweig, nicht im Server-Zweig oben. Bis hierhin war
+      // `postfach_neu` (`ws/handlers/chat.ts`) der EINZIGE Ausloeser fuer
+      // `postfachAbholenUndEntschluesseln` — schloss die Verbindung, bevor der
+      // Weckruf ankam (Tab zu, Redis-Publish verloren, WS-Abriss), holte NIE
+      // wieder jemand die liegen gebliebene Zustellung ab. `ready` feuert bei
+      // JEDEM Connect/Reconnect und ist damit der natuerliche Nachhol-Punkt.
+      // `postfachAbholenUndAnzeigen` (`./chat.ts`) traegt bereits das
+      // Einzeltakt-Gate (`laufenderZyklus` in `empfangen.ts`) — ein
+      // gleichzeitiger `postfach_neu`-Weckruf haengt sich an denselben Zyklus
+      // an, statt ihn doppelt zu fahren. Kein `HandlerContext` mit `subs`
+      // liegt hier vor (`ReadyContext` traegt es bewusst nicht, s. dort) —
+      // `istAboniert` faellt deshalb auf "nie abonniert" zurueck, s.
+      // Docstring von `postfachAbholenUndAnzeigen`.
+      postfachAbholenUndAnzeigen(() => false);
     }
 
     // Per-server admin + per-server user id are bound to the DISPATCHING

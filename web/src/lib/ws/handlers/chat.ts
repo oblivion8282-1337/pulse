@@ -47,6 +47,78 @@ function dmVorschauAuffrischen(): void {
   }, 1500);
 }
 
+/**
+ * Holt offene Postfach-Zustellungen ab, entschluesselt sie und zeigt sie an
+ * — geteilt zwischen zwei Ausloesern (Bughunt-Runde 3, FIX 1): dem `postfach_
+ * neu`-Weckruf hier unten UND `ws/handlers/ready.ts` (jeder Connect/Reconnect
+ * — bis Runde 3 gab es dort GAR KEINEN Abholversuch, sodass eine waehrend
+ * der Abwesenheit zugestellte Nachricht nie abgefragt wurde, wenn Tab-Schluss/
+ * Verbindungsabriss/ein verlorener Redis-Weckruf den einzigen Ausloeser
+ * verpasste — s. `docs/superpowers/plans/2026-08-28-etappe-d2-klient-
+ * verschluesselt.md`, „Auf `postfach_neu` (WS) und beim Start abholen"). Das
+ * eigentliche Einzeltakt-Gate (`laufenderZyklus`) sitzt in `empfangen.ts` —
+ * beide Ausloeser haengen sich bei Ueberlappung an denselben Zyklus an, statt
+ * ihn doppelt zu fahren.
+ *
+ * `istAboniert` entscheidet, ob eine neue Nachricht sofort als gelesen gilt
+ * (der Kanal ist gerade offen) oder den Ungelesen-Zaehler erhoeht — vom
+ * `postfach_neu`-Aufrufer der echte `ctx.subs`-Blick dieser Verbindung, vom
+ * `ready`-Aufrufer bewusst „nie abonniert" (dort liegt keine `HandlerContext`
+ * mit `subs` vor, s. `ready.ts`): im schlimmsten Fall zeigt das kurz einen
+ * Ungelesen-Zaehler fuer einen Kanal, den der Nutzer gerade wieder oeffnet —
+ * korrigiert sich beim naechsten `markRead` von selbst.
+ */
+export function postfachAbholenUndAnzeigen(istAboniert: (kanalId: string) => boolean): void {
+  // Der Schalter ist aus (s. `$lib/krypto/schalter.ts`) — solange bleibt
+  // dieser Weckruf wirkungslos, jede DM laeuft ueber `message` weiter.
+  if (!E2E_DMS_ENABLED) return;
+  // Dynamischer Import: der Krypto-Kern (WASM) soll nicht in jedem
+  // Session-Start geladen werden, wenn er nie gebraucht wird.
+  void import('$lib/krypto/empfangen')
+    .then(({ postfachAbholenUndEntschluesseln }) => postfachAbholenUndEntschluesseln())
+    // Abgelegt hat `empfangen.ts` schon selbst; hier kommt nur noch die
+    // Anzeige dazu.
+    .then((neue) => {
+      const me = dispatchingUserId();
+      for (const nachricht of neue) {
+        messages.upsert(nachricht);
+        // Die DM-Liste nachziehen (Bughunt 2026-08-28, FIX 3) — der
+        // verschluesselte Weg loest kein `dm_bump` aus, das die
+        // Reihenfolge/den Ungelesen-Stand sonst besorgt. Gegenstelle:
+        // der Absender, ausser er ist man selbst (eigenes anderes
+        // Geraet) — dann bleibt nur der bereits bekannte Kanal-Gegenpart,
+        // s. `upsertFromEncrypted`-Docstring.
+        if (!me) continue;
+        const otherUserId = dmGegenstelle(
+          nachricht.author_id,
+          me,
+          directMessages.byId[nachricht.channel_id]?.other_user_id
+        );
+        if (otherUserId) {
+          directMessages.upsertFromEncrypted({
+            channel_id: nachricht.channel_id,
+            message_id: nachricht.id,
+            otherUserId
+          });
+        }
+        if (nachricht.author_id !== me) {
+          readState.recordSeen(nachricht.channel_id, nachricht.id);
+          if (istAboniert(nachricht.channel_id)) {
+            readState.markRead(nachricht.channel_id, nachricht.id);
+          } else {
+            readState.incUnread(nachricht.channel_id);
+          }
+        }
+      }
+    })
+    .catch(() => {
+      // Nicht quittierte Umschlaege bleiben auf dem Server liegen (s.
+      // `empfangen.ts`) — der naechste Weckruf/Connect holt sie nach. Kein
+      // Log: eine Fehlermeldung hier duerfte nichts ueber den Inhalt sagen
+      // und saehe fuer den Nutzer wie ein Zustellfehler aus, der es nicht ist.
+    });
+}
+
 export function register(ctx: HandlerContext): void {
   registerWsHandler('message', (evt) => {
     messages.upsert(evt.data);
@@ -187,54 +259,7 @@ export function register(ctx: HandlerContext): void {
   });
 
   registerWsHandler('postfach_neu', () => {
-    // Der Schalter ist aus (s. `$lib/krypto/schalter.ts`) — solange bleibt
-    // dieser Weckruf wirkungslos, jede DM laeuft ueber `message` weiter.
-    if (!E2E_DMS_ENABLED) return;
-    // Dynamischer Import: der Krypto-Kern (WASM) soll nicht in jedem
-    // Session-Start geladen werden, wenn er nie gebraucht wird.
-    void import('$lib/krypto/empfangen')
-      .then(({ postfachAbholenUndEntschluesseln }) => postfachAbholenUndEntschluesseln())
-      // Abgelegt hat `empfangen.ts` schon selbst; hier kommt nur noch die
-      // Anzeige dazu.
-      .then((neue) => {
-        const me = dispatchingUserId();
-        for (const nachricht of neue) {
-          messages.upsert(nachricht);
-          // Die DM-Liste nachziehen (Bughunt 2026-08-28, FIX 3) — der
-          // verschluesselte Weg loest kein `dm_bump` aus, das die
-          // Reihenfolge/den Ungelesen-Stand sonst besorgt. Gegenstelle:
-          // der Absender, ausser er ist man selbst (eigenes anderes
-          // Geraet) — dann bleibt nur der bereits bekannte Kanal-Gegenpart,
-          // s. `upsertFromEncrypted`-Docstring.
-          if (!me) continue;
-          const otherUserId = dmGegenstelle(
-            nachricht.author_id,
-            me,
-            directMessages.byId[nachricht.channel_id]?.other_user_id
-          );
-          if (otherUserId) {
-            directMessages.upsertFromEncrypted({
-              channel_id: nachricht.channel_id,
-              message_id: nachricht.id,
-              otherUserId
-            });
-          }
-          if (nachricht.author_id !== me) {
-            readState.recordSeen(nachricht.channel_id, nachricht.id);
-            if (ctx.subs.has(nachricht.channel_id)) {
-              readState.markRead(nachricht.channel_id, nachricht.id);
-            } else {
-              readState.incUnread(nachricht.channel_id);
-            }
-          }
-        }
-      })
-      .catch(() => {
-        // Nicht quittierte Umschlaege bleiben auf dem Server liegen (s.
-        // `empfangen.ts`) — der naechste Weckruf holt sie nach. Kein Log:
-        // eine Fehlermeldung hier duerfte nichts ueber den Inhalt sagen und
-        // saehe fuer den Nutzer wie ein Zustellfehler aus, der es nicht ist.
-      });
+    postfachAbholenUndAnzeigen((kanalId) => ctx.subs.has(kanalId));
   });
 
   registerWsHandler('mention_added', (evt) => {

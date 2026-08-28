@@ -139,6 +139,35 @@ export function verlaufMarkiereGeloescht(schluessel: string): Promise<void> {
   );
 }
 
+/**
+ * Prueft, ob unter diesem Primaerschluessel bereits ein Satz liegt —
+ * fuer den Krypto-Empfangspfad (`krypto/empfangen.ts` FIX 3, Bughunt-Runde
+ * 3, s. dortigen Modulkopf): scheitert nach erfolgreichem Ablegen NUR die
+ * Quittung, kommt dieselbe Zustellung im naechsten Zyklus zurueck, aber die
+ * Olm-Sitzung ist laengst ueber sie hinaus geratscht — ein zweiter
+ * Entschluesselungsversuch scheitert dann grundsaetzlich. Ein Satz mit
+ * demselben Schluessel ist der Beweis, dass GENAU DIESE Zustellung schon
+ * einmal durch echtes Entschluesseln abgelegt wurde — sie darf dann ohne
+ * erneutes Entschluesseln quittiert werden. Bewusst nur eine Existenzpruefung
+ * gegen den bestehenden, selbst geschriebenen Bestand: kein neuer, vom Server
+ * befuellbarer Vertrauens-Speicher (der Primaerschluessel selbst enthaelt die
+ * vom Server vergebene Zustellungs-/Nachrichten-ID, aber ein Treffer bedeutet
+ * nur "wir haben diesen Klartext schon einmal selbst hier abgelegt", nicht
+ * "der Server behauptet etwas").
+ */
+export function verlaufSatzVorhanden(kanalId: string, nachrichtId: string): Promise<boolean> {
+  const schluessel = sortierSchluessel(kanalId, nachrichtId);
+  return mitVerbindung(
+    (db) =>
+      new Promise<boolean>((resolve, reject) => {
+        const tx = db.transaction(STORE_NACHRICHTEN, 'readonly');
+        const req = tx.objectStore(STORE_NACHRICHTEN).get(schluessel);
+        req.onsuccess = () => resolve(req.result !== undefined);
+        req.onerror = () => reject(req.error);
+      })
+  );
+}
+
 /** Obere Grenze fuer den Primaerschluessel-Bereich eines Kanals ohne `vor` —
  *  20 Neunen sind lexikografisch groesser als jede echte gepolsterte ID
  *  (deren Ziffern hoechstens 9 sind), dient nur als Bereichsende. */

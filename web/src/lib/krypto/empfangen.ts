@@ -60,14 +60,43 @@
  * oeffnen (derselbe curve25519-Schluessel wird kein zweites Mal ausgegeben).
  * Die Atomaritaet von `sitzungMitKontoAtomarSichern` deckt nur den
  * SCHREIBVORGANG — nicht den Umstand, dass zwei Zustellungen sich denselben
- * mutierbaren Zustand im Arbeitsspeicher teilen. Deshalb bricht
- * `postfachZyklus` den Rest des Zyklus ab, sobald ein Konto-Sichern
- * fehlschlaegt (`KontoSicherungFehlgeschlagen`, s. dort): kein weiterer
- * Aufruf bekommt die Chance, den kompromittierten Zwischenstand einzufrieren.
- * Bereits erfolgreich geoeffnete/gesicherte Zustellungen VOR dem Abbruch
- * bleiben gueltig und werden ganz normal quittiert. Der naechste Weckruf laedt
- * `ident` frisch aus IndexedDB — also exakt den zuletzt durabel gesicherten
- * Stand, ohne die verlorene Mutation.
+ * mutierbaren Zustand im Arbeitsspeicher teilen.
+ *
+ * **Dritter Bughunt (Runde 3), FIX 2 — die Reparatur oben war zu grob.** Bis
+ * hierhin brach `postfachZyklus` den GESAMTEN Rest ab, sobald ein
+ * Konto-Sichern fehlschlug. `POST /postfach/abholen` liefert nach stabiler
+ * ID-Reihenfolge (FIFO) — eine einzelne DAUERHAFT scheiternde Zustellung
+ * (echt volle IndexedDB) sortiert sich damit bei jedem Zyklus an den Anfang
+ * und blockierte so jede Zustellung dahinter, in jedem Kanal. Die
+ * Korrektheits-Eigenschaft von oben bleibt (kein `ident` mit ungesicherter
+ * Mutation einer vorherigen Zustellung darf weiterverwendet werden) — nur
+ * die Reaktion aendert sich: statt abzubrechen, laesst `verarbeiteMit-
+ * Wiederherstellung` (`postfachSchleife.ts`) NUR diese eine Zustellung liegen
+ * und laedt `ident` fuer die naechste FRISCH aus IndexedDB (den zuletzt
+ * durabel gesicherten Stand, ohne die verlorene Mutation). Alle anderen
+ * Zustellungen dieses Zyklus laufen normal weiter.
+ *
+ * **Dritter Bughunt (Runde 3), FIX 3 — eine abgelegte, aber nicht quittierte
+ * Zustellung darf nicht dauerhaft haengen bleiben.** Scheitert NACH
+ * erfolgreicher Ablage NUR `POST /postfach/quittung`, bleibt die Zustellung
+ * auf dem Server liegen und kommt unveraendert zurueck — aber die Olm-
+ * Sitzung ist laengst ueber sie hinaus geratscht: ein zweiter Entschluesse-
+ * lungsversuch scheitert GRUNDSAETZLICH, die Zustellung bliebe bis zur
+ * 30-Tage-Frist unquittiert liegen (einer von 500 offenen Zustellungs-
+ * Plaetzen dauerhaft belegt). `zustellungOeffnen` prueft deshalb GANZ ZU
+ * BEGINN — vor Sitzungssperre, `absenderErmitteln`, jedem Entschluesseln —,
+ * ob unter (`channel_id`, `id`) bereits ein Satz im lokalen Verlauf liegt
+ * (`verlaufSchonAbgelegt`, `verlauf/db.ts::verlaufSatzVorhanden`). Ein Treffer
+ * ist der Beweis, dass GENAU DIESE Zustellung schon einmal durch echtes
+ * Entschluesseln abgelegt wurde — sie darf dann OHNE erneutes Entschluesseln
+ * quittiert werden. **Bewusst NICHT entsteht** dafuer ein neuer, persistenter
+ * Cache aus Klartext oder "quittierbar"-Markierungen, indiziert allein ueber
+ * die vom Server vergebene Zustellungs-ID — das waere ein Vertrauens-Speicher,
+ * den ein Server durch Wiederverwenden einer ID fuellen koennte, ohne dass
+ * der Klient je wieder prueft, was wirklich drinsteht. Die Pruefung fragt
+ * stattdessen den EIGENEN, bereits durch echtes Entschluesseln geschriebenen
+ * Bestand — ein Treffer heisst nur "wir haben das schon selbst abgelegt",
+ * nie "der Server behauptet etwas ueber diese ID".
  */
 import type { Message } from '../api/types';
 import type { Identitaet } from '../../../../krypto/pulse-krypto/pkg/pulse_krypto.js';
@@ -75,7 +104,7 @@ import { Umschlag } from '../../../../krypto/pulse-krypto/pkg/pulse_krypto.js';
 import { certStore } from '../identity/cert.svelte';
 import { loadKeypair } from '../identity/keypair.svelte';
 import { directMessages } from '../stores/directMessages.svelte';
-import { verlaufSpeichernPflicht } from '../verlauf';
+import { verlaufSpeichernPflicht, verlaufSchonAbgelegt } from '../verlauf';
 import { verlaufZustand } from '../verlauf/zustand.svelte';
 import { postfachApi, type PostfachZustellung } from '../api/postfach';
 import { serversStore } from '../api/servers.svelte';
@@ -90,7 +119,7 @@ import { baueNutzlast } from './nutzlast';
 import { signiereNutzlast } from './nachweis';
 import { absenderErmitteln } from './absenderErmitteln';
 import { quittierbareIds, type KanalGruppe } from './quittierbareIds';
-import { verarbeiteBisAbbruch } from './postfachSchleife';
+import { verarbeiteMitWiederherstellung } from './postfachSchleife';
 
 /**
  * Markiert, dass `sitzungMitKontoAtomarSichern` fuer eine Zustellung
@@ -114,6 +143,16 @@ function cloudRoute(): { serverId?: string } {
   return { serverId: serversStore.cloudId() };
 }
 
+/** Ergebnis eines Oeffnungsversuchs — entweder eine neu entschluesselte
+ *  Nachricht, oder eine Zustellung, die schon frueher entschluesselt und
+ *  abgelegt wurde und nur noch die (bislang fehlgeschlagene) Quittung
+ *  braucht (Bughunt-Runde 3, FIX 3, s. Modulkopf). `null`, wenn sie liegen
+ *  bleiben muss. */
+type ZustellungOffenErgebnis =
+  | { art: 'neu'; nachricht: Message }
+  | { art: 'schonAbgelegt'; channelId: string; id: string }
+  | null;
+
 /** Die Nachricht einer erfolgreich geoeffneten Zustellung — `null`, wenn der
  *  Absender nicht ermittelbar ist: der Server liefert keinen
  *  `absender_user_id` (Sendegeraet zwischenzeitlich abgemeldet, s.
@@ -124,7 +163,14 @@ function cloudRoute(): { serverId?: string } {
 async function zustellungOeffnen(
   ident: Identitaet,
   z: PostfachZustellung
-): Promise<Message | null> {
+): Promise<ZustellungOffenErgebnis> {
+  // FIX 3 (Bughunt-Runde 3, s. Modulkopf) — ZUERST pruefen, noch vor jeder
+  // Sitzungssperre und jedem Entschluesseln: liegt der Klartext schon lokal,
+  // braucht es beides nicht mehr.
+  if (await verlaufSchonAbgelegt(z.channel_id, z.id)) {
+    return { art: 'schonAbgelegt', channelId: z.channel_id, id: z.id };
+  }
+
   const absenderUserId = absenderErmitteln(
     z.absender_user_id,
     directMessages.byId[z.channel_id]?.other_user_id
@@ -154,9 +200,9 @@ async function zustellungOeffnen(
         klartextBytes = ergebnis.klartext();
         // ATOMAR mit dem Konto sichern — s. Modulkopf. Ab hier ist `ident`
         // bereits mutiert (der Einmalschluessel ist verbraucht); ein
-        // Fehlschlag hier muss den Rest des Zyklus abbrechen (FIX 2), darum
-        // ein eigener, nicht-schluckbarer Fehlertyp statt des normalen
-        // "unlesbar liegenlassen".
+        // Fehlschlag hier darf NUR diese eine Zustellung liegen lassen
+        // (FIX 2, Runde 3), darum ein eigener, nicht-schluckbarer Fehlertyp
+        // statt des normalen "unlesbar liegenlassen".
         try {
           await sitzungMitKontoAtomarSichern(
             ident,
@@ -170,21 +216,24 @@ async function zustellungOeffnen(
       }
 
       return {
-        // Snowflake der Zustellung: digit-only wie ein echter Server-
-        // Snowflake, sortiert also im lokalen Verlauf korrekt nach Zeit.
-        id: z.id,
-        channel_id: z.channel_id,
-        author_id: absenderUserId,
-        content: new TextDecoder().decode(klartextBytes),
-        nonce: null,
-        created_at: new Date().toISOString()
+        art: 'neu',
+        nachricht: {
+          // Snowflake der Zustellung: digit-only wie ein echter Server-
+          // Snowflake, sortiert also im lokalen Verlauf korrekt nach Zeit.
+          id: z.id,
+          channel_id: z.channel_id,
+          author_id: absenderUserId,
+          content: new TextDecoder().decode(klartextBytes),
+          nonce: null,
+          created_at: new Date().toISOString()
+        }
       };
     } catch (err) {
       if (err instanceof KontoSicherungFehlgeschlagen) {
-        // Weiterreichen, NICHT hier verschlucken — `postfachZyklus` muss den
-        // Rest des Zyklus abbrechen (FIX 2, s. Modulkopf), sonst friert die
-        // naechste erfolgreiche Zustellung den kompromittierten
-        // Zwischenstand von `ident` ein.
+        // Weiterreichen, NICHT hier verschlucken — `postfachZyklus` laesst
+        // NUR diese eine Zustellung liegen (FIX 2, Runde 3, s. Modulkopf),
+        // sonst friert die naechste erfolgreiche Zustellung den
+        // kompromittierten Zwischenstand von `ident` ein.
         throw err;
       }
       // Entschluesseln fehlgeschlagen (fremde/kaputte Sitzung, korrupter
@@ -207,29 +256,42 @@ async function postfachZyklus(): Promise<Message[]> {
   );
   if (zustellungen.length === 0) return [];
 
-  const ident = await kryptoAccountLaden();
-  // FIX 2, s. Modulkopf: bricht den Rest des Zyklus ab, sobald
-  // `KontoSicherungFehlgeschlagen` auftritt — `ident` traegt ab dann eine
-  // Mutation, die nicht durabel gesichert wurde, und darf keiner weiteren
-  // erfolgreichen Zustellung mehr als eingefrorener Zwischenstand
-  // untergeschoben werden. Bereits geoeffnete Zustellungen bleiben gueltig
-  // und werden unten normal quittiert; der naechste Weckruf laedt `ident`
-  // frisch und versucht die abgebrochene(n) Zustellung(en) erneut.
-  const { ergebnisse: geoeffnetOderLeer } = await verarbeiteBisAbbruch(
+  let ident = await kryptoAccountLaden();
+  // FIX 2 (Bughunt-Runde 3, s. Modulkopf + `postfachSchleife.ts`): laesst nur
+  // die EINE Zustellung liegen, deren Konto-Sichern scheitert — `ident` wird
+  // fuer die naechste Zustellung frisch aus IndexedDB geladen (der zuletzt
+  // durabel gesicherte Stand, ohne die verlorene Mutation), damit kein
+  // weiterer Aufruf den kompromittierten Zwischenstand einfrieren kann. Alle
+  // anderen Zustellungen dieses Zyklus laufen normal weiter.
+  const ergebnisse = await verarbeiteMitWiederherstellung(
     zustellungen,
     (z) => zustellungOeffnen(ident, z),
-    (err) => err instanceof KontoSicherungFehlgeschlagen
+    (err) => err instanceof KontoSicherungFehlgeschlagen,
+    async () => {
+      ident = await kryptoAccountLaden();
+    }
   );
 
   const geoeffnet: Message[] = [];
+  // Zustellungen, deren Klartext schon vor diesem Zyklus abgelegt war (FIX 3,
+  // Runde 3) — direkt quittierbar, ohne Umweg ueber `verlaufSpeichernPflicht`
+  // (es gibt nichts mehr abzulegen) und OHNE Eintrag in `geoeffnet` (sonst
+  // wuerde `ws/handlers/chat.ts` sie ein zweites Mal als neu/ungelesen
+  // behandeln).
+  const schonQuittierbar: string[] = [];
   // `verlaufSpeichernPflicht` nimmt einen Kanal je Aufruf — gleich beim
   // Oeffnen nach Kanal gruppieren, eine Abholung kann mehrere Gespraeche
   // mitbringen. `nachricht.id` ist die Zustellungs-ID (`id: z.id` in
   // `zustellungOeffnen`), ein separates Nachschlagen der Zustellung entfaellt.
   const nachKanal = new Map<string, KanalGruppe>();
 
-  for (const nachricht of geoeffnetOderLeer) {
-    if (!nachricht) continue;
+  for (const ergebnis of ergebnisse) {
+    if (!ergebnis) continue;
+    if (ergebnis.art === 'schonAbgelegt') {
+      schonQuittierbar.push(ergebnis.id);
+      continue;
+    }
+    const nachricht = ergebnis.nachricht;
     geoeffnet.push(nachricht);
     const gruppe = nachKanal.get(nachricht.channel_id);
     if (gruppe) {
@@ -240,11 +302,14 @@ async function postfachZyklus(): Promise<Message[]> {
     }
   }
 
-  const quittierbar = await quittierbareIds(
-    nachKanal,
-    (kanalId, nachrichten) => verlaufSpeichernPflicht(kanalId, nachrichten as Message[]),
-    (err) => verlaufZustand.melde(err)
-  );
+  const quittierbar = [
+    ...(await quittierbareIds(
+      nachKanal,
+      (kanalId, nachrichten) => verlaufSpeichernPflicht(kanalId, nachrichten as Message[]),
+      (err) => verlaufZustand.melde(err)
+    )),
+    ...schonQuittierbar
+  ];
 
   if (quittierbar.length > 0) {
     // ERST JETZT quittieren, s. Modulkopf.
@@ -263,11 +328,14 @@ async function postfachZyklus(): Promise<Message[]> {
   return geoeffnet;
 }
 
-/** Nur EIN Abholzyklus gleichzeitig (Bughunt 2026-08-28, FIX 3) —
- *  `postfach_neu` (`ws/handlers/chat.ts`) startet je Weckruf einen neuen
- *  Aufruf ohne eigene Wache; treffen mehrere kurz hintereinander ein, haengt
- *  sich jeder weitere nur an den bereits laufenden Zyklus an, statt
- *  denselben Bestand ein zweites Mal, unabhaengig, zu oeffnen. */
+/** Nur EIN Abholzyklus gleichzeitig (Bughunt 2026-08-28, FIX 3) — zwei
+ *  Ausloeser koennen kurz hintereinander (oder gleichzeitig) eintreffen:
+ *  `postfach_neu` (`ws/handlers/chat.ts`, je Weckruf) und `ready`
+ *  (`ws/handlers/ready.ts`, Bughunt-Runde 3 FIX 1 — jeder Connect/Reconnect).
+ *  Keiner der beiden Aufrufer haelt eine eigene Wache; treffen mehrere kurz
+ *  hintereinander ein, haengt sich jeder weitere nur an den bereits
+ *  laufenden Zyklus an, statt denselben Bestand ein zweites Mal, unabhaengig,
+ *  zu oeffnen. */
 let laufenderZyklus: Promise<Message[]> | null = null;
 
 /**
