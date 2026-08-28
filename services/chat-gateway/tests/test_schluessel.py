@@ -289,6 +289,80 @@ async def test_rueckfallschluessel_wird_mit_veroeffentlicht_und_gespeichert(
         assert zeile.rueckfallschluessel == "rueckfall-pub"
 
 
+@pytest.mark.asyncio
+async def test_dauerhaft_wird_gespeichert_und_beim_abholen_zurueckgegeben(
+    client, app, session_factory, cloud_mode, _auth_signer, friend_pair
+):
+    """Der eigentliche Lueckenschluss dieses Nachtrags: ein Geraet, das sich
+    als dauerhaft meldet (Electron/Android, ``veroeffentlichen.ts``), bekommt
+    das Flag auch ueber ``POST /keys/claim`` zurueck — ohne diesen Rundweg
+    bleibt die Koexistenz-Regel im Klienten (``empfaengerGeraete.ts``) inert,
+    weil jedes Geraet dort als nicht-dauerhaft ankommt."""
+    sender_token, sender_uid = _register(_auth_signer)
+    empf_token, empf_uid = _register(_auth_signer)
+    await friend_pair(sender_uid, empf_uid)
+    await _seed_jwks(app)
+    priv, pubkey = _make_device()
+    cert = _make_cert(user_id=str(empf_uid), device_pubkey=pubkey)
+    nutzlast = baue_nutzlast("buendel", "curve-dauerhaft", "")
+    sig = _sign(priv, nutzlast)
+
+    r = await client.put(
+        "/keys/bundle",
+        json={
+            "cert": cert,
+            "signatur": sig,
+            "curve25519": "curve-dauerhaft",
+            "dauerhaft": True,
+        },
+        headers={"Authorization": f"Bearer {empf_token}"},
+    )
+    assert r.status_code == 204, r.text
+
+    r = await client.post(
+        "/keys/claim",
+        json={"user_ids": [str(empf_uid)]},
+        headers={"Authorization": f"Bearer {sender_token}"},
+    )
+    assert r.status_code == 200, r.text
+    buendel = r.json()[str(empf_uid)][0]
+    assert buendel["dauerhaft"] is True
+
+
+@pytest.mark.asyncio
+async def test_dauerhaft_ist_ohne_angabe_false(
+    client, app, session_factory, cloud_mode, access_token
+):
+    """Fail closed: ein Geraet, das ``dauerhaft`` gar nicht mitschickt (alter
+    Klient, oder ein Browser-Tab ohne die Koexistenz-Regel im Kopf), gilt als
+    NICHT dauerhaft — nie als Vorgabe ``True``, sonst waere die ganze Regel
+    aus Spec §3 wirkungslos."""
+    from dcc_chat_gateway.models import DeviceKeyBundle
+    from sqlalchemy import select
+
+    token, uid = access_token
+    await _seed_jwks(app)
+    priv, pubkey = _make_device()
+    cert = _make_cert(user_id=str(uid), device_pubkey=pubkey)
+    nutzlast = baue_nutzlast("buendel", "curve-pub", "")
+    sig = _sign(priv, nutzlast)
+
+    r = await client.put(
+        "/keys/bundle",
+        json={"cert": cert, "signatur": sig, "curve25519": "curve-pub"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 204, r.text
+
+    async with session_factory() as s:
+        zeile = (
+            await s.execute(
+                select(DeviceKeyBundle).where(DeviceKeyBundle.device_pubkey == pubkey)
+            )
+        ).scalar_one()
+        assert zeile.dauerhaft is False
+
+
 # ---------------------------------------------------------------------------
 # Task 3 — Abholen: einmal ist einmal
 # ---------------------------------------------------------------------------

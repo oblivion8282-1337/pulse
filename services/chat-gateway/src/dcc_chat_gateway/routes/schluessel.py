@@ -86,6 +86,7 @@ async def bundle_veroeffentlichen(
         vorhanden.curve25519 = body.curve25519
         vorhanden.signatur = body.signatur
         vorhanden.rueckfallschluessel = body.rueckfallschluessel
+        vorhanden.dauerhaft = body.dauerhaft
         vorhanden.cert_id = claims.cert_id
         vorhanden.updated_at = func.now()
     else:
@@ -97,6 +98,7 @@ async def bundle_veroeffentlichen(
                 curve25519=body.curve25519,
                 signatur=body.signatur,
                 rueckfallschluessel=body.rueckfallschluessel,
+                dauerhaft=body.dauerhaft,
                 cert_id=claims.cert_id,
             )
         )
@@ -298,6 +300,7 @@ async def schluessel_abholen(
                     signatur=b.signatur,
                     einmalschluessel=einmal,
                     rueckfallschluessel=b.rueckfallschluessel if einmal is None else None,
+                    dauerhaft=b.dauerhaft,
                 )
             )
 

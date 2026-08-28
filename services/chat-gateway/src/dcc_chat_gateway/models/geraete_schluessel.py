@@ -13,7 +13,16 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Text, UniqueConstraint, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from dcc_chat_gateway.db import Base
@@ -35,6 +44,12 @@ class DeviceKeyBundle(Base):
     #: ihn bereits mit ab, s. Kommentar an ``BundleVeroeffentlichenRequest``
     #: in ``schemas.py``.
     rueckfallschluessel: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Selbstauskunft des Geraets (Electron- oder Android-App), Grundlage der
+    #: Koexistenz-Regel (Spec §3) — NICHT Teil der signierten Buendel-Nutzlast,
+    #: s. Kommentar an ``BundleVeroeffentlichenRequest.dauerhaft`` in
+    #: ``schemas.py``. Vorgabe ``False`` — ein unbekanntes/altes Geraet gilt
+    #: als nicht dauerhaft (fail closed).
+    dauerhaft: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     cert_id: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
