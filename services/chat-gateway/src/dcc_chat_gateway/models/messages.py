@@ -149,6 +149,16 @@ class MessageAttachment(Base):
     ``mime`` / ``filename`` / ``width`` / ``height`` are nullable
     by-design — Phase-2 E2EE DMs will store ciphertext blobs where the
     server doesn't know any of those.
+
+    Seit Etappe E (2026-08-28) ist dieser Fall gebaut, und er brauchte
+    genau eine Spalte mehr: ``postfach_gebunden_am``. Ein verschluesselter
+    Anhang traegt ``message_id IS NULL`` fuer immer — verschluesselte
+    Nachrichten erzeugen keine ``messages``-Zeile —, und das ist derselbe
+    Zustand, in dem ein noch nicht abgeschickter Klartext-Upload steht, den
+    der Reaper nach einer Stunde wegraeumt. Ohne ein Unterscheidungsmerkmal
+    haette der Reaper jeden zugestellten verschluesselten Anhang eine Stunde
+    nach dem Hochladen geloescht, waehrend sein Umschlag noch auf Abholung
+    wartete.
     """
 
     __tablename__ = "message_attachments"
@@ -174,6 +184,13 @@ class MessageAttachment(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Gesetzt, sobald der Anhang in eine Postfach-Einlieferung aufgenommen
+    #: wurde (``postfach_anhaenge.py::binde_anhaenge``, Migration 0073).
+    #: Trennt die beiden Aufraeumwege: der Reaper unten nimmt nur Zeilen mit
+    #: NULL (nie eingeliefert), der Postfach-Lauf nur die anderen.
+    postfach_gebunden_am: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     __table_args__ = (
         Index("ix_message_attachments_message", "message_id"),

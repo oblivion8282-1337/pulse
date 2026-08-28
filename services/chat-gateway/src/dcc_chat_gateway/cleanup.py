@@ -20,8 +20,8 @@ Same pattern as ``routes.attachments.reaper_loop`` (sleep-driven asyncio
 loop, errors logged + swallowed, ``CancelledError`` re-raised).
 
 The Postfach sweep (``postfach_pflege.py::sweep_verfallene_zustellungen`` +
-``sweep_verwaiste_nutzlasten``) rides the SAME loop and interval — no second
-background task, see ``_run_once`` below.
+``sweep_verwaiste_nutzlasten`` + ``sweep_verwaiste_anhaenge``) rides the SAME
+loop and interval — no second background task, see ``_run_once`` below.
 """
 
 from __future__ import annotations
@@ -38,6 +38,7 @@ from dcc_chat_gateway.config import Settings
 from dcc_chat_gateway.models import WebPushSubscription
 from dcc_chat_gateway.postfach_pflege import (
     sweep_verfallene_zustellungen,
+    sweep_verwaiste_anhaenge,
     sweep_verwaiste_nutzlasten,
 )
 
@@ -70,7 +71,16 @@ async def _run_once(engine: AsyncEngine, settings: Settings) -> int:
     async with session_factory() as session:
         verfallen = await sweep_verfallene_zustellungen(session)
         verwaist = await sweep_verwaiste_nutzlasten(session)
-    log.info("postfach_pflege_done verfallen=%d verwaist=%d", verfallen, verwaist)
+        # Reihenfolge: erst die Nutzlasten, dann die Anhaenge. Ein Anhang
+        # gilt genau dann als verwaist, wenn seine letzte Nutzlast weg ist —
+        # umgekehrt liefe der Anhang-Lauf jedes Mal eine Runde hinterher.
+        anhaenge = await sweep_verwaiste_anhaenge(session)
+    log.info(
+        "postfach_pflege_done verfallen=%d verwaist=%d anhaenge=%d",
+        verfallen,
+        verwaist,
+        anhaenge,
+    )
 
     return deleted
 

@@ -20,19 +20,22 @@ Kanalzugang vor den reinen Strukturchecks):
    ``block_exists_either_way`` + ``friendship_exists``. Postfach traegt
    heute nur DMs (Gruppen sind Etappe G) — eine Gilden-Kanal-ID wird deshalb
    ebenfalls abgewiesen.
+3b. Anhaenge (Etappe E) — jede mitgegebene Anhang-Kennung muss demselben
+   Konto und demselben Kanal gehoeren und darf an keiner Nachricht haengen
+   (``postfach_anhaenge.py::binde_anhaenge``).
 4. Offene Zustellungen je Empfaengergeraet — insgesamt UND je Absender
    (FIX 3, s. ``postfach_max_offene_zustellungen_je_absender_und_geraet``
    in ``config.py``).
 
 Der Server kann keinen Umschlag oeffnen — deshalb wird ``daten`` nirgends
-geloggt, auch nicht in Fehlermeldungen.
+geloggt, auch nicht in Fehlermeldungen. Zu einem verschluesselten Anhang
+kennt er weder Namen noch Typ, also kann auch davon nichts in ein Log
+geraten.
 """
 
 from __future__ import annotations
 
-import base64
 import logging
-from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 
 from dcc_shared.events import PostfachNeuEvent
@@ -41,10 +44,20 @@ from sqlalchemy import exists, func, select
 
 import dcc_chat_gateway.config as chat_config
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.friend_helpers import block_exists_either_way, friendship_exists
-from dcc_chat_gateway.models import DeviceKeyBundle, DirectMessageChannel, DmNutzlast, DmZustellung
+from dcc_chat_gateway.models import DeviceKeyBundle, DmNutzlast, DmZustellung
+from dcc_chat_gateway.postfach_anhaenge import bezuege_anlegen, binde_anhaenge
 from dcc_chat_gateway.push import fan_out_dm_push_encrypted
-from dcc_chat_gateway.routes._deps import resolve_channel_for_user
+# Die vier Pruef-Helfer liegen seit Etappe E in ``_postfach_deps.py`` (die
+# Datei waere sonst ueber die Groessen-Policy gewachsen). Der Import haelt
+# sie zugleich als Attribute DIESES Moduls verfuegbar — ``postfach_abholen``
+# und die Tests holen ``_require_redis``/``_envelope_groesse`` weiterhin von
+# hier.
+from dcc_chat_gateway.routes._postfach_deps import (
+    _bundle_laden,
+    _channel_zugriff_pruefen,
+    _envelope_groesse,
+    _require_redis,
+)
 from dcc_chat_gateway.schemas import PostfachEinliefernRequest, PostfachEinliefernResponse
 from dcc_chat_gateway.schluessel_nachweis import baue_nutzlast, pruefe_geraet
 from dcc_chat_gateway.security import CurrentUser
@@ -54,81 +67,17 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["postfach"])
 
-
-def _require_redis(request: Request):
-    redis = getattr(request.app.state, "redis", None)
-    if redis is None:
-        raise HTTPException(status_code=503, detail="postfach_dienst_nicht_verfuegbar")
-    return redis
-
-
-async def _channel_zugriff_pruefen(
-    session, channel_id: int, user_id: int
-) -> DirectMessageChannel:
-    """Dieselbe Regel wie ``ws_op_send.py:139-151``: DM-Kanal laden, fehlt er
-    oder ist der Nutzer nicht Mitglied -> abweisen. Ein Durchfallen wuerde das
-    Freundschafts-/Block-Gate ueberspringen und eine verwaiste Zustellung
-    schreiben. Eine Gilden-Kanal-ID faellt hier ebenfalls durch — Postfach
-    traegt heute nur DMs."""
-    resolved = await resolve_channel_for_user(session, channel_id, user_id)
-    if resolved is None or resolved[0] != "dm":
-        raise HTTPException(status_code=403, detail="channel_not_accessible")
-    dm_obj = resolved[1]
-    other = dm_obj.user_b_id if dm_obj.user_a_id == user_id else dm_obj.user_a_id
-    if await block_exists_either_way(session, user_id, other):
-        raise HTTPException(status_code=403, detail="blocked")
-    if not await friendship_exists(session, user_id, other):
-        raise HTTPException(status_code=403, detail="not_friends")
-    return dm_obj
-
-
-async def _bundle_laden(
-    session, device_pubkey: str, erlaubte_user_ids: Collection[int]
-) -> DeviceKeyBundle | None:
-    """Der Verzeichnis-Eintrag eines Geraets, oder ``None`` — ein Geraet ohne
-    veroeffentlichtes Buendel ist Alltag (noch nicht veroeffentlicht, gerade
-    abgemeldet), kein Fehler; wie damit umzugehen ist, entscheidet die
-    jeweilige Aufrufstelle.
-
-    **Skopiert auf ``erlaubte_user_ids``** — die DB-Eindeutigkeit ist das
-    Paar ``(user_id, device_pubkey)`` (``UniqueConstraint`` in
-    ``models/geraete_schluessel.py``), NICHT der Pubkey allein. Eine unscopte
-    Suche wirft ``MultipleResultsFound``, sobald zwei Konten denselben Pubkey
-    fuehren — erreichbar z. B. ueber ein geloeschtes und neu registriertes
-    Konto, das denselben lokal gespeicherten Geraeteschluessel weiterbenutzt
-    (Bughunt 2026-08-28, FIX 2) — und reisst damit die GANZE Anfrage mit,
-    auch die Zustellung an jeden anderen, unbeteiligten Empfaenger."""
-    return (
-        await session.execute(
-            select(DeviceKeyBundle).where(
-                DeviceKeyBundle.device_pubkey == device_pubkey,
-                DeviceKeyBundle.user_id.in_(erlaubte_user_ids),
-            )
-        )
-    ).scalar_one_or_none()
-
-
-def _envelope_groesse(daten_b64: str) -> int:
-    """Bytes VOR der Base64-Kodierung — nie den Inhalt in der Fehlermeldung,
-    nur, DASS er ungueltig war.
-
-    **Padding nachtragen, sonst scheitert JEDER echte Umschlag.** Der
-    Krypto-Kern kodiert mit vodozemacs ``base64_encode``
-    (`STANDARD`-Alphabet, `NO_PAD` — `krypto/pulse-krypto/src/
-    utilities/mod.rs`), liefert also nie ein Vielfaches von 4 Zeichen mit
-    Fuellzeichen. Pythons ``b64decode`` verlangt Padding IMMER, auch mit
-    ``validate=False`` (das Flag steuert nur, ob Zeichen ausserhalb des
-    Alphabets stillschweigend uebersprungen werden) — ohne den Zusatz warf
-    diese Funktion bei jeder echten Nutzlast, weil ``daten`` fast nie zufaellig
-    auf ein Vielfaches von 4 laenge trifft. Ueberschuessiges Padding ignoriert
-    Python anstandslos, deshalb reicht ein fester Anhang von zwei
-    Gleichheitszeichen (dasselbe Muster wie ``schluessel_nachweis.py::_b64``
-    fuer base64url-Werte aus demselben Krypto-Kern).
-    """
-    try:
-        return len(base64.b64decode(daten_b64 + "==", validate=False))
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail="ungueltige_nutzlast") from exc
+#: Trennt die Anhang-Kennungen von den Umschlaegen in den unterschriebenen
+#: Bytes. Nur vorhanden, WENN Anhaenge mitkommen — ohne Anhaenge entstehen
+#: byte-identisch dieselben Bytes wie vor Etappe E, ein bestehender Klient
+#: unterschreibt also unveraendert weiter.
+#:
+#: Die Marke ist eine Trennung, keine Sicherheitsgrenze, und das gehoert
+#: gesagt: sie ist selbst gueltiges Base64, eine Verschiebung zwischen
+#: ``daten`` und ``anhaenge`` ist also denkbar. Sie traegt nichts ein — die
+#: Empfaenger stehen ohnehin nicht in der Unterschrift, und ``binde_anhaenge``
+#: laesst nur Anhaenge DESSELBEN Kontos in DEMSELBEN Kanal zu.
+_ANHANG_MARKE = "anhaenge"
 
 
 @router.post("/postfach", response_model=PostfachEinliefernResponse)
@@ -161,18 +110,36 @@ async def postfach_einliefern(
         if groesse > settings.postfach_max_umschlag_bytes:
             raise HTTPException(status_code=400, detail="umschlag_zu_gross")
 
-    # 2. Geraete-Nachweis. Signatur bindet Kanal + alle Umschlaege — sonst
-    # koennte eine fuer einen anderen Kanal/Inhalt geleistete Unterschrift
-    # hier wiederverwendet werden.
-    nutzlast_bytes = baue_nutzlast(
-        "postfach", str(cid_int), *[n.daten for n in body.nutzlasten]
+    # 2. Geraete-Nachweis. Signatur bindet Kanal + alle Umschlaege + die
+    # Anhang-Kennungen — sonst koennte eine fuer einen anderen
+    # Kanal/Inhalt/Anhang geleistete Unterschrift hier wiederverwendet
+    # werden.
+    teile = [str(cid_int), *[n.daten for n in body.nutzlasten]]
+    if body.anhaenge:
+        teile.extend([_ANHANG_MARKE, *[str(a) for a in body.anhaenge]])
+    claims = await pruefe_geraet(
+        body.cert, baue_nutzlast("postfach", *teile), body.signatur, user, redis
     )
-    claims = await pruefe_geraet(body.cert, nutzlast_bytes, body.signatur, user, redis)
 
     # 3. Kanalzugang. Der Kanal liefert zugleich die Menge der Konten, an die
     # ueberhaupt zugestellt werden darf (s. Pruefung weiter unten).
     dm_obj = await _channel_zugriff_pruefen(session, cid_int, user.id)
     teilnehmer = {dm_obj.user_a_id, dm_obj.user_b_id}
+
+    # 3b. Anhaenge (Etappe E). VOR dem Anlegen der Umschlaege: eine fremde
+    # oder kanalfremde Kennung soll die Anfrage kippen, bevor irgendeine
+    # Zeile entsteht. ``binde_anhaenge`` setzt ``postfach_gebunden_am`` und
+    # nimmt die Zeilen damit dem Anhang-Reaper aus der Hand.
+    #
+    # Entsteht unten fuer KEINE Nutzlast eine Zustellung (alle Empfaenger
+    # uebersprungen), bleibt der Anhang ohne jede Bezugszeile zurueck und
+    # faellt beim naechsten Pflegelauf — richtig so: kein Umschlag traegt
+    # dann seinen Dateischluessel. Der Absender erfaehrt es ueber
+    # ``verworfene_nutzlasten`` in der Antwort.
+    anhang_ids = [int(a) for a in body.anhaenge]
+    await binde_anhaenge(
+        session, anhang_ids=anhang_ids, channel_id=cid_int, uploader_id=user.id
+    )
 
     # 4. Anlegen. Zuerst das EIGENE Buendel des einliefernden Geraets — es
     # liefert den Curve25519-Identitaetsschluessel, den ein Empfaenger fuer
@@ -318,6 +285,11 @@ async def postfach_einliefern(
                 groesse=groesse,
             )
         )
+        # Jede Nutzlast traegt denselben Anhang — bei einer DM ist sie je
+        # Empfaengergeraet eine andere, der hochgeladene Klumpen aber nur
+        # einmal da. Er faellt erst, wenn die LETZTE dieser Nutzlasten weg
+        # ist (``postfach_pflege.py``).
+        await bezuege_anlegen(session, nutzlast_id=nutzlast_id, anhang_ids=anhang_ids)
         for pubkey, empf_user_id in empfaenger_zeilen:
             session.add(
                 DmZustellung(

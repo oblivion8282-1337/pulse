@@ -305,6 +305,10 @@ async def refresh_download_url(
     if row.message_id is None:
         # Pending row — only the uploader can re-sign it (no other user
         # could know the id anyway, but defense in depth).
+        # Ein verschluesselter Anhang (Etappe E) steht dauerhaft in diesem
+        # Zweig: fuer ihn ist es die richtige Antwort — der Absender kommt an
+        # seine eigenen Bytes, Empfaenger holen ihre Adresse ueber
+        # ``routes/postfach_anhaenge.py`` gegen einen Zustellungsnachweis.
         if row.uploader_id != current.id:
             raise HTTPException(404, detail="attachment not found")
     else:
@@ -374,6 +378,13 @@ async def bind_attachments(
         if r.channel_id != channel_id:
             raise HTTPException(400, detail=f"attachment {aid} in wrong channel")
         if r.message_id is not None and r.message_id != message_id:
+            raise HTTPException(400, detail=f"attachment {aid} already bound")
+        # Haengt der Anhang schon an einem verschluesselten Umschlag
+        # (Etappe E), faellt er mit dessen letztem — die Nachricht zeigte
+        # danach auf Bytes, die es nicht mehr gibt. Gegenrichtung:
+        # ``postfach_anhaenge.py::binde_anhaenge``. Dieselbe Meldung wie
+        # oben, weil sie zutrifft: gebunden, nur eben an einen Umschlag.
+        if r.postfach_gebunden_am is not None:
             raise HTTPException(400, detail=f"attachment {aid} already bound")
         r.message_id = message_id
     # caller commits
@@ -554,6 +565,15 @@ async def _reap_once() -> int:
                 MessageAttachment.thumb_storage_key,
             ).where(
                 MessageAttachment.message_id.is_(None),
+                # Ein verschluesselter Anhang (Etappe E) traegt fuer immer
+                # ``message_id IS NULL`` — verschluesselte Nachrichten
+                # erzeugen keine ``messages``-Zeile. Ohne diese zweite
+                # Bedingung loeschte der Reaper ihn eine Stunde nach dem
+                # Hochladen, waehrend sein Umschlag noch auf Abholung
+                # wartet. Zustaendig ist dafuer
+                # ``postfach_pflege.py::sweep_verwaiste_anhaenge`` — genau
+                # die Gegenbedingung, kein zweiter Lauf ueber dieselbe Menge.
+                MessageAttachment.postfach_gebunden_am.is_(None),
                 MessageAttachment.created_at < cutoff,
             ).limit(REAPER_BATCH_SIZE)
         )

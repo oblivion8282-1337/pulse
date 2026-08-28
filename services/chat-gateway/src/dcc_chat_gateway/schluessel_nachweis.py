@@ -59,7 +59,8 @@ def baue_nutzlast(zweck: str, *teile: str) -> bytes:
     Vergebene Zwecke (Stand 2026-08-28, **beim Hinzufuegen hier ergaenzen**):
     ``buendel`` und ``einmalschluessel`` (``routes/schluessel.py``),
     ``postfach`` (``routes/postfach.py``), ``postfach-abholen`` und
-    ``postfach-quittung`` (``routes/postfach_abholen.py``). Die Liste stand
+    ``postfach-quittung`` (``routes/postfach_abholen.py``),
+    ``postfach-anhang`` (``routes/postfach_anhaenge.py``). Die Liste stand
     hier eine Zeit lang auf zwei, waehrend es schon fuenf waren — die
     Sicherheitsaussage stimmte weiter, die Aufzaehlung nicht.
     """

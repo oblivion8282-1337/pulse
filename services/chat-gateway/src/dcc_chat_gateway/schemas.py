@@ -1263,6 +1263,15 @@ class PostfachEinliefernRequest(BaseModel):
     cert: str
     signatur: str
     nutzlasten: list[PostfachNutzlastIn] = Field(min_length=1)
+    #: Verschluesselte Anhaenge dieser Nachricht (Etappe E) — die Kennungen
+    #: aus ``POST /postfach/anhaenge/upload-url``. Sie stehen HIER und nicht
+    #: je Nutzlast, weil alle Nutzlasten einer Einlieferung dieselbe
+    #: Nachricht sind, nur je Empfaengergeraet verschluesselt; der
+    #: Dateischluessel steckt in jedem einzelnen Umschlag.
+    #: Obergrenze wie ``dm_attachment_max_count_per_message`` (Vorgabe 4),
+    #: bewusst mit Luft nach oben — die scharfe Grenze zieht die
+    #: Groessenpruefung beim Hochladen.
+    anhaenge: list[SnowflakeId] = Field(default_factory=list, max_length=16)
 
 
 class PostfachEinliefernResponse(BaseModel):
@@ -1386,6 +1395,37 @@ class PostfachZustellungOut(BaseModel):
     @field_serializer("absender_user_id")
     def _ser_absender_user_id(self, v: int | None) -> str | None:
         return _opt_id_str(v)
+
+
+class PostfachAnhangUploadIn(BaseModel):
+    """Rumpf von ``POST /postfach/anhaenge/upload-url`` (Etappe E).
+
+    **Der Gegensatz zu ``AttachmentUploadIn`` ist der Punkt dieser Etappe:**
+    kein ``filename``, kein ``mime``, keine ``width``/``height``. Der Server
+    speichert davon nichts, also nimmt er es auch nicht entgegen — ein Feld,
+    das nur weggeworfen wird, waere eine Einladung, es spaeter doch
+    abzulegen. Was der Empfaenger zum Anzeigen braucht (Name, Typ, Maße,
+    Vorschaubild), reist verschluesselt in der Nachricht mit (Spec §5).
+    """
+
+    channel_id: SnowflakeId
+    #: Groesse des VERSCHLUESSELTEN Klumpens, wie er hochgeladen wird.
+    size: Annotated[int, Field(ge=1, le=4 * 1024**4)]
+    has_thumb: bool = False
+    thumb_size: int | None = None
+
+
+class PostfachAnhangAbrufIn(BaseModel):
+    """Rumpf von ``POST /postfach/anhaenge/{id}/abrufadresse`` (Etappe E).
+
+    Zertifikat + Unterschrift weisen das GERAET nach (Zweck
+    ``"postfach-anhang"``) — das angemeldete Konto allein genuegt nicht:
+    ein Anhang ist ueber die Zustellung an ein einzelnes Geraet berechtigt,
+    und nur dieses Geraet hat den Umschlag mit dem Dateischluessel.
+    """
+
+    cert: str
+    signatur: str
 
 
 class PostfachQuittungRequest(BaseModel):

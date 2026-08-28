@@ -13,8 +13,12 @@ keinen davon oeffnen. Zwei Tabellen, nicht eine:
   zeigt. Sie faellt weg, sobald das Geraet quittiert oder die Frist
   abgelaufen ist; die Nutzlast faellt weg, sobald ihre letzte Zustellung weg
   ist (``postfach_pflege.py``).
+- ``DmAnhangBezug`` — Zuordnung Nutzlast ↔ Anhang (Etappe E). Ein
+  verschluesselter Anhang haengt an den Umschlaegen, die seinen
+  Dateischluessel tragen, nicht an einer Nachrichtenzeile: die gibt es im
+  verschluesselten Weg nicht.
 
-Details: ``docs/superpowers/specs/2026-08-28-e2e-dm-design.md`` §4.
+Details: ``docs/superpowers/specs/2026-08-28-e2e-dm-design.md`` §4 und §5.
 """
 
 from __future__ import annotations
@@ -107,4 +111,43 @@ class DmZustellung(Base):
         # der Empfaenger-Index oben beginnt mit einer anderen Spalte und
         # kann das nicht bedienen (Migration 0070).
         Index("ix_dm_zustellungen_nutzlast", "nutzlast_id"),
+    )
+
+
+class DmAnhangBezug(Base):
+    """Welcher Anhang gehoert zu welchem Umschlag (Etappe E, Migration 0073).
+
+    **Viele-zu-viele, und das ist keine Vorratshaltung:** Olm verschluesselt
+    je Empfaengergeraet einzeln, dieselbe Nachricht wird also zu mehreren
+    Nutzlasten — der eine hochgeladene Klumpen haengt danach an jeder von
+    ihnen. Der Dateischluessel steckt im Umschlag selbst; der Server kennt
+    ihn nicht und kann den Klumpen nie oeffnen.
+
+    Beide Fremdschluessel kaskadieren. Faellt die letzte Nutzlast eines
+    Anhangs weg, bleibt eine Anhang-Zeile ohne jeden Umschlag, der sie
+    oeffnen koennte — Muell, den
+    ``postfach_pflege.py::sweep_verwaiste_anhaenge`` samt Klumpen wegraeumt.
+    """
+
+    __tablename__ = "dm_anhang_bezuege"
+
+    nutzlast_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("dm_nutzlasten.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    anhang_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("message_attachments.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        # "Hat dieser Anhang noch einen Umschlag?" — die Frage jedes
+        # Aufraeumlaufs. Der Primaerschluessel beginnt mit ``nutzlast_id``
+        # und kann sie nicht bedienen (derselbe Grund wie Migration 0070).
+        Index("ix_dm_anhang_bezuege_anhang", "anhang_id"),
     )

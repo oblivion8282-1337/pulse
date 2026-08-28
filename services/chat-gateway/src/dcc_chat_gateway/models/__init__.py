@@ -58,7 +58,7 @@ from dcc_chat_gateway.models.plugin_activation import (
     GuildPluginState,
     InstancePluginAllowlist,
 )
-from dcc_chat_gateway.models.postfach import DmNutzlast, DmZustellung
+from dcc_chat_gateway.models.postfach import DmAnhangBezug, DmNutzlast, DmZustellung
 from dcc_chat_gateway.models.private_gruppen import PrivateGroupChannel, PrivateGroupMember
 from dcc_chat_gateway.models.roles import MemberRole, PermissionOverwrite, Role
 from dcc_chat_gateway.models.sounds import GuildSoundOverride
@@ -90,6 +90,7 @@ __all__ = [
     "DeviceKeyBundle",
     "DeviceOneTimeKey",
     "DirectMessageChannel",
+    "DmAnhangBezug",
     "DmNutzlast",
     "DmZustellung",
     "DropboxConfig",

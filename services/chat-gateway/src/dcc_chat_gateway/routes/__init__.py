@@ -43,6 +43,7 @@ from dcc_chat_gateway.routes import (
     permission_overwrites,
     postfach,
     postfach_abholen,
+    postfach_anhaenge,
     preferences,
     presence,
     privacy,
@@ -113,6 +114,7 @@ router.include_router(schluessel.router)
 router.include_router(postfach.router)
 router.include_router(private_gruppen.router)
 router.include_router(postfach_abholen.router)
+router.include_router(postfach_anhaenge.router)
 # Dropbox / Ablage — split across three files to stay under the
 # 350-line soft cap. dropbox.py exposes ``admin_router`` so callers
 # don't need a separate include for the PATCH /settings endpoint.
