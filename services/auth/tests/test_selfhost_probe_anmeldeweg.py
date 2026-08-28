@@ -35,17 +35,18 @@ async def test_server_der_die_faehigkeit_nennt():
 
 
 @pytest.mark.asyncio
-async def test_alter_server_nennt_sie_nicht():
-    """Das Feld war bis zum 2026-08-28 immer leer.
+async def test_zu_alter_server_ist_ein_mangel():
+    """Ein Server ohne diese Faehigkeit nimmt niemanden mehr auf.
 
-    Waehrend der Uebergangszeit ist das KEIN Mangel, deshalb ``ok=True``. Wer
-    hier einen Fehlalarm baut, treibt Betreiber dazu, an einem Server
-    herumzuschrauben, an dem nichts fehlt.
+    Das war bis zum Bughunt als Uebergangszustand beschrieben (``ok=True``) —
+    eine Behauptung aus einer frueheren Fassung des Plans, die nach dem
+    ersatzlosen Wegfall des Zertifikats-Wegs nicht mehr stimmte. Jetzt ein
+    Mangel, mit einem Handgriff im Text.
     """
     async with _klient(200, {"capabilities": []}) as k:
         s = await pruefe_anmeldeweg(k, ZIEL)
-    assert s.ok is True
-    assert s.befund == "zertifikats_weg"
+    assert s.ok is False
+    assert s.befund == "zu_alt"
 
 
 @pytest.mark.asyncio

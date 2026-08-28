@@ -111,9 +111,22 @@ async def pruefe_ticket(
     # Einmal-Einlösung. Die Marke lebt länger als die Ticketfrist, damit sie ein
     # Ticket überdauert, das mit voller Uhrentoleranz ankommt — sonst wäre
     # ausgerechnet das grenzwertig alte Ticket wieder einlösbar.
-    frisch = await redis.set(
-        f"{_VERBRAUCHT_PREFIX}{jti}", "1", nx=True, ex=ZEITTOLERANZ_S * 4
-    )
+    try:
+        frisch = await redis.set(
+            f"{_VERBRAUCHT_PREFIX}{jti}", "1", nx=True, ex=ZEITTOLERANZ_S * 4
+        )
+    except Exception as exc:  # noqa: BLE001
+        # Redis weg. Ohne diesen Fang entstünde ein 500 mit FastAPI-Rumpf, der
+        # Klient fände darin keinen bekannten Code — und zeigte die
+        # Sammelmeldung „Anmeldung abgelaufen oder Server nicht erreichbar",
+        # also genau das, wogegen dieser Umbau gebaut ist. Und zwar über die
+        # häufigste Infrastrukturstörung überhaupt.
+        #
+        # Fail-CLOSED, anders als bei den Nachbarn (``read_state``,
+        # ``_get_jwks_keys`` fallen offen zurück): Ohne Redis lässt sich nicht
+        # feststellen, ob dieses Ticket schon eingelöst wurde. Es durchzulassen
+        # hiesse, die Einmal-Einlösung stillschweigend abzuschalten.
+        raise TicketFehler("speicher_nicht_erreichbar") from exc
     if not frisch:
         raise TicketFehler("ticket_replayed")
 

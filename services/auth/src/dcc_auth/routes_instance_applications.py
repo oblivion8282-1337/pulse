@@ -49,6 +49,18 @@ router = APIRouter(tags=["self-host"])
 
 async def _require_user(request: Request, db) -> User:
     """Validate session cookie → User.  Raises HTTP 401 on failure."""
+    user, _ = await _require_user_mit_sitzung(request, db)
+    return user
+
+
+async def _require_user_mit_sitzung(request: Request, db):
+    """Wie ``_require_user``, gibt aber auch die Sitzungszeile zurück.
+
+    Die Zeile trägt ``amr``/``acr`` — wie sich der Nutzer bei UNS ausgewiesen
+    hat. Das Serverticket reicht das an den Self-Host weiter, damit der für
+    heikle Aktionen einen zweiten Faktor verlangen kann. Wer nur den ``User``
+    hat, kann das nicht wissen und schriebe stillschweigend „Passwort" hin.
+    """
     import uuid
 
     raw = request.cookies.get("pulse_session")
@@ -70,7 +82,7 @@ async def _require_user(request: Request, db) -> User:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="user not found")
     if user.disabled or user.is_suspended:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="account disabled")
-    return user
+    return user, row
 
 
 def _require_self_host_enabled(user: User) -> None:

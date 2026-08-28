@@ -24,6 +24,8 @@ export const ABLEHNUNGSCODES = [
   'ticket_invalid',
   'ticket_malformed',
   'jwks_cold',
+  'speicher_nicht_erreichbar',
+  'instance_id_unconfigured',
   'join_locked',
   'join_not_permitted',
   'instance banned',
@@ -51,6 +53,8 @@ export const MELDUNGSSCHLUESSEL: Record<Ablehnungscode, string> = {
   ticket_invalid: 'anmeldung_ticket_ungueltig',
   ticket_malformed: 'anmeldung_ticket_ungueltig',
   jwks_cold: 'anmeldung_server_ohne_cloud',
+  speicher_nicht_erreichbar: 'anmeldung_server_speicher',
+  instance_id_unconfigured: 'anmeldung_server_ohne_kennung',
   join_locked: 'anmeldung_server_geschlossen',
   join_not_permitted: 'anmeldung_kein_zugang',
   'instance banned': 'anmeldung_gesperrt',
@@ -71,6 +75,9 @@ export const VON_SELBST_HEILBAR: readonly Ablehnungscode[] = [
   'ticket_expired',
   'ticket_replayed',
   'network',
+  // Ein Speicherausfall auf dem Server geht vorbei, ohne dass der Nutzer etwas
+  // tun kann — anders als eine fehlende Einladung.
+  'speicher_nicht_erreichbar',
 ];
 
 export function hatTextFuerJedenCode(): boolean {

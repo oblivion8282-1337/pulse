@@ -3013,5 +3013,7 @@
   "anmeldung_gesperrt": "Du bist auf diesem Server gesperrt. Nur der Betreiber kann das aufheben.",
   "anmeldung_instanz_gesperrt": "Dieser Server ist zurzeit gesperrt. Der Betreiber findet den Grund in seinem Pulse-Konto.",
   "anmeldung_instanz_geloescht": "Dieser Server wurde gelöscht. Entferne ihn aus deiner Serverliste.",
-  "anmeldung_netzfehler": "Der Server ist gerade nicht erreichbar. Prüfe deine Verbindung; besteht das Problem, kann der Betreiber die Erreichbarkeit seines Servers prüfen lassen."
+  "anmeldung_netzfehler": "Der Server ist gerade nicht erreichbar. Prüfe deine Verbindung; besteht das Problem, kann der Betreiber die Erreichbarkeit seines Servers prüfen lassen.",
+  "anmeldung_server_speicher": "Der Server kann gerade nicht auf seinen Zwischenspeicher zugreifen und lehnt Anmeldungen deshalb ab. Meist ist das nach kurzer Zeit vorbei; hält es an, muss der Betreiber prüfen, ob Redis läuft.",
+  "anmeldung_server_ohne_kennung": "Diesem Server fehlt seine eigene Kennung. Der Betreiber muss PULSE_INSTANCE_ID in der Konfigurationsdatei eintragen und den Server neu starten."
 }

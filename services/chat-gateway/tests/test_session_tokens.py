@@ -5,7 +5,6 @@ Coverage:
 2. Expired token → None
 3. Tampered token (payload modified) → None
 4. Wrong algorithm token → None
-5. store_session_token writes to Redis with correct TTL
 6. Different users get different tokens
 """
 
@@ -23,7 +22,6 @@ from dcc_chat_gateway.session_tokens import (
     SessionClaims,
     issue_session_token,
     reset_session_signer,
-    store_session_token,
     validate_session_token,
 )
 
@@ -112,32 +110,6 @@ def test_wrong_algorithm_token_returns_none(_tmp_key):
 
 # ---------------------------------------------------------------------------
 # Redis storage
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_store_session_token_writes_to_redis(_tmp_key):
-    """store_session_token writes metadata with correct TTL."""
-    redis = AsyncMock()
-    token = issue_session_token("pairwise-sub", "cert-123", key_path=_tmp_key)
-    await store_session_token(token, "pairwise-sub", "cert-123", redis)
-
-    assert redis.set.called
-    call_args = redis.set.call_args
-    # Third positional/keyword arg is ex= (TTL in seconds)
-    assert call_args.kwargs.get("ex") == SESSION_TTL_SECONDS or (
-        len(call_args.args) >= 3 and call_args.args[2] == SESSION_TTL_SECONDS
-    )
-    # Stored value contains user_identifier and cert_id
-    stored_val = call_args.args[1] if len(call_args.args) >= 2 else call_args.kwargs.get("value")
-    import json
-    parsed = json.loads(stored_val)
-    assert parsed["user_identifier"] == "pairwise-sub"
-    assert parsed["cert_id"] == "cert-123"
-
-
-# ---------------------------------------------------------------------------
-# Uniqueness
 # ---------------------------------------------------------------------------
 
 

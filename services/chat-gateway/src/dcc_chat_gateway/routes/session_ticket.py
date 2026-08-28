@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 # hineingelaufen, und drei Tests haben es gefangen.
 from dcc_chat_gateway import config as chat_config
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.owner_admin_log import log_owner_admin_decision
 from dcc_chat_gateway.routes.gates import enforce_ban_gate, enforce_join_gate
 from dcc_chat_gateway.session_tokens import issue_session_token
 from dcc_chat_gateway.suspend_poller import raise_if_suspended
@@ -44,6 +45,21 @@ router = APIRouter(tags=["self-host"])
 #: Cloud-Unabhängigkeit; ein früherer Kommentar behauptete das und lag falsch.
 SITZUNGSDAUER_S = 3600
 
+
+
+def _kennung_gleich(vorgelegt: str, erwartet: int) -> bool:
+    """Zahlenvergleich statt Zeichenkettenvergleich.
+
+    Ersetzt ``_safe_int_eq`` aus dem entfallenen ``cert_login``. Ein
+    Zeichenkettenvergleich verfehlt jede andere, gleichwertige Schreibweise
+    derselben Zahl — und der Betreiber wäre auf seinem eigenen Server kein
+    Admin, ohne dass irgendwo stünde warum. Genau diese Fehlerklasse hat das
+    Projekt schon zweimal beschäftigt.
+    """
+    try:
+        return int(vorgelegt) == int(erwartet)
+    except (TypeError, ValueError):
+        return False
 
 
 class SitzungEin(BaseModel):
@@ -72,6 +88,14 @@ async def sitzung_aus_ticket(
 
     await raise_if_suspended(redis)
 
+    # Ohne Instanz-Kennung kann kein Ticket passen (``aud`` wäre "0"). Ohne
+    # diesen Riegel meldete die Anmeldung ``ticket_wrong_audience``, und dessen
+    # Text schickt den Betreiber in seine Serverliste — statt zur fehlenden
+    # Zeile in seiner ``.env``. Genau die Sorte Fehlleitung, gegen die dieser
+    # Umbau gebaut ist.
+    if settings.pulse_instance_mode == "self-host" and not settings.pulse_instance_id:
+        raise HTTPException(status_code=503, detail="instance_id_unconfigured")
+
     try:
         daten = await pruefe_ticket(
             payload.ticket,
@@ -86,9 +110,23 @@ async def sitzung_aus_ticket(
         raise HTTPException(status_code=403, detail=exc.code) from exc
 
     kennung = daten.sub
-    ist_betreiber = bool(settings.pulse_instance_owner_id) and (
-        kennung == str(settings.pulse_instance_owner_id)
+    # Drei Bedingungen, alle drei nötig — genau wie im alten ``cert_login``:
+    #
+    # Die Betriebsart darf nicht fehlen. Ohne sie machte eine gesetzte
+    # ``PULSE_INSTANCE_OWNER_ID`` in der CLOUD diesen Nutzer zum Admin **und**
+    # nähme ihn vom Bann-Gate aus. Dass die Vorgabe 0 ist, ist kein Schutz,
+    # sondern ein Zufall der Konfiguration.
+    #
+    # Der Vergleich läuft über Zahlen, nicht über Zeichenketten: Eine andere,
+    # aber gleichwertige Schreibweise derselben Kennung (führende Null, Leerraum)
+    # traf sonst nicht — und der Betreiber wäre kein Admin, ohne dass irgendwo
+    # stünde warum.
+    ist_betreiber = (
+        settings.pulse_instance_mode == "self-host"
+        and bool(settings.pulse_instance_owner_id)
+        and _kennung_gleich(kennung, settings.pulse_instance_owner_id)
     )
+    log_owner_admin_decision(settings, kennung, ist_betreiber)
 
     await enforce_ban_gate(session, kennung, ist_betreiber)
     if settings.pulse_instance_mode == "self-host":

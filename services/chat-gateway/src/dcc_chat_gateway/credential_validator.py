@@ -12,26 +12,17 @@ denen ein Self-Host Serverticket und Betreiber-Check prüft, warmgehalten vom
 Self-Hosts zuordnen zu können. Auch das ist entfallen: Bestehende Server werden
 neu aufgesetzt, es gibt nichts hinüberzutragen.
 
-``REDIS_REVOKED_SET`` steht noch hier, weil ein Bestands-Redis den Schlüssel
-tragen kann; gelesen wird er nirgends mehr.
+Alles andere ist mit dem Zertifikat entfallen.
 """
 
 from __future__ import annotations
 
-import base64
-import hashlib
-import hmac
 import json
-import os
-import time
 from typing import Any
 
-import jwt
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from dcc_chat_gateway.config import get_settings
 from jwt.algorithms import RSAAlgorithm
-from pydantic import BaseModel
 
 # Redis key constants (mirrors auth-svc + jwks_poller)
 REDIS_JWKS_KEY = "auth:jwks:cached"
@@ -40,10 +31,8 @@ REDIS_JWKS_KEY = "auth:jwks:cached"
 # ``{pulse_cloud_origin}/.well-known/jwks.json``. Cloud mode validates its own
 # certs and uses REDIS_JWKS_KEY (which IS the Cloud's on a Cloud deployment).
 REDIS_CLOUD_JWKS_KEY = "auth:cloud_jwks:cached"
-REDIS_REVOKED_SET = "auth:revoked:certs"
 
 # Challenge size in bytes (DE 11 A.7)
-CHALLENGE_BYTES = 32
 
 
 def _build_pubkey_from_jwks(jwks_json: str) -> dict[str, Any]:

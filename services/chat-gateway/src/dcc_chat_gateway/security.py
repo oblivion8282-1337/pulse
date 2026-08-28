@@ -34,7 +34,6 @@ from typing import Annotated, Any
 import httpx
 import jwt
 
-# working unchanged.
 from fastapi import Depends, Header, HTTPException, Query, status
 from jwt.algorithms import RSAAlgorithm
 
