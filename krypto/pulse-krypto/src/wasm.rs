@@ -254,4 +254,14 @@ impl JsGruppenempfang {
         let inner = self.inner.entschluesseln(nachricht).map_err(js_fehler)?;
         Ok(JsGruppennachricht { inner })
     }
+
+    pub fn einfrieren(&self, schluessel: Vec<u8>) -> Result<String, JsValue> {
+        self.inner.einfrieren(&schluessel32(schluessel)?).map_err(js_fehler)
+    }
+
+    pub fn auftauen(gefroren: &str, schluessel: Vec<u8>) -> Result<JsGruppenempfang, JsValue> {
+        let inner = crate::Gruppenempfang::auftauen(gefroren, &schluessel32(schluessel)?)
+            .map_err(js_fehler)?;
+        Ok(Self { inner })
+    }
 }
