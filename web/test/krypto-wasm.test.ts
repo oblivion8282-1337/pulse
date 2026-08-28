@@ -2,17 +2,45 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-// Der Bau muss vorher gelaufen sein (krypto/pulse-krypto/bauen-wasm.sh). Faehrt
-// der Test ohne gebautes Paket, soll er das SAGEN und nicht still uebersprungen
-// werden — ein nicht ausgefuehrter Test sieht in der Ausgabe aus wie ein gruener.
+// Das WASM-Paket ist ein BAUERGEBNIS und liegt nicht im Repo (`pkg/` ist
+// gitignoriert). Auf einer Maschine, auf der `bauen-wasm.sh` nie lief — jeder
+// frische Klon, der Mac, die Windows-Rechner —, gibt es es schlicht nicht.
+//
+// Die erste Fassung importierte es oben ohne Absicherung. Das riss die ganze
+// Datei mit, und weil `pnpm test:unit` im Test-Gate haengt, waere das Gate dort
+// ROT gewesen: `ship.sh` haette auf jeder anderen Maschine blockiert, mit einem
+// Fehler, der nach einem kaputten Krypto-Kern aussieht statt nach einem
+// fehlenden Bauschritt.
+//
+// Deshalb: fehlt das Paket, werden die Tests ausdruecklich UEBERSPRUNGEN, mit
+// dem Befehl als Begruendung. Nodes Laeufer zaehlt Uebersprungenes getrennt aus
+// (`skipped: n`) und zeigt den Grund — es verschwindet also nicht in der
+// Gruen-Meldung. Wer sie wirklich laufen lassen will, baut das Paket; das Gate
+// tut das von sich aus, sobald `wasm-pack` vorhanden ist (scripts/gate-rust.sh).
 const pfad = new URL('../../krypto/pulse-krypto/pkg/pulse_krypto.js', import.meta.url);
 const wasmPfad = new URL('../../krypto/pulse-krypto/pkg/pulse_krypto_bg.wasm', import.meta.url);
-const modul = await import(pfad.href);
-// `--target web` laedt sein .wasm sonst per `fetch(import.meta.url)` — Nodes
-// fetch kennt aber keine file://-URLs. Die Bytes deshalb selbst einlesen.
-await modul.default(await readFile(wasmPfad));
 
-test('WASM: Alice und Bob bauen eine Sitzung auf und schreiben in beide Richtungen', () => {
+// Bewusst ungetypt: das Paket entsteht erst beim Bauen durch wasm-bindgen, es
+// gibt zur Pruefzeit also keine Typen dafuer — und es liegt nicht im Repo.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let modul: any = null;
+let fehlgrund = '';
+try {
+  modul = await import(pfad.href);
+  // `--target web` laedt sein .wasm sonst per `fetch(import.meta.url)` — Nodes
+  // fetch kennt aber keine file://-URLs. Die Bytes deshalb selbst einlesen.
+  await modul.default(await readFile(wasmPfad));
+} catch (fehler) {
+  modul = null;
+  fehlgrund =
+    'WASM-Paket nicht gebaut — `bash krypto/pulse-krypto/bauen-wasm.sh` ' +
+    `ausfuehren. (${(fehler as Error).message})`;
+}
+
+/** Leer, wenn gebaut; sonst ein Ueberspringen mit Begruendung. */
+const wennGebaut = fehlgrund ? { skip: fehlgrund } : {};
+
+test('WASM: Alice und Bob bauen eine Sitzung auf und schreiben in beide Richtungen', wennGebaut, () => {
   const alice = new modul.Identitaet();
   const bob = new modul.Identitaet();
 
@@ -43,7 +71,7 @@ test('WASM: Alice und Bob bauen eine Sitzung auf und schreiben in beide Richtung
   assert.equal(nachgebaut.daten(), antwortUmschlag.daten());
 });
 
-test('WASM: eine Gruppensitzung verschluesselt, der Empfang liest mit', () => {
+test('WASM: eine Gruppensitzung verschluesselt, der Empfang liest mit', wennGebaut, () => {
   const senderin = new modul.Gruppensitzung();
   const verteilschluessel = senderin.verteilschluessel();
 
@@ -61,7 +89,7 @@ test('WASM: eine Gruppensitzung verschluesselt, der Empfang liest mit', () => {
   assert.equal(gelesenZwei.zaehler(), 1);
 });
 
-test('WASM: Einfrieren und Auftauen einer Identitaet ueberlebt einen Neustart', () => {
+test('WASM: Einfrieren und Auftauen einer Identitaet ueberlebt einen Neustart', wennGebaut, () => {
   const schluessel = new Uint8Array(32).fill(7);
   const ich = new modul.Identitaet();
   ich.einmalschluesselErzeugen(2);

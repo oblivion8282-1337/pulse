@@ -61,6 +61,26 @@ for kiste in $(echo "$changed" | sed -n \
   echo "  Cargo-Tests ${kiste}…"
   ( cd "$kiste" && cargo test -q ) \
     || { echo "✗ Cargo-Tests $kiste ROT — abgebrochen." >&2; exit 1; }
+
+  # Der Krypto-Kern wird zusaetzlich als WASM gebaut, sonst UEBERSPRINGT
+  # `pnpm test:unit` seine drei Grenz-Tests: das Paket ist ein Bauergebnis und
+  # liegt nicht im Repo (`pkg/` ist gitignoriert).
+  #
+  # `wasm-pack` ist KEINE Voraussetzung dieses Gates — es liegt unter
+  # ~/.cargo/bin und fehlt auf frischen Maschinen. Fehlt es, wird gesagt, was
+  # dadurch nicht geprueft wird, und weitergefahren; die Tests selbst melden
+  # sich dann als uebersprungen mit demselben Hinweis. Ein Gate, das auf einer
+  # Maschine ohne wasm-pack rot waere, blockierte dort jedes Landen.
+  if [ "$kiste" = "krypto/pulse-krypto" ]; then
+    if PATH="$HOME/.cargo/bin:$PATH" command -v wasm-pack >/dev/null 2>&1; then
+      echo "  WASM-Bau ${kiste}…"
+      bash "$kiste/bauen-wasm.sh" >/dev/null \
+        || { echo "✗ WASM-Bau $kiste ROT — abgebrochen." >&2; exit 1; }
+    else
+      echo "  ! wasm-pack fehlt — die WASM-Grenz-Tests werden UEBERSPRUNGEN."
+      echo "    Nachrüsten: cargo install wasm-pack"
+    fi
+  fi
 done
 
 # Cargo-Tests der beiden Crates, die auf Linux WIRKLICH bauen: pulse-player

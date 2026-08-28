@@ -269,7 +269,20 @@ Was heute der Server rechnet und künftig lokal entsteht:
 - das Nachladen beim Hochscrollen, heute über Server-Cursor.
 
 Gelesen/Ungelesen liegt **bereits heute** nur im Klienten und bleibt, wie es
-ist — ein Stück weniger Umbau als erwartet.
+ist — ein Stück weniger Umbau als erwartet. Es ist dabei mehr als ein
+Lesezeichen: neben dem Marker je Kanal wird auch ein Zähler geführt
+(`pulse.unread.<uid>`), und beide sind auf das beschränkt, was der Klient
+**während einer laufenden Sitzung** gesehen hat.
+
+**Ein Fehler im Bestand, den dieser Umbau nebenbei behebt:** `upsertFromBump`
+fasst `last_message_preview` nicht an. Kommt eine Nachricht live herein,
+rückt die DM-Liste in der Sortierung nach, ihr Vorschautext bleibt aber der
+alte, bis neu geladen wird. Sobald der Text lokal entsteht, ist immer der
+richtige da — die Ursache verschwindet, statt behandelt zu werden.
+
+**Was es nicht zu ersetzen gibt:** eine Suche über Nachrichten existiert heute
+weder im Klienten noch am Server. Es fällt also nichts weg, und eine spätere
+Suche muss lokal gebaut werden — auf dem Bestand, den dieser Umbau anlegt.
 
 Dieser Umbau kommt **vor** der Verschlüsselung und zunächst mit lesbaren Daten.
 Steht er, ist der Rest ein Austausch der Nutzlast.
@@ -372,7 +385,7 @@ Jede Etappe braucht vor der Umsetzung einen eigenen Plan.
 |---|---|---|---|
 | A | Krypto-Kern: Rust-Kiste `pulse-krypto` um vodozemac (Olm **und** Megolm), WASM-Ausgabe | `cargo test`, Node-Läufer | nichts |
 | B | Schlüsselverzeichnis: Veröffentlichen, Abrufen, Einmalschlüssel-Vorrat und Nachfüllen | pytest, Playwright | A |
-| C | Lokaler Verlauf im Klienten, noch mit lesbaren Daten | Node-Läufer, Playwright | nichts (parallel zu A/B möglich) |
+| C | Lokaler Verlauf im Klienten, noch mit lesbaren Daten — **in C1 bis C4 aufgeteilt**, s. unten | Node-Läufer, Playwright | nichts (parallel zu A/B möglich) |
 | D | Verschlüsselte Zustellung: Postfach (Nutzlast + Zustellung), Quittung, Frist | pytest | A, B, C |
 | E | Anhänge im verschlüsselten Weg | pytest, Playwright | D |
 | F | Geräte koppeln und Verlaufsumzug | Playwright (Textcode-Weg) | A, B, C |
@@ -382,6 +395,21 @@ Jede Etappe braucht vor der Umsetzung einen eigenen Plan.
 
 **A und C sind die beiden Enden, an denen begonnen werden kann**, und sie
 behindern sich nicht. A ist klein und geschlossen, C ist der große Brocken.
+
+**C ist zu gross für einen Plan** (das Übergabedokument schätzt drei bis fünf
+Wochen) und deshalb aufgeteilt:
+
+| | Was | Verhaltensänderung |
+|---|---|---|
+| C1 | Lokaler Speicher, **nur Schreiben** — alles, was ankommt, wird zusätzlich abgelegt | keine |
+| C2 | Verlauf wird **lokal gelesen**, der Server nur noch bei einer Lücke gefragt | spürbar |
+| C3 | Vorschautexte der DM-Liste entstehen lokal (die zwei Server-Aufrufstellen fallen) | spürbar |
+| C4 | Sortierung und Ungelesen-Stand aus dem lokalen Bestand | spürbar |
+
+C1 ist der einzige Schnitt ohne Risiko: ist der Speicher gefüllt und stimmt
+sein Inhalt, sind C2 bis C4 Umschaltungen. Wer gleich lokal liest, debuggt
+Speicher und Anzeige gleichzeitig. Plan für C1:
+`docs/superpowers/plans/2026-08-28-etappe-c1-lokaler-verlauf.md`.
 
 **G ist die einzige Etappe mit zwei Hälften**, die man auseinanderhalten muss:
 die Kanalart samt Mitgliederverwaltung ist gewöhnliche Produktarbeit und
