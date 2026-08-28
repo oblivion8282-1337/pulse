@@ -9,11 +9,11 @@
    * heisst: die Kinder werden bei ausgeschaltetem Schalter gar nicht erst
    * gebaut — kein Serveraufruf, nichts sichtbar.
    *
-   * QR fehlt bewusst: das Projekt hat keine QR-Bibliothek im Klienten (die
-   * vorhandene `qrcode[pil]` liegt im auth-svc und erzeugt serverseitig),
-   * und der Kopplungscode DARF den Server nicht erreichen — eine
-   * serverseitig gerenderte Grafik schiede also ohnehin aus. Der Textweg ist
-   * laut Spec §6 ohnehin der Pflichtweg; QR ist die Bequemlichkeit obendrauf.
+   * Der QR-Code (in `KopplungZeigen`) entsteht rein im Klienten aus `uqr` —
+   * Begruendung, warum die serverseitige `qrcode[pil]` aus dem auth-svc dafuer
+   * nicht infrage kommt (der Kopplungscode darf den Server nie erreichen),
+   * steht am Kopf von `$lib/kopplung/qr.ts`. Der Textweg bleibt laut Spec §6
+   * der Pflichtweg; QR ist die Bequemlichkeit obendrauf, nie der einzige Weg.
    */
   import { GERAETE_KOPPLUNG_ENABLED } from '$lib/krypto/schalter';
   import { m } from '$lib/paraglide/messages.js';

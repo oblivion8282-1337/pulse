@@ -18,6 +18,7 @@
   import KopplungBalken from './KopplungBalken.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import { codeAnzeigen } from '$lib/kopplung/code';
+  import { qrSvgFuerCode } from '$lib/kopplung/qr';
   import { istEingeloest, kopplungAbbrechen, kopplungStarten, verlaufSchieben } from '$lib/kopplung/senden';
 
   /** Wie oft nachgefragt wird, ob das andere Gerät eingelöst hat. */
@@ -32,6 +33,11 @@
   let fertig = $state(false);
   let fehler = $state<string | null>(null);
   let takt: ReturnType<typeof setInterval> | null = null;
+
+  // QR-Markup wird bei jeder Aenderung von `code` frisch erzeugt (nicht
+  // gecacht) — der Code lebt ohnehin nur so lange wie diese Komponente, ein
+  // Cache brächte hier keinen Vorteil, nur eine zweite Kopie im Speicher.
+  const qrSvg = $derived(code === null ? null : qrSvgFuerCode(code, m.kopplung_qr_alt()));
 
   function taktStoppen() {
     if (takt !== null) clearInterval(takt);
@@ -117,6 +123,23 @@
     >
       {codeAnzeigen(code)}
     </p>
+
+    {#if qrSvg !== null}
+      <!--
+        Der Textcode oben bleibt der Pflichtweg (Spec §6, Barrierefreiheit
+        + ohne Kamera nutzbar) — der QR-Code hier ist eine gleichrangig
+        SICHTBARE Bequemlichkeit, nie die einzige Quelle des Codes. Das
+        `{@html}` ist unbedenklich: `qrSvgFuerCode` baut das Markup selbst
+        aus Zahlen (Matrixkoordinaten) und dem eigenen, uebersetzten Titel —
+        keine vom Nutzer stammende Zeichenkette landet je darin.
+      -->
+      <div
+        class="mx-auto w-40 max-w-full rounded-md border bg-white p-2"
+        data-testid="kopplung-qr"
+      >
+        {@html qrSvg}
+      </div>
+    {/if}
 
     {#if fertig}
       <p class="text-sm" data-testid="kopplung-zeigen-fertig">

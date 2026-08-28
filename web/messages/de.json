@@ -1452,6 +1452,7 @@
   "kopplung_fehler_kopplung_unbekannt": "Diesen Code kennt der Server nicht.",
   "kopplung_fehler_unbekannt": "Die Kopplung ist fehlgeschlagen. Bitte später erneut versuchen.",
   "kopplung_fortschritt": "{erledigt} von {gesamt} Paketen",
+  "kopplung_qr_alt": "QR-Code des Kopplungscodes — als Alternative zum Eintippen am neuen Gerät scannen.",
   "kopplung_tab_eingeben": "Code eingeben",
   "kopplung_tab_zeigen": "Code zeigen",
   "kopplung_title": "Zweites Gerät koppeln",

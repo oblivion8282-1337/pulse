@@ -1452,6 +1452,7 @@
   "kopplung_fehler_kopplung_unbekannt": "The server does not know this code.",
   "kopplung_fehler_unbekannt": "Pairing failed. Please try again later.",
   "kopplung_fortschritt": "{erledigt} of {gesamt} packets",
+  "kopplung_qr_alt": "QR code of the pairing code — scan as an alternative to typing it on the new device.",
   "kopplung_tab_eingeben": "Enter code",
   "kopplung_tab_zeigen": "Show code",
   "kopplung_title": "Pair a second device",
