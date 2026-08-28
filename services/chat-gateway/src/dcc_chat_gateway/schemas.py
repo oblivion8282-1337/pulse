@@ -1180,6 +1180,16 @@ class BundleVeroeffentlichenRequest(BaseModel):
     signatur: str
     curve25519: str
     rueckfallschluessel: str | None = None
+    #: Selbstauskunft des Geraets — Electron- oder Android-App (Spec §3,
+    #: Koexistenz-Regel). Bewusst NICHT Teil der signierten Nutzlast: das
+    #: Geraet kann diese Aussage nur ueber SICH SELBST treffen (die Zeile
+    #: gehoert ueber ``pruefe_geraet`` ohnehin schon zum eigenen
+    #: ``device_pubkey``, ein Dritter kann sie nicht fuer ein fremdes Geraet
+    #: setzen), eine falsche Angabe schwaecht also hoechstens die eigene
+    #: Kontohistorie, nie die eines anderen Kontos. Vorgabe ``False`` (Modell,
+    #: nicht hier) — ein Geraet, das das Feld nicht mitschickt, gilt als
+    #: nicht dauerhaft.
+    dauerhaft: bool = False
 
 
 class EinmalschluesselHinzufuegenRequest(BaseModel):
@@ -1215,6 +1225,10 @@ class GeraeteSchluesselOut(BaseModel):
     signatur: str
     einmalschluessel: str | None = None
     rueckfallschluessel: str | None = None
+    #: Wie ``BundleVeroeffentlichenRequest.dauerhaft`` — durchgereicht aus
+    #: ``DeviceKeyBundle.dauerhaft``, Grundlage der Koexistenz-Regel im
+    #: Klienten (``web/src/lib/krypto/empfaengerGeraete.ts``).
+    dauerhaft: bool = False
 
 
 # ---------------------------------------------------------------------------

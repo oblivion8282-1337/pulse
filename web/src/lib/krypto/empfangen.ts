@@ -78,6 +78,7 @@ import { directMessages } from '../stores/directMessages.svelte';
 import { verlaufSpeichernPflicht } from '../verlauf';
 import { verlaufZustand } from '../verlauf/zustand.svelte';
 import { postfachApi, type PostfachZustellung } from '../api/postfach';
+import { serversStore } from '../api/servers.svelte';
 import { kryptoAccountLaden } from './account.svelte';
 import {
   sitzungLaden,
@@ -101,6 +102,17 @@ import { verarbeiteBisAbbruch } from './postfachSchleife';
  * koennen.
  */
 class KontoSicherungFehlgeschlagen extends Error {}
+
+// DMs sind heute cloud-only (Global-Friends Stufe 1) — s. `api/keys.ts`
+// Modulkopf (Bughunt 2026-08-28, FIX 4). Ohne diesen Parameter faellt
+// `request()` auf `activeServer.current` zurueck, also den zuletzt
+// gewaehlten Self-Host — dort existiert weder das Postfach noch das
+// Schluesselverzeichnis fuer diesen Kanal. `senden.ts`/`veroeffentlichen.ts`
+// uebergeben dieselbe Route bereits; dieses Modul war beim Nachziehen von
+// FIX 4 bei einem anderen Agenten in Arbeit und ist erst hier nachgezogen.
+function cloudRoute(): { serverId?: string } {
+  return { serverId: serversStore.cloudId() };
+}
 
 /** Die Nachricht einer erfolgreich geoeffneten Zustellung — `null`, wenn der
  *  Absender nicht ermittelbar ist: der Server liefert keinen
@@ -189,7 +201,10 @@ async function postfachZyklus(): Promise<Message[]> {
 
   const abholNutzlast = baueNutzlast('postfach-abholen');
   const abholSignatur = await signiereNutzlast(keypair, abholNutzlast);
-  const zustellungen = await postfachApi.abholen({ cert: cert.raw, signatur: abholSignatur });
+  const zustellungen = await postfachApi.abholen(
+    { cert: cert.raw, signatur: abholSignatur },
+    cloudRoute()
+  );
   if (zustellungen.length === 0) return [];
 
   const ident = await kryptoAccountLaden();
@@ -235,11 +250,14 @@ async function postfachZyklus(): Promise<Message[]> {
     // ERST JETZT quittieren, s. Modulkopf.
     const quittungNutzlast = baueNutzlast('postfach-quittung', ...quittierbar);
     const quittungSignatur = await signiereNutzlast(keypair, quittungNutzlast);
-    await postfachApi.quittieren({
-      cert: cert.raw,
-      signatur: quittungSignatur,
-      zustellung_ids: quittierbar
-    });
+    await postfachApi.quittieren(
+      {
+        cert: cert.raw,
+        signatur: quittungSignatur,
+        zustellung_ids: quittierbar
+      },
+      cloudRoute()
+    );
   }
 
   return geoeffnet;
