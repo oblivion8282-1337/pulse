@@ -32,7 +32,6 @@ from dcc_shared.session_tokens import (
     _token_redis_key,
     issue_session_token,
     reset_session_signer,
-    synthesize_self_host_user_id,
     validate_session_token,
 )
 
@@ -43,7 +42,6 @@ __all__ = [
     "issue_session_token",
     "reset_session_signer",
     "store_session_token",
-    "synthesize_self_host_user_id",
     "validate_session_token",
 ]
 

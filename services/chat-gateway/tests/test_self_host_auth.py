@@ -18,7 +18,6 @@ import pytest
 from dcc_chat_gateway.security import (
     AuthenticatedUser,
     decode_token,
-    synthesize_self_host_user_id,
 )
 from dcc_chat_gateway.session_tokens import (
     issue_session_token,
@@ -58,16 +57,17 @@ async def test_self_host_session_token_decodes_in_self_host_mode(
 ):
     """Self-Host session-JWT → valid payload with synthetic numeric sub."""
     token = issue_session_token(
-        "pairwise-abc-1234",
+        "4711",
         "cert-id-xyz",
         key_path=self_host_settings.session_signing_key_file,
     )
     payload = await decode_token(token)
     assert payload["self_host"] is True
-    assert payload["pairwise_sub"] == "pairwise-abc-1234"
+    assert payload["pairwise_sub"] == "4711"
     # ``sub`` is the synthetic 63-bit int as decimal string, not the raw
     # pairwise-sub — keeps downstream ``int(payload['sub'])`` callers happy.
-    assert int(payload["sub"]) == synthesize_self_host_user_id("pairwise-abc-1234")
+    # Die Kennung IST die Zahl — keine Uebersetzung mehr (2026-08-28).
+    assert payload["sub"] == "4711"
     # ``typ`` is normalised to ``access`` so existing assertions in
     # downstream code keep working.
     assert payload["typ"] == "access"
@@ -77,7 +77,7 @@ async def test_self_host_session_token_decodes_in_self_host_mode(
 async def test_self_host_token_rejected_in_cloud_mode(self_host_settings):
     """Cloud-mode deployment must reject Self-Host tokens (token confusion guard)."""
     token = issue_session_token(
-        "pairwise-evil",
+        "4711",
         "cert-x",
         key_path=self_host_settings.session_signing_key_file,
     )
@@ -99,14 +99,14 @@ async def test_get_current_user_yields_self_host_authuser(self_host_settings):
     from dcc_chat_gateway.security import get_current_user
 
     token = issue_session_token(
-        "pairwise-sub-xyz",
+        "4711",
         "cert-id-1",
         key_path=self_host_settings.session_signing_key_file,
     )
     user: AuthenticatedUser = await get_current_user(f"Bearer {token}")
     assert user.is_self_host is True
-    assert user.user_identifier == "pairwise-sub-xyz"
-    assert user.id == synthesize_self_host_user_id("pairwise-sub-xyz")
+    assert user.user_identifier == "4711"
+    assert user.id == 4711
     assert user.id > 0  # fits BIGINT signed-positive
     # Same pairwise-sub → same synthetic id (determinism contract).
     again = await get_current_user(f"Bearer {token}")
@@ -134,29 +134,6 @@ async def test_cloud_token_still_works_in_self_host_mode(
 # ---------------------------------------------------------------------------
 
 
-def test_synthesize_self_host_user_id_is_deterministic():
-    a = synthesize_self_host_user_id("foo")
-    b = synthesize_self_host_user_id("foo")
-    assert a == b
-
-
-def test_synthesize_self_host_user_id_differs_per_input():
-    a = synthesize_self_host_user_id("alice")
-    b = synthesize_self_host_user_id("bob")
-    assert a != b
-
-
-def test_synthesize_self_host_user_id_positive_63bit():
-    """Must fit in a signed BIGINT column."""
-    val = synthesize_self_host_user_id("any-string-here")
-    assert 0 < val < 2**63
-
-
-# ---------------------------------------------------------------------------
-# End-to-end: a self-host session token gates a real REST route
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_self_host_token_authenticates_capabilities_route(
     client, self_host_settings
@@ -166,7 +143,7 @@ async def test_self_host_token_authenticates_capabilities_route(
     ``/capabilities`` because it doesn't need any DB seeding (no membership
     / guild lookup) so this test isolates the auth pathway."""
     token = issue_session_token(
-        "pairwise-route-test",
+        "4711",
         "cert-route-test",
         key_path=self_host_settings.session_signing_key_file,
     )
@@ -181,7 +158,7 @@ async def test_self_host_token_can_create_guild(client, self_host_settings):
     """``POST /guilds`` is the canonical Self-Host smoke-test from the task
     brief — must return 201 with a self-host session-JWT instead of 401."""
     token = issue_session_token(
-        "pairwise-guild-test",
+        "4711",
         "cert-guild-test",
         key_path=self_host_settings.session_signing_key_file,
     )
@@ -193,7 +170,11 @@ async def test_self_host_token_can_create_guild(client, self_host_settings):
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert body["name"] == "Self-Host Smoke"
-    # Owner id is the synthetic 63-bit numeric mapping of the pairwise-sub.
-    assert int(body["owner_id"]) == synthesize_self_host_user_id(
-        "pairwise-guild-test"
-    )
+    # Die Besitzer-Kennung IST die Kennung aus dem Token — keine Uebersetzung
+    # mehr (2026-08-28).
+    assert int(body["owner_id"]) == 4711
+
+
+# Die drei Tests fuer ``synthesize_self_host_user_id`` standen hier bis zum
+# 2026-08-28. Die Funktion uebersetzte ein Base64url-Pseudonym in einen BIGINT;
+# mit der einen Kennung gibt es nichts mehr zu uebersetzen.

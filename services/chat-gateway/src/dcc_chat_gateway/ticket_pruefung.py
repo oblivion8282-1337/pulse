@@ -59,7 +59,6 @@ class TicketDaten:
     avatar: str | None
     amr: list[str]
     acr: str
-    legacy_uid: int | None
     jti: str
 
 
@@ -118,13 +117,11 @@ async def pruefe_ticket(
     if not frisch:
         raise TicketFehler("ticket_replayed")
 
-    legacy = c.get("legacy_uid")
     return TicketDaten(
         sub=str(c["sub"]),
         name=str(c.get("name") or ""),
         avatar=c.get("avatar"),
         amr=list(c.get("amr") or []),
         acr=str(c.get("acr") or "0"),
-        legacy_uid=int(legacy) if isinstance(legacy, int) else None,
         jti=jti,
     )

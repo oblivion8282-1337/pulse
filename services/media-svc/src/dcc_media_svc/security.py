@@ -24,7 +24,6 @@ from typing import Annotated, Any
 import httpx
 import jwt
 from dcc_shared.session_tokens import (
-    synthesize_self_host_user_id,
     validate_session_token,
 )
 from fastapi import Depends, Header, HTTPException, status
@@ -167,7 +166,14 @@ def _decode_self_host_session_token(token: str) -> dict[str, Any]:
     claims = validate_session_token(token, key_path=settings.session_signing_key_file)
     if claims is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token")
-    synthetic_id = synthesize_self_host_user_id(claims.user_identifier)
+    # Die Kennung IST die Zahl (seit 2026-08-28, Ticket-Weg). Ein Token mit
+    # nicht-numerischer Kennung ist verformt — 401 statt eines 500 aus ``int()``.
+    try:
+        synthetic_id = int(claims.user_identifier)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, detail="invalid token"
+        ) from exc
     return {
         "sub": str(synthetic_id),
         "username": "",
