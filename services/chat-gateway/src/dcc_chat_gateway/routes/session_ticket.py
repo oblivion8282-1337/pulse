@@ -51,6 +51,14 @@ _UMSCHREIBUNG_MARKE = "umschreibung:erledigt:"
 
 class SitzungEin(BaseModel):
     ticket: str = Field(..., min_length=1, max_length=8192)
+    #: Optionale Zugänge für den ERSTEN Besuch. Ein Ticket beweist, wer jemand
+    #: ist — nicht, dass er hier hereindarf. Wer noch kein Mitglied ist, legt
+    #: hier seine Erlaubnis vor: einen Community-Einladungscode oder die
+    #: öffentliche Adresse einer Community auf diesem Server. Beide werden
+    #: NICHT verbraucht; die Einlösung geschieht später beim Beitritt zur
+    #: Community selbst.
+    community_grant_code: str | None = Field(default=None, max_length=128)
+    public_join_handle: str | None = Field(default=None, max_length=64)
 
 
 class SitzungAus(BaseModel):
@@ -107,7 +115,13 @@ async def sitzung_aus_ticket(
 
     await enforce_ban_gate(session, kennung, ist_betreiber)
     if settings.pulse_instance_mode == "self-host":
-        await enforce_join_gate(session, kennung, ist_betreiber)
+        await enforce_join_gate(
+            session,
+            kennung,
+            ist_betreiber,
+            payload.community_grant_code,
+            payload.public_join_handle,
+        )
 
     if daten.legacy_uid is not None:
         await _umschreiben_einmal(session, redis, kennung, daten.legacy_uid)
