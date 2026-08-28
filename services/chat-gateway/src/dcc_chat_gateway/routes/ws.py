@@ -52,7 +52,6 @@ from dcc_chat_gateway import __version__
 from dcc_chat_gateway.client_ip import ws_client_ip
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.faehigkeiten import SERVER_FAEHIGKEITEN
-from dcc_chat_gateway.credential_validator import CertClaims, resolve_user_identifier
 from dcc_chat_gateway.routes.ws_ops import run_session_op_loop
 from dcc_chat_gateway.routes.ws_ready import build_and_send_ready_frame
 from dcc_chat_gateway.security import AuthenticatedUser, decode_token
@@ -143,32 +142,19 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
         payload = await decode_token(token)
         user_id = int(payload["sub"])
         settings = get_settings()
-        # Identische Identifier-Logik wie cert_login (Pairwise-Sub auf
-        # Self-Host, raw user_id auf Cloud) — sonst landet der WS-User
-        # unter einer anderen user_identifier als der Session-Token-User
-        # und findet seine lokalen Guilds/Memberships nicht.
-        # Pydantic CertClaims ist verlangt (resolve_user_identifier liest
-        # ``.user_id`` / ``.pairwise_seed`` als Attribute, nicht als dict-keys).
-        try:
-            cert_claims = CertClaims(**payload)
-        except Exception:
-            # Defensive: Token ohne Cert-Felder (z.B. abgelaufener Session-Token
-            # mit anderer Form) — fallback auf die alte Logik via
-            # ``payload["pairwise_sub"]`` wenn vorhanden, sonst ``user_id``.
-            cert_claims = None
-        if cert_claims is not None:
-            identifier = resolve_user_identifier(
-                cert_claims,
-                instance_mode=settings.pulse_instance_mode,
-                instance_id=settings.pulse_instance_id,
-            )
-        else:
-            # Fallback: nutze die rohen payload-Felder (alte Logik).
-            identifier = (
-                str(payload.get("pairwise_sub") or user_id)
-                if settings.pulse_instance_mode == "self-host"
-                else str(user_id)
-            )
+        # Die Kennung steht im Token. Auf einem Self-Host setzt sie
+        # ``_decode_self_host_session_token`` aus dem Sitzungs-Token
+        # (``pairwise_sub``), in der Cloud ist es die Nutzer-ID selbst.
+        #
+        # Hier stand bis zum 2026-08-28 ein Nachbau der Cert-Rechnung
+        # (``CertClaims`` + ``resolve_user_identifier``) mit genau diesem
+        # Rueckfall darunter. Mit dem Gerätezertifikat ist der Vorderweg
+        # entfallen — was blieb, war ohnehin der Rueckfall.
+        identifier = (
+            str(payload.get("pairwise_sub") or user_id)
+            if settings.pulse_instance_mode == "self-host"
+            else str(user_id)
+        )
         is_self_host = settings.pulse_instance_mode == "self-host"
         # Admin kommt AUSSCHLIESSLICH aus dem ``admin``-Claim, den cert_login
         # beim Ausstellen des Session-Tokens setzt (Vergleich Cert-User gegen

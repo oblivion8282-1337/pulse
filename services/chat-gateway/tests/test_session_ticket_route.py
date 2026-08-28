@@ -291,3 +291,50 @@ async def test_beitritt_mit_einladung_ueber_das_ticket(
         json={"ticket": ticket_bauer(), "public_join_handle": "offen"},
     )
     assert r.status_code == 200, r.text
+
+
+async def _bannen(session_factory, kennung: str) -> None:
+    from datetime import UTC, datetime
+
+    from sqlalchemy import text
+
+    async with session_factory() as s:
+        await s.execute(
+            text(
+                "INSERT INTO cached_user_profiles "
+                "(user_identifier, username, display_name, last_statement_iat, "
+                "updated_at, banned_at) "
+                "VALUES (:k, 'x', 'X', :t, :t, :t)"
+            ).bindparams(k=kennung, t=datetime.now(UTC))
+        )
+        await s.commit()
+
+
+@pytest.mark.asyncio
+async def test_gebannter_nutzer_bekommt_keine_sitzung(
+    client, ticket_bauer, jwks_in_redis, als_betreiber, session_factory
+):
+    """Ein Bann auf DIESER Instanz haelt auch einen einwandfreien Ausweis auf.
+
+    Diese Abdeckung stand bis zum 2026-08-28 in test_admin_members.py und lief
+    ueber cert-login/verify. Das Gate selbst ist unveraendert - nur der Weg,
+    ueber den es erreicht wird.
+
+    ``als_betreiber`` ist hier bewusst NICHT gesetzt: Der Betreiber ist vom
+    Bann ausgenommen, das prueft der naechste Test.
+    """
+    als_betreiber.pulse_instance_owner_id = 0
+    await _bannen(session_factory, NUTZER)
+    r = await client.post("/session", json={"ticket": ticket_bauer()})
+    assert r.status_code == 403
+    assert r.json()["detail"] == "instance banned"
+
+
+@pytest.mark.asyncio
+async def test_der_betreiber_ist_vom_bann_ausgenommen(
+    client, ticket_bauer, jwks_in_redis, als_betreiber, session_factory
+):
+    """Sonst koennte ein Admin sich dauerhaft selbst aussperren."""
+    await _bannen(session_factory, NUTZER)
+    r = await client.post("/session", json={"ticket": ticket_bauer()})
+    assert r.status_code == 200, r.text

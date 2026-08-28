@@ -169,7 +169,7 @@ async def upsert_profile_statement(
 
         # pairwise_seed: prefer the caller-supplied raw bytes; otherwise fall
         # back to the Cloud-embedded ``pairwise_seed`` claim (base64url) so the
-        # WS handler doesn't have to carry it — the cert-login that would have
+        # WS handler doesn't have to carry it — the sign-in that would have
         # exposed it is already consumed by the time a statement arrives.
         if pairwise_seed is not None:
             seed_b64 = base64.urlsafe_b64encode(pairwise_seed).rstrip(b"=").decode()

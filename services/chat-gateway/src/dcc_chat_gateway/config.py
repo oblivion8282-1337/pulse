@@ -113,7 +113,7 @@ class Settings(BaseSettings):
     cloud_policy_poll_interval: int = 6 * 3600  # 6 h
 
     # IPs / CIDRs whose ``X-Forwarded-For`` wir für das per-IP-Rate-Limiting
-    # (cert-login) vertrauen — Spiegel von auth-svc ``trusted_proxies``.
+    # (Anmeldung) vertrauen — Spiegel von auth-svc ``trusted_proxies``.
     # Hinter Caddy/nginx ist die Socket-IP IMMER die Proxy-IP: ohne XFF teilen
     # sich alle Nutzer einen Bucket (gegenseitiges Aussperren möglich) und ein
     # einzelner Angreifer ist faktisch ungedrosselt. Default loopback-only:

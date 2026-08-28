@@ -1,7 +1,7 @@
 """DB helpers for the Self-Host instance join gate.
 
-Thin, focused helpers over :class:`InstanceMember` used by the cert-login join
-gate (``routes/cert_login.py``). Kept stateless — the caller owns
+Thin, focused helpers over :class:`InstanceMember` used by the join
+gate (``routes/gates.py``). Kept stateless — the caller owns
 commit/rollback.
 
 Access is decided per community (a friend community-invite grant or a public
@@ -87,7 +87,7 @@ async def community_invite_grants_access(
     An empty/unknown/revoked/expired/exhausted code returns ``False`` → the
     caller grants nothing. (Replay-safety: because this reads live state, a
     code that was revoked or whose use-budget the host later exhausts stops
-    granting access immediately on the next cert-login.)
+    granting access immediately on the next sign-in.)
 
     This grant does NOT override the ``locked`` not-aus toggle — the gate checks
     ``locked`` first (Stufe 5), before any grant path, so a community invite can
@@ -137,7 +137,7 @@ async def public_community_grants_access(
     An empty/unknown handle, or one that resolves to a *non-public* community,
     returns ``False`` → the caller grants nothing. Reading live state means a
     community flipped back to private stops granting access immediately on the
-    next cert-login (replay-safe — no state carried over time).
+    next sign-in (replay-safe — no state carried over time).
     """
     if not handle:
         return False
