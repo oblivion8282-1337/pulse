@@ -20,13 +20,37 @@
  * `.catch` — ein Fehlschlag wird zu einer abgelehnten Promise, die ein
  * vergessenes `await`/`catch` als sichtbare "unhandled rejection" auffallen
  * laesst statt sie in einen stillen Rueckgabewert `0` zu verwandeln.
+ *
+ * Zweiter Bughunt (2026-08-28, FIX 1): auch ein Rueckgabewert `0` OHNE Wurf
+ * war fuer `verlaufSpeichernPflicht` noch falsch — `krypto/quittierbareIds.ts`
+ * wertet jeden nicht werfenden Aufruf als Erfolg und quittiert, egal was der
+ * Rueckgabewert sagt. Die beiden Faelle, in denen die alte Fassung `0` OHNE
+ * Wurf zurueckgab (`!istDmKanal` und `baueSaetze(...).length === 0`), waren
+ * damit "nichts gespeichert" getarnt als Erfolg. Der haeufigste Fall dahinter
+ * ist nicht exotisch: die ERSTE Nachricht eines Gespraechs, das der Klient
+ * lokal noch nicht als DM-Kanal kennt (der `ready`-Rahmen bzw.
+ * `dm_channel_created` ist noch nicht angekommen). Fuer die alleinigen
+ * Aufrufer dieser Funktion (`krypto/senden.ts`, `krypto/empfangen.ts`) ist
+ * JEDER Kanal, den sie hier sehen, ein DM-Kanal — Postfach-Zustellungen gibt
+ * es nur fuer DMs. `istDmKanal === false` ist an dieser Stelle also nie "kein
+ * DM, ueberspringen" (das waere `verlaufSpeichern`s Fall), sondern immer
+ * "dieser DM-Kanal ist lokal noch nicht bekannt". Verwerfen waere hier
+ * endgueltiger Datenverlust, stillschweigend erfolgreich tun waere derselbe
+ * Verlust nur einen Schritt spaeter (die Quittung raeumt den Server). Beide
+ * Faelle werfen deshalb jetzt `VerlaufSpeichernFehlgeschlagen`: der Aufrufer
+ * quittiert nicht, die Zustellung bleibt auf dem Server liegen, und der
+ * naechste Abholzyklus versucht es erneut — sobald der Kanal lokal bekannt
+ * ist, gelingt der Schreibvorgang.
  */
 import { zuSatz, sortierSchluessel, satzZuNachricht, type SatzAlsNachricht } from './satz';
 import { verlaufPutSaetze, verlaufMarkiereGeloescht, verlaufLesenSaetze } from './db';
 import { verlaufZustand } from './zustand.svelte';
 import { zusammenfuegen, type Mergeposten } from './zusammenfuegen';
+import { VerlaufSpeichernFehlgeschlagen, pruefeSpeicherErgebnis } from './speichernPflicht';
 import { directMessages } from '$lib/stores/directMessages.svelte';
 import type { Message } from '$lib/api/types';
+
+export { VerlaufSpeichernFehlgeschlagen };
 
 /**
  * Nur DM-Kanäle werden lokal abgelegt — Community-Kanäle bleiben serverseitig
@@ -75,16 +99,24 @@ export function verlaufSpeichern(kanalId: string, nachrichten: unknown[]): Promi
  * EINZIGE Kopie einer Nachricht ist (`krypto/senden.ts`, `krypto/empfangen.ts`)
  * — wirft bei einem Fehlschlag, statt ihn zu verschlucken (s. Modulkopf). Ein
  * Aufrufer MUSS reagieren: entweder die Quittung/den Abschluss zurückhalten,
- * oder den Fehler an den Nutzer weitergeben.
+ * oder den Fehler an den Nutzer weitergeben. Wirft auch dann, wenn NICHTS zu
+ * speichern war (unbekannter DM-Kanal, keine speicherbaren Saetze) — ein
+ * Rueckgabewert `0` sah bislang wie Erfolg aus; die Entscheidung, wann das
+ * gilt, steht importfrei (und damit direkt testbar) in `speichernPflicht.ts`
+ * (s. Modulkopf FIX 1).
  */
 export function verlaufSpeichernPflicht(
   kanalId: string,
   nachrichten: unknown[]
 ): Promise<number> {
-  if (!istDmKanal(kanalId)) return Promise.resolve(0);
-  const saetze = baueSaetze(kanalId, nachrichten);
-  if (saetze.length === 0) return Promise.resolve(0);
-  return verlaufPutSaetze(saetze).then(() => saetze.length);
+  try {
+    const dmBekannt = istDmKanal(kanalId);
+    const saetze = dmBekannt ? baueSaetze(kanalId, nachrichten) : [];
+    pruefeSpeicherErgebnis(kanalId, dmBekannt, saetze.length);
+    return verlaufPutSaetze(saetze).then(() => saetze.length);
+  } catch (err) {
+    return Promise.reject(err);
+  }
 }
 
 /**
