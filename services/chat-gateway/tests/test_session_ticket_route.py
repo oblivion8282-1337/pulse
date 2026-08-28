@@ -64,7 +64,6 @@ def ticket_bauer(_auth_signer, _isolate_chat_settings):
             "avatar": None,
             "amr": ["pwd"],
             "acr": "0",
-            "legacy_uid": None,
             "iat": jetzt,
             "exp": jetzt + 60,
         }

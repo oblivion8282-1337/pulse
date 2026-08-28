@@ -118,7 +118,6 @@ async def _attempt_join(
             "avatar": None,
             "amr": ["pwd"],
             "acr": "0",
-            "legacy_uid": None,
             "iat": jetzt,
             "exp": jetzt + 60,
         },
