@@ -31,7 +31,7 @@ from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 
 from dcc_shared.events import PostfachNeuEvent
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import exists, func, select
 
 import dcc_chat_gateway.config as chat_config
@@ -39,7 +39,7 @@ from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.friend_helpers import block_exists_either_way, friendship_exists
 from dcc_chat_gateway.models import DeviceKeyBundle, DirectMessageChannel, DmNutzlast, DmZustellung
 from dcc_chat_gateway.routes._deps import resolve_channel_for_user
-from dcc_chat_gateway.schemas import PostfachEinliefernRequest
+from dcc_chat_gateway.schemas import PostfachEinliefernRequest, PostfachEinliefernResponse
 from dcc_chat_gateway.schluessel_nachweis import baue_nutzlast, pruefe_geraet
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
@@ -125,13 +125,13 @@ def _envelope_groesse(daten_b64: str) -> int:
         raise HTTPException(status_code=400, detail="ungueltige_nutzlast") from exc
 
 
-@router.post("/postfach", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/postfach", response_model=PostfachEinliefernResponse)
 async def postfach_einliefern(
     body: PostfachEinliefernRequest,
     request: Request,
     session: SessionDep,
     user: CurrentUser,
-) -> Response:
+) -> PostfachEinliefernResponse:
     # Modul-Zugriff statt ``from … import get_settings`` (s. owner_check.py):
     # der Name waere sonst zur Importzeit gebunden und saehe eine spaetere
     # Test-Ueberschreibung von ``get_settings`` (s. ``_isolate_chat_settings``
@@ -180,6 +180,10 @@ async def postfach_einliefern(
     verfaellt_am = datetime.now(UTC) + timedelta(days=settings.postfach_frist_tage)
     offene_je_geraet: dict[str, int] = {}
     gesamt_zustellungen = 0
+    verworfene_nutzlasten = 0
+    # Ueber die ganze Anfrage dedupliziert, Reihenfolge egal — ``dict`` statt
+    # ``set`` nur, damit die Reihenfolge fuer die Antwort stabil bleibt.
+    uebersprungene_empfaenger: dict[str, None] = {}
 
     for eintrag, groesse in zip(body.nutzlasten, groessen, strict=True):
         empfaenger_zeilen: list[tuple[str, int]] = []
@@ -205,14 +209,14 @@ async def postfach_einliefern(
                 # die unterschiedlich beantwortet werden. Ein Pubkey, der
                 # NIRGENDS existiert, ist Alltag (Geraet zwischen
                 # Schluessel-Abholen und Absenden abgemeldet): still
-                # uebersprungen, kein Fehler fuer die uebrigen Empfaenger.
-                # Ein Pubkey, der existiert, aber zu KEINEM Teilnehmer
-                # dieses Kanals gehoert, ist kein Alltagsfall, sondern ein
-                # Klientenfehler oder ein Angriff — fail-closed und laut.
-                # Ein reiner Existenz-Check statt eines zweiten
-                # ``_bundle_laden``-Aufrufs, weil er selbst bei einer
-                # Pubkey-Kollision unter mehreren fremden Konten nie mehr
-                # als einen booleschen Wert liefert.
+                # uebersprungen, kein Fehler fuer die uebrigen Empfaenger,
+                # nur ehrlich in der Antwort vermerkt. Ein Pubkey, der
+                # existiert, aber zu KEINEM Teilnehmer dieses Kanals gehoert,
+                # ist kein Alltagsfall, sondern ein Klientenfehler oder ein
+                # Angriff — fail-closed und laut. Ein reiner
+                # Existenz-Check statt eines zweiten ``_bundle_laden``-Aufrufs,
+                # weil er selbst bei einer Pubkey-Kollision unter mehreren
+                # fremden Konten nie mehr als einen booleschen Wert liefert.
                 fremdes_geraet_vorhanden = (
                     await session.execute(
                         select(exists().where(DeviceKeyBundle.device_pubkey == pubkey))
@@ -220,6 +224,7 @@ async def postfach_einliefern(
                 ).scalar_one()
                 if fremdes_geraet_vorhanden:
                     raise HTTPException(status_code=403, detail="empfaenger_nicht_im_kanal")
+                uebersprungene_empfaenger[pubkey] = None
                 continue
             if pubkey not in offene_je_geraet:
                 offene_je_geraet[pubkey] = (
@@ -245,13 +250,17 @@ async def postfach_einliefern(
                 # ueberschreiten kann, ist jemand, mit dem man befreundet ist
                 # und schreibt — dessen Ueberschuss zudem nach
                 # ``postfach_frist_tage`` von selbst verfaellt.
+                uebersprungene_empfaenger[pubkey] = None
                 continue
             empfaenger_zeilen.append((pubkey, bundle.user_id))
             offene_je_geraet[pubkey] += 1
 
         if not empfaenger_zeilen:
             # Keine Zustellung moeglich -> keine Nutzlast anlegen (sonst
-            # eine Zeile, die niemand je abholen kann).
+            # eine Zeile, die niemand je abholen kann) — und dem Absender
+            # gemeldet (FIX 1), statt es in einem unbedingten Erfolg
+            # verschwinden zu lassen.
+            verworfene_nutzlasten += 1
             continue
 
         nutzlast_id = next_id()
@@ -295,4 +304,8 @@ async def postfach_einliefern(
             except Exception:
                 log.exception("postfach wake publish failed for channel %s", cid_int)
 
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return PostfachEinliefernResponse(
+        zustellungen_angelegt=gesamt_zustellungen,
+        uebersprungene_empfaenger=list(uebersprungene_empfaenger),
+        verworfene_nutzlasten=verworfene_nutzlasten,
+    )
