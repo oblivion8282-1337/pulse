@@ -14,6 +14,8 @@ this registry.
     - ``reaction_add``, ``reaction_remove``
     - ``stream_chat_message``, ``watch_chat_message``
     - ``watch_chat_reaction``
+    - ``postfach_neu`` (verschluesseltes Postfach, Etappe D — inhaltsloser
+      Weckruf, traegt Kanal + Anzahl, nie einen Umschlag)
 
 * ``user:events`` (direct-delivery to one user — wrapper adds
   ``_target_user_id`` for routing, stripped by listener):
@@ -77,6 +79,7 @@ from dcc_shared.events.chat import (
     MessageDeleteEvent,
     MessageEvent,
     MessageUpdateEvent,
+    PostfachNeuEvent,
     ReactionAddEvent,
     ReactionData,
     ReactionRemoveEvent,
@@ -166,6 +169,8 @@ EVENT_REGISTRY: dict[str, type[_EventBase]] = {
     "dm_bump": DmBumpEvent,
     # ---- ephemeral typing indicator
     "typing": TypingEvent,
+    # ---- Postfach-Weckruf (Etappe D, E2E-DM)
+    "postfach_neu": PostfachNeuEvent,
     # ---- direct-delivery (user:events)
     "mention_added": MentionAddedEvent,
     "application_decided": ApplicationDecidedEvent,
@@ -237,6 +242,7 @@ __all__ = [
     "MessageDeleteEvent",
     "MessageEvent",
     "MessageUpdateEvent",
+    "PostfachNeuEvent",
     "ReactionAddEvent",
     "ReactionData",
     "ReactionRemoveEvent",

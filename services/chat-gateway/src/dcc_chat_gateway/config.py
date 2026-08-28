@@ -218,6 +218,27 @@ class Settings(BaseSettings):
     voice_pull_reaper_interval_seconds: int = 60
     voice_pull_reaper_grace_seconds: int = 300
 
+    # Postfach (Etappe D, E2E-DM) — Grenzen fuer verschluesselte Zustellung.
+    # Vorbild ``push_subscription_idle_days`` oben. Eine Zustellung ohne
+    # Frist waere eine, die nie wegginge (s. ``models/postfach.py``); die
+    # Route setzt ``verfaellt_am`` bei jeder Einlieferung aus dieser Zahl.
+    postfach_frist_tage: int = 30
+    # Ein Umschlag traegt Olm-/Megolm-Chiffretext plus etwas JSON-Overhead —
+    # ein normaler Text bleibt weit darunter. Anhaenge fliessen ueber S3
+    # (nur der Dateischluessel reist im Umschlag mit, s. Spec §5), deshalb
+    # muss der Umschlag selbst nicht gross sein. Ohne Obergrenze waere das
+    # Postfach ein kostenloser, unpruefbarer Dateispeicher.
+    postfach_max_umschlag_bytes: int = 256 * 1024
+    # Obergrenze der Umschlaege je Einliefer-Anfrage — ein Vielfaches der
+    # groessten heute denkbaren Fan-out-Menge, ohne eine einzelne Anfrage
+    # beliebig aufblasen zu lassen.
+    postfach_max_nutzlasten_je_anfrage: int = 100
+    # Offene (noch nicht quittierte) Zustellungen je Empfaengergeraet. Ein
+    # Geraet, das nie abholt, darf den Server nicht unbegrenzt fuellen —
+    # weitere Einlieferungen an EIN so volles Geraet werden uebersprungen
+    # (wie ein unbekanntes Geraet), nicht die ganze Anfrage abgewiesen.
+    postfach_max_offene_zustellungen_je_geraet: int = 500
+
     @property
     def effective_database_url(self) -> str:
         if self.database_url:
