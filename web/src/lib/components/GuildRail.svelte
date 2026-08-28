@@ -480,10 +480,12 @@
                   <span class="text-text-muted text-xs">
                     {server.hostname.replace(/^https?:\/\//, '')}
                   </span>
-                  {#if server.pairwise_sub === null}
-                    <!-- Nie ein erfolgreicher Cert-Login (pairwise_sub kommt vom
-                         ersten Connect): genehmigte, aber nie eingerichtete
-                         Instanz — erklärt den toten Status-Dot. -->
+                  {#if server.je_verbunden === false}
+                    <!-- Hier ging nie eine Anmeldung durch: genehmigte, aber nie
+                         eingerichtete Instanz — erklärt den toten Status-Punkt.
+                         Nur ein ausdrückliches false zählt; Einträge aus
+                         früheren Fassungen tragen das Feld nicht und haben sich
+                         nachweislich schon angemeldet. -->
                     <span class="text-text-muted text-xs">{m.server_icon_not_set_up()}</span>
                   {/if}
                   {#if server.instance_id && directStatus.failures[server.instance_id]}

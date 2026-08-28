@@ -77,7 +77,7 @@
 
   // Server-Snapshot-Loader. Läuft bei jeder Änderung von
   // serversStore.servers — neue Server (Add via AddServerDialog,
-  // Cert-Login mit Invite, etc.) bekommen ihre Community-Liste sofort
+  // Anmeldung mit Einladung, etc.) bekommen ihre Community-Liste sofort
   // geladen. ensureLoaded ist intern idempotent (cached Eintrag wird nicht
   // refetched), daher kein Update-Loop. queueMicrotask vermeidet den
   // Svelte-Effect-Depth-Guard, falls ensureLoaded synchron etwas

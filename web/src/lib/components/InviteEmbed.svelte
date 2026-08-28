@@ -59,7 +59,7 @@
   // sobald man dem Server über genau diese Karte beigetreten ist.
   let selfHostServer = $derived(host ? serversStore.findByHostname(host) : undefined);
   let selfHostPreview = $state<InvitePreview | null>(null);
-  // Dedupe pro Server-Zustand (NICHT reaktiv): Schlüssel enthält pairwise_sub,
+  // Dedupe pro Server-Zustand (NICHT reaktiv): Schlüssel enthält die Kennung,
   // das erst nach erfolgreichem Cert-Login gesetzt wird — ein Fehlversuch im
   // Provisional-Fenster (noch kein Token) blockiert so den Post-Join-Retry
   // nicht, aber unabhängige Store-Writes feuern keine Request-Wiederholungen.
@@ -68,7 +68,7 @@
   $effect(() => {
     const srv = selfHostServer;
     if (!host || !srv || selfHostPreview) return;
-    const key = `${srv.id}:${srv.pairwise_sub ?? ''}`;
+    const key = srv.id;
     if (previewAttempted.has(key)) return;
     previewAttempted.add(key);
     void serverGuilds.ensureLoaded(srv.id);

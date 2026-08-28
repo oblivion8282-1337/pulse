@@ -3,7 +3,7 @@
  *
  * Bündelt die Schritte die nach dem Pre-Check passieren müssen:
  *   1. ServerEntry provisional anlegen (für Token-Mapping)
- *   2. Cert-Login → Session-Token
+ *   2. Server-Info → Ticket von der Cloud → Sitzung des Servers
  *   3. (optional) Invite-Code akzeptieren gegen den neuen Server
  *   4. Disclaimer-Flags + activeServer.set werden vom Caller gemacht
  *
@@ -33,7 +33,7 @@ type AddServerSuccess = {
 /**
  * Sentinel-Fehler: wird geworfen, BEVOR ein **neuer, unbekannter** Self-Host
  * kontaktiert wird (Cert-Challenge gegen `target_host` würde sonst
- * IP/Zeitpunkt/pairwise_sub an einen evtl. präparierten Host leaken).
+ * IP und Zeitpunkt an einen evtl. präparierten Host leaken).
  *
  * Der Caller fängt ihn, zeigt dem User einen Bestätigungs-Dialog mit dem
  * Hostnamen und ruft die ursprüngliche Funktion erneut auf — diesmal mit
@@ -123,6 +123,7 @@ export async function addServerWithCertLogin(args: {
     // Ohne die Kennung kann der Sweep gelöschter Instanzen
     // (deleted-instance-sweep.ts) den Eintrag nicht zuordnen.
     ...(entry.instance_id == null ? { instance_id: instanzId } : {}),
+    je_verbunden: true,
   });
   const result = { instance_id: instanzId };
 

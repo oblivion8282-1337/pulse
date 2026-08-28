@@ -6,7 +6,7 @@
  *
  * Speicher-Backend (Key `pulse.servers`, JSON-Array von ServerEntry[]):
  *  - **Electron-Desktop:** der chmod-600-Tresor (`window.pulse.store`,
- *    `desktop/electron/store.ts`) — die Liste (Hostnames + pairwise-Pseudonyme)
+ *    `desktop/electron/store.ts`) — die Liste (Hostnames und Kennungen)
  *    liegt damit nicht mehr im Klartext-Profil. Gelesen wird synchron via
  *    `getAllSync()` (der Tresor ist beim Boot schon komplett im Speicher),
  *    geschrieben asynchron via `set()` (fire-and-forget). Beim ersten Start
@@ -27,13 +27,23 @@ export type ServerEntry = {
   id: string;                 // lokale UUID v4 (kein Cloud-Tracking)
   hostname: string;           // z.B. "https://chat.firma.de" (lowercase, kein trailing slash)
   instance_id: string | null; // Snowflake der Instanz (NULL für Cloud)
+  /** Hat sich hier je jemand erfolgreich angemeldet?
+   *
+   *  Ersetzt die frühere Prüfung `pairwise_sub !== null`. Das Pseudonym gab es
+   *  nur, weil jeder Server eine eigene Kennung vergab; es fiel mit dem
+   *  Ticket-Weg weg — die Aussage, die daran hing, aber nicht: Eine genehmigte,
+   *  aber nie eingerichtete Instanz erklärt dem Nutzer den toten Status-Punkt.
+   *
+   *  `undefined` bei Einträgen aus früheren Fassungen: Die haben sich
+   *  nachweislich schon angemeldet (sonst gäbe es sie nicht), deshalb zählt nur
+   *  ein ausdrückliches `false` als „nie". */
+  je_verbunden?: boolean;
   label: string;              // Cloud-Anzeigename (CLOUD_LABEL). Für Self-Hosts nur
                               // ein Default (= hostname) und nicht mehr angezeigt —
                               // den Namen bestimmt allein der Admin via server_name.
   server_name: string | null; // Vom Server-Admin gesetzter Instanz-Anzeigename (aus
                               // dem ready-Frame). NULL = keiner gesetzt → Fallback
                               // auf den Hostnamen.
-  pairwise_sub: string | null;// Pro-Server-Pseudonym (NULL für Cloud — dort user_id direkt)
   // Instanz-Herkunft aus GET /me/instances (hydrateFromBackend): 'app_host'
   // = Direct-only (kein Relay-Fallback, s. lib/direct/policy.ts), 'vps' =
   // klassischer Self-Host. null = unbekannt (Alt-Eintrag/Cloud) → wie vps.
@@ -89,7 +99,6 @@ function buildCloudEntry(): ServerEntry {
     instance_id: null,
     label: CLOUD_LABEL,
     server_name: null,
-    pairwise_sub: null,
     isCloud: true,
     notification_mode: 'mentions',
     added_at: Date.now(),
@@ -216,7 +225,6 @@ class ServersStore {
     hostname: string,
     label?: string,
     instance_id?: string,
-    pairwise_sub?: string,
   ): ServerEntry {
     const normalized = normalizeHostname(hostname);
     const isCloud = normalized === CLOUD_HOSTNAME;
@@ -224,9 +232,12 @@ class ServersStore {
       id: crypto.randomUUID(),
       hostname: normalized,
       instance_id: instance_id ?? null,
+      // Ausdrücklich false: Der Eintrag entsteht VOR der ersten Anmeldung. Wird
+      // sie nichts, bleibt er stehen und der Nutzer sieht in der Rail, warum
+      // der Status-Punkt tot ist.
+      je_verbunden: isCloud ? true : false,
       label: label ?? (isCloud ? CLOUD_LABEL : normalized),
       server_name: null,
-      pairwise_sub: pairwise_sub ?? null,
       isCloud,
       notification_mode: 'mentions',
       added_at: Date.now(),
@@ -276,7 +287,7 @@ class ServersStore {
     // damit Stummschalten geräteübergreifend gilt (nicht nur lokal). Der
     // Server-NAME wird bewusst NICHT mehr synchronisiert — ihn bestimmt allein
     // der Server-Admin (instance_name), nicht der einzelne Nutzer. Andere Felder
-    // (pairwise_sub etc.) lösen keinen Sync aus.
+    // (rein lokale Felder) lösen keinen Sync aus.
     const entry = this.find(serverId);
     if (
       entry &&
@@ -440,7 +451,6 @@ class ServersStore {
             label: inst.hostname, // Default; der Anzeigename kommt vom Server-Admin
             server_name: null, // kommt beim ersten Connect aus dem ready-Frame
             origin: inst.origin,
-            pairwise_sub: null, // wird beim ersten Connect via Cert-Login gesetzt
             isCloud: false,
             role: inst.role,
             notification_mode: inst.notification_mode,
