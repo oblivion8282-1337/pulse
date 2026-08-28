@@ -127,8 +127,12 @@ jobs:
             ~/.cargo/registry
             krypto/pulse-krypto/target
           key: wasm-pack-${{ runner.os }}-${{ hashFiles('krypto/pulse-krypto/Cargo.lock') }}
+      # Version festgenagelt wie in `web/Dockerfile` und
+      # `infra/self-host/Dockerfile`: `cargo install` ohne Version zieht die
+      # jeweils neueste, ein Bauwerkzeug tauscht sich damit unter der Hand aus.
+      # Beim Heben also ALLE DREI Stellen mitziehen.
       - name: wasm-pack installieren
-        run: command -v wasm-pack >/dev/null || cargo install wasm-pack --locked
+        run: command -v wasm-pack >/dev/null || cargo install wasm-pack --locked --version 0.15.0
       - name: Krypto-Kern als WASM bauen
         run: bash krypto/pulse-krypto/bauen-wasm.sh
       - uses: pnpm/action-setup@v4   # version comes from package.json "packageManager"
