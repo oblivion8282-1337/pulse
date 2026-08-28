@@ -15,6 +15,7 @@
   import { plainifyMentions } from './messageRender';
   import { Button } from '$lib/components/ui/button';
   import type { Channel, Message } from '$lib/api/types';
+  import type { AnhangAngabe } from '$lib/krypto/nachrichtNutzlast';
   import { auth } from '$lib/stores/auth.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { typing } from '$lib/stores/typing.svelte';
@@ -47,13 +48,19 @@
     composerDisabled = false,
     composerDisabledReason = '',
     cloudScoped = false,
+    verschluesselteAnhaenge = false,
     onEditMessage,
     onDeleteMessage,
     onToggleReaction
   }: {
     channel: Channel | null;
     messages: Message[];
-    onSend: (text: string, replyToId: string | null, attachmentIds: string[]) => void;
+    onSend: (
+      text: string,
+      replyToId: string | null,
+      attachmentIds: string[],
+      anhaenge: AnhangAngabe[]
+    ) => void;
     isOwner?: boolean;
     /** 'dm' swaps the # for an @-style icon and prefixes names with @. */
     headerKind?: 'channel' | 'dm';
@@ -66,6 +73,11 @@
      *  aktive-Server-ID — sonst stimmt bei aktivem Self-Host weder das
      *  Typing-Ziel noch der Self-Echo-Filter. */
     cloudScoped?: boolean;
+    /** Ende-zu-Ende-verschluesselte Anhaenge (Etappe E). Setzt die Seite, die
+     *  weiss, dass dieses Gespraech verschluesselt laeuft — hier wird nur
+     *  durchgereicht. Hebt zugleich die Klartext-Sperre auf, s.
+     *  `attachmentsAllowed`. */
+    verschluesselteAnhaenge?: boolean;
     /** Hide the member-list toggle + inline panel (DMs have no member list). */
     showMemberList?: boolean;
     /** Lock the composer (no typing, no submit). Drives the DM hard-cut
@@ -105,8 +117,15 @@
   // (`cloudScoped`) müssen auch bei aktivem Self-Host gegen die Cloud laufen.
   const messageRoute = $derived(cloudScoped ? { serverId: serversStore.cloudId() } : undefined);
   const serverPolicy = $derived(serverCapabilities.get(policyServerId));
+  // `dmAttachmentsEnabled` steht fuer „Anhaenge im UNVERSCHLUESSELTEN Weg"
+  // und ist in der Cloud aus (`cloud_dm_attachments_enabled`, Vorgabe false).
+  // Der verschluesselte Weg haengt bewusst NICHT daran — er stellt die Frage
+  // gar nicht, die der Schalter beantwortet: der Server kann einen
+  // verschluesselten Anhang ohnehin nicht lesen, und sein Klumpen faellt mit
+  // dem letzten Umschlag. Dieselbe Entscheidung serverseitig, mit derselben
+  // Begruendung, in `routes/postfach_anhaenge.py`.
   const attachmentsAllowed = $derived(
-    headerKind === 'dm' ? (serverPolicy?.dmAttachmentsEnabled ?? true) : true
+    headerKind !== 'dm' || verschluesselteAnhaenge || (serverPolicy?.dmAttachmentsEnabled ?? true)
   );
   /** `accept`-Attribut für den Datei-Dialog; leer = alles. Nur ein Filter im
    *  Auswahlfenster, keine Kontrolle — der Server erzwingt dieselbe Liste. */
@@ -188,9 +207,9 @@
       : null
   );
 
-  function handleSend(text: string, attachmentIds: string[]) {
+  function handleSend(text: string, attachmentIds: string[], anhaenge: AnhangAngabe[]) {
     const target = replyTarget;
-    onSend(text, target?.id ?? null, attachmentIds);
+    onSend(text, target?.id ?? null, attachmentIds, anhaenge);
     replyTarget = null;
   }
 
@@ -368,6 +387,7 @@
       disabledReason={composerDisabledReason}
       {attachmentsAllowed}
       {attachmentAccept}
+      verschluesselt={verschluesselteAnhaenge}
     />
   {/if}
 </section>

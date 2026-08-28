@@ -97,6 +97,16 @@
  * stattdessen den EIGENEN, bereits durch echtes Entschluesseln geschriebenen
  * Bestand — ein Treffer heisst nur "wir haben das schon selbst abgelegt",
  * nie "der Server behauptet etwas ueber diese ID".
+ *
+ * **Anhaenge (Etappe E): die Bytes werden VOR der Quittung geholt.** Das ist
+ * keine Optimierung, sondern die einzige Gelegenheit. Das Recht, einen
+ * verschluesselten Klumpen abzurufen, haengt an der eigenen OFFENEN
+ * Zustellung (`postfach_anhaenge.py::darf_anhang_abrufen`) — die Quittung
+ * loescht sie —, und der Klumpen selbst faellt, sobald die letzte Zustellung
+ * quittiert ist (`postfach_pflege.py::sweep_verwaiste_anhaenge`). Wer erst
+ * quittiert und dann laedt, laedt ins Leere, endgueltig. `anhaengeHolen`
+ * laeuft deshalb innerhalb desselben `quittierbareIds`-Durchgangs, VOR
+ * `verlaufSpeichernPflicht` und damit lange vor der Quittung.
  */
 import type { Message } from '../api/types';
 import type { Identitaet } from '../../../../krypto/pulse-krypto/pkg/pulse_krypto.js';
@@ -117,6 +127,8 @@ import {
 } from './sitzungen';
 import { baueNutzlast } from './nutzlast';
 import { leseNachrichtNutzlast } from './nachrichtNutzlast';
+import { anhangAngabeZuAttachment } from './anhangAnzeige';
+import { anhaengeHolen } from './anhangHolen';
 import { signiereNutzlast } from './nachweis';
 import { absenderErmitteln } from './absenderErmitteln';
 import { quittierbareIds, type KanalGruppe } from './quittierbareIds';
@@ -224,7 +236,8 @@ async function zustellungOeffnen(
       const {
         text: klartext,
         id: kanonischeId,
-        replyToId
+        replyToId,
+        anhaenge
       } = leseNachrichtNutzlast(klartextBytes);
       return {
         art: 'neu',
@@ -248,7 +261,12 @@ async function zustellungOeffnen(
           // Kanonische Autor-ID, falls die Nutzlast sie trug (s.
           // `Message.krypto_id` in `api/types.ts`) — noetig, damit eine
           // spaetere Antwort AUF DIESE Nachricht sie wiederfindet.
-          ...(kanonischeId !== null ? { krypto_id: kanonischeId } : {})
+          ...(kanonischeId !== null ? { krypto_id: kanonischeId } : {}),
+          // Anhang-Angaben (Etappe E) — Schluessel, Name, Typ, Maße. Die
+          // BYTES holt `anhaengeHolen` weiter unten, VOR der Quittung.
+          ...(anhaenge.length > 0
+            ? { attachments: anhaenge.map(anhangAngabeZuAttachment) }
+            : {})
         }
       };
     } catch (err) {
@@ -328,7 +346,12 @@ async function postfachZyklus(): Promise<Message[]> {
   const quittierbar = [
     ...(await quittierbareIds(
       nachKanal,
-      (kanalId, nachrichten) => verlaufSpeichernPflicht(kanalId, nachrichten as Message[]),
+      async (kanalId, nachrichten) => {
+        // Reihenfolge, s. Modulkopf „Anhaenge": ERST die Bytes holen, DANN
+        // ablegen, und quittiert wird erst durch `quittierbareIds` danach.
+        await anhaengeHolen(kanalId, nachrichten as Message[]);
+        return verlaufSpeichernPflicht(kanalId, nachrichten as Message[]);
+      },
       (err) => verlaufZustand.melde(err)
     )),
     ...schonQuittierbar

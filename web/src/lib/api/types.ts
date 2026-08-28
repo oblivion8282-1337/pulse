@@ -130,9 +130,26 @@ export type Attachment = {
   thumb_width?: number | null;
   thumb_height?: number | null;
   /** Presigned MinIO GET URL — ~30 min TTL, auto-refresh on 403 via
-   *  `chatApi.refreshAttachmentDownloadUrl`. */
+   *  `chatApi.refreshAttachmentDownloadUrl`. Bei einem VERSCHLUESSELTEN
+   *  Anhang leer: dort gibt der Server eine Adresse nur gegen einen
+   *  Geraete-Nachweis heraus (`krypto/anhangHolen.ts`), und was dahinter
+   *  liegt, ist ohnehin Kauderwelsch. */
   url: string;
   thumb_url?: string | null;
+  /**
+   * Ende-zu-Ende-verschluesselter Anhang einer Direktnachricht (Etappe E).
+   * Der Server setzt dieses Feld nie — es entsteht ausschliesslich beim
+   * Uebersetzen einer `AnhangAngabe` aus der entschluesselten Nutzlast
+   * (`krypto/anhangAnzeige.ts`). Wo es steht, gilt: `url`/`thumb_url` sind
+   * leer, und jede Anzeige laeuft ueber Holen + Entschluesseln + Objekt-URL.
+   */
+  verschluesselt?: boolean;
+  /** Dateischluessel (Base64) — nur bei `verschluesselt`. */
+  schluessel?: string;
+  /** Eigener Schluessel des Vorschaubildes — nur bei `verschluesselt` und nur,
+   *  wenn es ein Vorschaubild gibt (s. `krypto/anhangKrypto.ts`: je Klumpen
+   *  ein eigener Schluessel). */
+  thumb_schluessel?: string | null;
 };
 
 export type Message = {

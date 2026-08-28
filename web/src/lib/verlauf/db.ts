@@ -10,7 +10,15 @@
  * festgeschrieben — zwischen beidem kann ein Absturz den Schreibvorgang
  * stillschweigend verwerfen).
  */
-import { DB_NAME, DB_VERSION, STORE_NACHRICHTEN, INDEX_KANAL, type Satz } from './schema';
+import {
+  DB_NAME,
+  DB_VERSION,
+  STORE_NACHRICHTEN,
+  STORE_ANHAENGE,
+  INDEX_KANAL,
+  type AnhangBytes,
+  type Satz
+} from './schema';
 import { sortierSchluessel } from './satz';
 
 let _dbPromise: Promise<IDBDatabase> | null = null;
@@ -23,6 +31,15 @@ function _openFresh(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_NACHRICHTEN)) {
         const store = db.createObjectStore(STORE_NACHRICHTEN, { keyPath: 'schluessel' });
         store.createIndex(INDEX_KANAL, 'kanalId');
+      }
+      // Fassung 2 (Etappe E). Die `contains`-Wache ist kein Zierrat: dieser
+      // Block laeuft auch bei einer Neuanlage (0 -> 2), wo der Speicher oben
+      // gerade erst entstanden ist, und bei einem Aufstieg 1 -> 2, wo nur
+      // dieser hier fehlt. `createObjectStore` auf einen vorhandenen Namen
+      // wirft.
+      if (!db.objectStoreNames.contains(STORE_ANHAENGE)) {
+        const anhaenge = db.createObjectStore(STORE_ANHAENGE, { keyPath: 'id' });
+        anhaenge.createIndex(INDEX_KANAL, 'kanalId');
       }
     };
     req.onsuccess = () => {
@@ -66,10 +83,13 @@ function openVerlaufDb(): Promise<IDBDatabase> {
  * Verbindung wirklich (`realClose()`) und setzt `_dbPromise = null`, aber
  * ein Aufrufer kann seine `IDBDatabase`-Referenz schon VOR dem Reset
  * gehalten haben — `db.transaction()` darauf wirft dann synchron
- * `InvalidStateError`. Mit `DB_VERSION` fest auf 1 (s. `schema.ts`) kann das
- * heute nicht auftreten (kein Schema-Bump loest je ein `onversionchange`
- * aus) — die Absicherung greift erst, sobald eine Migration `DB_VERSION`
- * anhebt.
+ * `InvalidStateError`.
+ *
+ * Seit `DB_VERSION` auf 2 steht (Etappe E, neuer Speicher `anhaenge`) ist das
+ * kein theoretischer Fall mehr: ein zweiter Tab mit der alten Fassung der App
+ * haelt eine Verbindung auf Fassung 1, der Aufstieg loest dort ein echtes
+ * `onversionchange` aus. Der frueher hier stehende Satz „kann heute nicht
+ * auftreten" galt nur, solange die Nummer nie stieg.
  *
  * Ohne diese Absicherung landete der Fehler unveraendert bei
  * `speicherfehler.ts::deuteSpeicherfehler`, das JEDES `InvalidStateError`
@@ -211,6 +231,53 @@ export function verlaufLesenSaetze(
           cursor.continue();
         };
         req.onerror = () => reject(req.error);
+      })
+  );
+}
+
+/**
+ * Legt die entschluesselten Bytes eines Anhangs ab (Etappe E). `put` =
+ * Upsert — ein zweiter Empfang derselben Kennung ueberschreibt gefahrlos.
+ *
+ * Der Aufrufer MUSS auf das Ergebnis warten, BEVOR er quittiert: nach der
+ * Quittung gibt es die Bytes nirgends mehr (s. `schema.ts::AnhangBytes`).
+ */
+export function anhangBytesSichern(eintrag: AnhangBytes): Promise<void> {
+  return mitVerbindung(
+    (db) =>
+      new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(STORE_ANHAENGE, 'readwrite');
+        tx.objectStore(STORE_ANHAENGE).put(eintrag);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      })
+  );
+}
+
+/** Die abgelegten Bytes eines Anhangs, oder `undefined`. */
+export function anhangBytesLesen(id: string): Promise<AnhangBytes | undefined> {
+  return mitVerbindung(
+    (db) =>
+      new Promise<AnhangBytes | undefined>((resolve, reject) => {
+        const tx = db.transaction(STORE_ANHAENGE, 'readonly');
+        const req = tx.objectStore(STORE_ANHAENGE).get(id);
+        req.onsuccess = () => resolve(req.result as AnhangBytes | undefined);
+        req.onerror = () => reject(req.error);
+      })
+  );
+}
+
+/** Entfernt die Bytes eines Anhangs — fuer einen abgebrochenen oder aus dem
+ *  Verfasser-Fenster wieder entfernten Upload. Ohne das bliebe die Datei
+ *  eines nie abgeschickten Anhangs dauerhaft auf dem Geraet liegen. */
+export function anhangBytesLoeschen(id: string): Promise<void> {
+  return mitVerbindung(
+    (db) =>
+      new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(STORE_ANHAENGE, 'readwrite');
+        tx.objectStore(STORE_ANHAENGE).delete(id);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
       })
   );
 }

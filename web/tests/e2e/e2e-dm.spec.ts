@@ -34,6 +34,15 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '../../..');
 
+/** Dasselbe 1x1-PNG wie in `attachments.spec.ts` — echtes PNG, damit
+ *  `createImageBitmap` im Verfasser ein Vorschaubild daraus rechnen kann. */
+const TINY_PNG = Buffer.from(
+  '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4' +
+    '890000000a49444154789c63000100000500010d0a2db40000000049454e44ae' +
+    '426082',
+  'hex'
+);
+
 const ts = Date.now();
 const ALICE = {
   username: `alice_e2edm_${ts}`,
@@ -249,6 +258,19 @@ function anzahlOffenerZustellungen(channelId: string): number {
         `WHERE n.channel_id = ${channelId};`
     )
   );
+}
+
+/** Was der Server zu den Anhaengen DIESES Kanals gespeichert hat — Name, Typ,
+ *  Maße, und ob eine Nachrichtenzeile daran haengt. Die Pruefung der Etappe E
+ *  besteht genau darin, dass hier ueberall NULL steht. */
+function anhangSpalten(channelId: string): string[] {
+  const raw = pgQuery(
+    `SELECT coalesce(filename,'-') || '|' || coalesce(mime,'-') || '|' ` +
+      `|| coalesce(width::text,'-') || '|' || coalesce(height::text,'-') || '|' ` +
+      `|| coalesce(message_id::text,'-') ` +
+      `FROM chat.message_attachments WHERE channel_id = ${channelId};`
+  );
+  return raw ? raw.split('\n') : [];
 }
 
 function anzahlNutzlasten(channelId: string): number {
@@ -485,6 +507,65 @@ test.describe.serial('E2E-verschluesselte Direktnachrichten (Etappe D2, Nachweis
     await expect(pille).toBeVisible();
     await expect(pille).toHaveText('@' + BOB.username);
     await expect(zeile).not.toContainText(`<@${bobUserId}>`);
+  });
+
+  /**
+   * Der Nachweis fuer Etappe E: ein Bild geht verschluesselt zu Bob, Bob
+   * sieht es — und der Server weiss weder, wie es heisst, noch was es ist.
+   *
+   * Drei Dinge werden geprueft, und das dritte ist das eigentliche Ziel:
+   *  1. Bobs Kachel erscheint und traegt wirklich Bilddaten (ein `blob:`-URL
+   *     beweist den Weg Holen -> Entschluesseln -> Objekt-URL; eine direkte
+   *     MinIO-Adresse waere hier prinzipiell wertlos, dort liegt
+   *     Kauderwelsch).
+   *  2. `chat.messages` bleibt leer — kein stiller Rueckfall auf den
+   *     Klartext-Weg, obwohl jetzt Anhaenge im Spiel sind (genau die
+   *     Bedingung, die dafuer entfernt wurde).
+   *  3. In `chat.message_attachments` steht weder Name noch Typ noch Maß,
+   *     und keine Nachrichtenzeile haengt daran.
+   */
+  test('alice schickt bob ein Bild verschluesselt — er sieht es, der Server nichts (Etappe E)', async () => {
+    await alicePage.getByTestId('attachment-file-input').setInputFiles({
+      name: 'geheim.png',
+      mimeType: 'image/png',
+      buffer: TINY_PNG
+    });
+    await expect(alicePage.getByTestId('attachment-preview')).toBeVisible({ timeout: 5_000 });
+    // Der Sende-Knopf bleibt gesperrt, solange verschluesselt und hochgeladen
+    // wird — sein Freiwerden ist das Signal, dass beides durch ist.
+    await expect(alicePage.getByTestId('message-send')).toBeEnabled({ timeout: 20_000 });
+
+    const KLARTEXT_BILD = 'hier das versprochene bild';
+    await alicePage.getByTestId('message-input').fill(KLARTEXT_BILD);
+    await alicePage.getByTestId('message-send').click();
+
+    // Bob bekommt Text UND Bild.
+    const bobZeile = bobPage.getByTestId('message-item').filter({ hasText: KLARTEXT_BILD });
+    await expect(bobZeile).toBeVisible({ timeout: 15_000 });
+    const bobKachel = bobZeile.getByTestId('attachment-image');
+    await expect(bobKachel).toBeVisible({ timeout: 15_000 });
+    // Der Beweis fuer den Weg: ein Objekt-URL, kein Verweis auf den
+    // Objektspeicher. `AutoRefreshImage` setzt `src` erst, wenn die Bytes
+    // entschluesselt vorliegen — bis dahin steht dort ein Platzhalter ohne
+    // `img`. Geprueft wird das Attribut, nicht die Sichtbarkeit des `img`:
+    // das Testbild ist 1x1 Pixel gross, und `reserveBox` reserviert dafuer
+    // getreulich eine 1x1-Flaeche, die Playwright als unsichtbar wertet.
+    await expect
+      .poll(async () => (await bobKachel.locator('img').getAttribute('src')) ?? '', {
+        timeout: 15_000
+      })
+      .toMatch(/^blob:/);
+
+    // Kein Rueckfall auf den Klartext-Weg — die Bedingung, die dafuer aus
+    // `sendMessage` entfernt wurde, war genau `attachmentIds.length === 0`.
+    expect(anzahlKlartextNachrichten(dmChannelId)).toBe(0);
+
+    // Und was der Server gespeichert hat: nichts, was das Bild beschreibt.
+    const spalten = anhangSpalten(dmChannelId);
+    expect(spalten.length).toBeGreaterThan(0);
+    for (const zeile of spalten) {
+      expect(zeile, 'Name/Typ/Maße/Nachrichtenzeile muessen alle NULL sein').toBe('-|-|-|-|-');
+    }
   });
 
   /**

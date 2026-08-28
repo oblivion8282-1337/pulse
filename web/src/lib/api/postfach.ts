@@ -33,6 +33,22 @@ export interface PostfachNutzlast {
   empfaenger: string[];
 }
 
+/** Antwort von `POST /postfach/anhaenge/upload-url` (Etappe E). Wire-Form
+ *  `AttachmentUploadOut` — dieselbe wie im Klartext-Weg, der Unterschied
+ *  steckt im RUMPF der Anfrage (kein Name, kein Typ, keine Maße). */
+export interface PostfachAnhangUpload {
+  id: string;
+  upload_url: string;
+  thumb_upload_url?: string | null;
+}
+
+/** Antwort von `POST /postfach/anhaenge/{id}/abrufadresse` — kurzlebige
+ *  signierte GET-Adressen auf die verschluesselten Klumpen. */
+export interface PostfachAnhangAdresse {
+  url: string;
+  thumb_url?: string | null;
+}
+
 export interface PostfachZustellung {
   id: string;
   channel_id: string;
@@ -69,6 +85,11 @@ export const postfachApi = {
       cert: string;
       signatur: string;
       nutzlasten: PostfachNutzlast[];
+      /** Kennungen der verschluesselten Anhaenge dieser Nachricht (Etappe E).
+       *  Stehen HIER und nicht je Nutzlast, weil alle Nutzlasten einer
+       *  Einlieferung dieselbe Nachricht sind — nur je Empfaengergeraet
+       *  verschluesselt. Weglassen = keine Anhaenge (Server-Vorgabe `[]`). */
+      anhaenge?: string[];
     },
     route: { serverId?: string } = {}
   ): Promise<PostfachEinliefernErgebnis | undefined> {
@@ -96,5 +117,47 @@ export const postfachApi = {
     route: { serverId?: string } = {}
   ): Promise<void> {
     return request<void>('/postfach/quittung', { method: 'POST', body }, route);
+  },
+
+  /**
+   * Legt eine leere Anhang-Huelle an und gibt die vorsignierte(n)
+   * PUT-Adresse(n) heraus (Etappe E). **Bewusst OHNE Dateiname, Typ und
+   * Maße** — die neue Route nimmt sie gar nicht entgegen, und der Server legt
+   * nichts davon ab. `size`/`thumb_size` sind die Groessen der
+   * VERSCHLUESSELTEN Klumpen, wie sie hochgeladen werden.
+   */
+  anhangUploadAdresse(
+    body: {
+      channel_id: string;
+      size: number;
+      has_thumb?: boolean;
+      thumb_size?: number | null;
+    },
+    route: { serverId?: string } = {}
+  ): Promise<PostfachAnhangUpload> {
+    return request<PostfachAnhangUpload>(
+      '/postfach/anhaenge/upload-url',
+      { method: 'POST', body },
+      route
+    );
+  },
+
+  /**
+   * Signierte GET-Adressen fuer einen verschluesselten Anhang. Nur ein
+   * Geraet mit einer OFFENEN Zustellung zu diesem Anhang bekommt sie —
+   * deshalb der Geraete-Nachweis (Zweck `postfach-anhang`, die Anhang-Kennung
+   * ist Teil der Unterschrift) und deshalb **vor der Quittung** rufen: mit
+   * der Quittung faellt das Recht, und kurz darauf der Klumpen selbst.
+   */
+  anhangAdresse(
+    anhangId: string,
+    body: { cert: string; signatur: string },
+    route: { serverId?: string } = {}
+  ): Promise<PostfachAnhangAdresse> {
+    return request<PostfachAnhangAdresse>(
+      `/postfach/anhaenge/${anhangId}/abrufadresse`,
+      { method: 'POST', body },
+      route
+    );
   }
 };

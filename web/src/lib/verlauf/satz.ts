@@ -74,8 +74,10 @@ export function zuSatz(kanalId: string, nachricht: unknown): Satz | null {
  * Reduzierte Nachrichtenform fuer die sofortige Anzeige aus einem lokalen
  * Satz — strukturell ein Ausschnitt von `$lib/api/types::Message` (dessen
  * fehlende Felder dort optional sind), aber OHNE dessen Typ zu importieren
- * (importfrei-Pflicht, s. Modulkopf). Reaktionen/Erwaehnungen/Anhaenge liegen
- * lokal nicht vor — sie fehlen bis der Server-Abgleich sie nachliefert.
+ * (importfrei-Pflicht, s. Modulkopf). Reaktionen und Erwaehnungen liegen lokal
+ * nicht vor — sie fehlen, bis der Server-Abgleich sie nachliefert. Anhaenge
+ * kommen seit Etappe E mit, aber NUR die verschluesselten (Begruendung bei
+ * `verschluesselteAnhaenge`).
  */
 export type SatzAlsNachricht = {
   id: string;
@@ -90,7 +92,44 @@ export type SatzAlsNachricht = {
   /** Wie `Message.krypto_id` (`api/types.ts`) — dort optional-ohne-`null`,
    *  deshalb `undefined` statt `null` bei Fehlen (s. `satzZuNachricht`). */
   krypto_id?: string;
+  /** Nur VERSCHLUESSELTE Anhaenge (Etappe E), s. `satzZuNachricht`.
+   *  Strukturell der Ausschnitt von `$lib/api/types::Attachment`, den diese
+   *  Datei ohne Import beschreiben kann — **mit jenem Typ synchron halten**,
+   *  sonst faellt die Zuweisung an `Message.attachments` beim naechsten
+   *  Pflichtfeld dort auseinander. */
+  attachments?: {
+    id: string;
+    filename: string | null;
+    mime: string | null;
+    size: number;
+    url: string;
+    verschluesselt?: boolean;
+  }[];
 };
+
+/**
+ * Die verschluesselten Anhaenge eines Satzes — und NUR die.
+ *
+ * Ein Klartext-Anhang wird bewusst NICHT zurueckgegeben, obwohl `zuSatz` ihn
+ * mit ablegt: seine `url` ist eine vorsignierte Adresse mit ~30 Minuten
+ * Frist, aus dem lokalen Bestand also fast immer abgelaufen. Ihn hier
+ * mitzuliefern wuerde den Klartext-Weg aendern (erst eine 403, dann ein
+ * Nachsignieren, wo heute schlicht der Server-Bestand gilt) — und der darf
+ * sich nicht aendern. Ein verschluesselter Anhang traegt dagegen gar keine
+ * Adresse, sondern seinen Schluessel; er ist ohne den lokalen Bestand nach
+ * einem Neustart nicht mehr auffindbar, weil der Server die Nachricht nie
+ * gesehen hat.
+ */
+function verschluesselteAnhaenge(anhaenge: unknown[]): SatzAlsNachricht['attachments'] {
+  const gefiltert = anhaenge.filter(
+    (a): a is NonNullable<SatzAlsNachricht['attachments']>[number] =>
+      typeof a === 'object' &&
+      a !== null &&
+      (a as Record<string, unknown>).verschluesselt === true &&
+      typeof (a as Record<string, unknown>).id === 'string'
+  );
+  return gefiltert.length > 0 ? gefiltert : undefined;
+}
 
 /** Kehrt `zuSatz` um: aus einem lokalen Satz wird die Anzeige-Nachricht.
  *  `deleted_at` traegt bei einem Grabstein einen Zeitpunkt (Bearbeitungs-
@@ -108,6 +147,7 @@ export function satzZuNachricht(satz: Satz): SatzAlsNachricht {
     edited_at: satz.bearbeitetAm,
     deleted_at: satz.geloescht ? (satz.bearbeitetAm ?? satz.erstelltAm) : null,
     reply_to_id: satz.antwortAufId ?? null,
-    krypto_id: satz.kryptoId ?? undefined
+    krypto_id: satz.kryptoId ?? undefined,
+    attachments: verschluesselteAnhaenge(satz.anhaenge ?? [])
   };
 }

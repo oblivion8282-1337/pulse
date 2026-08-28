@@ -25,6 +25,7 @@
   import { toast } from 'svelte-sonner';
   import { E2E_DMS_ENABLED } from '$lib/krypto/schalter';
   import { kanonischeAntwortId } from '$lib/krypto/kanonischeAntwortId';
+  import type { AnhangAngabe } from '$lib/krypto/nachrichtNutzlast';
   import type { Channel, DMChannel, Message } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
   import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
@@ -210,7 +211,12 @@
     await goto(`/app/@me/${dm.id}`);
   }
 
-  function sendMessage(text: string, replyToId: string | null, attachmentIds: string[]) {
+  function sendMessage(
+    text: string,
+    replyToId: string | null,
+    attachmentIds: string[],
+    anhaenge: AnhangAngabe[] = []
+  ) {
     if (!activeDM || !auth.user) return;
     // Kanal und Gegenstelle JETZT festhalten und weiterreichen: der
     // verschluesselte Weg unten wartet auf einen dynamischen Import und
@@ -219,12 +225,11 @@
     const cid = activeDM.id;
     const partnerId = activeDM.other_user_id;
 
-    // Verschluesselter Weg (Etappe D2, Schalter aus per Vorgabe): Antworten
-    // fahren normal mit (Kennung in der Nutzlast, s. `nachrichtNutzlast.ts`)
-    // — nur Anhaenge bleiben aussen vor (eigene, groessere Etappe). Hat der
-    // Empfaenger kein Geraet, faellt `sendeVerschluesselt` auf `null`/
-    // `unverschluesselt` zurueck und der Klartext-Weg greift unveraendert.
-    if (E2E_DMS_ENABLED && attachmentIds.length === 0) {
+    // Verschluesselter Weg (Etappe D2, Schalter aus per Vorgabe). Antworten
+    // (Kennung in der Nutzlast, s. `nachrichtNutzlast.ts`) UND Anhaenge
+    // (Etappe E, Dateischluessel ebendort) fahren mit — die frueher hier
+    // stehende Bedingung `attachmentIds.length === 0` ist damit entfallen.
+    if (E2E_DMS_ENABLED) {
       // `replyToId` ist bislang nur die LOKALE ID des Ziels (wie der
       // Antwortende es gerade sieht) — Sender und Empfaenger derselben
       // verschluesselten Nachricht haben dafuer verschiedene lokale IDs,
@@ -233,7 +238,7 @@
       void import('$lib/krypto/senden').then(async ({ sendeVerschluesselt }) => {
         let ergebnis;
         try {
-          ergebnis = await sendeVerschluesselt(cid, partnerId, text, kanonischeId);
+          ergebnis = await sendeVerschluesselt(cid, partnerId, text, kanonischeId, anhaenge);
         } catch (err) {
           // Bughunt 2026-08-28, zweiter Fund: ein pauschales `.catch(() =>
           // null)` an dieser Stelle deutete JEDEN Fehler — auch einen, bei
@@ -251,9 +256,21 @@
         }
         if (ergebnis?.art === 'verschluesselt') {
           messages.upsert(ergebnis.nachricht);
-        } else {
-          sendeKlartext(cid, text, replyToId, attachmentIds);
+          return;
         }
+        // Ab hier gilt die Koexistenz-Regel (Spec §3): die Gegenseite hat
+        // kein dauerhaftes Geraet, es wurde NICHTS eingeliefert, der
+        // Klartext-Weg ist der richtige. Mit Anhaengen aber NICHT: ihre
+        // Klumpen liegen schon verschluesselt am Postfach, und ihre
+        // Kennungen (`attachmentIds`) gehoeren einer Route, die der
+        // Klartext-Weg nicht bedient. Sie stillschweigend mitzuschicken
+        // hiesse, sie unbemerkt fallenzulassen — deshalb ein sichtbarer
+        // Hinweis statt eines stillen Rueckfalls.
+        if (attachmentIds.length > 0 || anhaenge.length > 0) {
+          toast.error(m.dm_page_attachment_needs_encryption());
+          return;
+        }
+        sendeKlartext(cid, text, replyToId, []);
       });
       return;
     }
@@ -390,6 +407,7 @@
       dmPartnerId={activeDM.other_user_id}
       onBack={() => goto('/app/@me')}
       cloudScoped
+      verschluesselteAnhaenge={E2E_DMS_ENABLED}
       showMemberList={false}
       composerDisabled={activeDM.can_send === false}
       composerDisabledReason={m.dm_page_composer_disabled_reason()}

@@ -22,18 +22,28 @@
   (see `MessageAttachments`) and `klass` makes both states fill it, so the
   placeholder → image swap causes zero layout shift.
 
+  **Verschluesselter Anhang (Etappe E):** `anhang` mitgeben. Dann wird nicht
+  `src` geholt (dort steht nichts — der Server gibt eine Adresse nur gegen
+  einen Geraete-Nachweis heraus, und was dahinterliegt, ist Kauderwelsch),
+  sondern `krypto/anhangHolen.ts::anhangBlob`: lokaler Bestand zuerst, sonst
+  Adresse holen, herunterladen, entschluesseln. Der Rest — Zwischenspeicher,
+  Platzreservierung, Platzhalter — bleibt identisch, und der KLARTEXT-Fall
+  aendert sich nicht.
+
   Usage:
     <AutoRefreshImage attachmentId={a.id} src={a.thumb_url} alt={a.filename} thumb />
 -->
 <script lang="ts">
   import { chatApi } from '$lib/api/chat';
   import { acquire, release, store } from '$lib/attachments/blobCache';
+  import type { Attachment } from '$lib/api/types';
 
   let {
     attachmentId,
     src,
     alt,
     thumb = false,
+    anhang = null,
     class: klass = ''
   }: {
     attachmentId: string;
@@ -41,6 +51,9 @@
     alt?: string;
     /** If true, refresh resolves to `thumb_url` instead of `url`. */
     thumb?: boolean;
+    /** Nur fuer einen VERSCHLUESSELTEN Anhang gesetzt — traegt den
+     *  Dateischluessel. Ohne das laeuft der unveraenderte Klartext-Weg. */
+    anhang?: Attachment | null;
     class?: string;
   } = $props();
 
@@ -64,8 +77,36 @@
     let held = false;
     failed = false;
 
+    /** Der verschluesselte Zweig: Bytes ueber `anhangBlob` (lokal zuerst),
+     *  dann derselbe Objekt-URL-Weg wie unten. Dynamisch importiert, damit
+     *  der Krypto-Zweig nicht in jedem Nachrichtenlauf mitgeladen wird. */
+    async function ladeVerschluesselt(a: Attachment): Promise<string> {
+      const schluessel = thumb ? a.thumb_schluessel : a.schluessel;
+      if (!schluessel) throw new Error('kein Dateischluessel');
+      const { anhangBlob } = await import('$lib/krypto/anhangHolen');
+      const blob = await anhangBlob(
+        attachmentId,
+        schluessel,
+        a.mime ?? 'application/octet-stream',
+        thumb
+      );
+      if (!blob) throw new Error('Anhang nicht verfuegbar');
+      return URL.createObjectURL(blob);
+    }
+
     async function load(): Promise<void> {
       try {
+        const verschluesselt = anhang?.verschluesselt ? anhang : null;
+        if (verschluesselt) {
+          const url = await ladeVerschluesselt(verschluesselt);
+          if (cancelled) {
+            URL.revokeObjectURL(url);
+            return;
+          }
+          objectUrl = store(key, url);
+          held = true;
+          return;
+        }
         let resp = await fetchInto(initial);
         if (resp.status === 403) {
           // Presigned URL expired → re-sign once and retry.
