@@ -1,4 +1,5 @@
-"""Periodic cleanup of long-idle Web-Push subscriptions.
+"""Periodic cleanup of long-idle Web-Push subscriptions, and (since Etappe D,
+Task 4) the Postfach.
 
 ``push.py`` already removes a sub on a 404/410 response from the push
 provider (``pywebpush`` raises with the dead endpoint). What it does
@@ -17,6 +18,10 @@ The sweep below deletes a row when:
 
 Same pattern as ``routes.attachments.reaper_loop`` (sleep-driven asyncio
 loop, errors logged + swallowed, ``CancelledError`` re-raised).
+
+The Postfach sweep (``postfach_pflege.py::sweep_verfallene_zustellungen`` +
+``sweep_verwaiste_nutzlasten``) rides the SAME loop and interval — no second
+background task, see ``_run_once`` below.
 """
 
 from __future__ import annotations
@@ -31,12 +36,21 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from dcc_chat_gateway.config import Settings
 from dcc_chat_gateway.models import WebPushSubscription
+from dcc_chat_gateway.postfach_pflege import (
+    sweep_verfallene_zustellungen,
+    sweep_verwaiste_nutzlasten,
+)
 
 log = logging.getLogger(__name__)
 
 
 async def _run_once(engine: AsyncEngine, settings: Settings) -> int:
-    """Execute one sweep. Returns the number of rows deleted."""
+    """Execute one sweep. Returns the number of Web-Push rows deleted.
+
+    Der Rueckgabewert bleibt bewusst nur die Web-Push-Zahl (bestehende
+    Tests pruefen exakt darauf) — die Postfach-Zaehler gehen in ein
+    eigenes Log statt in den Rueckgabewert.
+    """
     cutoff = datetime.now(UTC) - timedelta(days=settings.push_subscription_idle_days)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as session:
@@ -52,6 +66,12 @@ async def _run_once(engine: AsyncEngine, settings: Settings) -> int:
         await session.commit()
     deleted = res.rowcount or 0
     log.info("push_subscription_cleanup_done deleted=%d", deleted)
+
+    async with session_factory() as session:
+        verfallen = await sweep_verfallene_zustellungen(session)
+        verwaist = await sweep_verwaiste_nutzlasten(session)
+    log.info("postfach_pflege_done verfallen=%d verwaist=%d", verfallen, verwaist)
+
     return deleted
 
 
