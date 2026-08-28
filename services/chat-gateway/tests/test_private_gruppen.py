@@ -424,6 +424,51 @@ async def test_gleichzeitiges_verlassen_verwaist_die_gruppe_nicht(
     )
 
 
+@pytest.mark.asyncio
+async def test_gleichzeitiges_hinzufuegen_derselben_person_gibt_409(
+    client, session_factory, _auth_signer, gruppen_an, monkeypatch
+):
+    """FIX 3: **wie das Rennen hergestellt wird** — derselbe Trick wie
+    ``test_dropbox_races.py::test_kollision_nach_bestandener_vorpruefung_
+    gibt_409``. In das Fenster zwischen der ``bereits``-Vorpruefung und dem
+    Commit legt der Test die konkurrierende Mitgliedszeile hinein (ueber
+    eine eigene Sitzung, aus ``block_exists_either_way`` heraus — der
+    einzige Await zwischen Vorpruefung und INSERT). Die Anfrage hat ihre
+    Pruefung dann nachweislich bestanden und laeuft trotzdem in
+    ``uq_private_group_members_mitglied``. Gegen den alten Code (kein
+    ``except IntegrityError`` um den Commit) ist das ein unbehandelter
+    500er."""
+    import dcc_chat_gateway.routes.private_gruppen as pg_mod
+    from dcc_chat_gateway.models import PrivateGroupMember
+    from dcc_chat_gateway.snowflake import next_id
+
+    t_a, uid_a = await _register(_auth_signer)
+    t_b, uid_b = await _register(_auth_signer)
+
+    r = await client.post("/gruppen", json={"name": "g"}, headers=_auth(t_a))
+    gid = int(r.json()["id"])
+
+    echt = pg_mod.block_exists_either_way
+    gelegt = False
+
+    async def dazwischen(session, a, b):
+        nonlocal gelegt
+        if not gelegt:
+            gelegt = True
+            async with session_factory() as s:
+                s.add(PrivateGroupMember(id=next_id(), gruppe_id=gid, user_id=uid_b))
+                await s.commit()
+        return await echt(session, a, b)
+
+    monkeypatch.setattr(pg_mod, "block_exists_either_way", dazwischen)
+
+    r = await client.post(
+        f"/gruppen/{gid}/mitglieder", json={"user_id": str(uid_b)}, headers=_auth(t_a)
+    )
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"] == "already_a_member"
+
+
 # ---------------------------------------------------------------------------
 # Konto-Loeschung (user_purge.py)
 # ---------------------------------------------------------------------------

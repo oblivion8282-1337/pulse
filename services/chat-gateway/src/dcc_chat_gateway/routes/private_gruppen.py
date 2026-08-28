@@ -38,6 +38,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 import dcc_chat_gateway.config as chat_config
 from dcc_chat_gateway.db import SessionDep
@@ -259,7 +260,24 @@ async def mitglied_hinzufuegen(
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="member_limit_reached")
 
     session.add(PrivateGroupMember(id=next_id(), gruppe_id=gruppe_id, user_id=ziel_id))
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Zwei gleichzeitige Hinzufuegungen derselben Person schlagen beide
+        # am ``bereits``-SELECT oben durch (Lese-dann-Schreib-Fenster) und
+        # verletzen dann ``uq_private_group_members_mitglied`` — ohne diesen
+        # Fang ein unbehandelter 500er. Dieselbe Zeile wie in einem guten
+        # Dutzend anderer Routen dieses Dienstes (``dms.py``, ``blocks.py``,
+        # ``devices.py`` …). Die Mitglieder-Obergrenze direkt darueber hat
+        # dieselbe Check-then-Insert-Form und dieselbe Luecke (kann um eins
+        # ueberschritten werden), aber KEINE Datenbank-Bedingung, die eine
+        # ``IntegrityError`` daraus machen wuerde — dieser Fang deckt sie
+        # nicht mit ab. Eine atomare Obergrenze braeuchte ein INSERT mit
+        # eingebauter Zaehl-Bedingung (``INSERT … SELECT … WHERE COUNT(*) <
+        # cap``), eine groessere Umstellung fuer einen Ein-Personen-Ausreisser
+        # an der Grenze — bewusst nicht Teil dieses Fixes.
+        await session.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="already_a_member") from None
     mitglieder = await _mitglieder_laden(session, gruppe_id)
     return _wire(gruppe, mitglieder)
 
