@@ -127,7 +127,7 @@ async def revoke_all_for_user(db: AsyncSession, user_id: int) -> int:
 
     Stamps both ``expires_at`` and ``revoked_at`` on every not-yet-revoked row,
     and raises the user-level ``revoke_until`` watermark so the
-    ``/credentials/issue`` MFA-race gate (routes_credentials) actually fires.
+    MFA-race gate actually fires.
     Returns the number of session rows touched.
     """
     now = datetime.now(tz=UTC)

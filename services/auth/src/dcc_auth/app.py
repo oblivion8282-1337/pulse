@@ -27,8 +27,6 @@ from dcc_auth.routes_app_host_compat import router as app_host_compat_router
 from dcc_auth.routes_applications import router as applications_router
 from dcc_auth.routes_avatar import router as avatar_router
 from dcc_auth.routes_complaints import router as complaints_router
-from dcc_auth.routes_credentials import router as credentials_router
-from dcc_auth.routes_crl import router as crl_router
 from dcc_auth.routes_experimental_logs import router as experimental_logs_router
 from dcc_auth.routes_instance_applications import router as instance_applications_router
 from dcc_auth.routes_instance_delete import router as instance_delete_router
@@ -135,8 +133,6 @@ def create_app() -> FastAPI:
     app.include_router(totp_router)
     app.include_router(webauthn_router)
     app.include_router(webauthn_login_router)
-    app.include_router(credentials_router)
-    app.include_router(crl_router)
     app.include_router(complaints_router)
     app.include_router(experimental_logs_router)
     app.include_router(suspended_instances_router)

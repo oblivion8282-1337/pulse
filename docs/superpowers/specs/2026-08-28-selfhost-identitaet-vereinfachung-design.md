@@ -169,11 +169,17 @@ greift: Bei einem Tag käme ein gebannter Nutzer bis zu einen Tag lang weiter
 durch die REST-Schnittstelle. Für die lebende Verbindung gibt es den Nachlauf
 gar nicht, weil ein Bann den Socket sofort schliesst.
 
-**Ein Stück Cloud-Unabhängigkeit kommt dabei zurück:** Die Erneuerung am Socket
-läuft rein lokal, der Self-Host stellt sie mit seinem eigenen Schlüssel aus. Wer
-verbunden ist, bleibt verbunden, solange sein Server läuft — unabhängig davon,
-wie lange die Cloud weg ist. Das ist mehr, als Entscheidung 2 verlangt, und
-kostet nichts extra.
+**Korrektur (2026-08-28, beim Bauen aufgefallen):** Ein früherer Absatz hier
+behauptete, die Erneuerung am Socket laufe rein lokal und wer verbunden sei,
+bleibe es auch bei einem Cloud-Ausfall. **Das stimmt nicht.**
+``handle_token_refresh`` stellt kein Token aus — es nimmt eines entgegen, das der
+Klient mitbringt, und das bekommt er nur über ``POST /session``, also über ein
+Ticket, also über die Cloud.
+
+Es bleibt deshalb bei Entscheidung 2 ohne Zugabe: Fällt die Cloud aus, läuft
+jede Sitzung binnen einer Stunde ab und niemand kommt wieder herein. Das ist
+hingenommen; es hier als Gewinn zu verbuchen wäre eine Behauptung gewesen, die
+der Code nicht hält.
 
 ## Löschliste
 

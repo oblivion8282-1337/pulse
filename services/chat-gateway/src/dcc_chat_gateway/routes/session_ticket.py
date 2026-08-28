@@ -38,9 +38,13 @@ router = APIRouter(tags=["self-host"])
 #:
 #: Nicht kürzer, weil die früheren fünf Minuten den stillen Wiederanmelde-Sturm
 #: erzeugten (alle vier Minuten ein voller Cert-Login je Tab), der diesen Umbau
-#: ausgelöst hat. Erneuert wird am offenen Socket (``ws_token_renewal``), und das
-#: läuft rein lokal: Wer verbunden ist, bleibt verbunden, auch wenn die Cloud
-#: ausfällt.
+#: ausgelöst hat.
+#:
+#: Der Socket kann ein frisches Token entgegennehmen (``ws_token_renewal``), aber
+#: er STELLT keines aus — der Klient holt es hier, mit einem Ticket. Ein
+#: Cloud-Ausfall beendet deshalb jede Sitzung binnen einer Stunde. Das ist
+#: hingenommen (Entscheidung 2 der Spec) und ausdrücklich KEIN Stück
+#: Cloud-Unabhängigkeit; ein früherer Kommentar behauptete das und lag falsch.
 SITZUNGSDAUER_S = 3600
 
 #: Läuft die Umschreibung schon, hält diese Marke einen zweiten Anlauf ab. Sie

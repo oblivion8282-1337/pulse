@@ -138,7 +138,7 @@ async def claim_ticket_jti(
     the same ticket can never both win.
 
     Fail-open by design: this service treats Redis as optional (unit tests run
-    SQLite-only, see ``routes_crl``), and a missing ``jti`` (legacy ticket) or an
+    SQLite-only), and a missing ``jti`` (legacy ticket) or an
     unreachable Redis must not lock users out. Production always has Redis, so the
     single-use guard is live where it matters.
     """

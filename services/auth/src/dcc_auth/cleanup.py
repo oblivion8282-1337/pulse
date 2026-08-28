@@ -44,7 +44,6 @@ from dcc_auth.models import (
     EmailVerificationToken,
     PasswordResetToken,
     RefreshToken,
-    RevokedCredential,
     UsernameReservation,
 )
 
@@ -78,9 +77,6 @@ async def _run_once(engine: AsyncEngine, settings: Settings) -> dict[str, int]:
         ur_res = await session.execute(
             sa_delete(UsernameReservation).where(UsernameReservation.released_at <= now)
         )
-        rc_res = await session.execute(
-            sa_delete(RevokedCredential).where(RevokedCredential.expires_at <= now)
-        )
         us_deleted = await purge_expired_sessions(session)
         await session.commit()
 
@@ -90,18 +86,15 @@ async def _run_once(engine: AsyncEngine, settings: Settings) -> dict[str, int]:
         "refresh_tokens_revoked": rt_res.rowcount or 0,
         "user_sessions_expired": us_deleted,
         "username_reservations_expired": ur_res.rowcount or 0,
-        "revoked_credentials_expired": rc_res.rowcount or 0,
     }
     log.info(
         "token_cleanup_done password_reset=%d email_verification=%d "
-        "refresh_revoked=%d user_sessions=%d username_reservations=%d "
-        "revoked_credentials=%d",
+        "refresh_revoked=%d user_sessions=%d username_reservations=%d",
         counts["password_reset_tokens"],
         counts["email_verification_tokens"],
         counts["refresh_tokens_revoked"],
         counts["user_sessions_expired"],
         counts["username_reservations_expired"],
-        counts["revoked_credentials_expired"],
     )
     return counts
 
