@@ -191,6 +191,15 @@ Beschneiden folgenlos — danach wäre es Datenverlust. **Wer Etappe I umsetzt,
 kommt hierher zurück**; ab dann darf nur beschnitten werden, was auf einem
 anderen Gerät des Kontos noch liegt.
 
+**Und die Grenze ist nicht allein zu entscheiden.** Pulse hat heute eine
+serverseitige DM-Suche (`GET /dm-channels-search`, am Telefon in
+`MobileChatsSuche.svelte`), die E2E nicht überlebt und lokal nachgebaut werden
+muss (C5). Eine lokale Suche ist nur so vollständig wie der lokale Verlauf —
+und eine Suche ohne Treffer sagt nicht, ob es keinen gibt oder ob sie nur nicht
+weit genug zurückreicht. **Wer hier eine Zahl festlegt, legt damit fest, wie
+weit zurück ein Nutzer seine Gespräche wiederfindet.** Diese Aufgabe deshalb
+nicht ohne einen Blick auf C5 abschliessen.
+
 ---
 
 ## Selbstprüfung dieses Plans

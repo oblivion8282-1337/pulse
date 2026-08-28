@@ -298,9 +298,22 @@ rückt die DM-Liste in der Sortierung nach, ihr Vorschautext bleibt aber der
 alte, bis neu geladen wird. Sobald der Text lokal entsteht, ist immer der
 richtige da — die Ursache verschwindet, statt behandelt zu werden.
 
-**Was es nicht zu ersetzen gibt:** eine Suche über Nachrichten existiert heute
-weder im Klienten noch am Server. Es fällt also nichts weg, und eine spätere
-Suche muss lokal gebaut werden — auf dem Bestand, den dieser Umbau anlegt.
+**Und ein Stück, das ersetzt werden MUSS:** es gibt heute eine
+WhatsApp-artige Suche über die eigene DM-Historie —
+`GET /dm-channels-search` (`routes/dms.py:261`), serverseitig per SQL `ilike`
+über `messages.content`, benutzt von `MobileChatsSuche.svelte` im Bereich
+„Chats" am Telefon. Sie ist ausgeliefert und sichtbar.
+
+**Diese Route kann E2E nicht überleben** — sie liest genau das, was der Server
+künftig nicht mehr hat. Die Suche muss lokal neu gebaut werden, über den
+Bestand, den dieser Umbau anlegt.
+
+Das hat eine Folge, die man beim Zuschneiden von Etappe C leicht übersieht:
+**eine lokale Suche ist nur so vollständig wie der lokale Verlauf.** Wer den
+lokalen Speicher begrenzt, begrenzt damit auch, was auffindbar ist — und
+zwar unsichtbar, weil eine Suche ohne Treffer nicht sagt, ob es keinen gibt
+oder ob sie nur nicht so weit zurückreicht. Die Obergrenze und die Suche sind
+deshalb **eine** Entscheidung, nicht zwei.
 
 Dieser Umbau kommt **vor** der Verschlüsselung und zunächst mit lesbaren Daten.
 Steht er, ist der Rest ein Austausch der Nutzlast.
@@ -323,7 +336,11 @@ entschieden, nicht danach entdeckt.
 - **Moderation in DMs endet.** Eine gemeldete Direktnachricht kann niemand mehr
   nachlesen. Das ist bei WhatsApp genauso und meist gewollt, muss aber eine
   Entscheidung sein.
-- **Serverseitige Suche über DMs entfällt**, sofern sie später gewünscht wäre.
+- **Die serverseitige DM-Suche entfällt — sie existiert und wird benutzt.**
+  `GET /dm-channels-search` sucht heute per SQL im Klartext; am Telefon hängt
+  die Suche im Bereich „Chats" daran. Sie muss lokal nachgebaut werden, sonst
+  verlieren Nutzer eine sichtbare Funktion. **Das ist eine eigene Aufgabe in
+  Etappe C** und keine Nebenwirkung, die sich von selbst erledigt.
 - **Altbestand.** Der Klartext-Verlauf bleibt zunächst liegen. Vorwarnung,
   Frist, Löschlauf — klein, aber der Moment, in dem Nutzer sichtbar etwas
   verlieren.
@@ -423,6 +440,7 @@ Wochen) und deshalb aufgeteilt:
 | C2 | Verlauf wird **lokal gelesen**, der Server nur noch bei einer Lücke gefragt | spürbar |
 | C3 | Vorschautexte der DM-Liste entstehen lokal (die zwei Server-Aufrufstellen fallen) | spürbar |
 | C4 | Sortierung und Ungelesen-Stand aus dem lokalen Bestand | spürbar |
+| C5 | **Suche lokal** — Ersatz für `GET /dm-channels-search`, das E2E nicht überlebt | spürbar |
 
 C1 ist der einzige Schnitt ohne Risiko: ist der Speicher gefüllt und stimmt
 sein Inhalt, sind C2 bis C4 Umschaltungen. Wer gleich lokal liest, debuggt
