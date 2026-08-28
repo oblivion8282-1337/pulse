@@ -203,13 +203,41 @@ Promenade 18, 91522 Ansbach
 Eine automatisierte Entscheidungsfindung oder ein Profiling im Sinne des
 Art. 22 DSGVO findet nicht statt.
 
-## 20. Änderungen dieser Datenschutzerklärung
+## 20. Anmeldung an Servern anderer Betreiber
+
+Wenn du dich an einem Pulse-Server anmeldest, den nicht wir betreiben (ein
+sogenannter Self-Host), stellen wir dir dafür einen kurzlebigen Ausweis aus. Er
+gilt nur für diesen einen Server und nur für wenige Sekunden. Der Ausweis
+enthält:
+
+- deine Pulse-Kontokennung,
+- deinen Anzeigenamen und die Kennung deines Profilbilds,
+- die Angabe, wie du dich bei uns ausgewiesen hast (etwa mit Passwort und
+  zweitem Faktor).
+
+**Was das für dich bedeutet:** Der Betreiber des fremden Servers erfährt damit,
+welches Pulse-Konto hinter dir steckt. Betreibt dieselbe Person mehrere Server,
+kann sie erkennen, dass du auf beiden dieselbe Person bist. Wir übermitteln
+diese Angaben nur, wenn du dich an dem betreffenden Server anmeldest, und nur an
+diesen.
+
+Wir erfahren dabei, an welchem Server du dich anmeldest und wann. Inhalte, die
+du auf einem fremden Server schreibst, erreichen uns nicht — sie liegen
+ausschliesslich dort.
+
+Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO: Die Übermittlung ist
+erforderlich, damit du den von dir gewählten Server nutzen kannst.
+
+Möchtest du das nicht, melde dich an dem betreffenden Server nicht an. Für die
+Nutzung von howispulse.com selbst wird kein solcher Ausweis ausgestellt.
+
+## 21. Änderungen dieser Datenschutzerklärung
 
 Wir behalten uns vor, diese Datenschutzerklärung anzupassen, damit sie stets den
 aktuellen rechtlichen Anforderungen entspricht oder um Änderungen des Dienstes
 umzusetzen. Es gilt die jeweils aktuelle, hier veröffentlichte Fassung.
 
-Stand: 30. Mai 2026
+Stand: 28. August 2026
 
 ---
 
