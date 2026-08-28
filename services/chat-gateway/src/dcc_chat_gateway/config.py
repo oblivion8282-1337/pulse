@@ -269,6 +269,15 @@ class Settings(BaseSettings):
     # bewusst kein Politikwert, den ein Betreiber je Instanz hochdrehen
     # sollte, ohne die G2-Verteil-Kosten neu abzuschaetzen.
     private_group_max_members: int = 50
+    # Obergrenze der SELBST ERSTELLTEN Gruppen je Konto (Bughunt 2026-08-28
+    # (Missbrauch), FIX 5) — ``private_group_max_members`` bindet nur die
+    # Groesse EINER Gruppe, nicht ihre Anzahl. Ohne diese Grenze legt ein
+    # Konto beliebig viele leere Kanal-Zeilen an, jede mit eigenem
+    # Mitgliederindex-Eintrag. 100 ist grosszuegig fuer echte Nutzung
+    # (Etappe G1 hat keine UI, also ohnehin kein organisches Wachstum ueber
+    # ein paar Dutzend hinaus) und bewusst kein Politikwert je Instanz, s.
+    # Kommentar an ``private_group_max_members``.
+    private_group_max_gruppen_je_ersteller: int = 100
 
     # Geraete-Schluesselverzeichnis (Etappe B, E2E-DM) — Bughunt 2026-08-28
     # (Missbrauch), FIX 1. Obergrenze der gleichzeitig gespeicherten Buendel
