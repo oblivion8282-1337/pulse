@@ -198,6 +198,17 @@ Entwurf: `docs/superpowers/specs/2026-08-28-e2e-dm-design.md`, Plan:
 - **An der Grenze nur Base64 und Zahlen** — dieselbe Grenze überquert JS über
   WASM. `src/wasm.rs` ist reine Übersetzung ohne Logik; was dort stünde, wäre
   von `cargo test` nicht erreichbar.
+- **Rust schreibt Base64 OHNE Polsterung, Python verlangt sie.** vodozemac
+  benutzt `STANDARD_NO_PAD`; `base64.b64decode()` wirft ohne `=`-Auffüllung.
+  Jede Python-Stelle, die etwas vom Krypto-Kern entgegennimmt, muss `"=="`
+  anhängen (Muster: `schluessel_nachweis.py`, `routes/postfach.py`) — das ist
+  gefahrlos, Python ist bei überzähliger Polsterung nachsichtig.
+  **Die Fehlerklasse ist die eigentliche Lehre:** der Server wies eine Zeit
+  lang JEDEN echten Umschlag mit 400 ab, und kein einziger Backend-Test sah
+  es — weil sie ihre Testdaten alle mit Pythons eigenem, gepolstertem
+  `b64encode` bauen. Ein Test, der seine Eingabe selbst erzeugt, prüft die
+  eigene Kodierung, nicht die der Gegenseite. Gefunden hat es erst der
+  Zwei-Browser-Nachweis (`web/tests/e2e/e2e-dm.spec.ts`).
 - **`generate_fallback_key()` liefert den VORHERIGEN Schlüssel, nicht den
   neuen** — steht so in vodozemacs Doc-Kommentar („mostly useful for logging
   purposes"). Der neue kommt aus `fallback_key()` danach. Die erste Fassung
