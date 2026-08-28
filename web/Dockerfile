@@ -17,7 +17,12 @@
 # Eigene, schlanke Stage statt eines Rust-Toolchains im Node-Builder — die
 # Laufzeit-Stage (nginx) bekommt dadurch keinen Rust-Toolchain zu Gesicht.
 FROM rust:1-slim-bookworm AS wasm-builder
-RUN cargo install wasm-pack --locked
+# Version gepinnt wie ueberall sonst im Baum (pnpm@10.33.0 drei Zeilen
+# weiter, electron 43.0.0, mediamtx 1.19.1-pulse5): ohne `--version` holt
+# `cargo install` zur BAUZEIT, was crates.io gerade als neuestes fuehrt —
+# und dessen Ausgabe landet im ausgelieferten Buendel. 0.15.0 ist die
+# Fassung, gegen die lokal geprueft wurde.
+RUN cargo install wasm-pack --locked --version 0.15.0
 WORKDIR /build
 COPY krypto/ krypto/
 RUN cd krypto/pulse-krypto && wasm-pack build --target web --out-dir pkg
