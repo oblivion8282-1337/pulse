@@ -11,9 +11,16 @@
  * `zustellung_ids`) und werden unveraendert durchgereicht: eine Umbenennung
  * an dieser Grenze waere eine zweite Stelle, an der ein Feld falsch heissen
  * kann, ohne dass es der Uebersetzer merkt.
+ *
+ * **`route` (optional, jede Funktion):** DMs sind heute cloud-only, s.
+ * `../api/keys.ts` Modulkopf (Bughunt 2026-08-28, FIX 4) — Aufrufer aus dem
+ * DM-Weg uebergeben `{serverId: serversStore.cloudId()}`.
  */
 
 import { request } from './client';
+import type { PostfachEinliefernErgebnis } from '../krypto/zustellErgebnis';
+
+export type { PostfachEinliefernErgebnis };
 
 export interface PostfachNutzlast {
   /** 0 = Sitzungsaufbau (Olm-PreKey), 1 = laufende Nachricht — die Zaehlung
@@ -51,25 +58,34 @@ export interface PostfachZustellung {
 
 export const postfachApi = {
   /** Liefert einen oder mehrere Umschlaege in einem DM-Kanal ein. */
-  einliefern(body: {
-    channel_id: string;
-    cert: string;
-    signatur: string;
-    nutzlasten: PostfachNutzlast[];
-  }): Promise<void> {
-    return request<void>('/postfach', { method: 'POST', body });
+  einliefern(
+    body: {
+      channel_id: string;
+      cert: string;
+      signatur: string;
+      nutzlasten: PostfachNutzlast[];
+    },
+    route: { serverId?: string } = {}
+  ): Promise<PostfachEinliefernErgebnis> {
+    return request<PostfachEinliefernErgebnis>('/postfach', { method: 'POST', body }, route);
   },
 
   /** Holt die offenen Zustellungen des nachgewiesenen Geraets ab. Loescht
    *  nichts — erst `quittieren` raeumt auf. */
-  abholen(body: { cert: string; signatur: string }): Promise<PostfachZustellung[]> {
-    return request<PostfachZustellung[]>('/postfach/abholen', { method: 'POST', body });
+  abholen(
+    body: { cert: string; signatur: string },
+    route: { serverId?: string } = {}
+  ): Promise<PostfachZustellung[]> {
+    return request<PostfachZustellung[]>('/postfach/abholen', { method: 'POST', body }, route);
   },
 
   /** Loescht die genannten Zustellungen des nachgewiesenen Geraets — erst
    *  aufrufen, NACHDEM die Umschlaege lokal sicher abgelegt sind (s.
    *  `empfangen.ts`). */
-  quittieren(body: { cert: string; signatur: string; zustellung_ids: string[] }): Promise<void> {
-    return request<void>('/postfach/quittung', { method: 'POST', body });
+  quittieren(
+    body: { cert: string; signatur: string; zustellung_ids: string[] },
+    route: { serverId?: string } = {}
+  ): Promise<void> {
+    return request<void>('/postfach/quittung', { method: 'POST', body }, route);
   }
 };

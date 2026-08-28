@@ -20,6 +20,8 @@ import type { IdentityCert } from '../identity/cert.svelte';
 import { loadKeypair } from '../identity/keypair.svelte';
 import type { StoredKeypair } from '../identity/keypair.svelte';
 import { keysApi } from '../api/keys';
+import { serversStore } from '../api/servers.svelte';
+import { isElectron, isCapacitorAndroid } from '../platform/runtime';
 import {
   kryptoAccountLaden,
   kryptoAccountSichern,
@@ -27,6 +29,23 @@ import {
 } from './account.svelte';
 import { baueNutzlast } from './nutzlast';
 import { signiereNutzlast } from './nachweis';
+
+// DMs sind heute cloud-only (Global-Friends Stufe 1) — s. `api/keys.ts`
+// Modulkopf (Bughunt 2026-08-28, FIX 4). Als FUNKTION statt Modul-Konstante:
+// dieses Modul wird schon beim Login importiert (`issue-flow.ts`), bevor
+// `serversStore.init()` den Cloud-Eintrag sicher angelegt hat — eine einmal
+// zur Importzeit ausgewertete Konstante bliebe dann fuer die Lebensdauer des
+// Moduls auf `undefined` stehen.
+function cloudRoute(): { serverId?: string } {
+  return { serverId: serversStore.cloudId() };
+}
+
+/** Ob DIESES Geraet dauerhaft ist — Electron- oder Android-App, Grundlage der
+ *  Koexistenz-Regel (Spec §3). Beide Apps laden dieselbe entfernte Web-App,
+ *  die Erkennung ist deshalb dieselbe wie ueberall sonst im Klienten. */
+function eigenesGeraetDauerhaft(): boolean {
+  return isElectron() || isCapacitorAndroid();
+}
 
 /** Unter diesem Vorrat wird nachgefuellt (s. `ONE_TIME_KEY_CAP = 100` im
  *  Server — 20 laesst reichlich Luft, bevor der Vorrat wirklich leer waere). */
@@ -48,12 +67,16 @@ export async function veroeffentlicheSchluessel(): Promise<void> {
 
   const buendelNutzlast = baueNutzlast('buendel', ident.curve25519(), rueckfallschluessel);
   const buendelSignatur = await signiereNutzlast(keypair, buendelNutzlast);
-  await keysApi.publishBundle({
-    cert: cert.raw,
-    signatur: buendelSignatur,
-    curve25519: ident.curve25519(),
-    rueckfallschluessel
-  });
+  await keysApi.publishBundle(
+    {
+      cert: cert.raw,
+      signatur: buendelSignatur,
+      curve25519: ident.curve25519(),
+      rueckfallschluessel,
+      dauerhaft: eigenesGeraetDauerhaft()
+    },
+    cloudRoute()
+  );
 
   await nachfuellenWennNoetig(ident, keypair, cert);
 }
@@ -63,7 +86,7 @@ async function nachfuellenWennNoetig(
   keypair: StoredKeypair,
   cert: IdentityCert
 ): Promise<void> {
-  const { vorrat } = await keysApi.oneTimeKeyCount(cert.claims.device_pubkey);
+  const { vorrat } = await keysApi.oneTimeKeyCount(cert.claims.device_pubkey, cloudRoute());
 
   if (vorrat < VORRAT_SCHWELLE) {
     ident.einmalschluesselErzeugen(NACHFUELL_BATCH);
@@ -80,7 +103,10 @@ async function nachfuellenWennNoetig(
 
   const nutzlast = baueNutzlast('einmalschluessel', ...zuVeroeffentlichen);
   const signatur = await signiereNutzlast(keypair, nutzlast);
-  await keysApi.addOneTimeKeys({ cert: cert.raw, signatur, schluessel: zuVeroeffentlichen });
+  await keysApi.addOneTimeKeys(
+    { cert: cert.raw, signatur, schluessel: zuVeroeffentlichen },
+    cloudRoute()
+  );
 
   ident.alsVeroeffentlichtMarkieren();
   await kryptoAccountSichern(ident);
