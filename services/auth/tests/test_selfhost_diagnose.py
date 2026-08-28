@@ -300,6 +300,11 @@ async def test_ausgelassene_glieder_werden_benannt(client, alice, instance, ohne
         "Owner recognition",
         "Browser access",
         "Live connection",
+        # Neuntes Glied (2026-08-28). Es sitzt in ``SCHRITTE`` zwischen
+        # WebSocket und STUN, weil es dieselbe TLS-Voraussetzung hat wie die
+        # Glieder davor — faellt der Handschlag aus, wird es ebenfalls nicht
+        # geprueft und muss hier auftauchen.
+        "Sign-in method",
     ]
 
 
