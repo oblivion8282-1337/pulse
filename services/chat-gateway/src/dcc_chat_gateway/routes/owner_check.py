@@ -57,7 +57,7 @@ from dcc_chat_gateway import config as chat_config
 
 # Bewusst die Funktion des Cert-Prüfers statt einer eigenen Kopie: sie weiss
 # schon, dass ein Self-Host die CLOUD-JWKS lesen muss (``auth:cloud_jwks:cached``,
-# vom crl_poller warmgehalten) und nicht die lokale. Zwei Fassungen dieser
+# vom jwks_poller warmgehalten) und nicht die lokale. Zwei Fassungen dieser
 # Auswahl wären zwei Stellen, die auseinanderlaufen können.
 from dcc_chat_gateway.credential_validator import _get_jwks_keys
 

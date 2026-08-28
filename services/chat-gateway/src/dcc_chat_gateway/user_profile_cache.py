@@ -22,12 +22,10 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 import jwt
-from dcc_shared.session_tokens import synthesize_self_host_user_id
 from jwt.algorithms import RSAAlgorithm
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dcc_chat_gateway.credential_validator import compute_pairwise_sub
 from dcc_chat_gateway.models.moderation import CachedUserProfile
 
 log = logging.getLogger(__name__)
@@ -70,7 +68,6 @@ async def upsert_profile_statement(
     cloud_jwks: dict[str, Any],
     instance_mode: Literal["cloud", "self-host"],
     instance_id: str | None = None,
-    pairwise_seed: bytes | None = None,
 ) -> CachedUserProfile:
     """Validate a Cloud-signed profile statement and upsert the cached profile.
 
@@ -85,11 +82,8 @@ async def upsert_profile_statement(
         public keys.  Typically fetched from Redis by the caller.
     instance_mode:
         ``"cloud"`` → user_identifier = raw ``sub`` claim.
-        ``"self-host"`` → user_identifier = pairwise sub.
+        ``"self-host"`` → user_identifier = die Cloud-Kennung selbst.
     instance_id:
-        Required when ``instance_mode == "self-host"``.
-    pairwise_seed:
-        Raw seed bytes used to compute the pairwise sub.
         Required when ``instance_mode == "self-host"``.
 
     Raises
@@ -165,21 +159,12 @@ async def upsert_profile_statement(
     else:
         if instance_id is None:
             raise ProfileStatementInvalid("instance_id is required in self-host mode")
-        import base64
-
-        # pairwise_seed: prefer the caller-supplied raw bytes; otherwise fall
-        # back to the Cloud-embedded ``pairwise_seed`` claim (base64url) so the
-        # WS handler doesn't have to carry it — the sign-in that would have
-        # exposed it is already consumed by the time a statement arrives.
-        if pairwise_seed is not None:
-            seed_b64 = base64.urlsafe_b64encode(pairwise_seed).rstrip(b"=").decode()
-        else:
-            seed_b64 = str(claims.get("pairwise_seed") or "")
-        if not seed_b64:
-            raise ProfileStatementInvalid(
-                "pairwise_seed required in self-host mode (param or statement claim)"
-            )
-        user_identifier = compute_pairwise_sub(sub, int(instance_id), seed_b64)
+        # Die Kennung IST das ``sub``. Bis zum 2026-08-28 wurde sie hier aus
+        # einem ``pairwise_seed`` gerechnet — ein Pseudonym je Server, damit ein
+        # Betreiber nicht erfährt, welches Cloud-Konto dahintersteckt. Diese
+        # Zusage ist mit dem Ticket-Weg bewusst zurückgenommen (s. Abschnitt 20
+        # der Datenschutzerklärung); das Ticket trägt die Cloud-Kennung offen.
+        user_identifier = sub
 
     # Numeric id used by the rest of the chat schema (GuildMember.user_id,
     # messages.author_id) + the LiveKit voice identity. Cloud: raw numeric user
@@ -187,11 +172,11 @@ async def upsert_profile_statement(
     # name-resolution endpoint map a numeric id back to this profile (F19).
     # Cloud subs are numeric in practice — guard against non-numeric (the chat
     # /users endpoint is unused in cloud mode anyway, so NULL there is harmless).
-    synthetic_user_id: int | None
-    if instance_mode == "cloud":
-        synthetic_user_id = int(user_identifier) if user_identifier.isdigit() else None
-    else:
-        synthetic_user_id = synthesize_self_host_user_id(user_identifier)
+    # Die Kennung ist in beiden Betriebsarten dieselbe Zahl — es gibt keine
+    # zweite Identität mehr, aus der sie abgeleitet werden müsste.
+    synthetic_user_id: int | None = (
+        int(user_identifier) if user_identifier.isdigit() else None
+    )
 
     # ── Step 8: load existing profile for replay check ────────────────────────
     new_iat_dt = datetime.fromtimestamp(int(raw_iat), tz=timezone.utc)
