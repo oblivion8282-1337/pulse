@@ -21,6 +21,7 @@
   import ImageIcon from '@lucide/svelte/icons/image';
   import ImageOffIcon from '@lucide/svelte/icons/image-off';
   import SettingsIcon from '@lucide/svelte/icons/settings';
+  import ServerIcon from '@lucide/svelte/icons/server';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import UsersRoundIcon from '@lucide/svelte/icons/users-round';
   import LogInIcon from '@lucide/svelte/icons/log-in';
@@ -233,6 +234,9 @@
   let removeServerConfirmOpen = $state(false);
   // Owner-Fall beim Verlassen (403 vom Instanz-Austritt): erklärender Dialog
   // statt Toast — mit Absprung in die Self-Host-Einstellungen (Server löschen).
+  // Seit 2026-08-28 bekommt der Betreiber „verlassen" gar nicht mehr angeboten
+  // (das Kontextmenü verzweigt auf `role`); dieser Zweig ist nur noch das
+  // Auffangnetz, Begründung am Menüeintrag.
   let ownerLeaveOpen = $state(false);
   let ownerLeaveLabel = $state('');
   let infoServerTarget = $state<ServerEntry | null>(null);
@@ -273,9 +277,7 @@
     try {
       const outcome = await leaveAndRemoveServer(removeServerTarget);
       if (outcome === 'owner') {
-        // Betreiber kann nicht "verlassen" — erklären + Weg zum Löschen zeigen
-        // (Owner-Info liegt clientseitig nicht vor, darum reagieren wir auf den
-        // 403-Outcome statt das Menü vorab umzubeschriften).
+        // Betreiber kann nicht "verlassen" — erklären + Weg zum Löschen zeigen.
         ownerLeaveLabel = label;
         ownerLeaveOpen = true;
       } else {
@@ -528,9 +530,37 @@
           </ContextMenu.Sub>
           {#if !server.isCloud}
             <ContextMenu.Separator />
-            <ContextMenu.Item variant="destructive" onSelect={() => openServerRemove(server)}>
-              <Trash2Icon /> {m.guild_rail_remove_server()}
-            </ContextMenu.Item>
+            <!-- Dem Betreiber wird „verlassen" nicht mehr angeboten: Er kann
+                 seinen eigenen Server nicht verlassen, die Cloud lehnt das mit
+                 403 ab. Bis 2026-08-28 stand hier für alle derselbe Eintrag,
+                 und der Betreiber erfuhr den Grund erst NACH dem Fehlschlag —
+                 der Kommentar dazu berief sich darauf, dass die Rolle
+                 clientseitig nicht vorliege. Sie liegt vor: `role` kommt aus
+                 `GET /me/instances` (Store seit 2026-08-27) und wird dort aus
+                 `registered_by == viewer_id` gebildet — also aus derselben
+                 Spalte, aus der beim Aufsetzen `PULSE_INSTANCE_OWNER_ID` fällt.
+                 Klient und Server meinen mit „Betreiber" damit dasselbe.
+
+                 Der 403-Weg bleibt als Auffangnetz für einen Eintrag ohne
+                 `role` — und weil die Rolle clientseitiger Bestand ist: Nach
+                 einer Übergabe kann sie veraltet sein, dann entscheidet
+                 weiterhin der Server.
+
+                 Beschriftung bewusst „Eigene Server", nicht „diesen Server":
+                 Ziel ist die konto-weite Liste `/app/server`; eine Seite für
+                 einen einzelnen Server gibt es nicht. -->
+            {#if server.role === 'owner'}
+              <ContextMenu.Item
+                onSelect={() => goto('/app/server')}
+                data-testid="server-owner-manage"
+              >
+                <ServerIcon /> {m.guild_rail_server_manage_own()}
+              </ContextMenu.Item>
+            {:else}
+              <ContextMenu.Item variant="destructive" onSelect={() => openServerRemove(server)}>
+                <Trash2Icon /> {m.guild_rail_remove_server()}
+              </ContextMenu.Item>
+            {/if}
           {/if}
         </ContextMenu.Content>
       </ContextMenu.Root>

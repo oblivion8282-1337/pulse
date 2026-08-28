@@ -2156,7 +2156,6 @@
   "self_host_application_submit": "Antrag einreichen",
   "self_host_application_submitted_toast": "Antrag eingereicht. Du bekommst Bescheid wenn dein Antrag geprüft wurde.",
   "self_host_application_submitting": "Wird eingereicht…",
-  "self_host_cloud_only": "Eigene Server verwaltest du dort, wo dein Konto lebt. Wechsle auf howispulse.com, um einen Server zu beantragen oder einzurichten.",
   "self_host_contact_confirm_cancel": "Abbrechen",
   "self_host_contact_confirm_confirm": "Verstanden, fortfahren",
   "self_host_contact_confirm_hint": "Der Betreiber dieses externen Servers sieht dabei deine IP-Adresse.",
@@ -3015,5 +3014,6 @@
   "anmeldung_instanz_geloescht": "Dieser Server wurde gelöscht. Entferne ihn aus deiner Serverliste.",
   "anmeldung_netzfehler": "Der Server ist gerade nicht erreichbar. Prüfe deine Verbindung; besteht das Problem, kann der Betreiber die Erreichbarkeit seines Servers prüfen lassen.",
   "anmeldung_server_speicher": "Der Server kann gerade nicht auf seinen Zwischenspeicher zugreifen und lehnt Anmeldungen deshalb ab. Meist ist das nach kurzer Zeit vorbei; hält es an, muss der Betreiber prüfen, ob Redis läuft.",
-  "anmeldung_server_ohne_kennung": "Diesem Server fehlt seine eigene Kennung. Der Betreiber muss PULSE_INSTANCE_ID in der Konfigurationsdatei eintragen und den Server neu starten."
+  "anmeldung_server_ohne_kennung": "Diesem Server fehlt seine eigene Kennung. Der Betreiber muss PULSE_INSTANCE_ID in der Konfigurationsdatei eintragen und den Server neu starten.",
+  "guild_rail_server_manage_own": "Eigene Server verwalten"
 }

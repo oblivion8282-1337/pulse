@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-28.3",
+      "date": "2026-08-28",
+      "style": "Sachlich",
+      "title": "Eigene Server verwalten — von überall",
+      "intro": "Zwei Kleinigkeiten in der Server-Leiste, die zusammengehören.",
+      "items": [
+        "Der Knopf zu deinen eigenen Servern war nur sichtbar, solange du in der Pulse-Cloud warst. Ausgerechnet auf dem eigenen Server war er weg. Er ist jetzt immer da — die Liste gehört zu deinem Konto, nicht zum gerade geöffneten Server.",
+        "Ein Rechtsklick auf den eigenen Server bot bisher „Server verlassen“ an. Das ging nie: Als Betreiber kann man seinen Server nicht verlassen, nur löschen. Dort steht jetzt „Eigene Server verwalten“ und führt an die Stelle, an der das Löschen tatsächlich möglich ist."
+      ]
+    },
+    {
       "id": "2026-08-28.2",
       "date": "2026-08-28",
       "style": "Sachlich",

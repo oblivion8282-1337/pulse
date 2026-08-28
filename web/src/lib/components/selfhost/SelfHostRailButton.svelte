@@ -2,10 +2,13 @@
   Einstieg in den eigenen Server, unten in der GuildRail — dort, wo der
   Kommentar an ihrem Kopf seit jeher einen „+ Server"-Knopf ankündigt.
 
-  Selbst-gegated wie ServerAdminButton daneben: auf einem fremden Server
-  rendert nichts (die Instanz-Verwaltung lebt in der Cloud). Der Punkt meldet
-  einen freigeschalteten EIGENEN Antrag — bis 2026-08-27 sass er am Avatar und
-  führte in die Einstellungen; er ist mit seinem Ziel hierher gewandert.
+  Sichtbar auf JEDEM Server, nicht nur in der Cloud (seit 2026-08-28): Der
+  Bereich gehört zum Konto, nicht zum aktiven Server, und holt seine Daten
+  ohnehin immer von der Cloud. Begründung in `selfhost/hinweis.svelte.ts`.
+
+  Der Punkt meldet einen freigeschalteten EIGENEN Antrag — bis 2026-08-27 sass
+  er am Avatar und führte in die Einstellungen; er ist mit seinem Ziel hierher
+  gewandert.
 
   Die Rail ist `hidden lg:flex`. Auf Tablet und Handy sitzt derselbe Einstieg
   am Fuss der Räume-Liste (`/app/rooms`) — beide rufen dieselbe Route.
