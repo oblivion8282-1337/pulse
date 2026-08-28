@@ -109,6 +109,28 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      # `web/src/lib/krypto/{account.svelte,sitzungen,empfangen,veroeffentlichen}.ts`
+      # importieren `krypto/pulse-krypto/pkg/pulse_krypto.js` STATISCH — das
+      # Paket ist ein Bauergebnis (gitignored, s. krypto/pulse-krypto/.gitignore)
+      # und existiert vor diesem Schritt nicht. Ohne ihn scheitert sowohl
+      # `check` (svelte-check löst den Import nicht auf) als auch `build`
+      # (UNRESOLVED_IMPORT) — dieselbe Lücke, die web/Dockerfile & infra/self-
+      # host/Dockerfile über eine eigene wasm-builder-Stage schließen.
+      - name: Cache cargo (WASM-Bau des Krypto-Kerns)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            krypto/pulse-krypto/target
+          key: wasm-pack-${{ runner.os }}-${{ hashFiles('krypto/pulse-krypto/Cargo.lock') }}
+      - name: wasm-pack installieren
+        run: command -v wasm-pack >/dev/null || cargo install wasm-pack --locked
+      - name: Krypto-Kern als WASM bauen
+        run: bash krypto/pulse-krypto/bauen-wasm.sh
       - uses: pnpm/action-setup@v4   # version comes from package.json "packageManager"
       - uses: actions/setup-node@v4
         with:
