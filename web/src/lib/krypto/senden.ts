@@ -8,7 +8,10 @@
  *  1. Geraetebuendel holen (`POST /keys/claim`) — Empfaenger UND die eigenen
  *     anderen Geraete (`empfaengerGeraete.ts`, Spec §2). Das eigene AKTUELLE
  *     Geraet bleibt aussen vor: es hat den Klartext schon, und eine Sitzung
- *     mit sich selbst gibt es nicht.
+ *     mit sich selbst gibt es nicht. `zielgeraeteBerechnen` wendet dabei
+ *     zuerst die Koexistenz-Regel an (Spec §3, Bughunt 2026-08-28 FIX 1):
+ *     nur wenn BEIDE Konten ein dauerhaftes Geraet haben, gibt es ueberhaupt
+ *     Zielgeraete.
  *  2. Je Zielgeraet eine Sitzung — vorhandene laden, sonst ausgehend
  *     aufbauen (`sitzungAusgehend`, verbraucht einen Einmal- oder den
  *     Rueckfallschluessel).
@@ -21,13 +24,12 @@
  *  4. Einliefern — ein `POST /postfach` mit allen Umschlaegen.
  *  5. Lokal ablegen — der eigene Klartext geht in den lokalen Verlauf
  *     (Etappe C1); der Server bekommt ihn nie, es gibt also keine zweite
- *     Kopie (Bughunt 2026-08-28, FIX 1). Schlaegt das fehl, ist die
- *     Nachricht trotzdem zugestellt (Schritt 4 ist schon durch) — ein
- *     erneutes Einliefern waere ein Duplikat. Der Fehlschlag wird deshalb
- *     NICHT verschluckt, sondern via `verlaufZustand` sichtbar gemacht
- *     (dieselbe Anzeige, die C2 fuer den Lesepfad nutzt); die Nachricht
- *     bleibt trotzdem in der Rueckgabe, denn sie IST beim Empfaenger
- *     angekommen.
+ *     Kopie. Schlaegt das fehl, ist die Nachricht trotzdem zugestellt
+ *     (Schritt 4 ist schon durch) — ein erneutes Einliefern waere ein
+ *     Duplikat. Der Fehlschlag wird deshalb NICHT verschluckt, sondern via
+ *     `verlaufZustand` sichtbar gemacht (dieselbe Anzeige, die C2 fuer den
+ *     Lesepfad nutzt); die Nachricht bleibt trotzdem in der Rueckgabe, denn
+ *     sie IST beim Empfaenger angekommen.
  *
  * **Koexistenz (Spec §3):** hat der Empfaenger kein Geraet (und man selbst
  * auch keine weiteren), gibt es kein einziges Zielgeraet — dann wird NICHTS
@@ -40,6 +42,7 @@ import { certStore } from '../identity/cert.svelte';
 import { loadKeypair } from '../identity/keypair.svelte';
 import { keysApi } from '../api/keys';
 import { postfachApi, type PostfachNutzlast } from '../api/postfach';
+import { isElectron, isCapacitorAndroid } from '../platform/runtime';
 import { verlaufSpeichernPflicht } from '../verlauf';
 import { verlaufZustand } from '../verlauf/zustand.svelte';
 import { kryptoAccountLaden } from './account.svelte';
@@ -86,7 +89,8 @@ export async function sendeVerschluesselt(
     buendel,
     eigeneUserId,
     empfaengerUserId,
-    cert.claims.device_pubkey
+    cert.claims.device_pubkey,
+    isElectron() || isCapacitorAndroid()
   );
   if (ziel.length === 0) {
     return { art: 'unverschluesselt' };

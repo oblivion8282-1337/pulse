@@ -16,6 +16,10 @@ export interface GeraeteSchluessel {
   signatur: string;
   einmalschluessel: string | null;
   rueckfallschluessel: string | null;
+  /** Ob dieses Geraet dauerhaft ist (Electron- oder Android-App) — Grundlage
+   *  der Koexistenz-Regel (Spec §3, `krypto/empfaengerGeraete.ts`). Optional,
+   *  solange das Backend das Feld nicht fuehrt. */
+  dauerhaft?: boolean;
 }
 
 export const keysApi = {
@@ -25,6 +29,7 @@ export const keysApi = {
     signatur: string;
     curve25519: string;
     rueckfallschluessel?: string | null;
+    dauerhaft: boolean;
   }): Promise<void> {
     return request<void>('/keys/bundle', { method: 'PUT', body });
   },

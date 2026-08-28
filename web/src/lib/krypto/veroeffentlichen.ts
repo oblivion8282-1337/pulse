@@ -20,6 +20,7 @@ import type { IdentityCert } from '../identity/cert.svelte';
 import { loadKeypair } from '../identity/keypair.svelte';
 import type { StoredKeypair } from '../identity/keypair.svelte';
 import { keysApi } from '../api/keys';
+import { isElectron, isCapacitorAndroid } from '../platform/runtime';
 import {
   kryptoAccountLaden,
   kryptoAccountSichern,
@@ -27,6 +28,13 @@ import {
 } from './account.svelte';
 import { baueNutzlast } from './nutzlast';
 import { signiereNutzlast } from './nachweis';
+
+/** Ob DIESES Geraet dauerhaft ist — Electron- oder Android-App, Grundlage der
+ *  Koexistenz-Regel (Spec §3). Beide Apps laden dieselbe entfernte Web-App,
+ *  die Erkennung ist deshalb dieselbe wie ueberall sonst im Klienten. */
+function eigenesGeraetDauerhaft(): boolean {
+  return isElectron() || isCapacitorAndroid();
+}
 
 /** Unter diesem Vorrat wird nachgefuellt (s. `ONE_TIME_KEY_CAP = 100` im
  *  Server — 20 laesst reichlich Luft, bevor der Vorrat wirklich leer waere). */
@@ -52,7 +60,8 @@ export async function veroeffentlicheSchluessel(): Promise<void> {
     cert: cert.raw,
     signatur: buendelSignatur,
     curve25519: ident.curve25519(),
-    rueckfallschluessel
+    rueckfallschluessel,
+    dauerhaft: eigenesGeraetDauerhaft()
   });
 
   await nachfuellenWennNoetig(ident, keypair, cert);
