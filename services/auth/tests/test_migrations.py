@@ -299,7 +299,35 @@ def test_migration_0020_has_downgrade():
     assert "complaints" in src
 
 
-# Die Tests fuer ``issued_credentials`` und ``revoked_credentials`` standen hier
-# bis zum 2026-08-28. Beide Tabellen sind mit dem Geraetezertifikat entfallen
-# (Migration 0051); ein Test, der ihr Vorhandensein einfordert, waere jetzt eine
-# Behauptung gegen den eigenen Stand.
+@pytest.mark.asyncio
+async def test_geraete_zertifikat_tabellen_gedroppt(engine):
+    """Migration 0051: issued_credentials + revoked_credentials muessen weg sein.
+
+    Die frueheren Tests forderten ihr VORHANDENSEIN und sind mit dem
+    Zertifikatsmodell entfallen. Ohne diesen Ersatz waere die Migration
+    ungeprueft: Ein 0051, das still nichts tut (etwa mit falschem
+    Schema-Praefix auf einem Deployment, wo ``auth`` nicht im Suchpfad liegt),
+    liesse beide Tabellen stehen — und ``models_credentials`` deklariert sie
+    nicht mehr, SQLAlchemys Metadaten wuerden es also auch nicht bemerken.
+    """
+    async with engine.connect() as conn:
+        tables = await conn.run_sync(
+            lambda sync_conn: sa_inspect(sync_conn).get_table_names()
+        )
+    assert "issued_credentials" not in tables, (
+        "issued_credentials should be dropped after 0051_drop_geraete_zerts"
+    )
+    assert "revoked_credentials" not in tables, (
+        "revoked_credentials should be dropped after 0051_drop_geraete_zerts"
+    )
+    # Gegenprobe: Die Namensreservierung liegt im selben Modul und bleibt.
+    assert "username_reservations" in tables
+
+
+def test_migration_0051_has_downgrade():
+    """Die Kette muss vollstaendig bleiben, auch wenn der Rueckweg keine Daten
+    zurueckbringt."""
+    mod = _load_migration("0051")
+    assert hasattr(mod, "downgrade")
+    quelle = inspect.getsource(mod.downgrade)
+    assert "create_table" in quelle, "downgrade legt die Tabellen nicht wieder an"

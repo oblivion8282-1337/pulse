@@ -221,13 +221,10 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     await websocket.send_json({
         "op": "hello",
         "server_version": __version__,
-        # ``server-ticket``: dieser Server kann ``POST /session`` — der Klient
-        # waehlt danach seinen Anmeldeweg. Nach FAEHIGKEIT, nicht nach Version:
-        # Die Web-App wird von der Cloud ausgeliefert und ist fuer alle sofort
-        # neu, ein Self-Host aktualisiert sich wann er will. Eine neue App
-        # trifft deshalb wochenlang auf alte Server, und die muessen weiter den
-        # Cert-Weg bekommen. Muss mit ``web/src/lib/servers/anmeldeweg.ts``
-        # uebereinstimmen.
+        # ``server-ticket``: dieser Server kann ``POST /session``. Es gibt
+        # keinen zweiten Anmeldeweg mehr — die Angabe dient der Diagnose
+        # (``selfhost_probe_anmeldeweg``) und kuenftigen Klienten, nicht einer
+        # Wahl zur Laufzeit. Quelle: ``faehigkeiten.py``.
         "capabilities": list(SERVER_FAEHIGKEITEN),
     })
 

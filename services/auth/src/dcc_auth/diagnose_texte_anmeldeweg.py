@@ -23,21 +23,22 @@ GELUNGEN: tuple[str, str] = (
 
 #: ``(schritt, befund) -> ((was_ist_de, was_tun_de), (was_ist_en, was_tun_en))``
 BEFUNDE: dict[tuple[str, str], tuple[tuple[str, str], tuple[str, str]]] = {
-    ("anmeldeweg", "zertifikats_weg"): (
+    ("anmeldeweg", "zu_alt"): (
         (
-            "Dieser Server meldet Nutzer noch über den älteren Weg an, bei dem der Browser einen "
-            "Ausweis dauerhaft speichert. Das funktioniert, hat aber einen bekannten Nachteil: Zwei "
-            "Browser auf demselben Rechner können sich gegenseitig abmelden.",
-            "Nichts. Der Server holt sich die Umstellung mit dem nächsten Update von selbst. Wer "
-            "nicht warten möchte, kann sie vorziehen: sudo docker pull und danach "
-            "sudo docker restart {container}.",
+            "Dieser Server ist zu alt für die aktuelle Pulse-App. Er kennt den heutigen "
+            "Anmeldeweg nicht, und den früheren gibt es seit dem 28. August 2026 nicht mehr — "
+            "es kommt also niemand mehr herein, auch du nicht.",
+            "Den Server neu aufsetzen: https://howispulse.com/self-host. Ein blosses Update "
+            "genügt nicht, wenn er noch Nutzerdaten aus der Zeit davor trägt — er startet dann "
+            "absichtlich nicht und sagt dir das beim Start.",
         ),
         (
-            "This server still signs users in the older way, where the browser stores a credential "
-            "permanently. That works, but has a known drawback: two browsers on the same machine can "
-            "sign each other out.",
-            "Nothing. The server picks up the change with its next update. To pull it forward: "
-            "sudo docker pull, then sudo docker restart {container}.",
+            "This server is too old for the current Pulse app. It does not know today's sign-in "
+            "method, and the previous one was removed on 28 August 2026 — so nobody can get in, "
+            "including you.",
+            "Set the server up again: https://howispulse.com/self-host. An update alone is not "
+            "enough if it still holds user data from before that date — it will deliberately "
+            "refuse to start and tell you so.",
         ),
     ),
     ("anmeldeweg", "keine_auskunft"): (

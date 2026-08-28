@@ -178,6 +178,14 @@ async def lifespan(app: FastAPI):
             "Set PULSE_INSTANCE_ID in your .env file to the Snowflake-ID assigned "
             "by the Cloud at approval time."
         )
+    # Fail-fast: Daten aus der Pseudonym-Zeit. Ein Self-Host aktualisiert sich
+    # unbeaufsichtigt alle fuenf Minuten; ohne diesen Riegel liefe er nach dem
+    # Update still halb kaputt an. Details in ``altbestand_riegel``.
+    if not getattr(app.state, "skip_redis", False) and settings.pulse_instance_mode == "self-host":
+        from dcc_chat_gateway.altbestand_riegel import pruefe_altbestand
+        from dcc_chat_gateway.db import SessionLocal
+
+        await pruefe_altbestand(SessionLocal)
     # Fail-fast: der .env.example-Platzhalter ist öffentlich bekannt — damit zu
     # starten hieße, die internen Service-zu-Service-Endpoints mit einem
     # allgemein bekannten "Secret" zu schützen. Leer = deaktiviert, ok.
@@ -258,12 +266,12 @@ async def lifespan(app: FastAPI):
         remote_audit = asyncio.create_task(
             remote_perm_audit_loop(manager), name="dcc-remote-perm-audit"
         )
-        # CRL poller — fetches revoked-cert list from Cloud every 30 s.
-        # Without this task the ``auth:revoked:certs`` Redis set stays empty
-        # in prod and revoked certs would pass validation (security hole).
+        # JWKS-Poller — holt die oeffentlichen Cloud-Schluessel alle 30 s.
+        # Ohne sie kann ein Self-Host kein Serverticket pruefen; faellt der
+        # Abruf aus, bleibt der letzte bekannte Stand stehen (fail-open).
         jwks_poller = asyncio.create_task(
             jwks_poller_loop(redis, settings.pulse_cloud_origin),
-            name="dcc-crl-poller",
+            name="dcc-jwks-poller",
         )
         # Sperr-Poller — erfaehrt, wenn die Cloud DIESE Instanz gesperrt oder
         # geloescht hat. Nur im Self-Host-Modus: in der Cloud gibt es niemanden,

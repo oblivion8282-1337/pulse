@@ -1,11 +1,10 @@
 """Neuntes Glied: Spricht dieser Server schon den Ticket-Weg?
 
 Es ist **kein Erreichbarkeitsglied**. Ein Server kann tadellos laufen und
-trotzdem noch den Zertifikats-Weg fahren; das ist während der Übergangszeit
-völlig in Ordnung. Der Schritt beantwortet die Frage, die sonst niemand ohne
-Anmeldung beantworten kann — und liefert die Zahl, an der das Tor zwischen
-Phase 2 und Phase 3 des Umbaus hängt: Solange auch nur eine Instanz noch auf
-dem alten Weg anmeldet, wird nichts gelöscht.
+trotzdem zu alt sein. Seit dem 2026-08-28 ist das kein Übergangszustand mehr,
+sondern ein Mangel: Es gibt nur noch den Ticket-Weg, ein Server ohne diese
+Fähigkeit nimmt niemanden mehr auf. Der Schritt sagt dem Betreiber genau das —
+und zwar ohne Anmeldung, also auch dann, wenn gerade niemand hereinkommt.
 
 Warum die öffentliche Auskunft und nicht der ``hello``-Rahmen
 -------------------------------------------------------------
@@ -69,8 +68,6 @@ async def pruefe_anmeldeweg(klient: httpx.AsyncClient, ziel: Ziel) -> Schritt:
     if FAEHIGKEIT_TICKET in faehigkeiten:
         return Schritt("anmeldeweg", True, "ticket_weg")
 
-    # Ein älterer Server nennt die Fähigkeit nicht (das Feld war bis zum
-    # 2026-08-28 immer leer). Während der Übergangszeit ist das KEIN Mangel,
-    # deshalb ``ok=True`` — ein Fehlalarm triebe Betreiber dazu, an einem Server
-    # herumzuschrauben, an dem nichts fehlt.
-    return Schritt("anmeldeweg", True, "zertifikats_weg")
+    # Ein Server ohne diese Fähigkeit ist zu alt. Das IST ein Mangel — er nimmt
+    # niemanden mehr auf —, deshalb ``ok=False``.
+    return Schritt("anmeldeweg", False, "zu_alt")

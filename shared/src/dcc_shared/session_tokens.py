@@ -209,12 +209,12 @@ def issue_session_token(
     (self-host) or direct user_id (cloud mode). ``admin`` marks the instance
     owner (see cert-login owner-match) so the session carries admin rights.
 
-    ``ttl_seconds`` ist eine Vorgabe, keine Konstante, weil zwei Anmeldewege
-    nebeneinander laufen: Der Cert-Weg behaelt seine fuenf Minuten — sie waren
-    die Antwort auf die Zertifikats-Sperrliste, und die gibt es dort noch. Der
-    Ticket-Weg hat keine Sperrliste mehr und setzt eine Stunde; bei fuenf
-    Minuten bliebe der stille Wiederanmelde-Sturm bestehen, gegen den der
-    Ticket-Weg gebaut wurde.
+    ``ttl_seconds`` ist ein Parameter, weil die Frist eine Entscheidung der
+    aufrufenden Route ist und nicht dieses Moduls: Sie waegt Bann-Nachlauf gegen
+    Wiederanmelde-Last ab (Begruendung in ``session_ticket.SITZUNGSDAUER_S``).
+    Der Vorgabewert stammt aus der Zeit des Gerätezertifikats, als eine kurze
+    Frist die Antwort auf die Sperrliste war; heute setzt der einzige Aufrufer
+    ihn ohnehin selbst.
     """
     priv, _ = _get_keys(key_path)
     now = int(time.time())

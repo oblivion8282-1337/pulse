@@ -217,7 +217,6 @@ async def delete_me(
         await soft_delete_instance(session, inst)
     deleted_instance_ids = [inst.id for inst in owned_instances]
 
-    # Geräte-Zertifikate widerrufen, BEVOR die User-Zeile fällt. Der FK
     # Geräte-Zertifikate gibt es seit dem 2026-08-28 nicht mehr. Hier stand
     # deshalb ein Widerruf samt Grabstein: Ein Zertifikat lebte bis zu 365 Tage
     # und war nach dem Löschen des Kontos nicht mehr zurückzuziehen, weil
@@ -244,11 +243,6 @@ async def delete_me(
     )
 
     await session.commit()
-
-    # Erst nach dem Commit in die Redis-Sperrliste: ein Rollback (etwa an der
-    # Instanz-Soft-Löschung) darf keinen Widerruf melden, den es nicht gibt.
-    # Bleibt Redis stumm, trägt der Grabstein — der CRL-Endpunkt füllt ein
-    # leeres ZSET aus der Datenbank nach.
 
     # Kill-Switch-Cache für gelöschte Instanzen invalidieren (nach dem Commit,
     # analog delete_my_instance): ein noch laufender Container sieht sich beim

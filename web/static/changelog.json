@@ -6,14 +6,15 @@
       "date": "2026-08-28",
       "style": "Sachlich",
       "title": "Anmeldung an eigenen Servern ohne Geräte-Ausweis",
-      "intro": "Bisher legte dein Browser dafür einen dauerhaften Ausweis an. Das entfällt.",
+      "intro": "Bisher legte dein Browser dafür einen dauerhaften Ausweis an. Das entfällt — mit einer Folge für Betreiber eigener Server.",
       "items": [
         "Beim Anmelden an einem Server, der nicht in der Pulse-Cloud liegt, holt die App jetzt einen kurzlebigen Ausweis für genau diesen Server. In deinem Browser bleibt nichts Dauerhaftes mehr liegen.",
         "Damit sind mehrere Geräte und mehrere Browser selbstverständlich. Der Ausweis eines Geräts kann keinem anderen mehr im Weg stehen.",
         "Schlägt eine Anmeldung fehl, steht jetzt der Grund da und was du tun kannst — statt „Anmeldung abgelaufen oder Server nicht erreichbar“ für jede denkbare Ursache.",
-        "Wichtig: Das gilt je Server erst, wenn dessen Betreiber das Update eingespielt hat. Bis dahin ändert sich für dich dort nichts. Die Server holen es sich von selbst.",
-        "Für Betreiber: Die Erreichbarkeitsprüfung zeigt jetzt zusätzlich an, welchen Anmeldeweg ein Server bereits beherrscht.",
-        "Wer sich an einem fremden Server anmeldet, gibt dessen Betreiber künftig seine Pulse-Kontokennung preis. Der neue Abschnitt 20 der Datenschutzerklärung erklärt, was das bedeutet."
+        "Wichtig für Betreiber eigener Server: Der frühere Anmeldeweg ist ersatzlos entfallen. Ein Server, der noch auf dem alten Stand läuft, nimmt niemanden mehr auf, und ein Update allein genügt nicht — er muss neu aufgesetzt werden. Er sagt dir das beim Start und startet bis dahin nicht, statt halb zu funktionieren.",
+        "Die Erreichbarkeitsprüfung zeigt jetzt zusätzlich an, ob ein Server den aktuellen Anmeldeweg beherrscht.",
+        "Wer sich an einem fremden Server anmeldet, gibt dessen Betreiber künftig seine Pulse-Kontokennung preis. Der neue Abschnitt 20 der Datenschutzerklärung erklärt, was das bedeutet.",
+        "Die Geräteliste in den Einstellungen ist entfallen. Ihre Aufgabe erfüllt jetzt die Liste der aktiven Sitzungen: Wer dort eine Sitzung beendet, entzieht damit auch den Zugang zu eigenen Servern — dort spätestens nach einer Stunde."
       ]
     },
     {

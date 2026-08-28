@@ -24,23 +24,17 @@ import type { Ablehnungscode } from './anmelde-fehler-codes';
 
 const letzterGrund = new Map<string, Ablehnungscode>();
 
-/** Gründe des Zertifikats-Wegs auf dieselben Codes abbilden.
+/** Ältere Gründe auf die heutigen Codes abbilden.
  *
- *  Der alte Weg lebt während der Übergangszeit weiter, und seine Nutzer
- *  verdienen dieselbe Auskunft. Was keine Entsprechung hat (`no-cert`,
- *  `no-keypair`, `cert-invalid`), bleibt bewusst offen — dort ist die Meldung
- *  „Ausweis wurde abgelehnt" richtig, und die kommt aus `ticket_invalid`. */
-const CERT_GRUND_ZU_CODE: Record<string, Ablehnungscode> = {
+ *  Der Zertifikats-Weg ist entfallen; diese Tabelle bleibt nur für Gründe, die
+ *  weiterhin von woanders kommen können (`network`) oder in einem alten
+ *  Zustand im Speicher liegen. Sie ist ausdrücklich KEIN Beleg dafür, dass es
+ *  noch einen zweiten Anmeldeweg gäbe. */
+const ALTE_GRUENDE_ZU_CODE: Record<string, Ablehnungscode> = {
   network: 'network',
   'join-closed': 'join_locked',
   'join-requires-invite': 'join_not_permitted',
   'instance-banned': 'instance banned',
-  'cert-invalid': 'ticket_invalid',
-  'no-cert': 'ticket_invalid',
-  'no-keypair': 'ticket_invalid',
-  'signature-invalid': 'ticket_invalid',
-  'challenge-expired': 'ticket_expired',
-  'rate-limited': 'ticket_expired',
 };
 
 export function merkeGrund(serverId: string, code: string): void {
@@ -48,7 +42,7 @@ export function merkeGrund(serverId: string, code: string): void {
     letzterGrund.set(serverId, code);
     return;
   }
-  const abgebildet = CERT_GRUND_ZU_CODE[code];
+  const abgebildet = ALTE_GRUENDE_ZU_CODE[code];
   if (abgebildet) letzterGrund.set(serverId, abgebildet);
 }
 

@@ -15,20 +15,8 @@ import { cookieFetch } from './cookie-client';
 // Typen
 // ---------------------------------------------------------------------------
 
-export interface CredentialDevice {
-  cert_id: string;
-  device_label: string;
-  issued_at: string;
-  expires_at: string;
-}
 
-export interface CredentialListResponse {
-  devices: CredentialDevice[];
-}
 
-export interface CredentialIssueResponse {
-  cert: string;
-}
 
 export interface ProfileStatementResponse {
   token: string;
@@ -62,43 +50,6 @@ export interface UsernameChangeResponse {
 // Öffentliche API-Funktionen
 // ---------------------------------------------------------------------------
 
-/**
- * Stellt ein neues Identitäts-Cert aus (oder gibt idempotent das bestehende zurück).
- *
- * @param pubkey - Base64URL-kodierter Ed25519-Public-Key (32 Bytes)
- * @param label  - Gerätebeschriftung (max. 64 Zeichen)
- * @param acr_values - Optional: `"mfa"` für Step-Up-Auth
- */
-export async function issueCert(
-  pubkey: string,
-  label: string,
-  acr_values?: string
-): Promise<CredentialIssueResponse> {
-  return cookieFetch<CredentialIssueResponse>('/credentials/issue', {
-    method: 'POST',
-    body: {
-      device_pubkey: pubkey,
-      device_label: label,
-      ...(acr_values ? { acr_values } : {})
-    }
-  });
-}
-
-/**
- * Listet alle aktiven (nicht-revokierten, nicht-abgelaufenen) Certs des Users.
- */
-export async function listCerts(): Promise<CredentialListResponse> {
-  return cookieFetch<CredentialListResponse>('/credentials/list');
-}
-
-/**
- * Revokiert ein einzelnes Cert (z.B. Gerät abmelden).
- *
- * @param certId - UUID-String des Certs
- */
-export async function revokeCert(certId: string): Promise<void> {
-  return cookieFetch<void>(`/credentials/${certId}/revoke`, { method: 'POST' });
-}
 
 /**
  * Holt das aktuelle Profile-Statement JWT (24h-Gültigkeit).

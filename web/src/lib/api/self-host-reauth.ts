@@ -92,13 +92,11 @@ async function nachAnmeldung(
  * Fehlersuche, was zu tun ist.
  */
 async function ueberTicket(serverId: string, server: ServerEntry): Promise<string | null> {
-  if (!server.instance_id) {
-    // Ohne Instanz-Kennung gibt es kein `aud` — der Server ist nur über den
-    // alten Weg erreichbar. Kein Fehler, sondern ein Rückfall.
-    return null;
-  }
   try {
-    const ticket = await holeTicket(server.instance_id);
+    // Hostname, nicht Kennung: Die Cloud löst auf. Den Server selbst zu fragen
+    // hiesse, einem womöglich bösartigen Host die Wahl zu lassen, für WEN das
+    // Ticket ausgestellt wird.
+    const { ticket } = await holeTicket(server.hostname);
     const sitzung = await loeseTicketEin(server.hostname, ticket);
     sessionTokens.set(serverId, sitzung.session_token, Date.now() + sitzung.expires_in * 1000);
     return sitzung.session_token;

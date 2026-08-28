@@ -20,7 +20,7 @@ import { instancesApi } from './instances';
 import { persistDisclaimerAck } from './disclaimer-ack';
 import { serversStore, type ServerEntry } from './servers.svelte';
 import { sessionTokens } from './session_tokens.svelte';
-import { holeServerInfo, holeTicket, loeseTicketEin, TicketFehler } from './server-ticket';
+import { holeTicket, loeseTicketEin } from './server-ticket';
 import { MELDUNGSSCHLUESSEL, istAblehnungscode } from './anmelde-fehler-codes';
 import type { AcceptInviteResult, InvitePreview } from './types';
 
@@ -91,22 +91,16 @@ export async function addServerWithCertLogin(args: {
 }): Promise<AddServerSuccess> {
   const entry = serversStore.add(args.hostname, args.label, args.instanceId);
 
-  // Erstkontakt über das Ticket. Der Server nennt seine Kennung öffentlich
-  // (`/.well-known/pulse-server-info`) — ohne diesen Schritt wüsste die Cloud
-  // nicht, für WEN sie das Ticket ausstellen soll. Die Invite- und
-  // Public-Join-Pfade kennen die Kennung beim `add()` nämlich nicht; nur der
-  // AddServerDialog hat sie aus dem Pre-Check.
-  //
-  // Die Auskunft ist unbeglaubigt und muss es nicht sein: Ein Ticket mit
-  // falschem `aud` weist der Server selbst ab. Ein Host kann sich damit nicht
-  // die Identität eines anderen erschleichen.
-  let instanzId: string;
+  // Erstkontakt über das Ticket. Der Klient nennt der Cloud den HOSTNAMEN und
+  // lässt sie die Instanz auflösen — er fragt den fremden Server NICHT nach
+  // seiner Kennung. Täte er das, könnte ein bösartiger Host die Kennung eines
+  // anderen Servers melden, ein darauf ausgestelltes Ticket entgegennehmen und
+  // es dort einlösen.
   let sitzung;
+  let instanzId: string;
   try {
-    const info = await holeServerInfo(args.hostname);
-    if (!info.instance_id) throw new TicketFehler('ticket_wrong_audience');
-    instanzId = info.instance_id;
-    const ticket = await holeTicket(instanzId);
+    const { ticket, instanceId } = await holeTicket(args.hostname);
+    instanzId = instanceId;
     sitzung = await loeseTicketEin(args.hostname, ticket, {
       communityGrantCode: args.communityGrantCode,
       publicJoinHandle: args.publicJoinHandle,
@@ -120,18 +114,17 @@ export async function addServerWithCertLogin(args: {
 
   sessionTokens.set(entry.id, sitzung.session_token, Date.now() + sitzung.expires_in * 1000);
   serversStore.update(entry.id, {
+    je_verbunden: true,
     // Ohne die Kennung kann der Sweep gelöschter Instanzen
     // (deleted-instance-sweep.ts) den Eintrag nicht zuordnen.
     ...(entry.instance_id == null ? { instance_id: instanzId } : {}),
-    je_verbunden: true,
   });
-  const result = { instance_id: instanzId };
 
   // Cloud-Membership eintragen, damit dieser Self-Host-Server auch im Browser /
   // auf anderen Geräten in der Server-Liste (``GET /me/instances``) auftaucht.
   // Best-effort: ein Fehler darf das Hinzufügen NICHT abbrechen (der Server
   // läuft lokal weiter, der nächste Reauth-Backfill holt es nach).
-  const instanceId = result.instance_id ?? args.instanceId ?? entry.instance_id;
+  const instanceId = instanzId ?? args.instanceId ?? entry.instance_id;
   if (instanceId) {
     void instancesApi.joinInstanceMembership(instanceId).catch(() => undefined);
   }

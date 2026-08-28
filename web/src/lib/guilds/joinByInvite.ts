@@ -15,7 +15,7 @@ import {
   selfHostContactConfirmed,
   markSelfHostContactConfirmed,
 } from '$lib/api/add-server-flow';
-import { holeServerInfo, holeTicket, loeseTicketEin } from '$lib/api/server-ticket';
+import { holeTicket, loeseTicketEin } from '$lib/api/server-ticket';
 
 /**
  * Meldet sich an einem bereits bekannten Self-Host neu an — mit einem Zugang.
@@ -29,13 +29,12 @@ async function anmeldenMitZugang(
   server: { id: string; hostname: string; instance_id?: string | null },
   zugang: { communityGrantCode?: string; publicJoinHandle?: string },
 ): Promise<string | null> {
-  const info = await holeServerInfo(server.hostname);
-  const instanzId = info.instance_id ?? server.instance_id ?? null;
-  if (!instanzId) return null;
-  const ticket = await holeTicket(instanzId);
+  // Hostname, nicht Kennung — die Cloud loest auf. Den fremden Server danach zu
+  // fragen waere die Luecke, gegen die dieser Weg gebaut ist.
+  const { ticket, instanceId } = await holeTicket(server.hostname);
   const sitzung = await loeseTicketEin(server.hostname, ticket, zugang);
   sessionTokens.set(server.id, sitzung.session_token, Date.now() + sitzung.expires_in * 1000);
-  return instanzId;
+  return instanceId;
 }
 import { instancesApi } from '$lib/api/instances';
 import { sessionTokens } from '$lib/api/session_tokens.svelte';

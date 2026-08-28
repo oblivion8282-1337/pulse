@@ -3013,5 +3013,7 @@
   "anmeldung_gesperrt": "You are banned on this server. Only the operator can lift that.",
   "anmeldung_instanz_gesperrt": "This server is currently suspended. Its operator can find the reason in their Pulse account.",
   "anmeldung_instanz_geloescht": "This server was deleted. Remove it from your server list.",
-  "anmeldung_netzfehler": "The server cannot be reached right now. Check your connection; if the problem persists, the operator can run a reachability check."
+  "anmeldung_netzfehler": "The server cannot be reached right now. Check your connection; if the problem persists, the operator can run a reachability check.",
+  "anmeldung_server_speicher": "The server cannot reach its cache right now and is refusing sign-ins. This usually passes; if it persists, the operator needs to check that Redis is running.",
+  "anmeldung_server_ohne_kennung": "This server is missing its own identifier. The operator needs to set PULSE_INSTANCE_ID in the configuration file and restart the server."
 }
