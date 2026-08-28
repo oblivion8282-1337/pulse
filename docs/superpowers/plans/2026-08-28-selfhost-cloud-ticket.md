@@ -440,17 +440,19 @@ Die Feldnamen sind geprüft (`models.py::User`): `username`, `avatar_hash`, `pai
 
 - [ ] **Schritt 5: Ratenlimit setzen**
 
-Die Spec verlangt den Ratenschutz **hier**, im auth-svc, wo `slowapi` schon läuft (`routes.py:75`, `limiter = Limiter(key_func=get_remote_address, default_limits=[])`). Das ist der Gewinn gegenüber heute: Der Cert-Weg musste sich im chat-gateway einen eigenen In-Prozess-Zähler halten, weil dort kein Begrenzer existiert.
+Die Spec verlangt den Ratenschutz **hier**, im auth-svc — er ist der einzige der beiden Dienste, der einen Begrenzer führt. Das ist der Gewinn gegenüber heute: Der Cert-Weg musste sich im chat-gateway einen eigenen In-Prozess-Zähler halten, weil dort keiner existiert.
 
-`limiter` aus `dcc_auth.routes` importieren und die Route dekorieren:
+**Nicht der `slowapi`-Dekorator.** `Limiter` ist zwar importiert (`routes.py:75`), das tatsächliche Limit läuft aber über `_check_rate()` — ein gleitendes Fenster im Prozess. Der Kommentar an Ort und Stelle nennt den Grund: slowapis Starlette-Middleware hängt an globalem Zustand und macht die Testisolierung unbrauchbar.
 
 ```python
-from dcc_auth.routes import limiter
+from dcc_auth.routes import _check_rate
 
-@router.post("/me/server-ticket", response_model=TicketAus)
-@limiter.limit("60/minute")
-async def server_ticket(...):
+await _check_rate(
+    request, "server_ticket", settings.rate_limit_server_ticket, account=str(user.id)
+)
 ```
+
+Dazu `rate_limit_server_ticket: str = "60/minute"` in `config.py`, bei den übrigen `rate_limit_*`.
 
 60 pro Minute und IP: Ein Ticket gilt 60 s, und ein Nutzer mit mehreren Geräten und Tabs hinter einer NAT-Adresse holt in der Spitze mehrere pro Minute. Der frühere Wert am Cert-Weg war zu knapp gewählt (10) und musste auf 30 nachgezogen werden, nachdem er echte Anmeldungen abwies — hier von vornherein grosszügiger, weil die Route eine bestehende Cloud-Anmeldung voraussetzt und damit kein anonymes Ziel ist.
 
