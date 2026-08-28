@@ -328,11 +328,14 @@ async function postfachZyklus(): Promise<Message[]> {
   return geoeffnet;
 }
 
-/** Nur EIN Abholzyklus gleichzeitig (Bughunt 2026-08-28, FIX 3) —
- *  `postfach_neu` (`ws/handlers/chat.ts`) startet je Weckruf einen neuen
- *  Aufruf ohne eigene Wache; treffen mehrere kurz hintereinander ein, haengt
- *  sich jeder weitere nur an den bereits laufenden Zyklus an, statt
- *  denselben Bestand ein zweites Mal, unabhaengig, zu oeffnen. */
+/** Nur EIN Abholzyklus gleichzeitig (Bughunt 2026-08-28, FIX 3) — zwei
+ *  Ausloeser koennen kurz hintereinander (oder gleichzeitig) eintreffen:
+ *  `postfach_neu` (`ws/handlers/chat.ts`, je Weckruf) und `ready`
+ *  (`ws/handlers/ready.ts`, Bughunt-Runde 3 FIX 1 — jeder Connect/Reconnect).
+ *  Keiner der beiden Aufrufer haelt eine eigene Wache; treffen mehrere kurz
+ *  hintereinander ein, haengt sich jeder weitere nur an den bereits
+ *  laufenden Zyklus an, statt denselben Bestand ein zweites Mal, unabhaengig,
+ *  zu oeffnen. */
 let laufenderZyklus: Promise<Message[]> | null = null;
 
 /**
