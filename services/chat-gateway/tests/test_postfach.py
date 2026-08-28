@@ -30,6 +30,21 @@ def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
 
+def _b64_unpadded(data: bytes) -> str:
+    """Wie der Krypto-Kern kodiert (vodozemacs ``STANDARD_NO_PAD``, s.
+    Modul-Docstring von ``krypto/pulse-krypto``) — OHNE Fuellzeichen.
+
+    Bughunt 2026-08-28, FIX 2: alle bisherigen ``daten``-Werte dieser Datei
+    kamen aus Pythons EIGENEM, gepolstertem ``base64.b64encode`` — und trafen
+    dabei zufaellig immer eine Byte-Laenge, die durch drei teilbar ist (bei
+    ``b"olm-umschlag"`` und der 36 Byte langen Grossnutzlast), also nie einen
+    Fall, in dem Padding ueberhaupt fehlt. Ein Test, der seine Eingabe selbst
+    (falsch) erzeugt, prueft nur die eigene Kodierung, nie die der
+    Gegenseite — genau diese Kodierung erzeugt jetzt EHRLICH unpolsterte
+    Nutzlasten, wie sie der Klient wirklich schickt."""
+    return base64.b64encode(data).rstrip(b"=").decode()
+
+
 def _jwks_json() -> str:
     nums = _RSA_KEY.public_key().public_numbers()
 
@@ -268,7 +283,10 @@ async def test_einliefern_legt_je_empfaenger_eine_zustellung_an(
     for i in range(3):
         await _bundel_seeden(session_factory, user_id=uid_b, device_pubkey=f"empf-{i}")
 
-    daten = base64.b64encode(b"olm-umschlag").decode()
+    # UNPOLSTERTE Kodierung + eine Byte-Laenge, die NICHT durch drei teilbar
+    # ist (13 Bytes) — der einzige Fall, in dem der Nachweis eines fehlenden
+    # ``+= "=="`` in ``_envelope_groesse`` ueberhaupt greifen kann (FIX 2).
+    daten = _b64_unpadded(b"olm-umschlag1")
     r = await _einliefern(
         client, app, token=token_a, uid=uid_a, channel_id=dm_id,
         nutzlasten=[{
@@ -286,6 +304,10 @@ async def test_einliefern_legt_je_empfaenger_eine_zustellung_an(
         nutzlasten = (await s.execute(select(DmNutzlast))).scalars().all()
         zustellungen = (await s.execute(select(DmZustellung))).scalars().all()
         assert len(nutzlasten) == 1
+        # Die unpolsterte Eingabe muss trotzdem auf die ECHTE Byte-Laenge
+        # decodieren — nur so entlarvt dieser Test einen fehlenden
+        # Polsterungs-Nachtrag in ``_envelope_groesse`` (FIX 2).
+        assert nutzlasten[0].groesse == len(b"olm-umschlag1")
         assert len(zustellungen) == 3
         assert {z.empfaenger_device_pubkey for z in zustellungen} == {
             "empf-0", "empf-1", "empf-2",
@@ -325,7 +347,11 @@ async def test_zu_grosser_umschlag_wird_abgewiesen(
     dm_id = await _dm_erstellen(client, token_a, uid_b)
     await _bundel_seeden(session_factory, user_id=uid_b, device_pubkey="empf-gross")
 
-    daten = base64.b64encode(b"das ist deutlich mehr als vier bytes").decode()
+    # Unpolstert und eine Byte-Laenge, die NICHT durch drei teilbar ist —
+    # dieselbe Begruendung wie beim Accept-Fall oben (FIX 2): nur dann
+    # deckt dieser Test einen fehlenden Polsterungs-Nachtrag in
+    # ``_envelope_groesse`` ueberhaupt auf.
+    daten = _b64_unpadded(b"das ist deutlich mehr als vier bytes!")
     r = await _einliefern(
         client, app, token=token_a, uid=uid_a, channel_id=dm_id,
         nutzlasten=[{"art": 1, "daten": daten, "empfaenger": ["empf-gross"]}],
@@ -544,6 +570,31 @@ async def test_zu_viele_empfaenger_je_nutzlast_wird_abgelehnt(client, app, _auth
         headers=_auth(token_a),
     )
     assert r.status_code == 422, r.text
+
+
+def test_envelope_groesse_verlangt_den_polsterungs_nachtrag() -> None:
+    """FIX 2 (Bughunt 2026-08-28). Ein direkter Nachweis auf
+    ``_envelope_groesse`` selbst — nicht ueber die Route —, weil genau HIER
+    der Fehler sass, den die uebrigen Tests dieser Datei nie sehen konnten:
+    sie bauen ihre ``daten`` alle mit Pythons EIGENEM, GEPOLSTERTEM
+    ``b64encode`` (statt dem unpolsterten ``STANDARD_NO_PAD`` des
+    Krypto-Kerns, s. Modul-Docstring ``krypto/pulse-krypto``) und trafen
+    dabei zufaellig immer eine Byte-Laenge, die durch drei teilbar ist —
+    also nie einen Fall, in dem ueberhaupt Padding fehlt.
+
+    **Gegenprobe tatsaechlich gefahren:** den Anhang ``+ "=="`` in
+    ``_envelope_groesse`` (``routes/postfach.py``) entfernt, nur diesen
+    Test laufen lassen -> rot (``binascii.Error: Incorrect padding``);
+    Anhang wiederhergestellt -> wieder gruen, und die restlichen 20 Tests
+    dieser Datei blieben in BEIDEN Laeufen gruen, wie vom Hunter behauptet.
+    """
+    from dcc_chat_gateway.routes.postfach import _envelope_groesse
+
+    roh = b"ein umschlag, der nicht durch drei teilbar ist"
+    assert len(roh) % 3 != 0  # sonst entstuende gar kein Padding, s. o.
+    unpolstert = base64.b64encode(roh).rstrip(b"=").decode()
+
+    assert _envelope_groesse(unpolstert) == len(roh)
 
 
 # ---------------------------------------------------------------------------
