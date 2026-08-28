@@ -86,11 +86,63 @@ mod tests {
     }
 
     #[test]
-    fn fremde_sitzung_entschluesselt_nicht() {
+    fn eingehender_sitzungsaufbau_mit_falschem_absenderschluessel_schlaegt_fehl() {
+        // Name korrigiert (Bughunt 2026-08-28): geprueft wird der Sitzungs-
+        // AUFBAU, nicht das Entschluesseln mit einer fremden Sitzung — der
+        // alte Name behauptete Letzteres. `sitzung_eingehend` prueft den
+        // mitgegebenen Absenderschluessel gegen den, der im Sitzungsaufbau
+        // (PreKey) selbst steckt (X3DH); ein falscher Absenderschluessel
+        // laesst schon DIESEN Schritt scheitern, es entsteht gar keine
+        // Sitzung, an der man ueberhaupt entschluesseln koennte.
         let (_, _, _, erster) = paar();
         let mut fremd = Identitaet::neu();
         let alice2 = Identitaet::neu();
         assert!(fremd.sitzung_eingehend(&alice2.schluessel().curve25519, &erster).is_err());
+    }
+
+    #[test]
+    fn manipulierter_geheimtext_wird_abgelehnt() {
+        // Olm-Nachrichten tragen ein MAC — ein gekipptes Bit muss beim
+        // Entschluesseln auffliegen, nicht stillschweigend falschen
+        // Klartext liefern. Per Sonde nachgewiesen (Bughunt 2026-08-28),
+        // aber bislang ohne Test — ein vodozemac-Versionswechsel koennte
+        // das lautlos verschweigen.
+        let (alice, mut bob, mut alice_sitzung, erster) = paar();
+        let (mut bob_sitzung, _) = bob
+            .sitzung_eingehend(&alice.schluessel().curve25519, &erster)
+            .expect("eingehende Sitzung");
+
+        let mut manipuliert =
+            alice_sitzung.verschluesseln(b"unversehrt").expect("verschluesseln");
+        let mut bytes = vodozemac::base64_decode(&manipuliert.daten).expect("base64");
+        let letztes_byte = bytes.len() - 1;
+        bytes[letztes_byte] ^= 0xFF;
+        manipuliert.daten = vodozemac::base64_encode(&bytes);
+
+        assert!(bob_sitzung.entschluesseln(&manipuliert).is_err());
+    }
+
+    #[test]
+    fn wiedereingespielte_nachricht_wird_abgelehnt() {
+        // Dieselbe laufende Nachricht ein zweites Mal vorgelegt darf nicht
+        // wieder denselben Klartext liefern — der Ratchet ist nach dem
+        // ersten Entschluesseln bereits weitergedreht. Per Sonde
+        // nachgewiesen (Bughunt 2026-08-28), aber bislang ohne Test.
+        let (alice, mut bob, mut alice_sitzung, erster) = paar();
+        let (mut bob_sitzung, _) = bob
+            .sitzung_eingehend(&alice.schluessel().curve25519, &erster)
+            .expect("eingehende Sitzung");
+
+        let nachricht =
+            alice_sitzung.verschluesseln(b"nur einmal gueltig").expect("verschluesseln");
+        assert_eq!(
+            bob_sitzung.entschluesseln(&nachricht).expect("erstes Mal"),
+            b"nur einmal gueltig"
+        );
+        assert!(
+            bob_sitzung.entschluesseln(&nachricht).is_err(),
+            "ein Wiedereinspielen haette abgelehnt werden muessen"
+        );
     }
 
     #[test]
