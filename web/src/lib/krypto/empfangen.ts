@@ -3,7 +3,9 @@
  * Task 3 der Etappe D2 (`docs/superpowers/plans/2026-08-28-etappe-d2-klient-
  * verschluesselt.md`).
  *
- * Ablauf je Zustellung:
+ * Ablauf je Zustellung, unter `mitSitzungssperre` (Bughunt 2026-08-28,
+ * FIX 3, s. `sitzungen.ts` Modulkopf — schuetzt gegen einen gleichzeitigen
+ * Sendeversuch oder eine zweite Abholung auf derselben Sitzung):
  *
  *  1. Sitzung laden. Gibt es noch keine UND ist es ein Sitzungsaufbau
  *     (`art === 0`), ueber `sitzungEingehend` eine neue anlegen — der
@@ -41,7 +43,12 @@ import { directMessages } from '../stores/directMessages.svelte';
 import { verlaufSpeichern } from '../verlauf';
 import { postfachApi, type PostfachZustellung } from '../api/postfach';
 import { kryptoAccountLaden } from './account.svelte';
-import { sitzungLaden, sitzungSichern, sitzungMitKontoAtomarSichern } from './sitzungen';
+import {
+  sitzungLaden,
+  sitzungSichern,
+  sitzungMitKontoAtomarSichern,
+  mitSitzungssperre
+} from './sitzungen';
 import { baueNutzlast } from './nutzlast';
 import { signiereNutzlast } from './nachweis';
 import { absenderErmitteln } from './absenderErmitteln';
@@ -63,53 +70,50 @@ async function zustellungOeffnen(
   );
   if (!absenderUserId) return null;
 
-  try {
-    let sitzung = await sitzungLaden(z.channel_id, z.absender_device_pubkey);
-    let klartextBytes: Uint8Array;
+  return mitSitzungssperre(z.channel_id, z.absender_device_pubkey, async () => {
+    try {
+      let sitzung = await sitzungLaden(z.channel_id, z.absender_device_pubkey);
+      let klartextBytes: Uint8Array;
 
-    if (sitzung) {
-      klartextBytes = sitzung.entschluesseln(new Umschlag(z.art, z.daten));
-      // Sichern VOR dem Quittieren — s. Modulkopf.
-      await sitzungSichern(z.channel_id, z.absender_device_pubkey, sitzung);
-    } else {
-      if (z.art !== 0 || z.absender_curve25519 === null) {
-        // Laufende Nachricht ohne bekannte Sitzung, oder Sitzungsaufbau
-        // ohne Identitaetsschluessel — nicht zu oeffnen, liegen lassen.
-        return null;
+      if (sitzung) {
+        klartextBytes = sitzung.entschluesseln(new Umschlag(z.art, z.daten));
+        // Sichern VOR dem Quittieren — s. Modulkopf.
+        await sitzungSichern(z.channel_id, z.absender_device_pubkey, sitzung);
+      } else {
+        if (z.art !== 0 || z.absender_curve25519 === null) {
+          // Laufende Nachricht ohne bekannte Sitzung, oder Sitzungsaufbau
+          // ohne Identitaetsschluessel — nicht zu oeffnen, liegen lassen.
+          return null;
+        }
+        const ergebnis = ident.sitzungEingehend(
+          z.absender_curve25519,
+          new Umschlag(z.art, z.daten)
+        );
+        sitzung = ergebnis.sitzung();
+        klartextBytes = ergebnis.klartext();
+        // ATOMAR mit dem Konto sichern — s. Modulkopf.
+        await sitzungMitKontoAtomarSichern(ident, z.channel_id, z.absender_device_pubkey, sitzung);
       }
-      const ergebnis = ident.sitzungEingehend(
-        z.absender_curve25519,
-        new Umschlag(z.art, z.daten)
-      );
-      sitzung = ergebnis.sitzung();
-      klartextBytes = ergebnis.klartext();
-      // ATOMAR mit dem Konto sichern — s. Modulkopf.
-      await sitzungMitKontoAtomarSichern(ident, z.channel_id, z.absender_device_pubkey, sitzung);
-    }
 
-    return {
-      // Snowflake der Zustellung: digit-only wie ein echter Server-
-      // Snowflake, sortiert also im lokalen Verlauf korrekt nach Zeit.
-      id: z.id,
-      channel_id: z.channel_id,
-      author_id: absenderUserId,
-      content: new TextDecoder().decode(klartextBytes),
-      nonce: null,
-      created_at: new Date().toISOString()
-    };
-  } catch {
-    // Entschluesseln fehlgeschlagen (fremde/kaputte Sitzung, korrupter
-    // Umschlag) — NICHT quittieren, s. Modulkopf.
-    return null;
-  }
+      return {
+        // Snowflake der Zustellung: digit-only wie ein echter Server-
+        // Snowflake, sortiert also im lokalen Verlauf korrekt nach Zeit.
+        id: z.id,
+        channel_id: z.channel_id,
+        author_id: absenderUserId,
+        content: new TextDecoder().decode(klartextBytes),
+        nonce: null,
+        created_at: new Date().toISOString()
+      };
+    } catch {
+      // Entschluesseln fehlgeschlagen (fremde/kaputte Sitzung, korrupter
+      // Umschlag) — NICHT quittieren, s. Modulkopf.
+      return null;
+    }
+  });
 }
 
-/**
- * Holt alle offenen Zustellungen dieses Geraets ab, entschluesselt was sich
- * oeffnen laesst, legt es im lokalen Verlauf ab und quittiert erst danach.
- * Gibt die geoeffneten Nachrichten zurueck (fuer die sofortige Anzeige).
- */
-export async function postfachAbholenUndEntschluesseln(): Promise<Message[]> {
+async function postfachZyklus(): Promise<Message[]> {
   const keypair = await loadKeypair();
   const cert = certStore.cert;
   if (!keypair || !cert) return [];
@@ -152,4 +156,25 @@ export async function postfachAbholenUndEntschluesseln(): Promise<Message[]> {
   }
 
   return geoeffnet;
+}
+
+/** Nur EIN Abholzyklus gleichzeitig (Bughunt 2026-08-28, FIX 3) —
+ *  `postfach_neu` (`ws/handlers/chat.ts`) startet je Weckruf einen neuen
+ *  Aufruf ohne eigene Wache; treffen mehrere kurz hintereinander ein, haengt
+ *  sich jeder weitere nur an den bereits laufenden Zyklus an, statt
+ *  denselben Bestand ein zweites Mal, unabhaengig, zu oeffnen. */
+let laufenderZyklus: Promise<Message[]> | null = null;
+
+/**
+ * Holt alle offenen Zustellungen dieses Geraets ab, entschluesselt was sich
+ * oeffnen laesst, legt es im lokalen Verlauf ab und quittiert erst danach.
+ * Gibt die geoeffneten Nachrichten zurueck (fuer die sofortige Anzeige).
+ */
+export function postfachAbholenUndEntschluesseln(): Promise<Message[]> {
+  if (!laufenderZyklus) {
+    laufenderZyklus = postfachZyklus().finally(() => {
+      laufenderZyklus = null;
+    });
+  }
+  return laufenderZyklus;
 }

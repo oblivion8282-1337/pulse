@@ -22,12 +22,23 @@
  * liegt — die noch unquittierte Zustellung kommt beim naechsten Versuch
  * zurueck und ist dann NIE MEHR zu oeffnen. Beide Pickles muessen deshalb in
  * EINER IndexedDB-Transaktion landen, nicht in zwei nacheinander.
+ *
+ * **Ergaenzung aus demselben Bughunt (FIX 3):**
+ * `mitSitzungssperre` — zwei gleichzeitige Operationen auf demselben
+ * Sitzungsschluessel (z. B. zwei schnelle Sendungen, oder ein Empfang
+ * waehrend eine Sendung laeuft) laden sonst dieselbe eingefrorene Sitzung,
+ * ratcheten sie unabhaengig weiter und der letzte Schreiber gewinnt — der
+ * andere Ratchet-Schritt ist weg, obwohl sein Umschlag schon zugestellt
+ * wurde. Die eigentliche Warteschlangen-Rechnung steht importfrei in
+ * `sitzungssperre.ts` (s. dort, CLAUDE.md „Die Falle" — dieses Modul hier
+ * haengt am WASM-Paket und ist deshalb selbst nicht Node-pruefbar).
  */
 import type { Identitaet, Sitzung } from '../../../../krypto/pulse-krypto/pkg/pulse_krypto.js';
 import { Sitzung as SitzungKlasse } from '../../../../krypto/pulse-krypto/pkg/pulse_krypto.js';
 import { STORE_NAME, openIdentityDb, idbGetIdentity, idbPutIdentity } from '../identity/idb-shared';
 import { IDB_KEY as KONTO_IDB_KEY, pickelschluesselDesGeraets } from './account.svelte';
 import { sitzungsSchluessel } from './sitzungsschluessel';
+import { mitSchluesselsperre } from './sitzungssperre';
 
 function idbSchluessel(kanalId: string, geraetePubkey: string): string {
   return `pulse.krypto-sitzung.${sitzungsSchluessel(kanalId, geraetePubkey)}`;
@@ -92,4 +103,18 @@ export async function sitzungMitKontoAtomarSichern(
     tx.oncomplete = () => resolve();
   });
   db.close();
+}
+
+/**
+ * Fuehrt `aufgabe` streng NACH jeder anderen, fuer denselben (kanalId,
+ * geraetePubkey) laufenden Aufgabe aus — nie gleichzeitig. Duennes
+ * Wire-up um `mitSchluesselsperre` (s. dort fuer die eigentliche Rechnung
+ * und die Begruendung).
+ */
+export function mitSitzungssperre<T>(
+  kanalId: string,
+  geraetePubkey: string,
+  aufgabe: () => Promise<T>
+): Promise<T> {
+  return mitSchluesselsperre(sitzungsSchluessel(kanalId, geraetePubkey), aufgabe);
 }

@@ -14,7 +14,10 @@
  *     Rueckfallschluessel).
  *  3. Verschluesseln, Sitzung SICHERN (VOR dem Einliefern — der Ratchet ist
  *     schon weitergedreht, ein Absturz danach darf den neuen Zustand nicht
- *     verlieren, s. `sitzungen.ts`), Umschlag sammeln.
+ *     verlieren, s. `sitzungen.ts`), Umschlag sammeln. Lauft je Zielgeraet
+ *     unter `mitSitzungssperre` — zwei gleichzeitige Sendungen an dasselbe
+ *     Geraet duerfen nicht dieselbe geladene Sitzung unabhaengig weiterdrehen
+ *     (s. `sitzungen.ts` Modulkopf).
  *  4. Einliefern — ein `POST /postfach` mit allen Umschlaegen.
  *  5. Lokal ablegen — der eigene Klartext geht in den lokalen Verlauf
  *     (Etappe C1); der Server bekommt ihn nie.
@@ -32,7 +35,7 @@ import { keysApi } from '../api/keys';
 import { postfachApi, type PostfachNutzlast } from '../api/postfach';
 import { verlaufSpeichern } from '../verlauf';
 import { kryptoAccountLaden } from './account.svelte';
-import { sitzungLaden, sitzungSichern } from './sitzungen';
+import { sitzungLaden, sitzungSichern, mitSitzungssperre } from './sitzungen';
 import { baueNutzlast } from './nutzlast';
 import { signiereNutzlast } from './nachweis';
 import { zielgeraeteBerechnen } from './empfaengerGeraete';
@@ -86,15 +89,19 @@ export async function sendeVerschluesselt(
   const nutzlasten: PostfachNutzlast[] = [];
 
   for (const { geraet } of ziel) {
-    let sitzung = await sitzungLaden(kanalId, geraet.device_pubkey);
-    if (!sitzung) {
-      const einmal = geraet.einmalschluessel ?? geraet.rueckfallschluessel;
-      if (!einmal) continue; // Kein Schluessel veroeffentlicht -> Geraet gerade unerreichbar.
-      sitzung = ident.sitzungAusgehend(geraet.curve25519, einmal);
-    }
-    const umschlag = sitzung.verschluesseln(klartextBytes);
-    // Sichern VOR dem Einliefern — s. Modulkopf.
-    await sitzungSichern(kanalId, geraet.device_pubkey, sitzung);
+    const umschlag = await mitSitzungssperre(kanalId, geraet.device_pubkey, async () => {
+      let sitzung = await sitzungLaden(kanalId, geraet.device_pubkey);
+      if (!sitzung) {
+        const einmal = geraet.einmalschluessel ?? geraet.rueckfallschluessel;
+        if (!einmal) return null; // Kein Schluessel veroeffentlicht -> Geraet gerade unerreichbar.
+        sitzung = ident.sitzungAusgehend(geraet.curve25519, einmal);
+      }
+      const umschlag = sitzung.verschluesseln(klartextBytes);
+      // Sichern VOR dem Einliefern — s. Modulkopf.
+      await sitzungSichern(kanalId, geraet.device_pubkey, sitzung);
+      return umschlag;
+    });
+    if (!umschlag) continue;
     nutzlasten.push({
       art: umschlag.art(),
       daten: umschlag.daten(),
