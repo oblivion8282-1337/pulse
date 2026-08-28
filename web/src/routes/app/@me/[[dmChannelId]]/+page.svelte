@@ -13,7 +13,8 @@
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { messages } from '$lib/stores/messages.svelte';
-  import { verlaufSpeichern } from '$lib/verlauf';
+  import { verlaufSpeichern, verlaufLesen, verlaufMergen } from '$lib/verlauf';
+  import { verlaufZustand } from '$lib/verlauf/zustand.svelte';
   import { chatApi } from '$lib/api/chat';
   import { cloudGateway } from '$lib/ws/connection';
   import { serversStore } from '$lib/api/servers.svelte';
@@ -75,6 +76,17 @@
   // evicted while the user is viewing it.
   $effect(() => {
     if (dmChannelId) messages.touch(dmChannelId);
+  });
+
+  // C2: der Nutzer erfaehrt EINMAL, warum sein Verlauf nicht lokal liegt
+  // (privates Fenster/voller Speicher/Fehler) — die App bleibt in jedem Fall
+  // benutzbar (Rueckfall auf den Server), s. `verlaufZustand`.
+  let verlaufHinweisGezeigt = false;
+  $effect(() => {
+    if (verlaufZustand.grund && !verlaufHinweisGezeigt) {
+      verlaufHinweisGezeigt = true;
+      toast.warning(verlaufZustand.grund);
+    }
   });
 
   // WS reconnect: messages.clearChannel() may empty the loaded set. Re-fetch
@@ -141,18 +153,31 @@
     // Cached from an earlier visit? Then its WS subscription lapsed while we
     // were away — re-subscribe + gap-fill below instead of re-fetching.
     const alreadyLoaded = !!messages.loadedChannels[cid];
+    // C2: lokal ist ein Vorrat, keine Wahrheit — der lokale Bestand deckt nur
+    // ab, was DIESER Klient seit C1 selbst gesehen hat. Der Server wird
+    // deshalb IMMER zusätzlich gefragt, auch wenn lokal schon etwas da war.
+    let lokal: Awaited<ReturnType<typeof verlaufLesen>> = [];
     try {
       if (!alreadyLoaded) {
+        lokal = await verlaufLesen(cid, { anzahl: 50 });
+        if (isStale()) return;
+        // Sofort zeigen, was lokal liegt — das ist der spürbare Gewinn von
+        // C2 — bevor die Serverantwort überhaupt eingetroffen sein kann.
+        if (lokal.length > 0) messages.setInitial(cid, verlaufMergen(lokal, []));
         const history = await chatApi.listMessages(cid, {}, cloudRoute);
         if (isStale()) return;
-        messages.setInitial(cid, history);
+        messages.setInitial(cid, verlaufMergen(lokal, history));
         void verlaufSpeichern(cid, history);
       }
     } catch (err) {
       if (isStale()) return;
-      loadError = err instanceof Error ? err.message : m.dm_page_messages_load_failed();
-      resolving = false;
-      return;
+      if (lokal.length === 0) {
+        loadError = err instanceof Error ? err.message : m.dm_page_messages_load_failed();
+        resolving = false;
+        return;
+      }
+      // Lokal ist schon sichtbar — kein blockierender Fehler; der nächste
+      // Kanalwechsel oder Reconnect versucht den Server erneut.
     }
 
     if (isStale()) return;

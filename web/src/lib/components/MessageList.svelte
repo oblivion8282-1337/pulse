@@ -3,9 +3,8 @@
   import { VList, type VListHandle } from 'virtua/svelte';
   import MessageItem from './MessageItem.svelte';
   import { plainifyMentions } from './messageRender';
-  import { chatApi } from '$lib/api/chat';
   import { messages as messageStore } from '$lib/stores/messages.svelte';
-  import { verlaufSpeichern } from '$lib/verlauf';
+  import { ladeAeltereSeite } from '$lib/verlauf/nachladen';
   import type { Channel, Message } from '$lib/api/types';
   import { auth } from '$lib/stores/auth.svelte';
   import { userCache } from '$lib/stores/users.svelte';
@@ -41,7 +40,9 @@
     onSetReplyTarget,
     onEditMessage,
     onDeleteMessage,
-    onToggleReaction
+    onToggleReaction,
+    /** Server-Ziel fürs Hochscroll-Nachladen (DMs sind cloud-only, s. `ChatView`). */
+    route
   }: {
     channel: Channel | null;
     messages: Message[];
@@ -54,11 +55,12 @@
     onEditMessage: (m: Message, newContent: string) => void;
     onDeleteMessage: (m: Message) => void;
     onToggleReaction: (m: Message, emoji: string, currentlyMine: boolean) => void;
+    route?: { serverId?: string };
   } = $props();
 
-  // Nur Guild-Channel paginieren — DMs haben selten tiefe Historie und laufen
-  // cloud-scoped (default route reicht für Guild; DM bräuchte Cloud-route).
-  const canPaginate = $derived(!!channel?.guild_id);
+  // Beide Kanalarten paginieren: `ladeAeltereSeite` liefert für Guild-Kanäle
+  // ohnehin nur den Server-Zweig (nur DMs landen lokal, s. `verlauf/index.ts`).
+  const canPaginate = $derived(!!channel);
 
   let vlist = $state<VListHandle>();
   // Wrapper um <VList> — Viewport-Resize (Fenster/Mobile/Memberlist-Toggle)
@@ -131,17 +133,18 @@
     if (!oldest) return;
     loadingOlder = true;
     try {
-      const older = await chatApi.listMessages(channel.id, { before: oldest, limit: OLDER_PAGE });
+      const { nachrichten: older, vomServer } = await ladeAeltereSeite(channel.id, oldest, OLDER_PAGE, route);
       // shift NUR für diese eine Prepend-Längenänderung aktivieren, dann sofort
       // wieder deaktivieren — virtua liest den Wert im Moment, in dem `items`
       // (und damit data.length) wächst, also innerhalb des tick()-Flushes.
       prependShift = true;
       const added = messageStore.prepend(channel.id, older);
-      void verlaufSpeichern(channel.id, older);
       await tick();
       prependShift = false;
-      // Historie-Ende: nichts Neues kam dazu, oder die Seite war unvollständig.
-      if (!added || older.length < OLDER_PAGE) hasMore = false;
+      // Historie-Ende: nur aussagekräftig, wenn die Seite vom Server kam —
+      // eine kleine lokale Seite bedeutet nicht "keine Historie mehr", nur
+      // "der Rest liegt noch nicht lokal".
+      if (vomServer && (!added || older.length < OLDER_PAGE)) hasMore = false;
     } catch {
       // Netzwerkfehler → still,Retry beim nächsten Scroll.
     } finally {

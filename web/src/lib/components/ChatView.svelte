@@ -101,6 +101,9 @@
   const policyServerId = $derived(
     cloudScoped ? (serversStore.cloudId() ?? '') : activeServer.serverId
   );
+  // Dieselbe Server-Wahl für `MessageList`s Hochscroll-Nachladen — DMs
+  // (`cloudScoped`) müssen auch bei aktivem Self-Host gegen die Cloud laufen.
+  const messageRoute = $derived(cloudScoped ? { serverId: serversStore.cloudId() } : undefined);
   const serverPolicy = $derived(serverCapabilities.get(policyServerId));
   const attachmentsAllowed = $derived(
     headerKind === 'dm' ? (serverPolicy?.dmAttachmentsEnabled ?? true) : true
@@ -319,6 +322,7 @@
       {myId}
       {namePrefix}
       {isOwner}
+      route={messageRoute}
       onSetReplyTarget={(m) => (replyTarget = m)}
       onEditMessage={onEditMessage}
       onDeleteMessage={onDeleteMessage}

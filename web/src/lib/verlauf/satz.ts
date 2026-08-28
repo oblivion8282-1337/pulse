@@ -63,3 +63,39 @@ export function zuSatz(kanalId: string, nachricht: unknown): Satz | null {
     anhaenge
   };
 }
+
+/**
+ * Reduzierte Nachrichtenform fuer die sofortige Anzeige aus einem lokalen
+ * Satz — strukturell ein Ausschnitt von `$lib/api/types::Message` (dessen
+ * fehlende Felder dort optional sind), aber OHNE dessen Typ zu importieren
+ * (importfrei-Pflicht, s. Modulkopf). Reaktionen/Erwaehnungen/Anhaenge liegen
+ * lokal nicht vor — sie fehlen bis der Server-Abgleich sie nachliefert.
+ */
+export type SatzAlsNachricht = {
+  id: string;
+  channel_id: string;
+  author_id: string;
+  content: string;
+  nonce: null;
+  created_at: string;
+  edited_at: string | null;
+  deleted_at: string | null;
+};
+
+/** Kehrt `zuSatz` um: aus einem lokalen Satz wird die Anzeige-Nachricht.
+ *  `deleted_at` traegt bei einem Grabstein einen Zeitpunkt (Bearbeitungs-
+ *  oder Erstellzeit als Naeherung — der echte Loeschzeitpunkt liegt lokal
+ *  nicht vor), sonst `null`. Nur die Existenz eines Werts zaehlt bei den
+ *  Aufrufern, nicht seine Genauigkeit. */
+export function satzZuNachricht(satz: Satz): SatzAlsNachricht {
+  return {
+    id: satz.nachrichtId,
+    channel_id: satz.kanalId,
+    author_id: satz.autorId,
+    content: satz.inhalt,
+    nonce: null,
+    created_at: satz.erstelltAm,
+    edited_at: satz.bearbeitetAm,
+    deleted_at: satz.geloescht ? (satz.bearbeitetAm ?? satz.erstelltAm) : null
+  };
+}

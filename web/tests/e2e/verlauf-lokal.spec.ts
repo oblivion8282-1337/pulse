@@ -323,4 +323,50 @@ test.describe.serial('lokaler Verlauf (IndexedDB) E2E', () => {
       }, { timeout: 10_000 })
       .toBe(true);
   });
+
+  test('C2: nach einem Reload steht der Verlauf sofort da — vor der Serverantwort', async () => {
+    // Die Behauptung von C2 ist nur pruefbar, wenn die Serverantwort
+    // kuenstlich verzoegert wird — auf einer schnellen Leitung waere "vor
+    // der Serverantwort da" sonst Zufall statt Beleg.
+    let serverantwortFreigeben: () => void = () => {};
+    const serverantwortHaelt = new Promise<void>((resolve) => {
+      serverantwortFreigeben = resolve;
+    });
+    await alicePage.route('**/api/chat/channels/*/messages*', async (route) => {
+      // NUR den Erstladen (kein `before=` in der Query) verzoegern — das
+      // Hochscroll-Nachladen aus `MessageList` traegt `before=` und darf
+      // ungebremst durchlaufen, sonst konkurrieren zwei Anfragen um dieselbe
+      // Route (Playwright: "Route is already handled").
+      if (new URL(route.request().url()).searchParams.has('before')) {
+        await route.continue().catch(() => undefined);
+        return;
+      }
+      await serverantwortHaelt;
+      // `route.continue()` kann hier auf ein bereits abgeschlossenes Route-
+      // Objekt treffen (ein `reload()` kann die alte Anfrage kappen, waehrend
+      // die neue dieselbe Query traegt) — das ist kein Testfehler, sondern
+      // ein Playwright-Implementierungsdetail des Reloads.
+      await route.continue().catch(() => undefined);
+    });
+
+    try {
+      await alicePage.reload();
+
+      // dmText liegt seit dem zweiten Testfall lokal — es muss sichtbar sein,
+      // WAEHREND die Serverantwort noch haengt (sie wird erst unten
+      // freigegeben). Ohne C2 gäbe es hier nichts zu sehen, bis die Route
+      // freigegeben wird.
+      await expect(
+        alicePage.locator('[data-testid="message-content"]', { hasText: dmText })
+      ).toBeVisible({ timeout: 10_000 });
+    } finally {
+      serverantwortFreigeben();
+      await alicePage.unroute('**/api/chat/channels/*/messages*');
+    }
+
+    // Der Server wird trotzdem gefragt (kein Skip nur weil lokal etwas da
+    // war) — nach der Freigabe muss die Serverantwort ankommen und die Seite
+    // bleibt benutzbar (kein Fehlerzustand haengen).
+    await expect(alicePage.getByTestId('load-error')).toHaveCount(0);
+  });
 });
