@@ -68,6 +68,7 @@ import { verlaufZustand } from '../verlauf/zustand.svelte';
 import { kryptoAccountLaden } from './account.svelte';
 import { sitzungLaden, sitzungSichern, mitSitzungssperre } from './sitzungen';
 import { baueNutzlast } from './nutzlast';
+import { baueNachrichtNutzlast } from './nachrichtNutzlast';
 import { signiereNutzlast } from './nachweis';
 import { zielgeraeteBerechnen } from './empfaengerGeraete';
 import { wurdeZugestellt, deuteEinliefernFehler } from './zustellErgebnis';
@@ -102,7 +103,10 @@ function lokaleNachrichtId(): string {
 export async function sendeVerschluesselt(
   kanalId: string,
   empfaengerUserId: string,
-  klartext: string
+  klartext: string,
+  // MUSS bereits die KANONISCHE Form sein (`kanonischeAntwortId.ts`) — diese
+  // Funktion uebersetzt nicht, s. `nachrichtNutzlast.ts`-Modulkopf.
+  replyToId: string | null = null
 ): Promise<SendeErgebnis | null> {
   const keypair = await loadKeypair();
   const cert = certStore.cert;
@@ -125,7 +129,14 @@ export async function sendeVerschluesselt(
   }
 
   const ident = await kryptoAccountLaden();
-  const klartextBytes = new TextEncoder().encode(klartext);
+  // Eigene, kanonische ID VOR dem Bauen der Nutzlast — sie faehrt selbst mit
+  // (jede Gegenseite braucht sie, falls SIE spaeter auf diese Nachricht
+  // antwortet) und wird unten unveraendert als `Message.id` verwendet, s.
+  // `nachrichtNutzlast.ts`-Modulkopf.
+  const nachrichtId = lokaleNachrichtId();
+  // Antwort-Kennung faehrt ebenfalls in der Nutzlast mit (statt eines
+  // Klartext-Rueckfalls nur wegen `replyToId`) — s. `nachrichtNutzlast.ts`.
+  const klartextBytes = baueNachrichtNutzlast(klartext, nachrichtId, replyToId);
   const nutzlasten: PostfachNutzlast[] = [];
 
   for (const { geraet } of ziel) {
@@ -189,11 +200,12 @@ export async function sendeVerschluesselt(
   }
 
   const nachricht: Message = {
-    id: lokaleNachrichtId(),
+    id: nachrichtId,
     channel_id: kanalId,
     author_id: eigeneUserId,
     content: klartext,
     nonce: null,
+    reply_to_id: replyToId,
     created_at: new Date().toISOString(),
     // Rein lokal geparst (Bughunt 2026-08-28, Befund 3) — der Server sieht
     // den Klartext nie, kann Erwaehnungen also auch nicht parsen. Ohne

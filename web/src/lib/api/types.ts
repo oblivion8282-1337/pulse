@@ -159,6 +159,19 @@ export type Message = {
    * `undefined`, s. `absent`-Falsy-Checks an den Aufrufstellen.
    */
   verschluesselt?: boolean;
+  /**
+   * Nur bei einer EMPFANGENEN verschluesselten Nachricht gesetzt: die vom
+   * URSPRUENGLICHEN Absender gewaehlte, geraeteuebergreifende ID (steckt in
+   * der Nutzlast, s. `krypto/nachrichtNutzlast.ts`) — anders als `id` oben
+   * (auf diesem Geraet die Postfach-Zustellungs-Kennung, je Empfaenger
+   * verschieden). Wird gebraucht, um eine EINGEHENDE Antwort auf DIESE
+   * Nachricht wiederzufinden (`kanonischeAntwortId.ts`,
+   * `MessageList.svelte::replyMetaFor`) — ohne dieses Feld faende die
+   * Zitat-Anzeige den Bezug auf diesem Geraet nicht, weil `reply_to_id`
+   * einer eingehenden Antwort ebenfalls die kanonische, nicht die lokale ID
+   * traegt.
+   */
+  krypto_id?: string;
 };
 
 /**

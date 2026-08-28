@@ -24,6 +24,7 @@
   import { parseMentionMarkers } from '$lib/components/messageRender';
   import { toast } from 'svelte-sonner';
   import { E2E_DMS_ENABLED } from '$lib/krypto/schalter';
+  import { kanonischeAntwortId } from '$lib/krypto/kanonischeAntwortId';
   import type { Channel, DMChannel, Message } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
   import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
@@ -218,16 +219,21 @@
     const cid = activeDM.id;
     const partnerId = activeDM.other_user_id;
 
-    // Verschluesselter Weg (Etappe D2, Schalter aus per Vorgabe): nur
-    // reiner Text, keine Anhaenge/Antworten (Etappe E/spaeter) — hat der
+    // Verschluesselter Weg (Etappe D2, Schalter aus per Vorgabe): Antworten
+    // fahren normal mit (Kennung in der Nutzlast, s. `nachrichtNutzlast.ts`)
+    // — nur Anhaenge bleiben aussen vor (eigene, groessere Etappe). Hat der
     // Empfaenger kein Geraet, faellt `sendeVerschluesselt` auf `null`/
-    // `unverschluesselt` zurueck und der bestehende Klartext-Weg greift
-    // unveraendert.
-    if (E2E_DMS_ENABLED && attachmentIds.length === 0 && replyToId === null) {
+    // `unverschluesselt` zurueck und der Klartext-Weg greift unveraendert.
+    if (E2E_DMS_ENABLED && attachmentIds.length === 0) {
+      // `replyToId` ist bislang nur die LOKALE ID des Ziels (wie der
+      // Antwortende es gerade sieht) — Sender und Empfaenger derselben
+      // verschluesselten Nachricht haben dafuer verschiedene lokale IDs,
+      // s. `krypto/kanonischeAntwortId.ts`. Erst uebersetzen, dann senden.
+      const kanonischeId = kanonischeAntwortId(replyToId, visibleMessages);
       void import('$lib/krypto/senden').then(async ({ sendeVerschluesselt }) => {
         let ergebnis;
         try {
-          ergebnis = await sendeVerschluesselt(cid, partnerId, text);
+          ergebnis = await sendeVerschluesselt(cid, partnerId, text, kanonischeId);
         } catch (err) {
           // Bughunt 2026-08-28, zweiter Fund: ein pauschales `.catch(() =>
           // null)` an dieser Stelle deutete JEDEN Fehler — auch einen, bei

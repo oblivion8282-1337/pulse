@@ -10,6 +10,7 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { nameStyle } from '$lib/utils/nameColor';
   import { safeAvatarUrl } from '$lib/avatar';
+  import { findeReplyZiel } from './replyLookup';
   import { m as pm } from '$lib/paraglide/messages.js';
 
   type ChatItem =
@@ -246,8 +247,6 @@
 
   const getKey = (item: ChatItem): string => item.key;
 
-  let messageMap = $derived(new Map(messages.map((m) => [m.id, m])));
-
   // Append-Cache: vermeidet vollen Rebuild bei einfachen Appends. Plain (nicht
   // `$state`) — würden sie in einem `$derived` geschrieben, wirft Svelte
   // state_unsafe_mutation und leert die Liste. `_lastItemsDayKey` erzwingt bei
@@ -381,7 +380,7 @@
 
   function replyMetaFor(m: Message): { id: string; author: string; snippet: string } | null {
     if (!m.reply_to_id) return null;
-    const parent = messageMap.get(m.reply_to_id);
+    const parent = findeReplyZiel(messages, m.reply_to_id);
     if (!parent) {
       return { id: m.reply_to_id, author: '…', snippet: pm.chat_view_older_message() };
     }

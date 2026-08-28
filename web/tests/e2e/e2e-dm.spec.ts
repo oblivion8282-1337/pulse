@@ -486,4 +486,45 @@ test.describe.serial('E2E-verschluesselte Direktnachrichten (Etappe D2, Nachweis
     await expect(pille).toHaveText('@' + BOB.username);
     await expect(zeile).not.toContainText(`<@${bobUserId}>`);
   });
+
+  /**
+   * Nachweis fuer die Aufgabe „Antworten muessen im verschluesselten Weg
+   * mitfahren": die Antwort-Kennung faehrt in der Nutzlast mit
+   * (`krypto/nachrichtNutzlast.ts`), statt auf den Klartext-Weg
+   * zurueckzufallen. Geprueft wird die Zitat-Vorschau auf BEIDEN Seiten —
+   * sie wird nicht vom Server aufgeloest (der die verschluesselte
+   * Ursprungsnachricht nie sieht), sondern aus dem jeweils eigenen lokalen
+   * Nachrichtenbestand (`MessageList.svelte::replyMetaFor`).
+   */
+  test('bob antwortet verschluesselt auf eine Nachricht von alice — Zitat stimmt bei beiden', async () => {
+    const KLARTEXT_ORIG = 'antworte mir hierauf, verschluesselt';
+    await alicePage.getByTestId('message-input').click();
+    await alicePage.getByTestId('message-input').fill(KLARTEXT_ORIG);
+    await alicePage.getByTestId('message-input').press('Enter');
+    await expect(
+      bobPage.locator('[data-testid="message-content"]', { hasText: KLARTEXT_ORIG })
+    ).toBeVisible({ timeout: 10_000 });
+
+    const zeile = bobPage.getByTestId('message-item').filter({ hasText: KLARTEXT_ORIG });
+    await zeile.hover();
+    await zeile.getByTestId('message-action-reply').click();
+    const KLARTEXT_ANTWORT = 'ja, genau darauf';
+    await bobPage.getByTestId('message-input').fill(KLARTEXT_ANTWORT);
+    await bobPage.getByTestId('message-input').press('Enter');
+
+    // Absender-Sicht (Punkt 4): bobs eigene Ansicht zitiert sofort korrekt.
+    const bobZeile = bobPage.getByTestId('message-item').filter({ hasText: KLARTEXT_ANTWORT });
+    await expect(bobZeile.getByTestId('message-reply-quote')).toContainText(KLARTEXT_ORIG);
+
+    // Empfaenger-Sicht (Punkt 3): alice sieht dieselbe Zitat-Vorschau, aus
+    // ihrem eigenen lokalen Bestand aufgeloest, nicht vom Server geliefert.
+    const aliceZeile = alicePage
+      .getByTestId('message-item')
+      .filter({ hasText: KLARTEXT_ANTWORT });
+    await expect(aliceZeile.getByTestId('message-reply-quote')).toContainText(KLARTEXT_ORIG);
+
+    // Bleibt trotzdem serverseitig unsichtbar wie jede verschluesselte
+    // Nachricht dieses Kanals.
+    expect(anzahlKlartextNachrichten(dmChannelId)).toBe(0);
+  });
 });

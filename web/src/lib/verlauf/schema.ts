@@ -24,4 +24,17 @@ export type Satz = {
   /** Weiches Loeschen (Grabstein) — die Zeile bleibt, der Inhalt gilt als weg. */
   geloescht: boolean;
   anhaenge: unknown[];
+  /** Nachrichten-ID der Nachricht, auf die geantwortet wird — `null` ohne
+   *  Antwortbezug. Neu (kein `DB_VERSION`-Bump noetig): IndexedDB erzwingt
+   *  kein festes Feldschema, aeltere Zeilen ohne dieses Feld lesen sich beim
+   *  Zugriff einfach als `undefined`/fehlend — `satzZuNachricht` behandelt
+   *  das wie `null`. */
+  antwortAufId: string | null;
+  /** Nur bei einer EMPFANGENEN verschluesselten Nachricht gesetzt: die vom
+   *  Autor gewaehlte, geraeteuebergreifende ID (`Message.krypto_id`,
+   *  `krypto/nachrichtNutzlast.ts`). Muss ueber einen Neustart hinweg
+   *  erhalten bleiben, sonst loest eine nach dem Neuladen eintreffende
+   *  Antwort auf eine aeltere, schon lokal abgelegte Nachricht nicht mehr
+   *  auf. */
+  kryptoId: string | null;
 };

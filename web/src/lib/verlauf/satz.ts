@@ -16,6 +16,8 @@ type Satz = {
   bearbeitetAm: string | null;
   geloescht: boolean;
   anhaenge: unknown[];
+  antwortAufId: string | null;
+  kryptoId: string | null;
 };
 
 /**
@@ -50,6 +52,8 @@ export function zuSatz(kanalId: string, nachricht: unknown): Satz | null {
   const edited_at = typeof n.edited_at === 'string' ? n.edited_at : null;
   const deleted_at = typeof n.deleted_at === 'string' ? n.deleted_at : null;
   const anhaenge = Array.isArray(n.attachments) ? n.attachments : [];
+  const antwortAufId = typeof n.reply_to_id === 'string' ? n.reply_to_id : null;
+  const kryptoId = typeof n.krypto_id === 'string' ? n.krypto_id : null;
 
   return {
     schluessel: sortierSchluessel(kanalId, id),
@@ -60,7 +64,9 @@ export function zuSatz(kanalId: string, nachricht: unknown): Satz | null {
     erstelltAm: created_at,
     bearbeitetAm: edited_at,
     geloescht: deleted_at !== null,
-    anhaenge
+    anhaenge,
+    antwortAufId,
+    kryptoId
   };
 }
 
@@ -80,6 +86,10 @@ export type SatzAlsNachricht = {
   created_at: string;
   edited_at: string | null;
   deleted_at: string | null;
+  reply_to_id: string | null;
+  /** Wie `Message.krypto_id` (`api/types.ts`) — dort optional-ohne-`null`,
+   *  deshalb `undefined` statt `null` bei Fehlen (s. `satzZuNachricht`). */
+  krypto_id?: string;
 };
 
 /** Kehrt `zuSatz` um: aus einem lokalen Satz wird die Anzeige-Nachricht.
@@ -96,6 +106,8 @@ export function satzZuNachricht(satz: Satz): SatzAlsNachricht {
     nonce: null,
     created_at: satz.erstelltAm,
     edited_at: satz.bearbeitetAm,
-    deleted_at: satz.geloescht ? (satz.bearbeitetAm ?? satz.erstelltAm) : null
+    deleted_at: satz.geloescht ? (satz.bearbeitetAm ?? satz.erstelltAm) : null,
+    reply_to_id: satz.antwortAufId ?? null,
+    krypto_id: satz.kryptoId ?? undefined
   };
 }

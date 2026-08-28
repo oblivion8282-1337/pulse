@@ -116,6 +116,7 @@ import {
   mitSitzungssperre
 } from './sitzungen';
 import { baueNutzlast } from './nutzlast';
+import { leseNachrichtNutzlast } from './nachrichtNutzlast';
 import { signiereNutzlast } from './nachweis';
 import { absenderErmitteln } from './absenderErmitteln';
 import { quittierbareIds, type KanalGruppe } from './quittierbareIds';
@@ -216,22 +217,38 @@ async function zustellungOeffnen(
         }
       }
 
-      const klartext = new TextDecoder().decode(klartextBytes);
+      // Autor-ID + Antwort-Kennung stehen (wenn vorhanden) in der Nutzlast
+      // selbst, s. `nachrichtNutzlast.ts` — ein Klartext-Sender von vor
+      // dieser Aenderung lieferte reinen, huellenlosen Text, den
+      // `leseNachrichtNutzlast` als Legacy-Fall ohne beides erkennt.
+      const {
+        text: klartext,
+        id: kanonischeId,
+        replyToId
+      } = leseNachrichtNutzlast(klartextBytes);
       return {
         art: 'neu',
         nachricht: {
           // Snowflake der Zustellung: digit-only wie ein echter Server-
           // Snowflake, sortiert also im lokalen Verlauf korrekt nach Zeit.
+          // BEWUSST NICHT die kanonische Autor-ID — sie bleibt fuer
+          // Quittierung/Schon-abgelegt-Pruefung an die Zustellung gebunden
+          // (`postfachZyklus`/`verlaufSchonAbgelegt`), s. Modulkopf.
           id: z.id,
           channel_id: z.channel_id,
           author_id: absenderUserId,
           content: klartext,
           nonce: null,
+          reply_to_id: replyToId,
           created_at: new Date().toISOString(),
           // Lokal geparst, s. `mentionMarkierungen.ts`-Modulkopf.
           mentions: parseMentionMarkers(klartext),
           // Erkennungsmerkmal, s. `Message.verschluesselt` in `api/types.ts`.
-          verschluesselt: true
+          verschluesselt: true,
+          // Kanonische Autor-ID, falls die Nutzlast sie trug (s.
+          // `Message.krypto_id` in `api/types.ts`) — noetig, damit eine
+          // spaetere Antwort AUF DIESE Nachricht sie wiederfindet.
+          ...(kanonischeId !== null ? { krypto_id: kanonischeId } : {})
         }
       };
     } catch (err) {
