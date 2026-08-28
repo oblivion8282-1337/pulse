@@ -180,10 +180,20 @@ angeschlossen wird sie von den Schichten darum herum, und die stehen:
 `routes/{schluessel,postfach,postfach_abholen}.py` am Server,
 `web/src/lib/krypto/**` und `web/src/lib/verlauf/**` im Klienten.
 
-**Der Schalter `e2e_dms_enabled` ist AUS und bleibt es**, bis zwei echte
-Geräte nachweislich miteinander sprechen — eine verschlüsselte Nachricht, die
-der Empfänger nicht öffnen kann, ist endgültig weg. Dasselbe gilt für
-`private_groups_enabled`.
+**Die Schalter sind AUS und bleiben es**, bis zwei echte Geräte nachweislich
+miteinander sprechen — eine verschlüsselte Nachricht, die der Empfänger nicht
+öffnen kann, ist endgültig weg.
+
+**Es sind drei, und sie heissen nicht, wie diese Datei lange behauptet hat.**
+`e2e_dms_enabled` existiert **nur als Planprosa**, im Code gibt es ihn nicht;
+gemeint ist `E2E_DMS_ENABLED` (`web/src/lib/krypto/schalter.ts`), und der gilt
+**nur für DMs**. Für Gruppen kam am 2026-08-29 `PRIVATE_GRUPPEN_ENABLED`
+daneben — ein eigener Klient-Schalter, obwohl es serverseitig
+`private_groups_enabled` schon gibt. Grund: der Server meldet den seinen dem
+Klienten **nirgends** (weder `/capabilities` noch der `ready`-Rahmen führen
+ihn), er wäre also erst am 403 erkennbar. Ein Schalter, den man erst am
+Fehlschlag bemerkt, kann keinen Serveraufruf verhindern — und genau das ist
+seine Aufgabe.
 
 Entwurf: `docs/superpowers/specs/2026-08-28-e2e-dm-design.md` (§10 nennt alle
 Etappen und ihre Pläne). **Der ältere `plans/2026-08-28-e2e-dm-etappen.md` ist

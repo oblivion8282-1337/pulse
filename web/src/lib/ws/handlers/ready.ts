@@ -38,6 +38,8 @@ import { darfStandplatzSein } from '$lib/remote/darfStandplatzSein';
 import { gesundheitTor } from '$lib/stream/gesundheitTor';
 import { standplatz } from '$lib/remote/standplatz.svelte';
 import { postfachAbholenUndAnzeigen } from './chat';
+import { gruppenApi } from '$lib/api/gruppen';
+import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
 
 /** Extra context fields that only the ready handler cares about — kept
  *  separate from `HandlerContext` so other handlers don't see them. */
@@ -171,6 +173,21 @@ export function register(ctx: ReadyContext): void {
       // einen Reconnect (nur `disconnect()` leert es) und wird dabei sogar
       // aktiv neu abonniert (Zeilen ~429f.) — die Menge ist also zum
       // Zeitpunkt dieses Aufrufs bereits die richtige.
+      // Private Gruppen (Etappe G2) kennt der `ready`-Rahmen nicht — der
+      // Server fuehrt kein Gruppenfeld darin (`routes/ws_ready.py`), und es
+      // gibt auch kein Ereignis ueber einen Mitgliederwechsel. `GET /gruppen`
+      // ist der einzige Weg an den Bestand, und er muss hier laufen, BEVOR
+      // eine Gruppen-Zustellung ankommt: `verlaufSpeichernPflicht` legt eine
+      // Nachricht nur in einem lokal BEKANNTEN Kanal ab und wirft sonst — die
+      // Zustellung bliebe unquittiert liegen (kein Verlust, aber ein Zyklus
+      // Verzoegerung). Bei ausgeschaltetem Schalter geht kein Aufruf hinaus
+      // (`api/gruppen.ts`), die Antwort ist dann eine leere Liste.
+      void gruppenApi
+        .auflisten()
+        .then((gruppen) => privateGruppen.seed(gruppen))
+        // Ein Fehlschlag darf den `ready`-Rahmen nicht kippen: ohne
+        // Gruppenliste laeuft alles andere unveraendert weiter.
+        .catch(() => undefined);
       postfachAbholenUndAnzeigen((kanalId) => ctx.getSubs().has(kanalId));
     }
 

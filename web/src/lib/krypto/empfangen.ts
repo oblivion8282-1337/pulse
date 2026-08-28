@@ -107,44 +107,31 @@
  * quittiert und dann laedt, laedt ins Leere, endgueltig. `anhaengeHolen`
  * laeuft deshalb innerhalb desselben `quittierbareIds`-Durchgangs, VOR
  * `verlaufSpeichernPflicht` und damit lange vor der Quittung.
+ *
+ * **Private Gruppen (Etappe G2) bringen zwei Abzweigungen mit**, beide unten
+ * in `zustellungOeffnen` und beide hinter `PRIVATE_GRUPPEN_ENABLED`: eine
+ * Megolm-Gruppennachricht (eigene Umschlagsart) laeuft gar nicht erst durch
+ * den Olm-Weg, und ein entschluesselter Olm-Klartext wird ZUERST als
+ * moeglicher Gruppen-Verteilschluessel gelesen. Warum diese Reihenfolge
+ * feststeht: `gruppe/gruppenNutzlast.ts`-Modulkopf. Die Regeln dieses
+ * Modulkopfs — nicht quittieren, was nicht sicher verwahrt ist; eine
+ * scheiternde Zustellung haelt die uebrigen nicht auf — gelten dort
+ * unveraendert.
  */
 import type { Message } from '../api/types';
-import type { Identitaet } from '../../../../krypto/pulse-krypto/pkg/pulse_krypto.js';
-import { Umschlag } from '../../../../krypto/pulse-krypto/pkg/pulse_krypto.js';
 import { certStore } from '../identity/cert.svelte';
 import { loadKeypair } from '../identity/keypair.svelte';
-import { directMessages } from '../stores/directMessages.svelte';
-import { verlaufSpeichernPflicht, verlaufSchonAbgelegt } from '../verlauf';
+import { verlaufSpeichernPflicht } from '../verlauf';
 import { verlaufZustand } from '../verlauf/zustand.svelte';
-import { postfachApi, type PostfachZustellung } from '../api/postfach';
+import { postfachApi } from '../api/postfach';
 import { serversStore } from '../api/servers.svelte';
 import { kryptoAccountLaden } from './account.svelte';
-import {
-  sitzungLaden,
-  sitzungSichern,
-  sitzungMitKontoAtomarSichern,
-  mitSitzungssperre
-} from './sitzungen';
 import { baueNutzlast } from './nutzlast';
-import { leseNachrichtNutzlast } from './nachrichtNutzlast';
-import { anhangAngabeZuAttachment } from './anhangAnzeige';
 import { anhaengeHolen } from './anhangHolen';
 import { signiereNutzlast } from './nachweis';
-import { absenderErmitteln } from './absenderErmitteln';
 import { quittierbareIds, type KanalGruppe } from './quittierbareIds';
 import { verarbeiteMitWiederherstellung } from './postfachSchleife';
-import { parseMentionMarkers } from '../components/mentionMarkierungen';
-
-/**
- * Markiert, dass `sitzungMitKontoAtomarSichern` fuer eine Zustellung
- * fehlgeschlagen ist, NACHDEM `ident` bereits mutiert wurde (Bughunt
- * 2026-08-28, FIX 2, s. Modulkopf). Absichtlich eine eigene Klasse statt
- * eines rohen Fehlers: `zustellungOeffnen`s Catch-Block muss sie von einem
- * gewoehnlichen Entschluesselungsfehler (unlesbarer Umschlag — dort bleibt
- * die Zustellung einfach liegen, der Zyklus laeuft normal weiter) unterscheiden
- * koennen.
- */
-class KontoSicherungFehlgeschlagen extends Error {}
+import { KontoSicherungFehlgeschlagen, zustellungOeffnen } from './zustellungOeffnen';
 
 // DMs sind heute cloud-only (Global-Friends Stufe 1) — s. `api/keys.ts`
 // Modulkopf (Bughunt 2026-08-28, FIX 4). Ohne diesen Parameter faellt
@@ -155,133 +142,6 @@ class KontoSicherungFehlgeschlagen extends Error {}
 // FIX 4 bei einem anderen Agenten in Arbeit und ist erst hier nachgezogen.
 function cloudRoute(): { serverId?: string } {
   return { serverId: serversStore.cloudId() };
-}
-
-/** Ergebnis eines Oeffnungsversuchs — entweder eine neu entschluesselte
- *  Nachricht, oder eine Zustellung, die schon frueher entschluesselt und
- *  abgelegt wurde und nur noch die (bislang fehlgeschlagene) Quittung
- *  braucht (Bughunt-Runde 3, FIX 3, s. Modulkopf). `null`, wenn sie liegen
- *  bleiben muss. */
-type ZustellungOffenErgebnis =
-  | { art: 'neu'; nachricht: Message }
-  | { art: 'schonAbgelegt'; channelId: string; id: string }
-  | null;
-
-/** Die Nachricht einer erfolgreich geoeffneten Zustellung — `null`, wenn der
- *  Absender nicht ermittelbar ist: der Server liefert keinen
- *  `absender_user_id` (Sendegeraet zwischenzeitlich abgemeldet, s.
- *  `absenderErmitteln.ts`), UND der Kanal ist lokal (noch) nicht als
- *  Rueckfall bekannt (kann bei einer brandneuen DM knapp vor dem
- *  `ready`-Rahmen passieren; die naechste Abholung holt sie dann nach, s.
- *  Modulkopf „unlesbar"). */
-async function zustellungOeffnen(
-  ident: Identitaet,
-  z: PostfachZustellung
-): Promise<ZustellungOffenErgebnis> {
-  // FIX 3 (Bughunt-Runde 3, s. Modulkopf) — ZUERST pruefen, noch vor jeder
-  // Sitzungssperre und jedem Entschluesseln: liegt der Klartext schon lokal,
-  // braucht es beides nicht mehr.
-  if (await verlaufSchonAbgelegt(z.channel_id, z.id)) {
-    return { art: 'schonAbgelegt', channelId: z.channel_id, id: z.id };
-  }
-
-  const absenderUserId = absenderErmitteln(
-    z.absender_user_id,
-    directMessages.byId[z.channel_id]?.other_user_id
-  );
-  if (!absenderUserId) return null;
-
-  return mitSitzungssperre(z.channel_id, z.absender_device_pubkey, async () => {
-    try {
-      let sitzung = await sitzungLaden(z.channel_id, z.absender_device_pubkey);
-      let klartextBytes: Uint8Array;
-
-      if (sitzung) {
-        klartextBytes = sitzung.entschluesseln(new Umschlag(z.art, z.daten));
-        // Sichern VOR dem Quittieren — s. Modulkopf.
-        await sitzungSichern(z.channel_id, z.absender_device_pubkey, sitzung);
-      } else {
-        if (z.art !== 0 || z.absender_curve25519 === null) {
-          // Laufende Nachricht ohne bekannte Sitzung, oder Sitzungsaufbau
-          // ohne Identitaetsschluessel — nicht zu oeffnen, liegen lassen.
-          return null;
-        }
-        const ergebnis = ident.sitzungEingehend(
-          z.absender_curve25519,
-          new Umschlag(z.art, z.daten)
-        );
-        sitzung = ergebnis.sitzung();
-        klartextBytes = ergebnis.klartext();
-        // ATOMAR mit dem Konto sichern — s. Modulkopf. Ab hier ist `ident`
-        // bereits mutiert (der Einmalschluessel ist verbraucht); ein
-        // Fehlschlag hier darf NUR diese eine Zustellung liegen lassen
-        // (FIX 2, Runde 3), darum ein eigener, nicht-schluckbarer Fehlertyp
-        // statt des normalen "unlesbar liegenlassen".
-        try {
-          await sitzungMitKontoAtomarSichern(
-            ident,
-            z.channel_id,
-            z.absender_device_pubkey,
-            sitzung
-          );
-        } catch (err) {
-          throw new KontoSicherungFehlgeschlagen('Konto/Sitzung nicht sicherbar', { cause: err });
-        }
-      }
-
-      // Autor-ID + Antwort-Kennung stehen (wenn vorhanden) in der Nutzlast
-      // selbst, s. `nachrichtNutzlast.ts` — ein Klartext-Sender von vor
-      // dieser Aenderung lieferte reinen, huellenlosen Text, den
-      // `leseNachrichtNutzlast` als Legacy-Fall ohne beides erkennt.
-      const {
-        text: klartext,
-        id: kanonischeId,
-        replyToId,
-        anhaenge
-      } = leseNachrichtNutzlast(klartextBytes);
-      return {
-        art: 'neu',
-        nachricht: {
-          // Snowflake der Zustellung: digit-only wie ein echter Server-
-          // Snowflake, sortiert also im lokalen Verlauf korrekt nach Zeit.
-          // BEWUSST NICHT die kanonische Autor-ID — sie bleibt fuer
-          // Quittierung/Schon-abgelegt-Pruefung an die Zustellung gebunden
-          // (`postfachZyklus`/`verlaufSchonAbgelegt`), s. Modulkopf.
-          id: z.id,
-          channel_id: z.channel_id,
-          author_id: absenderUserId,
-          content: klartext,
-          nonce: null,
-          reply_to_id: replyToId,
-          created_at: new Date().toISOString(),
-          // Lokal geparst, s. `mentionMarkierungen.ts`-Modulkopf.
-          mentions: parseMentionMarkers(klartext),
-          // Erkennungsmerkmal, s. `Message.verschluesselt` in `api/types.ts`.
-          verschluesselt: true,
-          // Kanonische Autor-ID, falls die Nutzlast sie trug (s.
-          // `Message.krypto_id` in `api/types.ts`) — noetig, damit eine
-          // spaetere Antwort AUF DIESE Nachricht sie wiederfindet.
-          ...(kanonischeId !== null ? { krypto_id: kanonischeId } : {}),
-          // Anhang-Angaben (Etappe E) — Schluessel, Name, Typ, Maße. Die
-          // BYTES holt `anhaengeHolen` weiter unten, VOR der Quittung.
-          ...(anhaenge.length > 0
-            ? { attachments: anhaenge.map(anhangAngabeZuAttachment) }
-            : {})
-        }
-      };
-    } catch (err) {
-      if (err instanceof KontoSicherungFehlgeschlagen) {
-        // Weiterreichen, NICHT hier verschlucken — `postfachZyklus` laesst
-        // NUR diese eine Zustellung liegen (FIX 2, Runde 3, s. Modulkopf),
-        // sonst friert die naechste erfolgreiche Zustellung den
-        // kompromittierten Zwischenstand von `ident` ein.
-        throw err;
-      }
-      // Entschluesseln fehlgeschlagen (fremde/kaputte Sitzung, korrupter
-      // Umschlag) — NICHT quittieren, s. Modulkopf.
-      return null;
-    }
-  });
 }
 
 async function postfachZyklus(): Promise<Message[]> {
@@ -314,11 +174,12 @@ async function postfachZyklus(): Promise<Message[]> {
   );
 
   const geoeffnet: Message[] = [];
-  // Zustellungen, deren Klartext schon vor diesem Zyklus abgelegt war (FIX 3,
-  // Runde 3) — direkt quittierbar, ohne Umweg ueber `verlaufSpeichernPflicht`
-  // (es gibt nichts mehr abzulegen) und OHNE Eintrag in `geoeffnet` (sonst
-  // wuerde `ws/handlers/chat.ts` sie ein zweites Mal als neu/ungelesen
-  // behandeln).
+  // Zwei Faelle, die direkt quittierbar sind — ohne Umweg ueber
+  // `verlaufSpeichernPflicht` (es gibt nichts abzulegen) und OHNE Eintrag in
+  // `geoeffnet` (sonst wuerde `ws/handlers/chat.ts` sie als neu/ungelesen
+  // behandeln): eine Zustellung, deren Klartext schon vor diesem Zyklus
+  // abgelegt war (FIX 3, Runde 3), und ein Gruppen-Verteilschluessel, der
+  // seine Sitzung bereits angelegt hat (Etappe G2).
   const schonQuittierbar: string[] = [];
   // `verlaufSpeichernPflicht` nimmt einen Kanal je Aufruf — gleich beim
   // Oeffnen nach Kanal gruppieren, eine Abholung kann mehrere Gespraeche
@@ -328,7 +189,7 @@ async function postfachZyklus(): Promise<Message[]> {
 
   for (const ergebnis of ergebnisse) {
     if (!ergebnis) continue;
-    if (ergebnis.art === 'schonAbgelegt') {
+    if (ergebnis.art === 'schonAbgelegt' || ergebnis.art === 'ohneAblage') {
       schonQuittierbar.push(ergebnis.id);
       continue;
     }

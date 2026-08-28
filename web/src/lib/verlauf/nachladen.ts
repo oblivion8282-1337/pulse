@@ -4,9 +4,9 @@
  * Server), keine eigene Rechnung — deshalb hier, nicht importfrei.
  *
  * C2: erst lokal, und nur wenn dort nichts mehr liegt, den Server fragen.
- * Für Guild-Kanäle liefert `verlaufLesen` immer `[]` (nur DMs landen lokal,
- * s. `verlauf/index.ts::istDmKanal`) — dort greift also unverändert der
- * Server-Zweig, wie vor C2.
+ * Für Guild-Kanäle liefert `verlaufLesen` immer `[]` (nur DMs und private
+ * Gruppen landen lokal, s. `verlauf/index.ts::istLokalerKanal`) — dort greift
+ * also unverändert der Server-Zweig, wie vor C2.
  *
  * "Lokal hat etwas geliefert" ist dabei NICHT gleichbedeutend mit "das ist
  * die richtige naechste Seite" (Bughunt Fund 2): ein Gap-Fill-Overflow

@@ -1145,3 +1145,183 @@ async def test_verwaiste_nutzlast_wird_gefegt(session_factory):
             await s.execute(select(DmNutzlast).where(DmNutzlast.id == nid))
         ).scalar_one_or_none()
         assert rest is None
+
+
+# ---------------------------------------------------------------------------
+# Etappe G2 — private Gruppen im Postfach
+# ---------------------------------------------------------------------------
+#
+# Bis hierhin trug das Postfach nur DMs: ``_channel_zugriff_pruefen`` liess
+# ausschliesslich ``("dm", …)`` durch, eine Gruppen-Kanal-ID fiel mit 403
+# ``channel_not_accessible`` heraus. Damit war der verschluesselte Weg fuer
+# Gruppen verschlossen — Megolm ist ohne Zustellweg nichts.
+#
+# Die Nutzlast einer Gruppennachricht ist fuer ALLE dieselbe (Megolm), es
+# entsteht also EINE ``DmNutzlast`` mit vielen ``DmZustellung`` — genau das
+# Modell, fuer das Nutzlast und Zustellung getrennt wurden.
+
+
+@pytest.fixture
+def gruppen_an(_isolate_chat_settings):
+    """Wie in ``test_private_gruppen.py``: der Schalter steht per Vorgabe aus,
+    wer eine Gruppe braucht, fordert ihn ausdruecklich an."""
+    _isolate_chat_settings.private_groups_enabled = True
+    return _isolate_chat_settings
+
+
+async def _gruppe_anlegen(client, token_ersteller: str, *mitglied_ids: int) -> str:
+    r = await client.post("/gruppen", json={"name": "Testgruppe"}, headers=_auth(token_ersteller))
+    assert r.status_code == 201, r.text
+    gid = r.json()["id"]
+    for uid in mitglied_ids:
+        r = await client.post(
+            f"/gruppen/{gid}/mitglieder",
+            json={"user_id": str(uid)},
+            headers=_auth(token_ersteller),
+        )
+        assert r.status_code == 201, r.text
+    return gid
+
+
+@pytest.mark.asyncio
+async def test_gruppe_eine_nutzlast_viele_zustellungen(
+    client, app, session_factory, _auth_signer, gruppen_an
+):
+    from sqlalchemy import func, select
+
+    from dcc_chat_gateway.models import DmNutzlast, DmZustellung
+
+    t_a, uid_a = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
+    _, uid_c = await _register(_auth_signer)
+    gid = await _gruppe_anlegen(client, t_a, uid_b, uid_c)
+
+    # Je ein Geraet fuer B und C, plus ein ZWEITES Geraet von A (der eigene
+    # Zweitrechner gehoert dazu — sonst saehe er nie, was das Erstgeraet
+    # geschrieben hat).
+    _, pk_b = _make_device()
+    _, pk_c = _make_device()
+    _, pk_a2 = _make_device()
+    await _bundel_seeden(session_factory, user_id=uid_b, device_pubkey=pk_b)
+    await _bundel_seeden(session_factory, user_id=uid_c, device_pubkey=pk_c)
+    await _bundel_seeden(session_factory, user_id=uid_a, device_pubkey=pk_a2)
+
+    r = await _einliefern(
+        client, app, token=t_a, uid=uid_a, channel_id=gid,
+        nutzlasten=[{
+            # Art 2 = Megolm-Gruppennachricht (``ART_GRUPPENNACHRICHT`` im
+            # Klienten). Der Server unterscheidet die Arten nie, er reicht
+            # die Zahl durch — der Test haelt nur fest, dass ein anderer
+            # Wert als 0/1 nicht abgewiesen wird.
+            "art": 2,
+            "daten": _b64_unpadded(b"megolm-geheimtext"),
+            "empfaenger": [pk_b, pk_c, pk_a2],
+        }],
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["zustellungen_angelegt"] == 3
+
+    async with session_factory() as s:
+        nutzlasten = (
+            await s.execute(select(func.count()).select_from(DmNutzlast).where(
+                DmNutzlast.channel_id == int(gid)
+            ))
+        ).scalar_one()
+        zustellungen = (
+            await s.execute(select(DmZustellung.empfaenger_user_id).join(
+                DmNutzlast, DmNutzlast.id == DmZustellung.nutzlast_id
+            ).where(DmNutzlast.channel_id == int(gid)))
+        ).scalars().all()
+    assert nutzlasten == 1, "Megolm verschluesselt EINMAL — eine Nutzlast, viele Zustellungen"
+    assert sorted(zustellungen) == sorted([uid_b, uid_c, uid_a])
+
+
+@pytest.mark.asyncio
+async def test_gruppe_ohne_freundschaft(client, app, session_factory, _auth_signer, gruppen_an):
+    """Eine Gruppe ist kein Freundespaar. Wuerde das Freundschafts-Gate der
+    DM hier mitlaufen, koennte in einer frisch angelegten Gruppe niemand
+    schreiben — Mitglieder sind untereinander in aller Regel nicht
+    befreundet, und ``_gruppe_anlegen`` stiftet keine Freundschaft."""
+    t_a, uid_a = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
+    gid = await _gruppe_anlegen(client, t_a, uid_b)
+    _, pk_b = _make_device()
+    await _bundel_seeden(session_factory, user_id=uid_b, device_pubkey=pk_b)
+
+    r = await _einliefern(
+        client, app, token=t_a, uid=uid_a, channel_id=gid,
+        nutzlasten=[{"art": 2, "daten": _b64_unpadded(b"geheim"), "empfaenger": [pk_b]}],
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["zustellungen_angelegt"] == 1
+
+
+@pytest.mark.asyncio
+async def test_nichtmitglied_liefert_nicht_in_die_gruppe_ein(
+    client, app, session_factory, _auth_signer, gruppen_an
+):
+    t_a, uid_a = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
+    t_x, uid_x = await _register(_auth_signer)
+    gid = await _gruppe_anlegen(client, t_a, uid_b)
+    _, pk_b = _make_device()
+    await _bundel_seeden(session_factory, user_id=uid_b, device_pubkey=pk_b)
+
+    r = await _einliefern(
+        client, app, token=t_x, uid=uid_x, channel_id=gid,
+        nutzlasten=[{"art": 2, "daten": _b64_unpadded(b"geheim"), "empfaenger": [pk_b]}],
+    )
+    assert r.status_code == 403, r.text
+    assert r.json()["detail"] == "channel_not_accessible"
+
+
+@pytest.mark.asyncio
+async def test_entferntes_mitglied_bekommt_nichts_mehr_zugestellt(
+    client, app, session_factory, _auth_signer, gruppen_an
+):
+    """Der serverseitige Teil der Aussperrung. Den Gruppenschluessel, den ein
+    Ausgeschiedener schon hat, kann niemand zurueckholen — deshalb wechselt
+    der Absender die Sitzung (``krypto/gruppe/sitzungswahl.ts``). Der Server
+    steuert bei, dass der Geheimtext gar nicht erst in seinem Postfach
+    landet: ``empfaenger_nicht_im_kanal``, weil sein Geraet zu keinem
+    Teilnehmer mehr gehoert."""
+    t_a, uid_a = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
+    _, uid_c = await _register(_auth_signer)
+    gid = await _gruppe_anlegen(client, t_a, uid_b, uid_c)
+    _, pk_b = _make_device()
+    _, pk_c = _make_device()
+    await _bundel_seeden(session_factory, user_id=uid_b, device_pubkey=pk_b)
+    await _bundel_seeden(session_factory, user_id=uid_c, device_pubkey=pk_c)
+
+    r = await client.delete(f"/gruppen/{gid}/mitglieder/{uid_c}", headers=_auth(t_a))
+    assert r.status_code == 200, r.text
+
+    r = await _einliefern(
+        client, app, token=t_a, uid=uid_a, channel_id=gid,
+        nutzlasten=[{
+            "art": 2, "daten": _b64_unpadded(b"geheim"), "empfaenger": [pk_b, pk_c],
+        }],
+    )
+    assert r.status_code == 403, r.text
+    assert r.json()["detail"] == "empfaenger_nicht_im_kanal"
+
+
+@pytest.mark.asyncio
+async def test_abgeschalteter_schalter_verschliesst_das_gruppen_postfach(
+    client, app, session_factory, _auth_signer, _isolate_chat_settings
+):
+    _isolate_chat_settings.private_groups_enabled = True
+    t_a, uid_a = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
+    gid = await _gruppe_anlegen(client, t_a, uid_b)
+    _, pk_b = _make_device()
+    await _bundel_seeden(session_factory, user_id=uid_b, device_pubkey=pk_b)
+    _isolate_chat_settings.private_groups_enabled = False
+
+    r = await _einliefern(
+        client, app, token=t_a, uid=uid_a, channel_id=gid,
+        nutzlasten=[{"art": 2, "daten": _b64_unpadded(b"geheim"), "empfaenger": [pk_b]}],
+    )
+    assert r.status_code == 403, r.text
+    assert r.json()["detail"] == "channel_not_accessible"

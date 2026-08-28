@@ -2,10 +2,14 @@
 
 Herausgeloest aus ``routes/postfach.py``, als diese mit den verschluesselten
 Anhaengen (Etappe E) ueber die Groessen-Policy (PLAN.md §12.1) gewachsen
-waere. **Reiner Umzug, kein Verhalten geaendert** — die vier Namen bleiben
+waere. Der Umzug selbst aenderte kein Verhalten — die vier Namen blieben
 ueber ``routes/postfach.py`` erreichbar, weil die Datei sie importiert; die
 bestehenden Aufrufer (``routes/postfach_abholen.py``, Tests) brauchten
 deshalb keine Aenderung.
+
+**Seither einmal erweitert (Etappe G2):** ``_channel_zugriff_pruefen`` traegt
+neben DMs jetzt auch private Gruppen und gibt statt des Kanalobjekts die
+Teilnehmermenge zurueck — s. dort.
 """
 
 from __future__ import annotations
@@ -17,7 +21,8 @@ from fastapi import HTTPException, Request
 from sqlalchemy import select
 
 from dcc_chat_gateway.friend_helpers import block_exists_either_way, friendship_exists
-from dcc_chat_gateway.models import DeviceKeyBundle, DirectMessageChannel
+from dcc_chat_gateway.models import DeviceKeyBundle
+from dcc_chat_gateway.private_gruppen_zugriff import gruppen_teilnehmer
 from dcc_chat_gateway.routes._deps import resolve_channel_for_user
 
 
@@ -28,24 +33,57 @@ def _require_redis(request: Request):
     return redis
 
 
-async def _channel_zugriff_pruefen(
-    session, channel_id: int, user_id: int
-) -> DirectMessageChannel:
-    """Dieselbe Regel wie ``ws_op_send.py:139-151``: DM-Kanal laden, fehlt er
-    oder ist der Nutzer nicht Mitglied -> abweisen. Ein Durchfallen wuerde das
-    Freundschafts-/Block-Gate ueberspringen und eine verwaiste Zustellung
-    schreiben. Eine Gilden-Kanal-ID faellt hier ebenfalls durch — Postfach
-    traegt heute nur DMs."""
+async def _channel_zugriff_pruefen(session, channel_id: int, user_id: int) -> set[int]:
+    """Die Konten, in deren Geraete-Postfaecher dieser Kanal zustellen darf.
+
+    Zwei Kanalarten, zwei Regeln:
+
+    * **DM** — dieselbe Regel wie ``ws_op_send.py:139-151``: DM-Kanal laden,
+      fehlt er oder ist der Nutzer nicht Mitglied -> abweisen. Ein
+      Durchfallen wuerde das Freundschafts-/Block-Gate ueberspringen und eine
+      verwaiste Zustellung schreiben.
+    * **Private Gruppe** (Etappe G2) — Mitgliedschaft entscheidet, sonst
+      nichts. **Kein Freundschafts-Gate**: eine Gruppe ist kein Freundespaar,
+      und die Mitglieder sind untereinander in aller Regel nicht befreundet.
+      **Und kein Block-Gate beim Senden**: geprueft wird eine Blockierung
+      dort, wo sie ihre Wirkung entfalten kann — beim HINZUFUEGEN
+      (``routes/private_gruppen.py``, ``block_exists_either_way``). Wer
+      spaeter blockt, bleibt Mitglied; ihn hier von der Zustellung
+      auszunehmen, hiesse seinen Gruppenschluessel veralten zu lassen, ohne
+      dass er oder der Absender es merkt — er saehe ab dann eine Gruppe, in
+      der niemand mehr schreibt. Das Ausblenden geblockter Absender gehoert
+      in die Anzeige, nicht in die Zustellung.
+
+    **Der Rueckgabewert ist die Teilnehmermenge, nicht der Kanal.** Der
+    einzige Aufrufer, der ihn auswertet (``routes/postfach.py``), brauchte
+    vom DM-Objekt ohnehin nur die beiden Konto-IDs; mit einer dritten
+    Kanalart gaebe es kein gemeinsames Objekt mehr, das beide Faelle traegt.
+    ``routes/postfach_anhaenge.py`` wertet ihn nicht aus (reine Zugangs-
+    Pruefung).
+
+    Eine Gilden-Kanal-ID faellt weiterhin durch — das Postfach traegt DMs und
+    private Gruppen, keine Community-Kanaele (Spec §9: „oeffentlich und
+    geteilt -> wie bisher")."""
     resolved = await resolve_channel_for_user(session, channel_id, user_id)
-    if resolved is None or resolved[0] != "dm":
-        raise HTTPException(status_code=403, detail="channel_not_accessible")
-    dm_obj = resolved[1]
-    other = dm_obj.user_b_id if dm_obj.user_a_id == user_id else dm_obj.user_a_id
-    if await block_exists_either_way(session, user_id, other):
-        raise HTTPException(status_code=403, detail="blocked")
-    if not await friendship_exists(session, user_id, other):
-        raise HTTPException(status_code=403, detail="not_friends")
-    return dm_obj
+    if resolved is not None and resolved[0] == "dm":
+        dm_obj = resolved[1]
+        other = dm_obj.user_b_id if dm_obj.user_a_id == user_id else dm_obj.user_a_id
+        if await block_exists_either_way(session, user_id, other):
+            raise HTTPException(status_code=403, detail="blocked")
+        if not await friendship_exists(session, user_id, other):
+            raise HTTPException(status_code=403, detail="not_friends")
+        return {dm_obj.user_a_id, dm_obj.user_b_id}
+
+    # ``resolve_channel_for_user`` kennt private Gruppen nicht (und soll es
+    # vorerst auch nicht, s. Modulkopf von ``private_gruppen_zugriff.py``) —
+    # eine Gruppen-ID kommt hier deshalb als ``None`` an, nicht als dritte
+    # Kanalart. Nur dieser Fall wird nachgeschlagen; eine Gilden-Kanal-ID
+    # (``resolved[0] == "guild"``) faellt unveraendert durch.
+    if resolved is None:
+        mitglieder = await gruppen_teilnehmer(session, channel_id, user_id)
+        if mitglieder is not None:
+            return mitglieder
+    raise HTTPException(status_code=403, detail="channel_not_accessible")
 
 
 async def _bundle_laden(

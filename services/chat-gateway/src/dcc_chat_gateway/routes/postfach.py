@@ -123,8 +123,7 @@ async def postfach_einliefern(
 
     # 3. Kanalzugang. Der Kanal liefert zugleich die Menge der Konten, an die
     # ueberhaupt zugestellt werden darf (s. Pruefung weiter unten).
-    dm_obj = await _channel_zugriff_pruefen(session, cid_int, user.id)
-    teilnehmer = {dm_obj.user_a_id, dm_obj.user_b_id}
+    teilnehmer = await _channel_zugriff_pruefen(session, cid_int, user.id)
 
     # 3b. Anhaenge (Etappe E). VOR dem Anlegen der Umschlaege: eine fremde
     # oder kanalfremde Kennung soll die Anfrage kippen, bevor irgendeine

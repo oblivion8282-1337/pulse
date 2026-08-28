@@ -1260,9 +1260,18 @@ class PostfachNutzlastIn(BaseModel):
     #: Base64 — dasselbe Format wie ``daten`` auf ``DmNutzlast``.
     daten: str
     #: Obergrenze wie bei ``user_ids`` weiter unten (max_length=64) — eine
-    #: DM braucht heute meist eines, eine kuenftige Megolm-Gruppe bis zu
-    #: ``private_group_max_members`` (Vorgabe 50). Ohne Obergrenze koennte
-    #: ein einzelner Umschlag beliebig viele Zustellungszeilen erzwingen.
+    #: DM braucht heute meist eines. Ohne Obergrenze koennte ein einzelner
+    #: Umschlag beliebig viele Zustellungszeilen erzwingen.
+    #:
+    #: **Fuer eine Megolm-Gruppe reichen 64 nicht zwangslaeufig**, und die
+    #: fruehere Fassung dieses Kommentars behauptete das Gegenteil: sie hielt
+    #: die Zahl gegen ``private_group_max_members`` (Vorgabe 50). Gezaehlt
+    #: werden hier aber GERAETE, nicht Mitglieder — je Konto bis zu
+    #: ``schluessel_max_buendel_je_konto`` (Vorgabe 20). Der Klient teilt
+    #: eine grosse Gruppe deshalb in mehrere Nutzlasten mit demselben
+    #: ``daten``-Wert auf (``web/src/lib/krypto/gruppe/senden.ts``); die
+    #: Grenze bleibt, weil sie die Zustellungszeilen je Nutzlast deckelt,
+    #: nicht die Gruppengroesse.
     empfaenger: list[str] = Field(min_length=1, max_length=64)
 
 

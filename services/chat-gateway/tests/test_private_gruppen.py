@@ -696,3 +696,102 @@ async def test_gleichzeitiger_purge_und_austritt_verwaisen_den_ersteller_nicht(
     assert gruppe.ersteller_id in mitglieder_ids, (
         f"ersteller_id={gruppe.ersteller_id} ist kein Mitglied mehr ({mitglieder_ids})"
     )
+
+
+# ---------------------------------------------------------------------------
+# Etappe G2 — was der verschluesselte Weg zusaetzlich braucht
+# ---------------------------------------------------------------------------
+#
+# Zwei Auskuenfte ausserhalb der Routen (``private_gruppen_zugriff.py``): die
+# Teilnehmermenge fuer das Postfach und „teilen sich diese zwei eine Gruppe?"
+# fuer das Schluesselverzeichnis. Beide entscheiden, ob eine verschluesselte
+# Gruppe ueberhaupt baubar ist — ohne sie faellt eine Gruppen-Kanal-ID im
+# Postfach durch (403) und ein Mitglied bekommt die Geraetebuendel der
+# anderen nicht.
+
+
+async def _gruppe_mit_mitgliedern(session_factory, ersteller_id: int, *weitere: int) -> int:
+    from dcc_chat_gateway.models import PrivateGroupChannel, PrivateGroupMember
+    from dcc_chat_gateway.snowflake import next_id
+
+    gid = next_id()
+    async with session_factory() as s:
+        s.add(
+            PrivateGroupChannel(
+                id=gid, ersteller_id=ersteller_id, erstellt_von_id=ersteller_id, name="g"
+            )
+        )
+        for uid in (ersteller_id, *weitere):
+            s.add(PrivateGroupMember(id=next_id(), gruppe_id=gid, user_id=uid))
+        await s.commit()
+    return gid
+
+
+@pytest.mark.asyncio
+async def test_teilnehmer_nur_fuer_mitglieder(session_factory, gruppen_an):
+    from dcc_chat_gateway.private_gruppen_zugriff import gruppen_teilnehmer
+
+    gid = await _gruppe_mit_mitgliedern(session_factory, 10, 11, 12)
+    async with session_factory() as s:
+        assert await gruppen_teilnehmer(s, gid, 11) == {10, 11, 12}
+        # Ein Nichtmitglied bekommt die Menge nicht zu sehen — und erfaehrt
+        # auch nicht, dass es die Gruppe gibt (derselbe Rueckgabewert wie
+        # „ID gehoert zu keiner Gruppe").
+        assert await gruppen_teilnehmer(s, gid, 99) is None
+        assert await gruppen_teilnehmer(s, gid + 1, 10) is None
+
+
+@pytest.mark.asyncio
+async def test_abgeschalteter_schalter_versteckt_auch_bestandsgruppen(
+    session_factory, _isolate_chat_settings
+):
+    """Sonst sperrte der Schalter nur die Verwaltung, nicht die Nutzung: eine
+    Gruppe, die bei eingeschaltetem Schalter entstanden ist, liesse sich nach
+    dem Abschalten weiter ueber das Postfach bespielen."""
+    from dcc_chat_gateway.private_gruppen_zugriff import (
+        gruppen_teilnehmer,
+        teilen_private_gruppe,
+    )
+
+    _isolate_chat_settings.private_groups_enabled = True
+    gid = await _gruppe_mit_mitgliedern(session_factory, 20, 21)
+    _isolate_chat_settings.private_groups_enabled = False
+
+    async with session_factory() as s:
+        assert await gruppen_teilnehmer(s, gid, 20) is None
+        assert await teilen_private_gruppe(s, 20, 21) is False
+
+
+@pytest.mark.asyncio
+async def test_gemeinsame_gruppe_erlaubt_den_schluesselabruf(session_factory, gruppen_an):
+    """Ohne das waere eine verschluesselte Gruppe nicht baubar: der
+    Gruppenschluessel reist ueber je eine 1:1-Olm-Sitzung zu jedem Geraet
+    jedes Mitglieds, und Mitglieder sind untereinander in aller Regel nicht
+    befreundet."""
+    from dcc_chat_gateway.private_gruppen_zugriff import teilen_private_gruppe
+    from dcc_chat_gateway.schluessel_zugriff import darf_schluessel_holen
+
+    await _gruppe_mit_mitgliedern(session_factory, 30, 31)
+    async with session_factory() as s:
+        assert await teilen_private_gruppe(s, 30, 31) is True
+        assert await teilen_private_gruppe(s, 31, 30) is True
+        # Wer in keiner gemeinsamen Gruppe ist, bleibt draussen — der
+        # Self-Join darf nicht jede beliebige Mitgliedschaft mit jeder
+        # anderen verheiraten.
+        assert await teilen_private_gruppe(s, 30, 32) is False
+        assert await darf_schluessel_holen(s, 30, 31) is True
+        assert await darf_schluessel_holen(s, 30, 32) is False
+
+
+@pytest.mark.asyncio
+async def test_blockierung_geht_der_gruppe_beim_schluesselabruf_vor(
+    session_factory, gruppen_an
+):
+    """Das kostet einen Umschlag, nicht die Gruppe: der Geblockte bleibt
+    Mitglied und kann selbst weiter senden."""
+    from dcc_chat_gateway.schluessel_zugriff import darf_schluessel_holen
+
+    await _gruppe_mit_mitgliedern(session_factory, 40, 41)
+    await _install_block(session_factory, 41, 40)
+    async with session_factory() as s:
+        assert await darf_schluessel_holen(s, 40, 41) is False

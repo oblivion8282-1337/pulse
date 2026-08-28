@@ -25,19 +25,21 @@
  * war fuer `verlaufSpeichernPflicht` noch falsch — `krypto/quittierbareIds.ts`
  * wertet jeden nicht werfenden Aufruf als Erfolg und quittiert, egal was der
  * Rueckgabewert sagt. Die beiden Faelle, in denen die alte Fassung `0` OHNE
- * Wurf zurueckgab (`!istDmKanal` und `baueSaetze(...).length === 0`), waren
- * damit "nichts gespeichert" getarnt als Erfolg. Der haeufigste Fall dahinter
- * ist nicht exotisch: die ERSTE Nachricht eines Gespraechs, das der Klient
- * lokal noch nicht als DM-Kanal kennt (der `ready`-Rahmen bzw.
- * `dm_channel_created` ist noch nicht angekommen). Fuer die alleinigen
- * Aufrufer dieser Funktion (`krypto/senden.ts`, `krypto/empfangen.ts`) ist
- * JEDER Kanal, den sie hier sehen, ein DM-Kanal — Postfach-Zustellungen gibt
- * es nur fuer DMs. `istDmKanal === false` ist an dieser Stelle also nie "kein
- * DM, ueberspringen" (das waere `verlaufSpeichern`s Fall), sondern immer
- * "dieser DM-Kanal ist lokal noch nicht bekannt". Verwerfen waere hier
- * endgueltiger Datenverlust, stillschweigend erfolgreich tun waere derselbe
- * Verlust nur einen Schritt spaeter (die Quittung raeumt den Server). Beide
- * Faelle werfen deshalb jetzt `VerlaufSpeichernFehlgeschlagen`: der Aufrufer
+ * Wurf zurueckgab (`!istLokalerKanal` und `baueSaetze(...).length === 0`),
+ * waren damit "nichts gespeichert" getarnt als Erfolg. Der haeufigste Fall
+ * dahinter ist nicht exotisch: die ERSTE Nachricht eines Gespraechs, das der
+ * Klient lokal noch nicht kennt (der `ready`-Rahmen bzw.
+ * `dm_channel_created` ist noch nicht angekommen; bei einer Gruppe:
+ * `GET /gruppen` ist noch nicht durch). Fuer die alleinigen Aufrufer dieser
+ * Funktion (`krypto/senden.ts`, `krypto/empfangen.ts`, `krypto/gruppe/*`)
+ * ist JEDER Kanal, den sie hier sehen, ein lokal gefuehrter —
+ * Postfach-Zustellungen gibt es nur fuer DMs und private Gruppen.
+ * `istLokalerKanal === false` ist an dieser Stelle also nie "ueberspringen"
+ * (das waere `verlaufSpeichern`s Fall), sondern immer "dieser Kanal ist
+ * lokal noch nicht bekannt". Verwerfen waere hier endgueltiger
+ * Datenverlust, stillschweigend erfolgreich tun waere derselbe Verlust nur
+ * einen Schritt spaeter (die Quittung raeumt den Server). Beide Faelle
+ * werfen deshalb jetzt `VerlaufSpeichernFehlgeschlagen`: der Aufrufer
  * quittiert nicht, die Zustellung bleibt auf dem Server liegen, und der
  * naechste Abholzyklus versucht es erneut — sobald der Kanal lokal bekannt
  * ist, gelingt der Schreibvorgang.
@@ -53,18 +55,26 @@ import { verlaufZustand } from './zustand.svelte';
 import { zusammenfuegen, type Mergeposten } from './zusammenfuegen';
 import { VerlaufSpeichernFehlgeschlagen, pruefeSpeicherErgebnis } from './speichernPflicht';
 import { directMessages } from '$lib/stores/directMessages.svelte';
+import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
 import type { Message } from '$lib/api/types';
 
 export { VerlaufSpeichernFehlgeschlagen };
 
 /**
- * Nur DM-Kanäle werden lokal abgelegt — Community-Kanäle bleiben serverseitig
- * (Spec §9). Die Unterscheidung läuft über die Kanal-ID, nicht über die
- * Aufrufstelle: `chat.ts`/`gapFill.ts`/`MessageList.svelte` bedienen DM- UND
- * Guild-Kanäle gleichermassen, ein Filter nach Aufrufstelle träfe das falsch.
+ * Nur DM-Kanäle und private Gruppen werden lokal abgelegt — Community-Kanäle
+ * bleiben serverseitig (Spec §9). Die Unterscheidung läuft über die Kanal-ID,
+ * nicht über die Aufrufstelle: `chat.ts`/`gapFill.ts`/`MessageList.svelte`
+ * bedienen DM- UND Guild-Kanäle gleichermassen, ein Filter nach Aufrufstelle
+ * träfe das falsch.
+ *
+ * **Private Gruppen kamen mit Etappe G2 dazu, und für sie ist die lokale
+ * Ablage nicht nur die bevorzugte, sondern die EINZIGE Kopie** — sie sind von
+ * Geburt an verschlüsselt (Spec §9), der Server hat also nie einen Klartext
+ * gesehen, auf den man zurückfallen könnte. Bei einer DM gibt es diesen
+ * Rückfall solange, wie der Klartext-Weg mitläuft.
  */
-function istDmKanal(kanalId: string): boolean {
-  return kanalId in directMessages.byId;
+function istLokalerKanal(kanalId: string): boolean {
+  return kanalId in directMessages.byId || privateGruppen.istGruppe(kanalId);
 }
 
 /** Baut die zu schreibenden Saetze — geteilte Rechnung von
@@ -82,13 +92,14 @@ function baueSaetze(kanalId: string, nachrichten: unknown[]) {
 
 /**
  * Legt ankommende Nachrichten eines Kanals im lokalen Verlauf ab (nur wenn es
- * ein DM-Kanal ist). Gibt zurück, wie viele Sätze abgelegt wurden — der
- * Rückgabewert ist reine Diagnose, kein Aufrufer wertet ihn heute aus.
+ * ein DM-Kanal oder eine private Gruppe ist). Gibt zurück, wie viele Sätze
+ * abgelegt wurden — der Rückgabewert ist reine Diagnose, kein Aufrufer wertet
+ * ihn heute aus.
  * Wirft nie: siehe Kommentar oben. Fuer den C1/C2-Lesepfad (der Server hat
  * ohnehin eine eigene Kopie) — der Krypto-Pfad braucht `verlaufSpeichernPflicht`.
  */
 export function verlaufSpeichern(kanalId: string, nachrichten: unknown[]): Promise<number> {
-  if (!istDmKanal(kanalId)) return Promise.resolve(0);
+  if (!istLokalerKanal(kanalId)) return Promise.resolve(0);
   const saetze = baueSaetze(kanalId, nachrichten);
   if (saetze.length === 0) return Promise.resolve(0);
   return verlaufPutSaetze(saetze)
@@ -101,11 +112,11 @@ export function verlaufSpeichern(kanalId: string, nachrichten: unknown[]): Promi
 
 /**
  * Wie `verlaufSpeichern`, aber fuer Aufrufer, denen der lokale Speicher die
- * EINZIGE Kopie einer Nachricht ist (`krypto/senden.ts`, `krypto/empfangen.ts`)
- * — wirft bei einem Fehlschlag, statt ihn zu verschlucken (s. Modulkopf). Ein
+ * EINZIGE Kopie einer Nachricht ist (`krypto/senden.ts`, `krypto/empfangen.ts`,
+ * `krypto/gruppe/*`) — wirft bei einem Fehlschlag, statt ihn zu verschlucken (s. Modulkopf). Ein
  * Aufrufer MUSS reagieren: entweder die Quittung/den Abschluss zurückhalten,
  * oder den Fehler an den Nutzer weitergeben. Wirft auch dann, wenn NICHTS zu
- * speichern war (unbekannter DM-Kanal, keine speicherbaren Saetze) — ein
+ * speichern war (lokal unbekannter Kanal, keine speicherbaren Saetze) — ein
  * Rueckgabewert `0` sah bislang wie Erfolg aus; die Entscheidung, wann das
  * gilt, steht importfrei (und damit direkt testbar) in `speichernPflicht.ts`
  * (s. Modulkopf FIX 1).
@@ -115,9 +126,9 @@ export function verlaufSpeichernPflicht(
   nachrichten: unknown[]
 ): Promise<number> {
   try {
-    const dmBekannt = istDmKanal(kanalId);
-    const saetze = dmBekannt ? baueSaetze(kanalId, nachrichten) : [];
-    pruefeSpeicherErgebnis(kanalId, dmBekannt, saetze.length);
+    const kanalBekannt = istLokalerKanal(kanalId);
+    const saetze = kanalBekannt ? baueSaetze(kanalId, nachrichten) : [];
+    pruefeSpeicherErgebnis(kanalId, kanalBekannt, saetze.length);
     return verlaufPutSaetze(saetze).then(() => saetze.length);
   } catch (err) {
     return Promise.reject(err);
@@ -131,7 +142,7 @@ export function verlaufSpeichernPflicht(
  * Wirft nie: siehe Kommentar oben.
  */
 export function verlaufNachrichtGeloescht(kanalId: string, nachrichtId: string): void {
-  if (!istDmKanal(kanalId)) return;
+  if (!istLokalerKanal(kanalId)) return;
   void verlaufMarkiereGeloescht(sortierSchluessel(kanalId, nachrichtId)).catch((err) => {
     verlaufZustand.melde(err);
     /* wirft nie nach aussen — s. Kommentar oben */
@@ -139,8 +150,9 @@ export function verlaufNachrichtGeloescht(kanalId: string, nachrichtId: string):
 }
 
 /**
- * Liest bis zu `anzahl` Saetze eines DM-Kanals aus dem lokalen Speicher.
- * Fuer Guild-Kanaele (nicht lokal abgelegt, s. `istDmKanal`) immer `[]` —
+ * Liest bis zu `anzahl` Saetze eines lokal gefuehrten Kanals (DM oder private
+ * Gruppe) aus dem lokalen Speicher.
+ * Fuer Guild-Kanaele (nicht lokal abgelegt, s. `istLokalerKanal`) immer `[]` —
  * bewusst KEIN Fehlerfall, ein Aufrufer kann uebergangslos beide Kanalarten
  * anfragen. Wirft nie: ein Lesefehler faellt auf den leeren Bestand zurueck
  * (der Aufrufer fragt dann ohnehin den Server), meldet sich aber bei
@@ -150,7 +162,7 @@ export function verlaufLesen(
   kanalId: string,
   opts: { vor?: string; anzahl: number }
 ): Promise<SatzAlsNachricht[]> {
-  if (!istDmKanal(kanalId)) return Promise.resolve([]);
+  if (!istLokalerKanal(kanalId)) return Promise.resolve([]);
   return verlaufLesenSaetze(kanalId, opts)
     .then((saetze) => saetze.map(satzZuNachricht))
     .catch((err) => {
@@ -160,7 +172,7 @@ export function verlaufLesen(
 }
 
 /**
- * `true`, wenn fuer diese Nachrichten-ID im DM-Kanal bereits ein Satz liegt —
+ * `true`, wenn fuer diese Nachrichten-ID im Kanal bereits ein Satz liegt —
  * fuer `krypto/empfangen.ts` FIX 3 (Bughunt-Runde 3, s. dortigen Modulkopf):
  * eine Zustellung, deren Quittung zuletzt fehlschlug, aber deren Klartext
  * schon sicher abgelegt ist, darf ohne erneutes Entschluesseln quittiert
@@ -169,7 +181,7 @@ export function verlaufLesen(
  * dann beim bestehenden, langsameren Pfad.
  */
 export function verlaufSchonAbgelegt(kanalId: string, nachrichtId: string): Promise<boolean> {
-  if (!istDmKanal(kanalId)) return Promise.resolve(false);
+  if (!istLokalerKanal(kanalId)) return Promise.resolve(false);
   return verlaufSatzVorhanden(kanalId, nachrichtId).catch((err) => {
     verlaufZustand.melde(err);
     return false;

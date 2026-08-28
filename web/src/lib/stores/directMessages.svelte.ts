@@ -96,7 +96,7 @@ class DirectMessageStore {
    *  Server-Wert bleibt dann einfach stehen), meldet sich aber bei
    *  `verlaufZustand` wie die uebrigen Lesepfade in `verlauf/index.ts`.
    *  Direkt gegen `verlauf/db.ts`, nicht gegen `verlauf/index.ts::verlaufLesen`
-   *  — dessen `istDmKanal`-Gate wuerde hier immer durchfallen (dieser Kanal
+   *  — dessen `istLokalerKanal`-Gate wuerde hier immer durchfallen (dieser Kanal
    *  wird ja GERADE erst in `byId` eingetragen), obwohl die ID unzweifelhaft
    *  ein DM-Kanal ist (sie steht in der DM-Liste, die diese Funktion aufruft). */
   private async letzterLokalerSatz(kanalId: string): Promise<LokalerLetzterSatz | null> {
