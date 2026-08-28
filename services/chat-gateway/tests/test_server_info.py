@@ -74,4 +74,29 @@ async def test_server_info_version_and_issuer(client, _isolate_chat_settings):
     data = resp.json()
     assert data["server_version"] == __version__
     assert "howispulse.com" in data["pulse_oidc_issuer"]
-    assert data["capabilities"] == []
+    # Das Feld war seit Phase 3.3 ein leerer Platzhalter und wird seit dem
+    # 2026-08-28 tatsaechlich gefuellt — die Liste steht in faehigkeiten.py.
+    from dcc_chat_gateway.faehigkeiten import SERVER_FAEHIGKEITEN
+
+    assert data["capabilities"] == list(SERVER_FAEHIGKEITEN)
+
+
+@pytest.mark.asyncio
+async def test_server_info_nennt_den_ticket_weg(client):
+    """Die oeffentliche Auskunft beantwortet die ERSTE Frage: Wie melde ich mich hier an?
+
+    Der hello-Rahmen kaeme dafuer zu spaet - ihn zu benutzen hiesse, eine
+    Anmeldung vorauszusetzen, um die Anmeldung zu waehlen.
+    """
+    r = await client.get("/.well-known/pulse-server-info")
+    assert r.status_code == 200, r.text
+    assert "server-ticket" in r.json()["capabilities"]
+
+
+@pytest.mark.asyncio
+async def test_beide_oberflaechen_nennen_dieselbe_liste(client):
+    """Zwei Listen liefen auseinander, sobald jemand nur eine anfasst."""
+    from dcc_chat_gateway.faehigkeiten import SERVER_FAEHIGKEITEN
+
+    r = await client.get("/.well-known/pulse-server-info")
+    assert r.json()["capabilities"] == list(SERVER_FAEHIGKEITEN)

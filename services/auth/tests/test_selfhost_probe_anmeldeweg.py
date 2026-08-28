@@ -17,83 +17,82 @@ from dcc_auth.selfhost_probe_dienst import Ziel
 ZIEL = Ziel("x.example.com", "203.0.113.10")
 
 
-def _klient(status: int, rumpf: dict | None = None) -> httpx.AsyncClient:
+def _klient(status: int, rumpf=None, text: str | None = None) -> httpx.AsyncClient:
     def handler(request: httpx.Request) -> httpx.Response:
+        if text is not None:
+            return httpx.Response(status, text=text)
         return httpx.Response(status, json=rumpf if rumpf is not None else {})
 
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
 @pytest.mark.asyncio
-async def test_neuer_server_weist_das_unbrauchbare_ticket_ab():
-    """403 mit einem ``ticket_*``-Code heisst: Die Route ist da und tut ihre Arbeit."""
-    async with _klient(403, {"detail": "ticket_malformed"}) as k:
+async def test_server_der_die_faehigkeit_nennt():
+    async with _klient(200, {"capabilities": ["token_refresh", "server-ticket"]}) as k:
         s = await pruefe_anmeldeweg(k, ZIEL)
     assert s.ok is True
     assert s.befund == "ticket_weg"
 
 
 @pytest.mark.asyncio
-async def test_alter_server_kennt_die_route_nicht():
-    """404 ist waehrend der Uebergangszeit KEIN Fehler — deshalb ``ok=True``.
+async def test_alter_server_nennt_sie_nicht():
+    """Das Feld war bis zum 2026-08-28 immer leer.
 
-    Wer hier einen Fehlalarm baut, treibt Betreiber dazu, an einem Server
+    Waehrend der Uebergangszeit ist das KEIN Mangel, deshalb ``ok=True``. Wer
+    hier einen Fehlalarm baut, treibt Betreiber dazu, an einem Server
     herumzuschrauben, an dem nichts fehlt.
     """
-    async with _klient(404) as k:
+    async with _klient(200, {"capabilities": []}) as k:
         s = await pruefe_anmeldeweg(k, ZIEL)
     assert s.ok is True
     assert s.befund == "zertifikats_weg"
 
 
 @pytest.mark.asyncio
-async def test_unerwartete_antwort_ist_kein_fehlalarm():
-    """Ein Proxy, der 502 liefert, sagt nichts ueber den Anmeldeweg."""
+async def test_spa_rueckfall_ist_kein_fehlalarm():
+    """Fehlt die Proxy-Zeile, liefert der SPA-Rueckfall die Startseite.
+
+    Dieselbe Falle hat die Cloud-Poller schon einmal erwischt (s. CLAUDE.md,
+    well-known-Endpunkte) — sie scheiterten still mit einem JSONDecodeError.
+    """
+    async with _klient(200, text="<!doctype html><html>…") as k:
+        s = await pruefe_anmeldeweg(k, ZIEL)
+    assert s.befund == "keine_auskunft"
+
+
+@pytest.mark.asyncio
+async def test_fehlerantwort_sagt_nichts_ueber_den_anmeldeweg():
     async with _klient(502) as k:
         s = await pruefe_anmeldeweg(k, ZIEL)
     assert s.befund == "keine_auskunft"
 
 
 @pytest.mark.asyncio
-async def test_200_ohne_json_ist_der_spa_rueckfall():
-    """Fehlt die Proxy-Zeile, liefert der SPA-Rueckfall die Startseite.
-
-    Dieselbe Falle hat die Cloud-Poller schon einmal erwischt (s. CLAUDE.md,
-    well-known-Endpunkte) — sie scheiterten still mit einem JSONDecodeError.
-    """
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, text="<!doctype html><html>…")
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as k:
+async def test_antwort_ohne_capabilities_feld():
+    async with _klient(200, {"server_version": "0.8.0"}) as k:
         s = await pruefe_anmeldeweg(k, ZIEL)
     assert s.befund == "keine_auskunft"
 
 
 @pytest.mark.asyncio
-async def test_403_ohne_ticket_code_ist_keine_auskunft():
-    """Ein 403 aus einem anderen Grund (etwa eine Firewall) beweist nichts."""
-    async with _klient(403, {"detail": "forbidden"}) as k:
-        s = await pruefe_anmeldeweg(k, ZIEL)
-    assert s.befund == "keine_auskunft"
+async def test_der_probe_liest_nur_und_schickt_nichts_mit():
+    """Reine Auskunft: GET, kein Rumpf, kein Authorization-Kopf.
 
-
-@pytest.mark.asyncio
-async def test_es_reist_kein_geheimnis_mit():
-    """Der Probe legt ein offensichtlich unbrauchbares Ticket vor.
-
-    Er darf keinen echten Ausweis verschicken — er prueft einen FREMDEN Server,
-    und der Betreiber ist nicht zwingend vertrauenswuerdig.
+    Der Probe prueft einen FREMDEN Server, dessen Betreiber nicht zwingend
+    vertrauenswuerdig ist. Der erste Anlauf stellte hier eine POST-Anfrage an
+    die Anmelde-Route — ein schreibender Zugriff, um eine Auskunft zu bekommen.
     """
     gesehen: dict[str, object] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        gesehen["body"] = request.content.decode()
+        gesehen["methode"] = request.method
         gesehen["auth"] = request.headers.get("authorization")
-        return httpx.Response(404)
+        gesehen["body"] = request.content
+        return httpx.Response(200, json={"capabilities": []})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as k:
         await pruefe_anmeldeweg(k, ZIEL)
 
-    assert gesehen["auth"] is None, "der Probe schickt einen Authorization-Kopf"
-    assert "keins" in str(gesehen["body"])
+    assert gesehen["methode"] == "GET"
+    assert gesehen["auth"] is None
+    assert not gesehen["body"]

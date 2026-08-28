@@ -7,17 +7,18 @@ Anmeldung beantworten kann — und liefert die Zahl, an der das Tor zwischen
 Phase 2 und Phase 3 des Umbaus hängt: Solange auch nur eine Instanz noch auf
 dem alten Weg anmeldet, wird nichts gelöscht.
 
-Warum ``POST /session`` und nicht der ``hello``-Rahmen
-------------------------------------------------------
-Die Fähigkeitsliste steht im ``hello``, das es erst **nach** einer gültigen
-Anmeldung gibt — also ausgerechnet nach dem, was womöglich klemmt. Diese Prüfung
-darf keine Anmeldung voraussetzen. Also fragt sie die Route selbst: Ein alter
-Server kennt sie nicht (404), ein neuer weist ein unbrauchbares Ticket ab (403
-mit einem ``ticket_*``-Code). Beides eindeutig, und es reist kein Geheimnis mit.
+Warum die öffentliche Auskunft und nicht der ``hello``-Rahmen
+-------------------------------------------------------------
+Die Fähigkeitsliste steht auch im ``hello``, das es aber erst **nach** einer
+gültigen Anmeldung gibt — also ausgerechnet nach dem, was womöglich klemmt.
+``/.well-known/pulse-server-info`` beantwortet dieselbe Frage ohne Anmeldung; es
+trägt das ``capabilities``-Feld seit Phase 3.3.
 
-Der Pfad braucht **keine** eigene Zeile im Proxy: ``/api/chat/*`` ist bereits
-durchgeleitet. Fehlt sie trotzdem, greift der SPA-Rückfall und liefert HTML
-statt JSON — das fällt hier als ``keine_auskunft`` an, nicht als Fehlalarm.
+Der erste Anlauf dieser Prüfung stellte stattdessen eine Anfrage an
+``POST /session`` und schloss aus 404 gegen 403 auf den Weg. Das funktionierte,
+war aber ein **schreibender** Zugriff auf einen fremden Server, um eine reine
+Auskunft zu bekommen — und es prüfte den Anmeldeweg über die Anmeldung selbst.
+Die Auskunft direkt zu lesen ist beides nicht.
 """
 
 from __future__ import annotations
@@ -29,42 +30,47 @@ import httpx
 from dcc_auth.selfhost_probe import FRIST_S, Schritt
 from dcc_auth.selfhost_probe_dienst import Ziel
 
-PFAD = "/api/chat/session"
+PFAD = "/.well-known/pulse-server-info"
 
-#: Vorsätzlich unbrauchbar. Der Probe prüft einen FREMDEN Server, dessen
-#: Betreiber nicht zwingend vertrauenswürdig ist — ein echter Ausweis hätte hier
-#: nichts zu suchen.
-_UNBRAUCHBAR = {"ticket": "keins"}
+#: Muss mit ``dcc_chat_gateway.faehigkeiten.SERVER_FAEHIGKEITEN`` übereinstimmen.
+FAEHIGKEIT_TICKET = "server-ticket"
 
 
 async def pruefe_anmeldeweg(klient: httpx.AsyncClient, ziel: Ziel) -> Schritt:
     """Fragt, welchen Anmeldeweg dieser Server kann."""
     try:
         async with asyncio.timeout(FRIST_S):
-            antwort = await klient.post(
+            antwort = await klient.get(
                 ziel.url(PFAD),
-                json=_UNBRAUCHBAR,
                 headers=ziel.kopf({}),
                 extensions=ziel.sni,
             )
     except Exception:  # noqa: BLE001
         return Schritt("anmeldeweg", False, "keine_auskunft")
 
-    if antwort.status_code == 404:
-        # Route unbekannt: Der Server läuft noch auf dem Zertifikats-Weg. Das
-        # ist während der Übergangszeit KEIN Mangel, deshalb ``ok=True``. Ein
-        # Fehlalarm hier triebe Betreiber dazu, an einem Server herumzuschrauben,
-        # an dem nichts fehlt.
-        return Schritt("anmeldeweg", True, "zertifikats_weg")
+    if antwort.status_code >= 400:
+        return Schritt("anmeldeweg", False, "keine_auskunft")
 
-    if antwort.status_code == 403:
-        try:
-            detail = antwort.json().get("detail", "")
-        except Exception:  # noqa: BLE001
-            detail = ""
-        if isinstance(detail, str) and detail.startswith("ticket_"):
-            return Schritt("anmeldeweg", True, "ticket_weg")
+    try:
+        daten = antwort.json()
+    except Exception:  # noqa: BLE001
+        # Der häufigste Fall dahinter: Der Proxy liefert die SPA-Startseite
+        # statt der JSON-Antwort. Siehe ``pruefe_identitaet``, das an derselben
+        # Auskunft hängt und denselben Fall kennt.
+        return Schritt("anmeldeweg", False, "keine_auskunft")
 
-    # Alles andere (502 vom Proxy, 200 mit HTML aus dem SPA-Rückfall, ein 403
-    # aus einem anderen Grund) sagt nichts über den Anmeldeweg.
-    return Schritt("anmeldeweg", False, "keine_auskunft")
+    if not isinstance(daten, dict):
+        return Schritt("anmeldeweg", False, "keine_auskunft")
+
+    faehigkeiten = daten.get("capabilities")
+    if not isinstance(faehigkeiten, list):
+        return Schritt("anmeldeweg", False, "keine_auskunft")
+
+    if FAEHIGKEIT_TICKET in faehigkeiten:
+        return Schritt("anmeldeweg", True, "ticket_weg")
+
+    # Ein älterer Server nennt die Fähigkeit nicht (das Feld war bis zum
+    # 2026-08-28 immer leer). Während der Übergangszeit ist das KEIN Mangel,
+    # deshalb ``ok=True`` — ein Fehlalarm triebe Betreiber dazu, an einem Server
+    # herumzuschrauben, an dem nichts fehlt.
+    return Schritt("anmeldeweg", True, "zertifikats_weg")
