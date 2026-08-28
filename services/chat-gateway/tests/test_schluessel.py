@@ -78,6 +78,24 @@ async def _seed_jwks(app) -> None:
 
 
 @pytest_asyncio.fixture(autouse=True)
+async def _redis_fixture_daten_aufraeumen(app):
+    """``_seed_jwks``/``test_widerrufenes_geraet_wird_nicht_geliefert`` schreiben
+    unter den ECHTEN Produktions-Keys (``auth:jwks:cached``,
+    ``credential_validator.REDIS_REVOKED_SET``) in ein reales Redis — dasselbe
+    ``dcc_night_redis``, das auch der lokale Dev-Stack und die Playwright-
+    E2E-Suite benutzen (s. CLAUDE.md „Port-Mapping"). Ohne Aufraeumen ueberlebt
+    die Fixture-JWKS den Testlauf: jeder echte Aufrufer, der denselben
+    Redis-Index trifft, sieht danach ``test-schluessel-key-1`` statt der
+    echten Cloud-JWKS und jedes echte Zertifikat schlaegt mit 403 fehl.
+    """
+    yield
+    await app.state.redis.delete("auth:jwks:cached")
+    from dcc_chat_gateway.credential_validator import REDIS_REVOKED_SET
+
+    await app.state.redis.srem(REDIS_REVOKED_SET, "cert-widerrufen")
+
+
+@pytest_asyncio.fixture(autouse=True)
 async def _enable_sqlite_foreign_keys(engine):
     """SQLite ignoriert ``ON DELETE CASCADE`` ohne ``PRAGMA foreign_keys=ON``
     je Verbindung. Postgres (Prod) erzwingt das ohnehin — dieselbe Falle wie
