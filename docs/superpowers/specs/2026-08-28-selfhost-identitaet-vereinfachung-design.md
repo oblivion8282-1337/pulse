@@ -89,9 +89,13 @@ fremden Server nachgemessen.
 ### Was die Cloud vor dem Ausstellen prüft
 
 Konto aktiv und nicht gesperrt, E-Mail bestätigt, Instanz vorhanden und `active`,
-Instanz nicht gesperrt. Dazu ein Ratenlimit — und zwar im auth-svc, wo `slowapi`
-bereits läuft. Der selbstgebaute Zähler im chat-gateway (`_CERT_LOGIN_RATE_LIMIT`,
-rund 100 Zeilen Eimer-Verwaltung samt Verdrängungsstrategie) entfällt damit.
+Instanz nicht gesperrt. Dazu ein Ratenlimit — und zwar im auth-svc, der als einziger der beiden
+Dienste einen Begrenzer führt (`routes.py::_check_rate`, ein gleitendes Fenster
+mit Regeln aus den Einstellungen; `slowapi` ist zwar importiert, wird aber
+bewusst nicht als Dekorator benutzt — seine Middleware macht die Testisolierung
+unbrauchbar, so der Kommentar an Ort und Stelle). Der selbstgebaute Zähler im
+chat-gateway (`_CERT_LOGIN_RATE_LIMIT`, rund 100 Zeilen Eimer-Verwaltung samt
+Verdrängungsstrategie) entfällt damit.
 
 Die Cloud prüft **nicht**, ob der Nutzer auf diesen Server darf. Das bleibt die
 Entscheidung des Betreibers. Das Ticket sagt „das ist dieser Mensch", nicht „lass
