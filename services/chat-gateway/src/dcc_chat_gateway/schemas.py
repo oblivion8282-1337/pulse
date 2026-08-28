@@ -1233,7 +1233,11 @@ class PostfachNutzlastIn(BaseModel):
     art: int
     #: Base64 — dasselbe Format wie ``daten`` auf ``DmNutzlast``.
     daten: str
-    empfaenger: list[str] = Field(min_length=1)
+    #: Obergrenze wie bei ``user_ids`` weiter unten (max_length=64) — eine
+    #: DM braucht heute meist eines, eine kuenftige Megolm-Gruppe bis zu
+    #: ``private_group_max_members`` (Vorgabe 50). Ohne Obergrenze koennte
+    #: ein einzelner Umschlag beliebig viele Zustellungszeilen erzwingen.
+    empfaenger: list[str] = Field(min_length=1, max_length=64)
 
 
 class PostfachEinliefernRequest(BaseModel):
