@@ -14,6 +14,7 @@ import { certStore, isCertExpiringSoon, parseCertClaims } from './cert.svelte';
 import type { IdentityCert } from './cert.svelte';
 import { loadKeypair, exportPublicKey } from './keypair.svelte';
 import { issueCert } from '$lib/api/credentials';
+import { veroeffentlicheSchluessel } from '$lib/krypto/veroeffentlichen';
 
 // ---------------------------------------------------------------------------
 // Konstanten
@@ -56,6 +57,16 @@ async function doRotation(): Promise<void> {
     if (!claims) return;
     const renewed: IdentityCert = { raw: resp.cert, claims };
     await certStore.setCert(renewed);
+    // Das Schluessel-Buendel traegt die cert_id des zuletzt veroeffentlichenden
+    // Zertifikats. Ohne dieses Nachziehen zeigt sie nach der Rotation auf ein
+    // ueberholtes Zertifikat — der Sperrlisten-Filter beim Abholen (`GET
+    // /keys/claim`) griffe dann nicht mehr, ein gesperrtes Geraet bekaeme
+    // weiter Schluessel (s. Etappe-B2-Plan, Task 3 Schritt 4).
+    try {
+      await veroeffentlicheSchluessel();
+    } catch {
+      // Best-effort — der naechste taegliche Check versucht es erneut.
+    }
   } catch {
     // Best-effort — nächster täglicher Check versucht es nochmal
   }

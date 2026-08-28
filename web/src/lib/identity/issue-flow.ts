@@ -26,6 +26,7 @@ import type { IdentityCert } from './cert.svelte';
 import { profileStatementStore, parseStatementClaims } from './profile-statement.svelte';
 import type { ProfileStatement } from './profile-statement.svelte';
 import { issueCert, getProfileStatement } from '$lib/api/credentials';
+import { veroeffentlicheSchluessel } from '$lib/krypto/veroeffentlichen';
 
 // ---------------------------------------------------------------------------
 // Gerätebeschriftung
@@ -142,6 +143,18 @@ export async function runIssueFlow(): Promise<IssueFlowResult> {
   }
   const statement: ProfileStatement = { raw: stmtResp.token, claims: stmtClaims };
   await profileStatementStore.setStatement(statement);
+
+  // --- 5: E2E-DM-Schluessel veroeffentlichen ---
+  // Best-effort und bewusst NACH dem Cert-Store-Write: die Nutzlast wird mit
+  // dem Cert aus dem Store signiert-nachgewiesen, ein Fehlschlag hier darf
+  // Login/Registrierung nicht abbrechen — der naechste Login (oder die
+  // taegliche Cert-Rotation) versucht es erneut.
+  try {
+    await veroeffentlicheSchluessel();
+  } catch {
+    // Ignorieren — kein Rethrow, sonst scheitert der ganze Issue-Flow an
+    // einem Nebeneffekt, der fuer Login/Cert/Profil irrelevant ist.
+  }
 
   return { cert, statement, keypairCreated };
 }
