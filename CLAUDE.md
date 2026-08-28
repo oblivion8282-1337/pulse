@@ -171,13 +171,29 @@ Minecraft-Modell: Identität zentral über die Cloud (howispulse.com), Server si
 - **Tote Stelle, nicht anfassen ohne sie zu bauen:** `/internal/trigger-update` hat eine Caddy-Route (`Caddyfile.template`) und einen Cloud-Sender mit signiertem JWT (`routes_suspended_instances.py::broadcast_update`), aber **keinen Handler** im chat-gateway — jede Instanz antwortet 404. Legacy aus der Watchtower-Zeit; Auto-Update läuft heute über den Host-Timer. Wäre der natürliche Träger für kooperative Prüfungen (Cloud bittet die Instanz, ein UDP-Paket zu senden).
 - **Account-basierte Server-Liste** in `auth.user_instance_memberships` (Cloud-DB, Migration 0037); beim Bootstrap-Redeem automatisch eingetragen, `GET /me/instances` liest sie. Inhalts-Privacy unverändert (isolierte DB-Welten); der frühere E2E-Vault ist **komplett entfernt**. Nicht-Owner-Erweiterung für Phase 4-6 (`role`-Feld vorbereitet).
 
-## Krypto-Kern `krypto/pulse-krypto` (Etappe A von E2E-DMs, seit 2026-08-28)
+## Ende-zu-Ende-verschlüsselte Direktnachrichten (seit 2026-08-28)
 
-Rust-Kiste um **vodozemac 0.10.0** (Apache-2.0) für künftig verschlüsselte
-Direktnachrichten und private Gruppen. **Noch an nichts angeschlossen** — sie
-kennt weder Datenmodelle noch Netzwerk, nur Identitäten, Sitzungen, Umschläge.
-Entwurf: `docs/superpowers/specs/2026-08-28-e2e-dm-design.md`, Plan:
-`docs/superpowers/plans/2026-08-28-etappe-a-krypto-kern.md`.
+Rust-Kiste `krypto/pulse-krypto` um **vodozemac 0.10.0** (Apache-2.0), plus
+Schlüsselverzeichnis, Postfach und lokaler Verlauf. **Die Kiste selbst kennt
+weder Datenmodelle noch Netzwerk** — nur Identitäten, Sitzungen, Umschläge;
+angeschlossen wird sie von den Schichten darum herum, und die stehen:
+`routes/{schluessel,postfach,postfach_abholen}.py` am Server,
+`web/src/lib/krypto/**` und `web/src/lib/verlauf/**` im Klienten.
+
+**Der Schalter `e2e_dms_enabled` ist AUS und bleibt es**, bis zwei echte
+Geräte nachweislich miteinander sprechen — eine verschlüsselte Nachricht, die
+der Empfänger nicht öffnen kann, ist endgültig weg. Dasselbe gilt für
+`private_groups_enabled`.
+
+Entwurf: `docs/superpowers/specs/2026-08-28-e2e-dm-design.md` (§10 nennt alle
+Etappen und ihre Pläne). **Der ältere `plans/2026-08-28-e2e-dm-etappen.md` ist
+überholt** — er beschreibt unter anderem einen nativen Android-Weg, den es
+nicht gibt.
+
+Die frühere Fassung dieses Absatzes sagte „noch an nichts angeschlossen". Das
+stimmte am Tag von Etappe A und blieb stehen, während sieben weitere Etappen
+landeten — die Fehlerklasse, vor der der Abschnitt „eine Behauptung wird nie
+an nur EINER Stelle korrigiert" weiter unten warnt.
 - **Neuer Top-Level-Bereich, Client-lizenziert** (läuft im Browser und auf dem
   Telefon, nicht am Server) — in `LICENSE` und `README.md` nachgezogen,
   `krypto/LICENSE` angelegt. `LICENSE-CLIENT.md` führt keine Verzeichnisliste.
@@ -229,8 +245,9 @@ Entwurf: `docs/superpowers/specs/2026-08-28-e2e-dm-design.md`, Plan:
   `PUT /keys/bundle` (ersetzt die Zeile vollständig) würde ihn beim nächsten
   Mal auf NULL setzen.
 - **Im Gate seit Anfang an**: `scripts/gate-rust.sh` matcht `streaming/pulse-*`
-  **und** `krypto/pulse-*`. Ohne die zweite Zeile wären die 11 Tests in keinem
-  Gate gelaufen.
+  **und** `krypto/pulse-*`. Ohne die zweite Zeile wären die Tests der Kiste in
+  keinem Gate gelaufen (17 Stück, Stand 2026-08-28 — die Zahl wächst, der
+  Punkt bleibt).
 - **Vite trägt das WASM-Paket, aber Bau und Dev-Server sind zwei Fragen.**
   `pnpm build` legt `pulse_krypto_bg.<hash>.wasm` (531 kB) unter
   `build/_app/immutable/assets/` und schreibt den gehashten Pfad in die

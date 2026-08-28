@@ -1,5 +1,18 @@
 # Ende-zu-Ende-verschlüsselte Direktnachrichten — Übergabe und Etappenplan
 
+> **ÜBERHOLT (Stand 2026-08-28).** Dieses Dokument ist die ursprüngliche
+> Übergabe. Die Etappen 2 bis 7 in §5 sind vom Entwurf
+> `docs/superpowers/specs/2026-08-28-e2e-dm-design.md` **ersetzt** worden;
+> dessen §10 nennt die tatsächlichen Etappen und ihre Pläne.
+>
+> Zwei Aussagen hier sind inzwischen ausdrücklich **falsch**: der Krypto-Kern
+> läuft NICHT nativ auf dem Telefon (kein JNI, kein NDK — die Android-App lädt
+> dieselbe Web-App und benutzt WASM, s. `CLAUDE.md`), und Verschlüsselung wird
+> NICHT ab einem Stichtag Pflicht, sondern hängt daran, ob ein Konto ein
+> dauerhaftes Gerät hat (Entwurf §3).
+>
+> §3 (Reste aus Etappe 1) gilt weiter und ist abgearbeitet.
+
 > **Für agentische Bearbeiter:** Dieses Dokument ist eine Übergabe, kein
 > einzelner Ausführungsplan. Die Aufgaben in §3 sind ausführungsfertig
 > (`superpowers:subagent-driven-development` oder `superpowers:executing-plans`).

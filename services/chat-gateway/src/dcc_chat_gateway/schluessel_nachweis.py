@@ -50,12 +50,18 @@ def baue_nutzlast(zweck: str, *teile: str) -> bytes:
     Base64-Alphabet vorkommt, also kollisionsfrei — zwei verschiedene
     Teil-Listen koennen nie dieselben Bytes ergeben).
 
-    Der Zweck (``"buendel"`` oder ``"einmalschluessel"``) steht IMMER an
-    zweiter Stelle, direkt nach dem Kontext. Ohne ihn liesse sich eine fuer
-    ein Buendel geleistete Unterschrift als Unterschrift ueber einen
-    Einmalschluessel-Batch missbrauchen, sobald die uebrigen Teile zufaellig
-    uebereinstimmen — der Zweck macht die beiden Verfahren gegenseitig blind
+    Der Zweck steht IMMER an zweiter Stelle, direkt nach dem Kontext. Ohne ihn
+    liesse sich eine fuer den einen Weg geleistete Unterschrift auf einem
+    anderen wiederverwenden, sobald die uebrigen Teile zufaellig
+    uebereinstimmen — der Zweck macht die Verfahren gegenseitig blind
     fuereinander.
+
+    Vergebene Zwecke (Stand 2026-08-28, **beim Hinzufuegen hier ergaenzen**):
+    ``buendel`` und ``einmalschluessel`` (``routes/schluessel.py``),
+    ``postfach`` (``routes/postfach.py``), ``postfach-abholen`` und
+    ``postfach-quittung`` (``routes/postfach_abholen.py``). Die Liste stand
+    hier eine Zeit lang auf zwei, waehrend es schon fuenf waren — die
+    Sicherheitsaussage stimmte weiter, die Aufzaehlung nicht.
     """
     stuecke = [_KONTEXT, zweck.encode("utf-8")]
     stuecke.extend(teil.encode("utf-8") for teil in teile)

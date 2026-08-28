@@ -198,7 +198,7 @@ git commit -m "feat(postfach): Tabellen fuer Nutzlast und Zustellung"
 - Test: `tests/test_postfach.py`
 
 **Interfaces:**
-- Produces: `POST /postfach` — Rumpf `{channel_id, cert_jwt, signatur, nutzlasten: [{art, daten, empfaenger: [device_pubkey…]}]}`
+- Produces: `POST /postfach` — Rumpf `{channel_id, cert, signatur, nutzlasten: [{art, daten, empfaenger: [device_pubkey…]}]}` — **`cert`, nicht `cert_jwt`**; letzteres ist nur der Parametername in `pruefe_geraet`
 - Produces: WS-Ereignis `postfach_neu` auf dem bestehenden Kanalweg
 
 - [ ] **Schritt 1: Die fehlschlagenden Tests schreiben**
@@ -380,6 +380,16 @@ git commit -m "feat(postfach): Verfall und verwaiste Nutzlasten wegfegen"
 ```
 
 ---
+
+## Nachtrag 2026-08-28 zur Antwortform
+
+`POST /postfach` antwortet **nicht mehr mit 204**, sondern mit
+`PostfachEinliefernResponse{zustellungen_angelegt, uebersprungene_empfaenger,
+verworfene_nutzlasten}`. Grund: ein unbedingtes 204 liess den Absender glauben,
+die Nachricht sei zugestellt, auch wenn jedes Empfängergerät übersprungen wurde
+(kein Bündel, oder Kontingent voll) und deshalb gar nichts gespeichert wurde.
+Wer diesen Plan für die Gruppen-Erweiterung abschreibt, übernimmt sonst genau
+diesen Fehler noch einmal.
 
 ## Selbstprüfung dieses Plans
 

@@ -447,7 +447,23 @@ sein Inhalt, sind C2 bis C4 Umschaltungen. Wer gleich lokal liest, debuggt
 Speicher und Anzeige gleichzeitig. Plan für C1:
 `docs/superpowers/plans/2026-08-28-etappe-c1-lokaler-verlauf.md`.
 
-**G ist die einzige Etappe mit zwei Hälften**, die man auseinanderhalten muss:
+**Drei Etappen sind in zwei Hälften zerfallen**, und zwar erst beim Bauen —
+die Tabelle oben nennt jeweils nur die erste. Server- und Klienten-Hälfte
+sind getrennt planbar und getrennt prüfbar, und genau daran ist die
+Aufteilung entstanden:
+
+| | Server-Hälfte | Klienten-Hälfte |
+|---|---|---|
+| B | `etappe-b-schluesselverzeichnis.md` | `etappe-b2-klient-veroeffentlicht.md` |
+| D | `etappe-d-postfach.md` | `etappe-d2-klient-verschluesselt.md` |
+| G | `etappe-g1-private-gruppen-kanal.md` (Kanalart) | G2 (Megolm) — noch nicht geplant |
+
+**Der Grund, warum das hier steht:** eine frühere Fassung behauptete, G sei
+die einzige Etappe mit zwei Hälften. Das war beim Schreiben richtig und
+wurde falsch, als B und D beim Bauen genauso zerfielen — und wer die
+Plandateien gegen diese Liste hielt, fand drei davon nicht wieder.
+
+**G bleibt der Sonderfall in einer anderen Hinsicht:**
 die Kanalart samt Mitgliederverwaltung ist gewöhnliche Produktarbeit und
 unabhängig von der Krypto prüfbar; die Megolm-Sitzungen und der
 Schlüsselwechsel setzen D voraus. Wer sie zusammen angeht, verliert die

@@ -78,7 +78,7 @@ auf beiden Betriebsarten der richtige.
 - Test: `services/chat-gateway/tests/test_schluessel.py`
 
 **Interfaces:**
-- Produces: `DeviceKeyBundle(id, user_id, device_pubkey, curve25519, signatur, rueckfallschluessel, rueckfall_signatur, cert_id, created_at, updated_at)`
+- Produces: `DeviceKeyBundle(id, user_id, device_pubkey, curve25519, signatur, rueckfallschluessel, dauerhaft, cert_id, created_at, updated_at)`
 - Produces: `DeviceOneTimeKey(id, bundle_id, schluessel, created_at)`
 
 - [ ] **Schritt 1: Den fehlschlagenden Test schreiben**
@@ -190,7 +190,10 @@ class DeviceKeyBundle(Base):
     signatur: Mapped[str] = mapped_column(Text, nullable=False)
     #: Greift, wenn der Vorrat an Einmalschluesseln leer ist.
     rueckfallschluessel: Mapped[str | None] = mapped_column(Text, nullable=True)
-    rueckfall_signatur: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: ENTFERNT (Migration 0068) — die Buendel-Unterschrift deckt den
+    #: Rueckfallschluessel bereits ab, s. Nachtrag am Ende dieses Plans.
+    #: Stattdessen kam spaeter `dauerhaft` dazu (Migration 0071):
+    dauerhaft: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
     cert_id: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -472,6 +475,23 @@ git commit -m "feat(krypto): Schluessel abholen, Einmalschluessel atomar verbrau
 ```
 
 ---
+
+## Nachtrag 2026-08-28 zum Feldbestand
+
+Zwei Abweichungen gegenüber dem, was hier ursprünglich stand — wer das Schema
+aus diesem Plan ableitet (etwa für eine spätere Gruppen-Variante), nimmt sonst
+ein totes Feld mit und lässt ein tragendes weg:
+
+- **`rueckfall_signatur` gibt es nicht mehr.** Es wurde gespeichert und nie
+  geprüft; die Bündel-Unterschrift deckt den Rückfallschlüssel bereits ab, weil
+  er Teil derselben unterschriebenen Nutzlast ist. Entfernt mit Migration
+  `0068_rueckfall_signatur_weg`.
+- **`dauerhaft` ist dazugekommen** (Migration `0071_dauerhaftes_geraet`). Daran
+  hängt die Koexistenz-Regel aus §3 des Entwurfs: verschlüsselt wird nur, wenn
+  beide Konten mindestens ein dauerhaftes Gerät haben. Ein Gerät meldet den
+  Wert über sich selbst; er steht bewusst NICHT in der unterschriebenen
+  Nutzlast, weil der Nachweis ohnehin an den eigenen Gerätesschlüssel gebunden
+  ist und eine Lüge darüber nur das eigene Konto schwächt.
 
 ## Selbstprüfung dieses Plans
 
