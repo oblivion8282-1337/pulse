@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
+import random
 import time
 
 import jwt as pyjwt
@@ -245,3 +247,243 @@ async def test_erneutes_veroeffentlichen_ersetzt_statt_zu_haeufen(
         ).scalars().all()
         assert len(zeilen) == 1
         assert zeilen[0].curve25519 == "zweite-runde"
+
+
+# ---------------------------------------------------------------------------
+# Task 3 — Abholen: einmal ist einmal
+# ---------------------------------------------------------------------------
+
+
+def _register(_auth_signer) -> tuple[str, int]:
+    """Wie in ``test_dm_friend_gate.py`` / ``test_dropbox_races.py``: kein
+    echtes ``/register``, nur ein ausgestelltes Access-Token fuer eine
+    synthetische Nutzer-ID."""
+    uid = random.randint(1, 1_000_000)
+    return _auth_signer.issue_access(uid, f"u{uid}"), uid
+
+
+async def _buendel_seeden(
+    session_factory,
+    *,
+    user_id: int,
+    device_pubkey: str = "pub-empfaenger",
+    cert_id: str = "cert-empfaenger",
+    rueckfallschluessel: str | None = None,
+    einmalschluessel: list[str] = (),
+) -> int:
+    """Legt ein Buendel direkt in die DB, ohne den Nachweis-Umweg — Task 3
+    prueft das ABHOLEN, nicht das Veroeffentlichen; das ist bereits in
+    Task 2 abgedeckt."""
+    from dcc_chat_gateway.models import DeviceKeyBundle, DeviceOneTimeKey
+    from dcc_chat_gateway.snowflake import next_id
+
+    bid = next_id()
+    async with session_factory() as s:
+        s.add(
+            DeviceKeyBundle(
+                id=bid,
+                user_id=user_id,
+                device_pubkey=device_pubkey,
+                curve25519="curve-empfaenger",
+                signatur="sig-empfaenger",
+                rueckfallschluessel=rueckfallschluessel,
+                cert_id=cert_id,
+            )
+        )
+        for schl in einmalschluessel:
+            s.add(DeviceOneTimeKey(id=next_id(), bundle_id=bid, schluessel=schl))
+        await s.commit()
+    return bid
+
+
+@pytest.mark.asyncio
+async def test_abholen_verbraucht_den_einmalschluessel(
+    client, session_factory, cloud_mode, _auth_signer, friend_pair
+):
+    """Zweimal abholen darf nie denselben Schluessel liefern."""
+    sender_token, sender_uid = _register(_auth_signer)
+    _, empf_uid = _register(_auth_signer)
+    await friend_pair(sender_uid, empf_uid)
+    await _buendel_seeden(
+        session_factory,
+        user_id=empf_uid,
+        rueckfallschluessel="rueckfall-1",
+        einmalschluessel=["otk-1"],
+    )
+
+    r1 = await client.post(
+        "/keys/claim",
+        json={"user_ids": [str(empf_uid)]},
+        headers={"Authorization": f"Bearer {sender_token}"},
+    )
+    assert r1.status_code == 200, r1.text
+    b1 = r1.json()[str(empf_uid)][0]
+    assert b1["einmalschluessel"] == "otk-1"
+    assert b1["rueckfallschluessel"] is None
+
+    r2 = await client.post(
+        "/keys/claim",
+        json={"user_ids": [str(empf_uid)]},
+        headers={"Authorization": f"Bearer {sender_token}"},
+    )
+    assert r2.status_code == 200, r2.text
+    b2 = r2.json()[str(empf_uid)][0]
+    # Vorrat ist leer -> Rueckfall, NICHT derselbe (oder irgendein) Einmalschluessel.
+    assert b2["einmalschluessel"] is None
+    assert b2["rueckfallschluessel"] == "rueckfall-1"
+
+
+@pytest.mark.asyncio
+async def test_zwei_gleichzeitige_abholungen_bekommen_verschiedene(
+    client, session_factory, cloud_mode, _auth_signer, friend_pair
+):
+    """Der Kern der Sache. Zwei Abholungen gleichzeitig (asyncio.gather)
+    duerfen NIE denselben Einmalschluessel liefern — sonst benutzen zwei
+    Absender dasselbe Geheimnis. Ein blosses SELECT-dann-DELETE hat genau
+    dieses Loch, und es faellt in keinem seriellen Test auf.
+
+    **Wie hier echte Nebenlaeufigkeit entsteht:** zwei ``client.post``-Aufrufe
+    werden ueber ``asyncio.gather`` gestartet, nicht nacheinander erwartet.
+    Jede Anfrage bekommt ueber ``SessionDep`` eine EIGENE ``AsyncSession``
+    (s. ``app``-Fixture: ``get_session`` liefert bei jedem Aufruf eine neue
+    Sitzung aus ``session_factory``) — es sind zwei unabhaengige Koroutinen,
+    die um denselben Vorrat konkurrieren, kein sequenzieller Anruf, der nur
+    wie ein Rennen aussieht. Dasselbe Muster benutzt bereits
+    ``test_tamagotchi_state.py::test_concurrent_feeds_are_serialised``.
+
+    **Ehrlich zur Grenze:** die Test-DB ist ein einziges SQLite-``:memory:``
+    an einem ``StaticPool`` (eine geteilte Verbindung, s.
+    ``test_dropbox_races.py``) — echte parallele Schreibzugriffe auf zwei
+    Verbindungen finden hier nicht statt. Was ECHT nebenlaeufig ist: die
+    beiden Koroutinen werden vom Event-Loop verzahnt ausgefuehrt, und
+    zwischen dem SELECT und dem bedingten DELETE in
+    ``_einmalschluessel_holen`` liegt ein ``await`` — genau das Fenster, in
+    dem die andere Koroutine dieselbe Zeile sehen und zuerst loeschen kann.
+    Das bedingte DELETE (rowcount-Pruefung + Retry-Schleife) ist exakt der
+    Code, der dieses Fenster schliesst; ein simples ungeschuetztes
+    SELECT-dann-DELETE wuerde hier reproduzierbar denselben Schluessel an
+    beide Anfragen ausliefern, weil beide Koroutinen dieselbe Zeile lesen,
+    bevor irgendeine sie loescht."""
+    sender_token, sender_uid = _register(_auth_signer)
+    _, empf_uid = _register(_auth_signer)
+    await friend_pair(sender_uid, empf_uid)
+    await _buendel_seeden(
+        session_factory,
+        user_id=empf_uid,
+        rueckfallschluessel="rueckfall-race",
+        einmalschluessel=["otk-a", "otk-b"],
+    )
+
+    async def _abholen() -> str | None:
+        r = await client.post(
+            "/keys/claim",
+            json={"user_ids": [str(empf_uid)]},
+            headers={"Authorization": f"Bearer {sender_token}"},
+        )
+        assert r.status_code == 200, r.text
+        return r.json()[str(empf_uid)][0]["einmalschluessel"]
+
+    ergebnis_a, ergebnis_b = await asyncio.gather(_abholen(), _abholen())
+
+    assert ergebnis_a is not None
+    assert ergebnis_b is not None
+    assert ergebnis_a != ergebnis_b
+    assert {ergebnis_a, ergebnis_b} == {"otk-a", "otk-b"}
+
+
+@pytest.mark.asyncio
+async def test_leerer_vorrat_liefert_den_rueckfallschluessel(
+    client, session_factory, cloud_mode, _auth_signer, friend_pair
+):
+    """Sonst koennte niemand mehr an ein laenger ausgeschaltetes Geraet
+    schreiben. Der Rueckfallschluessel wird NICHT verbraucht."""
+    sender_token, sender_uid = _register(_auth_signer)
+    _, empf_uid = _register(_auth_signer)
+    await friend_pair(sender_uid, empf_uid)
+    await _buendel_seeden(
+        session_factory, user_id=empf_uid, rueckfallschluessel="rueckfall-dauerhaft"
+    )
+
+    for _ in range(3):
+        r = await client.post(
+            "/keys/claim",
+            json={"user_ids": [str(empf_uid)]},
+            headers={"Authorization": f"Bearer {sender_token}"},
+        )
+        assert r.status_code == 200, r.text
+        buendel = r.json()[str(empf_uid)][0]
+        assert buendel["einmalschluessel"] is None
+        assert buendel["rueckfallschluessel"] == "rueckfall-dauerhaft"
+
+
+@pytest.mark.asyncio
+async def test_widerrufenes_geraet_wird_nicht_geliefert(
+    client, app, session_factory, cloud_mode, _auth_signer, friend_pair
+):
+    """Ein gestohlenes, gesperrtes Geraet darf keine neuen Nachrichten mehr
+    bekommen — sonst waere der Widerruf wirkungslos."""
+    from dcc_chat_gateway.credential_validator import REDIS_REVOKED_SET
+
+    sender_token, sender_uid = _register(_auth_signer)
+    _, empf_uid = _register(_auth_signer)
+    await friend_pair(sender_uid, empf_uid)
+    await _buendel_seeden(
+        session_factory,
+        user_id=empf_uid,
+        cert_id="cert-widerrufen",
+        rueckfallschluessel="rueckfall-widerrufen",
+        einmalschluessel=["otk-widerrufen"],
+    )
+    await app.state.redis.sadd(REDIS_REVOKED_SET, "cert-widerrufen")
+
+    r = await client.post(
+        "/keys/claim",
+        json={"user_ids": [str(empf_uid)]},
+        headers={"Authorization": f"Bearer {sender_token}"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()[str(empf_uid)] == []
+
+
+@pytest.mark.asyncio
+async def test_nutzer_ohne_geraete_liefert_leer_statt_fehler(
+    client, cloud_mode, _auth_signer, friend_pair
+):
+    """Jemand, der die App nie installiert hat. Das ist der Normalfall der
+    Koexistenz-Regel, kein Fehlerfall."""
+    sender_token, sender_uid = _register(_auth_signer)
+    _, empf_uid = _register(_auth_signer)
+    await friend_pair(sender_uid, empf_uid)
+
+    r = await client.post(
+        "/keys/claim",
+        json={"user_ids": [str(empf_uid)]},
+        headers={"Authorization": f"Bearer {sender_token}"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == {str(empf_uid): []}
+
+
+@pytest.mark.asyncio
+async def test_nicht_erreichbares_ziel_liefert_leer_statt_403(
+    client, session_factory, cloud_mode, _auth_signer
+):
+    """Wer darf abholen? Dieselbe Regel wie beim DM-Anlegen
+    (``routes/dms.py::create_or_get_dm_channel``): ohne Freundschaft (und ohne
+    Sperre) darf man nicht mit jemandem schreiben — und deshalb auch keine
+    Schluessel fuer ihn abholen. Anders als beim DM-Anlegen gibt es dafuer
+    KEINE 403: die Liste bleibt leer, wie beim Nutzer ohne Geraete — sonst
+    wuerde ein einzelnes unzulaessiges Ziel in einer Mehrfachanfrage
+    (``user_ids``) die anderen, zulaessigen Ziele mit zu Fall bringen."""
+    sender_token, sender_uid = _register(_auth_signer)
+    _, fremd_uid = _register(_auth_signer)
+    # Bewusst KEIN friend_pair — die beiden sind einander fremd.
+    await _buendel_seeden(session_factory, user_id=fremd_uid, einmalschluessel=["otk-fremd"])
+
+    r = await client.post(
+        "/keys/claim",
+        json={"user_ids": [str(fremd_uid)]},
+        headers={"Authorization": f"Bearer {sender_token}"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == {str(fremd_uid): []}

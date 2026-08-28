@@ -1189,3 +1189,24 @@ class EinmalschluesselHinzufuegenRequest(BaseModel):
 
 class EinmalschluesselVorratOut(BaseModel):
     vorrat: int
+
+
+class SchluesselAbholenRequest(BaseModel):
+    """Rumpf von ``POST /keys/claim``."""
+
+    user_ids: Annotated[list[SnowflakeId], Field(min_length=1, max_length=64)]
+
+
+class GeraeteSchluesselOut(BaseModel):
+    """Ein Buendel in der Antwort von ``POST /keys/claim``.
+
+    Genau EINES der beiden Felder ``einmalschluessel``/``rueckfallschluessel``
+    ist gesetzt — nie beide, nie keines (ein Buendel ohne jeden Schluessel
+    wird gar nicht erst in die Liste aufgenommen).
+    """
+
+    device_pubkey: str
+    curve25519: str
+    signatur: str
+    einmalschluessel: str | None = None
+    rueckfallschluessel: str | None = None

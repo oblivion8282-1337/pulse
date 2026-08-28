@@ -1,27 +1,35 @@
-"""Das Geraete-Schluesselverzeichnis — Veroeffentlichen und Vorrat.
+"""Das Geraete-Schluesselverzeichnis — Veroeffentlichen, Vorrat und Abholen.
 
 ``PUT /keys/bundle`` legt das Buendel eines Geraets an oder ERSETZT es (eine
 Zeile je ``(user_id, device_pubkey)``, s. Migration 0065). ``POST
 /keys/onetime`` haengt Einmalschluessel an, begrenzt durch
 ``ONE_TIME_KEY_CAP`` je Geraet. ``GET /keys/onetime/count`` liest den Vorrat,
-damit der Klient rechtzeitig nachfuellt.
+damit der Klient rechtzeitig nachfuellt. ``POST /keys/claim`` holt die
+Buendel aller Geraete einer Liste von Nutzern ab, je Buendel genau einen
+Einmalschluessel (verbraucht) — oder den Rueckfallschluessel, wenn der Vorrat
+leer ist.
 
 Veroeffentlichen braucht in jedem Fall den Nachweis aus
-``schluessel_nachweis.py`` — das Abholen (Task 3, ``POST /keys/claim``)
-kommt in dieser Datei noch nicht vor.
+``schluessel_nachweis.py``. Abholen braucht ihn NICHT — wer abholt, weist
+sich ueber die normale Anmeldung aus (``CurrentUser``); nachgewiesen wird nur,
+wessen Schluessel man veroeffentlicht, nie, wer sie liest.
 """
 
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
+from dcc_chat_gateway.credential_validator import REDIS_REVOKED_SET
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.friend_helpers import block_exists_either_way, friendship_exists
 from dcc_chat_gateway.models import DeviceKeyBundle, DeviceOneTimeKey
 from dcc_chat_gateway.schemas import (
     BundleVeroeffentlichenRequest,
     EinmalschluesselHinzufuegenRequest,
     EinmalschluesselVorratOut,
+    GeraeteSchluesselOut,
+    SchluesselAbholenRequest,
 )
 from dcc_chat_gateway.schluessel_nachweis import baue_nutzlast, pruefe_geraet
 from dcc_chat_gateway.security import CurrentUser
@@ -175,3 +183,124 @@ async def einmalschluessel_vorrat(
         )
     ).scalar_one()
     return EinmalschluesselVorratOut(vorrat=vorrat)
+
+
+# ---------------------------------------------------------------------------
+# Abholen — POST /keys/claim
+# ---------------------------------------------------------------------------
+
+#: Fuenf Fehlschlaege in Folge heissen: der Vorrat wird gerade leergeraeumt.
+#: Dann ist "keiner mehr da" die richtige Antwort, nicht ein sechster Versuch.
+_ABHOL_VERSUCHE = 5
+
+
+async def _einmalschluessel_holen(session, bundle_id: int) -> str | None:
+    """Nimmt genau einen Einmalschluessel aus dem Vorrat — oder keinen.
+
+    Die Schleife ist kein Schoenheitsfehler: zwischen Auswaehlen und Loeschen
+    kann eine andere gleichzeitige Abholung denselben Schluessel greifen. Wer
+    dann nicht erneut auswaehlt, gibt zwei Absendern dasselbe Geheimnis. Kein
+    ``SELECT ... FOR UPDATE`` — SQLite (Tests) kennt es nicht, und ein Schutz,
+    der nur in Produktion greift, ist keiner. Das DELETE mit Bedingung auf die
+    ID ist der Schiedsrichter: von zwei gleichzeitigen Versuchen auf dieselbe
+    Zeile bekommt genau einer ``rowcount == 1``, der andere 0 und probiert die
+    naechste Zeile.
+    """
+    for _ in range(_ABHOL_VERSUCHE):
+        zeile = (
+            await session.execute(
+                select(DeviceOneTimeKey)
+                .where(DeviceOneTimeKey.bundle_id == bundle_id)
+                .order_by(DeviceOneTimeKey.id)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if zeile is None:
+            return None
+        ergebnis = await session.execute(
+            delete(DeviceOneTimeKey).where(DeviceOneTimeKey.id == zeile.id)
+        )
+        await session.commit()
+        if ergebnis.rowcount == 1:
+            return zeile.schluessel
+        # Ein anderer Versuch war schneller — die Zeile ist bereits weg,
+        # noch einmal auswaehlen statt aufzugeben.
+    return None
+
+
+async def _darf_schluessel_holen(session, anfragender_id: int, ziel_id: int) -> bool:
+    """Dieselbe Zugriffsregel wie beim DM-Anlegen
+    (``routes/dms.py::create_or_get_dm_channel``): geblockt oder nicht
+    befreundet -> keine Schluessel. Wer Schluessel fuer jemanden abholen
+    kann, mit dem er gar nicht schreiben darf, koennte eine Sitzung
+    aufbauen, die nie eine Nachricht tragen wird — reine Vorratsverschwendung
+    und eine Moeglichkeit, den Vorrat eines Fremden leerzuziehen.
+
+    Das eigene Konto ist immer erlaubt (weder befreundet noch geblockt
+    ergibt fuer sich selbst einen Sinn) — ein Geraet holt so die Buendel der
+    EIGENEN anderen Geraete, um auch fuer sie zu verschluesseln
+    (Multi-Geraet-Sync)."""
+    if anfragender_id == ziel_id:
+        return True
+    if await block_exists_either_way(session, anfragender_id, ziel_id):
+        return False
+    return await friendship_exists(session, anfragender_id, ziel_id)
+
+
+@router.post("/keys/claim", response_model=dict[str, list[GeraeteSchluesselOut]])
+async def schluessel_abholen(
+    body: SchluesselAbholenRequest,
+    request: Request,
+    session: SessionDep,
+    user: CurrentUser,
+) -> dict[str, list[GeraeteSchluesselOut]]:
+    """Holt die Buendel aller Geraete jedes angefragten Nutzers ab.
+
+    Ein Nutzer ohne veroeffentlichte Geraete liefert eine leere Liste — das
+    ist der Normalfall der Koexistenz-Regel (die App ist nicht installiert),
+    kein Fehler. Dasselbe gilt fuer ein Ziel, mit dem man nicht schreiben
+    darf: keine 403 fuer die ganze Anfrage, sondern eine leere Liste fuer
+    GENAU dieses Ziel — sonst risse ein einzelner unzulaessiger Eintrag in
+    einer Mehrfachanfrage die anderen, zulaessigen mit herunter, und die Liste
+    ist ohnehin die richtige Antwortform fuer "hier gibt es nichts zu holen".
+    """
+    redis = _require_redis(request)
+    ergebnis: dict[str, list[GeraeteSchluesselOut]] = {}
+
+    for ziel_id in dict.fromkeys(body.user_ids):  # Duplikate raus, Reihenfolge bleibt.
+        schluessel_key = str(ziel_id)
+        ergebnis[schluessel_key] = []
+        if not await _darf_schluessel_holen(session, user.id, ziel_id):
+            continue
+
+        buendel = (
+            await session.execute(
+                select(DeviceKeyBundle).where(DeviceKeyBundle.user_id == ziel_id)
+            )
+        ).scalars().all()
+
+        for b in buendel:
+            # Sperrlisten-Filter: die gespeicherte cert_id ist die des
+            # Zertifikats, mit dem zuletzt veroeffentlicht wurde. Nach einer
+            # Zertifikatserneuerung (alle 30 Tage) widerruft ein Sperren das
+            # NEUE Zertifikat, waehrend im Buendel noch das alte steht — der
+            # Filter griffe dann nicht. Weil das Geraet bei jeder Anmeldung
+            # neu veroeffentlicht, ist das Fenster in der Praxis klein, aber
+            # NICHT null. Der vollstaendige Weg waere ein Signal vom
+            # auth-svc ("dieses Geraet ist weg"), das das Buendel loescht;
+            # das gibt es heute nicht (eigene Aufgabe).
+            if await redis.sismember(REDIS_REVOKED_SET, b.cert_id):
+                continue
+
+            einmal = await _einmalschluessel_holen(session, b.id)
+            ergebnis[schluessel_key].append(
+                GeraeteSchluesselOut(
+                    device_pubkey=b.device_pubkey,
+                    curve25519=b.curve25519,
+                    signatur=b.signatur,
+                    einmalschluessel=einmal,
+                    rueckfallschluessel=b.rueckfallschluessel if einmal is None else None,
+                )
+            )
+
+    return ergebnis
