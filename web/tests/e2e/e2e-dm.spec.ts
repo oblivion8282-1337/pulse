@@ -65,6 +65,61 @@ async function schalterEinschalten(ctx: BrowserContext): Promise<void> {
   });
 }
 
+/**
+ * Taeuscht die Electron-Bruecke (`window.pulse`) vor — die Koexistenz-Regel
+ * (`docs/superpowers/specs/2026-08-28-e2e-dm-design.md` §3) verschluesselt
+ * eine DM nur, wenn BEIDE Konten mindestens ein DAUERHAFTES Geraet haben
+ * (`krypto/veroeffentlichen.ts::dauerhaft = isElectron() || isCapacitorAndroid()`,
+ * `krypto/empfaengerGeraete.ts::zielgeraeteBerechnen` verlangt es auf beiden
+ * Seiten). Playwright faehrt einen reinen Browser — ohne diesen Stub waere
+ * `dauerhaft` immer `false` und die Suite pruefte den (voellig korrekten)
+ * Klartext-Pfad statt des Krypto-Pfads.
+ *
+ * `isElectron()` prueft nur `window.pulse?.platform === 'electron'`
+ * (`platform/runtime.ts`) — der Rest der Bruecke wird trotzdem gebraucht,
+ * weil andere Stellen der App (`ShortcutHost.svelte`, `TraySync.svelte`,
+ * `servers.svelte.ts::secureStore`, …) NACH `isElectron()` weitere Felder
+ * lesen. Die meisten Zugriffe sind optional-chained (`window.pulse?.tray`)
+ * und laufen mit einem fehlenden Feld gefahrlos ins No-op — nur `store` und
+ * `notify` sind auf `PulseApi` PFLICHTFELDER (`pulse.d.ts`), und
+ * `secureStore()` prueft zusaetzlich `typeof store.getAllSync === 'function'`
+ * echt als Funktion. Beide sind deshalb hier vollstaendig nachgebaut, alles
+ * andere bleibt bewusst weg — kein Code in Login/DM-Fluss greift darauf ohne
+ * Optional-Chaining zu.
+ */
+async function alsElektronGeraetAusgeben(ctx: BrowserContext): Promise<void> {
+  await ctx.addInitScript(() => {
+    const leer = async () => undefined;
+    const abmelden = () => () => undefined;
+    (window as unknown as { pulse: unknown }).pulse = {
+      platform: 'electron',
+      appVersion: '0.0.0-e2e-stub',
+      store: {
+        get: leer,
+        getAll: async () => ({}),
+        getAllSync: () => ({}),
+        set: leer,
+        setAll: leer
+      },
+      gsr: {
+        health: leer,
+        gpuInfo: leer,
+        listMonitors: leer,
+        listWindows: leer,
+        listApplicationAudio: leer,
+        buildArgv: leer,
+        start: leer,
+        stop: leer,
+        onEvent: abmelden
+      },
+      notify: {
+        show: async () => 'stub',
+        onClick: abmelden
+      }
+    };
+  });
+}
+
 async function register(page: Page, u: { username: string; email: string; password: string }) {
   await page.goto('/register');
   await page.getByTestId('reg-username').fill(u.username);
@@ -249,6 +304,7 @@ test.describe.serial('E2E-verschluesselte Direktnachrichten (Etappe D2, Nachweis
       // Wie dms.spec.ts: der Changelog-Toast darf keine Klicks abfangen.
       await ctx.route('**/changelog.json', (route) => route.fulfill({ json: { entries: [] } }));
       await schalterEinschalten(ctx);
+      await alsElektronGeraetAusgeben(ctx);
     }
     alicePage = await aliceCtx.newPage();
     bobPage = await bobCtx.newPage();
