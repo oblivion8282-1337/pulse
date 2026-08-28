@@ -2057,6 +2057,7 @@
   "report_message_csam_warning_bold": "Wichtig:",
   "report_message_csam_warning_text": "Bei strafrechtlich relevanten Inhalten bitte auch direkt bei den Behörden Anzeige erstatten. Pulse leitet Reports an Mods weiter, ersetzt aber keine Strafanzeige.",
   "report_message_description": "Deine Meldung wird an die Moderatoren weitergeleitet.",
+  "report_message_encrypted_hint": "Diese Nachricht ist Ende-zu-Ende-verschlüsselt — das Betreiberteam kann ihren Inhalt nicht einsehen und deshalb nicht direkt prüfen. Gemeldet wird stattdessen der Absender.",
   "report_message_reason_csam": "Sexueller Missbrauch von Minderjährigen (CSAM)",
   "report_message_reason_harassment": "Belästigung / Mobbing",
   "report_message_reason_illegal": "Illegale Inhalte",

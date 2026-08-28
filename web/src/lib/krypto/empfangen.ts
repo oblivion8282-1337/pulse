@@ -120,6 +120,7 @@ import { signiereNutzlast } from './nachweis';
 import { absenderErmitteln } from './absenderErmitteln';
 import { quittierbareIds, type KanalGruppe } from './quittierbareIds';
 import { verarbeiteMitWiederherstellung } from './postfachSchleife';
+import { parseMentionMarkers } from '../components/mentionMarkierungen';
 
 /**
  * Markiert, dass `sitzungMitKontoAtomarSichern` fuer eine Zustellung
@@ -215,6 +216,7 @@ async function zustellungOeffnen(
         }
       }
 
+      const klartext = new TextDecoder().decode(klartextBytes);
       return {
         art: 'neu',
         nachricht: {
@@ -223,9 +225,13 @@ async function zustellungOeffnen(
           id: z.id,
           channel_id: z.channel_id,
           author_id: absenderUserId,
-          content: new TextDecoder().decode(klartextBytes),
+          content: klartext,
           nonce: null,
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
+          // Lokal geparst, s. `mentionMarkierungen.ts`-Modulkopf.
+          mentions: parseMentionMarkers(klartext),
+          // Erkennungsmerkmal, s. `Message.verschluesselt` in `api/types.ts`.
+          verschluesselt: true
         }
       };
     } catch (err) {

@@ -14,9 +14,9 @@ class GuildStore {
   private channelToGuild = $state<Map<string, string>>(new Map());
 
   // Snowflake-IDs als String vergleichen (Number() verlöre Präzision > 2^53).
-  // compareSnowflakeId ist längen-bewusst → korrekt auch über die Dezimal-
-  // Stellen-Grenze (17→18 Stellen ~Okt 2026), wo reines lexikografisches `<`
-  // fehlordnen würde.
+  // compareSnowflakeId vergleicht die eingebettete Zeit → korrekt auch über
+  // die Dezimal-Stellen-Grenze (17→18 Stellen ~Okt 2026), wo reines
+  // lexikografisches `<` fehlordnen würde (s. utils/snowflakeZeit.ts).
   list = $derived(
     Object.values(this.byId).sort((a, b) => compareSnowflakeId(a.id, b.id))
   );

@@ -27,7 +27,13 @@
  *     entstand — der Server darf jeden angefragten Empfaenger einzeln
  *     uebersprungen haben (unbekanntes Buendel, Kontingent voll). Entstand
  *     KEINE einzige Zustellung, faellt der Aufrufer auf den Klartext-Weg
- *     zurueck, genau wie beim Koexistenz-Fall.
+ *     zurueck, genau wie beim Koexistenz-Fall. Ein koerperloser 2xx (204,
+ *     zweiter Bughunt selbes Datum) gilt dagegen als ZUGESTELLT — s.
+ *     `zustellErgebnis.ts`. Ein 404 (Route existiert nicht — aelterer
+ *     Server) ist ein DRITTER Fall: nichts kann eingeliefert worden sein,
+ *     der Klartext-Rueckfall ist deshalb sicher. Jeder andere Fehler wird
+ *     NICHT stillschweigend zum Klartext-Rueckfall — s. Fehlerbehandlung
+ *     unten.
  *  5. Lokal ablegen — der eigene Klartext geht in den lokalen Verlauf
  *     (Etappe C1); der Server bekommt ihn nie, es gibt also keine zweite
  *     Kopie. Schlaegt das fehl, ist die Nachricht trotzdem zugestellt
@@ -49,6 +55,7 @@
  * `send`). Das ist der Normalfall der Koexistenz-Regel, kein Fehler.
  */
 import type { Message } from '../api/types';
+import { ApiError } from '../api/client';
 import { certStore } from '../identity/cert.svelte';
 import { loadKeypair } from '../identity/keypair.svelte';
 import { keysApi } from '../api/keys';
@@ -63,7 +70,8 @@ import { sitzungLaden, sitzungSichern, mitSitzungssperre } from './sitzungen';
 import { baueNutzlast } from './nutzlast';
 import { signiereNutzlast } from './nachweis';
 import { zielgeraeteBerechnen } from './empfaengerGeraete';
-import { wurdeZugestellt } from './zustellErgebnis';
+import { wurdeZugestellt, deuteEinliefernFehler } from './zustellErgebnis';
+import { parseMentionMarkers } from '../components/mentionMarkierungen';
 
 // DMs sind heute cloud-only (Global-Friends Stufe 1) — s. `api/keys.ts`
 // Modulkopf (Bughunt 2026-08-28, FIX 4).
@@ -149,10 +157,27 @@ export async function sendeVerschluesselt(
 
   const nutzlastBytes = baueNutzlast('postfach', kanalId, ...nutzlasten.map((n) => n.daten));
   const signatur = await signiereNutzlast(keypair, nutzlastBytes);
-  const ergebnis = await postfachApi.einliefern(
-    { channel_id: kanalId, cert: cert.raw, signatur, nutzlasten },
-    cloudRoute()
-  );
+  let ergebnis;
+  try {
+    ergebnis = await postfachApi.einliefern(
+      { channel_id: kanalId, cert: cert.raw, signatur, nutzlasten },
+      cloudRoute()
+    );
+  } catch (err) {
+    // Deutung s. `deuteEinliefernFehler` (zustellErgebnis.ts, importfrei und
+    // dort unit-getestet): 404 = die Route existiert nicht (aelterer
+    // Server, zweiter Bughunt 2026-08-28) -> bewiesen NICHTS eingeliefert,
+    // Klartext-Rueckfall sicher. Alles andere ist NICHT beweisbar folgenlos
+    // — der Server hat den Request womoeglich verarbeitet, nur die Antwort
+    // ging verloren. Ein stillschweigender Klartext-Rueckfall koennte hier
+    // ein Duplikat beim Empfaenger erzeugen; deshalb wird der Fehler
+    // weitergereicht statt hier verschluckt (der Aufrufer entscheidet
+    // bewusst, nicht per pauschalem `.catch(() => null)`).
+    if (err instanceof ApiError && deuteEinliefernFehler(err.status) === 'unverschluesselt') {
+      return { art: 'unverschluesselt' };
+    }
+    throw err;
+  }
   if (!wurdeZugestellt(ergebnis)) {
     // Der Server hat JEDEN angefragten Empfaenger uebersprungen (Bughunt
     // 2026-08-28, FIX 2) — die Nachricht kam nirgends an, obwohl die
@@ -169,7 +194,15 @@ export async function sendeVerschluesselt(
     author_id: eigeneUserId,
     content: klartext,
     nonce: null,
-    created_at: new Date().toISOString()
+    created_at: new Date().toISOString(),
+    // Rein lokal geparst (Bughunt 2026-08-28, Befund 3) — der Server sieht
+    // den Klartext nie, kann Erwaehnungen also auch nicht parsen. Ohne
+    // dieses Feld zeigt `renderMessage` die rohe `<@id>`-Markierung an,
+    // s. `mentionMarkierungen.ts`-Modulkopf.
+    mentions: parseMentionMarkers(klartext),
+    // Erkennungsmerkmal fuer die drei REST-Sackgassen (Bearbeiten, Loeschen,
+    // Melden-als-Nachricht) — s. `Message.verschluesselt`-Doc in `api/types.ts`.
+    verschluesselt: true
   };
   // Der Server bekommt den Klartext nie — ausschliesslich lokal. Die
   // Zustellung (Schritt 4) ist zu diesem Zeitpunkt schon durch, ein

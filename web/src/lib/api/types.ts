@@ -149,6 +149,16 @@ export type Message = {
   attachments?: Attachment[];
   /** Server-parsed mention list. Empty/absent when the message has none. */
   mentions?: Mention[];
+  /**
+   * Client-only marker: `true` exactly for an E2E-verschluesselte DM
+   * (`krypto/senden.ts`/`krypto/empfangen.ts`) — ihre `id` ist eine
+   * Postfach-Zustellungs-Kennung, keine Zeile in `chat.messages`. JEDE
+   * REST-Route, die eine `messages`-Zeile erwartet (Bearbeiten, Loeschen,
+   * Melden-als-Nachricht), antwortet dafuer 404. Der Server setzt dieses
+   * Feld nie — eine normale Nachricht hat es nicht einmal `false`, sondern
+   * `undefined`, s. `absent`-Falsy-Checks an den Aufrufstellen.
+   */
+  verschluesselt?: boolean;
 };
 
 /**

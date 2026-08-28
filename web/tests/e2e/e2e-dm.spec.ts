@@ -296,6 +296,8 @@ test.describe.serial('E2E-verschluesselte Direktnachrichten (Etappe D2, Nachweis
   let bobCtx: BrowserContext;
   let bobPage: Page;
   let dmChannelId = '';
+  // Fuer die UI-Sackgassen-Nachweise unten (Befund 1-3) gebraucht.
+  let bobUserId = '';
 
   test.beforeAll(async ({ browser }) => {
     aliceCtx = await browser.newContext();
@@ -319,7 +321,7 @@ test.describe.serial('E2E-verschluesselte Direktnachrichten (Etappe D2, Nachweis
     await register(alicePage, ALICE);
     await register(bobPage, BOB);
     const aliceUserId = await currentUserId(alicePage);
-    const bobUserId = await currentUserId(bobPage);
+    bobUserId = await currentUserId(bobPage);
 
     await becomeFriends(alicePage, aliceUserId, bobPage, bobUserId);
 
@@ -419,5 +421,69 @@ test.describe.serial('E2E-verschluesselte Direktnachrichten (Etappe D2, Nachweis
     await expect
       .poll(() => anzahlOffenerZustellungen(dmChannelId), { timeout: 10_000 })
       .toBe(0);
+  });
+
+  /**
+   * Gegenprobe zu Befund 1 (Bughunt 2026-08-28): eine verschluesselte DM hat
+   * keine `messages`-Zeile — Bearbeiten/Loeschen liefen vor der Reparatur
+   * in einen 404, und der Nutzer hatte beim Loeschen den Bestaetigungsdialog
+   * schon bestaetigt. `alicePage` hat bis hierher ausschliesslich
+   * verschluesselte Nachrichten in diesem Kanal gesendet (KLARTEXT_1/_2) —
+   * kein Bearbeiten-/Loeschen-Knopf darf also irgendwo auf der Seite stehen.
+   * Ohne die Reparatur in `MessageList.svelte::canEditMessage/canDeleteMessage`
+   * waeren hier beide Knoepfe vorhanden (Element existiert unabhaengig vom
+   * Hover-CSS, s. `MessageActions.svelte`).
+   */
+  test('Bearbeiten/Loeschen werden fuer eigene verschluesselte Nachrichten NICHT angeboten (Befund 1)', async () => {
+    await expect(alicePage.getByTestId('message-action-edit')).toHaveCount(0);
+    await expect(alicePage.getByTestId('message-action-delete')).toHaveCount(0);
+  });
+
+  /**
+   * Gegenprobe zu Befund 2: Melden bleibt fuer eine fremde verschluesselte
+   * Nachricht sichtbar (bob sieht alices Nachrichten), wechselt aber auf den
+   * Nutzer-Melden-Weg samt ehrlicher Erklaerung, statt in
+   * `createOperatorReport` -> 404 zu laufen. Ohne die Reparatur in
+   * `MessageItem.svelte` stuende hier `m.report_message_title()`
+   * ("Nachricht melden") und der Hinweis-Absatz fehlte.
+   */
+  test('Melden bleibt sichtbar, wechselt aber auf Nutzer-Meldung mit Hinweis (Befund 2)', async () => {
+    const zeile = bobPage.getByTestId('message-item').filter({ hasText: 'nur du und ich' });
+    await zeile.hover();
+    await zeile.getByTestId('message-action-report').click();
+
+    await expect(bobPage.getByTestId('report-message-dialog')).toBeVisible();
+    await expect(bobPage.getByText('User melden', { exact: true })).toBeVisible();
+    await expect(bobPage.getByTestId('report-encrypted-hint')).toBeVisible();
+    await bobPage.getByTestId('report-cancel').click();
+  });
+
+  /**
+   * Gegenprobe zu Befund 3: eine Erwaehnung im verschluesselten Text wird
+   * lokal aufgeloest (`krypto/senden.ts`/`empfangen.ts` -> `mentions`), statt
+   * roh mit der internen Snowflake sichtbar zu bleiben. Ohne die Reparatur
+   * zeigte `message-content` hier woertlich `<@<bobUserId>>`.
+   */
+  test('Erwaehnungen im verschluesselten Text erscheinen als Pille, nicht als rohe Markierung (Befund 3)', async () => {
+    const KLARTEXT_3 = `hallo <@${bobUserId}>, schau mal`;
+    await alicePage.getByTestId('message-input').click();
+    await alicePage.getByTestId('message-input').fill(KLARTEXT_3);
+    await alicePage.getByTestId('message-input').press('Enter');
+
+    const zeile = bobPage
+      .locator('[data-testid="message-content"]', { hasText: 'schau mal' })
+      .last();
+    await expect(zeile).toBeVisible({ timeout: 10_000 });
+    // `[data-mention-type]` statt der CSS-Klasse `.mention`: Letztere haengt
+    // an einem vorbestehenden, von diesem Befund unabhaengigen Bug (DOMPurify
+    // streicht `class` aus jedem sanitierten Knoten, weil `ALLOWED_ATTR` in
+    // `messageRender.ts` sie nie zugelassen hat — betrifft Mentions ueberall,
+    // nicht nur den verschluesselten Weg, s. Bericht). Das Datenattribut
+    // ueberlebt die Sanitierung und ist der eigentliche Beweis: die Markierung
+    // wurde erkannt und aufgeloest, nicht als rohe `<@id>` belassen.
+    const pille = zeile.locator('[data-mention-type="user"]');
+    await expect(pille).toBeVisible();
+    await expect(pille).toHaveText('@' + BOB.username);
+    await expect(zeile).not.toContainText(`<@${bobUserId}>`);
   });
 });

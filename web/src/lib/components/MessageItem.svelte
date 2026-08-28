@@ -102,6 +102,12 @@
   // until the echo swaps in the persisted message.
   const isPending = $derived(message.id.startsWith('tmp-'));
 
+  // Eine verschluesselte DM hat keine `messages`-Zeile — `createOperatorReport`
+  // (nachrichtenbezogen) faende sie nicht (Bughunt 2026-08-28, Befund 2).
+  // Der Melden-Knopf bleibt trotzdem sichtbar (der Nutzer selbst ist meldbar),
+  // wechselt hier nur auf den Nutzer-Melden-Weg samt ehrlicher Erklaerung.
+  const meldungOhneNachricht = $derived(!!message.verschluesselt);
+
   // Link-Previews: erkenne unterstützte Provider-URLs (YouTube/Vimeo/Spotify)
   // im Inhalt und rendere darunter je eine Karte. Der Rohlink bleibt im Text
   // klickbar (Discord-Verhalten) — die Karte ist additiv.
@@ -257,8 +263,10 @@
 <MessageActionSheet bind:open={sheetOpen} {...aktionen} />
 
 <ReportMessageDialog
-  messageId={message.id}
+  messageId={meldungOhneNachricht ? undefined : message.id}
   userId={message.author_id}
+  kind={meldungOhneNachricht ? 'user' : 'message'}
+  verschluesseltHinweis={meldungOhneNachricht}
   toCloud={isDirect}
   bind:open={reportOpen}
   onClose={() => {

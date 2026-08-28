@@ -399,11 +399,14 @@
     setTimeout(() => { if (highlightId === parentId) highlightId = null; }, 1500);
   }
 
+  // Verschluesselte DM hat keine `messages`-Zeile (s. `Message.verschluesselt`
+  // in `api/types.ts`) — Bearbeiten/Loeschen liefen sonst in einen 404.
   function canEditMessage(m: Message): boolean {
+    if (m.verschluesselt) return false;
     return !!myId && m.author_id === myId && !m.id.startsWith('tmp-') && !m.deleted_at;
   }
   function canDeleteMessage(m: Message): boolean {
-    if (!myId) return false;
+    if (!myId || m.verschluesselt) return false;
     if (m.id.startsWith('tmp-')) return false;
     return m.author_id === myId || isOwner;
   }

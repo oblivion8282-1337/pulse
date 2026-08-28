@@ -61,12 +61,10 @@ function dmVorschauAuffrischen(): void {
  * ihn doppelt zu fahren.
  *
  * `istAboniert` entscheidet, ob eine neue Nachricht sofort als gelesen gilt
- * (der Kanal ist gerade offen) oder den Ungelesen-Zaehler erhoeht — vom
- * `postfach_neu`-Aufrufer der echte `ctx.subs`-Blick dieser Verbindung, vom
- * `ready`-Aufrufer bewusst „nie abonniert" (dort liegt keine `HandlerContext`
- * mit `subs` vor, s. `ready.ts`): im schlimmsten Fall zeigt das kurz einen
- * Ungelesen-Zaehler fuer einen Kanal, den der Nutzer gerade wieder oeffnet —
- * korrigiert sich beim naechsten `markRead` von selbst.
+ * (der Kanal ist gerade offen) oder den Ungelesen-Zaehler erhoeht — sowohl
+ * der `postfach_neu`-Aufrufer als auch der `ready`-Aufrufer reichen dafuer
+ * denselben Live-Blick auf `subs` durch (`ctx.subs` bzw. `ctx.getSubs()`,
+ * s. `ready.ts`), keiner der beiden faellt mehr auf "nie abonniert" zurueck.
  */
 export function postfachAbholenUndAnzeigen(istAboniert: (kanalId: string) => boolean): void {
   // Der Schalter ist aus (s. `$lib/krypto/schalter.ts`) — solange bleibt
@@ -107,6 +105,37 @@ export function postfachAbholenUndAnzeigen(istAboniert: (kanalId: string) => boo
             readState.markRead(nachricht.channel_id, nachricht.id);
           } else {
             readState.incUnread(nachricht.channel_id);
+            // Toast/Ton/In-Page-Benachrichtigung — zieht mit `dm_bump` gleich
+            // (Bughunt Runde 4, Befund 1: vorher loeste der verschluesselte
+            // Weg keins von beiden aus). Anders als beim Klartext-`dm_bump`
+            // liegt der Text hier schon entschluesselt vor und darf deshalb
+            // direkt in Toast/Benachrichtigung stehen.
+            const cached = userCache.get(nachricht.author_id);
+            const senderLabel = cached
+              ? m.chat_handler_dm_sender_label({ sender: '@' + (cached.display_name ?? cached.username) })
+              : '';
+            const snippet = nachricht.content.slice(0, 140);
+            if (!isDnd() && !sichtschutzAktiv() && !viewport.isMobile) {
+              toast.message(m.chat_handler_dm_new_message({ senderLabel }), {
+                description: snippet || undefined,
+                action: {
+                  label: m.chat_handler_dm_open(),
+                  onClick: () => {
+                    void goto(`/app/@me/${nachricht.channel_id}`);
+                  }
+                }
+              });
+            }
+            const senderName = cached?.display_name ?? cached?.username ?? null;
+            fireInPageNotification({
+              kind: 'dm',
+              title: senderName ?? m.chat_handler_dm_notification_unknown_sender(),
+              body: snippet || m.chat_handler_dm_notification_body(),
+              channelId: nachricht.channel_id,
+              messageId: nachricht.id,
+              guildId: null
+            });
+            if (!isDnd()) sounds.play('notification.dm');
           }
         }
       }

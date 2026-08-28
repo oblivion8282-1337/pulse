@@ -225,7 +225,24 @@
     // unveraendert.
     if (E2E_DMS_ENABLED && attachmentIds.length === 0 && replyToId === null) {
       void import('$lib/krypto/senden').then(async ({ sendeVerschluesselt }) => {
-        const ergebnis = await sendeVerschluesselt(cid, partnerId, text).catch(() => null);
+        let ergebnis;
+        try {
+          ergebnis = await sendeVerschluesselt(cid, partnerId, text);
+        } catch (err) {
+          // Bughunt 2026-08-28, zweiter Fund: ein pauschales `.catch(() =>
+          // null)` an dieser Stelle deutete JEDEN Fehler — auch einen, bei
+          // dem die verschluesselte Zustellung laengst geschehen war — als
+          // "kein Geraet erreichbar" und sendete zusaetzlich im Klartext.
+          // `sendeVerschluesselt` behandelt die BEKANNTEN Faelle (204 =
+          // zugestellt, 404 = Route fehlt -> sicher unverschluesselt) schon
+          // selbst und liefert dafuer regulaer zurueck, NICHT per Wurf. Was
+          // hier ankommt, ist deshalb ein UNERWARTETER Fehler, bei dem nicht
+          // feststeht, ob die Zustellung durch war — ein automatischer
+          // Klartext-Rueckfall koennte ein Duplikat erzeugen. Also nur
+          // sichtbar melden, der Nutzer sendet bei Bedarf erneut.
+          toast.error(m.dm_page_send_failed(), { description: (err as Error).message });
+          return;
+        }
         if (ergebnis?.art === 'verschluesselt') {
           messages.upsert(ergebnis.nachricht);
         } else {

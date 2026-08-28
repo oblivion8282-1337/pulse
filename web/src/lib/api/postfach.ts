@@ -57,7 +57,12 @@ export interface PostfachZustellung {
 }
 
 export const postfachApi = {
-  /** Liefert einen oder mehrere Umschlaege in einem DM-Kanal ein. */
+  /** Liefert einen oder mehrere Umschlaege in einem DM-Kanal ein.
+   *  `undefined`, wenn der Server mit einem koerperlosen 2xx (204) antwortet
+   *  — `wurdeZugestellt` (zustellErgebnis.ts) behandelt das als Erfolg, kein
+   *  Fehlschlag. Ein 404 (Route existiert nicht — alter Server) wird NICHT
+   *  hier abgefangen, sondern wirft weiter als `ApiError`: das ist ein
+   *  eigener Fall, den der Aufrufer (`krypto/senden.ts`) unterscheidet. */
   einliefern(
     body: {
       channel_id: string;
@@ -66,8 +71,12 @@ export const postfachApi = {
       nutzlasten: PostfachNutzlast[];
     },
     route: { serverId?: string } = {}
-  ): Promise<PostfachEinliefernErgebnis> {
-    return request<PostfachEinliefernErgebnis>('/postfach', { method: 'POST', body }, route);
+  ): Promise<PostfachEinliefernErgebnis | undefined> {
+    return request<PostfachEinliefernErgebnis | undefined>(
+      '/postfach',
+      { method: 'POST', body },
+      route
+    );
   },
 
   /** Holt die offenen Zustellungen des nachgewiesenen Geraets ab. Loescht

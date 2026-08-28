@@ -45,6 +45,13 @@ export type ReadyContext = {
   /** Called once the store seeding is done. The gateway uses it to
    *  resolve `waitForReady()` and replay any buffered events. */
   onReadySeeded: () => void;
+  /** Live-Blick auf die abonnierten Kanaele der dispatchenden Verbindung
+   *  (dieselbe Quelle wie `HandlerContext.subs`, s. `gateway-handlers-
+   *  bootstrap.ts`). `ready` bekommt normalerweise keinen `HandlerContext`
+   *  gereicht — dieser eine Aufruf braucht ihn trotzdem fuer den
+   *  Postfach-Nachholvorgang, deshalb wird er hier separat durchgereicht,
+   *  statt `ReadyContext` insgesamt um `subs` zu erweitern. */
+  getSubs: () => Set<string>;
 };
 
 export function register(ctx: ReadyContext): void {
@@ -156,11 +163,15 @@ export function register(ctx: ReadyContext): void {
       // `postfachAbholenUndAnzeigen` (`./chat.ts`) traegt bereits das
       // Einzeltakt-Gate (`laufenderZyklus` in `empfangen.ts`) — ein
       // gleichzeitiger `postfach_neu`-Weckruf haengt sich an denselben Zyklus
-      // an, statt ihn doppelt zu fahren. Kein `HandlerContext` mit `subs`
-      // liegt hier vor (`ReadyContext` traegt es bewusst nicht, s. dort) —
-      // `istAboniert` faellt deshalb auf "nie abonniert" zurueck, s.
-      // Docstring von `postfachAbholenUndAnzeigen`.
-      postfachAbholenUndAnzeigen(() => false);
+      // an, statt ihn doppelt zu fahren. `ctx.getSubs()` liefert denselben
+      // Live-Blick wie `HandlerContext.subs` (dieselbe Quelle,
+      // `gateway-handlers-bootstrap.ts`) — beim Verarbeiten des `ready`-
+      // Rahmens steht `_dispatchingConn` schon synchron auf dieser
+      // Verbindung (`gateway-connection.ts::_handle`), und `subs` ueberlebt
+      // einen Reconnect (nur `disconnect()` leert es) und wird dabei sogar
+      // aktiv neu abonniert (Zeilen ~429f.) — die Menge ist also zum
+      // Zeitpunkt dieses Aufrufs bereits die richtige.
+      postfachAbholenUndAnzeigen((kanalId) => ctx.getSubs().has(kanalId));
     }
 
     // Per-server admin + per-server user id are bound to the DISPATCHING

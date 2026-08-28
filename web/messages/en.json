@@ -2057,6 +2057,7 @@
   "report_message_csam_warning_bold": "Important:",
   "report_message_csam_warning_text": "For content that may constitute a criminal offence, please also file a report directly with the relevant authorities. Pulse forwards reports to moderators but does not replace an official complaint.",
   "report_message_description": "Your report will be forwarded to the moderators.",
+  "report_message_encrypted_hint": "This message is end-to-end encrypted — the operator team cannot see its content and therefore cannot review it directly. The sender is reported instead.",
   "report_message_reason_csam": "Child Sexual Abuse Material (CSAM)",
   "report_message_reason_harassment": "Harassment / Bullying",
   "report_message_reason_illegal": "Illegal Content",
