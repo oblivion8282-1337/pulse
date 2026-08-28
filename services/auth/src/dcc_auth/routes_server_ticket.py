@@ -84,7 +84,6 @@ async def server_ticket(
             avatar=user.avatar_hash,
             amr=["pwd"],
             acr="0",
-            pairwise_salt=user.pairwise_salt,
         ),
         expires_in=TICKET_FRIST_S,
     )

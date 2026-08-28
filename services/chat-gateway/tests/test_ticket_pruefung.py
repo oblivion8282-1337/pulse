@@ -33,7 +33,6 @@ def _ticket(**ueberschreiben):
         "avatar": None,
         "amr": [],
         "acr": "0",
-        "legacy_uid": 123,
         "iat": jetzt,
         "exp": jetzt + 60,
     }
@@ -66,7 +65,6 @@ class FakeRedis:
 async def test_gueltiges_ticket_wird_angenommen():
     d = await pruefe_ticket(_ticket(), instanz_id=42, cloud_issuer=ISS, redis=FakeRedis())
     assert d.sub == "7"
-    assert d.legacy_uid == 123
     assert d.jti == "j1"
 
 

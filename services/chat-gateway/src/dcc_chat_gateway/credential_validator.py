@@ -4,15 +4,13 @@ Bis zum 2026-08-28 hiess dieses Modul mit Recht ``credential_validator``: Es
 prüfte Gerätezertifikate — Signatur, Sperrliste, Ablauf — und stellte die
 Challenge-Mechanik für die Anmeldung bereit. Das ist alles entfallen.
 
-Übrig sind zwei Dinge:
+Übrig ist **``_get_jwks_keys``** — die öffentlichen Schlüssel der Cloud, mit
+denen ein Self-Host Serverticket und Betreiber-Check prüft, warmgehalten vom
+``jwks_poller``.
 
-* **``_get_jwks_keys``** — die öffentlichen Schlüssel der Cloud, mit denen ein
-  Self-Host Serverticket und Betreiber-Check prüft. Warmgehalten vom
-  ``jwks_poller``.
-* **``compute_pairwise_sub``** — die Rechnung, aus der die alte, serverabhängige
-  Kennung entstand. Sie wird nicht mehr für neue Anmeldungen gebraucht, aber die
-  Cloud muss sie kennen, um Bestandszeilen zuzuordnen (``server_ticket.legacy_uid``
-  und ``identitaet_umschreiben``). Sie fällt mit der letzten Umschreibung.
+``compute_pairwise_sub`` stand hier zuletzt noch, um Bestandszeilen eines
+Self-Hosts zuordnen zu können. Auch das ist entfallen: Bestehende Server werden
+neu aufgesetzt, es gibt nichts hinüberzutragen.
 
 ``REDIS_REVOKED_SET`` steht noch hier, weil ein Bestands-Redis den Schlüssel
 tragen kann; gelesen wird er nirgends mehr.
@@ -84,25 +82,3 @@ async def _get_jwks_keys(redis: Any) -> dict[str, Any]:
         return _build_pubkey_from_jwks(raw)
     except Exception:  # noqa: BLE001
         return {}
-
-
-def compute_pairwise_sub(user_id: str, instance_id: int, pairwise_seed: str) -> str:
-    """Compute the pairwise subject for a self-host instance (DE 11 A.4).
-
-    pairwise_sub = base64url(HMAC-SHA256(user_id || ":" || instance_id,
-                                          pairwise_seed_bytes))[:16]
-
-    ``pairwise_seed`` is the Base64url-encoded per-user seed from the Cert.
-    Result is 16 hex chars of the HMAC, stable across devices (same user_id,
-    same instance_id, same pairwise_seed → same sub).
-    """
-    try:
-        key = base64.urlsafe_b64decode(pairwise_seed + "==")
-    except Exception:  # noqa: BLE001
-        # Non-base64 seed — treat as raw UTF-8 bytes
-        key = pairwise_seed.encode()
-    msg = f"{user_id}:{instance_id}".encode()
-    digest = hmac.new(key, msg, hashlib.sha256).digest()
-    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode()[:16]
-
-

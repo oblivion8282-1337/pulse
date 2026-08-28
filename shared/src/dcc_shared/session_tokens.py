@@ -12,7 +12,6 @@ such a token:
 * :func:`validate_session_token` — EdDSA signature + ``iss``/``aud``/``typ`` check,
 * the Ed25519 key-loading singletons (:func:`_get_keys`,
   :func:`reset_session_signer`),
-* :func:`synthesize_self_host_user_id` — pairwise-sub → stable 63-bit int,
 * :func:`_token_redis_key` — Redis key derivation (no token-in-keyspace).
 
 The *minting* side (``issue_session_token`` + ``store_session_token``) lives in
@@ -69,16 +68,6 @@ class SessionClaims(BaseModel):
     exp: int
     # True when the cert-holder is this instance's owner (self-host admin).
     admin: bool = False
-    #: Welche Form ``user_identifier`` hat. ``"pairwise"`` (Vorgabe, der
-    #: Cert-Weg) heisst: ein Base64url-Pseudonym, das erst in eine Zahl
-    #: uebersetzt werden muss. ``"cloud"`` (der Ticket-Weg) heisst: die
-    #: Cloud-Kennung selbst, bereits eine Zahl.
-    #:
-    #: Ein ausdruecklicher Claim statt einer Heuristik („sieht aus wie eine
-    #: Zahl"): Ein Pseudonym KANN aus lauter Ziffern bestehen — selten, aber
-    #: nicht unmoeglich —, und dieser Nutzer bekaeme dann stillschweigend eine
-    #: fremde Identitaet.
-    idform: str = "pairwise"
 
 
 # ---------------------------------------------------------------------------
@@ -164,27 +153,6 @@ def _token_redis_key(token: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def synthesize_self_host_user_id(pairwise_sub: str) -> int:
-    """Map a pairwise-sub (Base64url string) to a stable 63-bit positive int.
-
-    Existing chat-gateway tables use ``BigInteger`` user-id FKs (``messages.
-    author_id``, ``guild_members.user_id`` …) — a TEXT migration is out of scope
-    for the Self-Host bring-up. Instead we derive a deterministic 63-bit
-    numeric id from the pairwise-sub (truncated SHA-256) and store *that* in
-    the existing columns. The pairwise-sub itself stays available via
-    ``AuthenticatedUser.user_identifier`` for any code that wants the
-    string form (e.g. ``CachedUserProfile.user_identifier``).
-
-    Same pairwise-sub → same int forever. Different pairwise-subs collide with
-    probability ~ 2⁻⁶³ → ignorable for any realistic instance population.
-    Self-Host runs in its own DB (``dcc_selfhost``) so collision with Cloud
-    snowflake ids is irrelevant; the value never travels off-instance.
-    """
-    digest = hashlib.sha256(pairwise_sub.encode()).digest()
-    # Top 8 bytes, clear sign bit → positive 63-bit int (fits BIGINT signed).
-    return int.from_bytes(digest[:8], "big") & 0x7FFF_FFFF_FFFF_FFFF
-
-
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
@@ -222,9 +190,6 @@ def validate_session_token(
             iat=claims["iat"],
             exp=claims["exp"],
             admin=bool(claims.get("admin", False)),
-            # Alte Token (vor dem Ticket-Weg) tragen den Claim nicht — sie
-            # kommen alle vom Cert-Weg, also die Vorgabe.
-            idform=str(claims.get("idform") or "pairwise"),
         )
     except (KeyError, ValueError):
         return None
@@ -237,7 +202,6 @@ def issue_session_token(
     key_path: str = "./data/jwt_keys/session_signing.pem",
     admin: bool = False,
     ttl_seconds: int = SESSION_TTL_SECONDS,
-    idform: str = "pairwise",
 ) -> str:
     """Issue a self-host session token.
 
@@ -263,7 +227,6 @@ def issue_session_token(
         "iat": now,
         "exp": now + ttl_seconds,
         "typ": "session",
-        "idform": idform,
     }
     # PyJWT encodes Ed25519 via algorithm "EdDSA"
     return jwt.encode(payload, priv, algorithm="EdDSA")

@@ -20,9 +20,6 @@ weder für einen anderen Server noch ein zweites Mal noch nach einer Minute.
 
 from __future__ import annotations
 
-import base64
-import hashlib
-import hmac
 import time
 import uuid
 from typing import Any
@@ -44,30 +41,6 @@ ZWECK = "server-session"
 TICKET_FRIST_S = 60
 
 
-def legacy_uid(user_id: str, instance_id: int, pairwise_salt: bytes) -> int:
-    """Die synthetische Nutzer-ID, die dieser Nutzer auf DIESER Instanz bisher hatte.
-
-    Ein Self-Host führt in seinen Spalten nicht die Cloud-Kennung, sondern
-    ``SHA256(pairwise_sub)[:8]``. Er kann sie nicht zurückrechnen — die Cloud
-    aber vorwärts, weil sie den Salt hat. Nur dadurch ist die Umschreibung der
-    Bestandszeilen überhaupt möglich (``dcc_chat_gateway.identitaet_umschreiben``).
-
-    Die Rechnung ist hier bewusst nachgebaut statt importiert: ``dcc_auth`` hängt
-    nicht von ``dcc_chat_gateway`` ab, und ein Import quer über die Dienstgrenze
-    wäre eine Abhängigkeit, die es sonst nirgends im Baum gibt. Dass beide
-    Fassungen dasselbe liefern, hält ein Test fest
-    (``test_legacy_uid_stimmt_mit_der_selfhost_rechnung_ueberein``) — ohne ihn
-    fiele eine Abweichung erst auf, wenn Bestandsdaten verwaist sind.
-    """
-    nachricht = f"{user_id}:{instance_id}".encode()
-    abdruck = hmac.new(pairwise_salt, nachricht, hashlib.sha256).digest()
-    pairwise_sub = base64.urlsafe_b64encode(abdruck).rstrip(b"=").decode()[:16]
-    digest = hashlib.sha256(pairwise_sub.encode()).digest()
-    # Oberste 8 Bytes, Vorzeichenbit gelöscht → positive 63-bit-Zahl (passt in
-    # BIGINT signed). Identisch zu ``synthesize_self_host_user_id``.
-    return int.from_bytes(digest[:8], "big") & 0x7FFF_FFFF_FFFF_FFFF
-
-
 def baue_ticket(
     *,
     user_id: str,
@@ -76,7 +49,6 @@ def baue_ticket(
     avatar: str | None,
     amr: list[str],
     acr: str,
-    pairwise_salt: bytes,
 ) -> str:
     """Signiert ein Serverticket für genau eine Instanz."""
     settings = get_settings()
@@ -94,9 +66,6 @@ def baue_ticket(
         # diese Möglichkeit stillschweigend weggefallen.
         "amr": amr,
         "acr": acr,
-        # Nur für die Übergangszeit. Fällt mit Phase 3, wenn kein Self-Host mehr
-        # Bestandszeilen unter der synthetischen ID führt.
-        "legacy_uid": legacy_uid(user_id, instance_id, pairwise_salt),
         "iat": jetzt,
         "exp": jetzt + TICKET_FRIST_S,
     }
