@@ -2,6 +2,21 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-28.2",
+      "date": "2026-08-28",
+      "style": "Sachlich",
+      "title": "Anmeldung an eigenen Servern ohne Geräte-Ausweis",
+      "intro": "Bisher legte dein Browser dafür einen dauerhaften Ausweis an. Das entfällt.",
+      "items": [
+        "Beim Anmelden an einem Server, der nicht in der Pulse-Cloud liegt, holt die App jetzt einen kurzlebigen Ausweis für genau diesen Server. In deinem Browser bleibt nichts Dauerhaftes mehr liegen.",
+        "Damit sind mehrere Geräte und mehrere Browser selbstverständlich. Der Ausweis eines Geräts kann keinem anderen mehr im Weg stehen.",
+        "Schlägt eine Anmeldung fehl, steht jetzt der Grund da und was du tun kannst — statt „Anmeldung abgelaufen oder Server nicht erreichbar“ für jede denkbare Ursache.",
+        "Wichtig: Das gilt je Server erst, wenn dessen Betreiber das Update eingespielt hat. Bis dahin ändert sich für dich dort nichts. Die Server holen es sich von selbst.",
+        "Für Betreiber: Die Erreichbarkeitsprüfung zeigt jetzt zusätzlich an, welchen Anmeldeweg ein Server bereits beherrscht.",
+        "Wer sich an einem fremden Server anmeldet, gibt dessen Betreiber künftig seine Pulse-Kontokennung preis. Der neue Abschnitt 20 der Datenschutzerklärung erklärt, was das bedeutet."
+      ]
+    },
+    {
       "id": "2026-08-28",
       "date": "2026-08-28",
       "style": "Sachlich",
