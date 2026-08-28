@@ -31,10 +31,24 @@
  * Mount, naechstes Scrollen dorthin) stimmen, weil sie in IndexedDB
  * geschrieben werden. Ein Netzwerkfehler wird verschluckt (best effort,
  * s. `catch` unten) — der naechste Aufruf versucht es erneut.
+ *
+ * Bughunt 2026-08-28 (FIX 3): waehrend diese Anfrage unterwegs ist, kann ein
+ * `message_delete` fuer genau diese Seite eintreffen und lokal einen
+ * Grabstein setzen. Der Server liefert geloeschte Nachrichten grundsaetzlich
+ * NICHT aus (s. `serverZuPosten` in `index.ts`) — seine Antwort kennt die
+ * Loeschung also nicht, und `verlaufSpeichern` ist ein blindes Upsert
+ * (`verlaufPutSaetze`, s. `db.ts`), das einen frischen Grabstein wieder auf
+ * "nicht geloescht" zuruecksetzen wuerde. Deshalb wird unmittelbar VOR dem
+ * Schreiben noch einmal frisch nachgesehen, welche Grabsteine JETZT lokal
+ * stehen, und genau diese IDs aus der Serverantwort herausgenommen — das
+ * schliesst das Zeitfenster nicht rechnerisch (keine Transaktion ueber beide
+ * Schritte), verkleinert es aber auf die Zeit zwischen dieser Lesung und dem
+ * `put` selbst, ohne einen weiteren `await` dazwischen.
  */
 import { verlaufLesen, verlaufSpeichern, verlaufNachrichtGeloescht } from './index';
 import { betrifftLuecke, lueckeNachServerantwortAktualisieren } from './luecke';
 import { ermittleGeloeschteIds } from './abgleich';
+import { ohneFrischeGrabsteine } from './ohneFrischeGrabsteine';
 import { messages } from '$lib/stores/messages.svelte';
 import { chatApi } from '$lib/api/chat';
 import type { Message } from '$lib/api/types';
@@ -94,8 +108,13 @@ async function reconciliereAeltereSeite(
       route
     );
     // Inhalt/Bearbeitungszeit: put ist ein Upsert (s. `db.ts`), ueberschreibt
-    // also einen veralteten lokalen Satz mit der Serverfassung.
-    void verlaufSpeichern(channelId, vomServer);
+    // also einen veralteten lokalen Satz mit der Serverfassung — AUSSER einen
+    // Grabstein, der in der Zwischenzeit entstanden ist (s. Modulkopf FIX 3).
+    const jetztLokal = await verlaufLesen(channelId, { vor: oldest, anzahl: seitenGroesse });
+    const frischGeloeschteIds = jetztLokal
+      .filter((n) => n.deleted_at !== null)
+      .map((n) => n.id);
+    void verlaufSpeichern(channelId, ohneFrischeGrabsteine(vomServer, frischGeloeschteIds));
     messages.reconcile(channelId, vomServer);
     for (const id of ermittleGeloeschteIds(lokal, vomServer)) {
       verlaufNachrichtGeloescht(channelId, id);
