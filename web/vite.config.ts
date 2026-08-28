@@ -134,6 +134,16 @@ export default defineConfig({
   server: {
     port: WEB_PORT,
     host: '127.0.0.1',
+    fs: {
+      // Task 0 (Etappe B2) mass nur den Prod-Build nach — dort bettet Vite
+      // das WASM-Paket ein, egal woher es kommt. Der DEV-Server serviert
+      // Dateien dagegen ueber eine eigene Allow-Liste (Default: web/-Baum +
+      // web/node_modules); `krypto/pulse-krypto/pkg/` liegt eine Ebene
+      // hoeher und wird ohne diese Erweiterung mit "outside of Vite serving
+      // allow list" abgewiesen — erst beim echten Testen im Dev-Server
+      // aufgefallen (Playwright-Nachweis dieser Etappe), nicht beim Bauen.
+      allow: ['..']
+    },
     // NIE still auf den nächsten freien Port ausweichen. Der Port wird von
     // außen fest adressiert — Playwright über `baseURL`, die Electron-Dev-App
     // über `PULSE_DEV_URL`, `dev-up.fish` über seine Bereitschaftsprüfung.
