@@ -60,14 +60,21 @@
  * oeffnen (derselbe curve25519-Schluessel wird kein zweites Mal ausgegeben).
  * Die Atomaritaet von `sitzungMitKontoAtomarSichern` deckt nur den
  * SCHREIBVORGANG — nicht den Umstand, dass zwei Zustellungen sich denselben
- * mutierbaren Zustand im Arbeitsspeicher teilen. Deshalb bricht
- * `postfachZyklus` den Rest des Zyklus ab, sobald ein Konto-Sichern
- * fehlschlaegt (`KontoSicherungFehlgeschlagen`, s. dort): kein weiterer
- * Aufruf bekommt die Chance, den kompromittierten Zwischenstand einzufrieren.
- * Bereits erfolgreich geoeffnete/gesicherte Zustellungen VOR dem Abbruch
- * bleiben gueltig und werden ganz normal quittiert. Der naechste Weckruf laedt
- * `ident` frisch aus IndexedDB — also exakt den zuletzt durabel gesicherten
- * Stand, ohne die verlorene Mutation.
+ * mutierbaren Zustand im Arbeitsspeicher teilen.
+ *
+ * **Dritter Bughunt (Runde 3), FIX 2 — die Reparatur oben war zu grob.** Bis
+ * hierhin brach `postfachZyklus` den GESAMTEN Rest ab, sobald ein
+ * Konto-Sichern fehlschlug. `POST /postfach/abholen` liefert nach stabiler
+ * ID-Reihenfolge (FIFO) — eine einzelne DAUERHAFT scheiternde Zustellung
+ * (echt volle IndexedDB) sortiert sich damit bei jedem Zyklus an den Anfang
+ * und blockierte so jede Zustellung dahinter, in jedem Kanal. Die
+ * Korrektheits-Eigenschaft von oben bleibt (kein `ident` mit ungesicherter
+ * Mutation einer vorherigen Zustellung darf weiterverwendet werden) — nur
+ * die Reaktion aendert sich: statt abzubrechen, laesst `verarbeiteMit-
+ * Wiederherstellung` (`postfachSchleife.ts`) NUR diese eine Zustellung liegen
+ * und laedt `ident` fuer die naechste FRISCH aus IndexedDB (den zuletzt
+ * durabel gesicherten Stand, ohne die verlorene Mutation). Alle anderen
+ * Zustellungen dieses Zyklus laufen normal weiter.
  */
 import type { Message } from '../api/types';
 import type { Identitaet } from '../../../../krypto/pulse-krypto/pkg/pulse_krypto.js';
@@ -90,7 +97,7 @@ import { baueNutzlast } from './nutzlast';
 import { signiereNutzlast } from './nachweis';
 import { absenderErmitteln } from './absenderErmitteln';
 import { quittierbareIds, type KanalGruppe } from './quittierbareIds';
-import { verarbeiteBisAbbruch } from './postfachSchleife';
+import { verarbeiteMitWiederherstellung } from './postfachSchleife';
 
 /**
  * Markiert, dass `sitzungMitKontoAtomarSichern` fuer eine Zustellung
@@ -154,9 +161,9 @@ async function zustellungOeffnen(
         klartextBytes = ergebnis.klartext();
         // ATOMAR mit dem Konto sichern — s. Modulkopf. Ab hier ist `ident`
         // bereits mutiert (der Einmalschluessel ist verbraucht); ein
-        // Fehlschlag hier muss den Rest des Zyklus abbrechen (FIX 2), darum
-        // ein eigener, nicht-schluckbarer Fehlertyp statt des normalen
-        // "unlesbar liegenlassen".
+        // Fehlschlag hier darf NUR diese eine Zustellung liegen lassen
+        // (FIX 2, Runde 3), darum ein eigener, nicht-schluckbarer Fehlertyp
+        // statt des normalen "unlesbar liegenlassen".
         try {
           await sitzungMitKontoAtomarSichern(
             ident,
@@ -181,10 +188,10 @@ async function zustellungOeffnen(
       };
     } catch (err) {
       if (err instanceof KontoSicherungFehlgeschlagen) {
-        // Weiterreichen, NICHT hier verschlucken — `postfachZyklus` muss den
-        // Rest des Zyklus abbrechen (FIX 2, s. Modulkopf), sonst friert die
-        // naechste erfolgreiche Zustellung den kompromittierten
-        // Zwischenstand von `ident` ein.
+        // Weiterreichen, NICHT hier verschlucken — `postfachZyklus` laesst
+        // NUR diese eine Zustellung liegen (FIX 2, Runde 3, s. Modulkopf),
+        // sonst friert die naechste erfolgreiche Zustellung den
+        // kompromittierten Zwischenstand von `ident` ein.
         throw err;
       }
       // Entschluesseln fehlgeschlagen (fremde/kaputte Sitzung, korrupter
@@ -207,18 +214,20 @@ async function postfachZyklus(): Promise<Message[]> {
   );
   if (zustellungen.length === 0) return [];
 
-  const ident = await kryptoAccountLaden();
-  // FIX 2, s. Modulkopf: bricht den Rest des Zyklus ab, sobald
-  // `KontoSicherungFehlgeschlagen` auftritt — `ident` traegt ab dann eine
-  // Mutation, die nicht durabel gesichert wurde, und darf keiner weiteren
-  // erfolgreichen Zustellung mehr als eingefrorener Zwischenstand
-  // untergeschoben werden. Bereits geoeffnete Zustellungen bleiben gueltig
-  // und werden unten normal quittiert; der naechste Weckruf laedt `ident`
-  // frisch und versucht die abgebrochene(n) Zustellung(en) erneut.
-  const { ergebnisse: geoeffnetOderLeer } = await verarbeiteBisAbbruch(
+  let ident = await kryptoAccountLaden();
+  // FIX 2 (Bughunt-Runde 3, s. Modulkopf + `postfachSchleife.ts`): laesst nur
+  // die EINE Zustellung liegen, deren Konto-Sichern scheitert — `ident` wird
+  // fuer die naechste Zustellung frisch aus IndexedDB geladen (der zuletzt
+  // durabel gesicherte Stand, ohne die verlorene Mutation), damit kein
+  // weiterer Aufruf den kompromittierten Zwischenstand einfrieren kann. Alle
+  // anderen Zustellungen dieses Zyklus laufen normal weiter.
+  const geoeffnetOderLeer = await verarbeiteMitWiederherstellung(
     zustellungen,
     (z) => zustellungOeffnen(ident, z),
-    (err) => err instanceof KontoSicherungFehlgeschlagen
+    (err) => err instanceof KontoSicherungFehlgeschlagen,
+    async () => {
+      ident = await kryptoAccountLaden();
+    }
   );
 
   const geoeffnet: Message[] = [];
