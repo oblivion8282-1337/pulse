@@ -222,97 +222,77 @@ async def test_cloud_mode_identifier_equals_sub(session: AsyncSession):
 
 
 @pytest.mark.asyncio
-async def test_self_host_mode_identifier_is_pairwise(session: AsyncSession):
-    seed = b"\xde\xad\xbe\xef" * 8  # 32 bytes
-    stmt = _make_statement(sub="user-99")
+async def test_self_host_mode_identifier_ist_die_cloud_kennung(session: AsyncSession):
+    """Auf einem Self-Host ist die Kennung das ``sub`` selbst.
+
+    Bis zum 2026-08-28 stand hier das Gegenteil: Die Kennung war ein Pseudonym
+    je Server, damit ein Betreiber nicht erfaehrt, welches Cloud-Konto
+    dahintersteckt. Diese Zusage ist mit dem Ticket-Weg bewusst zurueckgenommen
+    (Abschnitt 20 der Datenschutzerklaerung) — das Ticket traegt die Kennung
+    offen, und eine zweite Identitaet daraus abzuleiten waere genau die
+    Doppelbuchfuehrung, die der Umbau beseitigt hat.
+    """
+    stmt = _make_statement(sub="4711")
     profile = await upsert_profile_statement(
         session,
         stmt,
         cloud_jwks=_cloud_jwks(),
         instance_mode="self-host",
         instance_id="7",
-        pairwise_seed=seed,
     )
-    # Must NOT equal raw sub
-    assert profile.user_identifier != "user-99"
-    # Must be deterministic: same inputs → same identifier
-    await session.rollback()
-    stmt2 = _make_statement(sub="user-99", iat_offset=1)
-    profile2 = await upsert_profile_statement(
-        session,
-        stmt2,
-        cloud_jwks=_cloud_jwks(),
-        instance_mode="self-host",
-        instance_id="7",
-        pairwise_seed=seed,
-    )
-    assert profile2.user_identifier == profile.user_identifier
+    assert profile.user_identifier == "4711"
 
 
 @pytest.mark.asyncio
-async def test_self_host_populates_synthetic_user_id(session: AsyncSession):
-    """synthetic_user_id = synthesize(pairwise) — the numeric id the rest of the
-    chat schema (GuildMember.user_id / LiveKit user-<id>) uses for this member (F19)."""
-    from dcc_shared.session_tokens import synthesize_self_host_user_id
+async def test_self_host_dieselbe_kennung_auf_verschiedenen_instanzen(
+    session: AsyncSession,
+):
+    """Und zwar auf JEDEM Server dieselbe.
 
-    seed = b"\xab" * 32
-    stmt = _make_statement(sub="user-77")
+    Das ist die Kehrseite derselben Entscheidung: Zwei Betreiber koennen ihre
+    Listen abgleichen und dieselbe Person wiedererkennen. Der Test haelt die
+    Eigenschaft fest, damit sie nicht versehentlich zurueckgedreht wird — sie
+    steht so in der Datenschutzerklaerung.
+    """
+    a = await upsert_profile_statement(
+        session,
+        _make_statement(sub="4711"),
+        cloud_jwks=_cloud_jwks(),
+        instance_mode="self-host",
+        instance_id="1",
+    )
+    kennung_a = a.user_identifier
+    await session.rollback()
+    b = await upsert_profile_statement(
+        session,
+        _make_statement(sub="4711", iat_offset=1),
+        cloud_jwks=_cloud_jwks(),
+        instance_mode="self-host",
+        instance_id="2",
+    )
+    assert b.user_identifier == kennung_a
+
+
+@pytest.mark.asyncio
+async def test_self_host_synthetic_user_id_ist_die_kennung(session: AsyncSession):
+    """``synthetic_user_id`` ist die Zahl, die der Rest des Schemas benutzt
+    (``GuildMember.user_id``, LiveKit ``user-<id>``).
+
+    Sie wurde frueher aus dem Pseudonym gerechnet. Jetzt IST sie die Kennung —
+    eine Identitaet statt zweier.
+    """
+    stmt = _make_statement(sub="4711")
     profile = await upsert_profile_statement(
         session,
         stmt,
         cloud_jwks=_cloud_jwks(),
         instance_mode="self-host",
         instance_id="7",
-        pairwise_seed=seed,
     )
-    assert profile.synthetic_user_id == synthesize_self_host_user_id(profile.user_identifier)
-    assert profile.synthetic_user_id > 0
+    assert profile.synthetic_user_id == 4711
 
 
 @pytest.mark.asyncio
-async def test_cloud_mode_synthetic_id_is_numeric_sub(session: AsyncSession):
-    """Cloud: synthetic_user_id == int(sub) for a numeric sub; None for non-numeric."""
-    numeric = _make_statement(sub="100200300")
-    profile = await upsert_profile_statement(
-        session, numeric, cloud_jwks=_cloud_jwks(), instance_mode="cloud"
-    )
-    assert profile.synthetic_user_id == 100200300
-
-    await session.rollback()
-    nonnum = _make_statement(sub="user-abc", iat_offset=1)
-    profile2 = await upsert_profile_statement(
-        session, nonnum, cloud_jwks=_cloud_jwks(), instance_mode="cloud"
-    )
-    assert profile2.synthetic_user_id is None
-
-
-@pytest.mark.asyncio
-async def test_self_host_different_instances_different_identifiers(session: AsyncSession):
-    seed = b"\xca\xfe" * 16
-    stmt_a = _make_statement(sub="user-1", iat_offset=0)
-    profile_a = await upsert_profile_statement(
-        session, stmt_a, cloud_jwks=_cloud_jwks(),
-        instance_mode="self-host", instance_id="1", pairwise_seed=seed,
-    )
-    await session.flush()
-
-    stmt_b = _make_statement(sub="user-1", iat_offset=0)
-    # Different session for different instance — else replay guard fires
-    from sqlalchemy.ext.asyncio import create_async_engine as cae, async_sessionmaker as asm
-    eng2 = cae("sqlite+aiosqlite:///:memory:", future=True)
-    async with eng2.begin() as conn:
-        for table in Base.metadata.tables.values():
-            table.schema = None
-        await conn.run_sync(Base.metadata.create_all)
-    fac2 = asm(eng2, expire_on_commit=False)
-    async with fac2() as sess2:
-        profile_b = await upsert_profile_statement(
-            sess2, stmt_b, cloud_jwks=_cloud_jwks(),
-            instance_mode="self-host", instance_id="2", pairwise_seed=seed,
-        )
-    await eng2.dispose()
-
-    assert profile_a.user_identifier != profile_b.user_identifier
 
 
 @pytest.mark.asyncio

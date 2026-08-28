@@ -29,8 +29,8 @@ async def test_shutdown_does_not_wait_out_a_slow_task(ws_app, caplog, monkeypatc
         except asyncio.CancelledError:
             await asyncio.sleep(4)  # dawdles well past the deadline
 
-    # crl_poller_loop is stubbed inert by the autouse fixture; make it slow.
-    monkeypatch.setattr(chat_app, "crl_poller_loop", _slow_to_cancel)
+    # jwks_poller_loop is stubbed inert by the autouse fixture; make it slow.
+    monkeypatch.setattr(chat_app, "jwks_poller_loop", _slow_to_cancel)
 
     def _run() -> float:
         t0 = time.monotonic()

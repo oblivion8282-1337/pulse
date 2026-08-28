@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from dcc_chat_gateway.credential_validator import CertClaims, compute_pairwise_sub
+from dcc_chat_gateway.credential_validator import compute_pairwise_sub
 from dcc_chat_gateway.models.moderation import CachedUserProfile
 
 from .conftest import make_auth_header

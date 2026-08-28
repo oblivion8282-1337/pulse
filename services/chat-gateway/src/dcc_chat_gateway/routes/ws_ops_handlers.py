@@ -434,7 +434,7 @@ async def handle_profile_statement(ctx: WSOpContext, msg: dict[str, Any]) -> Non
 
     # Fetch the Cloud JWKS from Redis (fail-open when cache is cold). The
     # statement is Cloud-signed, so on a Self-Host we must verify against the
-    # CLOUD JWKS (``auth:cloud_jwks:cached``, warmed by crl_poller) — NOT the
+    # CLOUD JWKS (``auth:cloud_jwks:cached``, warmed by jwks_poller) — NOT the
     # local auth-svc JWKS (``auth:jwks:cached``), whose key differs. On Cloud the
     # two are identical. Mirrors credential_validator._get_jwks_keys (cert-login).
     from dcc_chat_gateway.config import get_settings
