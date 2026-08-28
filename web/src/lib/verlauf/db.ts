@@ -11,6 +11,7 @@
  * stillschweigend verwerfen).
  */
 import { DB_NAME, DB_VERSION, STORE_NACHRICHTEN, INDEX_KANAL, type Satz } from './schema';
+import { sortierSchluessel } from './satz';
 
 let _dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -96,6 +97,53 @@ export function verlaufMarkiereGeloescht(schluessel: string): Promise<void> {
         getReq.onerror = () => reject(getReq.error);
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
+      })
+  );
+}
+
+/** Obere Grenze fuer den Primaerschluessel-Bereich eines Kanals ohne `vor` —
+ *  20 Neunen sind lexikografisch groesser als jede echte gepolsterte ID
+ *  (deren Ziffern hoechstens 9 sind), dient nur als Bereichsende. */
+const OBERE_ID = '9'.repeat(20);
+
+/**
+ * Liest bis zu `anzahl` Saetze eines Kanals — laeuft ueber den PRIMAERschluessel
+ * (`schluessel` beginnt mit `<kanalId>:`, s. `satz.ts::sortierSchluessel`),
+ * kein Umweg ueber den `nach_kanal`-Index noetig, der Primaerschluessel
+ * sortiert schon richtig. `vor` grenzt EXKLUSIV auf Saetze vor dieser
+ * Nachrichten-ID ein (Hochscrollen); ohne `vor` sind es die neuesten
+ * `anzahl` Saetze. Sammelt rueckwaerts (neueste zuerst) und dreht am Ende um
+ * — die Reihenfolge, in der `MessageStore` sie erwartet.
+ */
+export function verlaufLesenSaetze(
+  kanalId: string,
+  opts: { vor?: string; anzahl: number }
+): Promise<Satz[]> {
+  if (opts.anzahl <= 0) return Promise.resolve([]);
+  const untereGrenze = sortierSchluessel(kanalId, '');
+  const obereGrenze =
+    opts.vor !== undefined
+      ? sortierSchluessel(kanalId, opts.vor)
+      : sortierSchluessel(kanalId, OBERE_ID);
+  const bereich = IDBKeyRange.bound(untereGrenze, obereGrenze, false, opts.vor !== undefined);
+
+  return openVerlaufDb().then(
+    (db) =>
+      new Promise<Satz[]>((resolve, reject) => {
+        const tx = db.transaction(STORE_NACHRICHTEN, 'readonly');
+        const store = tx.objectStore(STORE_NACHRICHTEN);
+        const gefunden: Satz[] = [];
+        const req = store.openCursor(bereich, 'prev');
+        req.onsuccess = () => {
+          const cursor = req.result;
+          if (!cursor || gefunden.length >= opts.anzahl) {
+            resolve(gefunden.reverse());
+            return;
+          }
+          gefunden.push(cursor.value as Satz);
+          cursor.continue();
+        };
+        req.onerror = () => reject(req.error);
       })
   );
 }
