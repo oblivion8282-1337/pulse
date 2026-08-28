@@ -20,6 +20,7 @@ import { messages } from '$lib/stores/messages.svelte';
 import { chatApi } from '$lib/api/chat';
 import { compareSnowflakeId } from '$lib/utils/snowflake';
 import { verlaufSpeichern } from '$lib/verlauf';
+import { lueckeMarkieren } from '$lib/verlauf/luecke';
 
 const GAP_FILL_LIMIT = 100;
 
@@ -47,6 +48,14 @@ export async function gapFillChannel(cid: string, refetchOnOverflow: boolean): P
         // adopt the latest page as the new history.
         messages.setInitial(cid, page);
         void verlaufSpeichern(cid, page);
+        // This write leaves a HOLE in local storage: everything strictly
+        // between `lastId` (the old high-water mark) and `oldestFetched`
+        // (the oldest row of `page`) was skipped entirely and never
+        // persisted. Mark it so `verlauf/nachladen.ts::ladeAeltereSeite`
+        // doesn't mistake the untouched pre-gap rows for a contiguous
+        // continuation once the user scrolls back up into it (s.
+        // `verlauf/luecke.ts` fuer die Begruendung).
+        lueckeMarkieren(cid, lastId, oldestFetched);
       } else {
         // Reconnect path: drop the cache so the page-effect in
         // `routes/app/.../+page.svelte` triggers a full reload.
