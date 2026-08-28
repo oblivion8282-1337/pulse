@@ -205,20 +205,28 @@ async def issue_credential(
 
     active = await _active_creds_for_user(db, user.id)
 
-    # (1) Gleiches Gerät ersetzen: ein aktiver Pass mit demselben Label ist fast
-    # immer eine Leiche desselben Browsers (lokaler Schlüssel weg → neuer Pass),
-    # die sonst ewig mitzählt. Zurückziehen → ein aktiver Pass je echtem Gerät.
-    remaining = []
-    for c in active:
-        if c.device_label == payload.device_label:
-            _retire(c)
-        else:
-            remaining.append(c)
-
-    # (2) Rollendes Limit statt harter Wand: sind es echt zu viele VERSCHIEDENE
-    # Geräte, weicht der älteste, bis Platz ist. Kein 409/„device_limit_reached"
-    # mehr — die Ausstellung blockt nie, alte Pässe räumen sich selbst.
-    remaining.sort(key=lambda c: c.issued_at)  # ältester zuerst
+    # Das ``device_label`` taugt NICHT als Geräte-Identität, und es wird hier
+    # deshalb auch nicht dafür benutzt. Es entsteht als ``<Browser> · <OS>``
+    # ohne Rechnernamen (``web/src/lib/identity/issue-flow.ts``, den Namen darf
+    # ein Browser aus Privacy-Gründen nicht lesen) — Chrome, Edge, ein zweites
+    # Profil und ein Inkognitofenster tragen auf demselben Windows-Rechner alle
+    # ``Chrome · Windows``.
+    #
+    # Bis zum 2026-08-28 zog eine Neuausstellung jeden aktiven Pass mit
+    # gleichem Label zurück, um Leichen ausgewischter Browser wegzuräumen. Das
+    # räumte in Wahrheit fremde, lebende Geräte ab: ``runIssueFlow`` läuft bei
+    # JEDER Cloud-Anmeldung, und der Idempotenz-Pfad weiter oben greift nur bei
+    # einem noch AKTIVEN Pass — ein einmal widerrufener Browser erzeugt bei der
+    # nächsten Anmeldung also eine echte Neuausstellung und wirft damit den
+    # anderen hinaus. Zwei Browser meldeten sich so endlos abwechselnd ab; für
+    # den Nutzer sah beides nach „Server nicht erreichbar" aus, und eine
+    # Neuausstellung half nie, weil sie den Zustand gerade erzeugte.
+    #
+    # Aufräumen leistet allein das rollende Limit: sind es zu viele Geräte,
+    # weicht das älteste, bis Platz ist. Kein 409/„device_limit_reached" — die
+    # Ausstellung blockt nie. Preis, bewusst: ein Browser, der seinen Schlüssel
+    # wiederholt verliert, belegt mehrere Plätze, bis er der älteste ist.
+    remaining = sorted(active, key=lambda c: c.issued_at)  # ältester zuerst
     while len(remaining) >= _MAX_ACTIVE_CERTS:
         _retire(remaining.pop(0))
 
