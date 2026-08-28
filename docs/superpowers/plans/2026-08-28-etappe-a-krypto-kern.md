@@ -1001,7 +1001,10 @@ Erwartet: grün, und der neue Test taucht in der Ausgabe **namentlich** auf.
 Erscheint er nicht, greift das Glob `web/test/*.test.ts` nicht — dann liegt
 die Datei falsch.
 
-**Offener Punkt für die Folge-Etappe, hier bewusst nicht gelöst:** `web/vite.config.ts`
+**ERLEDIGT am 2026-08-28 — Vite trägt das Paket ohne Zutun** (gemessen, s.
+`2026-08-28-etappe-b2-klient-veroeffentlicht.md` Task 0; die App liefert mit
+`rnnoise` längst ein `.wasm` nach demselben Muster aus). Der ursprüngliche
+Vorbehalt lautete: `web/vite.config.ts`
 kennt heute **keine** WASM-Behandlung (nachgesehen am 2026-08-28: nur
 SvelteKit, Tailwind und Paraglide). Die Ausgabe von `wasm-pack --target web`
 lädt ihr `.wasm` selbst über `import.meta.url`; ob Vite das im Bau richtig als

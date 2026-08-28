@@ -201,9 +201,13 @@ Entwurf: `docs/superpowers/specs/2026-08-28-e2e-dm-design.md`, Plan:
 - **Im Gate seit Anfang an**: `scripts/gate-rust.sh` matcht `streaming/pulse-*`
   **und** `krypto/pulse-*`. Ohne die zweite Zeile wären die 11 Tests in keinem
   Gate gelaufen.
-- **`web/vite.config.ts` kennt keine WASM-Behandlung.** Für die Kiste selbst
-  egal (geprüft über Nodes Läufer), für die spätere Einbindung in die
-  Oberfläche offen — rechnet mit einem zusätzlichen Vite-Plugin, also Rückfrage.
+- **Vite trägt das WASM-Paket ohne Zutun** — gemessen am 2026-08-28, nicht
+  vermutet: `pnpm build` legt `pulse_krypto_bg.<hash>.wasm` (531 kB) unter
+  `build/_app/immutable/assets/` und schreibt den gehashten Pfad in die
+  `new URL(…, import.meta.url)` der wasm-pack-Ausgabe. Kein zusätzliches
+  Plugin. Der Beleg liegt im Bestand: die App liefert mit `rnnoise`
+  (Rauschunterdrückung) längst ein `.wasm` nach demselben Muster aus. Ein
+  früherer Vorbehalt hier vermutete das Gegenteil.
 - Bauen: `bash krypto/pulse-krypto/bauen-wasm.sh` (`wasm-pack` liegt unter
   `~/.cargo/bin`, das nicht in jedem PATH steht).
 

@@ -18,17 +18,27 @@ und die Stelle, an der der **Sitzungszustand dauerhaft** wird.
 Grenz-Tests grün). Etappe B ist fertig (`PUT /keys/bundle`,
 `POST /keys/onetime`, `GET /keys/onetime/count`, `POST /keys/claim`).
 
-## Der offene Punkt, der zuerst entschieden werden muss
+## Task 0 ist beantwortet: Vite trägt das Paket
 
-`web/vite.config.ts` kennt **keine WASM-Behandlung** (nachgesehen 2026-08-28:
-nur SvelteKit, Tailwind, Paraglide). Die Ausgabe von `wasm-pack --target web`
-lädt ihr `.wasm` selbst über `import.meta.url`; ob Vite das im Bau richtig als
-Asset mitnimmt, ist **ungeprüft**.
+Am 2026-08-28 gemessen statt vermutet. Eine Wegwerf-Route importierte das
+gebaute Paket, `pnpm build` lief durch, und das Ergebnis stimmt:
 
-**Task 0 klärt das, bevor irgendetwas anderes gebaut wird.** Braucht es ein
-zusätzliches Vite-Plugin, ist das eine **neue Abhängigkeit und damit eine
-Rückfrage beim Eigentümer** — kein Nebenbei. Wer diesen Plan ausführt und
-dort landet, hält an und fragt.
+```
+build/_app/immutable/assets/pulse_krypto_bg.BkQTophf.wasm   530 789 Byte
+```
+
+Es wird aus dem Seiten-Chunk referenziert, und Vite schreibt den gehashten
+Pfad in die `new URL(…, import.meta.url)` der wasm-pack-Ausgabe hinein.
+
+**Der stärkste Beleg liegt im Bestand:** die App liefert längst ein `.wasm`
+aus — `rnnoise` aus der Rauschunterdrückung
+(`@sapphi-red/web-noise-suppressor`), im selben Verzeichnis und nach demselben
+Muster. Vites Asset-Behandlung für WebAssembly ist hier also kein neuer Pfad,
+sondern ein bereits benutzter.
+
+**Kein zusätzliches Plugin, keine neue Abhängigkeit, keine Rückfrage.** Der
+frühere Vorbehalt in `docs/superpowers/plans/2026-08-28-etappe-a-krypto-kern.md`
+ist damit erledigt.
 
 ## Global Constraints
 
