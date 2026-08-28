@@ -39,6 +39,7 @@ from dcc_auth.routes import _check_rate
 from dcc_auth.routes_admin_instances import _require_cloud
 from dcc_auth.security import verify_password
 from dcc_auth.selfhost_probe import Schritt, pruefe_dns, pruefe_tcp, pruefe_tls
+from dcc_auth.selfhost_probe_anmeldeweg import pruefe_anmeldeweg
 from dcc_auth.selfhost_probe_betreiber import pruefe_betreiber
 from dcc_auth.selfhost_probe_dienst import (
     Ziel,
@@ -167,6 +168,11 @@ async def _fuehre_pruefung(
                 schritte.append(
                     await pruefe_betreiber(klient, ziel, int(instanz_id), owner_id)
                 )
+            # Neuntes Glied: kein Erreichbarkeits-, sondern ein
+            # Uebergangs-Befund. Ohne ihn ist von aussen nicht
+            # feststellbar, welchen Anmeldeweg ein Server kann - und
+            # genau daran haengt, wann der alte geloescht werden darf.
+            schritte.append(await pruefe_anmeldeweg(klient, ziel))
             schritte.append(await pruefe_cors(klient, ziel, cloud_origin))
         schritte.append(await pruefe_websocket(hostname, adresse, 443))
 

@@ -35,6 +35,7 @@ import re
 # Datei unter der Groessen-Grenze bleibt (PLAN.md §12.1). Sie werden unten in
 # die drei Tabellen gemischt — die EINZIGE Quelle fuer Diagnose-Texte bleibt
 # dieses Modul hier.
+from dcc_auth import diagnose_texte_anmeldeweg as _anmeldeweg
 from dcc_auth import diagnose_texte_betreiber as _betreiber
 
 #: Die Kette in ihrer Reihenfolge. ``gesamt`` ist kein Glied, sondern der
@@ -48,6 +49,7 @@ SCHRITTE: tuple[str, ...] = (
     "betreiber",
     "cors",
     "websocket",
+    "anmeldeweg",
     "stun",
     "rtmps",
 )
@@ -64,6 +66,7 @@ _TITEL: dict[str, tuple[str, str]] = {
     "health": ("Zustand des Servers", "Server condition"),
     "identitaet": ("Identität", "Identity"),
     "betreiber": _betreiber.TITEL,
+    "anmeldeweg": _anmeldeweg.TITEL,
     "cors": ("Browser-Freigabe", "Browser access"),
     "websocket": ("Live-Verbindung", "Live connection"),
     "stun": ("Sprachverbindung (UDP)", "Voice connection (UDP)"),
@@ -82,6 +85,7 @@ _GELUNGEN: dict[str, tuple[str, str]] = {
     "health": ("Der Server meldet sich gesund.", "The server reports itself healthy."),
     "identitaet": ("Es ist wirklich dein Server.", "It really is your server."),
     "betreiber": _betreiber.GELUNGEN,
+    "anmeldeweg": _anmeldeweg.GELUNGEN,
     "cors": ("Der Browser darf zugreifen.", "Browsers are allowed access."),
     "websocket": ("Live-Verbindungen kommen durch.", "Live connections get through."),
     "stun": ("UDP kommt an — Sprache funktioniert.", "UDP arrives — voice works."),
@@ -292,6 +296,7 @@ _CONTAINER_MUSTER = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*\Z")
 
 #: Die Saetze zum Betreiber-Glied dazu — s. den Import oben.
 _BEFUNDE.update(_betreiber.BEFUNDE)
+_BEFUNDE.update(_anmeldeweg.BEFUNDE)
 
 
 def container_name(roh: str | None) -> str:
