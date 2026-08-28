@@ -641,3 +641,115 @@ async def test_fremde_zustellungs_id_quittiert_nichts(
         rest = (await s.execute(select(DmZustellung))).scalars().all()
         assert len(rest) == 1
         assert rest[0].id == zustellung_id
+
+
+# ---------------------------------------------------------------------------
+# Task 4 — Verfall
+# ---------------------------------------------------------------------------
+
+
+async def _nutzlast_mit_zustellung(
+    session_factory, *, verfaellt_am, nutzlast_id=None
+):
+    """Legt eine Nutzlast mit genau einer Zustellung an und gibt beide IDs
+    zurueck — Hilfsfunktion fuer die Task-4-Tests, die direkt auf der DB
+    arbeiten (keine Route dafuer noetig, s. Vorbild Task 1)."""
+    from dcc_chat_gateway.models import DmNutzlast, DmZustellung
+    from dcc_chat_gateway.snowflake import next_id
+
+    nid = nutzlast_id if nutzlast_id is not None else next_id()
+    zid = next_id()
+    async with session_factory() as s:
+        s.add(DmNutzlast(
+            id=nid, channel_id=1, absender_device_pubkey="A",
+            art=1, daten="x", groesse=1,
+        ))
+        s.add(DmZustellung(
+            id=zid, nutzlast_id=nid,
+            empfaenger_device_pubkey="G1", empfaenger_user_id=2,
+            verfaellt_am=verfaellt_am,
+        ))
+        await s.commit()
+    return nid, zid
+
+
+@pytest.mark.asyncio
+async def test_verfallene_zustellung_wird_gefegt(session_factory):
+    """Ein Geraet, das nie wiederkommt, darf den Server nicht dauerhaft
+    belegen."""
+    import datetime as dt
+
+    from dcc_chat_gateway.models import DmZustellung
+    from dcc_chat_gateway.postfach_pflege import sweep_verfallene_zustellungen
+    from sqlalchemy import select
+
+    _, zid = await _nutzlast_mit_zustellung(
+        session_factory, verfaellt_am=dt.datetime.now(dt.UTC) - dt.timedelta(days=1)
+    )
+
+    async with session_factory() as s:
+        anzahl = await sweep_verfallene_zustellungen(s)
+    assert anzahl == 1
+
+    async with session_factory() as s:
+        rest = (await s.execute(select(DmZustellung).where(DmZustellung.id == zid))).scalar_one_or_none()
+        assert rest is None
+
+
+@pytest.mark.asyncio
+async def test_nicht_verfallene_bleibt_stehen(session_factory):
+    """Die Gegenprobe. Ohne sie faengt der Fegelauf im Zweifel alles weg,
+    und das faellt erst auf, wenn Nachrichten verschwinden."""
+    import datetime as dt
+
+    from dcc_chat_gateway.models import DmZustellung
+    from dcc_chat_gateway.postfach_pflege import sweep_verfallene_zustellungen
+    from sqlalchemy import select
+
+    _, zid = await _nutzlast_mit_zustellung(
+        session_factory, verfaellt_am=dt.datetime.now(dt.UTC) + dt.timedelta(days=1)
+    )
+
+    async with session_factory() as s:
+        anzahl = await sweep_verfallene_zustellungen(s)
+    assert anzahl == 0
+
+    async with session_factory() as s:
+        rest = (await s.execute(select(DmZustellung).where(DmZustellung.id == zid))).scalar_one_or_none()
+        assert rest is not None
+
+
+@pytest.mark.asyncio
+async def test_verwaiste_nutzlast_wird_gefegt(session_factory):
+    """Eine Nutzlast, deren letzte Zustellung verfiel, ist unlesbar
+    geworden — sie loescht sich nicht von selbst, weil der Verfall an der
+    Zustellung haengt."""
+    import datetime as dt
+
+    from dcc_chat_gateway.models import DmNutzlast
+    from dcc_chat_gateway.postfach_pflege import (
+        sweep_verfallene_zustellungen,
+        sweep_verwaiste_nutzlasten,
+    )
+    from sqlalchemy import select
+
+    nid, _ = await _nutzlast_mit_zustellung(
+        session_factory, verfaellt_am=dt.datetime.now(dt.UTC) - dt.timedelta(days=1)
+    )
+
+    async with session_factory() as s:
+        assert await sweep_verfallene_zustellungen(s) == 1
+        # Die Nutzlast selbst ist von diesem Lauf unberuehrt.
+        assert (
+            await s.execute(select(DmNutzlast).where(DmNutzlast.id == nid))
+        ).scalar_one_or_none() is not None
+
+    async with session_factory() as s:
+        anzahl = await sweep_verwaiste_nutzlasten(s)
+    assert anzahl == 1
+
+    async with session_factory() as s:
+        rest = (
+            await s.execute(select(DmNutzlast).where(DmNutzlast.id == nid))
+        ).scalar_one_or_none()
+        assert rest is None
