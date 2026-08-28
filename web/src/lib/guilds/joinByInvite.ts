@@ -17,6 +17,10 @@ import {
 } from '$lib/api/add-server-flow';
 import { holeTicket, loeseTicketEin } from '$lib/api/server-ticket';
 
+import { instancesApi } from '$lib/api/instances';
+import { sessionTokens } from '$lib/api/session_tokens.svelte';
+import { joinedInvites } from '$lib/stores/joinedInvites.svelte';
+
 /**
  * Meldet sich an einem bereits bekannten Self-Host neu an — mit einem Zugang.
  *
@@ -36,9 +40,6 @@ async function anmeldenMitZugang(
   sessionTokens.set(server.id, sitzung.session_token, Date.now() + sitzung.expires_in * 1000);
   return instanceId;
 }
-import { instancesApi } from '$lib/api/instances';
-import { sessionTokens } from '$lib/api/session_tokens.svelte';
-import { joinedInvites } from '$lib/stores/joinedInvites.svelte';
 
 /** Trägt die Cloud-Membership ein, damit der per Einladung beigetretene
  *  Self-Host-Server auch im Browser / auf anderen Geräten sichtbar wird.

@@ -47,9 +47,13 @@ SCHRITTE: tuple[str, ...] = (
     "health",
     "identitaet",
     "betreiber",
+    # Reihenfolge = Laufreihenfolge in ``_fuehre_pruefung``. Der einzige
+    # Verbraucher bildet heute nur eine Mengendifferenz, aber eine Liste, die
+    # eine andere Abfolge behauptet als der Lauf, ist eine Falle für den
+    # Nächsten, der sie als Reihenfolge liest.
+    "anmeldeweg",
     "cors",
     "websocket",
-    "anmeldeweg",
     "stun",
     "rtmps",
 )

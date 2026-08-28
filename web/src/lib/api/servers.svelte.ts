@@ -454,6 +454,13 @@ class ServersStore {
             isCloud: false,
             role: inst.role,
             notification_mode: inst.notification_mode,
+            // Die Schleife hat nicht eingerichtete Instanzen oben übersprungen
+            // (``inst.set_up === false``) — was hier ankommt, ist eingerichtet,
+            // und die Cloud ist dafür die bessere Quelle als dieses Gerät. Ohne
+            // die Zeile bliebe das Feld ``undefined``, und der Hinweis „nicht
+            // eingerichtet" ginge für jeden auf einem zweiten Gerät
+            // hinzugekommenen Server verloren.
+            je_verbunden: true,
             added_at: Date.now(),
           },
         ];
