@@ -27,11 +27,12 @@ from __future__ import annotations
 
 import base64
 import logging
+from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 
 from dcc_shared.events import PostfachNeuEvent
 from fastapi import APIRouter, HTTPException, Request, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 
 import dcc_chat_gateway.config as chat_config
 from dcc_chat_gateway.db import SessionDep
@@ -75,14 +76,28 @@ async def _channel_zugriff_pruefen(
     return dm_obj
 
 
-async def _bundle_laden(session, device_pubkey: str) -> DeviceKeyBundle | None:
+async def _bundle_laden(
+    session, device_pubkey: str, erlaubte_user_ids: Collection[int]
+) -> DeviceKeyBundle | None:
     """Der Verzeichnis-Eintrag eines Geraets, oder ``None`` — ein Geraet ohne
     veroeffentlichtes Buendel ist Alltag (noch nicht veroeffentlicht, gerade
     abgemeldet), kein Fehler; wie damit umzugehen ist, entscheidet die
-    jeweilige Aufrufstelle."""
+    jeweilige Aufrufstelle.
+
+    **Skopiert auf ``erlaubte_user_ids``** — die DB-Eindeutigkeit ist das
+    Paar ``(user_id, device_pubkey)`` (``UniqueConstraint`` in
+    ``models/geraete_schluessel.py``), NICHT der Pubkey allein. Eine unscopte
+    Suche wirft ``MultipleResultsFound``, sobald zwei Konten denselben Pubkey
+    fuehren — erreichbar z. B. ueber ein geloeschtes und neu registriertes
+    Konto, das denselben lokal gespeicherten Geraeteschluessel weiterbenutzt
+    (Bughunt 2026-08-28, FIX 2) — und reisst damit die GANZE Anfrage mit,
+    auch die Zustellung an jeden anderen, unbeteiligten Empfaenger."""
     return (
         await session.execute(
-            select(DeviceKeyBundle).where(DeviceKeyBundle.device_pubkey == device_pubkey)
+            select(DeviceKeyBundle).where(
+                DeviceKeyBundle.device_pubkey == device_pubkey,
+                DeviceKeyBundle.user_id.in_(erlaubte_user_ids),
+            )
         )
     ).scalar_one_or_none()
 
@@ -153,7 +168,7 @@ async def postfach_einliefern(
     # Geraete-Nachweis geprueft, kein neuer Vertrauensschritt. Fehlt das
     # Buendel, bleibt die Spalte NULL — der Server erzwingt sie nicht, er
     # oeffnet den Umschlag ja nie.
-    absender_bundle = await _bundle_laden(session, claims.device_pubkey)
+    absender_bundle = await _bundle_laden(session, claims.device_pubkey, {user.id})
     absender_curve25519 = absender_bundle.curve25519 if absender_bundle else None
 
     # ``offene_je_geraet`` ist ein In-Request-Cache: eine
@@ -169,27 +184,43 @@ async def postfach_einliefern(
     for eintrag, groesse in zip(body.nutzlasten, groessen, strict=True):
         empfaenger_zeilen: list[tuple[str, int]] = []
         for pubkey in dict.fromkeys(eintrag.empfaenger):  # Duplikate raus.
-            bundle = await _bundle_laden(session, pubkey)
-            if bundle is None:
-                # Kein Buendel im Verzeichnis: das Geraet ist zwischen
-                # Schluessel-Abholen und Absenden verschwunden — Alltag,
-                # kein Fehler fuer die uebrigen Empfaenger.
-                continue
-            # **Das Geraet muss zu DIESEM Gespraech gehoeren.**
+            # **Das Geraet muss zu DIESEM Gespraech gehoeren** — die Suche
+            # ist deshalb direkt auf ``teilnehmer`` skopiert (FIX 2), nicht
+            # erst ungescopt geladen und danach geprueft: eine ungescopte
+            # Suche wirft ``MultipleResultsFound``, sobald zwei Konten
+            # denselben Pubkey fuehren (s. ``_bundle_laden``-Docstring), und
+            # reisst damit die GANZE Anfrage mit, auch die Zustellung an
+            # jeden anderen, unbeteiligten Empfaenger.
             #
             # Die Kanalpruefung oben belegt nur, dass der Absender in DIESEM
             # Kanal schreiben darf — nicht, an WEN zugestellt wird. Die
-            # Empfaengerkennungen kommen aus dem Anfrage-Rumpf; ohne diese
-            # Zeile koennte jeder mit einer einzigen legitimen DM Umschlaege
-            # in das Postfach JEDES Geraets JEDES Nutzers legen, auch von
-            # Leuten, die ihn geblockt haben, und dabei deren Kontingent
-            # vollschreiben.
-            #
-            # Kein stilles Ueberspringen wie beim unbekannten Geraet: ein
-            # fremdes Geraet ist kein Alltagsfall, sondern ein Klientenfehler
-            # oder ein Angriff. Fail-closed und laut.
-            if bundle.user_id not in teilnehmer:
-                raise HTTPException(status_code=403, detail="empfaenger_nicht_im_kanal")
+            # Empfaengerkennungen kommen aus dem Anfrage-Rumpf; ohne die
+            # Skopierung koennte jeder mit einer einzigen legitimen DM
+            # Umschlaege in das Postfach JEDES Geraets JEDES Nutzers legen,
+            # auch von Leuten, die ihn geblockt haben, und dabei deren
+            # Kontingent vollschreiben.
+            bundle = await _bundle_laden(session, pubkey, teilnehmer)
+            if bundle is None:
+                # Kein Buendel innerhalb DIESES Gespraechs — zwei Faelle,
+                # die unterschiedlich beantwortet werden. Ein Pubkey, der
+                # NIRGENDS existiert, ist Alltag (Geraet zwischen
+                # Schluessel-Abholen und Absenden abgemeldet): still
+                # uebersprungen, kein Fehler fuer die uebrigen Empfaenger.
+                # Ein Pubkey, der existiert, aber zu KEINEM Teilnehmer
+                # dieses Kanals gehoert, ist kein Alltagsfall, sondern ein
+                # Klientenfehler oder ein Angriff — fail-closed und laut.
+                # Ein reiner Existenz-Check statt eines zweiten
+                # ``_bundle_laden``-Aufrufs, weil er selbst bei einer
+                # Pubkey-Kollision unter mehreren fremden Konten nie mehr
+                # als einen booleschen Wert liefert.
+                fremdes_geraet_vorhanden = (
+                    await session.execute(
+                        select(exists().where(DeviceKeyBundle.device_pubkey == pubkey))
+                    )
+                ).scalar_one()
+                if fremdes_geraet_vorhanden:
+                    raise HTTPException(status_code=403, detail="empfaenger_nicht_im_kanal")
+                continue
             if pubkey not in offene_je_geraet:
                 offene_je_geraet[pubkey] = (
                     await session.execute(
