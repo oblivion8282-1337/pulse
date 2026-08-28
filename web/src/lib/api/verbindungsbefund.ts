@@ -116,7 +116,7 @@ export function deuteProbe(geoeffnet: boolean, code: number | null): Verbindungs
  * Ob dieser Befund das Hinzufügen des Servers verhindern soll.
  *
  * `server-gesperrt` und `server-zu-alt` sind **keine** Verbindungsfehler — sie
- * gehören dem bestehenden Cert-Login-/Versionsweg, der sie mit eigenen,
+ * gehören dem Anmelde-/Versionsweg, der sie mit eigenen,
  * genaueren Texten behandelt. Hier würden sie nur doppelt gemeldet.
  */
 export function haeltAuf(befund: Verbindungsbefund): boolean {

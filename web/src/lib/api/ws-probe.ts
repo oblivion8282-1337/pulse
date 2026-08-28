@@ -11,7 +11,7 @@
  *
  * **Warum es ihn braucht.** Ein Proxy ohne `Upgrade`-Header (nginx von Hand,
  * Nginx Proxy Manager ohne den Haken) lässt `/health`, die Vorprüfung und den
- * Cert-Login anstandslos durch — und erst DANACH lädt beim Nutzer nichts mehr.
+ * die Anmeldung anstandslos durch — und erst DANACH lädt beim Nutzer nichts mehr.
  * Das ist die häufigste Falle beim Self-Hosten und die einzige, die man vor
  * dem Beitritt sehen kann, ohne sie zu erleben.
  *

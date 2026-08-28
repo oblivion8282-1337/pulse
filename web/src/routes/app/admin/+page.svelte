@@ -39,7 +39,7 @@
   let serverId = $derived(activeServer.current?.id ?? '');
 
   // Admin ist PRO Server: Cloud → auth.user.is_admin (auth /me); Self-Host →
-  // der is_admin aus dem ready-Frame dieses Servers (Cert-Login-User haben dort
+  // der is_admin aus dem ready-Frame dieses Servers (Ticket-Nutzer haben dort
   // kein auth /me). ``decided`` = haben wir für den aktiven Server überhaupt
   // schon eine Antwort? — verhindert ein Fehl-Redirect, bevor ready da ist.
   let isAdminHere = $derived(

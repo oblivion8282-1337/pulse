@@ -2,7 +2,7 @@
  * Self-Host Re-Auth-Handler — Phase 5.2.
  *
  * Verbindet die Re-Auth-Hooks aus ``client.ts`` UND ``gateway-connection.ts``
- * mit dem Cert-Login-Flow. Beide Module haben einen eigenen ``_selfHost
+ * mit der Ticket-Anmeldung. Beide Module haben einen eigenen ``_selfHost
  * ReauthHandler``-Slot — der eine wird bei REST-401/expired-Token gefeuert,
  * der andere beim WS-Reconnect mit expired Self-Host-Session-Token. Wir
  * registrieren denselben Handler für beide, sonst greift Re-Auth nur auf
@@ -58,6 +58,9 @@ async function nachAnmeldung(
   frischesToken: string,
 ): Promise<void> {
   vergissGrund(serverId);
+  // Ab jetzt ist belegt, dass hier je eine Anmeldung durchging — die Rail zeigt
+  // sonst dauerhaft „nie eingerichtet".
+  if (server.je_verbunden !== true) serversStore.update(serverId, { je_verbunden: true });
   // Cloud-Membership-Backfill (einmal pro Session). So wird auch ein früher
   // beigetretener Self-Host im Browser sichtbar, ohne ihn neu hinzuzufügen.
   // Best-effort.

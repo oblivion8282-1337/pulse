@@ -48,7 +48,7 @@
   if (activeServer.serverId) {
     gatewayPool.for(activeServer.serverId);
   }
-  // Phase 5.2: Self-Host Re-Auth-Hook (Cert-Login) registrieren — wirkt für
+  // Self-Host Re-Auth-Hook (Ticket-Anmeldung) registrieren — wirkt für
   // jeden 401/Session-Expiry-Trigger aus dem API-Client.
   initSelfHostReauth();
 
