@@ -53,6 +53,7 @@ import { certStore } from '../identity/cert.svelte';
 import { loadKeypair } from '../identity/keypair.svelte';
 import { keysApi } from '../api/keys';
 import { postfachApi, type PostfachNutzlast } from '../api/postfach';
+import { serversStore } from '../api/servers.svelte';
 import { isElectron, isCapacitorAndroid } from '../platform/runtime';
 import { directMessages } from '../stores/directMessages.svelte';
 import { verlaufSpeichernPflicht } from '../verlauf';
@@ -63,6 +64,12 @@ import { baueNutzlast } from './nutzlast';
 import { signiereNutzlast } from './nachweis';
 import { zielgeraeteBerechnen } from './empfaengerGeraete';
 import { wurdeZugestellt } from './zustellErgebnis';
+
+// DMs sind heute cloud-only (Global-Friends Stufe 1) — s. `api/keys.ts`
+// Modulkopf (Bughunt 2026-08-28, FIX 4).
+function cloudRoute(): { serverId?: string } {
+  return { serverId: serversStore.cloudId() };
+}
 
 export type SendeErgebnis =
   | { art: 'verschluesselt'; nachricht: Message }
@@ -97,7 +104,7 @@ export async function sendeVerschluesselt(
   // `GeraeteSchluessel` (keys.ts) und `GeraeteBuendelEintrag`
   // (empfaengerGeraete.ts) sind strukturell dieselbe Wire-Form — Letztere
   // importfrei gehalten (s. dort), deshalb zwei benannte Typen statt einem.
-  const buendel = await keysApi.claim([eigeneUserId, empfaengerUserId]);
+  const buendel = await keysApi.claim([eigeneUserId, empfaengerUserId], cloudRoute());
   const ziel = zielgeraeteBerechnen(
     buendel,
     eigeneUserId,
@@ -142,12 +149,10 @@ export async function sendeVerschluesselt(
 
   const nutzlastBytes = baueNutzlast('postfach', kanalId, ...nutzlasten.map((n) => n.daten));
   const signatur = await signiereNutzlast(keypair, nutzlastBytes);
-  const ergebnis = await postfachApi.einliefern({
-    channel_id: kanalId,
-    cert: cert.raw,
-    signatur,
-    nutzlasten
-  });
+  const ergebnis = await postfachApi.einliefern(
+    { channel_id: kanalId, cert: cert.raw, signatur, nutzlasten },
+    cloudRoute()
+  );
   if (!wurdeZugestellt(ergebnis)) {
     // Der Server hat JEDEN angefragten Empfaenger uebersprungen (Bughunt
     // 2026-08-28, FIX 2) — die Nachricht kam nirgends an, obwohl die
