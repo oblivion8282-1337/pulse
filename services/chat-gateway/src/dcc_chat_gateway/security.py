@@ -223,7 +223,7 @@ def _decode_self_host_session_token(token: str) -> dict[str, Any]:
     return {
         "sub": str(synthetic_id),
         "username": "",
-        # Self-host admin = the instance owner, marked at cert-login time and
+        # Self-host admin = the instance owner, marked when the session is issued and
         # carried in the session token (see issue_session_token ``admin``).
         "admin": claims.admin,
         "typ": "access",
