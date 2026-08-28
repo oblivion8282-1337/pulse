@@ -487,8 +487,47 @@ nimmt `user_ids`.
 
 **Bewusst offen, mit Begründung im Code:** das Löschen eines Bündels, wenn ein
 Gerät gesperrt wird — der Filter beim Abholen deckt den Normalfall, nicht das
-Fenster nach einer Zertifikatserneuerung. Braucht ein Signal vom auth-svc und
-ist eine eigene Aufgabe.
+Fenster nach einer Zertifikatserneuerung.
+
+### Nachtrag vom 2026-08-28: wie diese Lücke zu schliessen ist
+
+Der naheliegende Weg — ein Signal „Gerät X ist gesperrt" vom auth-svc — ist
+**nicht gangbar**, und das ist keine Bequemlichkeit, sondern eine bewusste
+Eigenschaft des Identitätskonzepts:
+
+> Der Grabstein in `auth.revoked_credentials` trägt **nur die `cert_id`**,
+> ausdrücklich kein `device_pubkey` und kein `user_id` (`models_credentials.py:87-97`).
+> Das ist das harte Löschversprechen: die `cert_id` ist ein zufälliges uuid4 und
+> verknüpft nichts. Auch die Sperrliste, die Self-Hosts pollen, enthält nichts
+> anderes.
+
+Ein Self-Host kann einen Widerruf also **prinzipiell nicht** auf ein Gerät
+zurückrechnen. Die `cert_id` ist der einzige Griff, den es gibt — und genau
+deshalb steht sie im Bündel.
+
+**Die Lücke liegt damit nicht am Server, sondern am Klienten:** das Bündel
+trägt die `cert_id` des Zertifikats, mit dem zuletzt veröffentlicht wurde.
+`cert-rotation.svelte.ts` stellt alle 30 Tage ein neues Zertifikat für
+denselben Pubkey aus, ohne das Bündel anzufassen — danach zeigt die
+gespeicherte `cert_id` auf ein Zertifikat, das gar nicht mehr das aktuelle ist,
+und ein Widerruf des aktuellen greift im Filter nicht.
+
+**Die Behebung ist eine Zeile am richtigen Ort:** die Zertifikatserneuerung
+veröffentlicht das Bündel mit. Dann ist die gespeicherte `cert_id` immer die
+aktuelle, und der Filter beim Abholen ist exakt statt nur meistens richtig.
+
+**Warum das hier nicht umgesetzt ist:** die Klienten-Hälfte von Etappe B
+existiert noch nicht — es gibt noch keinen Code, der ein Bündel
+veröffentlicht, also auch nichts, woran sich die Erneuerung hängen könnte. Wer
+die Klienten-Hälfte baut, baut das **mit**, sonst entsteht die Lücke erst
+richtig.
+
+**Zwei Wege, die geprüft und verworfen wurden.** Bündel verfallen lassen, die
+länger als eine Rotationsperiode nicht erneuert wurden: das trifft genau die
+lange ausgeschalteten Geräte, für die der Rückfallschlüssel gebaut ist —
+niemand könnte ihnen mehr schreiben. Und alle je gesehenen `cert_id` eines
+Pubkeys sammeln: liefert dasselbe Ergebnis wie das Mitveröffentlichen, nur mit
+einer wachsenden Liste dazu.
 
 **Der Test, der am meisten wert ist**, und der deshalb nicht wegfallen darf,
 wenn er unbequem wird: `test_zwei_gleichzeitige_abholungen_bekommen_verschiedene`.
