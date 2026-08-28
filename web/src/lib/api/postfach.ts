@@ -14,6 +14,9 @@
  */
 
 import { request } from './client';
+import type { PostfachEinliefernErgebnis } from '../krypto/zustellErgebnis';
+
+export type { PostfachEinliefernErgebnis };
 
 export interface PostfachNutzlast {
   /** 0 = Sitzungsaufbau (Olm-PreKey), 1 = laufende Nachricht — die Zaehlung
@@ -56,8 +59,8 @@ export const postfachApi = {
     cert: string;
     signatur: string;
     nutzlasten: PostfachNutzlast[];
-  }): Promise<void> {
-    return request<void>('/postfach', { method: 'POST', body });
+  }): Promise<PostfachEinliefernErgebnis> {
+    return request<PostfachEinliefernErgebnis>('/postfach', { method: 'POST', body });
   },
 
   /** Holt die offenen Zustellungen des nachgewiesenen Geraets ab. Loescht

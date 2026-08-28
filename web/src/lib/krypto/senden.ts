@@ -21,7 +21,13 @@
  *     unter `mitSitzungssperre` — zwei gleichzeitige Sendungen an dasselbe
  *     Geraet duerfen nicht dieselbe geladene Sitzung unabhaengig weiterdrehen
  *     (s. `sitzungen.ts` Modulkopf).
- *  4. Einliefern — ein `POST /postfach` mit allen Umschlaegen.
+ *  4. Einliefern — ein `POST /postfach` mit allen Umschlaegen. Die Antwort
+ *     (`zustellungen_angelegt`) wird geprueft (Bughunt 2026-08-28, FIX 2):
+ *     eine 2xx-Antwort allein ist kein Beweis, dass irgendwo eine Zustellung
+ *     entstand — der Server darf jeden angefragten Empfaenger einzeln
+ *     uebersprungen haben (unbekanntes Buendel, Kontingent voll). Entstand
+ *     KEINE einzige Zustellung, faellt der Aufrufer auf den Klartext-Weg
+ *     zurueck, genau wie beim Koexistenz-Fall.
  *  5. Lokal ablegen — der eigene Klartext geht in den lokalen Verlauf
  *     (Etappe C1); der Server bekommt ihn nie, es gibt also keine zweite
  *     Kopie. Schlaegt das fehl, ist die Nachricht trotzdem zugestellt
@@ -50,6 +56,7 @@ import { sitzungLaden, sitzungSichern, mitSitzungssperre } from './sitzungen';
 import { baueNutzlast } from './nutzlast';
 import { signiereNutzlast } from './nachweis';
 import { zielgeraeteBerechnen } from './empfaengerGeraete';
+import { wurdeZugestellt } from './zustellErgebnis';
 
 export type SendeErgebnis =
   | { art: 'verschluesselt'; nachricht: Message }
@@ -129,7 +136,21 @@ export async function sendeVerschluesselt(
 
   const nutzlastBytes = baueNutzlast('postfach', kanalId, ...nutzlasten.map((n) => n.daten));
   const signatur = await signiereNutzlast(keypair, nutzlastBytes);
-  await postfachApi.einliefern({ channel_id: kanalId, cert: cert.raw, signatur, nutzlasten });
+  const ergebnis = await postfachApi.einliefern({
+    channel_id: kanalId,
+    cert: cert.raw,
+    signatur,
+    nutzlasten
+  });
+  if (!wurdeZugestellt(ergebnis)) {
+    // Der Server hat JEDEN angefragten Empfaenger uebersprungen (Bughunt
+    // 2026-08-28, FIX 2) — die Nachricht kam nirgends an, obwohl die
+    // Anfrage mit 2xx beantwortet wurde. Die lokalen Sitzungen sind zwar
+    // schon weitergedreht (s. Modulkopf Schritt 3), aber das darf hier
+    // nicht als Erfolg gelten: der Aufrufer faellt auf den Klartext-Weg
+    // zurueck, genau wie im Koexistenz-Fall oben.
+    return { art: 'unverschluesselt' };
+  }
 
   const nachricht: Message = {
     id: lokaleNachrichtId(),
