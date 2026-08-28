@@ -39,6 +39,7 @@ from dcc_auth.routes_recovery import router as recovery_router
 from dcc_auth.routes_registry_auth import router as registry_auth_router
 from dcc_auth.routes_search import router as search_router
 from dcc_auth.routes_selfhost_bootstrap import router as selfhost_bootstrap_router
+from dcc_auth.routes_server_ticket import router as server_ticket_router
 from dcc_auth.routes_selfhost_directory import router as selfhost_directory_router
 from dcc_auth.routes_selfhost_diagnose import router as selfhost_diagnose_router
 from dcc_auth.routes_selfhost_relay import router as selfhost_relay_router
@@ -145,6 +146,7 @@ def create_app() -> FastAPI:
     app.include_router(instance_applications_router)
     app.include_router(instance_delete_router)
     app.include_router(instance_membership_router)
+    app.include_router(server_ticket_router)
     app.include_router(selfhost_bootstrap_router)
     app.include_router(selfhost_directory_router)
     app.include_router(selfhost_signal_router)

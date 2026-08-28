@@ -118,6 +118,11 @@ class Settings(BaseSettings):
     # Self-Host One-Command-Installer: Mint ist owner-cookie-gated (locker),
     # Redeem ist token-gated + öffentlich (eng). TTL = Lebensdauer des
     # One-Time-Bootstrap-Tokens.
+    #: Ein Ticket gilt 60 s; ein Nutzer mit mehreren Geraeten und Tabs hinter
+    #: einer NAT-Adresse holt in der Spitze mehrere pro Minute. Grosszuegiger
+    #: als der Cert-Login (30/min), weil die Route eine bestehende
+    #: Cloud-Anmeldung voraussetzt und damit kein anonymes Ziel ist.
+    rate_limit_server_ticket: str = "60/minute"
     rate_limit_bootstrap_mint: str = "20/minute"
     rate_limit_bootstrap_redeem: str = "10/minute"
     rate_limit_relay_tls_check: str = "60/minute"
