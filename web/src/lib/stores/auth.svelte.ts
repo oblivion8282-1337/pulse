@@ -6,7 +6,6 @@ import { readState } from './readState.svelte';
 import { userCache } from './users.svelte';
 import { capabilities } from './capabilities.svelte';
 import { serverAdmin } from './serverAdmin.svelte';
-import { serverUser } from './serverUser.svelte';
 import { settings } from './settings.svelte';
 import { hydrateServerSections } from '$lib/settings-registry';
 import { privacy } from './privacy.svelte';
@@ -315,7 +314,6 @@ class AuthStore {
     capabilities.clear();
     privacy.clear();
     serverAdmin.clear();
-    serverUser.clear();
     // Fernsteuerung: der Store ist ein Modul-Singleton und ueberlebt den
     // Kontowechsel (die Anmeldung laeuft ohne Neuladen). Ohne das hier bekam
     // der naechste Nutzer am selben Tab eine offene Anfrage des Vorgaengers
