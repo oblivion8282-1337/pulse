@@ -26,8 +26,10 @@
   import BereichsKopf from './BereichsKopf.svelte';
   import MobileChatsSuche from './MobileChatsSuche.svelte';
   import NeuesGespraechDialog from './NeuesGespraechDialog.svelte';
+  import MobileGruppenZeile from './MobileGruppenZeile.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
+  import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { presence } from '$lib/stores/presence.svelte';
   import { readState } from '$lib/stores/readState.svelte';
@@ -40,10 +42,17 @@
   import { m } from '$lib/paraglide/messages.js';
 
   let {
-    onSelect
+    onSelect,
+    onSelectGruppe
   }: {
     onSelect: (dm: DMChannel) => void;
+    /** Eine private Gruppe oeffnen (Etappe G). Fehlt der Rueckruf, kommen
+     *  keine Gruppen in die Liste — sie waeren sonst nicht antippbar. */
+    onSelectGruppe?: (gruppeId: string) => void;
   } = $props();
+
+  /** Gruppen erscheinen nur, wenn die Seite sie auch oeffnen kann. */
+  const gruppen = $derived(onSelectGruppe ? privateGruppen.list : []);
 
   let neuesGespraech = $state(false);
   let suche = $state('');
@@ -151,7 +160,7 @@
     {#if suchbegriff}
       <MobileChatsSuche {suchbegriff} roheEingabe={suche} {onSelect} />
     {:else}
-      {#if directMessages.list.length === 0}
+      {#if directMessages.list.length === 0 && gruppen.length === 0}
         <!-- Ein leerer Bildschirm ist eine Aufforderung, keine Stimmung. Das
              Motiv ist der Ping der Bildmarke — hier als das, was er bedeutet:
              es ist noch niemand da, ruf jemanden. -->
@@ -225,6 +234,13 @@
             {/if}
           </span>
         </button>
+      {/each}
+      <!-- Private Gruppen unter den Direktnachrichten, in derselben Liste
+           aber als eigener Block: die Sortierung der DMs nach Aktualitaet
+           soll eine Gruppe nicht dazwischenschieben, solange die Gruppenliste
+           keinen Vorschautext und keine Uhrzeit vom Server bekommt. -->
+      {#each gruppen as gruppe (gruppe.id)}
+        <MobileGruppenZeile {gruppe} onSelect={onSelectGruppe!} />
       {/each}
     {/if}
   </nav>

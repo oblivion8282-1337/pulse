@@ -45,7 +45,12 @@
  * Schritte), verkleinert es aber auf die Zeit zwischen dieser Lesung und dem
  * `put` selbst, ohne einen weiteren `await` dazwischen.
  */
-import { verlaufLesen, verlaufSpeichern, verlaufNachrichtGeloescht } from './index';
+import {
+  hatServerVerlauf,
+  verlaufLesen,
+  verlaufSpeichern,
+  verlaufNachrichtGeloescht
+} from './index';
 import { betrifftLuecke, lueckeNachServerantwortAktualisieren } from './luecke';
 import { ermittleGeloeschteIds } from './abgleich';
 import { ohneFrischeGrabsteine } from './ohneFrischeGrabsteine';
@@ -72,10 +77,18 @@ export async function ladeAeltereSeite(
       (n) => n.deleted_at === null
     );
     if (lokal.length > 0) {
-      void reconciliereAeltereSeite(channelId, oldest, seitenGroesse, lokal, route);
+      // Abgleich nur, wo es etwas abzugleichen gibt (s. `hatServerVerlauf`).
+      if (hatServerVerlauf(channelId)) {
+        void reconciliereAeltereSeite(channelId, oldest, seitenGroesse, lokal, route);
+      }
       return { nachrichten: lokal, vomServer: false };
     }
   }
+
+  // Eine private Gruppe hat keinen Server-Verlauf — der lokale Bestand ist
+  // die einzige Kopie. Ist er erschoepft, ist die Seite zu Ende; ein Aufruf
+  // gaebe hier eine Abweisung, die als Ladefehler aussaehe.
+  if (!hatServerVerlauf(channelId)) return { nachrichten: [], vomServer: false };
 
   const vomServer = await chatApi.listMessages(
     channelId,

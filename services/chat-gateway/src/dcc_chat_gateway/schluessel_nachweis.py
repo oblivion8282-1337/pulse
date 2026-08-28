@@ -56,13 +56,21 @@ def baue_nutzlast(zweck: str, *teile: str) -> bytes:
     uebereinstimmen — der Zweck macht die Verfahren gegenseitig blind
     fuereinander.
 
-    Vergebene Zwecke (Stand 2026-08-28, **beim Hinzufuegen hier ergaenzen**):
+    Vergebene Zwecke (Stand 2026-08-29, **beim Hinzufuegen hier ergaenzen**):
     ``buendel`` und ``einmalschluessel`` (``routes/schluessel.py``),
     ``postfach`` (``routes/postfach.py``), ``postfach-abholen`` und
     ``postfach-quittung`` (``routes/postfach_abholen.py``),
-    ``postfach-anhang`` (``routes/postfach_anhaenge.py``). Die Liste stand
+    ``postfach-anhang`` (``routes/postfach_anhaenge.py``), ``kopplung``,
+    ``kopplung-einloesen`` und ``kopplung-stand`` (``routes/kopplung.py``),
+    ``kopplung-stueck``, ``kopplung-stueck-holen``, ``kopplung-fertig`` und
+    ``kopplung-abschliessen`` (``routes/kopplung_umzug.py``). Die Liste stand
     hier eine Zeit lang auf zwei, waehrend es schon fuenf waren — die
     Sicherheitsaussage stimmte weiter, die Aufzaehlung nicht.
+
+    Ein Prufstein haelt sie seit Etappe F gegen den Code
+    (``tests/test_nutzlast_zwecke.py``): die Liste zu vergessen ist der
+    wahrscheinlichste Fehler an dieser Datei, und er faellt sonst nirgends
+    auf.
     """
     stuecke = [_KONTEXT, zweck.encode("utf-8")]
     stuecke.extend(teil.encode("utf-8") for teil in teile)

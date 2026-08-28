@@ -12,7 +12,8 @@
 import { messages } from '$lib/stores/messages.svelte';
 import { directMessages } from '$lib/stores/directMessages.svelte';
 import { verlaufSpeichern, verlaufNachrichtGeloescht } from '$lib/verlauf';
-import { E2E_DMS_ENABLED } from '$lib/krypto/schalter';
+import { E2E_DMS_ENABLED, PRIVATE_GRUPPEN_ENABLED } from '$lib/krypto/schalter';
+import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
 import { dmGegenstelle } from '$lib/krypto/dmGegenstelle';
 import { streamChat } from '$lib/stores/streamChat.svelte';
 import { watchChat } from '$lib/stores/watchChat.svelte';
@@ -27,6 +28,7 @@ import { viewport } from '$lib/stores/viewport.svelte';
 import { sounds } from '$lib/sounds/engine';
 import { goto } from '$app/navigation';
 import { toast } from 'svelte-sonner';
+import { meldeNeueZustellung } from './postfachBenachrichtigung';
 import { registerWsHandler } from '../handler-registry';
 import { isRecentMention, markRecentMention } from './_mentionSuppression';
 import type { HandlerContext } from './context';
@@ -67,9 +69,14 @@ function dmVorschauAuffrischen(): void {
  * s. `ready.ts`), keiner der beiden faellt mehr auf "nie abonniert" zurueck.
  */
 export function postfachAbholenUndAnzeigen(istAboniert: (kanalId: string) => boolean): void {
-  // Der Schalter ist aus (s. `$lib/krypto/schalter.ts`) — solange bleibt
-  // dieser Weckruf wirkungslos, jede DM laeuft ueber `message` weiter.
-  if (!E2E_DMS_ENABLED) return;
+  // Solange BEIDE Schalter aus sind (s. `$lib/krypto/schalter.ts`), bleibt
+  // dieser Weckruf wirkungslos und jede DM laeuft ueber `message` weiter.
+  // **Beide, nicht nur der DM-Schalter**: das Postfach traegt seit Etappe G
+  // auch Gruppen-Umschlaege, und die haben keinen Klartext-Weg, auf den man
+  // ausweichen koennte. Stuende hier weiter nur `E2E_DMS_ENABLED`, waere
+  // eine allein freigeschaltete Gruppe stumm — verschluesselt zugestellt,
+  // aber nie abgeholt.
+  if (!E2E_DMS_ENABLED && !PRIVATE_GRUPPEN_ENABLED) return;
   // Dynamischer Import: der Krypto-Kern (WASM) soll nicht in jedem
   // Session-Start geladen werden, wenn er nie gebraucht wird.
   void import('$lib/krypto/empfangen')
@@ -87,21 +94,38 @@ export function postfachAbholenUndAnzeigen(istAboniert: (kanalId: string) => boo
         // Geraet) — dann bleibt nur der bereits bekannte Kanal-Gegenpart,
         // s. `upsertFromEncrypted`-Docstring.
         if (!me) continue;
-        const otherUserId = dmGegenstelle(
-          nachricht.author_id,
-          me,
-          directMessages.byId[nachricht.channel_id]?.other_user_id
-        );
-        if (otherUserId) {
-          directMessages.upsertFromEncrypted({
-            channel_id: nachricht.channel_id,
-            message_id: nachricht.id,
-            otherUserId,
-            inhalt: nachricht.content,
-            autorId: nachricht.author_id,
-            erstelltAm: nachricht.created_at,
-            anhaenge: nachricht.attachments
-          });
+        // **Eine Gruppennachricht gehoert NICHT in die DM-Liste.** Ohne diese
+        // Weiche liefe sie durch `dmGegenstelle` — das findet keinen
+        // Kanal-Gegenpart und nimmt deshalb den Absender — und legte fuer
+        // den Gruppenkanal einen DM-Eintrag an, der auf eine einzelne Person
+        // zeigt. Die Liste zaehlte danach eine DM, die es nicht gibt, und
+        // ein Klick darauf oeffnete die Gruppe unter einem Personennamen.
+        const gruppe = privateGruppen.byId[nachricht.channel_id];
+        if (!gruppe) {
+          const otherUserId = dmGegenstelle(
+            nachricht.author_id,
+            me,
+            directMessages.byId[nachricht.channel_id]?.other_user_id
+          );
+          if (otherUserId) {
+            directMessages.upsertFromEncrypted({
+              channel_id: nachricht.channel_id,
+              message_id: nachricht.id,
+              otherUserId,
+              inhalt: nachricht.content,
+              autorId: nachricht.author_id,
+              erstelltAm: nachricht.created_at,
+              anhaenge: nachricht.attachments
+            });
+          }
+        } else {
+          // Die Gruppenliste sortiert nach `last_message_id` (s.
+          // `privateGruppen.svelte.ts`). Der Server ruehrt diese Spalte im
+          // verschluesselten Weg nicht an — er sieht keine Nachricht —,
+          // also zieht der Klient sie hier selbst nach. Reine Anzeige: die
+          // Mitgliederliste bleibt unberuehrt, sie kommt beim Senden frisch
+          // vom Server (`krypto/gruppe/sitzungswahl.ts`).
+          privateGruppen.upsert({ ...gruppe, last_message_id: nachricht.id });
         }
         if (nachricht.author_id !== me) {
           readState.recordSeen(nachricht.channel_id, nachricht.id);
@@ -111,35 +135,9 @@ export function postfachAbholenUndAnzeigen(istAboniert: (kanalId: string) => boo
             readState.incUnread(nachricht.channel_id);
             // Toast/Ton/In-Page-Benachrichtigung — zieht mit `dm_bump` gleich
             // (Bughunt Runde 4, Befund 1: vorher loeste der verschluesselte
-            // Weg keins von beiden aus). Anders als beim Klartext-`dm_bump`
-            // liegt der Text hier schon entschluesselt vor und darf deshalb
-            // direkt in Toast/Benachrichtigung stehen.
-            const cached = userCache.get(nachricht.author_id);
-            const senderLabel = cached
-              ? m.chat_handler_dm_sender_label({ sender: '@' + (cached.display_name ?? cached.username) })
-              : '';
-            const snippet = nachricht.content.slice(0, 140);
-            if (!isDnd() && !sichtschutzAktiv() && !viewport.isMobile) {
-              toast.message(m.chat_handler_dm_new_message({ senderLabel }), {
-                description: snippet || undefined,
-                action: {
-                  label: m.chat_handler_dm_open(),
-                  onClick: () => {
-                    void goto(`/app/@me/${nachricht.channel_id}`);
-                  }
-                }
-              });
-            }
-            const senderName = cached?.display_name ?? cached?.username ?? null;
-            fireInPageNotification({
-              kind: 'dm',
-              title: senderName ?? m.chat_handler_dm_notification_unknown_sender(),
-              body: snippet || m.chat_handler_dm_notification_body(),
-              channelId: nachricht.channel_id,
-              messageId: nachricht.id,
-              guildId: null
-            });
-            if (!isDnd()) sounds.play('notification.dm');
+            // Weg keins von beiden aus). Der Rumpf steht seit Etappe G in
+            // `./postfachBenachrichtigung.ts`.
+            meldeNeueZustellung(nachricht, gruppe?.name ?? null);
           }
         }
       }

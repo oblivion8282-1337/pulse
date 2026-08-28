@@ -29,6 +29,16 @@ log = logging.getLogger(__name__)
 # Signed 64-bit bounds — channel ids live in a Postgres BIGINT column.
 _VIEW_CHANNEL_BIT = int(Permissions.VIEW_CHANNEL)
 
+#: Rueckgabewerte von ``_resolve_channel_kind`` ausserhalb des
+#: Gilden-Bereichs (>0 = guild_id, 0 = unbekannt/geloescht).
+_KIND_DM = -1
+#: Private Gruppe (Etappe G). Eigener Wert und NICHT ``_KIND_DM``: eine DM
+#: laeuft ungefiltert durch (der Abonnenten-Satz ist dort die ganze
+#: Zugangspruefung), eine Gruppe braucht eine eigene Mitgliedschaftspruefung.
+#: Sie als DM zu behandeln, hiesse jede Gruppennachricht an jeden
+#: abonnierten Socket zu schicken.
+_KIND_PRIVATE_GRUPPE = -2
+
 
 class _PermFilterMixin:
     """Adds the permission cache + broadcast-filter helpers to
@@ -326,10 +336,12 @@ class _PermFilterMixin:
         resolver returns 0 for them, so the filter would incorrectly drop
         every DM target. We detect DM channels by checking the
         ``direct_message_channels`` table and skip the filter when the id
-        belongs there. When the id matches neither table, the channel is
-        deleted (or never existed) — drop the broadcast entirely so race-
-        window messages on a still-subscribed ``_subs[cid]`` set don't fan
-        out to unrelated clients."""
+        belongs there. Private groups (Etappe G) live in a third table and
+        get their own membership filter — see
+        ``_filter_by_gruppen_mitgliedschaft``. When the id matches none of
+        the three tables, the channel is deleted (or never existed) — drop
+        the broadcast entirely so race-window messages on a still-subscribed
+        ``_subs[cid]`` set don't fan out to unrelated clients."""
         if not targets:
             # Nothing to filter — skip the DB round-trip entirely.  This also
             # avoids opening a session on the shared StaticPool connection used
@@ -355,17 +367,20 @@ class _PermFilterMixin:
             return []
         # Hebel A — resolve the channel's broadcast identity from cache so the
         # hot fan-out path skips the DB entirely. guild_id (>0) marks a guild
-        # channel, -1 a DM (no permission overlay → passes unfiltered), 0 a
-        # deleted/unknown id. Cached in ``_channel_kind_cache``; invalidated on
-        # channel delete / perm change alongside ``_ws_perms``.
+        # channel, ``_KIND_DM`` a DM (no permission overlay → passes
+        # unfiltered), ``_KIND_PRIVATE_GRUPPE`` a private group (membership
+        # filter), 0 a deleted/unknown id. Cached in ``_channel_kind_cache``;
+        # invalidated on channel delete / perm change alongside ``_ws_perms``.
         kind = self._channel_kind_cache.get(cid_int)
         if kind is None:
             kind = await self._resolve_channel_kind(cid_int)
             self._channel_kind_cache[cid_int] = kind
         if kind == 0:
             return []
-        if kind == -1:
+        if kind == _KIND_DM:
             return targets
+        if kind == _KIND_PRIVATE_GRUPPE:
+            return await self._filter_by_gruppen_mitgliedschaft(targets, cid_int)
         guild_id = kind
 
         # Collect cold-cache, non-admin sockets (unchanged): a socket whose
@@ -419,16 +434,43 @@ class _PermFilterMixin:
         )
         return [ws for ws, ok in zip(targets, results) if ok]
 
+    async def _filter_by_gruppen_mitgliedschaft(
+        self, targets: list[WebSocket], gruppe_id: int
+    ) -> list[WebSocket]:
+        """Drop targets whose user is not a member of the private group
+        ``gruppe_id`` (Etappe G). Rumpf und Begruendung stehen in
+        ``pubsub_gruppen_filter.py`` — hier waere die Datei sonst ueber die
+        harte Groessen-Grenze gewachsen."""
+        from dcc_chat_gateway.pubsub_gruppen_filter import gruppen_ziele_filtern
+
+        return await gruppen_ziele_filtern(
+            self._session_factory, self._ws_user, targets, gruppe_id
+        )
+
     async def _resolve_channel_kind(self, cid_int: int) -> int:
         """Resolve a channel id to its broadcast-filter identity: the owning
-        guild_id (>0), -1 for a DM (no permission overlay), or 0 for a
-        deleted/unknown id. Result is cached in ``_channel_kind_cache`` so the
-        hot fan-out path skips this DB round-trip entirely."""
-        from dcc_chat_gateway.models import Channel, DirectMessageChannel
+        guild_id (>0), ``_KIND_DM`` for a DM (no permission overlay),
+        ``_KIND_PRIVATE_GRUPPE`` for a private group (membership-filtered),
+        or 0 for a deleted/unknown id. Result is cached in
+        ``_channel_kind_cache`` so the hot fan-out path skips this DB
+        round-trip entirely.
+
+        **Die IDENTITAET eines Kanals, nicht seine Freischaltung** — der
+        Schalter ``private_groups_enabled`` wird hier bewusst nicht geprueft.
+        Er ist Politik und wird im Filter ausgewertet; hier gepruefte Politik
+        landete im Cache und ueberlebte dort ein Umlegen des Schalters."""
+        from dcc_chat_gateway.models import (
+            Channel,
+            DirectMessageChannel,
+            PrivateGroupChannel,
+        )
 
         async with self._session_factory() as session:
             ch = await session.get(Channel, cid_int)
             if ch is not None:
                 return ch.guild_id
             dm = await session.get(DirectMessageChannel, cid_int)
-            return -1 if dm is not None else 0
+            if dm is not None:
+                return _KIND_DM
+            gruppe = await session.get(PrivateGroupChannel, cid_int)
+            return _KIND_PRIVATE_GRUPPE if gruppe is not None else 0

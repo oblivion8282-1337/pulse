@@ -279,6 +279,44 @@ class Settings(BaseSettings):
     # Kommentar an ``private_group_max_members``.
     private_group_max_gruppen_je_ersteller: int = 100
 
+    # Geraete-Kopplung und Verlaufsumzug (Etappe F, E2E-DM).
+    #
+    # Die Gueltigkeit des Codes ist die eigentliche Sicherheitszahl dieser
+    # Etappe, nicht ein Komfortwert: solange er gilt, kann ein Zweitgeraet
+    # DESSELBEN Kontos den vollstaendigen lokalen Verlauf des alten Geraets
+    # anfordern (die vollstaendige Begruendung im Kopf von
+    # ``routes/kopplung.py``). 10 Minuten reichen fuer „Code ablesen, am
+    # anderen Geraet eintippen" mit reichlich Luft und sind kurz genug, dass
+    # ein abfotografierter Bildschirm nicht ueber die Sitzung hinaus
+    # nachwirkt.
+    kopplung_code_gueltig_minuten: int = 10
+    # NACH dem Einloesen laeuft die Uhr laenger: der Umzug selbst darf ueber
+    # eine Nacht abreissen und am naechsten Tag fortsetzen — genau dafuer ist
+    # er in Stuecke geschnitten. Der Code ist zu diesem Zeitpunkt bereits
+    # verbraucht, diese laengere Frist oeffnet also nichts mehr.
+    umzug_frist_stunden: int = 48
+    # Bytes je Stueck VOR der Base64-Kodierung. Groesser als beim Postfach
+    # (256 KiB), weil hier bewusst gebuendelt wird: ein Stueck traegt viele
+    # Nachrichten, nicht eine. Kleiner als der nginx-Deckel (16 MB), damit
+    # ein abgerissener Upload wenig Arbeit kostet — die Fortsetzbarkeit
+    # zahlt sich nur aus, wenn ein Stueck klein genug ist, um es zu
+    # verlieren.
+    umzug_max_stueck_bytes: int = 512 * 1024
+    # Obergrenze der Stuecke je Kopplung. Zusammen mit der Stueckgroesse ist
+    # das der Deckel des ganzen Umzugs (~500 MB). Anhang-BYTES wandern
+    # bewusst NICHT mit (Begruendung im Kopf von
+    # ``routes/kopplung_umzug.py``) — es geht hier um Text und Angaben, und
+    # dafuer ist der Deckel um Groessenordnungen zu hoch angesetzt statt zu
+    # knapp.
+    umzug_max_stuecke: int = 1000
+    # Gleichzeitig offene (noch nicht eingeloeste) Kopplungen je Konto. Ohne
+    # diese Grenze koennte ein Konto beliebig viele Codes auf Vorrat
+    # erzeugen — jeder davon ein gueltiger Schluessel zum Verlauf, und mehr
+    # gleichzeitige Codes heisst mehr Raten-Chancen fuer denselben
+    # Zeitraum. Drei deckt „einer laeuft, einer wurde gerade neu
+    # angefordert" mit Luft ab.
+    kopplung_max_offen_je_konto: int = 3
+
     # Geraete-Schluesselverzeichnis (Etappe B, E2E-DM) — Bughunt 2026-08-28
     # (Missbrauch), FIX 1. Obergrenze der gleichzeitig gespeicherten Buendel
     # je Konto. Auth-svc laesst bis zu 20 gleichzeitig gueltige Zertifikate

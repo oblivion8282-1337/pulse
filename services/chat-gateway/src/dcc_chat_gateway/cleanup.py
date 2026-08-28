@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from dcc_chat_gateway.config import Settings
 from dcc_chat_gateway.models import WebPushSubscription
+from dcc_chat_gateway.kopplung_pflege import sweep_verfallene_kopplungen
 from dcc_chat_gateway.postfach_pflege import (
     sweep_verfallene_zustellungen,
     sweep_verwaiste_anhaenge,
@@ -81,6 +82,10 @@ async def _run_once(engine: AsyncEngine, settings: Settings) -> int:
         verwaist,
         anhaenge,
     )
+
+    async with session_factory() as session:
+        kopplungen = await sweep_verfallene_kopplungen(session)
+    log.info("kopplung_pflege_done verfallen=%d", kopplungen)
 
     return deleted
 

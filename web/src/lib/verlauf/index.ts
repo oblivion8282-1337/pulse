@@ -77,6 +77,20 @@ function istLokalerKanal(kanalId: string): boolean {
   return kanalId in directMessages.byId || privateGruppen.istGruppe(kanalId);
 }
 
+/**
+ * Ob es zu diesem Kanal ueberhaupt einen Verlauf auf dem Server gibt.
+ *
+ * Nicht die Umkehrung von `istLokalerKanal`: eine DM ist beides — sie liegt
+ * lokal UND (solange der Klartext-Weg mitlaeuft) auf dem Server. Nur eine
+ * private Gruppe hat dort nichts, weil der Server ihren Klartext nie gesehen
+ * hat. Wer das nicht prueft, schickt beim Hochscrollen in einer Gruppe eine
+ * Anfrage, die der Server abweist — und deutet die Abweisung dann als
+ * Ladefehler statt als „mehr gibt es nicht".
+ */
+export function hatServerVerlauf(kanalId: string): boolean {
+  return !privateGruppen.istGruppe(kanalId);
+}
+
 /** Baut die zu schreibenden Saetze — geteilte Rechnung von
  *  `verlaufSpeichern`/`verlaufSpeichernPflicht`. Kein expliziter Rueckgabetyp:
  *  `Satz` (aus `satz.ts`) ist absichtlich nicht exportiert (importfrei-Pflicht

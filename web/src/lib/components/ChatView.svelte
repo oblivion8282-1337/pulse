@@ -63,8 +63,13 @@
       anhaenge: AnhangAngabe[]
     ) => void;
     isOwner?: boolean;
-    /** 'dm' swaps the # for an @-style icon and prefixes names with @. */
-    headerKind?: 'channel' | 'dm';
+    /** 'dm' swaps the # for an @-style icon and prefixes names with @.
+     *  'gruppe' ist eine private Gruppe (Etappe G): eigenes Zeichen, kein
+     *  Namenspraefix (der Gruppenname ist kein Kanalname und keine Person)
+     *  und Zeilen- statt Sprechblasen-Darstellung — Sprechblasen sind fuer
+     *  DMs vorgesehen (CLAUDE.md, „Sprechblasen nur in DMs"), und bei mehr
+     *  als zwei Beteiligten traegt der Autorname die Aussage. */
+    headerKind?: 'channel' | 'dm' | 'gruppe';
     onBack?: () => void;
     onSwitchChannel?: () => void;
     dmPartnerId?: string;
@@ -90,8 +95,10 @@
     onToggleReaction: (m: Message, emoji: string, currentlyMine: boolean) => void;
   } = $props();
 
-  // '#'-Prefix für Guild-Channels (Screenshot-Tests + Gewohnheit), '@' für DMs.
-  let namePrefix = $derived(headerKind === 'dm' ? '@' : '#');
+  // '#'-Prefix für Guild-Channels (Screenshot-Tests + Gewohnheit), '@' für DMs,
+  // keins für eine Gruppe (ihr Name ist weder Kanal- noch Personenname).
+  const NAMENS_PRAEFIX = { channel: '#', dm: '@', gruppe: '' } as const;
+  let namePrefix = $derived(NAMENS_PRAEFIX[headerKind]);
 
   let replyTarget = $state<Message | null>(null);
 
@@ -125,9 +132,16 @@
   // verschluesselten Anhang ohnehin nicht lesen, und sein Klumpen faellt mit
   // dem letzten Umschlag. Dieselbe Entscheidung serverseitig, mit derselben
   // Begruendung, in `routes/postfach_anhaenge.py`.
-  const attachmentsAllowed = $derived(
-    headerKind !== 'dm' || verschluesselteAnhaenge || (serverPolicy?.dmAttachmentsEnabled ?? true)
-  );
+  // Eine private Gruppe hat KEINEN Klartext-Weg (Spec §9) — der Anhang-Weg
+  // dieser Ansicht laedt aber ueber die Klartext-Route hoch. Solange der
+  // verschluesselte Gruppen-Anhang nicht gebaut ist, bleibt der Knopf hier
+  // aus; ein sichtbarer Knopf, dessen Hochladen dann am Kanal scheitert,
+  // waere ein Versprechen, das die Ansicht nicht einloest.
+  const attachmentsAllowed = $derived.by(() => {
+    if (headerKind === 'gruppe') return verschluesselteAnhaenge;
+    if (headerKind !== 'dm') return true;
+    return verschluesselteAnhaenge || (serverPolicy?.dmAttachmentsEnabled ?? true);
+  });
   /** `accept`-Attribut für den Datei-Dialog; leer = alles. Nur ein Filter im
    *  Auswahlfenster, keine Kontrolle — der Server erzwingt dieselbe Liste. */
   const attachmentAccept = $derived(
@@ -291,6 +305,8 @@
         </span>
       {:else if headerKind === 'dm'}
         <AtSignIcon class="text-primary size-5 shrink-0" />
+      {:else if headerKind === 'gruppe'}
+        <UsersIcon class="text-primary size-5 shrink-0" />
       {:else}
         <HashIcon class="text-primary size-5 shrink-0" />
       {/if}
@@ -314,7 +330,7 @@
         <ChannelHeading
           name={channel.name}
           topic={channel.topic}
-          nameStyle={headerKind === 'dm' ? '' : channelNameStyle(channel)}
+          nameStyle={headerKind === 'channel' ? channelNameStyle(channel) : ''}
         />
       {/if}
       {#if headerKind === 'dm' && dmPartnerId}

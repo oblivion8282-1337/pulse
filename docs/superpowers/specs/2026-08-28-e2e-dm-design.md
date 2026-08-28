@@ -270,6 +270,34 @@ das älteste **stillschweigend verdrängt** (`_MAX_ACTIVE_CERTS`,
 Umstellung bedeutet es „dieses Gerät kann nichts Neues mehr entschlüsseln", und
 der Nutzer erfährt es nicht. Die Verdrängung braucht eine sichtbare Meldung.
 
+### Was davon gebaut ist (Stand 2026-08-29)
+
+Hinter `GERAETE_KOPPLUNG_ENABLED` (`web/src/lib/krypto/schalter.ts`, **aus**).
+Die vollständige Sicherheitsabwägung zum Code steht im Kopf von
+`services/chat-gateway/.../routes/kopplung.py`, die Begründung des
+Transportwegs in `routes/kopplung_umzug.py`.
+
+- **Kopplung:** Code (20 Zeichen Crockford-Base32, 100 Bit) am alten Gerät,
+  eintippbar am neuen. Der Server sieht nur `SHA-256(Code)`; der Schlüssel der
+  Umzugsstücke wird per HKDF aus dem Code abgeleitet, der die Leitung nie
+  überquert. Einmal einlösbar (atomares `UPDATE … WHERE eingeloest_am IS
+  NULL`), 10 Minuten gültig. Das neue Gerät veröffentlicht beim Einlösen seine
+  Schlüssel.
+- **Umzug:** eigene Tabellen (`kopplungen`, `umzug_stuecke`, Migration 0074),
+  **nicht** das Postfach — das verlangt einen DM-Kanal, den es zwischen zwei
+  Geräten desselben Kontos nicht gibt, deckelt bei 50 offenen Zustellungen je
+  Absender/Gerät und wäre als Olm-Strom nicht wiederholbar. Stücke à ≤512 KiB
+  unter AES-GCM, Position in den AAD. Fortsetzbar über
+  `vorhandene_stuecke` aus `POST /kopplung/stand`.
+- **Anhang-Bytes ziehen NICHT mit.** Die Angaben (Name, Grösse, Masse) reisen
+  im Satz mit, die Bytes bleiben auf dem alten Gerät; die Oberfläche sagt das
+  an. Grund: es sind Blobs, und das Abrufrecht im Objektspeicher hängt an
+  einer offenen Zustellung, die es beim Umzug nicht gibt.
+- **Offen:** QR (der Klient hat keine QR-Bibliothek, und eine serverseitig
+  gerenderte Grafik scheidet aus — der Code darf den Server nicht erreichen),
+  die sichtbare Meldung bei der 20-Geräte-Verdrängung, und das aktive Drängen
+  zu einem zweiten Gerät.
+
 ---
 
 ## 7. Der Klient bekommt ein Gedächtnis

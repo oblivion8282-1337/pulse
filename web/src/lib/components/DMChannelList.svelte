@@ -5,6 +5,8 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { directMessages } from '$lib/stores/directMessages.svelte';
+  import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
+  import { m } from '$lib/paraglide/messages.js';
   import { userCache } from '$lib/stores/users.svelte';
   import { nameStyle } from '$lib/utils/nameColor';
   import { readState } from '$lib/stores/readState.svelte';
@@ -16,10 +18,14 @@
 
   let {
     activeDMId = null,
-    onSelect
+    onSelect,
+    onSelectGruppe
   }: {
     activeDMId?: string | null;
     onSelect: (dm: DMChannel) => void;
+    /** Eine private Gruppe oeffnen (Etappe G). Fehlt der Rueckruf, bleibt der
+     *  Abschnitt aus — die Liste behauptet dann nicht, es gaebe Gruppen. */
+    onSelectGruppe?: (gruppeId: string) => void;
   } = $props();
 
   const friendsActive = $derived(page.url.pathname.startsWith('/app/friends'));
@@ -148,6 +154,50 @@
         {/if}
       </button>
     {/each}
+
+    <!-- Private Gruppen (Etappe G). Eigener Abschnitt statt untergemischt:
+         `listed`/DM und Gruppe sind zwei Begriffe, und wer sie in EINE Liste
+         legt, muss sie an jeder Stelle danach wieder auseinandersortieren.
+         Der Abschnitt fehlt ganz, solange es keine Gruppe gibt — ein leerer
+         Titel waere eine Ankuendigung ohne Inhalt. -->
+    {#if onSelectGruppe && privateGruppen.list.length > 0}
+      <div class="my-3 hairline bg-border" aria-hidden="true"></div>
+      <p class="text-text-muted px-3 pb-1 text-2xs font-semibold uppercase tracking-wider">
+        {m.dm_list_gruppen_heading()}
+      </p>
+      {#each privateGruppen.list as gruppe (gruppe.id)}
+        {@const isUnread = activeDMId !== gruppe.id && readState.isUnread(gruppe.id)}
+        {@const unreadCount = activeDMId !== gruppe.id ? readState.getUnreadCount(gruppe.id) : 0}
+        <button
+          class="group flex w-full items-center gap-3 rounded-xl px-3 py-4 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
+          data-active={activeDMId === gruppe.id}
+          data-unread={isUnread}
+          onclick={() => onSelectGruppe(gruppe.id)}
+          data-testid={`gruppe-${gruppe.id}`}
+        >
+          <UsersIcon
+            class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary group-data-[unread=true]:text-text-bright"
+          />
+          <span class="truncate {isUnread ? 'font-semibold text-text-bright' : ''}">
+            {gruppe.name}
+          </span>
+          {#if unreadCount > 0}
+            <span
+              class="ml-auto inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-badge-count px-1 text-2xs font-bold leading-none text-white"
+              data-testid="gruppe-unread-pill"
+              data-unread-count={unreadCount}
+              aria-label="ungelesen"
+            >{unreadCount > 99 ? '99+' : unreadCount}</span>
+          {:else if isUnread}
+            <span
+              class="ml-auto size-2 shrink-0 rounded-full bg-badge-count"
+              data-testid="gruppe-unread-dot"
+              aria-label="ungelesen"
+            ></span>
+          {/if}
+        </button>
+      {/each}
+    {/if}
   </nav>
 
   <SidebarFooter />

@@ -6,12 +6,21 @@
  * Verbindung (nachgesehen: `routes/ws_ready.py` fuehrt kein Gruppenfeld,
  * `routes/private_gruppen.py` publiziert nichts). Der einzige Weg an den
  * Bestand ist `GET /gruppen`. Dieser Speicher ist deshalb ein ABBILD dieses
- * Aufrufs, keine eigene Wahrheit — er beantwortet genau zwei Fragen:
+ * Aufrufs, keine eigene Wahrheit — er beantwortet drei Fragen:
  *
  *  1. „Ist diese Kanal-ID eine private Gruppe?" — der lokale Verlauf braucht
  *     das, um eine Gruppennachricht ueberhaupt ablegen zu duerfen
- *     (`verlauf/index.ts`).
- *  2. „Wie heisst sie, wer ist drin?" — fuer die Anzeige.
+ *     (`verlauf/index.ts`), und die Gespraechsansicht, um den Server NICHT
+ *     nach einem Verlauf zu fragen, den es dort nicht gibt.
+ *  2. „Wie heisst sie, wer ist drin?" — fuer die Anzeige (Seitenleiste,
+ *     Kopfzeile, Benachrichtigung).
+ *  3. „Welche Kanaele muss diese Verbindung abonnieren?" — der
+ *     `postfach_neu`-Weckruf faechert an die Abonnenten eines Kanals auf,
+ *     also abonniert `ws/handlers/ready.ts` nach dem Fuellen JEDE Gruppe.
+ *
+ * `last_message_id` wird vom Klienten selbst nachgezogen (`ws/handlers/
+ * chat.ts`), wenn eine entschluesselte Gruppennachricht ankommt: der Server
+ * sieht sie nie und ruehrt die Spalte im verschluesselten Weg nicht an.
  *
  * **Was er ausdruecklich NICHT ist: die Quelle fuer die Mitgliederliste beim
  * SENDEN.** Der Sendeweg liest sie jedes Mal frisch (`gruppenApi.lesen`), weil

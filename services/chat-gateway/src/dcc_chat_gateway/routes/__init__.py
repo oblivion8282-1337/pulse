@@ -33,6 +33,8 @@ from dcc_chat_gateway.routes import (
     instance_membership,
     internal,
     invites,
+    kopplung,
+    kopplung_umzug,
     member_invites,
     mention_search,
     messages,
@@ -113,6 +115,8 @@ router.include_router(capabilities.router)
 router.include_router(cert_login.router)
 router.include_router(schluessel.router)
 router.include_router(schluessel_auskunft.router)
+router.include_router(kopplung.router)
+router.include_router(kopplung_umzug.router)
 router.include_router(postfach.router)
 router.include_router(private_gruppen.router)
 router.include_router(postfach_abholen.router)

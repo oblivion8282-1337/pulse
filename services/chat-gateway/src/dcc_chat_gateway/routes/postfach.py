@@ -15,11 +15,12 @@ Kanalzugang vor den reinen Strukturchecks):
 2. Geraete-Nachweis (``schluessel_nachweis.py``, eigener Zweck ``"postfach"``
    — eine fuer ein Schluesselbuendel geleistete Unterschrift darf hier nicht
    gelten).
-3. Kanalzugang — DIESELBE Regel wie im Klartext-Sendeweg
-   (``ws_op_send.py:139-151``): DM-Kanal laden, Mitgliedschaft pruefen,
-   ``block_exists_either_way`` + ``friendship_exists``. Postfach traegt
-   heute nur DMs (Gruppen sind Etappe G) — eine Gilden-Kanal-ID wird deshalb
-   ebenfalls abgewiesen.
+3. Kanalzugang (``_postfach_deps.py::_channel_zugriff_pruefen``) — bei einer
+   DM DIESELBE Regel wie im Klartext-Sendeweg (``ws_op_send.py:139-151``):
+   DM-Kanal laden, Mitgliedschaft pruefen, ``block_exists_either_way`` +
+   ``friendship_exists``. Bei einer privaten Gruppe (Etappe G) entscheidet
+   die Mitgliedschaft allein — Begruendung dort. Eine Gilden-Kanal-ID wird
+   in beiden Faellen abgewiesen.
 3b. Anhaenge (Etappe E) — jede mitgegebene Anhang-Kennung muss demselben
    Konto und demselben Kanal gehoeren und darf an keiner Nachricht haengen
    (``postfach_anhaenge.py::binde_anhaenge``).

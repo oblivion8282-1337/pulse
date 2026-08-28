@@ -24,7 +24,6 @@ from dcc_chat_gateway.models.devices import (
     Device,
     DeviceGrant,
 )
-from dcc_chat_gateway.models.member_invites import CommunityInviteNotification
 from dcc_chat_gateway.models.dropbox import (
     DROPBOX_KIND_FILE,
     DROPBOX_KIND_FOLDER,
@@ -40,6 +39,8 @@ from dcc_chat_gateway.models.friendships import (
 )
 from dcc_chat_gateway.models.geraete_schluessel import DeviceKeyBundle, DeviceOneTimeKey
 from dcc_chat_gateway.models.guilds import Guild, GuildBan, GuildInvite, GuildMember
+from dcc_chat_gateway.models.kopplung import Kopplung, UmzugStueck
+from dcc_chat_gateway.models.member_invites import CommunityInviteNotification
 from dcc_chat_gateway.models.membership import InstanceMember
 from dcc_chat_gateway.models.messages import (
     MENTION_EVERYONE_TARGET_ID,
@@ -107,6 +108,7 @@ __all__ = [
     "GuildSoundOverride",
     "InstanceMember",
     "InstancePluginAllowlist",
+    "Kopplung",
     "MemberRole",
     "Message",
     "MessageAttachment",
@@ -120,6 +122,7 @@ __all__ = [
     "SUBJECT_ROLE",
     "SUBJECT_TYPES",
     "SUBJECT_USER",
+    "UmzugStueck",
     "UserBlock",
     "UserPreference",
     "UserPrivacy",

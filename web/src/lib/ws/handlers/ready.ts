@@ -32,7 +32,7 @@ import { registerWsHandler } from '../handler-registry';
 import type { ReadyStamps } from '../gateway-connection';
 import type { ReadyEvent } from './types';
 import type { Guild } from '$lib/api/types';
-import { gatewayForServer } from '$lib/ws/connection';
+import { cloudGateway, gatewayForServer } from '$lib/ws/connection';
 import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
 import { darfStandplatzSein } from '$lib/remote/darfStandplatzSein';
 import { gesundheitTor } from '$lib/stream/gesundheitTor';
@@ -184,7 +184,18 @@ export function register(ctx: ReadyContext): void {
       // (`api/gruppen.ts`), die Antwort ist dann eine leere Liste.
       void gruppenApi
         .auflisten()
-        .then((gruppen) => privateGruppen.seed(gruppen))
+        .then((gruppen) => {
+          privateGruppen.seed(gruppen);
+          // **Jede Gruppe wird abonniert, nicht erst die geoeffnete.** Der
+          // `postfach_neu`-Weckruf faechert am Server an die Abonnenten des
+          // Kanals auf (`pubsub_channel_handlers.py::handle_chat_channel`) —
+          // ohne Abonnement erfaehrt der Klient von einer Gruppennachricht
+          // erst beim naechsten `ready`, also nach einem Neuladen. Bei DMs
+          // reicht das Abonnieren beim Oeffnen, weil dort zusaetzlich der
+          // `dm_bump` ueber den Nutzer-Kanal laeuft; fuer Gruppen gibt es
+          // kein solches Ereignis.
+          for (const gruppe of gruppen) cloudGateway.subscribe(gruppe.id);
+        })
         // Ein Fehlschlag darf den `ready`-Rahmen nicht kippen: ohne
         // Gruppenliste laeuft alles andere unveraendert weiter.
         .catch(() => undefined);

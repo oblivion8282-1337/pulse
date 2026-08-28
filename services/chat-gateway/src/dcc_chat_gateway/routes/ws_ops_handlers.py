@@ -49,6 +49,7 @@ from dcc_chat_gateway.routes import (
     ws_watch_queue,
 )
 from dcc_chat_gateway.routes._deps import channel_membership, resolve_channel_for_user
+from dcc_chat_gateway.routes.ws_gruppen_abo import gruppen_abo_versuchen
 from dcc_chat_gateway.routes.ws_op_send import handle_send
 from dcc_chat_gateway.routes.ws_ops_registry import WSOpContext, register_ws_op
 
@@ -83,6 +84,11 @@ async def handle_subscribe(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     async with SessionLocal() as session:
         resolved = await resolve_channel_for_user(session, cid_int, ctx.user.id)
         if resolved is None:
+            # Private Gruppe (Etappe G)? Der Resolver kennt sie bewusst nicht
+            # — warum, und warum diese eine Stelle trotzdem nachfragt, steht
+            # in ``ws_gruppen_abo.py``.
+            if await gruppen_abo_versuchen(ctx, session, cid_int):
+                return
             await ctx.websocket.send_json(
                 {"op": "error", "code": 4004, "msg": "channel not accessible"}
             )

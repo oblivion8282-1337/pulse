@@ -48,3 +48,29 @@ export const E2E_DMS_ENABLED = false;
  * gibt keine Gruppen, nicht „Gruppen laufen unverschluesselt".
  */
 export const PRIVATE_GRUPPEN_ENABLED = false;
+
+/**
+ * Der Schalter fuer Geraete-Kopplung und Verlaufsumzug (Etappe F) —
+ * ebenfalls Vorgabe AUS.
+ *
+ * **Warum ein dritter und nicht `E2E_DMS_ENABLED`.** Nachgesehen, nicht
+ * angenommen: der Umzug schiebt den LOKALEN VERLAUF (`lib/verlauf/**`), und
+ * den gibt es seit Etappe C1 unabhaengig von der Verschluesselung — er
+ * fuellt sich auch heute, mit lesbaren Daten. Kopplung und Umzug
+ * funktionieren also, ohne dass eine einzige DM verschluesselt waere. Sie an
+ * `E2E_DMS_ENABLED` zu haengen, hiesse zwei Funktionen zu koppeln, die
+ * getrennt reif werden — genau das, was der Kommentar an
+ * `PRIVATE_GRUPPEN_ENABLED` oben schon einmal begruendet.
+ *
+ * **Warum er trotzdem aus ist.** Der Kopplungscode ist, solange er gilt, ein
+ * Schluessel zum vollstaendigen lokalen Verlauf (die ausfuehrliche Abwaegung
+ * steht im Kopf von `services/chat-gateway/.../routes/kopplung.py`). Er
+ * gehoert erst an, wenn zwei echte Geraete den Weg nachweislich gegangen
+ * sind — der Server-Teil ist durch pytest gedeckt, der Zwei-Geraete-Weg
+ * nicht.
+ *
+ * Solange er aus ist, unternimmt der Klient nichts: kein `POST /kopplung`,
+ * kein Abfragen des Stands, keine Anzeige. Ein Riegel VOR dem ersten
+ * Serveraufruf, dieselbe Bauart wie oben.
+ */
+export const GERAETE_KOPPLUNG_ENABLED = false;
