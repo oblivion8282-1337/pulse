@@ -58,7 +58,9 @@ async def postfach_abholen(
         await session.execute(
             select(
                 DmZustellung.id,
+                DmNutzlast.channel_id,
                 DmNutzlast.absender_device_pubkey,
+                DmNutzlast.absender_curve25519,
                 DmNutzlast.art,
                 DmNutzlast.daten,
                 DmNutzlast.groesse,
@@ -76,16 +78,11 @@ async def postfach_abholen(
         )
     ).all()
 
-    return [
-        PostfachZustellungOut(
-            id=zeile.id,
-            absender_device_pubkey=zeile.absender_device_pubkey,
-            art=zeile.art,
-            daten=zeile.daten,
-            groesse=zeile.groesse,
-        )
-        for zeile in zeilen
-    ]
+    # Die Spalten oben heissen genau wie die Felder des Schemas — deshalb
+    # ``model_validate`` (``from_attributes=True``) statt einer Zuweisung je
+    # Feld: eine neue Spalte waere sonst an zwei Stellen nachzutragen, und die
+    # vergessene zweite faellt erst beim Klienten auf.
+    return [PostfachZustellungOut.model_validate(zeile) for zeile in zeilen]
 
 
 @router.post("/postfach/quittung", status_code=status.HTTP_204_NO_CONTENT)

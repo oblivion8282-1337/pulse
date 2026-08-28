@@ -48,9 +48,15 @@ class DmNutzlast(Base):
     #: derselbe Grund wie bei ``DeviceKeyBundle``: ein Konto kann mehrere
     #: Geraete haben, und nur eines davon hat diesen Umschlag verschluesselt.
     absender_device_pubkey: Mapped[str] = mapped_column(Text, nullable=False)
-    #: 1 = Sitzungsaufbau (Olm-PreKey), 2 = laufende Nachricht. Die genaue
-    #: Bedeutung gehoert dem Klienten; der Server unterscheidet nur fuer
-    #: Statistiken/Diagnose, nie fuer Zustellentscheidungen.
+    #: Der Curve25519-Identitaetsschluessel DESSELBEN Geraets — Olm braucht
+    #: ihn als eigenes Argument fuer einen frischen Sitzungsaufbau
+    #: (``sitzung_eingehend``, s. Migration 0069). Nullable, weil der Server
+    #: den Umschlag nie oeffnet und diesen Wert nicht erzwingt.
+    absender_curve25519: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: 0 = Sitzungsaufbau (Olm-PreKey), 1 = laufende Nachricht — die Zaehlung
+    #: des Krypto-Kerns (`Umschlag::art()`, `wasm.rs`), NICHT frei gewaehlt.
+    #: Die genaue Bedeutung gehoert dem Klienten; der Server unterscheidet
+    #: nur fuer Statistiken/Diagnose, nie fuer Zustellentscheidungen.
     art: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     #: Base64 — dasselbe Format, in dem der Krypto-Kern seine Umschlaege
     #: herausreicht und der Klient sie ueber JSON bekommt. Eine Umkodierung

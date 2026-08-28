@@ -154,6 +154,14 @@ export type ServerEvent =
       message_id: string;
       author_id: string;
     }
+  | {
+      // Weckruf fuers verschluesselte Postfach (Etappe D2) — inhaltslos,
+      // traegt nur Kanal und Anzahl. Der Klient holt danach selbst ab
+      // (`POST /postfach/abholen`); der Server weiss nie, was drinsteht.
+      op: 'postfach_neu';
+      channel_id: string;
+      anzahl: number;
+    }
   | { op: 'guild_updated'; guild: GuildPayload }
   | { op: 'guild_deleted'; guild_id: string }
   | { op: 'guild_member_added'; guild_id: string; user_id: string }

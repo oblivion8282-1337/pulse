@@ -40,8 +40,12 @@ async function sicherstellenWasm(): Promise<void> {
 
 /** Signiert den festen Kontext mit dem Geraeteschluessel und leitet daraus
  *  den 32-Byte-Pickle-Schluessel ab. Wirft, wenn (noch) kein Geraeteschluessel
- *  geladen ist — ohne ihn kann weder eingefroren noch aufgetaut werden. */
-async function pickelschluesselDesGeraets(): Promise<Uint8Array> {
+ *  geladen ist — ohne ihn kann weder eingefroren noch aufgetaut werden.
+ *
+ *  Exportiert, weil `sitzungen.ts` denselben Schluessel braucht (Olm-
+ *  Sitzungen liegen im selben Store, s. Modulkopf) — ein zweiter, eigener
+ *  Pickle-Schluessel wuerde nur ein zweites Geheimnis pflegen, ohne Gewinn. */
+export async function pickelschluesselDesGeraets(): Promise<Uint8Array> {
   const keypair = await loadKeypair();
   if (!keypair) {
     throw new Error('KEIN_GERAETESCHLUESSEL');

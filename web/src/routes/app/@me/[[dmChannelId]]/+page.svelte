@@ -23,6 +23,7 @@
   import { viewport } from '$lib/stores/viewport.svelte';
   import { parseMentionMarkers } from '$lib/components/messageRender';
   import { toast } from 'svelte-sonner';
+  import { E2E_DMS_ENABLED } from '$lib/krypto/schalter';
   import type { Channel, DMChannel, Message } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
   import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
@@ -210,9 +211,42 @@
 
   function sendMessage(text: string, replyToId: string | null, attachmentIds: string[]) {
     if (!activeDM || !auth.user) return;
+    // Kanal und Gegenstelle JETZT festhalten und weiterreichen: der
+    // verschluesselte Weg unten wartet auf einen dynamischen Import und
+    // mehrere Netzwerk-Aufrufe, und bis dahin kann der Nutzer laengst in
+    // einem anderen Gespraech sein — `activeDM` zeigte dann woanders hin.
+    const cid = activeDM.id;
+    const partnerId = activeDM.other_user_id;
+
+    // Verschluesselter Weg (Etappe D2, Schalter aus per Vorgabe): nur
+    // reiner Text, keine Anhaenge/Antworten (Etappe E/spaeter) — hat der
+    // Empfaenger kein Geraet, faellt `sendeVerschluesselt` auf `null`/
+    // `unverschluesselt` zurueck und der bestehende Klartext-Weg greift
+    // unveraendert.
+    if (E2E_DMS_ENABLED && attachmentIds.length === 0 && replyToId === null) {
+      void import('$lib/krypto/senden').then(async ({ sendeVerschluesselt }) => {
+        const ergebnis = await sendeVerschluesselt(cid, partnerId, text).catch(() => null);
+        if (ergebnis?.art === 'verschluesselt') {
+          messages.upsert(ergebnis.nachricht);
+        } else {
+          sendeKlartext(cid, text, replyToId, attachmentIds);
+        }
+      });
+      return;
+    }
+
+    sendeKlartext(cid, text, replyToId, attachmentIds);
+  }
+
+  function sendeKlartext(
+    cid: string,
+    text: string,
+    replyToId: string | null,
+    attachmentIds: string[]
+  ) {
+    if (!auth.user) return;
     const nonce = `n-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
     const tmpId = `tmp-${nonce}`;
-    const cid = activeDM.id;
     messages.addOptimistic({
       id: tmpId,
       channel_id: cid,

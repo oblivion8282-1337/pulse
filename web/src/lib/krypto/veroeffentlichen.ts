@@ -14,9 +14,10 @@
  * Aufrufer (`runIssueFlow`, Cert-Rotation) fangen Fehler ohnehin ab und
  * versuchen es beim naechsten Anlauf erneut.
  */
+import type { Identitaet } from '../../../../krypto/pulse-krypto/pkg/pulse_krypto.js';
 import { certStore } from '../identity/cert.svelte';
 import type { IdentityCert } from '../identity/cert.svelte';
-import { loadKeypair, signChallenge } from '../identity/keypair.svelte';
+import { loadKeypair } from '../identity/keypair.svelte';
 import type { StoredKeypair } from '../identity/keypair.svelte';
 import { keysApi } from '../api/keys';
 import {
@@ -25,25 +26,13 @@ import {
   rueckfallschluesselSicherstellen
 } from './account.svelte';
 import { baueNutzlast } from './nutzlast';
+import { signiereNutzlast } from './nachweis';
 
 /** Unter diesem Vorrat wird nachgefuellt (s. `ONE_TIME_KEY_CAP = 100` im
  *  Server — 20 laesst reichlich Luft, bevor der Vorrat wirklich leer waere). */
 const VORRAT_SCHWELLE = 20;
 /** Wie viele Einmalschluessel auf einmal erzeugt werden. */
 const NACHFUELL_BATCH = 30;
-
-type Identitaet = Awaited<ReturnType<typeof kryptoAccountLaden>>;
-
-function base64UrlAusBytes(bytes: Uint8Array): string {
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-}
-
-async function signiereNutzlast(keypair: StoredKeypair, nutzlast: Uint8Array): Promise<string> {
-  const signatur = await signChallenge(keypair, nutzlast);
-  return base64UrlAusBytes(signatur);
-}
 
 /** Legt das Buendel an oder ersetzt es — PUT ist idempotent, deshalb ohne
  *  vorherige Pruefung "ist es schon aktuell?" aufrufbar. Genau diese
