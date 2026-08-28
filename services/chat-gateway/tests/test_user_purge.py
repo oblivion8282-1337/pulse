@@ -697,6 +697,98 @@ async def test_purge_deletes_dm_channels(
 
 
 @pytest.mark.asyncio
+async def test_purge_raeumt_e2e_postfach(
+    client, session_factory, _auth_signer, _internal_secret_set
+):
+    """FIX 3. ``DeviceKeyBundle``/``DeviceOneTimeKey``/``DmZustellung``/
+    ``DmNutzlast`` ueberlebten einen Konto-Purge bisher unveraendert —
+    dieselbe Faehrte wie ``community_invite_notifications`` nach Migration
+    0063 (s. ``user_purge_gruppen.py``-Docstring). Drei Regeln auf einmal
+    geprueft: eigene Buendel + ihre Einmalschluessel weg (ueber ``user_id``),
+    an DIESES Konto gerichtete Zustellungen weg (ueber
+    ``empfaenger_user_id``), aber eine Zustellung an einen noch existierenden
+    ANDEREN Empfaenger bleibt stehen — und damit auch die Nutzlast, an der
+    sie haengt."""
+    from dcc_chat_gateway.models import (
+        DeviceKeyBundle,
+        DeviceOneTimeKey,
+        DmNutzlast,
+        DmZustellung,
+    )
+    from dcc_chat_gateway.snowflake import next_id
+
+    _, uid_a = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
+
+    bundle_id = next_id()
+    async with session_factory() as s:
+        s.add(DeviceKeyBundle(
+            id=bundle_id, user_id=uid_a, device_pubkey="pub-a",
+            curve25519="curve-a", signatur="sig-a", cert_id="cert-a",
+        ))
+        s.add(DeviceOneTimeKey(id=next_id(), bundle_id=bundle_id, schluessel="otk-a"))
+        await s.commit()
+
+    # Nutzlast 1: eine Zustellung an B (bleibt), eine an ein Zweitgeraet von
+    # A selbst (verschwindet mit dem Purge von A) — die Nutzlast bleibt, weil
+    # B's Zustellung sie noch am Leben haelt.
+    nid_teilweise = next_id()
+    async with session_factory() as s:
+        s.add(DmNutzlast(
+            id=nid_teilweise, channel_id=1, absender_device_pubkey="pub-a",
+            art=1, daten="x", groesse=1,
+        ))
+        s.add(DmZustellung(
+            id=next_id(), nutzlast_id=nid_teilweise,
+            empfaenger_device_pubkey="pub-b", empfaenger_user_id=uid_b,
+        ))
+        s.add(DmZustellung(
+            id=next_id(), nutzlast_id=nid_teilweise,
+            empfaenger_device_pubkey="pub-a-2", empfaenger_user_id=uid_a,
+        ))
+        await s.commit()
+
+    # Nutzlast 2: NUR an ein Geraet von A adressiert — muss nach dem Purge
+    # komplett verwaisen und mitgeraeumt werden.
+    nid_verwaist = next_id()
+    async with session_factory() as s:
+        s.add(DmNutzlast(
+            id=nid_verwaist, channel_id=1, absender_device_pubkey="pub-a",
+            art=1, daten="y", groesse=1,
+        ))
+        s.add(DmZustellung(
+            id=next_id(), nutzlast_id=nid_verwaist,
+            empfaenger_device_pubkey="pub-a-3", empfaenger_user_id=uid_a,
+        ))
+        await s.commit()
+
+    r = await client.post(
+        f"/internal/users/{uid_a}/purge", headers=_internal_headers()
+    )
+    assert r.status_code == 204, r.text
+
+    async with session_factory() as s:
+        assert (await s.get(DeviceKeyBundle, bundle_id)) is None
+        assert (await s.execute(select(DeviceOneTimeKey))).scalars().all() == []
+
+        rest_teilweise = (
+            await s.execute(
+                select(DmZustellung).where(DmZustellung.nutzlast_id == nid_teilweise)
+            )
+        ).scalars().all()
+        assert len(rest_teilweise) == 1
+        assert rest_teilweise[0].empfaenger_user_id == uid_b
+        assert (await s.get(DmNutzlast, nid_teilweise)) is not None
+
+        assert (
+            (await s.execute(
+                select(DmZustellung).where(DmZustellung.nutzlast_id == nid_verwaist)
+            )).scalars().all()
+        ) == []
+        assert (await s.get(DmNutzlast, nid_verwaist)) is None
+
+
+@pytest.mark.asyncio
 async def test_purge_clears_friendship_system(
     client, session_factory, _auth_signer, _internal_secret_set, monkeypatch, cloud_mode
 ):
