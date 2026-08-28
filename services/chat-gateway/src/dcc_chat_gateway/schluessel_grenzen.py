@@ -12,6 +12,12 @@ nicht nur das eigene Konto: ``POST /keys/claim`` laedt ALLE Buendel eines
 Ziels ohne Deckel und tut je Buendel eine Redis-Abfrage plus ein bewachtes
 Loeschen — wer die eigene Geraeteliste aufblaeht, verteuert damit jede
 Anfrage jedes Kontakts.
+
+FIX 2 — ``einmalschluessel_budget_uebrig``: ohne Deckel leert ~100 billige
+``POST /keys/claim``-Aufrufe den gesamten Einmalschluessel-Vorrat eines
+Ziels, danach faellt JEDER Absender (nicht nur der Angreifer) auf den
+wiederverwendeten Rueckfallschluessel zurueck — keine Forward Secrecy mehr
+je Sitzung.
 """
 
 from __future__ import annotations
@@ -55,3 +61,24 @@ async def platz_fuer_neues_geraet_schaffen(session, user_id: int) -> None:
     ).scalar_one_or_none()
     if aeltestes_id is not None:
         await session.execute(delete(DeviceKeyBundle).where(DeviceKeyBundle.id == aeltestes_id))
+
+
+async def einmalschluessel_budget_uebrig(redis, anfragender_id: int, ziel_id: int) -> bool:
+    """True, wenn der Anfragende fuer ``ziel_id`` im aktuellen Fenster noch
+    einen Einmalschluessel verbrauchen darf.
+
+    Fixed-Window-Zaehler in Redis (``INCR`` + einmaliges ``EXPIRE``) — kein
+    Sliding-Window, das waere hier Overkill: ein Angreifer gewinnt hoechstens
+    das erste Fenster einer neuen Periode, nie mehr, und die Kosten fuer den
+    Server sind ein Redis-Key statt einer Zaehlerzeile mit bewachtem UPDATE.
+    Zaehlt JEDEN Verbrauchsversuch, nicht nur erfolgreiche — ein Ziel ohne
+    Vorrat soll das Budget des Anfragenden nicht schonen, sonst liesse sich
+    das Budget durch Abklopfen leerer Buendel umgehen. Aufrufer laesst das
+    eigene Konto aus (Multi-Geraet-Sync ist kein Angriff auf sich selbst,
+    s. ``_darf_schluessel_holen`` in ``routes/schluessel.py``)."""
+    settings = chat_config.get_settings()
+    schluessel = f"keys:claim-budget:{anfragender_id}:{ziel_id}"
+    aktuell = await redis.incr(schluessel)
+    if aktuell == 1:
+        await redis.expire(schluessel, settings.schluessel_claim_fenster_sekunden)
+    return aktuell <= settings.schluessel_claim_budget_je_ziel

@@ -32,7 +32,10 @@ from dcc_chat_gateway.schemas import (
     GeraeteSchluesselOut,
     SchluesselAbholenRequest,
 )
-from dcc_chat_gateway.schluessel_grenzen import platz_fuer_neues_geraet_schaffen
+from dcc_chat_gateway.schluessel_grenzen import (
+    einmalschluessel_budget_uebrig,
+    platz_fuer_neues_geraet_schaffen,
+)
 from dcc_chat_gateway.schluessel_nachweis import baue_nutzlast, pruefe_geraet
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
@@ -302,7 +305,20 @@ async def schluessel_abholen(
             if await redis.sismember(REDIS_REVOKED_SET, b.cert_id):
                 continue
 
-            einmal = await _einmalschluessel_holen(session, b.id)
+            # Budget-Wache (FIX 2) — nur fuer FREMDE Ziele: das eigene Konto
+            # zieht ausschliesslich am eigenen Vorrat, das ist kein Angriff
+            # auf jemand anderen (s. ``_darf_schluessel_holen``-Docstring).
+            # Ist das Budget erschoepft, wird wie bei leerem Vorrat verfahren
+            # (``einmal = None`` -> Rueckfallschluessel) statt gar nichts zu
+            # liefern — ein Sitzungsaufbau soll trotzdem moeglich bleiben,
+            # nur ohne den knappen Einmalschluessel des Ziels weiter zu
+            # kosten.
+            if user.id != ziel_id and not await einmalschluessel_budget_uebrig(
+                redis, user.id, ziel_id
+            ):
+                einmal = None
+            else:
+                einmal = await _einmalschluessel_holen(session, b.id)
             ergebnis[schluessel_key].append(
                 GeraeteSchluesselOut(
                     device_pubkey=b.device_pubkey,

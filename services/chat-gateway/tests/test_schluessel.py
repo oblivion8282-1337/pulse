@@ -666,3 +666,86 @@ async def test_buendel_obergrenze_evictiert_das_aelteste(
             )
         ).scalars().all()
     assert set(uebrig) == {pubkeys[1], pubkeys[2]}, uebrig
+
+
+# ---------------------------------------------------------------------------
+# Bughunt 2026-08-28 (Missbrauch) — Budget je (Absender, Ziel) (FIX 2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_claim_budget_bremst_das_leerziehen_fremder_vorraete(
+    client, session_factory, cloud_mode, _auth_signer, friend_pair
+):
+    """Ohne Deckel leeren wenige billige ``POST /keys/claim``-Aufrufe den
+    gesamten Einmalschluessel-Vorrat eines Ziels — hier mit einem kuenstlich
+    kleinen Budget von 2 nachgestellt: der DRITTE Abholversuch bekommt den
+    Rueckfallschluessel, OBWOHL der Vorrat noch einen echten Einmalschluessel
+    haette liefern koennen."""
+    from dcc_chat_gateway import config as chat_config
+    from dcc_chat_gateway.models import DeviceOneTimeKey
+    from sqlalchemy import select
+
+    settings = chat_config.get_settings()
+    settings.schluessel_claim_budget_je_ziel = 2
+
+    sender_token, sender_uid = _register(_auth_signer)
+    _, empf_uid = _register(_auth_signer)
+    await friend_pair(sender_uid, empf_uid)
+    await _buendel_seeden(
+        session_factory,
+        user_id=empf_uid,
+        rueckfallschluessel="rueckfall-budget",
+        einmalschluessel=["otk-1", "otk-2", "otk-3"],
+    )
+
+    ergebnisse = []
+    for _ in range(3):
+        r = await client.post(
+            "/keys/claim",
+            json={"user_ids": [str(empf_uid)]},
+            headers={"Authorization": f"Bearer {sender_token}"},
+        )
+        assert r.status_code == 200, r.text
+        ergebnisse.append(r.json()[str(empf_uid)][0])
+
+    assert ergebnisse[0]["einmalschluessel"] is not None
+    assert ergebnisse[1]["einmalschluessel"] is not None
+    # Budget erschoepft -> Rueckfall, obwohl otk-3 noch im Vorrat liegt.
+    assert ergebnisse[2]["einmalschluessel"] is None
+    assert ergebnisse[2]["rueckfallschluessel"] == "rueckfall-budget"
+
+    async with session_factory() as s:
+        uebrig = (await s.execute(select(DeviceOneTimeKey))).scalars().all()
+    # Das Budget hat den dritten Schluessel VERWEIGERT, nicht VERBRAUCHT.
+    assert len(uebrig) == 1
+
+
+@pytest.mark.asyncio
+async def test_claim_budget_gilt_nicht_fuer_die_eigenen_geraete(
+    client, session_factory, cloud_mode, access_token
+):
+    """Multi-Geraet-Sync (Abholen der eigenen anderen Buendel) darf vom
+    FIX-2-Budget nicht gebremst werden — das ist kein Angriff auf ein
+    fremdes Konto."""
+    from dcc_chat_gateway import config as chat_config
+
+    settings = chat_config.get_settings()
+    settings.schluessel_claim_budget_je_ziel = 1
+
+    token, uid = access_token
+    await _buendel_seeden(
+        session_factory,
+        user_id=uid,
+        device_pubkey="mein-zweitgeraet",
+        einmalschluessel=["otk-eigen-1", "otk-eigen-2", "otk-eigen-3"],
+    )
+
+    for erwartet in ("otk-eigen-1", "otk-eigen-2", "otk-eigen-3"):
+        r = await client.post(
+            "/keys/claim",
+            json={"user_ids": [str(uid)]},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()[str(uid)][0]["einmalschluessel"] == erwartet

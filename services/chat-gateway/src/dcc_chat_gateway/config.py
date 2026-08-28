@@ -271,6 +271,19 @@ class Settings(BaseSettings):
     # als 20 gleichzeitig gueltige Zertifikate kann ein Konto ohnehin nicht
     # haben.
     schluessel_max_buendel_je_konto: int = 20
+    # Bughunt 2026-08-28 (Missbrauch), FIX 2. Budget verbrauchter
+    # Einmalschluessel je (Absender, Ziel) und Zeitfenster — sonst leert
+    # ~100 billige ``POST /keys/claim``-Aufrufe den gesamten Vorrat eines
+    # Kontakts, und JEDER Absender faellt danach auf den wiederverwendeten
+    # Rueckfallschluessel (keine Forward Secrecy je Sitzung) zurueck. 30
+    # liegt knapp ueber ``schluessel_max_buendel_je_konto`` (20): ein
+    # legitimer Erstkontakt mit einem Ziel, das alle 20 moeglichen Geraete
+    # gleichzeitig betreibt, verbraucht in einem einzigen ``claim``-Aufruf
+    # bis zu 20 Einmalschluessel (einen je Geraet) — das Budget muss das in
+    # EINEM Fenster tragen, ohne einem Angreifer viel Spielraum darueber
+    # hinaus zu lassen.
+    schluessel_claim_budget_je_ziel: int = 30
+    schluessel_claim_fenster_sekunden: int = 3600  # 1 h.
 
     @property
     def effective_database_url(self) -> str:
