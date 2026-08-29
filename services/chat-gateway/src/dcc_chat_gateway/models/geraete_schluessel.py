@@ -54,7 +54,22 @@ class DeviceKeyBundle(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    #: Zeitpunkt der letzten VEROEFFENTLICHUNG (``PUT /keys/bundle``) — NICHT
+    #: der letzten Benutzung, s. ``zuletzt_benutzt`` unten. Bleibt bei einem
+    #: treu angemeldeten Geraet lange stehen, das ist beabsichtigt: diese
+    #: Spalte beantwortet "wann wurde das Buendel zuletzt ersetzt?", nicht
+    #: "lebt das Geraet noch?".
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    #: Zeitpunkt des letzten erfolgreichen Geraete-Nachweises (jede Route, die
+    #: ``schluessel_nachweis.py::pruefe_geraet`` ruft — Buendel, Postfach,
+    #: Kopplung), grob aufgeloest (Begruendung dort). Traegt zwei Dinge:
+    #: die Verdraengung bei ``schluessel_max_buendel_je_konto`` Geraeten
+    #: (``schluessel_grenzen.py``) und, ab einem spaeteren Schritt, den
+    #: 14-Tage-Ablauf gekoppelter Browser (Spec §3a). Migration 0077 befuellt
+    #: Bestandszeilen aus ``updated_at`` — der beste verfuegbare Wert.
+    zuletzt_benutzt: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 

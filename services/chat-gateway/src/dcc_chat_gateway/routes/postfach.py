@@ -120,7 +120,7 @@ async def postfach_einliefern(
     if body.anhaenge:
         teile.extend([_ANHANG_MARKE, *[str(a) for a in body.anhaenge]])
     claims = await pruefe_geraet(
-        body.cert, baue_nutzlast("postfach", *teile), body.signatur, user, redis
+        body.cert, baue_nutzlast("postfach", *teile), body.signatur, user, redis, session
     )
 
     # 3. Kanalzugang. Der Kanal liefert zugleich die Menge der Konten, an die

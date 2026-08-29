@@ -26,14 +26,13 @@
  *     eine 2xx-Antwort allein ist kein Beweis, dass irgendwo eine Zustellung
  *     entstand — der Server darf jeden angefragten Empfaenger einzeln
  *     uebersprungen haben (unbekanntes Buendel, Kontingent voll). Entstand
- *     KEINE einzige Zustellung, faellt der Aufrufer auf den Klartext-Weg
- *     zurueck, genau wie beim Koexistenz-Fall. Ein koerperloser 2xx (204,
+ *     KEINE einzige Zustellung, meldet diese Funktion `unverschluesselt` —
+ *     was der Aufrufer daraus macht, s. unten. Ein koerperloser 2xx (204,
  *     zweiter Bughunt selbes Datum) gilt dagegen als ZUGESTELLT — s.
  *     `zustellErgebnis.ts`. Ein 404 (Route existiert nicht — aelterer
  *     Server) ist ein DRITTER Fall: nichts kann eingeliefert worden sein,
- *     der Klartext-Rueckfall ist deshalb sicher. Jeder andere Fehler wird
- *     NICHT stillschweigend zum Klartext-Rueckfall — s. Fehlerbehandlung
- *     unten.
+ *     die Meldung ist deshalb sicher. Jeder andere Fehler wird NICHT
+ *     stillschweigend dazu — s. Fehlerbehandlung unten.
  *  5. Lokal ablegen — der eigene Klartext geht in den lokalen Verlauf
  *     (Etappe C1); der Server bekommt ihn nie, es gibt also keine zweite
  *     Kopie. Schlaegt das fehl, ist die Nachricht trotzdem zugestellt
@@ -48,18 +47,15 @@
  *     Geraet gerade selbst gesendet hat). Ohne diesen Schritt ruecke die
  *     eigene, gerade abgeschickte Nachricht nicht an den Kopf der DM-Liste.
  *
- * **Koexistenz (Spec §3):** hat der Empfaenger kein Geraet (und man selbst
- * auch keine weiteren), gibt es kein einziges Zielgeraet — dann wird NICHTS
- * verschluesselt und NICHTS eingeliefert, sondern `{ art: 'unverschluesselt' }`
- * zurueckgegeben. Der Aufrufer nimmt dann den heutigen Klartext-Weg (WS
- * `send`). Das ist der Normalfall der Koexistenz-Regel, kein Fehler.
- *
- * **Anhaenge (Etappe E) aendern daran eines:** ihre Klumpen liegen dann
- * bereits verschluesselt im Objektspeicher, an einer Route, die nur das
- * Postfach bedient. Auf den Klartext-Weg zurueckzufallen hiesse, sie
- * fallenzulassen — deshalb entscheidet der AUFRUFER, was ein
- * `unverschluesselt` mit Anhaengen bedeutet (`app/@me/[[dmChannelId]]`:
- * sichtbarer Fehler statt stiller Klartext-Sendung), nicht diese Funktion.
+ * **Kein Zielgeraet:** hat der Empfaenger keines (und man selbst auch keine
+ * weiteren), wird NICHTS verschluesselt und NICHTS eingeliefert, sondern
+ * `{ art: 'unverschluesselt' }` zurueckgegeben. Der Name des Falls stammt aus
+ * der Koexistenz-Regel (Spec §3) und beschreibt heute nur noch, dass NICHTS
+ * eingeliefert wurde — **einen Klartext-Weg fuer DMs gibt es seit Spec §3a
+ * nicht mehr** („ohne App-Geraet keine Direktnachrichten"). Der Aufrufer
+ * (`app/@me/[[dmChannelId]]`) meldet diesen Fall sichtbar; der Regelfall
+ * „Gegenseite ohne App" sperrt schon vorher das Eingabefeld
+ * (`krypto/dmSendeSperre.ts`).
  */
 import type { Message } from '../api/types';
 import { ApiError } from '../api/client';

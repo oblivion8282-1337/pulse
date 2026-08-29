@@ -882,9 +882,9 @@
   "direct_trust_cancel": "Abbrechen",
   "direct_trust_title": "Server-Identität hat sich geändert",
   "dm_list_gruppen_heading": "Private Gruppen",
-  "dm_page_attachment_needs_encryption": "Anhänge gehen nur verschlüsselt — dafür braucht die Gegenseite die Pulse-App. Der Text allein lässt sich senden.",
   "dm_page_composer_blocked": "Du kannst dieser Person aktuell keine Nachrichten senden.",
   "dm_page_composer_disabled_reason": "Du kannst dieser Person aktuell keine Nachrichten senden.",
+  "dm_page_composer_ohne_app_reason": "Direktnachrichten sind Ende-zu-Ende verschlüsselt und brauchen dafür auf beiden Seiten ein eingerichtetes Gerät. Diese Person hat noch keines: Sie braucht die Pulse-App auf Rechner oder Telefon — oder sie koppelt ihren Browser. Danach könnt ihr hier schreiben.",
   "dm_page_delete_confirm": "Nachricht wirklich löschen?",
   "dm_page_delete_failed": "Löschen fehlgeschlagen",
   "dm_page_dm_not_found": "DM nicht gefunden",
@@ -897,6 +897,7 @@
   "dm_page_no_connection": "Keine Verbindung — bitte erneut senden",
   "dm_page_reaction_failed": "Reaktion fehlgeschlagen",
   "dm_page_send_failed": "Senden fehlgeschlagen",
+  "dm_page_senden_kein_geraet": "Direktnachrichten gehen nur verschlüsselt, und dafür fehlt gerade auf einer der beiden Seiten ein eingerichtetes Gerät. Öffne Pulse als App oder koppel diesen Browser — und prüfe, ob die Gegenseite das auch getan hat.",
   "downloads_android": "Android",
   "downloads_android_hint": "APK für Android herunterladen. Bei der Installation muss „Aus unbekannten Quellen installieren“ erlaubt werden.",
   "downloads_get_apps": "Pulse als App:",
@@ -3070,8 +3071,5 @@
   "rooms_discover_short": "Entdecken",
   "rooms_in_voice": "{count} im Gespräch",
   "rooms_channel_count": "{count} Kanäle",
-  "chats_empty_title": "Noch keine Gespräche",
-  "dm_schloss_verschluesselt_label": "Ende-zu-Ende-verschlüsselt",
-  "dm_schloss_verschluesselt_hinweis": "Dieses Gespräch kann Ende-zu-Ende verschlüsselt laufen: beide Seiten haben die App installiert. Ob eine einzelne Nachricht verschlüsselt geht, entscheidet sich beim Absenden.",
-  "dm_schloss_ohne_app_hinweis": "Nicht verschlüsselt — die Gegenseite hat die App nicht installiert."
+  "chats_empty_title": "Noch keine Gespräche"
 }

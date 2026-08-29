@@ -139,7 +139,7 @@ async def kopplung_stueck_ablegen(
         raise HTTPException(status_code=400, detail="stueck_zu_gross")
 
     nutzlast = baue_nutzlast("kopplung-stueck", str(kid), str(body.folge), body.daten)
-    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis)
+    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis, session)
     await kopplung_laden(session, kid, user.id, claims.device_pubkey, "alt")
 
     vorhanden = (
@@ -185,7 +185,7 @@ async def kopplung_stueck_holen(
     redis = _require_redis(request)
     kid = int(body.kopplung_id)
     nutzlast = baue_nutzlast("kopplung-stueck-holen", str(kid), str(body.folge))
-    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis)
+    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis, session)
     await kopplung_laden(session, kid, user.id, claims.device_pubkey, "neu")
 
     stueck = (
@@ -222,7 +222,7 @@ async def kopplung_fertig(
         raise HTTPException(status_code=400, detail="zu_viele_stuecke")
 
     nutzlast = baue_nutzlast("kopplung-fertig", str(kid), str(body.gesamt_stuecke))
-    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis)
+    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis, session)
     kopplung = await kopplung_laden(session, kid, user.id, claims.device_pubkey, "alt")
 
     kopplung.gesamt_stuecke = body.gesamt_stuecke
@@ -249,7 +249,7 @@ async def kopplung_abschliessen(
     redis = _require_redis(request)
     kid = int(body.kopplung_id)
     nutzlast = baue_nutzlast("kopplung-abschliessen", str(kid))
-    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis)
+    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis, session)
 
     # Die Rolle steckt hier in der WHERE-Klausel statt in ``kopplung_laden``:
     # beide Rollen duerfen, eine dritte nicht — und ein bereits verfallener

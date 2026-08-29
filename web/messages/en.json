@@ -882,9 +882,9 @@
   "direct_trust_cancel": "Cancel",
   "direct_trust_title": "Server identity has changed",
   "dm_list_gruppen_heading": "Private groups",
-  "dm_page_attachment_needs_encryption": "Attachments are sent encrypted only — the other side needs the Pulse app for that. Text alone can still be sent.",
   "dm_page_composer_blocked": "You cannot send messages to this person right now.",
   "dm_page_composer_disabled_reason": "You cannot send messages to this person right now.",
+  "dm_page_composer_ohne_app_reason": "Direct messages are end-to-end encrypted, which needs a set-up device on both sides. This person does not have one yet: they need the Pulse app on a computer or phone — or they can pair their browser. After that you can write here.",
   "dm_page_delete_confirm": "Really delete this message?",
   "dm_page_delete_failed": "Failed to delete message",
   "dm_page_dm_not_found": "DM not found",
@@ -897,6 +897,7 @@
   "dm_page_no_connection": "No connection — please try again",
   "dm_page_reaction_failed": "Failed to update reaction",
   "dm_page_send_failed": "Failed to send",
+  "dm_page_senden_kein_geraet": "Direct messages are sent encrypted only, and right now one of the two sides has no set-up device. Open Pulse as an app or pair this browser — and check whether the other side has done the same.",
   "downloads_android": "Android",
   "downloads_android_hint": "Download the Android APK. You need to allow “Install from unknown sources” during installation.",
   "downloads_get_apps": "Get the Pulse app:",
@@ -3070,8 +3071,5 @@
   "rooms_discover_short": "Discover",
   "rooms_in_voice": "{count} in voice",
   "rooms_channel_count": "{count} channels",
-  "chats_empty_title": "No conversations yet",
-  "dm_schloss_verschluesselt_label": "End-to-end encrypted",
-  "dm_schloss_verschluesselt_hinweis": "This conversation can run end-to-end encrypted: both sides have the app installed. Whether an individual message is encrypted is decided when it is sent.",
-  "dm_schloss_ohne_app_hinweis": "Not encrypted — the other side has not installed the app."
+  "chats_empty_title": "No conversations yet"
 }

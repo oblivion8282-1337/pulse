@@ -26,7 +26,7 @@
   import { toast } from 'svelte-sonner';
   import { E2E_DMS_ENABLED, PRIVATE_GRUPPEN_ENABLED } from '$lib/krypto/schalter';
   import { schloss } from '$lib/krypto/schloss.svelte';
-  import { dmAnhangVerschluesselt } from '$lib/attachments/dmAnhangVerschluesselt';
+  import { dmSendeSperre } from '$lib/krypto/dmSendeSperre';
   import { kanonischeAntwortId } from '$lib/krypto/kanonischeAntwortId';
   import type { AnhangAngabe } from '$lib/krypto/nachrichtNutzlast';
   import type { Channel, DMChannel, Message } from '$lib/api/types';
@@ -74,11 +74,18 @@
 
   let visibleMessages = $derived(dmChannelId ? messages.for(dmChannelId) : []);
 
-  // Schloss-Stand DIESES Gespraechs, kein zusaetzlicher Abruf: `DmSchloss` in
-  // derselben `ChatView` holt ihn bereits, hier wird nur derselbe `$state`
-  // gelesen (Rechnung importfrei in `dmAnhangVerschluesselt.ts`).
-  let dmVerschluesselteAnhaenge = $derived(
-    activeDM ? dmAnhangVerschluesselt(E2E_DMS_ENABLED, schloss.stand(activeDM.other_user_id)) : false
+  // Spec §3a: ohne App-Geraet gibt es keine Direktnachrichten — kann die
+  // Gegenseite nicht teilnehmen, sperrt das Eingabefeld (Rechnung importfrei
+  // in `krypto/dmSendeSperre.ts`). Der Stand kommt aus einer Route, die
+  // nichts verbraucht, genau einmal je Gegenstelle (`schlossAbfrage.ts`);
+  // `POST /keys/claim` wuerde Einmalschluessel verbrauchen — deshalb NICHT.
+  $effect(() => {
+    if (activeDM) schloss.sicherstellen(activeDM.other_user_id);
+  });
+  let dmSperre = $derived(
+    activeDM
+      ? dmSendeSperre(E2E_DMS_ENABLED, activeDM.can_send !== false, schloss.stand(activeDM.other_user_id))
+      : null
   );
 
   let loadError = $state<string | null>(null);
@@ -331,8 +338,10 @@
 
     // Verschluesselter Weg (Etappe D2, Schalter aus per Vorgabe). Antworten
     // (Kennung in der Nutzlast, s. `nachrichtNutzlast.ts`) UND Anhaenge
-    // (Etappe E, Dateischluessel ebendort) fahren mit — die frueher hier
-    // stehende Bedingung `attachmentIds.length === 0` ist damit entfallen.
+    // (Etappe E, Dateischluessel ebendort) fahren mit.
+    // **Bei eingeschaltetem Schalter ist das der EINZIGE Weg** (Spec §3a):
+    // der Klartext-Rueckfall, der hier bis zum 2026-08-29 stand, ist weg.
+    // Bei ausgeschaltetem Schalter gilt weiter der Klartext-Weg unten.
     if (E2E_DMS_ENABLED) {
       // `replyToId` ist bislang nur die LOKALE ID des Ziels (wie der
       // Antwortende es gerade sieht) — Sender und Empfaenger derselben
@@ -344,17 +353,12 @@
         try {
           ergebnis = await sendeVerschluesselt(cid, partnerId, text, kanonischeId, anhaenge);
         } catch (err) {
-          // Bughunt 2026-08-28, zweiter Fund: ein pauschales `.catch(() =>
-          // null)` an dieser Stelle deutete JEDEN Fehler — auch einen, bei
-          // dem die verschluesselte Zustellung laengst geschehen war — als
-          // "kein Geraet erreichbar" und sendete zusaetzlich im Klartext.
-          // `sendeVerschluesselt` behandelt die BEKANNTEN Faelle (204 =
-          // zugestellt, 404 = Route fehlt -> sicher unverschluesselt) schon
-          // selbst und liefert dafuer regulaer zurueck, NICHT per Wurf. Was
-          // hier ankommt, ist deshalb ein UNERWARTETER Fehler, bei dem nicht
-          // feststeht, ob die Zustellung durch war — ein automatischer
-          // Klartext-Rueckfall koennte ein Duplikat erzeugen. Also nur
-          // sichtbar melden, der Nutzer sendet bei Bedarf erneut.
+          // Ein UNERWARTETER Fehler (Bughunt 2026-08-28, zweiter Fund):
+          // `sendeVerschluesselt` liefert die BEKANNTEN Faelle (204 =
+          // zugestellt, 404 = Route fehlt) regulaer zurueck, nicht per Wurf.
+          // Hier steht deshalb nicht fest, ob die Zustellung durch war — ein
+          // selbsttaetiger zweiter Anlauf koennte ein Duplikat erzeugen. Also
+          // nur sichtbar melden, der Nutzer sendet bei Bedarf erneut.
           toast.error(m.dm_page_send_failed(), { description: (err as Error).message });
           return;
         }
@@ -362,19 +366,13 @@
           messages.upsert(ergebnis.nachricht);
           return;
         }
-        // Ab hier gilt die Koexistenz-Regel (Spec §3): die Gegenseite hat
-        // kein dauerhaftes Geraet, es wurde NICHTS eingeliefert, der
-        // Klartext-Weg ist der richtige. Mit Anhaengen aber NICHT: ihre
-        // Klumpen liegen schon verschluesselt am Postfach, und ihre
-        // Kennungen (`attachmentIds`) gehoeren einer Route, die der
-        // Klartext-Weg nicht bedient. Sie stillschweigend mitzuschicken
-        // hiesse, sie unbemerkt fallenzulassen — deshalb ein sichtbarer
-        // Hinweis statt eines stillen Rueckfalls.
-        if (attachmentIds.length > 0 || anhaenge.length > 0) {
-          toast.error(m.dm_page_attachment_needs_encryption());
-          return;
-        }
-        sendeKlartext(cid, text, replyToId, []);
+        // NICHTS eingeliefert (kein Zielgeraet auf einer der beiden Seiten,
+        // oder der Server hat jeden Empfaenger uebersprungen). Frueher ging
+        // die Nachricht hier im Klartext hinaus; seit Spec §3a gibt es diesen
+        // Weg nicht mehr. Den Regelfall („Gegenseite ohne App") faengt schon
+        // die Sperre am Eingabefeld ab — hier bleibt der Rest: eigenes Geraet
+        // noch ohne Schluessel, oder der Stand war beim Tippen unbekannt.
+        toast.error(m.dm_page_send_failed(), { description: m.dm_page_senden_kein_geraet() });
       });
       return;
     }
@@ -471,10 +469,12 @@
       dmPartnerId={activeDM.other_user_id}
       onBack={() => goto('/app/@me')}
       cloudScoped
-      verschluesselteAnhaenge={dmVerschluesselteAnhaenge}
+      verschluesselteAnhaenge={E2E_DMS_ENABLED}
       showMemberList={false}
-      composerDisabled={activeDM.can_send === false}
-      composerDisabledReason={m.dm_page_composer_disabled_reason()}
+      composerDisabled={dmSperre !== null}
+      composerDisabledReason={dmSperre === 'ohne_app'
+        ? m.dm_page_composer_ohne_app_reason()
+        : m.dm_page_composer_disabled_reason()}
       onEditMessage={editMessage}
       onDeleteMessage={deleteMessage}
       onToggleReaction={toggleReaction}

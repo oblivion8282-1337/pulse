@@ -671,6 +671,154 @@ async def test_buendel_obergrenze_evictiert_das_aelteste(
 
 
 # ---------------------------------------------------------------------------
+# Spec §3a (Entscheidung 2026-08-29) — Verdraengung nach BENUTZUNG, nicht
+# nach Veroeffentlichung
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_verdraengung_trifft_benutztes_geraet_nicht(
+    client, app, session_factory, cloud_mode, access_token
+):
+    """Beleg fuer den Fehler in Spec §3a: Geraet 0 veroeffentlicht sein
+    Buendel einmal und wird danach lange nicht mehr aktiv (kein erneutes
+    ``PUT /keys/bundle``), holt aber treu sein Postfach ab — das ist
+    Benutzung. Geraet 1 veroeffentlicht sein Buendel und wird danach nie
+    wieder gesehen. Bei der Verdraengung (Grenze read auf 2 gesetzt) muss
+    Geraet 1 weichen, nicht Geraet 0 — Geraet 0 wurde zuletzt BENUTZT, auch
+    wenn sein Buendel laengst nicht mehr das juengste ist.
+
+    Vor Migration 0077 sortierte die Verdraengung nach ``updated_at``
+    (Veroeffentlichungszeit) und traf deshalb Geraet 0 statt Geraet 1 — genau
+    verkehrt herum."""
+    from datetime import UTC, datetime, timedelta
+
+    from dcc_chat_gateway import config as chat_config
+    from dcc_chat_gateway.models import DeviceKeyBundle
+    from sqlalchemy import select, update
+
+    settings = chat_config.get_settings()
+    settings.schluessel_max_buendel_je_konto = 2
+
+    token, uid = access_token
+    await _seed_jwks(app)
+
+    priv0, pubkey0 = _make_device()
+    cert0 = _make_cert(user_id=str(uid), device_pubkey=pubkey0, cert_id="cert-0")
+    nutzlast0 = baue_nutzlast("buendel", "curve-0", "")
+    r = await client.put(
+        "/keys/bundle",
+        json={"cert": cert0, "signatur": _sign(priv0, nutzlast0), "curve25519": "curve-0"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 204, r.text
+
+    priv1, pubkey1 = _make_device()
+    cert1 = _make_cert(user_id=str(uid), device_pubkey=pubkey1, cert_id="cert-1")
+    nutzlast1 = baue_nutzlast("buendel", "curve-1", "")
+    r = await client.put(
+        "/keys/bundle",
+        json={"cert": cert1, "signatur": _sign(priv1, nutzlast1), "curve25519": "curve-1"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 204, r.text
+
+    # Geraet 0 hat sein Buendel lange nicht mehr veroeffentlicht (simuliert
+    # durch Zuruecksetzen BEIDER Zeitspalten) — holt aber jetzt sein Postfach
+    # ab. Die grobe Aufloesung (eine Stunde, s. schluessel_nachweis.py)
+    # greift nur, wenn der bisherige Wert schon aelter ist, deshalb weit
+    # genug in die Vergangenheit setzen.
+    alt = datetime.now(UTC) - timedelta(days=30)
+    async with session_factory() as s:
+        await s.execute(
+            update(DeviceKeyBundle)
+            .where(DeviceKeyBundle.device_pubkey == pubkey0)
+            .values(updated_at=alt, zuletzt_benutzt=alt)
+        )
+        await s.commit()
+
+    nutzlast_abholen = baue_nutzlast("postfach-abholen")
+    r = await client.post(
+        "/postfach/abholen",
+        json={"cert": cert0, "signatur": _sign(priv0, nutzlast_abholen)},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200, r.text
+
+    # Ein DRITTES Geraet veroeffentlicht — loest die Verdraengung aus.
+    priv2, pubkey2 = _make_device()
+    cert2 = _make_cert(user_id=str(uid), device_pubkey=pubkey2, cert_id="cert-2")
+    nutzlast2 = baue_nutzlast("buendel", "curve-2", "")
+    r = await client.put(
+        "/keys/bundle",
+        json={"cert": cert2, "signatur": _sign(priv2, nutzlast2), "curve25519": "curve-2"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 204, r.text
+
+    async with session_factory() as s:
+        uebrig = (
+            await s.execute(
+                select(DeviceKeyBundle.device_pubkey).where(DeviceKeyBundle.user_id == uid)
+            )
+        ).scalars().all()
+    # Geraet 0 (benutzt) und Geraet 2 (gerade veroeffentlicht) bleiben,
+    # Geraet 1 (nie wieder gesehen) weicht.
+    assert set(uebrig) == {pubkey0, pubkey2}, uebrig
+
+
+@pytest.mark.asyncio
+async def test_zuletzt_benutzt_schreibt_nicht_bei_jedem_nachweis(
+    client, app, session_factory, cloud_mode, access_token
+):
+    """Die grobe Aufloesung (eine Stunde) soll genau das ersparen, wofuer sie
+    gebaut wurde: ein Geraet, das kurz hintereinander zweimal nachweist (hier
+    ueber ``POST /postfach/abholen``), loest nur beim ERSTEN Mal einen
+    Schreibzugriff aus. Frisch veroeffentlicht ist ``zuletzt_benutzt`` schon
+    aktuell, also darf schon der erste Abholversuch nichts mehr aendern."""
+    from dcc_chat_gateway.models import DeviceKeyBundle
+    from sqlalchemy import select
+
+    token, uid = access_token
+    await _seed_jwks(app)
+
+    priv, pubkey = _make_device()
+    cert = _make_cert(user_id=str(uid), device_pubkey=pubkey, cert_id="cert-frisch")
+    nutzlast_buendel = baue_nutzlast("buendel", "curve-x", "")
+    r = await client.put(
+        "/keys/bundle",
+        json={"cert": cert, "signatur": _sign(priv, nutzlast_buendel), "curve25519": "curve-x"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 204, r.text
+
+    async def _stand() -> object:
+        async with session_factory() as s:
+            return (
+                await s.execute(
+                    select(DeviceKeyBundle.zuletzt_benutzt).where(
+                        DeviceKeyBundle.device_pubkey == pubkey
+                    )
+                )
+            ).scalar_one()
+
+    vor_abholen = await _stand()
+
+    nutzlast_abholen = baue_nutzlast("postfach-abholen")
+    r = await client.post(
+        "/postfach/abholen",
+        json={"cert": cert, "signatur": _sign(priv, nutzlast_abholen)},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200, r.text
+
+    nach_abholen = await _stand()
+    # Innerhalb der Aufloesung (frisch veroeffentlicht, also < 1 Stunde alt)
+    # darf sich NICHTS geaendert haben — kein Schreibzugriff.
+    assert nach_abholen == vor_abholen
+
+
+# ---------------------------------------------------------------------------
 # Bughunt 2026-08-28 (Missbrauch) — Budget je (Absender, Ziel) (FIX 2)
 # ---------------------------------------------------------------------------
 

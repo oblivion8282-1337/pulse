@@ -20,8 +20,10 @@ in Fehlermeldungen oder Logs).
 from __future__ import annotations
 
 import base64
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException
+from sqlalchemy import update
 
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.credential_validator import (
@@ -30,7 +32,19 @@ from dcc_chat_gateway.credential_validator import (
     validate_cert,
     verify_challenge_signature,
 )
+from dcc_chat_gateway.models import DeviceKeyBundle
 from dcc_chat_gateway.security import AuthenticatedUser
+
+#: Aufloesung fuer ``zuletzt_benutzt`` — ein Schreibzugriff pro Geraet und
+#: Stunde statt einer bei JEDEM Geraete-Nachweis. ``pruefe_geraet`` laeuft
+#: auch am Postfach-Abholzyklus (Klient pollt), ein Schreibzugriff je Aufruf
+#: waere dort unnoetige Last. Eine Stunde ist grob genug, um die Last klein
+#: zu halten, und fein genug fuer beide Verbraucher: die Verdraengung bei
+#: ``schluessel_max_buendel_je_konto`` Geraeten entscheidet zwischen Geraeten,
+#: die sich um Tage bis Wochen unterscheiden, und der 14-Tage-Ablauf
+#: gekoppelter Browser (Spec §3a) misst in Tagen — eine Stunde Unschaerfe
+#: faellt in beiden Faellen nicht ins Gewicht.
+_ZULETZT_BENUTZT_AUFLOESUNG = timedelta(hours=1)
 
 #: Trennt die Nutzlast dieses Verfahrens von jedem anderen im Projekt, das
 #: ebenfalls generische Ed25519-Unterschriften prueft (z. B. die
@@ -81,12 +95,51 @@ def _b64url_decode(wert: str) -> bytes:
     return base64.urlsafe_b64decode(wert + "==")
 
 
+async def _zuletzt_benutzt_auffrischen(session, user_id: int, device_pubkey: str) -> None:
+    """Setzt ``zuletzt_benutzt`` auf jetzt — aber nur, wenn der bisherige Wert
+    laenger als ``_ZULETZT_BENUTZT_AUFLOESUNG`` zurueckliegt.
+
+    Eine bedingte ``UPDATE``-Anweisung statt Lesen-dann-Schreiben: bei einem
+    frisch benutzten Geraet (der haeufige Fall, z. B. Postfach-Polling)
+    matcht die WHERE-Bedingung nicht, es wird ueberhaupt nichts geschrieben.
+    Kein Fehler, wenn keine Zeile existiert (s. Docstring von
+    ``pruefe_geraet``) — die Anweisung betrifft dann schlicht null Zeilen.
+
+    Committet NUR, wenn tatsaechlich eine Zeile getroffen wurde — einige
+    Aufrufer sind lesende Routen (z. B. ``kopplung_stand``), die selbst nie
+    committen; ohne einen eigenen Commit hier ginge die Auffrischung dort mit
+    dem Sessionende (Rollback) verloren. Ein leerer Treffer committet nichts,
+    das ist der haeufige Fall und der Sinn der groben Aufloesung.
+
+    **Bedingung, unter der dieser Commit unbedenklich ist — beim Hinzufuegen
+    eines Aufrufers pruefen:** ``pruefe_geraet`` laeuft in allen heutigen
+    Routen VOR jedem ``session.add``, es steht also nichts Ungespeichertes an,
+    das hier versehentlich mit festgeschrieben wuerde. Nachgesehen am
+    2026-08-29 fuer alle dreizehn Aufrufer. Wer ``pruefe_geraet`` kuenftig
+    NACH eigenen Schreibzugriffen ruft, macht diesen Commit zu einem
+    Teil-Commit seiner eigenen Arbeit — und der faellt erst auf, wenn die
+    Route danach fehlschlaegt und die Haelfte trotzdem stehenbleibt."""
+    schwelle = datetime.now(UTC) - _ZULETZT_BENUTZT_AUFLOESUNG
+    ergebnis = await session.execute(
+        update(DeviceKeyBundle)
+        .where(
+            DeviceKeyBundle.user_id == user_id,
+            DeviceKeyBundle.device_pubkey == device_pubkey,
+            DeviceKeyBundle.zuletzt_benutzt < schwelle,
+        )
+        .values(zuletzt_benutzt=datetime.now(UTC))
+    )
+    if ergebnis.rowcount:
+        await session.commit()
+
+
 async def pruefe_geraet(
     cert_jwt: str,
     nutzlast: bytes,
     signatur_b64: str,
     user: AuthenticatedUser,
     redis,
+    session,
 ) -> CertClaims:
     """Prueft die vier Bedingungen, unter denen ein Geraet veroeffentlichen darf.
 
@@ -108,6 +161,15 @@ async def pruefe_geraet(
     gespeicherte Zeile aus den hier zurueckgegebenen ``claims`` — NIE aus dem
     Anfrage-Rumpf, sonst koennte jeder fuer ein fremdes Geraet einen
     Schluessel hinterlegen.
+
+    Bei Erfolg wird zusaetzlich ``DeviceKeyBundle.zuletzt_benutzt`` fuer das
+    nachgewiesene Geraet aufgefrischt (grob aufgeloest, s.
+    ``_ZULETZT_BENUTZT_AUFLOESUNG`` oben) — diese Funktion ist die einzige
+    Stelle, an der ein Geraet sich ueberhaupt ausweist, also der einzige
+    richtige Ort fuer das Signal "lebt noch". Existiert (noch) keine Zeile
+    (z. B. beim allerersten ``PUT /keys/bundle``, dessen Nachweis VOR dem
+    Anlegen der Zeile laeuft), ist das ein stilles No-Op — die Zeile bekommt
+    ihren Startwert ueber ``server_default`` beim Anlegen.
     """
     claims = await validate_cert(cert_jwt, redis)
     if claims is None:
@@ -131,5 +193,7 @@ async def pruefe_geraet(
 
     if not verify_challenge_signature(nutzlast, signatur, claims.device_pubkey):
         raise HTTPException(status_code=403, detail="Unterschrift ungueltig")
+
+    await _zuletzt_benutzt_auffrischen(session, user.id, claims.device_pubkey)
 
     return claims

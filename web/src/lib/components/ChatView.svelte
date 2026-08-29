@@ -12,7 +12,6 @@
   import MessageList from './MessageList.svelte';
   import MemberList from './MemberList.svelte';
   import ComposerDisabledBanner from './ComposerDisabledBanner.svelte';
-  import DmSchloss from './chat/DmSchloss.svelte';
   import { plainifyMentions } from './messageRender';
   import { Button } from '$lib/components/ui/button';
   import type { Channel, Message } from '$lib/api/types';
@@ -335,11 +334,9 @@
           nameStyle={headerKind === 'channel' ? channelNameStyle(channel) : ''}
         />
       {/if}
-      {#if headerKind === 'dm' && dmPartnerId}
-        <!-- Abruf, Sperre gegen Mehrfachabrufe und Schalter-Gate stecken in
-             der Komponente — hier steht nur, WO das Kennzeichen haengt. -->
-        <DmSchloss userId={dmPartnerId} />
-      {/if}
+      <!-- Kein Schloss-Kennzeichen mehr (bis 2026-08-29, Spec §3a): seit jede
+           Direktnachricht verschluesselt ist, sagt ein immer sichtbares
+           Schloss nichts — der Gegenfall sperrt das Eingabefeld mit Grund. -->
       {#if showMemberList}
         <Button
           variant="ghost"

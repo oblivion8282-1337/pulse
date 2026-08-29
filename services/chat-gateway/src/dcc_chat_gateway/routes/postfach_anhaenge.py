@@ -167,6 +167,7 @@ async def anhang_abrufadresse(
         body.signatur,
         user,
         redis,
+        session,
     )
 
     zeile = await session.get(MessageAttachment, anhang_id)

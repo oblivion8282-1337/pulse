@@ -52,7 +52,7 @@ async def postfach_abholen(
     """
     redis = _require_redis(request)
     nutzlast = baue_nutzlast("postfach-abholen")
-    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis)
+    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis, session)
 
     zeilen = (
         await session.execute(
@@ -114,7 +114,7 @@ async def postfach_quittung(
     redis = _require_redis(request)
     ids = list(dict.fromkeys(body.zustellung_ids))  # Duplikate raus, Reihenfolge egal.
     nutzlast = baue_nutzlast("postfach-quittung", *[str(i) for i in ids])
-    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis)
+    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis, session)
 
     betroffene_nutzlasten = (
         await session.execute(

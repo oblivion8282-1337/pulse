@@ -97,7 +97,7 @@ async def kopplung_anlegen(
     redis = _require_redis(request)
 
     nutzlast = baue_nutzlast("kopplung", body.code_hash)
-    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis)
+    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis, session)
 
     jetzt = datetime.now(UTC)
     verfaellt_am = jetzt + timedelta(minutes=settings.kopplung_code_gueltig_minuten)
@@ -166,7 +166,7 @@ async def kopplung_einloesen(
     redis = _require_redis(request)
 
     nutzlast = baue_nutzlast("kopplung-einloesen", body.code_hash)
-    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis)
+    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis, session)
 
     jetzt = datetime.now(UTC)
     neue_frist = jetzt + timedelta(hours=settings.umzug_frist_stunden)
@@ -253,7 +253,7 @@ async def kopplung_stand(
     redis = _require_redis(request)
     kid = int(body.kopplung_id)
     nutzlast = baue_nutzlast("kopplung-stand", str(kid))
-    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis)
+    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis, session)
 
     kopplung = await _als_alt_oder_neu(session, kid, user.id, claims.device_pubkey)
 

@@ -76,7 +76,7 @@ async def bundle_veroeffentlichen(
     nutzlast = baue_nutzlast(
         "buendel", body.curve25519, body.rueckfallschluessel or ""
     )
-    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis)
+    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis, session)
 
     vorhanden = (
         await session.execute(
@@ -122,7 +122,7 @@ async def einmalschluessel_hinzufuegen(
     """Haengt einen Batch Einmalschluessel an das Buendel des Geraets an."""
     redis = _require_redis(request)
     nutzlast = baue_nutzlast("einmalschluessel", *body.schluessel)
-    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis)
+    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis, session)
 
     bundle = (
         await session.execute(

@@ -32,13 +32,16 @@ async def platz_fuer_neues_geraet_schaffen(session, user_id: int) -> None:
     """Raeumt vor dem Anlegen eines NEUEN Buendels Platz, falls das Konto
     ``schluessel_max_buendel_je_konto`` schon erreicht hat.
 
-    Evictiert das am laengsten nicht mehr aktualisierte Buendel (LRU nach
-    ``updated_at``), NICHT das juengste — ein Geraet, das sich gerade neu
-    anmeldet, ist der Fall, den man NICHT aussperren will; ein Buendel, das
-    seit Wochen kein ``PUT /keys/bundle`` mehr gesehen hat, gehoert mit hoher
-    Wahrscheinlichkeit zu einem Geraet, das nicht mehr existiert (der Rest
-    der Codebase hat kein Signal "Geraet ist weg", s. Kommentar zum
-    Sperrlisten-Filter in ``routes/schluessel.py::schluessel_abholen``). Das
+    Evictiert das am laengsten nicht mehr BENUTZTE Buendel (LRU nach
+    ``zuletzt_benutzt``, Migration 0077), NICHT das juengste — ein Geraet,
+    das sich gerade neu anmeldet, ist der Fall, den man NICHT aussperren
+    will. Vor Migration 0077 sortierte diese Funktion nach ``updated_at``
+    (Zeitpunkt der letzten VEROEFFENTLICHUNG) — das trifft das falsche
+    Geraet: ein treu angemeldetes Geraet veroeffentlicht sein Buendel nicht
+    neu und sah deshalb genauso alt aus wie eines, das niemand mehr
+    benutzt. ``zuletzt_benutzt`` wird bei JEDEM Geraete-Nachweis aufgefrischt
+    (``schluessel_nachweis.py::pruefe_geraet``), nicht nur beim
+    Veroeffentlichen, und traegt damit ein echtes "lebt noch"-Signal. Das
     Loeschen der Buendelzeile nimmt ueber ``ON DELETE CASCADE``
     (``models/geraete_schluessel.py``) auch ihre Einmalschluessel mit."""
     settings = chat_config.get_settings()
@@ -55,7 +58,7 @@ async def platz_fuer_neues_geraet_schaffen(session, user_id: int) -> None:
         await session.execute(
             select(DeviceKeyBundle.id)
             .where(DeviceKeyBundle.user_id == user_id)
-            .order_by(DeviceKeyBundle.updated_at, DeviceKeyBundle.id)
+            .order_by(DeviceKeyBundle.zuletzt_benutzt, DeviceKeyBundle.id)
             .limit(1)
         )
     ).scalar_one_or_none()
