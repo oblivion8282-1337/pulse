@@ -27,19 +27,27 @@
   } = $props();
 </script>
 
-<span
-  class="text-text-bright truncate text-lg font-semibold tracking-tight"
-  style={nameStyle}
-  data-testid="active-channel-name">{name}</span
->
-{#if topic}
-  <!-- `title`: lange Themen bleiben trotz truncate vollständig lesbar. -->
+<!-- Der Container füllt die Zeile (flex-1): Er isst den Freiraum, sodass das
+     ml-auto der Aktions-Icons dahinter leer ausgeht und die Icons hart am
+     rechten Rand kleben — sonst teilen sich zwei ml-auto den Platz und die
+     Statusangabe landet in der Mitte. Genau so bekommt auch meta (ml-auto
+     INNERHALB des Containers) seinen festen Platz am rechten Rand, ob mit
+     oder ohne Thema. -->
+<div class="flex min-w-0 flex-1 items-baseline gap-2">
   <span
-    class="text-text-muted min-w-0 flex-1 truncate text-lg font-normal tracking-tight"
-    title={topic}
-    data-testid="channel-topic">· {topic}</span
+    class="text-text-bright truncate text-lg font-semibold tracking-tight"
+    style={nameStyle}
+    data-testid="active-channel-name">{name}</span
   >
-{/if}
-{#if meta}
-  <span class="text-text-muted hidden shrink-0 truncate text-sm md:block">· {meta}</span>
-{/if}
+  {#if topic}
+    <!-- `title`: lange Themen bleiben trotz truncate vollständig lesbar. -->
+    <span
+      class="text-text-muted min-w-0 flex-1 truncate text-lg font-normal tracking-tight"
+      title={topic}
+      data-testid="channel-topic">· {topic}</span
+    >
+  {/if}
+  {#if meta}
+    <span class="text-text-muted ml-auto hidden shrink-0 truncate text-sm md:block">· {meta}</span>
+  {/if}
+</div>
