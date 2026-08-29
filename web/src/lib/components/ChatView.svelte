@@ -31,6 +31,7 @@
   import { serverCapabilities } from '$lib/stores/serverCapabilities.svelte';
   import { serversStore } from '$lib/api/servers.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
+  import { anhangKnopfSichtbar } from '$lib/attachments/anhangKnopfSichtbar';
 
   let {
     channel,
@@ -137,11 +138,12 @@
   // verschluesselte Gruppen-Anhang nicht gebaut ist, bleibt der Knopf hier
   // aus; ein sichtbarer Knopf, dessen Hochladen dann am Kanal scheitert,
   // waere ein Versprechen, das die Ansicht nicht einloest.
-  const attachmentsAllowed = $derived.by(() => {
-    if (headerKind === 'gruppe') return verschluesselteAnhaenge;
-    if (headerKind !== 'dm') return true;
-    return verschluesselteAnhaenge || (serverPolicy?.dmAttachmentsEnabled ?? true);
-  });
+  // Fuer DMs erscheint der Knopf erst, wenn die Server-Auskunft bekannt UND
+  // positiv ist (kein permissiver Vorgabewert mehr) — Begruendung + Regel
+  // stehen importfrei in `anhangKnopfSichtbar.ts`.
+  const attachmentsAllowed = $derived(
+    anhangKnopfSichtbar(headerKind, verschluesselteAnhaenge, serverPolicy?.dmAttachmentsEnabled)
+  );
   /** `accept`-Attribut für den Datei-Dialog; leer = alles. Nur ein Filter im
    *  Auswahlfenster, keine Kontrolle — der Server erzwingt dieselbe Liste. */
   const attachmentAccept = $derived(

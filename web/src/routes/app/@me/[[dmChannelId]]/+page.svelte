@@ -25,6 +25,8 @@
   import { viewport } from '$lib/stores/viewport.svelte';
   import { toast } from 'svelte-sonner';
   import { E2E_DMS_ENABLED, PRIVATE_GRUPPEN_ENABLED } from '$lib/krypto/schalter';
+  import { schloss } from '$lib/krypto/schloss.svelte';
+  import { dmAnhangVerschluesselt } from '$lib/attachments/dmAnhangVerschluesselt';
   import { kanonischeAntwortId } from '$lib/krypto/kanonischeAntwortId';
   import type { AnhangAngabe } from '$lib/krypto/nachrichtNutzlast';
   import type { Channel, DMChannel, Message } from '$lib/api/types';
@@ -71,6 +73,13 @@
   });
 
   let visibleMessages = $derived(dmChannelId ? messages.for(dmChannelId) : []);
+
+  // Schloss-Stand DIESES Gespraechs, kein zusaetzlicher Abruf: `DmSchloss` in
+  // derselben `ChatView` holt ihn bereits, hier wird nur derselbe `$state`
+  // gelesen (Rechnung importfrei in `dmAnhangVerschluesselt.ts`).
+  let dmVerschluesselteAnhaenge = $derived(
+    activeDM ? dmAnhangVerschluesselt(E2E_DMS_ENABLED, schloss.stand(activeDM.other_user_id)) : false
+  );
 
   let loadError = $state<string | null>(null);
   let resolving = $state(false);
@@ -462,7 +471,7 @@
       dmPartnerId={activeDM.other_user_id}
       onBack={() => goto('/app/@me')}
       cloudScoped
-      verschluesselteAnhaenge={E2E_DMS_ENABLED}
+      verschluesselteAnhaenge={dmVerschluesselteAnhaenge}
       showMemberList={false}
       composerDisabled={activeDM.can_send === false}
       composerDisabledReason={m.dm_page_composer_disabled_reason()}
