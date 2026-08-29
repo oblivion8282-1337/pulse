@@ -80,7 +80,11 @@ class MicTest {
     if (!track) return;
 
     try {
-      const mode = settings.audio.noiseSuppression !== 'off' ? 'rnnoise_gated' : 'gain_only';
+      const mode = settings.audio.noiseSuppression === 'gtcrn'
+        ? 'gtcrn'
+        : settings.audio.noiseSuppression !== 'off'
+          ? 'rnnoise_gated'
+          : 'gain_only';
       const proc = createSendProcessor(mode, settings.audio.noiseGateThresholdDb, settings.audio.inputMakeupGain);
       await proc.processor.init({ kind: Track.Kind.Audio, track });
       if (gen !== this.#gen) { void proc.processor.destroy(); return; }

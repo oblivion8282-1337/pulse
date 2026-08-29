@@ -51,6 +51,14 @@
     else void micTest.start(settings.audio.inputDeviceId, settings.audio.outputDeviceId);
   }
 
+  function onNoiseModelChange(mode: string) {
+    if (mode !== 'rnnoise_gated' && mode !== 'gtcrn') return;
+    settings.setNoiseSuppression(mode);
+    // Modellwechsel tauscht den Sende-Prozessor — gleiche Wege wie der NS-Schalter.
+    if (voice.connected) void voice.applyNoiseFilter();
+    else void micTest.start(settings.audio.inputDeviceId, settings.audio.outputDeviceId);
+  }
+
   let listeningForPttKey = $state(false);
   let pttKeyListener: ((e: KeyboardEvent) => void) | null = null;
 
@@ -199,8 +207,9 @@
         ></span>
       </div>
       <!-- Gate-Schwelle direkt unter dem Pegel — ihr Marker-Strich sitzt im Meter
-           darüber, und sie entscheidet ab welchem Pegel der Ton durchgeht. -->
-      {#if processorActive}
+           darüber, und sie entscheidet ab welchem Pegel der Ton durchgeht.
+           GTCRN hat kein Gate in der Kette — Slider wäre wirkungslos. -->
+      {#if processorActive && settings.audio.noiseSuppression !== 'gtcrn'}
         <div class="mt-1 flex flex-col gap-1.5" data-testid="settings-noise-gate">
           <div class="flex items-center justify-between">
             <span class="text-text-base text-sm">{m.settings_audio_video_gate_threshold_label()}</span>
@@ -263,6 +272,24 @@
         onchange={(e) => onNoiseSuppressionChange((e.currentTarget as HTMLInputElement).checked)}
       />
     </label>
+    {#if settings.audio.noiseSuppression !== 'off'}
+      <!-- Modell-Wahl unter der Rauschunterdrückung. GTCRN lädt beim ersten
+           Aktivieren ~13 MB sherpa-onnx-WASM nach (einmalig, gecacht) und
+           läuft dafür auf dem Main Thread — A/B gegen die Standard-Kette. -->
+      <div class="flex items-center justify-between gap-3 pl-6" data-testid="settings-noise-model">
+        <span class="text-text-base text-sm">{m.settings_audio_video_noise_model_label()}</span>
+        <Select
+          class="h-11 md:h-9"
+          value={settings.audio.noiseSuppression}
+          options={[
+            { value: 'rnnoise_gated', label: m.settings_audio_video_noise_model_rnnoise() },
+            { value: 'gtcrn', label: m.settings_audio_video_noise_model_gtcrn() }
+          ]}
+          onchange={(v) => onNoiseModelChange(v)}
+          data-testid="settings-noise-model-select"
+        />
+      </div>
+    {/if}
 
     <!-- Echo-Unterdrückung -->
     <label class="flex cursor-pointer items-center justify-between gap-3">

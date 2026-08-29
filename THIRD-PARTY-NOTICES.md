@@ -221,6 +221,24 @@ build — see `streaming/pulse-player/Cargo.toml` and `README.md`.
 The AV1 RTP depacketizer in `src/depacket/av1.rs` is Pulse's own code, written
 because the `rtp` crate ships only an AV1 payloader.
 
+## Web-Client (`web/static/gtcrn/`)
+
+Seit 2026-08-29 liegt für die experimentelle GTCRN-Rauschunterdrückung das
+sherpa-onnx-WASM-Bundle vendiert in `web/static/gtcrn/` (nur geladen, wenn der
+Nutzer das Modell in den Audio-Einstellungen wählt; nicht im Service-Worker-
+Precache):
+
+- **sherpa-onnx** (k2-fsa) — Apache-2.0. Dateien:
+  `sherpa-onnx-wasm-main-speech-enhancement.{js,wasm,data}` und
+  `sherpa-onnx-speech-enhancement.js` aus der offiziellen
+  [WASM-Speech-Enhancement-Demo](https://huggingface.co/spaces/k2-fsa/wasm-speech-enhancement-gtcrn).
+  Lizenzkopie: `web/static/gtcrn/LICENSE-sherpa-onnx.txt`.
+- **GTCRN-Modell** (Xiaobin-Rong/gtcrn) — MIT. Steckt im `.data`-File des
+  Bundles; ~528 KB.
+
+Die Standard-Rauschunterdrückung (`@sapphi-red/web-noise-suppressor`, MIT)
+kommt weiter aus npm und ist nicht separat vendiert.
+
 ## Not covered here
 
 Rust crates statically compiled into Pulse's own sidecar binaries (e.g.

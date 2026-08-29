@@ -4,7 +4,9 @@
  */
 import type { SectionConfig } from '../types';
 
-export type NoiseSuppressionMode = 'off' | 'rnnoise_gated';
+/** `'rnnoise_gated'` = Standard-Kette (RNNoise + Gate, im Worklet);
+ *  `'gtcrn'` = GTCRN-Modell via sherpa-onnx (Main Thread, experimentell). */
+export type NoiseSuppressionMode = 'off' | 'rnnoise_gated' | 'gtcrn';
 
 /**
  * Spatial (3D) audio for voice playback. `off` = today's flat mix; `standard`
@@ -88,11 +90,11 @@ export const AUDIO_SECTION: SectionConfig<AudioSettings> = {
       outputDeviceLabel: str(a.outputDeviceLabel, d.outputDeviceLabel),
       echoCancellation: bool(a.echoCancellation, d.echoCancellation),
       // Migration: pre-binary configs may carry 'browser'/'rnnoise'/'deepfilternet'
-      // (DFN3 was removed 2026-05-16). Any non-'off' legacy value indicates the
-      // user wanted *some* filter on — map to the unified gated mode.
+      // (DFN3 was removed 2026-05-16). Any non-'off', non-current legacy value
+      // indicates the user wanted *some* filter on — map to the gated mode.
       noiseSuppression:
-        a.noiseSuppression === 'off'
-          ? 'off'
+        a.noiseSuppression === 'off' || a.noiseSuppression === 'rnnoise_gated' || a.noiseSuppression === 'gtcrn'
+          ? a.noiseSuppression
           : typeof a.noiseSuppression === 'string'
             ? 'rnnoise_gated'
             : d.noiseSuppression,
