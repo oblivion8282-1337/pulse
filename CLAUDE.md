@@ -195,6 +195,18 @@ ihn), er wäre also erst am 403 erkennbar. Ein Schalter, den man erst am
 Fehlschlag bemerkt, kann keinen Serveraufruf verhindern — und genau das ist
 seine Aufgabe.
 
+**Die Koexistenz-Regel ist seit dem 2026-08-29 überholt, der CODE setzt aber
+noch die alte um.** Beschlossen ist: **ohne App-Gerät keine
+Direktnachrichten** — womit jede DM verschlüsselt ist und der Klartext-Weg
+ersatzlos entfällt (Vorbild WhatsApp Web / Signal Desktop; ein gekoppelter
+Browser zählt mit, Etappe F). Die bestehenden unverschlüsselten DMs werden
+dabei **sofort gelöscht, ohne Frist** — ausdrücklich so entschieden. Diese
+Löschung ist ein **eigener, ausgelöster Schritt, nie eine Deploy-Nebenwirkung**,
+und setzt eine nachgewiesene frische Sicherung voraus. Wer die Regel umsetzt,
+liest zuerst §3a des Entwurfs; wer bis dahin am Koexistenz-Code arbeitet, weiss
+damit, dass er an etwas Abzuschaffendem arbeitet. Offen ist einzig, ob ein
+gekoppelter Browser dauerhaft zählt oder nach längerer Funkstille verfällt.
+
 Entwurf: `docs/superpowers/specs/2026-08-28-e2e-dm-design.md` (§10 nennt alle
 Etappen und ihre Pläne). **Der ältere `plans/2026-08-28-e2e-dm-etappen.md` ist
 überholt** — er beschreibt unter anderem einen nativen Android-Weg, den es

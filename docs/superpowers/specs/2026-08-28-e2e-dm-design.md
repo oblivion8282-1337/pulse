@@ -189,6 +189,57 @@ Der Umschaltmoment ist die einzige erklärungsbedürftige Stelle: ab da vergisst
 der Server mit. Was vorher im Klartext liegt, bleibt liegen, bis es aufgeräumt
 wird (§8).
 
+### 3a. Diese Regel ist überholt (Entscheidung vom 2026-08-29)
+
+**Die Tabelle oben beschreibt nicht mehr, was gebaut werden soll.** Sie steht
+hier, weil der Code sie heute noch umsetzt und weil die Begründungen darunter
+weiter gelten; die Regel selbst ist ersetzt durch:
+
+> **Ohne App-Gerät gibt es keine Direktnachrichten.** Wer weder die
+> Desktop-App noch eine Mobil-App hat und auch keinen Browser gekoppelt hat,
+> kann keine Direktnachrichten senden. Damit ist **jede** Direktnachricht
+> verschlüsselt, und der unverschlüsselte Weg entfällt ersatzlos.
+
+**Warum.** Die Koexistenz war der Preis dafür, niemanden auszusperren. Sie
+kostet dafür an jeder Stelle eine Fallunterscheidung — und die hat in sechs
+Bughunt-Runden wiederholt Fehler getragen: Antworten fielen still auf Klartext
+zurück, ein vorübergehender Lesefehler ebenso, die Büroklammer versprach etwas,
+das der Sendeweg gleich darauf verweigerte. Eine Regel ohne Ausnahme kann
+solche Fehler nicht haben.
+
+Das Vorbild ist nicht neu: WhatsApp Web und Signal Desktop verlangen dasselbe,
+aus demselben Grund — bei Ende-zu-Ende-Verschlüsselung ist das Gerät die
+einzige Kopie, und ein beliebiger Browser-Tab kann das nicht tragen.
+
+**Was dadurch entfällt** (und damit nicht mehr gepflegt werden muss): der
+Klartext-Sendeweg für DMs, der Koexistenz-Rückfall, die Frage „läuft dieses
+Gespräch verschlüsselt?" samt der Auskunft, die dafür gebaut wurde, und die
+Fallunterscheidung bei Anhängen, Vorschautexten und der Suche.
+
+**Was dadurch nötig wird:**
+
+1. **Ein Weg hinein für Leute ohne App.** Eine leere Liste ist keine Antwort.
+   Wer ohne App auf die Direktnachrichten geht, braucht eine Stelle, die sagt,
+   was fehlt und wie er es bekommt — inklusive des Kopplungswegs (Etappe F),
+   der den fremden Rechner ohne Installation einbindet.
+2. **Eine Antwort auf „zählt ein gekoppelter Browser als dauerhaft?".** Er hat
+   dann Schlüssel und Verlauf, bleibt aber ein Browser: gelöschte
+   Website-Daten, privates Fenster, fremder Rechner. WhatsApp löst das über
+   einen Ablauf nach längerer Zeit ohne Kontakt zum Telefon. **Offen.**
+3. **Die bestehenden unverschlüsselten Direktnachrichten verschwinden.**
+   Entschieden am 2026-08-29: **sofort löschen, ohne Frist** — die Alternativen
+   (übernehmen und dann löschen, Frist mit Vorwarnung, nur ausblenden) wurden
+   ausdrücklich verworfen.
+
+**Zur Löschung, verbindlich:** sie ist ein **eigener, ausdrücklich ausgelöster
+Schritt**, niemals eine Nebenwirkung eines Deploys. Sonst entscheidet der
+Zeitpunkt eines Container-Neustarts über die Daten der Nutzer. Vorher wird eine
+frische Sicherung nachgewiesen — nicht als Vorbehalt gegen die Entscheidung,
+sondern weil bei einem Fehler im Löschweg die Sicherung den Unterschied
+zwischen Ärger und Katastrophe macht. Betroffen sind ausschliesslich
+Nachrichten in DM-Kanälen samt ihrer Anhänge; Community-Kanäle bleiben
+unangetastet.
+
 ---
 
 ## 4. Zustellung und Löschen
