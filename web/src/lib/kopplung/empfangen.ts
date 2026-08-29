@@ -89,6 +89,19 @@ export async function umzugStand(kopplungId: string): Promise<EmpfangsStand> {
   return { gesamt: stand.gesamt_stuecke, geholt: stand.vorhandene_stuecke.length };
 }
 
+/**
+ * Verwirft eine laufende Einloesung — Befund 3 des Bughunts (2026-08-29):
+ * ohne diesen Weg haengt der Empfaenger auf einer toten Kennung fest, wenn
+ * das alte Geraet vor der Uebernahme abbricht, und der einzige Ausweg war
+ * ein Neuladen der Seite. `POST /kopplung/abschliessen` ist von BEIDEN
+ * Rollen aufrufbar (`routes/kopplung_umzug.py`) — dieselbe Route wie
+ * `senden.ts::kopplungAbbrechen`, hier nur mit der Rolle des NEUEN Geraets.
+ */
+export async function kopplungVerwerfen(kopplungId: string): Promise<void> {
+  const rumpf = await nachweisFuer('kopplung-abschliessen', kopplungId);
+  await kopplungApi.abschliessen({ ...rumpf, kopplung_id: kopplungId }, cloudRoute());
+}
+
 /** Ein Stueck, wie der Sender es geschnuert hat (`senden.ts::stueckBytes`). */
 type StueckInhalt = { saetze: Satz[] };
 

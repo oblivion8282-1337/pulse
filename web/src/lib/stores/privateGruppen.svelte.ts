@@ -32,6 +32,23 @@ import type { PrivateGruppe } from '$lib/api/gruppen';
 class PrivateGruppenStore {
   byId = $state<Record<string, PrivateGruppe>>({});
 
+  /**
+   * Loest genau einmal auf, sobald `seed()` zum ersten Mal lief.
+   *
+   * **Wofuer:** anders als DMs steht der Gruppen-Bestand nicht im
+   * `ready`-Rahmen, sondern kommt ueber ein eigenes, NICHT abgewartetes
+   * `GET /gruppen` (s. Modulkopf). Zwischen dem Rendern der Route und dieser
+   * Antwort ist `istGruppe()` fuer jede echte Gruppe faelschlich `false` —
+   * ein Direktlink/harter Reload auf eine Gruppen-ID faellt in diesem
+   * Fenster in den DM-Zweig, der fuer eine Gruppen-ID scheitert
+   * (`+page.svelte::switchTo`). Diese Promise gibt dem Aufrufer etwas zum
+   * Abwarten, statt den leeren Anfangszustand fuer die Wahrheit zu halten.
+   */
+  #bereitAufloesen!: () => void;
+  bereit: Promise<void> = new Promise((res) => {
+    this.#bereitAufloesen = res;
+  });
+
   /** Nach Aktualitaet, wie die DM-Liste: zuletzt beschriebene zuerst,
    *  danach nach Anlagezeit. */
   get list(): PrivateGruppe[] {
@@ -48,6 +65,7 @@ class PrivateGruppenStore {
     const next: Record<string, PrivateGruppe> = {};
     for (const g of gruppen) next[g.id] = g;
     this.byId = next;
+    this.#bereitAufloesen();
   }
 
   /** Traegt eine einzelne Gruppe nach (Antwort einer Mutation). */

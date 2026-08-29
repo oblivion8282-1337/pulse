@@ -39,21 +39,20 @@
  */
 import type { Message } from '../../api/types';
 import { certStore } from '../../identity/cert.svelte';
-import { loadKeypair, type WebCryptoKeypair } from '../../identity/keypair.svelte';
+import { loadKeypair } from '../../identity/keypair.svelte';
 import { keysApi } from '../../api/keys';
 import { gruppenApi } from '../../api/gruppen';
-import { postfachApi, type PostfachNutzlast } from '../../api/postfach';
+import type { PostfachNutzlast } from '../../api/postfach';
 import { serversStore } from '../../api/servers.svelte';
 import { verlaufSpeichernPflicht } from '../../verlauf';
 import { verlaufZustand } from '../../verlauf/zustand.svelte';
 import { parseMentionMarkers } from '../../components/mentionMarkierungen';
 import { kryptoAccountLaden } from '../account.svelte';
 import { sitzungLaden, sitzungSichern, mitSitzungssperre } from '../sitzungen';
-import { baueNutzlast } from '../nutzlast';
 import { baueNachrichtNutzlast } from '../nachrichtNutzlast';
-import { signiereNutzlast } from '../nachweis';
 import { PRIVATE_GRUPPEN_ENABLED } from '../schalter';
 import { sitzungWaehlen, standNachSendung } from './sitzungswahl';
+import { bloeckeEinliefern } from './gruppenEinliefern';
 import {
   ART_GRUPPENNACHRICHT,
   baueVerteilNutzlast,
@@ -99,17 +98,18 @@ function lokaleNachrichtId(): string {
 
 /** Baut je Zielgeraet einen Olm-Umschlag mit dem Verteilschluessel. Geraete
  *  ohne verwertbaren Schluessel werden uebersprungen — sie bekommen ihn beim
- *  naechsten Mal, weil sie dann immer noch nicht in `beliefert` stehen. */
+ *  naechsten Mal, weil sie dann immer noch nicht in `beliefert` stehen.
+ *  Ob ein gebauter Umschlag den Server auch WIRKLICH erreicht, entscheidet
+ *  erst `bloeckeEinliefern` — hier entsteht nur die Kandidatenliste. */
 async function verteilUmschlaege(
   kanalId: string,
   sitzungId: string,
   verteilschluessel: string,
   ziel: Gruppenzielgeraet[]
-): Promise<{ nutzlasten: PostfachNutzlast[]; beliefert: string[] }> {
+): Promise<PostfachNutzlast[]> {
   const ident = await kryptoAccountLaden();
   const klartext = baueVerteilNutzlast(kanalId, sitzungId, verteilschluessel);
   const nutzlasten: PostfachNutzlast[] = [];
-  const beliefert: string[] = [];
   for (const { geraet } of ziel) {
     const umschlag = await mitSitzungssperre(kanalId, geraet.device_pubkey, async () => {
       let sitzung = await sitzungLaden(kanalId, geraet.device_pubkey);
@@ -129,41 +129,8 @@ async function verteilUmschlaege(
       daten: umschlag.daten(),
       empfaenger: [geraet.device_pubkey]
     });
-    beliefert.push(geraet.device_pubkey);
   }
-  return { nutzlasten, beliefert };
-}
-
-/**
- * Eine einzelne Einlieferung. Gibt die Geraete-Pubkeys zurueck, die der
- * Server uebersprungen hat (unbekanntes Buendel, Kontingent voll) — bei
- * einem koerperlosen 2xx eine leere Liste, denn dann hat er nichts
- * uebersprungen GESAGT, und ohne Gegenbeweis gilt zugestellt (dieselbe
- * Deutung wie `wurdeZugestellt`, s. `../zustellErgebnis.ts`).
- *
- * **Die Unterschrift bindet genau die Umschlaege DIESER Anfrage** — der
- * Server baut die Bytes aus dem Rumpf nach (`routes/postfach.py`, Schritt 2).
- * Eine ueber alle Bloecke gemeinsam geleistete Unterschrift passte zu keinem
- * einzelnen Rumpf.
- *
- * **Wirft absichtlich weiter.** Der DM-Weg faengt hier einen 404 ab und
- * faellt auf den Klartext zurueck (`../zustellErgebnis.ts`) — fuer eine
- * Gruppe gibt es diesen Weg nicht, ein verschluckter Fehler waere eine
- * Nachricht, die niemand bekommen hat und die niemand vermisst.
- */
-async function einliefernEinmal(
-  kanalId: string,
-  certRoh: string,
-  keypair: WebCryptoKeypair,
-  nutzlasten: PostfachNutzlast[]
-): Promise<string[]> {
-  const bytes = baueNutzlast('postfach', kanalId, ...nutzlasten.map((n) => n.daten));
-  const signatur = await signiereNutzlast(keypair, bytes);
-  const ergebnis = await postfachApi.einliefern(
-    { channel_id: kanalId, cert: certRoh, signatur, nutzlasten },
-    cloudRoute()
-  );
-  return ergebnis?.uebersprungene_empfaenger ?? [];
+  return nutzlasten;
 }
 
 export async function sendeInGruppe(
@@ -208,7 +175,7 @@ export async function sendeInGruppe(
   // Schritt 4 — nur an die Geraete, die den Schluessel dieser Sitzung noch
   // nicht haben.
   const nachzuliefern = new Set(wahl.nachzuliefern);
-  const { nutzlasten: schluesselUmschlaege, beliefert } = await verteilUmschlaege(
+  const schluesselUmschlaege = await verteilUmschlaege(
     kanalId,
     stand.sitzungId,
     stand.sitzung.verteilschluessel(),
@@ -223,9 +190,10 @@ export async function sendeInGruppe(
   const daten = baueGruppenhuelle(stand.sitzungId, geheimtext);
   const alleGeraete = ziel.map((z) => z.geraet.device_pubkey);
 
-  // Schritt 6 — sichern, BEVOR irgendetwas hinausgeht. `beliefert` bleibt
-  // hier noch unveraendert (s. Schritt 8): der Zaehler steigt, die
-  // Belieferung wird erst nach der Zustellung geglaubt.
+  // Schritt 6 — sichern, BEVOR irgendetwas hinausgeht. Die Belieferung
+  // (`nachSendung.beliefert`) wird erst nach der tatsaechlichen Zustellung
+  // ergaenzt (s. Schritt 8): der Zaehler steigt schon hier, die Geraeteliste
+  // noch nicht.
   const nachSendung = standNachSendung(stand, []);
   await gruppensitzungSichern(kanalId, nachSendung);
 
@@ -248,38 +216,50 @@ export async function sendeInGruppe(
   // dieser Reihenfolge ab — ein Empfaenger soll den Schluessel in der Hand
   // haben, bevor die Nachricht kommt. Umgekehrt bliebe sie einen Zyklus
   // liegen (verloren waere sie nicht, s. `empfangen.ts`).
-  const uebersprungen = new Set<string>();
-  for (const block of inBloecke(schluesselUmschlaege, MAX_UMSCHLAEGE_JE_ANFRAGE)) {
-    for (const p of await einliefernEinmal(kanalId, cert.raw, keypair, block)) {
-      uebersprungen.add(p);
-    }
-  }
+  //
+  // **Beide Schleifen laufen ueber `bloeckeEinliefern`** (s. dort): ein
+  // geworfener Block darf spaetere Bloecke nicht verschlucken, und was
+  // schon zugestellt wurde, muss als solches erkennbar bleiben — genau der
+  // belegte Fehler, der ein einzelnes gerade entferntes Mitglied frueher
+  // die GANZE restliche Sendung mitreissen liess.
+  const { beliefert: schluesselBeliefert } = await bloeckeEinliefern(
+    kanalId,
+    cert.raw,
+    keypair,
+    inBloecke(schluesselUmschlaege, MAX_UMSCHLAEGE_JE_ANFRAGE)
+  );
   const nachrichtUmschlaege: PostfachNutzlast[] = inEmpfaengerBloecke(alleGeraete).map(
     (block) => ({ art: ART_GRUPPENNACHRICHT, daten, empfaenger: block })
   );
-  let irgendwoZugestellt = false;
-  for (const block of inBloecke(nachrichtUmschlaege, MAX_UMSCHLAEGE_JE_ANFRAGE)) {
-    const uebersprungeneDesBlocks = await einliefernEinmal(kanalId, cert.raw, keypair, block);
-    // Ein Block gilt als zugestellt, wenn nicht JEDES seiner Geraete
-    // uebersprungen wurde. `einliefernEinmal` liefert bei einem koerperlosen
-    // 2xx eine leere Liste — dann steht hier korrekt „zugestellt".
-    const geraeteImBlock = block.flatMap((n) => n.empfaenger);
-    if (geraeteImBlock.some((g) => !uebersprungeneDesBlocks.includes(g))) {
-      irgendwoZugestellt = true;
-    }
+  const { beliefert: nachrichtBeliefert, letzterFehler: nachrichtFehler } =
+    await bloeckeEinliefern(
+      kanalId,
+      cert.raw,
+      keypair,
+      inBloecke(nachrichtUmschlaege, MAX_UMSCHLAEGE_JE_ANFRAGE)
+    );
+
+  if (nachrichtBeliefert.size === 0) {
+    // Nirgends zugestellt. Warf mindestens ein Block, ist das ein echter
+    // Fehlschlag (Netz, Server) — der wirft weiter, dieselbe Regel wie in
+    // `einliefernEinmal`: ein verschluckter Fehler waere eine Nachricht,
+    // die niemand bekommen hat und die niemand vermisst. Warf KEIN Block,
+    // hat der Server schlicht jeden angefragten Empfaenger uebersprungen
+    // (z. B. kein Mitglied mit einem Buendel).
+    if (nachrichtFehler) throw nachrichtFehler;
+    return { art: 'nicht_zugestellt' };
   }
-  if (!irgendwoZugestellt) return { art: 'nicht_zugestellt' };
 
   // Schritt 8 — jetzt erst gilt der Schluessel als verteilt, und nur an die
-  // Geraete, die der Server nicht uebersprungen hat.
-  // `standNachSendung` zaehlt die Nachricht mit — ein zweiter Aufruf
+  // Geraete, die tatsaechlich beliefert wurden (`schluesselBeliefert` traegt
+  // sowohl den Server-Uebersprung als auch einen geworfenen Block bereits
+  // NICHT). `standNachSendung` zaehlt die Nachricht mit — ein zweiter Aufruf
   // zaehlte sie doppelt. Deshalb hier direkt auf `nachSendung` aufgesetzt,
   // dessen Zaehler schon stimmt.
-  const wirklichBeliefert = beliefert.filter((p) => !uebersprungen.has(p));
-  if (wirklichBeliefert.length > 0) {
+  if (schluesselBeliefert.size > 0) {
     await gruppensitzungSichern(kanalId, {
       ...nachSendung,
-      beliefert: [...new Set([...nachSendung.beliefert, ...wirklichBeliefert])]
+      beliefert: [...new Set([...nachSendung.beliefert, ...schluesselBeliefert])]
     });
   }
 

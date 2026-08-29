@@ -57,11 +57,16 @@ Der lokale Verlauf enthaelt seit Etappe E entschluesselte Anhang-Bytes
 **Was der Nutzer davon merkt, und wie ehrlich es steht:** die Nachricht
 kommt mit, samt Angaben zum Anhang (Name, Groesse, Masse) — die stehen im
 Satz, nicht in den Bytes. Die Kachel bleibt also an ihrem Platz, das Bild
-laesst sich nur nicht oeffnen. Die Oberflaeche sagt das an zwei Stellen:
-vor dem Umzug (der Bericht nennt die Zahl der Nachrichten UND dass Bilder
-und Dateien auf dem alten Geraet bleiben) und danach an der Kachel selbst.
-Nicht angezeigt wird ein Ladefehler — der waere die Unwahrheit, es ist kein
-Fehler.
+laesst sich nur nicht oeffnen. Die Oberflaeche sagt das an ZWEI Stellen, aber
+beide NACH dem Uebernehmen, nicht davor: einmal im Abschlussbericht
+(``kopplung_uebernommen`` nennt die Zahl der uebernommenen Nachrichten) und
+gleich daneben der feste Hinweis, dass Bilder und Dateien auf dem alten
+Geraet bleiben (``kopplung_anhaenge_hinweis``, `KopplungEinloesen.svelte`).
+Eine Vorschau VOR dem Uebernehmen gibt es nicht — der Empfaenger kennt die
+Gesamtzahl erst, wenn das alte Geraet ``POST /kopplung/fertig`` gerufen hat,
+und selbst dann ist es nur die Stueckzahl, nicht die Nachrichtenzahl (die
+steckt erst in den verschluesselten Stuecken). Nicht angezeigt wird ein
+Ladefehler — der waere die Unwahrheit, es ist kein Fehler.
 """
 
 from __future__ import annotations
@@ -152,11 +157,13 @@ async def kopplung_stueck_ablegen(
                 folge=body.folge,
                 daten=body.daten,
                 groesse=groesse,
+                kennung=body.kennung,
             )
         )
     else:
         vorhanden.daten = body.daten
         vorhanden.groesse = groesse
+        vorhanden.kennung = body.kennung
 
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -1283,8 +1283,22 @@ async def test_entferntes_mitglied_bekommt_nichts_mehr_zugestellt(
     Ausgeschiedener schon hat, kann niemand zurueckholen — deshalb wechselt
     der Absender die Sitzung (``krypto/gruppe/sitzungswahl.ts``). Der Server
     steuert bei, dass der Geheimtext gar nicht erst in seinem Postfach
-    landet: ``empfaenger_nicht_im_kanal``, weil sein Geraet zu keinem
-    Teilnehmer mehr gehoert."""
+    landet.
+
+    **Bughunt 2026-08-28/29 (belegter Fehler):** vorher kippte C's global
+    weiterhin existierendes, aber nicht mehr kanalgehoeriges Buendel die
+    GANZE Anfrage mit 403 ``empfaenger_nicht_im_kanal`` — auch fuer B, der
+    weiterhin Mitglied ist und im selben Umschlag stand. In einer Gruppe ist
+    ein gerade Entfernter der Alltagsfall (der Absender hatte die
+    Mitgliederliste nur einen Moment frueher gelesen), kein Angriff — anders
+    als bei einer DM (dort bleibt der 403 unveraendert, s.
+    ``test_zustellung_an_ein_kanalfremdes_geraet_wird_abgewiesen``). Der
+    Server ueberspringt C jetzt wie ein unbekanntes Geraet, die Anfrage
+    liefert an B trotzdem aus, und der Absender erfaehrt ueber
+    ``uebersprungene_empfaenger``, dass C nichts bekommen hat."""
+    from dcc_chat_gateway.models import DmZustellung
+    from sqlalchemy import select
+
     t_a, uid_a = await _register(_auth_signer)
     _, uid_b = await _register(_auth_signer)
     _, uid_c = await _register(_auth_signer)
@@ -1303,8 +1317,50 @@ async def test_entferntes_mitglied_bekommt_nichts_mehr_zugestellt(
             "art": 2, "daten": _b64_unpadded(b"geheim"), "empfaenger": [pk_b, pk_c],
         }],
     )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["zustellungen_angelegt"] == 1
+    assert body["uebersprungene_empfaenger"] == [pk_c]
+
+    async with session_factory() as s:
+        zustellungen = (await s.execute(select(DmZustellung))).scalars().all()
+        assert len(zustellungen) == 1
+        assert zustellungen[0].empfaenger_device_pubkey == pk_b
+
+
+@pytest.mark.asyncio
+async def test_dm_kanalfremdes_geraet_bleibt_fail_closed_trotz_gruppen_fix(
+    client, app, session_factory, _auth_signer, friend_pair
+):
+    """Gegenprobe zum Fix oben: der DM-Zweig darf sich NICHT mitveraendert
+    haben. Dieselbe Situation wie
+    ``test_zustellung_an_ein_kanalfremdes_geraet_wird_abgewiesen``, hier
+    direkt neben dem Gruppen-Fix platziert, damit ein kuenftiger Umbau beide
+    Faelle nebeneinander sieht."""
+    from dcc_chat_gateway.models import DmNutzlast, DmZustellung
+    from sqlalchemy import select
+
+    token_a, uid_a = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
+    _, uid_fremd = await _register(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+    dm_id = await _dm_erstellen(client, token_a, uid_b)
+    await _bundel_seeden(session_factory, user_id=uid_b, device_pubkey="empf-ok-2")
+    await _bundel_seeden(session_factory, user_id=uid_fremd, device_pubkey="empf-fremd-2")
+
+    daten = base64.b64encode(b"olm-umschlag").decode()
+    r = await _einliefern(
+        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        nutzlasten=[{
+            "art": 1, "daten": daten, "empfaenger": ["empf-ok-2", "empf-fremd-2"],
+        }],
+    )
     assert r.status_code == 403, r.text
     assert r.json()["detail"] == "empfaenger_nicht_im_kanal"
+
+    async with session_factory() as s:
+        assert (await s.execute(select(DmNutzlast))).scalars().all() == []
+        assert (await s.execute(select(DmZustellung))).scalars().all() == []
 
 
 @pytest.mark.asyncio

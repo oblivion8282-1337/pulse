@@ -12,6 +12,7 @@
   import { guilds } from '$lib/stores/guilds.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
+  import { alsGruppeErkennenNachWarten } from '$lib/gruppen/kanalArtWarten';
   import { userCache } from '$lib/stores/users.svelte';
   import { messages } from '$lib/stores/messages.svelte';
   import { verlaufSpeichern, verlaufLesen, verlaufMergen } from '$lib/verlauf';
@@ -171,7 +172,23 @@
     // Gruppe oder DM? Einmal festhalten, danach nicht mehr nachsehen:
     // `switchTo` laeuft aus einem `$effect`, und ein Lesen des Speichers
     // mitten im Ablauf machte den Lauf von jeder Gruppen-Aenderung abhaengig.
-    const istGruppe = untrack(() => privateGruppen.istGruppe(cid));
+    let istGruppe = untrack(() => privateGruppen.istGruppe(cid));
+
+    // Direktlink/harter Reload: `cid` ist weder als Gruppe noch als DM
+    // bekannt. Der Gruppen-Speicher kann in diesem Fenster noch leer sein
+    // (eigenes, nicht abgewartetes `GET /gruppen`) — ohne dieses Warten
+    // wuerde eine Gruppen-ID hier faelschlich als DM behandelt und
+    // scheiterte unten an `chatApi.getDMChannel`. Fuer eine bekannte
+    // Gruppe/DM (der ueberwiegende Fall) ist `privateGruppen.bereit` laengst
+    // aufgeloest — kein zusaetzlicher Netzwerk-Umweg. Rechnung ausgelagert
+    // (importfrei, s. CLAUDE.md „Die Falle"): `gruppen/kanalArtWarten.ts`.
+    if (!istGruppe && !directMessages.byId[cid]) {
+      istGruppe = await alsGruppeErkennenNachWarten(
+        () => untrack(() => privateGruppen.istGruppe(cid)),
+        () => privateGruppen.bereit
+      );
+      if (isStale()) return;
+    }
 
     if (!istGruppe && !directMessages.byId[cid]) {
       // We don't know this DM yet — pull it (e.g. deep link before hydrate

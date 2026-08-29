@@ -10,12 +10,19 @@ deshalb keine Aenderung.
 **Seither einmal erweitert (Etappe G2):** ``_channel_zugriff_pruefen`` traegt
 neben DMs jetzt auch private Gruppen und gibt statt des Kanalobjekts die
 Teilnehmermenge zurueck — s. dort.
+
+**Bughunt 2026-08-28/29 (belegter Fehler):** der Rueckgabewert ist seither
+``KanalZugriff`` statt eines nackten ``set[int]`` — er traegt zusaetzlich
+``ist_dm``. Der einzige Aufrufer, der die Kanalart braucht
+(``routes/postfach.py``, die Empfaenger-Schleife), unterscheidet damit, WIE
+ein Empfaengergeraet ausserhalb der Teilnehmermenge behandelt wird — s. dort.
 """
 
 from __future__ import annotations
 
 import base64
 from collections.abc import Collection
+from typing import NamedTuple
 
 from fastapi import HTTPException, Request
 from sqlalchemy import select
@@ -26,6 +33,14 @@ from dcc_chat_gateway.private_gruppen_zugriff import gruppen_teilnehmer
 from dcc_chat_gateway.routes._deps import resolve_channel_for_user
 
 
+class KanalZugriff(NamedTuple):
+    """Ergebnis von ``_channel_zugriff_pruefen``: die Konten, an die
+    zugestellt werden darf, plus die Kanalart — s. Modul-Docstring."""
+
+    teilnehmer: set[int]
+    ist_dm: bool
+
+
 def _require_redis(request: Request):
     redis = getattr(request.app.state, "redis", None)
     if redis is None:
@@ -33,8 +48,9 @@ def _require_redis(request: Request):
     return redis
 
 
-async def _channel_zugriff_pruefen(session, channel_id: int, user_id: int) -> set[int]:
-    """Die Konten, in deren Geraete-Postfaecher dieser Kanal zustellen darf.
+async def _channel_zugriff_pruefen(session, channel_id: int, user_id: int) -> KanalZugriff:
+    """Die Konten, in deren Geraete-Postfaecher dieser Kanal zustellen darf,
+    plus die Kanalart (``ist_dm``).
 
     Zwei Kanalarten, zwei Regeln:
 
@@ -52,14 +68,21 @@ async def _channel_zugriff_pruefen(session, channel_id: int, user_id: int) -> se
       auszunehmen, hiesse seinen Gruppenschluessel veralten zu lassen, ohne
       dass er oder der Absender es merkt — er saehe ab dann eine Gruppe, in
       der niemand mehr schreibt. Das Ausblenden geblockter Absender gehoert
-      in die Anzeige, nicht in die Zustellung.
+      in die Anzeige, nicht in die Zustellung — und liegt dort seit dem
+      Bughunt-Nachtrag 2026-08-29 auch tatsaechlich: ``MessageItem.svelte``
+      klappt eine Nachricht eines blockierten Absenders zusammen
+      (``nachrichtVonBlockiertem``, ``web/src/lib/nachrichten/blockierteAnzeige.ts``).
+      Bis dahin gab es diese Anzeige-Seite nicht, und der Kommentar hier
+      behauptete eine Kompensation, die nirgends existierte.
 
-    **Der Rueckgabewert ist die Teilnehmermenge, nicht der Kanal.** Der
-    einzige Aufrufer, der ihn auswertet (``routes/postfach.py``), brauchte
-    vom DM-Objekt ohnehin nur die beiden Konto-IDs; mit einer dritten
-    Kanalart gaebe es kein gemeinsames Objekt mehr, das beide Faelle traegt.
-    ``routes/postfach_anhaenge.py`` wertet ihn nicht aus (reine Zugangs-
-    Pruefung).
+    **Der Rueckgabewert traegt die Teilnehmermenge UND die Kanalart, nicht
+    den Kanal.** Der einzige Aufrufer, der ihn auswertet
+    (``routes/postfach.py``), brauchte vom DM-Objekt ohnehin nur die beiden
+    Konto-IDs; mit einer dritten Kanalart gaebe es kein gemeinsames Objekt
+    mehr, das beide Faelle traegt. ``ist_dm`` entscheidet dort, WIE ein
+    Empfaengergeraet ausserhalb der Teilnehmermenge behandelt wird — s. den
+    Kommentar an der Empfaenger-Schleife dort. ``routes/postfach_anhaenge.py``
+    wertet den Rueckgabewert nicht aus (reine Zugangs-Pruefung).
 
     Eine Gilden-Kanal-ID faellt weiterhin durch — das Postfach traegt DMs und
     private Gruppen, keine Community-Kanaele (Spec §9: „oeffentlich und
@@ -72,7 +95,7 @@ async def _channel_zugriff_pruefen(session, channel_id: int, user_id: int) -> se
             raise HTTPException(status_code=403, detail="blocked")
         if not await friendship_exists(session, user_id, other):
             raise HTTPException(status_code=403, detail="not_friends")
-        return {dm_obj.user_a_id, dm_obj.user_b_id}
+        return KanalZugriff(teilnehmer={dm_obj.user_a_id, dm_obj.user_b_id}, ist_dm=True)
 
     # ``resolve_channel_for_user`` kennt private Gruppen nicht (und soll es
     # vorerst auch nicht, s. Modulkopf von ``private_gruppen_zugriff.py``) —
@@ -82,7 +105,7 @@ async def _channel_zugriff_pruefen(session, channel_id: int, user_id: int) -> se
     if resolved is None:
         mitglieder = await gruppen_teilnehmer(session, channel_id, user_id)
         if mitglieder is not None:
-            return mitglieder
+            return KanalZugriff(teilnehmer=mitglieder, ist_dm=False)
     raise HTTPException(status_code=403, detail="channel_not_accessible")
 
 
@@ -136,6 +159,7 @@ def _envelope_groesse(daten_b64: str) -> int:
 
 
 __all__ = [
+    "KanalZugriff",
     "_bundle_laden",
     "_channel_zugriff_pruefen",
     "_envelope_groesse",

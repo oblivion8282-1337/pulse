@@ -115,6 +115,20 @@ class UmzugStueck(Base):
     #: Bytes VOR der Base64-Kodierung — damit Obergrenzen und
     #: Aufraeum-Statistiken ohne Lesen der Nutzlast auskommen.
     groesse: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    #: Ein vom Klienten aus dem KLARTEXT abgeleiteter HMAC (Schluessel wie
+    #: der Transportschluessel per HKDF aus dem Kopplungscode, eigener
+    #: Kontext — ``web/src/lib/kopplung/transport.ts``). Der Server kann
+    #: daraus den Klartext nicht zurueckrechnen (HMAC, nicht Hash des
+    #: Klartexts allein) und lernt auch bei gleichem Inhalt nichts, weil der
+    #: Schluessel je Kopplung verschieden ist — er dient ausschliesslich dem
+    #: SENDER als spaeterer Abgleich „ist das, was hier liegt, noch genau
+    #: das, was ich gerade lokal habe". Ohne Kryptomaterial des Kopplungscodes
+    #: (den der Server nie sieht) ist kein zweiter Wert herstellbar, der
+    #: passend zu einem gegebenen Klartext daherkaeme.
+    #: ``NULL`` nur fuer Zeilen, die vor diesem Feld entstanden — die Rechnung
+    #: auf der Sendeseite behandelt ein fehlendes Kennzeichen als
+    #: Nicht-Uebereinstimmung (sicherer Vorgabewert, s. ``kopplung.py``).
+    kennung: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

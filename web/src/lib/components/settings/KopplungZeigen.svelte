@@ -20,6 +20,7 @@
   import { codeAnzeigen } from '$lib/kopplung/code';
   import { qrSvgFuerCode } from '$lib/kopplung/qr';
   import { istEingeloest, kopplungAbbrechen, kopplungStarten, verlaufSchieben } from '$lib/kopplung/senden';
+  import { kannErneutSchieben } from '$lib/kopplung/ansichtZustand';
 
   /** Wie oft nachgefragt wird, ob das andere Gerät eingelöst hat. */
   const TAKT_MS = 2000;
@@ -38,6 +39,14 @@
   // gecacht) — der Code lebt ohnehin nur so lange wie diese Komponente, ein
   // Cache brächte hier keinen Vorteil, nur eine zweite Kopie im Speicher.
   const qrSvg = $derived(code === null ? null : qrSvgFuerCode(code, m.kopplung_qr_alt()));
+
+  // Befund 1 (Bughunt 2026-08-29): `verlaufSchieben` konnte immer schon
+  // fortsetzen (`senden.ts` fragt den Stand ab und schiebt nur die
+  // Differenz) — erreichbar war das nur nicht, weil es keinen Knopf gab, es
+  // erneut zu versuchen. Kennung und Code bleiben nach einem Fehlschlag im
+  // `$state` dieser Komponente stehen (`schieben()` raeumt sie nicht weg),
+  // ein erneuter Lauf trifft also auf echte Vorarbeit.
+  const darfErneutSchieben = $derived(kannErneutSchieben(kopplungId, fehler, fertig));
 
   function taktStoppen() {
     if (takt !== null) clearInterval(takt);
@@ -73,6 +82,15 @@
     }
     verbunden = true;
     taktStoppen();
+    await schieben();
+  }
+
+  /** Wiederholt einen fehlgeschlagenen Schiebe-Versuch mit derselben
+   *  Kennung (Befund 1). Der Fehlertext wird erst hier geloescht, nicht
+   *  vorzeitig — sonst verschwaende der Hinweis schon beim blossen
+   *  Anzeigen des Knopfs. */
+  async function erneutVersuchen() {
+    fehler = null;
     await schieben();
   }
 
@@ -161,5 +179,11 @@
 
   {#if fehler !== null}
     <p class="text-sm text-destructive" data-testid="kopplung-zeigen-fehler">{fehler}</p>
+  {/if}
+
+  {#if darfErneutSchieben}
+    <Button onclick={erneutVersuchen} data-testid="kopplung-zeigen-erneut-versuchen">
+      {m.kopplung_zeigen_erneut_versuchen()}
+    </Button>
   {/if}
 </div>

@@ -80,6 +80,13 @@ class KopplungStandResponse(BaseModel):
     #: **Die ganze Fortsetzbarkeit haengt an dieser Liste**: der Sender
     #: schiebt genau das, was fehlt, statt von vorne zu beginnen.
     vorhandene_stuecke: list[int]
+    #: Position -> Inhalts-Kennung (nur wo eine hinterlegt ist). Der Sender
+    #: vergleicht sie mit der lokal neu berechneten, um ein Stueck zu
+    #: erkennen, dessen Inhalt sich seit dem letzten Lauf geaendert hat
+    #: (bearbeitete/geloeschte Nachricht waehrend der offenen Frist,
+    #: s. ``web/src/lib/kopplung/senden.ts``) — nur die Positionszahl allein
+    #: haette das NICHT angezeigt.
+    vorhandene_kennungen: dict[int, str]
     verfaellt_am: datetime
 
 
@@ -95,6 +102,13 @@ class UmzugStueckRequest(BaseModel):
     #: Base64 des AES-GCM-Chiffretexts (IV vorangestellt). Der Server kann
     #: ihn nicht oeffnen und loggt ihn nirgends.
     daten: str
+    #: Base64url(HMAC-SHA256) ueber den Klartext dieses Stuecks, Schluessel
+    #: per HKDF aus dem Kopplungscode (eigener Kontext, getrennt vom
+    #: Transportschluessel). Dient nur dem SENDER als spaeterer Abgleich
+    #: (s. ``models/kopplung.py::UmzugStueck.kennung``) — nicht signiert
+    #: mitgefuehrt, weil sie keine eigene Berechtigung traegt, sondern nur
+    #: fuer denselben, bereits als ``alt`` geprueften Absender gilt.
+    kennung: str = Field(min_length=16, max_length=128)
 
 
 class UmzugStueckHolenRequest(BaseModel):

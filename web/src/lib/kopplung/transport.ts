@@ -38,6 +38,9 @@ const ENC = new TextEncoder();
 const HASH_KONTEXT = 'pulse-kopplung-v1';
 /** Trennt die Schluesselableitung vom Server-Hash. */
 const SCHLUESSEL_SALZ = 'pulse-umzug-v1';
+/** Trennt die Inhalts-Kennung vom Transportschluessel — eigener HKDF-Kontext,
+ *  s. `stueckKennungSchluessel`. */
+const KENNUNG_SALZ = 'pulse-umzug-kennung-v1';
 /** GCMs Standard-IV-Laenge, wie in `krypto/anhangKrypto.ts`. */
 const IV_LAENGE = 12;
 
@@ -100,6 +103,63 @@ export async function transportSchluessel(code: string, kopplungId: string): Pro
     false,
     ['encrypt', 'decrypt']
   );
+}
+
+/**
+ * Schluessel fuer die Inhalts-Kennung eines Stuecks — eigener HKDF-Kontext,
+ * getrennt vom Transportschluessel (Domaenentrennung ist Pflicht, nicht
+ * Zierde, s. Modulkopf).
+ */
+export async function stueckKennungSchluessel(code: string, kopplungId: string): Promise<CryptoKey> {
+  const material = await crypto.subtle.importKey(
+    'raw',
+    ENC.encode(code) as unknown as BufferSource,
+    'HKDF',
+    false,
+    ['deriveKey']
+  );
+  return crypto.subtle.deriveKey(
+    {
+      name: 'HKDF',
+      hash: 'SHA-256',
+      salt: ENC.encode(KENNUNG_SALZ) as unknown as BufferSource,
+      info: ENC.encode(kopplungId) as unknown as BufferSource
+    },
+    material,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+}
+
+/**
+ * Die Inhalts-Kennung eines Stuecks — ein HMAC ueber Position und Klartext.
+ *
+ * **Wozu, wenn `daten` schon verschluesselt beim Server liegt:** der
+ * zufaellige IV macht jede Verschluesselung desselben Klartexts anders —
+ * der Chiffretext taugt also nicht zum Wiedererkennen „ist das noch derselbe
+ * Inhalt". Diese Kennung ist deterministisch (kein IV) und dient NUR dem
+ * SENDER als spaeteren Abgleich beim Fortsetzen (`senden.ts`): stimmt sie
+ * nicht mehr mit dem lokal neu berechneten Wert ueberein, ist das Stueck
+ * veraltet und wird neu geschoben, statt still uebernommen zu werden.
+ *
+ * Der Server sieht darin nichts ausser einem undurchsichtigen HMAC — ableiten
+ * kann ihn nur, wer den Kopplungscode kennt, und der erreicht den Server nie
+ * (s. Modulkopf). Die Position geht mit ein, aus demselben Grund wie bei
+ * `zusatzdaten`: zwei inhaltsgleiche Stuecke an verschiedenen Positionen
+ * ergeben verschiedene Kennungen.
+ */
+export async function stueckKennung(
+  schluessel: CryptoKey,
+  folge: number,
+  klartext: Uint8Array
+): Promise<string> {
+  const praefix = ENC.encode(`${folge}:`);
+  const eingang = new Uint8Array(praefix.length + klartext.length);
+  eingang.set(praefix, 0);
+  eingang.set(klartext, praefix.length);
+  const signatur = await crypto.subtle.sign('HMAC', schluessel, eingang as unknown as BufferSource);
+  return base64UrlAus(new Uint8Array(signatur));
 }
 
 /**

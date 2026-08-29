@@ -123,8 +123,10 @@ async def postfach_einliefern(
     )
 
     # 3. Kanalzugang. Der Kanal liefert zugleich die Menge der Konten, an die
-    # ueberhaupt zugestellt werden darf (s. Pruefung weiter unten).
-    teilnehmer = await _channel_zugriff_pruefen(session, cid_int, user.id)
+    # ueberhaupt zugestellt werden darf (s. Pruefung weiter unten), UND die
+    # Kanalart — die Empfaenger-Schleife braucht sie (Bughunt 2026-08-28/29).
+    zugriff = await _channel_zugriff_pruefen(session, cid_int, user.id)
+    teilnehmer = zugriff.teilnehmer
 
     # 3b. Anhaenge (Etappe E). VOR dem Anlegen der Umschlaege: eine fremde
     # oder kanalfremde Kennung soll die Anfrage kippen, bevor irgendeine
@@ -197,24 +199,39 @@ async def postfach_einliefern(
             # Kontingent vollschreiben.
             bundle = await _bundle_laden(session, pubkey, teilnehmer)
             if bundle is None:
-                # Kein Buendel innerhalb DIESES Gespraechs — zwei Faelle,
-                # die unterschiedlich beantwortet werden. Ein Pubkey, der
-                # NIRGENDS existiert, ist Alltag (Geraet zwischen
+                # Kein Buendel innerhalb DIESES Gespraechs. Ein Pubkey, der
+                # NIRGENDS existiert, ist immer Alltag (Geraet zwischen
                 # Schluessel-Abholen und Absenden abgemeldet): still
-                # uebersprungen, kein Fehler fuer die uebrigen Empfaenger,
-                # nur ehrlich in der Antwort vermerkt. Ein Pubkey, der
-                # existiert, aber zu KEINEM Teilnehmer dieses Kanals gehoert,
-                # ist kein Alltagsfall, sondern ein Klientenfehler oder ein
-                # Angriff — fail-closed und laut. Ein reiner
-                # Existenz-Check statt eines zweiten ``_bundle_laden``-Aufrufs,
-                # weil er selbst bei einer Pubkey-Kollision unter mehreren
-                # fremden Konten nie mehr als einen booleschen Wert liefert.
+                # uebersprungen. Ein Pubkey, der existiert, aber zu KEINEM
+                # Teilnehmer dieses Kanals gehoert, haengt an der Kanalart
+                # (Bughunt 2026-08-28/29 (belegter Fehler)):
+                #
+                # * **DM** — kein Alltagsfall, sondern ein Klientenfehler
+                #   oder ein Angriff (nur zwei Teilnehmer) — fail-closed und
+                #   laut, UNVERAENDERT (s.
+                #   ``test_zustellung_an_ein_kanalfremdes_geraet_wird_abgewiesen``).
+                # * **Private Gruppe** — hier ist es der Alltagsfall: ein
+                #   Mitglied, das der Absender gerade eben noch in der Liste
+                #   sah (Schritt 1 im Klienten), kann zwischen Lesen und
+                #   Einliefern entfernt worden sein — sein Buendel existiert
+                #   global weiter, gehoert aber zu keinem Teilnehmer mehr.
+                #   Eine Gruppen-Anfrage traegt oft VIELE Empfaenger auf
+                #   einmal (Megolm, ein Umschlag fuer alle); sie mit 403 zu
+                #   toeten liesse jedes andere, weiterhin berechtigte
+                #   Mitglied ebenfalls leer ausgehen. Zugestellt wird dem
+                #   Ausgeschiedenen so oder so nichts — nur WIE das dem
+                #   Absender gesagt wird, unterscheidet sich.
+                #
+                # Ein reiner Existenz-Check statt eines zweiten
+                # ``_bundle_laden``-Aufrufs, weil er selbst bei einer
+                # Pubkey-Kollision unter mehreren fremden Konten nie mehr als
+                # einen booleschen Wert liefert.
                 fremdes_geraet_vorhanden = (
                     await session.execute(
                         select(exists().where(DeviceKeyBundle.device_pubkey == pubkey))
                     )
                 ).scalar_one()
-                if fremdes_geraet_vorhanden:
+                if fremdes_geraet_vorhanden and zugriff.ist_dm:
                     raise HTTPException(status_code=403, detail="empfaenger_nicht_im_kanal")
                 uebersprungene_empfaenger[pubkey] = None
                 continue

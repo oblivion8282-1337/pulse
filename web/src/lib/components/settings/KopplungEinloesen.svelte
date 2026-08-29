@@ -24,9 +24,12 @@
   import {
     EinloesenFehlgeschlagen,
     kopplungEinloesen,
+    kopplungVerwerfen,
     umzugStand,
     verlaufUebernehmen
   } from '$lib/kopplung/empfangen';
+  import { standSicherAbfragen } from '$lib/kopplung/standAbfragen';
+  import { kannVerwerfen } from '$lib/kopplung/ansichtZustand';
   import type { EinloesFehler } from '$lib/kopplung/einloesFehler';
 
   let eingabe = $state('');
@@ -38,6 +41,11 @@
   let gesamt = $state(0);
   let uebernommen = $state<number | null>(null);
   let fehler = $state<EinloesFehler | null>(null);
+
+  /** Solange eine Kopplung laeuft und noch nichts uebernommen ist, gibt es
+   *  einen Weg zurueck (Befund 3, Bughunt 2026-08-29) — sonst haengt der
+   *  Empfaenger auf einer toten Kennung fest, wenn der Sender abbricht. */
+  const darfVerwerfen = $derived(kannVerwerfen(kopplungId, uebernommen));
 
   /** Die Fehlergründe stehen als eigene Nachrichten im Katalog — kein
    *  zusammengesetzter Schlüssel, damit ein fehlender Text beim Übersetzen
@@ -76,9 +84,38 @@
 
   async function standPruefen() {
     if (kopplungId === null) return;
-    const stand = await umzugStand(kopplungId);
-    bereit = stand.gesamt !== null;
-    gesamt = stand.gesamt ?? 0;
+    // Befund 2 (Bughunt 2026-08-29): diese Funktion war die einzige der drei
+    // hier ohne Fehlerbehandlung. Ist die Kopplung weg (Sender hat
+    // abgebrochen, Frist abgelaufen), wirft der Aufruf ungefangen — der
+    // Knopf sah aus, als taete er nichts. `standSicherAbfragen` faengt den
+    // Wurf und ordnet ihn demselben Fehler-Vokabular zu wie `einloesen()`.
+    const ergebnis = await standSicherAbfragen(() => umzugStand(kopplungId!));
+    if (!ergebnis.ok) {
+      fehler = ergebnis.fehler;
+      return;
+    }
+    fehler = null;
+    bereit = ergebnis.bereit;
+    gesamt = ergebnis.gesamt;
+  }
+
+  /** Befund 3 (Bughunt 2026-08-29): ein Weg zurueck, wenn der Sender vor der
+   *  Uebernahme abbricht — sonst bleibt nur ein Neuladen der Seite. */
+  async function verwerfen() {
+    const id = kopplungId;
+    kopplungId = null;
+    code = null;
+    bereit = false;
+    geholt = 0;
+    gesamt = 0;
+    fehler = null;
+    if (id !== null) {
+      try {
+        await kopplungVerwerfen(id);
+      } catch {
+        // Bleibt sie stehen, raeumt sie die Frist weg (`kopplung_pflege.py`).
+      }
+    }
   }
 
   async function uebernehmen() {
@@ -136,5 +173,11 @@
 
   {#if fehler !== null}
     <p class="text-sm text-destructive" data-testid="kopplung-fehler">{fehlertext(fehler)}</p>
+  {/if}
+
+  {#if darfVerwerfen}
+    <Button variant="outline" onclick={verwerfen} data-testid="kopplung-verwerfen">
+      {m.kopplung_eingeben_abbrechen()}
+    </Button>
   {/if}
 </div>

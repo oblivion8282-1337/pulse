@@ -24,6 +24,10 @@ export interface KopplungStand {
   neu_device_pubkey: string | null;
   gesamt_stuecke: number | null;
   vorhandene_stuecke: number[];
+  /** Position (als String-Schluessel, JSON kennt keine Zahlen-Keys) ->
+   *  Inhalts-Kennung. Nur wo eine hinterlegt ist — s.
+   *  `kopplung/transport.ts::stueckKennung`. */
+  vorhandene_kennungen: Record<string, string>;
   verfaellt_am: string;
 }
 
@@ -53,9 +57,11 @@ export const kopplungApi = {
     return request('/kopplung/stand', { method: 'POST', body }, route);
   },
 
-  /** Legt ein Stueck ab — vom alten Geraet, beliebig oft wiederholbar. */
+  /** Legt ein Stueck ab — vom alten Geraet, beliebig oft wiederholbar.
+   *  `kennung` ist die Inhalts-Kennung fuer spaetere Fortsetzungen (s.
+   *  `kopplung/transport.ts::stueckKennung`). */
   stueckAblegen(
-    body: Nachweis & { kopplung_id: string; folge: number; daten: string },
+    body: Nachweis & { kopplung_id: string; folge: number; daten: string; kennung: string },
     route: { serverId?: string } = {}
   ): Promise<void> {
     return request('/kopplung/stueck', { method: 'POST', body }, route);

@@ -14,6 +14,7 @@ Rechte.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -154,13 +155,26 @@ async def _stand(client, app, geraet: Geraet, token: str, kid: str):
     )
 
 
-async def _stueck(client, app, geraet: Geraet, token: str, kid: str, folge: int, daten: str):
+def _kennung_fuer(daten: str) -> str:
+    """Test-Attrappe der Inhalts-Kennung — der Server prueft ihren Inhalt
+    nicht (er kann es nicht, s. Modulkopf ``routes/kopplung.py``), nur ihre
+    Laenge. Deterministisch aus ``daten`` abgeleitet, damit
+    ``test_wiederholtes_stueck...`` weiterhin zwei VERSCHIEDENE Kennungen
+    fuer zwei verschiedene Uploads derselben Position bekommt."""
+    return _b64url(hashlib.sha256(b"test-kennung\x00" + daten.encode()).digest())
+
+
+async def _stueck(
+    client, app, geraet: Geraet, token: str, kid: str, folge: int, daten: str,
+    kennung: str | None = None,
+):
     await _seed_jwks(app)
+    k = kennung if kennung is not None else _kennung_fuer(daten)
     return await client.post(
         "/kopplung/stueck",
         json=geraet.rumpf(
             "kopplung-stueck", str(kid), str(folge), daten,
-            kopplung_id=str(kid), folge=folge, daten=daten,
+            kopplung_id=str(kid), folge=folge, daten=daten, kennung=k,
         ),
         headers=_auth(token),
     )
@@ -321,6 +335,35 @@ async def test_zu_viele_offene_kopplungen(client, app, _auth_signer, monkeypatch
     assert r.status_code == 429, r.text
 
 
+@pytest.mark.asyncio
+async def test_offene_kopplungen_haelt_die_grenze_auch_im_wettlauf(
+    client, app, _auth_signer, monkeypatch
+):
+    """Gegenprobe Befund 5 (Bughunt): Zaehlen (``SELECT count``) und Schreiben
+    (``INSERT``) lagen als zwei getrennte Anfragen hintereinander — dazwischen
+    ein Await-Punkt, an dem eine zweite, fast gleichzeitige Anlage denselben
+    (noch ungezaehlten) Stand sah und ebenfalls durchkam. Nachgestellt an der
+    Randlage, an der es zaehlt: zwei offene Kopplungen bei Grenze drei, dann
+    zwei fast gleichzeitige dritte Anlagen. Ohne die feste Anweisung landen
+    beide bei 200 (vier offene Kopplungen statt maximal drei); mit ihr genau
+    eine bei 200, die andere bei 429."""
+    from dcc_chat_gateway import config as chat_config
+
+    token, uid = await _register(_auth_signer)
+    alt = Geraet(uid, "cert-alt")
+    monkeypatch.setattr(chat_config.get_settings(), "kopplung_max_offen_je_konto", 3)
+
+    assert (await _anlegen(client, app, alt, token, "AAAAA")).status_code == 200
+    assert (await _anlegen(client, app, alt, token, "BBBBB")).status_code == 200
+
+    ergebnisse = await asyncio.gather(
+        _anlegen(client, app, alt, token, "CCCCC"),
+        _anlegen(client, app, alt, token, "DDDDD"),
+    )
+    stati = sorted(r.status_code for r in ergebnisse)
+    assert stati == [200, 429], [r.text for r in ergebnisse]
+
+
 # ---------------------------------------------------------------------------
 # Umzug
 # ---------------------------------------------------------------------------
@@ -382,17 +425,43 @@ async def test_abgebrochener_umzug_setzt_fort(client, app, _auth_signer):
 @pytest.mark.asyncio
 async def test_wiederholtes_stueck_ersetzt_statt_zu_verdoppeln(client, app, _auth_signer):
     """Der Sender darf blind wiederholen — auch eine Position, die doch schon
-    liegt (die Antwort auf den ersten Versuch ging verloren)."""
+    liegt (die Antwort auf den ersten Versuch ging verloren). Die
+    Inhalts-Kennung wird dabei MIT ersetzt, nicht bloss die Nutzlast — sonst
+    zeigte ``stand`` nach dem Ersetzen weiter auf die Kennung des ersten
+    Versuchs, und ein Sender, der spaeter genau diesen Inhalt wieder
+    berechnet, haette keine Chance, ihn wiederzuerkennen (Bughunt
+    2026-08-29, Befund 1)."""
     token, alt, neu, kid = await _gekoppelt(client, app, _auth_signer)
     erst = _b64_unpadded(b"erster-versuch")
     zweit = _b64_unpadded(b"zweiter-versuch")
 
     assert (await _stueck(client, app, alt, token, kid, 7, erst)).status_code == 204
-    assert (await _stueck(client, app, alt, token, kid, 7, zweit)).status_code == 204
+    stand_1 = (await _stand(client, app, alt, token, kid)).json()
+    kennung_erst = stand_1["vorhandene_kennungen"]["7"]
 
-    assert (await _stand(client, app, alt, token, kid)).json()["vorhandene_stuecke"] == [7]
+    assert (await _stueck(client, app, alt, token, kid, 7, zweit)).status_code == 204
+    stand_2 = (await _stand(client, app, alt, token, kid)).json()
+    assert stand_2["vorhandene_stuecke"] == [7]
+    assert stand_2["vorhandene_kennungen"]["7"] != kennung_erst
+
     r = await _stueck_holen(client, app, neu, token, kid, 7)
     assert r.json()["daten"] == zweit
+
+
+@pytest.mark.asyncio
+async def test_stand_liefert_inhalts_kennungen(client, app, _auth_signer):
+    """Gegenprobe zu Befund 1 des Bughunts: ``vorhandene_kennungen`` traegt
+    genau die Kennungen, die beim Hochladen mitgeschickt wurden — nur darauf
+    kann der Sender einen inhaltlichen Abgleich beim Fortsetzen stuetzen
+    (``web/src/lib/kopplung/senden.ts``). Eine Position ohne Upload taucht in
+    der Abbildung nicht auf."""
+    token, alt, _neu, kid = await _gekoppelt(client, app, _auth_signer)
+    daten_0 = _b64_unpadded(b"stueck-0")
+    kennung_0 = _kennung_fuer(daten_0)
+    assert (await _stueck(client, app, alt, token, kid, 0, daten_0, kennung_0)).status_code == 204
+
+    stand = (await _stand(client, app, alt, token, kid)).json()
+    assert stand["vorhandene_kennungen"] == {"0": kennung_0}
 
 
 @pytest.mark.asyncio

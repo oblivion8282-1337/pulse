@@ -56,7 +56,7 @@ from datetime import UTC, datetime, timedelta
 from typing import NoReturn
 
 from fastapi import APIRouter, HTTPException, Request
-from sqlalchemy import func, select, update
+from sqlalchemy import func, insert, literal, select, update
 
 import dcc_chat_gateway.config as chat_config
 from dcc_chat_gateway.db import SessionDep
@@ -100,38 +100,58 @@ async def kopplung_anlegen(
     claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis)
 
     jetzt = datetime.now(UTC)
+    verfaellt_am = jetzt + timedelta(minutes=settings.kopplung_code_gueltig_minuten)
+    kopplung_id = next_id()
 
-    # Verfallene Zeilen dieses Kontos zaehlen nicht mit — sonst blockierte
-    # ein vergessener Code von gestern den naechsten Versuch, obwohl er
-    # laengst wirkungslos ist. Der Aufraeumlauf (``kopplung_pflege.py``)
-    # loescht sie ohnehin, aber nicht sofort.
-    offen = (
-        await session.execute(
-            select(func.count())
-            .select_from(Kopplung)
-            .where(
-                Kopplung.user_id == user.id,
-                Kopplung.eingeloest_am.is_(None),
-                Kopplung.verfaellt_am > jetzt,
-            )
+    # Zaehlen und Einfuegen in EINER Anweisung (Bughunt Befund 5, 2026-08-29).
+    # Die vorige Fassung las die Zahl offener Kopplungen per ``SELECT count``
+    # und schrieb danach getrennt — dazwischen lag ein Await-Punkt, an dem
+    # eine zweite, fast gleichzeitige Anlage denselben (noch ungezaehlten)
+    # Stand sah und ebenfalls durchkam. Die Zaehl-Unterabfrage haengt jetzt in
+    # der WHERE-Klausel DERSELBEN ``INSERT``-Anweisung: zwischen Zaehlen und
+    # Schreiben liegt kein ``await`` mehr, an dem eine zweite Anfrage
+    # dazwischenfunken koennte — nachgestellt in
+    # ``test_offene_kopplungen_haelt_die_grenze_auch_im_wettlauf``.
+    #
+    # **Grenze der Konstruktion, ehrlich benannt:** das schliesst die Race
+    # innerhalb EINER Transaktion/Verbindung — genau die Form, die der Test
+    # nachstellt. Zwei echte, gleichzeitige Postgres-Verbindungen koennten
+    # ihre Zaehl-Unterabfrage theoretisch trotzdem gegen denselben,
+    # gegenseitig noch unbestaetigten Stand lesen (klassisches READ-COMMITTED-
+    # Write-Skew); das vollstaendig zu schliessen braucht eine Sperre (z. B.
+    # ``pg_advisory_xact_lock`` je Konto) oder eine serialisierbare
+    # Transaktion mit Retry. Bewusst nicht gebaut: betroffen ist ausschliess-
+    # lich das eigene Konto (Obergrenze der eigenen offenen Kopplungen), kein
+    # fremder Zugriff — der Aufwand einer echten Sperre steht in keinem
+    # Verhaeltnis zum Schaden eines vereinzelt ueberschrittenen Limits.
+    offene_unterabfrage = (
+        select(func.count())
+        .select_from(Kopplung)
+        .where(
+            Kopplung.user_id == user.id,
+            Kopplung.eingeloest_am.is_(None),
+            Kopplung.verfaellt_am > jetzt,
         )
-    ).scalar_one()
-    if offen >= settings.kopplung_max_offen_je_konto:
-        raise HTTPException(status_code=429, detail="zu_viele_offene_kopplungen")
-
-    kopplung = Kopplung(
-        id=next_id(),
-        user_id=user.id,
-        code_hash=body.code_hash,
-        # Aus den geprueften Claims, NIE aus dem Rumpf — sonst legte ein
-        # Geraet eine Kopplung im Namen eines anderen an.
-        alt_device_pubkey=claims.device_pubkey,
-        verfaellt_am=jetzt + timedelta(minutes=settings.kopplung_code_gueltig_minuten),
+        .scalar_subquery()
     )
-    session.add(kopplung)
+    einfuegen = insert(Kopplung).from_select(
+        ["id", "user_id", "code_hash", "alt_device_pubkey", "verfaellt_am"],
+        select(
+            literal(kopplung_id),
+            literal(user.id),
+            literal(body.code_hash),
+            # Aus den geprueften Claims, NIE aus dem Rumpf — sonst legte ein
+            # Geraet eine Kopplung im Namen eines anderen an.
+            literal(claims.device_pubkey),
+            literal(verfaellt_am),
+        ).where(offene_unterabfrage < settings.kopplung_max_offen_je_konto),
+    )
+    ergebnis = await session.execute(einfuegen)
+    if ergebnis.rowcount == 0:
+        raise HTTPException(status_code=429, detail="zu_viele_offene_kopplungen")
     await session.commit()
 
-    return KopplungAnlegenResponse(id=kopplung.id, verfaellt_am=kopplung.verfaellt_am)
+    return KopplungAnlegenResponse(id=kopplung_id, verfaellt_am=verfaellt_am)
 
 
 @router.post("/kopplung/einloesen", response_model=KopplungEinloesenResponse)
@@ -237,20 +257,25 @@ async def kopplung_stand(
 
     kopplung = await _als_alt_oder_neu(session, kid, user.id, claims.device_pubkey)
 
-    folgen = (
+    zeilen = (
         await session.execute(
-            select(UmzugStueck.folge)
+            select(UmzugStueck.folge, UmzugStueck.kennung)
             .where(UmzugStueck.kopplung_id == kid)
             .order_by(UmzugStueck.folge)
         )
-    ).scalars().all()
+    ).all()
 
     return KopplungStandResponse(
         id=kopplung.id,
         eingeloest=kopplung.eingeloest_am is not None,
         neu_device_pubkey=kopplung.neu_device_pubkey,
         gesamt_stuecke=kopplung.gesamt_stuecke,
-        vorhandene_stuecke=list(folgen),
+        vorhandene_stuecke=[folge for folge, _kennung in zeilen],
+        # Nur wo eine Kennung hinterlegt ist (aeltere Zeilen vor diesem Feld
+        # haben keine) — der Sender behandelt eine fehlende Position in
+        # dieser Abbildung als Nicht-Uebereinstimmung, s. Modulkopf-Verweis
+        # in ``kopplung_schemas.py``.
+        vorhandene_kennungen={folge: k for folge, k in zeilen if k is not None},
         verfaellt_am=kopplung.verfaellt_am,
     )
 
