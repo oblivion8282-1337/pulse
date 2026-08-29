@@ -222,10 +222,28 @@ Fallunterscheidung bei Anhängen, Vorschautexten und der Suche.
    Wer ohne App auf die Direktnachrichten geht, braucht eine Stelle, die sagt,
    was fehlt und wie er es bekommt — inklusive des Kopplungswegs (Etappe F),
    der den fremden Rechner ohne Installation einbindet.
-2. **Eine Antwort auf „zählt ein gekoppelter Browser als dauerhaft?".** Er hat
-   dann Schlüssel und Verlauf, bleibt aber ein Browser: gelöschte
-   Website-Daten, privates Fenster, fremder Rechner. WhatsApp löst das über
-   einen Ablauf nach längerer Zeit ohne Kontakt zum Telefon. **Offen.**
+2. **Ein gekoppelter Browser zählt — aber er verfällt.** Entschieden am
+   2026-08-29 nach dem WhatsApp-Vorbild: ein gekoppelter Browser ist ein
+   vollwertiges Gerät, seine Kopplung läuft aber nach **14 Tagen ohne
+   Benutzung** ab. Danach ist er kein Empfänger mehr, sein Schlüsselbündel
+   fällt weg, und er muss neu gekoppelt werden.
+
+   **Zwei Dinge gehören zwingend dazu**, sonst ist der Ablauf eine leere
+   Geste. Erstens muss der abgelaufene Browser seinen **lokalen Verlauf
+   löschen**, wenn er das nächste Mal geöffnet wird — genau der Fall „auf dem
+   fremden Rechner gekoppelt und vergessen" ist der Grund für diese Regel, und
+   dort nützt es nichts, wenn nur die Schlüssel verfallen, während der Verlauf
+   liegen bleibt. Zweitens braucht der Server dafür ein echtes **„zuletzt
+   benutzt" je Gerät**, das es heute nicht gibt: `DeviceKeyBundle.updated_at`
+   ist der Zeitpunkt der letzten *Veröffentlichung*, nicht der letzten
+   Benutzung. Das ist dieselbe Lücke, die die Verdrängung bei 20 Geräten heute
+   in die falsche Richtung ziehen lässt (ein lange angemeldetes Gerät gilt dort
+   als das älteste, gerade weil es sich nicht neu meldet) — beide werden von
+   demselben Feld geheilt.
+
+   Der Ablauf gilt **nur für gekoppelte Browser**, nicht für Desktop- und
+   Mobil-Apps. Die bringen ihre Dauerhaftigkeit selbst mit; ein Telefon, das
+   drei Wochen in der Schublade liegt, soll seine Gespräche behalten.
 3. **Die bestehenden unverschlüsselten Direktnachrichten verschwinden.**
    Entschieden am 2026-08-29: **sofort löschen, ohne Frist** — die Alternativen
    (übernehmen und dann löschen, Frist mit Vorwarnung, nur ausblenden) wurden
