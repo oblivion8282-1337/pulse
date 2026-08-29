@@ -12,8 +12,9 @@ den Rueckfallschluessel. Diese Route liest deshalb ausschliesslich —
 kein ``DELETE``, kein ``INSERT``, kein ``commit``.
 
 **Was die Antwort verraet, und warum das vertretbar ist.** Sie sagt einem
-Gegenueber, ob jemand die App (Electron oder Android) installiert hat. Das
-ist ein Stueck Metadaten ueber eine Person, kein Schluesselmaterial. Getragen
+Gegenueber, ob jemand ein teilnahmefaehiges Geraet hat — eine App (Electron
+oder Android) oder einen gekoppelten Browser. Das ist ein Stueck Metadaten
+ueber eine Person, kein Schluesselmaterial. Getragen
 wird die Abwaegung allein davon, dass GENAU DERSELBE Kreis — die Regel unten
 ist dieselbe ``darf_schluessel_holen``-Pruefung wie beim Abholen — dieselbe
 Auskunft ohnehin ueber ``claim`` bekommen kann, nur teurer fuer das Ziel. Die
@@ -33,14 +34,15 @@ ebenfalls ohne Zertifikats-Nachweis auskommen (s. Modulkopf von
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
-from sqlalchemy import select
+from fastapi import APIRouter, HTTPException, Query, Request
+from sqlalchemy import or_, select
 
 import dcc_chat_gateway.config as chat_config
 from dcc_chat_gateway.credential_validator import REDIS_REVOKED_SET
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import DeviceKeyBundle
-from dcc_chat_gateway.schemas import SnowflakeId, VerschluesselbarOut
+from dcc_chat_gateway.schemas import GeraeteStandOut, SnowflakeId, VerschluesselbarOut
+from dcc_chat_gateway.schluessel_verfall import ist_lebendig, ist_verfallen, verfall_grenze
 from dcc_chat_gateway.schluessel_zugriff import darf_schluessel_holen
 from dcc_chat_gateway.security import CurrentUser
 
@@ -54,8 +56,9 @@ async def verschluesselbar(
     session: SessionDep,
     user: CurrentUser,
 ) -> VerschluesselbarOut:
-    """Hat das Zielkonto mindestens ein dauerhaftes Geraet mit
-    veroeffentlichten Schluesseln?
+    """Hat das Zielkonto mindestens ein zaehlbares Geraet mit
+    veroeffentlichten Schluesseln — eine App oder einen gekoppelten,
+    nicht verfallenen Browser?
 
     Das ist genau das Kriterium der Koexistenz-Regel (Spec §3,
     ``web/src/lib/krypto/empfaengerGeraete.ts``) fuer die GEGENSEITE — die
@@ -75,8 +78,12 @@ async def verschluesselbar(
         raise HTTPException(status_code=503, detail="schluessel_dienst_nicht_verfuegbar")
 
     settings = chat_config.get_settings()
-    # Nur die dauerhaften Buendel interessieren — ein Browser-Tab zaehlt fuer
-    # die Koexistenz-Regel nicht (Haltbarkeit, nicht Krypto-Faehigkeit).
+    # Zaehlbar ist ein Geraet, das etwas behalten kann: eine App
+    # (``dauerhaft``) oder ein GEKOPPELTER Browser (``gekoppelt_am``, Spec §3a
+    # Punkt 2). Ein loser Browser-Tab zaehlt nach wie vor nicht — Grund ist
+    # Haltbarkeit, nicht Krypto-Faehigkeit. Und ein verfallenes Geraet zaehlt
+    # nicht mehr, sonst behauptete diese Auskunft eine Erreichbarkeit, die
+    # ``POST /keys/claim`` eine Zeile weiter verweigert.
     # ``limit`` deckungsgleich mit dem Abholweg, aus demselben Grund
     # (Bestandsdaten von vor der Buendel-Obergrenze).
     cert_ids = (
@@ -84,7 +91,11 @@ async def verschluesselbar(
             select(DeviceKeyBundle.cert_id)
             .where(
                 DeviceKeyBundle.user_id == ziel_id,
-                DeviceKeyBundle.dauerhaft.is_(True),
+                or_(
+                    DeviceKeyBundle.dauerhaft.is_(True),
+                    DeviceKeyBundle.gekoppelt_am.is_not(None),
+                ),
+                ist_lebendig(verfall_grenze()),
             )
             .limit(settings.schluessel_max_buendel_je_konto)
         )
@@ -101,3 +112,44 @@ async def verschluesselbar(
             return VerschluesselbarOut(verschluesselbar=True)
 
     return VerschluesselbarOut(verschluesselbar=False)
+
+
+@router.get("/keys/geraetestand", response_model=GeraeteStandOut)
+async def geraetestand(
+    session: SessionDep,
+    user: CurrentUser,
+    device_pubkey: str = Query(...),
+) -> GeraeteStandOut:
+    """Der Stand des EIGENEN Geraets — das eindeutige Verfalls-Signal.
+
+    **Ohne Zertifikats-Nachweis, und das ist hier keine Bequemlichkeit,
+    sondern Voraussetzung.** ``pruefe_geraet`` frischt bei jedem Nachweis
+    ``zuletzt_benutzt`` auf; eine Statusabfrage, die selbst einen Nachweis
+    verlangte, waere dieselbe Benutzung, nach der sie fragt. Die Zeilenwahl
+    bleibt trotzdem auf das angemeldete Konto beschraenkt (``user_id ==
+    user.id``) — genau wie bei ``GET /keys/onetime/count``, dem Vorbild.
+    Ueber ein fremdes Konto sagt die Route nichts.
+
+    **Warum die Antwort drei Werte hat und nicht zwei:** der Klient loescht
+    daraufhin seinen lokalen Verlauf, und der ist die einzige Kopie. Ein
+    ``bool`` muesste "kein Buendel gefunden" mit einem der beiden Faelle
+    zusammenlegen — mit ``true`` waere jede verdraengte oder noch nie
+    veroeffentlichte Zeile ein Loeschbefehl, mit ``false`` verschwaende der
+    Verfall im Rauschen. Deshalb ``unbekannt`` als eigener Wert, der nichts
+    ausloest.
+    """
+    # Eine einzige Abfrage, und die Verfallsregel steht als Ausdruck darin
+    # statt daneben in Python nachgebaut — zwei Fassungen derselben Regel
+    # koennten auseinanderlaufen, und die eine, die dann falsch liegt, ist
+    # die, die Daten loescht.
+    zeile = (
+        await session.execute(
+            select(ist_verfallen(verfall_grenze()).label("verfallen")).where(
+                DeviceKeyBundle.user_id == user.id,
+                DeviceKeyBundle.device_pubkey == device_pubkey,
+            )
+        )
+    ).first()
+    if zeile is None:
+        return GeraeteStandOut(stand="unbekannt")
+    return GeraeteStandOut(stand="verfallen" if zeile.verfallen else "gueltig")

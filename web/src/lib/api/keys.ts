@@ -29,6 +29,10 @@ export interface GeraeteSchluessel {
    *  der Koexistenz-Regel (Spec §3, `krypto/empfaengerGeraete.ts`). Optional,
    *  solange das Backend das Feld nicht fuehrt. */
   dauerhaft?: boolean;
+  /** Ob dieses Geraet per Kopplungscode gebunden wurde (Spec §3a) — zaehlt
+   *  fuer dieselbe Regel wie `dauerhaft`, verfaellt aber nach 14 Tagen ohne
+   *  Benutzung. Ebenfalls optional. */
+  gekoppelt?: boolean;
 }
 
 export const keysApi = {
@@ -76,6 +80,22 @@ export const keysApi = {
   ): Promise<{ verschluesselbar: boolean }> {
     return request<{ verschluesselbar: boolean }>(
       `/keys/verschluesselbar/${encodeURIComponent(userId)}`,
+      {},
+      route
+    );
+  },
+
+  /** Der Stand des EIGENEN Geraets: `gueltig` | `verfallen` | `unbekannt`
+   *  (`routes/schluessel_auskunft.py::geraetestand`). Ohne Cert-Nachweis —
+   *  ein Nachweis waere selbst eine Benutzung und hoebe damit die Frage auf,
+   *  die er stellt. Nur `verfallen` darf etwas ausloesen, s.
+   *  `krypto/geraeteVerfall.ts`. */
+  geraetestand(
+    devicePubkey: string,
+    route: { serverId?: string } = {}
+  ): Promise<{ stand: string }> {
+    return request<{ stand: string }>(
+      `/keys/geraetestand?device_pubkey=${encodeURIComponent(devicePubkey)}`,
       {},
       route
     );

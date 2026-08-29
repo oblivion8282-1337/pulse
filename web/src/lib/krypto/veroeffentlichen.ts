@@ -30,6 +30,7 @@ import {
 import { baueNutzlast } from './nutzlast';
 import { signiereNutzlast } from './nachweis';
 import { mitKontosperre } from './sperren';
+import { verfallPruefen } from './verfallPruefen';
 
 // DMs sind heute cloud-only (Global-Friends Stufe 1) — s. `api/keys.ts`
 // Modulkopf (Bughunt 2026-08-28, FIX 4). Als FUNKTION statt Modul-Konstante:
@@ -62,6 +63,15 @@ export async function veroeffentlicheSchluessel(): Promise<void> {
   const keypair = await loadKeypair();
   const cert = certStore.cert;
   if (!keypair || !cert) return;
+
+  // **Vor dem Veroeffentlichen**: ist dieses Geraet verfallen (Spec §3a), muss
+  // sein lokaler Verlauf weg, bevor es sich wieder als Empfaenger meldet.
+  // Diese Funktion ist der Startweg jedes Klienten (Login und
+  // Cert-Rotation) — also genau das „naechste Oeffnen", von dem die Regel
+  // spricht. Der Aufruf hat keinen Einfluss auf die Reihenfolge am Server
+  // (der Grabstein klebt, s. `schluessel_verfall.py`); er steht hier, weil
+  // hier der Ort ist, an dem ein Browser wieder aufwacht.
+  await verfallPruefen();
 
   // **Unter der Konto-Sperre, und zwar ueber die Netzaufrufe hinweg**
   // (Bughunt 2026-08-29, s. `sperren.ts`). Diese Funktion laeuft beim Start

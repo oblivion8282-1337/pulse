@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from dcc_shared.snowflake import INT64_MAX, INT64_MIN
 from pydantic import (
@@ -1229,6 +1229,33 @@ class GeraeteSchluesselOut(BaseModel):
     #: ``DeviceKeyBundle.dauerhaft``, Grundlage der Koexistenz-Regel im
     #: Klienten (``web/src/lib/krypto/empfaengerGeraete.ts``).
     dauerhaft: bool = False
+    #: Ob dieses Geraet per Kopplungscode gebunden wurde
+    #: (``DeviceKeyBundle.gekoppelt_am is not None``, Spec §3a). Ein
+    #: gekoppelter Browser zaehlt im Klienten wie eine App — ohne dieses Feld
+    #: saehe der Sendeweg ihn als losen Tab und verweigerte die Nachricht,
+    #: waehrend ``GET /keys/verschluesselbar`` sie zusagt. Genau diese
+    #: Zwiespaeltigkeit zwischen Zusage und Sendeweg ist im Klartext-Rueckfall
+    #: schon einmal teuer geworden.
+    gekoppelt: bool = False
+
+
+class GeraeteStandOut(BaseModel):
+    """Antwort von ``GET /keys/geraetestand`` — der Stand des EIGENEN Geraets.
+
+    Drei Werte, und der Unterschied zwischen den letzten beiden ist der Kern
+    der ganzen Route (Spec §3a, Punkt 2):
+
+    * ``gueltig`` — das Buendel steht und ist nicht verfallen.
+    * ``verfallen`` — dieses Geraet ist abgelaufen. **Nur dieser Wert darf den
+      Klienten seinen lokalen Verlauf loeschen lassen**, und er sagt es
+      ausdruecklich, statt es aus einer Abwesenheit ableiten zu lassen.
+    * ``unbekannt`` — fuer diesen ``device_pubkey`` gibt es kein Buendel. Das
+      ist der frische Browser (nichts zu loeschen), aber auch die durch die
+      Geraete-Obergrenze verdraengte Zeile — zwei Faelle, die man nicht
+      auseinanderhalten kann und die deshalb NICHTS ausloesen duerfen.
+    """
+
+    stand: Literal["gueltig", "verfallen", "unbekannt"]
 
 
 class VerschluesselbarOut(BaseModel):

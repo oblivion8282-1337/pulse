@@ -117,3 +117,37 @@ test('fehlendes `dauerhaft`-Feld gilt als NICHT dauerhaft (fail closed)', () => 
   const ziel = zielgeraeteBerechnen(buendel, 'ich', 'empfaenger', 'mein-handy', true);
   assert.deepEqual(ziel, []);
 });
+
+test('ein gekoppelter Browser zaehlt wie eine App', () => {
+  // Spec §3a, Punkt 2. Ohne diesen Fall verweigerte der Sendeweg genau die
+  // Nachricht, die `GET /keys/verschluesselbar` gerade zugesagt hat: der
+  // Server zaehlt einen gekoppelten Browser mit, diese Rechnung nicht.
+  const ziel = zielgeraeteBerechnen(
+    {
+      ich: [{ ...geraet('mein-browser', false), gekoppelt: true }],
+      du: [{ ...geraet('ihr-browser', false), gekoppelt: true }]
+    },
+    'ich',
+    'du',
+    'mein-browser',
+    false
+  );
+  assert.deepEqual(
+    ziel.map((z) => z.geraet.device_pubkey),
+    ['ihr-browser']
+  );
+});
+
+test('ein loser Browser-Tab zaehlt weiterhin nicht', () => {
+  const ziel = zielgeraeteBerechnen(
+    {
+      ich: [geraet('mein-tab', false)],
+      du: [geraet('ihr-tab', false)]
+    },
+    'ich',
+    'du',
+    'mein-tab',
+    false
+  );
+  assert.deepEqual(ziel, []);
+});

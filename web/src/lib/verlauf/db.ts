@@ -1,123 +1,25 @@
 /**
- * IndexedDB öffnen und schreiben — die einzige Stelle in `verlauf/`, die
- * `indexedDB` anfasst. Deshalb im Node-Testläufer NICHT prüfbar (kein
- * `indexedDB` dort); bleibt bewusst so dumm wie möglich, jede Rechnung
- * steckt in `satz.ts` / `schema.ts` / `kontoFilter.ts`.
+ * Lesen und Schreiben im Verlauf — bleibt bewusst so dumm wie möglich, jede
+ * Rechnung steckt in `satz.ts` / `schema.ts` / `kontoFilter.ts`. Das Öffnen
+ * der Datenbank liegt daneben in `verbindung.ts`.
  *
- * Muster wie `lib/identity/idb-shared.ts`: eine geteilte, zwischengespeicherte
- * Verbindung; Schreiben löst auf `tx.oncomplete` (durables Commit) auf, nicht
- * auf `req.onsuccess` (Schreibvorgang angenommen, aber noch nicht
- * festgeschrieben — zwischen beidem kann ein Absturz den Schreibvorgang
- * stillschweigend verwerfen).
+ * Im Node-Testläufer NICHT prüfbar (kein `indexedDB` dort).
+ *
+ * Schreiben löst auf `tx.oncomplete` (durables Commit) auf, nicht auf
+ * `req.onsuccess` (Schreibvorgang angenommen, aber noch nicht festgeschrieben
+ * — zwischen beidem kann ein Absturz den Schreibvorgang stillschweigend
+ * verwerfen).
  */
 import {
-  DB_NAME,
-  DB_VERSION,
   STORE_NACHRICHTEN,
   STORE_ANHAENGE,
   INDEX_KANAL,
   type AnhangBytes,
   type Satz
 } from './schema';
+import { mitVerbindung } from './verbindung';
 import { sortierSchluessel } from './satz';
 import { gehoertZuKonto } from './kontoFilter';
-
-let _dbPromise: Promise<IDBDatabase> | null = null;
-
-function _openFresh(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE_NACHRICHTEN)) {
-        const store = db.createObjectStore(STORE_NACHRICHTEN, { keyPath: 'schluessel' });
-        store.createIndex(INDEX_KANAL, 'kanalId');
-      }
-      // Fassung 2 (Etappe E). Die `contains`-Wache ist kein Zierrat: dieser
-      // Block laeuft auch bei einer Neuanlage (0 -> 2), wo der Speicher oben
-      // gerade erst entstanden ist, und bei einem Aufstieg 1 -> 2, wo nur
-      // dieser hier fehlt. `createObjectStore` auf einen vorhandenen Namen
-      // wirft.
-      if (!db.objectStoreNames.contains(STORE_ANHAENGE)) {
-        const anhaenge = db.createObjectStore(STORE_ANHAENGE, { keyPath: 'id' });
-        anhaenge.createIndex(INDEX_KANAL, 'kanalId');
-      }
-    };
-    req.onsuccess = () => {
-      const db = req.result;
-      const realClose = db.close.bind(db);
-      db.onversionchange = () => {
-        _dbPromise = null;
-        realClose();
-      };
-      (db as IDBDatabase & { close: () => void }).close = () => {
-        /* geteilte Verbindung — bewusster No-Op */
-      };
-      resolve(db);
-    };
-    req.onerror = () => {
-      try {
-        req.result?.close();
-      } catch {
-        /* ignorieren */
-      }
-      _dbPromise = null;
-      reject(req.error);
-    };
-    req.onblocked = () => {
-      _dbPromise = null;
-      reject(new Error('IDB blockiert — andere Verbindung offen'));
-    };
-  });
-}
-
-function openVerlaufDb(): Promise<IDBDatabase> {
-  if (!_dbPromise) {
-    _dbPromise = _openFresh();
-  }
-  return _dbPromise;
-}
-
-/**
- * Fuehrt `aktion` gegen die geteilte Verbindung aus — und heilt EINEN
- * konkreten Rennlauf selbst: `db.onversionchange` oben schliesst die
- * Verbindung wirklich (`realClose()`) und setzt `_dbPromise = null`, aber
- * ein Aufrufer kann seine `IDBDatabase`-Referenz schon VOR dem Reset
- * gehalten haben — `db.transaction()` darauf wirft dann synchron
- * `InvalidStateError`.
- *
- * Seit `DB_VERSION` auf 2 steht (Etappe E, neuer Speicher `anhaenge`) ist das
- * kein theoretischer Fall mehr: ein zweiter Tab mit der alten Fassung der App
- * haelt eine Verbindung auf Fassung 1, der Aufstieg loest dort ein echtes
- * `onversionchange` aus. Der frueher hier stehende Satz „kann heute nicht
- * auftreten" galt nur, solange die Nummer nie stieg.
- *
- * Ohne diese Absicherung landete der Fehler unveraendert bei
- * `speicherfehler.ts::deuteSpeicherfehler`, das JEDES `InvalidStateError`
- * als "privater Modus" deutet (Safari wirft dasselbe bei echter
- * Nichtverfuegbarkeit) — ein voruebergehendes Rennen sah dann dauerhaft wie
- * ein blockierter Browser aus, obwohl ein einfacher Neuversuch reicht.
- *
- * Die Unterscheidung "Rennen vs. echte Nichtverfuegbarkeit" haengt NICHT an
- * der Fehlerart (beide sind `InvalidStateError`), sondern daran, ob
- * `_dbPromise` sich seit dem Beginn dieses Aufrufs veraendert hat: nur dann
- * war es das `onversionchange`-Rennen. Ein `_openFresh()`-Fehlschlag beim
- * NEUEN Versuch (z. B. tatsaechlich privater Modus) faellt dagegen normal
- * durch — kein zweiter, sinnloser Neuversuch.
- */
-async function mitVerbindung<T>(aktion: (db: IDBDatabase) => Promise<T>): Promise<T> {
-  const versucht = openVerlaufDb();
-  const db = await versucht;
-  try {
-    return await aktion(db);
-  } catch (err) {
-    const warRennen =
-      err instanceof DOMException && err.name === 'InvalidStateError' && _dbPromise !== versucht;
-    if (!warRennen) throw err;
-    const frischeDb = await openVerlaufDb();
-    return aktion(frischeDb);
-  }
-}
 
 /** Legt mehrere Sätze in einer einzigen Transaktion ab (put = Upsert über den
  *  Primärschlüssel — ein Grabstein überschreibt seine frühere Fassung). */
@@ -337,6 +239,36 @@ export function anhangBytesLoeschen(id: string): Promise<void> {
       new Promise<void>((resolve, reject) => {
         const tx = db.transaction(STORE_ANHAENGE, 'readwrite');
         tx.objectStore(STORE_ANHAENGE).delete(id);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      })
+  );
+}
+
+/**
+ * Loescht den GESAMTEN lokalen Verlauf dieses Geraets — Nachrichten und
+ * Anhang-Bytes.
+ *
+ * Genau ein Aufrufer (`krypto/verfallPruefen.ts`): der gekoppelte Browser,
+ * dessen Kopplung nach 14 Tagen ohne Benutzung abgelaufen ist (Spec §3a).
+ * Der Fall, fuer den die Regel existiert, ist „auf einem fremden Rechner
+ * gekoppelt und vergessen" — dort nuetzt es nichts, wenn nur die Schluessel
+ * verfallen, waehrend der Verlauf liegen bleibt.
+ *
+ * **Ohne Konto-Filter, absichtlich.** Verfallen ist das GERAET, nicht ein
+ * Konto darauf; ein halb geraeumter Speicher waere genau die Haelfte, die man
+ * auf einem fremden Rechner nicht zuruecklassen will.
+ *
+ * Beide Speicher in EINER Transaktion: ein Abbruch dazwischen liesse sonst
+ * die Anhang-Bytes ohne die Nachrichten stehen, die auf sie zeigen.
+ */
+export function verlaufAllesLoeschen(): Promise<void> {
+  return mitVerbindung(
+    (db) =>
+      new Promise<void>((resolve, reject) => {
+        const tx = db.transaction([STORE_NACHRICHTEN, STORE_ANHAENGE], 'readwrite');
+        tx.objectStore(STORE_NACHRICHTEN).clear();
+        tx.objectStore(STORE_ANHAENGE).clear();
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
       })

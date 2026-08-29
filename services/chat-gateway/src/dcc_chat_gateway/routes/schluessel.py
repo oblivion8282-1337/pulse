@@ -36,6 +36,11 @@ from dcc_chat_gateway.schluessel_grenzen import (
     platz_fuer_neues_geraet_schaffen,
 )
 from dcc_chat_gateway.schluessel_nachweis import baue_nutzlast, pruefe_geraet
+from dcc_chat_gateway.schluessel_verfall import (
+    ist_lebendig,
+    kopplungszeitpunkt,
+    verfall_grenze,
+)
 from dcc_chat_gateway.schluessel_zugriff import darf_schluessel_holen
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
@@ -87,6 +92,13 @@ async def bundle_veroeffentlichen(
         )
     ).scalar_one_or_none()
 
+    # Die Kopplungsmarke nachziehen (Spec §3a) — der Klient loest den Code
+    # EIN und veroeffentlicht erst danach, die Einloesung findet die Zeile
+    # eines frischen Browsers also noch nicht vor. Nur setzen, nie loeschen:
+    # die Kopplungszeile wird nach der Umzugsfrist weggeraeumt, ein spaeteres
+    # Veroeffentlichen faende dann nichts mehr (s. ``kopplungszeitpunkt``).
+    gekoppelt_am = await kopplungszeitpunkt(session, user.id, claims.device_pubkey)
+
     if vorhanden is not None:
         vorhanden.curve25519 = body.curve25519
         vorhanden.signatur = body.signatur
@@ -94,6 +106,13 @@ async def bundle_veroeffentlichen(
         vorhanden.dauerhaft = body.dauerhaft
         vorhanden.cert_id = claims.cert_id
         vorhanden.updated_at = func.now()
+        if gekoppelt_am is not None:
+            vorhanden.gekoppelt_am = gekoppelt_am
+        # ``verfallen_am`` bleibt hier ABSICHTLICH unangetastet: ein
+        # verfallener Browser veroeffentlicht beim naechsten Start wie jeder
+        # andere, und wuerde das den Verfall aufheben, waere er nie mitteilbar
+        # (der Klient hat dann noch nicht gefragt). Zurueck geht es nur ueber
+        # eine neue Kopplung, s. ``routes/kopplung.py::kopplung_einloesen``.
     else:
         await platz_fuer_neues_geraet_schaffen(session, user.id)
         session.add(
@@ -105,6 +124,7 @@ async def bundle_veroeffentlichen(
                 signatur=body.signatur,
                 rueckfallschluessel=body.rueckfallschluessel,
                 dauerhaft=body.dauerhaft,
+                gekoppelt_am=gekoppelt_am,
                 cert_id=claims.cert_id,
             )
         )
@@ -264,7 +284,15 @@ async def schluessel_abholen(
         buendel = (
             await session.execute(
                 select(DeviceKeyBundle)
-                .where(DeviceKeyBundle.user_id == ziel_id)
+                .where(
+                    DeviceKeyBundle.user_id == ziel_id,
+                    # Ein verfallenes Geraet ist kein Empfaenger mehr (Spec
+                    # §3a, ``schluessel_verfall.py``). Der Filter steht in der
+                    # Abfrage und nicht erst in der Schleife: was hier
+                    # herauskommt, wird eine Zeile spaeter mit einem
+                    # verbrauchten Einmalschluessel bezahlt.
+                    ist_lebendig(verfall_grenze()),
+                )
                 # Defensive Obergrenze, deckungsgleich mit FIX 1
                 # (``schluessel_max_buendel_je_konto``) — das Konto kann so
                 # viele Zeilen gar nicht mehr anhaeufen, dieses ``limit``
@@ -309,6 +337,7 @@ async def schluessel_abholen(
                     einmalschluessel=einmal,
                     rueckfallschluessel=b.rueckfallschluessel if einmal is None else None,
                     dauerhaft=b.dauerhaft,
+                    gekoppelt=b.gekoppelt_am is not None,
                 )
             )
 

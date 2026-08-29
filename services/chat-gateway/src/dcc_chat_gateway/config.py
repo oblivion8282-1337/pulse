@@ -353,6 +353,15 @@ class Settings(BaseSettings):
     # hinaus zu lassen.
     schluessel_claim_budget_je_ziel: int = 30
     schluessel_claim_fenster_sekunden: int = 3600  # 1 h.
+    # Spec §3a, Punkt 2: ein Geraet, das NICHT ``dauerhaft`` ist (also ein
+    # Browser — eine App meldet sich als dauerhaft, s. ``schemas.py``),
+    # verfaellt nach so vielen Tagen ohne Benutzung. Gemessen an
+    # ``zuletzt_benutzt`` (Migration 0077), nicht an ``updated_at``: gemeint
+    # ist "wird nicht mehr benutzt", nicht "hat lange nichts
+    # veroeffentlicht". 14 Tage nach dem WhatsApp-Vorbild, aus demselben
+    # Grund — ein auf einem fremden Rechner gekoppelter und vergessener
+    # Browser soll sich von selbst schliessen.
+    geraete_verfall_tage: int = 14
 
     @property
     def effective_database_url(self) -> str:

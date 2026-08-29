@@ -403,12 +403,16 @@ async def _buendel_seeden(
     rueckfallschluessel: str | None = None,
     einmalschluessel: list[str] = (),
     dauerhaft: bool = False,
+    zuletzt_benutzt=None,
+    gekoppelt_am=None,
 ) -> int:
     """Legt ein Buendel direkt in die DB, ohne den Nachweis-Umweg — Task 3
     prueft das ABHOLEN, nicht das Veroeffentlichen; das ist bereits in
     Task 2 abgedeckt."""
     from dcc_chat_gateway.models import DeviceKeyBundle, DeviceOneTimeKey
     from dcc_chat_gateway.snowflake import next_id
+
+    from datetime import UTC, datetime
 
     bid = next_id()
     async with session_factory() as s:
@@ -421,6 +425,11 @@ async def _buendel_seeden(
                 signatur="sig-empfaenger",
                 rueckfallschluessel=rueckfallschluessel,
                 dauerhaft=dauerhaft,
+                gekoppelt_am=gekoppelt_am,
+                # ``server_default`` greift nur, wenn die Spalte gar nicht
+                # mitgeschickt wird — deshalb hier ausdruecklich "jetzt",
+                # sonst schriebe SQLAlchemy ``NULL`` in eine NOT-NULL-Spalte.
+                zuletzt_benutzt=zuletzt_benutzt or datetime.now(UTC),
                 cert_id=cert_id,
             )
         )
@@ -1002,3 +1011,265 @@ async def test_konto_ohne_dauerhaftes_geraet_ist_nicht_verschluesselbar(
     )
     assert r.status_code == 200, r.text
     assert r.json() == {"verschluesselbar": False}
+
+
+# ---------------------------------------------------------------------------
+# Spec §3a, Punkt 2 — gekoppelte Browser verfallen nach 14 Tagen
+# ---------------------------------------------------------------------------
+
+
+def _lange_her(tage: int):
+    from datetime import UTC, datetime, timedelta
+
+    return datetime.now(UTC) - timedelta(days=tage)
+
+
+@pytest.mark.asyncio
+async def test_verfallener_browser_kommt_nicht_mehr_aus_claim(
+    client, session_factory, cloud_mode, _auth_signer, friend_pair
+):
+    """Der Kern der Regel: ein Browser, den 15 Tage niemand geoeffnet hat, ist
+    kein Empfaenger mehr. Kaeme sein Buendel weiter aus ``claim``, gingen
+    Nachrichten an ein Geraet, das sie nie abholt — verschluesselt, ohne
+    Empfaenger, unwiederbringlich."""
+    sender_token, sender_uid = _register(_auth_signer)
+    _, empf_uid = _register(_auth_signer)
+    await friend_pair(sender_uid, empf_uid)
+    await _buendel_seeden(
+        session_factory,
+        user_id=empf_uid,
+        rueckfallschluessel="rueckfall-alt",
+        gekoppelt_am=_lange_her(40),
+        zuletzt_benutzt=_lange_her(15),
+    )
+
+    r = await client.post(
+        "/keys/claim",
+        json={"user_ids": [str(empf_uid)]},
+        headers={"Authorization": f"Bearer {sender_token}"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()[str(empf_uid)] == []
+
+
+@pytest.mark.asyncio
+async def test_unbenutzte_app_bleibt_erreichbar(
+    client, session_factory, cloud_mode, _auth_signer, friend_pair
+):
+    """Die Gegenprobe zur Regel, und der Grund, warum sie an ``dauerhaft``
+    haengt: ein Telefon, das 40 Tage in der Schublade lag, behaelt seine
+    Gespraeche. Ein Verfall, der auch Apps traefe, waere kein Ablauf einer
+    Kopplung mehr, sondern ein Datenverlust nach Urlaub."""
+    sender_token, sender_uid = _register(_auth_signer)
+    _, empf_uid = _register(_auth_signer)
+    await friend_pair(sender_uid, empf_uid)
+    await _buendel_seeden(
+        session_factory,
+        user_id=empf_uid,
+        rueckfallschluessel="rueckfall-app",
+        dauerhaft=True,
+        zuletzt_benutzt=_lange_her(40),
+    )
+
+    r = await client.post(
+        "/keys/claim",
+        json={"user_ids": [str(empf_uid)]},
+        headers={"Authorization": f"Bearer {sender_token}"},
+    )
+    assert r.status_code == 200, r.text
+    buendel = r.json()[str(empf_uid)]
+    assert len(buendel) == 1
+    assert buendel[0]["rueckfallschluessel"] == "rueckfall-app"
+
+
+@pytest.mark.asyncio
+async def test_verfall_ueberlebt_den_naechsten_nachweis(
+    client, app, session_factory, cloud_mode, access_token, _auth_signer, friend_pair
+):
+    """Der Grabstein klebt — sonst hoebe der zurueckkehrende Browser den
+    Verfall selbst auf, bevor irgendjemand ihn mitteilen konnte.
+
+    Ablauf: ein 15 Tage unbenutztes Geraet meldet sich wieder (``PUT
+    /keys/bundle`` weist es nach, das frischt ``zuletzt_benutzt`` auf). Die
+    reine Zeitrechnung saehe danach ein gesundes Geraet. Es muss trotzdem
+    verfallen bleiben."""
+    from dcc_chat_gateway.models import DeviceKeyBundle
+    from sqlalchemy import select, update
+
+    token, uid = access_token
+    await _seed_jwks(app)
+    priv, pubkey = _make_device()
+    cert = _make_cert(user_id=str(uid), device_pubkey=pubkey, cert_id="cert-verfall")
+    nutzlast = baue_nutzlast("buendel", "curve-verfall", "")
+    r = await client.put(
+        "/keys/bundle",
+        json={"cert": cert, "signatur": _sign(priv, nutzlast), "curve25519": "curve-verfall"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 204, r.text
+
+    async with session_factory() as s:
+        await s.execute(
+            update(DeviceKeyBundle)
+            .where(DeviceKeyBundle.device_pubkey == pubkey)
+            .values(zuletzt_benutzt=_lange_her(15), gekoppelt_am=_lange_her(40))
+        )
+        await s.commit()
+
+    # Das Geraet meldet sich wieder — derselbe Weg wie beim Start des Klienten.
+    r = await client.put(
+        "/keys/bundle",
+        json={"cert": cert, "signatur": _sign(priv, nutzlast), "curve25519": "curve-verfall"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 204, r.text
+
+    async with session_factory() as s:
+        zeile = (
+            await s.execute(
+                select(DeviceKeyBundle).where(DeviceKeyBundle.device_pubkey == pubkey)
+            )
+        ).scalar_one()
+        assert zeile.verfallen_am is not None, "der Nachweis haette stempeln muessen"
+
+    # Und die Auskunft sagt es dem Geraet ausdruecklich.
+    r = await client.get(
+        "/keys/geraetestand",
+        params={"device_pubkey": pubkey},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == {"stand": "verfallen"}
+
+
+@pytest.mark.asyncio
+async def test_geraetestand_trennt_unbekannt_von_verfallen(
+    client, app, cloud_mode, access_token
+):
+    """Die drei Werte muessen unterscheidbar bleiben: nur ``verfallen`` darf
+    einen Verlauf loeschen. Ein frisches Geraet ist ``gueltig``, ein
+    unbekannter Pubkey ``unbekannt`` — beides loest nichts aus."""
+    token, uid = access_token
+    await _seed_jwks(app)
+    priv, pubkey = _make_device()
+    cert = _make_cert(user_id=str(uid), device_pubkey=pubkey, cert_id="cert-frisch-2")
+    nutzlast = baue_nutzlast("buendel", "curve-frisch", "")
+    r = await client.put(
+        "/keys/bundle",
+        json={"cert": cert, "signatur": _sign(priv, nutzlast), "curve25519": "curve-frisch"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 204, r.text
+
+    r = await client.get(
+        "/keys/geraetestand",
+        params={"device_pubkey": pubkey},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.json() == {"stand": "gueltig"}
+
+    r = await client.get(
+        "/keys/geraetestand",
+        params={"device_pubkey": "pub-gibt-es-nicht"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.json() == {"stand": "unbekannt"}
+
+
+@pytest.mark.asyncio
+async def test_gekoppelter_browser_zaehlt_als_geraet(
+    client, session_factory, cloud_mode, _auth_signer, friend_pair
+):
+    """Spec §3a: ein gekoppelter Browser ist ein vollwertiges Geraet. Ohne
+    diese Zeile bliebe der Verfall eine leere Geste — man kann nichts
+    ablaufen lassen, was nie gezaehlt hat."""
+    frager_token, frager_uid = _register(_auth_signer)
+    _, ziel_uid = _register(_auth_signer)
+    await friend_pair(frager_uid, ziel_uid)
+    await _buendel_seeden(
+        session_factory,
+        user_id=ziel_uid,
+        device_pubkey="pub-gekoppelt",
+        cert_id="cert-gekoppelt",
+        gekoppelt_am=_lange_her(1),
+    )
+
+    r = await client.get(
+        f"/keys/verschluesselbar/{ziel_uid}",
+        headers={"Authorization": f"Bearer {frager_token}"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == {"verschluesselbar": True}
+
+
+@pytest.mark.asyncio
+async def test_verfallener_browser_zaehlt_nicht_mehr(
+    client, session_factory, cloud_mode, _auth_signer, friend_pair
+):
+    """Und nach dem Verfall zaehlt er nicht mehr — sonst behauptete die
+    Auskunft eine Erreichbarkeit, die ``claim`` gleich darauf verweigert."""
+    frager_token, frager_uid = _register(_auth_signer)
+    _, ziel_uid = _register(_auth_signer)
+    await friend_pair(frager_uid, ziel_uid)
+    await _buendel_seeden(
+        session_factory,
+        user_id=ziel_uid,
+        device_pubkey="pub-gekoppelt-alt",
+        cert_id="cert-gekoppelt-alt",
+        gekoppelt_am=_lange_her(40),
+        zuletzt_benutzt=_lange_her(15),
+    )
+
+    r = await client.get(
+        f"/keys/verschluesselbar/{ziel_uid}",
+        headers={"Authorization": f"Bearer {frager_token}"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == {"verschluesselbar": False}
+
+
+@pytest.mark.asyncio
+async def test_sweep_stempelt_und_raeumt_die_einmalschluessel(
+    session_factory, cloud_mode, _auth_signer
+):
+    """Der Aufraeumlauf: stempeln UND die Einmalschluessel loeschen. Die
+    Buendelzeile bleibt als Grabstein stehen — ohne sie waere der Verfall dem
+    Geraet nicht mehr mitteilbar (``schluessel_verfall.py``)."""
+    from dcc_chat_gateway.models import DeviceKeyBundle
+    from dcc_chat_gateway.schluessel_verfall import sweep_verfallene_geraete
+    from sqlalchemy import select
+
+    _, uid = _register(_auth_signer)
+    bid_alt = await _buendel_seeden(
+        session_factory,
+        user_id=uid,
+        device_pubkey="pub-sweep-alt",
+        cert_id="cert-sweep-alt",
+        einmalschluessel=["otk-a", "otk-b"],
+        zuletzt_benutzt=_lange_her(20),
+    )
+    bid_frisch = await _buendel_seeden(
+        session_factory,
+        user_id=uid,
+        device_pubkey="pub-sweep-frisch",
+        cert_id="cert-sweep-frisch",
+        einmalschluessel=["otk-c"],
+    )
+
+    async with session_factory() as s:
+        anzahl = await sweep_verfallene_geraete(s)
+    assert anzahl == 1
+
+    async with session_factory() as s:
+        zeilen = {
+            z.device_pubkey: z
+            for z in (
+                await s.execute(
+                    select(DeviceKeyBundle).where(DeviceKeyBundle.user_id == uid)
+                )
+            ).scalars().all()
+        }
+    assert zeilen["pub-sweep-alt"].verfallen_am is not None
+    assert zeilen["pub-sweep-frisch"].verfallen_am is None
+    assert await _vorrat_zaehlen(session_factory, bid_alt) == 0
+    assert await _vorrat_zaehlen(session_factory, bid_frisch) == 1

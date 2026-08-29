@@ -10,12 +10,25 @@
  * was vom Handy geschrieben wurde.
  *
  * **Koexistenz-Regel (Spec §3, Bughunt 2026-08-28 FIX 1):** verschluesselt
- * wird nur, wenn BEIDE Konten mindestens ein DAUERHAFTES Geraet haben
- * (Electron- oder Android-App) — nicht schon, wenn irgendein Buendel
- * existiert. Grund ist Haltbarkeit, nicht Krypto-Faehigkeit: ein Browser kann
- * verschluesseln, aber nichts verlaesslich behalten, und es gibt kein
- * serverseitiges Backup. Ein Konto ganz ohne dauerhaftes Geraet bliebe sonst
- * unwiderbringlich ohne jede Kopie seines eigenen Verlaufs.
+ * wird nur, wenn BEIDE Konten mindestens ein TEILNAHMEFAEHIGES Geraet haben —
+ * nicht schon, wenn irgendein Buendel existiert. Grund ist Haltbarkeit, nicht
+ * Krypto-Faehigkeit: ein beliebiger Browser-Tab kann verschluesseln, aber
+ * nichts verlaesslich behalten, und es gibt kein serverseitiges Backup. Ein
+ * Konto ganz ohne solches Geraet bliebe sonst unwiderbringlich ohne jede
+ * Kopie seines eigenen Verlaufs.
+ *
+ * Teilnahmefaehig sind zwei Arten (Spec §3a, Punkt 2): eine App (`dauerhaft`)
+ * **und ein gekoppelter Browser** (`gekoppelt`). Der gekoppelte Browser ist
+ * ausdruecklich ein vollwertiges Geraet — er verfaellt dafuer nach 14 Tagen
+ * ohne Benutzung, und ein verfallenes Buendel kommt gar nicht mehr aus
+ * `POST /keys/claim` heraus (`schluessel_verfall.py`). Diese Rechnung hier
+ * muss deshalb NICHT selbst auf Verfall pruefen — was ankommt, lebt.
+ *
+ * **Beide Merkmale gehoeren zusammen gelesen.** Stuende hier weiter nur
+ * `dauerhaft`, verweigerte der Sendeweg genau die Nachricht, die
+ * `GET /keys/verschluesselbar` eine Sekunde vorher zugesagt hat — die Sorte
+ * Zwiespalt zwischen Zusage und Ausfuehrung, die im Klartext-Rueckfall schon
+ * einmal teuer war.
  */
 
 /** Wire-Form eines Buendel-Eintrags aus `POST /keys/claim`
@@ -31,12 +44,24 @@ export type GeraeteBuendelEintrag = {
    *  das Feld (Backend kennt es noch nicht), gilt das Geraet als NICHT
    *  dauerhaft — fail closed, s. Modulkopf. */
   dauerhaft?: boolean;
+  /** Ob DIESES Geraet per Kopplungscode gebunden wurde (Server-Auskunft aus
+   *  `DeviceKeyBundle.gekoppelt_am`, nie eine Selbstauskunft des Geraets).
+   *  Fehlt das Feld, gilt es als nicht gekoppelt — fail closed wie oben. */
+  gekoppelt?: boolean;
 };
 
-/** Ob mindestens EIN Geraet der Liste dauerhaft ist — die Koexistenz-Regel
- *  haengt am KONTO, nicht am einzelnen Geraet. */
+/** Ob ein einzelnes Geraet teilnahmefaehig ist: App ODER gekoppelter
+ *  Browser. Exportiert, weil dieselbe Frage auch ausserhalb des Faecherns
+ *  gestellt wird — zwei Fassungen davon waeren zwei Gelegenheiten, sie
+ *  auseinanderlaufen zu lassen. */
+export function geraetZaehlt(geraet: GeraeteBuendelEintrag): boolean {
+  return geraet.dauerhaft === true || geraet.gekoppelt === true;
+}
+
+/** Ob mindestens EIN Geraet der Liste zaehlt — die Koexistenz-Regel haengt am
+ *  KONTO, nicht am einzelnen Geraet. */
 function kontoHatDauerhaftesGeraet(geraete: GeraeteBuendelEintrag[]): boolean {
-  return geraete.some((g) => g.dauerhaft === true);
+  return geraete.some(geraetZaehlt);
 }
 
 /** Ein Zielgeraet mitsamt dem Konto, dem es gehoert. Der Umschlag wird ueber

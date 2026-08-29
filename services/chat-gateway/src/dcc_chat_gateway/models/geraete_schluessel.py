@@ -50,6 +50,29 @@ class DeviceKeyBundle(Base):
     #: ``schemas.py``. Vorgabe ``False`` — ein unbekanntes/altes Geraet gilt
     #: als nicht dauerhaft (fail closed).
     dauerhaft: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    #: Wann dieses Geraet per Kopplungscode an das Konto gebunden wurde
+    #: (``POST /kopplung/einloesen``). **Vom Server gesetzt, nicht gemeldet** —
+    #: im Unterschied zu ``dauerhaft`` oben ist das ein Ereignis, das der
+    #: Server selbst durchgefuehrt hat. Ein gekoppelter Browser zaehlt damit
+    #: als vollwertiges Geraet (Spec §3a Punkt 2), bleibt aber ``dauerhaft =
+    #: False`` und verfaellt deshalb nach ``geraete_verfall_tage`` ohne
+    #: Benutzung. Ein Bit kann diese drei Klassen (App, gekoppelter Browser,
+    #: loser Tab) nicht auseinanderhalten, deshalb die zweite Spalte
+    #: (Migration 0078).
+    gekoppelt_am: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: Grabstein: gesetzt, sobald dieses Geraet als verfallen erkannt wurde
+    #: (``schluessel_verfall.py``). **Klebt** — ein spaeterer Nachweis frischt
+    #: zwar ``zuletzt_benutzt`` wieder auf, hebt den Verfall aber nicht auf;
+    #: nur eine neue Kopplung tut das. Ohne diesen Grabstein waere der Verfall
+    #: nicht mitteilbar: eine geloeschte Zeile ist von "hat noch nie
+    #: veroeffentlicht" nicht zu unterscheiden, und der Klient darf den
+    #: Verfall nie aus einer Abwesenheit schliessen — er loescht daraufhin
+    #: seinen lokalen Verlauf, und der ist die einzige Kopie.
+    verfallen_am: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     cert_id: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -66,8 +89,8 @@ class DeviceKeyBundle(Base):
     #: ``schluessel_nachweis.py::pruefe_geraet`` ruft — Buendel, Postfach,
     #: Kopplung), grob aufgeloest (Begruendung dort). Traegt zwei Dinge:
     #: die Verdraengung bei ``schluessel_max_buendel_je_konto`` Geraeten
-    #: (``schluessel_grenzen.py``) und, ab einem spaeteren Schritt, den
-    #: 14-Tage-Ablauf gekoppelter Browser (Spec §3a). Migration 0077 befuellt
+    #: (``schluessel_grenzen.py``) und den 14-Tage-Ablauf nicht-dauerhafter
+    #: Geraete (Spec §3a, ``schluessel_verfall.py``). Migration 0077 befuellt
     #: Bestandszeilen aus ``updated_at`` — der beste verfuegbare Wert.
     zuletzt_benutzt: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

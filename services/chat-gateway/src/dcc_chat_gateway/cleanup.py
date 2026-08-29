@@ -20,8 +20,11 @@ Same pattern as ``routes.attachments.reaper_loop`` (sleep-driven asyncio
 loop, errors logged + swallowed, ``CancelledError`` re-raised).
 
 The Postfach sweep (``postfach_pflege.py::sweep_verfallene_zustellungen`` +
-``sweep_verwaiste_nutzlasten`` + ``sweep_verwaiste_anhaenge``) rides the SAME
-loop and interval — no second background task, see ``_run_once`` below.
+``sweep_verwaiste_nutzlasten`` + ``sweep_verwaiste_anhaenge``), der
+Kopplungs-Lauf (``kopplung_pflege.py``) und der Geraete-Verfall
+(``schluessel_verfall.py::sweep_verfallene_geraete``) reiten auf DERSELBEN
+Schleife und demselben Takt — keine zweite Hintergrundaufgabe, s. ``_run_once``
+unten.
 """
 
 from __future__ import annotations
@@ -42,6 +45,7 @@ from dcc_chat_gateway.postfach_pflege import (
     sweep_verwaiste_anhaenge,
     sweep_verwaiste_nutzlasten,
 )
+from dcc_chat_gateway.schluessel_verfall import sweep_verfallene_geraete
 
 log = logging.getLogger(__name__)
 
@@ -86,6 +90,12 @@ async def _run_once(engine: AsyncEngine, settings: Settings) -> int:
     async with session_factory() as session:
         kopplungen = await sweep_verfallene_kopplungen(session)
     log.info("kopplung_pflege_done verfallen=%d", kopplungen)
+
+    # Gekoppelte Browser, die seit ``geraete_verfall_tage`` niemand mehr
+    # geoeffnet hat (Spec §3a) — dieselbe Schleife, derselbe Takt wie oben.
+    async with session_factory() as session:
+        geraete = await sweep_verfallene_geraete(session)
+    log.info("geraete_verfall_done verfallen=%d", geraete)
 
     return deleted
 

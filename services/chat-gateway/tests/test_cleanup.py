@@ -130,3 +130,40 @@ async def test_cleanup_loop_survives_run_once_exception(
     assert any(
         "push_subscription_cleanup_failed" in rec.message for rec in caplog.records
     )
+
+
+@pytest.mark.asyncio
+async def test_run_once_stempelt_verfallene_geraete(engine, session_factory):
+    """Der Geraete-Verfall (Spec §3a) haengt in DIESER Schleife, nicht in einer
+    zweiten daneben — geprueft ueber ``_run_once``, nicht ueber den Sweep
+    selbst. Ein Aufraeumlauf, den niemand ruft, sieht in seinem eigenen Test
+    genauso gruen aus wie einer, der laeuft."""
+    from dcc_chat_gateway.models import DeviceKeyBundle
+    from dcc_chat_gateway.snowflake import next_id
+
+    alt = datetime.now(UTC) - timedelta(days=20)
+    bid = next_id()
+    async with session_factory() as s:
+        s.add(
+            DeviceKeyBundle(
+                id=bid,
+                user_id=424242,
+                device_pubkey="pub-cleanup-verfall",
+                curve25519="curve",
+                signatur="sig",
+                dauerhaft=False,
+                zuletzt_benutzt=alt,
+                cert_id="cert-cleanup-verfall",
+            )
+        )
+        await s.commit()
+
+    await _run_once(engine, _settings())
+
+    async with session_factory() as s:
+        zeile = (
+            await s.execute(
+                select(DeviceKeyBundle).where(DeviceKeyBundle.id == bid)
+            )
+        ).scalar_one()
+    assert zeile.verfallen_am is not None

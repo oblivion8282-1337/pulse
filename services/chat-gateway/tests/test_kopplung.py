@@ -565,3 +565,51 @@ async def test_verfallslauf_raeumt_kopplung_und_stuecke(
                 .where(UmzugStueck.kopplung_id == int(kid))
             )
         ).scalar_one() == 0
+
+
+@pytest.mark.asyncio
+async def test_kopplung_hebt_einen_verfall_auf(client, app, session_factory, _auth_signer):
+    """Der Weg zurueck (Spec §3a): der Grabstein eines verfallenen Browsers
+    klebt — nur eine NEUE Kopplung loest ihn.
+
+    Ohne diese Aufhebung waere ein einmal abgelaufener Browser dauerhaft
+    unbrauchbar: er duerfte sich neu koppeln, bliebe aber fuer ``claim``
+    unsichtbar und wuerde bei jedem Start erneut seinen (dann leeren) Verlauf
+    loeschen."""
+    from dcc_chat_gateway.models import DeviceKeyBundle
+    from dcc_chat_gateway.snowflake import next_id
+    from sqlalchemy import select
+
+    token, uid = await _register(_auth_signer)
+    alt = Geraet(uid, "cert-alt-verfall")
+    neu = Geraet(uid, "cert-neu-verfall")
+
+    # Der Browser hat frueher schon einmal veroeffentlicht und ist verfallen.
+    async with session_factory() as s:
+        s.add(
+            DeviceKeyBundle(
+                id=next_id(),
+                user_id=uid,
+                device_pubkey=neu.pubkey,
+                curve25519="curve-alt",
+                signatur="sig-alt",
+                dauerhaft=False,
+                zuletzt_benutzt=datetime.now(UTC) - timedelta(days=20),
+                verfallen_am=datetime.now(UTC) - timedelta(days=5),
+                cert_id="cert-neu-verfall",
+            )
+        )
+        await s.commit()
+
+    code = "55555-66666-77777-88888"
+    assert (await _anlegen(client, app, alt, token, code)).status_code == 200
+    assert (await _einloesen(client, app, neu, token, code)).status_code == 200
+
+    async with session_factory() as s:
+        zeile = (
+            await s.execute(
+                select(DeviceKeyBundle).where(DeviceKeyBundle.device_pubkey == neu.pubkey)
+            )
+        ).scalar_one()
+    assert zeile.verfallen_am is None
+    assert zeile.gekoppelt_am is not None

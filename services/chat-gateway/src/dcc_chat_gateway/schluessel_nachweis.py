@@ -33,6 +33,7 @@ from dcc_chat_gateway.credential_validator import (
     verify_challenge_signature,
 )
 from dcc_chat_gateway.models import DeviceKeyBundle
+from dcc_chat_gateway.schluessel_verfall import stempel_ausdruck
 from dcc_chat_gateway.security import AuthenticatedUser
 
 #: Aufloesung fuer ``zuletzt_benutzt`` — ein Schreibzugriff pro Geraet und
@@ -105,6 +106,18 @@ async def _zuletzt_benutzt_auffrischen(session, user_id: int, device_pubkey: str
     Kein Fehler, wenn keine Zeile existiert (s. Docstring von
     ``pruefe_geraet``) — die Anweisung betrifft dann schlicht null Zeilen.
 
+    Setzt ausserdem den Verfalls-Grabstein, falls das Geraet ueberfaellig war
+    (Spec §3a) — in DERSELBEN Anweisung, als ``CASE`` ueber den alten Wert von
+    ``zuletzt_benutzt``. Die Reihenfolge „erst stempeln, dann auffrischen" ist
+    damit nicht bloss eingehalten, sondern unmoeglich zu verletzen, und der
+    haeufige Pfad (Postfach-Polling) kostet weiterhin genau eine Runde zur
+    Datenbank. Begruendung im Ganzen: ``schluessel_verfall.py::stempel_ausdruck``.
+
+    Dass die 14-Tage-Bedingung des Stempels die 1-Stunden-Bedingung der
+    Auffrischung IMPLIZIERT, ist die Voraussetzung dafuer, dass beide unter
+    dieselbe WHERE-Klausel passen — wer eine der beiden Fristen aendert,
+    prueft das nach.
+
     Committet NUR, wenn tatsaechlich eine Zeile getroffen wurde — einige
     Aufrufer sind lesende Routen (z. B. ``kopplung_stand``), die selbst nie
     committen; ohne einen eigenen Commit hier ginge die Auffrischung dort mit
@@ -119,7 +132,8 @@ async def _zuletzt_benutzt_auffrischen(session, user_id: int, device_pubkey: str
     NACH eigenen Schreibzugriffen ruft, macht diesen Commit zu einem
     Teil-Commit seiner eigenen Arbeit — und der faellt erst auf, wenn die
     Route danach fehlschlaegt und die Haelfte trotzdem stehenbleibt."""
-    schwelle = datetime.now(UTC) - _ZULETZT_BENUTZT_AUFLOESUNG
+    jetzt = datetime.now(UTC)
+    schwelle = jetzt - _ZULETZT_BENUTZT_AUFLOESUNG
     ergebnis = await session.execute(
         update(DeviceKeyBundle)
         .where(
@@ -127,7 +141,7 @@ async def _zuletzt_benutzt_auffrischen(session, user_id: int, device_pubkey: str
             DeviceKeyBundle.device_pubkey == device_pubkey,
             DeviceKeyBundle.zuletzt_benutzt < schwelle,
         )
-        .values(zuletzt_benutzt=datetime.now(UTC))
+        .values(verfallen_am=stempel_ausdruck(jetzt), zuletzt_benutzt=jetzt)
     )
     if ergebnis.rowcount:
         await session.commit()

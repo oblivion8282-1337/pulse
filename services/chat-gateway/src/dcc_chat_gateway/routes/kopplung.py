@@ -69,7 +69,7 @@ from dcc_chat_gateway.kopplung_schemas import (
     KopplungStandResponse,
 )
 from dcc_chat_gateway.kopplung_zugriff import _als_utc, kopplung_laden
-from dcc_chat_gateway.models import Kopplung, UmzugStueck
+from dcc_chat_gateway.models import DeviceKeyBundle, Kopplung, UmzugStueck
 from dcc_chat_gateway.routes._postfach_deps import _require_redis
 from dcc_chat_gateway.schluessel_nachweis import baue_nutzlast, pruefe_geraet
 from dcc_chat_gateway.security import CurrentUser
@@ -199,6 +199,27 @@ async def kopplung_einloesen(
 
     if zeile is None:
         await _einloesen_fehler_erklaeren(session, body.code_hash, user.id, claims, jetzt)
+
+    # Ab hier zaehlt dieses Geraet als gekoppelt (Spec §3a, Punkt 2). Die
+    # Marke setzt der SERVER, nicht das Geraet: anders als ``dauerhaft``
+    # (Selbstauskunft) ist die Einloesung ein Ereignis, das er selbst
+    # durchgefuehrt hat. Sie hebt zugleich einen frueheren Verfall auf — genau
+    # DAS ist der Weg zurueck fuer einen abgelaufenen Browser, und der einzige
+    # (``schluessel_verfall.py``: der Grabstein klebt sonst).
+    #
+    # Trifft null Zeilen, wenn dieses Geraet noch kein Buendel veroeffentlicht
+    # hat. Das ist kein Fehler: der Klient veroeffentlicht beim Start, und die
+    # naechste Veroeffentlichung holt die Zeile nach — nur die Marke fehlte
+    # dann. Deshalb wird sie zusaetzlich beim Veroeffentlichen nachgezogen
+    # (``routes/schluessel.py``).
+    await session.execute(
+        update(DeviceKeyBundle)
+        .where(
+            DeviceKeyBundle.user_id == user.id,
+            DeviceKeyBundle.device_pubkey == claims.device_pubkey,
+        )
+        .values(gekoppelt_am=jetzt, verfallen_am=None, zuletzt_benutzt=jetzt)
+    )
 
     await session.commit()
     return KopplungEinloesenResponse(
