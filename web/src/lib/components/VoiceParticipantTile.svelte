@@ -205,7 +205,7 @@
                 <span
                   role="button"
                   tabindex="0"
-                  class="cursor-pointer rounded-md bg-badge-live px-3 py-1.5 text-sm font-bold leading-none text-white shadow-sm hover:bg-badge-live-hover active:scale-95"
+                  class="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-badge-live px-3 py-1.5 text-sm font-bold uppercase text-white shadow-sm hover:bg-badge-live-hover active:scale-95"
                   data-testid="voice-participant-live-badge"
                   title={isHqStreaming && isScreenSharing
                     ? m.voice_participant_tile_open_hq_and_screen()
@@ -215,31 +215,31 @@
                   aria-label={m.voice_participant_tile_open_stream_aria({ name: resolvedName })}
                   onclick={(e) => { e.stopPropagation(); openLive(); }}
                   onkeydown={badgeKeydown(openLive)}
-                >LIVE</span>
+                ><span class="size-2 rounded-full bg-white/80"></span>LIVE</span>
               {/if}
               {#if isPartyHost}
                 <span
                   role="button"
                   tabindex="0"
-                  class="cursor-pointer rounded-md bg-badge-party px-3 py-1.5 text-sm font-bold leading-none text-white shadow-sm hover:bg-badge-party-hover active:scale-95"
+                  class="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-sm font-bold uppercase text-white shadow-sm hover:bg-amber-500 active:scale-95"
                   data-testid="voice-participant-party-badge"
                   title={m.voice_participant_tile_open_watch_party()}
                   aria-label={m.voice_participant_tile_open_watch_party_aria({ name: resolvedName })}
                   onclick={(e) => { e.stopPropagation(); openParty(); }}
                   onkeydown={badgeKeydown(openParty)}
-                >PARTY</span>
+                ><span class="size-2 rounded-full bg-white/80"></span>PARTY</span>
               {/if}
               {#if hasCam}
                 <span
                   role="button"
                   tabindex="0"
-                  class="cursor-pointer rounded-md bg-badge-cam px-3 py-1.5 text-sm font-bold leading-none text-white shadow-sm hover:bg-badge-cam-hover active:scale-95"
+                  class="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-badge-cam px-3 py-1.5 text-sm font-bold uppercase text-white shadow-sm hover:bg-badge-cam-hover active:scale-95"
                   data-testid="voice-participant-cam-badge"
                   title={m.voice_participant_tile_open_webcam()}
                   aria-label={m.voice_participant_tile_open_webcam_aria({ name: resolvedName })}
                   onclick={(e) => { e.stopPropagation(); openCam(); }}
                   onkeydown={badgeKeydown(openCam)}
-                >CAM</span>
+                ><span class="size-2 rounded-full bg-white/80"></span>CAM</span>
               {/if}
             </div>
           {/if}

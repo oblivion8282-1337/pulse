@@ -238,21 +238,21 @@
                   <span class="ml-auto flex shrink-0 items-center gap-1">
                     {#if isParty}
                       <span
-                        class="rounded bg-badge-party px-1.5 py-0.5 text-2xs font-bold leading-none text-white"
+                        class="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-amber-400"
                         title={m.voice_channel_members_watch_party_hosting()}
-                      >PARTY</span>
+                      ><span class="size-1.5 rounded-full bg-amber-400"></span>PARTY</span>
                     {/if}
                     {#if isLive}
                       <span
-                        class="rounded bg-badge-live px-1.5 py-0.5 text-2xs font-bold leading-none text-white"
+                        class="inline-flex items-center gap-1 rounded-md border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-red-400"
                         title={m.voice_channel_members_stream_sharing_screen()}
-                      >LIVE</span>
+                      ><span class="size-1.5 rounded-full bg-red-400"></span>LIVE</span>
                     {/if}
                     {#if isCam}
                       <span
-                        class="rounded bg-badge-cam px-1.5 py-0.5 text-2xs font-bold leading-none text-white"
+                        class="inline-flex items-center gap-1 rounded-md border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-cyan-400"
                         title={m.voice_channel_members_cam_on()}
-                      >CAM</span>
+                      ><span class="size-1.5 rounded-full bg-cyan-400"></span>CAM</span>
                     {/if}
                   </span>
                 {/if}

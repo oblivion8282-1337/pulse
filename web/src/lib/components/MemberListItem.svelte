@@ -122,11 +122,11 @@
             tabindex="0"
             onclick={(e) => { e.stopPropagation(); onPartyClick(member.user_id); }}
             onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onPartyClick(member.user_id); } }}
-            class="cursor-pointer rounded bg-badge-party px-1.5 py-0.5 text-2xs font-bold leading-none text-white hover:bg-badge-party-hover"
+            class="inline-flex cursor-pointer items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-amber-400 hover:bg-amber-500/20"
             data-testid="member-party-badge"
             aria-label={m.member_list_item_party_open_label({ name })}
             title={m.member_list_item_party_open_title()}
-          >PARTY</span>
+          ><span class="size-1.5 rounded-full bg-amber-400"></span>PARTY</span>
         {/if}
         {#if isStreaming}
           <span
@@ -134,11 +134,11 @@
             tabindex="0"
             onclick={(e) => { e.stopPropagation(); onActivityClick(member.user_id); }}
             onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onActivityClick(member.user_id); } }}
-            class="cursor-pointer rounded bg-badge-live px-1.5 py-0.5 text-2xs font-bold leading-none text-white hover:bg-badge-live-hover"
+            class="inline-flex cursor-pointer items-center gap-1 rounded-md border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-red-400 hover:bg-red-500/20"
             data-testid="member-live-badge"
             aria-label={m.member_list_item_stream_open_label({ name })}
             title={m.member_list_item_stream_open_title()}
-          >LIVE</span>
+          ><span class="size-1.5 rounded-full bg-red-400"></span>LIVE</span>
         {/if}
       </span>
     </button>
