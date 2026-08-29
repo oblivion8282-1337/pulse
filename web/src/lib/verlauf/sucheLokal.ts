@@ -23,6 +23,7 @@
  * und der Hinweis bleibt folgerichtig unsichtbar.
  */
 import { verlaufAlleLesen } from './db';
+import { aktuellesKonto } from './konto';
 import { lokaleTreffer, LOKALE_SUCHE_LIMIT } from './sucheTreffer';
 import { sucheZusammenfuehren } from './sucheZusammenfuehren';
 import { verlaufZustand } from './zustand.svelte';
@@ -40,9 +41,11 @@ import { chatApi, type DMMessageSearchHit } from '$lib/api/chat';
 export async function sucheLokal(suchbegriff: string): Promise<DMMessageSearchHit[]> {
   const begriff = suchbegriff.trim();
   if (begriff.length < 2) return [];
+  const kontoId = aktuellesKonto();
+  if (kontoId === null) return [];
   let saetze;
   try {
-    saetze = await verlaufAlleLesen();
+    saetze = await verlaufAlleLesen(kontoId);
   } catch (err) {
     verlaufZustand.melde(err);
     return [];

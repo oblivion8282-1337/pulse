@@ -8,6 +8,16 @@
  * beliebige Schluessel. NICHT `pulse-verlauf`: der Verlauf ist Nutzinhalt und
  * muss getrennt loeschbar bleiben, der Account gehoert zum Geraeteschluessel.
  *
+ * **Keine Funktion in dieser Datei nimmt selbst eine Sperre** — das tut die
+ * aufrufende Ablaufstelle (`veroeffentlichen.ts`, `empfangen.ts`), und zwar
+ * ueber Laden UND Sichern zusammen. Zwei Gruende: eine Sperre nur ums
+ * Sichern verhinderte nichts (der verlorene Stand entsteht schon beim
+ * Laden), und Web Locks sind nicht wiedereintrittsfaehig — eine Sperre hier
+ * wuerde unter der Sperre des Aufrufers auf sich selbst warten
+ * (`sperren.ts`, Regel 1). Wer eine dieser Funktionen an einer NEUEN Stelle
+ * ruft und dabei den Account veraendert, muss `mitKontosperre` selbst
+ * mitbringen.
+ *
  * Der Einfrier-Schluessel kommt aus `pickelschluesselAbleiten` ueber eine
  * Signatur des Geraeteschluessels (`keypairStore`, `extractable: false`) —
  * der eingefrorene Zustand ist damit an ein Geheimnis gebunden, das dieses
@@ -117,6 +127,11 @@ export async function kryptoAccountSichern(ident: Identitaet): Promise<void> {
  * Ein `generate_fallback_key()` bei jedem Aufruf waere die falsche
  * Alternative: es ERSETZT den aktuellen Rueckfallschluessel unbedingt
  * (echte Rotation), was bei jedem Login/jeder Cert-Rotation unnoetig waere.
+ *
+ * **Nur unter der Konto-Sperre aufrufen** (s. Modulkopf): Nachsehen, Erzeugen,
+ * Sichern und Zwischenspeichern sind vier Schritte, und der erzeugte
+ * Rueckfallschluessel ist zwischen Schritt zwei und vier nirgends dauerhaft
+ * abgelegt. Der einzige Aufrufer ist `veroeffentlichen.ts`, der sie haelt.
  */
 export async function rueckfallschluesselSicherstellen(ident: Identitaet): Promise<string> {
   const db = await openIdentityDb();

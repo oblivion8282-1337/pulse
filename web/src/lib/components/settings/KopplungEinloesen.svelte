@@ -29,7 +29,7 @@
     verlaufUebernehmen
   } from '$lib/kopplung/empfangen';
   import { standSicherAbfragen } from '$lib/kopplung/standAbfragen';
-  import { kannVerwerfen } from '$lib/kopplung/ansichtZustand';
+  import { kannVerwerfen, verwerfenGesperrt } from '$lib/kopplung/ansichtZustand';
   import type { EinloesFehler } from '$lib/kopplung/einloesFehler';
 
   let eingabe = $state('');
@@ -46,6 +46,12 @@
    *  einen Weg zurueck (Befund 3, Bughunt 2026-08-29) — sonst haengt der
    *  Empfaenger auf einer toten Kennung fest, wenn der Sender abbricht. */
   const darfVerwerfen = $derived(kannVerwerfen(kopplungId, uebernommen));
+
+  /** Befund 2 (Bughunt 2026-08-29, Runde 6): waehrend `uebernehmen()` laeuft,
+   *  darf „Verwerfen" nicht gleichzeitig zuschlagen — sonst beendet es die
+   *  Kopplung serverseitig, waehrend `verlaufUebernehmen` weiter Stuecke
+   *  holt und dauerhaft ablegt (Halbimport, s. `kopplung/ansichtZustand.ts`). */
+  const verwerfenIstGesperrt = $derived(verwerfenGesperrt(laeuft));
 
   /** Die Fehlergründe stehen als eigene Nachrichten im Katalog — kein
    *  zusammengesetzter Schlüssel, damit ein fehlender Text beim Übersetzen
@@ -176,7 +182,12 @@
   {/if}
 
   {#if darfVerwerfen}
-    <Button variant="outline" onclick={verwerfen} data-testid="kopplung-verwerfen">
+    <Button
+      variant="outline"
+      onclick={verwerfen}
+      disabled={verwerfenIstGesperrt}
+      data-testid="kopplung-verwerfen"
+    >
       {m.kopplung_eingeben_abbrechen()}
     </Button>
   {/if}

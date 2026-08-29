@@ -38,3 +38,32 @@ export function kannErneutSchieben(
 export function kannVerwerfen(kopplungId: string | null, uebernommen: number | null): boolean {
   return kopplungId !== null && uebernommen === null;
 }
+
+/**
+ * Ob der „Verwerfen"-Knopf waehrend eines laufenden Vorgangs GESPERRT sein
+ * muss (Befund 2, Bughunt 2026-08-29 Runde 6). `verwerfen()` beendet die
+ * Kopplung sofort serverseitig — laeuft `uebernehmen()` noch (holt Stuecke
+ * und legt sie dauerhaft im lokalen Verlauf ab), reisst ein gleichzeitiges
+ * Verwerfen einen Halbimport, ohne dass die Oberflaeche den Teilerfolg
+ * meldet. Anders als beim Zeigen-Knopf gibt es hier keinen
+ * Fortsetzungs-Vorteil, der ein Ueberlappen rechtfertigen wuerde — der
+ * Knopf bleibt sichtbar (`kannVerwerfen` bestimmt weiterhin, OB er da ist),
+ * nur klickbar ist er waehrend eines Laufs nicht.
+ */
+export function verwerfenGesperrt(laeuft: boolean): boolean {
+  return laeuft;
+}
+
+/**
+ * Ob der „Erneut versuchen"-Knopf auf der Zeigen-Seite GESPERRT sein muss
+ * (Befund 3, Bughunt 2026-08-29 Runde 6). Ohne Sperre startet ein
+ * Doppelklick zwei parallele `verlaufSchieben`-Laeufe, die dieselben
+ * fehlenden Stuecke berechnen, parallel hochladen und beide `fertig`
+ * melden — die gemeinsame Fortschrittsanzeige springt dabei rueckwaerts.
+ * `schiebtGerade` ist ein eigenes Flag, nicht `laeuft` (das gilt nur fuer
+ * `starten()`): der erste Schiebe-Versuch laeuft NACH dem Einloesen ohne
+ * `laeuft`-Fenster, ausgeloest vom Takt (`pruefen()`), nicht vom Nutzer.
+ */
+export function erneutVersuchenGesperrt(schiebtGerade: boolean): boolean {
+  return schiebtGerade;
+}

@@ -23,6 +23,20 @@ const DB_VERSION = 1;
  *
  * Callers still call db.close() for back-compat; the method is replaced with
  * a no-op on the cached instance so the shared connection stays alive.
+ *
+ * **Kein Gegenstueck zu `verlauf/db.ts::mitVerbindung`s Heilung des
+ * `onversionchange`-Rennens** (Aufrufer haelt eine `IDBDatabase`-Referenz
+ * aus VOR dem Reset, `db.transaction()` wirft synchron `InvalidStateError`).
+ * Dieses Rennen braucht einen Aufstieg zwischen zwei `DB_VERSION`-Staenden —
+ * `DB_VERSION` steht hier seit Anlegen der Datei unveraendert auf `1`
+ * (nachgesehen per `git log -p`), und ein Aufstieg ist auch nicht geplant:
+ * `krypto/account.svelte.ts` legt seinen Pickle-Zustand unter einem neuen
+ * SCHLUESSEL im bestehenden Store ab, nicht in einem neuen Object-Store —
+ * genau das, was dort im Modulkopf als "kein `DB_VERSION`-Sprung noetig"
+ * begruendet ist. Ohne einen zweiten Versions-Stand gibt es hier kein
+ * `onversionchange` und damit auch kein Rennen zu heilen. Sobald `DB_VERSION`
+ * hier je steigt, gilt dieselbe Begruendung wie in `verlauf/db.ts` — dann
+ * gehoert die Heilung hierher.
  */
 let _dbPromise: Promise<IDBDatabase> | null = null;
 

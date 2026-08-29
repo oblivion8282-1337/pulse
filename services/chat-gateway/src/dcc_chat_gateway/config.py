@@ -238,18 +238,27 @@ class Settings(BaseSettings):
     # weitere Einlieferungen an EIN so volles Geraet werden uebersprungen
     # (wie ein unbekanntes Geraet), nicht die ganze Anfrage abgewiesen.
     postfach_max_offene_zustellungen_je_geraet: int = 500
-    # Offene Zustellungen je (Absender-Geraet, Empfaengergeraet) — Bughunt
+    # Offene Zustellungen je (Absender-KONTO, Empfaengergeraet) — Bughunt
     # 2026-08-28 (Missbrauch), FIX 3. Ohne diese zweite, engere Grenze zaehlt
     # die obige Obergrenze ueber ALLE Absender hinweg: ein einzelner
     # akzeptierter Kontakt kann sie mit ein paar Anfragen alleine fuellen
     # (256 KiB je Umschlag, ~62 je 16-MB-Anfragekoerper), danach werden
     # Zustellungen JEDES ANDEREN Freundes an dieses Geraet stillschweigend
-    # uebersprungen, bis die 30-Tage-Frist der aeltesten ablaeuft. 50 ist
-    # bewusst ein Zehntel der Gesamtgrenze: ein Geraet mit 10 aktiven
-    # Korrespondenten kann sein Kontingent dann rechnerisch ausschoepfen,
-    # ohne dass irgendein einzelner mehr als sein Zehntel beansprucht — kein
-    # gemessener Wert, sondern aus der Gesamtgrenze abgeleitet, damit beide
-    # Zahlen zueinander passen.
+    # uebersprungen, bis die 30-Tage-Frist der aeltesten ablaeuft.
+    #
+    # **Gezaehlt wird am KONTO, nicht am Geraet** (Migration 0076, belegter
+    # Fehler 2026-08-29: die Grenze zaehlte anfangs ueber
+    # ``DmNutzlast.absender_device_pubkey`` — pro Geraet — obwohl ein Konto
+    # bis zu ``schluessel_max_buendel_je_konto`` = 20 Geraete fuehren darf.
+    # Zehn davon genuegten, jedes innerhalb seiner eigenen Grenze, um die
+    # Gesamtobergrenze eines Opfergeraets allein zu fuellen). 50 ist bewusst
+    # ein Zehntel der Gesamtgrenze: ein KONTO mit 10 aktiven Korrespondenten
+    # kann sein Kontingent dann rechnerisch ausschoepfen, ohne dass
+    # irgendeiner davon mehr als sein Zehntel beansprucht — kein gemessener
+    # Wert, sondern aus der Gesamtgrenze abgeleitet, damit beide Zahlen
+    # zueinander passen. Die Rechnung braucht keine Annahme mehr ueber die
+    # Geraetezahl je Korrespondent, weil sie gar nicht mehr an einem Geraet
+    # haengt.
     postfach_max_offene_zustellungen_je_absender_und_geraet: int = 50
 
     # Private Gruppen (Etappe G1) — Vorgabe AUS, am Vorbild von

@@ -21,6 +21,15 @@
  *   der alten Sitzung damit UNWIEDERBRINGLICH verloren, nicht bloss neu
  *   aufzubauen (s. `krypto/pulse-krypto/src/gruppe.rs`).
  *
+ * **Auch hier sperrt keine Funktion selbst** (dieselbe Regel wie in
+ * `../account.svelte.ts`, Begruendung in `../sperren.ts`): die AUSGEHENDE
+ * Sitzung sperrt `senden.ts` ueber Laden, Verschluesseln und Sichern hinweg
+ * (`mitGruppensitzungssperre`); die EINGEHENDEN Sitzungen entstehen und
+ * ratcheten ausschliesslich im Abholzyklus (`../empfangen.ts`), der als
+ * Ganzes unter der Konto-Sperre laeuft — ein zweiter Tab kann deshalb nicht
+ * gleichzeitig in denselben Eintrag schreiben. Wer sie an einer NEUEN Stelle
+ * ausserhalb des Abholzyklus veraendert, bringt eine eigene Sperre mit.
+ *
  * **Was hier NICHT steht: ein Aufraeumen alter eingehender Sitzungen.** Bei
  * jedem Mitgliederwechsel entsteht eine weitere Zeile je Absendergeraet, und
  * keine verschwindet je. Das ist eine bekannte, offene Stelle — sie zu

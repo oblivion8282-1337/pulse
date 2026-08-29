@@ -23,22 +23,26 @@
  * zurueck und ist dann NIE MEHR zu oeffnen. Beide Pickles muessen deshalb in
  * EINER IndexedDB-Transaktion landen, nicht in zwei nacheinander.
  *
- * **Ergaenzung aus demselben Bughunt (FIX 3):**
+ * **Ergaenzung aus demselben Bughunt (FIX 3), nachgeschaerft am 2026-08-29:**
  * `mitSitzungssperre` — zwei gleichzeitige Operationen auf demselben
  * Sitzungsschluessel (z. B. zwei schnelle Sendungen, oder ein Empfang
  * waehrend eine Sendung laeuft) laden sonst dieselbe eingefrorene Sitzung,
  * ratcheten sie unabhaengig weiter und der letzte Schreiber gewinnt — der
  * andere Ratchet-Schritt ist weg, obwohl sein Umschlag schon zugestellt
- * wurde. Die eigentliche Warteschlangen-Rechnung steht importfrei in
- * `sitzungssperre.ts` (s. dort, CLAUDE.md „Die Falle" — dieses Modul hier
- * haengt am WASM-Paket und ist deshalb selbst nicht Node-pruefbar).
+ * wurde. Die erste Fassung sperrte in einer Modul-`Map` und damit nur
+ * innerhalb EINES Tabs; die IndexedDB darunter gehoert aber dem
+ * Browserprofil. Die Sperre liegt jetzt auf `navigator.locks` und gilt je
+ * Herkunft — Rechnung, Begruendung und die beiden Regeln (keine
+ * Wiedereintritte, feste Erwerbsreihenfolge) stehen importfrei in
+ * `sperren.ts` (CLAUDE.md „Die Falle" — dieses Modul hier haengt am
+ * WASM-Paket und ist deshalb selbst nicht Node-pruefbar).
  */
 import type { Identitaet, Sitzung } from '../../../../krypto/pulse-krypto/pkg/pulse_krypto.js';
 import { Sitzung as SitzungKlasse } from '../../../../krypto/pulse-krypto/pkg/pulse_krypto.js';
 import { STORE_NAME, openIdentityDb, idbGetIdentity, idbPutIdentity } from '../identity/idb-shared';
 import { IDB_KEY as KONTO_IDB_KEY, pickelschluesselDesGeraets } from './account.svelte';
 import { sitzungsSchluessel } from './sitzungsschluessel';
-import { mitSchluesselsperre } from './sitzungssperre';
+import { mitSchluesselsperre } from './sperren';
 
 function idbSchluessel(kanalId: string, geraetePubkey: string): string {
   return `pulse.krypto-sitzung.${sitzungsSchluessel(kanalId, geraetePubkey)}`;
@@ -107,9 +111,9 @@ export async function sitzungMitKontoAtomarSichern(
 
 /**
  * Fuehrt `aufgabe` streng NACH jeder anderen, fuer denselben (kanalId,
- * geraetePubkey) laufenden Aufgabe aus — nie gleichzeitig. Duennes
- * Wire-up um `mitSchluesselsperre` (s. dort fuer die eigentliche Rechnung
- * und die Begruendung).
+ * geraetePubkey) laufenden Aufgabe aus — nie gleichzeitig, und das ueber alle
+ * Tabs derselben Herkunft. Duennes Wire-up um `mitSchluesselsperre`
+ * (s. `sperren.ts` fuer den Mechanismus und die Begruendung).
  */
 export function mitSitzungssperre<T>(
   kanalId: string,

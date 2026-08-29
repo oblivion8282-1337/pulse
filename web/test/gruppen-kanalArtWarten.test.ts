@@ -33,6 +33,32 @@ test('bleibt bei false, wenn die Kanal-ID nach dem Warten immer noch keine Grupp
   assert.equal(ergebnis, false);
 });
 
+test('Befund 4 (Bughunt 2026-08-29 Runde 6): haengt nicht dauerhaft, wenn das Warten NIE aufloest', async () => {
+  // Nachbildung des echten Fehlers: `ws/handlers/ready.ts` ruft
+  // `gruppenApi.auflisten().then(seed).catch(() => undefined)` — schlaegt
+  // der Abruf fehl, laeuft `seed()` nie und `privateGruppen.bereit` bleibt
+  // fuer immer offen. Ohne das Zeitlimit haette dieser Test nie geendet.
+  const niePraufloesendesWarten = () => new Promise<void>(() => {});
+
+  const ergebnis = await alsGruppeErkennenNachWarten(
+    () => false,
+    niePraufloesendesWarten,
+    20
+  );
+  assert.equal(ergebnis, false);
+});
+
+test('Befund 4: nach Ablauf des Zeitlimits wird der Bestand noch EINMAL geprueft', async () => {
+  const niePraufloesendesWarten = () => new Promise<void>(() => {});
+
+  const ergebnis = await alsGruppeErkennenNachWarten(
+    () => true,
+    niePraufloesendesWarten,
+    20
+  );
+  assert.equal(ergebnis, true);
+});
+
 test('Gegenprobe zur alten Fehlfassung: ein blosses Lesen VOR dem Warten verpasst die Gruppe', () => {
   // Wie der urspruengliche Fehler in `+page.svelte::switchTo`:
   // `untrack(() => privateGruppen.istGruppe(cid))` wurde EINMAL gelesen,

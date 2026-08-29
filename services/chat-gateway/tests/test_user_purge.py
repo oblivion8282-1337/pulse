@@ -1281,3 +1281,58 @@ async def test_purge_closes_open_report_targeting_deleted_user_directly(
         report = await s.get(Report, int(report_id))
     assert report is not None
     assert report.status in ("resolved", "dismissed")
+
+
+@pytest.mark.asyncio
+async def test_purge_raeumt_kopplung(
+    client, session_factory, _auth_signer, _internal_secret_set
+):
+    """Bughunt 2026-08-29 (Runde 6, Befund 5): ``Kopplung``/``UmzugStueck``
+    ueberlebten einen Konto-Purge unveraendert — dieselbe Faehrte wie beim
+    Postfach vor Etappe D (``test_purge_raeumt_e2e_postfach``). Eine
+    Kopplung ist eine Verabredung zwischen zwei Geraeten DESSELBEN Kontos
+    (``Kopplung.user_id``, s. Modell-Docstring) — ein Konto B in der Naehe
+    dient hier nur als Kontrolle, dass der Purge nicht ueber sein Konto
+    hinausgreift."""
+    from datetime import UTC, datetime, timedelta
+
+    from dcc_chat_gateway.models import Kopplung, UmzugStueck
+    from dcc_chat_gateway.snowflake import next_id
+
+    _, uid_a = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
+
+    kopplung_a = next_id()
+    kopplung_b = next_id()
+    frist = datetime.now(UTC) + timedelta(hours=1)
+    async with session_factory() as s:
+        s.add(Kopplung(
+            id=kopplung_a, user_id=uid_a, code_hash="hash-a",
+            alt_device_pubkey="pub-a-alt", neu_device_pubkey="pub-a-neu",
+            eingeloest_am=datetime.now(UTC), gesamt_stuecke=2,
+            verfaellt_am=frist,
+        ))
+        s.add(Kopplung(
+            id=kopplung_b, user_id=uid_b, code_hash="hash-b",
+            alt_device_pubkey="pub-b-alt", verfaellt_am=frist,
+        ))
+        await s.commit()
+
+    stueck_a = next_id()
+    async with session_factory() as s:
+        s.add(UmzugStueck(
+            id=stueck_a, kopplung_id=kopplung_a, folge=0,
+            daten="x", groesse=1,
+        ))
+        await s.commit()
+
+    r = await client.post(
+        f"/internal/users/{uid_a}/purge", headers=_internal_headers()
+    )
+    assert r.status_code == 204, r.text
+
+    async with session_factory() as s:
+        assert (await s.get(Kopplung, kopplung_a)) is None
+        assert (await s.get(UmzugStueck, stueck_a)) is None
+        # Konto B ist nicht betroffen.
+        assert (await s.get(Kopplung, kopplung_b)) is not None

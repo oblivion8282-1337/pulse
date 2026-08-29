@@ -18,6 +18,9 @@ type Satz = {
   anhaenge: unknown[];
   antwortAufId: string | null;
   kryptoId: string | null;
+  /** S. `schema.ts::Satz.kontoId` — dieselbe Bedeutung, hier nur strukturell
+   *  dupliziert (importfrei-Pflicht). */
+  kontoId: string;
 };
 
 /**
@@ -39,8 +42,12 @@ export function sortierSchluessel(kanalId: string, nachrichtId: string): string 
  * Fail-closed: fehlt ein Pflichtfeld oder hat es den falschen Typ, gibt es
  * `null` zurueck statt Muell abzulegen — sonst faellt der Fehler erst beim
  * Lesen auf, Wochen spaeter.
+ *
+ * `kontoId` kommt vom Aufrufer (`verlauf/index.ts`, ueber
+ * `verlauf/konto.ts::aktuellesKonto`) — diese Datei ist importfrei und darf
+ * den angemeldeten Nutzer nicht selbst ermitteln.
  */
-export function zuSatz(kanalId: string, nachricht: unknown): Satz | null {
+export function zuSatz(kanalId: string, nachricht: unknown, kontoId: string): Satz | null {
   if (typeof nachricht !== 'object' || nachricht === null) return null;
   const n = nachricht as Record<string, unknown>;
   const { id, author_id, content } = n;
@@ -66,7 +73,8 @@ export function zuSatz(kanalId: string, nachricht: unknown): Satz | null {
     geloescht: deleted_at !== null,
     anhaenge,
     antwortAufId,
-    kryptoId
+    kryptoId,
+    kontoId
   };
 }
 

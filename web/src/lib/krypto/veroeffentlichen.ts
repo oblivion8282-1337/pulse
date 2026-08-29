@@ -29,6 +29,7 @@ import {
 } from './account.svelte';
 import { baueNutzlast } from './nutzlast';
 import { signiereNutzlast } from './nachweis';
+import { mitKontosperre } from './sperren';
 
 // DMs sind heute cloud-only (Global-Friends Stufe 1) — s. `api/keys.ts`
 // Modulkopf (Bughunt 2026-08-28, FIX 4). Als FUNKTION statt Modul-Konstante:
@@ -62,23 +63,44 @@ export async function veroeffentlicheSchluessel(): Promise<void> {
   const cert = certStore.cert;
   if (!keypair || !cert) return;
 
-  const ident = await kryptoAccountLaden();
-  const rueckfallschluessel = await rueckfallschluesselSicherstellen(ident);
+  // **Unter der Konto-Sperre, und zwar ueber die Netzaufrufe hinweg**
+  // (Bughunt 2026-08-29, s. `sperren.ts`). Diese Funktion laeuft beim Start
+  // JEDES Tabs (`identity/cert-rotation.svelte.ts`), und der Krypto-Account
+  // liegt im gemeinsamen IndexedDB des Browserprofils. Ohne Sperre: Tab A und
+  // B laden denselben Kontostand, A erzeugt Einmalschluessel, sichert und
+  // veroeffentlicht ihre OEFFENTLICHEN Haelften; B erzeugt aus seinem
+  // veralteten Stand eigene und ueberschreibt A's Speicherstand. A's PRIVATE
+  // Haelften sind damit weg, ihre oeffentlichen liegen weiter auf dem Server
+  // — jeder Absender, der eine davon beansprucht, schreibt eine dauerhaft
+  // unlesbare Nachricht.
+  //
+  // **Warum die Netzaufrufe hineingehoeren, obwohl sie die Sperre lange
+  // halten koennen:** die Aussage, die geschuetzt werden muss, verbindet die
+  // beiden Seiten — „zu jeder oeffentlichen Haelfte auf dem Server liegt die
+  // private hier". Wuerde die Sperre vor `publishBundle`/`addOneTimeKeys`
+  // fallen, koennte ein zweiter Tab genau waehrend der laufenden Anfrage
+  // laden und sichern; der Schaden entstuende unveraendert. Die Sperre trifft
+  // ausserdem nur, was sich wirklich widerspricht: Senden nimmt sie nicht
+  // (es veraendert den Account nicht, s. `senden.ts`).
+  await mitKontosperre(async () => {
+    const ident = await kryptoAccountLaden();
+    const rueckfallschluessel = await rueckfallschluesselSicherstellen(ident);
 
-  const buendelNutzlast = baueNutzlast('buendel', ident.curve25519(), rueckfallschluessel);
-  const buendelSignatur = await signiereNutzlast(keypair, buendelNutzlast);
-  await keysApi.publishBundle(
-    {
-      cert: cert.raw,
-      signatur: buendelSignatur,
-      curve25519: ident.curve25519(),
-      rueckfallschluessel,
-      dauerhaft: eigenesGeraetDauerhaft()
-    },
-    cloudRoute()
-  );
+    const buendelNutzlast = baueNutzlast('buendel', ident.curve25519(), rueckfallschluessel);
+    const buendelSignatur = await signiereNutzlast(keypair, buendelNutzlast);
+    await keysApi.publishBundle(
+      {
+        cert: cert.raw,
+        signatur: buendelSignatur,
+        curve25519: ident.curve25519(),
+        rueckfallschluessel,
+        dauerhaft: eigenesGeraetDauerhaft()
+      },
+      cloudRoute()
+    );
 
-  await nachfuellenWennNoetig(ident, keypair, cert);
+    await nachfuellenWennNoetig(ident, keypair, cert);
+  });
 }
 
 async function nachfuellenWennNoetig(

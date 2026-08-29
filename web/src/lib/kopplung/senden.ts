@@ -48,6 +48,7 @@
 import { serversStore } from '../api/servers.svelte';
 import { kopplungApi } from '../api/kopplung';
 import { verlaufAlleLesen } from '../verlauf/db';
+import { aktuellesKonto } from '../verlauf/konto';
 import type { Satz } from '../verlauf/schema';
 import { codeErzeugen } from './code';
 import { nachweisFuer } from './nachweisRumpf';
@@ -119,7 +120,12 @@ export async function verlaufSchieben(
   code: string,
   melde: (geschoben: number, gesamt: number) => void
 ): Promise<{ gesamt: number }> {
-  const alle = await verlaufAlleLesen();
+  // Befund 1 (2026-08-29): nur der Bestand des GERADE angemeldeten Kontos —
+  // eine Kopplung schiebt die eigene Historie zum eigenen neuen Geraet, nie
+  // die eines fremden Kontos, das je auf diesem Geraet angemeldet war.
+  const kontoId = aktuellesKonto();
+  if (kontoId === null) throw new Error('kein angemeldetes Konto');
+  const alle = await verlaufAlleLesen(kontoId);
   const stuecke = stueckeSchneiden(
     alle,
     (satz) => ENC.encode(JSON.stringify(satz)).length,

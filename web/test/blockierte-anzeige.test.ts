@@ -17,15 +17,28 @@ import assert from 'node:assert/strict';
 import { nachrichtVonBlockiertem } from '../src/lib/nachrichten/blockierteAnzeige.ts';
 
 describe('nachrichtVonBlockiertem', () => {
-  test('erkennt eine Nachricht eines blockierten Absenders', () => {
-    assert.equal(nachrichtVonBlockiertem('boese-user-id', new Set(['boese-user-id'])), true);
+  test('erkennt eine Nachricht eines blockierten Absenders in einer DM/privaten Gruppe', () => {
+    assert.equal(
+      nachrichtVonBlockiertem('boese-user-id', new Set(['boese-user-id']), true),
+      true
+    );
   });
 
   test('laesst eine Nachricht eines nicht blockierten Absenders unangetastet', () => {
-    assert.equal(nachrichtVonBlockiertem('brave-user-id', new Set(['boese-user-id'])), false);
+    assert.equal(
+      nachrichtVonBlockiertem('brave-user-id', new Set(['boese-user-id']), true),
+      false
+    );
   });
 
   test('leere Blockliste blockiert niemanden', () => {
-    assert.equal(nachrichtVonBlockiertem('irgendwer', new Set()), false);
+    assert.equal(nachrichtVonBlockiertem('irgendwer', new Set(), true), false);
+  });
+
+  test('Befund 1 (Bughunt 2026-08-29): greift NICHT in einem Community-Kanal, auch bei blockiertem Autor', () => {
+    assert.equal(
+      nachrichtVonBlockiertem('boese-user-id', new Set(['boese-user-id']), false),
+      false
+    );
   });
 });

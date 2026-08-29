@@ -19,9 +19,9 @@ test('Sortierschluessel trennt Kanaele', () => {
 test('zuSatz weist Fremdmaterial ab statt es abzulegen', () => {
   // fail-closed: was nicht wie eine Nachricht aussieht, wird nicht
   // gespeichert. Sonst faellt der Fehler erst beim Lesen auf, Wochen spaeter.
-  assert.equal(zuSatz('k1', null), null);
-  assert.equal(zuSatz('k1', {}), null);
-  assert.equal(zuSatz('k1', { id: 5, content: 'x' }), null); // id muss Zeichenkette sein
+  assert.equal(zuSatz('k1', null, 'konto-a'), null);
+  assert.equal(zuSatz('k1', {}, 'konto-a'), null);
+  assert.equal(zuSatz('k1', { id: 5, content: 'x' }, 'konto-a'), null); // id muss Zeichenkette sein
 });
 
 test('zuSatz uebernimmt genau die gebrauchten Felder', () => {
@@ -29,12 +29,23 @@ test('zuSatz uebernimmt genau die gebrauchten Felder', () => {
     id: '42', author_id: '7', content: 'hallo',
     created_at: '2026-08-28T00:00:00Z', edited_at: null,
     attachments: [], unerwartet: 'wird nicht uebernommen',
-  });
+  }, 'konto-a');
   assert.ok(satz);
   assert.equal(satz.nachrichtId, '42');
   assert.equal(satz.inhalt, 'hallo');
   assert.equal(satz.geloescht, false);
   assert.ok(!('unerwartet' in satz));
+});
+
+test('zuSatz traegt das uebergebene Konto in den Satz ein', () => {
+  // Bughunt 2026-08-29, Befund 1: ohne dieses Feld sah ein zweites Konto auf
+  // demselben Geraet den kompletten Bestand des ersten (s.
+  // `verlauf-kontoFilter.test.ts`).
+  const satz = zuSatz('k1', {
+    id: '44', author_id: '7', content: 'hallo', created_at: '2026-08-28T00:00:00Z',
+  }, 'konto-a');
+  assert.ok(satz);
+  assert.equal(satz.kontoId, 'konto-a');
 });
 
 test('eine geloeschte Nachricht bleibt als Grabstein', () => {
@@ -43,7 +54,7 @@ test('eine geloeschte Nachricht bleibt als Grabstein', () => {
     id: '43', author_id: '7', content: '',
     created_at: '2026-08-28T00:00:00Z', deleted_at: '2026-08-28T01:00:00Z',
     attachments: [],
-  });
+  }, 'konto-a');
   assert.ok(satz);
   assert.equal(satz.geloescht, true);
 });

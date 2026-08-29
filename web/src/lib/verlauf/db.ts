@@ -2,7 +2,7 @@
  * IndexedDB öffnen und schreiben — die einzige Stelle in `verlauf/`, die
  * `indexedDB` anfasst. Deshalb im Node-Testläufer NICHT prüfbar (kein
  * `indexedDB` dort); bleibt bewusst so dumm wie möglich, jede Rechnung
- * steckt in `satz.ts` / `schema.ts`.
+ * steckt in `satz.ts` / `schema.ts` / `kontoFilter.ts`.
  *
  * Muster wie `lib/identity/idb-shared.ts`: eine geteilte, zwischengespeicherte
  * Verbindung; Schreiben löst auf `tx.oncomplete` (durables Commit) auf, nicht
@@ -20,6 +20,7 @@ import {
   type Satz
 } from './schema';
 import { sortierSchluessel } from './satz';
+import { gehoertZuKonto } from './kontoFilter';
 
 let _dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -140,8 +141,13 @@ export function verlaufPutSaetze(saetze: Satz[]): Promise<void> {
  * `content`/`author_id`, also keine volle Nachricht, aus der `zuSatz` einen
  * Satz bauen könnte. Gab es lokal noch keinen Satz zu diesem Schlüssel
  * (Nachricht nie gesehen, z. B. ein Guild-Kanal), ist das ein stiller No-Op.
+ *
+ * `kontoId` (Befund 1, 2026-08-29): gehoert der vorgefundene Satz einem
+ * ANDEREN Konto (`kontoFilter.ts::gehoertZuKonto`), bleibt er unangetastet —
+ * ein fremder Grabstein waere selbst ein Schreibzugriff auf Daten, die dieses
+ * Konto nicht sehen darf.
  */
-export function verlaufMarkiereGeloescht(schluessel: string): Promise<void> {
+export function verlaufMarkiereGeloescht(schluessel: string, kontoId: string): Promise<void> {
   return mitVerbindung(
     (db) =>
       new Promise<void>((resolve, reject) => {
@@ -150,7 +156,9 @@ export function verlaufMarkiereGeloescht(schluessel: string): Promise<void> {
         const getReq = store.get(schluessel);
         getReq.onsuccess = () => {
           const satz = getReq.result as Satz | undefined;
-          if (satz && !satz.geloescht) store.put({ ...satz, geloescht: true });
+          if (satz && !satz.geloescht && gehoertZuKonto(satz, kontoId)) {
+            store.put({ ...satz, geloescht: true });
+          }
         };
         getReq.onerror = () => reject(getReq.error);
         tx.oncomplete = () => resolve();
@@ -173,16 +181,27 @@ export function verlaufMarkiereGeloescht(schluessel: string): Promise<void> {
  * befuellbarer Vertrauens-Speicher (der Primaerschluessel selbst enthaelt die
  * vom Server vergebene Zustellungs-/Nachrichten-ID, aber ein Treffer bedeutet
  * nur "wir haben diesen Klartext schon einmal selbst hier abgelegt", nicht
- * "der Server behauptet etwas").
+ * "der Server behauptet etwas"). `kontoId` (Befund 1): ein Satz eines
+ * ANDEREN Kontos zaehlt nicht als "vorhanden" — ohne die Pruefung wuerde
+ * `krypto/empfangen.ts` eine echte Zustellung quittieren, deren Klartext
+ * dieses Konto nie gesehen hat, nur weil zufaellig eine fremde Zeile unter
+ * demselben Schluessel liegt.
  */
-export function verlaufSatzVorhanden(kanalId: string, nachrichtId: string): Promise<boolean> {
+export function verlaufSatzVorhanden(
+  kanalId: string,
+  nachrichtId: string,
+  kontoId: string
+): Promise<boolean> {
   const schluessel = sortierSchluessel(kanalId, nachrichtId);
   return mitVerbindung(
     (db) =>
       new Promise<boolean>((resolve, reject) => {
         const tx = db.transaction(STORE_NACHRICHTEN, 'readonly');
         const req = tx.objectStore(STORE_NACHRICHTEN).get(schluessel);
-        req.onsuccess = () => resolve(req.result !== undefined);
+        req.onsuccess = () => {
+          const satz = req.result as Satz | undefined;
+          resolve(satz !== undefined && gehoertZuKonto(satz, kontoId));
+        };
         req.onerror = () => reject(req.error);
       })
   );
@@ -201,10 +220,16 @@ const OBERE_ID = '9'.repeat(20);
  * Nachrichten-ID ein (Hochscrollen); ohne `vor` sind es die neuesten
  * `anzahl` Saetze. Sammelt rueckwaerts (neueste zuerst) und dreht am Ende um
  * — die Reihenfolge, in der `MessageStore` sie erwartet.
+ *
+ * `kontoId` (Befund 1): der Primaerschluessel ist ausschliesslich nach
+ * `kanalId` getrennt, nicht nach Konto — ein Satz eines FREMDEN Kontos unter
+ * derselben `kanalId` (z. B. nach einem Kontowechsel auf demselben Geraet)
+ * wird uebersprungen statt mitgezaehlt; er zaehlt auch nicht gegen `anzahl`.
  */
 export function verlaufLesenSaetze(
   kanalId: string,
-  opts: { vor?: string; anzahl: number }
+  opts: { vor?: string; anzahl: number },
+  kontoId: string
 ): Promise<Satz[]> {
   if (opts.anzahl <= 0) return Promise.resolve([]);
   const untereGrenze = sortierSchluessel(kanalId, '');
@@ -227,7 +252,8 @@ export function verlaufLesenSaetze(
             resolve(gefunden.reverse());
             return;
           }
-          gefunden.push(cursor.value as Satz);
+          const satz = cursor.value as Satz;
+          if (gehoertZuKonto(satz, kontoId)) gefunden.push(satz);
           cursor.continue();
         };
         req.onerror = () => reject(req.error);
@@ -243,8 +269,12 @@ export function verlaufLesenSaetze(
  * Volltextindex ueber `inhalt`, und der Speicher ist auf den eigenen
  * DM-Verlauf EINES Nutzers begrenzt — vertretbar fuer eine Suchleiste, die
  * ohnehin per Tastendruck entprellt wird (`MobileChatsSuche.svelte`).
+ *
+ * `kontoId` (Befund 1): OHNE diesen Filter war genau das der Leck-Pfad — ein
+ * voller Scan ueber ALLE Konten, die je auf diesem Geraet angemeldet waren.
+ * Nur Saetze des angegebenen Kontos kommen zurueck.
  */
-export function verlaufAlleLesen(): Promise<Satz[]> {
+export function verlaufAlleLesen(kontoId: string): Promise<Satz[]> {
   return mitVerbindung(
     (db) =>
       new Promise<Satz[]>((resolve, reject) => {
@@ -257,7 +287,8 @@ export function verlaufAlleLesen(): Promise<Satz[]> {
             resolve(alle);
             return;
           }
-          alle.push(cursor.value as Satz);
+          const satz = cursor.value as Satz;
+          if (gehoertZuKonto(satz, kontoId)) alle.push(satz);
           cursor.continue();
         };
         req.onerror = () => reject(req.error);

@@ -3,6 +3,7 @@ import type { DMChannel } from '$lib/api/types';
 import { blocks } from './blocks.svelte';
 import { compareSnowflakeId } from '$lib/utils/snowflake';
 import { verlaufLesenSaetze } from '$lib/verlauf/db';
+import { aktuellesKonto } from '$lib/verlauf/konto';
 import { verlaufZustand } from '$lib/verlauf/zustand.svelte';
 import {
   mitLokalerVorschauMergen,
@@ -101,7 +102,9 @@ class DirectMessageStore {
    *  ein DM-Kanal ist (sie steht in der DM-Liste, die diese Funktion aufruft). */
   private async letzterLokalerSatz(kanalId: string): Promise<LokalerLetzterSatz | null> {
     try {
-      const [satz] = await verlaufLesenSaetze(kanalId, { anzahl: 1 });
+      const kontoId = aktuellesKonto();
+      if (kontoId === null) return null;
+      const [satz] = await verlaufLesenSaetze(kanalId, { anzahl: 1 }, kontoId);
       if (!satz || satz.geloescht) return null;
       return {
         nachrichtId: satz.nachrichtId,

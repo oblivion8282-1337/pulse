@@ -24,6 +24,7 @@ import { serversStore } from '../api/servers.svelte';
 import { kopplungApi } from '../api/kopplung';
 import { veroeffentlicheSchluessel } from '../krypto/veroeffentlichen';
 import { verlaufPutSaetze } from '../verlauf/db';
+import { aktuellesKonto } from '../verlauf/konto';
 import type { Satz } from '../verlauf/schema';
 import { codeNormalisieren } from './code';
 import { einloesFehlerAus } from './einloesFehler';
@@ -125,6 +126,15 @@ export async function verlaufUebernehmen(
   const { gesamt } = await umzugStand(kopplungId);
   if (gesamt === null) throw new Error('Das alte Geraet hat den Umzug noch nicht abgeschlossen');
 
+  // Befund 1 (2026-08-29): das EIGENE Konto dieses Geraets stempeln, nicht
+  // blind uebernehmen, was das Stueck traegt. Eine Kopplung ist per Ablauf
+  // (Code + `veroeffentlicheSchluessel()` oben) immer Umzug DESSELBEN Kontos
+  // — der Stempel ist trotzdem die Quelle der Wahrheit auf DIESEM Geraet,
+  // nicht das alte: `verlauf/kontoFilter.ts::gehoertZuKonto` liest spaeter
+  // nur noch das hier gesetzte Feld.
+  const kontoId = aktuellesKonto();
+  if (kontoId === null) throw new Error('kein angemeldetes Konto');
+
   const schluessel = await transportSchluessel(code, kopplungId);
   let uebernommen = 0;
   melde(0, gesamt);
@@ -137,7 +147,8 @@ export async function verlaufUebernehmen(
     );
     const klartext = await stueckEntschluesseln(schluessel, kopplungId, folge, stueck.daten);
     const inhalt = JSON.parse(DEC.decode(klartext)) as StueckInhalt;
-    await verlaufPutSaetze(inhalt.saetze);
+    const saetzeMitKonto = inhalt.saetze.map((satz) => ({ ...satz, kontoId }));
+    await verlaufPutSaetze(saetzeMitKonto);
     uebernommen += inhalt.saetze.length;
     melde(folge + 1, gesamt);
   }

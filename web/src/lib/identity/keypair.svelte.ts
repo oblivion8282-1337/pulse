@@ -91,19 +91,33 @@ export async function generateKeypair(): Promise<WebCryptoKeypair> {
 
 /**
  * Lädt das gespeicherte Keypair aus IndexedDB.
- * Gibt `null` zurück wenn kein Keypair vorhanden ist.
+ *
+ * Gibt `null` NUR für den echten Normalfall zurück: kein `indexedDB` in
+ * dieser Umgebung (SSR), oder ein geöffneter Store ohne Eintrag unter
+ * `IDB_KEY` (frischer Browser, nie ein Keypair erzeugt) — „dieses Gerät hat
+ * (noch) keinen Schlüssel" ist ein legitimer Zustand, den Aufrufer wie
+ * `krypto/senden.ts` als Koexistenz-Fall behandeln dürfen.
+ *
+ * **Wirft dagegen bei jedem Fehler, der beim NACHSEHEN selbst auftritt**
+ * (IDB blockiert, `QuotaExceededError`, ein `InvalidStateError`-Rennen wie
+ * es `verlauf/db.ts::mitVerbindung` für die Verlaufs-DB heilt — hier gibt es
+ * diese Heilung nicht, s. dortigen Modulkopf). Ein blankes `catch { return
+ * null }` machte diesen Fall früher ununterscheidbar vom Normalfall: der
+ * Aufrufer in `senden.ts` deutete jeden Lesefehler als "kein Schlüssel" und
+ * sendete im Klartext, ohne Warnung — derselbe Fehlertyp wie beim
+ * pauschalen `.catch(() => null)`, den es in `senden.ts` selbst schon
+ * einmal gab (s. dortigen Modulkopf, Bughunt 2026-08-28). Aufrufer, die
+ * einen Lesefehler NICHT wie „kein Schlüssel" behandeln dürfen, fangen den
+ * Wurf selbst ab und machen ihn sichtbar statt ihn stillschweigend
+ * weiterzureichen.
  */
 export async function loadKeypair(): Promise<StoredKeypair | null> {
   if (typeof indexedDB === 'undefined') return null;
-  try {
-    const db = await openIdentityDb();
-    const stored = (await idbGetIdentity(db, IDB_KEY)) as StoredKeypair | undefined;
-    db.close();
-    if (!stored || !stored.type) return null;
-    return stored;
-  } catch {
-    return null;
-  }
+  const db = await openIdentityDb();
+  const stored = (await idbGetIdentity(db, IDB_KEY)) as StoredKeypair | undefined;
+  db.close();
+  if (!stored || !stored.type) return null;
+  return stored;
 }
 
 /**

@@ -20,7 +20,7 @@
   import { codeAnzeigen } from '$lib/kopplung/code';
   import { qrSvgFuerCode } from '$lib/kopplung/qr';
   import { istEingeloest, kopplungAbbrechen, kopplungStarten, verlaufSchieben } from '$lib/kopplung/senden';
-  import { kannErneutSchieben } from '$lib/kopplung/ansichtZustand';
+  import { erneutVersuchenGesperrt, kannErneutSchieben } from '$lib/kopplung/ansichtZustand';
 
   /** Wie oft nachgefragt wird, ob das andere Gerät eingelöst hat. */
   const TAKT_MS = 2000;
@@ -34,6 +34,11 @@
   let fertig = $state(false);
   let fehler = $state<string | null>(null);
   let takt: ReturnType<typeof setInterval> | null = null;
+  // Befund 3 (Bughunt 2026-08-29, Runde 6): eigenes Flag fuer einen
+  // laufenden Schiebe-Versuch — `laeuft` deckt nur `starten()` ab, ein
+  // Doppelklick auf „Erneut versuchen" traf `schieben()` bisher ungeschuetzt
+  // und startete zwei parallele Laeufe (s. `ansichtZustand.ts`).
+  let schiebtGerade = $state(false);
 
   // QR-Markup wird bei jeder Aenderung von `code` frisch erzeugt (nicht
   // gecacht) — der Code lebt ohnehin nur so lange wie diese Komponente, ein
@@ -94,8 +99,14 @@
     await schieben();
   }
 
+  /** Befund 3: der Schutz sitzt HIER, nicht nur am Knopf — `pruefen()` ruft
+   *  `schieben()` ebenfalls auf (der erste Versuch nach dem Einloesen), und
+   *  ohne den Guard an dieser Stelle koennte ein Takt-ausgeloester und ein
+   *  Knopf-ausgeloester Lauf ebenso ueberlappen. */
   async function schieben() {
     if (kopplungId === null || code === null) return;
+    if (erneutVersuchenGesperrt(schiebtGerade)) return;
+    schiebtGerade = true;
     try {
       const ergebnis = await verlaufSchieben(kopplungId, code, (g, ges) => {
         geschoben = g;
@@ -105,6 +116,8 @@
       fertig = true;
     } catch (err) {
       fehler = String(err);
+    } finally {
+      schiebtGerade = false;
     }
   }
 
@@ -182,7 +195,11 @@
   {/if}
 
   {#if darfErneutSchieben}
-    <Button onclick={erneutVersuchen} data-testid="kopplung-zeigen-erneut-versuchen">
+    <Button
+      onclick={erneutVersuchen}
+      disabled={erneutVersuchenGesperrt(schiebtGerade)}
+      data-testid="kopplung-zeigen-erneut-versuchen"
+    >
       {m.kopplung_zeigen_erneut_versuchen()}
     </Button>
   {/if}

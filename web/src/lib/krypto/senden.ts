@@ -121,9 +121,15 @@ export async function sendeVerschluesselt(
   // INNERHALB des Umschlags, den nur die Zielgeraete oeffnen koennen.
   anhaenge: AnhangAngabe[] = []
 ): Promise<SendeErgebnis | null> {
+  // `loadKeypair()` wirft bei einem echten Lesefehler (statt `null` zu
+  // liefern, s. dortigen Modulkopf) — bewusst UNGEFANGEN: ein solcher Wurf
+  // ist derselbe "unerwartete Fehler", den der Aufrufer (`app/@me/[[dm
+  // ChannelId]]/+page.svelte`) schon fuer den Postfach-Aufruf sichtbar
+  // macht statt ihn als Klartext-Rueckfall zu deuten. `null` bedeutet hier
+  // deshalb ausschliesslich "dieses Geraet hat (noch) keinen Schluessel".
   const keypair = await loadKeypair();
   const cert = certStore.cert;
-  if (!keypair || !cert) return null; // Kein Nachweis moeglich -> Aufrufer faellt zurueck.
+  if (!keypair || !cert) return null; // Kein Schluessel/Cert -> Koexistenz-Fall, Aufrufer faellt zurueck.
 
   const eigeneUserId = cert.claims.user_id;
   // `GeraeteSchluessel` (keys.ts) und `GeraeteBuendelEintrag`

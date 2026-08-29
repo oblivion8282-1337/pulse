@@ -24,9 +24,10 @@ Kanalzugang vor den reinen Strukturchecks):
 3b. Anhaenge (Etappe E) — jede mitgegebene Anhang-Kennung muss demselben
    Konto und demselben Kanal gehoeren und darf an keiner Nachricht haengen
    (``postfach_anhaenge.py::binde_anhaenge``).
-4. Offene Zustellungen je Empfaengergeraet — insgesamt UND je Absender
+4. Offene Zustellungen je Empfaengergeraet — insgesamt UND je Absender-KONTO
    (FIX 3, s. ``postfach_max_offene_zustellungen_je_absender_und_geraet``
-   in ``config.py``).
+   in ``config.py`` — gezaehlt ueber ``DmNutzlast.absender_user_id``, NICHT
+   ueber das einzelne Sendegeraet, s. Migration 0076).
 
 Der Server kann keinen Umschlag oeffnen — deshalb wird ``daten`` nirgends
 geloggt, auch nicht in Fehlermeldungen. Zu einem verschluesselten Anhang
@@ -161,13 +162,18 @@ async def postfach_einliefern(
     # einem erneuten COUNT auftauchen).
     verfaellt_am = datetime.now(UTC) + timedelta(days=settings.postfach_frist_tage)
     offene_je_geraet: dict[str, int] = {}
-    # Wie ``offene_je_geraet``, aber je (Absender-Geraet, Empfaengergeraet) —
-    # FIX 3: die GESAMT-Obergrenze allein zaehlt ueber alle Absender hinweg,
-    # ein einzelner angenommener Kontakt kann sie also allein fuellen und
-    # damit jeden ANDEREN Absender an dieses Geraet aussperren. Absender ist
-    # innerhalb dieser Anfrage konstant (``claims.device_pubkey``, ein
-    # Geraete-Nachweis pro Aufruf), der Cache-Schluessel ist deshalb einfach
-    # der Empfaenger-Pubkey.
+    # Wie ``offene_je_geraet``, aber je (Absender-KONTO, Empfaengergeraet) —
+    # FIX 3, korrigiert im belegten Fehler vom 2026-08-29: die
+    # GESAMT-Obergrenze allein zaehlt ueber alle Absender hinweg, ein
+    # einzelner angenommener Kontakt kann sie also allein fuellen und damit
+    # jeden ANDEREN Absender an dieses Geraet aussperren. Gezaehlt wird ueber
+    # ``DmNutzlast.absender_user_id`` (das KONTO), NICHT ueber
+    # ``absender_device_pubkey`` — ein Konto kann mehrere Geraete fuehren
+    # (bis zu ``schluessel_max_buendel_je_konto``), und eine geraetebezogene
+    # Zaehlung liesse genau diese Geraete gemeinsam die Grenze umgehen (s.
+    # Migration 0076). Absender-KONTO ist innerhalb dieser Anfrage konstant
+    # (``user.id``, ein Login pro Aufruf), der Cache-Schluessel ist deshalb
+    # einfach der Empfaenger-Pubkey.
     offene_je_sender_und_geraet: dict[str, int] = {}
     gesamt_zustellungen = 0
     verworfene_nutzlasten = 0
@@ -251,7 +257,7 @@ async def postfach_einliefern(
                         .join(DmNutzlast, DmNutzlast.id == DmZustellung.nutzlast_id)
                         .where(
                             DmZustellung.empfaenger_device_pubkey == pubkey,
-                            DmNutzlast.absender_device_pubkey == claims.device_pubkey,
+                            DmNutzlast.absender_user_id == user.id,
                         )
                     )
                 ).scalar_one()
@@ -296,6 +302,7 @@ async def postfach_einliefern(
                 id=nutzlast_id,
                 channel_id=cid_int,
                 absender_device_pubkey=claims.device_pubkey,
+                absender_user_id=user.id,
                 absender_curve25519=absender_curve25519,
                 art=eintrag.art,
                 daten=eintrag.daten,

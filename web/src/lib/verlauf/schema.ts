@@ -54,6 +54,21 @@ export type Satz = {
    *  Antwort auf eine aeltere, schon lokal abgelegte Nachricht nicht mehr
    *  auf. */
   kryptoId: string | null;
+  /**
+   * Bughunt 2026-08-29 (Befund 1): welches Konto diesen Satz geschrieben hat
+   * (`verlauf/konto.ts::aktuellesKonto`, dieselbe Cloud-User-ID wie
+   * `auth.svelte.ts::_enforceDeviceOwner`). `pulse-verlauf` ist pro
+   * Browserprofil global, nicht pro Konto — ohne dieses Feld sah ein zweites
+   * Konto auf demselben Geraet (z. B. ueber die lokale Suche) den kompletten
+   * Bestand des ersten, samt Gespraechspartnern und Zeitpunkten.
+   *
+   * Kein `DB_VERSION`-Bump: ein neues FELD in einem Satz braucht keinen
+   * neuen Objektspeicher, s. `antwortAufId` oben und den Modulkopf zu
+   * `DB_VERSION`. Bestandsdaten von vor diesem Fix haben das Feld nicht —
+   * `verlauf/kontoFilter.ts::gehoertZuKonto` behandelt das als „gehoert zu
+   * keinem Konto" (fail-closed), nicht als Treffer fuer irgendwen.
+   */
+  kontoId: string;
 };
 
 /**

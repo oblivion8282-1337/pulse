@@ -51,6 +51,7 @@ import {
   verlaufLesenSaetze,
   verlaufSatzVorhanden
 } from './db';
+import { aktuellesKonto } from './konto';
 import { verlaufZustand } from './zustand.svelte';
 import { zusammenfuegen, type Mergeposten } from './zusammenfuegen';
 import { VerlaufSpeichernFehlgeschlagen, pruefeSpeicherErgebnis } from './speichernPflicht';
@@ -95,10 +96,10 @@ export function hatServerVerlauf(kanalId: string): boolean {
  *  `verlaufSpeichern`/`verlaufSpeichernPflicht`. Kein expliziter Rueckgabetyp:
  *  `Satz` (aus `satz.ts`) ist absichtlich nicht exportiert (importfrei-Pflicht
  *  dort), die Inferenz aus `zuSatz` traegt hier genauso. */
-function baueSaetze(kanalId: string, nachrichten: unknown[]) {
+function baueSaetze(kanalId: string, nachrichten: unknown[], kontoId: string) {
   const saetze: NonNullable<ReturnType<typeof zuSatz>>[] = [];
   for (const nachricht of nachrichten) {
-    const satz = zuSatz(kanalId, nachricht);
+    const satz = zuSatz(kanalId, nachricht, kontoId);
     if (satz) saetze.push(satz);
   }
   return saetze;
@@ -111,10 +112,15 @@ function baueSaetze(kanalId: string, nachrichten: unknown[]) {
  * ihn heute aus.
  * Wirft nie: siehe Kommentar oben. Fuer den C1/C2-Lesepfad (der Server hat
  * ohnehin eine eigene Kopie) — der Krypto-Pfad braucht `verlaufSpeichernPflicht`.
+ *
+ * Ohne angemeldetes Konto (Befund 1) gibt es nichts zu speichern — derselbe
+ * "nichts zu tun"-Fall wie ein unbekannter Kanal.
  */
 export function verlaufSpeichern(kanalId: string, nachrichten: unknown[]): Promise<number> {
   if (!istLokalerKanal(kanalId)) return Promise.resolve(0);
-  const saetze = baueSaetze(kanalId, nachrichten);
+  const kontoId = aktuellesKonto();
+  if (kontoId === null) return Promise.resolve(0);
+  const saetze = baueSaetze(kanalId, nachrichten, kontoId);
   if (saetze.length === 0) return Promise.resolve(0);
   return verlaufPutSaetze(saetze)
     .then(() => saetze.length)
@@ -134,14 +140,24 @@ export function verlaufSpeichern(kanalId: string, nachrichten: unknown[]): Promi
  * Rueckgabewert `0` sah bislang wie Erfolg aus; die Entscheidung, wann das
  * gilt, steht importfrei (und damit direkt testbar) in `speichernPflicht.ts`
  * (s. Modulkopf FIX 1).
+ *
+ * Ohne angemeldetes Konto (Befund 1) wirft diese Funktion ebenso wie bei
+ * einem unbekannten Kanal: ein Ablegen ohne Konto-Bezug waere ein Satz, den
+ * KEIN Lesepfad je wieder findet (`kontoFilter.ts::gehoertZuKonto` lehnt ein
+ * fehlendes `kontoId` fail-closed ab) — derselbe stille Verlust, den FIX 1
+ * fuer die anderen beiden Faelle schon verhindert.
  */
 export function verlaufSpeichernPflicht(
   kanalId: string,
   nachrichten: unknown[]
 ): Promise<number> {
   try {
+    const kontoId = aktuellesKonto();
+    if (kontoId === null) {
+      throw new VerlaufSpeichernFehlgeschlagen('kein angemeldetes Konto');
+    }
     const kanalBekannt = istLokalerKanal(kanalId);
-    const saetze = kanalBekannt ? baueSaetze(kanalId, nachrichten) : [];
+    const saetze = kanalBekannt ? baueSaetze(kanalId, nachrichten, kontoId) : [];
     pruefeSpeicherErgebnis(kanalId, kanalBekannt, saetze.length);
     return verlaufPutSaetze(saetze).then(() => saetze.length);
   } catch (err) {
@@ -157,7 +173,9 @@ export function verlaufSpeichernPflicht(
  */
 export function verlaufNachrichtGeloescht(kanalId: string, nachrichtId: string): void {
   if (!istLokalerKanal(kanalId)) return;
-  void verlaufMarkiereGeloescht(sortierSchluessel(kanalId, nachrichtId)).catch((err) => {
+  const kontoId = aktuellesKonto();
+  if (kontoId === null) return;
+  void verlaufMarkiereGeloescht(sortierSchluessel(kanalId, nachrichtId), kontoId).catch((err) => {
     verlaufZustand.melde(err);
     /* wirft nie nach aussen — s. Kommentar oben */
   });
@@ -177,7 +195,9 @@ export function verlaufLesen(
   opts: { vor?: string; anzahl: number }
 ): Promise<SatzAlsNachricht[]> {
   if (!istLokalerKanal(kanalId)) return Promise.resolve([]);
-  return verlaufLesenSaetze(kanalId, opts)
+  const kontoId = aktuellesKonto();
+  if (kontoId === null) return Promise.resolve([]);
+  return verlaufLesenSaetze(kanalId, opts, kontoId)
     .then((saetze) => saetze.map(satzZuNachricht))
     .catch((err) => {
       verlaufZustand.melde(err);
@@ -196,7 +216,9 @@ export function verlaufLesen(
  */
 export function verlaufSchonAbgelegt(kanalId: string, nachrichtId: string): Promise<boolean> {
   if (!istLokalerKanal(kanalId)) return Promise.resolve(false);
-  return verlaufSatzVorhanden(kanalId, nachrichtId).catch((err) => {
+  const kontoId = aktuellesKonto();
+  if (kontoId === null) return Promise.resolve(false);
+  return verlaufSatzVorhanden(kanalId, nachrichtId, kontoId).catch((err) => {
     verlaufZustand.melde(err);
     return false;
   });

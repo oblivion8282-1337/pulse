@@ -10,7 +10,7 @@ test('zuSatz legt reply_to_id mit ab', () => {
     content: 'antwort',
     created_at: '2026-08-28T00:00:00Z',
     reply_to_id: '41'
-  });
+  }, 'konto-a');
   assert.ok(satz);
   assert.equal(satz.antwortAufId, '41');
 });
@@ -21,7 +21,7 @@ test('zuSatz ohne reply_to_id legt null ab', () => {
     author_id: '7',
     content: 'kein bezug',
     created_at: '2026-08-28T00:00:00Z'
-  });
+  }, 'konto-a');
   assert.ok(satz);
   assert.equal(satz.antwortAufId, null);
 });
@@ -33,7 +33,7 @@ test('satzZuNachricht liefert reply_to_id beim Nachladen zurueck', () => {
     content: 'antwort',
     created_at: '2026-08-28T00:00:00Z',
     reply_to_id: '41'
-  });
+  }, 'konto-a');
   assert.ok(satz);
   const nachricht = satzZuNachricht(satz);
   assert.equal(nachricht.reply_to_id, '41');
@@ -46,7 +46,7 @@ test('zuSatz legt krypto_id (kanonische Autor-ID) mit ab', () => {
     content: 'empfangen',
     created_at: '2026-08-28T00:00:00Z',
     krypto_id: 'autor-kanonisch-1'
-  });
+  }, 'konto-a');
   assert.ok(satz);
   assert.equal(satz.kryptoId, 'autor-kanonisch-1');
 });
@@ -58,7 +58,7 @@ test('satzZuNachricht liefert krypto_id beim Nachladen zurueck, damit spaetere A
     content: 'empfangen',
     created_at: '2026-08-28T00:00:00Z',
     krypto_id: 'autor-kanonisch-1'
-  });
+  }, 'konto-a');
   assert.ok(satz);
   const nachricht = satzZuNachricht(satz);
   assert.equal(nachricht.krypto_id, 'autor-kanonisch-1');

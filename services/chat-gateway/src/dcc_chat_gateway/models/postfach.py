@@ -57,6 +57,16 @@ class DmNutzlast(Base):
     #: (``sitzung_eingehend``, s. Migration 0069). Nullable, weil der Server
     #: den Umschlag nie oeffnet und diesen Wert nicht erzwingt.
     absender_curve25519: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Das ABSENDER-KONTO — anders als ``absender_device_pubkey`` gilt dieser
+    #: Wert fuer alle Geraete des Kontos gemeinsam. Gefuellt aus ``user.id``
+    #: des authentifizierten Antragstellers (``routes/postfach.py``, bereits
+    #: durch den Geraete-Nachweis an dieses Zertifikat gebunden). Traegt die
+    #: Fairness-Grenze ``postfach_max_offene_zustellungen_je_absender_und_geraet``
+    #: (Migration 0076, belegter Fehler 2026-08-29: dieselbe Grenze zaehlte
+    #: vorher ueber ``absender_device_pubkey`` und war damit pro GERAET statt
+    #: pro Konto umgehbar). Nullable aus demselben Grund wie
+    #: ``absender_curve25519``: der Server erzwingt sie nicht.
+    absender_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     #: 0 = Sitzungsaufbau (Olm-PreKey), 1 = laufende Nachricht — die Zaehlung
     #: des Krypto-Kerns (`Umschlag::art()`, `wasm.rs`), NICHT frei gewaehlt.
     #: Die genaue Bedeutung gehoert dem Klienten; der Server unterscheidet

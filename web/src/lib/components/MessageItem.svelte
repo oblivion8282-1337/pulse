@@ -118,8 +118,14 @@
   // das Versprechen ein, nicht die Zustellung: zusammengeklappt statt
   // spurlos ausgeblendet, weil eine verschwindende Nachricht einen
   // Gespraechsfaden unverstaendlich macht (fehlende Antwort ohne Frage).
+  // Geltungsbereich (Bughunt 2026-08-29, Befund 1): NUR DMs und private
+  // Gruppen — `isDirect` (kein `guild_id`) trifft auf beide zu, denselben
+  // Unterschied nutzt schon die Sprechblasen-Huelle. Ein Community-Kanal
+  // kennt server-seitig ueberhaupt keine Blockade-Pruefung.
   const blockierteIds = $derived(new Set(Object.keys(blocks.byId)));
-  const istBlockiert = $derived(nachrichtVonBlockiertem(message.author_id, blockierteIds));
+  const istBlockiert = $derived(
+    nachrichtVonBlockiertem(message.author_id, blockierteIds, isDirect)
+  );
   let aufgeklappt = $state(false);
 
   // Link-Previews: erkenne unterstützte Provider-URLs (YouTube/Vimeo/Spotify)

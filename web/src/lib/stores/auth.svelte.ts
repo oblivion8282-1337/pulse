@@ -200,6 +200,15 @@ class AuthStore {
    * Läuft auf Web UND Electron identisch (Electron lädt denselben Renderer);
    * der native Stream-Store wird über `clearLegacyStreamCredentials()` defensiv
    * mit-entleert. Gleicher User → reiner No-Op (nur Owner-Tag setzen).
+   *
+   * **Absichtlich NICHT dabei: der lokale Verlauf (`verlauf/schema.ts`,
+   * DB `pulse-verlauf`).** Anders als die Artefakte hier ist er fuer
+   * verschlüsselte Nachrichten die EINZIGE Kopie — ein Löschen bei jedem
+   * Kontowechsel (auch einem versehentlichen) wäre endgültiger Datenverlust.
+   * Seit dem Bughunt 2026-08-29 (Befund 1) trägt jeder Satz `kontoId`, und
+   * jeder Lesepfad (`verlauf/db.ts` über `kontoFilter.ts::gehoertZuKonto`)
+   * zeigt nur Sätze des GERADE angemeldeten Kontos — der Vorgänger-Bestand
+   * bleibt liegen, aber unsichtbar, bis derselbe User sich wieder anmeldet.
    */
   private async _enforceDeviceOwner(userId: string): Promise<void> {
     if (typeof window === 'undefined') return;

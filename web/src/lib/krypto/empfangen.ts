@@ -132,6 +132,7 @@ import { signiereNutzlast } from './nachweis';
 import { quittierbareIds, type KanalGruppe } from './quittierbareIds';
 import { verarbeiteMitWiederherstellung } from './postfachSchleife';
 import { KontoSicherungFehlgeschlagen, zustellungOeffnen } from './zustellungOeffnen';
+import { mitKontosperre } from './sperren';
 
 // DMs sind heute cloud-only (Global-Friends Stufe 1) — s. `api/keys.ts`
 // Modulkopf (Bughunt 2026-08-28, FIX 4). Ohne diesen Parameter faellt
@@ -145,7 +146,23 @@ function cloudRoute(): { serverId?: string } {
 }
 
 async function postfachZyklus(): Promise<Message[]> {
-  const keypair = await loadKeypair();
+  // `loadKeypair()` wirft bei einem echten Lesefehler statt `null` zu
+  // liefern (s. `identity/keypair.svelte.ts`-Modulkopf) — und genau das
+  // muss hier ANDERS enden als "kein Schluessel vorhanden": ohne diesen
+  // Fang wuerde der Wurf als unbehandelte Ablehnung im Aufrufer verschwinden
+  // (`ws/handlers/chat.ts`/`ready.ts` haengen keine `.catch` an den
+  // Ruecklauf) — ein Abholzyklus, der bei jedem Weckruf erneut denselben
+  // stummen Fehler wirft, ohne dass der Nutzer je etwas davon merkt. Statt
+  // dessen: sichtbar machen (dieselbe Anzeige wie fuer Ablage-/Quittungs-
+  // Fehler unten) und wie ein leerer Zyklus zurueckgeben — der naechste
+  // Weckruf versucht es erneut, s. `verlauf/zustand.svelte.ts`.
+  let keypair;
+  try {
+    keypair = await loadKeypair();
+  } catch (err) {
+    verlaufZustand.melde(err);
+    return [];
+  }
   const cert = certStore.cert;
   if (!keypair || !cert) return [];
 
@@ -235,24 +252,40 @@ async function postfachZyklus(): Promise<Message[]> {
   return geoeffnet;
 }
 
-/** Nur EIN Abholzyklus gleichzeitig (Bughunt 2026-08-28, FIX 3) — zwei
- *  Ausloeser koennen kurz hintereinander (oder gleichzeitig) eintreffen:
- *  `postfach_neu` (`ws/handlers/chat.ts`, je Weckruf) und `ready`
+/** Nur EIN Abholzyklus gleichzeitig IN DIESEM TAB (Bughunt 2026-08-28,
+ *  FIX 3) — zwei Ausloeser koennen kurz hintereinander (oder gleichzeitig)
+ *  eintreffen: `postfach_neu` (`ws/handlers/chat.ts`, je Weckruf) und `ready`
  *  (`ws/handlers/ready.ts`, Bughunt-Runde 3 FIX 1 — jeder Connect/Reconnect).
  *  Keiner der beiden Aufrufer haelt eine eigene Wache; treffen mehrere kurz
  *  hintereinander ein, haengt sich jeder weitere nur an den bereits
  *  laufenden Zyklus an, statt denselben Bestand ein zweites Mal, unabhaengig,
- *  zu oeffnen. */
+ *  zu oeffnen. Gegen einen ZWEITEN TAB richtet diese Variable nichts aus —
+ *  dafuer die Konto-Sperre unten. */
 let laufenderZyklus: Promise<Message[]> | null = null;
 
 /**
  * Holt alle offenen Zustellungen dieses Geraets ab, entschluesselt was sich
  * oeffnen laesst, legt es im lokalen Verlauf ab und quittiert erst danach.
  * Gibt die geoeffneten Nachrichten zurueck (fuer die sofortige Anzeige).
+ *
+ * **Der ganze Zyklus laeuft unter der Konto-Sperre** (Bughunt 2026-08-29,
+ * s. `sperren.ts`) — nicht bloss das Sichern, und nicht bloss der
+ * Sitzungsaufbau. Der Zyklus laedt EIN `Identitaet`-Objekt und mutiert es
+ * ueber alle Zustellungen hinweg (jeder eingehende Sitzungsaufbau verbraucht
+ * einen Einmalschluessel auf dem Account, s. Modulkopf); geschuetzt werden
+ * muss deshalb die ganze Spanne vom Laden bis zum letzten Sichern. Zwei
+ * Wirkungen fallen dabei zusammen an:
+ *
+ *  * Ein zweiter Tab kann nicht gleichzeitig veroeffentlichen und dabei die
+ *    Einmalschluessel dieses Zyklus ueberschreiben (oder umgekehrt).
+ *  * Zwei Tabs holen nicht gleichzeitig denselben Bestand ab. `abholen`
+ *    liegt bewusst MIT unter der Sperre: erst dadurch findet der zweite Tab
+ *    die vom ersten schon quittierten Zustellungen gar nicht mehr vor,
+ *    statt sie ein zweites Mal zu oeffnen.
  */
 export function postfachAbholenUndEntschluesseln(): Promise<Message[]> {
   if (!laufenderZyklus) {
-    laufenderZyklus = postfachZyklus().finally(() => {
+    laufenderZyklus = mitKontosperre(postfachZyklus).finally(() => {
       laufenderZyklus = null;
     });
   }

@@ -695,6 +695,78 @@ async def test_ein_absender_verdraengt_nicht_die_anderen(
     assert r.json()["zustellungen_angelegt"] == 1, r.text
 
 
+@pytest.mark.asyncio
+async def test_ein_konto_verdraengt_nicht_die_anderen_ueber_mehrere_geraete(
+    client, app, session_factory, _auth_signer, friend_pair, _isolate_chat_settings,
+):
+    """Belegter Fehler (2026-08-29): FIX 3 zaehlte die Absender-Fairness-
+    Grenze bisher PRO GERAET (``DmNutzlast.absender_device_pubkey``), ein
+    Konto darf aber bis zu ``schluessel_max_buendel_je_konto`` Geraete
+    fuehren. Zwei Geraete DESSELBEN Kontos A liefern hier je zwei Umschlaege
+    ein (Absender-Grenze = 2, GESAMT-Obergrenze des Opfergeraets = 3) --
+    jedes Geraet fuer sich bleibt innerhalb der Absender-Grenze, in Summe
+    koennen sie die GESAMT-Obergrenze trotzdem allein fuellen. Der
+    unbeteiligte, echte Freund B geht danach leer aus.
+
+    Nach dem Fix (Grenze am KONTO statt am Geraet) bleibt A insgesamt bei
+    ZWEI Zustellungen haengen, gleich ueber wie viele Geraete verteilt --
+    B kommt durch, weil vom Opfergeraet noch ein Platz frei ist."""
+    settings = _isolate_chat_settings
+    settings.postfach_max_offene_zustellungen_je_absender_und_geraet = 2
+    settings.postfach_max_offene_zustellungen_je_geraet = 3
+
+    token_a, uid_a = await _register(_auth_signer)
+    token_b, uid_b = await _register(_auth_signer)
+    _, uid_opfer = await _register(_auth_signer)
+    await friend_pair(uid_a, uid_opfer)
+    await friend_pair(uid_b, uid_opfer)
+    dm_a = await _dm_erstellen(client, token_a, uid_opfer)
+    dm_b = await _dm_erstellen(client, token_b, uid_opfer)
+    await _bundel_seeden(session_factory, user_id=uid_opfer, device_pubkey="opfer-geraet")
+
+    # A liefert ueber ZWEI VERSCHIEDENE Geraete je zwei Umschlaege ein --
+    # jedes Geraet fuer sich bleibt innerhalb der Absender-Grenze von 2. Wie
+    # viele davon tatsaechlich ankommen, ist genau das, was dieser Test
+    # klaert -- deshalb hier bewusst KEINE Zwischenannahme je Aufruf.
+    a_angelegt = 0
+    for geraet_index in range(2):
+        priv, pubkey = _make_device()
+        for i in range(2):
+            daten = _b64_unpadded(
+                f"a-geraet{geraet_index}-{i}-nicht-durch-drei".encode()
+            )
+            r = await _einliefern_mit_geraet(
+                client, app, token=token_a, uid=uid_a, channel_id=dm_a,
+                nutzlasten=[{"art": 1, "daten": daten, "empfaenger": ["opfer-geraet"]}],
+                priv=priv, pubkey=pubkey,
+            )
+            assert r.status_code == 200, r.text
+            a_angelegt += r.json()["zustellungen_angelegt"]
+
+    # A allein darf hoechstens sein KONTO-Kontingent (2) belegt haben --
+    # NICHT die volle Geraete-Obergrenze (3), egal wie viele eigene Geraete
+    # er dafuer einsetzt.
+    assert a_angelegt == 2, (
+        f"A hat {a_angelegt} Zustellungen angelegt -- die Absender-Grenze "
+        "haengt am Konto, nicht am einzelnen Geraet, und darf durch "
+        "mehrere eigene Geraete nicht umgangen werden"
+    )
+
+    # Der echte, unbeteiligte Freund B muss noch durchkommen: vom
+    # Opfergeraet ist nach A's kontobezogen gedeckeltem Anteil noch ein
+    # Platz frei (3 gesamt - 2 durch A = 1).
+    daten_b = _b64_unpadded(b"b-nicht-durch-drei-teilbar-umschlag")
+    r = await _einliefern(
+        client, app, token=token_b, uid=uid_b, channel_id=dm_b,
+        nutzlasten=[{"art": 1, "daten": daten_b, "empfaenger": ["opfer-geraet"]}],
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["zustellungen_angelegt"] == 1, (
+        "B haette noch zustellen duerfen -- A's Kontingent ist kontobezogen "
+        "auf 2 begrenzt, unabhaengig von der Geraetezahl"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Bughunt 2026-08-28 (Missbrauch) — billig vor teuer (FIX 4)
 # ---------------------------------------------------------------------------
