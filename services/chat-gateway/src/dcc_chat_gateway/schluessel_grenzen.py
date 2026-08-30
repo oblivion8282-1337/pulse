@@ -3,15 +3,12 @@
 Route unter der Groessen-Policy bleibt (``CLAUDE.md`` §Konventionen).
 
 FIX 1 — ``platz_fuer_neues_geraet_schaffen``: ohne Obergrenze haeuft ein
-Konto, das seinen Geraete-Signierschluessel oft wechselt (Neuinstallation,
-verlorenes Geraet), fuer immer Buendelzeilen an — ``DeviceKeyBundle`` haengt
-bewusst an ``device_pubkey``, nicht an ``cert_id`` (s.
-``models/geraete_schluessel.py``), und auth-svcs 20-Geraete-Grenze ist ein
-ROLLIERENDES Fenster, das Zertifikate abloest, nie Buendel loescht. Das trifft
-nicht nur das eigene Konto: ``POST /keys/claim`` laedt ALLE Buendel eines
-Ziels ohne Deckel und tut je Buendel eine Redis-Abfrage plus ein bewachtes
-Loeschen — wer die eigene Geraeteliste aufblaeht, verteuert damit jede
-Anfrage jedes Kontakts.
+Konto, das seine Geraetekennung oft wechselt (Neuinstallation, verlorenes
+Geraet, geleerte IndexedDB), fuer immer Buendelzeilen an — es gibt keine
+Stelle, die eine alte Zeile von sich aus loeschte. Das trifft nicht nur das
+eigene Konto: ``POST /keys/claim`` laedt ALLE Buendel eines Ziels ohne
+Deckel und tut je Buendel ein bewachtes Loeschen — wer die eigene
+Geraeteliste aufblaeht, verteuert damit jede Anfrage jedes Kontakts.
 
 FIX 2 — ``einmalschluessel_budget_uebrig``: ohne Deckel leert ~100 billige
 ``POST /keys/claim``-Aufrufe den gesamten Einmalschluessel-Vorrat eines

@@ -8,31 +8,35 @@ er endgueltig weg. Der Preis: ein Klient, der nie quittiert, behaelt seine
 Zustellungen bis zur Frist (``postfach_pflege.py`` raeumt sie dann von
 selbst) — das ist die richtige Richtung, in die man sich irrt.
 
-Beide Routen brauchen den Geraete-Nachweis aus ``schluessel_nachweis.py``,
-je mit einem EIGENEN Zweck (``"postfach-abholen"`` / ``"postfach-quittung"``,
-unterschieden von ``"postfach"`` beim Einliefern und von ``"buendel"``/
-``"einmalschluessel"`` beim Schluesselverzeichnis) — ohne diesen Nachweis
-kennt der Server nur das KONTO (``CurrentUser``), nie das GERAET, und ein
-Umschlag ist fuer genau ein Empfaengergeraet verschluesselt. Die Quittung
-filtert deshalb IMMER zusaetzlich auf das nachgewiesene Empfaengergeraet UND
-das angemeldete Konto, nie nur auf die Zustellungs-ID — eine erratene ID darf
-nicht die Zustellung eines anderen loeschen.
+Beide Routen nennen das Geraet im Rumpf und lassen es von
+``schluessel_nachweis.py::pruefe_geraet`` gegen das angemeldete Konto
+halten — ohne diese Angabe kennt der Server nur das KONTO
+(``CurrentUser``), nie das GERAET, und ein Umschlag ist fuer genau ein
+Empfaengergeraet verschluesselt. Die Quittung filtert deshalb IMMER
+zusaetzlich auf das genannte Empfaengergeraet UND das angemeldete Konto,
+nie nur auf die Zustellungs-ID — eine erratene ID darf nicht die
+Zustellung eines anderen loeschen.
+
+**Was das seit dem Wegfall der Zertifikate nicht mehr leistet** (Spec §3b,
+ausfuehrlich in ``schluessel_nachweis.py::pruefe_geraet``): dass der
+Aufrufer dieses Geraet IST. Wer eine Kontositzung uebernimmt, kann die
+offenen Umschlaege JEDES Geraets des Kontos abholen und wegquittieren.
+Entschluesseln kann er sie nicht — wegnehmen schon.
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request, Response, status
+from fastapi import APIRouter, Response, status
 from sqlalchemy import delete, exists, select
 
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import DeviceKeyBundle, DmNutzlast, DmZustellung
-from dcc_chat_gateway.routes.postfach import _require_redis
 from dcc_chat_gateway.schemas import (
     PostfachAbholenRequest,
     PostfachQuittungRequest,
     PostfachZustellungOut,
 )
-from dcc_chat_gateway.schluessel_nachweis import baue_nutzlast, pruefe_geraet
+from dcc_chat_gateway.schluessel_nachweis import pruefe_geraet
 from dcc_chat_gateway.security import CurrentUser
 
 router = APIRouter(tags=["postfach"])
@@ -41,18 +45,15 @@ router = APIRouter(tags=["postfach"])
 @router.post("/postfach/abholen", response_model=list[PostfachZustellungOut])
 async def postfach_abholen(
     body: PostfachAbholenRequest,
-    request: Request,
     session: SessionDep,
     user: CurrentUser,
 ) -> list[PostfachZustellungOut]:
-    """Gibt die offenen Zustellungen des nachgewiesenen Geraets zurueck.
+    """Gibt die offenen Zustellungen des genannten Geraets zurueck.
 
     Zweimal ohne Quittung abgeholt liefert dasselbe — es wird hier nichts
     geloescht (s. Modul-Docstring).
     """
-    redis = _require_redis(request)
-    nutzlast = baue_nutzlast("postfach-abholen")
-    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis, session)
+    geraet = await pruefe_geraet(session, user, body.device_pubkey)
 
     zeilen = (
         await session.execute(
@@ -83,7 +84,7 @@ async def postfach_abholen(
                 # faktisch geraeteweit eindeutig ist) — das Konto zusaetzlich
                 # zu binden ist die gleiche Verteidigung wie bei der
                 # Quittung: zwei unabhaengige Bedingungen statt einer.
-                DmZustellung.empfaenger_device_pubkey == claims.device_pubkey,
+                DmZustellung.empfaenger_device_pubkey == geraet,
                 DmZustellung.empfaenger_user_id == user.id,
             )
             .order_by(DmZustellung.id)
@@ -100,28 +101,25 @@ async def postfach_abholen(
 @router.post("/postfach/quittung", status_code=status.HTTP_204_NO_CONTENT)
 async def postfach_quittung(
     body: PostfachQuittungRequest,
-    request: Request,
     session: SessionDep,
     user: CurrentUser,
 ) -> Response:
-    """Loescht die genannten Zustellungen des nachgewiesenen Geraets.
+    """Loescht die genannten Zustellungen des genannten Geraets.
 
     Eine ID, die nicht zu diesem Geraet/Konto gehoert, wird stillschweigend
     ignoriert — wie beim unbekannten Empfaengergeraet in ``routes/postfach.py``
     ist eine erratene oder inzwischen fremde ID kein Fehlerfall fuer den
     Rest der Liste.
     """
-    redis = _require_redis(request)
     ids = list(dict.fromkeys(body.zustellung_ids))  # Duplikate raus, Reihenfolge egal.
-    nutzlast = baue_nutzlast("postfach-quittung", *[str(i) for i in ids])
-    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis, session)
+    geraet = await pruefe_geraet(session, user, body.device_pubkey)
 
     betroffene_nutzlasten = (
         await session.execute(
             delete(DmZustellung)
             .where(
                 DmZustellung.id.in_(ids),
-                DmZustellung.empfaenger_device_pubkey == claims.device_pubkey,
+                DmZustellung.empfaenger_device_pubkey == geraet,
                 DmZustellung.empfaenger_user_id == user.id,
             )
             .returning(DmZustellung.nutzlast_id)

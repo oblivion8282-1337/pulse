@@ -724,7 +724,7 @@ async def test_purge_raeumt_e2e_postfach(
     async with session_factory() as s:
         s.add(DeviceKeyBundle(
             id=bundle_id, user_id=uid_a, device_pubkey="pub-a",
-            curve25519="curve-a", signatur="sig-a", cert_id="cert-a",
+            curve25519="curve-a",
         ))
         s.add(DeviceOneTimeKey(id=next_id(), bundle_id=bundle_id, schluessel="otk-a"))
         await s.commit()

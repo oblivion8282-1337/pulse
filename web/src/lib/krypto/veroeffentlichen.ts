@@ -9,16 +9,12 @@
  * liefert dann fuer dieses Geraet gar keinen Schluessel mehr, und eine neue
  * Sitzung laesst sich nicht mehr aufbauen.
  *
- * Best-effort ueberall: fehlt Geraeteschluessel oder Cert (noch nicht
- * angemeldet, Issue-Flow zuvor fehlgeschlagen), passiert nichts — die
- * Aufrufer (`runIssueFlow`, Cert-Rotation) fangen Fehler ohnehin ab und
- * versuchen es beim naechsten Anlauf erneut.
+ * Best-effort ueberall: laesst sich die eigene Geraetekennung nicht
+ * ermitteln (noch nicht angemeldet), passiert nichts — die Aufrufer
+ * (`runIssueFlow`, Cert-Rotation) fangen Fehler ohnehin ab und versuchen es
+ * beim naechsten Anlauf erneut.
  */
 import type { Identitaet } from '../../../../krypto/pulse-krypto/pkg/pulse_krypto.js';
-import { certStore } from '../identity/cert.svelte';
-import type { IdentityCert } from '../identity/cert.svelte';
-import { loadKeypair } from '../identity/keypair.svelte';
-import type { StoredKeypair } from '../identity/keypair.svelte';
 import { keysApi } from '../api/keys';
 import { serversStore } from '../api/servers.svelte';
 import { isElectron, isCapacitorAndroid } from '../platform/runtime';
@@ -28,8 +24,6 @@ import {
   rueckfallschluesselSicherstellen
 } from './account.svelte';
 import { geraeteKennung } from './geraeteKennung';
-import { baueNutzlast } from './nutzlast';
-import { signiereNutzlast } from './nachweis';
 import { pickelUebergangSicherstellen } from './pickelUebergang';
 import { mitKontosperre } from './sperren';
 import { verfallPruefen } from './verfallPruefen';
@@ -58,13 +52,20 @@ const VORRAT_SCHWELLE = 20;
 const NACHFUELL_BATCH = 30;
 
 /** Legt das Buendel an oder ersetzt es — PUT ist idempotent, deshalb ohne
- *  vorherige Pruefung "ist es schon aktuell?" aufrufbar. Genau diese
- *  Unbedingtheit ist es, die die Cert-Rotation-Luecke schliesst: ein erneuter
- *  Aufruf nach neuem Cert schreibt die aktuelle `cert_id` nach. */
+ *  vorherige Pruefung "ist es schon aktuell?" aufrufbar.
+ *
+ *  **Der erste Aufruf auf einem Geraet ist zugleich der Moment, in dem die
+ *  Kennung dem Konto bekannt wird** (Spec §3b): `PUT /keys/bundle` ist eine
+ *  der beiden Routen, die ein noch unbekanntes Geraet zulassen. Jede andere
+ *  Krypto-Route dieses Geraets scheitert vorher mit 403. */
 export async function veroeffentlicheSchluessel(): Promise<void> {
-  const keypair = await loadKeypair();
-  const cert = certStore.cert;
-  if (!keypair || !cert) return;
+  let kennung: string;
+  try {
+    kennung = await geraeteKennung();
+  } catch {
+    // Noch keine Kennung (nicht angemeldet) — s. Modulkopf, best-effort.
+    return;
+  }
 
   // **Ganz vorn, vor jedem Zugriff auf eingefrorenen Zustand**: der
   // Pickle-Schluessel muss vom Ed25519-Anmeldeschluessel auf das
@@ -111,12 +112,9 @@ export async function veroeffentlicheSchluessel(): Promise<void> {
     const ident = await kryptoAccountLaden();
     const rueckfallschluessel = await rueckfallschluesselSicherstellen(ident);
 
-    const buendelNutzlast = baueNutzlast('buendel', ident.curve25519(), rueckfallschluessel);
-    const buendelSignatur = await signiereNutzlast(keypair, buendelNutzlast);
     await keysApi.publishBundle(
       {
-        cert: cert.raw,
-        signatur: buendelSignatur,
+        device_pubkey: kennung,
         curve25519: ident.curve25519(),
         rueckfallschluessel,
         dauerhaft: eigenesGeraetDauerhaft()
@@ -124,16 +122,12 @@ export async function veroeffentlicheSchluessel(): Promise<void> {
       cloudRoute()
     );
 
-    await nachfuellenWennNoetig(ident, keypair, cert);
+    await nachfuellenWennNoetig(ident, kennung);
   });
 }
 
-async function nachfuellenWennNoetig(
-  ident: Identitaet,
-  keypair: StoredKeypair,
-  cert: IdentityCert
-): Promise<void> {
-  const { vorrat } = await keysApi.oneTimeKeyCount(await geraeteKennung(), cloudRoute());
+async function nachfuellenWennNoetig(ident: Identitaet, kennung: string): Promise<void> {
+  const { vorrat } = await keysApi.oneTimeKeyCount(kennung, cloudRoute());
 
   if (vorrat < VORRAT_SCHWELLE) {
     ident.einmalschluesselErzeugen(NACHFUELL_BATCH);
@@ -148,10 +142,8 @@ async function nachfuellenWennNoetig(
   const zuVeroeffentlichen = ident.offeneEinmalschluessel();
   if (zuVeroeffentlichen.length === 0) return;
 
-  const nutzlast = baueNutzlast('einmalschluessel', ...zuVeroeffentlichen);
-  const signatur = await signiereNutzlast(keypair, nutzlast);
   await keysApi.addOneTimeKeys(
-    { cert: cert.raw, signatur, schluessel: zuVeroeffentlichen },
+    { device_pubkey: kennung, schluessel: zuVeroeffentlichen },
     cloudRoute()
   );
 

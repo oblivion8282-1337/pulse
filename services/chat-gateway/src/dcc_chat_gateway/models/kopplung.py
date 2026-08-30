@@ -55,10 +55,8 @@ class Kopplung(Base):
     #: entscheidbar.
     code_hash: Mapped[str] = mapped_column(Text, nullable=False)
     #: Das Geraet, das den Code ANZEIGT und den Verlauf schiebt. Gefuehrt
-    #: ueber ``device_pubkey``, nicht ueber ``cert_id`` — dieselbe
-    #: Festlegung wie bei ``DeviceKeyBundle`` und ``DmZustellung``: die
-    #: Zertifikatserneuerung wechselt monatlich die ``cert_id`` desselben
-    #: Geraets.
+    #: ueber die Geraetekennung — dieselbe Festlegung wie bei
+    #: ``DeviceKeyBundle`` und ``DmZustellung``.
     alt_device_pubkey: Mapped[str] = mapped_column(Text, nullable=False)
     #: Das einloesende Geraet — ``NULL``, solange niemand eingeloest hat.
     #: Sobald es steht, ist es die einzige Stelle, die Stuecke abholen darf.

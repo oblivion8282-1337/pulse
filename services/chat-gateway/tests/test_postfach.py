@@ -3,31 +3,31 @@
 from __future__ import annotations
 
 import base64
+import itertools
 import json
 import random
-import time
 
-import jwt as pyjwt
 import pytest
 import pytest_asyncio
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from dcc_chat_gateway.pubsub_channels import CHANNEL_KEY
-from dcc_chat_gateway.schluessel_nachweis import baue_nutzlast
 
 pytestmark = pytest.mark.usefixtures("cloud_mode")
 
 # ---------------------------------------------------------------------------
-# Nachweis-Helfer — derselbe Weg wie test_schluessel.py: ein echtes
-# Ed25519-Geraetepaar und ein echtes, RS256-signiertes Identitaets-Zertifikat.
+# Geraete-Helfer. Seit dem Wegfall der Zertifikate (Spec §3b) ist eine
+# Geraetekennung eine blosse Zeichenkette; geprueft wird nur noch, dass sie zu
+# einem Geraet DES ANGEMELDETEN KONTOS gehoert (``schluessel_nachweis.py``).
+# Ein Sendegeraet muss deshalb erst veroeffentlichen — genau wie der echte
+# Klient, der das beim Start tut (``krypto/veroeffentlichen.ts``).
 # ---------------------------------------------------------------------------
 
-_RSA_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-_KID = "test-postfach-key-1"
+_geraete_zaehler = itertools.count()
 
 
-def _b64url(data: bytes) -> str:
-    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+def _make_device() -> str:
+    """Eine frische, eindeutige Geraetekennung (mindestens 16 Zeichen, s.
+    ``schemas.GeraeteKennung``)."""
+    return f"geraet-{next(_geraete_zaehler):036d}"
 
 
 def _b64_unpadded(data: bytes) -> str:
@@ -43,66 +43,6 @@ def _b64_unpadded(data: bytes) -> str:
     Gegenseite — genau diese Kodierung erzeugt jetzt EHRLICH unpolsterte
     Nutzlasten, wie sie der Klient wirklich schickt."""
     return base64.b64encode(data).rstrip(b"=").decode()
-
-
-def _jwks_json() -> str:
-    nums = _RSA_KEY.public_key().public_numbers()
-
-    def _b64(n: int) -> str:
-        bl = (n.bit_length() + 7) // 8
-        return base64.urlsafe_b64encode(n.to_bytes(bl, "big")).rstrip(b"=").decode()
-
-    return json.dumps({
-        "keys": [{
-            "kty": "RSA", "use": "sig", "alg": "RS256", "kid": _KID,
-            "n": _b64(nums.n), "e": _b64(nums.e),
-        }]
-    })
-
-
-def _make_device() -> tuple[Ed25519PrivateKey, str]:
-    priv = Ed25519PrivateKey.generate()
-    return priv, _b64url(priv.public_key().public_bytes_raw())
-
-
-def _make_cert(*, user_id: str, device_pubkey: str, cert_id: str = "cert-1") -> str:
-    now = int(time.time())
-    payload = {
-        "iss": "https://howispulse.com",
-        "aud": "dcc",
-        "typ": "credential",
-        "cert_id": cert_id,
-        "user_id": user_id,
-        "device_pubkey": device_pubkey,
-        "device_label": "Testgeraet",
-        "pairwise_seed": _b64url(b"\xab" * 32),
-        "amr": ["pwd"],
-        "acr": "1",
-        "iat": now,
-        "exp": now + 3600,
-    }
-    return pyjwt.encode(payload, _RSA_KEY, algorithm="RS256", headers={"kid": _KID})
-
-
-def _sign(priv: Ed25519PrivateKey, nutzlast: bytes) -> str:
-    return _b64url(priv.sign(nutzlast))
-
-
-async def _seed_jwks(app) -> None:
-    await app.state.redis.set("auth:jwks:cached", _jwks_json())
-
-
-@pytest_asyncio.fixture(autouse=True)
-async def _redis_fixture_daten_aufraeumen(app):
-    """``_seed_jwks`` schreibt unter dem ECHTEN Produktions-Key
-    ``auth:jwks:cached`` in ein reales Redis — dasselbe ``dcc_night_redis``,
-    das auch der lokale Dev-Stack und die Playwright-E2E-Suite benutzen (s.
-    CLAUDE.md „Port-Mapping"). Ohne Aufraeumen ueberlebt die Fixture-JWKS den
-    Testlauf: jeder echte Aufrufer, der denselben Redis-Index trifft, sieht
-    danach ``test-postfach-key-1`` statt der echten Cloud-JWKS und jedes echte
-    Zertifikat schlaegt mit 403 fehl."""
-    yield
-    await app.state.redis.delete("auth:jwks:cached")
 
 
 async def _register(_auth_signer) -> tuple[str, int]:
@@ -132,97 +72,80 @@ async def _bundel_seeden(session_factory, *, user_id: int, device_pubkey: str) -
         s.add(
             DeviceKeyBundle(
                 id=next_id(), user_id=user_id, device_pubkey=device_pubkey,
-                curve25519="curve-" + device_pubkey, signatur="sig-" + device_pubkey,
-                cert_id="cert-" + device_pubkey,
+                curve25519="curve-" + device_pubkey,
             )
         )
         await s.commit()
 
 
-async def _einliefern(
-    client, app, *, token: str, uid: int, channel_id: str,
-    nutzlasten: list[dict],
-):
-    """Baut Zertifikat + Unterschrift des Sendegeraets und liefert ein."""
-    await _seed_jwks(app)
-    priv, pubkey = _make_device()
-    cert = _make_cert(user_id=str(uid), device_pubkey=pubkey)
-    daten_liste = [n["daten"] for n in nutzlasten]
-    sig = _sign(priv, baue_nutzlast("postfach", str(channel_id), *daten_liste))
-    r = await client.post(
-        "/postfach",
-        json={
-            "channel_id": str(channel_id), "cert": cert, "signatur": sig,
-            "nutzlasten": nutzlasten,
-        },
+async def _sendegeraet(client, token: str) -> str:
+    """Veroeffentlicht ein frisches Geraet fuer dieses Konto und gibt seine
+    Kennung zurueck.
+
+    **Seit Spec §3b Pflicht vor jedem Einliefern:** ein frei erfundener
+    ``device_pubkey`` ergibt 403, weil ``pruefe_geraet`` ihn im Verzeichnis
+    dieses Kontos nicht findet. Der echte Klient geht denselben Weg — er
+    veroeffentlicht beim Start, lange bevor er sendet
+    (``krypto/veroeffentlichen.ts``)."""
+    pubkey = _make_device()
+    r = await client.put(
+        "/keys/bundle",
+        json={"device_pubkey": pubkey, "curve25519": "curve-" + pubkey},
         headers=_auth(token),
     )
-    return r
+    assert r.status_code == 204, r.text
+    return pubkey
+
+
+async def _einliefern(client, *, token: str, channel_id: str, nutzlasten: list[dict]):
+    """Veroeffentlicht ein frisches Sendegeraet und liefert damit ein."""
+    return await _einliefern_mit_geraet(
+        client, token=token, channel_id=channel_id, nutzlasten=nutzlasten,
+        pubkey=await _sendegeraet(client, token),
+    )
 
 
 async def _einliefern_mit_geraet(
-    client, app, *, token: str, uid: int, channel_id: str,
-    nutzlasten: list[dict], priv: Ed25519PrivateKey, pubkey: str,
+    client, *, token: str, channel_id: str, nutzlasten: list[dict], pubkey: str,
 ):
     """Wie ``_einliefern``, aber mit einem VORGEGEBENEN Sendegeraet statt
-    einem frisch erzeugten je Aufruf — noetig, um mehrere Einlieferungen
-    DESSELBEN Absendegeraets nachzustellen (FIX 3: die Fairness-Grenze
-    haengt am Sendegeraet, nicht an der Anfrage)."""
-    await _seed_jwks(app)
-    cert = _make_cert(user_id=str(uid), device_pubkey=pubkey)
-    daten_liste = [n["daten"] for n in nutzlasten]
-    sig = _sign(priv, baue_nutzlast("postfach", str(channel_id), *daten_liste))
+    einem frisch veroeffentlichten je Aufruf — noetig, um mehrere
+    Einlieferungen DESSELBEN Absendegeraets nachzustellen."""
     return await client.post(
         "/postfach",
         json={
-            "channel_id": str(channel_id), "cert": cert, "signatur": sig,
+            "channel_id": str(channel_id), "device_pubkey": pubkey,
             "nutzlasten": nutzlasten,
         },
         headers=_auth(token),
     )
 
 
-async def _abholen(
-    client, app, *, token: str, uid: int, priv: Ed25519PrivateKey, pubkey: str
-):
-    """Baut Zertifikat + Unterschrift des ABHOLENDEN Geraets und ruft ab."""
-    await _seed_jwks(app)
-    cert = _make_cert(user_id=str(uid), device_pubkey=pubkey)
-    sig = _sign(priv, baue_nutzlast("postfach-abholen"))
+async def _abholen(client, *, token: str, pubkey: str):
+    """Holt fuer GENAU dieses Empfaengergeraet ab."""
     return await client.post(
-        "/postfach/abholen", json={"cert": cert, "signatur": sig}, headers=_auth(token)
+        "/postfach/abholen", json={"device_pubkey": pubkey}, headers=_auth(token)
     )
 
 
-async def _quittieren(
-    client, app, *, token: str, uid: int, priv: Ed25519PrivateKey, pubkey: str,
-    zustellung_ids: list[str],
-):
-    """Baut Zertifikat + Unterschrift des QUITTIERENDEN Geraets und quittiert."""
-    await _seed_jwks(app)
-    cert = _make_cert(user_id=str(uid), device_pubkey=pubkey)
-    sig = _sign(
-        priv, baue_nutzlast("postfach-quittung", *[str(i) for i in zustellung_ids])
-    )
+async def _quittieren(client, *, token: str, pubkey: str, zustellung_ids: list[str]):
     return await client.post(
         "/postfach/quittung",
         json={
-            "cert": cert, "signatur": sig,
+            "device_pubkey": pubkey,
             "zustellung_ids": [str(i) for i in zustellung_ids],
         },
         headers=_auth(token),
     )
 
 
-async def _bundel_seeden_echtes_geraet(
-    session_factory, *, user_id: int
-) -> tuple[Ed25519PrivateKey, str]:
-    """Wie ``_bundel_seeden``, aber mit einem echten Ed25519-Schluesselpaar —
-    fuer Tests, die als dieses Geraet spaeter selbst signieren muessen
-    (Abholen/Quittieren), statt nur eine Zeichenkette als Pubkey zu haben."""
-    priv, pubkey = _make_device()
+async def _bundel_seeden_geraet(session_factory, *, user_id: int) -> str:
+    """Wie ``_bundel_seeden``, aber mit einer frisch erzeugten Kennung, die
+    der Aufrufer zurueckbekommt — fuer Tests, die spaeter als dieses Geraet
+    abholen oder quittieren."""
+    pubkey = _make_device()
     await _bundel_seeden(session_factory, user_id=user_id, device_pubkey=pubkey)
-    return priv, pubkey
+    return pubkey
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -323,7 +246,7 @@ async def test_einliefern_legt_je_empfaenger_eine_zustellung_an(
     # ``+= "=="`` in ``_envelope_groesse`` ueberhaupt greifen kann (FIX 2).
     daten = _b64_unpadded(b"olm-umschlag1")
     r = await _einliefern(
-        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        client, token=token_a, channel_id=dm_id,
         nutzlasten=[{
             "art": 1, "daten": daten,
             "empfaenger": ["empf-0", "empf-1", "empf-2"],
@@ -358,7 +281,7 @@ async def test_fremder_kanal_wird_abgewiesen(client, app, _auth_signer):
 
     daten = base64.b64encode(b"olm-umschlag").decode()
     r = await _einliefern(
-        client, app, token=token_a, uid=uid_a, channel_id=fremder_kanal,
+        client, token=token_a, channel_id=fremder_kanal,
         nutzlasten=[{"art": 1, "daten": daten, "empfaenger": ["irgendein-geraet"]}],
     )
     assert r.status_code == 403, r.text
@@ -388,7 +311,7 @@ async def test_zu_grosser_umschlag_wird_abgewiesen(
     # ``_envelope_groesse`` ueberhaupt auf.
     daten = _b64_unpadded(b"das ist deutlich mehr als vier bytes!")
     r = await _einliefern(
-        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        client, token=token_a, channel_id=dm_id,
         nutzlasten=[{"art": 1, "daten": daten, "empfaenger": ["empf-gross"]}],
     )
     assert r.status_code == 400, r.text
@@ -413,7 +336,7 @@ async def test_unbekanntes_empfaengergeraet_wird_uebergangen(
 
     daten = base64.b64encode(b"olm-umschlag").decode()
     r = await _einliefern(
-        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        client, token=token_a, channel_id=dm_id,
         nutzlasten=[{
             "art": 1, "daten": daten,
             "empfaenger": ["empf-bekannt", "empf-unbekannt"],
@@ -448,7 +371,7 @@ async def test_einliefern_weckt_die_empfaenger(
     try:
         daten = base64.b64encode(b"olm-umschlag").decode()
         r = await _einliefern(
-            client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+            client, token=token_a, channel_id=dm_id,
             nutzlasten=[{"art": 1, "daten": daten, "empfaenger": ["empf-weckruf"]}],
         )
         assert r.status_code == 200, r.text
@@ -500,7 +423,7 @@ async def test_zustellung_an_ein_kanalfremdes_geraet_wird_abgewiesen(
 
     daten = base64.b64encode(b"olm-umschlag").decode()
     r = await _einliefern(
-        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        client, token=token_a, channel_id=dm_id,
         nutzlasten=[{"art": 1, "daten": daten, "empfaenger": ["empf-ok", "empf-fremd"]}],
     )
     assert r.status_code == 403, r.text
@@ -534,7 +457,7 @@ async def test_alle_empfaenger_uebersprungen_wird_gemeldet_statt_still_204(
 
     daten = base64.b64encode(b"olm-umschlag").decode()
     r = await _einliefern(
-        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        client, token=token_a, channel_id=dm_id,
         nutzlasten=[{"art": 1, "daten": daten, "empfaenger": ["empf-voll"]}],
     )
     assert r.status_code == 200, r.text
@@ -575,7 +498,7 @@ async def test_kollidierender_pubkey_unter_fremdem_konto_bricht_die_anfrage_nich
 
     daten = base64.b64encode(b"olm-umschlag").decode()
     r = await _einliefern(
-        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        client, token=token_a, channel_id=dm_id,
         nutzlasten=[{"art": 1, "daten": daten, "empfaenger": [pubkey]}],
     )
     assert r.status_code == 200, r.text
@@ -596,7 +519,7 @@ async def test_zu_viele_empfaenger_je_nutzlast_wird_abgelehnt(client, app, _auth
     r = await client.post(
         "/postfach",
         json={
-            "channel_id": "1", "cert": "x", "signatur": "y",
+            "channel_id": "1", "device_pubkey": _make_device(),
             "nutzlasten": [{
                 "art": 1, "daten": daten,
                 "empfaenger": [f"pub-{i}" for i in range(65)],
@@ -663,22 +586,22 @@ async def test_ein_absender_verdraengt_nicht_die_anderen(
     # (nicht die Anfrage abgewiesen). Dasselbe Sendegeraet ueber alle drei
     # Aufrufe: die Fairness-Grenze haengt am Sendegeraet (``_einliefern``
     # wuerde je Aufruf ein NEUES erzeugen und die Grenze so umgehen).
-    priv_a, pubkey_a = _make_device()
+    pubkey_a = await _sendegeraet(client, token_a)
     for i in range(2):
         daten = _b64_unpadded(f"umschlag-a-{i}-nicht-durch-drei".encode())
         r = await _einliefern_mit_geraet(
-            client, app, token=token_a, uid=uid_a, channel_id=dm_ac,
+            client, token=token_a, channel_id=dm_ac,
             nutzlasten=[{"art": 1, "daten": daten, "empfaenger": ["empf-fair"]}],
-            priv=priv_a, pubkey=pubkey_a,
+            pubkey=pubkey_a,
         )
         assert r.status_code == 200, r.text
         assert r.json()["zustellungen_angelegt"] == 1, r.text
 
     daten_dritter = _b64_unpadded(b"dritter-umschlag-a-nicht-durch-drei")
     r = await _einliefern_mit_geraet(
-        client, app, token=token_a, uid=uid_a, channel_id=dm_ac,
+        client, token=token_a, channel_id=dm_ac,
         nutzlasten=[{"art": 1, "daten": daten_dritter, "empfaenger": ["empf-fair"]}],
-        priv=priv_a, pubkey=pubkey_a,
+        pubkey=pubkey_a,
     )
     assert r.status_code == 200, r.text
     assert r.json()["zustellungen_angelegt"] == 0
@@ -688,7 +611,7 @@ async def test_ein_absender_verdraengt_nicht_die_anderen(
     # Kontingent darf B nicht betreffen.
     daten_b = _b64_unpadded(b"umschlag-b-nicht-durch-drei-teilbar")
     r = await _einliefern(
-        client, app, token=token_b, uid=uid_b, channel_id=dm_bc,
+        client, token=token_b, channel_id=dm_bc,
         nutzlasten=[{"art": 1, "daten": daten_b, "empfaenger": ["empf-fair"]}],
     )
     assert r.status_code == 200, r.text
@@ -730,15 +653,15 @@ async def test_ein_konto_verdraengt_nicht_die_anderen_ueber_mehrere_geraete(
     # klaert -- deshalb hier bewusst KEINE Zwischenannahme je Aufruf.
     a_angelegt = 0
     for geraet_index in range(2):
-        priv, pubkey = _make_device()
+        pubkey = await _sendegeraet(client, token_a)
         for i in range(2):
             daten = _b64_unpadded(
                 f"a-geraet{geraet_index}-{i}-nicht-durch-drei".encode()
             )
             r = await _einliefern_mit_geraet(
-                client, app, token=token_a, uid=uid_a, channel_id=dm_a,
+                client, token=token_a, channel_id=dm_a,
                 nutzlasten=[{"art": 1, "daten": daten, "empfaenger": ["opfer-geraet"]}],
-                priv=priv, pubkey=pubkey,
+                pubkey=pubkey,
             )
             assert r.status_code == 200, r.text
             a_angelegt += r.json()["zustellungen_angelegt"]
@@ -757,7 +680,7 @@ async def test_ein_konto_verdraengt_nicht_die_anderen_ueber_mehrere_geraete(
     # Platz frei (3 gesamt - 2 durch A = 1).
     daten_b = _b64_unpadded(b"b-nicht-durch-drei-teilbar-umschlag")
     r = await _einliefern(
-        client, app, token=token_b, uid=uid_b, channel_id=dm_b,
+        client, token=token_b, channel_id=dm_b,
         nutzlasten=[{"art": 1, "daten": daten_b, "empfaenger": ["opfer-geraet"]}],
     )
     assert r.status_code == 200, r.text
@@ -773,15 +696,20 @@ async def test_ein_konto_verdraengt_nicht_die_anderen_ueber_mehrere_geraete(
 
 
 @pytest.mark.asyncio
-async def test_billige_grenzen_vor_teurer_kryptoverifikation(
+async def test_billige_grenzen_vor_der_geraetepruefung(
     client, app, session_factory, _auth_signer, friend_pair, _isolate_chat_settings,
 ):
-    """Die Obergrenze der Nutzlasten je Anfrage ist ein reiner Strukturcheck
-    auf dem Rumpf und muss VOR der Ed25519-Verifikation laufen. Nachgewiesen
-    mit einer absichtlich FALSCHEN Unterschrift: laeuft die teure
-    Kryptoverifikation zuerst, kommt 403 (falsche Unterschrift) zurueck;
-    laufen die billigen Grenzen zuerst, kommt 400 (zu viele Nutzlasten)
-    zurueck, bevor die Unterschrift ueberhaupt geprueft wird."""
+    """FIX 4: ``postfach_max_nutzlasten_je_anfrage`` ist ein reiner Strukturcheck
+    auf dem Rumpf und muss VOR der Geraetepruefung laufen (die zwei Abfragen
+    kostet, eine davon schreibend).
+
+    Nachgewiesen mit einer Geraetekennung, die zu KEINEM Buendel gehoert:
+    laeuft die Pruefung zuerst, kommt 403; laufen die billigen Grenzen
+    zuerst, kommt 400 (zu viele Nutzlasten).
+
+    **Die frueheren Fassung dieses Tests nutzte eine falsche Unterschrift.**
+    Die gibt es seit Spec §3b nicht mehr — das billig/teuer-Gefaelle ist
+    seither kleiner, die Reihenfolge aber unveraendert richtig."""
     settings = _isolate_chat_settings
     settings.postfach_max_nutzlasten_je_anfrage = 1
 
@@ -790,18 +718,11 @@ async def test_billige_grenzen_vor_teurer_kryptoverifikation(
     await friend_pair(uid_a, uid_b)
     dm_id = await _dm_erstellen(client, token_a, uid_b)
 
-    await _seed_jwks(app)
-    priv, pubkey = _make_device()
-    cert = _make_cert(user_id=str(uid_a), device_pubkey=pubkey)
-    # Unterschrift ueber eine ANDERE Nutzlast als im Rumpf behauptet --
-    # wuerde die Kryptoverifikation ueberhaupt laufen, schluege sie fehl.
-    sig = _sign(priv, baue_nutzlast("postfach", "etwas-ganz-anderes"))
-
     daten = _b64_unpadded(b"umschlag-eins-nicht-durch-drei-teilb")
     r = await client.post(
         "/postfach",
         json={
-            "channel_id": str(dm_id), "cert": cert, "signatur": sig,
+            "channel_id": str(dm_id), "device_pubkey": _make_device(),
             "nutzlasten": [
                 {"art": 1, "daten": daten, "empfaenger": ["empf-egal"]},
                 {"art": 1, "daten": daten, "empfaenger": ["empf-egal"]},
@@ -831,25 +752,25 @@ async def test_abholen_liefert_nur_die_eigenen(
     dm_id = await _dm_erstellen(client, token_a, uid_b)
 
     # Zwei Geraete des Empfaengers — nur eines bekommt den Umschlag.
-    priv_1, pub_1 = await _bundel_seeden_echtes_geraet(session_factory, user_id=uid_b)
-    priv_2, pub_2 = await _bundel_seeden_echtes_geraet(session_factory, user_id=uid_b)
+    pub_1 = await _bundel_seeden_geraet(session_factory, user_id=uid_b)
+    pub_2 = await _bundel_seeden_geraet(session_factory, user_id=uid_b)
 
     daten = base64.b64encode(b"olm-umschlag").decode()
     r = await _einliefern(
-        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        client, token=token_a, channel_id=dm_id,
         nutzlasten=[{"art": 1, "daten": daten, "empfaenger": [pub_1]}],
     )
     assert r.status_code == 200, r.text
 
     # Das belieferte Geraet sieht genau eine Zustellung.
-    r = await _abholen(client, app, token=token_b, uid=uid_b, priv=priv_1, pubkey=pub_1)
+    r = await _abholen(client, token=token_b, pubkey=pub_1)
     assert r.status_code == 200, r.text
     zustellungen = r.json()
     assert len(zustellungen) == 1
     assert zustellungen[0]["daten"] == daten
 
     # Das ZWEITE Geraet DESSELBEN Nutzers sieht nichts.
-    r = await _abholen(client, app, token=token_b, uid=uid_b, priv=priv_2, pubkey=pub_2)
+    r = await _abholen(client, token=token_b, pubkey=pub_2)
     assert r.status_code == 200, r.text
     assert r.json() == []
 
@@ -865,17 +786,17 @@ async def test_abholen_loescht_noch_nichts(
     token_b, uid_b = await _register(_auth_signer)
     await friend_pair(uid_a, uid_b)
     dm_id = await _dm_erstellen(client, token_a, uid_b)
-    priv, pub = await _bundel_seeden_echtes_geraet(session_factory, user_id=uid_b)
+    pub = await _bundel_seeden_geraet(session_factory, user_id=uid_b)
 
     daten = base64.b64encode(b"olm-umschlag").decode()
     r = await _einliefern(
-        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        client, token=token_a, channel_id=dm_id,
         nutzlasten=[{"art": 1, "daten": daten, "empfaenger": [pub]}],
     )
     assert r.status_code == 200, r.text
 
-    erster = await _abholen(client, app, token=token_b, uid=uid_b, priv=priv, pubkey=pub)
-    zweiter = await _abholen(client, app, token=token_b, uid=uid_b, priv=priv, pubkey=pub)
+    erster = await _abholen(client, token=token_b, pubkey=pub)
+    zweiter = await _abholen(client, token=token_b, pubkey=pub)
     assert [z["id"] for z in erster.json()] == [z["id"] for z in zweiter.json()]
     assert len(zweiter.json()) == 1
 
@@ -889,25 +810,25 @@ async def test_quittung_loescht_die_zustellung(
     token_b, uid_b = await _register(_auth_signer)
     await friend_pair(uid_a, uid_b)
     dm_id = await _dm_erstellen(client, token_a, uid_b)
-    priv, pub = await _bundel_seeden_echtes_geraet(session_factory, user_id=uid_b)
+    pub = await _bundel_seeden_geraet(session_factory, user_id=uid_b)
 
     daten = base64.b64encode(b"olm-umschlag").decode()
     r = await _einliefern(
-        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        client, token=token_a, channel_id=dm_id,
         nutzlasten=[{"art": 1, "daten": daten, "empfaenger": [pub]}],
     )
     assert r.status_code == 200, r.text
 
-    abgeholt = await _abholen(client, app, token=token_b, uid=uid_b, priv=priv, pubkey=pub)
+    abgeholt = await _abholen(client, token=token_b, pubkey=pub)
     zustellung_id = abgeholt.json()[0]["id"]
 
     r = await _quittieren(
-        client, app, token=token_b, uid=uid_b, priv=priv, pubkey=pub,
+        client, token=token_b, pubkey=pub,
         zustellung_ids=[zustellung_id],
     )
     assert r.status_code == 204, r.text
 
-    rest = await _abholen(client, app, token=token_b, uid=uid_b, priv=priv, pubkey=pub)
+    rest = await _abholen(client, token=token_b, pubkey=pub)
     assert rest.json() == []
 
 
@@ -927,12 +848,12 @@ async def test_letzte_quittung_raeumt_die_nutzlast_mit(
 
     # Zwei Geraete desselben Empfaengers -> EINE Nutzlast, ZWEI Zustellungen
     # (der Gruppenfall im Kleinen, s. test_eine_nutzlast_traegt_mehrere_zustellungen).
-    priv_1, pub_1 = await _bundel_seeden_echtes_geraet(session_factory, user_id=uid_b)
-    priv_2, pub_2 = await _bundel_seeden_echtes_geraet(session_factory, user_id=uid_b)
+    pub_1 = await _bundel_seeden_geraet(session_factory, user_id=uid_b)
+    pub_2 = await _bundel_seeden_geraet(session_factory, user_id=uid_b)
 
     daten = base64.b64encode(b"olm-umschlag").decode()
     r = await _einliefern(
-        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        client, token=token_a, channel_id=dm_id,
         nutzlasten=[{"art": 1, "daten": daten, "empfaenger": [pub_1, pub_2]}],
     )
     assert r.status_code == 200, r.text
@@ -944,15 +865,15 @@ async def test_letzte_quittung_raeumt_die_nutzlast_mit(
     assert await _nutzlasten_anzahl() == 1
 
     id_1 = (await _abholen(
-        client, app, token=token_b, uid=uid_b, priv=priv_1, pubkey=pub_1
+        client, token=token_b, pubkey=pub_1
     )).json()[0]["id"]
     id_2 = (await _abholen(
-        client, app, token=token_b, uid=uid_b, priv=priv_2, pubkey=pub_2
+        client, token=token_b, pubkey=pub_2
     )).json()[0]["id"]
 
     # Erste Quittung: die Nutzlast bleibt (Geraet 2 hat noch nicht quittiert).
     r = await _quittieren(
-        client, app, token=token_b, uid=uid_b, priv=priv_1, pubkey=pub_1,
+        client, token=token_b, pubkey=pub_1,
         zustellung_ids=[id_1],
     )
     assert r.status_code == 204, r.text
@@ -960,11 +881,57 @@ async def test_letzte_quittung_raeumt_die_nutzlast_mit(
 
     # Zweite (letzte) Quittung: jetzt faellt auch die Nutzlast.
     r = await _quittieren(
-        client, app, token=token_b, uid=uid_b, priv=priv_2, pubkey=pub_2,
+        client, token=token_b, pubkey=pub_2,
         zustellung_ids=[id_2],
     )
     assert r.status_code == 204, r.text
     assert await _nutzlasten_anzahl() == 0
+
+
+@pytest.mark.asyncio
+async def test_fremdes_konto_kann_nicht_unter_fremder_kennung_abholen(
+    client, app, session_factory, _auth_signer, friend_pair
+):
+    """**Der Riegel, der das Zertifikat ersetzt** (Spec §3b): die
+    Geraetekennung im Rumpf muss zu einem Geraet DES ANGEMELDETEN Kontos
+    gehoeren.
+
+    Eine Kennung ist oeffentlich — jeder Gespraechspartner bekommt sie ueber
+    ``POST /keys/claim``. Ohne den Nachschlag in ``DeviceKeyBundle`` genuegte
+    sie, um das Postfach eines fremden Geraets zu leeren: abholen und
+    quittieren, und der rechtmaessige Empfaenger bekaeme seine Umschlaege nie
+    (es gibt keine zweite Kopie). Oeffnen koennte der Fremde sie nicht — aber
+    wegnehmen."""
+    token_a, uid_a = await _register(_auth_signer)
+    token_b, uid_b = await _register(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+    dm_id = await _dm_erstellen(client, token_a, uid_b)
+    pub_b = await _bundel_seeden_geraet(session_factory, user_id=uid_b)
+
+    daten = base64.b64encode(b"olm-umschlag").decode()
+    r = await _einliefern(
+        client, token=token_a, channel_id=dm_id,
+        nutzlasten=[{"art": 1, "daten": daten, "empfaenger": [pub_b]}],
+    )
+    assert r.status_code == 200, r.text
+
+    # A kennt ``pub_b`` (aus dem eigenen Sendeweg) und meldet sich damit.
+    r = await _abholen(client, token=token_a, pubkey=pub_b)
+    assert r.status_code == 403, r.text
+    r = await _quittieren(
+        client, token=token_a, pubkey=pub_b, zustellung_ids=["1"]
+    )
+    assert r.status_code == 403, r.text
+
+    # Der rechtmaessige Empfaenger kommt weiterhin an seine Zustellung — und
+    # quittiert sie weg.
+    r = await _abholen(client, token=token_b, pubkey=pub_b)
+    assert r.status_code == 200, r.text
+    ids = [z["id"] for z in r.json()]
+    assert len(ids) == 1
+    r = await _quittieren(client, token=token_b, pubkey=pub_b, zustellung_ids=ids)
+    assert r.status_code == 204, r.text
+    assert (await _abholen(client, token=token_b, pubkey=pub_b)).json() == []
 
 
 @pytest.mark.asyncio
@@ -981,15 +948,15 @@ async def test_fremde_zustellungs_id_quittiert_nichts(
     token_fremd, uid_fremd = await _register(_auth_signer)
     await friend_pair(uid_a, uid_b)
     dm_id = await _dm_erstellen(client, token_a, uid_b)
-    priv, pub = await _bundel_seeden_echtes_geraet(session_factory, user_id=uid_b)
+    pub = await _bundel_seeden_geraet(session_factory, user_id=uid_b)
     # Ein Geraet, das mit dieser Zustellung nichts zu tun hat.
-    priv_fremd, pub_fremd = await _bundel_seeden_echtes_geraet(
+    pub_fremd = await _bundel_seeden_geraet(
         session_factory, user_id=uid_fremd
     )
 
     daten = base64.b64encode(b"olm-umschlag").decode()
     r = await _einliefern(
-        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        client, token=token_a, channel_id=dm_id,
         nutzlasten=[{"art": 1, "daten": daten, "empfaenger": [pub]}],
     )
     assert r.status_code == 200, r.text
@@ -1001,7 +968,7 @@ async def test_fremde_zustellungs_id_quittiert_nichts(
     # Der Fremde reicht die (erratene oder abgelauschte) ID mit SEINEM
     # eigenen, nachgewiesenen Geraet ein.
     r = await _quittieren(
-        client, app, token=token_fremd, uid=uid_fremd, priv=priv_fremd, pubkey=pub_fremd,
+        client, token=token_fremd, pubkey=pub_fremd,
         zustellung_ids=[str(zustellung_id)],
     )
     assert r.status_code == 204, r.text  # stilles Uebergehen, kein Fehler
@@ -1029,26 +996,17 @@ async def test_absender_user_id_zeigt_das_sendegeraet_auch_beim_eigenen_zweitger
 
     # Sendegeraet UND Empfaengergeraet gehoeren BEIDE A — der Gegenpart des
     # Kanals ist B, aber der Absender dieser Zustellung ist A selbst.
-    sender_priv, sender_pub = await _bundel_seeden_echtes_geraet(
-        session_factory, user_id=uid_a
-    )
-    empf_priv, empf_pub = await _bundel_seeden_echtes_geraet(session_factory, user_id=uid_a)
+    sender_pub = await _bundel_seeden_geraet(session_factory, user_id=uid_a)
+    empf_pub = await _bundel_seeden_geraet(session_factory, user_id=uid_a)
 
-    await _seed_jwks(app)
-    cert = _make_cert(user_id=str(uid_a), device_pubkey=sender_pub)
     daten = base64.b64encode(b"olm-umschlag").decode()
-    sig = _sign(sender_priv, baue_nutzlast("postfach", str(dm_id), daten))
-    r = await client.post(
-        "/postfach",
-        json={
-            "channel_id": str(dm_id), "cert": cert, "signatur": sig,
-            "nutzlasten": [{"art": 1, "daten": daten, "empfaenger": [empf_pub]}],
-        },
-        headers=_auth(token_a),
+    r = await _einliefern_mit_geraet(
+        client, token=token_a, channel_id=dm_id, pubkey=sender_pub,
+        nutzlasten=[{"art": 1, "daten": daten, "empfaenger": [empf_pub]}],
     )
     assert r.status_code == 200, r.text
 
-    r = await _abholen(client, app, token=token_a, uid=uid_a, priv=empf_priv, pubkey=empf_pub)
+    r = await _abholen(client, token=token_a, pubkey=empf_pub)
     assert r.status_code == 200, r.text
     zustellungen = r.json()
     assert len(zustellungen) == 1
@@ -1072,22 +1030,13 @@ async def test_absender_user_id_ist_null_wenn_sendegeraet_abgemeldet_ist(
     await friend_pair(uid_a, uid_b)
     dm_id = await _dm_erstellen(client, token_a, uid_b)
 
-    sender_priv, sender_pub = await _bundel_seeden_echtes_geraet(
-        session_factory, user_id=uid_a
-    )
-    empf_priv, empf_pub = await _bundel_seeden_echtes_geraet(session_factory, user_id=uid_b)
+    sender_pub = await _bundel_seeden_geraet(session_factory, user_id=uid_a)
+    empf_pub = await _bundel_seeden_geraet(session_factory, user_id=uid_b)
 
-    await _seed_jwks(app)
-    cert = _make_cert(user_id=str(uid_a), device_pubkey=sender_pub)
     daten = base64.b64encode(b"olm-umschlag").decode()
-    sig = _sign(sender_priv, baue_nutzlast("postfach", str(dm_id), daten))
-    r = await client.post(
-        "/postfach",
-        json={
-            "channel_id": str(dm_id), "cert": cert, "signatur": sig,
-            "nutzlasten": [{"art": 1, "daten": daten, "empfaenger": [empf_pub]}],
-        },
-        headers=_auth(token_a),
+    r = await _einliefern_mit_geraet(
+        client, token=token_a, channel_id=dm_id, pubkey=sender_pub,
+        nutzlasten=[{"art": 1, "daten": daten, "empfaenger": [empf_pub]}],
     )
     assert r.status_code == 200, r.text
 
@@ -1100,7 +1049,7 @@ async def test_absender_user_id_ist_null_wenn_sendegeraet_abgemeldet_ist(
         )
         await s.commit()
 
-    r = await _abholen(client, app, token=token_b, uid=uid_b, priv=empf_priv, pubkey=empf_pub)
+    r = await _abholen(client, token=token_b, pubkey=empf_pub)
     assert r.status_code == 200, r.text
     zustellungen = r.json()
     assert len(zustellungen) == 1
@@ -1271,15 +1220,15 @@ async def test_gruppe_eine_nutzlast_viele_zustellungen(
     # Je ein Geraet fuer B und C, plus ein ZWEITES Geraet von A (der eigene
     # Zweitrechner gehoert dazu — sonst saehe er nie, was das Erstgeraet
     # geschrieben hat).
-    _, pk_b = _make_device()
-    _, pk_c = _make_device()
-    _, pk_a2 = _make_device()
+    pk_b = _make_device()
+    pk_c = _make_device()
+    pk_a2 = _make_device()
     await _bundel_seeden(session_factory, user_id=uid_b, device_pubkey=pk_b)
     await _bundel_seeden(session_factory, user_id=uid_c, device_pubkey=pk_c)
     await _bundel_seeden(session_factory, user_id=uid_a, device_pubkey=pk_a2)
 
     r = await _einliefern(
-        client, app, token=t_a, uid=uid_a, channel_id=gid,
+        client, token=t_a, channel_id=gid,
         nutzlasten=[{
             # Art 2 = Megolm-Gruppennachricht (``ART_GRUPPENNACHRICHT`` im
             # Klienten). Der Server unterscheidet die Arten nie, er reicht
@@ -1317,11 +1266,11 @@ async def test_gruppe_ohne_freundschaft(client, app, session_factory, _auth_sign
     t_a, uid_a = await _register(_auth_signer)
     _, uid_b = await _register(_auth_signer)
     gid = await _gruppe_anlegen(client, t_a, uid_b)
-    _, pk_b = _make_device()
+    pk_b = _make_device()
     await _bundel_seeden(session_factory, user_id=uid_b, device_pubkey=pk_b)
 
     r = await _einliefern(
-        client, app, token=t_a, uid=uid_a, channel_id=gid,
+        client, token=t_a, channel_id=gid,
         nutzlasten=[{"art": 2, "daten": _b64_unpadded(b"geheim"), "empfaenger": [pk_b]}],
     )
     assert r.status_code == 200, r.text
@@ -1336,11 +1285,11 @@ async def test_nichtmitglied_liefert_nicht_in_die_gruppe_ein(
     _, uid_b = await _register(_auth_signer)
     t_x, uid_x = await _register(_auth_signer)
     gid = await _gruppe_anlegen(client, t_a, uid_b)
-    _, pk_b = _make_device()
+    pk_b = _make_device()
     await _bundel_seeden(session_factory, user_id=uid_b, device_pubkey=pk_b)
 
     r = await _einliefern(
-        client, app, token=t_x, uid=uid_x, channel_id=gid,
+        client, token=t_x, channel_id=gid,
         nutzlasten=[{"art": 2, "daten": _b64_unpadded(b"geheim"), "empfaenger": [pk_b]}],
     )
     assert r.status_code == 403, r.text
@@ -1375,8 +1324,8 @@ async def test_entferntes_mitglied_bekommt_nichts_mehr_zugestellt(
     _, uid_b = await _register(_auth_signer)
     _, uid_c = await _register(_auth_signer)
     gid = await _gruppe_anlegen(client, t_a, uid_b, uid_c)
-    _, pk_b = _make_device()
-    _, pk_c = _make_device()
+    pk_b = _make_device()
+    pk_c = _make_device()
     await _bundel_seeden(session_factory, user_id=uid_b, device_pubkey=pk_b)
     await _bundel_seeden(session_factory, user_id=uid_c, device_pubkey=pk_c)
 
@@ -1384,7 +1333,7 @@ async def test_entferntes_mitglied_bekommt_nichts_mehr_zugestellt(
     assert r.status_code == 200, r.text
 
     r = await _einliefern(
-        client, app, token=t_a, uid=uid_a, channel_id=gid,
+        client, token=t_a, channel_id=gid,
         nutzlasten=[{
             "art": 2, "daten": _b64_unpadded(b"geheim"), "empfaenger": [pk_b, pk_c],
         }],
@@ -1422,7 +1371,7 @@ async def test_dm_kanalfremdes_geraet_bleibt_fail_closed_trotz_gruppen_fix(
 
     daten = base64.b64encode(b"olm-umschlag").decode()
     r = await _einliefern(
-        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        client, token=token_a, channel_id=dm_id,
         nutzlasten=[{
             "art": 1, "daten": daten, "empfaenger": ["empf-ok-2", "empf-fremd-2"],
         }],
@@ -1443,12 +1392,12 @@ async def test_abgeschalteter_schalter_verschliesst_das_gruppen_postfach(
     t_a, uid_a = await _register(_auth_signer)
     _, uid_b = await _register(_auth_signer)
     gid = await _gruppe_anlegen(client, t_a, uid_b)
-    _, pk_b = _make_device()
+    pk_b = _make_device()
     await _bundel_seeden(session_factory, user_id=uid_b, device_pubkey=pk_b)
     _isolate_chat_settings.private_groups_enabled = False
 
     r = await _einliefern(
-        client, app, token=t_a, uid=uid_a, channel_id=gid,
+        client, token=t_a, channel_id=gid,
         nutzlasten=[{"art": 2, "daten": _b64_unpadded(b"geheim"), "empfaenger": [pk_b]}],
     )
     assert r.status_code == 403, r.text

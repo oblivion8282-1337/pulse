@@ -29,7 +29,7 @@ import type { Satz } from '../verlauf/schema';
 import { codeNormalisieren } from './code';
 import { einloesFehlerAus } from './einloesFehler';
 import type { EinloesFehler } from './einloesFehler';
-import { nachweisFuer } from './nachweisRumpf';
+import { geraeteKennung } from '../krypto/geraeteKennung';
 import { codeHash, stueckEntschluesseln, transportSchluessel } from './transport';
 
 function cloudRoute(): { serverId?: string } {
@@ -61,7 +61,7 @@ export async function kopplungEinloesen(
   if (code === null) throw new EinloesenFehlgeschlagen('code_ungueltig');
 
   const hash = await codeHash(code);
-  const rumpf = await nachweisFuer('kopplung-einloesen', hash);
+  const rumpf = { device_pubkey: await geraeteKennung() };
   let antwort;
   try {
     antwort = await kopplungApi.einloesen({ ...rumpf, code_hash: hash }, cloudRoute());
@@ -85,7 +85,7 @@ export type EmpfangsStand = {
 
 /** Fragt, ob der Sender fertig ist und wie weit er kam. */
 export async function umzugStand(kopplungId: string): Promise<EmpfangsStand> {
-  const rumpf = await nachweisFuer('kopplung-stand', kopplungId);
+  const rumpf = { device_pubkey: await geraeteKennung() };
   const stand = await kopplungApi.stand({ ...rumpf, kopplung_id: kopplungId }, cloudRoute());
   return { gesamt: stand.gesamt_stuecke, geholt: stand.vorhandene_stuecke.length };
 }
@@ -99,7 +99,7 @@ export async function umzugStand(kopplungId: string): Promise<EmpfangsStand> {
  * `senden.ts::kopplungAbbrechen`, hier nur mit der Rolle des NEUEN Geraets.
  */
 export async function kopplungVerwerfen(kopplungId: string): Promise<void> {
-  const rumpf = await nachweisFuer('kopplung-abschliessen', kopplungId);
+  const rumpf = { device_pubkey: await geraeteKennung() };
   await kopplungApi.abschliessen({ ...rumpf, kopplung_id: kopplungId }, cloudRoute());
 }
 
@@ -140,7 +140,7 @@ export async function verlaufUebernehmen(
   melde(0, gesamt);
 
   for (let folge = 0; folge < gesamt; folge++) {
-    const rumpf = await nachweisFuer('kopplung-stueck-holen', kopplungId, String(folge));
+    const rumpf = { device_pubkey: await geraeteKennung() };
     const stueck = await kopplungApi.stueckHolen(
       { ...rumpf, kopplung_id: kopplungId, folge },
       cloudRoute()
@@ -156,7 +156,7 @@ export async function verlaufUebernehmen(
   // Erst NACH dem letzten erfolgreichen Ablegen aufraeumen. Umgekehrt waere
   // ein Fehler im letzten Stueck ein endgueltiger Verlust — der Server haelt
   // keine zweite Kopie, und der Sender muesste den ganzen Umzug wiederholen.
-  const schlussRumpf = await nachweisFuer('kopplung-abschliessen', kopplungId);
+  const schlussRumpf = { device_pubkey: await geraeteKennung() };
   await kopplungApi.abschliessen(
     { ...schlussRumpf, kopplung_id: kopplungId },
     cloudRoute()

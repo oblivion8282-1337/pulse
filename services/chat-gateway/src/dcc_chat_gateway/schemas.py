@@ -1161,30 +1161,29 @@ class OwnerReportedContentOut(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+#: Die Geraetekennung im Anfrage-Rumpf (Base64url eines Ed25519-Pubkeys, in
+#: der Praxis 43 Zeichen). **Selbstbehauptet** — geprueft wird nicht, dass der
+#: Aufrufer dieses Geraet IST, sondern nur, dass es zu seinem Konto gehoert
+#: (``schluessel_nachweis.py::pruefe_geraet``, dort auch, was das kostet).
+#: Die Laengengrenzen halten bloss Unsinn aus der Tabelle, sie sind keine
+#: Formatpruefung: ein zu langer Wert soll gar nicht erst in eine Abfrage
+#: geraten.
+GeraeteKennung = Annotated[str, Field(min_length=16, max_length=128)]
+
+
 class BundleVeroeffentlichenRequest(BaseModel):
-    """Rumpf von ``PUT /keys/bundle``.
+    """Rumpf von ``PUT /keys/bundle``."""
 
-    ``device_pubkey`` und ``cert_id`` stehen bewusst NICHT hier — sie kommen
-    ausschliesslich aus dem geprueften Zertifikat (s. ``schluessel_nachweis.py``),
-    ein Wert aus dem Rumpf koennte gefaelscht sein.
-    """
-
-    cert: str
-    #: Base64url(Ed25519-Unterschrift) ueber ``baue_nutzlast("buendel", …)``.
-    #: Deckt BEIDE Teile ab, ``curve25519`` und ``rueckfallschluessel`` — der
-    #: Rueckfallschluessel ist als drittes Stueck Teil derselben Nutzlast
-    #: (``baue_nutzlast("buendel", curve25519, rueckfallschluessel or "")``).
-    #: Eine zweite Signatur nur fuer den Rueckfallschluessel gab es bis
-    #: Migration 0068 (``rueckfall_signatur``) — sie wurde nirgends geprueft
-    #: und war damit reine Redundanz, kein zusaetzlicher Schutz.
-    signatur: str
+    #: Welches Geraet dieses Buendel veroeffentlicht. Beim ALLERERSTEN
+    #: Veroeffentlichen gibt es dazu noch keine Zeile — die Bindung an das
+    #: Konto entsteht genau hier, s. ``routes/schluessel.py``.
+    device_pubkey: GeraeteKennung
     curve25519: str
     rueckfallschluessel: str | None = None
     #: Selbstauskunft des Geraets — Electron- oder Android-App (Spec §3,
-    #: Koexistenz-Regel). Bewusst NICHT Teil der signierten Nutzlast: das
-    #: Geraet kann diese Aussage nur ueber SICH SELBST treffen (die Zeile
-    #: gehoert ueber ``pruefe_geraet`` ohnehin schon zum eigenen
-    #: ``device_pubkey``, ein Dritter kann sie nicht fuer ein fremdes Geraet
+    #: Koexistenz-Regel). Das Geraet kann diese Aussage nur ueber SICH SELBST
+    #: treffen (die Zeile gehoert ueber ``pruefe_geraet`` ohnehin schon zum
+    #: eigenen Konto, ein Dritter kann sie nicht fuer ein fremdes Geraet
     #: setzen), eine falsche Angabe schwaecht also hoechstens die eigene
     #: Kontohistorie, nie die eines anderen Kontos. Vorgabe ``False`` (Modell,
     #: nicht hier) — ein Geraet, das das Feld nicht mitschickt, gilt als
@@ -1195,10 +1194,7 @@ class BundleVeroeffentlichenRequest(BaseModel):
 class EinmalschluesselHinzufuegenRequest(BaseModel):
     """Rumpf von ``POST /keys/onetime``."""
 
-    cert: str
-    #: Base64url(Ed25519-Unterschrift) ueber
-    #: ``baue_nutzlast("einmalschluessel", *schluessel)``.
-    signatur: str
+    device_pubkey: GeraeteKennung
     schluessel: list[str] = Field(min_length=1)
 
 
@@ -1222,7 +1218,6 @@ class GeraeteSchluesselOut(BaseModel):
 
     device_pubkey: str
     curve25519: str
-    signatur: str
     einmalschluessel: str | None = None
     rueckfallschluessel: str | None = None
     #: Wie ``BundleVeroeffentlichenRequest.dauerhaft`` — durchgereicht aus
@@ -1306,10 +1301,11 @@ class PostfachEinliefernRequest(BaseModel):
     """Rumpf von ``POST /postfach``."""
 
     channel_id: SnowflakeId
-    #: Wie ``BundleVeroeffentlichenRequest`` — Zertifikat + Unterschrift
-    #: weisen das einliefernde Geraet nach (``schluessel_nachweis.py``).
-    cert: str
-    signatur: str
+    #: Welches Geraet einliefert — es traegt seinen Curve25519-Schluessel in
+    #: jede angelegte Nutzlast (``routes/postfach.py``), damit ein Empfaenger
+    #: eine frische Olm-Sitzung aufbauen kann. Muss zum angemeldeten Konto
+    #: gehoeren (``schluessel_nachweis.py``).
+    device_pubkey: GeraeteKennung
     nutzlasten: list[PostfachNutzlastIn] = Field(min_length=1)
     #: Verschluesselte Anhaenge dieser Nachricht (Etappe E) — die Kennungen
     #: aus ``POST /postfach/anhaenge/upload-url``. Sie stehen HIER und nicht
@@ -1390,14 +1386,14 @@ class PrivateGroupMemberAddIn(BaseModel):
 
 
 class PostfachAbholenRequest(BaseModel):
-    """Rumpf von ``POST /postfach/abholen``.
+    """Rumpf von ``POST /postfach/abholen`` — welches Geraet fragt.
 
-    Kein Inhalt zu binden — die Unterschrift beweist nur, welches Geraet
-    fragt (Zweck ``"postfach-abholen"``, s. ``routes/postfach_abholen.py``).
+    Ein Umschlag ist fuer genau ein Empfaengergeraet verschluesselt; ohne
+    diese Angabe kennt der Server nur das KONTO und wuesste nicht, welche
+    Zustellungen gemeint sind.
     """
 
-    cert: str
-    signatur: str
+    device_pubkey: GeraeteKennung
 
 
 class PostfachZustellungOut(BaseModel):
@@ -1466,24 +1462,16 @@ class PostfachAnhangUploadIn(BaseModel):
 class PostfachAnhangAbrufIn(BaseModel):
     """Rumpf von ``POST /postfach/anhaenge/{id}/abrufadresse`` (Etappe E).
 
-    Zertifikat + Unterschrift weisen das GERAET nach (Zweck
-    ``"postfach-anhang"``) — das angemeldete Konto allein genuegt nicht:
-    ein Anhang ist ueber die Zustellung an ein einzelnes Geraet berechtigt,
-    und nur dieses Geraet hat den Umschlag mit dem Dateischluessel.
+    Welches Geraet fragt — das angemeldete Konto allein genuegt als
+    Zeilenwahl nicht: ein Anhang ist ueber die Zustellung an ein EINZELNES
+    Geraet berechtigt (``postfach_anhaenge.py::darf_anhang_abrufen``).
     """
 
-    cert: str
-    signatur: str
+    device_pubkey: GeraeteKennung
 
 
 class PostfachQuittungRequest(BaseModel):
-    """Rumpf von ``POST /postfach/quittung``.
+    """Rumpf von ``POST /postfach/quittung``."""
 
-    ``zustellung_ids`` bindet in die Unterschrift ein (Zweck
-    ``"postfach-quittung"``) — die Liste ist Teil dessen, wofuer das Geraet
-    buergt.
-    """
-
-    cert: str
-    signatur: str
+    device_pubkey: GeraeteKennung
     zustellung_ids: list[SnowflakeId] = Field(min_length=1)

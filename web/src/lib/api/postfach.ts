@@ -3,9 +3,10 @@
  *
  * Wire-Form spiegelt `services/chat-gateway/.../routes/postfach.py` +
  * `routes/postfach_abholen.py` + `schemas.py` (Abschnitte „Postfach"). Bearer-
- * Auth wie jede andere chat-gateway-Route (`request()` aus `./client`); die
- * Cert+Unterschrift in `cert`/`signatur` ist ein ZUSAETZLICHER Nachweis, WER
- * das Geraet ist — kein Ersatz fuer den Bearer.
+ * Auth wie jede andere chat-gateway-Route (`request()` aus `./client`);
+ * `device_pubkey` sagt zusaetzlich, WELCHES Geraet des Kontos handelt — der
+ * Server haelt es gegen die eigene Geraeteliste (`schluessel_nachweis.py`)
+ * und ersetzt damit den frueheren Zertifikats-Nachweis (Spec §3b).
  *
  * Die Rumpf-Typen tragen deshalb die Feldnamen der Leitung (`channel_id`,
  * `zustellung_ids`) und werden unveraendert durchgereicht: eine Umbenennung
@@ -82,8 +83,7 @@ export const postfachApi = {
   einliefern(
     body: {
       channel_id: string;
-      cert: string;
-      signatur: string;
+      device_pubkey: string;
       nutzlasten: PostfachNutzlast[];
       /** Kennungen der verschluesselten Anhaenge dieser Nachricht (Etappe E).
        *  Stehen HIER und nicht je Nutzlast, weil alle Nutzlasten einer
@@ -100,20 +100,20 @@ export const postfachApi = {
     );
   },
 
-  /** Holt die offenen Zustellungen des nachgewiesenen Geraets ab. Loescht
+  /** Holt die offenen Zustellungen des genannten Geraets ab. Loescht
    *  nichts — erst `quittieren` raeumt auf. */
   abholen(
-    body: { cert: string; signatur: string },
+    body: { device_pubkey: string },
     route: { serverId?: string } = {}
   ): Promise<PostfachZustellung[]> {
     return request<PostfachZustellung[]>('/postfach/abholen', { method: 'POST', body }, route);
   },
 
-  /** Loescht die genannten Zustellungen des nachgewiesenen Geraets — erst
+  /** Loescht die genannten Zustellungen des genannten Geraets — erst
    *  aufrufen, NACHDEM die Umschlaege lokal sicher abgelegt sind (s.
    *  `empfangen.ts`). */
   quittieren(
-    body: { cert: string; signatur: string; zustellung_ids: string[] },
+    body: { device_pubkey: string; zustellung_ids: string[] },
     route: { serverId?: string } = {}
   ): Promise<void> {
     return request<void>('/postfach/quittung', { method: 'POST', body }, route);
@@ -145,13 +145,12 @@ export const postfachApi = {
   /**
    * Signierte GET-Adressen fuer einen verschluesselten Anhang. Nur ein
    * Geraet mit einer OFFENEN Zustellung zu diesem Anhang bekommt sie —
-   * deshalb der Geraete-Nachweis (Zweck `postfach-anhang`, die Anhang-Kennung
-   * ist Teil der Unterschrift) und deshalb **vor der Quittung** rufen: mit
-   * der Quittung faellt das Recht, und kurz darauf der Klumpen selbst.
+   * deshalb `device_pubkey` und deshalb **vor der Quittung** rufen: mit der
+   * Quittung faellt das Recht, und kurz darauf der Klumpen selbst.
    */
   anhangAdresse(
     anhangId: string,
-    body: { cert: string; signatur: string },
+    body: { device_pubkey: string },
     route: { serverId?: string } = {}
   ): Promise<PostfachAnhangAdresse> {
     return request<PostfachAnhangAdresse>(

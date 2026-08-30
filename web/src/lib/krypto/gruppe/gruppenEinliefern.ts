@@ -6,9 +6,6 @@
  */
 import { postfachApi, type PostfachNutzlast } from '../../api/postfach';
 import { serversStore } from '../../api/servers.svelte';
-import type { WebCryptoKeypair } from '../../identity/keypair.svelte';
-import { baueNutzlast } from '../nutzlast';
-import { signiereNutzlast } from '../nachweis';
 
 function cloudRoute(): { serverId?: string } {
   return { serverId: serversStore.cloudId() };
@@ -21,11 +18,6 @@ function cloudRoute(): { serverId?: string } {
  * uebersprungen GESAGT, und ohne Gegenbeweis gilt zugestellt (dieselbe
  * Deutung wie `wurdeZugestellt`, s. `../zustellErgebnis.ts`).
  *
- * **Die Unterschrift bindet genau die Umschlaege DIESER Anfrage** — der
- * Server baut die Bytes aus dem Rumpf nach (`routes/postfach.py`, Schritt 2).
- * Eine ueber alle Bloecke gemeinsam geleistete Unterschrift passte zu keinem
- * einzelnen Rumpf.
- *
  * **Wirft absichtlich weiter.** Der DM-Weg faengt hier einen 404 ab und
  * faellt auf den Klartext zurueck (`../zustellErgebnis.ts`) — fuer eine
  * Gruppe gibt es diesen Weg nicht, ein verschluckter Fehler waere eine
@@ -33,14 +25,11 @@ function cloudRoute(): { serverId?: string } {
  */
 export async function einliefernEinmal(
   kanalId: string,
-  certRoh: string,
-  keypair: WebCryptoKeypair,
+  geraeteKennung: string,
   nutzlasten: PostfachNutzlast[]
 ): Promise<string[]> {
-  const bytes = baueNutzlast('postfach', kanalId, ...nutzlasten.map((n) => n.daten));
-  const signatur = await signiereNutzlast(keypair, bytes);
   const ergebnis = await postfachApi.einliefern(
-    { channel_id: kanalId, cert: certRoh, signatur, nutzlasten },
+    { channel_id: kanalId, device_pubkey: geraeteKennung, nutzlasten },
     cloudRoute()
   );
   return ergebnis?.uebersprungene_empfaenger ?? [];
@@ -65,8 +54,7 @@ export async function einliefernEinmal(
  */
 export async function bloeckeEinliefern(
   kanalId: string,
-  certRoh: string,
-  keypair: WebCryptoKeypair,
+  geraeteKennung: string,
   bloecke: PostfachNutzlast[][]
 ): Promise<{ beliefert: Set<string>; letzterFehler: unknown }> {
   const beliefert = new Set<string>();
@@ -74,7 +62,7 @@ export async function bloeckeEinliefern(
   for (const block of bloecke) {
     const geraeteImBlock = block.flatMap((n) => n.empfaenger);
     try {
-      const uebersprungeneDesBlocks = await einliefernEinmal(kanalId, certRoh, keypair, block);
+      const uebersprungeneDesBlocks = await einliefernEinmal(kanalId, geraeteKennung, block);
       for (const g of geraeteImBlock) {
         if (!uebersprungeneDesBlocks.includes(g)) beliefert.add(g);
       }

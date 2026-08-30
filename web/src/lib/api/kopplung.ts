@@ -3,20 +3,21 @@
  *
  * Wire-Form spiegelt `services/chat-gateway/.../routes/kopplung.py` +
  * `kopplung_umzug.py` + `kopplung_schemas.py`. Bearer-Auth wie jede andere
- * chat-gateway-Route; `cert`/`signatur` in jedem Rumpf sind ein ZUSAETZLICHER
- * Geraete-Nachweis, kein Ersatz fuer den Bearer.
+ * chat-gateway-Route; `device_pubkey` in jedem Rumpf sagt zusaetzlich,
+ * WELCHES Geraet des Kontos handelt (Rolle `alt` oder `neu`), es ersetzt den
+ * Bearer nicht.
  *
  * **`route` (optional, jede Funktion) — derselbe Grund wie in `api/keys.ts`:**
  * ohne den Parameter faellt `request()` auf den zuletzt gewaehlten Server
  * zurueck, und das kann ein Self-Host sein. Die Kopplung gehoert zum
- * Cloud-Konto (dort liegen die Geraete-Zertifikate), Aufrufer uebergeben
+ * Cloud-Konto (dort liegt das Schluesselverzeichnis), Aufrufer uebergeben
  * deshalb `{ serverId: serversStore.cloudId() }`.
  */
 
 import { request } from './client';
 
-/** Jeder Rumpf traegt den Geraete-Nachweis. */
-type Nachweis = { cert: string; signatur: string };
+/** Jeder Rumpf nennt das handelnde Geraet. */
+type Nachweis = { device_pubkey: string };
 
 export interface KopplungStand {
   id: string;

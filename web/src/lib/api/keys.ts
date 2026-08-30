@@ -4,8 +4,9 @@
  * Wire-Form spiegelt `services/chat-gateway/.../routes/schluessel.py` +
  * `schemas.py` (Abschnitt "Geraete-Schluesselverzeichnis"). Bearer-Auth wie
  * jede andere chat-gateway-Route (`request()` aus `./client`, nicht die
- * Cookie-Auth der Identity-Plane) — die Cert+Unterschrift in `cert`/`signatur`
- * ist ein ZUSAETZLICHER Nachweis, kein Ersatz fuer den Bearer.
+ * Cookie-Auth der Identity-Plane). `device_pubkey` sagt zusaetzlich, WELCHES
+ * Geraet des Kontos handelt — der Server haelt es gegen die eigene
+ * Geraeteliste (`schluessel_nachweis.py`), es ersetzt den Bearer nicht.
  *
  * **`route` (optional, jede Funktion):** DMs sind heute cloud-only
  * (Global-Friends Stufe 1) — ohne diesen Parameter faellt `request()` auf
@@ -22,7 +23,6 @@ import { request } from './client';
 export interface GeraeteSchluessel {
   device_pubkey: string;
   curve25519: string;
-  signatur: string;
   einmalschluessel: string | null;
   rueckfallschluessel: string | null;
   /** Ob dieses Geraet dauerhaft ist (Electron- oder Android-App) — Grundlage
@@ -39,8 +39,7 @@ export const keysApi = {
   /** Legt das Buendel des anfragenden Geraets an oder ersetzt es. */
   publishBundle(
     body: {
-      cert: string;
-      signatur: string;
+      device_pubkey: string;
       curve25519: string;
       rueckfallschluessel?: string | null;
       dauerhaft: boolean;
@@ -52,7 +51,7 @@ export const keysApi = {
 
   /** Haengt einen Batch Einmalschluessel an das Buendel des Geraets an. */
   addOneTimeKeys(
-    body: { cert: string; signatur: string; schluessel: string[] },
+    body: { device_pubkey: string; schluessel: string[] },
     route: { serverId?: string } = {}
   ): Promise<void> {
     return request<void>('/keys/onetime', { method: 'POST', body }, route);

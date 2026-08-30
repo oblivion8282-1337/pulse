@@ -10,7 +10,6 @@ function geraet(pubkey: string, dauerhaft = true): GeraeteBuendelEintrag {
   return {
     device_pubkey: pubkey,
     curve25519: `curve-${pubkey}`,
-    signatur: 'sig',
     einmalschluessel: 'einmal',
     rueckfallschluessel: null,
     dauerhaft
@@ -108,7 +107,6 @@ test('fehlendes `dauerhaft`-Feld gilt als NICHT dauerhaft (fail closed)', () => 
   const alteAntwort: GeraeteBuendelEintrag = {
     device_pubkey: 'empf-alt',
     curve25519: 'curve',
-    signatur: 'sig',
     einmalschluessel: 'einmal',
     rueckfallschluessel: null
     // kein `dauerhaft` — aeltere/unwissende Serverantwort.

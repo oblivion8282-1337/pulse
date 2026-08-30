@@ -26,21 +26,21 @@ Schalter, gaebe es sie nirgends.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, status
 
 from dcc_chat_gateway import ratelimit, s3
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import ChatSettings, MessageAttachment
 from dcc_chat_gateway.postfach_anhaenge import darf_anhang_abrufen
 from dcc_chat_gateway.routes.attachments import _storage_key
-from dcc_chat_gateway.routes.postfach import _channel_zugriff_pruefen, _require_redis
+from dcc_chat_gateway.routes.postfach import _channel_zugriff_pruefen
 from dcc_chat_gateway.schemas import (
     AttachmentDownloadOut,
     AttachmentUploadOut,
     PostfachAnhangAbrufIn,
     PostfachAnhangUploadIn,
 )
-from dcc_chat_gateway.schluessel_nachweis import baue_nutzlast, pruefe_geraet
+from dcc_chat_gateway.schluessel_nachweis import pruefe_geraet
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 
@@ -149,26 +149,17 @@ async def anhang_upload_adresse(
 async def anhang_abrufadresse(
     anhang_id: int,
     body: PostfachAnhangAbrufIn,
-    request: Request,
     session: SessionDep,
     user: CurrentUser,
 ) -> AttachmentDownloadOut:
     """Signierte GET-Adresse fuer ein Geraet, das eine Zustellung dazu hat.
 
-    Der Geraete-Nachweis laeuft ueber ``schluessel_nachweis.py`` mit dem
-    eigenen Zweck ``"postfach-anhang"``, und die Unterschrift bindet die
-    Anhang-Kennung ein — eine fuer einen anderen Anhang (oder fuer das
-    Abholen) geleistete Unterschrift gilt hier nicht.
+    Das Geraet steht im Rumpf und muss zum angemeldeten Konto gehoeren
+    (``schluessel_nachweis.py``); ob es zu DIESEM Anhang eine offene
+    Zustellung hat, entscheidet ``darf_anhang_abrufen`` eine Zeile weiter
+    unten — das ist die Bedingung, an der die Route wirklich haengt.
     """
-    redis = _require_redis(request)
-    claims = await pruefe_geraet(
-        body.cert,
-        baue_nutzlast("postfach-anhang", str(anhang_id)),
-        body.signatur,
-        user,
-        redis,
-        session,
-    )
+    geraet = await pruefe_geraet(session, user, body.device_pubkey)
 
     zeile = await session.get(MessageAttachment, anhang_id)
     # Eine Zeile ohne ``postfach_gebunden_am`` ist entweder ein
@@ -186,7 +177,7 @@ async def anhang_abrufadresse(
     if not await darf_anhang_abrufen(
         session,
         anhang_id=anhang_id,
-        device_pubkey=claims.device_pubkey,
+        device_pubkey=geraet,
         user_id=user.id,
     ):
         # Dieselbe 404 wie „gibt es nicht" — wer keine Zustellung hat, soll

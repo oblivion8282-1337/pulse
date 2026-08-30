@@ -13,7 +13,6 @@ function geraet(pubkey: string, dauerhaft = true): GruppenBuendelEintrag {
   return {
     device_pubkey: pubkey,
     curve25519: `curve-${pubkey}`,
-    signatur: 'sig',
     einmalschluessel: 'einmal',
     rueckfallschluessel: null,
     dauerhaft

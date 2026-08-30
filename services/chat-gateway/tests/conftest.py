@@ -90,6 +90,14 @@ def _isolate_chat_settings():
     # direkt, nicht per monkeypatch.
     _TEST_SETTINGS.private_groups_enabled = False
     _TEST_SETTINGS.private_group_max_members = 50
+    # Geraete-Obergrenze: derselbe Leak-Grund, aber erst seit 2026-08-30
+    # sichtbar. ``test_schluessel.py`` setzt sie fuer die Verdraengungs-Tests
+    # direkt auf 2 und stellt sie nicht zurueck; das fiel nie auf, solange
+    # KEIN anderer Test Buendel anlegte. Seit die Kopplungs-Routen ein
+    # eingetragenes Geraet verlangen (Spec §3b), veroeffentlicht
+    # ``test_kopplung.py`` drei davon — und das dritte verdraengte bei
+    # geleaktem Limit das erste, mitten in einem Test ueber Rollen.
+    _TEST_SETTINGS.schluessel_max_buendel_je_konto = 20
 
     def _provider() -> chat_cfg.Settings:
         return _TEST_SETTINGS

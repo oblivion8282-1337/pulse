@@ -56,6 +56,7 @@ from dcc_chat_gateway.routes import (
     role_members,
     roles,
     schluessel,
+    schluessel_abholen,
     schluessel_auskunft,
     server_info,
     sounds,
@@ -114,6 +115,7 @@ router.include_router(attachments.router)
 router.include_router(capabilities.router)
 router.include_router(cert_login.router)
 router.include_router(schluessel.router)
+router.include_router(schluessel_abholen.router)
 router.include_router(schluessel_auskunft.router)
 router.include_router(kopplung.router)
 router.include_router(kopplung_umzug.router)

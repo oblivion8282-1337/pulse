@@ -328,17 +328,13 @@ class Settings(BaseSettings):
 
     # Geraete-Schluesselverzeichnis (Etappe B, E2E-DM) — Bughunt 2026-08-28
     # (Missbrauch), FIX 1. Obergrenze der gleichzeitig gespeicherten Buendel
-    # je Konto. Auth-svc laesst bis zu 20 gleichzeitig gueltige Zertifikate
-    # je Konto zu (rollierendes Fenster, ``routes_credentials.py``) — das
-    # ist die tatsaechliche Zahl legitimer Geraete zu jedem Zeitpunkt. Ein
-    # Buendel haengt bewusst an ``device_pubkey``, nicht an ``cert_id`` (s.
-    # ``models/geraete_schluessel.py``): ein Geraet, das seinen
-    # Signierschluessel wechselt (Neuinstallation, verlorenes Geraet),
-    # hinterliesse sonst eine Buendelzeile plus bis zu ``ONE_TIME_KEY_CAP``
-    # Einmalschluessel fuer immer — nur eine vollstaendige Kontoloeschung
-    # raeumte sie weg. Dieselbe Zahl wie der Cert-Cap, nicht groesser: mehr
-    # als 20 gleichzeitig gueltige Zertifikate kann ein Konto ohnehin nicht
-    # haben.
+    # je Konto. Ein Geraet, das seine Kennung wechselt (Neuinstallation,
+    # verlorenes Geraet, geleerte IndexedDB), hinterliesse sonst eine
+    # Buendelzeile plus bis zu
+    # ``ONE_TIME_KEY_CAP`` Einmalschluessel fuer immer — nur eine
+    # vollstaendige Kontoloeschung raeumte sie weg. Die 20 stammen aus der
+    # frueheren Zertifikats-Obergrenze des auth-svc; die gibt es nicht mehr,
+    # die Zahl bleibt als schlichte Grosszuegigkeitsgrenze.
     schluessel_max_buendel_je_konto: int = 20
     # Bughunt 2026-08-28 (Missbrauch), FIX 2. Budget verbrauchter
     # Einmalschluessel je (Absender, Ziel) und Zeitfenster — sonst leert

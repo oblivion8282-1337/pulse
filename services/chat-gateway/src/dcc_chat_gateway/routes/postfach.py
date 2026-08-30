@@ -11,10 +11,9 @@ Bughunt 2026-08-28 (Missbrauch), FIX 4 — vorher liefen Kryptoverifikation UND
 Kanalzugang vor den reinen Strukturchecks):
 
 1. Obergrenzen auf dem rohen Rumpf (Groesse je Umschlag, Anzahl Nutzlasten
-   je Anfrage) — kein DB-Zugriff, keine Kryptografie.
-2. Geraete-Nachweis (``schluessel_nachweis.py``, eigener Zweck ``"postfach"``
-   — eine fuer ein Schluesselbuendel geleistete Unterschrift darf hier nicht
-   gelten).
+   je Anfrage) — kein DB-Zugriff.
+2. Geraete-Zuordnung (``schluessel_nachweis.py``): das im Rumpf genannte
+   Sendegeraet muss zum angemeldeten Konto gehoeren.
 3. Kanalzugang (``_postfach_deps.py::_channel_zugriff_pruefen``) — bei einer
    DM DIESELBE Regel wie im Klartext-Sendeweg (``ws_op_send.py:139-151``):
    DM-Kanal laden, Mitgliedschaft pruefen, ``block_exists_either_way`` +
@@ -49,37 +48,24 @@ from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import DeviceKeyBundle, DmNutzlast, DmZustellung
 from dcc_chat_gateway.postfach_anhaenge import bezuege_anlegen, binde_anhaenge
 from dcc_chat_gateway.push import fan_out_dm_push_encrypted
-# Die vier Pruef-Helfer liegen seit Etappe E in ``_postfach_deps.py`` (die
-# Datei waere sonst ueber die Groessen-Policy gewachsen). Der Import haelt
-# sie zugleich als Attribute DIESES Moduls verfuegbar — ``postfach_abholen``
-# und die Tests holen ``_require_redis``/``_envelope_groesse`` weiterhin von
-# hier.
+# Die Pruef-Helfer liegen seit Etappe E in ``_postfach_deps.py`` (die Datei
+# waere sonst ueber die Groessen-Policy gewachsen). Der Import haelt sie
+# zugleich als Attribute DIESES Moduls verfuegbar — ``postfach_anhaenge`` und
+# die Tests holen ``_channel_zugriff_pruefen``/``_envelope_groesse`` weiterhin
+# von hier.
 from dcc_chat_gateway.routes._postfach_deps import (
     _bundle_laden,
     _channel_zugriff_pruefen,
     _envelope_groesse,
-    _require_redis,
 )
 from dcc_chat_gateway.schemas import PostfachEinliefernRequest, PostfachEinliefernResponse
-from dcc_chat_gateway.schluessel_nachweis import baue_nutzlast, pruefe_geraet
+from dcc_chat_gateway.schluessel_nachweis import pruefe_geraet
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["postfach"])
-
-#: Trennt die Anhang-Kennungen von den Umschlaegen in den unterschriebenen
-#: Bytes. Nur vorhanden, WENN Anhaenge mitkommen — ohne Anhaenge entstehen
-#: byte-identisch dieselben Bytes wie vor Etappe E, ein bestehender Klient
-#: unterschreibt also unveraendert weiter.
-#:
-#: Die Marke ist eine Trennung, keine Sicherheitsgrenze, und das gehoert
-#: gesagt: sie ist selbst gueltiges Base64, eine Verschiebung zwischen
-#: ``daten`` und ``anhaenge`` ist also denkbar. Sie traegt nichts ein — die
-#: Empfaenger stehen ohnehin nicht in der Unterschrift, und ``binde_anhaenge``
-#: laesst nur Anhaenge DESSELBEN Kontos in DEMSELBEN Kanal zu.
-_ANHANG_MARKE = "anhaenge"
 
 
 @router.post("/postfach", response_model=PostfachEinliefernResponse)
@@ -94,17 +80,17 @@ async def postfach_einliefern(
     # Test-Ueberschreibung von ``get_settings`` (s. ``_isolate_chat_settings``
     # in conftest.py) nicht.
     settings = chat_config.get_settings()
-    redis = _require_redis(request)
     cid_int = int(body.channel_id)
 
     # 1. Obergrenzen ZUERST (Bughunt 2026-08-28 (Missbrauch), FIX 4) —
-    # reiner Strukturcheck auf dem Rumpf, keine DB, keine Kryptografie.
-    # Vorher liefen Geraete-Nachweis (Ed25519-Verifikation) UND Kanalzugang
-    # schon, bevor ueberhaupt geprueft wurde, ob die Anfrage die eigenen
-    # Grenzen einhaelt — nginx deckelt den Body zwar bei 16 MB, aber bis zu
-    # dieser Deckelung war die teure Verifikation ueber die GESAMTE
-    # angehaengte Nutzlast schon gelaufen, fuer eine Anfrage, die ohnehin
-    # abgelehnt wird.
+    # reiner Strukturcheck auf dem Rumpf, keine DB. Vorher liefen
+    # Geraete-Nachweis UND Kanalzugang schon, bevor ueberhaupt geprueft
+    # wurde, ob die Anfrage die eigenen Grenzen einhaelt — nginx deckelt
+    # den Body zwar bei 16 MB, aber bis zu dieser Deckelung waren beide
+    # ueber die GESAMTE angehaengte Nutzlast schon gelaufen, fuer eine
+    # Anfrage, die ohnehin abgelehnt wird. Die Reihenfolge kostet seit dem
+    # Wegfall der Unterschrift weniger als frueher, bleibt aber richtig:
+    # der Kanalzugang ist weiterhin mehrere Abfragen wert.
     if len(body.nutzlasten) > settings.postfach_max_nutzlasten_je_anfrage:
         raise HTTPException(status_code=400, detail="zu_viele_nutzlasten")
     groessen = [_envelope_groesse(n.daten) for n in body.nutzlasten]
@@ -112,16 +98,13 @@ async def postfach_einliefern(
         if groesse > settings.postfach_max_umschlag_bytes:
             raise HTTPException(status_code=400, detail="umschlag_zu_gross")
 
-    # 2. Geraete-Nachweis. Signatur bindet Kanal + alle Umschlaege + die
-    # Anhang-Kennungen — sonst koennte eine fuer einen anderen
-    # Kanal/Inhalt/Anhang geleistete Unterschrift hier wiederverwendet
-    # werden.
-    teile = [str(cid_int), *[n.daten for n in body.nutzlasten]]
-    if body.anhaenge:
-        teile.extend([_ANHANG_MARKE, *[str(a) for a in body.anhaenge]])
-    claims = await pruefe_geraet(
-        body.cert, baue_nutzlast("postfach", *teile), body.signatur, user, redis, session
-    )
+    # 2. Geraete-Zuordnung: das genannte Sendegeraet muss zum angemeldeten
+    # Konto gehoeren. **Was hier weggefallen ist** (Spec §3b): eine
+    # Unterschrift ueber Kanal, Umschlaege und Anhang-Kennungen. Sie band
+    # den Inhalt an genau dieses Geraet; heute buergt fuer den Inhalt das
+    # Konto. Fuer den Empfaenger aendert das nichts — was er oeffnen kann,
+    # entscheidet die Olm-Sitzung, nicht diese Unterschrift.
+    geraet = await pruefe_geraet(session, user, body.device_pubkey)
 
     # 3. Kanalzugang. Der Kanal liefert zugleich die Menge der Konten, an die
     # ueberhaupt zugestellt werden darf (s. Pruefung weiter unten), UND die
@@ -147,11 +130,12 @@ async def postfach_einliefern(
     # 4. Anlegen. Zuerst das EIGENE Buendel des einliefernden Geraets — es
     # liefert den Curve25519-Identitaetsschluessel, den ein Empfaenger fuer
     # einen frischen Sitzungsaufbau braucht (Olm-Standardverhalten, s.
-    # Migration 0069). ``claims.device_pubkey`` ist bereits durch den
-    # Geraete-Nachweis geprueft, kein neuer Vertrauensschritt. Fehlt das
-    # Buendel, bleibt die Spalte NULL — der Server erzwingt sie nicht, er
-    # oeffnet den Umschlag ja nie.
-    absender_bundle = await _bundle_laden(session, claims.device_pubkey, {user.id})
+    # Migration 0069). ``geraet`` gehoert nach Schritt 2 nachweislich zu
+    # diesem Konto, hat also ein Buendel — die Abfrage bleibt trotzdem
+    # ``or_none``: die Geraete-Obergrenze koennte die Zeile dazwischen
+    # verdraengt haben (``schluessel_grenzen.py``). Dann bleibt die Spalte
+    # NULL, der Server erzwingt sie nicht, er oeffnet den Umschlag ja nie.
+    absender_bundle = await _bundle_laden(session, geraet, {user.id})
     absender_curve25519 = absender_bundle.curve25519 if absender_bundle else None
 
     # ``offene_je_geraet`` ist ein In-Request-Cache: eine
@@ -301,7 +285,7 @@ async def postfach_einliefern(
             DmNutzlast(
                 id=nutzlast_id,
                 channel_id=cid_int,
-                absender_device_pubkey=claims.device_pubkey,
+                absender_device_pubkey=geraet,
                 absender_user_id=user.id,
                 absender_curve25519=absender_curve25519,
                 art=eintrag.art,

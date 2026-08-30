@@ -24,7 +24,7 @@ import base64
 from collections.abc import Collection
 from typing import NamedTuple
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException
 from sqlalchemy import select
 
 from dcc_chat_gateway.friend_helpers import block_exists_either_way, friendship_exists
@@ -39,13 +39,6 @@ class KanalZugriff(NamedTuple):
 
     teilnehmer: set[int]
     ist_dm: bool
-
-
-def _require_redis(request: Request):
-    redis = getattr(request.app.state, "redis", None)
-    if redis is None:
-        raise HTTPException(status_code=503, detail="postfach_dienst_nicht_verfuegbar")
-    return redis
 
 
 async def _channel_zugriff_pruefen(session, channel_id: int, user_id: int) -> KanalZugriff:
@@ -163,5 +156,4 @@ __all__ = [
     "_bundle_laden",
     "_channel_zugriff_pruefen",
     "_envelope_groesse",
-    "_require_redis",
 ]

@@ -73,7 +73,7 @@ from __future__ import annotations
 
 import base64
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, HTTPException, Response, status
 from sqlalchemy import delete, select
 
 import dcc_chat_gateway.config as chat_config
@@ -87,8 +87,7 @@ from dcc_chat_gateway.kopplung_schemas import (
 )
 from dcc_chat_gateway.kopplung_zugriff import kopplung_laden
 from dcc_chat_gateway.models import Kopplung, UmzugStueck
-from dcc_chat_gateway.routes._postfach_deps import _require_redis
-from dcc_chat_gateway.schluessel_nachweis import baue_nutzlast, pruefe_geraet
+from dcc_chat_gateway.schluessel_nachweis import pruefe_geraet
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 
@@ -111,7 +110,6 @@ def _stueck_groesse(daten_b64: str) -> int:
 @router.post("/kopplung/stueck", status_code=status.HTTP_204_NO_CONTENT)
 async def kopplung_stueck_ablegen(
     body: UmzugStueckRequest,
-    request: Request,
     session: SessionDep,
     user: CurrentUser,
 ) -> Response:
@@ -125,7 +123,6 @@ async def kopplung_stueck_ablegen(
     Unterschied zwischen „schon da" und „kaputt" selbst zu erraten.
     """
     settings = chat_config.get_settings()
-    redis = _require_redis(request)
     kid = int(body.kopplung_id)
 
     # Struktur- und Mengenpruefung VOR der Kryptografie — dieselbe
@@ -138,9 +135,8 @@ async def kopplung_stueck_ablegen(
     if groesse > settings.umzug_max_stueck_bytes:
         raise HTTPException(status_code=400, detail="stueck_zu_gross")
 
-    nutzlast = baue_nutzlast("kopplung-stueck", str(kid), str(body.folge), body.daten)
-    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis, session)
-    await kopplung_laden(session, kid, user.id, claims.device_pubkey, "alt")
+    geraet = await pruefe_geraet(session, user, body.device_pubkey)
+    await kopplung_laden(session, kid, user.id, geraet, "alt")
 
     vorhanden = (
         await session.execute(
@@ -172,7 +168,6 @@ async def kopplung_stueck_ablegen(
 @router.post("/kopplung/stueck/holen", response_model=UmzugStueckResponse)
 async def kopplung_stueck_holen(
     body: UmzugStueckHolenRequest,
-    request: Request,
     session: SessionDep,
     user: CurrentUser,
 ) -> UmzugStueckResponse:
@@ -182,11 +177,9 @@ async def kopplung_stueck_holen(
     eine verlorene Antwort waere sonst ein verlorenes Stueck. Geloescht wird
     erst beim Abschliessen oder mit der Frist.
     """
-    redis = _require_redis(request)
     kid = int(body.kopplung_id)
-    nutzlast = baue_nutzlast("kopplung-stueck-holen", str(kid), str(body.folge))
-    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis, session)
-    await kopplung_laden(session, kid, user.id, claims.device_pubkey, "neu")
+    geraet = await pruefe_geraet(session, user, body.device_pubkey)
+    await kopplung_laden(session, kid, user.id, geraet, "neu")
 
     stueck = (
         await session.execute(
@@ -204,7 +197,6 @@ async def kopplung_stueck_holen(
 @router.post("/kopplung/fertig", status_code=status.HTTP_204_NO_CONTENT)
 async def kopplung_fertig(
     body: KopplungFertigRequest,
-    request: Request,
     session: SessionDep,
     user: CurrentUser,
 ) -> Response:
@@ -215,15 +207,13 @@ async def kopplung_fertig(
     einer, der bei 40 fertig war.
     """
     settings = chat_config.get_settings()
-    redis = _require_redis(request)
     kid = int(body.kopplung_id)
 
     if body.gesamt_stuecke > settings.umzug_max_stuecke:
         raise HTTPException(status_code=400, detail="zu_viele_stuecke")
 
-    nutzlast = baue_nutzlast("kopplung-fertig", str(kid), str(body.gesamt_stuecke))
-    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis, session)
-    kopplung = await kopplung_laden(session, kid, user.id, claims.device_pubkey, "alt")
+    geraet = await pruefe_geraet(session, user, body.device_pubkey)
+    kopplung = await kopplung_laden(session, kid, user.id, geraet, "alt")
 
     kopplung.gesamt_stuecke = body.gesamt_stuecke
     await session.commit()
@@ -233,7 +223,6 @@ async def kopplung_fertig(
 @router.post("/kopplung/abschliessen", status_code=status.HTTP_204_NO_CONTENT)
 async def kopplung_abschliessen(
     body: KopplungAbschliessenRequest,
-    request: Request,
     session: SessionDep,
     user: CurrentUser,
 ) -> Response:
@@ -246,10 +235,8 @@ async def kopplung_abschliessen(
     ruft sie, nachdem er alles eingespielt hat, und eine verlorene Antwort
     duerfte ihn nicht in einen Fehlerzustand schieben).
     """
-    redis = _require_redis(request)
     kid = int(body.kopplung_id)
-    nutzlast = baue_nutzlast("kopplung-abschliessen", str(kid))
-    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis, session)
+    geraet = await pruefe_geraet(session, user, body.device_pubkey)
 
     # Die Rolle steckt hier in der WHERE-Klausel statt in ``kopplung_laden``:
     # beide Rollen duerfen, eine dritte nicht — und ein bereits verfallener
@@ -261,8 +248,8 @@ async def kopplung_abschliessen(
             .where(
                 Kopplung.id == kid,
                 Kopplung.user_id == user.id,
-                (Kopplung.alt_device_pubkey == claims.device_pubkey)
-                | (Kopplung.neu_device_pubkey == claims.device_pubkey),
+                (Kopplung.alt_device_pubkey == geraet)
+                | (Kopplung.neu_device_pubkey == geraet),
             )
             .returning(Kopplung.id)
         )

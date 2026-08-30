@@ -1,7 +1,7 @@
 """Verschluesselte Anhaenge (Etappe E) — Hochladen, Abrufen, Fegen.
 
-Der Nachweis-Helferteil ist derselbe wie in ``test_postfach.py``: ein echtes
-Ed25519-Geraetepaar und ein echtes, RS256-signiertes Identitaets-Zertifikat.
+Der Geraete-Helferteil ist derselbe wie in ``test_postfach.py``: eine blosse
+Kennung, die vor dem Gebrauch veroeffentlicht sein muss (Spec §3b).
 Bewusst kopiert statt importiert — Testmodule laufen unter
 ``--import-mode=importlib`` und sind untereinander nicht verlaesslich
 importierbar (``test_schluessel.py`` und ``test_postfach.py`` fuehren
@@ -11,30 +11,20 @@ dieselben Helfer aus demselben Grund je eigen).
 from __future__ import annotations
 
 import base64
-import json
+import itertools
 import random
-import time
 from datetime import UTC, datetime, timedelta
 
-import jwt as pyjwt
 import pytest
 import pytest_asyncio
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from sqlalchemy import select
 
 from dcc_chat_gateway import s3 as s3_mod
 from dcc_chat_gateway.models import DmAnhangBezug, DmNutzlast, MessageAttachment
-from dcc_chat_gateway.schluessel_nachweis import baue_nutzlast
 
 pytestmark = pytest.mark.usefixtures("cloud_mode")
 
-_RSA_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-_KID = "test-anhaenge-key-1"
-
-
-def _b64url(data: bytes) -> str:
-    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+_geraete_zaehler = itertools.count()
 
 
 def _b64_unpadded(data: bytes) -> str:
@@ -42,68 +32,13 @@ def _b64_unpadded(data: bytes) -> str:
     return base64.b64encode(data).rstrip(b"=").decode()
 
 
-def _jwks_json() -> str:
-    nums = _RSA_KEY.public_key().public_numbers()
-
-    def _b64(n: int) -> str:
-        bl = (n.bit_length() + 7) // 8
-        return base64.urlsafe_b64encode(n.to_bytes(bl, "big")).rstrip(b"=").decode()
-
-    return json.dumps({
-        "keys": [{
-            "kty": "RSA", "use": "sig", "alg": "RS256", "kid": _KID,
-            "n": _b64(nums.n), "e": _b64(nums.e),
-        }]
-    })
-
-
-def _make_device() -> tuple[Ed25519PrivateKey, str]:
-    priv = Ed25519PrivateKey.generate()
-    return priv, _b64url(priv.public_key().public_bytes_raw())
-
-
-def _make_cert(*, user_id: str, device_pubkey: str) -> str:
-    now = int(time.time())
-    return pyjwt.encode(
-        {
-            "iss": "https://howispulse.com",
-            "aud": "dcc",
-            "typ": "credential",
-            "cert_id": "cert-1",
-            "user_id": user_id,
-            "device_pubkey": device_pubkey,
-            "device_label": "Testgeraet",
-            "pairwise_seed": _b64url(b"\xab" * 32),
-            "amr": ["pwd"],
-            "acr": "1",
-            "iat": now,
-            "exp": now + 3600,
-        },
-        _RSA_KEY,
-        algorithm="RS256",
-        headers={"kid": _KID},
-    )
-
-
-def _sign(priv: Ed25519PrivateKey, nutzlast: bytes) -> str:
-    return _b64url(priv.sign(nutzlast))
+def _make_device() -> str:
+    """Eine frische Geraetekennung — seit Spec §3b eine blosse Zeichenkette."""
+    return f"geraet-{next(_geraete_zaehler):036d}"
 
 
 def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
-
-
-async def _seed_jwks(app) -> None:
-    await app.state.redis.set("auth:jwks:cached", _jwks_json())
-
-
-@pytest_asyncio.fixture(autouse=True)
-async def _redis_fixture_daten_aufraeumen(app):
-    """Wie in ``test_postfach.py``: die Fixture-JWKS steht unter dem ECHTEN
-    Produktionsschluessel in einem realen Redis und darf den Testlauf nicht
-    ueberleben."""
-    yield
-    await app.state.redis.delete("auth:jwks:cached")
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -157,21 +92,20 @@ async def _dm_erstellen(client, token_a: str, uid_b: int) -> str:
     return r.json()["id"]
 
 
-async def _bundel_seeden(session_factory, *, user_id: int) -> tuple[Ed25519PrivateKey, str]:
+async def _bundel_seeden(session_factory, *, user_id: int) -> str:
     from dcc_chat_gateway.models import DeviceKeyBundle
     from dcc_chat_gateway.snowflake import next_id
 
-    priv, pubkey = _make_device()
+    pubkey = _make_device()
     async with session_factory() as s:
         s.add(
             DeviceKeyBundle(
                 id=next_id(), user_id=user_id, device_pubkey=pubkey,
-                curve25519="curve-" + pubkey, signatur="sig-" + pubkey,
-                cert_id="cert-" + pubkey,
+                curve25519="curve-" + pubkey,
             )
         )
         await s.commit()
-    return priv, pubkey
+    return pubkey
 
 
 async def _anhang_hochladen(client, *, token: str, channel_id: str, size: int = 4096):
@@ -182,22 +116,29 @@ async def _anhang_hochladen(client, *, token: str, channel_id: str, size: int = 
     )
 
 
+async def _sendegeraet(client, token: str) -> str:
+    """Veroeffentlicht ein Geraet fuer dieses Konto — seit Spec §3b Pflicht
+    vor jedem Einliefern (s. ``test_postfach.py``)."""
+    pubkey = _make_device()
+    r = await client.put(
+        "/keys/bundle",
+        json={"device_pubkey": pubkey, "curve25519": "curve-" + pubkey},
+        headers=_auth(token),
+    )
+    assert r.status_code == 204, r.text
+    return pubkey
+
+
 async def _einliefern(
-    client, app, *, token: str, uid: int, channel_id: str,
+    client, *, token: str, channel_id: str,
     empfaenger: list[str], anhaenge: list[str] | None = None,
     daten: str | None = None,
 ):
     """Liefert EINEN Umschlag ein, wahlweise mit Anhaengen."""
-    await _seed_jwks(app)
-    priv, pubkey = _make_device()
-    cert = _make_cert(user_id=str(uid), device_pubkey=pubkey)
     daten = daten or _b64_unpadded(b"olm-umschlag1")
-    teile = [str(channel_id), daten]
-    if anhaenge:
-        teile.extend(["anhaenge", *anhaenge])
-    sig = _sign(priv, baue_nutzlast("postfach", *teile))
     rumpf = {
-        "channel_id": str(channel_id), "cert": cert, "signatur": sig,
+        "channel_id": str(channel_id),
+        "device_pubkey": await _sendegeraet(client, token),
         "nutzlasten": [{"art": 1, "daten": daten, "empfaenger": empfaenger}],
     }
     if anhaenge is not None:
@@ -205,56 +146,39 @@ async def _einliefern(
     return await client.post("/postfach", json=rumpf, headers=_auth(token))
 
 
-async def _abrufadresse(
-    client, app, *, token: str, uid: int, anhang_id: str,
-    priv: Ed25519PrivateKey, pubkey: str,
-):
-    await _seed_jwks(app)
-    cert = _make_cert(user_id=str(uid), device_pubkey=pubkey)
-    sig = _sign(priv, baue_nutzlast("postfach-anhang", str(anhang_id)))
+async def _abrufadresse(client, *, token: str, anhang_id: str, pubkey: str):
     return await client.post(
         f"/postfach/anhaenge/{anhang_id}/abrufadresse",
-        json={"cert": cert, "signatur": sig},
+        json={"device_pubkey": pubkey},
         headers=_auth(token),
     )
 
 
-async def _quittieren(
-    client, app, *, token: str, uid: int, priv: Ed25519PrivateKey, pubkey: str,
-    zustellung_ids: list[str],
-):
-    await _seed_jwks(app)
-    cert = _make_cert(user_id=str(uid), device_pubkey=pubkey)
-    sig = _sign(
-        priv, baue_nutzlast("postfach-quittung", *[str(i) for i in zustellung_ids])
-    )
+async def _quittieren(client, *, token: str, pubkey: str, zustellung_ids: list[str]):
     return await client.post(
         "/postfach/quittung",
         json={
-            "cert": cert, "signatur": sig,
+            "device_pubkey": pubkey,
             "zustellung_ids": [str(i) for i in zustellung_ids],
         },
         headers=_auth(token),
     )
 
 
-async def _abholen(client, app, *, token: str, uid: int, priv, pubkey: str):
-    await _seed_jwks(app)
-    cert = _make_cert(user_id=str(uid), device_pubkey=pubkey)
-    sig = _sign(priv, baue_nutzlast("postfach-abholen"))
+async def _abholen(client, *, token: str, pubkey: str):
     return await client.post(
-        "/postfach/abholen", json={"cert": cert, "signatur": sig}, headers=_auth(token)
+        "/postfach/abholen", json={"device_pubkey": pubkey}, headers=_auth(token)
     )
 
 
 async def _aufbau(client, session_factory, _auth_signer, friend_pair):
-    """A und B befreundet, DM-Kanal, ein Buendel je Seite."""
+    """A und B befreundet, DM-Kanal, ein Buendel auf B's Seite."""
     token_a, uid_a = await _register(_auth_signer)
     token_b, uid_b = await _register(_auth_signer)
     await friend_pair(uid_a, uid_b)
     dm_id = await _dm_erstellen(client, token_a, uid_b)
-    priv_b, pub_b = await _bundel_seeden(session_factory, user_id=uid_b)
-    return token_a, uid_a, token_b, uid_b, dm_id, priv_b, pub_b
+    pub_b = await _bundel_seeden(session_factory, user_id=uid_b)
+    return token_a, uid_a, token_b, uid_b, dm_id, pub_b
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +192,7 @@ async def test_kein_name_kein_typ_keine_masse(
 ):
     """Zu einem verschluesselten Anhang steht weder Name noch Typ noch Maß in
     der Datenbank — und keine Nachrichtenzeile haengt daran."""
-    token_a, _uid_a, _tb, uid_b, dm_id, _priv_b, _pub_b = await _aufbau(
+    token_a, _uid_a, _tb, uid_b, dm_id, _pub_b = await _aufbau(
         client, session_factory, _auth_signer, friend_pair
     )
     r = await _anhang_hochladen(client, token=token_a, channel_id=dm_id)
@@ -297,7 +221,7 @@ async def test_verschluesselter_weg_haengt_nicht_am_klartext_schalter(
     """``cloud_dm_attachments_enabled`` schaltet den UNVERSCHLUESSELTEN Weg
     ab und bleibt aus — der verschluesselte Weg hat sein eigenes Kriterium."""
     assert cloud_mode.cloud_dm_attachments_enabled is False
-    token_a, _uid_a, _tb, _uid_b, dm_id, _p, _pk = await _aufbau(
+    token_a, _uid_a, _tb, _uid_b, dm_id, _pk = await _aufbau(
         client, session_factory, _auth_signer, friend_pair
     )
 
@@ -324,41 +248,41 @@ async def test_nur_wer_eine_zustellung_hat_bekommt_eine_abrufadresse(
     """Drei Anfragen auf denselben Anhang: das belieferte Geraet bekommt eine
     Adresse, ein zweites Geraet desselben Kontos ohne Zustellung nicht, und
     ein voellig Fremder auch nicht."""
-    token_a, uid_a, token_b, uid_b, dm_id, priv_b, pub_b = await _aufbau(
+    token_a, uid_a, token_b, uid_b, dm_id, pub_b = await _aufbau(
         client, session_factory, _auth_signer, friend_pair
     )
     anhang_id = (
         await _anhang_hochladen(client, token=token_a, channel_id=dm_id)
     ).json()["id"]
     r = await _einliefern(
-        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        client, token=token_a, channel_id=dm_id,
         empfaenger=[pub_b], anhaenge=[anhang_id],
     )
     assert r.status_code == 200, r.text
     assert r.json()["zustellungen_angelegt"] == 1
 
     ok = await _abrufadresse(
-        client, app, token=token_b, uid=uid_b, anhang_id=anhang_id,
-        priv=priv_b, pubkey=pub_b,
+        client, token=token_b, anhang_id=anhang_id,
+        pubkey=pub_b,
     )
     assert ok.status_code == 200, ok.text
     assert ok.json()["url"].startswith("https://mock/")
 
     # Zweites Geraet von B — angemeldet, im selben Gespraech, aber ohne
     # Zustellung zu diesem Anhang.
-    priv_b2, pub_b2 = await _bundel_seeden(session_factory, user_id=uid_b)
+    pub_b2 = await _bundel_seeden(session_factory, user_id=uid_b)
     ohne = await _abrufadresse(
-        client, app, token=token_b, uid=uid_b, anhang_id=anhang_id,
-        priv=priv_b2, pubkey=pub_b2,
+        client, token=token_b, anhang_id=anhang_id,
+        pubkey=pub_b2,
     )
     assert ohne.status_code == 404
 
     # Fremdes Konto, eigenes Geraet, kennt nur die Kennung.
     token_c, uid_c = await _register(_auth_signer)
-    priv_c, pub_c = await _bundel_seeden(session_factory, user_id=uid_c)
+    pub_c = await _bundel_seeden(session_factory, user_id=uid_c)
     fremd = await _abrufadresse(
-        client, app, token=token_c, uid=uid_c, anhang_id=anhang_id,
-        priv=priv_c, pubkey=pub_c,
+        client, token=token_c, anhang_id=anhang_id,
+        pubkey=pub_c,
     )
     assert fremd.status_code == 404
 
@@ -374,14 +298,14 @@ async def test_eingelieferter_anhang_kommt_in_keine_klartext_nachricht(
     Klartext-Nachricht weiter auf ihn zeigt — und er waere ueber die
     Rechtepruefung des Klartext-Wegs erreichbar, an der Zustellung vorbei.
     """
-    token_a, uid_a, _token_b, _uid_b, dm_id, _priv_b, pub_b = await _aufbau(
+    token_a, uid_a, _token_b, _uid_b, dm_id, pub_b = await _aufbau(
         client, session_factory, _auth_signer, friend_pair
     )
     anhang_id = (
         await _anhang_hochladen(client, token=token_a, channel_id=dm_id)
     ).json()["id"]
     r = await _einliefern(
-        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        client, token=token_a, channel_id=dm_id,
         empfaenger=[pub_b], anhaenge=[anhang_id],
     )
     assert r.status_code == 200, r.text
@@ -401,7 +325,7 @@ async def test_fremder_anhang_laesst_sich_nicht_binden(
     client, app, session_factory, _auth_signer, friend_pair, mock_s3
 ):
     """B laedt in denselben Kanal hoch, A versucht ihn mitzuschicken."""
-    token_a, uid_a, token_b, _uid_b, dm_id, _priv_b, pub_b = await _aufbau(
+    token_a, uid_a, token_b, _uid_b, dm_id, pub_b = await _aufbau(
         client, session_factory, _auth_signer, friend_pair
     )
     fremder = (
@@ -409,7 +333,7 @@ async def test_fremder_anhang_laesst_sich_nicht_binden(
     ).json()["id"]
 
     r = await _einliefern(
-        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        client, token=token_a, channel_id=dm_id,
         empfaenger=[pub_b], anhaenge=[fremder],
     )
     assert r.status_code == 400
@@ -434,10 +358,10 @@ async def test_anhang_faellt_mit_der_letzten_zustellung(
         sweep_verwaiste_nutzlasten,
     )
 
-    token_a, uid_a, token_b, uid_b, dm_id, priv_b1, pub_b1 = await _aufbau(
+    token_a, uid_a, token_b, uid_b, dm_id, pub_b1 = await _aufbau(
         client, session_factory, _auth_signer, friend_pair
     )
-    priv_b2, pub_b2 = await _bundel_seeden(session_factory, user_id=uid_b)
+    pub_b2 = await _bundel_seeden(session_factory, user_id=uid_b)
     anhang_id = (
         await _anhang_hochladen(client, token=token_a, channel_id=dm_id)
     ).json()["id"]
@@ -446,7 +370,7 @@ async def test_anhang_faellt_mit_der_letzten_zustellung(
     # der Klient schickt also zwei Umschlaege fuer dieselbe Nachricht.
     for pubkey, daten in ((pub_b1, b"fuer-geraet-eins"), (pub_b2, b"fuer-zwei")):
         r = await _einliefern(
-            client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+            client, token=token_a, channel_id=dm_id,
             empfaenger=[pubkey], anhaenge=[anhang_id],
             daten=_b64_unpadded(daten),
         )
@@ -458,11 +382,11 @@ async def test_anhang_faellt_mit_der_letzten_zustellung(
         assert (await s.get(MessageAttachment, int(anhang_id))).postfach_gebunden_am
 
     zustellungen = (
-        await _abholen(client, app, token=token_b, uid=uid_b, priv=priv_b1, pubkey=pub_b1)
+        await _abholen(client, token=token_b, pubkey=pub_b1)
     ).json()
     assert len(zustellungen) == 1
     q = await _quittieren(
-        client, app, token=token_b, uid=uid_b, priv=priv_b1, pubkey=pub_b1,
+        client, token=token_b, pubkey=pub_b1,
         zustellung_ids=[zustellungen[0]["id"]],
     )
     assert q.status_code == 204
@@ -472,11 +396,11 @@ async def test_anhang_faellt_mit_der_letzten_zustellung(
     assert mock_s3.deleted == []
 
     zustellungen = (
-        await _abholen(client, app, token=token_b, uid=uid_b, priv=priv_b2, pubkey=pub_b2)
+        await _abholen(client, token=token_b, pubkey=pub_b2)
     ).json()
     assert len(zustellungen) == 1
     q = await _quittieren(
-        client, app, token=token_b, uid=uid_b, priv=priv_b2, pubkey=pub_b2,
+        client, token=token_b, pubkey=pub_b2,
         zustellung_ids=[zustellungen[0]["id"]],
     )
     assert q.status_code == 204
@@ -497,14 +421,14 @@ async def test_reaper_verschont_einen_eingelieferten_anhang(
     Ausnahme loeschte der Reaper ihn, waehrend sein Umschlag noch wartet."""
     from dcc_chat_gateway.routes import attachments as att_mod
 
-    token_a, uid_a, _tb, _uid_b, dm_id, _priv_b, pub_b = await _aufbau(
+    token_a, uid_a, _tb, _uid_b, dm_id, pub_b = await _aufbau(
         client, session_factory, _auth_signer, friend_pair
     )
     gebunden = (
         await _anhang_hochladen(client, token=token_a, channel_id=dm_id)
     ).json()["id"]
     r = await _einliefern(
-        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        client, token=token_a, channel_id=dm_id,
         empfaenger=[pub_b], anhaenge=[gebunden],
     )
     assert r.status_code == 200, r.text
@@ -540,14 +464,14 @@ async def test_kontoloeschung_raeumt_den_anhang_mit(
     Nutzlasten — und damit muss der Anhang fallen."""
     from dcc_chat_gateway.user_purge_postfach import purge_postfach
 
-    token_a, uid_a, _token_b, uid_b, dm_id, _priv_b, pub_b = await _aufbau(
+    token_a, uid_a, _token_b, uid_b, dm_id, pub_b = await _aufbau(
         client, session_factory, _auth_signer, friend_pair
     )
     anhang_id = (
         await _anhang_hochladen(client, token=token_a, channel_id=dm_id)
     ).json()["id"]
     r = await _einliefern(
-        client, app, token=token_a, uid=uid_a, channel_id=dm_id,
+        client, token=token_a, channel_id=dm_id,
         empfaenger=[pub_b], anhaenge=[anhang_id],
     )
     assert r.status_code == 200, r.text

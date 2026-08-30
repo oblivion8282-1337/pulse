@@ -22,23 +22,20 @@ Route macht also nichts sichtbar, was vorher verborgen war; sie macht das
 Sichtbare bloss billig. Wer die Zugriffsregel hier lockert, verschiebt genau
 diese Abwaegung und muss sie neu treffen.
 
-**Kein eigener Nachweis-Zweck** (``schluessel_nachweis.py``): der ist dort
-noetig, wo jemand behauptet, ein bestimmtes GERAET zu sein — beim
-Veroeffentlichen also. Hier wird nichts veroeffentlicht und nichts
-herausgegeben, was an ein Geraet gebunden waere; es zaehlt nur, WER fragt,
-und dafuer ist die normale Anmeldung (``CurrentUser``) der Ausweis. Dasselbe
-gilt fuer ``POST /keys/claim`` und ``GET /keys/onetime/count``, die beide
-ebenfalls ohne Zertifikats-Nachweis auskommen (s. Modulkopf von
+**Keine Geraeteangabe** (``schluessel_nachweis.py``): die ist dort noetig, wo
+jemand fuer ein bestimmtes GERAET handelt — beim Veroeffentlichen also. Hier
+wird nichts veroeffentlicht und nichts herausgegeben, was an ein Geraet
+gebunden waere; es zaehlt nur, WER fragt, und dafuer ist die normale
+Anmeldung (``CurrentUser``) der Ausweis. Dasselbe gilt fuer
+``POST /keys/claim`` und ``GET /keys/onetime/count`` (s. Modulkopf von
 ``schluessel.py``).
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Query
 from sqlalchemy import or_, select
 
-import dcc_chat_gateway.config as chat_config
-from dcc_chat_gateway.credential_validator import REDIS_REVOKED_SET
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import DeviceKeyBundle
 from dcc_chat_gateway.schemas import GeraeteStandOut, SnowflakeId, VerschluesselbarOut
@@ -52,7 +49,6 @@ router = APIRouter(tags=["keys"])
 @router.get("/keys/verschluesselbar/{ziel_id}", response_model=VerschluesselbarOut)
 async def verschluesselbar(
     ziel_id: SnowflakeId,
-    request: Request,
     session: SessionDep,
     user: CurrentUser,
 ) -> VerschluesselbarOut:
@@ -73,22 +69,25 @@ async def verschluesselbar(
     if not await darf_schluessel_holen(session, user.id, ziel_id):
         return VerschluesselbarOut(verschluesselbar=False)
 
-    redis = getattr(request.app.state, "redis", None)
-    if redis is None:
-        raise HTTPException(status_code=503, detail="schluessel_dienst_nicht_verfuegbar")
-
-    settings = chat_config.get_settings()
     # Zaehlbar ist ein Geraet, das etwas behalten kann: eine App
     # (``dauerhaft``) oder ein GEKOPPELTER Browser (``gekoppelt_am``, Spec §3a
     # Punkt 2). Ein loser Browser-Tab zaehlt nach wie vor nicht — Grund ist
     # Haltbarkeit, nicht Krypto-Faehigkeit. Und ein verfallenes Geraet zaehlt
     # nicht mehr, sonst behauptete diese Auskunft eine Erreichbarkeit, die
     # ``POST /keys/claim`` eine Zeile weiter verweigert.
-    # ``limit`` deckungsgleich mit dem Abholweg, aus demselben Grund
-    # (Bestandsdaten von vor der Buendel-Obergrenze).
-    cert_ids = (
+    #
+    # **Hier stand bis zum 2026-08-30 ein Sperrlisten-Filter** ueber die
+    # ``cert_id`` jedes Buendels, deckungsgleich mit dem im Abholweg; deshalb
+    # las diese Abfrage frueher bis zu ``schluessel_max_buendel_je_konto``
+    # Zeilen und lief sie einzeln durch. Mit den Zertifikaten ist der Filter
+    # entfallen (Spec §3b, ausfuehrlich in
+    # ``schluessel.py::schluessel_abholen``) — und ohne ihn genuegt die blosse
+    # Existenz EINER Zeile. Deckungsgleich mit dem Abholweg bleibt die
+    # Auskunft dadurch weiterhin: sie darf nie mehr zusagen, als der Sendeweg
+    # einloest.
+    treffer = (
         await session.execute(
-            select(DeviceKeyBundle.cert_id)
+            select(DeviceKeyBundle.id)
             .where(
                 DeviceKeyBundle.user_id == ziel_id,
                 or_(
@@ -97,21 +96,11 @@ async def verschluesselbar(
                 ),
                 ist_lebendig(verfall_grenze()),
             )
-            .limit(settings.schluessel_max_buendel_je_konto)
+            .limit(1)
         )
-    ).scalars().all()
+    ).first()
 
-    for cert_id in cert_ids:
-        # Derselbe Sperrlisten-Filter wie beim Abholen: ein widerrufenes Geraet
-        # wuerde dort uebersprungen, also darf es hier kein Schloss begruenden.
-        # Ohne diese Zeile behauptete das Kennzeichen "verschluesselt", waehrend
-        # der Sendeweg auf Klartext zurueckfaellt — dieselbe Einschraenkung
-        # (die gespeicherte ``cert_id`` kann nach einer Erneuerung veraltet
-        # sein) gilt hier wie dort, s. ``schluessel.py::schluessel_abholen``.
-        if not await redis.sismember(REDIS_REVOKED_SET, cert_id):
-            return VerschluesselbarOut(verschluesselbar=True)
-
-    return VerschluesselbarOut(verschluesselbar=False)
+    return VerschluesselbarOut(verschluesselbar=treffer is not None)
 
 
 @router.get("/keys/geraetestand", response_model=GeraeteStandOut)
@@ -122,10 +111,10 @@ async def geraetestand(
 ) -> GeraeteStandOut:
     """Der Stand des EIGENEN Geraets — das eindeutige Verfalls-Signal.
 
-    **Ohne Zertifikats-Nachweis, und das ist hier keine Bequemlichkeit,
-    sondern Voraussetzung.** ``pruefe_geraet`` frischt bei jedem Nachweis
-    ``zuletzt_benutzt`` auf; eine Statusabfrage, die selbst einen Nachweis
-    verlangte, waere dieselbe Benutzung, nach der sie fragt. Die Zeilenwahl
+    **Ohne ``pruefe_geraet``, und das ist hier keine Bequemlichkeit, sondern
+    Voraussetzung.** Diese Funktion frischt bei jedem Aufruf
+    ``zuletzt_benutzt`` auf; eine Statusabfrage, die durch sie hindurchginge,
+    waere dieselbe Benutzung, nach der sie fragt. Die Zeilenwahl
     bleibt trotzdem auf das angemeldete Konto beschraenkt (``user_id ==
     user.id``) — genau wie bei ``GET /keys/onetime/count``, dem Vorbild.
     Ueber ein fremdes Konto sagt die Route nichts.

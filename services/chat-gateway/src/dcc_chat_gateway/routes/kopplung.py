@@ -5,11 +5,11 @@ DIE SICHERHEITSFRAGE, VOR DEM BAUEN BEANTWORTET
 ===========================================================================
 
 **Was beweist der Code?** Nichts ueber die Identitaet — die steht schon fest.
-Beide beteiligten Geraete sind bereits am Konto angemeldet und legen jedes
-fuer sich ein cloud-signiertes Identitaets-Zertifikat plus Unterschrift vor
+Beide beteiligten Geraete sind ohnehin als DASSELBE Konto angemeldet, und
+jede Route hier haelt die genannte Geraetekennung dagegen
 (``schluessel_nachweis.py::pruefe_geraet``). Der Code beweist etwas anderes,
-das kein Zertifikat beweisen kann: **dass dieselbe Person in diesem Moment
-beide Geraete in der Hand hat.** Er ist eine Autorisierung, keine
+das die Anmeldung nicht beweisen kann: **dass dieselbe Person in diesem
+Moment beide Geraete in der Hand hat.** Er ist eine Autorisierung, keine
 Authentifizierung — und genau EINE: „dieses eine neue Geraet darf meinen
 Verlauf bekommen".
 
@@ -26,8 +26,7 @@ Pruefen und Setzen, in das ein Wettlauf passte. Er bekommt 409.
 
 **Was kann jemand anfangen, der den Bildschirm abfotografiert?** Ohne Zugang
 zum Konto: nichts. Jede Route dieser Datei verlangt zusaetzlich einen
-gueltigen Bearer UND ein Zertifikat DESSELBEN Kontos; ein Fremder kommt an
-keiner der beiden Huerden vorbei.
+gueltigen Bearer; ein Fremder kommt daran nicht vorbei.
 
 Mit Zugang zum Konto — also nach einer Uebernahme — ist der Gewinn dagegen
 **erheblich, und das gehoert ausgesprochen**: heute erbeutet eine Uebernahme
@@ -55,7 +54,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import NoReturn
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from sqlalchemy import func, insert, literal, select, update
 
 import dcc_chat_gateway.config as chat_config
@@ -70,8 +69,7 @@ from dcc_chat_gateway.kopplung_schemas import (
 )
 from dcc_chat_gateway.kopplung_zugriff import _als_utc, kopplung_laden
 from dcc_chat_gateway.models import DeviceKeyBundle, Kopplung, UmzugStueck
-from dcc_chat_gateway.routes._postfach_deps import _require_redis
-from dcc_chat_gateway.schluessel_nachweis import baue_nutzlast, pruefe_geraet
+from dcc_chat_gateway.schluessel_nachweis import pruefe_geraet
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 
@@ -81,23 +79,18 @@ router = APIRouter(tags=["kopplung"])
 @router.post("/kopplung", response_model=KopplungAnlegenResponse)
 async def kopplung_anlegen(
     body: KopplungAnlegenRequest,
-    request: Request,
     session: SessionDep,
     user: CurrentUser,
 ) -> KopplungAnlegenResponse:
     """Legt eine offene Kopplung an — gerufen vom EINGERICHTETEN Geraet.
 
-    Reihenfolge wie in ``routes/postfach.py``: billige Struktur- und
-    Mengenpruefungen vor der teuren Ed25519-Verifikation waere hier nicht
-    moeglich, weil die Mengenpruefung selbst die DB braucht — dafuer ist der
-    Rumpf winzig, es gibt also nichts, was eine vorgezogene Pruefung sparen
-    koennte.
+    Das anlegende Geraet ist per Definition eingerichtet, hat also ein
+    Buendel — hier gilt die scharfe Bedingung von ``pruefe_geraet``, anders
+    als beim Einloesen weiter unten.
     """
     settings = chat_config.get_settings()
-    redis = _require_redis(request)
 
-    nutzlast = baue_nutzlast("kopplung", body.code_hash)
-    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis, session)
+    geraet = await pruefe_geraet(session, user, body.device_pubkey)
 
     jetzt = datetime.now(UTC)
     verfaellt_am = jetzt + timedelta(minutes=settings.kopplung_code_gueltig_minuten)
@@ -140,9 +133,10 @@ async def kopplung_anlegen(
             literal(kopplung_id),
             literal(user.id),
             literal(body.code_hash),
-            # Aus den geprueften Claims, NIE aus dem Rumpf — sonst legte ein
-            # Geraet eine Kopplung im Namen eines anderen an.
-            literal(claims.device_pubkey),
+            # Der von ``pruefe_geraet`` bestaetigte Wert, nie ein zweites Mal
+            # aus dem Rumpf gelesener — die Zeile bindet die Kopplung an ein
+            # Geraet, das nachweislich diesem Konto gehoert.
+            literal(geraet),
             literal(verfaellt_am),
         ).where(offene_unterabfrage < settings.kopplung_max_offen_je_konto),
     )
@@ -157,16 +151,29 @@ async def kopplung_anlegen(
 @router.post("/kopplung/einloesen", response_model=KopplungEinloesenResponse)
 async def kopplung_einloesen(
     body: KopplungEinloesenRequest,
-    request: Request,
     session: SessionDep,
     user: CurrentUser,
 ) -> KopplungEinloesenResponse:
-    """Loest einen Code ein — gerufen vom NEUEN Geraet. Genau einmal moeglich."""
-    settings = chat_config.get_settings()
-    redis = _require_redis(request)
+    """Loest einen Code ein — gerufen vom NEUEN Geraet. Genau einmal moeglich.
 
-    nutzlast = baue_nutzlast("kopplung-einloesen", body.code_hash)
-    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis, session)
+    **Die zweite Route, die ein noch unbekanntes Geraet zulassen muss**
+    (neben ``PUT /keys/bundle``, Spec §3b): der Klient loest EIN und
+    veroeffentlicht erst danach (``web/src/lib/kopplung/empfangen.ts``:
+    ``kopplungEinloesen`` ruft ``veroeffentlicheSchluessel()`` nach der
+    Antwort). Ein frischer Browser hat hier also noch kein Buendel, gegen das
+    ``pruefe_geraet`` nachschlagen koennte. Die Reihenfolge umzudrehen waere
+    schlimmer: dann stuende ein Geraet im Verzeichnis und waere adressierbar,
+    bevor feststeht, ob es ueberhaupt gekoppelt wird.
+
+    Was dadurch offensteht, ist eng: die Kennung wird nur in ``Kopplung``
+    dieses Kontos eingetragen (``user_id == user.id`` in der WHERE-Klausel),
+    und was sie dort abholen kann, liegt ohnehin hinter dem Code.
+    """
+    settings = chat_config.get_settings()
+
+    geraet = await pruefe_geraet(
+        session, user, body.device_pubkey, noch_ohne_buendel=True
+    )
 
     jetzt = datetime.now(UTC)
     neue_frist = jetzt + timedelta(hours=settings.umzug_frist_stunden)
@@ -186,10 +193,10 @@ async def kopplung_einloesen(
                 # diese Zeile liefe der eigene Code ins Leere und die
                 # Kopplung waere verbraucht — ein Bedienfehler, der wie ein
                 # Angriff aussieht.
-                Kopplung.alt_device_pubkey != claims.device_pubkey,
+                Kopplung.alt_device_pubkey != geraet,
             )
             .values(
-                neu_device_pubkey=claims.device_pubkey,
+                neu_device_pubkey=geraet,
                 eingeloest_am=jetzt,
                 verfaellt_am=neue_frist,
             )
@@ -198,7 +205,7 @@ async def kopplung_einloesen(
     ).first()
 
     if zeile is None:
-        await _einloesen_fehler_erklaeren(session, body.code_hash, user.id, claims, jetzt)
+        await _einloesen_fehler_erklaeren(session, body.code_hash, user.id, geraet, jetzt)
 
     # Ab hier zaehlt dieses Geraet als gekoppelt (Spec §3a, Punkt 2). Die
     # Marke setzt der SERVER, nicht das Geraet: anders als ``dauerhaft``
@@ -216,7 +223,7 @@ async def kopplung_einloesen(
         update(DeviceKeyBundle)
         .where(
             DeviceKeyBundle.user_id == user.id,
-            DeviceKeyBundle.device_pubkey == claims.device_pubkey,
+            DeviceKeyBundle.device_pubkey == geraet,
         )
         .values(gekoppelt_am=jetzt, verfallen_am=None, zuletzt_benutzt=jetzt)
     )
@@ -228,7 +235,7 @@ async def kopplung_einloesen(
 
 
 async def _einloesen_fehler_erklaeren(
-    session, code_hash: str, user_id: int, claims, jetzt: datetime
+    session, code_hash: str, user_id: int, geraet: str, jetzt: datetime
 ) -> NoReturn:
     """Sagt dem Nutzer, WARUM die Einloesung nicht ging — und wirft immer.
 
@@ -249,7 +256,7 @@ async def _einloesen_fehler_erklaeren(
         raise HTTPException(status_code=409, detail="kopplung_schon_eingeloest")
     if _als_utc(kopplung.verfaellt_am) <= jetzt:
         raise HTTPException(status_code=410, detail="kopplung_abgelaufen")
-    if kopplung.alt_device_pubkey == claims.device_pubkey:
+    if kopplung.alt_device_pubkey == geraet:
         raise HTTPException(status_code=400, detail="kopplung_selbes_geraet")
     # Kein Zweig traf zu: die Zeile hat sich zwischen UPDATE und Diagnose
     # geaendert (ein zweites Geraet war schneller). Dieselbe Antwort wie der
@@ -260,7 +267,6 @@ async def _einloesen_fehler_erklaeren(
 @router.post("/kopplung/stand", response_model=KopplungStandResponse)
 async def kopplung_stand(
     body: KopplungStandRequest,
-    request: Request,
     session: SessionDep,
     user: CurrentUser,
 ) -> KopplungStandResponse:
@@ -271,12 +277,10 @@ async def kopplung_stand(
     keine dritte: geprueft wird gegen ``alt`` UND ``neu``, nicht gegen „irgendein
     Geraet des Kontos".
     """
-    redis = _require_redis(request)
     kid = int(body.kopplung_id)
-    nutzlast = baue_nutzlast("kopplung-stand", str(kid))
-    claims = await pruefe_geraet(body.cert, nutzlast, body.signatur, user, redis, session)
+    geraet = await pruefe_geraet(session, user, body.device_pubkey)
 
-    kopplung = await _als_alt_oder_neu(session, kid, user.id, claims.device_pubkey)
+    kopplung = await _als_alt_oder_neu(session, kid, user.id, geraet)
 
     zeilen = (
         await session.execute(

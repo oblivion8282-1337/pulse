@@ -359,6 +359,22 @@ Aufrufer nachziehen · `cert_id` und die Sperrlisten-Filterung aus dem
 Schlüsselverzeichnis nehmen · Geräteliste bauen · Kopplungs-Nachweis auf die
 Sitzung umstellen.
 
+**Stand 2026-08-30.** Erledigt: Pickle-Schlüssel, Geräte-Identität,
+`pruefe_geraet`, alle dreizehn Aufrufer, `cert_id` samt Sperrlisten-Filterung
+und der Kopplungs-Nachweis (er fiel mit den übrigen zwölf, ohne eigenen
+Schritt). Die `cert_id` musste mitkommen, obwohl sie als eigener Schritt
+notiert war: mit `pruefe_geraet` verlor sie ihre einzige Quelle, und eine
+Spalte weiterzuführen, die niemand befüllen kann, wäre eine Behauptung ohne
+Deckung gewesen. Mit ihr fiel `device_key_bundles.signatur` — die
+Selbstunterschrift des Geräts über sein eigenes Bündel, die gespeichert und
+weitergereicht, aber von keiner Fassung des Klienten je geprüft wurde
+(Migration 0079).
+
+**Offen bleibt allein die Geräteliste (Punkt 4), und sie ist damit zur
+Voraussetzung geworden**, nicht mehr zum Beiwerk: bis es sie gibt, hat ein
+Konto keinerlei Widerruf für ein einzelnes Gerät. Vorher trug ihn die
+Sperrliste des Zertifikats; die ist weg, der Ersatz noch nicht gebaut.
+
 ---
 
 ## 4. Zustellung und Löschen

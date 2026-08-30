@@ -14,21 +14,17 @@
  * (`verlauf/db.ts`). `anhangBlob` fragt deshalb immer zuerst den lokalen
  * Bestand und geht nur beim ersten Mal ans Netz.
  *
- * Der Geraete-Nachweis ist derselbe wie beim Abholen/Quittieren
- * (`nutzlast.ts` + `nachweis.ts`), nur mit eigenem Zweck — und die
- * Anhang-Kennung faehrt in der Unterschrift mit, damit eine fuer einen
- * anderen Anhang geleistete Unterschrift hier nicht gilt.
+ * Die Geraeteangabe ist dieselbe wie beim Abholen/Quittieren
+ * (`geraeteKennung.ts`). Sie sagt dem Server, WESSEN Zustellung er pruefen
+ * soll — das Recht selbst haengt an dieser Zustellung, nicht an der Angabe.
  */
 
 import type { Attachment, Message } from '../api/types';
-import { certStore } from '../identity/cert.svelte';
-import { loadKeypair } from '../identity/keypair.svelte';
 import { postfachApi } from '../api/postfach';
 import { serversStore } from '../api/servers.svelte';
 import { anhangBytesLesen, anhangBytesSichern } from '../verlauf/db';
 import { entschluessele, schluesselAusText } from './anhangKrypto';
-import { baueNutzlast } from './nutzlast';
-import { signiereNutzlast } from './nachweis';
+import { geraeteKennung } from './geraeteKennung';
 
 /** Typ des Vorschaubildes — `attachments/vorschaubild.ts` erzeugt immer WebP.
  *  Steht hier noch einmal, weil der Empfaenger die Datei nicht importiert
@@ -42,17 +38,13 @@ function cloudRoute(): { serverId?: string } {
 }
 
 /** Holt die kurzlebigen signierten Adressen fuer EINEN Anhang. Wirft, wenn
- *  kein Geraete-Nachweis moeglich ist (nicht angemeldet) oder der Server das
- *  Recht verweigert (404 — keine offene Zustellung mehr). */
+ *  sich die eigene Geraetekennung nicht ermitteln laesst (nicht angemeldet)
+ *  oder der Server das Recht verweigert (404 — keine offene Zustellung
+ *  mehr). */
 async function adressenHolen(anhangId: string): Promise<{ url: string; thumb: string | null }> {
-  const keypair = await loadKeypair();
-  const cert = certStore.cert;
-  if (!keypair || !cert) throw new Error('kein Geraete-Nachweis moeglich');
-  const nutzlast = baueNutzlast('postfach-anhang', anhangId);
-  const signatur = await signiereNutzlast(keypair, nutzlast);
   const antwort = await postfachApi.anhangAdresse(
     anhangId,
-    { cert: cert.raw, signatur },
+    { device_pubkey: await geraeteKennung() },
     cloudRoute()
   );
   return { url: antwort.url, thumb: antwort.thumb_url ?? null };

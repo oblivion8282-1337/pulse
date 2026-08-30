@@ -119,16 +119,13 @@
  * unveraendert.
  */
 import type { Message } from '../api/types';
-import { certStore } from '../identity/cert.svelte';
-import { loadKeypair } from '../identity/keypair.svelte';
 import { verlaufSpeichernPflicht } from '../verlauf';
 import { verlaufZustand } from '../verlauf/zustand.svelte';
 import { postfachApi } from '../api/postfach';
 import { serversStore } from '../api/servers.svelte';
 import { kryptoAccountLaden } from './account.svelte';
-import { baueNutzlast } from './nutzlast';
+import { geraeteKennung } from './geraeteKennung';
 import { anhaengeHolen } from './anhangHolen';
-import { signiereNutzlast } from './nachweis';
 import { quittierbareIds, type KanalGruppe } from './quittierbareIds';
 import { verarbeiteMitWiederherstellung } from './postfachSchleife';
 import { KontoSicherungFehlgeschlagen, zustellungOeffnen } from './zustellungOeffnen';
@@ -146,32 +143,25 @@ function cloudRoute(): { serverId?: string } {
 }
 
 async function postfachZyklus(): Promise<Message[]> {
-  // `loadKeypair()` wirft bei einem echten Lesefehler statt `null` zu
-  // liefern (s. `identity/keypair.svelte.ts`-Modulkopf) — und genau das
-  // muss hier ANDERS enden als "kein Schluessel vorhanden": ohne diesen
-  // Fang wuerde der Wurf als unbehandelte Ablehnung im Aufrufer verschwinden
+  // `geraeteKennung()` wirft, wenn sich keine Kennung ermitteln laesst
+  // (nicht angemeldet) — und genau das muss hier ANDERS enden als ein
+  // durchgereichter Fehler: ohne diesen Fang wuerde der Wurf als
+  // unbehandelte Ablehnung im Aufrufer verschwinden
   // (`ws/handlers/chat.ts`/`ready.ts` haengen keine `.catch` an den
   // Ruecklauf) — ein Abholzyklus, der bei jedem Weckruf erneut denselben
   // stummen Fehler wirft, ohne dass der Nutzer je etwas davon merkt. Statt
   // dessen: sichtbar machen (dieselbe Anzeige wie fuer Ablage-/Quittungs-
   // Fehler unten) und wie ein leerer Zyklus zurueckgeben — der naechste
   // Weckruf versucht es erneut, s. `verlauf/zustand.svelte.ts`.
-  let keypair;
+  let kennung: string;
   try {
-    keypair = await loadKeypair();
+    kennung = await geraeteKennung();
   } catch (err) {
     verlaufZustand.melde(err);
     return [];
   }
-  const cert = certStore.cert;
-  if (!keypair || !cert) return [];
 
-  const abholNutzlast = baueNutzlast('postfach-abholen');
-  const abholSignatur = await signiereNutzlast(keypair, abholNutzlast);
-  const zustellungen = await postfachApi.abholen(
-    { cert: cert.raw, signatur: abholSignatur },
-    cloudRoute()
-  );
+  const zustellungen = await postfachApi.abholen({ device_pubkey: kennung }, cloudRoute());
   if (zustellungen.length === 0) return [];
 
   let ident = await kryptoAccountLaden();
@@ -237,14 +227,8 @@ async function postfachZyklus(): Promise<Message[]> {
 
   if (quittierbar.length > 0) {
     // ERST JETZT quittieren, s. Modulkopf.
-    const quittungNutzlast = baueNutzlast('postfach-quittung', ...quittierbar);
-    const quittungSignatur = await signiereNutzlast(keypair, quittungNutzlast);
     await postfachApi.quittieren(
-      {
-        cert: cert.raw,
-        signatur: quittungSignatur,
-        zustellung_ids: quittierbar
-      },
+      { device_pubkey: kennung, zustellung_ids: quittierbar },
       cloudRoute()
     );
   }

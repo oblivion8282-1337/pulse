@@ -18,15 +18,13 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from dcc_chat_gateway.schemas import SnowflakeId
+from dcc_chat_gateway.schemas import GeraeteKennung, SnowflakeId
 
 
 class KopplungAnlegenRequest(BaseModel):
     """Rumpf von ``POST /kopplung`` — vom EINGERICHTETEN Geraet."""
 
-    cert: str
-    #: Base64url(Ed25519) ueber ``baue_nutzlast("kopplung", code_hash)``.
-    signatur: str
+    device_pubkey: GeraeteKennung
     #: Base64url(SHA-256) des Codes. Laengenbegrenzt, damit eine
     #: ueberlange Zeichenkette gar nicht erst in die Tabelle geraet — der
     #: Wert ist ein Hash fester Groesse, alles andere ist Unsinn.
@@ -41,9 +39,7 @@ class KopplungAnlegenResponse(BaseModel):
 class KopplungEinloesenRequest(BaseModel):
     """Rumpf von ``POST /kopplung/einloesen`` — vom NEUEN Geraet."""
 
-    cert: str
-    #: Base64url(Ed25519) ueber ``baue_nutzlast("kopplung-einloesen", code_hash)``.
-    signatur: str
+    device_pubkey: GeraeteKennung
     code_hash: str = Field(min_length=16, max_length=128)
 
 
@@ -63,9 +59,7 @@ class KopplungStandRequest(BaseModel):
     liegen schon?"), fuer den Empfaenger die Fortschritts-Auskunft.
     """
 
-    cert: str
-    #: Base64url(Ed25519) ueber ``baue_nutzlast("kopplung-stand", kopplung_id)``.
-    signatur: str
+    device_pubkey: GeraeteKennung
     kopplung_id: SnowflakeId
 
 
@@ -93,10 +87,7 @@ class KopplungStandResponse(BaseModel):
 class UmzugStueckRequest(BaseModel):
     """Rumpf von ``POST /kopplung/stueck`` — vom ALTEN Geraet."""
 
-    cert: str
-    #: Base64url(Ed25519) ueber
-    #: ``baue_nutzlast("kopplung-stueck", kopplung_id, folge, daten)``.
-    signatur: str
+    device_pubkey: GeraeteKennung
     kopplung_id: SnowflakeId
     folge: int = Field(ge=0)
     #: Base64 des AES-GCM-Chiffretexts (IV vorangestellt). Der Server kann
@@ -105,19 +96,16 @@ class UmzugStueckRequest(BaseModel):
     #: Base64url(HMAC-SHA256) ueber den Klartext dieses Stuecks, Schluessel
     #: per HKDF aus dem Kopplungscode (eigener Kontext, getrennt vom
     #: Transportschluessel). Dient nur dem SENDER als spaeterer Abgleich
-    #: (s. ``models/kopplung.py::UmzugStueck.kennung``) — nicht signiert
-    #: mitgefuehrt, weil sie keine eigene Berechtigung traegt, sondern nur
-    #: fuer denselben, bereits als ``alt`` geprueften Absender gilt.
+    #: (s. ``models/kopplung.py::UmzugStueck.kennung``) und traegt keine
+    #: eigene Berechtigung — wer sie setzen darf, entscheidet allein die
+    #: Rollenpruefung ``alt`` in ``routes/kopplung_umzug.py``.
     kennung: str = Field(min_length=16, max_length=128)
 
 
 class UmzugStueckHolenRequest(BaseModel):
     """Rumpf von ``POST /kopplung/stueck/holen`` — vom NEUEN Geraet."""
 
-    cert: str
-    #: Base64url(Ed25519) ueber
-    #: ``baue_nutzlast("kopplung-stueck-holen", kopplung_id, folge)``.
-    signatur: str
+    device_pubkey: GeraeteKennung
     kopplung_id: SnowflakeId
     folge: int = Field(ge=0)
 
@@ -135,10 +123,7 @@ class KopplungFertigRequest(BaseModel):
     Abbruch mitten im Schieben genauso aus wie ein fertiger Umzug.
     """
 
-    cert: str
-    #: Base64url(Ed25519) ueber
-    #: ``baue_nutzlast("kopplung-fertig", kopplung_id, gesamt_stuecke)``.
-    signatur: str
+    device_pubkey: GeraeteKennung
     kopplung_id: SnowflakeId
     gesamt_stuecke: int = Field(ge=0)
 
@@ -151,7 +136,5 @@ class KopplungAbschliessenRequest(BaseModel):
     ohne die Frist abzuwarten.
     """
 
-    cert: str
-    #: Base64url(Ed25519) ueber ``baue_nutzlast("kopplung-abschliessen", kopplung_id)``.
-    signatur: str
+    device_pubkey: GeraeteKennung
     kopplung_id: SnowflakeId

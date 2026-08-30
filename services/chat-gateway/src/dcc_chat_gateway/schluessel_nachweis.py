@@ -1,37 +1,34 @@
-"""Beweist, dass ein Geraet fuer SICH SELBST veroeffentlicht.
+"""Welches GERAET eines Kontos handelt hier — und gehoert es diesem Konto?
 
-Der naheliegende Weg — den Absender aus der Verbindung ablesen — traegt nicht:
-auf einem Self-Host meldet sich der Klient per Cert-Login und der Gateway
-kennt das Geraet, auf der Cloud kommt ein Access-Token ohne jede
-Geraeteangabe. Ein Verzeichnis, das nur auf Self-Hosts befuellbar waere, ist
-nutzlos.
+Bis zum 2026-08-30 leistete das ein cloud-signiertes Identitaets-Zertifikat
+plus eine Unterschrift ueber eine zweckgebundene Nutzlast. Beides ist mit den
+Zertifikaten selbst entfallen (Spec §3b): **das Zertifikat hat eine Arbeit
+geleistet, die die Anmeldung schon leistet.** Ein Schluesselbuendel wird immer
+nur ins EIGENE Konto geschrieben, und welches das ist, sagt die Sitzung
+bereits.
 
-Das Geraet legt den Nachweis deshalb selbst bei: sein Identitaets-Zertifikat
-(cloud-signiert, gegen JWKS und Sperrliste geprueft) und eine Unterschrift
-ueber die Nutzlast, geprueft gegen den Pubkey AUS diesem Zertifikat.
+Uebrig bleiben zwei Fragen, und beide beantwortet diese Datei:
 
-**Diese Datei ist die EINZIGE Stelle, an der geprueft wird, ob ein Geraet fuer
-ein Konto veroeffentlichen darf.** Alle vier Bedingungen sind fail-closed: jeder
-Fehlschlag wirft 403, mit einer Meldung, die sagt WAS fehlgeschlagen ist, nie
-WELCHER Schluessel oder WELCHE Unterschrift beteiligt war (kein Schluesselmaterial
-in Fehlermeldungen oder Logs).
+1. **Welches Konto?** — steht in ``CurrentUser``, kommt aus dem Bearer.
+2. **Welches Geraet?** — behauptet der Aufrufer im Anfrage-Rumpf, und der
+   Riegel dagegen ist ein Nachschlagen in ``DeviceKeyBundle`` ueber
+   ``(user_id, device_pubkey)``: die Kennung muss zu einem Geraet DIESES
+   Kontos gehoeren.
+
+**Diese Datei ist die EINZIGE Stelle, an der geprueft wird, ob ein Geraet
+fuer ein Konto handeln darf.** Fail-closed: ein unbekanntes Geraet ergibt
+403, mit einer Meldung, die sagt WAS fehlgeschlagen ist, nie WELCHER
+Schluessel beteiligt war (kein Schluesselmaterial in Fehlermeldungen oder
+Logs).
 """
 
 from __future__ import annotations
 
-import base64
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException
-from sqlalchemy import update
+from sqlalchemy import exists, select, update
 
-from dcc_chat_gateway.config import get_settings
-from dcc_chat_gateway.credential_validator import (
-    CertClaims,
-    resolve_user_identifier,
-    validate_cert,
-    verify_challenge_signature,
-)
 from dcc_chat_gateway.models import DeviceKeyBundle
 from dcc_chat_gateway.schluessel_verfall import stempel_ausdruck
 from dcc_chat_gateway.security import AuthenticatedUser
@@ -46,54 +43,6 @@ from dcc_chat_gateway.security import AuthenticatedUser
 #: gekoppelter Browser (Spec §3a) misst in Tagen — eine Stunde Unschaerfe
 #: faellt in beiden Faellen nicht ins Gewicht.
 _ZULETZT_BENUTZT_AUFLOESUNG = timedelta(hours=1)
-
-#: Trennt die Nutzlast dieses Verfahrens von jedem anderen im Projekt, das
-#: ebenfalls generische Ed25519-Unterschriften prueft (z. B. die
-#: Cert-Login-Challenge) — ohne eigenen Kontext waere eine dort geleistete
-#: Unterschrift potenziell auch hier gueltig.
-_KONTEXT = b"pulse-schluessel-nachweis-v1"
-
-
-def baue_nutzlast(zweck: str, *teile: str) -> bytes:
-    """Baut die Bytes, ueber die das Geraet mit seinem Ed25519-Anmeldeschluessel
-    unterschreibt — GENAU diese Bytes, byte fuer byte, muss der Klient
-    nachbauen, um dieselbe Unterschrift zu erzeugen.
-
-    Bauvorschrift: ``KONTEXT + 0x00 + Zweck + 0x00 + Teil_1 + 0x00 + Teil_2 + ...``
-    Kontext und Zweck sind feste ASCII-Bytes, jeder Teil einzeln UTF-8-kodiert;
-    alle Stuecke durch genau EIN Nullbyte getrennt (ein Zeichen, das in keinem
-    Base64-Alphabet vorkommt, also kollisionsfrei — zwei verschiedene
-    Teil-Listen koennen nie dieselben Bytes ergeben).
-
-    Der Zweck steht IMMER an zweiter Stelle, direkt nach dem Kontext. Ohne ihn
-    liesse sich eine fuer den einen Weg geleistete Unterschrift auf einem
-    anderen wiederverwenden, sobald die uebrigen Teile zufaellig
-    uebereinstimmen — der Zweck macht die Verfahren gegenseitig blind
-    fuereinander.
-
-    Vergebene Zwecke (Stand 2026-08-29, **beim Hinzufuegen hier ergaenzen**):
-    ``buendel`` und ``einmalschluessel`` (``routes/schluessel.py``),
-    ``postfach`` (``routes/postfach.py``), ``postfach-abholen`` und
-    ``postfach-quittung`` (``routes/postfach_abholen.py``),
-    ``postfach-anhang`` (``routes/postfach_anhaenge.py``), ``kopplung``,
-    ``kopplung-einloesen`` und ``kopplung-stand`` (``routes/kopplung.py``),
-    ``kopplung-stueck``, ``kopplung-stueck-holen``, ``kopplung-fertig`` und
-    ``kopplung-abschliessen`` (``routes/kopplung_umzug.py``). Die Liste stand
-    hier eine Zeit lang auf zwei, waehrend es schon fuenf waren — die
-    Sicherheitsaussage stimmte weiter, die Aufzaehlung nicht.
-
-    Ein Prufstein haelt sie seit Etappe F gegen den Code
-    (``tests/test_nutzlast_zwecke.py``): die Liste zu vergessen ist der
-    wahrscheinlichste Fehler an dieser Datei, und er faellt sonst nirgends
-    auf.
-    """
-    stuecke = [_KONTEXT, zweck.encode("utf-8")]
-    stuecke.extend(teil.encode("utf-8") for teil in teile)
-    return b"\x00".join(stuecke)
-
-
-def _b64url_decode(wert: str) -> bytes:
-    return base64.urlsafe_b64decode(wert + "==")
 
 
 async def _zuletzt_benutzt_auffrischen(session, user_id: int, device_pubkey: str) -> None:
@@ -128,7 +77,7 @@ async def _zuletzt_benutzt_auffrischen(session, user_id: int, device_pubkey: str
     eines Aufrufers pruefen:** ``pruefe_geraet`` laeuft in allen heutigen
     Routen VOR jedem ``session.add``, es steht also nichts Ungespeichertes an,
     das hier versehentlich mit festgeschrieben wuerde. Nachgesehen am
-    2026-08-29 fuer alle dreizehn Aufrufer. Wer ``pruefe_geraet`` kuenftig
+    2026-08-30 fuer alle dreizehn Aufrufer. Wer ``pruefe_geraet`` kuenftig
     NACH eigenen Schreibzugriffen ruft, macht diesen Commit zu einem
     Teil-Commit seiner eigenen Arbeit — und der faellt erst auf, wenn die
     Route danach fehlschlaegt und die Haelfte trotzdem stehenbleibt."""
@@ -148,66 +97,90 @@ async def _zuletzt_benutzt_auffrischen(session, user_id: int, device_pubkey: str
 
 
 async def pruefe_geraet(
-    cert_jwt: str,
-    nutzlast: bytes,
-    signatur_b64: str,
-    user: AuthenticatedUser,
-    redis,
     session,
-) -> CertClaims:
-    """Prueft die vier Bedingungen, unter denen ein Geraet veroeffentlichen darf.
+    user: AuthenticatedUser,
+    device_pubkey: str,
+    *,
+    noch_ohne_buendel: bool = False,
+) -> str:
+    """Bestaetigt, dass ``device_pubkey`` ein Geraet DIESES Kontos bezeichnet,
+    und gibt die Kennung zurueck.
 
-    1. Das Zertifikat ist gueltig (Signatur, Ablauf, nicht widerrufen) —
-       ``validate_cert`` deckt das bereits vollstaendig ab.
-    2. Das Zertifikat gehoert zum ANGEMELDETEN Konto. Verglichen wird ueber
-       ``resolve_user_identifier(claims, …) == user.user_identifier`` —
-       NIEMALS ``claims.user_id == user.id``: auf einem Self-Host ist
-       ``user.id`` eine synthetische ID, ein direkter Vergleich liesse dort
-       jedes Zertifikat fuer jedes Konto durch.
-    3. Die Unterschrift ueber die Nutzlast stimmt, geprueft gegen
-       ``claims.device_pubkey`` — den Pubkey AUS dem Zertifikat, nie aus dem
-       Anfrage-Rumpf.
-    4. (implizit) Die Unterschrift ist syntaktisch gueltiges Base64 —
-       andernfalls dieselbe 403 wie eine falsche Unterschrift, kein 400 (das
-       wuerde verraten, woran genau die Pruefung scheiterte).
+    Der Rueckgabewert ist dieselbe Zeichenkette, die hereinkam — er existiert,
+    damit an der Aufrufstelle sichtbar bleibt, dass der GEPRUEFTE Wert
+    weiterverwendet wird und nicht ein zweites Mal aus dem Rumpf gelesener.
 
-    Der Aufrufer schreibt ``device_pubkey`` und ``cert_id`` fuer die
-    gespeicherte Zeile aus den hier zurueckgegebenen ``claims`` — NIE aus dem
-    Anfrage-Rumpf, sonst koennte jeder fuer ein fremdes Geraet einen
-    Schluessel hinterlegen.
+    ``noch_ohne_buendel=True`` hebt die Nachschlage-Bedingung auf. Genau zwei
+    Routen brauchen das, beide weil die Zeile in DIESEM Augenblick noch gar
+    nicht existieren kann (Begruendung an der jeweiligen Aufrufstelle):
+    ``PUT /keys/bundle`` legt sie selbst an, und ``POST /kopplung/einloesen``
+    laeuft im Klienten VOR der ersten Veroeffentlichung. Ueberall sonst ist
+    die Bedingung scharf.
 
     Bei Erfolg wird zusaetzlich ``DeviceKeyBundle.zuletzt_benutzt`` fuer das
-    nachgewiesene Geraet aufgefrischt (grob aufgeloest, s.
-    ``_ZULETZT_BENUTZT_AUFLOESUNG`` oben) — diese Funktion ist die einzige
-    Stelle, an der ein Geraet sich ueberhaupt ausweist, also der einzige
-    richtige Ort fuer das Signal "lebt noch". Existiert (noch) keine Zeile
-    (z. B. beim allerersten ``PUT /keys/bundle``, dessen Nachweis VOR dem
-    Anlegen der Zeile laeuft), ist das ein stilles No-Op — die Zeile bekommt
-    ihren Startwert ueber ``server_default`` beim Anlegen.
+    Geraet aufgefrischt (grob aufgeloest, s. ``_ZULETZT_BENUTZT_AUFLOESUNG``
+    oben) — diese Funktion ist die einzige Stelle, an der ein Geraet sich
+    ueberhaupt zu erkennen gibt, also der einzige richtige Ort fuer das Signal
+    "lebt noch". Fehlt die Zeile (die beiden Ausnahmen oben), ist das ein
+    stilles No-Op — sie bekommt ihren Startwert ueber ``server_default`` beim
+    Anlegen.
+
+    ===================================================================
+    WAS GEGENUEBER DEM ZERTIFIKAT VERLORENGEHT — hier, weil hier die Ursache
+    liegt
+    ===================================================================
+    Das Zertifikat plus Unterschrift bewies, dass der Aufrufer dieses Geraet
+    **IST** (Besitz des privaten Geraeteschluessels). Die Nachschlage-Bedingung
+    unten beweist nur, dass das Geraet **zum selben Konto gehoert**.
+
+    Der Unterschied wird beim Abholen des Postfachs zur Einbusse: wer eine
+    Kontositzung uebernimmt, kann seither die offenen Umschlaege **aller**
+    Geraete des Kontos abholen und quittieren, nicht mehr nur die eines
+    einzigen. Dasselbe gilt fuer ``POST /postfach/anhaenge/{id}/abrufadresse``
+    und fuer die Kopplungs-Rollen (``alt``/``neu``).
+
+    Das ist bewusst hingenommen (Spec §3b): entschluesseln kann der
+    Uebernehmende die Umschlaege trotzdem nicht — die privaten Olm-Schluessel
+    liegen im jeweiligen Geraet, nicht am Server. Er kann sie dem
+    rechtmaessigen Geraet aber **wegquittieren**, und dagegen ist die
+    Geraeteliste mit „entfernen" (Spec §3b, Punkt 4) das vorgesehene
+    Gegenmittel — sie ist damit kein Beiwerk, sondern die Stelle, an der ein
+    Nutzer das bemerken und beenden kann.
     """
-    claims = await validate_cert(cert_jwt, redis)
-    if claims is None:
-        raise HTTPException(status_code=403, detail="Zertifikat ungueltig oder gesperrt")
+    if not noch_ohne_buendel:
+        gehoert_dem_konto = (
+            await session.execute(
+                select(
+                    exists().where(
+                        DeviceKeyBundle.user_id == user.id,
+                        DeviceKeyBundle.device_pubkey == device_pubkey,
+                    )
+                )
+            )
+        ).scalar_one()
+        if not gehoert_dem_konto:
+            raise HTTPException(
+                status_code=403, detail="Geraet gehoert nicht zum angemeldeten Konto"
+            )
 
-    settings = get_settings()
-    identifier = resolve_user_identifier(
-        claims,
-        instance_mode=settings.pulse_instance_mode,
-        instance_id=settings.pulse_instance_id,
-    )
-    if identifier != user.user_identifier:
-        raise HTTPException(
-            status_code=403, detail="Zertifikat gehoert nicht zum angemeldeten Konto"
+    await _zuletzt_benutzt_auffrischen(session, user.id, device_pubkey)
+    return device_pubkey
+
+
+async def geraet_gehoert_fremdem_konto(session, user_id: int, device_pubkey: str) -> bool:
+    """Fuehrt ein ANDERES Konto dieselbe Geraetekennung?
+
+    Nur ``PUT /keys/bundle`` fragt das, und nur beim Anlegen einer neuen
+    Zeile — Begruendung dort. Ein reiner Existenz-Ausdruck statt eines
+    ``SELECT``: es interessiert nur das Bit, nie welches Konto.
+    """
+    return (
+        await session.execute(
+            select(
+                exists().where(
+                    DeviceKeyBundle.device_pubkey == device_pubkey,
+                    DeviceKeyBundle.user_id != user_id,
+                )
+            )
         )
-
-    try:
-        signatur = _b64url_decode(signatur_b64)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=403, detail="Unterschrift ungueltig") from exc
-
-    if not verify_challenge_signature(nutzlast, signatur, claims.device_pubkey):
-        raise HTTPException(status_code=403, detail="Unterschrift ungueltig")
-
-    await _zuletzt_benutzt_auffrischen(session, user.id, claims.device_pubkey)
-
-    return claims
+    ).scalar_one()

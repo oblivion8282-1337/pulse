@@ -36,7 +36,6 @@
 export type GeraeteBuendelEintrag = {
   device_pubkey: string;
   curve25519: string;
-  signatur: string;
   einmalschluessel: string | null;
   rueckfallschluessel: string | null;
   /** Ob DIESES Geraet dauerhaft ist (Electron- oder Android-App, s.

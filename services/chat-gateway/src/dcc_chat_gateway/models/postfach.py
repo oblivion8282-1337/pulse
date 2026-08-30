@@ -59,8 +59,7 @@ class DmNutzlast(Base):
     absender_curve25519: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: Das ABSENDER-KONTO — anders als ``absender_device_pubkey`` gilt dieser
     #: Wert fuer alle Geraete des Kontos gemeinsam. Gefuellt aus ``user.id``
-    #: des authentifizierten Antragstellers (``routes/postfach.py``, bereits
-    #: durch den Geraete-Nachweis an dieses Zertifikat gebunden). Traegt die
+    #: des authentifizierten Antragstellers (``routes/postfach.py``). Traegt die
     #: Fairness-Grenze ``postfach_max_offene_zustellungen_je_absender_und_geraet``
     #: (Migration 0076, belegter Fehler 2026-08-29: dieselbe Grenze zaehlte
     #: vorher ueber ``absender_device_pubkey`` und war damit pro GERAET statt
@@ -94,10 +93,10 @@ class DmZustellung(Base):
     nutzlast_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("dm_nutzlasten.id", ondelete="CASCADE"), nullable=False
     )
-    #: Gefuehrt ueber device_pubkey, NICHT ueber cert_id — dieselbe
-    #: Festlegung wie bei ``DeviceKeyBundle``: die Zertifikatserneuerung
-    #: wechselt alle 30 Tage die cert_id fuer denselben Pubkey, eine an ihr
-    #: haengende Zustellung wuerde monatlich verwaisen.
+    #: Gefuehrt ueber die Geraetekennung — den Wert, an dem auch das
+    #: Schluesselbuendel haengt (``DeviceKeyBundle``). Er ist stabil, solange
+    #: das Geraet seinen Krypto-Zustand behaelt; ein Wechsel ist ein neues,
+    #: leeres Geraet (``web/src/lib/krypto/geraeteKennung.ts``).
     empfaenger_device_pubkey: Mapped[str] = mapped_column(Text, nullable=False)
     empfaenger_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     #: NICHT nullable — jede Zustellung hat eine Frist. Eine Zeile ohne

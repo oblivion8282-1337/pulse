@@ -60,7 +60,6 @@
 import type { Message } from '../api/types';
 import { ApiError } from '../api/client';
 import { certStore } from '../identity/cert.svelte';
-import { loadKeypair } from '../identity/keypair.svelte';
 import { keysApi } from '../api/keys';
 import { postfachApi, type PostfachNutzlast } from '../api/postfach';
 import { serversStore } from '../api/servers.svelte';
@@ -71,10 +70,8 @@ import { verlaufZustand } from '../verlauf/zustand.svelte';
 import { kryptoAccountLaden } from './account.svelte';
 import { geraeteKennung } from './geraeteKennung';
 import { sitzungLaden, sitzungSichern, mitSitzungssperre } from './sitzungen';
-import { baueNutzlast } from './nutzlast';
 import { baueNachrichtNutzlast, type AnhangAngabe } from './nachrichtNutzlast';
 import { anhangAngabeZuAttachment } from './anhangAnzeige';
-import { signiereNutzlast } from './nachweis';
 import { zielgeraeteBerechnen } from './empfaengerGeraete';
 import { wurdeZugestellt, deuteEinliefernFehler } from './zustellErgebnis';
 import { parseMentionMarkers } from '../components/mentionMarkierungen';
@@ -118,17 +115,21 @@ export async function sendeVerschluesselt(
   // INNERHALB des Umschlags, den nur die Zielgeraete oeffnen koennen.
   anhaenge: AnhangAngabe[] = []
 ): Promise<SendeErgebnis | null> {
-  // `loadKeypair()` wirft bei einem echten Lesefehler (statt `null` zu
-  // liefern, s. dortigen Modulkopf) — bewusst UNGEFANGEN: ein solcher Wurf
-  // ist derselbe "unerwartete Fehler", den der Aufrufer (`app/@me/[[dm
-  // ChannelId]]/+page.svelte`) schon fuer den Postfach-Aufruf sichtbar
-  // macht statt ihn als Klartext-Rueckfall zu deuten. `null` bedeutet hier
-  // deshalb ausschliesslich "dieses Geraet hat (noch) keinen Schluessel".
-  const keypair = await loadKeypair();
+  // `null` bedeutet hier ausschliesslich "dieses Geraet ist (noch) nicht
+  // angemeldet" — der Aufrufer faellt dann auf Klartext zurueck. Ein
+  // unerwarteter Fehler wird bewusst NICHT hierzu gemacht: er faellt weiter
+  // durch und wird vom Aufrufer (`app/@me/[[dmChannelId]]/+page.svelte`)
+  // sichtbar gemacht, statt als Klartext-Rueckfall gedeutet zu werden.
   const cert = certStore.cert;
-  if (!keypair || !cert) return null; // Kein Schluessel/Cert -> Koexistenz-Fall, Aufrufer faellt zurueck.
+  if (!cert) return null;
 
   const eigeneUserId = cert.claims.user_id;
+  // Die eigene Kennung kommt aus der Krypto-Schicht, nicht mehr aus dem
+  // Zertifikat (Spec §3b, s. `geraeteKennung.ts`) — der Wert ist derselbe,
+  // die Quelle ueberlebt den Wegfall des Zertifikats. EINMAL geholt: sie
+  // wird unten noch einmal gebraucht, und jeder Aufruf oeffnet die
+  // IndexedDB neu.
+  const eigeneKennung = await geraeteKennung();
   // `GeraeteSchluessel` (keys.ts) und `GeraeteBuendelEintrag`
   // (empfaengerGeraete.ts) sind strukturell dieselbe Wire-Form — Letztere
   // importfrei gehalten (s. dort), deshalb zwei benannte Typen statt einem.
@@ -137,10 +138,7 @@ export async function sendeVerschluesselt(
     buendel,
     eigeneUserId,
     empfaengerUserId,
-    // Die eigene Kennung kommt aus der Krypto-Schicht, nicht mehr aus dem
-    // Zertifikat (Spec §3b, s. `geraeteKennung.ts`) — der Wert ist derselbe,
-    // die Quelle ueberlebt den Wegfall des Zertifikats.
-    await geraeteKennung(),
+    eigeneKennung,
     isElectron() || isCapacitorAndroid()
   );
   if (ziel.length === 0) {
@@ -185,27 +183,16 @@ export async function sendeVerschluesselt(
     return { art: 'unverschluesselt' };
   }
 
-  // Die Unterschrift bindet Kanal, alle Umschlaege UND die Anhang-Kennungen
-  // (`routes/postfach.py::_ANHANG_MARKE`) — sonst liesse sich eine fuer
-  // andere Anhaenge geleistete Unterschrift wiederverwenden. Die Marke steht
-  // NUR dann in den Bytes, wenn es Anhaenge gibt: ohne sie entstehen
-  // byte-identisch dieselben Bytes wie vor Etappe E.
-  const unterschriftTeile = [kanalId, ...nutzlasten.map((n) => n.daten)];
-  if (anhaenge.length > 0) {
-    unterschriftTeile.push('anhaenge', ...anhaenge.map((a) => a.id));
-  }
-  const nutzlastBytes = baueNutzlast('postfach', ...unterschriftTeile);
-  const signatur = await signiereNutzlast(keypair, nutzlastBytes);
   let ergebnis;
   try {
     ergebnis = await postfachApi.einliefern(
       {
         channel_id: kanalId,
-        cert: cert.raw,
-        signatur,
+        // Dasselbe Geraet, das sich oben aus der Zielmenge herausgerechnet
+        // hat — der Server traegt seinen Curve25519-Schluessel in jede
+        // Nutzlast, damit ein Empfaenger eine frische Sitzung aufbauen kann.
+        device_pubkey: eigeneKennung,
         nutzlasten,
-        // Dieselben Kennungen, die oben unterschrieben wurden — der Server
-        // baut die Bytes aus DIESER Liste nach.
         anhaenge: anhaenge.map((a) => a.id)
       },
       cloudRoute()

@@ -28,7 +28,6 @@
 export type GruppenBuendelEintrag = {
   device_pubkey: string;
   curve25519: string;
-  signatur: string;
   einmalschluessel: string | null;
   rueckfallschluessel: string | null;
   dauerhaft?: boolean;

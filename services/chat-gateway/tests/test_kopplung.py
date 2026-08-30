@@ -6,10 +6,15 @@ Die drei verbindlichen Gegenproben des Auftrags stehen hier namentlich:
 * ``test_abgelaufener_code_wird_abgewiesen``
 * ``test_abgebrochener_umzug_setzt_fort``
 
-Nachweis-Helfer wie in ``test_postfach.py``: ein echtes Ed25519-Geraetepaar
-und ein echtes, RS256-signiertes Identitaets-Zertifikat — kein Patchen von
+Geraete-Helfer wie in ``test_postfach.py``: eine blosse Kennung, die vor dem
+Gebrauch veroeffentlicht sein muss (Spec §3b) — kein Patchen von
 ``pruefe_geraet``, sonst prueft der Test die eigene Attrappe statt der
 Rechte.
+
+**Die eine Ausnahme steht in ``_einloesen``**: ``POST /kopplung/einloesen``
+laesst ein noch unbekanntes Geraet zu, weil der Klient in genau dieser
+Reihenfolge arbeitet — erst einloesen, dann veroeffentlichen
+(``web/src/lib/kopplung/empfangen.ts``). Der Helfer bildet das nach.
 """
 
 from __future__ import annotations
@@ -17,22 +22,15 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
-import json
+import itertools
 import random
-import time
 from datetime import UTC, datetime, timedelta
 
-import jwt as pyjwt
 import pytest
-import pytest_asyncio
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from dcc_chat_gateway.schluessel_nachweis import baue_nutzlast
 
 pytestmark = pytest.mark.usefixtures("cloud_mode")
 
-_RSA_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-_KID = "test-kopplung-key-1"
+_geraete_zaehler = itertools.count()
 
 
 def _b64url(data: bytes) -> str:
@@ -44,64 +42,14 @@ def _b64_unpadded(data: bytes) -> str:
     return base64.b64encode(data).rstrip(b"=").decode()
 
 
-def _jwks_json() -> str:
-    nums = _RSA_KEY.public_key().public_numbers()
-
-    def _b64(n: int) -> str:
-        bl = (n.bit_length() + 7) // 8
-        return base64.urlsafe_b64encode(n.to_bytes(bl, "big")).rstrip(b"=").decode()
-
-    return json.dumps({
-        "keys": [{
-            "kty": "RSA", "use": "sig", "alg": "RS256", "kid": _KID,
-            "n": _b64(nums.n), "e": _b64(nums.e),
-        }]
-    })
-
-
-def _make_device() -> tuple[Ed25519PrivateKey, str]:
-    priv = Ed25519PrivateKey.generate()
-    return priv, _b64url(priv.public_key().public_bytes_raw())
-
-
-def _make_cert(*, user_id: str, device_pubkey: str, cert_id: str = "cert-1") -> str:
-    now = int(time.time())
-    payload = {
-        "iss": "https://howispulse.com",
-        "aud": "dcc",
-        "typ": "credential",
-        "cert_id": cert_id,
-        "user_id": user_id,
-        "device_pubkey": device_pubkey,
-        "device_label": "Testgeraet",
-        "pairwise_seed": _b64url(b"\xab" * 32),
-        "amr": ["pwd"],
-        "acr": "1",
-        "iat": now,
-        "exp": now + 3600,
-    }
-    return pyjwt.encode(payload, _RSA_KEY, algorithm="RS256", headers={"kid": _KID})
-
-
-def _sign(priv: Ed25519PrivateKey, nutzlast: bytes) -> str:
-    return _b64url(priv.sign(nutzlast))
+def _make_device() -> str:
+    """Eine frische Geraetekennung — seit Spec §3b eine blosse Zeichenkette."""
+    return f"geraet-{next(_geraete_zaehler):036d}"
 
 
 def _code_hash(code: str) -> str:
     """Wie der Klient rechnet (``web/src/lib/kopplung/codeHash.ts``)."""
     return _b64url(hashlib.sha256(b"pulse-kopplung-v1\x00" + code.encode()).digest())
-
-
-async def _seed_jwks(app) -> None:
-    await app.state.redis.set("auth:jwks:cached", _jwks_json())
-
-
-@pytest_asyncio.fixture(autouse=True)
-async def _redis_fixture_daten_aufraeumen(app):
-    """S. ``test_postfach.py``: die Fixture-JWKS liegt unter dem ECHTEN
-    Produktions-Key in einem realen Redis und muss wieder weg."""
-    yield
-    await app.state.redis.delete("auth:jwks:cached")
 
 
 async def _register(_auth_signer) -> tuple[str, int]:
@@ -114,43 +62,57 @@ def _auth(token: str) -> dict[str, str]:
 
 
 class Geraet:
-    """Ein Testgeraet — Schluesselpaar, Pubkey und Zertifikat in einem."""
+    """Ein Testgeraet — seit Spec §3b nichts weiter als eine Kennung.
 
-    def __init__(self, uid: int, cert_id: str):
-        self.priv, self.pubkey = _make_device()
-        self.cert = _make_cert(user_id=str(uid), device_pubkey=self.pubkey, cert_id=cert_id)
+    Zu einem Geraet DIESES Kontos wird sie erst durch ``veroeffentlichen``;
+    ohne das weist ``pruefe_geraet`` jede Route mit scharfer Bedingung ab
+    (alle ausser ``/kopplung/einloesen``)."""
 
-    def rumpf(self, zweck: str, *teile: str, **felder) -> dict:
-        return {
-            "cert": self.cert,
-            "signatur": _sign(self.priv, baue_nutzlast(zweck, *teile)),
-            **felder,
-        }
+    def __init__(self, uid: int):
+        self.uid = uid
+        self.pubkey = _make_device()
+
+    def rumpf(self, **felder) -> dict:
+        return {"device_pubkey": self.pubkey, **felder}
+
+    async def veroeffentlichen(self, client, token: str) -> None:
+        r = await client.put(
+            "/keys/bundle",
+            json={"device_pubkey": self.pubkey, "curve25519": "curve-" + self.pubkey},
+            headers=_auth(token),
+        )
+        assert r.status_code == 204, r.text
 
 
-async def _anlegen(client, app, geraet: Geraet, token: str, code: str):
-    await _seed_jwks(app)
+async def _anlegen(client, geraet: Geraet, token: str, code: str):
+    # Das anlegende Geraet ist per Definition eingerichtet — es hat also
+    # veroeffentlicht, bevor es einen Code zeigt.
+    await geraet.veroeffentlichen(client, token)
     ch = _code_hash(code)
     return await client.post(
-        "/kopplung", json=geraet.rumpf("kopplung", ch, code_hash=ch), headers=_auth(token)
+        "/kopplung", json=geraet.rumpf(code_hash=ch), headers=_auth(token)
     )
 
 
-async def _einloesen(client, app, geraet: Geraet, token: str, code: str):
-    await _seed_jwks(app)
+async def _einloesen(client, geraet: Geraet, token: str, code: str):
     ch = _code_hash(code)
-    return await client.post(
+    r = await client.post(
         "/kopplung/einloesen",
-        json=geraet.rumpf("kopplung-einloesen", ch, code_hash=ch),
+        json=geraet.rumpf(code_hash=ch),
         headers=_auth(token),
     )
+    if r.status_code == 200:
+        # Genau die Reihenfolge des Klienten: erst einloesen, dann
+        # veroeffentlichen (s. Modul-Docstring). Ohne diesen zweiten Schritt
+        # scheiterte jede spaetere Route dieses Geraets an ``pruefe_geraet``.
+        await geraet.veroeffentlichen(client, token)
+    return r
 
 
-async def _stand(client, app, geraet: Geraet, token: str, kid: str):
-    await _seed_jwks(app)
+async def _stand(client, geraet: Geraet, token: str, kid: str):
     return await client.post(
         "/kopplung/stand",
-        json=geraet.rumpf("kopplung-stand", str(kid), kopplung_id=str(kid)),
+        json=geraet.rumpf(kopplung_id=str(kid)),
         headers=_auth(token),
     )
 
@@ -165,66 +127,55 @@ def _kennung_fuer(daten: str) -> str:
 
 
 async def _stueck(
-    client, app, geraet: Geraet, token: str, kid: str, folge: int, daten: str,
+    client, geraet: Geraet, token: str, kid: str, folge: int, daten: str,
     kennung: str | None = None,
 ):
-    await _seed_jwks(app)
     k = kennung if kennung is not None else _kennung_fuer(daten)
     return await client.post(
         "/kopplung/stueck",
         json=geraet.rumpf(
-            "kopplung-stueck", str(kid), str(folge), daten,
             kopplung_id=str(kid), folge=folge, daten=daten, kennung=k,
         ),
         headers=_auth(token),
     )
 
 
-async def _stueck_holen(client, app, geraet: Geraet, token: str, kid: str, folge: int):
-    await _seed_jwks(app)
+async def _stueck_holen(client, geraet: Geraet, token: str, kid: str, folge: int):
     return await client.post(
         "/kopplung/stueck/holen",
-        json=geraet.rumpf(
-            "kopplung-stueck-holen", str(kid), str(folge),
-            kopplung_id=str(kid), folge=folge,
-        ),
+        json=geraet.rumpf(kopplung_id=str(kid), folge=folge),
         headers=_auth(token),
     )
 
 
-async def _fertig(client, app, geraet: Geraet, token: str, kid: str, gesamt: int):
-    await _seed_jwks(app)
+async def _fertig(client, geraet: Geraet, token: str, kid: str, gesamt: int):
     return await client.post(
         "/kopplung/fertig",
-        json=geraet.rumpf(
-            "kopplung-fertig", str(kid), str(gesamt),
-            kopplung_id=str(kid), gesamt_stuecke=gesamt,
-        ),
+        json=geraet.rumpf(kopplung_id=str(kid), gesamt_stuecke=gesamt),
         headers=_auth(token),
     )
 
 
-async def _abschliessen(client, app, geraet: Geraet, token: str, kid: str):
-    await _seed_jwks(app)
+async def _abschliessen(client, geraet: Geraet, token: str, kid: str):
     return await client.post(
         "/kopplung/abschliessen",
-        json=geraet.rumpf("kopplung-abschliessen", str(kid), kopplung_id=str(kid)),
+        json=geraet.rumpf(kopplung_id=str(kid)),
         headers=_auth(token),
     )
 
 
-async def _gekoppelt(client, app, _auth_signer) -> tuple[str, Geraet, Geraet, str]:
+async def _gekoppelt(client, _auth_signer) -> tuple[str, int, Geraet, Geraet, str]:
     """Konto mit zwei Geraeten und einer eingeloesten Kopplung."""
     token, uid = await _register(_auth_signer)
-    alt = Geraet(uid, "cert-alt")
-    neu = Geraet(uid, "cert-neu")
-    r = await _anlegen(client, app, alt, token, "ABCDE-FGHJK-MNPQR-STVWX")
+    alt = Geraet(uid)
+    neu = Geraet(uid)
+    r = await _anlegen(client, alt, token, "ABCDE-FGHJK-MNPQR-STVWX")
     assert r.status_code == 200, r.text
     kid = r.json()["id"]
-    r = await _einloesen(client, app, neu, token, "ABCDE-FGHJK-MNPQR-STVWX")
+    r = await _einloesen(client, neu, token, "ABCDE-FGHJK-MNPQR-STVWX")
     assert r.status_code == 200, r.text
     assert r.json()["id"] == kid
-    return token, alt, neu, kid
+    return token, uid, alt, neu, kid
 
 
 # ---------------------------------------------------------------------------
@@ -233,29 +184,29 @@ async def _gekoppelt(client, app, _auth_signer) -> tuple[str, Geraet, Geraet, st
 
 
 @pytest.mark.asyncio
-async def test_kopplung_anlegen_und_einloesen(client, app, _auth_signer):
-    token, alt, neu, kid = await _gekoppelt(client, app, _auth_signer)
-    r = await _stand(client, app, alt, token, kid)
+async def test_kopplung_anlegen_und_einloesen(client, _auth_signer):
+    token, _uid, alt, neu, kid = await _gekoppelt(client, _auth_signer)
+    r = await _stand(client, alt, token, kid)
     assert r.status_code == 200, r.text
     assert r.json()["eingeloest"] is True
     assert r.json()["neu_device_pubkey"] == neu.pubkey
 
 
 @pytest.mark.asyncio
-async def test_code_laesst_sich_nicht_zweimal_einloesen(client, app, _auth_signer):
+async def test_code_laesst_sich_nicht_zweimal_einloesen(client, _auth_signer):
     """Gegenprobe 1 des Auftrags. Ohne den ``eingeloest_am IS NULL``-Guard im
     UPDATE bekaeme das dritte Geraet ebenfalls 200 und duerfte danach die
     Stuecke abholen — ein Kopplungscode waere ein Mehrfachschluessel."""
     token, uid = await _register(_auth_signer)
-    alt = Geraet(uid, "cert-alt")
-    neu = Geraet(uid, "cert-neu")
-    dritt = Geraet(uid, "cert-dritt")
+    alt = Geraet(uid)
+    neu = Geraet(uid)
+    dritt = Geraet(uid)
     code = "11111-22222-33333-44444"
 
-    assert (await _anlegen(client, app, alt, token, code)).status_code == 200
-    assert (await _einloesen(client, app, neu, token, code)).status_code == 200
+    assert (await _anlegen(client, alt, token, code)).status_code == 200
+    assert (await _einloesen(client, neu, token, code)).status_code == 200
 
-    r = await _einloesen(client, app, dritt, token, code)
+    r = await _einloesen(client, dritt, token, code)
     assert r.status_code == 409, r.text
     assert r.json()["detail"] == "kopplung_schon_eingeloest"
 
@@ -270,13 +221,13 @@ async def test_abgelaufener_code_wird_abgewiesen(
     from dcc_chat_gateway import config as chat_config
 
     token, uid = await _register(_auth_signer)
-    alt = Geraet(uid, "cert-alt")
-    neu = Geraet(uid, "cert-neu")
+    alt = Geraet(uid)
+    neu = Geraet(uid)
     code = "AAAAA-BBBBB-CCCCC-DDDDD"
 
     settings = chat_config.get_settings()
     monkeypatch.setattr(settings, "kopplung_code_gueltig_minuten", 0)
-    r = await _anlegen(client, app, alt, token, code)
+    r = await _anlegen(client, alt, token, code)
     assert r.status_code == 200, r.text
 
     # Der Code lief in derselben Sekunde ab; um nicht auf die Uhr zu warten,
@@ -292,7 +243,7 @@ async def test_abgelaufener_code_wird_abgewiesen(
         )
         await s.commit()
 
-    r2 = await _einloesen(client, app, neu, token, code)
+    r2 = await _einloesen(client, neu, token, code)
     assert r2.status_code == 410, r2.text
     assert r2.json()["detail"] == "kopplung_abgelaufen"
 
@@ -300,10 +251,10 @@ async def test_abgelaufener_code_wird_abgewiesen(
 @pytest.mark.asyncio
 async def test_selbes_geraet_kann_sich_nicht_koppeln(client, app, _auth_signer):
     token, uid = await _register(_auth_signer)
-    alt = Geraet(uid, "cert-alt")
+    alt = Geraet(uid)
     code = "ZZZZZ-YYYYY-XXXXX-WWWWW"
-    assert (await _anlegen(client, app, alt, token, code)).status_code == 200
-    r = await _einloesen(client, app, alt, token, code)
+    assert (await _anlegen(client, alt, token, code)).status_code == 200
+    r = await _einloesen(client, alt, token, code)
     assert r.status_code == 400, r.text
     assert r.json()["detail"] == "kopplung_selbes_geraet"
 
@@ -315,9 +266,9 @@ async def test_fremdes_konto_sieht_den_code_nicht(client, app, _auth_signer):
     token_a, uid_a = await _register(_auth_signer)
     token_b, uid_b = await _register(_auth_signer)
     code = "QQQQQ-QQQQQ-QQQQQ-QQQQQ"
-    assert (await _anlegen(client, app, Geraet(uid_a, "c-a"), token_a, code)).status_code == 200
+    assert (await _anlegen(client, Geraet(uid_a), token_a, code)).status_code == 200
 
-    r = await _einloesen(client, app, Geraet(uid_b, "c-b"), token_b, code)
+    r = await _einloesen(client, Geraet(uid_b), token_b, code)
     assert r.status_code == 404, r.text
     assert r.json()["detail"] == "kopplung_unbekannt"
 
@@ -327,11 +278,11 @@ async def test_zu_viele_offene_kopplungen(client, app, _auth_signer, monkeypatch
     from dcc_chat_gateway import config as chat_config
 
     token, uid = await _register(_auth_signer)
-    alt = Geraet(uid, "cert-alt")
+    alt = Geraet(uid)
     monkeypatch.setattr(chat_config.get_settings(), "kopplung_max_offen_je_konto", 1)
 
-    assert (await _anlegen(client, app, alt, token, "AAAAA")).status_code == 200
-    r = await _anlegen(client, app, alt, token, "BBBBB")
+    assert (await _anlegen(client, alt, token, "AAAAA")).status_code == 200
+    r = await _anlegen(client, alt, token, "BBBBB")
     assert r.status_code == 429, r.text
 
 
@@ -350,15 +301,15 @@ async def test_offene_kopplungen_haelt_die_grenze_auch_im_wettlauf(
     from dcc_chat_gateway import config as chat_config
 
     token, uid = await _register(_auth_signer)
-    alt = Geraet(uid, "cert-alt")
+    alt = Geraet(uid)
     monkeypatch.setattr(chat_config.get_settings(), "kopplung_max_offen_je_konto", 3)
 
-    assert (await _anlegen(client, app, alt, token, "AAAAA")).status_code == 200
-    assert (await _anlegen(client, app, alt, token, "BBBBB")).status_code == 200
+    assert (await _anlegen(client, alt, token, "AAAAA")).status_code == 200
+    assert (await _anlegen(client, alt, token, "BBBBB")).status_code == 200
 
     ergebnisse = await asyncio.gather(
-        _anlegen(client, app, alt, token, "CCCCC"),
-        _anlegen(client, app, alt, token, "DDDDD"),
+        _anlegen(client, alt, token, "CCCCC"),
+        _anlegen(client, alt, token, "DDDDD"),
     )
     stati = sorted(r.status_code for r in ergebnisse)
     assert stati == [200, 429], [r.text for r in ergebnisse]
@@ -371,17 +322,17 @@ async def test_offene_kopplungen_haelt_die_grenze_auch_im_wettlauf(
 
 @pytest.mark.asyncio
 async def test_stueck_schieben_und_holen(client, app, _auth_signer):
-    token, alt, neu, kid = await _gekoppelt(client, app, _auth_signer)
+    token, _uid, alt, neu, kid = await _gekoppelt(client, _auth_signer)
     daten = _b64_unpadded(b"verschluesseltes-stueck-0")
 
-    assert (await _stueck(client, app, alt, token, kid, 0, daten)).status_code == 204
-    assert (await _fertig(client, app, alt, token, kid, 1)).status_code == 204
+    assert (await _stueck(client, alt, token, kid, 0, daten)).status_code == 204
+    assert (await _fertig(client, alt, token, kid, 1)).status_code == 204
 
-    r = await _stueck_holen(client, app, neu, token, kid, 0)
+    r = await _stueck_holen(client, neu, token, kid, 0)
     assert r.status_code == 200, r.text
     assert r.json()["daten"] == daten
 
-    r = await _stand(client, app, neu, token, kid)
+    r = await _stand(client, neu, token, kid)
     assert r.json()["gesamt_stuecke"] == 1
     assert r.json()["vorhandene_stuecke"] == [0]
 
@@ -395,28 +346,28 @@ async def test_abgebrochener_umzug_setzt_fort(client, app, _auth_signer):
     ``vorhandene_stuecke`` in der Stand-Antwort haette er keine Grundlage
     dafuer und muesste bei 0 beginnen.
     """
-    token, alt, neu, kid = await _gekoppelt(client, app, _auth_signer)
+    token, _uid, alt, neu, kid = await _gekoppelt(client, _auth_signer)
     stuecke = [_b64_unpadded(f"stueck-{i}".encode()) for i in range(5)]
 
     for folge in range(3):
         assert (
-            await _stueck(client, app, alt, token, kid, folge, stuecke[folge])
+            await _stueck(client, alt, token, kid, folge, stuecke[folge])
         ).status_code == 204
 
-    stand = (await _stand(client, app, alt, token, kid)).json()
+    stand = (await _stand(client, alt, token, kid)).json()
     assert stand["vorhandene_stuecke"] == [0, 1, 2]
 
     fehlend = [i for i in range(5) if i not in stand["vorhandene_stuecke"]]
     assert fehlend == [3, 4]
     for folge in fehlend:
         assert (
-            await _stueck(client, app, alt, token, kid, folge, stuecke[folge])
+            await _stueck(client, alt, token, kid, folge, stuecke[folge])
         ).status_code == 204
-    assert (await _fertig(client, app, alt, token, kid, 5)).status_code == 204
+    assert (await _fertig(client, alt, token, kid, 5)).status_code == 204
 
     geholt = []
     for folge in range(5):
-        r = await _stueck_holen(client, app, neu, token, kid, folge)
+        r = await _stueck_holen(client, neu, token, kid, folge)
         assert r.status_code == 200, r.text
         geholt.append(r.json()["daten"])
     assert geholt == stuecke
@@ -431,20 +382,20 @@ async def test_wiederholtes_stueck_ersetzt_statt_zu_verdoppeln(client, app, _aut
     Versuchs, und ein Sender, der spaeter genau diesen Inhalt wieder
     berechnet, haette keine Chance, ihn wiederzuerkennen (Bughunt
     2026-08-29, Befund 1)."""
-    token, alt, neu, kid = await _gekoppelt(client, app, _auth_signer)
+    token, _uid, alt, neu, kid = await _gekoppelt(client, _auth_signer)
     erst = _b64_unpadded(b"erster-versuch")
     zweit = _b64_unpadded(b"zweiter-versuch")
 
-    assert (await _stueck(client, app, alt, token, kid, 7, erst)).status_code == 204
-    stand_1 = (await _stand(client, app, alt, token, kid)).json()
+    assert (await _stueck(client, alt, token, kid, 7, erst)).status_code == 204
+    stand_1 = (await _stand(client, alt, token, kid)).json()
     kennung_erst = stand_1["vorhandene_kennungen"]["7"]
 
-    assert (await _stueck(client, app, alt, token, kid, 7, zweit)).status_code == 204
-    stand_2 = (await _stand(client, app, alt, token, kid)).json()
+    assert (await _stueck(client, alt, token, kid, 7, zweit)).status_code == 204
+    stand_2 = (await _stand(client, alt, token, kid)).json()
     assert stand_2["vorhandene_stuecke"] == [7]
     assert stand_2["vorhandene_kennungen"]["7"] != kennung_erst
 
-    r = await _stueck_holen(client, app, neu, token, kid, 7)
+    r = await _stueck_holen(client, neu, token, kid, 7)
     assert r.json()["daten"] == zweit
 
 
@@ -455,12 +406,12 @@ async def test_stand_liefert_inhalts_kennungen(client, app, _auth_signer):
     kann der Sender einen inhaltlichen Abgleich beim Fortsetzen stuetzen
     (``web/src/lib/kopplung/senden.ts``). Eine Position ohne Upload taucht in
     der Abbildung nicht auf."""
-    token, alt, _neu, kid = await _gekoppelt(client, app, _auth_signer)
+    token, _uid, alt, _neu, kid = await _gekoppelt(client, _auth_signer)
     daten_0 = _b64_unpadded(b"stueck-0")
     kennung_0 = _kennung_fuer(daten_0)
-    assert (await _stueck(client, app, alt, token, kid, 0, daten_0, kennung_0)).status_code == 204
+    assert (await _stueck(client, alt, token, kid, 0, daten_0, kennung_0)).status_code == 204
 
-    stand = (await _stand(client, app, alt, token, kid)).json()
+    stand = (await _stand(client, alt, token, kid)).json()
     assert stand["vorhandene_kennungen"] == {"0": kennung_0}
 
 
@@ -469,23 +420,26 @@ async def test_drittes_geraet_darf_nicht_holen(client, app, _auth_signer):
     """Die Rollenpruefung (``kopplung_zugriff.py``) ist der Punkt, den man
     beim Nachbauen vergisst: ohne sie duerfte JEDES Geraet des Kontos die
     Stuecke abholen."""
-    token, alt, _neu, kid = await _gekoppelt(client, app, _auth_signer)
-    uid = int(pyjwt.decode(alt.cert, options={"verify_signature": False})["user_id"])
-    dritt = Geraet(uid, "cert-dritt")
+    token, uid, alt, _neu, kid = await _gekoppelt(client, _auth_signer)
+    # Ein DRITTES eingerichtetes Geraet desselben Kontos: es besteht
+    # ``pruefe_geraet`` (deshalb veroeffentlicht es), scheitert aber an der
+    # Rollenpruefung — genau die Trennung, die dieser Test sichert.
+    dritt = Geraet(uid)
+    await dritt.veroeffentlichen(client, token)
     daten = _b64_unpadded(b"geheim")
-    assert (await _stueck(client, app, alt, token, kid, 0, daten)).status_code == 204
+    assert (await _stueck(client, alt, token, kid, 0, daten)).status_code == 204
 
-    r = await _stueck_holen(client, app, dritt, token, kid, 0)
+    r = await _stueck_holen(client, dritt, token, kid, 0)
     assert r.status_code == 404, r.text
-    r = await _stueck(client, app, dritt, token, kid, 1, daten)
+    r = await _stueck(client, dritt, token, kid, 1, daten)
     assert r.status_code == 404, r.text
 
 
 @pytest.mark.asyncio
 async def test_neues_geraet_darf_nicht_schieben(client, app, _auth_signer):
     """Auch die Gegenrichtung ist gesperrt: ``neu`` holt, schiebt aber nicht."""
-    token, _alt, neu, kid = await _gekoppelt(client, app, _auth_signer)
-    r = await _stueck(client, app, neu, token, kid, 0, _b64_unpadded(b"x"))
+    token, _uid, _alt, neu, kid = await _gekoppelt(client, _auth_signer)
+    r = await _stueck(client, neu, token, kid, 0, _b64_unpadded(b"x"))
     assert r.status_code == 404, r.text
 
 
@@ -493,9 +447,9 @@ async def test_neues_geraet_darf_nicht_schieben(client, app, _auth_signer):
 async def test_stueck_zu_gross(client, app, _auth_signer, monkeypatch):
     from dcc_chat_gateway import config as chat_config
 
-    token, alt, _neu, kid = await _gekoppelt(client, app, _auth_signer)
+    token, _uid, alt, _neu, kid = await _gekoppelt(client, _auth_signer)
     monkeypatch.setattr(chat_config.get_settings(), "umzug_max_stueck_bytes", 8)
-    r = await _stueck(client, app, alt, token, kid, 0, _b64_unpadded(b"x" * 64))
+    r = await _stueck(client, alt, token, kid, 0, _b64_unpadded(b"x" * 64))
     assert r.status_code == 400, r.text
     assert r.json()["detail"] == "stueck_zu_gross"
 
@@ -505,12 +459,12 @@ async def test_abschliessen_raeumt_stuecke_weg(client, app, session_factory, _au
     from dcc_chat_gateway.models import Kopplung, UmzugStueck
     from sqlalchemy import func, select
 
-    token, alt, neu, kid = await _gekoppelt(client, app, _auth_signer)
+    token, _uid, alt, neu, kid = await _gekoppelt(client, _auth_signer)
     assert (
-        await _stueck(client, app, alt, token, kid, 0, _b64_unpadded(b"a"))
+        await _stueck(client, alt, token, kid, 0, _b64_unpadded(b"a"))
     ).status_code == 204
 
-    assert (await _abschliessen(client, app, neu, token, kid)).status_code == 204
+    assert (await _abschliessen(client, neu, token, kid)).status_code == 204
 
     async with session_factory() as s:
         assert (
@@ -527,7 +481,7 @@ async def test_abschliessen_raeumt_stuecke_weg(client, app, session_factory, _au
         ).scalar_one() == 0
 
     # Wiederholtes Abschliessen kostet nichts — s. Docstring der Route.
-    assert (await _abschliessen(client, app, neu, token, kid)).status_code == 204
+    assert (await _abschliessen(client, neu, token, kid)).status_code == 204
 
 
 @pytest.mark.asyncio
@@ -539,9 +493,9 @@ async def test_verfallslauf_raeumt_kopplung_und_stuecke(
     from sqlalchemy import func, select
     from sqlalchemy import update as sa_update
 
-    token, alt, _neu, kid = await _gekoppelt(client, app, _auth_signer)
+    token, _uid, alt, _neu, kid = await _gekoppelt(client, _auth_signer)
     assert (
-        await _stueck(client, app, alt, token, kid, 0, _b64_unpadded(b"a"))
+        await _stueck(client, alt, token, kid, 0, _b64_unpadded(b"a"))
     ).status_code == 204
 
     async with session_factory() as s:
@@ -581,8 +535,8 @@ async def test_kopplung_hebt_einen_verfall_auf(client, app, session_factory, _au
     from sqlalchemy import select
 
     token, uid = await _register(_auth_signer)
-    alt = Geraet(uid, "cert-alt-verfall")
-    neu = Geraet(uid, "cert-neu-verfall")
+    alt = Geraet(uid)
+    neu = Geraet(uid)
 
     # Der Browser hat frueher schon einmal veroeffentlicht und ist verfallen.
     async with session_factory() as s:
@@ -592,18 +546,16 @@ async def test_kopplung_hebt_einen_verfall_auf(client, app, session_factory, _au
                 user_id=uid,
                 device_pubkey=neu.pubkey,
                 curve25519="curve-alt",
-                signatur="sig-alt",
                 dauerhaft=False,
                 zuletzt_benutzt=datetime.now(UTC) - timedelta(days=20),
                 verfallen_am=datetime.now(UTC) - timedelta(days=5),
-                cert_id="cert-neu-verfall",
             )
         )
         await s.commit()
 
     code = "55555-66666-77777-88888"
-    assert (await _anlegen(client, app, alt, token, code)).status_code == 200
-    assert (await _einloesen(client, app, neu, token, code)).status_code == 200
+    assert (await _anlegen(client, alt, token, code)).status_code == 200
+    assert (await _einloesen(client, neu, token, code)).status_code == 200
 
     async with session_factory() as s:
         zeile = (

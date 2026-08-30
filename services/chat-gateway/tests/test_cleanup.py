@@ -150,10 +150,8 @@ async def test_run_once_stempelt_verfallene_geraete(engine, session_factory):
                 user_id=424242,
                 device_pubkey="pub-cleanup-verfall",
                 curve25519="curve",
-                signatur="sig",
                 dauerhaft=False,
                 zuletzt_benutzt=alt,
-                cert_id="cert-cleanup-verfall",
             )
         )
         await s.commit()

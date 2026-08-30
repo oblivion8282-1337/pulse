@@ -39,7 +39,6 @@
  */
 import type { Message } from '../../api/types';
 import { certStore } from '../../identity/cert.svelte';
-import { loadKeypair } from '../../identity/keypair.svelte';
 import { keysApi } from '../../api/keys';
 import { gruppenApi } from '../../api/gruppen';
 import type { PostfachNutzlast } from '../../api/postfach';
@@ -141,14 +140,14 @@ export async function sendeInGruppe(
   replyToId: string | null = null
 ): Promise<GruppenSendeErgebnis> {
   // Der Riegel VOR dem ersten Serveraufruf. `gruppenApi` verriegelt selbst
-  // noch einmal (s. dort) — hier steht er trotzdem, weil sonst schon der
-  // Geraeteschluessel geladen und ein Krypto-Konto angelegt wuerde.
+  // noch einmal (s. dort) — hier steht er trotzdem, weil sonst schon die
+  // Geraetekennung geholt und ein Krypto-Konto angelegt wuerde.
   if (!PRIVATE_GRUPPEN_ENABLED) return { art: 'nicht_moeglich' };
 
-  const keypair = await loadKeypair();
   const cert = certStore.cert;
-  if (!keypair || !cert) return { art: 'nicht_moeglich' };
+  if (!cert) return { art: 'nicht_moeglich' };
   const eigeneUserId = cert.claims.user_id;
+  const eigeneKennung = await geraeteKennung();
 
   // Schritt 1 — s. Modulkopf. Frisch, immer.
   const gruppe = await gruppenApi.lesen(kanalId);
@@ -161,9 +160,7 @@ export async function sendeInGruppe(
     buendel,
     mitgliederIds,
     eigeneUserId,
-    // Eigene Kennung aus der Krypto-Schicht statt aus dem Zertifikat —
-    // dieselbe Umstellung wie in `../senden.ts`, s. `../geraeteKennung.ts`.
-    await geraeteKennung()
+    eigeneKennung
   );
 
   // **Ab hier unter der Gruppen-Sperre** (Bughunt 2026-08-29, s.
@@ -252,8 +249,7 @@ export async function sendeInGruppe(
     // die GANZE restliche Sendung mitreissen liess.
     const { beliefert: schluesselBeliefert } = await bloeckeEinliefern(
       kanalId,
-      cert.raw,
-      keypair,
+      eigeneKennung,
       inBloecke(schluesselUmschlaege, MAX_UMSCHLAEGE_JE_ANFRAGE)
     );
     const nachrichtUmschlaege: PostfachNutzlast[] = inEmpfaengerBloecke(alleGeraete).map(
@@ -262,8 +258,7 @@ export async function sendeInGruppe(
     const { beliefert: nachrichtBeliefert, letzterFehler: nachrichtFehler } =
       await bloeckeEinliefern(
         kanalId,
-        cert.raw,
-        keypair,
+        eigeneKennung,
         inBloecke(nachrichtUmschlaege, MAX_UMSCHLAEGE_JE_ANFRAGE)
       );
 

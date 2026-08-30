@@ -156,9 +156,8 @@ test('Rueckfallschluessel erscheint, sobald der Einmalschluessel-Vorrat erschoep
   // 2026-08-28-e2e-dm-design.md §2): vorher blieb `rueckfallschluessel` im
   // Buendel-Rumpf immer leer, und ein Geraet mit erschoepftem Vorrat wurde
   // unerreichbar — `POST /keys/claim` haette fuer dieses Geraet gar nichts
-  // mehr geliefert. Dieser Test zieht den Vorrat wirklich leer (statt nur
-  // die Byte-Nutzlast zu pruefen, s. `krypto-nutzlast.test.ts`) und
-  // verlangt, dass an genau dieser Stelle ein Rueckfallschluessel steht.
+  // mehr geliefert. Dieser Test zieht den Vorrat wirklich leer und verlangt,
+  // dass an genau dieser Stelle ein Rueckfallschluessel steht.
   await page.route('**/changelog.json', (route) => route.fulfill({ json: { entries: [] } }));
 
   await register(page, BOB);

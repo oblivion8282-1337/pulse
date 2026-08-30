@@ -1,12 +1,16 @@
 """Das Verzeichnis der Verschluesselungs-Schluessel je Geraet.
 
-Geführt wird ueber ``device_pubkey``, NICHT ueber ``cert_id``: die
-Zertifikatserneuerung stellt alle 30 Tage ein neues Zertifikat fuer denselben
-Pubkey aus (``cert-rotation.svelte.ts``). An der cert_id haengende Buendel
-wuerden monatlich verwaisen.
+Gefuehrt wird ueber ``device_pubkey`` — die Kennung, die sich das Geraet
+selbst gibt (``web/src/lib/krypto/geraeteKennung.ts``) und die der Server
+gegen das angemeldete Konto haelt (``schluessel_nachweis.py``).
 
-``cert_id`` wird trotzdem mitgeschrieben — sie ist der Schluessel, unter dem
-die Sperrliste (``auth:revoked:certs``) ein widerrufenes Geraet fuehrt.
+**Zwei Spalten sind mit den Zertifikaten entfallen** (Migration 0079,
+Spec §3b): ``cert_id`` (der Schluessel, unter dem die Sperrliste ein
+widerrufenes Geraet fuehrte) und ``signatur`` (die Selbst-Unterschrift des
+Geraets ueber sein eigenes Buendel — sie wurde nur durchgereicht und von
+keiner Fassung des Klienten je geprueft). Beide hatten nach dem Wegfall des
+Zertifikats keine Quelle mehr; eine Spalte weiterzufuehren, die niemand
+befuellen kann, waere eine Behauptung ohne Deckung.
 """
 
 from __future__ import annotations
@@ -37,18 +41,13 @@ class DeviceKeyBundle(Base):
     device_pubkey: Mapped[str] = mapped_column(Text, nullable=False)
     #: Base64, Curve25519 — der Schluessel, mit dem verschluesselt wird.
     curve25519: Mapped[str] = mapped_column(Text, nullable=False)
-    #: Base64, Ed25519-Unterschrift des Geraets ueber sein eigenes Buendel.
-    signatur: Mapped[str] = mapped_column(Text, nullable=False)
-    #: Greift, wenn der Vorrat an Einmalschluesseln leer ist. Eine eigene
-    #: Signatur dafuer gibt es bewusst NICHT (mehr) — ``signatur`` oben deckt
-    #: ihn bereits mit ab, s. Kommentar an ``BundleVeroeffentlichenRequest``
-    #: in ``schemas.py``.
+    #: Greift, wenn der Vorrat an Einmalschluesseln leer ist.
     rueckfallschluessel: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: Selbstauskunft des Geraets (Electron- oder Android-App), Grundlage der
-    #: Koexistenz-Regel (Spec §3) — NICHT Teil der signierten Buendel-Nutzlast,
-    #: s. Kommentar an ``BundleVeroeffentlichenRequest.dauerhaft`` in
-    #: ``schemas.py``. Vorgabe ``False`` — ein unbekanntes/altes Geraet gilt
-    #: als nicht dauerhaft (fail closed).
+    #: Koexistenz-Regel (Spec §3), s. Kommentar an
+    #: ``BundleVeroeffentlichenRequest.dauerhaft`` in ``schemas.py``. Vorgabe
+    #: ``False`` — ein unbekanntes/altes Geraet gilt als nicht dauerhaft
+    #: (fail closed).
     dauerhaft: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     #: Wann dieses Geraet per Kopplungscode an das Konto gebunden wurde
     #: (``POST /kopplung/einloesen``). **Vom Server gesetzt, nicht gemeldet** —
@@ -73,7 +72,6 @@ class DeviceKeyBundle(Base):
     verfallen_am: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    cert_id: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
