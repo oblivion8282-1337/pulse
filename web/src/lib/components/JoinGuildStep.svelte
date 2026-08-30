@@ -19,9 +19,9 @@
   import SelfHostContactConfirmDialog from '$lib/components/server/SelfHostContactConfirmDialog.svelte';
   import {
     SelfHostContactConfirmRequired,
-    mapCertLoginReason,
+    anmeldeFehlerText,
   } from '$lib/api/add-server-flow';
-  import { CertLoginError } from '$lib/api/cert-login';
+  import { TicketFehler } from '$lib/api/server-ticket';
   import { parseJoinInput } from '$lib/guilds/joinByInvite';
   import { prepareHostJoin, joinServerByHost } from '$lib/guilds/joinByHost';
   import { m } from '$lib/paraglide/messages.js';
@@ -91,14 +91,14 @@
         askContact(err.hostname, () => void runHostJoin(true));
         return;
       }
-      if (err instanceof CertLoginError && err.reason === 'join-requires-invite') {
+      if (err instanceof TicketFehler && err.code === 'join_not_permitted') {
         // Kein Grant: Server verlangt eine Einladung → Code-Feld zeigen.
         needCode = true;
         error = codeInput.trim()
           ? m.join_host_code_rejected()
           : m.join_host_invite_required();
-      } else if (err instanceof CertLoginError) {
-        error = mapCertLoginReason(err.reason);
+      } else if (err instanceof TicketFehler) {
+        error = anmeldeFehlerText(err.code);
       } else {
         error = (err as Error)?.message || m.create_guild_dialog_join_failed();
       }

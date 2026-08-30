@@ -20,12 +20,7 @@
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { navDrawer } from '$lib/stores/navDrawer.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
-  import { selfHostEinstiegSichtbar } from '$lib/selfhost/hinweis.svelte';
   import { m } from '$lib/paraglide/messages.js';
-
-  // Auf einem fremden Server kennt die auth-API `/me/instances` nicht — statt
-  // einer Fläche, die still leer bleibt oder in Fehler läuft, der Grund.
-  let inDerCloud = $derived(selfHostEinstiegSichtbar());
 
   // Zurück dorthin, wo der Einstieg steht: unter `lg` die Räume-Liste, darüber
   // die Startseite (dort ist die Server-Leiste selbst der Ort des Knopfes).
@@ -69,12 +64,11 @@
   </header>
 
   <div class="flex-1 overflow-y-auto p-4 md:p-6">
-    {#if inDerCloud}
-      <SelfHostPanel />
-    {:else}
-      <p class="text-text-muted text-sm" data-testid="self-host-cloud-only">
-        {m.self_host_cloud_only()}
-      </p>
-    {/if}
+    <!-- Der Bereich holt seine Daten über `cookieFetch` und damit immer von der
+         Cloud, unabhängig vom aktiven Server. Hier stand bis 2026-08-28 ein
+         Hinweis „nur in der Cloud verfügbar" — er beruhte auf einer falschen
+         Annahme und verbarg die Verwaltung ausgerechnet dem, der auf seinem
+         eigenen Server danach suchte. -->
+    <SelfHostPanel />
   </div>
 </section>

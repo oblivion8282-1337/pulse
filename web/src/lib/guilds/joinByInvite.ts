@@ -15,10 +15,31 @@ import {
   selfHostContactConfirmed,
   markSelfHostContactConfirmed,
 } from '$lib/api/add-server-flow';
-import { certLogin } from '$lib/api/cert-login';
+import { holeTicket, loeseTicketEin } from '$lib/api/server-ticket';
+
 import { instancesApi } from '$lib/api/instances';
 import { sessionTokens } from '$lib/api/session_tokens.svelte';
 import { joinedInvites } from '$lib/stores/joinedInvites.svelte';
+
+/**
+ * Meldet sich an einem bereits bekannten Self-Host neu an — mit einem Zugang.
+ *
+ * Warum das nötig ist: Ein Server kann in der Liste stehen, ohne dass eine
+ * Mitgliedschaft besteht (Phantom-Eintrag). Die Anmeldung MIT dem Code heilt
+ * das (idempotent, falls schon Mitglied), und erst danach greift der Beitritt
+ * zur Community selbst.
+ */
+async function anmeldenMitZugang(
+  server: { id: string; hostname: string; instance_id?: string | null },
+  zugang: { communityGrantCode?: string; publicJoinHandle?: string },
+): Promise<string | null> {
+  // Hostname, nicht Kennung — die Cloud loest auf. Den fremden Server danach zu
+  // fragen waere die Luecke, gegen die dieser Weg gebaut ist.
+  const { ticket, instanceId } = await holeTicket(server.hostname);
+  const sitzung = await loeseTicketEin(server.hostname, ticket, zugang);
+  sessionTokens.set(server.id, sitzung.session_token, Date.now() + sitzung.expires_in * 1000);
+  return instanceId;
+}
 
 /** Trägt die Cloud-Membership ein, damit der per Einladung beigetretene
  *  Self-Host-Server auch im Browser / auf anderen Geräten sichtbar wird.
@@ -153,15 +174,11 @@ async function joinByPublicHandle(
   const existing = serversStore.findByHostname(hostname);
   if (existing) {
     // Server bereits bekannt — aber evtl. ohne echte Mitgliedschaft (Phantom-
-    // Eintrag). Wie im Invite-Pfad: ZUERST cert-login MIT dem ``public_join_handle``
+    // Eintrag). Wie im Invite-Pfad: ZUERST anmelden MIT dem ``public_join_handle``
     // (gewährt Mitgliedschaft, falls die Community öffentlich ist; idempotent,
     // falls schon Mitglied), DANN joinPublicCommunity.
-    const auth = await certLogin(existing.hostname, undefined, handle);
-    sessionTokens.set(existing.id, auth.session_token, Date.now() + auth.expires_in * 1000);
-    if (!existing.pairwise_sub) {
-      serversStore.update(existing.id, { pairwise_sub: auth.pairwise_sub });
-    }
-    syncInstanceMembership(auth.instance_id ?? existing.instance_id);
+    const instanzId = await anmeldenMitZugang(existing, { publicJoinHandle: handle });
+    syncInstanceMembership(instanzId ?? existing.instance_id);
     const result = await chatApi.joinPublicCommunity(handle, { serverId: existing.id });
     activeServer.set(existing.id);
     await navigateAfterJoin(result.guild.id, result.channel_id);
@@ -230,17 +247,13 @@ export async function joinGuildByInvite(input: string, confirmed = false): Promi
       // Erst-Join oder einem Account-Switch-Leak). ``acceptInvite`` braucht aber
       // eine gültige Session, und der cert-login mintet die nur, wenn wir schon
       // Mitglied sind ODER ein Grant-Code die Mitgliedschaft gewährt. Darum hier
-      // ZUERST ein cert-login MIT dem ``community_grant_code`` (heilt den
+      // ZUERST eine Anmeldung MIT dem ``community_grant_code`` (heilt den
       // Phantom-Eintrag; idempotent, falls schon Mitglied → member-Pfad im Gate),
       // DANN acceptInvite. Ohne das scheitert ein Beitritt über einen bereits
       // gelisteten Self-Host mit ``join_not_permitted``.
       serverId = existing.id;
-      const auth = await certLogin(existing.hostname, code);
-      sessionTokens.set(serverId, auth.session_token, Date.now() + auth.expires_in * 1000);
-      if (!existing.pairwise_sub) {
-        serversStore.update(serverId, { pairwise_sub: auth.pairwise_sub });
-      }
-      syncInstanceMembership(auth.instance_id ?? existing.instance_id);
+      const instanzId = await anmeldenMitZugang(existing, { communityGrantCode: code });
+      syncInstanceMembership(instanzId ?? existing.instance_id);
       const result = await acceptInvite(code, { serverId });
       joinedInvites.markJoined(code, result.guild.id);
       // Aktiven Server auf den Self-Host umschalten BEVOR wir dorthin

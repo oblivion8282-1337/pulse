@@ -130,7 +130,7 @@ def _no_cloud_polling(monkeypatch):
         await asyncio.Event().wait()  # idle until the lifespan cancels us
 
     monkeypatch.setattr(chat_app, "cloud_policy_poller_loop", _inert)
-    monkeypatch.setattr(chat_app, "crl_poller_loop", _inert)
+    monkeypatch.setattr(chat_app, "jwks_poller_loop", _inert)
 
 
 @pytest_asyncio.fixture

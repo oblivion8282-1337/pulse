@@ -34,11 +34,6 @@ from typing import Annotated, Any
 import httpx
 import jwt
 
-# ``synthesize_self_host_user_id`` moved to ``dcc_shared`` so voice-signaling
-# can share it. Re-exported here for backward compatibility — existing imports
-# (``from dcc_chat_gateway.security import synthesize_self_host_user_id``) keep
-# working unchanged.
-from dcc_shared.session_tokens import synthesize_self_host_user_id  # noqa: F401
 from fastapi import Depends, Header, HTTPException, Query, status
 from jwt.algorithms import RSAAlgorithm
 
@@ -203,7 +198,20 @@ def _decode_self_host_session_token(token: str) -> dict[str, Any]:
     claims = validate_session_token(token, key_path=key_path)
     if claims is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token")
-    synthetic_id = synthesize_self_host_user_id(claims.user_identifier)
+    # Die Kennung IST die Zahl — es gibt seit dem Ticket-Weg nur noch eine
+    # Identität. Hier stand bis zum 2026-08-28 eine Uebersetzung aus einem
+    # Base64url-Pseudonym in einen BIGINT.
+    #
+    # Ein Token mit nicht-numerischer Kennung ist verformt (die Cloud setzt dort
+    # immer eine Nutzer-ID). Ohne diesen Fang bräche ``int()`` mit einem 500 ab,
+    # wo ein 401 hingehört — der Aufrufer soll einen Auth-Fehler sehen, keinen
+    # Serverfehler.
+    try:
+        synthetic_id = int(claims.user_identifier)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, detail="invalid token"
+        ) from exc
     # Shape-compatible with the Cloud Access-JWT path: ``sub`` is a decimal
     # int-string, ``typ`` mirrors the historical access-token shape so any
     # downstream code that asserts ``typ == "access"`` keeps working.  The
@@ -215,7 +223,7 @@ def _decode_self_host_session_token(token: str) -> dict[str, Any]:
     return {
         "sub": str(synthetic_id),
         "username": "",
-        # Self-host admin = the instance owner, marked at cert-login time and
+        # Self-host admin = the instance owner, marked when the session is issued and
         # carried in the session token (see issue_session_token ``admin``).
         "admin": claims.admin,
         "typ": "access",

@@ -13,30 +13,55 @@
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import { toast } from 'svelte-sonner';
   import { communityInvites } from '$lib/stores/communityInvites.svelte';
-  import { communityInvitesApi } from '$lib/api/communityInvites';
+  import { communityInvitesApi, type CommunityInviteNotification } from '$lib/api/communityInvites';
   import { userCache } from '$lib/stores/users.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
   import { m } from '$lib/paraglide/messages.js';
+  import { SelfHostContactConfirmRequired } from '$lib/api/add-server-flow';
+  import SelfHostContactConfirmDialog from '$lib/components/server/SelfHostContactConfirmDialog.svelte';
+
+  // Erstkontakt-Gate (unbekannter Self-Host → Bestätigungsdialog statt
+  // Fehler-Toast), wie in JoinGuildStep und InviteEmbed.
+  let confirmHost = $state<string | undefined>(undefined);
+  let pendingJoin = $state<(() => Promise<void>) | null>(null);
+  let confirmOpen = $state(false);
 
   $effect(() => {
     for (const inv of communityInvites.list) userCache.queue(inv.inviter_user_id);
   });
 
-  async function accept(id: string) {
+  async function accept(inv: CommunityInviteNotification) {
     try {
-      const res = await communityInvitesApi.accept(id);
-      communityInvites.remove(id);
-      if (res.target_host && res.code) {
-        // Fremder Server: die Cloud hat dort keine Mitgliedschaft anlegen
-        // koennen (sie kann den Code nicht einmal pruefen). Wir gehen denselben
-        // Weg wie bei einem geklickten Einladungslink — der Host prueft live.
-        await joinGuildByInvite(
-          `https://app/invite/${encodeURIComponent(res.code)}?host=${encodeURIComponent(res.target_host)}`
-        );
+      if (inv.target_host && inv.code) {
+        // Selbst-Host: EXAKT der Link-Weg — Join zuerst (der Host prüft den
+        // Code live), die Karte wird erst nach erfolgreichem Beitritt
+        // konsumiert. Schlägt der Join fehl (Gate, Server offline), bleibt
+        // die Karte bestehen und ist erneut versuchbar.
+        const input = `https://app/invite/${encodeURIComponent(inv.code)}?host=${encodeURIComponent(inv.target_host)}`;
+        try {
+          await joinGuildByInvite(input);
+        } catch (e) {
+          if (e instanceof SelfHostContactConfirmRequired) {
+            pendingJoin = async () => {
+              await joinGuildByInvite(input, true);
+              await communityInvitesApi.accept(inv.id);
+              communityInvites.remove(inv.id);
+            };
+            confirmHost = e.hostname;
+            confirmOpen = true;
+            return;
+          }
+          throw e;
+        }
+        await communityInvitesApi.accept(inv.id);
+        communityInvites.remove(inv.id);
         return;
       }
-      // Frisch beigetretene Community sofort laden + hinein navigieren.
+      // Cloud-Ziel: das Annehmen legt die Membership an ...
+      const res = await communityInvitesApi.accept(inv.id);
+      communityInvites.remove(inv.id);
+      // ... und die frisch beigetretene Community sofort laden + hinein.
       await guilds.hydrate();
       await goto(
         res.channel_id
@@ -45,11 +70,27 @@
       );
     } catch (e) {
       // 404 = Einladung/Community inzwischen weg → Karte aufräumen.
-      if ((e as { status?: number })?.status === 404) communityInvites.remove(id);
+      if ((e as { status?: number })?.status === 404) communityInvites.remove(inv.id);
       toast.error(m.community_invite_accept_error(), {
         description: e instanceof Error ? e.message : undefined
       });
     }
+  }
+
+  function onConfirmContact() {
+    const action = pendingJoin;
+    confirmOpen = false;
+    pendingJoin = null;
+    action?.().catch((e: unknown) => {
+      toast.error(m.community_invite_accept_error(), {
+        description: e instanceof Error ? e.message : undefined
+      });
+    });
+  }
+
+  function onCancelContact() {
+    confirmOpen = false;
+    pendingJoin = null;
   }
 
   async function decline(id: string) {
@@ -104,7 +145,7 @@
         <Button
           size="sm"
           variant="ghost"
-          onclick={() => accept(inv.id)}
+          onclick={() => accept(inv)}
           data-testid="community-invite-accept"
           title={m.community_invite_accept_title()}
         >
@@ -123,3 +164,10 @@
     {/each}
   </div>
 {/if}
+
+<SelfHostContactConfirmDialog
+  open={confirmOpen}
+  hostname={confirmHost}
+  onConfirm={onConfirmContact}
+  onCancel={onCancelContact}
+/>

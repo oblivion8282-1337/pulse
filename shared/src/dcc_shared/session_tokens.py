@@ -12,7 +12,6 @@ such a token:
 * :func:`validate_session_token` — EdDSA signature + ``iss``/``aud``/``typ`` check,
 * the Ed25519 key-loading singletons (:func:`_get_keys`,
   :func:`reset_session_signer`),
-* :func:`synthesize_self_host_user_id` — pairwise-sub → stable 63-bit int,
 * :func:`_token_redis_key` — Redis key derivation (no token-in-keyspace).
 
 The *minting* side (``issue_session_token`` + ``store_session_token``) lives in
@@ -154,27 +153,6 @@ def _token_redis_key(token: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def synthesize_self_host_user_id(pairwise_sub: str) -> int:
-    """Map a pairwise-sub (Base64url string) to a stable 63-bit positive int.
-
-    Existing chat-gateway tables use ``BigInteger`` user-id FKs (``messages.
-    author_id``, ``guild_members.user_id`` …) — a TEXT migration is out of scope
-    for the Self-Host bring-up. Instead we derive a deterministic 63-bit
-    numeric id from the pairwise-sub (truncated SHA-256) and store *that* in
-    the existing columns. The pairwise-sub itself stays available via
-    ``AuthenticatedUser.user_identifier`` for any code that wants the
-    string form (e.g. ``CachedUserProfile.user_identifier``).
-
-    Same pairwise-sub → same int forever. Different pairwise-subs collide with
-    probability ~ 2⁻⁶³ → ignorable for any realistic instance population.
-    Self-Host runs in its own DB (``dcc_selfhost``) so collision with Cloud
-    snowflake ids is irrelevant; the value never travels off-instance.
-    """
-    digest = hashlib.sha256(pairwise_sub.encode()).digest()
-    # Top 8 bytes, clear sign bit → positive 63-bit int (fits BIGINT signed).
-    return int.from_bytes(digest[:8], "big") & 0x7FFF_FFFF_FFFF_FFFF
-
-
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
@@ -223,12 +201,20 @@ def issue_session_token(
     *,
     key_path: str = "./data/jwt_keys/session_signing.pem",
     admin: bool = False,
+    ttl_seconds: int = SESSION_TTL_SECONDS,
 ) -> str:
-    """Issue a 5-minute self-host session token.
+    """Issue a self-host session token.
 
     Signed with the local Ed25519 key. ``user_identifier`` is the pairwise_sub
     (self-host) or direct user_id (cloud mode). ``admin`` marks the instance
     owner (see cert-login owner-match) so the session carries admin rights.
+
+    ``ttl_seconds`` ist ein Parameter, weil die Frist eine Entscheidung der
+    aufrufenden Route ist und nicht dieses Moduls: Sie waegt Bann-Nachlauf gegen
+    Wiederanmelde-Last ab (Begruendung in ``session_ticket.SITZUNGSDAUER_S``).
+    Der Vorgabewert stammt aus der Zeit des Gerätezertifikats, als eine kurze
+    Frist die Antwort auf die Sperrliste war; heute setzt der einzige Aufrufer
+    ihn ohnehin selbst.
     """
     priv, _ = _get_keys(key_path)
     now = int(time.time())
@@ -239,7 +225,7 @@ def issue_session_token(
         "cert_id": cert_id,
         "admin": admin,
         "iat": now,
-        "exp": now + SESSION_TTL_SECONDS,
+        "exp": now + ttl_seconds,
         "typ": "session",
     }
     # PyJWT encodes Ed25519 via algorithm "EdDSA"

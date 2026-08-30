@@ -1,44 +1,55 @@
-# Pulse Self-Host — Docker Compose hinter einem VORHANDENEN Reverse-Proxy.
+# Pulse self-host — Docker Compose behind an EXISTING reverse proxy.
 #
-# TLS terminiert DEIN Proxy (nginx, Traefik, Caddy, Nginx Proxy Manager, …) mit
-# deinem vorhandenen Zertifikat. Der Pulse-Container belegt keine 80/443 und
-# macht nur HTTP-Routing auf 127.0.0.1:8080 (PULSE_TLS_MODE=behind-proxy ist
-# unten fest gesetzt — die .env muss dafür nicht angefasst werden).
+# TLS is terminated by YOUR proxy (nginx, Traefik, Caddy, Nginx Proxy Manager, …)
+# with your existing certificate. The Pulse container does not take 80/443 and
+# only does HTTP routing on 127.0.0.1:8080 (PULSE_TLS_MODE=behind-proxy is set
+# below — the .env does not need touching for it).
 #
-#   1. Fertige Konfiguration in der App holen: Einstellungen → Self-Host →
-#      Meine Instanzen → "Server einrichten" → "Manuelle Installation" →
-#      ".env herunterladen". Sie ist komplett ausgefüllt — Instanz-ID,
-#      Client-ID und Secret vergibt die Cloud bei der Freigabe, das Secret
-#      zeigt sie genau einmal.
+#   1. Get the ready-made config in the app: Settings → Your own server →
+#      My Instances → "Set up server" → "Manual installation" → "Download .env".
+#      It is filled in completely — the Cloud assigns instance ID, client ID and
+#      secret on approval, and shows the secret exactly once.
 #
-#   2. Die Datei hierher legen und in .env umbenennen:
+#   2. Put the file here and rename it to .env:
 #
 #        mv ~/Downloads/pulse-instance-*.env .env
 #
-#   3. docker compose -f docker-compose.behind-proxy.yml up -d
-#   4. EINE Regel im eigenen Proxy anlegen:
-#        pulse.deine-domain  →  http://127.0.0.1:8080
-#      WebSocket-Upgrade muss durchgereicht werden (bei NPM: "WebSocket Support"
-#      aktivieren). Copy-paste-Snippets für Caddy/nginx/NPM: docs/SELF_HOST.md.
+#   3. Sign in to the registry (otherwise: "pull access denied"):
 #
-#   Optionale Schalter (eigenes Zertifikat, PULSE_PUBLIC_IP hinter NAT,
-#   Sicherungs-Takt, Log-Stufe) stehen in der kommentierten Referenz
-#   https://howispulse.com/self-host/env.example — zum Nachschlagen, nicht
-#   zum Ausfüllen.
+#        grep -oP '^PULSE_CLOUD_CLIENT_SECRET=\K.*' .env \
+#          | docker login registry.howispulse.com \
+#              -u "$(grep -oP '^PULSE_CLOUD_CLIENT_ID=\K.*' .env)" --password-stdin
 #
-# WICHTIG: Voice + HQ-Streaming laufen über WebRTC/UDP DIREKT zum Server, am
-# HTTP-Proxy vorbei — die UDP-/Media-Ports unten müssen offen bleiben. Ohne sie
-# funktionieren Chat/Login, aber keine Voice-Calls ("Chat geht, Voice nicht").
+#   4. docker compose -f docker-compose.behind-proxy.yml up -d
+#
+#   5. Add ONE rule in your own proxy:
+#        chat.example.com  →  http://127.0.0.1:8080
+#      WebSocket upgrade must pass through (Nginx Proxy Manager: tick "WebSocket
+#      Support"). If your proxy runs IN A CONTAINER it cannot reach the host's
+#      127.0.0.1 — both then need a shared Docker network and the rule points at
+#      the container name (`pulse:8080`). Copy-paste snippets for Caddy/nginx/NPM
+#      and the container case: https://howispulse.com/self-host/guide →
+#      "Add the proxy rule".
+#
+#   Optional switches (own certificate, PULSE_PUBLIC_IP behind NAT, backup
+#   interval, log level) are in the commented reference at
+#   https://howispulse.com/self-host/env.example — for looking up, not for
+#   filling in.
+#
+# IMPORTANT: voice + HQ streaming run over WebRTC/UDP DIRECTLY to the server,
+# bypassing the HTTP proxy — the UDP/media ports below must stay open. Without
+# them chat and sign-in work, but voice calls do not.
 #
 # Updates: docker compose -f docker-compose.behind-proxy.yml pull && … up -d
-# (bewusst kein Auto-Updater-Container; siehe docs/SELF_HOST.md → Updates).
+# (deliberately no auto-updater container; see
+# https://howispulse.com/self-host/guide → Running it).
 
 services:
   pulse:
-    # Self-Host-Registry (per-Instance-Credentials). Vor dem ersten
-    # `docker compose pull` einmalig einloggen:
-    #   docker login registry.howispulse.com -u <client_id> -p <client_secret>
-    # (Credentials aus dem Bootstrap- bzw. Env-Download).
+    # Self-host registry (per-instance credentials). Sign in once before the
+    # first `docker compose pull` — see step 3 in the header above. Use
+    # --password-stdin, not -p: the latter puts the secret into `ps aux` and
+    # your shell history.
     image: registry.howispulse.com/pulse-allinone:stable
     container_name: pulse
     restart: unless-stopped

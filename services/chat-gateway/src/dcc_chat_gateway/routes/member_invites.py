@@ -71,9 +71,14 @@ class CommunityInviteNotificationOut(BaseModel):
     inviter_user_id: str
     invitee_user_id: str
     # NULL = Cloud-Ziel. Die Karte zeigt ihn an, damit der Eingeladene sieht,
-    # auf welchen Server er tritt. Der ``code`` wird hier bewusst NICHT
-    # ausgegeben — er wird erst beim Annehmen gebraucht.
+    # auf welchen Server er tritt.
     target_host: str | None
+    # Host-coined Code — seit 2026-08-30 in der Liste: der Klient joint
+    # Link-artig VOR dem Annehmen (die Karte bleibt bei Fehlschlag erhalten)
+    # und lässt das Annehmen nur noch als Buchhaltung laufen. Der Empfänger
+    # könnte den Code über das Annehmen ohnehin lesen; der Host prüft ihn
+    # beim Beitritt live.
+    code: str | None
     created_at: str
 
 
@@ -89,6 +94,7 @@ def _to_out(row: CommunityInviteNotification, guild_name: str) -> CommunityInvit
         # bestehenden Zeilen von selbst — die Karte zeigte sonst
         # „https://howispulse.com" unter jeder Cloud-Einladung.
         target_host=fremder_host(row.target_host),
+        code=row.code,
         created_at=row.created_at.isoformat(),
     )
 

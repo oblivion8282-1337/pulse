@@ -21,6 +21,7 @@ import { serversStore, CLOUD_HOSTNAME } from './servers.svelte';
 import { activeServer } from '$lib/stores/active-server.svelte';
 import { sessionTokens } from './session_tokens.svelte';
 import { safeParse, extractDetail } from './parse';
+import { meldungFuer } from './anmelde-fehler';
 import { m } from '$lib/paraglide/messages.js';
 import { transportFetch } from '$lib/direct/transport';
 import type { ServerEntry } from './servers.svelte';
@@ -46,7 +47,10 @@ export class SessionExpiredError extends Error {
   constructor(serverId: string) {
     const entry = serversStore.find(serverId);
     const label = entry?.server_name ?? entry?.label ?? serverId;
-    super(m.session_expired_for_server({ label }));
+    // Kennt der Re-Auth den Grund, wird ER gezeigt — mit Handgriff. Nur wenn
+    // wirklich niemand etwas weiss, bleibt es bei der Sammelmeldung, die
+    // wenigstens nichts Falsches behauptet.
+    super(meldungFuer(serverId) ?? m.session_expired_for_server({ label }));
     this.name = 'SessionExpiredError';
     this.serverId = serverId;
   }

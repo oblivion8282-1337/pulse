@@ -1168,7 +1168,11 @@ class VoiceRoom {
     const ns = settings.audio.noiseSuppression;
     const gain = settings.audio.inputMakeupGain;
     const target: 'off' | SendProcessorMode =
-      ns === 'rnnoise_gated' ? 'rnnoise_gated' : gain !== 1 ? 'gain_only' : 'off';
+      ns === 'rnnoise_gated' || ns === 'gtcrn'
+        ? ns
+        : gain !== 1
+          ? 'gain_only'
+          : 'off';
     const pub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
     const audioTrack = pub?.audioTrack;
     if (!audioTrack) return;
@@ -1552,7 +1556,11 @@ class VoiceRoom {
     if (track) {
       try {
         const mode: SendProcessorMode =
-          settings.audio.noiseSuppression !== 'off' ? 'rnnoise_gated' : 'gain_only';
+          settings.audio.noiseSuppression === 'gtcrn'
+            ? 'gtcrn'
+            : settings.audio.noiseSuppression !== 'off'
+              ? 'rnnoise_gated'
+              : 'gain_only';
         const proc = createSendProcessor(
           mode,
           settings.audio.noiseGateThresholdDb,

@@ -6,7 +6,6 @@ can accept Self-Host session-JWTs without duplicating the EdDSA path. This
 module re-exports them for backward compatibility (existing imports such as
 ``from dcc_chat_gateway.session_tokens import validate_session_token`` keep
 working unchanged) and adds the one piece that is chat-gateway-specific:
-:func:`store_session_token`, which writes session metadata to Redis.
 
 chat-gateway is the only service that *mints* tokens (after a successful
 Cert-Auth handshake); ``issue_session_token`` is re-exported from the shared
@@ -32,7 +31,6 @@ from dcc_shared.session_tokens import (
     _token_redis_key,
     issue_session_token,
     reset_session_signer,
-    synthesize_self_host_user_id,
     validate_session_token,
 )
 
@@ -42,25 +40,7 @@ __all__ = [
     "SessionClaims",
     "issue_session_token",
     "reset_session_signer",
-    "store_session_token",
-    "synthesize_self_host_user_id",
     "validate_session_token",
 ]
 
 
-async def store_session_token(
-    token: str,
-    user_identifier: str,
-    cert_id: str,
-    redis: Any,
-) -> None:
-    """Write session metadata to Redis with 5-minute TTL.
-
-    voice-signaling reads from here to validate tokens without needing the
-    signing key (Plan DE 11 A.10).
-    """
-    redis_key = _token_redis_key(token)
-    metadata = json.dumps(
-        {"user_identifier": user_identifier, "cert_id": cert_id}
-    )
-    await redis.set(redis_key, metadata, ex=SESSION_TTL_SECONDS)

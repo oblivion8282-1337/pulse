@@ -7,7 +7,7 @@ coturn (TURN/STUN), and Caddy (reverse proxy + auto-TLS), supervised by
 [s6-overlay](https://github.com/just-containers/s6-overlay) v3 as PID 1.
 
 This file documents the **build + run** flow for the image. End-user setup
-docs (Cloud-approval, DNS, port-forwarding) land in `docs/SELF_HOST.md` —
+docs (Cloud-approval, DNS, port-forwarding) land in `docs/self-host-guide.html` —
 written in Phase 6.B.
 
 **Two registries, one image.** `.github/workflows/allinone.yml` builds and
@@ -43,13 +43,13 @@ the SvelteKit SPA (Node) and downloads four pinned upstream binaries.
 ## Run (advanced: Docker Compose)
 
 > For most operators the one-command installer (`curl … | … bash`, see
-> `docs/SELF_HOST.md`) is the recommended path — it auto-detects the
+> `docs/self-host-guide.html`) is the recommended path — it auto-detects the
 > environment and sets up updates via a host systemd timer (no Docker socket
 > in any container). The compose flow below is for operators who want to manage
 > the stack themselves.
 
 Zwei fertige Compose-Varianten (auch ohne Repo-Clone beziehbar — URLs in
-`docs/SELF_HOST.md` → „Manuelle Installation"):
+`docs/self-host-guide.html` → "Manual installation"):
 
 - **`docker-compose.yml`** — Standardfall: Auto-TLS, der eingebettete Caddy
   holt das Let's-Encrypt-Cert selbst (Port 80 + 443 öffentlich + DNS gesetzt).
@@ -75,12 +75,12 @@ docker run -d --name pulse \
     -p 7882-7892:7882-7892/udp \
     -p 3478:3478 -p 3478:3478/udp \
     -p 1936:1936 -p 8189:8189/udp \
-    -e PULSE_HOSTNAME=chat.firma.de \
+    -e PULSE_HOSTNAME=chat.example.com \
     -e PULSE_INSTANCE_ID=... \
     -e PULSE_INSTANCE_OWNER_ID=... \
     -e PULSE_CLOUD_CLIENT_ID=... \
     -e PULSE_CLOUD_CLIENT_SECRET=... \
-    -e PULSE_ADMIN_EMAIL=admin@firma.de \
+    -e PULSE_ADMIN_EMAIL=admin@example.com \
     registry.howispulse.com/pulse-allinone:stable
 ```
 
@@ -148,9 +148,12 @@ The compose / manual paths manage updates themselves:
 docker compose pull && docker compose up -d
 ```
 
-run manually, or wrapped in a host cron/systemd timer (replicating the
-installer's approach: `docker pull` → digest diff → recreate). End-user docs:
-`docs/SELF_HOST.md` → "Was passiert bei Updates".
+run manually, or wrapped in a host cron/systemd timer. A ready-made script as
+a template lives at `infra/self-host/pulse-update.sh` (download:
+`https://howispulse.com/self-host/pulse-update.sh` — drop it next to
+`docker-compose.yml`, it reads the registry credentials from `.env`; examples
+for cron/systemd are in its header). End-user docs:
+`docs/self-host-guide.html` → "Running it".
 
 ## Diagnose
 

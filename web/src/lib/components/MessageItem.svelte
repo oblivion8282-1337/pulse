@@ -43,6 +43,10 @@
     /** Nur fuer Sprechblasen: letzte Nachricht ihrer Gruppe — dort steht die
      *  Uhrzeit, sonst stuende unter jeder einzelnen Zeile eine. */
     isGroupEnd = true,
+    /** Frisch angekommen (gesendet/empfangen) → kurzes Einblenden. Die
+     *  Markierung kommt aus der Liste (Item-Key, verfaellt nach ~700 ms) —
+     *  ein spaeteres Remount beim Hochscrollen animiert bewusst NICHT nach. */
+    istFrisch = false,
     onReply,
     onEditSubmit,
     onDelete,
@@ -65,6 +69,7 @@
     layout?: 'row' | 'bubble';
     istEigene?: boolean;
     isGroupEnd?: boolean;
+    istFrisch?: boolean;
     onReply: (m: Message) => void;
     onEditSubmit: (m: Message, newContent: string) => void;
     onDelete: (m: Message) => void;
@@ -267,6 +272,9 @@
   {/if}
 {/snippet}
 
+<!-- Die Einblend-Huelle: nur transform/opacity animiert — jede Aenderung der
+     Layout-Groesse wuerde virtua's Hoehenmessung kadern. -->
+<div class="nachricht-huelle {istFrisch ? 'erscheint' : ''}">
 {#if layout === 'bubble'}
   <MessageBubbleLayout
     {message}
@@ -294,6 +302,7 @@
     {actions}
   />
 {/if}
+</div>
 
 <MessageActionSheet bind:open={sheetOpen} {...aktionen} />
 
@@ -327,5 +336,28 @@
     background-color: color-mix(in oklab, var(--primary) 25%, transparent);
     color: var(--text-bright, var(--primary-foreground));
     box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--primary) 60%, transparent);
+  }
+
+  /* Frisch angekommene Nachricht: weich einblenden. NUR transform/opacity —
+     das Layout bleibt unberuehrt, virtua's Hoehenmessung bleibt valide.
+     Kurze Dauer + weiches Ausklingen, damit es "angekommen" statt "hinein-
+     gepoppt" liest. */
+  .nachricht-huelle.erscheint {
+    animation: nachricht-erscheint 260ms cubic-bezier(0.2, 0.8, 0.3, 1);
+  }
+  @keyframes nachricht-erscheint {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .nachricht-huelle.erscheint {
+      animation: none;
+    }
   }
 </style>

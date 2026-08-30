@@ -39,11 +39,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import delete, func, select
 
 import dcc_auth.config as _config
-from dcc_auth.credential_revocation import (
-    REASON_ACCOUNT_DELETE,
-    publish_revocations,
-    revoke_credentials_for_user,
-)
 from dcc_auth.db import SessionDep
 from dcc_auth.models import AdminAuditLog, User, WebAuthnCredential
 from dcc_auth.models_instances import RegisteredInstance
@@ -222,17 +217,14 @@ async def delete_me(
         await soft_delete_instance(session, inst)
     deleted_instance_ids = [inst.id for inst in owned_instances]
 
-    # Geräte-Zertifikate widerrufen, BEVOR die User-Zeile fällt. Der FK
-    # ``issued_credentials.user_id`` steht auf CASCADE — die Zeilen mit den
-    # ``cert_id``s sind gleich weg, und danach kann sie niemand mehr
-    # widerrufen: ein Self-Host prüft ein Zertifikat nur gegen Signatur und
-    # Sperrliste, die Cloud-Nutzertabelle fragt er nie. Ohne diesen Schritt
-    # meldet sich das Gerät des gelöschten Kontos bis zu 365 Tage weiter an,
-    # unwiderruflich. Der Grabstein in ``revoked_credentials`` hängt an keinem
-    # FK und überlebt die Kaskade — er trägt den Widerruf bis ``expires_at``.
-    revoked_certs = await revoke_credentials_for_user(
-        session, user_id, reason=REASON_ACCOUNT_DELETE
-    )
+    # Geräte-Zertifikate gibt es seit dem 2026-08-28 nicht mehr. Hier stand
+    # deshalb ein Widerruf samt Grabstein: Ein Zertifikat lebte bis zu 365 Tage
+    # und war nach dem Löschen des Kontos nicht mehr zurückzuziehen, weil
+    # niemand seine Kennung mehr kannte.
+    #
+    # Mit dem Ticket-Weg löst sich das von selbst: Ein Ticket verlangt eine
+    # gültige Cloud-Sitzung, und die stirbt mit der Nutzerzeile. Bestehende
+    # Self-Host-Sitzungen laufen binnen einer Stunde ab.
 
     # Hard-delete. FK ON DELETE CASCADE handles the four child tables.
     await session.execute(delete(User).where(User.id == user_id))
@@ -251,12 +243,6 @@ async def delete_me(
     )
 
     await session.commit()
-
-    # Erst nach dem Commit in die Redis-Sperrliste: ein Rollback (etwa an der
-    # Instanz-Soft-Löschung) darf keinen Widerruf melden, den es nicht gibt.
-    # Bleibt Redis stumm, trägt der Grabstein — der CRL-Endpunkt füllt ein
-    # leeres ZSET aus der Datenbank nach.
-    await publish_revocations(revoked_certs)
 
     # Kill-Switch-Cache für gelöschte Instanzen invalidieren (nach dem Commit,
     # analog delete_my_instance): ein noch laufender Container sieht sich beim

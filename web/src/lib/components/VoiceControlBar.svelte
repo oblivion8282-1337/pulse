@@ -307,7 +307,7 @@
               {...props}
               variant="destructive"
               size="icon-sm"
-              class="ml-auto max-md:ml-0 {btnCls}"
+              class={btnCls}
               onclick={() => voice.disconnect({ reason: 'user' })}
               data-testid="voice-disconnect"
               aria-label={m.voice_bar_leave()}

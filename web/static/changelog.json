@@ -2,6 +2,57 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-28.4",
+      "date": "2026-08-28",
+      "style": "Sachlich",
+      "title": "Server einrichten — aufgeräumt",
+      "intro": "Zwei Kleinigkeiten in der Server-Einrichtung.",
+      "items": [
+        "Der Block „Mit einem KI-Assistenten installieren?“ ist entfallen. Er täuschte einen dritten Weg vor, wo es nur zwei gibt — den schnellen Befehl und die manuelle Installation.",
+        "Der Link zur ausführlichen Anleitung heißt jetzt „Installationsanleitung“ und führt auf eine neu gestaltete, übersichtlichere Seite statt auf reinen Text."
+      ]
+    },
+    {
+      "id": "2026-08-28.3",
+      "date": "2026-08-28",
+      "style": "Sachlich",
+      "title": "Eigene Server verwalten — von überall",
+      "intro": "Zwei Kleinigkeiten in der Server-Leiste, die zusammengehören.",
+      "items": [
+        "Der Knopf zu deinen eigenen Servern war nur sichtbar, solange du in der Pulse-Cloud warst. Ausgerechnet auf dem eigenen Server war er weg. Er ist jetzt immer da — die Liste gehört zu deinem Konto, nicht zum gerade geöffneten Server.",
+        "Ein Rechtsklick auf den eigenen Server bot bisher „Server verlassen“ an. Das ging nie: Als Betreiber kann man seinen Server nicht verlassen, nur löschen. Dort steht jetzt „Eigene Server verwalten“ und führt an die Stelle, an der das Löschen tatsächlich möglich ist."
+      ]
+    },
+    {
+      "id": "2026-08-28.2",
+      "date": "2026-08-28",
+      "style": "Sachlich",
+      "title": "Anmeldung an eigenen Servern ohne Geräte-Ausweis",
+      "intro": "Bisher legte dein Browser dafür einen dauerhaften Ausweis an. Das entfällt — mit einer Folge für Betreiber eigener Server.",
+      "items": [
+        "Beim Anmelden an einem Server, der nicht in der Pulse-Cloud liegt, holt die App jetzt einen kurzlebigen Ausweis für genau diesen Server. In deinem Browser bleibt nichts Dauerhaftes mehr liegen.",
+        "Damit sind mehrere Geräte und mehrere Browser selbstverständlich. Der Ausweis eines Geräts kann keinem anderen mehr im Weg stehen.",
+        "Schlägt eine Anmeldung fehl, steht jetzt der Grund da und was du tun kannst — statt „Anmeldung abgelaufen oder Server nicht erreichbar“ für jede denkbare Ursache.",
+        "Wichtig für Betreiber eigener Server: Der frühere Anmeldeweg ist ersatzlos entfallen. Ein Server, der noch auf dem alten Stand läuft, nimmt niemanden mehr auf, und ein Update allein genügt nicht — er muss neu aufgesetzt werden. Er sagt dir das beim Start und startet bis dahin nicht, statt halb zu funktionieren.",
+        "Die Erreichbarkeitsprüfung zeigt jetzt zusätzlich an, ob ein Server den aktuellen Anmeldeweg beherrscht.",
+        "Wer sich an einem fremden Server anmeldet, gibt dessen Betreiber künftig seine Pulse-Kontokennung preis. Der neue Abschnitt 20 der Datenschutzerklärung erklärt, was das bedeutet.",
+        "Die Geräteliste in den Einstellungen ist entfallen. Ihre Aufgabe erfüllt jetzt die Liste der aktiven Sitzungen: Wer dort eine Sitzung beendet, entzieht damit auch den Zugang zu eigenen Servern — dort spätestens nach einer Stunde."
+      ]
+    },
+    {
+      "id": "2026-08-28",
+      "date": "2026-08-28",
+      "style": "Sachlich",
+      "title": "Zwei Browser gleichzeitig, ohne dass einer den anderen abmeldet",
+      "intro": "Wer Pulse in einem zweiten Browser auf demselben Rechner öffnete, verlor damit den Zugang im ersten.",
+      "items": [
+        "Betroffen war der Zugang zu Servern, die nicht in der Pulse-Cloud liegen. Dort meldete sich die App danach mit „Anmeldung abgelaufen oder Server nicht erreichbar“, obwohl der Server einwandfrei lief.",
+        "Besonders zäh war, dass ein Ausweichen auf einen anderen Browser den Zustand nicht behob, sondern erzeugte: Jede Anmeldung im einen Browser nahm dem anderen den Zugang, und umgekehrt.",
+        "Chrome, Edge, ein zweites Browser-Profil und ein Fenster im privaten Modus galten dabei als ein und dasselbe Gerät. Das ist jetzt nicht mehr so, es sind eigene Einträge in der Geräteliste.",
+        "In den Einstellungen unter „Geräte“ können mehrere gleichnamige Einträge stehen. Sie sind am Ausstellungsdatum und an der Markierung für das aktuelle Gerät zu unterscheiden; einzeln abmelden geht wie zuvor."
+      ]
+    },
+    {
       "id": "2026-08-27.10",
       "date": "2026-08-27",
       "style": "Sachlich",

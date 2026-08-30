@@ -163,7 +163,7 @@ export type SelfHostBackupStatus = {
 };
 
 /** Instanzweite Nutzer (F11c) — die `cached_user_profiles` der aktiven
- * Self-Host-Instanz. `user_identifier` ist die pairwise-sub (TEXT, kein
+ * Self-Host-Instanz. `user_identifier` ist die Nutzer-Kennung (TEXT, kein
  * Snowflake). `banned_at != null` = instanzweit gebannt. */
 export type InstanceMember = {
   user_identifier: string;
@@ -464,7 +464,7 @@ export const adminApi = {
    *
    * ``includeAuth=false`` (Self-Host): nur der chat-gateway-Audit von der aktiven
    * Instanz. Der auth-svc-Audit liegt auf der Cloud (Identity-Plane) und ist für
-   * einen Cert-Login-Admin nicht zugänglich (403) + inhaltlich leer (keine
+   * einen Self-Host-Admin nicht zugänglich (403) + inhaltlich leer (keine
    * lokalen auth.users-Aktionen).
    */
   async mergedAuditLog(limit = 50, includeAuth = true): Promise<AuditLogEntry[]> {

@@ -38,6 +38,9 @@
     /** Huelle der Nachrichten. Sprechblasen nur in privaten Gespraechen —
      *  im Kanal tragen Autorname und -farbe die Orientierung. */
     layout = 'row',
+    /** REST-Route fürs Nachladen: DMs laufen gegen die Cloud (siehe ChatView),
+     *  Guild-Kanäle gegen den aktiven Server (leer = Default-Weiche). */
+    route = {},
     onSetReplyTarget,
     onEditMessage,
     onDeleteMessage,
@@ -52,6 +55,7 @@
     myId: string | null;
     namePrefix?: string;
     isOwner?: boolean;
+    route?: { serverId?: string };
     onSetReplyTarget: (m: Message) => void;
     onEditMessage: (m: Message, newContent: string) => void;
     onDeleteMessage: (m: Message) => void;
@@ -68,6 +72,9 @@
   // und async Content-Load (Bilder/Embeds) werden hierüber beobachtet.
   let wrapperEl = $state<HTMLDivElement | null>(null);
   let lastCount = $state(0);
+  // ID der letzten bekannten Nachricht — erkennt den Echo-Swap (tmp → echte
+  // ID bei GLEICHER Länge), der nur über die Länge unsichtbar bliebe.
+  let lastSeenId = $state('');
   // Ob der User aktuell ganz unten an der Liste klebt. Wird LAUFEND beim
   // Scrollen aktualisiert — also BEVOR eine neue Nachricht die Liste höher
   // macht. Neue Nachrichten wachsen den Container nach unten, ohne ein
@@ -75,6 +82,18 @@
   let pinnedToBottom = $state(true);
   // Kurzzeitig zu highlightende Nachricht (z.B. nach jumpToReply).
   let highlightId = $state<string | null>(null);
+  // Frisch angekommen (gesendet/empfangen) → kurzes Einblenden. Markierung
+  // haengt am ITEM-KEY (nonce/ID) und verfaellt nach kurzer Zeit: ein
+  // spaeteres Remount derselben Nachricht beim Hochscrollen animiert nicht
+  // nach. Der Echo-Swap (Laenge gleich) und der Initial-Load animieren
+  // bewusst nicht — nur echtes Listenwachstum.
+  let freshKey = $state<string | null>(null);
+  let freshTimer: ReturnType<typeof setTimeout> | null = null;
+  function markiereFrisch(key: string) {
+    freshKey = key;
+    if (freshTimer) clearTimeout(freshTimer);
+    freshTimer = setTimeout(() => { freshKey = null; }, 700);
+  }
   // Infinite-Scroll-Up-State.
   let hasMore = $state(true); // es könnte ältere Historie geben
   let loadingOlder = $state(false);
@@ -105,8 +124,18 @@
     }
   }
 
-  function pinToEnd() {
-    if (items.length > 0) vlist?.scrollToIndex(items.length - 1, { align: 'end' });
+  /** Ans Listenende. Mit `soft` gleitet der Weg (natives behavior:'smooth'),
+   *  ohne springt er — Initial-Load und Kanalwechsel sollen weiter instant
+   *  sein. Der Glide ist kurz (eine Nachrichtenhohe) und am Listenende, wo
+   *  virtua alles schon gemessen hat — die Performance-Warnung in virtua's
+   *  Dokumentation („smooth über viele Items tötet die Virtualisierung")
+   *  betrifft Fernspruenge, nicht diesen Fall. `prefers-reduced-motion`
+   *  schaltet das Gleiten ab. */
+  function pinToEnd(soft = false) {
+    if (items.length === 0) return;
+    const schontReduced =
+      typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    vlist?.scrollToIndex(items.length - 1, { align: 'end', smooth: soft && !schontReduced });
   }
 
   // Zwei Frames warten, nicht nur `tick()`: nach dem tick steht die neue Zeile
@@ -115,12 +144,25 @@
   // ResizeObserver einen Frame später korrigiert (sichtbares Zucken, bei
   // Bildnachrichten dreistellig). Nach zwei Frames ist gemessen und das Ziel
   // exakt; die Zeile ist solange ohnehin `visibility:hidden`.
-  function pinToEndWhenMeasured() {
+  //
+  // `unbedingt` (nur Initial-Load) pinnt auch dann, wenn der User inzwischen
+  // hochgescrollt hat — es gibt dort noch keine Position zu schützen. In allen
+  // anderen Fällen wird beim ABLAUF erneut geprüft: Der User kann in den ~2
+  // Frames seit der Planung hochgescrollt haben (Rad, Scrollbar-Drag, PgUp —
+  // Letztere erzeugen kein wheel-Event), und sein Scrollwille schlägt den Pin.
+  // Ohne diesen Re-Check riss jeder kurz nach dem Absenden begonnene
+  // Hochscroll-Versuch wieder nach unten („ich kann nicht hoch scrollen“).
+  function pinToEndWhenMeasured(unbedingt = false) {
     const forChannel = channel?.id;
     void tick().then(() =>
       requestAnimationFrame(() =>
         requestAnimationFrame(() => {
-          if (channel?.id === forChannel) pinToEnd();
+          if (channel?.id !== forChannel) return;
+          if (!unbedingt && !pinnedToBottom) return;
+          // Initial-Load springt instant; Appends (eigene + fremde Nachrichten)
+          // gleiten — die bestehenden Nachrichten wandern sanft hoch statt
+          // hart umzusetzen.
+          pinToEnd(!unbedingt);
         })
       )
     );
@@ -169,27 +211,50 @@
   // Reset beim Kanalwechsel — sonst sieht der erste WS-Push in einen frisch
   // gewechselten Channel nicht wie ein "initial load" aus → kein scroll-to-bottom.
   // VList behält den internen Offset beim data-Tausch → explizit auf 0 setzen.
+  //
+  // Trigger ist AUSSCHLIESSLICH die Kanal-ID (String), nie die Prop-Referenz:
+  // DMs bauen ihr synthetisches Channel-Objekt bei jedem Store-Bump neu —
+  // und `dm_bump` läuft bei JEDEM Senden/Empfangen. An der Objekt-Identität
+  // gemessen, hätte jeder Reply die ganze Reset-Kaskade gezündet (gemessen
+  // im Dev-Stack: Sprung auf 0 → Historien-Kaskade → Sprung ans Ende, drei
+  // sichtbare Glitches pro Nachricht). Ein String deduped sauber.
+  let channelKey = $derived(channel?.id ?? '');
   $effect(() => {
-    void channel?.id;
+    void channelKey;
     untrack(() => {
       lastCount = 0;
+      lastSeenId = '';
       pinnedToBottom = true;
       hasMore = true;
       loadingOlder = false;
+      freshKey = null;
+      if (freshTimer) clearTimeout(freshTimer);
       vlist?.scrollToIndex(0);
     });
   });
 
   $effect(() => {
     const count = messages.length;
-    if (count !== lastCount) {
+    const lastId = count > 0 ? messages[count - 1].id : '';
+    // Nicht nur die LÄNGE, auch die letzte ID zählt: der WS-Echo ersetzt die
+    // optimistische `tmp-`-Kopie per Nonce IN PLACE (Länge gleich) — die echte
+    // Nachricht ist aber oft höher (Mention-Pills, Anhänge), und ohne Re-Pin
+    // wächst dieser Zuwachs unter dem Viewport weg: die Ansicht rutscht beim
+    // Absenden relativ nach oben („ruckelig“). Der ID-Vergleich fängt den
+    // Swap, ein Re-Pin (oben: mit Scroll-Willen-Check) glättet ihn.
+    if (count !== lastCount || lastId !== lastSeenId) {
       const isInitialLoad = lastCount === 0;
+      const gewachsen = count > lastCount;
       // "Klebt der User unten?" wird VOR dem DOM-Wachstum bestimmt (über den
       // laufenden Scroll-Handler) — nicht erst nach tick(), wenn die neue,
       // u.U. >80px hohe Nachricht die Messung schon verfälscht hätte.
       const shouldScroll = isInitialLoad || pinnedToBottom;
       lastCount = count;
-      if (shouldScroll) pinToEndWhenMeasured();
+      lastSeenId = lastId;
+      if (shouldScroll) pinToEndWhenMeasured(isInitialLoad);
+      if (gewachsen && !isInitialLoad && count > 0) {
+        markiereFrisch(messages[count - 1].nonce ?? lastId);
+      }
     }
   });
 
@@ -201,7 +266,7 @@
   $effect(() => {
     const el = wrapperEl;
     if (!el) return;
-    const onGrow = () => { if (pinnedToBottom) pinToEnd(); };
+    const onGrow = () => { if (pinnedToBottom) pinToEnd(true); };
     const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(onGrow);
     ro?.observe(el);
     el.addEventListener('load', onGrow, true);
@@ -341,7 +406,11 @@
 
     const out: ChatItem[] = [];
     if (!prevDate || mDateStr !== prevDateStr) {
-      out.push({ kind: 'divider', label: formatDividerLabel(mDate, today, yesterday), key: `div-${m.id}` });
+      out.push({
+        kind: 'divider',
+        label: formatDividerLabel(mDate, today, yesterday),
+        key: `div-${m.nonce ?? m.id}`
+      });
     }
 
     const isContinuation =
@@ -350,7 +419,17 @@
       mDate.getTime() - prevDate!.getTime() < 7 * 60 * 1000 &&
       mDateStr === prevDateStr;
 
-    out.push({ kind: 'message', message: m, isContinuation, isGroupEnd: true, key: m.id });
+    // Key = Nonce, wenn vorhanden: Der WS-Echo ersetzt die optimistische
+    // `tmp-`-Kopie unter BEHALTUNG des Keys — virtua updated die Zeile in
+    // place statt sie unzumontieren und neu vermessen zu lassen (Flackern
+    // beim Absenden). Nachrichten ohne Nonce (alle eingehenden) keyn per ID.
+    out.push({
+      kind: 'message',
+      message: m,
+      isContinuation,
+      isGroupEnd: true,
+      key: m.nonce ?? m.id
+    });
     return out;
   }
 
@@ -476,6 +555,7 @@
               avatarUrl={avatarUrl}
               isContinuation={item.isContinuation}
               isGroupEnd={item.isGroupEnd}
+              istFrisch={freshKey === item.key}
               {layout}
               istEigene={item.message.author_id === myId}
               highlight={highlightId === item.message.id}

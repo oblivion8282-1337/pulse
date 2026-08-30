@@ -17,7 +17,7 @@ from dcc_chat_gateway import s3
 from dcc_chat_gateway.cleanup import cleanup_loop as push_cleanup_loop
 from dcc_chat_gateway.cloud_policy_poller import cloud_policy_poller_loop
 from dcc_chat_gateway.config import get_settings
-from dcc_chat_gateway.crl_poller import crl_poller_loop
+from dcc_chat_gateway.jwks_poller import jwks_poller_loop
 from dcc_chat_gateway.db import engine
 from dcc_chat_gateway.jwks_pinning import jwks_retry_loop
 from dcc_chat_gateway.owner_admin_log import log_owner_konfiguration
@@ -178,6 +178,14 @@ async def lifespan(app: FastAPI):
             "Set PULSE_INSTANCE_ID in your .env file to the Snowflake-ID assigned "
             "by the Cloud at approval time."
         )
+    # Fail-fast: Daten aus der Pseudonym-Zeit. Ein Self-Host aktualisiert sich
+    # unbeaufsichtigt alle fuenf Minuten; ohne diesen Riegel liefe er nach dem
+    # Update still halb kaputt an. Details in ``altbestand_riegel``.
+    if not getattr(app.state, "skip_redis", False) and settings.pulse_instance_mode == "self-host":
+        from dcc_chat_gateway.altbestand_riegel import pruefe_altbestand
+        from dcc_chat_gateway.db import SessionLocal
+
+        await pruefe_altbestand(SessionLocal)
     # Fail-fast: der .env.example-Platzhalter ist öffentlich bekannt — damit zu
     # starten hieße, die internen Service-zu-Service-Endpoints mit einem
     # allgemein bekannten "Secret" zu schützen. Leer = deaktiviert, ok.
@@ -205,7 +213,7 @@ async def lifespan(app: FastAPI):
     push_cleanup: asyncio.Task | None = None
     idle_sweeper: asyncio.Task | None = None
     voice_pull_reaper: asyncio.Task | None = None
-    crl_poller: asyncio.Task | None = None
+    jwks_poller: asyncio.Task | None = None
     suspend_poller: asyncio.Task | None = None
     cloud_policy_task: asyncio.Task | None = None
     jwks_retry: asyncio.Task | None = None
@@ -258,12 +266,12 @@ async def lifespan(app: FastAPI):
         remote_audit = asyncio.create_task(
             remote_perm_audit_loop(manager), name="dcc-remote-perm-audit"
         )
-        # CRL poller — fetches revoked-cert list from Cloud every 30 s.
-        # Without this task the ``auth:revoked:certs`` Redis set stays empty
-        # in prod and revoked certs would pass validation (security hole).
-        crl_poller = asyncio.create_task(
-            crl_poller_loop(redis, settings.pulse_cloud_origin),
-            name="dcc-crl-poller",
+        # JWKS-Poller — holt die oeffentlichen Cloud-Schluessel alle 30 s.
+        # Ohne sie kann ein Self-Host kein Serverticket pruefen; faellt der
+        # Abruf aus, bleibt der letzte bekannte Stand stehen (fail-open).
+        jwks_poller = asyncio.create_task(
+            jwks_poller_loop(redis, settings.pulse_cloud_origin),
+            name="dcc-jwks-poller",
         )
         # Sperr-Poller — erfaehrt, wenn die Cloud DIESE Instanz gesperrt oder
         # geloescht hat. Nur im Self-Host-Modus: in der Cloud gibt es niemanden,
@@ -370,7 +378,7 @@ async def lifespan(app: FastAPI):
         if owns_manager:
             bg_tasks = (
                 supervisor, reaper, push_cleanup, idle_sweeper,
-                voice_pull_reaper, crl_poller, suspend_poller, cloud_policy_task,
+                voice_pull_reaper, jwks_poller, suspend_poller, cloud_policy_task,
                 jwks_retry, dropbox_sweep_task, remote_audit,
             )
             for task in bg_tasks:

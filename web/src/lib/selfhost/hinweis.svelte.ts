@@ -10,21 +10,34 @@
  * Bedingung wären genau die Sorte Duplikat, die später an einer der beiden
  * Stellen still veraltet.
  *
- * **Nur auf der Cloud.** Die Instanz-Verwaltung lebt dort; auf einem fremden
- * Server kennt die auth-API `/me/instances` gar nicht. Dieselbe Bedingung
- * gatet deshalb auch die Knöpfe selbst (`selfHostEinstiegSichtbar`).
+ * **Überall sichtbar, nicht nur auf der Cloud** (seit 2026-08-28). Bis dahin
+ * hing der Einstieg an `activeServer.isCloud`, begründet damit, dass „auf einem
+ * fremden Server die auth-API `/me/instances` gar nicht kennt". Das stimmt
+ * nicht: Der Bereich holt seine Daten über `cookieFetch`, und das geht immer an
+ * `AUTH_BASE` — also an die Cloud, weil die Web-App von dort ausgeliefert wird.
+ * Welcher Server gerade aktiv ist, spielt dabei keine Rolle (dieselbe Ausnahme
+ * gilt in `client.ts::buildUrl` für `endpoint === 'auth'`: immer Cloud-relativ).
  *
- * Ohne eigene Runen: beide Funktionen lesen die Stores beim AUFRUF, der
- * Aufrufer packt sie in sein `$derived` — dasselbe Muster wie
+ * Die Folge der falschen Annahme war verdreht: Ausgerechnet der KONTO-weite
+ * Knopf („meine eigenen Server") war an den aktiven Server gekoppelt, während
+ * der server-bezogene Admin-Knopf daneben korrekt überall erschien. Wer auf
+ * seinem eigenen Server nach der Verwaltung suchte, fand sie nicht — also genau
+ * dort nicht, wo man sie am ehesten sucht.
+ *
+ * Ohne eigene Runen: `selfHostHinweisOffen` liest ihre Stores beim AUFRUF, der
+ * Aufrufer packt das Ergebnis in sein `$derived` — dasselbe Muster wie
  * `reiterAuswahl.svelte.ts`.
  */
-import { activeServer } from '$lib/stores/active-server.svelte';
 import { myAppHostApplications } from '$lib/stores/myAppHostApplications.svelte';
 import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
 
-/** Zeigt dieser Client den Self-Host-Einstieg überhaupt? (Cloud-only) */
+/** Zeigt dieser Client den Self-Host-Einstieg überhaupt?
+ *
+ *  Ja — er gehört zum Konto, nicht zum gerade aktiven Server. Die Funktion
+ *  bleibt als benannte Stelle stehen, damit die drei Aufrufer eine gemeinsame
+ *  Antwort haben, falls je wieder eine Bedingung dazukommt. */
 export function selfHostEinstiegSichtbar(): boolean {
-  return activeServer.current?.isCloud ?? false;
+  return true;
 }
 
 /** Roter Punkt am Einstieg: ein eigener Antrag ist freigeschaltet und hier

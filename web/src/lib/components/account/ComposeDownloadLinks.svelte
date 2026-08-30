@@ -22,6 +22,10 @@
     {
       name: 'docker-compose.behind-proxy.yml',
       label: () => m.instance_setup_manual_compose_proxy()
+    },
+    {
+      name: 'pulse-update.sh',
+      label: () => m.instance_setup_manual_update_script()
     }
   ];
 </script>

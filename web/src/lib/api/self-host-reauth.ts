@@ -2,7 +2,7 @@
  * Self-Host Re-Auth-Handler — Phase 5.2.
  *
  * Verbindet die Re-Auth-Hooks aus ``client.ts`` UND ``gateway-connection.ts``
- * mit dem Cert-Login-Flow. Beide Module haben einen eigenen ``_selfHost
+ * mit der Ticket-Anmeldung. Beide Module haben einen eigenen ``_selfHost
  * ReauthHandler``-Slot — der eine wird bei REST-401/expired-Token gefeuert,
  * der andere beim WS-Reconnect mit expired Self-Host-Session-Token. Wir
  * registrieren denselben Handler für beide, sonst greift Re-Auth nur auf
@@ -25,8 +25,10 @@ import { setSelfHostReauthHandler as setGatewayReauth } from '$lib/ws/gateway-co
 import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
 import { serversStore } from './servers.svelte';
 import { sessionTokens } from './session_tokens.svelte';
-import { certLogin, CertLoginError } from './cert-login';
+import { holeTicket, loeseTicketEin, TicketFehler } from './server-ticket';
 import { instancesApi } from './instances';
+import type { ServerEntry } from './servers.svelte';
+import { merkeGrund, vergissGrund } from './anmelde-fehler';
 
 // Pro App-Session einmal die Cloud-Membership backfillen — deckt Server ab, die
 // schon vor dem Membership-Sync (oder als Nicht-Owner-Invite) lokal hinzugefügt
@@ -40,6 +42,81 @@ const membershipSynced = new Set<string>();
 // machen können.
 const inflight = new Map<string, Promise<boolean>>();
 
+/**
+ * Nach erfolgreicher Anmeldung: Cloud-Mitgliedschaft nachtragen und die
+ * WebSocket anstossen.
+ *
+ * Für BEIDE Anmeldewege dieselbe Fassung. Zwei Kopien wären hier besonders
+ * teuer: Der Teil, der den neuen Token an den offenen Socket meldet, ist genau
+ * die Stelle, an der ein Self-Host-Nutzer sonst im Fünf-Minuten-Takt aus den
+ * Listen der anderen flackerte.
+ */
+async function nachAnmeldung(
+  serverId: string,
+  server: ServerEntry,
+  instanceId: string | null,
+  frischesToken: string,
+): Promise<void> {
+  vergissGrund(serverId);
+  // Ab jetzt ist belegt, dass hier je eine Anmeldung durchging — die Rail zeigt
+  // sonst dauerhaft „nie eingerichtet".
+  if (server.je_verbunden !== true) serversStore.update(serverId, { je_verbunden: true });
+  // Cloud-Membership-Backfill (einmal pro Session). So wird auch ein früher
+  // beigetretener Self-Host im Browser sichtbar, ohne ihn neu hinzuzufügen.
+  // Best-effort.
+  if (instanceId && !membershipSynced.has(serverId)) {
+    membershipSynced.add(serverId);
+    void instancesApi.joinInstanceMembership(instanceId).catch(() => {
+      membershipSynced.delete(serverId); // Retry beim nächsten Reauth.
+    });
+  }
+  // Der Reauth-Hook wird oft von `_resolveToken()` gerufen, wenn die Connection
+  // mangels Token bereits `closed` ist. Ohne expliziten Re-Connect bliebe sie
+  // still, obwohl der neue Token in der Session-Map liegt.
+  const conn = gatewayPool.peek(serverId);
+  if (conn && (conn.state === 'closed' || conn.state === 'idle')) {
+    void conn.connect().catch(() => undefined);
+  } else if (conn && conn.state === 'open') {
+    // Steht die Verbindung noch, bekommt sie den neuen Token gereicht statt ihn
+    // erst beim nächsten Aufbau zu sehen. Der Server hängt die Lebensdauer des
+    // Sockets an das `exp` des Tokens, mit dem verbunden wurde.
+    conn.pushToken(frischesToken);
+  }
+}
+
+/**
+ * Anmeldung über ein Cloud-Ticket. Gibt `true` bei Erfolg zurück.
+ *
+ * Der Grund eines Fehlschlags wird hier benannt statt verschluckt — das war
+ * der Kern des Umbaus. Wer die Zeile im Betrieb sieht, weiss ohne weitere
+ * Fehlersuche, was zu tun ist.
+ */
+async function ueberTicket(serverId: string, server: ServerEntry): Promise<string | null> {
+  try {
+    // Hostname, nicht Kennung: Die Cloud löst auf. Den Server selbst zu fragen
+    // hiesse, einem womöglich bösartigen Host die Wahl zu lassen, für WEN das
+    // Ticket ausgestellt wird.
+    const { ticket } = await holeTicket(server.hostname);
+    const sitzung = await loeseTicketEin(server.hostname, ticket);
+    sessionTokens.set(serverId, sitzung.session_token, Date.now() + sitzung.expires_in * 1000);
+    return sitzung.session_token;
+  } catch (err) {
+    if (err instanceof TicketFehler) {
+      merkeGrund(serverId, err.code);
+      console.warn(`[self-host-reauth] ${serverId}: ${err.code}`);
+      // Auf dieser Instanz gebannt → die Cloud-Mitgliedschaft wegräumen, sonst
+      // zeigt der Server bei `GET /me/instances` weiter auf allen anderen
+      // Geräten. Best-effort.
+      if (err.code === 'instance banned' && server.instance_id) {
+        void instancesApi.leaveInstanceMembership(server.instance_id).catch(() => undefined);
+      }
+    } else {
+      console.warn(`[self-host-reauth] ${serverId}: unexpected`, err);
+    }
+    return null;
+  }
+}
+
 async function reauth(serverId: string): Promise<boolean> {
   const server = serversStore.find(serverId);
   if (!server || server.isCloud) return false;
@@ -48,56 +125,10 @@ async function reauth(serverId: string): Promise<boolean> {
   // abgelaufenen Bearer verwendet während die Re-Auth läuft.
   sessionTokens.clear(serverId);
 
-  try {
-    const result = await certLogin(server.hostname);
-    sessionTokens.set(serverId, result.session_token, Date.now() + result.expires_in * 1000);
-    // pairwise_sub kann sich nicht ändern (deterministisch) — nur setzen,
-    // falls der Server-Eintrag noch keine hat (Backfill aus früheren Builds).
-    if (!server.pairwise_sub) {
-      serversStore.update(serverId, { pairwise_sub: result.pairwise_sub });
-    }
-    // Cloud-Membership-Backfill (einmal pro Session). So wird auch ein vor
-    // diesem Fix beigetretener Self-Host im Browser sichtbar, ohne ihn neu
-    // hinzufügen zu müssen. Best-effort.
-    const instanceId = result.instance_id ?? server.instance_id;
-    if (instanceId && !membershipSynced.has(serverId)) {
-      membershipSynced.add(serverId);
-      void instancesApi.joinInstanceMembership(instanceId).catch(() => {
-        membershipSynced.delete(serverId); // Retry beim nächsten Reauth.
-      });
-    }
-    // WS-Trigger: der Reauth-Hook wird oft vom _resolveToken() aufgerufen,
-    // wenn die Connection mangels Token bereits ins ``closed``-Stadium
-    // gegangen ist. Ohne expliziten Re-Connect bleibt sie still, obwohl der
-    // neue Token in der Session-Map liegt. Wir stoßen die Verbindung nach
-    // erfolgreicher Re-Auth selber wieder an.
-    const conn = gatewayPool.peek(serverId);
-    if (conn && (conn.state === 'closed' || conn.state === 'idle')) {
-      void conn.connect().catch(() => undefined);
-    } else if (conn && conn.state === 'open') {
-      // Steht die Verbindung noch, bekommt sie den neuen Token gereicht statt
-      // ihn erst beim nächsten Aufbau zu sehen. Der Server hängt die
-      // Lebensdauer des Sockets an das ``exp`` des Tokens, mit dem verbunden
-      // wurde — ohne diese Meldung schliesst er ihn beim alten Ablauf, obwohl
-      // längst ein frischer Token vorliegt. Genau das war der 5-Minuten-Takt,
-      // in dem ein Self-Host-Nutzer aus den Listen der anderen flackerte.
-      conn.pushToken(result.session_token);
-    }
-    return true;
-  } catch (err) {
-    if (err instanceof CertLoginError) {
-      console.warn(`[self-host-reauth] ${serverId}: ${err.reason}`);
-      // Auf dieser Instanz gebannt → die Cloud-Membership wegräumen, sonst
-      // zeigt der Server bei ``GET /me/instances`` weiter auf allen anderen
-      // Geräten. Best-effort.
-      if (err.reason === 'instance-banned' && server.instance_id) {
-        void instancesApi.leaveInstanceMembership(server.instance_id).catch(() => undefined);
-      }
-    } else {
-      console.warn(`[self-host-reauth] ${serverId}: unexpected`, err);
-    }
-    return false;
-  }
+  const token = await ueberTicket(serverId, server);
+  if (!token) return false;
+  await nachAnmeldung(serverId, server, server.instance_id ?? null, token);
+  return true;
 }
 
 function reauthOnce(serverId: string): Promise<boolean> {

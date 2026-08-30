@@ -194,6 +194,10 @@
   // Cloud-scoped (DM) → Cloud-User-ID (auth.user.id); sonst aktive-Server-ID.
   let myId = $derived(cloudScoped ? (auth.user?.id ?? null) : currentServerUserId());
 
+  // REST-Route fürs Historie-Nachladen der MessageList: DMs gegen die Cloud,
+  // Guild-Kanäle gegen den aktiven Server (leer = Default-Weiche der API).
+  let messageRoute = $derived(cloudScoped ? { serverId: serversStore.cloudId() } : {});
+
   // Laufenden Drag bei Kanalwechsel abbrechen — sonst bleibt das Drop-Overlay
   // sichtbar, wenn der User während eines Drags den Kanal wechselt.
   $effect(() => {

@@ -2,7 +2,7 @@
 
 Wenn du den Pulse-Stack auf einem neuen Rechner (oder nach einem Neuaufsetzen)
 zum Laufen bringen willst: das hier ist die Schritt-für-Schritt-Anleitung.
-Sie ist getrennt von `docs/SELF_HOST.md` — das richtet sich an Endkunden,
+Sie ist getrennt von `docs/self-host-guide.html` — das richtet sich an Endkunden,
 die produktiv hosten wollen; hier geht's um den **Entwickler-Stack**
 (Hot-Reload, Tests, lokale Postgres, alles auf 127.0.0.1).
 
@@ -276,7 +276,7 @@ zeigt die `cont-init`-Schritte und welcher fehlgeschlagen ist.
 |---|---|
 | Architektur-Übersicht + Tech-Stack-Stolpersteine | `CLAUDE.md` (Root) |
 | Master-Plan + Phasen-Roadmap | `PLAN.md` |
-| Self-Host-Operator-Doku (für Endkunden) | `docs/SELF_HOST.md` |
+| Self-Host-Operator-Doku (für Endkunden, englisch) | `docs/self-host-guide.html` |
 | Self-Host-Image-Innenleben (für Entwickler) | `infra/self-host/README.md` |
 | Plugin-Manifest-Format | `docs/PLUGIN_MANIFEST.md` |
 | Plugin-Roadmap (A → B → C) | `docs/PLUGIN_ROADMAP.md` |

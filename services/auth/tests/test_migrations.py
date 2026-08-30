@@ -139,62 +139,6 @@ async def test_user_sessions_indexes(engine):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_issued_credentials_table_exists(engine):
-    """migration 0014: issued_credentials table must be created."""
-    async with engine.connect() as conn:
-        tables = await conn.run_sync(
-            lambda sync_conn: sa_inspect(sync_conn).get_table_names()
-        )
-    assert "issued_credentials" in tables, "issued_credentials table not found"
-
-
-@pytest.mark.asyncio
-async def test_issued_credentials_columns(engine):
-    """migration 0014: issued_credentials must have all required columns."""
-    expected = {
-        "cert_id", "user_id", "device_pubkey", "device_label",
-        "issued_at", "expires_at", "revoked_at",
-    }
-    async with engine.connect() as conn:
-        cols = await conn.run_sync(
-            lambda sync_conn: sa_inspect(sync_conn).get_columns("issued_credentials")
-        )
-    names = {c["name"] for c in cols}
-    missing = expected - names
-    assert not missing, f"issued_credentials missing columns: {missing}"
-
-
-@pytest.mark.asyncio
-async def test_issued_credentials_revoked_at_nullable(engine):
-    """migration 0014: revoked_at must be nullable (active certs have none)."""
-    async with engine.connect() as conn:
-        cols = await conn.run_sync(
-            lambda sync_conn: sa_inspect(sync_conn).get_columns("issued_credentials")
-        )
-    col_map = {c["name"]: c for c in cols}
-    assert col_map["revoked_at"]["nullable"], "revoked_at should be nullable"
-
-
-@pytest.mark.asyncio
-async def test_issued_credentials_indexes(engine):
-    """migration 0014: issued_credentials must have expires_at index."""
-    async with engine.connect() as conn:
-        idxs = await conn.run_sync(
-            lambda sync_conn: sa_inspect(sync_conn).get_indexes("issued_credentials")
-        )
-    idx_names = {i["name"] for i in idxs}
-    assert "ix_issued_credentials_expires_at" in idx_names
-
-
-# ---------------------------------------------------------------------------
-# User-Cloud-Backup wurde 2026-06-28 entfernt (siehe drop-Migration
-# ``9999_drop_user_cloud_backup``). Die Tabellen ``encrypted_key_backups`` und
-# ``account_keys`` werden am Ende der Kette gedroppt; die früheren
-# "existiert"-Tests sind obsolet. Stattdessen prüfen wir, dass sie nach dem
-# Drop wirklich weg sind.
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
 async def test_user_cloud_backup_tables_dropped(engine):
     """drop-Migration: encrypted_key_backups + account_keys müssen weg sein."""
     async with engine.connect() as conn:
@@ -211,59 +155,6 @@ async def test_user_cloud_backup_tables_dropped(engine):
 
 # ---------------------------------------------------------------------------
 # Relationship round-trip
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_credential_cascade_delete(session_factory):
-    """Deleting a User must cascade-delete their IssuedCredentials."""
-    import uuid
-    from datetime import datetime, timezone, timedelta
-
-    from dcc_auth.models import IssuedCredential, User
-
-    uid = 999
-    cert_uuid = str(uuid.uuid4())
-    now = datetime.now(tz=timezone.utc)
-
-    async with session_factory() as session:
-        user = User(
-            id=uid,
-            username="cascade_test",
-            email="cascade@dcc-test.example.com",
-            password_hash="x",
-        )
-        session.add(user)
-        await session.flush()
-
-        cred = IssuedCredential(
-            cert_id=cert_uuid,
-            user_id=uid,
-            device_pubkey=b"\x00" * 32,
-            device_label="Test Device",
-            issued_at=now,
-            expires_at=now + timedelta(days=365),
-        )
-        session.add(cred)
-        await session.commit()
-
-    # Now delete the user — credentials must cascade.
-    from sqlalchemy import select
-    from dcc_auth.models import IssuedCredential as IC
-
-    async with session_factory() as session:
-        u = await session.get(User, uid)
-        await session.delete(u)
-        await session.commit()
-
-        cred_remaining = (await session.execute(
-            select(IC).where(IC.user_id == uid)
-        )).scalars().all()
-
-    assert cred_remaining == [], "IssuedCredential rows should have been cascade-deleted"
-
-
-# ---------------------------------------------------------------------------
-# Migration module structure (downgrade completeness check)
 # ---------------------------------------------------------------------------
 
 def _load_migration(revision: str):
@@ -406,3 +297,37 @@ def test_migration_0020_has_downgrade():
     assert "instance_applications" in src
     assert "suspended_instances" in src
     assert "complaints" in src
+
+
+@pytest.mark.asyncio
+async def test_geraete_zertifikat_tabellen_gedroppt(engine):
+    """Migration 0051: issued_credentials + revoked_credentials muessen weg sein.
+
+    Die frueheren Tests forderten ihr VORHANDENSEIN und sind mit dem
+    Zertifikatsmodell entfallen. Ohne diesen Ersatz waere die Migration
+    ungeprueft: Ein 0051, das still nichts tut (etwa mit falschem
+    Schema-Praefix auf einem Deployment, wo ``auth`` nicht im Suchpfad liegt),
+    liesse beide Tabellen stehen — und ``models_credentials`` deklariert sie
+    nicht mehr, SQLAlchemys Metadaten wuerden es also auch nicht bemerken.
+    """
+    async with engine.connect() as conn:
+        tables = await conn.run_sync(
+            lambda sync_conn: sa_inspect(sync_conn).get_table_names()
+        )
+    assert "issued_credentials" not in tables, (
+        "issued_credentials should be dropped after 0051_drop_geraete_zerts"
+    )
+    assert "revoked_credentials" not in tables, (
+        "revoked_credentials should be dropped after 0051_drop_geraete_zerts"
+    )
+    # Gegenprobe: Die Namensreservierung liegt im selben Modul und bleibt.
+    assert "username_reservations" in tables
+
+
+def test_migration_0051_has_downgrade():
+    """Die Kette muss vollstaendig bleiben, auch wenn der Rueckweg keine Daten
+    zurueckbringt."""
+    mod = _load_migration("0051")
+    assert hasattr(mod, "downgrade")
+    quelle = inspect.getsource(mod.downgrade)
+    assert "create_table" in quelle, "downgrade legt die Tabellen nicht wieder an"

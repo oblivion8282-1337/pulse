@@ -298,6 +298,12 @@ async def test_ausgelassene_glieder_werden_benannt(client, alice, instance, ohne
         "Server condition",
         "Identity",
         "Owner recognition",
+        # Neuntes Glied (2026-08-28). Die Reihenfolge hier folgt ``SCHRITTE``,
+        # und die folgt seit dem Bughunt der LAUFREIHENFOLGE — der Anmeldeweg
+        # wird vor CORS geprueft. Dass dieser Test die Abfolge festhaelt, ist
+        # der Beleg dafuer, dass die Liste sehr wohl als Reihenfolge gelesen
+        # wird und nicht nur als Menge.
+        "Sign-in method",
         "Browser access",
         "Live connection",
     ]

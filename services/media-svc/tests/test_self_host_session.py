@@ -16,7 +16,6 @@ import pytest
 from dcc_shared.session_tokens import (
     issue_session_token,
     reset_session_signer,
-    synthesize_self_host_user_id,
 )
 from fastapi import HTTPException
 
@@ -45,13 +44,13 @@ async def test_self_host_session_token_accepted(monkeypatch, _tmp_key):
     forwarded bearer mints a stream-token instead of 401'ing HQ-streaming."""
     _patch_settings(monkeypatch, _settings("self-host", _tmp_key))
     token = issue_session_token(
-        "pairwise-sub-media", "cert-media-1", key_path=_tmp_key, admin=False
+        "4711", "cert-media-1", key_path=_tmp_key, admin=False
     )
 
     payload = await media_security.decode_token(token)
 
-    assert payload["sub"] == str(synthesize_self_host_user_id("pairwise-sub-media"))
-    assert payload["pairwise_sub"] == "pairwise-sub-media"
+    assert payload["sub"] == "4711"
+    assert payload["pairwise_sub"] == "4711"
     assert payload["typ"] == "access"
     assert payload["self_host"] is True
     assert payload["cert_id"] == "cert-media-1"
@@ -63,7 +62,7 @@ async def test_kidless_token_rejected_in_cloud_mode(monkeypatch, _tmp_key):
     no self-host fallback for an attacker to probe."""
     _patch_settings(monkeypatch, _settings("cloud", _tmp_key))
     token = issue_session_token(
-        "pairwise-sub-media", "cert-media-2", key_path=_tmp_key, admin=False
+        "4711", "cert-media-2", key_path=_tmp_key, admin=False
     )
 
     with pytest.raises(HTTPException) as exc:

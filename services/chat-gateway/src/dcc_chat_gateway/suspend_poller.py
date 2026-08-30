@@ -182,7 +182,7 @@ async def suspend_poll_once(
         body, new_etag = await _fetch(client, url, etag)
     except Exception as exc:  # noqa: BLE001
         log.warning(
-            "Sperrliste nicht abrufbar (%s: %s) — letzter Stand bleibt",
+            "Suspension list unreachable (%s: %s) — keeping the last known state",
             type(exc).__name__,
             exc,
         )
@@ -204,11 +204,14 @@ async def suspend_poll_once(
 
     if neu != alt:
         if neu == STATE_ACTIVE:
-            log.warning("Instanz ist wieder freigegeben — Anmeldungen sind erlaubt")
+            log.warning("Instance released again — sign-ins are permitted")
         else:
+            # Die Frist ist die Sitzungsdauer aus `routes/session_ticket.py`
+            # (SITZUNGSDAUER_S = 1 h), nicht die frueheren 5 Minuten der
+            # Kurzsitzungen — der Text stand nach dem Ticket-Umbau falsch da.
             log.error(
-                "Instanz von der Cloud als '%s' markiert — neue Anmeldungen werden "
-                "abgelehnt, bestehende Sitzungen laufen binnen 5 Minuten aus",
+                "Instance marked '%s' by the Cloud — new sign-ins are refused, "
+                "existing sessions expire within an hour",
                 neu,
             )
 
@@ -216,7 +219,7 @@ async def suspend_poll_once(
 async def suspend_poller_loop(redis: Any, cloud_origin: str, instance_id: int) -> None:
     """Hintergrundaufgabe; wird in der chat-gateway-Lifespan gestartet."""
     log.info(
-        "Sperr-Poller gestartet (Instanz=%s, Intervall=%ds)", instance_id, SUSPEND_POLL_INTERVAL
+        "Suspension poller started (instance=%s, interval=%ds)", instance_id, SUSPEND_POLL_INTERVAL
     )
     async with httpx.AsyncClient() as client:
         while True:

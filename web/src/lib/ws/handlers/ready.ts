@@ -26,7 +26,6 @@ import { modQueueCounts } from '$lib/stores/modQueueCounts.svelte';
 import { guildSounds } from '$lib/stores/guildSounds.svelte';
 import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
 import { serversStore } from '$lib/api/servers.svelte';
-import { serverUser } from '$lib/stores/serverUser.svelte';
 import { activeServer } from '$lib/stores/active-server.svelte';
 import { registerWsHandler } from '../handler-registry';
 import type { ReadyStamps } from '../gateway-connection';
@@ -202,14 +201,15 @@ export function register(ctx: ReadyContext): void {
       postfachAbholenUndAnzeigen((kanalId) => ctx.getSubs().has(kanalId));
     }
 
-    // Per-server admin + per-server user id are bound to the DISPATCHING
-    // server (active OR cloud-background), so they're applied for both ready
-    // variants. The id of *this* server's account — Cloud id and self-host id
-    // differ, so "is this mine?" checks must use serverUser, not auth.user.id.
+    // Der Admin-Status haengt am DISPATCHENDEN Server (aktiv ODER
+    // Cloud-Hintergrund) und wird deshalb fuer beide ready-Varianten gesetzt.
+    //
+    // Die zweite Kennung, die hier bis zum 2026-08-28 mitgepflegt wurde, gibt es
+    // nicht mehr: Ein Self-Host fuehrt seit dem Ticket-Weg dieselbe Nutzer-
+    // Kennung wie die Cloud.
     const sid = stamped._serverId ?? activeServer.current?.id;
     if (sid) {
       serverAdmin.set(sid, evt.is_admin ?? false);
-      serverUser.set(sid, evt.user_id);
       // Instanzweiter Anzeigename vom Server-Admin → als Default-Name dieses
       // Servers cachen (greift nur, wenn der User keinen eigenen vergeben hat;
       // s. serverDisplayName). null überschreibt einen stale Namen bewusst.

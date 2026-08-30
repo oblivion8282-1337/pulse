@@ -15,72 +15,51 @@ from __future__ import annotations
 import base64
 import time
 from datetime import UTC, datetime, timedelta
-from unittest.mock import patch
 
 import pytest
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from dcc_chat_gateway.credential_validator import CertClaims
 from dcc_chat_gateway.models import (
     ChatSettings,
     Guild,
     GuildInvite,
     InstanceMember,
 )
-from dcc_chat_gateway.routes import cert_login as cert_login_route
 from dcc_chat_gateway.session_tokens import reset_session_signer
 from sqlalchemy import select
 
 
 @pytest.fixture(autouse=True)
-def _route_settings(tmp_path):
-    """Bind ``cert_login.get_settings`` to a per-test Settings (same approach as
-    ``test_cert_login._route_settings``) so the route sees the test config with
-    the session-signing key in ``tmp_path``."""
-    from dcc_chat_gateway.config import Settings as _Settings
+def _route_settings(_isolate_chat_settings, tmp_path):
+    """Die Einstellungen, die die Anmelde-Route sieht.
 
-    cert_login_route._reset_challenge_secret_for_tests()
-    cert_login_route._reset_cert_login_rate_for_tests()
+    Frueher band diese Fixture zusaetzlich ``cert_login.get_settings``; die
+    Ticket-Route liest ueber den Modul-Zugriff, den der conftest ohnehin patcht.
+    """
+    _isolate_chat_settings.session_signing_key_file = str(tmp_path / "session.pem")
+    from dcc_chat_gateway.session_tokens import reset_session_signer
+
+    reset_session_signer()
+    yield _isolate_chat_settings
     reset_session_signer()
 
-    settings = _Settings(
-        session_signing_key_file=str(tmp_path / "session_signing.pem"),
-        pulse_instance_mode="self-host",
-        pulse_instance_id=0,
-        chat_gateway_challenge_secret="",
-    )
-    original = cert_login_route.get_settings
-    cert_login_route.get_settings = lambda: settings  # type: ignore[assignment]
-    yield settings
-    cert_login_route.get_settings = original  # type: ignore[assignment]
-    reset_session_signer()
-    cert_login_route._reset_challenge_secret_for_tests()
-    cert_login_route._reset_cert_login_rate_for_tests()
+
+@pytest.fixture(autouse=True)
+def _aktueller_signer_fixture(_auth_signer):
+    global _SIGNER
+    _SIGNER = _auth_signer
+    yield _auth_signer
+    _SIGNER = None
+
+
+_SIGNER = None
+
+
+def _aktueller_signer():
+    assert _SIGNER is not None, "_aktueller_signer_fixture nicht angefordert"
+    return _SIGNER
 
 
 def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
-
-
-def _make_claims(*, user_id: str, device_pubkey: str) -> CertClaims:
-    now = int(time.time())
-    return CertClaims(
-        cert_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-        user_id=user_id,
-        device_pubkey=device_pubkey,
-        device_label="Test Device",
-        pairwise_seed=_b64url(b"\xab" * 32),
-        amr=["pwd"],
-        acr="1",
-        iat=now,
-        exp=now + 3600,
-    )
-
-
-def _patch_validate(claims: CertClaims | None):
-    async def _fake(_cert: str, _redis):  # noqa: ARG001
-        return claims
-
-    return patch.object(cert_login_route, "validate_cert", _fake)
 
 
 async def _set_locked(session_factory, locked: bool) -> None:
@@ -99,23 +78,59 @@ async def _attempt_join(
     community_grant_code=None,
     public_join_handle=None,
 ):
-    """Run challenge→sign→verify. Returns the httpx Response."""
-    priv = Ed25519PrivateKey.generate()
-    pub_b64 = _b64url(priv.public_key().public_bytes_raw())
-    claims = _make_claims(user_id=user_id, device_pubkey=pub_b64)
+    """Legt ein Serverticket vor und gibt die Antwort zurück.
+
+    Die Tests prüfen das Beitritts-Gate, nicht den Anmeldeweg. Sie liefen bis
+    zum 2026-08-28 über ``cert-login/challenge`` + ``/verify``; mit dem Wegfall
+    des Gerätezertifikats ist der Weg ``POST /session``. Das Gate selbst
+    (``routes/gates.py``) ist unverändert — deshalb sind die Erwartungen aller
+    19 Tests unverändert geblieben.
+    """
+    import json as _json
+    import uuid as _uuid
+
+    import jwt as _jwt
+
+    from dcc_chat_gateway.credential_validator import (
+        REDIS_CLOUD_JWKS_KEY,
+        REDIS_JWKS_KEY,
+    )
+    from dcc_chat_gateway.ticket_pruefung import ZWECK
+
     _route_settings.pulse_instance_mode = "self-host"
     _route_settings.pulse_instance_id = 42
     _route_settings.pulse_instance_owner_id = owner_id
-    with _patch_validate(claims):
-        ch = (await client.post("/cert-login/challenge", json={"cert": "stub"})).json()
-        raw = base64.urlsafe_b64decode(ch["nonce"] + "==")
-        sig = _b64url(priv.sign(raw))
-        body = {"cert": "stub", "challenge_token": ch["challenge_token"], "signature": sig}
-        if community_grant_code is not None:
-            body["community_grant_code"] = community_grant_code
-        if public_join_handle is not None:
-            body["public_join_handle"] = public_join_handle
-        return await client.post("/cert-login/verify", json=body)
+
+    signer = _aktueller_signer()
+    roh = _json.dumps(signer.jwks())
+    await client._transport.app.state.redis.set(REDIS_CLOUD_JWKS_KEY, roh)
+    await client._transport.app.state.redis.set(REDIS_JWKS_KEY, roh)
+
+    jetzt = int(time.time())
+    ticket = _jwt.encode(
+        {
+            "iss": _route_settings.pulse_oidc_issuer,
+            "aud": "42",
+            "sub": user_id,
+            "purpose": ZWECK,
+            "jti": str(_uuid.uuid4()),
+            "name": f"u{user_id}",
+            "avatar": None,
+            "amr": ["pwd"],
+            "acr": "0",
+            "iat": jetzt,
+            "exp": jetzt + 60,
+        },
+        signer._private_key,
+        algorithm="RS256",
+        headers={"kid": signer._settings.jwt_key_id},
+    )
+    body = {"ticket": ticket}
+    if community_grant_code is not None:
+        body["community_grant_code"] = community_grant_code
+    if public_join_handle is not None:
+        body["public_join_handle"] = public_join_handle
+    return await client.post("/session", json=body)
 
 
 async def _seed_public_guild(
@@ -201,13 +216,13 @@ async def test_existing_member_reauth_regardless_of_lock(
         client, _route_settings, user_id="777", public_join_handle="firsthouse"
     )
     assert first.status_code == 200, first.text
-    identifier = first.json()["pairwise_sub"]
     # Now (maybe) seal the instance and re-auth with NO grant — must still pass.
+    # Die Kennung ist mit dem Ticket-Weg das ``sub`` selbst; die Antwort muss
+    # sie nicht mehr zurueckmelden, und dass es DIESELBE ist, folgt daraus,
+    # dass beide Anlaeufe dieselbe ``user_id`` vorlegen.
     await _set_locked(session_factory, locked)
-    cert_login_route._reset_cert_login_rate_for_tests()
     again = await _attempt_join(client, _route_settings, user_id="777")
     assert again.status_code == 200, again.text
-    assert again.json()["pairwise_sub"] == identifier
 
 
 # ---------------------------------------------------------------------------
@@ -235,8 +250,7 @@ async def test_unlocked_public_handle_admits(client, _route_settings, session_fa
     assert resp.status_code == 200, resp.text
     assert len(await _members(session_factory)) == 1
     async with session_factory() as s:
-        ident = resp.json()["pairwise_sub"]
-        row = await s.get(InstanceMember, ident)
+        row = await s.get(InstanceMember, "2001")
         assert row.joined_via == "public_community"
 
 
@@ -250,7 +264,7 @@ async def test_unlocked_community_invite_admits(client, _route_settings, session
     assert resp.status_code == 200, resp.text
     assert len(await _members(session_factory)) == 1
     async with session_factory() as s:
-        ident = resp.json()["pairwise_sub"]
+        ident = "1001"
         row = await s.get(InstanceMember, ident)
         assert row.joined_via == "community_invite"
 
@@ -389,7 +403,6 @@ async def test_community_invite_member_reauth_without_code(
         client, _route_settings, user_id="1008", community_grant_code="REAUTHCM"
     )
     assert first.status_code == 200, first.text
-    cert_login_route._reset_cert_login_rate_for_tests()
     again = await _attempt_join(client, _route_settings, user_id="1008")
     assert again.status_code == 200, again.text
 
@@ -436,7 +449,6 @@ async def test_public_handle_member_reauth_without_handle(
         client, _route_settings, user_id="2005", public_join_handle="reauthpub"
     )
     assert first.status_code == 200, first.text
-    cert_login_route._reset_cert_login_rate_for_tests()
     again = await _attempt_join(client, _route_settings, user_id="2005")
     assert again.status_code == 200, again.text
 

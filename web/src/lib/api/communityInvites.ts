@@ -22,6 +22,9 @@ export type CommunityInviteNotification = {
   invitee_user_id: string;
   /** null = Cloud-Ziel. Sonst der Server, auf dem die Community lebt. */
   target_host: string | null;
+  /** Host-coined Code — der Klient joint Link-artig VOR dem Annehmen (die
+   *  Karte bleibt bei Fehlschlag erhalten und wird erst bei Erfolg entfernt). */
+  code: string | null;
   created_at: string;
 };
 

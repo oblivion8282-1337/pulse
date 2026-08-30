@@ -10,7 +10,7 @@ Shape::
         "server_version": "0.8.0",
         "pulse_oidc_issuer": "https://howispulse.com",
         "instance_id": "<snowflake-string>|null",
-        "capabilities": []
+        "capabilities": ["token_refresh", "server-ticket"]
     }
 
 ``instance_id`` is null when ``PULSE_INSTANCE_MODE=cloud`` (the Cloud
@@ -26,6 +26,7 @@ from pydantic import BaseModel
 
 from dcc_chat_gateway import __version__
 from dcc_chat_gateway.config import get_settings
+from dcc_chat_gateway.faehigkeiten import SERVER_FAEHIGKEITEN
 
 router = APIRouter()
 
@@ -52,5 +53,5 @@ async def server_info() -> ServerInfo:
         server_version=__version__,
         pulse_oidc_issuer=settings.pulse_oidc_issuer,
         instance_id=instance_id,
-        capabilities=[],
+        capabilities=list(SERVER_FAEHIGKEITEN),
     )

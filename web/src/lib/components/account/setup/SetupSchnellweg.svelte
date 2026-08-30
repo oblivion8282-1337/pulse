@@ -26,18 +26,7 @@
   import CheckIcon from '@lucide/svelte/icons/check';
   import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 
-  let {
-    instance,
-    base,
-    befehl = $bindable('')
-  }: {
-    instance: Instance;
-    base: string;
-    /** Der fertige Befehl nach aussen: die KI-Hilfe sitzt seit der Umsortierung
-     *  UNTER der manuellen Installation und braucht ihn dort. Leer, solange
-     *  kein gültiges Token vorliegt — abgelaufen zählt nicht. */
-    befehl?: string;
-  } = $props();
+  let { instance, base }: { instance: Instance; base: string } = $props();
 
   let token = $state<string | null>(null);
   let expiresAtMs = $state(0);
@@ -105,13 +94,6 @@
       toast.error(m.instance_setup_error());
     }
   }
-
-  // Nach aussen: nur ein GÜLTIGER Befehl. Ein abgelaufener taugt weder zum
-  // Ausführen noch als Vorlage für eine KI — die Hilfe darunter verschwindet
-  // dann mit ihm, statt eine tote Zeile anzubieten.
-  $effect(() => {
-    befehl = token && !expired ? command : '';
-  });
 
   onMount(() => {
     void mint();

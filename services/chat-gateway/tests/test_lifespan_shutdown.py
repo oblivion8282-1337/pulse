@@ -29,8 +29,8 @@ async def test_shutdown_does_not_wait_out_a_slow_task(ws_app, caplog, monkeypatc
         except asyncio.CancelledError:
             await asyncio.sleep(4)  # dawdles well past the deadline
 
-    # crl_poller_loop is stubbed inert by the autouse fixture; make it slow.
-    monkeypatch.setattr(chat_app, "crl_poller_loop", _slow_to_cancel)
+    # jwks_poller_loop is stubbed inert by the autouse fixture; make it slow.
+    monkeypatch.setattr(chat_app, "jwks_poller_loop", _slow_to_cancel)
 
     def _run() -> float:
         t0 = time.monotonic()
@@ -44,6 +44,6 @@ async def test_shutdown_does_not_wait_out_a_slow_task(ws_app, caplog, monkeypatc
     # never yields, forever).
     assert elapsed < 3.5, f"shutdown waited out the slow task: {elapsed:.1f}s"
     assert any(
-        "ignored cancel" in r.message and "dcc-crl-poller" in r.message
+        "ignored cancel" in r.message and "dcc-jwks-poller" in r.message
         for r in caplog.records
     ), f"shutdown must log the wedged task by name; got {[r.message for r in caplog.records]}"

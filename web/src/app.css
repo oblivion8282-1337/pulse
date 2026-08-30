@@ -382,12 +382,16 @@
 
   /* Eigene DM-Sprechblase: eine Stufe dunkler als der Button-Verlauf. Auf
      dessen hellem Ende (#3b82f6) kommt Weiss nur auf ~3,7:1 — unter den
-     4,5:1 für Fliesstext. Mit #1d4ed8→#2563eb sind es ≥5:1. */
+     4,5:1 für Fliesstext.
+     Abgeleitet aus denselben Tokens wie accent-gradient (je ~22% Richtung
+     Schwarz, 76% Deckung) statt hartkodiertem Alt-Blau — bei geänderter
+     Markenfarbe folgt die Blase automatisch. Auf den aktuellen Blautönen
+     entspricht das exakt dem vorherigen #1d4ed8→#2563eb (Weiss ≥5:1). */
   .accent-gradient-deep {
     background-image: linear-gradient(
       135deg in oklab,
-      rgba(29, 78, 216, 0.76),
-      rgba(37, 99, 235, 0.76)
+      color-mix(in srgb, color-mix(in oklab, var(--accent-grad-from) 78%, black) 76%, transparent),
+      color-mix(in srgb, color-mix(in oklab, var(--accent-grad-to) 78%, black) 76%, transparent)
     );
   }
 
@@ -451,9 +455,18 @@
    Layer, damit sie die Utilities sicher schlagen. Betrifft nur die eigene
    Blase; fremde Blasen und Kanalzeilen bleiben unverändert. */
 .accent-gradient-deep [data-testid='message-content'] {
-  /* Nicht pures Weiss, sondern ein Hauch Grau — wirkt auf dem Verlauf
-     ruhiger; die fremde Blase schreibt auch kein Reinweiss. */
-  color: #e5eaf3;
+  /* Reinweiss — angeglichen an den empfangenen Text (der schreibt im
+     Dunkel-Theme ebenfalls Reinweiss; s.u.). */
+  color: #fff;
+}
+
+/* Empfangene DM-Blase: im Dunkel-Theme ebenfalls Reinweiss statt dem
+     gedämpften --text-dim-Grau — beide Blasen einer Konversation tragen
+     jetzt denselben Textton. Im Hell-Theme bleibt der dunkle Text: Weiss
+     auf der fast weissen Fläche wäre unlesbar (die eigene Blase bleibt
+     auch dort Weiß-auf-Blau). */
+.dark [data-testid='dm-bubble']:not(.accent-gradient-deep) [data-testid='message-content'] {
+  color: #fff;
 }
 .accent-gradient-deep [data-testid='message-content'] a {
   color: #dbeafe;

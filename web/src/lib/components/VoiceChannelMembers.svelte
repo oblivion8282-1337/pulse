@@ -161,12 +161,16 @@
                 testid={isForceDeafened ? 'voice-presence-force-deafened' : 'voice-presence-deafened'}
               />
             {/if}
+            <!-- Alle drei Badges (PARTY/LIVE/CAM) sind weiche Pillen mit Rand
+                 und Punkt, Stil der Freundesliste (FriendList.svelte): solide
+                 Füllungen bleiben dem Video-Tile vorbehalten, wo sie gegen das
+                 Bild halten müssen. items-center zentriert Schrift + Punkt. -->
             {#if partyHostSet.has(uid)}
               {#if onPartyOpen}
                 <span
                   role="button"
                   tabindex="0"
-                  class="rounded bg-badge-party px-1.5 py-0.5 text-2xs font-bold leading-none text-white hover:bg-badge-party-hover"
+                  class="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-amber-400 hover:bg-amber-500/20"
                   data-testid="user-watch-party-badge"
                   title={m.voice_channel_members_watch_party_open()}
                   aria-label={m.voice_channel_members_watch_party_open_label({ name })}
@@ -177,13 +181,13 @@
                     e.stopPropagation();
                     onPartyOpen(uid);
                   }}
-                >PARTY</span>
+                ><span class="size-1.5 rounded-full bg-amber-400"></span>PARTY</span>
               {:else}
                 <span
-                  class="rounded bg-badge-party px-1.5 py-0.5 text-2xs font-bold leading-none text-white"
+                  class="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-amber-400"
                   data-testid="user-watch-party-badge"
                   title={m.voice_channel_members_watch_party_hosting()}
-                >PARTY</span>
+                ><span class="size-1.5 rounded-full bg-amber-400"></span>PARTY</span>
               {/if}
             {/if}
             {#if streamingSet.has(uid)}
@@ -193,7 +197,7 @@
                 <span
                   role="button"
                   tabindex="0"
-                  class="rounded bg-badge-live px-1.5 py-0.5 text-2xs font-bold leading-none text-white hover:bg-badge-live-hover"
+                  class="inline-flex items-center gap-1 rounded-md border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-red-400 hover:bg-red-500/20"
                   data-testid="user-streaming-badge"
                   title={m.voice_channel_members_stream_open()}
                   aria-label={m.voice_channel_members_stream_open_label({ name })}
@@ -204,20 +208,20 @@
                     e.stopPropagation();
                     onLiveOpen(uid);
                   }}
-                >LIVE</span>
+                ><span class="size-1.5 rounded-full bg-red-400"></span>LIVE</span>
               {:else}
                 <span
-                  class="rounded bg-badge-live px-1.5 py-0.5 text-2xs font-bold leading-none text-white"
+                  class="inline-flex items-center gap-1 rounded-md border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-red-400"
                   data-testid="user-streaming-badge"
                   title={m.voice_channel_members_stream_sharing_screen()}
-                >LIVE</span>
+                ><span class="size-1.5 rounded-full bg-red-400"></span>LIVE</span>
               {/if}
             {/if}
             {#if camSet.has(uid) && onCamOpen}
               <span
                 role="button"
                 tabindex="0"
-                class="rounded bg-badge-cam px-1.5 py-0.5 text-2xs font-bold leading-none text-white hover:bg-badge-cam-hover"
+                class="inline-flex items-center gap-1 rounded-md border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-cyan-400 hover:bg-cyan-500/20"
                 data-testid="user-cam-badge"
                 title={m.voice_channel_members_cam_open()}
                 aria-label={m.voice_channel_members_cam_open_label({ name })}
@@ -228,7 +232,7 @@
                   e.stopPropagation();
                   onCamOpen(uid);
                 }}
-              >CAM</span>
+              ><span class="size-1.5 rounded-full bg-cyan-400"></span>CAM</span>
             {/if}
           </span>
         </button>

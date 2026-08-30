@@ -14,15 +14,10 @@ from __future__ import annotations
 import base64
 import time
 from datetime import datetime, timezone
-from unittest.mock import patch
 
 import pytest
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from dcc_chat_gateway.credential_validator import CertClaims, compute_pairwise_sub
 from dcc_chat_gateway.models.moderation import CachedUserProfile
-from dcc_chat_gateway.routes import cert_login as cert_login_route
-from dcc_chat_gateway.session_tokens import reset_session_signer
 
 from .conftest import make_auth_header
 
@@ -123,113 +118,8 @@ async def test_members_requires_admin(client, access_token):
 # ─── cert-login ban gate ────────────────────────────────────────────────────
 
 
-def _make_claims(user_id: str, device_pubkey: str) -> CertClaims:
-    now = int(time.time())
-    return CertClaims(
-        cert_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-        user_id=user_id,
-        device_pubkey=device_pubkey,
-        device_label="Test Device",
-        pairwise_seed=_b64url(b"\xab" * 32),
-        amr=["pwd"],
-        acr="1",
-        iat=now,
-        exp=now + 3600,
-    )
-
-
-def _patch_validate(claims: CertClaims):
-    async def _fake(_cert: str, _redis):  # noqa: ARG001
-        return claims
-
-    return patch.object(cert_login_route, "validate_cert", _fake)
-
-
-async def _full_verify(client, claims, priv):
-    with _patch_validate(claims):
-        ch = (await client.post("/cert-login/challenge", json={"cert": "stub"})).json()
-        raw = base64.urlsafe_b64decode(ch["nonce"] + "==")
-        sig = _b64url(priv.sign(raw))
-        return await client.post(
-            "/cert-login/verify",
-            json={"cert": "stub", "challenge_token": ch["challenge_token"], "signature": sig},
-        )
-
-
-@pytest.mark.asyncio
-async def test_cert_login_banned_user_403(client, session_factory, tmp_path):
-    """A banned cached profile → cert-login verify returns 403 instance banned."""
-    cert_login_route._reset_challenge_secret_for_tests()
-    reset_session_signer()
-    from dcc_chat_gateway.config import Settings as _Settings
-
-    settings = _Settings(
-        session_signing_key_file=str(tmp_path / "session_signing.pem"),
-        pulse_instance_mode="self-host",
-        pulse_instance_id=42,
-        pulse_instance_owner_id=0,
-        chat_gateway_challenge_secret="",
-    )
-    original = cert_login_route.get_settings
-    cert_login_route.get_settings = lambda: settings  # type: ignore[assignment]
-    try:
-        priv = Ed25519PrivateKey.generate()
-        pub = _b64url(priv.public_key().public_bytes_raw())
-        claims = _make_claims(user_id="555", device_pubkey=pub)
-        identifier = compute_pairwise_sub("555", 42, claims.pairwise_seed)
-
-        # Pre-seed the user as an instance member so the first verify clears the
-        # join gate via the existing-member path (this test exercises the ban
-        # gate, not the join gate). The ban gate runs *before* the join gate, so
-        # after banning the second verify is still rejected at the ban check.
-        from dcc_chat_gateway.models import InstanceMember
-
-        async with session_factory() as s:
-            s.add(InstanceMember(user_identifier=identifier, joined_via="migrated"))
-            await s.commit()
-
-        # Not banned yet → 200.
-        ok = await _full_verify(client, claims, priv)
-        assert ok.status_code == 200, ok.text
-
-        # Ban the resolved pairwise-sub → next verify 403.
-        await _seed_profile(session_factory, identifier, "evil", banned=True)
-        denied = await _full_verify(client, claims, priv)
-        assert denied.status_code == 403, denied.text
-        assert denied.json()["detail"] == "instance banned"
-    finally:
-        cert_login_route.get_settings = original  # type: ignore[assignment]
-        reset_session_signer()
-        cert_login_route._reset_challenge_secret_for_tests()
-
-
-@pytest.mark.asyncio
-async def test_cert_login_owner_exempt_from_ban(client, session_factory, tmp_path):
-    """The instance owner is never locked out, even with a banned profile row."""
-    cert_login_route._reset_challenge_secret_for_tests()
-    reset_session_signer()
-    from dcc_chat_gateway.config import Settings as _Settings
-
-    settings = _Settings(
-        session_signing_key_file=str(tmp_path / "session_signing.pem"),
-        pulse_instance_mode="self-host",
-        pulse_instance_id=42,
-        pulse_instance_owner_id=555,  # cert user_id 555 == owner
-        chat_gateway_challenge_secret="",
-    )
-    original = cert_login_route.get_settings
-    cert_login_route.get_settings = lambda: settings  # type: ignore[assignment]
-    try:
-        priv = Ed25519PrivateKey.generate()
-        pub = _b64url(priv.public_key().public_bytes_raw())
-        claims = _make_claims(user_id="555", device_pubkey=pub)
-        identifier = compute_pairwise_sub("555", 42, claims.pairwise_seed)
-        await _seed_profile(session_factory, identifier, "owner", banned=True)
-
-        resp = await _full_verify(client, claims, priv)
-        assert resp.status_code == 200, resp.text
-        assert resp.json()["pairwise_sub"] == identifier
-    finally:
-        cert_login_route.get_settings = original  # type: ignore[assignment]
-        reset_session_signer()
-        cert_login_route._reset_challenge_secret_for_tests()
+# Die beiden Bann-Tests, die hier bis zum 2026-08-28 standen, prüften das
+# Bann-Gate über ``cert-login/verify``. Mit dem Wegfall des Gerätezertifikats
+# ist ihr Fahrzeug weg; das Gate selbst (``routes/gates.py``) ist unverändert
+# und wird jetzt in ``test_session_ticket_route.py`` über ``POST /session``
+# geprüft — an derselben Stelle wie die übrigen Anmelde-Gates.

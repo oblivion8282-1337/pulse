@@ -94,7 +94,10 @@
 
   function submit(e: SubmitEvent) {
     e.preventDefault();
-    const trimmed = name.trim().replace(/\s+/g, '-').toLowerCase();
+    // Der Name bleibt, wie getippt: Groß-/Kleinschreibung und Leerzeichen
+    // bleiben erhalten, nur Mehrfach-Leerzeichen laufen auf eins zusammen.
+    // Das Backend (validate_name) erlaubt beides — Slugify war Client-Only.
+    const trimmed = name.trim().replace(/\s+/g, ' ');
     if (!trimmed) return;
     onCreate(trimmed, type);
     name = '';

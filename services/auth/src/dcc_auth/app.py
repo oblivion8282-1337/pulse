@@ -27,8 +27,6 @@ from dcc_auth.routes_app_host_compat import router as app_host_compat_router
 from dcc_auth.routes_applications import router as applications_router
 from dcc_auth.routes_avatar import router as avatar_router
 from dcc_auth.routes_complaints import router as complaints_router
-from dcc_auth.routes_credentials import router as credentials_router
-from dcc_auth.routes_crl import router as crl_router
 from dcc_auth.routes_experimental_logs import router as experimental_logs_router
 from dcc_auth.routes_instance_applications import router as instance_applications_router
 from dcc_auth.routes_instance_delete import router as instance_delete_router
@@ -39,12 +37,14 @@ from dcc_auth.routes_recovery import router as recovery_router
 from dcc_auth.routes_registry_auth import router as registry_auth_router
 from dcc_auth.routes_search import router as search_router
 from dcc_auth.routes_selfhost_bootstrap import router as selfhost_bootstrap_router
+from dcc_auth.routes_server_ticket import router as server_ticket_router
 from dcc_auth.routes_selfhost_directory import router as selfhost_directory_router
 from dcc_auth.routes_selfhost_diagnose import router as selfhost_diagnose_router
 from dcc_auth.routes_selfhost_relay import router as selfhost_relay_router
 from dcc_auth.routes_selfhost_signal import router as selfhost_signal_router
 from dcc_auth.routes_sessions import router as sessions_router
 from dcc_auth.routes_suspended_instances import router as suspended_instances_router
+from dcc_auth.routes_version_policy import router as version_policy_router
 from dcc_auth.routes_totp import router as totp_router
 from dcc_auth.routes_webauthn import router as webauthn_router
 from dcc_auth.routes_webauthn_login import router as webauthn_login_router
@@ -134,17 +134,17 @@ def create_app() -> FastAPI:
     app.include_router(totp_router)
     app.include_router(webauthn_router)
     app.include_router(webauthn_login_router)
-    app.include_router(credentials_router)
-    app.include_router(crl_router)
     app.include_router(complaints_router)
     app.include_router(experimental_logs_router)
     app.include_router(suspended_instances_router)
+    app.include_router(version_policy_router)
     app.include_router(profile_router)
     app.include_router(applications_router)
     app.include_router(app_host_compat_router)
     app.include_router(instance_applications_router)
     app.include_router(instance_delete_router)
     app.include_router(instance_membership_router)
+    app.include_router(server_ticket_router)
     app.include_router(selfhost_bootstrap_router)
     app.include_router(selfhost_directory_router)
     app.include_router(selfhost_signal_router)

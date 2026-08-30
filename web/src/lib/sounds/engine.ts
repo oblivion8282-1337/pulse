@@ -67,6 +67,11 @@ class SoundEngine {
   #pool = new Map<string, HTMLAudioElement[]>();
   #lastPlay = new Map<string, number>();
   #missing = new Set<string>();
+  /** Zuletzt aufgelöste Override-URLs → ihre Guild. Braucht die
+   *  Selbstheilung: schlägt ein Override-Play fehl (abgelaufene Presign-
+   *  Signatur), refresh't der Store statt zu blacklisten — Bundled-URLs
+   *  haben ihren Kette-Fallback, Overrides sonst keinen Ausweg. */
+  #overrideGuild = new Map<string, string>();
 
   /** Play if the relevant category-toggle is on. Silent no-op otherwise. */
   play(id: SoundId, opts: PlayOpts = {}): void {
@@ -109,11 +114,15 @@ class SoundEngine {
     this.#pool.delete(url);
     this.#missing.delete(url);
     this.#lastPlay.delete(url);
+    this.#overrideGuild.delete(url);
   }
 
   #resolve(id: SoundId, guildId: string | null | undefined): string | null {
     const override = guildSounds.urlFor(id, guildId);
-    if (override) return override;
+    if (override) {
+      if (guildId) this.#overrideGuild.set(override, guildId);
+      return override;
+    }
     for (const url of defaultUrls(id)) {
       if (!this.#missing.has(url)) return url;
     }
@@ -169,6 +178,14 @@ class SoundEngine {
       if (handled) return;
       handled = true;
       this.#discard(url, audio);
+      const gid = this.#overrideGuild.get(url);
+      if (gid !== undefined) {
+        // Override-URL (presigned, kurzlebig): kein Blacklisting — die
+        // Signatur ist wahrscheinlich abgelaufen. Store frisch holen,
+        // der nächste Play bekommt eine neue Signatur und klappt.
+        void guildSounds.refresh(gid);
+        return;
+      }
       this.#missing.add(url);
       const next = this.#nextDefaultUrl(id, url);
       if (next) this.#start(id, next, gain, false);
@@ -261,7 +278,9 @@ class SoundEngine {
         // the next play rebuilds a fresh one, which re-decodes cleanly.
         const neverLoaded = a.readyState < 2; // < HAVE_CURRENT_DATA
         if (a.error?.code === 4 && neverLoaded) {
-          this.#missing.add(url);
+          // Override-URLs nicht blacklist(en) — die sind nur kurzlebig
+          // signiert, der Store-Refresh heilt sie (siehe onLoadFail).
+          if (!this.#overrideGuild.has(url)) this.#missing.add(url);
         } else {
           this.#discard(url, a);
         }

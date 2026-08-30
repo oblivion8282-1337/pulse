@@ -6,7 +6,6 @@ import { readState } from './readState.svelte';
 import { userCache } from './users.svelte';
 import { capabilities } from './capabilities.svelte';
 import { serverAdmin } from './serverAdmin.svelte';
-import { serverUser } from './serverUser.svelte';
 import { settings } from './settings.svelte';
 import { hydrateServerSections } from '$lib/settings-registry';
 import { privacy } from './privacy.svelte';
@@ -16,11 +15,8 @@ import type { User } from '$lib/api/types';
 import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
 import { sessionTokens } from '$lib/api/session_tokens.svelte';
 import { serversStore } from '$lib/api/servers.svelte';
-import { certStore } from '$lib/identity/cert.svelte';
-import { keypairStore } from '$lib/identity/keypair.svelte';
 import { profileStatementStore } from '$lib/identity/profile-statement.svelte';
 import { stopProfileRefresh, startProfileRefresh } from '$lib/identity/profile-refresh.svelte';
-import { stopCertRotation, startCertRotation } from '$lib/identity/cert-rotation.svelte';
 import { activeServer } from './active-server.svelte';
 // Gerätelokales Krypto-Material — es hängt an derselben Identität wie
 // Keypair und Cert und muss mit ihnen verschwinden, s. die beiden Wisch-
@@ -110,43 +106,31 @@ class AuthStore {
         // Best-effort; a network blip just leaves the local slice in
         // place, the next mutation will push it back up.
         void hydrateServerSections();
-        // Fix 2: Cert + Timer nach Tab-Reload/SSO-Hydrate nachholen.
-        // issue-flow wird lazy geladen (eigener Chunk, nur hier gebraucht);
-        // die Timer-Helfer (start*) sind oben statisch importiert.
-        // Fehler im Issue-Flow werden gracefully geschluckt — Timer starten
-        // trotzdem, die Rotation-Callbacks retry'en beim nächsten Interval.
-        import('$lib/identity/issue-flow')
-          .then(async ({ runIssueFlow }) => {
-            // Proaktiv den 30-Min-`pulse_session`-Cookie neu etablieren, BEVOR
-            // der erste Cookie-Auth-Call (runIssueFlow → /credentials/issue)
-            // läuft. Nach App-Neustart/Tab-Reload ist nur das JWT in
-            // localStorage da, der kurzlebige Cookie ist längst abgelaufen →
-            // sonst 401 auf den ersten Cookie-Endpoint. cookieFetch self-healt
-            // das zwar via 401→renew→retry, aber das rauscht bei jedem Boot in
-            // die Konsole. Best-effort: schlägt der Renew fehl, bleibt der
-            // 401-Retry in cookieFetch die Auffanglinie.
-            try {
-              await renewSession();
-            } catch { /* best-effort — Fallback bleibt der 401-Retry */ }
-            // Account-basierte Self-Host-Liste auch beim Session-Restore (Tab-
-            // Reload / neuer Browser mit gültiger Session) nachziehen — nicht nur
-            // bei frischem Login (`setUser`). Sonst fehlt der Self-Host auf jedem
-            // Gerät, das den Login wiederherstellt statt sich neu anzumelden — und
-            // selbst beim Erst-Login bricht der `setUser`-Aufruf oft ab, weil die
-            // Login-Seite direkt nach /app navigiert (fire-and-forget). Läuft NACH
-            // renewSession, damit der Cookie-Auth-Call (/me/instances) frisch ist.
-            void serversStore.hydrateFromBackend();
-            try {
-              await runIssueFlow();
-            } catch {
-              // Andere Fehler (Netzwerk etc.): Timer trotzdem starten. Die
-              // Rotation-Callbacks wiederholen den Versuch beim nächsten Interval.
-              // Kein rethrow — wir wollen immer zu startProfileRefresh/startCertRotation.
-            }
-            startProfileRefresh();
-            startCertRotation();
-          })
-          .catch(() => {/* silent — degradiert gracefully */});
+        // Nach Tab-Reload/SSO-Hydrate: Cookie erneuern, Serverliste holen,
+        // Profil-Auffrischung starten.
+        //
+        // Der Ausweis-Fluss, der hier früher lief (`runIssueFlow` →
+        // `/credentials/issue`), ist mit dem Gerätezertifikat entfallen. Es gibt
+        // nichts mehr auszustellen: Die Anmeldung an einem Self-Host holt sich
+        // im Moment der Nutzung ein Ticket.
+        void (async () => {
+          // Proaktiv den 30-Min-`pulse_session`-Cookie neu etablieren, BEVOR
+          // der erste Cookie-Auth-Call läuft. Nach App-Neustart/Tab-Reload ist
+          // nur das JWT in localStorage da, der kurzlebige Cookie ist längst
+          // abgelaufen → sonst 401 auf den ersten Cookie-Endpoint. cookieFetch
+          // self-healt das zwar via 401→renew→retry, aber das rauscht bei jedem
+          // Boot in die Konsole.
+          try {
+            await renewSession();
+          } catch { /* best-effort — Fallback bleibt der 401-Retry */ }
+          // Account-basierte Self-Host-Liste auch beim Session-Restore
+          // nachziehen — nicht nur bei frischem Login (`setUser`). Sonst fehlt
+          // der Self-Host auf jedem Gerät, das den Login wiederherstellt statt
+          // sich neu anzumelden. Läuft NACH renewSession, damit der
+          // Cookie-Auth-Call (/me/instances) frisch ist.
+          void serversStore.hydrateFromBackend();
+          startProfileRefresh();
+        })();
       }
     } catch (e) {
       if (isDefinitiveAuthError(e)) {
@@ -289,8 +273,6 @@ class AuthStore {
       // wischen — vollständig awaiten, BEVOR der nachfolgende Issue-Flow einen
       // frischen Cert für den neuen User anfordert (sonst läse er alte Keys).
       await Promise.allSettled([
-        certStore.wipe(),
-        keypairStore.wipe(),
         profileStatementStore.wipe(),
         // Pickle-Geheimnis und Gerätekennung gehören in dieselbe Zeile wie
         // das Keypair: solange der Pickle-Schlüssel aus dem Keypair abgeleitet
@@ -356,7 +338,6 @@ class AuthStore {
     capabilities.clear();
     privacy.clear();
     serverAdmin.clear();
-    serverUser.clear();
     // Fernsteuerung: der Store ist ein Modul-Singleton und ueberlebt den
     // Kontowechsel (die Anmeldung laeuft ohne Neuladen). Ohne das hier bekam
     // der naechste Nutzer am selben Tab eine offene Anfrage des Vorgaengers
@@ -395,9 +376,6 @@ class AuthStore {
     void import('$lib/devices/store.svelte').then((mod) => mod.deviceStore.reset());
     // Identity-Cleanup: Timer stoppen, Stores wischen
     stopProfileRefresh();
-    stopCertRotation();
-    void certStore.wipe();
-    void keypairStore.wipe();
     void profileStatementStore.wipe();
     // Dieselbe Begründung wie im Kontowechsel-Pfad oben.
     void geraeteGeheimnisWischen();

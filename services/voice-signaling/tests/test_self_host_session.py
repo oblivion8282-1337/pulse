@@ -16,7 +16,6 @@ import pytest
 from dcc_shared.session_tokens import (
     issue_session_token,
     reset_session_signer,
-    synthesize_self_host_user_id,
 )
 from fastapi import HTTPException
 
@@ -47,13 +46,13 @@ async def test_self_host_session_token_accepted(monkeypatch, _tmp_key):
     """A valid EdDSA session token decodes to the synthetic-id payload."""
     _patch_settings(monkeypatch, _settings("self-host", _tmp_key))
     token = issue_session_token(
-        "pairwise-sub-voice", "cert-voice-1", key_path=_tmp_key, admin=True
+        "4711", "cert-voice-1", key_path=_tmp_key, admin=True
     )
 
     payload = await voice_security.decode_token(token)
 
-    assert payload["sub"] == str(synthesize_self_host_user_id("pairwise-sub-voice"))
-    assert payload["pairwise_sub"] == "pairwise-sub-voice"
+    assert payload["sub"] == "4711"
+    assert payload["pairwise_sub"] == "4711"
     assert payload["typ"] == "access"
     assert payload["admin"] is True
     assert payload["self_host"] is True
@@ -64,17 +63,17 @@ async def test_self_host_session_token_accepted(monkeypatch, _tmp_key):
 async def test_self_host_session_token_via_get_current_user(monkeypatch, _tmp_key):
     """get_current_user resolves the synthetic int user-id from the session."""
     _patch_settings(monkeypatch, _settings("self-host", _tmp_key))
-    token = issue_session_token("pairwise-sub-2", "cert-2", key_path=_tmp_key)
+    token = issue_session_token("4711", "cert-2", key_path=_tmp_key)
 
     user = await voice_security.get_current_user(authorization=f"Bearer {token}")
 
-    assert user.id == synthesize_self_host_user_id("pairwise-sub-2")
+    assert user.id == 4711
 
 
 @pytest.mark.asyncio
 async def test_session_token_rejected_in_cloud_mode(monkeypatch, _tmp_key):
     """The very same kid-less token is rejected with 'missing kid' in cloud mode."""
-    token = issue_session_token("pairwise-sub-3", "cert-3", key_path=_tmp_key)
+    token = issue_session_token("4711", "cert-3", key_path=_tmp_key)
     _patch_settings(monkeypatch, _settings("cloud", _tmp_key))
 
     with pytest.raises(HTTPException) as exc:
@@ -87,7 +86,7 @@ async def test_session_token_rejected_in_cloud_mode(monkeypatch, _tmp_key):
 async def test_tampered_session_token_rejected(monkeypatch, _tmp_key):
     """A tampered (signature-broken) session token → 401 invalid token."""
     _patch_settings(monkeypatch, _settings("self-host", _tmp_key))
-    token = issue_session_token("pairwise-sub-4", "cert-4", key_path=_tmp_key)
+    token = issue_session_token("4711", "cert-4", key_path=_tmp_key)
     header, body, sig = token.split(".")
     tampered = f"{header}.{body[:-4] + 'XXXX'}.{sig}"
 

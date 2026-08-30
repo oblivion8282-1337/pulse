@@ -1,0 +1,1107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pulse Self-Host Setup</title>
+<meta name="description" content="Step-by-step guide to running your own Pulse server with Docker Compose.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+:root {
+  --ground: #ffffff;
+  --surface: #f5f7fa;
+  --surface-2: #eceff4;
+  --ink: #111827;
+  --ink-dim: #4b5563;
+  --ink-faint: #6b7280;
+  --line: rgba(17, 24, 39, 0.13);
+  --line-soft: rgba(17, 24, 39, 0.07);
+  --brand: #2563eb;
+  --brand-soft: rgba(37, 99, 235, 0.09);
+  --ok: #047857;
+  --ok-soft: rgba(4, 120, 87, 0.10);
+  --warn: #b45309;
+  --warn-soft: rgba(180, 83, 9, 0.10);
+  --danger: #b91c1c;
+  --danger-soft: rgba(185, 28, 28, 0.08);
+  --code-ground: #12161d;
+  --code-ink: #dfe4ec;
+  --code-dim: #8b95a7;
+
+  --sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --rail: 15.5rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #101216;
+    --surface: #171a20;
+    --surface-2: #1e222a;
+    --ink: #f0f1f3;
+    --ink-dim: #b3bac6;
+    --ink-faint: #868e9e;
+    --line: rgba(255, 255, 255, 0.11);
+    --line-soft: rgba(255, 255, 255, 0.06);
+    --brand: #60a5fa;
+    --brand-soft: rgba(96, 165, 250, 0.14);
+    --ok: #34d399;
+    --ok-soft: rgba(52, 211, 153, 0.13);
+    --warn: #fbbf24;
+    --warn-soft: rgba(251, 191, 36, 0.13);
+    --danger: #f87171;
+    --danger-soft: rgba(248, 113, 113, 0.12);
+    --code-ground: #0b0d11;
+    --code-ink: #e3e7ee;
+    --code-dim: #7d8798;
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground: #101216;
+  --surface: #171a20;
+  --surface-2: #1e222a;
+  --ink: #f0f1f3;
+  --ink-dim: #b3bac6;
+  --ink-faint: #868e9e;
+  --line: rgba(255, 255, 255, 0.11);
+  --line-soft: rgba(255, 255, 255, 0.06);
+  --brand: #60a5fa;
+  --brand-soft: rgba(96, 165, 250, 0.14);
+  --ok: #34d399;
+  --ok-soft: rgba(52, 211, 153, 0.13);
+  --warn: #fbbf24;
+  --warn-soft: rgba(251, 191, 36, 0.13);
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.12);
+  --code-ground: #0b0d11;
+  --code-ink: #e3e7ee;
+  --code-dim: #7d8798;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: var(--rail) minmax(0, 1fr);
+  gap: 3.5rem;
+  max-width: 74rem;
+  margin: 0 auto;
+  padding: 0 2rem 6rem;
+}
+
+/* ── Rail ───────────────────────────────────────────────── */
+.rail {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  max-height: 100vh;
+  overflow-y: auto;
+  padding: 2.5rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.mark {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  font-size: 1.05rem;
+}
+.mark span {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--ink-faint);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.rail nav { display: flex; flex-direction: column; gap: 0.1rem; }
+.rail-head {
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.11em;
+  color: var(--ink-faint);
+  margin: 1.1rem 0 0.4rem;
+}
+.rail-head:first-child { margin-top: 0; }
+.rail a {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.28rem 0.6rem 0.28rem 0;
+  color: var(--ink-dim);
+  text-decoration: none;
+  font-size: 0.875rem;
+  border-radius: 4px;
+}
+.rail a:hover { color: var(--brand); }
+.rail a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.rail a b {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-faint);
+  min-width: 1ch;
+}
+
+/* ── Content ────────────────────────────────────────────── */
+main { padding: 2.5rem 0 0; min-width: 0; }
+
+.masthead { padding-bottom: 2.5rem; border-bottom: 1px solid var(--line); }
+h1 {
+  font-size: clamp(1.9rem, 1.2rem + 2vw, 2.7rem);
+  line-height: 1.12;
+  letter-spacing: -0.028em;
+  font-weight: 700;
+  margin: 0 0 0.85rem;
+  text-wrap: balance;
+}
+.standfirst {
+  font-size: 1.075rem;
+  color: var(--ink-dim);
+  margin: 0;
+  max-width: 62ch;
+}
+
+section { padding-top: 3.25rem; scroll-margin-top: 1.5rem; }
+h2 {
+  font-size: 1.45rem;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  margin: 0 0 1.1rem;
+  text-wrap: balance;
+}
+h3 {
+  font-size: 1.02rem;
+  font-weight: 600;
+  margin: 2rem 0 0.7rem;
+  letter-spacing: -0.008em;
+}
+p { margin: 0 0 1rem; max-width: 66ch; }
+p:last-child { margin-bottom: 0; }
+a { color: var(--brand); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+strong { font-weight: 600; }
+
+code {
+  font-family: var(--mono);
+  font-size: 0.86em;
+  background: var(--surface-2);
+  padding: 0.12em 0.36em;
+  border-radius: 4px;
+  word-break: break-word;
+}
+
+/* ── Step headers ───────────────────────────────────────── */
+.step { display: flex; align-items: baseline; gap: 0.85rem; margin: 2.75rem 0 1rem; }
+.step:first-of-type { margin-top: 1.5rem; }
+.step-n {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--brand);
+  background: var(--brand-soft);
+  border-radius: 4px;
+  padding: 0.15rem 0.5rem;
+  flex: none;
+}
+.step h3 { margin: 0; font-size: 1.15rem; }
+
+/* ── Code blocks ────────────────────────────────────────── */
+.cmd { position: relative; margin: 0 0 1.25rem; }
+.cmd pre {
+  margin: 0;
+  background: var(--code-ground);
+  color: var(--code-ink);
+  border-radius: 8px;
+  padding: 0.95rem 3.4rem 0.95rem 1.05rem;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 0.83rem;
+  line-height: 1.7;
+  tab-size: 2;
+}
+.cmd pre .c { color: var(--code-dim); }
+.copy {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--code-dim);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 5px;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+.copy:hover { color: var(--code-ink); border-color: rgba(255, 255, 255, 0.28); }
+.copy:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.copy[data-done="1"] { color: #4ade80; border-color: rgba(74, 222, 128, 0.4); }
+
+/* ── Callouts ───────────────────────────────────────────── */
+.note {
+  border-left: 3px solid var(--line);
+  padding: 0.1rem 0 0.1rem 1.1rem;
+  margin: 0 0 1.25rem;
+  color: var(--ink-dim);
+  font-size: 0.94rem;
+  max-width: 64ch;
+}
+.note.warn { border-color: var(--warn); }
+.note.danger { border-color: var(--danger); }
+.note strong { color: var(--ink); }
+
+/* ── Ports ──────────────────────────────────────────────── */
+.ports {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 1.25rem;
+}
+.ports table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.ports th {
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 500;
+  color: var(--ink-faint);
+  padding: 0.7rem 1rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.ports td { padding: 0.62rem 1rem; border-bottom: 1px solid var(--line-soft); vertical-align: baseline; }
+.ports tr:last-child td { border-bottom: 0; }
+.ports td:first-child {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.proto {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  color: var(--ink-dim);
+  background: var(--surface-2);
+  border-radius: 4px;
+  padding: 0.1rem 0.38rem;
+  white-space: nowrap;
+}
+.ports tr[data-need="core"] td:first-child { color: var(--brand); }
+
+/* ── Checklist ──────────────────────────────────────────── */
+.checks { list-style: none; margin: 0 0 1.5rem; padding: 0; display: flex; flex-direction: column; gap: 0.75rem; }
+/* Der Inhalt jedes <li> MUSS in einem einzigen <span> stecken. In einem Grid
+   wird jedes Element-Kind ein eigenes Item: ohne die Huelle zerschneiden die
+   <strong>-Auszeichnungen den Fliesstext in lauter Items, und die landen
+   einzeln untereinander in den Zellen. */
+.checks li {
+  display: grid;
+  grid-template-columns: 1.4rem minmax(0, 1fr);
+  gap: 0.65rem;
+  align-items: baseline;
+  max-width: 66ch;
+}
+.checks li::before {
+  content: "";
+  width: 1.05rem;
+  height: 1.05rem;
+  border: 1.5px solid var(--line);
+  border-radius: 4px;
+  align-self: start;
+  margin-top: 0.32rem;
+}
+
+/* ── The fork: two files ────────────────────────────────── */
+.fork { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: 1rem; margin: 1.25rem 0; }
+.opt {
+  border-radius: 10px;
+  padding: 1.15rem 1.2rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.opt-when {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--ink-faint);
+}
+.opt-file {
+  font-family: var(--mono);
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--ink);
+  word-break: break-all;
+  line-height: 1.45;
+}
+.opt p { font-size: 0.9rem; color: var(--ink-dim); margin: 0; }
+.opt-take {
+  margin-top: auto;
+  padding-top: 0.55rem;
+  font-size: 0.86rem;
+  color: var(--brand);
+  font-weight: 500;
+}
+
+/* ── Log lines / troubleshooting tables ─────────────────── */
+.tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 1.25rem; }
+.tbl table { width: 100%; border-collapse: collapse; font-size: 0.9rem; min-width: 34rem; }
+.tbl th {
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 500;
+  color: var(--ink-faint);
+  padding: 0.7rem 1rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.tbl td { padding: 0.68rem 1rem; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+.tbl tr:last-child td { border-bottom: 0; }
+.tbl code { background: transparent; padding: 0; font-size: 0.82em; }
+
+footer {
+  margin-top: 4rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.875rem;
+  color: var(--ink-faint);
+}
+footer a { color: var(--ink-dim); }
+
+@media (max-width: 62rem) {
+  .shell { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 1.25rem 4rem; }
+  .rail {
+    position: static;
+    max-height: none;
+    padding: 1.75rem 0 0;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 1.5rem;
+  }
+  .rail nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 0 1rem; }
+  .rail-head { grid-column: 1 / -1; }
+  main { padding-top: 2rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+/* ── Aufklappbare Wege ──────────────────────────────────────
+   Zwei vollstaendige Rezepte statt eines Wegs mit ausgeblendeten Teilen.
+   <details> ist dafuer das richtige Element: es klappt ohne JavaScript auf,
+   ist ueber die Tastatur bedienbar, und die Browser-Suche (Strg+F) findet
+   inzwischen auch Text in geschlossenen Panels. */
+.weg {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  margin-bottom: 1rem;
+  background: var(--surface);
+  overflow: hidden;
+}
+.weg[open] { background: var(--ground); border-color: var(--brand); }
+.weg > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 1.15rem 1.25rem;
+  display: grid;
+  grid-template-columns: 1.4rem minmax(0, 1fr);
+  gap: 0.9rem;
+  align-items: start;
+}
+.weg > summary::-webkit-details-marker { display: none; }
+.weg > summary:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.weg > summary::before {
+  content: "";
+  width: 0.62rem;
+  height: 0.62rem;
+  margin: 0.42rem 0 0 0.3rem;
+  border-right: 2px solid var(--ink-faint);
+  border-bottom: 2px solid var(--ink-faint);
+  transform: rotate(-45deg);
+  transition: transform 0.15s;
+}
+.weg[open] > summary::before { transform: rotate(45deg); border-color: var(--brand); }
+.weg-titel { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
+.weg-wann { font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em; }
+.weg-datei {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--brand);
+  word-break: break-all;
+}
+.weg-was { font-size: 0.9rem; color: var(--ink-dim); margin: 0.15rem 0 0; max-width: 60ch; }
+.weg-inhalt { padding: 0 1.25rem 1.5rem; border-top: 1px solid var(--line); }
+.weg-inhalt > .step:first-child { margin-top: 1.5rem; }
+.weg-schritte {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<aside class="rail">
+  <div class="mark">Pulse <span>Self-host</span></div>
+  <nav>
+    <div class="rail-head">Start</div>
+    <a href="#requirements">Before you start</a>
+    <a href="#installer">The fast way</a>
+    <div class="rail-head">Manual install</div>
+    <a href="#choose">Which of the two</a>
+    <a href="#plain">Standalone</a>
+    <a href="#proxy">Behind your own proxy</a>
+    <div class="rail-head">Afterwards</div>
+    <a href="#running">Running it</a>
+    <a href="#trouble">When something is wrong</a>
+    <a href="#uninstall">Uninstalling</a>
+  </nav>
+</aside>
+
+<main>
+
+<header class="masthead">
+  <h1>Hosting Pulse yourself</h1>
+  <p class="standfirst">Pulse runs as one Docker container. The web app and user
+  identity stay with the Cloud &mdash; your people sign in at howispulse.com and
+  connect from there. Your server only needs outbound HTTPS.</p>
+</header>
+
+<!-- ═══ Requirements ═══ -->
+<section id="requirements">
+  <h2>Before you start</h2>
+
+  <ul class="checks">
+    <li><span><strong>An approved instance.</strong> In the app: create an
+      account, enable MFA, apply under <strong>Settings &rarr; Your own
+      server</strong>, wait for approval.</span></li>
+    <li><span><strong>A server</strong> with Docker and Docker Compose.</span></li>
+    <li><span><strong>A DNS A record</strong> pointing at the server IP, for
+      example <code>chat.example.com</code>. Set it <em>before</em> the first
+      start, otherwise the certificate never arrives.</span></li>
+    <li><span><strong>The ports below open.</strong></span></li>
+  </ul>
+
+  <div class="ports">
+    <table>
+      <thead>
+        <tr><th>Port</th><th>Protocol</th><th>What for</th></tr>
+      </thead>
+      <tbody>
+        <tr data-need="core"><td>80, 443</td><td><span class="proto">TCP</span></td><td>HTTP/HTTPS &mdash; the app and the Let&rsquo;s Encrypt challenge</td></tr>
+        <tr><td>3478</td><td><span class="proto">TCP + UDP</span></td><td>coturn &mdash; NAT traversal for voice</td></tr>
+        <tr><td>7882&ndash;7892</td><td><span class="proto">UDP</span></td><td>LiveKit WebRTC &mdash; voice and HQ stream ICE</td></tr>
+        <tr><td>1936</td><td><span class="proto">TCP</span></td><td>HQ streaming ingest (RTMPS)</td></tr>
+        <tr><td>8189</td><td><span class="proto">UDP</span></td><td>HQ stream playback (WHEP)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="cmd">
+    <pre>ufw allow 80,443/tcp
+ufw allow 3478
+ufw allow 7882:7892/udp
+ufw allow 1936/tcp
+ufw allow 8189/udp</pre>
+  </div>
+
+  <div class="note">Only <strong>80 and 443</strong> are needed for chat and
+  sign-in. Everything else is voice and streaming &mdash; leave those ports
+  closed and you get a server where chat works and calls do not.</div>
+</section>
+
+<!-- ═══ Installer ═══ -->
+<section id="installer">
+  <h2>The fast way: installer script</h2>
+  <p>One command, and the server keeps itself up to date afterwards. Generate it
+  under <strong>Settings &rarr; Your own server &rarr; Set up server</strong>.</p>
+
+  <div class="cmd">
+    <pre>curl -fsSL https://howispulse.com/install | PULSE_BOOTSTRAP_TOKEN=&lt;YOUR_TOKEN&gt; bash</pre>
+  </div>
+
+  <p>Everything below is the <strong>manual</strong> route &mdash; for your own
+  proxy or your own update strategy.</p>
+</section>
+
+<!-- ═══ Die Wahl ═══ -->
+<section id="choose">
+  <h2>Manual installation</h2>
+
+  <p>There are two ways, and one question decides between them: <strong>is
+  anything already listening on ports 80 and 443 on this machine?</strong></p>
+
+  <div class="cmd">
+    <pre>ss -tlnp | grep -E ':(80|443)\s'</pre>
+  </div>
+
+  <p>Open the matching panel below. <strong>Each one is complete</strong> &mdash;
+  every command you need, in order. You never have to read the other.</p>
+
+  <div class="note danger">Pick the wrong one and the container will not start
+  &mdash; and it can take the other sites on the machine down with it.</div>
+
+  <!-- ── Weg A: allein auf der Maschine ── -->
+  <details class="weg" id="plain">
+    <summary>
+      <div class="weg-titel">
+        <span class="weg-wann">Nothing is listening &mdash; standalone</span>
+        <span class="weg-datei">docker-compose.yml</span>
+        <p class="weg-was">The machine belongs to Pulse alone. The embedded Caddy
+        fetches its own Let&rsquo;s Encrypt certificate, so 80 and 443 must be
+        reachable from outside.</p>
+        <span class="weg-schritte">5 steps</span>
+      </div>
+    </summary>
+
+    <div class="weg-inhalt">
+
+      <div class="step"><span class="step-n">01</span><h3>Download the .env</h3></div>
+
+      <p><strong>Settings &rarr; Your own server &rarr; Set up server &rarr; Manual
+      installation &rarr; Download .env.</strong> The file is filled in completely.
+      You enter nothing by hand.</p>
+
+      <div class="note warn"><strong>One download only.</strong> Each one
+      generates a new secret and invalidates the previous. Keep the file safe
+      &mdash; it is also your registry password in step 3.</div>
+
+      <p>Check two values before you go on:</p>
+
+      <div class="cmd">
+        <pre>grep -E "^PULSE_(HOSTNAME|INSTANCE_OWNER_ID)=" .env</pre>
+      </div>
+
+      <div class="tbl">
+        <table>
+          <thead><tr><th>Value</th><th>Why it matters</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>PULSE_INSTANCE_OWNER_ID</code></td>
+              <td>The account that applied for the instance. <strong>Only that
+              account becomes admin.</strong> There is no safety net &mdash;
+              getting it wrong means a database edit later. If it is not the
+              account you want, apply again now.</td>
+            </tr>
+            <tr>
+              <td><code>PULSE_HOSTNAME</code></td>
+              <td>Must be exactly the name the server will be reachable under.
+              The sign-in ticket is bound to it.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="step"><span class="step-n">02</span><h3>Get the files</h3></div>
+
+      <div class="cmd">
+        <pre>mkdir pulse &amp;&amp; cd pulse
+curl -fsSLO https://howispulse.com/self-host/docker-compose.yml
+
+mv ~/Downloads/pulse-instance-*.env .env</pre>
+      </div>
+
+      <p>The filename <code>.env</code> is mandatory &mdash; Compose looks for
+      exactly that, in the same directory.</p>
+
+      <div class="step"><span class="step-n">03</span><h3>Sign in to the registry</h3></div>
+
+      <p>The image sits in a closed registry. Skip this and the start fails with
+      <code>pull access denied</code>. The credentials are already in your
+      <code>.env</code>:</p>
+
+      <div class="cmd">
+        <pre>grep -oP '^PULSE_CLOUD_CLIENT_SECRET=\K.*' .env \
+  | docker login registry.howispulse.com \
+      -u "$(grep -oP '^PULSE_CLOUD_CLIENT_ID=\K.*' .env)" --password-stdin</pre>
+      </div>
+
+      <p>Expect <code>Login Succeeded</code>. The pipe matters:
+      <code>--password-stdin</code> keeps the secret out of the process list and
+      your shell history.</p>
+
+      <div class="step"><span class="step-n">04</span><h3>Start it</h3></div>
+
+      <div class="cmd">
+        <pre>docker compose up -d</pre>
+      </div>
+
+      <p>The first start takes 60&ndash;120 seconds: database, migrations, and
+      fetching the certificate. Wait for <code>(healthy)</code>:</p>
+
+      <div class="cmd">
+        <pre>docker ps --filter name=pulse --format '{{.Names}}\t{{.Status}}'</pre>
+      </div>
+
+      <p>Some log lines on a first start look like errors and are not &mdash; the
+      list is under <a href="#normal-logs">normal start-up messages</a>.</p>
+
+      <div class="step"><span class="step-n">05</span><h3>Verify and sign in</h3></div>
+
+      <div class="cmd">
+        <pre>curl https://chat.example.com/health                        <span class="c"># {"status":"ok"}</span>
+curl https://chat.example.com/.well-known/pulse-server-info</pre>
+      </div>
+
+      <p>The second one carries the most information. It must show your
+      <code>instance_id</code> and, in <code>capabilities</code>, the entry
+      <strong><code>server-ticket</code></strong>.</p>
+
+      <div class="note danger">No <code>server-ticket</code> means the server
+      predates 28 August 2026 and will accept nobody. An update alone is not
+      enough &mdash; it has to be set up again.</div>
+
+      <p>Then: <a href="https://howispulse.com">howispulse.com</a> &rarr;
+      <strong>Add server</strong> &rarr; your hostname. Sign in with the account
+      that applied (step 1) &mdash; only that one becomes admin.</p>
+
+      <p>Finally run <strong>Settings &rarr; Your own server &rarr; My Instances
+      &rarr; Check connection</strong>. That is the view from outside, and it
+      catches what a server cannot see about itself.</p>
+
+      <div class="note">Opening your server domain directly in a browser shows a
+      <strong>blank page</strong>. That is intended &mdash; a self-host has no
+      login page of its own.</div>
+
+    </div>
+  </details>
+
+  <!-- ── Weg B: hinter einem vorhandenen Proxy ── -->
+  <details class="weg" id="proxy">
+    <summary>
+      <div class="weg-titel">
+        <span class="weg-wann">A proxy is running &mdash; behind your own proxy</span>
+        <span class="weg-datei">docker-compose.behind-proxy.yml</span>
+        <p class="weg-was">nginx, Traefik, Caddy or Nginx Proxy Manager already
+        holds 80/443. Pulse leaves them alone and serves HTTP on 8080; TLS stays
+        with your proxy.</p>
+        <span class="weg-schritte">6 steps</span>
+      </div>
+    </summary>
+
+    <div class="weg-inhalt">
+
+      <div class="note"><strong>Two things differ from the standalone path.</strong>
+      Every <code>docker compose</code> command carries
+      <code>-f docker-compose.behind-proxy.yml</code>, updates included &mdash; or
+      set <code>COMPOSE_FILE=docker-compose.behind-proxy.yml</code> in your shell
+      and drop the flag. And there is one extra step at the end: the proxy
+      rule.</div>
+
+      <div class="step"><span class="step-n">01</span><h3>Download the .env</h3></div>
+
+      <p><strong>Settings &rarr; Your own server &rarr; Set up server &rarr; Manual
+      installation &rarr; Download .env.</strong> The file is filled in completely.
+      You enter nothing by hand.</p>
+
+      <div class="note warn"><strong>One download only.</strong> Each one
+      generates a new secret and invalidates the previous. Keep the file safe
+      &mdash; it is also your registry password in step 3.</div>
+
+      <p>Check two values before you go on:</p>
+
+      <div class="cmd">
+        <pre>grep -E "^PULSE_(HOSTNAME|INSTANCE_OWNER_ID)=" .env</pre>
+      </div>
+
+      <div class="tbl">
+        <table>
+          <thead><tr><th>Value</th><th>Why it matters</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>PULSE_INSTANCE_OWNER_ID</code></td>
+              <td>The account that applied for the instance. <strong>Only that
+              account becomes admin.</strong> There is no safety net &mdash;
+              getting it wrong means a database edit later. If it is not the
+              account you want, apply again now.</td>
+            </tr>
+            <tr>
+              <td><code>PULSE_HOSTNAME</code></td>
+              <td>Must be exactly the name the server will be reachable under.
+              The sign-in ticket is bound to it.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p><code>PULSE_TLS_MODE</code> is deliberately absent &mdash; this Compose
+      file sets it to <code>behind-proxy</code> itself.</p>
+
+      <div class="step"><span class="step-n">02</span><h3>Get the files</h3></div>
+
+      <div class="cmd">
+        <pre>mkdir pulse &amp;&amp; cd pulse
+curl -fsSLO https://howispulse.com/self-host/docker-compose.behind-proxy.yml
+
+mv ~/Downloads/pulse-instance-*.env .env</pre>
+      </div>
+
+      <p>The filename <code>.env</code> is mandatory &mdash; Compose looks for
+      exactly that, in the same directory.</p>
+
+      <div class="step"><span class="step-n">03</span><h3>Sign in to the registry</h3></div>
+
+      <p>The image sits in a closed registry. Skip this and the start fails with
+      <code>pull access denied</code>. The credentials are already in your
+      <code>.env</code>:</p>
+
+      <div class="cmd">
+        <pre>grep -oP '^PULSE_CLOUD_CLIENT_SECRET=\K.*' .env \
+  | docker login registry.howispulse.com \
+      -u "$(grep -oP '^PULSE_CLOUD_CLIENT_ID=\K.*' .env)" --password-stdin</pre>
+      </div>
+
+      <p>Expect <code>Login Succeeded</code>. The pipe matters:
+      <code>--password-stdin</code> keeps the secret out of the process list and
+      your shell history.</p>
+
+      <div class="step"><span class="step-n">04</span><h3>Start it</h3></div>
+
+      <div class="cmd">
+        <pre>docker compose -f docker-compose.behind-proxy.yml up -d</pre>
+      </div>
+
+      <p>The first start takes 60&ndash;120 seconds: database and migrations. Wait
+      for <code>(healthy)</code>:</p>
+
+      <div class="cmd">
+        <pre>docker ps --filter name=pulse --format '{{.Names}}\t{{.Status}}'</pre>
+      </div>
+
+      <p>Some log lines on a first start look like errors and are not &mdash; the
+      list is under <a href="#normal-logs">normal start-up messages</a>.</p>
+
+      <div class="step"><span class="step-n">05</span><h3>Add the proxy rule</h3></div>
+
+      <p><strong>One</strong> rule &mdash; the container routes the rest.</p>
+
+      <div class="note warn"><strong>WebSocket upgrade must pass through.</strong>
+      In Nginx Proxy Manager that is the &ldquo;WebSocket Support&rdquo; tick; in
+      nginx it is the <code>Upgrade</code> headers. Without it, sign-in works and
+      chat stays empty &mdash; the single most common mistake here.</div>
+
+      <h3>If your proxy runs on the host</h3>
+      <div class="cmd">
+        <pre>chat.example.com {
+    reverse_proxy 127.0.0.1:8080
+}</pre>
+      </div>
+
+      <h3>If your proxy runs in a container</h3>
+      <p>Then it cannot reach the host&rsquo;s <code>127.0.0.1</code> &mdash; that
+      is its own loopback. Share a Docker network and address Pulse by container
+      name:</p>
+
+      <div class="cmd">
+        <pre>docker network create pulse-net
+docker network connect pulse-net &lt;your-proxy-container&gt;</pre>
+      </div>
+
+      <p>Add two blocks to the Compose file. Under the <code>pulse</code> service,
+      indented like <code>ports:</code>:</p>
+
+      <div class="cmd">
+        <pre>    networks:
+      - pulse-net</pre>
+      </div>
+
+      <p>And at the end of the file, next to <code>volumes:</code>:</p>
+
+      <div class="cmd">
+        <pre>networks:
+  pulse-net:
+    external: true</pre>
+      </div>
+
+      <p>The two blocks share a name and mean different things: the indented one
+      says <em>this service joins that network</em>, the left-aligned one says
+      <em>here is how the network is defined</em>. Then point the rule at the
+      container name:</p>
+
+      <div class="cmd">
+        <pre>chat.example.com {
+    reverse_proxy pulse:8080
+}</pre>
+      </div>
+
+      <p>Check the YAML without starting anything, then restart:</p>
+
+      <div class="cmd">
+        <pre>docker compose -f docker-compose.behind-proxy.yml config &gt;/dev/null &amp;&amp; echo "YAML ok"
+docker compose -f docker-compose.behind-proxy.yml up -d</pre>
+      </div>
+
+      <div class="note">Voice and HQ streaming bypass the proxy over UDP. Those
+      ports must stay open either way.</div>
+
+      <div class="step"><span class="step-n">06</span><h3>Verify and sign in</h3></div>
+
+      <div class="cmd">
+        <pre>curl https://chat.example.com/health                        <span class="c"># {"status":"ok"}</span>
+curl https://chat.example.com/.well-known/pulse-server-info</pre>
+      </div>
+
+      <p>The second one carries the most information. It must show your
+      <code>instance_id</code> and, in <code>capabilities</code>, the entry
+      <strong><code>server-ticket</code></strong>.</p>
+
+      <div class="note danger">No <code>server-ticket</code> means the server
+      predates 28 August 2026 and will accept nobody. An update alone is not
+      enough &mdash; it has to be set up again.</div>
+
+      <p>Then: <a href="https://howispulse.com">howispulse.com</a> &rarr;
+      <strong>Add server</strong> &rarr; your hostname. Sign in with the account
+      that applied (step 1) &mdash; only that one becomes admin.</p>
+
+      <p>Finally run <strong>Settings &rarr; Your own server &rarr; My Instances
+      &rarr; Check connection</strong>. That is the view from outside, and it
+      catches what a server cannot see about itself &mdash; above all a proxy that
+      drops WebSockets.</p>
+
+      <div class="note">Opening your server domain directly in a browser shows a
+      <strong>blank page</strong>. That is intended &mdash; a self-host has no
+      login page of its own.</div>
+
+    </div>
+  </details>
+</section>
+
+<!-- ═══ Running ═══ -->
+<section id="running">
+  <h2>Running it</h2>
+
+  <h3>Updates</h3>
+
+  <p><strong>Installed with the script?</strong> Updates already run on their own.
+  The installer put a timer on the host that pulls a new image and restarts the
+  container. Nothing for you to do &mdash; skip to Backups.</p>
+
+  <p><strong>Installed manually?</strong> Then you update yourself:</p>
+
+  <div class="cmd">
+    <pre><span class="c"># standalone:</span>
+docker compose pull &amp;&amp; docker compose up -d
+
+<span class="c"># behind your own proxy:</span>
+docker compose -f docker-compose.behind-proxy.yml pull &amp;&amp; \
+  docker compose -f docker-compose.behind-proxy.yml up -d</pre>
+  </div>
+
+  <p>Put that in a cron job or systemd timer. It is not optional in the long run:
+  a server left on an old version eventually stops matching the Cloud, and then
+  it accepts nobody.</p>
+
+  <h3>Backups</h3>
+  <p>The container writes periodic <code>pg_dump</code> snapshots to
+  <code>/data/backups/</code> &mdash; daily, seven kept. Tune with
+  <code>PULSE_BACKUP_INTERVAL_SECONDS</code>,
+  <code>PULSE_BACKUP_RETENTION</code> and <code>PULSE_BACKUP_DISABLED</code>.
+  Encryption is the host&rsquo;s job: put the whole <code>/data</code> volume on
+  an encrypted device (LUKS, ZFS).</p>
+
+  <div class="cmd">
+    <pre>docker compose exec pulse pg_dump -h 127.0.0.1 -U pulse dcc &gt; backup-$(date +%Y%m%d).sql</pre>
+  </div>
+
+  <p>The database is called <code>dcc</code>, the role <code>pulse</code>.
+  <code>-h 127.0.0.1</code> is required &mdash; the Unix socket is not at the
+  default path.</p>
+</section>
+
+<!-- ═══ Trouble ═══ -->
+<section id="trouble">
+  <h2>When something is wrong</h2>
+
+  <p>Two tools. From inside the server:</p>
+
+  <div class="cmd">
+    <pre>docker exec pulse pulse-doctor</pre>
+  </div>
+
+  <p>From outside: <strong>Settings &rarr; Your own server &rarr; My Instances
+  &rarr; Check connection</strong>. Green inside and red outside means DNS,
+  firewall or proxy &mdash; not the server.</p>
+
+  <h3 id="normal-logs">Normal start-up messages</h3>
+  <p>All of these appear on a first start and are <strong>not</strong> errors.</p>
+
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Line</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>STUN CHANGE_REQUEST</code></td><td>coturn with a single IP address. Enough for NAT traversal.</td></tr>
+        <tr><td><code>caddyfile: Unnecessary header_up</code></td><td>The Caddy inside the container, not yours. Cosmetic.</td></tr>
+        <tr><td><code>MinIO: Host local has more than 0 drives</code></td><td>Single-node operation, as intended.</td></tr>
+        <tr><td><code>relation "&hellip;" does not exist</code></td><td>A query got ahead of the migration. On an empty database there is nothing to find.</td></tr>
+        <tr><td><code>pubsub: drained 0/7</code></td><td>Start-up ordering.</td></tr>
+        <tr><td><code>jwks_cold_start</code></td><td>Cloud keys not fetched yet. They arrive within 30 s. A sign-in before that fails once &mdash; try again.</td></tr>
+        <tr><td><code>vapid_auto_generated</code></td><td>A push-notification key was generated and stored. Only a warning here means it could <em>not</em> be stored.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Anything else is best read like this:</p>
+
+  <div class="cmd">
+    <pre>docker logs pulse 2&gt;&amp;1 | grep -iE "error|fatal|traceback" | tail -20</pre>
+  </div>
+
+  <h3>Symptoms</h3>
+
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td>No certificate, Caddy will not start</td><td>DNS not pointing here yet, or port 80 blocked</td><td>Fix DNS or firewall, then <code>docker compose restart</code></td></tr>
+        <tr><td>Everything looks fine, chat stays empty</td><td>Proxy drops WebSockets</td><td>nginx: <code>Upgrade</code> headers. NPM: tick &ldquo;WebSocket Support&rdquo;</td></tr>
+        <tr><td>Chat works, voice does not</td><td>UDP ports closed</td><td>Open 3478 and 7882&ndash;7892</td></tr>
+        <tr><td>Sign-in fails, server is running</td><td>Server cannot reach the Cloud</td><td>On the server: <code>curl https://howispulse.com/.well-known/jwks.json</code></td></tr>
+        <tr><td><code>/health</code> says <code>degraded</code></td><td>Postgres or Redis down</td><td><code>docker compose logs pulse | tail -50</code></td></tr>
+        <tr><td>&ldquo;ports already in use&rdquo;</td><td>Another service holds a media port</td><td>Bind Pulse to a second IP, see below</td></tr>
+        <tr><td>Not admin on your own server</td><td>Signed in with a different account than the one that applied</td><td>See below</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Media ports cannot be remapped</h3>
+  <p><code>-p 9882:7882/udp</code> will not work &mdash; WebRTC announces its own
+  port number, and a Docker remap does not change what the server says. Bind Pulse
+  to a second IP instead:</p>
+
+  <div class="cmd">
+    <pre>-p &lt;IP&gt;:7882-7892:7882-7892/udp</pre>
+  </div>
+
+  <h3>Not admin on your own server</h3>
+  <p>The server logs both the configured owner and who signed in:</p>
+
+  <div class="cmd">
+    <pre>docker logs pulse 2&gt;&amp;1 | grep -iE "instance owner|Cloud account"</pre>
+  </div>
+
+  <p>Two different numbers means the wrong account. To move the server to another
+  account, change <code>PULSE_INSTANCE_OWNER_ID</code> in the <code>.env</code>
+  and restart. Needs <code>PULSE_LOG_LEVEL=info</code>, which is the default
+  &mdash; if neither line appears, the container is running quieter than that.</p>
+
+  <h3>Certificate never arrives</h3>
+  <p><code>pulse-doctor</code> compares what your hostname resolves to against
+  what this machine looks like from outside. A mismatch is the usual reason.
+  Either the A record points elsewhere, or the network has split ingress and
+  egress &mdash; then forward 80/443 here <em>and</em> run with
+  <code>PULSE_TLS_MODE=behind-proxy</code>.</p>
+</section>
+
+<!-- ═══ Uninstall ═══ -->
+<section id="uninstall">
+  <h2>Uninstalling</h2>
+
+  <div class="note danger"><strong>Remove the auto-update job first.</strong>
+  Otherwise the next run brings the container back with an empty volume. If you
+  are not sure which install you have, run both blocks &mdash; the wrong one fails
+  harmlessly.</div>
+
+  <div class="cmd">
+    <pre><span class="c"># root install (systemd):</span>
+sudo systemctl disable --now pulse-update.timer
+sudo rm /etc/systemd/system/pulse-update.{service,timer}
+sudo systemctl daemon-reload
+
+<span class="c"># non-root install (user crontab):</span>
+crontab -l | grep -v pulse-update.sh | crontab -</pre>
+  </div>
+
+  <div class="note danger"><strong>Back up before the next step.</strong> The
+  volume holds every message, account and upload on this server, and nothing
+  restores it.</div>
+
+  <div class="cmd">
+    <pre><span class="c"># installer path:</span>
+docker rm -f pulse
+docker volume rm pulse-data          <span class="c"># deletes ALL data</span>
+
+<span class="c"># compose path (volume carries the project name):</span>
+docker compose down -v               <span class="c"># removes pulse_pulse-data too</span></pre>
+  </div>
+
+  <p><code>docker compose down</code> without <code>-v</code> keeps the data for a
+  reinstall.</p>
+
+  <p>Afterwards delete the instance in the app under <strong>My Instances</strong>,
+  which frees the hostname. Members remove the server from their own list by
+  right-clicking it.</p>
+</section>
+
+<footer>
+  <p><a href="https://howispulse.com/self-host/env.example">All .env options</a>
+  &middot; Privacy policy template and image internals: see
+  <code>docs/PRIVACY_SELF_HOST_TEMPLATE.md</code> and
+  <code>infra/self-host/README.md</code> in the repository.</p>
+  <p>Bringing your own certificate &mdash; Cloudflare Tunnel, Tailscale Funnel, an
+  internal network: set <code>PULSE_TLS_MODE=provided</code> and put cert and key
+  at <code>/data/certs/cert.pem</code> and <code>key.pem</code>.</p>
+</footer>
+
+</main>
+</div>
+
+<script>
+// Copy buttons: added in JS so a reader without scripts sees clean code blocks
+// rather than dead controls.
+for (const block of document.querySelectorAll('.cmd')) {
+  const pre = block.querySelector('pre');
+  if (!pre) continue;
+  const btn = document.createElement('button');
+  btn.className = 'copy';
+  btn.type = 'button';
+  btn.textContent = 'Copy';
+  btn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(pre.innerText);
+      btn.textContent = 'Copied';
+      btn.dataset.done = '1';
+    } catch {
+      btn.textContent = 'Press Ctrl+C';
+    }
+    setTimeout(() => { btn.textContent = 'Copy'; delete btn.dataset.done; }, 1600);
+  });
+  block.appendChild(btn);
+}
+</script>
+</body>
+</html>
