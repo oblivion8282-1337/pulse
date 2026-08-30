@@ -223,7 +223,7 @@ async function zugangHolen(stecker: AnbieterStecker, kundenId: string, tokenDate
 
 	const code = await fangeCode(stecker.port, zustand);
 	const zugang = await stecker.tauschen(kundenId, code, pruefer);
-	console.log('  ✔ Code-Tausch geglückt (PKCE ohne client_secret)');
+	console.log('  ✔ Code-Tausch geglückt');
 	console.log(`  ✔ Nachspiel-Token ${zugang.nachspieleToken === undefined ? 'FEHLT — offline_access/ token_access_type prüfen' : 'vorhanden, für den nächsten Lauf gesichert (Datei, nicht Ausgabe)'}`);
 	speichereNachspiel(tokenDatei, zugang);
 	return zugang;
