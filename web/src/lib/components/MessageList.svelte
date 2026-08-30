@@ -181,8 +181,16 @@
   // Reset beim Kanalwechsel — sonst sieht der erste WS-Push in einen frisch
   // gewechselten Channel nicht wie ein "initial load" aus → kein scroll-to-bottom.
   // VList behält den internen Offset beim data-Tausch → explizit auf 0 setzen.
+  //
+  // Trigger ist AUSSCHLIESSLICH die Kanal-ID (String), nie die Prop-Referenz:
+  // DMs bauen ihr synthetisches Channel-Objekt bei jedem Store-Bump neu —
+  // und `dm_bump` läuft bei JEDEM Senden/Empfangen. An der Objekt-Identität
+  // gemessen, hätte jeder Reply die ganze Reset-Kaskade gezündet (gemessen
+  // im Dev-Stack: Sprung auf 0 → Historien-Kaskade → Sprung ans Ende, drei
+  // sichtbare Glitches pro Nachricht). Ein String deduped sauber.
+  let channelKey = $derived(channel?.id ?? '');
   $effect(() => {
-    void channel?.id;
+    void channelKey;
     untrack(() => {
       lastCount = 0;
       lastSeenId = '';
