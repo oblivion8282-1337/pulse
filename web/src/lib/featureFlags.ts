@@ -28,8 +28,9 @@ export const APP_HOSTING_ENABLED = false;
  *
  * Konzept: `docs/user-gehostete-kanaele-konzept.md`. Gebaut ist laut
  * Bau-Variante 2 (§6a) nur die krypto-freie Speicher-Hälfte
- * (`src/lib/ablage/` — Log-Format, Adapter für Sync-Ordner und WebDAV,
- * Schreiber, Leser, Nachzieher). **Der Schalter
+ * (`src/lib/ablage/` — Log-Format, Adapter für Sync-Ordner, WebDAV,
+ * Dropbox/OneDrive/Google Drive (App-Folder-OAuth) und S3, Schreiber, Leser,
+ * Nachzieher). **Der Schalter
  * bleibt zu, bis der Krypto-Nachzug gelandet ist:** ein Klartext-Log im
  * privaten Cloud-Konto des Owners ist kein Produktzustand, sondern genau der
  * Scan-/Haftungswall aus `docs/user-gehostete-kanaele-analyse.md` (Wand 3).
