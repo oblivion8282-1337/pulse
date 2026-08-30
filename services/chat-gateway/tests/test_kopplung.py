@@ -444,6 +444,63 @@ async def test_neues_geraet_darf_nicht_schieben(client, app, _auth_signer):
 
 
 @pytest.mark.asyncio
+async def test_drittes_geraet_kommt_an_keine_route(client, app, _auth_signer):
+    """Gegenprobe zum Auftrag (§3b): ein DRITTES eingerichtetes Geraet
+    DESSELBEN Kontos — weder ``alt`` noch ``neu`` dieser Kopplung — kommt an
+    keine der sieben Routen. ``test_drittes_geraet_darf_nicht_holen`` deckt
+    bereits ``stueck``/``stueck/holen``; hier die restlichen vier."""
+    token, uid, alt, _neu, kid = await _gekoppelt(client, _auth_signer)
+    dritt = Geraet(uid)
+    await dritt.veroeffentlichen(client, token)
+
+    # ``stand`` laesst nur ``alt``/``neu`` durch (``_als_alt_oder_neu``).
+    r = await _stand(client, dritt, token, kid)
+    assert r.status_code == 404, r.text
+
+    # ``fertig`` verlangt die Rolle ``alt`` ueber ``kopplung_laden``.
+    r = await _fertig(client, dritt, token, kid, 1)
+    assert r.status_code == 404, r.text
+
+    # ``anlegen`` mit dem Code eines fremden Geraets steht dem Dritten offen
+    # (jedes eingerichtete Geraet darf EIGENE Kopplungen anlegen) — das ist
+    # kein Zugriff auf DIESE Kopplung und deshalb kein Gegenbeweis hier.
+
+    # ``abschliessen`` prueft die Rolle direkt in der WHERE-Klausel (keine
+    # Ausnahme fuer verfallene Zeilen wie bei den anderen Routen). Ein
+    # Aufruf mit dem dritten Geraet trifft keine Zeile — er meldet trotzdem
+    # 204 (dieselbe Antwort wie ein wiederholtes Abschliessen, s. Docstring
+    # der Route), OHNE die Kopplung tatsaechlich zu loeschen. Das zeigt sich
+    # daran, dass ``alt`` danach immer noch Stuecke schieben kann.
+    r = await _abschliessen(client, dritt, token, kid)
+    assert r.status_code == 204, r.text
+    r = await _stueck(client, alt, token, kid, 0, _b64_unpadded(b"noch-da"))
+    assert r.status_code == 204, r.text
+
+
+@pytest.mark.asyncio
+async def test_fremdes_konto_kann_stuecke_nicht_holen(client, app, _auth_signer):
+    """Gegenprobe zum Auftrag (§3b): ein fremdes Konto kommt an eine laufende
+    Kopplung nicht heran — ``test_fremdes_konto_sieht_den_code_nicht`` deckt
+    das Einloesen, hier das Abholen der Stuecke und den Stand. Beide Routen
+    filtern in ``kopplung_laden``/``_als_alt_oder_neu`` auf ``user_id``, ein
+    fremdes Konto trifft also nie eine Zeile — unabhaengig davon, ob es die
+    ``kopplung_id`` erraet."""
+    token_a, uid_a, alt, _neu, kid = await _gekoppelt(client, _auth_signer)
+    token_b, uid_b = await _register(_auth_signer)
+    fremd = Geraet(uid_b)
+    await fremd.veroeffentlichen(client, token_b)
+
+    assert (
+        await _stueck(client, alt, token_a, kid, 0, _b64_unpadded(b"geheim"))
+    ).status_code == 204
+
+    r = await _stueck_holen(client, fremd, token_b, kid, 0)
+    assert r.status_code == 404, r.text
+    r = await _stand(client, fremd, token_b, kid)
+    assert r.status_code == 404, r.text
+
+
+@pytest.mark.asyncio
 async def test_stueck_zu_gross(client, app, _auth_signer, monkeypatch):
     from dcc_chat_gateway import config as chat_config
 
