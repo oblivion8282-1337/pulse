@@ -33,6 +33,12 @@ import {
 	onedriveAdapter,
 	tauscheCodeAus as onedriveTausch,
 } from '../src/lib/ablage/onedrive.ts';
+import {
+	autorisierungsAdresse as gdriveAdresse,
+	auffrischeZugang as gdriveNachspiel,
+	gdriveAdapter,
+	tauscheCodeAus as gdriveTausch,
+} from '../src/lib/ablage/gdrive.ts';
 import type { AblageAdapter } from '../src/lib/ablage/adapter.ts';
 
 interface AnbieterStecker {
@@ -83,7 +89,34 @@ const ONEDRIVE: AnbieterStecker = {
 	adapter: async (zugangsToken, lauf) => onedriveAdapter({ zugangsToken, ordner: `Pulse/int-${lauf}/kanal` }),
 };
 
-const STECKER: Record<string, AnbieterStecker> = { dropbox: DROPBOX, onedrive: ONEDRIVE };
+const GDRIVE: AnbieterStecker = {
+	port: 9109,
+	kundenIdEnv: 'ABLAGE_INT_GDRIVE_KUNDEN_ID',
+	tokenDatei: 'gdrive.json',
+	hinweis:
+		'Google-Cloud: OAuth-Client Typ „Desktop-App", Consent-Screen Extern im Testmodus mit deinem Konto als Testnutzer, Scope drive.file; Redirect http://localhost:9109/ruecklauf',
+	adresse: async (kundenId, herausforderung, zustand) =>
+		gdriveAdresse(
+			{ kundenId, weiterleitung: `http://localhost:${GDRIVE.port}/ruecklauf` },
+			{ pruefer: '', herausforderung },
+			zustand,
+		),
+	tauschen: (kundenId, code, pruefer) =>
+		gdriveTausch(
+			{ kundenId, weiterleitung: `http://localhost:${GDRIVE.port}/ruecklauf` },
+			code,
+			{ pruefer, herausforderung: '' },
+		),
+	nachspielen: (kundenId, nachspieleToken) =>
+		gdriveNachspiel({ kundenId, weiterleitung: `http://localhost:${GDRIVE.port}/ruecklauf` }, nachspieleToken),
+	adapter: async (zugangsToken, lauf) => gdriveAdapter({ zugangsToken, ordner: `Pulse/int-${lauf}/kanal` }),
+};
+
+const STECKER: Record<string, AnbieterStecker> = {
+	dropbox: DROPBOX,
+	onedrive: ONEDRIVE,
+	gdrive: GDRIVE,
+};
 
 const WEITERLEITUNG_DROPBOX = `http://localhost:${DROPBOX.port}/ruecklauf`;
 
