@@ -158,6 +158,15 @@ class Settings(BaseSettings):
     # routes/attachments.py. Empty string = no extra restriction.
     cloud_attachment_mime_prefixes: str = "image/"
 
+    # Kanal-Erstellung als Instanz-Einstellung (Konzept
+    # docs/user-gehostete-kanaele-konzept.md §2a): "regular" = Textkanaele
+    # wie bisher (unverschluesselt, Instanz-Speicher); "ablage_only" = einen
+    # Textkanal erstellen kann nur, wer eine verbundene Cloud-Ablage hat —
+    # neue Kanaele sind Ablage-Kanaele (clientverschluesselt, Inhalt auf dem
+    # Laufwerk des Erstellers). Betrifft nur die NEUANLAGE; bestehende
+    # Kanaele bleiben lesbar.
+    channel_creation_policy: str = "regular"
+
     # Cloud user-id of this instance's owner (the applicant who registered it).
     # The Cloud hands this out at approval. At cert-login, the user whose cert
     # carries this user_id becomes admin of this instance. 0 = nobody (no

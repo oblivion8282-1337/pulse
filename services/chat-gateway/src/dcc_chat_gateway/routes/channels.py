@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import delete, select
 
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway import config as chat_config
 from dcc_chat_gateway.guild_caps import enforce_channel_cap
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_DROPBOX,
@@ -66,6 +67,7 @@ def _channel_dict(channel: Channel) -> dict[str, object]:
         "guild_id": str(channel.guild_id),
         "name": channel.name,
         "type": channel.type,
+        "ablage": getattr(channel, "ablage", False),
         "position": channel.position,
         "topic": channel.topic,
         # Stamped onto the instance by routes that computed it; freshly
@@ -103,6 +105,16 @@ async def create_channel(
         raise HTTPException(404, detail="guild not found")
     await check_permission(session, current, guild_id, Permissions.MANAGE_CHANNELS)
     await enforce_channel_cap(session, guild_id)
+    # Instanz-Einstellung (Konzept §2a): im Modus „Nur Ablage" ist die
+    # Neuanlage von Klartext-Kanaelen gesperrt. Der Server kann die Ablage
+    # selbst nicht verifizieren (Zugangsdaten bleiben beim Klienten) — er
+    # erzwingt nur die Kennzeichnung; die Krypto-Zusage traegt der Klient.
+    policy = chat_config.get_settings().channel_creation_policy
+    if policy == "ablage_only" and not payload.ablage:
+        raise HTTPException(
+            403,
+            detail="channel_creation_requires_ablage: connect a cloud drive first",
+        )
     # Display-string sink: must go through validate_name to harden
     # against path-traversal / bidi-spoofing / homograph phishing.
     try:
@@ -114,6 +126,7 @@ async def create_channel(
         guild_id=guild_id,
         name=clean_name,
         type=payload.type,
+        ablage=payload.ablage,
         position=payload.position,
         topic=payload.topic,
     )

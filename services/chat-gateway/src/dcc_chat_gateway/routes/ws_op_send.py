@@ -157,6 +157,10 @@ async def handle_send(ctx: WSOpContext, msg: dict[str, Any]) -> None:
                 kind, ch = resolved
                 if kind == "guild" and ch.type != CHANNEL_TYPE_TEXT:
                     ok = False
+                elif kind == "guild" and getattr(ch, "ablage", False):
+                    # Mischzustand-Regel (Konzept §2a): Klartext-WS-Send in
+                    # einen Ablage-Kanal wird nicht angenommen.
+                    ok = False
                 else:
                     ok = True
                     if kind == "guild":

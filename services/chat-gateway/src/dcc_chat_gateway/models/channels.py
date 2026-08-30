@@ -46,6 +46,10 @@ class Channel(Base):
     )
     name: Mapped[str] = mapped_column(String(64), nullable=False)
     type: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=CHANNEL_TYPE_TEXT)
+    # Ablage-Kanal (Konzept §2a): serverblind — Nachrichten/Anhaenge sind
+    # clientverschluesselt und liegen im Laufwerk des Erstellers, nie hier.
+    # Migrationskette 0081. Regulaere Kanaele: False.
+    ablage: Mapped[bool] = mapped_column(nullable=False, default=False)
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     topic: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Per-channel name styling (mirrors users.profile_color*). NULL = no color

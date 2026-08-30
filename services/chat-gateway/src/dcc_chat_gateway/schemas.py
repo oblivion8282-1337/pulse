@@ -246,6 +246,10 @@ class ChannelIn(BaseModel):
     type: Annotated[int, Field(ge=0, le=2)] = 0
     topic: Annotated[str | None, Field(default=None, max_length=1024)] = None
     position: int = 0
+    # Ablage-Kanal (Konzept §2a): serverblind, Inhalte clientverschluesselt
+    # auf dem Laufwerk des Erstellers. Im Instanz-Modus "ablage_only" ist
+    # ablage=True Pflicht fuer die Neuanlage.
+    ablage: bool = False
 
 
 class ChannelOut(BaseModel):
@@ -254,6 +258,8 @@ class ChannelOut(BaseModel):
     guild_id: int
     name: str
     type: int
+    # Ablage-Kanal (Konzept §2a) — serverblind, Inhalte clientverschluesselt.
+    ablage: bool = False
     position: int
     topic: str | None
     created_at: datetime
@@ -696,12 +702,16 @@ class PermissionsOut(BaseModel):
     ``/capabilities`` (so UI can gate the create-guild button, validate
     uploads, etc.). Admin writes happen via ``/admin/permissions``.
 
+    ``channel_creation_policy`` (Konzept §2a): "regular" oder "ablage_only" —
+    der Instanz-Modus fuer die Textkanal-Erstellung.
+
     The numeric ``guild_sound_max_size_bytes`` lives here because it's
     a public ceiling — any uploader needs to know it. The class name
     pre-dates the field and is mildly misleading; renaming would touch
     too many callers without payoff."""
 
     model_config = ConfigDict(from_attributes=True)
+    channel_creation_policy: str = "regular"
     allow_guild_creation: bool
     allow_member_invites: bool
     # Self-Host "Server gesperrt" not-aus toggle. When true the instance refuses

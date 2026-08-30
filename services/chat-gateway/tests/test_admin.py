@@ -144,7 +144,8 @@ async def test_get_permissions_returns_defaults(client, admin_token):
     )
     assert r.status_code == 200
     assert r.json() == {
-        "allow_guild_creation": True,
+        "channel_creation_policy": "regular",
+    "allow_guild_creation": True,
         "allow_member_invites": True,
         "locked": False,
         "instance_name": None,
@@ -176,6 +177,7 @@ async def test_patch_permissions_records_audit(client, admin_token):
     )
     assert r.status_code == 200
     assert r.json() == {
+        "channel_creation_policy": "regular",
         "allow_guild_creation": False,
         "allow_member_invites": False,
         "locked": False,

@@ -220,6 +220,13 @@ async def create_upload_url(
         )
     _validate_mime(payload.mime)
     kind, ch = await resolve_channel_or_raise(session, channel_id, current.id)
+    if kind == "guild" and getattr(ch, "ablage", False):
+        # Mischzustand-Regel: Anhaenge von Ablage-Kanaelen verschluesselt der
+        # Klient und legt sie in die Ablage — MinIO sieht hier nichts.
+        raise HTTPException(
+            403,
+            detail="ablage channel: plaintext attachment upload is not accepted",
+        )
     _enforce_dm_attachment_policy(kind)
     # ATTACH_FILES gate (guild channels only — DMs have no permission overlay).
     if kind == "guild":

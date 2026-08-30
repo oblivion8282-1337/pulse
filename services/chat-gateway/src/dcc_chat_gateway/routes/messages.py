@@ -147,6 +147,15 @@ async def post_message(
     if kind == "guild" and ch.type != CHANNEL_TYPE_TEXT:
         # Voice channels reject text posts. DM channels are always text-only.
         raise HTTPException(404, detail="text channel not found")
+    if kind == "guild" and getattr(ch, "ablage", False):
+        # Mischzustand-Regel (Konzept §2a): Ablage-Kanaele sind serverblind.
+        # Klartext wird nicht stillschweigend akzeptiert — der Klient
+        # verschluesselt und konsolidiert selbst; der Server fuhrt nur
+        # Zustellung und Metadaten.
+        raise HTTPException(
+            403,
+            detail="ablage channel: content is end-to-end encrypted, not accepted here",
+        )
     if kind == "dm":
         # Etappe 2 friend-gate: a DM send requires both sides to still be
         # friends with no block in either direction. Pre-existing rows from
