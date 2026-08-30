@@ -37,6 +37,9 @@
     /** Huelle der Nachrichten. Sprechblasen nur in privaten Gespraechen —
      *  im Kanal tragen Autorname und -farbe die Orientierung. */
     layout = 'row',
+    /** REST-Route fürs Nachladen: DMs laufen gegen die Cloud (siehe ChatView),
+     *  Guild-Kanäle gegen den aktiven Server (leer = Default-Weiche). */
+    route = {},
     onSetReplyTarget,
     onEditMessage,
     onDeleteMessage,
@@ -49,21 +52,26 @@
     myId: string | null;
     namePrefix?: string;
     isOwner?: boolean;
+    route?: { serverId?: string };
     onSetReplyTarget: (m: Message) => void;
     onEditMessage: (m: Message, newContent: string) => void;
     onDeleteMessage: (m: Message) => void;
     onToggleReaction: (m: Message, emoji: string, currentlyMine: boolean) => void;
   } = $props();
 
-  // Nur Guild-Channel paginieren — DMs haben selten tiefe Historie und laufen
-  // cloud-scoped (default route reicht für Guild; DM bräuchte Cloud-route).
-  const canPaginate = $derived(!!channel?.guild_id);
+  // Überall paginieren — DMs genauso wie Guild-Kanäle (deren Route kommt als
+  // Prop). Der frühere Ausschluss („DMs haben selten tiefe Historie") ließ
+  // DMs jenseits der ersten Seite hart enden: hoch scrollen lud nichts nach.
+  const canPaginate = $derived(!!channel);
 
   let vlist = $state<VListHandle>();
   // Wrapper um <VList> — Viewport-Resize (Fenster/Mobile/Memberlist-Toggle)
   // und async Content-Load (Bilder/Embeds) werden hierüber beobachtet.
   let wrapperEl = $state<HTMLDivElement | null>(null);
   let lastCount = $state(0);
+  // ID der letzten bekannten Nachricht — erkennt den Echo-Swap (tmp → echte
+  // ID bei GLEICHER Länge), der nur über die Länge unsichtbar bliebe.
+  let lastSeenId = $state('');
   // Ob der User aktuell ganz unten an der Liste klebt. Wird LAUFEND beim
   // Scrollen aktualisiert — also BEVOR eine neue Nachricht die Liste höher
   // macht. Neue Nachrichten wachsen den Container nach unten, ohne ein
@@ -111,12 +119,22 @@
   // ResizeObserver einen Frame später korrigiert (sichtbares Zucken, bei
   // Bildnachrichten dreistellig). Nach zwei Frames ist gemessen und das Ziel
   // exakt; die Zeile ist solange ohnehin `visibility:hidden`.
-  function pinToEndWhenMeasured() {
+  //
+  // `unbedingt` (nur Initial-Load) pinnt auch dann, wenn der User inzwischen
+  // hochgescrollt hat — es gibt dort noch keine Position zu schützen. In allen
+  // anderen Fällen wird beim ABLAUF erneut geprüft: Der User kann in den ~2
+  // Frames seit der Planung hochgescrollt haben (Rad, Scrollbar-Drag, PgUp —
+  // Letztere erzeugen kein wheel-Event), und sein Scrollwille schlägt den Pin.
+  // Ohne diesen Re-Check riss jeder kurz nach dem Absenden begonnene
+  // Hochscroll-Versuch wieder nach unten („ich kann nicht hoch scrollen“).
+  function pinToEndWhenMeasured(unbedingt = false) {
     const forChannel = channel?.id;
     void tick().then(() =>
       requestAnimationFrame(() =>
         requestAnimationFrame(() => {
-          if (channel?.id === forChannel) pinToEnd();
+          if (channel?.id !== forChannel) return;
+          if (!unbedingt && !pinnedToBottom) return;
+          pinToEnd();
         })
       )
     );
@@ -130,7 +148,7 @@
     if (!oldest) return;
     loadingOlder = true;
     try {
-      const older = await chatApi.listMessages(channel.id, { before: oldest, limit: OLDER_PAGE });
+      const older = await chatApi.listMessages(channel.id, { before: oldest, limit: OLDER_PAGE }, route);
       // shift NUR für diese eine Prepend-Längenänderung aktivieren, dann sofort
       // wieder deaktivieren — virtua liest den Wert im Moment, in dem `items`
       // (und damit data.length) wächst, also innerhalb des tick()-Flushes.
@@ -167,6 +185,7 @@
     void channel?.id;
     untrack(() => {
       lastCount = 0;
+      lastSeenId = '';
       pinnedToBottom = true;
       hasMore = true;
       loadingOlder = false;
@@ -176,14 +195,22 @@
 
   $effect(() => {
     const count = messages.length;
-    if (count !== lastCount) {
+    const lastId = count > 0 ? messages[count - 1].id : '';
+    // Nicht nur die LÄNGE, auch die letzte ID zählt: der WS-Echo ersetzt die
+    // optimistische `tmp-`-Kopie per Nonce IN PLACE (Länge gleich) — die echte
+    // Nachricht ist aber oft höher (Mention-Pills, Anhänge), und ohne Re-Pin
+    // wächst dieser Zuwachs unter dem Viewport weg: die Ansicht rutscht beim
+    // Absenden relativ nach oben („ruckelig“). Der ID-Vergleich fängt den
+    // Swap, ein Re-Pin (oben: mit Scroll-Willen-Check) glättet ihn.
+    if (count !== lastCount || lastId !== lastSeenId) {
       const isInitialLoad = lastCount === 0;
       // "Klebt der User unten?" wird VOR dem DOM-Wachstum bestimmt (über den
       // laufenden Scroll-Handler) — nicht erst nach tick(), wenn die neue,
       // u.U. >80px hohe Nachricht die Messung schon verfälscht hätte.
       const shouldScroll = isInitialLoad || pinnedToBottom;
       lastCount = count;
-      if (shouldScroll) pinToEndWhenMeasured();
+      lastSeenId = lastId;
+      if (shouldScroll) pinToEndWhenMeasured(isInitialLoad);
     }
   });
 
@@ -337,7 +364,11 @@
 
     const out: ChatItem[] = [];
     if (!prevDate || mDateStr !== prevDateStr) {
-      out.push({ kind: 'divider', label: formatDividerLabel(mDate, today, yesterday), key: `div-${m.id}` });
+      out.push({
+        kind: 'divider',
+        label: formatDividerLabel(mDate, today, yesterday),
+        key: `div-${m.nonce ?? m.id}`
+      });
     }
 
     const isContinuation =
@@ -346,7 +377,17 @@
       mDate.getTime() - prevDate!.getTime() < 7 * 60 * 1000 &&
       mDateStr === prevDateStr;
 
-    out.push({ kind: 'message', message: m, isContinuation, isGroupEnd: true, key: m.id });
+    // Key = Nonce, wenn vorhanden: Der WS-Echo ersetzt die optimistische
+    // `tmp-`-Kopie unter BEHALTUNG des Keys — virtua updated die Zeile in
+    // place statt sie unzumontieren und neu vermessen zu lassen (Flackern
+    // beim Absenden). Nachrichten ohne Nonce (alle eingehenden) keyn per ID.
+    out.push({
+      kind: 'message',
+      message: m,
+      isContinuation,
+      isGroupEnd: true,
+      key: m.nonce ?? m.id
+    });
     return out;
   }
 
