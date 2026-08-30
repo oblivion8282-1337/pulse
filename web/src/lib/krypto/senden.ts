@@ -59,10 +59,10 @@
  */
 import type { Message } from '../api/types';
 import { ApiError } from '../api/client';
-import { certStore } from '../identity/cert.svelte';
 import { keysApi } from '../api/keys';
 import { postfachApi, type PostfachNutzlast } from '../api/postfach';
 import { serversStore } from '../api/servers.svelte';
+import { auth } from '../stores/auth.svelte';
 import { isElectron, isCapacitorAndroid } from '../platform/runtime';
 import { directMessages } from '../stores/directMessages.svelte';
 import { verlaufSpeichernPflicht } from '../verlauf';
@@ -120,10 +120,8 @@ export async function sendeVerschluesselt(
   // unerwarteter Fehler wird bewusst NICHT hierzu gemacht: er faellt weiter
   // durch und wird vom Aufrufer (`app/@me/[[dmChannelId]]/+page.svelte`)
   // sichtbar gemacht, statt als Klartext-Rueckfall gedeutet zu werden.
-  const cert = certStore.cert;
-  if (!cert) return null;
-
-  const eigeneUserId = cert.claims.user_id;
+  const eigeneUserId = auth.user?.id ?? null;
+  if (eigeneUserId === null) return null;
   // Die eigene Kennung kommt aus der Krypto-Schicht, nicht mehr aus dem
   // Zertifikat (Spec §3b, s. `geraeteKennung.ts`) — der Wert ist derselbe,
   // die Quelle ueberlebt den Wegfall des Zertifikats. EINMAL geholt: sie

@@ -38,11 +38,11 @@
  * gesendet, und der Aufrufer muss das sichtbar machen.
  */
 import type { Message } from '../../api/types';
-import { certStore } from '../../identity/cert.svelte';
 import { keysApi } from '../../api/keys';
 import { gruppenApi } from '../../api/gruppen';
 import type { PostfachNutzlast } from '../../api/postfach';
 import { serversStore } from '../../api/servers.svelte';
+import { auth } from '../../stores/auth.svelte';
 import { verlaufSpeichernPflicht } from '../../verlauf';
 import { verlaufZustand } from '../../verlauf/zustand.svelte';
 import { parseMentionMarkers } from '../../components/mentionMarkierungen';
@@ -144,9 +144,8 @@ export async function sendeInGruppe(
   // Geraetekennung geholt und ein Krypto-Konto angelegt wuerde.
   if (!PRIVATE_GRUPPEN_ENABLED) return { art: 'nicht_moeglich' };
 
-  const cert = certStore.cert;
-  if (!cert) return { art: 'nicht_moeglich' };
-  const eigeneUserId = cert.claims.user_id;
+  if (!auth.user) return { art: 'nicht_moeglich' };
+  const eigeneUserId = auth.user.id;
   const eigeneKennung = await geraeteKennung();
 
   // Schritt 1 — s. Modulkopf. Frisch, immer.

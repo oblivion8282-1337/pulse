@@ -12,7 +12,7 @@ import { toast } from 'svelte-sonner';
 
 import { keysApi } from '../api/keys';
 import { serversStore } from '../api/servers.svelte';
-import { certStore } from '../identity/cert.svelte';
+import { auth } from '../stores/auth.svelte';
 import { verlaufAllesLoeschen } from '../verlauf/db';
 import { m } from '$lib/paraglide/messages.js';
 import { geraeteKennung } from './geraeteKennung';
@@ -49,9 +49,9 @@ let schonGeprueft = false;
 export async function verfallPruefen(): Promise<void> {
   if (!E2E_DMS_ENABLED) return;
   if (schonGeprueft) return;
-  // Das Zertifikat steht hier nur noch fuer „ueberhaupt angemeldet?" — nach
+  // Die Sitzung steht hier nur noch fuer „ueberhaupt angemeldet?" — nach
   // welcher Kennung gefragt wird, sagt `geraeteKennung()` (s. dort).
-  if (!certStore.cert) return;
+  if (!auth.user) return;
   schonGeprueft = true;
   const kennung = await geraeteKennung();
 

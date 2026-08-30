@@ -26,8 +26,6 @@
   import DangerZoneSection from './DangerZoneSection.svelte';
   import GeraeteKopplungSection from './GeraeteKopplungSection.svelte';
   import GeraeteListeSection from './GeraeteListeSection.svelte';
-=======
->>>>>>> main
   import PublicComputerSafety from './PublicComputerSafety.svelte';
 
   let enableOpen = $state(false);

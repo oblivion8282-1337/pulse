@@ -2,8 +2,8 @@
  * Issue-Flow-Orchestrator (DE 11 Block 1.H).
  *
  * Wird nach erfolgreichem Login aufgerufen. Entscheidet ob ein neues
- * Ed25519-Keypair generiert werden muss, issued ein Cert, und holt
- * das initiale Profile-Statement.
+ * Ed25519-Keypair generiert werden muss, holt das initiale
+ * Profile-Statement und veroeffentlicht die Schluesselbuendel.
  *
  * Aufruf-Reihenfolge:
  *   1. Login (Cookie wird vom Server gesetzt)
@@ -21,11 +21,9 @@ import {
   saveKeypair,
   exportPublicKey,
 } from './keypair.svelte';
-import { certStore, parseCertClaims } from './cert.svelte';
-import type { IdentityCert } from './cert.svelte';
 import { profileStatementStore, parseStatementClaims } from './profile-statement.svelte';
 import type { ProfileStatement } from './profile-statement.svelte';
-import { issueCert, getProfileStatement } from '$lib/api/credentials';
+import { getProfileStatement } from '$lib/api/credentials';
 import { veroeffentlicheSchluessel } from '$lib/krypto/veroeffentlichen';
 
 // ---------------------------------------------------------------------------
@@ -89,21 +87,19 @@ function buildDeviceLabel(): string {
 // ---------------------------------------------------------------------------
 
 export interface IssueFlowResult {
-  cert: IdentityCert;
   statement: ProfileStatement;
   /** true = neues Keypair generiert; false = existierendes genutzt */
   keypairCreated: boolean;
 }
 
 /**
- * Orchestriert den Cert-Issue-Flow nach dem Login.
+ * Orchestriert die Geraete-Anmeldung nach dem Login (Weg A — ohne Zertifikat).
  *
  * Algorithmus:
  *  1. Lokales Keypair laden
  *  2. Falls kein Keypair: generieren + speichern
- *  3. Cert ausstellen (idempotent — gleicher Pubkey liefert bestehendes Cert)
- *  4. Profile-Statement holen
- *  5. Cert + Statement in Stores speichern
+ *  3. Profile-Statement holen
+ *  4. Statement speichern, Schluesselbuendel veroeffentlichen
  *
  * Wirft bei Netzwerk- oder Cookie-Auth-Fehlern (caller zeigt Toast).
  */
@@ -121,21 +117,7 @@ export async function runIssueFlow(): Promise<IssueFlowResult> {
     keypairCreated = true;
   }
 
-  const pubkeyB64 = await exportPublicKey(keypair);
-
-  // --- 3: Cert auflösen (idempotent) ---
-  const issueResp = await issueCert(pubkeyB64, label);
-  const certJwt = issueResp.cert;
-
-  // --- Cert parsen + in Store speichern ---
-  const claims = parseCertClaims(certJwt);
-  if (!claims) {
-    throw new Error('SERVER_RETURNED_INVALID_CERT_JWT');
-  }
-  const cert: IdentityCert = { raw: certJwt, claims };
-  await certStore.setCert(cert);
-
-  // --- 4: Profile-Statement holen ---
+  // --- 3: Profile-Statement holen ---
   const stmtResp = await getProfileStatement();
   const stmtClaims = parseStatementClaims(stmtResp.token);
   if (!stmtClaims) {
@@ -144,12 +126,12 @@ export async function runIssueFlow(): Promise<IssueFlowResult> {
   const statement: ProfileStatement = { raw: stmtResp.token, claims: stmtClaims };
   await profileStatementStore.setStatement(statement);
 
-  // --- 5: E2E-DM-Schluessel veroeffentlichen ---
-  // Best-effort und bewusst NACH dem Cert-Store-Write: die Geraetekennung
-  // wird aus dem Zertifikat im Store uebernommen, solange es eines gibt
+  // --- 4: E2E-DM-Schluessel veroeffentlichen ---
+  // Best-effort und bewusst NACH dem Statement-Store-Write: die
+  // Geraetekennung kommt aus dem lokalen Geraete-Pubkey
   // (`krypto/geraeteKennung.ts`). Ein Fehlschlag hier darf
-  // Login/Registrierung nicht abbrechen — der naechste Login (oder die
-  // taegliche Cert-Rotation) versucht es erneut.
+  // Login/Registrierung nicht abbrechen — der naechste Login versucht es
+  // erneut.
   try {
     await veroeffentlicheSchluessel();
   } catch {
@@ -157,5 +139,5 @@ export async function runIssueFlow(): Promise<IssueFlowResult> {
     // einem Nebeneffekt, der fuer Login/Cert/Profil irrelevant ist.
   }
 
-  return { cert, statement, keypairCreated };
+  return { statement, keypairCreated };
 }

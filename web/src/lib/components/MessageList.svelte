@@ -45,8 +45,6 @@
     onEditMessage,
     onDeleteMessage,
     onToggleReaction,
-    /** Server-Ziel fürs Hochscroll-Nachladen (DMs sind cloud-only, s. `ChatView`). */
-    route
   }: {
     channel: Channel | null;
     messages: Message[];
@@ -55,7 +53,6 @@
     myId: string | null;
     namePrefix?: string;
     isOwner?: boolean;
-    route?: { serverId?: string };
     onSetReplyTarget: (m: Message) => void;
     onEditMessage: (m: Message, newContent: string) => void;
     onDeleteMessage: (m: Message) => void;

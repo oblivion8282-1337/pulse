@@ -10,7 +10,7 @@
  * alle umfallen, wenn das Zertifikat verschwindet. Jetzt lesen sie diese
  * eine Datei, die den Wert in der Identitaets-Datenbank ablegt und von dort
  * herausgibt. Solange es ein Zertifikat gibt, ist sein Wert massgeblich;
- * faellt es weg, traegt der abgelegte weiter. Der Import von `cert.svelte`
+ * faellt es weg, traegt der abgelegte weiter. Der Import des Geraete-Pubkeys
  * unten ist damit die einzige Zeile, die der spaetere Schnitt anfassen muss.
  *
  * **Der Wert bleibt derselbe wie bisher, und das ist keine Zwischenloesung
@@ -24,7 +24,7 @@
  * (`auth.svelte.ts`) — sonst behielte der naechste Nutzer am selben Fenster
  * die Kennung des vorigen, waehrend der Server ihn unter einer neuen fuehrt.
  */
-import { certStore } from '../identity/cert.svelte';
+import { loadKeypair, exportPublicKey } from '../identity/keypair.svelte';
 import {
   openIdentityDb,
   idbGetIdentity,
@@ -48,7 +48,9 @@ export const IDB_KEY_GERAETEKENNUNG = 'pulse.krypto-geraetekennung';
 export async function geraeteKennung(): Promise<string> {
   const db = await openIdentityDb();
   const gespeichert = (await idbGetIdentity(db, IDB_KEY_GERAETEKENNUNG)) as string | undefined;
-  const wahl = kennungWaehlen(gespeichert, certStore.cert?.claims.device_pubkey);
+  const schluessel = await loadKeypair();
+  const eigenerPubkey = schluessel === null ? null : await exportPublicKey(schluessel);
+  const wahl = kennungWaehlen(gespeichert, eigenerPubkey ?? undefined);
   if (wahl.schreiben) await idbPutIdentity(db, IDB_KEY_GERAETEKENNUNG, wahl.kennung);
   db.close();
   return wahl.kennung;
