@@ -123,7 +123,32 @@ Regel statt Fallunterscheidungen.
 
 ---
 
-## 2a. Produktentscheidung (2026-08-31): Alle Textkanäle werden Ablage-Kanäle
+## 2a. Produktentscheidung (2026-08-31, präzisiert): Kanal-Erstellung als Instanz-Einstellung
+
+Der Eigentümer entscheidet **pro Instanz** (Pulse-Cloud oder Self-Host), wie
+die Textkanal-Erstellung funktioniert. Der Super-Admin/Operator stellt ein:
+
+| Modus | Bedeutung |
+|---|---|
+| **Regulär** | Textkanäle wie heute: unverschlüsselt, auf dem Instanz-Speicher, keine Ablage nötig |
+| **Nur Ablage** | Einen Textkanal erstellen kann nur, wer eine verbundene Cloud-Ablage hat — neue Kanäle sind Ablage-Kanäle (verschlüsselt, Inhalt auf dem Laufwerk des Erstellers) |
+
+Gemeinsame Regeln in beiden Modi:
+
+- Die Community-Owner steuern weiterhin per Rechte-System
+  (`MANAGE_CHANNELS`), WER Kanäle erstellen darf.
+- Im Ablage-Modus setzt das Erstellen-Recht eine **verbundene eigene Ablage**
+  voraus (Kanal-Ersteller = Ablage-Owner).
+- **Teilnehmen braucht keine Ablage** — Mitglieder lesen/schreiben über den
+  verschlüsselten Echtzeitweg; das Laufwerk bleibt Sache des Kanal-Erstellers.
+- Bestehende Kanäle bleiben beim Modus-Wechsel lesbar (Legacy-Modus); die
+  Einstellung wirkt nur auf die NEUANLAGE.
+- Der Modus wird als Server-Capability veröffentlicht (`GET /capabilities`),
+  damit die Klient-Oberfläche den Erstellen-Dialog passend anzeigt.
+
+Das ergibt eine koexistente Übergangsrealität: eine Instanz im
+Ablage-Modus hat neben eventuellen Alt-Kanälen nur noch Ablage-Kanäle; die
+Pulse-Cloud kann im Regulär-Modus bleiben, während Self-Hoster frei wählen.
 
 Der Eigentümer hat entschieden: Nach der Einführung dieses Features gibt es
 **keine Pulse-gehosteten Textkanäle mehr als Neuanlage**. Jeder neue Textkanal
