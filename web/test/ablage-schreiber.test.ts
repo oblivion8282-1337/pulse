@@ -165,6 +165,52 @@ describe('Ablage-Schreiber: Abstürze', () => {
 	});
 });
 
+describe('Ablage-Schreiber: große Partien', () => {
+	it('verteilt einen Übergrößen-Batch auf mehrere Segmente, ohne einen Rahmen zu teilen', async () => {
+		const ablage = speicherAdapter();
+		const schreiber = new AblageSchreiber(ablage, 'kanal-1', 200);
+		const partien: AblageEintrag[] = Array.from({ length: 8 }, (_, i) => ({
+			id: BigInt(100 + i),
+			nutzlast: new TextEncoder().encode('x'.repeat(30)),
+			typ: TYP_KLARTEXT_JSON,
+		}));
+
+		const ergebnis = await schreiber.festigen(partien);
+
+		// 48 Bytes je Rahmen (18 Kopf + 30 Nutzlast): vier passen unter das
+		// Ziel von 200, der fünfte sprengt es — acht Rahmen ergeben also
+		// zwei Segmente in EINEM Aufruf.
+		const m = schreiber.stand()!;
+		assert.equal(m.segmente.length, 2);
+		assert.ok(m.segmente.every((s) => s.bytes <= 200 + 60), 'ein Segment sprengt das Ziel deutlich');
+		assert.equal(ergebnis?.rahmen, 8);
+		assert.equal(m.letzteId, '107');
+
+		const verlauf = await leseVerlauf(ablage);
+		assert.deepEqual(
+			verlauf.rahmen.map((r) => r.eintragsId),
+			[100n, 101n, 102n, 103n, 104n, 105n, 106n, 107n],
+		);
+		assert.deepEqual(verlauf.luecken, []);
+	});
+
+	it('gibt einem einzelnen Riesen sein eigenes Segment, statt ihn zu teilen', async () => {
+		const ablage = speicherAdapter();
+		const schreiber = new AblageSchreiber(ablage, 'kanal-1', 100);
+		const riese = new TextEncoder().encode('r'.repeat(500));
+		await schreiber.festigen([{ id: 100n, nutzlast: riese, typ: TYP_KLARTEXT_JSON }]);
+		assert.equal(schreiber.stand()!.segmente.length, 1);
+		assert.ok(schreiber.stand()!.segmente[0].bytes > 100);
+
+		// Der nächste Eintrag darf nicht mehr anhängen — das offene Segment
+		// liegt über dem Ziel, also rollt es.
+		await schreiber.festigen(eintraege(['101', 'klein']));
+		const m = schreiber.stand()!;
+		assert.equal(m.segmente.length, 2);
+		assert.equal(m.letzteId, '101');
+	});
+});
+
 describe('Ablage-Schreiber: Nutzlast bleibt opak', () => {
 	it('trägt die Segment-Reihenfolge im Kopf, nicht im Inhalt', async () => {
 		const ablage = speicherAdapter();
