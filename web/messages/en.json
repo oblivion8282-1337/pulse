@@ -1315,6 +1315,7 @@
   "instance_setup_manual_link": "Installation guide",
   "instance_setup_manual_steps": "All steps in detail:",
   "instance_setup_manual_title": "Manual installation (Docker Compose)",
+  "instance_setup_manual_update_script": "Update script (pulse-update.sh)",
   "instance_setup_prereq_dns": "DNS A record: {hostname} points to the server IP",
   "instance_setup_prereq_docker": "A server (VPS) with Docker installed",
   "instance_setup_prereq_ports": "Ports 80 and 443 free — otherwise Pulse runs behind your existing reverse proxy automatically",
