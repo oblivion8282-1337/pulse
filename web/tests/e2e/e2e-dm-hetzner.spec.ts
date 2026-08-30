@@ -162,6 +162,16 @@ function pgQuery(sql: string): string {
   ).trim();
 }
 
+function anhangSpalten(channelId: string): string[] {
+  const raw = pgQuery(
+    `SELECT coalesce(filename,'-') || '|' || coalesce(mime,'-') || '|' ` +
+      `|| coalesce(width::text,'-') || '|' || coalesce(height::text,'-') || '|' ` +
+      `|| coalesce(message_id::text,'-') ` +
+      `FROM chat.message_attachments WHERE channel_id = ${channelId};`,
+  );
+  return raw ? raw.split('\n') : [];
+}
+
 function anzahlKlartextNachrichten(channelId: string): number {
   return Number(pgQuery(`SELECT count(*) FROM chat.messages WHERE channel_id = ${channelId};`));
 }
@@ -212,6 +222,13 @@ function anzahlOffenerZustellungen(channelId: string): number {
     ),
   );
 }
+
+const TINY_PNG = Buffer.from(
+  '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4' +
+    '890000000a49444154789c63000100000500010d0a2db40000000049454e44ae' +
+    '426082',
+  'hex'
+);
 
 test.describe.serial('Zwei-Geraete-Nachweis auf dem Hetzner-Stack (Weg A)', () => {
   let devCtx: BrowserContext;
@@ -285,4 +302,37 @@ test.describe.serial('Zwei-Geraete-Nachweis auf dem Hetzner-Stack (Weg A)', () =
       .poll(() => anzahlOffenerZustellungen(dmChannelId), { timeout: 15_000 })
       .toBe(0);
   });
+
+  test('dev schickt dev2 einen Anhang verschlüsselt — Metadaten bleiben dem Server verborgen', async () => {
+    await devPage.getByTestId('attachment-file-input').setInputFiles({
+      name: 'geheim.png',
+      mimeType: 'image/png',
+      buffer: TINY_PNG,
+    });
+    await expect(devPage.getByTestId('attachment-preview')).toBeVisible({ timeout: 10_000 });
+    await expect(devPage.getByTestId('message-send')).toBeEnabled({ timeout: 30_000 });
+
+    const KRZEL = 'anhang-nachweis';
+    await devPage.getByTestId('message-input').fill(KRZEL);
+    await devPage.getByTestId('message-send').click();
+
+    const dev2Zeile = dev2Page.getByTestId('message-item').filter({ hasText: KRZEL });
+    await expect(dev2Zeile).toBeVisible({ timeout: 15_000 });
+    const kachel = dev2Zeile.getByTestId('attachment-image');
+    await expect(kachel).toBeVisible({ timeout: 15_000 });
+    // Objekt-URL statt Objektspeicher-Verweis: Holen → Entschlüsseln → blob.
+    await expect
+      .poll(async () => (await kachel.locator('img').getAttribute('src')) ?? '', {
+        timeout: 15_000,
+      })
+      .toMatch(/^blob:/);
+
+    // Der Server speichert zu verschlüsselten Anhängen keine Beschreibung.
+    const spalten = anhangSpalten(dmChannelId);
+    expect(spalten.length).toBeGreaterThan(0);
+    for (const zeile of spalten) {
+      expect(zeile, 'Name/Typ/Maße/Nachrichtenzeile müssen alle NULL sein').toBe('-|-|-|-|-');
+    }
+  });
+
 });

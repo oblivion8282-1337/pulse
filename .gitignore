@@ -149,3 +149,6 @@ streaming/player-labor/vaapi-dmabuf-export/target/
 
 # Ablage-Integrationstests: Nachspiel-Tokens der Anbieter (nie committen)
 web/.ablage-int/
+
+# Lokaler Redis-Snapshot des Test-Laefs
+dump.rdb

@@ -141,10 +141,40 @@ export async function runIssueFlow(): Promise<IssueFlowResult> {
   // erneut.
   try {
     await veroeffentlicheSchluessel();
-  } catch {
-    // Ignorieren — kein Rethrow, sonst scheitert der ganze Issue-Flow an
-    // einem Nebeneffekt, der fuer Login/Cert/Profil irrelevant ist.
+  } catch (fehler) {
+    // Nicht rethrowen — Login/Profil haengt nicht daran. Aber SICHTBAR
+    // warnen: ein stummer Fehlschlag waere ein unsichtbares Fehlen der
+    // Geraete-Buendel (Befund aus dem Hetzner-Zwei-Geraete-Lauf).
+    console.warn('[krypto] Schluessel-Veroeffentlichung fehlgeschlagen:', fehler instanceof Error ? fehler.message : fehler);
   }
 
   return { statement, keypairCreated };
+}
+
+// ---------------------------------------------------------------------------
+// Single-Flight: setUser- und Hydrate-Hook feuern beide beim Login. Ohne
+// Kapselung rennen zwei Laeufe parallel und erzeugen zwei Keypairs — zwei
+// Bündel fuer denselben Account, das Empfaenger-Faechern waere damit kaputt.
+// Der zweite Aufrufer wartet auf denselben Lauf.
+// ---------------------------------------------------------------------------
+
+let lauf: Promise<void> | null = null;
+let fertig = false;
+
+/** Startet den Flow genau einmal pro Seitenleben; weitere Aufrufe warten auf
+ *  denselben Lauf. Fehler gehen an alle Aufrufer, der naechste Login versucht
+ *  es erneut (Lauf und fertig werden zurueckgesetzt). */
+export function starteGeraeteAnmeldung(): Promise<void> {
+  if (fertig && lauf) return lauf;
+  if (lauf) return lauf;
+  lauf = (async () => {
+    await runIssueFlow();
+    fertig = true;
+  })().catch((fehler) => {
+    lauf = null;
+    fertig = false;
+    console.warn('[krypto] Geraete-Anmeldung fehlgeschlagen:', fehler instanceof Error ? fehler.message : fehler);
+    throw fehler;
+  });
+  return lauf;
 }
