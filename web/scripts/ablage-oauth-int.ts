@@ -53,8 +53,9 @@ const DROPBOX: AnbieterStecker = {
 	hinweis:
 		'Dropbox-App (dropbox.com/developers/apps): Typ „App folder", Scopes files.content.write/read + files.metadata.read, Redirect http://localhost:9107/ruecklauf',
 	adresse: async (kundenId, herausforderung, zustand) =>
-		dropboxAdresse({ kundenId }, { pruefer: '', herausforderung }, zustand),
-	tauschen: (kundenId, code, pruefer) => dropboxTausch({ kundenId }, code, { pruefer, herausforderung: '' }),
+		dropboxAdresse({ kundenId, weiterleitung: WEITERLEITUNG_DROPBOX }, { pruefer: '', herausforderung }, zustand),
+	tauschen: (kundenId, code, pruefer) =>
+		dropboxTausch({ kundenId, weiterleitung: WEITERLEITUNG_DROPBOX }, code, { pruefer, herausforderung: '' }),
 	nachspielen: (kundenId, nachspieleToken) => dropboxNachspiel({ kundenId }, nachspieleToken),
 	adapter: async (zugangsToken, lauf) => dropboxAdapter({ zugangsToken, ordner: `Pulse/int-${lauf}/kanal` }),
 };
@@ -83,6 +84,8 @@ const ONEDRIVE: AnbieterStecker = {
 };
 
 const STECKER: Record<string, AnbieterStecker> = { dropbox: DROPBOX, onedrive: ONEDRIVE };
+
+const WEITERLEITUNG_DROPBOX = `http://localhost:${DROPBOX.port}/ruecklauf`;
 
 function leseNachspielToken(datei: string): string | null {
 	try {
