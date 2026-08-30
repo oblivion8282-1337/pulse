@@ -18,38 +18,79 @@
   import { guilds } from '$lib/stores/guilds.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
   import { m } from '$lib/paraglide/messages.js';
+  import { SelfHostContactConfirmRequired } from '$lib/api/add-server-flow';
+  import SelfHostContactConfirmDialog from '$lib/components/server/SelfHostContactConfirmDialog.svelte';
+
+  // Erstkontakt-Gate (unbekannter Self-Host → Bestätigungsdialog statt
+  // Fehler-Toast), wie in JoinGuildStep und InviteEmbed.
+  let confirmHost = $state<string | undefined>(undefined);
+  let pendingJoin = $state<(() => Promise<void>) | null>(null);
+  let confirmOpen = $state(false);
 
   $effect(() => {
     for (const inv of communityInvites.list) userCache.queue(inv.inviter_user_id);
   });
 
   async function accept(id: string) {
+    let res: Awaited<ReturnType<typeof communityInvitesApi.accept>>;
     try {
-      const res = await communityInvitesApi.accept(id);
-      communityInvites.remove(id);
-      if (res.target_host && res.code) {
-        // Fremder Server: die Cloud hat dort keine Mitgliedschaft anlegen
-        // koennen (sie kann den Code nicht einmal pruefen). Wir gehen denselben
-        // Weg wie bei einem geklickten Einladungslink — der Host prueft live.
-        await joinGuildByInvite(
-          `https://app/invite/${encodeURIComponent(res.code)}?host=${encodeURIComponent(res.target_host)}`
-        );
-        return;
-      }
-      // Frisch beigetretene Community sofort laden + hinein navigieren.
-      await guilds.hydrate();
-      await goto(
-        res.channel_id
-          ? `/app/guilds/${res.guild.id}/channels/${res.channel_id}`
-          : `/app/guilds/${res.guild.id}/channels/_`
-      );
+      res = await communityInvitesApi.accept(id);
     } catch (e) {
       // 404 = Einladung/Community inzwischen weg → Karte aufräumen.
       if ((e as { status?: number })?.status === 404) communityInvites.remove(id);
       toast.error(m.community_invite_accept_error(), {
         description: e instanceof Error ? e.message : undefined
       });
+      return;
     }
+    communityInvites.remove(id);
+    if (res.target_host && res.code) {
+      // Fremder Server: die Cloud hat dort keine Mitgliedschaft anlegen
+      // koennen (sie kann den Code nicht einmal pruefen). Wir gehen denselben
+      // Weg wie bei einem geklickten Einladungslink — der Host prueft live.
+      const input = `https://app/invite/${encodeURIComponent(res.code)}?host=${encodeURIComponent(res.target_host)}`;
+      try {
+        await joinGuildByInvite(input);
+      } catch (e) {
+        if (e instanceof SelfHostContactConfirmRequired) {
+          // Unbekannter Self-Host → Erstkontakt-Bestätigung zeigen und mit
+          // confirmed=true erneut beitreten (same as InviteEmbed). Der accept
+          // oben ist bereits durch — nur der Host-Beitritt wartet hier.
+          pendingJoin = () => joinGuildByInvite(input, true);
+          confirmHost = e.hostname;
+          confirmOpen = true;
+          return;
+        }
+
+        toast.error(m.community_invite_accept_error(), {
+          description: e instanceof Error ? e.message : undefined
+        });
+      }
+      return;
+    }
+    // Frisch beigetretene Community sofort laden + hinein navigieren.
+    await guilds.hydrate();
+    await goto(
+      res.channel_id
+        ? `/app/guilds/${res.guild.id}/channels/${res.channel_id}`
+        : `/app/guilds/${res.guild.id}/channels/_`
+    );
+  }
+
+  function onConfirmContact() {
+    const action = pendingJoin;
+    confirmOpen = false;
+    pendingJoin = null;
+    action?.().catch((e: unknown) => {
+      toast.error(m.community_invite_accept_error(), {
+        description: e instanceof Error ? e.message : undefined
+      });
+    });
+  }
+
+  function onCancelContact() {
+    confirmOpen = false;
+    pendingJoin = null;
   }
 
   async function decline(id: string) {
@@ -123,3 +164,10 @@
     {/each}
   </div>
 {/if}
+
+<SelfHostContactConfirmDialog
+  open={confirmOpen}
+  hostname={confirmHost}
+  onConfirm={onConfirmContact}
+  onCancel={onCancelContact}
+/>
