@@ -25,12 +25,14 @@
  * ihm stammen (s. `pickelUebergangPlan.ts`).
  *
  * **Warum die Kennung trotzdem nicht die Olm-Identitaet IST, noch nicht.**
- * Auf diesem Zweig verlangt der Server weiterhin das Zertifikat und legt das
- * Buendel unter `claims.device_pubkey` ab (`routes/schluessel.py`). Eine
- * andere Kennung waere ein zweites, leeres Geraet neben dem eigenen: die
- * veroeffentlichten Buendel und alle bestehenden Olm-Sitzungen haengen am
- * alten Wert. Uebernommen wird deshalb genau der — nur eben kuenftig aus
- * einer Quelle, die den Wegfall des Zertifikats ueberlebt.
+ * Der Server nimmt sie inzwischen aus dem Anfrage-Rumpf entgegen und haelt
+ * sie nur noch gegen das angemeldete Konto (`schluessel_nachweis.py`) — er
+ * schriebe also auch einen anderen Wert an. Was dagegen steht, ist der
+ * BESTAND: die veroeffentlichten Buendel (`DeviceKeyBundle.device_pubkey`)
+ * und alle bestehenden Olm-Sitzungen haengen am alten Wert. Eine andere
+ * Kennung waere deshalb kein Umzug, sondern ein zweites, leeres Geraet neben
+ * dem eigenen. Uebernommen wird genau der alte Wert — nur eben aus einer
+ * Quelle, die den Wegfall des Zertifikats ueberlebt.
  */
 
 export type Kennungswahl = {

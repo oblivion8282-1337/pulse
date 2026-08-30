@@ -1,8 +1,11 @@
 /**
  * Das Geraete-Schluesselverzeichnis — REST-Client.
  *
- * Wire-Form spiegelt `services/chat-gateway/.../routes/schluessel.py` +
- * `schemas.py` (Abschnitt "Geraete-Schluesselverzeichnis"). Bearer-Auth wie
+ * Wire-Form spiegelt `services/chat-gateway/.../routes/` — `schluessel.py`
+ * (veroeffentlichen, Vorrat), `schluessel_abholen.py` (`claim`),
+ * `schluessel_auskunft.py` (`verschluesselbar`, `geraetestand`) und
+ * `geraete.py` (die eigene Liste) — plus `schemas.py` (Abschnitt
+ * "Geraete-Schluesselverzeichnis"). Bearer-Auth wie
  * jede andere chat-gateway-Route (`request()` aus `./client`, nicht die
  * Cookie-Auth der Identity-Plane). `device_pubkey` sagt zusaetzlich, WELCHES
  * Geraet des Kontos handelt — der Server haelt es gegen die eigene

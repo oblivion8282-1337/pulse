@@ -22,6 +22,7 @@
  */
 import { serversStore } from '../api/servers.svelte';
 import { kopplungApi } from '../api/kopplung';
+import { geraeteKennung } from '../krypto/geraeteKennung';
 import { veroeffentlicheSchluessel } from '../krypto/veroeffentlichen';
 import { verlaufPutSaetze } from '../verlauf/db';
 import { aktuellesKonto } from '../verlauf/konto';
@@ -29,7 +30,6 @@ import type { Satz } from '../verlauf/schema';
 import { codeNormalisieren } from './code';
 import { einloesFehlerAus } from './einloesFehler';
 import type { EinloesFehler } from './einloesFehler';
-import { geraeteKennung } from '../krypto/geraeteKennung';
 import { codeHash, stueckEntschluesseln, transportSchluessel } from './transport';
 
 function cloudRoute(): { serverId?: string } {
@@ -61,10 +61,17 @@ export async function kopplungEinloesen(
   if (code === null) throw new EinloesenFehlgeschlagen('code_ungueltig');
 
   const hash = await codeHash(code);
-  const rumpf = { device_pubkey: await geraeteKennung() };
+  // VOR dem `try`, und das ist keine Formsache: der `catch` unten uebersetzt
+  // jeden Fehler in einen `EinloesFehler`, also in eine Aussage ueber den
+  // CODE. Ein Fehlschlag beim Ermitteln der eigenen Kennung ist keine — er
+  // soll roh durchfallen, statt dem Nutzer einen abgelaufenen Code zu melden.
+  const geraet = await geraeteKennung();
   let antwort;
   try {
-    antwort = await kopplungApi.einloesen({ ...rumpf, code_hash: hash }, cloudRoute());
+    antwort = await kopplungApi.einloesen(
+      { device_pubkey: geraet, code_hash: hash },
+      cloudRoute()
+    );
   } catch (fehler) {
     throw new EinloesenFehlgeschlagen(einloesFehlerAus(fehler));
   }
@@ -85,8 +92,10 @@ export type EmpfangsStand = {
 
 /** Fragt, ob der Sender fertig ist und wie weit er kam. */
 export async function umzugStand(kopplungId: string): Promise<EmpfangsStand> {
-  const rumpf = { device_pubkey: await geraeteKennung() };
-  const stand = await kopplungApi.stand({ ...rumpf, kopplung_id: kopplungId }, cloudRoute());
+  const stand = await kopplungApi.stand(
+    { device_pubkey: await geraeteKennung(), kopplung_id: kopplungId },
+    cloudRoute()
+  );
   return { gesamt: stand.gesamt_stuecke, geholt: stand.vorhandene_stuecke.length };
 }
 
@@ -99,8 +108,10 @@ export async function umzugStand(kopplungId: string): Promise<EmpfangsStand> {
  * `senden.ts::kopplungAbbrechen`, hier nur mit der Rolle des NEUEN Geraets.
  */
 export async function kopplungVerwerfen(kopplungId: string): Promise<void> {
-  const rumpf = { device_pubkey: await geraeteKennung() };
-  await kopplungApi.abschliessen({ ...rumpf, kopplung_id: kopplungId }, cloudRoute());
+  await kopplungApi.abschliessen(
+    { device_pubkey: await geraeteKennung(), kopplung_id: kopplungId },
+    cloudRoute()
+  );
 }
 
 /** Ein Stueck, wie der Sender es geschnuert hat (`senden.ts::stueckBytes`). */
@@ -140,9 +151,8 @@ export async function verlaufUebernehmen(
   melde(0, gesamt);
 
   for (let folge = 0; folge < gesamt; folge++) {
-    const rumpf = { device_pubkey: await geraeteKennung() };
     const stueck = await kopplungApi.stueckHolen(
-      { ...rumpf, kopplung_id: kopplungId, folge },
+      { device_pubkey: await geraeteKennung(), kopplung_id: kopplungId, folge },
       cloudRoute()
     );
     const klartext = await stueckEntschluesseln(schluessel, kopplungId, folge, stueck.daten);
@@ -156,9 +166,8 @@ export async function verlaufUebernehmen(
   // Erst NACH dem letzten erfolgreichen Ablegen aufraeumen. Umgekehrt waere
   // ein Fehler im letzten Stueck ein endgueltiger Verlust — der Server haelt
   // keine zweite Kopie, und der Sender muesste den ganzen Umzug wiederholen.
-  const schlussRumpf = { device_pubkey: await geraeteKennung() };
   await kopplungApi.abschliessen(
-    { ...schlussRumpf, kopplung_id: kopplungId },
+    { device_pubkey: await geraeteKennung(), kopplung_id: kopplungId },
     cloudRoute()
   );
 

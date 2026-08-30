@@ -57,11 +57,18 @@ async function doRotation(): Promise<void> {
     if (!claims) return;
     const renewed: IdentityCert = { raw: resp.cert, claims };
     await certStore.setCert(renewed);
-    // Das Schluessel-Buendel traegt die cert_id des zuletzt veroeffentlichenden
-    // Zertifikats. Ohne dieses Nachziehen zeigt sie nach der Rotation auf ein
-    // ueberholtes Zertifikat — der Sperrlisten-Filter beim Abholen (`GET
-    // /keys/claim`) griffe dann nicht mehr, ein gesperrtes Geraet bekaeme
-    // weiter Schluessel (s. Etappe-B2-Plan, Task 3 Schritt 4).
+    // **Der urspruengliche Grund ist entfallen, dieser Aufruf nicht.** Bis
+    // zum 2026-08-30 trug das Schluessel-Buendel die `cert_id` des zuletzt
+    // veroeffentlichenden Zertifikats, und ohne Nachziehen zeigte sie nach
+    // der Rotation auf ein ueberholtes — der Sperrlisten-Filter beim Abholen
+    // griff dann nicht mehr. Spalte und Filter sind mit den Zertifikaten weg
+    // (Spec §3b); die Geraetekennung ueberlebt eine Rotation unveraendert.
+    // Der Aufruf bleibt, weil er inzwischen anderes leistet: er ist neben dem
+    // Login der zweite regelmaessige Startweg der Krypto-Schicht — er faehrt
+    // den Pickle-Uebergang, prueft Verfall und Ausschluss dieses Geraets
+    // (`krypto/verfallPruefen.ts`) und fuellt den Einmalschluessel-Vorrat
+    // nach. Ihn hier zu streichen hiesse, das alles nur noch beim Login zu
+    // tun.
     try {
       await veroeffentlicheSchluessel();
     } catch {

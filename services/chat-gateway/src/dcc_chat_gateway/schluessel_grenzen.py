@@ -7,7 +7,8 @@ Konto, das seine Geraetekennung oft wechselt (Neuinstallation, verlorenes
 Geraet, geleerte IndexedDB), fuer immer Buendelzeilen an — es gibt keine
 Stelle, die eine alte Zeile von sich aus loeschte. Das trifft nicht nur das
 eigene Konto: ``POST /keys/claim`` laedt ALLE Buendel eines Ziels ohne
-Deckel und tut je Buendel ein bewachtes Loeschen — wer die eigene
+Deckel und tut je Buendel eine Redis-Abfrage (die Budget-Wache aus FIX 2,
+nur bei fremden Zielen) plus ein bewachtes Loeschen — wer die eigene
 Geraeteliste aufblaeht, verteuert damit jede Anfrage jedes Kontakts.
 
 FIX 2 — ``einmalschluessel_budget_uebrig``: ohne Deckel leert ~100 billige

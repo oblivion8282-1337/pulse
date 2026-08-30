@@ -4,15 +4,14 @@
  * steht importfrei nebenan in `geraeteKennungWahl.ts`.
  *
  * **Was sich damit aendert:** bisher las jede Verwendungsstelle
- * `certStore.cert.claims.device_pubkey` selbst — vier Stellen
- * (`veroeffentlichen.ts`, `verfallPruefen.ts`, `senden.ts`,
- * `gruppe/senden.ts`, von dort weiter in `empfaengerGeraete.ts` und
- * `gruppe/gruppengeraete.ts`), die alle umfallen, wenn das Zertifikat
- * verschwindet. Jetzt lesen sie diese eine Datei, die den Wert in der
- * Identitaets-Datenbank ablegt und von dort herausgibt. Solange es ein
- * Zertifikat gibt, ist sein Wert massgeblich; faellt es weg, traegt der
- * abgelegte weiter. Der Import von `cert.svelte` ist damit die einzige
- * Zeile, die der spaetere Schnitt anfassen muss.
+ * `certStore.cert.claims.device_pubkey` selbst (`veroeffentlichen.ts`,
+ * `verfallPruefen.ts`, `senden.ts` und `gruppe/senden.ts`, von dort weiter
+ * in `empfaengerGeraete.ts` und `gruppe/gruppengeraete.ts`) — Stellen, die
+ * alle umfallen, wenn das Zertifikat verschwindet. Jetzt lesen sie diese
+ * eine Datei, die den Wert in der Identitaets-Datenbank ablegt und von dort
+ * herausgibt. Solange es ein Zertifikat gibt, ist sein Wert massgeblich;
+ * faellt es weg, traegt der abgelegte weiter. Der Import von `cert.svelte`
+ * unten ist damit die einzige Zeile, die der spaetere Schnitt anfassen muss.
  *
  * **Der Wert bleibt derselbe wie bisher, und das ist keine Zwischenloesung
  * aus Bequemlichkeit:** die veroeffentlichten Schluesselbuendel des Servers

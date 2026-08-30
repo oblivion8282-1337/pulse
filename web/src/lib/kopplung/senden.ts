@@ -47,11 +47,11 @@
  */
 import { serversStore } from '../api/servers.svelte';
 import { kopplungApi } from '../api/kopplung';
+import { geraeteKennung } from '../krypto/geraeteKennung';
 import { verlaufAlleLesen } from '../verlauf/db';
 import { aktuellesKonto } from '../verlauf/konto';
 import type { Satz } from '../verlauf/schema';
 import { codeErzeugen } from './code';
-import { geraeteKennung } from '../krypto/geraeteKennung';
 import {
   codeHash,
   stueckKennung,
@@ -84,21 +84,27 @@ const ENC = new TextEncoder();
 export async function kopplungStarten(): Promise<{ kopplungId: string; code: string }> {
   const code = codeErzeugen();
   const hash = await codeHash(code);
-  const rumpf = { device_pubkey: await geraeteKennung() };
-  const { id } = await kopplungApi.anlegen({ ...rumpf, code_hash: hash }, cloudRoute());
+  const { id } = await kopplungApi.anlegen(
+    { device_pubkey: await geraeteKennung(), code_hash: hash },
+    cloudRoute()
+  );
   return { kopplungId: id, code };
 }
 
 /** Bricht ab und raeumt weg — auch fuer „Code doch nicht zeigen". */
 export async function kopplungAbbrechen(kopplungId: string): Promise<void> {
-  const rumpf = { device_pubkey: await geraeteKennung() };
-  await kopplungApi.abschliessen({ ...rumpf, kopplung_id: kopplungId }, cloudRoute());
+  await kopplungApi.abschliessen(
+    { device_pubkey: await geraeteKennung(), kopplung_id: kopplungId },
+    cloudRoute()
+  );
 }
 
 /** Ob schon jemand eingeloest hat — die Oberflaeche pollt damit. */
 export async function istEingeloest(kopplungId: string): Promise<boolean> {
-  const rumpf = { device_pubkey: await geraeteKennung() };
-  const stand = await kopplungApi.stand({ ...rumpf, kopplung_id: kopplungId }, cloudRoute());
+  const stand = await kopplungApi.stand(
+    { device_pubkey: await geraeteKennung(), kopplung_id: kopplungId },
+    cloudRoute()
+  );
   return stand.eingeloest;
 }
 
@@ -132,9 +138,8 @@ export async function verlaufSchieben(
     KLARTEXT_GRENZE
   );
 
-  const standRumpf = { device_pubkey: await geraeteKennung() };
   const stand = await kopplungApi.stand(
-    { ...standRumpf, kopplung_id: kopplungId },
+    { device_pubkey: await geraeteKennung(), kopplung_id: kopplungId },
     cloudRoute()
   );
 
@@ -169,9 +174,14 @@ export async function verlaufSchieben(
     const bytes = stueckBytes(stuecke[folge]);
     const daten = await stueckVerschluesseln(schluessel, kopplungId, folge, bytes);
     const kennung = await stueckKennung(kennungSchluessel, folge, bytes);
-    const rumpf = { device_pubkey: await geraeteKennung() };
     await kopplungApi.stueckAblegen(
-      { ...rumpf, kopplung_id: kopplungId, folge, daten, kennung },
+      {
+        device_pubkey: await geraeteKennung(),
+        kopplung_id: kopplungId,
+        folge,
+        daten,
+        kennung
+      },
       cloudRoute()
     );
     geschoben += 1;
@@ -181,9 +191,12 @@ export async function verlaufSchieben(
   // ZULETZT, und nur wenn wirklich alles liegt: die Gesamtzahl ist das
   // Signal „vollstaendig" fuer die Gegenseite. Frueher gemeldet, koennte ein
   // Empfaenger einen abgebrochenen Umzug fuer fertig halten.
-  const fertigRumpf = { device_pubkey: await geraeteKennung() };
   await kopplungApi.fertig(
-    { ...fertigRumpf, kopplung_id: kopplungId, gesamt_stuecke: stuecke.length },
+    {
+      device_pubkey: await geraeteKennung(),
+      kopplung_id: kopplungId,
+      gesamt_stuecke: stuecke.length
+    },
     cloudRoute()
   );
 

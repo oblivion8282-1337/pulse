@@ -1,4 +1,4 @@
-"""Das Geraete-Schluesselverzeichnis — Veroeffentlichen, Vorrat und Abholen.
+"""Das Geraete-Schluesselverzeichnis — Veroeffentlichen und Vorrat.
 
 ``PUT /keys/bundle`` legt das Buendel eines Geraets an oder ERSETZT es (eine
 Zeile je ``(user_id, device_pubkey)``, s. Migration 0065). ``POST

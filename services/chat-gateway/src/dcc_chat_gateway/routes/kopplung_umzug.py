@@ -125,10 +125,13 @@ async def kopplung_stueck_ablegen(
     settings = chat_config.get_settings()
     kid = int(body.kopplung_id)
 
-    # Struktur- und Mengenpruefung VOR der Kryptografie — dieselbe
-    # Reihenfolge und derselbe Grund wie in ``routes/postfach.py``
-    # (Bughunt 2026-08-28, FIX 4): der teure Teil ist die Ed25519-Prufung
-    # ueber die gesamte angehaengte Nutzlast.
+    # Struktur- und Mengenpruefung VOR jedem Datenbankzugriff — dieselbe
+    # Reihenfolge und derselbe Grund wie in ``routes/postfach.py`` (Bughunt
+    # 2026-08-28, FIX 4). Der teure Teil war frueher die Ed25519-Pruefung
+    # ueber die gesamte angehaengte Nutzlast; die ist mit den Zertifikaten
+    # entfallen (Spec §3b), und uebrig bleiben ``pruefe_geraet`` plus
+    # ``kopplung_laden`` — drei Anweisungen an die Datenbank, die eine
+    # ohnehin abzulehnende Anfrage nicht kosten soll.
     if body.folge >= settings.umzug_max_stuecke:
         raise HTTPException(status_code=400, detail="folge_ausserhalb")
     groesse = _stueck_groesse(body.daten)

@@ -4,7 +4,7 @@ verschluesselt laufen?
 **Warum eine eigene Route und nicht ``POST /keys/claim``.** Bis heute war
 ``claim`` die einzige Moeglichkeit, das herauszufinden — und ``claim``
 VERBRAUCHT einen Einmalschluessel je Geraet des Ziels
-(``schluessel.py::_einmalschluessel_holen`` loescht die Zeile). Ein Schloss
+(``schluessel_abholen.py::_einmalschluessel_holen`` loescht die Zeile). Ein Schloss
 im Kopf des Gespraechs fragt aber beim Betreten JEDES Gespraechs, ohne dass
 je eine Nachricht folgen muss: der Vorrat der Gegenseite waere durch blosses
 Herumklicken leerzuziehen, und danach liefe ihr Sitzungsaufbau nur noch ueber
@@ -27,8 +27,8 @@ jemand fuer ein bestimmtes GERAET handelt — beim Veroeffentlichen also. Hier
 wird nichts veroeffentlicht und nichts herausgegeben, was an ein Geraet
 gebunden waere; es zaehlt nur, WER fragt, und dafuer ist die normale
 Anmeldung (``CurrentUser``) der Ausweis. Dasselbe gilt fuer
-``POST /keys/claim`` und ``GET /keys/onetime/count`` (s. Modulkopf von
-``schluessel.py``).
+``POST /keys/claim`` (s. Modulkopf von ``schluessel_abholen.py``) und fuer
+``GET /keys/onetime/count`` (s. dort in ``schluessel.py``).
 """
 
 from __future__ import annotations

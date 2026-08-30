@@ -9,10 +9,13 @@
  * liefert dann fuer dieses Geraet gar keinen Schluessel mehr, und eine neue
  * Sitzung laesst sich nicht mehr aufbauen.
  *
- * Best-effort ueberall: laesst sich die eigene Geraetekennung nicht
- * ermitteln (noch nicht angemeldet), passiert nichts — die Aufrufer
- * (`runIssueFlow`, Cert-Rotation) fangen Fehler ohnehin ab und versuchen es
- * beim naechsten Anlauf erneut.
+ * Best-effort beim Einstieg: laesst sich die eigene Geraetekennung nicht
+ * ermitteln (noch nicht angemeldet), passiert nichts. Alles danach wirft
+ * weiter, und wohin, haengt am Aufrufer: `runIssueFlow` und die
+ * Cert-Rotation fangen ab und versuchen es beim naechsten Anlauf erneut,
+ * `kopplung/empfangen.ts::kopplungEinloesen` ruft ungefangen — dort steht
+ * ein Mensch davor, und eine Kopplung, die halb gelingt, darf nicht als
+ * fertig aussehen.
  */
 import type { Identitaet } from '../../../../krypto/pulse-krypto/pkg/pulse_krypto.js';
 import { keysApi } from '../api/keys';

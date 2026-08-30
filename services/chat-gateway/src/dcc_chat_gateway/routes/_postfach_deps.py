@@ -142,8 +142,9 @@ def _envelope_groesse(daten_b64: str) -> int:
     diese Funktion bei jeder echten Nutzlast, weil ``daten`` fast nie zufaellig
     auf ein Vielfaches von 4 laenge trifft. Ueberschuessiges Padding ignoriert
     Python anstandslos, deshalb reicht ein fester Anhang von zwei
-    Gleichheitszeichen (dasselbe Muster wie ``schluessel_nachweis.py::_b64``
-    fuer base64url-Werte aus demselben Krypto-Kern).
+    Gleichheitszeichen (dasselbe Muster wie
+    ``routes/kopplung_umzug.py::_stueck_groesse``, das denselben Krypto-Kern
+    entgegennimmt).
     """
     try:
         return len(base64.b64decode(daten_b64 + "==", validate=False))

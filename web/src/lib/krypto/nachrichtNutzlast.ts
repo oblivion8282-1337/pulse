@@ -1,8 +1,13 @@
 /**
  * Nutzlast einer einzelnen Ende-zu-Ende-verschluesselten Direktnachricht —
- * das, was NACH dem Entschluesseln als Klartext-Bytes vorliegt (nicht zu
- * verwechseln mit `nutzlast.ts`, das die Ed25519-Nachweis-Bytes fuer die
- * Signatur baut — andere Bedeutung von "Nutzlast", andere Datei).
+ * das, was NACH dem Entschluesseln als Klartext-Bytes vorliegt.
+ *
+ * Das Wort traegt im Serverteil eine ANDERE Bedeutung: dort heisst
+ * „Nutzlast" (`DmNutzlast`) der verschluesselte Umschlag samt seiner
+ * Zustellzeilen, also genau die Huelle um das, was hier gebaut wird. Ein
+ * drittes „Nutzlast" gab es bis zum 2026-08-30 in `krypto/nutzlast.ts` — die
+ * Bytes, ueber die der Geraete-Nachweis unterschrieb; mit den Zertifikaten
+ * ist die Datei entfallen (Spec §3b).
  *
  * FASSUNG 1: JSON `{v:1, text: string, id?: string, replyToId?: string,
  * anhaenge?: AnhangAngabe[]}`.

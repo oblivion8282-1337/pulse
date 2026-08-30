@@ -16,8 +16,10 @@
 
 import { request } from './client';
 
-/** Jeder Rumpf nennt das handelnde Geraet. */
-type Nachweis = { device_pubkey: string };
+/** Jeder Rumpf nennt das handelnde Geraet. **Kein Nachweis** — die Kennung
+ *  ist selbstbehauptet; der Server haelt sie nur gegen das angemeldete Konto
+ *  und danach gegen die Rolle (`alt`/`neu`) dieser Kopplung. */
+type Geraeteangabe = { device_pubkey: string };
 
 export interface KopplungStand {
   id: string;
@@ -35,7 +37,7 @@ export interface KopplungStand {
 export const kopplungApi = {
   /** Legt eine offene Kopplung an — vom eingerichteten Geraet. */
   anlegen(
-    body: Nachweis & { code_hash: string },
+    body: Geraeteangabe & { code_hash: string },
     route: { serverId?: string } = {}
   ): Promise<{ id: string; verfaellt_am: string }> {
     return request('/kopplung', { method: 'POST', body }, route);
@@ -43,7 +45,7 @@ export const kopplungApi = {
 
   /** Loest einen Code ein — vom neuen Geraet. Genau einmal moeglich. */
   einloesen(
-    body: Nachweis & { code_hash: string },
+    body: Geraeteangabe & { code_hash: string },
     route: { serverId?: string } = {}
   ): Promise<{ id: string; alt_device_pubkey: string; verfaellt_am: string }> {
     return request('/kopplung/einloesen', { method: 'POST', body }, route);
@@ -52,7 +54,7 @@ export const kopplungApi = {
   /** Stand — von beiden Seiten. `vorhandene_stuecke` traegt die
    *  Fortsetzbarkeit. */
   stand(
-    body: Nachweis & { kopplung_id: string },
+    body: Geraeteangabe & { kopplung_id: string },
     route: { serverId?: string } = {}
   ): Promise<KopplungStand> {
     return request('/kopplung/stand', { method: 'POST', body }, route);
@@ -62,7 +64,7 @@ export const kopplungApi = {
    *  `kennung` ist die Inhalts-Kennung fuer spaetere Fortsetzungen (s.
    *  `kopplung/transport.ts::stueckKennung`). */
   stueckAblegen(
-    body: Nachweis & { kopplung_id: string; folge: number; daten: string; kennung: string },
+    body: Geraeteangabe & { kopplung_id: string; folge: number; daten: string; kennung: string },
     route: { serverId?: string } = {}
   ): Promise<void> {
     return request('/kopplung/stueck', { method: 'POST', body }, route);
@@ -70,7 +72,7 @@ export const kopplungApi = {
 
   /** Holt ein Stueck — vom neuen Geraet. Holen loescht nicht. */
   stueckHolen(
-    body: Nachweis & { kopplung_id: string; folge: number },
+    body: Geraeteangabe & { kopplung_id: string; folge: number },
     route: { serverId?: string } = {}
   ): Promise<{ folge: number; daten: string }> {
     return request('/kopplung/stueck/holen', { method: 'POST', body }, route);
@@ -78,7 +80,7 @@ export const kopplungApi = {
 
   /** Meldet die Gesamtzahl — erst danach ist „vollstaendig" pruefbar. */
   fertig(
-    body: Nachweis & { kopplung_id: string; gesamt_stuecke: number },
+    body: Geraeteangabe & { kopplung_id: string; gesamt_stuecke: number },
     route: { serverId?: string } = {}
   ): Promise<void> {
     return request('/kopplung/fertig', { method: 'POST', body }, route);
@@ -86,7 +88,7 @@ export const kopplungApi = {
 
   /** Loescht Kopplung und Stuecke. Von beiden Seiten, beliebig oft. */
   abschliessen(
-    body: Nachweis & { kopplung_id: string },
+    body: Geraeteangabe & { kopplung_id: string },
     route: { serverId?: string } = {}
   ): Promise<void> {
     return request('/kopplung/abschliessen', { method: 'POST', body }, route);

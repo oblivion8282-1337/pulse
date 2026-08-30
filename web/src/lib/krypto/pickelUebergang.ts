@@ -79,10 +79,13 @@ function umfrieren(art: Pickleart, gefroren: string, alt: Uint8Array, neu: Uint8
  * verschwindet, sobald der Anmeldeschluessel geloescht wird. Wer bis dahin
  * nicht umgestellt hat, kann es nie mehr.
  *
- * **Wirft laut statt still zu heilen.** Beide Aufrufer von
+ * **Wirft laut statt still zu heilen.** Zwei der drei Aufrufer von
  * `veroeffentlicheSchluessel()` fangen Fehler ab und ignorieren sie
  * (`issue-flow.ts`, `cert-rotation.svelte.ts`) — dort verschwaende der Wurf.
- * Deshalb steht hier zusaetzlich eine Meldung auf der Konsole: sie ist die
+ * Nur der dritte reicht ihn weiter: `kopplung/empfangen.ts::
+ * kopplungEinloesen` ruft ungefangen, ein gescheiterter Uebergang laesst die
+ * Einloesung dort also sichtbar fehlschlagen. Fuer die beiden anderen steht
+ * deshalb zusaetzlich eine Meldung auf der Konsole: sie ist die
  * einzige Spur, die ein gescheiterter Uebergang sonst hinterliesse. Der
  * eigene Text nennt nur die Fehlerart. Der angehaengte Fehler kann aus
  * IndexedDB oder dem Krypto-Kern kommen; der Krypto-Kern traegt nichts
