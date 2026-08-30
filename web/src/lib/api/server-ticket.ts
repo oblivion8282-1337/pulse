@@ -14,6 +14,7 @@
  */
 
 import { request } from './client';
+import { renewSession } from './cookie-client';
 import { istAblehnungscode } from './anmelde-fehler-codes';
 import type { Ablehnungscode } from './anmelde-fehler-codes';
 
@@ -53,14 +54,32 @@ export type SitzungAntwort = { session_token: string; expires_in: number };
 export async function holeTicket(
   serverHostname: string,
 ): Promise<{ ticket: string; instanceId: string }> {
-  const antwort = await request<TicketAntwort>('/me/server-ticket', {
-    method: 'POST',
-    body: { hostname: serverHostname },
-    endpoint: 'auth',
-  });
-  // Die Kennung stammt aus der Cloud. Sie beim fremden Host zu erfragen war die
-  // Lücke, gegen die dieser Weg gebaut ist.
-  return { ticket: antwort.ticket, instanceId: antwort.instance_id };
+  // /me/server-ticket authentifiziert NUR über das pulse_session-Cookie
+  // (30-Minuten-TTL, kein Bearer) — ohne frisches Cookie stirbt der Beitritt
+  // nach einer halben Stunde Tab-Lebenszeit mit stiller 401 (2026-08-30
+  // gemessen: Karte-Annehmen → 2× server-ticket 401 → Rollback, der Server
+  // fehlte in der Liste, während der Link-Join denselben Endpoint Minuten
+  // vorher mit 200 traf). Cookie vorab etablieren; bei 401 einmal erneuern
+  // und genau einmal wiederholen.
+  const holen = async (): Promise<{ ticket: string; instanceId: string }> => {
+    const antwort = await request<TicketAntwort>('/me/server-ticket', {
+      method: 'POST',
+      body: { hostname: serverHostname },
+      endpoint: 'auth',
+    });
+    // Die Kennung stammt aus der Cloud. Sie beim fremden Host zu erfragen war
+    // die Lücke, gegen die dieser Weg gebaut ist.
+    return { ticket: antwort.ticket, instanceId: antwort.instance_id };
+  };
+  await renewSession();
+  try {
+    return await holen();
+  } catch (e) {
+    if ((e as { status?: number })?.status === 401 && (await renewSession())) {
+      return holen();
+    }
+    throw e;
+  }
 }
 
 /** Legt das Ticket dem Self-Host vor und bekommt dessen Sitzung. */
