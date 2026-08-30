@@ -26,6 +26,7 @@
   import DangerZoneSection from './DangerZoneSection.svelte';
   import DeviceManagement from './DeviceManagement.svelte';
   import GeraeteKopplungSection from './GeraeteKopplungSection.svelte';
+  import GeraeteListeSection from './GeraeteListeSection.svelte';
   import PublicComputerSafety from './PublicComputerSafety.svelte';
 
   let enableOpen = $state(false);
@@ -106,6 +107,8 @@
   <DeviceManagement />
 
   <GeraeteKopplungSection />
+
+  <GeraeteListeSection />
 
   <SessionsSection />
 

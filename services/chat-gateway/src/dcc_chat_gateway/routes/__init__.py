@@ -25,6 +25,7 @@ from dcc_chat_gateway.routes import (
     dropbox_downloads,
     dropbox_uploads,
     friends,
+    geraete,
     guild_icons,
     guild_limits,
     guild_plugins,
@@ -117,6 +118,7 @@ router.include_router(cert_login.router)
 router.include_router(schluessel.router)
 router.include_router(schluessel_abholen.router)
 router.include_router(schluessel_auskunft.router)
+router.include_router(geraete.router)
 router.include_router(kopplung.router)
 router.include_router(kopplung_umzug.router)
 router.include_router(postfach.router)

@@ -1,7 +1,8 @@
 /**
- * Die Anbindung des Verfalls-Signals an Netz, IndexedDB und Oberflaeche — die
+ * Die Anbindung des Geraetestands an Netz, IndexedDB und Oberflaeche — die
  * Entscheidung selbst steht importfrei nebenan (`geraeteVerfall.ts`) und ist
- * dort geprueft.
+ * dort geprueft. Sie deckt zwei Gruende ab (Verfall und Ausschluss durch den
+ * Kontoinhaber), s. dort.
  *
  * Hier passiert nur Verkabelung, und zwar bewusst so wenig wie moeglich: was
  * in dieser Datei steht, sieht Nodes Testlaeufer nie (sie importiert die
@@ -15,7 +16,7 @@ import { certStore } from '../identity/cert.svelte';
 import { verlaufAllesLoeschen } from '../verlauf/db';
 import { m } from '$lib/paraglide/messages.js';
 import { geraeteKennung } from './geraeteKennung';
-import { verfallAbarbeiten } from './geraeteVerfall';
+import { ENTFERNT, geraetestandAbarbeiten } from './geraeteVerfall';
 import { E2E_DMS_ENABLED } from './schalter';
 
 /** Einmal je Seitenaufruf genuegt: „beim naechsten Oeffnen" heisst genau das.
@@ -31,8 +32,10 @@ import { E2E_DMS_ENABLED } from './schalter';
 let schonGeprueft = false;
 
 /**
- * Prueft beim Start, ob dieses Geraet verfallen ist, und loescht in diesem
- * Fall den lokalen Verlauf (Spec §3a, Punkt 2).
+ * Prueft beim Start, ob dieses Geraet noch darf, und loescht sonst den
+ * lokalen Verlauf. Zwei Gruende, dieselbe Abfrage: Verfall nach 14 Tagen
+ * (Spec §3a, Punkt 2) und Ausschluss durch den Kontoinhaber (Spec §3b,
+ * Punkt 4).
  *
  * **Bei ausgeschaltetem `E2E_DMS_ENABLED` passiert gar nichts** — kein
  * Serveraufruf, kein Loeschen. Ohne den Schalter gibt es keinen
@@ -54,9 +57,16 @@ export async function verfallPruefen(): Promise<void> {
 
   // Dieselbe Cloud-Route wie jeder andere Schluessel-Aufruf (DMs sind heute
   // cloud-only, s. `api/keys.ts`-Modulkopf).
-  await verfallAbarbeiten(
+  await geraetestandAbarbeiten(
     () => keysApi.geraetestand(kennung, { serverId: serversStore.cloudId() }),
     verlaufAllesLoeschen,
-    () => toast.warning(m.kopplung_verfallen_hinweis(), { duration: 15000 })
+    // Je Grund ein eigener Hinweis: „abgelaufen" waere an einem gerade
+    // entfernten Geraet falsch, und der Nutzer soll wissen, ob er es selbst
+    // war — das ist der ganze Sinn eines sichtbaren Widerrufs.
+    (grund) =>
+      toast.warning(
+        grund === ENTFERNT ? m.geraete_entfernt_hinweis() : m.kopplung_verfallen_hinweis(),
+        { duration: 15000 }
+      )
   );
 }

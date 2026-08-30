@@ -1244,13 +1244,65 @@ class GeraeteStandOut(BaseModel):
     * ``verfallen`` — dieses Geraet ist abgelaufen. **Nur dieser Wert darf den
       Klienten seinen lokalen Verlauf loeschen lassen**, und er sagt es
       ausdruecklich, statt es aus einer Abwesenheit ableiten zu lassen.
+    * ``entfernt`` — der Kontoinhaber hat dieses Geraet aus seiner
+      Geraeteliste geworfen (Spec §3b Punkt 4, ``geraete_widerruf.py``).
+      **Loescht ebenfalls**, und ist trotzdem ein eigener Wert statt eines
+      zweiten ``verfallen``: der Klient sagt dem Nutzer, WAS geschehen ist,
+      und „abgelaufen" waere an einem gerade eben entfernten Geraet schlicht
+      falsch.
     * ``unbekannt`` — fuer diesen ``device_pubkey`` gibt es kein Buendel. Das
       ist der frische Browser (nichts zu loeschen), aber auch die durch die
       Geraete-Obergrenze verdraengte Zeile — zwei Faelle, die man nicht
       auseinanderhalten kann und die deshalb NICHTS ausloesen duerfen.
+
+    **Warum kein vierter Wert fuer „entfernt UND verfallen".** Beides kann
+    zugleich zutreffen; die Route antwortet dann ``entfernt``, weil das der
+    Grund ist, den der Nutzer selbst gesetzt hat. Fuer die Folge — Verlauf
+    loeschen — sind die beiden ohnehin gleich.
     """
 
-    stand: Literal["gueltig", "verfallen", "unbekannt"]
+    stand: Literal["gueltig", "verfallen", "entfernt", "unbekannt"]
+
+
+class EigenesGeraetOut(BaseModel):
+    """Eine Zeile der eigenen Geraeteliste (``GET /keys/geraete``).
+
+    **Kein Geraetename, und das ist eine Entscheidung, keine Luecke** (Spec
+    §3b Punkt 4). Ein Name waere eine Selbstauskunft des Geraets — genau des
+    Geraets also, das man moeglicherweise gerade herauswerfen will. Er wuerde
+    die eine Frage, fuer die es diese Liste gibt („steht hier etwas, das ich
+    nicht kenne?"), nicht leichter machen, sondern schwerer: ein fremder
+    Eintrag, der sich „Michaels Laptop" nennt, faellt weniger auf als einer
+    ohne Namen.
+
+    Was stattdessen unterscheidet, ist ueberpruefbar: die Art (App oder
+    Browser), die Zeitpunkte — und die Kennung selbst, die das Geraet auch bei
+    sich anzeigen kann. Wer wissen will, ob eine Zeile sein Laptop ist, sieht
+    auf dem Laptop nach.
+    """
+
+    #: Die Geraetekennung im Klartext. Sie ist ein OEFFENTLICHER Schluessel und
+    #: im Freundeskreis ohnehin ueber ``POST /keys/claim`` abholbar — hier
+    #: dient sie als vergleichbares Erkennungsmerkmal und als das, worauf sich
+    #: ``DELETE /keys/geraete`` bezieht.
+    device_pubkey: str
+    #: Selbstauskunft des Geraets (App vs. Browser), s.
+    #: ``BundleVeroeffentlichenRequest.dauerhaft``. Fuer die Anzeige gedacht,
+    #: nicht als Beleg.
+    dauerhaft: bool
+    #: Wann dieses Geraet per Kopplungscode gebunden wurde — vom Server
+    #: gesetzt, also belastbar. ``None`` = nie gekoppelt.
+    gekoppelt_am: datetime | None
+    #: Wann die Zeile entstand, also wann dieses Geraet zum ersten Mal
+    #: Schluessel veroeffentlicht hat (``DeviceKeyBundle.created_at``).
+    hinzugefuegt_am: datetime
+    #: Letzter Geraete-Nachweis, grob auf eine Stunde aufgeloest
+    #: (``schluessel_nachweis.py``) — das „lebt noch"-Signal.
+    zuletzt_benutzt: datetime
+    #: Ob dieses Geraet abgelaufen ist (Spec §3a). Vom Server aus DERSELBEN
+    #: SQL-Regel berechnet wie ``GET /keys/geraetestand`` — der Klient soll
+    #: die Verfallsrechnung nicht ein zweites Mal nachbauen.
+    verfallen: bool
 
 
 class VerschluesselbarOut(BaseModel):

@@ -37,9 +37,10 @@ from fastapi import APIRouter, Query
 from sqlalchemy import or_, select
 
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.geraete_widerruf import darf_empfangen
 from dcc_chat_gateway.models import DeviceKeyBundle
 from dcc_chat_gateway.schemas import GeraeteStandOut, SnowflakeId, VerschluesselbarOut
-from dcc_chat_gateway.schluessel_verfall import ist_lebendig, ist_verfallen, verfall_grenze
+from dcc_chat_gateway.schluessel_verfall import ist_verfallen, verfall_grenze
 from dcc_chat_gateway.schluessel_zugriff import darf_schluessel_holen
 from dcc_chat_gateway.security import CurrentUser
 
@@ -79,12 +80,11 @@ async def verschluesselbar(
     # **Hier stand bis zum 2026-08-30 ein Sperrlisten-Filter** ueber die
     # ``cert_id`` jedes Buendels, deckungsgleich mit dem im Abholweg; deshalb
     # las diese Abfrage frueher bis zu ``schluessel_max_buendel_je_konto``
-    # Zeilen und lief sie einzeln durch. Mit den Zertifikaten ist der Filter
-    # entfallen (Spec §3b, ausfuehrlich in
-    # ``schluessel.py::schluessel_abholen``) — und ohne ihn genuegt die blosse
-    # Existenz EINER Zeile. Deckungsgleich mit dem Abholweg bleibt die
-    # Auskunft dadurch weiterhin: sie darf nie mehr zusagen, als der Sendeweg
-    # einloest.
+    # Zeilen und lief sie einzeln durch. Mit den Zertifikaten ist er entfallen
+    # (Spec §3b), und der Widerruf steckt seither in ``darf_empfangen(...)``
+    # — derselbe Ausdruck wie im Abholweg, damit die Auskunft nie mehr
+    # zusagt, als der Sendeweg einloest. Weil er in der Abfrage steht, genuegt
+    # weiterhin die blosse Existenz EINER Zeile.
     treffer = (
         await session.execute(
             select(DeviceKeyBundle.id)
@@ -94,7 +94,7 @@ async def verschluesselbar(
                     DeviceKeyBundle.dauerhaft.is_(True),
                     DeviceKeyBundle.gekoppelt_am.is_not(None),
                 ),
-                ist_lebendig(verfall_grenze()),
+                darf_empfangen(verfall_grenze()),
             )
             .limit(1)
         )
@@ -119,13 +119,21 @@ async def geraetestand(
     user.id``) — genau wie bei ``GET /keys/onetime/count``, dem Vorbild.
     Ueber ein fremdes Konto sagt die Route nichts.
 
-    **Warum die Antwort drei Werte hat und nicht zwei:** der Klient loescht
+    **Warum die Antwort mehrere Werte hat und nicht zwei:** der Klient loescht
     daraufhin seinen lokalen Verlauf, und der ist die einzige Kopie. Ein
-    ``bool`` muesste "kein Buendel gefunden" mit einem der beiden Faelle
+    ``bool`` muesste "kein Buendel gefunden" mit einem der anderen Faelle
     zusammenlegen — mit ``true`` waere jede verdraengte oder noch nie
     veroeffentlichte Zeile ein Loeschbefehl, mit ``false`` verschwaende der
     Verfall im Rauschen. Deshalb ``unbekannt`` als eigener Wert, der nichts
     ausloest.
+
+    **``entfernt`` ist seit dem 2026-08-30 der vierte** (Spec §3b Punkt 4,
+    ``geraete_widerruf.py``). Er loescht wie ``verfallen`` — es ist dieselbe
+    Frage („darf dieses Geraet noch?"), die derselbe Klient an derselben
+    Stelle stellt, und eine zweite Abfrage daneben waere eine zweite
+    Gelegenheit, sie falsch zu beantworten. Getrennt bleiben die beiden nur,
+    damit der Hinweis an den Nutzer stimmt: „abgelaufen" und „du hast dieses
+    Geraet entfernt" sind nicht dasselbe.
     """
     # Eine einzige Abfrage, und die Verfallsregel steht als Ausdruck darin
     # statt daneben in Python nachgebaut — zwei Fassungen derselben Regel
@@ -133,7 +141,10 @@ async def geraetestand(
     # die, die Daten loescht.
     zeile = (
         await session.execute(
-            select(ist_verfallen(verfall_grenze()).label("verfallen")).where(
+            select(
+                DeviceKeyBundle.entfernt_am.is_not(None).label("entfernt"),
+                ist_verfallen(verfall_grenze()).label("verfallen"),
+            ).where(
                 DeviceKeyBundle.user_id == user.id,
                 DeviceKeyBundle.device_pubkey == device_pubkey,
             )
@@ -141,4 +152,9 @@ async def geraetestand(
     ).first()
     if zeile is None:
         return GeraeteStandOut(stand="unbekannt")
+    # Reihenfolge: ``entfernt`` schlaegt ``verfallen``. Beides kann zugleich
+    # zutreffen (ein laengst abgelaufener Browser wird zusaetzlich entfernt);
+    # gemeldet wird dann der Grund, den der Nutzer selbst gesetzt hat.
+    if zeile.entfernt:
+        return GeraeteStandOut(stand="entfernt")
     return GeraeteStandOut(stand="verfallen" if zeile.verfallen else "gueltig")

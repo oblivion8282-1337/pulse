@@ -142,10 +142,11 @@ async def pruefe_geraet(
     Das ist bewusst hingenommen (Spec §3b): entschluesseln kann der
     Uebernehmende die Umschlaege trotzdem nicht — die privaten Olm-Schluessel
     liegen im jeweiligen Geraet, nicht am Server. Er kann sie dem
-    rechtmaessigen Geraet aber **wegquittieren**, und dagegen ist die
-    Geraeteliste mit „entfernen" (Spec §3b, Punkt 4) das vorgesehene
-    Gegenmittel — sie ist damit kein Beiwerk, sondern die Stelle, an der ein
-    Nutzer das bemerken und beenden kann.
+    rechtmaessigen Geraet aber **wegquittieren**. Dagegen steht seit dem
+    2026-08-30 die Geraeteliste mit „entfernen" (``geraete_widerruf.py``,
+    ``routes/geraete.py``): sie ist die Stelle, an der ein Nutzer das bemerken
+    und beenden kann — und ihr Riegel sitzt in DIESER Funktion, s. den
+    Kommentar an der ``exists``-Bedingung unten.
     """
     if not noch_ohne_buendel:
         gehoert_dem_konto = (
@@ -154,6 +155,23 @@ async def pruefe_geraet(
                     exists().where(
                         DeviceKeyBundle.user_id == user.id,
                         DeviceKeyBundle.device_pubkey == device_pubkey,
+                        # Ein entferntes Geraet gehoert dem Konto nicht mehr
+                        # (Spec §3b Punkt 4). **Diese eine Zeile ist der
+                        # ganze Widerruf auf der Handlungsseite**: sie sperrt
+                        # in einem Zug Postfach-Abholen und -Quittieren,
+                        # Anhaenge-Abrufadressen, das Nachlegen von
+                        # Einmalschluesseln und das Anlegen eines
+                        # Kopplungscodes — jede Route also, die ueber diese
+                        # Funktion geht. Die Empfaengerseite sperrt daneben
+                        # ``geraete_widerruf.py::darf_empfangen``.
+                        #
+                        # NICHT betroffen sind die beiden Aufrufer mit
+                        # ``noch_ohne_buendel=True``, und das ist gewollt:
+                        # ``POST /kopplung/einloesen`` ist der Weg zurueck
+                        # (es hebt den Grabstein auf), und ``PUT
+                        # /keys/bundle`` muss unbekannte Kennungen zulassen —
+                        # es laesst den Grabstein aber stehen, s. dort.
+                        DeviceKeyBundle.entfernt_am.is_(None),
                     )
                 )
             )

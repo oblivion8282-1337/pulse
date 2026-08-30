@@ -108,11 +108,15 @@ async def bundle_veroeffentlichen(
         vorhanden.updated_at = func.now()
         if gekoppelt_am is not None:
             vorhanden.gekoppelt_am = gekoppelt_am
-        # ``verfallen_am`` bleibt hier ABSICHTLICH unangetastet: ein
-        # verfallener Browser veroeffentlicht beim naechsten Start wie jeder
-        # andere, und wuerde das den Verfall aufheben, waere er nie mitteilbar
-        # (der Klient hat dann noch nicht gefragt). Zurueck geht es nur ueber
-        # eine neue Kopplung, s. ``routes/kopplung.py::kopplung_einloesen``.
+        # ``verfallen_am`` und ``entfernt_am`` bleiben hier ABSICHTLICH
+        # unangetastet. Beim Verfall: ein abgelaufener Browser veroeffentlicht
+        # beim naechsten Start wie jeder andere, und wuerde das den Verfall
+        # aufheben, waere er nie mitteilbar (der Klient hat dann noch nicht
+        # gefragt). Beim Ausschluss (Spec §3b Punkt 4) waere es schlimmer als
+        # das: ein entferntes Geraet laeuft weiter und veroeffentlicht beim
+        # naechsten Start: ein Zuruecksetzen HIER machte den Widerruf zu einer
+        # Pause von wenigen Minuten. Zurueck geht es fuer beide nur ueber eine
+        # neue Kopplung, s. ``routes/kopplung.py::kopplung_einloesen``.
     else:
         await platz_fuer_neues_geraet_schaffen(session, user.id)
         session.add(

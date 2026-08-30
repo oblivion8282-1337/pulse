@@ -214,6 +214,17 @@ async def kopplung_einloesen(
     # DAS ist der Weg zurueck fuer einen abgelaufenen Browser, und der einzige
     # (``schluessel_verfall.py``: der Grabstein klebt sonst).
     #
+    # **Und ebenso einen frueheren Ausschluss** (``entfernt_am``, Spec §3b
+    # Punkt 4). Ohne das waere ein versehentlich entferntes Geraet fuer immer
+    # tot: seine Kennung liegt stabil in seiner IndexedDB, ein erneutes
+    # Veroeffentlichen laesst den Grabstein stehen, es kaeme also nie zurueck.
+    # Dass ausgerechnet die Kopplung ihn aufhebt, ist kein Schlupfloch,
+    # sondern die passende Huerde: der Code wird auf einem ZWEITEN Geraet
+    # desselben Kontos angezeigt und gilt zehn Minuten — er beweist, dass
+    # dieselbe Person beide in der Hand haelt. Sichtbar bleibt es auch:
+    # ``gekoppelt_am`` steht danach auf heute, die Geraeteliste zeigt die
+    # Rueckkehr also an.
+    #
     # Trifft null Zeilen, wenn dieses Geraet noch kein Buendel veroeffentlicht
     # hat. Das ist kein Fehler: der Klient veroeffentlicht beim Start, und die
     # naechste Veroeffentlichung holt die Zeile nach — nur die Marke fehlte
@@ -225,7 +236,12 @@ async def kopplung_einloesen(
             DeviceKeyBundle.user_id == user.id,
             DeviceKeyBundle.device_pubkey == geraet,
         )
-        .values(gekoppelt_am=jetzt, verfallen_am=None, zuletzt_benutzt=jetzt)
+        .values(
+            gekoppelt_am=jetzt,
+            verfallen_am=None,
+            entfernt_am=None,
+            zuletzt_benutzt=jetzt,
+        )
     )
 
     await session.commit()

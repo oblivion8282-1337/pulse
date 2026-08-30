@@ -35,6 +35,20 @@ export interface GeraeteSchluessel {
   gekoppelt?: boolean;
 }
 
+/** Eine Zeile der EIGENEN Geraeteliste (`GET /keys/geraete`). Spiegel von
+ *  `schemas.py::EigenesGeraetOut` — dort steht auch, warum es kein
+ *  Namensfeld gibt. */
+export interface EigenesGeraet {
+  device_pubkey: string;
+  dauerhaft: boolean;
+  gekoppelt_am: string | null;
+  hinzugefuegt_am: string;
+  zuletzt_benutzt: string;
+  /** Vom Server aus derselben Regel berechnet wie `GET /keys/geraetestand` —
+   *  der Klient rechnet den Verfall nicht nach. */
+  verfallen: boolean;
+}
+
 export const keysApi = {
   /** Legt das Buendel des anfragenden Geraets an oder ersetzt es. */
   publishBundle(
@@ -84,11 +98,32 @@ export const keysApi = {
     );
   },
 
-  /** Der Stand des EIGENEN Geraets: `gueltig` | `verfallen` | `unbekannt`
-   *  (`routes/schluessel_auskunft.py::geraetestand`). Ohne Cert-Nachweis —
-   *  ein Nachweis waere selbst eine Benutzung und hoebe damit die Frage auf,
-   *  die er stellt. Nur `verfallen` darf etwas ausloesen, s.
-   *  `krypto/geraeteVerfall.ts`. */
+  /** Die eigene Geraeteliste — wer liest bei mir mit
+   *  (`routes/geraete.py`). Ohne Geraeteangabe: welche Zeile „ich selbst"
+   *  ist, entscheidet der Klient durch Vergleich mit `geraeteKennung()`; der
+   *  Server weiss es nicht und duerfte danach auch nicht fragen, weil eine
+   *  Geraeteangabe `zuletzt_benutzt` auffrischt. */
+  geraete(route: { serverId?: string } = {}): Promise<EigenesGeraet[]> {
+    return request<EigenesGeraet[]>('/keys/geraete', {}, route);
+  },
+
+  /** Wirft ein Geraet aus dem eigenen Konto (`routes/geraete.py`). Ab sofort
+   *  kein Empfaenger mehr und ohne Zugriff aufs Postfach; das Geraet erfaehrt
+   *  es beim naechsten `geraetestand` und loescht daraufhin seinen lokalen
+   *  Verlauf. 404, wenn das Konto kein solches Geraet fuehrt. */
+  geraetEntfernen(devicePubkey: string, route: { serverId?: string } = {}): Promise<void> {
+    return request<void>(
+      `/keys/geraete?device_pubkey=${encodeURIComponent(devicePubkey)}`,
+      { method: 'DELETE' },
+      route
+    );
+  },
+
+  /** Der Stand des EIGENEN Geraets: `gueltig` | `verfallen` | `entfernt` |
+   *  `unbekannt` (`routes/schluessel_auskunft.py::geraetestand`). Ohne
+   *  Geraete-Nachweis — ein Nachweis waere selbst eine Benutzung und hoebe
+   *  damit die Frage auf, die er stellt. Nur `verfallen` und `entfernt`
+   *  duerfen etwas ausloesen, s. `krypto/geraeteVerfall.ts`. */
   geraetestand(
     devicePubkey: string,
     route: { serverId?: string } = {}

@@ -370,10 +370,31 @@ Selbstunterschrift des Geräts über sein eigenes Bündel, die gespeichert und
 weitergereicht, aber von keiner Fassung des Klienten je geprüft wurde
 (Migration 0079).
 
-**Offen bleibt allein die Geräteliste (Punkt 4), und sie ist damit zur
-Voraussetzung geworden**, nicht mehr zum Beiwerk: bis es sie gibt, hat ein
-Konto keinerlei Widerruf für ein einzelnes Gerät. Vorher trug ihn die
-Sperrliste des Zertifikats; die ist weg, der Ersatz noch nicht gebaut.
+**Die Geräteliste (Punkt 4) steht seit dem 2026-08-30 ebenfalls** und schliesst
+damit die Lücke, die zwischen ihr und dem Wegfall der Sperrliste offenstand:
+`GET /keys/geraete` zeigt die eigenen Geräte, `DELETE /keys/geraete` wirft
+eines hinaus (`geraete_widerruf.py`, `routes/geraete.py`, Migration 0080).
+Drei Entscheidungen, die der Entwurf offengelassen hatte:
+
+* **Kein Gerätename.** Er wäre eine Selbstauskunft ausgerechnet des Geräts,
+  das man hinauswerfen will, und machte die eine Frage der Liste („kenne ich
+  das?") schwerer statt leichter. Unterschieden wird nach Art, Zeitpunkten und
+  einer Kurzkennung — letztere ist das einzige gegenprüfbare Merkmal, weil
+  dasselbe Gerät sie bei sich als „dieses Gerät" ausweist.
+* **Grabstein, kein Löschen der Zeile.** `PUT /keys/bundle` muss unbekannte
+  Kennungen zulassen; eine gelöschte Zeile legte das entfernte Gerät beim
+  nächsten Start einfach neu an. Der Grabstein klebt, aufgehoben wird er nur
+  durch eine neue Kopplung — derselbe Weg zurück wie beim Verfall.
+* **Das eigene Gerät darf man entfernen, auch als letztes.** Ein Verbot träfe
+  genau den Fall, für den die Funktion gebaut ist (das verlorene Telefon ist
+  die einzige Zeile), und wäre ohnehin nicht durchsetzbar: die Gerätekennung
+  im Rumpf ist selbstbehauptet. Die Folgen benennt die Rückfrage in der
+  Oberfläche.
+
+Den Klienten erreicht der Widerruf über **dieselbe** Abfrage wie der Verfall
+(`GET /keys/geraetestand`, jetzt vierwertig mit `entfernt`) — es ist eine und
+dieselbe Frage, und eine zweite Abfrage daneben wäre eine zweite Gelegenheit,
+sie falsch zu beantworten.
 
 ---
 

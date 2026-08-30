@@ -72,6 +72,19 @@ class DeviceKeyBundle(Base):
     verfallen_am: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: Grabstein: gesetzt, sobald der Kontoinhaber dieses Geraet aus seiner
+    #: Geraeteliste geworfen hat (``geraete_widerruf.py``, Spec §3b Punkt 4).
+    #: **Klebt ebenso wie ``verfallen_am``** — ein erneutes Veroeffentlichen
+    #: hebt ihn nicht auf, sonst waere er ueberhaupt kein Widerruf: ``PUT
+    #: /keys/bundle`` laesst unbekannte Geraete zu, das entfernte Geraet
+    #: legte sich beim naechsten Start also einfach wieder an. Zurueck geht
+    #: es nur ueber eine neue Kopplung (``routes/kopplung.py``), also einen
+    #: Entschluss des Nutzers an einem zweiten Geraet.
+    #: Getrennt von ``verfallen_am``, weil der Grund verschieden ist und der
+    #: Nutzer den Unterschied sieht (Migration 0080).
+    entfernt_am: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

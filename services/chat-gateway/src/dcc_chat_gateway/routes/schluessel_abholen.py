@@ -19,10 +19,11 @@ from sqlalchemy import delete, select
 
 import dcc_chat_gateway.config as chat_config
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.geraete_widerruf import darf_empfangen
 from dcc_chat_gateway.models import DeviceKeyBundle, DeviceOneTimeKey
 from dcc_chat_gateway.schemas import GeraeteSchluesselOut, SchluesselAbholenRequest
 from dcc_chat_gateway.schluessel_grenzen import einmalschluessel_budget_uebrig
-from dcc_chat_gateway.schluessel_verfall import ist_lebendig, verfall_grenze
+from dcc_chat_gateway.schluessel_verfall import verfall_grenze
 from dcc_chat_gateway.schluessel_zugriff import darf_schluessel_holen
 from dcc_chat_gateway.security import CurrentUser
 
@@ -107,12 +108,12 @@ async def schluessel_abholen(
                 select(DeviceKeyBundle)
                 .where(
                     DeviceKeyBundle.user_id == ziel_id,
-                    # Ein verfallenes Geraet ist kein Empfaenger mehr (Spec
-                    # §3a, ``schluessel_verfall.py``). Der Filter steht in der
-                    # Abfrage und nicht erst in der Schleife: was hier
-                    # herauskommt, wird eine Zeile spaeter mit einem
+                    # Ein verfallenes (Spec §3a) oder entferntes (Spec §3b
+                    # Punkt 4) Geraet ist kein Empfaenger mehr. Der Filter
+                    # steht in der Abfrage und nicht erst in der Schleife: was
+                    # hier herauskommt, wird eine Zeile spaeter mit einem
                     # verbrauchten Einmalschluessel bezahlt.
-                    ist_lebendig(verfall_grenze()),
+                    darf_empfangen(verfall_grenze()),
                 )
                 # Defensive Obergrenze, deckungsgleich mit FIX 1
                 # (``schluessel_max_buendel_je_konto``) — das Konto kann so
@@ -125,14 +126,10 @@ async def schluessel_abholen(
         for b in buendel:
             # **Hier stand bis zum 2026-08-30 ein Sperrlisten-Filter** ueber
             # die mitgeschriebene ``cert_id``. Mit den Zertifikaten ist er
-            # ersatzlos entfallen (Spec §3b, Punkt 4): es gibt keine
-            # Sperrliste mehr, die ein einzelnes Geraet fuehren koennte.
-            # Der Widerruf wird stattdessen sichtbar statt kryptographisch —
-            # eine Geraeteliste mit „entfernen", die die Buendelzeile
-            # loescht, womit dieses Geraet hier gar nicht mehr auftaucht.
-            # **Solange die Liste nicht gebaut ist, gibt es keinen Widerruf**;
-            # das ist der offene Rest der Umstellung, nicht ein Zustand, den
-            # dieser Kommentar gutheisst.
+            # entfallen (Spec §3b, Punkt 4); an seine Stelle ist der Widerruf
+            # durch den Nutzer getreten — sichtbar statt kryptographisch. Er
+            # wirkt eine Ebene hoeher, in ``darf_empfangen(...)`` der Abfrage
+            # oben: ein entferntes Geraet kommt hier gar nicht mehr an.
             #
             # Budget-Wache (FIX 2) — nur fuer FREMDE Ziele: das eigene Konto
             # zieht ausschliesslich am eigenen Vorrat, das ist kein Angriff
