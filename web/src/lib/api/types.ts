@@ -72,6 +72,8 @@ export type Guild = {
 };
 
 export type Channel = {
+  /** Ablage-Kanal (Konzept §2a) — serverblind, Inhalte clientverschluesselt. */
+  ablage?: boolean;
   id: string;
   guild_id: string;
   name: string;

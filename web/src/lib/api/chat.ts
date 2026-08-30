@@ -108,6 +108,10 @@ function cloudRoute(): { serverId?: string } {
 export type ServerCapabilities = {
   allow_guild_creation: boolean;
   allow_member_invites: boolean;
+  /** Konzept §2a: "regular" (wie bisher) oder "ablage_only" (erstellen
+   *  setzt eine verbundene Cloud-Ablage voraus). Ältere Instanzen kennen
+   *  das Feld nicht — daraus wird "regular". */
+  channel_creation_policy?: 'regular' | 'ablage_only';
   guild_sound_max_size_bytes: number;
   hq_bitrate_min_kbps: number;
   hq_bitrate_max_kbps: number;

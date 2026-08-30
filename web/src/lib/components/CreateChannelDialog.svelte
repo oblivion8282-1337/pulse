@@ -49,6 +49,13 @@
       dropboxAllowed &&
       communityDropboxEnabled
   );
+  // Instanz-Modus „Nur Ablage" (Konzept §2a): Klartext-Textkanäle sind
+  // gesperrt — der Server verwirft deren Anlage und Posten. Der
+  // verschlüsselte Ablage-Kanal (mit Verbindungs-Assistent) kommt mit der
+  // Krypto-Etappe; bis dahin bleibt der Text-Weg hier bewusst tot.
+  const nurAblage = $derived(
+    serverCapabilities.get(activeServer.serverId)?.channelCreationPolicy === 'ablage_only'
+  );
 
   $effect(() => {
     // Nur laden, wenn Instanz + Betreiber die Ablage überhaupt zulassen —
@@ -82,6 +89,9 @@
   // Fällt die Ablage weg, während sie ausgewählt war → zurück auf Text.
   $effect(() => {
     if (!dropboxAvailable && type === 2) type = 0;
+  });
+  $effect(() => {
+    if (nurAblage && type === 0) type = 1;
   });
 
   function handleOpenChange(next: boolean) {
@@ -123,6 +133,10 @@
             variant={type === 0 ? 'default' : 'secondary'}
             class="justify-center gap-2"
             onclick={() => (type = 0)}
+            disabled={nurAblage}
+            title={nurAblage
+              ? 'Diese Instanz erlaubt nur verschlüsselte Ablage-Kanäle'
+              : undefined}
             data-testid="create-channel-type-text"
           >
             <HashIcon class="size-4" />
@@ -152,6 +166,13 @@
           {/if}
         </div>
       </div>
+      {#if nurAblage}
+        <p class="text-muted-foreground text-xs leading-relaxed">
+          Diese Instanz erlaubt nur verschlüsselte Ablage-Kanäle — zum Erstellen
+          ist eine verbundene Cloud-Ablage nötig. Der Verbindungs-Assistent
+          kommt mit der Krypto-Etappe.
+        </p>
+      {/if}
       <div class="space-y-1.5">
         <FieldLabel for="create-channel-name" required class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
           {m.create_channel_dialog_name_label()}
