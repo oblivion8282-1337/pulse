@@ -121,8 +121,18 @@
     }
   }
 
-  function pinToEnd() {
-    if (items.length > 0) vlist?.scrollToIndex(items.length - 1, { align: 'end' });
+  /** Ans Listenende. Mit `soft` gleitet der Weg (natives behavior:'smooth'),
+   *  ohne springt er — Initial-Load und Kanalwechsel sollen weiter instant
+   *  sein. Der Glide ist kurz (eine Nachrichtenhohe) und am Listenende, wo
+   *  virtua alles schon gemessen hat — die Performance-Warnung in virtua's
+   *  Dokumentation („smooth über viele Items tötet die Virtualisierung")
+   *  betrifft Fernspruenge, nicht diesen Fall. `prefers-reduced-motion`
+   *  schaltet das Gleiten ab. */
+  function pinToEnd(soft = false) {
+    if (items.length === 0) return;
+    const schontReduced =
+      typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    vlist?.scrollToIndex(items.length - 1, { align: 'end', smooth: soft && !schontReduced });
   }
 
   // Zwei Frames warten, nicht nur `tick()`: nach dem tick steht die neue Zeile
@@ -146,7 +156,10 @@
         requestAnimationFrame(() => {
           if (channel?.id !== forChannel) return;
           if (!unbedingt && !pinnedToBottom) return;
-          pinToEnd();
+          // Initial-Load springt instant; Appends (eigene + fremde Nachrichten)
+          // gleiten — die bestehenden Nachrichten wandern sanft hoch statt
+          // hart umzusetzen.
+          pinToEnd(!unbedingt);
         })
       )
     );
@@ -248,7 +261,7 @@
   $effect(() => {
     const el = wrapperEl;
     if (!el) return;
-    const onGrow = () => { if (pinnedToBottom) pinToEnd(); };
+    const onGrow = () => { if (pinnedToBottom) pinToEnd(true); };
     const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(onGrow);
     ro?.observe(el);
     el.addEventListener('load', onGrow, true);
