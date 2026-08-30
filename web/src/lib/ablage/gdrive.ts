@@ -23,6 +23,12 @@ const ORDNER_MIME = 'application/vnd.google-apps.folder';
 export interface GdriveAnbindung {
 	kundenId: string;
 	weiterleitung: string;
+	/**
+	 * Google stellt auch für Desktop-Clients ein Secret aus und verlangt es
+	 * am Token-Endpunkt — anders als Dropbox/OneDrive (empirisch bestätigt
+	 * 2026-08-30: ohne Secret → invalid_request „client_secret is missing").
+	 */
+	kundenGeheimnis?: string;
 	holen?: typeof fetch;
 }
 
@@ -56,6 +62,7 @@ export function autorisierungsAdresse(anbindung: GdriveAnbindung, pkce: Pkce, zu
 export function tauscheCodeAus(anbindung: GdriveAnbindung, code: string, pkce: Pkce): Promise<Zugang> {
 	return tausche(anbindung.holen ?? fetch, TOKEN_ENDPUNKT, {
 		client_id: anbindung.kundenId,
+		...(anbindung.kundenGeheimnis !== undefined ? { client_secret: anbindung.kundenGeheimnis } : {}),
 		grant_type: 'authorization_code',
 		code,
 		redirect_uri: anbindung.weiterleitung,
@@ -66,6 +73,7 @@ export function tauscheCodeAus(anbindung: GdriveAnbindung, code: string, pkce: P
 export function auffrischeZugang(anbindung: GdriveAnbindung, nachspieleToken: string): Promise<Zugang> {
 	return spieleNach(anbindung.holen ?? fetch, TOKEN_ENDPUNKT, nachspieleToken, {
 		client_id: anbindung.kundenId,
+		...(anbindung.kundenGeheimnis !== undefined ? { client_secret: anbindung.kundenGeheimnis } : {}),
 	});
 }
 

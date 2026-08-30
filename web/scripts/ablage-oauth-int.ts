@@ -97,18 +97,33 @@ const GDRIVE: AnbieterStecker = {
 		'Google-Cloud: OAuth-Client Typ „Desktop-App", Consent-Screen Extern im Testmodus mit deinem Konto als Testnutzer, Scope drive.file; Redirect http://localhost:9109/ruecklauf',
 	adresse: async (kundenId, herausforderung, zustand) =>
 		gdriveAdresse(
-			{ kundenId, weiterleitung: `http://localhost:${GDRIVE.port}/ruecklauf` },
+			{
+				kundenId,
+				weiterleitung: `http://localhost:${GDRIVE.port}/ruecklauf`,
+				kundenGeheimnis: process.env.ABLAGE_INT_GDRIVE_GEHEIMNIS,
+			},
 			{ pruefer: '', herausforderung },
 			zustand,
 		),
 	tauschen: (kundenId, code, pruefer) =>
 		gdriveTausch(
-			{ kundenId, weiterleitung: `http://localhost:${GDRIVE.port}/ruecklauf` },
+			{
+				kundenId,
+				weiterleitung: `http://localhost:${GDRIVE.port}/ruecklauf`,
+				kundenGeheimnis: process.env.ABLAGE_INT_GDRIVE_GEHEIMNIS,
+			},
 			code,
 			{ pruefer, herausforderung: '' },
 		),
 	nachspielen: (kundenId, nachspieleToken) =>
-		gdriveNachspiel({ kundenId, weiterleitung: `http://localhost:${GDRIVE.port}/ruecklauf` }, nachspieleToken),
+		gdriveNachspiel(
+			{
+				kundenId,
+				weiterleitung: `http://localhost:${GDRIVE.port}/ruecklauf`,
+				kundenGeheimnis: process.env.ABLAGE_INT_GDRIVE_GEHEIMNIS,
+			},
+			nachspieleToken,
+		),
 	adapter: async (zugangsToken, lauf) => gdriveAdapter({ zugangsToken, ordner: `Pulse/int-${lauf}/kanal` }),
 };
 
