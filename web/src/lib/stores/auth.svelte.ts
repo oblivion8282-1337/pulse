@@ -22,6 +22,11 @@ import { profileStatementStore } from '$lib/identity/profile-statement.svelte';
 import { stopProfileRefresh, startProfileRefresh } from '$lib/identity/profile-refresh.svelte';
 import { stopCertRotation, startCertRotation } from '$lib/identity/cert-rotation.svelte';
 import { activeServer } from './active-server.svelte';
+// Gerätelokales Krypto-Material — es hängt an derselben Identität wie
+// Keypair und Cert und muss mit ihnen verschwinden, s. die beiden Wisch-
+// Stellen unten.
+import { geraeteGeheimnisWischen } from '$lib/krypto/geraeteGeheimnis';
+import { geraeteKennungWischen } from '$lib/krypto/geraeteKennung';
 import { clearLegacyStreamCredentials } from '$lib/stream/persistence';
 import { renewSession } from '$lib/api/cookie-client';
 
@@ -287,6 +292,16 @@ class AuthStore {
         certStore.wipe(),
         keypairStore.wipe(),
         profileStatementStore.wipe(),
+        // Pickle-Geheimnis und Gerätekennung gehören in dieselbe Zeile wie
+        // das Keypair: solange der Pickle-Schlüssel aus dem Keypair abgeleitet
+        // wurde, machte dessen Löschen den eingefrorenen Krypto-Zustand
+        // unlesbar (so steht es im Kopf von `krypto/account.svelte.ts`). Seit
+        // der Schlüssel aus einem eigenen Geheimnis kommt, tut das nur noch
+        // dieser Aufruf — ohne ihn läse der nächste Nutzer am selben Fenster
+        // den Zustand des vorigen. Die Kennung ebenso: sie käme sonst mit dem
+        // neuen Cert in Widerspruch.
+        geraeteGeheimnisWischen(),
+        geraeteKennungWischen(),
         clearLegacyStreamCredentials(),
       ]);
     }
@@ -384,6 +399,9 @@ class AuthStore {
     void certStore.wipe();
     void keypairStore.wipe();
     void profileStatementStore.wipe();
+    // Dieselbe Begründung wie im Kontowechsel-Pfad oben.
+    void geraeteGeheimnisWischen();
+    void geraeteKennungWischen();
     // Self-Hosts (Hostnames + pairwise_subs) aus der gerätelokalen Liste
     // entfernen — konsistent zum Account-Switch-Pfad (_enforceDeviceOwner).
     // silent=true: kein Tresor-Push, der den Server-Tresor leeren würde.

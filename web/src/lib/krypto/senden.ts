@@ -69,6 +69,7 @@ import { directMessages } from '../stores/directMessages.svelte';
 import { verlaufSpeichernPflicht } from '../verlauf';
 import { verlaufZustand } from '../verlauf/zustand.svelte';
 import { kryptoAccountLaden } from './account.svelte';
+import { geraeteKennung } from './geraeteKennung';
 import { sitzungLaden, sitzungSichern, mitSitzungssperre } from './sitzungen';
 import { baueNutzlast } from './nutzlast';
 import { baueNachrichtNutzlast, type AnhangAngabe } from './nachrichtNutzlast';
@@ -136,7 +137,10 @@ export async function sendeVerschluesselt(
     buendel,
     eigeneUserId,
     empfaengerUserId,
-    cert.claims.device_pubkey,
+    // Die eigene Kennung kommt aus der Krypto-Schicht, nicht mehr aus dem
+    // Zertifikat (Spec §3b, s. `geraeteKennung.ts`) — der Wert ist derselbe,
+    // die Quelle ueberlebt den Wegfall des Zertifikats.
+    await geraeteKennung(),
     isElectron() || isCapacitorAndroid()
   );
   if (ziel.length === 0) {

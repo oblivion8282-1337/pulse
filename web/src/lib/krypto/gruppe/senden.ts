@@ -48,6 +48,7 @@ import { verlaufSpeichernPflicht } from '../../verlauf';
 import { verlaufZustand } from '../../verlauf/zustand.svelte';
 import { parseMentionMarkers } from '../../components/mentionMarkierungen';
 import { kryptoAccountLaden } from '../account.svelte';
+import { geraeteKennung } from '../geraeteKennung';
 import { sitzungLaden, sitzungSichern, mitSitzungssperre } from '../sitzungen';
 import { mitGruppensitzungssperre } from '../sperren';
 import { baueNachrichtNutzlast } from '../nachrichtNutzlast';
@@ -160,7 +161,9 @@ export async function sendeInGruppe(
     buendel,
     mitgliederIds,
     eigeneUserId,
-    cert.claims.device_pubkey
+    // Eigene Kennung aus der Krypto-Schicht statt aus dem Zertifikat —
+    // dieselbe Umstellung wie in `../senden.ts`, s. `../geraeteKennung.ts`.
+    await geraeteKennung()
   );
 
   // **Ab hier unter der Gruppen-Sperre** (Bughunt 2026-08-29, s.

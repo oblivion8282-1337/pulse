@@ -14,6 +14,7 @@ import { serversStore } from '../api/servers.svelte';
 import { certStore } from '../identity/cert.svelte';
 import { verlaufAllesLoeschen } from '../verlauf/db';
 import { m } from '$lib/paraglide/messages.js';
+import { geraeteKennung } from './geraeteKennung';
 import { verfallAbarbeiten } from './geraeteVerfall';
 import { E2E_DMS_ENABLED } from './schalter';
 
@@ -45,14 +46,16 @@ let schonGeprueft = false;
 export async function verfallPruefen(): Promise<void> {
   if (!E2E_DMS_ENABLED) return;
   if (schonGeprueft) return;
-  const cert = certStore.cert;
-  if (!cert) return;
+  // Das Zertifikat steht hier nur noch fuer „ueberhaupt angemeldet?" — nach
+  // welcher Kennung gefragt wird, sagt `geraeteKennung()` (s. dort).
+  if (!certStore.cert) return;
   schonGeprueft = true;
+  const kennung = await geraeteKennung();
 
   // Dieselbe Cloud-Route wie jeder andere Schluessel-Aufruf (DMs sind heute
   // cloud-only, s. `api/keys.ts`-Modulkopf).
   await verfallAbarbeiten(
-    () => keysApi.geraetestand(cert.claims.device_pubkey, { serverId: serversStore.cloudId() }),
+    () => keysApi.geraetestand(kennung, { serverId: serversStore.cloudId() }),
     verlaufAllesLoeschen,
     () => toast.warning(m.kopplung_verfallen_hinweis(), { duration: 15000 })
   );

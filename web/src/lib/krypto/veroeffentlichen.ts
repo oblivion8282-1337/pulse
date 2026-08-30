@@ -27,8 +27,10 @@ import {
   kryptoAccountSichern,
   rueckfallschluesselSicherstellen
 } from './account.svelte';
+import { geraeteKennung } from './geraeteKennung';
 import { baueNutzlast } from './nutzlast';
 import { signiereNutzlast } from './nachweis';
+import { pickelUebergangSicherstellen } from './pickelUebergang';
 import { mitKontosperre } from './sperren';
 import { verfallPruefen } from './verfallPruefen';
 
@@ -63,6 +65,19 @@ export async function veroeffentlicheSchluessel(): Promise<void> {
   const keypair = await loadKeypair();
   const cert = certStore.cert;
   if (!keypair || !cert) return;
+
+  // **Ganz vorn, vor jedem Zugriff auf eingefrorenen Zustand**: der
+  // Pickle-Schluessel muss vom Ed25519-Anmeldeschluessel auf das
+  // krypto-eigene Geheimnis wechseln, solange BEIDE existieren (Spec §3b,
+  // „Reihenfolge"). Diese Funktion ist der Startweg jedes Klienten, und sie
+  // laeuft, bevor ein Sende- oder Abholzyklus beginnt — die Stelle mit dem
+  // kleinsten Fenster fuer einen zweiten Schreiber (s. `pickelUebergang.ts`).
+  //
+  // AUSSERHALB der Konto-Sperre unten, und das ist kein Versehen: Web Locks
+  // sind nicht wiedereintrittsfaehig (`sperren.ts`, Regel 1), und der
+  // Uebergang schreibt selbst in den Kontostand. Unter der Sperre wartete er
+  // auf sich selbst.
+  await pickelUebergangSicherstellen();
 
   // **Vor dem Veroeffentlichen**: ist dieses Geraet verfallen (Spec §3a), muss
   // sein lokaler Verlauf weg, bevor es sich wieder als Empfaenger meldet.
@@ -118,7 +133,7 @@ async function nachfuellenWennNoetig(
   keypair: StoredKeypair,
   cert: IdentityCert
 ): Promise<void> {
-  const { vorrat } = await keysApi.oneTimeKeyCount(cert.claims.device_pubkey, cloudRoute());
+  const { vorrat } = await keysApi.oneTimeKeyCount(await geraeteKennung(), cloudRoute());
 
   if (vorrat < VORRAT_SCHWELLE) {
     ident.einmalschluesselErzeugen(NACHFUELL_BATCH);

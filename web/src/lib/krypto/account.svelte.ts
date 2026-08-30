@@ -18,16 +18,28 @@
  * ruft und dabei den Account veraendert, muss `mitKontosperre` selbst
  * mitbringen.
  *
- * Der Einfrier-Schluessel kommt aus `pickelschluesselAbleiten` ueber eine
- * Signatur des Geraeteschluessels (`keypairStore`, `extractable: false`) —
- * der eingefrorene Zustand ist damit an ein Geheimnis gebunden, das dieses
- * Geraet nie verlassen kann. Wird der Geraeteschluessel geloescht (Abmelden),
- * ist der eingefrorene Zustand absichtlich unlesbar (s. Plan-Etappe B2 Task 1).
+ * Der Einfrier-Schluessel ist an ein Geheimnis gebunden, das dieses Geraet
+ * nie verlassen kann (`extractable: false`). Wird es geloescht (Abmelden),
+ * ist der eingefrorene Zustand absichtlich unlesbar (s. Plan-Etappe B2
+ * Task 1) — deshalb wischt `auth.svelte.ts` es zusammen mit dem
+ * Anmeldeschluessel.
+ *
+ * **WELCHES Geheimnis, entscheidet die Marke** (Spec §3b, Absatz
+ * „Reihenfolge"): bis zum Uebergang eine Signatur des Ed25519-
+ * Anmeldeschluessels, danach das krypto-eigene Geheimnis
+ * (`geraeteGeheimnis.ts`). Der Anmeldeschluessel ist auf `main` ersatzlos
+ * geloescht; der Uebergang (`pickelUebergang.ts`) muss deshalb laufen,
+ * solange es ihn hier noch gibt. **Kein Rueckfall in die andere Richtung:**
+ * bei gesetzter Marke ohne Geheimnis wird geworfen, nicht der alte Weg
+ * versucht — wer raet und danach neu einfriert, hat den Zustand nicht
+ * beschaedigt, sondern verloren.
  */
 import init, { Identitaet } from '../../../../krypto/pulse-krypto/pkg/pulse_krypto.js';
 import { openIdentityDb, idbGetIdentity, idbPutIdentity } from '../identity/idb-shared';
 import { loadKeypair, signChallenge } from '../identity/keypair.svelte';
-import { pickelschluesselAbleiten } from './pickelschluessel';
+import { pickelgeheimnisLesen, pickelmarkeLesen } from './geraeteGeheimnis';
+import { pickelschluesselAbleiten, pickelschluesselAusGeheimnis } from './pickelschluessel';
+import { markeDeuten } from './pickelUebergangPlan';
 
 /** Exportiert, weil `sitzungen.ts::sitzungMitKontoAtomarSichern` denselben
  *  Schluessel braucht — s. dort. */
@@ -42,28 +54,56 @@ const PICKLE_KONTEXT = new TextEncoder().encode('pulse-krypto-pickle-v1');
 
 let _wasmBereit: Promise<void> | null = null;
 
-/** Initialisiert das WASM-Modul genau einmal, egal wie oft aufgerufen. */
-async function sicherstellenWasm(): Promise<void> {
+/** Initialisiert das WASM-Modul genau einmal, egal wie oft aufgerufen.
+ *  Exportiert, weil `pickelUebergang.ts` vor dem Auf- und Wiedereinfrieren
+ *  dieselbe Zusicherung braucht — eine zweite Einmal-Wache daneben waeren
+ *  zwei Wachen fuer ein Modul, das genau einmal geladen werden darf. */
+export async function sicherstellenWasm(): Promise<void> {
   if (!_wasmBereit) {
     _wasmBereit = init().then(() => undefined);
   }
   await _wasmBereit;
 }
 
-/** Signiert den festen Kontext mit dem Geraeteschluessel und leitet daraus
- *  den 32-Byte-Pickle-Schluessel ab. Wirft, wenn (noch) kein Geraeteschluessel
- *  geladen ist — ohne ihn kann weder eingefroren noch aufgetaut werden.
- *
- *  Exportiert, weil `sitzungen.ts` denselben Schluessel braucht (Olm-
- *  Sitzungen liegen im selben Store, s. Modulkopf) — ein zweiter, eigener
- *  Pickle-Schluessel wuerde nur ein zweites Geheimnis pflegen, ohne Gewinn. */
-export async function pickelschluesselDesGeraets(): Promise<Uint8Array> {
+/** Der ALTE Weg: den festen Kontext mit dem Ed25519-Anmeldeschluessel
+ *  signieren und daraus ableiten. `null`, wenn dieses Geraet keinen
+ *  Anmeldeschluessel (mehr) hat — der Uebergang unterscheidet daran den
+ *  Erstlauf eines frischen Geraets vom Totalverlust-Fall. */
+export async function altpickelschluesselWennVorhanden(): Promise<Uint8Array | null> {
   const keypair = await loadKeypair();
-  if (!keypair) {
-    throw new Error('KEIN_GERAETESCHLUESSEL');
-  }
+  if (!keypair) return null;
   const signatur = await signChallenge(keypair, PICKLE_KONTEXT);
   return pickelschluesselAbleiten(signatur.buffer as ArrayBuffer);
+}
+
+/** Der 32-Byte-Schluessel, mit dem aller eingefrorene Zustand dieses Geraets
+ *  auf- und zugeht — Konto, Olm-Sitzungen und Gruppensitzungen teilen ihn
+ *  (s. Modulkopf; ein zweiter waere ein zweites Geheimnis ohne Gewinn).
+ *
+ *  Welche Quelle gilt, sagt die Marke — s. Modulkopf. Beide Fehlerfaelle
+ *  werfen, keiner faellt auf die jeweils andere Quelle zurueck.
+ *
+ *  Exportiert, weil `sitzungen.ts` und `gruppe/gruppenSitzungen.ts` denselben
+ *  Schluessel brauchen. */
+export async function pickelschluesselDesGeraets(): Promise<Uint8Array> {
+  const db = await openIdentityDb();
+  const marke = markeDeuten(await pickelmarkeLesen(db));
+  if (marke === 'schon_umgestellt') {
+    const geheimnis = await pickelgeheimnisLesen(db);
+    db.close();
+    if (!geheimnis) {
+      // Kein Rueckfall auf den alten Weg: die Marke sagt, dass mit dem NEUEN
+      // Schluessel eingefroren wurde, und der alte oeffnet das nicht. Ein
+      // Versuch waere ein Ratespiel um den ganzen lokalen Verlauf.
+      throw new Error('PICKELGEHEIMNIS_FEHLT');
+    }
+    return pickelschluesselAusGeheimnis(geheimnis);
+  }
+  db.close();
+
+  const alt = await altpickelschluesselWennVorhanden();
+  if (!alt) throw new Error('KEIN_GERAETESCHLUESSEL');
+  return alt;
 }
 
 /**

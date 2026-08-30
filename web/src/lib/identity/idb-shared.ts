@@ -99,6 +99,20 @@ export function idbGetIdentity(db: IDBDatabase, key: string): Promise<unknown> {
   });
 }
 
+/** Löscht einen einzelnen Eintrag. Wie `idbPutIdentity` auf `tx.oncomplete`
+ *  wartend, nicht auf `req.onsuccess` — ein Löschen, das nur angenommen und
+ *  nicht committet wurde, hinterlässt den Wert beim nächsten Start wieder da.
+ *  Wirft; wer „best effort" will, fängt selbst (so tut es `wipeKeypair`). */
+export function idbDeleteIdentity(db: IDBDatabase, key: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const req = tx.objectStore(STORE_NAME).delete(key);
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 export function idbPutIdentity(db: IDBDatabase, key: string, value: unknown): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');

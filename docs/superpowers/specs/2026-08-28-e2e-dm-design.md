@@ -304,6 +304,22 @@ Schlüsselpaar je Gerät, im Gerät erzeugt und nicht auslesbar.
 1. **Geräte-Identität gehört der Krypto-Schicht.** Sie entsteht beim ersten
    Start, liegt neben dem Olm-Account in der IndexedDB und verlässt das Gerät
    nie. Sie ist der Bezeichner, den die vierzehn Stellen brauchen.
+
+   **Korrektur vom 2026-08-30, beim Bauen aufgefallen:** dieser Punkt stand
+   hier zu grob. Die Frage zerfällt in zwei, und die Antwort ist verschieden.
+   Die **Kennung** ist öffentlich und muss nur stabil, vergleichbar und
+   identisch mit dem sein, was der Server gespeichert hat — dafür braucht es
+   kein eigenes Schlüsselpaar. Der **Pickle-Schlüssel** dagegen ist geheim und
+   kann **nicht** aus der Olm-Identität stammen: er wird gebraucht, BEVOR der
+   Olm-Account überhaupt geöffnet werden kann. Er ist deshalb ein eigenes,
+   nicht auslesbares Geheimnis neben dem Account (rohe Bytes wären beim ersten
+   Auskippen der IndexedDB mit weg).
+
+   **Und die Kennung bleibt derselbe Wert wie bisher, nur die Quelle
+   wechselt.** Eine neue Kennung wäre kein Umzug, sondern ein zweites, leeres
+   Gerät neben dem eigenen: der Server hat das Bündel unter dem alten Wert
+   abgelegt, und jede bestehende Olm-Sitzung trägt ihn in ihrem
+   Speicherschlüssel.
 2. **Schlüssel veröffentlichen weist sich über die Sitzung aus**, nicht über
    ein Zertifikat. Der Geräteschlüssel im Bündel ist selbstbehauptet — das ist
    tragfähig, weil er ausschliesslich in die eigene Geräteliste schreibt.
