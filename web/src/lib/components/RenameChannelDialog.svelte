@@ -78,7 +78,9 @@
   async function submit(e: SubmitEvent) {
     e.preventDefault();
     if (!channel) return;
-    const trimmedName = name.trim().replace(/\s+/g, '-').toLowerCase();
+    // Name bleibt wie getippt (Groß-/Kleinschreibung, Leerzeichen) — nur
+    // Mehrfach-Leerzeichen laufen auf eins zusammen. Slugify war Client-Only.
+    const trimmedName = name.trim().replace(/\s+/g, ' ');
     const newTopic = topic.trim();
     const nameChanged = !!trimmedName && trimmedName !== channel.name;
     const topicChanged = newTopic !== (channel.topic ?? '');
