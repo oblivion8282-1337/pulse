@@ -12,7 +12,8 @@
     "paraglide:compile": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide --strategy localStorage preferredLanguage baseLocale --output-structure locale-modules",
     "check": "pnpm paraglide:compile && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "test:e2e": "playwright test",
-    "test:unit": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test test/*.test.ts"
+    "test:unit": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test test/*.test.ts",
+    "test:ablage-int": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/ablage-speicher-int.ts"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.1",
