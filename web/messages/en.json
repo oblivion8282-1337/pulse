@@ -1304,7 +1304,7 @@
   "instance_setup_intro": "Run this single command on your server (a VPS with Docker):",
   "instance_setup_loading": "Creating command…",
   "instance_setup_manual_compose_default": "docker-compose.yml",
-  "instance_setup_manual_compose_hint": "The compose file that fits your server — the second one if a reverse proxy already occupies port 80/443 on that machine.",
+  "instance_setup_manual_compose_hint": "The compose file that fits your server — the second one if a reverse proxy already occupies port 80/443 on that machine. The update script goes next to it, in the same folder as the compose file (chmod 700) — cron and systemd examples are in its header.",
   "instance_setup_manual_compose_proxy": "Variant behind your own proxy",
   "instance_setup_manual_desc": "Prefer to manage the server yourself? Download the ready-made .env (every value is filled in, including the secret), drop it next to docker-compose.yml and start with “docker compose up -d”.",
   "instance_setup_manual_download": "Download .env",

@@ -1304,7 +1304,7 @@
   "instance_setup_intro": "Führe diesen einen Befehl auf deinem Server aus (ein VPS mit Docker):",
   "instance_setup_loading": "Befehl wird erstellt…",
   "instance_setup_manual_compose_default": "docker-compose.yml",
-  "instance_setup_manual_compose_hint": "Die Compose-Datei passend zu deinem Server — die zweite, wenn auf der Maschine schon ein Reverse-Proxy auf Port 80/443 läuft.",
+  "instance_setup_manual_compose_hint": "Die Compose-Datei passend zu deinem Server — die zweite, wenn auf der Maschine schon ein Reverse-Proxy auf Port 80/443 läuft. Das Update-Skript kommt daneben in denselben Ordner wie die Compose-Datei (chmod 700) — Cron- und systemd-Beispiele stehen in seinem Kopf.",
   "instance_setup_manual_compose_proxy": "Variante hinter eigenem Proxy",
   "instance_setup_manual_desc": "Du willst den Server selbst verwalten? Lade die fertige .env herunter (alle Werte inklusive Secret sind gesetzt), leg sie neben die docker-compose.yml und starte mit „docker compose up -d“.",
   "instance_setup_manual_download": ".env herunterladen",
