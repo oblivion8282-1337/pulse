@@ -79,6 +79,18 @@
   let pinnedToBottom = $state(true);
   // Kurzzeitig zu highlightende Nachricht (z.B. nach jumpToReply).
   let highlightId = $state<string | null>(null);
+  // Frisch angekommen (gesendet/empfangen) → kurzes Einblenden. Markierung
+  // haengt am ITEM-KEY (nonce/ID) und verfaellt nach kurzer Zeit: ein
+  // spaeteres Remount derselben Nachricht beim Hochscrollen animiert nicht
+  // nach. Der Echo-Swap (Laenge gleich) und der Initial-Load animieren
+  // bewusst nicht — nur echtes Listenwachstum.
+  let freshKey = $state<string | null>(null);
+  let freshTimer: ReturnType<typeof setTimeout> | null = null;
+  function markiereFrisch(key: string) {
+    freshKey = key;
+    if (freshTimer) clearTimeout(freshTimer);
+    freshTimer = setTimeout(() => { freshKey = null; }, 700);
+  }
   // Infinite-Scroll-Up-State.
   let hasMore = $state(true); // es könnte ältere Historie geben
   let loadingOlder = $state(false);
@@ -197,6 +209,8 @@
       pinnedToBottom = true;
       hasMore = true;
       loadingOlder = false;
+      freshKey = null;
+      if (freshTimer) clearTimeout(freshTimer);
       vlist?.scrollToIndex(0);
     });
   });
@@ -212,6 +226,7 @@
     // Swap, ein Re-Pin (oben: mit Scroll-Willen-Check) glättet ihn.
     if (count !== lastCount || lastId !== lastSeenId) {
       const isInitialLoad = lastCount === 0;
+      const gewachsen = count > lastCount;
       // "Klebt der User unten?" wird VOR dem DOM-Wachstum bestimmt (über den
       // laufenden Scroll-Handler) — nicht erst nach tick(), wenn die neue,
       // u.U. >80px hohe Nachricht die Messung schon verfälscht hätte.
@@ -219,6 +234,9 @@
       lastCount = count;
       lastSeenId = lastId;
       if (shouldScroll) pinToEndWhenMeasured(isInitialLoad);
+      if (gewachsen && !isInitialLoad && count > 0) {
+        markiereFrisch(messages[count - 1].nonce ?? lastId);
+      }
     }
   });
 
@@ -518,6 +536,7 @@
               avatarUrl={avatarUrl}
               isContinuation={item.isContinuation}
               isGroupEnd={item.isGroupEnd}
+              istFrisch={freshKey === item.key}
               {layout}
               istEigene={item.message.author_id === myId}
               highlight={highlightId === item.message.id}
