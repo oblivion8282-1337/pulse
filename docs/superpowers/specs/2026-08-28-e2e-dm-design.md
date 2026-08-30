@@ -260,6 +260,91 @@ unangetastet.
 
 ---
 
+## 3b. Das Gerätezertifikat ist weg — der Geräte-Nachweis wird eigenständig
+
+**Entscheidung vom 2026-08-30.** Parallel zu dieser Arbeit ist auf `main` am
+2026-08-28 die Anmeldung radikal vereinfacht worden: Gerätezertifikate,
+Ausstellung, Widerruf, Sperrliste und Cert-Login sind ersatzlos entfernt,
+angemeldet wird über ein kurzlebiges Cloud-Ticket, das gegen eine
+Server-Sitzung getauscht wird. Grund waren massive Probleme bei der
+Einrichtung von Self-Host-Servern. **Das bleibt so.** Dieser Entwurf baute auf
+den Zertifikaten auf und wird darauf umgestellt.
+
+### Was nachgesehen wurde
+
+**Auf `main` identifiziert nichts ein Gerät.** Der Sitzungs-Token trägt eine
+Kennung (`cert_id` = die `jti` des eingelösten Tickets), aber die ist bei jeder
+Anmeldung und bei jedem stündlichen Auffrischen neu und wird von keiner Stelle
+gelesen. Es gibt keine Sitzungstabelle auf dem Self-Host, und im Web-Klienten
+kein gerätegebundenes Geheimnis mehr — die Suche nach Schlüsselerzeugung im
+ganzen Baum liefert null Treffer. Eine zweite Anmeldung verdrängt die erste
+nicht, sie steht daneben.
+
+**Auf diesem Zweig hängt der Nachweis an vierzehn Stellen an einer
+Geräte-Identität** (Olm ist Gerät-zu-Gerät: Sitzungen je Gerätepaar, Umschläge
+an ein Gerät, Quittungen von einem Gerät) und an etwa zwölf Stellen am
+Zertifikat als beglaubigtem Papier. Die Krypto selbst — Olm-Identität,
+Einmalschlüssel, Sitzungen — kennt weder Zertifikat noch Konto.
+
+### Die Einsicht
+
+**Das Zertifikat hat eine Arbeit geleistet, die die Anmeldung schon leistet.**
+Es bewies dem Server „dieses Gerät gehört zu diesem Konto" — aber ein
+Schlüsselbündel wird immer nur ins EIGENE Konto geschrieben, und welches das
+ist, sagt die Sitzung bereits. Gegen einen Angreifer half es nie: wer eine
+Sitzung stiehlt, hätte sich damit früher auch ein Zertifikat ausstellen
+lassen.
+
+Die Gerätekennung braucht deshalb keine Beglaubigung von aussen. **Die
+Verschlüsselung bringt ihre eigene mit**: die Olm-Identität ist bereits ein
+Schlüsselpaar je Gerät, im Gerät erzeugt und nicht auslesbar.
+
+### Das neue Modell
+
+1. **Geräte-Identität gehört der Krypto-Schicht.** Sie entsteht beim ersten
+   Start, liegt neben dem Olm-Account in der IndexedDB und verlässt das Gerät
+   nie. Sie ist der Bezeichner, den die vierzehn Stellen brauchen.
+2. **Schlüssel veröffentlichen weist sich über die Sitzung aus**, nicht über
+   ein Zertifikat. Der Geräteschlüssel im Bündel ist selbstbehauptet — das ist
+   tragfähig, weil er ausschliesslich in die eigene Geräteliste schreibt.
+3. **`pruefe_geraet` entfällt** samt Unterschrift, `baue_nutzlast`, den
+   dreizehn Zwecken und ihrem Prüfstein. An seine Stelle tritt „welches Konto
+   ist angemeldet" plus „welches Gerät behauptet der Aufrufer zu sein".
+4. **Widerruf wird sichtbar statt kryptographisch.** Bisher trug ihn die
+   Sperrliste des Zertifikats. Künftig eine Geräteliste mit „entfernen" — der
+   Weg, den Signal und WhatsApp auch gehen, und der bessere: der Nutzer sieht,
+   wer mitliest, statt es einer Sperrliste zu überlassen.
+5. **Die Kopplung braucht keinen eigenen Nachweis mehr.** Beide Seiten sind
+   ohnehin als dasselbe Konto angemeldet; der Kopplungscode beweist, dass
+   dieselbe Person beide Geräte hält. Das war schon immer seine Aufgabe.
+
+### Was dabei verloren geht — ausgesprochen
+
+Der Server bescheinigt Geräte nicht mehr. Wer eine Kontositzung übernimmt,
+kann ein eigenes Gerät eintragen und ab dann mitlesen. **Das war mit
+Zertifikaten nicht anders** (eine übernommene Sitzung durfte sich eines
+ausstellen lassen), aber es ist jetzt der einzige Schutzwall, und deshalb ist
+die Geräteliste aus Punkt 4 kein Beiwerk, sondern die Stelle, an der ein
+Nutzer das bemerken und beenden kann.
+
+### Reihenfolge — der eine Punkt, der nicht verschiebbar ist
+
+**Der Pickle-Schlüssel muss ZUERST umgestellt werden.** Er wird heute aus dem
+Ed25519-Anmeldeschlüssel abgeleitet (`account.svelte.ts::pickelschluessel-
+DesGeraets` → `loadKeypair()`), und genau der ist auf `main` gelöscht. Fällt er
+weg, bevor die Ableitung auf einen krypto-eigenen Schlüssel umgestellt ist,
+lässt sich eingefrorener Olm-Zustand nicht mehr auftauen — der lokale Verlauf
+ist dann unwiederbringlich, und ein Rückfall ist an der Stelle ausdrücklich
+verboten. Heute trifft das niemanden (die Schalter sind aus, es gibt keinen
+echten Bestand), auf einer Entwicklermaschine mit Testdaten aber sehr wohl.
+
+Danach: Geräte-Identität einführen · `pruefe_geraet` ersetzen und die dreizehn
+Aufrufer nachziehen · `cert_id` und die Sperrlisten-Filterung aus dem
+Schlüsselverzeichnis nehmen · Geräteliste bauen · Kopplungs-Nachweis auf die
+Sitzung umstellen.
+
+---
+
 ## 4. Zustellung und Löschen
 
 Verschlüsselte Nachrichten gehen **nicht** in `messages`, sondern in ein
