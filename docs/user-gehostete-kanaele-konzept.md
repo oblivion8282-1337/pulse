@@ -123,6 +123,46 @@ Regel statt Fallunterscheidungen.
 
 ---
 
+## 2a. Produktentscheidung (2026-08-31): Alle Textkanäle werden Ablage-Kanäle
+
+Der Eigentümer hat entschieden: Nach der Einführung dieses Features gibt es
+**keine Pulse-gehosteten Textkanäle mehr als Neuanlage**. Jeder neue Textkanal
+ist ein Ablage-Kanal:
+
+- **Erstellen setzt eine verbundene Ablage voraus** — in erster Linie das
+  Laufwerk des Erstellers. Die Community-Owner steuern per bestehendem
+  Rechte-System (`MANAGE_CHANNELS`), WER Kanäle erstellen darf; wer das Recht
+  hat, braucht ein verbundenes Laufwerk (seine eigene Ablage) und erstellt
+  damit KANÄLE AUF SEINEM LAUFWERK.
+- **Teilnehmen braucht keine Ablage** — Mitglieder lesen/schreiben über den
+  verschlüsselten Echtzeitweg; das Laufwerk bleibt Sache des Kanal-Erstellers.
+  Andere Nutzer erhalten Inhalte über Pulse mit ihren Schlüsseln, nicht durch
+  Zugriff auf das Laufwerk.
+- **Das ändert die Priorität der UI:** Der Ablage-Verbindungs-Assistent
+  (Laufwerk wählen → Zustimmen → fertig) wird zum Voraussetzungsschritt für
+  die Kanal-Erstellung — nicht zum optionalen Zusatz.
+
+Konsequenzen, ehrlich benannt:
+
+| Entfällt gegenüber heutigen Kanälen | Ersetzt durch |
+|---|---|
+| Serverseitige Suche | lokale Suche (Etappen-C5-Muster) |
+| Moderations-Einsicht in Inhalte | Meldeweg bleibt; Inhalte sind auch für Admins nicht lesbar |
+| Plugins mit Inhalts-Zugriff | plugins wirken auf Metadaten/Ereignisse |
+| Dauerhafte Historie ohne Owner | Festigung hängt am Owner-Gerät; Verfall/Grabstein bei Geraete-Verfall |
+| Serverseitige Bearbeitungshistorie | Bearbeitung fährt im Log mit (letzte Fassung gewinnt) |
+
+Bleibt unberührt: Rechte- und Rollensystem (Zugriff, nicht Inhalt), Realtime,
+Anwesenheit, Voice/Streaming, Reaktionen (serverseitig als Zählwerk je
+Nachrichten-Id ohne Inhalt möglich), Meldeweg.
+
+Offen (Entscheidung des Eigentümers, nicht dringend): Umgang mit BESTEHENDEN
+Klartext-Kanälen nach der Umstellung — lesender Legacy-Modus oder
+Migrationswerkzeug (Export in die Ablage des Erstellers). Die REST-Quelle des
+Nachziehers ist dafür die Leseseite.
+
+---
+
 ## 3. Architektur
 
 ### 3.1 Rollen und Wege
