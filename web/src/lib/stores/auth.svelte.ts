@@ -109,10 +109,9 @@ class AuthStore {
         // Nach Tab-Reload/SSO-Hydrate: Cookie erneuern, Serverliste holen,
         // Profil-Auffrischung starten.
         //
-        // Der Ausweis-Fluss, der hier früher lief (`runIssueFlow` →
-        // `/credentials/issue`), ist mit dem Gerätezertifikat entfallen. Es gibt
-        // nichts mehr auszustellen: Die Anmeldung an einem Self-Host holt sich
-        // im Moment der Nutzung ein Ticket.
+        // Der Geraete-Anmelde-Fluss (runIssueFlow → Schluesselbuendel
+        // veroeffentlichen) laeuft hier wieder — ohne Zertifikat (Weg A,
+        // Schnittanalyse §4). Best-effort nach dem Cookie-Renew.
         void (async () => {
           // Proaktiv den 30-Min-`pulse_session`-Cookie neu etablieren, BEVOR
           // der erste Cookie-Auth-Call läuft. Nach App-Neustart/Tab-Reload ist
@@ -130,6 +129,10 @@ class AuthStore {
           // Cookie-Auth-Call (/me/instances) frisch ist.
           void serversStore.hydrateFromBackend();
           startProfileRefresh();
+          try {
+            const { runIssueFlow } = await import('$lib/identity/issue-flow');
+            await runIssueFlow();
+          } catch { /* best-effort — der naechste Login/Restore versucht es erneut */ }
         })();
       }
     } catch (e) {
@@ -175,6 +178,13 @@ class AuthStore {
     // Account-basierte Self-Host-Liste aus dem Backend mergen
     // (gegen `signOut → keepOnlyCloud(true)`-Verlust). Details im Helper.
     void serversStore.hydrateFromBackend();
+    // Geraete-Anmeldung (Weg A) — fire-and-forget, best-effort wie beim Restore.
+    void (async () => {
+      try {
+        const { runIssueFlow } = await import('$lib/identity/issue-flow');
+        await runIssueFlow();
+      } catch { /* der naechste Login/Restore versucht es erneut */ }
+    })();
   }
 
   /**

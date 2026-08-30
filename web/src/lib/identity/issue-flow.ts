@@ -87,7 +87,7 @@ function buildDeviceLabel(): string {
 // ---------------------------------------------------------------------------
 
 export interface IssueFlowResult {
-  statement: ProfileStatement;
+  statement: ProfileStatement | null;
   /** true = neues Keypair generiert; false = existierendes genutzt */
   keypairCreated: boolean;
 }
@@ -117,14 +117,21 @@ export async function runIssueFlow(): Promise<IssueFlowResult> {
     keypairCreated = true;
   }
 
-  // --- 3: Profile-Statement holen ---
-  const stmtResp = await getProfileStatement();
-  const stmtClaims = parseStatementClaims(stmtResp.token);
-  if (!stmtClaims) {
-    throw new Error('SERVER_RETURNED_INVALID_STATEMENT_JWT');
+  // --- 3: Profile-Statement holen (best-effort) — die REST-Route ist auf dem
+  // Weg-A-Stand nicht mehr gebaut, der WS-Weg (`profile_statement`) liefert
+  // das Statement ohnehin nach. ---
+  let statement: ProfileStatement | null = null;
+  try {
+    const stmtResp = await getProfileStatement();
+    const stmtClaims = parseStatementClaims(stmtResp.token);
+    if (stmtClaims) {
+      statement = { raw: stmtResp.token, claims: stmtClaims };
+      await profileStatementStore.setStatement(statement);
+    }
+  } catch {
+    // Kein Abbruch: Statement ist Zusatz, die Schluessel-Veröffentlichung ist
+    // der Kern dieses Flusses.
   }
-  const statement: ProfileStatement = { raw: stmtResp.token, claims: stmtClaims };
-  await profileStatementStore.setStatement(statement);
 
   // --- 4: E2E-DM-Schluessel veroeffentlichen ---
   // Best-effort und bewusst NACH dem Statement-Store-Write: die
