@@ -39,6 +39,9 @@ COPY infra/self-host/docker-compose.yml \
      infra/self-host/docker-compose.behind-proxy.yml \
      /usr/share/nginx/html/self-host/
 COPY infra/self-host/.env.example /usr/share/nginx/html/self-host/env.example
+# Update-Skript für den Compose-Pfad — Vorlage für den eigenen Host-Cron/Timer
+# (kein Auto-Updater-Container: kein Container hält den Docker-Socket).
+COPY infra/self-host/pulse-update.sh /usr/share/nginx/html/self-host/pulse-update.sh
 # Die Self-Host-Anleitung selbst — verlinkt aus dem InstanceSetupDialog,
 # erreichbar als https://howispulse.com/self-host/guide (text/html; die
 # nginx-Regel dafuer ist eine EXAKTE location, sonst faengt sie der

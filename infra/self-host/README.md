@@ -148,8 +148,11 @@ The compose / manual paths manage updates themselves:
 docker compose pull && docker compose up -d
 ```
 
-run manually, or wrapped in a host cron/systemd timer (replicating the
-installer's approach: `docker pull` → digest diff → recreate). End-user docs:
+run manually, or wrapped in a host cron/systemd timer. A ready-made script as
+a template lives at `infra/self-host/pulse-update.sh` (download:
+`https://howispulse.com/self-host/pulse-update.sh` — drop it next to
+`docker-compose.yml`, it reads the registry credentials from `.env`; examples
+for cron/systemd are in its header). End-user docs:
 `docs/self-host-guide.html` → "Running it".
 
 ## Diagnose

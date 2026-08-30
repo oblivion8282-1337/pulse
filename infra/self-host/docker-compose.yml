@@ -32,10 +32,13 @@
 # Updates — deliberately NO auto-updater container in this file (an updater with
 # a mounted Docker socket is root-equivalent on the host):
 #   docker compose pull && docker compose up -d
-# manually or as a host cron/timer. The one-command installer (see the guide at
-# https://howispulse.com/self-host/guide)
-# sets up such a host systemd timer automatically — if you take the manual
-# Compose path, you manage updates yourself.
+# manually or as a host cron/timer. Ready-made update script as a template:
+#   https://howispulse.com/self-host/pulse-update.sh
+# (drop it next to this file, it reads the registry credentials from .env —
+# examples for cron/systemd are in the script header). The one-command
+# installer (see the guide at https://howispulse.com/self-host/guide) sets up
+# such a host systemd timer automatically — if you take the manual Compose
+# path, you manage updates yourself.
 
 services:
   pulse:

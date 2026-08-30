@@ -59,6 +59,7 @@ const SELF_HOST_DATEIEN: Record<string, string> = {
   'docker-compose.yml': '../infra/self-host/docker-compose.yml',
   'docker-compose.behind-proxy.yml': '../infra/self-host/docker-compose.behind-proxy.yml',
   'env.example': '../infra/self-host/.env.example',
+  'pulse-update.sh': '../infra/self-host/pulse-update.sh',
   guide: '../docs/self-host-guide.html'
 };
 
