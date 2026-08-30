@@ -131,18 +131,26 @@ export function dropboxAdapter(verbindung: DropboxVerbindung): AblageAdapter {
 
 		async liste() {
 			const namen: string[] = [];
+			const ersteAntwort = await holen(`${API}/2/files/list_folder`, {
+				method: 'POST',
+				headers: { ...kopf, 'Content-Type': 'application/json' },
+				body: JSON.stringify({ path: vollerPfad(verbindung.ordner), limit: 500 }),
+			});
+			if (ersteAntwort.status === 409 && (await fehlermeldung(ersteAntwort)).includes('not_found')) {
+				// Der App-Ordner existiert erst seit der Autorisierung, aber
+				// Unterordner legt Dropbox erst beim ersten Upload an — ein
+				// fehlender Ordner beim Auflisten ist schlicht „leer".
+				return [];
+			}
+			if (!ersteAntwort.ok) {
+				throw new DropboxFehler(`Listing scheiterte: ${await fehlermeldung(ersteAntwort)}`);
+			}
 			type Listenseite = {
 				entries: { name: string; '.tag': string }[];
 				has_more: boolean;
 				cursor: string;
 			};
-			let schwellen: Listenseite = (await (
-				await holen(`${API}/2/files/list_folder`, {
-					method: 'POST',
-					headers: { ...kopf, 'Content-Type': 'application/json' },
-					body: JSON.stringify({ path: vollerPfad(verbindung.ordner), limit: 500 }),
-				})
-			).json()) as Listenseite;
+			let schwellen: Listenseite = (await ersteAntwort.json()) as Listenseite;
 			namen.push(...schwellen.entries.filter((e) => e['.tag'] === 'file').map((e) => e.name));
 			while (schwellen.has_more) {
 				schwellen = (await (

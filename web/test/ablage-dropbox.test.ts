@@ -117,6 +117,13 @@ describe('Ablage-Dropbox: Adapter', () => {
 		assert.deepEqual(await adapter.liste(), ['seg-000000.puls', 'manifest.puls']);
 	});
 
+	it('nimmt fehlende Ordner beim Auflisten als leer — Dropbox antwortet 409 statt 404', async () => {
+		const holen: typeof fetch = async () =>
+			new Response(JSON.stringify({ error_summary: 'path/not_found/.' }), { status: 409 });
+		const adapter = dropboxAdapter({ zugangsToken: 't-1', ordner: 'k', holen });
+		assert.deepEqual(await adapter.liste(), []);
+	});
+
 	it('reicht echte 409-Fehler als DropboxFehler weiter, nicht als „fehlt“', async () => {
 		const holen: typeof fetch = async () =>
 			new Response(JSON.stringify({ error_summary: 'path/lookup/insufficient_permissions/.' }), { status: 409 });
