@@ -26,7 +26,7 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import LockIcon from '@lucide/svelte/icons/lock';
-  import { ablageVerbindungen, type AblageVerbindung } from '$lib/ablage/verbindungen.ts';
+  import { ablageVerbindungen, type AblageVerbindung } from '$lib/ablage/verbindungen.svelte.ts';
   import { angeboteneAnbieter, type AblageAnbieterArt } from '$lib/ablage/anbieter.ts';
   import { ANBIETER_IKONE } from './anbieterIkonen.ts';
   import { adapterAusVerzeichnis, type AblageVerzeichnis } from '$lib/ablage/syncOrdner.ts';

@@ -36,7 +36,7 @@
     ablageVerbindungen,
     adapterFür,
     type AblageVerbindung,
-  } from '$lib/ablage/verbindungen.ts';
+  } from '$lib/ablage/verbindungen.svelte.ts';
   import { AnmeldungAbgelaufenFehler } from '$lib/ablage/oauth.ts';
   import type { VerbindungsRohwerte } from '$lib/ablage/zustand.ts';
   import AblageVerbindenDialog from '$lib/components/ablage/AblageVerbindenDialog.svelte';

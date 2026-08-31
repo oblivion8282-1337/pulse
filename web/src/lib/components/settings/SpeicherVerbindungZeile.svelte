@@ -20,7 +20,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { anbieter as anbieterEintrag } from '$lib/ablage/anbieter.ts';
   import { stufeEin, type VerbindungsRohwerte } from '$lib/ablage/zustand.ts';
-  import type { AblageVerbindung } from '$lib/ablage/verbindungen.ts';
+  import type { AblageVerbindung } from '$lib/ablage/verbindungen.svelte.ts';
   import { formatBytes } from '$lib/utils/formatBytes';
   import { ANBIETER_IKONE } from '$lib/components/ablage/anbieterIkonen.ts';
   import { m } from '$lib/paraglide/messages.js';

@@ -19,7 +19,7 @@
   import { ausFreigabeLink, FreigabeLinkFehler } from '$lib/ablage/freigabeLink';
   import { webdavAdapter } from '$lib/ablage/webdav';
   import { probiere, type ProbeSchritt } from '$lib/ablage/probe';
-  import { ablageVerbindungen, type AblageVerbindung } from '$lib/ablage/verbindungen';
+  import { ablageVerbindungen, type AblageVerbindung } from '$lib/ablage/verbindungen.svelte';
 
   const SCHRITT_TEXT: Record<ProbeSchritt, string> = {
     schreiben: 'Schreiben',
