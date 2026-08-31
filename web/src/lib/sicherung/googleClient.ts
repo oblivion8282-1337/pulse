@@ -59,7 +59,8 @@ export function sicherungClient(): {
 }
 
 /**
- * Startet den Konsent-Fluss und liefert die Rückgabe-Adresse mit dem Code.
+ * Startet den Konsent-Fluss und liefert den ZUGANGS-CODE (nicht die URL —
+ * der Electron-Weg extrahiert sie aus der Rückgabe-Adresse selbst).
  * `baueAdresse` bekommt die gültige Weiterleitung und baut daraus die
  * Anmelde-Adresse — bei Electron erst NACH der Port-Abfrage, denn der Port
  * ist dynamisch (zwei Pulse-Instanzen, zwei Ports, kein EADDRINUSE).
@@ -86,7 +87,10 @@ export async function konsentStarten(
 		const port = await bruecke.sicherung.oauthPort();
 		weiterleitung = `http://127.0.0.1:${port}/ruecklauf`;
 		adresse = await baueAdresse(weiterleitung);
-		return bruecke.sicherung.oauthStart(adresse);
+		const rueckgabe = await bruecke.sicherung.oauthStart(adresse);
+		const treffer = /[?&]code=([^&]+)/.exec(rueckgabe);
+		if (!treffer) throw new Error('Rückgabe ohne Code');
+		return decodeURIComponent(treffer[1]!);
 	}
 	weiterleitung = `${globalThis.location.origin}/sicherung/ruecklauf`;
 	adresse = await baueAdresse(weiterleitung);

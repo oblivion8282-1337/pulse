@@ -81,17 +81,16 @@
       // Die Weiterleitung entscheidet der Konsent-Fluss selbst (Electron:
       // dynamischer Loopback-Port vom Main, Browser: Rückkehr-Route) — der
       // Token-Tausch muss exakt dieselbe tragen, darum merken wir sie uns.
+      // `konsentStarten` liefert den nackten Zugangs-Code.
       let genutzteWeiterleitung = '';
-      const rueckgabe = await konsentStarten(async (weiterleitung) => {
+      const code = await konsentStarten(async (weiterleitung) => {
         genutzteWeiterleitung = weiterleitung;
         pkce = await erzeugePkce();
         return autorisierungsAdresse(basisVerbindung(weiterleitung), pkce, 'sicherung');
       });
-      const treffer = /[?&]code=([^&]+)/.exec(rueckgabe);
-      if (!treffer) throw new Error('Rückgabe ohne Code');
       const zugang = await tauscheCodeAus(
         basisVerbindung(genutzteWeiterleitung),
-        decodeURIComponent(treffer[1]!),
+        code,
         pkce!,
       );
       verbindung = { ...basisVerbindung(genutzteWeiterleitung), nachspieleToken: zugang.nachspieleToken ?? '' };
