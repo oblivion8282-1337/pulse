@@ -27,6 +27,7 @@
   import GeraeteKopplungSection from './GeraeteKopplungSection.svelte';
   import GeraeteListeSection from './GeraeteListeSection.svelte';
   import AblageSektion from './AblageSektion.svelte';
+  import SicherungSektion from './SicherungSektion.svelte';
   import PublicComputerSafety from './PublicComputerSafety.svelte';
 
   let enableOpen = $state(false);
@@ -109,6 +110,8 @@
   <GeraeteListeSection />
 
   <AblageSektion />
+
+  <SicherungSektion />
 
   <SessionsSection />
 
