@@ -26,6 +26,9 @@
 //! laesst sich der ganze Ablauf im Test fahren, ohne dass eine Zwischenablage
 //! im Spiel ist — siehe `tests/rundlauf.rs`.
 
+pub mod beobachter;
+pub mod eigentum;
 pub mod format;
+pub mod pruefstand;
 pub mod sitzung;
 pub mod stueckelung;
