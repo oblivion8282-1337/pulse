@@ -10,9 +10,10 @@
    *      der Archiv-Bestand wird in den lokalen Verlauf geladen, und jede
    *      neue verschlüsselte Nachricht wird im Hintergrund gespiegelt.
    *
-   * Passwort-Änderung und Entfernen sind bewusst KEINE Knöpfe: ändern kann
-   * man das Passwort über „Entfernen" + neu einrichten, und Entfernen lässt
-   * das Archiv unangetastet im Drive liegen. Mechanik: lib/sicherung.
+   * Passwort-Änderung ist ein dezent weggeklickter Re-Wrap
+   * (SicherungPasswortAendern — derselbe DEK, kein altes Passwort nötig).
+   * Entfernen lässt das Archiv unangetastet im Laufwerk liegen. Mechanik:
+   * lib/sicherung.
    */
   import { SICHERUNG_ENABLED } from '$lib/krypto/schalter';
   import { isElectron } from '$lib/platform/runtime';
@@ -39,6 +40,7 @@
   import SicherungZiel from './SicherungZiel.svelte';
   import SicherungFormular from './SicherungFormular.svelte';
   import SicherungAktiv from './SicherungAktiv.svelte';
+  import SicherungPasswortAendern from './SicherungPasswortAendern.svelte';
   import { sicherungJetztSpuelen, sicherungErstsicherung, sicherungArchivLaden, sicherungVerwerfen } from '$lib/sicherung/andock';
 
   let zustand = $state<'pruefe' | 'verbinden' | 'passwort' | 'an'>('pruefe');
@@ -219,6 +221,7 @@
         aufZugriff={() => void zugriffErneuern()}
         aufEntfernen={entfernen}
       />
+      <SicherungPasswortAendern />
     {/if}
 
     {#if fehler}<p class="text-sm text-destructive">{fehler}</p>{/if}

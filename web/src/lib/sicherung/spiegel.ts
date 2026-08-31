@@ -81,8 +81,9 @@ export function praefixAdapter(basis: AblageAdapter, praefix: string): AblageAda
 /**
  * Baut den Adapter je AUFRUF frisch — der gdrive-Adapter friert den
  * Zugangs-Token beim Bau ein (kopf in gdriveAdapter), ein stundenlang
- * laufender Spiegel braucht aber je Spülung einen aktuellen. Der Lieferant
- * frischt den Token auf und wirft eine neue Adapter-Instanz.
+ * laufender Spiegel braucht also je Operation einen aktuellen. Der
+ * Lieferant liefert einen Token mit über 60 s echter Restlaufzeit
+ * (Skew im Bestand, tokenVorrat.ts) und wirft eine neue Adapter-Instanz.
  */
 export function aufbauAdapter(
 	lieferant: () => Promise<AblageAdapter>,
