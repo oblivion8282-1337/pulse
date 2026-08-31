@@ -19,6 +19,20 @@
 export const E2E_DMS_ENABLED = true;
 
 /**
+ * Der Schalter fuer die Sicherung — Spiegelung des verschluesselten
+ * Verlaufs ins eigene Google-Laufwerk (`lib/sicherung`). Vorgabe AUS,
+ * dieselbe Bauart wie die beiden anderen: solange er aus ist, unternimmt
+ * der Klient nichts — kein Andock an `verlaufSpeichernPflicht`, kein
+ * Laufwerkszugriff, keine Wirkung der Einstellungssektion.
+ *
+ * Anders als bei DMs gibt es hier keinen Klartext-Verlust-Fall hinter dem
+ * Schalter: die lokale Verlauf-IDB existiert unabhaengig, die Sicherung
+ * waere nur die zweite Kopie. „Aus" heisst deshalb nur „kein zweites
+ * Standbein", nicht „Daten in Gefahr".
+ */
+export const SICHERUNG_ENABLED = false;
+
+/**
  * Der Schalter fuer private Gruppenchats — ebenfalls Vorgabe AUS.
  *
  * **Warum ein eigener, und warum keiner der beiden vorhandenen passt.**

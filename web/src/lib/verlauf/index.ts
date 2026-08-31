@@ -159,10 +159,27 @@ export function verlaufSpeichernPflicht(
     const kanalBekannt = istLokalerKanal(kanalId);
     const saetze = kanalBekannt ? baueSaetze(kanalId, nachrichten, kontoId) : [];
     pruefeSpeicherErgebnis(kanalId, kanalBekannt, saetze.length);
-    return verlaufPutSaetze(saetze).then(() => saetze.length);
+    return verlaufPutSaetze(saetze).then(() => {
+      sicherungSpiegeln(kanalId, nachrichten as Message[]);
+      return saetze.length;
+    });
   } catch (err) {
     return Promise.reject(err);
   }
+}
+
+/**
+ * Der Sicherungs-Haken — NUR hier, nicht in `verlaufSpeichern` (s.
+ * `sicherung/andock.ts`-Modulkopf). Nach erfolgreichem lokalem Ablegen
+ * angestoßen, feuert und vergisst; der Schalter (`SICHERUNG_ENABLED`)
+ * entscheidet, ob überhaupt etwas passiert.
+ */
+function sicherungSpiegeln(kanalId: string, nachrichten: Message[]): void {
+  void import('$lib/sicherung/andock')
+    .then(({ sicherungSpiegeln }) => sicherungSpiegeln(kanalId, nachrichten))
+    .catch(() => {
+      /* die Sicherung darf den Verlaufsweg nie stören — s. andock.ts */
+    });
 }
 
 /**

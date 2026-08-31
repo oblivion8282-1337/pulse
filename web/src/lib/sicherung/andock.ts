@@ -1,0 +1,127 @@
+/**
+ * Die Andock-Schicht zwischen Verlauf und Spiegel — die EINZIGE Stelle, die
+ * die Sicherung mit Nachrichten füttert.
+ *
+ * Verkabelt wird sie in `verlauf/index.ts::verlaufSpeichernPflicht` (und
+ * NUR dort): ihre Aufrufer sind ausgerechnet die verschlüsselten Pfade
+ * (`krypto/senden.ts`, `krypto/empfangen.ts`, `krypto/gruppe/*`) — der
+ * Klartext-Weg läuft über `verlaufSpeichern` und wird bewusst NICHT
+ * gesichert, denn den hält der Server ohnehin lesbar. Ein einziger Haken
+ * erwischt also genau die Nachrichten, die sonst nirgends als Klartext
+ * existieren.
+ *
+ * Zwei harte Regeln:
+ *   1. **Nie werfen.** Die lokale Ablage ist die erste Kopie und fertig,
+ *      bevor wir gerufen werden; ein Sicherungs-Fehlschlag (kein Laufwerk,
+ *      falscher Modus) darf den Pfad nie stören, der sie trägt.
+ *   2. **Puffer vor Spiegel.** Jede Eintragsserie landet ERST in der
+ *      gerätelokalen Puffer-IDB (geraete.ts), DANN im Spiegel. Geht der
+ *      Absturz dazwischen, überlebt der Eintrag und wandert beim nächsten
+ *      Start mit. Erst nach dem erfolgreichen Spülen löscht die
+ *      `nachSpuelung`-Rückkehr die Zeilen.
+ *
+ * Importfrei-Pflicht gilt hier nicht (läuft nie im Node-Läufer — hängt an
+ * `verlauf/index.ts`, das selbst schon IDB-seitig ist), aber die Rechnung
+ * bleibt sauber getrennt: der Spiegel weiß nichts von IndexedDB.
+ */
+
+import { SICHERUNG_ENABLED } from '../krypto/schalter.ts';
+import type { Message } from '../api/types.ts';
+import { ausWire, type AblageNachricht } from '../ablage/nutzlast.ts';
+import {
+	SicherungsSpiegel,
+	aufbauAdapter,
+	geraeteKuerzel,
+	SCHLUESSEL_DATEI,
+	type WarteEintrag,
+} from './spiegel.ts';
+import { öffneSchluesselDatei } from './krypto.ts';
+import {
+	adapterLieferant,
+	dekAusZwischenlager,
+	pufferAlles,
+	pufferLegen,
+	pufferWeg,
+	verbindungLesen,
+} from './geraete.ts';
+
+let spiegel: SicherungsSpiegel | null = null;
+let startVersuch: Promise<boolean> | null = null;
+
+/**
+ * Ist die Sicherung auf diesem Gerät einsatzbereit (Verbindung + DEK im
+ * Zwischenlager)? Der Spiegel wird bei Bedarf lazy hochgezogen; ein
+ * Fehlschlag wird gemerkt, damit nicht jede Nachricht einen neuen Versuch
+ * kostet.
+ */
+async function spiegelFallsBereit(): Promise<SicherungsSpiegel | null> {
+	if (spiegel !== null) return spiegel;
+	if (startVersuch !== null) {
+		return (await startVersuch) ? spiegel : null;
+	}
+	startVersuch = (async () => {
+		const [verbindung, zwischengelagert] = await Promise.all([
+			verbindungLesen(),
+			dekAusZwischenlager(),
+		]);
+		if (verbindung === null || zwischengelagert === null) return false;
+		const praefix = await geraeteKuerzel(zwischengelagert.kuerzel);
+		spiegel = new SicherungsSpiegel(aufbauAdapter(adapterLieferant), zwischengelagert.dek, praefix, {
+			nachSpuelung: (ergebnis, fehler, partien) => {
+				if (fehler === null && ergebnis !== null && partien.length > 0) {
+					void pufferWeg(partien).catch(() => {
+						/* bleibt in der nächsten `pufferAlles`-Runde hängen — harmlos */
+					});
+				}
+			},
+		});
+		// Überlebte des letzten Absturzs nachholen — sie sind nie gespült.
+		const uebrig = await pufferAlles();
+		const nachKanal = new Map<string, AblageNachricht[]>();
+		for (const zeile of uebrig) {
+			const liste = nachKanal.get(zeile.kanalId) ?? [];
+			liste.push(zeile.nachricht);
+			nachKanal.set(zeile.kanalId, liste);
+		}
+		for (const [kanalId, liste] of nachKanal) {
+			spiegel.aufnehmen(kanalId, liste);
+		}
+		return true;
+	})();
+	return (await startVersuch) ? spiegel : null;
+}
+
+/**
+ * Spiegelt erfolgreich lokal abgelegte Nachrichten in die Sicherung.
+ * Feuert und vergisst: eine abgelehnte Promise hier wäre eine unhandled
+ * rejection im Weg des Sendens/Empfangens. Einträge, die beim Abbruch des
+ * `aufnehmen` verloren gehen könnten, sind zu diesem Zeitpunkt bereits in
+ * der Puffer-IDB.
+ */
+export function sicherungSpiegeln(kanalId: string, nachrichten: Message[]): void {
+	if (!SICHERUNG_ENABLED) return;
+	void (async () => {
+		const ablageNachrichten = nachrichten.map((m) => ausWire(m));
+		await pufferLegen(kanalId, ablageNachrichten);
+		const bereit = await spiegelFallsBereit();
+		bereit?.aufnehmen(kanalId, ablageNachrichten);
+	})().catch(() => {
+		/* Diagnose-frei nach Absicht — s. Regel 1 im Modulkopf. */
+	});
+}
+
+/** „Jetzt sichern" der Oberfläche — spült den Puffer, wenn alles bereit steht. */
+export async function sicherungJetztSpuelen(): Promise<void> {
+	const bereit = await spiegelFallsBereit();
+	await bereit?.jetztSpuelen();
+}
+
+/** Test-Handgriff: den laufenden Spiegel verwerfen (Modulzustand zurück). */
+export function sicherungVerwerfen(): void {
+	spiegel?.beenden();
+	spiegel = null;
+	startVersuch = null;
+}
+
+export { SCHLUESSEL_DATEI };
+export type { WarteEintrag };
