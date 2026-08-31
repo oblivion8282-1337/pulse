@@ -903,7 +903,9 @@ function wireSidecar(): void {
 
   // Fernsteuerung — geteilte Zwischenablage (`$lib/remote/ablage.ts`). Der
   // Hauptprozess deutet die Nutzlast nicht, er entscheidet nur, wohin sie
-  // geht (`ablageWeiche.ts`). Die Rolle wird NICHT aus der Sitzungsnummer
+  // geht (`ablageWeiche.ts`). Sie traegt die Huelle aus `ablageHuelle.ts`
+  // (`{rahmen:…}` von der Gegenseite, `{anstoss:…}` vom eigenen Renderer) —
+  // gesetzt wird sie im Renderer, geoeffnet erst im Player. Die Rolle wird NICHT aus der Sitzungsnummer
   // erschlossen (das brach: ein Host, der nebenbei den Strom eines Dritten im
   // nativen Player anschaut, traegt ebenfalls eine Sitzungsnummer > 0 und
   // waere faelschlich als 'controller' gedeutet worden) — sie kommt vom

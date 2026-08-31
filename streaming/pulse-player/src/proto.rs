@@ -179,10 +179,11 @@ pub struct Request {
     /// durchgereicht. Gedeutet wird er hier, nicht dort — das Format lebt in
     /// `pulse-ablage` (`crate::app::ablage`).
     ///
-    /// **Zwei Werte darin kennt `pulse-ablage` NICHT** und darf sie auch nicht
-    /// kennen: `{"t":"neu_bitte"}` und `{"t":"ende"}` gehen nie ueber die
-    /// Leitung, sondern nur vom Renderer an die eigene Plattform. Sie werden
-    /// deshalb VOR `Rahmen::aus_json` abgefangen (s. `app::ablage`).
+    /// **Der Wert traegt eine Huelle**, und die kennt `pulse-ablage` nicht:
+    /// `{"rahmen":{…}}` ist Nutzlast der Gegenseite, `{"anstoss":"ende"}` /
+    /// `{"anstoss":"neu_bitte"}` ein Anstoss des eigenen Renderers, der nie
+    /// ueber die Leitung geht. Ausgepackt wird in `app::ablage` — die Huelle
+    /// haelt fremde Nutzlast strukturell von den Anstoessen fern.
     #[serde(default)]
     pub data: Option<serde_json::Value>,
 

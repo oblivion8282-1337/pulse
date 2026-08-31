@@ -14,7 +14,6 @@
 
 use std::time::Instant;
 
-use pulse_ablage::beobachter::Beobachter;
 use pulse_ablage::eigentum::Anspruch;
 use pulse_ablage::format::{Grund, Rahmen};
 use pulse_ablage::sitzung::{Ankuendiger, Empfaenger, Fortschritt};
@@ -22,20 +21,32 @@ use pulse_ablage::sitzung::{Ankuendiger, Empfaenger, Fortschritt};
 use super::Ablageplattform;
 use crate::proto::Event;
 
-/// Sichtbar gemachter [`Beobachter`] auf einer Plattform hinter `dyn`.
-///
-/// `Ankuendiger::beantworte` verlangt `&mut impl Beobachter`, also einen Typ
-/// mit bekannter Groesse; `&mut dyn Ablageplattform` ist keiner. Diese Huelle
-/// ist der ganze Unterschied — sie leitet beide Methoden unveraendert weiter.
-struct Sicht<'a>(&'a mut dyn Ablageplattform);
+mod takt;
 
-impl Beobachter for Sicht<'_> {
-    fn geaendert(&mut self) -> bool {
-        self.0.geaendert()
-    }
-    fn lesen(&self) -> Option<String> {
-        self.0.lesen()
-    }
+/// Was am PROZESS haengt und nicht an der Sitzung.
+///
+/// **Die Auswahl liegt am Prozess, die Zustandsmaschine an der Sitzung** — und
+/// diese beiden Werte beschreiben die Auswahl, nicht die Gegenstelle. Sie hier
+/// zu buendeln statt in [`Ablagelage`] ist der Unterschied zwischen „der
+/// Vorbestand des Nutzers ueberlebt einen Traegerwechsel" und „das naechste
+/// Fenster raeumt ihn weg": tritt der Traeger ab
+/// (`App::ablage_traeger_waehlen`), beansprucht die Nachfolge-Sitzung sonst mit
+/// ihrem eigenen, leeren Stand, liest als Eigentuemer (richtigerweise) `None`
+/// und schreibt beim Ende nichts zurueck.
+///
+/// Ein Uebergeben beim Traegerwechsel taete dasselbe, waere aber eine Kopie,
+/// die jemand vergessen kann; hier gibt es die Werte nur einmal.
+#[derive(Default)]
+pub(crate) struct Prozessablage {
+    /// Was vor dem ersten Anspruch in der Ablage lag. **Kein Beiwerk:** ein
+    /// Anspruch loescht den Vorbestand, und wird nie eingefuegt, waere der
+    /// eigene kopierte Pfad des Nutzers durch fremde Aktivitaet still weg.
+    vorbestand: Option<String>,
+    /// Hat DIESER PROZESS die Auswahl verdraengt? Entscheidet, ob beim
+    /// Freigeben zurueckgeschrieben wird. Nicht dasselbe wie
+    /// `Ablagequelle::eigentuemer` — das fragt die Plattform, ob die Auswahl
+    /// gerade bei uns liegt, auch ohne dass wir je etwas verdraengt haetten.
+    eigentuemer: bool,
 }
 
 /// Was der Player einer Sitzung ausserhalb der Kiste merkt.
@@ -50,18 +61,15 @@ pub(crate) struct Ablagelage {
     /// beobachtete der Player die Zwischenablage des Nutzers auch dann, wenn
     /// niemand fernsteuert.
     wach: bool,
-    /// Halten WIR gerade das lokale Eigentum? Entscheidet, ob beim Freigeben
-    /// zurueckgeschrieben wird.
-    eigentuemer: bool,
     /// Hat die Gegenseite schon einmal etwas angekuendigt, das wir liefern
     /// koennten? Entscheidet beim Wiedereinschalten, ob ein Anspruch
     /// ueberhaupt Sinn ergibt — ohne das loeschte der Schalter den Vorbestand
     /// des Nutzers fuer eine Ablage, in der drueben nie etwas lag.
+    ///
+    /// **Bleibt an der SITZUNG**, anders als [`Prozessablage`]: es beschreibt,
+    /// was DIESE Gegenstelle angekuendigt hat, nicht den Zustand der lokalen
+    /// Auswahl.
     fremd_bekannt: bool,
-    /// Was vor dem ersten Anspruch in der Ablage lag. **Kein Beiwerk:** ein
-    /// Anspruch loescht den Vorbestand, und wird nie eingefuegt, waere der
-    /// eigene kopierte Pfad des Nutzers durch fremde Aktivitaet still weg.
-    vorbestand: Option<String>,
     /// Ein `hol`, dessen Antwort noch auf den Lesevorgang wartet — samt dem
     /// Zeitpunkt, an dem es eintraf.
     ///
@@ -77,14 +85,6 @@ pub(crate) struct Ablagelage {
     seit: Instant,
 }
 
-/// Wie lange die Antwort auf ein `hol` hoechstens auf den Lesevorgang wartet.
-///
-/// Deutlich unter `pulse_ablage::sitzung::ABRUF_FRIST_MS` (2 s), damit die
-/// Antwort noch innerhalb der Frist des Abrufenden ankommt — und ueber der
-/// Lesefrist der Plattform (Wayland: 500 ms), damit ein gesunder Lesevorgang
-/// nicht kurz vor dem Ziel abgeschnitten wird.
-const HOL_FRIST_MS: u64 = 1_000;
-
 impl Default for Ablagelage {
     fn default() -> Self {
         Self {
@@ -93,9 +93,7 @@ impl Default for Ablagelage {
             anspruch: Anspruch::neu(),
             teilen: true,
             wach: false,
-            eigentuemer: false,
             fremd_bekannt: false,
-            vorbestand: None,
             offener_hol: None,
             seit: Instant::now(),
         }
@@ -177,7 +175,7 @@ impl Ablagelage {
         }
     }
 
-    /// `{"t":"neu_bitte"}` — den eigenen Stand erneut ankuendigen.
+    /// Der Anstoss `neu_bitte` — den eigenen Stand erneut ankuendigen.
     ///
     /// Nach einem `remote_reclaim` haelt die Gegenseite sonst eine Generation,
     /// die es hier nicht mehr gibt; jedes Einfuegen antwortete danach
@@ -189,11 +187,11 @@ impl Ablagelage {
         vec![self.ankuendiger.geaendert()]
     }
 
-    /// `{"t":"ende"}` und das Ende der Erfassung: Eigentum abgeben und den
+    /// Der Anstoss `ende` und das Ende der Erfassung: Eigentum abgeben und den
     /// Vorbestand zurueckschreiben.
-    pub(crate) fn ende(&mut self, p: &mut dyn Ablageplattform) {
+    pub(crate) fn ende(&mut self, prozess: &mut Prozessablage, p: &mut dyn Ablageplattform) {
         self.wach = false;
-        self.freigeben(p);
+        self.freigeben(prozess, p);
     }
 
     /// Den Schalter aus dem Fern-Menue umlegen.
@@ -202,13 +200,18 @@ impl Ablagelage {
     /// bloss den naechsten: sonst bliebe die Ablage des Nutzers leer, obwohl er
     /// das Teilen gerade abgeschaltet hat — ausgerechnet der Schalter, der
     /// Vertrauen herstellen soll, hinterliesse Schaden.
-    pub(crate) fn teilen_setzen(&mut self, an: bool, p: &mut dyn Ablageplattform) {
+    pub(crate) fn teilen_setzen(
+        &mut self,
+        an: bool,
+        prozess: &mut Prozessablage,
+        p: &mut dyn Ablageplattform,
+    ) {
         if self.teilen == an {
             return;
         }
         self.teilen = an;
         if !an {
-            self.freigeben(p);
+            self.freigeben(prozess, p);
             return;
         }
         // **Wiedereinschalten meldet den Anspruch neu an** (Review C9). Ohne
@@ -223,175 +226,22 @@ impl Ablagelage {
             self.anspruch.anmelden();
         }
     }
-
-    /// Eigentum abgeben und den Vorbestand zurueckschreiben.
-    ///
-    /// **Die Buchfuehrung danach fragt die Plattform, statt zu raten.**
-    /// Zurueckschreiben heisst auf jeder Plattform „neue eigene Quelle mit dem
-    /// gemerkten Text" (Wayland `set_selection`, Windows `SetClipboardData`,
-    /// macOS `declareTypes`) — fremdes Eigentum laesst sich nirgends
-    /// zurueckgeben. **Wir bleiben danach Eigentuemer**, und was in der Ablage
-    /// liegt, IST der Merkposten.
-    ///
-    /// Ihn hier trotzdem zu loeschen, war der Fehler: `lesen()` liefert als
-    /// Eigentuemer (richtigerweise) `None`, der naechste Anspruch merkte sich
-    /// also nichts, und das uebernaechste Freigeben raeumte die Ablage des
-    /// Nutzers — zwei Klicks im Schalter genuegten. Test:
-    /// `zweimal_umschalten_verliert_den_vorbestand_nicht`.
-    fn freigeben(&mut self, p: &mut dyn Ablageplattform) {
-        self.anspruch.aufgeben();
-        // **Ein geparktes `hol` gehoert dem Zustand, der gerade endet.** Es
-        // wurde angenommen, als das Teilen noch an war, und traegt beim
-        // Beantworten den INHALT — bliebe es liegen, antwortete es bis zu
-        // `HOL_FRIST_MS` spaeter mit genau dem, was der Nutzer gerade nicht
-        // mehr teilen wollte. Nach `ende` waere es ausserdem ein Nachzuegler,
-        // den ein spaeteres `beginnen` doch noch hinausliesse.
-        self.offener_hol = None;
-        // **`self.eigentuemer` ist der Riegel, und er muss hier stehen.**
-        // `Eigentum::freigeben` prueft, ob DIESER PROZESS die Auswahl haelt —
-        // seit es einen Traeger je Prozess gibt, ist das nicht dieselbe Frage
-        // wie „hat DIESE Sitzung etwas verdraengt". Ohne den Riegel raeumt der
-        // Abbau der Nachfolge-Sitzung den Vorbestand, den ihre Vorgaengerin
-        // gerade zurueckgeschrieben hat (`p.freigeben(None)` mit `eigene() ==
-        // true` heisst `set_selection(None)`). Test:
-        // `eine_zweite_sitzung_raeumt_die_zurueckgeschriebene_ablage_nicht`.
-        //
-        // Hier stand kurzzeitig, die Plattform trage die Pruefung selbst — das
-        // war ein Kommentar, der mehr behauptete als er hielt: er las eine
-        // Prozess-Pruefung als Sitzungs-Pruefung.
-        if self.eigentuemer {
-            p.freigeben(self.vorbestand.as_deref());
-            // **Die Buchfuehrung sitzt NACH dem Aufruf** und fragt die
-            // Plattform, statt zu raten — das ist der C1-Fix und bleibt.
-            self.eigentuemer = p.eigentuemer();
-        }
-        if !self.eigentuemer {
-            // Entweder haben wir geraeumt (kein Merkposten da), oder die
-            // Ablage gehoert laengst wieder dem Nutzer. In beiden Faellen gibt
-            // es nichts mehr aufzuheben.
-            self.vorbestand = None;
-        }
-    }
-
-    /// Ein Durchlauf der Ereignisschleife. Liefert, was hinausgeht.
-    ///
-    /// Vier Schritte in dieser Reihenfolge: eingereihten Anspruch einloesen,
-    /// wartendes Einfuegen abrufen, eigene Aenderung ankuendigen, Frist
-    /// pruefen.
-    pub(crate) fn takt(&mut self, p: &mut dyn Ablageplattform) -> Vec<Rahmen> {
-        if !self.wach {
-            return Vec::new();
-        }
-        let jetzt = self.jetzt_ms();
-        let mut hinaus = Vec::new();
-
-        // 0. Ein `hol`, dessen Lesevorgang inzwischen fertig ist (s.
-        //    [`Self::offener_hol`]). Die Frist darunter ist das Netz fuer eine
-        //    Plattform, die nie fertig meldet — ohne sie haenge der
-        //    Einfuegevorgang drueben bis in seine eigene Frist.
-        //
-        //    **Auch hier der `teilen`-Riegel**, und hier wiegt er am
-        //    schwersten: dieser Schritt antwortet mit dem INHALT, nicht bloss
-        //    mit einem `hol`. `freigeben` raeumt ein geparktes Abrufen zwar
-        //    schon mit ab; der Riegel haelt die Zusicherung auch dann, wenn
-        //    ein spaeterer Umbau einen zweiten Weg zum Ausschalten schafft.
-        if !self.teilen {
-            self.offener_hol = None;
-        } else if let Some((offen, seit)) = self.offener_hol.take() {
-            if p.lesen_bereit() || jetzt.saturating_sub(seit) >= HOL_FRIST_MS {
-                // Der Inhalt wird in `beantworte` gelesen, nicht hier — die
-                // Reihenfolge „erst die Aenderung abholen, dann die Generation
-                // vergleichen, dann lesen" ist der Sinn jener Signatur, und
-                // sie gilt unveraendert: die Aenderungsmeldung wird JETZT
-                // abgeholt, nicht beim Eintreffen des `hol`.
-                hinaus.extend(self.ankuendiger.beantworte(&offen, &mut Sicht(p)));
-            } else {
-                self.offener_hol = Some((offen, seit));
-            }
-        }
-
-        // 1. Der eingereihte Anspruch. `set_selection` verlangt eine
-        //    Seriennummer aus einem frischen Eingabeereignis, und ein Klient
-        //    OHNE FOKUS kann die Auswahl nicht setzen — der Compositor
-        //    verwirft es STILL. Genau der Fall tritt ein, wenn der Nutzer zu
-        //    einem lokalen Programm wechselt und drueben kopiert wird.
-        //
-        //    **Er wird erst eingeloest, wenn der Vorbestand gelesen ist.** Ein
-        //    Anspruch loescht ihn; wer vorher beansprucht, hat nichts mehr zu
-        //    merken. `Anspruch::seriennummer` verbraucht den Anspruch, darf
-        //    also nicht gefragt werden, solange noch gelesen wird.
-        let braucht_vorbestand = !(self.eigentuemer && p.eigentuemer());
-        if self.anspruch.offen() && braucht_vorbestand && !p.lesen_bereit() {
-            p.lesen_anstossen();
-        } else if self.anspruch.seriennummer(p.seriennummer()) {
-            // **Den Vorbestand VOR dem Anspruch lesen** — aber nur, wenn er
-            // nicht ohnehin schon uns gehoert. Beide Bedingungen zaehlen:
-            // `self.eigentuemer` heisst „wir haben etwas verdraengt",
-            // `p.eigentuemer()` heisst „und es liegt immer noch bei uns". Hat
-            // der Nutzer zwischendurch selbst kopiert, faellt die zweite weg,
-            // und sein frischer Inhalt wird gemerkt — sonst waere er nach dem
-            // naechsten Anspruch still verloren.
-            //
-            // **Ein `None` ueberschreibt nichts.** Halten wir die Auswahl,
-            // liefert `lesen()` bewusst `None` (es waere unser eigener Stand);
-            // eine unbedingte Zuweisung loeschte dann genau den Merkposten,
-            // den sie retten soll — dieselbe Falle wie das `take()` in
-            // `pulse_ablage::pruefstand::TestAblage::beanspruchen`.
-            if braucht_vorbestand {
-                if let Some(text) = p.lesen() {
-                    self.vorbestand = Some(text);
-                }
-            }
-            match p.beanspruchen() {
-                Ok(()) => self.eigentuemer = true,
-                Err(grund) => eprintln!(
-                    "pulse-player: Zwischenablage nicht beansprucht ({grund}) — \
-                     ein Einfuegen auf dieser Maschine bleibt leer."
-                ),
-            }
-        }
-
-        // 2. Wartet ein Einfuegevorgang? Erst jetzt geht `hol` hinaus — das
-        //    IST das verzoegerte Rendern.
-        //
-        //    **Auch hier der `teilen`-Riegel** (Review C6). Er war der einzige
-        //    der vier Schritte ohne, und das Fenster ist schmal (ein
-        //    Schleifendurchlauf zwischen Ausschalten und Freigeben) — die
-        //    fehlende Symmetrie zu den anderen dreien ist trotzdem genau die
-        //    Stelle, an der ein spaeterer Umbau still etwas hinauslaesst.
-        if self.teilen && p.einfuegen_wartet() {
-            if let Some(hol) = self.empfaenger.abrufen(jetzt) {
-                hinaus.push(hol);
-            }
-        }
-
-        // 3. Hat sich die eigene Ablage geaendert? Dann nur die Ankuendigung,
-        //    ohne Inhalt.
-        if self.teilen && p.geaendert() {
-            hinaus.push(self.ankuendiger.geaendert());
-        }
-
-        // 4. Die Frist eines laufenden Abrufs.
-        if let Fortschritt::Leer(_) = self.empfaenger.takt(jetzt) {
-            p.liefern("");
-        }
-        hinaus
-    }
 }
 
 /// Ein Anstoss, der **nur** vom eigenen Renderer kommt und nie ueber die
 /// Leitung geht — `pulse-ablage` kennt ihn nicht und muss ihn nicht kennen.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Anstoss {
-    /// `{"t":"neu_bitte"}`
+    /// `{"anstoss":"neu_bitte"}`
     NeuBitte,
-    /// `{"t":"ende"}`
+    /// `{"anstoss":"ende"}`
     Ende,
 }
 
-/// Die beiden internen Anstoesse erkennen — **vor** [`rahmen_lesen`].
+/// Die beiden internen Anstoesse erkennen — sie tragen ihre **eigene Huelle**
+/// (`{"anstoss":…}`), s. [`deuten`].
 pub(crate) fn anstoss_lesen(v: &serde_json::Value) -> Option<Anstoss> {
-    match v.get("t").and_then(serde_json::Value::as_str) {
+    match v.get("anstoss").and_then(serde_json::Value::as_str) {
         Some("neu_bitte") => Some(Anstoss::NeuBitte),
         Some("ende") => Some(Anstoss::Ende),
         _ => None,
@@ -422,19 +272,35 @@ pub(crate) enum Entscheidung {
     Verwerfen,
 }
 
-/// **Die eine Stelle, an der die Reihenfolge gilt: erst die internen
-/// Anstoesse, dann der Rahmen-Parser.**
+/// **Die eine Stelle, an der entschieden wird, was ein hereinkommender Wert
+/// ist — und die Huelle entscheidet es, nicht die Reihenfolge.**
 ///
-/// Sie stand bis zum ersten Pruefdurchgang im Rumpf von `App::ablage` und war
-/// damit von keinem Test beruehrt — wer den Anstoss-Zweig dort entfernte,
-/// bekam gruene Tests und zwei wirkungslose Wege, also genau die Fehlerklasse,
-/// gegen die die Anstoesse ueberhaupt gebaut sind. Als reine Funktion ist die
-/// Reihenfolge pruefbar; `App::ablage` verzweigt nur noch ueber das Ergebnis.
+/// Jeder Wert kommt in einer von zwei Huellen:
+///
+/// * `{"anstoss":"ende"|"neu_bitte"}` — vom eigenen Renderer
+///   (`web/src/lib/remote/ablageHuelle.ts`),
+/// * `{"rahmen":{…}}` — von der Gegenseite, Nutzlast unveraendert.
+///
+/// **Warum die Huelle und nicht bloss eine Reihenfolge:** beide Wege gehen
+/// durch dieselbe Tuer (`gsr:ablage`), und der Leitungsweg reicht die rohe
+/// `data` der Gegenstelle durch. Standen die Anstoesse in derselben Form wie
+/// ein Rahmen (frueher `{"t":"ende"}`), genuegte ein einziges fremdes
+/// `remote_signal`, um `wach` abzuschalten — die Zwischenablage waere fuer den
+/// Rest der Sitzung tot gewesen, ohne Log und ohne sichtbare Ursache. Ein
+/// Filter im Renderer haette das gefangen; die Huelle macht es **strukturell
+/// unmoeglich**, weil fremde Nutzlast immer unter `rahmen` liegt. Dieselbe
+/// Form tragen 1b-2 und 1c, wo die Anstoesse an den Sidecar gehen.
+///
+/// Alles ohne bekannte Huelle wird verworfen — fail-closed wie im ganzen
+/// Fernsteuerungs-Weg.
 pub(crate) fn deuten(v: &serde_json::Value) -> Entscheidung {
-    if let Some(anstoss) = anstoss_lesen(v) {
-        return Entscheidung::Anstoss(anstoss);
+    if v.get("anstoss").is_some() {
+        return match anstoss_lesen(v) {
+            Some(anstoss) => Entscheidung::Anstoss(anstoss),
+            None => Entscheidung::Verwerfen,
+        };
     }
-    match rahmen_lesen(v) {
+    match v.get("rahmen").and_then(rahmen_lesen) {
         Some(r) => Entscheidung::Fern(r),
         None => Entscheidung::Verwerfen,
     }
@@ -443,6 +309,7 @@ pub(crate) fn deuten(v: &serde_json::Value) -> Entscheidung {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pulse_ablage::beobachter::Beobachter;
     use pulse_ablage::eigentum::Eigentum;
     use pulse_ablage::format::Inhaltstyp;
     use pulse_ablage::pruefstand::TestAblage;
@@ -522,28 +389,65 @@ mod tests {
         lage
     }
 
-    /// **Die Reihenfolge an der Stelle, die im Betrieb gilt.** Die beiden
-    /// Tests darunter belegen nur, dass der Parser die Anstoesse ablehnt und
-    /// der Erkenner sie kennt — wer den Anstoss-Zweig aus [`deuten`]
-    /// entfernte, bekaeme davon gruene Tests und zwei wirkungslose Wege, also
-    /// genau die Fehlerklasse, gegen die die Anstoesse angetreten sind.
+    /// **Die Huelle entscheidet, nicht die Reihenfolge.** Ein Anstoss kommt
+    /// unter `anstoss`, ein Rahmen der Gegenseite unter `rahmen` —
     /// `App::ablage` verzweigt ueber nichts anderes als diese Funktion.
     #[test]
-    fn deuten_nimmt_die_anstoesse_vor_dem_rahmen_parser() {
+    fn deuten_trennt_anstoss_und_leitungsrahmen_an_der_huelle() {
         assert_eq!(
-            deuten(&serde_json::json!({"t": "neu_bitte"})),
+            deuten(&serde_json::json!({"anstoss": "neu_bitte"})),
             Entscheidung::Anstoss(Anstoss::NeuBitte)
         );
         assert_eq!(
-            deuten(&serde_json::json!({"t": "ende"})),
+            deuten(&serde_json::json!({"anstoss": "ende"})),
             Entscheidung::Anstoss(Anstoss::Ende)
         );
         assert_eq!(
-            deuten(&serde_json::json!({"t": "neu", "gen": 1, "typ": "text"})),
+            deuten(&serde_json::json!({"rahmen": {"t": "neu", "gen": 1, "typ": "text"}})),
             Entscheidung::Fern(Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text })
         );
-        assert_eq!(deuten(&serde_json::json!({"t": "erfunden"})), Entscheidung::Verwerfen);
+        assert_eq!(
+            deuten(&serde_json::json!({"anstoss": "erfunden"})),
+            Entscheidung::Verwerfen
+        );
+        assert_eq!(
+            deuten(&serde_json::json!({"rahmen": {"t": "erfunden"}})),
+            Entscheidung::Verwerfen
+        );
+        // Ohne Huelle: fail-closed wie im ganzen Fernsteuerungs-Weg.
+        assert_eq!(
+            deuten(&serde_json::json!({"t": "neu", "gen": 1, "typ": "text"})),
+            Entscheidung::Verwerfen
+        );
         assert_eq!(deuten(&serde_json::json!({})), Entscheidung::Verwerfen);
+    }
+
+    /// **M1: die Leitung darf die internen Anstoesse nicht faelschen koennen.**
+    ///
+    /// Ein einziges fremdes `remote_signal` mit `{"t":"ende"}` schaltete
+    /// frueher `wach` ab — die Zwischenablage war fuer den Rest der Sitzung
+    /// tot, ohne Log und ohne sichtbare Ursache; `{"t":"neu_bitte"}` im
+    /// Dauerfeuer frass das eigene Gateway-Kontingent, auf dem auch ICE sitzt.
+    /// Fremde Nutzlast liegt jetzt IMMER unter `rahmen`, und dort ist ein
+    /// Anstoss strukturell nicht erreichbar.
+    #[test]
+    fn ein_leitungsrahmen_kann_keinen_anstoss_ausloesen() {
+        for gefaelscht in [
+            serde_json::json!({"rahmen": {"t": "ende"}}),
+            serde_json::json!({"rahmen": {"t": "neu_bitte"}}),
+            serde_json::json!({"rahmen": {"anstoss": "ende"}}),
+        ] {
+            assert_eq!(
+                deuten(&gefaelscht),
+                Entscheidung::Verwerfen,
+                "die Gegenseite darf keinen Anstoss ausloesen: {gefaelscht}"
+            );
+        }
+        // Und die Gegenprobe: der echte Anstoss wirkt weiter.
+        assert_eq!(
+            deuten(&serde_json::json!({"anstoss": "ende"})),
+            Entscheidung::Anstoss(Anstoss::Ende)
+        );
     }
 
     #[test]
@@ -563,17 +467,20 @@ mod tests {
         assert_eq!(v["ev"], "ablage");
         assert_eq!(v["session"], 7);
         assert_eq!(v["data"]["t"], "neu");
-        // Der Renderer routet nach Sitzung; ohne sie landete der Rahmen im
-        // falschen Fenster, sobald zwei Sitzungen laufen.
+        // **Die Sitzung reist mit, obwohl der Renderer sie heute nicht liest**
+        // (`aufAblageEreignisse` reicht nur `data` weiter): die Zwischenablage
+        // gehoert der Maschine, nicht dem Fenster. Sie steht hier fuer die
+        // Diagnose und fuer den Tag, an dem zwei Gegenstellen zugleich moeglich
+        // sind — dann muss der Rueckweg sie auswerten.
         assert!(v["session"].is_number());
     }
 
     /// **Der Test gegen die stille Wirkungslosigkeit.** `neu_bitte` ist fuer
-    /// `Rahmen::aus_json` eine unbekannte Rahmenart — wer ihn nicht VORHER
-    /// abfaengt, verwirft ihn, ohne dass irgendetwas rot wird.
+    /// `Rahmen::aus_json` keine Rahmenart — nimmt die Huelle ihn nicht auf,
+    /// verpufft er, ohne dass irgendetwas rot wird.
     #[test]
-    fn neu_bitte_ist_kein_rahmen_und_muss_vorher_abgefangen_werden() {
-        let v = serde_json::json!({"t": "neu_bitte"});
+    fn neu_bitte_ist_kein_rahmen_und_wirkt_nur_in_der_anstoss_huelle() {
+        let v = serde_json::json!({"anstoss": "neu_bitte"});
         assert!(rahmen_lesen(&v).is_none(), "der Rahmen-Parser kennt ihn NICHT");
         assert_eq!(deuten(&v), Entscheidung::Anstoss(Anstoss::NeuBitte));
 
@@ -587,25 +494,27 @@ mod tests {
         );
     }
 
-    /// Dasselbe fuer das Sitzungsende: der Renderer schickt `{"t":"ende"}`,
-    /// und ohne das Abfangen bliebe die Ablage des Nutzers leer.
+    /// Dasselbe fuer das Sitzungsende: der Renderer schickt
+    /// `{"anstoss":"ende"}`, und ohne die Huelle bliebe die Ablage des Nutzers
+    /// leer.
     #[test]
     fn ende_ist_kein_rahmen_und_gibt_das_eigentum_zurueck() {
-        let v = serde_json::json!({"t": "ende"});
+        let v = serde_json::json!({"anstoss": "ende"});
         assert!(rahmen_lesen(&v).is_none(), "der Rahmen-Parser kennt ihn NICHT");
         assert_eq!(deuten(&v), Entscheidung::Anstoss(Anstoss::Ende));
 
         let mut p = Pruefablage::neu();
+        let mut st = Prozessablage::default();
         p.inner.setzen("mein eigener Pfad");
         p.inner.geaendert(); // die Aenderung ist quittiert
         let mut lage = wache_lage();
 
         lage.fern(&Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text }, &mut p);
-        lage.takt(&mut p);
+        lage.takt(&mut st, &mut p);
         assert!(p.inner.beansprucht(), "die Ankuendigung muss den Anspruch einloesen");
         assert_eq!(p.inner.inhalt(), None, "der Anspruch loescht den Vorbestand");
 
-        lage.ende(&mut p);
+        lage.ende(&mut st, &mut p);
         // **Kein `!beansprucht` hier.** Zurueckschreiben heisst auf jeder
         // Plattform „neue eigene Quelle mit dem gemerkten Text" — wir halten
         // die Ablage danach weiter, jetzt aber mit dem Inhalt des Nutzers.
@@ -625,15 +534,16 @@ mod tests {
     #[test]
     fn ausschalten_gibt_den_laufenden_anspruch_frei() {
         let mut p = Pruefablage::neu();
+        let mut st = Prozessablage::default();
         p.inner.setzen("vorher");
         p.inner.geaendert();
         let mut lage = wache_lage();
 
         lage.fern(&Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text }, &mut p);
-        lage.takt(&mut p);
+        lage.takt(&mut st, &mut p);
         assert!(p.inner.beansprucht());
 
-        lage.teilen_setzen(false, &mut p);
+        lage.teilen_setzen(false, &mut st, &mut p);
         // **Der Beleg dafuer, dass der Anspruch wirklich freigegeben wurde,
         // ist der zurueckgeschriebene Inhalt** — waere nur der naechste
         // Anspruch unterlassen worden, laege die Ablage weiter leer da. Auf
@@ -656,19 +566,20 @@ mod tests {
     #[test]
     fn ein_frisch_kopierter_vorbestand_geht_nicht_verloren() {
         let mut p = Pruefablage::neu();
+        let mut st = Prozessablage::default();
         p.inner.setzen("alt");
         p.inner.geaendert();
         let mut lage = wache_lage();
         lage.fern(&Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text }, &mut p);
-        lage.takt(&mut p);
+        lage.takt(&mut st, &mut p);
         assert!(p.inner.beansprucht());
 
         // Jetzt kopiert der Nutzer selbst — die Ablage gehoert wieder ihm.
         p.inner.setzen("frisch");
         lage.fern(&Rahmen::Neu { generation: 2, typ: Inhaltstyp::Text }, &mut p);
-        lage.takt(&mut p);
+        lage.takt(&mut st, &mut p);
 
-        lage.ende(&mut p);
+        lage.ende(&mut st, &mut p);
         assert_eq!(
             p.inner.inhalt().as_deref(),
             Some("frisch"),
@@ -688,27 +599,28 @@ mod tests {
     #[test]
     fn zweimal_umschalten_verliert_den_vorbestand_nicht() {
         let mut p = Pruefablage::neu();
+        let mut st = Prozessablage::default();
         p.inner.setzen("/home/michael/wichtig.txt");
         p.inner.geaendert();
         let mut lage = wache_lage();
 
         // Drueben wird kopiert — wir beanspruchen und merken den Pfad.
         lage.fern(&Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text }, &mut p);
-        lage.takt(&mut p);
+        lage.takt(&mut st, &mut p);
         assert!(p.inner.beansprucht());
 
         // Aus: der Pfad kommt zurueck. (Das prueft schon der Test darueber —
         // hier ist es nur die Vorbedingung fuer den zweiten Durchgang.)
-        lage.teilen_setzen(false, &mut p);
+        lage.teilen_setzen(false, &mut st, &mut p);
         assert_eq!(p.inner.inhalt().as_deref(), Some("/home/michael/wichtig.txt"));
 
         // Wieder ein, und drueben wird erneut kopiert.
-        lage.teilen_setzen(true, &mut p);
+        lage.teilen_setzen(true, &mut st, &mut p);
         lage.fern(&Rahmen::Neu { generation: 2, typ: Inhaltstyp::Text }, &mut p);
-        lage.takt(&mut p);
+        lage.takt(&mut st, &mut p);
 
         // Und wieder aus.
-        lage.teilen_setzen(false, &mut p);
+        lage.teilen_setzen(false, &mut st, &mut p);
         assert_eq!(
             p.inner.inhalt().as_deref(),
             Some("/home/michael/wichtig.txt"),
@@ -720,17 +632,19 @@ mod tests {
     #[test]
     fn ohne_teilen_geht_keine_ankuendigung_hinaus() {
         let mut p = Pruefablage::neu();
+        let mut st = Prozessablage::default();
         let mut lage = wache_lage();
-        lage.teilen_setzen(false, &mut p);
+        lage.teilen_setzen(false, &mut st, &mut p);
         p.inner.setzen("ein Passwort");
-        assert!(lage.takt(&mut p).is_empty(), "auch die blosse Ankuendigung bleibt hier");
+        assert!(lage.takt(&mut st, &mut p).is_empty(), "auch die blosse Ankuendigung bleibt hier");
     }
 
     #[test]
     fn ohne_teilen_wird_ein_hol_beantwortet_statt_verschluckt() {
         let mut p = Pruefablage::neu();
+        let mut st = Prozessablage::default();
         let mut lage = wache_lage();
-        lage.teilen_setzen(false, &mut p);
+        lage.teilen_setzen(false, &mut st, &mut p);
         assert_eq!(
             lage.fern(&Rahmen::Hol { generation: 1, id: 5 }, &mut p),
             vec![Rahmen::Leer { id: 5, grund: Grund::Weg }],
@@ -741,9 +655,10 @@ mod tests {
     #[test]
     fn eine_lokale_aenderung_kuendigt_ohne_inhalt_an() {
         let mut p = Pruefablage::neu();
+        let mut st = Prozessablage::default();
         let mut lage = wache_lage();
         p.inner.setzen("streng geheim");
-        let hinaus = lage.takt(&mut p);
+        let hinaus = lage.takt(&mut st, &mut p);
         assert_eq!(hinaus, vec![Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text }]);
         let j = serde_json::to_string(&hinaus[0].nach_json()).expect("serialisierbar");
         assert!(!j.contains("geheim"), "die Ankuendigung traegt keinen Inhalt: {j}");
@@ -754,9 +669,10 @@ mod tests {
     #[test]
     fn ohne_erfassung_geschieht_nichts() {
         let mut p = Pruefablage::neu();
+        let mut st = Prozessablage::default();
         let mut lage = Ablagelage::default();
         p.inner.setzen("etwas");
-        assert!(lage.takt(&mut p).is_empty());
+        assert!(lage.takt(&mut st, &mut p).is_empty());
     }
 
     /// Das verzoegerte Rendern: **erst wenn jemand einfuegt**, geht `hol`
@@ -764,15 +680,16 @@ mod tests {
     #[test]
     fn hol_geht_erst_beim_einfuegen_hinaus() {
         let mut p = Pruefablage::neu();
+        let mut st = Prozessablage::default();
         let mut lage = wache_lage();
         lage.fern(&Rahmen::Neu { generation: 4, typ: Inhaltstyp::Text }, &mut p);
         assert!(
-            lage.takt(&mut p).iter().all(|r| !matches!(r, Rahmen::Hol { .. })),
+            lage.takt(&mut st, &mut p).iter().all(|r| !matches!(r, Rahmen::Hol { .. })),
             "ohne Einfuegevorgang kostet der haeufigste Fall null Uebertragung"
         );
 
         p.einfuegen = true;
-        assert_eq!(lage.takt(&mut p), vec![Rahmen::Hol { generation: 4, id: 1 }]);
+        assert_eq!(lage.takt(&mut st, &mut p), vec![Rahmen::Hol { generation: 4, id: 1 }]);
     }
 
     /// Ohne Seriennummer (Fenster ohne Fokus) bleibt der Anspruch eingereiht
@@ -780,14 +697,15 @@ mod tests {
     #[test]
     fn ohne_seriennummer_bleibt_der_anspruch_eingereiht() {
         let mut p = Pruefablage::neu();
+        let mut st = Prozessablage::default();
         p.serial = None;
         let mut lage = wache_lage();
         lage.fern(&Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text }, &mut p);
-        lage.takt(&mut p);
+        lage.takt(&mut st, &mut p);
         assert!(!p.inner.beansprucht(), "ohne Nummer verwirft der Compositor es STILL");
 
         p.serial = Some(7);
-        lage.takt(&mut p);
+        lage.takt(&mut st, &mut p);
         assert!(p.inner.beansprucht(), "mit der naechsten Nummer wird er eingeloest");
     }
 
@@ -795,10 +713,11 @@ mod tests {
     #[test]
     fn stuecke_landen_beim_einfuegevorgang() {
         let mut p = Pruefablage::neu();
+        let mut st = Prozessablage::default();
         let mut lage = wache_lage();
         lage.fern(&Rahmen::Neu { generation: 4, typ: Inhaltstyp::Text }, &mut p);
         p.einfuegen = true;
-        let hol = lage.takt(&mut p);
+        let hol = lage.takt(&mut st, &mut p);
         let Some(Rahmen::Hol { id, .. }) = hol.first() else { panic!("kein Abruf: {hol:?}") };
         for stueck in pulse_ablage::stueckelung::zerlegen(*id, "hallo").expect("passt") {
             lage.fern(&stueck, &mut p);
@@ -809,14 +728,19 @@ mod tests {
     /// **Neu-1:** eine ZWEITE Sitzung darf die zurueckgeschriebene Ablage
     /// nicht raeumen.
     ///
-    /// Seit es einen Traeger je Prozess gibt, sind „haelt dieser Prozess die
-    /// Auswahl" und „hat DIESE Sitzung etwas verdraengt" zwei verschiedene
-    /// Fragen. Die Plattform kann nur die erste beantworten — die zweite
-    /// gehoert hierher, und ohne sie raeumt der Abbau der Nachfolge-Sitzung
-    /// den Pfad, den die Vorgaengerin gerade zurueckgeschrieben hat.
+    /// Seit es einen Traeger je Prozess gibt, sind „haelt die Plattform die
+    /// Auswahl gerade" und „hat dieser PROZESS sie je verdraengt" zwei
+    /// verschiedene Fragen. Die Plattform kann nur die erste beantworten — die
+    /// zweite fuehrt [`Prozessablage`], und ohne sie raeumt der Abbau der
+    /// Nachfolge-Sitzung den Pfad, den die Vorgaengerin gerade
+    /// zurueckgeschrieben hat.
+    ///
+    /// Hier beansprucht B **nicht**; den Fall deckt
+    /// `ein_traegerwechsel_verliert_den_vorbestand_nicht` darunter ab.
     #[test]
     fn eine_zweite_sitzung_raeumt_die_zurueckgeschriebene_ablage_nicht() {
         let mut p = Pruefablage::neu();
+        let mut st = Prozessablage::default();
         p.inner.setzen("/home/michael/wichtig.txt");
         p.inner.geaendert();
         // Zwei Sitzungen auf EINER Ablage — genau die Lage nach einem
@@ -825,22 +749,67 @@ mod tests {
         let mut b = wache_lage();
 
         a.fern(&Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text }, &mut p);
-        a.takt(&mut p);
+        a.takt(&mut st, &mut p);
         assert!(p.inner.beansprucht(), "A ist Traeger und hat beansprucht");
 
-        a.ende(&mut p);
+        a.ende(&mut st, &mut p);
         assert_eq!(
             p.inner.inhalt().as_deref(),
             Some("/home/michael/wichtig.txt"),
             "A schreibt zurueck — und der PROZESS haelt die Auswahl weiter"
         );
 
-        // B uebernimmt und endet ihrerseits. Sie hat nie etwas verdraengt.
-        b.ende(&mut p);
+        // B uebernimmt und endet ihrerseits, ohne je beansprucht zu haben.
+        b.ende(&mut st, &mut p);
         assert_eq!(
             p.inner.inhalt().as_deref(),
             Some("/home/michael/wichtig.txt"),
-            "B hat nichts verdraengt und darf deshalb auch nichts raeumen"
+            "der Merkposten wird hoechstens noch einmal zurueckgeschrieben, \
+             nie geraeumt"
+        );
+    }
+
+    /// **M2: der Vorbestand ueberlebt den Traegerwechsel.**
+    ///
+    /// Der ausdruecklich gebaute Fall mit zwei Player-Fenstern: A ist Traeger,
+    /// hat den Pfad des Nutzers verdraengt und gemerkt. Der Nutzer schliesst
+    /// Fenster A — A schreibt zurueck und **bleibt Eigentuemer**, Traeger wird
+    /// B. Jetzt kopiert die Gegenseite, und B beansprucht.
+    ///
+    /// Lag der Merkposten an der SITZUNG, sah B hier `eigentuemer == false`,
+    /// las als Eigentuemer (richtigerweise) `None`, merkte sich also nichts —
+    /// und `p.freigeben(None)` bei B's Ende raeumte die Ablage des Nutzers.
+    /// Nachgemessen: mit einer zweiten `Prozessablage` fuer B wird dieser Test
+    /// rot.
+    #[test]
+    fn ein_traegerwechsel_verliert_den_vorbestand_nicht() {
+        let mut p = Pruefablage::neu();
+        let mut st = Prozessablage::default();
+        p.inner.setzen("/home/michael/wichtig.txt");
+        p.inner.geaendert();
+        let mut a = wache_lage();
+        let mut b = wache_lage();
+
+        a.fern(&Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text }, &mut p);
+        a.takt(&mut st, &mut p);
+        assert!(p.inner.beansprucht(), "A ist Traeger und hat beansprucht");
+
+        // Fenster A geht zu: `ablage_abbau(A)` schreibt zurueck, der Traeger
+        // wandert zu B.
+        a.ende(&mut st, &mut p);
+        assert_eq!(p.inner.inhalt().as_deref(), Some("/home/michael/wichtig.txt"));
+
+        // Drueben wird kopiert — B beansprucht, BEVOR sie endet.
+        b.fern(&Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text }, &mut p);
+        b.takt(&mut st, &mut p);
+        assert!(p.inner.beansprucht(), "B haelt die Ablage jetzt");
+
+        b.ende(&mut st, &mut p);
+        assert_eq!(
+            p.inner.inhalt().as_deref(),
+            Some("/home/michael/wichtig.txt"),
+            "der Merkposten haengt am Prozess, nicht an der Sitzung — sonst \
+             ist der Pfad des Nutzers nach einem Fensterwechsel weg"
         );
     }
 
@@ -849,19 +818,20 @@ mod tests {
     #[test]
     fn ausschalten_verwirft_ein_geparktes_hol() {
         let mut p = Pruefablage::neu();
+        let mut st = Prozessablage::default();
         p.inner.setzen("streng geheim");
         let mut lage = wache_lage();
         assert_eq!(
-            lage.takt(&mut p),
+            lage.takt(&mut st, &mut p),
             vec![Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text }]
         );
 
         p.bereit = false;
         lage.fern(&Rahmen::Hol { generation: 1, id: 5 }, &mut p);
-        lage.teilen_setzen(false, &mut p);
+        lage.teilen_setzen(false, &mut st, &mut p);
 
         p.bereit = true;
-        let hinaus = lage.takt(&mut p);
+        let hinaus = lage.takt(&mut st, &mut p);
         assert!(
             hinaus.is_empty(),
             "nach dem Ausschalten darf der geparkte Abruf nichts mehr \
@@ -876,20 +846,21 @@ mod tests {
     #[test]
     fn wiedereinschalten_meldet_den_anspruch_neu_an() {
         let mut p = Pruefablage::neu();
+        let mut st = Prozessablage::default();
         p.inner.setzen("mein Pfad");
         p.inner.geaendert();
         let mut lage = wache_lage();
         lage.fern(&Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text }, &mut p);
-        lage.takt(&mut p);
+        lage.takt(&mut st, &mut p);
         assert!(p.inner.beansprucht());
 
-        lage.teilen_setzen(false, &mut p);
-        lage.teilen_setzen(true, &mut p);
+        lage.teilen_setzen(false, &mut st, &mut p);
+        lage.teilen_setzen(true, &mut st, &mut p);
         // KEINE neue Ankuendigung von drueben — allein das Umschalten.
-        lage.takt(&mut p);
+        lage.takt(&mut st, &mut p);
         p.einfuegen = true;
         assert_eq!(
-            lage.takt(&mut p),
+            lage.takt(&mut st, &mut p),
             vec![Rahmen::Hol { generation: 1, id: 1 }],
             "ohne die Neuanmeldung waere die Ablage bis zum naechsten Kopieren \
              drueben still tot"
@@ -902,12 +873,13 @@ mod tests {
     #[test]
     fn einschalten_ohne_fremde_ankuendigung_beansprucht_nichts() {
         let mut p = Pruefablage::neu();
+        let mut st = Prozessablage::default();
         p.inner.setzen("mein Pfad");
         p.inner.geaendert();
         let mut lage = wache_lage();
-        lage.teilen_setzen(false, &mut p);
-        lage.teilen_setzen(true, &mut p);
-        lage.takt(&mut p);
+        lage.teilen_setzen(false, &mut st, &mut p);
+        lage.teilen_setzen(true, &mut st, &mut p);
+        lage.takt(&mut st, &mut p);
         assert!(!p.inner.beansprucht());
         assert_eq!(p.inner.inhalt().as_deref(), Some("mein Pfad"));
     }
@@ -917,10 +889,11 @@ mod tests {
     #[test]
     fn ein_hol_wartet_auf_den_lesevorgang_statt_die_schleife_anzuhalten() {
         let mut p = Pruefablage::neu();
+        let mut st = Prozessablage::default();
         p.inner.setzen("mein Text");
         let mut lage = wache_lage();
         assert_eq!(
-            lage.takt(&mut p),
+            lage.takt(&mut st, &mut p),
             vec![Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text }],
             "erst wird angekuendigt"
         );
@@ -931,10 +904,10 @@ mod tests {
             "die Antwort darf nicht im Eingangsweg entstehen — dort wuerde \
              gelesen, und das haelt Bild und Eingabe an"
         );
-        assert!(lage.takt(&mut p).is_empty(), "solange gelesen wird, kommt nichts");
+        assert!(lage.takt(&mut st, &mut p).is_empty(), "solange gelesen wird, kommt nichts");
 
         p.bereit = true;
-        let antwort = lage.takt(&mut p);
+        let antwort = lage.takt(&mut st, &mut p);
         assert!(
             matches!(antwort.first(), Some(Rahmen::Stueck { id: 5, .. })),
             "sobald das Ergebnis da ist, geht der Inhalt hinaus: {antwort:?}"
@@ -947,9 +920,10 @@ mod tests {
     #[test]
     fn ein_verdraengtes_hol_wird_beantwortet() {
         let mut p = Pruefablage::neu();
+        let mut st = Prozessablage::default();
         p.inner.setzen("etwas");
         let mut lage = wache_lage();
-        lage.takt(&mut p);
+        lage.takt(&mut st, &mut p);
         p.bereit = false;
         lage.fern(&Rahmen::Hol { generation: 1, id: 5 }, &mut p);
         assert_eq!(

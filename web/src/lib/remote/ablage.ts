@@ -28,6 +28,7 @@
 
 import type { RemoteSignalKind } from '$lib/ws/handlers/types';
 import { Drossel } from './ablageDrossel';
+import { anstossHuelle, leitungsHuelle } from './ablageHuelle';
 import { ablageAnPlayer, aufAblageEreignisse } from './ablagePlatform';
 
 type SignalSender = (kind: RemoteSignalKind, data: unknown) => boolean;
@@ -69,7 +70,7 @@ class RemoteAblage {
       // das bliebe die lokale Ablage des Nutzers leer, obwohl die Sitzung
       // vorbei ist — genau der Schaden, gegen den der Vorbestand-Mechanismus
       // gebaut wurde.
-      void ablageAnPlayer(this.#rolle, this.#fensterSitzung, { t: 'ende' });
+      void ablageAnPlayer(this.#rolle, this.#fensterSitzung, anstossHuelle('ende'));
     }
     this.#abmelden?.();
     this.#abmelden = null;
@@ -88,25 +89,56 @@ class RemoteAblage {
    *  tot. */
   neuBitte(): void {
     if (!this.#aktiv) return;
-    void ablageAnPlayer(this.#rolle, this.#fensterSitzung, { t: 'neu_bitte' });
+    void ablageAnPlayer(this.#rolle, this.#fensterSitzung, anstossHuelle('neu_bitte'));
   }
 
   /** Die Nummer des Player-Fensters nachliefern, sobald es offen ist (nur
-   *  Steuernder) — s. Modulkopf. `null`/Auslassen setzt sie auf „keines". */
+   *  Steuernder) — s. Modulkopf. `null`/Auslassen setzt sie auf „keines".
+   *
+   *  **Es genügt IRGENDEIN Fenster dieser Sitzung.** Welche Sitzung die Ablage
+   *  hält, entscheidet der Player selbst (`App::ablage` löst auf
+   *  `ablage_traeger` auf) — hier wird nur zugestellt. Vorher zeigte diese
+   *  Nummer auf das erste Fenster und traf den Träger nur, solange dessen
+   *  Erfassung geglückt war; scheiterte sie für genau dieses Fenster, lief
+   *  jeder hereinkommende Rahmen ins Leere („Einfügen tut nichts, Kopieren
+   *  schon").
+   *
+   *  **Offen für 1b-2:** ein `neu` der Gegenseite, das VOR dem ersten
+   *  `setSenke` eintrifft, ist unwiederbringlich verloren (`session 0` kennt
+   *  der Player nicht). Heute folgenlos, weil die Host-Seite noch fehlt und
+   *  vor dem Player-Fenster niemand ankündigt — mit dem Host-Sidecar aus
+   *  Plan 1b-2 wird es scharf und ist dort zu lösen, nicht hier. */
   setSenke(fensterSitzung: number | null): void {
     this.#fensterSitzung = fensterSitzung ?? 0;
   }
 
   /** Ein `remote_signal` der Art 'ablage' vom Gegenüber. Ungeprüft weiter an
-   *  die Plattform — sie hat den Parser. */
+   *  die Plattform — sie hat den Parser.
+   *
+   *  **In der Leitungs-Hülle**, und das ist der ganze Schutz: die Nutzlast
+   *  liegt danach unter `rahmen`, wo ein interner Anstoss nie steht. Ohne sie
+   *  ginge die rohe `data` der Gegenstelle durch dieselbe Tür wie `neuBitte`
+   *  und `stop` — ein fremdes `{"t":"ende"}` schaltete die Zwischenablage für
+   *  den Rest der Sitzung ab (s. `ablageHuelle.ts`). */
   _signal(data: unknown): void {
     if (data === null || data === undefined) return;
-    void ablageAnPlayer(this.#rolle, this.#fensterSitzung, data);
+    void ablageAnPlayer(this.#rolle, this.#fensterSitzung, leitungsHuelle(data));
   }
 
   /** Ein Rahmen der eigenen Seite hinaus. `false`, wenn er die Drossel nicht
-   *  passiert hat oder keine Sitzung läuft — der Aufrufer wiederholt ihn
-   *  dann selbst, statt ihn still zu verlieren. */
+   *  passiert hat oder keine Sitzung läuft.
+   *
+   *  **Der Rückgabewert ist eine Auskunft, kein Auftrag zum Wiederholen** —
+   *  und das ist hier die Wahrheit statt einer Absichtserklärung: der einzige
+   *  Aufrufer ist die Rückmeldung der Plattform-Brücke (`start`), und die
+   *  kann einen Rahmen nicht noch einmal erzeugen. Ein abgelehnter Rahmen ist
+   *  damit endgültig weg.
+   *
+   *  **Deshalb sitzt die Vorsorge in der Drossel, nicht hier:** sie lässt eine
+   *  ganze Lieferung durch, statt sie in der Mitte zu zerschneiden (s.
+   *  `ablageDrossel.ts`). Fällt ein Stück, ist nicht ein Stück weg, sondern
+   *  die ganze Lieferung — drüben läuft dann `ABRUF_FRIST` (2 s) voll, und auf
+   *  Windows und macOS steht das einfügende Programm diese 2 s. */
   hinaus(data: unknown): boolean {
     if (!this.#sendSignal) return false;
     if (!this.#drossel.darf(Date.now())) return false;

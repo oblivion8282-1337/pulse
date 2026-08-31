@@ -131,10 +131,15 @@ contextBridge.exposeInMainWorld('pulse', {
       return () => ipcRenderer.removeListener('gsr:event', handler);
     },
 
-    /** Fernsteuerung: ein Rahmen der geteilten Zwischenablage
+    /** Fernsteuerung: ein Wert der geteilten Zwischenablage
      *  (`$lib/remote/ablage.ts`). Der Vorlader deutet ihn nicht — das Format
      *  lebt in `streaming/pulse-ablage`, und eine zweite Fassung hier liefe
-     *  auseinander. Beim Steuernden landet er im Player, beim Host im Sidecar;
+     *  auseinander.
+     *
+     *  `data` traegt die Huelle aus `$lib/remote/ablageHuelle.ts`:
+     *  `{rahmen:…}` von der Gegenseite, `{anstoss:…}` vom eigenen Renderer.
+     *  Fremde Nutzlast liegt damit IMMER unter `rahmen` und kann keinen
+     *  Anstoss ausloesen. Beim Steuernden landet er im Player, beim Host im Sidecar;
      *  die Weiche steht im Hauptprozess (`ablageWeiche.ts`) und entscheidet
      *  nach `rolle` — die reist mit, weil der Hauptprozess sie nicht kennt und
      *  sie aus der Sitzungsnummer nicht sicher erschliessen kann (ein Host, der

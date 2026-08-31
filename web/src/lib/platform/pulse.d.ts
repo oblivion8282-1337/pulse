@@ -82,11 +82,16 @@ export interface PulseGsrApi {
    *  the main process so the renderer can route it to the right stream. Returns
    *  an unsubscribe function. */
   onEvent(cb: (ev: PulseGsrEvent) => void): () => void;
-  /** Fernsteuerung: ein Rahmen der geteilten Zwischenablage
+  /** Fernsteuerung: ein Wert der geteilten Zwischenablage
    *  (`$lib/remote/ablage.ts`). Ungedeutet durchgereicht — das Format lebt in
    *  `streaming/pulse-ablage`. Beim Steuernden landet er im Player-Fenster,
    *  beim Host im Sidecar; die Weiche steht im Hauptprozess
    *  (`desktop/electron/ablageWeiche.ts`) und entscheidet nach `rolle`.
+   *
+   *  `data` traegt die Huelle aus `$lib/remote/ablageHuelle.ts`:
+   *  `{rahmen:…}` von der Gegenseite, `{anstoss:…}` vom eigenen Renderer.
+   *  Fremde Nutzlast liegt damit IMMER unter `rahmen` und kann keinen Anstoss
+   *  ausloesen.
    *
    *  `rolle` reist mit, statt im Hauptprozess erschlossen zu werden: ein
    *  Host, der nebenbei den Strom eines Dritten im nativen Player anschaut,

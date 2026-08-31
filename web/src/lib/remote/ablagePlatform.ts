@@ -28,10 +28,15 @@ function playerBruecke() {
   return typeof window !== 'undefined' ? window.pulse?.player : undefined;
 }
 
-/** Einen Ablage-Rahmen an die eigene Plattform geben (Player beim Steuernden,
+/** Einen Ablage-Wert an die eigene Plattform geben (Player beim Steuernden,
  *  Sidecar beim Host — die Weiche steht im Hauptprozess, `rolle` bestimmt sie,
  *  nicht `session`). `session` ist die Player-Fensternummer, sofern eine
- *  bekannt ist (0 sonst, s. `ablage.ts`). */
+ *  bekannt ist (0 sonst, s. `ablage.ts`).
+ *
+ *  `data` ist bereits eingehüllt (`ablageHuelle.ts`) — diese Funktion hüllt
+ *  NICHT selbst ein: sie hat nur einen Parameter und könnte einen Anstoss von
+ *  einem Leitungsrahmen nicht unterscheiden, also läge die Entscheidung wieder
+ *  bei der Form des Werts statt beim Aufrufer, der sie kennt. */
 export async function ablageAnPlayer(
   rolle: 'host' | 'controller',
   session: number,

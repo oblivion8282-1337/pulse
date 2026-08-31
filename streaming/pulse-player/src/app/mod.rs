@@ -357,6 +357,11 @@ pub struct App {
     /// Verbindung, die Zustandsmaschine an der Sitzung, und zwei
     /// Zustandsmaschinen auf einer Ablage rechnen gegeneinander.
     ablage_traeger: Option<u64>,
+    /// Der verdraengte Vorbestand des Nutzers und die Frage, ob dieser Prozess
+    /// ihn verdraengt hat — **am Prozess, weil die Auswahl am Prozess haengt**
+    /// (s. `ablage::Prozessablage`). An der Sitzung verlor ihn jeder
+    /// Traegerwechsel.
+    ablage_stand: ablage::Prozessablage,
 }
 
 /// Wie lange nach dem letzten Bild des Hauptstroms das Auffangnetz noch
@@ -384,6 +389,7 @@ impl App {
             zuletzt_fokussiert: None,
             wayland_zug: wayland_zug::WaylandZug::default(),
             ablage_traeger: None,
+            ablage_stand: ablage::Prozessablage::default(),
         }
     }
 

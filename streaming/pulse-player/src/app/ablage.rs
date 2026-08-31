@@ -8,13 +8,14 @@
 //! `pulse_ablage` — beim Kopieren geht nur eine Ankuendigung hinaus, der
 //! Inhalt erst, wenn drueben jemand tatsaechlich einfuegt.
 //!
-//! **Zwei Haelften, an der Naht geschnitten, die die Tests ohnehin ziehen:**
+//! **Drei Teile, an den Naehten geschnitten, die die Tests ohnehin ziehen:**
 //! die reine Rechnung steht in [`lage`] (Zustandsmaschine, Deutung eines
-//! Rahmens, das Ereignisformat — alles ohne Fenster pruefbar), hier steht die
-//! Verdrahtung an [`App`] (welche Sitzung, welche Plattform, wohin die
-//! Antwort). Was hier bleibt, sind die zwei Beruehrungspunkte mit dem
-//! Betriebssystem ([`Beobachter`], [`Eigentum`]) plus die dritte Auskunft, die
-//! `pulse-ablage` bewusst nicht stellt ([`Ablagequelle`]).
+//! Rahmens, das Ereignisformat — alles ohne Fenster pruefbar), die Traits, die
+//! eine Plattform erfuellen muss, in [`plattform`] (die zwei Beruehrungspunkte
+//! mit dem Betriebssystem — `Beobachter` und `Eigentum` aus `pulse-ablage` —
+//! plus die dritte Auskunft, die die Kiste bewusst nicht stellt,
+//! [`Ablagequelle`]); hier steht nur noch die Verdrahtung an [`App`] (welche
+//! Sitzung, welche Plattform, wohin die Antwort).
 //!
 //! **Die Plattform ist heute allein Wayland**
 //! (`crate::fernsteuerung::wayland::ablage`). Auf X11, Windows und macOS gibt
@@ -22,144 +23,42 @@
 //! weiter und beruehrt nichts. Der Windows-Host folgt in Plan 1b-2, macOS in
 //! 1c.
 //!
-//! **Zwei Rahmen kommen NICHT von der Gegenseite** und stehen deshalb nicht in
-//! `pulse-ablage`: `{"t":"neu_bitte"}` (nach einem `remote_reclaim` erneut
-//! ankuendigen) und `{"t":"ende"}` (Eigentum abgeben, Vorbestand
-//! zurueckschreiben). Sie gehen nur vom Renderer an die eigene Plattform und
-//! werden deshalb **vor** `Rahmen::aus_json` abgefangen — sonst verwuerfe der
-//! Parser sie still und beide Wege waeren wirkungslos, ohne dass irgendetwas
-//! rot wird. Die Reihenfolge steht als reine Funktion in [`lage::deuten`] und
-//! ist genau deshalb pruefbar.
+//! **Zwei Anstoesse kommen NICHT von der Gegenseite** und stehen deshalb nicht
+//! in `pulse-ablage`: `neu_bitte` (nach einem `remote_reclaim` erneut
+//! ankuendigen) und `ende` (Eigentum abgeben, Vorbestand zurueckschreiben). Sie
+//! gehen nur vom Renderer an die eigene Plattform.
+//!
+//! **Sie tragen deshalb eine eigene Huelle** (`{"anstoss":…}`), waehrend ein
+//! Rahmen der Gegenseite unter `{"rahmen":…}` ankommt. Das ist keine Kosmetik:
+//! beide Wege gehen durch dieselbe Tuer (`gsr:ablage`), und der Leitungsweg
+//! reicht die rohe Nutzlast der Gegenstelle durch. Haetten die Anstoesse
+//! dieselbe Form wie ein Rahmen, koennte die Gegenseite sie senden. Die
+//! Zuordnung steht als reine Funktion in [`lage::deuten`] und ist genau deshalb
+//! pruefbar.
 
 mod lage;
+mod plattform;
 
-pub(crate) use lage::Ablagelage;
+pub(crate) use lage::{Ablagelage, Prozessablage};
+pub(crate) use plattform::{Ablageplattform, Ablagequelle, KeineAblage};
 use lage::{ablage_ereignis, deuten, Anstoss, Entscheidung};
 
-use pulse_ablage::beobachter::Beobachter;
-use pulse_ablage::eigentum::Eigentum;
 use pulse_ablage::format::Rahmen;
 
 use super::App;
 use crate::proto::Request;
 
-/// Was die Plattform ausserhalb der beiden Kisten-Traits noch beantworten
-/// muss.
-///
-/// Alles drei sind Fragen, die `pulse-ablage` bewusst nicht stellt: „wartet
-/// ein Einfuegevorgang?" ist auf jeder Plattform ein anderes Ereignis, die
-/// Seriennummer ist eine reine Wayland-Not (s. `Anspruch`), und wer die Ablage
-/// gerade haelt, weiss nur das Betriebssystem.
-pub(crate) trait Ablagequelle {
-    /// Wartet gerade ein Einfuegevorgang auf Inhalt? Auf Wayland ist das ein
-    /// `wl_data_source.send` mit noch offenem Dateideskriptor.
-    fn einfuegen_wartet(&mut self) -> bool;
-
-    /// Seriennummer eines frischen Eingabeereignisses, mit der sich die
-    /// Auswahl setzen laesst — `None`, solange keine vorliegt. Der Anspruch
-    /// bleibt dann eingereiht, statt still zu verpuffen.
-    fn seriennummer(&self) -> Option<u32>;
-
-    /// Halten WIR die lokale Ablage gerade?
-    ///
-    /// **Die Plattform weiss das besser als ein Merker hier**, und darauf
-    /// kommt es an: hat der Nutzer zwischendurch selbst kopiert, ist „wir
-    /// haben beansprucht" laengst falsch — auf Wayland meldet das
-    /// `wl_data_source.cancelled`, und das sieht nur die Plattform.
-    fn eigentuemer(&self) -> bool;
-
-    /// Beruehrt diese Umsetzung ueberhaupt eine Zwischenablage?
-    ///
-    /// Nur dafuer da, dass die Oberflaeche nichts verspricht, was nicht
-    /// stattfindet ([`KeineAblage`] liefert `false`). **An der tatsaechlichen
-    /// Verfuegbarkeit, nicht an `cfg`** — dann traegt der Schalter auch, wenn
-    /// Plan 1b-2 und 1c die uebrigen Plattformen nachreichen, und er
-    /// verschwindet auf einem Linux-Rechner ohne Wayland-Datengeraet.
-    fn wirksam(&self) -> bool;
-
-    /// Das Lesen der FREMDEN Auswahl eroeffnen, ohne darauf zu warten.
-    ///
-    /// **Warum das getrennt ist:** ob der fremde Eigentuemer je schreibt, sagt
-    /// kein Protokoll zu — auf Wayland liefert `wl_data_offer.receive` einen
-    /// Deskriptor, aus dem gelesen werden muss. Auf der Fensterschleife
-    /// gelesen stuenden waehrenddessen Bild UND Eingabe. Die Plattform holt
-    /// den Inhalt deshalb nebenher; [`Beobachter::lesen`] gibt nur noch das
-    /// fertige Ergebnis heraus und blockiert nie.
-    ///
-    /// Idempotent: ein zweiter Anstoss waehrend eines laufenden Vorgangs tut
-    /// nichts.
-    fn lesen_anstossen(&mut self);
-
-    /// Liegt ein Ergebnis vor (auch „nichts zu holen")? Nur dann ist
-    /// [`Beobachter::lesen`] aussagekraeftig.
-    fn lesen_bereit(&mut self) -> bool;
-}
-
-/// Alles zusammen, was eine Plattform-Umsetzung koennen muss.
-///
-/// **Als Objekt-Trait gefuehrt** (`&mut dyn Ablageplattform`), damit
-/// [`App::mit_ablage`] EINE Fassung hat statt einer je Plattform: die
-/// Umsetzung unterscheidet sich zwischen Linux und dem Rest, der Ablauf
-/// darueber nicht.
-pub(crate) trait Ablageplattform: Beobachter + Eigentum + Ablagequelle {}
-impl<T: Beobachter + Eigentum + Ablagequelle> Ablageplattform for T {}
-
-/// Die Plattform, die es (noch) nicht gibt: X11, Windows, macOS.
-///
-/// **Kein Fehlerfall.** Die Zustandsmaschine laeuft trotzdem — sie meldet nie
-/// eine Aenderung, beansprucht nichts und liefert nichts. Damit gibt es genau
-/// EINEN Kontrollfluss statt eines zweiten, plattformfreien Zweigs, den
-/// niemand pflegt.
-pub(crate) struct KeineAblage;
-
-impl Beobachter for KeineAblage {
-    fn geaendert(&mut self) -> bool {
-        false
-    }
-    fn lesen(&self) -> Option<String> {
-        None
-    }
-}
-
-impl Eigentum for KeineAblage {
-    fn beanspruchen(&mut self) -> Result<(), String> {
-        Err("auf dieser Plattform gibt es noch keine Zwischenablage-Umsetzung".into())
-    }
-    fn liefern(&mut self, _text: &str) {}
-    fn freigeben(&mut self, _zurueck: Option<&str>) {}
-}
-
-impl Ablagequelle for KeineAblage {
-    fn einfuegen_wartet(&mut self) -> bool {
-        false
-    }
-    fn seriennummer(&self) -> Option<u32> {
-        None
-    }
-    fn eigentuemer(&self) -> bool {
-        false
-    }
-    fn wirksam(&self) -> bool {
-        false
-    }
-    fn lesen_anstossen(&mut self) {}
-    /// **Immer bereit** — es gibt nichts zu holen und nichts zu warten. Ein
-    /// `false` hier liesse jeden Anspruch fuer immer eingereiht liegen.
-    fn lesen_bereit(&mut self) -> bool {
-        true
-    }
-}
-
 impl App {
-    /// Zustandsmaschine EINER Sitzung und die Plattform zusammen ausleihen.
+    /// Zustandsmaschine EINER Sitzung, der Prozess-Stand und die Plattform
+    /// zusammen ausleihen.
     ///
-    /// Zwei disjunkte Felder von `self` — deshalb als Feldzugriff und nicht
-    /// als Methodenpaar, das der Compiler als zwei Ausleihen von `self` saehe.
+    /// Drei disjunkte Felder von `self` — deshalb als Feldzugriff und nicht
+    /// als Methodentrio, das der Compiler als drei Ausleihen von `self` saehe.
     #[cfg(target_os = "linux")]
     fn mit_ablage<R>(
         &mut self,
         id: u64,
-        f: impl FnOnce(&mut Ablagelage, &mut dyn Ablageplattform) -> R,
+        f: impl FnOnce(&mut Ablagelage, &mut Prozessablage, &mut dyn Ablageplattform) -> R,
     ) -> Option<R> {
         // **Genau EINE Sitzung haelt die Ablage** (Review C7) — die Spiegelung
         // der Host-Regel „ein Traeger je Maschine" aus dem Entwurf. Der
@@ -172,12 +71,13 @@ impl App {
         // Sitzungen laufen deshalb gegen [`KeineAblage`] und tun nichts.
         let traeger = self.ablage_traeger == Some(id);
         let lage = &mut self.sessions.get_mut(&id)?.ablage;
+        let prozess = &mut self.ablage_stand;
         Some(match self.wayland_zug.ablage_plattform().filter(|_| traeger) {
-            Some(p) => f(lage, p),
+            Some(p) => f(lage, prozess, p),
             // Kein Traeger, X11, oder ein Compositor ohne das Datengeraet: die
             // Verbindung steht nicht, der Ablauf laeuft trotzdem — und
             // beruehrt nichts.
-            None => f(lage, &mut KeineAblage),
+            None => f(lage, prozess, &mut KeineAblage),
         })
     }
 
@@ -185,37 +85,61 @@ impl App {
     fn mit_ablage<R>(
         &mut self,
         id: u64,
-        f: impl FnOnce(&mut Ablagelage, &mut dyn Ablageplattform) -> R,
+        f: impl FnOnce(&mut Ablagelage, &mut Prozessablage, &mut dyn Ablageplattform) -> R,
     ) -> Option<R> {
         let lage = &mut self.sessions.get_mut(&id)?.ablage;
-        Some(f(lage, &mut KeineAblage))
+        Some(f(lage, &mut self.ablage_stand, &mut KeineAblage))
     }
 
     /// `ablage` — ein Rahmen der geteilten Zwischenablage.
     ///
     /// Die Rolle hat der Hauptprozess schon ausgewertet (`ablageWeiche.ts`);
     /// hier kommen nur noch `session` und `data` an.
+    ///
+    /// **Gearbeitet wird auf dem TRAEGER, nicht auf der adressierten Sitzung**
+    /// — die Frage „welche Sitzung haelt die Ablage" wird damit an genau einer
+    /// Stelle beantwortet, hier im Player. Der Renderer adressierte bis dahin
+    /// das erste Player-Fenster der Sitzung und traf den Traeger nur, solange
+    /// beide dasselbe meinten: die Erfassung darf fuer ein einzelnes Fenster
+    /// scheitern (`RemoteControllerInput.svelte`, „ein einzelnes darf
+    /// scheitern, die uebrigen tragen weiter"), und dann ist Fenster 0 kein
+    /// Traeger. Jeder hereinkommende Rahmen lief danach ins Leere — kein
+    /// Anspruch, kein `hol`, kein Fehler, waehrend ausgehend alles
+    /// weiterfunktionierte („Einfuegen tut nichts, Kopieren schon").
+    ///
+    /// Die adressierte Sitzung wird trotzdem geprueft: ein Rahmen ohne
+    /// zugeordnete Sitzung gehoert niemandem (fail-closed wie im ganzen
+    /// Fernsteuerungs-Weg). Gibt es keinen Traeger, bleibt es bei ihr — sie
+    /// laeuft dann gegen [`KeineAblage`] und beruehrt nichts.
+    ///
+    /// **Was das voraussetzt:** dass alle Sitzungen dieses Prozesses zu
+    /// derselben Gegenstelle gehoeren. Heute ist das so — der Renderer haelt
+    /// genau eine Fernsteuerungs-Sitzung, und der Rueckweg ignoriert die
+    /// Fensternummer bereits (`aufAblageEreignisse` reicht nur `data` weiter).
+    /// Kaeme je eine zweite Gegenstelle dazu, muesste hier die Zuordnung
+    /// Sitzung -> Gegenstelle mitentscheiden.
     pub(super) fn ablage(&mut self, req: &Request) -> Result<(), String> {
         let session_id = req.session.ok_or("session fehlt")?;
         if !self.sessions.contains_key(&session_id) {
             return Err("unbekannte Sitzung".into());
         }
+        let ziel = self.ablage_traeger.unwrap_or(session_id);
         let data = req.data.clone().ok_or("data fehlt")?;
         // **Gedeutet wird in `lage::deuten`, nicht hier** — dort ist die
         // Reihenfolge „erst die Anstoesse, dann der Rahmen-Parser" pruefbar
         // (s. dortiger Doc-Kommentar). Diese Stelle verzweigt nur noch.
         let hinaus = self
-            .mit_ablage(session_id, |lage, p| match deuten(&data) {
+            .mit_ablage(ziel, |lage, prozess, p| match deuten(&data) {
                 Entscheidung::Anstoss(Anstoss::NeuBitte) => lage.neu_bitte(),
                 Entscheidung::Anstoss(Anstoss::Ende) => {
-                    lage.ende(p);
+                    lage.ende(prozess, p);
                     Vec::new()
                 }
                 Entscheidung::Fern(r) => lage.fern(&r, p),
                 Entscheidung::Verwerfen => Vec::new(),
             })
             .unwrap_or_default();
-        self.ablage_melden(session_id, &hinaus);
+        self.ablage_melden(ziel, &hinaus);
         Ok(())
     }
 
@@ -225,7 +149,8 @@ impl App {
     pub(super) fn ablage_takt(&mut self) {
         let ids: Vec<u64> = self.sessions.keys().copied().collect();
         for id in ids {
-            let hinaus = self.mit_ablage(id, |lage, p| lage.takt(p)).unwrap_or_default();
+            let hinaus =
+                self.mit_ablage(id, |lage, prozess, p| lage.takt(prozess, p)).unwrap_or_default();
             self.ablage_melden(id, &hinaus);
         }
     }
@@ -233,7 +158,7 @@ impl App {
     /// `input_capture` schaltet die Zwischenablage mit: an heisst „ab jetzt
     /// beobachten", aus heisst „Eigentum abgeben und den Vorbestand
     /// zurueckschreiben". Es gibt keinen eigenen Rahmen fuer den Beginn einer
-    /// Sitzung, und das Ende ueber den Renderer (`{"t":"ende"}`) kommt nicht,
+    /// Sitzung, und der Anstoss `ende` aus dem Renderer kommt nicht,
     /// wenn dessen Verbindung vorher abreisst.
     pub(super) fn ablage_erfassung(&mut self, id: u64, aktiv: bool) {
         if aktiv {
@@ -241,7 +166,7 @@ impl App {
             if self.ablage_traeger.is_none() {
                 self.ablage_traeger = Some(id);
             }
-            self.mit_ablage(id, |lage, _| lage.beginnen());
+            self.mit_ablage(id, |lage, _, _| lage.beginnen());
         } else {
             self.ablage_abbau(id);
         }
@@ -259,7 +184,7 @@ impl App {
     /// geschrieben noch geschlossen wird — und der Vorbestand des Nutzers
     /// waere weg.
     pub(super) fn ablage_abbau(&mut self, id: u64) {
-        self.mit_ablage(id, |lage, p| lage.ende(p));
+        self.mit_ablage(id, |lage, prozess, p| lage.ende(prozess, p));
         if self.ablage_traeger == Some(id) {
             self.ablage_traeger = None;
             self.ablage_traeger_waehlen();
@@ -283,7 +208,7 @@ impl App {
             return;
         };
         self.ablage_traeger = Some(id);
-        let hinaus = self.mit_ablage(id, |lage, _| lage.neu_bitte()).unwrap_or_default();
+        let hinaus = self.mit_ablage(id, |lage, _, _| lage.neu_bitte()).unwrap_or_default();
         self.ablage_melden(id, &hinaus);
         // **Der Schalter wandert mit.** Ohne diese Zeile bliebe er im
         // Nachfolge-Fenster dauerhaft unsichtbar (`ablage_verfuegbar` steht auf
@@ -294,7 +219,7 @@ impl App {
 
     /// Der Schalter „Zwischenablage teilen" aus dem Fern-Menue.
     pub(super) fn ablage_teilen_setzen(&mut self, id: u64, an: bool) {
-        self.mit_ablage(id, |lage, p| lage.teilen_setzen(an, p));
+        self.mit_ablage(id, |lage, prozess, p| lage.teilen_setzen(an, prozess, p));
         self.ablage_overlay_nachziehen(id);
         if let Some(session) = self.sessions.get(&id) {
             session.window.request_redraw();
@@ -311,7 +236,7 @@ impl App {
     /// Datenschutz-Schalter waere der schlimmere der beiden Fehler.
     fn ablage_overlay_nachziehen(&mut self, id: u64) {
         let Some((teilt, wirksam)) =
-            self.mit_ablage(id, |lage, p| (lage.teilt(), p.wirksam()))
+            self.mit_ablage(id, |lage, _, p| (lage.teilt(), p.wirksam()))
         else {
             return;
         };

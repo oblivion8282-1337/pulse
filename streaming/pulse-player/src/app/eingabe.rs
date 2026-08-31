@@ -167,9 +167,9 @@ impl App {
             self.wayland_zug_abbrechen(session_id);
         }
         // Und die geteilte Zwischenablage schaltet mit (s. `app::ablage`): es
-        // gibt keinen eigenen Rahmen fuer den Beginn einer Sitzung, und das
-        // Ende ueber den Renderer (`{"t":"ende"}`) kommt nicht, wenn dessen
-        // Verbindung vorher abreisst.
+        // gibt keinen eigenen Rahmen fuer den Beginn einer Sitzung, und der
+        // Anstoss `ende` aus dem Renderer kommt nicht, wenn dessen Verbindung
+        // vorher abreisst.
         //
         // **Nach dem Block, nicht davor:** das Freigeben beim Ausschalten
         // braucht die Wayland-Verbindung, und beim Einschalten entsteht sie
