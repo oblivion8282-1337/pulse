@@ -314,7 +314,7 @@ mod tests {
     use pulse_ablage::format::Inhaltstyp;
     use pulse_ablage::pruefstand::TestAblage;
 
-    use crate::app::ablage::Ablagequelle;
+    use crate::app::ablage::{Ablagequelle, KeineAblage};
 
     /// `TestAblage` plus die beiden Auskuenfte, die `pulse-ablage` nicht
     /// kennt. Ein Wrapper statt eines zweiten Testdoppels: was die Kiste
@@ -823,6 +823,86 @@ mod tests {
             hinaus.is_empty(),
             "eine Ankuendigung fuer ein leeres Fach kostet die Gegenseite die \
              Ablage IHRES Nutzers: {hinaus:?}"
+        );
+    }
+
+    /// **Eine Sitzung OHNE Plattform darf den Prozess-Stand nicht abbuchen.**
+    ///
+    /// `App::ablage_abbau` ruft `ende` fuer jede Sitzung, nicht nur fuer den
+    /// Traeger; die uebrigen bekommen [`KeineAblage`], wo `eigentuemer()`
+    /// immer `false` meldet. Ohne den `wirksam`-Ausstieg in
+    /// [`Ablagelage::freigeben`] loescht das zuschauende Fenster den
+    /// Merkposten, und wenn danach der echte Traeger endet, steht
+    /// `prozess.eigentuemer` schon auf `false` — `Eigentum::freigeben` wird nie
+    /// gerufen, der Vorbestand kommt nicht zurueck und die `wl_data_source`
+    /// bleibt bis zum Prozessende stehen.
+    ///
+    /// **Warum der M2-Test das nicht faengt:** er gibt A und B dieselbe
+    /// `Pruefablage`, modelliert also zwei TRAEGER. Der Fall hier braucht eine
+    /// Sitzung, die die Plattform gar nicht haelt.
+    #[test]
+    fn eine_sitzung_ohne_plattform_bucht_den_prozess_stand_nicht_ab() {
+        let mut p = Pruefablage::neu();
+        let mut st = Prozessablage::default();
+        p.inner.setzen("/home/michael/wichtig.txt");
+        p.inner.geaendert();
+        let mut traeger = wache_lage();
+        let mut zuschauer = wache_lage();
+
+        traeger.fern(&Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text }, &mut p);
+        traeger.takt(&mut st, &mut p);
+        assert!(p.inner.beansprucht(), "der Traeger hat verdraengt und gemerkt");
+
+        // Das zweite Fenster ist reiner Zuschauer — `mit_ablage` gibt ihm
+        // `KeineAblage`. Es wird zuerst geschlossen (bei `stop_all_sessions`
+        // und `exiting` entscheidet die HashMap-Reihenfolge darueber).
+        zuschauer.ende(&mut st, &mut KeineAblage);
+
+        // Und jetzt endet der echte Traeger.
+        traeger.ende(&mut st, &mut p);
+        assert_eq!(
+            p.inner.inhalt().as_deref(),
+            Some("/home/michael/wichtig.txt"),
+            "ein Fenster, das die Ablage nie hielt, darf dem Traeger nicht \
+             seinen Merkposten wegbuchen"
+        );
+    }
+
+    /// **Die Gegenrichtung der Quittierung: eine FREMDE Meldung darf sie nicht
+    /// schlucken.**
+    ///
+    /// Quittiert werden darf nur, was wir selbst ausgeloest haben — deshalb
+    /// fragt [`Ablagelage::freigeben`] VOR dem Aufruf, ob die Plattform die
+    /// Auswahl noch haelt. Hat der Nutzer inzwischen selbst kopiert, gehoert
+    /// die anstehende Meldung ihm; sie zu schlucken risse C1 von der anderen
+    /// Seite auf: der naechste Traeger bliebe auf einer Generation stehen, die
+    /// nicht mehr zum Inhalt des Fachs passt.
+    ///
+    /// Der Fall braucht beides — `unser == false` UND `geraeumt == true` —,
+    /// sonst prueft er den Riegel nicht, sondern nur die zweite Bedingung:
+    /// deshalb beansprucht A eine LEERE Ablage (kein Merkposten), und erst
+    /// danach kopiert der Nutzer.
+    #[test]
+    fn eine_fremde_uebernahme_wird_nicht_wegquittiert() {
+        let mut p = Pruefablage::neu();
+        let mut st = Prozessablage::default();
+        let mut a = wache_lage();
+        let mut b = wache_lage();
+
+        a.fern(&Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text }, &mut p);
+        assert!(a.takt(&mut st, &mut p).is_empty(), "leere Ablage, nichts anzukuendigen");
+        assert!(p.inner.beansprucht());
+
+        // Der Nutzer kopiert selbst — die Ablage gehoert wieder ihm.
+        p.inner.setzen("frisch kopiert");
+        a.ende(&mut st, &mut p);
+
+        assert_eq!(
+            b.takt(&mut st, &mut p),
+            vec![Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text }],
+            "die Aenderung des Nutzers muss den Traegerwechsel ueberleben — \
+             sonst kuendigt niemand sie an und jedes Einfuegen drueben \
+             antwortete `veraltet`"
         );
     }
 

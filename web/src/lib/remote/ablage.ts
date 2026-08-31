@@ -134,11 +134,13 @@ class RemoteAblage {
    *  kann einen Rahmen nicht noch einmal erzeugen. Ein abgelehnter Rahmen ist
    *  damit endgültig weg.
    *
-   *  **Deshalb sitzt die Vorsorge in der Drossel, nicht hier:** sie lässt eine
-   *  ganze Lieferung durch, statt sie in der Mitte zu zerschneiden (s.
-   *  `ablageDrossel.ts`). Fällt ein Stück, ist nicht ein Stück weg, sondern
-   *  die ganze Lieferung — drüben läuft dann `ABRUF_FRIST` (2 s) voll, und auf
-   *  Windows und macOS steht das einfügende Programm diese 2 s. */
+   *  **Deshalb sitzt die Vorsorge in der Drossel, nicht hier:** sie lässt die
+   *  Lieferung, die ihre Grenze überschreitet, am Stück durch, statt sie in
+   *  der Mitte zu zerschneiden (s. `ablageDrossel.ts`) — eine je Fenster, mehr
+   *  gibt der Gateway-Deckel nicht her. Fällt ein Stück, ist nicht ein Stück
+   *  weg, sondern die ganze Lieferung: drüben läuft dann `ABRUF_FRIST` (2 s)
+   *  voll, und auf Windows und macOS steht das einfügende Programm diese
+   *  2 s. */
   hinaus(data: unknown): boolean {
     if (!this.#sendSignal) return false;
     if (!this.#drossel.darf(Date.now())) return false;

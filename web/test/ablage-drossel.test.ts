@@ -29,11 +29,15 @@ test('die Drossel bleibt unter dem Sekundendeckel des Gateways', () => {
   assert.ok(durch < GATEWAY_DECKEL, `${durch} kommt dem Gateway-Deckel zu nahe`);
 });
 
-test('eine ganze Lieferung wird nie in der Mitte zerschnitten', () => {
+test('die Lieferung, die die Grenze ueberschreitet, bleibt am Stueck', () => {
   // **Der Grund fuer die Nachsicht.** Faellt ein einzelnes Stueck, ist nicht
   // ein Stueck weg, sondern die ganze Lieferung: der Sammler drueben wartet
   // auf eines, das nie kommt, bis ABRUF_FRIST_MS (2 s) ablaeuft — und auf
   // Windows und macOS steht das einfuegende Programm diese 2 s.
+  //
+  // **Es ist EINE je Fenster, nicht jede.** Wer in derselben Sekunde eine
+  // weitere hinterherschickt, verliert sie bei 42 doch — dahinter steht der
+  // harte Deckel des Gateways, und dagegen hilft nur, weniger zu schicken.
   const d = new Drossel();
   // Das Fenster ist schon voll (etwa durch einen vorigen Abruf).
   for (let i = 0; i < STUECKE_PRO_SEKUNDE; i++) assert.equal(d.darf(1000), true);

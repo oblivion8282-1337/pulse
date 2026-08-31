@@ -62,6 +62,35 @@ impl Ablagelage {
         // mehr teilen wollte. Nach `ende` waere es ausserdem ein Nachzuegler,
         // den ein spaeteres `beginnen` doch noch hinausliesse.
         self.offener_hol = None;
+        // **Ab hier wird der PROZESS-Stand angefasst — und das darf nur die
+        // Sitzung, die die Plattform auch haelt.**
+        //
+        // Eine Sitzung ohne Plattform kommt hier trotzdem vorbei:
+        // `App::ablage_abbau` ist der eine Trichter fuers Ende und ruft `ende`
+        // fuer JEDE Sitzung, nicht nur fuer den Traeger — die uebrigen bekommen
+        // [`super::super::KeineAblage`], wo `eigentuemer()` immer `false`
+        // meldet. Ohne diesen Ausstieg buchte ein reiner Zuschauer-Fenster den
+        // Stand des Traegers ab: `p.freigeben` liefe als No-Op, `p.eigentuemer()`
+        // meldete `false`, der Merkposten waere weg — und wenn danach der echte
+        // Traeger endet, ist `prozess.eigentuemer` schon `false`, der Block
+        // unten wird uebersprungen und `Eigentum::freigeben` NIE gerufen. Der
+        // Vorbestand des Nutzers kaeme nicht zurueck und die `wl_data_source`
+        // bliebe bis zum Prozessende stehen — genau der Schaden, gegen den
+        // `ablage_abbau` als Trichter gebaut ist.
+        //
+        // Alltaeglich erreichbar: ein zweites Player-Fenster als Zuschauer wird
+        // geschlossen; und `stop_all_sessions`/`exiting` laufen ueber
+        // `self.sessions.keys()`, also in HashMap-Reihenfolge. Solange
+        // `eigentuemer` an der SITZUNG hing, uebersprang der Block so eine
+        // Sitzung von selbst — mit dem Umzug auf die Prozessebene tut er das
+        // nicht mehr. **Keine Vorsichtsmassnahme, sondern die Bedingung dafuer,
+        // dass der Umzug ueberhaupt traegt.**
+        //
+        // Was DIESER Sitzung gehoert (Anspruch, geparktes Abrufen), ist oben
+        // schon geraeumt — das gilt fuer sie auch ohne Plattform.
+        if !p.wirksam() {
+            return;
+        }
         // **`prozess.eigentuemer` ist der Riegel, und er muss hier stehen.**
         // `Eigentum::freigeben` prueft, ob die Auswahl noch bei uns liegt;
         // diese Frage beantwortet die Plattform. Ob wir sie ueberhaupt je

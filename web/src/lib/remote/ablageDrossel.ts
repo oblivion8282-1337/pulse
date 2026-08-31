@@ -27,8 +27,7 @@ export const STUECKE_PRO_SEKUNDE = 30;
 export const STUECKE_JE_LIEFERUNG = 12;
 
 /**
- * Ein gleitendes Ein-Sekunden-Fenster mit **Nachsicht für eine ganze
- * Lieferung**.
+ * Ein gleitendes Ein-Sekunden-Fenster mit **Nachsicht für eine Lieferung**.
  *
  * Der Deckel gilt im Mittel, nicht hart: über die Grenze hinaus lässt die
  * Drossel noch bis zu [`STUECKE_JE_LIEFERUNG`] Stücke durch und zieht sie dem
@@ -39,6 +38,13 @@ export const STUECKE_JE_LIEFERUNG = 12;
  * einfügende Programm diese 2 s**. Ein kurzer Schwall über dem eigenen Deckel
  * ist der deutlich kleinere Preis, zumal er dem Gateway-Deckel (60) nicht
  * nahekommt.
+ *
+ * **Was das NICHT ist: eine Zusicherung, dass keine Lieferung je zerschnitten
+ * wird.** Die Nachsicht reicht für **eine** Lieferung je Fenster — genau die,
+ * die die Grenze überschreitet. Wer in derselben Sekunde eine vierte
+ * hinterherschickt, verliert sie bei 42 doch. Das ist die Grenze der
+ * Selbstdrosselung, nicht ihr Fehler: dahinter steht der harte Deckel des
+ * Gateways, und dagegen hilft nur, weniger zu schicken.
  */
 export class Drossel {
   #grenze: number;
