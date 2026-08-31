@@ -367,11 +367,17 @@ Entscheidung.
 (Die frühere Fassung dieses Absatzes behauptete „keine Fremdquelle" und zählte
 eine Abhängigkeit, wo zwei stehen — nachgesehen und berichtigt am 2026-08-31.)
 
-**Eine offene Freigabe:** der Player hat heute **keine** macOS-Abhängigkeit.
-`NSPasteboard` dort verlangt `objc2` + `objc2-app-kit` (die `objc2`-Familie
-liegt schon im mac-Sidecar, aber nicht im Player). Ohne sie bliebe der
-Steuernde auf dem Mac aussen vor. Projektregel: keine neuen Abhängigkeiten
-ohne Rückfrage — vor der Umsetzung zu klären.
+**macOS im Player — vom Nutzer freigegeben am 2026-08-31.** Der Player hatte bis
+dahin **keine** macOS-Abhängigkeit; `NSPasteboard` verlangt dort `objc2` +
+`objc2-app-kit`. Die `objc2`-Familie liegt bereits im mac-Sidecar, aber nicht im
+Player — ohne die Aufnahme bliebe der Steuernde auf dem Mac aussen vor. Die
+Projektregel („keine neuen Abhängigkeiten ohne Rückfrage") ist damit erfüllt;
+gebraucht werden sie in Plan 1c.
+
+**Die Grenze bleibt trotzdem hart:** diese Freigabe gilt für genau diese zwei
+Kisten und für diesen Zweck. Jede weitere Abhängigkeit braucht ihre eigene
+Nachmessung und ihre eigene Entscheidung — sonst rutscht die nächste mit der
+Begründung „ist ja schon eine drin" hinein.
 
 ## Prüfung
 

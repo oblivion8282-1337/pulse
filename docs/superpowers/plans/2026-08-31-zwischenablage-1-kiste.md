@@ -1801,8 +1801,10 @@ erzwingen sie, sobald die Abhängigkeit da ist. **Windows-Versions-Bump ist
 Pflicht.** Erstes echtes Ende-zu-Ende: Linux steuert Windows.
 
 **Plan 1c — macOS.** Host-Seite im `mac-hq-sidecar`, Steuernden-Seite im Player.
-Braucht vorher die Freigabe für `objc2` + `objc2-app-kit` im Player — er hat
-heute keine einzige macOS-Abhängigkeit.
+`objc2` + `objc2-app-kit` im Player sind am 2026-08-31 vom Nutzer
+**freigegeben** — der Player hatte bis dahin keine einzige
+macOS-Abhängigkeit. Die Grenze bleibt hart: die Freigabe gilt für diese zwei
+Kisten und diesen Zweck.
 
 **Stufe 2 — Dateien.** Eigener Entwurf. Die vier Rahmen bleiben; `typ:"dateien"`,
 `anzahl`/`bytes` an `neu`, Datei-Index an `hol`, und der Träger wechselt auf den
