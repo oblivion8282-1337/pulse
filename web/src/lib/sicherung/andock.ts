@@ -47,9 +47,12 @@ import {
 	lesestandLesen,
 	lesestandSchreiben,
 	dekAusZwischenlager,
+	dekZwischenlagerWischen,
 	pufferAlles,
 	pufferLegen,
 	pufferWeg,
+	pufferWischen,
+	verbindungEntfernen,
 	verbindungLesen,
 } from './geraete.ts';
 
@@ -62,6 +65,36 @@ let startVersuch: Promise<boolean> | null = null;
  * Fehlschlag wird gemerkt, damit nicht jede Nachricht einen neuen Versuch
  * kostet.
  */
+/** Baut den Spiegel (Namensraum, Puffer-Nachlauf) — ohne Schreibrecht. */
+async function baueSpiegel(dek: Uint8Array, kuerzel: string): Promise<void> {
+	const praefix = await geraeteKuerzel(kuerzel);
+	spiegel = new SicherungsSpiegel(aufbauAdapter(adapterLieferant), dek, praefix, {
+		nachSpuelung: (ergebnis, fehler, partien) => {
+			if (fehler !== null || ergebnis === null || partien.length === 0) return;
+			void pufferWeg(partien).catch(() => {
+				/* bleibt in der nächsten `pufferAlles`-Runde hängen — harmlos */
+			});
+			// Der SCHREIBER bedient alle Tabs: dessen Rest-Puffer (Zeilen
+			// anderer Tabs) wird nach jeder Spülung nachgeholt.
+			void (async () => {
+				const rest = await pufferAlles();
+				for (const zeile of rest) spiegel?.aufnehmen(zeile.kanalId, [zeile.nachricht]);
+			})().catch(() => {});
+		},
+	});
+	// Überlebte des letzten Absturzes nachholen — sie sind nie gespült.
+	const uebrig = await pufferAlles();
+	const nachKanal = new Map<string, AblageNachricht[]>();
+	for (const zeile of uebrig) {
+		const liste = nachKanal.get(zeile.kanalId) ?? [];
+		liste.push(zeile.nachricht);
+		nachKanal.set(zeile.kanalId, liste);
+	}
+	for (const [kanalId, liste] of nachKanal) {
+		spiegel.aufnehmen(kanalId, liste);
+	}
+}
+
 async function spiegelFallsBereit(): Promise<SicherungsSpiegel | null> {
 	if (spiegel !== null) return spiegel;
 	if (startVersuch !== null) {
@@ -73,28 +106,41 @@ async function spiegelFallsBereit(): Promise<SicherungsSpiegel | null> {
 			dekAusZwischenlager(),
 		]);
 		if (verbindung === null || zwischengelagert === null) return false;
-		const praefix = await geraeteKuerzel(zwischengelagert.kuerzel);
-		spiegel = new SicherungsSpiegel(aufbauAdapter(adapterLieferant), zwischengelagert.dek, praefix, {
-			nachSpuelung: (ergebnis, fehler, partien) => {
-				if (fehler === null && ergebnis !== null && partien.length > 0) {
-					void pufferWeg(partien).catch(() => {
-						/* bleibt in der nächsten `pufferAlles`-Runde hängen — harmlos */
+		// Schreibrecht: ZWEI Tabs desselben Profils teilen dasselbe Kürzel —
+		// ohne Abstimmung überschriebe der eine dem anderen per PATCH die
+		// Segmentdatei (Review 2026-08-31, Befund 4). Die Web-Locks-API
+		// macht einen Tab zum Schreiber, der andere legt nur in den
+		// gerätelokalen Puffer — der Schreiber zieht dessen Zeilen nach
+		// jeder Spülung nach. Ohne Locks-API (alte Browser) altes Verhalten.
+		const schreiber = (globalThis as { navigator?: { locks?: LockManager } }).navigator?.locks;
+		if (!schreiber) {
+			await baueSpiegel(zwischengelagert.dek, zwischengelagert.kuerzel);
+			return true;
+		}
+		schreiber
+			.request(
+				'pulse-sicherung-schreiber',
+				{ ifAvailable: true },
+				async (sperre) => {
+					if (!sperre) {
+						startVersuch = null; // später erneut versuchen
+						return;
+					}
+					await baueSpiegel(zwischengelagert.dek, zwischengelagert.kuerzel);
+					await new Promise(() => {
+						/* Schreibrecht halten, bis der Tab endet */
 					});
-				}
-			},
-		});
-		// Überlebte des letzten Absturzs nachholen — sie sind nie gespült.
-		const uebrig = await pufferAlles();
-		const nachKanal = new Map<string, AblageNachricht[]>();
-		for (const zeile of uebrig) {
-			const liste = nachKanal.get(zeile.kanalId) ?? [];
-			liste.push(zeile.nachricht);
-			nachKanal.set(zeile.kanalId, liste);
+				},
+			)
+			.catch(() => {
+				startVersuch = null;
+			});
+		// Warten, bis der Spiegel gebaut ist ODER feststeht, dass wir
+		// nicht schreiben dürfen (dann bedient der Schreiber-Tab alles).
+		for (let warte = 0; warte < 100 && spiegel === null && startVersuch !== null; warte++) {
+			await new Promise((r) => setTimeout(r, 50));
 		}
-		for (const [kanalId, liste] of nachKanal) {
-			spiegel.aufnehmen(kanalId, liste);
-		}
-		return true;
+		return spiegel !== null;
 	})();
 	return (await startVersuch) ? spiegel : null;
 }
@@ -246,6 +292,20 @@ export function sicherungVerwerfen(): void {
 	spiegel?.beenden();
 	spiegel = null;
 	startVersuch = null;
+}
+
+/**
+ * Abmeldung/Kontowechsel: was DIESES Gerät über die Sicherung weiß, muss
+ * weg — der entpackte DEK, der Google-Refresh-Token, die Verbindung und
+ * der Klartext-Puffer. Ohne diesen Lauf könnte der nächste Nutzer des
+ * Geräts Archiv und Schlüssel zusammenbringen (Befund 2, Review
+ * 2026-08-31). Der Aufrufer ist auth.svelte.ts an beiden Wisch-Stellen.
+ */
+export async function sicherungBeiAbmeldungWischen(): Promise<void> {
+	sicherungVerwerfen();
+	await verbindungEntfernen();
+	await dekZwischenlagerWischen();
+	await pufferWischen();
 }
 
 export { SCHLUESSEL_DATEI };

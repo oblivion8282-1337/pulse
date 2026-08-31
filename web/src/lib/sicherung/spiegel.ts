@@ -239,6 +239,14 @@ export class SicherungsSpiegel {
 			await this.laufend;
 		} finally {
 			this.laufend = null;
+			// Während des Laufs aufgenommene Einträge hätten keinen Timer —
+			// ohne Nachplanung warteten sie bis zum nächsten Ereignis.
+			if (this.warte.length > 0 && this.timer === null) {
+				this.timer = setTimeout(() => {
+					this.timer = null;
+					void this.spuelen();
+				}, this.verzoegerungMs);
+			}
 		}
 		return this.letztesErgebnis;
 	}

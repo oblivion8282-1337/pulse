@@ -24,5 +24,6 @@ export const OEFFENTLICHER_COMPUTER_DATENBANKEN = [
   'pulse-identity',
   'pulse-stream',
   'pulse-verlauf',
+  'pulse-sicherung',
   'pulse_presence'
 ] as const;

@@ -20,8 +20,10 @@ export const E2E_DMS_ENABLED = true;
 
 /**
  * Der Schalter fuer die Sicherung — Spiegelung des verschluesselten
- * Verlaufs ins eigene Google-Laufwerk (`lib/sicherung`). Vorgabe AUS,
- * dieselbe Bauart wie die beiden anderen: solange er aus ist, unternimmt
+ * Verlaufs ins eigene Google-Laufwerk (`lib/sicherung`). Bauart wie bei
+ * den anderen; seit dem 2026-08-31 UMGELEGT (an) nach Zwei-Fenster- und
+ * Browser-Erprobung:
+* dieselbe Bauart wie die beiden anderen: solange er aus ist, unternimmt
  * der Klient nichts — kein Andock an `verlaufSpeichernPflicht`, kein
  * Laufwerkszugriff, keine Wirkung der Einstellungssektion.
  *

@@ -133,7 +133,11 @@ export async function leseSicherungInkrementell(
 				}
 				throw fehler;
 			}
-			const { rahmen } = leseRahmenFolge(bytes.slice(SEGMENT_KOPF_LAENGE));
+			const { rahmen, abbruch } = leseRahmenFolge(bytes.slice(SEGMENT_KOPF_LAENGE));
+			if (abbruch !== null) {
+				lücken.push(`${name}: Rahmen abgebrochen bei ${abbruch.bei}`);
+				praefixSaubere = false;
+			}
 			maxSegIndex = Math.max(maxSegIndex, index);
 			for (const rahmenEinzeln of rahmen) {
 				if (rahmenEinzeln.eintragsId > maxFrameId) maxFrameId = rahmenEinzeln.eintragsId;

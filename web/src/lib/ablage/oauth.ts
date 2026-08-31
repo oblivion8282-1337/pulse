@@ -3,7 +3,8 @@
  * (Dropbox, OneDrive, Google Drive): PKCE, Autorisierungs-URL,
  * Code-Tausch und Token-Auffrischung.
  *
- * Alles ohne client_secret — alle drei Anbieter nehmen PKCE für
+ * Dropbox und OneDrive kommen ohne client_secret aus; GOOGLE verlangt
+ * eines auch für Desktop-Clients (empirisch, s. gdrive.ts).
  * öffentliche Klienten (Desktop-App). Die Tokens leben ausschließlich
  * beim Owner-Gerät; der Pulse-Server sieht sie nie (Konzept §1).
  * Wer das Fenster aufmacht und den Weiterleitungs-Code einfängt, ist

@@ -294,6 +294,10 @@ class AuthStore {
         // neuen Cert in Widerspruch.
         geraeteGeheimnisWischen(),
         geraeteKennungWischen(),
+        // Sicherungs-Wissen (DEK, Google-Token, Klartext-Puffer) gehört dem
+        // vorigen Konto — ohne Wisch brächte der nächste Nutzer Archiv und
+        // Schlüssel zusammen (Review 2026-08-31, Befund 2).
+        import('$lib/sicherung/andock').then((m) => m.sicherungBeiAbmeldungWischen()),
         clearLegacyStreamCredentials(),
       ]);
     }
@@ -390,6 +394,9 @@ class AuthStore {
     // Dieselbe Begründung wie im Kontowechsel-Pfad oben.
     void geraeteGeheimnisWischen();
     void geraeteKennungWischen();
+    // Sicherungs-Wissen (DEK, Google-Refresh-Token, Klartext-Puffer) —
+    // derselbe Grund wie im Kontowechsel-Pfad oben (Review 2026-08-31).
+    void import('$lib/sicherung/andock').then((m) => m.sicherungBeiAbmeldungWischen());
     // Self-Hosts (Hostnames + pairwise_subs) aus der gerätelokalen Liste
     // entfernen — konsistent zum Account-Switch-Pfad (_enforceDeviceOwner).
     // silent=true: kein Tresor-Push, der den Server-Tresor leeren würde.
