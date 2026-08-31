@@ -1,6 +1,7 @@
 <script lang="ts">
   import { voice } from '$lib/voice/livekit.svelte';
   import { userCache } from '$lib/stores/users.svelte';
+  import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { safeAvatarUrl } from '$lib/avatar';
   import {
     azimuthFor,
@@ -30,7 +31,19 @@
       .filter((p) => !p.isLocal && p.userId)
       .sort((a, b) => (a.userId! < b.userId! ? -1 : 1))
   );
-  let localName = $derived(voice.participants.find((p) => p.isLocal)?.name ?? m.spatial_you());
+  // `p.name` kommt von LiveKit — auf einem Self-Host ist das immer leer und
+  // faellt auf die Identity `user-<id>` zurueck (siehe CameraTile.svelte).
+  // Der eigene Name ist ueber den Nutzer-Cache immer schon bekannt.
+  const eigeneId = $derived(currentServerUserId());
+  let localName = $derived.by(() => {
+    const p = voice.participants.find((p) => p.isLocal);
+    if (!p) return m.spatial_you();
+    if (eigeneId) {
+      const u = userCache.get(eigeneId);
+      if (u) return u.display_name ?? u.username;
+    }
+    return p.name;
+  });
 
   // Push the layout into the audio engine on mount and on every slider change.
   $effect(() => {
