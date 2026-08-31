@@ -881,7 +881,7 @@ Expected: FAIL — `cannot find type Ankuendiger`.
 //! ICH habe und liefere), [`Empfaenger`] die Gegenseite (was DRUEBEN liegt und
 //! was ich davon hole). Jedes Ende haelt beide — die Richtung ist symmetrisch.
 
-use crate::format::{Grund, Inhaltstyp, MAX_TEXT_BYTE, Rahmen};
+use crate::format::{Grund, Inhaltstyp, Rahmen};
 use crate::stueckelung::{Sammler, zerlegen};
 
 /// Wie lange ein Abruf hoechstens dauern darf.
@@ -929,9 +929,10 @@ impl Ankuendiger {
         let Some(text) = inhalt else {
             return vec![Rahmen::Leer { id: *id, grund: Grund::Weg }];
         };
-        if text.len() > MAX_TEXT_BYTE {
-            return vec![Rahmen::Leer { id: *id, grund: Grund::ZuGross }];
-        }
+        // **Die Laengengrenze wird hier NICHT noch einmal geprueft.** `zerlegen`
+        // haelt sie und meldet `Err(Grund::ZuGross)`, das die Zeile darunter
+        // abbildet. Zwei Stellen, die dieselbe Grenze pruefen, laufen
+        // auseinander, sobald eine von beiden angefasst wird.
         match zerlegen(*id, text) {
             Ok(stuecke) => stuecke,
             Err(grund) => vec![Rahmen::Leer { id: *id, grund }],
@@ -1047,7 +1048,7 @@ impl Empfaenger {
 - [ ] **Step 4: Tests laufen lassen, Grün bestätigen**
 
 Run: `cd streaming/pulse-ablage && cargo test -q`
-Expected: PASS, 30 Tests.
+Expected: PASS, 32 Tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1484,7 +1485,7 @@ impl Eigentum for TestAblage {
 - [ ] **Step 4: Tests laufen lassen, Grün bestätigen**
 
 Run: `cd streaming/pulse-ablage && cargo test -q`
-Expected: PASS, 38 Tests (30 aus Task 1–3, 4 in `eigentum`, 4 im Rundlauf).
+Expected: PASS, 40 Tests (32 aus Task 1–3, 4 in `eigentum`, 4 im Rundlauf).
 
 - [ ] **Step 5: Commit**
 
@@ -1609,7 +1610,7 @@ Falls rot, sind das die beiden Methoden, um die es geht — in
 - [ ] **Step 4: Tests laufen lassen, Grün bestätigen**
 
 Run: `cd streaming/pulse-ablage && cargo test -q`
-Expected: PASS, 40 Tests.
+Expected: PASS, 42 Tests.
 
 - [ ] **Step 5: Commit**
 
