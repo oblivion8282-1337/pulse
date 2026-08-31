@@ -31,6 +31,7 @@
   import { ANBIETER_IKONE } from './anbieterIkonen.ts';
   import { adapterAusVerzeichnis, type AblageVerzeichnis } from '$lib/ablage/syncOrdner.ts';
   import { probiere, type ProbeSchritt } from '$lib/ablage/probe.ts';
+  import NextcloudVerbinden from './NextcloudVerbinden.svelte';
 
   let {
     open = false,
@@ -49,7 +50,7 @@
     dropbox: 'Mit deinem Dropbox-Konto verbinden — App-Ordner, nur Pulse sieht ihn',
     onedrive: 'Mit deinem Microsoft-Konto verbinden — versteckter App-Ordner',
     gdrive: 'Nur app-erzeugte Dateien sichtbar — dein restliches Drive bleibt privat',
-    nextcloud: 'Server-Adresse und App-Passwort angeben',
+    nextcloud: 'Freigabe-Link aus deiner Nextcloud einfügen — mehr braucht es nicht',
     sync_ordner: 'Ein lokaler Ordner — dein Dropbox-/Drive-/Nextcloud-Client trägt die Dateien hoch',
     s3: 'Hetzner, Wasabi, MinIO — Endpoint, Bucket und Schlüssel angeben',
   };
@@ -76,7 +77,7 @@
   let s3Geheimnis = $state('');
   let s3Praefix = $state('');
 
-  const brauchtFormular = $derived(auswahl === 'nextcloud' || auswahl === 's3');
+  const brauchtFormular = $derived(auswahl === 's3');
 
   function schliessen(): void {
     auswahl = null;
@@ -185,6 +186,13 @@
         <Button onclick={verbindeSyncOrdner} disabled={verbinde} data-testid="sync-ordner-wählen">
           Ordner wählen
         </Button>
+      {:else if auswahl === 'nextcloud'}
+        <NextcloudVerbinden
+          onVerbunden={(v: AblageVerbindung) => {
+            onVerbunden(v);
+            schliessen();
+          }}
+        />
       {:else}
         <p class="mb-4 text-sm text-muted-foreground">
           Die Verbindung für <strong>{auswahl}</strong> braucht die Krypto-Etappe —
