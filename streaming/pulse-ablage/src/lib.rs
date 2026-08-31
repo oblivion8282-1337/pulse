@@ -27,3 +27,4 @@
 //! im Spiel ist — siehe `tests/rundlauf.rs`.
 
 pub mod format;
+pub mod stueckelung;
