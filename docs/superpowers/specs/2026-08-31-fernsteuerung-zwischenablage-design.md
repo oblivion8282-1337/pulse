@@ -61,22 +61,43 @@ nichts.
 ### Die neue Kiste `streaming/pulse-ablage`
 
 Gebaut wie `pulse-zeigerbild`: Format und Plattform-Kniff liegen **einmal** im
-Baum, `pulse-player` und alle drei Sidecars linken dagegen. Die Begründung von
-damals gilt wörtlich — ein Format, das zweimal im Baum liegt, läuft
-irgendwann auseinander, und zwar unbemerkt.
+Baum. Die Begründung von damals gilt wörtlich — ein Format, das zweimal im
+Baum liegt, läuft irgendwann auseinander, und zwar unbemerkt.
 
 | Datei | Aufgabe |
 |---|---|
 | `format.rs` | Rahmenformat, beide Richtungen, Round-Trip-Tests |
+| `stueckelung.rs` | Zerlegen und Wiederzusammensetzen unter dem Gateway-Deckel |
 | `sitzung.rs` | Zustandsmaschine: angekündigt, unterwegs, Fristen |
 | `beobachter.rs` | Trait „meine Ablage hat sich geändert" |
-| `eigentum.rs` | Trait „ich bin Eigentümer, liefere auf Abruf" |
-| `plattform/{windows,macos,linux}.rs` | die drei Umsetzungen |
+| `eigentum.rs` | Trait „ich bin Eigentümer, liefere auf Abruf" + reine Anspruchs-Zustandsmaschine |
+| `pruefstand.rs` | Testdoppel beider Traits, für den Rundlauftest ohne Betriebssystem |
+| `plattform/{windows,macos}.rs` | die beiden Host-Umsetzungen |
 
 **Beide Enden brauchen beide Traits.** Der Steuernde beobachtet seine Ablage
 *und* besitzt sie (für das von drüben Angekündigte); der Host tut
 spiegelbildlich dasselbe. Es gibt keine Sender- und keine Empfängerseite, nur
 zwei gleiche Enden — deshalb genau eine Umsetzung.
+
+### Wer die Kiste einbindet — und wer nicht
+
+`pulse-player` (der Steuernde, auf allen drei Plattformen), `win-hq-sidecar`
+und `mac-hq-sidecar` (die Hosts).
+
+**`linux-hq-sidecar` nicht.** Linux kann heute gar nicht Host sein: `remote_input`
+gibt es nur im Windows- und im macOS-Sidecar, der Linux-Sidecar kennt die
+Operation nicht. Ein Linux-Rechner ist immer der Steuernde, und dort trägt der
+Player.
+
+**Die Linux-Umsetzung liegt deshalb im Player**, nicht in der Kiste
+(`pulse-player/src/fernsteuerung/wayland/ablage.rs`): der Player hält für die
+Zugerkennung bereits ein `wl_data_device` am Sitzplatz, und ein zweites
+verdoppelte alle Ereignisse — genau die Begründung, aus der die Zugerkennung
+schon heute mit einem einzigen Gerät für alle Fenster auskommt. Die Kiste
+liefert dorthin nur den Trait und die **reine** Anspruchs-Zustandsmaschine
+(Seriennummer-Warteschlange, s. u.), die damit ohne Compositor prüfbar bleibt.
+Windows und macOS bringen ihr eigenes verstecktes Fenster mit und sind
+selbsttragend.
 
 ### Was jede Plattform beisteuert
 
@@ -263,7 +284,12 @@ rutschte, kann hier nicht entstehen. Ein Prüfstein wie
 ## Abhängigkeiten
 
 Windows und Linux brauchen **nichts Neues**: `windows` 0.62 liegt in
-`win-hq-sidecar` und `pulse-player`, `wayland-client` 0.31 im Player.
+`win-hq-sidecar` und `pulse-player`, `wayland-client` 0.31 im Player. Die Kiste
+selbst nimmt **keine** Fremdquelle auf — `serde_json` und das handgeschriebene
+Base64 kommen über `pulse-fernsteuerung` (Pfad-Abhängigkeit, Schwesterkiste),
+die alle drei Verbraucher ohnehin schon nennen. Damit gilt weiter die Grenze
+aus `pulse-fernsteuerung/Cargo.toml`: jede weitere Abhängigkeit braucht ihre
+eigene Nachmessung.
 
 **Eine offene Freigabe:** der Player hat heute **keine** macOS-Abhängigkeit.
 `NSPasteboard` dort verlangt `objc2` + `objc2-app-kit` (die `objc2`-Familie
@@ -279,7 +305,7 @@ ohne Rückfrage — vor der Umsetzung zu klären.
 | Beziehungstest | `ABRUF_FRIST < REMOTE_DISCONNECT_GRACE_S`, mit Spiegelkonstante und Gegenprobe — wie `CLIENT_GRACE_MS` heute |
 | Gateway | `"ablage"` in `_SIGNAL_KINDS`; Deckel- und Fremd-Peer-Ablehnung |
 | `streaming/zwillinge` | Der Prüfstein zwingt die neue Kiste in die Pfad-Filter von `win-build.yml`/`mac-build.yml`/`flatpak.yml` **und** ins Flatpak-Manifest — er hat genau diesen Fehler bei `pulse-bildmarke` schon gefangen |
-| Gate | Die Kiste muss in `scripts/gate-rust.sh` landen. Ein Test, den kein Gate fährt, sieht in der Ausgabe aus wie ein grüner. |
+| Gate | **Kein Eingriff nötig** — `gate-rust.sh` fährt jede geänderte `streaming/pulse-*`-Kiste über eine Schleife, `pulse-ablage` fällt automatisch hinein. Nachgesehen 2026-08-31, nicht angenommen. |
 | **Windows-Auslieferung** | `streaming/pulse-*` steht rekursiv in der Bump-Liste → **Versions-Bump ist Pflicht**, sonst erreicht die Änderung keinen Bestandsclient |
 | Von Hand | Echtes Kopieren über zwei Maschinen, je Paarung. Nicht automatisierbar — im Testaufbau gibt es weder Sitzung noch Ablage. |
 
