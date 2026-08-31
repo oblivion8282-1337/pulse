@@ -9,7 +9,7 @@ import {
 } from '../src/lib/ablage/schreiber.ts';
 import { MANIFEST_DATEI, manifestAusDaten } from '../src/lib/ablage/manifest.ts';
 import { baueSegmentAusRahmen, segDateiName } from '../src/lib/ablage/segment.ts';
-import { leseRahmenFolge, TYP_KLARTEXT_JSON } from '../src/lib/ablage/format.ts';
+import { kodiereRahmen, leseRahmenFolge, TYP_KLARTEXT_JSON } from '../src/lib/ablage/format.ts';
 import { leseVerlauf } from '../src/lib/ablage/leser.ts';
 
 const eintraege = (...paare: [string, string][]): AblageEintrag[] =>
@@ -208,6 +208,130 @@ describe('Ablage-Schreiber: große Partien', () => {
 		const m = schreiber.stand()!;
 		assert.equal(m.segmente.length, 2);
 		assert.equal(m.letzteId, '101');
+	});
+});
+
+describe('Ablage-Schreiber: alte Rahmen aus den echten Bytes zählen', () => {
+	it('zählt Alt-Rahmen aus den tatsächlich gelesenen Bytes, nicht aus dem gecachten Manifest-Eintrag', async () => {
+		const ablage = speicherAdapter();
+		const schreiber = new AblageSchreiber(ablage, 'kanal-1');
+		await schreiber.festigen(eintraege(['100', 'erste'], ['101', 'zweite']));
+
+		// Ein anderer Schreiber hat die Segmentdatei zwischenzeitlich
+		// verlängert, ohne dass unser Manifest-Cache (`letzte.rahmen`, noch
+		// 2) davon weiß — direkt am Adapter simuliert, das Manifest bleibt
+		// unberührt.
+		const bisher = ablage.inhalte.get('seg-000000.puls')!;
+		const fremderRahmen = kodiereRahmen(102n, new TextEncoder().encode('fremd'), TYP_KLARTEXT_JSON);
+		const verlaengert = new Uint8Array(bisher.length + fremderRahmen.length);
+		verlaengert.set(bisher, 0);
+		verlaengert.set(fremderRahmen, bisher.length);
+		await ablage.schreibe('seg-000000.puls', verlaengert);
+
+		await schreiber.festigen(eintraege(['103', 'unsere']));
+
+		// Vier Rahmen: 100/101 (unser Ursprung), 102 (fremd, in den rohen
+		// Bytes vorgefunden), 103 (unser neuer Happen) — die Zahl muss aus
+		// den tatsächlichen Bytes stammen, nicht aus dem Cache (der noch 2
+		// kennt und sonst nur 3 zählen würde).
+		const m = schreiber.stand()!;
+		assert.equal(m.segmente[0].rahmen, 4);
+
+		const verlauf = await leseVerlauf(ablage);
+		assert.deepEqual(
+			verlauf.rahmen.map((r) => r.eintragsId),
+			[100n, 101n, 102n, 103n],
+		);
+		assert.deepEqual(verlauf.luecken, []);
+	});
+
+	it('verwirft einen beschädigten Rahmen-Rest am offenen Segment, statt ihn stehen zu lassen', async () => {
+		const ablage = speicherAdapter();
+		const schreiber = new AblageSchreiber(ablage, 'kanal-1');
+		await schreiber.festigen(eintraege(['100', 'erste'], ['101', 'zweite']));
+
+		// Kaputter Rest am Ende der offenen Segmentdatei — anders als beim
+		// Absturz-Test oben noch nicht durch bestandAufnehmen() berichtigt,
+		// weil dieser Schreiber schon ein offenes Manifest im Speicher hält
+		// und direkt in festigen() erneut auf die Datei trifft.
+		const bisher = ablage.inhalte.get('seg-000000.puls')!;
+		const gekappt = new Uint8Array(bisher.length + 5);
+		gekappt.set(bisher, 0);
+		gekappt.set([0x50, 0x55, 0x4c], bisher.length); // halber Rahmenkopf
+		await ablage.schreibe('seg-000000.puls', gekappt);
+
+		await schreiber.festigen(eintraege(['102', 'dritte']));
+
+		// Der kaputte Rest zählt nicht mit — 2 alte plus 1 neue, nicht 3 —
+		// und darf auch nicht als Müll in der Mitte der Datei stehen bleiben.
+		const m = schreiber.stand()!;
+		assert.equal(m.segmente[0].rahmen, 3);
+
+		const verlauf = await leseVerlauf(ablage);
+		assert.deepEqual(
+			verlauf.rahmen.map((r) => r.eintragsId),
+			[100n, 101n, 102n],
+		);
+		assert.deepEqual(verlauf.luecken, []);
+	});
+});
+
+describe('Ablage-Schreiber: Mehrgeräte-Konflikt beim Manifest', () => {
+	it('bricht ab, wenn der abgelegte Manifest-Stand weiter ist als der beim Start bekannte', async () => {
+		const ablage = speicherAdapter();
+		const schreiber = new AblageSchreiber(ablage, 'kanal-1');
+		await schreiber.festigen(eintraege(['100', 'erste']));
+
+		// Ein anderer Schreiber (zweites Gerät) hat inzwischen sein eigenes
+		// Manifest abgelegt — hier direkt am Adapter simuliert (Fassungsnummer
+		// weitergedreht), ohne dass dieser Schreiber davon erfährt.
+		const roh = JSON.parse(new TextDecoder().decode(ablage.inhalte.get(MANIFEST_DATEI)!));
+		await ablage.schreibe(
+			MANIFEST_DATEI,
+			new TextEncoder().encode(JSON.stringify({ ...roh, stand: roh.stand + 1 })),
+		);
+
+		await assert.rejects(
+			() => schreiber.festigen(eintraege(['101', 'zweite'])),
+			/Stand/,
+		);
+	});
+
+	it('erholt sich nach dem Abbruch über bestandAufnehmen(), ohne den anderen Schreiber zu verlieren', async () => {
+		const ablage = speicherAdapter();
+		const gemeinsam = new AblageSchreiber(ablage, 'kanal-1');
+		await gemeinsam.festigen(eintraege(['100', 'basis']));
+
+		const geraetA = new AblageSchreiber(ablage, 'kanal-1');
+		const geraetB = new AblageSchreiber(ablage, 'kanal-1');
+		await geraetA.bestandAufnehmen();
+		await geraetB.bestandAufnehmen();
+
+		// A festigt zuerst und kommt durch.
+		await geraetA.festigen(eintraege(['101', 'von A']));
+
+		// B kennt A's Schreiben nicht — sein Stand ist hinter dem, was jetzt
+		// auf dem Adapter liegt.
+		await assert.rejects(
+			() => geraetB.festigen(eintraege(['102', 'von B'])),
+			/Stand/,
+		);
+
+		// Erholung: neu aufnehmen und mit einer frischen Id weiterschreiben.
+		// B's abgebrochener Versuch hatte die Segmentdatei bereits (nicht
+		// destruktiv, siehe Befund 1) um seinen eigenen Rahmen verlängert,
+		// bevor der Manifest-Schreib-Konflikt auffiel — bestandAufnehmen()
+		// erkennt die davongelaufene Prüfsumme des offenen Segments und
+		// berichtigt sie, adoptiert also auch B's Rahmen aus Id 102.
+		await geraetB.bestandAufnehmen();
+		await geraetB.festigen(eintraege(['103', 'von B, nach Erholung']));
+
+		const verlauf = await leseVerlauf(ablage);
+		assert.deepEqual(
+			verlauf.rahmen.map((r) => r.eintragsId),
+			[100n, 101n, 102n, 103n],
+		);
+		assert.deepEqual(verlauf.luecken, []);
 	});
 });
 
