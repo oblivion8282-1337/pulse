@@ -8,7 +8,8 @@
  */
 
 import { entschlüsseleEintrag } from './krypto';
-import { adapterLieferant, dekAusZwischenlager, anhangDateiName } from './geraete';
+import { adapterLieferant } from './ziele';
+import { dekAusZwischenlager, anhangDateiName } from './geraete';
 
 export async function archivAnhangHolen(id: string): Promise<Blob | null> {
 	try {

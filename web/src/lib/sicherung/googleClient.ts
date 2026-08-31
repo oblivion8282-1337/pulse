@@ -22,7 +22,15 @@
 import { isElectron } from '../platform/runtime.ts';
 import { erzeugePkce, type Pkce } from '../ablage/oauth.ts';
 import { autorisierungsAdresse, tauscheCodeAus, type GdriveAnbindung } from '../ablage/gdrive.ts';
-import type { SicherungVerbindung } from './geraete.ts';
+type GdriveVerbindungRecord = {
+	ziel: 'gdrive';
+	kundenId: string;
+	kundenGeheimnis?: string;
+	weiterleitung: string;
+	ordner: string;
+	nachspieleToken: string;
+	zugangsToken: string;
+};
 
 const DESKTOP_KUNDEN_ID = import.meta.env.VITE_SICHERUNG_GDRIVE_KUNDEN_ID ?? '';
 const DESKTOP_GEHEIMNIS = import.meta.env.VITE_SICHERUNG_GDRIVE_GEHEIMNIS ?? '';
@@ -103,7 +111,7 @@ export function pruefeRueckgabe(roh: string, erwarteterState: string): string {
  * prüfen, Code gegen den Zugangs-Token tauschen. Liefert die fertige
  * gdrive-Verbindung (ohne `ziel`-Feld — das setzt der Aufrufer).
  */
-export async function googleSicherungVerbinden(): Promise<SicherungVerbindung> {
+export async function googleSicherungVerbinden(): Promise<GdriveVerbindungRecord> {
 	const bruecke = isElectron() ? ruecklaufBruecke() : null;
 	if (isElectron() && !bruecke) {
 		throw new Error('Diese Pulse-Version unterstützt die Rückkehr noch nicht.');

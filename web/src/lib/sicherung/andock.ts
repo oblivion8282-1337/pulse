@@ -42,18 +42,21 @@ import {
 } from './spiegel.ts';
 import { öffneSchluesselDatei } from './krypto.ts';
 import {
-	anhangDateiName,
 	adapterLieferant,
+	zieleBesetzt,
+	zieleLeeren,
+	zieleLesen,
+} from './ziele.ts';
+import {
+	anhangDateiName,
+	dekAusZwischenlager,
 	lesestandLesen,
 	lesestandSchreiben,
-	dekAusZwischenlager,
-	dekZwischenlagerWischen,
 	pufferAlles,
 	pufferLegen,
 	pufferWeg,
 	pufferWischen,
-	verbindungEntfernen,
-	verbindungLesen,
+	dekZwischenlagerWischen,
 } from './geraete.ts';
 
 let spiegel: SicherungsSpiegel | null = null;
@@ -101,11 +104,11 @@ async function spiegelFallsBereit(): Promise<SicherungsSpiegel | null> {
 		return (await startVersuch) ? spiegel : null;
 	}
 	startVersuch = (async () => {
-		const [verbindung, zwischengelagert] = await Promise.all([
-			verbindungLesen(),
+		const [ziele, zwischengelagert] = await Promise.all([
+			zieleLesen(),
 			dekAusZwischenlager(),
 		]);
-		if (verbindung === null || zwischengelagert === null) return false;
+		if (!zieleBesetzt(ziele) || zwischengelagert === null) return false;
 		// Schreibrecht: ZWEI Tabs desselben Profils teilen dasselbe Kürzel —
 		// ohne Abstimmung überschriebe der eine dem anderen per PATCH die
 		// Segmentdatei (Review 2026-08-31, Befund 4). Die Web-Locks-API
@@ -303,7 +306,7 @@ export function sicherungVerwerfen(): void {
  */
 export async function sicherungBeiAbmeldungWischen(): Promise<void> {
 	sicherungVerwerfen();
-	await verbindungEntfernen();
+	await zieleLeeren();
 	await dekZwischenlagerWischen();
 	await pufferWischen();
 }

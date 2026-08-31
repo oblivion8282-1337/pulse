@@ -29,19 +29,14 @@ import {
 	idbPutIdentity,
 	idbDeleteIdentity,
 } from '../identity/idb-shared.ts';
-import { gdriveAdapter, auffrischeZugang, type GdriveAnbindung } from '../ablage/gdrive.ts';
-import type { AblageAdapter } from '../ablage/adapter.ts';
-import { ordnerAdapter, ordnerZugriffOk } from './ordner.ts';
-import { TokenVorrat, type TokenNachschub } from './tokenVorrat.ts';
-import type { AblageVerzeichnis } from '../ablage/syncOrdner.ts';
 import type { WarteEintrag } from './spiegel.ts';
 import type { AblageNachricht } from '../ablage/nutzlast.ts';
+import { öffneDb, STORE_PUFFER, STORE_LESESTAND } from './ziele.ts';
+
 
 const DB_NAME = 'pulse-sicherung';
 const DB_VERSION = 2;
 const STORE_VERBINDUNG = 'verbindung';
-const STORE_PUFFER = 'puffer';
-const STORE_LESESTAND = 'leserstand';
 const VERBINDUNG_KEY = 'gdrive';
 
 /** Keys im Identity-Store (pulse-identity) — gewischt mit der Abmeldung. */
@@ -53,163 +48,8 @@ export function anhangDateiName(id: string): string {
 	return `anhang-${id}.puls`;
 }
 
-/**
- * Das Ziel der Sicherung: Google Drive (OAuth) oder ein lokaler Ordner
- * (File-System-Access-Handle — z. B. im Dropbox-/OneDrive-Sync des Nutzers).
- * Der Handle ist strukturell klonbar und darf in die IndexedDB.
- */
-export type SicherungVerbindung =
-	| {
-			ziel: 'gdrive';
-			kundenId: string;
-			/** Google verlangt es auch bei Desktop-Clients (empirisch, s. gdrive.ts). */
-			kundenGeheimnis?: string;
-			weiterleitung: string;
-			/** Drive-Ordner als Pfad, z. B. `Pulse-Sicherung`. */
-			ordner: string;
-			nachspieleToken: string;
-			/** Der Zugangs-Token aus dem Code-Tausch — kurzlebig, nur für die
-			 *  Einrichtung gedacht, damit sie nicht extra auffrischen muss. */
-			zugangsToken?: string;
-	  }
-	| { ziel: 'ordner'; verzeichnis: AblageVerzeichnis };
-
 export interface PufferZeile extends WarteEintrag {
 	schluessel: string;
-}
-
-// ---------------------------------------------------------------------------
-// Verbindung
-// ---------------------------------------------------------------------------
-
-function öffneDb(): Promise<IDBDatabase> {
-	return new Promise((resolve, reject) => {
-		const anfrage = indexedDB.open(DB_NAME, DB_VERSION);
-		anfrage.onupgradeneeded = () => {
-			const db = anfrage.result;
-			if (!db.objectStoreNames.contains(STORE_VERBINDUNG)) db.createObjectStore(STORE_VERBINDUNG);
-			if (!db.objectStoreNames.contains(STORE_PUFFER)) {
-				db.createObjectStore(STORE_PUFFER, { keyPath: 'schluessel' });
-			}
-			if (!db.objectStoreNames.contains(STORE_LESESTAND)) db.createObjectStore(STORE_LESESTAND);
-		};
-		anfrage.onsuccess = () => resolve(anfrage.result);
-		anfrage.onerror = () => reject(anfrage.error);
-	});
-}
-
-export async function verbindungLesen(): Promise<SicherungVerbindung | null> {
-	const db = await öffneDb();
-	return new Promise((resolve, reject) => {
-		const tx = db.transaction(STORE_VERBINDUNG, 'readonly');
-		const anfrage = tx.objectStore(STORE_VERBINDUNG).get(VERBINDUNG_KEY);
-		anfrage.onsuccess = () => resolve((anfrage.result as SicherungVerbindung | undefined) ?? null);
-		anfrage.onerror = () => reject(anfrage.error);
-	});
-}
-
-export async function verbindungSchreiben(eingang: SicherungVerbindung): Promise<void> {
-	// Ebene Kopie an der IDB-Grenze: ein $state-Proxy aus der Oberfläche ist
-	// nicht strukturell klonbar ("could not be cloned").
-	const v: SicherungVerbindung = { ...eingang };
-	const db = await öffneDb();
-	return new Promise((resolve, reject) => {
-		const tx = db.transaction(STORE_VERBINDUNG, 'readwrite');
-		tx.objectStore(STORE_VERBINDUNG).put(v, VERBINDUNG_KEY);
-		tx.oncomplete = () => resolve();
-		tx.onerror = () => reject(tx.error);
-	});
-}
-
-export async function verbindungEntfernen(): Promise<void> {
-	// Der Token-Bestand gehört zur Verbindung — ohne sie würde er Entfernen
-	// und Abmelde-Wisch überleben und in den Ordner der Vorgänger-Verbindung
-	// schreiben.
-	tokenVorrat.leeren();
-	const db = await öffneDb();
-	return new Promise((resolve, reject) => {
-		const tx = db.transaction(STORE_VERBINDUNG, 'readwrite');
-		tx.objectStore(STORE_VERBINDUNG).delete(VERBINDUNG_KEY);
-		tx.oncomplete = () => resolve();
-		tx.onerror = () => reject(tx.error);
-	});
-}
-
-/** Der Google-Client aus der Verbindung — für Konsent-Link und Token-Tausch. */
-export function anbindungAusVerbindung(
-	v: Extract<SicherungVerbindung, { ziel: 'gdrive' }>,
-): GdriveAnbindung {
-	return {
-		kundenId: v.kundenId,
-		...(v.kundenGeheimnis !== undefined && v.kundenGeheimnis !== ''
-			? { kundenGeheimnis: v.kundenGeheimnis }
-			: {}),
-		weiterleitung: v.weiterleitung,
-	};
-}
-
-/**
- * Ein Refresh gegen die GESPEICHERTE Verbindung — nicht gegen den Stand, den
- * der zufällig erste Aufrufer las: der Nachschub kann parallel zu „Entfernen"
- * (Abmelde-Wisch) oder einer Neueinrichtung laufen. Der neue Nachspiel-Token
- * wird nur zurückgeschrieben und der Zugang nur bestandsfähig, wenn die
- * Verbindung unangetastet blieb; sonst würde der Wisch den frischen Token
- * wieder auferstehen lassen und der Zugang würde in den Ordner einer
- * Vorgänger-Verbindung laden.
- */
-async function ladeZugang(): Promise<TokenNachschub> {
-	const v = await verbindungLesen();
-	if (v === null || v.ziel !== 'gdrive') {
-		throw new Error('Sicherung: keine Verbindung eingerichtet');
-	}
-	if (v.nachspieleToken === '') {
-		throw new Error(
-			'Google-Verbindung ohne Nachspiel-Token — bitte Verbindung entfernen und neu herstellen.',
-		);
-	}
-	const alt = v.nachspieleToken;
-	const zugang = await auffrischeZugang(anbindungAusVerbindung(v), alt);
-	const aktuell = await verbindungLesen();
-	if (aktuell === null || aktuell.ziel !== 'gdrive' || aktuell.nachspieleToken !== alt) {
-		return { ...zugang, cachebar: false };
-	}
-	if (zugang.nachspieleToken !== undefined && zugang.nachspieleToken !== alt) {
-		aktuell.nachspieleToken = zugang.nachspieleToken;
-		await verbindungSchreiben(aktuell);
-	}
-	return { ...zugang, cachebar: true };
-}
-
-const tokenVorrat = new TokenVorrat(ladeZugang);
-
-/**
- * Adapter je Aufruf, Zugangs-Token aber nur je Lebensdauer neu: der
- * gdrive-Adapter friert den Token beim Bau ein (kopf-Konstante in gdrive.ts),
- * der Bestand (tokenVorrat.ts) liefert je Aufruf einen gültigen und holt nur
- * EINMAL je Laufzeit nach. Der Ziel-Dispatch (`ziel`) bleibt unangetastet —
- * der Ordner-Weg führt kein Token und fasst den Bestand nie an.
- */
-export async function adapterLieferant(): Promise<AblageAdapter> {
-	const v = await verbindungLesen();
-	if (v === null) throw new Error('Sicherung: keine Verbindung eingerichtet');
-	if (v.ziel === 'ordner') {
-		if (!(await ordnerZugriffOk(v.verzeichnis))) {
-			throw new Error('Ordner-Zugriff verweigert — bitte in den Sicherungs-Einstellungen erneut erlauben.');
-		}
-		return ordnerAdapter(v.verzeichnis);
-	}
-	if (v.zugangsToken) {
-		// Frisch vom Code-Tausch — verbrauchen, solange er jung ist. Er umgeht
-		// den Bestand; der wird geleert, damit kein Token einer Vorgänger-
-		// Verbindung als „noch gültig" überlebt (Verbindungswechsel).
-		const token = v.zugangsToken;
-		delete v.zugangsToken;
-		await verbindungSchreiben(v);
-		tokenVorrat.leeren();
-		return gdriveAdapter({ zugangsToken: token, ordner: v.ordner });
-	}
-	const token = (await tokenVorrat.holen()).zugangsToken;
-	return gdriveAdapter({ zugangsToken: token, ordner: v.ordner });
 }
 
 // ---------------------------------------------------------------------------
@@ -348,3 +188,6 @@ function b64ZuBytes(b64: string): Uint8Array {
 	for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
 	return bytes;
 }
+
+// Der Ziel-Adapter gehört zu ziele.ts — Re-Export für bestehende Aufrufer.
+export { adapterLieferant } from './ziele.ts';

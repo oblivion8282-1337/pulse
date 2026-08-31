@@ -1,112 +1,94 @@
 <script lang="ts">
   /**
-   * Einstellungs-Reiter „Sicherung" — absichtlich klein: ein Fluss, drei
-   * Schritte, kein Fachvokabular.
+   * Einstellungs-Reiter „Sicherung" — ein Fluss, zwei mögliche Ziele:
    *
-   *   1. Mit Google verbinden (oder ist schon).
+   *   1. Ziele hinzufügen: Google Drive (OAuth) und/oder ein lokaler
+   *      Ordner (z. B. im Dropbox-/OneDrive-Sync).
    *   2. Sicherungs-Passwort: festlegen (frisches Archiv) oder eingeben
    *      (vorhandenes Archiv eines anderen Geräts).
    *   3. Fertig — bestehende lokale Nachrichten wandern einmalig ins Archiv,
    *      der Archiv-Bestand wird in den lokalen Verlauf geladen, und jede
-   *      neue verschlüsselte Nachricht wird im Hintergrund gespiegelt.
+   *      neue verschlüsselte Nachricht wird in ALLE Ziele gespiegelt.
    *
-   * Passwort-Änderung ist ein dezent weggeklickter Re-Wrap
-   * (SicherungPasswortAendern — derselbe DEK, kein altes Passwort nötig).
-   * Entfernen lässt das Archiv unangetastet im Laufwerk liegen. Mechanik:
-   * lib/sicherung.
+   * Die Ziele sind unabhängig kombiniert (Multi-Ziel, s. ziele.ts). Das
+   * Passwort wird nirgends gespeichert; ändern geht über Entfernen + neu
+   * einrichten oder den Re-Wrap-Knopf im Aktiv-Zustand.
    */
   import { SICHERUNG_ENABLED } from '$lib/krypto/schalter';
-  import { isElectron } from '$lib/platform/runtime';
-  import { Button } from '$lib/components/ui/button/index.js';
-  import {
-    sicherungClientKonfiguriert,
-    googleSicherungVerbinden,
-  } from '$lib/sicherung/googleClient';
-  import { erzeugeDek, wickleSchluesselDatei, öffneSchluesselDatei, entschlüsseleEintrag } from '$lib/sicherung/krypto';
+  import { erzeugeDek, wickleSchluesselDatei, öffneSchluesselDatei } from '$lib/sicherung/krypto';
   import { SCHLUESSEL_DATEI } from '$lib/sicherung/spiegel';
   import {
-    verbindungLesen,
-    verbindungSchreiben,
-    verbindungEntfernen,
     adapterLieferant,
+    zieleLesen,
+    zieleSchreiben,
+    zieleLeeren,
+    zielEntfernen,
+    zieleBesetzt,
+    type SicherungZiele,
+  } from '$lib/sicherung/ziele';
+  import {
     dekAusZwischenlager,
     dekZwischenlagern,
     dekZwischenlagerWischen,
     pufferWischen,
-    type SicherungVerbindung,
   } from '$lib/sicherung/geraete';
+  import { sicherungJetztSpuelen, sicherungErstsicherung, sicherungArchivLaden, sicherungVerwerfen } from '$lib/sicherung/andock';
+  import { googleSicherungVerbinden } from '$lib/sicherung/googleClient';
   import { ordnerVerzeichnisWählen, ordnerZugriffErneuern } from '$lib/sicherung/ordner';
-  import { syncOrdnerMoeglich } from '$lib/ablage/syncOrdner';
   import SicherungZiel from './SicherungZiel.svelte';
   import SicherungFormular from './SicherungFormular.svelte';
   import SicherungAktiv from './SicherungAktiv.svelte';
   import SicherungPasswortAendern from './SicherungPasswortAendern.svelte';
-  import { sicherungJetztSpuelen, sicherungErstsicherung, sicherungArchivLaden, sicherungVerwerfen } from '$lib/sicherung/andock';
 
   let zustand = $state<'pruefe' | 'verbinden' | 'passwort' | 'an'>('pruefe');
-  /** Archive existiert schon (anderes Gerät) → Passwort entpackt es. */
+  /** Archiv existiert schon (anderes Gerät) → Passwort entpackt es. */
   let neuesPasswort = $state(true);
   let meldung = $state('');
   let fehler = $state('');
   let laeuft = $state(false);
-  let verbindung = $state<SicherungVerbindung | null>(null);
+  let ziele = $state<SicherungZiele>({});
 
   $effect(() => {
     void (async () => {
-      verbindung = await verbindungLesen();
+      ziele = await zieleLesen();
       const entpackt = await dekAusZwischenlager();
-      if (verbindung === null) zustand = 'verbinden';
+      const besetzt = zieleBesetzt(ziele);
+      if (!besetzt) zustand = 'verbinden';
       else zustand = entpackt === null ? 'passwort' : 'an';
-      if (verbindung !== null) neuesPasswort = false;
       // Bereits eingerichtet? Dann den Archiv-Bestand automatisch nachladen —
-      // der Nutzer will Nachrichten SEHEN, nicht Knöpfe suchen.
+      // der Nutzer will Nachrichten SEHEN, nicht Knöpfe suchen. Probe
+      // inklusive: eine tote Verbindung wird hier sichtbar.
       if (zustand === 'an') {
-        // Verbindung probehalber benutzen: eine abgelaufene (ohne
-        // Refresh-Token) war bisher unsichtbar, weil der Spiegel Fehler
-        // stillschweigend schluckt. Hier kostet es eine Zeile Sichtbarkeit.
         try {
           await adapterLieferant();
         } catch {
-          fehler =
-            'Die Google-Verbindung ist abgelaufen — bitte unten „Entfernen“ und neu verbinden.';
+          fehler = 'Ein Ziel ist gerade nicht bedienbar — bitte Verbindung prüfen.';
         }
         void laden();
       }
     })();
   });
 
-  async function googleVerbinden(): Promise<void> {
+  /** Ziel hinzufügen (Google oder Ordner) und den Schlüssel-Stand prüfen. */
+  async function zielHinzufügen(ziel: 'gdrive' | 'ordner'): Promise<void> {
     laeuft = true;
     fehler = '';
     sicherungVerwerfen();
     try {
-      verbindung = await googleSicherungVerbinden();
+      if (ziel === 'gdrive') {
+        ziele.gdrive = await googleSicherungVerbinden();
+      } else {
+        const verzeichnis = await ordnerVerzeichnisWählen();
+        if (verzeichnis === null) {
+          laeuft = false;
+          return;
+        }
+        ziele.ordner = { verzeichnis };
+      }
+      await zieleSchreiben({ ...ziele });
       const adapter = await adapterLieferant();
       neuesPasswort = (await adapter.lese(SCHLUESSEL_DATEI)) === null;
       zustand = 'passwort';
-    } catch (e) {
-      fehler = e instanceof Error ? e.message : String(e);
-    } finally {
-      laeuft = false;
-    }
-  }
-
-  /** Ordner als Ziel: kein OAuth — Verzeichnis wählen, fertig. */
-  async function ordnerWählen(): Promise<void> {
-    laeuft = true;
-    fehler = '';
-    sicherungVerwerfen();
-    try {
-      const verzeichnis = await ordnerVerzeichnisWählen();
-      if (verzeichnis === null) return;
-      verbindung = { ziel: 'ordner', verzeichnis };
-      await verbindungSchreiben({ ...verbindung });
-      const adapter = await adapterLieferant();
-      neuesPasswort = (await adapter.lese(SCHLUESSEL_DATEI)) === null;
-      zustand = 'passwort';
-      meldung = neuesPasswort
-        ? 'Ordner gewählt. Jetzt das Sicherungs-Passwort festlegen.'
-        : 'Archiv im Ordner gefunden — bitte das Sicherungs-Passwort eingeben.';
     } catch (e) {
       fehler = e instanceof Error ? e.message : String(e);
     } finally {
@@ -136,20 +118,18 @@
           throw new Error('Mindestens 8 Zeichen, beide Felder gleich.');
         }
         dek = erzeugeDek();
-        await verbindungSchreiben({ ...verbindung! });
+        await zieleSchreiben({ ...ziele });
         const adapter = await adapterLieferant();
         await adapter.schreibe(SCHLUESSEL_DATEI, await wickleSchluesselDatei(dek, formPasswort));
       } else {
         const adapter = await adapterLieferant();
         const bytes = await adapter.lese(SCHLUESSEL_DATEI);
-        if (bytes === null) throw new Error('Schlüssel-Datei fehlt im Laufwerks-Ordner');
+        if (bytes === null) throw new Error('Schlüssel-Datei fehlt im Archiv-Ordner');
         dek = (await öffneSchluesselDatei(bytes, formPasswort)).dek;
       }
-      // Kennung wiederverwenden, wenn dieses Gerät sie schon hat — sonst
-      // splittet jedes Entsperren die eigenen Segmente in neue Namensräume.
       const kuerzel = (await dekAusZwischenlager())?.kuerzel ?? crypto.randomUUID();
       await dekZwischenlagern(dek, kuerzel);
-      sicherungVerwerfen(); // Spiegel neu bauen — das Zwischenlager hat gewechselt
+      sicherungVerwerfen();
       const gesichert = await sicherungErstsicherung();
       await sicherungJetztSpuelen();
       await laden();
@@ -164,8 +144,8 @@
 
   /** Ordner-Zugriff mit Nutzergeste erneuern (Browser fragt sonst nie wieder). */
   async function zugriffErneuern(): Promise<void> {
-    if (verbindung?.ziel !== 'ordner') return;
-    const ok = await ordnerZugriffErneuern(verbindung.verzeichnis);
+    if (ziele.ordner === undefined) return;
+    const ok = await ordnerZugriffErneuern(ziele.ordner.verzeichnis);
     if (ok) {
       fehler = '';
       zustand = 'an';
@@ -173,12 +153,13 @@
     }
   }
 
+  /** Alles entfernen — das Archiv in den Zielen bleibt unangetastet. */
   async function entfernen(): Promise<void> {
-    sicherungVerwerfen(); // laufenden Spiegel stoppen, BEVOR die Datenbanken weg sind
-    await verbindungEntfernen();
+    sicherungVerwerfen();
+    await zieleLeeren();
     await dekZwischenlagerWischen();
     await pufferWischen();
-    verbindung = null;
+    ziele = {};
     zustand = 'verbinden';
     meldung = '';
   }
@@ -191,32 +172,32 @@
     <p class="text-sm text-muted-foreground">Derzeit deaktiviert.</p>
   {:else}
     <p class="text-sm text-muted-foreground">
-      Dein verschlüsselter Nachrichten-Verlauf, gespiegelt in deinen eigenen
-      Google Drive. Ohne dein Passwort ist das Archiv für niemanden lesbar.
+      Dein verschlüsselter Nachrichten-Verlauf, gespiegelt in deine eigenen
+      Ziele. Ohne dein Passwort ist das Archiv für niemanden lesbar.
     </p>
 
     {#if zustand === 'pruefe'}
       <p class="text-sm text-muted-foreground">Prüfe …</p>
     {:else if zustand === 'verbinden'}
-      {#if !sicherungClientKonfiguriert()}
-        <p class="text-sm text-muted-foreground">
-          Die Sicherung ist in diesem Build nicht konfiguriert.
-        </p>
-      {:else}
-        <SicherungZiel laeuft={laeuft} aufGoogle={googleVerbinden} aufOrdner={ordnerWählen} />
-      {/if}
+      <SicherungZiel
+        laeuft={laeuft}
+        gdriveAktiv={ziele.gdrive !== undefined}
+        ordnerAktiv={ziele.ordner !== undefined}
+        aufGoogle={() => void zielHinzufügen('gdrive')}
+        aufOrdner={() => void zielHinzufügen('ordner')}
+      />
     {:else if zustand === 'passwort'}
       <SicherungFormular
         neu={neuesPasswort}
         laeuft={laeuft}
         aufOeffnen={oeffnen}
-        ordnerModus={verbindung?.ziel === 'ordner'}
+        ordnerModus={ziele.ordner !== undefined}
         aufZugriff={() => void zugriffErneuern()}
       />
     {:else}
       <SicherungAktiv
         meldung={meldung}
-        ordnerModus={verbindung?.ziel === 'ordner'}
+        ordnerModus={ziele.ordner !== undefined}
         aufJetztSichern={() => void sicherungJetztSpuelen()}
         aufZugriff={() => void zugriffErneuern()}
         aufEntfernen={entfernen}
