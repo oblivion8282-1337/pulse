@@ -424,6 +424,9 @@ export interface PulseApi {
    *  Anmelde-Adresse im Standardbrowser und liefert die Loopback-
    *  Rückgabe-URL mit dem Code; Main lauscht auf 127.0.0.1:9109. */
   sicherung?: {
+    /** Dynamischer Loopback-Port des Rücklauf-Zuhörers — VOR dem Bau der
+     *  Anmelde-Adresse abfragen, die Weiterleitung muss ihn tragen. */
+    oauthPort(): Promise<number>;
     oauthStart(adresse: string): Promise<string>;
   };
   notify: PulseNotifyApi;

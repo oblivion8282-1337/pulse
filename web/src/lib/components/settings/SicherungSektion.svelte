@@ -61,14 +61,14 @@
     })();
   });
 
-  function basisVerbindung(): SicherungVerbindung {
+  function basisVerbindung(weiterleitung: string): SicherungVerbindung {
     const client = sicherungClient();
     return {
       kundenId: client.kundenId,
       ...(client.kundenGeheimnis !== undefined
         ? { kundenGeheimnis: client.kundenGeheimnis }
         : {}),
-      weiterleitung: client.weiterleitung,
+      weiterleitung,
       ordner: 'Pulse-Sicherung',
       nachspieleToken: verbindung?.nachspieleToken ?? '',
     };
@@ -78,13 +78,23 @@
     laeuft = true;
     fehler = '';
     try {
-      pkce = await erzeugePkce();
-      const adresse = autorisierungsAdresse(basisVerbindung(), pkce, 'sicherung');
-      const rueckgabe = await konsentStarten(adresse);
+      // Die Weiterleitung entscheidet der Konsent-Fluss selbst (Electron:
+      // dynamischer Loopback-Port vom Main, Browser: Rückkehr-Route) — der
+      // Token-Tausch muss exakt dieselbe tragen, darum merken wir sie uns.
+      let genutzteWeiterleitung = '';
+      const rueckgabe = await konsentStarten(async (weiterleitung) => {
+        genutzteWeiterleitung = weiterleitung;
+        pkce = await erzeugePkce();
+        return autorisierungsAdresse(basisVerbindung(weiterleitung), pkce, 'sicherung');
+      });
       const treffer = /[?&]code=([^&]+)/.exec(rueckgabe);
       if (!treffer) throw new Error('Rückgabe ohne Code');
-      const zugang = await tauscheCodeAus(basisVerbindung(), decodeURIComponent(treffer[1]!), pkce);
-      verbindung = { ...basisVerbindung(), nachspieleToken: zugang.nachspieleToken ?? '' };
+      const zugang = await tauscheCodeAus(
+        basisVerbindung(genutzteWeiterleitung),
+        decodeURIComponent(treffer[1]!),
+        pkce!,
+      );
+      verbindung = { ...basisVerbindung(genutzteWeiterleitung), nachspieleToken: zugang.nachspieleToken ?? '' };
       meldung = 'Google verbunden. Jetzt das Sicherungs-Passwort setzen.';
     } catch (e) {
       fehler = e instanceof Error ? e.message : String(e);

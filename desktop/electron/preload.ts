@@ -283,9 +283,12 @@ contextBridge.exposeInMainWorld('pulse', {
   // `document.hidden || !document.hasFocus()` — main shows unconditionally so
   // there's only one source of truth for "should we toast right now".
   sicherung: {
-    /** Google-Konsent der Sicherung: öffnet die Adresse im Standardbrowser,
-     *  fängt den Loopback-Redirect ab und liefert die Rückgabe-URL (mit dem
-     *  Code) zurück — nur in Electron vorhanden, s. pulse.d.ts. */
+    /** Google-Konsent der Sicherung — nur in Electron, s. pulse.d.ts.
+     *  `oauthPort`: dynamischer Loopback-Port (Port 0 = vom OS vergeben),
+     *  damit zwei Pulse-Instanzen nicht um 9109 konkurrieren.
+     *  `oauthStart`: öffnet die Adresse im Standardbrowser und liefert die
+     *  Rückgabe-URL (mit dem Code) zurück. */
+    oauthPort: (): Promise<number> => ipcRenderer.invoke('sicherung:oauthPort'),
     oauthStart: (adresse: string): Promise<string> =>
       ipcRenderer.invoke('sicherung:oauthStart', adresse),
   },

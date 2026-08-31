@@ -23,7 +23,6 @@ import { isElectron } from '../platform/runtime.ts';
 const KUNDEN_ID = import.meta.env.VITE_SICHERUNG_GDRIVE_KUNDEN_ID ?? '';
 const GEHEIMNIS = import.meta.env.VITE_SICHERUNG_GDRIVE_GEHEIMNIS ?? '';
 
-export const LOOPBACK_RUECKLAUF = 'http://127.0.0.1:9109/ruecklauf';
 /** Lokaler Schlüssel des Rückkehr-Tabs → Einstellungssektion (Browser-Weg). */
 export const OAUTH_CODE_SPEICHER = 'pulse.sicherung-oauth-code';
 
@@ -32,32 +31,51 @@ export function sicherungClientKonfiguriert(): boolean {
 	return KUNDEN_ID !== '';
 }
 
-/** Client-Daten für `autorisierungsAdresse`/`tauscheCodeAus`. */
+/** Client-Daten für `autorisierungsAdresse`/`tauscheCodeAus`. Die
+ *  Weiterleitung setzt der Aufrufer (Electron: dynamischer Port vom Main,
+ *  Browser: die Rückkehr-Route dieses Origins). */
 export function sicherungClient(): {
 	kundenId: string;
 	kundenGeheimnis?: string;
-	weiterleitung: string;
 } {
-	const weiterleitung = isElectron()
-		? LOOPBACK_RUECKLAUF
-		: `${globalThis.location.origin}/sicherung/ruecklauf`;
 	return {
 		kundenId: KUNDEN_ID,
 		...(GEHEIMNIS !== '' ? { kundenGeheimnis: GEHEIMNIS } : {}),
-		weiterleitung,
 	};
 }
 
-/** Startet den Konsent-Fluss und liefert die Rückgabe-Adresse mit dem Code. */
-export async function konsentStarten(adresse: string): Promise<string> {
+/**
+ * Startet den Konsent-Fluss und liefert die Rückgabe-Adresse mit dem Code.
+ * `baueAdresse` bekommt die gültige Weiterleitung und baut daraus die
+ * Anmelde-Adresse — bei Electron erst NACH der Port-Abfrage, denn der Port
+ * ist dynamisch (zwei Pulse-Instanzen, zwei Ports, kein EADDRINUSE).
+ */
+export async function konsentStarten(
+	baueAdresse: (weiterleitung: string) => Promise<string> | string,
+): Promise<string> {
+	let weiterleitung: string;
+	let adresse: string;
 	if (isElectron()) {
-		const bruecke = (globalThis as { pulse?: { sicherung?: { oauthStart(a: string): Promise<string> } } })
-			.pulse;
-		if (!bruecke?.sicherung) {
+		const bruecke = (
+			globalThis as {
+				pulse?: {
+					sicherung?: {
+						oauthPort(): Promise<number>;
+						oauthStart(a: string): Promise<string>;
+					};
+				};
+			}
+		).pulse;
+		if (!bruecke?.sicherung?.oauthPort || !bruecke.sicherung.oauthStart) {
 			throw new Error('Diese Pulse-Version unterstützt die automatische Rückkehr noch nicht.');
 		}
+		const port = await bruecke.sicherung.oauthPort();
+		weiterleitung = `http://127.0.0.1:${port}/ruecklauf`;
+		adresse = await baueAdresse(weiterleitung);
 		return bruecke.sicherung.oauthStart(adresse);
 	}
+	weiterleitung = `${globalThis.location.origin}/sicherung/ruecklauf`;
+	adresse = await baueAdresse(weiterleitung);
 	// Browser: neuer Tab, die Rückkehr-Route legt den Code ab, wir warten.
 	globalThis.localStorage.removeItem(OAUTH_CODE_SPEICHER);
 	globalThis.open(adresse, '_blank', 'noopener');
