@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-31.2",
+      "date": "2026-08-31",
+      "style": "Sachlich",
+      "title": "Kamera und Bildschirmfreigabe im Sprachkanal",
+      "intro": "Zwei Kleinigkeiten bei der Wiedergabe.",
+      "items": [
+        "Das Bild einer eingeschalteten Kamera passte sich nicht an die Größe der Kachel an, sondern blieb bei seiner Ursprungsgröße. Es skaliert jetzt sauber mit.",
+        "Auf einem eigenen Server stand über der Kamera- oder Bildschirmfreigabe-Kachel manchmal nur „user“ mit einer Zahl statt des richtigen Namens. Der Name kommt jetzt zuverlässig."
+      ]
+    },
+    {
       "id": "2026-08-31",
       "date": "2026-08-31",
       "style": "Sachlich",

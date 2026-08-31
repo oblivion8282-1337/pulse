@@ -18,6 +18,7 @@
   import StreamChatPanel from '$lib/stream/components/StreamChatPanel.svelte';
   import ScreenShareDocPipView from '$lib/stream/components/ScreenShareDocPipView.svelte';
   import TileShell from '$lib/stream/components/TileShell.svelte';
+  import { userCache } from '$lib/stores/users.svelte';
   import { getDocPip, docPipSupported, adoptDocStyles } from '$lib/stream/docpip';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { toast } from 'svelte-sonner';
@@ -42,6 +43,20 @@
     name: string;
     identity: string;
   } = $props();
+
+  // `name` kommt von LiveKit (`Participant.name`) — auf einem Self-Host ist
+  // das immer der leere String, LiveKit faellt dann auf die Identity
+  // `user-<id>` zurueck. Der Nutzer-Cache kennt den echten Namen (per
+  // `streamerId`, das hier schon geparst reinkommt) — bevorzugt den, sonst
+  // bleibt `name` der Rueckfall statt eines dauerhaften "…".
+  $effect(() => {
+    if (streamerId) userCache.queue(streamerId);
+  });
+  const anzeigeName = $derived.by(() => {
+    if (!streamerId) return name;
+    const u = userCache.get(streamerId);
+    return u ? (u.display_name ?? u.username) : name;
+  });
 
   // Twitch-style in-tile chat — TileShell rendert Panel/Overlay je nach
   // Fullscreen, hier nur der Toggle-State.
@@ -115,7 +130,7 @@
       pipWindow = win;
       pipMount = mount(ScreenShareDocPipView, {
         target: win.document.body,
-        props: { track, audioTrack, streamerId, channelId, name, onReattach: reattachDocPip }
+        props: { track, audioTrack, streamerId, channelId, name: anzeigeName, onReattach: reattachDocPip }
       });
       win.addEventListener('pagehide', reattachDocPip);
     } catch (e) {
@@ -254,7 +269,7 @@
     <div class="flex flex-col items-center gap-2" data-testid="screen-share-detached-placeholder">
       <ExternalLinkIcon class="text-text-muted size-10 opacity-50" />
       <p class="text-text-bright text-sm font-medium">{m.screen_share_tile_detached_label()}</p>
-      <p class="text-text-muted text-xs">{name}</p>
+      <p class="text-text-muted text-xs">{anzeigeName}</p>
       <Button size="xs" class="mt-1" onclick={reattachDocPip}>
         {m.screen_share_tile_reattach()}
       </Button>
@@ -284,7 +299,7 @@
     containerTestid="screen-share-tile"
     testidPrefix="screen-share"
     {identity}
-    {name}
+    name={anzeigeName}
     video={videoEl}
     forceHud={audioBlocked}
     volume={audioTrack ? volume : undefined}
@@ -307,7 +322,7 @@
         bind:this={videoEl}
         autoplay
         playsinline
-        class="h-full w-full {viewport.isMobile ? 'object-contain' : 'bg-black object-contain'}"
+        class="h-full min-h-0 w-full min-w-0 {viewport.isMobile ? 'object-contain' : 'bg-black object-contain'}"
       ></video>
       <!-- hidden audio element for screen-share audio track -->
       <!-- svelte-ignore a11y_media_has_caption -->
