@@ -486,6 +486,16 @@ modules:
         dest: pulse-fernsteuerung
         skip:
           - target
+      # `pulse-ablage` seit 2026-08-31: die geteilte Zwischenablage der
+      # Fernsteuerung. Der Player ist ihr erster Verbraucher — dieselbe Falle
+      # wie bei den drei Kisten darüber, und sie schnappt nur hier zu (Mac und
+      # Windows bauen im Projektordner, wo die Kisten ohnehin nebeneinander
+      # liegen).
+      - type: dir
+        path: ../streaming/pulse-ablage
+        dest: pulse-ablage
+        skip:
+          - target
       # Der gepatchte webrtc-rs-Zweig, den `Cargo.toml` über
       # `[patch.crates-io]` als PFAD einbindet — ohne ihn bricht cargo schon
       # beim Auflösen ab.

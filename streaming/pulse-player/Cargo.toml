@@ -76,6 +76,17 @@ pulse-bildmarke = { path = "../pulse-bildmarke" }
 # parste sie mit eigenen, und kein Test hielt die beiden zusammen.
 pulse-fernsteuerung = { path = "../pulse-fernsteuerung" }
 
+# Geteilte Zwischenablage der Fernsteuerung (Rahmenformat, Stueckelung,
+# Zustandsmaschine beider Enden). Der Player ist ihr ERSTER Verbraucher; die
+# Windows- und macOS-Sidecars folgen in Plan 1b-2/1c.
+#
+# **Mit dieser Zeile laufen zwei Pruefsteine scharf**, die vorher nichts zu
+# pruefen hatten: `streaming/zwillinge/tests/{bau_ausloeser,flatpak_kisten}.rs`
+# leiten aus dieser Datei ab, dass `streaming/pulse-ablage/**` in den
+# Pfad-Filtern von `win-build.yml`/`mac-build.yml`/`flatpak.yml` und als
+# `type: dir`-Quelle im Flatpak-Manifest stehen muss.
+pulse-ablage = { path = "../pulse-ablage" }
+
 # --- Decode (LGPL-FFmpeg, dynamisch gelinkt) ---
 ffmpeg-next = { version = "8.1", default-features = false, features = [
     "codec",

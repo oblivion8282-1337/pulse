@@ -3144,6 +3144,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pulse-ablage"
+version = "0.1.0"
+dependencies = [
+ "pulse-fernsteuerung",
+ "serde_json",
+]
+
+[[package]]
 name = "pulse-bildmarke"
 version = "0.1.0"
 
@@ -3170,6 +3178,7 @@ dependencies = [
  "ffmpeg-next",
  "libloading",
  "pollster",
+ "pulse-ablage",
  "pulse-bildmarke",
  "pulse-fernsteuerung",
  "pulse-zeigerbild",

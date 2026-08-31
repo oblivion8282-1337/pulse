@@ -35,6 +35,7 @@
 //! Was gezeichnet wird — Statistik-Feld und Bedienleiste — steht in
 //! [`controls`]; hier liegt die Schleife, die entscheidet, WANN.
 
+mod ablageschalter;
 mod controls;
 mod fernbedienung;
 mod schirmkarte;
@@ -131,6 +132,11 @@ pub struct Overlay {
     /// [`Self::fern_schirme`] nur seine eigene Kopie und kann daraus weder die
     /// Lagen der anderen Fenster noch deren Sitzung ablesen.
     fern_anordenbar: bool,
+    /// Schalter „Zwischenablage teilen" im Fern-Menue (s.
+    /// [`ablageschalter`]). **Vorgabe an** — und die Vorgabe steht nur hier
+    /// zur ANZEIGE: verbindlich ist die der Sitzung (`app::ablage`), von der
+    /// dieses Feld ueber [`Self::set_ablage_teilen`] nachgezogen wird.
+    ablage_teilen: bool,
 }
 
 impl Overlay {
@@ -186,6 +192,7 @@ impl Overlay {
             fern_anfragbar: false,
             fern_schirme: Vec::new(),
             fern_anordenbar: false,
+            ablage_teilen: true,
         })
     }
 
@@ -590,6 +597,18 @@ impl Overlay {
             return;
         }
         self.fern_anordenbar = anordenbar;
+        self.input_pending = true;
+    }
+
+    /// Den Stand des Schalters „Zwischenablage teilen" nachziehen.
+    ///
+    /// **Die App ist die Quelle**, nicht das Fenster: sie fuehrt den Zustand
+    /// je Sitzung und weiss als Einzige, ob das Freigeben geklappt hat.
+    pub fn set_ablage_teilen(&mut self, an: bool) {
+        if self.ablage_teilen == an {
+            return;
+        }
+        self.ablage_teilen = an;
         self.input_pending = true;
     }
 

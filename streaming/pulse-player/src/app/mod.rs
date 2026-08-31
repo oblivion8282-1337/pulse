@@ -13,6 +13,7 @@
 // gaten — das ist die einzige Stelle ausserhalb von `app`, die etwas von hier
 // braucht. Weiter als bis zum eigenen Crate muss niemand.
 pub(crate) mod anordnen;
+pub(crate) mod ablage;
 pub mod diagnose;
 mod eingabe;
 mod requests;
@@ -297,6 +298,11 @@ struct Session {
     /// stillstehen (s. [`crate::tastensperre`]). Ausserhalb von Linux/Wayland
     /// ein leerer Wert ohne Kosten.
     tastensperre: crate::tastensperre::Tastensperre,
+    /// Die geteilte Zwischenablage dieser Fernsteuerungs-Sitzung (s.
+    /// [`ablage`]). **Schlaeft**, bis `input_capture` sie weckt — ohne
+    /// laufende Fernsteuerung wird die Ablage des Nutzers gar nicht erst
+    /// beobachtet.
+    ablage: ablage::Ablagelage,
 }
 
 pub struct App {
@@ -707,6 +713,7 @@ impl App {
                 fern_schirme: Vec::new(),
                 optionskette: None,
                 tastensperre: crate::tastensperre::Tastensperre::default(),
+                ablage: ablage::Ablagelage::default(),
             },
         );
         // Einmal zeichnen, bevor das erste Bild da ist: sonst zeigt das Fenster
@@ -1270,6 +1277,10 @@ impl App {
             // Anwenden (Fenster-Objekte, Wayland-Riegel) liegen in
             // `anordnen::fenster_anordnen` — hier wird nur aufgefangen.
             OverlayAction::FensterAnordnen => self.fenster_anordnen(id),
+            // Schalter „Zwischenablage teilen" (s. `ablage`). **Ausschalten
+            // gibt einen laufenden Anspruch frei und schreibt den Vorbestand
+            // zurueck** — nicht bloss den naechsten Anspruch unterlassen.
+            OverlayAction::AblageTeilen(an) => self.ablage_teilen_setzen(id, an),
         }
     }
 

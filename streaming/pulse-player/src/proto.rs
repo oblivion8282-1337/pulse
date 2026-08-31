@@ -174,6 +174,18 @@ pub struct Request {
     #[serde(default)]
     pub screens: Option<Vec<crate::overlay::Schirm>>,
 
+    // --- ablage ---
+    /// Ein Rahmen der geteilten Zwischenablage, unveraendert vom Renderer
+    /// durchgereicht. Gedeutet wird er hier, nicht dort — das Format lebt in
+    /// `pulse-ablage` (`crate::app::ablage`).
+    ///
+    /// **Zwei Werte darin kennt `pulse-ablage` NICHT** und darf sie auch nicht
+    /// kennen: `{"t":"neu_bitte"}` und `{"t":"ende"}` gehen nie ueber die
+    /// Leitung, sondern nur vom Renderer an die eigene Plattform. Sie werden
+    /// deshalb VOR `Rahmen::aus_json` abgefangen (s. `app::ablage`).
+    #[serde(default)]
+    pub data: Option<serde_json::Value>,
+
     /// Startwerte fuer `open` — dieselben Schluessel wie bei `set_option`.
     #[serde(default)]
     pub options: Option<PlayerOptions>,

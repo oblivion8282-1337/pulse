@@ -106,6 +106,15 @@ impl App {
                 Err(e) => self.stdout.send(&Response::err(id, e)),
             },
 
+            // Fernsteuerung: ein Rahmen der geteilten Zwischenablage. Der
+            // Player DEUTET ihn (anders als der Renderer, s. `app::ablage`) —
+            // das Format lebt in `pulse-ablage`, an genau einer Stelle im
+            // Baum.
+            "ablage" => match self.ablage(&req) {
+                Ok(()) => self.stdout.send(&Response::bare(id)),
+                Err(e) => self.stdout.send(&Response::err(id, e)),
+            },
+
             "remote_screens" => match self.remote_screens(&req) {
                 Ok(()) => self.stdout.send(&Response::bare(id)),
                 Err(e) => self.stdout.send(&Response::err(id, e)),

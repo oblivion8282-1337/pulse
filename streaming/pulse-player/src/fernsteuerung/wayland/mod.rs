@@ -100,6 +100,7 @@
 //! Zustandsfuehrung ohne Wayland-Abhaengigkeit: [`DruckNummer`] hier,
 //! `ende::Zugende`, `zug::ZugLage` und `zustand::zug_ereignis` daneben.
 
+mod ablage;
 mod ende;
 mod verbindung;
 mod zug;
@@ -109,7 +110,7 @@ use std::time::Instant;
 
 use wayland_client::globals::GlobalListContents;
 use wayland_client::protocol::{
-    wl_data_device, wl_data_device_manager, wl_data_offer,
+    wl_data_device, wl_data_device_manager, wl_data_offer, wl_data_source,
     wl_pointer::{self, ButtonState},
     wl_registry, wl_seat,
 };
@@ -139,14 +140,61 @@ delegate_noop!(Zustand: ignore wl_seat::WlSeat);
 // Der Manager hat keine Ereignisse — die Form ohne `ignore` laesst es
 // knallen, falls je eines kaeme (wie beim Inhibit-Manager der Vorlage).
 delegate_noop!(Zustand: wl_data_device_manager::WlDataDeviceManager);
-// Die Angebote selbst werden nicht ausgewertet (kein Mime-Type-Abgleich,
-// kein `receive`) — `ignore` statt der knallenden Form, weil sie ganz
-// regulaer eintreffen und entgegengenommen werden MUESSEN (s.
-// `event_created_child` unten). Zerstoert werden sie trotzdem — nicht hier
-// (das waere die REAKTION auf ihre EIGENEN Ereignisse, wie `offer`), sondern
-// im `wl_data_device`-Dispatch unten, beim `Leave` des Zugs, der sie
-// eingefuehrt hat.
-delegate_noop!(Zustand: ignore wl_data_offer::WlDataOffer);
+/// **Ausgewertet wird genau EIN Ereignis: `offer`** — welche Mime-Typen ein
+/// Angebot mitbringt. Die Zwischenablage braucht das, weil der
+/// `offer`-Ereignisstrom VOR dem `selection` kommt, das sein Angebot benennt:
+/// spaeter liesse sich nicht mehr feststellen, ob dort Text liegt, und jedes
+/// `receive` auf ein Bild liefe in die volle Lesefrist (s.
+/// [`ablage::AblageZustand::mime`]). Bis zum 2026-08-31 stand hier ein
+/// `delegate_noop!(… ignore …)` — die Angebote wurden nur entgegengenommen.
+///
+/// Alles andere (`source_actions`, `action`) bleibt unausgewertet: es gehoert
+/// zum ZIEHEN, und dessen Zugehoerigkeit entscheidet `zustand::zug_ereignis`.
+///
+/// **Zerstoert werden Angebote weiterhin nicht hier** (das waere die Reaktion
+/// auf ihre eigenen Ereignisse), sondern im `wl_data_device`-Dispatch unten:
+/// ein Zug-Angebot beim `Leave` seines Zugs, ein Auswahl-Angebot beim
+/// naechsten `selection`.
+impl Dispatch<wl_data_offer::WlDataOffer, ()> for Zustand {
+    fn event(
+        zustand: &mut Self,
+        angebot: &wl_data_offer::WlDataOffer,
+        ereignis: wl_data_offer::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let wl_data_offer::Event::Offer { mime_type } = ereignis {
+            zustand.ablage.mime(angebot, &mime_type);
+        }
+    }
+}
+
+/// Unsere EIGENE Quelle, solange wir die Auswahl halten (s. [`ablage`]).
+///
+/// `send` ist der Kern des verzoegerten Renderns: es kommt erst, wenn jemand
+/// tatsaechlich einfuegt. `cancelled` ist die einzige verlaessliche Meldung,
+/// dass ein anderer Klient die Auswahl uebernommen hat.
+///
+/// Die uebrigen Ereignisse (`target`, `action`, `dnd_drop_performed`,
+/// `dnd_finished`) gehoeren zum ZIEHEN mit einer eigenen Quelle — unser Zug
+/// faehrt `source = NULL` und erzeugt sie nie.
+impl Dispatch<wl_data_source::WlDataSource, ()> for Zustand {
+    fn event(
+        zustand: &mut Self,
+        _: &wl_data_source::WlDataSource,
+        ereignis: wl_data_source::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match ereignis {
+            wl_data_source::Event::Send { fd, .. } => zustand.ablage.send(fd),
+            wl_data_source::Event::Cancelled => zustand.ablage.abgeloest(),
+            _ => {}
+        }
+    }
+}
 
 impl Dispatch<wl_pointer::WlPointer, ()> for Zustand {
     /// Nur ein Ereignis zaehlt: der Druck. Alles andere (Loslassen, Bewegung,
@@ -183,8 +231,12 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for Zustand {
     /// Merker-Pruefung und Tests dazu). Diese Stelle uebersetzt nur noch
     /// wayland-eigene Typen in [`Zugereignis`].
     ///
-    /// `Selection`/`DataOffer` bleiben unausgewertet — die Zwischenablage ist
-    /// nicht Sache dieses Moduls.
+    /// **`Selection` gehoert seit dem 2026-08-31 der Zwischenablage** (s.
+    /// [`ablage`]) und wird an [`ablage::AblageZustand::auswahl`] gereicht —
+    /// hier stand bis dahin, sie sei nicht Sache dieses Moduls. `DataOffer`
+    /// bleibt unausgewertet: das Kindobjekt entsteht ueber
+    /// `event_created_child` unten, seine Mime-Typen kommen als eigene
+    /// `offer`-Ereignisse am Angebot selbst an.
     fn event(
         zustand: &mut Self,
         _: &wl_data_device::WlDataDevice,
@@ -197,9 +249,14 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for Zustand {
             wl_data_device::Event::Enter { id, .. } => zustand.angebot = id.clone(),
             wl_data_device::Event::Leave => {
                 if let Some(angebot) = zustand.angebot.take() {
+                    zustand.ablage.vergessen(&angebot);
                     angebot.destroy();
                 }
             }
+            // **Die Auswahl, nicht der Zug.** Sie kommt schon beim
+            // Programmstart und danach bei jedem fremden Kopieren; sie
+            // befuellt `Zustand::angebot` nie (s. dort).
+            wl_data_device::Event::Selection { id } => zustand.ablage.auswahl(id.clone()),
             _ => {}
         }
         let uebersetzt = match ereignis {

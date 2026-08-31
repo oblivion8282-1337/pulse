@@ -166,6 +166,15 @@ impl App {
             // Zug ueber ein Player-Fenster spraeche wieder fuer uns.
             self.wayland_zug_abbrechen(session_id);
         }
+        // Und die geteilte Zwischenablage schaltet mit (s. `app::ablage`): es
+        // gibt keinen eigenen Rahmen fuer den Beginn einer Sitzung, und das
+        // Ende ueber den Renderer (`{"t":"ende"}`) kommt nicht, wenn dessen
+        // Verbindung vorher abreisst.
+        //
+        // **Nach dem Block, nicht davor:** das Freigeben beim Ausschalten
+        // braucht die Wayland-Verbindung, und beim Einschalten entsteht sie
+        // erst eine Zeile hoeher.
+        self.ablage_erfassung(session_id, aktiv);
         Ok(antwort)
     }
 
@@ -357,6 +366,13 @@ impl App {
         // Stelle, an der die Aufgabenstellung `nachfassen` verortet. Auf
         // Nicht-Linux und ohne laufenden Zug ein Nichtstun.
         self.wayland_zug_nachfassen();
+        // Und die geteilte Zwischenablage im selben Durchlauf (s.
+        // `app::ablage`): sie haengt an derselben Wayland-Warteschlange, die
+        // `wayland_zug_nachfassen` gerade geleert hat — ein `selection` oder
+        // ein wartender Einfuegevorgang ist damit jetzt sichtbar und nicht
+        // erst beim naechsten Mal. Schlaeft die Ablage (keine Fernsteuerung),
+        // kostet der Aufruf ein `if` je Sitzung.
+        self.ablage_takt();
         // Den Schreiber vorher ausleihen: `send` nimmt `&self`, und darunter
         // laeuft eine veraenderliche Schleife ueber die Sitzungen.
         let stdout = self.stdout.clone();
