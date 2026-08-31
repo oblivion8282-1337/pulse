@@ -1,17 +1,48 @@
 /**
  * WebDAV-Adapter — der Weg zu Nextcloud und jedem anderen DAV-Server.
- * Zugangsdaten (Nextcloud: App-Passwort) leben ausschließlich beim Klienten;
- * die Pulse Cloud sieht sie nie (Konzept §1, Wand 3).
+ *
+ * **Der übliche Zugang ist seit dem 2026-08-31 ein Freigabe-Link**, nicht
+ * mehr ein App-Passwort: Token als Benutzername, leeres Passwort, Basis
+ * `https://<wirt>/public.php/dav/files/<token>` (siehe
+ * `freigabeLink.ts`, dort auch die Messwerte). Der frühere Weg über ein
+ * App-Passwort funktioniert weiter — dieselben Felder —, wird von der
+ * Oberfläche aber nicht mehr angeboten.
+ *
+ * Zugangsdaten leben ausschließlich beim Klienten; die Pulse Cloud sieht sie
+ * nie (Konzept §1, Wand 3).
  *
  * Ehrlich zur CORS-Realität: ein Browser unter fremder Origin bekommt von
- * Nextcloud keine CORS-Header (nextcloud/server#3131). Dieser Adapter ist
- * deshalb für die Wege gebaut, auf denen keine fremde Origin mitspielt —
- * die Desktop-App (Main-Prozess) und den Nextcloud-Owner, der seinem DAV
- * eigene CORS-Header verpasst. Für Tests ist der Transport injizierbar;
- * ein echter Server wird hier nicht gemockt, sondern ersetzt.
+ * Nextcloud keine CORS-Header (nextcloud/server#3131) — am 2026-08-31 an
+ * einer echten Instanz nachgemessen, auch am öffentlichen DAV-Endpunkt.
+ * Dieser Adapter ist deshalb für die Wege gebaut, auf denen keine fremde
+ * Origin mitspielt: die Desktop-App und die Weiterreich-Route des Servers
+ * (Entwurf §4.2). Für Tests ist der Transport injizierbar; ein echter Server
+ * wird hier nicht gemockt, sondern ersetzt.
  */
 
 import type { AblageAdapter } from './adapter.ts';
+import { AnmeldungAbgelaufenFehler } from './oauth.ts';
+
+/**
+ * Ein zurueckgezogener oder falscher Freigabe-Link antwortet mit **401**, ein
+ * leerer Ordner mit 207 — am 2026-09-01 an einer echten Nextcloud gemessen,
+ * beide Faelle nebeneinander. Der Unterschied ist wichtig genug fuer eine
+ * eigene Behandlung: ohne sie sieht ein widerrufener Link fuer die
+ * Zustandsanzeige aus wie ein voruebergehender Netzfehler, und sie meldet
+ * weiter „alles in Ordnung", waehrend nichts mehr gesichert wird.
+ *
+ * `AnmeldungAbgelaufenFehler` ist bewusst derselbe Typ wie beim abgelaufenen
+ * OAuth-Zugang: fuer den Nutzer ist beides dieselbe Lage — der Zugang gilt
+ * nicht mehr, es braucht einen neuen. Nur der Text daneben unterscheidet
+ * sich je Anbieter.
+ */
+function wirfWennZugangTot(status: number, was: string): void {
+	if (status === 401 || status === 403) {
+		throw new AnmeldungAbgelaufenFehler(
+			`der Zugang wurde abgewiesen (${status}) bei ${was} — Freigabe zurueckgezogen oder Passwort geaendert?`,
+		);
+	}
+}
 
 export interface WebdavAnbindung {
 	/** DAV-Wurzel des Benutzers, z. B. https://cloud.example/remote.php/dav/files/lena */
@@ -65,6 +96,10 @@ async function sichereOrdner(anbindung: WebdavAnbindung): Promise<void> {
 			headers: authKopf(anbindung),
 		});
 		if (!antwort.ok && antwort.status !== 405) {
+			// Auch hier, und nicht nur bei PUT: das Sichern des Ordners ist der
+			// ERSTE Aufruf jedes Schreibwegs. Ohne diese Zeile verdeckt ein
+			// toter Zugang sich selbst hinter einem gewoehnlichen MKCOL-Fehler.
+			wirfWennZugangTot(antwort.status, `MKCOL ${bisher}`);
 			throw new WebdavFehler(`MKCOL ${bisher} scheiterte: ${antwort.status}`);
 		}
 	}
@@ -133,6 +168,7 @@ export function webdavAdapter(anbindung: WebdavAnbindung): AblageAdapter {
 				});
 			}
 			if (!antwort.ok) {
+				wirfWennZugangTot(antwort.status, `PUT ${datei}`);
 				throw new WebdavFehler(`PUT ${datei} scheiterte: ${antwort.status}`);
 			}
 		},
@@ -146,6 +182,7 @@ export function webdavAdapter(anbindung: WebdavAnbindung): AblageAdapter {
 				return null;
 			}
 			if (!antwort.ok) {
+				wirfWennZugangTot(antwort.status, `GET ${datei}`);
 				throw new WebdavFehler(`GET ${datei} scheiterte: ${antwort.status}`);
 			}
 			return new Uint8Array(await antwort.arrayBuffer());
@@ -161,6 +198,7 @@ export function webdavAdapter(anbindung: WebdavAnbindung): AblageAdapter {
 				return [];
 			}
 			if (!antwort.ok) {
+				wirfWennZugangTot(antwort.status, 'PROPFIND');
 				throw new WebdavFehler(`PROPFIND scheiterte: ${antwort.status}`);
 			}
 			return namenAusMultistatus(await antwort.text());
@@ -186,6 +224,7 @@ export function webdavAdapter(anbindung: WebdavAnbindung): AblageAdapter {
 			});
 			if (antwort.status === 404) return;
 			if (!antwort.ok) {
+				wirfWennZugangTot(antwort.status, `DELETE ${datei}`);
 				throw new WebdavFehler(`DELETE ${datei} scheiterte: ${antwort.status}`);
 			}
 		},
