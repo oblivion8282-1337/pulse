@@ -56,6 +56,7 @@ import { dauerhaftenSpeicherAnfordern } from '$lib/identity/dauerhafterSpeicher'
 import { verlaufZustand } from './zustand.svelte';
 import { zusammenfuegen, type Mergeposten } from './zusammenfuegen';
 import { VerlaufSpeichernFehlgeschlagen, pruefeSpeicherErgebnis } from './speichernPflicht';
+import { archivSaetzeEinreihen } from '../ablage/archivSchreibweg.ts';
 import { directMessages } from '$lib/stores/directMessages.svelte';
 import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
 import type { Message } from '$lib/api/types';
@@ -171,7 +172,17 @@ export function verlaufSpeichernPflicht(
     // Bewusst nicht abgewartet und nicht ausgewertet — ein „Nein" aendert am
     // Ablauf nichts, und `dauerhaftenSpeicherAnfordern` wirft nie.
     void dauerhaftenSpeicherAnfordern();
-    return verlaufPutSaetze(saetze).then(() => saetze.length);
+    return verlaufPutSaetze(saetze).then(() => {
+      // Aufgabe 3 (persoenliches Archiv): ist eine Ablage-Verbindung als
+      // „mein Archiv" markiert, wandert der Satz zusaetzlich dorthin — der
+      // Browser-Speicher oben bleibt der schnelle, massgebliche Weg, das
+      // Archiv nur die zusaetzliche dauerhafte Kopie. Fire-and-forget: ein
+      // Fehlschlag dort darf dieses (bereits erfolgreich abgeschlossene)
+      // lokale Schreiben nicht rueckwirkend zu einem Fehler machen, s.
+      // `archivSchreibweg.ts`-Modulkopf.
+      archivSaetzeEinreihen(saetze);
+      return saetze.length;
+    });
   } catch (err) {
     return Promise.reject(err);
   }
