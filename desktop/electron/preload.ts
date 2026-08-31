@@ -282,6 +282,14 @@ contextBridge.exposeInMainWorld('pulse', {
   // System notifications (mention/DM toasts). The renderer gates these on
   // `document.hidden || !document.hasFocus()` — main shows unconditionally so
   // there's only one source of truth for "should we toast right now".
+  sicherung: {
+    /** Google-Konsent der Sicherung: öffnet die Adresse im Standardbrowser,
+     *  fängt den Loopback-Redirect ab und liefert die Rückgabe-URL (mit dem
+     *  Code) zurück — nur in Electron vorhanden, s. pulse.d.ts. */
+    oauthStart: (adresse: string): Promise<string> =>
+      ipcRenderer.invoke('sicherung:oauthStart', adresse),
+  },
+
   notify: {
     show: (payload: {
       title: string;

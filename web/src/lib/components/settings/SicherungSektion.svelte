@@ -11,6 +11,7 @@
    * verschlüsselte Segmente; der Server sieht gar nichts.
    */
   import { SICHERUNG_ENABLED } from '$lib/krypto/schalter';
+  import { isElectron } from '$lib/platform/runtime';
   import { Button } from '$lib/components/ui/button/index.js';
   import { erzeugePkce } from '$lib/ablage/oauth';
   import {
@@ -19,6 +20,11 @@
     auffrischeZugang,
     gdriveAdapter,
   } from '$lib/ablage/gdrive';
+  import {
+    sicherungClient,
+    sicherungClientKonfiguriert,
+    konsentStarten,
+  } from '$lib/sicherung/googleClient';
   import { erzeugeDek, wickleSchluesselDatei, öffneSchluesselDatei } from '$lib/sicherung/krypto';
   import { SCHLUESSEL_DATEI } from '$lib/sicherung/spiegel';
   import {
@@ -37,13 +43,7 @@
   import SicherungEntsperren from './SicherungEntsperren.svelte';
   import SicherungWiederherstellen from './SicherungWiederherstellen.svelte';
 
-  const WEITERLEITUNG = 'http://127.0.0.1:9109/ruecklauf';
-
   let zustand = $state<'pruefe' | 'neu' | 'passwort' | 'aktiv'>('pruefe');
-  let kundenId = $state('');
-  let kundenGeheimnis = $state('');
-  let ordner = $state('Pulse-Sicherung');
-  let code = $state('');
   let passwort = $state('');
   let passwort2 = $state('');
   let altesPasswort = $state('');
@@ -62,30 +62,27 @@
   });
 
   function basisVerbindung(): SicherungVerbindung {
+    const client = sicherungClient();
     return {
-      kundenId: kundenId.trim(),
-      ...(kundenGeheimnis.trim() ? { kundenGeheimnis: kundenGeheimnis.trim() } : {}),
-      weiterleitung: WEITERLEITUNG,
-      ordner: ordner.trim() || 'Pulse-Sicherung',
+      kundenId: client.kundenId,
+      ...(client.kundenGeheimnis !== undefined
+        ? { kundenGeheimnis: client.kundenGeheimnis }
+        : {}),
+      weiterleitung: client.weiterleitung,
+      ordner: 'Pulse-Sicherung',
       nachspieleToken: verbindung?.nachspieleToken ?? '',
     };
   }
 
-  async function anmeldungStarten(): Promise<void> {
-    fehler = '';
-    pkce = await erzeugePkce();
-    const adresse = autorisierungsAdresse(basisVerbindung(), pkce, 'sicherung');
-    window.open(adresse, '_blank', 'noopener');
-    meldung = 'Google-Seite geöffnet — nach der Zustimmung die zurückgegebene Adresse hier einfügen.';
-  }
-
-  async function codeTauschen(): Promise<void> {
-    if (!pkce || !code.trim()) return;
+  async function verbinden(): Promise<void> {
     laeuft = true;
     fehler = '';
     try {
-      const treffer = /[?&]code=([^&]+)/.exec(code.trim());
-      if (!treffer) throw new Error('Kein Code in der Eingabe gefunden');
+      pkce = await erzeugePkce();
+      const adresse = autorisierungsAdresse(basisVerbindung(), pkce, 'sicherung');
+      const rueckgabe = await konsentStarten(adresse);
+      const treffer = /[?&]code=([^&]+)/.exec(rueckgabe);
+      if (!treffer) throw new Error('Rückgabe ohne Code');
       const zugang = await tauscheCodeAus(basisVerbindung(), decodeURIComponent(treffer[1]!), pkce);
       verbindung = { ...basisVerbindung(), nachspieleToken: zugang.nachspieleToken ?? '' };
       meldung = 'Google verbunden. Jetzt das Sicherungs-Passwort setzen.';
@@ -157,22 +154,29 @@
     {#if zustand === 'pruefe'}
       <p class="text-sm text-muted-foreground">Prüfe …</p>
     {:else if zustand === 'neu'}
-      <p class="text-sm text-muted-foreground">
-        Spiegelt deinen verschlüsselten Verlauf in deinen eigenen Google Drive.
-        Ohne dein Passwort — und ohne uns — ist das Archiv unlesbar.
-      </p>
-      <input class="w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" placeholder="Google-Client-ID" bind:value={kundenId} />
-      <input class="w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" placeholder="Client-Geheimnis (optional)" bind:value={kundenGeheimnis} />
-      <input class="w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" placeholder="Ordner im Drive" bind:value={ordner} />
-      <div class="flex gap-2">
-        <Button onclick={anmeldungStarten} variant="secondary" size="sm" disabled={!kundenId.trim()}>Google-Anmeldung</Button>
-        <input class="flex-1 rounded-md border bg-transparent px-3 py-1.5 text-sm" placeholder="Zurückgegebene Adresse oder Code" bind:value={code} />
-        <Button onclick={codeTauschen} variant="secondary" size="sm" disabled={!pkce || !code.trim()}>Verbinden</Button>
-      </div>
-      {#if verbindung !== null}
-        <input class="w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" type="password" placeholder="Sicherungs-Passwort (mindestens 8 Zeichen)" bind:value={passwort} />
-        <input class="w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" type="password" placeholder="Passwort wiederholen" bind:value={passwort2} />
-        <Button onclick={einrichten} size="sm" disabled={laeuft}>{laeuft ? 'Richte ein …' : 'Sicherung aktivieren'}</Button>
+      {#if !sicherungClientKonfiguriert()}
+        <p class="text-sm text-muted-foreground">
+          Die Sicherung ist in diesem Build nicht konfiguriert
+          (VITE_SICHERUNG_GDRIVE_KUNDEN_ID fehlt beim Bau).
+        </p>
+      {:else}
+        <p class="text-sm text-muted-foreground">
+          Spiegelt deinen verschlüsselten Verlauf in deinen eigenen Google Drive.
+          Ohne dein Passwort — und ohne uns — ist das Archiv unlesbar.
+        </p>
+        <div class="flex flex-wrap items-center gap-2">
+          <Button onclick={verbinden} size="sm" disabled={laeuft}>
+            {laeuft ? 'Warte auf Google …' : 'Mit Google verbinden'}
+          </Button>
+          <span class="text-xs text-muted-foreground">
+            {isElectron() ? 'Der Browser öffnet sich — Pulse fängt die Rückkehr automatisch ab.' : 'Google öffnet sich in einem neuen Tab; am Ende kommst du hierher zurück.'}
+          </span>
+        </div>
+        {#if verbindung !== null}
+          <input class="w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" type="password" placeholder="Sicherungs-Passwort (mindestens 8 Zeichen)" bind:value={passwort} />
+          <input class="w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" type="password" placeholder="Passwort wiederholen" bind:value={passwort2} />
+          <Button onclick={einrichten} size="sm" disabled={laeuft}>{laeuft ? 'Richte ein …' : 'Sicherung aktivieren'}</Button>
+        {/if}
       {/if}
     {:else if zustand === 'passwort'}
       <SicherungEntsperren aufEntsperrt={() => (zustand = 'aktiv')} />
