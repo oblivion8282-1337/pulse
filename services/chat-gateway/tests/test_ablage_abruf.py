@@ -34,7 +34,7 @@ async def _register_user(_auth_signer) -> tuple[str, int]:
     return _auth_signer.issue_access(uid, f"u{uid}"), uid
 
 
-async def _guild_mit_ablage_kanal(client, _auth_signer):
+async def _guild_mit_ablage_kanal(client, _auth_signer, basis: str = BASIS):
     """Owner + ein zweites Mitglied; ein dritter Token bleibt bewusst
     aussen vor (Nicht-Mitglied-Fall)."""
     t_owner, _ = await _register_user(_auth_signer)
@@ -57,7 +57,7 @@ async def _guild_mit_ablage_kanal(client, _auth_signer):
 
     r = await client.put(
         f"/channels/{c['id']}/ablage/laufwerk",
-        json={"freigabe_adresse": BASIS},
+        json={"freigabe_adresse": basis},
         headers=auth(t_owner),
     )
     assert r.status_code == 204, r.text
@@ -120,7 +120,12 @@ def _abruf_grenzen_zuruecksetzen():
 @pytest.mark.asyncio
 async def test_guter_fall_liefert_das_chiffrat(client, _auth_signer, kein_dns, upstream):
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.host == "cloud.example"
+        # Die Verbindung geht an die GEPRUEFTE IP (DNS-Rebinding-Schutz,
+        # s. ablage_ssrf._url_auf_adresse_verankern), Host-Kopfzeile und
+        # Pfad zeigen trotzdem weiter auf den urspruenglichen Namen.
+        assert request.url.host == "203.0.113.10"
+        assert request.headers["host"] == "cloud.example"
+        assert request.extensions.get("sni_hostname") == "cloud.example"
         assert request.url.path == "/pub/segmente/0001.bin"
         return httpx.Response(200, content=b"chiffrat-bytes", headers={"content-type": "application/octet-stream"})
 
@@ -198,7 +203,7 @@ async def test_pfad_ausbrueche_werden_abgewiesen(client, _auth_signer, kein_dns,
 @pytest.mark.asyncio
 async def test_umleitung_auf_127_0_0_1_wird_abgewiesen(client, _auth_signer, kein_dns, upstream):
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.host == "cloud.example":
+        if request.headers["host"] == "cloud.example":
             return httpx.Response(302, headers={"location": "http://127.0.0.1:9999/geheim"})
         raise AssertionError("die Umleitung haette nie verfolgt werden duerfen")
 
@@ -218,7 +223,7 @@ async def test_umleitung_auf_privat_aufloesenden_namen_wird_abgewiesen(
     client, _auth_signer, kein_dns, upstream
 ):
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.host == "cloud.example":
+        if request.headers["host"] == "cloud.example":
             return httpx.Response(302, headers={"location": "https://boese.example/geheim"})
         raise AssertionError("die Umleitung haette nie verfolgt werden duerfen")
 
@@ -231,6 +236,65 @@ async def test_umleitung_auf_privat_aufloesenden_namen_wird_abgewiesen(
         headers=auth(t_mitglied),
     )
     assert r.status_code == 403, r.text
+
+
+# ---------------------------------------------------------------------------
+# DNS-Rebinding: die Verbindung muss an die GEPRUEFTE Adresse gebunden sein,
+# nicht an einen Namen, der beim tatsaechlichen Verbindungsaufbau ein zweites
+# Mal (und diesmal anders) aufgeloest werden koennte.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def wackelnder_resolver(monkeypatch):
+    """Simuliert einen vom Angreifer kontrollierten Nameserver mit sehr
+    kurzer Gueltigkeit: der ERSTE Aufruf liefert eine oeffentliche Adresse
+    (besteht die Pruefung), jeder WEITERE eine private (das eigentliche
+    Ziel). Ohne Bindung an die geprueften Adresse wuerde ein Verbindungs-
+    aufbau, der den Namen selbst noch einmal aufloest, auf der privaten
+    Adresse landen."""
+    aufrufe = {"n": 0}
+
+    async def _resolver(host: str) -> list[str]:
+        aufrufe["n"] += 1
+        if host != "wackel.example":
+            raise OSError(f"unerwarteter Host im Test: {host}")
+        if aufrufe["n"] == 1:
+            return ["203.0.113.20"]  # oeffentlich - besteht die Pruefung
+        return ["10.9.9.9"]  # 10/8 - das eigentliche, private Ziel
+
+    monkeypatch.setattr(ablage_ssrf, "standard_resolver", _resolver)
+    return aufrufe
+
+
+@pytest.mark.asyncio
+async def test_dns_rebinding_wird_nicht_ausgenutzt(
+    client, _auth_signer, wackelnder_resolver, upstream
+):
+    def handler(request: httpx.Request) -> httpx.Response:
+        # Die tatsaechliche Verbindung geht an die beim einzigen Resolver-
+        # Aufruf geprueften Adresse - niemals an die private, die ein
+        # zweiter Lookup geliefert haette.
+        assert request.url.host == "203.0.113.20"
+        assert request.headers["host"] == "wackel.example"
+        return httpx.Response(200, content=b"chiffrat-bytes")
+
+    upstream(handler)
+    _, t_mitglied, _, cid = await _guild_mit_ablage_kanal(
+        client, _auth_signer, basis="https://wackel.example/pub"
+    )
+
+    r = await client.get(
+        f"/channels/{cid}/ablage/abruf",
+        params={"pfad": "x"},
+        headers=auth(t_mitglied),
+    )
+    assert r.status_code == 200, r.text
+    assert r.content == b"chiffrat-bytes"
+    # Genau EIN Resolver-Aufruf fuer die gesamte Anfrage: kein zweiter
+    # Lookup beim Verbindungsaufbau, der die private Adresse haette liefern
+    # koennen.
+    assert wackelnder_resolver["n"] == 1
 
 
 # ---------------------------------------------------------------------------

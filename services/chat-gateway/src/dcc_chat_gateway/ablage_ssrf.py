@@ -145,12 +145,21 @@ async def standard_resolver(host: str) -> list[str]:
     return ergebnis
 
 
-async def pruefe_ziel_oeffentlich(url: str, resolver: Resolver) -> None:
+async def pruefe_ziel_oeffentlich(url: str, resolver: Resolver) -> str:
     """Wirft, wenn der Host von ``url`` — direkt als IP oder ueber DNS
     aufgeloest — in ein privates/link-lokales Netz zeigt. Wird vor JEDER
     Anfrage gerufen: der ersten UND einer einmal gefolgten Umleitung. Ein
     DNS-Name kann auf eine private Adresse zeigen — deshalb wird die
-    AUFGELOESTE Adresse geprueft, nie nur der Name."""
+    AUFGELOESTE Adresse geprueft, nie nur der Name.
+
+    Gibt die geprueften Adresse zurueck (die erste aus der Aufloesung, falls
+    mehrere). Der Aufrufer VERBINDET sich anschliessend genau an diese
+    Adresse (``_url_auf_adresse_verankern``) — ``httpx`` loest den Namen beim
+    Verbindungsaufbau sonst ein zweites Mal auf, und zwischen den beiden
+    Aufloesungen koennte ein kurzlebiger DNS-Eintrag von einer oeffentlichen
+    auf eine private Adresse umschalten (DNS-Rebinding). Da hier bereits ALLE
+    aufgeloesten Adressen als oeffentlich geprueft wurden (nicht nur die
+    erste), ist die Wahl der ersten fuer die Bindung unbedenklich."""
     geteilt = urllib.parse.urlsplit(url)
     if geteilt.scheme not in ("http", "https"):
         raise AblageAbrufFehler("ziel_schema")
@@ -167,6 +176,37 @@ async def pruefe_ziel_oeffentlich(url: str, resolver: Resolver) -> None:
             raise AblageAbrufFehler("ziel_unaufloesbar") from exc
     if not adressen or any(ist_privat(a) for a in adressen):
         raise AblageAbrufFehler("ziel_privat")
+    return adressen[0]
+
+
+def _url_auf_adresse_verankern(url: str, adresse: str) -> tuple[str, str]:
+    """Ersetzt den Host in ``url`` durch die gepruefte ``adresse`` (eine IP) —
+    Port/Pfad/Query/Schema bleiben unveraendert. Gibt ``(verankerte_url,
+    urspruenglicher_host)`` zurueck.
+
+    Der urspruengliche Host geht NICHT verloren: der Aufrufer setzt ihn als
+    ``Host``-Kopfzeile (fuer virtuelle Hosts beim Upstream) und — bei HTTPS —
+    als ``sni_hostname``-Extension. ``httpx``/``httpcore`` benutzen dieselbe
+    ``server_hostname``-Angabe sowohl fuer die SNI-Erweiterung als auch fuer
+    den Zertifikats-Hostnamen-Abgleich (``httpcore._async.connection``,
+    ``_connect``) — die Zertifikatspruefung bleibt damit voll intakt, sie
+    prueft nur gegen den Namen statt gegen die IP, an die tatsaechlich
+    verbunden wird."""
+    geteilt = urllib.parse.urlsplit(url)
+    host = geteilt.hostname
+    if not host:
+        raise AblageAbrufFehler("ziel_ungueltig")
+    if geteilt.username:
+        # Kommt bei einer server-eigenen Basis-Adresse nie vor — fail closed
+        # statt eine Nutzerinfo-Komponente stillschweigend zu verwerfen.
+        raise AblageAbrufFehler("ziel_ungueltig")
+    netloc = f"[{adresse}]" if ":" in adresse else adresse
+    if geteilt.port is not None:
+        netloc = f"{netloc}:{geteilt.port}"
+    verankert = urllib.parse.urlunsplit(
+        (geteilt.scheme, netloc, geteilt.path, geteilt.query, geteilt.fragment)
+    )
+    return verankert, host
 
 
 # ---------------------------------------------------------------------------
@@ -181,13 +221,21 @@ class AbrufErgebnis:
 
 
 async def _hole_einmal(
-    client: httpx.AsyncClient, url: str, max_bytes: int
+    client: httpx.AsyncClient, verankerte_url: str, urspruenglicher_host: str, max_bytes: int
 ) -> tuple[bytes, str | None, str | None]:
-    """Ein einzelner GET. Liefert entweder ``(bytes, content_type, None)``
-    oder — bei einer Umleitung — ``(b"", None, ziel)``. Bricht ab, sobald der
-    Koerper ``max_bytes`` ueberschreitet, auch wenn ``Content-Length`` fehlt
-    oder luegt (Chunked-Transfer)."""
-    async with client.stream("GET", url) as antwort:
+    """Ein einzelner GET GEGEN DIE GEPRUEFTE IP (``verankerte_url``, aus
+    ``_url_auf_adresse_verankern``) — kein zweiter DNS-Lookup zwischen
+    Pruefung und Verbindung. ``Host``-Kopfzeile und SNI werden explizit auf
+    ``urspruenglicher_host`` gesetzt, damit Upstream-Routing und
+    Zertifikatspruefung trotzdem gegen den Namen laufen. Liefert entweder
+    ``(bytes, content_type, None)`` oder — bei einer Umleitung — ``(b"",
+    None, ziel)``. Bricht ab, sobald der Koerper ``max_bytes`` ueberschreitet,
+    auch wenn ``Content-Length`` fehlt oder luegt (Chunked-Transfer)."""
+    headers = {"Host": urspruenglicher_host}
+    extensions = {"sni_hostname": urspruenglicher_host}
+    async with client.stream(
+        "GET", verankerte_url, headers=headers, extensions=extensions
+    ) as antwort:
         if antwort.status_code in (301, 302, 303, 307, 308):
             ort = antwort.headers.get("location")
             if not ort:
@@ -239,12 +287,14 @@ async def hole(
     )
     try:
         async with asyncio.timeout(timeout_s):
-            await pruefe_ziel_oeffentlich(url, tatsaechlicher_resolver)
-            inhalt, typ, ort = await _hole_einmal(client, url, max_bytes)
+            adresse = await pruefe_ziel_oeffentlich(url, tatsaechlicher_resolver)
+            verankert, host = _url_auf_adresse_verankern(url, adresse)
+            inhalt, typ, ort = await _hole_einmal(client, verankert, host, max_bytes)
             if ort is not None:
                 neue_url = urllib.parse.urljoin(url, ort)
-                await pruefe_ziel_oeffentlich(neue_url, tatsaechlicher_resolver)
-                inhalt, typ, ort2 = await _hole_einmal(client, neue_url, max_bytes)
+                neue_adresse = await pruefe_ziel_oeffentlich(neue_url, tatsaechlicher_resolver)
+                neu_verankert, neuer_host = _url_auf_adresse_verankern(neue_url, neue_adresse)
+                inhalt, typ, ort2 = await _hole_einmal(client, neu_verankert, neuer_host, max_bytes)
                 if ort2 is not None:
                     raise AblageAbrufFehler("zu_viele_umleitungen")
             return AbrufErgebnis(inhalt, typ)
