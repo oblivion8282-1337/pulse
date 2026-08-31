@@ -366,7 +366,7 @@ Vier Dinge, die man beim Lesen sucht:
 
 **Was geprüft ist und was nicht.** Die Rechnung darüber steht vollständig in
 `streaming/pulse-ablage` — Zustandsführung (`lage`) und Buchführung über eigene
-und fremde Änderungen (`stand`), zusammen 86 Tests der Kiste. `gate-rust.sh`
+und fremde Änderungen (`stand`), zusammen 88 Tests der Kiste. `gate-rust.sh`
 fährt sie, **wenn die Kiste angefasst wurde** (er nimmt jede geänderte
 `streaming/pulse-*`, nicht jede vorhandene). In diesem Verzeichnis liegt kein
 einziger Test mehr: was hier steht, ist Betriebssystem, und `cargo test` dieses

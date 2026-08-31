@@ -65,11 +65,15 @@ Verwandt: `docs/standplatz-geraete.md` (Fernsteuerung ohne Aufsicht),
 - **Sichtbarkeit und Wirkung eines Knopfes müssen aus denselben Daten kommen.** Der Anordnen-Knopf erschien auf drei Wegen, auf denen er nachweislich nichts tun konnte, weil Anzeige- und Arbeitsbedingung an zwei Stellen unabhängig formuliert waren und kein Test sie verband.
 - **`list_monitors` meldet auch `x`/`y`** (Windows `GetMonitorInfoW`, macOS `CGDisplayBounds`; gleiche Feldnamen, die Web-Seite verzweigt nicht nach Plattform). Linux bleibt aussen vor (leere Liste). Negative Werte sind **gültig** — ein Monitor links vom Hauptbildschirm.
 
-**Geteilte Zwischenablage (im Bau, seit 2026-08-31)** — Text, beidseitig, über
+**Geteilte Zwischenablage (seit 2026-08-31)** — Text, beidseitig, über
 **verzögertes Rendern**: beim Kopieren geht nur eine Ankündigung mit einer
 Generationsnummer hinüber, der Inhalt erst, wenn drüben jemand tatsächlich
 einfügt. Entwurf `docs/superpowers/specs/2026-08-31-fernsteuerung-zwischenablage-design.md`,
 Kern in `streaming/pulse-ablage` (dort auch das README).
+
+**Wer sie heute hat, genau:** als **Host** Windows und macOS; als **Steuernder**
+Linux (Wayland) und macOS. Die eine Lücke ist der **Steuernde auf Windows** —
+dort liegt die Umsetzung im Sidecar, und der läuft beim Steuernden nicht.
 - **Die Sofort-Spiegelung ist verworfen, nicht vergessen.** Sie legt alles, was
   während einer Sitzung lokal kopiert wird, im selben Moment auf den fremden
   Rechner — auch ein Passwort aus dem Passwortmanager, das mit der Sitzung
@@ -88,20 +92,52 @@ Kern in `streaming/pulse-ablage` (dort auch das README).
   beim ersten Anspruch gemerkt und bei Sitzungsende zurückgeschrieben.
 - **Linux ist immer der Steuernde** — `remote_input` gibt es nur im Windows-
   und macOS-Sidecar.
-- **Ein Träger je Maschine, gewählt im Renderer des Hosts** (seit 2026-08-31,
-  Windows). Dort läuft ein Sidecar-Prozess je Stream-Platz, die Zwischenablage
-  ist aber maschinenweit — beanspruchten alle, überschrieben sie sich
-  gegenseitig. Gewählt wird, wo die Plätze zusammenlaufen: im Renderer
+- **Ein Träger je Maschine, gewählt im Renderer des Hosts** (seit 2026-08-31).
+  Dort läuft ein Sidecar-Prozess je Stream-Platz, die Zwischenablage ist aber
+  maschinenweit — beanspruchten alle, überschrieben sie sich gegenseitig.
+  Gewählt wird, wo die Plätze zusammenlaufen: im Renderer
   (`web/src/lib/remote/ablageTraeger.ts`), wörtlich dieselbe Auflösung wie beim
   Vorrang. Der Anstoss `beginn` weckt den Gewählten — **erst er stellt dessen
-  Fensterfaden auf**, alle übrigen rühren die Ablage nie an. Und: der
-  Windows-Sidecar **beendet sich nach `stop`**, endet also der Träger-Stream,
-  stirbt sein Prozess und es wird neu gewählt.
+  Fenster- (Windows) bzw. Eigner-Faden (macOS) auf**, alle übrigen rühren die
+  Ablage nie an.
+- **Der abgelöste Träger muss abgemeldet werden — auf macOS.** Der
+  Windows-Sidecar beendet sich nach `stop`, sein Prozessende gibt die Ablage
+  frei, und ihm etwas zu schicken startete nur einen frischen Prozess. **Der
+  mac-Sidecar bleibt über Streams hinweg warm** (`dispatch.rs`: kein
+  `exit_after`) — ohne ein `ende` hielte er die Zwischenablage des Nutzers bis
+  zum App-Ende belegt, also leer. Er bekommt es über `gsr:ablageEnde`, und der
+  Riegel dagegen, dass dieser Weg auf Windows einen Prozess startet, ist
+  `sidecarRunning` im Hauptprozess. **Ohne `process.platform`-Zweig, mit
+  Absicht:** ob der alte Prozess noch lebt, IST der Unterschied zwischen den
+  beiden Plattformen; ein zweiter Zweig wäre eine zweite Behauptung über
+  dieselbe Sache. Zusätzlich gibt der mac-Sidecar seine Ablage schon bei `stop`
+  frei — derselbe Augenblick, in dem der Windows-Prozess stirbt, nur ohne Tod,
+  und unabhängig davon, ob der Renderer es gerade mitbekommt (Chromium drosselt
+  Zeitgeber in verdeckten Fenstern auf einen Lauf je Minute).
 - **Der Takt darf nicht auf dem Faden liegen, der den Rückruf beantwortet.**
   Auf Windows blockiert `WM_RENDERFORMAT` diesen Faden, solange das einfügende
   Programm wartet — und genau dann muss die Abruf-Frist weiterlaufen, denn sie
   ist es, die dort die leere Antwort zustellt. Deshalb zwei eigene Fäden im
-  Sidecar (`src/ablage/`), nicht einer.
+  Sidecar (`src/ablage/`), nicht einer. Auf macOS gilt es wörtlich genauso, nur
+  heisst der Rückruf `pasteboard:provideDataForType:` und der Faden trägt eine
+  eigene Run-Loop statt eines Nachrichtenfensters.
+- **Wo die Plattform-Umsetzung liegt, entscheidet die Zahl der Rollen.** Wayland
+  liegt im Player und Windows im Sidecar, weil dort jede Plattform genau EINEN
+  Verbraucher hat. **macOS hat zwei** — Sidecar als Host, Player als Steuernder
+  —, und weil beide Hälften einer Zwischenablage spiegelbildlich gleich sind,
+  liegt die macOS-Umsetzung in der Kiste (`pulse_ablage::plattform::macos`).
+  Nebenwirkung, die man kennen muss: **auf Windows kann der Steuernde nichts
+  teilen**; dort trägt nur der Sidecar, und der läuft beim Steuernden nicht.
+- **macOS pollt, und zwar richtigerweise.** Eine Änderungs-Benachrichtigung gibt
+  es dort nicht — `NSPasteboard.changeCount` wird alle 200 ms abgefragt (liest
+  **keinen Inhalt**, nur eine Zahl). Folge für die gemeinsame Buchführung: der
+  Zähler `Ablagestand::erwartet`, der eigene Änderungen vormerkt, bis ihre
+  MELDUNG eintrifft, ist auf einem Poll nicht bloss überflüssig, sondern falsch
+  in der gefährlichen Richtung — der Poll-Faden läuft nebenher und kann den
+  eigenen Stand vor dem Vormerken sehen, womit der Zähler die nächste echte
+  Kopie des Nutzers schluckte. macOS quittiert die eigene Änderung deshalb
+  selbst (`selbst_geaendert_quittiert`): `declareTypes`/`clearContents` liefern
+  den neuen Zählerstand zurück, und der wird als „gesehen" abgelegt.
 - **Die Frist wird VOR dem nächsten Abruf geprüft** (`pulse_ablage::lage::takt`,
   Schritt 2 vor Schritt 3). Andersherum war die Kopplung wirkungslos:
   `Empfaenger::abrufen` räumt einen abgelaufenen Vorgänger selbst und begann

@@ -126,6 +126,7 @@ none.
 | `keyframe`               | real   | keyframe on request                              |
 | `remote_input`           | real   | remote control: feed input frames                |
 | `remote_input_end`       | real   | remote control: close the session                |
+| `ablage`                 | real   | geteilte Zwischenablage (`crate::ablage`, Umsetzung in `pulse_ablage::plattform::macos`) |
 
 **Platform difference vs Windows:** the mac sidecar does **not** exit after a
 successful `stop`. The Windows sidecar self-exits (a driver threadpool-timer AV)
@@ -141,6 +142,7 @@ second in-process capture session, add `'darwin'` to the respawn gate in
 |---|---|---|
 | `remote_state` | `state`, `hold_ms` / `reason` | session state: `host_active` / `live` / `input_error` |
 | `remote_pointer` | `shape`, optional `bild` | the host cursor's shape. On macOS `shape` is always `default` and the picture carries the information — the platform has no name mapping (`src/remote_input/zeigerform.rs`). The renderer forwards it as `remote_signal` `kind:"zeiger"`. |
+| `ablage` | `data` | ein Rahmen der geteilten Zwischenablage, der zur Gegenseite soll — **ohne Sitzungsnummer**, die Ablage gehört der Maschine. Der Renderer reicht ihn als `remote_signal` `kind:"ablage"` weiter. |
 | `remote_pointer_in_frame` | `aktiv` (bool) | **macOS only, since 2026-08-23.** The pointer query returned nothing, so the host cursor was put back into the capture and rides along in the video; the controller must hide his own local one (`aktiv:false` = back to normal). The renderer forwards it as `remote_signal` `kind:"zeiger_im_bild"` with `data:{"aktiv":…}`. Why it exists: `NSCursor.currentSystemCursor` is deprecated and the SDK header says it will return `nil` in a future macOS — this makes the feature *age* instead of failing. |
 
 Two things about `remote_pointer_in_frame` that are easy to get wrong:

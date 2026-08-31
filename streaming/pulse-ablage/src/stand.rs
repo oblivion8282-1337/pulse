@@ -14,9 +14,13 @@
 //! verloren = unverbuchte Aenderung, nur Text zaehlt, ein Wechsel verwirft ein
 //! gelesenes Ergebnis) und die beiden Handschlaege (Rendervorgang, Lesevorgang)
 //! gelten ueberall. Der Zaehler [`Ablagestand::erwartet`] ist dagegen an einer
-//! **Meldung** aufgehaengt; macOS hat keine, dort wird `changeCount` gepollt
-//! (Plan 1c). Ob 1c denselben Zaehler benutzt oder seinen eigenen Stand merkt,
-//! ist offen — **die Datei behauptet das nicht im Voraus.**
+//! **Meldung** aufgehaengt; macOS hat keine, dort wird `changeCount` gepollt.
+//!
+//! **Beantwortet in Plan 1c** (die Frage stand hier bis zum 2026-08-31 offen):
+//! macOS benutzt den Zaehler NICHT, sondern quittiert seine eigene Aenderung
+//! selbst ([`Ablagestand::selbst_geaendert_quittiert`]). Auf einem Poll waere
+//! `erwartet` nicht bloss ueberfluessig, sondern falsch — Begruendung an jener
+//! Methode.
 //!
 //! **Die Invariante, die diese Struktur traegt:** die Sperre darum wird **nie
 //! ueber einen Aufruf ans Betriebssystem gehalten**. Auf Windows schickt

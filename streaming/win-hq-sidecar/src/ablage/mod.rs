@@ -7,8 +7,8 @@
 //! mit dem Sidecar — welcher Rahmen wohin, wer taktet, wann Schluss ist.
 //!
 //! **Was hier NICHT liegt, und das ist der groessere Teil:** die
-//! Zustandsfuehrung (`pulse_ablage::lage`, 27 Tests) und die Buchfuehrung
-//! ueber eigene und fremde Aenderungen (`pulse_ablage::stand`, 6 Tests) —
+//! Zustandsfuehrung (`pulse_ablage::lage`, 28 Tests) und die Buchfuehrung
+//! ueber eigene und fremde Aenderungen (`pulse_ablage::stand`, 7 Tests) —
 //! beides plattformfrei und in jedem Gate gefahren, das diese Kiste anfasst.
 //! Hier bleiben der Faden samt Nachrichtenfenster ([`fenster`]), die
 //! Win32-Vorgaenge auf dem Fach selbst ([`fach`]), die Trait-Umsetzung

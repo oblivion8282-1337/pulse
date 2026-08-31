@@ -362,8 +362,8 @@ pub enum Entscheidung {
 /// Rest der Sitzung tot gewesen, ohne Log und ohne sichtbare Ursache. Ein
 /// Filter im Renderer haette das gefangen; die Huelle macht es **strukturell
 /// unmoeglich**, weil fremde Nutzlast immer unter `rahmen` liegt. Dieselbe
-/// Form traegt seit 1b-2 der Windows-Sidecar, wo die Anstoesse an den Host
-/// gehen; macOS folgt in 1c.
+/// Form traegt seit 1b-2 der Windows-Sidecar und seit 1c der macOS-Sidecar, wo
+/// die Anstoesse an den Host gehen.
 ///
 /// Alles ohne bekannte Huelle wird verworfen — fail-closed wie im ganzen
 /// Fernsteuerungs-Weg.

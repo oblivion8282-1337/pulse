@@ -128,6 +128,30 @@ if [ -n "$rust_crates" ]; then
     done
   fi
 fi
+# --- Der macOS-Teil von pulse-ablage: auf Linux wenigstens uebersetzen ---
+#
+# Die Kisten-Schleife oben faehrt `cargo test` — auf Linux uebersetzt der
+# macOS-Teil dabei GAR NICHT (er haengt an `cfg(target_os = "macos")`). Ein
+# gruener Kisten-Lauf sagt ueber ihn also nichts, und das ist genau die
+# Fehlerklasse, die dieses Projekt schon dreimal bezahlt hat: ein nicht
+# ausgefuehrter Test sieht aus wie ein gruener.
+#
+# `cargo check --target aarch64-apple-darwin` LINKT nicht und braucht deshalb
+# kein macOS-SDK — nur den Zielsatz (`rustup target add aarch64-apple-darwin`).
+# Ist er nicht da, wird es GESAGT statt geschwiegen; auf einem Mac erledigt das
+# der normale Testlauf ohnehin.
+if echo "$changed" | grep -q '^streaming/pulse-ablage/' && [ "$(uname -s)" != "Darwin" ]; then
+  if rustup target list --installed 2>/dev/null | grep -q '^aarch64-apple-darwin$'; then
+    echo "  macOS-Teil von pulse-ablage (cargo check, aarch64-apple-darwin)…"
+    ( cd streaming/pulse-ablage && cargo check -q --target aarch64-apple-darwin ) \
+      || { echo "✗ macOS-Teil von pulse-ablage uebersetzt NICHT — abgebrochen." >&2; exit 1; }
+  else
+    echo "⚠  pulse-ablage geändert, aber der Zielsatz aarch64-apple-darwin fehlt." >&2
+    echo "   Sein macOS-Teil wurde hier NICHT übersetzt. Einmalig:" >&2
+    echo "   rustup target add aarch64-apple-darwin" >&2
+  fi
+fi
+
 # --- Die macOS-Kisten, und nur auf macOS ---
 #
 # **Hier stand bis zum 2026-08-23 nichts**, mit der Begründung „die bauen
