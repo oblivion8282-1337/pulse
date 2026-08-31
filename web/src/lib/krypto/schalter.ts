@@ -30,7 +30,7 @@ export const E2E_DMS_ENABLED = true;
  * waere nur die zweite Kopie. „Aus" heisst deshalb nur „kein zweites
  * Standbein", nicht „Daten in Gefahr".
  */
-export const SICHERUNG_ENABLED = false;
+export const SICHERUNG_ENABLED = true;
 
 /**
  * Der Schalter fuer private Gruppenchats — ebenfalls Vorgabe AUS.
