@@ -64,3 +64,27 @@ Verwandt: `docs/standplatz-geraete.md` (Fernsteuerung ohne Aufsicht),
 - **Der 0/0-Rückfall der Sidecars erzeugt ÜBERLAPPUNG, nicht Deckungsgleichheit** (gleiche Lage, andere Auflösung). Wer nur auf exakte Gleichheit prüft, zeichnet zwei Rechtecke ineinander — das spätere übermalt das frühere **und schluckt seine Klicks** (egui: letztes Widget an einer Stelle gewinnt). Dasselbe entsteht bei echter Bildschirmspiegelung mit verschiedenen Auflösungen.
 - **Sichtbarkeit und Wirkung eines Knopfes müssen aus denselben Daten kommen.** Der Anordnen-Knopf erschien auf drei Wegen, auf denen er nachweislich nichts tun konnte, weil Anzeige- und Arbeitsbedingung an zwei Stellen unabhängig formuliert waren und kein Test sie verband.
 - **`list_monitors` meldet auch `x`/`y`** (Windows `GetMonitorInfoW`, macOS `CGDisplayBounds`; gleiche Feldnamen, die Web-Seite verzweigt nicht nach Plattform). Linux bleibt aussen vor (leere Liste). Negative Werte sind **gültig** — ein Monitor links vom Hauptbildschirm.
+
+**Geteilte Zwischenablage (im Bau, seit 2026-08-31)** — Text, beidseitig, über
+**verzögertes Rendern**: beim Kopieren geht nur eine Ankündigung mit einer
+Generationsnummer hinüber, der Inhalt erst, wenn drüben jemand tatsächlich
+einfügt. Entwurf `docs/superpowers/specs/2026-08-31-fernsteuerung-zwischenablage-design.md`,
+Kern in `streaming/pulse-ablage` (dort auch das README).
+- **Die Sofort-Spiegelung ist verworfen, nicht vergessen.** Sie legt alles, was
+  während einer Sitzung lokal kopiert wird, im selben Moment auf den fremden
+  Rechner — auch ein Passwort aus dem Passwortmanager, das mit der Sitzung
+  nichts zu tun hat. Wer sie „der Einfachheit halber" wieder einbaut, hebt den
+  ganzen Entwurf auf.
+- **`gen` ist die Regel, nicht ein Feld:** stimmt die angeforderte Generation
+  nicht mehr, wird `leer/veraltet` geantwortet. Es wird **nie** ein anderer
+  Inhalt geliefert als der angekündigte.
+- **Der Rückruf des Betriebssystems blockiert.** `WM_RENDERFORMAT` und
+  `pasteboard(_:provideDataForType:)` müssen synchron beantwortet werden,
+  während das einfügende Programm wartet — deshalb ein eigener Faden mit
+  eigenem, nur für Nachrichten sichtbarem Fenster, und deshalb `ABRUF_FRIST_MS`
+  (2 s) **unter** `REMOTE_DISCONNECT_GRACE_S` (10 s). Ein Einfügen, das nichts
+  einfügt, versteht jeder; ein hängendes Programm nicht.
+- **Ein Anspruch löscht den Vorbestand** der lokalen Ablage. Deshalb wird er
+  beim ersten Anspruch gemerkt und bei Sitzungsende zurückgeschrieben.
+- **Linux ist immer der Steuernde** — `remote_input` gibt es nur im Windows-
+  und macOS-Sidecar.
