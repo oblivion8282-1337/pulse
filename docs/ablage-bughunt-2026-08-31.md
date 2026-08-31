@@ -252,6 +252,30 @@ brauchte sie, weil jeder einzelne Test in seine Zeitüberschreitung lief.
 Die Falle steht jetzt in `CLAUDE.md`, neben ihrer bereits dokumentierten
 Umkehrung.
 
+### B15 — Ruff ist konfiguriert und wird von nichts ausgeführt
+
+`pyproject.toml`, `scripts/gate.sh`, `.github/workflows/**` · Prozess ·
+offen, braucht eine Entscheidung des Eigentümers
+
+`pyproject.toml` legt `line-length=100`, `target-version=py313` und eine
+Ignore-Liste fest, und `CLAUDE.md` führt diese Werte als geltende Vorgabe.
+Ausgeführt wird Ruff aber nirgends: nicht im Gate, nicht in einem Workflow —
+und das Binary ist auf dieser Maschine nicht einmal vorhanden
+(`uv run ruff` scheitert mit „Failed to spawn").
+
+Dieselbe Fehlerklasse wie die Node-Unit-Tests, die vor dem 2026-08-17 in
+keinem Gate hingen, und wie die Cargo-Tests, die wegen eines falschen
+FFmpeg-Pfads still übersprungen wurden: **eine Prüfung, die nicht läuft,
+sieht in der Ausgabe genauso aus wie eine grüne.** Jeder Agent, dem man die
+Ruff-Vorgaben nennt, hält sich daran, ohne sie je bestätigt zu bekommen.
+
+**Bewusst nicht im Alleingang behoben.** Ruff nachträglich scharf zu
+schalten, kann einen gewachsenen Bestand auf einen Schlag rot färben und
+damit das Gate blockieren — das ist eine Entscheidung über Arbeitsfluss,
+nicht über Code. Was zu klären ist: Ruff installieren und ins Gate hängen
+(und den Bestand einmal aufräumen), oder die Vorgabe aus `CLAUDE.md`
+streichen, weil sie ohnehin nur eine Bitte ist.
+
 ---
 
 ## 3. Geprüft, kein Befund
