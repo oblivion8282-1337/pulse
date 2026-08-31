@@ -52,6 +52,7 @@ import {
   verlaufSatzVorhanden
 } from './db';
 import { aktuellesKonto } from './konto';
+import { dauerhaftenSpeicherAnfordern } from '$lib/identity/dauerhafterSpeicher';
 import { verlaufZustand } from './zustand.svelte';
 import { zusammenfuegen, type Mergeposten } from './zusammenfuegen';
 import { VerlaufSpeichernFehlgeschlagen, pruefeSpeicherErgebnis } from './speichernPflicht';
@@ -159,6 +160,17 @@ export function verlaufSpeichernPflicht(
     const kanalBekannt = istLokalerKanal(kanalId);
     const saetze = kanalBekannt ? baueSaetze(kanalId, nachrichten, kontoId) : [];
     pruefeSpeicherErgebnis(kanalId, kanalBekannt, saetze.length);
+    // Genau hier ist der Moment, in dem der Browser um dauerhaften Speicher
+    // gebeten gehoert: dieser Pfad ist der, fuer den der lokale Speicher die
+    // EINZIGE Kopie ist (Modulkopf oben). Ohne die Anfrage darf ein Browser
+    // die Datenbank bei Speicherdruck raeumen, und das Postfach hat den
+    // Geheimtext nach der Quittung schon geloescht — der Verlauf waere
+    // endgueltig weg. Absichtlich hier und nicht beim Seitenladen: Firefox
+    // zeigt eine Nachfrage, und die ist nur an einer Stelle erklaerbar, an
+    // der der Nutzer gerade etwas Unwiederbringliches ablegt.
+    // Bewusst nicht abgewartet und nicht ausgewertet — ein „Nein" aendert am
+    // Ablauf nichts, und `dauerhaftenSpeicherAnfordern` wirft nie.
+    void dauerhaftenSpeicherAnfordern();
     return verlaufPutSaetze(saetze).then(() => saetze.length);
   } catch (err) {
     return Promise.reject(err);
