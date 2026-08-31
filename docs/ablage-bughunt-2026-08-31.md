@@ -20,9 +20,22 @@ keinem Gate, und die Ablage-Engine war zwar unit-geprüft, aber nicht in den
 Fällen, um die es hier geht (Gleichzeitigkeit, Grenzwerte, drittes
 ID-Schema).
 
-Der Playwright-Lauf ist als Messung nur eingeschränkt gültig — er lief,
+Der erste Playwright-Lauf war als Messung nur eingeschränkt gültig — er lief,
 während schon behoben wurde, und der Entwicklungsserver lädt Änderungen
-sofort nach. Ein sauberer Wiederholungslauf steht am Ende der Etappe.
+sofort nach.
+
+**Der saubere Wiederholungslauf am Ende der Etappe: 152 grün, 6 rot.** Und
+von den sechs blieb genau einer übrig:
+
+| Test | Urteil |
+|---|---|
+| `channel-permissions`, `friends-polish`, `e2e-dm` | **Flackern unter Last** — einzeln nachgefahren jedes Mal grün. Sie waren im ersten Lauf grün und im zweiten rot; ein wandernder Fehlschlag ist die Signatur dafür. |
+| `e2e-dm-hetzner` | **Gehörte nie in diesen Lauf.** Er hat eine eigene Playwright-Fassung (eigener Vite gegen den Hetzner-Stack, kein `globalSetup`, SSH für die Gegenprobe) und war im Standardlauf dauerhaft rot. Jetzt ausgeschlossen. |
+| `plugins` | **Schon auf `main` rot** (CLAUDE.md, Stand 2026-08-26) — keine Regression dieses Zweigs. |
+
+Das Wandern der Fehlschläge ist selbst ein Befund: die Suite ist unter Last
+nicht verlässlich. Wer hier urteilt, ohne einzeln nachzufahren, hält
+Maschinenlast für eine Regression — oder umgekehrt.
 
 ---
 
