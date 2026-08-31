@@ -2,11 +2,14 @@ import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 
 import {
+	AnmeldungAbgelaufenFehler,
 	OAuthFehler,
 	autorisierungsUrl,
 	auffrischeZugang,
+	erzeugeAuffrischendesHolen,
 	erzeugePkce,
 	tauscheCodeAus,
+	type Zugang,
 } from '../src/lib/ablage/oauth.ts';
 
 describe('Ablage-OAuth: PKCE', () => {
@@ -86,5 +89,118 @@ describe('Ablage-OAuth: Token-Endpunkte', () => {
 		assert.ok(koerper.includes('grant_type=refresh_token'));
 		assert.ok(koerper.includes('refresh_token=n-t-alt'));
 		assert.ok(koerper.includes('client_id=k-1'));
+	});
+});
+
+describe('Ablage-OAuth: Auffrisch-Weg', () => {
+	it('frischt nach einem 401 genau einmal auf und wiederholt danach den ursprünglichen Aufruf', async () => {
+		let holAufrufe = 0;
+		const basisHolen: typeof fetch = async () => {
+			holAufrufe += 1;
+			return holAufrufe === 1
+				? new Response('nicht autorisiert', { status: 401 })
+				: new Response('geglückt', { status: 200 });
+		};
+		let auffrischAufrufe = 0;
+		const neuerZugang: Zugang = { zugangsToken: 'neu-1' };
+		const geändert: Zugang[] = [];
+		const holen = erzeugeAuffrischendesHolen(
+			basisHolen,
+			() => ({ zugangsToken: 'alt-1', nachspieleToken: 'nach-1' }),
+			async (nachspieleToken) => {
+				auffrischAufrufe += 1;
+				assert.equal(nachspieleToken, 'nach-1');
+				return neuerZugang;
+			},
+			(z) => geändert.push(z),
+		);
+		const antwort = await holen('https://api.example/x', { headers: { Authorization: 'Bearer alt-1' } });
+		assert.equal(antwort.status, 200);
+		assert.equal(holAufrufe, 2, 'ursprünglicher Aufruf plus genau eine Wiederholung');
+		assert.equal(auffrischAufrufe, 1);
+		assert.deepEqual(geändert, [neuerZugang]);
+	});
+
+	it('teilt sich bei zwei gleichzeitigen 401 dieselbe Auffrischung', async () => {
+		let holAufrufe = 0;
+		const basisHolen: typeof fetch = async () => {
+			holAufrufe += 1;
+			// Die ersten beiden Aufrufe sind die ursprünglichen (beide 401), die
+			// beiden danach die Wiederholungen mit dem neuen Token.
+			return holAufrufe <= 2
+				? new Response('nicht autorisiert', { status: 401 })
+				: new Response('geglückt', { status: 200 });
+		};
+		let auffrischAufrufe = 0;
+		const holen = erzeugeAuffrischendesHolen(
+			basisHolen,
+			() => ({ zugangsToken: 'alt-2', nachspieleToken: 'nach-2' }),
+			async (): Promise<Zugang> => {
+				auffrischAufrufe += 1;
+				// Verzögerung, damit der zweite Aufruf mit Sicherheit auf das
+				// bereits laufende Versprechen trifft statt auf ein bereits
+				// abgeschlossenes.
+				await new Promise((r) => setTimeout(r, 5));
+				return { zugangsToken: 'neu-2' };
+			},
+		);
+		const [a, b] = await Promise.all([holen('https://api.example/a', {}), holen('https://api.example/b', {})]);
+		assert.equal(a.status, 200);
+		assert.equal(b.status, 200);
+		assert.equal(auffrischAufrufe, 1, 'zwei gleichzeitige 401 dürfen nur eine Auffrischung auslösen');
+	});
+
+	it('wirft AnmeldungAbgelaufenFehler ohne Netzaufruf, wenn kein Nachspiel-Token vorliegt', async () => {
+		let auffrischAufrufe = 0;
+		const basisHolen: typeof fetch = async () => new Response('nicht autorisiert', { status: 401 });
+		const holen = erzeugeAuffrischendesHolen(
+			basisHolen,
+			() => ({ zugangsToken: 'alt-3' }),
+			async () => {
+				auffrischAufrufe += 1;
+				return { zugangsToken: 'unerreicht' };
+			},
+		);
+		await assert.rejects(() => holen('https://api.example/x', {}), AnmeldungAbgelaufenFehler);
+		assert.equal(auffrischAufrufe, 0);
+	});
+
+	it('wirft AnmeldungAbgelaufenFehler mit Ursache, wenn die Auffrischung selbst scheitert', async () => {
+		const basisHolen: typeof fetch = async () => new Response('nicht autorisiert', { status: 401 });
+		const ursprungsFehler = new OAuthFehler('invalid_grant');
+		const holen = erzeugeAuffrischendesHolen(
+			basisHolen,
+			() => ({ zugangsToken: 'alt-4', nachspieleToken: 'nach-4' }),
+			async () => {
+				throw ursprungsFehler;
+			},
+		);
+		await assert.rejects(
+			() => holen('https://api.example/x', {}),
+			(f: unknown) => f instanceof AnmeldungAbgelaufenFehler && f.cause === ursprungsFehler,
+		);
+	});
+
+	it('wirft AnmeldungAbgelaufenFehler, wenn auch der aufgefrischte Zugang abgelehnt wird', async () => {
+		const basisHolen: typeof fetch = async () => new Response('nicht autorisiert', { status: 401 });
+		const holen = erzeugeAuffrischendesHolen(
+			basisHolen,
+			() => ({ zugangsToken: 'alt-5', nachspieleToken: 'nach-5' }),
+			async (): Promise<Zugang> => ({ zugangsToken: 'auch-abgelehnt' }),
+		);
+		await assert.rejects(() => holen('https://api.example/x', {}), AnmeldungAbgelaufenFehler);
+	});
+
+	it('lässt Antworten ungleich 401 unverändert durch', async () => {
+		const basisHolen: typeof fetch = async () => new Response('serverfehler', { status: 500 });
+		const holen = erzeugeAuffrischendesHolen(
+			basisHolen,
+			() => ({ zugangsToken: 'alt-6', nachspieleToken: 'nach-6' }),
+			async (): Promise<Zugang> => {
+				throw new Error('darf hier nicht laufen');
+			},
+		);
+		const antwort = await holen('https://api.example/x', {});
+		assert.equal(antwort.status, 500);
 	});
 });

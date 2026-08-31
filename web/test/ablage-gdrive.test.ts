@@ -146,6 +146,34 @@ describe('Ablage-GDrive: Adapter', () => {
 		await assert.rejects(() => adapter.lese('x.puls'), GdriveFehler);
 	});
 
+	it('frischt bei einem 401 über kundenId/nachspieleToken auf und meldet den neuen Zugang zurück', async () => {
+		let versuche = 0;
+		const rufe: string[] = [];
+		const holen: typeof fetch = async (eingabe, init) => {
+			const berechtigung = new Headers(init?.headers).get('Authorization');
+			rufe.push(String(eingabe) + ' ' + berechtigung);
+			if (String(eingabe).includes('oauth2.googleapis.com/token')) {
+				return new Response(JSON.stringify({ access_token: 't-2' }), { status: 200 });
+			}
+			versuche += 1;
+			if (versuche === 1) return new Response('nicht autorisiert', { status: 401 });
+			return new Response(JSON.stringify({ files: [] }), { status: 200 });
+		};
+		let aufgefrischt: unknown = null;
+		const adapter = gdriveAdapter({
+			zugangsToken: 't-1',
+			ordner: 'k',
+			holen,
+			kundenId: 'k-g-1',
+			kundenGeheimnis: 'geheim-1',
+			nachspieleToken: 'n-1',
+			zugangAufgefrischt: (z) => (aufgefrischt = z),
+		});
+		await adapter.liste();
+		assert.equal((aufgefrischt as { zugangsToken: string }).zugangsToken, 't-2');
+		assert.ok(rufe.some((r) => r.includes('Bearer t-2')));
+	});
+
 	it('schwenkt beim Anlegen auf Aktualisieren um, wenn zwischen erster Abfrage und Anlegen eine Konkurrenzschreibung auftaucht', async () => {
 		// Simuliert den gemeldeten Befund: Gerät A fragt nach `manifest.puls`,
 		// bekommt „nicht gefunden" — bevor A daraufhin anlegt, hat Gerät B die

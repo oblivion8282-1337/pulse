@@ -12,6 +12,7 @@
 import {
 	auffrischeZugang as spieleNach,
 	autorisierungsUrl,
+	erzeugeAuffrischendesHolen,
 	tauscheCodeAus as tausche,
 	type Pkce,
 	type Zugang,
@@ -34,6 +35,19 @@ export interface DropboxVerbindung {
 	/** Ablage-Ordner im App-Ordner, z. B. Pulse/ablage/kanal-1 */
 	ordner: string;
 	holen?: typeof fetch;
+	/**
+	 * Nachspiel-Token für den Auffrisch-Weg. Fehlt es, bleibt ein 401 ein
+	 * endgültiger Fehler — ohne Nachspiel-Token gibt es nichts einzulösen.
+	 */
+	nachspieleToken?: string;
+	/** Client-Id für den Auffrisch-Weg — dieselbe wie bei der Autorisierung. */
+	kundenId?: string;
+	/**
+	 * Wird nach einer erfolgreichen Auffrischung genau einmal mit dem neuen
+	 * Zugang gerufen. Diese Datei schreibt ihn nicht zurück — das ist Sache
+	 * des Aufrufers (siehe `verbindungen.ts`, Aufgabe 5).
+	 */
+	zugangAufgefrischt?: (zugang: Zugang) => void;
 }
 
 export class DropboxFehler extends Error {
@@ -93,7 +107,16 @@ function vollerPfad(ordner: string, datei?: string): string {
 }
 
 export function dropboxAdapter(verbindung: DropboxVerbindung): AblageAdapter {
-	const holen = verbindung.holen ?? fetch;
+	const basisHolen = verbindung.holen ?? fetch;
+	const holen =
+		verbindung.nachspieleToken !== undefined && verbindung.kundenId !== undefined
+			? erzeugeAuffrischendesHolen(
+					basisHolen,
+					() => ({ zugangsToken: verbindung.zugangsToken, nachspieleToken: verbindung.nachspieleToken }),
+					(nachspieleToken) => spieleNach(basisHolen, TOKEN_ENDPUNKT, nachspieleToken, { client_id: verbindung.kundenId! }),
+					verbindung.zugangAufgefrischt,
+				)
+			: basisHolen;
 	const kopf = { Authorization: `Bearer ${verbindung.zugangsToken}` };
 
 	return {

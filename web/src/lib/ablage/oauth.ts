@@ -104,3 +104,91 @@ export async function auffrischeZugang(
 		refresh_token: nachspieleToken,
 	});
 }
+
+/**
+ * Endgültig — nicht bloß vorübergehend — ungültiger Zugang: entweder gibt es
+ * kein Nachspiel-Token mehr, oder die Auffrischung selbst ist gescheitert,
+ * oder der frisch aufgefrischte Zugang wurde vom Anbieter erneut abgelehnt.
+ * Die Zustandsanzeige (Aufgabe 5) unterscheidet daran „Anmeldung
+ * abgelaufen" von einem gewöhnlichen Übertragungsfehler.
+ */
+export class AnmeldungAbgelaufenFehler extends Error {
+	constructor(grund: string, ursache?: unknown) {
+		super(`Anmeldung abgelaufen: ${grund}`);
+		this.name = 'AnmeldungAbgelaufenFehler';
+		if (ursache !== undefined) this.cause = ursache;
+	}
+}
+
+/** Der Ausschnitt eines Zugangs, den der Auffrisch-Weg lesen muss. */
+export interface AuffrischbarerZugang {
+	zugangsToken: string;
+	nachspieleToken?: string;
+}
+
+/**
+ * Baut einen `fetch`-Wrapper, der eine 401-Antwort abfängt: den Zugang
+ * genau einmal auffrischen (via `auffrischen`) und den ursprünglichen Aufruf
+ * mit dem neuen Token wiederholen. Laufen mehrere Aufrufe gleichzeitig in
+ * ein 401, teilen sie sich dieselbe Auffrischung — das laufende Versprechen
+ * wird gemerkt, nicht ein zweites Mal gestartet. Ohne dieses Merken würden
+ * bei Anbietern mit rotierenden Nachspiel-Tokens beide Aufrufer denselben
+ * alten Token einlösen wollen; der zweite bekäme ihn als bereits verbraucht
+ * zurück und der Zugang wäre für beide verbrannt.
+ *
+ * Ist nach der Auffrischung auch der neue Zugang abgelehnt, oder scheitert
+ * die Auffrischung selbst, oder fehlt von vornherein ein Nachspiel-Token,
+ * wird das NIE stillschweigend verschluckt — es wirft immer einen
+ * `AnmeldungAbgelaufenFehler`, den der Aufrufer von einem gewöhnlichen
+ * Netzwerk-/Serverfehler unterscheiden kann.
+ */
+export function erzeugeAuffrischendesHolen(
+	basisHolen: typeof fetch,
+	aktuellerZugang: () => AuffrischbarerZugang,
+	auffrischen: (nachspieleToken: string) => Promise<Zugang>,
+	zugangAufgefrischt?: (zugang: Zugang) => void,
+): typeof fetch {
+	let laufendeAuffrischung: Promise<Zugang> | null = null;
+
+	function mitToken(init: RequestInit | undefined, token: string): RequestInit {
+		const kopf = new Headers(init?.headers);
+		kopf.set('Authorization', `Bearer ${token}`);
+		return { ...init, headers: kopf };
+	}
+
+	return async (eingabe, init) => {
+		const erstAntwort = await basisHolen(eingabe, init);
+		if (erstAntwort.status !== 401) return erstAntwort;
+
+		const { nachspieleToken } = aktuellerZugang();
+		if (nachspieleToken === undefined) {
+			throw new AnmeldungAbgelaufenFehler('kein Nachspiel-Token vorhanden');
+		}
+
+		// `??=` statt eines eigenen Merkers: die Zuweisung passiert synchron im
+		// selben Durchlauf, in dem `null` festgestellt wurde (kein `await`
+		// dazwischen) — ein zweiter, gleichzeitig ankommender Aufruf sieht die
+		// Zuweisung deshalb garantiert, bevor er selbst nachsehen könnte.
+		laufendeAuffrischung ??= auffrischen(nachspieleToken)
+			.then((neu) => {
+				zugangAufgefrischt?.(neu);
+				return neu;
+			})
+			.finally(() => {
+				laufendeAuffrischung = null;
+			});
+
+		let neuerZugang: Zugang;
+		try {
+			neuerZugang = await laufendeAuffrischung;
+		} catch (fehler) {
+			throw new AnmeldungAbgelaufenFehler('Auffrischung scheiterte', fehler);
+		}
+
+		const zweiteAntwort = await basisHolen(eingabe, mitToken(init, neuerZugang.zugangsToken));
+		if (zweiteAntwort.status === 401) {
+			throw new AnmeldungAbgelaufenFehler('Zugang bleibt abgelehnt, auch nach Auffrischung');
+		}
+		return zweiteAntwort;
+	};
+}

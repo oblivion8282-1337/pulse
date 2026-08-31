@@ -10,6 +10,7 @@
 import {
 	auffrischeZugang as spieleNach,
 	autorisierungsUrl,
+	erzeugeAuffrischendesHolen,
 	tauscheCodeAus as tausche,
 	type Pkce,
 	type Zugang,
@@ -37,6 +38,22 @@ export interface GdriveVerbindung {
 	/** Ablage-Ordner als Drive-Pfad im App-Sichtbereich, z. B. Pulse/ablage/kanal-1 */
 	ordner: string;
 	holen?: typeof fetch;
+	/**
+	 * Nachspiel-Token für den Auffrisch-Weg. Fehlt es, bleibt ein 401 ein
+	 * endgültiger Fehler — ohne Nachspiel-Token gibt es nichts einzulösen.
+	 */
+	nachspieleToken?: string;
+	/** Client-Id für den Auffrisch-Weg — dieselbe wie bei der Autorisierung. */
+	kundenId?: string;
+	/** Siehe Kommentar bei `GdriveAnbindung.kundenGeheimnis` — Google verlangt
+	 *  es auch am Refresh-Aufruf. */
+	kundenGeheimnis?: string;
+	/**
+	 * Wird nach einer erfolgreichen Auffrischung genau einmal mit dem neuen
+	 * Zugang gerufen. Diese Datei schreibt ihn nicht zurück — das ist Sache
+	 * des Aufrufers (siehe `verbindungen.ts`, Aufgabe 5).
+	 */
+	zugangAufgefrischt?: (zugang: Zugang) => void;
 }
 
 export class GdriveFehler extends Error {
@@ -126,7 +143,20 @@ function neuesteWaehlen(funde: Fund[]): Fund {
 }
 
 export function gdriveAdapter(verbindung: GdriveVerbindung): AblageAdapter {
-	const holen = verbindung.holen ?? fetch;
+	const basisHolen = verbindung.holen ?? fetch;
+	const holen =
+		verbindung.nachspieleToken !== undefined && verbindung.kundenId !== undefined
+			? erzeugeAuffrischendesHolen(
+					basisHolen,
+					() => ({ zugangsToken: verbindung.zugangsToken, nachspieleToken: verbindung.nachspieleToken }),
+					(nachspieleToken) =>
+						spieleNach(basisHolen, TOKEN_ENDPUNKT, nachspieleToken, {
+							client_id: verbindung.kundenId!,
+							...(verbindung.kundenGeheimnis !== undefined ? { client_secret: verbindung.kundenGeheimnis } : {}),
+						}),
+					verbindung.zugangAufgefrischt,
+				)
+			: basisHolen;
 	const kopf = { Authorization: `Bearer ${verbindung.zugangsToken}` };
 	const dateiIdNachName = new Map<string, string>();
 
