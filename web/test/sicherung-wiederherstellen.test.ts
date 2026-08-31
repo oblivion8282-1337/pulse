@@ -1,7 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { leseSicherung, SicherungLesefehler } from '../src/lib/sicherung/wiederherstellen.ts';
+import {
+	leseSicherung,
+	leseSicherungInkrementell,
+	SicherungLesefehler,
+} from '../src/lib/sicherung/wiederherstellen.ts';
 import { SicherungsSpiegel } from '../src/lib/sicherung/spiegel.ts';
 import { erzeugeDek, wickleSchluesselDatei, SicherungKryptoFehler } from '../src/lib/sicherung/krypto.ts';
 import { speicherAdapter } from '../src/lib/ablage/adapter.ts';
@@ -84,4 +88,30 @@ test('beschädigtes Segment — Befund in lücken, Rest bleibt lesbar', async ()
 	assert.deepEqual(bestand.eintraege.map((e) => e.nachricht.inhalt), ['lesbar']);
 	assert.equal(bestand.lücken.length, 1);
 	assert.match(bestand.lücken[0]!, /^dev-dddd4444-seg-000000\.puls:/);
+});
+
+test('inkrementell: zweiter Lauf liefert nur das Neue', async () => {
+	const { basis, dek } = await containerMit('pw');
+	const spiegel = new SicherungsSpiegel(basis, dek, 'dev-eeee5555-', { verzoegerungMs: 10 });
+
+	spiegel.aufnehmen('kanal-a', [nachricht('100', 'erste')]);
+	await spiegel.jetztSpuelen();
+	const erster = await leseSicherungInkrementell(basis, dek, {});
+	assert.equal(erster.bestand.eintraege.length, 1);
+	assert.ok(erster.lesestand['dev-eeee5555-'], 'Lesestand für den Namensraum');
+
+	// Zweiter Lauf, nichts Neues — leer, ohne dass etwas verloren geht.
+	const zweiter = await leseSicherungInkrementell(basis, dek, erster.lesestand);
+	assert.equal(zweiter.bestand.eintraege.length, 0);
+
+	// Neue Nachricht dazwischen: nur sie kommt beim dritten Lauf.
+	spiegel.aufnehmen('kanal-a', [nachricht('200', 'zweite')]);
+	await spiegel.jetztSpuelen();
+	const dritter = await leseSicherungInkrementell(basis, dek, zweiter.lesestand);
+	assert.deepEqual(
+		dritter.bestand.eintraege.map((e) => e.nachricht.inhalt),
+		['zweite'],
+	);
+	assert.deepEqual(dritter.bestand.lücken, []);
+	spiegel.beenden();
 });

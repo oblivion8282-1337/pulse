@@ -32,7 +32,7 @@ import { verlaufAlleLesen, anhangBytesLesen, anhangBytesSichern, verlaufPutSaetz
 import { aktuellesKonto } from '../verlauf/konto.ts';
 import { zuSatz } from '../verlauf/satz.ts';
 import { entschlüsseleEintrag, verschlüsseleEintrag } from './krypto.ts';
-import { leseSicherungMitSchluessel } from './wiederherstellen.ts';
+import { leseSicherungInkrementell } from './wiederherstellen.ts';
 import {
 	SicherungsSpiegel,
 	aufbauAdapter,
@@ -43,6 +43,8 @@ import {
 import { öffneSchluesselDatei } from './krypto.ts';
 import {
 	adapterLieferant,
+	lesestandLesen,
+	lesestandSchreiben,
 	dekAusZwischenlager,
 	pufferAlles,
 	pufferLegen,
@@ -134,7 +136,8 @@ export async function sicherungArchivLaden(): Promise<number> {
 	const kontoId = aktuellesKonto();
 	if (kontoId === null) return 0;
 	const adapter = await adapterLieferant();
-	const bestand = await leseSicherungMitSchluessel(adapter, entpackt.dek);
+	const altStand = await lesestandLesen(kontoId);
+	const { bestand, lesestand } = await leseSicherungInkrementell(adapter, entpackt.dek, altStand);
 	const saetze = bestand.eintraege
 		.map((eintrag) =>
 			zuSatz(eintrag.kanalId, {
@@ -177,6 +180,9 @@ export async function sicherungArchivLaden(): Promise<number> {
 			}
 		}
 	}
+	// Lesestand erst NACH erfolgreichem Ablegen anheben — ein Fehler mid-
+	// run lässt den nächsten Lauf dieselben Namensräume komplett lesen.
+	await lesestandSchreiben(kontoId, lesestand);
 	return saetze.length;
 }
 

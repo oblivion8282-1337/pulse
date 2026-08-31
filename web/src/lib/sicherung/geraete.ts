@@ -36,9 +36,10 @@ import type { WarteEintrag } from './spiegel.ts';
 import type { AblageNachricht } from '../ablage/nutzlast.ts';
 
 const DB_NAME = 'pulse-sicherung';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_VERBINDUNG = 'verbindung';
 const STORE_PUFFER = 'puffer';
+const STORE_LESESTAND = 'leserstand';
 const VERBINDUNG_KEY = 'gdrive';
 
 /** Keys im Identity-Store (pulse-identity) — gewischt mit der Abmeldung. */
@@ -75,6 +76,7 @@ function öffneDb(): Promise<IDBDatabase> {
 			if (!db.objectStoreNames.contains(STORE_PUFFER)) {
 				db.createObjectStore(STORE_PUFFER, { keyPath: 'schluessel' });
 			}
+			if (!db.objectStoreNames.contains(STORE_LESESTAND)) db.createObjectStore(STORE_LESESTAND);
 		};
 		anfrage.onsuccess = () => resolve(anfrage.result);
 		anfrage.onerror = () => reject(anfrage.error);
@@ -234,6 +236,40 @@ export async function pufferWischen(): Promise<void> {
 	await new Promise<void>((resolve, reject) => {
 		const tx = db.transaction(STORE_PUFFER, 'readwrite');
 		tx.objectStore(STORE_PUFFER).clear();
+		tx.oncomplete = () => resolve();
+		tx.onerror = () => reject(tx.error);
+	});
+}
+
+// ---------------------------------------------------------------------------
+// Lesestand: bis wohin hat DIESES Gerät das Archiv je Konto schon importiert —
+// je Geräte-Namensraum der Segment-Index und die letzte Rahmen-Id. Ohne ihn
+// lud jedes Öffnen des Reiters das GESAMTE Archiv erneut herunter.
+// ---------------------------------------------------------------------------
+
+export interface LeseStand {
+	segIndex: number;
+	frameId: string;
+}
+
+export async function lesestandLesen(kontoId: string): Promise<Record<string, LeseStand>> {
+	const db = await öffneDb();
+	return new Promise((resolve, reject) => {
+		const tx = db.transaction(STORE_LESESTAND, 'readonly');
+		const anfrage = tx.objectStore(STORE_LESESTAND).get(kontoId);
+		anfrage.onsuccess = () => resolve((anfrage.result as Record<string, LeseStand> | undefined) ?? {});
+		anfrage.onerror = () => reject(anfrage.error);
+	});
+}
+
+export async function lesestandSchreiben(
+	kontoId: string,
+	stand: Record<string, LeseStand>,
+): Promise<void> {
+	const db = await öffneDb();
+	return new Promise((resolve, reject) => {
+		const tx = db.transaction(STORE_LESESTAND, 'readwrite');
+		tx.objectStore(STORE_LESESTAND).put(stand, kontoId);
 		tx.oncomplete = () => resolve();
 		tx.onerror = () => reject(tx.error);
 	});

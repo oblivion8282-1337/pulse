@@ -16,7 +16,15 @@
  * `lücken`-Liste, der Rest des Bestands wird geliefert — dieselbe Haltung
  * wie `ablage/leser.ts` gegenüber Prüfsummen-Lücken.
  *
- * Rein rechnerisch (Adapter-Injektion) — Node-Testläufer-regel.
+ * **Inkrementell:** `leseSicherungInkrementell` nimmt einen Lesestand
+ * entgegen (je Geräte-Namensraum: höchster komplett importierter Segment-
+ * Index + letzte Rahmen-Id) und überspringt damit komplett importierte
+ * Segmentdateien ohne Download. Die Rahmen-Id ist der gerätelokale
+ * Folgezähler des Spiegels — monoton je Namensraum, deshalb genügt sie als
+ * Cursor. Der neue Lesestand wird nur für saubere Dateien übernommen; ein
+ * Namensraum mit Lücken kommt beim nächsten Lauf komplett wieder, und die
+ * Nachrichten-Seite dedupliziert über die Ids — doppelt gelesen ist
+ * doppelt überlesen.
  */
 
 import type { AblageAdapter } from '../ablage/adapter.ts';
@@ -39,11 +47,22 @@ export interface SicherungBestand {
 	lücken: string[];
 }
 
+/** Wie weit hat ein Gerät einen Namensraum schon importiert. */
+export interface SicherungLeseStand {
+	/** Alle Segmente mit KLEINEREM Index sind vollständig importiert. */
+	segIndex: number;
+	/** Im Segment `segIndex` ist alles bis (einschließlich) dieser Rahmen-Id importiert. */
+	frameId: string;
+}
+
+export type SicherungLeseStaende = Record<string, SicherungLeseStand>;
+
 /** Erkennt eine Segmentdatei JEDES Geräte-Namensraums — der Präfix ist
  *  `geraeteKuerzel()` plus Dateiname, der Bindestrich dazwischen fehlt je
  *  nach Kürzel-Fassung (bestehende Container haben `dev-428822e8seg-…`). */
-const SEGMENT_MUSTER = /^dev-[0-9a-f]{8}-?seg-\d{6}\.puls$/;
+const SEGMENT_MUSTER = /^dev-[0-9a-f]{8}-?seg-(\d{6})\.puls$/;
 
+/** Passwort-Weg: entpackt die Schlüssel-Datei und liest dann ALLES. */
 export async function leseSicherung(
 	adapter: AblageAdapter,
 	passwort: string,
@@ -56,45 +75,87 @@ export async function leseSicherung(
 	return leseSicherungMitSchluessel(adapter, dek);
 }
 
-/** Wie `leseSicherung`, aber mit dem bereits entpackten DEK — für den
- *  Gerätelokalen Zwischenlager-Fall, ohne erneute Passwortabfrage. */
+/** Volllauf mit entpacktem DEK — erster Import oder „alles noch einmal". */
 export async function leseSicherungMitSchluessel(
 	adapter: AblageAdapter,
 	dek: Uint8Array,
 ): Promise<SicherungBestand> {
+	return leseSicherungInkrementell(adapter, dek, {}).then((r) => r.bestand);
+}
+
+/**
+ * Inkrementeller Lauf: verarbeitet nur, was hinter dem Lesestand liegt, und
+ * liefert den neuen Stand zurück (nur für saubere Namensräume angehoben).
+ */
+export async function leseSicherungInkrementell(
+	adapter: AblageAdapter,
+	dek: Uint8Array,
+	lesestand: SicherungLeseStaende,
+): Promise<{ bestand: SicherungBestand; lesestand: SicherungLeseStaende }> {
 	const namen = (await adapter.liste()).filter((name) => SEGMENT_MUSTER.test(name));
 	namen.sort();
+
+	// Je Namensraum verarbeiten — Cursor und Fortschritt gehören zum Präfix.
+	const jePraefix = new Map<string, string[]>();
+	for (const name of namen) {
+		const praefix = name.slice(0, name.indexOf('seg-'));
+		const liste = jePraefix.get(praefix) ?? [];
+		liste.push(name);
+		jePraefix.set(praefix, liste);
+	}
+
 	const lücken: string[] = [];
 	const nachSchluessel = new Map<string, SicherungEintrag>();
+	const neuerStand: SicherungLeseStaende = {};
 
-	for (const name of namen) {
-		const bytes = await adapter.lese(name);
-		if (bytes === null) {
-			lücken.push(`${name}: Datei verschwand beim Lesen`);
-			continue;
-		}
-		try {
-			leseSegmentKopf(bytes);
-		} catch (fehler) {
-			if (fehler instanceof SegmentFehler) {
-				lücken.push(`${name}: ${fehler.grund}`);
+	for (const [praefix, dateien] of jePraefix) {
+		const stand = lesestand[praefix] ?? { segIndex: -1, frameId: '0' };
+		let maxSegIndex = stand.segIndex;
+		let maxFrameId = BigInt(stand.frameId);
+		let praefixSaubere = true;
+
+		for (const name of dateien) {
+			const index = Number(SEGMENT_MUSTER.exec(name)![1]);
+			if (index < stand.segIndex) continue; // komplett importiert
+			const bytes = await adapter.lese(name);
+			if (bytes === null) {
+				lücken.push(`${name}: Datei verschwand beim Lesen`);
+				praefixSaubere = false;
 				continue;
 			}
-			throw fehler;
-		}
-		const { rahmen } = leseRahmenFolge(bytes.slice(SEGMENT_KOPF_LAENGE));
-		for (const rahmenEinzeln of rahmen) {
-			if (rahmenEinzeln.typ !== TYP_SICHERUNG_AES) continue;
 			try {
-				const klar = await entschlüsseleEintrag(dek, rahmenEinzeln.nutzlast);
-				const eintrag = leseSicherungEintrag(klar);
-				const schluessel = `${eintrag.kanalId}:${eintrag.nachricht.id}`;
-				if (!nachSchluessel.has(schluessel)) {
-					nachSchluessel.set(schluessel, eintrag);
+				leseSegmentKopf(bytes);
+			} catch (fehler) {
+				if (fehler instanceof SegmentFehler) {
+					lücken.push(`${name}: ${fehler.grund}`);
+					praefixSaubere = false;
+					continue;
 				}
-			} catch {
-				lücken.push(`${name}: Eintrag unlesbar (Rahmen ${rahmenEinzeln.eintragsId})`);
+				throw fehler;
 			}
+			const { rahmen } = leseRahmenFolge(bytes.slice(SEGMENT_KOPF_LAENGE));
+			maxSegIndex = Math.max(maxSegIndex, index);
+			for (const rahmenEinzeln of rahmen) {
+				if (rahmenEinzeln.eintragsId > maxFrameId) maxFrameId = rahmenEinzeln.eintragsId;
+				// Bereits importierte Rahmen des offenen Segments überspringen.
+				if (rahmenEinzeln.eintragsId <= BigInt(stand.frameId)) continue;
+				if (rahmenEinzeln.typ !== TYP_SICHERUNG_AES) continue;
+				try {
+					const klar = await entschlüsseleEintrag(dek, rahmenEinzeln.nutzlast);
+					const eintrag = leseSicherungEintrag(klar);
+					const schluessel = `${eintrag.kanalId}:${eintrag.nachricht.id}`;
+					if (!nachSchluessel.has(schluessel)) {
+						nachSchluessel.set(schluessel, eintrag);
+					}
+				} catch {
+					lücken.push(`${name}: Eintrag unlesbar (Rahmen ${rahmenEinzeln.eintragsId})`);
+					praefixSaubere = false;
+				}
+			}
+		}
+
+		if (praefixSaubere && dateien.length > 0) {
+			neuerStand[praefix] = { segIndex: maxSegIndex, frameId: maxFrameId.toString() };
 		}
 	}
 
@@ -105,5 +166,5 @@ export async function leseSicherungMitSchluessel(
 				? -1
 				: 1,
 	);
-	return { eintraege, lücken };
+	return { bestand: { eintraege, lücken }, lesestand: neuerStand };
 }
