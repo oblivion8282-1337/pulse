@@ -9,6 +9,14 @@ use pulse_fernsteuerung::base64::{dekodiere, kodiere};
 
 use crate::format::{Grund, MAX_STUECK_ROH, MAX_TEXT_BYTE, Rahmen};
 
+/// Wie viele Stuecke eine Lieferung hoechstens hat.
+///
+/// Aus den beiden Grenzen des Formats GERECHNET statt daneben geschrieben —
+/// eine dritte Zahl liefe auseinander, sobald sich eine der beiden aendert.
+/// Geht die Teilung auf, ist ein Platz Reserve dabei; das schadet nichts, ein
+/// Fehlalarm gegen einen ehrlichen Sender schon.
+const MAX_STUECKE: u32 = (MAX_TEXT_BYTE / MAX_STUECK_ROH + 1) as u32;
+
 /// Einen Text in sendefertige Stuecke zerlegen.
 ///
 /// Ein leerer Text ergibt **ein** Stueck mit leerer Nutzlast — nicht null
@@ -54,6 +62,15 @@ impl Sammler {
         }
         if *n == 0 {
             return Err("n = 0".to_string());
+        }
+        // **Der Empfaenger glaubt dem Sender nichts — auch seine Stueckzahl
+        // nicht.** Ohne diese Schranke legt `n = u32::MAX` sofort einen Vektor
+        // mit vier Milliarden Plaetzen an, lange bevor das erste Byte gezaehlt
+        // wird: ein einziger Rahmen genuegt fuer den Absturz. Ein ehrlicher
+        // Sender kommt nie darueber, weil `zerlegen` aus denselben zwei
+        // Grenzen rechnet.
+        if *n > MAX_STUECKE {
+            return Err(format!("n = {n} ueberschreitet {MAX_STUECKE} Stuecke"));
         }
         match self.n {
             None => {
@@ -115,6 +132,7 @@ mod tests {
     fn umlaute_und_leerer_text_ueberstehen_den_weg() {
         assert_eq!(durchreichen("Größe: 1 µm — ok"), "Größe: 1 µm — ok");
         assert_eq!(durchreichen(""), "");
+        assert_eq!(zerlegen(9, "").expect("passt").len(), 1, "leerer Text ist EIN Stueck, nicht null");
     }
 
     #[test]
@@ -205,5 +223,22 @@ mod tests {
             }
         }
         assert!(letzte.is_err(), "der Empfaenger muss bei MAX_TEXT_BYTE abbrechen");
+    }
+
+    #[test]
+    fn erfundene_stueckzahl_wird_abgelehnt() {
+        let mut s = Sammler::neu(9);
+        let fehler = s.nimm(&Rahmen::Stueck { id: 9, i: 0, n: u32::MAX, d: "aGE=".into() });
+        assert!(fehler.is_err(), "n = u32::MAX muss abgelehnt werden, vor jeder Allokation");
+    }
+
+    #[test]
+    fn hoechste_ehrliche_stueckzahl_geht_durch() {
+        // Gegenprobe zur Schranke: sie darf den ehrlichen Sender nicht treffen.
+        let text = "z".repeat(MAX_TEXT_BYTE);
+        let stuecke = zerlegen(9, &text).expect("genau an der Grenze, muss passen");
+        assert!(stuecke.len() as u32 <= MAX_STUECKE, "{} Stuecke gegen Schranke {MAX_STUECKE}", stuecke.len());
+        let mut s = Sammler::neu(9);
+        assert!(s.nimm(&stuecke[0]).is_ok(), "die Schranke darf einen echten Sender nicht abweisen");
     }
 }
