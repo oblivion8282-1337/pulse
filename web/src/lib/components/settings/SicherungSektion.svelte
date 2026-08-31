@@ -38,6 +38,9 @@
     pufferWischen,
     type SicherungVerbindung,
   } from '$lib/sicherung/geraete';
+  import { zuSatz } from '$lib/verlauf/satz';
+  import { verlaufPutSaetze } from '$lib/verlauf/db';
+  import { aktuellesKonto } from '$lib/verlauf/konto';
   import {
     sicherungJetztSpuelen,
     sicherungErstsicherung,
@@ -61,6 +64,9 @@
       if (verbindung === null) zustand = 'verbinden';
       else zustand = entpackt === null ? 'passwort' : 'an';
       if (verbindung !== null) neuesPasswort = false;
+      // Bereits eingerichtet? Dann den Archiv-Bestand automatisch nachladen —
+      // der Nutzer will Nachrichten SEHEN, nicht Knöpfe suchen.
+      if (zustand === 'an') void laden();
     })();
   });
 
@@ -106,6 +112,37 @@
     }
   }
 
+  /** Holt den Archiv-Bestand in den lokalen Verlauf — dedupliziert über die
+   *  Nachrichten-Ids, vorhandene Zeilen bleiben unangetastet. */
+  async function laden(): Promise<void> {
+    const entpackt = await dekAusZwischenlager();
+    if (entpackt === null) return;
+    const kontoId = aktuellesKonto();
+    if (kontoId === null) return;
+    const adapter = await adapterLieferant();
+    const bestand = await leseSicherungMitSchluessel(adapter, entpackt.dek);
+    const saetze = bestand.eintraege
+      .map((eintrag) =>
+        zuSatz(eintrag.kanalId, {
+          id: eintrag.nachricht.id,
+          author_id: eintrag.nachricht.autor,
+          content: eintrag.nachricht.inhalt,
+          created_at: eintrag.nachricht.zeit,
+          edited_at: eintrag.nachricht.bearbeitet,
+          reply_to_id: eintrag.nachricht.antwortAuf,
+          attachments: eintrag.nachricht.anhaenge.map((a) => ({
+            id: a.id,
+            filename: a.name,
+            mime: a.mime,
+            size: a.groesse,
+          })),
+        }, kontoId),
+      )
+      .filter((satz) => satz !== null);
+    await verlaufPutSaetze(saetze);
+    meldung = `${saetze.length} Nachrichten aus dem Archiv geladen.`;
+  }
+
   /** Einmal-Passwort: öffnet das Archiv (oder legt es an) und bringt alles
    *  auf Stand — Erstsicherung rein, Archiv-Bestand in den lokalen Verlauf. */
   async function oeffnen(): Promise<void> {
@@ -129,8 +166,9 @@
       }
       await dekZwischenlagern(dek, crypto.randomUUID());
       const gesichert = await sicherungErstsicherung();
-      const bestand = await leseSicherungMitSchluessel(await adapterLieferant(), dek);
-      meldung = `Aktiv. ${gesichert} Nachrichten gesichert, ${bestand.eintraege.length} aus dem Archiv geladen.`;
+      await sicherungJetztSpuelen();
+      await laden();
+      meldung = `Aktiv — ${gesichert} Nachrichten gesichert. ${meldung}`;
       passwort = passwort2 = '';
       zustand = 'an';
     } catch (e) {

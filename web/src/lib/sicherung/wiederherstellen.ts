@@ -39,8 +39,10 @@ export interface SicherungBestand {
 	lücken: string[];
 }
 
-/** Erkennt eine Segmentdatei JEDES Geräte-Namensraums (`dev-1a2b3c4d-seg-000007.puls`). */
-const SEGMENT_MUSTER = /^dev-[0-9a-f]{8}-seg-\d{6}\.puls$/;
+/** Erkennt eine Segmentdatei JEDES Geräte-Namensraums — der Präfix ist
+ *  `geraeteKuerzel()` plus Dateiname, der Bindestrich dazwischen fehlt je
+ *  nach Kürzel-Fassung (bestehende Container haben `dev-428822e8seg-…`). */
+const SEGMENT_MUSTER = /^dev-[0-9a-f]{8}-?seg-\d{6}\.puls$/;
 
 export async function leseSicherung(
 	adapter: AblageAdapter,
