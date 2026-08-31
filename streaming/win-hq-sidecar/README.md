@@ -316,6 +316,53 @@ Drei Dinge, die man beim Lesen sucht:
   gestartet —, die Sitzung eine Nachricht später mit „Eingabe vor dem
   Hello-Handschlag".
 
+## Fernsteuerung — geteilte Zwischenablage (`src/ablage/`)
+
+Entwurf: `docs/superpowers/specs/2026-08-31-fernsteuerung-zwischenablage-design.md`.
+Der Mechanismus ist **verzögertes Rendern** und liegt vollständig in
+`streaming/pulse-ablage` (Rahmenformat, Stückelung, Zustandsführung, Fristen);
+hier steht nur die Windows-Hälfte. Eine Operation:
+
+```jsonc
+{"op":"ablage", "id":9, "params":{"data":{"anstoss":"beginn"}}}
+{"op":"ablage", "id":9, "params":{"data":{"rahmen":{"t":"neu","gen":1,"typ":"text"}}}}
+// → {"ok":true}
+```
+
+Was hinausgeht, kommt **als Ereignis** (`{"ev":"ablage","data":{…}}`), nicht als
+Antwort: ein `hol` wird beantwortet, sobald der Lesevorgang durch ist, und die
+Abruf-Frist meldet sich Takte später.
+
+Vier Dinge, die man beim Lesen sucht:
+
+- **Der Rückruf blockiert, und deshalb liegt er auf einem eigenen Faden.**
+  `WM_RENDERFORMAT` muss mit `SetClipboardData` beantwortet werden, bevor er
+  zurückkehrt — in dieser Zeit wartet das einfügende Programm auf einen
+  Netz-Umlauf. Er darf weder auf dem Dispatch-Faden liegen noch auf dem
+  **Hook-Faden der Vorrang-Wache**: Windows hängt einen Hook, dessen Faden nicht
+  binnen `LowLevelHooksTimeout` (300 ms) antwortet, stillschweigend ab.
+- **Es sind zwei eigene Fäden.** Der Takt (`ablage/mod.rs`) läuft nicht auf dem
+  Fensterfaden, weil er weiterlaufen muss, *während* der in `WM_RENDERFORMAT`
+  steht: die Abruf-Frist ist es, die dem wartenden Programm die leere Antwort
+  zustellt. Ein Faden, der auf sich selbst wartet, hängt.
+- **`beginn` ist die Trägerwahl.** Je Stream-Platz läuft ein eigener
+  Sidecar-Prozess, die Zwischenablage ist maschinenweit; beanspruchten alle,
+  überschrieben sie sich gegenseitig. Gewählt wird im Renderer des Hosts
+  (`web/src/lib/remote/ablageTraeger.ts`) — dieselbe Auflösung wie beim Vorrang.
+  Ein Sidecar ohne diesen Anstoß stellt kein Fenster auf und rührt die Ablage
+  nicht an.
+- **Jedes Prozessende schreibt den Vorbestand zurück** (`beenden_endgueltig`,
+  aus `main.rs` auf beiden Wegen). Der Sidecar ist per-Stream: endet der
+  Träger-Stream, stirbt der Prozess — als Eigentümer eines verzögerten
+  Rendervorgangs. Ohne das Zurückschreiben hielte Windows danach ein leeres
+  Fach, und was der Nutzer vor der Sitzung kopiert hatte, wäre still weg.
+
+**Was auf der Entwicklungsmaschine geprüft ist und was nicht:** die Rechnung
+(`pulse-ablage`, 80 Tests) und die Buchführung über eigene und fremde Änderungen
+(`ablage/geteilt.rs`, 6 Tests) laufen dort; die Win32-Aufrufe sind **nur
+übersetzt**, gegen `x86_64-pc-windows-msvc`. Echtes Kopieren über zwei Maschinen
+bleibt Handarbeit.
+
 ## Env-Overrides (Test/Debug)
 
 **Für alle Schalter gilt dieselbe Auslegung** (`src/env.rs`): nicht gesetzt =

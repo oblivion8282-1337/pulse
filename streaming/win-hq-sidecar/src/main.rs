@@ -97,6 +97,12 @@ fn main() -> anyhow::Result<()> {
                     // Käme der gleich danach dran, drückte er noch etwas —
                     // und niemand wäre mehr da, der es löst.
                     pulse_win_hq_sidecar::remote_input::sitzung().beenden_endgueltig();
+                    // Und die Zwischenablage: dieser Prozess haelt sie
+                    // womoeglich mit verzoegertem Rendern. Stirbt er als
+                    // Eigentuemer, haelt Windows danach ein leeres Fach — was
+                    // der Nutzer vor der Sitzung kopiert hatte, waere still
+                    // weg. `beenden_endgueltig` schreibt es zurueck.
+                    pulse_win_hq_sidecar::ablage::beenden_endgueltig();
                     std::process::exit(0);
                 }
                 let json = match serde_json::to_string(&value) {
@@ -179,6 +185,9 @@ fn main() -> anyhow::Result<()> {
     // dann einen noch laufenden Stream stoppen. Endgültig: stdin ist zu, es
     // kommt nichts mehr — und was doch noch käme, dürfte nichts mehr drücken.
     pulse_win_hq_sidecar::remote_input::sitzung().beenden_endgueltig();
+    // Dasselbe fuer die Zwischenablage: Eigentum abgeben, den gemerkten
+    // Vorbestand des Nutzers zurueckschreiben (s. `ablage::beenden_endgueltig`).
+    pulse_win_hq_sidecar::ablage::beenden_endgueltig();
     let _ = pulse_win_hq_sidecar::stream_controller::StreamController::singleton().stop();
 
     Ok(())

@@ -4,6 +4,7 @@
 //! Integration-Tests direkt drauf zugreifen können. Wire-Protokoll-Loop selbst
 //! lebt in `src/main.rs`.
 
+pub mod ablage;
 pub mod audio;
 pub mod capture;
 pub mod dispatch;

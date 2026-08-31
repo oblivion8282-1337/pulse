@@ -39,6 +39,13 @@ pulse-bildmarke = { path = "../pulse-bildmarke" }
 # SendInput-Normierung und die Zeigerform.
 pulse-fernsteuerung = { path = "../pulse-fernsteuerung" }
 
+# Geteilte Zwischenablage der Fernsteuerung, seit 2026-08-31 gemeinsam mit dem
+# Player in einer eigenen Kiste: Rahmenformat, Stueckelung, Zustandsfuehrung
+# samt Fristen und Vorbestand. Hier bleibt die Windows-Haelfte (`src/ablage/`):
+# `AddClipboardFormatListener`, das verzoegerte Rendern ueber `WM_RENDERFORMAT`
+# und der Faden, auf dem beides liegt.
+pulse-ablage = { path = "../pulse-ablage" }
+
 # Stage 2: DXGI-Adapter-Enum (real `gpu_info` + populates `health.gsr.vendor`).
 # Features kept narrow — only what the adapter walk + COM init needs.
 windows = { version = "0.62", features = [
@@ -56,7 +63,10 @@ windows = { version = "0.62", features = [
     "Win32_Security",
     "Win32_Storage_FileSystem", # GetFileVersionInfoW/VerQueryValueW: App-Anzeigename (system/app_name.rs)
     "Win32_System_Com",
+    "Win32_System_DataExchange", # Zwischenablage der Fernsteuerung: AddClipboardFormatListener + verzoegertes Rendern (ablage/fenster.rs)
     "Win32_System_Kernel",
+    "Win32_System_Memory", # GlobalAlloc/GlobalLock: der bewegliche Speicher, den SetClipboardData verlangt (ablage/fenster.rs)
+    "Win32_System_Ole", # CF_UNICODETEXT — die Zwischenablage-Formate liegen in windows-rs unter Ole (ablage/fenster.rs)
     "Win32_System_Performance", # QueryPerformanceCounter: prueft, ob WGC- und WASAPI-Zeitstempel auf derselben Uhr liegen (syncprobe.rs)
     "Win32_Media", # timeBeginPeriod: Systemtimer auf 1 ms für die Tokio-Wartezeiten des WHIP-Wegs (main.rs)
     "Win32_Media_Audio",
