@@ -88,3 +88,30 @@ Kern in `streaming/pulse-ablage` (dort auch das README).
   beim ersten Anspruch gemerkt und bei Sitzungsende zurückgeschrieben.
 - **Linux ist immer der Steuernde** — `remote_input` gibt es nur im Windows-
   und macOS-Sidecar.
+- **Ein Träger je Maschine, gewählt im Renderer des Hosts** (seit 2026-08-31,
+  Windows). Dort läuft ein Sidecar-Prozess je Stream-Platz, die Zwischenablage
+  ist aber maschinenweit — beanspruchten alle, überschrieben sie sich
+  gegenseitig. Gewählt wird, wo die Plätze zusammenlaufen: im Renderer
+  (`web/src/lib/remote/ablageTraeger.ts`), wörtlich dieselbe Auflösung wie beim
+  Vorrang. Der Anstoss `beginn` weckt den Gewählten — **erst er stellt dessen
+  Fensterfaden auf**, alle übrigen rühren die Ablage nie an. Und: der
+  Windows-Sidecar **beendet sich nach `stop`**, endet also der Träger-Stream,
+  stirbt sein Prozess und es wird neu gewählt.
+- **Der Takt darf nicht auf dem Faden liegen, der den Rückruf beantwortet.**
+  Auf Windows blockiert `WM_RENDERFORMAT` diesen Faden, solange das einfügende
+  Programm wartet — und genau dann muss die Abruf-Frist weiterlaufen, denn sie
+  ist es, die dort die leere Antwort zustellt. Deshalb zwei eigene Fäden im
+  Sidecar (`src/ablage/`), nicht einer.
+- **Die Frist wird VOR dem nächsten Abruf geprüft** (`pulse_ablage::lage::takt`,
+  Schritt 2 vor Schritt 3). Andersherum war die Kopplung wirkungslos:
+  `Empfaenger::abrufen` räumt einen abgelaufenen Vorgänger selbst und begann
+  sofort einen frischen, `Empfaenger::takt` sah danach einen laufenden — und
+  `liefern("")` kam nie, während der Einfügevorgang weiter wartete. Gefunden
+  beim Bau des Windows-Hosts, festgehalten mit Gegenprobe.
+- **Was vor dem ersten Ziel eintrifft, wird zurückgehalten**
+  (`ablageVorhalt.ts`). Die Fernsteuerungs-Sitzung beginnt, bevor der Steuernde
+  ein Player-Fenster hat; ein `neu` in dieses Fenster ging an Sitzung 0 und war
+  weg. **Nachfragen geht nicht** — `neu_bitte` ist lokal, es bittet die eigene
+  Plattform, nicht die fremde —, und die Gegenseite kündigt nur an, wenn sich
+  dort etwas ändert. Ohne den Vorhalt war die Ablage in einer Richtung tot,
+  ohne Log und ohne Ursache.

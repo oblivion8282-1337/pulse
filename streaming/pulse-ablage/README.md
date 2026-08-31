@@ -12,7 +12,15 @@ Der plattformfreie Kern der geteilten Zwischenablage der Fernsteuerung.
 | `stueckelung` | Zerlegen und Wiederzusammensetzen unter dem 8192-Byte-Deckel des Gateways |
 | `sitzung` | `Ankuendiger` (meine Seite) und `Empfaenger` (die Gegenseite) |
 | `beobachter` / `eigentum` | Die zwei Berührungspunkte mit dem Betriebssystem, als Traits |
+| `plattform` | Was eine Plattform ausserhalb der beiden Traits noch beantworten muss (`Ablagequelle`), das Objekt-Trait darüber und die Fassung für „hier keine" |
+| `lage` | Die Zustandsführung eines Verbrauchers: `teilen`-Riegel, Vorbestand auf Prozessebene, Fristen, die Deutung eines hereinkommenden Werts |
 | `pruefstand` | Testdoppel beider Traits |
+
+`plattform` und `lage` lagen bis zum 2026-08-31 im Player
+(`app/ablage/{plattform,lage}.rs`) und sind mit dem Windows-Host hierher
+gezogen: **beide Hälften einer Zwischenablage sind spiegelbildlich gleich**,
+es gibt keine Sender- und keine Empfängerseite. Eine Kopie im Sidecar wäre
+genau das, wogegen die gemeinsamen Kisten gebaut sind.
 
 ## Die eine Zusicherung
 
@@ -22,27 +30,26 @@ Ankündigung. Erst ein tatsächliches Einfügen löst die Übertragung aus.
 
 Wer hier etwas ändert, fährt diesen Test und liest, was er behauptet.
 
-## Wer die Kiste einbinden wird
+## Wer die Kiste einbindet
 
-**Heute niemand.** Die Kiste steht allein im Baum; keine `Cargo.toml`
-außerhalb nennt sie, und eine Trait-Umsetzung gibt es nirgends. Die
-Verbraucher baut erst Plan 1b — wer den folgenden Absatz liest und danach
-greppt, findet deshalb nichts.
+`pulse-player` (der Steuernde, seit Plan 1b-1) und `win-hq-sidecar` (der Host,
+seit Plan 1b-2). `mac-hq-sidecar` folgt in Plan 1c. **`linux-hq-sidecar`
+nicht** — Linux kann gar nicht Host sein, `remote_input` gibt es dort nicht.
 
-Einbinden werden sie `pulse-player` (der Steuernde), `win-hq-sidecar` und
-`mac-hq-sidecar` (die Hosts). **`linux-hq-sidecar` nicht** — Linux kann heute
-gar nicht Host sein, `remote_input` gibt es dort nicht.
+Die **Plattform-Aufrufe** liegen nicht hier, sondern bei den Verbrauchern:
 
-Die Linux-Umsetzung der beiden Traits wird im **Player** liegen
-(`src/fernsteuerung/wayland/`), nicht hier: der Player hält für die
-Zugerkennung bereits ein `wl_data_device` am Sitzplatz, und ein zweites
-verdoppelte alle Ereignisse. Windows und macOS bringen ihr eigenes verstecktes
-Fenster mit und sind selbsttragend.
+- Wayland im Player (`src/fernsteuerung/wayland/ablage*`) — er hält für die
+  Zugerkennung bereits ein `wl_data_device` am Sitzplatz, und ein zweites
+  verdoppelte alle Ereignisse.
+- Windows im Sidecar (`streaming/win-hq-sidecar/src/ablage/`) — eigenes,
+  nur für Nachrichten sichtbares Fenster auf eigenem Faden, plus ein zweiter
+  Faden für den Takt (der muss weiterlaufen, während der erste in
+  `WM_RENDERFORMAT` blockiert).
 
 ## Tests
 
     cargo test
 
 Läuft ohne FFmpeg, ohne Fenster, ohne Netz — die Kiste ist reine Rechnung.
-53 Tests, warnungsfrei; `scripts/gate-rust.sh` fährt sie mit (er nimmt jede
+80 Tests, warnungsfrei; `scripts/gate-rust.sh` fährt sie mit (er nimmt jede
 geänderte `streaming/pulse-*`, ohne sie einzeln zu nennen).
