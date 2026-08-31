@@ -32,6 +32,8 @@ import {
 import { type Zugang } from '../ablage/oauth.ts';
 import { gdriveAdapter, auffrischeZugang, type GdriveAnbindung } from '../ablage/gdrive.ts';
 import type { AblageAdapter } from '../ablage/adapter.ts';
+import { ordnerAdapter, ordnerZugriffOk } from './ordner.ts';
+import type { AblageVerzeichnis } from '../ablage/syncOrdner.ts';
 import type { WarteEintrag } from './spiegel.ts';
 import type { AblageNachricht } from '../ablage/nutzlast.ts';
 
@@ -51,18 +53,26 @@ export function anhangDateiName(id: string): string {
 	return `anhang-${id}.puls`;
 }
 
-export interface SicherungVerbindung {
-	kundenId: string;
-	/** Google verlangt es auch bei Desktop-Clients (empirisch, s. gdrive.ts). */
-	kundenGeheimnis?: string;
-	weiterleitung: string;
-	/** Drive-Ordner als Pfad, z. B. `Pulse-Sicherung`. */
-	ordner: string;
-	nachspieleToken: string;
-	/** Der Zugangs-Token aus dem Code-Tausch — kurzlebig, nur für die
-	 *  Einrichtung gedacht, damit sie nicht extra auffrischen muss. */
-	zugangsToken?: string;
-}
+/**
+ * Das Ziel der Sicherung: Google Drive (OAuth) oder ein lokaler Ordner
+ * (File-System-Access-Handle — z. B. im Dropbox-/OneDrive-Sync des Nutzers).
+ * Der Handle ist strukturell klonbar und darf in die IndexedDB.
+ */
+export type SicherungVerbindung =
+	| {
+			ziel: 'gdrive';
+			kundenId: string;
+			/** Google verlangt es auch bei Desktop-Clients (empirisch, s. gdrive.ts). */
+			kundenGeheimnis?: string;
+			weiterleitung: string;
+			/** Drive-Ordner als Pfad, z. B. `Pulse-Sicherung`. */
+			ordner: string;
+			nachspieleToken: string;
+			/** Der Zugangs-Token aus dem Code-Tausch — kurzlebig, nur für die
+			 *  Einrichtung gedacht, damit sie nicht extra auffrischen muss. */
+			zugangsToken?: string;
+	  }
+	| { ziel: 'ordner'; verzeichnis: AblageVerzeichnis };
 
 export interface PufferZeile extends WarteEintrag {
 	schluessel: string;
@@ -122,7 +132,9 @@ export async function verbindungEntfernen(): Promise<void> {
 }
 
 /** Der Google-Client aus der Verbindung — für Konsent-Link und Token-Tausch. */
-export function anbindungAusVerbindung(v: SicherungVerbindung): GdriveAnbindung {
+export function anbindungAusVerbindung(
+	v: Extract<SicherungVerbindung, { ziel: 'gdrive' }>,
+): GdriveAnbindung {
 	return {
 		kundenId: v.kundenId,
 		...(v.kundenGeheimnis !== undefined && v.kundenGeheimnis !== ''
@@ -140,6 +152,12 @@ export function anbindungAusVerbindung(v: SicherungVerbindung): GdriveAnbindung 
 export async function adapterLieferant(): Promise<AblageAdapter> {
 	const v = await verbindungLesen();
 	if (v === null) throw new Error('Sicherung: keine Verbindung eingerichtet');
+	if (v.ziel === 'ordner') {
+		if (!(await ordnerZugriffOk(v.verzeichnis))) {
+			throw new Error('Ordner-Zugriff verweigert — bitte in den Sicherungs-Einstellungen erneut erlauben.');
+		}
+		return ordnerAdapter(v.verzeichnis);
+	}
 	if (v.zugangsToken) {
 		// Frisch vom Code-Tausch — verbrauchen, solange er jung ist.
 		const token = v.zugangsToken;

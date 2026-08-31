@@ -6,12 +6,13 @@
    * Nutzer, dass er den Tab schließen kann. Kein weiterer Inhalt.
    */
   import { page } from '$app/stores';
-  import { OAUTH_CODE_SPEICHER } from '$lib/sicherung/googleClient';
+  import { OAUTH_RUECKGABE_SPEICHER } from '$lib/sicherung/googleClient';
 
   $effect(() => {
     const code = $page.url.searchParams.get('code');
-    if (code !== null) {
-      localStorage.setItem(OAUTH_CODE_SPEICHER, code);
+    const state = $page.url.searchParams.get('state');
+    if (code !== null && state !== null) {
+      localStorage.setItem(OAUTH_RUECKGABE_SPEICHER, JSON.stringify({ state, code }));
     }
   });
 
