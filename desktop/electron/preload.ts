@@ -135,11 +135,15 @@ contextBridge.exposeInMainWorld('pulse', {
      *  (`$lib/remote/ablage.ts`). Der Vorlader deutet ihn nicht — das Format
      *  lebt in `streaming/pulse-ablage`, und eine zweite Fassung hier liefe
      *  auseinander. Beim Steuernden landet er im Player, beim Host im Sidecar;
-     *  die Weiche steht im Hauptprozess (`ablageWeiche.ts`). `session` ist die
-     *  Player-Fensternummer — ohne sie koennte der Player den Rahmen keinem
-     *  Fenster zuordnen, dieselbe Sitzungspflicht wie bei `pointerShape`. */
-    ablage: (session: number, data: unknown): Promise<unknown> =>
-      ipcRenderer.invoke('gsr:ablage', session, data),
+     *  die Weiche steht im Hauptprozess (`ablageWeiche.ts`) und entscheidet
+     *  nach `rolle` — die reist mit, weil der Hauptprozess sie nicht kennt und
+     *  sie aus der Sitzungsnummer nicht sicher erschliessen kann (ein Host, der
+     *  nebenbei einen fremden Stream im Player anschaut, traegt ebenfalls eine
+     *  Sitzungsnummer). `session` ist die Player-Fensternummer — ohne sie
+     *  koennte der Player den Rahmen keinem Fenster zuordnen, dieselbe
+     *  Sitzungspflicht wie bei `pointerShape`. */
+    ablage: (rolle: 'host' | 'controller', session: number, data: unknown): Promise<unknown> =>
+      ipcRenderer.invoke('gsr:ablage', rolle, session, data),
   },
 
   /**

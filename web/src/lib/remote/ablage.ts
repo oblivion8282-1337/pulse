@@ -40,8 +40,15 @@ class RemoteAblage {
    *  geht — nur beim Steuernden gesetzt, und erst, sobald sein Fenster offen
    *  ist (s. Modulkopf). 0 = kein Fenster bekannt. */
   #fensterSitzung = 0;
+  /** Die eigene Rolle dieser Sitzung. Geht an die Plattform-Brücke mit, statt
+   *  im Hauptprozess aus der Sitzungsnummer geraten zu werden — ein Host, der
+   *  nebenbei den Strom eines Dritten im nativen Player anschaut, trägt auch
+   *  dort eine Sitzungsnummer, und daraus liesse sich fälschlich 'controller'
+   *  folgern. Der Renderer kennt seine Rolle, er muss sie nicht erschliessen. */
+  #rolle: 'host' | 'controller' = 'host';
 
-  start(_rolle: 'host' | 'controller', sendSignal: SignalSender): void {
+  start(rolle: 'host' | 'controller', sendSignal: SignalSender): void {
+    this.#rolle = rolle;
     this.#sendSignal = sendSignal;
     // Die Plattform-Brücke meldet, was ihr Ende hinausschicken will. Im
     // Browser und in einer älteren Shell gibt es sie nicht — dann bleibt es
@@ -66,7 +73,7 @@ class RemoteAblage {
    *  die Plattform — sie hat den Parser. */
   _signal(data: unknown): void {
     if (data === null || data === undefined) return;
-    void ablageAnPlayer(this.#fensterSitzung, data);
+    void ablageAnPlayer(this.#rolle, this.#fensterSitzung, data);
   }
 
   /** Ein Rahmen der eigenen Seite hinaus. `false`, wenn er die Drossel nicht

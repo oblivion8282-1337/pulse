@@ -86,12 +86,22 @@ export interface PulseGsrApi {
    *  (`$lib/remote/ablage.ts`). Ungedeutet durchgereicht — das Format lebt in
    *  `streaming/pulse-ablage`. Beim Steuernden landet er im Player-Fenster,
    *  beim Host im Sidecar; die Weiche steht im Hauptprozess
-   *  (`desktop/electron/ablageWeiche.ts`).
+   *  (`desktop/electron/ablageWeiche.ts`) und entscheidet nach `rolle`.
+   *
+   *  `rolle` reist mit, statt im Hauptprozess erschlossen zu werden: ein
+   *  Host, der nebenbei den Strom eines Dritten im nativen Player anschaut,
+   *  traegt ebenfalls eine Sitzungsnummer > 0 — daraus liesse sich fälschlich
+   *  'controller' folgern. Der Renderer kennt seine Rolle, er muss sie nicht
+   *  erschliessen.
    *
    *  `session` ist die Player-Fensternummer — ohne sie koennte der Player den
    *  Rahmen keinem Fenster zuordnen, dieselbe Sitzungspflicht wie bei
    *  `PulsePlayerApi.pointerShape`. 0, wenn keine bekannt ist (Host-Seite). */
-  ablage(session: number, data: unknown): Promise<{ ok: boolean; error?: string }>;
+  ablage(
+    rolle: 'host' | 'controller',
+    session: number,
+    data: unknown,
+  ): Promise<{ ok: boolean; error?: string }>;
 }
 
 /** Payload for `pulse.notify.show()` — mention/DM toast. The renderer is

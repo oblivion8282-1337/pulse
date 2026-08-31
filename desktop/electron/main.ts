@@ -43,7 +43,7 @@ import {
 import { playerManager } from './player';
 import { auftragLesen, EingabeWeiche, erfassungSchalten } from './remoteInput';
 import { RemoteEingabe } from './remoteInputHost';
-import { zielFuerAblage } from './ablageWeiche';
+import { zielFuerAblage, rolleLesen } from './ablageWeiche';
 import { migriereAufStandardAn, onSidecarEventForUpload } from './experimental-log-upload';
 import { initStore, storeGet, storeGetAll, storeSet, storeSetBatch } from './store';
 import { createTray, applyTrayStatus, setTrayImageFromDataUrl } from './tray';
@@ -903,22 +903,28 @@ function wireSidecar(): void {
 
   // Fernsteuerung — geteilte Zwischenablage (`$lib/remote/ablage.ts`). Der
   // Hauptprozess deutet die Nutzlast nicht, er entscheidet nur, wohin sie
-  // geht (`ablageWeiche.ts`). Er kennt die Rolle (host/controller) selbst
-  // nicht — dafuer traegt der Aufruf die Player-Fensternummer: eine Nummer
-  // > 0 heisst, der Steuernde hat sein Fenster bereits nachgemeldet
-  // (`ablage.ts::setSenke`); 0 heisst kein bekanntes Fenster, und dann bleibt
-  // nur der Sidecar-Weg.
+  // geht (`ablageWeiche.ts`). Die Rolle wird NICHT aus der Sitzungsnummer
+  // erschlossen (das brach: ein Host, der nebenbei den Strom eines Dritten im
+  // nativen Player anschaut, traegt ebenfalls eine Sitzungsnummer > 0 und
+  // waere faelschlich als 'controller' gedeutet worden) — sie kommt vom
+  // Renderer mit, der sie aus `remoteAblage.start(rolle, …)` kennt, und wird
+  // hier nur noch geprueft (`rolleLesen`, fail-closed). Zulaessig, weil diese
+  // Weiche nur entscheidet, welcher der EIGENEN lokalen Prozesse die Ablage
+  // haelt — anders als bei `input_capture` (Sicherheitsentscheidung ueber
+  // Eingabe-Injektion, deshalb dort bewusst im Hauptprozess) kostet eine
+  // falsche Rolle hier ein fehlgeleitetes Einfuegen, keine Befugnis.
   //
   // Die Sidecar-Haelfte ist in diesem Plan (1b-1) ABSICHT ein Platzhalter:
   // der Host-Sidecar der Zwischenablage kommt erst in Plan 1b-2. Ein
   // `{ok:false}` hier ist deshalb kein Fehler, sondern der dokumentierte
   // Stand.
-  ipcMain.handle('gsr:ablage', async (_e, session: unknown, data: unknown) => {
-    const s = typeof session === 'number' && Number.isInteger(session) && session > 0 ? session : 0;
-    const rolle: 'host' | 'controller' = s > 0 ? 'controller' : 'host';
+  ipcMain.handle('gsr:ablage', async (_e, rolleRoh: unknown, session: unknown, data: unknown) => {
+    const rolle = rolleLesen(rolleRoh);
+    if (!rolle) return { ok: false, error: 'unbekannte Rolle' };
     if (zielFuerAblage(rolle) === 'sidecar') {
       return { ok: false, error: 'kein Host-Sidecar in 1b-1' };
     }
+    const s = typeof session === 'number' && Number.isInteger(session) && session > 0 ? session : 0;
     try {
       return await playerManager.call('ablage', { session: s, data });
     } catch (e) {
