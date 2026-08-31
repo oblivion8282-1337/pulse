@@ -27,6 +27,11 @@ export const RAHMEN_KOPF_LAENGE = 18;
 export const TYP_KLARTEXT_JSON = 1;
 /** Nutzlast Megolm-Ciphertext — reserviert für den Krypto-Nachzug. */
 export const TYP_MEGOLM = 2;
+/**
+ * Nutzlast AES-256-GCM mit dem DEK der Sicherung (lib/sicherung) —
+ * Nonce vorangestellt, Klartext ist ein Sicherungs-Eintrag (siehe dort).
+ */
+export const TYP_SICHERUNG_AES = 3;
 
 /** Abweisungswert gegen Müll, der zufällig Kennung und Fassung trifft. */
 export const NUTZLAST_MAX_LAENGE = 4 * 1024 * 1024;
