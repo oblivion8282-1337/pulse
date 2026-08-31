@@ -46,7 +46,18 @@ describe('Ablage-Nutzlast: Wire wird Bestand', () => {
 		assert.equal(nachricht.autor, 'nutzer-9');
 		assert.equal(nachricht.antwortAuf, '111');
 		assert.equal(nachricht.bearbeitet, '2026-08-30T11:00:00Z');
-		assert.deepEqual(nachricht.anhaenge, [{ id: 'a-1', name: 'foto.png', mime: 'image/png', groesse: 42 }]);
+		// Verbatim samt Dateischlüssel (verschlüsselte Anhänge brauchen ihn
+		// auf dem Wiederherstellungsgerät), aber ohne Vorsignatur-URLs.
+		assert.deepEqual(nachricht.anhaenge, [
+			{
+				id: 'a-1',
+				filename: 'foto.png',
+				name: 'foto.png',
+				mime: 'image/png',
+				size: 42,
+				groesse: 42,
+			},
+		]);
 
 		// Vorsignierte Adressen sind kurzlebig und dürfen den dauerhaften
 		// Bestand nie erreichen.

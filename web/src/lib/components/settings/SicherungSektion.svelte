@@ -64,7 +64,18 @@
       if (verbindung !== null) neuesPasswort = false;
       // Bereits eingerichtet? Dann den Archiv-Bestand automatisch nachladen —
       // der Nutzer will Nachrichten SEHEN, nicht Knöpfe suchen.
-      if (zustand === 'an') void laden();
+      if (zustand === 'an') {
+        // Verbindung probehalber benutzen: eine abgelaufene (ohne
+        // Refresh-Token) war bisher unsichtbar, weil der Spiegel Fehler
+        // stillschweigend schluckt. Hier kostet es eine Zeile Sichtbarkeit.
+        try {
+          await adapterLieferant();
+        } catch {
+          fehler =
+            'Die Google-Verbindung ist abgelaufen — bitte unten „Entfernen“ und neu verbinden.';
+        }
+        void laden();
+      }
     })();
   });
 

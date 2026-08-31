@@ -44,7 +44,10 @@ export class NutzlastFehler extends Error {
 	}
 }
 
-/** Übersetzt eine Nachricht vom Wire in die Bestand-Form. */
+/** Übersetzt eine Nachricht vom Wire in die Bestand-Form. Die Anhänge
+ *  werden VERBATIM übernommen (statt auf vier Felder verkürzt): bei
+ *  verschlüsselten Nachrichten tragen sie den Dateischlüssel, ohne den
+ *  kein wiederhergestelltes Gerät den Anhang je wieder öffnen könnte. */
 export function ausWire(m: Message): AblageNachricht {
 	return {
 		fassung: NUTZLAST_FASSUNG,
@@ -54,11 +57,12 @@ export function ausWire(m: Message): AblageNachricht {
 		zeit: m.created_at,
 		bearbeitet: m.edited_at ?? null,
 		antwortAuf: m.reply_to_id ?? null,
-		anhaenge: (m.attachments ?? []).map((a) => ({
-			id: a.id,
-			name: a.filename,
-			mime: a.mime,
-			groesse: a.size,
+		anhaenge: (m.attachments ?? []).map(({ url: _url, thumb_url: _thumb, ...dauerhaft }) => ({
+			...dauerhaft,
+			id: dauerhaft.id,
+			name: dauerhaft.filename,
+			mime: dauerhaft.mime,
+			groesse: dauerhaft.size,
 		})),
 	};
 }
@@ -104,7 +108,10 @@ export function leseNachricht(bytes: Uint8Array): AblageNachricht {
 		if (typeof anhang.id !== 'string' || typeof anhang.groesse !== 'number') {
 			throw new NutzlastFehler('Anhang ohne id oder groesse');
 		}
+		// Verbatim: Fremdfelder (z. B. der Dateischlüssel verschlüsselter
+		// Anhänge) bleiben erhalten — das Wiederherstellen braucht sie.
 		return {
+			...anhang,
 			id: anhang.id,
 			name: anhang.name === null ? null : String(anhang.name),
 			mime: anhang.mime === null ? null : String(anhang.mime),

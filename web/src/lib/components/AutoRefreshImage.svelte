@@ -82,11 +82,14 @@
      *  der Krypto-Zweig nicht in jedem Nachrichtenlauf mitgeladen wird. */
     async function ladeVerschluesselt(a: Attachment): Promise<string> {
       const schluessel = thumb ? a.thumb_schluessel : a.schluessel;
-      if (!schluessel) throw new Error('kein Dateischluessel');
+      // Ohne Dateischlüssel klappt nur der LOKALE Pfad (Sicherungs-
+      // Wiederherstellung stellt die Klartext-Bytes bereit); anhangBlob
+      // wirft selbst, wenn es lokal nichts gibt und der Serverweg den
+      // Schlüssel braucht.
       const { anhangBlob } = await import('$lib/krypto/anhangHolen');
       const blob = await anhangBlob(
         attachmentId,
-        schluessel,
+        schluessel ?? '',
         a.mime ?? 'application/octet-stream',
         thumb
       );
