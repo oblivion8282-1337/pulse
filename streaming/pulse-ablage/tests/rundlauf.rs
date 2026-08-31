@@ -184,6 +184,54 @@ fn ein_anspruch_loescht_den_vorbestand_und_gibt_ihn_zurueck() {
 }
 
 #[test]
+fn zwei_ankuendigungen_vernichten_den_vorbestand_nicht() {
+    // A kopiert zweimal hintereinander — alltaeglich. B darf seinen eigenen
+    // Vorbestand darueber nicht verlieren.
+    let mut a = Seite::neu();
+    let mut b = Seite::neu();
+
+    b.ablage.setzen("/home/michael/wichtig.txt");
+    b.ablage.geaendert();
+
+    let erste = a.kopiert("eins");
+    austauschen(&mut a, &mut b, erste);
+    let zweite = a.kopiert("zwei");
+    austauschen(&mut a, &mut b, zweite);
+
+    assert_eq!(
+        b.ablage.vorbestand().as_deref(),
+        Some("/home/michael/wichtig.txt"),
+        "die zweite Ankuendigung darf den Merkposten nicht ueberschreiben"
+    );
+    let vorher = b.ablage.vorbestand();
+    b.ablage.freigeben(vorher.as_deref());
+    assert_eq!(b.ablage.inhalt().as_deref(), Some("/home/michael/wichtig.txt"));
+}
+
+#[test]
+fn eigenes_kopieren_schlaegt_den_gemerkten_vorbestand() {
+    let mut a = Seite::neu();
+    let mut b = Seite::neu();
+
+    b.ablage.setzen("alt");
+    b.ablage.geaendert();
+    let hinaus = a.kopiert("von drueben");
+    austauschen(&mut a, &mut b, hinaus);
+    assert!(b.ablage.beansprucht());
+
+    // Der Nutzer kopiert selbst — ab jetzt gehoert die Ablage ihm.
+    b.ablage.setzen("frisch vom Nutzer");
+
+    let vorher = b.ablage.vorbestand();
+    b.ablage.freigeben(vorher.as_deref());
+    assert_eq!(
+        b.ablage.inhalt().as_deref(),
+        Some("frisch vom Nutzer"),
+        "ein Merkposten von vorhin darf die frische Ablage nicht ueberschreiben"
+    );
+}
+
+#[test]
 fn nach_fristablauf_wird_leer_geliefert_statt_zu_haengen() {
     // Auf Windows und macOS wartet an dieser Stelle ein blockierter Faden. Ein
     // Einfuegen, das nichts einfuegt, versteht jeder; ein haengendes Programm

@@ -126,6 +126,12 @@ impl Empfaenger {
         if *typ != Inhaltstyp::Text {
             return false;
         }
+        if self.fremde_generation == Some(*generation) {
+            // Dieselbe Nummer wie zuletzt: die Gegenseite frischt nur auf. Ein
+            // zweiter Anspruch braucht es dafuer nicht, und auf Wayland kostete
+            // er ein sinnloses `set_selection`.
+            return false;
+        }
         self.fremde_generation = Some(*generation);
         // Ein laufender Abruf gilt der ALTEN Generation und wird von der
         // Gegenseite ohnehin mit `veraltet` beantwortet — verworfen wird er
@@ -137,6 +143,18 @@ impl Empfaenger {
     /// Es wird gerade eingefuegt — den Abruf bauen.
     pub fn abrufen(&mut self, jetzt_ms: u64) -> Option<Rahmen> {
         let generation = self.fremde_generation?;
+        // **Zuerst die Frist, dann die Entscheidung.** `takt()` ist sonst die
+        // einzige Stelle, die einen haengenden Abruf loest — und ihr Aufruf ist
+        // Verbraucher-Disziplin. Hoert der Verbraucher auf zu takten (was er
+        // tut, sobald niemand mehr wartet), bliebe `laufend` fuer den Rest der
+        // Sitzung stehen und die Ablage waere still tot. Die Frist gehoert in
+        // diese Kiste, also darf sie nicht von der Sorgfalt ihres Aufrufers
+        // abhaengen.
+        if let Some(laufend) = self.laufend.as_ref()
+            && jetzt_ms.saturating_sub(laufend.seit_ms) >= ABRUF_FRIST_MS
+        {
+            self.laufend = None;
+        }
         if self.laufend.is_some() {
             return None;
         }
@@ -347,6 +365,31 @@ mod tests {
         let mut e = Empfaenger::neu();
         assert!(e.angekuendigt(&Rahmen::Neu { generation: 4, typ: Inhaltstyp::Text }));
         assert_eq!(e.abrufen(0), Some(Rahmen::Hol { generation: 4, id: 1 }));
+    }
+
+    #[test]
+    fn ein_abgelaufener_abruf_blockiert_den_naechsten_nicht() {
+        // Ohne diese Selbstheilung haenge die Ablage fuer den Rest der Sitzung,
+        // sobald der Verbraucher aufhoert zu takten — und das tut er genau
+        // dann, wenn niemand mehr auf ein Einfuegen wartet.
+        let mut e = Empfaenger::neu();
+        e.angekuendigt(&Rahmen::Neu { generation: 4, typ: Inhaltstyp::Text });
+        assert!(e.abrufen(1_000).is_some());
+        // Kein `takt()` — der Verbraucher hat aufgehoert.
+        assert!(
+            e.abrufen(1_000 + ABRUF_FRIST_MS).is_some(),
+            "der abgelaufene Abruf muss beim naechsten Versuch selbst geraeumt werden"
+        );
+    }
+
+    #[test]
+    fn dieselbe_generation_wird_nicht_zweimal_beansprucht() {
+        // Eine Ankuendigung, die nur auffrischt, darf keinen zweiten Anspruch
+        // ausloesen: auf Wayland kostete er ein sinnloses `set_selection`.
+        let mut e = Empfaenger::neu();
+        assert!(e.angekuendigt(&Rahmen::Neu { generation: 4, typ: Inhaltstyp::Text }));
+        assert!(!e.angekuendigt(&Rahmen::Neu { generation: 4, typ: Inhaltstyp::Text }));
+        assert!(e.angekuendigt(&Rahmen::Neu { generation: 5, typ: Inhaltstyp::Text }));
     }
 
     #[test]

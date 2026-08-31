@@ -65,7 +65,14 @@ impl Eigentum for TestAblage {
     fn beanspruchen(&mut self) -> Result<(), String> {
         // Genau die Falle, gegen die `freigeben(zurueck)` gebaut ist: der
         // Anspruch loescht den Vorbestand.
-        self.vorbestand = self.inhalt.take();
+        //
+        // **Nur beim ERSTEN Anspruch merken.** Beim zweiten ist `inhalt` schon
+        // `None` — ein `take()` setzte den Merkposten dann auf `None` und
+        // vernichtete genau das, was er retten soll. Zwei Ankuendigungen
+        // hintereinander sind der Normalfall, nicht der Randfall.
+        if !self.beansprucht {
+            self.vorbestand = self.inhalt.take();
+        }
         self.beansprucht = true;
         Ok(())
     }
@@ -75,7 +82,17 @@ impl Eigentum for TestAblage {
     }
 
     fn freigeben(&mut self, zurueck: Option<&str>) {
+        // **Nur zurueckschreiben, wenn wir noch Eigentuemer sind.** Hat der
+        // Nutzer inzwischen selbst kopiert, gehoert ihm die Ablage — sie mit
+        // einem Merkposten von vorhin zu ueberschreiben waere derselbe stille
+        // Verlust, gegen den der Merkposten ueberhaupt gebaut ist. Genau das
+        // sagt auch die Doku am Trait (`eigentum.rs`) zu; hier steht die
+        // Vorlage fuer die drei Plattform-Umsetzungen.
+        let war_eigentuemer = self.beansprucht;
         self.beansprucht = false;
+        if !war_eigentuemer {
+            return;
+        }
         if let Some(t) = zurueck {
             self.inhalt = Some(t.to_string());
         }
