@@ -351,22 +351,28 @@ Vier Dinge, die man beim Lesen sucht:
   (`web/src/lib/remote/ablageTraeger.ts`) — dieselbe Auflösung wie beim Vorrang.
   Ein Sidecar ohne diesen Anstoß stellt kein Fenster auf und rührt die Ablage
   nicht an.
-- **Jedes Prozessende schreibt den Vorbestand zurück** (`beenden_endgueltig`,
-  aus `main.rs` auf beiden Wegen). Der Sidecar ist per-Stream: endet der
-  Träger-Stream, stirbt der Prozess — als Eigentümer eines verzögerten
-  Rendervorgangs. Ohne das Zurückschreiben hielte Windows danach ein leeres
-  Fach, und was der Nutzer vor der Sitzung kopiert hatte, wäre still weg.
+- **Jedes GEORDNETE Prozessende schreibt den Vorbestand zurück**
+  (`beenden_endgueltig`, aus `main.rs` auf beiden Wegen: `stop`-Op und
+  stdin-EOF). Der Sidecar ist per-Stream: endet der Träger-Stream, stirbt der
+  Prozess — als Eigentümer eines verzögerten Rendervorgangs. Ohne das
+  Zurückschreiben hielte Windows danach ein leeres Fach, und was der Nutzer vor
+  der Sitzung kopiert hatte, wäre still weg.
+  **„Geordnet" ist hier keine Floskel:** `desktop/electron/sidecar.ts`
+  eskaliert nach `SHUTDOWN_SIGTERM_GRACE_MS` (2 s) auf `kill('SIGKILL')`, und
+  auf Windows ist jedes `child.kill()` ein `TerminateProcess` — dort läuft
+  nichts mehr. Ein hängender oder abgestürzter Sidecar hinterlässt genau den
+  Schaden, gegen den der Vorbestand gebaut ist. Ungelöst, und ohne einen
+  zweiten Halter (etwa den Hauptprozess) auch nicht lösbar.
 
-**Was geprüft ist und was nicht.** Die Rechnung darüber steht in
-`streaming/pulse-ablage` (80 Tests) und läuft in jedem Gate. Die Buchführung
-über eigene und fremde Änderungen (`ablage/geteilt.rs`, 6 Tests) enthält keinen
-Win32-Aufruf und läuft **hier**, also in `cargo test` dieses Crates — und das
-fährt nur, wer auf Windows sitzt (`gate-rust.sh` nimmt den Sidecar
-ausdrücklich nicht, er baut auf Linux nicht). Beim Bau von Plan 1b-2 wurden sie
-über ein Wegwerf-Crate auf der Linux-Maschine gefahren; **im Repo hängen sie an
-keinem Gate**. Die Win32-Aufrufe selbst sind nur **übersetzt**, gegen
-`x86_64-pc-windows-msvc`. Echtes Kopieren über zwei Maschinen bleibt
-Handarbeit.
+**Was geprüft ist und was nicht.** Die Rechnung darüber steht vollständig in
+`streaming/pulse-ablage` — Zustandsführung (`lage`) und Buchführung über eigene
+und fremde Änderungen (`stand`), zusammen 86 Tests der Kiste. `gate-rust.sh`
+fährt sie, **wenn die Kiste angefasst wurde** (er nimmt jede geänderte
+`streaming/pulse-*`, nicht jede vorhandene). In diesem Verzeichnis liegt kein
+einziger Test mehr: was hier steht, ist Betriebssystem, und `cargo test` dieses
+Crates fährt ohnehin nur, wer auf Windows sitzt. Die Win32-Aufrufe sind
+**übersetzt**, gegen `x86_64-pc-windows-msvc` — mehr nicht. Echtes Kopieren
+über zwei Maschinen bleibt Handarbeit.
 
 ## Env-Overrides (Test/Debug)
 

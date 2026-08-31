@@ -6,11 +6,13 @@
 //! erst, wenn drueben jemand tatsaechlich einfuegt. Diese Datei verdrahtet ihn
 //! mit dem Sidecar — welcher Rahmen wohin, wer taktet, wann Schluss ist.
 //!
-//! **Vier Teile:** die Zustandsfuehrung kommt aus der Kiste
-//! (`pulse_ablage::lage`, dort gepruefte 80 Tests), die Buchfuehrung ueber
-//! eigene und fremde Aenderungen steht in [`geteilt`] (pruefbar, ohne Win32),
-//! der Faden samt Nachrichtenfenster in [`fenster`], die Win32-Vorgaenge auf
-//! dem Fach selbst in [`fach`]. Hier steht nur die Verdrahtung.
+//! **Was hier NICHT liegt, und das ist der groessere Teil:** die
+//! Zustandsfuehrung (`pulse_ablage::lage`, 27 Tests) und die Buchfuehrung
+//! ueber eigene und fremde Aenderungen (`pulse_ablage::stand`, 6 Tests) —
+//! beides plattformfrei und in jedem Gate gefahren, das diese Kiste anfasst.
+//! Hier bleiben der Faden samt Nachrichtenfenster ([`fenster`]), die
+//! Win32-Vorgaenge auf dem Fach selbst ([`fach`]), die Trait-Umsetzung
+//! ([`quelle`]) und die Verdrahtung.
 //!
 //! ## Ein Prozess je Platz, eine Zwischenablage je Maschine
 //!
@@ -31,13 +33,20 @@
 //! Der Windows-Sidecar ist per-Stream und beendet sich nach `stop`
 //! (`dispatch.rs`). Endet der Traeger-Stream, endet dieser Prozess — und mit
 //! ihm das Eigentum an der Zwischenablage. Damit dabei nicht der Vorbestand
-//! des Nutzers verschwindet, laeuft [`beenden_endgueltig`] an **jedem**
-//! Prozessende (`main.rs`, beide Wege): Eigentum abgeben, gemerkten Inhalt
-//! zurueckschreiben. Der Renderer waehlt danach einen neuen Traeger.
+//! des Nutzers verschwindet, laeuft [`beenden_endgueltig`] an jedem
+//! **geordneten** Prozessende (`main.rs`, beide Wege: `stop`-Op und
+//! stdin-EOF): Eigentum abgeben, gemerkten Inhalt zurueckschreiben. Der
+//! Renderer waehlt danach einen neuen Traeger.
+//!
+//! **Ein hartes Ende deckt das NICHT ab**, und diese Einschraenkung ist
+//! tragend: `desktop/electron/sidecar.ts` eskaliert nach zwei Sekunden auf
+//! `kill('SIGKILL')`, was auf Windows ein `TerminateProcess` ist — danach
+//! laeuft hier nichts mehr, und die Ablage des Nutzers bleibt leer. Ungeloest;
+//! ohne einen zweiten Halter ausserhalb dieses Prozesses auch nicht loesbar.
 
+mod auftragsbuch;
 mod fach;
 mod fenster;
-mod geteilt;
 mod quelle;
 
 use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -47,6 +56,14 @@ use pulse_ablage::lage::{Ablagelage, Anstoss, Entscheidung, Prozessablage, deute
 use pulse_ablage::plattform::Ablageplattform;
 
 use quelle::WinAblage;
+
+/// Hoechstens so viele Werte warten auf den Takt-Faden.
+///
+/// Die Warteschlange waechst nur, wenn der Takt-Faden nicht mehr laeuft — und
+/// dann ist die Zwischenablage ohnehin tot. Die Grenze ist deshalb kein
+/// Durchsatzwert, sondern ein Riegel gegen unbegrenztes Wachsen: der Gateway
+/// deckelt bei 60 Signalen je Sekunde, gut vier Sekunden Vorrat.
+const WARTESCHLANGE_MAX: usize = 256;
 
 /// Wie oft die Zustandsmaschine laeuft.
 ///
@@ -83,17 +100,30 @@ fn mit<R>(f: impl FnOnce(&mut Ablagelage, &mut Prozessablage, &mut dyn Ablagepla
 /// Ein Wert der Operation `ablage` — entweder ein Rahmen der Gegenseite oder
 /// ein Anstoss des eigenen Renderers.
 ///
+/// **Diese Funktion arbeitet ihn NICHT ab, sie reiht ihn ein.** Sie laeuft auf
+/// dem Dispatch-Faden, und auf dem liegt auch `remote_input` — die
+/// Eingabe-Injektion der Fernsteuerung. Die Abarbeitung fasst die Plattform an
+/// und kann dabei bis zu `auftragsbuch::AUFTRAG_FRIST` (500 ms) auf den
+/// Fensterfaden warten; realistisch sind Mikrosekunden, aber der **Deckel**
+/// waere eine halbe Sekunde stockende Eingabe. Der Entwurf verbietet dem
+/// blockierenden Rueckruf den Injektionsfaden ausdruecklich; diese Operation
+/// hing bis zum Prueflauf von 1b-2 trotzdem daran (Befund B9). Sie tut es
+/// nicht mehr: gedeutet und beantwortet wird auf dem Takt-Faden, und der
+/// naechste Takt ist hoechstens [`TAKT_MS`] entfernt.
+///
+/// **Was hier bleibt, ist der Start.** `beginn` stellt den Fensterfaden und
+/// den Takt-Faden auf — vorher gibt es niemanden, der die Warteschlange
+/// leeren koennte. Das kostet einen Fenster-Aufbau, keine Zwischenablage-
+/// Sperre.
+///
 /// **Gedeutet wird in `pulse_ablage::lage::deuten`, nicht hier**, und die
 /// Huelle entscheidet, nicht die Reihenfolge: fremde Nutzlast liegt immer unter
 /// `rahmen`, ein Anstoss immer unter `anstoss`. Ohne diese Trennung genuegte
 /// ein einziges fremdes `remote_signal`, um den Traeger zu wechseln oder die
-/// Ablage abzuschalten.
+/// Ablage abzuschalten. **Der `beginn`-Blick hier ist deshalb kein zweiter
+/// Parser**, sondern dieselbe Funktion, einmal vorab gefragt.
 pub fn verarbeiten(data: &serde_json::Value) {
-    let entscheidung = deuten(data);
-    // **Der Fensterfaden wird VOR der Sperre aufgestellt**: er ist die Antwort
-    // auf `beginn`, und wer ihn erst danach aufstellte, liesse den ersten Takt
-    // gegen eine Plattform laufen, die es noch nicht gibt.
-    if matches!(entscheidung, Entscheidung::Anstoss(Anstoss::Beginn)) {
+    if matches!(deuten(data), Entscheidung::Anstoss(Anstoss::Beginn)) {
         if let Err(grund) = fenster::starten() {
             eprintln!(
                 "[ablage] Zwischenablage nicht verfuegbar ({grund}) — \
@@ -102,7 +132,24 @@ pub fn verarbeiten(data: &serde_json::Value) {
         }
         takt_starten();
     }
-    let hinaus = mit(|lage, prozess, p| match entscheidung {
+    let mut warten = warteschlange().lock().unwrap_or_else(|e| e.into_inner());
+    if warten.len() >= WARTESCHLANGE_MAX {
+        // Nur erreichbar, wenn der Takt-Faden weg ist. Der aelteste faellt:
+        // was hier wartet, sind zum grossen Teil Ankuendigungen, und eine
+        // neuere macht die aeltere gegenstandslos.
+        warten.remove(0);
+    }
+    warten.push(data.clone());
+}
+
+fn warteschlange() -> &'static Mutex<Vec<serde_json::Value>> {
+    static INSTANZ: OnceLock<Mutex<Vec<serde_json::Value>>> = OnceLock::new();
+    INSTANZ.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+/// Einen eingereihten Wert abarbeiten — **nur vom Takt-Faden gerufen.**
+fn abarbeiten(data: &serde_json::Value) {
+    let hinaus = mit(|lage, prozess, p| match deuten(data) {
         Entscheidung::Anstoss(Anstoss::Beginn) => {
             lage.beginnen();
             Vec::new()
@@ -136,6 +183,14 @@ fn takt_starten() {
     let gebaut = std::thread::Builder::new().name("pulse-ablage-takt".into()).spawn(|| {
         loop {
             std::thread::sleep(std::time::Duration::from_millis(TAKT_MS));
+            // Erst das Eingereihte, dann der Takt: ein `beginn` oder ein
+            // `neu`, das gerade eintraf, soll noch in DIESEM Durchlauf wirken.
+            let offen = std::mem::take(
+                &mut *warteschlange().lock().unwrap_or_else(|e| e.into_inner()),
+            );
+            for data in offen {
+                abarbeiten(&data);
+            }
             let hinaus = mit(|lage, prozess, p| lage.takt(prozess, p));
             melden(&hinaus);
         }

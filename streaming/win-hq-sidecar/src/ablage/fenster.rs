@@ -34,7 +34,8 @@
 //! **Ungeprueft auf der Entwicklungsmaschine**, wie alles Windows-Eigene hier:
 //! belegt ist nur, dass die API-Aufrufe uebersetzen (Wegwerf-Crate mit der
 //! `windows`-Kiste gegen `x86_64-pc-windows-msvc`). Die Rechnung darueber
-//! steht in [`super::geteilt`] und in `pulse_ablage` und ist dort gefahren.
+//! steht vollstaendig in `pulse_ablage` (`lage` und `stand`) und ist dort
+//! gefahren.
 
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::mpsc::{Sender, channel};
@@ -55,10 +56,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{PCWSTR, w};
 
 use super::fach;
-use super::geteilt::Geteilt;
+use pulse_ablage::stand::Ablagestand;
 
 /// Unsere eigene Nachricht: „im Auftragsbuch steht etwas".
-const WM_PULSE_ABLAGE: u32 = WM_APP + 0x51;
+pub(super) const WM_PULSE_ABLAGE: u32 = WM_APP + 0x51;
 
 /// Unsere eigene Nachricht: „Schluss".
 ///
@@ -67,16 +68,6 @@ const WM_PULSE_ABLAGE: u32 = WM_APP + 0x51;
 /// Fenster (`PostThreadMessageW`), hier gibt es eins, und der dokumentierte
 /// Weg ist `PostQuitMessage` aus dem Rueckruf heraus.
 const WM_PULSE_ENDE: u32 = WM_APP + 0x52;
-
-/// Wie lange ein Auftraggeber auf den Fensterfaden wartet.
-///
-/// **Gefolgert, nicht gemessen.** Im Regelfall ist der Faden untaetig und
-/// antwortet in Mikrosekunden; die Frist deckt den einen Fall ab, in dem er
-/// gerade in einem Rendervorgang steht — der wird durch
-/// [`Geteilt::abbrechen`] sofort aufgeloest, sobald ein Auftrag ansteht.
-/// Laeuft sie doch ab, ist der gemeldete Zustand einen Takt alt; das kostet
-/// ein Einfuegen, nie einen falschen Inhalt.
-const AUFTRAG_FRIST: Duration = Duration::from_millis(500);
 
 /// Wie lange ein `WM_RENDERFORMAT` hoechstens wartet.
 ///
@@ -90,27 +81,13 @@ const RENDER_FRIST: Duration = Duration::from_millis(2_500);
 /// Wartetakt der Schleife in [`rendern`].
 const RENDER_TAKT: Duration = Duration::from_millis(2);
 
-static GETEILT: Mutex<Geteilt> = Mutex::new(Geteilt::neu());
+static GETEILT: Mutex<Ablagestand> = Mutex::new(Ablagestand::neu());
 
 /// Das Fenster, solange der Faden steht — als Zahl, weil `HWND` nicht `Send`
 /// ist. `0` heisst „keines".
 static FENSTER: AtomicIsize = AtomicIsize::new(0);
 
-/// Auftraege an den Fensterfaden. Nur er fuehrt Win32-Aufrufe auf der
-/// Zwischenablage aus; der Takt-Faden bittet ihn darum und wartet.
-static AUFTRAEGE: Mutex<Vec<(Auftrag, Sender<()>)>> = Mutex::new(Vec::new());
-
-/// Was der Fensterfaden auf Bitten der Zustandsmaschine tut.
-pub(super) enum Auftrag {
-    /// Beanspruchen **ohne Daten** — das verzoegerte Rendern.
-    Beanspruchen,
-    /// Freigeben. `Some` schreibt den Vorbestand zurueck, `None` raeumt.
-    Freigeben(Option<String>),
-    /// Die FREMDE Ablage lesen.
-    Lesen,
-}
-
-pub(super) fn geteilt() -> MutexGuard<'static, Geteilt> {
+pub(super) fn geteilt() -> MutexGuard<'static, Ablagestand> {
     GETEILT.lock().unwrap_or_else(|e| e.into_inner())
 }
 
@@ -120,7 +97,7 @@ pub(super) fn steht() -> bool {
     FENSTER.load(Ordering::Relaxed) != 0
 }
 
-fn fenster() -> Option<HWND> {
+pub(super) fn hwnd() -> Option<HWND> {
     match FENSTER.load(Ordering::Relaxed) {
         0 => None,
         z => Some(HWND(z as *mut core::ffi::c_void)),
@@ -151,27 +128,6 @@ pub(super) fn starten() -> Result<(), String> {
         Ok(Ok(_)) => Ok(()),
         Ok(Err(grund)) => Err(grund),
         Err(_) => Err("Ablage-Faden endete vor seiner Meldung".to_string()),
-    }
-}
-
-/// Einen Auftrag geben und auf seine Ausfuehrung warten.
-///
-/// **Synchron, und das ist tragend:** die Buchfuehrung darueber, ob wir die
-/// Ablage halten, fragt unmittelbar danach die Plattform
-/// (`Ablagelage::freigeben`). Liefe der Auftrag nebenher, meldete sie den
-/// Stand von vorher — und der Vorbestand des Nutzers haenge davon ab.
-pub(super) fn auftrag(a: Auftrag) {
-    let Some(h) = fenster() else { return };
-    let (fertig, warten) = channel::<()>();
-    AUFTRAEGE.lock().unwrap_or_else(|e| e.into_inner()).push((a, fertig));
-    // Ein wartender Rendervorgang haelt den Faden fest; er gibt ihn frei,
-    // sobald etwas ansteht (s. [`rendern`]).
-    geteilt().abbrechen();
-    if unsafe { PostMessageW(Some(h), WM_PULSE_ABLAGE, WPARAM(0), LPARAM(0)) }.is_err() {
-        return;
-    }
-    if warten.recv_timeout(AUFTRAG_FRIST).is_err() {
-        eprintln!("[ablage] Fensterfaden antwortet nicht — der Stand ist einen Takt alt.");
     }
 }
 
@@ -257,7 +213,7 @@ unsafe extern "system" fn fensterruf(h: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             LRESULT(0)
         }
         WM_PULSE_ABLAGE => {
-            auftraege_abarbeiten(h);
+            super::auftragsbuch::abarbeiten(h);
             LRESULT(0)
         }
         WM_PULSE_ENDE => {
@@ -306,42 +262,6 @@ fn rendern() {
     geteilt().warten_beenden();
 }
 
-fn auftraege_abarbeiten(h: HWND) {
-    let offen = std::mem::take(&mut *AUFTRAEGE.lock().unwrap_or_else(|e| e.into_inner()));
-    for (a, fertig) in offen {
-        match a {
-            Auftrag::Beanspruchen => match fach::beanspruchen(h) {
-                Ok(()) => geteilt().selbst_geaendert(true),
-                Err(grund) => eprintln!(
-                    "[ablage] Zwischenablage nicht beansprucht ({grund}) — \
-                     ein Einfuegen auf dieser Maschine bleibt leer."
-                ),
-            },
-            Auftrag::Freigeben(zurueck) => match zurueck {
-                Some(text) => match fach::zurueckschreiben(h, &text) {
-                    // Zurueckgeschrieben heisst: eine neue eigene Belegung mit
-                    // dem gemerkten Text. Wir bleiben Eigentuemer, aber was in
-                    // der Ablage liegt, gehoert wieder dem Nutzer.
-                    Ok(()) => geteilt().selbst_geaendert(true),
-                    Err(grund) => eprintln!(
-                        "[ablage] Vorbestand nicht zurueckgeschrieben ({grund}) — \
-                         die Ablage bleibt, wie sie ist."
-                    ),
-                },
-                None => match fach::raeumen() {
-                    Ok(()) => geteilt().selbst_geaendert(false),
-                    Err(grund) => eprintln!("[ablage] Ablage nicht geraeumt ({grund})."),
-                },
-            },
-            Auftrag::Lesen => {
-                let text = fach::lesen(h);
-                geteilt().lesen_fertig(text);
-            }
-        }
-        let _ = fertig.send(());
-    }
-}
-
 /// Den Faden abbauen. **Ohne auf ihn zu warten** — dieser Weg laeuft auch beim
 /// Prozessende, und dort wartet niemand mehr.
 ///
@@ -350,6 +270,6 @@ fn auftraege_abarbeiten(h: HWND) {
 /// dann hier. Andersherum stuerbe das Fenster als Eigentuemer eines
 /// verzoegerten Rendervorgangs, und die Ablage des Nutzers bliebe leer.
 pub(super) fn stoppen() {
-    let Some(h) = fenster() else { return };
+    let Some(h) = hwnd() else { return };
     let _ = unsafe { PostMessageW(Some(h), WM_PULSE_ENDE, WPARAM(0), LPARAM(0)) };
 }

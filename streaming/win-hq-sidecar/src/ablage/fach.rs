@@ -14,6 +14,8 @@
 //! **Ungeprueft auf der Entwicklungsmaschine** (s. [`super::fenster`]): belegt
 //! ist, dass es uebersetzt.
 
+use std::time::Duration;
+
 use windows::Win32::Foundation::{HANDLE, HGLOBAL, HWND, SetLastError, WIN32_ERROR};
 use windows::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, GetClipboardData, GetClipboardOwner, OpenClipboard,
@@ -22,10 +24,43 @@ use windows::Win32::System::DataExchange::{
 use windows::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
 use windows::Win32::System::Ole::CF_UNICODETEXT;
 
+/// Wie oft ein `OpenClipboard` wiederholt wird, und wie lange dazwischen
+/// gewartet wird.
+///
+/// **Eine belegte Zwischenablage ist auf Windows Alltag, nicht die Ausnahme:**
+/// immer nur ein Prozess darf sie offen haben. Besonders wahrscheinlich ist es
+/// **direkt nach einem Rendervorgang** — das einfuegende Programm haelt sie
+/// dann noch —, und genau diese Reihenfolge erzeugt `fenster::auftrag` selbst,
+/// wenn es einen Rendervorgang abbricht, um einen Auftrag durchzulassen. Ohne
+/// Wiederholung kostet die erste Absage die ganze Generation, sichtbar nur als
+/// eine Zeile auf stderr (Befund B8).
+///
+/// **Gefolgert, nicht gemessen:** 10 x 10 ms bleiben deutlich unter
+/// `fenster::AUFTRAG_FRIST` (500 ms), damit der wartende Auftraggeber nicht
+/// seinerseits in seine Frist laeuft. Gewartet wird auf dem Fensterfaden, der
+/// in dieser Zeit ohnehin nichts anderes tun kann.
+const OEFFNEN_VERSUCHE: u32 = 10;
+const OEFFNEN_WARTEN: Duration = Duration::from_millis(10);
+
+/// `OpenClipboard` mit Wiederholung (s. [`OEFFNEN_VERSUCHE`]).
+fn oeffnen(h: Option<HWND>) -> Result<(), String> {
+    let mut letzter = String::new();
+    for versuch in 0..OEFFNEN_VERSUCHE {
+        match unsafe { OpenClipboard(h) } {
+            Ok(()) => return Ok(()),
+            Err(e) => letzter = format!("{e}"),
+        }
+        if versuch + 1 < OEFFNEN_VERSUCHE {
+            std::thread::sleep(OEFFNEN_WARTEN);
+        }
+    }
+    Err(format!("OpenClipboard nach {OEFFNEN_VERSUCHE} Versuchen: {letzter}"))
+}
+
 /// Beanspruchen **ohne Daten zu hinterlegen** — das ist das verzoegerte
 /// Rendern.
 pub(super) fn beanspruchen(h: HWND) -> Result<(), String> {
-    unsafe { OpenClipboard(Some(h)) }.map_err(|e| format!("OpenClipboard: {e}"))?;
+    oeffnen(Some(h))?;
     let ergebnis = (|| {
         unsafe { EmptyClipboard() }.map_err(|e| format!("EmptyClipboard: {e}"))?;
         // **`SetClipboardData` mit NULL meldet Erfolg als Fehler.** Die Huelle
@@ -51,7 +86,7 @@ pub(super) fn beanspruchen(h: HWND) -> Result<(), String> {
 /// verzoegert.
 pub(super) fn zurueckschreiben(h: HWND, text: &str) -> Result<(), String> {
     let hmem = text_speicher(text)?;
-    unsafe { OpenClipboard(Some(h)) }.map_err(|e| format!("OpenClipboard: {e}"))?;
+    oeffnen(Some(h))?;
     let ergebnis = (|| {
         unsafe { EmptyClipboard() }.map_err(|e| format!("EmptyClipboard: {e}"))?;
         unsafe { SetClipboardData(CF_UNICODETEXT.0 as u32, Some(hmem)) }
@@ -70,7 +105,7 @@ pub(super) fn zurueckschreiben(h: HWND, text: &str) -> Result<(), String> {
 /// Ablage, und der naechste `GetClipboardOwner`-Vergleich meldete uns weiter
 /// als Halter.
 pub(super) fn raeumen() -> Result<(), String> {
-    unsafe { OpenClipboard(None) }.map_err(|e| format!("OpenClipboard: {e}"))?;
+    oeffnen(None)?;
     let ergebnis = unsafe { EmptyClipboard() }.map_err(|e| format!("EmptyClipboard: {e}"));
     let _ = unsafe { CloseClipboard() };
     ergebnis
@@ -86,7 +121,7 @@ pub(super) fn lesen(h: HWND) -> Option<String> {
     if unsafe { GetClipboardOwner() }.is_ok_and(|o| o == h) {
         return None;
     }
-    unsafe { OpenClipboard(None) }.ok()?;
+    oeffnen(None).ok()?;
     let text = (|| {
         let hmem = HGLOBAL(unsafe { GetClipboardData(CF_UNICODETEXT.0 as u32) }.ok()?.0);
         let zeiger = unsafe { GlobalLock(hmem) } as *const u16;

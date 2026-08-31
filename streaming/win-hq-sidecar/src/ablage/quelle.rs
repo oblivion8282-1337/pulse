@@ -1,7 +1,7 @@
 //! Die drei Traits aus `pulse-ablage`, auf Windows gelegt.
 //!
 //! Alles hier ist **duenn mit Absicht**: die Rechnung steht in
-//! `pulse_ablage::lage` (Zustandsfuehrung) und in [`super::geteilt`]
+//! `pulse_ablage::lage` (Zustandsfuehrung) und `pulse_ablage::stand`
 //! (Buchfuehrung ueber eigene und fremde Aenderungen), die Win32-Aufrufe in
 //! [`super::fenster`]. Diese Datei ist nur die Naht dazwischen — und sie hat
 //! genau eine Regel: **sie blockiert nie**. Was warten muss, wartet auf dem
@@ -11,7 +11,8 @@ use pulse_ablage::beobachter::Beobachter;
 use pulse_ablage::eigentum::Eigentum;
 use pulse_ablage::plattform::Ablagequelle;
 
-use super::fenster::{self, Auftrag};
+use super::auftragsbuch::{self, Auftrag};
+use super::fenster;
 
 /// Die Windows-Zwischenablage als Plattform der Zustandsmaschine.
 ///
@@ -41,7 +42,7 @@ impl Eigentum for WinAblage {
         if !fenster::steht() {
             return Err("kein Ablage-Fensterfaden".to_string());
         }
-        fenster::auftrag(Auftrag::Beanspruchen);
+        auftragsbuch::geben(Auftrag::Beanspruchen);
         // **Die Plattform wird gefragt, nicht geraten**: der Auftrag laeuft auf
         // dem Fensterfaden, und ob er geglueckt ist, steht danach im Stand.
         if fenster::geteilt().eigen() {
@@ -67,7 +68,7 @@ impl Eigentum for WinAblage {
         if !fenster::geteilt().eigen() {
             return;
         }
-        fenster::auftrag(Auftrag::Freigeben(zurueck.map(str::to_string)));
+        auftragsbuch::geben(Auftrag::Freigeben(zurueck.map(str::to_string)));
     }
 }
 
@@ -112,7 +113,7 @@ impl Ablagequelle for WinAblage {
         // **Die Sperre faellt VOR dem Auftrag**: der Fensterfaden nimmt sie
         // selbst, sobald er den Auftrag ausfuehrt.
         drop(g);
-        fenster::auftrag(Auftrag::Lesen);
+        auftragsbuch::geben(Auftrag::Lesen);
     }
 
     fn lesen_bereit(&mut self) -> bool {
