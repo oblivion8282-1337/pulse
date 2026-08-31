@@ -208,9 +208,20 @@ Zeit warten wir auf einen Netz-Umlauf — rund 0,4 s.
 | Hook-Faden der Vorrang-Wache | Windows hängt einen beschäftigten Hook-Faden **stillschweigend ab** (bereits als Falle dokumentiert) |
 
 Also **ein eigener Faden mit einem nur für Nachrichten sichtbaren Fenster**
-(`HWND_MESSAGE` auf Windows, eine eigene Run-Loop auf macOS). Auf Linux
-entfällt das Problem — dort schreiben wir in einen Dateideskriptor und
-niemand blockiert.
+(`HWND_MESSAGE` auf Windows, eine eigene Run-Loop auf macOS).
+
+**Auf Linux entfällt das Problem nur beim LIEFERN.** Dort legt `send` den
+Dateideskriptor beiseite und geschrieben wird auf einem eigenen Faden — niemand
+blockiert. **Das Lesen einer fremden Auswahl blockiert sehr wohl:** es ist
+zwingend ein Rundlauf durch einen fremden Klienten (Deskriptor anfordern, warten,
+bis der Eigentümer schreibt), und wenn der gerade hängt, wartet man die volle
+Frist. Es gehört deshalb genauso von der Ereignisschleife weg wie der Rückruf auf
+den anderen beiden Plattformen — beim Player trägt diese Schleife **Bild und
+Eingabeerfassung**, ein halbe-Sekunde-Aussetzer friert also die Fernsteuerung ein.
+
+*(Die frühere Fassung sagte pauschal „auf Linux entfällt das Problem". Sie stimmte
+für die eine Richtung und wurde beim Bau von Plan 1b-1 für die andere widerlegt —
+gefunden von der Task-Prüfung, nachgesehen am Aufrufpfad, nicht gefolgert.)*
 
 ## Fristen
 
@@ -301,8 +312,21 @@ behauptete eine Grenze, die es nicht gibt.
 
 Zwei Ergänzungen:
 
-- **Ein Schalter im Fern-Menü des Players**, je Sitzung, Vorgabe an. Er
-  schaltet auf **dieser** Maschine beides ab — ankündigen und ausliefern.
+- **Ein Schalter im Fern-Menü des Players** — das ist das egui-Overlay des
+  Players, nicht der Web-Renderer. Er gilt **je Player-Fenster**, Vorgabe an, und
+  **überlebt das Ende einer Fernsteuerung**. Er schaltet auf **dieser** Maschine
+  beides ab — ankündigen und ausliefern —, und Ausschalten **gibt einen laufenden
+  Anspruch frei und schreibt den Vorbestand zurück**, statt nur künftige
+  Ansprüche zu unterlassen: sonst bliebe die Ablage des Nutzers leer, obwohl er
+  das Teilen gerade abgeschaltet hat, und ausgerechnet der Schalter, der
+  Vertrauen herstellen soll, hinterliesse Schaden.
+
+  *(Hier stand „je Sitzung, Vorgabe an" — mehrdeutig, und beim Bau prompt anders
+  gelesen. Entschieden wurde fail-safe: setzte der Schalter sich beim Sitzungsende
+  zurück, würde eine ausdrückliche Datenschutz-Entscheidung des Nutzers **still**
+  widerrufen, und er merkte es nur beim Öffnen des Menüs. Bleibt er stehen, teilt
+  er weniger als erwartet — sichtbar, und der Schaden ist ein ausbleibendes
+  Einfügen.)*
 - **Eine Zeile im bestehenden Zustimmungsdialog**
   (`RemoteConsentDialog.svelte`): eine Zustimmung, die nicht benennt, was sie
   umfasst, ist keine.
