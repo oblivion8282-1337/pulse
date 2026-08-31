@@ -82,6 +82,16 @@ export interface PulseGsrApi {
    *  the main process so the renderer can route it to the right stream. Returns
    *  an unsubscribe function. */
   onEvent(cb: (ev: PulseGsrEvent) => void): () => void;
+  /** Fernsteuerung: ein Rahmen der geteilten Zwischenablage
+   *  (`$lib/remote/ablage.ts`). Ungedeutet durchgereicht — das Format lebt in
+   *  `streaming/pulse-ablage`. Beim Steuernden landet er im Player-Fenster,
+   *  beim Host im Sidecar; die Weiche steht im Hauptprozess
+   *  (`desktop/electron/ablageWeiche.ts`).
+   *
+   *  `session` ist die Player-Fensternummer — ohne sie koennte der Player den
+   *  Rahmen keinem Fenster zuordnen, dieselbe Sitzungspflicht wie bei
+   *  `PulsePlayerApi.pointerShape`. 0, wenn keine bekannt ist (Host-Seite). */
+  ablage(session: number, data: unknown): Promise<{ ok: boolean; error?: string }>;
 }
 
 /** Payload for `pulse.notify.show()` — mention/DM toast. The renderer is

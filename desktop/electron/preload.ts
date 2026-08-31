@@ -130,6 +130,16 @@ contextBridge.exposeInMainWorld('pulse', {
       ipcRenderer.on('gsr:event', handler);
       return () => ipcRenderer.removeListener('gsr:event', handler);
     },
+
+    /** Fernsteuerung: ein Rahmen der geteilten Zwischenablage
+     *  (`$lib/remote/ablage.ts`). Der Vorlader deutet ihn nicht — das Format
+     *  lebt in `streaming/pulse-ablage`, und eine zweite Fassung hier liefe
+     *  auseinander. Beim Steuernden landet er im Player, beim Host im Sidecar;
+     *  die Weiche steht im Hauptprozess (`ablageWeiche.ts`). `session` ist die
+     *  Player-Fensternummer — ohne sie koennte der Player den Rahmen keinem
+     *  Fenster zuordnen, dieselbe Sitzungspflicht wie bei `pointerShape`. */
+    ablage: (session: number, data: unknown): Promise<unknown> =>
+      ipcRenderer.invoke('gsr:ablage', session, data),
   },
 
   /**

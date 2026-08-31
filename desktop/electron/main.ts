@@ -43,6 +43,7 @@ import {
 import { playerManager } from './player';
 import { auftragLesen, EingabeWeiche, erfassungSchalten } from './remoteInput';
 import { RemoteEingabe } from './remoteInputHost';
+import { zielFuerAblage } from './ablageWeiche';
 import { migriereAufStandardAn, onSidecarEventForUpload } from './experimental-log-upload';
 import { initStore, storeGet, storeGetAll, storeSet, storeSetBatch } from './store';
 import { createTray, applyTrayStatus, setTrayImageFromDataUrl } from './tray';
@@ -899,6 +900,31 @@ function wireSidecar(): void {
       remoteEingabe.frames(slot, sessionId, frames, hostAktiv === true),
   );
   ipcMain.handle('gsr:remoteInputEnd', () => remoteEingabe.beenden());
+
+  // Fernsteuerung — geteilte Zwischenablage (`$lib/remote/ablage.ts`). Der
+  // Hauptprozess deutet die Nutzlast nicht, er entscheidet nur, wohin sie
+  // geht (`ablageWeiche.ts`). Er kennt die Rolle (host/controller) selbst
+  // nicht — dafuer traegt der Aufruf die Player-Fensternummer: eine Nummer
+  // > 0 heisst, der Steuernde hat sein Fenster bereits nachgemeldet
+  // (`ablage.ts::setSenke`); 0 heisst kein bekanntes Fenster, und dann bleibt
+  // nur der Sidecar-Weg.
+  //
+  // Die Sidecar-Haelfte ist in diesem Plan (1b-1) ABSICHT ein Platzhalter:
+  // der Host-Sidecar der Zwischenablage kommt erst in Plan 1b-2. Ein
+  // `{ok:false}` hier ist deshalb kein Fehler, sondern der dokumentierte
+  // Stand.
+  ipcMain.handle('gsr:ablage', async (_e, session: unknown, data: unknown) => {
+    const s = typeof session === 'number' && Number.isInteger(session) && session > 0 ? session : 0;
+    const rolle: 'host' | 'controller' = s > 0 ? 'controller' : 'host';
+    if (zielFuerAblage(rolle) === 'sidecar') {
+      return { ok: false, error: 'kein Host-Sidecar in 1b-1' };
+    }
+    try {
+      return await playerManager.call('ablage', { session: s, data });
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
 }
 
 /**
@@ -934,6 +960,12 @@ const ALLOWED_PLAYER_OPS = new Set([
   // Ob der Anfrage-Knopf in der Bedienleiste erscheint. Ebenfalls reine
   // Anzeige: der Klick kommt als Ereignis zurueck, angefragt wird im Renderer.
   'remote_anfragbar',
+  // `ablage` darf ueber den generischen Kanal: der Hauptprozess reicht den
+  // Rahmen unveraendert durch und deutet ihn nicht. Er traegt beim Kopieren
+  // keinen Inhalt (nur eine Ankuendigung), und beim Abruf ist der Inhalt
+  // genau das, was hier niemanden angeht — anders als `input_capture`, das
+  // zugleich eine Zuordnung anlegt und deshalb im Hauptprozess bleibt.
+  'ablage',
 ]);
 
 /** Zuordnung Player-Sitzung -> Fernsteuerungs-Sitzung (s. `remoteInput.ts`). */
