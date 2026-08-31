@@ -67,6 +67,13 @@ function davServer() {
 			}
 			return new Response(PROPFIND_XML, { status: 207 });
 		}
+		if (methode === 'DELETE') {
+			if (!dateien.has(pfad)) {
+				return new Response('fehlt', { status: 404 });
+			}
+			dateien.delete(pfad);
+			return new Response(null, { status: 204 });
+		}
 		return new Response('unbekannte Methode', { status: 405 });
 	};
 	return { holen, dateien, aufrufe, ordner };
@@ -162,5 +169,56 @@ describe('Ablage-WebDAV: Adapter gegen den Mini-Server', () => {
 			holen: server.holen,
 		});
 		await assert.rejects(() => adapter.lese('x.puls'), WebdavFehler);
+	});
+});
+
+describe('Ablage-WebDAV: Löschen', () => {
+	it('entfernt die Datei wirklich vom Server', async () => {
+		// Der Grund, warum dieser Test existiert: `lösche` ist im
+		// Adapter-Vertrag OPTIONAL, und bis zum 2026-08-31 setzte es kein
+		// einziger Cloud-Adapter um. `DateiSpeicher.löschen()` entfernte
+		// deshalb nur den Verzeichniseintrag, waehrend der verschluesselte
+		// Container fuer immer liegen blieb — der Nutzer sah die Datei
+		// verschwinden und glaubte, sie sei weg.
+		const server = davServer();
+		const pfad = '/remote.php/dav/files/lena/Pulse/ablage/kanal-1/x.puls';
+		server.dateien.set(pfad, new Uint8Array([1, 2, 3]));
+		const adapter = webdavAdapter({
+			basis: BASIS,
+			ordner: ORDNER,
+			benutzer: 'lena',
+			passwort: 'app-passwort',
+			holen: server.holen,
+		});
+		await adapter.lösche!('x.puls');
+		assert.equal(server.dateien.has(pfad), false, 'die Datei muss weg sein');
+		assert.ok(server.aufrufe.some((a) => a.startsWith('DELETE ')));
+	});
+
+	it('eine schon fehlende Datei ist kein Fehler', async () => {
+		// Das Ziel des Aufrufs ist „danach ist sie nicht mehr da". Bei 404
+		// trifft das bereits zu — ein Wurf wuerde einen Aufraeumlauf abbrechen,
+		// der eigentlich erfolgreich war.
+		const server = davServer();
+		const adapter = webdavAdapter({
+			basis: BASIS,
+			ordner: ORDNER,
+			benutzer: 'lena',
+			passwort: 'app-passwort',
+			holen: server.holen,
+		});
+		await adapter.lösche!('gibtsnicht.puls');
+	});
+
+	it('ein abgewiesenes Löschen wirft, statt Erfolg vorzutäuschen', async () => {
+		const server = davServer();
+		const adapter = webdavAdapter({
+			basis: BASIS,
+			ordner: ORDNER,
+			benutzer: 'falsch',
+			passwort: 'passwort',
+			holen: server.holen,
+		});
+		await assert.rejects(() => adapter.lösche!('x.puls'), WebdavFehler);
 	});
 });

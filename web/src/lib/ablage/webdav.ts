@@ -165,5 +165,29 @@ export function webdavAdapter(anbindung: WebdavAnbindung): AblageAdapter {
 			}
 			return namenAusMultistatus(await antwort.text());
 		},
+
+		/**
+		 * Entfernt die Datei wirklich vom Server.
+		 *
+		 * `lösche` ist im Adapter-Vertrag optional, und genau daran hing ein
+		 * stiller Fehler: `DateiSpeicher.löschen()` ruft `adapter.lösche?.()`,
+		 * und ohne Umsetzung entfernt es nur den Verzeichniseintrag. Der
+		 * verschlüsselte Container bliebe für immer liegen — der Nutzer sieht
+		 * die Datei verschwinden und glaubt, sie sei weg.
+		 *
+		 * Ein 404 gilt als Erfolg: das Ziel des Aufrufs ist „danach ist sie
+		 * nicht mehr da", und das trifft dann bereits zu. Alles andere wirft,
+		 * damit der Aufrufer nicht faelschlich von einem Löschen ausgeht.
+		 */
+		async lösche(datei) {
+			const antwort = await holen(urlFuer(anbindung, datei), {
+				method: 'DELETE',
+				headers: authKopf(anbindung),
+			});
+			if (antwort.status === 404) return;
+			if (!antwort.ok) {
+				throw new WebdavFehler(`DELETE ${datei} scheiterte: ${antwort.status}`);
+			}
+		},
 	};
 }

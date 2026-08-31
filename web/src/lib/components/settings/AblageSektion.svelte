@@ -1,71 +1,40 @@
 <script lang="ts">
   import { syncOrdnerMoeglich, adapterAusVerzeichnis } from '$lib/ablage/syncOrdner';
   import type { AblageVerzeichnis } from '$lib/ablage/syncOrdner';
+  import { ablageVerbindungen } from '$lib/ablage/verbindungen';
   import { DateiSpeicher } from '$lib/ablage/dateispeicher';
   import type { DateiInfo } from '$lib/ablage/dateispeicher';
   import { Button } from '$lib/components/ui/button/index.js';
 
   let speicher = $state<DateiSpeicher | null>(null);
-
-  function holeSchlüssel(): Uint8Array {
-    const key = 'pulse-ablage-hauptschluessel';
-    let b64 = localStorage.getItem(key);
-    if (!b64) {
-      const bytes = globalThis.crypto.getRandomValues(new Uint8Array(32));
-      b64 = btoa(String.fromCharCode(...bytes));
-      localStorage.setItem(key, b64);
-    }
-    const bin = atob(b64);
-    return Uint8Array.from(bin, (c) => c.charCodeAt(0));
-  }
   let ordnerName = $state('');
   let dateien = $state<DateiInfo[]>([]);
   let laeuft = $state(false);
-
-  function baueAdapter(verzeichnis: AblageVerzeichnis) {
-    return {
-      async schreibe(datei: string, inhalt: Uint8Array) {
-        const h = await verzeichnis.getFileHandle(datei, { create: true });
-        const w = await h.createWritable();
-        await w.write(inhalt);
-        await w.close();
-      },
-      async lese(datei: string): Promise<Uint8Array | null> {
-        try {
-          const h = await verzeichnis.getFileHandle(datei);
-          const f = await h.getFile();
-          return new Uint8Array(await f.arrayBuffer());
-        } catch { return null; }
-      },
-      async liste() {
-        const namen: string[] = [];
-        for await (const [name, eintrag] of verzeichnis.entries()) {
-          if (eintrag.kind === 'file') namen.push(name);
-        }
-        return namen;
-      },
-      async lösche(datei: string) {
-        try { await verzeichnis.removeEntry(datei); } catch { /* egal */ }
-      },
-    };
-  }
+  let fehler = $state<string | null>(null);
 
   async function ordnerWählen(): Promise<void> {
+    fehler = null;
     try {
       const wahl = (window as unknown as {
         showDirectoryPicker?: (o?: { mode?: string }) => Promise<AblageVerzeichnis>;
       }).showDirectoryPicker;
       if (!wahl) return;
       const verzeichnis = await wahl({ mode: 'readwrite' });
-      const adapter = baueAdapter(verzeichnis);
-      speicher = new DateiSpeicher(adapter, 'ablage', holeSchlüssel());
+      // Hauptschlüssel liegt gerätelokal in IndexedDB (verbindungen.ts) —
+      // nicht mehr in localStorage. Ist IndexedDB nicht erreichbar (z. B.
+      // privates Fenster), soll das sichtbar scheitern statt still auf
+      // localStorage zurückzufallen — genau der Mischzustand, den der
+      // Umzug auflösen sollte.
+      const hauptschlüssel = await ablageVerbindungen.hauptschlüsselFürSyncOrdner();
+      const adapter = adapterAusVerzeichnis(verzeichnis);
+      speicher = new DateiSpeicher(adapter, 'ablage', hauptschlüssel);
       await speicher.laden();
       dateien.length = 0;
       dateien.push(...await speicher.liste());
     } catch (e) {
-      if (!(e instanceof DOMException && e.name === 'AbortError')) {
-        console.error('Ablage-Ordner:', e);
-      }
+      if (e instanceof DOMException && e.name === 'AbortError') return;
+      console.error('Ablage-Ordner:', e);
+      fehler = 'Ordner konnte nicht verbunden werden — dieser Browser-Modus unterstützt die Ablage nicht (z. B. privates Fenster).';
     }
   }
 
@@ -102,6 +71,10 @@
     Verbinde einen Ordner aus deinem Cloud-Sync (OneDrive, Dropbox, Nextcloud …).
     Dateien werden verschlüsselt und dein Sync-Client trägt sie in deine Cloud.
   </p>
+
+  {#if fehler}
+    <p class="text-sm text-destructive">{fehler}</p>
+  {/if}
 
   {#if !syncOrdnerMoeglich()}
     <p class="text-sm text-muted-foreground">Dieser Browser unterstützt keine Ordner-Wahl.</p>

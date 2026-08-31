@@ -14,6 +14,11 @@
 
 import { DateiSpeicher } from './dateispeicher.ts';
 import type { AblageAdapter } from './adapter';
+import {
+  SYNC_ORDNER_VERBINDUNGS_ID,
+  bestimmeSyncOrdnerHauptschlüssel,
+  base64ZuBytes
+} from './syncOrdnerSchluessel.ts';
 
 export type AblageAnbieterArt =
   | 'dropbox'
@@ -118,18 +123,41 @@ export class AblageVerbindungsStore {
     const adapter = await adapterFür(v);
     return new DateiSpeicher(adapter, `ablage/${v.id}`, hauptschlüssel);
   }
+
+  /**
+   * Der Ablage-Hauptschlüssel für den (einzigen) Sync-Ordner dieses Geräts —
+   * eine Verbindung mit fester ID, weil `AblageSektion.svelte` nur einen
+   * Ordner gleichzeitig verwaltet. Erster Aufruf legt sie an, jeder weitere
+   * findet sie wieder (Rechnung dazu: `syncOrdnerSchluessel.ts`).
+   *
+   * Kein Umzug aus dem frueheren `localStorage['pulse-ablage-hauptschluessel']`:
+   * die Ablage lief bisher ausschliesslich auf Testgeräten, es gibt also
+   * keine echte Datei, die dadurch unlesbar würde. Ein Umzugscode für Daten,
+   * die nirgends real liegen, wäre ungeprüfter Ballast — bewusste
+   * Entscheidung, kein Versehen.
+   */
+  async hauptschlüsselFürSyncOrdner(): Promise<Uint8Array> {
+    if (!this.geladen) await this.laden();
+    const bestehend = this.verbindung(SYNC_ORDNER_VERBINDUNGS_ID);
+    const zufallsBytes = globalThis.crypto.getRandomValues(new Uint8Array(32));
+    const ergebnis = bestimmeSyncOrdnerHauptschlüssel(bestehend, zufallsBytes);
+    if (ergebnis.istNeu) {
+      await this.hinzufügen({
+        id: SYNC_ORDNER_VERBINDUNGS_ID,
+        anbieter: 'sync_ordner',
+        name: 'Sync-Ordner',
+        konfiguration: {},
+        hauptschlüsselB64: ergebnis.hauptschlüsselB64,
+        verbundenAm: new Date().toISOString()
+      });
+    }
+    return ergebnis.hauptschlüssel;
+  }
 }
 
 export const ablageVerbindungen = new AblageVerbindungsStore();
 
 // ---------------------------------------------------------------------------
-
-function base64ZuBytes(b64: string): Uint8Array {
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
-}
 
 async function adapterFür(v: AblageVerbindung): Promise<AblageAdapter> {
   switch (v.anbieter) {
