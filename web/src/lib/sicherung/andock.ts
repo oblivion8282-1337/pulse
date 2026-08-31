@@ -27,7 +27,9 @@
 
 import { SICHERUNG_ENABLED } from '../krypto/schalter.ts';
 import type { Message } from '../api/types.ts';
-import { ausWire, type AblageNachricht } from '../ablage/nutzlast.ts';
+import { ausWire, NUTZLAST_FASSUNG, type AblageNachricht } from '../ablage/nutzlast.ts';
+import { verlaufAlleLesen } from '../verlauf/db.ts';
+import { aktuellesKonto } from '../verlauf/konto.ts';
 import {
 	SicherungsSpiegel,
 	aufbauAdapter,
@@ -114,6 +116,48 @@ export function sicherungSpiegeln(kanalId: string, nachrichten: Message[]): void
 export async function sicherungJetztSpuelen(): Promise<void> {
 	const bereit = await spiegelFallsBereit();
 	await bereit?.jetztSpuelen();
+}
+
+/**
+ * Die ERSTSICHERUNG: spiegelt den bestehenden lokalen Verlauf einmalig in
+ * den Container. Ohne sie enthält das Archiv nur Nachrichten, die NACH der
+ * Aktivierung eintrafen — der gesamte bisherige Verlauf des Geräts bliebe
+ * im Laufwerk unsichtbar. Idempotent in der Wirkung (der Wiederherstellungs-
+ * Leser dedupliziert je Kanal+Nachricht-Id), im Container aber eine neue
+ * Rahmen-Partie — also bewusst ein Knopf, kein Autolauf.
+ *
+ * Anhänge wandern in dieser Fassung NICHT mit (nur Metadaten wären da,
+ * die Bytes liegen separat) und gelöschte Zeilen bleiben außen vor.
+ */
+export async function sicherungErstsicherung(): Promise<number> {
+	const bereit = await spiegelFallsBereit();
+	if (bereit === null) throw new Error('Sicherung nicht bereit — erst verbinden und entsperren.');
+	const kontoId = aktuellesKonto();
+	if (kontoId === null) throw new Error('kein angemeldetes Konto');
+	const saetze = await verlaufAlleLesen(kontoId);
+	const nachKanal = new Map<string, AblageNachricht[]>();
+	for (const satz of saetze) {
+		if (satz.geloescht) continue;
+		const liste = nachKanal.get(satz.kanalId) ?? [];
+		liste.push({
+			fassung: NUTZLAST_FASSUNG,
+			id: satz.nachrichtId,
+			autor: satz.autorId,
+			inhalt: satz.inhalt,
+			zeit: satz.erstelltAm,
+			bearbeitet: satz.bearbeitetAm,
+			antwortAuf: satz.antwortAufId ?? null,
+			anhaenge: [],
+		});
+		nachKanal.set(satz.kanalId, liste);
+	}
+	let gesamt = 0;
+	for (const [kanalId, liste] of nachKanal) {
+		await pufferLegen(kanalId, liste);
+		bereit.aufnehmen(kanalId, liste);
+		gesamt += liste.length;
+	}
+	return gesamt;
 }
 
 /** Test-Handgriff: den laufenden Spiegel verwerfen (Modulzustand zurück). */

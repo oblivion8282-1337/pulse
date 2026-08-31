@@ -33,14 +33,15 @@
     pufferWischen,
     type SicherungVerbindung,
   } from '$lib/sicherung/geraete';
-  import { sicherungJetztSpuelen } from '$lib/sicherung/andock';
+  import { sicherungJetztSpuelen, sicherungErstsicherung } from '$lib/sicherung/andock';
   import SicherungEntsperren from './SicherungEntsperren.svelte';
   import SicherungWiederherstellen from './SicherungWiederherstellen.svelte';
+  import SicherungPasswortAendern from './SicherungPasswortAendern.svelte';
 
-  let zustand = $state<'pruefe' | 'neu' | 'passwort' | 'aktiv'>('pruefe');
+  let zustand = $state<'pruefe' | 'neu' | 'einrichten' | 'passwort' | 'aktiv'>('pruefe');
+  let erstsicherung = $state(true);
   let passwort = $state('');
   let passwort2 = $state('');
-  let altesPasswort = $state('');
   let fehler = $state('');
   let meldung = $state('');
   let laeuft = $state(false);
@@ -92,7 +93,16 @@
         nachspieleToken: zugang.nachspieleToken ?? '',
         zugangsToken: zugang.zugangsToken,
       };
-      meldung = 'Google verbunden. Jetzt das Sicherungs-Passwort setzen.';
+      // Existiert schon ein Archiv (anderes Gerät hat eingerichtet), entpackt
+      // dieses Gerät dessen Schlüssel statt einen neuen zu erzeugen — sonst
+      // würde es schluessel.puls überschreiben und die fremden Segmente
+      // unlesbar machen.
+      const adapter = await adapterLieferant();
+      const vorhanden = (await adapter.lese(SCHLUESSEL_DATEI)) !== null;
+      zustand = vorhanden ? 'passwort' : 'einrichten';
+      meldung = vorhanden
+        ? 'Archiv gefunden — bitte das Sicherungs-Passwort eingeben.'
+        : 'Google verbunden. Jetzt das Sicherungs-Passwort setzen.';
     } catch (e) {
       fehler = e instanceof Error ? e.message : String(e);
     } finally {
@@ -124,7 +134,15 @@
       await dekZwischenlagern(dek, crypto.randomUUID());
       passwort = passwort2 = '';
       zustand = 'aktiv';
-      meldung = 'Sicherung aktiv — neue Nachrichten werden gespiegelt.';
+      let hinweis = 'Sicherung aktiv — neue Nachrichten werden gespiegelt.';
+      if (erstsicherung) {
+        try {
+          hinweis += ` Erstsicherung: ${(await sicherungErstsicherung()).toString()} Nachrichten übernommen.`;
+        } catch (e) {
+          hinweis += ` Erstsicherung fehlgeschlagen: ${e instanceof Error ? e.message : String(e)}`;
+        }
+      }
+      meldung = hinweis;
     } catch (e) {
       fehler = e instanceof Error ? e.message : String(e);
     } finally {
@@ -132,23 +150,13 @@
     }
   }
 
-  async function passwortÄndern(): Promise<void> {
-    // Re-Wrap: derselbe DEK, neues Salt/Nonce — das Archiv im Laufwerk
-    // bleibt bytegleich, nur die Schlüssel-Datei wird neu geschrieben.
-    if (altesPasswort.length === 0 || passwort.length < 8 || passwort !== passwort2) {
-      fehler = 'Altes Passwort und neues Passwort (mindestens 8 Zeichen, zweimal gleich) eingeben.';
-      return;
-    }
+  async function erstsicherungNachreichen(): Promise<void> {
     laeuft = true;
     fehler = '';
     try {
-      const adapter = await adapterLieferant();
-      const bytes = await adapter.lese(SCHLUESSEL_DATEI);
-      if (bytes === null) throw new Error('Schlüssel-Datei fehlt im Laufwerks-Ordner');
-      const { dek } = await öffneSchluesselDatei(bytes, altesPasswort);
-      await adapter.schreibe(SCHLUESSEL_DATEI, await wickleSchluesselDatei(dek, passwort));
-      altesPasswort = passwort = passwort2 = '';
-      meldung = 'Passwort geändert — das Archiv selbst ist unangetastet.';
+      const anzahl = await sicherungErstsicherung();
+      meldung = `${anzahl} bestehende Nachrichten ins Archiv übernommen.`;
+      await sicherungJetztSpuelen();
     } catch (e) {
       fehler = e instanceof Error ? e.message : String(e);
     } finally {
@@ -184,19 +192,26 @@
             {isElectron() ? 'Der Browser öffnet sich — Pulse fängt die Rückkehr automatisch ab.' : 'Google öffnet sich in einem neuen Tab; am Ende kommst du hierher zurück.'}
           </span>
         </div>
-        {#if verbindung !== null}
-          <input class="w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" type="password" placeholder="Sicherungs-Passwort (mindestens 8 Zeichen)" bind:value={passwort} />
-          <input class="w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" type="password" placeholder="Passwort wiederholen" bind:value={passwort2} />
-          <Button onclick={einrichten} size="sm" disabled={laeuft}>{laeuft ? 'Richte ein …' : 'Sicherung aktivieren'}</Button>
-        {/if}
       {/if}
     {:else if zustand === 'passwort'}
       <SicherungEntsperren aufEntsperrt={() => (zustand = 'aktiv')} />
+    {:else if zustand === 'einrichten'}
+      <input class="w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" type="password" placeholder="Sicherungs-Passwort (mindestens 8 Zeichen)" bind:value={passwort} />
+      <input class="w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" type="password" placeholder="Passwort wiederholen" bind:value={passwort2} />
+      <label class="flex items-center gap-2 text-sm text-muted-foreground">
+        <input type="checkbox" bind:checked={erstsicherung} />
+        Bestehende lokale Nachrichten mit ins Archiv nehmen
+      </label>
+      <Button onclick={einrichten} size="sm" disabled={laeuft}>{laeuft ? 'Richte ein …' : 'Sicherung aktivieren'}</Button>
     {:else}
+      <p class="text-sm text-muted-foreground">
+        Aktiv — Ordner „{verbindung?.ordner}“. Nachrichten werden im Hintergrund gespiegelt.
+      </p>
       <p class="text-sm text-muted-foreground">
         Aktiv — Ordner „{verbindung?.ordner}". Nachrichten werden im Hintergrund gespiegelt.
       </p>
       <div class="flex flex-wrap gap-2">
+        <Button onclick={erstsicherungNachreichen} variant="secondary" size="sm" disabled={laeuft}>Bestehende Nachrichten sichern</Button>
         <Button onclick={() => void sicherungJetztSpuelen()} variant="secondary" size="sm">Jetzt sichern</Button>
         <Button onclick={() => (zustand = 'passwort')} variant="secondary" size="sm">Auf diesem Gerät entsperren</Button>
         <Button
@@ -211,12 +226,7 @@
           }}
         >Entfernen</Button>
       </div>
-      <div class="space-y-2">
-        <input class="w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" type="password" placeholder="Altes Sicherungs-Passwort" bind:value={altesPasswort} />
-        <input class="w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" type="password" placeholder="Neues Sicherungs-Passwort" bind:value={passwort} />
-        <input class="w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" type="password" placeholder="Neues Passwort wiederholen" bind:value={passwort2} />
-        <Button onclick={passwortÄndern} variant="secondary" size="sm" disabled={laeuft}>Passwort ändern</Button>
-      </div>
+      <SicherungPasswortAendern />
       <p class="text-xs text-muted-foreground">
         Entfernen lässt das Archiv im Drive liegen — mit dem Passwort ist es später wieder lesbar.
       </p>
