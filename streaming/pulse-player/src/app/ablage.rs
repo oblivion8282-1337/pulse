@@ -285,6 +285,11 @@ impl App {
         self.ablage_traeger = Some(id);
         let hinaus = self.mit_ablage(id, |lage, _| lage.neu_bitte()).unwrap_or_default();
         self.ablage_melden(id, &hinaus);
+        // **Der Schalter wandert mit.** Ohne diese Zeile bliebe er im
+        // Nachfolge-Fenster dauerhaft unsichtbar (`ablage_verfuegbar` steht auf
+        // der Vorgabe `false`) — und zwar genau ab dem Moment, in dem er dort
+        // wirkt.
+        self.ablage_overlay_nachziehen(id);
     }
 
     /// Der Schalter „Zwischenablage teilen" aus dem Fern-Menue.

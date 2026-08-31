@@ -240,11 +240,31 @@ impl Ablagelage {
     /// `zweimal_umschalten_verliert_den_vorbestand_nicht`.
     fn freigeben(&mut self, p: &mut dyn Ablageplattform) {
         self.anspruch.aufgeben();
-        // Ungepruefte Weitergabe: `Eigentum::freigeben` traegt die Pruefung
-        // „sind wir ueberhaupt noch Eigentuemer?" selbst und muss sie tragen —
-        // nur die Plattform sieht, ob der Nutzer zwischendurch kopiert hat.
-        p.freigeben(self.vorbestand.as_deref());
-        self.eigentuemer = p.eigentuemer();
+        // **Ein geparktes `hol` gehoert dem Zustand, der gerade endet.** Es
+        // wurde angenommen, als das Teilen noch an war, und traegt beim
+        // Beantworten den INHALT — bliebe es liegen, antwortete es bis zu
+        // `HOL_FRIST_MS` spaeter mit genau dem, was der Nutzer gerade nicht
+        // mehr teilen wollte. Nach `ende` waere es ausserdem ein Nachzuegler,
+        // den ein spaeteres `beginnen` doch noch hinausliesse.
+        self.offener_hol = None;
+        // **`self.eigentuemer` ist der Riegel, und er muss hier stehen.**
+        // `Eigentum::freigeben` prueft, ob DIESER PROZESS die Auswahl haelt —
+        // seit es einen Traeger je Prozess gibt, ist das nicht dieselbe Frage
+        // wie „hat DIESE Sitzung etwas verdraengt". Ohne den Riegel raeumt der
+        // Abbau der Nachfolge-Sitzung den Vorbestand, den ihre Vorgaengerin
+        // gerade zurueckgeschrieben hat (`p.freigeben(None)` mit `eigene() ==
+        // true` heisst `set_selection(None)`). Test:
+        // `eine_zweite_sitzung_raeumt_die_zurueckgeschriebene_ablage_nicht`.
+        //
+        // Hier stand kurzzeitig, die Plattform trage die Pruefung selbst — das
+        // war ein Kommentar, der mehr behauptete als er hielt: er las eine
+        // Prozess-Pruefung als Sitzungs-Pruefung.
+        if self.eigentuemer {
+            p.freigeben(self.vorbestand.as_deref());
+            // **Die Buchfuehrung sitzt NACH dem Aufruf** und fragt die
+            // Plattform, statt zu raten — das ist der C1-Fix und bleibt.
+            self.eigentuemer = p.eigentuemer();
+        }
         if !self.eigentuemer {
             // Entweder haben wir geraeumt (kein Merkposten da), oder die
             // Ablage gehoert laengst wieder dem Nutzer. In beiden Faellen gibt
@@ -269,7 +289,15 @@ impl Ablagelage {
         //    [`Self::offener_hol`]). Die Frist darunter ist das Netz fuer eine
         //    Plattform, die nie fertig meldet — ohne sie haenge der
         //    Einfuegevorgang drueben bis in seine eigene Frist.
-        if let Some((offen, seit)) = self.offener_hol.take() {
+        //
+        //    **Auch hier der `teilen`-Riegel**, und hier wiegt er am
+        //    schwersten: dieser Schritt antwortet mit dem INHALT, nicht bloss
+        //    mit einem `hol`. `freigeben` raeumt ein geparktes Abrufen zwar
+        //    schon mit ab; der Riegel haelt die Zusicherung auch dann, wenn
+        //    ein spaeterer Umbau einen zweiten Weg zum Ausschalten schafft.
+        if !self.teilen {
+            self.offener_hol = None;
+        } else if let Some((offen, seit)) = self.offener_hol.take() {
             if p.lesen_bereit() || jetzt.saturating_sub(seit) >= HOL_FRIST_MS {
                 // Der Inhalt wird in `beantworte` gelesen, nicht hier — die
                 // Reihenfolge „erst die Aenderung abholen, dann die Generation
@@ -776,6 +804,70 @@ mod tests {
             lage.fern(&stueck, &mut p);
         }
         assert_eq!(p.inner.geliefert().as_deref(), Some("hallo"));
+    }
+
+    /// **Neu-1:** eine ZWEITE Sitzung darf die zurueckgeschriebene Ablage
+    /// nicht raeumen.
+    ///
+    /// Seit es einen Traeger je Prozess gibt, sind „haelt dieser Prozess die
+    /// Auswahl" und „hat DIESE Sitzung etwas verdraengt" zwei verschiedene
+    /// Fragen. Die Plattform kann nur die erste beantworten — die zweite
+    /// gehoert hierher, und ohne sie raeumt der Abbau der Nachfolge-Sitzung
+    /// den Pfad, den die Vorgaengerin gerade zurueckgeschrieben hat.
+    #[test]
+    fn eine_zweite_sitzung_raeumt_die_zurueckgeschriebene_ablage_nicht() {
+        let mut p = Pruefablage::neu();
+        p.inner.setzen("/home/michael/wichtig.txt");
+        p.inner.geaendert();
+        // Zwei Sitzungen auf EINER Ablage — genau die Lage nach einem
+        // Traegerwechsel (`App::ablage_traeger_waehlen`).
+        let mut a = wache_lage();
+        let mut b = wache_lage();
+
+        a.fern(&Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text }, &mut p);
+        a.takt(&mut p);
+        assert!(p.inner.beansprucht(), "A ist Traeger und hat beansprucht");
+
+        a.ende(&mut p);
+        assert_eq!(
+            p.inner.inhalt().as_deref(),
+            Some("/home/michael/wichtig.txt"),
+            "A schreibt zurueck — und der PROZESS haelt die Auswahl weiter"
+        );
+
+        // B uebernimmt und endet ihrerseits. Sie hat nie etwas verdraengt.
+        b.ende(&mut p);
+        assert_eq!(
+            p.inner.inhalt().as_deref(),
+            Some("/home/michael/wichtig.txt"),
+            "B hat nichts verdraengt und darf deshalb auch nichts raeumen"
+        );
+    }
+
+    /// **Neu-2:** ein geparktes `hol` darf nach dem Ausschalten keinen Inhalt
+    /// mehr herausgeben — es wurde angenommen, als das Teilen noch an war.
+    #[test]
+    fn ausschalten_verwirft_ein_geparktes_hol() {
+        let mut p = Pruefablage::neu();
+        p.inner.setzen("streng geheim");
+        let mut lage = wache_lage();
+        assert_eq!(
+            lage.takt(&mut p),
+            vec![Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text }]
+        );
+
+        p.bereit = false;
+        lage.fern(&Rahmen::Hol { generation: 1, id: 5 }, &mut p);
+        lage.teilen_setzen(false, &mut p);
+
+        p.bereit = true;
+        let hinaus = lage.takt(&mut p);
+        assert!(
+            hinaus.is_empty(),
+            "nach dem Ausschalten darf der geparkte Abruf nichts mehr \
+             beantworten — er traegt den INHALT, nicht bloss ein `hol`: \
+             {hinaus:?}"
+        );
     }
 
     /// **C9:** nach dem Wiedereinschalten muss wieder etwas zu holen sein —
