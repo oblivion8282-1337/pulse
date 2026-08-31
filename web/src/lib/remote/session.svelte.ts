@@ -30,7 +30,7 @@ import type { GatewayConnection } from '$lib/ws/connection';
 import { setRemoteSessionConnection } from '$lib/ws/dispatch-rules';
 import { m } from '$lib/paraglide/messages.js';
 import { eingabeFreigeben, eingabeMoeglich } from './sidecarInput';
-import { stream } from '$lib/stream/state.svelte';
+import { runningStreamSlots, stream } from '$lib/stream/state.svelte';
 import { remoteAblage } from './ablage';
 import { remoteP2P } from './p2p';
 import { remoteVorrang } from './vorrang';
@@ -432,8 +432,16 @@ class RemoteSessionStore {
     // Anders als Vorrang und Zeigerform ist sie SYMMETRISCH: beide Rollen
     // kündigen an und beide rufen ab, deshalb bekommt sie die Rolle zwar
     // mit, verzweigt aber nicht danach.
-    remoteAblage.start(this.role, (kind, data) =>
-      this.#senden((c) => c.sendRemoteSignal(sessionId, kind, data)),
+    //
+    // Die laufenden Stream-Plätze braucht nur der Host: dort liegt je Platz
+    // ein eigener Sidecar-Prozess, die Zwischenablage ist aber maschinenweit,
+    // und genau einer von ihnen wird Träger (`ablageTraeger.ts`). Die Liste
+    // wird hereingereicht statt dort importiert — die Fernsteuerung soll vom
+    // Streaming-Zustand nichts wissen müssen ausser dieser Zahlenliste.
+    remoteAblage.start(
+      this.role,
+      (kind, data) => this.#senden((c) => c.sendRemoteSignal(sessionId, kind, data)),
+      runningStreamSlots,
     );
   }
 

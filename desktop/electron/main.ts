@@ -916,23 +916,34 @@ function wireSidecar(): void {
   // Eingabe-Injektion, deshalb dort bewusst im Hauptprozess) kostet eine
   // falsche Rolle hier ein fehlgeleitetes Einfuegen, keine Befugnis.
   //
-  // Die Sidecar-Haelfte ist in diesem Plan (1b-1) ABSICHT ein Platzhalter:
-  // der Host-Sidecar der Zwischenablage kommt erst in Plan 1b-2. Ein
-  // `{ok:false}` hier ist deshalb kein Fehler, sondern der dokumentierte
-  // Stand.
-  ipcMain.handle('gsr:ablage', async (_e, rolleRoh: unknown, session: unknown, data: unknown) => {
-    const rolle = rolleLesen(rolleRoh);
-    if (!rolle) return { ok: false, error: 'unbekannte Rolle' };
-    if (zielFuerAblage(rolle) === 'sidecar') {
-      return { ok: false, error: 'kein Host-Sidecar in 1b-1' };
-    }
-    const s = typeof session === 'number' && Number.isInteger(session) && session > 0 ? session : 0;
-    try {
-      return await playerManager.call('ablage', { session: s, data });
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
-    }
-  });
+  // Die Host-Haelfte geht an den Sidecar des TRAEGER-Platzes. Welcher das ist,
+  // entscheidet der Renderer (`$lib/remote/ablageTraeger.ts`): je Platz laeuft
+  // ein eigener Sidecar-Prozess, die Zwischenablage ist aber maschinenweit —
+  // beanspruchten alle, ueberschrieben sie sich gegenseitig. Hier wird der
+  // Platz nur auf den gueltigen Bereich geklemmt, wie bei `gsr:call`.
+  //
+  // **Kein `sidecarRunning`-Riegel wie bei `remoteInput`**, und das ist der
+  // Unterschied: dort nennt die GEGENSEITE den Platz, und ein erfundener
+  // startete einen Prozess, nur damit er `unknown_slot` antwortet. Hier nennt
+  // ihn der eigene Renderer, und er nennt genau den, dessen Stream er selbst
+  // laufen sieht.
+  ipcMain.handle(
+    'gsr:ablage',
+    async (_e, rolleRoh: unknown, session: unknown, data: unknown, slot?: unknown) => {
+      const rolle = rolleLesen(rolleRoh);
+      if (!rolle) return { ok: false, error: 'unbekannte Rolle' };
+      try {
+        if (zielFuerAblage(rolle) === 'sidecar') {
+          return await getSidecar(normaliseSlot(slot)).call('ablage', { data });
+        }
+        const s =
+          typeof session === 'number' && Number.isInteger(session) && session > 0 ? session : 0;
+        return await playerManager.call('ablage', { session: s, data });
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      }
+    },
+  );
 }
 
 /**

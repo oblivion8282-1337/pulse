@@ -22,8 +22,14 @@
  * und der löst einen erweiterungslosen Laufzeit-Import nicht auf.
  */
 
-/** Die beiden Anstösse, die nur der eigene Renderer schickt. */
-export type Anstoss = 'ende' | 'neu_bitte';
+/** Die Anstösse, die nur der eigene Renderer schickt.
+ *
+ *  `beginn` kam mit dem Windows-Host dazu und wiegt am schwersten: er ist dort
+ *  zugleich die **Trägerwahl** — es läuft ein Sidecar-Prozess je Stream-Platz,
+ *  die Zwischenablage ist maschinenweit, und erst dieser Anstoss stellt den
+ *  Fensterfaden eines Prozesses auf. Könnte die Gegenseite ihn schicken,
+ *  weckte sie einen Prozess, den dieser Renderer gerade nicht gewählt hat. */
+export type Anstoss = 'beginn' | 'ende' | 'neu_bitte';
 
 /** Ein interner Anstoss an die eigene Plattform. */
 export function anstossHuelle(anstoss: Anstoss): unknown {

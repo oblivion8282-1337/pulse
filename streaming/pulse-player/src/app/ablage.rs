@@ -130,13 +130,17 @@ impl App {
         let hinaus = self
             .mit_ablage(ziel, |lage, prozess, p| match deuten(&data) {
                 Entscheidung::Anstoss(Anstoss::NeuBitte) => lage.neu_bitte(),
-                // **Im Player ist `beginn` eine Bestaetigung, keine Wahl.** Der
-                // Traeger steht hier schon fest (`ablage_erfassung`, alle
-                // Sitzungen liegen in EINEM Prozess); auf dem Host waehlt der
-                // Anstoss ihn dagegen aus mehreren Sidecar-Prozessen. Er wird
-                // trotzdem angenommen: `beginnen` ist idempotent, und ein
-                // Anstoss, den der Renderer beiden Rollen gleich schickt, darf
-                // hier nicht ins Leere laufen.
+                // **`beginn` schickt heute nur die Host-Rolle** — dort waehlt
+                // er aus mehreren Sidecar-Prozessen den Traeger. Im Player
+                // gibt es nichts zu waehlen: alle Sitzungen liegen in EINEM
+                // Prozess, und der Traeger steht mit `ablage_erfassung` fest.
+                //
+                // Angenommen wird er hier trotzdem, und das ist kein
+                // Vorratsbau: `beginnen` ist idempotent, es kostet also
+                // nichts — und die Alternative waere ein Anstoss, der auf der
+                // einen Seite wirkt und auf der anderen still verfaellt.
+                // Genau solche Halbwege sind es, an denen spaeter jemand eine
+                // Stunde sucht.
                 Entscheidung::Anstoss(Anstoss::Beginn) => {
                     lage.beginnen();
                     Vec::new()

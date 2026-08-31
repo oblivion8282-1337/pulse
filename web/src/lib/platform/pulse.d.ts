@@ -101,11 +101,17 @@ export interface PulseGsrApi {
    *
    *  `session` ist die Player-Fensternummer — ohne sie koennte der Player den
    *  Rahmen keinem Fenster zuordnen, dieselbe Sitzungspflicht wie bei
-   *  `PulsePlayerApi.pointerShape`. 0, wenn keine bekannt ist (Host-Seite). */
+   *  `PulsePlayerApi.pointerShape`. 0, wenn keine bekannt ist (Host-Seite).
+   *
+   *  `slot` ist das Gegenstueck fuer die Host-Seite: der Stream-Platz des
+   *  Sidecars, der die Ablage dieser Maschine haelt (Traegerwahl in
+   *  `$lib/remote/ablageTraeger.ts`). Zwei Felder statt eines gemeinsamen,
+   *  weil sie Verschiedenes bedeuten; das jeweils andere ist 0. */
   ablage(
     rolle: 'host' | 'controller',
     session: number,
     data: unknown,
+    slot?: number,
   ): Promise<{ ok: boolean; error?: string }>;
 }
 

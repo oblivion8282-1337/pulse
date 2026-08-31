@@ -146,9 +146,20 @@ contextBridge.exposeInMainWorld('pulse', {
      *  nebenbei einen fremden Stream im Player anschaut, traegt ebenfalls eine
      *  Sitzungsnummer). `session` ist die Player-Fensternummer — ohne sie
      *  koennte der Player den Rahmen keinem Fenster zuordnen, dieselbe
-     *  Sitzungspflicht wie bei `pointerShape`. */
-    ablage: (rolle: 'host' | 'controller', session: number, data: unknown): Promise<unknown> =>
-      ipcRenderer.invoke('gsr:ablage', rolle, session, data),
+     *  Sitzungspflicht wie bei `pointerShape`.
+     *
+     *  `slot` ist das Gegenstueck fuer die Host-Seite: der Stream-Platz des
+     *  Sidecars, der die Ablage dieser Maschine haelt (Traegerwahl in
+     *  `$lib/remote/ablageTraeger.ts`). **Zwei Felder statt eines
+     *  gemeinsamen**, weil sie Verschiedenes bedeuten — ein Feld, dessen
+     *  Bedeutung von der Rolle abhaengt, wird beim naechsten Lesen falsch
+     *  verstanden. Das jeweils andere ist 0. */
+    ablage: (
+      rolle: 'host' | 'controller',
+      session: number,
+      data: unknown,
+      slot = 0,
+    ): Promise<unknown> => ipcRenderer.invoke('gsr:ablage', rolle, session, data, slot),
   },
 
   /**
