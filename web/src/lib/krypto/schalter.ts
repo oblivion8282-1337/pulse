@@ -16,7 +16,7 @@
  * Importfrei, damit Nodes Testlaeufer Module pruefen kann, die diesen Wert
  * nur lesen (s. CLAUDE.md „Die Falle").
  */
-export const E2E_DMS_ENABLED = false;
+export const E2E_DMS_ENABLED = true;
 
 /**
  * Der Schalter fuer private Gruppenchats — ebenfalls Vorgabe AUS.
