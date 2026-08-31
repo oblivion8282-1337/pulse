@@ -1,7 +1,19 @@
 <script lang="ts">
   /**
    * Ablage-Verbindungs-Assistent — der Dialog zum Verbinden eines
-   * Cloud-Laufwerks. Sechs Anbieter, jeder mit seinem eigenen Weg:
+   * Cloud-Laufwerks.
+   *
+   * **Diese Datei haengt noch an keiner Stelle** und ist trotzdem keine
+   * Leiche: sie ist genau das, was der Einstellungs-Abschnitt „Speicher"
+   * (Etappe E1, Aufgabe 5) braucht. Wer hier aufraeumt, loescht die
+   * Vorarbeit. Angeschlossen wird sie dort, nicht hier.
+   *
+   * Welche Anbieter angeboten werden, entscheidet seit dem 2026-08-31
+   * `lib/ablage/anbieter.ts` — nicht mehr die Liste unten. Beim Anschliessen
+   * gehoert die Liste dorthin umgehaengt; OneDrive und S3 sind nach der
+   * Entscheidung des Eigentuemers nicht mehr im Angebot.
+   *
+   * Die Wege je Anbieter:
    *
    * - Dropbox / OneDrive / Google Drive: OAuth mit PKCE (braucht eine
    *   App-Registrierung beim Anbieter, Client-ID in der Konfiguration)
@@ -18,6 +30,12 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
+  import PackageIcon from '@lucide/svelte/icons/package';
+  import CloudIcon from '@lucide/svelte/icons/cloud';
+  import HardDriveIcon from '@lucide/svelte/icons/hard-drive';
+  import GlobeIcon from '@lucide/svelte/icons/globe';
+  import FolderIcon from '@lucide/svelte/icons/folder';
+  import DatabaseIcon from '@lucide/svelte/icons/database';
   import { ablageVerbindungen, type AblageVerbindung, type AblageAnbieterArt } from '$lib/ablage/verbindungen.ts';
 
   let {
@@ -31,13 +49,18 @@
     onVerbunden: (v: AblageVerbindung) => void;
   } = $props();
 
-  const ANBIETER: { art: AblageAnbieterArt; name: string; beschreibung: string; icon: string }[] = [
-    { art: 'dropbox', name: 'Dropbox', beschreibung: 'Mit deinem Dropbox-Konto verbinden — App-Ordner, nur Pulse sieht ihn', icon: '📦' },
-    { art: 'onedrive', name: 'OneDrive', beschreibung: 'Mit deinem Microsoft-Konto verbinden — versteckter App-Ordner', icon: '☁️' },
-    { art: 'gdrive', name: 'Google Drive', beschreibung: 'Nur app-erzeugte Dateien sichtbar — dein restliches Drive bleibt privat', icon: '🔵' },
-    { art: 'nextcloud', name: 'Nextcloud', beschreibung: 'Server-Adresse und App-Passwort angeben', icon: '🌐' },
-    { art: 'sync_ordner', name: 'Sync-Ordner', beschreibung: 'Ein lokaler Ordner — dein Dropbox-/Drive-/Nextcloud-Client trägt die Dateien hoch', icon: '📁' },
-    { art: 's3', name: 'S3-kompatibel', beschreibung: 'Hetzner, Wasabi, MinIO — Endpoint, Bucket und Schlüssel angeben', icon: '🪣' },
+  const ANBIETER: {
+    art: AblageAnbieterArt;
+    name: string;
+    beschreibung: string;
+    icon: typeof PackageIcon;
+  }[] = [
+    { art: 'dropbox', name: 'Dropbox', beschreibung: 'Mit deinem Dropbox-Konto verbinden — App-Ordner, nur Pulse sieht ihn', icon: PackageIcon },
+    { art: 'onedrive', name: 'OneDrive', beschreibung: 'Mit deinem Microsoft-Konto verbinden — versteckter App-Ordner', icon: CloudIcon },
+    { art: 'gdrive', name: 'Google Drive', beschreibung: 'Nur app-erzeugte Dateien sichtbar — dein restliches Drive bleibt privat', icon: HardDriveIcon },
+    { art: 'nextcloud', name: 'Nextcloud', beschreibung: 'Server-Adresse und App-Passwort angeben', icon: GlobeIcon },
+    { art: 'sync_ordner', name: 'Sync-Ordner', beschreibung: 'Ein lokaler Ordner — dein Dropbox-/Drive-/Nextcloud-Client trägt die Dateien hoch', icon: FolderIcon },
+    { art: 's3', name: 'S3-kompatibel', beschreibung: 'Hetzner, Wasabi, MinIO — Endpoint, Bucket und Schlüssel angeben', icon: DatabaseIcon },
   ];
 
   let auswahl: AblageAnbieterArt | null = $state(null);
@@ -138,7 +161,7 @@
             onclick={() => wähle(a.art)}
             data-testid="anbieter-{a.art}"
           >
-            <span class="text-2xl">{a.icon}</span>
+            <a.icon class="text-text-muted size-6 shrink-0" />
             <div>
               <div class="font-semibold">{a.name}</div>
               <div class="text-xs text-muted-foreground">{a.beschreibung}</div>

@@ -7,6 +7,10 @@
    *
    * Alle Inhalte werden clientseitig verschlüsselt (PADF-Container),
    * bevor sie den Adapter erreichen. Der Server sieht nur Kanalstruktur.
+   *
+   * **Diese Datei haengt noch an keiner Stelle** und ist trotzdem keine
+   * Leiche: sie ist die Ansicht, die die Community-Dateiablage bekommt
+   * (Etappe E8). Wer hier aufraeumt, loescht die Vorarbeit.
    */
 
   import { DateiSpeicher } from '$lib/ablage/dateispeicher';
