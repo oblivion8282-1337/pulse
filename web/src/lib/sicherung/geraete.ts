@@ -88,7 +88,10 @@ export async function verbindungLesen(): Promise<SicherungVerbindung | null> {
 	});
 }
 
-export async function verbindungSchreiben(v: SicherungVerbindung): Promise<void> {
+export async function verbindungSchreiben(eingang: SicherungVerbindung): Promise<void> {
+	// Ebene Kopie an der IDB-Grenze: ein $state-Proxy aus der Oberfläche ist
+	// nicht strukturell klonbar ("could not be cloned").
+	const v: SicherungVerbindung = { ...eingang };
 	const db = await öffneDb();
 	return new Promise((resolve, reject) => {
 		const tx = db.transaction(STORE_VERBINDUNG, 'readwrite');

@@ -121,7 +121,10 @@
       const adapter = gdriveAdapter({ zugangsToken: zugang.zugangsToken, ordner: verbindung.ordner });
       await adapter.schreibe(SCHLUESSEL_DATEI, verpackt);
       await dekZwischenlagern(dek, crypto.randomUUID());
-      await verbindungSchreiben(verbindung);
+      // Ebene Kopie: `verbindung` ist eine $state-Variable, deren Proxy die
+      // IndexedDB mit "could not be cloned" abweist — der Spread liefert
+      // ein schlichtes Objekt aus Grundwerten.
+      await verbindungSchreiben({ ...verbindung });
       passwort = passwort2 = '';
       zustand = 'aktiv';
       meldung = 'Sicherung aktiv — neue Nachrichten werden gespiegelt.';
