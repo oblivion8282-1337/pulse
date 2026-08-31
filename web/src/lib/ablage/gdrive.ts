@@ -104,24 +104,45 @@ export function multipartErzeugen(metadaten: object, inhalt: Uint8Array): { koer
 	return { koerper, grenze };
 }
 
+type Fund = { id: string; name: string; modifiedTime?: string };
+
+/**
+ * Drive erzwingt keine Namens-Eindeutigkeit in einem Ordner — zwei Geräte,
+ * die fast gleichzeitig `dateiIdHolen` mit „nicht gefunden" beantwortet
+ * bekommen, können beide anlegen. Taucht das auf, wird deterministisch die
+ * zuletzt geänderte Datei als die gültige behandelt (sonst würde ein
+ * Lesevorgang zufällig zwischen den Dubletten springen, je nach Googles
+ * Suchsortierung). Bei gleichem `modifiedTime` (Sekundenauflösung, zwei
+ * Schreibvorgänge in derselben Sekunde möglich) entscheidet die Id als
+ * fester Tiebreaker. Die verworfenen Dubletten werden NICHT gelöscht — ein
+ * anderes Gerät könnte gerade noch mit dem alten Stand rechnen — und
+ * bleiben als Speicherleiche im Ordner liegen.
+ */
+function neuesteWaehlen(funde: Fund[]): Fund {
+	return [...funde].sort((a, b) => {
+		const zeit = (b.modifiedTime ?? '').localeCompare(a.modifiedTime ?? '');
+		return zeit !== 0 ? zeit : a.id.localeCompare(b.id);
+	})[0];
+}
+
 export function gdriveAdapter(verbindung: GdriveVerbindung): AblageAdapter {
 	const holen = verbindung.holen ?? fetch;
 	const kopf = { Authorization: `Bearer ${verbindung.zugangsToken}` };
 	const dateiIdNachName = new Map<string, string>();
 
-	async function abfrage(q: string): Promise<{ id: string; name: string }[]> {
+	async function abfrage(q: string): Promise<Fund[]> {
 		const adresse = new URL('https://www.googleapis.com/drive/v3/files');
 		adresse.searchParams.set('q', q);
-		adresse.searchParams.set('fields', 'nextPageToken,files(id,name)');
+		adresse.searchParams.set('fields', 'nextPageToken,files(id,name,modifiedTime)');
 		adresse.searchParams.set('pageSize', '200');
-		const funde: { id: string; name: string }[] = [];
+		const funde: Fund[] = [];
 		while (adresse !== null) {
 			const antwort = await holen(adresse.toString(), { headers: kopf });
 			if (!antwort.ok) {
 				throw new GdriveFehler(`Suche scheiterte: HTTP ${antwort.status}`);
 			}
 			const seite = (await antwort.json()) as {
-				files?: { id: string; name: string }[];
+				files?: Fund[];
 				nextPageToken?: string;
 			};
 			funde.push(...(seite.files ?? []));
@@ -160,19 +181,43 @@ export function gdriveAdapter(verbindung: GdriveVerbindung): AblageAdapter {
 	let ordnerId: Promise<string> | null = null;
 	const ordnerSichern = (): Promise<string> => (ordnerId ??= ordnerIdHolen());
 
-	async function dateiIdHolen(ordner: string, name: string): Promise<string | null> {
-		const bekannt = dateiIdNachName.get(name);
-		if (bekannt !== undefined) {
-			return bekannt;
+	/** `cacheUmgehen`: fragt trotz Treffer im Gedächtnis erneut bei Drive nach —
+	 *  fürs erneute Nachsehen unmittelbar vor dem Neuanlegen (Race-Fenster). */
+	async function dateiIdHolen(
+		ordner: string,
+		name: string,
+		cacheUmgehen = false,
+	): Promise<string | null> {
+		if (!cacheUmgehen) {
+			const bekannt = dateiIdNachName.get(name);
+			if (bekannt !== undefined) {
+				return bekannt;
+			}
 		}
 		const funde = await abfrage(
 			`name = '${name}' and '${ordner}' in parents and trashed = false`,
 		);
 		if (funde.length === 0) {
+			dateiIdNachName.delete(name);
 			return null;
 		}
-		dateiIdNachName.set(name, funde[0].id);
-		return funde[0].id;
+		const gewaehlt = neuesteWaehlen(funde);
+		dateiIdNachName.set(name, gewaehlt.id);
+		return gewaehlt.id;
+	}
+
+	async function aktualisieren(datei: string, id: string, inhalt: Uint8Array): Promise<void> {
+		const antwort = await holen(
+			`https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=media`,
+			{
+				method: 'PATCH',
+				headers: { ...kopf, 'Content-Type': 'application/octet-stream' },
+				body: inhalt as unknown as BodyInit,
+			},
+		);
+		if (!antwort.ok) {
+			throw new GdriveFehler(`Update ${datei} scheiterte: HTTP ${antwort.status}`);
+		}
 	}
 
 	return {
@@ -180,17 +225,24 @@ export function gdriveAdapter(verbindung: GdriveVerbindung): AblageAdapter {
 			const ordner = await ordnerSichern();
 			const bekannt = await dateiIdHolen(ordner, datei);
 			if (bekannt !== null) {
-				const antwort = await holen(
-					`https://www.googleapis.com/upload/drive/v3/files/${bekannt}?uploadType=media`,
-					{
-						method: 'PATCH',
-						headers: { ...kopf, 'Content-Type': 'application/octet-stream' },
-						body: inhalt as unknown as BodyInit,
-					},
-				);
-				if (!antwort.ok) {
-					throw new GdriveFehler(`Update ${datei} scheiterte: HTTP ${antwort.status}`);
-				}
+				await aktualisieren(datei, bekannt, inhalt);
+				return;
+			}
+			// Zwischen der Abfrage oben und hier kann ein anderes Gerät die
+			// Datei angelegt haben (kein Zwischenspeicher-Treffer verhindert
+			// das, weil noch keiner existierte) — unmittelbar vor dem
+			// Neuanlegen ohne Zwischenspeicher NOCH EINMAL nachsehen und bei
+			// einem Treffer auf Aktualisieren umschwenken. Das verkleinert
+			// das Zeitfenster auf die Spanne zwischen dieser Abfrage und dem
+			// folgenden POST, schließt es aber NICHT: legen zwei Geräte
+			// innerhalb dieser Millisekunden gleichzeitig an, entstehen
+			// trotzdem zwei Dateien — Drive kennt kein atomares
+			// „erzeuge nur, wenn nicht vorhanden". Für diesen Rest-Fall sorgt
+			// `neuesteWaehlen` beim nächsten Lesen für einen deterministischen
+			// statt zufälligen Stand.
+			const geradeAngelegt = await dateiIdHolen(ordner, datei, true);
+			if (geradeAngelegt !== null) {
+				await aktualisieren(datei, geradeAngelegt, inhalt);
 				return;
 			}
 			const { koerper, grenze } = multipartErzeugen(
@@ -238,10 +290,18 @@ export function gdriveAdapter(verbindung: GdriveVerbindung): AblageAdapter {
 			const funde = await abfrage(
 				`'${ordner}' in parents and mimeType != '${ORDNER_MIME}' and trashed = false`,
 			);
+			// Gleiche Dublette-Regel wie beim gezielten Lesen: pro Name zählt
+			// nur die zuletzt geänderte Datei, sonst tauchte ein Dubletten-Name
+			// zweimal in der Liste auf.
+			const nachName = new Map<string, Fund>();
 			for (const f of funde) {
-				dateiIdNachName.set(f.name, f.id);
+				const bisher = nachName.get(f.name);
+				nachName.set(f.name, bisher === undefined ? f : neuesteWaehlen([bisher, f]));
 			}
-			return funde.map((f) => f.name);
+			for (const [name, f] of nachName) {
+				dateiIdNachName.set(name, f.id);
+			}
+			return [...nachName.keys()];
 		},
 	};
 }
