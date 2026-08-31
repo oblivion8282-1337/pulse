@@ -19,6 +19,7 @@
 -->
 <script lang="ts">
   import { remoteSession } from '$lib/remote/session.svelte';
+  import { remoteAblage } from '$lib/remote/ablage';
   import { remoteP2P } from '$lib/remote/p2p';
   import { nativePlayerSessions } from '$lib/player/store.svelte';
   import {
@@ -86,6 +87,7 @@
       hatteFenster = false;
       remoteP2P.setStatusSink(null);
       remoteZeigerform.setSenke(null);
+      remoteAblage.setSenke(null);
       allesAus();
       return;
     }
@@ -164,6 +166,14 @@
     remoteZeigerform.setSenke((form, bild, imBild) => {
       for (const f of fenster) void zeigerformMelden(f.nummer, form, bild, imBild);
     });
+    // Die Ablage kennt nur EIN Fenster, nicht alle (anders als Zeigerform/
+    // Transport oben) — sie hält nicht mehrere Sichten auf dasselbe an,
+    // sondern die eine Zwischenablage DIESER Maschine, und jedes offene
+    // Fenster spricht mit demselben System-Clipboard. Das erste (stabil nach
+    // Öffnungsreihenfolge, s. `nativePlayerSessions.fuerHost`) genügt als
+    // Zustellweg — ein Wechsel zwischen mehreren offenen Fenstern bei jedem
+    // Lauf dieses Effects wäre nur Unruhe ohne Nutzen.
+    remoteAblage.setSenke(fenster[0].nummer);
   });
 
   // Der Aufräumer für den Fall, den der Effect oben nicht sieht: das Ende der
@@ -172,6 +182,7 @@
   $effect(() => () => {
     remoteP2P.setStatusSink(null);
     remoteZeigerform.setSenke(null);
+    remoteAblage.setSenke(null);
     allesAus();
   });
 
