@@ -708,8 +708,36 @@ mod tests {
         let r = a.geaendert();
         assert_eq!(r, Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text });
         let j = serde_json::to_string(&r.nach_json()).expect("serialisierbar");
-        assert!(!j.contains("geheim"), "die Ankuendigung darf nichts vom Inhalt tragen");
-        assert!(j.len() < 64, "eine Ankuendigung ist ein paar Byte, nicht mehr: {j}");
+        // **Woertlich diese drei Felder und keins mehr.** Ein Teilstring-Test
+        // („enthaelt 'geheim' nicht") waere wirkungslos: `geaendert()` nimmt gar
+        // keinen Inhalt entgegen, es gaebe nichts, was dort landen koennte.
+        // Diese Fassung wird rot, sobald jemand `Rahmen::Neu` um ein Feld
+        // erweitert — und genau das ist der Weg, auf dem Inhalt jemals in eine
+        // Ankuendigung geriete.
+        //
+        // Die Reihenfolge ist alphabetisch, nicht die Schreibreihenfolge:
+        // `serde_json::Map` ist ohne das Merkmal `preserve_order` eine BTreeMap.
+        // Nachgemessen, nicht angenommen.
+        assert_eq!(j, r#"{"gen":1,"t":"neu","typ":"text"}"#);
+    }
+
+    #[test]
+    fn ein_kaputtes_stueck_verwirft_die_ganze_lieferung() {
+        // Halb eingefuegter Text waere schlimmer als gar keiner: der Nutzer
+        // saehe eine abgeschnittene Zeichenkette und merkte es womoeglich nicht.
+        let mut e = Empfaenger::neu();
+        e.angekuendigt(&Rahmen::Neu { generation: 4, typ: Inhaltstyp::Text });
+        let Some(Rahmen::Hol { id, .. }) = e.abrufen(0) else { panic!("Abruf fehlt") };
+        let stuecke = crate::stueckelung::zerlegen(id, &"z".repeat(20_000)).expect("passt");
+        assert!(stuecke.len() > 2, "der Fall braucht mehrere Stuecke");
+        assert_eq!(e.eingang(&stuecke[0]), Fortschritt::Warten);
+        // Ein Stueck mit kaputtem Base64 — `Sammler::nimm` liefert `Err`.
+        let kaputt = Rahmen::Stueck { id, i: 1, n: stuecke.len() as u32, d: "!!!".into() };
+        assert_eq!(e.eingang(&kaputt), Fortschritt::Leer(Grund::Weg));
+        // Und der Abruf ist geraeumt: die noch fehlenden Stuecke duerfen die
+        // angebrochene Lieferung nicht doch noch vollenden.
+        assert_eq!(e.eingang(&stuecke[1]), Fortschritt::Warten);
+        assert_eq!(e.eingang(&stuecke[2]), Fortschritt::Warten);
     }
 
     #[test]
@@ -1048,7 +1076,7 @@ impl Empfaenger {
 - [ ] **Step 4: Tests laufen lassen, Grün bestätigen**
 
 Run: `cd streaming/pulse-ablage && cargo test -q`
-Expected: PASS, 32 Tests.
+Expected: PASS, 33 Tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1485,7 +1513,7 @@ impl Eigentum for TestAblage {
 - [ ] **Step 4: Tests laufen lassen, Grün bestätigen**
 
 Run: `cd streaming/pulse-ablage && cargo test -q`
-Expected: PASS, 40 Tests (32 aus Task 1–3, 4 in `eigentum`, 4 im Rundlauf).
+Expected: PASS, 41 Tests (33 aus Task 1–3, 4 in `eigentum`, 4 im Rundlauf).
 
 - [ ] **Step 5: Commit**
 
@@ -1610,7 +1638,7 @@ Falls rot, sind das die beiden Methoden, um die es geht — in
 - [ ] **Step 4: Tests laufen lassen, Grün bestätigen**
 
 Run: `cd streaming/pulse-ablage && cargo test -q`
-Expected: PASS, 42 Tests.
+Expected: PASS, 43 Tests.
 
 - [ ] **Step 5: Commit**
 
