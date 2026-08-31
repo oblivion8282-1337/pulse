@@ -167,8 +167,16 @@ export class AblageVerbindungsStore {
   }
 
   async entfernen(id: string): Promise<void> {
+    const v = this.verbindung(id);
     await entferne(id);
     this.verbindungen = this.verbindungen.filter((v) => v.id !== id);
+    // Das Verzeichnis-Handle liegt in einer eigenen IndexedDB (`ordnerGriff.ts`)
+    // und wird von `entferne()` oben nicht mitgeräumt — sonst bliebe es als
+    // toter Eintrag liegen, unsichtbar, aber nicht ganz weg.
+    if (v?.anbieter === 'sync_ordner') {
+      const { vergissGriff } = await import('./ordnerGriff.ts');
+      await vergissGriff(v.konfiguration.griffId ?? v.id);
+    }
   }
 
   /**
@@ -262,13 +270,23 @@ export const ablageVerbindungen = new AblageVerbindungsStore();
  * periodische Zustandsprüfung verwenden können, den ein echter Kanal-Schreiber
  * auch nähme.
  *
- * `sync_ordner` fehlt absichtlich: die File-System-Access-API gibt ein
- * Verzeichnis-Handle nur aus einer Nutzer-Geste heraus (Ordner-Dialog) frei,
- * es lässt sich nicht aus gespeicherten Werten wiederherstellen. Ein
- * Sync-Ordner braucht deshalb immer eine neue Auswahl im Verbinden-Dialog.
+ * `sync_ordner`: das Verzeichnis-Handle selbst kommt aus einer Nutzer-Geste
+ * (Ordner-Dialog, `AblageVerbindenDialog.svelte`), aber es überlebt einen
+ * Neustart in der IndexedDB (`ordnerGriff.ts`, Kennung in
+ * `konfiguration.griffId`). `ladeNutzbarenGriff` wirft `LaufwerkWegFehler`,
+ * wenn kein Handle (mehr) gemerkt ist oder die Berechtigung fehlt — kein
+ * Absturz, sondern derselbe Fehler-Kanal wie `AnmeldungAbgelaufenFehler`
+ * bei den OAuth-Anbietern.
  */
 export async function adapterFür(v: AblageVerbindung): Promise<AblageAdapter> {
   switch (v.anbieter) {
+    case 'sync_ordner': {
+      const { adapterAusVerzeichnis } = await import('./syncOrdner.ts');
+      const { ladeNutzbarenGriff } = await import('./ordnerGriff.ts');
+      const griffId = v.konfiguration.griffId ?? v.id;
+      const griff = await ladeNutzbarenGriff(griffId);
+      return adapterAusVerzeichnis(griff);
+    }
     case 's3': {
       const { s3Adapter } = await import('./s3.ts');
       return s3Adapter({

@@ -29,7 +29,8 @@
   import { ablageVerbindungen, type AblageVerbindung } from '$lib/ablage/verbindungen.svelte.ts';
   import { angeboteneAnbieter, type AblageAnbieterArt } from '$lib/ablage/anbieter.ts';
   import { ANBIETER_IKONE } from './anbieterIkonen.ts';
-  import { adapterAusVerzeichnis, type AblageVerzeichnis } from '$lib/ablage/syncOrdner.ts';
+  import { adapterAusVerzeichnis, wähleOrdner } from '$lib/ablage/syncOrdner.ts';
+  import { legeGriffAb } from '$lib/ablage/ordnerGriff.ts';
   import { probiere, type ProbeSchritt } from '$lib/ablage/probe.ts';
   import NextcloudVerbinden from './NextcloudVerbinden.svelte';
 
@@ -94,16 +95,11 @@
     verbinde = true;
     fehler = '';
     try {
-      const wahl = (window as unknown as {
-        showDirectoryPicker?: (o?: { mode?: string }) => Promise<
-          AblageVerzeichnis & { name: string }
-        >;
-      }).showDirectoryPicker;
-      if (!wahl) {
+      const verzeichnis = await wähleOrdner();
+      if (!verzeichnis) {
         fehler = 'Dieser Browser kann keine Ordner wählen — Chrome, Edge oder die Desktop-App nehmen.';
         return;
       }
-      const verzeichnis = await wahl({ mode: 'readwrite' });
 
       // Erst die Probe, dann verbunden melden (Entwurf §6.3): ein Ordner,
       // der nicht schreiben, lesen oder löschen kann, wird nicht gespeichert
@@ -115,11 +111,22 @@
         return;
       }
 
+      // Die Kennung ist zugleich die Verbindungs-Id UND der Schlüssel, unter
+      // dem `ordnerGriff.ts` das Verzeichnis-Handle in der IndexedDB ablegt
+      // — `adapterFür` findet es beim nächsten Start über `konfiguration.griffId`
+      // wieder (fällt sonst auf die Verbindungs-Id selbst zurück).
+      const griffId = `sync-${Date.now()}`;
+      const abgelegt = await legeGriffAb(griffId, verzeichnis);
+      if (!abgelegt) {
+        fehler = 'Der Ordner-Zugriff konnte nicht gespeichert werden — nach einem Neuladen müsste er neu gewählt werden.';
+        return;
+      }
+
       const verbindung: AblageVerbindung = {
-        id: `sync-${Date.now()}`,
+        id: griffId,
         anbieter: 'sync_ordner',
         name: verzeichnis.name,
-        konfiguration: {},
+        konfiguration: { griffId },
         hauptschlüsselB64: btoa(String.fromCharCode(...globalThis.crypto.getRandomValues(new Uint8Array(32)))),
         verbundenAm: new Date().toISOString(),
       };
