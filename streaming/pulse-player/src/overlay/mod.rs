@@ -137,6 +137,13 @@ pub struct Overlay {
     /// zur ANZEIGE: verbindlich ist die der Sitzung (`app::ablage`), von der
     /// dieses Feld ueber [`Self::set_ablage_teilen`] nachgezogen wird.
     ablage_teilen: bool,
+    /// Gibt es auf DIESER Maschine ueberhaupt eine Zwischenablage-Umsetzung,
+    /// und haelt diese Sitzung sie? **Vorgabe aus** — ein Schalter, der etwas
+    /// verspricht, das nicht stattfindet, ist schlimmer als keiner. Setzt die
+    /// App aus der tatsaechlichen Verfuegbarkeit, nicht aus `cfg`
+    /// (`app::ablage`); damit traegt er auch, wenn Plan 1b-2 und 1c die
+    /// uebrigen Plattformen nachreichen.
+    ablage_verfuegbar: bool,
 }
 
 impl Overlay {
@@ -193,6 +200,7 @@ impl Overlay {
             fern_schirme: Vec::new(),
             fern_anordenbar: false,
             ablage_teilen: true,
+            ablage_verfuegbar: false,
         })
     }
 
@@ -609,6 +617,16 @@ impl Overlay {
             return;
         }
         self.ablage_teilen = an;
+        self.input_pending = true;
+    }
+
+    /// Ob es auf dieser Maschine eine Zwischenablage-Umsetzung gibt und diese
+    /// Sitzung sie haelt (s. [`Self::ablage_verfuegbar`]).
+    pub fn set_ablage_verfuegbar(&mut self, verfuegbar: bool) {
+        if self.ablage_verfuegbar == verfuegbar {
+            return;
+        }
+        self.ablage_verfuegbar = verfuegbar;
         self.input_pending = true;
     }
 

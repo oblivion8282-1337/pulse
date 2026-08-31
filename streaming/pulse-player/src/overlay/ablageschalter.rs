@@ -16,8 +16,17 @@ use crate::theme;
 
 impl Overlay {
     /// Eine Zeile mit Haken. Sichtbar nur im Fernsteuerungs-Modus, weil es
-    /// ausserhalb einer Sitzung nichts zu teilen gibt.
+    /// ausserhalb einer Sitzung nichts zu teilen gibt — und nur dort, wo eine
+    /// Plattform-Umsetzung ihn auch einloest.
+    ///
+    /// **Der Abstand gehoert mit hier hinein.** Faellt der Schalter weg, soll
+    /// keine Luecke im Menue bleiben; stuende er beim Aufrufer, waere das eine
+    /// zweite Stelle mit derselben Bedingung.
     pub(super) fn ablage_schalter(&mut self, ui: &mut egui::Ui, actions: &mut Vec<OverlayAction>) {
+        if !self.ablage_verfuegbar {
+            return;
+        }
+        ui.add_space(6.0);
         let mut an = self.ablage_teilen;
         let antwort = ui.checkbox(
             &mut an,
@@ -37,5 +46,6 @@ impl Overlay {
              Meldung, dass du etwas kopiert hast. Ein laufender Anspruch wird \
              freigegeben und dein vorheriger Inhalt zurueckgeschrieben.",
         );
+        ui.add_space(6.0);
     }
 }

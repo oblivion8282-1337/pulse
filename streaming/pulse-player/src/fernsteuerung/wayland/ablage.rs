@@ -194,6 +194,13 @@ impl Ablagequelle for Gastverbindung {
         self.zustand.ablage.eigene()
     }
 
+    /// Diese Verbindung steht nur, wenn Registry, Datengeraet-Manager und
+    /// mindestens ein Sitzplatz gebunden werden konnten (s. `aufbauen`) —
+    /// gibt es sie, ist die Zwischenablage wirksam.
+    fn wirksam(&self) -> bool {
+        true
+    }
+
     fn lesen_anstossen(&mut self) {
         if !self.zustand.ablage.lesen_offen() {
             return;

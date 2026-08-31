@@ -68,6 +68,15 @@ pub(crate) trait Ablagequelle {
     /// `wl_data_source.cancelled`, und das sieht nur die Plattform.
     fn eigentuemer(&self) -> bool;
 
+    /// Beruehrt diese Umsetzung ueberhaupt eine Zwischenablage?
+    ///
+    /// Nur dafuer da, dass die Oberflaeche nichts verspricht, was nicht
+    /// stattfindet ([`KeineAblage`] liefert `false`). **An der tatsaechlichen
+    /// Verfuegbarkeit, nicht an `cfg`** — dann traegt der Schalter auch, wenn
+    /// Plan 1b-2 und 1c die uebrigen Plattformen nachreichen, und er
+    /// verschwindet auf einem Linux-Rechner ohne Wayland-Datengeraet.
+    fn wirksam(&self) -> bool;
+
     /// Das Lesen der FREMDEN Auswahl eroeffnen, ohne darauf zu warten.
     ///
     /// **Warum das getrennt ist:** ob der fremde Eigentuemer je schreibt, sagt
@@ -130,6 +139,9 @@ impl Ablagequelle for KeineAblage {
     fn eigentuemer(&self) -> bool {
         false
     }
+    fn wirksam(&self) -> bool {
+        false
+    }
     fn lesen_anstossen(&mut self) {}
     /// **Immer bereit** — es gibt nichts zu holen und nichts zu warten. Ein
     /// `false` hier liesse jeden Anspruch fuer immer eingereiht liegen.
@@ -149,11 +161,22 @@ impl App {
         id: u64,
         f: impl FnOnce(&mut Ablagelage, &mut dyn Ablageplattform) -> R,
     ) -> Option<R> {
+        // **Genau EINE Sitzung haelt die Ablage** (Review C7) — die Spiegelung
+        // der Host-Regel „ein Traeger je Maschine" aus dem Entwurf. Der
+        // Wayland-Zustand haengt an der VERBINDUNG (eine je Prozess), die
+        // Zustandsmaschine an der SITZUNG; steuert der Nutzer zwei Rechner
+        // gleichzeitig, teilten sich beide Sitzungen sonst denselben
+        // Aenderungszaehler (die erste Abfrage schluckt die Aenderung, die
+        // zweite Sitzung kuendigt nie an), dieselbe Auswahl und dieselben
+        // wartenden Einfuegevorgaenge (`liefern` nimmt ALLE). Die uebrigen
+        // Sitzungen laufen deshalb gegen [`KeineAblage`] und tun nichts.
+        let traeger = self.ablage_traeger == Some(id);
         let lage = &mut self.sessions.get_mut(&id)?.ablage;
-        Some(match self.wayland_zug.ablage_plattform() {
+        Some(match self.wayland_zug.ablage_plattform().filter(|_| traeger) {
             Some(p) => f(lage, p),
-            // X11 oder ein Compositor ohne das Datengeraet: die Verbindung
-            // steht nicht, der Ablauf laeuft trotzdem — und beruehrt nichts.
+            // Kein Traeger, X11, oder ein Compositor ohne das Datengeraet: die
+            // Verbindung steht nicht, der Ablauf laeuft trotzdem — und
+            // beruehrt nichts.
             None => f(lage, &mut KeineAblage),
         })
     }
@@ -213,33 +236,85 @@ impl App {
     /// Sitzung, und das Ende ueber den Renderer (`{"t":"ende"}`) kommt nicht,
     /// wenn dessen Verbindung vorher abreisst.
     pub(super) fn ablage_erfassung(&mut self, id: u64, aktiv: bool) {
-        let teilt = self.mit_ablage(id, |lage, p| {
-            if aktiv {
-                lage.beginnen();
-            } else {
-                lage.ende(p);
+        if aktiv {
+            // Traeger wird, wer zuerst kommt (s. `mit_ablage`).
+            if self.ablage_traeger.is_none() {
+                self.ablage_traeger = Some(id);
             }
-            lage.teilt()
-        });
-        // **Der Schalter im Fern-Menue zeigt den Stand der SITZUNG**, nicht
-        // seinen eigenen. Er ueberlebt das Ende einer Fernsteuerung
-        // ausdruecklich: wer das Teilen abgeschaltet hat, will es nicht beim
-        // naechsten Handschlag stillschweigend wieder an haben.
-        if let (Some(teilt), Some(session)) = (teilt, self.sessions.get_mut(&id)) {
-            if let Some(overlay) = session.overlay.as_mut() {
-                overlay.set_ablage_teilen(teilt);
-            }
+            self.mit_ablage(id, |lage, _| lage.beginnen());
+        } else {
+            self.ablage_abbau(id);
         }
+        self.ablage_overlay_nachziehen(id);
+    }
+
+    /// **Der eine Trichter fuer das Ende.** Vier Wege fuehren hierher:
+    /// `input_capture false`, das Schliessen eines Fensters, `stop_all_sessions`
+    /// und `exiting`.
+    ///
+    /// Ohne die letzten drei (Review C3) blieb bei einem waehrend der
+    /// Fernsteuerung geschlossenen Fenster die `wl_data_source` bestehen,
+    /// waehrend niemand mehr taktet: **jedes Einfuegen irgendwo auf dem
+    /// Desktop haenge**, weil der Deskriptor liegenbleibt und weder
+    /// geschrieben noch geschlossen wird — und der Vorbestand des Nutzers
+    /// waere weg.
+    pub(super) fn ablage_abbau(&mut self, id: u64) {
+        self.mit_ablage(id, |lage, p| lage.ende(p));
+        if self.ablage_traeger == Some(id) {
+            self.ablage_traeger = None;
+            self.ablage_traeger_waehlen();
+        }
+    }
+
+    /// Traegt niemand die Ablage, waehlt die naechste wache Sitzung sie.
+    ///
+    /// Welche das ist, wenn mehrere in Frage kommen, ist nicht festgelegt (die
+    /// Reihenfolge einer `HashMap`) — sie sind gleichwertig. Der neue Traeger
+    /// kuendigt seinen Stand frisch an: die Gegenseite haelt sonst eine
+    /// Generation, die von der Zustandsmaschine der vorigen Sitzung stammt,
+    /// und jedes Einfuegen antwortete `veraltet`.
+    fn ablage_traeger_waehlen(&mut self) {
+        if self.ablage_traeger.is_some() {
+            return;
+        }
+        let Some(id) =
+            self.sessions.iter().find(|(_, s)| s.ablage.wacht()).map(|(id, _)| *id)
+        else {
+            return;
+        };
+        self.ablage_traeger = Some(id);
+        let hinaus = self.mit_ablage(id, |lage, _| lage.neu_bitte()).unwrap_or_default();
+        self.ablage_melden(id, &hinaus);
     }
 
     /// Der Schalter „Zwischenablage teilen" aus dem Fern-Menue.
     pub(super) fn ablage_teilen_setzen(&mut self, id: u64, an: bool) {
         self.mit_ablage(id, |lage, p| lage.teilen_setzen(an, p));
+        self.ablage_overlay_nachziehen(id);
+        if let Some(session) = self.sessions.get(&id) {
+            session.window.request_redraw();
+        }
+    }
+
+    /// **Der Schalter im Fern-Menue zeigt den Stand der SITZUNG**, nicht
+    /// seinen eigenen — und er erscheint nur, wo die Plattform ihn auch
+    /// einloest (Review C8).
+    ///
+    /// Dass er das Ende einer Fernsteuerung ueberlebt, ist Absicht: wer das
+    /// Teilen abgeschaltet hat, will es nicht beim naechsten Handschlag
+    /// stillschweigend wieder an haben. Ein still widerrufener
+    /// Datenschutz-Schalter waere der schlimmere der beiden Fehler.
+    fn ablage_overlay_nachziehen(&mut self, id: u64) {
+        let Some((teilt, wirksam)) =
+            self.mit_ablage(id, |lage, p| (lage.teilt(), p.wirksam()))
+        else {
+            return;
+        };
         if let Some(session) = self.sessions.get_mut(&id) {
             if let Some(overlay) = session.overlay.as_mut() {
-                overlay.set_ablage_teilen(an);
+                overlay.set_ablage_teilen(teilt);
+                overlay.set_ablage_verfuegbar(wirksam);
             }
-            session.window.request_redraw();
         }
     }
 

@@ -278,6 +278,12 @@ impl App {
         if senders.is_empty() {
             return;
         }
+        // **Vor dem Leeren**, sonst gibt es die Sitzungen nicht mehr, an denen
+        // die Zwischenablage haengt (Review C3): der Vorbestand des Nutzers
+        // muss zurueck, bevor der Player die Auswahl mit sich nimmt.
+        for id in self.sessions.keys().copied().collect::<Vec<_>>() {
+            self.ablage_abbau(id);
+        }
         self.sessions.clear();
         self.by_window.clear();
         self.runtime.block_on(async move {

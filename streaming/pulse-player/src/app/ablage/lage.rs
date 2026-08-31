@@ -53,6 +53,11 @@ pub(crate) struct Ablagelage {
     /// Halten WIR gerade das lokale Eigentum? Entscheidet, ob beim Freigeben
     /// zurueckgeschrieben wird.
     eigentuemer: bool,
+    /// Hat die Gegenseite schon einmal etwas angekuendigt, das wir liefern
+    /// koennten? Entscheidet beim Wiedereinschalten, ob ein Anspruch
+    /// ueberhaupt Sinn ergibt — ohne das loeschte der Schalter den Vorbestand
+    /// des Nutzers fuer eine Ablage, in der drueben nie etwas lag.
+    fremd_bekannt: bool,
     /// Was vor dem ersten Anspruch in der Ablage lag. **Kein Beiwerk:** ein
     /// Anspruch loescht den Vorbestand, und wird nie eingefuegt, waere der
     /// eigene kopierte Pfad des Nutzers durch fremde Aktivitaet still weg.
@@ -89,6 +94,7 @@ impl Default for Ablagelage {
             teilen: true,
             wach: false,
             eigentuemer: false,
+            fremd_bekannt: false,
             vorbestand: None,
             offener_hol: None,
             seit: Instant::now(),
@@ -105,6 +111,12 @@ impl Ablagelage {
         self.teilen
     }
 
+    /// Laeuft fuer diese Sitzung gerade eine Fernsteuerung? Grundlage der
+    /// Traegerwahl in [`super::App::ablage_traeger_waehlen`].
+    pub(crate) fn wacht(&self) -> bool {
+        self.wach
+    }
+
     /// Eine Fernsteuerung beginnt (`input_capture` an).
     pub(crate) fn beginnen(&mut self) {
         self.wach = true;
@@ -114,10 +126,18 @@ impl Ablagelage {
     pub(crate) fn fern(&mut self, rahmen: &Rahmen, p: &mut dyn Ablageplattform) -> Vec<Rahmen> {
         match rahmen {
             Rahmen::Neu { .. } => {
-                // Ohne Teilen wird nichts beansprucht — ein Anspruch, den wir
-                // nicht einloesen wollen, kostete den Vorbestand des Nutzers.
-                if self.teilen && self.empfaenger.angekuendigt(rahmen) {
-                    self.anspruch.anmelden();
+                // **Die Ankuendigung wird IMMER verbucht, auch mit
+                // abgeschaltetem Teilen** — sonst zeigte die gemerkte fremde
+                // Generation nach dem Wiedereinschalten auf einen Stand von
+                // vorgestern. Nur der Anspruch bleibt aus: ein Anspruch, den
+                // wir nicht einloesen wollen, kostete den Vorbestand des
+                // Nutzers.
+                let neu_drueben = self.empfaenger.angekuendigt(rahmen);
+                if neu_drueben {
+                    self.fremd_bekannt = true;
+                    if self.teilen {
+                        self.anspruch.anmelden();
+                    }
                 }
                 Vec::new()
             }
@@ -189,6 +209,18 @@ impl Ablagelage {
         self.teilen = an;
         if !an {
             self.freigeben(p);
+            return;
+        }
+        // **Wiedereinschalten meldet den Anspruch neu an** (Review C9). Ohne
+        // das koennte erst die NAECHSTE fremde Ankuendigung wieder etwas
+        // holen: `Empfaenger::angekuendigt` erkennt einen Generationswechsel,
+        // und der bleibt beim blossen Umschalten aus — die Ablage waere bis
+        // zum naechsten Kopieren drueben still tot.
+        //
+        // **Nur, wenn drueben ueberhaupt schon etwas lag.** Sonst loeschte der
+        // Schalter den Vorbestand des Nutzers fuer nichts.
+        if self.fremd_bekannt {
+            self.anspruch.anmelden();
         }
     }
 
@@ -443,6 +475,9 @@ mod tests {
         }
         fn eigentuemer(&self) -> bool {
             self.inner.beansprucht()
+        }
+        fn wirksam(&self) -> bool {
+            true
         }
         fn lesen_anstossen(&mut self) {}
         /// Das Doppel liest synchron — die Verzoegerung ist eine Eigenschaft
@@ -741,6 +776,48 @@ mod tests {
             lage.fern(&stueck, &mut p);
         }
         assert_eq!(p.inner.geliefert().as_deref(), Some("hallo"));
+    }
+
+    /// **C9:** nach dem Wiedereinschalten muss wieder etwas zu holen sein —
+    /// `Empfaenger::angekuendigt` erkennt nur einen Generationswechsel, und
+    /// der bleibt beim blossen Umschalten aus.
+    #[test]
+    fn wiedereinschalten_meldet_den_anspruch_neu_an() {
+        let mut p = Pruefablage::neu();
+        p.inner.setzen("mein Pfad");
+        p.inner.geaendert();
+        let mut lage = wache_lage();
+        lage.fern(&Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text }, &mut p);
+        lage.takt(&mut p);
+        assert!(p.inner.beansprucht());
+
+        lage.teilen_setzen(false, &mut p);
+        lage.teilen_setzen(true, &mut p);
+        // KEINE neue Ankuendigung von drueben — allein das Umschalten.
+        lage.takt(&mut p);
+        p.einfuegen = true;
+        assert_eq!(
+            lage.takt(&mut p),
+            vec![Rahmen::Hol { generation: 1, id: 1 }],
+            "ohne die Neuanmeldung waere die Ablage bis zum naechsten Kopieren \
+             drueben still tot"
+        );
+    }
+
+    /// Die Gegenprobe: hat drueben noch nie jemand kopiert, darf das
+    /// Einschalten NICHTS beanspruchen — sonst loeschte der Schalter den
+    /// Vorbestand des Nutzers fuer eine leere Ablage.
+    #[test]
+    fn einschalten_ohne_fremde_ankuendigung_beansprucht_nichts() {
+        let mut p = Pruefablage::neu();
+        p.inner.setzen("mein Pfad");
+        p.inner.geaendert();
+        let mut lage = wache_lage();
+        lage.teilen_setzen(false, &mut p);
+        lage.teilen_setzen(true, &mut p);
+        lage.takt(&mut p);
+        assert!(!p.inner.beansprucht());
+        assert_eq!(p.inner.inhalt().as_deref(), Some("mein Pfad"));
     }
 
     /// **F1:** die Antwort auf ein `hol` faellt einen Takt spaeter an, statt
