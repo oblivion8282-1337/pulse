@@ -198,6 +198,26 @@ einziger echter Anbieter mehr. **Die Probe war damit sofort nützlich, bevor
 sie überhaupt eingebaut war** — und die richtige Antwort ist, die Adapter zu
 vervollständigen, nicht die Probe aufzuweichen.
 
+### B13 — Eine Ordner-Verbindung überlebt kein Neuladen
+
+`web/src/lib/ablage/syncOrdner.ts`, `components/ablage/AblageVerbindenDialog.svelte`
+· Korrektheit · offen, E3
+
+Der Verzeichnis-Griff wird nirgends abgelegt, und die Verbindung wird mit
+leerer Konfiguration gespeichert. Nach einem Neustart steht sie in der Liste
+und zeigt ins Nichts — für den Nutzer sieht es aus, als sei sein Laufwerk
+verschwunden.
+
+Aufgefallen nicht beim Suchen, sondern durch eine Frage des Eigentümers
+(„ist das persönliche Archiv nicht auch bloss ein Cloud-Ordner?"). Beim
+Nachsehen, ob Ordner und Cloud dasselbe sind, kam heraus, dass der Ordner
+allein den Neustart nicht übersteht.
+
+Behoben wird es mit `archiveFsa.ts` vom Juli-Zweig: Griff in IndexedDB,
+Berechtigung beim Start erneut bestätigen. Die Verweigerung ist dabei kein
+Fehler, sondern der Zustand „Laufwerk weg" mit dem Handgriff „Ordner erneut
+wählen".
+
 ---
 
 ## 3. Geprüft, kein Befund
