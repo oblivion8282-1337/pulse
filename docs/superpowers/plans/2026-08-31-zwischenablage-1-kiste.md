@@ -1570,8 +1570,13 @@ fn ein_anspruch_loescht_den_vorbestand_und_gibt_ihn_zurueck() {
         "er muss gemerkt sein, sonst ist er unwiederbringlich"
     );
 
-    // Sitzungsende: zurueckschreiben.
-    b.ablage.freigeben(b.ablage.vorbestand().as_deref());
+    // Sitzungsende: zurueckschreiben. Zwei Zeilen, nicht eine: der einzeilige
+    // Ausdruck `b.ablage.freigeben(b.ablage.vorbestand().as_deref())` leiht
+    // `b.ablage` gleichzeitig veraenderlich und lesend aus und traegt nur ueber
+    // die Zwei-Phasen-Ausleihe. Ein Test soll nicht von einer Optimierung des
+    // Ausleih-Pruefers abhaengen, die er gar nicht pruefen will.
+    let vorher = b.ablage.vorbestand();
+    b.ablage.freigeben(vorher.as_deref());
     assert_eq!(
         b.ablage.inhalt().as_deref(),
         Some("/home/michael/wichtig.txt"),
