@@ -43,7 +43,7 @@ import {
 import { playerManager } from './player';
 import { auftragLesen, EingabeWeiche, erfassungSchalten } from './remoteInput';
 import { RemoteEingabe } from './remoteInputHost';
-import { zielFuerAblage, rolleLesen } from './ablageWeiche';
+import { zielFuerAblage, rolleLesen, endeAnstoss } from './ablageWeiche';
 import { migriereAufStandardAn, onSidecarEventForUpload } from './experimental-log-upload';
 import { initStore, storeGet, storeGetAll, storeSet, storeSetBatch } from './store';
 import { createTray, applyTrayStatus, setTrayImageFromDataUrl } from './tray';
@@ -881,7 +881,7 @@ function ablageAufraeumen(): void {
   for (let slot = 0; slot < MAX_STREAM_SLOTS; slot++) {
     if (!sidecarRunning(slot)) continue;
     void getSidecar(slot)
-      .call('ablage', { data: { anstoss: 'ende' } })
+      .call('ablage', { data: endeAnstoss() })
       .catch(() => undefined);
   }
 }
@@ -934,6 +934,30 @@ function wireSidecar(): void {
       remoteEingabe.frames(slot, sessionId, frames, hostAktiv === true),
   );
   ipcMain.handle('gsr:remoteInputEnd', () => remoteEingabe.beenden());
+
+  // Fernsteuerung, Host-Seite: dem Sidecar eines Platzes sagen, dass seine
+  // Ablage-Sitzung vorbei ist. Der Renderer ruft das beim TRAEGERWECHSEL
+  // (`$lib/remote/ablageTraeger.ts::traegerWechsel`).
+  //
+  // **Der `sidecarRunning`-Riegel ist der ganze Zweck dieses Kanals** — und
+  // zugleich der Plattform-Unterschied, ohne dass hier ein
+  // `process.platform` stuende: `getSidecar()` spawnt lazy, ein Ruf an einen
+  // Platz ohne laufenden Sidecar startete also einen Prozess, nur um ihm zu
+  // sagen, dass er nichts zu tun hat (Befund B7). Auf Windows ist der alte
+  // Traeger nach `stop` weg, der Riegel greift, und es bleibt beim bisherigen
+  // Verhalten. Auf macOS bleibt der Sidecar warm (`mac-hq-sidecar/
+  // src/dispatch.rs`: kein `exit_after`) — er lebt, bekommt sein `ende` und
+  // gibt die Zwischenablage des Nutzers frei, statt sie bis zum App-Ende
+  // belegt zu halten.
+  ipcMain.handle('gsr:ablageEnde', async (_e, slot: unknown) => {
+    const platz = normaliseSlot(slot);
+    if (!sidecarRunning(platz)) return { ok: true, note: 'kein laufender Sidecar' };
+    try {
+      return await getSidecar(platz).call('ablage', { data: endeAnstoss() });
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
 
   // Fernsteuerung — geteilte Zwischenablage (`$lib/remote/ablage.ts`). Der
   // Hauptprozess deutet die Nutzlast nicht, er entscheidet nur, wohin sie

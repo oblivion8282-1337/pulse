@@ -32,8 +32,8 @@
 import type { RemoteSignalKind } from '$lib/ws/handlers/types';
 import { Drossel } from './ablageDrossel';
 import { anstossHuelle, leitungsHuelle } from './ablageHuelle';
-import { ablageAnPlattform, aufAblageEreignisse } from './ablagePlatform';
-import { traegerWaehlen } from './ablageTraeger';
+import { ablageAnPlattform, ablageEndeAnPlatz, aufAblageEreignisse } from './ablagePlatform';
+import { traegerWechsel } from './ablageTraeger';
 import { Vorhalt } from './ablageVorhalt';
 import { WachtSchalter } from './wachten';
 
@@ -254,17 +254,23 @@ class RemoteAblage {
    * Wer hält die Ablage dieser Maschine? Nur beim Host.
    *
    * Wechselt der Träger, bekommt der neue Prozess `beginn` — **erst das stellt
-   * seinen Fensterfaden auf**, vorher rührt er die Zwischenablage nicht an.
-   * Dem alten wird nichts geschickt: gewechselt wird genau dann, wenn sein
-   * Stream endete, und der Windows-Sidecar beendet sich danach selbst
-   * (`dispatch.rs`) — ein Auftrag an ihn startete einen frischen Prozess, nur
-   * um ihm zu sagen, dass er nichts zu tun hat.
+   * seinen Eigner-/Fensterfaden auf**, vorher rührt er die Zwischenablage nicht
+   * an.
+   *
+   * **Und der alte bekommt sein `ende`.** Bis Plan 1b-2 bekam er nichts, mit
+   * der Begründung, sein Prozess beende sich nach `stop` ohnehin selbst — das
+   * gilt für Windows und **nicht für macOS**, wo der Sidecar über Streams
+   * hinweg warm bleibt und die Ablage des Nutzers sonst bis zum App-Ende
+   * belegt hielte. Der Riegel dagegen, dass dieser Ruf auf Windows einen
+   * frischen Prozess startet, sitzt im Hauptprozess (`sidecarRunning`) — s.
+   * `traegerWechsel`.
    */
   #traegerPruefen(): void {
-    const neu = traegerWaehlen(this.#plaetze(), this.#traeger);
-    if (neu === this.#traeger) return;
-    this.#traeger = neu;
-    if (neu === null) return;
+    const { traeger, abzumelden } = traegerWechsel(this.#plaetze(), this.#traeger);
+    if (traeger === this.#traeger && abzumelden === null) return;
+    this.#traeger = traeger;
+    if (abzumelden !== null) void ablageEndeAnPlatz(abzumelden);
+    if (traeger === null) return;
     void this.#hinunter(anstossHuelle('beginn'));
     this.#vorhaltZustellen();
   }

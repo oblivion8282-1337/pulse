@@ -160,6 +160,20 @@ contextBridge.exposeInMainWorld('pulse', {
       data: unknown,
       slot = 0,
     ): Promise<unknown> => ipcRenderer.invoke('gsr:ablage', rolle, session, data, slot),
+
+    /** Fernsteuerung, Host-Seite: dem Sidecar eines Platzes sagen, dass seine
+     *  Ablage-Sitzung vorbei ist (Traegerwechsel,
+     *  `$lib/remote/ablageTraeger.ts`).
+     *
+     *  **Eigener Kanal statt `ablage(...)`**, weil der Hauptprozess hier einen
+     *  Riegel setzt, den der Renderer nicht kennt: geschickt wird nur an einen
+     *  Platz mit LAUFENDEM Sidecar (`sidecarRunning`) — sonst startete
+     *  `getSidecar()` einen frischen Prozess, nur um ihm zu sagen, dass er
+     *  nichts zu tun hat. Genau dieser Riegel ist der Unterschied zwischen den
+     *  Plattformen: der Windows-Sidecar beendet sich nach `stop`, der
+     *  mac-Sidecar bleibt warm und muss sein `ende` bekommen. */
+    ablageEnde: (slot: number): Promise<unknown> =>
+      ipcRenderer.invoke('gsr:ablageEnde', slot),
   },
 
   /**

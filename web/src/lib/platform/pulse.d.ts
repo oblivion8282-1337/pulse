@@ -113,6 +113,17 @@ export interface PulseGsrApi {
     data: unknown,
     slot?: number,
   ): Promise<{ ok: boolean; error?: string }>;
+  /** Fernsteuerung, Host-Seite: dem Sidecar eines Platzes sagen, dass seine
+   *  Ablage-Sitzung vorbei ist — beim Traegerwechsel
+   *  (`$lib/remote/ablageTraeger.ts::traegerWechsel`).
+   *
+   *  Eigener Kanal statt `ablage(...)`, weil der Hauptprozess hier einen
+   *  Riegel setzt, den der Renderer nicht kennt: geschickt wird nur an einen
+   *  Platz mit LAUFENDEM Sidecar. Der Riegel ist zugleich der ganze
+   *  Plattform-Unterschied — der Windows-Sidecar beendet sich nach `stop`, der
+   *  mac-Sidecar bleibt warm und hielte die Ablage des Nutzers sonst bis zum
+   *  App-Ende belegt. */
+  ablageEnde(slot: number): Promise<{ ok: boolean; error?: string }>;
 }
 
 /** Payload for `pulse.notify.show()` — mention/DM toast. The renderer is

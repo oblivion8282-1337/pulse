@@ -59,6 +59,32 @@ export async function ablageAnPlattform(
   }
 }
 
+/**
+ * Dem Sidecar eines Platzes sagen, dass seine Ablage-Sitzung vorbei ist — beim
+ * **Trägerwechsel** (`ablageTraeger.ts::traegerWechsel`).
+ *
+ * **Eigener Weg statt `ablageAnPlattform`**, weil er einen Riegel braucht, den
+ * nur der Hauptprozess setzen kann: `getSidecar()` startet lazy, ein Ruf an
+ * einen Platz ohne laufenden Sidecar spawnte also einen Prozess, nur um ihm zu
+ * sagen, dass er nichts zu tun hat. Der Riegel (`sidecarRunning`) ist zugleich
+ * der ganze Plattform-Unterschied: auf Windows ist der alte Träger nach `stop`
+ * weg, auf macOS lebt er weiter.
+ *
+ * Nur die Host-Rolle hat Träger; der Steuernde ruft das nie.
+ */
+export async function ablageEndeAnPlatz(slot: number): Promise<boolean> {
+  const b = ablageBruecke();
+  // Ältere Shell ohne diesen Kanal: still nichts tun, wie überall in dieser
+  // Schicht. Es kostet auf Windows nichts (dort stirbt der Prozess ohnehin).
+  if (typeof b?.ablageEnde !== 'function') return false;
+  try {
+    const antwort = (await b.ablageEnde(slot)) as { ok?: boolean } | undefined;
+    return antwort?.ok === true;
+  } catch {
+    return false;
+  }
+}
+
 /** Was die eigene Plattform hinausschicken will. Liefert den Abmelder, oder
  *  `null`, wenn es die Brücke nicht gibt.
  *

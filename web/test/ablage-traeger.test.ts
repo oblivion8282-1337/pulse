@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { traegerWaehlen } from '../src/lib/remote/ablageTraeger.ts';
+import { traegerWaehlen, traegerWechsel } from '../src/lib/remote/ablageTraeger.ts';
 
 test('ohne laufenden Stream traegt niemand', () => {
   // Kein Stream heisst kein Sidecar-Prozess. Einen zu adressieren startete
@@ -37,4 +37,24 @@ test('unbrauchbare Plaetze werden uebergangen', () => {
   // ein Auftrag an einen Prozess, den es nicht gibt.
   assert.equal(traegerWaehlen([-1, 1.5, 2] as number[], null), 2);
   assert.equal(traegerWaehlen([-1] as number[], null), null);
+});
+
+test('ein Traegerwechsel meldet den alten Traeger ausdruecklich ab', () => {
+  // Der mac-Sidecar bleibt ueber Streams hinweg warm: endet sein Stream, laeuft
+  // sein Prozess weiter und hielte die Zwischenablage des Nutzers bis zum
+  // App-Ende belegt. Bis Plan 1b-2 bekam der alte Traeger nichts — das galt
+  // fuer Windows, wo sein Prozess nach `stop` stirbt.
+  assert.deepEqual(traegerWechsel([1], 0), { traeger: 1, abzumelden: 0 });
+});
+
+test('ohne Wechsel wird niemand abgemeldet', () => {
+  // Ein `ende` an den amtierenden Traeger raeumte genau das weg, was er gerade
+  // haelt.
+  assert.deepEqual(traegerWechsel([0, 1], 0), { traeger: 0, abzumelden: null });
+  assert.deepEqual(traegerWechsel([], null), { traeger: null, abzumelden: null });
+});
+
+test('auch der letzte Traeger wird abgemeldet, wenn niemand nachfolgt', () => {
+  // Gerade dann: es kommt kein `beginn` mehr, das die Ablage neu ordnete.
+  assert.deepEqual(traegerWechsel([], 0), { traeger: null, abzumelden: 0 });
 });

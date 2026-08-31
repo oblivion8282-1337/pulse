@@ -28,7 +28,7 @@
  * Nutzers wandert durch eine Freigabe. Gewechselt wird deshalb **nur, wenn es
  * sein muss** — und das ist genau der Fall, den `dispatch.rs` erzwingt: der
  * Windows-Sidecar beendet sich nach `stop`, endet also der Träger-Stream,
- * stirbt sein Prozess.
+ * stirbt sein Prozess. **Auf macOS stirbt er nicht** (s. `traegerWechsel`).
  *
  * Kommen mehrere in Frage, gewinnt der kleinste Platz. Welcher es ist, ist
  * gleichgültig — festgelegt wird es trotzdem, damit zwei Aufrufe im selben
@@ -45,4 +45,38 @@ export function traegerWaehlen(
     if (kleinster === null || platz < kleinster) kleinster = platz;
   }
   return kleinster;
+}
+
+/**
+ * Wer trägt künftig — und **wem muss vorher gesagt werden, dass er es nicht
+ * mehr tut**.
+ *
+ * Der zweite Teil ist neu und existiert wegen macOS. Bis Plan 1b-2 galt: dem
+ * alten Träger wird nichts geschickt, sein Prozess beendet sich nach `stop`
+ * selbst (`win-hq-sidecar/src/dispatch.rs`), und ein Auftrag an ihn startete
+ * einen frischen Prozess, nur um ihm zu sagen, dass er nichts zu tun hat.
+ *
+ * **Der mac-Sidecar bleibt über Streams hinweg warm** (`mac-hq-sidecar/
+ * src/dispatch.rs`: kein `exit_after`). Endet dort der Träger-Stream, läuft
+ * sein Prozess weiter — und hält die Zwischenablage des Nutzers weiter
+ * beansprucht, also leer, bis die ganze App endet. Er braucht sein `ende`.
+ *
+ * **Die Plattform wird hier trotzdem nicht abgefragt, und das ist Absicht.**
+ * Der Hauptprozess schickt das `ende` nur an einen Platz, dessen Sidecar noch
+ * läuft (`sidecarRunning`) — und genau diese Frage IST der Unterschied
+ * zwischen den beiden Plattformen: auf Windows ist der alte Prozess weg, der
+ * Riegel greift, und es bleibt beim bisherigen Verhalten; auf macOS lebt er,
+ * und er bekommt sein `ende`. Ein `process.platform`-Zweig wäre eine zweite
+ * Behauptung über dieselbe Sache, und die eine davon könnte falsch werden.
+ *
+ * `abzumelden` ist auch dann gesetzt, wenn niemand nachfolgt (letzter Stream
+ * beendet): gerade dann bliebe die Ablage sonst bis zum App-Ende belegt.
+ */
+export function traegerWechsel(
+  laufende: readonly number[],
+  bisher: number | null,
+): { traeger: number | null; abzumelden: number | null } {
+  const traeger = traegerWaehlen(laufende, bisher);
+  if (traeger === bisher) return { traeger, abzumelden: null };
+  return { traeger, abzumelden: bisher };
 }

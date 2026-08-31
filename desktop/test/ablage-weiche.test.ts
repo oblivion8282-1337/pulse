@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { zielFuerAblage, rolleLesen } from '../electron/ablageWeiche.ts';
+import { zielFuerAblage, rolleLesen, endeAnstoss } from '../electron/ablageWeiche.ts';
 
 test('der Steuernde haelt seine Ablage im Player', () => {
   // Beim Steuernden laeuft KEIN Sidecar — nur das Player-Fenster. Waere die
@@ -27,4 +27,13 @@ test('rolleLesen ist fail-closed gegen alles andere', () => {
   assert.equal(rolleLesen(''), null);
   assert.equal(rolleLesen('Host'), null); // Gross-/Kleinschreibung zaehlt
   assert.equal(rolleLesen({ rolle: 'host' }), null);
+});
+
+test('der Ende-Anstoss traegt die Anstoss-Huelle, nicht die Rahmen-Form', () => {
+  // Er geht durch dieselbe Tuer wie fremde Nutzlast (`gsr:ablage` bzw.
+  // `gsr:ablageEnde`), und `pulse_ablage::lage::deuten` entscheidet an der
+  // HUELLE: unter `anstoss` steht Eigenes, unter `rahmen` Fremdes. Eine
+  // Rahmen-Form hier bedeutete, dass die Gegenseite dasselbe schicken und die
+  // Ablage abschalten koennte.
+  assert.deepEqual(endeAnstoss(), { anstoss: 'ende' });
 });
