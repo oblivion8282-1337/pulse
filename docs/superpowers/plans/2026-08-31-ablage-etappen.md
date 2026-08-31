@@ -184,6 +184,15 @@ Zweig (`PULSE_DEV_SKIP_MIGRATIONS=1` nur bei rein additiven Migrationen).
   an welchem Schritt es scheiterte.
 - Harter Dropbox-Schlüssel im Quelltext prüfen und an die vorgesehene
   Konfigurationsstelle ziehen.
+- **Den Auffrisch-Weg überhaupt erst verdrahten.** Befund aus E0:
+  `auffrischeZugang` wird von Dropbox- und Google-Anbindung exportiert, aber
+  an keiner Stelle aufgerufen — es gibt keinen Aufrufer, keinen erneuten
+  Versuch nach einem 401, keinen Zeitgeber. Ein abgelaufener Zugang beendet
+  die Verbindung damit endgültig und unbemerkt. Das ist der häufigste
+  Dauerfehler dieser Bauart und der eigentliche Grund für die
+  Zustandsanzeige. Beim Verdrahten gleich das laufende Versprechen je
+  Verbindung merken, sonst verbrennen zwei gleichzeitige Auffrischungen bei
+  Anbietern mit rotierenden Auffrisch-Tokens den Zugang.
 
 **Abnahme:** Verbinden, Zustand und Probe laufen für alle drei Anbieter;
 Testseite ist weg; `pnpm check` und `pnpm test:unit` grün.

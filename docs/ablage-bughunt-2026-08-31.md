@@ -97,7 +97,7 @@ Dateien gleichzeitig auszuwählen genügte.
 
 ### B6 — Falsche Rahmenzahl meldet Lücke auf intaktem Segment
 
-`web/src/lib/ablage/schreiber.ts` · Korrektheit · in Arbeit
+`web/src/lib/ablage/schreiber.ts` · Korrektheit · behoben
 
 `alteRahmen` stammt aus dem zwischengespeicherten Manifest, `alteRahmenBytes`
 aus der frisch gelesenen Datei. Hat ein anderer Schreiber verlängert, zählt
@@ -107,7 +107,7 @@ Lücken-Diagnose selbst.
 
 ### B7 — Mehrgeräte-Schreiben wirft Segmente aus dem Manifest
 
-`web/src/lib/ablage/schreiber.ts` · Korrektheit · in Arbeit
+`web/src/lib/ablage/schreiber.ts` · Korrektheit · behoben
 
 `festigen()` schreibt das Manifest bedingungslos, ohne den abgelegten Stand
 gegen den erwarteten zu prüfen. Ein zweites Gerät kann ein Manifest schreiben,
@@ -117,13 +117,53 @@ Verlauf ohne Fehleranzeige.
 
 ### B8 — Google Drive legt Dubletten an
 
-`web/src/lib/ablage/gdrive.ts` · Korrektheit · in Arbeit
+`web/src/lib/ablage/gdrive.ts` · Korrektheit · behoben
 
 Nachsehen und dann Anlegen ist nicht atomar, und Drive erlaubt mehrere
 Dateien gleichen Namens im selben Ordner. Zwei Geräte können zweimal
 `manifest.puls` erzeugen; welche danach gelesen wird, entscheidet Googles
 Suchsortierung. Ein Restfenster bleibt, weil Drive keine Eindeutigkeit
 garantiert — es gehört benannt, nicht wegdefiniert.
+
+### B9 — Ein Test suchte ein Zertifikat, das es nicht mehr gibt
+
+`web/tests/e2e/krypto-veroeffentlichen.spec.ts` · Fehlalarm · behoben
+
+Zwei E2E-Tests meldeten „Issue-Flow lief nicht durch" und sahen damit aus wie
+ein Produktfehler. Tatsächlich lasen sie `pulse.identity-cert` — das
+Gerätezertifikat, das der Weg-A-Umbau ersatzlos entfernt hat. Sie warteten
+zehnmal auf etwas, das kein Code mehr schreibt.
+
+Mit derselben Wurzel im Quelltext gefunden und mitgezogen: der Kopf von
+`geraeteKennung.ts` nannte durchgehend das Zertifikat als massgebliche
+Quelle, obwohl der Code darunter längst den öffentlichen Teil des
+Geräte-Schlüsselpaars liest, und `idb-shared.ts` führte den
+Zertifikats-Schlüssel weiter in seiner Liste.
+
+**Die Lehre gehört zum Befund:** eine veraltete Behauptung im Kommentar wird
+irgendwann zur Grundlage eines Tests, und der meldet dann einen Fehler, den
+es nicht gibt.
+
+### B10 — Der Ablage-Hauptschlüssel lag in `localStorage`
+
+`web/src/lib/components/settings/AblageSektion.svelte` · offen, gehört in E1
+
+Die Sektion erzeugt den Hauptschlüssel ad hoc und legt ihn in
+`localStorage` ab, während `verbindungen.ts` genau dafür da wäre (IndexedDB,
+neben den Geräteschlüsseln). Sie baut ausserdem ihren Speicher-Adapter
+inline nach, obwohl sie den fertigen bereits importiert. Zwei Schlüsselquellen
+nebeneinander sind der Zustand, in dem jede weitere Änderung auf der
+falschen aufbaut — deshalb ist das die erste Aufgabe der Etappe E1.
+
+### B11 — Es gibt keinen Auffrisch-Weg für abgelaufene Zugänge
+
+`web/src/lib/ablage/{oauth,dropbox,gdrive}.ts` · offen, gehört in E1
+
+`auffrischeZugang` ist gebaut und exportiert, wird aber **von niemandem
+aufgerufen**: kein erneuter Versuch nach einem 401, kein Zeitgeber, kein
+Aufrufer. Ein abgelaufener Zugang beendet die Verbindung damit endgültig und
+unbemerkt — der häufigste Dauerfehler dieser Bauart und der eigentliche
+Grund für die Zustandsanzeige aus E1.
 
 ---
 
@@ -155,3 +195,19 @@ Beide stehen bereits im Code und sind dort begründet:
   Geräte abholen.
 - `geraete_widerruf.py`: die Verdrängung des ältesten Schlüsselbündels kann
   einen eigenen Geräte-Grabstein wegräumen.
+
+## 5. Beobachtungen am Rand, bewusst offen
+
+Beim Beheben von B6/B7 aufgefallen, nicht Teil des Auftrags:
+
+- `leser.ts::leseSegment` nennt auch „mehr lesbare Rahmen als deklariert"
+  eine Lücke. Inhaltlich fehlt dort nichts — der Text führt in die Irre.
+- `nachzug.ts::nimmBestandAuf` schreibt eine **reine** Berichtigung des
+  offenen Segments nicht auf den Adapter zurück; sie lebt nur im
+  Arbeitsspeicher, bis ein Festigen folgt.
+- **Auf die Segment-Datei selbst gibt es kein Vergleiche-und-Tausche.**
+  Legen zwei Geräte unabhängig voneinander dasselbe neue Segment an (beide
+  starten leer, beide rechnen Index 0), überschreibt der zweite die Datei
+  des ersten, bevor die Manifest-Prüfung greift. Das ist der einzige der
+  drei Punkte mit Datenverlust — er gehört in die Etappe, in der das
+  Mehrgeräte-Schreiben scharf geschaltet wird (E6).
