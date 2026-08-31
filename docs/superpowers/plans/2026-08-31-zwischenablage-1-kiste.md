@@ -15,6 +15,7 @@
 - **Keine neue Fremdabhängigkeit.** Die Grenze steht in `streaming/pulse-fernsteuerung/Cargo.toml`: jede weitere braucht eine eigene Nachmessung und Entscheidung. Diese Kiste nimmt genau eine Pfad-Abhängigkeit auf (`pulse-fernsteuerung`), die alle Verbraucher ohnehin nennen.
 - **Größen-Policy:** Quelldateien ≤ 350 Zeilen (hart 500). Tests sind ausgenommen.
 - **Deutsche Bezeichner** für neuen Code in `streaming/pulse-*` — die Schwesterkisten (`zeigerbuch`, `zuordnung`, `druck`, `frist`) sind durchgehend deutsch.
+- **`edition = "2024"`**, wie neun der elf Kisten im Baum. **Damit ist `gen` als Rust-Bezeichner gesperrt** — es ist dort ein reserviertes Schlüsselwort (nachgemessen 2026-08-31, cargo 1.98.0: `expected identifier, found reserved keyword \`gen\``). Der Bezeichner heisst deshalb überall `generation`; **das Feld auf der Leitung heisst weiter `"gen"`** — es ist eine Zeichenkette, kein Bezeichner, und die Spec nennt es so. Weder die Edition senken noch `r#gen` schreiben: das erste macht die Kiste zur Ausnahme unter elf, das zweite pflanzt sich durch jede Folge-Task fort.
 - **Ein Kommentar darf nicht mehr behaupten, als er hält.** Wer einen Grund hinschreibt, prüft ihn am Code an dieser Stelle und trennt „gemessen" von „aus der Doku gefolgert".
 - **Gateway-Deckel, gegen den gerechnet wird:** `_SIGNAL_MAX_DATA_BYTES = 8 * 1024` (8192), gemessen an `len(json.dumps(data, separators=(",",":")))` in `services/chat-gateway/src/dcc_chat_gateway/routes/ws_remote_handlers.py:98,423`. `_SIGNAL_MAX_MESSAGES_PER_S = 60`, Überschreitung wird **still** verworfen.
 - **Kein Changelog-Eintrag** — das Merkmal hängt an `REMOTE_CONTROL`, das nicht in `DEFAULT_EVERYONE_PERMISSIONS` steht.
@@ -34,6 +35,7 @@ Er bindet die Kiste in **keinen** Verbraucher ein. `pulse-player`, `win-hq-sidec
 
 **Files:**
 - Create: `streaming/pulse-ablage/Cargo.toml`
+- Create: `streaming/pulse-ablage/.gitignore`
 - Create: `streaming/pulse-ablage/src/lib.rs`
 - Create: `streaming/pulse-ablage/src/format.rs`
 
@@ -43,7 +45,7 @@ Er bindet die Kiste in **keinen** Verbraucher ein. `pulse-player`, `win-hq-sidec
   - `pulse_ablage::format::{MAX_TEXT_BYTE, MAX_STUECK_ROH}` (`usize`)
   - `pulse_ablage::format::Grund` — `Veraltet | ZuGross | Weg | Frist`, mit `fn als_str(&self) -> &'static str` und `fn aus_str(s: &str) -> Option<Grund>`
   - `pulse_ablage::format::Inhaltstyp` — `Text | Anderes(String)`
-  - `pulse_ablage::format::Rahmen` — `Neu { gen: u64, typ: Inhaltstyp } | Hol { gen: u64, id: u64 } | Stueck { id: u64, i: u32, n: u32, d: String } | Leer { id: u64, grund: Grund }`, mit `fn nach_json(&self) -> serde_json::Value` und `fn aus_json(v: &serde_json::Value) -> Result<Rahmen, String>`
+  - `pulse_ablage::format::Rahmen` — `Neu { generation: u64, typ: Inhaltstyp } | Hol { generation: u64, id: u64 } | Stueck { id: u64, i: u32, n: u32, d: String } | Leer { id: u64, grund: Grund }`, mit `fn nach_json(&self) -> serde_json::Value` und `fn aus_json(v: &serde_json::Value) -> Result<Rahmen, String>`
 
 - [ ] **Step 1: Kiste anlegen**
 
@@ -111,6 +113,21 @@ pub mod stueckelung;
 
 Die Module `beobachter`, `eigentum`, `pruefstand`, `sitzung` und `stueckelung` entstehen in den Tasks 2–5. Damit Task 1 für sich übersetzt, wird `lib.rs` in diesem Schritt zunächst nur mit `pub mod format;` angelegt und in den Folge-Tasks je um eine Zeile ergänzt.
 
+Und `streaming/pulse-ablage/.gitignore` — zwei Zeilen, wortgleich zu jeder
+Schwesterkiste:
+
+```
+/target
+/Cargo.lock
+```
+
+**Ohne sie landen die Bauartefakte im Commit.** Die Wurzel-`.gitignore` führt
+`target/` **je Kiste einzeln** auf (`/streaming/pulse-player/target/` …); es
+gibt keine allgemeine Regel, und eine neue Kiste ist deshalb zunächst
+ungeschützt. Beim ersten Anlauf dieses Plans sind so 71 MB Bauartefakte in zwei
+Commits gelandet — 324 Dateien, die niemandem auffallen, weil `git status`
+danach sauber aussieht.
+
 - [ ] **Step 2: Den fehlschlagenden Test schreiben**
 
 In `streaming/pulse-ablage/src/format.rs` ans Dateiende:
@@ -128,8 +145,8 @@ mod tests {
 
     #[test]
     fn alle_vier_rahmen_ueberstehen_den_rundlauf() {
-        hin_und_zurueck(Rahmen::Neu { gen: 7, typ: Inhaltstyp::Text });
-        hin_und_zurueck(Rahmen::Hol { gen: 7, id: 3 });
+        hin_und_zurueck(Rahmen::Neu { generation: 7, typ: Inhaltstyp::Text });
+        hin_und_zurueck(Rahmen::Hol { generation: 7, id: 3 });
         hin_und_zurueck(Rahmen::Stueck { id: 3, i: 0, n: 2, d: "aGFsbG8=".into() });
         hin_und_zurueck(Rahmen::Leer { id: 3, grund: Grund::Veraltet });
         hin_und_zurueck(Rahmen::Leer { id: 3, grund: Grund::ZuGross });
@@ -159,7 +176,7 @@ mod tests {
         // Ignorieren entscheidet `sitzung.rs`, nicht diese Ebene.
         let j = serde_json::json!({ "t": "neu", "gen": 1, "typ": "dateien" });
         let r = Rahmen::aus_json(&j).expect("muss lesbar bleiben");
-        assert_eq!(r, Rahmen::Neu { gen: 1, typ: Inhaltstyp::Anderes("dateien".into()) });
+        assert_eq!(r, Rahmen::Neu { generation: 1, typ: Inhaltstyp::Anderes("dateien".into()) });
     }
 
     #[test]
@@ -279,9 +296,9 @@ impl Inhaltstyp {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Rahmen {
     /// Meine Ablage hat sich geaendert. **Sonst nichts.**
-    Neu { gen: u64, typ: Inhaltstyp },
+    Neu { generation: u64, typ: Inhaltstyp },
     /// Bei mir wird eingefuegt — gib Generation `gen` her.
-    Hol { gen: u64, id: u64 },
+    Hol { generation: u64, id: u64 },
     /// Stueck `i` von `n`, `d` ist Base64.
     Stueck { id: u64, i: u32, n: u32, d: String },
     /// Kann nicht liefern.
@@ -291,8 +308,8 @@ pub enum Rahmen {
 impl Rahmen {
     pub fn nach_json(&self) -> Value {
         match self {
-            Rahmen::Neu { gen, typ } => json!({ "t": "neu", "gen": gen, "typ": typ.als_str() }),
-            Rahmen::Hol { gen, id } => json!({ "t": "hol", "gen": gen, "id": id }),
+            Rahmen::Neu { generation, typ } => json!({ "t": "neu", "gen": generation, "typ": typ.als_str() }),
+            Rahmen::Hol { generation, id } => json!({ "t": "hol", "gen": generation, "id": id }),
             Rahmen::Stueck { id, i, n, d } => {
                 json!({ "t": "stueck", "id": id, "i": i, "n": n, "d": d })
             }
@@ -312,7 +329,7 @@ impl Rahmen {
         };
         match v.get("t").and_then(Value::as_str) {
             Some("neu") => Ok(Rahmen::Neu {
-                gen: zahl("gen")?,
+                generation: zahl("gen")?,
                 // Ein fehlendes `typ` als Text zu lesen waere geraten. Eine
                 // Fassung, die `neu` schickt, schickt auch `typ` — sie steht
                 // im selben `nach_json` daneben.
@@ -320,7 +337,7 @@ impl Rahmen {
                     v.get("typ").and_then(Value::as_str).ok_or("typ fehlt")?,
                 ),
             }),
-            Some("hol") => Ok(Rahmen::Hol { gen: zahl("gen")?, id: zahl("id")? }),
+            Some("hol") => Ok(Rahmen::Hol { generation: zahl("gen")?, id: zahl("id")? }),
             Some("stueck") => Ok(Rahmen::Stueck {
                 id: zahl("id")?,
                 i: klein("i")?,
@@ -633,7 +650,7 @@ anderen Fassung, moeglicherweise feindlich."
 - Consumes: `format::{Rahmen, Grund, Inhaltstyp, MAX_TEXT_BYTE}`, `stueckelung::{zerlegen, Sammler}`
 - Produces:
   - `pulse_ablage::sitzung::ABRUF_FRIST_MS: u64`
-  - `pulse_ablage::sitzung::Ankuendiger` mit `fn neu() -> Ankuendiger`, `fn geaendert(&mut self) -> Rahmen`, `fn gen(&self) -> u64`, `fn beantworte(&self, hol: &Rahmen, inhalt: Option<&str>) -> Vec<Rahmen>`
+  - `pulse_ablage::sitzung::Ankuendiger` mit `fn neu() -> Ankuendiger`, `fn geaendert(&mut self) -> Rahmen`, `fn generation(&self) -> u64`, `fn beantworte(&self, hol: &Rahmen, inhalt: Option<&str>) -> Vec<Rahmen>`
   - `pulse_ablage::sitzung::Fortschritt` — `Warten | Fertig(String) | Leer(Grund)`
   - `pulse_ablage::sitzung::Empfaenger` mit `fn neu() -> Empfaenger`, `fn angekuendigt(&mut self, rahmen: &Rahmen) -> bool`, `fn abrufen(&mut self, jetzt_ms: u64) -> Option<Rahmen>`, `fn eingang(&mut self, rahmen: &Rahmen) -> Fortschritt`, `fn takt(&mut self, jetzt_ms: u64) -> Fortschritt`
 
@@ -653,7 +670,7 @@ mod tests {
         // liegt jedes lokal kopierte Passwort sofort auf dem fremden Rechner.
         let mut a = Ankuendiger::neu();
         let r = a.geaendert();
-        assert_eq!(r, Rahmen::Neu { gen: 1, typ: Inhaltstyp::Text });
+        assert_eq!(r, Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text });
         let j = serde_json::to_string(&r.nach_json()).expect("serialisierbar");
         assert!(!j.contains("geheim"), "die Ankuendigung darf nichts vom Inhalt tragen");
         assert!(j.len() < 64, "eine Ankuendigung ist ein paar Byte, nicht mehr: {j}");
@@ -664,7 +681,7 @@ mod tests {
         let mut a = Ankuendiger::neu();
         a.geaendert();
         a.geaendert();
-        assert_eq!(a.gen(), 2);
+        assert_eq!(a.generation(), 2);
     }
 
     #[test]
@@ -674,7 +691,7 @@ mod tests {
         let mut a = Ankuendiger::neu();
         a.geaendert(); // gen 1 — "alt"
         a.geaendert(); // gen 2 — "neu"
-        let antwort = a.beantworte(&Rahmen::Hol { gen: 1, id: 5 }, Some("neu"));
+        let antwort = a.beantworte(&Rahmen::Hol { generation: 1, id: 5 }, Some("neu"));
         assert_eq!(antwort, vec![Rahmen::Leer { id: 5, grund: Grund::Veraltet }]);
     }
 
@@ -682,7 +699,7 @@ mod tests {
     fn passende_anfrage_bekommt_den_inhalt() {
         let mut a = Ankuendiger::neu();
         a.geaendert();
-        let antwort = a.beantworte(&Rahmen::Hol { gen: 1, id: 5 }, Some("hallo"));
+        let antwort = a.beantworte(&Rahmen::Hol { generation: 1, id: 5 }, Some("hallo"));
         assert_eq!(antwort.len(), 1);
         assert!(matches!(antwort[0], Rahmen::Stueck { id: 5, i: 0, n: 1, .. }));
     }
@@ -691,7 +708,7 @@ mod tests {
     fn leere_ablage_beantwortet_mit_weg() {
         let mut a = Ankuendiger::neu();
         a.geaendert();
-        let antwort = a.beantworte(&Rahmen::Hol { gen: 1, id: 5 }, None);
+        let antwort = a.beantworte(&Rahmen::Hol { generation: 1, id: 5 }, None);
         assert_eq!(antwort, vec![Rahmen::Leer { id: 5, grund: Grund::Weg }]);
     }
 
@@ -700,7 +717,7 @@ mod tests {
         let mut a = Ankuendiger::neu();
         a.geaendert();
         let riesig = "z".repeat(crate::format::MAX_TEXT_BYTE + 1);
-        let antwort = a.beantworte(&Rahmen::Hol { gen: 1, id: 5 }, Some(&riesig));
+        let antwort = a.beantworte(&Rahmen::Hol { generation: 1, id: 5 }, Some(&riesig));
         assert_eq!(antwort, vec![Rahmen::Leer { id: 5, grund: Grund::ZuGross }]);
     }
 
@@ -717,7 +734,7 @@ mod tests {
         // Vorbestand des Nutzers waere weg.
         let mut e = Empfaenger::neu();
         let angekuendigt = e.angekuendigt(&Rahmen::Neu {
-            gen: 1,
+            generation: 1,
             typ: Inhaltstyp::Anderes("dateien".into()),
         });
         assert!(!angekuendigt);
@@ -727,14 +744,14 @@ mod tests {
     #[test]
     fn abruf_nennt_die_angekuendigte_generation() {
         let mut e = Empfaenger::neu();
-        assert!(e.angekuendigt(&Rahmen::Neu { gen: 4, typ: Inhaltstyp::Text }));
-        assert_eq!(e.abrufen(0), Some(Rahmen::Hol { gen: 4, id: 1 }));
+        assert!(e.angekuendigt(&Rahmen::Neu { generation: 4, typ: Inhaltstyp::Text }));
+        assert_eq!(e.abrufen(0), Some(Rahmen::Hol { generation: 4, id: 1 }));
     }
 
     #[test]
     fn zweiter_abruf_waehrend_eines_laufenden_wird_abgelehnt() {
         let mut e = Empfaenger::neu();
-        e.angekuendigt(&Rahmen::Neu { gen: 4, typ: Inhaltstyp::Text });
+        e.angekuendigt(&Rahmen::Neu { generation: 4, typ: Inhaltstyp::Text });
         e.abrufen(0);
         assert_eq!(e.abrufen(10), None, "es laeuft schon einer");
     }
@@ -742,7 +759,7 @@ mod tests {
     #[test]
     fn stuecke_fuehren_zu_fertig() {
         let mut e = Empfaenger::neu();
-        e.angekuendigt(&Rahmen::Neu { gen: 4, typ: Inhaltstyp::Text });
+        e.angekuendigt(&Rahmen::Neu { generation: 4, typ: Inhaltstyp::Text });
         let Some(Rahmen::Hol { id, .. }) = e.abrufen(0) else { panic!("Abruf fehlt") };
         for r in crate::stueckelung::zerlegen(id, "hallo").expect("passt") {
             match e.eingang(&r) {
@@ -760,7 +777,7 @@ mod tests {
     #[test]
     fn leer_rahmen_beendet_den_abruf() {
         let mut e = Empfaenger::neu();
-        e.angekuendigt(&Rahmen::Neu { gen: 4, typ: Inhaltstyp::Text });
+        e.angekuendigt(&Rahmen::Neu { generation: 4, typ: Inhaltstyp::Text });
         let Some(Rahmen::Hol { id, .. }) = e.abrufen(0) else { panic!("Abruf fehlt") };
         assert_eq!(
             e.eingang(&Rahmen::Leer { id, grund: Grund::Veraltet }),
@@ -776,7 +793,7 @@ mod tests {
         // einfuegende Programm, solange wir liefern. Ein Einfuegen, das nichts
         // einfuegt, versteht jeder; ein haengendes Programm nicht.
         let mut e = Empfaenger::neu();
-        e.angekuendigt(&Rahmen::Neu { gen: 4, typ: Inhaltstyp::Text });
+        e.angekuendigt(&Rahmen::Neu { generation: 4, typ: Inhaltstyp::Text });
         let Some(Rahmen::Hol { id, .. }) = e.abrufen(1_000) else { panic!("Abruf fehlt") };
         assert_eq!(e.takt(1_000 + ABRUF_FRIST_MS - 1), Fortschritt::Warten);
         assert_eq!(e.takt(1_000 + ABRUF_FRIST_MS), Fortschritt::Leer(Grund::Frist));
@@ -841,36 +858,36 @@ pub const ABRUF_FRIST_MS: u64 = 2_000;
 
 /// Meine Seite: was ich habe und was ich davon herausgebe.
 pub struct Ankuendiger {
-    gen: u64,
+    generation: u64,
 }
 
 impl Ankuendiger {
     pub fn neu() -> Ankuendiger {
         // Generation 0 heisst „nie angekuendigt". Ein `hol` mit gen 0 ist damit
         // immer veraltet, ohne Sonderfall.
-        Ankuendiger { gen: 0 }
+        Ankuendiger { generation: 0 }
     }
 
     /// Meine Ablage hat sich geaendert. Liefert den Rahmen, der hinausgeht —
     /// **ohne Inhalt**.
     pub fn geaendert(&mut self) -> Rahmen {
-        self.gen += 1;
-        Rahmen::Neu { gen: self.gen, typ: Inhaltstyp::Text }
+        self.generation += 1;
+        Rahmen::Neu { generation: self.generation, typ: Inhaltstyp::Text }
     }
 
-    pub fn gen(&self) -> u64 {
-        self.gen
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     /// Ein `hol` beantworten. `inhalt` ist der JETZIGE Inhalt meiner Ablage
     /// (`None`, wenn sie keinen Text haelt).
     pub fn beantworte(&self, hol: &Rahmen, inhalt: Option<&str>) -> Vec<Rahmen> {
-        let Rahmen::Hol { gen, id } = hol else {
+        let Rahmen::Hol { generation, id } = hol else {
             return Vec::new();
         };
         // **Zuerst die Generation.** Stimmt sie nicht, wird nicht einmal
         // gelesen — es gaebe nichts zu liefern, das der Anfragende gemeint hat.
-        if *gen != self.gen || self.gen == 0 {
+        if *generation != self.generation || self.generation == 0 {
             return vec![Rahmen::Leer { id: *id, grund: Grund::Veraltet }];
         }
         let Some(text) = inhalt else {
@@ -902,14 +919,14 @@ struct Laufend {
 
 /// Die Gegenseite: was drueben liegt und was ich davon hole.
 pub struct Empfaenger {
-    fremde_gen: Option<u64>,
+    fremde_generation: Option<u64>,
     laufend: Option<Laufend>,
     naechste_id: u64,
 }
 
 impl Empfaenger {
     pub fn neu() -> Empfaenger {
-        Empfaenger { fremde_gen: None, laufend: None, naechste_id: 1 }
+        Empfaenger { fremde_generation: None, laufend: None, naechste_id: 1 }
     }
 
     /// Eine Ankuendigung der Gegenseite. Liefert `true`, wenn daraufhin die
@@ -919,13 +936,13 @@ impl Empfaenger {
     /// und ein Anspruch, den wir nicht einloesen koennen, kostete den
     /// Vorbestand des Nutzers.
     pub fn angekuendigt(&mut self, rahmen: &Rahmen) -> bool {
-        let Rahmen::Neu { gen, typ } = rahmen else {
+        let Rahmen::Neu { generation, typ } = rahmen else {
             return false;
         };
         if *typ != Inhaltstyp::Text {
             return false;
         }
-        self.fremde_gen = Some(*gen);
+        self.fremde_generation = Some(*generation);
         // Ein laufender Abruf gilt der ALTEN Generation und wird von der
         // Gegenseite ohnehin mit `veraltet` beantwortet — verworfen wird er
         // hier trotzdem nicht: sonst bliebe der wartende Einfuegevorgang ohne
@@ -935,14 +952,14 @@ impl Empfaenger {
 
     /// Es wird gerade eingefuegt — den Abruf bauen.
     pub fn abrufen(&mut self, jetzt_ms: u64) -> Option<Rahmen> {
-        let gen = self.fremde_gen?;
+        let generation = self.fremde_generation?;
         if self.laufend.is_some() {
             return None;
         }
         let id = self.naechste_id;
         self.naechste_id += 1;
         self.laufend = Some(Laufend { id, seit_ms: jetzt_ms, sammler: Sammler::neu(id) });
-        Some(Rahmen::Hol { gen, id })
+        Some(Rahmen::Hol { generation, id })
     }
 
     /// Ein Rahmen der Gegenseite.
