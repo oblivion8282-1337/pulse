@@ -202,6 +202,42 @@ impl Ablagelage {
         }
     }
 
+    /// Ein hereinkommender Wert, gedeutet und angewandt. Liefert, was
+    /// daraufhin hinausgeht.
+    ///
+    /// **Die Zuordnung „Entscheidung → Wirkung" lag bis zum 2026-08-31
+    /// dreimal im Baum** — im Player (`App::ablage`), im Windows-Sidecar
+    /// (`ablage::abarbeiten`) und, mit dem macOS-Host, beinahe ein drittes Mal.
+    /// Sie ist in allen drei Faellen Zeile fuer Zeile dieselbe, und sie ist
+    /// nicht harmlos: wer hier einen Zweig vergisst, bekommt einen Anstoss, der
+    /// auf einer Plattform wirkt und auf der anderen still verfaellt. Genau
+    /// solche Halbwege kosten spaeter eine Stunde Suche.
+    ///
+    /// Was NICHT hierher gehoert, bleibt beim Verbraucher: woher der Wert kommt,
+    /// wohin die Antwort geht, und was ein `beginn` an der Plattform aufstellt
+    /// (auf Windows der Fensterfaden, auf macOS der Eigner-Faden) — das
+    /// geschieht vor dem Einreihen, nicht hier.
+    pub fn anwenden(
+        &mut self,
+        data: &serde_json::Value,
+        prozess: &mut Prozessablage,
+        p: &mut dyn Ablageplattform,
+    ) -> Vec<Rahmen> {
+        match deuten(data) {
+            Entscheidung::Anstoss(Anstoss::Beginn) => {
+                self.beginnen();
+                Vec::new()
+            }
+            Entscheidung::Anstoss(Anstoss::NeuBitte) => self.neu_bitte(),
+            Entscheidung::Anstoss(Anstoss::Ende) => {
+                self.ende(prozess, p);
+                Vec::new()
+            }
+            Entscheidung::Fern(r) => self.fern(&r, p),
+            Entscheidung::Verwerfen => Vec::new(),
+        }
+    }
+
     /// Der Anstoss `neu_bitte` — den eigenen Stand erneut ankuendigen.
     ///
     /// Nach einem `remote_reclaim` haelt die Gegenseite sonst eine Generation,
@@ -1137,6 +1173,57 @@ mod tests {
         assert_eq!(
             lage.fern(&Rahmen::Hol { generation: 1, id: 6 }, &mut p),
             vec![Rahmen::Leer { id: 5, grund: Grund::Weg }]
+        );
+    }
+
+    /// **Alle fuenf Zweige von [`Ablagelage::anwenden`]**, weil jeder von
+    /// ihnen in mindestens einem Verbraucher schon einmal von Hand
+    /// nachgebaut war.
+    ///
+    /// Geprueft wird nicht die Deutung (das tut
+    /// `deuten_trennt_anstoss_und_leitungsrahmen_an_der_huelle`), sondern die
+    /// WIRKUNG: dass `beginn` weckt, `ende` freigibt, `neu_bitte` ankuendigt,
+    /// ein Leitungsrahmen bei der Zustandsmaschine landet und Unbrauchbares
+    /// folgenlos bleibt.
+    #[test]
+    fn anwenden_deckt_jeden_zweig() {
+        let mut p = Pruefablage::neu();
+        let mut st = Prozessablage::default();
+        let mut lage = Ablagelage::default();
+
+        assert!(!lage.wacht(), "vor dem Anstoss schlaeft sie");
+        assert!(lage.anwenden(&serde_json::json!({"anstoss": "beginn"}), &mut st, &mut p).is_empty());
+        assert!(lage.wacht(), "beginn weckt");
+
+        assert_eq!(
+            lage.anwenden(&serde_json::json!({"anstoss": "neu_bitte"}), &mut st, &mut p),
+            vec![Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text }]
+        );
+
+        // Ein Leitungsrahmen: die Ankuendigung der Gegenseite meldet einen
+        // Anspruch an, der im naechsten Takt eingeloest wird.
+        p.inner.setzen("mein Pfad");
+        assert!(
+            lage.anwenden(
+                &serde_json::json!({"rahmen": {"t": "neu", "gen": 7, "typ": "text"}}),
+                &mut st,
+                &mut p
+            )
+            .is_empty(),
+            "eine Ankuendigung schickt nichts zurueck"
+        );
+        lage.takt(&mut st, &mut p);
+        assert!(p.inner.beansprucht(), "der Anspruch der Gegenseite ist eingeloest");
+
+        assert!(lage.anwenden(&serde_json::json!({"quatsch": 1}), &mut st, &mut p).is_empty());
+        assert!(lage.wacht(), "Unbrauchbares bleibt folgenlos");
+
+        assert!(lage.anwenden(&serde_json::json!({"anstoss": "ende"}), &mut st, &mut p).is_empty());
+        assert!(!lage.wacht(), "ende schlaefert ein");
+        assert_eq!(
+            p.inner.inhalt().as_deref(),
+            Some("mein Pfad"),
+            "und gibt dem Nutzer seinen Vorbestand zurueck"
         );
     }
 

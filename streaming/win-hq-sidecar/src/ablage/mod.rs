@@ -148,20 +148,13 @@ fn warteschlange() -> &'static Mutex<Vec<serde_json::Value>> {
 }
 
 /// Einen eingereihten Wert abarbeiten — **nur vom Takt-Faden gerufen.**
+///
+/// Die Zuordnung „Entscheidung → Wirkung" steht seit dem 2026-08-31 in
+/// `pulse_ablage::lage::anwenden` und nicht mehr hier: sie war Zeile fuer Zeile
+/// dieselbe wie im Player, und mit dem macOS-Host waere sie ein drittes Mal
+/// abgeschrieben worden. Was hier bleibt, ist der Weg der Antwort.
 fn abarbeiten(data: &serde_json::Value) {
-    let hinaus = mit(|lage, prozess, p| match deuten(data) {
-        Entscheidung::Anstoss(Anstoss::Beginn) => {
-            lage.beginnen();
-            Vec::new()
-        }
-        Entscheidung::Anstoss(Anstoss::NeuBitte) => lage.neu_bitte(),
-        Entscheidung::Anstoss(Anstoss::Ende) => {
-            lage.ende(prozess, p);
-            Vec::new()
-        }
-        Entscheidung::Fern(r) => lage.fern(&r, p),
-        Entscheidung::Verwerfen => Vec::new(),
-    });
+    let hinaus = mit(|lage, prozess, p| lage.anwenden(data, prozess, p));
     melden(&hinaus);
 }
 

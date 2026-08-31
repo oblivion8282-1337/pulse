@@ -147,6 +147,34 @@ impl Ablagestand {
         self.gelesen = None;
     }
 
+    /// Eine eigene Aenderung, die die Plattform **selbst schon quittiert hat**.
+    ///
+    /// Der Unterschied zu [`Ablagestand::selbst_geaendert`] ist die Frage, wer
+    /// die eigene Aenderung wieder herausrechnet:
+    ///
+    /// * Wo das Betriebssystem eine Aenderung **meldet** (Windows), kommt die
+    ///   Meldung fuer die eigene Aenderung erst spaeter — sie muss vorgemerkt
+    ///   werden, sonst kuendigte jeder eigene Anspruch der Gegenseite ihren
+    ///   eigenen Inhalt als Neuigkeit zurueck. Das ist `erwartet`.
+    /// * Wo **gepollt** wird (macOS, `NSPasteboard.changeCount`), gibt es
+    ///   nichts vorzumerken: `declareTypes`/`clearContents` liefern den neuen
+    ///   Zaehlerstand als Rueckgabewert zurueck, die Plattform legt ihn als
+    ///   „gesehen" ab, und der naechste Poll sieht die eigene Aenderung gar
+    ///   nicht erst.
+    ///
+    /// **`erwartet` waere auf einem Poll nicht bloss ueberfluessig, sondern
+    /// falsch**, und zwar in der gefaehrlichen Richtung: der Poll-Faden laeuft
+    /// nebenher, er kann den eigenen Zaehlerstand also VOR
+    /// [`Ablagestand::selbst_geaendert`] sehen. Dann stuende `erwartet` auf 1,
+    /// wenn niemand mehr etwas Eigenes erwartet — und die naechste echte Kopie
+    /// des Nutzers wuerde geschluckt. Das ist genau der erste der drei
+    /// Ausgaenge, die an [`Ablagestand::erwartet`] als Windows-Risiko
+    /// notiert sind; auf macOS waere er kein Risiko, sondern der Regelfall.
+    pub fn selbst_geaendert_quittiert(&mut self, eigen: bool) {
+        self.eigen = eigen;
+        self.gelesen = None;
+    }
+
     /// Verbrauchend, wie `Beobachter::geaendert` es verlangt.
     pub fn aenderung_abholen(&mut self) -> bool {
         let neu = self.stand != self.gesehen;
@@ -288,6 +316,23 @@ mod tests {
         assert_eq!(g.antwort_nehmen(), None, "solange nichts da ist, wird gewartet");
         g.abbrechen();
         assert_eq!(g.antwort_nehmen().as_deref(), Some(""));
+    }
+
+    /// **Der Poll-Weg quittiert die eigene Aenderung selbst** — er merkt sich
+    /// nichts vor.
+    ///
+    /// Die Gegenprobe steckt in der zweiten Haelfte: nach einer eigenen
+    /// Aenderung muss die naechste FREMDE sofort zaehlen. Mit `erwartet`
+    /// (dem Meldungs-Weg) taete sie das nicht — sie fiele in den Zaehler.
+    #[test]
+    fn der_poll_weg_merkt_die_eigene_aenderung_nicht_vor() {
+        let mut g = Ablagestand::neu();
+        g.selbst_geaendert_quittiert(true);
+        assert!(!g.aenderung_abholen(), "die eigene Aenderung darf nicht hinausgehen");
+        assert!(g.eigen());
+        // Der Nutzer kopiert selbst — der Poll sieht einen fremden Stand.
+        g.systemmeldung(false, true);
+        assert!(g.aenderung_abholen(), "die naechste fremde Aenderung zaehlt sofort");
     }
 
     /// Eine Aenderung der Ablage macht ein bereits gelesenes Ergebnis

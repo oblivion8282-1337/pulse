@@ -40,7 +40,6 @@ mod ereignis;
 pub(crate) use pulse_ablage::lage::{Ablagelage, Prozessablage};
 pub(crate) use pulse_ablage::plattform::{Ablageplattform, Ablagequelle, KeineAblage};
 use ereignis::ablage_ereignis;
-use pulse_ablage::lage::{deuten, Anstoss, Entscheidung};
 
 use pulse_ablage::format::Rahmen;
 
@@ -124,34 +123,21 @@ impl App {
         }
         let ziel = self.ablage_traeger.unwrap_or(session_id);
         let data = req.data.clone().ok_or("data fehlt")?;
-        // **Gedeutet wird in `lage::deuten`, nicht hier** — dort ist die
-        // Reihenfolge „erst die Anstoesse, dann der Rahmen-Parser" pruefbar
-        // (s. dortiger Doc-Kommentar). Diese Stelle verzweigt nur noch.
+        // **Gedeutet und angewandt wird in der Kiste, nicht hier**
+        // (`Ablagelage::anwenden`): dort steht die Zuordnung „Entscheidung →
+        // Wirkung" EINMAL fuer alle drei Verbraucher, samt Test ueber jeden
+        // Zweig. Sie stand bis zum 2026-08-31 hier ausgeschrieben und im
+        // Windows-Sidecar noch einmal — was in einer der beiden Fassungen
+        // fehlte, verfiel dort still.
+        //
+        // **`beginn` schickt heute nur die Host-Rolle** — dort waehlt er aus
+        // mehreren Sidecar-Prozessen den Traeger. Im Player gibt es nichts zu
+        // waehlen: alle Sitzungen liegen in EINEM Prozess, und der Traeger
+        // steht mit `ablage_erfassung` fest. Angenommen wird er trotzdem
+        // (`beginnen` ist idempotent) — die Alternative waere ein Anstoss, der
+        // auf der einen Seite wirkt und auf der anderen still verfaellt.
         let hinaus = self
-            .mit_ablage(ziel, |lage, prozess, p| match deuten(&data) {
-                Entscheidung::Anstoss(Anstoss::NeuBitte) => lage.neu_bitte(),
-                // **`beginn` schickt heute nur die Host-Rolle** — dort waehlt
-                // er aus mehreren Sidecar-Prozessen den Traeger. Im Player
-                // gibt es nichts zu waehlen: alle Sitzungen liegen in EINEM
-                // Prozess, und der Traeger steht mit `ablage_erfassung` fest.
-                //
-                // Angenommen wird er hier trotzdem, und das ist kein
-                // Vorratsbau: `beginnen` ist idempotent, es kostet also
-                // nichts — und die Alternative waere ein Anstoss, der auf der
-                // einen Seite wirkt und auf der anderen still verfaellt.
-                // Genau solche Halbwege sind es, an denen spaeter jemand eine
-                // Stunde sucht.
-                Entscheidung::Anstoss(Anstoss::Beginn) => {
-                    lage.beginnen();
-                    Vec::new()
-                }
-                Entscheidung::Anstoss(Anstoss::Ende) => {
-                    lage.ende(prozess, p);
-                    Vec::new()
-                }
-                Entscheidung::Fern(r) => lage.fern(&r, p),
-                Entscheidung::Verwerfen => Vec::new(),
-            })
+            .mit_ablage(ziel, |lage, prozess, p| lage.anwenden(&data, prozess, p))
             .unwrap_or_default();
         self.ablage_melden(ziel, &hinaus);
         Ok(())
