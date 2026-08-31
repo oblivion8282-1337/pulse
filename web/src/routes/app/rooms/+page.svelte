@@ -22,6 +22,7 @@
   import { serversStore } from '$lib/api/servers.svelte';
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
+  import { guildIconSrc } from '$lib/guildIcon';
   import CommunityAnlegenKnopf from '$lib/components/mobile/CommunityAnlegenKnopf.svelte';
   import CommunityBeitretenKnopf from '$lib/components/mobile/CommunityBeitretenKnopf.svelte';
   import SelfHostRoomsButton from '$lib/components/selfhost/SelfHostRoomsButton.svelte';
@@ -206,6 +207,7 @@
           {#each liste as g (g.id)}
             {@const zahl = ungelesen(g)}
             {@const l = leben(g)}
+            {@const iconSrc = guildIconSrc(g.icon_url, s.hostname)}
             <button
               class="bg-bg-input border-border hover:border-primary/40 hover:bg-bg-hover flex flex-col items-start gap-2.5 rounded-[16px] border p-3.5 text-left transition-colors"
               onclick={() => oeffnen(g, s.id)}
@@ -214,12 +216,12 @@
               <span class="relative">
                 <span
                   class="flex size-14 items-center justify-center overflow-hidden rounded-[18px] text-lg font-bold text-white"
-                  style={g.icon_url
+                  style={iconSrc
                     ? ''
                     : 'background-image: linear-gradient(135deg in oklab, var(--accent-grad-from), var(--accent-grad-to));'}
                 >
-                  {#if g.icon_url}
-                    <img src={g.icon_url} alt={g.name} class="size-full object-cover" />
+                  {#if iconSrc}
+                    <img src={iconSrc} alt={g.name} class="size-full object-cover" />
                   {:else}
                     {initialen(g.name)}
                   {/if}
