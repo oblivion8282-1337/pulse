@@ -57,6 +57,21 @@ impl Beobachter for TestAblage {
     }
 
     fn lesen(&self) -> Option<String> {
+        // **Als Eigentuemer liefert das Doppel NICHTS** — genau wie die
+        // Plattformen. Auf Wayland ginge das `receive` an die EIGENE Quelle
+        // und traefe erst im naechsten Umlauf ein, waehrend der Aufrufer
+        // wartet; auf Windows und macOS laege dort ohnehin nur, was die
+        // Gegenseite geschickt hat. In allen drei Faellen ist die richtige
+        // Antwort „nichts Eigenes".
+        //
+        // **Hier stand bis zum 2026-08-31 der Inhalt**, und das machte einen
+        // ganzen Fehler unsichtbar: nach einem Zurueckschreiben halten wir die
+        // Ablage weiter, `lesen()` lieferte im Doppel aber wieder etwas — der
+        // Buchfuehrungsfehler, bei dem der Vorbestand des Nutzers beim zweiten
+        // Durchgang verlorengeht, war im Testlauf unerreichbar.
+        if self.beansprucht {
+            return None;
+        }
         self.inhalt.clone()
     }
 }
@@ -72,6 +87,11 @@ impl Eigentum for TestAblage {
         // hintereinander sind der Normalfall, nicht der Randfall.
         if !self.beansprucht {
             self.vorbestand = self.inhalt.take();
+        } else {
+            // Ein ZWEITER Anspruch ersetzt die eigene Quelle: was sie bisher
+            // auslieferte, ist damit weg. Der Merkposten bleibt — er gehoert
+            // dem Nutzer, nicht der Quelle.
+            self.inhalt = None;
         }
         self.beansprucht = true;
         Ok(())
@@ -88,13 +108,30 @@ impl Eigentum for TestAblage {
         // Verlust, gegen den der Merkposten ueberhaupt gebaut ist. Genau das
         // sagt auch die Doku am Trait (`eigentum.rs`) zu; hier steht die
         // Vorlage fuer die drei Plattform-Umsetzungen.
-        let war_eigentuemer = self.beansprucht;
-        self.beansprucht = false;
-        if !war_eigentuemer {
+        if !self.beansprucht {
             return;
         }
-        if let Some(t) = zurueck {
-            self.inhalt = Some(t.to_string());
+        match zurueck {
+            // **Mit Merkposten BLEIBEN wir Eigentuemer**, und das ist keine
+            // Nachlaessigkeit des Doppels, sondern die Lage auf jeder
+            // Plattform: fremdes Eigentum laesst sich nicht zurueckgeben. Wer
+            // die Auswahl haelt, IST ihr Eigentuemer — Zurueckschreiben heisst
+            // ueberall „eine neue eigene Quelle mit dem gemerkten Text"
+            // (Wayland `set_selection`, Windows `SetClipboardData`, macOS
+            // `declareTypes`).
+            //
+            // **Hier stand bis zum 2026-08-31 `beansprucht = false`.** Damit
+            // sah ein Verbraucher sich nach dem Zurueckschreiben als
+            // Nicht-Eigentuemer und rechnete beim naechsten Anspruch falsch —
+            // im Doppel folgenlos, auf der echten Plattform der Verlust der
+            // Ablage des Nutzers.
+            Some(t) => self.inhalt = Some(t.to_string()),
+            // Ohne Merkposten wird die Auswahl geraeumt: die Ablage ist danach
+            // leer und gehoert niemandem mehr.
+            None => {
+                self.inhalt = None;
+                self.beansprucht = false;
+            }
         }
     }
 }

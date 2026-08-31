@@ -157,13 +157,33 @@ impl Ablagelage {
         }
     }
 
+    /// Eigentum abgeben und den Vorbestand zurueckschreiben.
+    ///
+    /// **Die Buchfuehrung danach fragt die Plattform, statt zu raten.**
+    /// Zurueckschreiben heisst auf jeder Plattform „neue eigene Quelle mit dem
+    /// gemerkten Text" (Wayland `set_selection`, Windows `SetClipboardData`,
+    /// macOS `declareTypes`) — fremdes Eigentum laesst sich nirgends
+    /// zurueckgeben. **Wir bleiben danach Eigentuemer**, und was in der Ablage
+    /// liegt, IST der Merkposten.
+    ///
+    /// Ihn hier trotzdem zu loeschen, war der Fehler: `lesen()` liefert als
+    /// Eigentuemer (richtigerweise) `None`, der naechste Anspruch merkte sich
+    /// also nichts, und das uebernaechste Freigeben raeumte die Ablage des
+    /// Nutzers — zwei Klicks im Schalter genuegten. Test:
+    /// `zweimal_umschalten_verliert_den_vorbestand_nicht`.
     fn freigeben(&mut self, p: &mut dyn Ablageplattform) {
         self.anspruch.aufgeben();
-        if self.eigentuemer {
-            p.freigeben(self.vorbestand.as_deref());
-            self.eigentuemer = false;
+        // Ungepruefte Weitergabe: `Eigentum::freigeben` traegt die Pruefung
+        // „sind wir ueberhaupt noch Eigentuemer?" selbst und muss sie tragen —
+        // nur die Plattform sieht, ob der Nutzer zwischendurch kopiert hat.
+        p.freigeben(self.vorbestand.as_deref());
+        self.eigentuemer = p.eigentuemer();
+        if !self.eigentuemer {
+            // Entweder haben wir geraeumt (kein Merkposten da), oder die
+            // Ablage gehoert laengst wieder dem Nutzer. In beiden Faellen gibt
+            // es nichts mehr aufzuheben.
+            self.vorbestand = None;
         }
-        self.vorbestand = None;
     }
 
     /// Ein Durchlauf der Ereignisschleife. Liefert, was hinausgeht.
@@ -441,7 +461,12 @@ mod tests {
         assert_eq!(p.inner.inhalt(), None, "der Anspruch loescht den Vorbestand");
 
         lage.ende(&mut p);
-        assert!(!p.inner.beansprucht());
+        // **Kein `!beansprucht` hier.** Zurueckschreiben heisst auf jeder
+        // Plattform „neue eigene Quelle mit dem gemerkten Text" — wir halten
+        // die Ablage danach weiter, jetzt aber mit dem Inhalt des Nutzers.
+        // Die Zusicherung, auf die es ankommt, ist der INHALT; die frueher
+        // hier stehende Eigentums-Zusicherung war nur im zu nachsichtigen
+        // Testdoppel wahr.
         assert_eq!(
             p.inner.inhalt().as_deref(),
             Some("mein eigener Pfad"),
@@ -464,7 +489,12 @@ mod tests {
         assert!(p.inner.beansprucht());
 
         lage.teilen_setzen(false, &mut p);
-        assert!(!p.inner.beansprucht(), "der Anspruch muss weg sein, nicht nur der naechste");
+        // **Der Beleg dafuer, dass der Anspruch wirklich freigegeben wurde,
+        // ist der zurueckgeschriebene Inhalt** — waere nur der naechste
+        // Anspruch unterlassen worden, laege die Ablage weiter leer da. Auf
+        // „nicht mehr beansprucht" laesst sich das NICHT stuetzen: nach dem
+        // Zurueckschreiben halten wir die Ablage weiter, nun mit dem Inhalt
+        // des Nutzers (s. `Ablagelage::freigeben`).
         assert_eq!(
             p.inner.inhalt().as_deref(),
             Some("vorher"),
@@ -499,6 +529,46 @@ mod tests {
             Some("frisch"),
             "der Merkposten muss der JUENGSTE eigene Inhalt sein, nicht der \
              beim ersten Anspruch verdraengte"
+        );
+    }
+
+    /// **Zwei Klicks im Schalter, und die Ablage des Nutzers ist leer.**
+    ///
+    /// Der zweite Durchgang ist der gefaehrliche: nach dem Zurueckschreiben
+    /// halten wir die Ablage weiter, `lesen()` liefert dann (richtigerweise)
+    /// `None` — wer den Merkposten an dieser Stelle wegwirft, hat beim
+    /// naechsten Freigeben nichts mehr zurueckzuschreiben und raeumt die
+    /// Auswahl. Dieselbe Kette entsteht ohne den Schalter, allein durch
+    /// Fernsteuerung beenden und neu beginnen.
+    #[test]
+    fn zweimal_umschalten_verliert_den_vorbestand_nicht() {
+        let mut p = Pruefablage::neu();
+        p.inner.setzen("/home/michael/wichtig.txt");
+        p.inner.geaendert();
+        let mut lage = wache_lage();
+
+        // Drueben wird kopiert — wir beanspruchen und merken den Pfad.
+        lage.fern(&Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text }, &mut p);
+        lage.takt(&mut p);
+        assert!(p.inner.beansprucht());
+
+        // Aus: der Pfad kommt zurueck. (Das prueft schon der Test darueber —
+        // hier ist es nur die Vorbedingung fuer den zweiten Durchgang.)
+        lage.teilen_setzen(false, &mut p);
+        assert_eq!(p.inner.inhalt().as_deref(), Some("/home/michael/wichtig.txt"));
+
+        // Wieder ein, und drueben wird erneut kopiert.
+        lage.teilen_setzen(true, &mut p);
+        lage.fern(&Rahmen::Neu { generation: 2, typ: Inhaltstyp::Text }, &mut p);
+        lage.takt(&mut p);
+
+        // Und wieder aus.
+        lage.teilen_setzen(false, &mut p);
+        assert_eq!(
+            p.inner.inhalt().as_deref(),
+            Some("/home/michael/wichtig.txt"),
+            "der Merkposten muss den zweiten Durchgang ueberleben — sonst \
+             raeumt das naechste Freigeben die Ablage des Nutzers"
         );
     }
 
