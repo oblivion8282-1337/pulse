@@ -135,6 +135,10 @@
     rohwerteNachId = rest;
   }
 
+  async function archivWechseln(id: string): Promise<void> {
+    await ablageVerbindungen.setzeArchivMarkierung(id);
+  }
+
   function verbunden(v: AblageVerbindung): void {
     dialogOffen = false;
     void pruefeVerbindung(v);
@@ -157,6 +161,7 @@
           rohwerte={rohwerteFuer(v)}
           onHandgriff={handgriff}
           onTrennen={() => trennen(v.id)}
+          onArchivWechsel={() => archivWechseln(v.id)}
         />
       {/each}
     </div>

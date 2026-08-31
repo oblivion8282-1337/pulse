@@ -17,6 +17,7 @@
   import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
   import HardDriveIcon from '@lucide/svelte/icons/hard-drive';
   import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
+  import ArchiveIcon from '@lucide/svelte/icons/archive';
   import { Button } from '$lib/components/ui/button/index.js';
   import { anbieter as anbieterEintrag } from '$lib/ablage/anbieter.ts';
   import { stufeEin, type VerbindungsRohwerte } from '$lib/ablage/zustand.ts';
@@ -30,12 +31,15 @@
     rohwerte,
     onHandgriff,
     onTrennen,
+    onArchivWechsel,
   }: {
     verbindung: AblageVerbindung;
     rohwerte: VerbindungsRohwerte;
     /** Öffnet den passenden Handgriff — Verbinden-Dialog (neu anmelden / Ordner neu wählen). */
     onHandgriff: () => void;
     onTrennen: () => void;
+    /** Schaltet die „mein Archiv"-Markierung dieser Verbindung um (Aufgabe 2). */
+    onArchivWechsel: () => void;
   } = $props();
 
   const zustand = $derived(stufeEin(rohwerte));
@@ -101,6 +105,12 @@
         {/if}
         {zustandText}
       </p>
+      {#if verbindung.istArchiv}
+        <p class="flex items-center gap-1 text-xs font-medium text-primary" data-testid="speicher-archiv-badge">
+          <ArchiveIcon class="size-3.5" />
+          {m.speicher_archiv_badge()}
+        </p>
+      {/if}
       <p class="text-xs text-muted-foreground">
         {m.speicher_verbunden_seit({ datum: datum(verbindung.verbundenAm) })}
         ·
@@ -134,6 +144,9 @@
         {handgriffLabel}
       </Button>
     {/if}
+    <Button variant="ghost" size="sm" onclick={onArchivWechsel} data-testid="speicher-archiv-umschalten">
+      {verbindung.istArchiv ? m.speicher_archiv_unmarkieren() : m.speicher_archiv_markieren()}
+    </Button>
     <Button variant="ghost" size="sm" onclick={onTrennen} data-testid="speicher-trennen">
       {m.speicher_trennen()}
     </Button>

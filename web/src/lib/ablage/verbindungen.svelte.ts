@@ -40,6 +40,7 @@ import {
   bestimmeSyncOrdnerHauptschlüssel,
   base64ZuBytes
 } from './syncOrdnerSchluessel.ts';
+import { bestimmeArchivWechsel } from './archivMarkierung.ts';
 
 export type AblageAnbieterArt =
   | 'dropbox'
@@ -81,6 +82,11 @@ export interface AblageVerbindung {
    * nichts gesichert" statt ein erfundenes Datum.
    */
   zuletztGesichertAm?: string | null;
+  /** „Mein Archiv" — der Verlauf sichert zusaetzlich hierhin (Aufgabe 3).
+   *  Hoechstens eine Verbindung traegt `true`, garantiert von
+   *  `setzeArchivMarkierung` (`archivMarkierung.ts`). Fehlt das Feld ueberall,
+   *  bleibt alles wie heute: Verlauf im Browser-Speicher, kein Notbehelf. */
+  istArchiv?: boolean;
 }
 
 const DB_NAME = 'pulse-ablage-verbindungen';
@@ -117,6 +123,20 @@ async function schreibe(v: AblageVerbindung): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx = d.transaction(STORE, 'readwrite');
     tx.objectStore(STORE).put(v);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/** Schreibt mehrere Verbindungen in EINER Transaktion — `setzeArchivMarkierung`
+ *  braucht das: alte Markierung zuruecksetzen und neue setzen in einem Schritt. */
+async function schreibeMehrere(vs: AblageVerbindung[]): Promise<void> {
+  if (vs.length === 0) return;
+  const d = await öffneDb();
+  return new Promise((resolve, reject) => {
+    const tx = d.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    for (const v of vs) store.put(v);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -217,6 +237,20 @@ export class AblageVerbindungsStore {
       },
       anmeldungAbgelaufen: false,
     });
+  }
+
+  /** Markiert `gewaehlteId` als „mein Archiv" (oder hebt die Markierung
+   *  wieder auf, wenn sie schon darauf lag) — die vorige Markierung fällt
+   *  in DEMSELBEN Schritt weg (`archivMarkierung.ts`). Unbekannte Id: no-op. */
+  async setzeArchivMarkierung(gewaehlteId: string): Promise<void> {
+    const aenderungen = bestimmeArchivWechsel(this.verbindungen, gewaehlteId);
+    if (aenderungen.length === 0) return;
+    const nachId = new Map(aenderungen.map((a) => [a.id, a.istArchiv]));
+    const aktualisiert = this.verbindungen.map((v) =>
+      nachId.has(v.id) ? { ...v, istArchiv: nachId.get(v.id) } : v
+    );
+    await schreibeMehrere(aktualisiert.filter((v) => nachId.has(v.id)));
+    this.verbindungen = aktualisiert;
   }
 
   /** Baut einen DateiSpeicher für eine Verbindung. */

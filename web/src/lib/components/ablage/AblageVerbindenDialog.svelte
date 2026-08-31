@@ -29,9 +29,10 @@
   import { ablageVerbindungen, type AblageVerbindung } from '$lib/ablage/verbindungen.svelte.ts';
   import { angeboteneAnbieter, type AblageAnbieterArt } from '$lib/ablage/anbieter.ts';
   import { ANBIETER_IKONE } from './anbieterIkonen.ts';
-  import { adapterAusVerzeichnis, wähleOrdner } from '$lib/ablage/syncOrdner.ts';
+  import { adapterAusVerzeichnis, wähleOrdner, syncOrdnerMoeglich } from '$lib/ablage/syncOrdner.ts';
   import { legeGriffAb } from '$lib/ablage/ordnerGriff.ts';
   import { probiere, type ProbeSchritt } from '$lib/ablage/probe.ts';
+  import { anbieterFuerUmgebung } from '$lib/ablage/anbieterFuerUmgebung.ts';
   import NextcloudVerbinden from './NextcloudVerbinden.svelte';
 
   let {
@@ -63,7 +64,10 @@
     loeschen: 'Löschen',
   };
 
-  const anbieter = angeboteneAnbieter();
+  // Firefox/Safari koennen keinen Ordner waehlen (kein File-System-Access) —
+  // die Ordner-Wahl faellt dort aus der Liste statt erst beim Klick zu
+  // scheitern (Plan Aufgabe 4). Cloud-Anbieter bleiben ueberall dabei.
+  const anbieter = anbieterFuerUmgebung(angeboteneAnbieter(), syncOrdnerMoeglich());
 
   let auswahl: AblageAnbieterArt | null = $state(null);
   let verbinde = $state(false);
