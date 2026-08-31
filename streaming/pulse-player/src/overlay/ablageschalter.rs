@@ -1,9 +1,10 @@
 //! Der Schalter „Zwischenablage teilen" im Fern-Menue.
 //!
-//! **Eigene Datei, obwohl es ein Knopf ist:** `fernbedienung.rs` daneben steht
-//! bei 340 Zeilen und damit dicht unter der Groessen-Grenze (`PLAN.md` §12.1).
-//! Dieselbe Arbeitsteilung wie beim Lautstaerkeregler, den das Menue ebenfalls
-//! aus einer Nachbardatei holt (`controls::volume_group`).
+//! **Eigene Datei, obwohl es ein Knopf ist:** `fernbedienung.rs` daneben liegt
+//! dicht unter der Groessen-Grenze (`PLAN.md` §12.1) — eine Zeilenzahl steht
+//! hier bewusst nicht, sie waere schon beim naechsten Absatz falsch. Dieselbe
+//! Arbeitsteilung wie beim Lautstaerkeregler, den das Menue ebenfalls aus
+//! einer Nachbardatei holt (`controls::volume_group`).
 //!
 //! **Was der Schalter bedeutet, entscheidet nicht das Fenster.** Er meldet nur
 //! [`OverlayAction::AblageTeilen`]; was daran haengt — den laufenden Anspruch

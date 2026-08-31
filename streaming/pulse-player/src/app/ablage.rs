@@ -67,6 +67,23 @@ pub(crate) trait Ablagequelle {
     /// haben beansprucht" laengst falsch — auf Wayland meldet das
     /// `wl_data_source.cancelled`, und das sieht nur die Plattform.
     fn eigentuemer(&self) -> bool;
+
+    /// Das Lesen der FREMDEN Auswahl eroeffnen, ohne darauf zu warten.
+    ///
+    /// **Warum das getrennt ist:** ob der fremde Eigentuemer je schreibt, sagt
+    /// kein Protokoll zu — auf Wayland liefert `wl_data_offer.receive` einen
+    /// Deskriptor, aus dem gelesen werden muss. Auf der Fensterschleife
+    /// gelesen stuenden waehrenddessen Bild UND Eingabe. Die Plattform holt
+    /// den Inhalt deshalb nebenher; [`Beobachter::lesen`] gibt nur noch das
+    /// fertige Ergebnis heraus und blockiert nie.
+    ///
+    /// Idempotent: ein zweiter Anstoss waehrend eines laufenden Vorgangs tut
+    /// nichts.
+    fn lesen_anstossen(&mut self);
+
+    /// Liegt ein Ergebnis vor (auch „nichts zu holen")? Nur dann ist
+    /// [`Beobachter::lesen`] aussagekraeftig.
+    fn lesen_bereit(&mut self) -> bool;
 }
 
 /// Alles zusammen, was eine Plattform-Umsetzung koennen muss.
@@ -112,6 +129,12 @@ impl Ablagequelle for KeineAblage {
     }
     fn eigentuemer(&self) -> bool {
         false
+    }
+    fn lesen_anstossen(&mut self) {}
+    /// **Immer bereit** — es gibt nichts zu holen und nichts zu warten. Ein
+    /// `false` hier liesse jeden Anspruch fuer immer eingereiht liegen.
+    fn lesen_bereit(&mut self) -> bool {
+        true
     }
 }
 

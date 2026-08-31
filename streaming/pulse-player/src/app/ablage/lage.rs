@@ -57,9 +57,28 @@ pub(crate) struct Ablagelage {
     /// Anspruch loescht den Vorbestand, und wird nie eingefuegt, waere der
     /// eigene kopierte Pfad des Nutzers durch fremde Aktivitaet still weg.
     vorbestand: Option<String>,
+    /// Ein `hol`, dessen Antwort noch auf den Lesevorgang wartet — samt dem
+    /// Zeitpunkt, an dem es eintraf.
+    ///
+    /// **Warum es ueberhaupt wartet:** das Lesen der fremden Auswahl darf
+    /// nicht auf der Fensterschleife blockieren (s.
+    /// [`super::Ablagequelle::lesen_anstossen`]), also faellt die Antwort
+    /// einen Takt spaeter an. `ABRUF_FRIST_MS` (2 s) traegt das muehelos.
+    ///
+    /// Es kann nur EINES offen sein: die Gegenseite haelt hoechstens einen
+    /// laufenden Abruf.
+    offener_hol: Option<(Rahmen, u64)>,
     /// Bezugspunkt fuer die Millisekunden, mit denen `Empfaenger` rechnet.
     seit: Instant,
 }
+
+/// Wie lange die Antwort auf ein `hol` hoechstens auf den Lesevorgang wartet.
+///
+/// Deutlich unter `pulse_ablage::sitzung::ABRUF_FRIST_MS` (2 s), damit die
+/// Antwort noch innerhalb der Frist des Abrufenden ankommt — und ueber der
+/// Lesefrist der Plattform (Wayland: 500 ms), damit ein gesunder Lesevorgang
+/// nicht kurz vor dem Ziel abgeschnitten wird.
+const HOL_FRIST_MS: u64 = 1_000;
 
 impl Default for Ablagelage {
     fn default() -> Self {
@@ -71,12 +90,17 @@ impl Default for Ablagelage {
             wach: false,
             eigentuemer: false,
             vorbestand: None,
+            offener_hol: None,
             seit: Instant::now(),
         }
     }
 }
 
 impl Ablagelage {
+    fn jetzt_ms(&self) -> u64 {
+        self.seit.elapsed().as_millis() as u64
+    }
+
     pub(crate) fn teilt(&self) -> bool {
         self.teilen
     }
@@ -104,10 +128,21 @@ impl Ablagelage {
                     // volle Abruf-Frist.
                     return vec![Rahmen::Leer { id: *id, grund: Grund::Weg }];
                 }
-                // Der Inhalt wird in `beantworte` gelesen, nicht hier — die
-                // Reihenfolge „erst die Aenderung abholen, dann die Generation
-                // vergleichen, dann lesen" ist der Sinn jener Signatur.
-                self.ankuendiger.beantworte(rahmen, &mut Sicht(p))
+                // **Beantwortet wird im Takt, nicht hier** (s.
+                // [`Self::offener_hol`]): der Inhalt muss von der fremden
+                // Auswahl geholt werden, und das darf die Fensterschleife
+                // nicht anhalten. Der Anstoss ist idempotent.
+                p.lesen_anstossen();
+                let alt = self.offener_hol.replace((rahmen.clone(), self.jetzt_ms()));
+                // Ein zweites `hol` heisst, das erste ist drueben abgelaufen.
+                // Es unbeantwortet fallen zu lassen liesse dort einen
+                // Einfuegevorgang bis in seine Frist warten.
+                match alt {
+                    Some((Rahmen::Hol { id, .. }, _)) => {
+                        vec![Rahmen::Leer { id, grund: Grund::Weg }]
+                    }
+                    _ => Vec::new(),
+                }
             }
             Rahmen::Stueck { .. } | Rahmen::Leer { .. } => {
                 match self.empfaenger.eingang(rahmen) {
@@ -195,15 +230,40 @@ impl Ablagelage {
         if !self.wach {
             return Vec::new();
         }
-        let jetzt = self.seit.elapsed().as_millis() as u64;
+        let jetzt = self.jetzt_ms();
         let mut hinaus = Vec::new();
+
+        // 0. Ein `hol`, dessen Lesevorgang inzwischen fertig ist (s.
+        //    [`Self::offener_hol`]). Die Frist darunter ist das Netz fuer eine
+        //    Plattform, die nie fertig meldet — ohne sie haenge der
+        //    Einfuegevorgang drueben bis in seine eigene Frist.
+        if let Some((offen, seit)) = self.offener_hol.take() {
+            if p.lesen_bereit() || jetzt.saturating_sub(seit) >= HOL_FRIST_MS {
+                // Der Inhalt wird in `beantworte` gelesen, nicht hier — die
+                // Reihenfolge „erst die Aenderung abholen, dann die Generation
+                // vergleichen, dann lesen" ist der Sinn jener Signatur, und
+                // sie gilt unveraendert: die Aenderungsmeldung wird JETZT
+                // abgeholt, nicht beim Eintreffen des `hol`.
+                hinaus.extend(self.ankuendiger.beantworte(&offen, &mut Sicht(p)));
+            } else {
+                self.offener_hol = Some((offen, seit));
+            }
+        }
 
         // 1. Der eingereihte Anspruch. `set_selection` verlangt eine
         //    Seriennummer aus einem frischen Eingabeereignis, und ein Klient
         //    OHNE FOKUS kann die Auswahl nicht setzen — der Compositor
         //    verwirft es STILL. Genau der Fall tritt ein, wenn der Nutzer zu
         //    einem lokalen Programm wechselt und drueben kopiert wird.
-        if self.anspruch.seriennummer(p.seriennummer()) {
+        //
+        //    **Er wird erst eingeloest, wenn der Vorbestand gelesen ist.** Ein
+        //    Anspruch loescht ihn; wer vorher beansprucht, hat nichts mehr zu
+        //    merken. `Anspruch::seriennummer` verbraucht den Anspruch, darf
+        //    also nicht gefragt werden, solange noch gelesen wird.
+        let braucht_vorbestand = !(self.eigentuemer && p.eigentuemer());
+        if self.anspruch.offen() && braucht_vorbestand && !p.lesen_bereit() {
+            p.lesen_anstossen();
+        } else if self.anspruch.seriennummer(p.seriennummer()) {
             // **Den Vorbestand VOR dem Anspruch lesen** — aber nur, wenn er
             // nicht ohnehin schon uns gehoert. Beide Bedingungen zaehlen:
             // `self.eigentuemer` heisst „wir haben etwas verdraengt",
@@ -217,7 +277,7 @@ impl Ablagelage {
             // eine unbedingte Zuweisung loeschte dann genau den Merkposten,
             // den sie retten soll — dieselbe Falle wie das `take()` in
             // `pulse_ablage::pruefstand::TestAblage::beanspruchen`.
-            if !(self.eigentuemer && p.eigentuemer()) {
+            if braucht_vorbestand {
                 if let Some(text) = p.lesen() {
                     self.vorbestand = Some(text);
                 }
@@ -233,7 +293,13 @@ impl Ablagelage {
 
         // 2. Wartet ein Einfuegevorgang? Erst jetzt geht `hol` hinaus — das
         //    IST das verzoegerte Rendern.
-        if p.einfuegen_wartet() {
+        //
+        //    **Auch hier der `teilen`-Riegel** (Review C6). Er war der einzige
+        //    der vier Schritte ohne, und das Fenster ist schmal (ein
+        //    Schleifendurchlauf zwischen Ausschalten und Freigeben) — die
+        //    fehlende Symmetrie zu den anderen dreien ist trotzdem genau die
+        //    Stelle, an der ein spaeterer Umbau still etwas hinauslaesst.
+        if self.teilen && p.einfuegen_wartet() {
             if let Some(hol) = self.empfaenger.abrufen(jetzt) {
                 hinaus.push(hol);
             }
@@ -330,11 +396,20 @@ mod tests {
         inner: TestAblage,
         einfuegen: bool,
         serial: Option<u32>,
+        /// Steht ein Lesevorgang schon bereit? Im Doppel sonst immer `true`
+        /// (es liest synchron) — abschaltbar, um den Aufschub zu pruefen, den
+        /// die echte Plattform erzwingt.
+        bereit: bool,
     }
 
     impl Pruefablage {
         fn neu() -> Self {
-            Self { inner: TestAblage::neu(), einfuegen: false, serial: Some(42) }
+            Self {
+                inner: TestAblage::neu(),
+                einfuegen: false,
+                serial: Some(42),
+                bereit: true,
+            }
         }
     }
 
@@ -368,6 +443,13 @@ mod tests {
         }
         fn eigentuemer(&self) -> bool {
             self.inner.beansprucht()
+        }
+        fn lesen_anstossen(&mut self) {}
+        /// Das Doppel liest synchron — die Verzoegerung ist eine Eigenschaft
+        /// der Plattform, nicht des Ablaufs darueber. Fuer den einen Test, der
+        /// den Aufschub selbst prueft, laesst sie sich abschalten.
+        fn lesen_bereit(&mut self) -> bool {
+            self.bereit
         }
     }
 
@@ -659,6 +741,52 @@ mod tests {
             lage.fern(&stueck, &mut p);
         }
         assert_eq!(p.inner.geliefert().as_deref(), Some("hallo"));
+    }
+
+    /// **F1:** die Antwort auf ein `hol` faellt einen Takt spaeter an, statt
+    /// die Fensterschleife auf den fremden Klienten warten zu lassen.
+    #[test]
+    fn ein_hol_wartet_auf_den_lesevorgang_statt_die_schleife_anzuhalten() {
+        let mut p = Pruefablage::neu();
+        p.inner.setzen("mein Text");
+        let mut lage = wache_lage();
+        assert_eq!(
+            lage.takt(&mut p),
+            vec![Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text }],
+            "erst wird angekuendigt"
+        );
+
+        p.bereit = false;
+        assert!(
+            lage.fern(&Rahmen::Hol { generation: 1, id: 5 }, &mut p).is_empty(),
+            "die Antwort darf nicht im Eingangsweg entstehen — dort wuerde \
+             gelesen, und das haelt Bild und Eingabe an"
+        );
+        assert!(lage.takt(&mut p).is_empty(), "solange gelesen wird, kommt nichts");
+
+        p.bereit = true;
+        let antwort = lage.takt(&mut p);
+        assert!(
+            matches!(antwort.first(), Some(Rahmen::Stueck { id: 5, .. })),
+            "sobald das Ergebnis da ist, geht der Inhalt hinaus: {antwort:?}"
+        );
+    }
+
+    /// Ein zweites `hol` heisst, das erste ist drueben abgelaufen — es darf
+    /// nicht unbeantwortet liegenbleiben, sonst wartet dort ein
+    /// Einfuegevorgang bis in seine Frist.
+    #[test]
+    fn ein_verdraengtes_hol_wird_beantwortet() {
+        let mut p = Pruefablage::neu();
+        p.inner.setzen("etwas");
+        let mut lage = wache_lage();
+        lage.takt(&mut p);
+        p.bereit = false;
+        lage.fern(&Rahmen::Hol { generation: 1, id: 5 }, &mut p);
+        assert_eq!(
+            lage.fern(&Rahmen::Hol { generation: 1, id: 6 }, &mut p),
+            vec![Rahmen::Leer { id: 5, grund: Grund::Weg }]
+        );
     }
 
     /// Ein kaputter Rahmen beendet die Sitzung nicht — er wird still
