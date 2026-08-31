@@ -76,16 +76,15 @@ Bereits enthalten und deshalb ohne Handlungsbedarf: `feat/kanal-eigene-ablage`
 ## Etappen und Abhängigkeiten
 
 ```
-E0 Messen + Bughunt
- ├─→ E0.5 Vorarbeit ernten (feat/dm-attachment-e2ee)
- │    └─→ speist E1, E3, E4
- ├─→ E1 Verbindungsschicht + Einstellungen-UI
- │    ├─→ E2 Nextcloud Login Flow v2
- │    ├─→ E3 Persönliches Archiv im Ordner
- │    │    └─→ E4 Wiederherstellungs-Satz
- │    └─→ E5 Spiegelung auf zwei Laufwerke
+E0  Messen + Bughunt                                    ✓ fertig
+ ├─→ E0.5 Vorarbeit sichten                             ✓ fertig
+ ├─→ E1 Verbindungsschicht + Einstellungen-UI           ✓ fertig
+ │    └─→ E2 Nextcloud über den Freigabe-Link           ✓ fertig
+ ├─→ E4 Wiederherstellungs-Satz          ← VORGEZOGEN, siehe unten
+ │    └─→ E3 Persönliches Archiv (markierte Verbindung)
+ │         └─→ E5 Spiegelung auf zwei Laufwerke
  └─→ E6 Kanal-Krypto (Gruppensitzungen + Ablage-Log)
-      ├─→ E7 Freigabe-Adresse + Leseweg (direkt / über Pulse)
+      ├─→ E7 Drei Ordner, drei Links + Leseweg über Pulse
       │    └─→ E8 Community-Dateiablage
       └─→ E9 Umstellung (nur-Ablage überall, Alt-Kanäle nur lesbar)
 E10 Klartext-Export      (nach E3)
@@ -93,7 +92,21 @@ E11 Kopplungs-E2E        (nach E6)
 E12 Landen               (alles grün)
 ```
 
-E1–E5 (Speicher) und E6–E8 (Krypto) sind weitgehend unabhängig und können
+**E4 ist am 2026-08-31 vor E3 gerückt.** Der Eigentümer hat präzisiert, wozu
+das Archiv wirklich da ist: nicht als Sicherung, sondern damit das Handy
+dieselben Nachrichten zeigt wie der Rechner. Ohne den Wiederherstellungs-Satz
+findet das zweite Gerät dort aber nur Dateien, die es nicht öffnen kann — die
+Schlüssel liegen je Gerät und wandern nicht mit. Der Satz ist damit die
+**Voraussetzung** für Synchronisation, nicht ein Netz obendrauf.
+
+**Vorbedingung für E3, aus derselben Präzisierung:** Auf die Segment-Datei
+selbst gibt es kein Vergleiche-und-Tausche (Bughunt-Bericht §5). Legen zwei
+Geräte gleichzeitig denselben neuen Abschnitt an, überschreibt einer den
+anderen. Als reine Sicherung war das verschmerzbar; als
+Synchronisationsweg zwischen Handy und Rechner ist es Datenverlust im
+Regelbetrieb und muss in E3 mit erledigt werden.
+
+E4/E3/E5 (Speicher) und E6–E8 (Krypto) sind weitgehend unabhängig und können
 parallel laufen.
 
 ---

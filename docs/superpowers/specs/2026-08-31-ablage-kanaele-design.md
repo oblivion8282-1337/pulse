@@ -149,6 +149,59 @@ Adapter (`freigabeErneuern()`), nicht in die Kanal-Logik.
 
 ## 4. Der Leseweg
 
+### 4.0 Drei Ordner, drei Links (Entscheidung 2026-08-31)
+
+Ein Laufwerk, darin drei getrennte Ordner — und je ein eigener Link:
+
+| Ordner | Wer liest daraus | Link |
+|---|---|---|
+| `archiv/` | **nur der Nutzer selbst**, von seinen eigenen Geräten | bleibt auf seinen Geräten |
+| `kanaele/` | Mitglieder seiner Kanäle | liegt beim Pulse-Server |
+| `ablagen/` | Mitglieder der Community | liegt beim Pulse-Server |
+
+Die Trennung ist nicht kosmetisch. Ein einzelner Link auf die Wurzel würde
+Mitgliedern auch den Geheimtext der privaten Nachrichten in die Hand geben —
+lesen könnten sie ihn nicht, aber Umfang und Zeitpunkte wären sichtbar.
+
+**Gemessen am 2026-08-31**: ein Freigabe-Link kann Unterordner anlegen und
+darin schreiben (MKCOL 201, PUT 201, DELETE 204), aber **keine weiteren
+Freigaben** (OCS-API 401 — dafür braucht es ein Konto). Die drei Links legt
+also der Nutzer an, Pulse kann sie sich nicht selbst besorgen.
+
+**Der Eigentümer hat entschieden: je ein SCHREIB-Link, und die Mitglieder
+bekommen nie einen.** Ihre Abrufe laufen über die Weiterreich-Route (§4.2),
+die den Link hält. Die Alternative wären zwei Links je geteiltem Ordner
+gewesen (Schreiben für den Besitzer, Lesen für die anderen) — sicherer, aber
+fünf Links statt drei.
+
+Was daraus folgt und beim Bauen gelten muss:
+
+- Der Link ist ein **Schreib-Schlüssel in fremder Hand**. Er wird nie
+  geloggt, nie an einen Klienten zurückgegeben (auch nicht an den Besitzer
+  selbst über die Route), und nur für Anfragen an genau die Gegenstelle
+  benutzt, die in ihm steht.
+- Zugriff nur für Mitglieder des zugehörigen Kanals beziehungsweise der
+  Community — dieselbe Prüfung wie bei jeder anderen Kanal-Route.
+- **Widerruf ist jederzeit möglich** und muss sichtbar werden: zieht der
+  Nutzer den Link in Nextcloud zurück, ist der Verlauf nicht mehr erreichbar.
+  Das ist der Zustand `laufwerk-weg` aus `ablage/zustand.ts`, nicht ein
+  allgemeiner Fehler.
+- Bei Google Drive mit Konto-Anbindung stellt sich die Frage nicht: dort legt
+  Pulse die passenden Freigaben selbst an.
+
+### 4.0a Schreiben bleibt bei Pulse — und warum das keine Einschränkung ist
+
+Mitglieder **schreiben** in Kanäle und legen Dateien ab, wenn sie dürfen. Der
+Weg der Bytes bleibt trotzdem der aus §1: über Pulse, verschlüsselt, danach
+Festigung durch ein Gerät des Besitzers.
+
+Der Grund ist nicht Bequemlichkeit, sondern dass es anders **die Rechte
+zerstören würde**: ein Freigabe-Link kennt keine Personen. Wer ihn hat, darf
+alles darin — auch löschen und überschreiben. Ein einzelnes Mitglied könnte
+den Verlauf eines Kanals leeren, und im Laufwerk stünde nur „jemand war das".
+„Ablegen dürfen, wenn der Besitzer es erlaubt" ist mit einem Link nicht
+ausdrückbar; mit Pulse dazwischen greift das bestehende Rechtesystem.
+
 ### 4.1 Freigabe-Adresse
 
 Beim Anlegen eines Kanals erzeugt der Klient über den Adapter eine
@@ -210,10 +263,27 @@ als zweitem Ziel macht den Umweg über Pulse damit gegenstandslos.
 
 ## 5. Das persönliche Archiv
 
-### 5.1 Was hineinkommt
+### 5.1 Was hineinkommt, und wozu es wirklich da ist
 
 Entschieden: **das komplette Archiv** — private Nachrichten, Kanalverläufe,
 Dateien. Alles verschlüsselt.
+
+**Der stärkere Grund ist die Synchronisation, nicht die Sicherung**
+(Präzisierung des Eigentümers, 2026-08-31). Das Archiv ist der Weg, auf dem
+das Handy dieselben Nachrichten zeigt wie der Rechner am Schreibtisch. Daraus
+folgt zweierlei, und beides verschiebt die Arbeit:
+
+- **Der Ordner allein synchronisiert nichts.** Das zweite Gerät findet dort
+  Dateien, die es nicht öffnen kann — die Schlüssel liegen je Gerät und
+  wandern nicht mit. Der Wiederherstellungs-Satz (§8) ist damit **Voraussetzung
+  für Synchronisation**, nicht ein Sicherheitsnetz obendrauf, und gehört vor
+  das Archiv gebaut.
+- **Mehrere Geräte schreiben gleichzeitig ins selbe Archiv.** Das ist der
+  schwierige Fall, und drei der Fehler vom 2026-08-31 lagen genau dort
+  (Manifest-Überschreiben, verlorene Verzeichniseinträge, Drive-Dubletten).
+  Alle behoben — offen bleibt, dass es **auf die Segment-Datei selbst kein
+  Vergleiche-und-Tausche gibt** (B-Bericht §5). Solange das Archiv nur eine
+  Sicherung war, konnte das warten; als Synchronisationsweg kann es das nicht.
 
 ### 5.2 Wo es liegt
 
