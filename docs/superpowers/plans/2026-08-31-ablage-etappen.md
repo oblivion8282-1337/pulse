@@ -34,12 +34,28 @@ Opus.
    friert auf howispulse.com alle laufenden Unterhaltungen ein. Der
    Eigentümer hat der Entscheidung zugestimmt, nicht dem Zeitpunkt.
 
-**Fertig:** E0 (Fehlersuche, 15 Befunde), E0.5 (Sichtung), E1
-(Verbindungsschicht + Einstellungen), E2 (Nextcloud über den Freigabe-Link),
-E4 bis auf die Oberfläche.
+**Fertig:** E0 (Fehlersuche, 15 Befunde) · E0.5 (Sichtung) · E1
+(Verbindungsschicht + Einstellungen) · E2 (Nextcloud über den Freigabe-Link)
+· **E4 vollständig** (Code, Päckchen, Server-Routen, Oberfläche) · **E5**
+(Spiegelung) · E3 Aufgaben 1, 2 und 4 (Ordner übersteht den Neustart,
+Archiv-Markierung, Umgebungs-Weiche) · E6 Aufgaben 1, 2 und 4 (Postfach für
+Ablage-Kanäle, Postfach-Quelle, reservierter Rahmentyp geklärt).
+
+**In Arbeit:** E3 Aufgabe 3 (Verlauf ins Archiv) · E6 Aufgabe 3
+(Gruppensitzung) · E7 (Freigabe-Adresse und Weiterreich-Route) · E10
+(Klartext-Export).
+
+**Noch nicht begonnen:** E6 Aufgaben 5 und 6 (verdrahten, Zwei-Geräte-Nachweis)
+· E8 (Community-Dateiablage) · E9 (Umstellung) · E11 (Kopplungs-E2E) · E12.
 
 **Zahlen zuletzt:** Gate grün · Playwright 165 grün / 1 rot (`plugins`, schon
-auf `main` rot) · 884 Web-Unit-Tests · 2472 Backend-Tests.
+auf `main` rot) · 916 Web-Unit-Tests · 2476 Backend-Tests (ein Flackerer
+unter Last, allein grün).
+
+**Zwei Fallen dieser Nacht, beide mit demselben Muster** — ein Test fällt
+unter acht parallelen Prozessen um und ist allein grün. Wer daraufhin den
+Code sucht, sucht am falschen Ort. Immer erst einzeln nachfahren, dann
+urteilen.
 
 **Alles liegt auf `feat/e2e-dm-krypto-weg-a` und ist gepusht.** Nach jeder
 abgeschlossenen Aufgabe committen und pushen — der Eigentümer hat das
