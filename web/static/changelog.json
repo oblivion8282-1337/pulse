@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-31",
+      "date": "2026-08-31",
+      "style": "Sachlich",
+      "title": "Eigene Server auf dem Handy",
+      "intro": "Zwei Wege, die es auf dem Rechner schon gab, fehlten am Telefon.",
+      "items": [
+        "Im Räume-Bereich lässt sich jetzt auch am Handy einem Server über seine Adresse beitreten (Menü oben rechts oder im leeren Zustand). Bisher war das nur am Rechner möglich.",
+        "Eine Community auf einem eigenen Server, dem man schon beigetreten war, ließ sich am Handy antippen, ohne dass etwas passierte. Sie öffnet jetzt zuverlässig."
+      ]
+    },
+    {
       "id": "2026-08-28.4",
       "date": "2026-08-28",
       "style": "Sachlich",

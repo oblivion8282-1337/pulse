@@ -13,6 +13,7 @@
    */
   import { goto } from '$app/navigation';
   import CompassIcon from '@lucide/svelte/icons/compass';
+  import LogInIcon from '@lucide/svelte/icons/log-in';
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
   import SearchIcon from '@lucide/svelte/icons/search';
   import XIcon from '@lucide/svelte/icons/x';
@@ -20,7 +21,9 @@
   import { suchnorm, namePasst } from '$lib/utils/suche';
   import { serversStore } from '$lib/api/servers.svelte';
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
+  import { activeServer } from '$lib/stores/active-server.svelte';
   import CommunityAnlegenKnopf from '$lib/components/mobile/CommunityAnlegenKnopf.svelte';
+  import CommunityBeitretenKnopf from '$lib/components/mobile/CommunityBeitretenKnopf.svelte';
   import SelfHostRoomsButton from '$lib/components/selfhost/SelfHostRoomsButton.svelte';
   import { guilds as guildsStore } from '$lib/stores/guilds.svelte';
   import { readState } from '$lib/stores/readState.svelte';
@@ -98,7 +101,14 @@
   // sagen — je Server einer und darunter nochmal der globale.
   let ueberallLeer = $derived(server.every((s) => serverGuilds.get(s.id).length === 0));
 
-  function oeffnen(g: Guild) {
+  // Wie `GuildRail.selectGuildFromServer`: eine Kachel kann zu einem
+  // NICHT-aktiven Server gehoeren (fremder Self-Host) — ohne den Wechsel
+  // laedt die Zielseite gegen den falschen Server und zeigt dauerhaft nichts
+  // (guild/channels bleiben leer, `ensureChannels` scheitert still gegen den
+  // falschen Server). `activeServer.set()` resettet die Server-scoped Stores
+  // und stoesst die WS-Connection an; der Ready-Frame befuellt sie neu.
+  function oeffnen(g: Guild, serverId: string) {
+    if (serverId !== activeServer.serverId) activeServer.set(serverId);
     void goto(`/app/rooms/${g.id}`);
   }
 
@@ -123,6 +133,17 @@
           {/snippet}
         </DropdownMenu.Trigger>
         <DropdownMenu.Content align="end" class="w-52">
+          <!-- Server per Adresse beitreten (Erstkontakt, kein Invite-Code):
+               `/app?add=join` wie die GuildRail. Warum es diesen Einstieg auf
+               `< lg` braucht, steht in `CommunityBeitretenKnopf.svelte`. -->
+          <DropdownMenu.Item
+            onclick={() => void goto('/app?add=join')}
+            data-testid="rooms-menu-join"
+            class="flex items-center gap-2"
+          >
+            <LogInIcon class="size-4" />
+            {m.guild_rail_join_community()}
+          </DropdownMenu.Item>
           <DropdownMenu.Item
             onclick={() => void goto('/app/discover')}
             data-testid="rooms-menu-discover"
@@ -187,7 +208,7 @@
             {@const l = leben(g)}
             <button
               class="bg-bg-input border-border hover:border-primary/40 hover:bg-bg-hover flex flex-col items-start gap-2.5 rounded-[16px] border p-3.5 text-left transition-colors"
-              onclick={() => oeffnen(g)}
+              onclick={() => oeffnen(g, s.id)}
               data-testid={`room-tile-${g.id}`}
             >
               <span class="relative">
@@ -248,6 +269,7 @@
         >
           {m.rooms_discover_cta()}
         </a>
+        <CommunityBeitretenKnopf />
       </div>
     {/if}
 
