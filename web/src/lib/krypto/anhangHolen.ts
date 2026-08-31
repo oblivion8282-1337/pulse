@@ -119,7 +119,16 @@ export async function anhangBlob(
     if (!url) return null;
     return await klumpenOeffnen(url, schluesselText, thumb ? VORSCHAU_TYP : typ);
   } catch {
-    return null;
+    // Serverweg tot (Zustellung gefallen / verschlüsselter Anhang, den der
+    // Server nie sah): letzter Ausweg ist das Sicherungs-Archiv, wenn
+    // dieses Gerät es geöffnet hat. Dynamischer Import, damit der
+    // Sicherungs-Code nicht in jedem Nachrichtenlauf mitgeladen wird.
+    const { archivAnhangHolen } = await import('$lib/sicherung/archivAnhang');
+    try {
+      return await archivAnhangHolen(anhangId);
+    } catch {
+      return null;
+    }
   }
 }
 

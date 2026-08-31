@@ -42,6 +42,7 @@ import {
 } from './spiegel.ts';
 import { öffneSchluesselDatei } from './krypto.ts';
 import {
+	anhangDateiName,
 	adapterLieferant,
 	lesestandLesen,
 	lesestandSchreiben,
@@ -120,15 +121,12 @@ export function sicherungSpiegeln(kanalId: string, nachrichten: Message[]): void
 	});
 }
 
-/** Dateiname eines Anhang-Bytes-Behälters im Archiv (Klartext-Name, nur Ids). */
-export function anhangDateiName(id: string): string {
-	return `anhang-${id}.puls`;
-}
-
 /**
- * Holt den Archiv-Bestand in den lokalen Verlauf — Anhang-Bytes inbegriffen,
- * wenn sie im Archiv liegen. Dedupliziert über die Nachrichten-Ids; dem
- * Gerät bereits bekannte Zeilen bleiben unangetastet. Liefert die Anzahl.
+ * Holt den Archiv-Bestand in den lokalen Verlauf. Dedupliziert über die
+ * Nachrichten-Ids; dem Gerät bereits bekannte Zeilen bleiben unangetastet.
+ * Liefert die Anzahl. Anhang-BYTES lädt sie bewusst NICHT — die holt die
+ * Chat-Ansicht lazily aus dem Archiv, wenn eine Kachel gerendert wird
+ * (krypto/anhangHolen.ts → archivAnhang), sonst läde der erste Login alles.
  */
 export async function sicherungArchivLaden(): Promise<number> {
 	const entpackt = await dekAusZwischenlager();
@@ -163,23 +161,6 @@ export async function sicherungArchivLaden(): Promise<number> {
 		)
 		.filter((satz) => satz !== null);
 	await verlaufPutSaetze(saetze);
-	for (const eintrag of bestand.eintraege) {
-		for (const anhang of eintrag.nachricht.anhaenge) {
-			try {
-				const dunkel = await adapter.lese(anhangDateiName(anhang.id));
-				if (dunkel === null) continue;
-				const klar = await entschlüsseleEintrag(entpackt.dek, dunkel);
-				await anhangBytesSichern({
-					id: anhang.id,
-					kanalId: eintrag.kanalId,
-					daten: new Blob([klar as unknown as BlobPart]),
-					vorschau: null,
-				});
-			} catch {
-				/* fehlender oder unlesbarer Anhang — die Nachricht bleibt lesbar */
-			}
-		}
-	}
 	// Lesestand erst NACH erfolgreichem Ablegen anheben — ein Fehler mid-
 	// run lässt den nächsten Lauf dieselben Namensräume komplett lesen.
 	await lesestandSchreiben(kontoId, lesestand);

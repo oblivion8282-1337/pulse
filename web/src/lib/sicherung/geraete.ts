@@ -46,6 +46,11 @@ const VERBINDUNG_KEY = 'gdrive';
 export const IDB_KEY_SICHERUNG_DEK = 'pulse.sicherung-dek';
 export const IDB_KEY_SICHERUNG_KUERZEL = 'pulse.sicherung-kuerzel';
 
+/** Dateiname eines Anhang-Bytes-Behälters im Archiv (Klartext-Name, nur Ids). */
+export function anhangDateiName(id: string): string {
+	return `anhang-${id}.puls`;
+}
+
 export interface SicherungVerbindung {
 	kundenId: string;
 	/** Google verlangt es auch bei Desktop-Clients (empirisch, s. gdrive.ts). */

@@ -37,12 +37,7 @@
     pufferWischen,
     type SicherungVerbindung,
   } from '$lib/sicherung/geraete';
-  import {
-    sicherungJetztSpuelen,
-    sicherungErstsicherung,
-    sicherungArchivLaden,
-    anhangDateiName,
-  } from '$lib/sicherung/andock';
+  import { sicherungJetztSpuelen, sicherungErstsicherung, sicherungArchivLaden } from '$lib/sicherung/andock';
 
   let zustand = $state<'pruefe' | 'verbinden' | 'passwort' | 'an'>('pruefe');
   /** Archive existiert schon (anderes Gerät) → Passwort entpackt es. */
@@ -122,8 +117,13 @@
   }
 
   async function laden(): Promise<void> {
-    const anzahl = await sicherungArchivLaden();
-    if (anzahl > 0) meldung = `${anzahl} Nachrichten aus dem Archiv geladen.`;
+    try {
+      const anzahl = await sicherungArchivLaden();
+      if (anzahl > 0) meldung = `${anzahl} Nachrichten aus dem Archiv geladen.`;
+      else meldung = 'Archiv enthält (noch) keine neuen Nachrichten.';
+    } catch (e) {
+      fehler = 'Archiv-Laden: ' + (e instanceof Error ? e.message : String(e));
+    }
   }
 
   /** Einmal-Passwort: öffnet das Archiv (oder legt es an) und bringt alles
