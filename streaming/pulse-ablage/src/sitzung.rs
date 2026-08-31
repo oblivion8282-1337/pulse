@@ -38,25 +38,49 @@ impl Ankuendiger {
         self.generation
     }
 
-    /// Ein `hol` beantworten. `inhalt` ist der JETZIGE Inhalt meiner Ablage
-    /// (`None`, wenn sie keinen Text haelt).
-    pub fn beantworte(&self, hol: &Rahmen, inhalt: Option<&str>) -> Vec<Rahmen> {
+    /// Ein `hol` beantworten. Der Inhalt wird **hier** gelesen, nicht vom
+    /// Aufrufer mitgebracht — die Reihenfolge „erst die Aenderung abholen, dann
+    /// die Generation vergleichen, dann lesen" ist der Sinn dieser Signatur.
+    pub fn beantworte(
+        &mut self,
+        hol: &Rahmen,
+        beobachter: &mut impl crate::beobachter::Beobachter,
+    ) -> Vec<Rahmen> {
         let Rahmen::Hol { generation, id } = hol else {
             return Vec::new();
         };
-        // **Zuerst die Generation.** Stimmt sie nicht, wird nicht einmal
+        // **Die Aenderungsmeldung wird HIER abgeholt, nicht irgendwann vorher
+        // vom Aufrufer.** Zwischen der Ankuendigung und dieser Antwort kann der
+        // Nutzer laengst etwas anderes kopiert haben; `lesen()` liefert dann den
+        // NEUEN Inhalt, waehrend `self.generation` noch die ALTE Nummer traegt —
+        // und damit ginge Inhalt hinaus, den nie jemand angekuendigt hat. Der
+        // Aufrufer koennte das nicht verhindern: er merkt die Aenderung
+        // fruehestens bei seinem naechsten Takt (macOS pollt 200 ms).
+        //
+        // Gemeint ist `Beobachter::geaendert` (meldet nur), nicht das
+        // gleichnamige `Ankuendiger::geaendert` (erhoeht und baut den Rahmen).
+        if beobachter.geaendert() {
+            // Die frische Ankuendigung reist MIT. Ohne sie hielte die
+            // Gegenseite fuer immer eine Nummer, die es nicht mehr gibt, und
+            // jedes weitere `hol` liefe wieder auf `veraltet` — die Ablage
+            // waere still tot. `Self::geaendert` ist die eine Stelle, die die
+            // Nummer erhoeht; sie wird deshalb hier benutzt statt nachgebaut.
+            let ankuendigung = self.geaendert();
+            return vec![Rahmen::Leer { id: *id, grund: Grund::Veraltet }, ankuendigung];
+        }
+        // **Dann die Generation.** Stimmt sie nicht, wird nicht einmal
         // gelesen — es gaebe nichts zu liefern, das der Anfragende gemeint hat.
         if *generation != self.generation || self.generation == 0 {
             return vec![Rahmen::Leer { id: *id, grund: Grund::Veraltet }];
         }
-        let Some(text) = inhalt else {
+        let Some(text) = beobachter.lesen() else {
             return vec![Rahmen::Leer { id: *id, grund: Grund::Weg }];
         };
         // **Die Laengengrenze wird hier NICHT noch einmal geprueft.** `zerlegen`
         // haelt sie und meldet `Err(Grund::ZuGross)`, das die Zeile darunter
         // abbildet. Zwei Stellen, die dieselbe Grenze pruefen, laufen
         // auseinander, sobald eine von beiden angefasst wird.
-        match zerlegen(*id, text) {
+        match zerlegen(*id, &text) {
             Ok(stuecke) => stuecke,
             Err(grund) => vec![Rahmen::Leer { id: *id, grund }],
         }
@@ -168,6 +192,9 @@ impl Empfaenger {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Gemeint ist das Trait — `TestAblage::geaendert` ist seine Umsetzung und
+    // ohne diesen Import nicht sichtbar.
+    use crate::beobachter::Beobachter;
     use crate::format::Inhaltstyp;
 
     #[test]
@@ -199,22 +226,36 @@ mod tests {
         assert_eq!(a.generation(), 2);
     }
 
+    /// Eine Ablage mit `text` darin, deren Aenderungsmeldung schon quittiert
+    /// ist. So prueft jeder Test darunter genau seine Regel und nicht
+    /// nebenbei das Aenderungs-Rennen aus C1.
+    fn ablage_mit(text: Option<&str>) -> crate::pruefstand::TestAblage {
+        let mut ablage = crate::pruefstand::TestAblage::neu();
+        if let Some(t) = text {
+            ablage.setzen(t);
+        }
+        ablage.geaendert();
+        ablage
+    }
+
     #[test]
     fn veraltete_anfrage_bekommt_nie_den_neuen_inhalt() {
         // Die wichtigste Regel des Protokolls: es wird nie ein ANDERER Inhalt
         // geliefert als der angekuendigte.
         let mut a = Ankuendiger::neu();
+        let mut ablage = ablage_mit(Some("neu"));
         a.geaendert(); // gen 1 — "alt"
         a.geaendert(); // gen 2 — "neu"
-        let antwort = a.beantworte(&Rahmen::Hol { generation: 1, id: 5 }, Some("neu"));
+        let antwort = a.beantworte(&Rahmen::Hol { generation: 1, id: 5 }, &mut ablage);
         assert_eq!(antwort, vec![Rahmen::Leer { id: 5, grund: Grund::Veraltet }]);
     }
 
     #[test]
     fn passende_anfrage_bekommt_den_inhalt() {
         let mut a = Ankuendiger::neu();
+        let mut ablage = ablage_mit(Some("hallo"));
         a.geaendert();
-        let antwort = a.beantworte(&Rahmen::Hol { generation: 1, id: 5 }, Some("hallo"));
+        let antwort = a.beantworte(&Rahmen::Hol { generation: 1, id: 5 }, &mut ablage);
         assert_eq!(antwort.len(), 1);
         assert!(matches!(antwort[0], Rahmen::Stueck { id: 5, i: 0, n: 1, .. }));
     }
@@ -222,18 +263,63 @@ mod tests {
     #[test]
     fn leere_ablage_beantwortet_mit_weg() {
         let mut a = Ankuendiger::neu();
+        let mut ablage = ablage_mit(None);
         a.geaendert();
-        let antwort = a.beantworte(&Rahmen::Hol { generation: 1, id: 5 }, None);
+        let antwort = a.beantworte(&Rahmen::Hol { generation: 1, id: 5 }, &mut ablage);
         assert_eq!(antwort, vec![Rahmen::Leer { id: 5, grund: Grund::Weg }]);
     }
 
     #[test]
     fn zu_grosser_inhalt_beantwortet_mit_zu_gross() {
         let mut a = Ankuendiger::neu();
-        a.geaendert();
         let riesig = "z".repeat(crate::format::MAX_TEXT_BYTE + 1);
-        let antwort = a.beantworte(&Rahmen::Hol { generation: 1, id: 5 }, Some(&riesig));
+        let mut ablage = ablage_mit(Some(&riesig));
+        a.geaendert();
+        let antwort = a.beantworte(&Rahmen::Hol { generation: 1, id: 5 }, &mut ablage);
         assert_eq!(antwort, vec![Rahmen::Leer { id: 5, grund: Grund::ZuGross }]);
+    }
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn eine_unbemerkte_aenderung_liefert_NIE_den_neuen_inhalt() {
+        // **Der Kern von C1.** Der Nutzer kopiert etwas Neues, der Ankuendiger
+        // hat es noch nicht bemerkt (der Poll lief noch nicht) — und genau dann
+        // trifft ein `hol` auf die alte Nummer ein.
+        let mut a = Ankuendiger::neu();
+        let mut ablage = ablage_mit(Some("harmlos"));
+        a.geaendert(); // gen 1, angekuendigt wurde "harmlos"
+
+        // Jetzt kopiert der Nutzer ein Geheimnis — unbemerkt.
+        ablage.setzen("streng geheim");
+
+        let antwort = a.beantworte(&Rahmen::Hol { generation: 1, id: 5 }, &mut ablage);
+        for r in &antwort {
+            let j = serde_json::to_string(&r.nach_json()).expect("serialisierbar");
+            assert!(!j.contains("geheim"), "Geheimnis in der Antwort: {j}");
+        }
+        assert!(
+            matches!(antwort.first(), Some(Rahmen::Leer { grund: Grund::Veraltet, .. })),
+            "die Anfrage muss als veraltet abgewiesen werden, bekam: {antwort:?}"
+        );
+    }
+
+    #[test]
+    fn nach_einer_unbemerkten_aenderung_reist_die_frische_ankuendigung_mit() {
+        // Ohne sie hielte die Gegenseite fuer immer eine Nummer, die es nicht
+        // mehr gibt: jedes weitere `hol` bekaeme `veraltet`, und die Ablage
+        // waere still tot.
+        let mut a = Ankuendiger::neu();
+        let mut ablage = ablage_mit(Some("alt"));
+        a.geaendert(); // gen 1
+        ablage.setzen("neu"); // unbemerkt
+
+        let antwort = a.beantworte(&Rahmen::Hol { generation: 1, id: 5 }, &mut ablage);
+        assert_eq!(antwort.len(), 2, "veraltet UND frische Ankuendigung: {antwort:?}");
+        assert_eq!(
+            antwort[1],
+            Rahmen::Neu { generation: 2, typ: crate::format::Inhaltstyp::Text }
+        );
+        assert_eq!(a.generation(), 2);
     }
 
     #[test]

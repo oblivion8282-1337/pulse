@@ -36,10 +36,10 @@ impl Seite {
                 }
                 Vec::new()
             }
-            Rahmen::Hol { .. } => {
-                let inhalt = self.ablage.inhalt();
-                self.ank.beantworte(r, inhalt.as_deref())
-            }
+            // Zwei Felder desselben `self` getrennt auszuleihen ist zulaessig
+            // — der Ankuendiger liest die Ablage selbst, damit Pruefen und
+            // Lesen nicht auseinanderfallen koennen (s. `beantworte`).
+            Rahmen::Hol { .. } => self.ank.beantworte(r, &mut self.ablage),
             Rahmen::Stueck { .. } | Rahmen::Leer { .. } => {
                 match self.emp.eingang(r) {
                     Fortschritt::Fertig(t) => self.ablage.liefern(&t),
