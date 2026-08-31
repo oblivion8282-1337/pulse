@@ -15,6 +15,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import MousePointerIcon from '@lucide/svelte/icons/mouse-pointer-click';
   import KeyboardIcon from '@lucide/svelte/icons/keyboard';
+  import ClipboardIcon from '@lucide/svelte/icons/clipboard';
   import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
   import MapPinIcon from '@lucide/svelte/icons/map-pin';
   import { remoteSession } from '$lib/remote/session.svelte';
@@ -167,6 +168,10 @@
         <MousePointerIcon class="text-primary size-4 shrink-0" />
         <KeyboardIcon class="text-primary size-4 shrink-0" />
         <span>{m.remote_consent_scope()}</span>
+      </div>
+      <div class="text-text-base flex items-start gap-2.5 text-sm">
+        <ClipboardIcon class="text-primary mt-0.5 size-4 shrink-0" />
+        <span>{m.remote_consent_clipboard()}</span>
       </div>
     </div>
 

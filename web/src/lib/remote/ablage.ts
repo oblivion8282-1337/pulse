@@ -46,10 +46,16 @@ class RemoteAblage {
    *  dort eine Sitzungsnummer, und daraus liesse sich fälschlich 'controller'
    *  folgern. Der Renderer kennt seine Rolle, er muss sie nicht erschliessen. */
   #rolle: 'host' | 'controller' = 'host';
+  /** Lief `start()` seit dem letzten `stop()`? Verhindert, dass ein `stop()`
+   *  ohne vorausgehenden `start()` (z. B. beim Aufräumen einer nie aktiv
+   *  gewordenen Sitzung) der eigenen Plattform ein Eigentum meldet, das sie
+   *  nie hatte. */
+  #aktiv = false;
 
   start(rolle: 'host' | 'controller', sendSignal: SignalSender): void {
     this.#rolle = rolle;
     this.#sendSignal = sendSignal;
+    this.#aktiv = true;
     // Die Plattform-Brücke meldet, was ihr Ende hinausschicken will. Im
     // Browser und in einer älteren Shell gibt es sie nicht — dann bleibt es
     // still, wie überall in dieser Schicht.
@@ -57,10 +63,32 @@ class RemoteAblage {
   }
 
   stop(): void {
+    if (this.#aktiv) {
+      // Anstoss nach unten, nie über die Leitung: Eigentum abgeben und den
+      // gemerkten Vorbestand zurückschreiben (`Eigentum::freigeben`). Ohne
+      // das bliebe die lokale Ablage des Nutzers leer, obwohl die Sitzung
+      // vorbei ist — genau der Schaden, gegen den der Vorbestand-Mechanismus
+      // gebaut wurde.
+      void ablageAnPlayer(this.#rolle, this.#fensterSitzung, { t: 'ende' });
+    }
     this.#abmelden?.();
     this.#abmelden = null;
     this.#sendSignal = null;
     this.#drossel = new Drossel();
+    this.#aktiv = false;
+  }
+
+  /** Anstoss nach unten, nie über die Leitung: nach einem geglückten Reclaim
+   *  den eigenen Stand erneut ankündigen. `pulse-ablage` kennt diesen Rahmen
+   *  nicht — er geht nie an die Gegenseite, nur an die eigene Plattform.
+   *
+   *  Ohne diesen Ruf hält die Gegenseite ein Versprechen auf eine Generation,
+   *  die hier nach dem Reclaim niemand mehr kennt: jedes Einfügen antwortete
+   *  danach `veraltet`, und die Ablage wäre für den Rest der Sitzung still
+   *  tot. */
+  neuBitte(): void {
+    if (!this.#aktiv) return;
+    void ablageAnPlayer(this.#rolle, this.#fensterSitzung, { t: 'neu_bitte' });
   }
 
   /** Die Nummer des Player-Fensters nachliefern, sobald es offen ist (nur

@@ -2045,6 +2045,7 @@
   "register_suggestions_label": "Vorschläge:",
   "remote_consent_allow": "Erlauben",
   "remote_consent_body": "{user} möchte Maus und Tastatur auf deinem geteilten Bildschirm übernehmen.",
+  "remote_consent_clipboard": "Die Zwischenablage wird geteilt: was du kopierst, kann der andere Rechner einfügen — und umgekehrt. Inhalte werden erst übertragen, wenn dort tatsächlich eingefügt wird.",
   "remote_consent_deny": "Ablehnen",
   "remote_consent_place": "Angefragt in {community}, Kanal {channel}",
   "remote_consent_place_unknown": "Herkunft nicht auflösbar — die Anfrage kam nicht aus einem Kanal, den diese Ansicht kennt.",
