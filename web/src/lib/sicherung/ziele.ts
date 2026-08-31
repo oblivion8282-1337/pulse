@@ -70,6 +70,49 @@ async function hole(key: string): Promise<unknown> {
 	});
 }
 
+/**
+ * Ein Ziel-Eintrag gilt nur als vorhanden, wenn seine Pflichtfelder stimmen.
+ * Der Bestand vor dem Mehr-Ziel-Umbau hatte kein `ziel`-Feld und sein
+ * Google-Eintrag kam OHNE `verzeichnis` durch — beides darf nicht als
+ * Ordner-Ziel missdeutet werden (Feldbefund 2026-08-31: „queryPermission von
+ * undefined").
+ */
+function sanitisiereZiele(roh: unknown): SicherungZiele {
+	const z: SicherungZiele = {};
+	if (typeof roh !== 'object' || roh === null) return z;
+	const rohObjekt = roh as Record<string, unknown>;
+
+	const g = rohObjekt.gdrive as Record<string, unknown> | undefined;
+	if (
+		g !== null &&
+		typeof g === 'object' &&
+		typeof g.kundenId === 'string' && g.kundenId !== '' &&
+		typeof g.nachspieleToken === 'string'
+	) {
+		z.gdrive = {
+			kundenId: g.kundenId,
+			...(typeof g.kundenGeheimnis === 'string' && g.kundenGeheimnis !== ''
+				? { kundenGeheimnis: g.kundenGeheimnis }
+				: {}),
+			weiterleitung: typeof g.weiterleitung === 'string' ? g.weiterleitung : '',
+			ordner: typeof g.ordner === 'string' ? g.ordner : 'Pulse-Sicherung',
+			nachspieleToken: g.nachspieleToken,
+			...(typeof g.zugangsToken === 'string' ? { zugangsToken: g.zugangsToken } : {}),
+		};
+	}
+
+	const o = rohObjekt.ordner as Record<string, unknown> | undefined;
+	if (
+		o !== null &&
+		typeof o === 'object' &&
+		o.verzeichnis !== undefined &&
+		o.verzeichnis !== null
+	) {
+		z.ordner = { verzeichnis: o.verzeichnis as AblageVerzeichnis };
+	}
+	return z;
+}
+
 /** Die aktuellen Ziele — migriert beim ersten Lesen den Ein-Ziel-Bestand. */
 export async function zieleLesen(): Promise<SicherungZiele> {
 	const db = await öffneDb();
@@ -79,38 +122,64 @@ export async function zieleLesen(): Promise<SicherungZiele> {
 		anfrage.onsuccess = () => resolve(anfrage.result as SicherungZiele | undefined);
 		anfrage.onerror = () => reject(anfrage.error);
 	});
-	if (neu !== undefined) return neu;
+	if (neu !== undefined) {
+		// Nachsanierung: ein halb migrierter Bestand (z. B. Ordner ohne
+		// Verzeichnis) wird still weggekürzt, statt jeden Lauf craschen zu
+		// lassen — der Nutzer richtet das fehlende Ziel neu ein.
+		const sauber = sanitisiereZiele(neu);
+		if (Object.keys(sauber).length !== Object.keys(neu).length) {
+			await zieleSchreiben(sauber);
+		}
+		return sauber;
+	}
 
-	// Migration: der alte Schlüssel hielt EINE Verbindung (Union).
-	const alt = (await hole(VERBINDUNG_KEY_LEGACY)) as
-		| { ziel: 'gdrive'; kundenId: string; kundenGeheimnis?: string; weiterleitung: string; ordner: string; nachspieleToken: string; zugangsToken?: string }
-		| { ziel: 'ordner'; verzeichnis: AblageVerzeichnis }
-		| undefined;
-	if (alt === undefined) return {};
-	const migriert: SicherungZiele =
-		alt.ziel === 'gdrive'
-			? {
-					gdrive: {
-						kundenId: alt.kundenId,
-						...(alt.kundenGeheimnis !== undefined && alt.kundenGeheimnis !== ''
-							? { kundenGeheimnis: alt.kundenGeheimnis }
-							: {}),
-						weiterleitung: alt.weiterleitung,
-						ordner: alt.ordner,
-						nachspieleToken: alt.nachspieleToken,
-						...(alt.zugangsToken !== undefined ? { zugangsToken: alt.zugangsToken } : {}),
-					},
-				}
-			: { ordner: { verzeichnis: alt.verzeichnis } };
+	// Migration: der alte Schlüssel hielt EINE Verbindung — je nach Zeitalter
+	// mit oder ohne `ziel`-Feld. Erkannt wird an den FELDERN, nicht am Etikett.
+	const alt = (await hole(VERBINDUNG_KEY_LEGACY)) as Record<string, unknown> | undefined;
+	if (alt === undefined || typeof alt !== 'object') return {};
+
+	const migriert: SicherungZiele = {};
+	if (typeof alt.kundenId === 'string' && alt.kundenId !== '' && typeof alt.nachspieleToken === 'string') {
+		migriert.gdrive = {
+			kundenId: alt.kundenId,
+			...(typeof alt.kundenGeheimnis === 'string' && alt.kundenGeheimnis !== ''
+				? { kundenGeheimnis: alt.kundenGeheimnis }
+				: {}),
+			weiterleitung: typeof alt.weiterleitung === 'string' ? alt.weiterleitung : '',
+			ordner: typeof alt.ordner === 'string' ? alt.ordner : 'Pulse-Sicherung',
+			nachspieleToken: alt.nachspieleToken,
+			...(typeof alt.zugangsToken === 'string' ? { zugangsToken: alt.zugangsToken } : {}),
+		};
+	} else if (alt.verzeichnis !== undefined && alt.verzeichnis !== null) {
+		migriert.ordner = { verzeichnis: alt.verzeichnis as AblageVerzeichnis };
+	}
 	await zieleSchreiben(migriert);
 	return migriert;
 }
 
 export async function zieleSchreiben(z: SicherungZiele): Promise<void> {
-	// Ebene Kopie an der IDB-Grenze: ein $state-Proxy aus der Oberfläche ist
-	// nicht strukturell klonbar ("could not be cloned"). Der Ordner-Handle
-	// überlebt den Spread als Referenz und ist selbst klonbar.
-	const kopie: SicherungZiele = { ...z };
+	// FELD-FÜR-FELD-Kopie an der IDB-Grenze: der $state-Proxy der Sektion
+	// wrappt auch verschachtelte Objekte (ordner/gdrive), und ein solcher
+	// Proxy ist nicht strukturell klonbar ("could not be cloned"). Der
+	// oberflächliche Spread allein hätte den inneren Proxy durchgereicht.
+	const kopie: SicherungZiele = {};
+	if (z.ordner?.verzeichnis) {
+		kopie.ordner = { verzeichnis: z.ordner.verzeichnis };
+	}
+	if (z.gdrive?.kundenId && z.gdrive.nachspieleToken !== undefined) {
+		kopie.gdrive = {
+			kundenId: z.gdrive.kundenId,
+			...(z.gdrive.kundenGeheimnis !== undefined
+				? { kundenGeheimnis: z.gdrive.kundenGeheimnis }
+				: {}),
+			weiterleitung: z.gdrive.weiterleitung,
+			ordner: z.gdrive.ordner,
+			nachspieleToken: z.gdrive.nachspieleToken,
+			...(z.gdrive.zugangsToken !== undefined
+				? { zugangsToken: z.gdrive.zugangsToken }
+				: {}),
+		};
+	}
 	const db = await öffneDb();
 	return new Promise((resolve, reject) => {
 		const tx = db.transaction(STORE_VERBINDUNG, 'readwrite');
