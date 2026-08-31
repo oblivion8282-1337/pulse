@@ -77,7 +77,44 @@ impl Ablagelage {
         // Ablage des Nutzers. Test:
         // `ein_traegerwechsel_verliert_den_vorbestand_nicht`.
         if prozess.eigentuemer {
+            // **Haelt die Plattform die Auswahl JETZT noch?** Nur dann raeumt
+            // der Aufruf darunter sie selbst — und nur dann ist die Aenderung,
+            // die dabei entsteht, unsere eigene. Hat inzwischen jemand anders
+            // uebernommen, kehrt `Eigentum::freigeben` sofort zurueck, und die
+            // gemeldete Aenderung gehoert dem Fremden. Zwischen dieser Frage
+            // und dem Aufruf wird nichts zugestellt (beides synchron, kein
+            // `nachfassen` dazwischen) — es kann sich also nichts dazwischen
+            // schieben.
+            let unser = p.eigentuemer();
+            let geraeumt = prozess.vorbestand.is_none();
             p.freigeben(prozess.vorbestand.as_deref());
+            // **Die selbst ausgeloeste Aenderung quittieren.**
+            //
+            // Raeumen wir die Auswahl (kein Merkposten da), zieht die Plattform
+            // ihren Aenderungszaehler hoch — `AblageZustand::abgeloest` tut das
+            // seit C1 fail-closed, ohne zu unterscheiden, WER die Auswahl
+            // genommen hat. Bliebe die Meldung stehen, holte sie der naechste
+            // Traeger ab und **kuendigte ein leeres Fach an**: die Gegenseite
+            // beansprucht daraufhin ihre Ablage, verdraengt damit den Inhalt
+            // IHRES Nutzers und gibt ihn erst beim Sitzungsende zurueck. Das
+            // ist derselbe stille Verlust, gegen den dieser ganze Mechanismus
+            // gebaut ist, nur auf der Gegenseite.
+            //
+            // **Das weicht C1 nicht auf.** Quittiert wird eine Aenderung, die
+            // wir selbst ausgeloest haben und deshalb kennen — keine Aussage
+            // darueber, in welcher Reihenfolge der Compositor `selection` und
+            // `cancelled` zustellt; die bleibt gleichgueltig. Und es bleibt
+            // fail-closed: faellt die Zeile beim naechsten Aufraeumen wieder
+            // (wie schon einmal der `eigentuemer`-Riegel), entsteht eine
+            // ueberfluessige Ankuendigung, kein hinausgehender Inhalt. Test:
+            // `das_selbst_geraeumte_fach_wird_nicht_angekuendigt`.
+            //
+            // **Nur der Raeum-Weg.** Zurueckschreiben laeuft auf Wayland ueber
+            // eine neue eigene Quelle (`auswahl_setzen`, `eigene = true`) und
+            // bewegt den Zaehler nicht.
+            if unser && geraeumt {
+                p.geaendert();
+            }
             // **Die Buchfuehrung sitzt NACH dem Aufruf** und fragt die
             // Plattform, statt zu raten.
             prozess.eigentuemer = p.eigentuemer();

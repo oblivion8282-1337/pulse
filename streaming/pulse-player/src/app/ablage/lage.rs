@@ -327,6 +327,13 @@ mod tests {
         /// (es liest synchron) — abschaltbar, um den Aufschub zu pruefen, den
         /// die echte Plattform erzwingt.
         bereit: bool,
+        /// Die Aenderung, die das AUFGEBEN der Auswahl meldet.
+        ///
+        /// `TestAblage` kennt sie nicht — sie entsteht erst in der Plattform
+        /// (`AblageZustand::abgeloest` zieht den Zaehler hoch, C1). Ohne diese
+        /// Nachbildung koennte hier gar nichts pruefen, dass sie quittiert
+        /// wird; der Fehler waere nur im Betrieb sichtbar.
+        aufgabe_gemeldet: bool,
     }
 
     impl Pruefablage {
@@ -336,13 +343,19 @@ mod tests {
                 einfuegen: false,
                 serial: Some(42),
                 bereit: true,
+                aufgabe_gemeldet: false,
             }
         }
     }
 
     impl Beobachter for Pruefablage {
         fn geaendert(&mut self) -> bool {
-            self.inner.geaendert()
+            // **Beide Quellen verbrauchend abholen**, nicht kurzgeschlossen:
+            // `TestAblage::geaendert` quittiert seinen Zaehler mit, und ein
+            // `||` liesse ihn bei gesetzter Aufgabe-Meldung stehen.
+            let innen = self.inner.geaendert();
+            let aufgabe = std::mem::take(&mut self.aufgabe_gemeldet);
+            innen || aufgabe
         }
         fn lesen(&self) -> Option<String> {
             self.inner.lesen()
@@ -357,7 +370,14 @@ mod tests {
             self.inner.liefern(text);
         }
         fn freigeben(&mut self, zurueck: Option<&str>) {
+            // Wie die echte Plattform: wer die Auswahl raeumt, meldet damit
+            // eine Aenderung (s. `aufgabe_gemeldet`). Der Rueckschreib-Weg tut
+            // das nicht — dort entsteht eine neue eigene Quelle.
+            let raeumt = self.inner.beansprucht() && zurueck.is_none();
             self.inner.freigeben(zurueck);
+            if raeumt {
+                self.aufgabe_gemeldet = true;
+            }
         }
     }
 
@@ -766,6 +786,43 @@ mod tests {
             Some("/home/michael/wichtig.txt"),
             "der Merkposten wird hoechstens noch einmal zurueckgeschrieben, \
              nie geraeumt"
+        );
+    }
+
+    /// **Das selbst geraeumte Fach darf nicht angekuendigt werden.**
+    ///
+    /// Der Gegenpol zu C1, und er bildet den WEG ab, nicht den Zustand: A
+    /// beansprucht (der Nutzer hatte nichts in der Ablage, es gibt also nichts
+    /// zurueckzuschreiben), A endet und raeumt die Auswahl, B wird Traeger und
+    /// taktet.
+    ///
+    /// Ohne die Quittierung in [`Ablagelage::freigeben`] holt B die Meldung ab,
+    /// die WIR ausgeloest haben, und kuendigt ein leeres Fach an — die
+    /// Gegenseite beansprucht daraufhin ihre Ablage und verdraengt den Inhalt
+    /// ihres Nutzers bis zum Sitzungsende. Genau der stille Verlust, gegen den
+    /// dieser Mechanismus gebaut ist, nur auf der Gegenseite.
+    #[test]
+    fn das_selbst_geraeumte_fach_wird_nicht_angekuendigt() {
+        let mut p = Pruefablage::neu();
+        let mut st = Prozessablage::default();
+        // Kein Vorbestand: die Ablage des Nutzers ist leer, `freigeben` raeumt
+        // also, statt zurueckzuschreiben.
+        let mut a = wache_lage();
+        let mut b = wache_lage();
+
+        a.fern(&Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text }, &mut p);
+        assert!(a.takt(&mut st, &mut p).is_empty(), "der Anspruch allein kuendigt nichts an");
+        assert!(p.inner.beansprucht(), "A haelt die Ablage");
+
+        a.ende(&mut st, &mut p);
+        assert_eq!(p.inner.inhalt(), None, "geraeumt, nicht zurueckgeschrieben");
+
+        // B ist jetzt Traeger (`App::ablage_traeger_waehlen`) und taktet.
+        let hinaus = b.takt(&mut st, &mut p);
+        assert!(
+            hinaus.is_empty(),
+            "eine Ankuendigung fuer ein leeres Fach kostet die Gegenseite die \
+             Ablage IHRES Nutzers: {hinaus:?}"
         );
     }
 

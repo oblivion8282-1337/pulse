@@ -199,14 +199,14 @@ impl AblageZustand {
     /// danach, zaehlt sie dort — die zweite Meldung kostet eine ueberzaehlige
     /// Ankuendigung, nie Inhalt.
     ///
-    /// **Der Preis, und er ist bekannt:** ueber den Weg
-    /// `Eigentum::freigeben(None)` raeumen wir die Auswahl selbst und melden
-    /// danach trotzdem eine Aenderung. Kuendigt eine noch wache Sitzung sie an,
-    /// beansprucht die Gegenseite ihre Ablage fuer ein leeres Fach — genau das,
-    /// was [`Self::auswahl`] fuer den `selection`-Weg ausdruecklich vermeidet.
-    /// Die Abwaegung ist eindeutig: dort kostet es eine kurz verdraengte
-    /// fremde Ablage (der Vorbestand drueben bleibt gemerkt und kommt zurueck),
-    /// hier ginge unangekuendigter Inhalt hinaus.
+    /// **Es wird bewusst nicht unterschieden, WER die Auswahl genommen hat**,
+    /// und der zweite Aufrufer ist `Eigentum::freigeben(None)` — da raeumen
+    /// WIR. Diese Meldung quittiert `Ablagelage::freigeben` sofort selbst; sie
+    /// kennt ihre eigene Ursache, ohne dafuer etwas ueber die Reihenfolge
+    /// annehmen zu muessen. Bliebe sie stehen, kuendigte der naechste Traeger
+    /// ein leeres Fach an, die Gegenseite beanspruchte ihre Ablage und
+    /// verdraengte den Inhalt IHRES Nutzers — genau das, was [`Self::auswahl`]
+    /// fuer den `selection`-Weg ausdruecklich vermeidet.
     pub(in crate::fernsteuerung::wayland) fn abgeloest(&mut self) {
         self.eigene = false;
         self.stand += 1;
