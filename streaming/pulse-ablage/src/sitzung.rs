@@ -473,7 +473,7 @@ mod tests {
         // **Eine Beziehung, kein Einzelwert.** Reisst der Socket mitten im
         // Abruf ab, haelt die Gnadenfrist die SITZUNG offen
         // (`REMOTE_DISCONNECT_GRACE_S`, Vorgabe 10 s,
-        // `services/chat-gateway/src/dcc_chat_gateway/routes/remote_reconnect_registry.py`).
+        // `services/chat-gateway/src/dcc_chat_gateway/remote_reconnect_registry.py`).
         // Der ABRUF darf darauf nicht warten — sonst steht das einfuegende
         // Programm zehn Sekunden. Dieselbe Bauart wie `CLIENT_GRACE_MS` gegen
         // die Server-Frist in `web/src/lib/remote/gnadenfrist.ts`.

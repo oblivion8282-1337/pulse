@@ -17,6 +17,13 @@ use crate::format::{Grund, MAX_STUECK_ROH, MAX_TEXT_BYTE, Rahmen};
 /// Fehlalarm gegen einen ehrlichen Sender schon.
 const MAX_STUECKE: u32 = (MAX_TEXT_BYTE / MAX_STUECK_ROH + 1) as u32;
 
+/// Wie lang die Base64-Nutzlast eines Stuecks hoechstens ist.
+///
+/// Aus [`MAX_STUECK_ROH`] GERECHNET, aus demselben Grund wie [`MAX_STUECKE`]:
+/// vier Zeichen je drei Byte, aufgerundet, weil `kodiere` immer auffuellt —
+/// 5900 Byte werden zu 7868 Zeichen.
+const MAX_STUECK_B64: usize = MAX_STUECK_ROH.div_ceil(3) * 4;
+
 /// Einen Text in sendefertige Stuecke zerlegen.
 ///
 /// Ein leerer Text ergibt **ein** Stueck mit leerer Nutzlast — nicht null
@@ -86,9 +93,22 @@ impl Sammler {
         if platz.is_some() {
             return Err(format!("Stueck {i} kam zweimal"));
         }
+        // **Vor dem Dekodieren messen, nicht danach.** `dekodiere` legt rund
+        // 0,75·`d.len()` an — ein einziges Stueck mit uebergrossem `d` haette
+        // den Speicher also schon belegt, wenn die Summe darunter zaehlt. Die
+        // Schranke ist die Base64-Laenge des groessten ehrlichen Stuecks:
+        // MAX_STUECK_ROH Byte werden zu ceil(5900/3)*4 = 7868 Zeichen (mit
+        // Fuellzeichen — `kodiere` fuellt immer auf). `hoechste_ehrliche_
+        // stueckzahl_geht_durch` ist die Gegenprobe, dass sie einen echten
+        // Sender nicht trifft.
+        if d.len() > MAX_STUECK_B64 {
+            return Err(format!("Stueck traegt {} Base64-Zeichen, hoechstens {MAX_STUECK_B64}", d.len()));
+        }
         let bytes = dekodiere(d)?;
-        // **Vor** dem Ablegen zaehlen, sonst haette ein Schwall den Speicher
-        // schon belegt, wenn wir es merken.
+        // Die SUMME ueber alle bisherigen Stuecke, vor dem Ablegen. Die
+        // Schranke darueber deckt das einzelne Stueck, diese hier die
+        // Lieferung: ein Schwall kleiner Stuecke kaeme sonst ueber
+        // MAX_TEXT_BYTE hinaus.
         self.roh += bytes.len();
         if self.roh > MAX_TEXT_BYTE {
             return Err(format!("Lieferung ueberschreitet {MAX_TEXT_BYTE} Byte"));
@@ -223,6 +243,52 @@ mod tests {
             }
         }
         assert!(letzte.is_err(), "der Empfaenger muss bei MAX_TEXT_BYTE abbrechen");
+    }
+
+    #[test]
+    fn uebergrosses_stueck_wird_vor_dem_dekodieren_abgelehnt() {
+        // `dekodiere` legt rund 0,75·d.len() an. Waere die Schranke erst hinter
+        // dem Dekodieren, haette ein einziger Rahmen den Speicher schon belegt,
+        // wenn `self.roh` ihn zaehlt — die Schranke muss also DAVOR greifen.
+        let mut s = Sammler::neu(9);
+        let d = pulse_fernsteuerung::base64::kodiere(&vec![b'x'; MAX_STUECK_ROH + 3]);
+        assert!(
+            d.len() > MAX_STUECK_B64,
+            "der Fall braucht ein Stueck ueber der Base64-Schranke: {} gegen {MAX_STUECK_B64}",
+            d.len()
+        );
+        assert!(
+            s.nimm(&Rahmen::Stueck { id: 9, i: 0, n: 1, d }).is_err(),
+            "ein Stueck ueber MAX_STUECK_ROH muss abgelehnt werden"
+        );
+    }
+
+    #[test]
+    fn eine_stueckgrenze_darf_mitten_in_einem_zeichen_liegen() {
+        // **Die Rechnung, nicht geraten.** Die erste Stueckgrenze liegt nach
+        // MAX_STUECK_ROH = 5900 Byte, also zwischen Byte 5899 und 5900
+        // (nullbasiert). Ein „oe"-Umlaut ist in UTF-8 zwei Byte (0xC3 0xB6).
+        // Steht er ab Byte 5899, faellt sein zweites Byte ins naechste Stueck —
+        // genau der Fall, den die Eigenschaft „byteweise zerlegen, erst nach
+        // dem Zusammensetzen UTF-8 pruefen" abdeckt und den kein anderer Test
+        // trifft: in `langer_text_kommt_vollstaendig_an` fallen alle Grenzen
+        // zufaellig auf Zeichengrenzen.
+        //
+        // Dass die Grenze WIRKLICH im Zeichen liegt, wird nachgemessen und
+        // nicht angenommen — sonst waere der Test auch dann gruen, wenn
+        // `zerlegen` heimlich an Zeichengrenzen schnitte.
+        let text = format!("{}ö{}", "a".repeat(MAX_STUECK_ROH - 1), "b".repeat(100));
+        let stuecke = zerlegen(9, &text).expect("passt");
+        assert!(stuecke.len() > 1, "der Fall braucht mindestens zwei Stuecke");
+        let Rahmen::Stueck { d, .. } = &stuecke[0] else { panic!("Stueck erwartet") };
+        let erstes = pulse_fernsteuerung::base64::dekodiere(d).expect("gueltiges Base64");
+        assert_eq!(erstes.len(), MAX_STUECK_ROH);
+        assert_eq!(
+            erstes.last(),
+            Some(&0xC3),
+            "das erste Stueck muss mitten im Zeichen enden, sonst prueft der Test nichts"
+        );
+        assert_eq!(durchreichen(&text), text);
     }
 
     #[test]

@@ -69,7 +69,7 @@ Baum liegt, läuft irgendwann auseinander, und zwar unbemerkt.
 | `format.rs` | Rahmenformat, beide Richtungen, Round-Trip-Tests |
 | `stueckelung.rs` | Zerlegen und Wiederzusammensetzen unter dem Gateway-Deckel |
 | `sitzung.rs` | Zustandsmaschine: angekündigt, unterwegs, Fristen |
-| `beobachter.rs` | Trait „meine Ablage hat sich geändert" |
+| `beobachter.rs` | Trait „meine Ablage hat sich geändert" — wird beim **Beantworten** befragt, nicht nur beim Ankündigen (s. o.) |
 | `eigentum.rs` | Trait „ich bin Eigentümer, liefere auf Abruf" + reine Anspruchs-Zustandsmaschine |
 | `pruefstand.rs` | Testdoppel beider Traits, für den Rundlauftest ohne Betriebssystem |
 | `plattform/{windows,macos}.rs` | die beiden Host-Umsetzungen |
@@ -148,6 +148,28 @@ Stimmt die angeforderte Generation nicht mehr mit der aktuellen überein, wird
 `leer/veraltet` geantwortet. **Es wird nie ein anderer Inhalt geliefert als
 der angekündigte** — fail-closed, wie überall sonst in der Fernsteuerung.
 
+### Der Vergleich allein genügt nicht — die Änderung muss beim Antworten geprüft werden
+
+Die Nummer wächst erst, wenn die eigene Seite die Änderung **bemerkt** hat, und
+das ist ein Takt: auf macOS ein 200-ms-Poll auf `changeCount`, auf Windows eine
+eingereihte `WM_CLIPBOARDUPDATE`. Der Inhalt dagegen wird im Moment der Antwort
+frisch gelesen. **In dem Fenster dazwischen ist die Nummer alt und der Inhalt
+neu** — und dann ginge Inhalt hinaus, den niemand angekündigt hat. Das ist kein
+Randfall der Generationsregel, sondern ein Loch in der Kernzusicherung: eine
+Gegenstelle darf bis zum Gateway-Deckel von 60 Nachrichten je Sekunde abfragen,
+womit aus dem Rennen ein zuverlässiges Abgreif-Werkzeug wird.
+
+Deshalb holt der Ankündiger die Änderungsmeldung **beim Beantworten selbst** ab,
+bevor er liest — Prüfen und Lesen liegen an einer Stelle und in dieser
+Reihenfolge, die falsche ist gar nicht erst baubar. Erkennt er dabei eine
+Änderung, antwortet er `leer/veraltet` **und hängt die frische `neu` an**: ohne
+sie hielte die Gegenseite für immer eine Nummer, die es nicht mehr gibt, jedes
+weitere `hol` liefe wieder auf `veraltet`, und die Ablage wäre still tot.
+
+Ein `hol` kann also **zwei** Rahmen zur Antwort haben. Gefunden hat das erst die
+Schlussprüfung des ersten Bauabschnitts (2026-08-31); die Task-Prüfungen davor
+sahen jede nur ihren eigenen Ausschnitt.
+
 ### Dateifest ohne Protokollbruch
 
 Stufe 2 setzt `typ:"dateien"`, hängt an `neu` die Felder `anzahl`/`bytes` und
@@ -208,6 +230,13 @@ einfügende Programm zehn Sekunden. Die Frist läuft ab, es wird leer geliefert,
 die Sitzung lebt weiter. Dieselbe Bauart wie `CLIENT_GRACE_MS` gegen die
 Server-Frist, die ebenfalls ein Test festhält.
 
+**Die Frist darf nicht an der Sorgfalt ihres Aufrufers hängen.** Ein Takt, der
+sie prüft, ist Verbraucher-Disziplin — und aufgehört zu takten wird genau dann,
+wenn niemand mehr auf ein Einfügen wartet. Ginge dabei eine Antwort verloren,
+bliebe der Abruf für den Rest der Sitzung stehen und jeder weitere Versuch
+liefe stumm ins Leere: die Ablage wäre tot, ohne Log und ohne Fehler. Der
+Abruf-Aufbau räumt einen abgelaufenen Vorgänger deshalb **selbst**.
+
 ## Wer besitzt die Ablage bei mehreren Plätzen
 
 Auf dem Host läuft **ein Sidecar-Prozess je Platz** — bei drei Bildschirmen
@@ -247,6 +276,21 @@ merken; bei Sitzungsende zurückschreiben**, sofern wir dann noch Eigentümer
 sind (hat inzwischen jemand anders kopiert, bleibt dessen Inhalt stehen). Das
 Lesen ist rein lokal — es verlässt den Rechner nie.
 
+**Beide Einschränkungen in diesem Satz sind tragend, und beide wurden beim
+ersten Bau übersehen** (gefunden in der Schlussprüfung 2026-08-31):
+
+- **„beim ersten"** — wer bei *jedem* Anspruch merkt, setzt den Merkposten beim
+  zweiten auf leer, weil die Ablage nach dem ersten schon leer ist. Zwei
+  Ankündigungen hintereinander sind der Normalfall, nicht der Randfall; der
+  Mechanismus vernichtete dann genau das, was er retten soll. Dazu passend
+  ignoriert der Empfänger eine Ankündigung mit **unveränderter** Generation —
+  sie ist nur eine Auffrischung und braucht keinen zweiten Anspruch (auf
+  Wayland spart das ein wirkungsloses zweites `set_selection`).
+- **„sofern wir noch Eigentümer sind"** — hat der Nutzer inzwischen selbst
+  kopiert, gehört die Ablage ihm. Sie beim Sitzungsende mit einem Merkposten
+  von vorhin zu überschreiben wäre derselbe stille Verlust, gegen den der
+  Merkposten gebaut ist.
+
 ## Rechte
 
 **Kein neuer Permission-Bit.** `REMOTE_CONTROL` (Bit 37) genügt: wer es hält,
@@ -284,12 +328,20 @@ rutschte, kann hier nicht entstehen. Ein Prüfstein wie
 ## Abhängigkeiten
 
 Windows und Linux brauchen **nichts Neues**: `windows` 0.62 liegt in
-`win-hq-sidecar` und `pulse-player`, `wayland-client` 0.31 im Player. Die Kiste
-selbst nimmt **keine** Fremdquelle auf — `serde_json` und das handgeschriebene
-Base64 kommen über `pulse-fernsteuerung` (Pfad-Abhängigkeit, Schwesterkiste),
-die alle drei Verbraucher ohnehin schon nennen. Damit gilt weiter die Grenze
-aus `pulse-fernsteuerung/Cargo.toml`: jede weitere Abhängigkeit braucht ihre
-eigene Nachmessung.
+`win-hq-sidecar` und `pulse-player`, `wayland-client` 0.31 im Player.
+
+Die Kiste selbst nennt **zwei** Abhängigkeiten: `pulse-fernsteuerung` (Pfad,
+Schwesterkiste im selben Baum — von dort kommt das handgeschriebene Base64) und
+`serde_json`. Letzteres ist eine **direkte** crates.io-Abhängigkeit;
+`pulse-fernsteuerung` re-exportiert es nicht, die Deklaration ist also nötig.
+Sie beschwert trotzdem keinen Bauweg, weil alle Verbraucher `serde_json`
+ohnehin schon führen — dieselbe Nachmessung, mit der es in
+`pulse-fernsteuerung/Cargo.toml` aufgenommen wurde. **Die Grenze bleibt hart:**
+jede weitere Abhängigkeit braucht ihre eigene Nachmessung und eine eigene
+Entscheidung.
+
+(Die frühere Fassung dieses Absatzes behauptete „keine Fremdquelle" und zählte
+eine Abhängigkeit, wo zwei stehen — nachgesehen und berichtigt am 2026-08-31.)
 
 **Eine offene Freigabe:** der Player hat heute **keine** macOS-Abhängigkeit.
 `NSPasteboard` dort verlangt `objc2` + `objc2-app-kit` (die `objc2`-Familie

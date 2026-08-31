@@ -10,6 +10,15 @@ pub trait Beobachter {
     /// auf Wayland ein Ereignis — nirgends muss dafuer der Inhalt angefasst
     /// werden, und genau das ist der Punkt: eine Aenderung zu bemerken kostet
     /// nichts an Vertraulichkeit.
+    ///
+    /// **Verbrauchend, und mit ZWEI Aufrufern.** Neben dem Takt des
+    /// Verbrauchers fragt auch `Ankuendiger::beantworte` — dort ist es die
+    /// Absicht (s. dessen Kommentar): sonst ginge Inhalt hinaus, den niemand
+    /// angekuendigt hat. Es gewinnt, wer zuerst fragt, und beide Wege enden
+    /// richtig; verloren geht eine Aenderung in keinem Fall. Eine Umsetzung
+    /// darf deshalb den Stand nur EINMAL je Aenderung melden — ein
+    /// `geaendert()`, das dauerhaft `true` liefert, brechte jede Antwort mit
+    /// `veraltet` zurueck.
     fn geaendert(&mut self) -> bool;
 
     /// Der aktuelle Text, oder `None`, wenn die Ablage keinen Text haelt (Bild,

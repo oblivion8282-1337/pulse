@@ -135,11 +135,22 @@ impl Rahmen {
             }),
             Some("leer") => Ok(Rahmen::Leer {
                 id: zahl("id")?,
+                // Ein UNBEKANNTER Grund wird zu `Weg`, derselbe Grundsatz wie
+                // beim Inhaltstyp: eine neuere Gegenstelle darf die Sitzung
+                // nicht abreissen. Wuerde der Rahmen hier scheitern, erreichte
+                // er `eingang` nie, und der Abruf haenge bis zur Frist — dabei
+                // steht die Aussage schon im Rahmentyp: es kommt nichts.
+                // „Kann nicht liefern" ist die richtige Verallgemeinerung, und
+                // Stufe 2 braucht mindestens einen Grund mehr.
+                //
+                // Ein FEHLENDES `grund` bleibt ein Fehler: eine Fassung, die
+                // `leer` schickt, schickt auch `grund` — es steht im selben
+                // `nach_json` daneben.
                 grund: v
                     .get("grund")
                     .and_then(Value::as_str)
-                    .and_then(Grund::aus_str)
-                    .ok_or("grund fehlt oder unbekannt")?,
+                    .map(|s| Grund::aus_str(s).unwrap_or(Grund::Weg))
+                    .ok_or("grund fehlt")?,
             }),
             Some(andere) => Err(format!("unbekannte Rahmenart: {andere}")),
             None => Err("t fehlt".to_string()),
@@ -183,6 +194,25 @@ mod tests {
     }
 
     #[test]
+    fn unbekannter_grund_wird_zu_weg_statt_zu_scheitern() {
+        // Derselbe Grundsatz wie beim Inhaltstyp. Waere ein unbekannter Grund
+        // ein Fehler, erreichte der Rahmen `eingang` nie und der Abruf haenge
+        // bis zur Frist — obwohl die Aussage schon im Rahmentyp steht.
+        let j = serde_json::json!({ "t": "leer", "id": 3, "grund": "verboten" });
+        let r = Rahmen::aus_json(&j).expect("muss lesbar bleiben");
+        assert_eq!(r, Rahmen::Leer { id: 3, grund: Grund::Weg });
+    }
+
+    #[test]
+    fn fehlender_grund_bleibt_ein_fehler() {
+        // Gegenprobe zur Vorwaertstoleranz: sie deckt einen UNBEKANNTEN Grund,
+        // nicht einen fehlenden. Ein Rahmen ohne `grund` kommt von keiner
+        // Fassung — er ist kaputt, nicht neu.
+        let j = serde_json::json!({ "t": "leer", "id": 3 });
+        assert!(Rahmen::aus_json(&j).is_err());
+    }
+
+    #[test]
     fn unbekannter_inhaltstyp_ist_kein_fehler() {
         // Stufe 2 wird `dateien` schicken. Eine aeltere Fassung muss den Rahmen
         // LESEN koennen und ihn dann ignorieren — wuerde sie ihn als Fehler
@@ -197,7 +227,7 @@ mod tests {
     fn groesstes_stueck_bleibt_unter_dem_gateway_deckel() {
         // **Die wichtigste Zahl der Kiste.** Der Weiterleiter des Gateways misst
         // `len(json.dumps(data, separators=(",",":")))` gegen 8192
-        // (`ws_remote_handlers.py:98,423`) und verwirft Groesseres — beim
+        // (`ws_remote_handlers.py:98,427`) und verwirft Groesseres — beim
         // Ratendeckel sogar STILL. Ein zu grosses Stueck saehe vom Sender aus
         // wie ein Erfolg aus und kaeme nie an.
         let roh = vec![b'x'; MAX_STUECK_ROH];

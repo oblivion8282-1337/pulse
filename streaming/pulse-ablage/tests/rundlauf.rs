@@ -133,7 +133,14 @@ fn ein_zwischenzeitliches_kopieren_macht_den_abruf_veraltet() {
         alle.iter().any(|r| matches!(r, Rahmen::Leer { grund: Grund::Veraltet, .. })),
         "der Abruf muss als veraltet abgelehnt werden, nicht mit dem neuen Inhalt beantwortet"
     );
-    assert_ne!(b.ablage.geliefert().as_deref(), Some("neu"), "NIE ein anderer als der angekuendigte Inhalt");
+    // **Die exakte Erwartung, keine schwarze Liste.** Ein `assert_ne!(…,
+    // Some("neu"))` haette genau einen Eintrag und bliebe gruen, sobald etwas
+    // DRITTES geliefert wird — und das ist die Fehlerklasse aus C1.
+    assert_eq!(
+        b.ablage.geliefert().as_deref(),
+        Some(""),
+        "nach `veraltet` wird leer geliefert — nie ein anderer Inhalt"
+    );
 }
 
 #[test]

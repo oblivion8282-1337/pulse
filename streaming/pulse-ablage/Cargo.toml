@@ -6,13 +6,19 @@ publish = false
 description = "Geteilte Zwischenablage der Fernsteuerung — Rahmenformat, Stueckelung, Zustandsmaschine"
 
 # Grundsatz wie in `pulse-zeitbasis` und `pulse-fernsteuerung`: keine
-# Abhaengigkeit, die einen Bauweg beschwert. Hier genau eine, und sie ist keine
-# Fremdquelle: `pulse-fernsteuerung` liegt im selben Baum, wird von allen drei
-# Verbrauchern dieser Kiste (pulse-player, win-hq-sidecar, mac-hq-sidecar)
-# ohnehin schon genannt, und liefert zwei Dinge, die sonst hier ein zweites Mal
-# entstuenden: `serde_json` (dort mit derselben Nachmessung aufgenommen) und das
-# handgeschriebene Base64. Ein eigenes Base64 waere genau die Doppelung, gegen
-# die `pulse-zeigerbild` und `pulse-zeitbasis` gebaut wurden.
+# Abhaengigkeit, die einen Bauweg beschwert. Hier stehen ZWEI.
+#
+# `pulse-fernsteuerung` ist eine Schwesterkiste im selben Baum (Pfad-
+# Abhaengigkeit, keine Fremdquelle). Von dort kommt das handgeschriebene
+# Base64; ein eigenes waere genau die Doppelung, gegen die `pulse-zeigerbild`
+# und `pulse-zeitbasis` gebaut wurden.
+#
+# `serde_json` ist eine DIREKTE crates.io-Abhaengigkeit — nachgesehen:
+# `pulse-fernsteuerung` re-exportiert es nicht, die Deklaration ist also noetig.
+# Sie beschwert trotzdem keinen Bauweg, weil jeder kuenftige Verbraucher dieser
+# Kiste (pulse-player, win-hq-sidecar, mac-hq-sidecar) `serde_json` ohnehin
+# schon fuehrt — dieselbe Nachmessung, mit der es in `pulse-fernsteuerung`
+# aufgenommen wurde. Jede WEITERE Abhaengigkeit braucht ihre eigene.
 [dependencies]
 pulse-fernsteuerung = { path = "../pulse-fernsteuerung" }
 serde_json = "1"

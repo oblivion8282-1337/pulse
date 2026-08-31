@@ -22,13 +22,18 @@ Ankündigung. Erst ein tatsächliches Einfügen löst die Übertragung aus.
 
 Wer hier etwas ändert, fährt diesen Test und liest, was er behauptet.
 
-## Wer die Kiste einbindet
+## Wer die Kiste einbinden wird
 
-`pulse-player` (der Steuernde), `win-hq-sidecar` und `mac-hq-sidecar` (die
-Hosts). **`linux-hq-sidecar` nicht** — Linux kann heute gar nicht Host sein,
-`remote_input` gibt es dort nicht.
+**Heute niemand.** Die Kiste steht allein im Baum; keine `Cargo.toml`
+außerhalb nennt sie, und eine Trait-Umsetzung gibt es nirgends. Die
+Verbraucher baut erst Plan 1b — wer den folgenden Absatz liest und danach
+greppt, findet deshalb nichts.
 
-Die Linux-Umsetzung der beiden Traits liegt im **Player**
+Einbinden werden sie `pulse-player` (der Steuernde), `win-hq-sidecar` und
+`mac-hq-sidecar` (die Hosts). **`linux-hq-sidecar` nicht** — Linux kann heute
+gar nicht Host sein, `remote_input` gibt es dort nicht.
+
+Die Linux-Umsetzung der beiden Traits wird im **Player** liegen
 (`src/fernsteuerung/wayland/`), nicht hier: der Player hält für die
 Zugerkennung bereits ein `wl_data_device` am Sitzplatz, und ein zweites
 verdoppelte alle Ereignisse. Windows und macOS bringen ihr eigenes verstecktes
@@ -39,4 +44,5 @@ Fenster mit und sind selbsttragend.
     cargo test
 
 Läuft ohne FFmpeg, ohne Fenster, ohne Netz — die Kiste ist reine Rechnung.
-43 Tests, warnungsfrei; `scripts/gate-rust.sh` fährt sie mit.
+53 Tests, warnungsfrei; `scripts/gate-rust.sh` fährt sie mit (er nimmt jede
+geänderte `streaming/pulse-*`, ohne sie einzeln zu nennen).
