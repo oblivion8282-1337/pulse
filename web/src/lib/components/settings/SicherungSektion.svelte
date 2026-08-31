@@ -114,13 +114,14 @@
     try {
       const dek = erzeugeDek();
       const verpackt = await wickleSchluesselDatei(dek, passwort);
+      // ERST die Verbindung persistieren — der Adapter-Lieferant liest den
+      // Datensatz selbst, beim ersten Einrichten existiert er sonst noch
+      // gar nicht. Ebene Kopie: `verbindung` ist eine $state-Variable,
+      // deren Proxy die IndexedDB mit "could not be cloned" abweist.
+      await verbindungSchreiben({ ...verbindung });
       const adapter = await adapterLieferant();
       await adapter.schreibe(SCHLUESSEL_DATEI, verpackt);
       await dekZwischenlagern(dek, crypto.randomUUID());
-      // Ebene Kopie: `verbindung` ist eine $state-Variable, deren Proxy die
-      // IndexedDB mit "could not be cloned" abweist — der Spread liefert
-      // ein schlichtes Objekt aus Grundwerten.
-      await verbindungSchreiben({ ...verbindung });
       passwort = passwort2 = '';
       zustand = 'aktiv';
       meldung = 'Sicherung aktiv — neue Nachrichten werden gespiegelt.';
