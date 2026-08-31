@@ -104,6 +104,14 @@ function drive() {
 				? new Response(datei.inhalt as unknown as BodyInit, { status: 200 })
 				: new Response('fehlt', { status: 404 });
 		}
+		if (methode === 'DELETE' && url.pathname.startsWith('/drive/v3/files/')) {
+			const id = url.pathname.split('/').pop()!;
+			if (!dateien.has(id)) {
+				return new Response('fehlt', { status: 404 });
+			}
+			dateien.delete(id);
+			return new Response(null, { status: 204 });
+		}
 		return new Response('unbekannt', { status: 405 });
 	};
 	return { holen, dateien, rufe };
@@ -257,5 +265,69 @@ describe('Ablage-GDrive: Adapter', () => {
 		const frischerAdapter = gdriveAdapter(verbindung);
 		assert.deepEqual(await frischerAdapter.lese('manifest.puls'), bytes('neuer stand'));
 		assert.deepEqual(await frischerAdapter.liste(), ['manifest.puls']);
+	});
+
+	it('löscht eine geschriebene Datei wirklich bei Drive', async () => {
+		const gd = drive();
+		const adapter = gdriveAdapter({ zugangsToken: 't-1', ordner: 'kanal-1', holen: gd.holen });
+		await adapter.schreibe('manifest.puls', bytes('x'));
+		assert.notEqual(await adapter.lese('manifest.puls'), null);
+		await adapter.lösche!('manifest.puls');
+		assert.equal(await adapter.lese('manifest.puls'), null);
+		assert.deepEqual(await adapter.liste(), []);
+	});
+
+	it('wirft nicht, wenn die zu löschende Datei schon fehlt', async () => {
+		const gd = drive();
+		const adapter = gdriveAdapter({ zugangsToken: 't-1', ordner: 'kanal-1', holen: gd.holen });
+		await adapter.lösche!('nie-geschrieben.puls');
+	});
+
+	it('löscht bei einer Namens-Dublette BEIDE Dateien, nicht nur die neuere', async () => {
+		// Begründung im Adapter: bliebe eine ältere Dublette liegen, würde
+		// `dateiIdHolen` sie beim nächsten Aufruf wiederfinden — der Nutzer
+		// hätte gelöscht und die Datei käme zurück.
+		const gd = drive();
+		const verbindung: GdriveVerbindung = { zugangsToken: 't-1', ordner: 'kanal-x', holen: gd.holen };
+		await gdriveAdapter(verbindung).liste(); // legt die Ordnerkette 'kanal-x' an
+		const ordnerId = [...gd.dateien.entries()].find(([, d]) => d.ordner && d.name === 'kanal-x')![0];
+		gd.dateien.set('id-alt', {
+			name: 'manifest.puls',
+			elternteil: ordnerId,
+			ordner: false,
+			inhalt: bytes('alter stand'),
+			modifiedTime: zeitstempel(1),
+		});
+		gd.dateien.set('id-neu', {
+			name: 'manifest.puls',
+			elternteil: ordnerId,
+			ordner: false,
+			inhalt: bytes('neuer stand'),
+			modifiedTime: zeitstempel(2),
+		});
+
+		const adapter = gdriveAdapter(verbindung);
+		await adapter.lösche!('manifest.puls');
+
+		assert.equal(gd.dateien.has('id-alt'), false);
+		assert.equal(gd.dateien.has('id-neu'), false);
+		assert.equal(await adapter.lese('manifest.puls'), null);
+	});
+
+	it('reicht ein abgewiesenes Löschen als GdriveFehler weiter', async () => {
+		const holen: typeof fetch = async (eingabe, init) => {
+			const url = new URL(String(eingabe));
+			if ((init?.method ?? 'GET') === 'GET' && url.pathname === '/drive/v3/files') {
+				return new Response(JSON.stringify({ files: [{ id: 'id-1', name: 'x.puls', modifiedTime: zeitstempel(1) }] }), {
+					status: 200,
+				});
+			}
+			if ((init?.method ?? 'GET') === 'DELETE') {
+				return new Response('verboten', { status: 403 });
+			}
+			return new Response('unbekannt', { status: 405 });
+		};
+		const adapter = gdriveAdapter({ zugangsToken: 't-1', ordner: 'k', holen });
+		await assert.rejects(() => adapter.lösche!('x.puls'), GdriveFehler);
 	});
 });

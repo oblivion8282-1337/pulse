@@ -333,5 +333,40 @@ export function gdriveAdapter(verbindung: GdriveVerbindung): AblageAdapter {
 			}
 			return [...nachName.keys()];
 		},
+
+		/**
+		 * Entfernt die Datei wirklich aus Drive.
+		 *
+		 * Dubletten-Entscheidung: fragt NICHT den Zwischenspeicher (der kennt
+		 * nur die zuletzt gesehene, per `neuesteWaehlen` „gültige" Id), sondern
+		 * sucht alle Dateien mit diesem Namen im Ordner und löscht JEDE davon.
+		 * Grund: bliebe eine ältere Dublette liegen, würde `dateiIdHolen` sie
+		 * beim nächsten Aufruf ganz regulär wiederfinden und als „die Datei"
+		 * behandeln — der Nutzer hätte gelöscht und die Datei käme zurück. Das
+		 * widerspricht dem Ziel des Aufrufs (danach ist sie nicht mehr da)
+		 * härter als das Liegenlassen einer Dublette beim Schreiben (dort gibt
+		 * es noch einen aktuellen, gültigen Stand unter demselben Namen).
+		 * Eine bereits fehlende Datei — kein Treffer, oder ein 404 auf eine
+		 * zwischenzeitlich verschwundene Id — ist kein Fehler.
+		 */
+		async lösche(datei) {
+			const ordner = await ordnerSichern();
+			const funde = await abfrage(
+				`name = '${datei}' and '${ordner}' in parents and trashed = false`,
+			);
+			dateiIdNachName.delete(datei);
+			for (const fund of funde) {
+				const antwort = await holen(`https://www.googleapis.com/drive/v3/files/${fund.id}`, {
+					method: 'DELETE',
+					headers: kopf,
+				});
+				if (antwort.status === 404) {
+					continue;
+				}
+				if (!antwort.ok) {
+					throw new GdriveFehler(`Delete ${datei} scheiterte: HTTP ${antwort.status}`);
+				}
+			}
+		},
 	};
 }

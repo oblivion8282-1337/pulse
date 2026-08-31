@@ -87,6 +87,14 @@ function server() {
 				{ status: 200 },
 			);
 		}
+		if (url.endsWith('/files/delete_v2')) {
+			const { path } = JSON.parse(initSafe.body as string) as { path: string };
+			if (!dateien.has(path)) {
+				return new Response(JSON.stringify({ error_summary: 'path_lookup/not_found/.' }), { status: 409 });
+			}
+			dateien.delete(path);
+			return new Response(JSON.stringify({ metadata: { path_lower: path } }), { status: 200 });
+		}
 		return new Response('unbekannt', { status: 404 });
 	};
 	return { holen, dateien, rufe };
@@ -157,5 +165,27 @@ describe('Ablage-Dropbox: Adapter', () => {
 		await adapter.schreibe('manifest.puls', bytes('x'));
 		assert.equal((aufgefrischt as { zugangsToken: string }).zugangsToken, 't-2');
 		assert.ok(rufe.some((r) => r.includes('Bearer t-2')));
+	});
+
+	it('löscht eine geschriebene Datei wirklich beim Server', async () => {
+		const box = server();
+		const adapter = dropboxAdapter({ zugangsToken: 't-1', ordner: 'k', holen: box.holen });
+		await adapter.schreibe('manifest.puls', bytes('x'));
+		assert.notEqual(await adapter.lese('manifest.puls'), null);
+		await adapter.lösche!('manifest.puls');
+		assert.equal(await adapter.lese('manifest.puls'), null);
+	});
+
+	it('wirft nicht, wenn die zu löschende Datei schon fehlt', async () => {
+		const box = server();
+		const adapter = dropboxAdapter({ zugangsToken: 't-1', ordner: 'k', holen: box.holen });
+		await adapter.lösche!('nie-geschrieben.puls');
+	});
+
+	it('reicht ein abgewiesenes Löschen als DropboxFehler weiter', async () => {
+		const holen: typeof fetch = async () =>
+			new Response(JSON.stringify({ error_summary: 'path_lookup/insufficient_permissions/.' }), { status: 409 });
+		const adapter = dropboxAdapter({ zugangsToken: 't-1', ordner: 'k', holen });
+		await assert.rejects(() => adapter.lösche!('x.puls'), DropboxFehler);
 	});
 });

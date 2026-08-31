@@ -187,5 +187,30 @@ export function dropboxAdapter(verbindung: DropboxVerbindung): AblageAdapter {
 			}
 			return namen;
 		},
+
+		/**
+		 * Entfernt die Datei wirklich aus dem App-Ordner. Ein 409 mit
+		 * `path_lookup/not_found` in der `error_summary` heißt „gibt es schon
+		 * nicht mehr" — das Ziel des Aufrufs (danach ist sie nicht mehr da)
+		 * ist damit bereits erreicht, ein Wurf würde einen Aufräumlauf zu
+		 * Unrecht abbrechen. Jeder andere Fehler wirft.
+		 */
+		async lösche(datei) {
+			const antwort = await holen(`${API}/2/files/delete_v2`, {
+				method: 'POST',
+				headers: { ...kopf, 'Content-Type': 'application/json' },
+				body: JSON.stringify({ path: vollerPfad(verbindung.ordner, datei) }),
+			});
+			if (antwort.status === 409) {
+				const zusammenfassung = await fehlermeldung(antwort);
+				if (zusammenfassung.includes('not_found')) {
+					return;
+				}
+				throw new DropboxFehler(`Delete ${datei} scheiterte: ${zusammenfassung}`);
+			}
+			if (!antwort.ok) {
+				throw new DropboxFehler(`Delete ${datei} scheiterte: ${await fehlermeldung(antwort)}`);
+			}
+		},
 	};
 }

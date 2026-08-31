@@ -11,9 +11,11 @@
  * von der Dateiablage ausschließlich die Kanalstruktur — keine Namen, keine
  * Größen, keine Bytes.
  *
- * Löschen entfernt den Eintrag aus dem Verzeichnis und die Datei vom
- * Laufwerk (wo der Adapter das anbietet — `lösche?` ist optional, vgl.
- * Sync-Ordner über `removeEntry`).
+ * Löschen entfernt den Eintrag aus dem Verzeichnis und die Datei physisch
+ * vom Laufwerk. `lösche?` bleibt im Adapter-Vertrag optional, weil der
+ * Gedächtnis-Adapter in Tests keinen echten Datenträger hat — jeder
+ * angebotene Anbieter (Sync-Ordner, WebDAV, Dropbox, Google Drive) setzt es
+ * um.
  */
 
 import {
