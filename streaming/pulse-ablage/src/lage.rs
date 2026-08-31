@@ -3,7 +3,7 @@
 //!
 //! **Abgetrennt von der Verdrahtung**, die bei jedem Verbraucher anders
 //! aussieht (im Player `App::ablage`/`ablage_takt`/`ablage_erfassung`, im
-//! Windows-Sidecar `ablage::mit_ablage` und der Takt-Faden): dort steht, WOHER
+//! Sidecar `ablage::mit` und der Takt-Faden): dort steht, WOHER
 //! ein Rahmen kommt und wohin die Antwort geht, hier steht, WAS er bedeutet.
 //! Der Schnitt ist nicht nur Zeilenkosmetik — er zieht die Deutung eines
 //! Rahmens ([`deuten`]) aus dem Rumpf des Verbrauchers heraus, wo sie
@@ -206,8 +206,9 @@ impl Ablagelage {
     /// daraufhin hinausgeht.
     ///
     /// **Die Zuordnung „Entscheidung → Wirkung" lag bis zum 2026-08-31
-    /// dreimal im Baum** — im Player (`App::ablage`), im Windows-Sidecar
-    /// (`ablage::abarbeiten`) und, mit dem macOS-Host, beinahe ein drittes Mal.
+    /// zweimal im Baum** — im Player (`App::ablage`) und im Windows-Sidecar
+    /// (`ablage::abarbeiten`); mit dem macOS-Host waere sie ein drittes Mal
+    /// abgeschrieben worden.
     /// Sie ist in allen drei Faellen Zeile fuer Zeile dieselbe, und sie ist
     /// nicht harmlos: wer hier einen Zweig vergisst, bekommt einen Anstoss, der
     /// auf einer Plattform wirkt und auf der anderen still verfaellt. Genau

@@ -2,7 +2,7 @@
 //!
 //! Jede Funktion hier ist ein Aufruf ans Betriebssystem und sonst nichts; die
 //! Rechnung darueber steht in [`super::faden`], die Zustandsfuehrung in
-//! [`crate::lage`]. Derselbe Schnitt wie `win-hq-sidecar/src/ablage/fach.rs`.
+//! [`crate::lage`]. Derselbe Schnitt wie [`crate::plattform::windows`].
 //!
 //! **Ungeprueft auf der Entwicklungsmaschine.** Belegt ist, dass diese Aufrufe
 //! uebersetzen (`cargo check --target aarch64-apple-darwin`); ihr Verhalten am

@@ -44,15 +44,17 @@ gibt es dort nicht.
 | Plattform | Wo | Warum dort |
 |---|---|---|
 | Wayland | Player (`src/fernsteuerung/wayland/ablage*`) | Er hält für die Zugerkennung bereits ein `wl_data_device` am Sitzplatz; ein zweites verdoppelte alle Ereignisse. |
-| Windows | Sidecar (`win-hq-sidecar/src/ablage/`) | Auf Windows ist nur der Sidecar Host — der Player dort ist Steuernder und teilt heute **nichts**. |
 | **macOS** | **hier** (`src/plattform/macos/`) | Auf macOS gibt es **beide** Rollen: der `mac-hq-sidecar` ist Host, der `pulse-player` der Steuernde. Beim Verbraucher läge dieselbe Umsetzung zweimal im Baum. |
+| **Windows** | **hier** (`src/plattform/windows/`) | Dasselbe: `win-hq-sidecar` als Host, `pulse-player` als Steuernder. Sie lag bis zum 2026-08-31 im Sidecar — deshalb teilte ein Windows-Nutzer als **Steuernder** nichts. |
 
-Die macOS-Umsetzung bringt als einzige Fremdabhängigkeiten mit — `objc2`,
-`objc2-app-kit`, `objc2-foundation` (+ transitiv `objc2-encode`), alle nur
-unter `cfg(target_os = "macos")` und mit knapp gehaltenen Merkmalslisten:
-`NSPasteboard` ist AppKit, ohne Bindungen dafür gäbe es dort gar keine
-Zwischenablage. Vom Nutzer am 2026-08-31 freigegeben; **die Grenze bleibt
-hart**, jede weitere braucht ihre eigene Entscheidung.
+Beide Kisten-Umsetzungen bringen Fremdabhängigkeiten mit, jede nur unter ihrem
+eigenen `cfg(target_os = …)`. macOS: `objc2`, `objc2-app-kit`,
+`objc2-foundation` (+ transitiv `objc2-encode`), mit knapp gehaltenen
+Merkmalslisten — `NSPasteboard` ist AppKit, ohne Bindungen dafür gäbe es dort
+gar keine Zwischenablage; vom Nutzer am 2026-08-31 freigegeben. Windows:
+`windows` 0.62, **kein neues Paket** — beide Verbraucher führen es ohnehin, und
+Merkmale stehen nicht im Lockfile. **Die Grenze bleibt hart**, jede weitere
+braucht ihre eigene Entscheidung.
 
 **Auf macOS gibt es keine Änderungs-Benachrichtigung** — `NSPasteboard.change`
 `Count` wird abgefragt (200 ms), und alle machen das so. Zwei Stücke der Kiste
@@ -69,14 +71,22 @@ Läuft ohne FFmpeg, ohne Fenster, ohne Netz — die Kiste ist reine Rechnung.
 88 Tests, warnungsfrei; `scripts/gate-rust.sh` fährt sie mit (er nimmt jede
 geänderte `streaming/pulse-*`, ohne sie einzeln zu nennen).
 
-**Der macOS-Teil ist davon NICHT gedeckt**, und das ist keine Nachlässigkeit,
-sondern die Lage: auf Linux wird er gar nicht übersetzt. Was auf einer
-Linux-Maschine geht, ist
+**Die Plattform-Teile sind davon NICHT gedeckt**, und das ist keine
+Nachlässigkeit, sondern die Lage: auf Linux werden sie gar nicht übersetzt. Was
+auf einer Linux-Maschine geht, ist
 
     cargo check --target aarch64-apple-darwin
+    cargo check --target x86_64-pc-windows-msvc
 
-(einmalig `rustup target add aarch64-apple-darwin`; es wird nur geprüft, nicht
-gebunden, deshalb braucht es kein macOS-SDK). Das belegt, dass er übersetzt —
-mehr nicht. Auf einem Mac fährt `cargo test` ihn mit, ohne die Zwischenablage
-des Entwicklers anzufassen: `plattform::macos::starten` steigt im Testbau vor
-dem Faden aus, wie die Wache im mac-Sidecar.
+(einmalig `rustup target add …`; es wird nur geprüft, nicht gebunden, deshalb
+braucht es weder macOS-SDK noch MSVC). `scripts/gate-rust.sh` fährt beide bei
+jeder Änderung an dieser Kiste — und die Windows-Prüfung hat beim Umzug am
+2026-08-31 sofort ein fehlendes `windows`-Merkmal gefangen
+(`Win32_Graphics_Gdi`, an dem `RegisterClassW` hängt), das im Sidecar nur
+zufällig dastand. Das belegt, dass sie übersetzen — mehr nicht.
+
+Auf der jeweils eigenen Plattform fährt `cargo test` den Teil mit, ohne die
+Zwischenablage des Entwicklers anzufassen: `starten` steigt im Testbau vor dem
+Faden aus, wie die Wache im mac-Sidecar. **Nur in den Tests DIESER Kiste** —
+für einen Verbraucher ist sie eine gewöhnliche Abhängigkeit, `cfg!(test)` gilt
+dort nicht (steht so am Code).

@@ -16,14 +16,12 @@
 //! nur noch die Verdrahtung an [`App`] (welche Sitzung, welche Plattform,
 //! wohin die Antwort) und das Ereignisformat des Players ([`ereignis`]).
 //!
-//! **Zwei Plattformen tragen hier**: Wayland
+//! **Drei Plattformen tragen hier**: Wayland
 //! (`crate::fernsteuerung::wayland::ablage`, im Player) und seit dem
-//! 2026-08-31 macOS (`pulse_ablage::plattform::macos`, in der Kiste — dort,
-//! weil auf macOS auch der Sidecar sie braucht). Auf X11 und Windows gibt es
-//! keine: dort laeuft dieselbe Zustandsmaschine mit [`KeineAblage`] weiter und
-//! beruehrt nichts. **Ein Windows-Nutzer kann als STEUERNDER also nichts
-//! teilen**, obwohl der Windows-Sidecar als Host es kann — die Umsetzung dort
-//! liegt im Sidecar, und der laeuft beim Steuernden nicht.
+//! 2026-08-31 macOS und Windows (`pulse_ablage::plattform::{macos, windows}`,
+//! in der Kiste — dort, weil auf beiden auch ein Sidecar sie braucht). Nur auf
+//! X11 gibt es keine: dort laeuft dieselbe Zustandsmaschine mit
+//! [`KeineAblage`] weiter und beruehrt nichts.
 //!
 //! **Zwei Anstoesse kommen NICHT von der Gegenseite** und stehen deshalb nicht
 //! in `pulse-ablage`: `neu_bitte` (nach einem `remote_reclaim` erneut
@@ -42,9 +40,17 @@ mod ereignis;
 
 pub(crate) use pulse_ablage::lage::{Ablagelage, Prozessablage};
 pub(crate) use pulse_ablage::plattform::{Ablageplattform, Ablagequelle, KeineAblage};
-#[cfg(target_os = "macos")]
-use pulse_ablage::plattform::macos::MacAblage;
 use ereignis::ablage_ereignis;
+
+// **Die beiden Plattformen aus der Kiste unter EINEM Namen.** Sie sind hier
+// Zeile fuer Zeile gleich — feldlose Struktur, Zustand am Prozess, ein Faden,
+// den erst die Erfassung aufstellt —, und ein zweiter `cfg`-Zweig waere eine
+// zweite Fassung derselben Entscheidung. Verschieden ist nur, was das
+// Betriebssystem daraus macht, und das steht in der Kiste.
+#[cfg(target_os = "macos")]
+use pulse_ablage::plattform::macos::{self as prozessablage, MacAblage as ProzessAblage};
+#[cfg(target_os = "windows")]
+use pulse_ablage::plattform::windows::{self as prozessablage, WinAblage as ProzessAblage};
 
 use pulse_ablage::format::Rahmen;
 
@@ -84,16 +90,15 @@ impl App {
         })
     }
 
-    /// **macOS: dieselbe Traeger-Regel wie auf Linux**, nur mit einer anderen
-    /// Plattform — die Umsetzung liegt seit dem 2026-08-31 in der Kiste
-    /// (`pulse_ablage::plattform::macos`), weil auf macOS auch der Sidecar sie
-    /// braucht.
+    /// **macOS und Windows: dieselbe Traeger-Regel wie auf Linux**, nur mit
+    /// einer anderen Plattform — die Umsetzung liegt seit dem 2026-08-31 in
+    /// der Kiste, weil dort auch ein Sidecar sie braucht.
     ///
-    /// Der Zustand haengt am Prozess (es gibt genau ein `NSPasteboard` je
-    /// Maschine und genau einen Eigner-Faden je Prozess) — [`MacAblage`] ist
-    /// deshalb feldlos, und die Frage „welche Sitzung haelt sie" wird hier
-    /// entschieden, nicht dort.
-    #[cfg(target_os = "macos")]
+    /// Der Zustand haengt am Prozess (es gibt genau ein Fach je Maschine und
+    /// genau einen Faden je Prozess) — [`ProzessAblage`] ist deshalb feldlos,
+    /// und die Frage „welche Sitzung haelt sie" wird hier entschieden, nicht
+    /// dort.
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn mit_ablage<R>(
         &mut self,
         id: u64,
@@ -103,16 +108,16 @@ impl App {
         let lage = &mut self.sessions.get_mut(&id)?.ablage;
         let prozess = &mut self.ablage_stand;
         Some(if traeger {
-            // Solange der Eigner-Faden nicht steht, meldet `MacAblage` selbst
+            // Solange der Faden nicht steht, meldet die Plattform selbst
             // `wirksam() == false` und ruehrt nichts an — es braucht hier
             // keinen zweiten Riegel, der dasselbe noch einmal entscheidet.
-            f(lage, prozess, &mut MacAblage)
+            f(lage, prozess, &mut ProzessAblage)
         } else {
             f(lage, prozess, &mut KeineAblage)
         })
     }
 
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     fn mit_ablage<R>(
         &mut self,
         id: u64,
@@ -195,13 +200,14 @@ impl App {
     /// wenn dessen Verbindung vorher abreisst.
     pub(super) fn ablage_erfassung(&mut self, id: u64, aktiv: bool) {
         if aktiv {
-            // **Auf macOS stellt erst dieser Ruf den Eigner-Faden auf.** Auf
-            // Wayland gibt es die Verbindung ohnehin (sie traegt auch den Zug
-            // ueber die Fenstergrenze); macOS hat nichts Vergleichbares, und
-            // ein Faden, der die Zwischenablage des Nutzers beobachtet, soll
-            // nicht laufen, solange niemand fernsteuert. Idempotent.
-            #[cfg(target_os = "macos")]
-            if let Err(grund) = pulse_ablage::plattform::macos::starten() {
+            // **Auf macOS und Windows stellt erst dieser Ruf den Faden auf.**
+            // Auf Wayland gibt es die Verbindung ohnehin (sie traegt auch den
+            // Zug ueber die Fenstergrenze); die beiden anderen haben nichts
+            // Vergleichbares, und ein Faden, der die Zwischenablage des
+            // Nutzers beobachtet, soll nicht laufen, solange niemand
+            // fernsteuert. Idempotent.
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            if let Err(grund) = prozessablage::starten() {
                 eprintln!(
                     "[ablage] Zwischenablage nicht verfuegbar ({grund}) — \
                      auf dieser Maschine wird nichts geteilt."
@@ -295,13 +301,13 @@ impl App {
 
     /// Das Prozessende — **nach** dem letzten `ablage_abbau`.
     ///
-    /// Nur macOS hat hier etwas zu tun: der Eigner-Faden gehoert dem Prozess,
-    /// nicht einer Sitzung. Die Reihenfolge ist dieselbe wie bei
+    /// Nur macOS und Windows haben hier etwas zu tun: ihr Faden gehoert dem
+    /// Prozess, nicht einer Sitzung. Die Reihenfolge ist dieselbe wie bei
     /// `wayland_zug.schliessen()`: erst das Eigentum abgeben (das laeuft ueber
     /// genau diesen Faden), dann ihn abbauen.
     pub(super) fn ablage_prozess_ende(&mut self) {
-        #[cfg(target_os = "macos")]
-        pulse_ablage::plattform::macos::stoppen();
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        prozessablage::stoppen();
     }
 
     fn ablage_melden(&self, id: u64, hinaus: &[Rahmen]) {

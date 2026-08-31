@@ -12,6 +12,13 @@
 #[cfg(target_os = "macos")]
 pub mod macos;
 
+/// Die Windows-Umsetzung — aus demselben Grund hier, seit dem 2026-08-31: sie
+/// lag im `win-hq-sidecar`, solange Windows nur den Host kannte; mit dem
+/// Steuernden im Player hat sie zwei Verbraucher (Begruendung im Modulkopf
+/// dort).
+#[cfg(target_os = "windows")]
+pub mod windows;
+
 use crate::beobachter::Beobachter;
 use crate::eigentum::Eigentum;
 
@@ -44,9 +51,10 @@ pub trait Ablagequelle {
     ///
     /// Nur dafuer da, dass die Oberflaeche nichts verspricht, was nicht
     /// stattfindet ([`KeineAblage`] liefert `false`). **An der tatsaechlichen
-    /// Verfuegbarkeit, nicht an `cfg`** — dann traegt der Schalter auch, wenn
-    /// Plan 1b-2 und 1c die uebrigen Plattformen nachreichen, und er
-    /// verschwindet auf einem Linux-Rechner ohne Wayland-Datengeraet.
+    /// Verfuegbarkeit, nicht an `cfg`** — der Schalter trug deshalb ohne
+    /// Zutun, als macOS und Windows nachkamen, und er verschwindet auf einem
+    /// Linux-Rechner ohne Wayland-Datengeraet ebenso wie auf einer Maschine,
+    /// auf der der Fensterfaden nicht aufzustellen war.
     fn wirksam(&self) -> bool;
 
     /// Das Lesen der FREMDEN Auswahl eroeffnen, ohne darauf zu warten.
@@ -71,7 +79,7 @@ pub trait Ablagequelle {
 ///
 /// **Als Objekt-Trait gefuehrt** (`&mut dyn Ablageplattform`), damit der
 /// Ablauf darueber EINE Fassung hat statt einer je Plattform (im Player
-/// `App::mit_ablage`, im Windows-Sidecar `ablage::mit_ablage`): die Umsetzung
+/// `App::mit_ablage`, in den beiden Sidecars `ablage::mit`): die Umsetzung
 /// unterscheidet sich zwischen Wayland, Windows und dem Rest, der Ablauf
 /// darueber nicht.
 pub trait Ablageplattform: Beobachter + Eigentum + Ablagequelle {}
@@ -79,11 +87,11 @@ impl<T: Beobachter + Eigentum + Ablagequelle> Ablageplattform for T {}
 
 /// Die Plattform, die es an dieser Stelle (noch) nicht gibt.
 ///
-/// Im Player heisst das X11 und Windows (dort traegt Wayland, und seit dem
-/// 2026-08-31 auch macOS ueber [`macos`]); im Windows- und im macOS-Sidecar
-/// jede Sitzung, die nicht Traeger ist. **Der Name meint „hier keine", nicht
-/// „auf diesem Betriebssystem keine"** — die Windows-Umsetzung gibt es, nur
-/// eben im Sidecar und nicht im Player.
+/// Im Player heisst das X11 (Wayland traegt dort, macOS ueber [`macos`] und
+/// Windows ueber [`windows`]); in den Sidecars und im Player jede Sitzung, die
+/// nicht Traeger ist. **Der Name meint „hier keine", nicht „auf diesem
+/// Betriebssystem keine"** — auf einem Linux-Rechner ohne Wayland-Datengeraet
+/// gibt es keine, obwohl es die Umsetzung gibt.
 ///
 /// **Kein Fehlerfall.** Die Zustandsmaschine laeuft trotzdem — sie meldet nie
 /// eine Aenderung, beansprucht nichts und liefert nichts. Damit gibt es genau

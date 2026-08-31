@@ -63,3 +63,43 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
     "NSObjCRuntime",
     "NSThread",
 ] }
+
+# ---------------------------------------------------------------------------
+# Windows — dieselbe Lage wie bei macOS, nur ein halbes Jahr spaeter bemerkt:
+# die Umsetzung (`plattform/windows/`) lag im `win-hq-sidecar`, solange Windows
+# nur den Host kannte. Der `pulse-player` ist der zweite Verbraucher, und im
+# Sidecar erreichbar heisst fuer ihn gar nicht erreichbar.
+#
+# **Keine neue Fremdquelle, und das ist der Grund, warum diese Zeile ohne
+# eigene Nachmessung durchgeht:** die `windows`-Kiste steht in beiden
+# Verbraucher-Lockfiles bereits, in derselben Fassung 0.62 (nachgesehen in
+# `win-hq-sidecar/Cargo.toml` und `pulse-player/Cargo.lock`, nicht angenommen).
+# Merkmale sind additiv und stehen nicht im Lockfile — es kommt also kein Paket
+# hinzu.
+#
+# **Die Merkmalsliste ist knapp gehalten**: genau die vier Bereiche, die
+# `fenster.rs`, `auftragsbuch.rs` und `fach.rs` anfassen, und keiner mehr. Die
+# Grenze bleibt hart — jede weitere Abhaengigkeit braucht ihre eigene
+# Nachmessung und ihre eigene Entscheidung.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    # **Nicht offensichtlich, und die Uebersetzung gegen den Zielsatz hat es
+    # gefangen:** `RegisterClassW`/`WNDCLASSW` haengen in windows-rs an
+    # `Win32_Graphics_Gdi` (die Klasse traegt Pinsel und Zeiger), obwohl das
+    # Fenster hier nie zeichnet. Im Sidecar fiel das nicht auf — dort stand das
+    # Merkmal fuer die Bildschirm-Aufzaehlung ohnehin da (fenster.rs)
+    "Win32_Graphics_Gdi",
+    # AddClipboardFormatListener, OpenClipboard, SetClipboardData: Beobachtung
+    # und verzoegertes Rendern (fenster.rs, fach.rs)
+    "Win32_System_DataExchange",
+    # GlobalAlloc/GlobalLock: der bewegliche Speicher, den SetClipboardData
+    # verlangt (fach.rs)
+    "Win32_System_Memory",
+    # CF_UNICODETEXT — die Zwischenablage-Formate liegen in windows-rs unter
+    # Ole (fenster.rs, fach.rs)
+    "Win32_System_Ole",
+    # HWND_MESSAGE, GetMessageW, PostMessageW: das nur fuer Nachrichten
+    # sichtbare Fenster und sein Faden (fenster.rs, auftragsbuch.rs)
+    "Win32_UI_WindowsAndMessaging",
+] }

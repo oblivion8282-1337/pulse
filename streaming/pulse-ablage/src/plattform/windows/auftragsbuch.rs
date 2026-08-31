@@ -2,7 +2,8 @@
 //! an der Zwischenablage zu tun — und wie sie erfaehrt, dass es geschehen ist.
 //!
 //! **Abgetrennt von [`super::fenster`] der Groesse wegen** (`PLAN.md` §12.1);
-//! der Schnitt liegt an einer Naht: dort steht der Faden selbst (Fenster,
+//! der Schnitt liegt an derselben Naht wie auf macOS
+//! ([`crate::plattform::macos`]): dort steht der Faden selbst (Fenster,
 //! Nachrichtenschleife, der blockierende Rendervorgang), hier das Protokoll
 //! zwischen den beiden Faeden.
 //!
@@ -14,8 +15,8 @@
 //!
 //! **Synchron, und das ist tragend:** die Buchfuehrung darueber, ob wir die
 //! Ablage halten, fragt unmittelbar nach dem Auftrag die Plattform
-//! (`pulse_ablage::lage::takt::freigeben`). Liefe der Auftrag nebenher, meldete
-//! sie den Stand von vorher — und der Vorbestand des Nutzers haengt daran.
+//! (`crate::lage::takt::freigeben`). Liefe der Auftrag nebenher, meldete sie
+//! den Stand von vorher — und der Vorbestand des Nutzers haengt daran.
 
 use std::sync::Mutex;
 use std::sync::atomic::Ordering;
@@ -25,20 +26,20 @@ use std::time::Duration;
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
-use super::fach;
-use super::fenster::{self, geteilt};
+use super::{fach, fenster, stand};
 
 /// Wie lange ein Auftraggeber auf den Fensterfaden wartet.
 ///
 /// **Gefolgert, nicht gemessen.** Im Regelfall ist der Faden untaetig und
 /// antwortet in Mikrosekunden; die Frist deckt den einen Fall ab, in dem er
 /// gerade in einem Rendervorgang steht — der wird durch
-/// [`Ablagestand::abbrechen`] sofort aufgeloest, sobald ein Auftrag ansteht.
+/// [`crate::stand::Ablagestand::abbrechen`] sofort aufgeloest, sobald ein
+/// Auftrag ansteht.
 ///
 /// **Was ein Fristablauf kostet, haengt am Auftrag**, und der frueher hier
 /// stehende Satz „kostet ein Einfuegen, nie einen falschen Inhalt" stimmte nur
 /// fuer [`Auftrag::Lesen`] (Befund B6). Bei [`Auftrag::Freigeben`] liest
-/// `pulse_ablage::lage::takt::freigeben` unmittelbar danach `p.eigentuemer()`
+/// `crate::lage::takt::freigeben` unmittelbar danach `p.eigentuemer()`
 /// und entscheidet daran ueber den gemerkten Vorbestand — ein veralteter Stand
 /// kann ihn faelschlich verwerfen oder stehen lassen. Deshalb wird der Auftrag
 /// beim Fristablauf **entnommen** statt liegengelassen: er soll nicht beim
@@ -69,16 +70,16 @@ pub(super) enum Auftrag {
 ///
 /// **Synchron, und das ist tragend:** die Buchfuehrung darueber, ob wir die
 /// Ablage halten, fragt unmittelbar danach die Plattform
-/// (`Ablagelage::freigeben`). Liefe der Auftrag nebenher, meldete sie den
-/// Stand von vorher — und der Vorbestand des Nutzers haenge davon ab.
+/// (`crate::lage::takt::freigeben`). Liefe der Auftrag nebenher, meldete sie
+/// den Stand von vorher — und der Vorbestand des Nutzers haengt daran.
 pub(super) fn geben(a: Auftrag) {
     let Some(h) = fenster::hwnd() else { return };
     let nr = AUFTRAG_NR.fetch_add(1, Ordering::Relaxed);
     let (fertig, warten) = channel::<()>();
     AUFTRAEGE.lock().unwrap_or_else(|e| e.into_inner()).push((nr, a, fertig));
     // Ein wartender Rendervorgang haelt den Faden fest; er gibt ihn frei,
-    // sobald etwas ansteht (s. [`rendern`]).
-    geteilt().abbrechen();
+    // sobald etwas ansteht (s. `fenster::rendern`).
+    stand().abbrechen();
     if unsafe { PostMessageW(Some(h), fenster::WM_PULSE_ABLAGE, WPARAM(0), LPARAM(0)) }.is_err() {
         // **Den eigenen Auftrag wieder entnehmen** (Befund B6). Bliebe er
         // liegen, liefe er beim naechsten `WM_PULSE_ABLAGE` ausser der Reihe —
@@ -107,7 +108,7 @@ pub(super) fn abarbeiten(h: HWND) {
     for (_nr, a, fertig) in offen {
         match a {
             Auftrag::Beanspruchen => match fach::beanspruchen(h) {
-                Ok(()) => geteilt().selbst_geaendert(true),
+                Ok(()) => stand().selbst_geaendert(true),
                 Err(grund) => eprintln!(
                     "[ablage] Zwischenablage nicht beansprucht ({grund}) — \
                      ein Einfuegen auf dieser Maschine bleibt leer."
@@ -118,20 +119,20 @@ pub(super) fn abarbeiten(h: HWND) {
                     // Zurueckgeschrieben heisst: eine neue eigene Belegung mit
                     // dem gemerkten Text. Wir bleiben Eigentuemer, aber was in
                     // der Ablage liegt, gehoert wieder dem Nutzer.
-                    Ok(()) => geteilt().selbst_geaendert(true),
+                    Ok(()) => stand().selbst_geaendert(true),
                     Err(grund) => eprintln!(
                         "[ablage] Vorbestand nicht zurueckgeschrieben ({grund}) — \
                          die Ablage bleibt, wie sie ist."
                     ),
                 },
                 None => match fach::raeumen() {
-                    Ok(()) => geteilt().selbst_geaendert(false),
+                    Ok(()) => stand().selbst_geaendert(false),
                     Err(grund) => eprintln!("[ablage] Ablage nicht geraeumt ({grund})."),
                 },
             },
             Auftrag::Lesen => {
                 let text = fach::lesen(h);
-                geteilt().lesen_fertig(text);
+                stand().lesen_fertig(text);
             }
         }
         let _ = fertig.send(());

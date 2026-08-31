@@ -8,21 +8,26 @@
 //! (`WM_RENDERFORMAT`), waehrend das einfuegende Programm wartet — und wir in
 //! dieser Zeit auf einen Netz-Umlauf warten (rund 0,4 s, im schlechtesten Fall
 //! die volle Abruf-Frist von 2 s). Der Rueckruf darf deshalb auf keinem Faden
-//! liegen, der etwas anderes traegt:
+//! liegen, der etwas anderes traegt — im Sidecar waeren das zwei:
 //!
-//! * nicht auf dem Dispatch-Faden — der beantwortet die stdio-Operationen,
-//!   auch die der Fernsteuerung;
-//! * **nicht auf dem Hook-Faden der Vorrang-Wache** (`remote_input::wache`):
+//! * nicht der Dispatch-Faden — der beantwortet die stdio-Operationen, auch
+//!   die der Fernsteuerung;
+//! * **nicht der Hook-Faden der Vorrang-Wache** (`remote_input::wache`):
 //!   Windows haengt einen Hook, dessen Faden nicht binnen
 //!   `LowLevelHooksTimeout` (Vorgabe 300 ms) antwortet, **stillschweigend ab**.
 //!   Der Vorrang des Hosts fiele damit aus, und zwar unbemerkt.
 //!
-//! ## Und warum es ZWEI eigene Faeden sind
+//! Im Player traegt der eine Faden, der nicht in Frage kommt, Bild **und**
+//! Eingabeerfassung (die winit-Schleife).
 //!
-//! Der Takt (`super::takt_starten`) laeuft nicht hier. Er muss weiterlaufen,
-//! **waehrend** dieser Faden in `WM_RENDERFORMAT` blockiert — sonst liefe die
-//! Abruf-Frist nie ab, und genau sie ist es, die dem wartenden Programm die
-//! leere Antwort zustellt. Ein Faden, der auf sich selbst wartet, haengt.
+//! ## Und warum der Takt NICHT hier liegt
+//!
+//! Er muss weiterlaufen, **waehrend** dieser Faden in `WM_RENDERFORMAT`
+//! blockiert — sonst liefe die Abruf-Frist nie ab, und genau sie ist es, die
+//! dem wartenden Programm die leere Antwort zustellt (`crate::lage::takt`,
+//! Schritt 2). Ein Faden, der auf sich selbst wartet, haengt. Der Takt gehoert
+//! deshalb dem Verbraucher (im Sidecar ein eigener Faden, im Player die
+//! Schleife).
 //!
 //! ## Die Sperre wird nie ueber einen Win32-Aufruf gehalten
 //!
@@ -32,14 +37,12 @@
 //! sperren, oder erst sperren, dann loslassen und aufrufen.
 //!
 //! **Ungeprueft auf der Entwicklungsmaschine**, wie alles Windows-Eigene hier:
-//! belegt ist nur, dass die API-Aufrufe uebersetzen (Wegwerf-Crate mit der
-//! `windows`-Kiste gegen `x86_64-pc-windows-msvc`). Die Rechnung darueber
-//! steht vollstaendig in `pulse_ablage` (`lage` und `stand`) und ist dort
-//! gefahren.
+//! belegt ist nur, dass die API-Aufrufe uebersetzen (`cargo check --target
+//! x86_64-pc-windows-msvc`). Die Rechnung darueber steht vollstaendig in
+//! [`crate::lage`] und [`crate::stand`] und ist dort gefahren.
 
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::mpsc::{Sender, channel};
-use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
@@ -55,8 +58,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{PCWSTR, w};
 
-use super::fach;
-use pulse_ablage::stand::Ablagestand;
+use super::{fach, stand};
 
 /// Unsere eigene Nachricht: „im Auftragsbuch steht etwas".
 pub(super) const WM_PULSE_ABLAGE: u32 = WM_APP + 0x51;
@@ -71,25 +73,19 @@ const WM_PULSE_ENDE: u32 = WM_APP + 0x52;
 
 /// Wie lange ein `WM_RENDERFORMAT` hoechstens wartet.
 ///
-/// **Ueber `pulse_ablage::sitzung::ABRUF_FRIST_MS` (2 s)**, damit im Regelfall
-/// die Frist der Zustandsmaschine zuerst greift und eine geordnete leere
-/// Antwort zustellt. Diese hier ist nur das Netz darunter — fuer den Fall,
-/// dass der Takt-Faden gar nicht mehr laeuft. Ohne sie stuende das einfuegende
-/// Programm unbegrenzt.
+/// **Ueber `crate::sitzung::ABRUF_FRIST_MS` (2 s)**, damit im Regelfall die
+/// Frist der Zustandsmaschine zuerst greift und eine geordnete leere Antwort
+/// zustellt. Diese hier ist nur das Netz darunter — fuer den Fall, dass der
+/// Takt des Verbrauchers gar nicht mehr laeuft. Ohne sie stuende das
+/// einfuegende Programm unbegrenzt.
 const RENDER_FRIST: Duration = Duration::from_millis(2_500);
 
 /// Wartetakt der Schleife in [`rendern`].
 const RENDER_TAKT: Duration = Duration::from_millis(2);
 
-static GETEILT: Mutex<Ablagestand> = Mutex::new(Ablagestand::neu());
-
 /// Das Fenster, solange der Faden steht — als Zahl, weil `HWND` nicht `Send`
 /// ist. `0` heisst „keines".
 static FENSTER: AtomicIsize = AtomicIsize::new(0);
-
-pub(super) fn geteilt() -> MutexGuard<'static, Ablagestand> {
-    GETEILT.lock().unwrap_or_else(|e| e.into_inner())
-}
 
 /// Steht der Fensterfaden? Grundlage von `Ablagequelle::wirksam` — die
 /// Oberflaeche soll nichts versprechen, was nicht stattfindet.
@@ -109,10 +105,18 @@ pub(super) fn starten() -> Result<(), String> {
     if steht() {
         return Ok(());
     }
-    // **Im Testbau kein echtes Fenster und kein echter Zugriff auf die
-    // Zwischenablage des Entwicklers.** Dieselbe Zurueckhaltung wie in
-    // `remote_input::wache::starten`; `steht()` bleibt damit `false`, die
+    // **In den Tests DIESER Kiste kein echtes Fenster und kein echter Zugriff
+    // auf die Zwischenablage des Entwicklers**; `steht()` bleibt `false`, die
     // Zustandsmaschine laeuft gegen eine Plattform, die nichts beruehrt.
+    //
+    // **Weiter reicht es nicht, und das steht hier, damit es niemand annimmt:**
+    // uebersetzt ein Verbraucher seine eigenen Tests, ist diese Kiste fuer ihn
+    // eine gewoehnliche Abhaengigkeit — `cfg!(test)` ist dort `false`. Der
+    // Schutz lag bis zum Umzug am 2026-08-31 im Sidecar und galt fuer dessen
+    // `cargo test`; heute erreicht ihn kein Test eines Verbrauchers
+    // (nachgesehen in `win-hq-sidecar` und `pulse-player`), denn [`starten`]
+    // haengt am Anstoss `beginn`. Wer je einen Test schreibt, der ihn ausloest,
+    // braucht seinen eigenen Riegel.
     if cfg!(test) {
         return Ok(());
     }
@@ -205,7 +209,7 @@ unsafe extern "system" fn fensterruf(h: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             // die Sperre darf nie ueber einen solchen Aufruf gehalten werden.
             let eigner = unsafe { GetClipboardOwner() }.is_ok_and(|o| o == h);
             let text_da = unsafe { IsClipboardFormatAvailable(CF_UNICODETEXT.0 as u32) }.is_ok();
-            geteilt().systemmeldung(eigner, text_da);
+            stand().systemmeldung(eigner, text_da);
             LRESULT(0)
         }
         WM_RENDERFORMAT if w.0 as u16 == CF_UNICODETEXT.0 => {
@@ -241,10 +245,10 @@ unsafe extern "system" fn fensterruf(h: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
 /// Ein Einfuegen, das nichts einfuegt, versteht jeder; ein haengendes Programm
 /// nicht.
 fn rendern() {
-    geteilt().warten_beginnen();
+    stand().warten_beginnen();
     let ende = Instant::now() + RENDER_FRIST;
     let text = loop {
-        if let Some(t) = geteilt().antwort_nehmen() {
+        if let Some(t) = stand().antwort_nehmen() {
             break t;
         }
         if Instant::now() >= ende {
@@ -259,7 +263,7 @@ fn rendern() {
     if let Ok(hmem) = fach::text_speicher(&text) {
         let _ = unsafe { SetClipboardData(CF_UNICODETEXT.0 as u32, Some(hmem)) };
     }
-    geteilt().warten_beenden();
+    stand().warten_beenden();
 }
 
 /// Den Faden abbauen. **Ohne auf ihn zu warten** — dieser Weg laeuft auch beim

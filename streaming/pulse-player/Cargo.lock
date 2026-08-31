@@ -3163,6 +3163,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "pulse-fernsteuerung",
  "serde_json",
+ "windows",
 ]
 
 [[package]]

@@ -1,13 +1,14 @@
 //! Die geteilte Zwischenablage auf macOS — `NSPasteboard`.
 //!
 //! **Warum diese Umsetzung in der Kiste liegt und nicht beim Verbraucher.**
-//! Windows steht im Sidecar (nur er ist dort Host), Wayland im Player (nur er
-//! ist dort Steuernder) — auf macOS gibt es **beide** Rollen: der
-//! `mac-hq-sidecar` ist Host, der `pulse-player` der Steuernde. Und beide
-//! Haelften einer Zwischenablage sind spiegelbildlich gleich (Entwurf: „Es gibt
-//! keine Sender- und keine Empfaengerseite"): dieselben drei Traits, dieselben
-//! Aufrufe. Beim Verbraucher laege der Code deshalb ZWEIMAL im Baum — genau der
-//! Fehler, gegen den die gemeinsamen Kisten gebaut sind.
+//! Wayland steht im Player (nur er ist dort Steuernder, Linux kann nicht Host
+//! sein) — auf macOS gibt es **beide** Rollen: der `mac-hq-sidecar` ist Host,
+//! der `pulse-player` der Steuernde. Und beide Haelften einer Zwischenablage
+//! sind spiegelbildlich gleich (Entwurf: „Es gibt keine Sender- und keine
+//! Empfaengerseite"): dieselben drei Traits, dieselben Aufrufe. Beim
+//! Verbraucher laege der Code deshalb ZWEIMAL im Baum — genau der Fehler, gegen
+//! den die gemeinsamen Kisten gebaut sind. **Windows lag genau deshalb falsch**
+//! und ist am 2026-08-31 nachgezogen ([`crate::plattform::windows`]).
 //!
 //! ## Was macOS anders macht als die beiden anderen
 //!
@@ -58,8 +59,8 @@ use auftragsbuch::Auftrag;
 /// Der Stand zwischen dem Eigner-Faden und dem Takt des Verbrauchers.
 ///
 /// **Am PROZESS, nicht an dieser Struktur**: es gibt genau ein Fach je Maschine
-/// und genau einen Eigner-Faden je Prozess. Dieselbe Bauart wie im
-/// Windows-Sidecar.
+/// und genau einen Eigner-Faden je Prozess. Dieselbe Bauart wie auf Windows
+/// ([`crate::plattform::windows`]).
 static GETEILT: Mutex<Ablagestand> = Mutex::new(Ablagestand::neu());
 
 fn stand() -> MutexGuard<'static, Ablagestand> {

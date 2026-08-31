@@ -1,18 +1,24 @@
 //! Die geteilte Zwischenablage der Fernsteuerung — die Host-Haelfte auf
 //! Windows.
 //!
-//! **Der Mechanismus ist verzoegertes Rendern** und liegt vollstaendig in
+//! **Der Mechanismus ist verzoegertes Rendern**, und er liegt vollstaendig in
 //! `pulse_ablage`: beim Kopieren geht nur eine Ankuendigung hinaus, der Inhalt
-//! erst, wenn drueben jemand tatsaechlich einfuegt. Diese Datei verdrahtet ihn
-//! mit dem Sidecar — welcher Rahmen wohin, wer taktet, wann Schluss ist.
+//! erst, wenn drueben jemand tatsaechlich einfuegt. **Seit dem 2026-08-31 liegt
+//! dort auch die Windows-Umsetzung** (`pulse_ablage::plattform::windows`) — der
+//! Fensterfaden, das Auftragsbuch und die Win32-Vorgaenge auf dem Fach. Sie
+//! stand bis dahin hier, was den `pulse-player` von ihr abschnitt: ein
+//! Windows-Nutzer als STEUERNDER teilte deshalb nichts, obwohl derselbe Rechner
+//! als Host es konnte.
 //!
-//! **Was hier NICHT liegt, und das ist der groessere Teil:** die
+//! Diese Datei ist nur die Verdrahtung mit dem Sidecar — welcher Wert wohin,
+//! wer taktet, wann Schluss ist. Genau das laesst sich nicht teilen: der Player
+//! taktet in seiner Fensterschleife und fuehrt eine Zustandsmaschine je
+//! Sitzung, hier gibt es eine je Prozess und einen eigenen Takt-Faden.
+//!
+//! **Was hier ebenfalls NICHT liegt, und das ist der groessere Teil:** die
 //! Zustandsfuehrung (`pulse_ablage::lage`, 28 Tests) und die Buchfuehrung
 //! ueber eigene und fremde Aenderungen (`pulse_ablage::stand`, 7 Tests) —
 //! beides plattformfrei und in jedem Gate gefahren, das diese Kiste anfasst.
-//! Hier bleiben der Faden samt Nachrichtenfenster ([`fenster`]), die
-//! Win32-Vorgaenge auf dem Fach selbst ([`fach`]), die Trait-Umsetzung
-//! ([`quelle`]) und die Verdrahtung.
 //!
 //! ## Ein Prozess je Platz, eine Zwischenablage je Maschine
 //!
@@ -44,18 +50,12 @@
 //! laeuft hier nichts mehr, und die Ablage des Nutzers bleibt leer. Ungeloest;
 //! ohne einen zweiten Halter ausserhalb dieses Prozesses auch nicht loesbar.
 
-mod auftragsbuch;
-mod fach;
-mod fenster;
-mod quelle;
-
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use pulse_ablage::format::Rahmen;
 use pulse_ablage::lage::{Ablagelage, Anstoss, Entscheidung, Prozessablage, deuten};
 use pulse_ablage::plattform::Ablageplattform;
-
-use quelle::WinAblage;
+use pulse_ablage::plattform::windows::{self as ablage, WinAblage};
 
 /// Hoechstens so viele Werte warten auf den Takt-Faden.
 ///
@@ -103,13 +103,13 @@ fn mit<R>(f: impl FnOnce(&mut Ablagelage, &mut Prozessablage, &mut dyn Ablagepla
 /// **Diese Funktion arbeitet ihn NICHT ab, sie reiht ihn ein.** Sie laeuft auf
 /// dem Dispatch-Faden, und auf dem liegt auch `remote_input` — die
 /// Eingabe-Injektion der Fernsteuerung. Die Abarbeitung fasst die Plattform an
-/// und kann dabei bis zu `auftragsbuch::AUFTRAG_FRIST` (500 ms) auf den
-/// Fensterfaden warten; realistisch sind Mikrosekunden, aber der **Deckel**
-/// waere eine halbe Sekunde stockende Eingabe. Der Entwurf verbietet dem
-/// blockierenden Rueckruf den Injektionsfaden ausdruecklich; diese Operation
-/// hing bis zum Prueflauf von 1b-2 trotzdem daran (Befund B9). Sie tut es
-/// nicht mehr: gedeutet und beantwortet wird auf dem Takt-Faden, und der
-/// naechste Takt ist hoechstens [`TAKT_MS`] entfernt.
+/// und kann dabei bis zu einer Auftrags-Frist (500 ms) auf den Fensterfaden
+/// warten; realistisch sind Mikrosekunden, aber der **Deckel** waere eine halbe
+/// Sekunde stockende Eingabe. Der Entwurf verbietet dem blockierenden Rueckruf
+/// den Injektionsfaden ausdruecklich; diese Operation hing bis zum Prueflauf
+/// von 1b-2 trotzdem daran (Befund B9). Sie tut es nicht mehr: gedeutet und
+/// beantwortet wird auf dem Takt-Faden, und der naechste Takt ist hoechstens
+/// [`TAKT_MS`] entfernt.
 ///
 /// **Was hier bleibt, ist der Start.** `beginn` stellt den Fensterfaden und
 /// den Takt-Faden auf — vorher gibt es niemanden, der die Warteschlange
@@ -124,7 +124,7 @@ fn mit<R>(f: impl FnOnce(&mut Ablagelage, &mut Prozessablage, &mut dyn Ablagepla
 /// Parser**, sondern dieselbe Funktion, einmal vorab gefragt.
 pub fn verarbeiten(data: &serde_json::Value) {
     if matches!(deuten(data), Entscheidung::Anstoss(Anstoss::Beginn)) {
-        if let Err(grund) = fenster::starten() {
+        if let Err(grund) = ablage::starten() {
             eprintln!(
                 "[ablage] Zwischenablage nicht verfuegbar ({grund}) — \
                  auf dieser Maschine wird nichts geteilt."
@@ -178,9 +178,8 @@ fn takt_starten() {
             std::thread::sleep(std::time::Duration::from_millis(TAKT_MS));
             // Erst das Eingereihte, dann der Takt: ein `beginn` oder ein
             // `neu`, das gerade eintraf, soll noch in DIESEM Durchlauf wirken.
-            let offen = std::mem::take(
-                &mut *warteschlange().lock().unwrap_or_else(|e| e.into_inner()),
-            );
+            let offen =
+                std::mem::take(&mut *warteschlange().lock().unwrap_or_else(|e| e.into_inner()));
             for data in offen {
                 abarbeiten(&data);
             }
@@ -206,11 +205,11 @@ fn takt_starten() {
 /// hatte, ist still weg. Genau der Schaden, gegen den der Vorbestand gebaut
 /// ist.
 pub fn beenden_endgueltig() {
-    if !fenster::steht() {
+    if !ablage::steht() {
         return;
     }
     mit(|lage, prozess, p| lage.ende(prozess, p));
-    fenster::stoppen();
+    ablage::stoppen();
 }
 
 /// Was hinausgeht, geht als Ereignis an Electron — von dort weiter an den

@@ -72,8 +72,9 @@ einfügt. Entwurf `docs/superpowers/specs/2026-08-31-fernsteuerung-zwischenablag
 Kern in `streaming/pulse-ablage` (dort auch das README).
 
 **Wer sie heute hat, genau:** als **Host** Windows und macOS; als **Steuernder**
-Linux (Wayland) und macOS. Die eine Lücke ist der **Steuernde auf Windows** —
-dort liegt die Umsetzung im Sidecar, und der läuft beim Steuernden nicht.
+Linux (Wayland), macOS und — seit dem 2026-08-31 — Windows. Damit ist jede
+Rolle abgedeckt, die es gibt; dass Linux nicht Host sein kann, liegt an
+`remote_input`, nicht an der Zwischenablage.
 - **Die Sofort-Spiegelung ist verworfen, nicht vergessen.** Sie legt alles, was
   während einer Sitzung lokal kopiert wird, im selben Moment auf den fremden
   Rechner — auch ein Passwort aus dem Passwortmanager, das mit der Sitzung
@@ -117,17 +118,19 @@ dort liegt die Umsetzung im Sidecar, und der läuft beim Steuernden nicht.
 - **Der Takt darf nicht auf dem Faden liegen, der den Rückruf beantwortet.**
   Auf Windows blockiert `WM_RENDERFORMAT` diesen Faden, solange das einfügende
   Programm wartet — und genau dann muss die Abruf-Frist weiterlaufen, denn sie
-  ist es, die dort die leere Antwort zustellt. Deshalb zwei eigene Fäden im
-  Sidecar (`src/ablage/`), nicht einer. Auf macOS gilt es wörtlich genauso, nur
-  heisst der Rückruf `pasteboard:provideDataForType:` und der Faden trägt eine
-  eigene Run-Loop statt eines Nachrichtenfensters.
+  ist es, die dort die leere Antwort zustellt. Deshalb liegt der Takt beim
+  Verbraucher (im Sidecar ein eigener Faden, im Player die Fensterschleife) und
+  nie auf dem Faden des Rückrufs. Auf macOS gilt es wörtlich genauso, nur heisst
+  der Rückruf `pasteboard:provideDataForType:` und der Faden trägt eine eigene
+  Run-Loop statt eines Nachrichtenfensters.
 - **Wo die Plattform-Umsetzung liegt, entscheidet die Zahl der Rollen.** Wayland
-  liegt im Player und Windows im Sidecar, weil dort jede Plattform genau EINEN
-  Verbraucher hat. **macOS hat zwei** — Sidecar als Host, Player als Steuernder
-  —, und weil beide Hälften einer Zwischenablage spiegelbildlich gleich sind,
-  liegt die macOS-Umsetzung in der Kiste (`pulse_ablage::plattform::macos`).
-  Nebenwirkung, die man kennen muss: **auf Windows kann der Steuernde nichts
-  teilen**; dort trägt nur der Sidecar, und der läuft beim Steuernden nicht.
+  liegt im Player, weil Linux nur den Steuernden kennt. **macOS und Windows
+  haben zwei Rollen** — ein Sidecar als Host, der Player als Steuernder —, und
+  weil beide Hälften einer Zwischenablage spiegelbildlich gleich sind, liegen
+  beide Umsetzungen in der Kiste (`pulse_ablage::plattform::{macos, windows}`).
+  Windows kam am 2026-08-31 dorthin nach; solange es im Sidecar lag, konnte der
+  **Steuernde auf Windows nichts teilen** — der Sidecar läuft beim Steuernden
+  nicht. Wer eine vierte Plattform ergänzt, stellt zuerst diese Frage.
 - **macOS pollt, und zwar richtigerweise.** Eine Änderungs-Benachrichtigung gibt
   es dort nicht — `NSPasteboard.changeCount` wird alle 200 ms abgefragt (liest
   **keinen Inhalt**, nur eine Zahl). Folge für die gemeinsame Buchführung: der

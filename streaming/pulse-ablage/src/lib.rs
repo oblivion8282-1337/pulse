@@ -27,12 +27,12 @@
 //! im Spiel ist — siehe `tests/rundlauf.rs`.
 
 //! **Welche Plattform-Aufrufe hier liegen — und welche nicht.** Wayland steht
-//! im Player (`fernsteuerung/wayland/ablage.rs`, Begruendung im Entwurf),
-//! Windows im `win-hq-sidecar` (`src/ablage/`): dort hat jede Plattform genau
-//! EINEN Verbraucher. **macOS hat zwei** — den `mac-hq-sidecar` als Host und
-//! den `pulse-player` als Steuernden —, und weil beide Haelften einer
-//! Zwischenablage spiegelbildlich gleich sind, laege die Umsetzung dort zweimal
-//! im Baum. Sie liegt deshalb hier ([`plattform::macos`]).
+//! im Player (`fernsteuerung/wayland/ablage.rs`, Begruendung im Entwurf): dort
+//! gibt es genau EINEN Verbraucher, denn auf Linux ist niemand Host. **macOS
+//! und Windows haben zwei** — einen Sidecar als Host und den `pulse-player` als
+//! Steuernden —, und weil beide Haelften einer Zwischenablage spiegelbildlich
+//! gleich sind, laege die Umsetzung beim Verbraucher zweimal im Baum. Sie liegt
+//! deshalb hier ([`plattform::macos`], [`plattform::windows`]).
 //!
 //! Was alle teilen, ist ohnehin alles darueber — seit dem 2026-08-31 auch die
 //! Zustandsfuehrung ([`lage`]) und die Traits, die eine Plattform erfuellen

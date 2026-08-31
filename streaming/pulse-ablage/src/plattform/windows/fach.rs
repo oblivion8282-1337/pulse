@@ -30,13 +30,14 @@ use windows::Win32::System::Ole::CF_UNICODETEXT;
 /// **Eine belegte Zwischenablage ist auf Windows Alltag, nicht die Ausnahme:**
 /// immer nur ein Prozess darf sie offen haben. Besonders wahrscheinlich ist es
 /// **direkt nach einem Rendervorgang** — das einfuegende Programm haelt sie
-/// dann noch —, und genau diese Reihenfolge erzeugt `fenster::auftrag` selbst,
-/// wenn es einen Rendervorgang abbricht, um einen Auftrag durchzulassen. Ohne
-/// Wiederholung kostet die erste Absage die ganze Generation, sichtbar nur als
-/// eine Zeile auf stderr (Befund B8).
+/// dann noch —, und genau diese Reihenfolge erzeugt `auftragsbuch::geben`
+/// selbst, wenn es einen Rendervorgang abbricht, um einen Auftrag
+/// durchzulassen. Ohne Wiederholung kostet die erste Absage die ganze
+/// Generation, sichtbar nur als eine Zeile auf stderr (Befund B8).
 ///
 /// **Gefolgert, nicht gemessen:** 10 x 10 ms bleiben deutlich unter
-/// `fenster::AUFTRAG_FRIST` (500 ms), damit der wartende Auftraggeber nicht
+/// `auftragsbuch::AUFTRAG_FRIST` (500 ms), damit der wartende Auftraggeber
+/// nicht
 /// seinerseits in seine Frist laeuft. Gewartet wird auf dem Fensterfaden, der
 /// in dieser Zeit ohnehin nichts anderes tun kann.
 const OEFFNEN_VERSUCHE: u32 = 10;
@@ -150,7 +151,7 @@ pub(super) fn lesen(h: HWND) -> Option<String> {
 /// daraus hoechstens drei Bytes. Etwas mehr zu lesen als noetig ist richtig
 /// herum: der Deckel wird in `zerlegen` gezogen, und der soll `zu_gross`
 /// melden koennen statt einen abgeschnittenen Text zu liefern.
-const MAX_ZEICHEN: usize = pulse_ablage::format::MAX_TEXT_BYTE;
+const MAX_ZEICHEN: usize = crate::format::MAX_TEXT_BYTE;
 
 /// Einen beweglichen Speicher mit der UTF-16-Fassung des Textes anlegen.
 ///

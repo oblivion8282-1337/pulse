@@ -3,7 +3,7 @@
 //!
 //! **Abgetrennt von [`super::faden`] der Groesse wegen** (`PLAN.md` §12.1);
 //! der Schnitt liegt an derselben Naht wie auf Windows
-//! (`win-hq-sidecar/src/ablage/auftragsbuch.rs`): dort steht der Faden selbst
+//! ([`crate::plattform::windows`]): dort steht der Faden selbst
 //! (Run-Loop, Poll, der blockierende Rueckruf), hier das Protokoll zwischen den
 //! beiden Faeden.
 //!
