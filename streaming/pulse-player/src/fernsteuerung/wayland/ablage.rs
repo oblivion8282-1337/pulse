@@ -27,6 +27,16 @@
 //! (`Ablagequelle::seriennummer`, dieselbe `DruckNummer`, aus der auch der Zug
 //! seine bezieht).
 //!
+//! **Fremdes Kopieren sieht ein Fenster OHNE Tastaturfokus gar nicht.**
+//! `wl_data_device.selection` geht nur an den Klienten mit Tastaturfokus; der
+//! Compositor schickt es beim Fokusgewinn nach. Das ist die Kehrseite derselben
+//! Fokus-Not wie oben — nur fuer die Gegenrichtung, und sie ist nicht
+//! reparierbar, sondern eine Eigenschaft des Protokolls. Praktisch heisst das:
+//! kopiert der Nutzer waehrend einer Fernsteuerung in einem anderen Programm,
+//! geht die Ankuendigung erst hinaus, wenn ein Player-Fenster wieder Fokus
+//! bekommt — und dann alle auf einmal, weil der Zaehler zwischendurch nicht
+//! laeuft.
+//!
 //! **Der Zug-Zustand wird hier nicht angefasst.** Die Zwischenablage hat mit
 //! dem Ziehen nichts zu tun; `wayland_zug_abbau` raeumt weiterhin
 //! ausschliesslich Zug-Zustand, und dieses Modul haengt an keinem seiner
@@ -42,6 +52,7 @@ mod auswahl;
 use std::io::Write;
 use std::os::fd::{AsFd, OwnedFd};
 use std::os::unix::net::UnixStream;
+use std::time::{Duration, Instant};
 
 use pulse_ablage::beobachter::Beobachter;
 use pulse_ablage::eigentum::Eigentum;
@@ -50,6 +61,18 @@ use super::verbindung::Gastverbindung;
 use crate::app::ablage::Ablagequelle;
 pub(super) use auswahl::AblageZustand;
 use auswahl::Lesen;
+
+/// Wie lange [`schreiben`] auf einen Klienten wartet, der seinen eigenen
+/// Deskriptor nicht leert.
+///
+/// **Gefolgert, nicht gemessen**, und aus derselben Rechnung wie
+/// `auswahl::LESE_FRIST`: deutlich unter `pulse_ablage::sitzung::
+/// ABRUF_FRIST_MS` (2 s), weil ein Einfuegevorgang, dem wir nach dieser Frist
+/// nichts mehr liefern, sonst die Frist der Gegenseite mit ausreizt.
+const SCHREIB_FRIST: Duration = Duration::from_millis(500);
+
+/// Wartezeit zwischen zwei Schreibversuchen, solange der Deskriptor voll ist.
+const SCHREIB_TAKT: Duration = Duration::from_millis(10);
 
 impl Gastverbindung {
     /// Die Auswahl auf eine frische eigene Quelle setzen.
@@ -223,9 +246,47 @@ impl Ablagequelle for Gastverbindung {
 /// Ereignisschleife des Players. **Aus der Puffergroesse gefolgert, nicht
 /// gemessen** — ein Faden kostet an dieser Stelle nichts, ein Haenger der
 /// Schleife alles.
+///
+/// **Und warum der Faden trotzdem eine Frist braucht:** ein Klient, der den
+/// Deskriptor anfordert und nie liest, haelt ihn sonst unbegrenzt. Off-Loop
+/// friert damit nichts ein, aber je `send` bleibt ein Faden stehen — der
+/// Lesepfad hat seine Frist (`auswahl::LESE_FRIST`), der Schreibpfad hatte
+/// keine.
 fn schreiben(fd: OwnedFd, text: String) {
     std::thread::spawn(move || {
-        let mut datei = std::fs::File::from(fd);
-        let _ = datei.write_all(text.as_bytes());
+        // **`UnixStream` nur als Huelle um den Deskriptor**, nicht als Zusage,
+        // dass eine Steckdose dahinter steht (ueblich ist eine Roehre): allein
+        // `set_nonblocking` fehlt der `File`. Es geht ueber `ioctl(FIONBIO)`,
+        // und das behandelt der Kernel fuer jeden Deskriptor gleich — nicht
+        // ueber `setsockopt`, das an einer Roehre scheiterte.
+        let mut ziel = UnixStream::from(fd);
+        if ziel.set_nonblocking(true).is_err() {
+            // Ohne O_NONBLOCK bleibt es beim alten Verhalten: blockierend
+            // schreiben, ohne Frist. Der Faden ist dann wieder unbegrenzt —
+            // aber immer noch nicht der Schleifen-Faden.
+            let _ = ziel.write_all(text.as_bytes());
+            return;
+        }
+        let ende = Instant::now() + SCHREIB_FRIST;
+        let mut rest = text.as_bytes();
+        while !rest.is_empty() {
+            match ziel.write(rest) {
+                // Der Klient hat sein Ende geschlossen — nichts mehr zu tun.
+                Ok(0) => break,
+                Ok(n) => rest = &rest[n..],
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    if Instant::now() >= ende {
+                        break;
+                    }
+                    // Gewartet wird schlafend, nicht drehend: ohne
+                    // Fremdabhaengigkeit gibt es hier kein `poll`, und ein
+                    // Leerlauf verbraeuchte einen Kern, solange der Klient
+                    // nicht liest. 10 ms sind gegen die Frist unten fein genug.
+                    std::thread::sleep(SCHREIB_TAKT);
+                }
+                Err(_) => break,
+            }
+        }
     });
 }

@@ -92,9 +92,14 @@ pub(in crate::fernsteuerung::wayland) struct AblageZustand {
     ///
     /// **Geraeumt wird der Merker von `cancelled`**, dem einzigen Ereignis,
     /// das „jemand anders hat die Auswahl uebernommen" verlaesslich meldet.
-    /// **Ungemessen bleibt die Reihenfolge:** stellt ein Compositor das
-    /// `selection` VOR dem `cancelled` zu, geht genau eine Aenderungsmeldung
-    /// verloren — die naechste kommt an.
+    /// Die Reihenfolge, in der ein Compositor `selection` und `cancelled`
+    /// zustellt, ist **gleichgueltig**, und zwar seit [`Self::abgeloest`] den
+    /// Zaehler selbst hochzieht: kommt das `selection` zuerst, faellt es hier
+    /// zwar durch (`eigene` steht noch), aber der Eigentumsverlust holt die
+    /// Meldung nach. Ohne dieses Nachholen zeigten `angebot` und `mime` auf
+    /// den NEUEN Inhalt, waehrend die angekuendigte Generation noch die alte
+    /// war — und `beantworte` haette ihn ausgeliefert, ohne dass er je
+    /// angekuendigt wurde.
     eigene: bool,
     /// Unsere Quelle, solange wir Eigentuemer sind.
     pub(super) quelle: Option<wl_data_source::WlDataSource>,
@@ -185,8 +190,26 @@ impl AblageZustand {
     }
 
     /// `wl_data_source.cancelled` — jemand anders hat die Auswahl uebernommen.
+    ///
+    /// **Der Eigentumsverlust IST eine unverbuchte Aenderung**, deshalb zieht
+    /// er den Zaehler hoch. Fail-closed statt gemessen: welche Reihenfolge ein
+    /// Compositor zwischen `selection` und `cancelled` waehlt, muss danach
+    /// niemand wissen. Kam das `selection` zuerst, ist die Meldung hiermit
+    /// nachgeholt (sie fiel dort durch, weil `eigene` noch stand); kam es
+    /// danach, zaehlt sie dort — die zweite Meldung kostet eine ueberzaehlige
+    /// Ankuendigung, nie Inhalt.
+    ///
+    /// **Der Preis, und er ist bekannt:** ueber den Weg
+    /// `Eigentum::freigeben(None)` raeumen wir die Auswahl selbst und melden
+    /// danach trotzdem eine Aenderung. Kuendigt eine noch wache Sitzung sie an,
+    /// beansprucht die Gegenseite ihre Ablage fuer ein leeres Fach — genau das,
+    /// was [`Self::auswahl`] fuer den `selection`-Weg ausdruecklich vermeidet.
+    /// Die Abwaegung ist eindeutig: dort kostet es eine kurz verdraengte
+    /// fremde Ablage (der Vorbestand drueben bleibt gemerkt und kommt zurueck),
+    /// hier ginge unangekuendigter Inhalt hinaus.
     pub(in crate::fernsteuerung::wayland) fn abgeloest(&mut self) {
         self.eigene = false;
+        self.stand += 1;
         self.sofort = None;
         // Die wartenden Deskriptoren schliessen: wir werden nie liefern, und
         // ein offener Deskriptor liesse den Einfuegenden bis in SEINE Frist
@@ -294,7 +317,59 @@ pub(super) fn vom_deskriptor(mut hier: UnixStream) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::textrang;
+    use super::*;
+
+    use pulse_ablage::beobachter::Beobachter;
+    use pulse_ablage::format::{Grund, Rahmen};
+    use pulse_ablage::sitzung::Ankuendiger;
+
+    /// Derselbe Beobachter, den `Gastverbindung` stellt — nur ohne Compositor:
+    /// die Aenderungsmeldung kommt aus dem echten [`AblageZustand`], gelesen
+    /// wird ein fester Text. Mehr braucht der Weg nicht; `wl_data_offer` laesst
+    /// sich ohne Verbindung ohnehin nicht bauen.
+    struct Sicht<'a>(&'a mut AblageZustand, &'a str);
+
+    impl Beobachter for Sicht<'_> {
+        fn geaendert(&mut self) -> bool {
+            self.0.aenderung_abholen()
+        }
+        fn lesen(&self) -> Option<String> {
+            Some(self.1.to_string())
+        }
+    }
+
+    /// **C1, und es ist die Kernzusicherung des ganzen Entwurfs.**
+    ///
+    /// Wir halten die Auswahl, der Nutzer kopiert lokal ein Passwort. Raeumt
+    /// der Compositor das `selection` VOR dem `cancelled` ein, faellt es in
+    /// [`AblageZustand::auswahl`] durch (`eigene` steht noch) — der Zaehler
+    /// bewegt sich also nur, wenn der Eigentumsverlust ihn selbst hochzieht.
+    /// Tut er das nicht, stimmt beim naechsten `hol` die Generation, und
+    /// `beantworte` schickt das Passwort hinaus, ohne dass es je angekuendigt
+    /// wurde.
+    #[test]
+    fn eigentumsverlust_zaehlt_als_unverbuchte_aenderung() {
+        let mut a = Ankuendiger::neu();
+        let mut z = AblageZustand::default();
+        z.eigene_quelle(None);
+        z.aenderung_abholen(); // Stand quittiert — hier ist noch alles sauber.
+        a.geaendert(); // gen 1: angekuendigt wurde, was DRUEBEN liegt.
+
+        // Das `selection` mit dem frisch kopierten Passwort kam zuerst und ist
+        // durchgefallen; jetzt erst meldet der Compositor den Eigentumsverlust.
+        z.abgeloest();
+
+        let antwort =
+            a.beantworte(&Rahmen::Hol { generation: 1, id: 5 }, &mut Sicht(&mut z, "hunter2"));
+        for r in &antwort {
+            let j = serde_json::to_string(&r.nach_json()).expect("serialisierbar");
+            assert!(!j.contains("hunter2"), "unangekuendigter Inhalt in der Antwort: {j}");
+        }
+        assert!(
+            matches!(antwort.first(), Some(Rahmen::Leer { grund: Grund::Veraltet, .. })),
+            "der Abruf muss als veraltet abgewiesen werden, bekam: {antwort:?}"
+        );
+    }
 
     /// Die Rangfolge entscheidet, welchen Typ wir beim Lesen anfordern — und
     /// ein Vergleich auf genau eine Schreibweise verfehlte die anderen.
