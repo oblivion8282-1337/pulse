@@ -187,11 +187,19 @@ fn takt_starten() {
 /// stirbt. Hier stirbt nichts, also muss das Aufraeumen von Hand geschehen.
 /// Der Eigner-Faden darf dabei stehenbleiben — er kostet einen schlafenden
 /// Faden, und der naechste Stream auf diesem Platz braucht ihn wieder.
+///
+/// **Eingereiht, nicht ausgefuehrt**, und aus demselben Grund wie bei
+/// [`verarbeiten`] (Windows-Befund B9): `stop` laeuft auf dem Dispatch-Faden,
+/// und auf dem liegt `remote_input`. Die Freigabe fasst die Plattform an und
+/// kann dabei bis zu einer Auftrags-Frist (500 ms) auf den Eigner-Faden warten
+/// — eine halbe Sekunde stockende Fremdeingabe. Der Takt-Faden erledigt es
+/// hoechstens [`TAKT_MS`] spaeter, und niemand wartet darauf: anders als beim
+/// Prozessende ([`beenden_endgueltig`]) laeuft hier alles weiter.
 pub fn beenden() {
     if !macos::steht() {
         return;
     }
-    mit(|lage, prozess, p| lage.ende(prozess, p));
+    verarbeiten(&serde_json::json!({ "anstoss": "ende" }));
 }
 
 /// **Jedes geordnete Prozessende geht hier durch** (`main.rs`, stdin-EOF):
