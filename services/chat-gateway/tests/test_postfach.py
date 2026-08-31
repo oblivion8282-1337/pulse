@@ -1402,3 +1402,132 @@ async def test_abgeschalteter_schalter_verschliesst_das_gruppen_postfach(
     )
     assert r.status_code == 403, r.text
     assert r.json()["detail"] == "channel_not_accessible"
+
+
+# ---------------------------------------------------------------------------
+# Etappe E6, Aufgabe 1 — Ablage-Kanaele im Postfach
+# ---------------------------------------------------------------------------
+#
+# Ein Guild-Kanal mit ``ablage=true`` ist ab hier ein drittes zulaessiges
+# Postfach-Ziel, neben DM und privater Gruppe. Berechtigung ist
+# ``VIEW_CHANNEL`` ueber den vorhandenen Rechte-Resolver
+# (``permissions.members_who_can_view``) — keine neue Mitgliedertabelle. Ein
+# gewoehnlicher Textkanal (``ablage=false``) bleibt gesperrt: genau dieser
+# Mischzustand war auf diesem Zweig schon einmal offen (``ws_op_send.py``,
+# schneller Pfad umging die Klartext-Sperre). Der Ereignisweg (zweite
+# Pruefstelle) steht eigens in
+# ``test_ablage_kanal_postfach_ereignisweg.py``.
+
+
+async def _guild_mit_kanal(client, token_ersteller: str, *, ablage: bool) -> tuple[str, str]:
+    """Legt eine Community und darin einen Kanal an — ``ablage`` steuert das
+    Merkmal, das ``_channel_zugriff_pruefen`` fuer das Postfach verlangt."""
+    r = await client.post("/guilds", json={"name": "g"}, headers=_auth(token_ersteller))
+    assert r.status_code == 201, r.text
+    gid = r.json()["id"]
+    r = await client.post(
+        f"/guilds/{gid}/channels",
+        json={"name": "kanal", "ablage": ablage},
+        headers=_auth(token_ersteller),
+    )
+    assert r.status_code == 201, r.text
+    return gid, r.json()["id"]
+
+
+async def _guild_mitglied_hinzufuegen(session_factory, guild_id: str, user_id: int) -> None:
+    """Traegt ``user_id`` direkt als Mitglied ein (mit der @everyone-Rolle,
+    die per Vorgabe VIEW_CHANNEL traegt) — die Beitritts-Route wird bereits
+    anderswo geprueft, hier geht es nur um die Postfach-Zugriffspruefung
+    darueber."""
+    from dcc_chat_gateway.models import GuildMember
+
+    async with session_factory() as s:
+        s.add(GuildMember(guild_id=int(guild_id), user_id=user_id))
+        await s.commit()
+
+
+@pytest.mark.asyncio
+async def test_ablage_kanal_mitglied_kann_einliefern_und_abholen(
+    client, app, session_factory, _auth_signer
+):
+    t_a, uid_a = await _register(_auth_signer)
+    t_b, uid_b = await _register(_auth_signer)
+    gid, cid = await _guild_mit_kanal(client, t_a, ablage=True)
+    await _guild_mitglied_hinzufuegen(session_factory, gid, uid_b)
+    pk_b = _make_device()
+    await _bundel_seeden(session_factory, user_id=uid_b, device_pubkey=pk_b)
+
+    r = await _einliefern(
+        client, token=t_a, channel_id=cid,
+        nutzlasten=[{
+            "art": 2, "daten": _b64_unpadded(b"ablage-geheim"), "empfaenger": [pk_b],
+        }],
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["zustellungen_angelegt"] == 1
+
+    r = await _abholen(client, token=t_b, pubkey=pk_b)
+    assert r.status_code == 200, r.text
+    zustellungen = r.json()
+    assert len(zustellungen) == 1
+    assert zustellungen[0]["channel_id"] == str(cid)
+
+
+@pytest.mark.asyncio
+async def test_ablage_kanal_nichtmitglied_kann_nicht_einliefern_und_bekommt_nichts_ab(
+    client, app, session_factory, _auth_signer
+):
+    t_a, uid_a = await _register(_auth_signer)
+    t_fremd, uid_fremd = await _register(_auth_signer)
+    gid, cid = await _guild_mit_kanal(client, t_a, ablage=True)
+    pk_fremd = _make_device()
+    await _bundel_seeden(session_factory, user_id=uid_fremd, device_pubkey=pk_fremd)
+
+    r = await _einliefern(
+        client, token=t_fremd, channel_id=cid,
+        nutzlasten=[{"art": 2, "daten": _b64_unpadded(b"geheim"), "empfaenger": [pk_fremd]}],
+    )
+    assert r.status_code == 403, r.text
+    assert r.json()["detail"] == "channel_not_accessible"
+
+    # Abholen ist nicht ueber ``_channel_zugriff_pruefen`` gegated (es
+    # filtert ausschliesslich auf das eigene Empfaengergeraet/Konto, s.
+    # ``postfach_abholen.py``-Docstring) — fail-closed zeigt sich hier daran,
+    # dass fuer den Fremden schlicht NICHTS drinsteht, weil die Route oben
+    # nie eine Zustellung an ihn angelegt hat.
+    r = await _abholen(client, token=t_fremd, pubkey=pk_fremd)
+    assert r.status_code == 200, r.text
+    assert r.json() == []
+
+
+@pytest.mark.asyncio
+async def test_klartextkanal_wird_nicht_zum_postfach_ziel(
+    client, app, session_factory, _auth_signer
+):
+    """Der wichtigste Test dieser Aufgabe (Regel 1): OHNE das
+    ``ablage``-Merkmal bleibt ein Guild-Kanal gesperrt, auch wenn der
+    Absender darin regulaeres Mitglied ist und VIEW_CHANNEL haelt. Genau
+    dieser Mischzustand war auf diesem Zweig schon einmal offen
+    (``ws_op_send.py``, schneller Pfad umging die Klartext-Sperre fuer
+    Ablage-Kanaele) — er darf hier nicht durch die Hintertuer zurueckkommen."""
+    from sqlalchemy import select
+
+    from dcc_chat_gateway.models import DmNutzlast, DmZustellung
+
+    t_a, uid_a = await _register(_auth_signer)
+    t_b, uid_b = await _register(_auth_signer)
+    gid, cid = await _guild_mit_kanal(client, t_a, ablage=False)
+    await _guild_mitglied_hinzufuegen(session_factory, gid, uid_b)
+    pk_b = _make_device()
+    await _bundel_seeden(session_factory, user_id=uid_b, device_pubkey=pk_b)
+
+    r = await _einliefern(
+        client, token=t_a, channel_id=cid,
+        nutzlasten=[{"art": 2, "daten": _b64_unpadded(b"geheim"), "empfaenger": [pk_b]}],
+    )
+    assert r.status_code == 403, r.text
+    assert r.json()["detail"] == "channel_not_accessible"
+
+    async with session_factory() as s:
+        assert (await s.execute(select(DmNutzlast))).scalars().all() == []
+        assert (await s.execute(select(DmZustellung))).scalars().all() == []

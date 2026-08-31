@@ -167,6 +167,15 @@ class Settings(BaseSettings):
     # Kanaele bleiben lesbar.
     channel_creation_policy: str = "regular"
 
+    # Weiterreich-Route eines Ablage-Kanals (Design §4.2, Etappe E7): der
+    # Server holt Chiffrat vom Laufwerk des Kanal-Erstellers, wenn der
+    # Browser die fremde Cloud wegen CORS nicht direkt erreicht. Beide
+    # Grenzen gelten je Abruf, nicht kumulativ ueber mehrere.
+    ablage_abruf_max_bytes: int = 8 * 1024 * 1024  # 8 MiB je Segment/Datei
+    ablage_abruf_timeout_s: float = 10.0
+
+
+
     # Cloud user-id of this instance's owner (the applicant who registered it).
     # The Cloud hands this out at approval. At cert-login, the user whose cert
     # carries this user_id becomes admin of this instance. 0 = nobody (no

@@ -18,8 +18,10 @@ Kanalzugang vor den reinen Strukturchecks):
    DM DIESELBE Regel wie im Klartext-Sendeweg (``ws_op_send.py:139-151``):
    DM-Kanal laden, Mitgliedschaft pruefen, ``block_exists_either_way`` +
    ``friendship_exists``. Bei einer privaten Gruppe (Etappe G) entscheidet
-   die Mitgliedschaft allein — Begruendung dort. Eine Gilden-Kanal-ID wird
-   in beiden Faellen abgewiesen.
+   die Mitgliedschaft allein — Begruendung dort. Bei einem Ablage-Kanal
+   (Guild-Kanal mit ``ablage=true``, Etappe E6) entscheidet ``VIEW_CHANNEL``
+   ueber den Rechte-Resolver — Begruendung dort. Ein gewoehnlicher
+   Community-Kanal wird in allen drei Faellen abgewiesen.
 3b. Anhaenge (Etappe E) — jede mitgegebene Anhang-Kennung muss demselben
    Konto und demselben Kanal gehoeren und darf an keiner Nachricht haengen
    (``postfach_anhaenge.py::binde_anhaenge``).
@@ -109,7 +111,7 @@ async def postfach_einliefern(
     # 3. Kanalzugang. Der Kanal liefert zugleich die Menge der Konten, an die
     # ueberhaupt zugestellt werden darf (s. Pruefung weiter unten), UND die
     # Kanalart — die Empfaenger-Schleife braucht sie (Bughunt 2026-08-28/29).
-    zugriff = await _channel_zugriff_pruefen(session, cid_int, user.id)
+    zugriff = await _channel_zugriff_pruefen(session, cid_int, user)
     teilnehmer = zugriff.teilnehmer
 
     # 3b. Anhaenge (Etappe E). VOR dem Anlegen der Umschlaege: eine fremde

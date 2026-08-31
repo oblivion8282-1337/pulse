@@ -32,6 +32,8 @@ _RULES: dict[str, tuple[int, float]] = {
     "dropbox_restore": (20, 60.0),   # 20 entry restores / minute
     "dropbox_empty_trash": (10, 60.0), # 10 manual empty-trash / minute
     "dropbox_download": (20, 60.0),  # 20 archive/download-url mints / minute
+    "ablage_abruf": (30, 60.0),      # 30 Weiterreich-Abrufe / Minute (Design §4.2)
+    "ablage_laufwerk_setzen": (10, 60.0), # 10 Freigabe-Adresse-Aenderungen / Minute
 }
 
 

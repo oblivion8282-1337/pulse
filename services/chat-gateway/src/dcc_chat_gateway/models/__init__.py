@@ -7,6 +7,7 @@ here.
 """
 
 from dcc_chat_gateway.models.admin import AdminAuditLog, ChatSettings
+from dcc_chat_gateway.models.ablage_laufwerk import AblageKanalLaufwerk
 from dcc_chat_gateway.models.channels import (
     CHANNEL_TYPE_DROPBOX,
     CHANNEL_TYPE_TEXT,
@@ -67,6 +68,7 @@ from dcc_chat_gateway.models.user_preferences import UserPreference
 from dcc_chat_gateway.models.voice_pull import ChannelVoicePull
 
 __all__ = [
+    "AblageKanalLaufwerk",
     "CachedUserProfile",
     "ModAuditLog",
     "Report",

@@ -94,7 +94,7 @@ async def anhang_upload_adresse(
     # Dieselbe Kanalregel wie beim Einliefern: DM, Mitglied, nicht geblockt,
     # befreundet. Ohne sie liesse sich Speicher in einem fremden Kanal
     # belegen.
-    await _channel_zugriff_pruefen(session, channel_id, user.id)
+    await _channel_zugriff_pruefen(session, channel_id, user)
 
     max_bytes = await _max_bytes(session)
     if body.size > max_bytes:
