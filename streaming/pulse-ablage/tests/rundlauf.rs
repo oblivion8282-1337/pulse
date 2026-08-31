@@ -149,3 +149,58 @@ fn langer_text_kommt_vollstaendig_an() {
 
     assert_eq!(b.ablage.geliefert().as_deref(), Some(text.as_str()));
 }
+
+#[test]
+fn ein_anspruch_loescht_den_vorbestand_und_gibt_ihn_zurueck() {
+    // **Die Falle, die kein Protokoll loest.** B hat lokal einen Pfad kopiert.
+    // Drueben kopiert A etwas, B beansprucht daraufhin seine Ablage — und der
+    // Pfad ist weg, ohne dass B etwas getan hat. Wird nie eingefuegt, merkt es
+    // niemand, bis B einfuegen will.
+    let mut a = Seite::neu();
+    let mut b = Seite::neu();
+
+    b.ablage.setzen("/home/michael/wichtig.txt");
+    b.ablage.geaendert(); // den eigenen Stand quittieren
+
+    let hinaus = a.kopiert("drueben kopiert");
+    austauschen(&mut a, &mut b, hinaus);
+
+    assert!(b.ablage.beansprucht());
+    assert_eq!(b.ablage.inhalt(), None, "der Anspruch hat den Vorbestand geloescht");
+    assert_eq!(
+        b.ablage.vorbestand().as_deref(),
+        Some("/home/michael/wichtig.txt"),
+        "er muss gemerkt sein, sonst ist er unwiederbringlich"
+    );
+
+    // Sitzungsende: zurueckschreiben.
+    let vorher = b.ablage.vorbestand();
+    b.ablage.freigeben(vorher.as_deref());
+    assert_eq!(
+        b.ablage.inhalt().as_deref(),
+        Some("/home/michael/wichtig.txt"),
+        "nach Sitzungsende steht wieder da, was der Nutzer selbst kopiert hatte"
+    );
+}
+
+#[test]
+fn nach_fristablauf_wird_leer_geliefert_statt_zu_haengen() {
+    // Auf Windows und macOS wartet an dieser Stelle ein blockierter Faden. Ein
+    // Einfuegen, das nichts einfuegt, versteht jeder; ein haengendes Programm
+    // nicht.
+    let mut a = Seite::neu();
+    let mut b = Seite::neu();
+
+    let hinaus = a.kopiert("kommt nie an");
+    austauschen(&mut a, &mut b, hinaus);
+
+    let hol = b.fuegt_ein(1_000);
+    assert_eq!(hol.len(), 1, "der Abruf geht hinaus");
+    // Die Antwort geht unterwegs verloren — nichts wird zugestellt.
+
+    match b.emp.takt(1_000 + pulse_ablage::sitzung::ABRUF_FRIST_MS) {
+        Fortschritt::Leer(Grund::Frist) => b.ablage.liefern(""),
+        andere => panic!("erwartet Leer(Frist), bekam {andere:?}"),
+    }
+    assert_eq!(b.ablage.geliefert().as_deref(), Some(""), "es wurde geliefert, wenn auch nichts");
+}
