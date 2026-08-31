@@ -87,6 +87,10 @@ export function postfachAbholenUndAnzeigen(istAboniert: (kanalId: string) => boo
       const me = dispatchingUserId();
       for (const nachricht of neue) {
         messages.upsert(nachricht);
+        // Wie im `message`-Handler oben: eine angekommene Nachricht beendet
+        // das „X schreibt …" sofort — auf dem verschlüsselten Weg gibt es
+        // kein Server-`message`-Ereignis, das das sonst besorgen könnte.
+        typing.clear(nachricht.channel_id, nachricht.author_id);
         // Die DM-Liste nachziehen (Bughunt 2026-08-28, FIX 3) — der
         // verschluesselte Weg loest kein `dm_bump` aus, das die
         // Reihenfolge/den Ungelesen-Stand sonst besorgt. Gegenstelle:
