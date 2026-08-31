@@ -357,11 +357,16 @@ Vier Dinge, die man beim Lesen sucht:
   Rendervorgangs. Ohne das Zurückschreiben hielte Windows danach ein leeres
   Fach, und was der Nutzer vor der Sitzung kopiert hatte, wäre still weg.
 
-**Was auf der Entwicklungsmaschine geprüft ist und was nicht:** die Rechnung
-(`pulse-ablage`, 80 Tests) und die Buchführung über eigene und fremde Änderungen
-(`ablage/geteilt.rs`, 6 Tests) laufen dort; die Win32-Aufrufe sind **nur
-übersetzt**, gegen `x86_64-pc-windows-msvc`. Echtes Kopieren über zwei Maschinen
-bleibt Handarbeit.
+**Was geprüft ist und was nicht.** Die Rechnung darüber steht in
+`streaming/pulse-ablage` (80 Tests) und läuft in jedem Gate. Die Buchführung
+über eigene und fremde Änderungen (`ablage/geteilt.rs`, 6 Tests) enthält keinen
+Win32-Aufruf und läuft **hier**, also in `cargo test` dieses Crates — und das
+fährt nur, wer auf Windows sitzt (`gate-rust.sh` nimmt den Sidecar
+ausdrücklich nicht, er baut auf Linux nicht). Beim Bau von Plan 1b-2 wurden sie
+über ein Wegwerf-Crate auf der Linux-Maschine gefahren; **im Repo hängen sie an
+keinem Gate**. Die Win32-Aufrufe selbst sind nur **übersetzt**, gegen
+`x86_64-pc-windows-msvc`. Echtes Kopieren über zwei Maschinen bleibt
+Handarbeit.
 
 ## Env-Overrides (Test/Debug)
 
