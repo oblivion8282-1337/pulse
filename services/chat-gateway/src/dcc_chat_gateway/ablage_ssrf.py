@@ -26,6 +26,12 @@ import httpx
 
 Resolver = Callable[[str], Awaitable[list[str]]]
 
+# Eigener Name fuer den Konstruktor statt ``httpx.AsyncClient`` im Aufruf von
+# ``hole()`` — Tests patchen ``client_ctor`` gezielt fuer dieses Modul, ohne
+# die globale ``httpx.AsyncClient``-Klasse anzufassen (die der Test-HTTP-
+# Client fuer die App selbst ebenfalls braucht).
+client_ctor = httpx.AsyncClient
+
 
 class AblageAbrufFehler(Exception):
     """Eine der Design-Regeln hat gegriffen. ``code`` ist maschinenlesbar —
@@ -203,7 +209,7 @@ async def hole(
     pfad: str,
     max_bytes: int,
     timeout_s: float,
-    resolver: Resolver = standard_resolver,
+    resolver: Resolver | None = None,
     http: httpx.AsyncClient | None = None,
 ) -> AbrufErgebnis:
     """Holt ``pfad`` relativ zu ``basis``. ``basis`` kommt IMMER vom Server
@@ -213,21 +219,31 @@ async def hole(
     geprueft wie die urspruengliche Adresse (Design §4.2) — beides innerhalb
     EINER Gesamtfrist, damit ein langsam tropfender Upstream die Zeitschranke
     nicht durch zwei einzeln kurze Anfragen umgeht.
+
+    ``resolver`` ist absichtlich ein Modul-Lookup zur Aufrufzeit statt eines
+    an der Signatur festgebundenen Default — Tests ersetzen so
+    ``standard_resolver`` per ``monkeypatch``, ohne jeden Aufrufer aendern zu
+    muessen.
     """
+    tatsaechlicher_resolver = resolver if resolver is not None else standard_resolver
     segmente = normalisiere_pfad(pfad)
     url = baue_ziel_url(basis, segmente)
 
     eigener_client = http is None
-    client = http if http is not None else httpx.AsyncClient(
+    # Eigener Name statt ``httpx.AsyncClient`` direkt im Aufruf: Tests
+    # ersetzen ``client_ctor`` gezielt fuer dieses Modul (per Monkeypatch),
+    # ohne die ``httpx.AsyncClient``-Klasse global zu patchen — die
+    # benutzt u.a. auch der Test-HTTP-Client selbst.
+    client = http if http is not None else client_ctor(
         timeout=timeout_s, follow_redirects=False
     )
     try:
         async with asyncio.timeout(timeout_s):
-            await pruefe_ziel_oeffentlich(url, resolver)
+            await pruefe_ziel_oeffentlich(url, tatsaechlicher_resolver)
             inhalt, typ, ort = await _hole_einmal(client, url, max_bytes)
             if ort is not None:
                 neue_url = urllib.parse.urljoin(url, ort)
-                await pruefe_ziel_oeffentlich(neue_url, resolver)
+                await pruefe_ziel_oeffentlich(neue_url, tatsaechlicher_resolver)
                 inhalt, typ, ort2 = await _hole_einmal(client, neue_url, max_bytes)
                 if ort2 is not None:
                     raise AblageAbrufFehler("zu_viele_umleitungen")

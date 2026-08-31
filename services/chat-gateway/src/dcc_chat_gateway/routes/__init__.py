@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from dcc_chat_gateway.routes import (
+    ablage_kanal,
     admin,
     admin_backups,
     admin_members,
@@ -81,6 +82,7 @@ router.include_router(guilds.router)
 router.include_router(bans.router)
 router.include_router(guild_icons.router)
 router.include_router(channels.router)
+router.include_router(ablage_kanal.router)
 # Friend-system / DM / Block routes are cloud-only (global social layer).
 # The ``require_cloud`` dependency (applied inside each router) returns 404
 # on self-host at request time. The routers are still registered so the

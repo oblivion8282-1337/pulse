@@ -6,8 +6,8 @@ soft cap (PLAN.md §12.1). Importers can keep using
 here.
 """
 
-from dcc_chat_gateway.models.admin import AdminAuditLog, ChatSettings
 from dcc_chat_gateway.models.ablage_laufwerk import AblageKanalLaufwerk
+from dcc_chat_gateway.models.admin import AdminAuditLog, ChatSettings
 from dcc_chat_gateway.models.channels import (
     CHANNEL_TYPE_DROPBOX,
     CHANNEL_TYPE_TEXT,
