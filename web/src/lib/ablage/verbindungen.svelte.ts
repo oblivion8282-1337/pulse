@@ -40,6 +40,12 @@ import {
   bestimmeSyncOrdnerHauptschlüssel,
   base64ZuBytes
 } from './syncOrdnerSchluessel.ts';
+import {
+  leseAlle,
+  schreibe,
+  schreibeMehrere,
+  entferne,
+} from './verbindungenDb.ts';
 import { bestimmeArchivWechsel } from './archivMarkierung.ts';
 
 export type AblageAnbieterArt =
@@ -89,68 +95,6 @@ export interface AblageVerbindung {
   istArchiv?: boolean;
 }
 
-const DB_NAME = 'pulse-ablage-verbindungen';
-const DB_VERSION = 1;
-const STORE = 'verbindungen';
-
-let db: IDBDatabase | null = null;
-
-async function öffneDb(): Promise<IDBDatabase> {
-  if (db) return db;
-  db = await new Promise<IDBDatabase>((resolve, reject) => {
-    const anfrage = indexedDB.open(DB_NAME, DB_VERSION);
-    anfrage.onupgradeneeded = () => {
-      anfrage.result.createObjectStore(STORE, { keyPath: 'id' });
-    };
-    anfrage.onsuccess = () => resolve(anfrage.result);
-    anfrage.onerror = () => reject(anfrage.error);
-  });
-  return db;
-}
-
-async function leseAlle(): Promise<AblageVerbindung[]> {
-  const d = await öffneDb();
-  return new Promise((resolve, reject) => {
-    const tx = d.transaction(STORE, 'readonly');
-    const anfrage = tx.objectStore(STORE).getAll();
-    anfrage.onsuccess = () => resolve(anfrage.result as AblageVerbindung[]);
-    anfrage.onerror = () => reject(anfrage.error);
-  });
-}
-
-async function schreibe(v: AblageVerbindung): Promise<void> {
-  const d = await öffneDb();
-  return new Promise((resolve, reject) => {
-    const tx = d.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).put(v);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-/** Schreibt mehrere Verbindungen in EINER Transaktion — `setzeArchivMarkierung`
- *  braucht das: alte Markierung zuruecksetzen und neue setzen in einem Schritt. */
-async function schreibeMehrere(vs: AblageVerbindung[]): Promise<void> {
-  if (vs.length === 0) return;
-  const d = await öffneDb();
-  return new Promise((resolve, reject) => {
-    const tx = d.transaction(STORE, 'readwrite');
-    const store = tx.objectStore(STORE);
-    for (const v of vs) store.put(v);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-async function entferne(id: string): Promise<void> {
-  const d = await öffneDb();
-  return new Promise((resolve, reject) => {
-    const tx = d.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).delete(id);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
 
 // ---------------------------------------------------------------------------
 
