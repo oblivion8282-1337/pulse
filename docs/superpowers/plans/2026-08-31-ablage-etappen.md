@@ -214,6 +214,13 @@ Testseite ist weg; `pnpm check` und `pnpm test:unit` grün.
 
 **Abnahme:** Ein echter Durchlauf gegen eine echte Nextcloud, protokolliert.
 
+**Braucht den Eigentümer** (erhoben 2026-08-31): Im Repo steht keine echte
+Nextcloud-Adresse — die Erprobung gegen „Nextcloud 34" aus
+`docs/ablage-umsetzung-stand.md` hat ihre Gegenstelle nicht festgehalten.
+Sowohl die Messung aus Schritt 1 als auch die Abnahme brauchen eine
+erreichbare Instanz. Vor E2 danach fragen, statt eine fremde öffentliche
+Instanz anzusprechen.
+
 **Modelle:** Sonnet.
 
 ---
