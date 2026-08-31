@@ -119,7 +119,7 @@ test('DateiSpeicher: herunterladen einer fehlenden Datei wirft', async () => {
 test('DateiSpeicher: löschen entfernt Eintrag und Datei', async () => {
   const ablage = speicherAdapter();
   const speicher = new DateiSpeicher(ablage, 'projekt', SCHLÜSSEL);
-  const info = await speicher.hochladen('weg.txt', 'text/plain', new TextEncoder().encode('weg'));
+  const info = await speicher.hochladen('weg.txt', 'text/plain', new TextEncoder().encode('weg'), 'dev');
 
   await speicher.löschen(info.id);
 

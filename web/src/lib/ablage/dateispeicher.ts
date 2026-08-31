@@ -95,13 +95,12 @@ export class DateiSpeicher {
 		const container = await packeDateiContainer(
 			this.hauptschlüssel,
 			{
-				fassung: 1,
 				name,
 				mime,
 				groesse: inhalt.length,
 				hochgeladenAm: jetzt,
 				hochgeladenVon,
-			},
+			} as Parameters<typeof packeDateiContainer>[1],
 			inhalt,
 		);
 		await this.adapter.schreibe(dateiName, container);
