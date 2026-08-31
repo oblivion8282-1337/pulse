@@ -21,6 +21,8 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { chatApi, COMMUNITY_CATEGORIES, type DirectoryEntry } from '$lib/api/chat';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
+  import { activeServer } from '$lib/stores/active-server.svelte';
+  import { guildIconSrc } from '$lib/guildIcon';
   import { initialen } from '$lib/utils/initialen';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -203,18 +205,19 @@
     {/if}
     <div class="flex flex-col gap-2.5">
       {#each eintraege as e (e.id)}
+        {@const iconSrc = guildIconSrc(e.icon_url, activeServer.current?.hostname)}
         <div
           class="bg-bg-input border-border flex items-center gap-3 rounded-[14px] border p-3"
           data-testid={`discover-card-${e.handle}`}
         >
           <span
             class="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-[14px] text-base font-bold text-white"
-            style={e.icon_url
+            style={iconSrc
               ? ''
               : 'background-image: linear-gradient(135deg in oklab, var(--accent-grad-from), var(--accent-grad-to));'}
           >
-            {#if e.icon_url}
-              <img src={e.icon_url} alt={e.name} class="size-full object-cover" />
+            {#if iconSrc}
+              <img src={iconSrc} alt={e.name} class="size-full object-cover" />
             {:else}
               {initialen(e.name)}
             {/if}

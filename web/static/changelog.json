@@ -9,7 +9,8 @@
       "intro": "Zwei Wege, die es auf dem Rechner schon gab, fehlten am Telefon.",
       "items": [
         "Im Räume-Bereich lässt sich jetzt auch am Handy einem Server über seine Adresse beitreten (Menü oben rechts oder im leeren Zustand). Bisher war das nur am Rechner möglich.",
-        "Eine Community auf einem eigenen Server, dem man schon beigetreten war, ließ sich am Handy antippen, ohne dass etwas passierte. Sie öffnet jetzt zuverlässig."
+        "Eine Community auf einem eigenen Server, dem man schon beigetreten war, ließ sich am Handy antippen, ohne dass etwas passierte. Sie öffnet jetzt zuverlässig.",
+        "Das Symbol einer Community auf einem eigenen Server wurde am Handy nicht angezeigt (weder im Räume-Bereich noch beim Entdecken) — es zeigte stattdessen die Anfangsbuchstaben. Beides zeigt jetzt das richtige Bild."
       ]
     },
     {
