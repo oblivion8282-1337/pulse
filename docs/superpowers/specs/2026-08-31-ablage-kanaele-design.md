@@ -61,27 +61,54 @@ Dropbox) in die Cloud getragen wird, **zählt als Cloud** — er hat eine
 Adresse. Pulse prüft das beim Verbinden, indem es die Freigabe-Adresse
 verlangt (§4.1); ohne sie ist die Verbindung „nur persönlich".
 
-### 2.3 Nextcloud verbinden — Login Flow v2
+### 2.3 Nextcloud verbinden — den Freigabe-Link einfügen
 
-Der Nutzer gibt **nur die Serveradresse** ein. Pulse startet Nextclouds
-eigenen Geräte-Anmeldeweg (Login Flow v2):
+**Entschieden am 2026-08-31, nach Messung an einer echten Nextcloud.**
 
-1. `POST <server>/index.php/login/v2` liefert eine Anmelde-URL und ein
-   Abhol-Token
-2. Pulse öffnet die Anmelde-URL (Browser-Tab bzw. Systembrowser in der App)
-3. Der Nutzer meldet sich bei seiner Nextcloud an und klickt „Zugriff gewähren"
-4. Pulse pollt `POST <server>/login/v2/poll` und bekommt Benutzername und ein
-   **App-Passwort** zurück — nie das echte Passwort
+Der Nutzer legt in seiner Nextcloud einen Freigabe-Link mit Schreibrecht auf
+einen Ordner an und fügt ihn in Pulse ein. Das ist alles. Kein Serveradresse-
+Eintippen, kein Zustimmungsfenster, kein App-Passwort, kein OAuth.
 
-Das App-Passwort landet ausschließlich gerätelokal in `verbindungen.ts`.
-Der manuelle App-Passwort-Weg entfällt aus der Oberfläche.
+Technisch ist ein solcher Link ein WebDAV-Zugang: Freigabe-Token als
+Benutzername, leeres Passwort, Basis
+`https://<wirt>/public.php/dav/files/<token>`. Der vorhandene
+`webdav.ts`-Adapter spricht das **unverändert**.
 
-**Zu prüfen vor dem Bau:** ob der Poll-Endpunkt CORS-Header setzt. Tut er es
-nicht, läuft der Poll in der Desktop-App direkt und im Browser über dieselbe
-Weiterreich-Route wie §4.2 — mit dem Unterschied, dass hier ein Geheimnis
-durchläuft. Ist das der Fall, wird Nextcloud-Verbinden **App-only**, und der
-Browser bekommt den Hinweis darauf. Diese Fallunterscheidung wird gemessen,
-nicht vermutet.
+#### Was dafür gemessen wurde (2026-08-31, `nx50337.your-storageshare.de`)
+
+| Prüfung | Ergebnis |
+|---|---|
+| `POST /index.php/login/v2` (Login Flow v2) | 200 — aber **keine einzige CORS-Kopfzeile**, Vorabfrage 405 |
+| Freigabe-Link: schreiben / lesen / vergleichen / löschen | 201 / 200 (Bytes identisch) / 204 / danach 404 |
+| Lesen mit fremder Herkunft | 200, aber **keine CORS-Kopfzeile** |
+| `webdavAdapter` + `probiere()` gegen den echten Server | `{ gut: true }`, Ordner danach leer |
+
+Daraus folgt zweierlei. **Login Flow v2 wäre App-only** — der Browser darf
+die Antwort nicht lesen, und ihn durch den Pulse-Server zu leiten hiesse, ein
+frisches App-Passwort durch fremde Hände zu schicken. Und **der Freigabe-Weg
+ist nicht nur einfacher, er ist auch schon gebaut**: kein Zeilencode
+Änderung nötig.
+
+#### Was der Nutzer wissen muss, und was daraus folgt
+
+Ein Freigabe-Link mit Schreibrecht **ist ein Schlüssel in Textform**: wer ihn
+hat, darf in diesen Ordner schreiben und daraus löschen. Zwei Folgen, beide
+gehören in die Oberfläche und nicht ins Kleingedruckte:
+
+- **Widerruf ist ein Klick** in Nextcloud — deutlich einfacher als ein
+  App-Passwort zurückzuziehen. Das ist der Vorteil dieser Bauart und sollte
+  beim Verbinden auch dastehen.
+- **Im Browser läuft der Link über den Pulse-Server** (dieselbe CORS-Wand,
+  §4.2), und zwar auch beim Schreiben. Der Server hält damit für die Dauer
+  einer Anfrage eine Fähigkeit, die in diesen Ordner schreiben darf. In der
+  Desktop-App verlässt der Link das Gerät nie. Der Eigentümer hat das
+  ausdrücklich abgewogen und den einen Weg für alle gewählt.
+
+Daraus folgt fürs Bauen: der Link wird **nie geloggt**, **nie länger als für
+die Anfrage gehalten** und **nie an eine andere Gegenstelle als die im Link
+genannte** geschickt.
+
+Der manuelle App-Passwort-Weg entfällt ersatzlos aus der Oberfläche.
 
 ---
 
@@ -370,7 +397,11 @@ serverseitige Bearbeitungshistorie. Neu hinzu:
 
 ## 11. Offene Punkte, die gemessen und nicht vermutet werden
 
-1. Setzt Nextclouds Login-Flow-v2-Poll CORS-Header? (§2.3)
+1. ~~Setzt Nextclouds Login-Flow-v2-Poll CORS-Header?~~ **Gemessen am
+   2026-08-31: nein, keine einzige.** Der Weg entfällt zugunsten des
+   Freigabe-Links (§2.3). Auch der öffentliche DAV-Endpunkt setzt keine —
+   der Rückfall über den Pulse-Server aus §4.2 gilt für Nextcloud also
+   immer, nicht nur manchmal.
 2. Liefert die Google-Drive-API für öffentlich freigegebene Dateien
    CORS-Header beim Abruf mit API-Schlüssel? Wenn nein, gilt für Drive
    derselbe Rückfallweg wie für Nextcloud — die Bauform trägt das bereits.

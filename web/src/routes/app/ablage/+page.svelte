@@ -8,6 +8,12 @@
    *
    * Beide nutzen dieselbe Engine (DateiSpeicher) und dieselben Container.
    * Der Server sieht nur Kanalstruktur — keine Namen, keine Bytes.
+   *
+   * **Bewusst ohne Menüpunkt** (Etappe E1, Aufgabe 6 — hatte auch vorher
+   * keinen, nur die direkte URL erreichte die Seite). Ist trotzdem keine
+   * Leiche: die Dateiansicht hier wird in Etappe E8 zur
+   * Community-Dateiablage (siehe `DateiablageAnsicht.svelte`, die auf
+   * genau diesen Umzug wartet). Wer hier aufräumt, löscht die Vorarbeit.
    */
 
   import { syncOrdnerMoeglich, adapterAusVerzeichnis } from '$lib/ablage/syncOrdner';
@@ -26,8 +32,19 @@
   import UploadIcon from '@lucide/svelte/icons/upload';
   import DownloadIcon from '@lucide/svelte/icons/download';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
+  import FileIcon from '@lucide/svelte/icons/file';
+  import ImageIcon from '@lucide/svelte/icons/image';
+  import FileTextIcon from '@lucide/svelte/icons/file-text';
+  import SheetIcon from '@lucide/svelte/icons/sheet';
+  import CloudIcon from '@lucide/svelte/icons/cloud';
+  import FolderIcon from '@lucide/svelte/icons/folder';
 
-  const DROPBOX_KEY = 'pld01d3rc2ydqw5';
+  // Öffentliche OAuth-Client-Id, kein Geheimnis — sie steht ohnehin im
+  // ausgelieferten Bundle. Sie kann sich zwischen Aufstellungen unterscheiden
+  // (eigene Dropbox-App pro Redirect-URI), deshalb per Build-Zeit-Variable
+  // statt fest verdrahtet, Muster wie `PULSE_PLUGIN_PERMISSIONS` in
+  // `lib/plugins/registry.ts`. Vorgabe = die bisherige feste Kennung.
+  const DROPBOX_KEY = import.meta.env.PULSE_DROPBOX_CLIENT_ID ?? 'pld01d3rc2ydqw5';
 
   let speicher = $state<DateiSpeicher | null>(null);
   let quelle = $state('');
@@ -37,12 +54,11 @@
   let fehler = $state('');
   let meldung = $state('');
 
-  function symbol(mime: string): string {
-    if (mime.startsWith('image/')) return '🖼️';
-    if (mime.includes('pdf')) return '📄';
-    if (mime.includes('sheet') || mime.includes('excel')) return '📊';
-    if (mime.startsWith('text/')) return '📝';
-    return '📄';
+  function symbol(mime: string): typeof FileIcon {
+    if (mime.startsWith('image/')) return ImageIcon;
+    if (mime.includes('sheet') || mime.includes('excel')) return SheetIcon;
+    if (mime.includes('pdf') || mime.startsWith('text/')) return FileTextIcon;
+    return FileIcon;
   }
 
   function groesseText(bytes: number): string {
@@ -252,7 +268,7 @@
         onclick={() => dropboxVerbinden()}
         data-testid="verbinden-dropbox"
       >
-        <span class="text-2xl">📦</span>
+        <CloudIcon class="size-6 text-muted-foreground" />
         <div>
           <div class="font-semibold">Dropbox</div>
           <div class="text-xs text-muted-foreground">App-Ordner — nur Pulse sieht ihn</div>
@@ -264,7 +280,7 @@
         onclick={syncOrdnerVerbinden}
         data-testid="verbinden-sync-ordner"
       >
-        <span class="text-2xl">📁</span>
+        <FolderIcon class="size-6 text-muted-foreground" />
         <div>
           <div class="font-semibold">Sync-Ordner</div>
           <div class="text-xs text-muted-foreground">Lokaler Ordner, dein Sync-Client trägt hoch — kein Konto nötig</div>
@@ -306,8 +322,9 @@
         </p>
       {:else}
         {#each dateien as datei (datei.id)}
+          {@const Icon = symbol(datei.mime)}
           <div class="group flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-muted">
-            <span class="text-lg">{symbol(datei.mime)}</span>
+            <Icon class="size-4 text-muted-foreground" />
             <div class="min-w-0 flex-1">
               <div class="truncate text-sm font-medium">{datei.name}</div>
               <div class="text-xs text-muted-foreground">{groesseText(datei.groesse)} · {datei.hochgeladenVon}</div>

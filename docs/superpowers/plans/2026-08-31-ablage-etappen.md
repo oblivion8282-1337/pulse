@@ -201,25 +201,37 @@ Testseite ist weg; `pnpm check` und `pnpm test:unit` grün.
 
 ---
 
-### E2 — Nextcloud Login Flow v2
+### E2 — Nextcloud über den Freigabe-Link
 
-**Zweck:** Adresse eintippen, zustimmen, fertig.
+**Zuschnitt geändert am 2026-08-31 nach Messung** (Entwurf §2.3). Der
+geplante Login Flow v2 entfällt: er liefert im Browser keine CORS-Kopfzeilen,
+wäre also App-only, und ihn durch den Pulse-Server zu leiten hiesse, ein
+frisches App-Passwort durch fremde Hände zu schicken. Der Eigentümer hat den
+Freigabe-Link als **einzigen** Weg gewählt.
 
-- Zuerst **messen** (Entwurf §11.1): setzt der Poll-Endpunkt CORS-Header?
-  Das Ergebnis entscheidet, ob der Weg im Browser direkt geht oder App-only
-  wird. Ergebnis am Code vermerken, nicht aus Doku folgern.
-- Anmelde-Start, Poll-Schleife mit Zeitlimit, Übernahme von Benutzername und
-  App-Passwort nach `verbindungen.ts`.
-- Manuellen App-Passwort-Weg aus der Oberfläche nehmen.
+**Zweck:** Link einfügen, fertig.
 
-**Abnahme:** Ein echter Durchlauf gegen eine echte Nextcloud, protokolliert.
+- Der Nutzer legt in Nextcloud einen Freigabe-Link mit Schreibrecht an und
+  fügt ihn ein. Aus `https://<wirt>/s/<token>` wird die DAV-Basis
+  `https://<wirt>/public.php/dav/files/<token>`, Token als Benutzername,
+  leeres Passwort.
+- **Der Adapter ist fertig.** Gemessen: `webdavAdapter` plus `probiere()`
+  laufen unverändert gegen eine echte Nextcloud durch. Zu bauen sind das
+  Einlesen des Links, seine Prüfung, und die Oberfläche.
+- **Ein eingefügter Link, der nicht schreiben darf, muss beim Verbinden
+  auffallen** — dafür ist die Verbindungsprobe aus E1 da. Ein Link mit
+  reinem Leserecht ist der wahrscheinlichste Bedienfehler.
+- Beim Verbinden sagen, dass der Link ein Schlüssel ist und wie man ihn in
+  Nextcloud widerruft. Das ist der Vorteil dieser Bauart, nicht ihr
+  Kleingedrucktes.
+- **Nie loggen, nie länger als für die Anfrage halten, nie an eine andere
+  Gegenstelle als die im Link genannte schicken.** Im Browser läuft auch das
+  Schreiben über die Weiterreich-Route aus E7 — der Server hält den Link
+  damit kurzzeitig; in der Desktop-App verlässt er das Gerät nie.
 
-**Braucht den Eigentümer** (erhoben 2026-08-31): Im Repo steht keine echte
-Nextcloud-Adresse — die Erprobung gegen „Nextcloud 34" aus
-`docs/ablage-umsetzung-stand.md` hat ihre Gegenstelle nicht festgehalten.
-Sowohl die Messung aus Schritt 1 als auch die Abnahme brauchen eine
-erreichbare Instanz. Vor E2 danach fragen, statt eine fremde öffentliche
-Instanz anzusprechen.
+**Abnahme:** Ein echter Durchlauf gegen eine echte Nextcloud (liegt vor:
+schreiben 201, lesen 200 mit identischen Bytes, löschen 204, danach 404,
+Probe `{gut:true}`) plus derselbe Weg über die Oberfläche.
 
 **Modelle:** Sonnet.
 
