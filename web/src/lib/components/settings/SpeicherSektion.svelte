@@ -41,6 +41,7 @@
   import type { VerbindungsRohwerte } from '$lib/ablage/zustand.ts';
   import AblageVerbindenDialog from '$lib/components/ablage/AblageVerbindenDialog.svelte';
   import SpeicherVerbindungZeile from './SpeicherVerbindungZeile.svelte';
+  import WiederherstellungBlock from './WiederherstellungBlock.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
   const AKTUALISIERUNGS_INTERVALL_MS = 5 * 60 * 1000;
@@ -146,5 +147,9 @@
     {m.speicher_verbinden()}
   </Button>
 </section>
+
+<div class="border-border border-t pt-4">
+  <WiederherstellungBlock />
+</div>
 
 <AblageVerbindenDialog open={dialogOffen} onClose={() => (dialogOffen = false)} onVerbunden={verbunden} />
