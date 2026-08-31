@@ -14,6 +14,7 @@
 
 import { DateiSpeicher } from './dateispeicher.ts';
 import type { AblageAdapter } from './adapter';
+import type { Zugang } from './oauth.ts';
 import {
   SYNC_ORDNER_VERBINDUNGS_ID,
   bestimmeSyncOrdnerHauptschlüssel,
@@ -39,6 +40,24 @@ export interface AblageVerbindung {
   /** Der Ablage-Hauptschlüssel (Base64) — verschlüsselt Dateien und Verzeichnis. */
   hauptschlüsselB64: string;
   verbundenAm: string;
+  /**
+   * Die letzte Auffrischung des OAuth-Zugangs (Dropbox/Google Drive) ist
+   * endgültig gescheitert — s. `oauth.ts::AnmeldungAbgelaufenFehler`. Wird
+   * von `Speicher*`-Komponenten (Aufgabe 5) periodisch nachgestellt und bei
+   * einer erfolgreichen Auffrischung wieder gelöscht (`schreibeAufgefrischtenZugang`).
+   * Anbieter ohne Auffrisch-Weg (Nextcloud-App-Passwort, Sync-Ordner, S3)
+   * setzen dieses Feld nie.
+   */
+  anmeldungAbgelaufen?: boolean;
+  /**
+   * Zeitpunkt der letzten erfolgreichen Sicherung — `null`/fehlend heisst
+   * „noch nie". Schreibt heute NIEMAND: der Nachzieher (`nachzieher.ts`)
+   * kennt nur einzelne Kanäle, keine Ablage-Verbindung, und es läuft noch
+   * kein Kanal über eine Verbindung aus diesem Store (folgt mit der
+   * Kanal-Anbindung). Die Speicher-Zeile zeigt bis dahin ehrlich „noch
+   * nichts gesichert" statt ein erfundenes Datum.
+   */
+  zuletztGesichertAm?: string | null;
 }
 
 const DB_NAME = 'pulse-ablage-verbindungen';
@@ -115,6 +134,46 @@ export class AblageVerbindungsStore {
     this.verbindungen = this.verbindungen.filter((v) => v.id !== id);
   }
 
+  /**
+   * Schreibt eine Teiländerung an einer bestehenden Verbindung fest —
+   * gemeinsamer Kern für `markiereAnmeldungAbgelaufen` und
+   * `schreibeAufgefrischtenZugang`. Eine unbekannte Id wird still
+   * ignoriert: die Verbindung kann inzwischen entfernt worden sein, während
+   * eine Zustandsprüfung noch lief.
+   */
+  private async patch(id: string, aenderung: Partial<AblageVerbindung>): Promise<void> {
+    const bestehend = this.verbindung(id);
+    if (!bestehend) return;
+    const aktualisiert: AblageVerbindung = { ...bestehend, ...aenderung };
+    await schreibe(aktualisiert);
+    this.verbindungen = this.verbindungen.map((v) => (v.id === id ? aktualisiert : v));
+  }
+
+  /** Die Auffrischung des Zugangs ist endgültig gescheitert (Aufgabe 5, Punkt 4). */
+  async markiereAnmeldungAbgelaufen(id: string): Promise<void> {
+    await this.patch(id, { anmeldungAbgelaufen: true });
+  }
+
+  /**
+   * Schreibt einen erfolgreich aufgefrischten Zugang zurück — sonst ist er
+   * beim nächsten Start wieder weg und jede Sitzung beginnt erneut mit dem
+   * alten, bereits abgelehnten Token. Ein fehlendes `nachspieleToken` im
+   * neuen Zugang behält das bisherige (manche Anbieter geben beim Auffrischen
+   * kein neues Nachspiel-Token zurück).
+   */
+  async schreibeAufgefrischtenZugang(id: string, zugang: Zugang): Promise<void> {
+    const bestehend = this.verbindung(id);
+    if (!bestehend) return;
+    await this.patch(id, {
+      konfiguration: {
+        ...bestehend.konfiguration,
+        zugangsToken: zugang.zugangsToken,
+        ...(zugang.nachspieleToken !== undefined ? { nachspieleToken: zugang.nachspieleToken } : {}),
+      },
+      anmeldungAbgelaufen: false,
+    });
+  }
+
   /** Baut einen DateiSpeicher für eine Verbindung. */
   async dateiSpeicherFür(verbindungId: string): Promise<DateiSpeicher | null> {
     const v = this.verbindung(verbindungId);
@@ -126,8 +185,9 @@ export class AblageVerbindungsStore {
 
   /**
    * Der Ablage-Hauptschlüssel für den (einzigen) Sync-Ordner dieses Geräts —
-   * eine Verbindung mit fester ID, weil `AblageSektion.svelte` nur einen
-   * Ordner gleichzeitig verwaltet. Erster Aufruf legt sie an, jeder weitere
+   * eine Verbindung mit fester ID, weil die Speicher-Einstellungen
+   * (`SpeicherSektion.svelte`) bislang nur einen Ordner gleichzeitig
+   * verwalten. Erster Aufruf legt sie an, jeder weitere
    * findet sie wieder (Rechnung dazu: `syncOrdnerSchluessel.ts`).
    *
    * Kein Umzug aus dem frueheren `localStorage['pulse-ablage-hauptschluessel']`:
@@ -159,7 +219,18 @@ export const ablageVerbindungen = new AblageVerbindungsStore();
 
 // ---------------------------------------------------------------------------
 
-async function adapterFür(v: AblageVerbindung): Promise<AblageAdapter> {
+/**
+ * Baut den Laufzeit-Adapter für eine gespeicherte Verbindung — exportiert,
+ * damit die Speicher-Einstellungen (Aufgabe 5) denselben Adapter für die
+ * periodische Zustandsprüfung verwenden können, den ein echter Kanal-Schreiber
+ * auch nähme.
+ *
+ * `sync_ordner` fehlt absichtlich: die File-System-Access-API gibt ein
+ * Verzeichnis-Handle nur aus einer Nutzer-Geste heraus (Ordner-Dialog) frei,
+ * es lässt sich nicht aus gespeicherten Werten wiederherstellen. Ein
+ * Sync-Ordner braucht deshalb immer eine neue Auswahl im Verbinden-Dialog.
+ */
+export async function adapterFür(v: AblageVerbindung): Promise<AblageAdapter> {
   switch (v.anbieter) {
     case 's3': {
       const { s3Adapter } = await import('./s3.ts');
@@ -170,6 +241,40 @@ async function adapterFür(v: AblageVerbindung): Promise<AblageAdapter> {
         praefix: v.konfiguration.praefix,
         schluessel: v.konfiguration.schluessel,
         geheimnis: v.konfiguration.geheimnis,
+      });
+    }
+    case 'dropbox': {
+      const { dropboxAdapter } = await import('./dropbox.ts');
+      return dropboxAdapter({
+        zugangsToken: v.konfiguration.zugangsToken,
+        ordner: v.konfiguration.ordner ?? '',
+        nachspieleToken: v.konfiguration.nachspieleToken,
+        kundenId: v.konfiguration.kundenId,
+        zugangAufgefrischt: (zugang) => {
+          void ablageVerbindungen.schreibeAufgefrischtenZugang(v.id, zugang);
+        },
+      });
+    }
+    case 'gdrive': {
+      const { gdriveAdapter } = await import('./gdrive.ts');
+      return gdriveAdapter({
+        zugangsToken: v.konfiguration.zugangsToken,
+        ordner: v.konfiguration.ordner ?? '',
+        nachspieleToken: v.konfiguration.nachspieleToken,
+        kundenId: v.konfiguration.kundenId,
+        kundenGeheimnis: v.konfiguration.kundenGeheimnis,
+        zugangAufgefrischt: (zugang) => {
+          void ablageVerbindungen.schreibeAufgefrischtenZugang(v.id, zugang);
+        },
+      });
+    }
+    case 'nextcloud': {
+      const { webdavAdapter } = await import('./webdav.ts');
+      return webdavAdapter({
+        basis: v.konfiguration.basis,
+        ordner: v.konfiguration.ordner ?? '',
+        benutzer: v.konfiguration.benutzer,
+        passwort: v.konfiguration.passwort,
       });
     }
     default:

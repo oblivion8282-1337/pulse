@@ -23,6 +23,7 @@
   import SettingsApps from './SettingsApps.svelte';
   import SettingsExperimental from './SettingsExperimental.svelte';
   import SettingsStandplatz from './SettingsStandplatz.svelte';
+  import SpeicherSektion from './SpeicherSektion.svelte';
 
   let { tab }: { tab: SettingsTab } = $props();
 </script>
@@ -51,6 +52,8 @@
   <SettingsApps />
 {:else if tab === 'experimental'}
   <SettingsExperimental />
+{:else if tab === 'storage'}
+  <SpeicherSektion />
 {:else}
   <SettingsSecurity />
 {/if}

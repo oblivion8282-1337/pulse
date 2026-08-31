@@ -13,6 +13,7 @@
     | 'security'
     | 'privacy'
     | 'standplatz'
+    | 'storage'
     | 'apps'
     | 'experimental';
 </script>

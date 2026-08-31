@@ -1,17 +1,12 @@
 <script lang="ts">
   /**
    * Ablage-Verbindungs-Assistent — der Dialog zum Verbinden eines
-   * Cloud-Laufwerks.
+   * Cloud-Laufwerks. Angeschlossen an `SpeicherSektion.svelte`
+   * (Einstellungen, Aufgabe 5).
    *
-   * **Diese Datei haengt noch an keiner Stelle** und ist trotzdem keine
-   * Leiche: sie ist genau das, was der Einstellungs-Abschnitt „Speicher"
-   * (Etappe E1, Aufgabe 5) braucht. Wer hier aufraeumt, loescht die
-   * Vorarbeit. Angeschlossen wird sie dort, nicht hier.
-   *
-   * Welche Anbieter angeboten werden, entscheidet seit dem 2026-08-31
-   * `lib/ablage/anbieter.ts` — nicht mehr die Liste unten. Beim Anschliessen
-   * gehoert die Liste dorthin umgehaengt; OneDrive und S3 sind nach der
-   * Entscheidung des Eigentuemers nicht mehr im Angebot.
+   * Welche Anbieter angeboten werden, entscheidet `lib/ablage/anbieter.ts` —
+   * OneDrive und S3 sind nach der Entscheidung des Eigentuemers vom
+   * 2026-08-31 nicht im Angebot (Gruende dort im Kopf der Datei).
    *
    * Die Wege je Anbieter:
    *
@@ -30,13 +25,12 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
-  import PackageIcon from '@lucide/svelte/icons/package';
-  import CloudIcon from '@lucide/svelte/icons/cloud';
-  import HardDriveIcon from '@lucide/svelte/icons/hard-drive';
-  import GlobeIcon from '@lucide/svelte/icons/globe';
-  import FolderIcon from '@lucide/svelte/icons/folder';
-  import DatabaseIcon from '@lucide/svelte/icons/database';
-  import { ablageVerbindungen, type AblageVerbindung, type AblageAnbieterArt } from '$lib/ablage/verbindungen.ts';
+  import LockIcon from '@lucide/svelte/icons/lock';
+  import { ablageVerbindungen, type AblageVerbindung } from '$lib/ablage/verbindungen.ts';
+  import { angeboteneAnbieter, type AblageAnbieterArt } from '$lib/ablage/anbieter.ts';
+  import { ANBIETER_IKONE } from './anbieterIkonen.ts';
+  import { adapterAusVerzeichnis, type AblageVerzeichnis } from '$lib/ablage/syncOrdner.ts';
+  import { probiere, type ProbeSchritt } from '$lib/ablage/probe.ts';
 
   let {
     open = false,
@@ -49,19 +43,25 @@
     onVerbunden: (v: AblageVerbindung) => void;
   } = $props();
 
-  const ANBIETER: {
-    art: AblageAnbieterArt;
-    name: string;
-    beschreibung: string;
-    icon: typeof PackageIcon;
-  }[] = [
-    { art: 'dropbox', name: 'Dropbox', beschreibung: 'Mit deinem Dropbox-Konto verbinden — App-Ordner, nur Pulse sieht ihn', icon: PackageIcon },
-    { art: 'onedrive', name: 'OneDrive', beschreibung: 'Mit deinem Microsoft-Konto verbinden — versteckter App-Ordner', icon: CloudIcon },
-    { art: 'gdrive', name: 'Google Drive', beschreibung: 'Nur app-erzeugte Dateien sichtbar — dein restliches Drive bleibt privat', icon: HardDriveIcon },
-    { art: 'nextcloud', name: 'Nextcloud', beschreibung: 'Server-Adresse und App-Passwort angeben', icon: GlobeIcon },
-    { art: 'sync_ordner', name: 'Sync-Ordner', beschreibung: 'Ein lokaler Ordner — dein Dropbox-/Drive-/Nextcloud-Client trägt die Dateien hoch', icon: FolderIcon },
-    { art: 's3', name: 'S3-kompatibel', beschreibung: 'Hetzner, Wasabi, MinIO — Endpoint, Bucket und Schlüssel angeben', icon: DatabaseIcon },
-  ];
+  /** Kurzbeschreibung je Anbieter — reiner Anzeigetext, deshalb hier und
+   *  nicht in `anbieter.ts` (die Liste dort bleibt importfrei/rechnend). */
+  const BESCHREIBUNG: Record<AblageAnbieterArt, string> = {
+    dropbox: 'Mit deinem Dropbox-Konto verbinden — App-Ordner, nur Pulse sieht ihn',
+    onedrive: 'Mit deinem Microsoft-Konto verbinden — versteckter App-Ordner',
+    gdrive: 'Nur app-erzeugte Dateien sichtbar — dein restliches Drive bleibt privat',
+    nextcloud: 'Server-Adresse und App-Passwort angeben',
+    sync_ordner: 'Ein lokaler Ordner — dein Dropbox-/Drive-/Nextcloud-Client trägt die Dateien hoch',
+    s3: 'Hetzner, Wasabi, MinIO — Endpoint, Bucket und Schlüssel angeben',
+  };
+
+  const SCHRITT_TEXT: Record<ProbeSchritt, string> = {
+    schreiben: 'Schreiben',
+    lesen: 'Lesen',
+    vergleichen: 'Vergleichen',
+    loeschen: 'Löschen',
+  };
+
+  const anbieter = angeboteneAnbieter();
 
   let auswahl: AblageAnbieterArt | null = $state(null);
   let verbinde = $state(false);
@@ -91,23 +91,29 @@
 
   async function verbindeSyncOrdner(): Promise<void> {
     verbinde = true;
+    fehler = '';
     try {
       const wahl = (window as unknown as {
-        showDirectoryPicker?: (o?: { mode?: string }) => Promise<{
-          name: string;
-          getFileHandle(n: string, o?: { create?: boolean }): Promise<{
-            createWritable(): Promise<{ write(d: Uint8Array): Promise<void>; close(): Promise<void> }>;
-            getFile(): Promise<{ arrayBuffer(): Promise<ArrayBuffer> }>;
-          }>;
-          entries(): AsyncIterable<[string, { kind: string }]>;
-          removeEntry(n: string): Promise<void>;
-        }>;
+        showDirectoryPicker?: (o?: { mode?: string }) => Promise<
+          AblageVerzeichnis & { name: string }
+        >;
       }).showDirectoryPicker;
       if (!wahl) {
         fehler = 'Dieser Browser kann keine Ordner wählen — Chrome, Edge oder die Desktop-App nehmen.';
         return;
       }
       const verzeichnis = await wahl({ mode: 'readwrite' });
+
+      // Erst die Probe, dann verbunden melden (Entwurf §6.3): ein Ordner,
+      // der nicht schreiben, lesen oder löschen kann, wird nicht gespeichert
+      // — sonst legt jemand einen Kanal auf einem Laufwerk an, das am Ende
+      // gar nicht taugt.
+      const ergebnis = await probiere(adapterAusVerzeichnis(verzeichnis));
+      if (!ergebnis.gut) {
+        fehler = `Verbindung fehlgeschlagen beim Schritt „${SCHRITT_TEXT[ergebnis.schritt]}": ${ergebnis.grund}`;
+        return;
+      }
+
       const verbindung: AblageVerbindung = {
         id: `sync-${Date.now()}`,
         anbieter: 'sync_ordner',
@@ -155,16 +161,17 @@
 
     {#if !auswahl}
       <div class="space-y-2">
-        {#each ANBIETER as a}
+        {#each anbieter as a (a.art)}
+          {@const Icon = ANBIETER_IKONE[a.art]}
           <button
             class="flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:border-primary hover:bg-accent"
             onclick={() => wähle(a.art)}
             data-testid="anbieter-{a.art}"
           >
-            <a.icon class="text-text-muted size-6 shrink-0" />
+            <Icon class="text-text-muted size-6 shrink-0" />
             <div>
               <div class="font-semibold">{a.name}</div>
-              <div class="text-xs text-muted-foreground">{a.beschreibung}</div>
+              <div class="text-xs text-muted-foreground">{BESCHREIBUNG[a.art]}</div>
             </div>
           </button>
         {/each}
@@ -192,7 +199,8 @@
     {/if}
 
     <div class="mt-4 flex items-center gap-2 border-t pt-3 text-xs text-muted-foreground">
-      🔒 Deine Schlüssel verlassen dieses Gerät nie. Der Pulse-Server sieht
+      <LockIcon class="size-3.5 shrink-0" />
+      Deine Schlüssel verlassen dieses Gerät nie. Der Pulse-Server sieht
       weder deine Dateien noch deine Zugangsdaten.
     </div>
 
