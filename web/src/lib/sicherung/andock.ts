@@ -28,8 +28,11 @@
 import { SICHERUNG_ENABLED } from '../krypto/schalter.ts';
 import type { Message } from '../api/types.ts';
 import { ausWire, NUTZLAST_FASSUNG, type AblageNachricht } from '../ablage/nutzlast.ts';
-import { verlaufAlleLesen } from '../verlauf/db.ts';
+import { verlaufAlleLesen, anhangBytesLesen, anhangBytesSichern, verlaufPutSaetze } from '../verlauf/db.ts';
 import { aktuellesKonto } from '../verlauf/konto.ts';
+import { zuSatz } from '../verlauf/satz.ts';
+import { entschlüsseleEintrag, verschlüsseleEintrag } from './krypto.ts';
+import { leseSicherungMitSchluessel } from './wiederherstellen.ts';
 import {
 	SicherungsSpiegel,
 	aufbauAdapter,
@@ -107,9 +110,93 @@ export function sicherungSpiegeln(kanalId: string, nachrichten: Message[]): void
 		await pufferLegen(kanalId, ablageNachrichten);
 		const bereit = await spiegelFallsBereit();
 		bereit?.aufnehmen(kanalId, ablageNachrichten);
+		// Anhänge VOR dem nächsten Spülen sichern — die Bytes liegen jetzt
+		// frisch in der lokalen IDB (Empfang holt sie vor dem Ablegen).
+		await sicherungAnhaenge(kanalId, ablageNachrichten);
 	})().catch(() => {
 		/* Diagnose-frei nach Absicht — s. Regel 1 im Modulkopf. */
 	});
+}
+
+/** Dateiname eines Anhang-Bytes-Behälters im Archiv (Klartext-Name, nur Ids). */
+export function anhangDateiName(id: string): string {
+	return `anhang-${id}.puls`;
+}
+
+/**
+ * Holt den Archiv-Bestand in den lokalen Verlauf — Anhang-Bytes inbegriffen,
+ * wenn sie im Archiv liegen. Dedupliziert über die Nachrichten-Ids; dem
+ * Gerät bereits bekannte Zeilen bleiben unangetastet. Liefert die Anzahl.
+ */
+export async function sicherungArchivLaden(): Promise<number> {
+	const entpackt = await dekAusZwischenlager();
+	if (entpackt === null) return 0;
+	const kontoId = aktuellesKonto();
+	if (kontoId === null) return 0;
+	const adapter = await adapterLieferant();
+	const bestand = await leseSicherungMitSchluessel(adapter, entpackt.dek);
+	const saetze = bestand.eintraege
+		.map((eintrag) =>
+			zuSatz(eintrag.kanalId, {
+				id: eintrag.nachricht.id,
+				author_id: eintrag.nachricht.autor,
+				content: eintrag.nachricht.inhalt,
+				created_at: eintrag.nachricht.zeit,
+				edited_at: eintrag.nachricht.bearbeitet,
+				reply_to_id: eintrag.nachricht.antwortAuf,
+				attachments: eintrag.nachricht.anhaenge.map((a) => ({
+					id: a.id,
+					filename: a.name,
+					mime: a.mime,
+					size: a.groesse,
+				})),
+			}, kontoId),
+		)
+		.filter((satz) => satz !== null);
+	await verlaufPutSaetze(saetze);
+	for (const eintrag of bestand.eintraege) {
+		for (const anhang of eintrag.nachricht.anhaenge) {
+			try {
+				const dunkel = await adapter.lese(anhangDateiName(anhang.id));
+				if (dunkel === null) continue;
+				const klar = await entschlüsseleEintrag(entpackt.dek, dunkel);
+				await anhangBytesSichern({
+					id: anhang.id,
+					kanalId: eintrag.kanalId,
+					daten: new Blob([klar as unknown as BlobPart]),
+					vorschau: null,
+				});
+			} catch {
+				/* fehlender oder unlesbarer Anhang — die Nachricht bleibt lesbar */
+			}
+		}
+	}
+	return saetze.length;
+}
+
+/**
+ * Spiegelt die LOKAL vorhandenen Anhang-Bytes der Nachrichten in das
+ * Archiv (verschlüsselt mit dem DEK). Die Bytes muss dieses Gerät haben —
+ * empfangende Geräte holen sie vor dem Spiegeln, sendende behalten sie im
+ * Empfangsfall ihrer Gegenseite. Fehlen sie hier, überspringt der Lauf
+ * den Anhang still: die Gegenseite hat dieselben Bytes und spiegelt sie.
+ */
+export async function sicherungAnhaenge(kanalId: string, nachrichten: AblageNachricht[]): Promise<void> {
+	const dek = (await dekAusZwischenlager())?.dek;
+	if (dek === undefined) return;
+	const adapter = await adapterLieferant();
+	for (const nachricht of nachrichten) {
+		for (const anhang of nachricht.anhaenge) {
+			try {
+				const lokal = await anhangBytesLesen(anhang.id);
+				if (!lokal) continue;
+				const klar = new Uint8Array(await lokal.daten.arrayBuffer());
+				await adapter.schreibe(anhangDateiName(anhang.id), await verschlüsseleEintrag(dek, klar));
+			} catch {
+				/* Anhang überspringen — die Nachricht selbst ist längst gesichert */
+			}
+		}
+	}
 }
 
 /** „Jetzt sichern" der Oberfläche — spült den Puffer, wenn alles bereit steht. */
@@ -155,6 +242,7 @@ export async function sicherungErstsicherung(): Promise<number> {
 	for (const [kanalId, liste] of nachKanal) {
 		await pufferLegen(kanalId, liste);
 		bereit.aufnehmen(kanalId, liste);
+		await sicherungAnhaenge(kanalId, liste);
 		gesamt += liste.length;
 	}
 	return gesamt;

@@ -24,9 +24,8 @@
     sicherungClientKonfiguriert,
     konsentStarten,
   } from '$lib/sicherung/googleClient';
-  import { erzeugeDek, wickleSchluesselDatei, öffneSchluesselDatei } from '$lib/sicherung/krypto';
+  import { erzeugeDek, wickleSchluesselDatei, öffneSchluesselDatei, entschlüsseleEintrag } from '$lib/sicherung/krypto';
   import { SCHLUESSEL_DATEI } from '$lib/sicherung/spiegel';
-  import { leseSicherungMitSchluessel } from '$lib/sicherung/wiederherstellen';
   import {
     verbindungLesen,
     verbindungSchreiben,
@@ -38,12 +37,11 @@
     pufferWischen,
     type SicherungVerbindung,
   } from '$lib/sicherung/geraete';
-  import { zuSatz } from '$lib/verlauf/satz';
-  import { verlaufPutSaetze } from '$lib/verlauf/db';
-  import { aktuellesKonto } from '$lib/verlauf/konto';
   import {
     sicherungJetztSpuelen,
     sicherungErstsicherung,
+    sicherungArchivLaden,
+    anhangDateiName,
   } from '$lib/sicherung/andock';
 
   let zustand = $state<'pruefe' | 'verbinden' | 'passwort' | 'an'>('pruefe');
@@ -112,35 +110,9 @@
     }
   }
 
-  /** Holt den Archiv-Bestand in den lokalen Verlauf — dedupliziert über die
-   *  Nachrichten-Ids, vorhandene Zeilen bleiben unangetastet. */
   async function laden(): Promise<void> {
-    const entpackt = await dekAusZwischenlager();
-    if (entpackt === null) return;
-    const kontoId = aktuellesKonto();
-    if (kontoId === null) return;
-    const adapter = await adapterLieferant();
-    const bestand = await leseSicherungMitSchluessel(adapter, entpackt.dek);
-    const saetze = bestand.eintraege
-      .map((eintrag) =>
-        zuSatz(eintrag.kanalId, {
-          id: eintrag.nachricht.id,
-          author_id: eintrag.nachricht.autor,
-          content: eintrag.nachricht.inhalt,
-          created_at: eintrag.nachricht.zeit,
-          edited_at: eintrag.nachricht.bearbeitet,
-          reply_to_id: eintrag.nachricht.antwortAuf,
-          attachments: eintrag.nachricht.anhaenge.map((a) => ({
-            id: a.id,
-            filename: a.name,
-            mime: a.mime,
-            size: a.groesse,
-          })),
-        }, kontoId),
-      )
-      .filter((satz) => satz !== null);
-    await verlaufPutSaetze(saetze);
-    meldung = `${saetze.length} Nachrichten aus dem Archiv geladen.`;
+    const anzahl = await sicherungArchivLaden();
+    if (anzahl > 0) meldung = `${anzahl} Nachrichten aus dem Archiv geladen.`;
   }
 
   /** Einmal-Passwort: öffnet das Archiv (oder legt es an) und bringt alles
