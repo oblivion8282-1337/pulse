@@ -8,7 +8,10 @@
  * Store-Layout:
  *   DB:    pulse-identity  (version 1)
  *   Store: identity        (keyPath: keine — externe Keys)
- *   Keys:  `pulse.keypair`, `pulse.identity-cert`, `pulse.profile-statement`
+ *   Keys:  `pulse.keypair`, `pulse.profile-statement`,
+ *          `pulse.krypto-geraetekennung`, `pulse.krypto-account`
+ *          (`pulse.identity-cert` gab es bis zum Weg-A-Umbau; Zertifikate
+ *          sind ersatzlos entfallen)
  */
 
 const DB_NAME = 'pulse-identity';
