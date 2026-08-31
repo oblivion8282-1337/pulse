@@ -38,6 +38,7 @@ fn dispatch(req: Request) -> Response {
         "stop" => ops::stop::handle(req.params),
         "state" => ops::state::handle(req.params),
         "keyframe" => ops::keyframe::handle(req.params),
+        "ablage" => ops::ablage::handle(req.params),
         "remote_input" => ops::remote_input::handle(req.params),
         "remote_input_end" => ops::remote_input_end::handle(req.params),
         unknown => Err(anyhow::anyhow!("unknown op: {unknown}")),

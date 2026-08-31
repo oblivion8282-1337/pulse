@@ -16,7 +16,7 @@
 use std::io::{self, BufRead, Write};
 use std::thread;
 
-use pulse_mac_hq_sidecar::{dispatch, events, remote_input};
+use pulse_mac_hq_sidecar::{ablage, dispatch, events, remote_input};
 
 fn main() -> anyhow::Result<()> {
     let (out_tx, out_rx) = std::sync::mpsc::channel::<serde_json::Value>();
@@ -118,6 +118,12 @@ fn main() -> anyhow::Result<()> {
     if freigegeben > 0 {
         eprintln!("[remote-input] Prozessende: {freigegeben} Taste(n)/Knopf/Knoepfe freigegeben");
     }
+
+    // Dasselbe fuer die Zwischenablage: Eigentum abgeben und den gemerkten
+    // Vorbestand des Nutzers zurueckschreiben. Ohne das stirbt der Prozess als
+    // Eigentuemer eines verzoegerten Rendervorgangs, und was der Nutzer vorher
+    // kopiert hatte, ist still weg (s. `ablage::beenden_endgueltig`).
+    ablage::beenden_endgueltig();
 
     // EOF on stdin → let the writer thread finish. Drop the emitter-internal
     // sender clone first, otherwise the OnceLock holds it for the whole process

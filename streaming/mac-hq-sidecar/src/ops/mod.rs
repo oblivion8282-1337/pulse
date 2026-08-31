@@ -12,6 +12,7 @@
 //!
 //! | Op                     | Stand   | Wovon er lebt                            |
 //! |------------------------|---------|------------------------------------------|
+//! | ablage                 | echt    | geteilte Zwischenablage (`crate::ablage`) |
 //! | health                 | echt    | Fähigkeiten + Freigaben (`berechtigung`)  |
 //! | gpu_info               | Stub    | wartet auf die Metal-Geräteabfrage        |
 //! | list_monitors          | echt    | `capture::list_displays`                  |
@@ -25,6 +26,7 @@
 //! | remote_input           | echt    | Fernsteuerung: Frames einspielen          |
 //! | remote_input_end       | echt    | Fernsteuerung: Sitzung schliessen         |
 
+pub mod ablage;
 pub mod build_argv;
 pub mod gpu_info;
 pub mod health;
