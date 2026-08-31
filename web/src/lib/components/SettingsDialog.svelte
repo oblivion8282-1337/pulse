@@ -11,6 +11,7 @@
     | 'sounds'
     | 'keyboard'
     | 'security'
+    | 'sicherung'
     | 'privacy'
     | 'standplatz'
     | 'apps'

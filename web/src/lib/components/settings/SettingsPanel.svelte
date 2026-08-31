@@ -17,6 +17,7 @@
   import SettingsNotifications from './SettingsNotifications.svelte';
   import SettingsSounds from './SettingsSounds.svelte';
   import SettingsSecurity from './SettingsSecurity.svelte';
+  import SicherungSektion from './SicherungSektion.svelte';
   import SettingsKeyboard from './SettingsKeyboard.svelte';
   import SettingsPrivacy from './SettingsPrivacy.svelte';
   import SettingsProfile from './SettingsProfile.svelte';
@@ -47,6 +48,8 @@
   <SettingsKeyboard />
 {:else if tab === 'privacy'}
   <SettingsPrivacy />
+{:else if tab === 'sicherung'}
+  <SicherungSektion />
 {:else if tab === 'apps'}
   <SettingsApps />
 {:else if tab === 'experimental'}

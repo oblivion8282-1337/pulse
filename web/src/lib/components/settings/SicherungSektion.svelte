@@ -147,13 +147,15 @@
   }
 </script>
 
-{#if SICHERUNG_ENABLED}
-  <div class="space-y-4">
-    <h3 class="text-sm font-semibold">Sicherung</h3>
+<div class="space-y-4">
+  <h3 class="text-sm font-semibold">Sicherung</h3>
 
-    {#if zustand === 'pruefe'}
+  {#if !SICHERUNG_ENABLED}
+    <p class="text-sm text-muted-foreground">Derzeit deaktiviert.</p>
+    {/if}
+    {#if SICHERUNG_ENABLED && zustand === 'pruefe'}
       <p class="text-sm text-muted-foreground">Prüfe …</p>
-    {:else if zustand === 'neu'}
+    {:else if SICHERUNG_ENABLED && zustand === 'neu'}
       {#if !sicherungClientKonfiguriert()}
         <p class="text-sm text-muted-foreground">
           Die Sicherung ist in diesem Build nicht konfiguriert
@@ -213,5 +215,4 @@
 
     {#if meldung}<p class="text-sm text-muted-foreground">{meldung}</p>{/if}
     {#if fehler}<p class="text-sm text-destructive">{fehler}</p>{/if}
-  </div>
-{/if}
+</div>
