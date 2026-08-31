@@ -38,6 +38,7 @@
     type AblageVerbindung,
   } from '$lib/ablage/verbindungen.svelte.ts';
   import { AnmeldungAbgelaufenFehler } from '$lib/ablage/oauth.ts';
+  import { LaufwerkWegFehler } from '$lib/ablage/ordnerGriff.ts';
   import type { VerbindungsRohwerte } from '$lib/ablage/zustand.ts';
   import AblageVerbindenDialog from '$lib/components/ablage/AblageVerbindenDialog.svelte';
   import SpeicherVerbindungZeile from './SpeicherVerbindungZeile.svelte';
@@ -45,8 +46,21 @@
   import { m } from '$lib/paraglide/messages.js';
 
   const AKTUALISIERUNGS_INTERVALL_MS = 5 * 60 * 1000;
-  /** Anbieter, die sich ohne Nutzer-Geste aus gespeicherten Werten neu ansprechen lassen. */
-  const PRUEFBARE_ANBIETER = new Set<AblageVerbindung['anbieter']>(['dropbox', 'gdrive', 'nextcloud']);
+  /** Anbieter, die sich ohne Nutzer-Geste aus gespeicherten Werten neu
+   *  ansprechen lassen.
+   *
+   *  `sync_ordner` steht seit dem 2026-09-01 mit dabei, obwohl ein
+   *  Ordner-Zugriff eine Nutzer-Geste braucht: die BRAUCHT nur das aktive
+   *  Nachfragen, nicht das Prüfen. Steht die Berechtigung noch auf
+   *  „erteilt", läuft der Zugriff durch; steht sie nach einem Neuladen auf
+   *  „nachfragen", meldet der Weg `LaufwerkWegFehler` — und genau das soll
+   *  die Zeile zeigen, statt weiter „alles in Ordnung" zu behaupten. */
+  const PRUEFBARE_ANBIETER = new Set<AblageVerbindung['anbieter']>([
+    'dropbox',
+    'gdrive',
+    'nextcloud',
+    'sync_ordner',
+  ]);
 
   let dialogOffen = $state(false);
   let rohwerteNachId = $state<Record<string, VerbindungsRohwerte>>({});
@@ -83,6 +97,12 @@
       if (fehler instanceof AnmeldungAbgelaufenFehler) {
         await ablageVerbindungen.markiereAnmeldungAbgelaufen(v.id);
         rohwerteNachId = { ...rohwerteNachId, [v.id]: { ...leereRohwerte(), anmeldungAbgelaufen: true } };
+      } else if (fehler instanceof LaufwerkWegFehler) {
+        // Nicht in der Verbindung festschreiben: anders als eine abgelaufene
+        // Anmeldung ist das oft nur der Zustand DIESER Sitzung — nach einem
+        // Neuladen steht die Ordner-Berechtigung auf „nachfragen", und der
+        // nächste Klick des Nutzers stellt sie wieder her.
+        rohwerteNachId = { ...rohwerteNachId, [v.id]: { ...leereRohwerte(), laufwerkWeg: true } };
       }
     }
   }
