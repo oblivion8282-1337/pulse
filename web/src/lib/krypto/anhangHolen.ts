@@ -107,7 +107,12 @@ export async function anhangBlob(
   thumb: boolean
 ): Promise<Blob | null> {
   const lokal = await anhangBytesLesen(anhangId);
-  if (lokal) return thumb ? lokal.vorschau : lokal.daten;
+  if (lokal) {
+    // Ohne gespeicherte Vorschau (Sicherungs-Wiederherstellung schreibt
+    // keine) faellt die Kachel auf die vollen Bytes zurück, statt leer
+    // zu bleiben.
+    return thumb ? (lokal.vorschau ?? lokal.daten) : lokal.daten;
+  }
   try {
     const adressen = await adressenHolen(anhangId);
     const url = thumb ? adressen.thumb : adressen.url;
