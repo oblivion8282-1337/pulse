@@ -1,25 +1,33 @@
-//! Die reine Rechnung der geteilten Zwischenablage — ohne `App`, ohne Fenster,
-//! ohne Betriebssystem.
+//! Die reine Rechnung der geteilten Zwischenablage — ohne Fenster, ohne
+//! Sidecar, ohne Betriebssystem.
 //!
-//! **Abgetrennt von [`super`], wo die Verdrahtung wohnt** (`App::ablage`,
-//! `ablage_takt`, `ablage_erfassung`): dort steht, WOHER ein Rahmen kommt und
-//! wohin die Antwort geht, hier steht, WAS er bedeutet. Der Schnitt ist nicht
-//! nur Zeilenkosmetik — er zieht die Deutung eines Rahmens ([`deuten`]) aus
-//! dem `App`-Rumpf heraus, wo sie ungeprueft war: wer den Anstoss-Zweig dort
-//! entfernte, bekam gruene Tests und zwei wirkungslose Wege.
+//! **Abgetrennt von der Verdrahtung**, die bei jedem Verbraucher anders
+//! aussieht (im Player `App::ablage`/`ablage_takt`/`ablage_erfassung`, im
+//! Windows-Sidecar `ablage::mit_ablage` und der Takt-Faden): dort steht, WOHER
+//! ein Rahmen kommt und wohin die Antwort geht, hier steht, WAS er bedeutet.
+//! Der Schnitt ist nicht nur Zeilenkosmetik — er zieht die Deutung eines
+//! Rahmens ([`deuten`]) aus dem Rumpf des Verbrauchers heraus, wo sie
+//! ungeprueft war: wer den Anstoss-Zweig dort entfernte, bekam gruene Tests
+//! und zwei wirkungslose Wege.
 //!
-//! Alles hier ist ohne Compositor pruefbar — die Plattform kommt als
-//! [`super::Ablageplattform`] herein und wird im Test von
-//! `pulse_ablage::pruefstand::TestAblage` gestellt.
+//! **Lag bis zum 2026-08-31 im Player** (`app/ablage/lage.rs`). Mit dem
+//! Windows-Host bekam sie einen zweiten Verbraucher, der dieselbe Rechnung
+//! braucht — Zustandsmaschine, `teilen`-Riegel, Vorbestand auf Prozessebene,
+//! die Frist, die dem wartenden Einfuegevorgang leer liefert. Kopiert waere
+//! das genau der Fehler, gegen den die gemeinsamen Kisten gebaut sind:
+//! **beide Haelften einer Zwischenablage sind spiegelbildlich gleich**, es
+//! gibt keine Sender- und keine Empfaengerseite.
+//!
+//! Alles hier ist ohne Betriebssystem pruefbar — die Plattform kommt als
+//! [`crate::plattform::Ablageplattform`] herein und wird im Test von
+//! [`crate::pruefstand::TestAblage`] gestellt.
 
 use std::time::Instant;
 
-use pulse_ablage::eigentum::Anspruch;
-use pulse_ablage::format::{Grund, Rahmen};
-use pulse_ablage::sitzung::{Ankuendiger, Empfaenger, Fortschritt};
-
-use super::Ablageplattform;
-use crate::proto::Event;
+use crate::eigentum::Anspruch;
+use crate::format::{Grund, Rahmen};
+use crate::plattform::Ablageplattform;
+use crate::sitzung::{Ankuendiger, Empfaenger, Fortschritt};
 
 mod takt;
 
@@ -37,7 +45,7 @@ mod takt;
 /// Ein Uebergeben beim Traegerwechsel taete dasselbe, waere aber eine Kopie,
 /// die jemand vergessen kann; hier gibt es die Werte nur einmal.
 #[derive(Default)]
-pub(crate) struct Prozessablage {
+pub struct Prozessablage {
     /// Was vor dem ersten Anspruch in der Ablage lag. **Kein Beiwerk:** ein
     /// Anspruch loescht den Vorbestand, und wird nie eingefuegt, waere der
     /// eigene kopierte Pfad des Nutzers durch fremde Aktivitaet still weg.
@@ -49,16 +57,18 @@ pub(crate) struct Prozessablage {
     eigentuemer: bool,
 }
 
-/// Was der Player einer Sitzung ausserhalb der Kiste merkt.
-pub(crate) struct Ablagelage {
+/// Was ein Verbraucher je Gegenstelle merkt: eine Sitzung im Player, der eine
+/// Prozess im Windows-Sidecar.
+pub struct Ablagelage {
     ankuendiger: Ankuendiger,
     empfaenger: Empfaenger,
     anspruch: Anspruch,
     /// Schalter „Zwischenablage teilen" aus dem Fern-Menue. **Vorgabe an.**
     teilen: bool,
-    /// Laeuft ueberhaupt eine Fernsteuerung? Gesetzt von `input_capture`, weil
-    /// es keinen eigenen „Sitzung beginnt"-Rahmen gibt — ohne diesen Merker
-    /// beobachtete der Player die Zwischenablage des Nutzers auch dann, wenn
+    /// Laeuft ueberhaupt eine Fernsteuerung? Im Player von `input_capture`
+    /// gesetzt, im Windows-Sidecar vom Anstoss [`Anstoss::Beginn`] — es gibt
+    /// keinen „Sitzung beginnt"-Rahmen auf der Leitung. Ohne diesen Merker
+    /// wuerde die Zwischenablage des Nutzers auch dann beobachtet, wenn
     /// niemand fernsteuert.
     wach: bool,
     /// Hat die Gegenseite schon einmal etwas angekuendigt, das wir liefern
@@ -75,7 +85,7 @@ pub(crate) struct Ablagelage {
     ///
     /// **Warum es ueberhaupt wartet:** das Lesen der fremden Auswahl darf
     /// nicht auf der Fensterschleife blockieren (s.
-    /// [`super::Ablagequelle::lesen_anstossen`]), also faellt die Antwort
+    /// [`crate::plattform::Ablagequelle::lesen_anstossen`]), also faellt die Antwort
     /// einen Takt spaeter an. `ABRUF_FRIST_MS` (2 s) traegt das muehelos.
     ///
     /// Es kann nur EINES offen sein: die Gegenseite haelt hoechstens einen
@@ -105,23 +115,40 @@ impl Ablagelage {
         self.seit.elapsed().as_millis() as u64
     }
 
-    pub(crate) fn teilt(&self) -> bool {
+    pub fn teilt(&self) -> bool {
         self.teilen
     }
 
     /// Laeuft fuer diese Sitzung gerade eine Fernsteuerung? Grundlage der
-    /// Traegerwahl in [`super::App::ablage_traeger_waehlen`].
-    pub(crate) fn wacht(&self) -> bool {
+    /// Traegerwahl beim Verbraucher — im Player `App::ablage_traeger_waehlen`,
+    /// im Windows-Sidecar entfaellt sie, weil dort ohnehin genau eine Sitzung
+    /// je Prozess laeuft und der Traeger im Renderer bestimmt wird.
+    pub fn wacht(&self) -> bool {
         self.wach
     }
 
-    /// Eine Fernsteuerung beginnt (`input_capture` an).
-    pub(crate) fn beginnen(&mut self) {
+    /// Eine Fernsteuerung beginnt (Player: `input_capture` an; Windows-Host:
+    /// [`Anstoss::Beginn`], der zugleich den Traeger bestimmt).
+    pub fn beginnen(&mut self) {
         self.wach = true;
     }
 
+    /// Nur fuer Tests: die eigene Uhr vorstellen, damit eine Frist ablaeuft,
+    /// ohne dass ein Testlauf sie aussitzen muss.
+    ///
+    /// **Kein Weg fuer den Betrieb**, deshalb `cfg(test)`: die Zeitrechnung
+    /// gehoert dieser Struktur, und ein oeffentlicher Zeitgeber daran waere
+    /// eine zweite Wahrheit ueber „wie spaet ist es".
+    #[cfg(test)]
+    fn uhr_vorstellen(&mut self, ms: u64) {
+        self.seit = self
+            .seit
+            .checked_sub(std::time::Duration::from_millis(ms))
+            .expect("Uhr laesst sich zurueckstellen");
+    }
+
     /// Ein Rahmen der Gegenseite. Liefert, was daraufhin hinausgeht.
-    pub(crate) fn fern(&mut self, rahmen: &Rahmen, p: &mut dyn Ablageplattform) -> Vec<Rahmen> {
+    pub fn fern(&mut self, rahmen: &Rahmen, p: &mut dyn Ablageplattform) -> Vec<Rahmen> {
         match rahmen {
             Rahmen::Neu { .. } => {
                 // **Die Ankuendigung wird IMMER verbucht, auch mit
@@ -180,7 +207,7 @@ impl Ablagelage {
     /// Nach einem `remote_reclaim` haelt die Gegenseite sonst eine Generation,
     /// die es hier nicht mehr gibt; jedes Einfuegen antwortete danach
     /// `veraltet`, und die Ablage waere fuer den Rest der Sitzung still tot.
-    pub(crate) fn neu_bitte(&mut self) -> Vec<Rahmen> {
+    pub fn neu_bitte(&mut self) -> Vec<Rahmen> {
         if !self.teilen {
             return Vec::new();
         }
@@ -189,7 +216,7 @@ impl Ablagelage {
 
     /// Der Anstoss `ende` und das Ende der Erfassung: Eigentum abgeben und den
     /// Vorbestand zurueckschreiben.
-    pub(crate) fn ende(&mut self, prozess: &mut Prozessablage, p: &mut dyn Ablageplattform) {
+    pub fn ende(&mut self, prozess: &mut Prozessablage, p: &mut dyn Ablageplattform) {
         self.wach = false;
         self.freigeben(prozess, p);
     }
@@ -200,7 +227,7 @@ impl Ablagelage {
     /// bloss den naechsten: sonst bliebe die Ablage des Nutzers leer, obwohl er
     /// das Teilen gerade abgeschaltet hat — ausgerechnet der Schalter, der
     /// Vertrauen herstellen soll, hinterliesse Schaden.
-    pub(crate) fn teilen_setzen(
+    pub fn teilen_setzen(
         &mut self,
         an: bool,
         prozess: &mut Prozessablage,
@@ -229,19 +256,34 @@ impl Ablagelage {
 }
 
 /// Ein Anstoss, der **nur** vom eigenen Renderer kommt und nie ueber die
-/// Leitung geht — `pulse-ablage` kennt ihn nicht und muss ihn nicht kennen.
+/// Leitung geht.
+///
+/// Er steht deshalb NICHT im Rahmenformat ([`crate::format::Rahmen`]) — die
+/// Gegenseite kennt ihn nicht und darf ihn nicht senden koennen (s.
+/// [`deuten`]).
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Anstoss {
+pub enum Anstoss {
+    /// `{"anstoss":"beginn"}` — ab jetzt beobachten.
+    ///
+    /// **Auf dem Host ist das zugleich die Traegerwahl.** Es laeuft ein
+    /// Sidecar-Prozess je Stream-Platz, die Zwischenablage ist aber
+    /// maschinenweit; beansprucht jeder Prozess sie, ueberschreiben sie sich
+    /// gegenseitig. Der Renderer weckt deshalb genau EINEN — der Rest bleibt
+    /// schlafend und ruehrt die Ablage nie an. Im Player waehlt stattdessen
+    /// `App::ablage_erfassung` den Traeger, weil dort alle Sitzungen in einem
+    /// Prozess liegen.
+    Beginn,
     /// `{"anstoss":"neu_bitte"}`
     NeuBitte,
     /// `{"anstoss":"ende"}`
     Ende,
 }
 
-/// Die beiden internen Anstoesse erkennen — sie tragen ihre **eigene Huelle**
+/// Die internen Anstoesse erkennen — sie tragen ihre **eigene Huelle**
 /// (`{"anstoss":…}`), s. [`deuten`].
-pub(crate) fn anstoss_lesen(v: &serde_json::Value) -> Option<Anstoss> {
+pub fn anstoss_lesen(v: &serde_json::Value) -> Option<Anstoss> {
     match v.get("anstoss").and_then(serde_json::Value::as_str) {
+        Some("beginn") => Some(Anstoss::Beginn),
         Some("neu_bitte") => Some(Anstoss::NeuBitte),
         Some("ende") => Some(Anstoss::Ende),
         _ => None,
@@ -251,18 +293,13 @@ pub(crate) fn anstoss_lesen(v: &serde_json::Value) -> Option<Anstoss> {
 /// Duenne Huelle um `Rahmen::aus_json`: ein kaputter Rahmen wird still
 /// verworfen, statt die Sitzung zu beenden — ein Ablage-Rahmen ist es nicht
 /// wert.
-pub(crate) fn rahmen_lesen(v: &serde_json::Value) -> Option<Rahmen> {
+pub fn rahmen_lesen(v: &serde_json::Value) -> Option<Rahmen> {
     Rahmen::aus_json(v).ok()
 }
 
-/// Der Ereignisrahmen hinaus. Wie `eingabe_ereignis` in `app/eingabe.rs`
-/// gebaut, nur mit `"ablage"` und `data`.
-pub(crate) fn ablage_ereignis(id: u64, r: &Rahmen) -> Event {
-    Event::new("ablage", serde_json::json!({ "session": id, "data": r.nach_json() }))
-}
 /// Was ein hereinkommender `data`-Wert bedeutet.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Entscheidung {
+pub enum Entscheidung {
     /// Ein interner Anstoss des eigenen Renderers.
     Anstoss(Anstoss),
     /// Ein Rahmen der Gegenseite.
@@ -277,7 +314,7 @@ pub(crate) enum Entscheidung {
 ///
 /// Jeder Wert kommt in einer von zwei Huellen:
 ///
-/// * `{"anstoss":"ende"|"neu_bitte"}` — vom eigenen Renderer
+/// * `{"anstoss":"beginn"|"ende"|"neu_bitte"}` — vom eigenen Renderer
 ///   (`web/src/lib/remote/ablageHuelle.ts`),
 /// * `{"rahmen":{…}}` — von der Gegenseite, Nutzlast unveraendert.
 ///
@@ -289,11 +326,12 @@ pub(crate) enum Entscheidung {
 /// Rest der Sitzung tot gewesen, ohne Log und ohne sichtbare Ursache. Ein
 /// Filter im Renderer haette das gefangen; die Huelle macht es **strukturell
 /// unmoeglich**, weil fremde Nutzlast immer unter `rahmen` liegt. Dieselbe
-/// Form tragen 1b-2 und 1c, wo die Anstoesse an den Sidecar gehen.
+/// Form traegt seit 1b-2 der Windows-Sidecar, wo die Anstoesse an den Host
+/// gehen; macOS folgt in 1c.
 ///
 /// Alles ohne bekannte Huelle wird verworfen — fail-closed wie im ganzen
 /// Fernsteuerungs-Weg.
-pub(crate) fn deuten(v: &serde_json::Value) -> Entscheidung {
+pub fn deuten(v: &serde_json::Value) -> Entscheidung {
     if v.get("anstoss").is_some() {
         return match anstoss_lesen(v) {
             Some(anstoss) => Entscheidung::Anstoss(anstoss),
@@ -309,16 +347,15 @@ pub(crate) fn deuten(v: &serde_json::Value) -> Entscheidung {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pulse_ablage::beobachter::Beobachter;
-    use pulse_ablage::eigentum::Eigentum;
-    use pulse_ablage::format::Inhaltstyp;
-    use pulse_ablage::pruefstand::TestAblage;
+    use crate::beobachter::Beobachter;
+    use crate::eigentum::Eigentum;
+    use crate::format::Inhaltstyp;
+    use crate::plattform::{Ablagequelle, KeineAblage};
+    use crate::pruefstand::TestAblage;
 
-    use crate::app::ablage::{Ablagequelle, KeineAblage};
-
-    /// `TestAblage` plus die beiden Auskuenfte, die `pulse-ablage` nicht
-    /// kennt. Ein Wrapper statt eines zweiten Testdoppels: was die Kiste
-    /// prueft, soll hier NICHT nachgebaut werden.
+    /// `TestAblage` plus die drei Auskuenfte, die [`crate::pruefstand`] nicht
+    /// gibt. Ein Wrapper statt eines zweiten Testdoppels: was das Doppel
+    /// bereits leistet, soll hier NICHT nachgebaut werden.
     struct Pruefablage {
         inner: TestAblage,
         einfuegen: bool,
@@ -423,6 +460,10 @@ mod tests {
             Entscheidung::Anstoss(Anstoss::Ende)
         );
         assert_eq!(
+            deuten(&serde_json::json!({"anstoss": "beginn"})),
+            Entscheidung::Anstoss(Anstoss::Beginn)
+        );
+        assert_eq!(
             deuten(&serde_json::json!({"rahmen": {"t": "neu", "gen": 1, "typ": "text"}})),
             Entscheidung::Fern(Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text })
         );
@@ -456,6 +497,13 @@ mod tests {
             serde_json::json!({"rahmen": {"t": "ende"}}),
             serde_json::json!({"rahmen": {"t": "neu_bitte"}}),
             serde_json::json!({"rahmen": {"anstoss": "ende"}}),
+            // Seit 1b-2 gibt es einen dritten Anstoss, und er ist der
+            // folgenreichste: auf dem Host bestimmt `beginn` den Traeger. Die
+            // Gegenseite darf ihn erst recht nicht senden koennen — sonst
+            // weckte sie einen Sidecar, den der Renderer gerade NICHT gewaehlt
+            // hat, und zwei Prozesse beanspruchten dieselbe Ablage.
+            serde_json::json!({"rahmen": {"t": "beginn"}}),
+            serde_json::json!({"rahmen": {"anstoss": "beginn"}}),
         ] {
             assert_eq!(
                 deuten(&gefaelscht),
@@ -478,21 +526,6 @@ mod tests {
             rahmen_lesen(&serde_json::json!({"t": "neu", "gen": 1, "typ": "text"})).is_some()
         );
         assert!(rahmen_lesen(&serde_json::json!({"t": "erfunden"})).is_none());
-    }
-
-    #[test]
-    fn ein_hinausgehender_rahmen_traegt_die_sitzung() {
-        let ev = ablage_ereignis(7, &Rahmen::Neu { generation: 1, typ: Inhaltstyp::Text });
-        let v = serde_json::to_value(&ev).expect("serialisierbar");
-        assert_eq!(v["ev"], "ablage");
-        assert_eq!(v["session"], 7);
-        assert_eq!(v["data"]["t"], "neu");
-        // **Die Sitzung reist mit, obwohl der Renderer sie heute nicht liest**
-        // (`aufAblageEreignisse` reicht nur `data` weiter): die Zwischenablage
-        // gehoert der Maschine, nicht dem Fenster. Sie steht hier fuer die
-        // Diagnose und fuer den Tag, an dem zwei Gegenstellen zugleich moeglich
-        // sind — dann muss der Rueckweg sie auswerten.
-        assert!(v["session"].is_number());
     }
 
     /// **Der Test gegen die stille Wirkungslosigkeit.** `neu_bitte` ist fuer
@@ -712,6 +745,44 @@ mod tests {
         assert_eq!(lage.takt(&mut st, &mut p), vec![Rahmen::Hol { generation: 4, id: 1 }]);
     }
 
+    /// **Die Kopplung `takt()` → `Eigentum::liefern()`.**
+    ///
+    /// Offener Merkposten aus Plan 1a, scharf geworden mit dem Windows-Host:
+    /// dort blockiert das einfuegende Programm, solange nicht geliefert ist.
+    /// Laeuft die Abruf-Frist ab, ohne dass jemand die leere Antwort zustellt,
+    /// **haengt es** — auf Wayland bleibt bloss ein Deskriptor offen, auf
+    /// Windows und macOS steht ein fremder Prozess.
+    ///
+    /// Der Test haelt zugleich die REIHENFOLGE in `takt` fest: stand der
+    /// Abruf-Schritt vor dem Frist-Schritt, ersetzte die Selbstheilung in
+    /// `Empfaenger::abrufen` den abgelaufenen Vorgang durch einen frischen,
+    /// und `liefern("")` kam nie. Mit vertauschter Reihenfolge wird er rot —
+    /// nachgemessen, nicht gefolgert.
+    #[test]
+    fn nach_fristablauf_liefert_der_takt_dem_wartenden_leer() {
+        let mut p = Pruefablage::neu();
+        let mut st = Prozessablage::default();
+        let mut lage = wache_lage();
+        lage.fern(&Rahmen::Neu { generation: 4, typ: Inhaltstyp::Text }, &mut p);
+        p.einfuegen = true;
+        assert_eq!(
+            lage.takt(&mut st, &mut p),
+            vec![Rahmen::Hol { generation: 4, id: 1 }],
+            "das Einfuegen loest den Abruf aus"
+        );
+        assert_eq!(p.inner.geliefert(), None, "solange die Frist laeuft, wird nicht geliefert");
+
+        // Niemand antwortet. Die Frist ist die einzige Rettung.
+        lage.uhr_vorstellen(crate::sitzung::ABRUF_FRIST_MS);
+        lage.takt(&mut st, &mut p);
+        assert_eq!(
+            p.inner.geliefert().as_deref(),
+            Some(""),
+            "nach der Frist muss der wartende Einfuegevorgang eine leere \
+             Antwort bekommen — sonst haengt er"
+        );
+    }
+
     /// Ohne Seriennummer (Fenster ohne Fokus) bleibt der Anspruch eingereiht
     /// und wird spaeter eingeloest — er verpufft nicht.
     #[test]
@@ -739,7 +810,7 @@ mod tests {
         p.einfuegen = true;
         let hol = lage.takt(&mut st, &mut p);
         let Some(Rahmen::Hol { id, .. }) = hol.first() else { panic!("kein Abruf: {hol:?}") };
-        for stueck in pulse_ablage::stueckelung::zerlegen(*id, "hallo").expect("passt") {
+        for stueck in crate::stueckelung::zerlegen(*id, "hallo").expect("passt") {
             lage.fern(&stueck, &mut p);
         }
         assert_eq!(p.inner.geliefert().as_deref(), Some("hallo"));

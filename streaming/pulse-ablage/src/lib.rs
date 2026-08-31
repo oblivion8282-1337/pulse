@@ -26,9 +26,17 @@
 //! laesst sich der ganze Ablauf im Test fahren, ohne dass eine Zwischenablage
 //! im Spiel ist — siehe `tests/rundlauf.rs`.
 
+//! **Was hier NICHT liegt:** die Plattform-Aufrufe. Wayland steht im Player
+//! (`fernsteuerung/wayland/ablage.rs`, Begruendung im Entwurf), Windows im
+//! `win-hq-sidecar` (`src/ablage/`). Was beide teilen, ist alles darueber —
+//! seit dem 2026-08-31 auch die Zustandsfuehrung ([`lage`]) und die Traits,
+//! die eine Plattform erfuellen muss ([`plattform`]).
+
 pub mod beobachter;
 pub mod eigentum;
 pub mod format;
+pub mod lage;
+pub mod plattform;
 pub mod pruefstand;
 pub mod sitzung;
 pub mod stueckelung;

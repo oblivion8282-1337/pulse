@@ -8,14 +8,13 @@
 //! `pulse_ablage` — beim Kopieren geht nur eine Ankuendigung hinaus, der
 //! Inhalt erst, wenn drueben jemand tatsaechlich einfuegt.
 //!
-//! **Drei Teile, an den Naehten geschnitten, die die Tests ohnehin ziehen:**
-//! die reine Rechnung steht in [`lage`] (Zustandsmaschine, Deutung eines
-//! Rahmens, das Ereignisformat — alles ohne Fenster pruefbar), die Traits, die
-//! eine Plattform erfuellen muss, in [`plattform`] (die zwei Beruehrungspunkte
-//! mit dem Betriebssystem — `Beobachter` und `Eigentum` aus `pulse-ablage` —
-//! plus die dritte Auskunft, die die Kiste bewusst nicht stellt,
-//! [`Ablagequelle`]); hier steht nur noch die Verdrahtung an [`App`] (welche
-//! Sitzung, welche Plattform, wohin die Antwort).
+//! **Die reine Rechnung liegt seit dem 2026-08-31 in der Kiste**
+//! (`pulse_ablage::lage`), zusammen mit den Traits, die eine Plattform
+//! erfuellen muss (`pulse_ablage::plattform`): mit dem Windows-Host bekam sie
+//! einen zweiten Verbraucher, der dieselbe Zustandsfuehrung braucht — und eine
+//! Kopie ist genau das, wogegen die gemeinsamen Kisten gebaut sind. Hier steht
+//! nur noch die Verdrahtung an [`App`] (welche Sitzung, welche Plattform,
+//! wohin die Antwort) und das Ereignisformat des Players ([`ereignis`]).
 //!
 //! **Die Plattform ist heute allein Wayland**
 //! (`crate::fernsteuerung::wayland::ablage`). Auf X11, Windows und macOS gibt
@@ -36,12 +35,12 @@
 //! Zuordnung steht als reine Funktion in [`lage::deuten`] und ist genau deshalb
 //! pruefbar.
 
-mod lage;
-mod plattform;
+mod ereignis;
 
-pub(crate) use lage::{Ablagelage, Prozessablage};
-pub(crate) use plattform::{Ablageplattform, Ablagequelle, KeineAblage};
-use lage::{ablage_ereignis, deuten, Anstoss, Entscheidung};
+pub(crate) use pulse_ablage::lage::{Ablagelage, Prozessablage};
+pub(crate) use pulse_ablage::plattform::{Ablageplattform, Ablagequelle, KeineAblage};
+use ereignis::ablage_ereignis;
+use pulse_ablage::lage::{deuten, Anstoss, Entscheidung};
 
 use pulse_ablage::format::Rahmen;
 
@@ -131,6 +130,17 @@ impl App {
         let hinaus = self
             .mit_ablage(ziel, |lage, prozess, p| match deuten(&data) {
                 Entscheidung::Anstoss(Anstoss::NeuBitte) => lage.neu_bitte(),
+                // **Im Player ist `beginn` eine Bestaetigung, keine Wahl.** Der
+                // Traeger steht hier schon fest (`ablage_erfassung`, alle
+                // Sitzungen liegen in EINEM Prozess); auf dem Host waehlt der
+                // Anstoss ihn dagegen aus mehreren Sidecar-Prozessen. Er wird
+                // trotzdem angenommen: `beginnen` ist idempotent, und ein
+                // Anstoss, den der Renderer beiden Rollen gleich schickt, darf
+                // hier nicht ins Leere laufen.
+                Entscheidung::Anstoss(Anstoss::Beginn) => {
+                    lage.beginnen();
+                    Vec::new()
+                }
                 Entscheidung::Anstoss(Anstoss::Ende) => {
                     lage.ende(prozess, p);
                     Vec::new()

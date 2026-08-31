@@ -7,12 +7,12 @@
 //! Untermodule sehen die privaten Felder ihres Elternmoduls — die Trennung
 //! kostet deshalb keine zusaetzliche Sichtbarkeit.
 
-use pulse_ablage::beobachter::Beobachter;
-use pulse_ablage::format::Rahmen;
-use pulse_ablage::sitzung::Fortschritt;
+use crate::beobachter::Beobachter;
+use crate::format::Rahmen;
+use crate::sitzung::Fortschritt;
 
 use super::{Ablagelage, Prozessablage};
-use crate::app::ablage::Ablageplattform;
+use crate::plattform::Ablageplattform;
 
 /// Sichtbar gemachter [`Beobachter`] auf einer Plattform hinter `dyn`.
 ///
@@ -32,7 +32,7 @@ impl Beobachter for Sicht<'_> {
 
 /// Wie lange die Antwort auf ein `hol` hoechstens auf den Lesevorgang wartet.
 ///
-/// Deutlich unter `pulse_ablage::sitzung::ABRUF_FRIST_MS` (2 s), damit die
+/// Deutlich unter [`crate::sitzung::ABRUF_FRIST_MS`] (2 s), damit die
 /// Antwort noch innerhalb der Frist des Abrufenden ankommt — und ueber der
 /// Lesefrist der Plattform (Wayland: 500 ms), damit ein gesunder Lesevorgang
 /// nicht kurz vor dem Ziel abgeschnitten wird.
@@ -68,7 +68,7 @@ impl Ablagelage {
         // Eine Sitzung ohne Plattform kommt hier trotzdem vorbei:
         // `App::ablage_abbau` ist der eine Trichter fuers Ende und ruft `ende`
         // fuer JEDE Sitzung, nicht nur fuer den Traeger — die uebrigen bekommen
-        // [`super::super::KeineAblage`], wo `eigentuemer()` immer `false`
+        // [`crate::plattform::KeineAblage`], wo `eigentuemer()` immer `false`
         // meldet. Ohne diesen Ausstieg buchte ein reiner Zuschauer-Fenster den
         // Stand des Traegers ab: `p.freigeben` liefe als No-Op, `p.eigentuemer()`
         // meldete `false`, der Merkposten waere weg — und wenn danach der echte
@@ -158,10 +158,11 @@ impl Ablagelage {
 
     /// Ein Durchlauf der Ereignisschleife. Liefert, was hinausgeht.
     ///
-    /// Vier Schritte in dieser Reihenfolge: eingereihten Anspruch einloesen,
-    /// wartendes Einfuegen abrufen, eigene Aenderung ankuendigen, Frist
-    /// pruefen.
-    pub(crate) fn takt(
+    /// Fuenf Schritte, und die Reihenfolge traegt: ein geparktes `hol`
+    /// beantworten, den eingereihten Anspruch einloesen, **die Frist eines
+    /// laufenden Abrufs** (sie muss vor dem naechsten Schritt stehen, s. dort),
+    /// ein wartendes Einfuegen abrufen, die eigene Aenderung ankuendigen.
+    pub fn takt(
         &mut self,
         prozess: &mut Prozessablage,
         p: &mut dyn Ablageplattform,
@@ -223,7 +224,7 @@ impl Ablagelage {
             // liefert `lesen()` bewusst `None` (es waere unser eigener Stand);
             // eine unbedingte Zuweisung loeschte dann genau den Merkposten,
             // den sie retten soll — dieselbe Falle wie das `take()` in
-            // `pulse_ablage::pruefstand::TestAblage::beanspruchen`.
+            // `crate::pruefstand::TestAblage::beanspruchen`.
             if braucht_vorbestand {
                 if let Some(text) = p.lesen() {
                     prozess.vorbestand = Some(text);
@@ -238,7 +239,31 @@ impl Ablagelage {
             }
         }
 
-        // 2. Wartet ein Einfuegevorgang? Erst jetzt geht `hol` hinaus — das
+        // 2. **Die Frist eines laufenden Abrufs — und sie steht VOR Schritt 3.**
+        //
+        //    Das ist die Kopplung `takt()` → `Eigentum::liefern()`, der offene
+        //    Merkposten aus Plan 1a: laeuft die Frist ab, bekommt der wartende
+        //    Einfuegevorgang eine leere Zeichenkette und ist damit erledigt. Ein
+        //    Einfuegen, das nichts einfuegt, versteht jeder; ein haengendes
+        //    Programm nicht.
+        //
+        //    **Die Reihenfolge ist der ganze Punkt**, und andersherum war sie
+        //    wirkungslos: `Empfaenger::abrufen` raeumt einen abgelaufenen
+        //    Vorgaenger selbst (die Selbstheilung gegen einen Verbraucher, der
+        //    aufhoert zu takten). Stand Schritt 3 davor, ersetzte er den
+        //    abgelaufenen Abruf durch einen frischen, `Empfaenger::takt` sah
+        //    danach einen laufenden — und `liefern("")` kam NIE. Der
+        //    Einfuegevorgang wartet aber weiter (`einfuegen_wartet` bleibt
+        //    wahr, bis geliefert ist), also begann jeder Takt einen neuen
+        //    Abruf: eine endlose Schleife, an deren Ende auf Windows und macOS
+        //    ein blockiertes fremdes Programm haengt. **Gefunden beim Bau des
+        //    Windows-Hosts (2026-08-31), als der erste Test dieser Kopplung
+        //    entstand** — im Player war der Weg vorhanden, aber unerreichbar.
+        if let Fortschritt::Leer(_) = self.empfaenger.takt(jetzt) {
+            p.liefern("");
+        }
+
+        // 3. Wartet ein Einfuegevorgang? Erst jetzt geht `hol` hinaus — das
         //    IST das verzoegerte Rendern.
         //
         //    **Auch hier der `teilen`-Riegel** (Review C6). Er war der einzige
@@ -246,21 +271,24 @@ impl Ablagelage {
         //    Schleifendurchlauf zwischen Ausschalten und Freigeben) — die
         //    fehlende Symmetrie zu den anderen dreien ist trotzdem genau die
         //    Stelle, an der ein spaeterer Umbau still etwas hinauslaesst.
+        //
+        //    Meldet die Plattform hier trotz des gerade abgeschlossenen
+        //    Schrittes 2 noch einen wartenden Vorgang (auf Windows weckt
+        //    `liefern` einen anderen Faden, der Merker faellt also einen
+        //    Wimpernschlag spaeter), geht ein zusaetzliches `hol` hinaus. Das
+        //    kostet einen Rahmen und ist die richtige Seite des Irrtums: die
+        //    Gegenseite antwortet darauf, und ein zweites `liefern` an einen
+        //    bereits bedienten Vorgang ist ueberall folgenlos.
         if self.teilen && p.einfuegen_wartet() {
             if let Some(hol) = self.empfaenger.abrufen(jetzt) {
                 hinaus.push(hol);
             }
         }
 
-        // 3. Hat sich die eigene Ablage geaendert? Dann nur die Ankuendigung,
+        // 4. Hat sich die eigene Ablage geaendert? Dann nur die Ankuendigung,
         //    ohne Inhalt.
         if self.teilen && p.geaendert() {
             hinaus.push(self.ankuendiger.geaendert());
-        }
-
-        // 4. Die Frist eines laufenden Abrufs.
-        if let Fortschritt::Leer(_) = self.empfaenger.takt(jetzt) {
-            p.liefern("");
         }
         hinaus
     }

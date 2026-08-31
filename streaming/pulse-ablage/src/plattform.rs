@@ -1,12 +1,14 @@
 //! Die Traits, ueber die der Ablauf die Plattform anfasst — und die Fassung
 //! fuer die Plattformen, die es noch nicht gibt.
 //!
-//! **Abgetrennt von [`super`] der Groesse wegen** (`PLAN.md` §12.1); der
-//! Schnitt liegt an der Naht zwischen „was eine Plattform koennen muss" und
-//! „wie `App` sie verdrahtet".
+//! **Lag bis zum 2026-08-31 im Player** (`app/ablage/plattform.rs`) und ist mit
+//! [`crate::lage`] hierher gezogen, als der Windows-Host dazukam: die Traits
+//! beschreiben, was eine Plattform koennen muss, und diese Frage stellt sich
+//! auf jeder von ihnen gleich. Eine zweite Fassung im Sidecar waere genau die
+//! Kopie, gegen die die gemeinsamen Kisten gebaut sind.
 
-use pulse_ablage::beobachter::Beobachter;
-use pulse_ablage::eigentum::Eigentum;
+use crate::beobachter::Beobachter;
+use crate::eigentum::Eigentum;
 
 /// Was die Plattform ausserhalb der beiden Kisten-Traits noch beantworten
 /// muss.
@@ -15,7 +17,7 @@ use pulse_ablage::eigentum::Eigentum;
 /// ein Einfuegevorgang?" ist auf jeder Plattform ein anderes Ereignis, die
 /// Seriennummer ist eine reine Wayland-Not (s. `Anspruch`), und wer die Ablage
 /// gerade haelt, weiss nur das Betriebssystem.
-pub(crate) trait Ablagequelle {
+pub trait Ablagequelle {
     /// Wartet gerade ein Einfuegevorgang auf Inhalt? Auf Wayland ist das ein
     /// `wl_data_source.send` mit noch offenem Dateideskriptor.
     fn einfuegen_wartet(&mut self) -> bool;
@@ -62,20 +64,27 @@ pub(crate) trait Ablagequelle {
 
 /// Alles zusammen, was eine Plattform-Umsetzung koennen muss.
 ///
-/// **Als Objekt-Trait gefuehrt** (`&mut dyn Ablageplattform`), damit
-/// [`App::mit_ablage`] EINE Fassung hat statt einer je Plattform: die
-/// Umsetzung unterscheidet sich zwischen Linux und dem Rest, der Ablauf
+/// **Als Objekt-Trait gefuehrt** (`&mut dyn Ablageplattform`), damit der
+/// Ablauf darueber EINE Fassung hat statt einer je Plattform (im Player
+/// `App::mit_ablage`, im Windows-Sidecar `ablage::mit_ablage`): die Umsetzung
+/// unterscheidet sich zwischen Wayland, Windows und dem Rest, der Ablauf
 /// darueber nicht.
-pub(crate) trait Ablageplattform: Beobachter + Eigentum + Ablagequelle {}
+pub trait Ablageplattform: Beobachter + Eigentum + Ablagequelle {}
 impl<T: Beobachter + Eigentum + Ablagequelle> Ablageplattform for T {}
 
-/// Die Plattform, die es (noch) nicht gibt: X11, Windows, macOS.
+/// Die Plattform, die es an dieser Stelle (noch) nicht gibt.
+///
+/// Im Player heisst das X11, Windows und macOS (dort traegt allein Wayland);
+/// im Windows-Sidecar jede Sitzung, die nicht Traeger ist. **Der Name meint
+/// „hier keine", nicht „auf diesem Betriebssystem keine"** — seit dem
+/// 2026-08-31 gibt es die Windows-Umsetzung, nur eben im Sidecar und nicht im
+/// Player.
 ///
 /// **Kein Fehlerfall.** Die Zustandsmaschine laeuft trotzdem — sie meldet nie
 /// eine Aenderung, beansprucht nichts und liefert nichts. Damit gibt es genau
 /// EINEN Kontrollfluss statt eines zweiten, plattformfreien Zweigs, den
 /// niemand pflegt.
-pub(crate) struct KeineAblage;
+pub struct KeineAblage;
 
 impl Beobachter for KeineAblage {
     fn geaendert(&mut self) -> bool {
