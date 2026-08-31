@@ -28,6 +28,7 @@
 import { SICHERUNG_ENABLED } from '../krypto/schalter.ts';
 import type { Message } from '../api/types.ts';
 import { ausWire, NUTZLAST_FASSUNG, type AblageNachricht } from '../ablage/nutzlast.ts';
+import { openIdentityDb, idbPutIdentity, idbGetIdentity } from '../identity/idb-shared.ts';
 import { verlaufAlleLesen, anhangBytesLesen, anhangBytesSichern, verlaufPutSaetze } from '../verlauf/db.ts';
 import { aktuellesKonto } from '../verlauf/konto.ts';
 import { zuSatz } from '../verlauf/satz.ts';
@@ -60,7 +61,6 @@ import {
 } from './geraete.ts';
 
 let spiegel: SicherungsSpiegel | null = null;
-let startVersuch: Promise<boolean> | null = null;
 
 /**
  * Ist die Sicherung auf diesem Gerät einsatzbereit (Verbindung + DEK im
@@ -100,52 +100,30 @@ async function baueSpiegel(dek: Uint8Array, kuerzel: string): Promise<void> {
 
 async function spiegelFallsBereit(): Promise<SicherungsSpiegel | null> {
 	if (spiegel !== null) return spiegel;
-	if (startVersuch !== null) {
-		return (await startVersuch) ? spiegel : null;
+	const [ziele, zwischengelagert] = await Promise.all([
+		zieleLesen(),
+		dekAusZwischenlager(),
+	]);
+	if (!zieleBesetzt(ziele) || zwischengelagert === null) return null;
+	// Schreibrecht: ZWEI Tabs desselben Profils teilen dasselbe Kürzel —
+	// ohne Abstimmung überschriebe der eine dem anderen per PATCH die
+	// Segmentdatei (Review 2026-08-31, Befund 4). Die Web-Locks-API reiht
+	// den Wunsch in eine WARTESCHLANGE: der zweite Tab wird Schreiber,
+	// sobald der erste endet — und bis dahin sichert der aktive Schreiber
+	// auch dessen Puffer mit (Nachlauf nach jeder Spülung). Ohne
+	// Locks-API (alte Browser) baut der erste Aufrufer direkt.
+	const schreiber = (globalThis as { navigator?: { locks?: LockManager } }).navigator?.locks;
+	if (!schreiber) {
+		await baueSpiegel(zwischengelagert.dek, zwischengelagert.kuerzel);
+		return spiegel;
 	}
-	startVersuch = (async () => {
-		const [ziele, zwischengelagert] = await Promise.all([
-			zieleLesen(),
-			dekAusZwischenlager(),
-		]);
-		if (!zieleBesetzt(ziele) || zwischengelagert === null) return false;
-		// Schreibrecht: ZWEI Tabs desselben Profils teilen dasselbe Kürzel —
-		// ohne Abstimmung überschriebe der eine dem anderen per PATCH die
-		// Segmentdatei (Review 2026-08-31, Befund 4). Die Web-Locks-API
-		// macht einen Tab zum Schreiber, der andere legt nur in den
-		// gerätelokalen Puffer — der Schreiber zieht dessen Zeilen nach
-		// jeder Spülung nach. Ohne Locks-API (alte Browser) altes Verhalten.
-		const schreiber = (globalThis as { navigator?: { locks?: LockManager } }).navigator?.locks;
-		if (!schreiber) {
-			await baueSpiegel(zwischengelagert.dek, zwischengelagert.kuerzel);
-			return true;
-		}
-		schreiber
-			.request(
-				'pulse-sicherung-schreiber',
-				{ ifAvailable: true },
-				async (sperre) => {
-					if (!sperre) {
-						startVersuch = null; // später erneut versuchen
-						return;
-					}
-					await baueSpiegel(zwischengelagert.dek, zwischengelagert.kuerzel);
-					await new Promise(() => {
-						/* Schreibrecht halten, bis der Tab endet */
-					});
-				},
-			)
-			.catch(() => {
-				startVersuch = null;
-			});
-		// Warten, bis der Spiegel gebaut ist ODER feststeht, dass wir
-		// nicht schreiben dürfen (dann bedient der Schreiber-Tab alles).
-		for (let warte = 0; warte < 100 && spiegel === null && startVersuch !== null; warte++) {
-			await new Promise((r) => setTimeout(r, 50));
-		}
-		return spiegel !== null;
-	})();
-	return (await startVersuch) ? spiegel : null;
+	await schreiber.request('pulse-sicherung-schreiber', async () => {
+		await baueSpiegel(zwischengelagert.dek, zwischengelagert.kuerzel);
+		await new Promise(() => {
+			/* Schreibrecht halten, bis der Tab endet */
+		});
+	});
+	return spiegel;
 }
 
 /**
@@ -258,6 +236,18 @@ export async function sicherungJetztSpuelen(): Promise<void> {
  * Anhänge wandern in dieser Fassung NICHT mit (nur Metadaten wären da,
  * die Bytes liegen separat) und gelöschte Zeilen bleiben außen vor.
  */
+const MERKER_ERSTSICHERUNG = 'pulse.sicherung-erstsicherung-ok';
+
+/** Läuft die Nachhol-Runde schon? Dann ist der Knopf erledigt. */
+export async function erstsicherungErledigt(): Promise<boolean> {
+	try {
+		const db = await openIdentityDb();
+		return (await idbGetIdentity(db, MERKER_ERSTSICHERUNG)) === true;
+	} catch {
+		return false;
+	}
+}
+
 export async function sicherungErstsicherung(): Promise<number> {
 	const bereit = await spiegelFallsBereit();
 	if (bereit === null) throw new Error('Sicherung nicht bereit — erst verbinden und entsperren.');
@@ -276,7 +266,19 @@ export async function sicherungErstsicherung(): Promise<number> {
 			zeit: satz.erstelltAm,
 			bearbeitet: satz.bearbeitetAm,
 			antwortAuf: satz.antwortAufId ?? null,
-			anhaenge: [],
+			// Anhang-Metadaten aus dem lokalen Satz — die BYTES holt
+			// `sicherungAnhaenge` aus dem gerätelokalen Bytes-Speicher und
+			// legt sie als eigene Dateien ins Archiv. Was das Gerät nicht
+			// mehr hält, bleibt außen vor (ehrliche Grenze).
+			anhaenge: Array.isArray(satz.anhaenge)
+				? (satz.anhaenge as Array<Record<string, unknown>>).map((a) => ({
+						...a,
+						id: String(a.id),
+						name: (a.filename as string | null) ?? null,
+						mime: (a.mime as string | null) ?? null,
+						groesse: Number(a.size ?? 0),
+					}))
+				: [],
 		});
 		nachKanal.set(satz.kanalId, liste);
 	}
@@ -287,6 +289,12 @@ export async function sicherungErstsicherung(): Promise<number> {
 		await sicherungAnhaenge(kanalId, liste);
 		gesamt += liste.length;
 	}
+	try {
+		const db = await openIdentityDb();
+		await idbPutIdentity(db, MERKER_ERSTSICHERUNG, true);
+	} catch {
+		/* Merker ist Komfort — das Nachholen schadet nicht */
+	}
 	return gesamt;
 }
 
@@ -294,7 +302,6 @@ export async function sicherungErstsicherung(): Promise<number> {
 export function sicherungVerwerfen(): void {
 	spiegel?.beenden();
 	spiegel = null;
-	startVersuch = null;
 }
 
 /**

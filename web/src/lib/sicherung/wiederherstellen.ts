@@ -148,7 +148,14 @@ export async function leseSicherungInkrementell(
 					const klar = await entschlüsseleEintrag(dek, rahmenEinzeln.nutzlast);
 					const eintrag = leseSicherungEintrag(klar);
 					const schluessel = `${eintrag.kanalId}:${eintrag.nachricht.id}`;
-					if (!nachSchluessel.has(schluessel)) {
+					const vorhanden = nachSchluessel.get(schluessel);
+					// Dieselbe Nachricht kann aus zwei Rahmen stammen (z. B.
+					// Backfill ohne Anhänge + Live-Spiegelung mit) — die
+					// reichere Fassung gewinnt.
+					if (
+						vorhanden === undefined ||
+						eintrag.nachricht.anhaenge.length > vorhanden.nachricht.anhaenge.length
+					) {
 						nachSchluessel.set(schluessel, eintrag);
 					}
 				} catch {

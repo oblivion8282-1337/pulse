@@ -32,7 +32,13 @@
     dekZwischenlagerWischen,
     pufferWischen,
   } from '$lib/sicherung/geraete';
-  import { sicherungJetztSpuelen, sicherungErstsicherung, sicherungArchivLaden, sicherungVerwerfen } from '$lib/sicherung/andock';
+  import {
+    sicherungJetztSpuelen,
+    sicherungErstsicherung,
+    sicherungArchivLaden,
+    sicherungVerwerfen,
+    erstsicherungErledigt,
+  } from '$lib/sicherung/andock';
   import { googleSicherungVerbinden } from '$lib/sicherung/googleClient';
   import { ordnerVerzeichnisWählen, ordnerZugriffErneuern } from '$lib/sicherung/ordner';
   import SicherungZiel from './SicherungZiel.svelte';
@@ -47,6 +53,7 @@
   let fehler = $state('');
   let laeuft = $state(false);
   let ziele = $state<SicherungZiele>({});
+  let nachholNoetig = $state(false);
 
   $effect(() => {
     void (async () => {
@@ -58,6 +65,7 @@
       // Bereits eingerichtet? Dann den Archiv-Bestand automatisch nachladen —
       // der Nutzer will Nachrichten SEHEN, nicht Knöpfe suchen. Probe
       // inklusive: eine tote Verbindung wird hier sichtbar.
+      nachholNoetig = !(await erstsicherungErledigt());
       if (zustand === 'an') {
         try {
           await adapterLieferant();
@@ -142,6 +150,22 @@
     }
   }
 
+  /** Erstsicherung nachreichen: den lokalen Bestand in die Ziele spiegeln. */
+  async function erstsicherungNachreichen(): Promise<void> {
+    laeuft = true;
+    fehler = '';
+    try {
+      const anzahl = await sicherungErstsicherung();
+      meldung = `${anzahl} bestehende Nachrichten gesichert.`;
+      nachholNoetig = false;
+      await sicherungJetztSpuelen();
+    } catch (e) {
+      fehler = e instanceof Error ? e.message : String(e);
+    } finally {
+      laeuft = false;
+    }
+  }
+
   /** Ordner-Zugriff mit Nutzergeste erneuern (Browser fragt sonst nie wieder). */
   async function zugriffErneuern(): Promise<void> {
     if (ziele.ordner === undefined) return;
@@ -201,6 +225,8 @@
         aufJetztSichern={() => void sicherungJetztSpuelen()}
         aufZugriff={() => void zugriffErneuern()}
         aufEntfernen={entfernen}
+        aufErstsicherung={erstsicherungNachreichen}
+        nachholNoetig={nachholNoetig}
       />
       <SicherungPasswortAendern />
     {/if}
