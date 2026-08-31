@@ -26,11 +26,17 @@
 //! laesst sich der ganze Ablauf im Test fahren, ohne dass eine Zwischenablage
 //! im Spiel ist — siehe `tests/rundlauf.rs`.
 
-//! **Was hier NICHT liegt:** die Plattform-Aufrufe. Wayland steht im Player
-//! (`fernsteuerung/wayland/ablage.rs`, Begruendung im Entwurf), Windows im
-//! `win-hq-sidecar` (`src/ablage/`). Was beide teilen, ist alles darueber —
-//! seit dem 2026-08-31 auch die Zustandsfuehrung ([`lage`]) und die Traits,
-//! die eine Plattform erfuellen muss ([`plattform`]).
+//! **Welche Plattform-Aufrufe hier liegen — und welche nicht.** Wayland steht
+//! im Player (`fernsteuerung/wayland/ablage.rs`, Begruendung im Entwurf),
+//! Windows im `win-hq-sidecar` (`src/ablage/`): dort hat jede Plattform genau
+//! EINEN Verbraucher. **macOS hat zwei** — den `mac-hq-sidecar` als Host und
+//! den `pulse-player` als Steuernden —, und weil beide Haelften einer
+//! Zwischenablage spiegelbildlich gleich sind, laege die Umsetzung dort zweimal
+//! im Baum. Sie liegt deshalb hier ([`plattform::macos`]).
+//!
+//! Was alle teilen, ist ohnehin alles darueber — seit dem 2026-08-31 auch die
+//! Zustandsfuehrung ([`lage`]) und die Traits, die eine Plattform erfuellen
+//! muss ([`plattform`]).
 
 pub mod beobachter;
 pub mod eigentum;

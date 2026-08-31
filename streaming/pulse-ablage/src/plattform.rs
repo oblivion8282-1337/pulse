@@ -7,6 +7,11 @@
 //! auf jeder von ihnen gleich. Eine zweite Fassung im Sidecar waere genau die
 //! Kopie, gegen die die gemeinsamen Kisten gebaut sind.
 
+/// Die macOS-Umsetzung — **beide Rollen teilen sie**, deshalb liegt sie hier
+/// und nicht beim Verbraucher (Begruendung im Modulkopf dort).
+#[cfg(target_os = "macos")]
+pub mod macos;
+
 use crate::beobachter::Beobachter;
 use crate::eigentum::Eigentum;
 
@@ -74,11 +79,11 @@ impl<T: Beobachter + Eigentum + Ablagequelle> Ablageplattform for T {}
 
 /// Die Plattform, die es an dieser Stelle (noch) nicht gibt.
 ///
-/// Im Player heisst das X11, Windows und macOS (dort traegt allein Wayland);
-/// im Windows-Sidecar jede Sitzung, die nicht Traeger ist. **Der Name meint
-/// „hier keine", nicht „auf diesem Betriebssystem keine"** — seit dem
-/// 2026-08-31 gibt es die Windows-Umsetzung, nur eben im Sidecar und nicht im
-/// Player.
+/// Im Player heisst das X11 und Windows (dort traegt Wayland, und seit dem
+/// 2026-08-31 auch macOS ueber [`macos`]); im Windows- und im macOS-Sidecar
+/// jede Sitzung, die nicht Traeger ist. **Der Name meint „hier keine", nicht
+/// „auf diesem Betriebssystem keine"** — die Windows-Umsetzung gibt es, nur
+/// eben im Sidecar und nicht im Player.
 ///
 /// **Kein Fehlerfall.** Die Zustandsmaschine laeuft trotzdem — sie meldet nie
 /// eine Aenderung, beansprucht nichts und liefert nichts. Damit gibt es genau

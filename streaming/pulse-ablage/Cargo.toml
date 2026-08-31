@@ -22,3 +22,44 @@ description = "Geteilte Zwischenablage der Fernsteuerung — Rahmenformat, Stuec
 [dependencies]
 pulse-fernsteuerung = { path = "../pulse-fernsteuerung" }
 serde_json = "1"
+
+# ---------------------------------------------------------------------------
+# macOS — die Plattform-Umsetzung liegt HIER und nicht beim Verbraucher
+# (`plattform/macos/`), anders als Windows (Sidecar) und Wayland (Player).
+#
+# Der Grund ist der Zuschnitt der Rollen: auf macOS traegt der Sidecar die
+# Host-Haelfte und der Player die des Steuernden, und beide Haelften einer
+# Zwischenablage sind spiegelbildlich gleich — dieselben drei Traits, dieselben
+# NSPasteboard-Aufrufe. Beim Verbraucher laege sie also ZWEIMAL im Baum. Genau
+# das ist der Fehler, gegen den die gemeinsamen Kisten gebaut sind.
+#
+# **Vom Nutzer freigegeben am 2026-08-31**, fuer diesen Zweck: `NSPasteboard`
+# ist AppKit, und ohne Bindungen dafuer gaebe es auf macOS gar keine
+# Zwischenablage. Vier Kisten kommen zusammen herein — `objc2` (Laufzeit),
+# `objc2-app-kit` (NSPasteboard samt Eigentuemer-Protokoll), `objc2-foundation`
+# (NSArray/NSString/NSRunLoop/NSDate/NSThread; ausserdem verlangt die
+# Protokoll-Konformitaet des Eigner-Objekts sie als DIREKTE Abhaengigkeit) und
+# transitiv `objc2-encode`. Alle vier MIT-lizenziert, alle nur auf macOS.
+#
+# **Die Merkmalslisten sind knapp gehalten und das ist kein Geschmack**: ohne
+# `default-features = false` zoegen die beiden Framework-Kisten den halben
+# AppKit-Baum in jedes `Cargo.lock`, das diese Kiste beruehrt — und damit in
+# `packaging/pulse-player-cargo-sources.json`, das der Flatpak offline baut.
+#
+# **Die Grenze bleibt hart:** jede weitere Abhaengigkeit braucht ihre eigene
+# Nachmessung und ihre eigene Entscheidung.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSPasteboard",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSArray",
+    "NSString",
+    "NSDate",
+    "NSRunLoop",
+    "NSObjCRuntime",
+    "NSThread",
+] }
