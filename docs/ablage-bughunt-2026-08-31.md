@@ -178,6 +178,26 @@ Aufrufer. Ein abgelaufener Zugang beendet die Verbindung damit endgültig und
 unbemerkt — der häufigste Dauerfehler dieser Bauart und der eigentliche
 Grund für die Zustandsanzeige aus E1.
 
+### B12 — „Löschen" löscht auf keinem angebotenen Anbieter
+
+`web/src/lib/ablage/{dropbox,gdrive,webdav}.ts` · **Datenschutz** · offen, E1
+
+`lösche` ist im Adapter-Vertrag optional, und **kein einziger der angebotenen
+Cloud-Adapter setzt es um** — nur der Sync-Ordner und der Testadapter im
+Speicher. `DateiSpeicher.löschen()` entfernt deshalb nur den
+Verzeichniseintrag und ruft `adapter.lösche?.()` ins Leere: der
+verschlüsselte Container bleibt für immer auf dem Laufwerk.
+
+Der Nutzer sieht die Datei verschwinden und glaubt, sie sei weg. Bei einem
+Produkt, dessen Versprechen die Hoheit über die eigenen Daten ist, ist das
+die falsche Sorte Überraschung.
+
+Aufgefallen ist es nicht beim Suchen, sondern beim Bauen der
+Verbindungsprobe: die verlangt ein Löschen, und plötzlich bestand kein
+einziger echter Anbieter mehr. **Die Probe war damit sofort nützlich, bevor
+sie überhaupt eingebaut war** — und die richtige Antwort ist, die Adapter zu
+vervollständigen, nicht die Probe aufzuweichen.
+
 ---
 
 ## 3. Geprüft, kein Befund

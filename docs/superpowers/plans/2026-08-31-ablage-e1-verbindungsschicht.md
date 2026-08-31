@@ -180,6 +180,38 @@ bringen, und das Ergebnis nennt genau den Schritt.
 
 ---
 
+## Aufgabe 3b: Löschen löscht nicht
+
+**Erhoben beim Bau der Probe, 2026-08-31.** `lösche` ist im Adapter-Vertrag
+optional (`adapter.lösche?.()`), und **kein einziger der angebotenen
+Cloud-Adapter setzt es um** — nur `syncOrdner.ts` und der Testadapter im
+Speicher. Dropbox, Google Drive und Nextcloud haben es nicht.
+
+Zwei Folgen, und beide sind ernst:
+
+1. **`DateiSpeicher.löschen()` löscht nichts.** Es entfernt den
+   Verzeichniseintrag und ruft `adapter.lösche?.()` ins Leere. Der
+   verschlüsselte Container bleibt für immer auf dem Laufwerk. Der Nutzer
+   sieht die Datei verschwinden und glaubt, sie sei weg — bei einem Produkt,
+   dessen Versprechen die Hoheit über die eigenen Daten ist, ist das die
+   falsche Sorte Überraschung. Der Kommentar an der Stelle sagt „wo der
+   Adapter das anbietet"; das ist formal richtig und verschleiert, dass es
+   heute nirgends angeboten wird.
+2. **Die Verbindungsprobe scheitert dadurch bei jedem angebotenen
+   Anbieter.** Ihre strenge Haltung (ohne Löschen keine gute Verbindung) ist
+   richtig — sie deckt gerade auf, dass die Adapter unvollständig sind. Wer
+   sie stattdessen aufweicht, macht die Probe wertlos.
+
+**Zu tun:** `lösche` in `dropbox.ts`, `gdrive.ts` und `webdav.ts` umsetzen —
+alle drei haben eine Löschschnittstelle. Je Adapter ein Test mit gefälschtem
+Transport. Danach den Kommentar an `DateiSpeicher.löschen()` berichtigen: er
+darf nicht länger offenlassen, ob gelöscht wird.
+
+**Erst nach Aufgabe 4**, sonst kollidiert es mit deren Änderungen an
+denselben zwei Dateien.
+
+---
+
 ## Aufgabe 4: Der Auffrisch-Weg
 
 **Warum:** Befund aus E0 — `auffrischeZugang` existiert und wird von
