@@ -5,8 +5,26 @@
  * die über diese Ablage laufen.
  *
  * Der Server sieht von diesem Store NICHTS — weder Verbindungen noch
- * Schlüssel. Ein Kontowechsel räumt den Store per `_enforceDeviceOwner`
- * weg (derselbe Mechanismus wie für die Krypto-Sitzungen).
+ * Schlüssel.
+ *
+ * **Kontowechsel am selben Gerät.** Der Kopf behauptete bis zum 2026-09-01,
+ * `_enforceDeviceOwner` räume diesen Store weg. Das tat er nie — die
+ * Datenbank kommt in `stores/auth.svelte.ts` überhaupt nicht vor. Ein
+ * zweites Konto am selben Fenster las damit die Verbindungen des Vorgängers,
+ * samt OAuth-Token, S3-Geheimnis, Freigabe-Link und Ablage-Hauptschlüssel.
+ *
+ * Behoben nicht durch Wegräumen, sondern wie beim lokalen Verlauf (Bughunt
+ * 2026-08-29, Befund 1): jede Verbindung trägt seither `kontoId`, und
+ * `laden()` zeigt nur die des GERADE angemeldeten Kontos. Der Grund für diese
+ * Wahl ist derselbe, aus dem der Verlauf vom Wächter ausgenommen ist — der
+ * Ablage-Hauptschlüssel ist die EINZIGE Kopie: ohne ihn ist alles, was auf
+ * dem Laufwerk liegt, für immer unlesbar. Ein Löschen bei jedem
+ * Kontowechsel, auch einem versehentlichen, wäre endgültiger Datenverlust.
+ *
+ * Eine Verbindung OHNE `kontoId` (Bestand von vor diesem Fix) gehört bewusst
+ * zu KEINEM Konto — fail-closed statt einer Ratenwette auf den aktuellen
+ * Nutzer. Sie ist damit unsichtbar, aber nicht verloren: das
+ * Wiederherstellungs-Päckchen (E4) bringt Verbindungen und Schlüssel zurück.
  *
  * Der Store ist bewusst schmal: Er verwaltet Verbindungen, er verschlüsselt
  * nichts selbst — das machen die Adapter und der DateiSpeicher.
@@ -14,6 +32,8 @@
 
 import { DateiSpeicher } from './dateispeicher.ts';
 import type { AblageAdapter } from './adapter';
+import { aktuellesKonto } from '../verlauf/konto';
+import { gehoertZuKonto } from '../verlauf/kontoFilter';
 import type { Zugang } from './oauth.ts';
 import {
   SYNC_ORDNER_VERBINDUNGS_ID,
@@ -40,6 +60,9 @@ export interface AblageVerbindung {
   /** Der Ablage-Hauptschlüssel (Base64) — verschlüsselt Dateien und Verzeichnis. */
   hauptschlüsselB64: string;
   verbundenAm: string;
+  /** Das Konto, dem diese Verbindung gehört (`verlauf/konto.ts`).
+   *  Fehlt sie, gehört die Verbindung zu keinem Konto — siehe Modulkopf. */
+  kontoId?: string | null;
   /**
    * Die letzte Auffrischung des OAuth-Zugangs (Dropbox/Google Drive) ist
    * endgültig gescheitert — s. `oauth.ts::AnmeldungAbgelaufenFehler`. Wird
@@ -116,7 +139,18 @@ export class AblageVerbindungsStore {
   geladen = $state(false);
 
   async laden(): Promise<void> {
-    this.verbindungen = await leseAlle();
+    const alle = await leseAlle();
+    const konto = aktuellesKonto();
+    // Ohne angemeldetes Konto gibt es nichts zu zeigen — dieselbe
+    // fail-closed-Regel wie im Verlauf, nicht ein Sonderfall.
+    this.verbindungen =
+      konto === null
+        ? []
+        // `gehoertZuKonto` verlangt das Feld ausdrücklich — hier steht es
+        // absichtlich als optional, weil die Aufrufer es nicht setzen: den
+        // Stempel vergibt `hinzufügen()` aus dem angemeldeten Konto, damit
+        // keine Aufrufstelle ihn vergessen kann.
+        : alle.filter((v) => gehoertZuKonto({ kontoId: v.kontoId ?? null }, konto));
     this.geladen = true;
   }
 
@@ -125,8 +159,11 @@ export class AblageVerbindungsStore {
   }
 
   async hinzufügen(v: AblageVerbindung): Promise<void> {
-    await schreibe(v);
-    this.verbindungen = [...this.verbindungen, v];
+    // Der Stempel entsteht beim Schreiben aus dem GERADE angemeldeten Konto
+    // — dieselbe Stelle und derselbe Grund wie bei `verlauf/db.ts`.
+    const mitKonto: AblageVerbindung = { ...v, kontoId: v.kontoId ?? aktuellesKonto() };
+    await schreibe(mitKonto);
+    this.verbindungen = [...this.verbindungen, mitKonto];
   }
 
   async entfernen(id: string): Promise<void> {

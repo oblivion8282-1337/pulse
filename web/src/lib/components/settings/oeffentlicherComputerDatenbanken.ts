@@ -24,5 +24,11 @@ export const OEFFENTLICHER_COMPUTER_DATENBANKEN = [
   'pulse-identity',
   'pulse-stream',
   'pulse-verlauf',
+  // Nachgetragen am 2026-09-01: diese Datenbank traegt die Zugaenge zu
+  // FREMDEN Systemen — OAuth-Token, S3-Geheimnis, Freigabe-Link mit
+  // Schreibrecht — und den Ablage-Hauptschluessel. Sie fehlte hier, seit der
+  // Ablage-Store angelegt wurde; der Knopf versprach also, alle lokalen Daten
+  // zu loeschen, und liess ausgerechnet die stehen.
+  'pulse-ablage-verbindungen',
   'pulse_presence'
 ] as const;
