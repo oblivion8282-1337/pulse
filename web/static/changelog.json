@@ -2,6 +2,20 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-08-31",
+      "date": "2026-08-31",
+      "style": "Sachlich",
+      "title": "Eigener Speicher — die Einstellungen dafür",
+      "intro": "Pulse kann deine Daten künftig verschlüsselt auf deinem eigenen Cloud-Speicher ablegen. Der erste sichtbare Schritt dorthin ist da.",
+      "items": [
+        "In den Einstellungen gibt es den neuen Bereich „Speicher“. Dort verbindest du ein Laufwerk — Google Drive, Nextcloud oder Dropbox — und siehst, wie es ihm geht.",
+        "Beim Verbinden wird das Laufwerk sofort geprüft: einmal schreiben, lesen, vergleichen, löschen. Kann es das nicht, erfährst du es hier und nicht erst, wenn etwas fehlt.",
+        "Eine abgelaufene Anmeldung beim Cloud-Anbieter erneuert sich von selbst. Bisher endete die Verbindung dabei stillschweigend.",
+        "Der Bereich zeigt je Laufwerk, seit wann es verbunden ist, wann zuletzt gesichert wurde und ob gerade etwas aussteht."
+      ],
+      "outro": "Die Kanäle, die diesen Speicher nutzen, kommen in den nächsten Schritten."
+    },
+    {
       "id": "2026-08-28.4",
       "date": "2026-08-28",
       "style": "Sachlich",
