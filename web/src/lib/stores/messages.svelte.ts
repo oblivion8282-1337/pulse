@@ -238,12 +238,23 @@ class MessageStore {
 
   /** Newest persisted (non-optimistic) message id in the channel, or null
    *  if empty / only optimistic placeholders. Used by the WS-reconnect
-   *  gap-fill to request `?after=<lastId>`. */
+   *  gap-fill to request `?after=<lastId>`.
+   *
+   *  **Ids ohne Server-Gegenstück zählen nicht als Cursor.** Verschluesselte
+   *  Nachrichten muenzen ihre Id lokal (20 Stellen, `krypto/senden.ts::
+   *  lokaleNachrichtId`) und existieren serverseitig nicht — als `after`
+   *  überläuft so eine Id den BIGINT der Server-Abfrage mit 500 (aufgefallen
+   *  2026-08-31 über die Sicherungs-Wiederherstellung, die genau solche
+   *  Nachrichten in den Verlauf lädt). Der Cursor ist deshalb die neueste
+   *  Id, die als BIGINT passt. */
   lastPersistedId(channelId: string): string | null {
     const list = this.byChannel[channelId];
     if (!list) return null;
     for (let i = list.length - 1; i >= 0; i--) {
-      if (!list[i].id.startsWith('tmp-')) return list[i].id;
+      const id = list[i].id;
+      if (id.startsWith('tmp-')) continue;
+      if (id.length > 19 || (id.length === 19 && id > '9223372036854775807')) continue;
+      return id;
     }
     return null;
   }
