@@ -1498,6 +1498,9 @@ impl ApplicationHandler<UserEvent> for App {
         for id in self.sessions.keys().copied().collect::<Vec<_>>() {
             self.ablage_abbau(id);
         }
+        // Und danach der Faden, der auf macOS die Ablage haelt — er gehoert dem
+        // Prozess, nicht einer Sitzung. Auf den uebrigen Plattformen ein No-op.
+        self.ablage_prozess_ende();
         // Review C3: derselbe geordnete Abbau wie bei `tastensperre` — ohne
         // dieses Rufziel wuerden die Wayland-Objekte des Zugs (Verbindung,
         // Warteschlange, Proxys) beim Fallen von `self` ihre Zerstoerung auf

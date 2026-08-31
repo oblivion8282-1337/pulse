@@ -16,11 +16,14 @@
 //! nur noch die Verdrahtung an [`App`] (welche Sitzung, welche Plattform,
 //! wohin die Antwort) und das Ereignisformat des Players ([`ereignis`]).
 //!
-//! **Die Plattform ist heute allein Wayland**
-//! (`crate::fernsteuerung::wayland::ablage`). Auf X11, Windows und macOS gibt
-//! es sie nicht: dort laeuft dieselbe Zustandsmaschine mit [`KeineAblage`]
-//! weiter und beruehrt nichts. Der Windows-Host folgt in Plan 1b-2, macOS in
-//! 1c.
+//! **Zwei Plattformen tragen hier**: Wayland
+//! (`crate::fernsteuerung::wayland::ablage`, im Player) und seit dem
+//! 2026-08-31 macOS (`pulse_ablage::plattform::macos`, in der Kiste — dort,
+//! weil auf macOS auch der Sidecar sie braucht). Auf X11 und Windows gibt es
+//! keine: dort laeuft dieselbe Zustandsmaschine mit [`KeineAblage`] weiter und
+//! beruehrt nichts. **Ein Windows-Nutzer kann als STEUERNDER also nichts
+//! teilen**, obwohl der Windows-Sidecar als Host es kann — die Umsetzung dort
+//! liegt im Sidecar, und der laeuft beim Steuernden nicht.
 //!
 //! **Zwei Anstoesse kommen NICHT von der Gegenseite** und stehen deshalb nicht
 //! in `pulse-ablage`: `neu_bitte` (nach einem `remote_reclaim` erneut
@@ -39,6 +42,8 @@ mod ereignis;
 
 pub(crate) use pulse_ablage::lage::{Ablagelage, Prozessablage};
 pub(crate) use pulse_ablage::plattform::{Ablageplattform, Ablagequelle, KeineAblage};
+#[cfg(target_os = "macos")]
+use pulse_ablage::plattform::macos::MacAblage;
 use ereignis::ablage_ereignis;
 
 use pulse_ablage::format::Rahmen;
@@ -79,7 +84,35 @@ impl App {
         })
     }
 
-    #[cfg(not(target_os = "linux"))]
+    /// **macOS: dieselbe Traeger-Regel wie auf Linux**, nur mit einer anderen
+    /// Plattform — die Umsetzung liegt seit dem 2026-08-31 in der Kiste
+    /// (`pulse_ablage::plattform::macos`), weil auf macOS auch der Sidecar sie
+    /// braucht.
+    ///
+    /// Der Zustand haengt am Prozess (es gibt genau ein `NSPasteboard` je
+    /// Maschine und genau einen Eigner-Faden je Prozess) — [`MacAblage`] ist
+    /// deshalb feldlos, und die Frage „welche Sitzung haelt sie" wird hier
+    /// entschieden, nicht dort.
+    #[cfg(target_os = "macos")]
+    fn mit_ablage<R>(
+        &mut self,
+        id: u64,
+        f: impl FnOnce(&mut Ablagelage, &mut Prozessablage, &mut dyn Ablageplattform) -> R,
+    ) -> Option<R> {
+        let traeger = self.ablage_traeger == Some(id);
+        let lage = &mut self.sessions.get_mut(&id)?.ablage;
+        let prozess = &mut self.ablage_stand;
+        Some(if traeger {
+            // Solange der Eigner-Faden nicht steht, meldet `MacAblage` selbst
+            // `wirksam() == false` und ruehrt nichts an — es braucht hier
+            // keinen zweiten Riegel, der dasselbe noch einmal entscheidet.
+            f(lage, prozess, &mut MacAblage)
+        } else {
+            f(lage, prozess, &mut KeineAblage)
+        })
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     fn mit_ablage<R>(
         &mut self,
         id: u64,
@@ -162,6 +195,18 @@ impl App {
     /// wenn dessen Verbindung vorher abreisst.
     pub(super) fn ablage_erfassung(&mut self, id: u64, aktiv: bool) {
         if aktiv {
+            // **Auf macOS stellt erst dieser Ruf den Eigner-Faden auf.** Auf
+            // Wayland gibt es die Verbindung ohnehin (sie traegt auch den Zug
+            // ueber die Fenstergrenze); macOS hat nichts Vergleichbares, und
+            // ein Faden, der die Zwischenablage des Nutzers beobachtet, soll
+            // nicht laufen, solange niemand fernsteuert. Idempotent.
+            #[cfg(target_os = "macos")]
+            if let Err(grund) = pulse_ablage::plattform::macos::starten() {
+                eprintln!(
+                    "[ablage] Zwischenablage nicht verfuegbar ({grund}) — \
+                     auf dieser Maschine wird nichts geteilt."
+                );
+            }
             // Traeger wird, wer zuerst kommt (s. `mit_ablage`).
             if self.ablage_traeger.is_none() {
                 self.ablage_traeger = Some(id);
@@ -246,6 +291,17 @@ impl App {
                 overlay.set_ablage_verfuegbar(wirksam);
             }
         }
+    }
+
+    /// Das Prozessende — **nach** dem letzten `ablage_abbau`.
+    ///
+    /// Nur macOS hat hier etwas zu tun: der Eigner-Faden gehoert dem Prozess,
+    /// nicht einer Sitzung. Die Reihenfolge ist dieselbe wie bei
+    /// `wayland_zug.schliessen()`: erst das Eigentum abgeben (das laeuft ueber
+    /// genau diesen Faden), dann ihn abbauen.
+    pub(super) fn ablage_prozess_ende(&mut self) {
+        #[cfg(target_os = "macos")]
+        pulse_ablage::plattform::macos::stoppen();
     }
 
     fn ablage_melden(&self, id: u64, hinaus: &[Rahmen]) {
