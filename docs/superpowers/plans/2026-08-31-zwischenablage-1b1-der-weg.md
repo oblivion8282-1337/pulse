@@ -732,6 +732,33 @@ und im `#reset`-Pfad neben `remoteZeigerform.stop()`:
 
 **Reihenfolge beachten:** der bestehende Kommentar dort erklärt, warum Vorrang vor P2P gestoppt wird. Die Ablage hängt an keiner der beiden — häng sie hinter `remoteZeigerform.stop()`.
 
+- [ ] **Step 1b: `setSenke` verdrahten — ohne das tut die Ablage still gar nichts**
+
+`remoteAblage.setSenke(...)` hat bis hierher **keinen Aufrufer**. Bleibt es dabei,
+steht `#fensterSitzung` die ganze Sitzung auf `0` („kein Fenster bekannt"), und
+jeder hereinkommende Rahmen, die Reclaim-Heilung und die Eigentumsrückgabe
+adressieren ein Fenster, das es nicht gibt — **die ganze Zwischenablage ist auf
+der Seite des Steuernden wirkungslos, ohne dass irgendetwas rot wird.**
+
+Das Muster liegt daneben, in
+`web/src/lib/remote/components/RemoteControllerInput.svelte`, wo die Zeigerform
+es an drei Stellen bereits tut: setzen, sobald die Player-Sitzung feststeht
+(`:164`), und auf `null` zurück, wenn das Fenster geht (`:88`, `:174`). Spiegle
+das; die Ablage braucht dort keine Rückruf-Funktion, nur die Sitzungsnummer.
+
+**Beide Richtungen zählen.** Bleibt eine tote Nummer stehen, nachdem das Fenster
+zu ist, adressiert die Ablage danach ein geschlossenes Fenster — dieselbe
+Fehlerklasse, nur andersherum.
+
+**Der Grund für die Nachlieferung:** die Fernsteuerungs-Sitzung beginnt, *bevor*
+der Steuernde ein Player-Fenster hat. Würde die Nummer nur beim Start gelesen,
+bliebe sie für immer unbekannt — genau wie bei der Zeigerform, wo sonst die erste
+Form liegenbliebe, bis sich zufällig etwas ändert.
+
+*(Dieser Schritt fehlte in der ersten Fassung des Plans. Task 2 hatte die offene
+Anschlussstelle ehrlich gemeldet, Task 4 und 5 fanden sie in ihren Briefs nicht,
+und die Task-Prüfung von Task 5 hat sie als Critical gefangen.)*
+
 - [ ] **Step 2: Den Zustimmungsdialog um eine Zeile ergänzen**
 
 `RemoteConsentDialog.svelte`: eine Zeile in der Aufzählung dessen, was die Zustimmung umfasst — **eine Zustimmung, die nicht benennt, was sie deckt, ist keine.** Text (neuer Paraglide-Schlüssel, kein fest verdrahteter String):
