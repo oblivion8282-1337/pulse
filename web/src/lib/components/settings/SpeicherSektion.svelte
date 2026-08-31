@@ -39,6 +39,7 @@
   } from '$lib/ablage/verbindungen.svelte.ts';
   import { AnmeldungAbgelaufenFehler } from '$lib/ablage/oauth.ts';
   import { LaufwerkWegFehler } from '$lib/ablage/ordnerGriff.ts';
+  import { archivEintraegeAusstehend } from '$lib/ablage/archivSchreibweg.ts';
   import type { VerbindungsRohwerte } from '$lib/ablage/zustand.ts';
   import AblageVerbindenDialog from '$lib/components/ablage/AblageVerbindenDialog.svelte';
   import SpeicherVerbindungZeile from './SpeicherVerbindungZeile.svelte';
@@ -75,6 +76,11 @@
   function rohwerteFuer(v: AblageVerbindung): VerbindungsRohwerte {
     const basis = leereRohwerte();
     basis.anmeldungAbgelaufen = v.anmeldungAbgelaufen ?? false;
+    // Was noch aussteht, weiss nur die Archiv-Warteschlange — und nur die
+    // markierte Verbindung bekommt etwas ab. Bei allen anderen bleibt die
+    // Zahl bei null, statt dieselbe Zahl mehrfach zu zeigen und damit einen
+    // Rückstand zu erfinden, den es nur einmal gibt.
+    if (v.istArchiv) basis.ausstehend = archivEintraegeAusstehend();
     return { ...basis, ...rohwerteNachId[v.id] };
   }
 
