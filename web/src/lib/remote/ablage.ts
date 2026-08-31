@@ -113,6 +113,20 @@ class RemoteAblage {
   }
 
   stop(): void {
+    // **Erst nachsehen, ob es den Träger noch gibt** (Befund B7). Der 2-s-Takt
+    // ist im verdeckten Fenster auf einen Lauf je Minute gedrosselt; endete
+    // der Träger-Stream in dieser Zeit, zeigt `#traeger` auf einen toten
+    // Platz. Ein `ende` dorthin **startet einen frischen Sidecar-Prozess**
+    // (`getSidecar` spawnt lazy), der dann bis zum App-Ende auf stdin wartet —
+    // für eine Nachricht, die ihn nichts angeht.
+    //
+    // Geprüft wird die Liste, nicht neu gewählt: eine Neuwahl weckte hier
+    // ausgerechnet den nächsten Platz, kurz bevor die Sitzung endet. Der tote
+    // Träger hat sein Eigentum ohnehin selbst freigegeben — sein Prozessende
+    // läuft durch `ablage::beenden_endgueltig`.
+    if (this.#rolle === 'host' && this.#traeger !== null) {
+      if (!this.#plaetze().includes(this.#traeger)) this.#traeger = null;
+    }
     if (this.#aktiv && this.#zielBekannt()) {
       // Anstoss nach unten, nie über die Leitung: Eigentum abgeben und den
       // gemerkten Vorbestand zurückschreiben (`Eigentum::freigeben`). Ohne

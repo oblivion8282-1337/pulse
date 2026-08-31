@@ -830,6 +830,18 @@ const remoteEingabe = new RemoteEingabe(
  * loslassen, weil die Sitzung, die sie gedrueckt hat, nicht mehr existiert.
  */
 function fernsteuerungAufraeumen(grund: string): void {
+  // **Die Zwischenablage zuerst, und ohne die Abkuerzung darunter.** Der
+  // Host-Sidecar haelt sie womoeglich mit verzoegertem Rendern; nach einem
+  // Neuladen lebt er mit `wach = true` weiter, waehrend niemand mehr zuhoert.
+  // Jedes lokale Strg+V des Host-Nutzers loeste dann `WM_RENDERFORMAT` aus,
+  // ein `hol` ginge ins Leere, und nach der Abruf-Frist bekaeme er zwei
+  // Sekunden spaeter NICHTS — fuer den Rest des Streams, samt verlorenem
+  // Vorbestand (Befund B1). Der Steuernde hat das Problem nicht, er wird ueber
+  // `input_capture:false` mit abgeraeumt.
+  //
+  // Vor der Abkuerzung, weil die Ablage auch ohne eine einzige Eingabe-Sitzung
+  // beansprucht sein kann: `beginn` haengt an der Sitzung, nicht an Frames.
+  ablageAufraeumen();
   const offen = remoteEingabe.offen();
   const angemeldet = eingabeWeiche.angemeldet();
   if (offen.length === 0 && angemeldet.length === 0) return;
@@ -850,6 +862,28 @@ function fernsteuerungAufraeumen(grund: string): void {
       .catch(() => undefined);
   }
   eingabeWeiche.alleAbmelden(); // Steuernder: Zuordnungen zeigen ins Leere
+}
+
+/**
+ * Den Host-Sidecars sagen, dass ihre Ablage-Sitzung vorbei ist.
+ *
+ * **Nur an LAUFENDE Sidecars** (`sidecarRunning`): `getSidecar()` spawnt lazy,
+ * ein Ruf an einen unbelegten Platz startete also einen Prozess, nur um ihm zu
+ * sagen, dass er nichts zu tun hat — dieselbe Zurueckhaltung, die
+ * `remoteInputHost.ts` an drei Stellen uebt.
+ *
+ * Ein `ende` an einen Sidecar, der nie ein `beginn` gesehen hat, ist folgenlos:
+ * seine Zustandsmaschine ist nicht wach und seine Plattform nicht wirksam.
+ * Gebucht wird hier nichts — welcher Platz Traeger war, weiss der Renderer, und
+ * den gibt es in diesem Moment gerade nicht mehr.
+ */
+function ablageAufraeumen(): void {
+  for (let slot = 0; slot < MAX_STREAM_SLOTS; slot++) {
+    if (!sidecarRunning(slot)) continue;
+    void getSidecar(slot)
+      .call('ablage', { data: { anstoss: 'ende' } })
+      .catch(() => undefined);
+  }
 }
 
 function wireSidecar(): void {
@@ -905,7 +939,8 @@ function wireSidecar(): void {
   // Hauptprozess deutet die Nutzlast nicht, er entscheidet nur, wohin sie
   // geht (`ablageWeiche.ts`). Sie traegt die Huelle aus `ablageHuelle.ts`
   // (`{rahmen:…}` von der Gegenseite, `{anstoss:…}` vom eigenen Renderer) —
-  // gesetzt wird sie im Renderer, geoeffnet erst im Player. Die Rolle wird NICHT aus der Sitzungsnummer
+  // gesetzt wird sie im Renderer, geoeffnet erst im Player. Die Rolle wird
+  // NICHT aus der Sitzungsnummer
   // erschlossen (das brach: ein Host, der nebenbei den Strom eines Dritten im
   // nativen Player anschaut, traegt ebenfalls eine Sitzungsnummer > 0 und
   // waere faelschlich als 'controller' gedeutet worden) — sie kommt vom
