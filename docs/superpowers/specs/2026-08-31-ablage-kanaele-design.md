@@ -304,6 +304,29 @@ Archiv umzuschlüsseln.
 Die Ableitung nutzt die vorhandene Rust/WASM-Kiste `krypto/pulse-krypto`,
 nicht eine neue Abhängigkeit.
 
+### 8.1 Wege, die schon geprüft und verworfen wurden
+
+Aus der Übergabe-Notiz von `feat/dm-attachment-e2ee`
+(`docs/superpowers/2026-07-20-dm-e2ee-stand.md`, Commit `7b5113d4`). **Nicht
+erneut ausprobieren:**
+
+- **Passkey mit PRF** für den Fall „fremder Rechner, nichts dabei": PRF über
+  den Handy-Weg (hybrid transport) ist nicht standardisiert. Für die eigenen
+  Geräte später ein Komfortgewinn, für den Totalverlust-Fall untauglich.
+- **Der vorhandene QR-Code** (`TotpEnableDialog`) ist die 2FA-Einrichtung und
+  läuft in die falsche Richtung. Ein Geräte-Kopplungs-Login über QR gibt es
+  weder im Backend noch im Frontend.
+- **Selbst gewählte Passphrase** für den Export: wird schwach gewählt, und
+  alle Bündel lägen am selben Ort. Deshalb der **generierte** Satz nach dem
+  Muster der MFA-Ersatzcodes — die Entscheidung des Eigentümers vom
+  2026-08-31 deckt sich damit.
+
+Zwei Merkposten aus derselben Notiz, die für die Oberfläche gelten: Der
+Sicherheitsanker ist, dass das zweite Gerät **zeigt, was freigegeben wird**,
+statt nur „Bestätigen?" zu fragen. Und iOS hat keine App — dort läuft alles
+in Safari, dessen Speicher nach sieben Tagen geräumt wird; ein iPhone ist
+deshalb kein verlässlicher Schlüsselträger.
+
 ---
 
 ## 9. Umstellung — und was sich gegenüber §2a ändert

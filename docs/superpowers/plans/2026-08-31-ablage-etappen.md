@@ -142,6 +142,30 @@ was dort schon gescheitert ist.
 
 **Modelle:** Sichtung Sonnet, Krypto-Urteile Opus.
 
+#### Ergebnis der Sichtung (2026-08-31)
+
+Der wertvollste Fund stand nicht auf der Suchliste: **`web/src/lib/archive/`
+auf dem Juli-Zweig, 13 Dateien, rund 1300 Zeilen.** Verzeichnisbasiert
+(`showDirectoryPicker` plus `window.pulse.mediaArchive` für Electron), mit
+Berechtigungs-Neubestätigung nach dem Neustart, Backoff-Warteschlange und
+Gesundheitszuständen (`low-space`, `folder-gone`, `permission`,
+`entry-corrupt`). Damit ist **E3 architektonisch fast fertig** — anzuschliessen
+ist nur die Verschlüsselungsschicht (`archiveFormat.ts` hängt am abgelösten
+`sealedCek.ts`).
+
+| Urteil | Dateien |
+|---|---|
+| **übernehmen** | `identity/persistentStorage.ts`, `crypto/safeBlobType.ts`; `identity/idb-shared.ts` ist heute schon weiterentwickelt (nur `idbUpdateIdentity` fehlt) |
+| **anpassen** | `archive/*` (Kern für E3), `MediaArchiveBlock.svelte` und `EncryptionBackupSection.svelte` (Blaupause für E1), `crypto/liveSync.svelte.ts` (Gesundheits-Zustandsmaschine), `crypto/keyringBackup.ts` (nur das Muster Argon2id → AES-GCM-Umschlag), `crypto/lockedHistory.svelte.ts`, `crypto/decryptAttachment.ts` (nur die dreiwertige Unterscheidung abgelaufen / kaputt / kein Schlüssel), die Warteschlangen- und Hinweis-Specs |
+| **verwerfen** | `identity/enckey.svelte.ts`, `crypto/sealedCek.ts`, `crypto/messageCrypto.ts`, `crypto/certVerify.ts` und die daran hängenden Specs — alle am toten Zertifikats- beziehungsweise TypeScript-Krypto-Modell |
+
+Ersparnis: **E3 grösstenteils fertig, E1 halbe Miete, E4 nur Ideen.**
+
+Zwei Umgebungsfallen aus derselben Notiz, falls die alten Specs als Vorlage
+dienen: der Erreichbarkeits-Test kollidiert mit einem laufenden MediaMTX auf
+UDP 8189, und Alembic bricht ab, wenn die Dev-Datenbank neuer ist als der
+Zweig (`PULSE_DEV_SKIP_MIGRATIONS=1` nur bei rein additiven Migrationen).
+
 ---
 
 ### E1 — Verbindungsschicht und Einstellungen
@@ -188,6 +212,12 @@ Testseite ist weg; `pnpm check` und `pnpm test:unit` grün.
 ### E3 — Persönliches Archiv im Ordner
 
 **Zweck:** Der Nutzer bestimmt, wo sein verschlüsseltes Archiv liegt.
+
+**Ausgangspunkt ist `web/src/lib/archive/` von `feat/dm-attachment-e2ee`,
+nicht ein Neubau** (E0.5). Die Plattform-Weiche, der Verzeichnis-Griff, die
+Berechtigungs-Neubestätigung und die Backoff-Warteschlange stehen dort schon;
+neu zu bauen ist im Kern der Anschluss an `krypto/pulse-krypto` und an die
+Ablage-Container aus `web/src/lib/ablage/`.
 
 - Electron: Ordnerdialog, Pfad in `desktop/electron/store.ts`, Dateizugriff
   über IPC; Renderer-Fassade `window.pulse.*` mit `preload.ts` und
