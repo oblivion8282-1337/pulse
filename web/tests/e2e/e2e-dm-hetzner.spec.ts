@@ -150,16 +150,32 @@ async function warteAufSchluesselbuendel(page: Page, userId: string): Promise<vo
     .toBeTruthy();
 }
 
-/** Postgres-Gegenprobe per SSH gegen den Stack-Container. */
+/** Postgres-Gegenprobe per SSH gegen den Stack-Container.
+ *
+ *  Scheitert das `ssh`, liegt es fast immer an der Maschine und nicht am
+ *  Produkt: der Schluessel haengt auf manchen Rechnern an einem Host-Eintrag
+ *  in `~/.ssh/config` (etwa `pulse-hetzner-dev`) statt an der blanken IP, die
+ *  hier vorgegeben ist. Ohne diesen Hinweis liest sich der Abbruch wie ein
+ *  Fehler im Anmeldeweg — deshalb sagt er, welcher Handgriff fehlt. */
 function pgQuery(sql: string): string {
-  return execFileSync(
-    'ssh',
-    [
-      SSH_ZIEL,
-      `docker exec pulsetest_postgres psql -U pulse -d pulse -tAc "${sql.replace(/"/g, '\\"')}"`,
-    ],
-    { encoding: 'utf8' },
-  ).trim();
+  try {
+    return execFileSync(
+      'ssh',
+      [
+        SSH_ZIEL,
+        `docker exec pulsetest_postgres psql -U pulse -d pulse -tAc "${sql.replace(/"/g, '\\"')}"`,
+      ],
+      { encoding: 'utf8' },
+    ).trim();
+  } catch (fehler) {
+    throw new Error(
+      `Die Postgres-Gegenprobe kam nicht auf den Stack (${SSH_ZIEL}). ` +
+        `Das ist Maschinen-Einrichtung, kein Produktfehler: setze ` +
+        `E2E_PG_VIA_SSH auf den Host-Eintrag aus deiner ~/.ssh/config ` +
+        `(hier: pulse-hetzner-dev). Gegenprobe: ` +
+        `\`ssh pulse-hetzner-dev 'docker ps'\`. Urspruenglich: ${String(fehler)}`,
+    );
+  }
 }
 
 function anhangSpalten(channelId: string): string[] {
