@@ -53,6 +53,9 @@ export interface SicherungVerbindung {
 	/** Drive-Ordner als Pfad, z. B. `Pulse-Sicherung`. */
 	ordner: string;
 	nachspieleToken: string;
+	/** Der Zugangs-Token aus dem Code-Tausch — kurzlebig, nur für die
+	 *  Einrichtung gedacht, damit sie nicht extra auffrischen muss. */
+	zugangsToken?: string;
 }
 
 export interface PufferZeile extends WarteEintrag {
@@ -130,6 +133,18 @@ export function anbindungAusVerbindung(v: SicherungVerbindung): GdriveAnbindung 
 export async function adapterLieferant(): Promise<AblageAdapter> {
 	const v = await verbindungLesen();
 	if (v === null) throw new Error('Sicherung: keine Verbindung eingerichtet');
+	if (v.zugangsToken) {
+		// Frisch vom Code-Tausch — verbrauchen, solange er jung ist.
+		const token = v.zugangsToken;
+		delete v.zugangsToken;
+		await verbindungSchreiben(v);
+		return gdriveAdapter({ zugangsToken: token, ordner: v.ordner });
+	}
+	if (v.nachspieleToken === '') {
+		throw new Error(
+			'Google-Verbindung ohne Nachspiel-Token — bitte Verbindung entfernen und neu herstellen.',
+		);
+	}
 	const zugang: Zugang = await auffrischeZugang(anbindungAusVerbindung(v), v.nachspieleToken);
 	v.nachspieleToken = zugang.nachspieleToken ?? v.nachspieleToken;
 	await verbindungSchreiben(v);

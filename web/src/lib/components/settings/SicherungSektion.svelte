@@ -14,12 +14,7 @@
   import { isElectron } from '$lib/platform/runtime';
   import { Button } from '$lib/components/ui/button/index.js';
   import { erzeugePkce } from '$lib/ablage/oauth';
-  import {
-    autorisierungsAdresse,
-    tauscheCodeAus,
-    auffrischeZugang,
-    gdriveAdapter,
-  } from '$lib/ablage/gdrive';
+  import { autorisierungsAdresse, tauscheCodeAus } from '$lib/ablage/gdrive';
   import {
     sicherungClient,
     sicherungClientKonfiguriert,
@@ -31,7 +26,6 @@
     verbindungLesen,
     verbindungSchreiben,
     verbindungEntfernen,
-    anbindungAusVerbindung,
     adapterLieferant,
     dekZwischenlagern,
     dekAusZwischenlager,
@@ -93,7 +87,11 @@
         code,
         pkce!,
       );
-      verbindung = { ...basisVerbindung(genutzteWeiterleitung), nachspieleToken: zugang.nachspieleToken ?? '' };
+      verbindung = {
+        ...basisVerbindung(genutzteWeiterleitung),
+        nachspieleToken: zugang.nachspieleToken ?? '',
+        zugangsToken: zugang.zugangsToken,
+      };
       meldung = 'Google verbunden. Jetzt das Sicherungs-Passwort setzen.';
     } catch (e) {
       fehler = e instanceof Error ? e.message : String(e);
@@ -116,8 +114,7 @@
     try {
       const dek = erzeugeDek();
       const verpackt = await wickleSchluesselDatei(dek, passwort);
-      const zugang = await auffrischeZugang(anbindungAusVerbindung(verbindung), verbindung.nachspieleToken);
-      const adapter = gdriveAdapter({ zugangsToken: zugang.zugangsToken, ordner: verbindung.ordner });
+      const adapter = await adapterLieferant();
       await adapter.schreibe(SCHLUESSEL_DATEI, verpackt);
       await dekZwischenlagern(dek, crypto.randomUUID());
       // Ebene Kopie: `verbindung` ist eine $state-Variable, deren Proxy die

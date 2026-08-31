@@ -55,6 +55,11 @@ export function autorisierungsAdresse(anbindung: GdriveAnbindung, pkce: Pkce, zu
 		code_challenge: pkce.herausforderung,
 		code_challenge_method: 'S256',
 		access_type: 'offline',
+		// Ohne `prompt=consent` liefert Google den Refresh-Token nur bei der
+		// ERSTEN Zustimmung aus — bei jedem weiteren Verbinden desselben
+		// Kontos fehlte er, und das Auffrischen brach mit
+		// "Missing required parameter: refresh_token" (2026-08-31 gemessen).
+		prompt: 'consent',
 		state: zustand,
 	});
 }
