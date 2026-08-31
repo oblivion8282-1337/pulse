@@ -16,6 +16,37 @@ Cloud-Laufwerk ihres Erstellers, gelesen wird direkt von dort, geschrieben
 
 ---
 
+## Arbeitsstand und Nachtregeln (Stand 2026-09-01)
+
+> Diese Sektion ist für den Fall, dass der Gesprächsverlauf zusammengefasst
+> wurde und nur noch dieses Dokument die Lage kennt.
+
+**Auftrag des Eigentümers (2026-09-01, vor dem Schlafengehen):** alle Etappen
+durcharbeiten, nicht stoppen, Agenten möglichst auf Sonnet oder Haiku statt
+Opus.
+
+**Zwei Dinge bleiben trotzdem liegen, ausdrücklich:**
+
+1. **Kein Merge nach `main`.** Das ist ein Produktiv-Deploy und braucht laut
+   `CLAUDE.md` die Freigabe des Eigentümers. E12 wird vorbereitet — Gate grün,
+   Playwright grün, Changelog geschrieben — und dann liegen gelassen.
+2. **Der Umstellungs-Schalter aus E9 wird gebaut, aber NICHT umgelegt.** Er
+   friert auf howispulse.com alle laufenden Unterhaltungen ein. Der
+   Eigentümer hat der Entscheidung zugestimmt, nicht dem Zeitpunkt.
+
+**Fertig:** E0 (Fehlersuche, 15 Befunde), E0.5 (Sichtung), E1
+(Verbindungsschicht + Einstellungen), E2 (Nextcloud über den Freigabe-Link),
+E4 bis auf die Oberfläche.
+
+**Zahlen zuletzt:** Gate grün · Playwright 165 grün / 1 rot (`plugins`, schon
+auf `main` rot) · 884 Web-Unit-Tests · 2472 Backend-Tests.
+
+**Alles liegt auf `feat/e2e-dm-krypto-weg-a` und ist gepusht.** Nach jeder
+abgeschlossenen Aufgabe committen und pushen — der Eigentümer hat das
+ausdrücklich so gewollt („ich will das alles konsolidiert haben").
+
+---
+
 ## Globale Randbedingungen
 
 Gelten für **jede** Etappe, ohne dass sie dort wiederholt werden:
