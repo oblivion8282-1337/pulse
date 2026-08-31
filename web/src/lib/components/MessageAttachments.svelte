@@ -109,6 +109,16 @@
     return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
   }
 
+  /** Ersatz, wenn ein Anhang keinen Dateinamen traegt.
+   *
+   *  Kein Schoenheitsdetail: mit `undefined` faellt das `download`-Attribut
+   *  ganz weg, und ohne `download` NAVIGIERT der Klick auf die
+   *  `blob:`-Adresse, statt zu speichern — ein Anhang mit `text/html` liefe
+   *  dann als Skript im Ursprung der Anwendung. Zusammen mit
+   *  `krypto/sichererBlobTyp.ts` sind das die zwei Haelften derselben
+   *  Absicherung; eine allein genuegt nicht. */
+  const ERSATZ_DATEINAME = 'anhang';
+
   function kind(mime: string | null): 'image' | 'video' | 'audio' | 'pdf' | 'other' {
     if (!mime) return 'other';
     if (mime.startsWith('image/')) return 'image';
@@ -189,7 +199,7 @@
           rel="noopener noreferrer"
           class="bg-bg-input hover:bg-bg-hover flex w-fit max-w-md items-center gap-3 rounded-xl border border-border px-3 py-2.5 text-sm transition-colors"
           data-testid="attachment-download"
-          download={a.filename ?? undefined}
+          download={a.filename || ERSATZ_DATEINAME}
         >
           <div class="text-text-muted shrink-0">
             {#if k === 'pdf'}

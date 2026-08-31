@@ -10,6 +10,7 @@
    */
 
   import { DateiSpeicher } from '$lib/ablage/dateispeicher';
+  import { sichererBlobTyp } from '$lib/krypto/sichererBlobTyp';
   import type { DateiInfo } from '$lib/ablage/dateispeicher';
   import UploadIcon from '@lucide/svelte/icons/upload';
   import DownloadIcon from '@lucide/svelte/icons/download';
@@ -68,7 +69,11 @@
   async function herunterladen(datei: DateiInfo): Promise<void> {
     try {
       const { inhalt } = await speicher.herunterladen(datei.id);
-      const blob = new Blob([inhalt as unknown as BlobPart], { type: datei.mime });
+      // Wie bei den Nachrichten-Anhaengen: der Typ stammt vom Hochladenden
+      // aus dem verschluesselten Kopf, nicht vom Server.
+      const blob = new Blob([inhalt as unknown as BlobPart], {
+        type: sichererBlobTyp(datei.mime),
+      });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

@@ -24,6 +24,7 @@ import { postfachApi } from '../api/postfach';
 import { serversStore } from '../api/servers.svelte';
 import { anhangBytesLesen, anhangBytesSichern } from '../verlauf/db';
 import { entschluessele, schluesselAusText } from './anhangKrypto';
+import { sichererBlobTyp } from './sichererBlobTyp';
 import { geraeteKennung } from './geraeteKennung';
 
 /** Typ des Vorschaubildes — `attachments/vorschaubild.ts` erzeugt immer WebP.
@@ -58,7 +59,10 @@ async function klumpenOeffnen(url: string, schluesselText: string, typ: string):
   if (!antwort.ok) throw new Error(`Anhang ${antwort.status}`);
   const klumpen = new Uint8Array(await antwort.arrayBuffer());
   const klartext = await entschluessele(schluesselAusText(schluesselText), klumpen);
-  return new Blob([klartext as unknown as BlobPart], { type: typ });
+  // Der Typ kommt aus dem verschluesselten Kopf des ABSENDERS und wird hier
+  // heruntergestuft, bevor daraus eine `blob:`-Adresse werden kann
+  // (Begruendung im Kopf von `sichererBlobTyp.ts`).
+  return new Blob([klartext as unknown as BlobPart], { type: sichererBlobTyp(typ) });
 }
 
 /**
