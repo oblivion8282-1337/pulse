@@ -43,6 +43,7 @@
   import AblageVerbindenDialog from '$lib/components/ablage/AblageVerbindenDialog.svelte';
   import SpeicherVerbindungZeile from './SpeicherVerbindungZeile.svelte';
   import WiederherstellungBlock from './WiederherstellungBlock.svelte';
+  import ExportBlock from './ExportBlock.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
   const AKTUALISIERUNGS_INTERVALL_MS = 5 * 60 * 1000;
@@ -175,6 +176,10 @@
 
 <div class="border-border border-t pt-4">
   <WiederherstellungBlock />
+</div>
+
+<div class="border-border border-t pt-4">
+  <ExportBlock />
 </div>
 
 <AblageVerbindenDialog open={dialogOffen} onClose={() => (dialogOffen = false)} onVerbunden={verbunden} />
