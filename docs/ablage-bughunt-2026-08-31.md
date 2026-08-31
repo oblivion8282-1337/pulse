@@ -37,6 +37,10 @@ Das Wandern der Fehlschläge ist selbst ein Befund: die Suite ist unter Last
 nicht verlässlich. Wer hier urteilt, ohne einzeln nachzufahren, hält
 Maschinenlast für eine Regression — oder umgekehrt.
 
+**Stand nach den Etappen E1 und E2 (2026-09-01): 165 grün, 1 rot.** Der eine
+ist `plugins`, schon auf `main` rot. Der Zweig steht damit besser da als vor
+dieser Arbeit (152).
+
 ---
 
 ## 2. Befunde
@@ -217,6 +221,36 @@ Behoben wird es mit `archiveFsa.ts` vom Juli-Zweig: Griff in IndexedDB,
 Berechtigung beim Start erneut bestätigen. Die Verweigerung ist dabei kein
 Fehler, sondern der Zustand „Laufwerk weg" mit dem Handgriff „Ordner erneut
 wählen".
+
+### B14 — Eine Rune in einer schlichten `.ts`-Datei legte die App lahm
+
+`web/src/lib/ablage/verbindungen.ts` · **Totalausfall** · behoben
+
+`/app` antwortete mit 500, die Anwendung rendert gar nicht. Die Datei legt
+beim Import ihren Store an, und der benutzt `$state` — Runen verarbeitet der
+Compiler aber nur in `.svelte` und `.svelte.ts`. Anderswo bleibt der Aufruf
+nackt stehen: `Svelte error: rune_outside_svelte`.
+
+**Der Fehler war Monate alt und unsichtbar**, weil die Datei nur an einer
+nirgends eingebundenen Komponente hing und deshalb nie ausgewertet wurde. Er
+fiel erst um, als der neue Speicher-Abschnitt sie in den Startpfad holte.
+
+**Was ihn nicht gemerkt hat, ist der eigentliche Befund:** `pnpm check` null
+Fehler, `pnpm build` grün, 846 Unit-Tests grün, das ganze Gate grün. Keine
+dieser Prüfungen wertet ein Modul im Browser aus. Sichtbar war es allein in
+Playwright — und dort auch nur als Zahlenbild: 29 grün, 104 „did not run",
+weil jedes Setup an der fehlenden App-Hülle scheiterte.
+
+Zwei falsche Fährten unterwegs, beide festgehalten, damit die Suche beim
+nächsten Mal kürzer ist: das Gate war zeitgleich rot, aber wegen eines
+einzelnen Tests in der Sprach-Signalisierung, der unter acht parallelen
+Prozessen umfällt (allein 20 von 20 grün) — und der Fehlertyp war
+`AttributeError`, den der CI-Wiederholungslauf gar nicht abdeckt. Und der
+E2E-Einbruch sah nach Maschinenlast aus, weil er 31 Minuten brauchte; er
+brauchte sie, weil jeder einzelne Test in seine Zeitüberschreitung lief.
+
+Die Falle steht jetzt in `CLAUDE.md`, neben ihrer bereits dokumentierten
+Umkehrung.
 
 ---
 
