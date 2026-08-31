@@ -50,6 +50,39 @@ export class DateiSpeicher {
 	private readonly adapter: AblageAdapter;
 	private readonly ordner: string;
 	private readonly hauptschlüssel: Uint8Array;
+	/** Reihe für alles, was das Verzeichnis liest UND wieder schreibt. */
+	private kette: Promise<unknown> = Promise.resolve();
+
+	/**
+	 * Führt `tun` erst aus, wenn die vorige eingereihte Arbeit fertig ist.
+	 *
+	 * Der Grund ist ein Lesen-Ändern-Schreiben ohne Sperre: zwei gleichzeitige
+	 * `hochladen`-Aufrufe hängen beide an dieselbe Liste an, serialisieren
+	 * aber jeder für sich und schreiben jeder für sich. Kommen die beiden
+	 * Schreibvorgänge in umgekehrter Reihenfolge an, überschreibt der ältere
+	 * Stand den neueren, und ein Eintrag ist weg. Der verschlüsselte Container
+	 * bleibt dabei auf dem Laufwerk liegen, nur zeigt kein Verzeichnis mehr
+	 * auf ihn — für den Nutzer ist die Datei kommentarlos verschwunden, und es
+	 * gibt hier (anders als bei den Nachrichten-Segmenten, wo
+	 * `bestandAufnehmen` Waisen adoptiert) keinen Nachzug, der das heilt.
+	 *
+	 * Die Reihe läuft auch nach einem Fehlschlag weiter: ein gescheiterter
+	 * Upload darf die Ablage nicht für den Rest der Sitzung blockieren.
+	 */
+	private nacheinander<T>(tun: () => Promise<T>): Promise<T> {
+		const laufend = this.kette.then(tun, tun);
+		this.kette = laufend.then(
+			() => undefined,
+			() => undefined,
+		);
+		return laufend;
+	}
+
+	/** Lädt nur, wenn noch nichts da ist. Ohne eigene Sperre — die Aufrufer
+	 *  stehen bereits in der Reihe (`nacheinander`). */
+	private async _ladenWennNoetig(): Promise<void> {
+		if (this.verzeichnis === null) await this.laden();
+	}
 
 	constructor(adapter: AblageAdapter, ordner: string, hauptschlüssel: Uint8Array) {
 		this.adapter = adapter;
@@ -70,7 +103,11 @@ export class DateiSpeicher {
 	}
 
 	async liste(): Promise<DateiInfo[]> {
-		if (this.verzeichnis === null) await this.laden();
+		return this.nacheinander(() => this._liste());
+	}
+
+	private async _liste(): Promise<DateiInfo[]> {
+		await this._ladenWennNoetig();
 		return (this.verzeichnis?.einträge ?? []).map((e) => ({
 			id: e.id,
 			name: e.name,
@@ -87,7 +124,6 @@ export class DateiSpeicher {
 		inhalt: Uint8Array,
 		hochgeladenVon: string,
 	): Promise<DateiInfo> {
-		if (this.verzeichnis === null) await this.laden();
 		const id = zufallsHex(8);
 		const dateiName = `a-${id}.puls`;
 		const jetzt = new Date().toISOString();
@@ -103,6 +139,10 @@ export class DateiSpeicher {
 			} as Parameters<typeof packeDateiContainer>[1],
 			inhalt,
 		);
+		// Der Container traegt einen eigenen, zufaelligen Namen und kollidiert
+		// mit nichts — er darf ausserhalb der Reihe geschrieben werden, damit
+		// zwei Uploads ihre Bytes weiter gleichzeitig hochschieben. In die
+		// Reihe gehoert nur, was das GEMEINSAME Verzeichnis anfasst.
 		await this.adapter.schreibe(dateiName, container);
 
 		const eintrag: AblageEintrag = {
@@ -114,14 +154,22 @@ export class DateiSpeicher {
 			hochgeladenAm: jetzt,
 			hochgeladenVon,
 		};
-		this.verzeichnis!.einträge.push(eintrag);
-		await this._speichereVerzeichnis();
-		return { id, name, mime, groesse: inhalt.length, hochgeladenAm: jetzt, hochgeladenVon };
+		return this.nacheinander(async () => {
+			await this._ladenWennNoetig();
+			this.verzeichnis!.einträge.push(eintrag);
+			await this._speichereVerzeichnis();
+			return { id, name, mime, groesse: inhalt.length, hochgeladenAm: jetzt, hochgeladenVon };
+		});
 	}
 
 	async herunterladen(id: string): Promise<{ name: string; mime: string; inhalt: Uint8Array }> {
-		if (this.verzeichnis === null) await this.laden();
-		const eintrag = this.verzeichnis!.einträge.find((e) => e.id === id);
+		// Nur das Nachschlagen steht in der Reihe; das Herunterladen der Bytes
+		// laeuft daneben weiter, sonst blockierte eine grosse Datei jeden
+		// Upload.
+		const eintrag = await this.nacheinander(async () => {
+			await this._ladenWennNoetig();
+			return this.verzeichnis!.einträge.find((e) => e.id === id);
+		});
 		if (!eintrag) throw new DateiablageFehler(`Datei ${id} ist nicht in der Ablage`);
 		const container = await this.adapter.lese(eintrag.datei);
 		if (container === null) {
@@ -139,12 +187,14 @@ export class DateiSpeicher {
 	 *  anbietet — vom Laufwerk. Der Sync-Client des Anbieters räumt ggf.
 	 *  nach seinem eigenen Zyklus ab. */
 	async löschen(id: string): Promise<void> {
-		if (this.verzeichnis === null) await this.laden();
-		const eintrag = this.verzeichnis!.einträge.find((e) => e.id === id);
-		if (!eintrag) return;
-		this.verzeichnis!.einträge = this.verzeichnis!.einträge.filter((e) => e.id !== id);
-		await this.adapter.lösche?.(eintrag.datei);
-		await this._speichereVerzeichnis();
+		return this.nacheinander(async () => {
+			await this._ladenWennNoetig();
+			const eintrag = this.verzeichnis!.einträge.find((e) => e.id === id);
+			if (!eintrag) return;
+			this.verzeichnis!.einträge = this.verzeichnis!.einträge.filter((e) => e.id !== id);
+			await this.adapter.lösche?.(eintrag.datei);
+			await this._speichereVerzeichnis();
+		});
 	}
 
 	async _speichereVerzeichnis(): Promise<void> {

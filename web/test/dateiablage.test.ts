@@ -10,7 +10,7 @@ import {
   DateiablageFehler,
   VerzeichnisFehler,
 } from '../src/lib/ablage/dateiablage.ts';
-import { DateiSpeicher } from '../src/lib/ablage/dateispeicher.ts';
+import { DateiSpeicher, VERZEICHNIS_DATEI } from '../src/lib/ablage/dateispeicher.ts';
 import { speicherAdapter } from '../src/lib/ablage/adapter.ts';
 
 // 32 zufällige Bytes — derselbe Schlüssel für alle Tests in dieser Datei.
@@ -134,4 +134,42 @@ test('DateiSpeicher: neue Instanz ohne vorherige Dateien — leere Ablage', asyn
   const speicher = new DateiSpeicher(ablage, 'leer', SCHLÜSSEL);
   const liste = await speicher.liste();
   assert.deepEqual(liste, []);
+});
+
+test('zwei gleichzeitige Uploads verlieren keinen Verzeichniseintrag', async () => {
+  // `hochladen` war ein Lesen-Ändern-Schreiben ohne Sperre. Zwei parallele
+  // Aufrufe teilen sich dieselbe In-Memory-Liste, aber jeder serialisiert und
+  // schreibt das Verzeichnis fuer sich — und die beiden Netzschreibvorgaenge
+  // koennen in umgekehrter Reihenfolge ankommen. Landet der aeltere Stand
+  // zuletzt, ist der Eintrag des anderen weg. Der verschluesselte Container
+  // selbst bleibt auf dem Laufwerk liegen, nur zeigt kein Verzeichnis mehr
+  // auf ihn: die Datei ist fuer den Nutzer kommentarlos verschwunden, und es
+  // gibt (anders als bei den Nachrichten-Segmenten) keinen Nachzug, der
+  // Waisen wieder adoptiert.
+  //
+  // Der Testadapter dreht genau diese Reihenfolge um: der ERSTE Schreibvorgang
+  // aufs Verzeichnis kommt zuletzt an.
+  const ablage = speicherAdapter();
+  let verzeichnisSchreiben = 0;
+  const roh = ablage.schreibe.bind(ablage);
+  ablage.schreibe = async (datei: string, inhalt: Uint8Array) => {
+    if (datei === VERZEICHNIS_DATEI) {
+      const nummer = ++verzeichnisSchreiben;
+      // Der erste wird ausgebremst, der zweite zieht vorbei.
+      await new Promise((f) => setTimeout(f, nummer === 1 ? 20 : 0));
+    }
+    return roh(datei, inhalt);
+  };
+
+  const speicher = new DateiSpeicher(ablage, 'projekt', SCHLÜSSEL);
+  await Promise.all([
+    speicher.hochladen('a.txt', 'text/plain', new TextEncoder().encode('A'), 'dev'),
+    speicher.hochladen('b.txt', 'text/plain', new TextEncoder().encode('B'), 'dev'),
+  ]);
+
+  // Frisch vom Laufwerk lesen, nicht aus dem Speicherabbild der Instanz —
+  // sonst prueft der Test die Liste, die er selbst im Kopf hat.
+  const frisch = new DateiSpeicher(ablage, 'projekt', SCHLÜSSEL);
+  const namen = (await frisch.liste()).map((d) => d.name).sort();
+  assert.deepEqual(namen, ['a.txt', 'b.txt']);
 });
