@@ -1,0 +1,18 @@
+[package]
+name = "pulse-ablage"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Geteilte Zwischenablage der Fernsteuerung — Rahmenformat, Stueckelung, Zustandsmaschine"
+
+# Grundsatz wie in `pulse-zeitbasis` und `pulse-fernsteuerung`: keine
+# Abhaengigkeit, die einen Bauweg beschwert. Hier genau eine, und sie ist keine
+# Fremdquelle: `pulse-fernsteuerung` liegt im selben Baum, wird von allen drei
+# Verbrauchern dieser Kiste (pulse-player, win-hq-sidecar, mac-hq-sidecar)
+# ohnehin schon genannt, und liefert zwei Dinge, die sonst hier ein zweites Mal
+# entstuenden: `serde_json` (dort mit derselben Nachmessung aufgenommen) und das
+# handgeschriebene Base64. Ein eigenes Base64 waere genau die Doppelung, gegen
+# die `pulse-zeigerbild` und `pulse-zeitbasis` gebaut wurden.
+[dependencies]
+pulse-fernsteuerung = { path = "../pulse-fernsteuerung" }
+serde_json = "1"
