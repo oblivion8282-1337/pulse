@@ -39,4 +39,5 @@ pub mod lage;
 pub mod plattform;
 pub mod pruefstand;
 pub mod sitzung;
+pub mod stand;
 pub mod stueckelung;

@@ -1,23 +1,36 @@
-//! Der Zustand zwischen den beiden Faeden — und die Buchfuehrung ueber
-//! „wer hat die Ablage zuletzt angefasst".
+//! Der Stand der lokalen Ablage zwischen zwei Faeden — und die Buchfuehrung
+//! ueber „wer hat sie zuletzt angefasst".
 //!
-//! **Warum das eine eigene Datei ist:** hier steht kein einziger Win32-Aufruf,
-//! und genau deshalb laesst sich der einzige Teil der Windows-Haelfte pruefen,
-//! der eine Rechnung enthaelt — die Frage, welche Aenderung der Zwischenablage
-//! die eigene ist und welche die des Nutzers. Alles andere in [`super`] ist
-//! Betriebssystem und auf dieser Maschine nur uebersetzbar, nicht ausfuehrbar.
+//! **Warum das hier liegt und nicht im Sidecar:** kein einziger Aufruf ans
+//! Betriebssystem steht darin, und die Frage, die es beantwortet — welche
+//! Aenderung die eigene ist und welche die des Nutzers — stellt sich auf jeder
+//! Plattform, auf der der Ablauf zwei Faeden hat. Bis zum 2026-08-31 lag die
+//! Datei als `win-hq-sidecar/src/ablage/geteilt.rs` beim einzigen Verbraucher;
+//! dort hingen ihre Tests an **keinem** Gate (`gate-rust.sh` nimmt den
+//! Windows-Sidecar ausdruecklich nicht, er baut auf Linux nicht). Dasselbe
+//! Argument, mit dem [`crate::lage`] hierher zog.
+//!
+//! **Wie weit sie plattformfrei ist, ehrlich:** die Zaehl-Regeln (Eigentum
+//! verloren = unverbuchte Aenderung, nur Text zaehlt, ein Wechsel verwirft ein
+//! gelesenes Ergebnis) und die beiden Handschlaege (Rendervorgang, Lesevorgang)
+//! gelten ueberall. Der Zaehler [`Ablagestand::erwartet`] ist dagegen an einer
+//! **Meldung** aufgehaengt; macOS hat keine, dort wird `changeCount` gepollt
+//! (Plan 1c). Ob 1c denselben Zaehler benutzt oder seinen eigenen Stand merkt,
+//! ist offen — **die Datei behauptet das nicht im Voraus.**
 //!
 //! **Die Invariante, die diese Struktur traegt:** die Sperre darum wird **nie
-//! ueber einen Win32-Aufruf gehalten**. `EmptyClipboard` schickt dem
-//! Eigentuemer synchron ein `WM_DESTROYCLIPBOARD`, und das landet im eigenen
-//! Fensterrueckruf auf demselben Faden — eine gehaltene `Mutex` waere dort ein
-//! Selbstblock, denn `std::sync::Mutex` ist nicht wiedereintrittsfaehig.
+//! ueber einen Aufruf ans Betriebssystem gehalten**. Auf Windows schickt
+//! `EmptyClipboard` dem Eigentuemer synchron ein `WM_DESTROYCLIPBOARD`, und das
+//! landet im eigenen Fensterrueckruf auf demselben Faden — eine gehaltene
+//! `Mutex` waere dort ein Selbstblock, denn `std::sync::Mutex` ist nicht
+//! wiedereintrittsfaehig.
 
-/// Alles, was Fensterfaden und Takt-Faden gemeinsam sehen.
+/// Alles, was der Faden mit dem Betriebssystem-Rueckruf und der Takt-Faden
+/// gemeinsam sehen.
 ///
-/// [`Geteilt::neu`] ist `const`, damit die `Mutex` darum ein `static` sein
+/// [`Ablagestand::neu`] ist `const`, damit die `Mutex` darum ein `static` sein
 /// kann — `Default` genuegt dafuer nicht.
-pub(super) struct Geteilt {
+pub struct Ablagestand {
     /// Zaehlt Wechsel der Ablage. Die Nachbildung von
     /// `NSPasteboard.changeCount` ist Absicht — dieselbe Bauart wie im
     /// Testdoppel `pulse_ablage::pruefstand::TestAblage` und im Wayland-Weg.
@@ -27,16 +40,40 @@ pub(super) struct Geteilt {
     /// einem Merker: hat der Nutzer selbst kopiert, ist „wir haben
     /// beansprucht" laengst falsch.
     eigen: bool,
-    /// Selbst ausgeloeste Aenderungen, deren `WM_CLIPBOARDUPDATE` noch
-    /// unterwegs ist.
+    /// Selbst ausgeloeste Aenderungen, deren Meldung noch unterwegs ist.
     ///
-    /// **Warum das genau aufgeht und kein Rennen ist:** jede eigene Aenderung
-    /// laeuft auf dem Fensterfaden, und die Meldung darueber wird an dasselbe
-    /// Fenster GEPOSTET. Sie kann also erst dran sein, wenn der laufende
-    /// Rueckruf zurueckgekehrt ist — der Zaehler steht dann sicher. Ohne ihn
-    /// kuendigte jeder eigene Anspruch der Gegenseite ihren eigenen Inhalt als
-    /// Neuigkeit zurueck, sie beanspruchte daraufhin, und das ginge endlos
-    /// (dieselbe Falle, die auf Wayland `AblageZustand::eigene` abfaengt).
+    /// **Wozu:** ohne ihn kuendigte jeder eigene Anspruch der Gegenseite ihren
+    /// eigenen Inhalt als Neuigkeit zurueck, sie beanspruchte daraufhin, und
+    /// das ginge endlos — dieselbe Falle, die auf Wayland
+    /// `AblageZustand::eigene` abfaengt.
+    ///
+    /// **Warum er aufgehen SOLLTE — gefolgert, nicht gemessen.** Die Rechnung:
+    /// jede eigene Aenderung laeuft auf dem Faden mit dem Fensterrueckruf, und
+    /// `WM_CLIPBOARDUPDATE` wird an dasselbe Fenster *gepostet*; die Meldung
+    /// kann also erst dran sein, wenn der laufende Rueckruf zurueck ist, und
+    /// der Zaehler steht dann. **Sie setzt zwei Dinge ueber Windows voraus,
+    /// die auf der Entwicklungsmaschine niemand pruefen kann** (kein Windows,
+    /// kein Bau): dass die Meldung gepostet und nicht synchron gesendet wird,
+    /// und dass es **genau eine** je eigener Operation gibt. Beides ist aus
+    /// der Doku gefolgert.
+    ///
+    /// **Die drei Ausgaenge, wenn eine der beiden Annahmen nicht traegt** —
+    /// sie gehoeren auf die Liste des ersten Handlaufs auf einer echten
+    /// Maschine:
+    ///
+    /// * **synchron zugestellt** (aus `SetClipboardData` heraus): dann laeuft
+    ///   [`Ablagestand::systemmeldung`] VOR [`Ablagestand::selbst_geaendert`],
+    ///   `erwartet` steht auf 0, der eigene Anspruch geht als Ankuendigung
+    ///   hinaus, die Gegenseite beansprucht zurueck — **genau die
+    ///   Endlosschleife, gegen die dieser Zaehler gebaut ist.**
+    /// * **zwei Meldungen je Operation**: dasselbe, nur eine Runde spaeter.
+    /// * **gar keine Meldung**: der Zaehler bleibt stehen und schluckt die
+    ///   naechste echte Kopie des Nutzers — eine ausbleibende Ankuendigung,
+    ///   also die harmlose Richtung.
+    ///
+    /// Erkennbar ist der erste Fall im Betrieb daran, dass unmittelbar nach
+    /// einem Anspruch eine Ankuendigung hinausgeht, ohne dass jemand kopiert
+    /// hat.
     erwartet: u32,
     /// Ein `WM_RENDERFORMAT` wartet auf Inhalt — auf Windows blockiert dabei
     /// das einfuegende Programm.
@@ -54,9 +91,9 @@ pub(super) struct Geteilt {
     lesen_laeuft: bool,
 }
 
-impl Geteilt {
-    pub(super) const fn neu() -> Geteilt {
-        Geteilt {
+impl Ablagestand {
+    pub const fn neu() -> Ablagestand {
+        Ablagestand {
             stand: 0,
             gesehen: 0,
             eigen: false,
@@ -70,11 +107,11 @@ impl Geteilt {
     }
 
     /// Eine Meldung des Systems, dass sich die Ablage geaendert hat
-    /// (`WM_CLIPBOARDUPDATE`).
+    /// (`WM_CLIPBOARDUPDATE` auf Windows).
     ///
     /// `eigner` = gehoert die Ablage jetzt unserem Fenster, `text_da` = liegt
     /// Text darin.
-    pub(super) fn systemmeldung(&mut self, eigner: bool, text_da: bool) {
+    pub fn systemmeldung(&mut self, eigner: bool, text_da: bool) {
         // Ein Ergebnis gehoert der Ablage, aus der es stammt.
         self.gelesen = None;
         let verloren = self.eigen && !eigner;
@@ -104,29 +141,29 @@ impl Geteilt {
     /// Eine Aenderung, die wir selbst gerade ausgeloest haben. **Erst nach dem
     /// geglueckten Win32-Aufruf rufen** — sonst schluckte der Zaehler bei einem
     /// Fehlschlag die naechste fremde Meldung.
-    pub(super) fn selbst_geaendert(&mut self, eigen: bool) {
+    pub fn selbst_geaendert(&mut self, eigen: bool) {
         self.erwartet += 1;
         self.eigen = eigen;
         self.gelesen = None;
     }
 
     /// Verbrauchend, wie `Beobachter::geaendert` es verlangt.
-    pub(super) fn aenderung_abholen(&mut self) -> bool {
+    pub fn aenderung_abholen(&mut self) -> bool {
         let neu = self.stand != self.gesehen;
         self.gesehen = self.stand;
         neu
     }
 
-    pub(super) fn eigen(&self) -> bool {
+    pub fn eigen(&self) -> bool {
         self.eigen
     }
 
-    pub(super) fn wartet(&self) -> bool {
+    pub fn wartet(&self) -> bool {
         self.wartet
     }
 
     /// Ein Rendervorgang beginnt zu warten.
-    pub(super) fn warten_beginnen(&mut self) {
+    pub fn warten_beginnen(&mut self) {
         self.wartet = true;
         self.antwort = None;
         self.abbruch = false;
@@ -134,7 +171,7 @@ impl Geteilt {
 
     /// Was der wartende Rendervorgang bekommt — `None`, solange nichts da ist
     /// und nichts abgebrochen wurde.
-    pub(super) fn antwort_nehmen(&mut self) -> Option<String> {
+    pub fn antwort_nehmen(&mut self) -> Option<String> {
         if let Some(text) = self.antwort.take() {
             return Some(text);
         }
@@ -144,7 +181,7 @@ impl Geteilt {
         if self.abbruch { Some(String::new()) } else { None }
     }
 
-    pub(super) fn warten_beenden(&mut self) {
+    pub fn warten_beenden(&mut self) {
         self.wartet = false;
         self.antwort = None;
         self.abbruch = false;
@@ -152,7 +189,7 @@ impl Geteilt {
 
     /// Inhalt fuer den wartenden Rendervorgang hinterlegen
     /// (`Eigentum::liefern`). Wartet keiner, ist es folgenlos.
-    pub(super) fn antwort_setzen(&mut self, text: &str) {
+    pub fn antwort_setzen(&mut self, text: &str) {
         if self.wartet {
             self.antwort = Some(text.to_string());
         }
@@ -160,38 +197,38 @@ impl Geteilt {
 
     /// Einen wartenden Rendervorgang abbrechen, weil die Ablage gleich neu
     /// belegt wird.
-    pub(super) fn abbrechen(&mut self) {
+    pub fn abbrechen(&mut self) {
         if self.wartet {
             self.abbruch = true;
         }
     }
 
     /// Ist noch kein Lesevorgang unterwegs oder fertig?
-    pub(super) fn lesen_offen(&self) -> bool {
+    pub fn lesen_offen(&self) -> bool {
         !self.lesen_laeuft && self.gelesen.is_none()
     }
 
-    pub(super) fn lesen_beginnen(&mut self) {
+    pub fn lesen_beginnen(&mut self) {
         self.lesen_laeuft = true;
     }
 
-    pub(super) fn lesen_fertig(&mut self, text: Option<String>) {
+    pub fn lesen_fertig(&mut self, text: Option<String>) {
         self.lesen_laeuft = false;
         self.gelesen = Some(text);
     }
 
-    pub(super) fn lesen_bereit(&self) -> bool {
+    pub fn lesen_bereit(&self) -> bool {
         self.gelesen.is_some()
     }
 
-    pub(super) fn gelesenes(&self) -> Option<String> {
+    pub fn gelesenes(&self) -> Option<String> {
         self.gelesen.clone().flatten()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Geteilt;
+    use super::Ablagestand;
 
     /// Der eigene Anspruch darf keine Ankuendigung ausloesen.
     ///
@@ -199,7 +236,7 @@ mod tests {
     /// zurueck, sie beanspruchte daraufhin ihre Ablage, und das ginge endlos.
     #[test]
     fn der_eigene_anspruch_zaehlt_nicht_als_aenderung() {
-        let mut g = Geteilt::neu();
+        let mut g = Ablagestand::neu();
         g.selbst_geaendert(true);
         g.systemmeldung(true, false);
         assert!(!g.aenderung_abholen(), "die eigene Aenderung darf nicht hinausgehen");
@@ -208,7 +245,7 @@ mod tests {
     /// Kopiert der Nutzer selbst, geht genau eine Ankuendigung hinaus.
     #[test]
     fn fremdes_kopieren_zaehlt_einmal() {
-        let mut g = Geteilt::neu();
+        let mut g = Ablagestand::neu();
         g.systemmeldung(false, true);
         assert!(g.aenderung_abholen());
         assert!(!g.aenderung_abholen(), "verbrauchend, sonst antwortet jedes hol mit veraltet");
@@ -223,7 +260,7 @@ mod tests {
     /// Inhalt beantworten.
     #[test]
     fn eigentumsverlust_zaehlt_auch_ohne_text() {
-        let mut g = Geteilt::neu();
+        let mut g = Ablagestand::neu();
         g.selbst_geaendert(true);
         g.systemmeldung(true, false);
         g.aenderung_abholen();
@@ -237,7 +274,7 @@ mod tests {
     /// dafuer den Vorbestand ihres Nutzers und bekaeme beim Einfuegen ein `weg`.
     #[test]
     fn ein_fach_ohne_text_kuendigt_nichts_an() {
-        let mut g = Geteilt::neu();
+        let mut g = Ablagestand::neu();
         g.systemmeldung(false, false);
         assert!(!g.aenderung_abholen());
     }
@@ -246,7 +283,7 @@ mod tests {
     /// keiner — sonst haengt das einfuegende Programm.
     #[test]
     fn ein_abbruch_beantwortet_den_wartenden_leer() {
-        let mut g = Geteilt::neu();
+        let mut g = Ablagestand::neu();
         g.warten_beginnen();
         assert_eq!(g.antwort_nehmen(), None, "solange nichts da ist, wird gewartet");
         g.abbrechen();
@@ -257,7 +294,7 @@ mod tests {
     /// ungueltig — es gehoert dem Fach, aus dem es stammt.
     #[test]
     fn eine_aenderung_verwirft_das_gelesene() {
-        let mut g = Geteilt::neu();
+        let mut g = Ablagestand::neu();
         g.lesen_beginnen();
         g.lesen_fertig(Some("alt".into()));
         assert!(g.lesen_bereit());

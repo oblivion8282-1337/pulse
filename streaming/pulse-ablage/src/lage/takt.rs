@@ -232,8 +232,16 @@ impl Ablagelage {
             }
             match p.beanspruchen() {
                 Ok(()) => prozess.eigentuemer = true,
+                // **Ohne Programmnamen** (Befund B3): die Zeile stand hier,
+                // als diese Datei noch im Player lag, und meldete sich nach
+                // dem Umzug auch im Windows-Sidecar als „pulse-player" —
+                // ausgerechnet die eine Diagnose, die beim ersten
+                // Windows-Handlauf gebraucht wird (ein fehlgeschlagenes
+                // `OpenClipboard`). Das Praefix benennt jetzt die Sache statt
+                // des Programms; wer die Zeile sieht, weiss aus dem Log-Kanal,
+                // welcher Prozess sie geschrieben hat.
                 Err(grund) => eprintln!(
-                    "pulse-player: Zwischenablage nicht beansprucht ({grund}) — \
+                    "[ablage] Zwischenablage nicht beansprucht ({grund}) — \
                      ein Einfuegen auf dieser Maschine bleibt leer."
                 ),
             }
