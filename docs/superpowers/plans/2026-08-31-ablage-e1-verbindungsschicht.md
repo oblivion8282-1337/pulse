@@ -78,6 +78,40 @@ benutzt Store und Adapter, statt beides nachzubauen.
 
 ---
 
+## Aufgabe 1b: Drei Anläufe zur selben Sache — zwei davon tot
+
+**Erhoben 2026-08-31.** Die Ablage-Verbindung ist in derselben Nacht **dreimal**
+gebaut worden, und nur der schlechteste Anlauf ist erreichbar:
+
+| Stück | Zeilen | Wer benutzt es |
+|---|---|---|
+| `lib/stores/ablage-verbindungen.svelte.ts` | 157 | **niemand** |
+| `lib/ablage/verbindungen.ts` | 153 | nur `AblageVerbindenDialog.svelte` |
+| `lib/components/ablage/AblageVerbindenDialog.svelte` | 180 | **niemand** |
+| `lib/components/ablage/DateiablageAnsicht.svelte` | 185 | **niemand** |
+| `lib/components/settings/AblageSektion.svelte` | 137 | `SettingsSecurity.svelte` — **der einzige erreichbare Weg, und der mit `localStorage`** |
+
+Beide Stores definieren `AblageAnbieterArt` und `AblageVerbindung` doppelt —
+zwei Quellen für dieselbe Wahrheit, von denen eine niemand liest.
+
+**Zu tun:**
+
+1. `lib/stores/ablage-verbindungen.svelte.ts` löschen. Vorher prüfen, ob er
+   etwas kann, was der andere nicht kann (er exportiert zusätzlich
+   `bytesZuBase64`/`base64ZuBytes` — wandern lassen, falls gebraucht), und
+   **danach** `command grep -rn` auf den Pfad, inklusive Bau-Rezepte und
+   Tests.
+2. `AblageVerbindenDialog.svelte` und `DateiablageAnsicht.svelte` **nicht**
+   löschen: der Dialog ist genau das, was Aufgabe 5 braucht, die Ansicht
+   gehört zu E8. In beide einen Kopfsatz schreiben, worauf sie warten —
+   sonst hält sie beim nächsten Aufräumen jemand für Leichen.
+3. Die Emoji-Symbole im Dialog durch lucide-Icons ersetzen (Hausregel).
+
+**Warum das vor Aufgabe 5 kommt:** Wer die Zustandsanzeige an den falschen
+der beiden Stores hängt, baut die Doppelung fest ein.
+
+---
+
 ## Aufgabe 2: Anbieterliste an genau einer Stelle
 
 **Warum:** Wird die Auswahl an jeder Anzeigestelle einzeln gefiltert, ist die
