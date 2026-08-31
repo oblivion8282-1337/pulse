@@ -145,10 +145,16 @@ export async function sicherungArchivLaden(): Promise<number> {
 				edited_at: eintrag.nachricht.bearbeitet,
 				reply_to_id: eintrag.nachricht.antwortAuf,
 				attachments: eintrag.nachricht.anhaenge.map((a) => ({
+					...(a as unknown as Record<string, unknown>),
 					id: a.id,
-					filename: a.name,
+					filename: (a as unknown as { name?: string | null }).name ?? null,
 					mime: a.mime,
 					size: a.groesse,
+					// Die Sicherung spiegelt nur den E2EE-Weg — jeder
+					// restaurierte Anhang ist verschlüsselt-ladbar (Bytes
+					// aus dem Archiv, lokal entpackt), auch wenn ältere
+					// Container-Rahmen das Feld nicht tragen.
+					verschluesselt: true,
 				})),
 			}, kontoId),
 		)
