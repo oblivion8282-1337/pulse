@@ -34,6 +34,7 @@ from dcc_auth.routes_instance_membership import router as instance_membership_ro
 from dcc_auth.routes_profile import router as profile_router
 from dcc_auth.routes_reachability import router as reachability_router
 from dcc_auth.routes_recovery import router as recovery_router
+from dcc_auth.routes_recovery_package import router as recovery_package_router
 from dcc_auth.routes_registry_auth import router as registry_auth_router
 from dcc_auth.routes_search import router as search_router
 from dcc_auth.routes_selfhost_bootstrap import router as selfhost_bootstrap_router
@@ -129,6 +130,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_smtp_router)
     app.include_router(admin_backup_router)
     app.include_router(recovery_router)
+    app.include_router(recovery_package_router)
     app.include_router(search_router)
     app.include_router(sessions_router)
     app.include_router(totp_router)
