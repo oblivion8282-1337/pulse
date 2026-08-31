@@ -51,7 +51,15 @@ export async function leseSicherung(
 		throw new SicherungLesefehler('keine Sicherung in diesem Laufwerks-Ordner');
 	}
 	const { dek } = await öffneSchluesselDatei(schluesselBytes, passwort);
+	return leseSicherungMitSchluessel(adapter, dek);
+}
 
+/** Wie `leseSicherung`, aber mit dem bereits entpackten DEK — für den
+ *  Gerätelokalen Zwischenlager-Fall, ohne erneute Passwortabfrage. */
+export async function leseSicherungMitSchluessel(
+	adapter: AblageAdapter,
+	dek: Uint8Array,
+): Promise<SicherungBestand> {
 	const namen = (await adapter.liste()).filter((name) => SEGMENT_MUSTER.test(name));
 	namen.sort();
 	const lücken: string[] = [];

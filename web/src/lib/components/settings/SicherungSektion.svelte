@@ -1,14 +1,18 @@
 <script lang="ts">
   /**
-   * Settings-Sektion „Sicherung" — Spiegelung des verschlüsselten
-   * Verlaufs ins eigene Google-Laufwerk. Drei Zustände: nicht eingerichtet
-   * (Google verbinden + Passwort setzen), Passwort nötig (dieses Gerät hat
-   * den Schlüssel noch nicht entpackt), aktiv (Status, Jetzt sichern,
-   * Passwort ändern, Wiederherstellen, Entfernen).
+   * Einstellungs-Reiter „Sicherung" — absichtlich klein: ein Fluss, drei
+   * Schritte, kein Fachvokabular.
    *
-   * Die Passphrase wird nirgends gespeichert — sie leitet nur einmal den
-   * Schlüssel ab, der das Archiv öffnet (lib/sicherung). Google sieht nur
-   * verschlüsselte Segmente; der Server sieht gar nichts.
+   *   1. Mit Google verbinden (oder ist schon).
+   *   2. Sicherungs-Passwort: festlegen (frisches Archiv) oder eingeben
+   *      (vorhandenes Archiv eines anderen Geräts).
+   *   3. Fertig — bestehende lokale Nachrichten wandern einmalig ins Archiv,
+   *      der Archiv-Bestand wird in den lokalen Verlauf geladen, und jede
+   *      neue verschlüsselte Nachricht wird im Hintergrund gespiegelt.
+   *
+   * Passwort-Änderung und Entfernen sind bewusst KEINE Knöpfe: ändern kann
+   * man das Passwort über „Entfernen" + neu einrichten, und Entfernen lässt
+   * das Archiv unangetastet im Drive liegen. Mechanik: lib/sicherung.
    */
   import { SICHERUNG_ENABLED } from '$lib/krypto/schalter';
   import { isElectron } from '$lib/platform/runtime';
@@ -22,37 +26,41 @@
   } from '$lib/sicherung/googleClient';
   import { erzeugeDek, wickleSchluesselDatei, öffneSchluesselDatei } from '$lib/sicherung/krypto';
   import { SCHLUESSEL_DATEI } from '$lib/sicherung/spiegel';
+  import { leseSicherungMitSchluessel } from '$lib/sicherung/wiederherstellen';
   import {
     verbindungLesen,
     verbindungSchreiben,
     verbindungEntfernen,
     adapterLieferant,
-    dekZwischenlagern,
     dekAusZwischenlager,
+    dekZwischenlagern,
     dekZwischenlagerWischen,
     pufferWischen,
     type SicherungVerbindung,
   } from '$lib/sicherung/geraete';
-  import { sicherungJetztSpuelen, sicherungErstsicherung } from '$lib/sicherung/andock';
-  import SicherungEntsperren from './SicherungEntsperren.svelte';
-  import SicherungWiederherstellen from './SicherungWiederherstellen.svelte';
-  import SicherungPasswortAendern from './SicherungPasswortAendern.svelte';
+  import {
+    sicherungJetztSpuelen,
+    sicherungErstsicherung,
+  } from '$lib/sicherung/andock';
 
-  let zustand = $state<'pruefe' | 'neu' | 'einrichten' | 'passwort' | 'aktiv'>('pruefe');
-  let erstsicherung = $state(true);
+  let zustand = $state<'pruefe' | 'verbinden' | 'passwort' | 'an'>('pruefe');
+  /** Archive existiert schon (anderes Gerät) → Passwort entpackt es. */
+  let neuesPasswort = $state(true);
   let passwort = $state('');
   let passwort2 = $state('');
-  let fehler = $state('');
   let meldung = $state('');
+  let fehler = $state('');
   let laeuft = $state(false);
-  let pkce = $state<Awaited<ReturnType<typeof erzeugePkce>> | null>(null);
   let verbindung = $state<SicherungVerbindung | null>(null);
+  let pkce: Awaited<ReturnType<typeof erzeugePkce>> | null = null;
 
   $effect(() => {
     void (async () => {
       verbindung = await verbindungLesen();
       const entpackt = await dekAusZwischenlager();
-      zustand = verbindung === null ? 'neu' : entpackt === null ? 'passwort' : 'aktiv';
+      if (verbindung === null) zustand = 'verbinden';
+      else zustand = entpackt === null ? 'passwort' : 'an';
+      if (verbindung !== null) neuesPasswort = false;
     })();
   });
 
@@ -66,6 +74,7 @@
       weiterleitung,
       ordner: 'Pulse-Sicherung',
       nachspieleToken: verbindung?.nachspieleToken ?? '',
+      zugangsToken: verbindung?.zugangsToken,
     };
   }
 
@@ -73,76 +82,23 @@
     laeuft = true;
     fehler = '';
     try {
-      // Die Weiterleitung entscheidet der Konsent-Fluss selbst (Electron:
-      // dynamischer Loopback-Port vom Main, Browser: Rückkehr-Route) — der
-      // Token-Tausch muss exakt dieselbe tragen, darum merken wir sie uns.
-      // `konsentStarten` liefert den nackten Zugangs-Code.
-      let genutzteWeiterleitung = '';
-      const code = await konsentStarten(async (weiterleitung) => {
-        genutzteWeiterleitung = weiterleitung;
+      let weiterleitung = '';
+      const code = await konsentStarten(async (r) => {
+        weiterleitung = r;
         pkce = await erzeugePkce();
-        return autorisierungsAdresse(basisVerbindung(weiterleitung), pkce, 'sicherung');
+        return autorisierungsAdresse(basisVerbindung(r), pkce!, 'sicherung');
       });
-      const zugang = await tauscheCodeAus(
-        basisVerbindung(genutzteWeiterleitung),
-        code,
-        pkce!,
-      );
+      const zugang = await tauscheCodeAus(basisVerbindung(weiterleitung), code, pkce!);
       verbindung = {
-        ...basisVerbindung(genutzteWeiterleitung),
+        ...basisVerbindung(weiterleitung),
         nachspieleToken: zugang.nachspieleToken ?? '',
         zugangsToken: zugang.zugangsToken,
       };
-      // Existiert schon ein Archiv (anderes Gerät hat eingerichtet), entpackt
-      // dieses Gerät dessen Schlüssel statt einen neuen zu erzeugen — sonst
-      // würde es schluessel.puls überschreiben und die fremden Segmente
-      // unlesbar machen.
-      const adapter = await adapterLieferant();
-      const vorhanden = (await adapter.lese(SCHLUESSEL_DATEI)) !== null;
-      zustand = vorhanden ? 'passwort' : 'einrichten';
-      meldung = vorhanden
-        ? 'Archiv gefunden — bitte das Sicherungs-Passwort eingeben.'
-        : 'Google verbunden. Jetzt das Sicherungs-Passwort setzen.';
-    } catch (e) {
-      fehler = e instanceof Error ? e.message : String(e);
-    } finally {
-      laeuft = false;
-    }
-  }
-
-  async function einrichten(): Promise<void> {
-    if (!verbindung || passwort.length < 8) {
-      fehler = 'Passwort zu kurz — mindestens 8 Zeichen.';
-      return;
-    }
-    if (passwort !== passwort2) {
-      fehler = 'Passwörter stimmen nicht überein.';
-      return;
-    }
-    laeuft = true;
-    fehler = '';
-    try {
-      const dek = erzeugeDek();
-      const verpackt = await wickleSchluesselDatei(dek, passwort);
-      // ERST die Verbindung persistieren — der Adapter-Lieferant liest den
-      // Datensatz selbst, beim ersten Einrichten existiert er sonst noch
-      // gar nicht. Ebene Kopie: `verbindung` ist eine $state-Variable,
-      // deren Proxy die IndexedDB mit "could not be cloned" abweist.
       await verbindungSchreiben({ ...verbindung });
+      // Vorhandenes Archiv? Dann entpackt das Passwort es, statt ein neues anzulegen.
       const adapter = await adapterLieferant();
-      await adapter.schreibe(SCHLUESSEL_DATEI, verpackt);
-      await dekZwischenlagern(dek, crypto.randomUUID());
-      passwort = passwort2 = '';
-      zustand = 'aktiv';
-      let hinweis = 'Sicherung aktiv — neue Nachrichten werden gespiegelt.';
-      if (erstsicherung) {
-        try {
-          hinweis += ` Erstsicherung: ${(await sicherungErstsicherung()).toString()} Nachrichten übernommen.`;
-        } catch (e) {
-          hinweis += ` Erstsicherung fehlgeschlagen: ${e instanceof Error ? e.message : String(e)}`;
-        }
-      }
-      meldung = hinweis;
+      neuesPasswort = (await adapter.lese(SCHLUESSEL_DATEI)) === null;
+      zustand = 'passwort';
     } catch (e) {
       fehler = e instanceof Error ? e.message : String(e);
     } finally {
@@ -150,18 +106,47 @@
     }
   }
 
-  async function erstsicherungNachreichen(): Promise<void> {
+  /** Einmal-Passwort: öffnet das Archiv (oder legt es an) und bringt alles
+   *  auf Stand — Erstsicherung rein, Archiv-Bestand in den lokalen Verlauf. */
+  async function oeffnen(): Promise<void> {
     laeuft = true;
     fehler = '';
     try {
-      const anzahl = await sicherungErstsicherung();
-      meldung = `${anzahl} bestehende Nachrichten ins Archiv übernommen.`;
-      await sicherungJetztSpuelen();
+      let dek: Uint8Array;
+      if (neuesPasswort) {
+        if (passwort.length < 8 || passwort !== passwort2) {
+          throw new Error('Mindestens 8 Zeichen, beide Felder gleich.');
+        }
+        dek = erzeugeDek();
+        await verbindungSchreiben({ ...verbindung! });
+        const adapter = await adapterLieferant();
+        await adapter.schreibe(SCHLUESSEL_DATEI, await wickleSchluesselDatei(dek, passwort));
+      } else {
+        const adapter = await adapterLieferant();
+        const bytes = await adapter.lese(SCHLUESSEL_DATEI);
+        if (bytes === null) throw new Error('Schlüssel-Datei fehlt im Laufwerks-Ordner');
+        dek = (await öffneSchluesselDatei(bytes, passwort)).dek;
+      }
+      await dekZwischenlagern(dek, crypto.randomUUID());
+      const gesichert = await sicherungErstsicherung();
+      const bestand = await leseSicherungMitSchluessel(await adapterLieferant(), dek);
+      meldung = `Aktiv. ${gesichert} Nachrichten gesichert, ${bestand.eintraege.length} aus dem Archiv geladen.`;
+      passwort = passwort2 = '';
+      zustand = 'an';
     } catch (e) {
       fehler = e instanceof Error ? e.message : String(e);
     } finally {
       laeuft = false;
     }
+  }
+
+  async function entfernen(): Promise<void> {
+    await verbindungEntfernen();
+    await dekZwischenlagerWischen();
+    await pufferWischen();
+    verbindung = null;
+    zustand = 'verbinden';
+    meldung = '';
   }
 </script>
 
@@ -170,69 +155,53 @@
 
   {#if !SICHERUNG_ENABLED}
     <p class="text-sm text-muted-foreground">Derzeit deaktiviert.</p>
-    {/if}
-    {#if SICHERUNG_ENABLED && zustand === 'pruefe'}
+  {:else}
+    <p class="text-sm text-muted-foreground">
+      Dein verschlüsselter Nachrichten-Verlauf, gespiegelt in deinen eigenen
+      Google Drive. Ohne dein Passwort ist das Archiv für niemanden lesbar.
+    </p>
+
+    {#if zustand === 'pruefe'}
       <p class="text-sm text-muted-foreground">Prüfe …</p>
-    {:else if SICHERUNG_ENABLED && zustand === 'neu'}
+    {:else if zustand === 'verbinden'}
       {#if !sicherungClientKonfiguriert()}
         <p class="text-sm text-muted-foreground">
-          Die Sicherung ist in diesem Build nicht konfiguriert
-          (VITE_SICHERUNG_GDRIVE_KUNDEN_ID fehlt beim Bau).
+          Die Sicherung ist in diesem Build nicht konfiguriert.
         </p>
       {:else}
-        <p class="text-sm text-muted-foreground">
-          Spiegelt deinen verschlüsselten Verlauf in deinen eigenen Google Drive.
-          Ohne dein Passwort — und ohne uns — ist das Archiv unlesbar.
+        <Button onclick={verbinden} size="sm" disabled={laeuft}>
+          {laeuft ? 'Warte auf Google …' : 'Mit Google verbinden'}
+        </Button>
+        <p class="text-xs text-muted-foreground">
+          {isElectron() ? 'Der Browser öffnet sich — Pulse fängt die Rückkehr automatisch ab.' : 'Google öffnet sich in einem neuen Tab; am Ende kommst du hierher zurück.'}
         </p>
-        <div class="flex flex-wrap items-center gap-2">
-          <Button onclick={verbinden} size="sm" disabled={laeuft}>
-            {laeuft ? 'Warte auf Google …' : 'Mit Google verbinden'}
-          </Button>
-          <span class="text-xs text-muted-foreground">
-            {isElectron() ? 'Der Browser öffnet sich — Pulse fängt die Rückkehr automatisch ab.' : 'Google öffnet sich in einem neuen Tab; am Ende kommst du hierher zurück.'}
-          </span>
-        </div>
       {/if}
     {:else if zustand === 'passwort'}
-      <SicherungEntsperren aufEntsperrt={() => (zustand = 'aktiv')} />
-    {:else if zustand === 'einrichten'}
-      <input class="w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" type="password" placeholder="Sicherungs-Passwort (mindestens 8 Zeichen)" bind:value={passwort} />
-      <input class="w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" type="password" placeholder="Passwort wiederholen" bind:value={passwort2} />
-      <label class="flex items-center gap-2 text-sm text-muted-foreground">
-        <input type="checkbox" bind:checked={erstsicherung} />
-        Bestehende lokale Nachrichten mit ins Archiv nehmen
-      </label>
-      <Button onclick={einrichten} size="sm" disabled={laeuft}>{laeuft ? 'Richte ein …' : 'Sicherung aktivieren'}</Button>
+      <p class="text-sm text-muted-foreground">
+        {neuesPasswort ? 'Lege dein Sicherungs-Passwort fest (mindestens 8 Zeichen — gut merken, es gibt keine Wiederherstellung):' : 'Gib dein Sicherungs-Passwort ein:'}
+      </p>
+      <input class="w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" type="password" bind:value={passwort} />
+      {#if neuesPasswort}
+        <input class="w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" type="password" placeholder="Wiederholen" bind:value={passwort2} />
+      {/if}
+      <Button onclick={oeffnen} size="sm" disabled={laeuft || passwort.length === 0}>
+        {laeuft ? 'Lädt …' : neuesPasswort ? 'Sicherung aktivieren' : 'Öffnen'}
+      </Button>
     {:else}
       <p class="text-sm text-muted-foreground">
-        Aktiv — Ordner „{verbindung?.ordner}“. Nachrichten werden im Hintergrund gespiegelt.
+        Aktiv — deine Nachrichten werden gesichert.
+        {meldung}
       </p>
-      <p class="text-sm text-muted-foreground">
-        Aktiv — Ordner „{verbindung?.ordner}". Nachrichten werden im Hintergrund gespiegelt.
-      </p>
-      <div class="flex flex-wrap gap-2">
-        <Button onclick={erstsicherungNachreichen} variant="secondary" size="sm" disabled={laeuft}>Bestehende Nachrichten sichern</Button>
-        <Button onclick={() => void sicherungJetztSpuelen()} variant="secondary" size="sm">Jetzt sichern</Button>
-        <Button onclick={() => (zustand = 'passwort')} variant="secondary" size="sm">Auf diesem Gerät entsperren</Button>
+      <div class="flex flex-wrap items-center gap-2">
         <Button
           variant="secondary"
           size="sm"
-          onclick={async () => {
-            await verbindungEntfernen();
-            await dekZwischenlagerWischen();
-            await pufferWischen();
-            verbindung = null;
-            zustand = 'neu';
-          }}
-        >Entfernen</Button>
+          onclick={() => void sicherungJetztSpuelen()}
+        >Jetzt sichern</Button>
+        <button class="text-xs text-destructive hover:underline" onclick={entfernen}>Entfernen</button>
       </div>
-      <SicherungPasswortAendern />
-      <p class="text-xs text-muted-foreground">
-        Entfernen lässt das Archiv im Drive liegen — mit dem Passwort ist es später wieder lesbar.
-      </p>
-      <SicherungWiederherstellen aufFertig={() => {}} />
     {/if}
 
-    {#if meldung}<p class="text-sm text-muted-foreground">{meldung}</p>{/if}
     {#if fehler}<p class="text-sm text-destructive">{fehler}</p>{/if}
+  {/if}
 </div>
