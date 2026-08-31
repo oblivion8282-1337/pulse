@@ -134,3 +134,89 @@ async def _messages_count(client, token: str, channel_id: str) -> int:
     if r.status_code != 200:
         return -1
     return len(r.json())
+
+
+# ---------------------------------------------------------------------------
+# Der WS-Weg — und zwar BEIDE Pfade
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_ws_send_in_ablage_kanal_wird_auch_nach_subscribe_verworfen(
+    ws_app, _auth_signer
+):
+    """Der schnelle Pfad von `handle_send` darf die Ablage-Sperre nicht umgehen.
+
+    `handle_send` hat zwei Wege: den langsamen (Kanal frisch laden, Rechte
+    aufloesen) und den schnellen (`cid in ctx.subscribed`, Rechte gelten als
+    bei `subscribe` geprueft). Die Mischzustand-Sperre aus Konzept §2a stand
+    nur im langsamen. Ein `subscribe` VOR dem `send` genuegte damit, um
+    Klartext in einen Kanal zu schreiben, der sich nach aussen als
+    Ende-zu-Ende-verschluesselt ausweist — und andere Mitglieder vertrauen
+    genau dieser Kennzeichnung.
+
+    Der Test sendet deshalb zweimal: einmal ohne vorheriges `subscribe`
+    (langsamer Pfad, war schon dicht) und einmal danach (schneller Pfad).
+    """
+    import asyncio
+    import random
+
+    from starlette.testclient import TestClient
+
+    from .conftest import receive_skipping
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            uid = random.randint(1, 1_000_000)
+            token = _auth_signer.issue_access(uid, f"u{uid}")
+            g = tc.post("/guilds", json={"name": "g"}, headers=auth(token)).json()
+            kanal = tc.post(
+                f"/guilds/{g['id']}/channels",
+                json={"name": "ablage-raum", "ablage": True},
+                headers=auth(token),
+            ).json()
+            assert kanal["ablage"] is True
+
+            with tc.websocket_connect(f"/ws?token={token}") as ws:
+                receive_skipping(ws)  # ready
+
+                ws.send_json(
+                    {
+                        "op": "send",
+                        "channel_id": kanal["id"],
+                        "content": "klartext ohne subscribe",
+                        "nonce": "n-langsam",
+                    }
+                )
+                langsam = receive_skipping(ws)
+                assert langsam["op"] == "error", (
+                    "langsamer Pfad: Klartext in einen Ablage-Kanal muss "
+                    f"abgewiesen werden, war {langsam}"
+                )
+
+                ws.send_json({"op": "subscribe", "channel_id": kanal["id"]})
+                ws.send_json(
+                    {
+                        "op": "send",
+                        "channel_id": kanal["id"],
+                        "content": "klartext nach subscribe",
+                        "nonce": "n-schnell",
+                    }
+                )
+                schnell = receive_skipping(ws)
+                assert schnell["op"] == "error", (
+                    "schneller Pfad: ein vorheriges `subscribe` darf die "
+                    f"Ablage-Sperre nicht aushebeln, war {schnell}"
+                )
+
+            # Gegenprobe am Bestand: es darf keine Zeile entstanden sein.
+            assert _messages_count_sync(tc, token, kanal["id"]) == 0
+
+    await asyncio.to_thread(_run)
+
+
+def _messages_count_sync(tc, token: str, channel_id: str) -> int:
+    r = tc.get(f"/channels/{channel_id}/messages", headers=auth(token))
+    if r.status_code != 200:
+        return -1
+    return len(r.json())

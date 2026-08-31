@@ -48,3 +48,47 @@ test('gleiche Laenge, reiner Zeitunterschied bleibt korrekt (bestehendes Verhalt
   assert.ok(compareSnowflakeId('86840432528457729', '86840432528457728') > 0);
   assert.equal(compareSnowflakeId('86840432528457728', '86840432528457728'), 0);
 });
+
+test('eine vorlaeufige `tmp-`-ID laesst den Vergleich nicht abstuerzen', () => {
+  // Drittes ID-Schema, das der Vergleich bisher nicht kannte:
+  // `chat/dmKlartextSenden.ts:38` vergibt fuer die optimistische Kopie einer
+  // noch nicht bestaetigten Nachricht `tmp-${nonce}` mit
+  // `nonce = n-${Date.now()}-${4 Hexstellen}`. Der Modulkopf von
+  // `snowflakeZeit.ts` sprach von genau ZWEI Schemata; auf dieses dritte
+  // fiel die Rechnung auf `BigInt(id)` durch und warf
+  // `SyntaxError: Cannot convert tmp-n-... to a BigInt`.
+  //
+  // Beobachtet im Playwright-Lauf vom 2026-08-31 als unbehandelter Fehler,
+  // ausgeloest sowohl aus der Community-Kanal-Route als auch aus der
+  // DM-Route, jeweils beim Senden.
+  const vorlaeufig = 'tmp-n-1788205583767-a820';
+  const echt = String(5000n * 4194304n);
+  assert.doesNotThrow(() => compareSnowflakeId(vorlaeufig, echt));
+  assert.doesNotThrow(() => compareSnowflakeId(echt, vorlaeufig));
+  assert.doesNotThrow(() => compareSnowflakeId(vorlaeufig, vorlaeufig));
+});
+
+test('eine vorlaeufige ID sortiert nach ihrer eingebetteten Zeit, nicht ans Ende geraten', () => {
+  // Die Nonce traegt `Date.now()` an derselben Stelle wie die lokale ID ihre
+  // ersten 13 Ziffern — es gibt also eine echte Zeit zu vergleichen, und die
+  // ist die richtige Ordnung: die optimistische Kopie steht dort, wo die
+  // bestaetigte Nachricht gleich stehen wird.
+  const frueh = 'tmp-n-1788205583767-a820';
+  const spaet = 'tmp-n-1788205583999-b111';
+  assert.ok(compareSnowflakeId(frueh, spaet) < 0, 'frueher gesendet muss vorne stehen');
+  assert.ok(compareSnowflakeId(spaet, frueh) > 0);
+  assert.equal(compareSnowflakeId(frueh, frueh), 0);
+});
+
+test('eine vorlaeufige ID steht hinter einer echten Snowflake derselben Millisekunde', () => {
+  // Gleichstand nach Zeit braucht einen Tiebreak, und `BigInt(a)` ist dafuer
+  // nicht mehr benutzbar (die vorlaeufige ID ist keine Ziffernfolge). Die
+  // optimistische Kopie gehoert hinter die bestaetigte Nachricht: sie ist per
+  // Definition das juengere Ereignis, und die Liste ersetzt sie gleich.
+  const msSeitEpoche = 5000n;
+  const echt = String(msSeitEpoche << 22n);
+  const unixMs = 1767225600000n + msSeitEpoche;
+  const vorlaeufig = `tmp-n-${unixMs}-a820`;
+  assert.ok(compareSnowflakeId(echt, vorlaeufig) < 0, 'die bestaetigte Nachricht steht vorne');
+  assert.ok(compareSnowflakeId(vorlaeufig, echt) > 0);
+});

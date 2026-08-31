@@ -40,6 +40,7 @@ from dcc_chat_gateway.mentions import (
 )
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_TEXT,
+    Channel,
     DirectMessageChannel,
     Message,
 )
@@ -148,7 +149,21 @@ async def handle_send(ctx: WSOpContext, msg: dict[str, Any]) -> None:
                     dm_pair = (dm_obj.user_a_id, dm_obj.user_b_id)
                     ok = True
             else:
-                ok = True
+                # Die Mischzustand-Regel (Konzept §2a) gilt auf BEIDEN Pfaden.
+                # Sie stand bis zum 2026-08-31 nur im langsamen Zweig unten —
+                # ein einziges ``subscribe`` vorher genuegte deshalb, um
+                # Klartext in einen Kanal zu schreiben, der sich nach aussen
+                # als Ende-zu-Ende-verschluesselt ausweist. Was der schnelle
+                # Pfad einspart, ist die Rechte-Aufloesung; die Kanalzeile
+                # selbst ist ein Primaerschluessel-Treffer und liegt nach dem
+                # ``subscribe`` derselben Sitzung ohnehin meist schon in der
+                # Identity Map. Der DM-Zweig darueber laedt aus demselben
+                # Grund seine Zeile.
+                ch_obj = await session.get(Channel, cid_int)
+                if ch_obj is None or ch_obj.ablage:
+                    ok = False
+                else:
+                    ok = True
         else:
             resolved = await resolve_channel_for_user(session, cid_int, user.id)
             if resolved is None:
