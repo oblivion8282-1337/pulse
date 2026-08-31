@@ -20,15 +20,24 @@
 
 import { isElectron } from '../platform/runtime.ts';
 
-const KUNDEN_ID = import.meta.env.VITE_SICHERUNG_GDRIVE_KUNDEN_ID ?? '';
-const GEHEIMNIS = import.meta.env.VITE_SICHERUNG_GDRIVE_GEHEIMNIS ?? '';
+/**
+ * Zwei Clients, weil Google Typen trennt: Electron fährt den
+ * **Desktop-Client** (dynamischer Loopback-Port, kein registrierter Pfad),
+ * der Browser fährt den **Web-Client** (registrierte Origin-Redirects).
+ * Werte kommen beim Bau herein — fehlt der jeweilige Satz, sagt die
+ * Oberfläche das ehrlich, statt eines toten Knopfes.
+ */
+const DESKTOP_KUNDEN_ID = import.meta.env.VITE_SICHERUNG_GDRIVE_KUNDEN_ID ?? '';
+const DESKTOP_GEHEIMNIS = import.meta.env.VITE_SICHERUNG_GDRIVE_GEHEIMNIS ?? '';
+const WEB_KUNDEN_ID = import.meta.env.VITE_SICHERUNG_GDRIVE_WEB_KUNDEN_ID ?? '';
+const WEB_GEHEIMNIS = import.meta.env.VITE_SICHERUNG_GDRIVE_WEB_GEHEIMNIS ?? '';
 
 /** Lokaler Schlüssel des Rückkehr-Tabs → Einstellungssektion (Browser-Weg). */
 export const OAUTH_CODE_SPEICHER = 'pulse.sicherung-oauth-code';
 
-/** Ob dieser Build die Sicherung überhaupt anbieten darf. */
+/** Ob dieser Build die Sicherung im jeweiligen Kontext anbieten darf. */
 export function sicherungClientKonfiguriert(): boolean {
-	return KUNDEN_ID !== '';
+	return isElectron() ? DESKTOP_KUNDEN_ID !== '' : WEB_KUNDEN_ID !== '';
 }
 
 /** Client-Daten für `autorisierungsAdresse`/`tauscheCodeAus`. Die
@@ -38,10 +47,15 @@ export function sicherungClient(): {
 	kundenId: string;
 	kundenGeheimnis?: string;
 } {
-	return {
-		kundenId: KUNDEN_ID,
-		...(GEHEIMNIS !== '' ? { kundenGeheimnis: GEHEIMNIS } : {}),
-	};
+	return isElectron()
+		? {
+				kundenId: DESKTOP_KUNDEN_ID,
+				...(DESKTOP_GEHEIMNIS !== '' ? { kundenGeheimnis: DESKTOP_GEHEIMNIS } : {}),
+			}
+		: {
+				kundenId: WEB_KUNDEN_ID,
+				...(WEB_GEHEIMNIS !== '' ? { kundenGeheimnis: WEB_GEHEIMNIS } : {}),
+			};
 }
 
 /**
