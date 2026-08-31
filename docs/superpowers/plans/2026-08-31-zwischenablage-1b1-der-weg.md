@@ -377,7 +377,11 @@ export async function ablageAnPlayer(data: unknown): Promise<boolean> {
 /** Was die eigene Plattform hinausschicken will. Liefert den Abmelder, oder
  *  `null`, wenn es die Brücke nicht gibt. */
 export function aufAblageEreignisse(cb: (data: unknown) => void): (() => void) | null {
-  const b = bruecke();
+  // **`player.onEvent`, nicht `gsr.onEvent`** — nachgemessen am 2026-08-31:
+  // `gsr.onEvent` hört auf `gsr:event` (die Capture-Sidecars), die Ereignisse
+  // des Players kommen über `player:event`. Eine frühere Fassung dieses Plans
+  // nannte hier `gsr` und wäre stillschweigend taub geblieben.
+  const b = typeof window !== 'undefined' ? window.pulse?.player : undefined;
   if (typeof b?.onEvent !== 'function') return null;
   return b.onEvent((ev: unknown) => {
     const m = ev as { ev?: unknown; data?: unknown } | null;
@@ -411,7 +415,8 @@ Task 2 und Task 3 teilen sich einen Commit — die Typdatei `pulse.d.ts` gehört
 **Interfaces:**
 - Consumes: `remoteAblage`/`ablagePlatform` aus Task 2 erwarten `window.pulse.gsr.ablage(data)` und ein `player:event` mit `{ ev: 'ablage', data }`.
 - Produces:
-  - `window.pulse.gsr.ablage(data: unknown): Promise<{ ok: boolean; error?: string }>`
+  - `window.pulse.gsr.ablage(rolle: 'host' | 'controller', session: number, data: unknown): Promise<{ ok: boolean; error?: string }>`
+  - `desktop/electron/ablageWeiche.ts`: `export function rolleLesen(roh: unknown): 'host' | 'controller' | null`
   - `desktop/electron/ablageWeiche.ts`: `export function zielFuerAblage(rolle: 'host' | 'controller'): 'player' | 'sidecar'`
 
 - [ ] **Step 1: Den fehlschlagenden Test der Weiche schreiben**
@@ -493,12 +498,29 @@ Expected: PASS.
      *  lebt in `streaming/pulse-ablage`, und eine zweite Fassung hier liefe
      *  auseinander. Beim Steuernden landet er im Player, beim Host im Sidecar;
      *  die Weiche steht im Hauptprozess (`ablageWeiche.ts`). */
-    ablage: (data: unknown) => ipcRenderer.invoke('gsr:ablage', data),
+    ablage: (rolle: 'host' | 'controller', session: number, data: unknown) =>
+      ipcRenderer.invoke('gsr:ablage', rolle, session, data),
 ```
 
 `web/src/lib/platform/pulse.d.ts` — dieselbe Signatur eintragen (**die beiden Dateien sind synchron zu halten**).
 
-Im Hauptprozess einen `ipcMain.handle('gsr:ablage', …)` anlegen, der über `zielFuerAblage` entscheidet und an `playerManager.call('ablage', { data })` bzw. an den Sidecar weiterreicht. Die Sidecar-Hälfte darf in diesem Plan ein `{ ok: false, error: 'kein Host-Sidecar in 1b-1' }` liefern — sie kommt in Plan 1b-2.
+**Die Rolle wird ÜBERGEBEN, nicht erschlossen.** Eine Ableitung aus der
+Sitzungsnummer (`session > 0 ⇒ Steuernder`) trifft nur, solange kein Host
+nebenbei den Strom eines Dritten im nativen Player anschaut — dann trägt auch er
+eine Nummer, und ein hereinkommender Rahmen landete im falschen, unbeteiligten
+Fenster statt beim Sidecar. Der Renderer **kennt** seine Rolle aus
+`remoteAblage.start(rolle, …)`; er gibt sie mit.
+
+Dass sie vom Renderer kommt, ist hier zulässig — anders als bei `input_capture`,
+das seine Zuordnung bewusst im Hauptprozess hält: jenes autorisiert eine
+Eingabe-Injektion, das ist eine Sicherheitsentscheidung. Diese Weiche entscheidet
+nur, **welcher der eigenen lokalen Prozesse** die Ablage hält; eine falsche Rolle
+kostet ein fehlgeleitetes Einfügen, keine Befugnis. Ohne diesen Satz härtet die
+Stelle irgendwann jemand „zur Sicherheit" wieder zu einer Rateregel zurück.
+
+Im Hauptprozess einen `ipcMain.handle('gsr:ablage', …)` anlegen, der die Rolle
+über `rolleLesen` prüft (alles Unbekannte → `{ ok: false }`, fail-closed), dann
+über `zielFuerAblage` entscheidet und an `playerManager.call('ablage', { data })` bzw. an den Sidecar weiterreicht. Die Sidecar-Hälfte darf in diesem Plan ein `{ ok: false, error: 'kein Host-Sidecar in 1b-1' }` liefern — sie kommt in Plan 1b-2.
 
 - [ ] **Step 6: Alles prüfen**
 
