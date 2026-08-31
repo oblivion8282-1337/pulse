@@ -1,9 +1,11 @@
 /**
  * Die Ablage-Schnittstelle: alles, was der Schreiber und der Leser über den
- * Speicher wissen dürfen. Drei Worte — schreiben, lesen, auflisten. Jeder
- * Anbieter (Sync-Ordner über File-System-Access, später WebDAV,
- * App-Folder-OAuth, S3) steckt hinter dieser Reihe, und beide Arbeitsweisen
- * prüfen gegen den Gedächtnis-Adapter in Tests.
+ * Speicher wissen dürfen. Jeder Anbieter (Sync-Ordner über File-System-Access,
+ * WebDAV, App-Folder-OAuth, S3) steckt hinter dieser Reihe, und beide
+ * Arbeitsweisen prüfen gegen den Gedächtnis-Adapter in Tests.
+ *
+ * Das optionale `lösche` erlaubt physisches Entfernen — ohne es bleibt die
+ * Datei als verschlüsselter Rest liegen (Grabstein im Verzeichnis).
  */
 
 export interface AblageAdapter {
@@ -13,6 +15,9 @@ export interface AblageAdapter {
 	lese(datei: string): Promise<Uint8Array | null>;
 	/** Alle Dateinamen des Ablage-Ordners (nur Namen, keine Pfade). */
 	liste(): Promise<string[]>;
+	/** Löscht eine Datei physisch — optional; Implementierungen ohne
+	 *  physisches Löschen lassen den verschlüsselten Rest liegen. */
+	lösche?(datei: string): Promise<void>;
 }
 
 /** Reiner Speicher im Arbeitsfeld — für Tests und als Rückfall für Prüfungen. */
@@ -28,6 +33,9 @@ export function speicherAdapter(): AblageAdapter & { inhalte: Map<string, Uint8A
 		},
 		async liste() {
 			return [...inhalte.keys()];
+		},
+		async lösche(datei) {
+			inhalte.delete(datei);
 		},
 	};
 }

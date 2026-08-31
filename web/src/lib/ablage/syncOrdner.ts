@@ -25,6 +25,7 @@ interface DateiHandle {
 
 export interface AblageVerzeichnis {
 	getFileHandle(name: string, optionen?: { create?: boolean }): Promise<DateiHandle>;
+	removeEntry(name: string): Promise<void>;
 	entries(): AsyncIterable<[string, { kind: string }]>;
 }
 
@@ -62,6 +63,9 @@ export function adapterAusVerzeichnis(verzeichnis: AblageVerzeichnis): AblageAda
 				}
 			}
 			return namen;
+		},
+		async lösche(datei) {
+			await verzeichnis.removeEntry(datei);
 		},
 	};
 }
