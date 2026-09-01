@@ -9,7 +9,9 @@ and the channel_bump/dm_bump envelope.
 
 Behaviour-neutral relative to the pre-split branch: same error codes (4005,
 4006, 4008, 4013, 4014, 4290), same envelope shapes, same best-effort
-guards around Redis publishes and mention fan-out.
+guards around Redis publishes and mention fan-out. 4015 added for Etappe E9
+(Umstellung, Entwurf §9): a legacy_readonly channel gets a begründende
+message instead of the generic 4006.
 """
 
 from __future__ import annotations
@@ -133,6 +135,11 @@ async def handle_send(ctx: WSOpContext, msg: dict[str, Any]) -> None:
         # (user_a_id, user_b_id) for the dm_bump envelope. Filled by a
         # small SELECT when kind == "dm".
         dm_pair: tuple[int, int] | None = None
+        # Umstellung (Entwurf §9, Etappe E9): separat von ``ok`` verfolgt, damit
+        # ein eingefrorener Alt-Kanal eine begründende Meldung bekommt statt
+        # des generischen "channel not accessible" (4006) — anders als
+        # Ablage-Kanäle, deren Ablehnung hier historisch generisch bleibt.
+        legacy_blocked = False
         if cid in subscribed:
             gid = subscribed[cid]
             kind = "dm" if gid is None else "guild"
@@ -160,7 +167,10 @@ async def handle_send(ctx: WSOpContext, msg: dict[str, Any]) -> None:
                 # Identity Map. Der DM-Zweig darueber laedt aus demselben
                 # Grund seine Zeile.
                 ch_obj = await session.get(Channel, cid_int)
-                if ch_obj is None or ch_obj.ablage:
+                if ch_obj is not None and ch_obj.legacy_readonly and not ch_obj.ablage:
+                    ok = False
+                    legacy_blocked = True
+                elif ch_obj is None or ch_obj.ablage:
                     ok = False
                 else:
                     ok = True
@@ -176,12 +186,28 @@ async def handle_send(ctx: WSOpContext, msg: dict[str, Any]) -> None:
                     # Mischzustand-Regel (Konzept §2a): Klartext-WS-Send in
                     # einen Ablage-Kanal wird nicht angenommen.
                     ok = False
+                elif kind == "guild" and getattr(ch, "legacy_readonly", False):
+                    ok = False
+                    legacy_blocked = True
                 else:
                     ok = True
                     if kind == "guild":
                         guild_id_for_bump = ch.guild_id
                     else:
                         dm_pair = (ch.user_a_id, ch.user_b_id)
+        if legacy_blocked:
+            await websocket.send_json(
+                {
+                    "op": "error",
+                    "code": 4015,
+                    "msg": (
+                        "channel_legacy_readonly: this channel is frozen "
+                        "(read-only) — the instance now only accepts new "
+                        "messages in ablage channels"
+                    ),
+                }
+            )
+            return
         if not ok:
             await websocket.send_json(
                 {"op": "error", "code": 4006, "msg": "channel not accessible"}

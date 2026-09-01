@@ -68,6 +68,7 @@ def _channel_dict(channel: Channel) -> dict[str, object]:
         "name": channel.name,
         "type": channel.type,
         "ablage": getattr(channel, "ablage", False),
+        "legacy_readonly": getattr(channel, "legacy_readonly", False),
         "position": channel.position,
         "topic": channel.topic,
         # Stamped onto the instance by routes that computed it; freshly

@@ -50,6 +50,12 @@ class Channel(Base):
     # clientverschluesselt und liegen im Laufwerk des Erstellers, nie hier.
     # Migrationskette 0081. Regulaere Kanaele: False.
     ablage: Mapped[bool] = mapped_column(nullable=False, default=False)
+    # Alt-Kanal eingefroren (Entwurf §9, Etappe E9): Lesen ja, Schreiben nein.
+    # Betrifft nur reguläre (nicht-Ablage) Textkanäle, die es schon gab, als
+    # die Instanz auf "nur Ablage" umgestellt wurde. Migrationskette 0083.
+    # Bestand + alle Neuanlagen: False — dieses Feld setzt sich nicht selbst;
+    # das Umlegen ist ein bewusster, separater Handgriff (s. Migration 0083).
+    legacy_readonly: Mapped[bool] = mapped_column(nullable=False, default=False)
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     topic: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Per-channel name styling (mirrors users.profile_color*). NULL = no color

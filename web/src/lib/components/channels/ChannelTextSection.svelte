@@ -10,6 +10,7 @@
    */
   import * as ContextMenu from '$lib/components/ui/context-menu/index.js';
   import HashIcon from '@lucide/svelte/icons/hash';
+  import ArchiveIcon from '@lucide/svelte/icons/archive';
   import LockIcon from '@lucide/svelte/icons/lock';
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import ShieldIcon from '@lucide/svelte/icons/shield';
@@ -95,6 +96,13 @@
           <HashIcon class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary group-data-[unread=true]:text-text-bright" />
           <span class="truncate {isUnread ? 'font-semibold text-text-bright' : ''}" style={channelNameStyle(c)}>{c.name}</span>
           <span class="ml-auto flex shrink-0 items-center gap-1.5">
+            {#if c.legacy_readonly}
+              <ArchiveIcon
+                class="text-text-muted size-4 md:size-3.5"
+                data-testid={`channel-legacy-readonly-${c.id}`}
+                aria-label={m.channel_list_legacy_readonly()}
+              />
+            {/if}
             {#if c.restricted}
               <LockIcon
                 class="text-text-muted size-4 md:size-3.5"

@@ -89,6 +89,10 @@
   );
   let isVoiceChannel = $derived(activeChannel?.type === 1);
   let isDropboxChannel = $derived(activeChannel?.type === 2);
+  // Alt-Kanal eingefroren (Entwurf §9, Etappe E9): der Server weist neue
+  // Nachrichten serverseitig ab (403/4015), das Eingabefeld erklärt das
+  // schon vorher statt still zu scheitern. Verlauf bleibt lesbar.
+  let legacyReadonly = $derived(!!activeChannel?.legacy_readonly);
   // Mobil + im Voice + Text-Kanal derselben Community: KEIN Karten-Stapel
   // mehr (2026-08-26, Nutzerwunsch) — die rausschauende Voice-Karte über dem
   // Chat galt als verbuggt. Der Text-Kanal füllt den Bildschirm normal; die
@@ -575,6 +579,8 @@
     onBack={() => goto(`/app/rooms/${guildId}`)}
     onSwitchChannel={() => (wechslerOffen = true)}
     isOwner={!!activeGuild && roles.hasGuildPermission(activeGuild.id, Perm.MANAGE_MESSAGES)}
+    composerDisabled={legacyReadonly}
+    composerDisabledReason={legacyReadonly ? pm.channel_page_legacy_readonly_reason() : ''}
     onEditMessage={editMessage}
     onDeleteMessage={deleteMessage}
     onToggleReaction={toggleReaction}

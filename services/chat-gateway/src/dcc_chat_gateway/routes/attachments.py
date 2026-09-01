@@ -227,6 +227,16 @@ async def create_upload_url(
             403,
             detail="ablage channel: plaintext attachment upload is not accepted",
         )
+    if kind == "guild" and getattr(ch, "legacy_readonly", False):
+        # Umstellung (Entwurf §9, Etappe E9): eingefrorener Alt-Kanal — kein
+        # neuer Anhang, egal ob er je an eine Nachricht gebunden würde.
+        raise HTTPException(
+            403,
+            detail=(
+                "channel_legacy_readonly: this channel is frozen (read-only) — "
+                "the instance now only accepts new messages in ablage channels"
+            ),
+        )
     _enforce_dm_attachment_policy(kind)
     # ATTACH_FILES gate (guild channels only — DMs have no permission overlay).
     if kind == "guild":

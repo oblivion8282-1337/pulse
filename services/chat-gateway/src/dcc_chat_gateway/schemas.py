@@ -260,6 +260,9 @@ class ChannelOut(BaseModel):
     type: int
     # Ablage-Kanal (Konzept §2a) — serverblind, Inhalte clientverschluesselt.
     ablage: bool = False
+    # Alt-Kanal eingefroren (Entwurf §9, Etappe E9) — lesbar, nicht mehr
+    # beschreibbar. Bestand + Neuanlagen: False (Migration 0083).
+    legacy_readonly: bool = False
     position: int
     topic: str | None
     created_at: datetime

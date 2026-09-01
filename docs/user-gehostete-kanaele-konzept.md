@@ -139,16 +139,27 @@ Gemeinsame Regeln in beiden Modi:
   (`MANAGE_CHANNELS`), WER Kanäle erstellen darf.
 - Im Ablage-Modus setzt das Erstellen-Recht eine **verbundene eigene Ablage**
   voraus (Kanal-Ersteller = Ablage-Owner).
-- **Teilnehmen braucht keine Ablage** — Mitglieder lesen/schreiben über den
-  verschlüsselten Echtzeitweg; das Laufwerk bleibt Sache des Kanal-Erstellers.
-- Bestehende Kanäle bleiben beim Modus-Wechsel lesbar (Legacy-Modus); die
-  Einstellung wirkt nur auf die NEUANLAGE.
+- **Gelesen wird direkt vom Laufwerk des Erstellers; Pulse ist der
+  Schreibweg und der Rückfall-Leseweg**, wenn das Laufwerk gerade nicht
+  erreichbar ist (präzisiert 2026-09-01, Entwurf §9 — löst die ältere Aussage
+  ab, Mitglieder bräuchten gar keinen Ablage-Bezug: der Leseweg führt jetzt
+  über sie, nicht an ihnen vorbei).
+- Bestehende Kanäle bleiben beim Modus-Wechsel **lesbar, aber nicht mehr
+  beschreibbar** (`legacy_readonly`, Etappe E9) — reines „Legacy-Modus"
+  ohne Schreibsperre galt bis 2026-08-31 und ist überholt. Die Einstellung
+  `channel_creation_policy` wirkt weiterhin nur auf die NEUANLAGE; das
+  Einfrieren bestehender Kanäle ist ein eigener, zweiter Zustand am Kanal.
 - Der Modus wird als Server-Capability veröffentlicht (`GET /capabilities`),
   damit die Klient-Oberfläche den Erstellen-Dialog passend anzeigt.
 
 Das ergibt eine koexistente Übergangsrealität: eine Instanz im
-Ablage-Modus hat neben eventuellen Alt-Kanälen nur noch Ablage-Kanäle; die
-Pulse-Cloud kann im Regulär-Modus bleiben, während Self-Hoster frei wählen.
+Ablage-Modus hat neben eventuellen eingefrorenen Alt-Kanälen nur noch
+Ablage-Kanäle. **Entschieden (2026-08-31): die Pulse-Cloud stellt ebenfalls
+um** — auch auf howispulse.com sind neue Kanäle ausschließlich Ablage-Kanäle;
+kein Regulär-Modus als Dauerzustand für die Cloud (löst die ältere Aussage
+ab, die Cloud könne im Regulär-Modus bleiben). Self-Hoster wählen weiter
+frei. Der Umstellungs-Schalter ist gebaut; auf howispulse.com wird er erst
+nach ausdrücklicher Freigabe des Eigentümers umgelegt (Entwurf §9).
 
 Der Eigentümer hat entschieden: Nach der Einführung dieses Features gibt es
 **keine Pulse-gehosteten Textkanäle mehr als Neuanlage**. Jeder neue Textkanal
@@ -159,10 +170,12 @@ ist ein Ablage-Kanal:
   Rechte-System (`MANAGE_CHANNELS`), WER Kanäle erstellen darf; wer das Recht
   hat, braucht ein verbundenes Laufwerk (seine eigene Ablage) und erstellt
   damit KANÄLE AUF SEINEM LAUFWERK.
-- **Teilnehmen braucht keine Ablage** — Mitglieder lesen/schreiben über den
-  verschlüsselten Echtzeitweg; das Laufwerk bleibt Sache des Kanal-Erstellers.
-  Andere Nutzer erhalten Inhalte über Pulse mit ihren Schlüsseln, nicht durch
-  Zugriff auf das Laufwerk.
+- **Teilnehmen braucht keine eigene Ablage, aber der Leseweg führt über das
+  Laufwerk des Erstellers** (präzisiert 2026-09-01, Entwurf §9): Mitglieder
+  lesen direkt von dort; Pulse bleibt der Schreibweg (verschlüsselt) und der
+  Rückfall-Leseweg, wenn das Laufwerk gerade nicht erreichbar ist. Das löst
+  die ältere Aussage ab, Inhalte kämen ausschließlich über Pulse ohne jeden
+  Laufwerk-Bezug — Details zum Leseweg: Entwurf §4.
 - **Das ändert die Priorität der UI:** Der Ablage-Verbindungs-Assistent
   (Laufwerk wählen → Zustimmen → fertig) wird zum Voraussetzungsschritt für
   die Kanal-Erstellung — nicht zum optionalen Zusatz.
@@ -181,10 +194,11 @@ Bleibt unberührt: Rechte- und Rollensystem (Zugriff, nicht Inhalt), Realtime,
 Anwesenheit, Voice/Streaming, Reaktionen (serverseitig als Zählwerk je
 Nachrichten-Id ohne Inhalt möglich), Meldeweg.
 
-Offen (Entscheidung des Eigentümers, nicht dringend): Umgang mit BESTEHENDEN
-Klartext-Kanälen nach der Umstellung — lesender Legacy-Modus oder
-Migrationswerkzeug (Export in die Ablage des Erstellers). Die REST-Quelle des
-Nachziehers ist dafür die Leseseite.
+**Entschieden (2026-08-31, Entwurf §9):** BESTEHENDE Klartext-Kanäle bleiben
+nach der Umstellung lesbar, aber nicht mehr beschreibbar
+(`legacy_readonly`, Etappe E9) — kein Migrationswerkzeug in dieser Etappe.
+Der Server weist einen Schreibversuch mit einer begründenden Meldung ab statt
+mit einem nackten 403/WS-Fehler.
 
 ---
 

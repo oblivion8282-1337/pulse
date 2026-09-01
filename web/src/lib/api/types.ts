@@ -74,6 +74,10 @@ export type Guild = {
 export type Channel = {
   /** Ablage-Kanal (Konzept §2a) — serverblind, Inhalte clientverschluesselt. */
   ablage?: boolean;
+  /** Alt-Kanal eingefroren (Entwurf §9, Etappe E9) — Verlauf bleibt lesbar,
+   *  der Server nimmt keine neuen Nachrichten/Anhaenge mehr an. Absent in
+   *  back-compat / mocked frames — treated as false. */
+  legacy_readonly?: boolean;
   id: string;
   guild_id: string;
   name: string;
