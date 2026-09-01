@@ -11,7 +11,6 @@ API summary
 * ``revoke_all_for_user``    -- bulk-revoke for Logout-Everywhere (DE 11 A.11)
 * ``set_session_cookie``     -- attach HttpOnly Set-Cookie to a Response
 * ``clear_session_cookie``   -- overwrite with Max-Age=0 to delete
-* ``get_current_user_from_cookie`` -- FastAPI dependency: cookie -> User
 * ``purge_expired_sessions`` -- one-shot async helper for the cleanup loop
 """
 
@@ -29,7 +28,7 @@ from dcc_auth.models import User, UserSession
 
 # ---- constants -------------------------------------------------------
 
-_COOKIE_NAME = "pulse_session"
+COOKIE_NAME = "pulse_session"
 _DEFAULT_TTL = 1800  # 30 minutes
 
 
@@ -160,7 +159,7 @@ async def purge_expired_sessions(db: AsyncSession) -> int:
 def set_session_cookie(response: Response, session_id: uuid.UUID) -> None:
     """Attach an HttpOnly, SameSite=strict, Secure session cookie."""
     response.set_cookie(
-        key=_COOKIE_NAME,
+        key=COOKIE_NAME,
         value=str(session_id),
         max_age=_DEFAULT_TTL,
         path="/",
@@ -173,7 +172,7 @@ def set_session_cookie(response: Response, session_id: uuid.UUID) -> None:
 def clear_session_cookie(response: Response) -> None:
     """Invalidate the session cookie by zeroing Max-Age."""
     response.delete_cookie(
-        key=_COOKIE_NAME,
+        key=COOKIE_NAME,
         path="/",
         httponly=True,
         samesite="strict",
@@ -181,21 +180,18 @@ def clear_session_cookie(response: Response) -> None:
     )
 
 
-# ---- FastAPI dependency -----------------------------------------------
+# ---- Cookie-Validierung -----------------------------------------------
 
 
-async def get_current_user_from_cookie(
-    request: Request,
-    db: AsyncSession,
-) -> User:
-    """FastAPI dependency: validate session cookie and return the User.
-
-    Raises HTTP 401 when the cookie is absent, malformed, expired, or the
-    user account no longer exists / is disabled.
-
-    NOTE: callers must inject ``db`` manually or use ``CookieUserDep``.
-    """
-    raw = request.cookies.get(_COOKIE_NAME)
+async def user_and_session_from_cookie(
+    request: Request, db: AsyncSession
+) -> tuple[User, UserSession]:
+    """Sitzungs-Cookie validieren und ``(user, row)`` liefern — die EINE
+    Cookie-Validierung der Auth (401 bei fehlendem/ungleigem Cookie,
+    abgelaufener Sitzung oder fehlendem/gesperrtem Account). Die Zeile trägt
+    ``amr``/``acr`` — wie sich der Nutzer bei UNS ausgewiesen hat — und wird
+    für Step-up-Entscheidungen gebraucht."""
+    raw = request.cookies.get(COOKIE_NAME)
     if not raw:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing session cookie")
     try:
@@ -216,4 +212,4 @@ async def get_current_user_from_cookie(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="user not found")
     if user.disabled or user.is_suspended:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="account disabled")
-    return user
+    return user, row

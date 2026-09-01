@@ -15,17 +15,8 @@ import { Track } from 'livekit-client';
 import { createSendProcessor, type SendProcessorHandle } from './noiseFilter';
 import { LocalMicAnalyser } from './localMicAnalyser';
 import { settings } from '$lib/stores/settings.svelte';
-
-/** dBFS bar mapping + ballistics, identical to LocalMicAnalyser / the live send
- *  meter so the test meter looks the same as in-channel. */
-function ballistics(raw: number, current: number, decay: number): number {
-  let level = 0;
-  if (raw > 0.0005) {
-    const db = 20 * Math.log10(raw);
-    level = Math.max(0, Math.min(1, (db + 50) / 45));
-  }
-  return level > current ? level : current * decay + level * (1 - decay);
-}
+import { applySinkId } from '$lib/audio/applySinkId';
+import { ballistics, ClipHold, LEVEL_DECAY, PEAK_DECAY } from './meter';
 
 class MicTest {
   level = $state(0);
@@ -47,8 +38,7 @@ class MicTest {
   #stream: MediaStream | null = null;
   #proc: SendProcessorHandle | null = null;
   #audio: HTMLAudioElement | null = null;
-  #sendClipping = false;
-  #sendClipUntilMs = 0;
+  #sendClipHold = new ClipHold();
   /** Invalidates an in-flight async start() when a newer start/stop supersedes it. */
   #gen = 0;
 
@@ -130,25 +120,13 @@ class MicTest {
 
   /** Same ballistics + clip logic as the live send meter (livekit #onSendLevel). */
   #onSend(rms: number, peak: number): void {
-    this.sendLevel = ballistics(rms, this.sendLevel, 0.85);
-    this.sendPeak = ballistics(peak, this.sendPeak, 0.97);
-    if (peak >= 0.891 || this.#sendClipping) {
-      const now = performance.now();
-      if (peak >= 0.891) {
-        this.#sendClipUntilMs = now + 300;
-        if (!this.#sendClipping) { this.#sendClipping = true; this.sendClip = true; }
-      } else if (now >= this.#sendClipUntilMs) {
-        this.#sendClipping = false;
-        this.sendClip = false;
-      }
-    }
+    this.sendLevel = ballistics(rms, this.sendLevel, LEVEL_DECAY);
+    this.sendPeak = ballistics(peak, this.sendPeak, PEAK_DECAY);
+    this.sendClip = this.#sendClipHold.update(peak, performance.now());
   }
 
   async #setSink(outputId: string): Promise<void> {
-    const el = this.#audio as (HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }) | null;
-    if (el?.setSinkId && outputId) {
-      try { await el.setSinkId(outputId); } catch { /* unsupported — default sink */ }
-    }
+    if (this.#audio) await applySinkId(this.#audio, outputId);
   }
 
   stop(): void {
@@ -167,7 +145,7 @@ class MicTest {
     }
     this.#stream?.getTracks().forEach((t) => t.stop());
     this.#stream = null;
-    this.#sendClipping = false;
+    this.#sendClipHold.reset();
     this.level = 0;
     this.peak = 0;
     this.clip = false;

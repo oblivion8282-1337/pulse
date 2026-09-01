@@ -30,12 +30,12 @@ from dcc_chat_gateway.audit_log import write_audit_log
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import (
     Channel,
-    Guild,
     GuildBan,
     GuildMember,
     PermissionOverwrite,
 )
 from dcc_chat_gateway.permissions import Permissions, check_permission
+from dcc_chat_gateway.routes._deps import guild_or_404
 from dcc_chat_gateway.remote_guard import (
     end_remote_sessions_for_member,
     remove_devices_for_member,
@@ -153,9 +153,7 @@ async def list_bans(
     session: SessionDep,
     current: CurrentUser,
 ) -> list[GuildBan]:
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     await check_permission(session, current, guild_id, Permissions.BAN_MEMBERS)
     stmt = (
         select(GuildBan)
@@ -190,9 +188,7 @@ async def ban_user(
       * broadcasts ``guild_member_removed`` (if a member was evicted)
         followed by ``guild_ban_added``.
     """
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     # Permission-Gate VOR den self/owner-Branches: sonst leakt die owner-Prüfung
     # ("cannot ban the guild owner") einem Aufrufer OHNE BAN_MEMBERS, dass ein
     # geratenes user_id der Owner ist (Bestätigungs-Orakel). Erst autorisieren,
@@ -357,9 +353,7 @@ async def unban_user(
     """Remove a ban entry. The user can then re-join via any normal
     membership-creation path (invite, direct add). Idempotent: 404 if
     the user was not banned to begin with, to keep the API explicit."""
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     await check_permission(session, current, guild_id, Permissions.BAN_MEMBERS)
     row = await session.get(GuildBan, (guild_id, user_id))
     if row is None:

@@ -53,10 +53,6 @@
    * keine kontoweiten Daten vernichten; wer die Liste ändern will, tut das in
    * der Freigabe-Oberfläche.
    */
-  async function zuruecknehmen(): Promise<void> {
-    await standplatz.zuruecknehmen();
-  }
-
   /**
    * Überträgt dieser Rechner gerade, weil ihn jemand geweckt hat?
    *
@@ -117,7 +113,7 @@
       <Button
         size="sm"
         variant="outline"
-        onclick={() => void zuruecknehmen()}
+        onclick={() => void standplatz.zuruecknehmen()}
         data-testid="remote-standplatz-banner-revoke"
       >
         {m.standplatz_banner_revoke()}

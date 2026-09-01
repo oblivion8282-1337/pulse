@@ -17,7 +17,8 @@
 
 import { gegenstelle } from './gegenstelle';
 import { deviceStore } from '$lib/devices/store.svelte';
-import { dispatchenderServer, herkunftsVerbindung, sendenAuf } from './draht';
+import { herkunftsVerbindung, sendenAuf } from './draht';
+import { dispatchingServerId } from '$lib/ws/gateway-connection';
 import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
 import { wiederEinschlafen } from '$lib/devices/wecken';
 import { remoteProtokoll } from './protokoll.svelte';
@@ -51,7 +52,7 @@ export function geraetFuerAnfrage(channelId: string, hostUserId: string): string
  */
 export function fremdesGeraetAblehnen(sessionId: string, deviceId?: string): boolean {
   if (!deviceId) return false;
-  if (geraeteAnmeldung.fuerServer(dispatchenderServer())?.deviceId === deviceId) return false;
+  if (geraeteAnmeldung.fuerServer(dispatchingServerId())?.deviceId === deviceId) return false;
   // **Schweigen, nicht ablehnen** (Bughunt 2026-08-16). Der Gateway nimmt die
   // ERSTE Antwort und sperrt den Anfragenden nach einer Ablehnung kurz
   // (`remote_note_refused`, 4055). Eine Ablehnung von hier wäre ein Wettlauf

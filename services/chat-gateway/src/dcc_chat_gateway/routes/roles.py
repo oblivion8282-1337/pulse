@@ -35,7 +35,7 @@ from dcc_chat_gateway.role_hierarchy import (
     highest_role_position,
 )
 from dcc_chat_gateway.role_wire import role_wire_dict
-from dcc_chat_gateway.routes._deps import require_member
+from dcc_chat_gateway.routes._deps import guild_or_404, require_member
 from dcc_chat_gateway.schemas import (
     RoleIn,
     RoleOut,
@@ -90,9 +90,7 @@ async def create_role(
     current: CurrentUser,
     request: Request,
 ):
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     editor_perms = await check_permission(
         session, current, guild_id, Permissions.MANAGE_ROLES
     )

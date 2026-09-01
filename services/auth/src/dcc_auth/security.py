@@ -59,14 +59,6 @@ def _b64url_uint(value: int) -> str:
     return base64.urlsafe_b64encode(value.to_bytes(byte_len, "big")).rstrip(b"=").decode()
 
 
-@dataclass(frozen=True)
-class TokenPair:
-    access_token: str
-    refresh_token: str
-    refresh_jti: uuid.UUID
-    refresh_expires_at: int  # unix ts
-
-
 class JwtSigner:
     """Wraps an RS256 private key and signs Discord-clone JWTs."""
 
