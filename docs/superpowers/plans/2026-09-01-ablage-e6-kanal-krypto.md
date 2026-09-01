@@ -174,3 +174,27 @@ für diesen Kanal nichts steht.
 
 Das ist die Abnahme der ganzen Etappe: ohne diese Gegenprobe ist „der Server
 sieht den Inhalt nie" eine Behauptung.
+
+---
+
+## Aufgabe 5b: Der Verlauf beim Öffnen eines Ablage-Kanals
+
+**Gefunden beim Anschliessen der Oberfläche (2026-09-01), und ohne diese
+Aufgabe ist die Etappe nicht fertig.**
+
+Die Community-Kanalseite lädt ihren Verlauf ausschliesslich per REST vom
+Server. Für einen gewöhnlichen Kanal ist das richtig — für einen
+Ablage-Kanal ist es leer, denn der Server hat den Klartext nie gesehen. Ein
+Nutzer, der den Kanal schliesst und wieder öffnet, sieht **nichts**, obwohl
+alles lokal liegt.
+
+Die DM-Seite hat den Weg bereits (`dmKanalWechsel.svelte.ts`, `verlaufLesen`);
+die Kanalseite hat ihn nicht. Zu tun: denselben Weg für Ablage-Kanäle
+anschliessen, hinter dem Schalter, ohne den bestehenden REST-Weg für
+gewöhnliche Kanäle anzufassen.
+
+**Beim Nachladen (hochscrollen) gilt dasselbe** — und dort steckt die Falle:
+`hatServerVerlauf()` entscheidet, ob überhaupt beim Server angefragt wird.
+Für einen Ablage-Kanal muss die Antwort „nein" sein, sonst schickt jedes
+Hochscrollen eine Anfrage, die der Server abweist, und die Oberfläche deutet
+die Abweisung als Ladefehler statt als „mehr gibt es nicht".
