@@ -20,7 +20,7 @@ import { ordnerAdapter, ordnerZugriffOk } from './ordner.ts';
 import { TokenVorrat } from './tokenVorrat.ts';
 
 const DB_NAME = 'pulse-sicherung';
-const DB_VERSION = 2;
+const DB_VERSION = 3; // 3: legt puffer/leserstand nach (Frischprofile crashten sonst)
 const STORE_VERBINDUNG = 'verbindung';
 const ZIELE_KEY = 'ziele';
 /** Bestand aus der Ein-Ziel-Zeit — wird beim ersten Lesen migriert. */
@@ -53,7 +53,15 @@ export function öffneDb(): Promise<IDBDatabase> {
 		const anfrage = indexedDB.open(DB_NAME, DB_VERSION);
 		anfrage.onupgradeneeded = () => {
 			const db = anfrage.result;
+			// ALLE Stores dieses Modul-Teams hier anlegen — das ist die EINZIGE
+			// Erzeugungsstelle der DB. Ohne puffer/leserstand crasht jedes
+			// frische Profil (geraete.ts transaktioniert sie): auf Altgeräten
+			// unsichtbar, weil deren DB aus Entwicklungsständen mit Version<2
+			// alle Stores schon trug. `geraete.ts` baut seine Version-2-Kon-
+			// stante bewusst nicht selbst auf — es öffnet über diese Stelle.
 			if (!db.objectStoreNames.contains(STORE_VERBINDUNG)) db.createObjectStore(STORE_VERBINDUNG);
+			if (!db.objectStoreNames.contains(STORE_PUFFER)) db.createObjectStore(STORE_PUFFER);
+			if (!db.objectStoreNames.contains(STORE_LESESTAND)) db.createObjectStore(STORE_LESESTAND);
 		};
 		anfrage.onsuccess = () => resolve(anfrage.result);
 		anfrage.onerror = () => reject(anfrage.error);

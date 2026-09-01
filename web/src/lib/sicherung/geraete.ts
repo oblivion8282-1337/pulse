@@ -35,7 +35,6 @@ import { öffneDb, STORE_PUFFER, STORE_LESESTAND } from './ziele.ts';
 
 
 const DB_NAME = 'pulse-sicherung';
-const DB_VERSION = 2;
 const STORE_VERBINDUNG = 'verbindung';
 const VERBINDUNG_KEY = 'gdrive';
 
