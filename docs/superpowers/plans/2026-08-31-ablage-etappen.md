@@ -34,28 +34,25 @@ Opus.
    friert auf howispulse.com alle laufenden Unterhaltungen ein. Der
    Eigentümer hat der Entscheidung zugestimmt, nicht dem Zeitpunkt.
 
-**Fertig:** E0 (Fehlersuche, 15 Befunde) · E0.5 (Sichtung) · E1
-(Verbindungsschicht + Einstellungen) · E2 (Nextcloud über den Freigabe-Link)
-· **E4 vollständig** (Code, Päckchen, Server-Routen, Oberfläche) · **E5**
-(Spiegelung) · E3 Aufgaben 1, 2 und 4 (Ordner übersteht den Neustart,
-Archiv-Markierung, Umgebungs-Weiche) · E6 Aufgaben 1, 2 und 4 (Postfach für
-Ablage-Kanäle, Postfach-Quelle, reservierter Rahmentyp geklärt).
+**Fertig:** E0 · E0.5 · E1 · E2 · E3 · E4 · E5 · E6 · E7 · E8 · E9 · E10.
+Die letzte Meile ist verdrahtet: alle Stücke sind über die Oberfläche
+erreichbar.
 
-**In Arbeit:** E3 Aufgabe 3 (Verlauf ins Archiv) · E6 Aufgabe 3
-(Gruppensitzung) · E7 (Freigabe-Adresse und Weiterreich-Route) · E10
-(Klartext-Export).
+**In Arbeit:** E11 (Kopplungs-Nachweis).
 
-**Noch nicht begonnen:** E6 Aufgaben 5 und 6 (verdrahten, Zwei-Geräte-Nachweis)
-· E8 (Community-Dateiablage) · E9 (Umstellung) · E11 (Kopplungs-E2E) · E12.
+**Offen und bewusst liegen gelassen:** E12 (Landen) — Gate und Playwright
+sind grün, der Changelog steht, der Merge wartet auf den Eigentümer.
 
-**Zahlen zuletzt:** Gate grün · Playwright 165 grün / 1 rot (`plugins`, schon
-auf `main` rot) · 916 Web-Unit-Tests · 2476 Backend-Tests (ein Flackerer
-unter Last, allein grün).
+**Zahlen am Ende der Nacht:** Gate grün · Playwright **167 grün / 1 echt rot**
+(`plugins`, schon auf `main` rot; zwei weitere Fehlschläge waren Last und
+sind einzeln grün) · 1000 Web-Unit-Tests · rund 1600 Tests im chat-gateway.
+Vor dieser Arbeit lag der Zweig bei 152 grün.
 
-**Zwei Fallen dieser Nacht, beide mit demselben Muster** — ein Test fällt
-unter acht parallelen Prozessen um und ist allein grün. Wer daraufhin den
-Code sucht, sucht am falschen Ort. Immer erst einzeln nachfahren, dann
-urteilen.
+**Der wichtigste Satz für morgen:** ALLE Krypto-Schalter stehen auf `false`
+(`lib/featureFlags.ts`, `lib/krypto/schalter.ts`). Verschlüsselte Kanäle,
+Community-Dateiablage, Geräte-Kopplung und verschlüsselte Direktnachrichten
+sind gebaut und geprüft, aber für keinen Nutzer sichtbar. Sichtbar ist allein
+der Speicher-Bereich in den Einstellungen — er hängt an keinem Schalter.
 
 **Alles liegt auf `feat/e2e-dm-krypto-weg-a` und ist gepusht.** Nach jeder
 abgeschlossenen Aufgabe committen und pushen — der Eigentümer hat das
