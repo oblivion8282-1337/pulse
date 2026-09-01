@@ -7,9 +7,15 @@
    *
    * Alle Inhalte werden clientseitig verschlüsselt (PADF-Container),
    * bevor sie den Adapter erreichen. Der Server sieht nur Kanalstruktur.
+   *
+   * **Diese Datei haengt noch an keiner Stelle** und ist trotzdem keine
+   * Leiche: sie ist die Ansicht, die die Community-Dateiablage bekommt
+   * (Etappe E8). Wer hier aufraeumt, loescht die Vorarbeit.
    */
 
+  import { groesseText } from '$lib/ablage/groesseText';
   import { DateiSpeicher } from '$lib/ablage/dateispeicher';
+  import { sichererBlobTyp } from '$lib/krypto/sichererBlobTyp';
   import type { DateiInfo } from '$lib/ablage/dateispeicher';
   import UploadIcon from '@lucide/svelte/icons/upload';
   import DownloadIcon from '@lucide/svelte/icons/download';
@@ -38,12 +44,6 @@
     return '📄';
   }
 
-  function groesseText(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  }
-
   async function neuLaden(): Promise<void> {
     dateien = await speicher.liste();
   }
@@ -68,7 +68,11 @@
   async function herunterladen(datei: DateiInfo): Promise<void> {
     try {
       const { inhalt } = await speicher.herunterladen(datei.id);
-      const blob = new Blob([inhalt as unknown as BlobPart], { type: datei.mime });
+      // Wie bei den Nachrichten-Anhaengen: der Typ stammt vom Hochladenden
+      // aus dem verschluesselten Kopf, nicht vom Server.
+      const blob = new Blob([inhalt as unknown as BlobPart], {
+        type: sichererBlobTyp(datei.mime),
+      });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

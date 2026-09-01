@@ -9,7 +9,13 @@
  * selbst kennt weder REST noch Krypto — Nutzlasten sind opake Bytes.
  */
 
-import { type Rahmen, kodiereRahmenFolge, RAHMEN_KOPF_LAENGE, TYP_KLARTEXT_JSON } from './format.ts';
+import {
+	type Rahmen,
+	kodiereRahmenFolge,
+	leseRahmenFolge,
+	RAHMEN_KOPF_LAENGE,
+	TYP_KLARTEXT_JSON,
+} from './format.ts';
 import { baueSegment, leseSegmentKopf, segDateiName, SegmentFehler, SEGMENT_KOPF_LAENGE } from './segment.ts';
 import {
 	MANIFEST_DATEI,
@@ -19,6 +25,7 @@ import {
 import { sha256Hex } from './pruefsumme.ts';
 import type { AblageAdapter } from './adapter.ts';
 import { AblageFehler, nimmBestandAuf, type NachzugBericht } from './nachzug.ts';
+import { ladeManifest } from './leser.ts';
 
 export interface AblageEintrag {
 	/** Snowflake der Nachricht — gibt dem Log seine Ordnung. */
@@ -78,6 +85,9 @@ export class AblageSchreiber {
 			await this.bestandAufnehmen();
 		}
 		let manifest = this.manifest!;
+		// Stand, den WIR beim Start dieses Aufrufs kannten — die Messlatte für
+		// die Konflikt-Prüfung am Ende (siehe dort).
+		const standBeiStart = manifest.stand;
 		let vorige = manifest.letzteId !== null ? BigInt(manifest.letzteId) : null;
 		for (const eintrag of eintraege) {
 			if (vorige !== null && eintrag.id <= vorige) {
@@ -134,6 +144,39 @@ export class AblageSchreiber {
 			letzterIndex = basis.index;
 			bei = bis;
 		}
+		// Vor dem Manifest-Schreiben prüfen, ob inzwischen ein anderer
+		// Schreiber (zweites Gerät, zweiter Tab) seinerseits ein neueres
+		// Manifest abgelegt hat. Blindes Überschreiben würfe dessen Segmente
+		// aus dem Verlauf, obwohl deren Dateien physisch liegen bleiben —
+		// derselbe Schaden wie bei einem Absturz zwischen Segment- und
+		// Manifest-Schreiben (siehe Klassenkopf), nur ohne Absturz.
+		//
+		// Verglichen wird gegen `standBeiStart`, nicht gegen einen frischen
+		// Lese-Vergleich unmittelbar davor: `bestandAufnehmen()` berichtigt
+		// ein beschädigtes offenes Segment nur im Speicher, ohne das Manifest
+		// sofort neu zu schreiben (nachzug.ts, `berichtigeOffenesSegment`) —
+		// unser eigener Stand kann also legitim VOR dem Adapter liegen, ohne
+		// dass jemand anders geschrieben hätte. Ein Konflikt liegt deshalb
+		// nur vor, wenn der Adapter WEITER ist als das, was wir beim Start
+		// kannten.
+		//
+		// Bei einem Konflikt wird abgebrochen statt gemergt: die Segment-
+		// dateien, die dieser Aufruf gerade geschrieben hat, sind für sich
+		// bereits vollständige, in sich konsistente Waisen — dieselbe
+		// Konstruktion, die ein Absturz zwischen Segment- und
+		// Manifest-Schreiben hinterlässt. Der Nachzug adoptiert sie beim
+		// nächsten bestandAufnehmen() genauso wie nach einem Absturz; ein
+		// Merge hier im Schreiber müsste dieselbe Adoptions-Logik ein
+		// zweites Mal nachbauen, ohne dem Aufrufer — der wegen der
+		// Id-Prüfung oben ohnehin retry-fähig sein muss — einen Vorteil zu
+		// bieten, den ein Retry nicht ebenso liefert.
+		const aktuell = await ladeManifest(this.adapter);
+		if (aktuell !== null && aktuell.stand > standBeiStart) {
+			throw new AblageFehler(
+				`Ablage wurde von anderswo weitergeschrieben (Stand ${aktuell.stand} statt ${standBeiStart}) — erneut aufnehmen (bestandAufnehmen()) und wiederholen`,
+			);
+		}
+
 		this.manifest = manifest;
 		await this.schreibeManifest(manifest);
 		return { segmentIndex: letzterIndex, rahmen: rahmen.length };
@@ -158,12 +201,22 @@ export class AblageSchreiber {
 		if (letzte !== undefined && letzte.bytes < this.segmentByteZiel) {
 			const alteDatei = await this.adapter.lese(letzte.datei);
 			if (alteDatei !== null && this.kopfWennPassend(alteDatei, letzte.index)) {
+				// Nicht `letzte.rahmen` übernehmen: das ist der Manifest-Cache
+				// von unserem letzten eigenen Schreiben, ein zweiter Schreiber
+				// (zweites Gerät, zweiter Tab) kann die Datei zwischenzeitlich
+				// verlängert haben, ohne dass wir davon wissen. Die Zahl kommt
+				// deshalb aus den gerade gelesenen Bytes — und dabei genauso
+				// mit einem beschädigten Ende umgehen wie leser.ts: der
+				// lesbare Anfang zählt, ein kaputter Rest wird verworfen statt
+				// an den neuen Happen drangehängt (sonst stünde der Müll
+				// mitten in der neuen Datei, vor den frischen Rahmen).
+				const { rahmen: alteRahmen } = leseRahmenFolge(alteDatei.slice(SEGMENT_KOPF_LAENGE));
 				return {
 					index: letzte.index,
 					datei: letzte.datei,
 					ersteId: letzte.ersteId,
-					alteRahmen: letzte.rahmen,
-					alteRahmenBytes: alteDatei.slice(SEGMENT_KOPF_LAENGE),
+					alteRahmen: alteRahmen.length,
+					alteRahmenBytes: kodiereRahmenFolge(alteRahmen),
 				};
 			}
 		}

@@ -21,6 +21,24 @@
     pending: PendingAttachment[];
     onRemove: (localId: string) => void;
   } = $props();
+
+  // Die Fehlermeldungen im Klartext unter der Leiste — bis 2026-09-01 standen
+  // sie ausschliesslich im `title` der roten Kachel, waren also nur beim
+  // Darueberfahren zu lesen und auf einem Touchgeraet gar nicht.
+  //
+  // Das reichte, solange ein Fehlschlag „Upload ging schief, nochmal
+  // versuchen" hiess. Seit ein Anhang in die Cloud-Ordner aller Beteiligten
+  // wandert (Design §11.1), sagt die Meldung, WAS zu tun ist — „einer der
+  // Beteiligten hat kein Laufwerk verbunden" ist kein Rauschen, sondern die
+  // ganze Auskunft. Eine Meldung, die niemand liest, ist ein stiller
+  // Fehlschlag mit zusaetzlichen Schritten.
+  //
+  // Dedupliziert: drei Dateien mit derselben Ursache ergeben eine Zeile.
+  let fehlerTexte = $derived([
+    ...new Set(
+      pending.flatMap((p) => (p.state === 'error' && p.errorMessage ? [p.errorMessage] : []))
+    )
+  ]);
 </script>
 
 {#if pending.length > 0}
@@ -68,5 +86,16 @@
         </button>
       </div>
     {/each}
+    {#if fehlerTexte.length > 0}
+      <ul
+        class="text-destructive w-full list-none text-xs"
+        data-testid="attachment-error-text"
+        aria-live="polite"
+      >
+        {#each fehlerTexte as text (text)}
+          <li>{text}</li>
+        {/each}
+      </ul>
+    {/if}
   </div>
 {/if}

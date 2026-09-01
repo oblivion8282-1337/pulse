@@ -25,7 +25,24 @@ export const RAHMEN_KOPF_LAENGE = 18;
 
 /** Nutzlast Klartext-JSON (Phase „Speicher zuerst"). */
 export const TYP_KLARTEXT_JSON = 1;
-/** Nutzlast Megolm-Ciphertext — reserviert für den Krypto-Nachzug. */
+/**
+ * Nutzlast Megolm-Geheimtext — **reserviert und absichtlich ungenutzt.**
+ *
+ * Der Krypto-Nachzug legt seit dem 2026-09-01 den ENTSCHLÜSSELTEN Text ab
+ * (`postfachQuelle.ts`, Begründung dort): eine Megolm-Sitzung rotiert bei
+ * jedem Mitgliederwechsel, und ein Archiv, das Jahre überleben soll, kann
+ * nicht an Schlüsseln hängen, die es dann längst nicht mehr gibt. Der
+ * Geheimtext im Archiv wäre ohne genau diese rotierten Sitzungen wertlos.
+ *
+ * Die Nummer bleibt vergeben, damit sie niemand anders belegt, falls doch
+ * einmal roh abgelegt werden soll.
+ *
+ * **Der Leser wertet den Typ nicht aus** — er reicht ihn durch, und wer die
+ * Rahmen verbraucht, entscheidet. Ein unbekannter Typ wirft hier also nicht,
+ * er kommt beim Verbraucher an. Das ist Absicht: ein Archiv, das ein
+ * spätererer Pulse mit einem neuen Typ geschrieben hat, soll für einen
+ * älteren lesbar bleiben, soweit es geht.
+ */
 export const TYP_MEGOLM = 2;
 /**
  * Nutzlast AES-256-GCM mit dem DEK der Sicherung (lib/sicherung) —

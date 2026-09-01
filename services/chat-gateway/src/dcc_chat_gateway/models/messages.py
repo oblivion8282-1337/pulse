@@ -191,6 +191,15 @@ class MessageAttachment(Base):
     postfach_gebunden_am: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: Gesetzt, sobald das Chiffrat in den Cloud-Ordner JEDES Beteiligten
+    #: gelegt und die eigene Kopie im Objektspeicher freigegeben wurde
+    #: (``ablage_anhang_verteilung.py``, Migration 0087, Design §11.1).
+    #: Ab dann gibt es bei Pulse keine Bytes mehr — die Abruf-Route antwortet
+    #: darauf mit 410 statt einer vorsignierten Adresse ins Leere, und der
+    #: Klient liest aus seinem eigenen Laufwerk.
+    laufwerk_verteilt_am: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     __table_args__ = (
         Index("ix_message_attachments_message", "message_id"),

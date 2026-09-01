@@ -28,10 +28,10 @@ import {
   mitSitzungssperre
 } from './sitzungen';
 import { leseNachrichtNutzlast } from './nachrichtNutzlast';
-import { anhangAngabeZuAttachment } from './anhangAnzeige';
+import { baueEmpfangeneNachricht } from './empfangeneNachricht';
 import { absenderErmitteln } from './absenderErmitteln';
-import { parseMentionMarkers } from '../components/mentionMarkierungen';
 import { PRIVATE_GRUPPEN_ENABLED } from './schalter';
+import { ABLAGE_KANAL_ENABLED } from '../featureFlags';
 import {
   istGruppennachricht,
   oeffneGruppennachricht,
@@ -88,10 +88,15 @@ export async function zustellungOeffnen(
   // Eine Megolm-Gruppennachricht (Etappe G2) laeuft ueber eine ganz andere
   // Sitzungsart und hat deshalb weder Sitzungssperre noch Absender-Rueckfall
   // gemeinsam mit dem Olm-Weg — sie wird hier abgezweigt, bevor irgendetwas
-  // Olm-Spezifisches passiert. Steht der Schalter aus, faellt sie durch auf
-  // `null` (liegen lassen); es kann sie dann ohnehin nicht geben.
+  // Olm-Spezifisches passiert. **Zwei Schalter, nicht einer:** private
+  // Gruppen UND Ablage-Kanaele senden beide ueber `ART_GRUPPENNACHRICHT` (s.
+  // `kanalSenden.ts`-Modulkopf, „identisch zu `sendeInGruppe`") — die
+  // Zustellung selbst verraet nicht, welches Feature sie erzeugt hat. Steht
+  // BEIDE Schalter aus, faellt sie durch auf `null` (liegen lassen); ist
+  // auch nur einer an, kann eine solche Zustellung uebers jeweilige Feature
+  // real entstanden sein und muss geoeffnet werden.
   if (istGruppennachricht(z)) {
-    if (!PRIVATE_GRUPPEN_ENABLED) return null;
+    if (!PRIVATE_GRUPPEN_ENABLED && !ABLAGE_KANAL_ENABLED) return null;
     const nachricht = await oeffneGruppennachricht(z);
     return nachricht ? { art: 'neu', nachricht } : null;
   }
@@ -147,49 +152,28 @@ export async function zustellungOeffnen(
       // ablegen — die Reihenfolge ist deshalb keine Geschmacksfrage, s.
       // Modulkopf von `gruppe/gruppenNutzlast.ts` und der Test
       // `krypto-gruppe-nutzlast.test.ts::WARUM die Lesereihenfolge …`.
-      if (PRIVATE_GRUPPEN_ENABLED && (await verteilschluesselAufnehmen(z, klartextBytes))) {
+      // Derselbe Doppel-Schalter wie oben: ein Verteilschluessel kann von
+      // einer privaten Gruppe ODER einem Ablage-Kanal stammen.
+      if (
+        (PRIVATE_GRUPPEN_ENABLED || ABLAGE_KANAL_ENABLED) &&
+        (await verteilschluesselAufnehmen(z, klartextBytes))
+      ) {
         return { art: 'ohneAblage', id: z.id };
       }
 
       // Autor-ID + Antwort-Kennung stehen (wenn vorhanden) in der Nutzlast
       // selbst, s. `nachrichtNutzlast.ts` — ein Klartext-Sender von vor
       // dieser Aenderung lieferte reinen, huellenlosen Text, den
-      // `leseNachrichtNutzlast` als Legacy-Fall ohne beides erkennt.
-      const {
-        text: klartext,
-        id: kanonischeId,
-        replyToId,
-        anhaenge
-      } = leseNachrichtNutzlast(klartextBytes);
+      // `leseNachrichtNutzlast` als Legacy-Fall ohne beides erkennt. Die
+      // Umsetzung in die Anzeige-Form teilt sich dieser Weg mit dem
+      // Megolm-Weg, s. `empfangeneNachricht.ts`.
       return {
         art: 'neu',
-        nachricht: {
-          // Snowflake der Zustellung: digit-only wie ein echter Server-
-          // Snowflake, sortiert also im lokalen Verlauf korrekt nach Zeit.
-          // BEWUSST NICHT die kanonische Autor-ID — sie bleibt fuer
-          // Quittierung/Schon-abgelegt-Pruefung an die Zustellung gebunden
-          // (`postfachZyklus`/`verlaufSchonAbgelegt`).
-          id: z.id,
-          channel_id: z.channel_id,
-          author_id: absenderUserId,
-          content: klartext,
-          nonce: null,
-          reply_to_id: replyToId,
-          created_at: new Date().toISOString(),
-          // Lokal geparst, s. `mentionMarkierungen.ts`-Modulkopf.
-          mentions: parseMentionMarkers(klartext),
-          // Erkennungsmerkmal, s. `Message.verschluesselt` in `api/types.ts`.
-          verschluesselt: true,
-          // Kanonische Autor-ID, falls die Nutzlast sie trug (s.
-          // `Message.krypto_id` in `api/types.ts`) — noetig, damit eine
-          // spaetere Antwort AUF DIESE Nachricht sie wiederfindet.
-          ...(kanonischeId !== null ? { krypto_id: kanonischeId } : {}),
-          // Anhang-Angaben (Etappe E) — Schluessel, Name, Typ, Maße. Die
-          // BYTES holt `anhaengeHolen` (`empfangen.ts`), VOR der Quittung.
-          ...(anhaenge.length > 0
-            ? { attachments: anhaenge.map(anhangAngabeZuAttachment) }
-            : {})
-        }
+        nachricht: baueEmpfangeneNachricht(
+          z,
+          absenderUserId,
+          leseNachrichtNutzlast(klartextBytes)
+        )
       };
     } catch (err) {
       if (err instanceof KontoSicherungFehlgeschlagen) {

@@ -1,17 +1,17 @@
 /**
- * Der Schalter fuer Ende-zu-Ende-verschluesselte Direktnachrichten — Vorgabe
- * AUS, am Vorbild von `cloud_dm_attachments_enabled`
- * (`services/chat-gateway/src/dcc_chat_gateway/config.py`).
+ * Der Schalter fuer Ende-zu-Ende-verschluesselte Direktnachrichten.
  *
- * Anders als jenes Flag ist dieses eine reine KLIENT-Konstante, keine
- * Server-Capability: Etappe D2 baut nur die Mechanik (Task 1 bis 3), sie
- * wird noch nicht end-zu-Ende mit zwei echten Geraeten geprueft — das ist
- * Handarbeit des Eigentuemers (Task 4 / Umlegen). Solange der Schalter aus
- * ist, laeuft jede Direktnachricht den heutigen Klartext-Weg.
+ * **AN seit dem 2026-09-01** (Entscheidung des Eigentuemers). Die Bedingung,
+ * unter der er aus war, ist eingeloest: zwei echte Geraete gehen den Weg
+ * nachweislich, gegen den Remote-Dev-Stack und mit der Gegenprobe in
+ * Postgres, dass in `chat.messages` kein Klartext steht
+ * (`tests/e2e/e2e-dm.spec.ts`, `e2e-dm-hetzner.spec.ts`).
  *
- * Der Grund fuer den Schalter ist hier zwingender als bei privaten Gruppen:
- * eine verschluesselte Nachricht, die der Empfaenger nicht oeffnen kann, ist
- * UNWIEDERBRINGLICH verloren — der Server haelt keine Kopie.
+ * **Warum das eine Einbahnstrasse ist.** Eine verschluesselte Nachricht, die
+ * der Empfaenger nicht oeffnen kann, ist UNWIEDERBRINGLICH verloren — der
+ * Server haelt keine Kopie. Wieder-Ausschalten heilt nichts, was in der
+ * Zwischenzeit verschickt wurde; es aendert nur den Weg neuer Nachrichten.
+ * Wer ihn zurueckdreht, loest damit also kein Problem, sondern verdeckt es.
  *
  * Importfrei, damit Nodes Testlaeufer Module pruefen kann, die diesen Wert
  * nur lesen (s. CLAUDE.md „Die Falle").
@@ -19,23 +19,15 @@
 export const E2E_DMS_ENABLED = true;
 
 /**
- * Der Schalter fuer die Sicherung — Spiegelung des verschluesselten
- * Verlaufs ins eigene Google-Laufwerk (`lib/sicherung`). Bauart wie bei
- * den anderen; seit dem 2026-08-31 UMGELEGT (an) nach Zwei-Fenster- und
- * Browser-Erprobung:
-* dieselbe Bauart wie die beiden anderen: solange er aus ist, unternimmt
- * der Klient nichts — kein Andock an `verlaufSpeichernPflicht`, kein
- * Laufwerkszugriff, keine Wirkung der Einstellungssektion.
+ * Der Schalter fuer private Gruppenchats — **AN seit dem 2026-09-01**,
+ * gemeinsam mit den DMs umgelegt.
  *
- * Anders als bei DMs gibt es hier keinen Klartext-Verlust-Fall hinter dem
- * Schalter: die lokale Verlauf-IDB existiert unabhaengig, die Sicherung
- * waere nur die zweite Kopie. „Aus" heisst deshalb nur „kein zweites
- * Standbein", nicht „Daten in Gefahr".
- */
-export const SICHERUNG_ENABLED = true;
-
-/**
- * Der Schalter fuer private Gruppenchats — ebenfalls Vorgabe AUS.
+ * **Der Riegel dahinter bleibt und ist hier der wichtigere.** Dieser Schalter
+ * verhindert nur den ersten Serveraufruf; ob es Gruppen GIBT, entscheidet die
+ * Server-Einstellung `private_groups_enabled` (Vorgabe `False`). Ist sie aus,
+ * antwortet der Server weiter mit 403 `private_groups_disabled` — dieser
+ * Schalter allein schaltet also nichts frei, er hoert nur auf, die Frage
+ * vorher abzufangen.
  *
  * **Warum ein eigener, und warum keiner der beiden vorhandenen passt.**
  * Nachgesehen, nicht angenommen:
@@ -63,11 +55,11 @@ export const SICHERUNG_ENABLED = true;
  * Altbestand, auf den man zurueckfallen koennte. „Aus" heisst deshalb: es
  * gibt keine Gruppen, nicht „Gruppen laufen unverschluesselt".
  */
-export const PRIVATE_GRUPPEN_ENABLED = false;
+export const PRIVATE_GRUPPEN_ENABLED = true;
 
 /**
  * Der Schalter fuer Geraete-Kopplung und Verlaufsumzug (Etappe F) —
- * ebenfalls Vorgabe AUS.
+ * **AN seit dem 2026-09-01**.
  *
  * **Warum ein dritter und nicht `E2E_DMS_ENABLED`.** Nachgesehen, nicht
  * angenommen: der Umzug schiebt den LOKALEN VERLAUF (`lib/verlauf/**`), und
@@ -78,15 +70,26 @@ export const PRIVATE_GRUPPEN_ENABLED = false;
  * getrennt reif werden — genau das, was der Kommentar an
  * `PRIVATE_GRUPPEN_ENABLED` oben schon einmal begruendet.
  *
- * **Warum er trotzdem aus ist.** Der Kopplungscode ist, solange er gilt, ein
- * Schluessel zum vollstaendigen lokalen Verlauf (die ausfuehrliche Abwaegung
- * steht im Kopf von `services/chat-gateway/.../routes/kopplung.py`). Er
- * gehoert erst an, wenn zwei echte Geraete den Weg nachweislich gegangen
- * sind — der Server-Teil ist durch pytest gedeckt, der Zwei-Geraete-Weg
- * nicht.
- *
- * Solange er aus ist, unternimmt der Klient nichts: kein `POST /kopplung`,
- * kein Abfragen des Stands, keine Anzeige. Ein Riegel VOR dem ersten
- * Serveraufruf, dieselbe Bauart wie oben.
+ * **Was das Umlegen scharf stellt.** Der Kopplungscode ist, solange er gilt,
+ * ein Schluessel zum vollstaendigen lokalen Verlauf (die ausfuehrliche
+ * Abwaegung steht im Kopf von `services/chat-gateway/.../routes/kopplung.py`).
+ * Die Bedingung, unter der er aus war, ist eingeloest: der Zwei-Geraete-Weg
+ * ist nachgewiesen (`tests/e2e/e2e-kopplung.spec.ts`, mit der Gegenprobe,
+ * dass der Server den Verlauf nie im Klartext sieht).
  */
-export const GERAETE_KOPPLUNG_ENABLED = false;
+export const GERAETE_KOPPLUNG_ENABLED = true;
+
+/**
+ * Der Schalter fuer die Sicherung — Spiegelung des verschluesselten
+ * Verlaufs ins eigene Google-Laufwerk (`lib/sicherung`). Bauart wie bei
+ * den anderen; seit dem 2026-08-31 UMGELEGT (an) nach Zwei-Fenster- und
+ * Browser-Erprobung: solange er aus ist, unternimmt der Klient nichts —
+ * kein Andock an `verlaufSpeichernPflicht`, kein Laufwerkszugriff, keine
+ * Wirkung der Einstellungssektion.
+ *
+ * Anders als bei DMs gibt es hier keinen Klartext-Verlust-Fall hinter dem
+ * Schalter: die lokale Verlauf-IDB existiert unabhaengig, die Sicherung
+ * waere nur die zweite Kopie. „Aus" heisst deshalb nur „kein zweites
+ * Standbein", nicht „Daten in Gefahr".
+ */
+export const SICHERUNG_ENABLED = true;

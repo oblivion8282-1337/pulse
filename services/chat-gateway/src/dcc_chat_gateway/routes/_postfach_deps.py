@@ -29,8 +29,10 @@ from sqlalchemy import select
 
 from dcc_chat_gateway.friend_helpers import block_exists_either_way, friendship_exists
 from dcc_chat_gateway.models import DeviceKeyBundle
+from dcc_chat_gateway.permissions import members_who_can_view
 from dcc_chat_gateway.private_gruppen_zugriff import gruppen_teilnehmer
 from dcc_chat_gateway.routes._deps import resolve_channel_for_user
+from dcc_chat_gateway.security import AuthenticatedUser
 
 
 class KanalZugriff(NamedTuple):
@@ -41,16 +43,37 @@ class KanalZugriff(NamedTuple):
     ist_dm: bool
 
 
-async def _channel_zugriff_pruefen(session, channel_id: int, user_id: int) -> KanalZugriff:
+async def _channel_zugriff_pruefen(
+    session, channel_id: int, user: AuthenticatedUser
+) -> KanalZugriff:
     """Die Konten, in deren Geraete-Postfaecher dieser Kanal zustellen darf,
     plus die Kanalart (``ist_dm``).
 
-    Zwei Kanalarten, zwei Regeln:
+    Drei Kanalarten, drei Regeln:
 
     * **DM** — dieselbe Regel wie ``ws_op_send.py:139-151``: DM-Kanal laden,
       fehlt er oder ist der Nutzer nicht Mitglied -> abweisen. Ein
       Durchfallen wuerde das Freundschafts-/Block-Gate ueberspringen und eine
       verwaiste Zustellung schreiben.
+    * **Ablage-Kanal** (Guild-Kanal mit ``ablage=true``, E6) — Berechtigung
+      ist ``VIEW_CHANNEL`` ueber den vorhandenen Rechte-Resolver
+      (``permissions.members_who_can_view``), KEINE neue Mitgliedertabelle.
+      **Nur ``ablage=true`` ist zulaessig** — ein gewoehnlicher Textkanal
+      faellt unveraendert in den letzten ``raise`` dieser Funktion. Genau
+      dieser Mischzustand war auf diesem Zweig schon einmal offen
+      (``ws_op_send.py``, schneller Pfad umging die Klartext-Sperre fuer
+      Ablage-Kanaele) — hier darf er nicht durch die Hintertuer zurueckkommen.
+      **Der Ereignisweg braucht keinen eigenen Filter**: ``PostfachNeuEvent``
+      laeuft ueber ``manager.publish(str(channel_id), …)`` -> Redis-Kanal
+      ``chat:channel:<id>`` -> ``pubsub_channel_handlers.py::handle_chat_channel``
+      -> ``manager._filter_by_view_channel``. Diese Funktion loest die
+      Kanal-Identitaet ueber ``_resolve_channel_kind`` auf
+      (``pubsub_perm_filter.py``); ein Ablage-Kanal ist eine gewoehnliche
+      Zeile in ``chat.channels`` und liefert dort ``ch.guild_id`` (nicht
+      ``_KIND_DM``/``_KIND_PRIVATE_GRUPPE``) — der Filter wendet also
+      denselben ``members_who_can_view``-Zweig an wie fuer jeden anderen
+      Guild-Kanal. Anders als bei privaten Gruppen (eigene Tabelle, eigener
+      Filter ``pubsub_gruppen_filter.py``) ist hier kein zweiter Zweig noetig.
     * **Private Gruppe** (Etappe G2) — Mitgliedschaft entscheidet, sonst
       nichts. **Kein Freundschafts-Gate**: eine Gruppe ist kein Freundespaar,
       und die Mitglieder sind untereinander in aller Regel nicht befreundet.
@@ -77,26 +100,48 @@ async def _channel_zugriff_pruefen(session, channel_id: int, user_id: int) -> Ka
     Kommentar an der Empfaenger-Schleife dort. ``routes/postfach_anhaenge.py``
     wertet den Rueckgabewert nicht aus (reine Zugangs-Pruefung).
 
-    Eine Gilden-Kanal-ID faellt weiterhin durch — das Postfach traegt DMs und
-    private Gruppen, keine Community-Kanaele (Spec §9: „oeffentlich und
-    geteilt -> wie bisher")."""
-    resolved = await resolve_channel_for_user(session, channel_id, user_id)
+    Eine gewoehnliche Gilden-Kanal-ID faellt weiterhin durch — das Postfach
+    traegt DMs, Ablage-Kanaele (``ablage=true``) und private Gruppen, keine
+    normalen Community-Kanaele (Spec §9: „oeffentlich und geteilt -> wie
+    bisher")."""
+    resolved = await resolve_channel_for_user(session, channel_id, user.id)
     if resolved is not None and resolved[0] == "dm":
         dm_obj = resolved[1]
-        other = dm_obj.user_b_id if dm_obj.user_a_id == user_id else dm_obj.user_a_id
-        if await block_exists_either_way(session, user_id, other):
+        other = dm_obj.user_b_id if dm_obj.user_a_id == user.id else dm_obj.user_a_id
+        if await block_exists_either_way(session, user.id, other):
             raise HTTPException(status_code=403, detail="blocked")
-        if not await friendship_exists(session, user_id, other):
+        if not await friendship_exists(session, user.id, other):
             raise HTTPException(status_code=403, detail="not_friends")
         return KanalZugriff(teilnehmer={dm_obj.user_a_id, dm_obj.user_b_id}, ist_dm=True)
+
+    if resolved is not None and resolved[0] == "guild":
+        # Regel 1 (Aufgabe 1): NUR ``ablage=true`` ist ein zulaessiges
+        # Postfach-Ziel. ``resolve_channel_for_user`` prueft nur die rohe
+        # Guild-Mitgliedschaft (``GuildMember``), nicht ``VIEW_CHANNEL`` auf
+        # DIESEM Kanal — ein gewoehnlicher Textkanal UND ein Ablage-Kanal
+        # kommen beide hier an, deshalb die explizite Pruefung auf das
+        # Merkmal, bevor ueberhaupt Rechte aufgeloest werden.
+        channel = resolved[1]
+        if not channel.ablage:
+            raise HTTPException(status_code=403, detail="channel_not_accessible")
+        # Regel 2: VIEW_CHANNEL ueber den vorhandenen Resolver —
+        # ``members_who_can_view`` liefert genau die Konten, die diesen
+        # Kanal (mit seinen Overwrites) sehen duerfen, und ist zugleich die
+        # Teilnehmermenge fuer die Zustellung (dieselbe Funktion, die der
+        # Ereignisweg fuer denselben Kanal benutzt, s. Docstring oben).
+        sichtbar_fuer = await members_who_can_view(session, channel.guild_id, channel_id)
+        if user.id not in sichtbar_fuer:
+            raise HTTPException(status_code=403, detail="channel_not_accessible")
+        return KanalZugriff(teilnehmer=sichtbar_fuer, ist_dm=False)
 
     # ``resolve_channel_for_user`` kennt private Gruppen nicht (und soll es
     # vorerst auch nicht, s. Modulkopf von ``private_gruppen_zugriff.py``) —
     # eine Gruppen-ID kommt hier deshalb als ``None`` an, nicht als dritte
-    # Kanalart. Nur dieser Fall wird nachgeschlagen; eine Gilden-Kanal-ID
-    # (``resolved[0] == "guild"``) faellt unveraendert durch.
+    # Kanalart. Nur dieser Fall wird nachgeschlagen; jede Guild-Kanal-ID ist
+    # oben bereits entschieden (Ablage -> return, sonst -> raise) und
+    # erreicht diese Zeile nicht mehr.
     if resolved is None:
-        mitglieder = await gruppen_teilnehmer(session, channel_id, user_id)
+        mitglieder = await gruppen_teilnehmer(session, channel_id, user.id)
         if mitglieder is not None:
             return KanalZugriff(teilnehmer=mitglieder, ist_dm=False)
     raise HTTPException(status_code=403, detail="channel_not_accessible")

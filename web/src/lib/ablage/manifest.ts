@@ -1,8 +1,12 @@
 /**
  * Das Manifest ist der Index des Ablage-Logs: welche Segmente gibt es, wie
  * groß sind sie, welcher Prüfsumme gehorchen sie, welche Id-Spanne tragen
- * sie. In Phase 1 liegt es als Klartext-JSON im Ablage-Ordner; der
- * Krypto-Nachzug verschlüsselt es in einem Zug (gleicher Ort, gleiche Rolle).
+ * sie. Dieses Modul baut/liest ihn als Klartext-JSON — die Verschlüsselung
+ * auf dem Laufwerk übernimmt seit dem 2026-09-01 der umschließende Adapter
+ * (`kryptoBehaelter.ts::verschluesselnderAdapter`, eingehängt in
+ * `kanalLeseweg.ts`): dieses Modul bekommt weiterhin genau die Klartext-Bytes
+ * zu sehen, die es vorher schon kannte, nur was am Ende auf dem Laufwerk
+ * liegt, ist jetzt Geheimtext.
  *
  * Zwei Regeln machen es gegenüber Abstürzen entspannt:
  *

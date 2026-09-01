@@ -1,8 +1,17 @@
 /**
  * Gemeinsame Rechnung fuer den Vergleich zweier Snowflake-artiger IDs, wenn
- * zwei verschiedene ID-Schemata gemischt auftreten koennen: echte
- * Server-Snowflakes (`dcc_shared/snowflake.py`) UND lokal vergebene
- * Kennungen aus `krypto/senden.ts::lokaleNachrichtId()`.
+ * DREI verschiedene ID-Schemata gemischt auftreten koennen: echte
+ * Server-Snowflakes (`dcc_shared/snowflake.py`), lokal vergebene Kennungen
+ * aus `krypto/senden.ts::lokaleNachrichtId()` UND die vorlaeufige `tmp-`-ID
+ * einer noch nicht bestaetigten Nachricht (`chat/dmKlartextSenden.ts`).
+ *
+ * Das dritte kam nicht als Erweiterung dazu, sondern war von Anfang an da
+ * und wurde uebersehen: bis zum 2026-08-31 sprach dieser Kopf von zweien,
+ * und `BigInt(id)` warf auf der `tmp-`-Form mitten im `Array.sort` — mit dem
+ * unbehandelten Fehler riss die Listendarstellung ab, sichtbar im
+ * Playwright-Lauf sowohl aus der Community-Kanal- als auch aus der DM-Route.
+ * Deshalb faellt der Vergleich unten fuer ein UNBEKANNTES Schema nicht mehr
+ * durch, sondern ordnet es deterministisch nach hinten.
  *
  * Ein reiner Groessenvergleich der rohen IDs — ob "Laenge zuerst" oder "auf
  * gemeinsame Breite auffuellen, dann lexikografisch" — ist fuer Ziffernfolgen
@@ -43,11 +52,42 @@ const SNOWFLAKE_EPOCH_MS = 1767225600000n; // dcc_shared/snowflake.py::DEFAULT_E
 const SNOWFLAKE_ZEIT_SHIFT = 22n; // WORKER_BITS(10) + SEQ_BITS(12)
 const LOKALE_ID_LAENGE = 20; // lokaleNachrichtId(): 13-stelliger Date.now() + 7 Zufallsstellen
 const LOKALE_ID_ZEIT_STELLEN = 13;
+/** `chat/dmKlartextSenden.ts`: `tmp-${nonce}` mit `nonce = n-${Date.now()}-${4
+ *  Hexstellen}` — die optimistische Kopie einer noch nicht bestaetigten
+ *  Nachricht. Das dritte Schema; der Modulkopf sprach frueher von zweien. */
+const VORLAEUFIG_PRAEFIX = 'tmp-n-';
 
-/** Entschluesselt die eingebettete Unix-Millisekunde aus einer ID beliebigen
- *  der beiden Schemata.
+function istVorlaeufig(id: string): boolean {
+  return id.startsWith(VORLAEUFIG_PRAEFIX);
+}
+
+/** Mindestens eine Ziffer, sonst nichts — `[0-9]` ausgeschrieben statt `\d`,
+ *  damit an der Stelle nichts zu deuten ist. **Ohne `g`-Flag, und das ist
+ *  Bedingung:** ein globales `RegExp` merkt sich zwischen zwei `test`-Aufrufen
+ *  seinen `lastIndex` und liefert dann abwechselnd falsche Antworten — in
+ *  einem Komparator, der je Sortierung hunderte Male laeuft, waere das ein
+ *  Fehler, der wie Zufall aussieht. */
+const NUR_ZIFFERN = /^[0-9]+$/;
+
+function istZiffernfolge(s: string): boolean {
+  return NUR_ZIFFERN.test(s);
+}
+
+/** Lexikografischer Vergleich als `Array.sort`-Ergebnis (-1/0/1). Getrennt
+ *  benannt, weil er unten zweimal gebraucht wird und verschachtelte
+ *  Bedingungsketten in einem Komparator schwer zu lesen sind. */
+function lexikografisch(a: string, b: string): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
+/** Entschluesselt die eingebettete Unix-Millisekunde aus einer ID eines der
+ *  drei bekannten Schemata (s. Modulkopf).
  *
- *  **Woran die beiden auseinandergehalten werden — und wie lange das traegt.**
+ *  **Woran die beiden ZIFFERN-Schemata auseinandergehalten werden — und wie
+ *  lange das traegt.** (Die vorlaeufige `tmp-`-Form traegt ihr Praefix und
+ *  faellt gar nicht erst in diese Unterscheidung.)
  *  Unterschieden wird an der Stellenzahl, also an genau der Groesse, deren
  *  naiver Gebrauch der Grund fuer diese Datei war. Das ist hier zulaessig,
  *  aber nicht zeitlos, und die Grenze ist ausgerechnet: eine echte Snowflake
@@ -64,6 +104,29 @@ const LOKALE_ID_ZEIT_STELLEN = 13;
  *  erraten; das beruehrt dann aber bereits abgelegten Verlauf und ist
  *  deshalb bewusst nicht Teil dieser Fehlerbehebung. */
 export function echtZeitMs(id: string): bigint {
+  const ms = zeitOderNull(id);
+  if (ms === null) throw new SyntaxError(`unbekanntes ID-Schema: ${id}`);
+  return ms;
+}
+
+/** Dasselbe, aber ohne zu werfen: `null` heisst „dieses Schema kenne ich
+ *  nicht". Der Vergleich unten braucht das, weil er in einem `Array.sort`
+ *  laeuft — dort reisst eine Ausnahme nicht nur den Vergleich ab, sondern
+ *  die ganze Listendarstellung. Genau so ist der Fehler am 2026-08-31
+ *  aufgetreten: die vorlaeufige `tmp-`-ID war ein Schema, das hier nicht
+ *  vorgesehen war, und `BigInt` warf mitten im Sortieren.
+ *
+ *  Wer ein VIERTES Schema einfuehrt, traegt es hier ein. Der `null`-Zweig
+ *  ist ein Auffangnetz gegen den Absturz, keine Einladung, sich darauf zu
+ *  verlassen: er ordnet nur noch, er versteht nichts. */
+function zeitOderNull(id: string): bigint | null {
+  if (istVorlaeufig(id)) {
+    const rest = id.slice(VORLAEUFIG_PRAEFIX.length);
+    const trenner = rest.indexOf('-');
+    const ms = trenner === -1 ? rest : rest.slice(0, trenner);
+    return istZiffernfolge(ms) ? BigInt(ms) : null;
+  }
+  if (!istZiffernfolge(id)) return null;
   if (id.length === LOKALE_ID_LAENGE) {
     return BigInt(id.slice(0, LOKALE_ID_ZEIT_STELLEN));
   }
@@ -74,10 +137,32 @@ export function echtZeitMs(id: string): bigint {
  *  Tiebreak bei gleicher Millisekunde. Liefert -1/0/1 wie ein `Array.sort`-
  *  Komparator. */
 export function vergleicheSnowflakeArtigeId(a: string, b: string): number {
-  const za = echtZeitMs(a);
-  const zb = echtZeitMs(b);
+  const za = zeitOderNull(a);
+  const zb = zeitOderNull(b);
+
+  // Unbekanntes Schema: nach hinten, untereinander lexikografisch. Bewusst
+  // deterministisch statt „jetzt" — ein Komparator, dessen Ergebnis sich
+  // zwischen zwei Aufrufen aendert, zerstoert die Sortierung selbst.
+  if (za === null || zb === null) {
+    if (za !== null) return -1;
+    if (zb !== null) return 1;
+    return lexikografisch(a, b);
+  }
+
   if (za !== zb) return za < zb ? -1 : 1;
+
+  // Gleiche Millisekunde. Die vorlaeufige Kopie gehoert hinter die
+  // bestaetigte Nachricht: sie ist per Definition das juengere Ereignis, und
+  // die Liste ersetzt sie ohnehin gleich per Nonce (MessageList.svelte).
+  const va = istVorlaeufig(a);
+  const vb = istVorlaeufig(b);
+  if (va !== vb) return va ? 1 : -1;
+  if (va && vb) return lexikografisch(a, b);
+
+  // Beides Ziffernfolgen — hier traegt die rohe Zahl wieder.
   const na = BigInt(a);
   const nb = BigInt(b);
-  return na < nb ? -1 : na > nb ? 1 : 0;
+  if (na < nb) return -1;
+  if (na > nb) return 1;
+  return 0;
 }

@@ -56,6 +56,10 @@ from dcc_chat_gateway.models import (
 )
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments
 from dcc_chat_gateway.routes.dropbox_admin import purge_guild_dropbox_objects
+from dcc_chat_gateway.user_purge_ablage import (
+    purge_ablage_konto_laufwerk,
+    purge_ablage_zwischenlager,
+)
 from dcc_chat_gateway.user_purge_gruppen import purge_private_group_memberships
 from dcc_chat_gateway.user_purge_kopplung import purge_kopplung
 from dcc_chat_gateway.user_purge_nachlauf import evict_voice_sessions, forget_devices
@@ -344,6 +348,11 @@ async def _purge_db(
     # ``community_invite_notifications`` nach Migration 0063 (s. 9b) —
     # nicht wiederholen.
     await purge_postfach(session, user_id)
+
+    # 9c-2. Community-Dateiablage (Etappe E8) — eigene, noch nicht gefestigte
+    # Zwischenlager-Uploads. S. Modul-Docstring von ``user_purge_ablage.py``.
+    await purge_ablage_zwischenlager(session, user_id)
+    await purge_ablage_konto_laufwerk(session, user_id)
 
     # 9d. Geraete-Kopplung + Verlaufsumzug (Etappe F) — Bughunt 2026-08-29
     # (Runde 6, Befund 5): s. Modul-Docstring von ``user_purge_kopplung.py``.

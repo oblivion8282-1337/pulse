@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 
-import { restQuelle, REST_SEITEN_GROESSE } from '../src/lib/ablage/quelle.ts';
+import { restQuelle, REST_SEITEN_GROESSE, MAX_SEITEN } from '../src/lib/ablage/quelle.ts';
 import { leseNachricht } from '../src/lib/ablage/nutzlast.ts';
 import type { Message } from '../src/lib/api/types.ts';
 
@@ -98,5 +98,40 @@ describe('Ablage-Restquelle', () => {
 		const rest = restServer([]);
 		const partie = await restQuelle(rest.abruf).holen(500n, 100);
 		assert.deepEqual(partie, []);
+	});
+	it('eine Luecke ueber der Seitengrenze wird gemeldet, nicht stillschweigend halbiert', async () => {
+		// Der Blaetterlauf hoert nach MAX_SEITEN Seiten auf. Er laeuft dabei von
+		// NEU nach ALT — abgeschnitten wird also die AELTESTE Haelfte, genau die
+		// direkt ueber dem Wasserzeichen. Vorher gab die Quelle den Rest
+		// trotzdem als normale, vollstaendige Partie zurueck; der Nachzieher
+		// setzte sein Wasserzeichen danach auf die HOECHSTE gelieferte Id
+		// (`nachzieher.ts`), und die uebersprungene Mitte lag fuer immer
+		// darunter. Ein zusammenhaengender Block fehlte im Archiv, ohne
+		// Fehlermeldung und ohne Luecken-Eintrag — anders als die
+		// Segment-Luecken, die `leser.ts` sauber benennt.
+		//
+		// Ein Wurf ist hier die bessere Antwort als eine halbe Wahrheit: er
+		// haelt das Wasserzeichen stehen, und der Fall wird sichtbar statt
+		// unsichtbar. Der Preis ist ein Nachzug, der bei einer so grossen
+		// Luecke stehen bleibt, bis der Krypto-Weg (Postfach) diese Quelle
+		// ohnehin abloest.
+		const zuViel = REST_SEITEN_GROESSE * MAX_SEITEN + 1;
+		const rest = restServer(luecke(ERSTE_ID, ERSTE_ID + BigInt(zuViel) - 1n));
+		await assert.rejects(
+			() => restQuelle(rest.abruf).holen(ERSTE_ID - 1n, 100),
+			/Luecke/,
+			'eine nicht vollstaendig durchblaetterte Luecke muss geworfen werden'
+		);
+	});
+
+	it('genau an der Seitengrenze wird noch vollstaendig geliefert', async () => {
+		// Gegenprobe zur Zeile darueber: der Wurf darf nicht schon greifen, wenn
+		// die Luecke gerade eben noch hineinpasst.
+		const genau = REST_SEITEN_GROESSE * MAX_SEITEN;
+		const rest = restServer(luecke(ERSTE_ID, ERSTE_ID + BigInt(genau) - 1n));
+		const partie = await restQuelle(rest.abruf).holen(ERSTE_ID - 1n, 100);
+		assert.equal(partie.length, genau);
+		assert.equal(partie[0].id, ERSTE_ID);
+		assert.equal(partie[partie.length - 1].id, ERSTE_ID + BigInt(genau) - 1n);
 	});
 });

@@ -24,6 +24,7 @@ from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.guild_limits import clamp_to_ceilings, effective_wire_limits
 from dcc_chat_gateway.guild_caps import enforce_member_cap
 from dcc_chat_gateway.models import (
+    AblageZwischenlagerDatei,
     Channel,
     CommunityInviteNotification,
     Guild,
@@ -355,6 +356,13 @@ async def delete_guild(
         GuildSoundOverride.guild_id == guild_id
     )
     s3_keys_to_purge.extend((await session.execute(sound_keys_stmt)).scalars())
+    # Ablage-Zwischenlager (Etappe E8): dieselbe Luecke wie bei den Sound-
+    # Overrides — ``ON DELETE CASCADE`` auf ``guild_id`` raeumt die Zeilen,
+    # MinIO erfaehrt davon nichts. Erst hier erfassen, vor dem Cascade-Delete.
+    zwischenlager_keys_stmt = select(AblageZwischenlagerDatei.storage_key).where(
+        AblageZwischenlagerDatei.guild_id == guild_id
+    )
+    s3_keys_to_purge.extend((await session.execute(zwischenlager_keys_stmt)).scalars())
     # Offene Einladungen in diese Community von Hand raeumen. Bis Migration
     # 0063 erledigte das ein ON DELETE CASCADE; der Fremdschluessel musste
     # weichen, weil ``guild_id`` seither auch auf eine Community auf einem

@@ -12,6 +12,7 @@
  */
 
 import { openIdentityDb, idbGetIdentity, idbPutIdentity, STORE_NAME } from './idb-shared';
+import { dauerhaftenSpeicherAnfordern } from './dauerhafterSpeicher';
 
 const IDB_KEY = 'pulse.keypair';
 
@@ -126,6 +127,12 @@ export async function loadKeypair(): Promise<StoredKeypair | null> {
  */
 export async function saveKeypair(keys: StoredKeypair): Promise<void> {
   if (typeof indexedDB === 'undefined') throw new Error('IndexedDB nicht verfügbar');
+  // Zweiter Anlaufpunkt für die Anfrage nach dauerhaftem Speicher (der erste
+  // ist `verlauf/index.ts::verlaufSpeichernPflicht`). Hier entsteht die
+  // Geräte-Identität — der frühestmögliche Zeitpunkt, an dem eine
+  // Firefox-Nachfrage für den Nutzer einen erkennbaren Anlass hat. Wirft nie,
+  // Ergebnis bewusst nicht ausgewertet.
+  void dauerhaftenSpeicherAnfordern();
   const db = await openIdentityDb();
   await idbPutIdentity(db, IDB_KEY, keys);
   db.close();

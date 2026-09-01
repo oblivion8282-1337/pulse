@@ -64,10 +64,12 @@ async function schalterEinschalten(ctx: BrowserContext): Promise<void> {
     const antwort = await route.fetch();
     const text = await antwort.text();
     const gepatcht = text.replace('E2E_DMS_ENABLED = false', 'E2E_DMS_ENABLED = true');
-    if (gepatcht === text) {
+    if (gepatcht === text && !text.includes('E2E_DMS_ENABLED = true')) {
       throw new Error(
-        'Textmuster "E2E_DMS_ENABLED = false" nicht in schalter.ts gefunden — ' +
-          'Datei umbenannt oder Konstante umformuliert?'
+        `Weder "E2E_DMS_ENABLED = false" noch "= true" in schalter.ts gefunden — ` +
+          'Datei umbenannt oder Konstante umformuliert? (Der Schalter ist seit ' +
+          'dem 2026-09-01 an; dieses Abfangen haelt den Nachweis unabhaengig ' +
+          'von seinem Stand.)'
       );
     }
     await route.fulfill({ response: antwort, body: gepatcht });

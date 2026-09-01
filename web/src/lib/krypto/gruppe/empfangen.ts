@@ -30,15 +30,15 @@
  */
 import type { Message } from '../../api/types';
 import type { PostfachZustellung } from '../../api/postfach';
-import { parseMentionMarkers } from '../../components/mentionMarkierungen';
 import { leseNachrichtNutzlast } from '../nachrichtNutzlast';
-import { anhangAngabeZuAttachment } from '../anhangAnzeige';
+import { baueEmpfangeneNachricht } from '../empfangeneNachricht';
 import { ART_GRUPPENNACHRICHT, leseGruppenhuelle, leseVerteilNutzlast } from './gruppenNutzlast';
 import {
   gruppenempfangLaden,
   gruppenempfangSichern,
   gruppenempfangAnlegenFallsNeu
 } from './gruppenSitzungen';
+import { kanalLaufwerkSchluesselSichern } from '../../ablage/kanalLaufwerkSchluessel';
 
 /** Ob diese Zustellung eine Megolm-Gruppennachricht ist. */
 export function istGruppennachricht(z: PostfachZustellung): boolean {
@@ -58,7 +58,14 @@ export function istGruppennachricht(z: PostfachZustellung): boolean {
  * Verteilschluessel reist ueber die 1:1-Sitzung; deren Kanal ist der
  * DM-Kanal des Paares, nicht die Gruppe. Wer die Zustellung fragt, legt den
  * Schluessel unter dem falschen Kanal ab und findet ihn nie wieder.
- */
+ *
+ * **Traegt die Nutzlast zusaetzlich einen Ablage-Hauptschluessel und eine
+ * Freigabe-Adresse** (Design §3.1, nur bei Ablage-Kanaelen gesetzt), werden
+ * beide unter demselben Kanal gesichert (`kanalLaufwerkSchluessel.ts`) —
+ * NACH der Gruppensitzung, aber innerhalb desselben Aufrufs: beides gehoert
+ * zusammen zu genau dieser Zustellung, ein Zwischenzustand mit nur einem
+ * der beiden waere kein Fehler (der naechste Verteilschluessel traegt
+ * ohnehin wieder beide), aber unnoetig. */
 export async function verteilschluesselAufnehmen(
   z: PostfachZustellung,
   klartextBytes: Uint8Array
@@ -71,6 +78,13 @@ export async function verteilschluesselAufnehmen(
     gelesen.sitzung,
     gelesen.schluessel
   );
+  if (gelesen.ablageHauptschluessel && gelesen.freigabeAdresse) {
+    await kanalLaufwerkSchluesselSichern(
+      gelesen.kanal,
+      gelesen.ablageHauptschluessel,
+      gelesen.freigabeAdresse
+    );
+  }
   return true;
 }
 
@@ -111,20 +125,8 @@ export async function oeffneGruppennachricht(
   // Sichern VOR der Quittung — der Ratchet ist weitergedreht.
   await gruppenempfangSichern(z.channel_id, z.absender_device_pubkey, huelle.sitzung, empfang);
 
-  const { text, id: kanonischeId, replyToId, anhaenge } = leseNachrichtNutzlast(klartextBytes);
-  return {
-    id: z.id,
-    channel_id: z.channel_id,
-    author_id: z.absender_user_id,
-    content: text,
-    nonce: null,
-    reply_to_id: replyToId,
-    created_at: new Date().toISOString(),
-    mentions: parseMentionMarkers(text),
-    verschluesselt: true,
-    ...(kanonischeId !== null ? { krypto_id: kanonischeId } : {}),
-    ...(anhaenge.length > 0
-      ? { attachments: anhaenge.map(anhangAngabeZuAttachment) }
-      : {})
-  };
+  // Dieselbe Umsetzung in die Anzeige-Form wie im Olm-Weg, s.
+  // `../empfangeneNachricht.ts` — dort stehen auch die Gruende fuer die
+  // ID-Wahl und die beiden bedingten Felder.
+  return baueEmpfangeneNachricht(z, z.absender_user_id, leseNachrichtNutzlast(klartextBytes));
 }

@@ -37,7 +37,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_chat_gateway import config as chat_config, ratelimit, s3
 from dcc_chat_gateway.db import SessionDep, SessionLocal
-from dcc_chat_gateway.models import Channel, ChatSettings, Guild, MessageAttachment
+from dcc_chat_gateway.models import (
+    LEGACY_READONLY_DETAIL,
+    Channel,
+    ChatSettings,
+    Guild,
+    MessageAttachment,
+)
 from dcc_chat_gateway.permissions import (
     Permissions,
     check_permission,
@@ -227,6 +233,10 @@ async def create_upload_url(
             403,
             detail="ablage channel: plaintext attachment upload is not accepted",
         )
+    if kind == "guild" and getattr(ch, "legacy_readonly", False):
+        # Umstellung (Entwurf §9, Etappe E9): eingefrorener Alt-Kanal — kein
+        # neuer Anhang, egal ob er je an eine Nachricht gebunden würde.
+        raise HTTPException(403, detail=LEGACY_READONLY_DETAIL)
     _enforce_dm_attachment_policy(kind)
     # ATTACH_FILES gate (guild channels only — DMs have no permission overlay).
     if kind == "guild":

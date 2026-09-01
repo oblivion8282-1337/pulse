@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 
 import { webdavAdapter, namenAusMultistatus, urlFuer, WebdavFehler } from '../src/lib/ablage/webdav.ts';
+import { AnmeldungAbgelaufenFehler } from '../src/lib/ablage/oauth.ts';
 
 const BASIS = 'https://cloud.example/remote.php/dav/files/lena';
 const ORDNER = 'Pulse/ablage/kanal-1';
@@ -66,6 +67,13 @@ function davServer() {
 				return new Response('fehlt', { status: 404 });
 			}
 			return new Response(PROPFIND_XML, { status: 207 });
+		}
+		if (methode === 'DELETE') {
+			if (!dateien.has(pfad)) {
+				return new Response('fehlt', { status: 404 });
+			}
+			dateien.delete(pfad);
+			return new Response(null, { status: 204 });
 		}
 		return new Response('unbekannte Methode', { status: 405 });
 	};
@@ -161,6 +169,112 @@ describe('Ablage-WebDAV: Adapter gegen den Mini-Server', () => {
 			passwort: 'passwort',
 			holen: server.holen,
 		});
-		await assert.rejects(() => adapter.lese('x.puls'), WebdavFehler);
+		// Falsche Zugangsdaten sind ein 401 — und der hat seit dem 2026-09-01
+		// einen eigenen Typ, weil ein zurueckgezogener Freigabe-Link genau so
+		// aussieht und NICHT als voruebergehender Netzfehler durchgehen darf.
+		await assert.rejects(() => adapter.lese('x.puls'), AnmeldungAbgelaufenFehler);
+	});
+});
+
+describe('Ablage-WebDAV: Löschen', () => {
+	it('entfernt die Datei wirklich vom Server', async () => {
+		// Der Grund, warum dieser Test existiert: `lösche` ist im
+		// Adapter-Vertrag OPTIONAL, und bis zum 2026-08-31 setzte es kein
+		// einziger Cloud-Adapter um. `DateiSpeicher.löschen()` entfernte
+		// deshalb nur den Verzeichniseintrag, waehrend der verschluesselte
+		// Container fuer immer liegen blieb — der Nutzer sah die Datei
+		// verschwinden und glaubte, sie sei weg.
+		const server = davServer();
+		const pfad = '/remote.php/dav/files/lena/Pulse/ablage/kanal-1/x.puls';
+		server.dateien.set(pfad, new Uint8Array([1, 2, 3]));
+		const adapter = webdavAdapter({
+			basis: BASIS,
+			ordner: ORDNER,
+			benutzer: 'lena',
+			passwort: 'app-passwort',
+			holen: server.holen,
+		});
+		await adapter.lösche!('x.puls');
+		assert.equal(server.dateien.has(pfad), false, 'die Datei muss weg sein');
+		assert.ok(server.aufrufe.some((a) => a.startsWith('DELETE ')));
+	});
+
+	it('eine schon fehlende Datei ist kein Fehler', async () => {
+		// Das Ziel des Aufrufs ist „danach ist sie nicht mehr da". Bei 404
+		// trifft das bereits zu — ein Wurf wuerde einen Aufraeumlauf abbrechen,
+		// der eigentlich erfolgreich war.
+		const server = davServer();
+		const adapter = webdavAdapter({
+			basis: BASIS,
+			ordner: ORDNER,
+			benutzer: 'lena',
+			passwort: 'app-passwort',
+			holen: server.holen,
+		});
+		await adapter.lösche!('gibtsnicht.puls');
+	});
+
+	it('ein abgewiesenes Löschen wirft, statt Erfolg vorzutäuschen', async () => {
+		const server = davServer();
+		const adapter = webdavAdapter({
+			basis: BASIS,
+			ordner: ORDNER,
+			benutzer: 'falsch',
+			passwort: 'passwort',
+			holen: server.holen,
+		});
+		await assert.rejects(() => adapter.lösche!('x.puls'), AnmeldungAbgelaufenFehler);
+	});
+});
+
+describe('Ablage-WebDAV: ein toter Zugang ist ein eigener Fall', () => {
+	it('ein zurueckgezogener Freigabe-Link (401) wirft AnmeldungAbgelaufenFehler', async () => {
+		// Am 2026-09-01 an einer echten Nextcloud gemessen: ein gueltiger Link
+		// auf einen LEEREN Ordner antwortet mit 207, ein zurueckgezogener oder
+		// falscher mit 401. Ohne diese Unterscheidung sieht ein Widerruf fuer
+		// die Zustandsanzeige aus wie ein voruebergehender Netzfehler — sie
+		// meldete weiter „alles in Ordnung", waehrend nichts mehr gesichert
+		// wird. Und das ist kein Randfall: der Widerruf mit einem Klick ist
+		// ausgerechnet der Vorteil, mit dem der Link-Weg beworben wird.
+		const server = davServer();
+		const adapter = webdavAdapter({
+			basis: BASIS,
+			ordner: ORDNER,
+			benutzer: 'widerrufen',
+			passwort: '',
+			holen: server.holen,
+		});
+		await assert.rejects(() => adapter.liste(), AnmeldungAbgelaufenFehler);
+		await assert.rejects(() => adapter.schreibe('x.puls', new Uint8Array(1)), AnmeldungAbgelaufenFehler);
+	});
+
+	it('ein leerer Ordner ist KEIN toter Zugang', async () => {
+		// Die Gegenprobe zur Zeile darueber, und die wichtigere Haelfte: wer
+		// hier zu scharf prueft, meldet jedem frisch verbundenen Laufwerk
+		// „Zugang tot", weil dort naturgemaess noch nichts liegt.
+		const server = davServer();
+		const adapter = webdavAdapter({
+			basis: BASIS,
+			ordner: ORDNER,
+			benutzer: 'lena',
+			passwort: 'app-passwort',
+			holen: server.holen,
+		});
+		assert.deepEqual(await adapter.liste(), []);
+	});
+
+	it('ein gewoehnlicher Serverfehler bleibt ein gewoehnlicher Fehler', async () => {
+		// 500 ist eine Aussage ueber den Moment, nicht ueber den Zugang. Wer
+		// ihn als toten Zugang deutet, schickt den Nutzer grundlos zum
+		// Neuverbinden.
+		const holen: typeof fetch = async () => new Response('kaputt', { status: 500 });
+		const adapter = webdavAdapter({
+			basis: BASIS,
+			ordner: ORDNER,
+			benutzer: 'lena',
+			passwort: 'app-passwort',
+			holen,
+		});
+		await assert.rejects(() => adapter.liste(), WebdavFehler);
 	});
 });

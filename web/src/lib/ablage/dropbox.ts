@@ -12,6 +12,7 @@
 import {
 	auffrischeZugang as spieleNach,
 	autorisierungsUrl,
+	erzeugeAuffrischendesHolen,
 	tauscheCodeAus as tausche,
 	type Pkce,
 	type Zugang,
@@ -34,6 +35,19 @@ export interface DropboxVerbindung {
 	/** Ablage-Ordner im App-Ordner, z. B. Pulse/ablage/kanal-1 */
 	ordner: string;
 	holen?: typeof fetch;
+	/**
+	 * Nachspiel-Token für den Auffrisch-Weg. Fehlt es, bleibt ein 401 ein
+	 * endgültiger Fehler — ohne Nachspiel-Token gibt es nichts einzulösen.
+	 */
+	nachspieleToken?: string;
+	/** Client-Id für den Auffrisch-Weg — dieselbe wie bei der Autorisierung. */
+	kundenId?: string;
+	/**
+	 * Wird nach einer erfolgreichen Auffrischung genau einmal mit dem neuen
+	 * Zugang gerufen. Diese Datei schreibt ihn nicht zurück — das ist Sache
+	 * des Aufrufers (siehe `verbindungen.ts`, Aufgabe 5).
+	 */
+	zugangAufgefrischt?: (zugang: Zugang) => void;
 }
 
 export class DropboxFehler extends Error {
@@ -93,7 +107,16 @@ function vollerPfad(ordner: string, datei?: string): string {
 }
 
 export function dropboxAdapter(verbindung: DropboxVerbindung): AblageAdapter {
-	const holen = verbindung.holen ?? fetch;
+	const basisHolen = verbindung.holen ?? fetch;
+	const holen =
+		verbindung.nachspieleToken !== undefined && verbindung.kundenId !== undefined
+			? erzeugeAuffrischendesHolen(
+					basisHolen,
+					() => ({ zugangsToken: verbindung.zugangsToken, nachspieleToken: verbindung.nachspieleToken }),
+					(nachspieleToken) => spieleNach(basisHolen, TOKEN_ENDPUNKT, nachspieleToken, { client_id: verbindung.kundenId! }),
+					verbindung.zugangAufgefrischt,
+				)
+			: basisHolen;
 	const kopf = { Authorization: `Bearer ${verbindung.zugangsToken}` };
 
 	return {
@@ -163,6 +186,31 @@ export function dropboxAdapter(verbindung: DropboxVerbindung): AblageAdapter {
 				namen.push(...schwellen.entries.filter((e) => e['.tag'] === 'file').map((e) => e.name));
 			}
 			return namen;
+		},
+
+		/**
+		 * Entfernt die Datei wirklich aus dem App-Ordner. Ein 409 mit
+		 * `path_lookup/not_found` in der `error_summary` heißt „gibt es schon
+		 * nicht mehr" — das Ziel des Aufrufs (danach ist sie nicht mehr da)
+		 * ist damit bereits erreicht, ein Wurf würde einen Aufräumlauf zu
+		 * Unrecht abbrechen. Jeder andere Fehler wirft.
+		 */
+		async lösche(datei) {
+			const antwort = await holen(`${API}/2/files/delete_v2`, {
+				method: 'POST',
+				headers: { ...kopf, 'Content-Type': 'application/json' },
+				body: JSON.stringify({ path: vollerPfad(verbindung.ordner, datei) }),
+			});
+			if (antwort.status === 409) {
+				const zusammenfassung = await fehlermeldung(antwort);
+				if (zusammenfassung.includes('not_found')) {
+					return;
+				}
+				throw new DropboxFehler(`Delete ${datei} scheiterte: ${zusammenfassung}`);
+			}
+			if (!antwort.ok) {
+				throw new DropboxFehler(`Delete ${datei} scheiterte: ${await fehlermeldung(antwort)}`);
+			}
 		},
 	};
 }

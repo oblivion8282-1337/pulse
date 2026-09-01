@@ -41,6 +41,26 @@
  * und Base64 aus dem Krypto-Kern, also aus ASCII. Nutzertext steckt INNEN,
  * im Megolm-Geheimtext, und kommt hier nie vor. Beide Funktionen sind seit
  * Node 16 auch dort global — die Datei bleibt damit importfrei.
+ *
+ * **Seit 2026-09-01 traegt der Verteilschluessel optional zwei weitere
+ * Felder** (Design `docs/superpowers/specs/2026-08-31-ablage-kanaele-
+ * design.md` §3.1): den **Ablage-Hauptschluessel** und die
+ * **Freigabe-Adresse** eines Ablage-Kanals. Beide reisen im selben
+ * Olm-Umschlag wie die Gruppensitzung — ein zweiter Verteilweg haette
+ * denselben Inhalt zweimal durch den Krypto-Kern geschickt, ohne
+ * zusaetzliche Sicherheit zu gewinnen.
+ *
+ * **Bewusst KEIN Fassungssprung.** `FASSUNG` bleibt `1`: die beiden neuen
+ * Felder sind optional und werden nur gesetzt, wenn BEIDE vorhanden sind.
+ * Ein aelterer Klient, der `leseVerteilNutzlast` noch ohne sie kennt, liest
+ * dieselben drei Pflichtfelder wie bisher und ignoriert den Rest des
+ * JSON-Objekts stillschweigend — er „erstickt" nicht an einem erweiterten
+ * Umschlag, er sieht ihn einfach nicht. Ein neuerer Klient, der eine
+ * Nutzlast OHNE die beiden Felder bekommt (private Gruppe, kein
+ * Ablage-Kanal), liest `undefined` — auch das ist der Normalfall, kein
+ * Fehler. Ein Fassungssprung waere hier die falsche Antwort: er haette
+ * JEDEN aelteren Klienten an JEDER Nutzlast dieses Typs scheitern lassen,
+ * nicht nur an den wenigen, die tatsaechlich einen Ablage-Kanal betreffen.
  */
 
 const FASSUNG = 1;
@@ -70,6 +90,14 @@ export type Verteilnutzlast = {
   sitzung: string;
   /** Base64, aus `Gruppensitzung::verteilschluessel()`. NIE loggen. */
   schluessel: string;
+  /** NUR bei Ablage-Kanaelen (Design §3.1): der Ablage-Hauptschluessel des
+   *  Kanalordners, Base64. Immer zusammen mit `freigabeAdresse` gesetzt oder
+   *  gar nicht — die Haelfte eines Paars ist unbrauchbar. NIE loggen. */
+  ablageHauptschluessel?: string;
+  /** NUR bei Ablage-Kanaelen: die Freigabe-Adresse des Kanalordners (Design
+   *  §4.1) — kein Geheimnis im Sinne von Zugangsdaten (ein Faehigkeits-
+   *  Verweis), aber trotzdem nur an Mitglieder verteilt, s. dort. */
+  freigabeAdresse?: string;
 };
 
 export type Gruppenhuelle = {
@@ -78,15 +106,33 @@ export type Gruppenhuelle = {
   nachricht: string;
 };
 
+/** Nur bei Ablage-Kanaelen mitgegeben, s. `Verteilnutzlast`-Kopfkommentar. */
+export interface AblageVerteilzugabe {
+  /** Base64. */
+  hauptschluessel: string;
+  freigabeAdresse: string;
+}
+
 /** Baut die Klartext-Bytes, die anschliessend eine 1:1-Olm-Sitzung
- *  verschluesselt. */
+ *  verschluesselt. `ablage` ist nur bei Ablage-Kanaelen gesetzt (Design
+ *  §3.1) — ohne sie entsteht dieselbe Nutzlast wie bisher, byteidentisch. */
 export function baueVerteilNutzlast(
   kanal: string,
   sitzung: string,
-  schluessel: string
+  schluessel: string,
+  ablage?: AblageVerteilzugabe
 ): Uint8Array {
   return new TextEncoder().encode(
-    JSON.stringify({ v: FASSUNG, typ: TYP_VERTEILSCHLUESSEL, kanal, sitzung, schluessel })
+    JSON.stringify({
+      v: FASSUNG,
+      typ: TYP_VERTEILSCHLUESSEL,
+      kanal,
+      sitzung,
+      schluessel,
+      ...(ablage
+        ? { ablageHauptschluessel: ablage.hauptschluessel, freigabeAdresse: ablage.freigabeAdresse }
+        : {})
+    })
   );
 }
 
@@ -114,7 +160,15 @@ export function leseVerteilNutzlast(bytes: Uint8Array): Verteilnutzlast | null {
   ) {
     return null;
   }
-  return { kanal: o.kanal, sitzung: o.sitzung, schluessel: o.schluessel };
+  const ergebnis: Verteilnutzlast = { kanal: o.kanal, sitzung: o.sitzung, schluessel: o.schluessel };
+  // Nur setzen, wenn BEIDE da sind — s. Modulkopf. Damit bleibt eine
+  // gewoehnliche Nutzlast (kein Ablage-Kanal) exakt das Objekt aus den drei
+  // Pflichtfeldern, keine zusaetzlichen `undefined`-Schluessel.
+  if (typeof o.ablageHauptschluessel === 'string' && typeof o.freigabeAdresse === 'string') {
+    ergebnis.ablageHauptschluessel = o.ablageHauptschluessel;
+    ergebnis.freigabeAdresse = o.freigabeAdresse;
+  }
+  return ergebnis;
 }
 
 /** Baut den `daten`-Wert einer Postfach-Nutzlast der Art

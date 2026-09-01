@@ -87,6 +87,14 @@ function server() {
 				{ status: 200 },
 			);
 		}
+		if (url.endsWith('/files/delete_v2')) {
+			const { path } = JSON.parse(initSafe.body as string) as { path: string };
+			if (!dateien.has(path)) {
+				return new Response(JSON.stringify({ error_summary: 'path_lookup/not_found/.' }), { status: 409 });
+			}
+			dateien.delete(path);
+			return new Response(JSON.stringify({ metadata: { path_lower: path } }), { status: 200 });
+		}
 		return new Response('unbekannt', { status: 404 });
 	};
 	return { holen, dateien, rufe };
@@ -129,5 +137,55 @@ describe('Ablage-Dropbox: Adapter', () => {
 			new Response(JSON.stringify({ error_summary: 'path/lookup/insufficient_permissions/.' }), { status: 409 });
 		const adapter = dropboxAdapter({ zugangsToken: 't-1', ordner: 'k', holen });
 		await assert.rejects(() => adapter.lese('x.puls'), DropboxFehler);
+	});
+
+	it('frischt bei einem 401 über kundenId/nachspieleToken auf und meldet den neuen Zugang zurück', async () => {
+		let versuche = 0;
+		const rufe: string[] = [];
+		const holen: typeof fetch = async (eingabe, init) => {
+			const berechtigung = new Headers(init?.headers).get('Authorization');
+			rufe.push(String(eingabe) + ' ' + berechtigung);
+			if (String(eingabe).includes('oauth2/token')) {
+				return new Response(JSON.stringify({ access_token: 't-2' }), { status: 200 });
+			}
+			versuche += 1;
+			return versuche === 1
+				? new Response('nicht autorisiert', { status: 401 })
+				: new Response(JSON.stringify({ name: 'ok' }), { status: 200 });
+		};
+		let aufgefrischt: unknown = null;
+		const adapter = dropboxAdapter({
+			zugangsToken: 't-1',
+			ordner: 'k',
+			holen,
+			kundenId: 'k-dropbox-1',
+			nachspieleToken: 'n-1',
+			zugangAufgefrischt: (z) => (aufgefrischt = z),
+		});
+		await adapter.schreibe('manifest.puls', bytes('x'));
+		assert.equal((aufgefrischt as { zugangsToken: string }).zugangsToken, 't-2');
+		assert.ok(rufe.some((r) => r.includes('Bearer t-2')));
+	});
+
+	it('löscht eine geschriebene Datei wirklich beim Server', async () => {
+		const box = server();
+		const adapter = dropboxAdapter({ zugangsToken: 't-1', ordner: 'k', holen: box.holen });
+		await adapter.schreibe('manifest.puls', bytes('x'));
+		assert.notEqual(await adapter.lese('manifest.puls'), null);
+		await adapter.lösche!('manifest.puls');
+		assert.equal(await adapter.lese('manifest.puls'), null);
+	});
+
+	it('wirft nicht, wenn die zu löschende Datei schon fehlt', async () => {
+		const box = server();
+		const adapter = dropboxAdapter({ zugangsToken: 't-1', ordner: 'k', holen: box.holen });
+		await adapter.lösche!('nie-geschrieben.puls');
+	});
+
+	it('reicht ein abgewiesenes Löschen als DropboxFehler weiter', async () => {
+		const holen: typeof fetch = async () =>
+			new Response(JSON.stringify({ error_summary: 'path_lookup/insufficient_permissions/.' }), { status: 409 });
+		const adapter = dropboxAdapter({ zugangsToken: 't-1', ordner: 'k', holen });
+		await assert.rejects(() => adapter.lösche!('x.puls'), DropboxFehler);
 	});
 });

@@ -1,7 +1,14 @@
 <script lang="ts">
   /**
    * Ablage-Verbindungs-Assistent — der Dialog zum Verbinden eines
-   * Cloud-Laufwerks. Sechs Anbieter, jeder mit seinem eigenen Weg:
+   * Cloud-Laufwerks. Angeschlossen an `SpeicherSektion.svelte`
+   * (Einstellungen, Aufgabe 5).
+   *
+   * Welche Anbieter angeboten werden, entscheidet `lib/ablage/anbieter.ts` —
+   * OneDrive und S3 sind nach der Entscheidung des Eigentuemers vom
+   * 2026-08-31 nicht im Angebot (Gruende dort im Kopf der Datei).
+   *
+   * Die Wege je Anbieter:
    *
    * - Dropbox / OneDrive / Google Drive: OAuth mit PKCE (braucht eine
    *   App-Registrierung beim Anbieter, Client-ID in der Konfiguration)
@@ -18,7 +25,16 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
-  import { ablageVerbindungen, type AblageVerbindung, type AblageAnbieterArt } from '$lib/ablage/verbindungen.ts';
+  import LockIcon from '@lucide/svelte/icons/lock';
+  import { ablageVerbindungen, type AblageVerbindung } from '$lib/ablage/verbindungen.svelte.ts';
+  import { angeboteneAnbieter, type AblageAnbieterArt } from '$lib/ablage/anbieter.ts';
+  import { ANBIETER_IKONE } from './anbieterIkonen.ts';
+  import { adapterAusVerzeichnis, wähleOrdner, syncOrdnerMoeglich } from '$lib/ablage/syncOrdner.ts';
+  import { legeGriffAb } from '$lib/ablage/ordnerGriff.ts';
+  import { probiere } from '$lib/ablage/probe.ts';
+  import { SCHRITT_TEXT } from '$lib/ablage/probeSchrittText.ts';
+  import { anbieterFuerUmgebung } from '$lib/ablage/anbieterFuerUmgebung.ts';
+  import NextcloudVerbinden from './NextcloudVerbinden.svelte';
 
   let {
     open = false,
@@ -31,14 +47,21 @@
     onVerbunden: (v: AblageVerbindung) => void;
   } = $props();
 
-  const ANBIETER: { art: AblageAnbieterArt; name: string; beschreibung: string; icon: string }[] = [
-    { art: 'dropbox', name: 'Dropbox', beschreibung: 'Mit deinem Dropbox-Konto verbinden — App-Ordner, nur Pulse sieht ihn', icon: '📦' },
-    { art: 'onedrive', name: 'OneDrive', beschreibung: 'Mit deinem Microsoft-Konto verbinden — versteckter App-Ordner', icon: '☁️' },
-    { art: 'gdrive', name: 'Google Drive', beschreibung: 'Nur app-erzeugte Dateien sichtbar — dein restliches Drive bleibt privat', icon: '🔵' },
-    { art: 'nextcloud', name: 'Nextcloud', beschreibung: 'Server-Adresse und App-Passwort angeben', icon: '🌐' },
-    { art: 'sync_ordner', name: 'Sync-Ordner', beschreibung: 'Ein lokaler Ordner — dein Dropbox-/Drive-/Nextcloud-Client trägt die Dateien hoch', icon: '📁' },
-    { art: 's3', name: 'S3-kompatibel', beschreibung: 'Hetzner, Wasabi, MinIO — Endpoint, Bucket und Schlüssel angeben', icon: '🪣' },
-  ];
+  /** Kurzbeschreibung je Anbieter — reiner Anzeigetext, deshalb hier und
+   *  nicht in `anbieter.ts` (die Liste dort bleibt importfrei/rechnend). */
+  const BESCHREIBUNG: Record<AblageAnbieterArt, string> = {
+    dropbox: 'Mit deinem Dropbox-Konto verbinden — App-Ordner, nur Pulse sieht ihn',
+    onedrive: 'Mit deinem Microsoft-Konto verbinden — versteckter App-Ordner',
+    gdrive: 'Nur app-erzeugte Dateien sichtbar — dein restliches Drive bleibt privat',
+    nextcloud: 'Freigabe-Link aus deiner Nextcloud einfügen — mehr braucht es nicht',
+    sync_ordner: 'Ein lokaler Ordner — dein Dropbox-/Drive-/Nextcloud-Client trägt die Dateien hoch',
+    s3: 'Hetzner, Wasabi, MinIO — Endpoint, Bucket und Schlüssel angeben',
+  };
+
+  // Firefox/Safari koennen keinen Ordner waehlen (kein File-System-Access) —
+  // die Ordner-Wahl faellt dort aus der Liste statt erst beim Klick zu
+  // scheitern (Plan Aufgabe 4). Cloud-Anbieter bleiben ueberall dabei.
+  const anbieter = anbieterFuerUmgebung(angeboteneAnbieter(), syncOrdnerMoeglich());
 
   let auswahl: AblageAnbieterArt | null = $state(null);
   let verbinde = $state(false);
@@ -53,7 +76,7 @@
   let s3Geheimnis = $state('');
   let s3Praefix = $state('');
 
-  const brauchtFormular = $derived(auswahl === 'nextcloud' || auswahl === 's3');
+  const brauchtFormular = $derived(auswahl === 's3');
 
   function schliessen(): void {
     auswahl = null;
@@ -68,28 +91,40 @@
 
   async function verbindeSyncOrdner(): Promise<void> {
     verbinde = true;
+    fehler = '';
     try {
-      const wahl = (window as unknown as {
-        showDirectoryPicker?: (o?: { mode?: string }) => Promise<{
-          name: string;
-          getFileHandle(n: string, o?: { create?: boolean }): Promise<{
-            createWritable(): Promise<{ write(d: Uint8Array): Promise<void>; close(): Promise<void> }>;
-            getFile(): Promise<{ arrayBuffer(): Promise<ArrayBuffer> }>;
-          }>;
-          entries(): AsyncIterable<[string, { kind: string }]>;
-          removeEntry(n: string): Promise<void>;
-        }>;
-      }).showDirectoryPicker;
-      if (!wahl) {
+      const verzeichnis = await wähleOrdner();
+      if (!verzeichnis) {
         fehler = 'Dieser Browser kann keine Ordner wählen — Chrome, Edge oder die Desktop-App nehmen.';
         return;
       }
-      const verzeichnis = await wahl({ mode: 'readwrite' });
+
+      // Erst die Probe, dann verbunden melden (Entwurf §6.3): ein Ordner,
+      // der nicht schreiben, lesen oder löschen kann, wird nicht gespeichert
+      // — sonst legt jemand einen Kanal auf einem Laufwerk an, das am Ende
+      // gar nicht taugt.
+      const ergebnis = await probiere(adapterAusVerzeichnis(verzeichnis));
+      if (!ergebnis.gut) {
+        fehler = `Verbindung fehlgeschlagen beim Schritt „${SCHRITT_TEXT[ergebnis.schritt]}": ${ergebnis.grund}`;
+        return;
+      }
+
+      // Die Kennung ist zugleich die Verbindungs-Id UND der Schlüssel, unter
+      // dem `ordnerGriff.ts` das Verzeichnis-Handle in der IndexedDB ablegt
+      // — `adapterFür` findet es beim nächsten Start über `konfiguration.griffId`
+      // wieder (fällt sonst auf die Verbindungs-Id selbst zurück).
+      const griffId = `sync-${Date.now()}`;
+      const abgelegt = await legeGriffAb(griffId, verzeichnis);
+      if (!abgelegt) {
+        fehler = 'Der Ordner-Zugriff konnte nicht gespeichert werden — nach einem Neuladen müsste er neu gewählt werden.';
+        return;
+      }
+
       const verbindung: AblageVerbindung = {
-        id: `sync-${Date.now()}`,
+        id: griffId,
         anbieter: 'sync_ordner',
         name: verzeichnis.name,
-        konfiguration: {},
+        konfiguration: { griffId },
         hauptschlüsselB64: btoa(String.fromCharCode(...globalThis.crypto.getRandomValues(new Uint8Array(32)))),
         verbundenAm: new Date().toISOString(),
       };
@@ -132,16 +167,17 @@
 
     {#if !auswahl}
       <div class="space-y-2">
-        {#each ANBIETER as a}
+        {#each anbieter as a (a.art)}
+          {@const Icon = ANBIETER_IKONE[a.art]}
           <button
             class="flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:border-primary hover:bg-accent"
             onclick={() => wähle(a.art)}
             data-testid="anbieter-{a.art}"
           >
-            <span class="text-2xl">{a.icon}</span>
+            <Icon class="text-text-muted size-6 shrink-0" />
             <div>
               <div class="font-semibold">{a.name}</div>
-              <div class="text-xs text-muted-foreground">{a.beschreibung}</div>
+              <div class="text-xs text-muted-foreground">{BESCHREIBUNG[a.art]}</div>
             </div>
           </button>
         {/each}
@@ -155,6 +191,13 @@
         <Button onclick={verbindeSyncOrdner} disabled={verbinde} data-testid="sync-ordner-wählen">
           Ordner wählen
         </Button>
+      {:else if auswahl === 'nextcloud'}
+        <NextcloudVerbinden
+          onVerbunden={(v: AblageVerbindung) => {
+            onVerbunden(v);
+            schliessen();
+          }}
+        />
       {:else}
         <p class="mb-4 text-sm text-muted-foreground">
           Die Verbindung für <strong>{auswahl}</strong> braucht die Krypto-Etappe —
@@ -169,7 +212,8 @@
     {/if}
 
     <div class="mt-4 flex items-center gap-2 border-t pt-3 text-xs text-muted-foreground">
-      🔒 Deine Schlüssel verlassen dieses Gerät nie. Der Pulse-Server sieht
+      <LockIcon class="size-3.5 shrink-0" />
+      Deine Schlüssel verlassen dieses Gerät nie. Der Pulse-Server sieht
       weder deine Dateien noch deine Zugangsdaten.
     </div>
 

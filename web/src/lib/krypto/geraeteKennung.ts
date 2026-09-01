@@ -7,11 +7,18 @@
  * `certStore.cert.claims.device_pubkey` selbst (`veroeffentlichen.ts`,
  * `verfallPruefen.ts`, `senden.ts` und `gruppe/senden.ts`, von dort weiter
  * in `empfaengerGeraete.ts` und `gruppe/gruppengeraete.ts`) — Stellen, die
- * alle umfallen, wenn das Zertifikat verschwindet. Jetzt lesen sie diese
- * eine Datei, die den Wert in der Identitaets-Datenbank ablegt und von dort
- * herausgibt. Solange es ein Zertifikat gibt, ist sein Wert massgeblich;
- * faellt es weg, traegt der abgelegte weiter. Der Import des Geraete-Pubkeys
- * unten ist damit die einzige Zeile, die der spaetere Schnitt anfassen muss.
+ * alle umgefallen waeren, als das Zertifikat verschwand. Jetzt lesen sie
+ * diese eine Datei, die den Wert in der Identitaets-Datenbank ablegt und von
+ * dort herausgibt.
+ *
+ * **Der Schnitt ist inzwischen erfolgt.** Zertifikate gibt es seit dem
+ * Weg-A-Umbau nicht mehr (Cloud-Tickets haben sie abgeloest); massgeblich ist
+ * hier der oeffentliche Teil des Geraete-Schluesselpaars
+ * (`identity/keypair.svelte.ts`), und der abgelegte Wert traegt weiter, wenn
+ * gerade kein Schluesselpaar geladen ist. Die Kommentare dieser Datei sprachen
+ * bis zum 2026-08-31 weiter vom Zertifikat, obwohl der Code es schon nicht
+ * mehr las — dieselbe Sorte veralteter Behauptung, die den E2E-Test
+ * `krypto-veroeffentlichen.spec.ts` einen Fehlalarm melden liess.
  *
  * **Der Wert bleibt derselbe wie bisher, und das ist keine Zwischenloesung
  * aus Bequemlichkeit:** die veroeffentlichten Schluesselbuendel des Servers
@@ -20,7 +27,7 @@
  * neue Kennung waere kein Umzug, sondern ein zweites, leeres Geraet neben
  * dem eigenen.
  *
- * Sie wird zusammen mit Anmeldeschluessel und Zertifikat gewischt
+ * Sie wird zusammen mit dem Anmeldeschluessel gewischt
  * (`auth.svelte.ts`) — sonst behielte der naechste Nutzer am selben Fenster
  * die Kennung des vorigen, waehrend der Server ihn unter einer neuen fuehrt.
  */
@@ -37,13 +44,12 @@ export const IDB_KEY_GERAETEKENNUNG = 'pulse.krypto-geraetekennung';
 
 /**
  * Die Kennung dieses Geraets. Legt sie beim ersten Aufruf an und zieht sie
- * nach, wenn das Zertifikat einen anderen Wert traegt.
+ * nach, wenn das Geraete-Schluesselpaar einen anderen Wert traegt.
  *
  * Wirft `KEINE_GERAETEKENNUNG`, wenn weder etwas abgelegt ist noch ein
- * Zertifikat vorliegt. Die Aufrufer pruefen alle vorher auf ein Zertifikat
- * und kommen in diesem Zustand gar nicht erst hierher; der Wurf ist der
- * Riegel gegen eine kuenftige Stelle, die das vergisst — eine leere Kennung
- * waere ein Umschlag an niemanden.
+ * Schluesselpaar geladen werden kann. Der Wurf ist der Riegel gegen eine
+ * Stelle, die ohne beides hierherkommt — eine leere Kennung waere ein
+ * Umschlag an niemanden.
  */
 export async function geraeteKennung(): Promise<string> {
   const db = await openIdentityDb();

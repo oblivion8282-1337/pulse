@@ -3,12 +3,68 @@
  * Bughunt 2026-08-28/29, belegter Fehler), als die Datei mit der
  * Wiederherstellungslogik ueber die Groessen-Policy (PLAN.md §12.1)
  * gewachsen waere. Der Umzug selbst aendert kein Verhalten.
+ *
+ * **`verteilUmschlaege` kam am 2026-09-01 dazu** (Etappe E6, Ablage-Kanal):
+ * derselbe Verteilschritt, den `senden.ts` fuer private Gruppen brauchte,
+ * braucht `kanalSenden.ts` unveraendert fuer Ablage-Kanaele — beide bauen
+ * Olm-Umschlaege fuer denselben Megolm-Verteilschluessel, nur die Herkunft
+ * der Mitgliederliste unterscheidet sich (davor). Ein zweites Mal
+ * hingeschrieben waere die Funktion eine zweite Stelle, an der ein Fehler in
+ * der Sitzungssperren-Reihenfolge einschleichen koennte, ohne dass ein Test
+ * den Abstand zwischen beiden Kopien pruefte.
  */
 import { postfachApi, type PostfachNutzlast } from '../../api/postfach';
 import { serversStore } from '../../api/servers.svelte';
+import { kryptoAccountLaden } from '../account.svelte';
+import { sitzungLaden, sitzungSichern, mitSitzungssperre } from '../sitzungen';
+import { baueVerteilNutzlast, type AblageVerteilzugabe } from './gruppenNutzlast';
+import type { Gruppenzielgeraet } from './gruppengeraete';
 
 function cloudRoute(): { serverId?: string } {
   return { serverId: serversStore.cloudId() };
+}
+
+/** Baut je Zielgeraet einen Olm-Umschlag mit dem Verteilschluessel. Geraete
+ *  ohne verwertbaren Schluessel werden uebersprungen — sie bekommen ihn beim
+ *  naechsten Mal, weil sie dann immer noch nicht in `beliefert` stehen.
+ *  Ob ein gebauter Umschlag den Server auch WIRKLICH erreicht, entscheidet
+ *  erst `bloeckeEinliefern` — hier entsteht nur die Kandidatenliste.
+ *
+ *  `ablage` ist nur bei Ablage-Kanaelen gesetzt: der Aufrufer gibt ihn
+ *  weiter, wenn DIESES Geraet den Ablage-Hauptschluessel und die
+ *  Freigabe-Adresse des Kanals kennt (Design §3.1) — jedes Ziel-Geraet
+ *  dieses Aufrufs bekommt dann alle drei Dinge in einem Umschlag. */
+export async function verteilUmschlaege(
+  kanalId: string,
+  sitzungId: string,
+  verteilschluessel: string,
+  ziel: Gruppenzielgeraet[],
+  ablage?: AblageVerteilzugabe
+): Promise<PostfachNutzlast[]> {
+  const ident = await kryptoAccountLaden();
+  const klartext = baueVerteilNutzlast(kanalId, sitzungId, verteilschluessel, ablage);
+  const nutzlasten: PostfachNutzlast[] = [];
+  for (const { geraet } of ziel) {
+    const umschlag = await mitSitzungssperre(kanalId, geraet.device_pubkey, async () => {
+      let sitzung = await sitzungLaden(kanalId, geraet.device_pubkey);
+      if (!sitzung) {
+        const einmal = geraet.einmalschluessel ?? geraet.rueckfallschluessel;
+        if (!einmal) return null;
+        sitzung = ident.sitzungAusgehend(geraet.curve25519, einmal);
+      }
+      const gebaut = sitzung.verschluesseln(klartext);
+      // Sichern VOR dem Einliefern — s. `../sitzungen.ts`-Modulkopf.
+      await sitzungSichern(kanalId, geraet.device_pubkey, sitzung);
+      return gebaut;
+    });
+    if (!umschlag) continue;
+    nutzlasten.push({
+      art: umschlag.art(),
+      daten: umschlag.daten(),
+      empfaenger: [geraet.device_pubkey]
+    });
+  }
+  return nutzlasten;
 }
 
 /**

@@ -41,7 +41,7 @@ async function register(page: Page, u: { username: string; email: string; passwo
 }
 
 /** Liest `device_pubkey` aus dem in `pulse-identity` (IndexedDB) abgelegten
- *  Cert — dieselbe Kennung, mit der der Server das Buendel verzeichnet
+ *  Ablage — dieselbe Kennung, mit der der Server das Buendel verzeichnet
  *  (`DeviceKeyBundle.device_pubkey`). ZUERST nachsehen, OB die Datenbank
  *  existiert: `indexedDB.open(name)` ohne Version legt sie sonst leer an und
  *  blockiert die eigene Migration der App — derselbe Fallstrick wie in
@@ -61,10 +61,18 @@ async function devicePubkey(page: Page): Promise<string> {
             return;
           }
           const tx = db.transaction('identity', 'readonly');
-          const get = tx.objectStore('identity').get('pulse.identity-cert');
+          // `pulse.krypto-geraetekennung` — die Kennung dieses Geraets, wie
+          // `krypto/geraeteKennung.ts` sie ablegt. Bis zum 2026-08-31 stand
+          // hier `pulse.identity-cert` und wurde nach `claims.device_pubkey`
+          // durchsucht: das Geraetezertifikat, das es seit dem Weg-A-Umbau
+          // nicht mehr gibt (die Cloud-Tickets haben es abgeloest, und
+          // `4f5b2062` hat die Reste entfernt). Der Test wartete deshalb
+          // zehnmal vergeblich und meldete "Issue-Flow lief nicht durch" —
+          // ein Fehlalarm, der wie ein Produktfehler aussah.
+          const get = tx.objectStore('identity').get('pulse.krypto-geraetekennung');
           get.onsuccess = () => {
-            const cert = get.result as { claims?: { device_pubkey?: string } } | undefined;
-            resolve(cert?.claims?.device_pubkey ?? null);
+            const kennung = get.result as string | undefined;
+            resolve(typeof kennung === 'string' && kennung !== '' ? kennung : null);
           };
           get.onerror = () => reject(get.error);
         };
@@ -73,7 +81,9 @@ async function devicePubkey(page: Page): Promise<string> {
     if (wert) return wert;
     await page.waitForTimeout(300);
   }
-  throw new Error('device_pubkey nie in pulse-identity aufgetaucht — Issue-Flow lief nicht durch');
+  throw new Error(
+    'Geraetekennung nie in pulse-identity aufgetaucht — Anmelde-Hook lief nicht durch'
+  );
 }
 
 interface GeraeteSchluessel {

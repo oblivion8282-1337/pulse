@@ -10,6 +10,7 @@
 import {
 	auffrischeZugang as spieleNach,
 	autorisierungsUrl,
+	erzeugeAuffrischendesHolen,
 	tauscheCodeAus as tausche,
 	type Pkce,
 	type Zugang,
@@ -37,6 +38,22 @@ export interface GdriveVerbindung {
 	/** Ablage-Ordner als Drive-Pfad im App-Sichtbereich, z. B. Pulse/ablage/kanal-1 */
 	ordner: string;
 	holen?: typeof fetch;
+	/**
+	 * Nachspiel-Token für den Auffrisch-Weg. Fehlt es, bleibt ein 401 ein
+	 * endgültiger Fehler — ohne Nachspiel-Token gibt es nichts einzulösen.
+	 */
+	nachspieleToken?: string;
+	/** Client-Id für den Auffrisch-Weg — dieselbe wie bei der Autorisierung. */
+	kundenId?: string;
+	/** Siehe Kommentar bei `GdriveAnbindung.kundenGeheimnis` — Google verlangt
+	 *  es auch am Refresh-Aufruf. */
+	kundenGeheimnis?: string;
+	/**
+	 * Wird nach einer erfolgreichen Auffrischung genau einmal mit dem neuen
+	 * Zugang gerufen. Diese Datei schreibt ihn nicht zurück — das ist Sache
+	 * des Aufrufers (siehe `verbindungen.ts`, Aufgabe 5).
+	 */
+	zugangAufgefrischt?: (zugang: Zugang) => void;
 }
 
 export class GdriveFehler extends Error {
@@ -109,24 +126,58 @@ export function multipartErzeugen(metadaten: object, inhalt: Uint8Array): { koer
 	return { koerper, grenze };
 }
 
+type Fund = { id: string; name: string; modifiedTime?: string };
+
+/**
+ * Drive erzwingt keine Namens-Eindeutigkeit in einem Ordner — zwei Geräte,
+ * die fast gleichzeitig `dateiIdHolen` mit „nicht gefunden" beantwortet
+ * bekommen, können beide anlegen. Taucht das auf, wird deterministisch die
+ * zuletzt geänderte Datei als die gültige behandelt (sonst würde ein
+ * Lesevorgang zufällig zwischen den Dubletten springen, je nach Googles
+ * Suchsortierung). Bei gleichem `modifiedTime` (Sekundenauflösung, zwei
+ * Schreibvorgänge in derselben Sekunde möglich) entscheidet die Id als
+ * fester Tiebreaker. Die verworfenen Dubletten werden NICHT gelöscht — ein
+ * anderes Gerät könnte gerade noch mit dem alten Stand rechnen — und
+ * bleiben als Speicherleiche im Ordner liegen.
+ */
+function neuesteWaehlen(funde: Fund[]): Fund {
+	return [...funde].sort((a, b) => {
+		const zeit = (b.modifiedTime ?? '').localeCompare(a.modifiedTime ?? '');
+		return zeit !== 0 ? zeit : a.id.localeCompare(b.id);
+	})[0];
+}
+
 export function gdriveAdapter(verbindung: GdriveVerbindung): AblageAdapter {
-	const holen = verbindung.holen ?? fetch;
+	const basisHolen = verbindung.holen ?? fetch;
+	const holen =
+		verbindung.nachspieleToken !== undefined && verbindung.kundenId !== undefined
+			? erzeugeAuffrischendesHolen(
+					basisHolen,
+					() => ({ zugangsToken: verbindung.zugangsToken, nachspieleToken: verbindung.nachspieleToken }),
+					(nachspieleToken) =>
+						spieleNach(basisHolen, TOKEN_ENDPUNKT, nachspieleToken, {
+							client_id: verbindung.kundenId!,
+							...(verbindung.kundenGeheimnis !== undefined ? { client_secret: verbindung.kundenGeheimnis } : {}),
+						}),
+					verbindung.zugangAufgefrischt,
+				)
+			: basisHolen;
 	const kopf = { Authorization: `Bearer ${verbindung.zugangsToken}` };
 	const dateiIdNachName = new Map<string, string>();
 
-	async function abfrage(q: string): Promise<{ id: string; name: string }[]> {
+	async function abfrage(q: string): Promise<Fund[]> {
 		const adresse = new URL('https://www.googleapis.com/drive/v3/files');
 		adresse.searchParams.set('q', q);
-		adresse.searchParams.set('fields', 'nextPageToken,files(id,name)');
+		adresse.searchParams.set('fields', 'nextPageToken,files(id,name,modifiedTime)');
 		adresse.searchParams.set('pageSize', '200');
-		const funde: { id: string; name: string }[] = [];
+		const funde: Fund[] = [];
 		while (adresse !== null) {
 			const antwort = await holen(adresse.toString(), { headers: kopf });
 			if (!antwort.ok) {
 				throw new GdriveFehler(`Suche scheiterte: HTTP ${antwort.status}`);
 			}
 			const seite = (await antwort.json()) as {
-				files?: { id: string; name: string }[];
+				files?: Fund[];
 				nextPageToken?: string;
 			};
 			funde.push(...(seite.files ?? []));
@@ -165,19 +216,43 @@ export function gdriveAdapter(verbindung: GdriveVerbindung): AblageAdapter {
 	let ordnerId: Promise<string> | null = null;
 	const ordnerSichern = (): Promise<string> => (ordnerId ??= ordnerIdHolen());
 
-	async function dateiIdHolen(ordner: string, name: string): Promise<string | null> {
-		const bekannt = dateiIdNachName.get(name);
-		if (bekannt !== undefined) {
-			return bekannt;
+	/** `cacheUmgehen`: fragt trotz Treffer im Gedächtnis erneut bei Drive nach —
+	 *  fürs erneute Nachsehen unmittelbar vor dem Neuanlegen (Race-Fenster). */
+	async function dateiIdHolen(
+		ordner: string,
+		name: string,
+		cacheUmgehen = false,
+	): Promise<string | null> {
+		if (!cacheUmgehen) {
+			const bekannt = dateiIdNachName.get(name);
+			if (bekannt !== undefined) {
+				return bekannt;
+			}
 		}
 		const funde = await abfrage(
 			`name = '${name}' and '${ordner}' in parents and trashed = false`,
 		);
 		if (funde.length === 0) {
+			dateiIdNachName.delete(name);
 			return null;
 		}
-		dateiIdNachName.set(name, funde[0].id);
-		return funde[0].id;
+		const gewaehlt = neuesteWaehlen(funde);
+		dateiIdNachName.set(name, gewaehlt.id);
+		return gewaehlt.id;
+	}
+
+	async function aktualisieren(datei: string, id: string, inhalt: Uint8Array): Promise<void> {
+		const antwort = await holen(
+			`https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=media`,
+			{
+				method: 'PATCH',
+				headers: { ...kopf, 'Content-Type': 'application/octet-stream' },
+				body: inhalt as unknown as BodyInit,
+			},
+		);
+		if (!antwort.ok) {
+			throw new GdriveFehler(`Update ${datei} scheiterte: HTTP ${antwort.status}`);
+		}
 	}
 
 	return {
@@ -185,17 +260,24 @@ export function gdriveAdapter(verbindung: GdriveVerbindung): AblageAdapter {
 			const ordner = await ordnerSichern();
 			const bekannt = await dateiIdHolen(ordner, datei);
 			if (bekannt !== null) {
-				const antwort = await holen(
-					`https://www.googleapis.com/upload/drive/v3/files/${bekannt}?uploadType=media`,
-					{
-						method: 'PATCH',
-						headers: { ...kopf, 'Content-Type': 'application/octet-stream' },
-						body: inhalt as unknown as BodyInit,
-					},
-				);
-				if (!antwort.ok) {
-					throw new GdriveFehler(`Update ${datei} scheiterte: HTTP ${antwort.status}`);
-				}
+				await aktualisieren(datei, bekannt, inhalt);
+				return;
+			}
+			// Zwischen der Abfrage oben und hier kann ein anderes Gerät die
+			// Datei angelegt haben (kein Zwischenspeicher-Treffer verhindert
+			// das, weil noch keiner existierte) — unmittelbar vor dem
+			// Neuanlegen ohne Zwischenspeicher NOCH EINMAL nachsehen und bei
+			// einem Treffer auf Aktualisieren umschwenken. Das verkleinert
+			// das Zeitfenster auf die Spanne zwischen dieser Abfrage und dem
+			// folgenden POST, schließt es aber NICHT: legen zwei Geräte
+			// innerhalb dieser Millisekunden gleichzeitig an, entstehen
+			// trotzdem zwei Dateien — Drive kennt kein atomares
+			// „erzeuge nur, wenn nicht vorhanden". Für diesen Rest-Fall sorgt
+			// `neuesteWaehlen` beim nächsten Lesen für einen deterministischen
+			// statt zufälligen Stand.
+			const geradeAngelegt = await dateiIdHolen(ordner, datei, true);
+			if (geradeAngelegt !== null) {
+				await aktualisieren(datei, geradeAngelegt, inhalt);
 				return;
 			}
 			const { koerper, grenze } = multipartErzeugen(
@@ -243,10 +325,53 @@ export function gdriveAdapter(verbindung: GdriveVerbindung): AblageAdapter {
 			const funde = await abfrage(
 				`'${ordner}' in parents and mimeType != '${ORDNER_MIME}' and trashed = false`,
 			);
+			// Gleiche Dublette-Regel wie beim gezielten Lesen: pro Name zählt
+			// nur die zuletzt geänderte Datei, sonst tauchte ein Dubletten-Name
+			// zweimal in der Liste auf.
+			const nachName = new Map<string, Fund>();
 			for (const f of funde) {
-				dateiIdNachName.set(f.name, f.id);
+				const bisher = nachName.get(f.name);
+				nachName.set(f.name, bisher === undefined ? f : neuesteWaehlen([bisher, f]));
 			}
-			return funde.map((f) => f.name);
+			for (const [name, f] of nachName) {
+				dateiIdNachName.set(name, f.id);
+			}
+			return [...nachName.keys()];
+		},
+
+		/**
+		 * Entfernt die Datei wirklich aus Drive.
+		 *
+		 * Dubletten-Entscheidung: fragt NICHT den Zwischenspeicher (der kennt
+		 * nur die zuletzt gesehene, per `neuesteWaehlen` „gültige" Id), sondern
+		 * sucht alle Dateien mit diesem Namen im Ordner und löscht JEDE davon.
+		 * Grund: bliebe eine ältere Dublette liegen, würde `dateiIdHolen` sie
+		 * beim nächsten Aufruf ganz regulär wiederfinden und als „die Datei"
+		 * behandeln — der Nutzer hätte gelöscht und die Datei käme zurück. Das
+		 * widerspricht dem Ziel des Aufrufs (danach ist sie nicht mehr da)
+		 * härter als das Liegenlassen einer Dublette beim Schreiben (dort gibt
+		 * es noch einen aktuellen, gültigen Stand unter demselben Namen).
+		 * Eine bereits fehlende Datei — kein Treffer, oder ein 404 auf eine
+		 * zwischenzeitlich verschwundene Id — ist kein Fehler.
+		 */
+		async lösche(datei) {
+			const ordner = await ordnerSichern();
+			const funde = await abfrage(
+				`name = '${datei}' and '${ordner}' in parents and trashed = false`,
+			);
+			dateiIdNachName.delete(datei);
+			for (const fund of funde) {
+				const antwort = await holen(`https://www.googleapis.com/drive/v3/files/${fund.id}`, {
+					method: 'DELETE',
+					headers: kopf,
+				});
+				if (antwort.status === 404) {
+					continue;
+				}
+				if (!antwort.ok) {
+					throw new GdriveFehler(`Delete ${datei} scheiterte: HTTP ${antwort.status}`);
+				}
+			}
 		},
 	};
 }

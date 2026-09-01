@@ -30,6 +30,7 @@ import LockIcon from '@lucide/svelte/icons/lock';
 import ServerIcon from '@lucide/svelte/icons/server';
 import MonitorCogIcon from '@lucide/svelte/icons/monitor-cog';
 import UserIcon from '@lucide/svelte/icons/user';
+import HardDriveIcon from '@lucide/svelte/icons/hard-drive';
 import { m } from '$lib/paraglide/messages.js';
 import type { SettingsTab } from './SettingsDialog.svelte';
 
@@ -73,6 +74,7 @@ export function getSettingsTabs(): SettingsTabDef[] {
     { id: 'privacy', label: m.settings_dialog_tab_privacy(), icon: LockIcon },
     { id: 'security', label: m.settings_dialog_tab_security(), icon: ShieldIcon },
     { id: 'sicherung', label: m.settings_dialog_tab_sicherung(), icon: CloudUploadIcon },
+    { id: 'storage', label: m.settings_dialog_tab_storage(), icon: HardDriveIcon },
     { id: 'apps', label: m.settings_dialog_tab_apps(), icon: DownloadIcon, browserOnly: true },
     { id: 'experimental', label: m.settings_dialog_tab_diagnostics(), icon: PlugZapIcon, electronOnly: true },
   ];

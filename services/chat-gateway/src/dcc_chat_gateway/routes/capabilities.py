@@ -41,16 +41,24 @@ def _upload_policy() -> dict[str, object]:
     the gates in attachments.py / the dropbox router never fire there. Purely
     a UI hint — the server enforces the same rules independently."""
     settings = chat_config.get_settings()
+    # ``ablage_anhang_max_bytes`` gilt auf JEDER Instanzart gleich (Design
+    # §11.3) und steht deshalb ausserhalb der Cloud-Fallunterscheidung: die
+    # Grenze schuetzt nicht den eigenen Speicher, sondern die fremden
+    # Cloud-Ordner, in die der Anhang wandert — daran aendert sich nichts,
+    # nur weil ein Self-Host ihn verschickt.
+    anhang_grenze = {"ablage_anhang_max_bytes": settings.ablage_anhang_max_bytes}
     if settings.pulse_instance_mode != "cloud":
         return {
             "dm_attachments_enabled": True,
             "dropbox_enabled": True,
             "attachment_mime_prefixes": [],
+            **anhang_grenze,
         }
     return {
         "dm_attachments_enabled": settings.cloud_dm_attachments_enabled,
         "dropbox_enabled": settings.cloud_dropbox_enabled,
         "attachment_mime_prefixes": settings.cloud_attachment_mime_prefix_list,
+        **anhang_grenze,
     }
 
 

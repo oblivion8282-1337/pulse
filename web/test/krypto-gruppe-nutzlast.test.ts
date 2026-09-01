@@ -42,6 +42,76 @@ test('alles, was kein Verteilschluessel ist, ergibt null', () => {
   );
 });
 
+test('ein Verteilschluessel mit Ablage-Zugabe traegt beide neuen Felder', () => {
+  const bytes = baueVerteilNutzlast('99', 'sitz-1', 'AAAAschluessel', {
+    hauptschluessel: 'SGF1cHRzY2hsdWVzc2Vs',
+    freigabeAdresse: 'https://cloud.example/public.php/dav/files/TOKEN'
+  });
+  assert.deepEqual(leseVerteilNutzlast(bytes), {
+    kanal: '99',
+    sitzung: 'sitz-1',
+    schluessel: 'AAAAschluessel',
+    ablageHauptschluessel: 'SGF1cHRzY2hsdWVzc2Vs',
+    freigabeAdresse: 'https://cloud.example/public.php/dav/files/TOKEN'
+  });
+});
+
+test('ohne Ablage-Zugabe entsteht dieselbe Nutzlast wie zuvor — byteidentisch', () => {
+  // Wichtig fuer Rueckwaertskompatibilitaet: eine private Gruppe (kein
+  // Ablage-Kanal) darf durch die Erweiterung kein einziges zusaetzliches
+  // Byte auf die Leitung bekommen.
+  const ohneAblage = baueVerteilNutzlast('99', 'sitz-1', 'AAAAschluessel');
+  const explizitUndefined = baueVerteilNutzlast('99', 'sitz-1', 'AAAAschluessel', undefined);
+  assert.deepEqual(ohneAblage, explizitUndefined);
+  assert.deepEqual(leseVerteilNutzlast(ohneAblage), {
+    kanal: '99',
+    sitzung: 'sitz-1',
+    schluessel: 'AAAAschluessel'
+  });
+});
+
+test('ein aelterer Klient liest eine erweiterte Nutzlast, ohne zu ersticken', () => {
+  // Simuliert einen Server/Absender-seitigen erweiterten Umschlag, den ein
+  // aelterer `leseVerteilNutzlast` (vor dieser Aenderung) nur ueber die drei
+  // Pflichtfelder gekannt haette — hier geprueft ueber ein handgebautes
+  // JSON, das ein zusaetzliches, unbekanntes Feld traegt.
+  const enc = new TextEncoder();
+  const bytes = enc.encode(
+    JSON.stringify({
+      v: 1,
+      typ: 'gruppenschluessel',
+      kanal: '99',
+      sitzung: 'sitz-1',
+      schluessel: 'AAAAschluessel',
+      einFeldDasEsNochNichtGab: 'egal'
+    })
+  );
+  assert.deepEqual(leseVerteilNutzlast(bytes), {
+    kanal: '99',
+    sitzung: 'sitz-1',
+    schluessel: 'AAAAschluessel'
+  });
+});
+
+test('nur EINES der beiden Ablage-Felder zaehlt als keines — die Haelfte eines Paars ist unbrauchbar', () => {
+  const enc = new TextEncoder();
+  const nurHauptschluessel = enc.encode(
+    JSON.stringify({
+      v: 1,
+      typ: 'gruppenschluessel',
+      kanal: '99',
+      sitzung: 'sitz-1',
+      schluessel: 'AAAAschluessel',
+      ablageHauptschluessel: 'SGF1cHRzY2hsdWVzc2Vs'
+    })
+  );
+  assert.deepEqual(leseVerteilNutzlast(nurHauptschluessel), {
+    kanal: '99',
+    sitzung: 'sitz-1',
+    schluessel: 'AAAAschluessel'
+  });
+});
+
 test('eine gewoehnliche Nachricht ist kein Verteilschluessel und umgekehrt', () => {
   const nachricht = baueNachrichtNutzlast('hallo', '123', null);
   assert.equal(leseVerteilNutzlast(nachricht), null);

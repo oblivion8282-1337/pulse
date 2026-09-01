@@ -98,6 +98,15 @@ def _isolate_chat_settings():
     # ``test_kopplung.py`` drei davon — und das dritte verdraengte bei
     # geleaktem Limit das erste, mitten in einem Test ueber Rollen.
     _TEST_SETTINGS.schluessel_max_buendel_je_konto = 20
+    # Anhang-Obergrenze (Design §11.3): derselbe Leak-Grund. Der Test, der
+    # belegt, dass die Grenze wirklich aus der EINSTELLUNG kommt
+    # (``test_postfach_anhaenge_laufwerk.py``), muss sie dafuer verstellen —
+    # und ohne diese Zeile trug er sie in jeden spaeteren Test derselben
+    # Sitzung weiter, wo dann jeder Upload mit 413 scheiterte. Genau der Fall,
+    # vor dem die Kommentare darueber warnen; er trat prompt beim ersten
+    # gemeinsamen Lauf zweier Anhang-Dateien in EINEM Prozess auf (unter
+    # ``-n 8`` lagen sie in verschiedenen Prozessen und es fiel nicht auf).
+    _TEST_SETTINGS.ablage_anhang_max_bytes = 25 * 1024 * 1024
 
     def _provider() -> chat_cfg.Settings:
         return _TEST_SETTINGS

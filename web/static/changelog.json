@@ -2,6 +2,38 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-01.2",
+      "date": "2026-09-01",
+      "style": "Sachlich",
+      "title": "Anhänge liegen künftig in deinem eigenen Speicher",
+      "intro": "Ein Bild in einem verschlüsselten Gespräch war bisher schnell wieder weg. Das ändert sich.",
+      "items": [
+        "Bisher hat Pulse den Anhang gelöscht, sobald ihn alle Geräte abgeholt hatten — oft nach wenigen Minuten. Wer ihn nie geöffnet hatte, hatte ihn verloren.",
+        "Jetzt legt Pulse dieselbe verschlüsselte Datei in das Cloud-Laufwerk jedes Beteiligten und gibt die eigene Kopie frei. Öffnen kannst du sie danach jederzeit, auch in Wochen — sie liegt in deinem Speicher.",
+        "Lesen kann sie dort niemand ausser den Beteiligten. Auch nicht dein Cloud-Anbieter und auch nicht Pulse: verschlüsselt wird auf deinem Gerät, und der Dateiname steht ebenfalls nur in der verschlüsselten Nachricht.",
+        "Dafür braucht jeder Beteiligte ein verbundenes Laufwerk. Fehlt eines, erscheint die Büroklammer gar nicht erst, und darüber steht, an wem es liegt. Textnachrichten funktionieren unverändert weiter.",
+      "Trennst du dein Laufwerk in den Einstellungen, meldet Pulse es jetzt auch beim Server ab und schreibt nichts mehr dorthin. Was schon in deiner Cloud liegt, bleibt dort liegen — aufräumen kannst nur du selbst.",
+        "Je Datei sind 25 MB möglich. Zu grosse Dateien sagt Pulse dir vor dem Hochladen, nicht danach."
+      ],
+      "outro": "Aufräumen im eigenen Cloud-Speicher kommt in einem späteren Schritt."
+    },
+    {
+      "id": "2026-09-01",
+      "date": "2026-09-01",
+      "style": "Sachlich",
+      "title": "Eigener Speicher — verbinden, sichern, mitnehmen",
+      "intro": "Pulse kann deine Daten verschlüsselt auf deinem eigenen Cloud-Speicher ablegen. Der Bereich dafür ist da, samt Sicherheitsnetz.",
+      "items": [
+        "In den Einstellungen gibt es den neuen Bereich „Speicher\". Dort verbindest du ein Laufwerk — Google Drive, Nextcloud oder Dropbox — und siehst, wie es ihm geht.",
+        "Nextcloud verbindest du mit einem Freigabe-Link: in Nextcloud eine Freigabe mit Schreibrecht anlegen, Link einfügen, fertig. Kein App-Passwort, und zurückziehen kannst du ihn dort mit einem Klick.",
+        "Beim Verbinden wird das Laufwerk sofort geprüft: einmal schreiben, lesen, vergleichen, löschen. Kann es das nicht, erfährst du es hier und nicht erst, wenn etwas fehlt.",
+        "Eine abgelaufene Anmeldung beim Cloud-Anbieter erneuert sich von selbst. Bisher endete die Verbindung dabei stillschweigend.",
+        "Neu ist ein Wiederherstellungs-Code. Er wird einmal angezeigt, und du solltest ihn aufschreiben: Ohne ihn ist dein Archiv nach dem Verlust aller Geräte endgültig unlesbar — auch für uns. Mit ihm kommt ein neues Gerät an dieselben Daten.",
+        "Ein Knopf „Alles lesbar exportieren\" gibt dein Archiv als gewöhnliche Text- und Anhangdateien heraus. Was dabei fehlt, steht in einer Übersicht statt still zu verschwinden."
+      ],
+      "outro": "Die verschlüsselten Kanäle, die diesen Speicher nutzen, sind gebaut und werden nach weiteren Tests freigeschaltet."
+    },
+    {
       "id": "2026-08-28.4",
       "date": "2026-08-28",
       "style": "Sachlich",

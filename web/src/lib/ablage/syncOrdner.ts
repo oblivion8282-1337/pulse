@@ -34,6 +34,28 @@ export function syncOrdnerMoeglich(): boolean {
 	return typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 }
 
+type FsaFenster = Window & {
+	showDirectoryPicker?: (o?: {
+		mode?: 'read' | 'readwrite';
+	}) => Promise<AblageVerzeichnis & { name: string }>;
+};
+
+/**
+ * Öffnet den Verzeichnis-Dialog (braucht eine Nutzer-Geste). `null` bei
+ * Abbruch durch den Nutzer ODER wenn der Browser keinen Picker hat — beides
+ * ist für den Aufrufer derselbe „nichts gewählt"-Fall, kein Fehler.
+ */
+export async function wähleOrdner(): Promise<(AblageVerzeichnis & { name: string }) | null> {
+	const wahl = typeof window === 'undefined' ? undefined : (window as FsaFenster).showDirectoryPicker;
+	if (!wahl) return null;
+	try {
+		return await wahl({ mode: 'readwrite' });
+	} catch (fehler) {
+		if (fehler instanceof DOMException && fehler.name === 'AbortError') return null;
+		throw fehler;
+	}
+}
+
 export function adapterAusVerzeichnis(verzeichnis: AblageVerzeichnis): AblageAdapter {
 	return {
 		async schreibe(datei, inhalt) {

@@ -5,6 +5,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from dcc_chat_gateway.routes import (
+    ablage_guild_laufwerk,
+    ablage_kanal,
+    ablage_konto_laufwerk,
+    ablage_pruefen,
+    ablage_zwischenlager,
     admin,
     admin_backups,
     admin_members,
@@ -47,6 +52,7 @@ from dcc_chat_gateway.routes import (
     postfach,
     postfach_abholen,
     postfach_anhaenge,
+    postfach_anhaenge_laufwerk,
     preferences,
     presence,
     privacy,
@@ -81,6 +87,11 @@ router.include_router(guilds.router)
 router.include_router(bans.router)
 router.include_router(guild_icons.router)
 router.include_router(channels.router)
+router.include_router(ablage_kanal.router)
+router.include_router(ablage_konto_laufwerk.router)
+router.include_router(ablage_pruefen.router)
+router.include_router(ablage_guild_laufwerk.router)
+router.include_router(ablage_zwischenlager.router)
 # Friend-system / DM / Block routes are cloud-only (global social layer).
 # The ``require_cloud`` dependency (applied inside each router) returns 404
 # on self-host at request time. The routers are still registered so the
@@ -124,6 +135,11 @@ router.include_router(postfach.router)
 router.include_router(private_gruppen.router)
 router.include_router(postfach_abholen.router)
 router.include_router(postfach_anhaenge.router)
+# Vor ``postfach_anhaenge``? Nein — die Reihenfolge ist hier egal, weil
+# ``/postfach/anhaenge/bereitschaft`` ein GET ist und die aehnlich aussehende
+# Route ``/postfach/anhaenge/{anhang_id}/abrufadresse`` ein POST mit einem
+# zusaetzlichen Segment. Es gibt also keine Ueberdeckung.
+router.include_router(postfach_anhaenge_laufwerk.router)
 router.include_router(session_ticket.router)
 # Dropbox / Ablage — split across three files to stay under the
 # 350-line soft cap. dropbox.py exposes ``admin_router`` so callers
