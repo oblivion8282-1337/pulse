@@ -32,6 +32,7 @@ import { anhangAngabeZuAttachment } from './anhangAnzeige';
 import { absenderErmitteln } from './absenderErmitteln';
 import { parseMentionMarkers } from '../components/mentionMarkierungen';
 import { PRIVATE_GRUPPEN_ENABLED } from './schalter';
+import { ABLAGE_KANAL_ENABLED } from '../featureFlags';
 import {
   istGruppennachricht,
   oeffneGruppennachricht,
@@ -88,10 +89,15 @@ export async function zustellungOeffnen(
   // Eine Megolm-Gruppennachricht (Etappe G2) laeuft ueber eine ganz andere
   // Sitzungsart und hat deshalb weder Sitzungssperre noch Absender-Rueckfall
   // gemeinsam mit dem Olm-Weg — sie wird hier abgezweigt, bevor irgendetwas
-  // Olm-Spezifisches passiert. Steht der Schalter aus, faellt sie durch auf
-  // `null` (liegen lassen); es kann sie dann ohnehin nicht geben.
+  // Olm-Spezifisches passiert. **Zwei Schalter, nicht einer:** private
+  // Gruppen UND Ablage-Kanaele senden beide ueber `ART_GRUPPENNACHRICHT` (s.
+  // `kanalSenden.ts`-Modulkopf, „identisch zu `sendeInGruppe`") — die
+  // Zustellung selbst verraet nicht, welches Feature sie erzeugt hat. Steht
+  // BEIDE Schalter aus, faellt sie durch auf `null` (liegen lassen); ist
+  // auch nur einer an, kann eine solche Zustellung uebers jeweilige Feature
+  // real entstanden sein und muss geoeffnet werden.
   if (istGruppennachricht(z)) {
-    if (!PRIVATE_GRUPPEN_ENABLED) return null;
+    if (!PRIVATE_GRUPPEN_ENABLED && !ABLAGE_KANAL_ENABLED) return null;
     const nachricht = await oeffneGruppennachricht(z);
     return nachricht ? { art: 'neu', nachricht } : null;
   }
@@ -147,7 +153,12 @@ export async function zustellungOeffnen(
       // ablegen — die Reihenfolge ist deshalb keine Geschmacksfrage, s.
       // Modulkopf von `gruppe/gruppenNutzlast.ts` und der Test
       // `krypto-gruppe-nutzlast.test.ts::WARUM die Lesereihenfolge …`.
-      if (PRIVATE_GRUPPEN_ENABLED && (await verteilschluesselAufnehmen(z, klartextBytes))) {
+      // Derselbe Doppel-Schalter wie oben: ein Verteilschluessel kann von
+      // einer privaten Gruppe ODER einem Ablage-Kanal stammen.
+      if (
+        (PRIVATE_GRUPPEN_ENABLED || ABLAGE_KANAL_ENABLED) &&
+        (await verteilschluesselAufnehmen(z, klartextBytes))
+      ) {
         return { art: 'ohneAblage', id: z.id };
       }
 

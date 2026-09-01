@@ -13,6 +13,7 @@ import { messages } from '$lib/stores/messages.svelte';
 import { directMessages } from '$lib/stores/directMessages.svelte';
 import { verlaufSpeichern, verlaufNachrichtGeloescht } from '$lib/verlauf';
 import { E2E_DMS_ENABLED, PRIVATE_GRUPPEN_ENABLED } from '$lib/krypto/schalter';
+import { ABLAGE_KANAL_ENABLED } from '$lib/featureFlags';
 import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
 import { dmGegenstelle } from '$lib/krypto/dmGegenstelle';
 import { streamChat } from '$lib/stores/streamChat.svelte';
@@ -69,14 +70,16 @@ function dmVorschauAuffrischen(): void {
  * s. `ready.ts`), keiner der beiden faellt mehr auf "nie abonniert" zurueck.
  */
 export function postfachAbholenUndAnzeigen(istAboniert: (kanalId: string) => boolean): void {
-  // Solange BEIDE Schalter aus sind (s. `$lib/krypto/schalter.ts`), bleibt
-  // dieser Weckruf wirkungslos und jede DM laeuft ueber `message` weiter.
-  // **Beide, nicht nur der DM-Schalter**: das Postfach traegt seit Etappe G
-  // auch Gruppen-Umschlaege, und die haben keinen Klartext-Weg, auf den man
-  // ausweichen koennte. Stuende hier weiter nur `E2E_DMS_ENABLED`, waere
-  // eine allein freigeschaltete Gruppe stumm — verschluesselt zugestellt,
-  // aber nie abgeholt.
-  if (!E2E_DMS_ENABLED && !PRIVATE_GRUPPEN_ENABLED) return;
+  // Solange ALLE DREI Schalter aus sind (s. `$lib/krypto/schalter.ts` +
+  // `$lib/featureFlags.ts`), bleibt dieser Weckruf wirkungslos und jede DM
+  // laeuft ueber `message` weiter. **Alle drei, nicht nur der DM-Schalter**:
+  // das Postfach traegt seit Etappe G auch Gruppen-Umschlaege (private
+  // Gruppen UND Ablage-Kanaele, s. `zustellungOeffnen.ts`), und die haben
+  // keinen Klartext-Weg, auf den man ausweichen koennte. Stuende hier
+  // weiter nur `E2E_DMS_ENABLED`, waere eine allein freigeschaltete Gruppe
+  // bzw. ein allein freigeschalteter Ablage-Kanal stumm — verschluesselt
+  // zugestellt, aber nie abgeholt.
+  if (!E2E_DMS_ENABLED && !PRIVATE_GRUPPEN_ENABLED && !ABLAGE_KANAL_ENABLED) return;
   // Dynamischer Import: der Krypto-Kern (WASM) soll nicht in jedem
   // Session-Start geladen werden, wenn er nie gebraucht wird.
   void import('$lib/krypto/empfangen')

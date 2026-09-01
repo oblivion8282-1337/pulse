@@ -38,7 +38,11 @@
   import { rolesApi } from '$lib/api/roles';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
   import { gateway } from '$lib/ws/connection';
-  import { useGatewayDeletedListener } from '$lib/ws/useGatewayListener.svelte';
+  import { useGatewayDeletedListener, useGatewayListener } from '$lib/ws/useGatewayListener.svelte';
+  import { ABLAGE_KANAL_ENABLED } from '$lib/featureFlags';
+  import { sendeAblageKanalNachricht } from '$lib/components/chat/ablageKanalSenden';
+  import { kanalEreignisEinspeisen } from '$lib/krypto/gruppe/kanalSitzungStore';
+  import { kanalWsEreignisAbbilden } from '$lib/krypto/gruppe/kanalEreignisAbbildung';
   import { voice } from '$lib/voice/livekit.svelte';
   import { readState } from '$lib/stores/readState.svelte';
   import { navDrawer } from '$lib/stores/navDrawer.svelte';
@@ -226,6 +230,17 @@
     onChannel: handleRemoteChannelDeleted,
     onGuild: handleRemoteGuildDeleted,
   });
+
+  // Ablage-Kanaele (Etappe E6): Mitglieder-/Rechteaenderungen machen eine
+  // laufende Kanal-Gruppensitzung ueberholt (`kanalWechselErkennung.ts`).
+  // Der Schalter ist Build-Zeit-konstant, die Bedingung also bei jedem
+  // Mount identisch — kein bedingter Hook-Aufruf zur Laufzeit.
+  if (ABLAGE_KANAL_ENABLED) {
+    useGatewayListener((evt) => {
+      const kanalEvt = kanalWsEreignisAbbilden(evt);
+      if (kanalEvt) kanalEreignisEinspeisen(kanalEvt);
+    });
+  }
 
   onMount(() => {
     // Escape schließt Drawer auf Mobil
@@ -436,6 +451,15 @@
 
   function sendMessage(text: string, replyToId: string | null, attachmentIds: string[]) {
     if (!activeChannel || activeChannel.type !== 0 || !auth.user) return;
+    // Ablage-Kanal: eigener, verschluesselter Weg, s. `kanalSenden.ts`.
+    // **Kein Klartext-Rueckfall** — der Server weist Klartext auf JEDEM Weg
+    // ab (Auftrag), ein Abrutschen in den Zweig unten wuerde also nur einen
+    // serverseitigen Fehlschlag erzeugen. Deshalb ein eigener, fruehzeitiger
+    // return statt eines zusaetzlichen Zweigs weiter unten.
+    if (ABLAGE_KANAL_ENABLED && activeChannel.ablage) {
+      sendeAblageKanalNachricht(guildId, activeChannel.id, text, replyToId, attachmentIds);
+      return;
+    }
     const nonce = `n-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
     const tmpId = `tmp-${nonce}`;
     const cid = activeChannel.id;
