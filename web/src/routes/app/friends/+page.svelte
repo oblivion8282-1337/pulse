@@ -15,6 +15,7 @@
   import { guilds } from '$lib/stores/guilds.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { navDrawer } from '$lib/stores/navDrawer.svelte';
+  import { selectGuild, selectDM } from '$lib/navigation/railNavi';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { friendRequests } from '$lib/stores/friendRequests.svelte';
   import { friends } from '$lib/stores/friends.svelte';
@@ -25,15 +26,13 @@
   import FriendsKopfAktionen from '$lib/components/friends/FriendsKopfAktionen.svelte';
   import AddFriendPanel from '$lib/components/friends/AddFriendPanel.svelte';
   import BereichsKopf from '$lib/components/mobile/BereichsKopf.svelte';
-  import SearchIcon from '@lucide/svelte/icons/search';
-  import XIcon from '@lucide/svelte/icons/x';
+  import SuchPille from '$lib/components/SuchPille.svelte';
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import UserPlusIcon from '@lucide/svelte/icons/user-plus';
   import ClockIcon from '@lucide/svelte/icons/clock';
   import BanIcon from '@lucide/svelte/icons/ban';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
-  import type { DMChannel } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
 
   // Suche über die Freundesliste — nur Namen, keine Nachrichten/Kanäle; das
@@ -89,15 +88,9 @@
     await goto(url.pathname + url.search, { replaceState: true, keepFocus: true });
   }
 
-  async function selectGuild(g: { id: string }) {
-    navDrawer.open = true;
-    await goto(`/app/guilds/${g.id}/channels/_`);
-  }
 
-  async function selectDM(dm: DMChannel) {
-    navDrawer.open = false;
-    await goto(`/app/@me/${dm.id}`);
-  }
+
+
 </script>
 
 <GuildRail
@@ -121,122 +114,97 @@
   <DMChannelList activeDMId={null} onSelect={selectDM} />
 {/if}
 
-{#if true}
-  <section
-    class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl"
-    data-testid="friends-page"
-  >
-    <BereichsKopf titel={m.friends_page_title()}>
-      {#snippet handlung()}
-        <!-- Drei-Punkte statt Reiter-Leiste (wie beim Chats-Bereich): die
-             Liste gehört dem Inhalt, Seltenes (Hinzufügen, Anfragen, Blockiert)
-             steckt im Menü. Die Anfragen-Zahl wandert als Badge mit. -->
-        <FriendsKopfAktionen {activeTab} {pendingBadge} onSwitch={switchTab} />
-        <div class="md:hidden">
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger>
-            {#snippet child({ props })}
-              <button
-                {...props}
-                class="text-text-muted hover:bg-bg-hover hover:text-text-bright flex size-12 items-center justify-center rounded-[14px] transition-colors"
-                data-testid="friends-menu"
-                aria-label={m.chats_menu()}
-              >
-                <EllipsisIcon class="size-6" />
-              </button>
-            {/snippet}
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Content align="end" class="w-56">
-            <DropdownMenu.Item
-              onclick={() => switchTab('add')}
-              data-testid="friends-menu-add"
-              class="flex items-center gap-2"
-            >
-              <UserPlusIcon class="size-4" />
-              {m.friends_tab_add()}
-            </DropdownMenu.Item>
-            <DropdownMenu.Item
-              onclick={() => switchTab('pending')}
-              data-testid="friends-menu-pending"
-              class="flex items-center gap-2"
-            >
-              <ClockIcon class="size-4" />
-              {m.friends_tab_pending()}
-              {#if pendingBadge > 0}
-                <span
-                  class="bg-rose-500 text-white ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-2xs font-semibold leading-none"
-                  data-testid="pending-badge"
-                >
-                  {pendingBadge}
-                </span>
-              {/if}
-            </DropdownMenu.Item>
-            <DropdownMenu.Item
-              onclick={() => switchTab('blocked')}
-              data-testid="friends-menu-blocked"
-              class="flex items-center gap-2"
-            >
-              <BanIcon class="size-4" />
-              {m.friends_tab_blocked()}
-            </DropdownMenu.Item>
-          </DropdownMenu.Content>
-        </DropdownMenu.Root>
-        </div>
-      {/snippet}
-    </BereichsKopf>
-    <!-- Suchleiste außerhalb des Scroll-Bereichs, in derselben Hülle wie die
-         der Chats (px-5 pb-5, gleiche Label-Klassen): gleiche Größe, gleiche
-         Höhe — zwei Bereiche, dieselbe Frage „wo suche ich\" sollen sich
-         nicht durch Versatz verraten. -->
-    {#if activeTab !== 'pending' && activeTab !== 'blocked' && activeTab !== 'add'}
-      <div class="px-5 pb-5" data-testid="friends-search-wrap">
-        <label class="border-border bg-bg-input flex items-center gap-2 rounded-full border px-3 py-2">
-          <SearchIcon class="text-text-muted size-4 shrink-0" />
-          <input
-            type="text"
-            bind:value={freundeSuche}
-            placeholder={m.friends_search_placeholder()}
-            class="placeholder:text-text-muted min-w-0 flex-1 bg-transparent text-sm outline-none"
-            data-testid="friends-search-input"
-            aria-label={m.friends_search_placeholder()}
-          />
-          {#if freundeSuche}
+<section
+  class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl"
+  data-testid="friends-page"
+>
+  <BereichsKopf titel={m.friends_page_title()}>
+    {#snippet handlung()}
+      <!-- Drei-Punkte statt Reiter-Leiste (wie beim Chats-Bereich): die
+           Liste gehört dem Inhalt, Seltenes (Hinzufügen, Anfragen, Blockiert)
+           steckt im Menü. Die Anfragen-Zahl wandert als Badge mit. -->
+      <FriendsKopfAktionen {activeTab} {pendingBadge} onSwitch={switchTab} />
+      <div class="md:hidden">
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger>
+          {#snippet child({ props })}
             <button
-              type="button"
-              onclick={() => (freundeSuche = '')}
-              class="text-text-muted hover:text-text-bright shrink-0"
-              data-testid="friends-search-clear"
-              aria-label={m.chats_search_clear()}
+              {...props}
+              class="text-text-muted hover:bg-bg-hover hover:text-text-bright flex size-12 items-center justify-center rounded-[14px] transition-colors"
+              data-testid="friends-menu"
+              aria-label={m.chats_menu()}
             >
-              <XIcon class="size-4" />
+              <EllipsisIcon class="size-6" />
             </button>
-          {/if}
-        </label>
+          {/snippet}
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Content align="end" class="w-56">
+          <DropdownMenu.Item
+            onclick={() => switchTab('add')}
+            data-testid="friends-menu-add"
+            class="flex items-center gap-2"
+          >
+            <UserPlusIcon class="size-4" />
+            {m.friends_tab_add()}
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            onclick={() => switchTab('pending')}
+            data-testid="friends-menu-pending"
+            class="flex items-center gap-2"
+          >
+            <ClockIcon class="size-4" />
+            {m.friends_tab_pending()}
+            {#if pendingBadge > 0}
+              <span
+                class="bg-rose-500 text-white ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-2xs font-semibold leading-none"
+                data-testid="pending-badge"
+              >
+                {pendingBadge}
+              </span>
+            {/if}
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            onclick={() => switchTab('blocked')}
+            data-testid="friends-menu-blocked"
+            class="flex items-center gap-2"
+          >
+            <BanIcon class="size-4" />
+            {m.friends_tab_blocked()}
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Root>
       </div>
-    {/if}
-    <div class="flex-1 overflow-y-auto px-4 pb-4">
-      {#if activeTab === 'pending' || activeTab === 'blocked' || activeTab === 'add'}
-        <!-- Unteransicht mit Zurück-Zeile statt Reiter: die Menü-Punkte sind
-             Ausnahmefälle, kein parallel sichtbarer Zustand. -->
-        <button
-          type="button"
-          class="text-text-muted hover:text-text-bright mb-3 flex items-center gap-1 pt-4 text-sm font-semibold md:hidden"
-          onclick={() => switchTab('all')}
-          data-testid="friends-back"
-        >
-          <ChevronLeftIcon class="size-5" />
-          {untertitel()}
-        </button>
-        {#if activeTab === 'pending'}
-          <PendingRequests />
-        {:else if activeTab === 'blocked'}
-          <BlockedList />
-        {:else}
-          <AddFriendPanel />
-        {/if}
+    {/snippet}
+  </BereichsKopf>
+  <!-- Suchleiste außerhalb des Scroll-Bereichs, in derselben Hülle wie die
+       der Chats (px-5 pb-5, gleiche Label-Klassen): gleiche Größe, gleiche
+       Höhe — zwei Bereiche, dieselbe Frage „wo suche ich\" sollen sich
+       nicht durch Versatz verraten. -->
+  {#if activeTab !== 'pending' && activeTab !== 'blocked' && activeTab !== 'add'}
+    <SuchPille bind:value={freundeSuche} placeholder={m.friends_search_placeholder()} testid="friends" />
+  {/if}
+  <div class="flex-1 overflow-y-auto px-4 pb-4">
+    {#if activeTab === 'pending' || activeTab === 'blocked' || activeTab === 'add'}
+      <!-- Unteransicht mit Zurück-Zeile statt Reiter: die Menü-Punkte sind
+           Ausnahmefälle, kein parallel sichtbarer Zustand. -->
+      <button
+        type="button"
+        class="text-text-muted hover:text-text-bright mb-3 flex items-center gap-1 pt-4 text-sm font-semibold md:hidden"
+        onclick={() => switchTab('all')}
+        data-testid="friends-back"
+      >
+        <ChevronLeftIcon class="size-5" />
+        {untertitel()}
+      </button>
+      {#if activeTab === 'pending'}
+        <PendingRequests />
+      {:else if activeTab === 'blocked'}
+        <BlockedList />
       {:else}
-        <FriendList suche={freundeSuche} />
+        <AddFriendPanel />
       {/if}
-    </div>
-  </section>
-{/if}
+    {:else}
+      <FriendList suche={freundeSuche} />
+    {/if}
+  </div>
+</section>

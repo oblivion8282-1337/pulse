@@ -18,19 +18,23 @@ export function nextFreeStreamSlot(): number {
 }
 
 /** Stop one slot's stream. Best-effort — the WS broadcast restores state.
+ *  Gibt `false` zurück, wenn der Stop-Befehl fehlschlug (z. B. Bridge weg);
+ *  der Fehler selbst wird weiterhin geschluckt, damit kein Aufrufer-Catch nötig.
  *
  *  `grund` ist reine Diagnose: er reist im Befehl mit und steht damit in
  *  derselben Protokollzeile wie der Stopp (`sidecar-log-befehle.ts`). Nur die
  *  Wege, die einen Rechner von sich aus stoppen, füllen ihn — beim Knopf des
  *  Streamers ist „der Mensch hat geklickt" keine Frage, die je offen war. */
-export async function stopSlot(slot: number, grund?: string): Promise<void> {
+export async function stopSlot(slot: number, grund?: string): Promise<boolean> {
   try {
     await gsr.stop(slot, grund);
     // Reconcile locally: the fresh (respawned) sidecar emits no `stopped` event,
     // so without this a stop after a crash would leave the UI stuck on "live".
     markStopped(slot);
+    return true;
   } catch {
     /* WS-Broadcast holt den State eh nach */
+    return false;
   }
 }
 

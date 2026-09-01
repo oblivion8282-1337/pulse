@@ -18,6 +18,7 @@ import { friendRequests } from '$lib/stores/friendRequests.svelte';
 import { blocks } from '$lib/stores/blocks.svelte';
 import { m } from '$lib/paraglide/messages.js';
 import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
+import { errText } from '$lib/utils/errText';
 
 export interface ActionCtx {
   userId: string;
@@ -57,7 +58,7 @@ export async function startDM(ctx: ActionCtx): Promise<void> {
     await goto(`/app/@me/${dm.id}`);
   } catch (err) {
     toast.error(m.popover_actions_dm_open_failed(), {
-      description: err instanceof Error ? err.message : String(err)
+      description: errText(err)
     });
   } finally {
     ctx.setWorking(false);
@@ -82,7 +83,7 @@ export async function toggleMute(ctx: ActionCtx): Promise<void> {
     toast.success(next ? m.popover_actions_muted({ displayName: ctx.displayName }) : m.popover_actions_unmuted());
   } catch (err) {
     toast.error(m.popover_actions_mute_failed(), {
-      description: err instanceof Error ? err.message : String(err)
+      description: errText(err)
     });
   } finally {
     ctx.setWorking(false);
@@ -106,7 +107,7 @@ export async function toggleDeafen(ctx: ActionCtx): Promise<void> {
     toast.success(next ? m.popover_actions_deafened({ displayName: ctx.displayName }) : m.popover_actions_undeafened());
   } catch (err) {
     toast.error(m.popover_actions_deafen_failed(), {
-      description: err instanceof Error ? err.message : String(err)
+      description: errText(err)
     });
   } finally {
     ctx.setWorking(false);
@@ -123,7 +124,7 @@ export async function disconnectVoice(ctx: ActionCtx): Promise<void> {
     ctx.onAction?.();
   } catch (err) {
     toast.error(m.popover_actions_voice_disconnect_failed(), {
-      description: err instanceof Error ? err.message : String(err)
+      description: errText(err)
     });
   } finally {
     ctx.setWorking(false);
@@ -141,7 +142,7 @@ export async function moveIntoVoice(ctx: ActionCtx, targetChannelId: string): Pr
     ctx.onAction?.();
   } catch (err) {
     toast.error(m.popover_actions_voice_move_failed(), {
-      description: err instanceof Error ? err.message : String(err)
+      description: errText(err)
     });
   } finally {
     ctx.setWorking(false);
@@ -158,7 +159,7 @@ export async function kick(ctx: ActionCtx): Promise<void> {
     ctx.onAction?.();
   } catch (err) {
     toast.error(m.popover_actions_kick_failed(), {
-      description: err instanceof Error ? err.message : String(err)
+      description: errText(err)
     });
   } finally {
     ctx.setWorking(false);
@@ -175,7 +176,7 @@ export async function ban(ctx: ActionCtx): Promise<void> {
     ctx.onAction?.();
   } catch (err) {
     toast.error(m.popover_actions_ban_failed(), {
-      description: err instanceof Error ? err.message : String(err)
+      description: errText(err)
     });
   } finally {
     ctx.setWorking(false);
@@ -204,7 +205,7 @@ export async function sendFriendRequest(ctx: ActionCtx): Promise<void> {
     toast.success(m.popover_actions_friend_added({ displayName: ctx.displayName }));
   } catch (err) {
     toast.error(m.popover_actions_friend_request_send_failed(), {
-      description: err instanceof Error ? err.message : String(err)
+      description: errText(err)
     });
   } finally {
     ctx.setWorking(false);
@@ -223,7 +224,7 @@ export async function cancelFriendRequest(ctx: ActionCtx, reqId: string): Promis
     toast.success(m.popover_actions_friend_request_cancelled());
   } catch (err) {
     toast.error(m.popover_actions_friend_request_cancel_failed(), {
-      description: err instanceof Error ? err.message : String(err)
+      description: errText(err)
     });
   } finally {
     ctx.setWorking(false);
@@ -239,7 +240,7 @@ export async function acceptFriendRequest(ctx: ActionCtx, reqId: string): Promis
     toast.success(m.popover_actions_friend_added({ displayName: ctx.displayName }));
   } catch (err) {
     toast.error(m.popover_actions_friend_request_accept_failed(), {
-      description: err instanceof Error ? err.message : String(err)
+      description: errText(err)
     });
   } finally {
     ctx.setWorking(false);
@@ -258,7 +259,7 @@ export async function declineFriendRequest(ctx: ActionCtx, reqId: string): Promi
     toast.success(m.popover_actions_friend_request_declined());
   } catch (err) {
     toast.error(m.popover_actions_friend_request_decline_failed(), {
-      description: err instanceof Error ? err.message : String(err)
+      description: errText(err)
     });
   } finally {
     ctx.setWorking(false);
@@ -280,7 +281,7 @@ export async function removeFriend(ctx: ActionCtx): Promise<void> {
     ctx.close();
   } catch (err) {
     toast.error(m.popover_actions_remove_friend_failed(), {
-      description: err instanceof Error ? err.message : String(err)
+      description: errText(err)
     });
   } finally {
     ctx.setWorking(false);
@@ -303,7 +304,7 @@ export async function blockUser(ctx: ActionCtx): Promise<void> {
     ctx.close();
   } catch (err) {
     toast.error(m.popover_actions_block_failed(), {
-      description: err instanceof Error ? err.message : String(err)
+      description: errText(err)
     });
   } finally {
     ctx.setWorking(false);
@@ -319,7 +320,7 @@ export async function unblockUser(ctx: ActionCtx): Promise<void> {
     toast.success(m.popover_actions_unblocked({ displayName: ctx.displayName }));
   } catch (err) {
     toast.error(m.popover_actions_unblock_failed(), {
-      description: err instanceof Error ? err.message : String(err)
+      description: errText(err)
     });
   } finally {
     ctx.setWorking(false);

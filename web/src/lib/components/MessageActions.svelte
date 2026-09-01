@@ -10,6 +10,9 @@
   import PinIcon from '@lucide/svelte/icons/pin';
   import PinOffIcon from '@lucide/svelte/icons/pin-off';
   import EmojiPicker from './EmojiPicker.svelte';
+  // align="end": der Button sitzt am rechten Nachrichtenrand — der Picker
+  // öffnet nach links, nicht (wie im Composer) nach rechts.
+  import { emojiPickerContentProps } from './emojiPickerContent';
 
   let {
     canEdit,
@@ -65,12 +68,7 @@
         </Button>
       {/snippet}
     </DropdownMenu.Trigger>
-    <DropdownMenu.Content
-      side="top"
-      align="end"
-      sideOffset={6}
-      class="w-auto max-w-[calc(100vw-1rem)] overflow-visible border-0 bg-transparent p-0 shadow-none"
-    >
+    <DropdownMenu.Content {...emojiPickerContentProps} align="end">
       <EmojiPicker onPick={pick} />
     </DropdownMenu.Content>
   </DropdownMenu.Root>

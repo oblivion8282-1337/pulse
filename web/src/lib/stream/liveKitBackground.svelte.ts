@@ -14,66 +14,15 @@
  * `screen`).
  */
 
-function rectsEqual(a: DOMRect | null, b: DOMRect | null): boolean {
-  if (a === null || b === null) return a === b;
-  return a.top === b.top && a.left === b.left && a.width === b.width && a.height === b.height;
-}
+import { createAnchorRegistry } from './anchorRegistry.svelte';
 
-class LiveKitBackground {
-  #anchorEls = new Map<string, HTMLElement>();
-  #rects = $state<Map<string, DOMRect | null>>(new Map());
-  #rafId: number | null = null;
+const registry = createAnchorRegistry();
 
+export const liveKitBackground = {
   registerAnchor(channelId: string, identity: string, el: HTMLElement): () => void {
-    const k = `${channelId}::${identity}`;
-    this.#anchorEls.set(k, el);
-    // Measure immediately so the docked overlay has a rect before the first
-    // rAF frame (no flash); the ticker keeps it in sync afterwards.
-    const rect = el.getBoundingClientRect();
-    if (!rectsEqual(this.#rects.get(k) ?? null, rect)) {
-      const next = new Map(this.#rects);
-      next.set(k, rect);
-      this.#rects = next;
-    }
-    this.#ensureTicker();
-    return () => {
-      this.#anchorEls.delete(k);
-      if (this.#rects.has(k)) {
-        const next = new Map(this.#rects);
-        next.delete(k);
-        this.#rects = next;
-      }
-      if (this.#anchorEls.size === 0) this.#stopTicker();
-    };
-  }
-
+    return registry.register(`${channelId}::${identity}`, el);
+  },
   anchorRect(channelId: string, identity: string): DOMRect | null {
-    return this.#rects.get(`${channelId}::${identity}`) ?? null;
+    return registry.rect(`${channelId}::${identity}`);
   }
-
-  #ensureTicker(): void {
-    if (this.#rafId !== null || typeof requestAnimationFrame === 'undefined') return;
-    const tick = (): void => {
-      let next: Map<string, DOMRect | null> | null = null;
-      for (const [k, el] of this.#anchorEls) {
-        const rect = el.getBoundingClientRect();
-        if (!rectsEqual(this.#rects.get(k) ?? null, rect)) {
-          next ??= new Map(this.#rects);
-          next.set(k, rect);
-        }
-      }
-      if (next) this.#rects = next;
-      this.#rafId = requestAnimationFrame(tick);
-    };
-    this.#rafId = requestAnimationFrame(tick);
-  }
-
-  #stopTicker(): void {
-    if (this.#rafId !== null) {
-      cancelAnimationFrame(this.#rafId);
-      this.#rafId = null;
-    }
-  }
-}
-
-export const liveKitBackground = new LiveKitBackground();
+};

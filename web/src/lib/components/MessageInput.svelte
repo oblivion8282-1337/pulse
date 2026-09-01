@@ -6,6 +6,7 @@
   import PaperclipIcon from '@lucide/svelte/icons/paperclip';
   import XIcon from '@lucide/svelte/icons/x';
   import EmojiPicker from './EmojiPicker.svelte';
+  import { emojiPickerContentProps } from './emojiPickerContent';
   import AttachmentPreviewStrip from './AttachmentPreviewStrip.svelte';
   import MentionTriggerOverlay from './MentionTriggerOverlay.svelte';
   import { m } from '$lib/paraglide/messages.js';
@@ -393,12 +394,7 @@
           </Button>
         {/snippet}
       </DropdownMenu.Trigger>
-      <DropdownMenu.Content
-        side="top"
-        align="end"
-        sideOffset={6}
-        class="w-auto max-w-[calc(100vw-1rem)] overflow-visible border-0 bg-transparent p-0 shadow-none"
-      >
+      <DropdownMenu.Content {...emojiPickerContentProps}>
         <EmojiPicker onPick={insertEmoji} />
       </DropdownMenu.Content>
     </DropdownMenu.Root>

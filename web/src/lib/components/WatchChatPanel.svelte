@@ -12,6 +12,7 @@ import { errText } from '$lib/utils/errText';
   import MessageInput from '$lib/components/MessageInput.svelte';
   import MessageReactions from '$lib/components/MessageReactions.svelte';
   import EmojiPicker from '$lib/components/EmojiPicker.svelte';
+  import { emojiPickerContentProps } from '$lib/components/emojiPickerContent';
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
@@ -181,12 +182,7 @@ import { errText } from '$lib/utils/errText';
                     </button>
                   {/snippet}
                 </DropdownMenu.Trigger>
-                <DropdownMenu.Content
-                  side="top"
-                  align="end"
-                  sideOffset={6}
-                  class="w-auto max-w-[calc(100vw-1rem)] overflow-visible border-0 bg-transparent p-0 shadow-none"
-                >
+                <DropdownMenu.Content {...emojiPickerContentProps}>
                   <EmojiPicker onPick={(emoji) => toggleReaction(msg.id, emoji, false)} />
                 </DropdownMenu.Content>
               </DropdownMenu.Root>

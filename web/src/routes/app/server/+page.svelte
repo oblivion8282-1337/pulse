@@ -19,6 +19,7 @@
   import { guilds } from '$lib/stores/guilds.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { navDrawer } from '$lib/stores/navDrawer.svelte';
+  import { selectGuild } from '$lib/navigation/railNavi';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -27,10 +28,7 @@
   // 1024 = der `lg`-Bruchpunkt, an dem die Leiste erscheint (`hidden lg:flex`).
   let zurueckZiel = $derived(viewport.width < 1024 ? '/app/rooms' : '/app');
 
-  async function selectGuild(g: { id: string }) {
-    navDrawer.open = true;
-    await goto(`/app/guilds/${g.id}/channels/_`);
-  }
+
 </script>
 
 <GuildRail

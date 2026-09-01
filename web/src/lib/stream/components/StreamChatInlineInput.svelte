@@ -7,12 +7,11 @@
   sich automatisch den Fokus.
 -->
 <script lang="ts">
-import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { chatApi } from '$lib/api/chat';
-  import { toast } from 'svelte-sonner';
   import SendHorizontalIcon from '@lucide/svelte/icons/send-horizontal';
   import { m } from '$lib/paraglide/messages.js';
+  import { meldeSendeFehler } from '../sendeFehler';
 
   let { channelId, streamerId }: { channelId: string; streamerId: string } = $props();
 
@@ -33,10 +32,11 @@ import { errText } from '$lib/utils/errText';
       await chatApi.postStreamChat(channelId, streamerId, text);
       draft = '';
     } catch (e) {
-      const msg = errText(e);
-      if (msg.includes('410')) toast.error(m.stream_chat_inline_streamer_offline());
-      else if (msg.includes('429')) toast.warning(m.stream_chat_inline_too_fast());
-      else toast.error(m.stream_chat_inline_send_failed(), { description: msg });
+      meldeSendeFehler(e, {
+        offline: m.stream_chat_inline_streamer_offline(),
+        tooFast: m.stream_chat_inline_too_fast(),
+        failed: m.stream_chat_inline_send_failed()
+      });
     } finally {
       sending = false;
     }

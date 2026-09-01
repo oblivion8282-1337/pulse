@@ -13,6 +13,7 @@
   import XIcon from '@lucide/svelte/icons/x';
   import { Input } from '$lib/components/ui/input/index.js';
   import { renamePasskey, deletePasskey, type WebAuthnCredentialSummary } from '$lib/api/webauthn';
+  import { formatLangDatum } from '$lib/utils/formatLangDatum';
   import { m } from '$lib/paraglide/messages.js';
 
   type Props = {
@@ -32,11 +33,7 @@
 
   function fmtDate(iso: string | null): string {
     if (!iso) return m.passkey_row_never_used();
-    return new Date(iso).toLocaleDateString('de-DE', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric'
-    });
+    return formatLangDatum(iso, 'short');
   }
 
   function startEdit() {

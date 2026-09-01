@@ -14,15 +14,11 @@
   import XIcon from '@lucide/svelte/icons/x';
   import { Button } from '$lib/components/ui/button';
   import type { ChangelogEntry } from '$lib/changelog/types';
+  import { formatLangDatum } from '$lib/utils/formatLangDatum';
 
   let { entries = [], closeToast }: { entries?: ChangelogEntry[]; closeToast?: () => void } =
     $props();
 
-  function fmtDate(iso: string): string {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return '';
-    return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
-  }
 </script>
 
 <!-- ``onpointerdown`` mit ``stopPropagation`` verhindert, dass sonners
@@ -55,7 +51,7 @@
       <section data-testid="changelog-entry">
         <h3 class="text-sm font-semibold leading-tight">{entry.title}</h3>
         {#if entry.date}
-          <p class="text-text-muted mt-0.5 text-xs">{fmtDate(entry.date)}</p>
+          <p class="text-text-muted mt-0.5 text-xs">{formatLangDatum(entry.date)}</p>
         {/if}
         {#if entry.intro}
           <p class="text-text-muted mt-1.5 text-xs">{entry.intro}</p>

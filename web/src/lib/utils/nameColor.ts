@@ -42,6 +42,13 @@ export function idealTextColor(hex: string | null | undefined): string {
   return lum > 0.6 ? '#0a0a0a' : '#fff';
 }
 
+/** Inline-`style` für Avatar-Fallback-Initialen: Farbe als Hintergrund,
+ *  Schwarz/Weiß als Textfarbe — für Stellen ohne echtes Avatar-Bild. */
+export function avatarFallbackStyle(hex: string | null | undefined): string {
+  const c = sanitizeProfileColor(hex);
+  return c ? `background: ${c}; color: ${idealTextColor(c)}` : '';
+}
+
 /** Rollenfarbe des Users in einer Guild als `#rrggbb`, oder null. */
 export function roleNameColor(guildId: string, userId: string): string | null {
   const ids = memberRoles.for(guildId, userId);
@@ -96,7 +103,11 @@ export function sanitizeGradientAngle(a: number | null | undefined): number {
 
 /** Inline-`style`, das Text als Farb-Verlauf rendert (background-clip: text).
  *  Zentral, damit Render-Pfad und Settings-Vorschau identisch aussehen. */
-export function gradientTextStyle(c1: string, c2: string, angle: number): string {
+export function gradientTextStyle(
+  c1: string,
+  c2: string,
+  angle: number | null | undefined
+): string {
   return (
     `background-image: linear-gradient(${sanitizeGradientAngle(angle)}deg, ${c1}, ${c2}); ` +
     `-webkit-background-clip: text; background-clip: text; ` +

@@ -15,8 +15,6 @@
   import CompassIcon from '@lucide/svelte/icons/compass';
   import LogInIcon from '@lucide/svelte/icons/log-in';
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
-  import SearchIcon from '@lucide/svelte/icons/search';
-  import XIcon from '@lucide/svelte/icons/x';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import { suchnorm, namePasst } from '$lib/utils/suche';
   import { serversStore } from '$lib/api/servers.svelte';
@@ -32,6 +30,7 @@
   import { viewport } from '$lib/stores/viewport.svelte';
   import TabletPlaceholder from '$lib/components/mobile/TabletPlaceholder.svelte';
   import BereichsKopf from '$lib/components/mobile/BereichsKopf.svelte';
+  import SuchPille from '$lib/components/SuchPille.svelte';
   import { initialen } from '$lib/utils/initialen';
   import { m } from '$lib/paraglide/messages.js';
   import type { Guild } from '$lib/api/types';
@@ -160,30 +159,7 @@
 
   <!-- Suchleiste in derselben Hülle wie Chats und Freunde — gleiche Größe,
        gleiche Höhe, dieselbe Frage „wo suche ich". -->
-  <div class="px-5 pb-5" data-testid="rooms-search-wrap">
-    <label class="border-border bg-bg-input flex items-center gap-2 rounded-full border px-3 py-2">
-      <SearchIcon class="text-text-muted size-4 shrink-0" />
-      <input
-        type="text"
-        bind:value={suche}
-        placeholder={m.rooms_search_placeholder()}
-        class="placeholder:text-text-muted min-w-0 flex-1 bg-transparent text-sm outline-none"
-        data-testid="rooms-search-input"
-        aria-label={m.rooms_search_placeholder()}
-      />
-      {#if suche}
-        <button
-          type="button"
-          onclick={() => (suche = '')}
-          class="text-text-muted hover:text-text-bright shrink-0"
-          data-testid="rooms-search-clear"
-          aria-label={m.chats_search_clear()}
-        >
-          <XIcon class="size-4" />
-        </button>
-      {/if}
-    </label>
-  </div>
+  <SuchPille bind:value={suche} placeholder={m.rooms_search_placeholder()} testid="rooms" />
 
   <div class="flex-1 overflow-y-auto px-3 pb-4">
     {#each server as s (s.id)}

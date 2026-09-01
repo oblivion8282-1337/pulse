@@ -38,6 +38,30 @@
   function displayName(dm: DMChannel): string {
     return userCache.displayName(dm.other_user_id);
   }
+
+  // Die zwei Zwillings-Knöpfe (Freunde/Einladungen) als Konfiguration —
+  // `mutedLabel` nur beim Einladungs-Knopf: sein Label graut aus, wenn
+  // nichts pending ist; beim Freunde-Knopf ist der Badge der einzige Hinweis.
+  const navButtons = $derived([
+    {
+      icon: UsersIcon,
+      href: '/app/friends',
+      label: 'Freunde',
+      count: pendingCount,
+      active: friendsActive,
+      testid: 'sidebar-friends',
+      mutedLabel: false
+    },
+    {
+      icon: MailIcon,
+      href: '/app/invites',
+      label: 'Einladungen',
+      count: invitesCount,
+      active: invitesActive,
+      testid: 'sidebar-invites',
+      mutedLabel: true
+    }
+  ]);
 </script>
 
 <aside
@@ -53,44 +77,27 @@
          damit direkt ueber dem gleichnamigen Knopf. Die zwei Eintraege
          beschriften sich selbst; die Trennlinie darunter grenzt sie von den
          Direktnachrichten ab. -->
-    <button
-      class="group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
-      data-active={friendsActive}
-      onclick={() => goto('/app/friends')}
-      data-testid="sidebar-friends-link"
-    >
-      <UsersIcon
-        class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary"
-      />
-      <span class="truncate">Freunde</span>
-      {#if pendingCount > 0}
-        <span
-          class="bg-rose-500 text-white ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-2xs font-semibold leading-none"
-          data-testid="sidebar-friends-badge"
-        >
-          {pendingCount}
-        </span>
-      {/if}
-    </button>
-    <button
-      class="group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
-      data-active={invitesActive}
-      onclick={() => goto('/app/invites')}
-      data-testid="sidebar-invites-link"
-    >
-      <MailIcon
-        class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary"
-      />
-      <span class="truncate {invitesCount === 0 ? 'text-text-muted' : ''}">Einladungen</span>
-      {#if invitesCount > 0}
-        <span
-          class="bg-rose-500 text-white ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-2xs font-semibold leading-none"
-          data-testid="sidebar-invites-badge"
-        >
-          {invitesCount}
-        </span>
-      {/if}
-    </button>
+    {#each navButtons as btn (btn.href)}
+      <button
+        class="group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
+        data-active={btn.active}
+        onclick={() => goto(btn.href)}
+        data-testid="{btn.testid}-link"
+      >
+        <btn.icon
+          class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary"
+        />
+        <span class="truncate {btn.mutedLabel && btn.count === 0 ? 'text-text-muted' : ''}">{btn.label}</span>
+        {#if btn.count > 0}
+          <span
+            class="bg-rose-500 text-white ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-2xs font-semibold leading-none"
+            data-testid="{btn.testid}-badge"
+          >
+            {btn.count}
+          </span>
+        {/if}
+      </button>
+    {/each}
 
     <div class="my-3 hairline bg-border" aria-hidden="true"></div>
     <p

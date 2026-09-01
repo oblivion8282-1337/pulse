@@ -2727,6 +2727,7 @@
   "stream_controls_error_not_member": "Du bist kein Mitglied dieses Kanals.",
   "stream_controls_error_not_voice_channel": "HQ-Streaming geht nur in Sprach-Kanälen.",
   "stream_controls_error_start_failed": "Start fehlgeschlagen.",
+  "stream_controls_error_stop_failed": "Stop fehlgeschlagen.",
   "stream_controls_error_token_fetch_failed": "Stream-Token konnte nicht geholt werden.",
   "stream_controls_state_error": "Fehler",
   "stream_controls_state_stopped": "Gestoppt",

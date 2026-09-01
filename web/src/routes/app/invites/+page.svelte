@@ -20,18 +20,12 @@
   import { communityInvites } from '$lib/stores/communityInvites.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { navDrawer } from '$lib/stores/navDrawer.svelte';
+  import { selectGuild, selectDM } from '$lib/navigation/railNavi';
   import { viewport } from '$lib/stores/viewport.svelte';
-  import type { DMChannel } from '$lib/api/types';
 
-  async function selectGuild(g: { id: string }) {
-    navDrawer.open = true;
-    await goto(`/app/guilds/${g.id}/channels/_`);
-  }
 
-  async function selectDM(dm: DMChannel) {
-    navDrawer.open = false;
-    await goto(`/app/@me/${dm.id}`);
-  }
+
+
 </script>
 
 <GuildRail

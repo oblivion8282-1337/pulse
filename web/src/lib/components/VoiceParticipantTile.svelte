@@ -5,7 +5,7 @@
   import { settings } from '$lib/stores/settings.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
-  import { nameColor, nameStyle, idealTextColor } from '$lib/utils/nameColor';
+  import { nameColor, nameStyle, avatarFallbackStyle } from '$lib/utils/nameColor';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
@@ -192,7 +192,7 @@
             {/if}
             <Avatar.Fallback
               class="accent-gradient text-primary-foreground text-xl font-semibold"
-              style={nameColour ? `background: ${nameColour}; color: ${idealTextColor(nameColour)}` : ''}
+              style={avatarFallbackStyle(nameColour)}
             >
               {initial}
             </Avatar.Fallback>

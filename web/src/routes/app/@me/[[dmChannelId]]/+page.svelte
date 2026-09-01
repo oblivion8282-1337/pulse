@@ -18,6 +18,7 @@
   import { serversStore } from '$lib/api/servers.svelte';
   import { readState } from '$lib/stores/readState.svelte';
   import { navDrawer } from '$lib/stores/navDrawer.svelte';
+  import { selectGuild, selectDM as selectDmRail } from '$lib/navigation/railNavi';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { parseMentionMarkers } from '$lib/components/messageRender';
   import { toast } from 'svelte-sonner';
@@ -166,16 +167,12 @@
     resolving = false;
   }
 
-  async function selectGuild(g: { id: string }) {
-    // Server-Icon ist der Drawer-Trigger — dort dann den Channel-Drawer auf.
-    navDrawer.open = true;
-    await goto(`/app/guilds/${g.id}/channels/_`);
-  }
-
+  // Server-Icon ist der Drawer-Trigger — dort dann den Channel-Drawer auf
+  // (geteilter Helfer in `$lib/navigation/railNavi.ts`).
+  // DM-Klick auf die schon offene DM: kein Navigieren (sonst Scroll-Sprung).
   async function selectDM(dm: DMChannel) {
-    navDrawer.open = false;
     if (dm.id === dmChannelId) return;
-    await goto(`/app/@me/${dm.id}`);
+    await selectDmRail(dm);
   }
 
   function sendMessage(text: string, replyToId: string | null, attachmentIds: string[]) {
@@ -202,21 +199,21 @@
       chatApi.postMessage(cid, text, { nonce, replyToId, attachmentIds }, cloudRoute)
         .then((real) => messages.upsert(real))
         .catch((e) => {
-          messages.removeOptimistic(cid, tmpId);
+          messages.remove(cid, tmpId);
           toast.error(m.dm_page_send_failed(), { description: (e as Error).message });
         });
       return;
     }
     const queued = cloudGateway.send(cid, text, nonce, replyToId);
     if (!queued) {
-      messages.removeOptimistic(cid, tmpId);
+      messages.remove(cid, tmpId);
       toast.error(m.dm_page_no_connection());
       return;
     }
     const handle = setTimeout(() => {
       pendingOptimisticTimeouts.delete(nonce);
       if (!messages.isConfirmed(nonce)) {
-        messages.removeOptimistic(cid, tmpId);
+        messages.remove(cid, tmpId);
         toast.error(m.dm_page_message_send_timeout());
       }
     }, 10_000);
