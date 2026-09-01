@@ -266,6 +266,36 @@ async function bearerFor(server: ServerEntry | undefined, force = false): Promis
   return entry.token;
 }
 
+/**
+ * Ist `body` bereits eine fertige Byte-Folge, die unverändert auf die Leitung
+ * gehört?
+ *
+ * **Warum es diese Frage überhaupt gibt.** Der Standardweg von
+ * `fetchAuthenticated` ist JSON, und zwar an ZWEI Stellen: der
+ * `Content-Type`-Kopfzeile und dem `JSON.stringify` weiter unten. Ein
+ * `Uint8Array` überlebt das zweite nicht — es ist für `JSON.stringify` ein
+ * gewöhnliches Objekt mit Zahlen-Schlüsseln und wird zu
+ * `{"0":80,"1":85,…}`. Der Aufrufer glaubt, Chiffrat geschickt zu haben; auf
+ * dem Laufwerk landet Text.
+ *
+ * Am 2026-09-01 an einer echten Nextcloud gemessen: die vom Archiv-Schreibweg
+ * abgelegte `verzeichnis.puls` begann mit `{"0":80,"1":85,"2":86,"3":86,…`
+ * statt mit der Kennung „PUVV" (0x50 0x55 0x56 0x56 = 80 85 86 86 — die
+ * richtigen Bytes, nur als Text). Ein zweites Gerät scheiterte daran beim
+ * Entschlüsseln mit „falscher Schlüssel oder beschädigte Daten", obwohl der
+ * Hauptschlüssel nachweislich derselbe war: es wurde nie Chiffrat
+ * geschrieben. Betroffen war jeder Schreib-Weiterreicher gleichermaßen
+ * (`ablageArchiv.ts`, `ablageKanal.ts`) — die Weiche gehört deshalb hierher
+ * und nicht in einen der Aufrufer.
+ */
+function istRohkoerper(body: unknown): boolean {
+  return (
+    body instanceof ArrayBuffer ||
+    ArrayBuffer.isView(body) ||
+    (typeof Blob !== 'undefined' && body instanceof Blob)
+  );
+}
+
 export type RequestOpts = {
   method?: string;
   body?: unknown;
@@ -322,14 +352,19 @@ export async function fetchAuthenticated(
     }
   }
 
+  // Rohbytes gehen unverändert durch (s. `istRohkoerper`), alles andere wird
+  // JSON. `application/octet-stream` ist dabei keine Aussage über den Inhalt,
+  // sondern das Eingeständnis, keine zu treffen — was für Chiffrat genau
+  // stimmt.
+  const roh = body !== undefined && istRohkoerper(body);
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    'Content-Type': roh ? 'application/octet-stream' : 'application/json',
     ...(opts.headers ?? {}),
   };
   if (auth && bearer) headers['Authorization'] = `Bearer ${bearer}`;
 
   const init: RequestInit = { method, headers, signal };
-  if (body !== undefined) init.body = JSON.stringify(body);
+  if (body !== undefined) init.body = roh ? (body as BodyInit) : JSON.stringify(body);
   // CORS für Cross-Origin (Cloud-Origin → Self-Host-Origin):
   // explizit `cors`-Mode + Cookies mitschicken falls Self-Host das nutzt.
   if (isSelfHost) {

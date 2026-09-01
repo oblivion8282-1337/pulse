@@ -15,7 +15,7 @@
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import { loeseEin, EinloeseFehler, type EinloeseFall } from '$lib/krypto/wiederherstellung.svelte.ts';
-  import type { RueckwegBericht } from '$lib/ablage/archivRueckweg.ts';
+  import type { VerlaufsErgebnis } from '$lib/krypto/wiederherstellung.svelte.ts';
   import { m } from '$lib/paraglide/messages.js';
 
   let {
@@ -23,7 +23,7 @@
     onWiederhergestellt,
   }: {
     open?: boolean;
-    onWiederhergestellt: (anzahl: number, verlauf: RueckwegBericht | null) => void;
+    onWiederhergestellt: (anzahl: number, verlauf: VerlaufsErgebnis) => void;
   } = $props();
 
   let code = $state('');

@@ -43,11 +43,37 @@ export async function leseAlle(): Promise<AblageVerbindung[]> {
   });
 }
 
+/**
+ * Entfernt die Svelte-Hülle um ein Objekt aus einem `$state`-Feld.
+ *
+ * **Warum das HIER steht und nicht bei den Aufrufern.** Der Store hält seine
+ * Verbindungen in `$state`; was von dort kommt, ist ein Proxy. IndexedDB
+ * klont strukturiert und wirft daran `DataCloneError` — die Zeile wird nie
+ * geschrieben, und weil der Wurf durch den Aufrufer hindurchgeht, sieht der
+ * Nutzer nicht einmal eine Fehlermeldung.
+ *
+ * Am 2026-09-01 dreimal aufgetreten, an drei verschiedenen Schreibwegen, und
+ * zweimal nur dort behoben, wo es gerade auffiel: erst blieb eine
+ * Kanal-Verknüpfung stumm liegen, dann liess sich ein Laufwerk nicht als
+ * Archiv markieren. Beides sah aus wie eine tote Oberfläche. Deshalb sitzt
+ * die Entproxyung jetzt an der GRENZE — ein vierter Schreibweg kann sie
+ * nicht vergessen.
+ *
+ * `JSON` statt `$state.snapshot`: diese Datei ist eine schlichte `.ts` und
+ * darf keine Rune enthalten (s. CLAUDE.md — eine Rune ausserhalb von
+ * `.svelte`/`.svelte.ts` reisst zur Laufzeit die ganze Route ab, und keine
+ * statische Prüfung findet es). Eine Verbindung ist reines JSON; der Umweg
+ * verliert nichts, was IndexedDB behalten hätte.
+ */
+function entproxyt(v: AblageVerbindung): AblageVerbindung {
+	return JSON.parse(JSON.stringify(v)) as AblageVerbindung;
+}
+
 export async function schreibe(v: AblageVerbindung): Promise<void> {
   const d = await öffneDb();
   return new Promise((resolve, reject) => {
     const tx = d.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).put(v);
+    tx.objectStore(STORE).put(entproxyt(v));
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -61,7 +87,7 @@ export async function schreibeMehrere(vs: AblageVerbindung[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx = d.transaction(STORE, 'readwrite');
     const store = tx.objectStore(STORE);
-    for (const v of vs) store.put(v);
+    for (const v of vs) store.put(entproxyt(v));
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });

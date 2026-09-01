@@ -102,8 +102,13 @@ export async function ablageKanalSchreiben(
     `/channels/${kanalId}/ablage/schreiben?${params.toString()}`,
     {
       method: 'PUT',
-      // `Uint8Array` statt `Blob`: der Koerper ist Chiffrat, ein
-      // Inhaltstyp waere eine Aussage darueber, die wir nicht treffen.
+      // Rohe Bytes. `fetchAuthenticated` erkennt sie und schickt sie
+      // unveraendert mit `application/octet-stream` — das ist keine Aussage
+      // ueber den Inhalt, sondern das Eingestaendnis, keine zu treffen. Bis
+      // zum 2026-09-01 tat es das NICHT, sondern schickte jeden Koerper durch
+      // `JSON.stringify`: aus dem Chiffrat wurde `{"0":80,"1":85,…}`, und
+      // genau dieser Text landete in der Cloud (Kopf von `client.ts::
+      // istRohkoerper`).
       body: inhalt as unknown as BodyInit
     },
     route

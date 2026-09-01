@@ -15,7 +15,7 @@
    *    `WiederherstellungCodeZeigen.svelte` schliesst ihn. Genau das ist der
    *    Punkt: niemand soll den Code wegklicken, ohne ihn notiert zu haben.
    */
-  import type { RueckwegBericht } from '$lib/ablage/archivRueckweg.ts';
+  import type { VerlaufsErgebnis } from '$lib/krypto/wiederherstellung.svelte.ts';
   import { onMount } from 'svelte';
   import KeyRoundIcon from '@lucide/svelte/icons/key-round';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -73,26 +73,32 @@
     toast.success(m.wiederherstellung_erzeugen_erfolg());
   }
 
-  function wiederhergestellt(anzahl: number, verlauf: RueckwegBericht | null) {
+  function wiederhergestellt(anzahl: number, verlauf: VerlaufsErgebnis) {
     toast.success(m.wiederherstellung_einloesen_erfolg({ anzahl }));
-    // **Den Verlauf getrennt melden, und auch die Null.** Zurueckgeholte
-    // Laufwerke sind nicht der Zweck der Uebung — der Verlauf ist es. Kaeme
-    // hier nichts an und stuende trotzdem nur „3 Laufwerke wiederhergestellt",
-    // hielte der Nutzer den Vorgang fuer gelungen und merkte den Verlust
-    // vielleicht erst Wochen spaeter.
-    if (verlauf === null) {
+    // **Den Verlauf getrennt melden, und jede Ursache beim Namen.**
+    // Zurueckgeholte Laufwerke sind nicht der Zweck der Uebung — der Verlauf
+    // ist es. Eine Sammelmeldung fuer alle Fehlschlaege hat am 2026-09-01
+    // die Fehlersuche in die falsche Richtung geschickt: sie sagte „kein
+    // Archiv hinterlegt", waehrend das Archiv da war und das Oeffnen
+    // scheiterte.
+    if (verlauf.art === 'kein-archiv') {
       toast.info(
         'Es war kein Archiv hinterlegt — deine Laufwerke sind zurück, dein Verlauf konnte nicht geholt werden.'
       );
-    } else if (verlauf.zurueckgeholt === 0) {
+    } else if (verlauf.art === 'fehler') {
+      toast.error(`Der Verlauf konnte nicht geholt werden: ${verlauf.grund}`);
+    } else if (verlauf.bericht.zurueckgeholt === 0) {
       toast.warning('Im Archiv lag kein Verlauf. Deine Laufwerke sind zurück.');
     } else {
       const uebersprungen =
-        verlauf.uebersprungen > 0 ? ` (${verlauf.uebersprungen} unlesbar übersprungen)` : '';
-      toast.success(`${verlauf.zurueckgeholt} Nachrichten zurückgeholt${uebersprungen}.`);
+        verlauf.bericht.uebersprungen > 0
+          ? ` (${verlauf.bericht.uebersprungen} unlesbar übersprungen)`
+          : '';
+      toast.success(`${verlauf.bericht.zurueckgeholt} Nachrichten zurückgeholt${uebersprungen}.`);
     }
     void ladeStatus();
   }
+
 </script>
 
 <section class="space-y-4" data-testid="wiederherstellung-block">

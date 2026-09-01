@@ -177,12 +177,7 @@ export class AblageVerbindungsStore {
     // Der Stempel entsteht beim Schreiben aus dem GERADE angemeldeten Konto
     // — dieselbe Stelle und derselbe Grund wie bei `verlauf/db.ts`.
     const mitKonto: AblageVerbindung = { ...v, kontoId: v.kontoId ?? aktuellesKonto() };
-    // Auch hier `$state.snapshot`, obwohl `v` heute von allen Aufrufern als
-    // schlichtes Objekt kommt: die Regel „was in IndexedDB geht, wird vorher
-    // entproxyt" gilt fuer die Datei, nicht fuer den einzelnen Aufrufer.
-    // Ein kuenftiger Aufrufer, der eine bestehende Verbindung weiterreicht,
-    // brauchte sonst denselben Fehler noch einmal (s. `patch` unten).
-    await schreibe($state.snapshot(mitKonto) as AblageVerbindung);
+    await schreibe(mitKonto);
     this.verbindungen = [...this.verbindungen, mitKonto];
   }
 
@@ -210,20 +205,12 @@ export class AblageVerbindungsStore {
     const bestehend = this.verbindung(id);
     if (!bestehend) return;
     const aktualisiert: AblageVerbindung = { ...bestehend, ...aenderung };
-    // `$state.snapshot` ist hier PFLICHT, nicht Vorsicht. `bestehend` kommt
-    // aus einem `$state`-Feld und ist damit ein Proxy; das Ausbreiten loest
-    // nur die OBERSTE Ebene auf, `konfiguration` bleibt einer. IndexedDB
-    // klont strukturiert und wirft an einem Proxy `DataCloneError` — die
-    // Zeile wird nie geschrieben, und weil der Wurf durch den Aufrufer
-    // hindurchgeht, sieht der Nutzer nicht einmal einen Fehler.
-    //
-    // Am 2026-09-01 gemessen: das Verbinden eines Kanal-Laufwerks lief
-    // serverseitig sauber durch (Adresse stand in `ablage_kanal_laufwerke`),
-    // aber `fuerKanal` blieb `null` — die Oberflaeche meldete danach
-    // dauerhaft „Noch kein Laufwerk verbunden". Betroffen war JEDER Weg
-    // durch `patch`, also auch `verknüpfeMitGuild` und das Zurueckschreiben
-    // aufgefrischter Zugaenge.
-    await schreibe($state.snapshot(aktualisiert) as AblageVerbindung);
+    // Entproxyt wird an der Grenze (`verbindungenDb.ts::entproxyt`), nicht
+    // hier: `bestehend` kommt aus einem `$state`-Feld, und IndexedDB wirft
+    // an einem Proxy `DataCloneError`. Am 2026-09-01 hat das dreimal
+    // zugeschlagen — u. a. blieb `fuerKanal` stumm auf `null`, waehrend
+    // serverseitig alles korrekt gespeichert war.
+    await schreibe(aktualisiert);
     this.verbindungen = this.verbindungen.map((v) => (v.id === id ? aktualisiert : v));
   }
 

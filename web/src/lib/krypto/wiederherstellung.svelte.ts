@@ -25,6 +25,22 @@ import {
 	type AblageAnbieterArt,
 } from '../ablage/verbindungen.svelte.ts';
 import { holeVerlaufAusArchiv, type RueckwegBericht } from '../ablage/archivRueckweg.ts';
+
+/**
+ * Wie der Verlaufs-Teil des Einlösens ausgegangen ist.
+ *
+ * **Drei Fälle, nicht zwei — und das ist der Punkt.** Die erste Fassung
+ * lieferte `RueckwegBericht | null`, und die Oberfläche machte aus `null`
+ * die Meldung „es war kein Archiv hinterlegt". Das war eine von DREI
+ * möglichen Ursachen, als Tatsache behauptet: es kann auch das Laufwerk
+ * unerreichbar oder das Entschlüsseln fehlgeschlagen sein. Beim ersten
+ * echten Lauf am 2026-09-01 trat genau das ein — und die Meldung schickte
+ * die Fehlersuche in die falsche Richtung.
+ */
+export type VerlaufsErgebnis =
+	| { art: 'kein-archiv' }
+	| { art: 'fehler'; grund: string }
+	| { art: 'ok'; bericht: RueckwegBericht };
 import { aktuellesKonto } from '../verlauf/konto.ts';
 import { putRecoveryPackage, getRecoveryPackage, istKeinPaeckchenFehler } from '../api/recovery-package';
 
@@ -101,7 +117,7 @@ export async function erzeugeUndSichere(): Promise<string> {
  */
 export async function loeseEin(
 	eingabe: string,
-): Promise<{ anzahl: number; verlauf: RueckwegBericht | null }> {
+): Promise<{ anzahl: number; verlauf: VerlaufsErgebnis }> {
 	const kontoId = pruefeAngemeldet();
 
 	let bytes: Uint8Array;
@@ -167,15 +183,21 @@ export async function loeseEin(
 	// die Oberfläche kann daraus „0 Nachrichten" anzeigen und zum erneuten
 	// Versuch auffordern.
 	const archiv = inhalt.verbindungen.find((v) => v.istArchiv === true);
-	let verlauf: RueckwegBericht | null = null;
-	if (archiv !== undefined) {
+	let verlauf: VerlaufsErgebnis;
+	if (archiv === undefined) {
+		verlauf = { art: 'kein-archiv' };
+	} else {
 		try {
 			const speicher = await ablageVerbindungen.dateiSpeicherFür(archiv.id);
-			if (speicher !== null) {
-				verlauf = await holeVerlaufAusArchiv(speicher, kontoId);
-			}
-		} catch {
-			verlauf = null;
+			verlauf =
+				speicher === null
+					? { art: 'fehler', grund: 'Das Archiv-Laufwerk liess sich nicht öffnen.' }
+					: { art: 'ok', bericht: await holeVerlaufAusArchiv(speicher, kontoId) };
+		} catch (fehler) {
+			verlauf = {
+				art: 'fehler',
+				grund: fehler instanceof Error ? fehler.message : String(fehler),
+			};
 		}
 	}
 
