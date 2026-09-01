@@ -57,6 +57,7 @@ from dcc_chat_gateway.routes._dropbox_writes import (
     perform_restore,
     perform_trash,
 )
+from dcc_chat_gateway.routes._deps import publish_guild_event
 from dcc_chat_gateway.security import CurrentUser
 from dcc_shared.events import ChannelCreatedEvent
 
@@ -168,24 +169,24 @@ async def ensure_dropbox_channel(
         await session.refresh(cfg)
 
         mgr = getattr(request.app.state, "connection_manager", None)
-        if mgr is not None:
-            await mgr.publish_guild_event(
-                ChannelCreatedEvent(
-                    channel={
-                        "id": str(channel.id),
-                        "guild_id": str(channel.guild_id),
-                        "name": channel.name,
-                        "type": channel.type,
-                        "position": channel.position,
-                        "topic": channel.topic,
-                        "restricted": False,
-                        "name_color": None,
-                        "name_color_secondary": None,
-                        "name_gradient_angle": None,
-                    }
-                )
-            )
-            await publish_quota_event(mgr, cfg)
+        await publish_guild_event(
+            request,
+            ChannelCreatedEvent(
+                channel={
+                    "id": str(channel.id),
+                    "guild_id": str(channel.guild_id),
+                    "name": channel.name,
+                    "type": channel.type,
+                    "position": channel.position,
+                    "topic": channel.topic,
+                    "restricted": False,
+                    "name_color": None,
+                    "name_color_secondary": None,
+                    "name_gradient_angle": None,
+                }
+            ),
+        )
+        await publish_quota_event(mgr, cfg)
     else:
         await session.commit()
 
@@ -237,22 +238,21 @@ async def create_dropbox_channel(
         await session.refresh(channel)
         await session.refresh(cfg)
 
-        mgr = getattr(request.app.state, "connection_manager", None)
-        if mgr is not None:
-            await mgr.publish_guild_event(
-                ChannelCreatedEvent(
-                    channel={
-                        "id": str(channel.id),
-                        "guild_id": str(channel.guild_id),
-                        "name": channel.name,
-                        "type": channel.type,
-                        "position": channel.position,
-                        "topic": channel.topic,
-                        "restricted": False,
-                        "name_color": None,
-                    }
-                )
-            )
+        await publish_guild_event(
+            request,
+            ChannelCreatedEvent(
+                channel={
+                    "id": str(channel.id),
+                    "guild_id": str(channel.guild_id),
+                    "name": channel.name,
+                    "type": channel.type,
+                    "position": channel.position,
+                    "topic": channel.topic,
+                    "restricted": False,
+                    "name_color": None,
+                }
+            ),
+        )
     return DropboxChannelOut(
         id=channel.id,
         guild_id=channel.guild_id,

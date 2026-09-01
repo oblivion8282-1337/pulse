@@ -20,6 +20,7 @@ from dcc_chat_gateway.models import (
     GuildMember,
 )
 from dcc_chat_gateway.permissions import Permissions, check_permission
+from dcc_chat_gateway.routes._deps import publish_guild_event
 from dcc_chat_gateway.schemas import (
     CreateInviteIn,
     InviteAcceptOut,
@@ -109,13 +110,81 @@ async def _publish_member_added(request: Request, guild_id: int, user_id: int) -
     (voice presence, channel-lifecycle events)."""
     from dcc_shared.events import GuildMemberAddedEvent
 
-    mgr = getattr(request.app.state, "connection_manager", None)
-    if mgr is not None:
-        await mgr.publish_guild_event(
-            GuildMemberAddedEvent(
-                guild_id=str(guild_id), user_id=str(user_id)
-            )
-        )
+    await publish_guild_event(
+        request,
+        GuildMemberAddedEvent(guild_id=str(guild_id), user_id=str(user_id)),
+    )
+
+
+async def _join_guild(
+    session,
+    request: Request,
+    guild_id: int,
+    user_id: int,
+    *,
+    pre=None,
+    stage=None,
+) -> tuple[bool, int | None]:
+    """Gemeinsamer Kern der drei „Community beitreten“-Routen (Invite-Code,
+    Community-Einladung, öffentlicher Handle): Ban-Vorprüfung, Member-Cap,
+    GuildMember-Insert mit IntegrityError-Race-Behandlung, Ziel-Kanal via
+    ``_first_text_channel_id`` und ``guild_member_added``-Broadcast.
+
+    Die Routen behalten ihre Vorblöcke (Invite-Konsum, Host-Redirect,
+    Instance-Lock) und ihre individuellen Antworten/Toasts:
+
+      - ``pre``   — nach der Ban-Vorprüfung, vor dem „schon Mitglied“-Zweig
+                    (der Instance-Lock des öffentlichen Beitritts).
+      - ``stage`` — nach dem Member-Cap, vor Insert und Commit; erhält
+                    ``added`` (False = schon Mitglied), denn der Invite-Code-
+                    Pfad darf einen Use nur bei neuem Beitritt konsumieren,
+                    während die Instance-Mitgliedschaft in beiden Zweigen
+                    zu stellen ist.
+
+    Liefert ``(added, channel_id)`` — ``channel_id`` ist der erste Text-Kanal;
+    die Invite-Code-Route reicht vorrangig ihren eigenen Ziel-Kanal durch.
+    """
+    from dcc_chat_gateway.routes.bans import is_user_banned  # local: import cycle
+
+    # Ban check before anything else — a banned user must not be able to
+    # consume an invite use, hit the "already member" idempotent path,
+    # or learn anything about the guild they're banned from.
+    if await is_user_banned(session, guild_id, user_id):
+        raise HTTPException(403, detail="you are banned from this server")
+    if pre is not None:
+        await pre()
+
+    added = await session.get(GuildMember, (guild_id, user_id)) is None
+    if added:
+        # Community member cap — checked before anything the caller stages
+        # (Invite-Konsum etc.), so a capped-out join doesn't burn it.
+        await enforce_member_cap(session, guild_id)
+    if stage is not None:
+        await stage(added)
+    if added:
+        session.add(GuildMember(guild_id=guild_id, user_id=user_id))
+
+    # Re-check the ban-list *inside* the transaction before commit. The
+    # earlier ``is_user_banned`` call above closes the common-case door,
+    # but a concurrent PUT /bans/{uid} that committed between the two
+    # calls would slip through if we only checked once. Reading the row
+    # again under the same transaction means a serializable read sees
+    # the just-committed ban and we abort.
+    if await is_user_banned(session, guild_id, user_id):
+        await session.rollback()
+        raise HTTPException(403, detail="you are banned from this server")
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Race: another request added the same member concurrently. Treat as
+        # the idempotent path — the join still succeeded from the caller's view.
+        await session.rollback()
+        added = False
+
+    channel_id = await _first_text_channel_id(session, guild_id)
+    if added:
+        await _publish_member_added(request, guild_id, user_id)
+    return added, channel_id
 
 
 # ---- Create / list ---------------------------------------------------------
@@ -251,75 +320,43 @@ async def accept_invite(code: str, session: SessionDep, current: CurrentUser, re
     if guild is None:
         raise HTTPException(404, detail=_INVITE_INVALID)
     guild_name, guild_icon = guild.name, guild.icon_url
+    # Snapshots VOR dem Helfer: ein IntegrityError-Rollback darin lässt die
+    # ORM-Attribute expired — die Antwort baut auf den lokalen Kopien auf.
+    guild_id = guild.id
+    invite_channel_id = invite.channel_id
 
-    # Ban check before anything else — a banned user must not be able to
-    # consume an invite use, hit the "already member" idempotent path,
-    # or learn anything about the guild they're banned from.
-    from dcc_chat_gateway.routes.bans import is_user_banned  # local: import cycle
-
-    if await is_user_banned(session, invite.guild_id, current.id):
-        raise HTTPException(403, detail="you are banned from this server")
-
-    existing = await session.get(GuildMember, (invite.guild_id, current.id))
-    if existing is not None:
-        # Already a member: idempotent, do not consume a use.
-        channel_id = invite.channel_id or await _first_text_channel_id(session, guild.id)
-        return InviteAcceptOut(
-            guild=InviteGuildOut(id=guild.id, name=guild_name, icon_url=guild_icon),
-            channel_id=channel_id,
+    async def _consume_use(added: bool) -> None:
+        """Atomically consume one use iff the invite is still valid. Reacting
+        to a 0-row result closes the TOCTOU window between the validity check
+        and the increment. Bereits Mitgliedschaft → idempotent, kein Use."""
+        if not added:
+            return
+        now = datetime.now(tz=UTC)
+        stmt = (
+            update(GuildInvite)
+            .where(
+                GuildInvite.code == code,
+                GuildInvite.revoked_at.is_(None),
+                (GuildInvite.expires_at.is_(None)) | (GuildInvite.expires_at > now),
+                (GuildInvite.max_uses.is_(None)) | (GuildInvite.uses < GuildInvite.max_uses),
+            )
+            .values(uses=GuildInvite.uses + 1)
+            .returning(GuildInvite.guild_id, GuildInvite.channel_id)
+            .execution_options(synchronize_session=False)
         )
+        result = (await session.execute(stmt)).first()
+        if result is None:
+            await session.rollback()
+            raise HTTPException(404, detail=_INVITE_INVALID)
+        # Read the resolved channel id from the RETURNING row — NOT from the
+        # `invite` ORM object, which would be expired after a possible rollback.
+        nonlocal invite_channel_id
+        invite_channel_id = result[1]
 
-    # Community member cap — checked before consuming a use so a capped-out
-    # join doesn't burn an invite use.
-    await enforce_member_cap(session, invite.guild_id)
-
-    # Atomically consume one use iff the invite is still valid. Reacting to
-    # a 0-row result closes the TOCTOU window between the validity check and
-    # the increment.
-    now = datetime.now(tz=UTC)
-    stmt = (
-        update(GuildInvite)
-        .where(
-            GuildInvite.code == code,
-            GuildInvite.revoked_at.is_(None),
-            (GuildInvite.expires_at.is_(None)) | (GuildInvite.expires_at > now),
-            (GuildInvite.max_uses.is_(None)) | (GuildInvite.uses < GuildInvite.max_uses),
-        )
-        .values(uses=GuildInvite.uses + 1)
-        .returning(GuildInvite.guild_id, GuildInvite.channel_id)
-        .execution_options(synchronize_session=False)
+    _, channel_id = await _join_guild(
+        session, request, guild_id, current.id, stage=_consume_use
     )
-    result = (await session.execute(stmt)).first()
-    if result is None:
-        await session.rollback()
-        raise HTTPException(404, detail=_INVITE_INVALID)
-    # Read the resolved guild/channel id from the RETURNING row — NOT from the
-    # `invite` ORM object, which would be expired after a possible rollback.
-    guild_id, invite_channel_id = result
-
-    session.add(GuildMember(guild_id=guild_id, user_id=current.id))
-    # Re-check the ban-list *inside* the transaction before commit. The
-    # earlier ``is_user_banned`` call above closes the common-case door,
-    # but a concurrent PUT /bans/{uid} that committed between the two
-    # calls would slip through if we only checked once. Reading the row
-    # again under the same transaction means a serializable read sees
-    # the just-committed ban and we abort.
-    if await is_user_banned(session, guild_id, current.id):
-        await session.rollback()
-        raise HTTPException(403, detail="you are banned from this server")
-    actually_added = True
-    try:
-        await session.commit()
-    except IntegrityError:
-        # Race: another request added the same member concurrently. The use
-        # we consumed above stays counted; that is acceptable for an MVP.
-        await session.rollback()
-        actually_added = False
-
-    channel_id = invite_channel_id or await _first_text_channel_id(session, guild_id)
-    if actually_added:
-        await _publish_member_added(request, guild_id, current.id)
     return InviteAcceptOut(
-        guild=InviteGuildOut(id=guild.id, name=guild_name, icon_url=guild_icon),
-        channel_id=channel_id,
+        guild=InviteGuildOut(id=guild_id, name=guild_name, icon_url=guild_icon),
+        channel_id=invite_channel_id or channel_id,
     )

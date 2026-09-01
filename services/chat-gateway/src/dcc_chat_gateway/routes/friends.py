@@ -90,6 +90,53 @@ async def _atomic_install_friendship(
 # ---- POST /friend-requests ------------------------------------------------
 
 
+async def _publish_accept_fanout(
+    request: Request,
+    *,
+    me: int,
+    peer: int,
+    request_id: str,
+    friendship: Friendship,
+    actor_name: str,
+) -> None:
+    """Gemeinsamer Fan-out nach Annahme (explizit oder Auto-Accept bei
+    Gegenanfrage): beide Seiten bekommen ``friend_request_accepted`` samt
+    maskiertem Presence-Status, damit der Online-Tab den neuen Freund
+    sofort korrekt rendert (ohne Status versteckt er ihn bis zum nächsten
+    Ready-Frame). Best-effort — eine Redis-Störung darf die bereits
+    committete Freundschaft nie scheitern lassen. Der Push geht an die
+    Gegenseite (``peer``), nicht an den Aufrufer."""
+    redis = request.app.state.redis
+    try:
+        bulk = await get_presence_statuses_bulk(redis, [peer, me])
+        status_peer = _mask(bulk[str(peer)])
+        status_me = _mask(bulk[str(me)])
+    except Exception:  # noqa: BLE001 — presence enrichment is non-critical
+        status_peer = status_me = None
+    for target_user_id, friend_user_id, status in (
+        (me, peer, status_peer),
+        (peer, me, status_me),
+    ):
+        await publish_friend_event(
+            request,
+            target_user_id=target_user_id,
+            op="friend_request_accepted",
+            data={
+                "request_id": request_id,
+                "friendship": {
+                    "user_id": str(friend_user_id),
+                    "since": friendship.created_at.isoformat(),
+                    **({"status": status} if status else {}),
+                },
+            },
+        )
+    from dcc_chat_gateway.push import fan_out_friend_push
+
+    await fan_out_friend_push(
+        recipient_id=peer, actor_name=actor_name, kind="friend_accept"
+    )
+
+
 @router.post(
     "/friend-requests",
     response_model=FriendRequestOut | FriendRequestAutoAcceptOut,
@@ -157,47 +204,13 @@ async def create_friend_request(
         # tab-syncing works even though the POSTing tab already knows the
         # outcome from the response. Stale outgoing-request rows for both
         # sides are wiped above; the FE drops them on the event id match.
-        # Enrich with each peer's masked presence status — see the standard
-        # accept path below for why (Online tab hides status-less peers).
-        redis = request.app.state.redis
-        try:
-            bulk = await get_presence_statuses_bulk(redis, [target, me])
-            status_target = _mask(bulk[str(target)])
-            status_me = _mask(bulk[str(me)])
-        except Exception:  # noqa: BLE001 — presence enrichment is non-critical
-            status_target = status_me = None
-        accepted_payload_for_me = {
-            "request_id": str(reverse.id),
-            "friendship": {
-                "user_id": str(target),
-                "since": friendship.created_at.isoformat(),
-                **({"status": status_target} if status_target else {}),
-            },
-        }
-        accepted_payload_for_target = {
-            "request_id": str(reverse.id),
-            "friendship": {
-                "user_id": str(me),
-                "since": friendship.created_at.isoformat(),
-                **({"status": status_me} if status_me else {}),
-            },
-        }
-        await publish_friend_event(
+        await _publish_accept_fanout(
             request,
-            target_user_id=me,
-            op="friend_request_accepted",
-            data=accepted_payload_for_me,
-        )
-        await publish_friend_event(
-            request,
-            target_user_id=target,
-            op="friend_request_accepted",
-            data=accepted_payload_for_target,
-        )
-        from dcc_chat_gateway.push import fan_out_friend_push
-
-        await fan_out_friend_push(
-            recipient_id=target, actor_name=current.username, kind="friend_accept"
+            me=me,
+            peer=target,
+            request_id=str(reverse.id),
+            friendship=friendship,
+            actor_name=current.username,
         )
         return FriendRequestAutoAcceptOut(
             friendship=FriendOut(**wire_friendship(friendship, me))
@@ -324,47 +337,14 @@ async def accept_friend_request(
         sa_delete(FriendRequest).where(FriendRequest.id == row.id)
     )
     await session.commit()
-    # Carry each side's *current* presence status (invisible→offline masked)
-    # so the freshly-added friend renders with the correct online dot right
-    # away. Without it the client has no status for the new peer, so the
-    # Online tab treats them as offline and hides them until the next
-    # ready-frame reseed (i.e. a page reload). Best-effort — a Redis hiccup
-    # must never fail the accept, which has already committed.
-    redis = request.app.state.redis
-    try:
-        bulk = await get_presence_statuses_bulk(redis, [other, me])
-        status_other = _mask(bulk[str(other)])
-        status_me = _mask(bulk[str(me)])
-    except Exception:  # noqa: BLE001 — presence enrichment is non-critical
-        status_other = status_me = None
     # Fan-out to BOTH sides so a multi-tab session everywhere converges.
-    me_payload = {
-        "request_id": str(row.id),
-        "friendship": {
-            "user_id": str(other),
-            "since": friendship.created_at.isoformat(),
-            **({"status": status_other} if status_other else {}),
-        },
-    }
-    other_payload = {
-        "request_id": str(row.id),
-        "friendship": {
-            "user_id": str(me),
-            "since": friendship.created_at.isoformat(),
-            **({"status": status_me} if status_me else {}),
-        },
-    }
-    await publish_friend_event(
-        request, target_user_id=me, op="friend_request_accepted", data=me_payload
-    )
-    await publish_friend_event(
-        request, target_user_id=other, op="friend_request_accepted", data=other_payload
-    )
-    from dcc_chat_gateway.push import fan_out_friend_push
-
-    # Notify the original requester (``other``) that ``current`` accepted.
-    await fan_out_friend_push(
-        recipient_id=other, actor_name=current.username, kind="friend_accept"
+    await _publish_accept_fanout(
+        request,
+        me=me,
+        peer=other,
+        request_id=str(row.id),
+        friendship=friendship,
+        actor_name=current.username,
     )
     return FriendOut(**wire_friendship(friendship, me))
 

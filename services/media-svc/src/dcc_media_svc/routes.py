@@ -36,40 +36,17 @@ from dcc_shared.events import StreamDescriptor
 from dcc_shared.streaming import MONITOR_INDEX_MAX, MONITOR_INDEX_MIN, SLOT_MAX
 
 from dcc_media_svc.config import get_settings
+from dcc_media_svc.poller import _parse_state, _publish_event
 from dcc_media_svc.security import CurrentUser
 from dcc_shared.streaming import read_cache_key
 from dcc_media_svc.streamkeys import (
     CHANNEL_STATE_KEY,
-    STREAM_EVENTS_CHANNEL,
     TOKEN_KEY,
     active_key,
     path_for_channel_user,
     stopping_key,
     streams_from_state,
 )
-
-
-async def _publish_stream_event(
-    redis: Redis,
-    channel_id: str,
-    user_ids: list[str],
-    streams: list[dict[str, Any]] | None = None,
-) -> None:
-    """Publish the channel's *full* current streamer set on ``stream:events``
-    (same shape the poller emits) so chat-gateway re-broadcasts it at once.
-
-    ``streams`` (the additive ``[{user_id, slot}]`` list) is only put on the
-    wire when non-empty, so single-stream channels keep the legacy
-    ``{channel_id, user_ids}`` shape byte-for-byte."""
-    from dcc_shared.events import StreamStateSnapshot
-
-    snap = StreamStateSnapshot(channel_id=channel_id, user_ids=user_ids, streams=streams or [])
-    # `label` omission when unset is handled by the StreamDescriptor
-    # `@model_serializer` — see poller.py for the same comment.
-    data = snap.model_dump(mode="json")
-    if not snap.streams:
-        data.pop("streams", None)
-    await redis.publish(STREAM_EVENTS_CHANNEL, json.dumps(data, separators=(",", ":")))
 
 
 log = structlog.get_logger(__name__)
@@ -373,11 +350,8 @@ async def get_stream_state(
     raw = await redis.get(CHANNEL_STATE_KEY.format(channel_id=channel_id))
     if raw is None:
         return StreamStateOut(channel_id=channel_id)
-    try:
-        data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
-    except (ValueError, TypeError, AttributeError):
-        return StreamStateOut(channel_id=channel_id)
-    if not isinstance(data, dict):
+    data = _parse_state(raw)
+    if data is None:
         return StreamStateOut(channel_id=channel_id)
     uids = [str(u) for u in (data.get("user_ids") or []) if u]
     streams = [StreamDescriptor(**d) for d in streams_from_state(data)]
@@ -519,11 +493,10 @@ async def get_whep_url(
     raw = await redis.get(active_key(channel_id, user_id, slot))
     if raw is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
-    try:
-        data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
-    except (ValueError, TypeError, AttributeError):
+    data = _parse_state(raw)
+    if data is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
-    path = data.get("path") if isinstance(data, dict) else None
+    path = data.get("path")
     if not isinstance(path, str) or not path:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
     s = get_settings()
@@ -593,11 +566,8 @@ async def stop_stream(
     remaining_streams: list[dict[str, Any]] = []
     since: str | None = None
     if raw is not None:
-        try:
-            data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
-        except (ValueError, TypeError, AttributeError):
-            data = None
-        if isinstance(data, dict):
+        data = _parse_state(raw)
+        if data is not None:
             since = data.get("since")
             old_streams = streams_from_state(data)
             if old_streams:
@@ -641,7 +611,7 @@ async def stop_stream(
     else:
         await redis.delete(CHANNEL_STATE_KEY.format(channel_id=channel_id))
 
-    await _publish_stream_event(redis, channel_id, remaining_uids, streams=publish_streams)
+    await _publish_event(redis, channel_id, remaining_uids, streams=publish_streams)
     log.info(
         "stream_stopped",
         channel_id=channel_id,

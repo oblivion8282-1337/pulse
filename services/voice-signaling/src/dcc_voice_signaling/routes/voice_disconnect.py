@@ -10,6 +10,7 @@ from typing import Annotated
 from fastapi import APIRouter, Header, HTTPException, Path, Request, status
 
 from dcc_voice_signaling import routes as voice_routes
+from dcc_voice_signaling.routes import chat_gateway
 from dcc_voice_signaling.security import CurrentUser
 
 router = APIRouter()
@@ -60,39 +61,7 @@ async def disconnect_from_voice(
 
     # Verify that the target user is a member of the channel's guild. This
     # prevents an admin from removing arbitrary user IDs outside their guild.
-    settings = voice_routes.get_settings()
-    if settings.chat_gateway_url is not None:
-        try:
-            channel_resp = await voice_routes._chat_gateway_request(
-                "GET", f"/channels/{channel_id}", bearer=bearer
-            )
-            # Fail closed: a non-200 must not silently skip the membership check.
-            if channel_resp.status_code != 200:
-                raise HTTPException(
-                    status.HTTP_502_BAD_GATEWAY, detail="membership check unavailable"
-                )
-            channel_data = channel_resp.json()
-            guild_id = channel_data.get("guild_id")
-            if guild_id:
-                member_resp = await voice_routes._chat_gateway_request(
-                    "GET", f"/guilds/{guild_id}/members/{user_id}", bearer=bearer
-                )
-                if member_resp.status_code == 404:
-                    raise HTTPException(
-                        status.HTTP_404_NOT_FOUND,
-                        detail="user is not a member of this guild",
-                    )
-                if member_resp.status_code >= 400:
-                    raise HTTPException(
-                        status.HTTP_502_BAD_GATEWAY,
-                        detail="membership check unavailable",
-                    )
-        except HTTPException:
-            raise
-        except Exception as exc:
-            raise HTTPException(
-                status.HTTP_502_BAD_GATEWAY, detail="membership check unavailable"
-            ) from exc
+    await chat_gateway._require_target_in_guild(channel_id, user_id, bearer)
 
     redis = voice_routes._get_redis(request)
     if redis is None:

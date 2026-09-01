@@ -40,6 +40,7 @@ from dcc_chat_gateway.models import (
 )
 from dcc_chat_gateway.guild_limits import clamp_to_ceilings
 from dcc_chat_gateway.routes._dropbox_policy import clamp_dropbox_quota_to_ceiling
+from dcc_chat_gateway.routes._deps import publish_guild_event
 from dcc_chat_gateway.routes.admin import _audit
 from dcc_chat_gateway.schemas import (
     CommunityLimitsIn,
@@ -117,9 +118,7 @@ async def _broadcast_guild_updated(request: Request, guild: Guild) -> None:
     (the perm-filter busts its per-socket cache on this op). Never raises."""
     from dcc_chat_gateway.routes.guilds import _guild_dict
 
-    mgr = getattr(request.app.state, "connection_manager", None)
-    if mgr is not None:
-        await mgr.publish_guild_event(GuildUpdatedEvent(guild=_guild_dict(guild)))
+    await publish_guild_event(request, GuildUpdatedEvent(guild=_guild_dict(guild)))
 
 
 @router.get("/communities", response_model=CommunityListOut)

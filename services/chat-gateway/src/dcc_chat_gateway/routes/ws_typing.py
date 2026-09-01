@@ -16,6 +16,7 @@ from dcc_chat_gateway.db import SessionLocal
 from dcc_chat_gateway.friend_helpers import block_exists_either_way
 from dcc_chat_gateway.models import DirectMessageChannel
 from dcc_chat_gateway.routes._deps import parse_snowflake_int as _channel_id
+from dcc_shared.events import TypingEvent
 
 if TYPE_CHECKING:
     from dcc_chat_gateway.routes.ws_ops_registry import WSOpContext
@@ -83,7 +84,9 @@ async def handle_typing(ctx: "WSOpContext", msg: dict[str, Any]) -> None:
     try:
         await ctx.manager.publish(
             cid,
-            {"op": "typing", "channel_id": cid, "user_id": str(ctx.user.id)},
+            TypingEvent(
+                channel_id=cid, user_id=str(ctx.user.id)
+            ).model_dump(mode="json"),
         )
     except Exception:  # noqa: BLE001
         log.exception("typing publish failed for channel %s", cid)

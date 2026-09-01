@@ -89,10 +89,7 @@ from dcc_shared.events.chat import (
     WatchChatReactionData,
     WatchChatReactionEvent,
 )
-from dcc_shared.events.community import (
-    CommunityInviteReceivedEvent,
-    CommunityInviteRemovedEvent,
-)
+from dcc_shared.events.community import CommunityInviteReceivedEvent
 from dcc_shared.events.friends import (
     FriendRemovedEvent,
     FriendRequestAcceptedEvent,
@@ -182,7 +179,6 @@ EVENT_REGISTRY: dict[str, type[_EventBase]] = {
     "user_unblocked": UserUnblockedEvent,
     # ---- community-invite broker (B-lite, cloud-only)
     "community_invite_received": CommunityInviteReceivedEvent,
-    "community_invite_removed": CommunityInviteRemovedEvent,
     # ---- guild lifecycle
     "channel_created": ChannelCreatedEvent,
     "channel_updated": ChannelUpdatedEvent,
@@ -231,7 +227,6 @@ __all__ = [
     "_EventBase",
     # community-invite broker
     "CommunityInviteReceivedEvent",
-    "CommunityInviteRemovedEvent",
     # chat
     "ChannelBumpEvent",
     "DmBumpEvent",
