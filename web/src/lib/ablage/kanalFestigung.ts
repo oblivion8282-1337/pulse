@@ -99,7 +99,7 @@ export async function festigeKanalEinmal(kanalId: string): Promise<KanalFestigun
  * gegen den Mehrgeräte-Konflikt (Modulkopf), nur eine Ebene tiefer: nicht nur
  * zwei GERÄTE dürfen nie gleichzeitig denselben Kanal festigen, auch dieses
  * eine Gerät darf es nur EINMAL tun. Zwei Aufrufstellen brauchen dieselbe
- * Schleife: der App-Start (`+layout.svelte::starteAlleKanalFestigungsSchleifen`,
+ * Schleife: der Hintergrund-Laeufer (`hintergrundFestigung.ts`, vom App-Start,
  * läuft für die gesamte Sitzungsdauer) UND `KanalDateiablageVerbinden.svelte`
  * (läuft nur, solange die Kanal-Einstellungen offen sind). Ohne Zählung würde
  * das Öffnen der Einstellungen eine ZWEITE Schleife neben der vom App-Start
@@ -155,25 +155,12 @@ export function starteKanalFestigungsSchleife(kanalId: string, intervalMs = 30_0
 }
 
 /**
- * Startet die Festigungsschleife für JEDEN Kanal, den dieses Gerät besitzt
- * (`ablageVerbindungen`, Feld `fuerKanal` — gesetzt genau dann, wenn dieses
- * Gerät den Kanalordner verbunden hat, s. `KanalDateiablageVerbinden.svelte`).
- *
- * **Aufrufstelle: App-Start** (`routes/app/+layout.svelte`), damit die
- * Festigung eines Besitzer-Geräts läuft, ohne dass der Besitzer je die
- * Kanal-Einstellungen öffnet — genau die Lücke, die diese Datei ohne diesen
- * Aufruf hätte (bis dahin startete die Schleife ausschliesslich, solange
- * `KanalDateiablageVerbinden.svelte` gemountet war). Dank der Referenzzählung
- * in `starteKanalFestigungsSchleife` addiert ein späteres Öffnen der
- * Kanal-Einstellungen für denselben Kanal nur eine weitere Referenz, statt
- * eine zweite Schleife zu starten.
+ * (Der frueher hier stehende `starteAlleKanalFestigungsSchleifen` ist am
+ * 2026-09-01 nach `hintergrundFestigung.ts` gewandert. Er sah nur EINMAL
+ * beim App-Start nach und uebersah damit jedes Laufwerk, das waehrend der
+ * Sitzung verbunden wurde; der Nachfolger geht in Abstaenden Rundgang und
+ * deckt auch Community-Laufwerke ab, fuer die es gar keinen App-weiten
+ * Start gab. Die Referenzzaehlung in `starteKanalFestigungsSchleife` bleibt
+ * der Grund, warum die Ansicht zusaetzlich ihre eigene Schleife halten
+ * darf, ohne dass eine zweite entsteht.)
  */
-export async function starteAlleKanalFestigungsSchleifen(): Promise<() => void> {
-	if (!ablageVerbindungen.geladen) await ablageVerbindungen.laden();
-	const stops = ablageVerbindungen.verbindungen
-		.filter((v) => !!v.fuerKanal)
-		.map((v) => starteKanalFestigungsSchleife(v.fuerKanal as string));
-	return () => {
-		for (const stop of stops) stop();
-	};
-}

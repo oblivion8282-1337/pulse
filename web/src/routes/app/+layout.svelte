@@ -38,7 +38,7 @@
   import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
   import { standplatzProfil } from '$lib/devices/profil.svelte';
   import { loadAll } from '$lib/stream/persistence';
-  import { starteAlleKanalFestigungsSchleifen } from '$lib/ablage/kanalFestigung';
+  import { starteHintergrundFestigung } from '$lib/ablage/hintergrundFestigung';
   import { ABLAGE_KANAL_ENABLED } from '$lib/featureFlags';
   import HqStreamKeepAlive from '$lib/stream/components/HqStreamKeepAlive.svelte';
   import HqStreamBackgroundHost from '$lib/stream/components/HqStreamBackgroundHost.svelte';
@@ -127,8 +127,8 @@
    *  doesn't keep redirecting back into /app. */
   let _swMessageHandler: ((ev: MessageEvent) => void) | null = null;
   let _notifyUnsubscribe: (() => void) | null = null;
-  // Kanal-Ablage-Festigung: läuft für die gesamte App-Sitzung, s.
-  // `kanalFestigung.ts::starteAlleKanalFestigungsSchleifen`-Modulkopf.
+  // Ablage-Festigung: läuft für die gesamte App-Sitzung und geht in
+  // Abständen Rundgang, s. `hintergrundFestigung.ts`-Modulkopf.
   let _stoppeKanalFestigung: (() => void) | null = null;
 
   onMount(async () => {
@@ -231,13 +231,12 @@
     // Owner-Benachrichtigung: toastet, wenn ein eigener Antrag genehmigt/
     // abgelehnt wird. Interner Guard pollt nur bei offenem eigenen Antrag.
     myInstanceApplications.start();
-    // Ablage-Kanäle: Festigung für jeden Kanal starten, den DIESES Gerät
-    // besitzt — sonst liefe sie nur, solange der Besitzer zufällig die
-    // Kanal-Einstellungen offen hat (s. `kanalFestigung.ts`-Modulkopf).
+    // Ablage: Festigung für jedes Laufwerk, das DIESES Gerät besitzt —
+    // Kanäle wie Communities, und in Abständen neu nachgesehen, damit ein
+    // während der Sitzung verbundenes Laufwerk nicht bis zum nächsten
+    // App-Start wartet (s. `hintergrundFestigung.ts`-Modulkopf).
     if (ABLAGE_KANAL_ENABLED) {
-      void starteAlleKanalFestigungsSchleifen().then((stop) => {
-        _stoppeKanalFestigung = stop;
-      });
+      _stoppeKanalFestigung = starteHintergrundFestigung();
     }
     // Dasselbe für App-Hosting-Anträge — app-weit, nicht erst wenn die
     // Hosting-Karte gemountet ist: sonst gäbe es keinen roten Punkt, der den
