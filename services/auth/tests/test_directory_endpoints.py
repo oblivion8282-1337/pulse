@@ -201,3 +201,57 @@ async def test_lookup_stale_heartbeat_marked_offline(
     )
     assert r.status_code == 200
     assert r.json()["online"] is False
+
+
+# — CORS-Spiegel (DirectPathCorsMiddleware, app.py) ————————————————
+
+_FOREIGN_ORIGIN = "https://pulse.beispiel-hoster.de"
+
+
+async def test_preflight_from_foreign_origin_is_mirrored(client, instance):
+    """OPTIONS kurzschließt mit gespiegeltem Origin + Credentials — auch für
+    Ursprünge, die NICHT in cors_allow_origins stehen."""
+    r = await client.options(
+        f"/me/instances/{instance['id']}/direct-endpoint",
+        headers={"Origin": _FOREIGN_ORIGIN},
+    )
+    assert r.status_code == 204
+    assert r.headers["access-control-allow-origin"] == _FOREIGN_ORIGIN
+    assert r.headers["access-control-allow-credentials"] == "true"
+    assert "GET" in r.headers["access-control-allow-methods"]
+    assert "POST" in r.headers["access-control-allow-methods"]
+
+
+async def test_get_from_foreign_origin_carries_cors_headers(client, alice, instance):
+    """Membership-gated Lookup antwortet mit den CORS-Köpfen — der Browser
+    darf die Antwort lesen (vorher: stiller 404-Tod des Direktpfads auf
+    Self-Host-Ursprüngen)."""
+    await client.post("/selfhost/directory/heartbeat", json=_heartbeat_body(instance))
+    r = await client.get(
+        f"/me/instances/{instance['id']}/direct-endpoint",
+        headers={"Cookie": alice["cookie"], "Origin": _FOREIGN_ORIGIN},
+    )
+    assert r.status_code == 200, r.text
+    assert r.headers["access-control-allow-origin"] == _FOREIGN_ORIGIN
+    assert r.headers["access-control-allow-credentials"] == "true"
+
+
+async def test_non_member_get_still_404_but_cors_visible(client, bob, instance):
+    """Auch der 404 für Nicht-Mitglieder trägt die Köpfe — der Browser darf
+    die Ablehnung lesen (oha: sonst Appearance eines Netzfehlers)."""
+    r = await client.get(
+        f"/me/instances/{instance['id']}/direct-endpoint",
+        headers={"Cookie": bob["cookie"], "Origin": _FOREIGN_ORIGIN},
+    )
+    assert r.status_code == 404
+    assert r.headers["access-control-allow-origin"] == _FOREIGN_ORIGIN
+
+
+async def test_cors_middleware_touches_other_paths_never(client, alice):
+    """Außerhalb der zwei Telefonbuch-Routen wird kein Origin gespiegelt —
+    die strenge allow_origins-Liste bleibt unangetastet."""
+    r = await client.get(
+        "/me",
+        headers={"Cookie": alice["cookie"], "Origin": _FOREIGN_ORIGIN},
+    )
+    assert "access-control-allow-origin" not in r.headers

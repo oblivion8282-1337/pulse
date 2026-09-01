@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -107,6 +108,79 @@ async def lifespan(app: FastAPI):
             await app.state.redis.aclose()
 
 
+# Die zwei Telefonbuch-Routen des Direktpfads. Sie sind membership-gated —
+# Nicht-Mitglieder bekommen die übliche 401/404 und sehen nichts.
+_DIRECT_PATH_RE = re.compile(r"^/me/instances/[^/]+/direct-(?:endpoint|offer)$")
+
+
+class DirectPathCorsMiddleware:
+    """CORS-Spiegel für genau die zwei Direktpfad-Telefonbuch-Routen.
+
+    Die Heartbeats der Server-Container laufen ausschließlich gegen die Cloud,
+    das Telefonbuch lebt also nur hier — Self-Host-Ursprünge dürfen trotzdem
+    abfragen, sonst bleibt der Direktpfad ausgerechnet auf eigenen Servern
+    dauerhaft tot (der Browser fällt dann still aufs Relay zurück). Die
+    `allow_origins`-Liste kann Self-Host-Domänen nicht abbilden (beliebig
+    viele, nutzergewählt), daher spiegeln wir den Origin für genau diese
+    Routen. Offenbart wird Mitgliedschaft + Onlinestatus einer Instanz —
+    nichts anderes; für die erlaubten Ursprünge (`howispulse.com`, Dev)
+    springt weiter die CORSMiddleware an, die wir hier nicht doppelt
+    beantworten."""
+
+    def __init__(self, app, allowed_origins: frozenset[str]):
+        self.app = app
+        self.allowed_origins = allowed_origins
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or not _DIRECT_PATH_RE.match(scope.get("path", "")):
+            return await self.app(scope, receive, send)
+
+        headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
+        origin = headers.get("origin")
+        if not origin:
+            return await self.app(scope, receive, send)
+
+        cors_headers = [
+            (b"access-control-allow-origin", origin.encode()),
+            (b"access-control-allow-credentials", b"true"),
+            (b"vary", b"Origin"),
+        ]
+
+        if scope["method"] == "OPTIONS":
+            # Preflight — bewusst hier kurzgeschlossen, auch für erlaubte
+            # Ursprünge (die gespiegelte Antwort ist zur CORSMiddleware-
+            # Antwort identisch, nur ohne 400-Risiko für fremde Ursprünge).
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 204,
+                    "headers": cors_headers
+                    + [
+                        (b"access-control-allow-methods", b"GET, POST, OPTIONS"),
+                        (b"access-control-allow-headers", b"Content-Type, Authorization"),
+                    ],
+                }
+            )
+            await send({"type": "http.response.body", "body": b""})
+            return
+
+        async def send_with_cors(message):
+            if message["type"] == "http.response.start":
+                # Unsere Köpfe sind hier die Wahrheit — die CORSMiddleware
+                # setzt bei allow_credentials ihren ACAC-Kopf auch auf fremden
+                # Ursprüngen ("true, true" liest kein Browser), also räumen
+                # wir ihre Access-Control-Köpfe erst weg.
+                kept = [
+                    (k, v)
+                    for k, v in message.get("headers", [])
+                    if not k.lower().startswith(b"access-control-")
+                ]
+                message = {**message, "headers": kept + cors_headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_cors)
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title="dcc-auth", version="0.1.0", lifespan=lifespan)
@@ -116,6 +190,10 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+    )
+    app.add_middleware(
+        DirectPathCorsMiddleware,
+        allowed_origins=frozenset(settings.cors_origins_list),
     )
     app.include_router(router)
     app.include_router(account_router)
