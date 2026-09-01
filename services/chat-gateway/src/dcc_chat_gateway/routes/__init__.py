@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends
 from dcc_chat_gateway.routes import (
     ablage_guild_laufwerk,
     ablage_kanal,
+    ablage_pruefen,
     ablage_zwischenlager,
     admin,
     admin_backups,
@@ -85,6 +86,7 @@ router.include_router(bans.router)
 router.include_router(guild_icons.router)
 router.include_router(channels.router)
 router.include_router(ablage_kanal.router)
+router.include_router(ablage_pruefen.router)
 router.include_router(ablage_guild_laufwerk.router)
 router.include_router(ablage_zwischenlager.router)
 # Friend-system / DM / Block routes are cloud-only (global social layer).

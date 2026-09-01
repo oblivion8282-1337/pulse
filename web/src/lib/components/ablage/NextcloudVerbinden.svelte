@@ -17,8 +17,7 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import { ausFreigabeLink, FreigabeLinkFehler } from '$lib/ablage/freigabeLink';
-  import { webdavAdapter } from '$lib/ablage/webdav';
-  import { probiere } from '$lib/ablage/probe';
+  import { pruefeAblageZiel } from '$lib/api/ablagePruefen';
   import { SCHRITT_TEXT } from '$lib/ablage/probeSchrittText';
   import { ablageVerbindungen, type AblageVerbindung } from '$lib/ablage/verbindungen.svelte';
 
@@ -33,13 +32,20 @@
     fehler = '';
     try {
       const zugang = ausFreigabeLink(link);
-      const adapter = webdavAdapter({ ...zugang, ordner: '' });
 
       // Erst die Probe, dann verbunden melden. Der wahrscheinlichste
       // Bedienfehler ist ein Link mit reinem LESERECHT — der besteht das
       // Schreiben nicht, und genau deshalb steht die Probe hier vorn statt
       // beim ersten echten Schreibversuch irgendwann später.
-      const ergebnis = await probiere(adapter);
+      //
+      // **Sie läuft über den Pulse-Server, nicht hier.** Ein WebDAV-Schreiben
+      // aus dem Browser scheitert an CORS, und zwar bei jedem Anbieter, der
+      // es nicht ausdrücklich freigibt — nachgemessen an einer echten
+      // Nextcloud (s. `api/ablagePruefen.ts`). Bis zum 2026-09-01 stand hier
+      // ein direkter `probiere(webdavAdapter(…))`, der deshalb IMMER
+      // scheiterte; die Meldung schob es auf die Freigabe-Rechte und schickte
+      // den Nutzer damit an eine Stelle, an der alles richtig war.
+      const ergebnis = await pruefeAblageZiel(link);
       if (!ergebnis.gut) {
         fehler =
           ergebnis.schritt === 'schreiben'
