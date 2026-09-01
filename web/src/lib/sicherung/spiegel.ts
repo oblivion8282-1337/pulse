@@ -38,7 +38,7 @@ import {
 import type { AblageNachricht } from '../ablage/nutzlast.ts';
 
 /** Die Schlüssel-Datei des Containers — Klartext-Name, verschlüsselter Inhalt. */
-export const SCHLUESSEL_DATEI = 'schluessel.puls';
+export const SCHLUESSEL_DATEI = 'key.puls';
 
 /** Spülen spätestens nach so vielen Millisekunden — kein Upload je Nachricht. */
 export const SPUEL_VERZOEGERUNG_MS = 60_000;

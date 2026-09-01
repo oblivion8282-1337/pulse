@@ -9,11 +9,11 @@
  *   nicht jede Nachricht den Argon2-Lauf kostet.
  *
  *   **KEK** — Argon2id aus dem Sicherungs-Passwort, Parametern im Kopf von
- *   `schluessel.puls`. Die Passphrase wird NIRGENDS gespeichert — nicht im
+ *   `key.puls`. Die Passphrase wird NIRGENDS gespeichert — nicht im
  *   Klienten, nicht auf dem Server. Geht sie verloren, ist das Archiv
  *   unwiederbringlich; dieselbe ehrliche Prämisse wie beim Postfach.
  *
- *   `schluessel.puls`:
+ *   `key.puls`:
  *
  *     "PUSI" (4) | Fassung (1) | Argon2-Zeiten (1) | Speicher-KiB (4, BE)
  *     | Parallelität (1) | Salt-Länge (1) | Salt | Nonce (12)
@@ -128,7 +128,7 @@ async function gcm(
 	);
 }
 
-/** Packt den DEK in `schluessel.puls` — frisches Salt, frische Nonce, jedes Mal. */
+/** Packt den DEK in `key.puls` — frisches Salt, frische Nonce, jedes Mal. */
 export async function wickleSchluesselDatei(
 	dek: Uint8Array,
 	passwort: string,
@@ -161,7 +161,7 @@ export async function wickleSchluesselDatei(
 	return gesamt;
 }
 
-/** Öffnet `schluessel.puls` — wirft bei falschem Passwort oder Manipulation. */
+/** Öffnet `key.puls` — wirft bei falschem Passwort oder Manipulation. */
 export async function öffneSchluesselDatei(
 	bytes: Uint8Array,
 	passwort: string,

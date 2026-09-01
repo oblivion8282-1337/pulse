@@ -59,7 +59,7 @@ function gdriveZiel(weiterleitung: string): {
 		kundenId,
 		...(geheimnis !== '' ? { kundenGeheimnis: geheimnis } : {}),
 		weiterleitung,
-		ordner: 'Pulse-Sicherung',
+		ordner: 'Pulse-Backup',
 	};
 }
 

@@ -28,7 +28,7 @@ function nachricht(id: string, inhalt: string): AblageNachricht {
 async function containerMit(passwort: string) {
 	const basis = speicherAdapter();
 	const dek = erzeugeDek();
-	await basis.schreibe('schluessel.puls', await wickleSchluesselDatei(dek, passwort, { zeiten: 1, speicherKiB: 8192 }));
+	await basis.schreibe('key.puls', await wickleSchluesselDatei(dek, passwort, { zeiten: 1, speicherKiB: 8192 }));
 	return { basis, dek };
 }
 

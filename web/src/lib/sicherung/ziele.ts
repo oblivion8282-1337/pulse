@@ -32,7 +32,7 @@ export interface SicherungZiele {
 		kundenId: string;
 		kundenGeheimnis?: string;
 		weiterleitung: string;
-		/** Drive-Ordner als Pfad, z. B. `Pulse-Sicherung`. */
+		/** Drive-Ordner als Pfad, z. B. `Pulse-Backup`. */
 		ordner: string;
 		nachspieleToken: string;
 		/** Zugangs-Token aus dem Code-Tausch — kurzlebig, nur für die Einrichtung. */
@@ -112,7 +112,7 @@ function sanitisiereZiele(roh: unknown): SicherungZiele {
 				? { kundenGeheimnis: g.kundenGeheimnis }
 				: {}),
 			weiterleitung: typeof g.weiterleitung === 'string' ? g.weiterleitung : '',
-			ordner: typeof g.ordner === 'string' ? g.ordner : 'Pulse-Sicherung',
+			ordner: typeof g.ordner === 'string' ? g.ordner : 'Pulse-Backup',
 			nachspieleToken: g.nachspieleToken,
 			...(typeof g.zugangsToken === 'string' ? { zugangsToken: g.zugangsToken } : {}),
 		};
@@ -163,7 +163,7 @@ export async function zieleLesen(): Promise<SicherungZiele> {
 				? { kundenGeheimnis: alt.kundenGeheimnis }
 				: {}),
 			weiterleitung: typeof alt.weiterleitung === 'string' ? alt.weiterleitung : '',
-			ordner: typeof alt.ordner === 'string' ? alt.ordner : 'Pulse-Sicherung',
+			ordner: typeof alt.ordner === 'string' ? alt.ordner : 'Pulse-Backup',
 			nachspieleToken: alt.nachspieleToken,
 			...(typeof alt.zugangsToken === 'string' ? { zugangsToken: alt.zugangsToken } : {}),
 		};
