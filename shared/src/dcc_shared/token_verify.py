@@ -1,9 +1,13 @@
 """Token verification — mirrors chat-gateway's two-shape dispatch.
 
 Gemeinsame JWKS/Session-JWT-Verifizierung für die Dienste, die denselben
-Bearer wie chat-gateway prüfen (voice-signaling, media-svc). 1:1 aus
-voice-signaling übernommen — inkl. des ``email_blocked``-Gates aus
-``get_current_user`` (media-svc hatte diese Kopie verpasst — Drift).
+Bearer wie chat-gateway prüfen (voice-signaling, media-svc). Ursprünglich 1:1
+aus voice-signaling übernommen — inkl. des ``email_blocked``-Gates aus
+``get_current_user`` (media-svc hatte diese Kopie verpasst — Drift); seit der
+Ponytail-Runde zusätzlich um die Chat-Gateway-Extras erweitert (1:1 aus
+``chat-gateway/security.py``): vollständiges ``AuthenticatedUser`` (Admin/
+Owner-Ableitung, Cross-Mode-Identifier, Roh-Payload) und der gemeinsame
+``_user_from_token``-Pfad für Header- und Query-Auth.
 
 Two distinct token shapes flow through this module:
 
@@ -36,7 +40,7 @@ from __future__ import annotations
 import asyncio
 import json as _json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 import httpx
@@ -247,18 +251,49 @@ async def decode_token(token: str, get_settings: Callable[[], Any]) -> dict[str,
 class AuthenticatedUser:
     id: int
     username: str
+    is_admin: bool = False
+    payload: dict[str, Any] = field(default_factory=dict)
+    # Stable cross-mode identifier — Cloud: ``str(id)`` (decimal user_id);
+    # Self-Host: the pairwise-sub (Base64url-truncated HMAC). Use this for
+    # cache keys / external surfaces; use ``id`` for FK columns.
+    user_identifier: str = ""
+    # True iff the token was issued by the local Self-Host (DE 9 session-JWT).
+    is_self_host: bool = False
+    # True iff the Cloud operator (auth-svc ``is_owner``, JWT ``owner`` claim).
+    # Cloud-only — forced False for Self-Host tokens (their owner is a
+    # per-instance admin, not the platform owner). Gates cloud-wide community
+    # oversight + emergency reported-content access. Defaulted so the many test
+    # constructions that predate it keep working.
+    is_owner: bool = False
 
 
-async def get_current_user(
-    authorization: str | None,
-    get_settings: Callable[[], Any],
+def _extract_bearer(authorization: str | None) -> str | None:
+    """Pull the token out of an ``Authorization: Bearer …`` header (case-
+    insensitive prefix). Returns ``None`` if the header is missing or shaped
+    differently — the caller decides whether that's fatal or falls back to a
+    query-param token."""
+    if authorization and authorization.lower().startswith("bearer "):
+        return authorization.split(" ", 1)[1].strip()
+    return None
+
+
+async def _user_from_token(
+    token: str | None, get_settings: Callable[[], Any]
 ) -> AuthenticatedUser:
-    if not authorization or not authorization.lower().startswith("bearer "):
+    """Shared verify-and-build path for the auth dependencies.
+
+    Takes an already-extracted bearer token (from header or query) and
+    returns the authenticated user. Both call-sites share the same
+    email-verification gate + admin-derivation so behaviour can't drift
+    between header- and query-authenticated routes.
+    """
+    if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing bearer token")
-    token = authorization.split(" ", 1)[1].strip()
     payload = await decode_token(token, get_settings)
     # Email-verification gate: auth-svc stamps ``email_blocked`` on tokens of
-    # unverified accounts once SMTP is configured — no voice until verified.
+    # unverified accounts once SMTP is configured. The whole chat-gateway is
+    # off-limits until the address is confirmed (auth-svc itself stays open so
+    # the user can still verify / fix their email).
     if payload.get("email_blocked"):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, detail="email verification required"
@@ -267,5 +302,41 @@ async def get_current_user(
         uid = int(payload["sub"])
     except (KeyError, ValueError) as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid sub") from exc
-    return AuthenticatedUser(id=uid, username=payload.get("username", ""))
+    settings = get_settings()
+    is_self_host = settings.pulse_instance_mode == "self-host"
+    # Cross-mode identifier: Cloud → ``str(id)``; Self-Host → the pairwise-sub
+    # carried in ``payload["pairwise_sub"]`` (set by
+    # ``_decode_self_host_session_token``). Falls back to ``str(uid)`` so any
+    # code path that happens to introduce a Self-Host token without setting
+    # the claim still produces a stable string identifier.
+    identifier = (
+        str(payload.get("pairwise_sub") or uid) if is_self_host else str(uid)
+    )
+    # Admin kommt ausschliesslich aus dem ``admin``-Claim, den cert_login beim
+    # Ausstellen des Session-Tokens setzt. Der frueher hier stehende zweite
+    # Vergleich (uid gegen PULSE_INSTANCE_OWNER_ID) konnte nie zutreffen: auf
+    # einem Self-Host ist ``uid`` die synthetische ID aus
+    # ``_decode_self_host_session_token``, nicht die rohe Cloud-User-ID — die
+    # ist hier gar nicht mehr vorhanden. Toter Zweig, entfernt 2026-07-27;
+    # dieselbe Stelle gab es in routes/ws.py.
+    is_admin = bool(payload.get("admin", False))
+    # Owner = the Cloud operator only. Self-Host tokens never carry it (and even
+    # if one did, force False — Self-Host has no platform owner).
+    is_owner = not is_self_host and bool(payload.get("owner", False))
+    return AuthenticatedUser(
+        id=uid,
+        username=payload.get("username", ""),
+        is_admin=is_admin,
+        is_owner=is_owner,
+        payload=payload,
+        user_identifier=identifier,
+        is_self_host=is_self_host,
+    )
+
+
+async def get_current_user(
+    authorization: str | None,
+    get_settings: Callable[[], Any],
+) -> AuthenticatedUser:
+    return await _user_from_token(_extract_bearer(authorization), get_settings)
 
