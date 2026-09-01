@@ -50,9 +50,8 @@
 
 | Bereich | Umfang | Notizen |
 |---|---|---|
-| `services/chat-gateway/` routes | ~21.600 Zeilen | `dropbox.py` + `_dropbox_helpers.py` PAUSIERT (aktive Entwicklung). guilds.py, ws_*-Paket und `_guild_or_404` vollständig erledigt (Runden 4–5); offen: restliche Routen-Dateien, WS-Zugangs-Präambel (riskant, nur mit Testlauf) |
-| `shared/src/dcc_shared/` | ? | Events/Serialisierung — nach den Service-Audits (Registry-Muster jetzt durch pin_update bekannt) |
-| `services/voice-signaling/`, `media-svc/`, `mediamtx-auth-hook/`, `relay-frps-plugin/` | ~4.800 Zeilen zusammen | Klein, am Schluss |
+| `services/chat-gateway/` routes | ~21.600 Zeilen | dropbox.py + _dropbox_helpers.py PAUSIERT (aktive Entwicklung). Erledigt: guilds.py, ws_*-Paket, _guild_or_404, restliche Routen (Runden 4–5, 7). OFFEN: WS-Zugangs-Präambel (5×, riskant), Join-Flows-Konsolidierung |
+| `services/auth/` | ~15.000 Zeilen | ERLEDIGT (Runde 5). Offen: Gate-Helper-Platzierung (nur bei Gelegenheit) |
 | `desktop/electron/`, `mobile/`, `streaming/` (Rust/Player) | ? | Plattform-Code; Ponytail gilt, aber Audit-Kriterien (native APIs!) etwas anders gewichten |
 
 ## Bewusst außen vor / noch nicht erfasst
