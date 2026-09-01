@@ -10,7 +10,6 @@ import { dedupliziertLaden } from './ladeWaechter';
 
 class Freigaben {
   #proGeraet = $state<Record<string, Grant[]>>({});
-  laden_ = $state<Record<string, boolean>>({});
   /** Laufende Abrufe je Gerät — ein überlappender zweiter Aufruf (z. B. ein
    *  WS-Reconnect während eine HTTP-Anfrage noch offen ist) wartet auf
    *  DIESES Versprechen, statt eine noch leere Liste als „geladen"
@@ -23,12 +22,7 @@ class Freigaben {
 
   async laden(guildId: string, deviceId: string): Promise<void> {
     return dedupliziertLaden(this.#laufend, deviceId, async () => {
-      this.laden_[deviceId] = true;
-      try {
-        this.#proGeraet[deviceId] = await grantsApi.list(guildId, deviceId);
-      } finally {
-        this.laden_[deviceId] = false;
-      }
+      this.#proGeraet[deviceId] = await grantsApi.list(guildId, deviceId);
     });
   }
 

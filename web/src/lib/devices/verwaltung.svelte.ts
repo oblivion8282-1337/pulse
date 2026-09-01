@@ -1,3 +1,4 @@
+import { errText } from '$lib/utils/errText';
 /**
  * Ein Gerät verwalten — von jedem Rechner aus, nicht nur von ihm selbst.
  *
@@ -26,7 +27,7 @@ class GeraeteVerwaltung {
       // 404 heisst hier „schon weg" und ist kein Fehler des Nutzers — ein
       // anderer Rechner desselben Kontos oder ein Verwalter war schneller.
       if (e instanceof ApiError && e.status === 404) return;
-      this.fehler = e instanceof Error ? e.message : String(e);
+      this.fehler = errText(e);
     } finally {
       this.laeuft = false;
     }

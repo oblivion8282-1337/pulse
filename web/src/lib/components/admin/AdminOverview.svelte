@@ -4,6 +4,7 @@
   up). No interaction — informational.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { adminApi, type AuthStats, type ChatStats } from '$lib/api/admin';
   import { m } from '$lib/paraglide/messages.js';
@@ -31,7 +32,7 @@
       chat = await adminApi.chatStats();
       if (isCloud) auth = await adminApi.authStats();
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errText(e);
     }
   });
 

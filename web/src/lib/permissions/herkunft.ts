@@ -31,6 +31,7 @@ import {
   Perm,
   has,
   resolveChannelPermissions,
+  vergleichRollen,
   type OverwriteSnapshot,
   type Permission,
   type RoleSnapshot
@@ -78,10 +79,7 @@ export type Aufloesungsziel = {
 
 /** @everyone zuerst, dann Rollen nach Position — die Reihenfolge des Servers. */
 function sortiert(rollen: readonly BenannteRolle[]): BenannteRolle[] {
-  return [...rollen].sort((a, b) => {
-    if (a.is_everyone !== b.is_everyone) return a.is_everyone ? -1 : 1;
-    return a.position - b.position;
-  });
+  return [...rollen].sort(vergleichRollen);
 }
 
 /** Die Überschreibungen, die dieses Ziel treffen — in Anwendungsreihenfolge. */

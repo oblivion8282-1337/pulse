@@ -22,7 +22,7 @@
 import { overwritesApi, type Overwrite } from '$lib/api/roles';
 import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
 import { Perm, has, toBitfield, type Permission } from './bitfield';
-import { zielSchluessel } from './schnappschuesse';
+import { teileSchluessel, zielSchluessel } from './schnappschuesse';
 
 export type Zustand = 'allow' | 'neutral' | 'deny';
 export type Paar = { allow: bigint; deny: bigint };
@@ -121,9 +121,9 @@ export class KanalEntwurf {
     this.speichert = true;
     try {
       for (const key of offene) {
-        const [art, id] = key.split(':');
+        const { art, id } = teileSchluessel(key);
         const p = this.aenderungen[key];
-        const gespeichert = await overwritesApi.set(channelId, Number(art) as 0 | 1, id, {
+        const gespeichert = await overwritesApi.set(channelId, art, id, {
           allow: p.allow.toString(),
           deny: p.deny.toString()
         });
@@ -138,8 +138,8 @@ export class KanalEntwurf {
   /** Ganze Abweichung entfernen — das Ziel folgt danach wieder den Rollen. */
   async loesche(key: string): Promise<void> {
     const channelId = this.#channelId();
-    const [art, id] = key.split(':');
-    await overwritesApi.delete(channelId, Number(art) as 0 | 1, id);
+    const { art, id } = teileSchluessel(key);
+    await overwritesApi.delete(channelId, art, id);
     channelPermissions.apply(
       channelId,
       (channelPermissions.byChannel[channelId] ?? []).filter((ow) => zielSchluessel(ow) !== key)

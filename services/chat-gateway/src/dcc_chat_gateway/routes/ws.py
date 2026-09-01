@@ -106,17 +106,6 @@ WS_CLOSE_INSTANCE_SUSPENDED = 4070
 WS_CLOSE_EMAIL_UNVERIFIED = 4071
 
 
-def _channel_id(value: object) -> int | None:
-    """Parse a client-supplied channel id to int, or None if malformed."""
-    s = str(value or "").strip()
-    if not s:
-        return None
-    try:
-        return int(s)
-    except ValueError:
-        return None
-
-
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     # Accept first so the reject paths below can send real WebSocket close

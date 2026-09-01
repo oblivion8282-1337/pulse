@@ -1,3 +1,4 @@
+import { errText } from '$lib/utils/errText';
 /**
  * Svelte-5-Runes-Zustand fuer den nativen HQ-Player: die Opt-in-Einstellung
  * (`useNativePlayer`, persistiert wie `stream/settings.svelte.ts`) und eine
@@ -232,7 +233,7 @@ export class NativePlayerSession {
     } catch (e) {
       if (this.#disposed) return;
       this.phase = 'failed';
-      this.error = e instanceof Error ? e.message : String(e);
+      this.error = errText(e);
     }
   }
 

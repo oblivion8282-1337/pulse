@@ -9,6 +9,7 @@
   Endpoint: POST/GET /me/instance-applications (Cookie-Auth via instancesApi).
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
@@ -109,7 +110,7 @@
       netCheck = null;
       await reload();
     } catch (e) {
-      formError = e instanceof Error ? e.message : String(e);
+      formError = errText(e);
     } finally {
       submitting = false;
     }

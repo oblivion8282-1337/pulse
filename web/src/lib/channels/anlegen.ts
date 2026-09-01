@@ -1,3 +1,4 @@
+import { errText } from '$lib/utils/errText';
 /**
  * Einen Kanal anlegen — die eine Fassung für alle Aufrufer.
  *
@@ -61,7 +62,7 @@ export async function kanalAnlegen(
       type === 2 && status === 409
         ? m.channel_page_dropbox_disabled()
         : m.channel_page_create_failed(),
-      { description: e instanceof Error ? e.message : String(e) }
+      { description: errText(e) }
     );
     return false;
   }

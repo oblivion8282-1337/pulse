@@ -45,7 +45,10 @@ from dcc_chat_gateway.models import (
 )
 from dcc_chat_gateway.permissions import resolve_permissions
 from dcc_chat_gateway.push import fan_out_dm_push, fan_out_mention_push
-from dcc_chat_gateway.routes._deps import resolve_channel_for_user
+from dcc_chat_gateway.routes._deps import (
+    parse_snowflake_int as _channel_id,
+    resolve_channel_for_user,
+)
 from dcc_chat_gateway.routes.messages import serialize_message
 from dcc_chat_gateway.routes.ws_ops_registry import WSOpContext
 from dcc_chat_gateway.snowflake import next_id
@@ -53,16 +56,6 @@ from dcc_chat_gateway.snowflake import next_id
 log = logging.getLogger(__name__)
 
 _MAX_NONCE_LEN = 64
-
-
-def _channel_id(value: object) -> int | None:
-    s = str(value or "").strip()
-    if not s:
-        return None
-    try:
-        return int(s)
-    except ValueError:
-        return None
 
 
 async def handle_send(ctx: WSOpContext, msg: dict[str, Any]) -> None:

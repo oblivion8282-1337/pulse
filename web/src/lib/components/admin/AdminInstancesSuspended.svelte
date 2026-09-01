@@ -2,6 +2,7 @@
   Admin: Gesperrte Self-Host-Instanzen + Entsperren-Aktion.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { adminInstancesApi, type AdminInstance } from '$lib/api/instances';
@@ -28,7 +29,7 @@
         (i) => i.origin !== 'app_host'
       );
     } catch (e) {
-      loadError = e instanceof Error ? e.message : String(e);
+      loadError = errText(e);
     } finally {
       loading = false;
     }
@@ -42,7 +43,7 @@
       toast.success(m.admin_instances_suspended_unsuspend_success({ hostname: inst.hostname }));
     } catch (e) {
       toast.error(m.admin_instances_suspended_unsuspend_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       busy[inst.id] = false;

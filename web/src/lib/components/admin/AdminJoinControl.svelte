@@ -6,10 +6,12 @@
   Liest/schreibt `locked` via PATCH /admin/permissions (chat-gateway).
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { adminApi } from '$lib/api/admin';
   import { m } from '$lib/paraglide/messages.js';
+  import Switch from '$lib/components/form/Switch.svelte';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
 
@@ -22,7 +24,7 @@
       const perms = await adminApi.getPermissions();
       locked = perms.locked;
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errText(e);
     }
   });
 
@@ -35,7 +37,7 @@
       toast.success(m.admin_join_locked_saved());
     } catch (e) {
       toast.error(m.admin_join_locked_save_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       busy = false;
@@ -54,37 +56,22 @@
   {:else if locked === null}
     <LoadingState label={m.admin_join_control_loading()} />
   {:else}
-    <label
-      class="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-bg-hover/30 p-4 hover:bg-bg-hover"
-      class:border-destructive={locked}
+    <div
+      class="flex items-start gap-3 rounded-xl border border-border bg-bg-hover/30 p-4 hover:bg-bg-hover"
       data-testid="admin-join-locked-toggle"
     >
-      <div class="relative mt-0.5 shrink-0">
-        <input
-          type="checkbox"
-          class="sr-only"
-          checked={locked}
-          disabled={busy}
-          onchange={toggle}
-          data-testid="join-locked-checkbox"
-        />
-        <!-- Custom toggle track -->
-        <div
-          class="h-5 w-9 rounded-full transition-colors {locked
-            ? 'bg-destructive/80'
-            : 'bg-border'}"
-        ></div>
-        <!-- Thumb -->
-        <div
-          class="absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform {locked
-            ? 'translate-x-4'
-            : 'translate-x-0'}"
-        ></div>
-      </div>
+      <Switch
+        checked={locked}
+        onCheckedChange={toggle}
+        disabled={busy}
+        aria-label={m.admin_join_locked_label()}
+        data-testid="join-locked-checkbox"
+        class="mt-0.5"
+      />
       <div class="flex-1">
         <div class="text-text-bright text-sm font-medium">{m.admin_join_locked_label()}</div>
         <div class="text-text-muted text-xs mt-0.5">{m.admin_join_locked_description()}</div>
       </div>
-    </label>
+    </div>
   {/if}
 </section>

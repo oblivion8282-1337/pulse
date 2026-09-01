@@ -31,6 +31,7 @@
 -->
 <script lang="ts">
   import MonitorCogIcon from '@lucide/svelte/icons/monitor-cog';
+  import { formatTimestamp } from '$lib/utils/formatTimestamp';
   import SettingsGeraeteEintragung from './SettingsGeraeteEintragung.svelte';
   import SettingsStandplatzBerechtigung from './SettingsStandplatzBerechtigung.svelte';
   import SettingsStandplatzFreigabe from './SettingsStandplatzFreigabe.svelte';
@@ -40,7 +41,17 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import Select from '$lib/components/form/Select.svelte';
-  import { spanneMs, standplatz, type Einheit, type Geltung } from '$lib/remote/standplatz.svelte';
+  import {
+    einheiten,
+    geltungen,
+    klemmeMenge,
+    spanneMs,
+    standplatz,
+    type Einheit,
+    type Geltung,
+  } from '$lib/remote/standplatz.svelte';
+  import { restzeit } from '$lib/devices/restzeit';
+  import { restText as restTextAusRestzeit } from '$lib/devices/restanzeige';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { deviceStore } from '$lib/devices/store.svelte';
   import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
@@ -80,33 +91,24 @@
     return () => clearInterval(t);
   });
 
-  /** Restzeit in der gröbsten Einheit, die noch etwas sagt. */
+  /** Restzeit in der gröbsten Einheit, die noch etwas sagt. Die Schwellen
+   *  (Minute/Stunde/Tag) rechnet `restzeit` — bewusst zum zweiten Mal genutzt,
+   *  nicht hier nachgerechnet. */
   const restText = $derived.by(() => {
     const bis = standplatz.gueltigBis;
     if (bis === null) return null;
-    const ms = Math.max(0, bis - jetzt);
-    const minuten = Math.round(ms / 60_000);
-    if (minuten < 60) return m.standplatz_rest_minutes({ count: Math.max(1, minuten) });
-    const stunden = Math.round(minuten / 60);
-    if (stunden < 48) return m.standplatz_rest_hours({ count: stunden });
-    return m.standplatz_rest_days({ count: Math.round(stunden / 24) });
+    const rest = restzeit(new Date(bis).toISOString(), jetzt);
+    // Frisch freigegeben oder im Moment des Verfalls zeigt „1 Minute" statt
+    // eines Sprungs auf 0 — wie das alte Math.max(1, …) hier.
+    if (rest === 'abgelaufen') return m.standplatz_rest_minutes({ count: 1 });
+    if (rest === null) return null;
+    return restTextAusRestzeit(rest);
   });
 
   /** Das Ende als Datum und Uhrzeit — die Angabe, die nicht altert. */
   const endeText = $derived(
-    standplatz.gueltigBis === null ? null : new Date(standplatz.gueltigBis).toLocaleString(),
+    standplatz.gueltigBis === null ? null : formatTimestamp(new Date(standplatz.gueltigBis).toISOString()),
   );
-
-  const geltungen: { id: Geltung; label: () => string }[] = [
-    { id: 'befristet', label: m.standplatz_settings_duration_limited },
-    { id: 'dauerhaft', label: m.standplatz_settings_duration_permanent },
-  ];
-
-  const einheiten: { id: Einheit; label: () => string }[] = [
-    { id: 'stunden', label: m.standplatz_settings_unit_hours },
-    { id: 'tage', label: m.standplatz_settings_unit_days },
-    { id: 'wochen', label: m.standplatz_settings_unit_weeks },
-  ];
 
   // Als Auswahlliste fürs Feld — label() erst hier aufrufen, damit die
   // Beschriftung (wie bisher beim Rendern) die aktuelle Sprache trifft.
@@ -118,7 +120,7 @@
     // Die Zahl wird hier geklemmt und nicht erst im Speicher: ein geleertes
     // Zahlenfeld schreibt über `bind:value` ein `null`, und daraus würde sonst
     // ein Ablauf in der Vergangenheit (dieselbe Falle wie im Übertragungs-Profil).
-    const zahl = Number.isFinite(Number(menge)) && Number(menge) > 0 ? Number(menge) : 1;
+    const zahl = klemmeMenge(menge);
     // Die Empfänger entscheidet seit 2026-08-20 der Server (`device_grants`,
     // s. `SettingsStandplatzFreigabe`) — hier bleibt nur noch der
     // Hauptschalter, `freigeben` kennt `nutzer`/`jeder` seither gar nicht

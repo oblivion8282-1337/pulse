@@ -7,9 +7,11 @@
   pretty for the common case; unknown shapes fall back to JSON-pretty.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
+  import { formatTimestamp } from '$lib/utils/formatTimestamp';
   import { onMount } from 'svelte';
   import { adminApi, type AuditLogEntry } from '$lib/api/admin';
-  import { userCache } from '$lib/stores/users.svelte';
+  import { userCache, fmtUser } from '$lib/stores/users.svelte';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import RefreshCcwIcon from '@lucide/svelte/icons/refresh-ccw';
   import { m } from '$lib/paraglide/messages.js';
@@ -38,7 +40,7 @@
         if (e.target_id) userCache.queue(e.target_id);
       }
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errText(e);
     } finally {
       loading = false;
     }
@@ -49,11 +51,6 @@
     else expanded.add(id);
   }
 
-  function fmtUser(id: string | null): string {
-    if (!id) return '—';
-    const u = userCache.get(id);
-    return u ? `@${u.display_name ?? u.username}` : `…${id.slice(-6)}`;
-  }
 
   function fmtAction(e: AuditLogEntry): string {
     if (e.action === 'user.patch') {
@@ -65,15 +62,6 @@
     return e.action;
   }
 
-  function fmtTime(iso: string): string {
-    return new Date(iso).toLocaleString('de-DE', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  }
 
   onMount(load);
 </script>
@@ -124,7 +112,7 @@
                 {/if}
               </div>
               <div class="text-text-muted mt-0.5 text-xs">
-                {fmtTime(e.created_at)} · {e.source}-svc
+                {formatTimestamp(e.created_at)} · {e.source}-svc
               </div>
             </div>
             <ChevronDownIcon

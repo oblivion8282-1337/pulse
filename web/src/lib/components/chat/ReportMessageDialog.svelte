@@ -6,6 +6,7 @@
   CSAM-Sonderfall: Banner mit Behörden-Hinweis.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { Button } from '$lib/components/ui/button';
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
@@ -116,7 +117,7 @@
       onClose();
     } catch (e) {
       toast.error(m.report_message_toast_error(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       submitting = false;

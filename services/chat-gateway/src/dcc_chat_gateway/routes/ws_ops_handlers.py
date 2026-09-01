@@ -48,21 +48,15 @@ from dcc_chat_gateway.routes import (
     ws_watch,
     ws_watch_queue,
 )
-from dcc_chat_gateway.routes._deps import channel_membership, resolve_channel_for_user
+from dcc_chat_gateway.routes._deps import (
+    channel_membership,
+    parse_snowflake_int as _channel_id,
+    resolve_channel_for_user,
+)
 from dcc_chat_gateway.routes.ws_op_send import handle_send
 from dcc_chat_gateway.routes.ws_ops_registry import WSOpContext, register_ws_op
 
 log = logging.getLogger(__name__)
-
-
-def _channel_id(value: object) -> int | None:
-    s = str(value or "").strip()
-    if not s:
-        return None
-    try:
-        return int(s)
-    except ValueError:
-        return None
 
 
 @register_ws_op("subscribe")

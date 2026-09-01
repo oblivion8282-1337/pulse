@@ -8,6 +8,7 @@
   replaces. ``has_password`` from the GET response drives the placeholder.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -56,7 +57,7 @@
     try {
       hydrate(await adminApi.getSmtpSettings());
     } catch (e) {
-      loadError = e instanceof Error ? e.message : String(e);
+      loadError = errText(e);
     }
     testTo = auth.user?.email ?? '';
   });
@@ -125,7 +126,7 @@
       toast.success(m.admin_smtp_save_success());
     } catch (e) {
       toast.error(m.admin_smtp_save_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       saving = false;
@@ -149,7 +150,7 @@
       else toast.error(m.admin_smtp_test_failed(), { description: res.error ?? '' });
     } catch (e) {
       lastTestOk = false;
-      lastTestError = e instanceof Error ? e.message : String(e);
+      lastTestError = errText(e);
       toast.error(m.admin_smtp_test_failed(), { description: lastTestError });
     } finally {
       testing = false;

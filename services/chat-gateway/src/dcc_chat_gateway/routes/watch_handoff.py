@@ -16,21 +16,18 @@ from fastapi import WebSocket
 from dcc_chat_gateway import watchkeys
 from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE
 from dcc_chat_gateway.permissions import Permissions, has_permission, resolve_permissions
-from dcc_chat_gateway.routes._deps import channel_membership
+from dcc_chat_gateway.routes._deps import (
+    channel_membership,
+    parse_snowflake_int as _channel_id,
+    ws_err as _err,
+    ws_manager as _manager,
+)
 
 log = logging.getLogger(__name__)
 
 
 def _redis(websocket: WebSocket):
     return getattr(websocket.app.state, "redis", None)
-
-
-def _manager(websocket: WebSocket):
-    return getattr(websocket.app.state, "connection_manager", None)
-
-
-async def _err(websocket: WebSocket, code: int, msg: str) -> None:
-    await websocket.send_json({"op": "error", "code": code, "msg": msg})
 
 
 def _id(value: object) -> str | None:

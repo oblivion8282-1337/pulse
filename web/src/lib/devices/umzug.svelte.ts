@@ -27,6 +27,7 @@
  */
 
 import { toast } from 'svelte-sonner';
+import { errText } from '$lib/utils/errText';
 import { devicesApi, type Device } from '$lib/api/devices';
 import { deviceStore } from '$lib/devices/store.svelte';
 import { currentServerUserId } from '$lib/stores/currentServerUser';
@@ -86,7 +87,7 @@ class GeraeteUmzug {
       // Die Liste bleibt unangetastet: sie zeigt weiter den alten Standplatz,
       // und der stimmt — es hat sich ja nichts geändert.
       toast.error(m.device_move_failed(), {
-        description: err instanceof Error ? err.message : String(err),
+        description: errText(err),
       });
     } finally {
       this.laeuft = false;

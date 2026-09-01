@@ -16,7 +16,7 @@
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
-  import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
+  import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
   import { toast } from 'svelte-sonner';
   import { rolesApi, type Role, type RoleCreatePayload } from '$lib/api/roles';
   import { roles as rolesStore } from '$lib/stores/roles.svelte';
@@ -112,28 +112,21 @@
     }
   });
 
-  let wechselZiel = $state<string | null>(null);
-  let wechselRueckfrage = $state(false);
-
-  function versuchenZuWechseln(id: string): void {
+  async function versuchenZuWechseln(id: string): Promise<void> {
     // Bereits gezeigt: nur festnageln, keine Rueckfrage (es wechselt ja
     // nichts). Ohne das Festnageln stuende die Auswahl beim Ersatz oben
     // weiter auf `null` und wanderte beim naechsten Umsortieren still mit.
     if (id === selectedRole?.id) return waehlen(id);
-    if (dirty) {
-      wechselZiel = id;
-      wechselRueckfrage = true;
-      return;
-    }
-    waehlen(id);
-  }
-
-  function wechselBestaetigen(): void {
-    if (wechselZiel) {
-      waehlen(wechselZiel);
-      wechselZiel = null;
-    }
-    wechselRueckfrage = false;
+    if (!dirty) return waehlen(id);
+    const ok = await confirmDialog({
+      title: m.roles_editor_switch_confirm_title(),
+      description: m.roles_editor_switch_confirm_desc({
+        roleName: selectedRole?.name ?? m.roles_editor_this_role()
+      }),
+      confirmLabel: m.roles_editor_discard_btn(),
+      cancelLabel: m.roles_editor_cancel()
+    });
+    if (ok) waehlen(id);
   }
 
   async function umsortieren(neu: Role[]): Promise<void> {
@@ -229,21 +222,3 @@
   </section>
 </div>
 
-<AlertDialog.Root bind:open={wechselRueckfrage}>
-  <AlertDialog.Content data-testid="role-switch-confirm">
-    <AlertDialog.Header>
-      <AlertDialog.Title>{m.roles_editor_switch_confirm_title()}</AlertDialog.Title>
-      <AlertDialog.Description>
-        {m.roles_editor_switch_confirm_desc({
-          roleName: selectedRole?.name ?? m.roles_editor_this_role()
-        })}
-      </AlertDialog.Description>
-    </AlertDialog.Header>
-    <AlertDialog.Footer>
-      <AlertDialog.Cancel>{m.roles_editor_cancel()}</AlertDialog.Cancel>
-      <AlertDialog.Action onclick={wechselBestaetigen}>
-        {m.roles_editor_discard_btn()}
-      </AlertDialog.Action>
-    </AlertDialog.Footer>
-  </AlertDialog.Content>
-</AlertDialog.Root>

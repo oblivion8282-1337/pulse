@@ -176,6 +176,14 @@ async def build_and_send_ready_frame(
                 sound_overrides_by_guild[srow.guild_id].append(
                     {"sound_id": srow.sound_id, "url": url}
                 )
+        def rollen_snapshot(guild_roles: list[Role], role_ids: set[int]) -> list[Role]:
+            # Explizit zugewiesene Rollen + die implizite @everyone-Rolle —
+            # Basis beider Snapshot-Rechnungen unten (Berechtigungen und
+            # sichtbare Voice-Channels).
+            return [
+                r for r in guild_roles if r.id in role_ids or r.is_everyone
+            ]
+
         guilds = []
         for g in guild_rows:
             # Reuse the batched data instead of letting ``resolve_permissions``
@@ -184,12 +192,9 @@ async def build_and_send_ready_frame(
             # ``my_role_ids`` (explicit assignments) + the implicit
             # @everyone role found in ``roles_by_guild``.
             guild_roles = roles_by_guild.get(g.id, [])
-            my_role_id_set = set(my_role_ids.get(g.id, []))
-            member_roles_snapshot: list[Role] = [
-                r
-                for r in guild_roles
-                if r.id in my_role_id_set or r.is_everyone
-            ]
+            member_roles_snapshot = rollen_snapshot(
+                guild_roles, set(my_role_ids.get(g.id, []))
+            )
             my_perms = resolve_guild_permissions_from_snapshot(
                 user, g.owner_id, member_roles_snapshot, is_member=True
             )
@@ -264,10 +269,9 @@ async def build_and_send_ready_frame(
             viewable_vc_ids: set[int] = set()
             for gid, cids in vcs_by_guild.items():
                 guild_roles = roles_by_guild.get(gid, [])
-                my_role_id_set = set(my_role_ids.get(gid, []))
-                member_roles_snapshot = [
-                    r for r in guild_roles if r.id in my_role_id_set or r.is_everyone
-                ]
+                member_roles_snapshot = rollen_snapshot(
+                    guild_roles, set(my_role_ids.get(gid, []))
+                )
                 visible = filter_viewable_channels_from_snapshot(
                     user,
                     owner_by_guild.get(gid, 0),

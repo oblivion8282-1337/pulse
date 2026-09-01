@@ -1,4 +1,5 @@
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   /**
    * Die Kanalliste einer Community.
    *
@@ -121,7 +122,7 @@
     if (c.type === 1 && voice.channelId !== c.id) {
       voice.connect(c.id, c.name).catch((e) => {
         toast.error(m.channel_list_voice_connect_failed(), {
-          description: e instanceof Error ? e.message : String(e)
+          description: errText(e)
         });
       });
     }

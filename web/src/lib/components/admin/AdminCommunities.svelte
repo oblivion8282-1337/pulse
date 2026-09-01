@@ -7,6 +7,7 @@
   `/owner/*` endpoints 403 for anyone else.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
@@ -54,7 +55,7 @@
       nextBefore = res.next_before;
       queueOwners(res.communities);
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errText(e);
     } finally {
       loading = false;
     }
@@ -74,7 +75,7 @@
       queueOwners(res.communities);
     } catch (e) {
       toast.error(m.admin_communities_load_more_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       loadingMore = false;
@@ -117,7 +118,7 @@
       );
     } catch (e) {
       toast.error(m.admin_communities_action_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       pendingId = null;

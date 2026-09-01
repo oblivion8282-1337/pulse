@@ -1,3 +1,4 @@
+import { errText } from '$lib/utils/errText';
 /**
  * Membership / ban handlers: `guild_member_added`, `guild_member_removed`,
  * `guild_ban_added`, `guild_ban_removed`, `guild_member_updated`.
@@ -33,7 +34,7 @@ async function rejoinViaInvite(code: string, guildName: string): Promise<void> {
     toast.success(m.mod_unban_rejoin_success({ guild: guildName }));
   } catch (e) {
     toast.error(m.mod_unban_rejoin_failed(), {
-      description: e instanceof Error ? e.message : String(e)
+      description: errText(e)
     });
   }
 }

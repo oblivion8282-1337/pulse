@@ -10,6 +10,7 @@
   import ScrollTextIcon from '@lucide/svelte/icons/scroll-text';
   import { Button } from '$lib/components/ui/button/index.js';
   import { remoteProtokoll } from '$lib/remote/protokoll.svelte';
+  import { formatTimestamp } from '$lib/utils/formatTimestamp';
   import { m } from '$lib/paraglide/messages.js';
 
   function dauer(beginn: number, ende: number | null): string {
@@ -21,7 +22,7 @@
   }
 
   function zeitpunkt(ms: number): string {
-    return new Date(ms).toLocaleString();
+    return formatTimestamp(new Date(ms).toISOString());
   }
 </script>
 

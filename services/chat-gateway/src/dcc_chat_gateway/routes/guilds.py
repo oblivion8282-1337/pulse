@@ -100,6 +100,15 @@ async def _publish_guild_event(
         await mgr.publish_guild_event(envelope)
 
 
+async def _guild_or_404(session: SessionDep, guild_id: int) -> Guild:
+    """Community nachladen oder 404 — die Routen hier teilen sich dieselbe
+    Semantik (404 "guild not found", nicht 403), daher ein Helfer."""
+    guild = await session.get(Guild, guild_id)
+    if guild is None:
+        raise HTTPException(404, detail="guild not found")
+    return guild
+
+
 # ---- Guilds ----------------------------------------------------------------
 
 
@@ -159,9 +168,7 @@ async def list_guilds(session: SessionDep, current: CurrentUser):
 
 @router.get("/guilds/{guild_id}", response_model=GuildOut)
 async def get_guild(guild_id: int, session: SessionDep, current: CurrentUser):
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await _guild_or_404(session, guild_id)
     await require_member(session, guild_id, current.id)
     return guild
 
@@ -182,9 +189,7 @@ async def get_guild_settings(
     Requires ``MANAGE_GUILD`` — the handle/address is a server-management
     concern, and we don't want a regular member enumerating whether a community
     is publicly addressable from inside."""
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await _guild_or_404(session, guild_id)
     await check_permission(session, current, guild_id, Permissions.MANAGE_GUILD)
     return GuildSettingsOut(
         id=guild.id,
@@ -221,18 +226,12 @@ async def patch_guild(
     Broadcasts ``op:guild_updated`` on guild:events so every connected client
     can refresh its sidebar without a refetch.
     """
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await _guild_or_404(session, guild_id)
     await check_permission(session, current, guild_id, Permissions.MANAGE_GUILD)
-    if payload.name is not None:
-        guild.name = payload.name
-    if payload.icon_url is not None:
-        guild.icon_url = payload.icon_url
-    if payload.attachment_max_size_bytes is not None:
-        guild.attachment_max_size_bytes = payload.attachment_max_size_bytes
-    if payload.attachment_max_count_per_message is not None:
-        guild.attachment_max_count_per_message = payload.attachment_max_count_per_message
+    # Nur ausdruecklich gesendete Felder setzen — ``None`` heisst hier
+    # durchgehend "keine Aenderung", nie "loeschen".
+    for feld, wert in payload.model_dump(exclude_unset=True).items():
+        setattr(guild, feld, wert)
     # Diese zwei Felder sind Werte der Community, keine Obergrenzen — ohne das
     # Klemmen könnte MANAGE_GUILD hier die Vorgabe des Betreibers überschreiben
     # (genau die Lücke, die Migration 0057 geschlossen hat).
@@ -314,9 +313,7 @@ async def delete_guild(
     deleted explicitly below. Broadcasts ``op:guild_deleted`` so clients can
     navigate away and prune their local stores.
     """
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await _guild_or_404(session, guild_id)
     if guild.owner_id != current.id and not current.is_admin:
         raise HTTPException(403, detail="only the owner can delete the guild")
     mgr = getattr(request.app.state, "connection_manager", None)
@@ -414,9 +411,7 @@ async def transfer_ownership(
     reasoning. The transfer is atomic: the previous owner stays as a
     regular member afterward.
     """
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await _guild_or_404(session, guild_id)
     if guild.owner_id != current.id:
         raise HTTPException(
             403, detail="only the owner can transfer ownership"
@@ -457,9 +452,7 @@ async def add_member(
     current: CurrentUser,
     request: Request,
 ):
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await _guild_or_404(session, guild_id)
     # MANAGE_INVITES gates direct-add-by-id (same caller-trust as creating
     # an invite link). Self-add is intentionally NOT allowed: guild IDs are
     # enumerable, so a self-add path would let any authenticated user join
@@ -607,9 +600,7 @@ async def patch_member(
     owner oracle."""
     if user_id == current.id:
         raise HTTPException(400, detail="use PATCH .../members/@me for self-edits")
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await _guild_or_404(session, guild_id)
     # Membership gate before any target-specific lookup: an empty body ({})
     # must not leak the target's nickname/join time, and a non-member must get
     # the generic 403 here rather than a distinguishable owner-vs-not response
@@ -753,9 +744,7 @@ async def leave_guild(
     PATCH pair above). Same removal mechanics as ``kick_member``, gated on
     "self" instead of ``KICK_MEMBERS``.
     """
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await _guild_or_404(session, guild_id)
     if guild.owner_id == current.id:
         raise HTTPException(403, detail="owner_cannot_leave")
     member = await session.get(GuildMember, (guild_id, current.id))
@@ -803,9 +792,7 @@ async def kick_member(
     """
     if user_id == current.id:
         raise HTTPException(400, detail="cannot kick yourself")
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await _guild_or_404(session, guild_id)
     if not current.is_admin:
         await require_member(session, guild_id, current.id)
     if guild.owner_id == user_id:

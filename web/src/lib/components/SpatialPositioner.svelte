@@ -37,12 +37,7 @@
   const eigeneId = $derived(currentServerUserId());
   let localName = $derived.by(() => {
     const p = voice.participants.find((p) => p.isLocal);
-    if (!p) return m.spatial_you();
-    if (eigeneId) {
-      const u = userCache.get(eigeneId);
-      if (u) return u.display_name ?? u.username;
-    }
-    return p.name;
+    return p ? userCache.displayName(eigeneId, p.name) : m.spatial_you();
   });
 
   // Push the layout into the audio engine on mount and on every slider change.
@@ -57,10 +52,6 @@
     const r = RADIUS * (0.4 + 0.6 * frac);
     const rad = (azimuthFor(i, n, spreadDeg) * Math.PI) / 180;
     return `left:${CENTER + r * Math.sin(rad)}px;top:${CENTER - r * Math.cos(rad)}px`;
-  }
-
-  function displayName(uid: string, fallback: string): string {
-    return userCache.get(uid) ? userCache.displayName(uid) : fallback;
   }
 </script>
 
@@ -85,7 +76,7 @@
 
     {#each remotes as p, i (p.identity)}
       {@const uid = p.userId as string}
-      {@const name = displayName(uid, p.name)}
+      {@const name = userCache.displayName(uid, p.name)}
       {@const avatar = safeAvatarUrl(userCache.get(uid)?.avatar_url)}
       <div
         class="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5"

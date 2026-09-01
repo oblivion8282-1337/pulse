@@ -1,4 +1,5 @@
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   /**
    * Entdecken — das Verzeichnis öffentlicher Communities.
    *
@@ -89,7 +90,7 @@
       await goto('/app/rooms');
     } catch (e) {
       toast.error(m.discover_join_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       tretebei = false;

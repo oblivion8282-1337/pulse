@@ -1,3 +1,4 @@
+import { errText } from '$lib/utils/errText';
 /**
  * User-side stream settings (T3b + T3c).
  *
@@ -218,7 +219,7 @@ export async function loadCatalogs(): Promise<void> {
     }
     streamSettings.catalogs_loaded = true;
   } catch (e) {
-    streamSettings.catalog_error = e instanceof Error ? e.message : String(e);
+    streamSettings.catalog_error = errText(e);
   } finally {
     loading = false;
   }

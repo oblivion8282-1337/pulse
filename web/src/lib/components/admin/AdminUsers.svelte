@@ -8,6 +8,7 @@
   yourself" with 400; we let the click through and surface the toast.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
@@ -56,7 +57,7 @@
       users = rows;
       hasMore = rows.length >= 50;
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errText(e);
     } finally {
       loading = false;
     }
@@ -73,7 +74,7 @@
       hasMore = more.length >= 50;
     } catch (e) {
       toast.error(m.admin_users_load_more_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       loadingMore = false;
@@ -114,7 +115,7 @@
     } catch (e) {
       // Errors from the safety nets (last admin, self-disable) bubble through
       // here with the server's German-friendly detail — surface it raw.
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = errText(e);
       toast.error(m.admin_users_change_rejected(), { description: msg });
     } finally {
       pendingId = null;

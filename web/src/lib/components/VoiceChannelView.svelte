@@ -1,4 +1,5 @@
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import StreamGrid from './StreamGrid.svelte';
@@ -137,7 +138,7 @@
       await voice.connect(channel.id, channel.name);
     } catch (e) {
       toast.error(m.voice_channel_view_toast_connect_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     }
   }

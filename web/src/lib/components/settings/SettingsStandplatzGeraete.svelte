@@ -21,6 +21,7 @@
   import { goto } from '$app/navigation';
   import { deviceStore } from '$lib/devices/store.svelte';
   import { geraeteVerwaltung } from '$lib/devices/verwaltung.svelte';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
   import { punktKlasse, zustandsText, geraetPfad } from '$lib/devices/darstellung';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
@@ -98,9 +99,10 @@
     </ul>
   {/if}
 
-  {#if geraeteVerwaltung.fehler}
-    <p class="text-xs text-red-500" data-testid="settings-my-devices-error">
-      {m.device_manage_error({ error: geraeteVerwaltung.fehler })}
-    </p>
-  {/if}
+  <FieldError
+    message={geraeteVerwaltung.fehler === null
+      ? null
+      : m.device_manage_error({ error: geraeteVerwaltung.fehler })}
+    testId="settings-my-devices-error"
+  />
 </div>

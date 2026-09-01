@@ -1,3 +1,4 @@
+import { errText } from '$lib/utils/errText';
 /**
  * Native audio-output routing + audio-diagnostic snapshot (Capacitor Android).
  *
@@ -77,7 +78,7 @@ export async function setVoiceActive(active: boolean): Promise<void> {
     await plugin.setVoiceActive({ active });
     lastSetVoiceActiveError = null;
   } catch (e) {
-    lastSetVoiceActiveError = e instanceof Error ? e.message : String(e);
+    lastSetVoiceActiveError = errText(e);
     console.warn('[audioRoute] setVoiceActive failed', e);
   }
 }
