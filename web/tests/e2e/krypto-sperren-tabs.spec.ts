@@ -50,8 +50,8 @@ async function schalterEinschalten(ctx: BrowserContext): Promise<void> {
     const antwort = await route.fetch();
     const text = await antwort.text();
     const gepatcht = text.replace('E2E_DMS_ENABLED = false', 'E2E_DMS_ENABLED = true');
-    if (gepatcht === text) {
-      throw new Error('Textmuster "E2E_DMS_ENABLED = false" nicht in schalter.ts gefunden');
+    if (gepatcht === text && !text.includes('E2E_DMS_ENABLED = true')) {
+      throw new Error(`Weder "E2E_DMS_ENABLED = false" noch "= true" in schalter.ts gefunden`);
     }
     await route.fulfill({ response: antwort, body: gepatcht });
   });

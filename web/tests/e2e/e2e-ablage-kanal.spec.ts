@@ -49,10 +49,12 @@ async function ablageSchalterEinschalten(ctx: BrowserContext): Promise<void> {
     const antwort = await route.fetch();
     const text = await antwort.text();
     const gepatcht = text.replace('ABLAGE_KANAL_ENABLED = false', 'ABLAGE_KANAL_ENABLED = true');
-    if (gepatcht === text) {
+    if (gepatcht === text && !text.includes('ABLAGE_KANAL_ENABLED = true')) {
       throw new Error(
-        'Textmuster "ABLAGE_KANAL_ENABLED = false" nicht in featureFlags.ts gefunden — ' +
-          'Datei umbenannt oder Konstante umformuliert?'
+        `Weder "ABLAGE_KANAL_ENABLED = false" noch "= true" in featureFlags.ts gefunden — ` +
+          'Datei umbenannt oder Konstante umformuliert? (Der Schalter ist seit ' +
+          'dem 2026-09-01 an; dieses Abfangen haelt den Nachweis unabhaengig ' +
+          'von seinem Stand.)'
       );
     }
     await route.fulfill({ response: antwort, body: gepatcht });

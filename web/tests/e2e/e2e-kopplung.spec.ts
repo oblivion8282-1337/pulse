@@ -77,23 +77,48 @@ const BOB = {
   password: 'sup3r-secret-pass'
 };
 
-/** Faengt die Vite-Dev-Antwort fuer `schalter.ts` ab und dreht
- *  `GERAETE_KOPPLUNG_ENABLED` auf `true` — der Quelltext im Repo bleibt
- *  unangetastet, s. Modulkopf. Muss VOR jeder Navigation im Context stehen:
- *  `GeraeteKopplungSection.svelte` importiert das Modul schon beim ersten
- *  App-Laden. */
+/** Faengt die Vite-Dev-Antwort fuer `schalter.ts` ab und stellt die beiden
+ *  Schalter, die dieser Nachweis braucht. Muss VOR jeder Navigation im
+ *  Context stehen: `GeraeteKopplungSection.svelte` importiert das Modul schon
+ *  beim ersten App-Laden.
+ *
+ *  **Zwei Schalter, und der zweite geht ABSICHTLICH in die Gegenrichtung.**
+ *  `GERAETE_KOPPLUNG_ENABLED` an — das ist der Gegenstand. `E2E_DMS_ENABLED`
+ *  aus, obwohl er seit dem 2026-09-01 im Quelltext an ist: dieser Nachweis
+ *  prueft den Umzug eines KLARTEXT-Verlaufs, und mit angeschalteter
+ *  Verschluesselung entstehen keine Klartext-Nachrichten mehr, an denen sich
+ *  das zeigen liesse (so am 2026-09-01 rot geworden).
+ *
+ *  Das ist kein Kunstgriff, um einen Test am Leben zu halten, sondern der
+ *  Fall, der beim Umlegen tatsaechlich eintritt: JEDER Bestandsnutzer hat in
+ *  diesem Moment genau so einen Verlauf auf der Platte — unverschluesselt,
+ *  vor der Umstellung entstanden — und koppelt sein zweites Geraet damit.
+ *  Der verschluesselte Umzug ist an anderer Stelle gedeckt
+ *  (`e2e-dm.spec.ts`, `e2e-dm-hetzner.spec.ts`). */
 async function kopplungSchalterEinschalten(ctx: BrowserContext): Promise<void> {
   await ctx.route('**/krypto/schalter.ts*', async (route) => {
     const antwort = await route.fetch();
     const text = await antwort.text();
-    const gepatcht = text.replace(
+    const ohneKrypto = text.replace('E2E_DMS_ENABLED = true', 'E2E_DMS_ENABLED = false');
+    if (ohneKrypto === text && !text.includes('E2E_DMS_ENABLED = false')) {
+      throw new Error(
+        'Weder "E2E_DMS_ENABLED = true" noch "= false" in schalter.ts gefunden — ' +
+          'ohne diesen Schalter kann der Nachweis keinen Klartext-Verlauf anlegen.'
+      );
+    }
+    const gepatcht = ohneKrypto.replace(
       'GERAETE_KOPPLUNG_ENABLED = false',
       'GERAETE_KOPPLUNG_ENABLED = true'
     );
-    if (gepatcht === text) {
+    // Gegen `ohneKrypto` vergleichen, nicht gegen `text`: der Text wurde oben
+    // schon einmal veraendert, ein Vergleich mit dem Original waere hier
+    // immer ungleich und die Pruefung damit wirkungslos.
+    if (gepatcht === ohneKrypto && !ohneKrypto.includes('GERAETE_KOPPLUNG_ENABLED = true')) {
       throw new Error(
-        'Textmuster "GERAETE_KOPPLUNG_ENABLED = false" nicht in schalter.ts gefunden — ' +
-          'Datei umbenannt oder Konstante umformuliert?'
+        `Weder "GERAETE_KOPPLUNG_ENABLED = false" noch "= true" in schalter.ts gefunden — ` +
+          'Datei umbenannt oder Konstante umformuliert? (Der Schalter ist seit ' +
+          'dem 2026-09-01 an; dieses Abfangen haelt den Nachweis unabhaengig ' +
+          'von seinem Stand.)'
       );
     }
     await route.fulfill({ response: antwort, body: gepatcht });
