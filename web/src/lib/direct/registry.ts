@@ -16,8 +16,16 @@
 
 import { DirectConnection, DirectFingerprintMismatch } from './connection';
 import type { DirectFailureReason } from './policy';
+import { CLOUD_HOSTNAME } from '$lib/api/servers.svelte';
 
-const AUTH_BASE = '/api/auth';
+/**
+ * Telefonbuch + Offer-Signaling leben ausschließlich in der Cloud (die
+ * Server-Container heartbeaten dorthin), daher IMMER die Cloud-Basis — nicht
+ * `/api/auth` relativ zum eigenen Ursprung: Auf einem Self-Host-Origin wäre
+ * das der lokale auth-Dienst, der keinen Telefonbuch-Eintrag kennt (404 →
+ * Direktpfad still tot, siehe DirectPathCorsMiddleware im auth-svc).
+ */
+const CLOUD_AUTH_BASE = `${CLOUD_HOSTNAME}/api/auth`;
 const RETRY_AFTER_MS = 60_000;
 const PIN_PREFIX = 'pulse.direct.pin.';
 
@@ -73,7 +81,7 @@ export function forgetPin(instanceId: string): void {
 }
 
 async function lookup(instanceId: string): Promise<DirectoryEntry | null> {
-  const r = await fetch(`${AUTH_BASE}/me/instances/${instanceId}/direct-endpoint`, {
+  const r = await fetch(`${CLOUD_AUTH_BASE}/me/instances/${instanceId}/direct-endpoint`, {
     credentials: 'include',
   });
   if (!r.ok) return null;
@@ -82,7 +90,7 @@ async function lookup(instanceId: string): Promise<DirectoryEntry | null> {
 }
 
 async function postOffer(instanceId: string, sdp: string): Promise<string> {
-  const r = await fetch(`${AUTH_BASE}/me/instances/${instanceId}/direct-offer`, {
+  const r = await fetch(`${CLOUD_AUTH_BASE}/me/instances/${instanceId}/direct-offer`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
