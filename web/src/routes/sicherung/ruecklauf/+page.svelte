@@ -13,6 +13,11 @@
     const state = $page.url.searchParams.get('state');
     if (code !== null && state !== null) {
       localStorage.setItem(OAUTH_RUECKGABE_SPEICHER, JSON.stringify({ state, code }));
+      // Best-Effort Selbstschließung: der Tab wurde vom Verbinden-Knopf
+      // geöffnet und ist nach der Übergabe nutzlos — wer ihn offen lässt,
+      // sammelt Leichen. Schlägt das fehl (nicht skriptgeöffnet), bleibt
+      // der Hinweistext.
+      setTimeout(() => globalThis.window.close(), 400);
     }
   });
 

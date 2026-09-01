@@ -115,7 +115,13 @@
   }
 
   /** Einmal-Passwort: öffnet das Archiv (oder legt es an) und bringt alles
-   *  auf Stand — Erstsicherung rein, Archiv-Bestand in den lokalen Verlauf. */
+   *  auf Stand — Erstsicherung rein, Archiv-Bestand in den lokalen Verlauf.
+   *
+   *  **„Aktiv" kommt SOFORT**, sobald Ziel + Schlüssel stehen — die
+   *  Erstsicherung läuft im Hintergrund mit Meldung. Vorher blieb der
+   *  Knopf während des ganzen Bestands-Uploads auf „Lädt" und die
+   *  Verbindung wirkte langsam, obwohl sie längst stand
+   *  (Nutzer-Feedback 2026-09-02). */
   async function oeffnen(formPasswort: string, formPasswort2: string): Promise<void> {
     laeuft = true;
     fehler = '';
@@ -138,14 +144,26 @@
       const kuerzel = (await dekAusZwischenlager())?.kuerzel ?? crypto.randomUUID();
       await dekZwischenlagern(dek, kuerzel);
       sicherungVerwerfen();
-      const gesichert = await sicherungErstsicherung();
-      await sicherungJetztSpuelen();
-      await laden();
-      meldung = `Aktiv — ${gesichert} Nachrichten gesichert. ${meldung}`;
+      // Verbindung steht — die Oberfläche löst sich sofort, der Bestands-
+      // Upload geht in den Hintergrund (Fortschritt in der Meldung).
       zustand = 'an';
+      laeuft = false;
+      meldung = 'Aktiv — bestehende Nachrichten werden im Hintergrund gesichert …';
+      void (async () => {
+        try {
+          const gesichert = await sicherungErstsicherung();
+          await sicherungJetztSpuelen();
+          const geladen = await sicherungArchivLaden();
+          const teile: string[] = ['Aktiv'];
+          if (gesichert > 0) teile.push(`${gesichert} Nachrichten gesichert`);
+          if (geladen > 0) teile.push(`${geladen} Nachrichten aus dem Archiv geladen`);
+          meldung = teile.length > 1 ? teile.join(' — ') : 'Aktiv — alles auf Stand.';
+        } catch (e) {
+          fehler = 'Hintergrund-Sicherung: ' + (e instanceof Error ? e.message : String(e));
+        }
+      })();
     } catch (e) {
       fehler = e instanceof Error ? e.message : String(e);
-    } finally {
       laeuft = false;
     }
   }
