@@ -656,9 +656,23 @@ async def _remove_guild_member(
         )
     await session.delete(member)
     await session.commit()
+    await _after_member_removed(session, request, guild_id, user_id)
+
+
+async def _after_member_removed(
+    session: SessionDep,
+    request: Request,
+    guild_id: int,
+    user_id: int,
+) -> None:
+    """Post-commit cleanup shared by kick/leave (``_remove_guild_member``)
+    und Bann (``bans.ban_user``): Voice-, Remote-, Stream- und Watch-Party-
+    Abräumen plus ``guild_member_removed``-Broadcast. FIRE-AND-FORGET je
+    Schritt — failure is logged but doesn't unwind the removal (the WS
+    event already went out, membership is gone). Der Aufrufer besitzt die
+    Pre-Commit-Arbeit (Zeilen löschen, Overwrites wipen, Audit)."""
     # Yank the user out of LiveKit + clear voice-overrides for every voice
-    # channel of this guild. Fire-and-forget — failure is logged but doesn't
-    # unwind the removal (the WS event already went out, membership is gone).
+    # channel of this guild.
     await evict_user_from_guild_voice(session, guild_id, user_id)
     # Und aus jeder Fernsteuerung dieses Servers — in BEIDEN Rollen. Der
     # Takt-Prueflauf (remote_guard) braucht bis zu 30 s; ein ausdruecklicher

@@ -99,7 +99,7 @@ async def upload_icon(
         img = Image.open(io.BytesIO(raw))
         img.verify()
         img = Image.open(io.BytesIO(raw))
-    except (UnidentifiedImageError, Exception) as exc:
+    except Exception as exc:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail="invalid image file"
         ) from exc

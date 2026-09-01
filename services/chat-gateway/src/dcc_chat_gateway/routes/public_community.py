@@ -37,6 +37,11 @@ from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.guild_caps import enforce_member_cap
+from dcc_chat_gateway.routes._deps import publish_guild_event
+from dcc_chat_gateway.routes.invites import (
+    _first_text_channel_id,
+    _member_count,
+)
 from dcc_chat_gateway.membership import (
     add_member as add_instance_member,
     is_instance_locked,
@@ -59,25 +64,6 @@ router = APIRouter()
 # private". Three distinct internal reasons, one external signal — so a probe
 # can't tell a private community apart from a non-existent one.
 _NOT_FOUND = "community not found"
-
-
-async def _member_count(session, guild_id: int) -> int:
-    stmt = select(func.count()).select_from(GuildMember).where(
-        GuildMember.guild_id == guild_id
-    )
-    return int((await session.execute(stmt)).scalar_one())
-
-
-async def _first_text_channel_id(session, guild_id: int) -> int | None:
-    from dcc_chat_gateway.models import CHANNEL_TYPE_TEXT, Channel
-
-    stmt = (
-        select(Channel.id)
-        .where(Channel.guild_id == guild_id, Channel.type == CHANNEL_TYPE_TEXT)
-        .order_by(Channel.position, Channel.id)
-        .limit(1)
-    )
-    return (await session.execute(stmt)).scalar_one_or_none()
 
 
 async def _public_guild_or_404(session, handle: str) -> Guild:
@@ -269,11 +255,10 @@ async def join_public_community(
 
     channel_id = await _first_text_channel_id(session, guild_id)
     if actually_added:
-        mgr = getattr(request.app.state, "connection_manager", None)
-        if mgr is not None:
-            await mgr.publish_guild_event(
-                GuildMemberAddedEvent(
-                    guild_id=str(guild_id), user_id=str(current.id)
-                )
-            )
+        await publish_guild_event(
+            request,
+            GuildMemberAddedEvent(
+                guild_id=str(guild_id), user_id=str(current.id)
+            ),
+        )
     return PublicCommunityJoinOut(guild=guild_out, channel_id=channel_id)

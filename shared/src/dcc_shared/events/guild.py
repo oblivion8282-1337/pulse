@@ -136,7 +136,8 @@ class ReportNewEvent(_EventBase):
     op: Literal["report_new"] = "report_new"
     guild_id: str
     report_id: str
-    reason_code: str
+    #: Feste Menge (Eingabe-Schema in ``routes/reports.py`` validiert darauf).
+    reason_code: Literal["spam", "harassment", "illegal", "csam", "other"]
 
 
 class ComplaintNewEvent(_EventBase):
@@ -315,8 +316,8 @@ class DeviceStateEvent(_EventBase):
     guild_id: str
     channel_id: str
     device_id: str
-    #: ``ready`` | ``busy`` | ``offline``
-    state: str
+    #: Vom Register belegt (``device_state`` liefert genau diese drei).
+    state: Literal["ready", "busy", "offline"]
     #: Wer gerade steuert (nur bei ``busy``).
     busy_with: str | None = None
     #: Die gemeldeten Bildschirme. Reisen hier mit, weil sie ueber DENSELBEN

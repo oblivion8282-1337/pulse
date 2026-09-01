@@ -31,7 +31,9 @@ class PresenceUpdateEvent(_EventBase):
 
 class PresenceStatusData(_EventBase):
     user_id: str
-    status: str
+    #: Setzbare Status (REST-Schema + ``VALID_SET_STATUSES``) plus das
+    #: nur-auf-Draht existierende ``offline`` (Maske für ``invisible``).
+    status: Literal["online", "idle", "dnd", "invisible", "offline"]
 
 
 class PresenceStatusChangedEvent(_EventBase):

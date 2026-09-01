@@ -20,6 +20,7 @@ from dcc_chat_gateway.models import (
     GuildMember,
 )
 from dcc_chat_gateway.permissions import Permissions, check_permission
+from dcc_chat_gateway.routes._deps import publish_guild_event
 from dcc_chat_gateway.schemas import (
     CreateInviteIn,
     InviteAcceptOut,
@@ -109,13 +110,10 @@ async def _publish_member_added(request: Request, guild_id: int, user_id: int) -
     (voice presence, channel-lifecycle events)."""
     from dcc_shared.events import GuildMemberAddedEvent
 
-    mgr = getattr(request.app.state, "connection_manager", None)
-    if mgr is not None:
-        await mgr.publish_guild_event(
-            GuildMemberAddedEvent(
-                guild_id=str(guild_id), user_id=str(user_id)
-            )
-        )
+    await publish_guild_event(
+        request,
+        GuildMemberAddedEvent(guild_id=str(guild_id), user_id=str(user_id)),
+    )
 
 
 # ---- Create / list ---------------------------------------------------------

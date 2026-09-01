@@ -167,10 +167,6 @@ _PAYLOADS: dict[str, dict[str, Any]] = {
             "code": "ABCD1234",
         },
     },
-    "community_invite_removed": {
-        "op": "community_invite_removed",
-        "data": {"invite_id": "9"},
-    },
     "channel_created": {"op": "channel_created", "channel": {"id": "6"}},
     "channel_updated": {"op": "channel_updated", "channel": {"id": "6"}},
     "channel_deleted": {

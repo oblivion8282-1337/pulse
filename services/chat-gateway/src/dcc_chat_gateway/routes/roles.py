@@ -35,7 +35,12 @@ from dcc_chat_gateway.role_hierarchy import (
     highest_role_position,
 )
 from dcc_chat_gateway.role_wire import role_wire_dict
-from dcc_chat_gateway.routes._deps import guild_or_404, require_member
+from dcc_chat_gateway.routes._deps import (
+    guild_or_404,
+    publish_guild_event,
+    require_member,
+    role_or_404,
+)
 from dcc_chat_gateway.schemas import (
     RoleIn,
     RoleOut,
@@ -49,18 +54,9 @@ from dcc_shared.events import (
     RoleCreatedEvent,
     RoleDeletedEvent,
     RoleUpdatedEvent,
-    _EventBase,
 )
 
 router = APIRouter()
-
-
-async def _publish(
-    request: Request, envelope: _EventBase | dict[str, object]
-) -> None:
-    mgr = getattr(request.app.state, "connection_manager", None)
-    if mgr is not None:
-        await mgr.publish_guild_event(envelope)
 
 
 # ---- List / create --------------------------------------------------------
@@ -133,7 +129,7 @@ async def create_role(
     )
     await session.commit()
     await session.refresh(role)
-    await _publish(request, RoleCreatedEvent(role=role_wire_dict(role)))
+    await publish_guild_event(request, RoleCreatedEvent(role=role_wire_dict(role)))
     return role
 
 
@@ -149,9 +145,7 @@ async def patch_role(
     current: CurrentUser,
     request: Request,
 ):
-    role = await session.get(Role, role_id)
-    if role is None or role.guild_id != guild_id:
-        raise HTTPException(404, detail="role not found")
+    role = await role_or_404(session, guild_id, role_id)
     editor_perms = await check_permission(
         session, current, guild_id, Permissions.MANAGE_ROLES
     )
@@ -214,7 +208,7 @@ async def patch_role(
     )
     await session.commit()
     await session.refresh(role)
-    await _publish(request, RoleUpdatedEvent(role=role_wire_dict(role)))
+    await publish_guild_event(request, RoleUpdatedEvent(role=role_wire_dict(role)))
     # Ein Rechteentzug (Bits raus, Rolle neu positioniert) darf niemanden in
     # einer laufenden Sprachsitzung zurücklassen, dem jetzt VIEW_CHANNEL oder
     # CONNECT fehlt — NACH dem Commit, die neuen Rechte müssen stehen, und
@@ -236,9 +230,7 @@ async def delete_role(
     current: CurrentUser,
     request: Request,
 ):
-    role = await session.get(Role, role_id)
-    if role is None or role.guild_id != guild_id:
-        raise HTTPException(404, detail="role not found")
+    role = await role_or_404(session, guild_id, role_id)
     if role.is_everyone:
         raise HTTPException(400, detail="@everyone cannot be deleted")
     editor_perms = await check_permission(
@@ -272,7 +264,7 @@ async def delete_role(
     )
     await session.delete(role)
     await session.commit()
-    await _publish(
+    await publish_guild_event(
         request,
         RoleDeletedEvent(
             guild_id=str(guild_id), role_id=str(role_id)
@@ -344,7 +336,10 @@ async def update_role_positions(
     # new `role_positions_updated` op would silently drop reorder updates on
     # clients until a matching handler ships.
     await asyncio.gather(
-        *[_publish(request, RoleUpdatedEvent(role=role_wire_dict(role))) for role in rows.values()]
+        *[
+            publish_guild_event(request, RoleUpdatedEvent(role=role_wire_dict(role)))
+            for role in rows.values()
+        ]
     )
     return list(rows.values())
 

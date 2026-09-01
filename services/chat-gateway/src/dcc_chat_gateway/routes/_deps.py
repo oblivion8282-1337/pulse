@@ -6,9 +6,16 @@ import logging
 
 from fastapi import Depends, HTTPException, WebSocket, status
 from sqlalchemy import select
+from dcc_shared.events import _EventBase
 
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import Channel, DirectMessageChannel, Guild, GuildMember
+from dcc_chat_gateway.models import (
+    Channel,
+    DirectMessageChannel,
+    Guild,
+    GuildMember,
+    Role,
+)
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +57,20 @@ async def require_cloud() -> None:
 CloudOnly = Depends(require_cloud)
 
 
+async def publish_guild_event(
+    request: Request, envelope: _EventBase | dict[str, object]
+) -> None:
+    """Best-effort Broadcast eines Guild-Events an alle verbundenen Clients.
+
+    Ohne Connection-Manager (Einzeltests, Selfhost ohne WS) ist dies ein
+    Noop. Die Routen-Module hatten denselben ``mgr = getattr(...)-Block``
+    je lokal kopiert; die Tests patchen ``publish_guild_event`` am Manager
+    selbst, daher ist die Delegation hierdrauf nicht sichtbar."""
+    mgr = getattr(request.app.state, "connection_manager", None)
+    if mgr is not None:
+        await mgr.publish_guild_event(envelope)
+
+
 async def guild_or_404(session: SessionDep, guild_id: int) -> Guild:
     """Community nachladen oder 404 — die Routen hier teilen sich dieselbe
     Semantik (404 "guild not found", nicht 403), daher ein Helfer."""
@@ -57,6 +78,18 @@ async def guild_or_404(session: SessionDep, guild_id: int) -> Guild:
     if guild is None:
         raise HTTPException(404, detail="guild not found")
     return guild
+
+
+async def role_or_404(session: SessionDep, guild_id: int, role_id: int) -> Role:
+    """Rolle nachladen UND auf den Community-Scope prüfen oder 404. Die
+    Scope-Prüfung verhindert, dass eine Role-ID einer FREMDEN Community
+    adressiert werden kann (globale Snowflakes!). (Nicht in
+    ``permission_overwrites.py`` wiederverwenden — dort ist derselbe Fall
+    bewusst ein 404 mit anderer Detailmeldung.)"""
+    role = await session.get(Role, role_id)
+    if role is None or role.guild_id != guild_id:
+        raise HTTPException(404, detail="role not found")
+    return role
 
 
 async def require_member(session, guild_id: int, user_id: int) -> None:

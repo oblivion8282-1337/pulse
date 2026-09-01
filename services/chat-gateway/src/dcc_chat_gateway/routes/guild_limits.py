@@ -24,7 +24,7 @@ from dcc_chat_gateway import guild_limits as limits
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import Guild
 
-from dcc_chat_gateway.routes._deps import guild_or_404
+from dcc_chat_gateway.routes._deps import guild_or_404, publish_guild_event
 from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.schemas import GuildLimitsOut, GuildLimitsPatch, GuildLimitValue
 from dcc_chat_gateway.security import CurrentUser
@@ -93,10 +93,8 @@ async def patch_guild_limits(
 
     # Mitglieder müssen die neuen Grenzen sofort sehen — der Publish-Pfad
     # klemmt clientseitig gegen genau diese Werte.
-    mgr = getattr(request.app.state, "connection_manager", None)
-    if mgr is not None:
-        from dcc_chat_gateway.routes.guilds import _guild_dict
+    from dcc_chat_gateway.routes.guilds import _guild_dict
 
-        await mgr.publish_guild_event(GuildUpdatedEvent(guild=_guild_dict(guild)))
+    await publish_guild_event(request, GuildUpdatedEvent(guild=_guild_dict(guild)))
 
     return _limits_out(guild, clamped)
