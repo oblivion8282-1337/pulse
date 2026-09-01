@@ -130,6 +130,7 @@ import { quittierbareIds, type KanalGruppe } from './quittierbareIds';
 import { verarbeiteMitWiederherstellung } from './postfachSchleife';
 import { KontoSicherungFehlgeschlagen, zustellungOeffnen } from './zustellungOeffnen';
 import { mitKontosperre } from './sperren';
+import { mitNachlaufBeiWeckung } from './postfachNachlauf';
 
 // DMs sind heute cloud-only (Global-Friends Stufe 1) — s. `api/keys.ts`
 // Modulkopf (Bughunt 2026-08-28, FIX 4). Ohne diesen Parameter faellt
@@ -236,17 +237,6 @@ async function postfachZyklus(): Promise<Message[]> {
   return geoeffnet;
 }
 
-/** Nur EIN Abholzyklus gleichzeitig IN DIESEM TAB (Bughunt 2026-08-28,
- *  FIX 3) — zwei Ausloeser koennen kurz hintereinander (oder gleichzeitig)
- *  eintreffen: `postfach_neu` (`ws/handlers/chat.ts`, je Weckruf) und `ready`
- *  (`ws/handlers/ready.ts`, Bughunt-Runde 3 FIX 1 — jeder Connect/Reconnect).
- *  Keiner der beiden Aufrufer haelt eine eigene Wache; treffen mehrere kurz
- *  hintereinander ein, haengt sich jeder weitere nur an den bereits
- *  laufenden Zyklus an, statt denselben Bestand ein zweites Mal, unabhaengig,
- *  zu oeffnen. Gegen einen ZWEITEN TAB richtet diese Variable nichts aus —
- *  dafuer die Konto-Sperre unten. */
-let laufenderZyklus: Promise<Message[]> | null = null;
-
 /**
  * Holt alle offenen Zustellungen dieses Geraets ab, entschluesselt was sich
  * oeffnen laesst, legt es im lokalen Verlauf ab und quittiert erst danach.
@@ -266,12 +256,18 @@ let laufenderZyklus: Promise<Message[]> | null = null;
  *    liegt bewusst MIT unter der Sperre: erst dadurch findet der zweite Tab
  *    die vom ersten schon quittierten Zustellungen gar nicht mehr vor,
  *    statt sie ein zweites Mal zu oeffnen.
+ *
+ * **Nur EIN Abholzyklus gleichzeitig IN DIESEM TAB** (Bughunt 2026-08-28,
+ * FIX 3, erweitert 2026-08-31) — zwei Ausloeser koennen kurz hintereinander
+ * (oder gleichzeitig) eintreffen: `postfach_neu` (`ws/handlers/chat.ts`, je
+ * Weckruf) und `ready` (`ws/handlers/ready.ts`, jeder Connect/Reconnect).
+ * Keiner der beiden Aufrufer haelt eine eigene Wache; `mitNachlaufBeiWeckung`
+ * (`postfachNachlauf.ts`) sorgt dafuer, dass eine Weckung waehrend eines
+ * laufenden Zyklus NICHT einfach verschluckt wird, sondern nach dessen Ende
+ * genau einen weiteren Zyklus ausloest — nacheinander, nie gleichzeitig, und
+ * egal wie viele Weckungen waehrenddessen eintreffen (Details + Begruendung
+ * im Modulkopf dort).
  */
-export function postfachAbholenUndEntschluesseln(): Promise<Message[]> {
-  if (!laufenderZyklus) {
-    laufenderZyklus = mitKontosperre(postfachZyklus).finally(() => {
-      laufenderZyklus = null;
-    });
-  }
-  return laufenderZyklus;
-}
+export const postfachAbholenUndEntschluesseln = mitNachlaufBeiWeckung(() =>
+  mitKontosperre(postfachZyklus)
+);

@@ -162,8 +162,9 @@ export function register(ctx: ReadyContext): void {
       // wieder jemand die liegen gebliebene Zustellung ab. `ready` feuert bei
       // JEDEM Connect/Reconnect und ist damit der natuerliche Nachhol-Punkt.
       // `postfachAbholenUndAnzeigen` (`./chat.ts`) traegt bereits das
-      // Einzeltakt-Gate (`laufenderZyklus` in `empfangen.ts`) — ein
-      // gleichzeitiger `postfach_neu`-Weckruf haengt sich an denselben Zyklus
+      // Einzeltakt-Gate (`mitNachlaufBeiWeckung` in `empfangen.ts`/
+      // `postfachNachlauf.ts`) — ein gleichzeitiger `postfach_neu`-Weckruf
+      // haengt sich an denselben (oder einen vorgemerkten Nachlauf-)Zyklus
       // an, statt ihn doppelt zu fahren. `ctx.getSubs()` liefert denselben
       // Live-Blick wie `HandlerContext.subs` (dieselbe Quelle,
       // `gateway-handlers-bootstrap.ts`) — beim Verarbeiten des `ready`-

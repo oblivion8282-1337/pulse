@@ -59,9 +59,10 @@ function dmVorschauAuffrischen(): void {
  * Verbindungsabriss/ein verlorener Redis-Weckruf den einzigen Ausloeser
  * verpasste — s. `docs/superpowers/plans/2026-08-28-etappe-d2-klient-
  * verschluesselt.md`, „Auf `postfach_neu` (WS) und beim Start abholen"). Das
- * eigentliche Einzeltakt-Gate (`laufenderZyklus`) sitzt in `empfangen.ts` —
- * beide Ausloeser haengen sich bei Ueberlappung an denselben Zyklus an, statt
- * ihn doppelt zu fahren.
+ * eigentliche Einzeltakt-Gate (`mitNachlaufBeiWeckung`, s.
+ * `postfachNachlauf.ts`) sitzt in `empfangen.ts` — beide Ausloeser haengen
+ * sich bei Ueberlappung an denselben (oder einen vorgemerkten Nachlauf-)
+ * Zyklus an, statt ihn doppelt zu fahren.
  *
  * `istAboniert` entscheidet, ob eine neue Nachricht sofort als gelesen gilt
  * (der Kanal ist gerade offen) oder den Ungelesen-Zaehler erhoeht — sowohl
