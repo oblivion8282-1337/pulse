@@ -22,27 +22,27 @@
  * zurueck — genau wie eine Gruppennachricht ohne Sitzung liegen bleibt. Es
  * wird nichts geraten, nichts halb angezeigt.
  *
- * **Was der Ablage-Hauptschluessel hier NICHT tut:** Manifest und
- * Segmentdateien liegen nach dem heutigen Schreiber
- * (`ablage/postfachQuelle.ts`, `ablage/schreiber.ts`) als Klartext-JSON auf
- * dem Laufwerk — dieselbe Rahmen-Form (`TYP_KLARTEXT_JSON`), die auch das
- * persoenliche Archiv schreibt; die container-weite Verschluesselung von
- * Manifest/Verzeichnis/Dateinamen, die `manifest.ts` als „Krypto-Nachzug"
- * ankuendigt, ist noch nicht gebaut. Der Hauptschluessel wird deshalb hier
- * NICHT zum Entschluesseln benutzt (es gaebe nichts Passendes zu
- * entschluesseln) — er wird trotzdem verlangt (Design §3.1: „Erst alle drei
- * zusammen ergeben Lesbarkeit"), damit ein Kanal, dessen Verteilung nur zur
- * Haelfte angekommen ist, als „noch nicht lesbar" gilt statt als lesbar mit
- * einem Loch. Sobald die Container-Verschluesselung existiert, ist dies die
- * Stelle, an der sie einzuhaengen ist.
+ * **Der Ablage-Hauptschluessel entschluesselt seit dem 2026-09-01 den
+ * Behaelter selbst.** Manifest und Segmentdateien liegen weiterhin als
+ * Klartext-JSON-Rahmen (`TYP_KLARTEXT_JSON`) VOR dem Schreiben vor — das
+ * ist die Payload-Ebene, unveraendert seit `manifest.ts`/`schreiber.ts`.
+ * Was neu ist: der Adapter, der die Bytes tatsaechlich aufs Laufwerk legt,
+ * ist hier mit `verschluesselnderAdapter` (`kryptoBehaelter.ts`) umschlossen
+ * — er verschluesselt beim Schreiben und entschluesselt beim Lesen, `leser.ts`
+ * bekommt weiterhin exakt die Klartext-Bytes, die es kennt. Der
+ * Hauptschluessel wird deshalb WEITERHIN auch dann verlangt, wenn er nichts
+ * zu entschluesseln faende (Design §3.1: „Erst alle drei zusammen ergeben
+ * Lesbarkeit") — jetzt zusaetzlich, weil er es im Regelfall tut.
  */
 
 import { leseVerlauf } from './leser.ts';
 import { direktMitRueckfallAdapter } from './direktMitRueckfall.ts';
+import { verschluesselnderAdapter } from './kryptoBehaelter.ts';
 import { webdavAdapter } from './webdav.ts';
 import { ablageKanalAbruf } from '../api/ablageKanal';
 import { kanalLaufwerkSchluesselLaden } from './kanalLaufwerkSchluessel.ts';
 import { tokenAusWebdavBasis } from './freigabeBasisToken.ts';
+import { base64ZuBytes } from './syncOrdnerSchluessel.ts';
 import { TYP_KLARTEXT_JSON } from './format.ts';
 import { leseNachricht, NutzlastFehler, type AblageNachricht } from './nutzlast.ts';
 import type { RequestRoute } from '../api/client';
@@ -73,11 +73,12 @@ export async function kanalVerlaufLesen(
 		benutzer: tokenAusWebdavBasis(schluessel.freigabeAdresse),
 		passwort: ''
 	});
-	const adapter = direktMitRueckfallAdapter({
+	const roh = direktMitRueckfallAdapter({
 		schluessel: `kanal:${kanalId}`,
 		direkt,
 		ueberPulse: (datei) => ablageKanalAbruf(kanalId, datei, route)
 	});
+	const adapter = verschluesselnderAdapter(roh, base64ZuBytes(schluessel.hauptschluessel));
 
 	const verlauf = await leseVerlauf(adapter);
 	const nachrichten: AblageNachricht[] = [];
