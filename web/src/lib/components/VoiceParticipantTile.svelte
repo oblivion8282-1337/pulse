@@ -29,7 +29,7 @@
   // LiveKit setzt den Teilnehmer-Namen (``p.name``) — auf Self-Hosts fällt der
   // mangels Username auf die rohe ``user-<id>``-Identity zurück. Sobald der
   // userCache den Namen aufgelöst hat (via Self-Host /users, F19), den bevorzugen.
-  let resolvedName = $derived(p.userId ? userCache.displayName(p.userId, p.name) : p.name);
+  let resolvedName = $derived(userCache.displayName(p.userId, p.name));
   let initial = $derived((resolvedName.trim()[0] ?? '?').toUpperCase());
   let avatarSrc = $derived(p.userId ? safeAvatarUrl(userCache.get(p.userId)?.avatar_url) : null);
   // Same name colour as the member list: role colour → profile colour.

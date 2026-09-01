@@ -37,8 +37,7 @@
   const eigeneId = $derived(currentServerUserId());
   let localName = $derived.by(() => {
     const p = voice.participants.find((p) => p.isLocal);
-    if (!p) return m.spatial_you();
-    return eigeneId ? userCache.displayName(eigeneId, p.name) : p.name;
+    return p ? userCache.displayName(eigeneId, p.name) : m.spatial_you();
   });
 
   // Push the layout into the audio engine on mount and on every slider change.

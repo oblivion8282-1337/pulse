@@ -49,7 +49,7 @@
   $effect(() => {
     if (streamerId) userCache.queue(streamerId);
   });
-  const anzeigeName = $derived(streamerId ? userCache.displayName(streamerId, name) : name);
+  const anzeigeName = $derived(userCache.displayName(streamerId, name));
 
   // Twitch-style in-tile chat — TileShell rendert Panel/Overlay je nach
   // Fullscreen, hier nur der Toggle-State.

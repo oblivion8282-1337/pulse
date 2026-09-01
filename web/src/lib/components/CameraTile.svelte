@@ -67,9 +67,7 @@
   $effect(() => {
     if (angezeigteUserId) userCache.queue(angezeigteUserId);
   });
-  const anzeigeName = $derived(
-    angezeigteUserId ? userCache.displayName(angezeigteUserId, name) : name
-  );
+  const anzeigeName = $derived(userCache.displayName(angezeigteUserId, name));
 </script>
 
 <TileShell

@@ -43,10 +43,10 @@ class UserCacheStore {
     return this.byId[id] ?? null;
   }
 
-  /** Name aus dem Cache, oder `fallback` (z. B. LiveKit-`Participant.name`),
-   *  solange der Nutzer noch nicht geladen ist. */
-  displayName(id: string, fallback?: string): string {
-    const u = this.byId[id];
+  /** Name aus dem Cache; ohne Cache-Eintrag (oder ohne ID, z. B. LiveKit-
+   *  Identity nicht parsbar) der `fallback` — sonst `…`. */
+  displayName(id: string | null | undefined, fallback?: string): string {
+    const u = id ? this.byId[id] : null;
     if (!u) return fallback ?? `…`;
     return u.display_name ?? u.username;
   }
