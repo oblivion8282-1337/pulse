@@ -56,6 +56,7 @@ const MESSAGE_FAMILY_OPS: ReadonlySet<ServerEvent['op']> = new Set([
   'message_delete',
   'reaction_add',
   'reaction_remove',
+  'pin_update',
   'typing',
   'message_ack',
   'mention_added',

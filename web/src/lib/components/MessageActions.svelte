@@ -7,26 +7,34 @@
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import FlagIcon from '@lucide/svelte/icons/flag';
+  import PinIcon from '@lucide/svelte/icons/pin';
+  import PinOffIcon from '@lucide/svelte/icons/pin-off';
   import EmojiPicker from './EmojiPicker.svelte';
 
   let {
     canEdit,
     canDelete,
     canReport = false,
+    canPin = false,
+    pinned = false,
     onReply,
     onEdit,
     onDelete,
     onReact,
-    onReport
+    onReport,
+    onTogglePin
   }: {
     canEdit: boolean;
     canDelete: boolean;
     canReport?: boolean;
+    canPin?: boolean;
+    pinned?: boolean;
     onReply: () => void;
     onEdit: () => void;
     onDelete: () => void;
     onReact: (emoji: string) => void;
     onReport?: () => void;
+    onTogglePin?: () => void;
   } = $props();
 
   let pickerOpen = $state(false);
@@ -88,6 +96,23 @@
       onclick={onEdit}
     >
       <PencilIcon class="size-4" />
+    </Button>
+  {/if}
+
+  {#if canPin && onTogglePin}
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      title={pinned ? m.message_actions_unpin() : m.message_actions_pin()}
+      aria-label={pinned ? m.message_actions_unpin() : m.message_actions_pin()}
+      data-testid={pinned ? 'message-action-unpin' : 'message-action-pin'}
+      onclick={onTogglePin}
+    >
+      {#if pinned}
+        <PinOffIcon class="size-4" />
+      {:else}
+        <PinIcon class="size-4" />
+      {/if}
     </Button>
   {/if}
 

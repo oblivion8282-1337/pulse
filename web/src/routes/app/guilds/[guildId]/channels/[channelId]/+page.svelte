@@ -515,6 +515,22 @@
     }
   }
 
+  async function togglePin(msg: Message) {
+    try {
+      if (msg.pinned_at) {
+        await chatApi.unpinMessage(msg.id);
+      } else {
+        await chatApi.pinMessage(msg.id);
+      }
+      // WS pin_update spiegelt den Zustand an alle Kanal-Mitglieder.
+    } catch (e) {
+      toast.error(
+        (e as Error).message.includes('pin_limit_reached') ? pm.pin_limit_reached() : pm.pin_failed()
+      );
+      console.error(e);
+    }
+  }
+
   // **Das geoeffnete Geraet steht in der Adresse** (`?device=`), nicht in einem
   // Zustand: so ueberlebt es einen Neuladen, ist verlinkbar und der
   // Zurueck-Knopf tut, was er soll. Der Kanal in der Adresse bleibt dabei der
@@ -578,6 +594,7 @@
     onEditMessage={editMessage}
     onDeleteMessage={deleteMessage}
     onToggleReaction={toggleReaction}
+    onTogglePin={togglePin}
   />
 {/snippet}
 

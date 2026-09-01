@@ -7,6 +7,10 @@ class MessageStore {
   // Newest at the end. We dedupe on `id` and merge `nonce` echoes.
   byChannel = $state<Record<string, Message[]>>({});
   loadedChannels = $state<Record<string, boolean>>({});
+  // Pin-Liste pro Kanal (max. 50, ältester Pin zuerst). Getrennt vom
+  // Nachrichtenfenster, weil ein Pin außerhalb der geladenen Historie
+  // liegen kann. `undefined` = noch nicht geladen, `[]` = leer.
+  pinsByChannel = $state<Record<string, Message[] | undefined>>({});
   // Track confirmed (server-persisted, non-tmp) nonces for O(1) lookup.
   private confirmedNonces = new Set<string>();
   // Track message IDs in the current channel for O(1) dedup during upsert.
@@ -185,6 +189,14 @@ class MessageStore {
 
   /** Hard-remove a deleted message from the local list. */
   remove(channelId: string, id: string): void {
+    const pins = this.pinsByChannel[channelId];
+    if (pins?.some((p) => p.id === id)) {
+      // Gelöschte Nachricht löst serverseitig ihren Pin — hier nachziehen.
+      this.pinsByChannel = {
+        ...this.pinsByChannel,
+        [channelId]: pins.filter((p) => p.id !== id)
+      };
+    }
     const list = this.byChannel[channelId];
     if (!list) return;
     const next = list.filter((m) => m.id !== id);
@@ -233,6 +245,47 @@ class MessageStore {
     }
     const next = list.slice();
     next[idx] = { ...msg, reactions };
+    this.byChannel = { ...this.byChannel, [evt.channel_id]: next };
+  }
+
+  /** Pin-Liste setzen (REST-Antwort beim Kanalöffnen). */
+  setPins(channelId: string, pins: Message[]): void {
+    this.pinsByChannel = { ...this.pinsByChannel, [channelId]: pins };
+  }
+
+  /**
+   * WS `pin_update`: Pin-Liste fortschreiben und den `pinned_at`-Spiegel
+   * auf der Nachricht selbst aktualisieren (falls sie geladen ist — der
+   * Pin kann auch außerhalb des Historie-Fensters liegen).
+   */
+  applyPin(evt: { channel_id: string; message_id: string; pinned: boolean }): void {
+    // Gespiegelte Nachricht VORHER holen — sie liefert ggf. den vollständigen
+    // Pin-Listen-Eintrag (der WS-Event-Payload fehlen Inhalt/Autor).
+    const msgs = this.byChannel[evt.channel_id];
+    const i = msgs ? msgs.findIndex((m) => m.id === evt.message_id) : -1;
+    const list = this.pinsByChannel[evt.channel_id];
+    if (list) {
+      const idx = list.findIndex((p) => p.id === evt.message_id);
+      if (evt.pinned) {
+        if (idx < 0) {
+          // Sortierung (nach pinned_at) repariert der nächste Listen-Fetch;
+          // bis dahin hängt der neue Pin hinten an. Ist die Nachricht geladen,
+          // kommt eine vollständige Kopie rein, sonst der schmale Platzhalter.
+          const entry: Message = i >= 0
+            ? { ...msgs![i], pinned_at: new Date().toISOString() }
+            : ({ id: evt.message_id, channel_id: evt.channel_id, pinned_at: new Date().toISOString() } as Message);
+          this.pinsByChannel = { ...this.pinsByChannel, [evt.channel_id]: [...list, entry] };
+        }
+      } else if (idx >= 0) {
+        this.pinsByChannel = {
+          ...this.pinsByChannel,
+          [evt.channel_id]: list.filter((p) => p.id !== evt.message_id)
+        };
+      }
+    }
+    if (!msgs || i < 0) return;
+    const next = msgs.slice();
+    next[i] = { ...msgs[i], pinned_at: evt.pinned ? (msgs[i].pinned_at ?? new Date().toISOString()) : null };
     this.byChannel = { ...this.byChannel, [evt.channel_id]: next };
   }
 
@@ -358,6 +411,8 @@ class MessageStore {
     this.loadedChannels = restLoaded;
     const { [channelId]: _ids, ...restIds } = this.messageIds;
     this.messageIds = restIds;
+    const { [channelId]: _pins, ...restPins } = this.pinsByChannel;
+    this.pinsByChannel = restPins;
     // Clear stale nonces from this channel.
     if (list) {
       for (const m of list) {
@@ -373,6 +428,7 @@ class MessageStore {
     this.byChannel = {};
     this.loadedChannels = {};
     this.messageIds = {};
+    this.pinsByChannel = {};
     this.confirmedNonces.clear();
     this.accessOrder = [];
     clearBlobCache();

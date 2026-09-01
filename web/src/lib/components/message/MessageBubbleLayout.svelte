@@ -25,6 +25,8 @@
   import type { Snippet } from 'svelte';
   import { longpress } from '$lib/utils/longpress';
   import type { Message } from '$lib/api/types';
+  import PinIcon from '@lucide/svelte/icons/pin';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     message,
@@ -49,6 +51,9 @@
     actions: Snippet;
   } = $props();
 
+  /** Angepinnt → Nadel neben der Uhrzeit, Blase bekommt einen Hauch Ton. */
+  const pinned = $derived(!!message.pinned_at);
+
   // Die Ecke an der Sprech-Seite wird innerhalb einer Gruppe flach. Oben
   // richtet sie sich danach, ob eine Nachricht desselben Absenders darüber
   // steht, unten danach, ob eine darunter folgt.
@@ -72,7 +77,7 @@
     <div
       class="min-w-0 px-3 py-2 {eigen
         ? 'accent-gradient-deep text-white'
-        : 'bg-bg-input text-text-base'}"
+        : 'bg-bg-input text-text-base'} {pinned ? 'ring-1 ring-primary/40' : ''}"
       class:ring-2={highlight}
       class:ring-primary={highlight}
       style={ecken}
@@ -86,7 +91,16 @@
         <span
           class="mt-0.5 block text-right text-2xs leading-none {eigen
             ? 'text-white/70'
-            : 'text-text-muted'}">{time}</span
+            : 'text-text-muted'}"
+        >
+          {#if pinned}
+            <PinIcon
+              class="text-primary mr-1 inline size-3 align-baseline"
+              aria-label={m.message_pinned_badge()}
+              data-testid="message-pinned-badge"
+            />
+          {/if}
+          {time}</span
         >
       {/if}
     </div>

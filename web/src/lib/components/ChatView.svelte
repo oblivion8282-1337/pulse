@@ -14,11 +14,15 @@
   import ComposerDisabledBanner from './ComposerDisabledBanner.svelte';
   import { plainifyMentions } from './messageRender';
   import { Button } from '$lib/components/ui/button';
+  import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
+  import PinIcon from '@lucide/svelte/icons/pin';
   import type { Channel, Message } from '$lib/api/types';
   import { auth } from '$lib/stores/auth.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { typing } from '$lib/stores/typing.svelte';
   import { userCache } from '$lib/stores/users.svelte';
+  import { messages as messageStore } from '$lib/stores/messages.svelte';
+  import { chatApi } from '$lib/api/chat';
   import { gateway, cloudGateway } from '$lib/ws/connection';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { isElectron } from '$lib/platform/runtime';
@@ -49,7 +53,8 @@
     cloudScoped = false,
     onEditMessage,
     onDeleteMessage,
-    onToggleReaction
+    onToggleReaction,
+    onTogglePin
   }: {
     channel: Channel | null;
     messages: Message[];
@@ -75,6 +80,8 @@
     onEditMessage: (m: Message, newContent: string) => void;
     onDeleteMessage: (m: Message) => void;
     onToggleReaction: (m: Message, emoji: string, currentlyMine: boolean) => void;
+    /** Pin anpinnen/lösen — Implementierung in den Seiten (Toast bei Fehler). */
+    onTogglePin?: (m: Message) => void;
   } = $props();
 
   // '#'-Prefix für Guild-Channels (Screenshot-Tests + Gewohnheit), '@' für DMs.
@@ -159,6 +166,44 @@
   // REST-Route fürs Historie-Nachladen der MessageList: DMs gegen die Cloud,
   // Guild-Kanäle gegen den aktiven Server (leer = Default-Weiche der API).
   let messageRoute = $derived(cloudScoped ? { serverId: serversStore.cloudId() } : {});
+
+  // ── Pinned Messages (Kanalkopf) ─────────────────────────────────────────
+  // Pin-Liste pro Kanal beim Öffnen laden; WS `pin_update` hält sie aktuell
+  // (messages.applyPin), und jeder Popover-Öffnen holt sie zur Sicherheit
+  // frisch — der WS-Weg kann Platzhalter (ohne Inhalt/Autor) hinterlassen,
+  // z. B. für Nachrichten außerhalb des geladenen Verlaufs. Fehler still —
+  // ohne Pins läuft der Chat.
+  let pins = $derived(channel ? (messageStore.pinsByChannel[channel.id] ?? null) : null);
+  function ladePins() {
+    const cid = channel?.id;
+    if (!cid) return;
+    void chatApi
+      .listPins(cid, messageRoute)
+      .then((list) => messageStore.setPins(cid, list))
+      .catch(() => {
+        // Beim ersten Laden wenigstens [] hinterlassen, damit der Effekt
+        // nicht endlos nachlädt; beim Auffrischen den alten Stand behalten.
+        if (messageStore.pinsByChannel[cid] === undefined) messageStore.setPins(cid, []);
+      });
+  }
+  $effect(() => {
+    const cid = channel?.id;
+    if (!cid || messageStore.pinsByChannel[cid] !== undefined) return;
+    untrack(ladePins);
+  });
+  /** Kanalkopf-Badge "📌 N": Zahl direkt aus der Pin-Liste. */
+  const pinCount = $derived(pins?.length ?? 0);
+  // Pin-Recht: Guild-Kanäle koppeln an MANAGE_MESSAGES (dieselbe Vorgabe wie
+  // canDelete fremder Nachrichten), DM-Teilnehmer dürfen immer pinnen.
+  const canPin = $derived(channel?.guild_id ? isOwner : true);
+  // Sprung in die Liste (von MessageList gemountet) für Klicks im Popover.
+  let jumpToMessage = $state<((id: string) => void) | undefined>(undefined);
+  // Pin-Listen-Einträge können aus dem pin_update-WS-Event stammen und dann
+  // noch keine Inhalte tragen (nur id/channel/pinned_at) — deshalb defensiv.
+  function snippet80(text: string | undefined): string {
+    const t = (text ?? '').replace(/\s+/g, ' ').trim();
+    return t.length > 80 ? t.slice(0, 77) + '…' : t;
+  }
 
   // Laufenden Drag bei Kanalwechsel abbrechen — sonst bleibt das Drop-Overlay
   // sichtbar, wenn der User während eines Drags den Kanal wechselt.
@@ -298,6 +343,57 @@
           nameStyle={headerKind === 'dm' ? '' : channelNameStyle(channel)}
         />
       {/if}
+      {#if pinCount > 0}
+        <!-- "📌 N" + Pin-Liste als Dropdown (Desktop genügt laut Scope; auf
+             Mobil ist derselbe Button klickbar, nur nicht extra gestylt). -->
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger>
+            {#snippet child({ props })}
+              <Button
+                {...props}
+                variant="ghost"
+                size="icon"
+                class="relative"
+                onclick={ladePins}
+                title={pm.chat_view_pins_title({ count: pinCount })}
+                aria-label={pm.chat_view_pins_title({ count: pinCount })}
+                data-testid="pins-toggle"
+              >
+                <PinIcon class="text-text-muted size-4" />
+                <span
+                  class="bg-primary text-primary-foreground absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold"
+                  >{pinCount}</span
+                >
+              </Button>
+            {/snippet}
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Content align="end" class="max-h-80 w-80 overflow-y-auto" data-testid="pins-list">
+            <DropdownMenu.Item
+              class="text-text-muted text-xs font-semibold"
+              disabled
+            >
+              {pm.chat_view_pins_title({ count: pinCount })}
+            </DropdownMenu.Item>
+            {#each pins ?? [] as p (p.id)}
+              <DropdownMenu.Item
+                class="cursor-pointer gap-2"
+                onclick={() => jumpToMessage?.(p.id)}
+                data-testid="pin-entry"
+              >
+                <PinIcon class="text-primary size-3.5 shrink-0" />
+                <span class="min-w-0">
+                  <span class="text-text-bright block truncate text-xs font-semibold"
+                    >{authorName(p)}</span
+                  >
+                  <span class="text-text-muted block truncate text-xs"
+                    >{snippet80(p.content)}</span
+                  >
+                </span>
+              </DropdownMenu.Item>
+            {/each}
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
+      {/if}
       {#if showMemberList}
         <Button
           variant="ghost"
@@ -323,11 +419,14 @@
       {myId}
       {namePrefix}
       {isOwner}
+      {canPin}
       route={messageRoute}
+      bind:jumper={jumpToMessage}
       onSetReplyTarget={(m) => (replyTarget = m)}
       onEditMessage={onEditMessage}
       onDeleteMessage={onDeleteMessage}
       onToggleReaction={onToggleReaction}
+      onTogglePin={onTogglePin}
     />
 
     <!-- Inline auf md+ -->

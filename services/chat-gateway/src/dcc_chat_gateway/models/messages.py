@@ -55,6 +55,11 @@ class Message(Base):
     )
     edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Angepinnt („Pinned Messages“). Zeitstempel statt bool-Flag: er ordnet
+    # die Pin-Liste des Kanals (Discord ordnet nach Pin-Zeit) und NULL ist
+    # zugleich der „nicht angepinnt“-Zustand — eine Extra-Tabelle lohnt für
+    # max. 50 Pins pro Kanal nicht. Löschen einer Nachricht löst den Pin.
+    pinned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Parsed `<@uid>` / `<@&rid>` / `@everyone` markers are stored in the
     # ``message_mentions`` table — see ``MessageMention`` below + the
@@ -72,6 +77,14 @@ class Message(Base):
         # ``GET /members/{id}``-style author lookups — otherwise a full table
         # scan on the biggest table in the schema.
         Index("ix_messages_author", "author_id"),
+        # Bedient GET /channels/{id}/pins — nur angepinnte Zeilen stehen drin
+        # (max. 50 pro Kanal), der Index bleibt also klein.
+        Index(
+            "ix_messages_pinned",
+            "channel_id",
+            "pinned_at",
+            postgresql_where="pinned_at IS NOT NULL",
+        ),
     )
 
 

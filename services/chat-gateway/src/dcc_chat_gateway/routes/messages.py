@@ -565,6 +565,12 @@ async def delete_message(
             raise HTTPException(403, detail="not allowed to delete this message")
 
     msg.deleted_at = datetime.now(UTC)
+    # Gelöschte Nachricht löst ihren Pin — die Pin-Liste filtert zwar nach
+    # deleted_at, aber so bleibt der Zustand in der DB sauber (Limit-Zählung,
+    # erneutes Anpinnen nach einem hypothetischen Restore). Clients räumen
+    # ihre Pin-Liste im message_delete-Handler auf; ein extra pin_update-
+    # Event ist überflüssig.
+    msg.pinned_at = None
     # Moderator-deleted someone else's message (guild only — DMs 403 above for
     # non-authors). Self-deletes are not audited.
     if msg.author_id != current.id and kind != "dm":

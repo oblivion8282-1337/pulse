@@ -68,6 +68,22 @@ class ReactionRemoveEvent(_EventBase):
     data: ReactionData
 
 
+class PinUpdateData(_EventBase):
+    message_id: str
+    channel_id: str
+    pinned: bool
+
+
+class PinUpdateEvent(_EventBase):
+    """``op="pin_update"`` — eine Kanalnachricht wurde angepinnt/gelöst.
+    An alle Kanal-Abonnenten, damit niemand reloaden muss. Gelöschte
+    Nachrichten verlieren ihren Pin serverseitig; der Client räumt seine
+    Pin-Liste bereits im ``message_delete``-Handler auf."""
+
+    op: Literal["pin_update"] = "pin_update"
+    data: PinUpdateData
+
+
 class StreamChatMessagePayload(_EventBase):
     id: str
     author_id: str

@@ -40,10 +40,16 @@
     /** REST-Route fürs Nachladen: DMs laufen gegen die Cloud (siehe ChatView),
      *  Guild-Kanäle gegen den aktiven Server (leer = Default-Weiche). */
     route = {},
+    /** Pin-Recht vorgerechnet (Guild: MANAGE_MESSAGES; DM: immer wahr). */
+    canPin = false,
     onSetReplyTarget,
     onEditMessage,
     onDeleteMessage,
-    onToggleReaction
+    onToggleReaction,
+    onTogglePin,
+    /** Wird beim Mounten mit der Sprung-Funktion gefüllt — der Kanalkopf-
+     *  Pin-Popover springt damit zur angeklickten Nachricht. */
+    jumper = $bindable()
   }: {
     channel: Channel | null;
     messages: Message[];
@@ -53,10 +59,13 @@
     namePrefix?: string;
     isOwner?: boolean;
     route?: { serverId?: string };
+    canPin?: boolean;
     onSetReplyTarget: (m: Message) => void;
     onEditMessage: (m: Message, newContent: string) => void;
     onDeleteMessage: (m: Message) => void;
     onToggleReaction: (m: Message, emoji: string, currentlyMine: boolean) => void;
+    onTogglePin?: (m: Message) => void;
+    jumper?: (id: string) => void;
   } = $props();
 
   // Überall paginieren — DMs genauso wie Guild-Kanäle (deren Route kommt als
@@ -486,6 +495,15 @@
     if (!myId) return false;
     return m.author_id !== myId;
   }
+  function canPinMessage(m: Message): boolean {
+    return canPin && !m.id.startsWith('tmp-') && !m.deleted_at;
+  }
+
+  // Sprung-Funktion nach außen geben (Kanalkopf → Pin-Popover). Reaktiv:
+  // jumpToReply hängt an vlist, das erst nach dem Mount da ist.
+  $effect(() => {
+    jumper = jumpToReply;
+  });
 </script>
 
 <!-- **Ein kurzes Gespraech klebt oben statt unten am Eingabefeld**, anders als
@@ -556,12 +574,14 @@
               canEdit={canEditMessage(item.message)}
               canDelete={canDeleteMessage(item.message)}
               canReport={canReportMessage(item.message)}
+              canPin={canPinMessage(item.message)}
               isDirect={!channel?.guild_id}
               guildId={channel?.guild_id ?? undefined}
               onReply={onSetReplyTarget}
               onEditSubmit={onEditMessage}
               onDelete={onDeleteMessage}
               onToggleReaction={onToggleReaction}
+              onTogglePin={onTogglePin}
               onJumpToReply={jumpToReply}
             />
           {/if}

@@ -77,6 +77,8 @@ from dcc_shared.events.chat import (
     MessageDeleteEvent,
     MessageEvent,
     MessageUpdateEvent,
+    PinUpdateData,
+    PinUpdateEvent,
     ReactionAddEvent,
     ReactionData,
     ReactionRemoveEvent,
@@ -166,6 +168,8 @@ EVENT_REGISTRY: dict[str, type[_EventBase]] = {
     "dm_bump": DmBumpEvent,
     # ---- ephemeral typing indicator
     "typing": TypingEvent,
+    # ---- pinned messages (chat-channel)
+    "pin_update": PinUpdateEvent,
     # ---- direct-delivery (user:events)
     "mention_added": MentionAddedEvent,
     "application_decided": ApplicationDecidedEvent,
@@ -237,6 +241,8 @@ __all__ = [
     "MessageDeleteEvent",
     "MessageEvent",
     "MessageUpdateEvent",
+    "PinUpdateData",
+    "PinUpdateEvent",
     "ReactionAddEvent",
     "ReactionData",
     "ReactionRemoveEvent",

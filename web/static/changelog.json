@@ -2,6 +2,20 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-01",
+      "date": "2026-09-01",
+      "style": "Sachlich",
+      "title": "Angepinnte Nachrichten",
+      "intro": "Wichtige Nachrichten bleiben im Blick.",
+      "items": [
+        "Moderatoren können Nachrichten in einem Kanal anpinnen und wieder lösen. In privaten Gesprächen geht das für beide Seiten. Der Menüpunkt sitzt bei den Aktionen an der Nachricht.",
+        "Über die Nadel im Kanalkopf öffnet sich die Liste aller angepinnten Nachrichten des Kanals — ein Klick auf einen Eintrag springt zur Nachricht.",
+        "Angepinnte Nachrichten sind im Verlauf an einer Nadel neben der Uhrzeit und einer dezenten Markierung zu erkennen.",
+        "Pro Kanal sind bis zu 50 Nachrichten angepinnt. Wird eine angepinnte Nachricht gelöscht, verschwindet sie auch aus der Liste.",
+        "Für Betreiber eigener Server: Das Update enthält eine Datenbankänderung, die beim Start automatisch angewendet wird."
+      ]
+    },
+    {
       "id": "2026-08-31.3",
       "date": "2026-08-31",
       "style": "Sachlich",

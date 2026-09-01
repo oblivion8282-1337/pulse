@@ -11,6 +11,8 @@
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import SmilePlusIcon from '@lucide/svelte/icons/smile-plus';
   import FlagIcon from '@lucide/svelte/icons/flag';
+  import PinIcon from '@lucide/svelte/icons/pin';
+  import PinOffIcon from '@lucide/svelte/icons/pin-off';
   import EmojiPicker from './EmojiPicker.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import MenuRow from '$lib/components/menu/MenuRow.svelte';
@@ -20,21 +22,27 @@
     canEdit,
     canDelete,
     canReport = false,
+    canPin = false,
+    pinned = false,
     onReply,
     onEdit,
     onDelete,
     onReact,
-    onReport
+    onReport,
+    onTogglePin
   }: {
     open?: boolean;
     canEdit: boolean;
     canDelete: boolean;
     canReport?: boolean;
+    canPin?: boolean;
+    pinned?: boolean;
     onReply: () => void;
     onEdit: () => void;
     onDelete: () => void;
     onReact: (emoji: string) => void;
     onReport?: () => void;
+    onTogglePin?: () => void;
   } = $props();
 
   // Hand-picked frequent reactions — the full grid is one tap away.
@@ -110,6 +118,22 @@
       >
         <PencilIcon class="text-text-muted size-5 shrink-0" />
         {m.message_action_sheet_edit()}
+      </MenuRow>
+    {/if}
+
+    {#if canPin && onTogglePin}
+      <MenuRow
+        density="comfortable"
+        data-testid={pinned ? 'sheet-action-unpin' : 'sheet-action-pin'}
+        onclick={() => onTogglePin && run(onTogglePin)}
+      >
+        {#if pinned}
+          <PinOffIcon class="text-text-muted size-5 shrink-0" />
+          {m.message_action_sheet_unpin()}
+        {:else}
+          <PinIcon class="text-text-muted size-5 shrink-0" />
+          {m.message_action_sheet_pin()}
+        {/if}
       </MenuRow>
     {/if}
 
