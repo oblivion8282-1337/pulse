@@ -6,6 +6,7 @@
   approved_instance_id auf die Instanz-Zeile mappen (Grants-Liste geladen).
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
@@ -63,7 +64,7 @@
       for (const g of grants) if (g.approved_instance_id) map[g.approved_instance_id] = g;
       grantByInstance = map;
     } catch (e) {
-      loadError = e instanceof Error ? e.message : String(e);
+      loadError = errText(e);
     } finally {
       loading = false;
     }
@@ -85,7 +86,7 @@
       suspendTarget = null;
     } catch (e) {
       toast.error(m.admin_instances_active_suspend_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       suspending = false;
@@ -107,7 +108,7 @@
       rotateDialogOpen = true;
     } catch (e) {
       toast.error(m.admin_instances_active_rotate_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       busy[rotateTarget.id] = false;

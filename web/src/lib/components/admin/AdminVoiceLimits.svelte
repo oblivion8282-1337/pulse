@@ -10,6 +10,7 @@
   bei den Stream-Limits.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { adminApi, type Permissions } from '$lib/api/admin';
@@ -29,7 +30,7 @@
       current = await adminApi.getPermissions();
       maxKbps = current.voice_bitrate_max_kbps;
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errText(e);
     }
   });
 
@@ -53,7 +54,7 @@
       toast.success(m.admin_voice_limits_toast_saved());
     } catch (e) {
       toast.error(m.admin_voice_limits_toast_save_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       busy = false;

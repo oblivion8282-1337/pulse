@@ -11,6 +11,7 @@
   flow. The PATCH is debounced via the in-flight check on the button.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { adminApi, type Permissions } from '$lib/api/admin';
@@ -39,7 +40,7 @@
       current = await adminApi.getPermissions();
       soundLimitKb = Math.round(current.guild_sound_max_size_bytes / 1024);
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errText(e);
     }
   });
 
@@ -58,7 +59,7 @@
     } catch (e) {
       current = before;
       toast.error(m.admin_permissions_save_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       busy[field] = false;
@@ -84,7 +85,7 @@
       toast.success(m.admin_permissions_size_limit_saved());
     } catch (e) {
       toast.error(m.admin_permissions_save_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       soundLimitBusy = false;

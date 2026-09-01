@@ -6,6 +6,7 @@
   Liest/schreibt `locked` via PATCH /admin/permissions (chat-gateway).
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { adminApi } from '$lib/api/admin';
@@ -22,7 +23,7 @@
       const perms = await adminApi.getPermissions();
       locked = perms.locked;
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errText(e);
     }
   });
 
@@ -35,7 +36,7 @@
       toast.success(m.admin_join_locked_saved());
     } catch (e) {
       toast.error(m.admin_join_locked_save_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       busy = false;

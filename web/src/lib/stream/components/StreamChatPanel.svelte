@@ -7,6 +7,7 @@
   `streamChat.pruneAbsent` → unsere `for(...)` ist leer → Empty-State.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount, tick } from 'svelte';
   import { streamChat } from '$lib/stores/streamChat.svelte';
   import { userCache } from '$lib/stores/users.svelte';
@@ -89,7 +90,7 @@
       // Kein lokales Echo nötig — der eigene WS-Stream liefert die Message
       // gleich zurück (dedupliziert per id im Store).
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = errText(e);
       if (msg.includes('410')) {
         toast.error(m.stream_chat_panel_streamer_offline());
       } else if (msg.includes('429')) {

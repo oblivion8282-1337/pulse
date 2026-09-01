@@ -10,6 +10,7 @@
   infra/prod/backup/restore.md.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { adminApi, type BackupStatus } from '$lib/api/admin';
   import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
@@ -32,7 +33,7 @@
     try {
       data = await adminApi.getBackupStatus();
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errText(e);
     } finally {
       refreshing = false;
     }

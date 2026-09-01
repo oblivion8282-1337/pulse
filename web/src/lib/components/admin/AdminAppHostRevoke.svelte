@@ -9,6 +9,7 @@
   Kill-Switch stoppt einen noch laufenden Container.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { toast } from 'svelte-sonner';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
@@ -35,7 +36,7 @@
       reason = '';
       onrevoked();
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errText(e);
     } finally {
       busy = false;
     }

@@ -19,6 +19,7 @@
       new presigned URL transparently allocates a new audio element).
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -83,7 +84,7 @@
       guildSounds.applyList(guildId, rows);
     } catch (e) {
       toast.error(m.guild_sounds_load_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       loading = false;
@@ -135,7 +136,7 @@
       toast.success(m.guild_sounds_uploaded({ label: SOUNDS[id].label }));
     } catch (e) {
       toast.error(m.guild_sounds_upload_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       busyId = null;
@@ -153,7 +154,7 @@
       toast.success(m.guild_sounds_reverted({ label: SOUNDS[id].label }));
     } catch (e) {
       toast.error(m.guild_sounds_revert_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       busyId = null;

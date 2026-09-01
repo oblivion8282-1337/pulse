@@ -6,6 +6,7 @@
   issued + managed below (RegistrationInviteSection / auth-svc invite routes).
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -27,7 +28,7 @@
       current = s.registration_mode;
       pick = s.registration_mode;
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errText(e);
     }
   });
 
@@ -57,7 +58,7 @@
       toast.success(m.admin_registration_saved());
     } catch (e) {
       toast.error(m.admin_registration_save_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       busy = false;

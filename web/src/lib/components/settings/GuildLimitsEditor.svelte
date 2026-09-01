@@ -9,6 +9,7 @@
   Gruppierung wie im Betreiber-Panel: Qualität, Dateien & Speicher, Größe.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { toast } from 'svelte-sonner';
   import { chatApi, type GuildLimits } from '$lib/api/chat';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -78,7 +79,7 @@
       })
       .catch((e) =>
         toast.error(m.guild_limits_save_failed(), {
-          description: e instanceof Error ? e.message : String(e)
+          description: errText(e)
         })
       );
   });
@@ -99,7 +100,7 @@
       else toast.success(m.guild_limits_saved());
     } catch (e) {
       toast.error(m.guild_limits_save_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       busy = false;

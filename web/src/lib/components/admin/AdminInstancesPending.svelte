@@ -6,6 +6,7 @@
   App-Host bekommt Flag + auto-provisionierte Instanz).
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
@@ -41,7 +42,7 @@
   let rejectError = $state<string | null>(null);
 
   function errMsg(e: unknown): string {
-    return e instanceof Error ? e.message : String(e);
+    return errText(e);
   }
 
   // Anschluss-Check-Chip (nur Info, keine Logik daran): ok=grün,

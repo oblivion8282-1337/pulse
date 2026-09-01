@@ -16,6 +16,7 @@
   re-render — kein eigener Timer nötig.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import PlayIcon from '@lucide/svelte/icons/play';
@@ -141,7 +142,7 @@
         toast.error(m.stream_controls_toast_start_failed(), { description: localError });
       }
     } catch (e) {
-      localError = e instanceof Error ? e.message : String(e);
+      localError = errText(e);
     } finally {
       busy = false;
     }
@@ -159,7 +160,7 @@
       // emits no `stopped` event, so the UI would otherwise stay stuck "live".
       markStopped(slot);
     } catch (e) {
-      localError = e instanceof Error ? e.message : String(e);
+      localError = errText(e);
     } finally {
       busy = false;
     }

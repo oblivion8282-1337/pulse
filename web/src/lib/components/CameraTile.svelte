@@ -61,21 +61,15 @@
   });
 
   // `name` kommt von LiveKit (`Participant.name`) — auf einem Self-Host ist
-  // das immer der leere String (voice-signaling kennt den echten Benutzer-
-  // namen dort nicht), LiveKit fällt dann auf die Identity `user-<id>`
-  // zurück. Der Nutzer-Cache kennt den echten Namen (der ist ueber die
-  // Mitgliederliste ohnehin meist schon geladen) — bevorzugt den, solange
-  // er da ist; sonst bleibt `name` der Rückfall statt eines dauerhaften "…".
+  // das immer leer, LiveKit fällt dann auf die Identity `user-<id>` zurück.
+  // Der Nutzer-Cache kennt den echten Namen — bevorzugt den, sonst `name`.
   const angezeigteUserId = $derived(userIdFromIdentity(identity));
   $effect(() => {
     if (angezeigteUserId) userCache.queue(angezeigteUserId);
   });
-  const gecachterName = $derived.by(() => {
-    if (!angezeigteUserId) return null;
-    const u = userCache.get(angezeigteUserId);
-    return u ? (u.display_name ?? u.username) : null;
-  });
-  const anzeigeName = $derived(gecachterName ?? name);
+  const anzeigeName = $derived(
+    angezeigteUserId ? userCache.displayName(angezeigteUserId, name) : name
+  );
 </script>
 
 <TileShell

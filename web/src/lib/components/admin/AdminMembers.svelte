@@ -8,6 +8,7 @@
   Inline-Deutsch wie die anderen Self-Host-Admin-Komponenten (kein paraglide).
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
@@ -43,7 +44,7 @@
     try {
       members = await adminApi.listMembers();
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errText(e);
     } finally {
       loading = false;
     }
@@ -70,7 +71,7 @@
       banReason = '';
       banTarget = null;
     } catch (e) {
-      banError = e instanceof Error ? e.message : String(e);
+      banError = errText(e);
     } finally {
       banning = false;
     }
@@ -84,7 +85,7 @@
       toast.success(`${member.username} wurde entbannt.`);
     } catch (e) {
       toast.error('Entbannen fehlgeschlagen', {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       busy[member.user_identifier] = false;

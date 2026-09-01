@@ -16,6 +16,7 @@
   in a re-rendering list.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { untrack } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
@@ -116,7 +117,7 @@
       toast.success(m.admin_communities_limits_saved());
     } catch (e) {
       toast.error(m.admin_communities_limits_save_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       busy = false;

@@ -5,6 +5,7 @@
   Verwaltung bleiben im GuildInvitesEditor der Community-Einstellungen.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { toast } from 'svelte-sonner';
   import LinkIcon from '@lucide/svelte/icons/link';
   import CopyIcon from '@lucide/svelte/icons/copy';
@@ -45,7 +46,7 @@
       await copy(link);
     } catch (e) {
       toast.error(m.guild_invites_create_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       creating = false;

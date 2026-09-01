@@ -13,6 +13,7 @@
   den ``app.state.plugin_allowlist``-Snapshot direkt. Kein Restart nötig.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import PuzzleIcon from '@lucide/svelte/icons/puzzle';
@@ -45,7 +46,7 @@
       rows = await adminPluginsApi.list();
       loadError = null;
     } catch (e) {
-      loadError = e instanceof Error ? e.message : String(e);
+      loadError = errText(e);
     } finally {
       loading = false;
     }
@@ -80,7 +81,7 @@
       // Revert.
       rows[idx] = { ...rows[idx], in_allowlist: !target };
       toast.error(m.admin_plugins_allowlist_update_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       busy[name] = false;

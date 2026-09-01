@@ -4,6 +4,7 @@
   Nur sichtbar wenn MANAGE_GUILD.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { listAuditLog, type AuditLogEntry } from '$lib/api/moderation';
   import { userCache } from '$lib/stores/users.svelte';
@@ -54,7 +55,7 @@
         if (e.target_id) userCache.queue(e.target_id);
       }
     } catch (e) {
-      loadError = e instanceof Error ? e.message : String(e);
+      loadError = errText(e);
     } finally {
       loading = false;
       loadingMore = false;

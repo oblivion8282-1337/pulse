@@ -5,6 +5,7 @@
   The quick "invite a friend" path (InviteToServerSubmenu) is separate.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import CopyIcon from '@lucide/svelte/icons/copy';
@@ -41,7 +42,7 @@
       toast.success(m.guild_invites_addbyid_success());
     } catch (e) {
       toast.error(m.guild_invites_addbyid_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       adding = false;
@@ -92,7 +93,7 @@
     try {
       invites = await chatApi.listInvites(guildId);
     } catch (e) {
-      loadError = e instanceof Error ? e.message : String(e);
+      loadError = errText(e);
     } finally {
       loading = false;
     }
@@ -121,7 +122,7 @@
       await copyLink(invite.code);
     } catch (e) {
       toast.error(m.guild_invites_create_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       creating = false;
@@ -134,7 +135,7 @@
       invites = invites.filter((i) => i.code !== code);
     } catch (e) {
       toast.error(m.guild_invites_revoke_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     }
   }

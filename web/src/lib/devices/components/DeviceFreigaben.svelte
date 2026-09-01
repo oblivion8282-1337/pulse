@@ -20,6 +20,7 @@
   testbar), diese Datei bleibt reine Anzeige + Formular.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import XIcon from '@lucide/svelte/icons/x';
   import { Button } from '$lib/components/ui/button/index.js';
   import Select from '$lib/components/form/Select.svelte';
@@ -113,7 +114,7 @@
     try {
       await freigaben.setzen(device.guild_id, device.id, naechste);
     } catch (e) {
-      fehler = e instanceof Error ? e.message : String(e);
+      fehler = errText(e);
     }
   }
 

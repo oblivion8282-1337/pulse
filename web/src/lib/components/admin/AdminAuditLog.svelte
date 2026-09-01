@@ -7,6 +7,7 @@
   pretty for the common case; unknown shapes fall back to JSON-pretty.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { adminApi, type AuditLogEntry } from '$lib/api/admin';
   import { userCache } from '$lib/stores/users.svelte';
@@ -38,7 +39,7 @@
         if (e.target_id) userCache.queue(e.target_id);
       }
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errText(e);
     } finally {
       loading = false;
     }

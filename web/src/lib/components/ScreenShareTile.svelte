@@ -44,19 +44,12 @@
     identity: string;
   } = $props();
 
-  // `name` kommt von LiveKit (`Participant.name`) — auf einem Self-Host ist
-  // das immer der leere String, LiveKit faellt dann auf die Identity
-  // `user-<id>` zurueck. Der Nutzer-Cache kennt den echten Namen (per
-  // `streamerId`, das hier schon geparst reinkommt) — bevorzugt den, sonst
-  // bleibt `name` der Rueckfall statt eines dauerhaften "…".
+  // `name` kommt von LiveKit — auf einem Self-Host immer leer, Rückfall ist
+  // die Identity. Der Nutzer-Cache kennt den echten Namen — bevorzugt den.
   $effect(() => {
     if (streamerId) userCache.queue(streamerId);
   });
-  const anzeigeName = $derived.by(() => {
-    if (!streamerId) return name;
-    const u = userCache.get(streamerId);
-    return u ? (u.display_name ?? u.username) : name;
-  });
+  const anzeigeName = $derived(streamerId ? userCache.displayName(streamerId, name) : name);
 
   // Twitch-style in-tile chat — TileShell rendert Panel/Overlay je nach
   // Fullscreen, hier nur der Toggle-State.

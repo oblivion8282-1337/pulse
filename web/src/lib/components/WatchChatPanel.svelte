@@ -4,6 +4,7 @@
   REST, Live-Updates per WS `watch_chat_message`.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount, tick } from 'svelte';
   import { watchChat } from '$lib/stores/watchChat.svelte';
   import { userCache } from '$lib/stores/users.svelte';
@@ -80,7 +81,7 @@
     try {
       await chatApi.postWatchChat(channelId, partyId, content);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = errText(e);
       if (msg.includes('410')) {
         toast.error(m.watch_chat_panel_party_inactive());
       } else if (msg.includes('429')) {
@@ -102,7 +103,7 @@
     try {
       await chatApi.toggleWatchChatReaction(channelId, partyId, messageId, emoji);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = errText(e);
       if (msg.includes('410')) {
         toast.error(m.watch_chat_panel_party_inactive());
       } else if (!msg.includes('429')) {

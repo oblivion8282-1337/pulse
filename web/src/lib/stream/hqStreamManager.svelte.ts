@@ -1,3 +1,4 @@
+import { errText } from '$lib/utils/errText';
 /**
  * Dauerhafter Halter für eine HQ-WHEP-Wiedergabe — überlebt das Wegnavigieren.
  *
@@ -604,7 +605,7 @@ export class ManagedHqStream {
     } catch (e) {
       if (this.#disposed) return;
       const status = e instanceof WhepError ? e.status : 0;
-      this.detail = e instanceof Error ? e.message : String(e);
+      this.detail = errText(e);
       if (status === 404 || status === 0 || status >= 500) {
         this.#scheduleRetry();
       } else {

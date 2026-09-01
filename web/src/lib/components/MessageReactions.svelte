@@ -19,6 +19,7 @@
   popover; the chat stays focused.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { Popover as PopoverPrimitive } from 'bits-ui';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
@@ -97,7 +98,7 @@
       // shows a fallback initial until then.
       for (const entry of list) for (const id of entry.user_ids) userCache.queue(id);
     } catch (e) {
-      loadError = e instanceof Error ? e.message : String(e);
+      loadError = errText(e);
     } finally {
       loadingEmoji = null;
     }

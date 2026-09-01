@@ -7,6 +7,7 @@
   (no 'native' — a webcam has a hardware ceiling). FPS: 15/30/60.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { adminApi, type Permissions } from '$lib/api/admin';
@@ -42,7 +43,7 @@
       current = await adminApi.getPermissions();
       populate(current);
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errText(e);
     }
   });
 
@@ -62,7 +63,7 @@
       toast.success(m.admin_cam_limits_saved());
     } catch (e) {
       toast.error(m.admin_cam_limits_save_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       busy = false;

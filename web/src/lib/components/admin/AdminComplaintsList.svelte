@@ -9,6 +9,7 @@
   Pro Ansicht eigene Instanz (Eltern remountet via {#key}) — onMount lädt einmal.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
@@ -53,7 +54,7 @@
   let banning = $state(false);
 
   function errMsg(e: unknown): string {
-    return e instanceof Error ? e.message : String(e);
+    return errText(e);
   }
 
   function fmt(d: string | null): string {

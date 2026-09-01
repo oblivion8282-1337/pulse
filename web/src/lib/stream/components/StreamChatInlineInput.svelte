@@ -7,6 +7,7 @@
   sich automatisch den Fokus.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { chatApi } from '$lib/api/chat';
   import { toast } from 'svelte-sonner';
@@ -32,7 +33,7 @@
       await chatApi.postStreamChat(channelId, streamerId, text);
       draft = '';
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = errText(e);
       if (msg.includes('410')) toast.error(m.stream_chat_inline_streamer_offline());
       else if (msg.includes('429')) toast.warning(m.stream_chat_inline_too_fast());
       else toast.error(m.stream_chat_inline_send_failed(), { description: msg });

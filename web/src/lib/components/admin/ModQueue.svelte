@@ -7,6 +7,7 @@
   Sichtbar nur mit MANAGE_MESSAGES | BAN_MEMBERS | MANAGE_GUILD.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
   import { toast } from 'svelte-sonner';
   import {
@@ -93,7 +94,7 @@
         if (r.target_user_id) userCache.queue(r.target_user_id);
       }
     } catch (e) {
-      loadError = e instanceof Error ? e.message : String(e);
+      loadError = errText(e);
     } finally {
       loading = false;
     }
@@ -124,7 +125,7 @@
       return true;
     } catch (e) {
       toast.error(m.mod_queue_toast_error(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
       return false;
     } finally {
@@ -184,7 +185,7 @@
       escalateDialogOpen = false;
     } catch (e) {
       toast.error(m.mod_queue_toast_error(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       escalating = false;

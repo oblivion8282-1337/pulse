@@ -4,6 +4,7 @@
   gerendert (das +page.svelte gated mit {#if !isCloud}). Read-only.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { adminApi, type SelfHostBackupStatus } from '$lib/api/admin';
   import DatabaseBackupIcon from '@lucide/svelte/icons/database-backup';
@@ -19,7 +20,7 @@
     try {
       status = await adminApi.selfHostBackups();
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errText(e);
     } finally {
       loading = false;
     }

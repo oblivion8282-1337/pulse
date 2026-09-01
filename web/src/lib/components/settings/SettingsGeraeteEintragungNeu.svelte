@@ -14,6 +14,7 @@
   der Anwendung statt in den Rechten.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import MonitorCogIcon from '@lucide/svelte/icons/monitor-cog';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
@@ -84,7 +85,7 @@
       deviceStore._changed(device.guild_id, device, false);
       geraetName = '';
     } catch (e) {
-      fehler = e instanceof Error ? e.message : String(e);
+      fehler = errText(e);
     } finally {
       busy = false;
     }
