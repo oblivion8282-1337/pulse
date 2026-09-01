@@ -30,9 +30,8 @@
  */
 import type { Message } from '../../api/types';
 import type { PostfachZustellung } from '../../api/postfach';
-import { parseMentionMarkers } from '../../components/mentionMarkierungen';
 import { leseNachrichtNutzlast } from '../nachrichtNutzlast';
-import { anhangAngabeZuAttachment } from '../anhangAnzeige';
+import { baueEmpfangeneNachricht } from '../empfangeneNachricht';
 import { ART_GRUPPENNACHRICHT, leseGruppenhuelle, leseVerteilNutzlast } from './gruppenNutzlast';
 import {
   gruppenempfangLaden,
@@ -126,20 +125,8 @@ export async function oeffneGruppennachricht(
   // Sichern VOR der Quittung — der Ratchet ist weitergedreht.
   await gruppenempfangSichern(z.channel_id, z.absender_device_pubkey, huelle.sitzung, empfang);
 
-  const { text, id: kanonischeId, replyToId, anhaenge } = leseNachrichtNutzlast(klartextBytes);
-  return {
-    id: z.id,
-    channel_id: z.channel_id,
-    author_id: z.absender_user_id,
-    content: text,
-    nonce: null,
-    reply_to_id: replyToId,
-    created_at: new Date().toISOString(),
-    mentions: parseMentionMarkers(text),
-    verschluesselt: true,
-    ...(kanonischeId !== null ? { krypto_id: kanonischeId } : {}),
-    ...(anhaenge.length > 0
-      ? { attachments: anhaenge.map(anhangAngabeZuAttachment) }
-      : {})
-  };
+  // Dieselbe Umsetzung in die Anzeige-Form wie im Olm-Weg, s.
+  // `../empfangeneNachricht.ts` — dort stehen auch die Gruende fuer die
+  // ID-Wahl und die beiden bedingten Felder.
+  return baueEmpfangeneNachricht(z, z.absender_user_id, leseNachrichtNutzlast(klartextBytes));
 }

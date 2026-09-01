@@ -69,6 +69,7 @@ import { verlaufSpeichernPflicht } from '../verlauf';
 import { verlaufZustand } from '../verlauf/zustand.svelte';
 import { kryptoAccountLaden } from './account.svelte';
 import { geraeteKennung } from './geraeteKennung';
+import { lokaleNachrichtId } from './lokaleNachrichtId';
 import { sitzungLaden, sitzungSichern, mitSitzungssperre } from './sitzungen';
 import { baueNachrichtNutzlast, type AnhangAngabe } from './nachrichtNutzlast';
 import { anhangAngabeZuAttachment } from './anhangAnzeige';
@@ -85,22 +86,6 @@ function cloudRoute(): { serverId?: string } {
 export type SendeErgebnis =
   | { art: 'verschluesselt'; nachricht: Message }
   | { art: 'unverschluesselt' };
-
-/**
- * Eine rein lokale Nachrichten-ID — der Server sieht diese Nachricht nie,
- * kann ihr also keine Snowflake zuteilen. Rein numerisch (Millisekunden-
- * Zeitstempel + Zufallsziffern gegen Kollisionen bei gleichzeitigem Senden
- * von zwei Geraeten desselben Kontos), damit `sortierSchluessel`s
- * `padStart` (lokales Verlauf-Schema, `verlauf/satz.ts`) sie weiterhin
- * lexikografisch nach Zeit einordnet.
- */
-function lokaleNachrichtId(): string {
-  const zeit = Date.now().toString().padStart(13, '0');
-  const zufall = Math.floor(Math.random() * 1e7)
-    .toString()
-    .padStart(7, '0');
-  return zeit + zufall;
-}
 
 export async function sendeVerschluesselt(
   kanalId: string,

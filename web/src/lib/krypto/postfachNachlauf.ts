@@ -68,16 +68,16 @@ export function mitNachlaufBeiWeckung<T>(aufgabe: () => Promise<T>): () => Promi
   return function ausloesen(): Promise<T> {
     if (!aktuellerLauf) return starten();
     if (!vorgemerkterNachlauf) {
-      vorgemerkterNachlauf = aktuellerLauf.then(
-        () => {
-          vorgemerkterNachlauf = null;
-          return starten();
-        },
-        () => {
-          vorgemerkterNachlauf = null;
-          return starten();
-        }
-      );
+      const weiter = (): Promise<T> => {
+        vorgemerkterNachlauf = null;
+        return starten();
+      };
+      // Erfolg und Fehlschlag bekommen DENSELBEN Griff — genau das meint
+      // „ein scheiternder Zyklus haelt den Nachlauf nicht auf" im Modulkopf.
+      // Der Fehler des vorherigen Laufs ist damit hier verschluckt; er ging
+      // bereits an dessen eigenen Aufrufer (die von `starten()`
+      // zurueckgegebene Promise).
+      vorgemerkterNachlauf = aktuellerLauf.then(weiter, weiter);
     }
     return vorgemerkterNachlauf;
   };

@@ -20,7 +20,7 @@
   import ArchiveIcon from '@lucide/svelte/icons/archive';
   import { Button } from '$lib/components/ui/button/index.js';
   import { anbieter as anbieterEintrag } from '$lib/ablage/anbieter.ts';
-  import { stufeEin, type VerbindungsRohwerte } from '$lib/ablage/zustand.ts';
+  import { stufeEin, type VerbindungsRohwerte, type VerbindungsZustand } from '$lib/ablage/zustand.ts';
   import type { AblageVerbindung } from '$lib/ablage/verbindungen.svelte.ts';
   import { formatBytes } from '$lib/utils/formatBytes';
   import { ANBIETER_IKONE } from '$lib/components/ablage/anbieterIkonen.ts';
@@ -54,35 +54,32 @@
     });
   }
 
-  const zustandText = $derived(
-    zustand === 'gut'
-      ? m.speicher_zustand_gut()
-      : zustand === 'hinterher'
-        ? m.speicher_zustand_hinterher()
-        : zustand === 'anmeldung-abgelaufen'
-          ? m.speicher_zustand_anmeldung_abgelaufen()
-          : zustand === 'laufwerk-weg'
-            ? m.speicher_zustand_laufwerk_weg()
-            : m.speicher_zustand_kein_platz(),
-  );
+  // Lookups statt verschachtelter Ternaries (CLAUDE.md) — je Zustand genau
+  // eine Zeile statt einer fünffach gestuften Bedingung.
+  const ZUSTAND_TEXT: Record<VerbindungsZustand, () => string> = {
+    gut: m.speicher_zustand_gut,
+    hinterher: m.speicher_zustand_hinterher,
+    'anmeldung-abgelaufen': m.speicher_zustand_anmeldung_abgelaufen,
+    'laufwerk-weg': m.speicher_zustand_laufwerk_weg,
+    'kein-platz': m.speicher_zustand_kein_platz,
+  };
+  const ZUSTAND_FARBE: Record<VerbindungsZustand, string> = {
+    gut: 'text-emerald-500',
+    hinterher: 'text-amber-500',
+    'anmeldung-abgelaufen': 'text-destructive',
+    'laufwerk-weg': 'text-destructive',
+    'kein-platz': 'text-destructive',
+  };
+  // Nur die beiden Fälle mit einem echten In-App-Weg bekommen einen Knopf —
+  // „zu wenig Platz" ist ausserhalb von Pulse zu lösen (Entwurf §6.2).
+  const HANDGRIFF_LABEL: Partial<Record<VerbindungsZustand, () => string>> = {
+    'anmeldung-abgelaufen': m.speicher_handgriff_neu_anmelden,
+    'laufwerk-weg': m.speicher_handgriff_ordner_waehlen,
+  };
 
-  const zustandFarbe = $derived(
-    zustand === 'gut'
-      ? 'text-emerald-500'
-      : zustand === 'hinterher'
-        ? 'text-amber-500'
-        : 'text-destructive',
-  );
-
-  /** Nur die beiden Fälle mit einem echten In-App-Weg bekommen einen Knopf —
-   *  „zu wenig Platz" ist ausserhalb von Pulse zu lösen (Entwurf §6.2). */
-  const handgriffLabel = $derived(
-    zustand === 'anmeldung-abgelaufen'
-      ? m.speicher_handgriff_neu_anmelden()
-      : zustand === 'laufwerk-weg'
-        ? m.speicher_handgriff_ordner_waehlen()
-        : null,
-  );
+  const zustandText = $derived(ZUSTAND_TEXT[zustand]());
+  const zustandFarbe = $derived(ZUSTAND_FARBE[zustand]);
+  const handgriffLabel = $derived(HANDGRIFF_LABEL[zustand]?.() ?? null);
 </script>
 
 <div class="flex flex-wrap items-start justify-between gap-3 rounded-lg border p-3" data-testid="speicher-zeile">

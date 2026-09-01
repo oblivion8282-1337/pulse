@@ -36,6 +36,15 @@
  * fuer Gruppen keinen unverschluesselten Weg — sie sind von Geburt an
  * verschluesselt (Spec §9). Scheitert etwas, ist die Nachricht NICHT
  * gesendet, und der Aufrufer muss das sichtbar machen.
+ *
+ * **Dieser Ablauf steht ein zweites Mal im Baum: `kanalSenden.ts`** (Etappe
+ * E6, Ablage-Kanaele). Ab Schritt 3 sind beide Schritt fuer Schritt gleich;
+ * verschieden sind nur die Herkunft der Mitgliederliste (dort
+ * ereignisgetrieben statt vor jeder Sendung frisch) und die Ablage-Zugabe im
+ * Verteilumschlag. **Wer hier an der Reihenfolge der Schritte 4-9, am
+ * Zuschnitt der Sperre oder daran etwas aendert, WANN `beliefert`
+ * nachgetragen wird, aendert es dort mit.** Warum die beiden trotzdem nicht
+ * zusammengelegt sind, steht im Modulkopf von `kanalSenden.ts`.
  */
 import type { Message } from '../../api/types';
 import { keysApi } from '../../api/keys';
@@ -47,6 +56,7 @@ import { verlaufSpeichernPflicht } from '../../verlauf';
 import { verlaufZustand } from '../../verlauf/zustand.svelte';
 import { parseMentionMarkers } from '../../components/mentionMarkierungen';
 import { geraeteKennung } from '../geraeteKennung';
+import { lokaleNachrichtId } from '../lokaleNachrichtId';
 import { mitGruppensitzungssperre } from '../sperren';
 import { baueNachrichtNutzlast } from '../nachrichtNutzlast';
 import { PRIVATE_GRUPPEN_ENABLED } from '../schalter';
@@ -80,17 +90,6 @@ export type GruppenSendeErgebnis =
 
 function cloudRoute(): { serverId?: string } {
   return { serverId: serversStore.cloudId() };
-}
-
-/** Rein lokale Nachrichten-ID, identisch gebaut wie im DM-Weg
- *  (`../senden.ts::lokaleNachrichtId`) — der Server sieht diese Nachricht
- *  nie und kann ihr keine Snowflake zuteilen. */
-function lokaleNachrichtId(): string {
-  const zeit = Date.now().toString().padStart(13, '0');
-  const zufall = Math.floor(Math.random() * 1e7)
-    .toString()
-    .padStart(7, '0');
-  return zeit + zufall;
 }
 
 export async function sendeInGruppe(

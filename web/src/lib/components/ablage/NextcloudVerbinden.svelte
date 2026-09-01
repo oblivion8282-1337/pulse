@@ -18,15 +18,9 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import { ausFreigabeLink, FreigabeLinkFehler } from '$lib/ablage/freigabeLink';
   import { webdavAdapter } from '$lib/ablage/webdav';
-  import { probiere, type ProbeSchritt } from '$lib/ablage/probe';
+  import { probiere } from '$lib/ablage/probe';
+  import { SCHRITT_TEXT } from '$lib/ablage/probeSchrittText';
   import { ablageVerbindungen, type AblageVerbindung } from '$lib/ablage/verbindungen.svelte';
-
-  const SCHRITT_TEXT: Record<ProbeSchritt, string> = {
-    schreiben: 'Schreiben',
-    lesen: 'Lesen',
-    vergleichen: 'Vergleichen',
-    loeschen: 'Löschen',
-  };
 
   let { onVerbunden }: { onVerbunden: (v: AblageVerbindung) => void } = $props();
 

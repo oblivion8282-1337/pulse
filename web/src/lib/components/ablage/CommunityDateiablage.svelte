@@ -29,7 +29,7 @@
   import { base64ZuBytes } from '$lib/ablage/syncOrdnerSchluessel.ts';
   import { starteFestigungsSchleife } from '$lib/ablage/festigung.ts';
   import { sichererBlobTyp } from '$lib/krypto/sichererBlobTyp.ts';
-  import NextcloudVerbinden from './NextcloudVerbinden.svelte';
+  import AblageLaufwerkAufforderung from './AblageLaufwerkAufforderung.svelte';
   import type { AblageVerbindung } from '$lib/ablage/verbindungen.svelte.ts';
   import type { DateiInfo } from '$lib/ablage/dateispeicher.ts';
 
@@ -38,7 +38,6 @@
   type Zeile = DateiInfo & { ausstehend: boolean };
 
   let status: 'laedt' | 'nicht_verbunden' | 'verbunden' = $state('laedt');
-  let verbindenOffen = $state(false);
   let zeilen: Zeile[] = $state([]);
   let laeuft = $state(false);
   let fehler = $state('');
@@ -91,19 +90,16 @@
     stoppeFestigung?.();
   });
 
-  async function nachVerbindung(v: AblageVerbindung): Promise<void> {
-    verbindenOffen = false;
+  async function nachVerbindung(v: AblageVerbindung): Promise<string | null> {
     // Die vom Nutzer geparste WebDAV-Basis ist die Freigabe-Adresse, die der
     // Server fuer die Weiterreich-Route braucht (Design §4.1) — nie der
     // rohe Link selbst (der bleibt in der Verbindungs-Konfiguration).
     const basis = v.konfiguration.basis;
-    if (!basis) {
-      fehler = 'Nur ein Nextcloud-Freigabe-Link kann als Community-Laufwerk dienen.';
-      return;
-    }
+    if (!basis) return 'Nur ein Nextcloud-Freigabe-Link kann als Community-Laufwerk dienen.';
     await ablageVerbindungen.verknüpfeMitGuild(v.id, guildId);
     await ablageGuildApi.setzeLaufwerk(guildId, basis);
     await pruefeStatus();
+    return null;
   }
 
   async function hochladen(dateien: FileList | null): Promise<void> {
@@ -188,22 +184,11 @@
   <!-- still: kein Flackern beim ersten Statusabruf -->
 {:else if status === 'nicht_verbunden'}
   {#if istBesitzer}
-    <div class="rounded-lg border border-dashed p-6 text-center" data-testid="community-ablage-aufforderung">
-      <p class="mb-3 text-sm text-muted-foreground">
-        Noch kein Laufwerk verbunden. Verbinde eines, damit Mitglieder Dateien ablegen können.
-      </p>
-      <Button onclick={() => (verbindenOffen = true)} data-testid="community-ablage-verbinden">
-        Laufwerk verbinden
-      </Button>
-    </div>
-    {#if verbindenOffen}
-      <div class="mt-3">
-        <NextcloudVerbinden onVerbunden={nachVerbindung} />
-      </div>
-    {/if}
-    {#if fehler}
-      <p class="mt-2 text-sm text-destructive">{fehler}</p>
-    {/if}
+    <AblageLaufwerkAufforderung
+      testIdPraefix="community-ablage"
+      hinweisText="Noch kein Laufwerk verbunden. Verbinde eines, damit Mitglieder Dateien ablegen können."
+      onVerbunden={nachVerbindung}
+    />
   {/if}
 {:else}
   <div class="space-y-3" data-testid="community-ablage-ansicht">

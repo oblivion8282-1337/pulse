@@ -31,7 +31,8 @@
   import { ANBIETER_IKONE } from './anbieterIkonen.ts';
   import { adapterAusVerzeichnis, wähleOrdner, syncOrdnerMoeglich } from '$lib/ablage/syncOrdner.ts';
   import { legeGriffAb } from '$lib/ablage/ordnerGriff.ts';
-  import { probiere, type ProbeSchritt } from '$lib/ablage/probe.ts';
+  import { probiere } from '$lib/ablage/probe.ts';
+  import { SCHRITT_TEXT } from '$lib/ablage/probeSchrittText.ts';
   import { anbieterFuerUmgebung } from '$lib/ablage/anbieterFuerUmgebung.ts';
   import NextcloudVerbinden from './NextcloudVerbinden.svelte';
 
@@ -55,13 +56,6 @@
     nextcloud: 'Freigabe-Link aus deiner Nextcloud einfügen — mehr braucht es nicht',
     sync_ordner: 'Ein lokaler Ordner — dein Dropbox-/Drive-/Nextcloud-Client trägt die Dateien hoch',
     s3: 'Hetzner, Wasabi, MinIO — Endpoint, Bucket und Schlüssel angeben',
-  };
-
-  const SCHRITT_TEXT: Record<ProbeSchritt, string> = {
-    schreiben: 'Schreiben',
-    lesen: 'Lesen',
-    vergleichen: 'Vergleichen',
-    loeschen: 'Löschen',
   };
 
   // Firefox/Safari koennen keinen Ordner waehlen (kein File-System-Access) —

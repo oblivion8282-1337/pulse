@@ -25,20 +25,17 @@
    * verbunden, noch nichts gesichert" stehen.
    */
   import { onDestroy } from 'svelte';
-  import { Button } from '$lib/components/ui/button/index.js';
   import { ApiError } from '$lib/api/client';
   import { ablageKanalLaufwerkSetzen } from '$lib/api/ablageKanal.ts';
   import { ablageVerbindungen } from '$lib/ablage/verbindungen.svelte.ts';
   import { kanalLaufwerkSchluesselSichern } from '$lib/ablage/kanalLaufwerkSchluessel.ts';
   import { starteKanalFestigungsSchleife } from '$lib/ablage/kanalFestigung.ts';
-  import NextcloudVerbinden from './NextcloudVerbinden.svelte';
+  import AblageLaufwerkAufforderung from './AblageLaufwerkAufforderung.svelte';
   import type { AblageVerbindung } from '$lib/ablage/verbindungen.svelte.ts';
 
   let { kanalId }: { kanalId: string } = $props();
 
   let status: 'laedt' | 'nicht_verbunden' | 'verbunden' = $state('laedt');
-  let verbindenOffen = $state(false);
-  let fehler = $state('');
   let stoppeFestigung: (() => void) | null = null;
 
   async function pruefeStatus(): Promise<void> {
@@ -55,25 +52,18 @@
     stoppeFestigung?.();
   });
 
-  async function nachVerbindung(v: AblageVerbindung): Promise<void> {
-    verbindenOffen = false;
-    fehler = '';
+  async function nachVerbindung(v: AblageVerbindung): Promise<string | null> {
     // Die vom Nutzer geparste WebDAV-Basis ist die Freigabe-Adresse, die der
     // Server für die Weiterreich-Route braucht (Design §4.1) — nie der rohe
     // Link selbst (der bleibt in der Verbindungs-Konfiguration).
     const basis = v.konfiguration.basis;
-    if (!basis) {
-      fehler = 'Nur ein Nextcloud-Freigabe-Link kann als Kanal-Laufwerk dienen.';
-      return;
-    }
+    if (!basis) return 'Nur ein Nextcloud-Freigabe-Link kann als Kanal-Laufwerk dienen.';
     try {
       await ablageKanalLaufwerkSetzen(kanalId, basis);
     } catch (e) {
-      fehler =
-        e instanceof ApiError && e.status === 403
-          ? 'Dieser Kanal hat bereits ein Laufwerk eines anderen Mitglieds verbunden.'
-          : `Verbinden fehlgeschlagen: ${e instanceof Error ? e.message : String(e)}`;
-      return;
+      return e instanceof ApiError && e.status === 403
+        ? 'Dieser Kanal hat bereits ein Laufwerk eines anderen Mitglieds verbunden.'
+        : `Verbinden fehlgeschlagen: ${e instanceof Error ? e.message : String(e)}`;
     }
     // Erst NACH dem erfolgreichen PUT lokal als Besitzer-Gerät markieren und
     // den Schlüssel sichern — das ist die Stelle, auf die der Rest wartet:
@@ -82,29 +72,19 @@
     await ablageVerbindungen.verknüpfeMitKanal(v.id, kanalId);
     await kanalLaufwerkSchluesselSichern(kanalId, v.hauptschlüsselB64, basis);
     await pruefeStatus();
+    return null;
   }
 </script>
 
 {#if status === 'laedt'}
   <!-- still: kein Flackern beim ersten Statusabruf -->
 {:else if status === 'nicht_verbunden'}
-  <div class="rounded-lg border border-dashed p-6 text-center" data-testid="kanal-ablage-aufforderung">
-    <p class="mb-3 text-sm text-muted-foreground">
-      Noch kein Laufwerk für diesen Kanal verbunden. Verbinde eines, damit der Verlauf gesichert
-      wird.
-    </p>
-    <Button onclick={() => (verbindenOffen = true)} data-testid="kanal-ablage-verbinden">
-      Laufwerk verbinden
-    </Button>
-  </div>
-  {#if verbindenOffen}
-    <div class="mt-3">
-      <NextcloudVerbinden onVerbunden={nachVerbindung} />
-    </div>
-  {/if}
-  {#if fehler}
-    <p class="mt-2 text-sm text-destructive" data-testid="kanal-ablage-fehler">{fehler}</p>
-  {/if}
+  <AblageLaufwerkAufforderung
+    testIdPraefix="kanal-ablage"
+    hinweisText="Noch kein Laufwerk für diesen Kanal verbunden. Verbinde eines, damit der Verlauf gesichert wird."
+    fehlerTestId="kanal-ablage-fehler"
+    onVerbunden={nachVerbindung}
+  />
 {:else}
   <p class="text-sm text-muted-foreground" data-testid="kanal-ablage-verbunden">
     Dieses Gerät sichert diesen Kanal auf seinem Laufwerk.

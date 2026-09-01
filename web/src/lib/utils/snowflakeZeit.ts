@@ -61,19 +61,33 @@ function istVorlaeufig(id: string): boolean {
   return id.startsWith(VORLAEUFIG_PRAEFIX);
 }
 
+/** Mindestens eine Ziffer, sonst nichts — `[0-9]` ausgeschrieben statt `\d`,
+ *  damit an der Stelle nichts zu deuten ist. **Ohne `g`-Flag, und das ist
+ *  Bedingung:** ein globales `RegExp` merkt sich zwischen zwei `test`-Aufrufen
+ *  seinen `lastIndex` und liefert dann abwechselnd falsche Antworten — in
+ *  einem Komparator, der je Sortierung hunderte Male laeuft, waere das ein
+ *  Fehler, der wie Zufall aussieht. */
+const NUR_ZIFFERN = /^[0-9]+$/;
+
 function istZiffernfolge(s: string): boolean {
-  if (s.length === 0) return false;
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i);
-    if (c < 48 || c > 57) return false;
-  }
-  return true;
+  return NUR_ZIFFERN.test(s);
 }
 
-/** Entschluesselt die eingebettete Unix-Millisekunde aus einer ID beliebigen
- *  der beiden Schemata.
+/** Lexikografischer Vergleich als `Array.sort`-Ergebnis (-1/0/1). Getrennt
+ *  benannt, weil er unten zweimal gebraucht wird und verschachtelte
+ *  Bedingungsketten in einem Komparator schwer zu lesen sind. */
+function lexikografisch(a: string, b: string): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
+/** Entschluesselt die eingebettete Unix-Millisekunde aus einer ID eines der
+ *  drei bekannten Schemata (s. Modulkopf).
  *
- *  **Woran die beiden auseinandergehalten werden — und wie lange das traegt.**
+ *  **Woran die beiden ZIFFERN-Schemata auseinandergehalten werden — und wie
+ *  lange das traegt.** (Die vorlaeufige `tmp-`-Form traegt ihr Praefix und
+ *  faellt gar nicht erst in diese Unterscheidung.)
  *  Unterschieden wird an der Stellenzahl, also an genau der Groesse, deren
  *  naiver Gebrauch der Grund fuer diese Datei war. Das ist hier zulaessig,
  *  aber nicht zeitlos, und die Grenze ist ausgerechnet: eine echte Snowflake
@@ -132,7 +146,7 @@ export function vergleicheSnowflakeArtigeId(a: string, b: string): number {
   if (za === null || zb === null) {
     if (za !== null) return -1;
     if (zb !== null) return 1;
-    return a < b ? -1 : a > b ? 1 : 0;
+    return lexikografisch(a, b);
   }
 
   if (za !== zb) return za < zb ? -1 : 1;
@@ -143,10 +157,12 @@ export function vergleicheSnowflakeArtigeId(a: string, b: string): number {
   const va = istVorlaeufig(a);
   const vb = istVorlaeufig(b);
   if (va !== vb) return va ? 1 : -1;
-  if (va && vb) return a < b ? -1 : a > b ? 1 : 0;
+  if (va && vb) return lexikografisch(a, b);
 
   // Beides Ziffernfolgen — hier traegt die rohe Zahl wieder.
   const na = BigInt(a);
   const nb = BigInt(b);
-  return na < nb ? -1 : na > nb ? 1 : 0;
+  if (na < nb) return -1;
+  if (na > nb) return 1;
+  return 0;
 }

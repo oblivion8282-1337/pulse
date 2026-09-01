@@ -39,6 +39,32 @@
  * dagegen VOR `sitzungWaehlen` ab (Mitgliederliste/Geraete-Claim scheitert),
  * wird `kanalStandUebernehmen` nie erreicht — `ueberholt` bleibt wahr, der
  * naechste Versuch holt wieder frisch (s. `kanalSitzungswahl.ts`-Modulkopf).
+ *
+ * ## Warum die Zwillinge NICHT zu einer Funktion zusammengelegt sind
+ *
+ * Geprueft am 2026-09-01, und die Antwort ist bewusst „getrennt lassen".
+ * Mechanisch ginge es: die rund sechzig Zeilen ab dem Verteilschritt sind
+ * gleich, und die beiden Abweichungen (`ablage`, `kanalStandUebernehmen`)
+ * liessen sich als optionales Argument bzw. als Aufruf VOR dem gemeinsamen
+ * Teil unterbringen — es braeuchte nicht einmal einen Rueckruf.
+ *
+ * Dagegen steht die Eigenschaft, an der hier alles haengt: **dass die ganze
+ * Spanne vom Laden der Sitzung bis zum letzten Sichern unter EINER Sperre
+ * liegt, ist heute mit einem Blick auf eine Funktion nachpruefbar.** Wandert
+ * die zweite Haelfte in eine dritte Datei, laesst sich derselbe Nachweis nur
+ * noch fuehren, indem man dem Aufruf folgt und dort jede vorzeitige Rueckkehr
+ * einzeln nachsieht. Das ist ein schlechterer Tausch als die vermiedene
+ * Verdopplung: was hier durchrutscht, faellt nicht in einem Test auf, sondern
+ * Wochen spaeter als Schluesselwiederverwendung.
+ *
+ * Der Preis der Trennung — dass eine Korrektur in `senden.ts` hier vergessen
+ * werden kann — ist stattdessen dort ausgeschildert: der Modulkopf von
+ * `senden.ts` nennt diesen Zwilling seit demselben Tag ausdruecklich. Die
+ * Teile OHNE eigene Abweichung sind bereits gemeinsam
+ * (`gruppenEinliefern.ts::verteilUmschlaege`/`bloeckeEinliefern`,
+ * `gruppengeraete.ts`, `sitzungswahl.ts`, `lokaleNachrichtId.ts`) — dupliziert
+ * ist nur noch die Reihenfolge selbst, und die ist genau das, was sichtbar
+ * bleiben soll.
  */
 import { keysApi } from '../../api/keys';
 import type { PostfachNutzlast } from '../../api/postfach';
@@ -48,6 +74,7 @@ import { verlaufSpeichernPflicht } from '../../verlauf';
 import { verlaufZustand } from '../../verlauf/zustand.svelte';
 import { parseMentionMarkers } from '../../components/mentionMarkierungen';
 import { geraeteKennung } from '../geraeteKennung';
+import { lokaleNachrichtId } from '../lokaleNachrichtId';
 import { mitGruppensitzungssperre } from '../sperren';
 import { baueNachrichtNutzlast } from '../nachrichtNutzlast';
 import { ABLAGE_KANAL_ENABLED } from '../../featureFlags';
@@ -83,16 +110,6 @@ export type { GruppenSendeErgebnis };
 
 function cloudRoute(): { serverId?: string } {
   return { serverId: serversStore.cloudId() };
-}
-
-/** Rein lokale Nachrichten-ID — identisch gebaut wie im Gruppen-
- *  (`senden.ts::lokaleNachrichtId`) und DM-Weg. */
-function lokaleNachrichtId(): string {
-  const zeit = Date.now().toString().padStart(13, '0');
-  const zufall = Math.floor(Math.random() * 1e7)
-    .toString()
-    .padStart(7, '0');
-  return zeit + zufall;
 }
 
 /**

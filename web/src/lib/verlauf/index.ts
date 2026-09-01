@@ -175,43 +175,38 @@ export function verlaufSpeichern(kanalId: string, nachrichten: unknown[]): Promi
  * fehlendes `kontoId` fail-closed ab) — derselbe stille Verlust, den FIX 1
  * fuer die anderen beiden Faelle schon verhindert.
  */
-export function verlaufSpeichernPflicht(
+export async function verlaufSpeichernPflicht(
   kanalId: string,
   nachrichten: unknown[]
 ): Promise<number> {
-  try {
-    const kontoId = aktuellesKonto();
-    if (kontoId === null) {
-      throw new VerlaufSpeichernFehlgeschlagen('kein angemeldetes Konto');
-    }
-    const kanalBekannt = istLokalerKanal(kanalId);
-    const saetze = kanalBekannt ? baueSaetze(kanalId, nachrichten, kontoId) : [];
-    pruefeSpeicherErgebnis(kanalId, kanalBekannt, saetze.length);
-    // Genau hier ist der Moment, in dem der Browser um dauerhaften Speicher
-    // gebeten gehoert: dieser Pfad ist der, fuer den der lokale Speicher die
-    // EINZIGE Kopie ist (Modulkopf oben). Ohne die Anfrage darf ein Browser
-    // die Datenbank bei Speicherdruck raeumen, und das Postfach hat den
-    // Geheimtext nach der Quittung schon geloescht — der Verlauf waere
-    // endgueltig weg. Absichtlich hier und nicht beim Seitenladen: Firefox
-    // zeigt eine Nachfrage, und die ist nur an einer Stelle erklaerbar, an
-    // der der Nutzer gerade etwas Unwiederbringliches ablegt.
-    // Bewusst nicht abgewartet und nicht ausgewertet — ein „Nein" aendert am
-    // Ablauf nichts, und `dauerhaftenSpeicherAnfordern` wirft nie.
-    void dauerhaftenSpeicherAnfordern();
-    return verlaufPutSaetze(saetze).then(() => {
-      // Aufgabe 3 (persoenliches Archiv): ist eine Ablage-Verbindung als
-      // „mein Archiv" markiert, wandert der Satz zusaetzlich dorthin — der
-      // Browser-Speicher oben bleibt der schnelle, massgebliche Weg, das
-      // Archiv nur die zusaetzliche dauerhafte Kopie. Fire-and-forget: ein
-      // Fehlschlag dort darf dieses (bereits erfolgreich abgeschlossene)
-      // lokale Schreiben nicht rueckwirkend zu einem Fehler machen, s.
-      // `archivSchreibweg.ts`-Modulkopf.
-      archivSaetzeEinreihen(saetze);
-      return saetze.length;
-    });
-  } catch (err) {
-    return Promise.reject(err);
+  const kontoId = aktuellesKonto();
+  if (kontoId === null) {
+    throw new VerlaufSpeichernFehlgeschlagen('kein angemeldetes Konto');
   }
+  const kanalBekannt = istLokalerKanal(kanalId);
+  const saetze = kanalBekannt ? baueSaetze(kanalId, nachrichten, kontoId) : [];
+  pruefeSpeicherErgebnis(kanalId, kanalBekannt, saetze.length);
+  // Genau hier ist der Moment, in dem der Browser um dauerhaften Speicher
+  // gebeten gehoert: dieser Pfad ist der, fuer den der lokale Speicher die
+  // EINZIGE Kopie ist (Modulkopf oben). Ohne die Anfrage darf ein Browser
+  // die Datenbank bei Speicherdruck raeumen, und das Postfach hat den
+  // Geheimtext nach der Quittung schon geloescht — der Verlauf waere
+  // endgueltig weg. Absichtlich hier und nicht beim Seitenladen: Firefox
+  // zeigt eine Nachfrage, und die ist nur an einer Stelle erklaerbar, an
+  // der der Nutzer gerade etwas Unwiederbringliches ablegt.
+  // Bewusst nicht abgewartet und nicht ausgewertet — ein „Nein" aendert am
+  // Ablauf nichts, und `dauerhaftenSpeicherAnfordern` wirft nie.
+  void dauerhaftenSpeicherAnfordern();
+  await verlaufPutSaetze(saetze);
+  // Aufgabe 3 (persoenliches Archiv): ist eine Ablage-Verbindung als „mein
+  // Archiv" markiert, wandert der Satz zusaetzlich dorthin — der
+  // Browser-Speicher oben bleibt der schnelle, massgebliche Weg, das Archiv
+  // nur die zusaetzliche dauerhafte Kopie. Fire-and-forget: ein Fehlschlag
+  // dort darf dieses (bereits erfolgreich abgeschlossene) lokale Schreiben
+  // nicht rueckwirkend zu einem Fehler machen, s.
+  // `archivSchreibweg.ts`-Modulkopf.
+  archivSaetzeEinreihen(saetze);
+  return saetze.length;
 }
 
 /**
