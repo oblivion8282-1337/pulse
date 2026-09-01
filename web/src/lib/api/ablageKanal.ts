@@ -22,9 +22,17 @@
  * Fehlschlag traegt nur den HTTP-Status und den maschinenlesbaren Code aus
  * der Server-Antwort (s. `ablage_kanal.py::_STATUS_JE_CODE`), nie die
  * Freigabe-Adresse, die der Server ohnehin nie herausgibt.
+ *
+ * **`ablageKanalLaufwerkSetzen`** ist das Gegenstueck fuer
+ * ``PUT .../ablage/laufwerk``: gewoehnliches JSON, deshalb ueber `request`
+ * (nicht `fetchAuthenticated` wie beim Abruf oben, der Rohbytes braucht).
+ * Nur das erste erfolgreiche PUT eines Kanals legt dessen `ersteller_id`
+ * fest (Server-Docstring); jedes weitere PUT eines ANDEREN Kontos antwortet
+ * 403 — das reicht als `ApiError` beim Aufrufer durch, hier keine eigene
+ * Sonderbehandlung.
  */
 
-import { ApiError, fetchAuthenticated, type RequestRoute } from './client';
+import { ApiError, fetchAuthenticated, request, type RequestRoute } from './client';
 import { safeParse, extractDetail } from './parse';
 
 /**
@@ -50,4 +58,21 @@ export async function ablageKanalAbruf(
     throw new ApiError(resp.status, data, extractDetail(data) ?? resp.statusText);
   }
   return new Uint8Array(await resp.arrayBuffer());
+}
+
+/**
+ * Hinterlegt die Freigabe-Adresse fuer `kanalId` (`PUT .../ablage/laufwerk`).
+ * Wirft `ApiError(403, …)`, wenn der Kanal bereits ein Laufwerk eines
+ * ANDEREN Kontos hat — der Aufrufer entscheidet, wie er das dem Nutzer sagt.
+ */
+export async function ablageKanalLaufwerkSetzen(
+  kanalId: string,
+  freigabeAdresse: string,
+  route: RequestRoute = {}
+): Promise<void> {
+  await request<void>(
+    `/channels/${kanalId}/ablage/laufwerk`,
+    { method: 'PUT', body: { freigabe_adresse: freigabeAdresse } },
+    route
+  );
 }

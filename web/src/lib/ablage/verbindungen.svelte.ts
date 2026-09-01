@@ -101,6 +101,17 @@ export interface AblageVerbindung {
    * Adapter schreibt/liest. Hoechstens eine Verbindung je `guildId`.
    */
   fuerGuild?: string | null;
+  /**
+   * Das Laufwerk EINES Ablage-Kanals (Design §4.0/§4.1) — gesetzt vom
+   * Geraet, dessen ``PUT .../ablage/laufwerk`` den Kanal zuerst verband
+   * (damit serverseitig automatisch dessen ``ersteller_id``, s.
+   * `routes/ablage_kanal.py`). Nur DIESES Geraet festigt den Kanal
+   * (`kanalFestigung.ts`) — dieselbe Rolle wie `fuerGuild` fuer die
+   * Community, nur je Kanal statt je Guild, deshalb ein eigenes Feld statt
+   * eines wiederverwendeten. Mehrere Kanaele koennen auf demselben Geraet
+   * verbunden sein (mehrere Verbindungen mit je eigenem `fuerKanal`).
+   */
+  fuerKanal?: string | null;
 }
 
 
@@ -141,6 +152,19 @@ export class AblageVerbindungsStore {
    *  (dieselbe Regel wie bei `setzeArchivMarkierung`). */
   async verknüpfeMitGuild(id: string, guildId: string): Promise<void> {
     await this.patch(id, { fuerGuild: guildId });
+  }
+
+  /** Die lokal markierte Laufwerks-Verbindung fuer EINEN Ablage-Kanal —
+   *  nur auf dem Geraet gesetzt, das ihn verbunden hat (`fuerKanal`, s. dort). */
+  verbindungFürKanal(kanalId: string): AblageVerbindung | undefined {
+    return this.verbindungen.find((v) => v.fuerKanal === kanalId);
+  }
+
+  /** Markiert eine bestehende Verbindung als das Laufwerk des Kanals
+   *  `kanalId` — Gegenstueck zu `verbindungFürKanal`. Unbekannte Id: no-op
+   *  (dieselbe Regel wie bei `verknüpfeMitGuild`). */
+  async verknüpfeMitKanal(id: string, kanalId: string): Promise<void> {
+    await this.patch(id, { fuerKanal: kanalId });
   }
 
   async hinzufügen(v: AblageVerbindung): Promise<void> {
