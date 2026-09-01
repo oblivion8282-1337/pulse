@@ -24,11 +24,11 @@ from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_VOICE,
     Channel,
-    Guild,
     GuildMember,
     PermissionOverwrite,
     Role,
 )
+from dcc_chat_gateway.routes._deps import guild_or_404
 from dcc_chat_gateway.role_hierarchy import (
     assert_actor_outranks,
     assert_actor_outranks_role,
@@ -92,9 +92,7 @@ async def _assert_editor_outranks_target(
     Ein Ziel, das es nicht (mehr) gibt, geht durch: verwaiste Zeilen müssen
     aufräumbar bleiben. Das Anlegen prüft die Existenz vorher selbst (400).
     """
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     if target_type == OVERWRITE_TARGET_ROLE:
         role = await session.get(Role, target_id)
         if role is not None and role.guild_id == guild_id:

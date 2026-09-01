@@ -23,6 +23,8 @@ from fastapi import APIRouter, HTTPException, Path, Request
 from dcc_chat_gateway import guild_limits as limits
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import Guild
+
+from dcc_chat_gateway.routes._deps import guild_or_404
 from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.schemas import GuildLimitsOut, GuildLimitsPatch, GuildLimitValue
 from dcc_chat_gateway.security import CurrentUser
@@ -51,9 +53,7 @@ async def get_guild_limits(
     session: SessionDep,
     current: CurrentUser,
 ) -> GuildLimitsOut:
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     await check_permission(session, current, guild_id, Permissions.MANAGE_GUILD)
     return _limits_out(guild)
 
@@ -69,9 +69,7 @@ async def patch_guild_limits(
     """Setzt die Werte der Community. Nicht genannte Limits bleiben unberührt,
     ein ausdrückliches ``null`` löscht den eigenen Wert (dann gilt wieder die
     Obergrenze)."""
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     await check_permission(session, current, guild_id, Permissions.MANAGE_GUILD)
 
     unknown = set(payload.limits) - set(limits.LIMITS_BY_KEY)

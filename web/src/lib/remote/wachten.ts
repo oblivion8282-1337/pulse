@@ -99,7 +99,7 @@ export function verbindungsWachtMitGnadenfrist(
   beiWiederhergestellt: () => void,
   beiEndgueltigemVerlust: () => void,
 ): Abbruch {
-  if (!istOffen(conn) || !conn) {
+  if (!conn || !istOffen(conn)) {
     beiEndgueltigemVerlust();
     return () => {};
   }

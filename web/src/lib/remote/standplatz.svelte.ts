@@ -33,7 +33,7 @@
  * fernaktivieren. Aufgelöst wird die Liste vom Gateway (dadurch werden Rollen
  * erstmals möglich, siehe unten), der das Ergebnis als Feld `freigabe` an
  * `remote_request` anhängt; **die Zustimmung selbst erteilt weiterhin dieses
- * Gerät** (`selbsttaetigRegel.ts`). Was am Gerät bleibt, ist der lokale
+ * Gerät** — alle drei Bedingungen fail-closed. Was am Gerät bleibt, ist der lokale
  * Hauptschalter `aktiv` — steht er auf „aus", stimmt der Rechner nie
  * selbsttätig zu, unabhängig davon, was der Server sagt. Ein Gerät, das offline
  * ist, stimmt weiterhin nie zu.
@@ -64,7 +64,6 @@
 
 import { m } from '$lib/paraglide/messages.js';
 import { loadAll, saveAll } from '$lib/stream/persistence';
-import { selbsttaetig } from './selbsttaetigRegel';
 import { umziehenNoetig, serverBereitsUmgezogen } from './umzugRegel';
 import { freigaben } from '$lib/devices/freigaben.svelte';
 import { dedupliziertLaden } from '$lib/devices/ladeWaechter';
@@ -232,7 +231,7 @@ function ausSpeicher(roh: unknown): Gespeichert {
     jeder: o.jeder === true,
     // Alte Stände: „acht_stunden" war befristet und trägt sein Ende in
     // `gueltigBis`; „neustart" verfällt ohnehin beim Laden (s. `laden`).
-    geltung: istGeltung(o.geltung) ? o.geltung : o.geltung === 'dauerhaft' ? 'dauerhaft' : 'befristet',
+    geltung: istGeltung(o.geltung) ? o.geltung : 'befristet',
     gueltigBis: typeof o.gueltigBis === 'number' && Number.isFinite(o.gueltigBis)
       ? o.gueltigBis
       : null,
@@ -485,11 +484,9 @@ class StandplatzFreigabe {
    * Server (`device_grants`); hier bleibt der Hauptschalter.
    */
   selbsttaetigZustimmen(freigabeVomServer: boolean): boolean {
-    return selbsttaetig({
-      geladen: this.geladen,
-      aktiv: this.aktiv,
-      freigabe: freigabeVomServer,
-    });
+    // Alle drei fail-closed (s. `umzugRegel.ts`-Muster): gespeicherter Stand
+    // gelesen, Hauptschalter am Gerät, deckende Dauerfreigabe vom Server.
+    return this.geladen && this.aktiv && freigabeVomServer;
   }
 
   /** Wie lange die Freigabe noch gilt (ms), `null` = ohne Ablauf, `0` = nicht

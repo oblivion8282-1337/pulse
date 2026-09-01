@@ -20,7 +20,6 @@ from dcc_chat_gateway.models import (
     Channel,
     DropboxConfig,
     DropboxFile,
-    Guild,
     Message,
     MessageAttachment,
 )
@@ -37,7 +36,7 @@ from dcc_chat_gateway.permissions import (
 # into shared/dcc_shared/text.py. Importing across route modules is
 # intentional here — same package, no cycle.
 from dcc_chat_gateway.routes._dropbox_helpers import validate_name
-from dcc_chat_gateway.routes._deps import require_member
+from dcc_chat_gateway.routes._deps import guild_or_404, require_member
 from dcc_chat_gateway.routes.guilds import _publish_guild_event
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments, purge_s3_keys
 from dcc_chat_gateway.remote_guard import (
@@ -90,9 +89,7 @@ async def create_channel(
     current: CurrentUser,
     request: Request,
 ):
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     await check_permission(session, current, guild_id, Permissions.MANAGE_CHANNELS)
     await enforce_channel_cap(session, guild_id)
     # Display-string sink: must go through validate_name to harden

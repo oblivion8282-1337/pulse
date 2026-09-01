@@ -23,12 +23,6 @@ function input() {
   return player()?.input;
 }
 
-/** Steht die Eingabe-Erfassung zur Verfuegung (Electron + Player-Binary +
- *  aktuelle Shell)? */
-export function erfassungMoeglich(): boolean {
-  return input() !== undefined;
-}
-
 /**
  * Erfassung im Fenster `fensterSitzung` einschalten. `sessionId` ist die per
  * Consent bestaetigte Fernsteuerungs-Sitzung, `slot` der gemeinte Stream des

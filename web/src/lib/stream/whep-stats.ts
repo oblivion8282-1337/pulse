@@ -27,6 +27,8 @@
  */
 
 /** Fields shown in the small player overlay. */
+import { formatBitrate } from '$lib/utils/formatBitrate';
+
 export type StreamStats = {
   res: string;
   fps: string;
@@ -178,11 +180,11 @@ export class WhepStatsReader {
     const bytes = v.bytesReceived ?? 0;
     const ts = v.timestamp ?? 0;
 
-    // Bitrate over the delta to the previous poll
+    // Bitrate over the delta to the previous poll — shared formatting with
+    // the voice screen-share stats.
     let bitrate = '—';
     if (this.#lastTs > 0 && ts > this.#lastTs) {
-      const kbps = ((bytes - this.#lastBytes) * 8) / ((ts - this.#lastTs) / 1000) / 1000;
-      bitrate = kbps >= 1000 ? `${(kbps / 1000).toFixed(1)} Mbit/s` : `${Math.round(kbps)} kbit/s`;
+      bitrate = formatBitrate(bytes - this.#lastBytes, ts - this.#lastTs);
     }
 
     // Freeze detection — comparing against the previous reading.

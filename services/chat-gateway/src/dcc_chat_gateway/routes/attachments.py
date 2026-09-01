@@ -42,7 +42,7 @@ from dcc_chat_gateway.permissions import (
     Permissions,
     check_permission,
 )
-from dcc_chat_gateway.routes._deps import resolve_channel_or_raise
+from dcc_chat_gateway.routes._deps import guild_or_404, resolve_channel_or_raise
 from dcc_chat_gateway.schemas import (
     AttachmentDownloadOut,
     AttachmentOut,
@@ -141,9 +141,7 @@ async def _limits_for_channel(
     guild Channel (use the Guild row's columns) or a DM channel (use the
     chat_settings singleton)."""
     if kind == "guild":
-        guild = await session.get(Guild, ch.guild_id)
-        if guild is None:
-            raise HTTPException(404, detail="guild not found")
+        guild = await guild_or_404(session, ch.guild_id)
         return guild.attachment_max_size_bytes, guild.attachment_max_count_per_message
     # DM
     settings = await session.get(ChatSettings, 1)

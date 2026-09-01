@@ -20,6 +20,7 @@ import { toast } from 'svelte-sonner';
 import { m } from '$lib/paraglide/messages.js';
 import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
 import { registerWsHandler } from '../handler-registry';
+import { teardownGuildLocally } from './guildTeardown';
 import type { HandlerContext } from './context';
 
 /** "Wieder beitreten" aus dem Entbann-Hinweis: löst die mitgelieferte
@@ -51,15 +52,7 @@ export function register(ctx: HandlerContext): void {
       // navigation hook). The WS itself isn't force-closed; the next
       // membership-gated REST call will 403 naturally.
       if (guilds.byId[evt.guild_id]) {
-        const channelIds = new Set<string>(
-          (guilds.channelsByGuild[evt.guild_id] ?? []).map((c) => c.id)
-        );
-        for (const subId of ctx.subs) {
-          if (channelIds.has(subId)) ctx.unsubscribe(subId);
-        }
-        for (const id of channelIds) messages.clearChannel(id);
-        guilds.remove(evt.guild_id);
-        ctx.fireGuildDeleted(evt.guild_id);
+        teardownGuildLocally(evt.guild_id, ctx);
       }
     }
     // Either way, an open MemberList re-renders via its local

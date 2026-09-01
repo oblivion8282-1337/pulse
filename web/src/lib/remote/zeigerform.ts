@@ -61,6 +61,7 @@
  */
 
 import type { RemoteSignalKind } from '$lib/ws/handlers/types';
+import { AUFFRISCH_MS } from './vorrangTakt';
 import { aufSidecarEreignisse } from './sidecarInput';
 import { pruefeBild, type Zeigerbild } from './zeigerbildPruefung';
 import { RueckfallDrossel, ZeigerImBild, sidecarMeldungImBild } from './zeigerImBild';
@@ -104,19 +105,6 @@ const VORGABE: Zeigerform = 'default';
 function istForm(wert: unknown): wert is Zeigerform {
   return typeof wert === 'string' && (FORMEN as readonly string[]).includes(wert);
 }
-
-/**
- * Nach wie vielen Millisekunden ohne Wechsel dieselbe Form erneut hinausgeht.
- *
- * Der Sidecar wiederholt sie je Sekunde; ohne diese Auffrischung hier wäre das
- * wirkungslos, denn der Wechselfilter unten verschluckte die Wiederholung. Und
- * ohne Wiederholung bliebe ein Wechsel, den der Sekundendeckel des Gateways
- * still verworfen hat, für den Rest der Sitzung verloren — der Steuernde
- * behielte den I-Balken, während der Host längst wieder auf dem Desktop steht.
- * Etwas unter einer Sekunde, damit die Auffrischung des Sidecars nicht
- * regelmäßig knapp danebenfällt.
- */
-const AUFFRISCH_MS = 900;
 
 class RemoteZeigerform {
   #rolle: 'controller' | 'host' | null = null;

@@ -11,6 +11,7 @@
  * VoiceParticipant.identity, damit die Verdrahtung in livekit.svelte.ts trivial bleibt.
  */
 import { SpeakingDetector } from './speakingDetector';
+import { rms } from './meter';
 
 /** Min. interval between RMS samples. RAF runs at ~60 Hz but a "is this person
  *  talking" boolean needs far less — SpeakingDetector does its own hold/decay.
@@ -97,9 +98,7 @@ export class RemoteSpeakingTracker {
       this.#lastSample = now;
       for (const entry of this.#entries.values()) {
         entry.analyser.getFloatTimeDomainData(entry.buf);
-        let sum = 0;
-        for (let i = 0; i < entry.buf.length; i++) sum += entry.buf[i] * entry.buf[i];
-        entry.detector.feed(Math.sqrt(sum / entry.buf.length));
+        entry.detector.feed(rms(entry.buf));
       }
     }
     this.#raf = requestAnimationFrame(this.#startLoop);
