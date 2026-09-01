@@ -46,17 +46,14 @@ import { auth } from '../../stores/auth.svelte';
 import { verlaufSpeichernPflicht } from '../../verlauf';
 import { verlaufZustand } from '../../verlauf/zustand.svelte';
 import { parseMentionMarkers } from '../../components/mentionMarkierungen';
-import { kryptoAccountLaden } from '../account.svelte';
 import { geraeteKennung } from '../geraeteKennung';
-import { sitzungLaden, sitzungSichern, mitSitzungssperre } from '../sitzungen';
 import { mitGruppensitzungssperre } from '../sperren';
 import { baueNachrichtNutzlast } from '../nachrichtNutzlast';
 import { PRIVATE_GRUPPEN_ENABLED } from '../schalter';
 import { sitzungWaehlen, standNachSendung } from './sitzungswahl';
-import { bloeckeEinliefern } from './gruppenEinliefern';
+import { bloeckeEinliefern, verteilUmschlaege } from './gruppenEinliefern';
 import {
   ART_GRUPPENNACHRICHT,
-  baueVerteilNutzlast,
   baueGruppenhuelle,
   neueSitzungId
 } from './gruppenNutzlast';
@@ -69,8 +66,7 @@ import {
   gruppengeraeteBerechnen,
   inBloecke,
   inEmpfaengerBloecke,
-  MAX_UMSCHLAEGE_JE_ANFRAGE,
-  type Gruppenzielgeraet
+  MAX_UMSCHLAEGE_JE_ANFRAGE
 } from './gruppengeraete';
 
 export type GruppenSendeErgebnis =
@@ -95,43 +91,6 @@ function lokaleNachrichtId(): string {
     .toString()
     .padStart(7, '0');
   return zeit + zufall;
-}
-
-/** Baut je Zielgeraet einen Olm-Umschlag mit dem Verteilschluessel. Geraete
- *  ohne verwertbaren Schluessel werden uebersprungen — sie bekommen ihn beim
- *  naechsten Mal, weil sie dann immer noch nicht in `beliefert` stehen.
- *  Ob ein gebauter Umschlag den Server auch WIRKLICH erreicht, entscheidet
- *  erst `bloeckeEinliefern` — hier entsteht nur die Kandidatenliste. */
-async function verteilUmschlaege(
-  kanalId: string,
-  sitzungId: string,
-  verteilschluessel: string,
-  ziel: Gruppenzielgeraet[]
-): Promise<PostfachNutzlast[]> {
-  const ident = await kryptoAccountLaden();
-  const klartext = baueVerteilNutzlast(kanalId, sitzungId, verteilschluessel);
-  const nutzlasten: PostfachNutzlast[] = [];
-  for (const { geraet } of ziel) {
-    const umschlag = await mitSitzungssperre(kanalId, geraet.device_pubkey, async () => {
-      let sitzung = await sitzungLaden(kanalId, geraet.device_pubkey);
-      if (!sitzung) {
-        const einmal = geraet.einmalschluessel ?? geraet.rueckfallschluessel;
-        if (!einmal) return null;
-        sitzung = ident.sitzungAusgehend(geraet.curve25519, einmal);
-      }
-      const gebaut = sitzung.verschluesseln(klartext);
-      // Sichern VOR dem Einliefern — s. `../sitzungen.ts`-Modulkopf.
-      await sitzungSichern(kanalId, geraet.device_pubkey, sitzung);
-      return gebaut;
-    });
-    if (!umschlag) continue;
-    nutzlasten.push({
-      art: umschlag.art(),
-      daten: umschlag.daten(),
-      empfaenger: [geraet.device_pubkey]
-    });
-  }
-  return nutzlasten;
 }
 
 export async function sendeInGruppe(
