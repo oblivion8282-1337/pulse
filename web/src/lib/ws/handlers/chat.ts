@@ -77,6 +77,12 @@ export function register(ctx: HandlerContext): void {
     messages.applyReaction(evt.data, -1);
   });
 
+  registerWsHandler('pin_update', (evt) => {
+    // Angepinnt/gelöst — alle Kanal-Mitglieder bekommen das, damit die
+    // Pin-Liste im Kanalkopf ohne Reload aktuell bleibt.
+    messages.applyPin(evt.data);
+  });
+
   registerWsHandler('typing', (evt) => {
     // Ephemeral "X schreibt …". The sender gets its own echo back — ignore it.
     if (evt.user_id === dispatchingUserId()) return;

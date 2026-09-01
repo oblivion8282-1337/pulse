@@ -131,6 +131,7 @@ export type ServerEvent =
   | { op: 'message_delete'; data: { id: string; channel_id: string } }
   | { op: 'reaction_add'; data: ReactionEvent }
   | { op: 'reaction_remove'; data: ReactionEvent }
+  | { op: 'pin_update'; data: { message_id: string; channel_id: string; pinned: boolean } }
   | { op: 'message_ack'; nonce: string | null; id: string }
   | { op: 'channel_created'; channel: ChannelPayload }
   | { op: 'channel_updated'; channel: ChannelPayload }

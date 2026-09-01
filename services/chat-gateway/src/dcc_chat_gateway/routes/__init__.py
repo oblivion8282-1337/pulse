@@ -40,6 +40,7 @@ from dcc_chat_gateway.routes import (
     notifications,
     owner,
     permission_overwrites,
+    pins,
     preferences,
     presence,
     privacy,
@@ -98,6 +99,7 @@ router.include_router(permission_overwrites.router)
 router.include_router(voice_pull.router)
 router.include_router(messages.router)
 router.include_router(reactions.router)
+router.include_router(pins.router)
 router.include_router(streaming.router)
 router.include_router(stream_chat.router)
 router.include_router(watch_chat.router)

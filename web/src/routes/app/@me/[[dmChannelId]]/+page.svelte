@@ -255,6 +255,22 @@
       console.error(e);
     }
   }
+
+  async function togglePin(msg: Message) {
+    try {
+      if (msg.pinned_at) {
+        await chatApi.unpinMessage(msg.id, cloudRoute);
+      } else {
+        await chatApi.pinMessage(msg.id, cloudRoute);
+      }
+    } catch (e) {
+      // WS pin_update spiegelt den Zustand — bei Fehler bleibt die UI konsistent.
+      toast.error(
+        (e as Error).message.includes('pin_limit_reached') ? m.pin_limit_reached() : m.pin_failed()
+      );
+      console.error(e);
+    }
+  }
 </script>
 
 <GuildRail
@@ -306,6 +322,7 @@
       onEditMessage={editMessage}
       onDeleteMessage={deleteMessage}
       onToggleReaction={toggleReaction}
+      onTogglePin={togglePin}
     />
   {:else}
     <section

@@ -145,6 +145,8 @@ export type Message = {
   created_at: string;
   edited_at?: string | null;
   deleted_at?: string | null;
+  /** Angepinnt-Zeitstempel (Pinned Messages); absent/null = nicht angepinnt. */
+  pinned_at?: string | null;
   reactions?: ReactionAggregate[];
   attachments?: Attachment[];
   /** Server-parsed mention list. Empty/absent when the message has none. */

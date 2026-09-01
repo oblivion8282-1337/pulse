@@ -25,6 +25,9 @@
     highlight = false,
     canEdit,
     canDelete,
+    /** Moderationsrecht (MANAGE_MESSAGES bzw. DM-Teilnehmer) — schaltet den
+     *  Pin-Menüpunkt frei; die Aktion selbst prüft der Server erneut. */
+    canPin = false,
     /** Ob der aktuelle User Nachrichten anderer melden darf (= nicht eigen). */
     canReport = false,
     /** Direktnachricht-Kontext: eine Meldung geht ans Betreiberteam statt an
@@ -48,6 +51,7 @@
     onEditSubmit,
     onDelete,
     onToggleReaction,
+    onTogglePin,
     onJumpToReply
   }: {
     message: Message;
@@ -60,6 +64,7 @@
     highlight?: boolean;
     canEdit: boolean;
     canDelete: boolean;
+    canPin?: boolean;
     canReport?: boolean;
     isDirect?: boolean;
     guildId?: string;
@@ -71,6 +76,7 @@
     onEditSubmit: (m: Message, newContent: string) => void;
     onDelete: (m: Message) => void;
     onToggleReaction: (m: Message, emoji: string, currentlyMine: boolean) => void;
+    onTogglePin?: (m: Message) => void;
     onJumpToReply?: (parentId: string) => void;
   } = $props();
 
@@ -173,11 +179,14 @@
     canEdit: canEdit && !isPending,
     canDelete: canDelete && !isPending,
     canReport: canReport && !isPending,
+    canPin: canPin && !isPending,
+    pinned: !!message.pinned_at,
     onReply: () => onReply(message),
     onEdit: startEdit,
     onDelete: () => onDelete(message),
     onReact: (e: string) => handleToggle(e, false),
-    onReport: () => (reportOpen = true)
+    onReport: () => (reportOpen = true),
+    onTogglePin: onTogglePin ? () => onTogglePin(message) : undefined
   });
 </script>
 

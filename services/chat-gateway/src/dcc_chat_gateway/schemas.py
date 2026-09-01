@@ -378,6 +378,8 @@ class MessageOut(BaseModel):
     created_at: datetime
     edited_at: datetime | None = None
     deleted_at: datetime | None = None
+    # Angepinnt-Zeitstempel (Pinned Messages); None = nicht angepinnt.
+    pinned_at: datetime | None = None
     reactions: list[ReactionAggregate] = []
     attachments: list[AttachmentOut] = []
     # Parsed at write-time from ``content``. Always present (empty list

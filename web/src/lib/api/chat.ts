@@ -468,6 +468,19 @@ export const chatApi = {
     );
   },
 
+  // ── Pinned Messages ────────────────────────────────────────────────────
+  /** Pin-Liste des Kanals (max. 50, ältester Pin zuerst). Pinnen/Lösen
+   *  ist serverseitig an MANAGE_MESSAGES gekoppelt (DMs: beide Teilnehmer). */
+  listPins(channelId: string, route: { serverId?: string } = {}): Promise<Message[]> {
+    return request<Message[]>(`/channels/${channelId}/pins`, {}, route);
+  },
+  pinMessage(messageId: string, route: { serverId?: string } = {}): Promise<void> {
+    return request<void>(`/messages/${messageId}/pin`, { method: 'PUT' }, route);
+  },
+  unpinMessage(messageId: string, route: { serverId?: string } = {}): Promise<void> {
+    return request<void>(`/messages/${messageId}/pin`, { method: 'DELETE' }, route);
+  },
+
   // Direct messages — 1:1 DM channels. Polymorphic with guild channels at the
   // wire level: once a DM channel id is in hand, list/post messages go through
   // the same `/channels/{id}/messages` endpoints as guild channels.
