@@ -11,6 +11,7 @@
   import ServerIcon from '@lucide/svelte/icons/server';
   import { m } from '$lib/paraglide/messages.js';
   import { adminInstancesApi } from '$lib/api/instances';
+  import AdminTabBar from './AdminTabBar.svelte';
 
   type Tab = 'pending' | 'active' | 'suspended';
   let activeTab = $state<Tab>('pending');
@@ -67,27 +68,13 @@
   </div>
 
   <!-- Tab-Bar -->
-  <div class="mb-4 flex gap-1 border-b border-border">
-    {#each tabs as t (t.id)}
-      <button
-        type="button"
-        onclick={() => (activeTab = t.id)}
-        class="px-3 py-2 text-sm transition-colors border-b-2 -mb-px {activeTab === t.id
-          ? 'border-primary text-text-bright font-medium'
-          : 'border-transparent text-text-muted hover:text-text-base'}"
-        data-testid="instances-tab-{t.id}"
-      >
-        {t.label}
-        {#if t.id === 'pending' && pendingCount && pendingCount > 0}
-          <span
-            class="ml-1.5 inline-flex min-w-4 items-center justify-center rounded-full bg-warning px-1 text-2xs font-semibold text-black align-middle"
-          >
-            {pendingCount}
-          </span>
-        {/if}
-      </button>
-    {/each}
-  </div>
+  <AdminTabBar
+    bind:active={activeTab}
+    {tabs}
+    testIdPrefix="instances-tab"
+    badgeTab="pending"
+    badgeCount={pendingCount}
+  />
 
   {#if activeTab === 'pending'}
     <AdminInstancesPending onchange={refreshPendingCount} />

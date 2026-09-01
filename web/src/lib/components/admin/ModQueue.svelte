@@ -17,7 +17,8 @@ import { errText } from '$lib/utils/errText';
     type Report,
     type ResolveInput
   } from '$lib/api/moderation';
-  import { userCache } from '$lib/stores/users.svelte';
+  import { userCache, fmtUser } from '$lib/stores/users.svelte';
+  import { formatTimestamp } from '$lib/utils/formatTimestamp';
   import { modQueueCounts } from '$lib/stores/modQueueCounts.svelte';
   import BansList from '$lib/components/settings/BansList.svelte';
   import { m } from '$lib/paraglide/messages.js';
@@ -199,19 +200,6 @@ import { errText } from '$lib/utils/errText';
     if (r.resolution_action === 'message_delete') return m.mod_queue_outcome_deleted();
     return m.mod_queue_outcome_resolved();
   }
-
-  function fmtUser(id: string | null): string {
-    if (!id) return '—';
-    const u = userCache.get(id);
-    return u ? `@${u.display_name ?? u.username}` : `…${id.slice(-6)}`;
-  }
-
-  function fmtTime(iso: string): string {
-    return new Date(iso).toLocaleString('de-DE', {
-      day: '2-digit', month: '2-digit', year: 'numeric',
-      hour: '2-digit', minute: '2-digit'
-    });
-  }
 </script>
 
 <section class="flex flex-col gap-5" data-testid="mod-queue-panel">
@@ -253,7 +241,7 @@ import { errText } from '$lib/utils/errText';
             <span class="rounded-full px-2 py-0.5 text-xs font-medium {REASON_COLORS[r.reason_code] ?? REASON_COLORS.other}">
               {REASON_LABELS[r.reason_code] ?? r.reason_code}
             </span>
-            <span class="text-text-muted text-xs">{fmtTime(r.created_at)}</span>
+            <span class="text-text-muted text-xs">{formatTimestamp(r.created_at)}</span>
             <span class="text-text-muted text-xs">{m.mod_queue_report_by({ user: fmtUser(r.reporter_user_id) })}</span>
             {#if r.target_user_id}
               <span class="text-text-muted text-xs">→ {fmtUser(r.target_user_id)}</span>

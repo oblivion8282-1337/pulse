@@ -6,11 +6,9 @@
   approved_instance_id auf die Instanz-Zeile mappen (Grants-Liste geladen).
 -->
 <script lang="ts">
-import { errText } from '$lib/utils/errText';
+  import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
-  import * as Dialog from '$lib/components/ui/dialog/index.js';
-  import { Label } from '$lib/components/ui/label/index.js';
   import {
     adminInstancesApi,
     type AdminInstance,
@@ -21,6 +19,8 @@ import { errText } from '$lib/utils/errText';
   import RotatedSecretDialog from './RotatedSecretDialog.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
+  import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
+  import ReasonDialog from '$lib/components/feedback/ReasonDialog.svelte';
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
@@ -36,13 +36,11 @@ import { errText } from '$lib/utils/errText';
   // Suspend flow
   let suspendTarget = $state<AdminInstance | null>(null);
   let suspendOpen = $state(false);
-  let suspendReason = $state('');
   let suspending = $state(false);
   let rotating = $state(false);
 
   // Rotate flow
   let rotateTarget = $state<AdminInstance | null>(null);
-  let rotateConfirmOpen = $state(false);
   let rotateResult = $state<RotateSecretResult | null>(null);
   let rotateDialogOpen = $state(false);
 
@@ -74,15 +72,14 @@ import { errText } from '$lib/utils/errText';
     instances = instances.filter((i) => i.id !== id);
   }
 
-  async function doSuspend() {
+  async function doSuspend(reason: string) {
     if (!suspendTarget) return;
     suspending = true;
     try {
-      await adminInstancesApi.suspendInstance(suspendTarget.id, suspendReason.trim() || undefined);
+      await adminInstancesApi.suspendInstance(suspendTarget.id, reason.trim() || undefined);
       removeInstance(suspendTarget.id);
       toast.success(m.admin_instances_active_suspended({ hostname: suspendTarget.hostname }));
       suspendOpen = false;
-      suspendReason = '';
       suspendTarget = null;
     } catch (e) {
       toast.error(m.admin_instances_active_suspend_failed(), {
@@ -93,6 +90,19 @@ import { errText } from '$lib/utils/errText';
     }
   }
 
+  // Rotate-Confirm über den gemeinsamen Dienst (statt handgebautem Dialog).
+  async function askRotate(inst: AdminInstance) {
+    const ok = await confirmDialog({
+      title: m.admin_instances_active_rotate_title(),
+      description: `${inst.hostname} — ${m.admin_instances_active_rotate_warning()}`,
+      confirmLabel: m.admin_instances_active_btn_rotate_confirm(),
+      cancelLabel: m.admin_instances_active_btn_cancel()
+    });
+    if (!ok) return;
+    rotateTarget = inst;
+    doRotate();
+  }
+
   async function doRotate() {
     // rotating-Guard (wie suspending bei doSuspend): ohne ihn feuert ein
     // Doppelklick auf "Bestätigen" zwei rotateSecret-Calls — der zweite
@@ -101,7 +111,6 @@ import { errText } from '$lib/utils/errText';
     if (!rotateTarget || rotating) return;
     rotating = true;
     busy[rotateTarget.id] = true;
-    rotateConfirmOpen = false;
     try {
       const result = await adminInstancesApi.rotateSecret(rotateTarget.id);
       rotateResult = result;
@@ -159,7 +168,7 @@ import { errText } from '$lib/utils/errText';
             <Button
               variant="outline"
               size="xs"
-              onclick={() => { rotateTarget = inst; rotateConfirmOpen = true; }}
+              onclick={() => askRotate(inst)}
               disabled={!!busy[inst.id]}
             >
               {m.admin_instances_active_btn_rotate()}
@@ -167,7 +176,7 @@ import { errText } from '$lib/utils/errText';
             <Button
               variant="destructive-solid"
               size="xs"
-              onclick={() => { suspendTarget = inst; suspendReason = ''; suspendOpen = true; }}
+              onclick={() => { suspendTarget = inst; suspendOpen = true; }}
               disabled={!!busy[inst.id]}
             >
               {m.admin_instances_active_btn_suspend()}
@@ -180,61 +189,21 @@ import { errText } from '$lib/utils/errText';
 {/if}
 
 <!-- Suspend Dialog -->
-<Dialog.Root bind:open={suspendOpen}>
-  <Dialog.Portal>
-    <Dialog.Overlay />
-    <Dialog.Content class="max-w-sm" data-testid="suspend-dialog">
-      <Dialog.Header>
-        <Dialog.Title>{m.admin_instances_active_suspend_title()}</Dialog.Title>
-        <Dialog.Description>{suspendTarget?.hostname}</Dialog.Description>
-      </Dialog.Header>
-      <div class="flex flex-col gap-2">
-        <Label class="text-text-bright text-xs font-medium" for="suspend-reason">
-          {m.admin_instances_active_reason_label()} <span class="text-text-muted font-normal">({m.admin_instances_active_reason_optional()})</span>
-        </Label>
-        <textarea
-          id="suspend-reason"
-          bind:value={suspendReason}
-          rows="2"
-          maxlength="500"
-          class="bg-bg-input border-border text-text-bright rounded-xl border px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary"
-        ></textarea>
-      </div>
-      <div class="flex justify-end gap-2 pt-2">
-        <Button variant="ghost" onclick={() => (suspendOpen = false)}>
-          {m.admin_instances_active_btn_cancel()}
-        </Button>
-        <Button variant="destructive-solid" onclick={doSuspend} disabled={suspending}>
-          {suspending ? m.admin_instances_active_suspending() : m.admin_instances_active_btn_suspend()}
-        </Button>
-      </div>
-    </Dialog.Content>
-  </Dialog.Portal>
-</Dialog.Root>
-
-<!-- Rotate Confirm -->
-<Dialog.Root bind:open={rotateConfirmOpen}>
-  <Dialog.Portal>
-    <Dialog.Overlay />
-    <Dialog.Content class="max-w-sm" data-testid="rotate-confirm-dialog">
-      <Dialog.Header>
-        <Dialog.Title>{m.admin_instances_active_rotate_title()}</Dialog.Title>
-        <Dialog.Description>{rotateTarget?.hostname}</Dialog.Description>
-      </Dialog.Header>
-      <p class="text-text-muted text-sm">
-        {m.admin_instances_active_rotate_warning()}
-      </p>
-      <div class="flex justify-end gap-2 pt-2">
-        <Button variant="ghost" onclick={() => (rotateConfirmOpen = false)}>
-          {m.admin_instances_active_btn_cancel()}
-        </Button>
-        <Button onclick={doRotate} disabled={rotating}>
-          {m.admin_instances_active_btn_rotate_confirm()}
-        </Button>
-      </div>
-    </Dialog.Content>
-  </Dialog.Portal>
-</Dialog.Root>
+<ReasonDialog
+  bind:open={suspendOpen}
+  title={m.admin_instances_active_suspend_title()}
+  description={suspendTarget?.hostname}
+  label={`${m.admin_instances_active_reason_label()} (${m.admin_instances_active_reason_optional()})`}
+  maxlength={500}
+  rows={2}
+  busy={suspending}
+  busyLabel={m.admin_instances_active_suspending()}
+  confirmLabel={m.admin_instances_active_btn_suspend()}
+  cancelLabel={m.admin_instances_active_btn_cancel()}
+  confirmVariant="destructive-solid"
+  testId="suspend-dialog"
+  onConfirm={doSuspend}
+/>
 
 <!-- Neues Secret — kein auto-dismiss! (ausgelagert, Größen-Policy) -->
 <RotatedSecretDialog open={rotateDialogOpen} result={rotateResult} onClose={onRotateClose} />

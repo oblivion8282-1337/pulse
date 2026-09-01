@@ -5,9 +5,10 @@
 -->
 <script lang="ts">
 import { errText } from '$lib/utils/errText';
+  import { formatTimestamp } from '$lib/utils/formatTimestamp';
   import { onMount } from 'svelte';
   import { listAuditLog, type AuditLogEntry } from '$lib/api/moderation';
-  import { userCache } from '$lib/stores/users.svelte';
+  import { userCache, fmtUser } from '$lib/stores/users.svelte';
   import RefreshCcwIcon from '@lucide/svelte/icons/refresh-ccw';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
@@ -64,22 +65,11 @@ import { errText } from '$lib/utils/errText';
 
   onMount(() => { void load(true); });
 
-  function fmtUser(id: string | null): string {
-    if (!id) return '—';
-    const u = userCache.get(id);
-    return u ? `@${u.display_name ?? u.username}` : `…${id.slice(-6)}`;
-  }
 
   function fmtAction(type: string): string {
     return ACTION_LABELS[type]?.() ?? type;
   }
 
-  function fmtTime(iso: string): string {
-    return new Date(iso).toLocaleString('de-DE', {
-      day: '2-digit', month: '2-digit', year: 'numeric',
-      hour: '2-digit', minute: '2-digit'
-    });
-  }
 </script>
 
 <section class="flex flex-col gap-5" data-testid="audit-log-panel">
@@ -120,7 +110,7 @@ import { errText } from '$lib/utils/errText';
                 </span>
               {/if}
             </div>
-            <div class="text-text-muted mt-0.5 text-xs">{fmtTime(e.created_at)}</div>
+            <div class="text-text-muted mt-0.5 text-xs">{formatTimestamp(e.created_at)}</div>
           </div>
         </li>
       {/each}

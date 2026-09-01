@@ -8,16 +8,15 @@
   Inline-Deutsch wie die anderen Self-Host-Admin-Komponenten (kein paraglide).
 -->
 <script lang="ts">
-import { errText } from '$lib/utils/errText';
+  import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
-  import * as Dialog from '$lib/components/ui/dialog/index.js';
-  import { Label } from '$lib/components/ui/label/index.js';
   import { Button } from '$lib/components/ui/button';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import { adminApi, type InstanceMember } from '$lib/api/admin';
   import UsersIcon from '@lucide/svelte/icons/users';
   import BanIcon from '@lucide/svelte/icons/ban';
+  import ReasonDialog from '$lib/components/feedback/ReasonDialog.svelte';
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
@@ -30,7 +29,6 @@ import { errText } from '$lib/utils/errText';
   // Ban-Dialog
   let banTarget = $state<InstanceMember | null>(null);
   let banOpen = $state(false);
-  let banReason = $state('');
   let banning = $state(false);
   let banError = $state<string | null>(null);
 
@@ -56,19 +54,18 @@ import { errText } from '$lib/utils/errText';
     );
   }
 
-  async function doBan() {
+  async function doBan(reason: string) {
     if (!banTarget) return;
     banning = true;
     banError = null;
     try {
       const updated = await adminApi.banMember(
         banTarget.user_identifier,
-        banReason.trim() || undefined
+        reason.trim() || undefined
       );
       replaceRow(updated);
       toast.success(`${banTarget.username} wurde instanzweit gebannt.`);
       banOpen = false;
-      banReason = '';
       banTarget = null;
     } catch (e) {
       banError = errText(e);
@@ -171,7 +168,6 @@ import { errText } from '$lib/utils/errText';
               size="xs"
               onclick={() => {
                 banTarget = member;
-                banReason = '';
                 banError = null;
                 banOpen = true;
               }}
@@ -190,37 +186,19 @@ import { errText } from '$lib/utils/errText';
 </section>
 
 <!-- Ban-Dialog mit optionalem Grund -->
-<Dialog.Root bind:open={banOpen}>
-  <Dialog.Portal>
-    <Dialog.Overlay />
-    <Dialog.Content class="max-w-sm" data-testid="member-ban-dialog">
-      <Dialog.Header>
-        <Dialog.Title>Mitglied bannen</Dialog.Title>
-        <Dialog.Description>
-          {banTarget?.display_name || banTarget?.username} (@{banTarget?.username})
-        </Dialog.Description>
-      </Dialog.Header>
-      <div class="flex flex-col gap-2">
-        <Label class="text-text-bright text-xs font-medium" for="ban-reason">
-          Grund (optional)
-        </Label>
-        <textarea
-          id="ban-reason"
-          bind:value={banReason}
-          rows="3"
-          maxlength="1000"
-          class="bg-bg-input border-border text-text-bright resize-none rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-        ></textarea>
-        <FieldError message={banError} />
-      </div>
-      <div class="flex justify-end gap-2 pt-2">
-        <Button variant="ghost" onclick={() => (banOpen = false)}>
-          Abbrechen
-        </Button>
-        <Button variant="destructive-solid" onclick={doBan} disabled={banning}>
-          {banning ? 'Banne…' : 'Bannen'}
-        </Button>
-      </div>
-    </Dialog.Content>
-  </Dialog.Portal>
-</Dialog.Root>
+<ReasonDialog
+  bind:open={banOpen}
+  title="Mitglied bannen"
+  description={`${banTarget?.display_name || banTarget?.username} (@${banTarget?.username})`}
+  label="Grund (optional)"
+  maxlength={1000}
+  rows={3}
+  busy={banning}
+  busyLabel="Banne…"
+  error={banError}
+  confirmLabel="Bannen"
+  cancelLabel="Abbrechen"
+  confirmVariant="destructive-solid"
+  testId="member-ban-dialog"
+  onConfirm={doBan}
+/>

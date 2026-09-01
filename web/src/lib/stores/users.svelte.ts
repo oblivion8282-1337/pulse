@@ -168,3 +168,12 @@ class UserCacheStore {
 }
 
 export const userCache = new UserCacheStore();
+
+/** „@Name" aus dem Cache — ohne Eintrag (oder ohne ID) der `…`+ID-Suffix.
+ *  Wortgleich in drei Admin-Listen gewesen (Audit-Log, AuditLogViewer,
+ *  ModQueue); hier ist die einzige Stelle, die das Cache-Layout kennt. */
+export function fmtUser(id: string | null): string {
+  if (!id) return '—';
+  const u = userCache.get(id);
+  return u ? `@${u.display_name ?? u.username}` : `…${id.slice(-6)}`;
+}

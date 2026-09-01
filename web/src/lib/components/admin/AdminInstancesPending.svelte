@@ -6,14 +6,14 @@
   App-Host bekommt Flag + auto-provisionierte Instanz).
 -->
 <script lang="ts">
-import { errText } from '$lib/utils/errText';
+  import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
-  import * as Dialog from '$lib/components/ui/dialog/index.js';
-  import { Label } from '$lib/components/ui/label/index.js';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
   import { adminInstancesApi, type AdminApplication } from '$lib/api/instances';
+  import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
+  import ReasonDialog from '$lib/components/feedback/ReasonDialog.svelte';
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
@@ -31,19 +31,13 @@ import { errText } from '$lib/utils/errText';
   // Eigentümer richtet den Server über „Server einrichten" ein, das die
   // Zugangsdaten per Bootstrap-Token automatisch + rotiert überträgt).
   let approveTarget = $state<AdminApplication | null>(null);
-  let approveConfirmOpen = $state(false);
 
   // Reject flow
   let rejectTarget = $state<AdminApplication | null>(null);
   let rejectOpen = $state(false);
-  let rejectReason = $state('');
   let rejecting = $state(false);
   let approving = $state(false);
   let rejectError = $state<string | null>(null);
-
-  function errMsg(e: unknown): string {
-    return errText(e);
-  }
 
   // Anschluss-Check-Chip (nur Info, keine Logik daran): ok=grün,
   // blocked/cgnat/symmetric=rot, unknown/nicht geprüft=neutral.
@@ -67,10 +61,26 @@ import { errText } from '$lib/utils/errText';
     try {
       apps = await adminInstancesApi.listApplications('pending', 'all');
     } catch (e) {
-      loadError = errMsg(e);
+      loadError = errText(e);
     } finally {
       loading = false;
     }
+  }
+
+  // Approve-Confirm über den gemeinsamen Dienst (statt handgebautem Dialog).
+  async function askApprove(app: AdminApplication) {
+    const ok = await confirmDialog({
+      title: m.admin_instances_pending_confirm_title(),
+      description:
+        app.origin === 'app_host'
+          ? `${m.hosting_apply_mode_app_title()} — ${app.applicant_username}`
+          : `${app.hostname} — ${app.applicant_username}`,
+      confirmLabel: m.admin_instances_pending_confirm_approve(),
+      cancelLabel: m.admin_instances_pending_cancel()
+    });
+    if (!ok) return;
+    approveTarget = app;
+    doApprove();
   }
 
   async function doApprove() {
@@ -83,7 +93,6 @@ import { errText } from '$lib/utils/errText';
     const id = approveTarget.id;
     const username = approveTarget.applicant_username;
     busy[id] = true;
-    approveConfirmOpen = false;
     try {
       await adminInstancesApi.approveApplication(id);
       apps = apps.filter((a) => a.id !== id);
@@ -91,7 +100,7 @@ import { errText } from '$lib/utils/errText';
       toast.success(m.admin_instances_pending_approved({ username }));
     } catch (e) {
       toast.error(m.admin_instances_pending_approve_failed(), {
-        description: errMsg(e)
+        description: errText(e)
       });
     } finally {
       approving = false;
@@ -100,20 +109,19 @@ import { errText } from '$lib/utils/errText';
     }
   }
 
-  async function doReject() {
-    if (!rejectTarget || !rejectReason.trim()) return;
+  async function doReject(reason: string) {
+    if (!rejectTarget || !reason.trim()) return;
     rejecting = true;
     rejectError = null;
     try {
-      await adminInstancesApi.rejectApplication(rejectTarget.id, rejectReason.trim());
+      await adminInstancesApi.rejectApplication(rejectTarget.id, reason.trim());
       apps = apps.filter((a) => a.id !== rejectTarget!.id);
       onchange?.();
       toast.success(m.admin_instances_pending_rejected({ username: rejectTarget.applicant_username }));
       rejectOpen = false;
-      rejectReason = '';
       rejectTarget = null;
     } catch (e) {
-      rejectError = errMsg(e);
+      rejectError = errText(e);
     } finally {
       rejecting = false;
     }
@@ -167,7 +175,7 @@ import { errText } from '$lib/utils/errText';
           <Button
             variant="success-solid"
             size="xs"
-            onclick={() => { approveTarget = app; approveConfirmOpen = true; }}
+            onclick={() => askApprove(app)}
             disabled={!!busy[app.id]}
           >
             {m.admin_instances_pending_approve_btn()}
@@ -186,68 +194,23 @@ import { errText } from '$lib/utils/errText';
   </div>
 {/if}
 
-<!-- Approve Confirm -->
-<Dialog.Root bind:open={approveConfirmOpen}>
-  <Dialog.Portal>
-    <Dialog.Overlay />
-    <Dialog.Content class="max-w-sm" data-testid="approve-confirm-dialog">
-      <Dialog.Header>
-        <Dialog.Title>{m.admin_instances_pending_confirm_title()}</Dialog.Title>
-        <Dialog.Description>
-          {approveTarget?.origin === 'app_host'
-            ? `${m.hosting_apply_mode_app_title()} — ${approveTarget?.applicant_username}`
-            : `${approveTarget?.hostname} — ${approveTarget?.applicant_username}`}
-        </Dialog.Description>
-      </Dialog.Header>
-      <div class="flex justify-end gap-2 pt-2">
-        <Button variant="ghost" onclick={() => (approveConfirmOpen = false)}>
-          {m.admin_instances_pending_cancel()}
-        </Button>
-        <Button variant="success-solid" onclick={doApprove} disabled={approving}>
-          {m.admin_instances_pending_confirm_approve()}
-        </Button>
-      </div>
-    </Dialog.Content>
-  </Dialog.Portal>
-</Dialog.Root>
-
-
 <!-- Reject Dialog -->
-<Dialog.Root bind:open={rejectOpen}>
-  <Dialog.Portal>
-    <Dialog.Overlay />
-    <Dialog.Content class="max-w-sm" data-testid="reject-dialog">
-      <Dialog.Header>
-        <Dialog.Title>{m.admin_instances_pending_reject_title()}</Dialog.Title>
-        <Dialog.Description>
-          {rejectTarget?.origin === 'app_host'
-            ? rejectTarget?.applicant_username
-            : rejectTarget?.hostname}
-        </Dialog.Description>
-      </Dialog.Header>
-      <div class="flex flex-col gap-2">
-        <Label class="text-text-bright text-xs font-medium" for="reject-reason">{m.admin_instances_pending_reject_reason_label()}</Label>
-        <textarea
-          id="reject-reason"
-          bind:value={rejectReason}
-          rows="3"
-          maxlength="1000"
-          class="bg-bg-input border-border text-text-bright rounded-xl border px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary"
-        ></textarea>
-        <FieldError message={rejectError} />
-      </div>
-      <div class="flex justify-end gap-2 pt-2">
-        <Button variant="ghost" onclick={() => (rejectOpen = false)}>
-          {m.admin_instances_pending_cancel()}
-        </Button>
-        <Button
-          variant="destructive-solid"
-          onclick={doReject}
-          disabled={rejecting || !rejectReason.trim()}
-        >
-          {rejecting ? m.admin_instances_pending_rejecting() : m.admin_instances_pending_reject_btn()}
-        </Button>
-      </div>
-    </Dialog.Content>
-  </Dialog.Portal>
-</Dialog.Root>
+<ReasonDialog
+  bind:open={rejectOpen}
+  title={m.admin_instances_pending_reject_title()}
+  description={rejectTarget?.origin === 'app_host'
+    ? rejectTarget?.applicant_username
+    : rejectTarget?.hostname}
+  label={m.admin_instances_pending_reject_reason_label()}
+  maxlength={1000}
+  rows={3}
+  requireReason
+  busy={rejecting}
+  busyLabel={m.admin_instances_pending_rejecting()}
+  error={rejectError}
+  confirmLabel={m.admin_instances_pending_reject_btn()}
+  cancelLabel={m.admin_instances_pending_cancel()}
+  confirmVariant="destructive-solid"
+  testId="reject-dialog"
+  onConfirm={doReject}
+/>
