@@ -294,7 +294,7 @@ import { errText } from '$lib/utils/errText';
           </button>
         {/snippet}
       </DropdownMenu.Trigger>
-      <DropdownMenu.Content {...emojiPickerContentProps}>
+      <DropdownMenu.Content {...emojiPickerContentProps} align="start">
         <EmojiPicker onPick={pick} />
       </DropdownMenu.Content>
     </DropdownMenu.Root>

@@ -114,7 +114,7 @@
     title={m.instance_setup_consumed_title()}
     body={m.instance_setup_consumed_body()}
     confirmBody={m.instance_setup_reset_confirm_body()}
-    confirmBtn={m.admin_instances_pending_cancel()}
+    confirmBtn={m.instance_setup_reset_confirm_btn()}
     resetBtn={m.instance_setup_reset_btn()}
     busy={resetting}
     onreset={() => {

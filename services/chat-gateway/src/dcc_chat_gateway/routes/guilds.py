@@ -221,9 +221,12 @@ async def patch_guild(
     guild = await guild_or_404(session, guild_id)
     await check_permission(session, current, guild_id, Permissions.MANAGE_GUILD)
     # Nur ausdruecklich gesendete Felder setzen — ``None`` heisst hier
-    # durchgehend "keine Aenderung", nie "loeschen".
+    # durchgehend "keine Aenderung", nie "loeschen" (loeschen geht ueber
+    # die eigenen Endpunkte, z. B. Icon via handle-Reset). Null-Filter,
+    # weil ``exclude_unset`` ein explizit gesendetes null durchlaesst.
     for feld, wert in payload.model_dump(exclude_unset=True).items():
-        setattr(guild, feld, wert)
+        if wert is not None:
+            setattr(guild, feld, wert)
     # Diese zwei Felder sind Werte der Community, keine Obergrenzen — ohne das
     # Klemmen könnte MANAGE_GUILD hier die Vorgabe des Betreibers überschreiben
     # (genau die Lücke, die Migration 0057 geschlossen hat).

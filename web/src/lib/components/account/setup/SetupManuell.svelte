@@ -63,7 +63,7 @@
       title={m.instance_setup_env_consumed_title()}
       body={m.instance_setup_env_consumed_body()}
       confirmBody={m.instance_setup_env_reissue_confirm_body()}
-      confirmBtn={m.admin_instances_pending_cancel()}
+      confirmBtn={m.instance_setup_env_reissue_confirm_btn()}
       resetBtn={m.instance_setup_env_reissue_btn()}
       busy={envDownloading}
       onreset={() => void downloadEnv(true)}

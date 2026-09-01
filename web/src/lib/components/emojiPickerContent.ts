@@ -7,7 +7,6 @@
  */
 export const emojiPickerContentProps = {
   side: 'top',
-  align: 'start',
   sideOffset: 6,
   class: 'w-auto max-w-[calc(100vw-1rem)] overflow-visible border-0 bg-transparent p-0 shadow-none'
 } as const;

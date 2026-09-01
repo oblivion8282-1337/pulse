@@ -394,7 +394,7 @@
           </Button>
         {/snippet}
       </DropdownMenu.Trigger>
-      <DropdownMenu.Content {...emojiPickerContentProps}>
+      <DropdownMenu.Content {...emojiPickerContentProps} align="end">
         <EmojiPicker onPick={insertEmoji} />
       </DropdownMenu.Content>
     </DropdownMenu.Root>
