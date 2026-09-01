@@ -50,7 +50,7 @@
 
 | Bereich | Umfang | Notizen |
 |---|---|---|
-| `services/chat-gateway/` routes | ~21.600 Zeilen | dropbox.py + _dropbox_helpers.py PAUSIERT (aktive Entwicklung). Erledigt: guilds.py, ws_*-Paket, _guild_or_404, restliche Routen (Runden 4–5, 7). OFFEN: WS-Zugangs-Präambel (5×, riskant), Join-Flows-Konsolidierung |
+| `services/chat-gateway/` routes | ~21.600 Zeilen | VOLLSTÄNDIG durchgesehen (Runden 4–8, inkl. dropbox). OFFEN bleibt nur: WS-Zugangs-Präambel (5×, riskant — bewusst zurückgestellt) |
 | `services/auth/` | ~15.000 Zeilen | ERLEDIGT (Runde 5). Offen: Gate-Helper-Platzierung (nur bei Gelegenheit) |
 | `desktop/electron/`, `mobile/`, `streaming/` (Rust/Player) | ? | Plattform-Code; Ponytail gilt, aber Audit-Kriterien (native APIs!) etwas anders gewichten |
 
@@ -68,6 +68,5 @@
 
 1. **WS-Zugangs-Präambel** (5×, chat-gateway) — riskant markiert, eigene Session mit vollem Testlauf.
 2. **Message-Handler-Fabrik** (Runde-6-Fund, ~70 Zeilen) — beim dritten Konsumenten.
-3. **Rest**: mobile/ (1.2k), shared/ Backend-Feinsicht, Desktop/Electron + Rust-Sidecars (Plattform-Regeln).
+3. **Rest**: components/dropbox UI (nach Merge der aktiven Arbeit), mobile/ (1.2k), Desktop/Electron + Rust-Sidecars (Plattform-Regeln).
 4. **dev/design-Route** (658 Z.) löschen, sobald die Button-Migration abgeschlossen ist.
-PAUSIERT: `dropbox.py`/`_dropbox_helpers.py` + `components/dropbox/` — aktive Entwicklung, erst nach Merge.
