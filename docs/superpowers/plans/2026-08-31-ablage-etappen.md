@@ -38,15 +38,17 @@ Opus.
 Die letzte Meile ist verdrahtet: alle Stücke sind über die Oberfläche
 erreichbar.
 
-**In Arbeit:** E11 (Kopplungs-Nachweis).
+**Fertig auch:** E11 — der Kopplungs-Nachweis läuft (3 von 3) und hat dabei
+aufgedeckt, dass die Geräte-Kopplung durch gerundete Snowflake-IDs
+grundsätzlich kaputt war.
 
 **Offen und bewusst liegen gelassen:** E12 (Landen) — Gate und Playwright
 sind grün, der Changelog steht, der Merge wartet auf den Eigentümer.
 
-**Zahlen am Ende der Nacht:** Gate grün · Playwright **167 grün / 1 echt rot**
-(`plugins`, schon auf `main` rot; zwei weitere Fehlschläge waren Last und
-sind einzeln grün) · 1000 Web-Unit-Tests · rund 1600 Tests im chat-gateway.
-Vor dieser Arbeit lag der Zweig bei 152 grün.
+**Zahlen am Ende der Nacht:** Gate grün · Playwright **172 grün / 1 rot**
+(`plugins`, schon auf `main` rot) · 1000 Web-Unit-Tests · rund 1600 Tests im
+chat-gateway. Vor dieser Arbeit lag der Zweig bei 152 grün und einem Gate,
+das an der Anwendung vorbeisah.
 
 **Der wichtigste Satz für morgen:** ALLE Krypto-Schalter stehen auf `false`
 (`lib/featureFlags.ts`, `lib/krypto/schalter.ts`). Verschlüsselte Kanäle,
