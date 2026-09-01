@@ -61,6 +61,9 @@ import {
 } from './geraete.ts';
 
 let spiegel: SicherungsSpiegel | null = null;
+/** Der Bau-Lauf des aktuellen Schreibrecht-Nehmers — Single-Flight für alle
+ *  Aufrufer, bis der Spiegel steht (nach `sicherungVerwerfen` wieder null). */
+let spiegelBau: Promise<SicherungsSpiegel> | null = null;
 
 /**
  * Ist die Sicherung auf diesem Gerät einsatzbereit (Verbindung + DEK im
@@ -117,13 +120,36 @@ async function spiegelFallsBereit(): Promise<SicherungsSpiegel | null> {
 		await baueSpiegel(zwischengelagert.dek, zwischengelagert.kuerzel);
 		return spiegel;
 	}
-	await schreiber.request('pulse-sicherung-schreiber', async () => {
-		await baueSpiegel(zwischengelagert.dek, zwischengelagert.kuerzel);
-		await new Promise(() => {
-			/* Schreibrecht halten, bis der Tab endet */
+	spiegelBau ??= (async () => {
+		let bauFertig!: () => void;
+		const gebaut = new Promise<void>((resolve) => {
+			bauFertig = resolve;
 		});
-	});
-	return spiegel;
+		// Der Request kehrt BEWUSST nie zurück — der Callback hält das
+		// Schreibrecht bis zum Tab-Ende. Ihn zu awaiten war der stille
+		// Hänger: der erste Aufrufer im Tab wartete auf ein Nie-Ende
+		// (Frischprofil, 2026-09-01). Gewartet wird nur auf den Abschluss
+		// des Baus; das Halten selbst läuft feuer-und-vergessen weiter.
+		void schreiber
+			.request('pulse-sicherung-schreiber', async () => {
+				await baueSpiegel(zwischengelagert.dek, zwischengelagert.kuerzel);
+				bauFertig();
+				await new Promise(() => {
+					/* Schreibrecht halten, bis der Tab endet */
+				});
+			})
+			.catch(() => {
+				/* Lock entzogen (Tab-Ende) — der nächste Aufrufer baut neu */
+			});
+		await gebaut;
+		return spiegel as unknown as SicherungsSpiegel;
+	})();
+	try {
+		return await spiegelBau;
+	} catch (e) {
+		spiegelBau = null;
+		throw e;
+	}
 }
 
 /**
@@ -302,6 +328,7 @@ export async function sicherungErstsicherung(): Promise<number> {
 export function sicherungVerwerfen(): void {
 	spiegel?.beenden();
 	spiegel = null;
+	spiegelBau = null;
 }
 
 /**
