@@ -17,11 +17,7 @@
 | `errText`-Util projektweit (Schwerpunkt admin/) | 89 Stellen, 53 Dateien | 2026-09-01 (Runde 1) | Inline-Ternaries ersetzt; ~54 abweichende Varianten bewusst liegen gelassen |
 | Admin-Komponenten `web/src/lib/components/admin/` | ~5.400 Zeilen | 2026-09-01 (Runde 2) | StreamLimits zusammengezogen, Switch, confirmDialog, ReasonDialog (7×), fmtUser/fmtTime, AdminTabBar, tote errMsg-Wrapper. Querverweis: Reason-Dialog-Muster existiert auch in `settings/` |
 | Typing-Indicator (Existenz-Check) | — | 2026-09-01 | Existierte bereits end-to-end — nichts gebaut (Leiter-Sprosse 2) |
-| Devices `web/src/lib/devices/` | ~3.600 Zeilen | 2026-09-01 (Runde 4) | Toter laden_-State, errText-Nachbau, restText/Arrays/klemmeMenge dedupliziert (devices ↔ SettingsStandplatz), FieldError 3×, — überwiegend geernte Querverweise |
-| Permissions `web/src/lib/permissions/` | ~1.400 Zeilen | 2026-09-01 (Runde 4) | isSorted-Fast-Path mit falscher Begründung gelöscht, vergleichRollen/teileSchlüssel/besitzerId dedupliziert, confirmDialog statt AlertDialog. Sauberes Grüner-Haken-Paket |
-| `services/chat-gateway/` routes: guilds.py | 884 Zeilen | 2026-09-01 (Runde 4) | _guild_or_404 (9× hier; 23× projektweit — REST offen!), _publish_guild_event dedupliziert, patch_guild per exclude_unset |
-| `services/chat-gateway/` routes: ws_*-Paket | ~2.000 Zeilen | 2026-09-01 (Runde 4) | parse_snowflake_int/ws_manager/ws_err dedupliziert (6/4/3 Kopien, eine tot), Rollen-Snapshot + Position-Prüfung. OFFEN: 5× Kanal-Zugangs-Präambel — riskant, nur mit Testlauf |
-| Typing-Indicator (Existenz-Check) | — | 2026-09-01 | Existierte bereits end-to-end — nichts gebaut (Leiter-Sprosse 2) | Erstaunlich diszipliniert: 6 kleine Funde, 5 umgesetzt (formatTimestamp 4×, confirmDialog im RolesEditor, formatBytes, 2× form/Switch), Fund 6 bewusst ausgelassen. Querverweise: ReasonDialog hat HIER keine Verbraucher; RolleDetail-Tab-Leiste einziger Verbraucher, erst bei ui/-Hebung |
+| `web/src/lib/components/settings/` | ~10.100 Zeilen | 2026-09-01 (Runde 3) | Erstaunlich diszipliniert: 6 kleine Funde, 5 umgesetzt (formatTimestamp 4×, confirmDialog im RolesEditor, formatBytes, 2× form/Switch), Fund 6 bewusst ausgelassen. Querverweise: ReasonDialog hat HIER keine Verbraucher; RolleDetail-Tab-Leiste einziger Verbraucher, erst bei ui/-Hebung |
 
 ## Offen — Frontend
 
@@ -33,7 +29,9 @@
 | `web/src/lib/remote/` | ~5.200 Zeilen | Fernsteuerung |
 | `web/src/lib/ws/` | ~4.200 Zeilen | Gateway/Handler; Duplicate-Risiko bei den Dispatch-Patterns |
 | `web/src/lib/voice/` | ~4.900 Zeilen | LiveKit-Anbindung |
+| `web/src/lib/devices/` | ~3.600 Zeilen | Geräte/Sitzungen |
 | `web/src/lib/components/dropbox/` + `web/src/lib/dropbox` | ~1.600+ Zeilen | Ablage-UI |
+| `web/src/lib/permissions/` | ~1.400 Zeilen | Rechte-UI (frisch gebaut, vermutlich diszipliniert) |
 | `web/src/lib/components/mobile/` | ~1.200 Zeilen | Mobil-Layouts |
 | Rest (account, friends, channels, feedback, ui, form, …) | ~6.000 Zeilen | ui/ ist die Bibliothek selbst — Audit nur als Verbraucher, nicht die Primitives selbst |
 
@@ -41,7 +39,7 @@
 
 | Bereich | Umfang | Notizen |
 |---|---|---|
-| `services/chat-gateway/` routes | ~21.600 Zeilen | `dropbox.py` + `_dropbox_helpers.py` PAUSIERT (aktive Entwicklung). guilds.py und ws_*-Paket erledigt (Runde 4); offen: restliche Routen, `_guild_or_404` projektweit ausrollen (23 Stellen), WS-Zugangs-Präambel (riskant) |
+| `services/chat-gateway/` routes | ~21.600 Zeilen | In Paketen angehen: `dropbox.py` + `_dropbox_helpers.py` (~1.350) zuerst — Verdacht auf Stdlib-Nachbau; dann `guilds.py` (884, größte Datei); `ws_*`-Paket (~4.500) |
 | `services/auth/` | ~15.000 Zeilen | Nach chat-gateway |
 | `shared/src/dcc_shared/` | ? | Events/Serialisierung — nach den Service-Audits (Registry-Muster jetzt durch pin_update bekannt) |
 | `services/voice-signaling/`, `media-svc/`, `mediamtx-auth-hook/`, `relay-frps-plugin/` | ~4.800 Zeilen zusammen | Klein, am Schluss |
@@ -59,7 +57,5 @@
 
 ## Vorschlag nächste Runde
 
-1. **Chat-Kern `components/` Teilpaket Chat/Messages** — nach dem Pin-Merge, in Teilpaketen.
-2. **`guilds.py`-Muster ausrollen**: `_guild_or_404` auf die restlichen 14 Stellen (channels/roles/bans/sounds/guild_limits/guild_icons/attachments/permission_overwrites).
-3. **`stream/`** (~10.200) — mit Begründungs-Pflicht je Fund (berechtigte Hardware-Komplexität).
-PAUSIERT: `dropbox.py`/`_dropbox_helpers.py` + `components/dropbox/` — aktive Entwicklung, erst nach Merge.
+1. **`dropbox.py` + `_dropbox_helpers.py`** (Backend, ~1.350) — klein genug für eine Session, gutes Testnetz (1419 Tests), Verdacht auf Eigenbau statt Stdlib/SQLAlchemy.
+2. **Chat-Kern `components/` Teilpaket Chat/Messages** — frisch durch die Pin-Runden berührt, danach der Rest in Teilpaketen.

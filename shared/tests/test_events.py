@@ -127,6 +127,10 @@ _PAYLOADS: dict[str, dict[str, Any]] = {
         "channel_id": "7",
         "user_id": "3",
     },
+    "pin_update": {
+        "op": "pin_update",
+        "data": {"message_id": "42", "channel_id": "7", "pinned": True},
+    },
     "mention_added": {
         "op": "mention_added",
         "data": {"channel_id": "6", "message_id": "1", "guild_id": "5"},
