@@ -17,12 +17,12 @@
 | `errText`-Util projektweit (Schwerpunkt admin/) | 89 Stellen, 53 Dateien | 2026-09-01 (Runde 1) | Inline-Ternaries ersetzt; ~54 abweichende Varianten bewusst liegen gelassen |
 | Admin-Komponenten `web/src/lib/components/admin/` | ~5.400 Zeilen | 2026-09-01 (Runde 2) | StreamLimits zusammengezogen, Switch, confirmDialog, ReasonDialog (7×), fmtUser/fmtTime, AdminTabBar, tote errMsg-Wrapper. Querverweis: Reason-Dialog-Muster existiert auch in `settings/` |
 | Typing-Indicator (Existenz-Check) | — | 2026-09-01 | Existierte bereits end-to-end — nichts gebaut (Leiter-Sprosse 2) |
+| `web/src/lib/components/settings/` | ~10.100 Zeilen | 2026-09-01 (Runde 3) | Erstaunlich diszipliniert: 6 kleine Funde, 5 umgesetzt (formatTimestamp 4×, confirmDialog im RolesEditor, formatBytes, 2× form/Switch), Fund 6 bewusst ausgelassen. Querverweise: ReasonDialog hat HIER keine Verbraucher; RolleDetail-Tab-Leiste einziger Verbraucher, erst bei ui/-Hebung |
 
 ## Offen — Frontend
 
 | Bereich | Umfang | Notizen |
 |---|---|---|
-| `web/src/lib/components/settings/` | ~10.100 Zeilen | Größter offener Frontend-Block; Querverweis ReasonDialog + Tab-Bar aus Runde 2 direkt prüfbar |
 | `web/src/lib/components/` (Kern: Chat, MessageList, Kanäle, DMs) | ~29.000 Zeilen Rest | Größtes Paket, in Teilpakete teilen (Chat/Messages zuerst — Pin-Code sitzt dort frisch) |
 | `web/src/lib/stream/` | ~10.200 Zeilen | HQ-Streaming; viel berechtigte Komplexität (Hardware/Codecs) vermutet |
 | `web/src/routes/` | ~6.100 Zeilen | Seiten-Hüllen; eher niedrige Ertragserwartung |
@@ -57,5 +57,5 @@
 
 ## Vorschlag nächste Runde
 
-1. **`settings/`** (Frontend, ~10k) — Querverweise aus Runde 2 ernten (ReasonDialog auf settings/-Muster ausweiten, Tab-Bar), Verdacht auf Kopier-Pattern zwischen den Guild-Editoren (Invites/Sounds/Limits/Plugins sahen im errText-Grep schon eng verwandt aus).
-2. **`dropbox.py` + `_dropbox_helpers.py`** (Backend, ~1.350) — klein genug für eine Session, gutes Testnetz (1419 Tests), Verdacht auf Eigenbau statt Stdlib/SQLAlchemy.
+1. **`dropbox.py` + `_dropbox_helpers.py`** (Backend, ~1.350) — klein genug für eine Session, gutes Testnetz (1419 Tests), Verdacht auf Eigenbau statt Stdlib/SQLAlchemy.
+2. **Chat-Kern `components/` Teilpaket Chat/Messages** — frisch durch die Pin-Runden berührt, danach der Rest in Teilpaketen.
