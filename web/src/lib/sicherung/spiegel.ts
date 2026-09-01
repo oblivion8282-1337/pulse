@@ -256,10 +256,19 @@ export class SicherungsSpiegel {
 		const warte = [...this.warte];
 		// Aufsteigend nach Nachricht-Id — deterministisch, und der Rahmen-
 		// Folgezähler folgt der sinnvollsten Ordnung, die hier zu haben ist.
+		// BigInt NUR wenn beide Ids numerisch sind: Ids ohne Zahl-Anteil
+		// (Test-Ids, lokale Ids) warfen sonst einen SyntaxError, der im
+		// Spül-Fehlerpfad verschluckt wurde — keine einzige Spülung kam
+		// je beim Drive an (main-Portierung, 2026-09-01).
+		const vergleichId = (x: string, y: string): number => {
+			if (x === y) return 0;
+			if (/^\d+$/.test(x) && /^\d+$/.test(y)) return BigInt(x) < BigInt(y) ? -1 : 1;
+			return x < y ? -1 : 1;
+		};
 		warte.sort((a, b) =>
 			a.nachricht.id === b.nachricht.id
 				? a.kanalId.localeCompare(b.kanalId)
-				: (BigInt(a.nachricht.id) < BigInt(b.nachricht.id) ? -1 : 1),
+				: vergleichId(a.nachricht.id, b.nachricht.id),
 		);
 
 		// Erste Spülung nimmt den eigenen Bestand auf (Adoption verwaister
