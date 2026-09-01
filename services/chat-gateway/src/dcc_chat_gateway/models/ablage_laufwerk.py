@@ -114,3 +114,40 @@ class AblageGuildLaufwerk(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+
+class AblageKontoLaufwerk(Base):
+    """Das Cloud-Laufwerk des persoenlichen Archivs — eines je Konto.
+
+    **Warum der Server sie ueberhaupt kennt.** Das persoenliche Archiv ist
+    der eigene Cloud-Ordner des Nutzers, und man koennte meinen, Pulse habe
+    dort nichts zu suchen. Der Grund ist derselbe wie beim Kanal-Laufwerk
+    und rein technisch: ein Browser kann in eine fremde Cloud nicht
+    schreiben, weil deren Server keine CORS-Kopfzeilen setzt (an einer
+    echten Nextcloud gemessen). Ohne diese Zeile gaebe es das Archiv nur
+    fuer den lokalen Sync-Ordner, nicht fuer eine Cloud.
+
+    Das deckt sich mit der Entscheidung des Eigentuemers vom 2026-08-31
+    („je ein Schreib-Link, den nur Pulse kennt") — es ist der dritte dieser
+    drei Links, neben Kanal und Community.
+
+    **Eines je Konto, deshalb ``user_id`` als Primaerschluessel.** Wer ein
+    zweites Laufwerk eintraegt, ersetzt das erste; eine Reihe paralleler
+    Archive waere ein anderes Feature und braeuchte eine Antwort darauf, in
+    welches geschrieben wird.
+
+    Kein ``ForeignKey``: die Nutzertabelle liegt im auth-Schema, und der
+    chat-gateway greift nie ueber Schemagrenzen (CLAUDE.md: „Services
+    kommunizieren nur ueber Redis Pub/Sub oder HTTP — niemals shared
+    DB-Tabellen"). Aufgeraeumt wird beim Kontoloeschen ueber
+    ``user_purge_ablage.py``.
+    """
+
+    __tablename__ = "ablage_konto_laufwerke"
+
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # Wie oben: NIE zurueckgeben, NIE loggen.
+    freigabe_adresse: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

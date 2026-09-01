@@ -40,6 +40,8 @@
   import { AnmeldungAbgelaufenFehler } from '$lib/ablage/oauth.ts';
   import { LaufwerkWegFehler } from '$lib/ablage/ordnerGriff.ts';
   import { archivEintraegeAusstehend } from '$lib/ablage/archivSchreibweg.ts';
+  import { archivLaufwerkSetzen } from '$lib/api/ablageArchiv';
+  import { direktErreichbar } from '$lib/ablage/archivAdapter.ts';
   import type { VerbindungsRohwerte } from '$lib/ablage/zustand.ts';
   import AblageVerbindenDialog from '$lib/components/ablage/AblageVerbindenDialog.svelte';
   import SpeicherVerbindungZeile from './SpeicherVerbindungZeile.svelte';
@@ -136,6 +138,8 @@
     dialogOffen = true;
   }
 
+  let archivFehler = $state('');
+
   async function trennen(id: string): Promise<void> {
     await ablageVerbindungen.entfernen(id);
     const { [id]: _entfernt, ...rest } = rohwerteNachId;
@@ -144,6 +148,34 @@
 
   async function archivWechseln(id: string): Promise<void> {
     await ablageVerbindungen.setzeArchivMarkierung(id);
+
+    // **Die Adresse muss zum Server, sonst schreibt das Archiv nie.** Ein
+    // Cloud-Laufwerk ist aus dem Browser nicht beschreibbar (CORS, an einer
+    // echten Nextcloud gemessen) — der Schreibweg läuft deshalb über
+    // `/ablage/archiv/*`, und diese Routen brauchen die hinterlegte
+    // Freigabe-Adresse. Ein lokaler Sync-Ordner braucht das nicht: dort
+    // schreibt der Browser selbst, und es gibt keine Adresse, die ein
+    // Server ansprechen könnte.
+    //
+    // Ein Fehlschlag hier bleibt eine Zeile in der Oberfläche und nimmt die
+    // lokale Markierung NICHT zurück: der Sync-Ordner-Fall funktioniert auch
+    // ohne, und ein halb zurückgedrehter Zustand wäre schwerer zu verstehen
+    // als eine Meldung.
+    const v = ablageVerbindungen.verbindung(id);
+    if (!v || direktErreichbar(v.anbieter)) return;
+    const adresse = v.konfiguration.basis;
+    if (!adresse) {
+      archivFehler = 'Dieses Laufwerk hat keine Adresse, die Pulse ansprechen kann.';
+      return;
+    }
+    try {
+      await archivLaufwerkSetzen(adresse);
+      archivFehler = '';
+    } catch (e) {
+      archivFehler = `Das Archiv-Laufwerk konnte nicht hinterlegt werden: ${
+        e instanceof Error ? e.message : String(e)
+      }`;
+    }
   }
 
   function verbunden(v: AblageVerbindung): void {
@@ -156,6 +188,14 @@
   <div>
     <h3 class="text-base font-semibold">{m.speicher_titel()}</h3>
     <p class="text-sm text-muted-foreground">{m.speicher_beschreibung()}</p>
+    {#if archivFehler}
+      <!-- Sichtbar, nicht nur gesetzt: schlaegt das Hinterlegen fehl, wird
+           in dieses Archiv nie etwas geschrieben — und ohne diese Zeile
+           merkte es niemand, weil der Schreibweg selbst still ist. -->
+      <p class="mt-2 text-sm text-destructive" data-testid="archiv-laufwerk-fehler">
+        {archivFehler}
+      </p>
+    {/if}
   </div>
 
   {#if ablageVerbindungen.verbindungen.length === 0}

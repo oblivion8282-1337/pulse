@@ -34,6 +34,7 @@ import { DateiSpeicher } from './dateispeicher.ts';
 import type { AblageAdapter } from './adapter.ts';
 import type { AblageAnbieterArt } from './anbieter.ts';
 import { aktuellesKonto } from '../verlauf/konto';
+import { archivUeberPulse, direktErreichbar } from './archivAdapter.ts';
 import { gehoertZuKonto } from '../verlauf/kontoFilter';
 import type { Zugang } from './oauth.ts';
 import {
@@ -265,12 +266,26 @@ export class AblageVerbindungsStore {
     this.verbindungen = aktualisiert;
   }
 
-  /** Baut einen DateiSpeicher für eine Verbindung. */
+  /**
+   * Baut einen DateiSpeicher für eine Verbindung.
+   *
+   * **Ein als Archiv markiertes CLOUD-Laufwerk läuft über den Pulse-Server**,
+   * nicht direkt. Grund: der Browser kann in eine fremde Cloud nicht
+   * schreiben, deren Server setzt keine CORS-Kopfzeilen (an einer echten
+   * Nextcloud gemessen). Bis zum 2026-09-01 nahm auch das Archiv den
+   * direkten Weg — es schrieb damit nie etwas, und weil der Schreibweg
+   * asynchron und ungewartet läuft (`archivSchreibweg.ts`), fiel es
+   * nirgends auf.
+   *
+   * Ein Sync-Ordner bleibt direkt: er liegt auf dieser Platte, da gibt es
+   * keine fremde Gegenstelle und nichts zu umgehen.
+   */
   async dateiSpeicherFür(verbindungId: string): Promise<DateiSpeicher | null> {
     const v = this.verbindung(verbindungId);
     if (!v) return null;
     const hauptschlüssel = base64ZuBytes(v.hauptschlüsselB64);
-    const adapter = await adapterFür(v);
+    const adapter =
+      v.istArchiv && !direktErreichbar(v.anbieter) ? archivUeberPulse() : await adapterFür(v);
     return new DateiSpeicher(adapter, `ablage/${v.id}`, hauptschlüssel);
   }
 

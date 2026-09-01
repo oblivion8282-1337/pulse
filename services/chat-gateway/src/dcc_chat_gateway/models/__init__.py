@@ -6,7 +6,11 @@ soft cap (PLAN.md §12.1). Importers can keep using
 here.
 """
 
-from dcc_chat_gateway.models.ablage_laufwerk import AblageGuildLaufwerk, AblageKanalLaufwerk
+from dcc_chat_gateway.models.ablage_laufwerk import (
+    AblageGuildLaufwerk,
+    AblageKanalLaufwerk,
+    AblageKontoLaufwerk,
+)
 from dcc_chat_gateway.models.ablage_zwischenlager import AblageZwischenlagerDatei
 from dcc_chat_gateway.models.admin import AdminAuditLog, ChatSettings
 from dcc_chat_gateway.models.channels import (
@@ -72,6 +76,7 @@ from dcc_chat_gateway.models.voice_pull import ChannelVoicePull
 __all__ = [
     "AblageGuildLaufwerk",
     "AblageKanalLaufwerk",
+    "AblageKontoLaufwerk",
     "AblageZwischenlagerDatei",
     "CachedUserProfile",
     "ModAuditLog",

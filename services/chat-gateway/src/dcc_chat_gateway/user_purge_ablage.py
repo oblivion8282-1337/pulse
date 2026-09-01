@@ -22,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_chat_gateway import s3
-from dcc_chat_gateway.models import AblageZwischenlagerDatei
+from dcc_chat_gateway.models import AblageKontoLaufwerk, AblageZwischenlagerDatei
 
 
 async def purge_ablage_zwischenlager(session: AsyncSession, user_id: int) -> None:
@@ -49,4 +49,22 @@ async def purge_ablage_zwischenlager(session: AsyncSession, user_id: int) -> Non
         await s3.delete_object(key)
 
 
-__all__ = ["purge_ablage_zwischenlager"]
+async def purge_ablage_konto_laufwerk(session: AsyncSession, user_id: int) -> None:
+    """Loescht die Archiv-Laufwerks-Adresse des geloeschten Kontos.
+
+    **Der Ordner in der Cloud bleibt, und das ist Absicht.** Die Zeile hier
+    ist nur ein Schluessel, den Pulse verwahrt hat; die Dateien gehoeren dem
+    Nutzer und liegen in SEINER Cloud. Sie beim Kontoloeschen mitzuentfernen
+    hiesse, fremdes Eigentum zu vernichten — Pulse zieht sich zurueck, es
+    raeumt nicht auf. Wer den Ordner leer haben will, loescht ihn dort, wo er
+    liegt, und zieht den Freigabe-Link zurueck.
+
+    Kein ``ForeignKey`` auf die Nutzertabelle (anderes Schema), also raeumt
+    keine Kaskade das mit — deshalb dieser ausdrueckliche Schritt.
+    """
+    await session.execute(
+        sa_delete(AblageKontoLaufwerk).where(AblageKontoLaufwerk.user_id == user_id)
+    )
+
+
+__all__ = ["purge_ablage_zwischenlager", "purge_ablage_konto_laufwerk"]
