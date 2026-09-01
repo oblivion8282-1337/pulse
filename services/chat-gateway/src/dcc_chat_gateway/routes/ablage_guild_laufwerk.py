@@ -29,36 +29,14 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from dcc_chat_gateway import config as chat_config
 from dcc_chat_gateway import ratelimit
-from dcc_chat_gateway.ablage_ssrf import AblageAbrufFehler, hole
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import AblageGuildLaufwerk, Guild, GuildMember
+from dcc_chat_gateway.models import AblageGuildLaufwerk
+from dcc_chat_gateway.routes._ablage_abruf import ablage_abruf_antwort
+from dcc_chat_gateway.routes._deps import guild_oder_404, mitglied_oder_403
 from dcc_chat_gateway.security import CurrentUser
 
 router = APIRouter()
-
-# Dieselbe Uebersetzungstabelle wie ``ablage_kanal.py`` — der Fehlercode ist
-# unschaedlich (verraet nur, WELCHE Regel griff, nie die Adresse), die Adresse
-# selbst nie Teil der Antwort.
-_STATUS_JE_CODE: dict[str, int] = {
-    "pfad_leer": status.HTTP_422_UNPROCESSABLE_ENTITY,
-    "pfad_kodierung": status.HTTP_422_UNPROCESSABLE_ENTITY,
-    "pfad_ungueltig": status.HTTP_422_UNPROCESSABLE_ENTITY,
-    "pfad_schema_wechsel": status.HTTP_422_UNPROCESSABLE_ENTITY,
-    "pfad_absolut": status.HTTP_422_UNPROCESSABLE_ENTITY,
-    "pfad_traversal": status.HTTP_422_UNPROCESSABLE_ENTITY,
-    "ziel_schema": status.HTTP_422_UNPROCESSABLE_ENTITY,
-    "ziel_ungueltig": status.HTTP_422_UNPROCESSABLE_ENTITY,
-    "ziel_unaufloesbar": status.HTTP_502_BAD_GATEWAY,
-    "ziel_privat": status.HTTP_403_FORBIDDEN,
-    "umleitung_ohne_ziel": status.HTTP_502_BAD_GATEWAY,
-    "zu_viele_umleitungen": status.HTTP_502_BAD_GATEWAY,
-    "upstream_fehler": status.HTTP_502_BAD_GATEWAY,
-    "upstream_nicht_erreichbar": status.HTTP_502_BAD_GATEWAY,
-    "antwort_zu_gross": status.HTTP_413_CONTENT_TOO_LARGE,
-    "zeit_ueberschritten": status.HTTP_504_GATEWAY_TIMEOUT,
-}
 
 
 class FreigabeAdresseIn(BaseModel):
@@ -69,18 +47,6 @@ class FreigabeAdresseIn(BaseModel):
 
 class LaufwerkStatusOut(BaseModel):
     verbunden: bool
-
-
-async def _guild_oder_404(session: SessionDep, guild_id: int) -> Guild:
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="guild not found")
-    return guild
-
-
-async def _mitglied_oder_403(session: SessionDep, guild_id: int, user_id: int) -> None:
-    if await session.get(GuildMember, (guild_id, user_id)) is None:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="not a member of this guild")
 
 
 @router.put(
@@ -94,7 +60,7 @@ async def setze_guild_freigabe_adresse(
     current: CurrentUser,
 ) -> Response:
     """Nur der AKTUELLE Besitzer darf die Adresse hinterlegen/ersetzen."""
-    guild = await _guild_oder_404(session, guild_id)
+    guild = await guild_oder_404(session, guild_id)
     if guild.owner_id != current.id:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
@@ -127,8 +93,8 @@ async def guild_laufwerk_status(
     """Nur Ja/Nein — nie die Adresse. Jedes Mitglied darf fragen (Aufgabe 4:
     der Besitzer sieht bei ``verbunden=false`` die Aufforderung, Mitglieder
     sehen bei ``false`` nichts — beide brauchen dafuer denselben Zustand)."""
-    await _guild_oder_404(session, guild_id)
-    await _mitglied_oder_403(session, guild_id, current.id)
+    await guild_oder_404(session, guild_id)
+    await mitglied_oder_403(session, guild_id, current.id)
     laufwerk = await session.get(AblageGuildLaufwerk, guild_id)
     return LaufwerkStatusOut(verbunden=laufwerk is not None)
 
@@ -142,8 +108,8 @@ async def guild_ablage_abruf(
 ) -> Response:
     """Reicht Chiffrat vom Community-Laufwerk durch — dieselben Regeln wie
     ``ablage_kanal.py::ablage_abruf``, s. dort fuer die volle Begruendung."""
-    await _guild_oder_404(session, guild_id)
-    await _mitglied_oder_403(session, guild_id, current.id)
+    await guild_oder_404(session, guild_id)
+    await mitglied_oder_403(session, guild_id, current.id)
     if not ratelimit.check("ablage_guild_abruf", current.id):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limited")
 
@@ -151,20 +117,4 @@ async def guild_ablage_abruf(
     if laufwerk is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no drive connected")
 
-    settings = chat_config.get_settings()
-    try:
-        ergebnis = await hole(
-            basis=laufwerk.freigabe_adresse,
-            pfad=pfad,
-            max_bytes=settings.ablage_abruf_max_bytes,
-            timeout_s=settings.ablage_abruf_timeout_s,
-        )
-    except AblageAbrufFehler as exc:
-        raise HTTPException(
-            _STATUS_JE_CODE.get(exc.code, status.HTTP_502_BAD_GATEWAY), detail=exc.code
-        ) from exc
-
-    return Response(
-        content=ergebnis.inhalt,
-        media_type=ergebnis.content_type or "application/octet-stream",
-    )
+    return await ablage_abruf_antwort(laufwerk.freigabe_adresse, pfad)

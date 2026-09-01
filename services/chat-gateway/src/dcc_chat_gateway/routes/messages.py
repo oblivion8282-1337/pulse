@@ -41,6 +41,7 @@ from dcc_chat_gateway.message_helpers import (
 )
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_TEXT,
+    LEGACY_READONLY_DETAIL,
     Message,
     MessageAttachment,
     MessageMention,
@@ -160,13 +161,7 @@ async def post_message(
         # Umstellung (Entwurf §9, Etappe E9): dieser Alt-Kanal ist eingefroren
         # — Verlauf bleibt lesbar, neue Nachrichten nimmt nur noch ein
         # Ablage-Kanal an. Begruendende Meldung statt nacktem 403, s. Aufgabe.
-        raise HTTPException(
-            403,
-            detail=(
-                "channel_legacy_readonly: this channel is frozen (read-only) — "
-                "the instance now only accepts new messages in ablage channels"
-            ),
-        )
+        raise HTTPException(403, detail=LEGACY_READONLY_DETAIL)
     if kind == "dm":
         # Etappe 2 friend-gate: a DM send requires both sides to still be
         # friends with no block in either direction. Pre-existing rows from

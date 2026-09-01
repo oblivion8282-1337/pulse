@@ -251,6 +251,21 @@ async def _hole_einmal(
         return bytes(stueck), antwort.headers.get("content-type"), None
 
 
+async def _pruefen_und_holen(
+    client: httpx.AsyncClient,
+    url: str,
+    resolver: Resolver,
+    max_bytes: int,
+) -> tuple[bytes, str | None, str | None]:
+    """Ein voller Zyklus fuer EINE Adresse: pruefen (``pruefe_ziel_oeffentlich``),
+    an die gepruefte IP verankern, dann genau einmal holen. Wird in ``hole()``
+    zweimal gerufen — fuer die urspruengliche Adresse und, falls diese auf eine
+    Umleitung zeigt, fuer deren Ziel; beide Male dieselben Regeln, siehe dort."""
+    adresse = await pruefe_ziel_oeffentlich(url, resolver)
+    verankert, host = _url_auf_adresse_verankern(url, adresse)
+    return await _hole_einmal(client, verankert, host, max_bytes)
+
+
 async def hole(
     *,
     basis: str,
@@ -287,14 +302,14 @@ async def hole(
     )
     try:
         async with asyncio.timeout(timeout_s):
-            adresse = await pruefe_ziel_oeffentlich(url, tatsaechlicher_resolver)
-            verankert, host = _url_auf_adresse_verankern(url, adresse)
-            inhalt, typ, ort = await _hole_einmal(client, verankert, host, max_bytes)
+            inhalt, typ, ort = await _pruefen_und_holen(
+                client, url, tatsaechlicher_resolver, max_bytes
+            )
             if ort is not None:
                 neue_url = urllib.parse.urljoin(url, ort)
-                neue_adresse = await pruefe_ziel_oeffentlich(neue_url, tatsaechlicher_resolver)
-                neu_verankert, neuer_host = _url_auf_adresse_verankern(neue_url, neue_adresse)
-                inhalt, typ, ort2 = await _hole_einmal(client, neu_verankert, neuer_host, max_bytes)
+                inhalt, typ, ort2 = await _pruefen_und_holen(
+                    client, neue_url, tatsaechlicher_resolver, max_bytes
+                )
                 if ort2 is not None:
                     raise AblageAbrufFehler("zu_viele_umleitungen")
             return AbrufErgebnis(inhalt, typ)

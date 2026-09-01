@@ -36,6 +36,17 @@ CHANNEL_TYPE_VOICE = 1
 # would only need a permission gate, no schema change.
 CHANNEL_TYPE_DROPBOX = 2
 
+# Begruendende Meldung fuer einen abgewiesenen Send/Upload in einen
+# eingefrorenen Alt-Kanal (``Channel.legacy_readonly``, Umstellung Entwurf
+# §9, Etappe E9) — an EINER Stelle, weil sie an drei Ablehnungsstellen
+# wortgleich gebraucht wird: ``routes/messages.py`` (REST-Send),
+# ``routes/ws_op_send.py`` (WS-Send, Code 4015) und
+# ``routes/attachments.py`` (Anhang-Upload).
+LEGACY_READONLY_DETAIL = (
+    "channel_legacy_readonly: this channel is frozen (read-only) — "
+    "the instance now only accepts new messages in ablage channels"
+)
+
 
 class Channel(Base):
     __tablename__ = "channels"

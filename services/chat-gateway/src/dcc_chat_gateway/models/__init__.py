@@ -13,6 +13,7 @@ from dcc_chat_gateway.models.channels import (
     CHANNEL_TYPE_DROPBOX,
     CHANNEL_TYPE_TEXT,
     CHANNEL_TYPE_VOICE,
+    LEGACY_READONLY_DETAIL,
     Channel,
     DirectMessageChannel,
 )
@@ -78,6 +79,7 @@ __all__ = [
     "CHANNEL_TYPE_DROPBOX",
     "CHANNEL_TYPE_TEXT",
     "CHANNEL_TYPE_VOICE",
+    "LEGACY_READONLY_DETAIL",
     "DROPBOX_KIND_FILE",
     "DROPBOX_KIND_FOLDER",
     "CommunityInvite",

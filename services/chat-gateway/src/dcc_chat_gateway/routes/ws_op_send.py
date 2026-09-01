@@ -42,6 +42,7 @@ from dcc_chat_gateway.mentions import (
 )
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_TEXT,
+    LEGACY_READONLY_DETAIL,
     Channel,
     DirectMessageChannel,
     Message,
@@ -66,6 +67,27 @@ def _channel_id(value: object) -> int | None:
         return int(s)
     except ValueError:
         return None
+
+
+def _guild_send_erlaubt(ch: Channel) -> tuple[bool, bool]:
+    """Ob ein Klartext-``send`` in diesen bereits als ``guild`` erkannten
+    Kanal angenommen wird, und — falls nicht — ob der Grund speziell der
+    eingefrorene Alt-Kanal ist (2. Rueckgabewert -> 4015 statt dem
+    generischen 4006). Gemeinsam fuer den schnellen (``subscribed``-Cache)
+    und den langsamen (DB-Lookup) Pfad unten, die beide dieselbe
+    Mischzustand-Regel (Konzept §2a) und dieselbe Umstellungs-Regel
+    (Entwurf §9) durchsetzen muessen.
+
+    Ablage geht vor Alt-Kanal-Sperre: ein Ablage-Kanal traegt
+    ``legacy_readonly`` ohnehin nie (Migration 0083 setzt es nur an
+    Bestands-Textkanaelen), die Reihenfolge macht hier keinen Unterschied,
+    ausser dass sie die generische Ablage-Ablehnung (kein 4015) klar macht.
+    """
+    if getattr(ch, "ablage", False):
+        return False, False
+    if getattr(ch, "legacy_readonly", False):
+        return False, True
+    return True, False
 
 
 async def handle_send(ctx: WSOpContext, msg: dict[str, Any]) -> None:
@@ -167,13 +189,10 @@ async def handle_send(ctx: WSOpContext, msg: dict[str, Any]) -> None:
                 # Identity Map. Der DM-Zweig darueber laedt aus demselben
                 # Grund seine Zeile.
                 ch_obj = await session.get(Channel, cid_int)
-                if ch_obj is not None and ch_obj.legacy_readonly and not ch_obj.ablage:
-                    ok = False
-                    legacy_blocked = True
-                elif ch_obj is None or ch_obj.ablage:
+                if ch_obj is None:
                     ok = False
                 else:
-                    ok = True
+                    ok, legacy_blocked = _guild_send_erlaubt(ch_obj)
         else:
             resolved = await resolve_channel_for_user(session, cid_int, user.id)
             if resolved is None:
@@ -182,30 +201,16 @@ async def handle_send(ctx: WSOpContext, msg: dict[str, Any]) -> None:
                 kind, ch = resolved
                 if kind == "guild" and ch.type != CHANNEL_TYPE_TEXT:
                     ok = False
-                elif kind == "guild" and getattr(ch, "ablage", False):
-                    # Mischzustand-Regel (Konzept §2a): Klartext-WS-Send in
-                    # einen Ablage-Kanal wird nicht angenommen.
-                    ok = False
-                elif kind == "guild" and getattr(ch, "legacy_readonly", False):
-                    ok = False
-                    legacy_blocked = True
+                elif kind == "guild":
+                    ok, legacy_blocked = _guild_send_erlaubt(ch)
+                    if ok:
+                        guild_id_for_bump = ch.guild_id
                 else:
                     ok = True
-                    if kind == "guild":
-                        guild_id_for_bump = ch.guild_id
-                    else:
-                        dm_pair = (ch.user_a_id, ch.user_b_id)
+                    dm_pair = (ch.user_a_id, ch.user_b_id)
         if legacy_blocked:
             await websocket.send_json(
-                {
-                    "op": "error",
-                    "code": 4015,
-                    "msg": (
-                        "channel_legacy_readonly: this channel is frozen "
-                        "(read-only) — the instance now only accepts new "
-                        "messages in ablage channels"
-                    ),
-                }
+                {"op": "error", "code": 4015, "msg": LEGACY_READONLY_DETAIL}
             )
             return
         if not ok:

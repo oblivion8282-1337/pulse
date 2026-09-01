@@ -21,6 +21,26 @@ from pydantic import BaseModel, Field, field_serializer
 from dcc_chat_gateway.schemas import GeraeteKennung, SnowflakeId
 
 
+def _ser_snowflake_id(v: int) -> str:
+    # Snowflake-IDs gehen als STRING ueber die API — ohne diesen Serializer
+    # liefert FastAPI die rohe 64-Bit-Zahl, und der Browser rundet sie beim
+    # Auswerten: `Number.MAX_SAFE_INTEGER` liegt bei rund 9e15, eine
+    # Kopplungs-ID bei rund 8,8e16.
+    #
+    # Was das anrichtet, ist nicht theoretisch: der Klient schickte die
+    # gerundete ID zurueck, und `POST /kopplung/stand` antwortete
+    # `404 kopplung_unbekannt` auf eine Kopplung, die er Sekunden zuvor selbst
+    # eingeloest hatte. Nachgemessen im Netzmitschnitt: 88088470714589184 kam
+    # als 88088470714589180 zurueck. Es trifft nicht jeden Lauf — nur jede
+    # Snowflake, deren letzte Ziffern beim Runden verlorengehen —, und war
+    # damit genau die Sorte Fehler, die man fuer Flackern haelt.
+    #
+    # Jedes vergleichbare Modell in `schemas.py` traegt denselben Serializer;
+    # hier fehlte er zuerst an allen drei Antworten unten (jetzt gemeinsam
+    # definiert statt dreifach kopiert, damit er nicht wieder auseinanderlaeuft).
+    return str(v)
+
+
 class KopplungAnlegenRequest(BaseModel):
     """Rumpf von ``POST /kopplung`` — vom EINGERICHTETEN Geraet."""
 
@@ -35,25 +55,7 @@ class KopplungAnlegenResponse(BaseModel):
     id: SnowflakeId
     verfaellt_am: datetime
 
-    @field_serializer("id")
-    def _ser_id(self, v: int) -> str:
-        # Snowflake-IDs gehen als STRING ueber die API — ohne diese Zeile
-        # liefert FastAPI die rohe 64-Bit-Zahl, und der Browser rundet sie
-        # beim Auswerten: `Number.MAX_SAFE_INTEGER` liegt bei rund 9e15, eine
-        # Kopplungs-ID bei rund 8,8e16.
-        #
-        # Was das anrichtet, ist nicht theoretisch: der Klient schickte die
-        # gerundete ID zurueck, und `POST /kopplung/stand` antwortete
-        # `404 kopplung_unbekannt` auf eine Kopplung, die er Sekunden zuvor
-        # selbst eingeloest hatte. Nachgemessen im Netzmitschnitt:
-        # 88088470714589184 kam als 88088470714589180 zurueck. Es trifft nicht
-        # jeden Lauf — nur jede Snowflake, deren letzte Ziffern beim Runden
-        # verlorengehen —, und war damit genau die Sorte Fehler, die man fuer
-        # Flackern haelt.
-        #
-        # Jedes vergleichbare Modell in `schemas.py` traegt denselben
-        # Serializer; hier fehlte er als einziges.
-        return str(v)
+    _ser_id = field_serializer("id")(_ser_snowflake_id)
 
 
 class KopplungEinloesenRequest(BaseModel):
@@ -71,25 +73,7 @@ class KopplungEinloesenResponse(BaseModel):
     alt_device_pubkey: str
     verfaellt_am: datetime
 
-    @field_serializer("id")
-    def _ser_id(self, v: int) -> str:
-        # Snowflake-IDs gehen als STRING ueber die API — ohne diese Zeile
-        # liefert FastAPI die rohe 64-Bit-Zahl, und der Browser rundet sie
-        # beim Auswerten: `Number.MAX_SAFE_INTEGER` liegt bei rund 9e15, eine
-        # Kopplungs-ID bei rund 8,8e16.
-        #
-        # Was das anrichtet, ist nicht theoretisch: der Klient schickte die
-        # gerundete ID zurueck, und `POST /kopplung/stand` antwortete
-        # `404 kopplung_unbekannt` auf eine Kopplung, die er Sekunden zuvor
-        # selbst eingeloest hatte. Nachgemessen im Netzmitschnitt:
-        # 88088470714589184 kam als 88088470714589180 zurueck. Es trifft nicht
-        # jeden Lauf — nur jede Snowflake, deren letzte Ziffern beim Runden
-        # verlorengehen —, und war damit genau die Sorte Fehler, die man fuer
-        # Flackern haelt.
-        #
-        # Jedes vergleichbare Modell in `schemas.py` traegt denselben
-        # Serializer; hier fehlte er als einziges.
-        return str(v)
+    _ser_id = field_serializer("id")(_ser_snowflake_id)
 
 
 class KopplungStandRequest(BaseModel):
@@ -123,26 +107,7 @@ class KopplungStandResponse(BaseModel):
     vorhandene_kennungen: dict[int, str]
     verfaellt_am: datetime
 
-
-    @field_serializer("id")
-    def _ser_id(self, v: int) -> str:
-        # Snowflake-IDs gehen als STRING ueber die API — ohne diese Zeile
-        # liefert FastAPI die rohe 64-Bit-Zahl, und der Browser rundet sie
-        # beim Auswerten: `Number.MAX_SAFE_INTEGER` liegt bei rund 9e15, eine
-        # Kopplungs-ID bei rund 8,8e16.
-        #
-        # Was das anrichtet, ist nicht theoretisch: der Klient schickte die
-        # gerundete ID zurueck, und `POST /kopplung/stand` antwortete
-        # `404 kopplung_unbekannt` auf eine Kopplung, die er Sekunden zuvor
-        # selbst eingeloest hatte. Nachgemessen im Netzmitschnitt:
-        # 88088470714589184 kam als 88088470714589180 zurueck. Es trifft nicht
-        # jeden Lauf — nur jede Snowflake, deren letzte Ziffern beim Runden
-        # verlorengehen —, und war damit genau die Sorte Fehler, die man fuer
-        # Flackern haelt.
-        #
-        # Jedes vergleichbare Modell in `schemas.py` traegt denselben
-        # Serializer; hier fehlte er als einziges.
-        return str(v)
+    _ser_id = field_serializer("id")(_ser_snowflake_id)
 
 
 class UmzugStueckRequest(BaseModel):

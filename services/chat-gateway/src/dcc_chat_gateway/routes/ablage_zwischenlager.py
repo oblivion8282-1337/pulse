@@ -34,8 +34,9 @@ from sqlalchemy import func, select
 from dcc_chat_gateway import config as chat_config
 from dcc_chat_gateway import ratelimit, s3
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import AblageZwischenlagerDatei, Guild, GuildMember
+from dcc_chat_gateway.models import AblageZwischenlagerDatei
 from dcc_chat_gateway.permissions import Permissions, check_permission
+from dcc_chat_gateway.routes._deps import guild_oder_404, mitglied_oder_403
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 
@@ -76,18 +77,6 @@ class ZwischenlagerEintragOut(BaseModel):
         return _id_str(v)
 
 
-async def _guild_oder_404(session: SessionDep, guild_id: int) -> Guild:
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="guild not found")
-    return guild
-
-
-async def _mitglied_oder_403(session: SessionDep, guild_id: int, user_id: int) -> None:
-    if await session.get(GuildMember, (guild_id, user_id)) is None:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="not a member of this guild")
-
-
 def _storage_key(guild_id: int, eintrag_id: int) -> str:
     return f"ablage-zwischenlager/{guild_id}/{eintrag_id}"
 
@@ -113,8 +102,8 @@ async def zwischenlager_ankuendigen(
     session: SessionDep,
     current: CurrentUser,
 ) -> ZwischenlagerAnkuendigungOut:
-    await _guild_oder_404(session, guild_id)
-    await _mitglied_oder_403(session, guild_id, current.id)
+    await guild_oder_404(session, guild_id)
+    await mitglied_oder_403(session, guild_id, current.id)
     await check_permission(session, current, guild_id, Permissions.ATTACH_FILES)
     if not ratelimit.check("ablage_zwischenlager_ankuendigen", current.id):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limited")
@@ -170,8 +159,8 @@ async def zwischenlager_liste(
     session: SessionDep,
     current: CurrentUser,
 ) -> list[ZwischenlagerEintragOut]:
-    await _guild_oder_404(session, guild_id)
-    await _mitglied_oder_403(session, guild_id, current.id)
+    await guild_oder_404(session, guild_id)
+    await mitglied_oder_403(session, guild_id, current.id)
     zeilen = (
         await session.execute(
             select(AblageZwischenlagerDatei)
@@ -197,8 +186,8 @@ async def zwischenlager_download_url(
     session: SessionDep,
     current: CurrentUser,
 ) -> dict[str, str]:
-    await _guild_oder_404(session, guild_id)
-    await _mitglied_oder_403(session, guild_id, current.id)
+    await guild_oder_404(session, guild_id)
+    await mitglied_oder_403(session, guild_id, current.id)
     zeile = await session.get(AblageZwischenlagerDatei, eintrag_id)
     if zeile is None or zeile.guild_id != guild_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not found")
@@ -217,7 +206,7 @@ async def zwischenlager_quittieren(
     current: CurrentUser,
 ) -> None:
     """Die Quittung — nur der AKTUELLE Besitzer, s. Modulkopf."""
-    guild = await _guild_oder_404(session, guild_id)
+    guild = await guild_oder_404(session, guild_id)
     if guild.owner_id != current.id:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
