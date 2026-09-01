@@ -25,32 +25,14 @@ import { öffneDateiContainer } from './dateiablage.ts';
 import { ablageVerbindungen } from './verbindungen.svelte.ts';
 import { ablageGuildApi } from '../api/ablageGuild.ts';
 import { base64ZuBytes } from './syncOrdnerSchluessel.ts';
+import { backoffDeckel } from './backoffDeckel.ts';
 
 /** Backoff mit Deckel — je fehlgeschlagenem Versuch eines Eintrags in DIESEM
  *  Prozess (nicht persistiert: ein Neuladen der Seite startet bei 0, das ist
  *  hier unschaedlich, weil der naechste periodische Durchlauf ohnehin wieder
  *  jeden offenen Eintrag sieht — anders als bei Nachrichten gibt es hier
  *  keine Reihenfolge, die ein Ueberholen verbieten wuerde). */
-const MAX_BACKOFF_MS = 5 * 60_000;
-const versuche = new Map<string, number>();
-const gesperrtBis = new Map<string, number>();
-
-function vermerkeFehlschlag(id: string): void {
-	const n = (versuche.get(id) ?? 0) + 1;
-	versuche.set(id, n);
-	const verzoegerung = Math.min(1_000 * 2 ** n, MAX_BACKOFF_MS);
-	gesperrtBis.set(id, Date.now() + verzoegerung);
-}
-
-function vermerkeErfolg(id: string): void {
-	versuche.delete(id);
-	gesperrtBis.delete(id);
-}
-
-function istFaellig(id: string): boolean {
-	const bis = gesperrtBis.get(id);
-	return bis === undefined || bis <= Date.now();
-}
+const deckel = backoffDeckel();
 
 async function festigeEinenEintrag(
 	guildId: string,
@@ -100,7 +82,7 @@ export async function festigeEinmal(guildId: string): Promise<FestigungsErgebnis
 	}
 
 	const liste = await ablageGuildApi.zwischenlagerListe(guildId);
-	const faellig = liste.filter((e) => istFaellig(e.id));
+	const faellig = liste.filter((e) => deckel.istFaellig(e.id));
 
 	const ergebnisse = await Promise.allSettled(
 		faellig.map((e) => festigeEinenEintrag(guildId, e.id)),
@@ -111,10 +93,10 @@ export async function festigeEinmal(guildId: string): Promise<FestigungsErgebnis
 	ergebnisse.forEach((ergebnis, i) => {
 		const id = faellig[i].id;
 		if (ergebnis.status === 'fulfilled') {
-			vermerkeErfolg(id);
+			deckel.vermerkeErfolg(id);
 			erledigt++;
 		} else {
-			vermerkeFehlschlag(id);
+			deckel.vermerkeFehlschlag(id);
 			fehlgeschlagen++;
 		}
 	});

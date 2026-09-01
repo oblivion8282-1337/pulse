@@ -44,31 +44,13 @@ import { verschluesselnderAdapter } from './kryptoBehaelter.ts';
 import { ablageVerbindungen, adapterFür } from './verbindungen.svelte.ts';
 import { postfachQuelleFuerKanal } from './postfachQuelleVerdrahtung';
 import { base64ZuBytes } from './syncOrdnerSchluessel.ts';
+import { backoffDeckel } from './backoffDeckel.ts';
 
 /** Backoff mit Deckel — je Kanal, nur für diesen Prozess (kein Neuladen der
  *  Seite übersteht ihn, s. `festigung.ts`-Modulkopf für dieselbe Abwägung:
  *  unschädlich, weil der nächste periodische Durchlauf ohnehin wieder alles
  *  Offene sieht). */
-const MAX_BACKOFF_MS = 5 * 60_000;
-const versuche = new Map<string, number>();
-const gesperrtBis = new Map<string, number>();
-
-function vermerkeFehlschlag(kanalId: string): void {
-	const n = (versuche.get(kanalId) ?? 0) + 1;
-	versuche.set(kanalId, n);
-	const verzoegerung = Math.min(1_000 * 2 ** n, MAX_BACKOFF_MS);
-	gesperrtBis.set(kanalId, Date.now() + verzoegerung);
-}
-
-function vermerkeErfolg(kanalId: string): void {
-	versuche.delete(kanalId);
-	gesperrtBis.delete(kanalId);
-}
-
-function istFaellig(kanalId: string): boolean {
-	const bis = gesperrtBis.get(kanalId);
-	return bis === undefined || bis <= Date.now();
-}
+const deckel = backoffDeckel();
 
 export interface KanalFestigungsErgebnis {
 	festigt: number;
@@ -87,7 +69,7 @@ export async function festigeKanalEinmal(kanalId: string): Promise<KanalFestigun
 	if (!ablageVerbindungen.geladen) await ablageVerbindungen.laden();
 	const verbindung = ablageVerbindungen.verbindungFürKanal(kanalId);
 	if (!verbindung) return { festigt: 0, fehler: null };
-	if (!istFaellig(kanalId)) return { festigt: 0, fehler: null };
+	if (!deckel.istFaellig(kanalId)) return { festigt: 0, fehler: null };
 
 	try {
 		const hauptschlüssel = base64ZuBytes(verbindung.hauptschlüsselB64);
@@ -104,10 +86,10 @@ export async function festigeKanalEinmal(kanalId: string): Promise<KanalFestigun
 		const quelle = postfachQuelleFuerKanal(kanalId);
 		const bericht = await nachziehen(schreiber, quelle);
 
-		vermerkeErfolg(kanalId);
+		deckel.vermerkeErfolg(kanalId);
 		return { festigt: bericht.festigt, fehler: null };
 	} catch (fehler) {
-		vermerkeFehlschlag(kanalId);
+		deckel.vermerkeFehlschlag(kanalId);
 		return { festigt: 0, fehler: fehler instanceof Error ? fehler.message : String(fehler) };
 	}
 }
