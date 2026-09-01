@@ -19,6 +19,7 @@
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
+  import { errText } from '$lib/utils/errText';
 
   let { guildId }: { guildId: string } = $props();
 
@@ -65,7 +66,7 @@
       toast.success(m.bans_list_unban_success());
     } catch (err) {
       toast.error(m.bans_list_unban_failed(), {
-        description: err instanceof Error ? err.message : String(err)
+        description: errText(err)
       });
     } finally {
       const { [userId]: _, ...rest } = working;

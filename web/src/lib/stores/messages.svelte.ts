@@ -158,21 +158,6 @@ class MessageStore {
     this.upsert(msg);
   }
 
-  /** Remove an optimistic message by id (rollback on WS-disconnect). */
-  removeOptimistic(channelId: string, tmpId: string): void {
-    const list = this.byChannel[channelId];
-    if (!list) return;
-    const next = list.filter((m) => m.id !== tmpId);
-    if (next.length !== list.length) {
-      this.byChannel = { ...this.byChannel, [channelId]: next };
-      const ids = this.messageIds[channelId];
-      if (ids) {
-        ids.delete(tmpId);
-        this.messageIds = { ...this.messageIds, [channelId]: ids };
-      }
-    }
-  }
-
   /** Replace an existing message in place (edit). The server's reactions
    *  list is authoritative once present; if missing on the update payload
    *  we preserve the cached one so the UI doesn't blink. */

@@ -199,7 +199,8 @@
   // Sprung in die Liste (von MessageList gemountet) für Klicks im Popover.
   let jumpToMessage = $state<((id: string) => void) | undefined>(undefined);
   // Pin-Listen-Einträge können aus dem pin_update-WS-Event stammen und dann
-  // noch keine Inhalte tragen (nur id/channel/pinned_at) — deshalb defensiv.
+  // noch keine Inhalte tragen (nur id/channel/pinned_at) — deshalb defensiv
+  // (`text` darf undefined sein). Dient auch der Reply-Banner-Vorschau unten.
   function snippet80(text: string | undefined): string {
     const t = (text ?? '').replace(/\s+/g, ' ').trim();
     return t.length > 80 ? t.slice(0, 77) + '…' : t;
@@ -224,13 +225,9 @@
     }
     return userCache.displayName(m.author_id);
   }
-  function snippet(text: string): string {
-    const t = text.replace(/\s+/g, ' ').trim();
-    return t.length > 80 ? t.slice(0, 77) + '…' : t;
-  }
   const replyBanner = $derived(
     replyTarget
-      ? { id: replyTarget.id, author: authorName(replyTarget), snippet: snippet(plainifyMentions(replyTarget.content)) }
+      ? { id: replyTarget.id, author: authorName(replyTarget), snippet: snippet80(plainifyMentions(replyTarget.content)) }
       : null
   );
 

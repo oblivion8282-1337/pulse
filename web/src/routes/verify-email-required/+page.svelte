@@ -6,7 +6,7 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import * as Alert from '$lib/components/ui/alert/index.js';
-  import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';
+  import AuthCard from '$lib/components/AuthCard.svelte';
   import MailWarningIcon from '@lucide/svelte/icons/mail-warning';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
@@ -73,19 +73,16 @@
   }
 </script>
 
-<div class="flex min-h-dvh">
-  <AuthBrandPanel
-    headline={m.verify_email_brand_headline()}
-    headlineSub={m.verify_email_brand_headline_sub()}
-    description={m.verify_email_brand_description()}
-    features={[
-      m.verify_email_brand_feature_link_validity(),
-      m.verify_email_brand_feature_typo_protection(),
-      m.verify_email_brand_feature_no_relogin(),
-    ]}
-  />
-
-  <div class="flex flex-1 items-center justify-center p-4 md:flex-none md:basis-[46%]">
+<AuthCard
+  headline={m.verify_email_brand_headline()}
+  headlineSub={m.verify_email_brand_headline_sub()}
+  description={m.verify_email_brand_description()}
+  features={[
+    m.verify_email_brand_feature_link_validity(),
+    m.verify_email_brand_feature_typo_protection(),
+    m.verify_email_brand_feature_no_relogin(),
+  ]}
+>
     {#if !ready}
       <LoadingState density="page" />
     {:else}
@@ -153,5 +150,4 @@
         </Button>
       </div>
     {/if}
-  </div>
-</div>
+</AuthCard>

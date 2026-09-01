@@ -105,7 +105,7 @@ import { errText } from '$lib/utils/errText';
       await goto('/app/rooms');
     } catch (err) {
       toast.error(m.discover_join_failed(), {
-        description: err instanceof Error ? err.message : String(err)
+        description: errText(err)
       });
     } finally {
       beitreten = null;

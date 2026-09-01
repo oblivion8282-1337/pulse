@@ -17,6 +17,9 @@
 | `errText`-Util projektweit (Schwerpunkt admin/) | 89 Stellen, 53 Dateien | 2026-09-01 (Runde 1) | Inline-Ternaries ersetzt; ~54 abweichende Varianten bewusst liegen gelassen |
 | Admin-Komponenten `web/src/lib/components/admin/` | ~5.400 Zeilen | 2026-09-01 (Runde 2) | StreamLimits zusammengezogen, Switch, confirmDialog, ReasonDialog (7×), fmtUser/fmtTime, AdminTabBar, tote errMsg-Wrapper. Querverweis: Reason-Dialog-Muster existiert auch in `settings/` |
 | Typing-Indicator (Existenz-Check) | — | 2026-09-01 | Existierte bereits end-to-end — nichts gebaut (Leiter-Sprosse 2) |
+| Chat-Kern (ChatView/MessageList/MessageItem/messages-Store u. a.) | ~12–15k Zeilen | 2026-09-01 (Runde 6) | fmtBytes (2×), removeOptimistic (toter Pin-Zweig), MessageReactions-Nachbauten, Emoji-Content 4×, avatarFallbackStyle 4×, snippet-Merge, toter children-Prop, DMChannelList-Config. Offen: snippet/authorName Cross-File-Dedup (kommentierte Entscheidung — Begründung bei nächstem Anfassen prüfen) |
+| `web/src/lib/stream/` | ~10.200 Zeilen | 2026-09-01 (Runde 6) | anchorRegistry (3× byte-identisch), PopupDetacher-Basis (detach + watchPartyDetach — manuelle Popup-Probefahrt empfohlen nach Deploy!), meldeSendeFehler, uhrzeitHHMM, stopSlot-Rückgabe. Gesamturteil: außergewöhnlich diszipliniert, kein toter Code |
+| Kleinreste (routes/ + friends/account/channels/server + Einzeldateien) | ~12.000 Zeilen | 2026-09-01 (Runde 6) | errText-Nachzügler (popoverActions 14× — Codemod-Lücke), toter showVoiceStack, {#if true}, erstelleCommunity, PopupShell, railNavi, SuchPille 3×, PresenceBadge 5×, AuthCard 6 Seiten, InlineResetPanel, formatLangDatum 3×. OFFEN: Message-Handler-Fabrik (~70 Zeilen, Guild-Kanal ↔ DM 80% wortgleich — erst beim dritten Konsumenten); dev/design-Route (658 Z.) löschen, wenn Button-Migration fertig |
 | `_guild_or_404`-Reststellen (8 Routen-Dateien) | 14 Stellen | 2026-09-01 (Runde 5) | Helfer nach `_deps.py` verschoben (guilds.py-Import-Zirkel vermieden), alle 14 umgestellt; abweichende Semantiken (owner/member_invites u. a.) dokumentiert ausgeschlossen |
 | `services/auth/` | ~15.000 Zeilen | 2026-09-01 (Runde 5) | Dreifache Cookie-Session-Validierung → eine Kernfunktion (eine Kopie war tot), TokenPair tot, COOKIE_NAME exportiert. Offen: Gate-Helper-Platzierung (nur bei Gelegenheit). Gesamturteil: über dem Schnitt |
 | `web/src/lib/remote/` | ~5.200 Zeilen | 2026-09-01 (Runde 5) | Tote Exporte/Verzweigung, AUFFRISCH_MS geteilt, 2 testlose Ein-Zeilen-Module zurückinline. Inline-Deutsch in fehlertexte/vorrang ohne Entscheidungskommentar — Klären |
@@ -26,6 +29,9 @@
 | `services/chat-gateway/` routes: guilds.py | 884 Zeilen | 2026-09-01 (Runde 4) | _guild_or_404 (9× hier; 23× projektweit — REST offen!), _publish_guild_event dedupliziert, patch_guild per exclude_unset |
 | `services/chat-gateway/` routes: ws_*-Paket | ~2.000 Zeilen | 2026-09-01 (Runde 4) | parse_snowflake_int/ws_manager/ws_err dedupliziert (6/4/3 Kopien, eine tot), Rollen-Snapshot + Position-Prüfung. OFFEN: 5× Kanal-Zugangs-Präambel — riskant, nur mit Testlauf |
 | Typing-Indicator (Existenz-Check) | — | 2026-09-01 | Existierte bereits end-to-end — nichts gebaut (Leiter-Sprosse 2) |
+| Chat-Kern (ChatView/MessageList/MessageItem/messages-Store u. a.) | ~12–15k Zeilen | 2026-09-01 (Runde 6) | fmtBytes (2×), removeOptimistic (toter Pin-Zweig), MessageReactions-Nachbauten, Emoji-Content 4×, avatarFallbackStyle 4×, snippet-Merge, toter children-Prop, DMChannelList-Config. Offen: snippet/authorName Cross-File-Dedup (kommentierte Entscheidung — Begründung bei nächstem Anfassen prüfen) |
+| `web/src/lib/stream/` | ~10.200 Zeilen | 2026-09-01 (Runde 6) | anchorRegistry (3× byte-identisch), PopupDetacher-Basis (detach + watchPartyDetach — manuelle Popup-Probefahrt empfohlen nach Deploy!), meldeSendeFehler, uhrzeitHHMM, stopSlot-Rückgabe. Gesamturteil: außergewöhnlich diszipliniert, kein toter Code |
+| Kleinreste (routes/ + friends/account/channels/server + Einzeldateien) | ~12.000 Zeilen | 2026-09-01 (Runde 6) | errText-Nachzügler (popoverActions 14× — Codemod-Lücke), toter showVoiceStack, {#if true}, erstelleCommunity, PopupShell, railNavi, SuchPille 3×, PresenceBadge 5×, AuthCard 6 Seiten, InlineResetPanel, formatLangDatum 3×. OFFEN: Message-Handler-Fabrik (~70 Zeilen, Guild-Kanal ↔ DM 80% wortgleich — erst beim dritten Konsumenten); dev/design-Route (658 Z.) löschen, wenn Button-Migration fertig |
 | `_guild_or_404`-Reststellen (8 Routen-Dateien) | 14 Stellen | 2026-09-01 (Runde 5) | Helfer nach `_deps.py` verschoben (guilds.py-Import-Zirkel vermieden), alle 14 umgestellt; abweichende Semantiken (owner/member_invites u. a.) dokumentiert ausgeschlossen |
 | `services/auth/` | ~15.000 Zeilen | 2026-09-01 (Runde 5) | Dreifache Cookie-Session-Validierung → eine Kernfunktion (eine Kopie war tot), TokenPair tot, COOKIE_NAME exportiert. Offen: Gate-Helper-Platzierung (nur bei Gelegenheit). Gesamturteil: über dem Schnitt |
 | `web/src/lib/remote/` | ~5.200 Zeilen | 2026-09-01 (Runde 5) | Tote Exporte/Verzweigung, AUFFRISCH_MS geteilt, 2 testlose Ein-Zeilen-Module zurückinline. Inline-Deutsch in fehlertexte/vorrang ohne Entscheidungskommentar — Klären |
@@ -36,8 +42,6 @@
 | Bereich | Umfang | Notizen |
 |---|---|---|
 | `web/src/lib/components/` (Kern: Chat, MessageList, Kanäle, DMs) | ~29.000 Zeilen Rest | Größtes Paket, in Teilpakete teilen (Chat/Messages zuerst — Pin-Code sitzt dort frisch) |
-| `web/src/lib/stream/` | ~10.200 Zeilen | HQ-Streaming; viel berechtigte Komplexität (Hardware/Codecs) vermutet |
-| `web/src/routes/` | ~6.100 Zeilen | Seiten-Hüllen; eher niedrige Ertragserwartung |
 | `web/src/lib/components/dropbox/` + `web/src/lib/dropbox` | ~1.600+ Zeilen | Ablage-UI |
 | `web/src/lib/components/mobile/` | ~1.200 Zeilen | Mobil-Layouts |
 | Rest (account, friends, channels, feedback, ui, form, …) | ~6.000 Zeilen | ui/ ist die Bibliothek selbst — Audit nur als Verbraucher, nicht die Primitives selbst |
@@ -63,7 +67,8 @@
 
 ## Vorschlag nächste Runde
 
-1. **Chat-Kern `components/` Teilpaket Chat/Messages** — in Teilpaketen.
-2. **`stream/`** (~10.200) — mit Begründungs-Pflicht je Fund (berechtigte Hardware-Komplexität).
-3. **Kleinreste**: routes/ (6k), Kleinzeug-Pakete (6k), mobile/ (1.2k), danach Desktop/Electron + shared/.
+1. **WS-Zugangs-Präambel** (5×, chat-gateway) — riskant markiert, eigene Session mit vollem Testlauf.
+2. **Message-Handler-Fabrik** (Runde-6-Fund, ~70 Zeilen) — beim dritten Konsumenten.
+3. **Rest**: mobile/ (1.2k), shared/ Backend-Feinsicht, Desktop/Electron + Rust-Sidecars (Plattform-Regeln).
+4. **dev/design-Route** (658 Z.) löschen, sobald die Button-Migration abgeschlossen ist.
 PAUSIERT: `dropbox.py`/`_dropbox_helpers.py` + `components/dropbox/` — aktive Entwicklung, erst nach Merge.

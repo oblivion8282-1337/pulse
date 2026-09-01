@@ -5,8 +5,9 @@
   import { settings } from '$lib/stores/settings.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
-  import { nameColor, nameStyle, idealTextColor } from '$lib/utils/nameColor';
+  import { nameColor, nameStyle, avatarFallbackStyle } from '$lib/utils/nameColor';
   import VoiceMuteIcon from './VoiceMuteIcon.svelte';
+  import PresenceBadge from '$lib/components/PresenceBadge.svelte';
   import type { UserVoiceState } from '$lib/stores/voicePresence.svelte';
   import UserProfilePopover from './UserProfilePopover.svelte';
   import { startUserDrag } from '$lib/voice/userDrag';
@@ -124,7 +125,7 @@
               {/if}
               <Avatar.Fallback
                 class="bg-primary text-primary-foreground text-2xs"
-                style={colour ? `background: ${colour}; color: ${idealTextColor(colour)}` : ''}
+                style={avatarFallbackStyle(colour)}
               >
                 {initial}
               </Avatar.Fallback>
@@ -167,72 +168,53 @@
                  Bild halten müssen. items-center zentriert Schrift + Punkt. -->
             {#if partyHostSet.has(uid)}
               {#if onPartyOpen}
-                <span
-                  role="button"
-                  tabindex="0"
-                  class="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-amber-400 hover:bg-amber-500/20"
-                  data-testid="user-watch-party-badge"
+                <PresenceBadge
+                  kind="party"
+                  label="PARTY"
                   title={m.voice_channel_members_watch_party_open()}
-                  aria-label={m.voice_channel_members_watch_party_open_label({ name })}
-                  onclick={(e) => { e.stopPropagation(); onPartyOpen(uid); }}
-                  onkeydown={(e) => {
-                    if (e.key !== 'Enter' && e.key !== ' ') return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onPartyOpen(uid);
-                  }}
-                ><span class="size-1.5 rounded-full bg-amber-400"></span>PARTY</span>
+                  ariaLabel={m.voice_channel_members_watch_party_open_label({ name })}
+                  testid="user-watch-party-badge"
+                  onclick={() => onPartyOpen(uid)}
+                />
               {:else}
-                <span
-                  class="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-amber-400"
-                  data-testid="user-watch-party-badge"
+                <PresenceBadge
+                  kind="party"
+                  label="PARTY"
                   title={m.voice_channel_members_watch_party_hosting()}
-                ><span class="size-1.5 rounded-full bg-amber-400"></span>PARTY</span>
+                  testid="user-watch-party-badge"
+                />
               {/if}
             {/if}
             {#if streamingSet.has(uid)}
               {#if onLiveOpen}
                 <!-- role=button (not <button>) — `<button>` inside the outer
                      context-menu trigger button would be invalid HTML. -->
-                <span
-                  role="button"
-                  tabindex="0"
-                  class="inline-flex items-center gap-1 rounded-md border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-red-400 hover:bg-red-500/20"
-                  data-testid="user-streaming-badge"
+                <PresenceBadge
+                  kind="live"
+                  label="LIVE"
                   title={m.voice_channel_members_stream_open()}
-                  aria-label={m.voice_channel_members_stream_open_label({ name })}
-                  onclick={(e) => { e.stopPropagation(); onLiveOpen(uid); }}
-                  onkeydown={(e) => {
-                    if (e.key !== 'Enter' && e.key !== ' ') return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onLiveOpen(uid);
-                  }}
-                ><span class="size-1.5 rounded-full bg-red-400"></span>LIVE</span>
+                  ariaLabel={m.voice_channel_members_stream_open_label({ name })}
+                  testid="user-streaming-badge"
+                  onclick={() => onLiveOpen(uid)}
+                />
               {:else}
-                <span
-                  class="inline-flex items-center gap-1 rounded-md border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-red-400"
-                  data-testid="user-streaming-badge"
+                <PresenceBadge
+                  kind="live"
+                  label="LIVE"
                   title={m.voice_channel_members_stream_sharing_screen()}
-                ><span class="size-1.5 rounded-full bg-red-400"></span>LIVE</span>
+                  testid="user-streaming-badge"
+                />
               {/if}
             {/if}
             {#if camSet.has(uid) && onCamOpen}
-              <span
-                role="button"
-                tabindex="0"
-                class="inline-flex items-center gap-1 rounded-md border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-cyan-400 hover:bg-cyan-500/20"
-                data-testid="user-cam-badge"
+              <PresenceBadge
+                kind="cam"
+                label="CAM"
                 title={m.voice_channel_members_cam_open()}
-                aria-label={m.voice_channel_members_cam_open_label({ name })}
-                onclick={(e) => { e.stopPropagation(); onCamOpen(uid); }}
-                onkeydown={(e) => {
-                  if (e.key !== 'Enter' && e.key !== ' ') return;
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onCamOpen(uid);
-                }}
-              ><span class="size-1.5 rounded-full bg-cyan-400"></span>CAM</span>
+                ariaLabel={m.voice_channel_members_cam_open_label({ name })}
+                testid="user-cam-badge"
+                onclick={() => onCamOpen(uid)}
+              />
             {/if}
           </span>
         </button>

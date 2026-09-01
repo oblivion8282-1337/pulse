@@ -11,10 +11,10 @@
   import { deviceStore } from '$lib/devices/store.svelte';
   import { geraetPfad } from '$lib/devices/darstellung';
   import { kanalAnlegen } from '$lib/channels/anlegen';
+  import { erstelleCommunity } from '$lib/guilds/erstellen';
   import type { Device } from '$lib/api/devices';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import DropboxView from '$lib/components/DropboxView.svelte';
-  import MobileVoiceStack from '$lib/components/MobileVoiceStack.svelte';
   import { isPluginEnabledForGuild } from '$lib/plugins';
   import TamagotchiWidget from '../../../../../../../../plugins/tamagotchi/components/TamagotchiWidget.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -30,12 +30,10 @@
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
   import { messages } from '$lib/stores/messages.svelte';
   import { roles } from '$lib/stores/roles.svelte';
-  import { guildSounds } from '$lib/stores/guildSounds.svelte';
   import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import { chatApi } from '$lib/api/chat';
   import { dropboxApi } from '$lib/api/dropbox';
-  import { rolesApi } from '$lib/api/roles';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
   import { gateway } from '$lib/ws/connection';
   import { useGatewayDeletedListener } from '$lib/ws/useGatewayListener.svelte';
@@ -95,12 +93,6 @@
   // Voice-Verbindung läuft weiter und bleibt über das Voice-Dock unter der
   // Navigationsleiste steuerbar. Zurück zum Sprachkanal: Räume-Tab (führt
   // zuletzt dorthin) oder Kanal-Wechsler.
-  let connectedVoiceChannel = $derived<Channel | null>(
-    voice.connected && voice.channelId
-      ? (channelsForGuild.find((c: Channel) => c.id === voice.channelId) ?? null)
-      : null
-  );
-  let showVoiceStack = $derived(false);
 
   // Auf Mobil hat ein Voice-Kanal keine eigene Vollbild-Seite: stattdessen
   // bleibt die Kanal-Liste sichtbar (oben Text-, unten Sprachkanäle). Zusätzlich
@@ -387,22 +379,8 @@
   }
 
   async function createGuild(name: string) {
-    const g = await chatApi.createGuild(name);
-    guilds.add(g);
-    // Same role+sound-store seeding rationale as in ``/app/+page.svelte`` —
-    // without this the owner's UI gates stay locked until ready rebuilds.
-    roles.recomputeGuild(g.id);
-    guildSounds.ensureSlot(g.id);
-    void rolesApi
-      .list(g.id)
-      .then((rows) => {
-        for (const r of rows) roles.upsertRole(r);
-      })
-      .catch(() => undefined);
+    await erstelleCommunity(name);
     creatingGuild = false;
-    const ch = await chatApi.createChannel(g.id, { name: 'general' });
-    guilds.addChannel(ch);
-    await goto(`/app/guilds/${g.id}/channels/${ch.id}`);
   }
 
   async function joinGuild(linkOrCode: string, confirmed?: boolean) {
@@ -454,7 +432,7 @@
       chatApi.postMessage(cid, text, { nonce, replyToId, attachmentIds })
         .then((real) => messages.upsert(real))
         .catch((e) => {
-          messages.removeOptimistic(cid, tmpId);
+          messages.remove(cid, tmpId);
           toast.error(pm.channel_page_send_failed(), { description: (e as Error).message });
         });
       return;
@@ -462,14 +440,14 @@
     const queued = gateway.send(cid, text, nonce, replyToId);
     if (!queued) {
       // WS not open — roll back the optimistic message and inform the user.
-      messages.removeOptimistic(cid, tmpId);
+      messages.remove(cid, tmpId);
       toast.error(pm.channel_page_no_connection());
       return;
     }
     const handle = setTimeout(() => {
       pendingOptimisticTimeouts.delete(nonce);
       if (!messages.isConfirmed(nonce)) {
-        messages.removeOptimistic(cid, tmpId);
+        messages.remove(cid, tmpId);
         toast.error(pm.channel_page_message_not_sent());
       }
     }, 10_000);
@@ -605,52 +583,43 @@
      jetzt weg (Kanaele: Wechsler von unten oder `/app/rooms/[guildId]`), also
      braeuchte dieselbe Bedingung einen leeren Bildschirm. Der Sprachkanal
      bekommt deshalb auch am Telefon seine eigene Ansicht. -->
-{#if true}
-  {#if showVoiceStack && connectedVoiceChannel}
-    {@const vc = connectedVoiceChannel}
-    <MobileVoiceStack
-      voiceChannel={vc}
-      onReturnToVoice={() => goto(`/app/guilds/${guildId}/channels/${vc.id}`)}
-      chat={chatBody}
+{#if offenesGeraet}
+  <!-- Ein Geraet steht IN einem Kanal, ist aber keiner: es hat keine
+       Teilnehmer und keinen Verlauf. Es ersetzt deshalb die Kanalansicht,
+       statt neben ihr zu stehen (Entwurf §5: „Anklicken oeffnet das Geraet im
+       Hauptbereich, wie ein Kanal"). -->
+  {#key offenesGeraet.id}
+    <DeviceView
+      device={offenesGeraet}
+      onOpenChannel={(cid) => goto(`/app/guilds/${guildId}/channels/${cid}`)}
     />
-  {:else if offenesGeraet}
-    <!-- Ein Geraet steht IN einem Kanal, ist aber keiner: es hat keine
-         Teilnehmer und keinen Verlauf. Es ersetzt deshalb die Kanalansicht,
-         statt neben ihr zu stehen (Entwurf §5: „Anklicken oeffnet das Geraet im
-         Hauptbereich, wie ein Kanal"). -->
-    {#key offenesGeraet.id}
-      <DeviceView
-        device={offenesGeraet}
-        onOpenChannel={(cid) => goto(`/app/guilds/${guildId}/channels/${cid}`)}
-      />
-    {/key}
-  {:else if isVoiceChannel && activeChannel}
-    {#key activeChannel.id}
-      <VoiceChannelView channel={activeChannel} />
-    {/key}
-  {:else if isDropboxChannel && activeChannel}
-    {#key activeChannel.id}
-      <DropboxView channel={activeChannel} />
-    {/key}
-  {:else if guildSuspended}
-    <section
-      class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 rounded-none p-8 text-center md:rounded-2xl"
-      data-testid="community-suspended"
-    >
-      <h2 class="text-text-bright text-lg font-semibold">{pm.community_suspended_title()}</h2>
-      <p class="text-text-muted max-w-sm text-sm">{pm.community_suspended_body()}</p>
-    </section>
-  {:else if loadError}
-    <section class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 md:rounded-2xl">
-      <FieldError message={loadError} testId="load-error" />
-      <Button
-        onclick={() => { loadError = null; prevGuild = ''; prevChannel = ''; void switchTo(guildId, channelId); }}
-        data-testid="load-retry"
-      >{pm.channel_page_retry()}</Button>
-    </section>
-  {:else}
-    {@render chatBody()}
-  {/if}
+  {/key}
+{:else if isVoiceChannel && activeChannel}
+  {#key activeChannel.id}
+    <VoiceChannelView channel={activeChannel} />
+  {/key}
+{:else if isDropboxChannel && activeChannel}
+  {#key activeChannel.id}
+    <DropboxView channel={activeChannel} />
+  {/key}
+{:else if guildSuspended}
+  <section
+    class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 rounded-none p-8 text-center md:rounded-2xl"
+    data-testid="community-suspended"
+  >
+    <h2 class="text-text-bright text-lg font-semibold">{pm.community_suspended_title()}</h2>
+    <p class="text-text-muted max-w-sm text-sm">{pm.community_suspended_body()}</p>
+  </section>
+{:else if loadError}
+  <section class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 md:rounded-2xl">
+    <FieldError message={loadError} testId="load-error" />
+    <Button
+      onclick={() => { loadError = null; prevGuild = ''; prevChannel = ''; void switchTo(guildId, channelId); }}
+      data-testid="load-retry"
+    >{pm.channel_page_retry()}</Button>
+  </section>
+{:else}
+  {@render chatBody()}
 {/if}
 
 <!--

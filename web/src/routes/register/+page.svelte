@@ -10,7 +10,7 @@
   import FieldLabel from '$lib/components/form/FieldLabel.svelte';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
-  import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';
+  import AuthCard from '$lib/components/AuthCard.svelte';
   import LegalFooter from '$lib/components/LegalFooter.svelte';
   import { startProfileRefresh } from '$lib/identity/profile-refresh.svelte';
   import { m } from '$lib/paraglide/messages.js';
@@ -100,16 +100,16 @@
   }
 </script>
 
-<div class="relative flex min-h-dvh">
-  <AuthBrandPanel
-    headline={m.register_brand_headline()}
-    description={m.register_brand_description()}
-    features={[
-      m.register_brand_feature_free(),
-      m.register_brand_feature_security(),
-      m.register_brand_feature_ready(),
-    ]}
-  />
+<AuthCard
+  outerClass="relative"
+  headline={m.register_brand_headline()}
+  description={m.register_brand_description()}
+  features={[
+    m.register_brand_feature_free(),
+    m.register_brand_feature_security(),
+    m.register_brand_feature_ready(),
+  ]}
+>
 
   <!-- Formular-Pane: auf Mobil volle Breite + zentriert; ab md: fixe 46 % -->
   <div class="flex flex-1 items-center justify-center p-4 md:flex-none md:basis-[46%]">
@@ -230,4 +230,4 @@
   <div class="absolute inset-x-0 bottom-0 z-30 flex justify-center p-4">
     <LegalFooter />
   </div>
-</div>
+</AuthCard>

@@ -2727,6 +2727,7 @@
   "stream_controls_error_not_member": "You are not a member of this channel.",
   "stream_controls_error_not_voice_channel": "HQ streaming is only available in voice channels.",
   "stream_controls_error_start_failed": "Start failed.",
+  "stream_controls_error_stop_failed": "Stop failed.",
   "stream_controls_error_token_fetch_failed": "Could not fetch stream token.",
   "stream_controls_state_error": "Error",
   "stream_controls_state_stopped": "Stopped",

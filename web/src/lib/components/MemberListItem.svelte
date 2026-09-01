@@ -5,7 +5,8 @@
   import UserProfilePopover from './UserProfilePopover.svelte';
   import { startUserDrag } from '$lib/voice/userDrag';
   import { userCache } from '$lib/stores/users.svelte';
-  import { nameColor, nameStyle, idealTextColor } from '$lib/utils/nameColor';
+  import { nameColor, nameStyle, avatarFallbackStyle } from '$lib/utils/nameColor';
+  import PresenceBadge from '$lib/components/PresenceBadge.svelte';
   import { settings } from '$lib/stores/settings.svelte';
   import { roles } from '$lib/stores/roles.svelte';
   import { memberRoles } from '$lib/stores/memberRoles.svelte';
@@ -103,7 +104,7 @@
           {/if}
           <Avatar.Fallback
             class="accent-gradient text-primary-foreground text-xs font-semibold"
-            style={colour ? `background: ${colour}; color: ${idealTextColor(colour)}` : ''}
+            style={avatarFallbackStyle(colour)}
           >
             {initials}
           </Avatar.Fallback>
@@ -129,16 +130,16 @@
           ><span class="size-1.5 rounded-full bg-amber-400"></span>PARTY</span>
         {/if}
         {#if isStreaming}
-          <span
-            role="button"
-            tabindex="0"
-            onclick={(e) => { e.stopPropagation(); onActivityClick(member.user_id); }}
-            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onActivityClick(member.user_id); } }}
-            class="inline-flex cursor-pointer items-center gap-1 rounded-md border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-red-400 hover:bg-red-500/20"
-            data-testid="member-live-badge"
-            aria-label={m.member_list_item_stream_open_label({ name })}
-            title={m.member_list_item_stream_open_title()}
-          ><span class="size-1.5 rounded-full bg-red-400"></span>LIVE</span>
+          <span class="inline-flex">
+            <PresenceBadge
+              kind="live"
+              label="LIVE"
+              title={m.member_list_item_stream_open_title()}
+              ariaLabel={m.member_list_item_stream_open_label({ name })}
+              testid="member-live-badge"
+              onclick={() => onActivityClick(member.user_id)}
+            />
+          </span>
         {/if}
       </span>
     </button>

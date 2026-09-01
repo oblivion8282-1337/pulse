@@ -6,7 +6,7 @@
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import MailCheckIcon from '@lucide/svelte/icons/mail-check';
-  import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';
+  import AuthCard from '$lib/components/AuthCard.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
   let emailOrUsername = $state('');
@@ -31,19 +31,16 @@
   }
 </script>
 
-<div class="flex min-h-dvh">
-  <AuthBrandPanel
-    headline={m.forgot_password_brand_headline()}
-    headlineSub={m.forgot_password_brand_headline_sub()}
-    description={m.forgot_password_brand_description()}
-    features={[
-      m.forgot_password_feature_link_expires(),
-      m.forgot_password_feature_username_works(),
-      m.forgot_password_feature_argon2(),
-    ]}
-  />
-
-  <div class="flex flex-1 items-center justify-center p-4 md:flex-none md:basis-[46%]">
+<AuthCard
+  headline={m.forgot_password_brand_headline()}
+  headlineSub={m.forgot_password_brand_headline_sub()}
+  description={m.forgot_password_brand_description()}
+  features={[
+    m.forgot_password_feature_link_expires(),
+    m.forgot_password_feature_username_works(),
+    m.forgot_password_feature_argon2(),
+  ]}
+>
     {#if submitted}
       <div
         class="bg-card w-full max-w-md space-y-4 rounded-xl p-8 text-center shadow-2xl"
@@ -114,5 +111,4 @@
         </p>
       </form>
     {/if}
-  </div>
-</div>
+  </AuthCard>

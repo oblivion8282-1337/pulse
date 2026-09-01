@@ -28,6 +28,7 @@
   import FileTextIcon from '@lucide/svelte/icons/file-text';
   import DownloadIcon from '@lucide/svelte/icons/download';
   import { m } from '$lib/paraglide/messages.js';
+  import { formatBytes } from '$lib/utils/formatBytes';
 
   let { attachments }: { attachments: Attachment[] } = $props();
 
@@ -37,13 +38,6 @@
   function openLightbox(a: Attachment) {
     lightboxAttachment = a;
     lightboxOpen = true;
-  }
-
-  function fmtBytes(n: number): string {
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-    if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-    return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
   }
 
   function kind(mime: string | null): 'image' | 'video' | 'audio' | 'pdf' | 'other' {
@@ -133,7 +127,7 @@
             <p class="text-text-bright truncate font-medium">
               {a.filename ?? m.message_attachments_unnamed()}
             </p>
-            <p class="text-text-muted text-xs">{fmtBytes(a.size)}</p>
+            <p class="text-text-muted text-xs">{formatBytes(a.size)}</p>
           </div>
           <DownloadIcon class="text-text-muted size-4 shrink-0" />
         </a>

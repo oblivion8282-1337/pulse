@@ -16,9 +16,10 @@
  *     viewer keeps them — the navigate-away lifecycle is handled by the anchor
  *     action in StreamGrid (closes only when you leave the view AND aren't in
  *     that voice channel) and by the WatchBackgroundHost (voice disconnect).
- *  2. An anchor registry: StreamGrid registers an empty placeholder element per
- *     open party while its channel is viewed. The host overlays its fixed player
- *     onto that element's rect. No anchor => the host shows the corner window.
+ *  2. An anchor registry (shared `createAnchorRegistry`): StreamGrid registers
+ *     an empty placeholder element per open party while its channel is viewed.
+ *     The host overlays its fixed player onto that element's rect. No anchor =>
+ *     the host shows the corner window.
  *
  * A single rAF ticker (active only while >= 1 anchor is registered) re-reads
  * every anchor's getBoundingClientRect each frame and updates state ONLY on
@@ -29,113 +30,63 @@
  * made the earlier PiP attempt fragile. See the design spec.
  */
 
+import { createAnchorRegistry } from '$lib/stream/anchorRegistry.svelte';
+
 export function partyKey(channelId: string, partyId: string): string {
   return `${channelId}::${partyId}`;
 }
 
-function rectsEqual(a: DOMRect | null, b: DOMRect | null): boolean {
-  if (a === null || b === null) return a === b;
-  return a.top === b.top && a.left === b.left && a.width === b.width && a.height === b.height;
-}
+const anchors = createAnchorRegistry();
+let open = $state<Set<string>>(new Set());
 
-class WatchBackground {
-  #open = $state<Set<string>>(new Set());
-  #anchorEls = new Map<string, HTMLElement>();
-  #rects = $state<Map<string, DOMRect | null>>(new Map());
-  #rafId: number | null = null;
-
+export const watchBackground = {
   openParty(channelId: string, partyId: string): void {
     const k = partyKey(channelId, partyId);
-    if (this.#open.has(k)) return;
-    this.#open = new Set(this.#open).add(k);
-  }
+    if (open.has(k)) return;
+    open = new Set(open).add(k);
+  },
 
   closeParty(channelId: string, partyId: string): void {
     const k = partyKey(channelId, partyId);
-    if (!this.#open.has(k)) return;
-    const next = new Set(this.#open);
+    if (!open.has(k)) return;
+    const next = new Set(open);
     next.delete(k);
-    this.#open = next;
-  }
+    open = next;
+  },
 
   isOpenParty(channelId: string, partyId: string): boolean {
-    return this.#open.has(partyKey(channelId, partyId));
-  }
+    return open.has(partyKey(channelId, partyId));
+  },
 
   openParties(): { channelId: string; partyId: string }[] {
     const out: { channelId: string; partyId: string }[] = [];
-    for (const k of this.#open) {
+    for (const k of open) {
       const sep = k.indexOf('::');
       if (sep < 0) continue;
       out.push({ channelId: k.slice(0, sep), partyId: k.slice(sep + 2) });
     }
     return out;
-  }
+  },
 
   /** Drop every open party in a channel — used when the voice connection drops. */
   resetChannel(channelId: string): void {
     const prefix = `${channelId}::`;
     let changed = false;
-    const next = new Set(this.#open);
-    for (const k of this.#open) {
+    const next = new Set(open);
+    for (const k of open) {
       if (k.startsWith(prefix)) {
         next.delete(k);
         changed = true;
       }
     }
-    if (changed) this.#open = next;
-  }
+    if (changed) open = next;
+  },
 
   registerAnchor(channelId: string, partyId: string, el: HTMLElement): () => void {
-    const k = partyKey(channelId, partyId);
-    this.#anchorEls.set(k, el);
-    // Measure immediately so the docked overlay has a rect before the first
-    // rAF frame (no flash); the ticker keeps it in sync afterwards.
-    const rect = el.getBoundingClientRect();
-    if (!rectsEqual(this.#rects.get(k) ?? null, rect)) {
-      const next = new Map(this.#rects);
-      next.set(k, rect);
-      this.#rects = next;
-    }
-    this.#ensureTicker();
-    return () => {
-      this.#anchorEls.delete(k);
-      if (this.#rects.has(k)) {
-        const next = new Map(this.#rects);
-        next.delete(k);
-        this.#rects = next;
-      }
-      if (this.#anchorEls.size === 0) this.#stopTicker();
-    };
-  }
+    return anchors.register(partyKey(channelId, partyId), el);
+  },
 
   anchorRect(channelId: string, partyId: string): DOMRect | null {
-    return this.#rects.get(partyKey(channelId, partyId)) ?? null;
+    return anchors.rect(partyKey(channelId, partyId));
   }
-
-  #ensureTicker(): void {
-    if (this.#rafId !== null || typeof requestAnimationFrame === 'undefined') return;
-    const tick = (): void => {
-      let next: Map<string, DOMRect | null> | null = null;
-      for (const [k, el] of this.#anchorEls) {
-        const rect = el.getBoundingClientRect();
-        if (!rectsEqual(this.#rects.get(k) ?? null, rect)) {
-          next ??= new Map(this.#rects);
-          next.set(k, rect);
-        }
-      }
-      if (next) this.#rects = next;
-      this.#rafId = requestAnimationFrame(tick);
-    };
-    this.#rafId = requestAnimationFrame(tick);
-  }
-
-  #stopTicker(): void {
-    if (this.#rafId !== null) {
-      cancelAnimationFrame(this.#rafId);
-      this.#rafId = null;
-    }
-  }
-}
-
-export const watchBackground = new WatchBackground();
+};
