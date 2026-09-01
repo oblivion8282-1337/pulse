@@ -29,6 +29,7 @@ import {
 	type VerzeichnisDaten,
 } from './dateiablage.ts';
 import type { AblageAdapter } from './adapter.ts';
+import { zufallsHex } from './hex.ts';
 
 export const VERZEICHNIS_DATEI = 'verzeichnis.puls';
 
@@ -39,12 +40,6 @@ export interface DateiInfo {
 	groesse: number;
 	hochgeladenAm: string;
 	hochgeladenVon: string;
-}
-
-function zufallsHex(laenge: number): string {
-	const bytes = new Uint8Array(laenge);
-	globalThis.crypto.getRandomValues(bytes);
-	return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 export class DateiSpeicher {

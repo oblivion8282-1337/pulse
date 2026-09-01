@@ -16,6 +16,7 @@
    * genau diesen Umzug wartet). Wer hier aufräumt, löscht die Vorarbeit.
    */
 
+  import { groesseText } from '$lib/ablage/groesseText';
   import { syncOrdnerMoeglich, adapterAusVerzeichnis } from '$lib/ablage/syncOrdner';
   import type { AblageVerzeichnis } from '$lib/ablage/syncOrdner';
   import {
@@ -24,7 +25,7 @@
     dropboxAdapter,
     type DropboxAnbindung,
   } from '$lib/ablage/dropbox';
-  import type { Pkce } from '$lib/ablage/oauth';
+  import { erzeugePkce, type Pkce } from '$lib/ablage/oauth';
   import { DateiSpeicher } from '$lib/ablage/dateispeicher';
   import { sichererBlobTyp } from '$lib/krypto/sichererBlobTyp';
   import type { DateiInfo } from '$lib/ablage/dateispeicher';
@@ -61,29 +62,7 @@
     return FileIcon;
   }
 
-  function groesseText(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  }
-
   // --- Dropbox OAuth ---
-
-  async function erzeugePkceSync(): Promise<{ pruefer: string; herausforderung: string }> {
-    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(32));
-    const pruefer = btoa(String.fromCharCode(...bytes))
-      .replaceAll('+', '-')
-      .replaceAll('/', '_')
-      .replaceAll('=', '');
-    const roh = new Uint8Array(
-      await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(pruefer)),
-    );
-    const herausforderung = btoa(String.fromCharCode(...roh))
-      .replaceAll('+', '-')
-      .replaceAll('/', '_')
-      .replaceAll('=', '');
-    return { pruefer, herausforderung };
-  }
 
   function zufallsState(): string {
     return `ablage-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -118,7 +97,7 @@
     if (!token) {
       // Kein Token → OAuth-Redirect zu Dropbox starten
       const anbindung: DropboxAnbindung = { kundenId: DROPBOX_KEY };
-      const pkce = await erzeugePkceSync();
+      const pkce = await erzeugePkce();
       const zustand = zufallsState();
       sessionStorage.setItem('ablage_pkce_verifier', pkce.pruefer);
       sessionStorage.setItem('ablage_oauth_state', zustand);

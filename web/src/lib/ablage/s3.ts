@@ -11,6 +11,8 @@
  */
 
 import type { AblageAdapter } from './adapter.ts';
+import { bytesZuHex } from './hex.ts';
+import { sha256Hex } from './pruefsumme.ts';
 
 export interface S3Anbindung {
 	/** Basisadresse ohne Eimer, z. B. https://fsn1.your-objectstorage.com */
@@ -43,11 +45,6 @@ async function hmac(schluessel: Uint8Array, text: string): Promise<Uint8Array<Ar
 		['sign'],
 	);
 	return new Uint8Array(await krypto.sign('HMAC', schluesselRef, new TextEncoder().encode(text)));
-}
-
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
-	const verdau = await globalThis.crypto.subtle.digest('SHA-256', bytes as unknown as ArrayBuffer);
-	return [...new Uint8Array(verdau)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 /** URI-Kodierung nach SigV4: strenger als encodeURIComponent, / bleibt. */
@@ -121,7 +118,7 @@ export async function signiereAnfrage(
 	for (const stufe of [tag, anbindung.region, 's3', 'aws4_request', nachzuSignieren]) {
 		kette = await hmac(kette, stufe);
 	}
-	const signatur = [...kette].map((b) => b.toString(16).padStart(2, '0')).join('');
+	const signatur = bytesZuHex(kette);
 
 	return {
 		...kopf,

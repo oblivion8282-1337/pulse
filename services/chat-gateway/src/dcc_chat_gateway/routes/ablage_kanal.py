@@ -49,6 +49,25 @@ async def _ablage_kanal_oder_404(session: SessionDep, channel_id: int) -> Channe
     return channel
 
 
+async def _kanal_fuer_mitglied(
+    session: SessionDep, channel_id: int, current: CurrentUser
+) -> Channel:
+    """Das Eingangstor beider Routen: Kanal da, Aufrufer Mitglied, ``VIEW_CHANNEL``.
+
+    Die Reihenfolge ist Teil der Zusicherung und nicht beliebig: erst 404 (den
+    Kanal gibt es nicht), dann 403 (es gibt ihn, du gehoerst nicht dazu), dann
+    die Rechtepruefung. Beide Routen brauchen genau diese drei Schritte —
+    sie standen bis zum 2026-09-01 zeichengleich in jeder von ihnen.
+    """
+    channel = await _ablage_kanal_oder_404(session, channel_id)
+    if not await channel_membership(session, channel.id, current.id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="not a member of this guild")
+    await check_permission(
+        session, current, channel.guild_id, Permissions.VIEW_CHANNEL, channel_id=channel.id
+    )
+    return channel
+
+
 @router.put(
     "/channels/{channel_id}/ablage/laufwerk",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -63,12 +82,7 @@ async def setze_freigabe_adresse(
     Zeile an und macht den Aufrufer zum ``ersteller_id`` (Design §4.0 —
     ``Channel`` kennt sonst keinen Ersteller, s. ``models/ablage_laufwerk.py``);
     jedes weitere PUT darf nur noch von genau diesem Konto kommen."""
-    channel = await _ablage_kanal_oder_404(session, channel_id)
-    if not await channel_membership(session, channel.id, current.id):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="not a member of this guild")
-    await check_permission(
-        session, current, channel.guild_id, Permissions.VIEW_CHANNEL, channel_id=channel.id
-    )
+    channel = await _kanal_fuer_mitglied(session, channel_id, current)
     if not ratelimit.check("ablage_laufwerk_setzen", current.id):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limited")
 
@@ -117,12 +131,7 @@ async def ablage_abruf(
       nichts protokolliert — insbesondere nie die Freigabe-Adresse oder der
       aufgeloeste Pfad.
     """
-    channel = await _ablage_kanal_oder_404(session, channel_id)
-    if not await channel_membership(session, channel.id, current.id):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="not a member of this guild")
-    await check_permission(
-        session, current, channel.guild_id, Permissions.VIEW_CHANNEL, channel_id=channel.id
-    )
+    channel = await _kanal_fuer_mitglied(session, channel_id, current)
     if not ratelimit.check("ablage_abruf", current.id):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limited")
 

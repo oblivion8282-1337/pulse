@@ -41,7 +41,13 @@ function basis64url(bytes: Uint8Array): string {
 		.replaceAll('=', '');
 }
 
-function sha256HexAlsBytes(text: string): Promise<Uint8Array> {
+/** Der ROHE Hash, nicht seine Hex-Schreibweise. Hiess bis zum 2026-09-01
+ *  `sha256HexAlsBytes` und log damit im Namen: Hex kommt hier nirgends vor.
+ *  Der Unterschied ist keine Wortklauberei — die PKCE-S256-Herausforderung
+ *  ist `BASE64URL(SHA256(pruefer))`. Waere hier wirklich Hex herausgekommen
+ *  und base64-kodiert worden, haette die Gegenstelle jeden Tausch
+ *  abgelehnt. */
+function sha256Bytes(text: string): Promise<Uint8Array> {
 	return globalThis.crypto.subtle
 		.digest('SHA-256', new TextEncoder().encode(text) as unknown as ArrayBuffer)
 		.then((d) => new Uint8Array(d));
@@ -52,7 +58,7 @@ export async function erzeugePkce(): Promise<Pkce> {
 	const zufall = new Uint8Array(32);
 	globalThis.crypto.getRandomValues(zufall);
 	const pruefer = basis64url(zufall);
-	const herausforderung = basis64url(await sha256HexAlsBytes(pruefer));
+	const herausforderung = basis64url(await sha256Bytes(pruefer));
 	return { pruefer, herausforderung };
 }
 

@@ -18,6 +18,7 @@
    * Communities noch nicht verdrahtet). Ohne ihn bleiben Hoch-/Herunterladen
    * auf diesem Geraet aus, mit Meldung statt Absturz.
    */
+  import { groesseText } from '$lib/ablage/groesseText';
   import { onDestroy, onMount } from 'svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import UploadIcon from '@lucide/svelte/icons/upload';
@@ -43,12 +44,6 @@
   let fehler = $state('');
   let dateiInput: HTMLInputElement | null = $state(null);
   let stoppeFestigung: (() => void) | null = null;
-
-  function groesseText(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  }
 
   async function ladeListe(): Promise<void> {
     const zwischenlager = await ablageGuildApi.zwischenlagerListe(guildId);

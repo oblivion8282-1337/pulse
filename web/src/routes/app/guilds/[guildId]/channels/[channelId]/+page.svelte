@@ -14,7 +14,6 @@
   import type { Device } from '$lib/api/devices';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import DropboxView from '$lib/components/DropboxView.svelte';
-  import MobileVoiceStack from '$lib/components/MobileVoiceStack.svelte';
   import { isPluginEnabledForGuild } from '$lib/plugins';
   import TamagotchiWidget from '../../../../../../../../plugins/tamagotchi/components/TamagotchiWidget.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -83,28 +82,22 @@
   // eingefroren (Server blockt Lesen/Senden mit 403) — statt einer generischen
   // Fehlermeldung zeigen wir eine klare „eingefroren"-Tafel. Admins ausgenommen.
   let guildSuspended = $derived(!!activeGuild?.suspended && !isServerAdmin);
+  // Darf ich Kanäle anlegen? Von ChannelList UND ChannelSwitcherSheet gleichermassen
+  // gebraucht (Rechner-Spalte vs. Handy-Blatt fuer dieselbe Liste).
+  let canManageChannels = $derived(
+    !!activeGuild && roles.hasGuildPermission(activeGuild.id, Perm.MANAGE_CHANNELS)
+  );
   let channelsForGuild = $derived<Channel[]>(guilds.channelsByGuild[guildId] ?? []);
   let activeChannel = $derived<Channel | null>(
     channelsForGuild.find((c: Channel) => c.id === channelId) ?? null
   );
+  let activeChannelId = $derived(activeChannel?.id ?? null);
   let isVoiceChannel = $derived(activeChannel?.type === 1);
   let isDropboxChannel = $derived(activeChannel?.type === 2);
   // Alt-Kanal eingefroren (Entwurf §9, Etappe E9): der Server weist neue
   // Nachrichten serverseitig ab (403/4015), das Eingabefeld erklärt das
   // schon vorher statt still zu scheitern. Verlauf bleibt lesbar.
   let legacyReadonly = $derived(!!activeChannel?.legacy_readonly);
-  // Mobil + im Voice + Text-Kanal derselben Community: KEIN Karten-Stapel
-  // mehr (2026-08-26, Nutzerwunsch) — die rausschauende Voice-Karte über dem
-  // Chat galt als verbuggt. Der Text-Kanal füllt den Bildschirm normal; die
-  // Voice-Verbindung läuft weiter und bleibt über das Voice-Dock unter der
-  // Navigationsleiste steuerbar. Zurück zum Sprachkanal: Räume-Tab (führt
-  // zuletzt dorthin) oder Kanal-Wechsler.
-  let connectedVoiceChannel = $derived<Channel | null>(
-    voice.connected && voice.channelId
-      ? (channelsForGuild.find((c: Channel) => c.id === voice.channelId) ?? null)
-      : null
-  );
-  let showVoiceStack = $derived(false);
 
   // Auf Mobil hat ein Voice-Kanal keine eigene Vollbild-Seite: stattdessen
   // bleibt die Kanal-Liste sichtbar (oben Text-, unten Sprachkanäle). Zusätzlich
@@ -326,6 +319,7 @@
     const id = page.url.searchParams.get('device');
     return id ? deviceStore.byId(guildId, id) : null;
   });
+  const offenesGeraetId = $derived(offenesGeraet?.id ?? null);
 
   function geraetOeffnen(d: Device): void {
     void goto(geraetPfad(d));
@@ -358,12 +352,12 @@
   <ChannelList
     guild={activeGuild ?? null}
     channels={channelsForGuild}
-    activeChannelId={activeChannel?.id ?? null}
+    {activeChannelId}
     onSelect={selectChannel}
     onCreateClick={() => (creatingChannel = true)}
     {onChannelDeleted}
-    canCreate={!!activeGuild && roles.hasGuildPermission(activeGuild.id, Perm.MANAGE_CHANNELS)}
-    activeDeviceId={offenesGeraet?.id ?? null}
+    canCreate={canManageChannels}
+    activeDeviceId={offenesGeraetId}
     onSelectDevice={geraetOeffnen}
   />
 {/if}
@@ -393,52 +387,43 @@
      jetzt weg (Kanaele: Wechsler von unten oder `/app/rooms/[guildId]`), also
      braeuchte dieselbe Bedingung einen leeren Bildschirm. Der Sprachkanal
      bekommt deshalb auch am Telefon seine eigene Ansicht. -->
-{#if true}
-  {#if showVoiceStack && connectedVoiceChannel}
-    {@const vc = connectedVoiceChannel}
-    <MobileVoiceStack
-      voiceChannel={vc}
-      onReturnToVoice={() => goto(`/app/guilds/${guildId}/channels/${vc.id}`)}
-      chat={chatBody}
+{#if offenesGeraet}
+  <!-- Ein Geraet steht IN einem Kanal, ist aber keiner: es hat keine
+       Teilnehmer und keinen Verlauf. Es ersetzt deshalb die Kanalansicht,
+       statt neben ihr zu stehen (Entwurf §5: „Anklicken oeffnet das Geraet im
+       Hauptbereich, wie ein Kanal"). -->
+  {#key offenesGeraet.id}
+    <DeviceView
+      device={offenesGeraet}
+      onOpenChannel={(cid) => goto(`/app/guilds/${guildId}/channels/${cid}`)}
     />
-  {:else if offenesGeraet}
-    <!-- Ein Geraet steht IN einem Kanal, ist aber keiner: es hat keine
-         Teilnehmer und keinen Verlauf. Es ersetzt deshalb die Kanalansicht,
-         statt neben ihr zu stehen (Entwurf §5: „Anklicken oeffnet das Geraet im
-         Hauptbereich, wie ein Kanal"). -->
-    {#key offenesGeraet.id}
-      <DeviceView
-        device={offenesGeraet}
-        onOpenChannel={(cid) => goto(`/app/guilds/${guildId}/channels/${cid}`)}
-      />
-    {/key}
-  {:else if isVoiceChannel && activeChannel}
-    {#key activeChannel.id}
-      <VoiceChannelView channel={activeChannel} />
-    {/key}
-  {:else if isDropboxChannel && activeChannel}
-    {#key activeChannel.id}
-      <DropboxView channel={activeChannel} />
-    {/key}
-  {:else if guildSuspended}
-    <section
-      class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 rounded-none p-8 text-center md:rounded-2xl"
-      data-testid="community-suspended"
-    >
-      <h2 class="text-text-bright text-lg font-semibold">{pm.community_suspended_title()}</h2>
-      <p class="text-text-muted max-w-sm text-sm">{pm.community_suspended_body()}</p>
-    </section>
-  {:else if kanalWechsel.loadError}
-    <section class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 md:rounded-2xl">
-      <FieldError message={kanalWechsel.loadError} testId="load-error" />
-      <Button
-        onclick={() => kanalWechsel.retry(guildId, channelId)}
-        data-testid="load-retry"
-      >{pm.channel_page_retry()}</Button>
-    </section>
-  {:else}
-    {@render chatBody()}
-  {/if}
+  {/key}
+{:else if isVoiceChannel && activeChannel}
+  {#key activeChannel.id}
+    <VoiceChannelView channel={activeChannel} />
+  {/key}
+{:else if isDropboxChannel && activeChannel}
+  {#key activeChannel.id}
+    <DropboxView channel={activeChannel} />
+  {/key}
+{:else if guildSuspended}
+  <section
+    class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 rounded-none p-8 text-center md:rounded-2xl"
+    data-testid="community-suspended"
+  >
+    <h2 class="text-text-bright text-lg font-semibold">{pm.community_suspended_title()}</h2>
+    <p class="text-text-muted max-w-sm text-sm">{pm.community_suspended_body()}</p>
+  </section>
+{:else if kanalWechsel.loadError}
+  <section class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 md:rounded-2xl">
+    <FieldError message={kanalWechsel.loadError} testId="load-error" />
+    <Button
+      onclick={() => kanalWechsel.retry(guildId, channelId)}
+      data-testid="load-retry"
+    >{pm.channel_page_retry()}</Button>
+  </section>
+{:else}
+  {@render chatBody()}
 {/if}
 
 <!--
@@ -476,12 +461,12 @@
   bind:open={wechslerOffen}
   guild={activeGuild ?? null}
   channels={channelsForGuild}
-  activeChannelId={activeChannel?.id ?? null}
+  {activeChannelId}
   onSelect={selectChannel}
   onCreateClick={() => (creatingChannel = true)}
   {onChannelDeleted}
-  canCreate={!!activeGuild && roles.hasGuildPermission(activeGuild.id, Perm.MANAGE_CHANNELS)}
-  activeDeviceId={offenesGeraet?.id ?? null}
+  canCreate={canManageChannels}
+  activeDeviceId={offenesGeraetId}
   onSelectDevice={geraetOeffnen}
 />
 

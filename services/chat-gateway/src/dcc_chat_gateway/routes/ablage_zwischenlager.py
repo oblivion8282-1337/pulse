@@ -91,6 +91,23 @@ async def _belegte_bytes(session: SessionDep, guild_id: int) -> int:
     ).scalar_one()
 
 
+async def _eintrag_oder_404(
+    session: SessionDep, guild_id: int, eintrag_id: int
+) -> AblageZwischenlagerDatei:
+    """Holt den Eintrag und besteht darauf, dass er zu DIESER Community gehoert.
+
+    Ein Eintrag einer fremden Community wird bewusst als 404 abgewiesen, nicht
+    als 403: ein 403 wuerde bestaetigen, dass es die Kennung gibt, und damit
+    ueber Community-Grenzen hinweg die Existenz fremder Dateien verraten. Die
+    Kennungen sind Snowflakes und nicht zu erraten — aber genau das ist eine
+    Annahme ueber den Angreifer, keine Zusicherung des Codes.
+    """
+    zeile = await session.get(AblageZwischenlagerDatei, eintrag_id)
+    if zeile is None or zeile.guild_id != guild_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not found")
+    return zeile
+
+
 @router.post(
     "/guilds/{guild_id}/ablage/zwischenlager",
     response_model=ZwischenlagerAnkuendigungOut,
@@ -188,9 +205,7 @@ async def zwischenlager_download_url(
 ) -> dict[str, str]:
     await guild_oder_404(session, guild_id)
     await mitglied_oder_403(session, guild_id, current.id)
-    zeile = await session.get(AblageZwischenlagerDatei, eintrag_id)
-    if zeile is None or zeile.guild_id != guild_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not found")
+    zeile = await _eintrag_oder_404(session, guild_id, eintrag_id)
     url = await s3.presigned_get_url(zeile.storage_key)
     return {"url": url}
 
@@ -212,9 +227,7 @@ async def zwischenlager_quittieren(
             status.HTTP_403_FORBIDDEN,
             detail="only the guild owner may acknowledge a staged file",
         )
-    zeile = await session.get(AblageZwischenlagerDatei, eintrag_id)
-    if zeile is None or zeile.guild_id != guild_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not found")
+    zeile = await _eintrag_oder_404(session, guild_id, eintrag_id)
     storage_key = zeile.storage_key
     await session.delete(zeile)
     await session.commit()

@@ -31,7 +31,8 @@
  */
 
 import { DateiSpeicher } from './dateispeicher.ts';
-import type { AblageAdapter } from './adapter';
+import type { AblageAdapter } from './adapter.ts';
+import type { AblageAnbieterArt } from './anbieter.ts';
 import { aktuellesKonto } from '../verlauf/konto';
 import { gehoertZuKonto } from '../verlauf/kontoFilter';
 import type { Zugang } from './oauth.ts';
@@ -48,13 +49,17 @@ import {
 } from './verbindungenDb.ts';
 import { bestimmeArchivWechsel } from './archivMarkierung.ts';
 
-export type AblageAnbieterArt =
-  | 'dropbox'
-  | 'onedrive'
-  | 'gdrive'
-  | 'nextcloud'
-  | 'sync_ordner'
-  | 's3';
+/**
+ * Die Anbieter-Arten kommen aus `anbieter.ts` — der Liste, die genau dafuer
+ * angelegt wurde, dass nicht jede Stelle sie selbst aufzaehlt (s. dort im
+ * Modulkopf: „zwei getrennte Verbindungs-Stores mit je eigener
+ * `AblageAnbieterArt`"). Hier stand bis zum 2026-09-01 eine zweite,
+ * zeichengleiche Kopie — der letzte Rest ebenjener Streuung.
+ *
+ * Weiterhin von hier ausgegeben, weil `krypto/wiederherstellung.svelte.ts`
+ * den Typ ueber diesen Store bezieht.
+ */
+export type { AblageAnbieterArt };
 
 export interface AblageVerbindung {
   id: string;

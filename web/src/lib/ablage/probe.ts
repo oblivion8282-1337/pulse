@@ -4,11 +4,14 @@
  * hat. Ohne diesen Lauf legt jemand einen Kanal auf einem Laufwerk an, das
  * am Ende gar nicht schreiben kann.
  *
- * Reines Rechen-/Ablaufmodul ohne Laufzeit-Importe (nur `import type`) —
- * Nodes eingebauter Testläufer prüft diese Datei direkt, ohne Bundler.
+ * Reines Rechen-/Ablaufmodul — Nodes eingebauter Testläufer prüft diese
+ * Datei direkt, ohne Bundler. Der einzige Laufzeit-Import geht auf
+ * `hex.ts`, das selbst importfrei ist; die Endung `.ts` ist Pflicht, weil
+ * Node einen erweiterungslosen Pfad nicht auflöst (s. CLAUDE.md).
  */
 
 import type { AblageAdapter } from './adapter.ts';
+import { zufallsHex } from './hex.ts';
 
 export type ProbeSchritt = 'schreiben' | 'lesen' | 'vergleichen' | 'loeschen';
 
@@ -18,12 +21,6 @@ export type ProbeErgebnis =
 
 const DATEINAME_PRAEFIX = 'pulse-probe-';
 const DATEINAME_SUFFIX = '.tmp';
-
-function zufallsHex(laenge: number): string {
-	const bytes = new Uint8Array(laenge);
-	globalThis.crypto.getRandomValues(bytes);
-	return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
-}
 
 function probeDateiname(): string {
 	// Erkennbar am Präfix, damit ein Nutzer die Datei zuordnen kann, falls

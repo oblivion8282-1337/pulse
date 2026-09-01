@@ -27,7 +27,7 @@
  * gelöscht wurde.
  */
 
-import type { AblageAdapter } from './adapter';
+import type { AblageAdapter } from './adapter.ts';
 
 /** Zustand eines einzelnen Spiegel-Ziels — Rohmaterial für die Verbindungsanzeige (E1). */
 export interface SpiegelZielZustand {

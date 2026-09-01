@@ -13,6 +13,7 @@
    * (Etappe E8). Wer hier aufraeumt, loescht die Vorarbeit.
    */
 
+  import { groesseText } from '$lib/ablage/groesseText';
   import { DateiSpeicher } from '$lib/ablage/dateispeicher';
   import { sichererBlobTyp } from '$lib/krypto/sichererBlobTyp';
   import type { DateiInfo } from '$lib/ablage/dateispeicher';
@@ -41,12 +42,6 @@
     if (mime.includes('spreadsheet') || mime.includes('excel')) return '📊';
     if (mime.startsWith('text/')) return '📝';
     return '📄';
-  }
-
-  function groesseText(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   }
 
   async function neuLaden(): Promise<void> {
