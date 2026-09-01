@@ -2,18 +2,20 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
-      "id": "2026-08-31",
-      "date": "2026-08-31",
+      "id": "2026-09-01",
+      "date": "2026-09-01",
       "style": "Sachlich",
-      "title": "Eigener Speicher — die Einstellungen dafür",
-      "intro": "Pulse kann deine Daten künftig verschlüsselt auf deinem eigenen Cloud-Speicher ablegen. Der erste sichtbare Schritt dorthin ist da.",
+      "title": "Eigener Speicher — verbinden, sichern, mitnehmen",
+      "intro": "Pulse kann deine Daten verschlüsselt auf deinem eigenen Cloud-Speicher ablegen. Der Bereich dafür ist da, samt Sicherheitsnetz.",
       "items": [
-        "In den Einstellungen gibt es den neuen Bereich „Speicher“. Dort verbindest du ein Laufwerk — Google Drive, Nextcloud oder Dropbox — und siehst, wie es ihm geht.",
+        "In den Einstellungen gibt es den neuen Bereich „Speicher\". Dort verbindest du ein Laufwerk — Google Drive, Nextcloud oder Dropbox — und siehst, wie es ihm geht.",
+        "Nextcloud verbindest du mit einem Freigabe-Link: in Nextcloud eine Freigabe mit Schreibrecht anlegen, Link einfügen, fertig. Kein App-Passwort, und zurückziehen kannst du ihn dort mit einem Klick.",
         "Beim Verbinden wird das Laufwerk sofort geprüft: einmal schreiben, lesen, vergleichen, löschen. Kann es das nicht, erfährst du es hier und nicht erst, wenn etwas fehlt.",
         "Eine abgelaufene Anmeldung beim Cloud-Anbieter erneuert sich von selbst. Bisher endete die Verbindung dabei stillschweigend.",
-        "Der Bereich zeigt je Laufwerk, seit wann es verbunden ist, wann zuletzt gesichert wurde und ob gerade etwas aussteht."
+        "Neu ist ein Wiederherstellungs-Code. Er wird einmal angezeigt, und du solltest ihn aufschreiben: Ohne ihn ist dein Archiv nach dem Verlust aller Geräte endgültig unlesbar — auch für uns. Mit ihm kommt ein neues Gerät an dieselben Daten.",
+        "Ein Knopf „Alles lesbar exportieren\" gibt dein Archiv als gewöhnliche Text- und Anhangdateien heraus. Was dabei fehlt, steht in einer Übersicht statt still zu verschwinden."
       ],
-      "outro": "Die Kanäle, die diesen Speicher nutzen, kommen in den nächsten Schritten."
+      "outro": "Die verschlüsselten Kanäle, die diesen Speicher nutzen, sind gebaut und werden nach weiteren Tests freigeschaltet."
     },
     {
       "id": "2026-08-28.4",
