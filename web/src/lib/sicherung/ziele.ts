@@ -20,7 +20,7 @@ import { ordnerAdapter, ordnerZugriffOk } from './ordner.ts';
 import { TokenVorrat } from './tokenVorrat.ts';
 
 const DB_NAME = 'pulse-sicherung';
-const DB_VERSION = 3; // 3: legt puffer/leserstand nach (Frischprofile crashten sonst)
+const DB_VERSION = 4; // 4: puffer mit keyPath 'schluessel' neu angelegt (put ohne expliziten Schluessel warf sonst)
 const STORE_VERBINDUNG = 'verbindung';
 const ZIELE_KEY = 'ziele';
 /** Bestand aus der Ein-Ziel-Zeit — wird beim ersten Lesen migriert. */
@@ -60,7 +60,16 @@ export function öffneDb(): Promise<IDBDatabase> {
 			// alle Stores schon trug. `geraete.ts` baut seine Version-2-Kon-
 			// stante bewusst nicht selbst auf — es öffnet über diese Stelle.
 			if (!db.objectStoreNames.contains(STORE_VERBINDUNG)) db.createObjectStore(STORE_VERBINDUNG);
-			if (!db.objectStoreNames.contains(STORE_PUFFER)) db.createObjectStore(STORE_PUFFER);
+			// Der Puffer MUSS keyPath 'schluessel' tragen: pufferLegen put()'et
+			// die Zeile ohne expliziten Schlüssel (PufferZeile.schluessel ist
+			// `<kanalId>:<nachrichtId>`, pufferWeg löscht unter genau dem). Ein
+			// keyPath-loser Store wirft dort "no key parameter" — still, weil
+			// der Spiegel-Fehlerpfad schluckt (Frischprofil-Bug 2026-09-01).
+			// Bestehende keyPath-lose Exemplare wandern per Upgrade neu angelegt;
+			// der Puffer ist eine Wegwerf-Warteschlange — verlorene Zeilen holt
+			// die Erstsicherung aus dem lokalen Verlauf nach.
+			if (db.objectStoreNames.contains(STORE_PUFFER)) db.deleteObjectStore(STORE_PUFFER);
+			db.createObjectStore(STORE_PUFFER, { keyPath: 'schluessel' });
 			if (!db.objectStoreNames.contains(STORE_LESESTAND)) db.createObjectStore(STORE_LESESTAND);
 		};
 		anfrage.onsuccess = () => resolve(anfrage.result);
