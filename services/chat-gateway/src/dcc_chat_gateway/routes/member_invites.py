@@ -276,10 +276,15 @@ async def accept_community_invite(
     # Helfer committet); rollt er zurück — Ban-Rennen, Race um die Mitglieds-
     # schaft —, bleibt die Einladung offen. Ban-Vorprüfung, Member-Cap,
     # Insert und Broadcast macht der gemeinsame Kern (``_join_guild``).
+    # Guild-Felder VOR dem Helfer snapshoten: ein IntegrityError-Rollback
+    # darin expiret die ORM-Attribute, und die Antwort baut sonst auf einem
+    # weggeputzten Objekt neu auf (MissingGreenlet → 500 statt idempotent
+    # 200) — gleiche Vorkehrung wie accept_invite.
+    guild_name, guild_icon = guild.name, guild.icon_url
     await session.delete(row)
     _, channel_id = await _join_guild(session, request, row.guild_id, current.id)
     return InviteAcceptOut(
-        guild=InviteGuildOut(id=guild.id, name=guild.name, icon_url=guild.icon_url),
+        guild=InviteGuildOut(id=row.guild_id, name=guild_name, icon_url=guild_icon),
         channel_id=channel_id,
     )
 

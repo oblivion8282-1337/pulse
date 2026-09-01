@@ -182,7 +182,7 @@ import { errText } from '$lib/utils/errText';
                     </button>
                   {/snippet}
                 </DropdownMenu.Trigger>
-                <DropdownMenu.Content {...emojiPickerContentProps}>
+                <DropdownMenu.Content {...emojiPickerContentProps} align="end">
                   <EmojiPicker onPick={(emoji) => toggleReaction(msg.id, emoji, false)} />
                 </DropdownMenu.Content>
               </DropdownMenu.Root>

@@ -179,6 +179,26 @@ async def test_guild_updated_broadcast(ws_app, _auth_signer):
 
 
 @pytest.mark.asyncio
+async def test_guild_patch_explicit_null_keeps_fields(ws_app, _auth_signer):
+    """Regression (Runde 7): ``exclude_unset`` lässt ein ausdrücklich
+    gesendetes null durch — der Null-Filter im PATCH muss es abfangen,
+    sonst löscht {"name": null} das Pflichtfeld (IntegrityError → 409
+    "handle is already taken") statt nichts zu ändern."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_uid = random.randint(1, 1_000_000)
+            owner_token = _auth_signer.issue_access(owner_uid, f"o{owner_uid}")
+            g = tc.post("/guilds", json={"name": "bleibt"}, headers=_auth(owner_token)).json()
+            for payload in ({"name": None}, {"icon_url": None}):
+                r = tc.patch(f"/guilds/{g['id']}", json=payload, headers=_auth(owner_token))
+                assert r.status_code == 200, (payload, r.text)
+                assert r.json()["name"] == "bleibt", payload
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
 async def test_ownership_transfer_broadcasts_guild_updated(ws_app, _auth_signer):
     """transfer-ownership reuses the guild_updated event, since the owner_id
     is part of the guild_dict payload. Verifies the new owner_id appears in
