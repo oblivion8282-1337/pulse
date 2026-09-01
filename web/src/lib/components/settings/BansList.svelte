@@ -12,6 +12,7 @@
   import { toast } from 'svelte-sonner';
   import { chatApi } from '$lib/api/chat';
   import { userCache } from '$lib/stores/users.svelte';
+  import { formatTimestamp } from '$lib/utils/formatTimestamp';
   import { useGatewayListener } from '$lib/ws/useGatewayListener.svelte';
   import type { Ban } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
@@ -101,7 +102,7 @@
             </p>
             <p class="text-text-muted truncate text-xs">
               {m.bans_list_banned_by({ name: nameFor(ban.banned_by_id) })} ·
-              {new Date(ban.banned_at).toLocaleString()}
+              {formatTimestamp(ban.banned_at)}
             </p>
             {#if ban.reason}
               <p class="text-text-base mt-1 text-xs italic">„{ban.reason}"</p>

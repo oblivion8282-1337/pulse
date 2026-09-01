@@ -6,6 +6,7 @@
 -->
 <script lang="ts">
 import { errText } from '$lib/utils/errText';
+  import { formatTimestamp } from '$lib/utils/formatTimestamp';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import CopyIcon from '@lucide/svelte/icons/copy';
@@ -141,14 +142,7 @@ import { errText } from '$lib/utils/errText';
   }
 
   function fmtExpiry(iso: string | null): string {
-    if (!iso) return m.guild_invites_expiry_never();
-    return new Date(iso).toLocaleString('de-DE', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    return iso ? formatTimestamp(iso) : m.guild_invites_expiry_never();
   }
 
   function fmtUses(inv: Invite): string {

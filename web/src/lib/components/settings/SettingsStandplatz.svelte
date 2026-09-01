@@ -31,6 +31,7 @@
 -->
 <script lang="ts">
   import MonitorCogIcon from '@lucide/svelte/icons/monitor-cog';
+  import { formatTimestamp } from '$lib/utils/formatTimestamp';
   import SettingsGeraeteEintragung from './SettingsGeraeteEintragung.svelte';
   import SettingsStandplatzBerechtigung from './SettingsStandplatzBerechtigung.svelte';
   import SettingsStandplatzFreigabe from './SettingsStandplatzFreigabe.svelte';
@@ -94,7 +95,7 @@
 
   /** Das Ende als Datum und Uhrzeit — die Angabe, die nicht altert. */
   const endeText = $derived(
-    standplatz.gueltigBis === null ? null : new Date(standplatz.gueltigBis).toLocaleString(),
+    standplatz.gueltigBis === null ? null : formatTimestamp(new Date(standplatz.gueltigBis).toISOString()),
   );
 
   const geltungen: { id: Geltung; label: () => string }[] = [

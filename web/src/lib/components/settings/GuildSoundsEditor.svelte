@@ -21,6 +21,7 @@
 <script lang="ts">
 import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
+  import { formatBytes } from '$lib/utils/formatBytes';
   import { toast } from 'svelte-sonner';
   import { Button } from '$lib/components/ui/button/index.js';
   import PlayIcon from '@lucide/svelte/icons/play';
@@ -72,12 +73,6 @@ import { errText } from '$lib/utils/errText';
     return rows.find((r) => r.sound_id === id);
   }
 
-  function fmtBytes(n: number): string {
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-    return `${(n / 1024 / 1024).toFixed(2)} MB`;
-  }
-
   onMount(async () => {
     try {
       rows = await chatApi.listGuildSounds(guildId);
@@ -112,7 +107,7 @@ import { errText } from '$lib/utils/errText';
     const cap = capabilities.guildSoundMaxSizeBytes;
     if (file.size > cap) {
       toast.error(m.guild_sounds_file_too_large(), {
-        description: m.guild_sounds_file_too_large_desc({ max: fmtBytes(cap), size: fmtBytes(file.size) })
+        description: m.guild_sounds_file_too_large_desc({ max: formatBytes(cap), size: formatBytes(file.size) })
       });
       return;
     }
@@ -170,7 +165,7 @@ import { errText } from '$lib/utils/errText';
   <div class="flex flex-col gap-1">
     <h2 class="text-text-bright text-base font-semibold">{m.guild_sounds_heading()}</h2>
     <p class="text-text-muted text-xs">
-      {m.guild_sounds_description({ max: fmtBytes(capabilities.guildSoundMaxSizeBytes) })}
+      {m.guild_sounds_description({ max: formatBytes(capabilities.guildSoundMaxSizeBytes) })}
     </p>
   </div>
 
@@ -200,7 +195,7 @@ import { errText } from '$lib/utils/errText';
                 <span class="text-text-muted truncate text-xs" data-testid="guild-sounds-status-{id}">
                   {#if row}
                     <span>
-                      {m.guild_sounds_status_custom({ filename: row.original_filename, size: fmtBytes(row.file_size) })}
+                      {m.guild_sounds_status_custom({ filename: row.original_filename, size: formatBytes(row.file_size) })}
                     </span>
                   {:else}
                     <span class="opacity-60">{m.guild_sounds_status_default()}</span>
