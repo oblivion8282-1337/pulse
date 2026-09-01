@@ -62,6 +62,7 @@ import {
 } from './kanalSitzungswahl';
 import { kanalMitgliederMitSicht } from './kanalMitglieder';
 import { bloeckeEinliefern, verteilUmschlaege } from './gruppenEinliefern';
+import { kanalLaufwerkSchluesselLaden } from '../../ablage/kanalLaufwerkSchluessel';
 import { ART_GRUPPENNACHRICHT, baueGruppenhuelle, neueSitzungId } from './gruppenNutzlast';
 import {
   gruppensitzungLaden,
@@ -147,11 +148,20 @@ export async function sendeInKanal(
     kanalStandUebernehmen(state, wahl);
 
     const nachzuliefern = new Set(wahl.nachzuliefern);
+    // Kennt DIESES Geraet den Ablage-Hauptschluessel + die Freigabe-Adresse
+    // (Kanal selbst verbunden ODER frueher ueber das Postfach empfangen —
+    // beide Faelle landen im selben Speicher, s. `kanalLaufwerkSchluessel.ts`),
+    // reist beides mit derselben Zustellung wie die Gruppensitzung mit
+    // (Design §3.1). Kennt es sie nicht (gewoehnliches Mitgliedsgeraet, das
+    // selbst noch nichts empfangen hat), bleibt `ablage` `undefined` — die
+    // naechste Sendung eines Geraets, das sie kennt, liefert sie nach.
+    const ablage = await kanalLaufwerkSchluesselLaden(kanalId);
     const schluesselUmschlaege = await verteilUmschlaege(
       kanalId,
       stand.sitzungId,
       stand.sitzung.verteilschluessel(),
-      ziel.filter((z) => nachzuliefern.has(z.geraet.device_pubkey))
+      ziel.filter((z) => nachzuliefern.has(z.geraet.device_pubkey)),
+      ablage ?? undefined
     );
 
     const nachrichtId = lokaleNachrichtId();

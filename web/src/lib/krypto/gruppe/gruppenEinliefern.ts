@@ -17,7 +17,7 @@ import { postfachApi, type PostfachNutzlast } from '../../api/postfach';
 import { serversStore } from '../../api/servers.svelte';
 import { kryptoAccountLaden } from '../account.svelte';
 import { sitzungLaden, sitzungSichern, mitSitzungssperre } from '../sitzungen';
-import { baueVerteilNutzlast } from './gruppenNutzlast';
+import { baueVerteilNutzlast, type AblageVerteilzugabe } from './gruppenNutzlast';
 import type { Gruppenzielgeraet } from './gruppengeraete';
 
 function cloudRoute(): { serverId?: string } {
@@ -28,15 +28,21 @@ function cloudRoute(): { serverId?: string } {
  *  ohne verwertbaren Schluessel werden uebersprungen — sie bekommen ihn beim
  *  naechsten Mal, weil sie dann immer noch nicht in `beliefert` stehen.
  *  Ob ein gebauter Umschlag den Server auch WIRKLICH erreicht, entscheidet
- *  erst `bloeckeEinliefern` — hier entsteht nur die Kandidatenliste. */
+ *  erst `bloeckeEinliefern` — hier entsteht nur die Kandidatenliste.
+ *
+ *  `ablage` ist nur bei Ablage-Kanaelen gesetzt: der Aufrufer gibt ihn
+ *  weiter, wenn DIESES Geraet den Ablage-Hauptschluessel und die
+ *  Freigabe-Adresse des Kanals kennt (Design §3.1) — jedes Ziel-Geraet
+ *  dieses Aufrufs bekommt dann alle drei Dinge in einem Umschlag. */
 export async function verteilUmschlaege(
   kanalId: string,
   sitzungId: string,
   verteilschluessel: string,
-  ziel: Gruppenzielgeraet[]
+  ziel: Gruppenzielgeraet[],
+  ablage?: AblageVerteilzugabe
 ): Promise<PostfachNutzlast[]> {
   const ident = await kryptoAccountLaden();
-  const klartext = baueVerteilNutzlast(kanalId, sitzungId, verteilschluessel);
+  const klartext = baueVerteilNutzlast(kanalId, sitzungId, verteilschluessel, ablage);
   const nutzlasten: PostfachNutzlast[] = [];
   for (const { geraet } of ziel) {
     const umschlag = await mitSitzungssperre(kanalId, geraet.device_pubkey, async () => {

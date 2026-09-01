@@ -39,6 +39,7 @@ import {
   gruppenempfangSichern,
   gruppenempfangAnlegenFallsNeu
 } from './gruppenSitzungen';
+import { kanalLaufwerkSchluesselSichern } from '../../ablage/kanalLaufwerkSchluessel';
 
 /** Ob diese Zustellung eine Megolm-Gruppennachricht ist. */
 export function istGruppennachricht(z: PostfachZustellung): boolean {
@@ -58,7 +59,14 @@ export function istGruppennachricht(z: PostfachZustellung): boolean {
  * Verteilschluessel reist ueber die 1:1-Sitzung; deren Kanal ist der
  * DM-Kanal des Paares, nicht die Gruppe. Wer die Zustellung fragt, legt den
  * Schluessel unter dem falschen Kanal ab und findet ihn nie wieder.
- */
+ *
+ * **Traegt die Nutzlast zusaetzlich einen Ablage-Hauptschluessel und eine
+ * Freigabe-Adresse** (Design §3.1, nur bei Ablage-Kanaelen gesetzt), werden
+ * beide unter demselben Kanal gesichert (`kanalLaufwerkSchluessel.ts`) —
+ * NACH der Gruppensitzung, aber innerhalb desselben Aufrufs: beides gehoert
+ * zusammen zu genau dieser Zustellung, ein Zwischenzustand mit nur einem
+ * der beiden waere kein Fehler (der naechste Verteilschluessel traegt
+ * ohnehin wieder beide), aber unnoetig. */
 export async function verteilschluesselAufnehmen(
   z: PostfachZustellung,
   klartextBytes: Uint8Array
@@ -71,6 +79,13 @@ export async function verteilschluesselAufnehmen(
     gelesen.sitzung,
     gelesen.schluessel
   );
+  if (gelesen.ablageHauptschluessel && gelesen.freigabeAdresse) {
+    await kanalLaufwerkSchluesselSichern(
+      gelesen.kanal,
+      gelesen.ablageHauptschluessel,
+      gelesen.freigabeAdresse
+    );
+  }
   return true;
 }
 

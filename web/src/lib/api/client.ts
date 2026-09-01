@@ -295,11 +295,18 @@ async function bearerWithReauth(
   return bearer;
 }
 
-export async function request<T>(
+/**
+ * Der gemeinsame Kern von `request` und `requestBytes`: löst Server + Auth +
+ * Direktpfad auf, feuert die Anfrage und behandelt den 401-Retry — gibt aber
+ * die rohe `Response` zurück, statt sie zu deuten. `request` parst sie als
+ * JSON, `requestBytes` liest sie als Bytes; beide brauchen sonst denselben
+ * Weg (Cloud-Refresh, Self-Host-Reauth, Direktverbindung).
+ */
+export async function fetchAuthenticated(
   path: string,
-  opts: RequestOpts = {},
-  route: RequestRoute = {},
-): Promise<T> {
+  opts: RequestOpts,
+  route: RequestRoute,
+): Promise<Response> {
   const { method = 'GET', body, auth = true, endpoint = 'chat', signal } = opts;
   // Identity-Plane ist immer Cloud-only — selbst wenn der activeServer
   // auf einen Self-Host zeigt, muss /register/login/me/credentials/…
@@ -366,7 +373,15 @@ export async function request<T>(
     }
   }
 
-  return parseResponse<T>(resp);
+  return resp;
+}
+
+export async function request<T>(
+  path: string,
+  opts: RequestOpts = {},
+  route: RequestRoute = {},
+): Promise<T> {
+  return parseResponse<T>(await fetchAuthenticated(path, opts, route));
 }
 
 async function parseResponse<T>(resp: Response): Promise<T> {
