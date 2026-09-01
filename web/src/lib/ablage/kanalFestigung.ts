@@ -112,25 +112,86 @@ export async function festigeKanalEinmal(kanalId: string): Promise<KanalFestigun
 	}
 }
 
-/** Periodischer Anstoss für eine Kanal-Ansicht (`onMount`/`onDestroy`).
- *  Gibt eine Stopp-Funktion zurück — dasselbe Muster wie
- *  `festigung.ts::starteFestigungsSchleife`. */
+/**
+ * Referenzgezählte laufende Schleifen, EIN Eintrag je Kanal — der Wächter
+ * gegen den Mehrgeräte-Konflikt (Modulkopf), nur eine Ebene tiefer: nicht nur
+ * zwei GERÄTE dürfen nie gleichzeitig denselben Kanal festigen, auch dieses
+ * eine Gerät darf es nur EINMAL tun. Zwei Aufrufstellen brauchen dieselbe
+ * Schleife: der App-Start (`+layout.svelte::starteAlleKanalFestigungsSchleifen`,
+ * läuft für die gesamte Sitzungsdauer) UND `KanalDateiablageVerbinden.svelte`
+ * (läuft nur, solange die Kanal-Einstellungen offen sind). Ohne Zählung würde
+ * das Öffnen der Einstellungen eine ZWEITE Schleife neben der vom App-Start
+ * starten — zwei Schreiber auf demselben Laufwerk, genau der Konflikt, gegen
+ * den `AblageSchreiber` sich wehrt. Mit Zählung erhöht das Öffnen nur die
+ * Referenz, und das Schliessen senkt sie wieder — die zugrundeliegende
+ * Schleife läuft ungestört weiter, solange irgendeine Referenz sie noch hält.
+ */
+const aktiveSchleifen = new Map<
+	string,
+	{ timer: ReturnType<typeof setInterval>; laufend: boolean; referenzen: number }
+>();
+
+function stoppeReferenz(kanalId: string): void {
+	const eintrag = aktiveSchleifen.get(kanalId);
+	if (!eintrag) return;
+	eintrag.referenzen -= 1;
+	if (eintrag.referenzen <= 0) {
+		clearInterval(eintrag.timer);
+		aktiveSchleifen.delete(kanalId);
+	}
+}
+
+/** Periodischer Anstoss für einen Kanal (`onMount`/`onDestroy` ODER den
+ *  App-Start). Gibt eine Stopp-Funktion zurück — dasselbe Muster wie
+ *  `festigung.ts::starteFestigungsSchleife`, hier zusätzlich referenzgezählt
+ *  (s. `aktiveSchleifen` oben): ein zweiter Aufruf für denselben Kanal
+ *  startet KEINE zweite Schleife, sondern hängt sich an die bestehende an. */
 export function starteKanalFestigungsSchleife(kanalId: string, intervalMs = 30_000): () => void {
-	let gestoppt = false;
-	let laufend = false;
-	const timer = setInterval(() => {
-		if (laufend || gestoppt) return;
-		laufend = true;
+	const bestehend = aktiveSchleifen.get(kanalId);
+	if (bestehend) {
+		bestehend.referenzen += 1;
+		return () => stoppeReferenz(kanalId);
+	}
+	const eintrag = {
+		timer: null as unknown as ReturnType<typeof setInterval>,
+		laufend: false,
+		referenzen: 1,
+	};
+	eintrag.timer = setInterval(() => {
+		if (eintrag.laufend) return;
+		eintrag.laufend = true;
 		void festigeKanalEinmal(kanalId).finally(() => {
-			laufend = false;
+			eintrag.laufend = false;
 		});
 	}, intervalMs);
+	aktiveSchleifen.set(kanalId, eintrag);
 	// Sofort einen ersten Durchlauf anstossen, statt bis zum ersten Intervall
 	// zu warten — sonst wartet ein frisch verbundener Besitzer bis zu
 	// `intervalMs` auf die erste Festigung.
 	void festigeKanalEinmal(kanalId);
+	return () => stoppeReferenz(kanalId);
+}
+
+/**
+ * Startet die Festigungsschleife für JEDEN Kanal, den dieses Gerät besitzt
+ * (`ablageVerbindungen`, Feld `fuerKanal` — gesetzt genau dann, wenn dieses
+ * Gerät den Kanalordner verbunden hat, s. `KanalDateiablageVerbinden.svelte`).
+ *
+ * **Aufrufstelle: App-Start** (`routes/app/+layout.svelte`), damit die
+ * Festigung eines Besitzer-Geräts läuft, ohne dass der Besitzer je die
+ * Kanal-Einstellungen öffnet — genau die Lücke, die diese Datei ohne diesen
+ * Aufruf hätte (bis dahin startete die Schleife ausschliesslich, solange
+ * `KanalDateiablageVerbinden.svelte` gemountet war). Dank der Referenzzählung
+ * in `starteKanalFestigungsSchleife` addiert ein späteres Öffnen der
+ * Kanal-Einstellungen für denselben Kanal nur eine weitere Referenz, statt
+ * eine zweite Schleife zu starten.
+ */
+export async function starteAlleKanalFestigungsSchleifen(): Promise<() => void> {
+	if (!ablageVerbindungen.geladen) await ablageVerbindungen.laden();
+	const stops = ablageVerbindungen.verbindungen
+		.filter((v) => !!v.fuerKanal)
+		.map((v) => starteKanalFestigungsSchleife(v.fuerKanal as string));
 	return () => {
-		gestoppt = true;
-		clearInterval(timer);
+		for (const stop of stops) stop();
 	};
 }

@@ -38,6 +38,8 @@
   import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
   import { standplatzProfil } from '$lib/devices/profil.svelte';
   import { loadAll } from '$lib/stream/persistence';
+  import { starteAlleKanalFestigungsSchleifen } from '$lib/ablage/kanalFestigung';
+  import { ABLAGE_KANAL_ENABLED } from '$lib/featureFlags';
   import HqStreamKeepAlive from '$lib/stream/components/HqStreamKeepAlive.svelte';
   import HqStreamBackgroundHost from '$lib/stream/components/HqStreamBackgroundHost.svelte';
   import LiveKitBackgroundHost from '$lib/stream/components/LiveKitBackgroundHost.svelte';
@@ -125,6 +127,9 @@
    *  doesn't keep redirecting back into /app. */
   let _swMessageHandler: ((ev: MessageEvent) => void) | null = null;
   let _notifyUnsubscribe: (() => void) | null = null;
+  // Kanal-Ablage-Festigung: läuft für die gesamte App-Sitzung, s.
+  // `kanalFestigung.ts::starteAlleKanalFestigungsSchleifen`-Modulkopf.
+  let _stoppeKanalFestigung: (() => void) | null = null;
 
   onMount(async () => {
     viewport.init();
@@ -226,6 +231,14 @@
     // Owner-Benachrichtigung: toastet, wenn ein eigener Antrag genehmigt/
     // abgelehnt wird. Interner Guard pollt nur bei offenem eigenen Antrag.
     myInstanceApplications.start();
+    // Ablage-Kanäle: Festigung für jeden Kanal starten, den DIESES Gerät
+    // besitzt — sonst liefe sie nur, solange der Besitzer zufällig die
+    // Kanal-Einstellungen offen hat (s. `kanalFestigung.ts`-Modulkopf).
+    if (ABLAGE_KANAL_ENABLED) {
+      void starteAlleKanalFestigungsSchleifen().then((stop) => {
+        _stoppeKanalFestigung = stop;
+      });
+    }
     // Dasselbe für App-Hosting-Anträge — app-weit, nicht erst wenn die
     // Hosting-Karte gemountet ist: sonst gäbe es keinen roten Punkt, der den
     // frisch freigeschalteten User überhaupt erst dorthin führt.
@@ -285,6 +298,8 @@
     pendingInstanceApps.stop();
     pendingComplaints.stop();
     myInstanceApplications.stop();
+    _stoppeKanalFestigung?.();
+    _stoppeKanalFestigung = null;
     gateway.disconnect();
     voice.disconnect();
     if (typeof document !== 'undefined') document.title = 'Pulse';
