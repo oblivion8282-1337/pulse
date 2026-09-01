@@ -259,17 +259,22 @@ class MessageStore {
    * Pin kann auch außerhalb des Historie-Fensters liegen).
    */
   applyPin(evt: { channel_id: string; message_id: string; pinned: boolean }): void {
+    // Gespiegelte Nachricht VORHER holen — sie liefert ggf. den vollständigen
+    // Pin-Listen-Eintrag (der WS-Event-Payload fehlen Inhalt/Autor).
+    const msgs = this.byChannel[evt.channel_id];
+    const i = msgs ? msgs.findIndex((m) => m.id === evt.message_id) : -1;
     const list = this.pinsByChannel[evt.channel_id];
     if (list) {
       const idx = list.findIndex((p) => p.id === evt.message_id);
       if (evt.pinned) {
         if (idx < 0) {
           // Sortierung (nach pinned_at) repariert der nächste Listen-Fetch;
-          // bis dahin hängt der neue Pin hinten an.
-          this.pinsByChannel = {
-            ...this.pinsByChannel,
-            [evt.channel_id]: [...list, { id: evt.message_id, channel_id: evt.channel_id, pinned_at: new Date().toISOString() } as Message]
-          };
+          // bis dahin hängt der neue Pin hinten an. Ist die Nachricht geladen,
+          // kommt eine vollständige Kopie rein, sonst der schmale Platzhalter.
+          const entry: Message = i >= 0
+            ? { ...msgs![i], pinned_at: new Date().toISOString() }
+            : ({ id: evt.message_id, channel_id: evt.channel_id, pinned_at: new Date().toISOString() } as Message);
+          this.pinsByChannel = { ...this.pinsByChannel, [evt.channel_id]: [...list, entry] };
         }
       } else if (idx >= 0) {
         this.pinsByChannel = {
@@ -278,10 +283,7 @@ class MessageStore {
         };
       }
     }
-    const msgs = this.byChannel[evt.channel_id];
-    if (!msgs) return;
-    const i = msgs.findIndex((m) => m.id === evt.message_id);
-    if (i < 0) return;
+    if (!msgs || i < 0) return;
     const next = msgs.slice();
     next[i] = { ...msgs[i], pinned_at: evt.pinned ? (msgs[i].pinned_at ?? new Date().toISOString()) : null };
     this.byChannel = { ...this.byChannel, [evt.channel_id]: next };

@@ -168,6 +168,8 @@ EVENT_REGISTRY: dict[str, type[_EventBase]] = {
     "dm_bump": DmBumpEvent,
     # ---- ephemeral typing indicator
     "typing": TypingEvent,
+    # ---- pinned messages (chat-channel)
+    "pin_update": PinUpdateEvent,
     # ---- direct-delivery (user:events)
     "mention_added": MentionAddedEvent,
     "application_decided": ApplicationDecidedEvent,

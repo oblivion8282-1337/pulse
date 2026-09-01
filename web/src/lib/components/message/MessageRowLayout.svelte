@@ -17,6 +17,8 @@
   import UserProfilePopover from '$lib/components/UserProfilePopover.svelte';
   import { longpress } from '$lib/utils/longpress';
   import type { Message } from '$lib/api/types';
+  import PinIcon from '@lucide/svelte/icons/pin';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     message,
@@ -44,6 +46,9 @@
     body: Snippet;
     actions: Snippet;
   } = $props();
+
+  /** Angepinnt → dezente Tönung + Nadel neben der Uhrzeit. */
+  const pinned = $derived(!!message.pinned_at);
 </script>
 
 <!--
@@ -59,7 +64,7 @@
 <div
   class="group relative mx-2 flex gap-3 rounded-2xl px-3 {isContinuation
     ? 'py-0.5'
-    : 'py-1.5'} transition-colors hover:bg-bg-hover"
+    : 'py-1.5'} transition-colors hover:bg-bg-hover {pinned ? 'bg-primary/5' : ''}"
   class:ring-2={highlight}
   class:ring-primary={highlight}
   data-testid="message-item"
@@ -67,7 +72,15 @@
   use:longpress={{ onLongPress }}
 >
   {#if isContinuation}
-    <div class="flex w-10 shrink-0 items-center justify-end">
+    <div class="flex w-10 shrink-0 items-center justify-end gap-1">
+      {#if pinned}
+        <!-- Auch Fortsetzungen ohne Namenszeile müssen den Pin zeigen. -->
+        <PinIcon
+          class="text-primary size-3 shrink-0"
+          aria-label={m.message_pinned_badge()}
+          data-testid="message-pinned-badge"
+        />
+      {/if}
       <span class="text-text-muted hidden text-2xs group-hover:block pointer-coarse:block">{time}</span>
     </div>
     <div class="min-w-0 flex-1">
@@ -118,6 +131,13 @@
           {/snippet}
         </UserProfilePopover>
         <span class="text-text-muted text-xs">{time}</span>
+        {#if pinned}
+          <PinIcon
+            class="text-primary size-3 shrink-0"
+            aria-label={m.message_pinned_badge()}
+            data-testid="message-pinned-badge"
+          />
+        {/if}
       </div>
       {@render body()}
     </div>

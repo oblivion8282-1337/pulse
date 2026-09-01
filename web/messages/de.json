@@ -3016,5 +3016,6 @@
   "whep_player_popup_blocked": "Popup blockiert",
   "whep_player_popup_blocked_description": "Bitte erlaube Pop-up-Fenster für Pulse und versuche es erneut.",
   "whep_player_stream_load_failed": "Stream konnte nicht geladen werden",
-  "whep_player_waiting_for_stream": "Warte auf den Stream…"
+  "whep_player_waiting_for_stream": "Warte auf den Stream…",
+  "message_pinned_badge": "Angepinnt"
 }

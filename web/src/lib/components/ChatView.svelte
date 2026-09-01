@@ -168,19 +168,28 @@
   let messageRoute = $derived(cloudScoped ? { serverId: serversStore.cloudId() } : {});
 
   // ── Pinned Messages (Kanalkopf) ─────────────────────────────────────────
-  // Pin-Liste pro Kanal einmalig beim Öffnen laden; WS `pin_update` hält sie
-  // aktuell (messages.applyPin). Fehler still — ohne Pins läuft der Chat.
+  // Pin-Liste pro Kanal beim Öffnen laden; WS `pin_update` hält sie aktuell
+  // (messages.applyPin), und jeder Popover-Öffnen holt sie zur Sicherheit
+  // frisch — der WS-Weg kann Platzhalter (ohne Inhalt/Autor) hinterlassen,
+  // z. B. für Nachrichten außerhalb des geladenen Verlaufs. Fehler still —
+  // ohne Pins läuft der Chat.
   let pins = $derived(channel ? (messageStore.pinsByChannel[channel.id] ?? null) : null);
+  function ladePins() {
+    const cid = channel?.id;
+    if (!cid) return;
+    void chatApi
+      .listPins(cid, messageRoute)
+      .then((list) => messageStore.setPins(cid, list))
+      .catch(() => {
+        // Beim ersten Laden wenigstens [] hinterlassen, damit der Effekt
+        // nicht endlos nachlädt; beim Auffrischen den alten Stand behalten.
+        if (messageStore.pinsByChannel[cid] === undefined) messageStore.setPins(cid, []);
+      });
+  }
   $effect(() => {
     const cid = channel?.id;
     if (!cid || messageStore.pinsByChannel[cid] !== undefined) return;
-    const route = messageRoute;
-    untrack(() => {
-      void chatApi
-        .listPins(cid, route)
-        .then((list) => messageStore.setPins(cid, list))
-        .catch(() => messageStore.setPins(cid, []));
-    });
+    untrack(ladePins);
   });
   /** Kanalkopf-Badge "📌 N": Zahl direkt aus der Pin-Liste. */
   const pinCount = $derived(pins?.length ?? 0);
@@ -189,8 +198,10 @@
   const canPin = $derived(channel?.guild_id ? isOwner : true);
   // Sprung in die Liste (von MessageList gemountet) für Klicks im Popover.
   let jumpToMessage = $state<((id: string) => void) | undefined>(undefined);
-  function snippet80(text: string): string {
-    const t = text.replace(/\s+/g, ' ').trim();
+  // Pin-Listen-Einträge können aus dem pin_update-WS-Event stammen und dann
+  // noch keine Inhalte tragen (nur id/channel/pinned_at) — deshalb defensiv.
+  function snippet80(text: string | undefined): string {
+    const t = (text ?? '').replace(/\s+/g, ' ').trim();
     return t.length > 80 ? t.slice(0, 77) + '…' : t;
   }
 
@@ -343,6 +354,7 @@
                 variant="ghost"
                 size="icon"
                 class="relative"
+                onclick={ladePins}
                 title={pm.chat_view_pins_title({ count: pinCount })}
                 aria-label={pm.chat_view_pins_title({ count: pinCount })}
                 data-testid="pins-toggle"
