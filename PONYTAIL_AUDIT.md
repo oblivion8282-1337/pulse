@@ -45,6 +45,16 @@
 | `services/voice-signaling/`, `media-svc/`, `mediamtx-auth-hook/`, `relay-frps-plugin/` | ~4.800 Zeilen zusammen | Klein, am Schluss |
 | `desktop/electron/`, `mobile/`, `streaming/` (Rust/Player) | ? | Plattform-Code; Ponytail gilt, aber Audit-Kriterien (native APIs!) etwas anders gewichten |
 
+## Bewusst außen vor / noch nicht erfasst
+
+| Bereich | Notizen |
+|---|---|
+| `web/tests/` (~5.700) | Tests: Ponytail gilt, aber Deduplizierung hat dort niedrigere Priorität als Klarheit je Testfall |
+| `plugins/`, `scripts/`, `infra/`, `packaging/` | Betriebs-/Werkzeugcode, hinten |
+| `krypto/` (~1.200) | Unversioniert (nicht im Git) — Klären, ob es ins Repo soll; bis dahin nicht anfassen |
+| `streaming/`, `mobile/` exakte Größe | Zeilenzahlen aktuell durch node_modules/Vendor-Code aufgebläht; eigener Code erst bei Bedarf sauber messen |
+| `node_modules/`, `build/`, `uploads/`, `secrets/`, `data/`, `dump.rdb` | Abhängigkeiten/Laufzeitdaten — niemals Audit-Gegenstand |
+
 ## Vorschlag nächste Runde
 
 1. **`settings/`** (Frontend, ~10k) — Querverweise aus Runde 2 ernten (ReasonDialog auf settings/-Muster ausweiten, Tab-Bar), Verdacht auf Kopier-Pattern zwischen den Guild-Editoren (Invites/Sounds/Limits/Plugins sahen im errText-Grep schon eng verwandt aus).
