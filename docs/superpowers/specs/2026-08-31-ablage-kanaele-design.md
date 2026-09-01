@@ -491,3 +491,91 @@ Ergebnis am Code vermerkt, nicht aus Dokumentation gefolgert.
 - `docs/ablage-krypto-schnittanalyse.md` — Schnitt DM-Krypto ↔ Ablage
 - `docs/superpowers/specs/2026-08-28-e2e-dm-design.md` — DM-Krypto-Entwurf
 - `docs/superpowers/plans/2026-08-28-etappe-g1-private-gruppen-kanal.md` — Gruppensitzungen
+
+---
+
+## §11 Anhänge in Direktnachrichten (Entscheidungen vom 2026-09-01)
+
+Besprochen und entschieden vom Eigentümer. Ersetzt die Annahme, das
+persönliche Archiv sei allein Sache des eigenen Geräts.
+
+### §11.1 Der Weg einer Datei
+
+Der Absender verschlüsselt lokal und übergibt das Paket an Pulse. **Pulse
+legt dasselbe unlesbare Paket in den Cloud-Ordner JEDES Beteiligten** — den
+des Absenders und den jedes Empfängers — und löscht danach seine eigene
+Kopie. Ein Empfänger holt die Datei später aus **seinem eigenen** Laufwerk,
+nie von Pulse.
+
+**Warum nicht direkt von Cloud zu Cloud:** ein Ordner kennt keine Personen.
+Läge die Datei nur beim Absender, bräuchte der Empfänger einen Link — und
+der öffnet nicht eine Datei, sondern den ganzen Ordner. Pulse ist der
+einzige gemeinsame Boden, auf den alle Beteiligten dürfen; es ist dabei
+Durchgang, nicht Speicher.
+
+**Was das erledigt:** die Frage „was, wenn ich den Anhang erst in 50 Tagen
+öffne". Heute löscht Pulse einen Anhang, sobald der letzte Umschlag
+abgeholt ist (`postfach_pflege.py::sweep_verwaiste_anhaenge`) — oft binnen
+Minuten. Liegt die Datei im eigenen Laufwerk, spielt Pulses Aufbewahrung
+keine Rolle mehr.
+
+### §11.2 Ohne Laufwerk keine Anhänge
+
+Anhänge setzen auf **allen** Seiten ein verbundenes Laufwerk voraus. Fehlt
+eines, erscheint der Anhang-Knopf gar nicht erst — statt eines Knopfes, der
+scheitert.
+
+**Textnachrichten bleiben davon unberührt** und laufen weiter verschlüsselt
+über Pulse; sie brauchen kein Laufwerk.
+
+Zwei Folgen, bewusst in Kauf genommen:
+
+- Der Absender muss erfahren dürfen, ob ein Gegenüber Anhänge empfangen
+  kann. Das ist eine kleine neue Auskunft über andere Konten, die es vorher
+  nicht gab.
+- In einer Gruppe blockiert ein Mitglied ohne Laufwerk die Anhänge für
+  alle. Die Oberfläche muss das benennen, sonst wirkt es unerklärlich.
+
+### §11.3 Grösse
+
+**25 MB je Datei**, als **Einstellung**, nicht als Konstante im Code — der
+Wert soll später ohne Deploy änderbar sein.
+
+Begründung der Grössenordnung: Was Pulse in fremde Ordner schiebt, kostet
+den Empfänger Speicherplatz, den er nicht angefordert hat. Wer schreiben
+darf, füllt damit fremde Laufwerke — die Grenze ist der einzige Schutz
+davor, solange es keine Freigabe je Absender gibt.
+
+### §11.4 Pulse verwahrt die Zugänge — auch OAuth
+
+**Entscheidung des Eigentümers, gegen die Empfehlung des Assistenten.**
+Damit Pulse bei jedem Empfänger schreiben kann, braucht es Zugang zu jedem
+Laufwerk: den Freigabe-Link bei Nextcloud, ein Erneuerungs-Token bei Google
+Drive.
+
+Die Empfehlung lautete, OAuth-Anbieter über das Gerät des Empfängers laufen
+zu lassen — dann hielte Pulse nie ein fremdes Dauergeheimnis. Der Preis
+wäre gewesen, dass ein Anhang bei Drive-Nutzern liegen bleibt, bis deren
+Gerät einmal online war. Das wurde verworfen: **einheitliches Verhalten für
+alle Anbieter** wiegt schwerer.
+
+Was damit gilt, ausdrücklich benannt, damit es niemand später übersieht:
+
+- Pulse hält erstmals ein **dauerhaftes fremdes Zugangsgeheimnis**. Vorher
+  gab es keines (nachgesehen am 2026-09-01).
+- Ein Einbruch bei Pulse bedeutet damit Schreibzugriff auf die
+  app-eigenen Ordner der Nutzer — bei Drive durch den Scope `drive.file`
+  auf Dateien beschränkt, die die App selbst angelegt hat, nicht auf das
+  übrige Laufwerk.
+- **Zugänge werden verschlüsselt abgelegt**, nicht im Klartext.
+- Es muss einen **Widerruf** geben: eine Stelle, an der ein Nutzer Pulse den
+  Zugang entzieht, ohne sein Google-Konto aufzuräumen.
+
+Die Zustimmungsseite von Google bleibt ein einmaliger Klick im Browser —
+daran ändert sich nichts; neu ist nur, dass das Gerät den erhaltenen Zugang
+danach an Pulse übergibt, statt ihn allein zu behalten.
+
+### §11.5 Aufräumen — später
+
+Ein Nutzer muss seinen Cloud-Speicher aufräumen können. Bewusst **nicht**
+Teil des ersten Schritts.
