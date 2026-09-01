@@ -25,13 +25,15 @@ import { errText } from '$lib/utils/errText';
   import { Button } from '$lib/components/ui/button/index.js';
   import Select from '$lib/components/form/Select.svelte';
   import { freigaben } from '$lib/devices/freigaben.svelte';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
   import { restzeit } from '$lib/devices/restzeit';
+  import { restText } from '$lib/devices/restanzeige';
   import { mitNeuem, ohne } from '$lib/devices/freigabenBearbeitung';
   import DeviceFreigabenGeltung from '$lib/devices/components/DeviceFreigabenGeltung.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { roles } from '$lib/stores/roles.svelte';
   import { chatApi } from '$lib/api/chat';
-  import { spanneMs, type Einheit, type Geltung } from '$lib/remote/standplatz.svelte';
+  import { klemmeMenge, spanneMs, type Einheit, type Geltung } from '$lib/remote/standplatz.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import type { Device, Grant } from '$lib/api/devices';
   import type { Member } from '$lib/api/types';
@@ -105,7 +107,7 @@ import { errText } from '$lib/utils/errText';
     if (geltung === 'dauerhaft') return null;
     // Wie im Übertragungs-Profil geklemmt, nicht erst im Speicher: ein
     // geleertes Zahlenfeld schreibt sonst einen Ablauf in der Vergangenheit.
-    const zahl = Number.isFinite(Number(menge)) && Number(menge) > 0 ? Number(menge) : 1;
+    const zahl = klemmeMenge(menge);
     return new Date(Date.now() + spanneMs(zahl, einheit)).toISOString();
   }
 
@@ -171,12 +173,8 @@ import { errText } from '$lib/utils/errText';
                 {m.standplatz_settings_duration_permanent()}
               {:else if rest === 'abgelaufen'}
                 {m.device_grants_expired()}
-              {:else if rest.einheit === 'minuten'}
-                {m.standplatz_rest_minutes({ count: rest.anzahl })}
-              {:else if rest.einheit === 'stunden'}
-                {m.standplatz_rest_hours({ count: rest.anzahl })}
               {:else}
-                {m.standplatz_rest_days({ count: rest.anzahl })}
+                {restText(rest)}
               {/if}
             </span>
           </div>
@@ -234,10 +232,6 @@ import { errText } from '$lib/utils/errText';
       </Button>
     {/if}
     <p class="text-text-muted text-xs">{m.device_grants_everyone_hint()}</p>
-    {#if fehler}
-      <p class="text-xs text-red-500" data-testid="device-grants-error">
-        {m.device_manage_error({ error: fehler })}
-      </p>
-    {/if}
+    <FieldError message={fehler === null ? null : m.device_manage_error({ error: fehler })} testId="device-grants-error" />
   </div>
 </div>

@@ -68,7 +68,12 @@ from dcc_chat_gateway.models import MemberRole
 from dcc_chat_gateway.permissions import Permissions, has_permission, resolve_permissions
 from dcc_chat_gateway.remote_guard import peer_channel_perms
 from dcc_chat_gateway.remote_registry import send_to_socket
-from dcc_chat_gateway.routes._deps import channel_membership
+from dcc_chat_gateway.routes._deps import (
+    channel_membership,
+    parse_snowflake_int as _int_or_none,
+    ws_err as _err,
+    ws_manager as _manager,
+)
 from dcc_chat_gateway.routes.ws_ops_registry import WSOpContext
 from dcc_chat_gateway.routes.ws_remote_geraet import (
     darf_zustimmen,
@@ -122,43 +127,8 @@ _SIGNAL_MAX_DATA_BYTES = 8 * 1024
 _SIGNAL_KINDS = ("offer", "answer", "ice", "vorrang", "zeiger", "zeiger_im_bild")
 
 
-def _int_or_none(value: object) -> int | None:
-    """Parse a stringified snowflake (channel_id / host_user_id) to int, or
-    ``None`` when it is missing or malformed."""
-    s = str(value or "").strip()
-    if not s:
-        return None
-    try:
-        return int(s)
-    except ValueError:
-        return None
-
-
 def _session_id(value: object) -> str:
     return str(value or "").strip()
-
-
-def _manager(websocket: WebSocket):
-    return getattr(websocket.app.state, "connection_manager", None)
-
-
-async def _err(websocket: WebSocket, code: int, msg: str, *, audit: bool = False) -> None:
-    """Reject one op. Der Code allein genuegt (4051 = kein Zugriff, 4052 = Host
-    nicht erreichbar, …); Nutzdaten stehen bewusst nicht drin.
-
-    ``audit=True`` heisst INFO, sonst DEBUG. Am 2026-08-12 im Zwei-Geraete-Test
-    war eine Ablehnung am Client nur als ausbleibende Wirkung sichtbar (toter
-    Knopf) — deshalb ueberhaupt eine Zeile. Sie stand aber VOR jeder
-    Autorisierung: ein beliebiger eingeloggter Nutzer konnte mit missgeformten
-    ``remote_*``-Ops unbegrenzt INFO-Zeilen erzeugen und damit das Protokoll
-    fluten. INFO gibt es jetzt nur noch, wenn der Rufer die Rechtepruefung
-    bereits bestanden hat — genau die Faelle, die im Test die Frage
-    beantworteten ("Host nicht erreichbar", "schon belegt")."""
-    if audit:
-        log.info("remote op rejected: code=%s msg=%s", code, msg)
-    else:
-        log.debug("remote op rejected: code=%s msg=%s", code, msg)
-    await websocket.send_json({"op": "error", "code": code, "msg": msg})
 
 
 async def _rollen_von(session, guild_id: int, user_id: int) -> set[int]:

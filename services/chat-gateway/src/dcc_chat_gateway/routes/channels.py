@@ -8,7 +8,6 @@ from dcc_shared.events import (
     ChannelCreatedEvent,
     ChannelDeletedEvent,
     ChannelUpdatedEvent,
-    _EventBase,
 )
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import delete, select
@@ -39,6 +38,7 @@ from dcc_chat_gateway.permissions import (
 # intentional here — same package, no cycle.
 from dcc_chat_gateway.routes._dropbox_helpers import validate_name
 from dcc_chat_gateway.routes._deps import require_member
+from dcc_chat_gateway.routes.guilds import _publish_guild_event
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments, purge_s3_keys
 from dcc_chat_gateway.remote_guard import (
     collect_devices_for_cascade,
@@ -76,14 +76,6 @@ def _channel_dict(channel: Channel) -> dict[str, object]:
         "name_gradient_angle": channel.name_gradient_angle,
         "user_limit": channel.user_limit,
     }
-
-
-async def _publish_guild_event(
-    request: Request, envelope: _EventBase | dict[str, object]
-) -> None:
-    mgr = getattr(request.app.state, "connection_manager", None)
-    if mgr is not None:
-        await mgr.publish_guild_event(envelope)
 
 
 @router.post(

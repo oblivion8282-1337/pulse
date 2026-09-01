@@ -23,6 +23,7 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import Select from '$lib/components/form/Select.svelte';
   import { geraeteVerwaltung } from '$lib/devices/verwaltung.svelte';
+  import FieldError from '$lib/components/feedback/FieldError.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { m } from '$lib/paraglide/messages.js';
@@ -161,9 +162,10 @@
     </Button>
   {/if}
 
-  {#if geraeteVerwaltung.fehler}
-    <p class="text-xs text-red-500" data-testid="device-manage-error">
-      {m.device_manage_error({ error: geraeteVerwaltung.fehler })}
-    </p>
-  {/if}
+  <FieldError
+    message={geraeteVerwaltung.fehler === null
+      ? null
+      : m.device_manage_error({ error: geraeteVerwaltung.fehler })}
+    testId="device-manage-error"
+  />
 </div>

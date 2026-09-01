@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, status
+import logging
+
+from fastapi import Depends, HTTPException, WebSocket, status
 from sqlalchemy import select
 
 from dcc_chat_gateway.models import Channel, DirectMessageChannel, Guild, GuildMember
+
+log = logging.getLogger(__name__)
 
 
 async def is_guild_suspended(session, guild_id: int) -> bool:
@@ -76,6 +80,43 @@ async def channel_membership(session, channel_id: int, user_id: int) -> Channel 
     if await is_guild_suspended(session, channel.guild_id):
         return None
     return channel
+
+
+def parse_snowflake_int(value: object) -> int | None:
+    """Parse a stringified snowflake (channel_id, host_user_id, …) to int, or
+    ``None`` when it is missing or malformed. Geteilte Grundlage der
+    ``_channel_id``-Helfer in den WS-Op-Modulen."""
+    s = str(value or "").strip()
+    if not s:
+        return None
+    try:
+        return int(s)
+    except ValueError:
+        return None
+
+
+def ws_manager(websocket: WebSocket):
+    """Der Connection-Manager der App — in Tests may er fehlen (``None``)."""
+    return getattr(websocket.app.state, "connection_manager", None)
+
+
+async def ws_err(websocket: WebSocket, code: int, msg: str, *, audit: bool = False) -> None:
+    """Reject one op. Der Code allein genuegt (4051 = kein Zugriff, 4052 = Host
+    nicht erreichbar, …); Nutzdaten stehen bewusst nicht drin.
+
+    ``audit=True`` heisst INFO, sonst DEBUG. Am 2026-08-12 im Zwei-Geraete-Test
+    war eine Ablehnung am Client nur als ausbleibende Wirkung sichtbar (toter
+    Knopf) — deshalb ueberhaupt eine Zeile. Sie stand aber VOR jeder
+    Autorisierung: ein beliebiger eingeloggter Nutzer konnte mit missgeformten
+    ``remote_*``-Ops unbegrenzt INFO-Zeilen erzeugen und damit das Protokoll
+    fluten. INFO gibt es jetzt nur noch, wenn der Rufer die Rechtepruefung
+    bereits bestanden hat — genau die Faelle, die im Test die Frage
+    beantworteten ("Host nicht erreichbar", "schon belegt")."""
+    if audit:
+        log.info("op rejected: code=%s msg=%s", code, msg)
+    else:
+        log.debug("op rejected: code=%s msg=%s", code, msg)
+    await websocket.send_json({"op": "error", "code": code, "msg": msg})
 
 
 async def dm_member_check(

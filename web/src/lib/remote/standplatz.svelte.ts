@@ -62,6 +62,7 @@
  * Geräts, den der Aufrufer beisteuert (`geraeteanbindung.ts`).
  */
 
+import { m } from '$lib/paraglide/messages.js';
 import { loadAll, saveAll } from '$lib/stream/persistence';
 import { selbsttaetig } from './selbsttaetigRegel';
 import { umziehenNoetig, serverBereitsUmgezogen } from './umzugRegel';
@@ -96,6 +97,28 @@ export function spanneMs(menge: number, einheit: Einheit): number {
   const faktor = einheit === 'wochen' ? 7 * 24 * stunde : einheit === 'tage' ? 24 * stunde : stunde;
   return Math.max(1, Math.round(menge)) * faktor;
 }
+
+/** Die Zahl, mit der `spanneMs` rechnet: ein geleertes Zahlenfeld liefert über
+ *  `bind:value` ein `null` — ungeklemmt würde daraus ein Ablauf in der
+ *  Vergangenheit. Klemmt die Oberfläche deshalb VOR dem Speichern, nicht erst
+ *  im Speicher. */
+export function klemmeMenge(menge: number): number {
+  return Number.isFinite(Number(menge)) && Number(menge) > 0 ? Number(menge) : 1;
+}
+
+/** Die Wahlen der Geltung/Einheit für die Auswahloberflächen — bewusst die
+ *  label-Funktionen, damit die Beschriftung erst beim Rendern die aktuelle
+ *  Sprache trifft. Standen wortgleich in `DeviceFreigabenGeltung` und
+ *  `SettingsStandplatz`. */
+export const geltungen: { id: Geltung; label: () => string }[] = [
+  { id: 'befristet', label: m.standplatz_settings_duration_limited },
+  { id: 'dauerhaft', label: m.standplatz_settings_duration_permanent },
+];
+export const einheiten: { id: Einheit; label: () => string }[] = [
+  { id: 'stunden', label: m.standplatz_settings_unit_hours },
+  { id: 'tage', label: m.standplatz_settings_unit_days },
+  { id: 'wochen', label: m.standplatz_settings_unit_weeks },
+];
 
 /**
  * Ein einzeln Freigegebener.

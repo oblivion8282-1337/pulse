@@ -65,3 +65,11 @@ export function benannteOverwrites(
 export function zielSchluessel(ow: { target_type: 0 | 1; target_id: string }): string {
   return `${ow.target_type}:${ow.target_id}`;
 }
+
+/** Und zurück: `<art>:<id>` auseinandernehmen. Stand fünfmal als
+ *  `key.split(':')` + `Number(art) as 0|1` verstreut — eine Stelle, an der ein
+ *  abweichendes Format still drei Zielarten verlieren würde. */
+export function teileSchluessel(key: string): { art: 0 | 1; id: string } {
+  const [rohart, id] = key.split(':');
+  return { art: Number(rohart) as 0 | 1, id };
+}

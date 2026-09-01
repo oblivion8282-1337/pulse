@@ -21,15 +21,13 @@
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
   import type { Member } from '$lib/api/types';
   import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
-  import { guilds } from '$lib/stores/guilds.svelte';
-  import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
   import { roles as rollenStore } from '$lib/stores/roles.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import type { Permission } from '../bitfield';
   import { rechtsstaende, type Rechtsstand } from '../herkunft';
-  import { mitgliederUndRollen } from '../kanalansicht';
+  import { besitzerId, mitgliederUndRollen } from '../kanalansicht';
   import { kanalrechte } from '../kanalrechte';
-  import { benannteOverwrites, benannteRollen, zielSchluessel } from '../schnappschuesse';
+  import { benannteOverwrites, benannteRollen, teileSchluessel, zielSchluessel } from '../schnappschuesse';
   import { ergebnisFarbe, ergebnisText } from '../texte';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -46,13 +44,11 @@
   let rechte = $derived(kanalrechte());
   let alleRollen = $derived(rollenStore.byGuild[guildId] ?? []);
   let overwrites = $derived(channelPermissions.byChannel[channelId] ?? []);
-  let besitzerId = $derived(
-    guilds.byId[guildId]?.owner_id ?? serverGuilds.findGuild(guildId)?.owner_id ?? null
-  );
+  let besitzer = $derived(besitzerId(guildId));
 
   function nameFuer(key: string): string {
-    const [art, id] = key.split(':');
-    if (art === '0') return alleRollen.find((r) => r.id === id)?.name ?? id;
+    const { art, id } = teileSchluessel(key);
+    if (art === 0) return alleRollen.find((r) => r.id === id)?.name ?? id;
     const mem = mitglieder.find((x) => x.user_id === id);
     return mem?.nickname ?? userCache.displayName(id);
   }
@@ -63,7 +59,7 @@
       {
         userId: personId,
         isMember: true,
-        isOwner: besitzerId === personId,
+        isOwner: besitzer === personId,
         rollen: benannteRollen(guildId, new Set(rollenIdsJeMitglied[personId] ?? [])),
         overwrites: benannteOverwrites(overwrites, (ow) => nameFuer(zielSchluessel(ow))),
         // Die eigene Abweichung der Person liest sich als „hier verboten",

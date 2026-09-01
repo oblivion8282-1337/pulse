@@ -21,18 +21,17 @@
   import TrashIcon from '@lucide/svelte/icons/trash-2';
   import LockIcon from '@lucide/svelte/icons/lock';
   import { Button } from '$lib/components/ui/button/index.js';
-  import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
+  import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
   import type { Member } from '$lib/api/types';
   import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
-  import { guilds } from '$lib/stores/guilds.svelte';
-  import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
   import { roles as rollenStore } from '$lib/stores/roles.svelte';
   import { Perm, has, toBitfield, type Permission } from '$lib/permissions/bitfield';
   import { KanalEntwurf, type Zustand } from '$lib/permissions/entwurf.svelte';
   import { rechtsstaende, type Rechtsstand } from '$lib/permissions/herkunft';
   import { kanalrechte } from '$lib/permissions/kanalrechte';
   import {
+    besitzerId,
     mitgliederUndRollen,
     wirkendeAbweichungen,
     zielAufloesung
@@ -57,7 +56,6 @@
   let mitglieder = $state<Member[]>([]);
   let rollenIdsJeMitglied = $state<Record<string, string[]>>({});
   let ausgewaehlt = $state<string | null>(null);
-  let loeschFrage = $state(false);
   let loescht = $state(false);
 
   let rechte = $derived(kanalrechte());
@@ -67,9 +65,7 @@
   let ziele = $derived(baueZiele(alleRollen, mitglieder, (k) => entwurf.gesetzte(k, perms)));
   let namen = $derived(new Map(ziele.map((z) => [z.key, z.name])));
   let gewaehlt = $derived(ziele.find((z) => z.key === ausgewaehlt) ?? null);
-  let besitzerId = $derived(
-    guilds.byId[guildId]?.owner_id ?? serverGuilds.findGuild(guildId)?.owner_id ?? null
-  );
+  let besitzer = $derived(besitzerId(guildId));
   let abweichungen = $derived(
     wirkendeAbweichungen(overwrites, entwurf, (k) => namen.get(k) ?? k)
   );
@@ -81,7 +77,7 @@
         guildId,
         rollen: alleRollen,
         rollenIdsJeMitglied,
-        besitzerId,
+        besitzerId: besitzer,
         abweichungen
       }),
       perms
@@ -139,9 +135,17 @@
 
   async function loeschen(): Promise<void> {
     const key = ausgewaehlt;
-    // bits-ui schliesst den Dialog beim Bestätigen nicht selbst — ein zweiter
-    // Klick im Flug schickte dasselbe DELETE erneut und holte sich einen 404.
+    // Doppelklick-Schutz: ein zweiter Klick im Flug schickte dasselbe DELETE
+    // erneut und holte sich einen 404.
     if (!key || loescht) return;
+    const ok = await confirmDialog({
+      title: m.kanalrechte_loeschen_titel(),
+      description: m.kanalrechte_loeschen_text({ ziel: gewaehlt?.name ?? '' }),
+      confirmLabel: m.kanalrechte_btn_abweichung_loeschen(),
+      cancelLabel: m.kanalrechte_loeschen_abbrechen(),
+      destructive: true
+    });
+    if (!ok) return;
     loescht = true;
     try {
       await entwurf.loesche(key);
@@ -152,7 +156,6 @@
       });
     } finally {
       loescht = false;
-      loeschFrage = false;
     }
   }
 
@@ -199,7 +202,7 @@
               <Button
                 size="sm"
                 variant="ghost"
-                onclick={() => (loeschFrage = true)}
+                onclick={loeschen}
                 data-testid="perm-delete-btn"
               >
                 <TrashIcon /> {m.kanalrechte_btn_abweichung_loeschen()}
@@ -221,21 +224,3 @@
   </section>
 </div>
 
-<!-- Rückfrage vor dem Löschen: eine ganze Abweichung fällt damit weg, und das
-     Löschen einer Rolle fragt seit jeher nach — hier fehlte die Frage. -->
-<AlertDialog.Root bind:open={loeschFrage}>
-  <AlertDialog.Content data-testid="perm-delete-confirm">
-    <AlertDialog.Header>
-      <AlertDialog.Title>{m.kanalrechte_loeschen_titel()}</AlertDialog.Title>
-      <AlertDialog.Description>
-        {m.kanalrechte_loeschen_text({ ziel: gewaehlt?.name ?? '' })}
-      </AlertDialog.Description>
-    </AlertDialog.Header>
-    <AlertDialog.Footer>
-      <AlertDialog.Cancel disabled={loescht}>{m.kanalrechte_loeschen_abbrechen()}</AlertDialog.Cancel>
-      <AlertDialog.Action onclick={loeschen} disabled={loescht} data-testid="perm-delete-confirm-btn">
-        {m.kanalrechte_btn_abweichung_loeschen()}
-      </AlertDialog.Action>
-    </AlertDialog.Footer>
-  </AlertDialog.Content>
-</AlertDialog.Root>

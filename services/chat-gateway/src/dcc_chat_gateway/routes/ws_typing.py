@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 from dcc_chat_gateway.db import SessionLocal
 from dcc_chat_gateway.friend_helpers import block_exists_either_way
 from dcc_chat_gateway.models import DirectMessageChannel
+from dcc_chat_gateway.routes._deps import parse_snowflake_int as _channel_id
 
 if TYPE_CHECKING:
     from dcc_chat_gateway.routes.ws_ops_registry import WSOpContext
@@ -38,16 +39,6 @@ def _session_factory(mgr: object):
     wie ``ws_device_handlers.py``.
     """
     return getattr(mgr, "_session_factory", None) or SessionLocal
-
-
-def _channel_id(value: object) -> int | None:
-    s = str(value or "").strip()
-    if not s:
-        return None
-    try:
-        return int(s)
-    except ValueError:
-        return None
 
 
 async def handle_typing(ctx: "WSOpContext", msg: dict[str, Any]) -> None:
