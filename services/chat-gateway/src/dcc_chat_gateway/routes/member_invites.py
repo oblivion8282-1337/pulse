@@ -31,7 +31,6 @@ from sqlalchemy import func, select
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.friend_events import publish_friend_event
 from dcc_chat_gateway.friend_helpers import block_exists_either_way
-from dcc_chat_gateway.guild_caps import enforce_member_cap
 from dcc_chat_gateway.invite_host import fremder_host
 from dcc_chat_gateway.models import (
     CommunityInviteNotification,
@@ -42,10 +41,7 @@ from dcc_chat_gateway.models.moderation import CachedUserProfile
 from dcc_chat_gateway.permissions import check_permission
 from dcc_chat_gateway.ratelimit import check as ratelimit_check
 from dcc_chat_gateway.routes._deps import CloudOnly
-from dcc_chat_gateway.routes.invites import (
-    _first_text_channel_id,
-    _publish_member_added,
-)
+from dcc_chat_gateway.routes.invites import _join_guild
 from dcc_chat_gateway.schemas import InviteAcceptOut, InviteGuildOut
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
@@ -276,22 +272,12 @@ async def accept_community_invite(
         await session.commit()
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="invite_not_found")
 
-    from dcc_chat_gateway.routes.bans import is_user_banned  # local: import cycle
-
-    if await is_user_banned(session, row.guild_id, current.id):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="you are banned from this server")
-
-    actually_added = False
-    if await session.get(GuildMember, (row.guild_id, current.id)) is None:
-        await enforce_member_cap(session, row.guild_id)
-        session.add(GuildMember(guild_id=row.guild_id, user_id=current.id))
-        actually_added = True
+    # Die Zeile verschwindet im selben Commit wie die Mitgliedschaft (der
+    # Helfer committet); rollt er zurück — Ban-Rennen, Race um die Mitglieds-
+    # schaft —, bleibt die Einladung offen. Ban-Vorprüfung, Member-Cap,
+    # Insert und Broadcast macht der gemeinsame Kern (``_join_guild``).
     await session.delete(row)
-    await session.commit()
-
-    if actually_added:
-        await _publish_member_added(request, row.guild_id, current.id)
-    channel_id = await _first_text_channel_id(session, row.guild_id)
+    _, channel_id = await _join_guild(session, request, row.guild_id, current.id)
     return InviteAcceptOut(
         guild=InviteGuildOut(id=guild.id, name=guild.name, icon_url=guild.icon_url),
         channel_id=channel_id,
