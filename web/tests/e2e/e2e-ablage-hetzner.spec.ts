@@ -117,6 +117,26 @@ async function nextcloudListe(): Promise<{ name: string; groesse: number }[]> {
   return eintraege;
 }
 
+/** Raeumt den Ordner leer.
+ *
+ *  **Ohne das ist der Nachweis wertlos**, und das war er bis zum
+ *  2026-09-01 auch: der Ordner ist derselbe fuer jeden Lauf, jeder Lauf legt
+ *  aber einen NEUEN Kanal an. Ein `manifest.puls` aus einem frueheren
+ *  Durchgang liess die Schlusspruefung bestehen, ohne dass dieser Lauf je
+ *  etwas geschrieben haette — ein Test, der auf den Ueberresten seines
+ *  Vorgaengers gruen wird, prueft gar nichts. */
+async function nextcloudLeeren(): Promise<void> {
+  const url = new URL(FREIGABE);
+  const token = url.pathname.split('/s/')[1]?.replace(/\/.*$/, '') ?? '';
+  const basis = `${url.origin}/public.php/dav/files/${token}`;
+  for (const datei of await nextcloudListe()) {
+    await fetch(`${basis}/${encodeURIComponent(datei.name)}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Basic ${Buffer.from(`${token}:`).toString('base64')}` }
+    });
+  }
+}
+
 /** Laedt eine Datei aus dem Nextcloud-Ordner als rohe Bytes. */
 async function nextcloudBytes(name: string): Promise<Buffer> {
   const url = new URL(FREIGABE);
@@ -154,6 +174,7 @@ test.describe('Ablage-Kanal auf echter Nextcloud (Hetzner)', () => {
     for (const ctx of [devCtx, dev2Ctx]) await alsElektronGeraetAusgeben(ctx);
     devPage = await devCtx.newPage();
     dev2Page = await dev2Ctx.newPage();
+    await nextcloudLeeren();
   });
 
   test.afterAll(async () => {
@@ -221,16 +242,24 @@ test.describe('Ablage-Kanal auf echter Nextcloud (Hetzner)', () => {
   test('eine verschluesselte Nachricht landet im Kanal — und der Server sieht keinen Klartext', async () => {
     const KLARTEXT = `nextcloud-nachweis ${TAG}`;
 
-    await dev2Page.goto(`/app/guilds/${guildId}/channels/${kanalId}`);
-    await expect(dev2Page.getByTestId('message-input')).toBeVisible({ timeout: 20_000 });
-
+    // **Es schreibt dev2, nicht der Besitzer — und das ist kein Detail.**
+    // Das Archiv wird aus dem Postfach gespeist, und ein Absender beliefert
+    // sein eigenes AKTUELLES Geraet nicht (`empfaengerGeraete.ts`: „es hat
+    // den Klartext schon"). Eine Nachricht, die der Besitzer selbst
+    // schreibt, kommt deshalb nie in seinem eigenen Postfach an und wird
+    // nie gefestigt. Dieser Nachweis prueft den Weg, der heute traegt:
+    // Mitglied schreibt, Besitzer-Geraet festigt. Die Luecke fuer eigene
+    // Nachrichten ist getrennt vermerkt und noch offen.
     await devPage.goto(`/app/guilds/${guildId}/channels/${kanalId}`);
-    await devPage.getByTestId('message-input').click();
-    await devPage.getByTestId('message-input').fill(KLARTEXT);
-    await devPage.getByTestId('message-input').press('Enter');
+    await expect(devPage.getByTestId('message-input')).toBeVisible({ timeout: 20_000 });
+
+    await dev2Page.goto(`/app/guilds/${guildId}/channels/${kanalId}`);
+    await dev2Page.getByTestId('message-input').click();
+    await dev2Page.getByTestId('message-input').fill(KLARTEXT);
+    await dev2Page.getByTestId('message-input').press('Enter');
 
     await expect(
-      dev2Page.locator('[data-testid="message-content"]', { hasText: KLARTEXT })
+      devPage.locator('[data-testid="message-content"]', { hasText: KLARTEXT })
     ).toBeVisible({ timeout: 30_000 });
 
     expect(
@@ -242,13 +271,20 @@ test.describe('Ablage-Kanal auf echter Nextcloud (Hetzner)', () => {
   test('die Bytes liegen in der Nextcloud — und sind dort NICHT lesbar', async () => {
     const KLARTEXT = `nextcloud-nachweis ${TAG}`;
 
-    const dateien = await expect
-      .poll(async () => (await nextcloudListe()).filter((d) => d.groesse > 0), {
-        timeout: 60_000,
-        message: 'im Nextcloud-Ordner ist nach der Festigung keine Datei aufgetaucht'
+    // **Ein Segment, nicht irgendeine Datei.** Das Manifest allein beweist
+    // nichts: es entsteht schon bei der Bestandsaufnahme, bevor eine einzige
+    // Nachricht gefestigt ist. Genau darauf ist diese Pruefung am
+    // 2026-09-01 einmal hereingefallen — sie war gruen, waehrend im Ordner
+    // nur ein `manifest.puls` lag und der Nachrichteninhalt nirgends stand.
+    await expect
+      .poll(async () => (await nextcloudListe()).filter((d) => /^seg-/.test(d.name) && d.groesse > 0).length, {
+        timeout: 90_000,
+        message: 'im Nextcloud-Ordner ist kein Segment aufgetaucht — das Manifest allein ist kein Nachweis'
       })
-      .not.toHaveLength(0)
-      .then(() => nextcloudListe());
+      .toBeGreaterThan(0);
+
+    const dateien = await nextcloudListe();
+    expect(dateien.map((d) => d.name)).toContain('manifest.puls');
 
     const roh = Buffer.concat(
       await Promise.all(dateien.filter((d) => d.groesse > 0).map((d) => nextcloudBytes(d.name)))

@@ -30,6 +30,9 @@ STATUS_JE_CODE: dict[str, int] = {
     "ziel_privat": status.HTTP_403_FORBIDDEN,
     "umleitung_ohne_ziel": status.HTTP_502_BAD_GATEWAY,
     "zu_viele_umleitungen": status.HTTP_502_BAD_GATEWAY,
+    # Die Gegenstelle sagt „gibt es nicht" — das reicht der Klient als
+    # `null` durch (`ablageKanalAbruf`), es ist kein Fehlerfall.
+    "nicht_gefunden": status.HTTP_404_NOT_FOUND,
     "upstream_fehler": status.HTTP_502_BAD_GATEWAY,
     "upstream_nicht_erreichbar": status.HTTP_502_BAD_GATEWAY,
     "antwort_zu_gross": status.HTTP_413_CONTENT_TOO_LARGE,

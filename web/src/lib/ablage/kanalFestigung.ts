@@ -42,6 +42,7 @@ import { AblageSchreiber } from './schreiber.ts';
 import { nachziehen } from './nachzieher.ts';
 import { verschluesselnderAdapter } from './kryptoBehaelter.ts';
 import { ablageVerbindungen, adapterFür } from './verbindungen.svelte.ts';
+import { ueberPulse } from './ablageUeberPulse.ts';
 import { postfachQuelleFuerKanal } from './postfachQuelleVerdrahtung';
 import { base64ZuBytes } from './syncOrdnerSchluessel.ts';
 import { backoffDeckel } from './backoffDeckel.ts';
@@ -73,8 +74,21 @@ export async function festigeKanalEinmal(kanalId: string): Promise<KanalFestigun
 
 	try {
 		const hauptschlüssel = base64ZuBytes(verbindung.hauptschlüsselB64);
+		// Der ganze Laufwerks-Zugriff laeuft ueber den Pulse-Server, nicht
+		// direkt in die Cloud
+		// (Entwurf §1, §4.0a). Ein direktes WebDAV-`PUT` aus dem Browser
+		// scheitert an fehlenden CORS-Kopfzeilen — an einer echten Nextcloud
+		// gemessen, und weil dieser Aufruf in einer Hintergrundschleife
+		// steckt, blieb der Fehlschlag unsichtbar: der Cloud-Ordner blieb
+		// leer, ohne dass irgendwo etwas rot wurde (2026-09-01).
+		//
+		// Die Reihenfolge der beiden Huellen ist NICHT beliebig: die
+		// Verschluesselung sitzt aussen, der Pulse-Umweg innen. Andersherum
+		// gaebe der Klient Klartext an den eigenen Server — genau das, was
+		// die ganze Ablage vermeidet.
 		const roh = await adapterFür(verbindung);
-		const adapter = verschluesselnderAdapter(roh, hauptschlüssel);
+		const durchPulse = ueberPulse(roh, kanalId);
+		const adapter = verschluesselnderAdapter(durchPulse, hauptschlüssel);
 
 		const schreiber = new AblageSchreiber(adapter, kanalId);
 		// Den echten Stand laden, BEVOR nachgezogen wird — sonst hielte

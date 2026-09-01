@@ -46,6 +46,13 @@ _RULES: dict[str, tuple[int, float]] = {
     # Jeder Versuch kostet ausserdem vier Anfragen am Ziel (PUT/GET/DELETE
     # plus ggf. Aufraeumen), 6/Minute sind also bis zu 24 fremde Aufrufe.
     "ablage_pruefen": (6, 60.0),
+    # Der Schreib-Weiterreicher. Grosszuegiger als die Probe: hier ist das
+    # Ziel serverseitig hinterlegt und gehoert dem Aufrufer selbst, es gibt
+    # also nichts zu scannen. Die Schranke begrenzt, wie schnell ein Geraet
+    # sein eigenes Laufwerk vollschreiben kann — 60/Minute bei 8 MB je
+    # Aufruf ist die Obergrenze, der Regelbetrieb liegt um Groessenordnungen
+    # darunter (ein Log-Segment ist klein, und die Schleife geht alle 30 s).
+    "ablage_schreiben": (60, 60.0),
 }
 
 

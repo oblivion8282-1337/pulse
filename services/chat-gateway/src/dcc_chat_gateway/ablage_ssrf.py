@@ -241,6 +241,16 @@ async def _hole_einmal(
             if not ort:
                 raise AblageAbrufFehler("umleitung_ohne_ziel")
             return b"", None, ort
+        if antwort.status_code == 404:
+            # **Eine fehlende Datei ist kein Fehler des Weiterreichers.**
+            # Der Klient fragt regelmaessig nach etwas, das es noch nicht
+            # gibt — beim allerersten Festigen existiert weder Manifest noch
+            # Segment. Bis zum 2026-09-01 fiel das in ``upstream_fehler`` und
+            # kam als 502 zurueck; `ablageKanalAbruf` deutet nur 404 als
+            # „nicht da" und warf deshalb, die Bestandsaufnahme brach ab, und
+            # es wurde NIE etwas geschrieben. Der Ordner blieb leer, ohne dass
+            # irgendwo etwas rot wurde.
+            raise AblageAbrufFehler("nicht_gefunden")
         if antwort.status_code != 200:
             raise AblageAbrufFehler("upstream_fehler")
         stueck = bytearray()

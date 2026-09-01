@@ -76,3 +76,55 @@ export async function ablageKanalLaufwerkSetzen(
     route
   );
 }
+
+/**
+ * Legt `inhalt` unter `pfad` auf dem Kanal-Laufwerk ab — ueber den
+ * Pulse-Server, nicht direkt.
+ *
+ * **Direkt geht nicht**, und das ist gemessen: eine Nextcloud setzt auf ein
+ * WebDAV-`PUT` aus dem Browser keine CORS-Kopfzeile, der Aufruf bricht vor
+ * dem ersten Byte ab (2026-09-01). Der Entwurf sah den Weg ohnehin ueber
+ * Pulse vor (§1, §4.0a) — er war nur nicht gebaut, und weil die Festigung
+ * in einer Hintergrundschleife lief, blieb der Fehlschlag unsichtbar: der
+ * Cloud-Ordner blieb leer, ohne dass irgendwo etwas rot wurde.
+ *
+ * Schreiben darf nur der Ersteller des Laufwerks; ein anderes Mitglied
+ * bekommt 403 (`ApiError`).
+ */
+export async function ablageKanalSchreiben(
+  kanalId: string,
+  pfad: string,
+  inhalt: Uint8Array,
+  route: RequestRoute = {}
+): Promise<void> {
+  const params = new URLSearchParams({ pfad });
+  const resp = await fetchAuthenticated(
+    `/channels/${kanalId}/ablage/schreiben?${params.toString()}`,
+    {
+      method: 'PUT',
+      // `Uint8Array` statt `Blob`: der Koerper ist Chiffrat, ein
+      // Inhaltstyp waere eine Aussage darueber, die wir nicht treffen.
+      body: inhalt as unknown as BodyInit
+    },
+    route
+  );
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    const data = text ? safeParse(text) : null;
+    throw new ApiError(resp.status, data, extractDetail(data) ?? resp.statusText);
+  }
+}
+
+/**
+ * Die Dateinamen im Laufwerks-Ordner des Kanals — ueber den Pulse-Server.
+ *
+ * **Auch das geht nicht direkt:** ein WebDAV-`PROPFIND` loest im Browser
+ * eine CORS-Vorabfrage aus und scheitert an derselben Wand wie das
+ * Schreiben. Die Bestandsaufnahme vor jedem Festigen beginnt aber damit.
+ */
+export async function ablageKanalListe(
+  kanalId: string,
+  route: RequestRoute = {}
+): Promise<string[]> {
+  return request<string[]>(`/channels/${kanalId}/ablage/liste`, {}, route);
+}
