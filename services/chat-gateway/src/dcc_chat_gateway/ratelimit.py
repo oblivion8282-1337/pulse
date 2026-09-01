@@ -34,6 +34,9 @@ _RULES: dict[str, tuple[int, float]] = {
     "dropbox_download": (20, 60.0),  # 20 archive/download-url mints / minute
     "ablage_abruf": (30, 60.0),      # 30 Weiterreich-Abrufe / Minute (Design §4.2)
     "ablage_laufwerk_setzen": (10, 60.0), # 10 Freigabe-Adresse-Aenderungen / Minute
+    "ablage_guild_laufwerk_setzen": (10, 60.0), # dasselbe fuer das Community-Laufwerk (E8)
+    "ablage_guild_abruf": (30, 60.0), # dasselbe fuer die Community-Weiterreich-Route (E8)
+    "ablage_zwischenlager_ankuendigen": (20, 60.0), # 20 Zwischenlager-Uploads / Minute (E8)
 }
 
 

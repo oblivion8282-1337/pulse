@@ -199,6 +199,37 @@ export class DateiSpeicher {
 		});
 	}
 
+	/**
+	 * Schreibt einen BEREITS gepackten Container (aus ``dateiablage.ts::
+	 * packeDateiContainer``) direkt aufs Laufwerk und traegt ihn ins
+	 * Verzeichnis ein — ohne erneut zu verschluesseln. Fuer die Festigung
+	 * (``festigung.ts``): das Mitglied hat den Container schon verschluesselt
+	 * und ins Zwischenlager gelegt; das Besitzer-Geraet holt exakt diese
+	 * Bytes und muss sie nur noch platzieren. ``kopf`` kommt aus
+	 * ``öffneDateiContainer`` (derselbe Aufruf, mit dem das Besitzer-Geraet
+	 * den Klumpen ohnehin oeffnet, um den Verzeichniseintrag zu bauen) — der
+	 * Inhalt bleibt dabei die ganze Zeit Chiffrat, nur der Kopf wird kurz
+	 * entschluesselt, NIE der Inhalt selbst.
+	 */
+	async festigeVorverschlüsseltenContainer(
+		id: string,
+		container: Uint8Array,
+		kopf: { name: string; mime: string; groesse: number; hochgeladenAm: string; hochgeladenVon: string },
+	): Promise<void> {
+		const dateiName = `a-${id}.puls`;
+		await this.adapter.schreibe(dateiName, container);
+		const eintrag: AblageEintrag = { id, datei: dateiName, ...kopf };
+		return this.nacheinander(async () => {
+			await this._ladenWennNoetig();
+			// Idempotent: ein wiederholter Festigungsversuch (z. B. nach einem
+			// Absturz zwischen Schreiben und Quittieren) darf denselben Eintrag
+			// kein zweites Mal anhaengen.
+			if (this.verzeichnis!.einträge.some((e) => e.id === id)) return;
+			this.verzeichnis!.einträge.push(eintrag);
+			await this._speichereVerzeichnis();
+		});
+	}
+
 	async _speichereVerzeichnis(): Promise<void> {
 		const bytes = await verschlüsseleVerzeichnis(this.hauptschlüssel, this.verzeichnis!);
 		await this.adapter.schreibe(VERZEICHNIS_DATEI, bytes);

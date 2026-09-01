@@ -93,6 +93,14 @@ export interface AblageVerbindung {
    *  `setzeArchivMarkierung` (`archivMarkierung.ts`). Fehlt das Feld ueberall,
    *  bleibt alles wie heute: Verlauf im Browser-Speicher, kein Notbehelf. */
   istArchiv?: boolean;
+  /**
+   * Das Community-Laufwerk dieser Guild (Etappe E8, Design §7) — gesetzt vom
+   * BESITZER-Geraet, wenn er ueber die Aufforderung in der Ansicht verbindet
+   * (`CommunityDateiablage.svelte`). Nur SEIN Geraet braucht diese Markierung:
+   * es ist das einzige, das festigt (`festigung.ts`) UND direkt gegen den
+   * Adapter schreibt/liest. Hoechstens eine Verbindung je `guildId`.
+   */
+  fuerGuild?: string | null;
 }
 
 
@@ -120,6 +128,19 @@ export class AblageVerbindungsStore {
 
   verbindung(id: string): AblageVerbindung | undefined {
     return this.verbindungen.find((v) => v.id === id);
+  }
+
+  /** Die lokal markierte Laufwerks-Verbindung fuer eine Community — nur auf
+   *  dem Geraet des Besitzers gesetzt (`fuerGuild`, s. dort). */
+  verbindungFürGuild(guildId: string): AblageVerbindung | undefined {
+    return this.verbindungen.find((v) => v.fuerGuild === guildId);
+  }
+
+  /** Markiert eine bestehende Verbindung als das Laufwerk der Community
+   *  `guildId` — Gegenstueck zu `verbindungFürGuild`. Unbekannte Id: no-op
+   *  (dieselbe Regel wie bei `setzeArchivMarkierung`). */
+  async verknüpfeMitGuild(id: string, guildId: string): Promise<void> {
+    await this.patch(id, { fuerGuild: guildId });
   }
 
   async hinzufügen(v: AblageVerbindung): Promise<void> {

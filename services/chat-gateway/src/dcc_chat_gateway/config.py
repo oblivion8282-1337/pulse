@@ -174,7 +174,20 @@ class Settings(BaseSettings):
     ablage_abruf_max_bytes: int = 8 * 1024 * 1024  # 8 MiB je Segment/Datei
     ablage_abruf_timeout_s: float = 10.0
 
-
+    # Zwischenlager der Community-Dateiablage (Design §7, Etappe E8): ein
+    # Chiffrat wartet hier, bis ein Geraet des Besitzers es festigt. Werte
+    # gerechnet gegen die Prod-Kiste aus CLAUDE.md (38 GB Platte, 77 % voll
+    # -> rund 8,7 GB frei, geteilt mit Postgres/Redis/MinIO/allen anderen
+    # Diensten). Je Datei 64 MiB deckt praktisch jede Datei, die ein Mitglied
+    # bewusst ablegt (Fotos, Dokumente, kurze Videoclips), ohne das
+    # Zwischenlager zum Video-Hoster zu machen. Je Community 512 MiB: selbst
+    # 10 Communities, die gleichzeitig am Anschlag liegen, blieben bei 5 GB
+    # und damit unter der freien Kapazitaet; das Alterslimit (7 Tage) sorgt
+    # dafuer, dass sich das nicht aufsummiert, sondern hoechstens fuer eine
+    # Woche steht.
+    ablage_zwischenlager_max_datei_bytes: int = 64 * 1024 * 1024
+    ablage_zwischenlager_max_gesamt_bytes: int = 512 * 1024 * 1024
+    ablage_zwischenlager_max_alter_tage: int = 7
 
     # Cloud user-id of this instance's owner (the applicant who registered it).
     # The Cloud hands this out at approval. At cert-login, the user whose cert

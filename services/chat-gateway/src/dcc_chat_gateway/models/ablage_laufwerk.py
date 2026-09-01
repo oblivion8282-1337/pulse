@@ -64,3 +64,53 @@ class AblageKanalLaufwerk(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+
+class AblageGuildLaufwerk(Base):
+    """Die Freigabe-Adresse des Community-Laufwerks (Etappe E8, Design §7).
+
+    **Eigene Tabelle statt eines gemeinsamen Bezugstyps** (``kanal``/``guild``
+    an einer geteilten Zeile) — drei Gruende, dieselbe Abwaegung wie beim
+    Kanal-Pendant oben, mit einem zusaetzlichen:
+
+    1. Dieselbe Geheimhaltungs-Anforderung wie beim Kanal: die Adresse darf
+       strukturell nie in einer ``GuildOut`` landen. Eine gemeinsame Tabelle
+       mit einer ``bezug_typ``-Spalte muesste diese Garantie durch Disziplin
+       an jeder Leseabfrage erkaufen (,,filter nach Typ nicht vergessen");
+       zwei getrennte Tabellen erzwingen es durch die Modellgrenze selbst.
+    2. ``Guild`` hat, anders als ``Channel``, BEREITS einen Eigentuemer-Begriff
+       (``Guild.owner_id`` — er wechselt bei Owner-Transfer). Eine geteilte
+       Zeile mit einem eigenen ``ersteller_id`` wie beim Kanal waere hier ein
+       zweiter, unnoetiger Begriff von ,,wem gehoert das" — die Route
+       (``routes/ablage_guild_laufwerk.py``) prueft deshalb bei JEDEM Aufruf
+       gegen den *aktuellen* ``Guild.owner_id``, statt einen eigenen
+       ``ersteller_id`` mitzufuehren, der nach einer Eigentuemer-Uebergabe
+       falsch laege. **Wichtig:** ein Owner-Wechsel macht die hier stehende
+       Adresse NICHT ungueltig — sie zeigt weiter auf das Cloud-Laufwerk des
+       VORHERIGEN Besitzers, bis der neue Besitzer sie ersetzt. Das ist eine
+       bekannte Luecke, kein Uebersehen (E8-Bericht).
+    3. Guild- und Kanal-Ablage sind unabhaengige Konzepte (E7 vs. E8) mit
+       unabhaengigen Lebenszyklen — eine Community kann ein Laufwerk haben,
+       ohne dass irgendein Ablage-Kanal existiert, und umgekehrt.
+
+    ``ON DELETE CASCADE`` auf ``guilds.id`` — verschwindet die Community,
+    verliert die Adresse jeden Sinn.
+    """
+
+    __tablename__ = "ablage_guild_laufwerke"
+
+    guild_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("guilds.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    freigabe_adresse: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )

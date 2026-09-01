@@ -37,6 +37,7 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
+from dcc_chat_gateway.ablage_zwischenlager_pflege import sweep_alte_zwischenlager_dateien
 from dcc_chat_gateway.config import Settings
 from dcc_chat_gateway.models import WebPushSubscription
 from dcc_chat_gateway.kopplung_pflege import sweep_verfallene_kopplungen
@@ -96,6 +97,14 @@ async def _run_once(engine: AsyncEngine, settings: Settings) -> int:
     async with session_factory() as session:
         geraete = await sweep_verfallene_geraete(session)
     log.info("geraete_verfall_done verfallen=%d", geraete)
+
+    # Zwischenlager-Klumpen, die zu lange auf Festigung warten (Etappe E8,
+    # Design §7) — dieselbe Schleife, derselbe Takt.
+    async with session_factory() as session:
+        zwischenlager = await sweep_alte_zwischenlager_dateien(
+            session, settings.ablage_zwischenlager_max_alter_tage
+        )
+    log.info("ablage_zwischenlager_pflege_done verfallen=%d", zwischenlager)
 
     return deleted
 
