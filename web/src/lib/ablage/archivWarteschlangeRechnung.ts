@@ -32,6 +32,13 @@ export interface ArchivWarteschlangenEintrag {
 	geloescht: boolean;
 	antwortAufId: string | null;
 	kryptoId: string | null;
+	/** Die Anhang-Angaben der Nachricht (Kennung, Name, Schlüssel …) — der
+	 *  VERWEIS, nicht die Bytes. **Fehlte bis zum 2026-09-01 ganz**: ein
+	 *  zurückgeholter Verlauf hätte damit jede Bildnachricht als reinen Text
+	 *  wiedergegeben, ohne dass auch nur zu sehen gewesen wäre, dass ein
+	 *  Anhang dazugehörte. Alte Einträge ohne das Feld lesen sich als leere
+	 *  Liste. */
+	anhaenge: unknown[];
 	/** Welchem Konto dieser Eintrag gehört — Isolation bei einem Kontowechsel
 	 *  am selben Gerät, derselbe Grund wie bei `verbindungen.svelte.ts`. */
 	kontoId: string;
@@ -125,6 +132,10 @@ export function eintragAusRoh(roh: unknown): ArchivWarteschlangenEintrag | null 
 	}
 	return {
 		schluessel: `${r.kanalId}:${r.nachrichtId}`,
+		// Tolerant statt fail-closed, anders als bei den Pflichtfeldern
+		// darüber: ein Bestandseintrag ohne dieses Feld ist kein kaputter
+		// Eintrag, sondern ein älterer.
+		anhaenge: Array.isArray(r.anhaenge) ? r.anhaenge : [],
 		kanalId: r.kanalId,
 		nachrichtId: r.nachrichtId,
 		autorId: r.autorId,

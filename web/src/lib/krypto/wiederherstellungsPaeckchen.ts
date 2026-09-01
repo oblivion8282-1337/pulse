@@ -134,6 +134,22 @@ export interface PaeckchenVerbindung {
 	/** Der Ablage-Hauptschlüssel, Base64. Der unwiederbringliche Teil. */
 	hauptschlüsselB64: string;
 	verbundenAm: string;
+	/**
+	 * War dies das Archiv des Kontos?
+	 *
+	 * **Fehlte bis zum 2026-09-01, und ohne das Feld ist der Rückweg
+	 * unmöglich.** Ein eingelöster Code brachte die Verbindungen samt
+	 * Schlüsseln zurück — aber nicht die Auskunft, in WELCHER davon der
+	 * Verlauf liegt. Das Gerät stand danach vor mehreren geöffneten
+	 * Laufwerken und keinem Anhaltspunkt; suchen konnte es nicht, denn ein
+	 * fremdes Laufwerk zu durchforsten wäre genau das, was ein Archiv nicht
+	 * tun soll.
+	 *
+	 * Optional, weil ein Päckchen von vor diesem Datum es nicht trägt —
+	 * dort bleibt es beim alten Verhalten (Verbindungen zurück, Verlauf
+	 * nicht).
+	 */
+	istArchiv?: boolean;
 }
 
 export interface WiederherstellungsInhalt {

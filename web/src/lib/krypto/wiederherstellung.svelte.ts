@@ -24,6 +24,7 @@ import {
 	ablageVerbindungen,
 	type AblageAnbieterArt,
 } from '../ablage/verbindungen.svelte.ts';
+import { holeVerlaufAusArchiv, type RueckwegBericht } from '../ablage/archivRueckweg.ts';
 import { aktuellesKonto } from '../verlauf/konto.ts';
 import { putRecoveryPackage, getRecoveryPackage, istKeinPaeckchenFehler } from '../api/recovery-package';
 
@@ -60,6 +61,7 @@ function pruefeAngemeldet(): string {
 async function sammleVerbindungen(): Promise<PaeckchenVerbindung[]> {
 	if (!ablageVerbindungen.geladen) await ablageVerbindungen.laden();
 	return ablageVerbindungen.verbindungen.map((v) => ({
+		istArchiv: v.istArchiv === true,
 		id: v.id,
 		anbieter: v.anbieter,
 		name: v.name,
@@ -97,7 +99,9 @@ export async function erzeugeUndSichere(): Promise<string> {
  * `ApiError`/`WiederherstellungsFehler`, damit die Oberfläche nicht selbst
  * zwischen den Fehlertypen der beiden Schichten unterscheiden muss.
  */
-export async function loeseEin(eingabe: string): Promise<{ anzahl: number }> {
+export async function loeseEin(
+	eingabe: string,
+): Promise<{ anzahl: number; verlauf: RueckwegBericht | null }> {
 	const kontoId = pruefeAngemeldet();
 
 	let bytes: Uint8Array;
@@ -146,9 +150,34 @@ export async function loeseEin(eingabe: string): Promise<{ anzahl: number }> {
 			konfiguration: v.konfiguration,
 			hauptschlüsselB64: v.hauptschlüsselB64,
 			verbundenAm: v.verbundenAm,
+			istArchiv: v.istArchiv === true,
 			kontoId,
 		});
 	}
 
-	return { anzahl: inhalt.verbindungen.length };
+	// **Und jetzt der eigentliche Zweck: den Verlauf zurückholen.**
+	// Ohne diesen Schritt endete das Einlösen mit geöffneten Laufwerken und
+	// einem leeren Chat — die Verbindungen waren da, der Grund, sie zu haben,
+	// nicht. Bis zum 2026-09-01 war das so.
+	//
+	// Ein Fehlschlag hier wirft NICHT: die Verbindungen sind zu diesem
+	// Zeitpunkt bereits sicher abgelegt, und ein geworfener Fehler liesse den
+	// Nutzer glauben, das Einlösen sei gescheitert — er würde es wiederholen,
+	// mit demselben Ergebnis. Der Bericht sagt stattdessen, was zurückkam;
+	// die Oberfläche kann daraus „0 Nachrichten" anzeigen und zum erneuten
+	// Versuch auffordern.
+	const archiv = inhalt.verbindungen.find((v) => v.istArchiv === true);
+	let verlauf: RueckwegBericht | null = null;
+	if (archiv !== undefined) {
+		try {
+			const speicher = await ablageVerbindungen.dateiSpeicherFür(archiv.id);
+			if (speicher !== null) {
+				verlauf = await holeVerlaufAusArchiv(speicher, kontoId);
+			}
+		} catch {
+			verlauf = null;
+		}
+	}
+
+	return { anzahl: inhalt.verbindungen.length, verlauf };
 }

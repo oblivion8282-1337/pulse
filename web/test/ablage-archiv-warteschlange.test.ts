@@ -28,6 +28,7 @@ function eintrag(
 		erstelltAm: '2026-09-01T00:00:00.000Z',
 		bearbeitetAm: null,
 		geloescht: false,
+		anhaenge: [],
 		antwortAufId: null,
 		kryptoId: null,
 		kontoId: 'konto-1',

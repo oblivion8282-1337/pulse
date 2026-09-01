@@ -33,6 +33,7 @@
  * (`archivWarteschlangeRechnung.ts`); verarbeitet werden nur Einträge des
  * GERADE angemeldeten Kontos — derselbe Grund wie in `verbindungen.svelte.ts`.
  */
+import { kodiereArchivSatz } from './archivSatz.ts';
 import {
 	faelligeZuerst,
 	naechsteVerzoegerungMs,
@@ -72,6 +73,9 @@ export interface ArchivierbarerSatz {
 	geloescht: boolean;
 	antwortAufId: string | null;
 	kryptoId: string | null;
+	/** Die Anhang-Angaben — der VERWEIS, nicht die Bytes. Optional, weil ein
+	 *  `Satz` von vor dem 2026-09-01 das Feld nicht trägt. */
+	anhaenge?: unknown[];
 	kontoId: string;
 }
 
@@ -122,20 +126,6 @@ async function ablegen(): Promise<void> {
 	}
 }
 
-function kodiereSatz(eintrag: ArchivWarteschlangenEintrag): Uint8Array {
-	const nutzlast = {
-		kanalId: eintrag.kanalId,
-		nachrichtId: eintrag.nachrichtId,
-		autorId: eintrag.autorId,
-		inhalt: eintrag.inhalt,
-		erstelltAm: eintrag.erstelltAm,
-		bearbeitetAm: eintrag.bearbeitetAm,
-		geloescht: eintrag.geloescht,
-		antwortAufId: eintrag.antwortAufId,
-		kryptoId: eintrag.kryptoId
-	};
-	return new TextEncoder().encode(JSON.stringify(nutzlast));
-}
 
 function vermerkeFehlschlag(eintrag: ArchivWarteschlangenEintrag): void {
 	eintrag.versuche += 1;
@@ -171,6 +161,7 @@ export function archivSaetzeEinreihen(saetze: readonly ArchivierbarerSatz[]): vo
 					geloescht: satz.geloescht,
 					antwortAufId: satz.antwortAufId,
 					kryptoId: satz.kryptoId,
+					anhaenge: satz.anhaenge ?? [],
 					kontoId: satz.kontoId,
 					versuche: 0,
 					naechsterVersuchAb: 0
@@ -222,7 +213,12 @@ async function versucheEinmal(): Promise<boolean> {
 
 	for (const eintrag of faellige) {
 		try {
-			await speicher.hochladen(eintrag.schluessel, MIME_VERLAUFSSATZ, kodiereSatz(eintrag), konto);
+			await speicher.hochladen(
+				eintrag.schluessel,
+				MIME_VERLAUFSSATZ,
+				kodiereArchivSatz(eintrag),
+				konto,
+			);
 			warteschlange = warteschlange.filter((e) => e.schluessel !== eintrag.schluessel);
 			entferntSeitLetztemAblegen.add(eintrag.schluessel);
 		} catch {

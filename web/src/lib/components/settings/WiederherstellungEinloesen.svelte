@@ -15,12 +15,16 @@
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import { loeseEin, EinloeseFehler, type EinloeseFall } from '$lib/krypto/wiederherstellung.svelte.ts';
+  import type { RueckwegBericht } from '$lib/ablage/archivRueckweg.ts';
   import { m } from '$lib/paraglide/messages.js';
 
   let {
     open = $bindable(false),
     onWiederhergestellt,
-  }: { open?: boolean; onWiederhergestellt: (anzahl: number) => void } = $props();
+  }: {
+    open?: boolean;
+    onWiederhergestellt: (anzahl: number, verlauf: RueckwegBericht | null) => void;
+  } = $props();
 
   let code = $state('');
   let busy = $state(false);
@@ -51,9 +55,9 @@
     busy = true;
     error = null;
     try {
-      const { anzahl } = await loeseEin(code);
+      const { anzahl, verlauf } = await loeseEin(code);
       open = false;
-      onWiederhergestellt(anzahl);
+      onWiederhergestellt(anzahl, verlauf);
     } catch (err) {
       error = err instanceof EinloeseFehler ? meldungFuer(err.fall) : m.wiederherstellung_einloesen_fehler_unbekannt();
     } finally {
