@@ -41,6 +41,8 @@
   import { useGatewayDeletedListener, useGatewayListener } from '$lib/ws/useGatewayListener.svelte';
   import { ABLAGE_KANAL_ENABLED } from '$lib/featureFlags';
   import { sendeAblageKanalNachricht } from '$lib/components/chat/ablageKanalSenden';
+  import { ladeAblageKanalVerlauf } from '$lib/components/chat/ablageKanalVerlauf';
+  import { hatServerVerlauf } from '$lib/verlauf';
   import { kanalEreignisEinspeisen } from '$lib/krypto/gruppe/kanalSitzungStore';
   import { kanalWsEreignisAbbilden } from '$lib/krypto/gruppe/kanalEreignisAbbildung';
   import { voice } from '$lib/voice/livekit.svelte';
@@ -215,6 +217,15 @@
     if (prevChannel !== cid) return; // initial switchTo path handles its own fetch
     const ch = channelsForGuild.find((c) => c.id === cid);
     if (!ch || ch.type !== 0) return;
+    // Ablage-Kanal: kein Serverabruf (`hatServerVerlauf` kennt ihn bereits)
+    // — der lokale Bestand ist die einzige Kopie, `messages.loadedChannels`
+    // wird von `clearChannel()` beim Reconnect trotzdem geleert.
+    if (!hatServerVerlauf(cid)) {
+      void ladeAblageKanalVerlauf(cid).catch(() => {
+        // Best-effort: the user can navigate to retry.
+      });
+      return;
+    }
     void chatApi
       .listMessages(cid)
       .then((history) => {
@@ -314,9 +325,18 @@
         const alreadyLoaded = !!messages.loadedChannels[target];
         try {
           if (!alreadyLoaded) {
-            const history = await chatApi.listMessages(target);
-            if (isStale()) return;
-            messages.setInitial(target, history);
+            // Ablage-Kanal: der Server hat den Klartext nie gesehen (B1) —
+            // lokaler Bestand statt REST, wie bei einer privaten Gruppe
+            // (`dmKanalWechsel.svelte.ts`). `hatServerVerlauf` kennt ihn
+            // schon (hinter `ABLAGE_KANAL_ENABLED`).
+            if (!hatServerVerlauf(target)) {
+              await ladeAblageKanalVerlauf(target);
+              if (isStale()) return;
+            } else {
+              const history = await chatApi.listMessages(target);
+              if (isStale()) return;
+              messages.setInitial(target, history);
+            }
           }
         } catch (err) {
           if (isStale()) return;

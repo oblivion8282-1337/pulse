@@ -61,6 +61,7 @@ import { directMessages } from '$lib/stores/directMessages.svelte';
 import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
 import { guilds } from '$lib/stores/guilds.svelte';
 import { ABLAGE_KANAL_ENABLED } from '$lib/featureFlags';
+import { brauchtLokalenVerlauf } from './ablageEntscheidung';
 import type { Message } from '$lib/api/types';
 
 export { VerlaufSpeichernFehlgeschlagen };
@@ -77,10 +78,10 @@ export { VerlaufSpeichernFehlgeschlagen };
  * sich an diesem Weg nichts aendern.
  */
 function istAblageKanal(kanalId: string): boolean {
-  if (!ABLAGE_KANAL_ENABLED) return false;
   const guildId = guilds.guildIdForChannel(kanalId);
   if (!guildId) return false;
-  return !!guilds.channelsByGuild[guildId]?.find((c) => c.id === kanalId)?.ablage;
+  const channel = guilds.channelsByGuild[guildId]?.find((c) => c.id === kanalId);
+  return brauchtLokalenVerlauf(ABLAGE_KANAL_ENABLED, channel);
 }
 
 /**
