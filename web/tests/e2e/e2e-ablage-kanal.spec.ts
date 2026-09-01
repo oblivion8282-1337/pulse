@@ -365,28 +365,21 @@ test.describe.serial('E2E-verschluesselter Ablage-Kanal (Etappe E6, Nachweis Auf
     // Nachricht einer neuen Megolm-Sitzung liefert der Absender in ZWEI
     // getrennten `POST /postfach`-Aufrufen aus (erst der Verteilschluessel,
     // dann die Nachricht selbst, `kanalSenden.ts`/`gruppenEinliefern.ts`).
-    // Jeder Aufruf loest sein EIGENES `postfach_neu`-WS-Ereignis aus. Trifft
-    // das zweite Ereignis ein, waehrend `empfangen.ts::laufenderZyklus` noch
-    // die Abholung des ersten bearbeitet, haengt es sich (gewollt, gegen
-    // doppeltes Abholen) an DENSELBEN, bereits laufenden Zyklus — der aber
-    // nur die beim Start bekannten Zustellungen holt. Die zweite (die
-    // eigentliche Nachricht) bleibt bis zum naechsten unabhaengigen Ausloeser
-    // liegen. Ein Seiten-Neuladen loest `ready.ts`s eigenen Abhol-Versuch
-    // aus (derselbe Pfad, den ein echter Reconnect nutzt) und deckt genau
-    // diesen Fall ab — deshalb hier als Ruecksicherung, NICHT als Beweis,
-    // dass „live" im Normalfall nicht funktioniert.
+    // Jeder Aufruf loest sein EIGENES `postfach_neu`-WS-Ereignis aus.
+    //
+    // Bis zum 2026-09-01 verschluckte `empfangen.ts` die zweite Weckung, wenn
+    // sie waehrend der Abholung der ersten eintraf — die eigentliche
+    // Nachricht blieb dann liegen, bis ein Neuverbinden ausloeste. Dieser
+    // Test brauchte dafuer ein Seiten-Neuladen als Ruecksicherung.
+    //
+    // `krypto/postfachNachlauf.ts` merkt die Weckung jetzt vor und laesst
+    // den Zyklus danach genau einmal nachlaufen. Die Ruecksicherung ist
+    // deshalb entfallen: dass die Nachricht OHNE Neuladen ankommt, ist der
+    // eigentliche Nachweis, dass der Fix haelt.
     const nachrichtSichtbar = bobPage.locator('[data-testid="message-content"]', {
       hasText: KLARTEXT
     });
-    try {
-      await expect(nachrichtSichtbar).toBeVisible({ timeout: 6_000 });
-    } catch {
-      await bobPage.reload();
-      await expect(bobPage.getByTestId('active-channel-name')).toHaveText(KANAL_NAME, {
-        timeout: 10_000
-      });
-      await expect(nachrichtSichtbar).toBeVisible({ timeout: 10_000 });
-    }
+    await expect(nachrichtSichtbar).toBeVisible({ timeout: 15_000 });
 
     // 3. Die Gegenprobe: `chat.messages` bleibt fuer diesen Kanal leer.
     expect(anzahlKlartextNachrichten(kanalId)).toBe(0);
