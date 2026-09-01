@@ -1,4 +1,4 @@
-"""Das Cloud-Laufwerk des persoenlichen Archivs — vier Routen, ein Besitzer.
+"""Das Cloud-Laufwerk des persoenlichen Archivs — fuenf Routen, ein Besitzer.
 
 Design ``docs/superpowers/specs/2026-08-31-ablage-kanaele-design.md`` §5.
 Baugleich zu ``ablage_kanal.py``, aber auf das KONTO bezogen statt auf einen
@@ -17,9 +17,17 @@ nicht gespiegelt — auch nicht an den Eigentuemer selbst; die Setz-Route
 quittiert nur mit 204. Sie dient ausschliesslich dazu, selbst eine Anfrage
 an genau die Gegenstelle zu stellen, die in ihr steht.
 
-**Kein Loeschen des Ordnerinhalts.** Es gibt hier bewusst keine
-Loesch-Route: ein Archiv, das der Server leeren kann, ist kein Archiv. Wer
-aufraeumen will, tut es in seiner Cloud.
+**Kein Loeschen des Ordnerinhalts — aber sehr wohl der ADRESSE.** Die
+beiden sind verschieden, und diese Datei behauptete bis zum 2026-09-01 das
+Gegenteil („es gibt hier bewusst keine Loesch-Route"). Was bleibt: ein
+Archiv, das der Server leeren kann, ist kein Archiv — wer aufraeumen will,
+tut es in seiner Cloud. Was dazukam: ``DELETE .../laufwerk`` wirft die
+gemerkte Adresse weg. Sie MUSS wegwerfbar sein, denn sie ist der Zugang zu
+einem fremden Ordner (Design §11.4: „Es muss einen Widerruf geben"), und
+ohne sie behauptete die Bereitschafts-Auskunft weiter, dieses Konto koenne
+Anhaenge empfangen — womit ein einziger Nutzer, der sein Laufwerk trennt,
+das Anhaengen fuer alle seine Gespraechspartner stillschweigend kaputt
+macht (die Verteilung ist Alles-oder-nichts, ``ablage_anhang_verteilung``).
 """
 
 from __future__ import annotations
@@ -87,6 +95,34 @@ async def setze_konto_laufwerk(
     else:
         laufwerk.freigabe_adresse = payload.freigabe_adresse
     await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete("/ablage/archiv/laufwerk", status_code=status.HTTP_204_NO_CONTENT)
+async def loesche_konto_laufwerk(
+    session: SessionDep,
+    current: CurrentUser,
+) -> Response:
+    """Wirft die gemerkte Freigabe-Adresse weg — der Widerruf aus §11.4.
+
+    **Idempotent, und das ist keine Bequemlichkeit.** Wer nichts hinterlegt
+    hat, ist bereits in dem Zustand, den diese Route herstellt; ein 404
+    dafuer waere eine Fehlermeldung fuer einen erfuellten Wunsch, und der
+    Klient (der beim Trennen abbricht, wenn der Server nicht quittiert)
+    bliebe daran haengen, ohne dass es etwas zu heilen gaebe.
+
+    **Bewusst OHNE Ratenbegrenzer**, als einzige der fuenf Routen hier. Der
+    Begrenzer ist je Nutzer und je Eimer; wer sein Laufwerk mehrfach
+    hintereinander gesetzt hat, koennte es sonst genau dann nicht mehr
+    widerrufen, wenn er es am dringendsten will. Ein Widerruf, der wegen
+    einer Zaehlung scheitert, ist kein Widerruf. Der Preis ist gering: die
+    Route schreibt hoechstens ein DELETE auf eine Zeile mit dem eigenen
+    Konto als Schluessel und gibt danach weniger preis als vorher.
+    """
+    laufwerk = await session.get(AblageKontoLaufwerk, current.id)
+    if laufwerk is not None:
+        await session.delete(laufwerk)
+        await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

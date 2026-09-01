@@ -55,6 +55,11 @@ from dcc_chat_gateway.push import fan_out_dm_push_encrypted
 # zugleich als Attribute DIESES Moduls verfuegbar — ``postfach_anhaenge`` und
 # die Tests holen ``_channel_zugriff_pruefen``/``_envelope_groesse`` weiterhin
 # von hier.
+#
+# **Neuer Code nimmt ``_postfach_deps`` direkt** (so ``postfach_anhaenge_
+# laufwerk.py`` seit Design §11). Der Umweg ueber dieses Modul ist nur noch
+# Bestandsschutz fuer die Aufrufer von damals; er kostet nichts, aber er ist
+# kein Muster, dem man folgen sollte.
 from dcc_chat_gateway.routes._postfach_deps import (
     _bundle_laden,
     _channel_zugriff_pruefen,

@@ -2,6 +2,22 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-01.2",
+      "date": "2026-09-01",
+      "style": "Sachlich",
+      "title": "Anhänge liegen künftig in deinem eigenen Speicher",
+      "intro": "Ein Bild in einem verschlüsselten Gespräch war bisher schnell wieder weg. Das ändert sich.",
+      "items": [
+        "Bisher hat Pulse den Anhang gelöscht, sobald ihn alle Geräte abgeholt hatten — oft nach wenigen Minuten. Wer ihn nie geöffnet hatte, hatte ihn verloren.",
+        "Jetzt legt Pulse dieselbe verschlüsselte Datei in das Cloud-Laufwerk jedes Beteiligten und gibt die eigene Kopie frei. Öffnen kannst du sie danach jederzeit, auch in Wochen — sie liegt in deinem Speicher.",
+        "Lesen kann sie dort niemand ausser den Beteiligten. Auch nicht dein Cloud-Anbieter und auch nicht Pulse: verschlüsselt wird auf deinem Gerät, und der Dateiname steht ebenfalls nur in der verschlüsselten Nachricht.",
+        "Dafür braucht jeder Beteiligte ein verbundenes Laufwerk. Fehlt eines, erscheint die Büroklammer gar nicht erst, und darüber steht, an wem es liegt. Textnachrichten funktionieren unverändert weiter.",
+      "Trennst du dein Laufwerk in den Einstellungen, meldet Pulse es jetzt auch beim Server ab und schreibt nichts mehr dorthin. Was schon in deiner Cloud liegt, bleibt dort liegen — aufräumen kannst nur du selbst.",
+        "Je Datei sind 25 MB möglich. Zu grosse Dateien sagt Pulse dir vor dem Hochladen, nicht danach."
+      ],
+      "outro": "Aufräumen im eigenen Cloud-Speicher kommt in einem späteren Schritt."
+    },
+    {
       "id": "2026-09-01",
       "date": "2026-09-01",
       "style": "Sachlich",

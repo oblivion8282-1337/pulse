@@ -30,7 +30,9 @@
   import { serverCapabilities } from '$lib/stores/serverCapabilities.svelte';
   import { serversStore } from '$lib/api/servers.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
-  import { anhangKnopfSichtbar } from '$lib/attachments/anhangKnopfSichtbar';
+  import { anhangKnopfSichtbar, anhangKnopfGrund } from '$lib/attachments/anhangKnopfSichtbar';
+  import { anhangBereitschaft } from '$lib/attachments/anhangBereitschaft.svelte';
+  import AnhangLaufwerkHinweis from './AnhangLaufwerkHinweis.svelte';
 
   let {
     channel,
@@ -140,8 +142,29 @@
   // Fuer DMs erscheint der Knopf erst, wenn die Server-Auskunft bekannt UND
   // positiv ist (kein permissiver Vorgabewert mehr) — Begruendung + Regel
   // stehen importfrei in `anhangKnopfSichtbar.ts`.
+  // Seit Design §11.2 kommt eine zweite Bedingung dazu: ein verschluesselter
+  // Anhang landet im Cloud-Ordner JEDES Beteiligten, und wer keinen hat, kann
+  // ihn nicht empfangen. Die Auskunft kommt je Kanal (in einer Gruppe
+  // blockiert ein einzelnes Mitglied alle) und wird beim Betreten geholt.
+  $effect(() => {
+    if (channel?.id && verschluesselteAnhaenge) anhangBereitschaft.sicherstellen(channel.id);
+  });
+  const laufwerkeBereit = $derived(
+    channel?.id ? anhangBereitschaft.moeglich(channel.id) : undefined
+  );
   const attachmentsAllowed = $derived(
-    anhangKnopfSichtbar(headerKind, verschluesselteAnhaenge, serverPolicy?.dmAttachmentsEnabled)
+    anhangKnopfSichtbar(
+      headerKind,
+      verschluesselteAnhaenge,
+      serverPolicy?.dmAttachmentsEnabled,
+      laufwerkeBereit
+    )
+  );
+  // Ein fehlender Knopf ohne Erklaerung wirkt wie ein Defekt — §11.2 verlangt
+  // ausdruecklich, den Fall zu BENENNEN. Wen es trifft und wie das formuliert
+  // wird, rechnet der Hinweis selbst aus (`AnhangLaufwerkHinweis.svelte`).
+  const anhangGrund = $derived(
+    anhangKnopfGrund(headerKind, verschluesselteAnhaenge, laufwerkeBereit)
   );
   /** `accept`-Attribut für den Datei-Dialog; leer = alles. Nur ein Filter im
    *  Auswahlfenster, keine Kontrolle — der Server erzwingt dieselbe Liste. */
@@ -392,6 +415,9 @@
         </span>
         <span class="truncate font-medium">{typingLabel}</span>
       </div>
+    {/if}
+    {#if anhangGrund === 'kein-laufwerk'}
+      <AnhangLaufwerkHinweis kanalId={channel.id} />
     {/if}
     <MessageInput
       bind:this={composer}

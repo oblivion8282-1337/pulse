@@ -62,9 +62,32 @@ export class VerfasserAnhaenge {
     this.#abbrueche.clear();
   }
 
-  /** Kanalwechsel oder Unmount: laufende Uploads gehoeren zum verlassenen
-   *  Gespraech und werden abgebrochen. */
+  /**
+   * Kanalwechsel oder Unmount: laufende Uploads gehoeren zum verlassenen
+   * Gespraech und werden abgebrochen.
+   *
+   * **Ein laufender Upload verschwindet hier ohne jede Spur** — die Kachel
+   * geht mitsamt der Leiste, `startUploadVerschluesselt` kehrt an seinem
+   * naechsten `cancelled`-Halt wortlos zurueck, und beim Server bleibt eine
+   * verwaiste Anhang-Zeile stehen. Solange der Nutzer das Gespraech selbst
+   * verlassen hat, ist das richtig so; wird die Methode dagegen irrtuemlich
+   * gerufen, ist es ein Datenverlust, den nichts meldet. Genau das ist am
+   * 2026-09-01 passiert (ein Effekt, der am Kanal-OBJEKT statt an seiner
+   * Kennung hing, s. `MessageInput.svelte`), und die Suche danach war so
+   * teuer, WEIL es an keiner Stelle eine Zeile gab.
+   *
+   * Die Warnung kostet nichts und nennt nur eine Anzahl — kein Dateiname,
+   * keine Kennung, nichts aus dem Inhalt.
+   */
   alleAbbrechen(): void {
+    const laufend = this.zeilen.filter(
+      (z) => z.state === 'uploading' || z.state === 'queued'
+    ).length;
+    if (laufend > 0) {
+      console.warn(
+        `[anhang] ${laufend} laufende(r) Upload(s) abgebrochen — Gespraech verlassen`
+      );
+    }
     this.#abbrueche.forEach((abbrechen) => abbrechen());
     this.#abbrueche.clear();
     this.zeilen.forEach(cleanupRow);

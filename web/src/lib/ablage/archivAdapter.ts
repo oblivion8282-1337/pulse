@@ -25,10 +25,13 @@
 import type { AblageAdapter } from './adapter.ts';
 import { archivAbruf, archivListe, archivSchreiben } from '../api/ablageArchiv';
 
-/** Ob dieser Anbieter aus dem Browser heraus direkt erreichbar ist. */
-export function direktErreichbar(anbieter: string): boolean {
-	return anbieter === 'sync_ordner';
-}
+/**
+ * Weitergereicht aus `archivZiel.ts` — die Antwort wird auch dort gebraucht,
+ * wo dieses Modul nicht geladen werden kann (Nodes Testläufer stolpert über
+ * die `$lib`-Aliase der API-Schicht). Eine Kopie hier wäre eine zweite
+ * Wahrheit; der Re-Export hält es bei einer.
+ */
+export { direktErreichbar } from './archivZiel.ts';
 
 /**
  * Der Adapter, der über die `/ablage/archiv/*`-Routen läuft.

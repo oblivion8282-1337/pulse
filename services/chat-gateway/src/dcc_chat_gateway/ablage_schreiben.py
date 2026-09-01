@@ -70,6 +70,7 @@ async def schreibe(
     timeout_s: float = 30.0,
     resolver: Resolver | None = None,
     http: httpx.AsyncClient | None = None,
+    max_bytes: int | None = None,
 ) -> None:
     """Legt ``inhalt`` unter ``pfad`` relativ zu ``basis`` ab.
 
@@ -77,12 +78,19 @@ async def schreibe(
     ``pfad`` ist der einzige vom Aufrufer gelieferte Teil und laeuft durch
     ``normalisiere_pfad`` — dieselbe Regel wie beim Abruf.
 
+    ``max_bytes`` hebt die Vorgabe ``MAX_SCHREIB_BYTES`` fuer Aufrufer an, die
+    eine eigene, ausdruecklich eingestellte Grenze mitbringen — heute genau
+    einer: der Anhang-Weg mit ``ablage_anhang_max_bytes`` (Design §11.3).
+    Ohne diesen Parameter waere die Einstellung wirkungslos, sobald sie ueber
+    8 MiB steht, und der Fehlschlag saehe aus wie ein Netzproblem.
+
     **Umleitungen werden nicht verfolgt.** Beim Abruf ist eine Umleitung
     harmlos genug, um sie einmal zu erlauben; hier wuerde sie bedeuten, dass
     der Inhalt an eine zweite, nachtraeglich benannte Adresse geht. Ein
     Schreibziel, das der Server nicht vorher geprueft hat, gibt es nicht.
     """
-    if len(inhalt) > MAX_SCHREIB_BYTES:
+    grenze = MAX_SCHREIB_BYTES if max_bytes is None else max_bytes
+    if len(inhalt) > grenze:
         raise AblageAbrufFehler("inhalt_zu_gross")
 
     tatsaechlicher_resolver = resolver if resolver is not None else standard_resolver

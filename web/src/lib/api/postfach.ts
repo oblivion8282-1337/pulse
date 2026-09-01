@@ -50,6 +50,18 @@ export interface PostfachAnhangAdresse {
   thumb_url?: string | null;
 }
 
+/** Antwort von `GET /postfach/anhaenge/bereitschaft` (Design §11.2). */
+export interface PostfachAnhangBereitschaft {
+  /** Haben ALLE Beteiligten ein Archiv-Laufwerk verbunden? */
+  moeglich: boolean;
+  /** Konto-Kennungen derer, an denen es scheitert — damit die Oberflaeche
+   *  den Fall benennen kann statt ihn nur auszugrauen. */
+  ohne_laufwerk: string[];
+  /** Obergrenze je Datei (§11.3). Kommt mit der Auskunft, die den Knopf
+   *  freischaltet — der Nutzer soll die Grenze VOR dem Hochladen kennen. */
+  max_bytes: number;
+}
+
 export interface PostfachZustellung {
   id: string;
   channel_id: string;
@@ -156,6 +168,40 @@ export const postfachApi = {
     return request<PostfachAnhangAdresse>(
       `/postfach/anhaenge/${anhangId}/abrufadresse`,
       { method: 'POST', body },
+      route
+    );
+  },
+
+  /**
+   * Schiebt das Chiffrat in den Archiv-Ordner JEDES Beteiligten und gibt
+   * danach Pulses eigene Kopie frei (Design §11.1).
+   *
+   * **Wird beim Hochladen gerufen, nicht beim Absenden**, und der Aufrufer
+   * MUSS auf einen Fehlschlag reagieren: schlaegt der Aufruf fehl, hat der
+   * Empfaenger die Datei nicht in seinem Laufwerk, und Pulse raeumt seine
+   * Kopie weg, sobald der letzte Umschlag quittiert ist. Ein verschluckter
+   * Fehler ist hier gleichbedeutend mit einem spaeteren, unerklaerlichen
+   * Verlust.
+   *
+   * Ein zweiter Aufruf fuer denselben Anhang ist erfolgreich und tut nichts.
+   */
+  anhangVerteilen(anhangId: string, route: { serverId?: string } = {}): Promise<void> {
+    return request<void>(
+      `/postfach/anhaenge/${anhangId}/verteilen`,
+      { method: 'POST' },
+      route
+    );
+  },
+
+  /** Kann dieses Gespraech ueberhaupt Anhaenge tragen — und wenn nicht, an
+   *  wem liegt es (Design §11.2)? */
+  anhangBereitschaft(
+    channelId: string,
+    route: { serverId?: string } = {}
+  ): Promise<PostfachAnhangBereitschaft> {
+    return request<PostfachAnhangBereitschaft>(
+      `/postfach/anhaenge/bereitschaft?channel_id=${encodeURIComponent(channelId)}`,
+      {},
       route
     );
   }

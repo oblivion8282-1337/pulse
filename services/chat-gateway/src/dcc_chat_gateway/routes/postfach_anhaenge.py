@@ -13,13 +13,24 @@ Zustellung zu diesem Anhang hat (``postfach_anhaenge.py::darf_anhang_abrufen``).
 Fail-closed: jeder andere bekommt 404, ohne Unterschied zwischen „gibt es
 nicht" und „gehoert dir nicht".
 
+**Seit Design §11.1 ist diese zweite Route der RUECKFALL, nicht der
+Regelweg.** Beim Hochladen schiebt
+``routes/postfach_anhaenge_laufwerk.py`` das Chiffrat in den Archiv-Ordner
+jedes Beteiligten und gibt Pulses eigene Kopie frei; der Empfaenger holt die
+Datei danach aus seinem eigenen Laufwerk. Fuer einen so verteilten Anhang
+antwortet die Abrufadresse mit **410** (``anhang_im_laufwerk``) statt mit
+einer formal gueltigen Adresse auf geloeschte Bytes — s. dort. Sie bleibt
+zustaendig fuer Anhaenge von vor der Umstellung und fuer den Fall, dass die
+Verteilung nicht lief (dann haelt Pulse den Klumpen unveraendert weiter).
+
 **``cloud_dm_attachments_enabled`` gilt hier NICHT, und das ist eine
 Entscheidung, kein Versehen.** Der Schalter steht fuer „Anhaenge im
 UNVERSCHLUESSELTEN Weg" (``routes/attachments.py::_enforce_dm_attachment_policy``):
 die Cloud bietet keinen privaten Upload-Kanal an, den sie zwar lesen
 koennte, aber nicht pruefen darf. Ein verschluesselter Anhang stellt diese
-Frage nicht — der Server kann ihn ohnehin nicht lesen, und der Klumpen
-faellt mit seinem letzten Umschlag. Anhaenge sind laut Spec §3 ausdruecklich
+Frage nicht — der Server kann ihn ohnehin nicht lesen, und er behaelt ihn
+nicht (verteilt: gleich nach dem Hochladen freigegeben; sonst: faellt mit
+seinem letzten Umschlag). Anhaenge sind laut Spec §3 ausdruecklich
 der sichtbare Gegenwert fuer den verschluesselten Weg; haengte er am selben
 Schalter, gaebe es sie nirgends.
 """
@@ -28,9 +39,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
 
+import dcc_chat_gateway.config as chat_config
 from dcc_chat_gateway import ratelimit, s3
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import ChatSettings, MessageAttachment
+from dcc_chat_gateway.models import MessageAttachment
 from dcc_chat_gateway.postfach_anhaenge import darf_anhang_abrufen
 from dcc_chat_gateway.routes.attachments import _storage_key
 from dcc_chat_gateway.routes.postfach import _channel_zugriff_pruefen
@@ -52,16 +64,25 @@ router = APIRouter(tags=["postfach"])
 #: Angabe ueber den Inhalt (die kennt der Server nicht und legt er nicht ab).
 _KLUMPEN_TYP = "application/octet-stream"
 
-#: Ohne Einstellungszeile (Migration 0006 seedet sie): dieselben Werte wie
-#: ``routes/attachments.py::_limits_for_channel``.
-_NOTFALL_MAX_BYTES = 26214400
 
+def _max_bytes() -> int:
+    """Die Obergrenze eines verschluesselten Anhangs.
 
-async def _max_bytes(session) -> int:
-    einstellungen = await session.get(ChatSettings, 1)
-    if einstellungen is None:
-        return _NOTFALL_MAX_BYTES
-    return einstellungen.dm_attachment_max_size_bytes
+    **Seit §11.3 die Einstellung ``ablage_anhang_max_bytes``**, nicht mehr die
+    Datenbankzeile ``ChatSettings.dm_attachment_max_size_bytes``. Der Grund
+    ist nicht Aufraeumen: der Anhang wandert jetzt in die Cloud-Ordner aller
+    Beteiligten, die Grenze schuetzt also fremden Speicherplatz und nicht mehr
+    den eigenen. Sie muss deshalb dieselbe Zahl sein, die
+    ``ablage_anhang_verteilung`` beim Weiterschieben durchsetzt und die
+    ``GET /capabilities`` dem Klienten nennt — drei Stellen, eine Quelle.
+    Der Zahlenwert aendert sich dabei praktisch nicht (Vorgabe war 25 MiB,
+    ist jetzt 25 MB).
+
+    Die Datenbankzeile bleibt unangetastet und gilt weiter fuer den
+    KLARTEXT-Weg (``routes/attachments.py``) — dort ist sie die richtige
+    Grenze, weil dort der eigene Objektspeicher bezahlt.
+    """
+    return chat_config.get_settings().ablage_anhang_max_bytes
 
 
 @router.post(
@@ -96,7 +117,7 @@ async def anhang_upload_adresse(
     # belegen.
     await _channel_zugriff_pruefen(session, channel_id, user)
 
-    max_bytes = await _max_bytes(session)
+    max_bytes = _max_bytes()
     if body.size > max_bytes:
         raise HTTPException(
             status.HTTP_413_CONTENT_TOO_LARGE,
@@ -183,6 +204,21 @@ async def anhang_abrufadresse(
         # Dieselbe 404 wie „gibt es nicht" — wer keine Zustellung hat, soll
         # nicht einmal erfahren, ob die Kennung existiert.
         raise HTTPException(status_code=404, detail="anhang_nicht_gefunden")
+
+    # **410 statt einer Adresse ins Leere** (Design §11.1). Ist der Anhang in
+    # die Laufwerke der Beteiligten gewandert, hat Pulse keine Bytes mehr —
+    # eine vorsignierte Adresse waere hier syntaktisch einwandfrei und
+    # inhaltlich tot, und der Klient saehe einen 404 des Objektspeichers, der
+    # von „Anhang verfallen" nicht zu unterscheiden ist. Die eigene Kennung
+    # sagt ihm stattdessen genau, wo die Datei jetzt liegt: in seinem eigenen
+    # Archiv-Ordner.
+    #
+    # **NACH der Rechtepruefung, nicht davor.** Sonst waere der Unterschied
+    # 410/404 ein Orakel: wer eine fremde Kennung raet, erfuehre an der 410,
+    # dass es sie gibt. Der Preis ist keiner — ein Berechtigter kommt ohnehin
+    # bis hierher.
+    if zeile.laufwerk_verteilt_am is not None:
+        raise HTTPException(status_code=410, detail="anhang_im_laufwerk")
 
     # Ohne ``filename``/``mime`` kann und soll hier nichts gesetzt werden:
     # ``inline=False`` und kein Dateiname heisst, der Browser bekommt reine

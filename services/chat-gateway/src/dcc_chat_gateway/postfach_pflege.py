@@ -18,6 +18,17 @@ Zwei getrennte Faelle, obwohl beide am Ende eine Zeile loeschen:
   oeffnen koennte, ist er Muell. Dieser Lauf loescht die Zeile UND den
   Klumpen im Objektspeicher.
 
+  **Seit Design §11.1 ist der Klumpen oft schon weg**, wenn dieser Lauf die
+  Zeile erreicht: ein verteilter Anhang liegt in den Cloud-Ordnern der
+  Beteiligten, und ``ablage_anhang_verteilung`` hat die eigenen Objekte
+  gleich nach der Verteilung freigegeben. Das braucht hier **keine
+  Sonderbehandlung** — ein ``DELETE`` auf einen nicht mehr vorhandenen
+  Schluessel ist im Objektspeicher folgenlos, und die Zeile selbst soll
+  fallen: sie traegt nur noch Buchhaltung, keine Bytes. Was der Empfaenger
+  danach braucht, holt er aus seinem eigenen Laufwerk, und dessen Pfad
+  ergibt sich aus der Anhang-Kennung, die in seinem Umschlag steht — nicht
+  aus dieser Zeile.
+
 Aufgerufen aus dem bestehenden ``cleanup.py::_run_once`` — **keine zweite
 Schleife**, derselbe Takt (``cleanup_interval_seconds``) wie die
 Web-Push-Aufraeumung.

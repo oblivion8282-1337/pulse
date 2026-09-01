@@ -189,6 +189,27 @@ class Settings(BaseSettings):
     ablage_zwischenlager_max_gesamt_bytes: int = 512 * 1024 * 1024
     ablage_zwischenlager_max_alter_tage: int = 7
 
+    # Anhaenge verschluesselter Direktnachrichten, die Pulse in die
+    # Cloud-Ordner ALLER Beteiligten schiebt (Design §11.1/§11.3).
+    #
+    # **Einstellung und nicht Konstante, ausdruecklich so entschieden** (§11.3):
+    # der Wert soll ohne Deploy aenderbar sein. Er steht deshalb hier neben den
+    # anderen Schaltern und wird ueber ``GET /capabilities`` an den Klienten
+    # gemeldet — der Nutzer soll die Grenze VOR dem Hochladen erfahren, nicht
+    # als 413 danach.
+    #
+    # Begruendung der Groessenordnung, aus §11.3 und hier nur zusammengefasst:
+    # was Pulse in fremde Ordner schiebt, kostet den Empfaenger Speicherplatz,
+    # den er nicht angefordert hat. Solange es keine Freigabe je Absender gibt,
+    # ist diese Grenze der einzige Schutz davor.
+    #
+    # **Gemeint ist die Groesse des KLUMPENS**, nicht der Klartextdatei: der
+    # Klient verschluesselt vorher (AES-GCM haengt IV und Siegel an), und was
+    # der Server sieht und weiterschiebt, ist der Klumpen. Der Unterschied ist
+    # ein paar Dutzend Bytes — die Grenze deshalb bewusst rund und nicht auf
+    # die Klartextgroesse umgerechnet.
+    ablage_anhang_max_bytes: int = 25 * 1024 * 1024
+
     # Cloud user-id of this instance's owner (the applicant who registered it).
     # The Cloud hands this out at approval. At cert-login, the user whose cert
     # carries this user_id becomes admin of this instance. 0 = nobody (no

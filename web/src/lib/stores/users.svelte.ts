@@ -21,6 +21,12 @@ export type UserSummary = {
  *  ``PULSE_SYSTEM_USER_ID`` (0 — never a real snowflake). */
 export const SYSTEM_USER_ID = '0';
 
+/** Rückgabe von {@link UserCacheStore.displayName}, solange die ID weder im
+ *  Zwischenspeicher liegt noch als endgültig unauflösbar markiert ist.
+ *  Exportiert, damit Aufrufer den Ladezustand erkennen können, statt den
+ *  String `'…'` an mehreren Stellen nachzubilden. */
+export const UNRESOLVED_DISPLAY_NAME = '…';
+
 const PULSE_SYSTEM_PROFILE: UserSummary = {
   id: SYSTEM_USER_ID,
   username: 'pulse',
@@ -45,7 +51,7 @@ class UserCacheStore {
 
   displayName(id: string): string {
     const u = this.byId[id];
-    if (!u) return `…`;
+    if (!u) return UNRESOLVED_DISPLAY_NAME;
     return u.display_name ?? u.username;
   }
 

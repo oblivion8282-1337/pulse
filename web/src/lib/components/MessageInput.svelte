@@ -101,8 +101,25 @@
   // Leaving the channel (switch or unmount) abandons any in-flight uploads of
   // the previous channel: abort them and revoke their preview object-URLs so a
   // half-finished upload neither lands in a channel we left nor leaks memory.
+  //
+  // **Der Effekt folgt der KENNUNG, nicht dem Kanal-Objekt** — und das ist
+  // keine Feinheit, sondern die Ursache eines stillen Datenverlusts
+  // (2026-09-01, gemessen im Hetzner-Nachweis). Bei einer Direktnachricht
+  // baut `berechneSynthChannel` bei JEDER Neuberechnung ein frisches
+  // `Channel`-Objekt; sie laeuft unter anderem, sobald ein Anzeigename im
+  // `userCache` nachgeladen wird — was waehrend eines Uploads regelmaessig
+  // passiert. Las dieser Effekt `channelId` direkt, haengte er damit am
+  // Objekt und nicht an der Zeichenkette darin: jede Neuberechnung riss ihn
+  // ab, sein Aufraeumer brach den laufenden Upload ab, und die Kachel
+  // verschwand kommentarlos aus der Leiste — ohne Fehler, ohne Nachricht,
+  // mit einer verwaisten Anhang-Zeile beim Server.
+  //
+  // Ein `$derived` auf denselben Wert bricht die Kette: es rechnet zwar
+  // erneut, meldet seine Aenderung aber nur weiter, wenn die Zeichenkette
+  // sich wirklich unterscheidet.
+  const kanalSchluessel = $derived(channelId);
   $effect(() => {
-    void channelId; // track so the cleanup runs whenever the channel changes
+    void kanalSchluessel; // track so the cleanup runs whenever the channel changes
     return () => anhaenge.alleAbbrechen();
   });
 

@@ -24,24 +24,20 @@
    *    `SpeicherVerbindungZeile` zeigt dann konsequent keine Zahl — eine
    *    leere Zahl wäre schlimmer als keine.
    *
-   * Die periodische Prüfung deckt nur Dropbox/Google Drive/Nextcloud ab: ein
-   * Sync-Ordner braucht eine Nutzer-Geste (File-System-Access) und lässt
-   * sich nicht im Hintergrund ansprechen (s. `verbindungen.ts::adapterFür`);
-   * S3 wird in der Oberfläche nicht angeboten (`anbieter.ts`).
+   * WAS geprüft wird und was ein Fehler dabei bedeutet, steht seit dem
+   * 2026-09-01 in `ablage/speicherPruefung.ts` — hier bleibt nur, WANN.
    */
   import { onMount, onDestroy } from 'svelte';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import { Button } from '$lib/components/ui/button/index.js';
-  import {
-    ablageVerbindungen,
-    adapterFür,
-    type AblageVerbindung,
-  } from '$lib/ablage/verbindungen.svelte.ts';
-  import { AnmeldungAbgelaufenFehler } from '$lib/ablage/oauth.ts';
-  import { LaufwerkWegFehler } from '$lib/ablage/ordnerGriff.ts';
+  import { ablageVerbindungen, type AblageVerbindung } from '$lib/ablage/verbindungen.svelte.ts';
+  import { leereRohwerte, pruefeZustand } from '$lib/ablage/speicherPruefung.ts';
   import { archivEintraegeAusstehend } from '$lib/ablage/archivSchreibweg.ts';
-  import { archivLaufwerkSetzen } from '$lib/api/ablageArchiv';
-  import { direktErreichbar } from '$lib/ablage/archivAdapter.ts';
+  import { archivZiel } from '$lib/ablage/archivZiel.ts';
+  import {
+    gleicheArchivAdresseAb,
+    type ArchivAbgleich,
+  } from '$lib/ablage/archivServerAbgleich.ts';
   import type { VerbindungsRohwerte } from '$lib/ablage/zustand.ts';
   import AblageVerbindenDialog from '$lib/components/ablage/AblageVerbindenDialog.svelte';
   import SpeicherVerbindungZeile from './SpeicherVerbindungZeile.svelte';
@@ -50,29 +46,10 @@
   import { m } from '$lib/paraglide/messages.js';
 
   const AKTUALISIERUNGS_INTERVALL_MS = 5 * 60 * 1000;
-  /** Anbieter, die sich ohne Nutzer-Geste aus gespeicherten Werten neu
-   *  ansprechen lassen.
-   *
-   *  `sync_ordner` steht seit dem 2026-09-01 mit dabei, obwohl ein
-   *  Ordner-Zugriff eine Nutzer-Geste braucht: die BRAUCHT nur das aktive
-   *  Nachfragen, nicht das Prüfen. Steht die Berechtigung noch auf
-   *  „erteilt", läuft der Zugriff durch; steht sie nach einem Neuladen auf
-   *  „nachfragen", meldet der Weg `LaufwerkWegFehler` — und genau das soll
-   *  die Zeile zeigen, statt weiter „alles in Ordnung" zu behaupten. */
-  const PRUEFBARE_ANBIETER = new Set<AblageVerbindung['anbieter']>([
-    'dropbox',
-    'gdrive',
-    'nextcloud',
-    'sync_ordner',
-  ]);
 
   let dialogOffen = $state(false);
   let rohwerteNachId = $state<Record<string, VerbindungsRohwerte>>({});
   let intervallId: ReturnType<typeof setInterval> | null = null;
-
-  function leereRohwerte(): VerbindungsRohwerte {
-    return { anmeldungAbgelaufen: false, laufwerkWeg: false, freieBytes: null, benoetigteBytes: 0, ausstehend: 0 };
-  }
 
   /** Die Rohwerte für eine Zeile: persistierter Stand, überschrieben vom letzten Live-Check. */
   function rohwerteFuer(v: AblageVerbindung): VerbindungsRohwerte {
@@ -86,34 +63,11 @@
     return { ...basis, ...rohwerteNachId[v.id] };
   }
 
-  /**
-   * Prüft eine Verbindung leichtgewichtig (nur `liste()`, keine Probe — die
-   * Probe ist für den Verbinden-Moment, nicht für einen Dauerpoller, der
-   * sonst Rechte-Anfragen wie „schreibe/lösche" gegen fremde Konten stellt,
-   * ohne dass der Nutzer gerade etwas verbindet). Ein
-   * `AnmeldungAbgelaufenFehler` ist die einzige Antwort, die hier als
-   * Zustand gilt — jeder andere Fehler (Netz, 500) ist kein Befund über die
-   * Verbindung, sondern über den Moment, und lässt den zuletzt bekannten
-   * Stand stehen.
-   */
+  /** Ein Befund (`pruefeZustand`) ersetzt die Rohwerte dieser Zeile; `null`
+   *  heisst „nichts gelernt" und lässt den bisherigen Stand stehen. */
   async function pruefeVerbindung(v: AblageVerbindung): Promise<void> {
-    if (!PRUEFBARE_ANBIETER.has(v.anbieter)) return;
-    try {
-      const adapter = await adapterFür(v);
-      await adapter.liste();
-      rohwerteNachId = { ...rohwerteNachId, [v.id]: { ...leereRohwerte(), ...rohwerteNachId[v.id], anmeldungAbgelaufen: false } };
-    } catch (fehler) {
-      if (fehler instanceof AnmeldungAbgelaufenFehler) {
-        await ablageVerbindungen.markiereAnmeldungAbgelaufen(v.id);
-        rohwerteNachId = { ...rohwerteNachId, [v.id]: { ...leereRohwerte(), anmeldungAbgelaufen: true } };
-      } else if (fehler instanceof LaufwerkWegFehler) {
-        // Nicht in der Verbindung festschreiben: anders als eine abgelaufene
-        // Anmeldung ist das oft nur der Zustand DIESER Sitzung — nach einem
-        // Neuladen steht die Ordner-Berechtigung auf „nachfragen", und der
-        // nächste Klick des Nutzers stellt sie wieder her.
-        rohwerteNachId = { ...rohwerteNachId, [v.id]: { ...leereRohwerte(), laufwerkWeg: true } };
-      }
-    }
+    const befund = await pruefeZustand(v, rohwerteNachId[v.id]);
+    if (befund) rohwerteNachId = { ...rohwerteNachId, [v.id]: befund };
   }
 
   async function alleZustaendePruefen(): Promise<void> {
@@ -139,11 +93,40 @@
   }
 
   let archivFehler = $state('');
+  let archivGetrennt = $state(false);
+
+  /** Zeigt den Befund an. `true` = der Server hält, was `archivZiel` verlangt. */
+  function zeigeAbgleich(befund: ArchivAbgleich): boolean {
+    if (befund.art !== 'fehler') {
+      archivFehler = befund.art === 'ohne-adresse' ? m.speicher_archiv_ohne_adresse() : '';
+      return true;
+    }
+    const vorlage =
+      befund.ziel === 'setzen' ? m.speicher_archiv_setzen_fehler : m.speicher_archiv_trennen_fehler;
+    archivFehler = vorlage({ fehler: befund.meldung });
+    return false;
+  }
 
   async function trennen(id: string): Promise<void> {
+    // **Erst beim Server abmelden, dann lokal wegräumen** — und bei einem
+    // Fehlschlag gar nichts. Andersherum wäre die Verbindung aus der Liste
+    // verschwunden, während der Server die Adresse behält: es gäbe danach
+    // keine Oberfläche mehr, die sie loswerden könnte, und die
+    // Bereitschafts-Auskunft meldete das Konto weiter als anhang-bereit —
+    // womit dieser eine Nutzer das Anhängen für alle seine Gesprächspartner
+    // kaputt macht (die Verteilung ist Alles-oder-nichts). Ein
+    // stehengebliebener Eintrag mit sichtbarer Meldung ist dagegen ein
+    // Zustand, aus dem ein zweiter Klick herausführt.
+    const warArchiv = ablageVerbindungen.verbindung(id)?.istArchiv === true;
+    if (warArchiv) {
+      const befund = await gleicheArchivAdresseAb({ art: 'entfernen', grund: 'keins' });
+      if (!zeigeAbgleich(befund)) return;
+    }
+
     await ablageVerbindungen.entfernen(id);
     const { [id]: _entfernt, ...rest } = rohwerteNachId;
     rohwerteNachId = rest;
+    archivGetrennt = warArchiv;
   }
 
   async function archivWechseln(id: string): Promise<void> {
@@ -153,29 +136,22 @@
     // Cloud-Laufwerk ist aus dem Browser nicht beschreibbar (CORS, an einer
     // echten Nextcloud gemessen) — der Schreibweg läuft deshalb über
     // `/ablage/archiv/*`, und diese Routen brauchen die hinterlegte
-    // Freigabe-Adresse. Ein lokaler Sync-Ordner braucht das nicht: dort
-    // schreibt der Browser selbst, und es gibt keine Adresse, die ein
-    // Server ansprechen könnte.
+    // Freigabe-Adresse. Fällt die Markierung weg oder wandert sie auf einen
+    // lokalen Ordner, muss die Adresse beim Server WEG statt einfach nur
+    // ungenutzt stehenzubleiben — sonst zeigt sie auf ein Laufwerk, das
+    // gar nicht mehr das Archiv ist (`archivZiel.ts`).
     //
     // Ein Fehlschlag hier bleibt eine Zeile in der Oberfläche und nimmt die
     // lokale Markierung NICHT zurück: der Sync-Ordner-Fall funktioniert auch
     // ohne, und ein halb zurückgedrehter Zustand wäre schwerer zu verstehen
     // als eine Meldung.
-    const v = ablageVerbindungen.verbindung(id);
-    if (!v || direktErreichbar(v.anbieter)) return;
-    const adresse = v.konfiguration.basis;
-    if (!adresse) {
-      archivFehler = 'Dieses Laufwerk hat keine Adresse, die Pulse ansprechen kann.';
-      return;
-    }
-    try {
-      await archivLaufwerkSetzen(adresse);
-      archivFehler = '';
-    } catch (e) {
-      archivFehler = `Das Archiv-Laufwerk konnte nicht hinterlegt werden: ${
-        e instanceof Error ? e.message : String(e)
-      }`;
-    }
+    //
+    // Der Hinweis „dein Archiv bleibt stehen" gilt hier genauso: wer die
+    // Markierung abnimmt oder sie auf einen lokalen Ordner schiebt, hört
+    // auf, seine Cloud zu beliefern — dieselbe Folge wie beim Trennen.
+    const ziel = archivZiel(ablageVerbindungen.verbindungen);
+    const gelungen = zeigeAbgleich(await gleicheArchivAdresseAb(ziel));
+    if (gelungen) archivGetrennt = ziel.art === 'entfernen';
   }
 
   function verbunden(v: AblageVerbindung): void {
@@ -194,6 +170,15 @@
            merkte es niemand, weil der Schreibweg selbst still ist. -->
       <p class="mt-2 text-sm text-destructive" data-testid="archiv-laufwerk-fehler">
         {archivFehler}
+      </p>
+    {/if}
+    {#if archivGetrennt && !archivFehler}
+      <!-- Ehrlich statt beruhigend: Pulse kann in der fremden Cloud nichts
+           löschen (es gibt dafür keine Route, s. `archivAdapter.ts`), und
+           ohne Archiv sind Anhänge im Gespräch nicht mehr möglich — beides
+           erfährt der Nutzer hier, nicht erst am fehlenden Knopf. -->
+      <p class="mt-2 text-sm text-muted-foreground" data-testid="archiv-getrennt-hinweis">
+        {m.speicher_archiv_getrennt_hinweis()}
       </p>
     {/if}
   </div>

@@ -30,9 +30,13 @@ import {
 } from '$lib/krypto/anhangKrypto';
 import type { AnhangAngabe } from '$lib/krypto/nachrichtNutzlast';
 import { anhangBytesSichern, anhangBytesLoeschen } from '$lib/verlauf/db';
+import { m } from '$lib/paraglide/messages.js';
 import { erzeugeVorschaubild } from './vorschaubild';
 import { putMitFortschritt } from './putMitFortschritt';
 import { nextLocalId, type PendingAttachment } from './upload.svelte';
+import { anhangBereitschaft } from './anhangBereitschaft.svelte';
+import { anhangGroesseOk } from './anhangKnopfSichtbar';
+import { groesseText } from '$lib/ablage/groesseText';
 
 /** Was MinIO als Typ zu sehen bekommt — mehr als „undurchsichtige Bytes"
  *  soll der Objektspeicher ueber einen verschluesselten Anhang nicht
@@ -58,6 +62,21 @@ async function klumpenBauen(blob: Blob): Promise<{ klumpen: Blob; schluessel: st
     klumpen: new Blob([bytes as unknown as BlobPart], { type: KLUMPEN_TYP }),
     schluessel: schluesselAlsText(schluessel)
   };
+}
+
+/** Ein Fehlschlag in einen Satz, den ein Nutzer versteht.
+ *
+ *  Die beiden Kennungen aus dem Verteil-Weg (`kein_laufwerk`,
+ *  `laufwerk_*`) beschreiben etwas, wogegen der Nutzer tatsaechlich etwas
+ *  tun kann — ein Laufwerk verbinden bzw. spaeter erneut versuchen. Sie
+ *  bloss durchzureichen hiesse, ihm eine Server-Kennung hinzulegen. Alles
+ *  Uebrige bleibt beim Rohtext: eine erfundene Erklaerung waere schlechter
+ *  als eine unschoene, aber ehrliche. */
+function fehlerText(err: unknown): string {
+  const roh = err instanceof Error ? err.message : String(err);
+  if (roh.includes('kein_laufwerk')) return m.anhang_kein_laufwerk();
+  if (roh.includes('laufwerk_')) return m.anhang_laufwerk_nicht_erreichbar();
+  return roh;
 }
 
 /**
@@ -90,6 +109,15 @@ export function startUploadVerschluesselt(
 
   const run = async () => {
     try {
+      // **Die Grenze VOR dem Verschluesseln** (Design §11.3). Sonst kaeme die
+      // Absage erst nach Verschluesseln und Hochladen, und der Nutzer haette
+      // auf einen Fehlschlag gewartet, der von Anfang an feststand. Die Zahl
+      // stammt aus derselben Auskunft, die den Knopf freischaltet.
+      const maxBytes = anhangBereitschaft.maxBytes(channelId);
+      if (!anhangGroesseOk(file.size, maxBytes)) {
+        throw new Error(m.anhang_zu_gross({ grenze: groesseText(maxBytes!) }));
+      }
+
       const vorschau = await erzeugeVorschaubild(file);
       if (cancelled) return;
 
@@ -146,6 +174,19 @@ export function startUploadVerschluesselt(
         if (cancelled) return;
       }
 
+      // **In die Cloud-Ordner ALLER Beteiligten** (Design §11.1) — danach
+      // gibt Pulse seine eigene Kopie frei. Das ist der Schritt, der die
+      // Frage „was, wenn ich den Anhang erst in 50 Tagen oeffne" erledigt.
+      //
+      // **Der Fehlschlag darf hier NICHT verschluckt werden**, und das ist
+      // die eigentliche Regel dieser Stelle: waere er still, saehe der
+      // Absender einen fertigen Anhang, der Empfaenger bekaeme nie eine
+      // Datei in sein Laufwerk, und Pulses Kopie fiele mit dem letzten
+      // Umschlag. Der Verlust traete Tage spaeter auf, ohne Spur. Er faellt
+      // deshalb bis in `catch` durch und faerbt die Kachel rot.
+      await postfachApi.anhangVerteilen(adresse.id, cloudRoute());
+      if (cancelled) return;
+
       // Die eigene Kopie. Vor dem `done`, weil ab dort abgeschickt werden
       // darf: eine Nachricht, deren Anhang der Absender selbst nicht mehr
       // oeffnen kann, waere ein stiller Verlust auf der eigenen Seite.
@@ -180,7 +221,7 @@ export function startUploadVerschluesselt(
     } catch (err) {
       if (cancelled) return;
       row.state = 'error';
-      row.errorMessage = err instanceof Error ? err.message : String(err);
+      row.errorMessage = fehlerText(err);
       emit();
     }
   };

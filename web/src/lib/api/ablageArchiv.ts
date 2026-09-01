@@ -34,6 +34,22 @@ export async function archivLaufwerkSetzen(
 	);
 }
 
+/**
+ * Nimmt die Freigabe-Adresse beim Server wieder weg — der Widerruf.
+ *
+ * **Ohne diesen Aufruf ist ein Trennen keins.** Bis zum 2026-09-01 räumte
+ * die Oberfläche nur den lokalen Eintrag weg; der Server behielt die
+ * Adresse, meldete das Konto weiter als anhang-bereit und hätte in einen
+ * abgehängten Ordner geschrieben. Der Zwei-Browser-Nachweis hat genau das
+ * gemessen.
+ *
+ * Serverseitig idempotent (204 auch ohne hinterlegte Adresse) — der
+ * Aufrufer muss also nicht wissen, ob je eine da war.
+ */
+export async function archivLaufwerkTrennen(route: RequestRoute = {}): Promise<void> {
+	await request<void>('/ablage/archiv/laufwerk', { method: 'DELETE' }, route);
+}
+
 /** Legt `inhalt` unter `pfad` im Archiv-Ordner ab. */
 export async function archivSchreiben(
 	pfad: string,

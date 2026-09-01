@@ -762,6 +762,19 @@ class CapabilitiesOut(PermissionsOut):
     dropbox_enabled: bool = True
     # Allowed MIME prefixes for message attachments; empty = unrestricted.
     attachment_mime_prefixes: list[str] = []
+    # Obergrenze eines VERSCHLUESSELTEN DM-Anhangs (Design §11.3,
+    # ``ablage_anhang_max_bytes``) — dieselbe Zahl, die die Upload-Route
+    # durchsetzt und die ``ablage_anhang_verteilung`` beim Weiterschieben
+    # anlegt.
+    #
+    # **Der Verfasser liest sie NICHT hier**, sondern aus der Antwort von
+    # ``GET /postfach/anhaenge/bereitschaft`` — derselben Auskunft, die den
+    # Anhang-Knopf ueberhaupt freischaltet. Eine Grenze, die vor dem Knopf da
+    # ist, brauchte niemand. Sie steht hier trotzdem, weil ``/capabilities``
+    # der Ort ist, an dem eine Instanz ihre Einstellungen nennt, und weil
+    # Oberflaechen ausserhalb des Verfassers (Einstellungsseite, Hinweise)
+    # sie ohne Kanalbezug brauchen.
+    ablage_anhang_max_bytes: int = 25 * 1024 * 1024
 
 
 # Allowed values for ``hq_resolution_max`` — mirrors the frontend
