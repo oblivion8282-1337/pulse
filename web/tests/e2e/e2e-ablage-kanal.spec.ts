@@ -143,22 +143,6 @@ async function apiPost(
   );
 }
 
-/** Wie `e2e-dm.spec.ts::becomeFriends` — Kreuz-Anfragen, zweite akzeptiert
- *  automatisch. **Hier NUR als Werkzeug, um einen gefundenen Produktfehler
- *  zu umgehen** (s. Bericht): `schluessel_zugriff.py::darf_schluessel_holen`
- *  erlaubt das Abholen fremder Geraetebuendel nur bei Freundschaft, Blockade
- *  oder einer GEMEINSAMEN PRIVATEN GRUPPE (`teilen_private_gruppe`) — eine
- *  gemeinsame Guild-Mitgliedschaft (erst recht in einem Ablage-Kanal) zaehlt
- *  NICHT. Ohne diesen Umweg bleibt `keys/claim` fuer zwei nicht befreundete
- *  Guild-Mitglieder leer und die Sitzung kann kein Zielgeraet finden. */
-async function becomeFriends(pageA: Page, uidA: string, pageB: Page, uidB: string): Promise<void> {
-  const send = async (page: Page, targetId: string) => {
-    const r = await apiPost(page, '/friend-requests', { target_user_id: targetId });
-    if (r.status !== 201) throw new Error(`friend-request failed ${r.status}: ${r.body}`);
-  };
-  await send(pageA, uidB);
-  await send(pageB, uidA);
-}
 
 async function createGuild(page: Page, name: string): Promise<string> {
   const r = await apiPost(page, '/guilds', { name });
@@ -309,11 +293,14 @@ test.describe.serial('E2E-verschluesselter Ablage-Kanal (Etappe E6, Nachweis Auf
     const aliceUserId = await currentUserId(alicePage);
     const bobUserId = await currentUserId(bobPage);
 
-    // Umgeht einen gefundenen Produktfehler, s. `becomeFriends`-Docstring
-    // und Bericht: `keys/claim` gibt fuer ein nicht befreundetes
-    // Guild-Mitglied eine leere Liste zurueck, egal ob ein gemeinsamer
-    // Ablage-Kanal besteht.
-    await becomeFriends(alicePage, aliceUserId, bobPage, bobUserId);
+    // Alice und Bob sind AUSDRUECKLICH NICHT befreundet. Bis zum 2026-09-01
+    // brauchte dieser Test eine Freundschaft, weil `keys/claim` fuer ein
+    // nicht befreundetes Guild-Mitglied eine leere Geraeteliste lieferte —
+    // die Sitzung fand kein Ziel, und das Senden endete lautlos. Seit
+    // `ablage_kanal_zugriff.py` genuegt ein gemeinsamer Ablage-Kanal, den
+    // beide sehen duerfen. Dass dieser Test OHNE Freundschaft laeuft, ist
+    // damit der eigentliche Nachweis dafuer — und zugleich der Regelfall in
+    // einer groesseren Community.
 
     guildId = await createGuild(alicePage, `Ablage-Community ${ts}`);
     await inviteAndJoin(alicePage, guildId, bobPage);
