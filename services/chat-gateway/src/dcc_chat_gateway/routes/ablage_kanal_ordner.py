@@ -67,6 +67,10 @@ async def ordner_kanal_anlegen(
     Stelle herstellen muss (``PUT /ablage/archiv/laufwerk``).
     """
     channel = await _kanal_fuer_mitglied(session, channel_id, current)
+    # Eimer ``ablage_laufwerk_setzen``, nicht ``ablage_abruf`` — dieselbe
+    # Kategorie wie ``ablage_kanal.setze_freigabe_adresse``: das PUT setzt
+    # eine Adresse/Zeile fest, es liest nichts, gehoert also zum
+    # Schwester-Eimer der Laufwerk-Setz-Routen, nicht zum Lese-Eimer.
     if not ratelimit.check("ablage_laufwerk_setzen", current.id):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limited")
 

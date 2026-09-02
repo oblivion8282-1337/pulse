@@ -243,9 +243,124 @@ async def test_liste_ohne_nach_gibt_alle_puls_dateien_sortiert(
     assert antwort.json() == ["2.puls", "10.puls"]
 
 
+@pytest.mark.asyncio
+async def test_liste_limit_schneidet_wirklich(
+    client, session_factory, _auth_signer, monkeypatch
+):
+    """``limit`` muss tatsaechlich abschneiden, nicht nur durchgereicht
+    werden — der Mock liefert mehr Treffer, als ``limit`` erlaubt."""
+    token, uid = await _register(_auth_signer)
+    _gid, cid = await _guild_mit_kanal(
+        session_factory, owner_id=uid, mitglieder=(uid,), ablage=True
+    )
+    await _laufwerk_eintragen(session_factory, user_id=uid, adresse="https://wolke.example/x")
+    await _ordner_eintragen(session_factory, channel_id=cid, ersteller_id=uid)
+
+    async def _mock_liste(*, basis, ordner=None, **_rest):
+        return ["1.puls", "2.puls", "3.puls", "4.puls"]
+
+    monkeypatch.setattr(routen_mod, "liste_vom_laufwerk", _mock_liste)
+
+    antwort = await client.get(
+        f"/channels/{cid}/ablage/ordner", params={"limit": 2}, headers=_auth(token)
+    )
+
+    assert antwort.status_code == 200, antwort.text
+    assert antwort.json() == ["1.puls", "2.puls"]
+
+
+@pytest.mark.asyncio
+async def test_zweites_mitglied_ohne_eigenes_laufwerk_liest_ueber_die_adresse_des_erstellers(
+    client, session_factory, _auth_signer, monkeypatch
+):
+    """Kern-Invariante: der Aufrufer der GET-Route ist NICHT der Ersteller
+    und hat selbst gar kein Konto-Laufwerk — gelesen wird trotzdem, weil die
+    Basis-Adresse aus der Ersteller-Zeile kommt, nie aus der des Aufrufers."""
+    token_ersteller, uid_ersteller = await _register(_auth_signer)
+    token_mitglied, uid_mitglied = await _register(_auth_signer)
+    _gid, cid = await _guild_mit_kanal(
+        session_factory,
+        owner_id=uid_ersteller,
+        mitglieder=(uid_ersteller, uid_mitglied),
+        ablage=True,
+    )
+    await _laufwerk_eintragen(
+        session_factory, user_id=uid_ersteller, adresse="https://wolke.example/ersteller"
+    )
+    await _ordner_eintragen(session_factory, channel_id=cid, ersteller_id=uid_ersteller)
+
+    gesehene_basis: list[str] = []
+
+    async def _mock_liste(*, basis, ordner=None, **_rest):
+        gesehene_basis.append(basis)
+        return ["1.puls"]
+
+    monkeypatch.setattr(routen_mod, "liste_vom_laufwerk", _mock_liste)
+
+    liste_antwort = await client.get(
+        f"/channels/{cid}/ablage/ordner", headers=_auth(token_mitglied)
+    )
+
+    assert liste_antwort.status_code == 200, liste_antwort.text
+    assert liste_antwort.json() == ["1.puls"]
+    assert gesehene_basis == ["https://wolke.example/ersteller"]
+
+    from fastapi import Response
+
+    gesehene_abruf: list[tuple[str, str]] = []
+
+    async def _mock_antwort(basis, pfad):
+        gesehene_abruf.append((basis, pfad))
+        return Response(content=b"chiffrat", media_type="application/octet-stream")
+
+    monkeypatch.setattr(routen_mod, "ablage_abruf_antwort", _mock_antwort)
+
+    datei_antwort = await client.get(
+        f"/channels/{cid}/ablage/ordner/1.puls", headers=_auth(token_mitglied)
+    )
+
+    assert datei_antwort.status_code == 200, datei_antwort.text
+    assert gesehene_abruf == [("https://wolke.example/ersteller", f"kanaele/{cid}/1.puls")]
+
+
+@pytest.mark.asyncio
+async def test_liste_ohne_konto_laufwerk_des_erstellers_ist_412(
+    client, session_factory, _auth_signer
+):
+    """Der Ersteller hatte einmal ein Laufwerk (sonst gaebe es die
+    Ordner-Zeile nicht), hat es aber inzwischen widerrufen — die Liste kann
+    dann niemand mehr abrufen, auch der Ersteller selbst nicht."""
+    token, uid = await _register(_auth_signer)
+    _gid, cid = await _guild_mit_kanal(
+        session_factory, owner_id=uid, mitglieder=(uid,), ablage=True
+    )
+    await _ordner_eintragen(session_factory, channel_id=cid, ersteller_id=uid)
+
+    antwort = await client.get(f"/channels/{cid}/ablage/ordner", headers=_auth(token))
+
+    assert antwort.status_code == 412, antwort.text
+    assert antwort.json()["detail"] == "no account drive"
+
+
 # ---------------------------------------------------------------------------
 # GET .../ablage/ordner/{name} — einzelne Datei
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_datei_route_ohne_konto_laufwerk_des_erstellers_ist_412(
+    client, session_factory, _auth_signer
+):
+    token, uid = await _register(_auth_signer)
+    _gid, cid = await _guild_mit_kanal(
+        session_factory, owner_id=uid, mitglieder=(uid,), ablage=True
+    )
+    await _ordner_eintragen(session_factory, channel_id=cid, ersteller_id=uid)
+
+    antwort = await client.get(f"/channels/{cid}/ablage/ordner/1.puls", headers=_auth(token))
+
+    assert antwort.status_code == 412, antwort.text
+    assert antwort.json()["detail"] == "no account drive"
 
 
 @pytest.mark.asyncio
