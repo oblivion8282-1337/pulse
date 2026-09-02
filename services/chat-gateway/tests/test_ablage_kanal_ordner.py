@@ -109,6 +109,21 @@ def test_datei_inhalt_traegt_ids_als_strings():
     assert geladen["groesse"] == 5
 
 
+@pytest.mark.asyncio
+async def test_datei_inhalt_traegt_created_at(session_factory):
+    """Befund 2026-09-03: ohne dieses Feld setzt der Klient beim Nachziehen
+    aus dem Ordner das LESEdatum statt des echten Sendedatums ein (Entwurf
+    §2). ``DmNutzlast.created_at`` ist server-seitig gesetzt (``server_default``)
+    — die Zeile muss deshalb aus der DB kommen, nicht bloss im Speicher
+    konstruiert sein."""
+    nutzlast = await _nutzlast_anlegen(session_factory, channel_id=555)
+    inhalt = ordner_mod.datei_inhalt(nutzlast)
+    geladen = json.loads(inhalt)
+    assert geladen["created_at"] is not None
+    # ISO-8601 mit Datumsanteil — kein Zeitstempel-Rateformat.
+    assert geladen["created_at"].startswith(str(nutzlast.created_at.year))
+
+
 # ---------------------------------------------------------------------------
 # ablegen
 # ---------------------------------------------------------------------------

@@ -1517,6 +1517,15 @@ class PostfachZustellungOut(BaseModel):
     #: Base64, wie ``PostfachNutzlastIn.daten``.
     daten: str
     groesse: int
+    #: Wann der Umschlag beim Server einging (``DmNutzlast.created_at``,
+    #: server-seitig gesetzt). ``None`` nur fuer Zustellungen, die dieses
+    #: Feld noch nicht kannten (Kompatibilitaet — es gibt keine Migration,
+    #: die alte Zeilen nachtraegt, ausserhalb der DB-Spalte existiert nichts
+    #: davon). Fuer den Ordner-Verlauf (``ablage_kanal_ordner.py::datei_inhalt``,
+    #: dasselbe Modell) ist das der einzige Anhaltspunkt fuer das ECHTE
+    #: Sendedatum — ohne dieses Feld setzte der Klient dort das Lesedatum
+    #: ein (Entwurf §2, Befund 2026-09-03).
+    created_at: datetime | None = None
 
     @field_serializer("id", "channel_id")
     def _ser_id(self, v: int) -> str:

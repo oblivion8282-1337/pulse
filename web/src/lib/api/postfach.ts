@@ -88,6 +88,12 @@ export interface PostfachZustellung {
   /** Base64. */
   daten: string;
   groesse: number;
+  /** Wann der Umschlag beim Server einging (ISO 8601) — `null`/fehlend nur
+   *  bei einer Zustellung, die dieses Feld noch nicht kannte (Befund
+   *  2026-09-03, s. `ablage/kanalOrdnerLeseweg.ts`: ohne dieses Datum setzt
+   *  der Ordner-Verlauf sonst das Lesedatum statt des echten Sendedatums
+   *  ein). */
+  created_at?: string | null;
 }
 
 export const postfachApi = {

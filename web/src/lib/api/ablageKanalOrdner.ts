@@ -53,7 +53,11 @@ function istPostfachZustellung(wert: unknown): wert is PostfachZustellung {
 		(typeof z.absender_user_id === 'string' || z.absender_user_id === null) &&
 		typeof z.art === 'number' &&
 		typeof z.daten === 'string' &&
-		typeof z.groesse === 'number'
+		typeof z.groesse === 'number' &&
+		// `created_at` ist optional (aeltere Server kennen das Feld noch
+		// nicht, s. `api/postfach.ts`) — `undefined`, `null` und ein String
+		// sind alle gueltig, nur ein anderer Typ nicht.
+		(z.created_at === undefined || z.created_at === null || typeof z.created_at === 'string')
 	);
 }
 

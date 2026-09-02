@@ -768,6 +768,9 @@ async def test_abholen_liefert_nur_die_eigenen(
     zustellungen = r.json()
     assert len(zustellungen) == 1
     assert zustellungen[0]["daten"] == daten
+    # Befund 2026-09-03: ohne dieses Feld setzt der Ordner-Verlauf beim
+    # Klienten das Lesedatum statt des echten Sendedatums ein (Entwurf §2).
+    assert zustellungen[0]["created_at"] is not None
 
     # Das ZWEITE Geraet DESSELBEN Nutzers sieht nichts.
     r = await _abholen(client, token=token_b, pubkey=pub_2)

@@ -73,6 +73,7 @@ async def postfach_abholen(
                 DmNutzlast.art,
                 DmNutzlast.daten,
                 DmNutzlast.groesse,
+                DmNutzlast.created_at,
             )
             .join(DmNutzlast, DmNutzlast.id == DmZustellung.nutzlast_id)
             .outerjoin(

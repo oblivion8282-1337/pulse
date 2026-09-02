@@ -34,7 +34,14 @@ export function baueEmpfangeneNachricht(
     content: text,
     nonce: null,
     reply_to_id: replyToId,
-    created_at: new Date().toISOString(),
+    // Das ECHTE Sendedatum, wenn der Server es kennt (`DmNutzlast.created_at`,
+    // Befund 2026-09-03) — fuer den normalen Postfach-Zyklus praktisch
+    // dasselbe wie "jetzt" (frisch zugestellt), aber fuer den Ordner-Verlauf
+    // (`ablage/kanalOrdnerLeseweg.ts`, liest Monate alte Dateien nach) der
+    // einzige Unterschied zwischen "damals gesendet" und "gerade gelesen".
+    // Der Rueckfall bleibt fuer aeltere Server, die das Feld noch nicht
+    // ausliefern (s. `api/postfach.ts`).
+    created_at: z.created_at ?? new Date().toISOString(),
     // Lokal geparst, s. `mentionMarkierungen.ts`-Modulkopf.
     mentions: parseMentionMarkers(text),
     // Erkennungsmerkmal, s. `Message.verschluesselt` in `api/types.ts`.
