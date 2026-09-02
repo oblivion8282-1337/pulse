@@ -73,7 +73,9 @@ export function getSettingsTabs(): SettingsTabDef[] {
     { id: 'keyboard', label: m.settings_dialog_tab_keyboard(), icon: KeyboardIcon, desktopOnly: true },
     { id: 'privacy', label: m.settings_dialog_tab_privacy(), icon: LockIcon },
     { id: 'security', label: m.settings_dialog_tab_security(), icon: ShieldIcon },
-    { id: 'sicherung', label: m.settings_dialog_tab_sicherung(), icon: CloudUploadIcon },
+    // Auch die Sicherung (Google-Backup) ist Auslieferungsschritt 2 —
+    // Reiter aus, Code bleibt. Reaktivierung: Zeile entkommentieren.
+    // { id: 'sicherung', label: m.settings_dialog_tab_sicherung(), icon: CloudUploadIcon },
     // Auslieferungsschritt 1 (2026-09-02, Eigentümer): die Cloud-Laufwerk-
     // Oberfläche bleibt versteckt, bis sie freigegeben wird. Der Code
     // (Ablage/§11-Anhänge) bleibt voll erhalten — nur der Reiter ist aus.
