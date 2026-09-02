@@ -30,6 +30,7 @@
   import { onMount, onDestroy } from 'svelte';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import { Button } from '$lib/components/ui/button/index.js';
+  import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
   import { ablageVerbindungen, type AblageVerbindung } from '$lib/ablage/verbindungen.svelte.ts';
   import { leereRohwerte, pruefeZustand } from '$lib/ablage/speicherPruefung.ts';
   import { archivEintraegeAusstehend } from '$lib/ablage/archivSchreibweg.ts';
@@ -119,6 +120,16 @@
     // Zustand, aus dem ein zweiter Klick herausführt.
     const warArchiv = ablageVerbindungen.verbindung(id)?.istArchiv === true;
     if (warArchiv) {
+      // Ordner-Kanäle (Aufgabe 8/9) liegen IM Archiv-Laufwerk — trennen
+      // reisst ihre Nachrichten mit, ohne dass die Zeile das sonst sagen
+      // würde (der Ordner-Kanal selbst weiss nichts vom Trennen). Deshalb
+      // vorab fragen, mit dem Haus-Muster für destruktive Bestätigungen
+      // (`confirmDialog`, s. `RolesEditor.svelte`/`SettingsKeyboard.svelte`).
+      const bestaetigt = await confirmDialog({
+        description: m.speicher_archiv_trennen_kanaele(),
+        destructive: true
+      });
+      if (!bestaetigt) return;
       const befund = await gleicheArchivAdresseAb({ art: 'entfernen', grund: 'keins' });
       if (!zeigeAbgleich(befund)) return;
     }

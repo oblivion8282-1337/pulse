@@ -3247,5 +3247,6 @@
   "stream_stoppen": "Stream stoppen",
   "stream_alle_ansehen": "Alle ansehen",
   "seite_invites_titel": "Einladungen",
-  "kanal_ordner_archiv_erfordert": "Verbinde zuerst deine Nextcloud im Speicher-Bereich als Archiv."
+  "kanal_ordner_archiv_erfordert": "Verbinde zuerst deine Nextcloud im Speicher-Bereich als Archiv.",
+  "speicher_archiv_trennen_kanaele": "Nextcloud-Kanäle, die in diesem Laufwerk liegen, werden für alle unlesbar."
 }
