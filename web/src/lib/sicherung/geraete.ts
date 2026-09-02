@@ -44,8 +44,14 @@ const VERBINDUNG_KEY = 'gdrive';
 export const IDB_KEY_SICHERUNG_DEK = 'pulse.sicherung-dek';
 export const IDB_KEY_SICHERUNG_KUERZEL = 'pulse.sicherung-kuerzel';
 
-/** Dateiname eines Anhang-Bytes-Behälters im Archiv (Klartext-Name, nur Ids). */
+/** Dateiname eines Anhang-Bytes-Behälters im Archiv — englisch, wie
+ *  `key.puls`/`Pulse-Backup` (internationales Drive-Publikum). */
 export function anhangDateiName(id: string): string {
+	return `attachment-${id}.puls`;
+}
+
+/** Der alte deutsche Name — bestehende Archive bleiben lesbar (Fallback). */
+export function alterAnhangDateiName(id: string): string {
 	return `anhang-${id}.puls`;
 }
 

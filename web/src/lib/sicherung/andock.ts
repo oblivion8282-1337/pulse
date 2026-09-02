@@ -424,8 +424,18 @@ export async function sicherungAnhaenge(kanalId: string, nachrichten: AblageNach
 	if (dek === undefined) return;
 	const adapter = await adapterLieferant();
 	for (const nachricht of nachrichten) {
+			// Autorenschafts-Regel (2026-09-02): spiegelt wird nur, was DIESES
+			// Konto selbst gesendet hat — der Absender ist der natürliche
+			// Allein-Schreiber eines Anhangs. Empfängergeräte überspringen;
+			// ohne die Regel schrieben beide Geräte desselben Kontos denselben
+			// Klumpen und trieben Doppel-Dateien ins Drive.
+			if (nachricht.autor !== aktuellesKonto()) continue;
 		for (const anhang of nachricht.anhaenge) {
 			try {
+				// Dedup: Bei mehreren Geräten desselben Kontos hat JEDES die
+				// Bytes im Cache — ohne diese Prüfung überschriebe jedes sie
+				// mit identischem Inhalt (verschwendeter Upload, kein Verlust).
+				if ((await adapter.lese(anhangDateiName(anhang.id))) !== null) continue;
 				const lokal = await anhangBytesLesen(anhang.id);
 				if (!lokal) continue;
 				const klar = new Uint8Array(await lokal.daten.arrayBuffer());

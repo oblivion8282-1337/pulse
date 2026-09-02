@@ -9,14 +9,15 @@
 
 import { entschlüsseleEintrag } from './krypto';
 import { adapterLieferant } from './ziele';
-import { dekAusZwischenlager, anhangDateiName } from './geraete';
+import { dekAusZwischenlager, anhangDateiName, alterAnhangDateiName } from './geraete';
 
 export async function archivAnhangHolen(id: string): Promise<Blob | null> {
 	try {
 		const entpackt = await dekAusZwischenlager();
 		if (!entpackt) return null;
 		const adapter = await adapterLieferant();
-		const dunkel = await adapter.lese(anhangDateiName(id));
+		let dunkel = await adapter.lese(anhangDateiName(id));
+		if (dunkel === null) dunkel = await adapter.lese(alterAnhangDateiName(id));
 		if (dunkel === null) return null;
 		const klar = await entschlüsseleEintrag(entpackt.dek, dunkel);
 		return new Blob([klar as unknown as BlobPart]);
