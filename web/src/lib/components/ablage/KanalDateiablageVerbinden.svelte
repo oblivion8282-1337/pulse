@@ -27,11 +27,13 @@
   import { onDestroy } from 'svelte';
   import { ApiError } from '$lib/api/client';
   import { ablageKanalLaufwerkSetzen } from '$lib/api/ablageKanal.ts';
+  import { ordnerAnlegen } from '$lib/api/ablageKanalOrdner.ts';
   import { ablageVerbindungen } from '$lib/ablage/verbindungen.svelte.ts';
   import { kanalLaufwerkSchluesselSichern } from '$lib/ablage/kanalLaufwerkSchluessel.ts';
   import { starteKanalFestigungsSchleife } from '$lib/ablage/kanalFestigung.ts';
   import AblageLaufwerkAufforderung from './AblageLaufwerkAufforderung.svelte';
   import type { AblageVerbindung } from '$lib/ablage/verbindungen.svelte.ts';
+  import { m } from '$lib/paraglide/messages.js';
 
   let { kanalId }: { kanalId: string } = $props();
 
@@ -53,6 +55,23 @@
   });
 
   async function nachVerbindung(v: AblageVerbindung): Promise<string | null> {
+    // Nextcloud-Konto-Laufwerk (Archiv, `SpeicherSektion`): der Kanal bekommt
+    // hier keinen eigenen Freigabe-Link, sondern einen Ordner IM Archiv —
+    // der Server legt ihn per PUT an (`ordnerAnlegen`, 412 ohne Archiv). Kein
+    // `kanalLaufwerkSchluesselSichern` (der Archiv-Hauptschluessel liegt
+    // schon gesichert) und keine Festigungsschleife (die gilt nur fuer den
+    // aelteren Direkt-Laufwerk-Weg unten).
+    if (v.anbieter === 'nextcloud' && v.istArchiv === true) {
+      try {
+        await ordnerAnlegen(kanalId);
+      } catch (e) {
+        return e instanceof ApiError && e.status === 412
+          ? m.kanal_ordner_archiv_erfordert()
+          : `Verbinden fehlgeschlagen: ${e instanceof Error ? e.message : String(e)}`;
+      }
+      status = 'verbunden';
+      return null;
+    }
     // Die vom Nutzer geparste WebDAV-Basis ist die Freigabe-Adresse, die der
     // Server für die Weiterreich-Route braucht (Design §4.1) — nie der rohe
     // Link selbst (der bleibt in der Verbindungs-Konfiguration).

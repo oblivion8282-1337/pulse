@@ -3246,5 +3246,6 @@
   "stream_label_umbenennen": "Label umbenennen",
   "stream_stoppen": "Stream stoppen",
   "stream_alle_ansehen": "Alle ansehen",
-  "seite_invites_titel": "Einladungen"
+  "seite_invites_titel": "Einladungen",
+  "kanal_ordner_archiv_erfordert": "Verbinde zuerst deine Nextcloud im Speicher-Bereich als Archiv."
 }
