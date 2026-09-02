@@ -32,6 +32,11 @@ export interface PostfachNutzlast {
   daten: string;
   /** Geraete-Pubkeys, fuer die diese Nutzlast verschluesselt wurde. */
   empfaenger: string[];
+  /** Ordner-Kanal: Server legt den Umschlag zusaetzlich als
+   *  `<nutzlastId>.puls` im Konto-Ordner des Kanal-Erstellers ab. Ausserhalb
+   *  eines Ordner-Kanals ignoriert der Server das Feld — der Klient muss
+   *  also nicht wissen, ob der Zielkanal einer ist. */
+  archiv?: boolean;
 }
 
 /** Antwort von `POST /postfach/anhaenge/upload-url` (Etappe E). Wire-Form

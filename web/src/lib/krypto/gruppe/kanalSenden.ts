@@ -201,7 +201,9 @@ export async function sendeInKanal(
       inBloecke(schluesselUmschlaege, MAX_UMSCHLAEGE_JE_ANFRAGE)
     );
     const nachrichtUmschlaege: PostfachNutzlast[] = inEmpfaengerBloecke(alleGeraete).map(
-      (block) => ({ art: ART_GRUPPENNACHRICHT, daten, empfaenger: block })
+      // Der Server legt ab, wenn der Kanal ein Ordner-Kanal ist; sonst
+      // ignoriert er das Feld.
+      (block) => ({ art: ART_GRUPPENNACHRICHT, daten, empfaenger: block, archiv: true })
     );
     const { beliefert: nachrichtBeliefert, letzterFehler: nachrichtFehler } =
       await bloeckeEinliefern(
