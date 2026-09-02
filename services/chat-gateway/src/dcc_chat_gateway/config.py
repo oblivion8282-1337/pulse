@@ -208,7 +208,13 @@ class Settings(BaseSettings):
     # der Server sieht und weiterschiebt, ist der Klumpen. Der Unterschied ist
     # ein paar Dutzend Bytes — die Grenze deshalb bewusst rund und nicht auf
     # die Klartextgroesse umgerechnet.
-    ablage_anhang_max_bytes: int = 25 * 1024 * 1024
+    ablage_anhang_max_bytes: int = 5 * 1024 * 1024
+
+    # Vorhaltezeit für verschlüsselte DM-Anhänge im Postfach (Tage). Der
+    # Klumpen liegt als Ciphertext im Objektspeicher und wird von dieser
+    # Pflege gelöscht — vorher sieht ihn nur, wer den Nachrichtenschlüssel
+    # hat. 0 = unbegrenzt (nicht empfohlen).
+    postfach_anhang_vorhalte_tage: int = 15
 
     # Cloud user-id of this instance's owner (the applicant who registered it).
     # The Cloud hands this out at approval. At cert-login, the user whose cert

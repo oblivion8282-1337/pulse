@@ -348,6 +348,45 @@ async def test_fremder_anhang_laesst_sich_nicht_binden(
 
 
 @pytest.mark.asyncio
+async def test_anhang_vorhaltezeit_abgelaufen(
+    client, app, session_factory, _auth_signer, friend_pair, mock_s3
+):
+    """Der Vorhalt (2026-09-02): ein gebundener verschlüsselter Anhang bleibt
+    `postfach_anhang_vorhalte_tage` (Standard 15) Tage auf dem Server und
+    fällt dann — auch wenn alle Zustellungen längst quittiert sind. Junge
+    Anhänge übersteht den Lauf."""
+    from datetime import UTC, datetime, timedelta
+
+    from dcc_chat_gateway.models import MessageAttachment
+    from dcc_chat_gateway.postfach_pflege import sweep_abgelaufene_anhaenge
+
+    token_a, uid_a, token_b, uid_b, dm_id, pub_b1 = await _aufbau(
+        client, session_factory, _auth_signer, friend_pair
+    )
+    anhang_id = (
+        await _anhang_hochladen(client, token=token_a, channel_id=dm_id)
+    ).json()["id"]
+    r = await _einliefern(
+        client, token=token_a, channel_id=dm_id,
+        empfaenger=[pub_b1], anhaenge=[anhang_id],
+        daten=_b64_unpadded(b"vorhalt-test"),
+    )
+    assert r.status_code == 200, r.text
+
+    async with session_factory() as s:
+        # Jung → der Sweep fasst ihn nicht an.
+        assert await sweep_abgelaufene_anhaenge(s, 15) == 0
+        zeile = await s.get(MessageAttachment, int(anhang_id))
+        zeile.postfach_gebunden_am = datetime.now(UTC) - timedelta(days=16)
+        await s.commit()
+
+    async with session_factory() as s:
+        assert await sweep_abgelaufene_anhaenge(s, 15) == 1
+        assert await s.get(MessageAttachment, int(anhang_id)) is None
+    assert len(mock_s3.deleted) == 1
+
+
+@pytest.mark.asyncio
 async def test_anhang_faellt_mit_der_letzten_zustellung(
     client, app, session_factory, _auth_signer, friend_pair, mock_s3
 ):

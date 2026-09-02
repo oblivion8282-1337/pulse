@@ -776,7 +776,7 @@ class CapabilitiesOut(PermissionsOut):
     # der Ort ist, an dem eine Instanz ihre Einstellungen nennt, und weil
     # Oberflaechen ausserhalb des Verfassers (Einstellungsseite, Hinweise)
     # sie ohne Kanalbezug brauchen.
-    ablage_anhang_max_bytes: int = 25 * 1024 * 1024
+    ablage_anhang_max_bytes: int = 5 * 1024 * 1024
 
 
 # Allowed values for ``hq_resolution_max`` — mirrors the frontend

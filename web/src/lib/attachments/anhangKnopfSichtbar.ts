@@ -11,15 +11,15 @@
  * der gleich wieder verschwindet, ist schlechter als ein etwas später
  * erscheinender.
  *
- * **Seit Design §11.2 kommt eine zweite Bedingung dazu, und nur für den
- * VERSCHLÜSSELTEN Weg:** ein verschlüsselter Anhang landet im Cloud-Ordner
- * jedes Beteiligten, und wer keinen hat, kann ihn nicht empfangen. Fehlt
- * auch nur einem das Laufwerk, erscheint der Knopf gar nicht erst — statt
- * eines Knopfes, der scheitert.
+ * **Seit 2026-09-02 (Rücknahme der §11.2-Sperre) ist der verschlüsselte Weg
+ * wieder bedingungslos:** die Anhänge laufen über die Postfach-Route
+ * (`uploadVerschluesselt.ts`), Pulse hält den Ciphertext selbst — ein
+ * fehlendes Ablage-Laufwerk hindert niemanden am Empfang. Die §11-Verteilung
+ * in die Laufwerke bleibt als Zusatzschritt erhalten, sperrt den Knopf aber
+ * nicht mehr. `laufwerkeBereit` wird daher ignoriert.
  *
- * Der Klartext-Weg bleibt davon unberührt: dort hält Pulse die Bytes selbst,
- * es gibt kein fremdes Laufwerk, das fehlen könnte. Deshalb hängt
- * `laufwerkeBereit` ausschliesslich am Zweig `verschluesselt`.
+ * Der Klartext-Weg: dort hält Pulse die Bytes ebenfalls selbst, der Knopf
+ * hängt allein am Serverschalter.
  */
 export function anhangKnopfSichtbar(
   headerKind: 'channel' | 'dm' | 'gruppe',
@@ -28,10 +28,10 @@ export function anhangKnopfSichtbar(
   laufwerkeBereit: boolean | undefined
 ): boolean {
   if (headerKind === 'channel') return true;
-  // Drei Zustände statt zwei, auf beiden Auskünften: `undefined` (Auskunft
-  // noch unterwegs) und `false` (ausdrücklich nein) führen beide zu keinem
-  // Knopf — nur ein strenges `true` schaltet ihn frei.
-  if (verschluesselt) return laufwerkeBereit === true;
+  // ponytail: `laufwerkeBereit` wird ignoriert (Postfach-Weg ohne Laufwerk-
+  // Pflicht). Wenn §11-Verteilung wieder zur Pflicht wird, hier die
+  // Bedingung `laufwerkeBereit === true` zurückholen und Tests anpassen.
+  if (verschluesselt) return true;
   // Eine private Gruppe hat keinen Klartext-Weg (Spec §9) — ohne
   // Verschlüsselung bleibt der Knopf dort aus, unabhängig vom Serverschalter.
   if (headerKind === 'gruppe') return false;
@@ -57,8 +57,9 @@ export function anhangKnopfGrund(
   verschluesselt: boolean,
   laufwerkeBereit: boolean | undefined
 ): 'kein-laufwerk' | null {
-  if (headerKind === 'channel' || !verschluesselt) return null;
-  return laufwerkeBereit === false ? 'kein-laufwerk' : null;
+  // Seit der Rücknahme der §11.2-Sperre ist der verschlüsselte Knopf immer
+  // da — es gibt also keinen Fall mehr, den ein Hinweis erklären müsste.
+  return null;
 }
 
 /**

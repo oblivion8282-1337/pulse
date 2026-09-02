@@ -32,16 +32,10 @@ describe('anhangKnopfSichtbar — Kanal unveraendert', () => {
 });
 
 describe('anhangKnopfSichtbar — Gruppe (kein Klartext-Weg)', () => {
-  test('verschluesselt UND alle Laufwerke da → Knopf', () => {
+  test('verschluesselt → Knopf, Laufwerk-Auskunft zaehlt nicht (Ruenahme 2026-09-02)', () => {
     assert.equal(anhangKnopfSichtbar('gruppe', true, true, true), true);
-  });
-
-  test('ein Mitglied ohne Laufwerk blockiert die ganze Gruppe (§11.2)', () => {
-    assert.equal(anhangKnopfSichtbar('gruppe', true, true, false), false);
-  });
-
-  test('Laufwerks-Auskunft noch unterwegs → kein Knopf', () => {
-    assert.equal(anhangKnopfSichtbar('gruppe', true, true, undefined), false);
+    assert.equal(anhangKnopfSichtbar('gruppe', true, true, false), true);
+    assert.equal(anhangKnopfSichtbar('gruppe', true, true, undefined), true);
   });
 
   test('unverschluesselt bleibt ohne Knopf, egal was sonst gilt', () => {
@@ -67,18 +61,21 @@ describe('anhangKnopfSichtbar — DM, die eigentliche Regel', () => {
     assert.equal(anhangKnopfSichtbar('dm', false, true, undefined), true);
   });
 
-  test('verschluesselt: der Server-Schalter zaehlt nicht mehr, das Laufwerk schon', () => {
+  test('verschluesselt: bedingungslos — Postfach-Weg braucht kein Laufwerk', () => {
+    // Ruecknahme der §11.2-Sperre (2026-09-02): die Anhaenge laufen ueber die
+    // Postfach-Route, Pulse haelt den Ciphertext selbst.
     assert.equal(anhangKnopfSichtbar('dm', true, false, true), true);
     assert.equal(anhangKnopfSichtbar('dm', true, undefined, true), true);
-    assert.equal(anhangKnopfSichtbar('dm', true, true, false), false);
-    assert.equal(anhangKnopfSichtbar('dm', true, true, undefined), false);
+    assert.equal(anhangKnopfSichtbar('dm', true, true, false), true);
+    assert.equal(anhangKnopfSichtbar('dm', true, true, undefined), true);
+    assert.equal(anhangKnopfSichtbar('dm', true, false, undefined), true);
   });
 });
 
-describe('anhangKnopfGrund — der Fall muss BENANNT werden (§11.2)', () => {
-  test('nur ein ausdrueckliches Nein auf dem verschluesselten Weg', () => {
-    assert.equal(anhangKnopfGrund('dm', true, false), 'kein-laufwerk');
-    assert.equal(anhangKnopfGrund('gruppe', true, false), 'kein-laufwerk');
+describe('anhangKnopfGrund — kein Laufwerk-Hinweis mehr auf dem verschluesselten Weg', () => {
+  test('der Knopf ist ja immer da — also auch kein Begruendungs-Kasten', () => {
+    assert.equal(anhangKnopfGrund('dm', true, false), null);
+    assert.equal(anhangKnopfGrund('gruppe', true, false), null);
   });
 
   test('kein Hinweis, solange die Auskunft unterwegs ist', () => {

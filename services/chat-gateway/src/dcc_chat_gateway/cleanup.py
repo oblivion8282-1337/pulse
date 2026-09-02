@@ -42,6 +42,7 @@ from dcc_chat_gateway.config import Settings
 from dcc_chat_gateway.models import WebPushSubscription
 from dcc_chat_gateway.kopplung_pflege import sweep_verfallene_kopplungen
 from dcc_chat_gateway.postfach_pflege import (
+    sweep_abgelaufene_anhaenge,
     sweep_verfallene_zustellungen,
     sweep_verwaiste_anhaenge,
     sweep_verwaiste_nutzlasten,
@@ -105,6 +106,14 @@ async def _run_once(engine: AsyncEngine, settings: Settings) -> int:
             session, settings.ablage_zwischenlager_max_alter_tage
         )
     log.info("ablage_zwischenlager_pflege_done verfallen=%d", zwischenlager)
+
+    # Abgelaufene DM-Anhänge (Vorhaltezeit, Standard 15 Tage) — dieselbe
+    # Schleife, derselbe Takt.
+    async with session_factory() as session:
+        abgelaufen = await sweep_abgelaufene_anhaenge(
+            session, settings.postfach_anhang_vorhalte_tage
+        )
+    log.info("postfach_anhang_vorhalte_done abgelaufen=%d", abgelaufen)
 
     return deleted
 

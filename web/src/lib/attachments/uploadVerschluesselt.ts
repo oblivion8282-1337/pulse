@@ -174,17 +174,11 @@ export function startUploadVerschluesselt(
         if (cancelled) return;
       }
 
-      // **In die Cloud-Ordner ALLER Beteiligten** (Design §11.1) — danach
-      // gibt Pulse seine eigene Kopie frei. Das ist der Schritt, der die
-      // Frage „was, wenn ich den Anhang erst in 50 Tagen oeffne" erledigt.
-      //
-      // **Der Fehlschlag darf hier NICHT verschluckt werden**, und das ist
-      // die eigentliche Regel dieser Stelle: waere er still, saehe der
-      // Absender einen fertigen Anhang, der Empfaenger bekaeme nie eine
-      // Datei in sein Laufwerk, und Pulses Kopie fiele mit dem letzten
-      // Umschlag. Der Verlust traete Tage spaeter auf, ohne Spur. Er faellt
-      // deshalb bis in `catch` durch und faerbt die Kachel rot.
-      await postfachApi.anhangVerteilen(adresse.id, cloudRoute());
+      // **Kein Verteilen mehr (2026-09-02)**: der Klumpen bleibt im
+      // Postfach und verfällt nach der Vorhaltezeit des Servers
+      // (`postfach_anhang_vorhalte_tage`, Standard 15 Tage). Die
+      // §11-Verteilung in die Laufwerke der Beteiligten ist ein optionaler
+      // Nachschuss (`anhangVerteilen`), kein Sendeweg mehr.
       if (cancelled) return;
 
       // Die eigene Kopie. Vor dem `done`, weil ab dort abgeschickt werden
@@ -197,6 +191,7 @@ export function startUploadVerschluesselt(
         vorschau: vorschau?.blob ?? null
       });
       if (cancelled) return;
+
 
       row.anhang = {
         id: adresse.id,

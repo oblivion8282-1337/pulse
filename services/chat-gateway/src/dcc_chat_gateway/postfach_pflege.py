@@ -37,7 +37,7 @@ Web-Push-Aufraeumung.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -130,6 +130,59 @@ async def loesche_anhaenge_ohne_umschlag(session: AsyncSession) -> tuple[int, li
     return len(zeilen), schluessel
 
 
+async def loesche_abgelaufene_anhaenge(
+    session: AsyncSession, vorhalte_tage: int
+) -> tuple[int, list[str]]:
+    """Löscht gebundene verschlüsselte Anhänge, deren Vorhaltezeit abgelaufen
+    ist (Standard 15 Tage). Gibt ``(Anzahl, Objektspeicher-Schlüssel)`` zurück
+    und committet **nicht** — dasselbe Zeilen-dann-Bytes wie überall sonst.
+
+    Die Empfänger haben den Klumpen beim Empfang lokal gecacht; der Server
+    ist nur der Vorhalt. Abgelaufen heißt also: neue Geräte laden den Anhang
+    fortan nicht mehr nach, bestehende lokale Kopien bleiben unberührt.
+    """
+    if vorhalte_tage <= 0:
+        return 0, []
+    grenze = datetime.now(UTC) - timedelta(days=vorhalte_tage)
+    zeilen = (
+        await session.execute(
+            select(
+                MessageAttachment.id,
+                MessageAttachment.storage_key,
+                MessageAttachment.thumb_storage_key,
+            )
+            .where(
+                MessageAttachment.postfach_gebunden_am.is_not(None),
+                MessageAttachment.postfach_gebunden_am < grenze,
+            )
+            .limit(_ANHANG_BATCH)
+        )
+    ).all()
+    if not zeilen:
+        return 0, []
+    schluessel: list[str] = []
+    for zeile in zeilen:
+        schluessel.append(zeile.storage_key)
+        if zeile.thumb_storage_key:
+            schluessel.append(zeile.thumb_storage_key)
+    await session.execute(
+        delete(MessageAttachment).where(
+            MessageAttachment.id.in_([zeile.id for zeile in zeilen])
+        )
+    )
+    return len(zeilen), schluessel
+
+
+async def sweep_abgelaufene_anhaenge(session: AsyncSession, vorhalte_tage: int) -> int:
+    """Wie `sweep_verwaiste_anhaenge`, aber nach Vorhaltezeit (Standard 15 Tage)."""
+    anzahl, schluessel = await loesche_abgelaufene_anhaenge(session, vorhalte_tage)
+    await session.commit()
+    from dcc_chat_gateway.routes.attachments import purge_s3_keys
+
+    await purge_s3_keys(schluessel)
+    return anzahl
+
+
 async def sweep_verwaiste_anhaenge(session: AsyncSession) -> int:
     """Wie ``loesche_anhaenge_ohne_umschlag``, aber mit Commit und
     anschliessendem Loeschen im Objektspeicher. Gibt die Anzahl zurueck."""
@@ -150,6 +203,8 @@ async def sweep_verwaiste_anhaenge(session: AsyncSession) -> int:
 
 __all__ = [
     "loesche_anhaenge_ohne_umschlag",
+    "loesche_abgelaufene_anhaenge",
+    "sweep_abgelaufene_anhaenge",
     "sweep_verfallene_zustellungen",
     "sweep_verwaiste_anhaenge",
     "sweep_verwaiste_nutzlasten",
