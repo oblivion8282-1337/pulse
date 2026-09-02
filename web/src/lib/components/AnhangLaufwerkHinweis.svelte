@@ -30,11 +30,6 @@
 
   let { kanalId }: { kanalId: string } = $props();
 
-  // Auslieferungsschritt 1 (2026-09-02, Eigentümer): Laufwerk-Hinweise sind
-  // ausgeblendet — ohne Laufwerke gibt es ohnehin keine Anhänge (§11.2
-  // versteckt den Knopf selbst). Reaktivierung: diese Rückgabe entfernen.
-  return null;
-
   const ohneLaufwerk = $derived(anhangBereitschaft.ohneLaufwerk(kanalId));
 
   // Das Nachladen der Namen gehört in einen Effekt, nicht in ein `$derived`:
