@@ -24,9 +24,13 @@
  * ohne Bundler pruefbar bleibt.
  */
 
-/** 13 Stellen `Date.now()` + 7 Zufallsstellen = 20 Ziffern, s. Modulkopf. */
+/** 13 Stellen `Date.now()` + 6 Zufallsstellen = 19 Ziffern — bewusst UNTER
+ *  der int64-Grenze (9,22e18): jede Route hinter der IDs als BIGINT abfragt
+ *  (Loeschen, Abruf, Pins) crashte bei 20 Ziffern mit 500 (Befund
+ *  2026-09-02: eine 20-stellige ID sprengte Postgres-BIGINT). 19 Stellen
+ *  beginnen mit der Zeitziffer "1" und liegen damit sicher im Bereich. */
 const ZEIT_STELLEN = 13;
-const ZUFALL_STELLEN = 7;
+const ZUFALL_STELLEN = 6;
 
 export function lokaleNachrichtId(): string {
   const zeit = Date.now().toString().padStart(ZEIT_STELLEN, '0');

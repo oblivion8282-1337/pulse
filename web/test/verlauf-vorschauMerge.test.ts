@@ -10,7 +10,7 @@ import {
 
 function lokal(overrides: Partial<LokalerLetzterSatz> = {}): LokalerLetzterSatz {
   return {
-    nachrichtId: '17000000000001234567', // lokale ID (20-stellig, s. lokaleNachrichtId())
+    nachrichtId: '1700000000000123456', // lokale ID (19-stellig, s. lokaleNachrichtId())
     autorId: 'u1',
     erstelltAm: '2026-08-28T10:00:00Z',
     inhalt: 'hallo',
@@ -27,7 +27,7 @@ test('C3: eine verschluesselte Nachricht ohne Server-Vorschau bleibt heute veral
   assert.equal(server.last_message_preview, null); // <- das waere die rote Anzeige ohne Fix
   const gemergt = mitLokalerVorschauMergen(server, lokal());
   assert.equal(gemergt.last_message_preview, 'hallo');
-  assert.equal(gemergt.last_message_id, '17000000000001234567');
+  assert.equal(gemergt.last_message_id, '1700000000000123456');
 });
 
 test('C4: ein STALE Server last_message_id (aeltere Klartext-Nachricht) wird durch die neuere lokale Kennung ersetzt', () => {
@@ -57,7 +57,7 @@ test('der Server-Wert bleibt unangetastet, wenn er gleich neu oder neuer ist (We
     last_message_at: '2026-01-01T00:00:05Z'
   };
   // Lokale ID AELTER als die Server-Snowflake (2023 vs. 2026-01-01+5s).
-  const ergebnis = mitLokalerVorschauMergen(server, lokal({ nachrichtId: '17000000000001234567' }));
+  const ergebnis = mitLokalerVorschauMergen(server, lokal({ nachrichtId: '1700000000000123456' }));
   assert.deepEqual(ergebnis, server);
 });
 
