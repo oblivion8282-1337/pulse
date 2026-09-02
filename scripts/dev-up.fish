@@ -164,7 +164,10 @@ set -l common_env "REDIS_URL=redis://localhost:6380/0 AUTH_JWKS_URL=http://127.0
 # und DM-Anhänge in der Entwicklung tot und die E2E-Suites (dropbox.spec.ts)
 # würden reihenweise brechen, obwohl der Code in Ordnung ist. Dev bekommt
 # deshalb die permissiven Werte; Prod erbt die harten Defaults.
-set -l upload_env "CLOUD_DM_ATTACHMENTS_ENABLED=true CLOUD_DROPBOX_ENABLED=true CLOUD_ATTACHMENT_MIME_PREFIXES="
+# PRIVATE_GROUPS_ENABLED: der Klient-Schalter `PRIVATE_GRUPPEN_ENABLED` steht
+# auf an und ruft `GET /gruppen` bei jedem Start — ohne den Server-Schalter
+# antwortet der chat-gateway 403, bei jedem Verbindungsaufbau (2026-09-02).
+set -l upload_env "CLOUD_DM_ATTACHMENTS_ENABLED=true CLOUD_DROPBOX_ENABLED=true CLOUD_ATTACHMENT_MIME_PREFIXES= PRIVATE_GROUPS_ENABLED=true"
 set -l pg_env "POSTGRES_PASSWORD=$POSTGRES_PASSWORD POSTGRES_HOST=localhost POSTGRES_PORT=5434"
 set -l jwt_env "JWT_PRIVATE_KEY_FILE=$repo_root/secrets/jwt_private.pem JWT_PUBLIC_KEY_FILE=$repo_root/secrets/jwt_public.pem"
 set -l lk_env "LIVEKIT_API_KEY=devkey LIVEKIT_API_SECRET=devsecretdevsecretdevsecretdevsecret LIVEKIT_URL=ws://localhost:7880"
