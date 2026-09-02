@@ -67,7 +67,7 @@ Testserver von Hand versorgt wird.
 `.github/workflows/mediamtx-fork.yml` rebuilds the image when anything under
 `infra/mediamtx-fork/` changes on `main`. It pushes two tags to GHCR:
 
-- `ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse5` — version pin (MediaMTX-Fassung + unser Patch-Stand, s. `PULSE_REVISION` im Dockerfile)
+- `ghcr.io/oblivion8282-1337/pulse-mediamtx:<MEDIAMTX_VERSION>-pulse<PULSE_REVISION>` — version pin, derzeit `1.19.1-pulse6` (MediaMTX-Fassung + unser Patch-Stand, beides als `ARG` im Dockerfile — der Workflow liest sie von dort, hier steht nur eine Abschrift)
 - `ghcr.io/oblivion8282-1337/pulse-mediamtx:latest`        — rolling
 
 Both compose files reference the version-pinned tag. The labels include

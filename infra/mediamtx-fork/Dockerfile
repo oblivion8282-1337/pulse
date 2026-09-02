@@ -53,7 +53,7 @@ ARG MEDIAMTX_VERSION=1.19.1
 # gezeigt — ohne dass man es ihm ansieht, und ohne Rueckweg ausser einem
 # Rebuild. Genau davor warnt die README dieses Verzeichnisses.
 #
-# Jetzt steht der Stand im Tag: `1.19.1-pulse5`. Ein Rueckweg ist damit eine
+# Jetzt steht der Stand im Tag (derzeit `1.19.1-pulse6`). Ein Rueckweg ist eine
 # Zeile in `infra/prod/docker-compose.yml` statt eines Neubaus, und das alte
 # `1.19.1-pulse` bleibt in der Registry unangetastet.
 #
@@ -74,6 +74,13 @@ ARG MEDIAMTX_VERSION=1.19.1
 # Erst muss der Workflow das neue Bild GEBAUT haben, danach duerfen die drei
 # Dateien darauf zeigen. Andersherum holen die Server ein Bild, das es noch
 # nicht gibt — und der Streaming-Server laeuft nicht mehr an.
+#
+# **Und danach die Stellen, die den Tag nur BEHAUPTEN** — sie brechen nichts,
+# stehen deshalb in keinem Test und blieben beim Sprung auf 6 volle sechs Tage
+# lang auf `pulse5`: `CLAUDE.md`, `infra/mediamtx-fork/README.md`,
+# `infra/dev-remote/README.md` (Paritaets-Tabelle) und das Pin-Beispiel, das
+# WORTGLEICH in `infra/self-host/Dockerfile` UND `web/Dockerfile` steht. Der Workflow-Kopf nennt seit dem
+# 2026-09-02 keine Version mehr, sondern diese beiden ARGs.
 #
 # `1.19.1-pulse5` bleibt in der Registry unangetastet und ist damit weiterhin
 # der Rueckweg; welche der beiden Fassungen dort liegt, ist die zuletzt

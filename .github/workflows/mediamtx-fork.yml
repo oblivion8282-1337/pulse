@@ -4,15 +4,20 @@
 #
 # Trigger: only when something under infra/mediamtx-fork/ changes on main.
 # We don't rebuild on every commit because the binary is otherwise identical
-# to upstream v1.17.1 — there's nothing to bump unless the patch or Dockerfile
-# changed.
+# to the upstream release — there's nothing to bump unless the patch or the
+# Dockerfile changed.
 #
 # Output: two tags pushed to GHCR
-#   ghcr.io/oblivion8282-1337/pulse-mediamtx:1.17.1-pulse  ← what compose pins
-#   ghcr.io/oblivion8282-1337/pulse-mediamtx:latest        ← rolling, unused
+#   …/pulse-mediamtx:<MEDIAMTX_VERSION>-pulse<PULSE_REVISION>  ← what compose pins
+#   …/pulse-mediamtx:latest                                    ← rolling, unused
+#
+# Both numbers are parsed out of infra/mediamtx-fork/Dockerfile below, so this
+# comment names no version of its own — it said `1.17.1-pulse` until 2026-09-02,
+# two upstream bumps and six patch revisions after that stopped being true.
 #
 # Build time: ~3 min cold, ~30 s with the gha cache warm. The build is
-# straight `go build` of MediaMTX 1.17.1 + our patch; no cross-compile.
+# straight `go build` of the pinned MediaMTX release + our patch; no
+# cross-compile.
 
 name: mediamtx-fork
 
