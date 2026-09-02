@@ -39,9 +39,9 @@ import type { Message } from '../api/types.ts';
 import { ausWire, NUTZLAST_FASSUNG, type AblageNachricht } from '../ablage/nutzlast.ts';
 import type { AblageAdapter } from '../ablage/adapter.ts';
 import { openIdentityDb, idbPutIdentity, idbGetIdentity } from '../identity/idb-shared.ts';
-import { verlaufAlleLesen, anhangBytesLesen, verlaufPutSaetze } from '../verlauf/db.ts';
+import { verlaufAlleLesen, anhangBytesLesen, verlaufPutSaetze, verlaufMarkiereGeloescht } from '../verlauf/db.ts';
 import { aktuellesKonto } from '../verlauf/konto.ts';
-import { zuSatz } from '../verlauf/satz.ts';
+import { sortierSchluessel, zuSatz } from '../verlauf/satz.ts';
 import { verschlüsseleEintrag } from './krypto.ts';
 import { KANAL_ORDNER_MUSTER, leseSicherungKanalSeite } from './wiederherstellen.ts';
 import type { SicherungEintrag } from './nutzlast.ts';
@@ -50,6 +50,7 @@ import {
 	aufbauAdapter,
 	geraeteKuerzel,
 	ordnerAdapter,
+	ordnerLeeren,
 } from './spiegel.ts';
 import {
 	adapterLieferant,
@@ -60,6 +61,7 @@ import {
 import {
 	anhangDateiName,
 	dekAusZwischenlager,
+	lesestandEntfernen,
 	lesestandLesen,
 	lesestandSchreiben,
 	pufferAlles,
@@ -225,6 +227,37 @@ export function sicherungSpiegeln(kanalId: string, nachrichten: Message[]): void
 	});
 }
 
+/**
+ * Spiegelt eine Löschung als Grabstein-Frame in den Kanal-Ordner — der
+ * Gegenpol zu `sicherungSpiegeln`: das Archiv soll nicht stärker sein als
+ * die App, eine gelöschte Nachricht also auch dort als gelöscht lesbar.
+ * Der Stein trägt nur die Id (Inhalt/Autor leer) — der Wiederherstellungs-
+ * Leser (`leseSicherungKanalSeite`) erkennt ihn am `geloescht`-Feld und die
+ * Andock-Lesewege legen ihn NIE als sichtbaren Satz an. Feuert und vergisst
+ * wie der Spiegel-Haken; derselbe Puffer-vor-Spiegel-Weg (Regel 2).
+ */
+export function sicherungGrabstein(kanalId: string, nachrichtId: string): void {
+	if (!SICHERUNG_ENABLED) return;
+	void (async () => {
+		const grabstein: AblageNachricht = {
+			fassung: NUTZLAST_FASSUNG,
+			id: nachrichtId,
+			autor: '',
+			inhalt: '',
+			zeit: new Date().toISOString(),
+			bearbeitet: null,
+			antwortAuf: null,
+			anhaenge: [],
+			geloescht: true,
+		};
+		await pufferLegen(kanalId, [grabstein]);
+		const bereit = await spiegelFallsBereit(kanalId);
+		bereit?.aufnehmen(kanalId, [grabstein]);
+	})().catch(() => {
+		/* Diagnose-frei nach Absicht — s. Regel 1 im Modulkopf. */
+	});
+}
+
 /** Wandelt gelesene Sicherungs-Einträge in Verlaufs-Sätze — die geteilte
  *  Rechnung von seitenweisem und Bulk-Laden. Anhang-BYTES bleiben draußen:
  *  die holt die Chat-Ansicht lazily aus dem Archiv, wenn eine Kachel
@@ -297,7 +330,20 @@ async function kanalSeiteFüttern(
 		anzahl,
 	);
 	if (eintraege.length === 0) return 0;
-	const saetze = eintraegeZuSaetze(eintraege, kontoId);
+	// Grabsteine werden NICHT als sichtbarer Satz angelegt — sie markieren
+	// nur einen (etwaigen) lokalen Satz als gelöscht; fehlt er, bleibt es
+	// ein stiller No-Op und der Stein allein wandert nicht in den Verlauf.
+	// ponytail: kam der Stein auf einer FRÜHEREN Seite als die Nachricht
+	// (lesen läuft neu nach alt — selten, aber zwei Geräte-Ketten können
+	// beide Reihenfolge liefern), markiert der No-Op nichts und die Seite
+	// mit der Nachricht legt sie sichtbar an. Konsequent wäre ein
+	// Gelöscht-Merkmal im Lesestand — Upgrade-Pfad dort.
+	for (const stein of eintraege) {
+		if (stein.nachricht.geloescht !== true) continue;
+		await verlaufMarkiereGeloescht(sortierSchluessel(kanalId, stein.nachricht.id), kontoId);
+	}
+	const sichtbar = eintraege.filter((e) => e.nachricht.geloescht !== true);
+	const saetze = eintraegeZuSaetze(sichtbar, kontoId);
 	if (saetze.length > 0) await verlaufPutSaetze(saetze);
 	// Lesestand erst NACH erfolgreichem Ablegen anheben — ein Fehler mid-run
 	// lässt den nächsten Lauf dieselbe Seite noch einmal lesen (Upsert über
@@ -368,6 +414,50 @@ export async function sicherungAnhaenge(kanalId: string, nachrichten: AblageNach
 export async function sicherungJetztSpuelen(): Promise<void> {
 	for (const spiegel of [...spiegelJeKanal.values()]) {
 		await spiegel.jetztSpuelen();
+	}
+}
+
+/**
+ * Löscht den Archiv-Ordner EINER Unterhaltung (`<kanalId>/`) — der Gegenpol
+ * zum Spiegeln: ist das Gespräch selbst gelöscht (deleteChannel), darf der
+ * Sicherungs-Bestand nicht stärker sein als die App. Wirft nie (Regel 1 im
+ * Modulkopf); der `adapter`-Parameter ist der Test-Handgriff — der Node-
+ * Läufer kann dieses Modul nicht laden (transitiv IndexedDB/Svelte), dort
+ * läuft die Ordner-Rechnung über `ordnerLeeren(ordnerAdapter(basis, …))`.
+ */
+export async function sicherungGespraechEntfernen(
+	kanalId: string,
+	adapter?: AblageAdapter,
+): Promise<void> {
+	// Erst den Spiegel stilllegen und aus der Map wischen — sonst spült ein
+	// wartender Timer den Puffer NACH dem Leeren in einen frischen Ordner.
+	// ponytail: ein GERADE laufender Spül-Lauf (Single-Flight) kann danach
+	// noch eine Datei nachlegen — beenden stoppt nur den Timer, nicht den
+	// Lauf. Upgrade-Pfad: Abbruch-Flag am Spiegel und der Bau-Läufe.
+	spiegelJeKanal.get(kanalId)?.beenden();
+	spiegelJeKanal.delete(kanalId);
+	spiegelBauJeKanal.delete(kanalId);
+	try {
+		const ordner = ordnerAdapter(adapter ?? (await adapterLieferant()), kanalId);
+		await ordnerLeeren(ordner);
+	} catch {
+		/* Ziel tot oder Ordner schon weg — still, s. Regel 1 */
+	}
+	// Geräte-Lokales mitlöschen: Lesestand (Fenster für einen Ordner, den es
+	// nicht mehr gibt) und Puffer (sonst holt der nächste Spiegel-Bau die
+	// Zeilen in einen frisch angelegten Ordner zurück). Jedes Stück für
+	// sich — ein Fehlschlag blockt den Rest nicht.
+	try {
+		const kontoId = aktuellesKonto();
+		if (kontoId !== null) await lesestandEntfernen(kontoId, kanalId);
+	} catch {
+		/* still */
+	}
+	try {
+		const rest = await pufferAlles();
+		await pufferWeg(rest.filter((zeile) => zeile.kanalId === kanalId));
+	} catch {
+		/* still */
 	}
 }
 

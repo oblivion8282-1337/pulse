@@ -91,6 +91,19 @@ export function ordnerAdapter(adapter: AblageAdapter, kanalId: string): AblageAd
 }
 
 /**
+ * Räumt den GESAMTEN Ordner-Inhalt einer Unterhaltung weg — der Lösch-Lauf
+ * der Andock-Schicht (`andock.ts::sicherungGespraechEntfernen`), hier weil
+ * er die reine Adapter-Rechnung ist und der Node-Testläufer sie prüft.
+ * Dateien ohne `lösche` (Adapter-Erlaubnis fehlt) bleiben als Rest liegen —
+ * dieselbe Haltung wie `AblageAdapter.lösche?`.
+ */
+export async function ordnerLeeren(ordner: AblageAdapter): Promise<void> {
+	for (const name of await ordner.liste()) {
+		await ordner.lösche?.(name);
+	}
+}
+
+/**
  * Baut den Adapter je AUFRUF frisch — der gdrive-Adapter friert den
  * Zugangs-Token beim Bau ein (kopf in gdriveAdapter), ein stundenlang
  * laufender Spiegel braucht also je Operation einen aktuellen. Der
@@ -125,9 +138,12 @@ export async function geraeteKuerzel(kennung: string): Promise<string> {
 	return `dev-${hex.slice(0, 8)}`;
 }
 
-/** Zähler der Wartezimmer-Duplikatjagd. */
+/** Zähler der Wartezimmer-Duplikatjagd. Der Grabstein einer Nachricht trägt
+ *  dieselbe Id wie die Nachricht selbst — ohne Marker würde `aufnehmen` ihn
+ *  als Duplikat schlucken, solange die Nachricht noch im Wartezimmer steht,
+ *  und die Löschung würde das Archiv nie erreichen. */
 function pufferSchluessel(kanalId: string, nachricht: AblageNachricht): string {
-	return `${kanalId}:${nachricht.id}`;
+	return `${kanalId}:${nachricht.id}${nachricht.geloescht === true ? ':geloescht' : ''}`;
 }
 
 export interface SpiegelOptionen {

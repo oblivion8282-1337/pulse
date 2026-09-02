@@ -182,6 +182,19 @@ export async function lesestandSchreiben(
 	});
 }
 
+/** Löscht den Lesestand EINES Kanals — der Gesprächs-Löschlauf
+ *  (`andock.ts::sicherungGespraechEntfernen`) wischt ihn mit dem Ordner weg,
+ *  sonst läge ein Fenster für einen Ordner vor, den es nicht mehr gibt. */
+export async function lesestandEntfernen(kontoId: string, kanalId: string): Promise<void> {
+	const db = await öffneDb();
+	return new Promise((resolve, reject) => {
+		const tx = db.transaction(STORE_LESESTAND, 'readwrite');
+		tx.objectStore(STORE_LESESTAND).delete(lesestandSchluessel(kontoId, kanalId));
+		tx.oncomplete = () => resolve();
+		tx.onerror = () => reject(tx.error);
+	});
+}
+
 // ---------------------------------------------------------------------------
 
 function bytesZuB64(bytes: Uint8Array): string {

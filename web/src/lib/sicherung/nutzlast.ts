@@ -46,6 +46,9 @@ export function kodiereSicherungEintrag(eintrag: SicherungEintrag): Uint8Array {
 				bearbeitet: n.bearbeitet,
 				antwortAuf: n.antwortAuf,
 				anhaenge: n.anhaenge,
+				// Grabstein-Markierung reist mit — ohne sie wäre der Stein nach
+				// dem Entschlüsseln von einer normalen Nachricht ununterscheidbar.
+				geloescht: n.geloescht ? true : undefined,
 			},
 		}),
 	);

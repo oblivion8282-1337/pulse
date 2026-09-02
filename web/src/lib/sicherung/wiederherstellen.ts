@@ -171,10 +171,19 @@ export async function leseSicherungKanalSeite(
 					const schluessel = `${eintrag.kanalId}:${eintrag.nachricht.id}`;
 					const vorhanden = nachSchluessel.get(schluessel);
 					// Dieselbe Nachricht kann aus zwei Ketten stammen (zwei
-					// Geräte spiegeln beide) — die reichere Fassung gewinnt.
+					// Geräte spiegeln beide) — sonst gewinnt die reichere
+					// Fassung (mehr Anhänge). ÜBER den Grabstein entscheidet
+					// das nicht: einmal gelöscht bleibt gelöscht, auch wenn
+					// die Nachrichten-Fassung die reichere ist — sonst würde
+					// die Seite die gelöschte Nachricht wiederherstellen.
+					const steinAlt = vorhanden?.nachricht.geloescht === true;
+					const steinNeu = eintrag.nachricht.geloescht === true;
 					if (
 						vorhanden === undefined ||
-						eintrag.nachricht.anhaenge.length > vorhanden.nachricht.anhaenge.length
+						(steinNeu && !steinAlt) ||
+						(!steinNeu &&
+							!steinAlt &&
+							eintrag.nachricht.anhaenge.length > vorhanden.nachricht.anhaenge.length)
 					) {
 						nachSchluessel.set(schluessel, eintrag);
 					}

@@ -35,6 +35,10 @@ export interface AblageNachricht {
 	bearbeitet: string | null;
 	antwortAuf: string | null;
 	anhaenge: AblageAnhang[];
+	/** Grabstein: nur bei einem Lösch-Frame `true` (absent = nicht gelöscht).
+	 *  Der Stein trägt nur die Id — Inhalt/Autor bleiben leer. Ältere Container
+	 *  kennen das Feld nicht; der Parser liest es tolerant. */
+	geloescht?: boolean;
 }
 
 export class NutzlastFehler extends Error {
@@ -79,6 +83,9 @@ export function kodiereNachricht(n: AblageNachricht): Uint8Array {
 			bearbeitet: n.bearbeitet,
 			antwortAuf: n.antwortAuf,
 			anhaenge: n.anhaenge,
+			// Nur der Grabstein trägt das Feld — normaler Bestand bleibt
+			// byte-identisch zum Feldstand vor der Grabstein-Erweiterung.
+			geloescht: n.geloescht ? true : undefined,
 		}),
 	);
 }
@@ -102,6 +109,11 @@ export function leseNachricht(bytes: Uint8Array): AblageNachricht {
 	}
 	if (!Array.isArray(roh.anhaenge)) {
 		throw new NutzlastFehler('anhaenge ist keine Liste');
+	}
+	// Tolerant: Feld einfach fehlt in jedem Bestand vor der Grabstein-
+	// Erweiterung — nur ein FALSCHER Typ ist ein Befund.
+	if (roh.geloescht !== undefined && typeof roh.geloescht !== 'boolean') {
+		throw new NutzlastFehler('geloescht ist kein Boolean');
 	}
 	const anhaenge = roh.anhaenge.map((a) => {
 		const anhang = a as Record<string, unknown>;
@@ -127,5 +139,8 @@ export function leseNachricht(bytes: Uint8Array): AblageNachricht {
 		bearbeitet: roh.bearbeitet as string | null,
 		antwortAuf: roh.antwortAuf as string | null,
 		anhaenge,
+		// Absent bleibt absent (weder `false` noch ein undefined-Schlüssel) —
+		// der Rundlauf einer normalen Nachricht ergibt wieder dasselbe Objekt.
+		...(roh.geloescht === true ? { geloescht: true } : {}),
 	};
 }

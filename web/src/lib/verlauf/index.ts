@@ -224,6 +224,17 @@ function sicherungSpiegeln(kanalId: string, nachrichten: Message[]): void {
     });
 }
 
+/** Der Lösch-Haken derselben Sicherheit: die Löschung wandert als Grabstein-
+ *  Frame in den Archiv-Ordner, damit das Archiv nicht stärker ist als die
+ *  App. Gleicher Stil wie `sicherungSpiegeln` oben — feuert und vergisst. */
+function sicherungGrabstein(kanalId: string, nachrichtId: string): void {
+  void import('$lib/sicherung/andock')
+    .then(({ sicherungGrabstein }) => sicherungGrabstein(kanalId, nachrichtId))
+    .catch(() => {
+      /* die Sicherung darf den Verlaufsweg nie stören — s. andock.ts */
+    });
+}
+
 /**
  * Setzt den Grabstein für eine gelöschte Nachricht. `message_delete` trägt
  * am WS keine volle Nachricht (nur `channel_id`+`id`) — deshalb kein Umweg
@@ -232,6 +243,9 @@ function sicherungSpiegeln(kanalId: string, nachrichten: Message[]): void {
  */
 export function verlaufNachrichtGeloescht(kanalId: string, nachrichtId: string): void {
   if (!istLokalerKanal(kanalId)) return;
+  // Erst in die Sicherung — sie braucht weder Konto noch lokalen Satz, nur
+  // die Id. Nur gespiegelte Kanäle (E2EE-Weg) kommen hier überhaupt durch.
+  sicherungGrabstein(kanalId, nachrichtId);
   const kontoId = aktuellesKonto();
   if (kontoId === null) return;
   void verlaufMarkiereGeloescht(sortierSchluessel(kanalId, nachrichtId), kontoId).catch((err) => {
