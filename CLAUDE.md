@@ -41,7 +41,8 @@ Versionen in `uv.lock` / `pnpm-lock.yaml`. Runtimes: **Python** 3.13 (`>=3.13,<3
 - **@sapphi-red/web-noise-suppressor**: RNNoise→NoiseGate (`lib/voice/noiseFilter.ts`). **`MediaStreamDestinationNode.channelCount = 1` zwingend** (Default Stereo + `explicit` → mono-Worklet füllt nur output[0], rechter Kanal stumm).
 - **mode-watcher** via `setMode()` (`settings.svelte.ts`), persistiert `dcc.settings`; FOUC-Inline-Script in `app.html`.
 - **@svelte-put/shortcut**: In-Window-PTT (Taste aus `settings.voice.pttKey`).
-- Tests: `@playwright/test` E2E + `svelte-check` (`pnpm check`). **Kein Vitest** — Unit-Tests laufen über Nodes eingebauten Läufer (`pnpm test:unit`, Glob `web/test/*.test.ts`; Desktop hat dieselbe Schiene in `desktop/test/`). Node streift die Typen selbst ab, keine Abhängigkeit, keine Konfiguration. **Die Falle:** eine geprüfte Datei darf keinen erweiterungslosen Laufzeit-Import haben (`from './nachbar'`) — der Bundler löst ihn auf, Node nicht. Wer etwas testbar machen will, zieht die reine Rechnung in ein importfreies Modul (Muster: `lib/remote/zeigerbildPruefung.ts`).
+- Tests: `@playwright/test` E2E + `svelte-check` (`pnpm check`). **Kein Vitest** — Unit-Tests laufen über Nodes eingebauten Läufer (`pnpm test:unit`, Glob `web/test/*.test.ts`; Desktop hat dieselbe Schiene in `desktop/test/`). Node streift die Typen selbst ab, keine Abhängigkeit, keine Konfiguration. **Zwei Fallen.** (1) Eine geprüfte Datei darf keinen erweiterungslosen Laufzeit-Import haben (`from './nachbar'`) — der Bundler löst ihn auf, Node nicht. (2) Sie darf auch **kein `$state()` auf Modulebene** erreichen, weder selbst noch über einen Import: die Runes sind reine Compiler-Symbole, und Node stirbt mit `$state is not defined`. Ein `.svelte.ts` ist damit grundsätzlich nicht direkt prüfbar. Wer etwas testbar machen will, zieht die reine Rechnung in ein importfreies Modul und lässt die Rune-Hülle daneben stehen (Muster: `lib/remote/zeigerbildPruefung.ts`, `lib/verlauf/{satz,speicherfehler,zusammenfuegen}.ts` neben `zustand.svelte.ts`).
+- **Die Umkehrung derselben Falle, und sie ist teurer: eine Rune in einer schlichten `.ts`-Datei wird von KEINER Prüfung gefunden, sondern reisst zur Laufzeit die ganze Route ab** (`Svelte error: rune_outside_svelte`, `/app` antwortet 500). Der Compiler verarbeitet nur `.svelte` und `.svelte.ts`; anderswo bleibt `$state()` ein nackter Aufruf. Am 2026-08-31 so passiert: `ablage/verbindungen.ts` legte beim Import einen Store mit `$state` an, hing aber monatelang nur an einer nirgends eingebundenen Komponente — und fiel erst um, als der neue Speicher-Abschnitt sie in den Startpfad holte. **`pnpm check` (0 Fehler), `pnpm build`, 846 Unit-Tests und das ganze Gate waren dabei grün**; keine dieser Prüfungen wertet ein Modul im Browser aus. Sichtbar war es allein in Playwright — als 29 grün / 104 „did not run", weil jedes Setup an der fehlenden App-Hülle scheiterte. Wer eine Rune schreibt, prüft die Dateiendung.
 
 **Desktop** (`desktop/`, Electron `@dcc/desktop`):
 - electron **43.0.0** gepinnt (Chromium 150 + Opus-DTX-Fix webrtc #42233214; ohne knackst der Wiedereinstieg nach Stille → Untergrenze). **DTX fest an** (`dtx:true` in `#audioPublishDefaults`, `livekit.svelte.ts`). Bundlet Node 24.x. **Kein `postinstall`** — Binary lazy beim ersten `require('electron')`.
@@ -172,6 +173,122 @@ Minecraft-Modell: Identität zentral über die Cloud (howispulse.com), Server si
 - **Tote Stelle, nicht anfassen ohne sie zu bauen:** `/internal/trigger-update` hat eine Caddy-Route (`Caddyfile.template`) und einen Cloud-Sender mit signiertem JWT (`routes_suspended_instances.py::broadcast_update`), aber **keinen Handler** im chat-gateway — jede Instanz antwortet 404. Legacy aus der Watchtower-Zeit; Auto-Update läuft heute über den Host-Timer. Wäre der natürliche Träger für kooperative Prüfungen (Cloud bittet die Instanz, ein UDP-Paket zu senden).
 - **Account-basierte Server-Liste** in `auth.user_instance_memberships` (Cloud-DB, Migration 0037); beim Bootstrap-Redeem automatisch eingetragen, `GET /me/instances` liest sie. Inhalts-Privacy unverändert (isolierte DB-Welten); der frühere E2E-Vault ist **komplett entfernt**. Nicht-Owner-Erweiterung für Phase 4-6 (`role`-Feld vorbereitet).
 
+## Ende-zu-Ende-verschlüsselte Direktnachrichten (seit 2026-08-28)
+
+Rust-Kiste `krypto/pulse-krypto` um **vodozemac 0.10.0** (Apache-2.0), plus
+Schlüsselverzeichnis, Postfach und lokaler Verlauf. **Die Kiste selbst kennt
+weder Datenmodelle noch Netzwerk** — nur Identitäten, Sitzungen, Umschläge;
+angeschlossen wird sie von den Schichten darum herum, und die stehen:
+`routes/{schluessel,postfach,postfach_abholen}.py` am Server,
+`web/src/lib/krypto/**` und `web/src/lib/verlauf/**` im Klienten.
+
+**Die Schalter sind AUS und bleiben es**, bis zwei echte Geräte nachweislich
+miteinander sprechen — eine verschlüsselte Nachricht, die der Empfänger nicht
+öffnen kann, ist endgültig weg.
+
+**Es sind drei, und sie heissen nicht, wie diese Datei lange behauptet hat.**
+`e2e_dms_enabled` existiert **nur als Planprosa**, im Code gibt es ihn nicht;
+gemeint ist `E2E_DMS_ENABLED` (`web/src/lib/krypto/schalter.ts`), und der gilt
+**nur für DMs**. Für Gruppen kam am 2026-08-29 `PRIVATE_GRUPPEN_ENABLED`
+daneben — ein eigener Klient-Schalter, obwohl es serverseitig
+`private_groups_enabled` schon gibt. Grund: der Server meldet den seinen dem
+Klienten **nirgends** (weder `/capabilities` noch der `ready`-Rahmen führen
+ihn), er wäre also erst am 403 erkennbar. Ein Schalter, den man erst am
+Fehlschlag bemerkt, kann keinen Serveraufruf verhindern — und genau das ist
+seine Aufgabe.
+
+**Die Koexistenz-Regel ist seit dem 2026-08-29 überholt, der CODE setzt aber
+noch die alte um.** Beschlossen ist: **ohne App-Gerät keine
+Direktnachrichten** — womit jede DM verschlüsselt ist und der Klartext-Weg
+ersatzlos entfällt (Vorbild WhatsApp Web / Signal Desktop; ein gekoppelter
+Browser zählt mit, Etappe F). Die bestehenden unverschlüsselten DMs werden
+dabei **sofort gelöscht, ohne Frist** — ausdrücklich so entschieden. Diese
+Löschung ist ein **eigener, ausgelöster Schritt, nie eine Deploy-Nebenwirkung**,
+und setzt eine nachgewiesene frische Sicherung voraus. Wer die Regel umsetzt,
+liest zuerst §3a des Entwurfs; wer bis dahin am Koexistenz-Code arbeitet, weiss
+damit, dass er an etwas Abzuschaffendem arbeitet. Offen ist einzig, ob ein
+gekoppelter Browser dauerhaft zählt oder nach längerer Funkstille verfällt.
+
+Entwurf: `docs/superpowers/specs/2026-08-28-e2e-dm-design.md` (§10 nennt alle
+Etappen und ihre Pläne). **Der ältere `plans/2026-08-28-e2e-dm-etappen.md` ist
+überholt** — er beschreibt unter anderem einen nativen Android-Weg, den es
+nicht gibt.
+
+Die frühere Fassung dieses Absatzes sagte „noch an nichts angeschlossen". Das
+stimmte am Tag von Etappe A und blieb stehen, während sieben weitere Etappen
+landeten — die Fehlerklasse, vor der der Abschnitt „eine Behauptung wird nie
+an nur EINER Stelle korrigiert" weiter unten warnt.
+- **Neuer Top-Level-Bereich, Client-lizenziert** (läuft im Browser und auf dem
+  Telefon, nicht am Server) — in `LICENSE` und `README.md` nachgezogen,
+  `krypto/LICENSE` angelegt. `LICENSE-CLIENT.md` führt keine Verzeichnisliste.
+- **Kein nativer Android-Bau, und das bleibt so.** Die Capacitor-App lädt
+  dieselbe entfernte Web-App wie Electron → die Krypto läuft dort als **WASM in
+  der WebView**, es gibt keine JNI-Grenze. Ein NDK wäre erst nötig, wenn Pulse
+  eine eigenständige Android-App bekäme. Das Übergabedokument führte diesen
+  Cross-Build noch als eigene Aufgabe; sie ist ersatzlos entfallen.
+- **Olm läuft auf `SessionConfig::version_2()`, hinter dem Feature
+  `experimental-session-config`.** Das Wort täuscht: v1 kürzt den MAC auf
+  8 Bytes und existiert nur zur libolm-Kompatibilität, „experimentell" heißt
+  hier *im Matrix-Ökosystem noch nicht überall gesprochen*. Pulse spricht nur
+  mit Pulse. **Die Fassung steckt im eingefrorenen Sitzungszustand — ein
+  Wechsel bricht bestehende Sitzungen.** Megolm hat keine v2.
+- **Zwei `getrandom`-Hauptversionen sind Absicht** (0.2 über `rand_core` 0.6,
+  0.3 direkt): im Browser braucht **jede** eine Wasm-Quelle, sonst bricht der
+  Bau an der älteren, obwohl nur die neuere genannt ist.
+- **An der Grenze nur Base64 und Zahlen** — dieselbe Grenze überquert JS über
+  WASM. `src/wasm.rs` ist reine Übersetzung ohne Logik; was dort stünde, wäre
+  von `cargo test` nicht erreichbar.
+- **Rust schreibt Base64 OHNE Polsterung, Python verlangt sie.** vodozemac
+  benutzt `STANDARD_NO_PAD`; `base64.b64decode()` wirft ohne `=`-Auffüllung.
+  Jede Python-Stelle, die etwas vom Krypto-Kern entgegennimmt, muss `"=="`
+  anhängen (Muster: `schluessel_nachweis.py`, `routes/postfach.py`) — das ist
+  gefahrlos, Python ist bei überzähliger Polsterung nachsichtig.
+  **Die Fehlerklasse ist die eigentliche Lehre:** der Server wies eine Zeit
+  lang JEDEN echten Umschlag mit 400 ab, und kein einziger Backend-Test sah
+  es — weil sie ihre Testdaten alle mit Pythons eigenem, gepolstertem
+  `b64encode` bauen. Ein Test, der seine Eingabe selbst erzeugt, prüft die
+  eigene Kodierung, nicht die der Gegenseite. Gefunden hat es erst der
+  Zwei-Browser-Nachweis (`web/tests/e2e/e2e-dm.spec.ts`).
+- **`generate_fallback_key()` liefert den VORHERIGEN Schlüssel, nicht den
+  neuen** — steht so in vodozemacs Doc-Kommentar („mostly useful for logging
+  purposes"). Der neue kommt aus `fallback_key()` danach. Die erste Fassung
+  reichte den Rückgabewert durch: auf einem frischen Account war das `None`,
+  nach einem Wechsel der **alte** Schlüssel — Absender hätten an einen
+  Schlüssel verschlüsselt, den das Gerät verworfen hat, und die Nachrichten
+  wären unlesbar gewesen, ohne dass irgendwo ein Fehler erscheint.
+  **Die Lehre, die über diese eine Funktion hinausgeht:** die API war am
+  Quelltext gepinnt — aber nur die **Signatur**, nicht die **Bedeutung**.
+  Ein `-> Option<Curve25519PublicKey>` sieht bei „gib mir einen neuen
+  Schlüssel" genau richtig aus. Wer eine fremde Funktion einbindet, liest den
+  Doc-Kommentar, nicht die Zeile darunter. Aufgefallen ist es erst beim
+  ersten echten Gebrauch, weil der Rückfallschlüssel keinen Test hatte.
+- **`fallback_key()` gibt nur einen UNVERÖFFENTLICHTEN Schlüssel zurück**, und
+  `mark_keys_as_published()` betrifft ihn mit. Der Klient hält ihn deshalb
+  zwischengespeichert (`account.svelte.ts::rueckfallschluesselSicherstellen`);
+  ohne das wäre er nach dem ersten Veröffentlichen nicht mehr auslesbar, und
+  `PUT /keys/bundle` (ersetzt die Zeile vollständig) würde ihn beim nächsten
+  Mal auf NULL setzen.
+- **Im Gate seit Anfang an**: `scripts/gate-rust.sh` matcht `streaming/pulse-*`
+  **und** `krypto/pulse-*`. Ohne die zweite Zeile wären die Tests der Kiste in
+  keinem Gate gelaufen (17 Stück, Stand 2026-08-28 — die Zahl wächst, der
+  Punkt bleibt).
+- **Vite trägt das WASM-Paket, aber Bau und Dev-Server sind zwei Fragen.**
+  `pnpm build` legt `pulse_krypto_bg.<hash>.wasm` (531 kB) unter
+  `build/_app/immutable/assets/` und schreibt den gehashten Pfad in die
+  `new URL(…, import.meta.url)` der wasm-pack-Ausgabe — **kein zusätzliches
+  Plugin**; die App liefert mit `rnnoise` längst ein `.wasm` nach demselben
+  Muster aus. **Der Dev-Server hat davon unabhängig eine eigene
+  `server.fs.allow`-Liste** (Vorgabe: der `web/`-Baum), und
+  `krypto/pulse-krypto/pkg/` liegt eine Ebene höher — ohne Eintrag „outside
+  of Vite serving allow list". Der Eintrag nennt **genau dieses Verzeichnis**,
+  nicht `'..'`: der Elternpfad wäre die Wurzel des Arbeitsbaums, und der
+  Dev-Server lieferte damit auch `secrets/` und `.env` aus.
+  **Die Lehre: ein grüner `pnpm build` beweist nichts über den Dev-Server.**
+  Der erste Befund hier prüfte nur den Bau und behauptete „ohne Zutun"; der
+  Unterschied fiel erst beim echten Testen im Dev-Server auf.
+- Bauen: `bash krypto/pulse-krypto/bauen-wasm.sh` (`wasm-pack` liegt unter
+  `~/.cargo/bin`, das nicht in jedem PATH steht).
+
 ## Plugin-System (Stufe A)
 
 Top-Level `plugins/` (Referenz `hello` + `tamagotchi`). Manifest `plugin.toml` (Backend) + `manifest.ts` (Frontend-Spiegel, **manuell synchron halten**). Loader `chat_gateway/plugins/loader.py` + `web/src/lib/plugins/loader.ts`. Ops colon-namespaced (`tamagotchi:feed`). Stufe B/C → `docs/PLUGIN_ROADMAP.md`.
@@ -263,7 +380,7 @@ Ausführlich: `docs/ONBOARDING.md`.
   - Der Cargo-Teil liegt in `scripts/gate-rust.sh` — zusammen wäre `gate.sh` über der Größen-Policy. **Eine Änderung daran gegenüber ship.sh:** die gepinnte FFmpeg wird an DREI Stellen gesucht (`$PULSE_FFMPEG_DIR`, Cache-Prefix, **und `streaming/pulse-player/ffmpeg-dist/n8.1-lgpl-shared`** — der Pfad, den `fetch-ffmpeg-linux.sh` befüllt). Vorher stand dort nur der Cache-Prefix; auf einer Maschine, die den üblichen Weg gegangen war, meldete das Gate bei JEDER Rust-Änderung „FFmpeg fehlt — Cargo-Tests ÜBERSPRUNGEN" und lief weiter. 415 + 101 Tests, die niemand fuhr — dieselbe Fehlerklasse wie bei den Node-Unit-Tests (2026-08-17) und den mac-Kisten (2026-08-23).
   - **`bash scripts/gate.sh --maschine`** prüft die Voraussetzungen eines Rechners (Werkzeuge, `git user.email` gegen den CLA-Bot, FFmpeg-Prefix) — das Gate reist über das Repo mit, die Werkzeuge nicht. Einrichtung einer frischen Maschine: `docs/ONBOARDING.md` §6.
   - **Der Stempel ist maschinen-lokal und bleibt es.** Ein grüner Lauf auf einem anderen Rechner beweist hier nichts (andere Toolchain, anderes OS) — übertragen wäre er wieder eine Behauptung statt eines Belegs. Der `origin/main`-Vergleich braucht dagegen keinen Zustand und wirkt auf einem frischen Klon sofort; das ist der Teil, der Einheitlichkeit ohne Verteilung liefert.
-- Backend einzeln: `REDIS_URL=redis://localhost:6380/0 uv run --all-packages pytest -q`. Pro-Service `services/*/tests/` (MediaMTX/LiveKit gemockt; Redis `/1`).
+- Backend einzeln: `REDIS_URL=redis://127.0.0.1:6380/1 PULSE_INSTANCE_MODE=cloud PULSE_INSTANCE_ID=0 uv run --all-packages pytest -q`. Pro-Service `services/*/tests/` (MediaMTX/LiveKit gemockt). **Die drei Variablen sind Pflicht und stehen genau so in `gate.sh`** — hier stand lange nur `REDIS_URL=…/0`, und das kostet Stunden: ohne `PULSE_INSTANCE_MODE=cloud` gilt die Vorgabe `self-host`, `credential_validator._get_jwks_keys` liest dann `auth:cloud_jwks:cached` statt `auth:jwks:cached`, den keine Fixture setzt, und faellt fail-closed auf 403 zurueck. Ergebnis am 2026-08-28: **159 rote Tests im chat-gateway allein**, alle mit `Zertifikat ungueltig oder gesperrt` — was wie ein Einsturz aussieht und nur eine fehlende Variable ist. Wer einen solchen Wall sieht, vergleicht ZUERST seine Umgebung mit der Zeile in `gate.sh`, bevor er im Code sucht. (`127.0.0.1` statt `localhost` ist kein Schoenheitsfehler: unter Windows stallt `localhost` je Redis-Verbindung ~2 s.)
 - **Parallel (`-n`) braucht je Worker einen EIGENEN `redis-server`, nicht bloss eine eigene Redis-DB** — der Wurzel-`conftest.py` startet ihn (freier Port vom Betriebssystem; ein festes Portschema liesse zwei gleichzeitige Läufe wieder zusammenlaufen). **Grund: Redis-Pubsub ist server-global, nicht pro Datenbank** — nachgemessen, auf DB 7 veröffentlicht kommt auf DB 2 an. Der erste Anlauf trennte nur die DBs; die Schlüssel waren getrennt, der Ereignisbus (`guild:events`, `stream:events`, `voice:events`) nicht, und 14 Tests blieben rot, die wie Flackern aussahen. Fehlt das Binary, ist der conftest fail-closed — **`gate.sh` sieht aber vorher nach und fährt dann seriell** (sonst wäre das Gate auf so einer Maschine rot statt langsam).
 - **Flake-Retry**: CI-pytest `--reruns 2 --only-rerun AssertionError --only-rerun RuntimeError`. Root-Cause = Cache-Mutation-Races (Fix `SELECT FOR UPDATE` aus `state_store.py`).
 - **Den Volllauf NICHT neben schwere Builds legen.** Läuft parallel `cargo build`/`pnpm build`, **hängt** ein WS-Test bis ins Zeitlimit statt nur langsamer zu werden (2026-08-12 zweimal, jeweils in `test_remote_handlers.py`; `--reruns` greift nicht, weil ein Timeout kein `AssertionError` ist). Auf ruhiger Maschine: **2308 grün in 7:23 seriell, 1:15 mit `-n 8`**. Wer einen Hänger sieht, prüft zuerst die Maschinenlast, nicht den Test.

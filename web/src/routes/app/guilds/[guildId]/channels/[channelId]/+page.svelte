@@ -35,17 +35,18 @@
   import { chatApi } from '$lib/api/chat';
   import { dropboxApi } from '$lib/api/dropbox';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
-  import { gateway } from '$lib/ws/connection';
-  import { useGatewayDeletedListener } from '$lib/ws/useGatewayListener.svelte';
+  import { useGatewayDeletedListener, useGatewayListener } from '$lib/ws/useGatewayListener.svelte';
+  import { ABLAGE_KANAL_ENABLED } from '$lib/featureFlags';
+  import { kanalEreignisEinspeisen } from '$lib/krypto/gruppe/kanalSitzungStore';
+  import { kanalWsEreignisAbbilden } from '$lib/krypto/gruppe/kanalEreignisAbbildung';
   import { voice } from '$lib/voice/livekit.svelte';
-  import { readState } from '$lib/stores/readState.svelte';
   import { navDrawer } from '$lib/stores/navDrawer.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
-  import { parseMentionMarkers } from '$lib/components/messageRender';
-  import { toast } from 'svelte-sonner';
+  import { erstelleKanalWechsel } from '$lib/components/chat/kanalWechsel.svelte';
+  import { erstelleKanalNachrichtenAktionen } from '$lib/components/chat/kanalNachrichtenAktionen';
   import type { Channel, Message } from '$lib/api/types';
+  import { toast } from 'svelte-sonner';
   import { m as pm } from '$lib/paraglide/messages.js';
-  import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
 
   let guildId = $derived(page.params.guildId ?? '');
   let channelId = $derived(page.params.channelId ?? '');
@@ -81,10 +82,16 @@
   // eingefroren (Server blockt Lesen/Senden mit 403) — statt einer generischen
   // Fehlermeldung zeigen wir eine klare „eingefroren"-Tafel. Admins ausgenommen.
   let guildSuspended = $derived(!!activeGuild?.suspended && !isServerAdmin);
+  // Darf ich Kanäle anlegen? Von ChannelList UND ChannelSwitcherSheet gleichermassen
+  // gebraucht (Rechner-Spalte vs. Handy-Blatt fuer dieselbe Liste).
+  let canManageChannels = $derived(
+    !!activeGuild && roles.hasGuildPermission(activeGuild.id, Perm.MANAGE_CHANNELS)
+  );
   let channelsForGuild = $derived<Channel[]>(guilds.channelsByGuild[guildId] ?? []);
   let activeChannel = $derived<Channel | null>(
     channelsForGuild.find((c: Channel) => c.id === channelId) ?? null
   );
+  let activeChannelId = $derived(activeChannel?.id ?? null);
   let isVoiceChannel = $derived(activeChannel?.type === 1);
   let isDropboxChannel = $derived(activeChannel?.type === 2);
   // Mobil + im Voice + Text-Kanal derselben Community: KEIN Karten-Stapel
@@ -93,6 +100,10 @@
   // Voice-Verbindung läuft weiter und bleibt über das Voice-Dock unter der
   // Navigationsleiste steuerbar. Zurück zum Sprachkanal: Räume-Tab (führt
   // zuletzt dorthin) oder Kanal-Wechsler.
+  // Alt-Kanal eingefroren (Entwurf §9, Etappe E9): der Server weist neue
+  // Nachrichten serverseitig ab (403/4015), das Eingabefeld erklärt das
+  // schon vorher statt still zu scheitern. Verlauf bleibt lesbar.
+  let legacyReadonly = $derived(!!activeChannel?.legacy_readonly);
 
   // Auf Mobil hat ein Voice-Kanal keine eigene Vollbild-Seite: stattdessen
   // bleibt die Kanal-Liste sichtbar (oben Text-, unten Sprachkanäle). Zusätzlich
@@ -151,22 +162,16 @@
   let creatingChannel = $state(false);
   // Kanal-Wechsler von unten (Handy/Tablet) — loest den seitlichen Drawer ab.
   let wechslerOffen = $state(false);
-  let resolving = $state(true);
-  let loadError = $state<string | null>(null);
-
-  let prevGuild = $state('');
-  let prevChannel = $state('');
-  // $state so the writes below don't re-trigger the effect (they're wrapped in
-  // untrack regardless, but a plain `let` would also break gen-comparison in
-  // a reactive context).
-  let switchGen = $state(0);
-  // Tracks pending optimistic-message timeout handles; cancelled on nav/destroy.
-  const pendingOptimisticTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+  // Kanalwechsel + Nachrichten-Aktionen sind ausgelagert (dieselbe Begruendung
+  // wie bei `chat/dmKanalWechsel.svelte.ts` fuer die DM-Seite): dort steckt
+  // die Rechnung, hier nur die Verdrahtung mit dieser Seite.
+  const kanalWechsel = erstelleKanalWechsel();
+  const kanalNachrichten = erstelleKanalNachrichtenAktionen();
 
   $effect(() => {
     const g = guildId;
     const c = channelId;
-    void switchTo(g, c);
+    void kanalWechsel.switchTo(g, c);
   });
 
   // Direct-load safety net: switchTo only kicks off `channelPermissions.ensure`
@@ -194,19 +199,7 @@
   // see an empty chat until they navigate away. We watch for the load flag
   // disappearing *after* we already switched to the channel and re-fetch.
   $effect(() => {
-    const cid = channelId;
-    if (!cid || messages.loadedChannels[cid]) return;
-    if (prevChannel !== cid) return; // initial switchTo path handles its own fetch
-    const ch = channelsForGuild.find((c) => c.id === cid);
-    if (!ch || ch.type !== 0) return;
-    void chatApi
-      .listMessages(cid)
-      .then((history) => {
-        if (untrack(() => prevChannel) === cid) messages.setInitial(cid, history);
-      })
-      .catch(() => {
-        // Best-effort: the user can navigate to retry.
-      });
+    kanalWechsel.nachladenWennNoetig(channelId, channelsForGuild);
   });
 
   // Phase 4.5: Deleted-Hooks via Helper — wandern beim Server-Switch mit.
@@ -214,6 +207,17 @@
     onChannel: handleRemoteChannelDeleted,
     onGuild: handleRemoteGuildDeleted,
   });
+
+  // Ablage-Kanaele (Etappe E6): Mitglieder-/Rechteaenderungen machen eine
+  // laufende Kanal-Gruppensitzung ueberholt (`kanalWechselErkennung.ts`).
+  // Der Schalter ist Build-Zeit-konstant, die Bedingung also bei jedem
+  // Mount identisch — kein bedingter Hook-Aufruf zur Laufzeit.
+  if (ABLAGE_KANAL_ENABLED) {
+    useGatewayListener((evt) => {
+      const kanalEvt = kanalWsEreignisAbbilden(evt);
+      if (kanalEvt) kanalEreignisEinspeisen(kanalEvt);
+    });
+  }
 
   onMount(() => {
     // Escape schließt Drawer auf Mobil
@@ -228,97 +232,8 @@
   });
 
   onDestroy(() => {
-    for (const handle of pendingOptimisticTimeouts.values()) clearTimeout(handle);
-    pendingOptimisticTimeouts.clear();
+    kanalNachrichten.aufraeumen();
   });
-
-  async function switchTo(g: string, c: string) {
-    if (!g) return;
-    // All access to switchGen/prevGuild/prevChannel goes through untrack so the
-    // surrounding $effect never re-triggers on our own writes.
-    const isStale = () => untrack(() => switchGen) !== gen;
-    const gen = untrack(() => (switchGen += 1));
-    const prevG = untrack(() => prevGuild);
-    const prevC = untrack(() => prevChannel);
-
-    if (g !== prevG) {
-      resolving = true;
-      loadError = null;
-      try {
-        // `ensureChannels` hits the post-Ready prefetch cache if it ran
-        // through; falls back to a single `listChannels` otherwise. The
-        // `channel_*` lifecycle events keep the cache live during the
-        // session, so this rarely needs to refetch.
-        await guilds.ensureChannels(g);
-      } catch (err) {
-        if (isStale()) return;
-        loadError = err instanceof Error ? err.message : pm.channel_page_channels_load_error();
-        resolving = false;
-        return;
-      }
-      if (isStale()) return;
-      untrack(() => (prevGuild = g));
-    }
-    const list = guilds.channelsByGuild[g] ?? [];
-    let target: string | null = c;
-    if (c === '_' || !list.find((ch) => ch.id === c)) {
-      const first = list.find((ch) => ch.type === 0) ?? list[0];
-      if (first) {
-        await goto(`/app/guilds/${g}/channels/${first.id}`, { replaceState: true, noScroll: true });
-        return;
-      }
-      target = null;
-    }
-
-    if (target && target !== prevC) {
-      // Leave the previous text channel's WS subscription.
-      if (prevC) gateway.unsubscribe(prevC);
-      const ch = list.find((x) => x.id === target);
-      // Lazy-load this channel's permission overwrites so the resolver
-      // doesn't false-positive against guild defaults. Best-effort:
-      // a 403/500 here would only collapse UI affordances back to the
-      // guild-level resolution, which is still correct (just permissive).
-      if (ch) void channelPermissions.ensure(ch.id).catch(() => undefined);
-      // Only text channels have message history + WS subscriptions.
-      // Voice channels are handled entirely by VoiceChannelView/LiveKit.
-      if (ch && ch.type === 0) {
-        // Cached from an earlier visit? Then its WS subscription lapsed while
-        // we were away — re-subscribe + gap-fill below instead of re-fetching.
-        const alreadyLoaded = !!messages.loadedChannels[target];
-        try {
-          if (!alreadyLoaded) {
-            const history = await chatApi.listMessages(target);
-            if (isStale()) return;
-            messages.setInitial(target, history);
-          }
-        } catch (err) {
-          if (isStale()) return;
-          loadError = err instanceof Error ? err.message : pm.channel_page_messages_load_error();
-          resolving = false;
-          return;
-        }
-        // Only subscribe once this switch is still the active one — otherwise
-        // a faster switch already moved on and we'd leak a subscription.
-        if (isStale()) return;
-        gateway.subscribe(target);
-        // Backfill anything that landed while the subscription was dropped.
-        if (alreadyLoaded) void gateway.gapFill(target);
-        // Acknowledge unread state: the user is now looking at this channel.
-        // markRead uses latestByChannel — which also reflects ids learned via
-        // channel_bump while we weren't subscribed. loaded[…].id alone would
-        // lag behind those.
-        const loaded = messages.for(target);
-        const latestSeen = loaded[loaded.length - 1]?.id;
-        if (latestSeen) readState.recordSeen(target, latestSeen);
-        readState.markRead(target);
-      }
-      // Record prevChannel only after the whole operation succeeded.
-      untrack(() => (prevChannel = target!));
-    }
-    if (isStale()) return;
-    loadError = null;
-    resolving = false;
-  }
 
   function handleRemoteChannelDeleted(gId: string, cId: string) {
     if (gId === guildId && cId === channelId) {
@@ -330,19 +245,7 @@
 
   async function handleRemoteGuildDeleted(gId: string) {
     if (gId !== guildId) return;
-    // Store was already pruned in connection.ts. If we were in a voice
-    // channel in this guild, disconnect — channels are gone.
-    if (voice.connected || voice.connecting) await voice.disconnect().catch(() => undefined);
-    await navigateAfterGuildGone();
-  }
-
-  async function navigateAfterGuildGone() {
-    const remaining = guilds.list;
-    if (remaining.length > 0) {
-      await goto(`/app/guilds/${remaining[0].id}/channels/_`, { replaceState: true });
-    } else {
-      await goto('/app', { replaceState: true });
-    }
+    await kanalWechsel.handleRemoteGuildDeleted();
   }
 
   async function selectGuild(id: string) {
@@ -396,101 +299,7 @@
   }
 
   async function onChannelDeleted(deletedId: string) {
-    if (deletedId === channelId) {
-      // Navigate away from the deleted channel.
-      const remaining = (guilds.channelsByGuild[guildId] ?? []).filter((c) => c.id !== deletedId);
-      const next = remaining.find((c) => c.type === 0) ?? remaining[0];
-      if (next) {
-        await goto(`/app/guilds/${guildId}/channels/${next.id}`, { replaceState: true });
-      } else {
-        await goto(`/app/guilds/${guildId}/channels/_`, { replaceState: true });
-      }
-    }
-  }
-
-  function sendMessage(text: string, replyToId: string | null, attachmentIds: string[]) {
-    if (!activeChannel || activeChannel.type !== 0 || !auth.user) return;
-    const nonce = `n-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
-    const tmpId = `tmp-${nonce}`;
-    const cid = activeChannel.id;
-    messages.addOptimistic({
-      id: tmpId,
-      channel_id: cid,
-      author_id: currentServerUserId() ?? auth.user.id,
-      content: text,
-      nonce,
-      reply_to_id: replyToId,
-      created_at: new Date().toISOString(),
-      // Parse markers locally so mention pills render at once — the WS
-      // echo replaces this copy with the server's authoritative list.
-      mentions: parseMentionMarkers(text)
-    });
-    // Attachments go through REST — WS send-op carries no attachment_ids,
-    // and presigned URLs need server-side signing. Text-only stays on the
-    // optimistic WS path for the latency it saves.
-    if (attachmentIds.length > 0) {
-      chatApi.postMessage(cid, text, { nonce, replyToId, attachmentIds })
-        .then((real) => messages.upsert(real))
-        .catch((e) => {
-          messages.remove(cid, tmpId);
-          toast.error(pm.channel_page_send_failed(), { description: (e as Error).message });
-        });
-      return;
-    }
-    const queued = gateway.send(cid, text, nonce, replyToId);
-    if (!queued) {
-      // WS not open — roll back the optimistic message and inform the user.
-      messages.remove(cid, tmpId);
-      toast.error(pm.channel_page_no_connection());
-      return;
-    }
-    const handle = setTimeout(() => {
-      pendingOptimisticTimeouts.delete(nonce);
-      if (!messages.isConfirmed(nonce)) {
-        messages.remove(cid, tmpId);
-        toast.error(pm.channel_page_message_not_sent());
-      }
-    }, 10_000);
-    pendingOptimisticTimeouts.set(nonce, handle);
-  }
-
-  async function editMessage(m: Message, content: string) {
-    try {
-      await chatApi.editMessage(m.id, content);
-      // WS broadcasts `message_update` to update local store.
-    } catch (e) {
-      toast.error(pm.channel_page_edit_failed());
-      console.error(e);
-    }
-  }
-
-  async function deleteMessage(m: Message) {
-    const ok = await confirmDialog({
-      description: pm.channel_page_confirm_delete_message(),
-      destructive: true
-    });
-    if (!ok) return;
-    try {
-      await chatApi.deleteMessage(m.id);
-      // WS broadcasts `message_delete`.
-    } catch (e) {
-      toast.error(pm.channel_page_delete_failed());
-      console.error(e);
-    }
-  }
-
-  async function toggleReaction(m: Message, emoji: string, currentlyMine: boolean) {
-    try {
-      if (currentlyMine) {
-        await chatApi.removeReaction(m.id, emoji);
-      } else {
-        await chatApi.addReaction(m.id, emoji);
-      }
-      // WS broadcasts reaction_add/reaction_remove.
-    } catch (e) {
-      toast.error(pm.channel_page_reaction_failed());
-      console.error(e);
-    }
+    await kanalWechsel.onChannelDeleted(guildId, deletedId, channelId);
   }
 
   async function togglePin(msg: Message) {
@@ -518,6 +327,7 @@
     const id = page.url.searchParams.get('device');
     return id ? deviceStore.byId(guildId, id) : null;
   });
+  const offenesGeraetId = $derived(offenesGeraet?.id ?? null);
 
   function geraetOeffnen(d: Device): void {
     void goto(geraetPfad(d));
@@ -550,12 +360,12 @@
   <ChannelList
     guild={activeGuild ?? null}
     channels={channelsForGuild}
-    activeChannelId={activeChannel?.id ?? null}
+    {activeChannelId}
     onSelect={selectChannel}
     onCreateClick={() => (creatingChannel = true)}
     {onChannelDeleted}
-    canCreate={!!activeGuild && roles.hasGuildPermission(activeGuild.id, Perm.MANAGE_CHANNELS)}
-    activeDeviceId={offenesGeraet?.id ?? null}
+    canCreate={canManageChannels}
+    activeDeviceId={offenesGeraetId}
     onSelectDevice={geraetOeffnen}
   />
 {/if}
@@ -565,13 +375,16 @@
   <ChatView
     channel={activeChannel}
     messages={visibleMessages}
-    onSend={sendMessage}
+    onSend={(text, replyToId, attachmentIds) =>
+      kanalNachrichten.sendMessage(guildId, activeChannel, text, replyToId, attachmentIds)}
     onBack={() => goto(`/app/rooms/${guildId}`)}
     onSwitchChannel={() => (wechslerOffen = true)}
     isOwner={!!activeGuild && roles.hasGuildPermission(activeGuild.id, Perm.MANAGE_MESSAGES)}
-    onEditMessage={editMessage}
-    onDeleteMessage={deleteMessage}
-    onToggleReaction={toggleReaction}
+    composerDisabled={legacyReadonly}
+    composerDisabledReason={legacyReadonly ? pm.channel_page_legacy_readonly_reason() : ''}
+    onEditMessage={kanalNachrichten.editMessage}
+    onDeleteMessage={kanalNachrichten.deleteMessage}
+    onToggleReaction={kanalNachrichten.toggleReaction}
     onTogglePin={togglePin}
   />
 {/snippet}
@@ -610,11 +423,11 @@
     <h2 class="text-text-bright text-lg font-semibold">{pm.community_suspended_title()}</h2>
     <p class="text-text-muted max-w-sm text-sm">{pm.community_suspended_body()}</p>
   </section>
-{:else if loadError}
+{:else if kanalWechsel.loadError}
   <section class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 md:rounded-2xl">
-    <FieldError message={loadError} testId="load-error" />
+    <FieldError message={kanalWechsel.loadError} testId="load-error" />
     <Button
-      onclick={() => { loadError = null; prevGuild = ''; prevChannel = ''; void switchTo(guildId, channelId); }}
+      onclick={() => kanalWechsel.retry(guildId, channelId)}
       data-testid="load-retry"
     >{pm.channel_page_retry()}</Button>
   </section>
@@ -657,12 +470,12 @@
   bind:open={wechslerOffen}
   guild={activeGuild ?? null}
   channels={channelsForGuild}
-  activeChannelId={activeChannel?.id ?? null}
+  {activeChannelId}
   onSelect={selectChannel}
   onCreateClick={() => (creatingChannel = true)}
   {onChannelDeleted}
-  canCreate={!!activeGuild && roles.hasGuildPermission(activeGuild.id, Perm.MANAGE_CHANNELS)}
-  activeDeviceId={offenesGeraet?.id ?? null}
+  canCreate={canManageChannels}
+  activeDeviceId={offenesGeraetId}
   onSelectDevice={geraetOeffnen}
 />
 

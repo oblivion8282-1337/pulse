@@ -19,6 +19,8 @@
   import { kurzeUhrzeit } from '$lib/utils/kurzeUhrzeit';
   import { suchnorm, namePasst } from '$lib/utils/suche';
   import { chatApi, type DMMessageSearchHit } from '$lib/api/chat';
+  import { sucheKombiniert } from '$lib/verlauf/sucheLokal';
+  import { E2E_DMS_ENABLED } from '$lib/krypto/schalter';
   import type { DMChannel, Channel as ChannelTyp } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -81,7 +83,7 @@
     const lauf = ++suchlauf;
     const timer = setTimeout(async () => {
       try {
-        const ergebnis = await chatApi.searchDMMessages(q);
+        const ergebnis = await sucheKombiniert(q);
         if (lauf === suchlauf) treffer = ergebnis;
       } catch {
         if (lauf === suchlauf) treffer = [];
@@ -170,6 +172,13 @@
 
 {#if treffer.length > 0 || sucht}
   <span class={UEBERSCHRIFT}>{m.chats_search_section_messages()}</span>
+  {#if E2E_DMS_ENABLED}
+    <!-- Statischer Hinweis, NICHT pro Suche/Treffer neu eingeblendet (waere
+         Laerm) — steht, solange der Nachrichten-Abschnitt sichtbar ist, s.
+         `verlauf/sucheLokal.ts`-Modulkopf zur Unvollstaendigkeit der
+         lokalen Suche fuer verschluesselte Gespraeche. -->
+    <p class="text-text-muted px-2 pb-1 text-2xs">{m.chats_search_encrypted_hint()}</p>
+  {/if}
 {/if}
 {#if sucht}
   <p class="text-text-muted px-4 py-3 text-xs">{m.chats_searching()}</p>

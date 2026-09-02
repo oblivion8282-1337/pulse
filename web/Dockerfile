@@ -6,6 +6,27 @@
 #
 # Build from the repo root:  docker build -f web/Dockerfile -t pulse-web .
 
+# ── wasm-builder ─────────────────────────────────────────────────────────────
+# Krypto-Kern (`krypto/pulse-krypto/`) als WASM-Paket — `pkg/` ist ein
+# Bauergebnis und gitignored (krypto/pulse-krypto/.gitignore), landet also nie
+# im Build-Kontext. web/src/lib/krypto/{account.svelte,sitzungen,empfangen,
+# veroeffentlichen}.ts importieren es STATISCH und obenauf, und veroeffent-
+# lichen.ts wiederum aus identity/issue-flow.ts + cert-rotation.svelte.ts —
+# dem normalen Login-/Zertifikatspfad, nicht hinter einem Feature-Flag. Ohne
+# diese Stage bricht `pnpm --filter @dcc/web build` mit UNRESOLVED_IMPORT.
+# Eigene, schlanke Stage statt eines Rust-Toolchains im Node-Builder — die
+# Laufzeit-Stage (nginx) bekommt dadurch keinen Rust-Toolchain zu Gesicht.
+FROM rust:1-slim-bookworm AS wasm-builder
+# Version gepinnt wie ueberall sonst im Baum (pnpm@10.33.0 drei Zeilen
+# weiter, electron 43.0.0, mediamtx 1.19.1-pulse5): ohne `--version` holt
+# `cargo install` zur BAUZEIT, was crates.io gerade als neuestes fuehrt —
+# und dessen Ausgabe landet im ausgelieferten Buendel. 0.15.0 ist die
+# Fassung, gegen die lokal geprueft wurde.
+RUN cargo install wasm-pack --locked --version 0.15.0
+WORKDIR /build
+COPY krypto/ krypto/
+RUN cd krypto/pulse-krypto && wasm-pack build --target web --out-dir pkg
+
 # ── builder ──────────────────────────────────────────────────────────────────
 FROM node:25-slim AS builder
 RUN npm install -g pnpm@10.33.0
@@ -24,6 +45,9 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
 # im Build-Kontext ist der Plugin-Manager im UI leer.
 COPY web/ web/
 COPY plugins/ plugins/
+# WASM-Paket an die Stelle, die die vier krypto/*.ts-Importe erwarten
+# (relativ zu web/src/lib/krypto/: ../../../../krypto/pulse-krypto/pkg/).
+COPY --from=wasm-builder /build/krypto/pulse-krypto/pkg krypto/pulse-krypto/pkg
 RUN pnpm --filter @dcc/web build
 
 # ── runtime ──────────────────────────────────────────────────────────────────

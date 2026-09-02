@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy, untrack } from 'svelte';
+  import { onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import GuildRail from '$lib/components/GuildRail.svelte';
@@ -11,20 +11,33 @@
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
+  import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { messages } from '$lib/stores/messages.svelte';
   import { chatApi } from '$lib/api/chat';
-  import { cloudGateway } from '$lib/ws/connection';
+  import { verlaufZustand } from '$lib/verlauf/zustand.svelte';
   import { serversStore } from '$lib/api/servers.svelte';
-  import { readState } from '$lib/stores/readState.svelte';
   import { navDrawer } from '$lib/stores/navDrawer.svelte';
   import { selectGuild, selectDM as selectDmRail } from '$lib/navigation/railNavi';
   import { viewport } from '$lib/stores/viewport.svelte';
-  import { parseMentionMarkers } from '$lib/components/messageRender';
   import { toast } from 'svelte-sonner';
-  import type { Channel, DMChannel, Message } from '$lib/api/types';
+  import { E2E_DMS_ENABLED, PRIVATE_GRUPPEN_ENABLED } from '$lib/krypto/schalter';
+  import { schloss } from '$lib/krypto/schloss.svelte';
+  import { dmSendeSperre } from '$lib/krypto/dmSendeSperre';
+  import { wandEntscheidung } from '$lib/krypto/dmOhneAppGeraet';
+  import { isCapacitorAndroid, isElectron } from '$lib/platform/runtime';
+  import DmOhneAppGeraet from '$lib/components/dm/DmOhneAppGeraet.svelte';
+  import type { AnhangAngabe } from '$lib/krypto/nachrichtNutzlast';
+  import type { DMChannel, Message } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
-  import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
+  import { berechneSynthChannel } from '$lib/components/chat/dmSynthChannel';
+  import { erstelleDmKanalWechsel } from '$lib/components/chat/dmKanalWechsel.svelte';
+  import { sendeDmNachricht } from '$lib/components/chat/dmSenden';
+  import {
+    nachrichtBearbeiten,
+    nachrichtLoeschen,
+    reaktionUmschalten
+  } from '$lib/components/chat/cloudNachrichtAktionen';
 
   // Global-Friends Stufe 1: DMs leben in der Cloud. Alle DM-REST-Calls werden
   // explizit gegen den Cloud-Server geroutet (sonst laufen sie bei aktivem
@@ -35,40 +48,65 @@
   let activeDM = $derived<DMChannel | undefined>(
     dmChannelId ? directMessages.byId[dmChannelId] : undefined
   );
+  // Eine private Gruppe (Etappe G) laeuft ueber DIESELBE Adresse: Kanal-IDs
+  // sind Snowflakes aus EINEM Generator und ueber alle drei Kanalarten
+  // eindeutig (Modell-Docstring von `DirectMessageChannel`), `/app/@me/<id>`
+  // ist damit nicht mehrdeutig. Eine zweite Route daneben haette dieselbe
+  // Ansicht ein zweites Mal gebraucht — und mit ihr Anhaenge, Antworten,
+  // Reaktionen und das Aktionsblatt still verloren.
+  let aktiveGruppe = $derived(dmChannelId ? privateGruppen.byId[dmChannelId] : undefined);
 
-  // ChatView expects a `Channel`-shaped object. Synthesise one from the DM —
-  // `guild_id` is empty, but we also pass showMemberList={false} so no
-  // member-list lookup happens. The `name` is the other user's display name
-  // (cached in userCache; falls back to "…" while loading).
-  let synthChannel = $derived<Channel | null>(
-    activeDM
-      ? {
-          id: activeDM.id,
-          guild_id: '',
-          name: userCache.displayName(activeDM.other_user_id),
-          type: 0,
-          position: 0,
-          topic: null,
-          created_at: activeDM.created_at
-        }
-      : null
+  // ChatView expects a `Channel`-shaped object. Synthesise one — `guild_id` is
+  // empty, but we also pass showMemberList={false} so no member-list lookup
+  // happens. Der Name ist bei einer DM der Anzeigename der Gegenstelle (aus
+  // `userCache`, faellt beim Laden auf „…" zurueck), bei einer Gruppe ihr
+  // eigener. Rechnung importfrei in `chat/dmSynthChannel.ts`.
+  let synthChannel = $derived(
+    berechneSynthChannel(activeDM, aktiveGruppe, (userId) => userCache.displayName(userId))
   );
 
   let visibleMessages = $derived(dmChannelId ? messages.for(dmChannelId) : []);
 
-  let loadError = $state<string | null>(null);
-  let resolving = $state(false);
+  // Spec §3a: ohne App-Geraet gibt es keine Direktnachrichten — kann die
+  // Gegenseite nicht teilnehmen, sperrt das Eingabefeld (Rechnung importfrei
+  // in `krypto/dmSendeSperre.ts`). Der Stand kommt aus einer Route, die
+  // nichts verbraucht, genau einmal je Gegenstelle (`schlossAbfrage.ts`);
+  // `POST /keys/claim` wuerde Einmalschluessel verbrauchen — deshalb NICHT.
+  $effect(() => {
+    if (activeDM) schloss.sicherstellen(activeDM.other_user_id);
+  });
+  let dmSperre = $derived(
+    activeDM
+      ? dmSendeSperre(E2E_DMS_ENABLED, activeDM.can_send !== false, schloss.stand(activeDM.other_user_id))
+      : null
+  );
 
-  let prevDM = $state('');
-  let switchGen = 0;
+  // Spec §3a Punkt 1: dieselbe Frage wie oben, aber fuer das EIGENE Konto,
+  // ueber dieselbe Route (`darf_schluessel_holen` erlaubt das eigene Konto
+  // ausdruecklich). Ohne mindestens ein eigenes App-Geraet gibt es fuer
+  // dieses Konto keine Direktnachrichten — der Bildschirm tritt an die
+  // Stelle der Liste, statt sie leer zu lassen. Wand-Entscheidung und
+  // -Auspraegung importfrei (`krypto/dmOhneAppGeraet.ts`); in App-Kontexten
+  // (dieselbe Erkennung wie `veroeffentlichen.ts::eigenesGeraetDauerhaft`)
+  // bietet der Bildschirm die Einrichtung DIESES Geraets an (B11).
+  const appKontext = isElectron() || isCapacitorAndroid();
+  $effect(() => {
+    if (auth.user) schloss.sicherstellen(auth.user.id);
+  });
+  let wandArt = $derived(
+    wandEntscheidung(E2E_DMS_ENABLED, appKontext, auth.user ? schloss.stand(auth.user.id) : undefined)
+  );
+
+  // Umschalten zwischen Gespraechen (Laden, Abonnieren, Nachhol-Bestellungen)
+  // ausgelagert — s. `chat/dmKanalWechsel.svelte.ts`.
+  const kanalWechsel = erstelleDmKanalWechsel(cloudRoute);
   const pendingOptimisticTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
   // Mirrors the channel-page effect: when the DM id in the URL changes, load
   // messages + subscribe + leave the previous one. The DM record itself is
   // already in the store (seeded by ready / hydrate / dm_bump).
   $effect(() => {
-    const cid = dmChannelId;
-    void switchTo(cid);
+    void kanalWechsel.switchTo(dmChannelId);
   });
 
   // Keep the open DM at the head of the message-cache LRU so it is never
@@ -77,21 +115,21 @@
     if (dmChannelId) messages.touch(dmChannelId);
   });
 
+  // C2: der Nutzer erfaehrt EINMAL, warum sein Verlauf nicht lokal liegt
+  // (privates Fenster/voller Speicher/Fehler) — die App bleibt in jedem Fall
+  // benutzbar (Rueckfall auf den Server), s. `verlaufZustand`.
+  let verlaufHinweisGezeigt = false;
+  $effect(() => {
+    if (verlaufZustand.grund && !verlaufHinweisGezeigt) {
+      verlaufHinweisGezeigt = true;
+      toast.warning(verlaufZustand.grund);
+    }
+  });
+
   // WS reconnect: messages.clearChannel() may empty the loaded set. Re-fetch
   // if we're still parked on this DM.
   $effect(() => {
-    const cid = dmChannelId;
-    if (!cid || messages.loadedChannels[cid]) return;
-    if (prevDM !== cid) return;
-    if (!directMessages.byId[cid]) return;
-    void chatApi
-      .listMessages(cid, {}, cloudRoute)
-      .then((history) => {
-        if (untrack(() => prevDM) === cid) messages.setInitial(cid, history);
-      })
-      .catch(() => {
-        /* user-driven retry via navigation */
-      });
+    kanalWechsel.nachladenWennNoetig(dmChannelId);
   });
 
   // Prime the user cache for the other user of every DM so the sidebar +
@@ -103,155 +141,56 @@
   onDestroy(() => {
     for (const handle of pendingOptimisticTimeouts.values()) clearTimeout(handle);
     pendingOptimisticTimeouts.clear();
-    if (prevDM) cloudGateway.unsubscribe(prevDM);
+    kanalWechsel.aufraeumen();
   });
 
-  async function switchTo(cid: string) {
-    const gen = untrack(() => (switchGen += 1));
-    const isStale = () => untrack(() => switchGen) !== gen;
-    const prev = untrack(() => prevDM);
-
-    if (cid === prev) return;
-    if (prev) cloudGateway.unsubscribe(prev);
-
-    if (!cid) {
-      untrack(() => (prevDM = ''));
-      return;
-    }
-
-    if (!directMessages.byId[cid]) {
-      // We don't know this DM yet — pull it (e.g. deep link before hydrate
-      // finished, or the recipient opening a freshly-created DM).
-      try {
-        resolving = true;
-        const dm = await chatApi.getDMChannel(cid);  // cloud-routed internally
-        if (isStale()) return;
-        directMessages.upsert(dm);
-      } catch (err) {
-        if (isStale()) return;
-        loadError = err instanceof Error ? err.message : m.dm_page_dm_not_found();
-        resolving = false;
-        return;
-      }
-    }
-
-    // Cached from an earlier visit? Then its WS subscription lapsed while we
-    // were away — re-subscribe + gap-fill below instead of re-fetching.
-    const alreadyLoaded = !!messages.loadedChannels[cid];
-    try {
-      if (!alreadyLoaded) {
-        const history = await chatApi.listMessages(cid, {}, cloudRoute);
-        if (isStale()) return;
-        messages.setInitial(cid, history);
-      }
-    } catch (err) {
-      if (isStale()) return;
-      loadError = err instanceof Error ? err.message : m.dm_page_messages_load_failed();
-      resolving = false;
-      return;
-    }
-
-    if (isStale()) return;
-    cloudGateway.subscribe(cid);
-    // Backfill anything that landed while the subscription was dropped.
-    if (alreadyLoaded) void cloudGateway.gapFill(cid);
-    const loaded = messages.for(cid);
-    const latestSeen = loaded[loaded.length - 1]?.id;
-    if (latestSeen) readState.recordSeen(cid, latestSeen);
-    // Acknowledge up to whatever we know is the latest — including ids
-    // bumped in via dm_bump while we weren't subscribed (those don't land
-    // in `messages.byChannel`, so `latestSeen` can lag behind).
-    readState.markRead(cid);
-    untrack(() => (prevDM = cid));
-    loadError = null;
-    resolving = false;
-  }
-
-  // Server-Icon ist der Drawer-Trigger — dort dann den Channel-Drawer auf
-  // (geteilter Helfer in `$lib/navigation/railNavi.ts`).
+  // Server-Icon ist der Drawer-Trigger — `selectGuild` aus dem geteilten
+  // Helfer in `$lib/navigation/railNavi.ts`.
   // DM-Klick auf die schon offene DM: kein Navigieren (sonst Scroll-Sprung).
   async function selectDM(dm: DMChannel) {
     if (dm.id === dmChannelId) return;
     await selectDmRail(dm);
   }
 
-  function sendMessage(text: string, replyToId: string | null, attachmentIds: string[]) {
-    if (!activeDM || !auth.user) return;
-    const nonce = `n-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
-    const tmpId = `tmp-${nonce}`;
-    const cid = activeDM.id;
-    messages.addOptimistic({
-      id: tmpId,
-      channel_id: cid,
-      author_id: auth.user.id,
-      content: text,
-      nonce,
-      reply_to_id: replyToId,
-      created_at: new Date().toISOString(),
-      // Parse markers locally so mention pills render at once — the WS
-      // echo replaces this copy with the server's authoritative list.
-      mentions: parseMentionMarkers(text)
-    });
-    // Attachments go through REST — the WS send-op doesn't carry
-    // attachment_ids and presigned URLs need server-side signing anyway.
-    // Pure-text messages stay on the WS fast-path.
-    if (attachmentIds.length > 0) {
-      chatApi.postMessage(cid, text, { nonce, replyToId, attachmentIds }, cloudRoute)
-        .then((real) => messages.upsert(real))
-        .catch((e) => {
-          messages.remove(cid, tmpId);
-          toast.error(m.dm_page_send_failed(), { description: (e as Error).message });
-        });
-      return;
-    }
-    const queued = cloudGateway.send(cid, text, nonce, replyToId);
-    if (!queued) {
-      messages.remove(cid, tmpId);
-      toast.error(m.dm_page_no_connection());
-      return;
-    }
-    const handle = setTimeout(() => {
-      pendingOptimisticTimeouts.delete(nonce);
-      if (!messages.isConfirmed(nonce)) {
-        messages.remove(cid, tmpId);
-        toast.error(m.dm_page_message_send_timeout());
+  /** Dieselbe Adresse wie eine DM — s. `aktiveGruppe` oben. Der Rueckruf wird
+   *  den Listen nur bei eingeschaltetem Schalter gegeben; ohne ihn zeigen sie
+   *  keinen Gruppen-Abschnitt. */
+  const selectGruppe = PRIVATE_GRUPPEN_ENABLED
+    ? async (gruppeId: string) => {
+        navDrawer.open = false;
+        if (gruppeId === dmChannelId) return;
+        await goto(`/app/@me/${gruppeId}`);
       }
-    }, 10_000);
-    pendingOptimisticTimeouts.set(nonce, handle);
-  }
+    : undefined;
 
-  async function editMessage(msg: Message, content: string) {
-    try {
-      await chatApi.editMessage(msg.id, content, {}, cloudRoute);
-    } catch (e) {
-      toast.error(m.dm_page_edit_failed());
-      console.error(e);
-    }
-  }
-
-  async function deleteMessage(msg: Message) {
-    const ok = await confirmDialog({
-      description: m.dm_page_delete_confirm(),
-      destructive: true
+  // Sende-Einstieg (Gruppe / verschluesselte DM / Klartext-DM) ausgelagert —
+  // s. `chat/dmSenden.ts`.
+  function sendMessage(
+    text: string,
+    replyToId: string | null,
+    attachmentIds: string[],
+    anhaenge: AnhangAngabe[] = []
+  ) {
+    sendeDmNachricht({
+      userId: auth.user?.id ?? null,
+      aktiveGruppe,
+      activeDM,
+      visibleMessages,
+      text,
+      replyToId,
+      attachmentIds,
+      anhaenge,
+      e2eDmsEnabled: E2E_DMS_ENABLED,
+      cloudRoute,
+      pendingOptimisticTimeouts
     });
-    if (!ok) return;
-    try {
-      await chatApi.deleteMessage(msg.id, cloudRoute);
-    } catch (e) {
-      toast.error(m.dm_page_delete_failed());
-      console.error(e);
-    }
   }
 
-  async function toggleReaction(msg: Message, emoji: string, currentlyMine: boolean) {
-    const action = currentlyMine ? chatApi.removeReaction : chatApi.addReaction;
-    try {
-      await action(msg.id, emoji, cloudRoute);
-    } catch (e) {
-      toast.error(m.dm_page_reaction_failed());
-      console.error(e);
-    }
-  }
+  const editMessage = (msg: Message, content: string) =>
+    nachrichtBearbeiten(msg, content, cloudRoute);
+  const deleteMessage = (msg: Message) => nachrichtLoeschen(msg, cloudRoute);
+  const toggleReaction = (msg: Message, emoji: string, currentlyMine: boolean) =>
+    reaktionUmschalten(msg, emoji, currentlyMine, cloudRoute);
 
   async function togglePin(msg: Message) {
     try {
@@ -284,26 +223,55 @@
   }}
 />
 
+<!-- Spec §3a Punkt 1: ohne eigenes App-Geraet gibt es fuer dieses Konto
+     keine Direktnachrichten — ersetzt Liste UND Chat, statt eine leere
+     Liste zu zeigen. Die Auspraegung (App: Geraet einrichten / Browser:
+     Apps + Kopplung) entscheidet `wandEntscheidung`. -->
+{#if wandArt !== 'keine'}
+  <DmOhneAppGeraet art={wandArt} />
+{:else}
+
 <!-- DM-Liste. Auf dem Handy ist sie der Chats-Bereich und fuellt den
      Bildschirm, solange kein Gespraech offen ist — kein Drawer mehr, damit der
      Bildschirmrand der System-Zurueck-Geste gehoert. Ab `md` wieder die
      schmale Seitenleiste neben dem Chat. -->
 {#if viewport.isMobile}
   {#if !dmChannelId}
-    <MobileChatsList onSelect={selectDM} />
+    <MobileChatsList onSelect={selectDM} onSelectGruppe={selectGruppe} />
   {/if}
 {:else}
-  <DMChannelList activeDMId={dmChannelId || null} onSelect={selectDM} />
+  <DMChannelList
+    activeDMId={dmChannelId || null}
+    onSelect={selectDM}
+    onSelectGruppe={selectGruppe}
+  />
 {/if}
 
 <!-- Chat: ab `md` dauerhaft; auf dem Handy nur mit geoeffnetem Gespraech. -->
 {#if !viewport.isMobile || !!dmChannelId}
-  {#if loadError}
+  {#if kanalWechsel.loadError}
     <section
       class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 md:rounded-2xl"
     >
-      <FieldError message={loadError} testId="load-error" />
+      <FieldError message={kanalWechsel.loadError} testId="load-error" />
     </section>
+  {:else if aktiveGruppe && synthChannel}
+    <!-- Dieselbe Ansicht wie bei einer DM, nur mit anderer Huelle im Kopf und
+         Zeilen- statt Sprechblasen-Darstellung. Eine eigene Gruppen-Ansicht
+         daneben haette Anhaenge, Antworten, Reaktionen und das Aktionsblatt
+         still verloren. -->
+    <ChatView
+      channel={synthChannel}
+      messages={visibleMessages}
+      onSend={sendMessage}
+      headerKind="gruppe"
+      onBack={() => goto('/app/@me')}
+      cloudScoped
+      showMemberList={false}
+      onEditMessage={editMessage}
+      onDeleteMessage={deleteMessage}
+      onToggleReaction={toggleReaction}
+    />
   {:else if activeDM && synthChannel}
     <ChatView
       channel={synthChannel}
@@ -313,9 +281,12 @@
       dmPartnerId={activeDM.other_user_id}
       onBack={() => goto('/app/@me')}
       cloudScoped
+      verschluesselteAnhaenge={E2E_DMS_ENABLED}
       showMemberList={false}
-      composerDisabled={activeDM.can_send === false}
-      composerDisabledReason={m.dm_page_composer_disabled_reason()}
+      composerDisabled={dmSperre !== null}
+      composerDisabledReason={dmSperre === 'ohne_app'
+        ? m.dm_page_composer_ohne_app_reason()
+        : m.dm_page_composer_disabled_reason()}
       onEditMessage={editMessage}
       onDeleteMessage={deleteMessage}
       onToggleReaction={toggleReaction}
@@ -332,4 +303,6 @@
       </p>
     </section>
   {/if}
+{/if}
+
 {/if}

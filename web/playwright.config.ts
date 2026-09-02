@@ -17,7 +17,16 @@ import {
  */
 export default defineConfig({
   testDir: './tests/e2e',
-  testIgnore: ['**/_*.ts'],
+  // `e2e-dm-hetzner.spec.ts` gehoert NICHT in diesen Lauf: er braucht seine
+  // eigene Fassung (`tests/e2e/playwright.hetzner.config.ts`) — ohne
+  // `globalSetup`, mit einem Vite, dessen API-Ziel auf den Hetzner-Stack
+  // zeigt, und mit einem `ssh`-Zugang fuer die Postgres-Gegenprobe. Hier
+  // mitgenommen war er dauerhaft rot, und ein dauerhaft roter Test kann
+  // keine Regression mehr melden: er faerbt jeden Lauf ein und nimmt den
+  // Rest seiner Datei als "did not run" mit. Fahren:
+  //   pnpm exec playwright test tests/e2e/e2e-dm-hetzner.spec.ts \
+  //     --config=tests/e2e/playwright.hetzner.config.ts
+  testIgnore: ['**/_*.ts', '**/e2e-dm-hetzner.spec.ts'],
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,

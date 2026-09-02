@@ -158,6 +158,58 @@ class Settings(BaseSettings):
     # routes/attachments.py. Empty string = no extra restriction.
     cloud_attachment_mime_prefixes: str = "image/"
 
+    # Kanal-Erstellung als Instanz-Einstellung (Konzept
+    # docs/user-gehostete-kanaele-konzept.md §2a): "regular" = Textkanaele
+    # wie bisher (unverschluesselt, Instanz-Speicher); "ablage_only" = einen
+    # Textkanal erstellen kann nur, wer eine verbundene Cloud-Ablage hat —
+    # neue Kanaele sind Ablage-Kanaele (clientverschluesselt, Inhalt auf dem
+    # Laufwerk des Erstellers). Betrifft nur die NEUANLAGE; bestehende
+    # Kanaele bleiben lesbar.
+    channel_creation_policy: str = "regular"
+
+    # Weiterreich-Route eines Ablage-Kanals (Design §4.2, Etappe E7): der
+    # Server holt Chiffrat vom Laufwerk des Kanal-Erstellers, wenn der
+    # Browser die fremde Cloud wegen CORS nicht direkt erreicht. Beide
+    # Grenzen gelten je Abruf, nicht kumulativ ueber mehrere.
+    ablage_abruf_max_bytes: int = 8 * 1024 * 1024  # 8 MiB je Segment/Datei
+    ablage_abruf_timeout_s: float = 10.0
+
+    # Zwischenlager der Community-Dateiablage (Design §7, Etappe E8): ein
+    # Chiffrat wartet hier, bis ein Geraet des Besitzers es festigt. Werte
+    # gerechnet gegen die Prod-Kiste aus CLAUDE.md (38 GB Platte, 77 % voll
+    # -> rund 8,7 GB frei, geteilt mit Postgres/Redis/MinIO/allen anderen
+    # Diensten). Je Datei 64 MiB deckt praktisch jede Datei, die ein Mitglied
+    # bewusst ablegt (Fotos, Dokumente, kurze Videoclips), ohne das
+    # Zwischenlager zum Video-Hoster zu machen. Je Community 512 MiB: selbst
+    # 10 Communities, die gleichzeitig am Anschlag liegen, blieben bei 5 GB
+    # und damit unter der freien Kapazitaet; das Alterslimit (7 Tage) sorgt
+    # dafuer, dass sich das nicht aufsummiert, sondern hoechstens fuer eine
+    # Woche steht.
+    ablage_zwischenlager_max_datei_bytes: int = 64 * 1024 * 1024
+    ablage_zwischenlager_max_gesamt_bytes: int = 512 * 1024 * 1024
+    ablage_zwischenlager_max_alter_tage: int = 7
+
+    # Anhaenge verschluesselter Direktnachrichten, die Pulse in die
+    # Cloud-Ordner ALLER Beteiligten schiebt (Design §11.1/§11.3).
+    #
+    # **Einstellung und nicht Konstante, ausdruecklich so entschieden** (§11.3):
+    # der Wert soll ohne Deploy aenderbar sein. Er steht deshalb hier neben den
+    # anderen Schaltern und wird ueber ``GET /capabilities`` an den Klienten
+    # gemeldet — der Nutzer soll die Grenze VOR dem Hochladen erfahren, nicht
+    # als 413 danach.
+    #
+    # Begruendung der Groessenordnung, aus §11.3 und hier nur zusammengefasst:
+    # was Pulse in fremde Ordner schiebt, kostet den Empfaenger Speicherplatz,
+    # den er nicht angefordert hat. Solange es keine Freigabe je Absender gibt,
+    # ist diese Grenze der einzige Schutz davor.
+    #
+    # **Gemeint ist die Groesse des KLUMPENS**, nicht der Klartextdatei: der
+    # Klient verschluesselt vorher (AES-GCM haengt IV und Siegel an), und was
+    # der Server sieht und weiterschiebt, ist der Klumpen. Der Unterschied ist
+    # ein paar Dutzend Bytes — die Grenze deshalb bewusst rund und nicht auf
+    # die Klartextgroesse umgerechnet.
+    ablage_anhang_max_bytes: int = 25 * 1024 * 1024
+
     # Cloud user-id of this instance's owner (the applicant who registered it).
     # The Cloud hands this out at approval. At cert-login, the user whose cert
     # carries this user_id becomes admin of this instance. 0 = nobody (no
@@ -217,6 +269,147 @@ class Settings(BaseSettings):
     # target is confirmed-absent (Redis) AND older than the grace window.
     voice_pull_reaper_interval_seconds: int = 60
     voice_pull_reaper_grace_seconds: int = 300
+
+    # Postfach (Etappe D, E2E-DM) — Grenzen fuer verschluesselte Zustellung.
+    # Vorbild ``push_subscription_idle_days`` oben. Eine Zustellung ohne
+    # Frist waere eine, die nie wegginge (s. ``models/postfach.py``); die
+    # Route setzt ``verfaellt_am`` bei jeder Einlieferung aus dieser Zahl.
+    postfach_frist_tage: int = 30
+    # Ein Umschlag traegt Olm-/Megolm-Chiffretext plus etwas JSON-Overhead —
+    # ein normaler Text bleibt weit darunter. Anhaenge fliessen ueber S3
+    # (nur der Dateischluessel reist im Umschlag mit, s. Spec §5), deshalb
+    # muss der Umschlag selbst nicht gross sein. Ohne Obergrenze waere das
+    # Postfach ein kostenloser, unpruefbarer Dateispeicher.
+    postfach_max_umschlag_bytes: int = 256 * 1024
+    # Obergrenze der Umschlaege je Einliefer-Anfrage — ein Vielfaches der
+    # groessten heute denkbaren Fan-out-Menge, ohne eine einzelne Anfrage
+    # beliebig aufblasen zu lassen.
+    postfach_max_nutzlasten_je_anfrage: int = 100
+    # Offene (noch nicht quittierte) Zustellungen je Empfaengergeraet. Ein
+    # Geraet, das nie abholt, darf den Server nicht unbegrenzt fuellen —
+    # weitere Einlieferungen an EIN so volles Geraet werden uebersprungen
+    # (wie ein unbekanntes Geraet), nicht die ganze Anfrage abgewiesen.
+    postfach_max_offene_zustellungen_je_geraet: int = 500
+    # Offene Zustellungen je (Absender-KONTO, Empfaengergeraet) — Bughunt
+    # 2026-08-28 (Missbrauch), FIX 3. Ohne diese zweite, engere Grenze zaehlt
+    # die obige Obergrenze ueber ALLE Absender hinweg: ein einzelner
+    # akzeptierter Kontakt kann sie mit ein paar Anfragen alleine fuellen
+    # (256 KiB je Umschlag, ~62 je 16-MB-Anfragekoerper), danach werden
+    # Zustellungen JEDES ANDEREN Freundes an dieses Geraet stillschweigend
+    # uebersprungen, bis die 30-Tage-Frist der aeltesten ablaeuft.
+    #
+    # **Gezaehlt wird am KONTO, nicht am Geraet** (Migration 0076, belegter
+    # Fehler 2026-08-29: die Grenze zaehlte anfangs ueber
+    # ``DmNutzlast.absender_device_pubkey`` — pro Geraet — obwohl ein Konto
+    # bis zu ``schluessel_max_buendel_je_konto`` = 20 Geraete fuehren darf.
+    # Zehn davon genuegten, jedes innerhalb seiner eigenen Grenze, um die
+    # Gesamtobergrenze eines Opfergeraets allein zu fuellen). 50 ist bewusst
+    # ein Zehntel der Gesamtgrenze: ein KONTO mit 10 aktiven Korrespondenten
+    # kann sein Kontingent dann rechnerisch ausschoepfen, ohne dass
+    # irgendeiner davon mehr als sein Zehntel beansprucht — kein gemessener
+    # Wert, sondern aus der Gesamtgrenze abgeleitet, damit beide Zahlen
+    # zueinander passen. Die Rechnung braucht keine Annahme mehr ueber die
+    # Geraetezahl je Korrespondent, weil sie gar nicht mehr an einem Geraet
+    # haengt.
+    postfach_max_offene_zustellungen_je_absender_und_geraet: int = 50
+
+    # Private Gruppen (Etappe G1) — Vorgabe AUS, am Vorbild von
+    # ``cloud_dm_attachments_enabled`` oben. Grund: die Kanalart wird HIER
+    # gebaut, aber die Krypto (Megolm, Etappe G2) kommt erst spaeter — private
+    # Gruppen sollen von Geburt an verschluesselt sein, ohne Altbestand und
+    # ohne Umschaltmoment (Spec §9). Solange der Schalter aus ist, kann
+    # ``POST /gruppen`` keine Zeile anlegen; die Oberflaeche zeigt die
+    # Kanalart ohnehin nicht (kein UI in dieser Etappe). Reversibel per
+    # ``PRIVATE_GROUPS_ENABLED=true`` — gedacht fuer G2, nicht fuer diese
+    # Etappe.
+    private_groups_enabled: bool = False
+    # Obergrenze der Mitgliederzahl. In G2 wird der Gruppenschluessel an JEDES
+    # Geraet JEDES Mitglieds verteilt — ohne Obergrenze waere eine einzelne
+    # Mitgliedschaftsaenderung in einer grossen Gruppe ein Schwall kleiner
+    # Schluesselumschlaege. 50 ist grosszuegig fuer eine private Gruppe und
+    # bewusst kein Politikwert, den ein Betreiber je Instanz hochdrehen
+    # sollte, ohne die G2-Verteil-Kosten neu abzuschaetzen.
+    private_group_max_members: int = 50
+    # Obergrenze der SELBST ERSTELLTEN Gruppen je Konto (Bughunt 2026-08-28
+    # (Missbrauch), FIX 5) — ``private_group_max_members`` bindet nur die
+    # Groesse EINER Gruppe, nicht ihre Anzahl. Ohne diese Grenze legt ein
+    # Konto beliebig viele leere Kanal-Zeilen an, jede mit eigenem
+    # Mitgliederindex-Eintrag. 100 ist grosszuegig fuer echte Nutzung
+    # (Etappe G1 hat keine UI, also ohnehin kein organisches Wachstum ueber
+    # ein paar Dutzend hinaus) und bewusst kein Politikwert je Instanz, s.
+    # Kommentar an ``private_group_max_members``.
+    private_group_max_gruppen_je_ersteller: int = 100
+
+    # Geraete-Kopplung und Verlaufsumzug (Etappe F, E2E-DM).
+    #
+    # Die Gueltigkeit des Codes ist die eigentliche Sicherheitszahl dieser
+    # Etappe, nicht ein Komfortwert: solange er gilt, kann ein Zweitgeraet
+    # DESSELBEN Kontos den vollstaendigen lokalen Verlauf des alten Geraets
+    # anfordern (die vollstaendige Begruendung im Kopf von
+    # ``routes/kopplung.py``). 10 Minuten reichen fuer „Code ablesen, am
+    # anderen Geraet eintippen" mit reichlich Luft und sind kurz genug, dass
+    # ein abfotografierter Bildschirm nicht ueber die Sitzung hinaus
+    # nachwirkt.
+    kopplung_code_gueltig_minuten: int = 10
+    # NACH dem Einloesen laeuft die Uhr laenger: der Umzug selbst darf ueber
+    # eine Nacht abreissen und am naechsten Tag fortsetzen — genau dafuer ist
+    # er in Stuecke geschnitten. Der Code ist zu diesem Zeitpunkt bereits
+    # verbraucht, diese laengere Frist oeffnet also nichts mehr.
+    umzug_frist_stunden: int = 48
+    # Bytes je Stueck VOR der Base64-Kodierung. Groesser als beim Postfach
+    # (256 KiB), weil hier bewusst gebuendelt wird: ein Stueck traegt viele
+    # Nachrichten, nicht eine. Kleiner als der nginx-Deckel (16 MB), damit
+    # ein abgerissener Upload wenig Arbeit kostet — die Fortsetzbarkeit
+    # zahlt sich nur aus, wenn ein Stueck klein genug ist, um es zu
+    # verlieren.
+    umzug_max_stueck_bytes: int = 512 * 1024
+    # Obergrenze der Stuecke je Kopplung. Zusammen mit der Stueckgroesse ist
+    # das der Deckel des ganzen Umzugs (~500 MB). Anhang-BYTES wandern
+    # bewusst NICHT mit (Begruendung im Kopf von
+    # ``routes/kopplung_umzug.py``) — es geht hier um Text und Angaben, und
+    # dafuer ist der Deckel um Groessenordnungen zu hoch angesetzt statt zu
+    # knapp.
+    umzug_max_stuecke: int = 1000
+    # Gleichzeitig offene (noch nicht eingeloeste) Kopplungen je Konto. Ohne
+    # diese Grenze koennte ein Konto beliebig viele Codes auf Vorrat
+    # erzeugen — jeder davon ein gueltiger Schluessel zum Verlauf, und mehr
+    # gleichzeitige Codes heisst mehr Raten-Chancen fuer denselben
+    # Zeitraum. Drei deckt „einer laeuft, einer wurde gerade neu
+    # angefordert" mit Luft ab.
+    kopplung_max_offen_je_konto: int = 3
+
+    # Geraete-Schluesselverzeichnis (Etappe B, E2E-DM) — Bughunt 2026-08-28
+    # (Missbrauch), FIX 1. Obergrenze der gleichzeitig gespeicherten Buendel
+    # je Konto. Ein Geraet, das seine Kennung wechselt (Neuinstallation,
+    # verlorenes Geraet, geleerte IndexedDB), hinterliesse sonst eine
+    # Buendelzeile plus bis zu
+    # ``ONE_TIME_KEY_CAP`` Einmalschluessel fuer immer — nur eine
+    # vollstaendige Kontoloeschung raeumte sie weg. Die 20 stammen aus der
+    # frueheren Zertifikats-Obergrenze des auth-svc; die gibt es nicht mehr,
+    # die Zahl bleibt als schlichte Grosszuegigkeitsgrenze.
+    schluessel_max_buendel_je_konto: int = 20
+    # Bughunt 2026-08-28 (Missbrauch), FIX 2. Budget verbrauchter
+    # Einmalschluessel je (Absender, Ziel) und Zeitfenster — sonst leert
+    # ~100 billige ``POST /keys/claim``-Aufrufe den gesamten Vorrat eines
+    # Kontakts, und JEDER Absender faellt danach auf den wiederverwendeten
+    # Rueckfallschluessel (keine Forward Secrecy je Sitzung) zurueck. 30
+    # liegt knapp ueber ``schluessel_max_buendel_je_konto`` (20): ein
+    # legitimer Erstkontakt mit einem Ziel, das alle 20 moeglichen Geraete
+    # gleichzeitig betreibt, verbraucht in einem einzigen ``claim``-Aufruf
+    # bis zu 20 Einmalschluessel (einen je Geraet) — das Budget muss das in
+    # EINEM Fenster tragen, ohne einem Angreifer viel Spielraum darueber
+    # hinaus zu lassen.
+    schluessel_claim_budget_je_ziel: int = 30
+    schluessel_claim_fenster_sekunden: int = 3600  # 1 h.
+    # Spec §3a, Punkt 2: ein Geraet, das NICHT ``dauerhaft`` ist (also ein
+    # Browser — eine App meldet sich als dauerhaft, s. ``schemas.py``),
+    # verfaellt nach so vielen Tagen ohne Benutzung. Gemessen an
+    # ``zuletzt_benutzt`` (Migration 0077), nicht an ``updated_at``: gemeint
+    # ist "wird nicht mehr benutzt", nicht "hat lange nichts
+    # veroeffentlicht". 14 Tage nach dem WhatsApp-Vorbild, aus demselben
+    # Grund — ein auf einem fremden Rechner gekoppelter und vergessener
+    # Browser soll sich von selbst schliessen.
+    geraete_verfall_tage: int = 14
 
     @property
     def effective_database_url(self) -> str:

@@ -156,10 +156,12 @@ class ConnectionManager(
         # ``_ws_perms`` — plain dict, writers guard with ``ws in self._ws_user``.
         self._ws_guilds: dict[WebSocket, set[int]] = {}
         # Hebel A — broadcast-filter channel identity cache: cid → owning
-        # guild_id (>0), -1 for a DM (no overlay → passes unfiltered), 0 for a
-        # deleted/unknown id. Avoids a DB ``session.get(Channel)`` + DM fallback
-        # on every single fan-out. Invalidated alongside ``_ws_perms`` (channel
-        # delete / perm change). Plain dict — bounded by the channel count.
+        # guild_id (>0), -1 for a DM (no overlay → passes unfiltered), -2 for a
+        # private group (membership filter, Etappe G), 0 for a deleted/unknown
+        # id. Die Werte stehen als ``_KIND_*`` in ``pubsub_perm_filter.py``.
+        # Avoids a DB ``session.get(Channel)`` + fallbacks on every single
+        # fan-out. Invalidated alongside ``_ws_perms`` (channel delete / perm
+        # change). Plain dict — bounded by the channel count.
         self._channel_kind_cache: dict[int, int] = {}
         # Hebel B — resolved VIEW_CHANNEL member set per (guild, channel):
         # lets a burst of cold sockets (e.g. reconnect after a deploy) pay the

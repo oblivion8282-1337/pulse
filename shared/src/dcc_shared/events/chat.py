@@ -168,6 +168,19 @@ class DmBumpEvent(_EventBase):
     author_id: str
 
 
+class PostfachNeuEvent(_EventBase):
+    """``op="postfach_neu"`` — Weckruf fuers verschluesselte Postfach
+    (Etappe D, E2E-DM). Absichtlich inhaltslos: er traegt Kanal und
+    Anzahl, NIE einen Umschlag — sonst laege der Chiffretext wieder in
+    Redis, genau was die ganze Etappe vermeiden soll. Der Klient holt
+    die tatsaechlichen Umschlaege ueber ``POST /postfach/abholen`` (REST,
+    Zertifikats-Nachweis), dieses Ereignis sagt nur "da liegt etwas"."""
+
+    op: Literal["postfach_neu"] = "postfach_neu"
+    channel_id: str
+    anzahl: int
+
+
 class TypingEvent(_EventBase):
     """``op="typing"`` — ephemeral "user is typing" ping on a channel.
 

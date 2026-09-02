@@ -198,6 +198,12 @@ class Settings(BaseSettings):
     # holt pro Pull ein frisches Token (TTL 5 min) — 30/min/Instanz deckt
     # Pull-Spikes locker, blockt aber Brute-Force auf client_secrets.
     rate_limit_registry_token: str = "30/minute"
+    # Wiederherstellungs-Päckchen (``/me/recovery-package``): kein Login-Pfad,
+    # nur ein bereits eingeloggtes Gerät kann hier lesen/schreiben — die
+    # Grenze schützt nicht vor Brute-Force, sondern davor, dass ein
+    # kompromittierter Bearer den Server als Ablage für grosse Blobs
+    # missbraucht (er ist zusätzlich über die Grössen-Policy gekappt).
+    rate_limit_recovery_package: str = "20/minute"
 
     # Redis -- optional for CRL (auth:revoked_certs ZSET)
     redis_url: str = "redis://localhost:6380/0"
@@ -300,6 +306,7 @@ class Settings(BaseSettings):
         "rate_limit_directory_offer",
         "rate_limit_registry_token",
         "rate_limit_per_account",
+        "rate_limit_recovery_package",
     )
     @classmethod
     def _validate_rate_format(cls, v: str) -> str:

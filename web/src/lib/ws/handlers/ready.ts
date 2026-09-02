@@ -31,11 +31,14 @@ import { registerWsHandler } from '../handler-registry';
 import type { ReadyStamps } from '../gateway-connection';
 import type { ReadyEvent } from './types';
 import type { Guild } from '$lib/api/types';
-import { gatewayForServer } from '$lib/ws/connection';
+import { cloudGateway, gatewayForServer } from '$lib/ws/connection';
 import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
 import { darfStandplatzSein } from '$lib/remote/darfStandplatzSein';
 import { gesundheitTor } from '$lib/stream/gesundheitTor';
 import { standplatz } from '$lib/remote/standplatz.svelte';
+import { postfachAbholenUndAnzeigen } from './chat';
+import { gruppenApi } from '$lib/api/gruppen';
+import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
 
 /** Extra context fields that only the ready handler cares about — kept
  *  separate from `HandlerContext` so other handlers don't see them. */
@@ -43,6 +46,13 @@ export type ReadyContext = {
   /** Called once the store seeding is done. The gateway uses it to
    *  resolve `waitForReady()` and replay any buffered events. */
   onReadySeeded: () => void;
+  /** Live-Blick auf die abonnierten Kanaele der dispatchenden Verbindung
+   *  (dieselbe Quelle wie `HandlerContext.subs`, s. `gateway-handlers-
+   *  bootstrap.ts`). `ready` bekommt normalerweise keinen `HandlerContext`
+   *  gereicht — dieser eine Aufruf braucht ihn trotzdem fuer den
+   *  Postfach-Nachholvorgang, deshalb wird er hier separat durchgereicht,
+   *  statt `ReadyContext` insgesamt um `subs` zu erweitern. */
+  getSubs: () => Set<string>;
 };
 
 export function register(ctx: ReadyContext): void {
@@ -143,6 +153,53 @@ export function register(ctx: ReadyContext): void {
       // Freundes-Präsenz nicht überschreiben. Nur die Cloud befüllt ihn.
       presence.seedFriends(evt.online_user_ids ?? []);
       presence.seedFriendStatuses(evt.user_presence_statuses ?? {});
+      // Verpasste verschluesselte DMs nachholen (Bughunt-Runde 3, FIX 1) —
+      // DMs sind cloud-only (s. `krypto/empfangen.ts`), deshalb hier im
+      // Cloud-Zweig, nicht im Server-Zweig oben. Bis hierhin war
+      // `postfach_neu` (`ws/handlers/chat.ts`) der EINZIGE Ausloeser fuer
+      // `postfachAbholenUndEntschluesseln` — schloss die Verbindung, bevor der
+      // Weckruf ankam (Tab zu, Redis-Publish verloren, WS-Abriss), holte NIE
+      // wieder jemand die liegen gebliebene Zustellung ab. `ready` feuert bei
+      // JEDEM Connect/Reconnect und ist damit der natuerliche Nachhol-Punkt.
+      // `postfachAbholenUndAnzeigen` (`./chat.ts`) traegt bereits das
+      // Einzeltakt-Gate (`mitNachlaufBeiWeckung` in `empfangen.ts`/
+      // `postfachNachlauf.ts`) — ein gleichzeitiger `postfach_neu`-Weckruf
+      // haengt sich an denselben (oder einen vorgemerkten Nachlauf-)Zyklus
+      // an, statt ihn doppelt zu fahren. `ctx.getSubs()` liefert denselben
+      // Live-Blick wie `HandlerContext.subs` (dieselbe Quelle,
+      // `gateway-handlers-bootstrap.ts`) — beim Verarbeiten des `ready`-
+      // Rahmens steht `_dispatchingConn` schon synchron auf dieser
+      // Verbindung (`gateway-connection.ts::_handle`), und `subs` ueberlebt
+      // einen Reconnect (nur `disconnect()` leert es) und wird dabei sogar
+      // aktiv neu abonniert (Zeilen ~429f.) — die Menge ist also zum
+      // Zeitpunkt dieses Aufrufs bereits die richtige.
+      // Private Gruppen (Etappe G2) kennt der `ready`-Rahmen nicht — der
+      // Server fuehrt kein Gruppenfeld darin (`routes/ws_ready.py`), und es
+      // gibt auch kein Ereignis ueber einen Mitgliederwechsel. `GET /gruppen`
+      // ist der einzige Weg an den Bestand, und er muss hier laufen, BEVOR
+      // eine Gruppen-Zustellung ankommt: `verlaufSpeichernPflicht` legt eine
+      // Nachricht nur in einem lokal BEKANNTEN Kanal ab und wirft sonst — die
+      // Zustellung bliebe unquittiert liegen (kein Verlust, aber ein Zyklus
+      // Verzoegerung). Bei ausgeschaltetem Schalter geht kein Aufruf hinaus
+      // (`api/gruppen.ts`), die Antwort ist dann eine leere Liste.
+      void gruppenApi
+        .auflisten()
+        .then((gruppen) => {
+          privateGruppen.seed(gruppen);
+          // **Jede Gruppe wird abonniert, nicht erst die geoeffnete.** Der
+          // `postfach_neu`-Weckruf faechert am Server an die Abonnenten des
+          // Kanals auf (`pubsub_channel_handlers.py::handle_chat_channel`) —
+          // ohne Abonnement erfaehrt der Klient von einer Gruppennachricht
+          // erst beim naechsten `ready`, also nach einem Neuladen. Bei DMs
+          // reicht das Abonnieren beim Oeffnen, weil dort zusaetzlich der
+          // `dm_bump` ueber den Nutzer-Kanal laeuft; fuer Gruppen gibt es
+          // kein solches Ereignis.
+          for (const gruppe of gruppen) cloudGateway.subscribe(gruppe.id);
+        })
+        // Ein Fehlschlag darf den `ready`-Rahmen nicht kippen: ohne
+        // Gruppenliste laeuft alles andere unveraendert weiter.
+        .catch(() => undefined);
+      postfachAbholenUndAnzeigen((kanalId) => ctx.getSubs().has(kanalId));
     }
 
     // Der Admin-Status haengt am DISPATCHENDEN Server (aktiv ODER

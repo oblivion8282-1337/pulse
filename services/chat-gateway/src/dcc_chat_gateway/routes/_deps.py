@@ -100,6 +100,22 @@ async def require_member(session, guild_id: int, user_id: int) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="community is suspended")
 
 
+async def guild_oder_404(session, guild_id: int) -> Guild:
+    """Wie ``require_member`` bewusst OHNE Suspendierungs-Prüfung — für die
+    Ablage-Routen (``routes/ablage_guild_laufwerk.py``/``ablage_zwischenlager.py``),
+    die diese Unterscheidung nicht treffen (Community existiert oder nicht)."""
+    guild = await session.get(Guild, guild_id)
+    if guild is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="guild not found")
+    return guild
+
+
+async def mitglied_oder_403(session, guild_id: int, user_id: int) -> None:
+    """Nur die Mitgliedschaft, keine Suspendierungs-Prüfung — s. ``guild_oder_404``."""
+    if await session.get(GuildMember, (guild_id, user_id)) is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="not a member of this guild")
+
+
 async def is_guild_member(session, guild_id: int, user_id: int) -> bool:
     """Wie ``require_member``, aber ohne zu werfen.
 

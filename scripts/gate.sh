@@ -58,6 +58,27 @@ if [ "${1:-}" = "--maschine" ]; then
   pruefe docker pflicht  "Test-Infra (Redis/Postgres)"
   pruefe redis-server optional "eigener Redis je Worker im Parallellauf"
   pruefe cargo  optional "Rust-Kisten (nur bei Änderung daran)"
+  # wasm-pack liegt unter ~/.cargo/bin, das nicht in jedem PATH steht — dieselbe
+  # Erweiterung wie in gate-rust.sh/bauen-wasm.sh, sonst meldet diese Prüfung
+  # "fehlt" auf einer Maschine, auf der es installiert ist.
+  if PATH="$HOME/.cargo/bin:$PATH" command -v wasm-pack >/dev/null 2>&1; then
+    printf '  ✓ %-14s %s\n' "wasm-pack" "WASM-Bau des Krypto-Kerns (krypto/pulse-krypto)"
+  else
+    printf '  ○ %-14s fehlt (optional) — %s\n' "wasm-pack" "WASM-Bau des Krypto-Kerns (krypto/pulse-krypto)"
+  fi
+  if PATH="$HOME/.cargo/bin:$PATH" rustup target list --installed 2>/dev/null \
+      | grep -qx wasm32-unknown-unknown; then
+    printf '  ✓ %-14s %s\n' "wasm32-target" "Compile-Ziel für den Krypto-Kern"
+  else
+    printf '  ○ %-14s fehlt (optional) — %s\n' "wasm32-target" "Compile-Ziel für den Krypto-Kern"
+  fi
+  if ! PATH="$HOME/.cargo/bin:$PATH" command -v wasm-pack >/dev/null 2>&1 \
+      || ! PATH="$HOME/.cargo/bin:$PATH" rustup target list --installed 2>/dev/null \
+          | grep -qx wasm32-unknown-unknown; then
+    echo "     → ohne beides überspringt gate-rust.sh den WASM-Bau still, und"
+    echo "       die drei WASM-Grenz-Tests in \`pnpm test:unit\` laufen dann nicht:"
+    echo "       cargo install wasm-pack && rustup target add wasm32-unknown-unknown"
+  fi
   if ! command -v redis-server >/dev/null 2>&1; then
     echo "     → ohne redis-server läuft das Gate SERIELL (~6x langsamer):"
     case "$(uname -s)" in
@@ -242,6 +263,21 @@ if [ "${backend_grund#ja}" != "$backend_grund" ]; then
   stempeln backend $BEREICH_backend
 fi
 
+# ── Rust ────────────────────────────────────────────────────────────────────
+# Die Cargo-Teile hängen an den GEÄNDERTEN Pfaden (nicht an Bereichs-Hashes):
+# ein Kaltbau kostet Minuten, und die allermeisten Pushes fassen kein Rust an.
+# Basis ist der Vergleich gegen origin/main — inklusive noch nicht committeter
+# Arbeit, damit das Gate mitten in der Sitzung dasselbe prüft wie beim Landen.
+#
+# **Steht VOR dem Web-Teil, und das ist keine Geschmacksfrage:** gate-rust.sh
+# baut das WASM-Paket des Krypto-Kerns, und `pnpm test:unit` braucht es. Stünde
+# der Rust-Teil wie ursprünglich am Ende, würden die drei WASM-Grenz-Tests im
+# ERSTEN Lauf auf einer frischen Maschine übersprungen und erst im zweiten
+# greifen — ein Gate, das beim ersten Mal weniger prüft als beim zweiten.
+mergebase="$(git merge-base origin/main HEAD 2>/dev/null || true)"
+changed="$(git diff --name-only "${mergebase:-HEAD~1}" -- 2>/dev/null || true)"
+bash "$(dirname "${BASH_SOURCE[0]}")/gate-rust.sh" "$changed"
+
 # ── Web ─────────────────────────────────────────────────────────────────────
 if [ "${web_grund#ja}" != "$web_grund" ]; then
   echo "  Frontend check + build…"
@@ -273,14 +309,5 @@ if [ "${infra_grund#ja}" != "$infra_grund" ]; then
   # shellcheck disable=SC2086
   stempeln infra $BEREICH_infra
 fi
-
-# ── Rust ────────────────────────────────────────────────────────────────────
-# Die Cargo-Teile hängen an den GEÄNDERTEN Pfaden (nicht an Bereichs-Hashes):
-# ein Kaltbau kostet Minuten, und die allermeisten Pushes fassen kein Rust an.
-# Basis ist der Vergleich gegen origin/main — inklusive noch nicht committeter
-# Arbeit, damit das Gate mitten in der Sitzung dasselbe prüft wie beim Landen.
-mergebase="$(git merge-base origin/main HEAD 2>/dev/null || true)"
-changed="$(git diff --name-only "${mergebase:-HEAD~1}" -- 2>/dev/null || true)"
-bash "$(dirname "${BASH_SOURCE[0]}")/gate-rust.sh" "$changed"
 
 echo "✓ Test-Gate grün."

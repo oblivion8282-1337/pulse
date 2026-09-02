@@ -11,8 +11,10 @@
     | 'sounds'
     | 'keyboard'
     | 'security'
+    | 'sicherung'
     | 'privacy'
     | 'standplatz'
+    | 'storage'
     | 'apps'
     | 'experimental';
 </script>

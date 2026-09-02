@@ -32,6 +32,27 @@ _RULES: dict[str, tuple[int, float]] = {
     "dropbox_restore": (20, 60.0),   # 20 entry restores / minute
     "dropbox_empty_trash": (10, 60.0), # 10 manual empty-trash / minute
     "dropbox_download": (20, 60.0),  # 20 archive/download-url mints / minute
+    "ablage_abruf": (30, 60.0),      # 30 Weiterreich-Abrufe / Minute (Design §4.2)
+    "ablage_laufwerk_setzen": (10, 60.0), # 10 Freigabe-Adresse-Aenderungen / Minute
+    "ablage_guild_laufwerk_setzen": (10, 60.0), # dasselbe fuer das Community-Laufwerk (E8)
+    "ablage_guild_abruf": (30, 60.0), # dasselbe fuer die Community-Weiterreich-Route (E8)
+    "ablage_zwischenlager_ankuendigen": (20, 60.0), # 20 Zwischenlager-Uploads / Minute (E8)
+    # Die Verbindungsprobe spricht eine vom Nutzer FREI GEWAEHLTE Zieladresse
+    # an — die einzige Route hier, die das tut. Sie ist deshalb knapper
+    # bemessen als ihre Nachbarn: ein Mensch verbindet ein Laufwerk ein paar
+    # Mal, bis der Link stimmt, und braucht dafuer keine dreissig Versuche je
+    # Minute. Der SSRF-Schutz verhindert private Ziele, dieser Zaehler
+    # begrenzt die Menge oeffentlicher — gegen Portscannen wirken nur beide.
+    # Jeder Versuch kostet ausserdem vier Anfragen am Ziel (PUT/GET/DELETE
+    # plus ggf. Aufraeumen), 6/Minute sind also bis zu 24 fremde Aufrufe.
+    "ablage_pruefen": (6, 60.0),
+    # Der Schreib-Weiterreicher. Grosszuegiger als die Probe: hier ist das
+    # Ziel serverseitig hinterlegt und gehoert dem Aufrufer selbst, es gibt
+    # also nichts zu scannen. Die Schranke begrenzt, wie schnell ein Geraet
+    # sein eigenes Laufwerk vollschreiben kann — 60/Minute bei 8 MB je
+    # Aufruf ist die Obergrenze, der Regelbetrieb liegt um Groessenordnungen
+    # darunter (ein Log-Segment ist klein, und die Schleife geht alle 30 s).
+    "ablage_schreiben": (60, 60.0),
 }
 
 

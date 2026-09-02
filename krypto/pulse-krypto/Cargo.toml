@@ -1,0 +1,40 @@
+[package]
+name = "pulse-krypto"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Kapselt vodozemac (Apache-2.0). Diese Kiste kennt weder Pulse-Datenmodelle
+# noch Netzwerk — nur Identitaeten, Sitzungen und Umschlaege.
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# "experimental-session-config" ist kein Zusatz-Paket, sondern schaltet an der
+# bereits genehmigten Abhaengigkeit vodozemac eine Funktion frei, die ohne das
+# Feature gar nicht uebersetzt wird: `olm::SessionConfig::version_2()`
+# (`#[cfg(feature = ...)]`, session_config.rs:47).
+#
+# WARUM wir sie brauchen: Olm v1 kuerzt den Authentifizierungs-Anhang auf
+# 8 Bytes, v2 laesst ihn ungekuerzt. v1 ist die Vorgabe der Kiste und existiert
+# nur zur Kompatibilitaet mit libolm — "experimental" heisst hier NICHT
+# "unfertige Krypto", sondern "im Matrix-Oekosystem noch nicht ueberall
+# gesprochen". Pulse spricht ausschliesslich mit Pulse; dieser Grund entfaellt
+# also, und der ungekuerzte MAC ist strikt besser.
+#
+# ACHTUNG bei einer spaeteren Aenderung: die Fassung wird in den eingefrorenen
+# Sitzungszustand mitgeschrieben. Ein Wechsel bricht bestehende Sitzungen.
+#
+# Megolm ist hiervon NICHT betroffen — dort gibt es nur version_1().
+vodozemac = { version = "0.10.0", features = ["experimental-session-config"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+# vodozemac braucht Zufall auf zwei Wegen, ueber zwei verschiedene
+# getrandom-Hauptversionen (rand_core 0.6 zieht 0.2, jede eigene
+# Abhaengigkeit direkt 0.3) — im Browser muss BEIDE eine Wasm-Quelle kennen,
+# sonst bricht der Bau an der aelteren Version, obwohl nur die neuere hier
+# direkt genannt ist. "js"/"wasm_js" ist dieselbe Idee unter altem/neuem Namen.
+getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
+getrandom = { version = "0.3", features = ["wasm_js"] }

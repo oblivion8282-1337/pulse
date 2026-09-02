@@ -3,13 +3,14 @@
   import { VList, type VListHandle } from 'virtua/svelte';
   import MessageItem from './MessageItem.svelte';
   import { plainifyMentions } from './messageRender';
-  import { chatApi } from '$lib/api/chat';
   import { messages as messageStore } from '$lib/stores/messages.svelte';
+  import { ladeAeltereSeite } from '$lib/verlauf/nachladen';
   import type { Channel, Message } from '$lib/api/types';
   import { auth } from '$lib/stores/auth.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { nameStyle } from '$lib/utils/nameColor';
   import { safeAvatarUrl } from '$lib/avatar';
+  import { findeReplyZiel } from './replyLookup';
   import { m as pm } from '$lib/paraglide/messages.js';
 
   type ChatItem =
@@ -68,9 +69,8 @@
     jumper?: (id: string) => void;
   } = $props();
 
-  // Überall paginieren — DMs genauso wie Guild-Kanäle (deren Route kommt als
-  // Prop). Der frühere Ausschluss („DMs haben selten tiefe Historie") ließ
-  // DMs jenseits der ersten Seite hart enden: hoch scrollen lud nichts nach.
+  // Beide Kanalarten paginieren: `ladeAeltereSeite` liefert für Guild-Kanäle
+  // ohnehin nur den Server-Zweig (nur DMs landen lokal, s. `verlauf/index.ts`).
   const canPaginate = $derived(!!channel);
 
   let vlist = $state<VListHandle>();
@@ -182,7 +182,7 @@
     if (!oldest) return;
     loadingOlder = true;
     try {
-      const older = await chatApi.listMessages(channel.id, { before: oldest, limit: OLDER_PAGE }, route);
+      const { nachrichten: older, vomServer, sicherungLieferte } = await ladeAeltereSeite(channel.id, oldest, OLDER_PAGE, route);
       // shift NUR für diese eine Prepend-Längenänderung aktivieren, dann sofort
       // wieder deaktivieren — virtua liest den Wert im Moment, in dem `items`
       // (und damit data.length) wächst, also innerhalb des tick()-Flushes.
@@ -190,8 +190,13 @@
       const added = messageStore.prepend(channel.id, older);
       await tick();
       prependShift = false;
-      // Historie-Ende: nichts Neues kam dazu, oder die Seite war unvollständig.
-      if (!added || older.length < OLDER_PAGE) hasMore = false;
+      // Historie-Ende: nur aussagekräftig, wenn die Seite vom Server kam —
+      // eine kleine lokale Seite bedeutet nicht "keine Historie mehr", nur
+      // "der Rest liegt noch nicht lokal". B6: auch eine kleine SERVER-Seite
+      // ist kein Ende, wenn die Sicherung in diesem Lauf eine Archiv-Seite
+      // (>0) nachgeladen hat — deren ältere Zeilen kommen beim nächsten
+      // Hochscrollen (dann lokal).
+      if (vomServer && !sicherungLieferte && (!added || older.length < OLDER_PAGE)) hasMore = false;
     } catch {
       // Netzwerkfehler → still,Retry beim nächsten Scroll.
     } finally {
@@ -315,8 +320,6 @@
   }
 
   const getKey = (item: ChatItem): string => item.key;
-
-  let messageMap = $derived(new Map(messages.map((m) => [m.id, m])));
 
   // Append-Cache: vermeidet vollen Rebuild bei einfachen Appends. Plain (nicht
   // `$state`) — würden sie in einem `$derived` geschrieben, wirft Svelte
@@ -465,7 +468,7 @@
 
   function replyMetaFor(m: Message): { id: string; author: string; snippet: string } | null {
     if (!m.reply_to_id) return null;
-    const parent = messageMap.get(m.reply_to_id);
+    const parent = findeReplyZiel(messages, m.reply_to_id);
     if (!parent) {
       return { id: m.reply_to_id, author: '…', snippet: pm.chat_view_older_message() };
     }
@@ -483,11 +486,14 @@
     setTimeout(() => { if (highlightId === parentId) highlightId = null; }, 1500);
   }
 
+  // Verschluesselte DM hat keine `messages`-Zeile (s. `Message.verschluesselt`
+  // in `api/types.ts`) — Bearbeiten/Loeschen liefen sonst in einen 404.
   function canEditMessage(m: Message): boolean {
+    if (m.verschluesselt) return false;
     return !!myId && m.author_id === myId && !m.id.startsWith('tmp-') && !m.deleted_at;
   }
   function canDeleteMessage(m: Message): boolean {
-    if (!myId) return false;
+    if (!myId || m.verschluesselt) return false;
     if (m.id.startsWith('tmp-')) return false;
     return m.author_id === myId || isOwner;
   }

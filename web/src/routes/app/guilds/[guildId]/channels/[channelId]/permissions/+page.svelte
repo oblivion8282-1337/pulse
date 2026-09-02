@@ -21,6 +21,8 @@
   import { Perm } from '$lib/permissions/bitfield';
   import ChannelOverridesEditor from '$lib/components/settings/ChannelOverridesEditor.svelte';
   import PruefenAnsicht from '$lib/permissions/ui/PruefenAnsicht.svelte';
+  import KanalDateiablageVerbinden from '$lib/components/ablage/KanalDateiablageVerbinden.svelte';
+  import { ABLAGE_KANAL_ENABLED } from '$lib/featureFlags';
   import { m } from '$lib/paraglide/messages.js';
 
   let guildId = $derived(page.params.guildId ?? '');
@@ -36,12 +38,18 @@
   // editor itself does per-bit checks via the editorPermissions prop.
   let canEdit = $derived(roles.hasGuildPermission(guildId, Perm.MANAGE_PERMISSIONS));
 
-  let reiter = $state<'rechte' | 'pruefen'>('rechte');
+  // Der Laufwerk-Reiter gehört nur zu Ablage-Kanälen (`channel.ablage`) und
+  // nur hinter dem Schalter — für einen gewöhnlichen Kanal gibt es kein
+  // Laufwerk zu verbinden.
+  let zeigeLaufwerkReiter = $derived(ABLAGE_KANAL_ENABLED && !!channel?.ablage);
+
+  let reiter = $state<'rechte' | 'pruefen' | 'laufwerk'>('rechte');
   // Abgeleitet statt konstant: die Beschriftungen kommen aus Paraglide und
   // würden als Konstante die Sprache beim Laden des Moduls einfrieren.
   let reiterliste = $derived([
     { id: 'rechte' as const, text: m.kanalrechte_tab_rechte() },
-    { id: 'pruefen' as const, text: m.kanalrechte_tab_pruefen() }
+    { id: 'pruefen' as const, text: m.kanalrechte_tab_pruefen() },
+    ...(zeigeLaufwerkReiter ? [{ id: 'laufwerk' as const, text: m.kanalrechte_tab_laufwerk() }] : [])
   ]);
 
   onMount(() => {
@@ -105,6 +113,8 @@
           kanalName={channel.name}
           {editorPermissions}
         />
+      {:else if reiter === 'laufwerk' && zeigeLaufwerkReiter}
+        <KanalDateiablageVerbinden kanalId={channelId} />
       {:else}
         <PruefenAnsicht {guildId} {channelId} kanalName={channel.name} />
       {/if}

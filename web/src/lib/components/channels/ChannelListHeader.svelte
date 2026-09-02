@@ -12,7 +12,12 @@
   import UserPlusIcon from '@lucide/svelte/icons/user-plus';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import PlusIcon from '@lucide/svelte/icons/plus';
+  import HardDriveIcon from '@lucide/svelte/icons/hard-drive';
   import InviteDialog from '../InviteDialog.svelte';
+  import * as Dialog from '$lib/components/ui/dialog/index.js';
+  import CommunityDateiablage from '../ablage/CommunityDateiablage.svelte';
+  import { ABLAGE_KANAL_ENABLED } from '$lib/featureFlags';
+  import { currentServerUserId } from '$lib/stores/currentServerUser';
   import type { Guild } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -34,6 +39,13 @@
   } = $props();
 
   let inviteOpen = $state(false);
+  // Das Community-Laufwerk (Etappe E8/E9) — sichtbar für JEDES Mitglied, das
+  // diese Kanalliste ueberhaupt sieht (keine eigene Rechtepruefung: wer die
+  // Community sieht, darf auch ihr Laufwerk sehen). `CommunityDateiablage`
+  // selbst entscheidet je nach Besitzer-Status, ob eine Verbinden-Aufforderung
+  // oder die Dateiliste erscheint.
+  let laufwerkOpen = $state(false);
+  let istBesitzer = $derived(!!guild && currentServerUserId() === guild.owner_id);
 </script>
 
 <header class="flex h-12 items-center justify-between px-4 pt-3 text-text-bright">
@@ -75,9 +87,32 @@
         <PlusIcon />
       </Button>
     {/if}
+    {#if guild && ABLAGE_KANAL_ENABLED}
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        class="size-9 md:size-8 text-text-muted hover:text-primary"
+        onclick={() => (laufwerkOpen = true)}
+        data-testid="guild-laufwerk-open-btn"
+        aria-label={m.channel_list_open_laufwerk()}
+      >
+        <HardDriveIcon />
+      </Button>
+    {/if}
   </div>
 </header>
 
 {#if guild}
   <InviteDialog open={inviteOpen} guildId={guild.id} onClose={() => (inviteOpen = false)} />
+{/if}
+
+{#if guild && ABLAGE_KANAL_ENABLED}
+  <Dialog.Root bind:open={laufwerkOpen}>
+    <Dialog.Content data-testid="guild-laufwerk-dialog">
+      <Dialog.Header>
+        <Dialog.Title>{m.channel_list_laufwerk_dialog_title()}</Dialog.Title>
+      </Dialog.Header>
+      <CommunityDateiablage guildId={guild.id} {istBesitzer} />
+    </Dialog.Content>
+  </Dialog.Root>
 {/if}

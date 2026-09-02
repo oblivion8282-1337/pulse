@@ -146,3 +146,9 @@ streaming/testbench/sdp-*.txt
 
 # Bau-Cache der VAAPI-DMA-BUF-Probe (wie die uebrigen player-labor-Kisten).
 streaming/player-labor/vaapi-dmabuf-export/target/
+
+# Ablage-Integrationstests: Nachspiel-Tokens der Anbieter (nie committen)
+web/.ablage-int/
+
+# Lokaler Redis-Snapshot des Test-Laefs
+dump.rdb

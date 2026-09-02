@@ -12,6 +12,14 @@
   Sizes are capped via CSS — a giant screenshot doesn't blow up the
   message column. The Lightbox is the route to actual-size viewing.
 
+  **Verschluesselte Anhaenge (Etappe E):** fuer sie kann eine direkte Adresse
+  prinzipiell nicht funktionieren — was im Objektspeicher liegt, ist
+  Kauderwelsch, ein `<video src=…>` darauf zeigt nichts. Bilder gingen mit
+  `AutoRefreshImage`/`blobCache` ohnehin schon ueber Holen + Objekt-URL; Video,
+  Audio und der Herunterladen-Knopf tun es seither auch (`quellen` unten). Der
+  KLARTEXT-Fall bleibt unveraendert: dort ist `quelle(a)` schlicht `a.url`, es
+  wird nichts geholt und nichts zwischengespeichert.
+
   Layout reservation (important): the message list is virtualised, and virtua
   measures an item's height the moment it mounts. A media element that only
   gets its height once the bytes arrive therefore reports ~0px first and its
@@ -35,10 +43,75 @@
   let lightboxAttachment = $state<Attachment | null>(null);
   let lightboxOpen = $state(false);
 
+  /** Objekt-URLs der verschluesselten Nicht-Bild-Anhaenge dieser Nachricht.
+   *  `undefined` = laeuft noch, `''` = endgueltig nicht verfuegbar (der
+   *  Klumpen ist mit seiner letzten Zustellung gefallen, s.
+   *  `krypto/anhangHolen.ts`), sonst die fertige Adresse. */
+  let quellen = $state<Record<string, string>>({});
+
+  // Bilder bleiben aussen vor: die holt `AutoRefreshImage` selbst, samt
+  // ref-gezaehltem Zwischenspeicher fuer die virtualisierte Liste.
+  const zuHolen = $derived(
+    attachments.filter((a) => a.verschluesselt && kind(a.mime) !== 'image')
+  );
+
+  $effect(() => {
+    const liste = zuHolen;
+    if (liste.length === 0) return;
+    let abgebrochen = false;
+    const erzeugt: string[] = [];
+    // Eigener Sammler statt `{ ...quellen }`: ein Lesen des eigenen `$state`
+    // im Effekt machte ihn von sich selbst abhaengig.
+    const gesammelt: Record<string, string> = {};
+    void (async () => {
+      const { anhangBlob } = await import('$lib/krypto/anhangHolen');
+      for (const a of liste) {
+        if (abgebrochen) return;
+        const blob = a.schluessel
+          ? await anhangBlob(a.id, a.schluessel, a.mime ?? 'application/octet-stream', false)
+          : null;
+        if (abgebrochen) return;
+        if (blob) {
+          const url = URL.createObjectURL(blob);
+          erzeugt.push(url);
+          gesammelt[a.id] = url;
+        } else {
+          gesammelt[a.id] = '';
+        }
+        quellen = { ...gesammelt };
+      }
+    })();
+    // Beim Verlassen freigeben — anders als bei den Bildern gibt es hier
+    // keinen geteilten Zwischenspeicher, die URLs gehoeren dieser Instanz.
+    return () => {
+      abgebrochen = true;
+      for (const url of erzeugt) URL.revokeObjectURL(url);
+      quellen = {};
+    };
+  });
+
+  /** Was ins `src`/`href` gehoert. Im Klartext-Fall unveraendert `a.url`;
+   *  im verschluesselten der Objekt-URL, `null` solange er laeuft, `''` wenn
+   *  es ihn endgueltig nicht gibt. */
+  function quelle(a: Attachment): string | null {
+    if (!a.verschluesselt) return a.url;
+    return quellen[a.id] ?? null;
+  }
+
   function openLightbox(a: Attachment) {
     lightboxAttachment = a;
     lightboxOpen = true;
   }
+
+  /** Ersatz, wenn ein Anhang keinen Dateinamen traegt.
+   *
+   *  Kein Schoenheitsdetail: mit `undefined` faellt das `download`-Attribut
+   *  ganz weg, und ohne `download` NAVIGIERT der Klick auf die
+   *  `blob:`-Adresse, statt zu speichern — ein Anhang mit `text/html` liefe
+   *  dann als Skript im Ursprung der Anwendung. Zusammen mit
+   *  `krypto/sichererBlobTyp.ts` sind das die zwei Haelften derselben
+   *  Absicherung; eine allein genuegt nicht. */
+  const ERSATZ_DATEINAME = 'anhang';
 
   function kind(mime: string | null): 'image' | 'video' | 'audio' | 'pdf' | 'other' {
     if (!mime) return 'other';
@@ -80,17 +153,21 @@
             attachmentId={a.id}
             src={a.thumb_url ?? a.url}
             alt={a.filename ?? ''}
-            thumb={a.thumb_url !== null && a.thumb_url !== undefined}
+            thumb={a.verschluesselt
+              ? a.thumb_schluessel !== null && a.thumb_schluessel !== undefined
+              : a.thumb_url !== null && a.thumb_url !== undefined}
+            anhang={a.verschluesselt ? a : null}
             class={box ? 'block size-full object-cover' : 'block max-h-96 w-auto object-cover'}
           />
         </button>
       {:else if k === 'video'}
+        {@const quelleVideo = quelle(a)}
         <!-- `preload="metadata"` means the intrinsic size lands late; without a
              reserved box the element starts at the 300×150 default and resizes
              once metadata arrives. Uploads carry no dimensions for video, so
              16/9 is the fallback ratio (the element letterboxes anything else). -->
         <video
-          src={a.url}
+          src={quelleVideo ?? undefined}
           controls
           preload="metadata"
           class="block max-h-96 w-full max-w-md rounded-xl border border-border"
@@ -100,21 +177,23 @@
           <track kind="captions" />
         </video>
       {:else if k === 'audio'}
+        {@const quelleAudio = quelle(a)}
         <audio
-          src={a.url}
+          src={quelleAudio ?? undefined}
           controls
           preload="metadata"
           class="block w-full max-w-md"
           data-testid="attachment-audio"
         ></audio>
       {:else}
+        {@const quelleDatei = quelle(a)}
         <a
-          href={a.url}
+          href={quelleDatei || undefined}
           target="_blank"
           rel="noopener noreferrer"
           class="bg-bg-input hover:bg-bg-hover flex w-fit max-w-md items-center gap-3 rounded-xl border border-border px-3 py-2.5 text-sm transition-colors"
           data-testid="attachment-download"
-          download={a.filename ?? undefined}
+          download={a.filename || ERSATZ_DATEINAME}
         >
           <div class="text-text-muted shrink-0">
             {#if k === 'pdf'}
@@ -127,7 +206,9 @@
             <p class="text-text-bright truncate font-medium">
               {a.filename ?? m.message_attachments_unnamed()}
             </p>
-            <p class="text-text-muted text-xs">{formatBytes(a.size)}</p>
+            <p class="text-text-muted text-xs">
+              {quelleDatei === '' ? m.message_attachments_unavailable() : formatBytes(a.size)}
+            </p>
           </div>
           <DownloadIcon class="text-text-muted size-4 shrink-0" />
         </a>
@@ -143,5 +224,6 @@
     src={lightboxAttachment.url}
     alt={lightboxAttachment.filename ?? ''}
     filename={lightboxAttachment.filename}
+    anhang={lightboxAttachment.verschluesselt ? lightboxAttachment : null}
   />
 {/if}

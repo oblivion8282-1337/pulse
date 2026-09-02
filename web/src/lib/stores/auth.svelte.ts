@@ -18,6 +18,11 @@ import { serversStore } from '$lib/api/servers.svelte';
 import { profileStatementStore } from '$lib/identity/profile-statement.svelte';
 import { stopProfileRefresh, startProfileRefresh } from '$lib/identity/profile-refresh.svelte';
 import { activeServer } from './active-server.svelte';
+// Gerätelokales Krypto-Material — es hängt an derselben Identität wie
+// Keypair und Cert und muss mit ihnen verschwinden, s. die beiden Wisch-
+// Stellen unten.
+import { geraeteGeheimnisWischen } from '$lib/krypto/geraeteGeheimnis';
+import { geraeteKennungWischen } from '$lib/krypto/geraeteKennung';
 import { clearLegacyStreamCredentials } from '$lib/stream/persistence';
 import { renewSession } from '$lib/api/cookie-client';
 
@@ -104,10 +109,9 @@ class AuthStore {
         // Nach Tab-Reload/SSO-Hydrate: Cookie erneuern, Serverliste holen,
         // Profil-Auffrischung starten.
         //
-        // Der Ausweis-Fluss, der hier früher lief (`runIssueFlow` →
-        // `/credentials/issue`), ist mit dem Gerätezertifikat entfallen. Es gibt
-        // nichts mehr auszustellen: Die Anmeldung an einem Self-Host holt sich
-        // im Moment der Nutzung ein Ticket.
+        // Der Geraete-Anmelde-Fluss (runIssueFlow → Schluesselbuendel
+        // veroeffentlichen) laeuft hier wieder — ohne Zertifikat (Weg A,
+        // Schnittanalyse §4). Best-effort nach dem Cookie-Renew.
         void (async () => {
           // Proaktiv den 30-Min-`pulse_session`-Cookie neu etablieren, BEVOR
           // der erste Cookie-Auth-Call läuft. Nach App-Neustart/Tab-Reload ist
@@ -125,6 +129,16 @@ class AuthStore {
           // Cookie-Auth-Call (/me/instances) frisch ist.
           void serversStore.hydrateFromBackend();
           startProfileRefresh();
+          try {
+            const { runIssueFlow } = await import('$lib/identity/issue-flow');
+            await runIssueFlow();
+          } catch (fehler) {
+            // best-effort — der naechste Login/Restore versucht es erneut.
+            // Seit B11 wirft der Fluss auch das Scheitern der Schluessel-
+            // veroeffentlichung weiter; unsichtbar darf es nicht bleiben
+            // (die DM-Wand bietet in App-Kontexten den sichtbaren Weg).
+            console.warn('[krypto] Geraete-Anmeldung fehlgeschlagen:', fehler instanceof Error ? fehler.message : fehler);
+          }
         })();
       }
     } catch (e) {
@@ -170,6 +184,16 @@ class AuthStore {
     // Account-basierte Self-Host-Liste aus dem Backend mergen
     // (gegen `signOut → keepOnlyCloud(true)`-Verlust). Details im Helper.
     void serversStore.hydrateFromBackend();
+    // Geraete-Anmeldung (Weg A) — fire-and-forget, best-effort wie beim Restore.
+    void (async () => {
+      try {
+        const { runIssueFlow } = await import('$lib/identity/issue-flow');
+        await runIssueFlow();
+      } catch (fehler) {
+        // s. derselbe Hinweis im Restore-Pfad oben (B11): sichtbar warnen.
+        console.warn('[krypto] Geraete-Anmeldung fehlgeschlagen:', fehler instanceof Error ? fehler.message : fehler);
+      }
+    })();
   }
 
   /**
@@ -184,6 +208,15 @@ class AuthStore {
    * Läuft auf Web UND Electron identisch (Electron lädt denselben Renderer);
    * der native Stream-Store wird über `clearLegacyStreamCredentials()` defensiv
    * mit-entleert. Gleicher User → reiner No-Op (nur Owner-Tag setzen).
+   *
+   * **Absichtlich NICHT dabei: der lokale Verlauf (`verlauf/schema.ts`,
+   * DB `pulse-verlauf`).** Anders als die Artefakte hier ist er fuer
+   * verschlüsselte Nachrichten die EINZIGE Kopie — ein Löschen bei jedem
+   * Kontowechsel (auch einem versehentlichen) wäre endgültiger Datenverlust.
+   * Seit dem Bughunt 2026-08-29 (Befund 1) trägt jeder Satz `kontoId`, und
+   * jeder Lesepfad (`verlauf/db.ts` über `kontoFilter.ts::gehoertZuKonto`)
+   * zeigt nur Sätze des GERADE angemeldeten Kontos — der Vorgänger-Bestand
+   * bleibt liegen, aber unsichtbar, bis derselbe User sich wieder anmeldet.
    */
   private async _enforceDeviceOwner(userId: string): Promise<void> {
     if (typeof window === 'undefined') return;
@@ -260,6 +293,20 @@ class AuthStore {
       // frischen Cert für den neuen User anfordert (sonst läse er alte Keys).
       await Promise.allSettled([
         profileStatementStore.wipe(),
+        // Pickle-Geheimnis und Gerätekennung gehören in dieselbe Zeile wie
+        // das Keypair: solange der Pickle-Schlüssel aus dem Keypair abgeleitet
+        // wurde, machte dessen Löschen den eingefrorenen Krypto-Zustand
+        // unlesbar (so steht es im Kopf von `krypto/account.svelte.ts`). Seit
+        // der Schlüssel aus einem eigenen Geheimnis kommt, tut das nur noch
+        // dieser Aufruf — ohne ihn läse der nächste Nutzer am selben Fenster
+        // den Zustand des vorigen. Die Kennung ebenso: sie käme sonst mit dem
+        // neuen Cert in Widerspruch.
+        geraeteGeheimnisWischen(),
+        geraeteKennungWischen(),
+        // Sicherungs-Wissen (DEK, Google-Token, Klartext-Puffer) gehört dem
+        // vorigen Konto — ohne Wisch brächte der nächste Nutzer Archiv und
+        // Schlüssel zusammen (Review 2026-08-31, Befund 2).
+        import('$lib/sicherung/andock').then((m) => m.sicherungBeiAbmeldungWischen()),
         clearLegacyStreamCredentials(),
       ]);
     }
@@ -353,6 +400,12 @@ class AuthStore {
     // Identity-Cleanup: Timer stoppen, Stores wischen
     stopProfileRefresh();
     void profileStatementStore.wipe();
+    // Dieselbe Begründung wie im Kontowechsel-Pfad oben.
+    void geraeteGeheimnisWischen();
+    void geraeteKennungWischen();
+    // Sicherungs-Wissen (DEK, Google-Refresh-Token, Klartext-Puffer) —
+    // derselbe Grund wie im Kontowechsel-Pfad oben (Review 2026-08-31).
+    void import('$lib/sicherung/andock').then((m) => m.sicherungBeiAbmeldungWischen());
     // Self-Hosts (Hostnames + pairwise_subs) aus der gerätelokalen Liste
     // entfernen — konsistent zum Account-Switch-Pfad (_enforceDeviceOwner).
     // silent=true: kein Tresor-Push, der den Server-Tresor leeren würde.

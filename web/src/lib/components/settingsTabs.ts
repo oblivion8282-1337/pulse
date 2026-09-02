@@ -25,10 +25,12 @@ import BellIcon from '@lucide/svelte/icons/bell';
 import Volume2Icon from '@lucide/svelte/icons/volume-2';
 import KeyboardIcon from '@lucide/svelte/icons/keyboard';
 import ShieldIcon from '@lucide/svelte/icons/shield';
+import CloudUploadIcon from '@lucide/svelte/icons/cloud-upload';
 import LockIcon from '@lucide/svelte/icons/lock';
 import ServerIcon from '@lucide/svelte/icons/server';
 import MonitorCogIcon from '@lucide/svelte/icons/monitor-cog';
 import UserIcon from '@lucide/svelte/icons/user';
+import HardDriveIcon from '@lucide/svelte/icons/hard-drive';
 import { m } from '$lib/paraglide/messages.js';
 import type { SettingsTab } from './SettingsDialog.svelte';
 
@@ -71,6 +73,13 @@ export function getSettingsTabs(): SettingsTabDef[] {
     { id: 'keyboard', label: m.settings_dialog_tab_keyboard(), icon: KeyboardIcon, desktopOnly: true },
     { id: 'privacy', label: m.settings_dialog_tab_privacy(), icon: LockIcon },
     { id: 'security', label: m.settings_dialog_tab_security(), icon: ShieldIcon },
+    // Auch die Sicherung (Google-Backup) ist Auslieferungsschritt 2 —
+    // Reiter aus, Code bleibt. Reaktivierung: Zeile entkommentieren.
+    // { id: 'sicherung', label: m.settings_dialog_tab_sicherung(), icon: CloudUploadIcon },
+    // Auslieferungsschritt 1 (2026-09-02, Eigentümer): die Cloud-Laufwerk-
+    // Oberfläche bleibt versteckt, bis sie freigegeben wird. Der Code
+    // (Ablage/§11-Anhänge) bleibt voll erhalten — nur der Reiter ist aus.
+    // { id: 'storage', label: m.settings_dialog_tab_storage(), icon: HardDriveIcon },
     { id: 'apps', label: m.settings_dialog_tab_apps(), icon: DownloadIcon, browserOnly: true },
     { id: 'experimental', label: m.settings_dialog_tab_diagnostics(), icon: PlugZapIcon, electronOnly: true },
   ];

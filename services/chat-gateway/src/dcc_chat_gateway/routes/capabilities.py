@@ -26,6 +26,14 @@ from dcc_chat_gateway.security import CurrentUser
 router = APIRouter()
 
 
+def _kanal_policy() -> dict[str, object]:
+    """Instanz-Einstellung fuer die Textkanal-Erstellung (Konzept §2a):
+    "regular" (wie bisher) oder "ablage_only" (erstellen setzt eine
+    verbundene Ablage voraus). Rein ein UI-Hinweis — die Erzwingung passiert
+    in der Kanal-Erstell-Route."""
+    return {"channel_creation_policy": chat_config.get_settings().channel_creation_policy}
+
+
 def _upload_policy() -> dict[str, object]:
     """Instance-level upload-surface policy, sourced from env (not the DB row).
 
@@ -33,16 +41,24 @@ def _upload_policy() -> dict[str, object]:
     the gates in attachments.py / the dropbox router never fire there. Purely
     a UI hint — the server enforces the same rules independently."""
     settings = chat_config.get_settings()
+    # ``ablage_anhang_max_bytes`` gilt auf JEDER Instanzart gleich (Design
+    # §11.3) und steht deshalb ausserhalb der Cloud-Fallunterscheidung: die
+    # Grenze schuetzt nicht den eigenen Speicher, sondern die fremden
+    # Cloud-Ordner, in die der Anhang wandert — daran aendert sich nichts,
+    # nur weil ein Self-Host ihn verschickt.
+    anhang_grenze = {"ablage_anhang_max_bytes": settings.ablage_anhang_max_bytes}
     if settings.pulse_instance_mode != "cloud":
         return {
             "dm_attachments_enabled": True,
             "dropbox_enabled": True,
             "attachment_mime_prefixes": [],
+            **anhang_grenze,
         }
     return {
         "dm_attachments_enabled": settings.cloud_dm_attachments_enabled,
         "dropbox_enabled": settings.cloud_dropbox_enabled,
         "attachment_mime_prefixes": settings.cloud_attachment_mime_prefix_list,
+        **anhang_grenze,
     }
 
 
@@ -73,8 +89,8 @@ async def get_capabilities(session: SessionDep, _current: CurrentUser):
             cam_resolution_max="720p",
             cam_fps_max=30,
             voice_bitrate_max_kbps=128,
-            **_upload_policy(),
+            **_upload_policy(), **_kanal_policy(),
         )
     # The row carries the DB-backed flags; the upload policy comes from env, so
     # it is merged on top rather than read via from_attributes.
-    return CapabilitiesOut.model_validate(row).model_copy(update=_upload_policy())
+    return CapabilitiesOut.model_validate(row).model_copy(update={**_upload_policy(), **_kanal_policy()})

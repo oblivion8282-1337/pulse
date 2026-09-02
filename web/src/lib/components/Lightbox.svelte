@@ -12,19 +12,24 @@
   import AutoRefreshImage from './AutoRefreshImage.svelte';
   import XIcon from '@lucide/svelte/icons/x';
   import { m } from '$lib/paraglide/messages.js';
+  import type { Attachment } from '$lib/api/types';
 
   let {
     open = $bindable(false),
     attachmentId,
     src,
     alt = '',
-    filename
+    filename,
+    anhang = null
   }: {
     open?: boolean;
     attachmentId: string;
     src: string;
     alt?: string;
     filename?: string | null;
+    /** Nur bei einem VERSCHLUESSELTEN Anhang gesetzt — wird unveraendert an
+     *  `AutoRefreshImage` durchgereicht (s. dort). */
+    anhang?: Attachment | null;
   } = $props();
 </script>
 
@@ -45,6 +50,7 @@
         {attachmentId}
         {src}
         {alt}
+        {anhang}
         class="max-h-full max-w-full rounded-xl object-contain shadow-2xl"
       />
 

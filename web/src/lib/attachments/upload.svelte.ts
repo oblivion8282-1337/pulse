@@ -1,14 +1,15 @@
 /**
- * Composer-side two-phase upload helper.
+ * Composer-side two-phase upload helper — **der KLARTEXT-Weg**. Der
+ * verschluesselte Gegenpart steht in `uploadVerschluesselt.ts` und teilt sich
+ * mit dieser Datei `vorschaubild.ts` und `putMitFortschritt.ts`.
  *
  * Each picked/pasted/dropped File becomes a `PendingAttachment` whose
  * state machine walks through queued → uploading → done | error. The
  * machine handles:
  *
- *  - client-side webp thumbnail generation for image/* (mirrors the
- *    AvatarUploadDialog pattern: createImageBitmap + canvas → Blob);
+ *  - client-side webp thumbnail generation for image/* (`vorschaubild.ts`),
  *  - presigned-URL request to chat-gateway,
- *  - XHR PUT to MinIO (XHR over fetch so we get a progress stream),
+ *  - XHR PUT to MinIO (`putMitFortschritt.ts`),
  *  - cancellation via XHR abort,
  *  - cleanup of object URLs created for the preview thumbnail.
  *
@@ -17,6 +18,9 @@
  */
 
 import { chatApi } from '$lib/api/chat';
+import { erzeugeVorschaubild } from './vorschaubild';
+import { putMitFortschritt } from './putMitFortschritt';
+import type { AnhangAngabe } from '$lib/krypto/nachrichtNutzlast';
 
 export type PendingAttachment = {
   /** Stable local id (different from the server-assigned attachment.id). */
@@ -29,72 +33,19 @@ export type PendingAttachment = {
   /** Set when state transitions to 'done'. */
   attachmentId: string | null;
   errorMessage: string | null;
+  /** Nur im VERSCHLUESSELTEN Weg gesetzt (`uploadVerschluesselt.ts`): alles,
+   *  was in die verschluesselte Nachricht mitmuss — Dateischluessel, Name,
+   *  Typ, Maße. Im Klartext-Weg bleibt es `null`, dort kennt der Server das
+   *  alles selbst. */
+  anhang: AnhangAngabe | null;
 };
 
-/** Max edge for the client-side thumbnail. 720 keeps it readable inline
- * without being a full hi-res second upload. */
-const THUMB_MAX = 720;
-
 let _idCounter = 0;
-function _nextLocalId(): string {
+/** Stabile lokale Zeilen-ID. Exportiert, weil der verschluesselte Weg
+ *  (`uploadVerschluesselt.ts`) dieselbe Zeilenform fuellt — zwei Zaehler
+ *  koennten dieselbe ID zweimal vergeben, und `pending` sucht darueber. */
+export function nextLocalId(): string {
   return `pa-${Date.now().toString(36)}-${(_idCounter++).toString(36)}`;
-}
-
-async function _generateThumb(
-  file: File
-): Promise<{ blob: Blob; thumbWidth: number; thumbHeight: number; origWidth: number; origHeight: number } | null> {
-  if (!file.type.startsWith('image/')) return null;
-  let bitmap: ImageBitmap;
-  try {
-    bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-  } catch {
-    return null; // unsupported format — server still sees the original
-  }
-  const origWidth = bitmap.width;
-  const origHeight = bitmap.height;
-  const scale = Math.min(1, THUMB_MAX / Math.max(origWidth, origHeight));
-  const w = Math.max(1, Math.round(origWidth * scale));
-  const h = Math.max(1, Math.round(origHeight * scale));
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) {
-    bitmap.close();
-    return null;
-  }
-  ctx.drawImage(bitmap, 0, 0, w, h);
-  bitmap.close();
-  const blob = await new Promise<Blob | null>((res) =>
-    canvas.toBlob(res, 'image/webp', 0.85)
-  );
-  if (!blob) return null;
-  return { blob, thumbWidth: w, thumbHeight: h, origWidth, origHeight };
-}
-
-function _putWithProgress(
-  url: string,
-  blob: Blob,
-  contentType: string,
-  onProgress: (pct: number) => void,
-  registerAbort: (abort: () => void) => void
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    registerAbort(() => xhr.abort());
-    xhr.open('PUT', url);
-    xhr.setRequestHeader('Content-Type', contentType);
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
-    };
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve();
-      else reject(new Error(`PUT ${xhr.status}`));
-    };
-    xhr.onerror = () => reject(new Error('network error'));
-    xhr.onabort = () => reject(new Error('aborted'));
-    xhr.send(blob);
-  });
 }
 
 /**
@@ -110,7 +61,7 @@ export function startUpload(
   file: File,
   onChange: (next: PendingAttachment) => void
 ): { row: PendingAttachment; abort: () => void } {
-  const localId = _nextLocalId();
+  const localId = nextLocalId();
   const previewUrl =
     file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
   const row: PendingAttachment = {
@@ -120,7 +71,8 @@ export function startUpload(
     state: 'queued',
     progress: 0,
     attachmentId: null,
-    errorMessage: null
+    errorMessage: null,
+    anhang: null
   };
 
   let abortCurrent: (() => void) | null = null;
@@ -131,7 +83,7 @@ export function startUpload(
   const run = async () => {
     try {
       // 1. (image only) build the thumbnail + capture original dimensions.
-      const thumb = await _generateThumb(file);
+      const thumb = await erzeugeVorschaubild(file);
       if (cancelled) return;
 
       // 2. Ask the server for an upload URL (+ optional thumb URL).
@@ -155,7 +107,7 @@ export function startUpload(
       // 3. PUT the bytes — main file first, then the thumb in parallel
       //    isn't worth the bookkeeping; serial keeps the progress meter
       //    monotonic and simple.
-      await _putWithProgress(
+      await putMitFortschritt(
         presign.upload_url,
         file,
         file.type || 'application/octet-stream',
@@ -170,7 +122,7 @@ export function startUpload(
       if (cancelled) return;
 
       if (thumb && presign.thumb_upload_url) {
-        await _putWithProgress(
+        await putMitFortschritt(
           presign.thumb_upload_url,
           thumb.blob,
           'image/webp',

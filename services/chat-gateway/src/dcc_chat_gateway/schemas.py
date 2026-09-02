@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from dcc_shared.snowflake import INT64_MAX, INT64_MIN
 from pydantic import (
@@ -246,6 +246,10 @@ class ChannelIn(BaseModel):
     type: Annotated[int, Field(ge=0, le=2)] = 0
     topic: Annotated[str | None, Field(default=None, max_length=1024)] = None
     position: int = 0
+    # Ablage-Kanal (Konzept §2a): serverblind, Inhalte clientverschluesselt
+    # auf dem Laufwerk des Erstellers. Im Instanz-Modus "ablage_only" ist
+    # ablage=True Pflicht fuer die Neuanlage.
+    ablage: bool = False
 
 
 class ChannelOut(BaseModel):
@@ -254,6 +258,11 @@ class ChannelOut(BaseModel):
     guild_id: int
     name: str
     type: int
+    # Ablage-Kanal (Konzept §2a) — serverblind, Inhalte clientverschluesselt.
+    ablage: bool = False
+    # Alt-Kanal eingefroren (Entwurf §9, Etappe E9) — lesbar, nicht mehr
+    # beschreibbar. Bestand + Neuanlagen: False (Migration 0083).
+    legacy_readonly: bool = False
     position: int
     topic: str | None
     created_at: datetime
@@ -698,12 +707,16 @@ class PermissionsOut(BaseModel):
     ``/capabilities`` (so UI can gate the create-guild button, validate
     uploads, etc.). Admin writes happen via ``/admin/permissions``.
 
+    ``channel_creation_policy`` (Konzept §2a): "regular" oder "ablage_only" —
+    der Instanz-Modus fuer die Textkanal-Erstellung.
+
     The numeric ``guild_sound_max_size_bytes`` lives here because it's
     a public ceiling — any uploader needs to know it. The class name
     pre-dates the field and is mildly misleading; renaming would touch
     too many callers without payoff."""
 
     model_config = ConfigDict(from_attributes=True)
+    channel_creation_policy: str = "regular"
     allow_guild_creation: bool
     allow_member_invites: bool
     # Self-Host "Server gesperrt" not-aus toggle. When true the instance refuses
@@ -751,6 +764,19 @@ class CapabilitiesOut(PermissionsOut):
     dropbox_enabled: bool = True
     # Allowed MIME prefixes for message attachments; empty = unrestricted.
     attachment_mime_prefixes: list[str] = []
+    # Obergrenze eines VERSCHLUESSELTEN DM-Anhangs (Design §11.3,
+    # ``ablage_anhang_max_bytes``) — dieselbe Zahl, die die Upload-Route
+    # durchsetzt und die ``ablage_anhang_verteilung`` beim Weiterschieben
+    # anlegt.
+    #
+    # **Der Verfasser liest sie NICHT hier**, sondern aus der Antwort von
+    # ``GET /postfach/anhaenge/bereitschaft`` — derselben Auskunft, die den
+    # Anhang-Knopf ueberhaupt freischaltet. Eine Grenze, die vor dem Knopf da
+    # ist, brauchte niemand. Sie steht hier trotzdem, weil ``/capabilities``
+    # der Ort ist, an dem eine Instanz ihre Einstellungen nennt, und weil
+    # Oberflaechen ausserhalb des Verfassers (Einstellungsseite, Hinweise)
+    # sie ohne Kanalbezug brauchen.
+    ablage_anhang_max_bytes: int = 25 * 1024 * 1024
 
 
 # Allowed values for ``hq_resolution_max`` — mirrors the frontend
@@ -1156,3 +1182,376 @@ class OwnerReportedContentOut(BaseModel):
     @field_serializer("guild_id", "channel_id", "message_id", "author_id")
     def _ser_opt_ids(self, v: int | None) -> str | None:
         return _opt_id_str(v)
+
+
+# ---------------------------------------------------------------------------
+# Geraete-Schluesselverzeichnis (Etappe B, E2E-DM)
+# ---------------------------------------------------------------------------
+
+
+#: Die Geraetekennung im Anfrage-Rumpf (Base64url eines Ed25519-Pubkeys, in
+#: der Praxis 43 Zeichen). **Selbstbehauptet** — geprueft wird nicht, dass der
+#: Aufrufer dieses Geraet IST, sondern nur, dass es zu seinem Konto gehoert
+#: (``schluessel_nachweis.py::pruefe_geraet``, dort auch, was das kostet).
+#: Die Laengengrenzen halten bloss Unsinn aus der Tabelle, sie sind keine
+#: Formatpruefung: ein zu langer Wert soll gar nicht erst in eine Abfrage
+#: geraten.
+GeraeteKennung = Annotated[str, Field(min_length=16, max_length=128)]
+
+
+class BundleVeroeffentlichenRequest(BaseModel):
+    """Rumpf von ``PUT /keys/bundle``."""
+
+    #: Welches Geraet dieses Buendel veroeffentlicht. Beim ALLERERSTEN
+    #: Veroeffentlichen gibt es dazu noch keine Zeile — die Bindung an das
+    #: Konto entsteht genau hier, s. ``routes/schluessel.py``.
+    device_pubkey: GeraeteKennung
+    curve25519: str
+    rueckfallschluessel: str | None = None
+    #: Selbstauskunft des Geraets — Electron- oder Android-App (Spec §3,
+    #: Koexistenz-Regel). Das Geraet kann diese Aussage nur ueber SICH SELBST
+    #: treffen (die Zeile gehoert ueber ``pruefe_geraet`` ohnehin schon zum
+    #: eigenen Konto, ein Dritter kann sie nicht fuer ein fremdes Geraet
+    #: setzen), eine falsche Angabe schwaecht also hoechstens die eigene
+    #: Kontohistorie, nie die eines anderen Kontos. Vorgabe ``False`` (Modell,
+    #: nicht hier) — ein Geraet, das das Feld nicht mitschickt, gilt als
+    #: nicht dauerhaft.
+    dauerhaft: bool = False
+
+
+class EinmalschluesselHinzufuegenRequest(BaseModel):
+    """Rumpf von ``POST /keys/onetime``."""
+
+    device_pubkey: GeraeteKennung
+    schluessel: list[str] = Field(min_length=1)
+
+
+class EinmalschluesselVorratOut(BaseModel):
+    vorrat: int
+
+
+class SchluesselAbholenRequest(BaseModel):
+    """Rumpf von ``POST /keys/claim``."""
+
+    user_ids: Annotated[list[SnowflakeId], Field(min_length=1, max_length=64)]
+
+
+class GeraeteSchluesselOut(BaseModel):
+    """Ein Buendel in der Antwort von ``POST /keys/claim``.
+
+    Genau EINES der beiden Felder ``einmalschluessel``/``rueckfallschluessel``
+    ist gesetzt — nie beide, nie keines (ein Buendel ohne jeden Schluessel
+    wird gar nicht erst in die Liste aufgenommen).
+    """
+
+    device_pubkey: str
+    curve25519: str
+    einmalschluessel: str | None = None
+    rueckfallschluessel: str | None = None
+    #: Wie ``BundleVeroeffentlichenRequest.dauerhaft`` — durchgereicht aus
+    #: ``DeviceKeyBundle.dauerhaft``, Grundlage der Koexistenz-Regel im
+    #: Klienten (``web/src/lib/krypto/empfaengerGeraete.ts``).
+    dauerhaft: bool = False
+    #: Ob dieses Geraet per Kopplungscode gebunden wurde
+    #: (``DeviceKeyBundle.gekoppelt_am is not None``, Spec §3a). Ein
+    #: gekoppelter Browser zaehlt im Klienten wie eine App — ohne dieses Feld
+    #: saehe der Sendeweg ihn als losen Tab und verweigerte die Nachricht,
+    #: waehrend ``GET /keys/verschluesselbar`` sie zusagt. Genau diese
+    #: Zwiespaeltigkeit zwischen Zusage und Sendeweg ist im Klartext-Rueckfall
+    #: schon einmal teuer geworden.
+    gekoppelt: bool = False
+
+
+class GeraeteStandOut(BaseModel):
+    """Antwort von ``GET /keys/geraetestand`` — der Stand des EIGENEN Geraets.
+
+    Drei Werte, und der Unterschied zwischen den letzten beiden ist der Kern
+    der ganzen Route (Spec §3a, Punkt 2):
+
+    * ``gueltig`` — das Buendel steht und ist nicht verfallen.
+    * ``verfallen`` — dieses Geraet ist abgelaufen. **Nur dieser Wert darf den
+      Klienten seinen lokalen Verlauf loeschen lassen**, und er sagt es
+      ausdruecklich, statt es aus einer Abwesenheit ableiten zu lassen.
+    * ``entfernt`` — der Kontoinhaber hat dieses Geraet aus seiner
+      Geraeteliste geworfen (Spec §3b Punkt 4, ``geraete_widerruf.py``).
+      **Loescht ebenfalls**, und ist trotzdem ein eigener Wert statt eines
+      zweiten ``verfallen``: der Klient sagt dem Nutzer, WAS geschehen ist,
+      und „abgelaufen" waere an einem gerade eben entfernten Geraet schlicht
+      falsch.
+    * ``unbekannt`` — fuer diesen ``device_pubkey`` gibt es kein Buendel. Das
+      ist der frische Browser (nichts zu loeschen), aber auch die durch die
+      Geraete-Obergrenze verdraengte Zeile — zwei Faelle, die man nicht
+      auseinanderhalten kann und die deshalb NICHTS ausloesen duerfen.
+
+    **Warum kein vierter Wert fuer „entfernt UND verfallen".** Beides kann
+    zugleich zutreffen; die Route antwortet dann ``entfernt``, weil das der
+    Grund ist, den der Nutzer selbst gesetzt hat. Fuer die Folge — Verlauf
+    loeschen — sind die beiden ohnehin gleich.
+    """
+
+    stand: Literal["gueltig", "verfallen", "entfernt", "unbekannt"]
+
+
+class EigenesGeraetOut(BaseModel):
+    """Eine Zeile der eigenen Geraeteliste (``GET /keys/geraete``).
+
+    **Kein Geraetename, und das ist eine Entscheidung, keine Luecke** (Spec
+    §3b Punkt 4). Ein Name waere eine Selbstauskunft des Geraets — genau des
+    Geraets also, das man moeglicherweise gerade herauswerfen will. Er wuerde
+    die eine Frage, fuer die es diese Liste gibt („steht hier etwas, das ich
+    nicht kenne?"), nicht leichter machen, sondern schwerer: ein fremder
+    Eintrag, der sich „Michaels Laptop" nennt, faellt weniger auf als einer
+    ohne Namen.
+
+    Was stattdessen unterscheidet, ist ueberpruefbar: die Art (App oder
+    Browser), die Zeitpunkte — und die Kennung selbst, die das Geraet auch bei
+    sich anzeigen kann. Wer wissen will, ob eine Zeile sein Laptop ist, sieht
+    auf dem Laptop nach.
+    """
+
+    #: Die Geraetekennung im Klartext. Sie ist ein OEFFENTLICHER Schluessel und
+    #: im Freundeskreis ohnehin ueber ``POST /keys/claim`` abholbar — hier
+    #: dient sie als vergleichbares Erkennungsmerkmal und als das, worauf sich
+    #: ``DELETE /keys/geraete`` bezieht.
+    device_pubkey: str
+    #: Selbstauskunft des Geraets (App vs. Browser), s.
+    #: ``BundleVeroeffentlichenRequest.dauerhaft``. Fuer die Anzeige gedacht,
+    #: nicht als Beleg.
+    dauerhaft: bool
+    #: Wann dieses Geraet per Kopplungscode gebunden wurde — vom Server
+    #: gesetzt, also belastbar. ``None`` = nie gekoppelt.
+    gekoppelt_am: datetime | None
+    #: Wann die Zeile entstand, also wann dieses Geraet zum ersten Mal
+    #: Schluessel veroeffentlicht hat (``DeviceKeyBundle.created_at``).
+    hinzugefuegt_am: datetime
+    #: Letzter Geraete-Nachweis, grob auf eine Stunde aufgeloest
+    #: (``schluessel_nachweis.py``) — das „lebt noch"-Signal.
+    zuletzt_benutzt: datetime
+    #: Ob dieses Geraet abgelaufen ist (Spec §3a). Vom Server aus DERSELBEN
+    #: SQL-Regel berechnet wie ``GET /keys/geraetestand`` — der Klient soll
+    #: die Verfallsrechnung nicht ein zweites Mal nachbauen.
+    verfallen: bool
+
+
+class VerschluesselbarOut(BaseModel):
+    """Antwort von ``GET /keys/verschluesselbar/{ziel_id}``.
+
+    Bewusst nur ein Bit. Die Geraeteliste des Ziels gehoert NICHT hierher —
+    fuer ein Schloss im Kopf des Gespraechs braucht sie niemand, und jedes
+    zusaetzliche Feld waere Metadaten, die ``POST /keys/claim`` nur gegen
+    Vorratsverbrauch herausgibt.
+    """
+
+    verschluesselbar: bool
+
+
+# ---------------------------------------------------------------------------
+# Postfach — Einliefern verschluesselter Umschlaege (Etappe D, E2E-DM)
+# ---------------------------------------------------------------------------
+
+
+class PostfachNutzlastIn(BaseModel):
+    """Ein Umschlag innerhalb von ``POST /postfach``.
+
+    ``empfaenger`` traegt die Geraete-Pubkeys, fuer die diese Nutzlast
+    verschluesselt wurde — bei einer DM meist eines, bei einer kuenftigen
+    Gruppe (Megolm) mehrere, weil dieselbe Nutzlast fuer alle gilt.
+    """
+
+    art: int
+    #: Base64 — dasselbe Format wie ``daten`` auf ``DmNutzlast``.
+    daten: str
+    #: Obergrenze wie bei ``user_ids`` weiter unten (max_length=64) — eine
+    #: DM braucht heute meist eines. Ohne Obergrenze koennte ein einzelner
+    #: Umschlag beliebig viele Zustellungszeilen erzwingen.
+    #:
+    #: **Fuer eine Megolm-Gruppe reichen 64 nicht zwangslaeufig**, und die
+    #: fruehere Fassung dieses Kommentars behauptete das Gegenteil: sie hielt
+    #: die Zahl gegen ``private_group_max_members`` (Vorgabe 50). Gezaehlt
+    #: werden hier aber GERAETE, nicht Mitglieder — je Konto bis zu
+    #: ``schluessel_max_buendel_je_konto`` (Vorgabe 20). Der Klient teilt
+    #: eine grosse Gruppe deshalb in mehrere Nutzlasten mit demselben
+    #: ``daten``-Wert auf (``web/src/lib/krypto/gruppe/senden.ts``); die
+    #: Grenze bleibt, weil sie die Zustellungszeilen je Nutzlast deckelt,
+    #: nicht die Gruppengroesse.
+    empfaenger: list[str] = Field(min_length=1, max_length=64)
+
+
+class PostfachEinliefernRequest(BaseModel):
+    """Rumpf von ``POST /postfach``."""
+
+    channel_id: SnowflakeId
+    #: Welches Geraet einliefert — es traegt seinen Curve25519-Schluessel in
+    #: jede angelegte Nutzlast (``routes/postfach.py``), damit ein Empfaenger
+    #: eine frische Olm-Sitzung aufbauen kann. Muss zum angemeldeten Konto
+    #: gehoeren (``schluessel_nachweis.py``).
+    device_pubkey: GeraeteKennung
+    nutzlasten: list[PostfachNutzlastIn] = Field(min_length=1)
+    #: Verschluesselte Anhaenge dieser Nachricht (Etappe E) — die Kennungen
+    #: aus ``POST /postfach/anhaenge/upload-url``. Sie stehen HIER und nicht
+    #: je Nutzlast, weil alle Nutzlasten einer Einlieferung dieselbe
+    #: Nachricht sind, nur je Empfaengergeraet verschluesselt; der
+    #: Dateischluessel steckt in jedem einzelnen Umschlag.
+    #: Obergrenze wie ``dm_attachment_max_count_per_message`` (Vorgabe 4),
+    #: bewusst mit Luft nach oben — die scharfe Grenze zieht die
+    #: Groessenpruefung beim Hochladen.
+    anhaenge: list[SnowflakeId] = Field(default_factory=list, max_length=16)
+
+
+class PostfachEinliefernResponse(BaseModel):
+    """Antwort von ``POST /postfach`` — ersetzt das vorherige blosse ``204``.
+
+    Ein einzelner Empfaenger darf uebersprungen werden (unbekanntes Buendel,
+    Kontingent voll), OHNE dass die Anfrage scheitert — aber wenn das fuer
+    ALLE Empfaenger einer Nutzlast gilt, entsteht nirgends eine Zeile. Ein
+    unbedingtes ``204`` liesse den Absender glauben, die Nachricht sei
+    zugestellt, obwohl sie nirgends existiert (Bughunt 2026-08-28, FIX 1).
+    """
+
+    #: Ueber die ganze Anfrage hinweg tatsaechlich angelegte Zustellungen.
+    zustellungen_angelegt: int
+    #: Geraete-Pubkeys, die in mindestens einer Nutzlast als Empfaenger
+    #: angefragt, aber NICHT beliefert wurden — dedupliziert ueber die ganze
+    #: Anfrage. Kein Fehler fuer sich, nur eine ehrliche Auskunft.
+    uebersprungene_empfaenger: list[str]
+    #: Anzahl der Nutzlasten, fuer die ÜBERHAUPT KEINE Zustellung entstand
+    #: (alle angefragten Empfaenger uebersprungen) — der Fall, den der
+    #: Absender NICHT als Erfolg lesen darf.
+    verworfene_nutzlasten: int
+
+
+# ---------------------------------------------------------------------------
+# Private Gruppen (Etappe G1, die Kanal-Haelfte) — ohne Krypto, ohne UI.
+# ---------------------------------------------------------------------------
+
+
+class PrivateGroupCreateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+
+
+class PrivateGroupMemberOut(BaseModel):
+    user_id: int
+    beigetreten_am: datetime
+
+    @field_serializer("user_id")
+    def _ser_user_id(self, v: int) -> str:
+        return _id_str(v)
+
+
+class PrivateGroupOut(BaseModel):
+    """Wire-Darstellung eines privaten Gruppenkanals samt Mitgliederliste —
+    die Mitgliederzahl ist klein genug (Obergrenze
+    ``private_group_max_members``), dass ein Sub-Query je Antwort keine
+    Sorge ist, anders als bei einer Community mit Rollen/Overwrites."""
+
+    id: int
+    ersteller_id: int
+    name: str
+    created_at: datetime
+    last_message_id: int | None = None
+    members: list[PrivateGroupMemberOut]
+
+    @field_serializer("id", "ersteller_id", "last_message_id")
+    def _ser_ids(self, v: int | None) -> str | None:
+        return _opt_id_str(v)
+
+
+class PrivateGroupMemberAddIn(BaseModel):
+    user_id: SnowflakeId
+
+
+# ---------------------------------------------------------------------------
+# Postfach — Abholen und Quittieren (Etappe D, Task 3)
+# ---------------------------------------------------------------------------
+
+
+class PostfachAbholenRequest(BaseModel):
+    """Rumpf von ``POST /postfach/abholen`` — welches Geraet fragt.
+
+    Ein Umschlag ist fuer genau ein Empfaengergeraet verschluesselt; ohne
+    diese Angabe kennt der Server nur das KONTO und wuesste nicht, welche
+    Zustellungen gemeint sind.
+    """
+
+    device_pubkey: GeraeteKennung
+
+
+class PostfachZustellungOut(BaseModel):
+    """Eine offene Zustellung in der Antwort von ``POST /postfach/abholen``.
+
+    ``channel_id`` MUSS mitgegeben werden — ohne sie kann der Klient nicht
+    wissen, zu welchem Gespraech eine Zustellung gehoert, und weder die
+    richtige Olm-Sitzung (Schluessel ist Kanal+Geraet, s.
+    ``web/src/lib/krypto/sitzungsschluessel.ts``) noch den richtigen
+    lokalen Verlaufseintrag treffen.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    channel_id: int
+    absender_device_pubkey: str
+    #: Fuer einen frischen Sitzungsaufbau noetig (Olm braucht ihn als eigenes
+    #: Argument, s. Migration 0069) — ``None``, wenn das einliefernde Geraet
+    #: zum Zeitpunkt des Einlieferns kein Buendel veroeffentlicht hatte.
+    absender_curve25519: str | None = None
+    #: Vom Server aus ``DeviceKeyBundle.user_id`` (join ueber
+    #: ``absender_device_pubkey``) hergeleitet — der Klient kann das NICHT
+    #: selbst bestimmen: er kennt zu einer Zustellung nur den Kanal, und eine
+    #: verschluesselte DM liefert auch an die EIGENEN anderen Geraete des
+    #: Senders aus (so kommt eine vom Handy gesendete Nachricht auf dem
+    #: Desktop an) — "Kanal-Gegenpart" ist in diesem Fall die FALSCHE
+    #: Zuschreibung. ``None``, wenn das Sendegeraet sich zwischen Einliefern
+    #: und Abholen abgemeldet und sein Buendel damit geloescht hat; der
+    #: Klient faellt dann auf den bisherigen Kanal-Gegenpart zurueck
+    #: (``web/src/lib/krypto/empfangen.ts``) statt abzustuerzen.
+    absender_user_id: int | None = None
+    #: 0 = Sitzungsaufbau, 1 = laufende Nachricht — wie ``PostfachNutzlastIn.art``.
+    art: int
+    #: Base64, wie ``PostfachNutzlastIn.daten``.
+    daten: str
+    groesse: int
+
+    @field_serializer("id", "channel_id")
+    def _ser_id(self, v: int) -> str:
+        return _id_str(v)
+
+    @field_serializer("absender_user_id")
+    def _ser_absender_user_id(self, v: int | None) -> str | None:
+        return _opt_id_str(v)
+
+
+class PostfachAnhangUploadIn(BaseModel):
+    """Rumpf von ``POST /postfach/anhaenge/upload-url`` (Etappe E).
+
+    **Der Gegensatz zu ``AttachmentUploadIn`` ist der Punkt dieser Etappe:**
+    kein ``filename``, kein ``mime``, keine ``width``/``height``. Der Server
+    speichert davon nichts, also nimmt er es auch nicht entgegen — ein Feld,
+    das nur weggeworfen wird, waere eine Einladung, es spaeter doch
+    abzulegen. Was der Empfaenger zum Anzeigen braucht (Name, Typ, Maße,
+    Vorschaubild), reist verschluesselt in der Nachricht mit (Spec §5).
+    """
+
+    channel_id: SnowflakeId
+    #: Groesse des VERSCHLUESSELTEN Klumpens, wie er hochgeladen wird.
+    size: Annotated[int, Field(ge=1, le=4 * 1024**4)]
+    has_thumb: bool = False
+    thumb_size: int | None = None
+
+
+class PostfachAnhangAbrufIn(BaseModel):
+    """Rumpf von ``POST /postfach/anhaenge/{id}/abrufadresse`` (Etappe E).
+
+    Welches Geraet fragt — das angemeldete Konto allein genuegt als
+    Zeilenwahl nicht: ein Anhang ist ueber die Zustellung an ein EINZELNES
+    Geraet berechtigt (``postfach_anhaenge.py::darf_anhang_abrufen``).
+    """
+
+    device_pubkey: GeraeteKennung
+
+
+class PostfachQuittungRequest(BaseModel):
+    """Rumpf von ``POST /postfach/quittung``."""
+
+    device_pubkey: GeraeteKennung
+    zustellung_ids: list[SnowflakeId] = Field(min_length=1)

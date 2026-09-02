@@ -158,6 +158,15 @@ import { errText } from '$lib/utils/errText';
       gateway.unsubscribe(id);
       messages.clearChannel(id);
       onChannelDeleted?.(id);
+      // Der Archiv-Ordner der Unterhaltung (`<kanalId>/`) wandert mit weg —
+      // das Sicherungs-Archiv darf nicht stärker sein als die App. Feuer und
+      // vergessen: ein Fehlschlag hier darf das gelungene Löschen nicht zu
+      // einem Fehler machen (andock.ts wirft dort nie).
+      void import('$lib/sicherung/andock')
+        .then(({ sicherungGespraechEntfernen }) => sicherungGespraechEntfernen(id))
+        .catch(() => {
+          /* still — s. Modulkopf andock.ts, Regel 1 */
+        });
       deleteConfirmOpen = false;
       deleteTarget = null;
     } catch (err) {

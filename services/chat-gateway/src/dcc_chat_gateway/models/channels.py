@@ -36,6 +36,17 @@ CHANNEL_TYPE_VOICE = 1
 # would only need a permission gate, no schema change.
 CHANNEL_TYPE_DROPBOX = 2
 
+# Begruendende Meldung fuer einen abgewiesenen Send/Upload in einen
+# eingefrorenen Alt-Kanal (``Channel.legacy_readonly``, Umstellung Entwurf
+# §9, Etappe E9) — an EINER Stelle, weil sie an drei Ablehnungsstellen
+# wortgleich gebraucht wird: ``routes/messages.py`` (REST-Send),
+# ``routes/ws_op_send.py`` (WS-Send, Code 4015) und
+# ``routes/attachments.py`` (Anhang-Upload).
+LEGACY_READONLY_DETAIL = (
+    "channel_legacy_readonly: this channel is frozen (read-only) — "
+    "the instance now only accepts new messages in ablage channels"
+)
+
 
 class Channel(Base):
     __tablename__ = "channels"
@@ -46,6 +57,16 @@ class Channel(Base):
     )
     name: Mapped[str] = mapped_column(String(64), nullable=False)
     type: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=CHANNEL_TYPE_TEXT)
+    # Ablage-Kanal (Konzept §2a): serverblind — Nachrichten/Anhaenge sind
+    # clientverschluesselt und liegen im Laufwerk des Erstellers, nie hier.
+    # Migrationskette 0081. Regulaere Kanaele: False.
+    ablage: Mapped[bool] = mapped_column(nullable=False, default=False)
+    # Alt-Kanal eingefroren (Entwurf §9, Etappe E9): Lesen ja, Schreiben nein.
+    # Betrifft nur reguläre (nicht-Ablage) Textkanäle, die es schon gab, als
+    # die Instanz auf "nur Ablage" umgestellt wurde. Migrationskette 0083.
+    # Bestand + alle Neuanlagen: False — dieses Feld setzt sich nicht selbst;
+    # das Umlegen ist ein bewusster, separater Handgriff (s. Migration 0083).
+    legacy_readonly: Mapped[bool] = mapped_column(nullable=False, default=False)
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     topic: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Per-channel name styling (mirrors users.profile_color*). NULL = no color

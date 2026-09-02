@@ -556,3 +556,27 @@ class AccountDeleteIn(BaseModel):
         str | None, Field(default=None, pattern=BACKUP_CODE_PATTERN)
     ] = None
     confirm_username: Annotated[str, Field(min_length=1, max_length=32)]
+
+
+# --- Wiederherstellungs-Päckchen (Ablage §8) ------------------------------
+# 128 KiB base64-Text als Obergrenze — Rechnung: 200 Ablage-Verbindungen (weit
+# über realistischem Bedarf) je ~400 Byte roh (Snowflake-ID, Freigabe-Link,
+# 32-Byte-Schlüssel, JSON-Overhead) = 80 KB, plus Archiv-Hauptschlüssel +
+# Geräte-Identität (wenige hundert Byte) + AEAD-Overhead ≈ 82 KB Rohdaten.
+# Base64 macht daraus ~110 KB Text; 128 KiB (131072 Byte) rundet mit Puffer
+# auf. Siehe ``routes_recovery_package.py`` für die Begründung der Route.
+RECOVERY_PACKAGE_MAX_B64 = 131072
+
+
+class RecoveryPackageIn(BaseModel):
+    """Undurchsichtiger Block — der Server sieht nur base64-Text, nie den
+    Inhalt. ``ciphertext`` heisst so, weil er es sein MUSS: der Client
+    verschlüsselt mit einem aus dem Wiederherstellungs-Satz abgeleiteten
+    Schlüssel, bevor er hierher gesendet wird."""
+
+    ciphertext: Annotated[str, Field(min_length=1, max_length=RECOVERY_PACKAGE_MAX_B64)]
+
+
+class RecoveryPackageOut(BaseModel):
+    ciphertext: str
+    updated_at: datetime

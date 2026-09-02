@@ -24,6 +24,8 @@
   import PasskeysSection from './PasskeysSection.svelte';
   import SessionsSection from './SessionsSection.svelte';
   import DangerZoneSection from './DangerZoneSection.svelte';
+  import GeraeteKopplungSection from './GeraeteKopplungSection.svelte';
+  import GeraeteListeSection from './GeraeteListeSection.svelte';
   import PublicComputerSafety from './PublicComputerSafety.svelte';
 
   let enableOpen = $state(false);
@@ -100,6 +102,10 @@
   <ChangePasswordSection />
 
   <PasskeysSection />
+
+  <GeraeteKopplungSection />
+
+  <GeraeteListeSection />
 
   <SessionsSection />
 

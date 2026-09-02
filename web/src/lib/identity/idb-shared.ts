@@ -8,7 +8,10 @@
  * Store-Layout:
  *   DB:    pulse-identity  (version 1)
  *   Store: identity        (keyPath: keine — externe Keys)
- *   Keys:  `pulse.keypair`, `pulse.identity-cert`, `pulse.profile-statement`
+ *   Keys:  `pulse.keypair`, `pulse.profile-statement`,
+ *          `pulse.krypto-geraetekennung`, `pulse.krypto-account`
+ *          (`pulse.identity-cert` gab es bis zum Weg-A-Umbau; Zertifikate
+ *          sind ersatzlos entfallen)
  */
 
 const DB_NAME = 'pulse-identity';
@@ -23,6 +26,20 @@ const DB_VERSION = 1;
  *
  * Callers still call db.close() for back-compat; the method is replaced with
  * a no-op on the cached instance so the shared connection stays alive.
+ *
+ * **Kein Gegenstueck zu `verlauf/db.ts::mitVerbindung`s Heilung des
+ * `onversionchange`-Rennens** (Aufrufer haelt eine `IDBDatabase`-Referenz
+ * aus VOR dem Reset, `db.transaction()` wirft synchron `InvalidStateError`).
+ * Dieses Rennen braucht einen Aufstieg zwischen zwei `DB_VERSION`-Staenden —
+ * `DB_VERSION` steht hier seit Anlegen der Datei unveraendert auf `1`
+ * (nachgesehen per `git log -p`), und ein Aufstieg ist auch nicht geplant:
+ * `krypto/account.svelte.ts` legt seinen Pickle-Zustand unter einem neuen
+ * SCHLUESSEL im bestehenden Store ab, nicht in einem neuen Object-Store —
+ * genau das, was dort im Modulkopf als "kein `DB_VERSION`-Sprung noetig"
+ * begruendet ist. Ohne einen zweiten Versions-Stand gibt es hier kein
+ * `onversionchange` und damit auch kein Rennen zu heilen. Sobald `DB_VERSION`
+ * hier je steigt, gilt dieselbe Begruendung wie in `verlauf/db.ts` — dann
+ * gehoert die Heilung hierher.
  */
 let _dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -85,12 +102,52 @@ export function idbGetIdentity(db: IDBDatabase, key: string): Promise<unknown> {
   });
 }
 
+/** Löscht einen einzelnen Eintrag. Wie `idbPutIdentity` auf `tx.oncomplete`
+ *  wartend, nicht auf `req.onsuccess` — ein Löschen, das nur angenommen und
+ *  nicht committet wurde, hinterlässt den Wert beim nächsten Start wieder da.
+ *  Wirft; wer „best effort" will, fängt selbst (so tut es `wipeKeypair`). */
+export function idbDeleteIdentity(db: IDBDatabase, key: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const req = tx.objectStore(STORE_NAME).delete(key);
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 export function idbPutIdentity(db: IDBDatabase, key: string, value: unknown): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const req = tx.objectStore(STORE_NAME).put(value, key);
     // Resolve on tx.oncomplete (durable commit), not req.onsuccess (write accepted but not yet
     // flushed to disk). Between onsuccess and oncomplete a crash can silently drop the write.
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/**
+ * Liest und schreibt einen Schlüssel in EINER Transaktion — für einen
+ * Lesen-Ändern-Schreiben-Zyklus, der mehrere Tabs ohne Sperre teilt
+ * (`ablage/archivSchreibweg.ts`). Zwei getrennte `idbGetIdentity`/
+ * `idbPutIdentity`-Aufrufe ließen ein Fenster zwischen Lesen und Schreiben,
+ * in dem ein zweiter Tab dazwischenschreiben und danach überschrieben werden
+ * könnte — mit dieser Transaktion kann das nicht mehr passieren.
+ */
+export function idbUpdateIdentity(
+  db: IDBDatabase,
+  key: string,
+  updater: (aktuell: unknown) => unknown
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const req = store.get(key);
+    req.onsuccess = () => {
+      store.put(updater(req.result), key);
+    };
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
