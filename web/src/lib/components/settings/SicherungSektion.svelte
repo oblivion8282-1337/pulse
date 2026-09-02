@@ -279,6 +279,12 @@
         aufOrdner={() => void zielHinzufügen('ordner')}
         aufNextcloud={() => zielHinzufügen('nextcloud')}
       />
+      <!-- Der Link-Dialog gehört in JEDEN Zustand, der den Nextcloud-Knopf
+           zeigt. Bis zum 2026-09-02 stand er nur im Zustand „an" — wer noch
+           kein Ziel hatte, klickte auf Verbinden, und nichts geschah. -->
+      {#if nextcloudOffen}
+        <NextcloudVerbinden onVerbunden={(v) => void nextcloudVerbunden(v)} />
+      {/if}
     {:else if zustand === 'passwort'}
       <SicherungFormular
         neu={neuesPasswort}
