@@ -51,6 +51,7 @@ import {
 	geraeteKuerzel,
 	ordnerAdapter,
 	ordnerLeeren,
+	schreibrechtHalten,
 } from './spiegel.ts';
 import {
 	adapterLieferant,
@@ -81,16 +82,34 @@ const spiegelBauJeKanal = new Map<string, Promise<SicherungsSpiegel | null>>();
  *  Aufrufer, bis das Schreibrecht steht (nach `sicherungVerwerfen` wieder
  *  null). Das Recht gilt für ALLE Kanal-Spiegel des Tabs gleichermaßen. */
 let spiegelBau: Promise<void> | null = null;
+/** Löst das Halten des Web-Lock-Schreibrechts — `sicherungVerwerfen` beendet
+ *  damit den haltenden Callback, sonst queue't Logout→Login im selben Tab für
+ *  immer hinter dem eigenen Nie-Ende (B1). */
+let schreibrechtEnde: (() => void) | null = null;
+/** B2: Generation je Kanal — `sicherungGespraechEntfernen` erhöht sie. Ein
+ *  Spiegel-Bau, dessen Generation während des Baus wechselt, verfällt (kein
+ *  Map-Eintrag, keine Puffer-Nachholung), sonst spült der alte Puffer-
+ *  Schnappschuß den frisch geleerten Ordner neu voll. Der Boden steigt mit
+ *  jedem Verwerfen, damit auch ein Bau OHNE Map-Eintrag (nie gelöschter
+ *  Kanal) beim Logout verfällt und keinen Zombie-Spiegel zurücklässt. */
+let generationBoden = 0;
+const generationJeKanal = new Map<string, number>();
+
+function kanalGeneration(kanalId: string): number {
+	return Math.max(generationBoden, generationJeKanal.get(kanalId) ?? 0);
+}
 
 /**
  * Baut den Spiegel EINES Kanals (Ordner-Namensraum, Geräte-Präfix,
- * Puffer-Nachlauf) — ohne Schreibrecht.
+ * Puffer-Nachlauf) — ohne Schreibrecht. Liefert null, wenn das Gespräch
+ * während des Baus gelöscht wurde (B2).
  */
 async function baueSpiegel(
 	kanalId: string,
 	dek: Uint8Array,
 	kuerzel: string,
-): Promise<SicherungsSpiegel> {
+): Promise<SicherungsSpiegel | null> {
+	const generation = kanalGeneration(kanalId);
 	const praefix = await geraeteKuerzel(kuerzel);
 	const spiegel = new SicherungsSpiegel(
 		ordnerAdapter(aufbauAdapter(adapterLieferant), kanalId),
@@ -122,6 +141,12 @@ async function baueSpiegel(
 	// liegt, entscheidet der Ordner-Präfix, nicht die Nutzlast — ein Spiegel
 	// schreibt ausschließlich in seinen eigenen Kanal-Ordner.)
 	const uebrig = (await pufferAlles()).filter((zeile) => zeile.kanalId === kanalId);
+	// B2: NACH dem Puffer-Lesen prüfen — ist die Generation während des Baus
+	// gewechselt, hat der Räumer (`sicherungGespraechEntfernen`/
+	// `sicherungVerwerfen`) den Map-Eintrag bereits mit entfernt; hier nun
+	// weder nachholen noch füttern. Bis zum `aufnehmen` unten liegt kein
+	// await mehr, der Schnappschuß kann den geleerten Ordner nicht füllen.
+	if (kanalGeneration(kanalId) !== generation) return null;
 	if (uebrig.length > 0) {
 		spiegel.aufnehmen(
 			kanalId,
@@ -174,27 +199,23 @@ async function baueMitSchreibrecht(kanalId: string): Promise<SicherungsSpiegel |
 		return baueSpiegel(kanalId, zwischengelagert.dek, zwischengelagert.kuerzel);
 	}
 	spiegelBau ??= (async () => {
-		let bauFertig!: () => void;
-		const gebaut = new Promise<void>((resolve) => {
-			bauFertig = resolve;
-		});
-		// Der Request kehrt BEWUSST nie zurück — der Callback hält das
-		// Schreibrecht bis zum Tab-Ende. Ihn zu awaiten war der stille
-		// Hänger: der erste Aufrufer im Tab wartete auf ein Nie-Ende
-		// (Frischprofil, 2026-09-01). Gewartet wird nur auf den Abschluss
-		// der Übernahme; das Halten selbst läuft feuer-und-vergessen
-		// weiter.
-		void schreiber
-			.request('pulse-sicherung-schreiber', async () => {
-				bauFertig();
-				await new Promise(() => {
-					/* Schreibrecht halten, bis der Tab endet */
-				});
-			})
-			.catch(() => {
-				/* Lock entzogen (Tab-Ende) — der nächste Aufrufer baut neu */
-			});
-		await gebaut;
+		// Der Request kehrt BEWUSST erst zurück, wenn das Recht abgegeben
+		// wird (`sicherungVerwerfen`) oder der Tab endet — der Callback hält
+		// das Schreibrecht. Ihn zu awaiten war der stille Hänger: der erste
+		// Aufrufer im Tab wartete auf ein Nie-Ende (Frischprofil,
+		// 2026-09-01). Gewartet wird nur auf den Abschluss der Übernahme;
+		// das Halten selbst läuft feuer-und-vergessen weiter.
+		const recht = schreibrechtHalten((halten) =>
+			schreiber.request('pulse-sicherung-schreiber', halten).catch(() => {
+				// B1: Sperre entzogen (Tab-Ende) — das Halten lebt nicht mehr,
+				// also darf auch der gemerkte Stand weg, sonst wartet der
+				// nächste Aufrufer auf einen toten Bau.
+				schreibrechtEnde = null;
+				spiegelBau = null;
+			}),
+		);
+		schreibrechtEnde = recht.abgeben;
+		await recht.bereit;
 	})();
 	try {
 		await spiegelBau;
@@ -412,6 +433,18 @@ export async function sicherungAnhaenge(kanalId: string, nachrichten: AblageNach
 
 /** „Jetzt sichern" der Oberfläche — spült ALLE gebauten Kanal-Spiegel. */
 export async function sicherungJetztSpuelen(): Promise<void> {
+	// B8: vor dem Spülen einmal den gerätelokalen Puffer aufnehmen — dort
+	// liegen auch die Zeilen ANDERER Tabs, die der Warteschlange nur über
+	// diese Runde erreichen (der Abgleich läuft sonst nur in `nachSpuelung`
+	// des aktiven Schreibers). Der Duplikatschutz des Spiegels schluckt das
+	// Doppelte.
+	try {
+		for (const zeile of await pufferAlles()) {
+			spiegelJeKanal.get(zeile.kanalId)?.aufnehmen(zeile.kanalId, [zeile.nachricht]);
+		}
+	} catch {
+		/* Puffer nicht lesbar — das Spülen des Bestands trotzdem versuchen */
+	}
 	for (const spiegel of [...spiegelJeKanal.values()]) {
 		await spiegel.jetztSpuelen();
 	}
@@ -431,9 +464,10 @@ export async function sicherungGespraechEntfernen(
 ): Promise<void> {
 	// Erst den Spiegel stilllegen und aus der Map wischen — sonst spült ein
 	// wartender Timer den Puffer NACH dem Leeren in einen frischen Ordner.
-	// ponytail: ein GERADE laufender Spül-Lauf (Single-Flight) kann danach
-	// noch eine Datei nachlegen — beenden stoppt nur den Timer, nicht den
-	// Lauf. Upgrade-Pfad: Abbruch-Flag am Spiegel und der Bau-Läufe.
+	// Die Generation steigt VOR den awaits unten: ein laufender Bau, der
+	// danach weiterläuft, verfällt (baueSpiegel setzt weder Map-Eintrag noch
+	// Puffer-Nachholung ab — B2).
+	generationJeKanal.set(kanalId, kanalGeneration(kanalId) + 1);
 	spiegelJeKanal.get(kanalId)?.beenden();
 	spiegelJeKanal.delete(kanalId);
 	spiegelBauJeKanal.delete(kanalId);
@@ -441,7 +475,8 @@ export async function sicherungGespraechEntfernen(
 		const ordner = ordnerAdapter(adapter ?? (await adapterLieferant()), kanalId);
 		await ordnerLeeren(ordner);
 	} catch {
-		/* Ziel tot oder Ordner schon weg — still, s. Regel 1 */
+		/* B3: Ziel tot oder Rest geblieben — Teilerfolg hier still (Regel 1);
+		   ordnerLeeren hat trotzdem jede löschbare Datei versucht. */
 	}
 	// Geräte-Lokales mitlöschen: Lesestand (Fenster für einen Ordner, den es
 	// nicht mehr gibt) und Puffer (sonst holt der nächste Spiegel-Bau die
@@ -550,7 +585,15 @@ export function sicherungVerwerfen(): void {
 	for (const spiegel of spiegelJeKanal.values()) spiegel.beenden();
 	spiegelJeKanal.clear();
 	spiegelBauJeKanal.clear();
+	// B1: das Schreibrecht wird MIT verworfen — der haltende Callback endet,
+	// die Sperre fällt, und Logout→Login im selben Tab queue't nicht mehr
+	// für immer hinter dem eigenen Halten.
+	schreibrechtEnde?.();
+	schreibrechtEnde = null;
 	spiegelBau = null;
+	// B2: Boden anheben — auch ein Bau ohne Map-Eintrag verfällt jetzt und
+	// hinterlässt nach dem Verwerfen keinen Zombie-Spiegel mehr.
+	generationBoden += 1;
 }
 
 /**

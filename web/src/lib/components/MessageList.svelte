@@ -173,7 +173,7 @@
     if (!oldest) return;
     loadingOlder = true;
     try {
-      const { nachrichten: older, vomServer } = await ladeAeltereSeite(channel.id, oldest, OLDER_PAGE, route);
+      const { nachrichten: older, vomServer, sicherungLieferte } = await ladeAeltereSeite(channel.id, oldest, OLDER_PAGE, route);
       // shift NUR für diese eine Prepend-Längenänderung aktivieren, dann sofort
       // wieder deaktivieren — virtua liest den Wert im Moment, in dem `items`
       // (und damit data.length) wächst, also innerhalb des tick()-Flushes.
@@ -183,8 +183,11 @@
       prependShift = false;
       // Historie-Ende: nur aussagekräftig, wenn die Seite vom Server kam —
       // eine kleine lokale Seite bedeutet nicht "keine Historie mehr", nur
-      // "der Rest liegt noch nicht lokal".
-      if (vomServer && (!added || older.length < OLDER_PAGE)) hasMore = false;
+      // "der Rest liegt noch nicht lokal". B6: auch eine kleine SERVER-Seite
+      // ist kein Ende, wenn die Sicherung in diesem Lauf eine Archiv-Seite
+      // (>0) nachgeladen hat — deren ältere Zeilen kommen beim nächsten
+      // Hochscrollen (dann lokal).
+      if (vomServer && !sicherungLieferte && (!added || older.length < OLDER_PAGE)) hasMore = false;
     } catch {
       // Netzwerkfehler → still,Retry beim nächsten Scroll.
     } finally {

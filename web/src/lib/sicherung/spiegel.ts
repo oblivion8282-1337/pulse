@@ -94,12 +94,25 @@ export function ordnerAdapter(adapter: AblageAdapter, kanalId: string): AblageAd
  * Räumt den GESAMTEN Ordner-Inhalt einer Unterhaltung weg — der Lösch-Lauf
  * der Andock-Schicht (`andock.ts::sicherungGespraechEntfernen`), hier weil
  * er die reine Adapter-Rechnung ist und der Node-Testläufer sie prüft.
- * Dateien ohne `lösche` (Adapter-Erlaubnis fehlt) bleiben als Rest liegen —
- * dieselbe Haltung wie `AblageAdapter.lösche?`.
+ *
+ * B3: jede Datei für sich — ein totes Ziel darf die restlichen Löschungen
+ * nicht abbrechen, sonst überlebt der Rest im anderen Ziel (der Bulk-Leser
+ * findet ihn wieder) und die gelöschte Unterhaltung kehrt auf allen Geräten
+ * zurück. Was danach noch liegt (Fehler ODER fehlende `lösche`-Erlaubnis,
+ * dieselbe Haltung wie `AblageAdapter.lösche?`), wird als Wurf gemeldet —
+ * der Aufrufer dokumentiert den Teilerfolg, statt ihn still zu schlucken.
  */
 export async function ordnerLeeren(ordner: AblageAdapter): Promise<void> {
 	for (const name of await ordner.liste()) {
-		await ordner.lösche?.(name);
+		try {
+			await ordner.lösche?.(name);
+		} catch {
+			/* bleibt als Rest liegen — die Bestandsprüfung unten meldet ihn */
+		}
+	}
+	const rest = await ordner.liste();
+	if (rest.length > 0) {
+		throw new Error(`ordnerLeeren: ${rest.length} Datei(en) blieben liegen`);
 	}
 }
 
@@ -141,9 +154,48 @@ export async function geraeteKuerzel(kennung: string): Promise<string> {
 /** Zähler der Wartezimmer-Duplikatjagd. Der Grabstein einer Nachricht trägt
  *  dieselbe Id wie die Nachricht selbst — ohne Marker würde `aufnehmen` ihn
  *  als Duplikat schlucken, solange die Nachricht noch im Wartezimmer steht,
- *  und die Löschung würde das Archiv nie erreichen. */
-function pufferSchluessel(kanalId: string, nachricht: AblageNachricht): string {
+ *  und die Löschung würde das Archiv nie erreichen. Auch der gerätelokale
+ *  Puffer (`geraete.ts::pufferLegen/pufferWeg`) nutzt diesen Schlüssel, damit
+ *  Stein und Inhalt derselben Id dort nicht gegenseitig überschreiben (B4) —
+ *  exportiert, weil EIN Schlüssel an beiden Stellen gelten muss. */
+export function pufferSchluessel(kanalId: string, nachricht: AblageNachricht): string {
 	return `${kanalId}:${nachricht.id}${nachricht.geloescht === true ? ':geloescht' : ''}`;
+}
+
+/**
+ * Hält eine Sperre (Web-Locks), bis sie bewusst abgegeben wird — die kleine
+ * Rechnung hinter `andock.ts::baueMitSchreibrecht`, hier importfrei, weil
+ * der Node-Läufer den Steuerfluss sonst nicht prüfen kann (andock.ts lädt
+ * dort nicht, B1): der haltende Callback endet durch `abgeben`, statt für
+ * immer auf einem Nie-Ende zu stehen. Stand bisher das Recht beim Modul-
+ * verwerfen noch, queue'ten Logout→Login im selben Tab hinter dem eigenen
+ * Halten.
+ *
+ * `anfragen` reicht den Callback an die Sperr-API durch (z. B.
+ * `locks.request(name, callback)`); deren Rückgabe — etwa eine Rejection,
+ * wenn die Sperre entzogen wird — behandelt der Aufrufer, hier läuft sie
+ * nur fehlertolerant aus.
+ */
+export function schreibrechtHalten(
+	anfragen: (halten: () => Promise<void>) => Promise<unknown>,
+): { bereit: Promise<void>; abgeben: () => void } {
+	// Beide Enden VOR dem ersten await festgehalten — `abgeben` wirkt auch,
+	// wenn sie gerufen wird, bevor die Sperre überhaupt steht.
+	let ende!: () => void;
+	const halten = new Promise<void>((resolve) => {
+		ende = resolve;
+	});
+	let steht!: () => void;
+	const bereit = new Promise<void>((resolve) => {
+		steht = resolve;
+	});
+	void anfragen(async () => {
+		steht();
+		await halten;
+	}).catch(() => {
+		/* Sperre entzogen (z. B. Tab-Ende) — das Halten endet damit ohnehin */
+	});
+	return { bereit, abgeben: () => ende() };
 }
 
 export interface SpiegelOptionen {

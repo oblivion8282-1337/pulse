@@ -3,7 +3,7 @@
 Adversarial-Hunt über den Stand von heute Nacht (Zweig `e2ee`: Ordner-Format,
 seitenweises Laden, Grabsteine). Zwei frische Jäger (Schreibseite, Lese-/Anzeige-
 seite), schwerste Befunde vom Assistenten selbst gegen den Code nachgefahren.
-Methodik §6. 10 Befunde, alle OFFEN — Reihenfolge = Priorität.
+Methodik §6. 10 Befunde — B1–B6 + B8 GEFIXT (Commit nach Bericht, 2026-09-02 Nacht), B7/B9/B10 offen dokumentiert. Reihenfolge = Priorität.
 
 ## Hoch
 

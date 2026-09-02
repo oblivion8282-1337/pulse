@@ -30,6 +30,7 @@ import {
 	idbDeleteIdentity,
 } from '../identity/idb-shared.ts';
 import type { WarteEintrag } from './spiegel.ts';
+import { pufferSchluessel } from './spiegel.ts';
 import type { AblageNachricht } from '../ablage/nutzlast.ts';
 import type { SicherungLeseStand } from './wiederherstellen.ts';
 import { öffneDb, STORE_PUFFER, STORE_LESESTAND } from './ziele.ts';
@@ -88,8 +89,12 @@ export async function pufferLegen(
 	kanalId: string,
 	nachrichten: AblageNachricht[],
 ): Promise<PufferZeile[]> {
+	// B4: derselbe Schlüssel wie die Spiegel-Dedup (`spiegel.ts::
+	// pufferSchluessel`) — der Grabstein trägt denselben Marker, sonst
+	// überschreiben sich Stein und Inhalt derselben Id im Puffer gegenseitig
+	// und ein Absturz dazwischen lässt die Löschung das Archiv nie erreichen.
 	const zeilen: PufferZeile[] = nachrichten.map((nachricht) => ({
-		schluessel: `${kanalId}:${nachricht.id}`,
+		schluessel: pufferSchluessel(kanalId, nachricht),
 		kanalId,
 		nachricht,
 	}));
@@ -122,7 +127,9 @@ export async function pufferWeg(zeilen: WarteEintrag[]): Promise<void> {
 		const tx = db.transaction(STORE_PUFFER, 'readwrite');
 		const store = tx.objectStore(STORE_PUFFER);
 		for (const { kanalId, nachricht } of zeilen) {
-			store.delete(`${kanalId}:${nachricht.id}`);
+			// B4: derselbe Schlüssel wie `pufferLegen` — nur so trifft das
+			// Löschen die Grabstein-Zeile UNTER ihrem Marker.
+			store.delete(pufferSchluessel(kanalId, nachricht));
 		}
 		tx.oncomplete = () => resolve();
 		tx.onerror = () => reject(tx.error);

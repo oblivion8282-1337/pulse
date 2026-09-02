@@ -1,14 +1,26 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { praefixAdapter, ordnerAdapter, SicherungsSpiegel, geraeteKuerzel } from '../src/lib/sicherung/spiegel.ts';
+import {
+	praefixAdapter,
+	ordnerAdapter,
+	ordnerLeeren,
+	pufferSchluessel,
+	SicherungsSpiegel,
+	geraeteKuerzel,
+	schreibrechtHalten,
+} from '../src/lib/sicherung/spiegel.ts';
 import { erzeugeDek } from '../src/lib/sicherung/krypto.ts';
 import { leseSicherungEintrag } from '../src/lib/sicherung/nutzlast.ts';
 import { entschlüsseleEintrag } from '../src/lib/sicherung/krypto.ts';
-import { speicherAdapter } from '../src/lib/ablage/adapter.ts';
+import { speicherAdapter, type AblageAdapter } from '../src/lib/ablage/adapter.ts';
 import { leseSegmentKopf } from '../src/lib/ablage/segment.ts';
 import { leseRahmenFolge } from '../src/lib/ablage/format.ts';
-import { ausWire, type AblageNachricht } from '../src/lib/ablage/nutzlast.ts';
+import {
+	ausWire,
+	NUTZLAST_FASSUNG,
+	type AblageNachricht,
+} from '../src/lib/ablage/nutzlast.ts';
 
 function nachricht(id: string, inhalt: string): AblageNachricht {
 	return ausWire({
@@ -21,6 +33,92 @@ function nachricht(id: string, inhalt: string): AblageNachricht {
 		attachments: [],
 	} as unknown as Parameters<typeof ausWire>[0]);
 }
+
+/** Dieselbe Konstruktion wie `andock.ts::sicherungGrabstein` — der Stein
+ *  trägt nur die Id, alles andere ist leer. */
+function grabstein(id: string): AblageNachricht {
+	return {
+		fassung: NUTZLAST_FASSUNG,
+		id,
+		autor: '',
+		inhalt: '',
+		zeit: new Date().toISOString(),
+		bearbeitet: null,
+		antwortAuf: null,
+		anhaenge: [],
+		geloescht: true,
+	};
+}
+
+test('schreibrechtHalten (B1) — abgeben beendet den haltenden Callback, die Sperre fällt', async () => {
+	let freigegeben = false;
+	const recht = schreibrechtHalten(async (halten) => {
+		// So nennt die Sperr-API den Callback und hält die Sperre, bis seine
+		// Promise endet (z. B. `locks.request(name, callback)`).
+		await halten();
+		freigegeben = true;
+	});
+	await recht.bereit;
+	assert.equal(freigegeben, false, 'ohne abgeben steht das Halten');
+	recht.abgeben();
+	await new Promise((r) => setTimeout(r, 0));
+	assert.equal(freigegeben, true, 'abgeben beendet das Halten — kein Nie-Ende mehr');
+});
+
+test('schreibrechtHalten (B1) — abgeben vor dem Erhalt lässt das spätere Halten enden', async () => {
+	let gehalten = 0;
+	const recht = schreibrechtHalten(async (halten) => {
+		await halten();
+		gehalten += 1;
+	});
+	recht.abgeben(); // die Sperre steht noch gar nicht
+	await recht.bereit;
+	await new Promise((r) => setTimeout(r, 0));
+	assert.equal(gehalten, 1, 'kein verwaistes Nie-Ende für den Callback');
+});
+
+test('pufferSchluessel (B4) — Stein und Inhalt derselben Id sind zwei Puffer-Zeilen', () => {
+	const inhalt = pufferSchluessel('kanal-a', nachricht('100', 'x'));
+	const stein = pufferSchluessel('kanal-a', grabstein('100'));
+	assert.equal(inhalt, 'kanal-a:100');
+	assert.equal(stein, 'kanal-a:100:geloescht');
+	assert.notEqual(inhalt, stein, 'koexistieren im Puffer, statt sich zu überschreiben');
+	// `pufferWeg` (geraete.ts) löscht über DEMSELben Schlüssel — damit
+	// entfernt es beide Varianten. Die IDB-Runde selbst ist Browser-Sache;
+	// die Schlüssel-Gleichheit von Legen und Weg ist die tragende Logik.
+});
+
+test('ordnerLeeren (B3) — ein Löschfehler stoppt die Runde nicht und wird als Rest gemeldet', async () => {
+	const basis = speicherAdapter();
+	const ordner = ordnerAdapter(basis, 'kanal-f');
+	await ordner.schreibe('a.puls', new Uint8Array([1]));
+	await ordner.schreibe('b.puls', new Uint8Array([2]));
+	await ordner.schreibe('c.puls', new Uint8Array([3]));
+	await basis.schreibe('key.puls', new Uint8Array([9]));
+	// Basis-Adapter, dessen zweites lösche wirft (totes Ziel) — dieselbe
+	// Ordner-Rechnung wie `sicherungGespraechEntfernen`, das im Node-Läufer
+	// selbst nicht ladbar ist (transitiv IndexedDB/Svelte).
+	const hakt: AblageAdapter = {
+		schreibe: (d, i) => basis.schreibe(d, i),
+		lese: (d) => basis.lese(d),
+		liste: () => basis.liste(),
+		async lösche(d) {
+			if (d === 'kanal-f/b.puls') throw new Error('Ziel tot');
+			await basis.lösche?.(d);
+		},
+	};
+	await assert.rejects(
+		() => ordnerLeeren(ordnerAdapter(hakt, 'kanal-f')),
+		/blieben liegen/,
+		'der Rest wird nach oben gemeldet statt still geschluckt',
+	);
+	// Trotz des Fehlers lief die Runde weiter: nur die tote Datei liegt noch.
+	assert.deepEqual(
+		(await basis.liste()).filter((n) => n.startsWith('kanal-f/')),
+		['kanal-f/b.puls'],
+	);
+	assert.ok((await basis.liste()).includes('key.puls'), 'fremde Dateien bleiben stehen');
+});
 
 test('praefixAdapter — Namen unter dem Präfix, liste() streift ihn ab', async () => {
 	const basis = speicherAdapter();

@@ -65,6 +65,14 @@ export type AeltereSeite = {
    *  angefragt" wirklich "Historie-Ende", und nur dann lohnt das erneute
    *  Ablegen im lokalen Verlauf (lokal gelesene Sätze liegen dort schon). */
   vomServer: boolean;
+  /** B6: die Sicherung hat in DIESEM Lauf eine Archiv-Seite (> 0) in den
+   *  lokalen Verlauf nachgeladen — deren Zeilen waren für diesen Cursor
+   *  aber (noch) nicht älter. Eine kurze/leere Server-Antwort ist dann
+   *  KEIN Historie-Ende: der Lesestand steht weiter vorne, der nächste
+   *  Hochscroll-Aufruf liest die Archiv-Seite lokal aus. Wahl der
+   *  Umsetzung: Flag nach oben reichen (statt der Seite), weil nur
+   *  MessageList am `hasMore` hängt. */
+  sicherungLieferte?: boolean;
 };
 
 export async function ladeAeltereSeite(
@@ -73,6 +81,8 @@ export async function ladeAeltereSeite(
   seitenGroesse: number,
   route: { serverId?: string } | undefined
 ): Promise<AeltereSeite> {
+  // B6-Flag: gilt für den ganzen restlichen Lauf (auch den Server-Zweig).
+  let sicherungLieferte = false;
 	if (!betrifftLuecke(channelId, oldest)) {
 		const lokal = (await verlaufLesen(channelId, { vor: oldest, anzahl: seitenGroesse })).filter(
 			(n) => n.deleted_at === null
@@ -97,11 +107,18 @@ export async function ladeAeltereSeite(
 		// in den Chat-Grundstack.
 		if (!hatServerVerlauf(channelId) || channelId in directMessages.byId) {
 			const { sicherungKanalSeiteLaden } = await import('$lib/sicherung/andock');
-			if ((await sicherungKanalSeiteLaden(channelId, seitenGroesse)) > 0) {
+			const archivSeite = await sicherungKanalSeiteLaden(channelId, seitenGroesse);
+			if (archivSeite > 0) {
 				const nachgeladen = (
 					await verlaufLesen(channelId, { vor: oldest, anzahl: seitenGroesse })
 				).filter((n) => n.deleted_at === null);
-				if (nachgeladen.length > 0) return { nachrichten: nachgeladen, vomServer: false };
+				if (nachgeladen.length > 0)
+					return { nachrichten: nachgeladen, vomServer: false, sicherungLieferte: true };
+				// B6: Archiv-Seite > 0, aber alles ≥ `oldest` (schon sichtbar) —
+				// der Server-Zweig läuft unten weiter; sein (möglicherweise
+				// leerer) Rest darf aber nicht als Historie-Ende gelten, denn
+				// der Archiv-Lesestand ist einen Schritt weitergerückt.
+				sicherungLieferte = true;
 			}
 		}
 	}
@@ -124,7 +141,7 @@ export async function ladeAeltereSeite(
     vomServer[vomServer.length - 1]?.id,
     vomServer.length < seitenGroesse
   );
-  return { nachrichten: vomServer, vomServer: true };
+  return { nachrichten: vomServer, vomServer: true, sicherungLieferte };
 }
 
 /** Siehe Modulkopf ("Bughunt Fund 3"). */

@@ -150,7 +150,11 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
     // deckt das Hochscrollen ab (`verlauf/nachladen.ts`). Dynamischer
     // Import wie in `verlauf/index.ts` — die Sicherung gehört nicht in
     // den Chat-Grundstack.
-    if (!alreadyLoaded && lokal.length < 50) {
+    // B5: das Gate zählt nur SICHTBARE Sätze — Grabstein-Zeilen
+    // (`deleted_at !== null`) füllen die 50 auf, ohne etwas zu zeigen, und
+    // würden ein nötiges Archiv-Nachladen stilllegen. Derselbe Filter wie
+    // in `verlauf/nachladen.ts`.
+    if (!alreadyLoaded && lokal.filter((n) => n.deleted_at === null).length < 50) {
       void import('$lib/sicherung/andock')
         .then(({ sicherungKanalSeiteLaden }) => sicherungKanalSeiteLaden(cid, 50))
         .then(async (angekommen) => {
