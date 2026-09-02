@@ -16,6 +16,12 @@
  * geworfene Ausnahme: das Öffnen eines Kanals darf nicht daran scheitern,
  * dass ein fremdes Laufwerk gerade nicht erreichbar ist.
  *
+ * **Dritte Quelle, seit Task 8 die BEVORZUGTE: der Server-Ordner selbst**
+ * (`ablage/kanalOrdnerLeseweg.ts::kanalOrdnerVerlaufLesen`) — liest die vom
+ * Server abgelegten Umschlag-Dateien direkt (`api/ablageKanalOrdner.ts`),
+ * ohne Umweg über das Nextcloud-Laufwerk des Erstellers. `null` heißt dort
+ * „kein Ordner-Kanal"; erst dann greift der ältere Laufwerksweg oben.
+ *
  * `hatServerVerlauf()` kennt Ablage-Kanäle bereits (`verlauf/index.ts`) und
  * hält deshalb den Nachlade-Weg (`verlauf/nachladen.ts`, über
  * `MessageList.svelte`) fern vom Server — hier nur der erste Ladeschritt
@@ -24,6 +30,7 @@
 import { verlaufLesen, verlaufMergen } from '$lib/verlauf';
 import { messages } from '$lib/stores/messages.svelte';
 import { kanalVerlaufLesen } from '$lib/ablage/kanalLeseweg.ts';
+import { kanalOrdnerVerlaufLesen } from '$lib/ablage/kanalOrdnerLeseweg.ts';
 import type { AblageNachricht } from '$lib/ablage/nutzlast.ts';
 import type { Message } from '$lib/api/types';
 
@@ -57,9 +64,15 @@ function ausAblageNachricht(kanalId: string, n: AblageNachricht): Message {
 
 export async function ladeAblageKanalVerlauf(kanalId: string): Promise<void> {
   const lokal = await verlaufLesen(kanalId, { anzahl: 50 });
-  const vomLaufwerk = await kanalVerlaufLesen(kanalId).catch(() => null);
-  const ausLaufwerk = vomLaufwerk
-    ? vomLaufwerk.nachrichten.map((n) => ausAblageNachricht(kanalId, n))
-    : [];
+  const ausOrdner = await kanalOrdnerVerlaufLesen(kanalId).catch(() => null);
+  let ausLaufwerk: Message[];
+  if (ausOrdner !== null) {
+    ausLaufwerk = ausOrdner;
+  } else {
+    const vomLaufwerk = await kanalVerlaufLesen(kanalId).catch(() => null);
+    ausLaufwerk = vomLaufwerk
+      ? vomLaufwerk.nachrichten.map((n) => ausAblageNachricht(kanalId, n))
+      : [];
+  }
   messages.setInitial(kanalId, verlaufMergen(lokal, ausLaufwerk));
 }

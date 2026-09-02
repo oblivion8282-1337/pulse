@@ -119,13 +119,8 @@
  * unveraendert.
  */
 import type { Message } from '../api/types';
-import {
-  verlaufSpeichernPflicht,
-  verlaufNachrichtGeloescht,
-  verlaufLokaleIdFuerKryptoId
-} from '../verlauf';
-import { lokaleIdsFuerLoeschung } from './loeschZiel';
-import { messages } from '../stores/messages.svelte';
+import { verlaufSpeichernPflicht } from '../verlauf';
+import { loeschungAnwenden } from './loeschungAnwenden';
 import { verlaufZustand } from '../verlauf/zustand.svelte';
 import { postfachApi } from '../api/postfach';
 import { serversStore } from '../api/servers.svelte';
@@ -206,30 +201,11 @@ async function postfachZyklus(): Promise<Message[]> {
     if (ergebnis.art === 'loeschung') {
       // Lösch-Frame (2026-09-02): lokal Grabstein setzen (zusammen mit dem
       // Sicherungs-Grabstein in `verlaufNachrichtGeloescht`) und aus der
-      // Anzeige nehmen — nichts abzulegen, direkt quittierbar.
-      //
-      // Der Frame nennt die ABSENDER-ID; hier liegt die Nachricht unter der
-      // Zustellungs-ID mit der Absender-ID als `krypto_id` (s.
-      // `loeschZiel.ts`). Erst die geladene Anzeige, dann der Verlauf — die
-      // Nachricht kann aelter sein als das, was gerade geladen ist. Ohne
-      // Treffer bleibt der Frame-Wert selbst stehen: der Grabstein auf eine
-      // unbekannte ID ist wirkungslos, der Frame wird trotzdem quittiert,
-      // denn eine Nachricht, die nie ankam, kann auch nicht stehen bleiben.
-      let ziele = lokaleIdsFuerLoeschung(
-        ergebnis.nachrichtId,
-        messages.for(ergebnis.channelId)
-      );
-      if (ziele.length === 0) {
-        const imVerlauf = await verlaufLokaleIdFuerKryptoId(
-          ergebnis.channelId,
-          ergebnis.nachrichtId
-        );
-        ziele = [imVerlauf ?? ergebnis.nachrichtId];
-      }
-      for (const lokaleId of ziele) {
-        verlaufNachrichtGeloescht(ergebnis.channelId, lokaleId);
-        messages.remove(ergebnis.channelId, lokaleId);
-      }
+      // Anzeige nehmen — nichts abzulegen, direkt quittierbar. Die
+      // eigentliche Anwendung (welche lokale ID getroffen wird, warum ein
+      // Fehltreffer wirkungslos bleibt) steht in `loeschungAnwenden.ts` —
+      // derselbe Block, den `ablage/kanalOrdnerLeseweg.ts` benutzt.
+      await loeschungAnwenden(ergebnis.channelId, ergebnis.nachrichtId);
       schonQuittierbar.push(ergebnis.id);
       continue;
     }
