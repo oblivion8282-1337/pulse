@@ -44,7 +44,9 @@
   } from '$lib/sicherung/andock';
   import { googleSicherungVerbinden } from '$lib/sicherung/googleClient';
   import NextcloudVerbinden from '$lib/components/ablage/NextcloudVerbinden.svelte';
-  import type { AblageVerbindung } from '$lib/ablage/verbindungen.svelte';
+  import { ablageVerbindungen, type AblageVerbindung } from '$lib/ablage/verbindungen.svelte';
+  import { archivZiel } from '$lib/ablage/archivZiel.ts';
+  import { gleicheArchivAdresseAb } from '$lib/ablage/archivServerAbgleich.ts';
   import { ordnerVerzeichnisWählen, ordnerZugriffErneuern } from '$lib/sicherung/ordner';
   import SicherungZiel from './SicherungZiel.svelte';
   import SicherungFormular from './SicherungFormular.svelte';
@@ -115,18 +117,22 @@
     }
   }
 
-  /** Der Freigabe-Link-Dialog hat verbunden: WebDAV-Zugriff als Ziel
-   *  übernehmen und in den Passwort-Schritt weiterlaufen. */
+  /** Der Freigabe-Link-Dialog hat verbunden. Die Adresse geht zum Server
+   *  (die Sicherung schreibt über `/ablage/archiv/*`, s. `ziele.ts`), und
+   *  die Ablage-Verbindung wird als Archiv markiert — beide Linien halten
+   *  damit dieselbe Adresse. Erst wenn der Server quittiert hat, wird das
+   *  Ziel lokal eingetragen: ein Ziel ohne Server-Adresse schriebe nie. */
   async function nextcloudVerbunden(v: AblageVerbindung): Promise<void> {
     nextcloudOffen = false;
     fehler = '';
-    ziele.nextcloud = {
-      basis: v.konfiguration.basis ?? '',
-      ordner: v.konfiguration.ordner ?? '',
-      benutzer: v.konfiguration.benutzer ?? '',
-      passwort: v.konfiguration.passwort ?? ''
-    };
     try {
+      if (!ablageVerbindungen.verbindung(v.id)?.istArchiv) {
+        await ablageVerbindungen.setzeArchivMarkierung(v.id);
+      }
+      const befund = await gleicheArchivAdresseAb(archivZiel(ablageVerbindungen.verbindungen));
+      if (befund.art === 'fehler') throw new Error(befund.meldung);
+      if (befund.art === 'ohne-adresse') throw new Error(m.speicher_archiv_ohne_adresse());
+      ziele.nextcloud = { basis: v.konfiguration.basis ?? '', verbindungId: v.id };
       await zieleSchreiben({ ...ziele });
       const adapter = await adapterLieferant();
       neuesPasswort = (await adapter.lese(SCHLUESSEL_DATEI)) === null;

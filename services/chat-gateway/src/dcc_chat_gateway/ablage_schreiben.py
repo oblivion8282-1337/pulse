@@ -180,6 +180,60 @@ async def liste(
             await client.aclose()
 
 
+async def loesche(
+    *,
+    basis: str,
+    pfad: str,
+    timeout_s: float = 30.0,
+    resolver: Resolver | None = None,
+    http: httpx.AsyncClient | None = None,
+) -> None:
+    """Entfernt die Datei unter ``pfad`` vom Laufwerk, per WebDAV-``DELETE``.
+
+    **Warum es diese Route seit dem 2026-09-02 gibt.** Bis dahin stand in
+    ``archivAdapter.ts``: „Ein Archiv, aus dem der Server loeschen kann, ist
+    kein Archiv." Der Satz hielt nicht, was er behauptete — derselbe Server
+    darf seit jeher ueberschreiben (``schreibe``), ein Schutz vor Loeschen
+    war also nur ein Schutz vor dem Wort. Gebraucht wird das Loeschen von der
+    Sicherung, die ueber dieselbe Adresse laeuft: eine geloeschte Nachricht
+    nimmt ihre Anhang-Datei mit (``sicherung/andock.ts::sicherungGrabstein``),
+    ein entferntes Gespraech seinen Ordner. Ohne Route blieb beides liegen,
+    und zwar lesbar.
+
+    **Ein 404 ist Erfolg.** Das Ziel des Aufrufs ist „danach ist die Datei
+    nicht mehr da", und das trifft dann bereits zu — dieselbe Regel wie im
+    direkten WebDAV-Adapter des Klienten. Umleitungen werden wie beim
+    Schreiben nicht verfolgt.
+    """
+    tatsaechlicher_resolver = resolver if resolver is not None else standard_resolver
+    url = baue_ziel_url(basis, normalisiere_pfad(pfad))
+    eigener_client = http is None
+    client = http if http is not None else client_ctor(
+        timeout=timeout_s, follow_redirects=False
+    )
+    try:
+        async with asyncio.timeout(timeout_s):
+            adresse = await pruefe_ziel_oeffentlich(url, tatsaechlicher_resolver)
+            verankert, host = _url_auf_adresse_verankern(url, adresse)
+            antwort = await client.request(
+                "DELETE",
+                verankert,
+                headers={"Host": host},
+                extensions={"sni_hostname": host},
+            )
+            if antwort.status_code in (301, 302, 303, 307, 308):
+                raise AblageAbrufFehler("umleitung_beim_loeschen")
+            if antwort.status_code not in (200, 204, 404):
+                raise AblageAbrufFehler("upstream_fehler")
+    except TimeoutError as exc:
+        raise AblageAbrufFehler("zeit_ueberschritten") from exc
+    except httpx.HTTPError as exc:
+        raise AblageAbrufFehler("upstream_nicht_erreichbar") from exc
+    finally:
+        if eigener_client:
+            await client.aclose()
+
+
 def _namen_aus_propfind(xml: str, basis_url: str) -> list[str]:
     """Zieht die Dateinamen aus einer ``PROPFIND``-Antwort.
 
