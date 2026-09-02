@@ -151,3 +151,36 @@ class AblageKontoLaufwerk(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class AblageKanalOrdner(Base):
+    """Kanal liegt als Ordner ``kanaele/<channel_id>/`` im Konto-Laufwerk
+    seines Erstellers; der Server legt ab (Entwurf 2026-09-02, §2-3).
+    Kein ``freigabe_adresse`` hier — die kommt aus ``AblageKontoLaufwerk``
+    des Erstellers, es gibt EINEN Link je Konto."""
+
+    __tablename__ = "ablage_kanal_ordner"
+
+    channel_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("channels.id", ondelete="CASCADE"), primary_key=True
+    )
+    ersteller_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class AblageKanalNachtrag(Base):
+    """Eine Nutzlast, die noch nicht im Ordner liegt (Nextcloud war beim
+    Einliefern nicht erreichbar). Die Pflege-Schleife holt sie nach; fällt
+    die Nutzlast, fällt der Nachtrag mit (CASCADE)."""
+
+    __tablename__ = "ablage_kanal_nachtrag"
+
+    nutzlast_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("dm_nutzlasten.id", ondelete="CASCADE"), primary_key=True
+    )
+    channel_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
