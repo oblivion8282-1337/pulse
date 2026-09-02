@@ -261,6 +261,43 @@ export function verlaufSatzAnhangIds(
   );
 }
 
+/** Die lokale Nachrichten-ID des Satzes, der `kryptoId` als Absender-ID
+ *  fuehrt — fuer den Loesch-Frame (`krypto/loeschZiel.ts`, s. dortigen
+ *  Modulkopf): ein empfangener Satz liegt unter der Zustellungs-ID, der
+ *  Frame nennt die Absender-ID. Bereichs-Cursor ueber den Kanal wie in
+ *  `verlaufLesenSaetze`; `null`, wenn kein Satz dieses Kontos sie traegt. */
+export function verlaufSatzIdFuerKryptoId(
+  kanalId: string,
+  kryptoId: string,
+  kontoId: string
+): Promise<string | null> {
+  const bereich = IDBKeyRange.bound(
+    sortierSchluessel(kanalId, ''),
+    sortierSchluessel(kanalId, OBERE_ID)
+  );
+  return mitVerbindung(
+    (db) =>
+      new Promise<string | null>((resolve, reject) => {
+        const tx = db.transaction(STORE_NACHRICHTEN, 'readonly');
+        const req = tx.objectStore(STORE_NACHRICHTEN).openCursor(bereich);
+        req.onsuccess = () => {
+          const cursor = req.result;
+          if (!cursor) {
+            resolve(null);
+            return;
+          }
+          const satz = cursor.value as Satz;
+          if (satz.kryptoId === kryptoId && gehoertZuKonto(satz, kontoId)) {
+            resolve(satz.nachrichtId);
+            return;
+          }
+          cursor.continue();
+        };
+        req.onerror = () => reject(req.error);
+      })
+  );
+}
+
 /** Entfernt die Bytes eines Anhangs — fuer einen abgebrochenen oder aus dem
  *  Verfasser-Fenster wieder entfernten Upload. Ohne das bliebe die Datei
  *  eines nie abgeschickten Anhangs dauerhaft auf dem Geraet liegen. */

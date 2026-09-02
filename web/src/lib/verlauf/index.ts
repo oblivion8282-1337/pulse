@@ -51,7 +51,9 @@ import {
   verlaufLesenSaetze,
   verlaufSatzVorhanden,
   verlaufSatzAnhangIds,
-  anhangBytesLoeschen} from './db';
+  verlaufSatzIdFuerKryptoId,
+  anhangBytesLoeschen
+} from './db';
 import { aktuellesKonto } from './konto';
 import { dauerhaftenSpeicherAnfordern } from '$lib/identity/dauerhafterSpeicher';
 import { verlaufZustand } from './zustand.svelte';
@@ -303,6 +305,22 @@ export function verlaufSchonAbgelegt(kanalId: string, nachrichtId: string): Prom
   return verlaufSatzVorhanden(kanalId, nachrichtId, kontoId).catch((err) => {
     verlaufZustand.melde(err);
     return false;
+  });
+}
+
+/**
+ * Die lokale ID des Satzes, der `kryptoId` als Absender-ID fuehrt — fuer den
+ * Loesch-Frame (`krypto/loeschZiel.ts`): die Anzeige kennt nur die geladenen
+ * Nachrichten, der Verlauf auch die aelteren. Wirft nie; `null` heisst „kein
+ * solcher Satz auf diesem Geraet".
+ */
+export function verlaufLokaleIdFuerKryptoId(kanalId: string, kryptoId: string): Promise<string | null> {
+  if (!istLokalerKanal(kanalId)) return Promise.resolve(null);
+  const kontoId = aktuellesKonto();
+  if (kontoId === null) return Promise.resolve(null);
+  return verlaufSatzIdFuerKryptoId(kanalId, kryptoId, kontoId).catch((err) => {
+    verlaufZustand.melde(err);
+    return null;
   });
 }
 
