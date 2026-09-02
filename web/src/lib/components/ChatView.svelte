@@ -417,7 +417,11 @@
       </div>
     {/if}
     {#if anhangGrund === 'kein-laufwerk'}
-      <AnhangLaufwerkHinweis kanalId={channel.id} />
+      <!-- Auslieferungsschritt 1 (2026-09-02, Eigentümer): Laufwerk-Hinweise
+           ausgeblendet — ohne Laufwerke gibt es ohnehin keine Anhänge
+           (§11.2 versteckt den Knopf selbst). Reaktivierung: Zeile zurück.
+      <AnhangLaufwerkHinweis kanalId={channel.id} /> -->
+
     {/if}
     <MessageInput
       bind:this={composer}
