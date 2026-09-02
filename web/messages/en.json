@@ -3248,5 +3248,6 @@
   "stream_alle_ansehen": "View all",
   "seite_invites_titel": "Invites",
   "kanal_ordner_archiv_erfordert": "First connect your Nextcloud in the storage section as an archive.",
-  "speicher_archiv_trennen_kanaele": "Nextcloud channels stored on this drive will become unreadable for everyone."
+  "speicher_archiv_trennen_kanaele": "Nextcloud channels stored on this drive will become unreadable for everyone.",
+  "kanal_ordner_anlegen_knopf": "Create in account drive"
 }
