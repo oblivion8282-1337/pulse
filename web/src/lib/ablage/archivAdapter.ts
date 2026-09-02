@@ -26,6 +26,7 @@
 
 import type { AblageAdapter } from './adapter.ts';
 import { archivAbruf, archivListe, archivLoeschen, archivSchreiben } from '../api/ablageArchiv';
+import { mitGeduldBei429 } from './geduld429.ts';
 
 /**
  * Weitergereicht aus `archivZiel.ts` — die Antwort wird auch dort gebraucht,
@@ -42,12 +43,15 @@ export { direktErreichbar } from './archivZiel.ts';
  * zweiten Weg, auf den man zurückfallen könnte. Ein Rückfall wäre hier
  * Selbstbetrug — er sähe aus wie Vorsicht und wäre nur ein Umweg über einen
  * Aufruf, von dem wir wissen, dass er scheitert.
+ *
+ * **Bei 429 wartet er** (`geduld429.ts`): der Server begrenzt je Nutzer und
+ * Minute, und die Sicherung schreibt ihre Erstsicherung in einem Schub.
  */
 export function archivUeberPulse(): AblageAdapter {
 	return {
-		schreibe: (datei, inhalt) => archivSchreiben(datei, inhalt),
-		lese: (datei) => archivAbruf(datei),
-		liste: () => archivListe(),
-		lösche: (datei) => archivLoeschen(datei)
+		schreibe: (datei, inhalt) => mitGeduldBei429(() => archivSchreiben(datei, inhalt)),
+		lese: (datei) => mitGeduldBei429(() => archivAbruf(datei)),
+		liste: () => mitGeduldBei429(() => archivListe()),
+		lösche: (datei) => mitGeduldBei429(() => archivLoeschen(datei))
 	};
 }
