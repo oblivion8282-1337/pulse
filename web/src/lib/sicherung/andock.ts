@@ -39,7 +39,7 @@ import type { Message } from '../api/types.ts';
 import { ausWire, NUTZLAST_FASSUNG, type AblageNachricht } from '../ablage/nutzlast.ts';
 import type { AblageAdapter } from '../ablage/adapter.ts';
 import { openIdentityDb, idbPutIdentity, idbGetIdentity } from '../identity/idb-shared.ts';
-import { verlaufAlleLesen, anhangBytesLesen, verlaufPutSaetze, verlaufMarkiereGeloescht } from '../verlauf/db.ts';
+import { verlaufAlleLesen, anhangBytesLesen, verlaufPutSaetze, verlaufMarkiereGeloescht, verlaufSatzAnhangIds } from '../verlauf/db.ts';
 import { aktuellesKonto } from '../verlauf/konto.ts';
 import { sortierSchluessel, zuSatz } from '../verlauf/satz.ts';
 import { verschlüsseleEintrag } from './krypto.ts';
@@ -61,6 +61,7 @@ import {
 } from './ziele.ts';
 import {
 	anhangDateiName,
+	alterAnhangDateiName,
 	dekAusZwischenlager,
 	lesestandEntfernen,
 	lesestandLesen,
@@ -260,6 +261,25 @@ export function sicherungSpiegeln(kanalId: string, nachrichten: Message[]): void
 export function sicherungGrabstein(kanalId: string, nachrichtId: string): void {
 	if (!SICHERUNG_ENABLED) return;
 	void (async () => {
+		// Anhänge der gelöschten Nachricht aus ALLEN Zielen entfernen —
+		// gelöscht heißt gelöscht: der Klumpen überlebt die Nachricht nicht
+		// im Archiv (Lücke 2026-09-02: die Bytes-Datei blieb bislang liegen).
+		// Der alte deutsche Dateiname bleibt im Fallback mit drin.
+		try {
+			const kontoId = aktuellesKonto();
+			if (kontoId !== null) {
+				const ids = await verlaufSatzAnhangIds(kanalId, nachrichtId, kontoId);
+				if (ids.length > 0) {
+					const adapter = await adapterLieferant();
+					for (const id of ids) {
+						await adapter.lösche?.(anhangDateiName(id));
+						await adapter.lösche?.(alterAnhangDateiName(id));
+					}
+				}
+			}
+		} catch {
+			/* kein Ziel bedienbar — die Datei fällt mit dem Verfall des Postfachs */
+		}
 		const grabstein: AblageNachricht = {
 			fassung: NUTZLAST_FASSUNG,
 			id: nachrichtId,
