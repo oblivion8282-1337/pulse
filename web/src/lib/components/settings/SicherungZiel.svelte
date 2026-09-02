@@ -10,19 +10,21 @@
   import CheckIcon from '@lucide/svelte/icons/check';
   import { m } from '$lib/paraglide/messages.js';
 
-  const { laeuft, gdriveAktiv, ordnerAktiv, aufGoogle, aufOrdner, aufVerwalten } = $props<{
+  const { laeuft, gdriveAktiv, ordnerAktiv, nextcloudAktiv, aufGoogle, aufOrdner, aufNextcloud, aufVerwalten } = $props<{
     laeuft: boolean;
     gdriveAktiv: boolean;
     ordnerAktiv: boolean;
+    nextcloudAktiv: boolean;
     aufGoogle: () => void;
     aufOrdner: () => void;
+    aufNextcloud: () => void;
     /** In der Übersicht: verbundene Ziele springen in die Verwaltung. */
-    aufVerwalten?: (ziel: 'gdrive' | 'ordner') => void;
+    aufVerwalten?: (ziel: 'gdrive' | 'ordner' | 'nextcloud') => void;
   }>();
 
   /** Der Anbieter-Katalog — ein Eintrag je Zeile, weitere später ergänzen. */
   const anbieter: {
-    kennung: 'gdrive' | 'ordner';
+    kennung: 'gdrive' | 'ordner' | 'nextcloud';
     kuerzel: string;
     name: string;
     aktiv: boolean;
@@ -34,6 +36,13 @@
       name: m.sicherung_ziel_gdrive(),
       aktiv: gdriveAktiv,
       aufVerbinden: aufGoogle
+    },
+    {
+      kennung: 'nextcloud',
+      kuerzel: 'N',
+      name: 'Nextcloud',
+      aktiv: nextcloudAktiv,
+      aufVerbinden: aufNextcloud
     },
     ...(isElectron() && syncOrdnerMoeglich()
       ? [
