@@ -16,14 +16,16 @@
  * (`DateiSpeicher` mit dem Hauptschlüssel der Verbindung); dieser Adapter
  * bekommt bereits verschlüsselte Bytes und reicht sie durch.
  *
- * **`lösche` fehlt bewusst, und zwar auf beiden Wegen gleich.** Ein Archiv,
- * aus dem der Server löschen kann, ist kein Archiv — serverseitig gibt es
- * dafür keine Route. Der `DateiSpeicher` kommt ohne aus; wer später ein
- * Aufräumen baut, entscheidet dann bewusst, wer dabei löschen darf.
+ * **`lösche` gibt es seit dem 2026-09-02.** Vorher stand hier: „Ein Archiv,
+ * aus dem der Server löschen kann, ist kein Archiv." Der Satz hielt nicht,
+ * was er behauptete — derselbe Server durfte immer schon überschreiben.
+ * Gebraucht wird das Löschen von der Sicherung, die seit diesem Tag über
+ * dieselbe Adresse läuft (`sicherung/ziele.ts`): eine gelöschte Nachricht
+ * nimmt ihre Anhang-Datei mit, ein entferntes Gespräch seinen Ordner.
  */
 
 import type { AblageAdapter } from './adapter.ts';
-import { archivAbruf, archivListe, archivSchreiben } from '../api/ablageArchiv';
+import { archivAbruf, archivListe, archivLoeschen, archivSchreiben } from '../api/ablageArchiv';
 
 /**
  * Weitergereicht aus `archivZiel.ts` — die Antwort wird auch dort gebraucht,
@@ -45,6 +47,7 @@ export function archivUeberPulse(): AblageAdapter {
 	return {
 		schreibe: (datei, inhalt) => archivSchreiben(datei, inhalt),
 		lese: (datei) => archivAbruf(datei),
-		liste: () => archivListe()
+		liste: () => archivListe(),
+		lösche: (datei) => archivLoeschen(datei)
 	};
 }

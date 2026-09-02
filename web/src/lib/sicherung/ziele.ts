@@ -17,7 +17,8 @@ import type { AblageAdapter } from '../ablage/adapter.ts';
 import { adapterAusVerzeichnis, type AblageVerzeichnis } from '../ablage/syncOrdner.ts';
 import { gdriveAdapter, auffrischeZugang, type GdriveAnbindung } from '../ablage/gdrive.ts';
 import { ordnerAdapter, ordnerZugriffOk } from './ordner.ts';
-import { webdavAdapter } from '../ablage/webdav.ts';
+import { archivUeberPulse } from '../ablage/archivAdapter.ts';
+import { flachAdapter } from './flachPfad.ts';
 import { TokenVorrat } from './tokenVorrat.ts';
 import { m } from '$lib/paraglide/messages.js';
 
@@ -30,8 +31,17 @@ const VERBINDUNG_KEY_LEGACY = 'gdrive';
 
 export interface SicherungZiele {
 	ordner?: { verzeichnis: AblageVerzeichnis };
-	/** Nextcloud über Freigabe-Link: WebDAV-Zugriff auf genau diesen Ordner. */
-	nextcloud?: { basis: string; ordner: string; benutzer: string; passwort: string };
+	/**
+	 * Nextcloud über Freigabe-Link — **beschrieben über den Pulse-Server**,
+	 * nicht direkt (seit 2026-09-02). Ein Browser darf in eine Nextcloud
+	 * nicht schreiben, sie setzt keine CORS-Kopfzeilen; bis dahin lief hier
+	 * der direkte WebDAV-Adapter, und der Ordner blieb leer, ohne dass etwas
+	 * rot wurde. Die Adresse liegt deshalb beim Server (`/ablage/archiv/
+	 * laufwerk`), hier steht nur, DASS ein Ziel besteht: `basis` zur Anzeige,
+	 * `verbindungId` für die Ablage-Verbindung, die dieselbe Adresse als
+	 * Archiv-Markierung trägt (`SicherungSektion.svelte`).
+	 */
+	nextcloud?: { basis: string; verbindungId: string };
 	gdrive?: {
 		kundenId: string;
 		kundenGeheimnis?: string;
@@ -123,18 +133,16 @@ function sanitisiereZiele(roh: unknown): SicherungZiele {
 	}
 
 	const nc = rohObjekt.nextcloud as Record<string, unknown> | undefined;
+	// Ein Bestand aus der Direkt-Zeit (mit `passwort`) trägt keine
+	// `verbindungId` und fällt damit weg — er hat nie geschrieben, es gibt
+	// nichts zu erhalten; der Nutzer verbindet Nextcloud einmal neu.
 	if (
 		nc !== null &&
 		typeof nc === 'object' &&
 		typeof nc.basis === 'string' && nc.basis !== '' &&
-		typeof nc.passwort === 'string' && nc.passwort !== ''
+		typeof nc.verbindungId === 'string' && nc.verbindungId !== ''
 	) {
-		z.nextcloud = {
-			basis: nc.basis,
-			ordner: typeof nc.ordner === 'string' ? nc.ordner : '',
-			benutzer: typeof nc.benutzer === 'string' ? nc.benutzer : '',
-			passwort: nc.passwort,
-		};
+		z.nextcloud = { basis: nc.basis, verbindungId: nc.verbindungId };
 	}
 
 	const o = rohObjekt.ordner as Record<string, unknown> | undefined;
@@ -202,8 +210,8 @@ export async function zieleSchreiben(z: SicherungZiele): Promise<void> {
 	if (z.ordner?.verzeichnis) {
 		kopie.ordner = { verzeichnis: z.ordner.verzeichnis };
 	}
-	if (z.nextcloud?.basis && z.nextcloud.passwort !== '') {
-		kopie.nextcloud = { ...z.nextcloud };
+	if (z.nextcloud?.basis && z.nextcloud.verbindungId) {
+		kopie.nextcloud = { basis: z.nextcloud.basis, verbindungId: z.nextcloud.verbindungId };
 	}
 	if (z.gdrive?.kundenId && z.gdrive.nachspieleToken !== undefined) {
 		kopie.gdrive = {
@@ -332,7 +340,9 @@ export async function adapterLieferant(): Promise<AblageAdapter> {
 		}
 	}
 	if (z.nextcloud !== undefined) {
-		teile.push(webdavAdapter(z.nextcloud));
+		// Über den Server, abgeflacht: die Archiv-Routen kennen keine Ordner
+		// (Begründung in `flachPfad.ts`).
+		teile.push(flachAdapter(archivUeberPulse()));
 	}
 	if (teile.length === 0) {
 		throw new Error('Sicherung: kein Ziel momentan bedienbar');

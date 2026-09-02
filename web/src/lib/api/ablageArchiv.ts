@@ -91,6 +91,13 @@ export async function archivAbruf(
 }
 
 /** Die Dateinamen im Archiv-Ordner. */
+/** Entfernt eine Datei aus dem Archiv-Ordner — ein 404 dort ist Erfolg
+ *  (`ablage_schreiben.loesche`). */
+export async function archivLoeschen(pfad: string, route: RequestRoute = {}): Promise<void> {
+	const params = new URLSearchParams({ pfad });
+	await request<void>(`/ablage/archiv/datei?${params.toString()}`, { method: 'DELETE' }, route);
+}
+
 export async function archivListe(route: RequestRoute = {}): Promise<string[]> {
 	return request<string[]>('/ablage/archiv/liste', {}, route);
 }

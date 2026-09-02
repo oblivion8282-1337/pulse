@@ -41,6 +41,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.ablage_schreiben import MAX_SCHREIB_BYTES
 from dcc_chat_gateway.ablage_schreiben import liste as liste_vom_laufwerk
+from dcc_chat_gateway.ablage_schreiben import loesche as loesche_vom_laufwerk
 from dcc_chat_gateway.ablage_schreiben import schreibe as schreibe_aufs_laufwerk
 from dcc_chat_gateway.ablage_ssrf import AblageAbrufFehler
 from dcc_chat_gateway.db import SessionDep
@@ -170,6 +171,25 @@ async def hole_aus_archiv(
     if not ratelimit.check("ablage_abruf", current.id):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limited")
     return await ablage_abruf_antwort(laufwerk.freigabe_adresse, pfad)
+
+
+@router.delete("/ablage/archiv/datei", status_code=status.HTTP_204_NO_CONTENT)
+async def loesche_aus_archiv(
+    session: SessionDep,
+    current: CurrentUser,
+    pfad: Annotated[str, Query(min_length=1, max_length=2048)],
+) -> Response:
+    """Entfernt EINE Datei aus dem Archiv-Ordner (Begruendung:
+    ``ablage_schreiben.loesche``). Derselbe Ratenbegrenzer-Eimer wie das
+    Schreiben — beides sind Aenderungen am Laufwerk."""
+    laufwerk = await _laufwerk_oder_404(session, current)
+    if not ratelimit.check("ablage_schreiben", current.id):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limited")
+    try:
+        await loesche_vom_laufwerk(basis=laufwerk.freigabe_adresse, pfad=pfad)
+    except AblageAbrufFehler as fehler:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(fehler)) from fehler
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/ablage/archiv/liste")
