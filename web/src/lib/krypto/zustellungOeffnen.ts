@@ -65,6 +65,7 @@ export type ZustellungOffenErgebnis =
   | { art: 'neu'; nachricht: Message }
   | { art: 'schonAbgelegt'; channelId: string; id: string }
   | { art: 'ohneAblage'; id: string }
+  | { art: 'loeschung'; id: string; channelId: string; nachrichtId: string }
   | null;
 
 /** Die Nachricht einer erfolgreich geoeffneten Zustellung — `null`, wenn der
@@ -167,14 +168,14 @@ export async function zustellungOeffnen(
       // `leseNachrichtNutzlast` als Legacy-Fall ohne beides erkennt. Die
       // Umsetzung in die Anzeige-Form teilt sich dieser Weg mit dem
       // Megolm-Weg, s. `empfangeneNachricht.ts`.
-      return {
-        art: 'neu',
-        nachricht: baueEmpfangeneNachricht(
-          z,
-          absenderUserId,
-          leseNachrichtNutzlast(klartextBytes)
-        )
-      };
+      const gelesen = leseNachrichtNutzlast(klartextBytes);
+      if (gelesen.geloescht && gelesen.id !== null) {
+        // Lösch-Frame (2026-09-02): der Aufrufer entfernt die Nachricht
+        // lokal (Grabstein im Verlauf, damit auch im Archiv) und quittiert
+        // direkt — es gibt nichts anzuzeigen und nichts abzulegen.
+        return { art: 'loeschung', id: z.id, channelId: z.channel_id, nachrichtId: gelesen.id };
+      }
+      return { art: 'neu', nachricht: baueEmpfangeneNachricht(z, absenderUserId, gelesen) };
     } catch (err) {
       if (err instanceof KontoSicherungFehlgeschlagen) {
         // Weiterreichen, NICHT hier verschlucken — `postfachZyklus` laesst

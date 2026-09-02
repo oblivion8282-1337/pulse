@@ -15,6 +15,9 @@ type Satz = {
   erstelltAm: string;
   bearbeitetAm: string | null;
   geloescht: boolean;
+  /** E2EE-Nachricht (2026-09-02): überlebt im Satz, damit die Löschen-/
+   *  Bearbeiten-Gates auch nach einem Reload richtig verzweigen. */
+  verschluesselt: boolean;
   anhaenge: unknown[];
   antwortAufId: string | null;
   kryptoId: string | null;
@@ -71,6 +74,7 @@ export function zuSatz(kanalId: string, nachricht: unknown, kontoId: string): Sa
     erstelltAm: created_at,
     bearbeitetAm: edited_at,
     geloescht: deleted_at !== null,
+    verschluesselt: n.verschluesselt === true,
     anhaenge,
     antwortAufId,
     kryptoId,
@@ -154,6 +158,7 @@ export function satzZuNachricht(satz: Satz): SatzAlsNachricht {
     created_at: satz.erstelltAm,
     edited_at: satz.bearbeitetAm,
     deleted_at: satz.geloescht ? (satz.bearbeitetAm ?? satz.erstelltAm) : null,
+    ...(satz.verschluesselt ? { verschluesselt: true } : {}),
     reply_to_id: satz.antwortAufId ?? null,
     krypto_id: satz.kryptoId ?? undefined,
     attachments: verschluesselteAnhaenge(satz.anhaenge ?? [])

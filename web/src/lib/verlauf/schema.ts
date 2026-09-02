@@ -40,6 +40,10 @@ export type Satz = {
   bearbeitetAm: string | null;
   /** Weiches Loeschen (Grabstein) — die Zeile bleibt, der Inhalt gilt als weg. */
   geloescht: boolean;
+  /** E2EE-Nachricht — überlebt im Satz, damit die Aktions-Gates auch nach
+   *  einem Reload richtig verzweigen (`Message.verschluesselt`). Alte Sätze
+   *  ohne dieses Feld lesen sich als `false`. */
+  verschluesselt: boolean;
   anhaenge: unknown[];
   /** Nachrichten-ID der Nachricht, auf die geantwortet wird — `null` ohne
    *  Antwortbezug. Neu (kein `DB_VERSION`-Bump noetig): IndexedDB erzwingt

@@ -83,6 +83,9 @@ export type NachrichtNutzlast = {
    *  Nutzlast ohne dieses Feld. */
   id: string | null;
   replyToId: string | null;
+  /** Lösch-Frame (2026-09-02): `true` = die Nachricht mit dieser ID wurde
+   *  vom Autor gelöscht — Empfaenger entfernen sie lokal (Grabstein). */
+  geloescht?: true;
   /** Leer, wenn die Nutzlast keine Anhaenge trug ODER von einem Sender vor
    *  Etappe E stammt — beides sieht beim Lesen gleich aus und soll es auch. */
   anhaenge: AnhangAngabe[];
@@ -148,6 +151,15 @@ export function baueNachrichtNutzlast(
 }
 
 /** Liest die entschluesselten Klartext-Bytes einer Zustellung zurueck. */
+/** Lösch-Frame: leere Nutzlast, die nur die kanonische ID der gelöschten
+ *  Nachricht trägt. Läuft über denselben verschlüsselten Sendeweg wie eine
+ *  gewöhnliche Nachricht — der Server bleibt blindes Postfach. */
+export function baueLoeschNutzlast(nachrichtId: string): Uint8Array {
+  return new TextEncoder().encode(
+    JSON.stringify({ v: FASSUNG, text: '', id: nachrichtId, geloescht: true })
+  );
+}
+
 export function leseNachrichtNutzlast(bytes: Uint8Array): NachrichtNutzlast {
   const roh = new TextDecoder().decode(bytes);
   try {
@@ -170,7 +182,8 @@ export function leseNachrichtNutzlast(bytes: Uint8Array): NachrichtNutzlast {
         text: o.text as string,
         id: typeof o.id === 'string' ? o.id : null,
         replyToId: typeof o.replyToId === 'string' ? o.replyToId : null,
-        anhaenge
+        anhaenge,
+        ...(o.geloescht === true ? { geloescht: true as const } : {})
       };
     }
   } catch {

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  baueLoeschNutzlast,
   baueNachrichtNutzlast,
   leseNachrichtNutzlast
 } from '../src/lib/krypto/nachrichtNutzlast.ts';
@@ -46,4 +47,17 @@ test('Legacy-Text, der zufaellig wie JSON aussieht, bleibt trotzdem Text', () =>
   assert.equal(gelesen.text, '{nicht wirklich json}');
   assert.equal(gelesen.id, null);
   assert.equal(gelesen.replyToId, null);
+});
+
+test('Loesch-Frame: Hin- und Rueckweg traegt nur die ID und die Marke', () => {
+  const gelesen = leseNachrichtNutzlast(baueLoeschNutzlast('12345'));
+  assert.equal(gelesen.geloescht, true);
+  assert.equal(gelesen.id, '12345');
+  assert.equal(gelesen.text, '');
+});
+
+test('eine gewoehnliche Nutzlast traegt die Loesch-Marke nicht', () => {
+  const gelesen = leseNachrichtNutzlast(baueNachrichtNutzlast('hallo', '12345', null));
+  assert.equal(gelesen.geloescht, undefined);
+  assert.equal(gelesen.id, '12345');
 });

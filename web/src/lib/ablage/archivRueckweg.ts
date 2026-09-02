@@ -104,6 +104,7 @@ export async function holeVerlaufAusArchiv(
 			erstelltAm: satz.erstelltAm,
 			bearbeitetAm: satz.bearbeitetAm,
 			geloescht: satz.geloescht,
+			verschluesselt: true,
 			anhaenge: satz.anhaenge,
 			antwortAufId: satz.antwortAufId,
 			kryptoId: satz.kryptoId,

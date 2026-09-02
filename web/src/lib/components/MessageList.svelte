@@ -498,8 +498,11 @@
     return !!myId && m.author_id === myId && !m.id.startsWith('tmp-') && !m.deleted_at;
   }
   function canDeleteMessage(m: Message): boolean {
-    if (!myId || m.verschluesselt) return false;
-    if (m.id.startsWith('tmp-')) return false;
+    if (!myId || m.id.startsWith('tmp-')) return false;
+    // Verschlüsselt: Löschen läuft als E2E-Lösch-Frame — nur der Autor,
+    // und nur wenn der Marker nach dem Reload überlebt hat (alte Sätze
+    // ohne Marker bleiben außen vor, s. `verlauf/satz.ts`).
+    if (m.verschluesselt) return m.author_id === myId;
     return m.author_id === myId || isOwner;
   }
   function canReportMessage(m: Message): boolean {
