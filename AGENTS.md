@@ -8,6 +8,7 @@
 - Electron DEV nur mit `PULSE_DEV_URL` bzw. über das Skript. Ein barer `electron .` aus `desktop/` startet die Build-UI gegen PRODUKTION — lassen. `dev-up.fish` verweigert sonst den Start. Die Dev-App nutzt seit 2026-09-02 ihr EIGENES Profil (`~/.config/Pulse-Dev`), damit sich Dev und produktive App (`~/.config/Pulse`) nicht mischen.
 - Electron-Binary liegt in `desktop/node_modules` (nicht Repo-Root), Start: `cd desktop && node node_modules/electron/cli.js .`.
 - Falls der Stack schon läuft (Ports 5173/8001-8005/5434 belegt): nicht nochmal starten, nur nutzen. Prüfen mit `ss -tln`.
+- **Paraglide + Vite-Falle**: Nach `paraglide:compile` übernimmt ein laufender Vite die neuen Messages NICHT (Watcher greift nicht; kill bitte per PID — `pkill` ist hier vom ZCode-AppImage überschattet und wirkungslos). Symptom: `m.xyz is not a function` im Browser. Fix: Vite-PID per `pgrep -af "vite.js dev"`, kill, neu starten, per `curl http://127.0.0.1:5173/src/lib/paraglide/messages/de.js | grep <neuer-key>` verifizieren.
 
 You are a lazy senior developer. Lazy means efficient, not careless. The best code is the code never written.
 

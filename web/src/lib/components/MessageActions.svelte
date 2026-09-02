@@ -35,7 +35,7 @@
     onReply: () => void;
     onEdit: () => void;
     onDelete: () => void;
-    onReact: (emoji: string) => void;
+    onReact?: (emoji: string) => void;
     onReport?: () => void;
     onTogglePin?: () => void;
   } = $props();
@@ -43,7 +43,7 @@
   let pickerOpen = $state(false);
 
   function pick(emoji: string) {
-    onReact(emoji);
+    onReact?.(emoji);
     pickerOpen = false;
   }
 </script>
@@ -53,6 +53,7 @@
          {pickerOpen ? 'flex' : 'hidden group-hover:flex'}"
   data-testid="message-actions"
 >
+  {#if onReact}
   <DropdownMenu.Root bind:open={pickerOpen}>
     <DropdownMenu.Trigger>
       {#snippet child({ props })}
@@ -72,6 +73,7 @@
       <EmojiPicker onPick={pick} />
     </DropdownMenu.Content>
   </DropdownMenu.Root>
+  {/if}
 
   <Button
     variant="ghost"

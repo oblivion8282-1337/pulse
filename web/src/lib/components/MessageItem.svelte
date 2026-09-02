@@ -210,7 +210,9 @@
     onReply: () => onReply(message),
     onEdit: startEdit,
     onDelete: () => onDelete(message),
-    onReact: (e: string) => handleToggle(e, false),
+    // Reaktionen laufen im Klartext-Weg über den Server — für verschlüsselte
+    // Nachrichten gibt es sie (noch) nicht, also kein Reaktions-Eintrag.
+    onReact: message.verschluesselt ? undefined : (e: string) => handleToggle(e, false),
     onReport: () => (reportOpen = true),
     onTogglePin: onTogglePin ? () => onTogglePin(message) : undefined
   });

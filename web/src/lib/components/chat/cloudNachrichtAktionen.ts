@@ -16,8 +16,12 @@
 import { toast } from 'svelte-sonner';
 
 import { chatApi } from '$lib/api/chat';
+import { ApiError } from '$lib/api/client';
 import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
 import { m } from '$lib/paraglide/messages.js';
+import { messages } from '$lib/stores/messages.svelte';
+import { verlaufNachrichtGeloescht } from '$lib/verlauf';
+import { sendeLoeschung } from '$lib/krypto/senden';
 import type { Message } from '$lib/api/types';
 
 type Route = { serverId?: string };
@@ -35,15 +39,55 @@ export async function nachrichtBearbeiten(
   }
 }
 
-export async function nachrichtLoeschen(msg: Message, route: Route): Promise<void> {
+export async function nachrichtLoeschen(
+  msg: Message,
+  route: Route,
+  /** Nur bei einer verschlüsselten DM: die Gegenstelle, an die der
+   *  Lösch-Frame geht. Fehlt sie (private Gruppe), bleibt die Löschung
+   *  gerätelokal — ein Gruppen-Fan-out ist ein anderes Bauvorhaben. */
+  opts: { partnerId?: string } = {}
+): Promise<void> {
   const ok = await confirmDialog({
     description: m.dm_page_delete_confirm(),
     destructive: true
   });
   if (!ok) return;
+  if (msg.verschluesselt) {
+    // E2EE: keine Server-Zeile — der Grabstein läuft lokal (Verlauf +
+    // Sicherungs-Archiv) und der Lösch-Frame an die Gegenseite über den
+    // verschlüsselten Sendeweg. Schlägt das Senden fehl, ist die lokale
+    // Löschung trotzdem gültig; der Fehler wird sichtbar gemacht.
+    verlaufNachrichtGeloescht(msg.channel_id, msg.id);
+    messages.remove(msg.channel_id, msg.id);
+    if (opts.partnerId) {
+      try {
+        await sendeLoeschung(msg.channel_id, opts.partnerId, msg.id);
+      } catch (e) {
+        toast.error(m.dm_page_delete_failed());
+        console.error(e);
+      }
+    }
+    return;
+  }
   try {
     await chatApi.deleteMessage(msg.id, route);
   } catch (e) {
+    // Selbstheilung für Altsätze (2026-09-02): eine verschlüsselte Nachricht
+    // ohne überlebten Marker antwortet hier mit 404 — der Beweis, dass es
+    // keine Server-Zeile gibt. Dann greift derselbe E2E-Weg wie oben; ein
+    // 404 für eine echte Klartext-Zeile heißt "schon weg" und verträgt den
+    // lokalen Grabstein ebenfalls.
+    if (e instanceof ApiError && e.status === 404 && opts.partnerId) {
+      verlaufNachrichtGeloescht(msg.channel_id, msg.id);
+      messages.remove(msg.channel_id, msg.id);
+      try {
+        await sendeLoeschung(msg.channel_id, opts.partnerId, msg.id);
+      } catch (frameErr) {
+        toast.error(m.dm_page_delete_failed());
+        console.error(frameErr);
+      }
+      return;
+    }
     toast.error(m.dm_page_delete_failed());
     console.error(e);
   }

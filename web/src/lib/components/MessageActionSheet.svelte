@@ -40,7 +40,7 @@
     onReply: () => void;
     onEdit: () => void;
     onDelete: () => void;
-    onReact: (emoji: string) => void;
+    onReact?: (emoji: string) => void;
     onReport?: () => void;
     onTogglePin?: () => void;
   } = $props();
@@ -54,7 +54,7 @@
     pickerView = false;
   }
   function react(emoji: string) {
-    onReact(emoji);
+    onReact?.(emoji);
     close();
   }
   function run(action: () => void) {
@@ -77,7 +77,8 @@
       <EmojiPicker onPick={react} />
     </div>
   {:else}
-    <!-- Quick-reaction strip -->
+    {#if onReact}
+    <!-- Quick-reaction strip (nur Klartext — verschlüsselte Nachrichten können (noch) keine Reaktionen) -->
     <div class="flex items-center justify-between gap-1 px-3 py-2">
       {#each QUICK as e (e)}
         <button
@@ -98,6 +99,9 @@
         <SmilePlusIcon class="size-5" />
       </button>
     </div>
+
+    <div class="my-1 border-t border-border"></div>
+    {/if}
 
     <div class="my-1 border-t border-border"></div>
 

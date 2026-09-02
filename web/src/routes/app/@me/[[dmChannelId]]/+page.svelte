@@ -217,7 +217,8 @@
 
   const editMessage = (msg: Message, content: string) =>
     nachrichtBearbeiten(msg, content, cloudRoute);
-  const deleteMessage = (msg: Message) => nachrichtLoeschen(msg, cloudRoute);
+  const deleteMessage = (msg: Message) =>
+    nachrichtLoeschen(msg, cloudRoute, { partnerId: activeDM?.other_user_id });
   const toggleReaction = (msg: Message, emoji: string, currentlyMine: boolean) =>
     reaktionUmschalten(msg, emoji, currentlyMine, cloudRoute);
 

@@ -71,7 +71,7 @@ import { kryptoAccountLaden } from './account.svelte';
 import { geraeteKennung } from './geraeteKennung';
 import { lokaleNachrichtId } from './lokaleNachrichtId';
 import { sitzungLaden, sitzungSichern, mitSitzungssperre } from './sitzungen';
-import { baueNachrichtNutzlast, type AnhangAngabe } from './nachrichtNutzlast';
+import { baueNachrichtNutzlast, baueLoeschNutzlast, type AnhangAngabe } from './nachrichtNutzlast';
 import { anhangAngabeZuAttachment } from './anhangAnzeige';
 import { zielgeraeteBerechnen } from './empfaengerGeraete';
 import { wurdeZugestellt, deuteEinliefernFehler } from './zustellErgebnis';
@@ -86,6 +86,92 @@ function cloudRoute(): { serverId?: string } {
 export type SendeErgebnis =
   | { art: 'verschluesselt'; nachricht: Message }
   | { art: 'unverschluesselt' };
+
+/**
+ * Der gemeinsame Umschlag-Kern: verschlüsselt `bytes` je Zielgerät (Sitzung
+ * laden oder aufbauen), liefert alles an das Postfach ein und validiert die
+ * Zustellung. `'unverschluesselt'` = Koexistenz-Fall (kein Zielgerät mit
+ * verwertbarem Schlüssel) oder bewiesener Nicht-Zustellung; `null` = nicht
+ * angemeldet. Der Aufrufer entscheidet über Rückfall und Anzeige.
+ */
+async function versendeUmschlaege(
+  kanalId: string,
+  ziel: ReturnType<typeof zielgeraeteBerechnen>,
+  eigeneKennung: string,
+  klartextBytes: Uint8Array,
+  anhangIds: string[] = []
+): Promise<'verschluesselt' | 'unverschluesselt' | null> {
+  const nutzlasten: PostfachNutzlast[] = [];
+  const ident = await kryptoAccountLaden();
+
+  for (const { geraet } of ziel) {
+    const umschlag = await mitSitzungssperre(kanalId, geraet.device_pubkey, async () => {
+      let sitzung = await sitzungLaden(kanalId, geraet.device_pubkey);
+      if (!sitzung) {
+        const einmal = geraet.einmalschluessel ?? geraet.rueckfallschluessel;
+        if (!einmal) return null; // Kein Schluessel veroeffentlicht -> Geraet gerade unerreichbar.
+        sitzung = ident.sitzungAusgehend(geraet.curve25519, einmal);
+      }
+      const umschlag = sitzung.verschluesseln(klartextBytes);
+      // Sichern VOR dem Einliefern — s. Modulkopf.
+      await sitzungSichern(kanalId, geraet.device_pubkey, sitzung);
+      return umschlag;
+    });
+    if (!umschlag) continue;
+    nutzlasten.push({
+      art: umschlag.art(),
+      daten: umschlag.daten(),
+      empfaenger: [geraet.device_pubkey]
+    });
+  }
+
+  if (nutzlasten.length === 0) {
+    // Alle Zielgeraete waren ohne verwertbaren Schluessel — dieselbe
+    // Koexistenz-Antwort wie "kein Geraet ueberhaupt".
+    return 'unverschluesselt';
+  }
+
+  let ergebnis;
+  try {
+    ergebnis = await postfachApi.einliefern(
+      {
+        channel_id: kanalId,
+        // Dasselbe Geraet, das sich oben aus der Zielmenge herausgerechnet
+        // hat — der Server traegt seinen Curve25519-Schluessel in jede
+        // Nutzlast, damit ein Empfaenger eine frische Sitzung aufbauen kann.
+        device_pubkey: eigeneKennung,
+        nutzlasten,
+        anhaenge: anhangIds
+      },
+      cloudRoute()
+    );
+  } catch (err) {
+    // Deutung s. `deuteEinliefernFehler` (zustellErgebnis.ts, importfrei und
+    // dort unit-getestet): 404 = die Route existiert nicht (aelterer
+    // Server, zweiter Bughunt 2026-08-28) -> bewiesen NICHTS eingeliefert,
+    // Klartext-Rueckfall sicher. Alles andere ist NICHT beweisbar folgenlos
+    // — der Server hat den Request womoeglich verarbeitet, nur die Antwort
+    // ging verloren. Ein stillschweigender Klartext-Rueckfall koennte hier
+    // ein Duplikat beim Empfaenger erzeugen; deshalb wird der Fehler
+    // weitergereicht statt hier verschluckt (der Aufrufer entscheidet
+    // bewusst, nicht per pauschalem `.catch(() => null)`).
+    if (err instanceof ApiError && deuteEinliefernFehler(err.status) === 'unverschluesselt') {
+      return 'unverschluesselt';
+    }
+    throw err;
+  }
+  if (!wurdeZugestellt(ergebnis)) {
+    // Der Server hat JEDEN angefragten Empfaenger uebersprungen (Bughunt
+    // 2026-08-28, FIX 2) — die Nachricht kam nirgends an, obwohl die
+    // Anfrage mit 2xx beantwortet wurde. Die lokalen Sitzungen sind zwar
+    // schon weitergedreht (s. Modulkopf Schritt 3), aber das darf hier
+    // nicht als Erfolg gelten: der Aufrufer faellt auf den Klartext-Weg
+    // zurueck, genau wie im Koexistenz-Fall oben.
+    return 'unverschluesselt';
+  }
+
+  return 'verschluesselt';
+}
 
 export async function sendeVerschluesselt(
   kanalId: string,
@@ -128,7 +214,6 @@ export async function sendeVerschluesselt(
     return { art: 'unverschluesselt' };
   }
 
-  const ident = await kryptoAccountLaden();
   // Eigene, kanonische ID VOR dem Bauen der Nutzlast — sie faehrt selbst mit
   // (jede Gegenseite braucht sie, falls SIE spaeter auf diese Nachricht
   // antwortet) und wird unten unveraendert als `Message.id` verwendet, s.
@@ -137,72 +222,10 @@ export async function sendeVerschluesselt(
   // Antwort-Kennung faehrt ebenfalls in der Nutzlast mit (statt eines
   // Klartext-Rueckfalls nur wegen `replyToId`) — s. `nachrichtNutzlast.ts`.
   const klartextBytes = baueNachrichtNutzlast(klartext, nachrichtId, replyToId, anhaenge);
-  const nutzlasten: PostfachNutzlast[] = [];
-
-  for (const { geraet } of ziel) {
-    const umschlag = await mitSitzungssperre(kanalId, geraet.device_pubkey, async () => {
-      let sitzung = await sitzungLaden(kanalId, geraet.device_pubkey);
-      if (!sitzung) {
-        const einmal = geraet.einmalschluessel ?? geraet.rueckfallschluessel;
-        if (!einmal) return null; // Kein Schluessel veroeffentlicht -> Geraet gerade unerreichbar.
-        sitzung = ident.sitzungAusgehend(geraet.curve25519, einmal);
-      }
-      const umschlag = sitzung.verschluesseln(klartextBytes);
-      // Sichern VOR dem Einliefern — s. Modulkopf.
-      await sitzungSichern(kanalId, geraet.device_pubkey, sitzung);
-      return umschlag;
-    });
-    if (!umschlag) continue;
-    nutzlasten.push({
-      art: umschlag.art(),
-      daten: umschlag.daten(),
-      empfaenger: [geraet.device_pubkey]
-    });
-  }
-
-  if (nutzlasten.length === 0) {
-    // Alle Zielgeraete waren ohne verwertbaren Schluessel — dieselbe
-    // Koexistenz-Antwort wie "kein Geraet ueberhaupt".
-    return { art: 'unverschluesselt' };
-  }
-
-  let ergebnis;
-  try {
-    ergebnis = await postfachApi.einliefern(
-      {
-        channel_id: kanalId,
-        // Dasselbe Geraet, das sich oben aus der Zielmenge herausgerechnet
-        // hat — der Server traegt seinen Curve25519-Schluessel in jede
-        // Nutzlast, damit ein Empfaenger eine frische Sitzung aufbauen kann.
-        device_pubkey: eigeneKennung,
-        nutzlasten,
-        anhaenge: anhaenge.map((a) => a.id)
-      },
-      cloudRoute()
-    );
-  } catch (err) {
-    // Deutung s. `deuteEinliefernFehler` (zustellErgebnis.ts, importfrei und
-    // dort unit-getestet): 404 = die Route existiert nicht (aelterer
-    // Server, zweiter Bughunt 2026-08-28) -> bewiesen NICHTS eingeliefert,
-    // Klartext-Rueckfall sicher. Alles andere ist NICHT beweisbar folgenlos
-    // — der Server hat den Request womoeglich verarbeitet, nur die Antwort
-    // ging verloren. Ein stillschweigender Klartext-Rueckfall koennte hier
-    // ein Duplikat beim Empfaenger erzeugen; deshalb wird der Fehler
-    // weitergereicht statt hier verschluckt (der Aufrufer entscheidet
-    // bewusst, nicht per pauschalem `.catch(() => null)`).
-    if (err instanceof ApiError && deuteEinliefernFehler(err.status) === 'unverschluesselt') {
-      return { art: 'unverschluesselt' };
-    }
-    throw err;
-  }
-  if (!wurdeZugestellt(ergebnis)) {
-    // Der Server hat JEDEN angefragten Empfaenger uebersprungen (Bughunt
-    // 2026-08-28, FIX 2) — die Nachricht kam nirgends an, obwohl die
-    // Anfrage mit 2xx beantwortet wurde. Die lokalen Sitzungen sind zwar
-    // schon weitergedreht (s. Modulkopf Schritt 3), aber das darf hier
-    // nicht als Erfolg gelten: der Aufrufer faellt auf den Klartext-Weg
-    // zurueck, genau wie im Koexistenz-Fall oben.
-    return { art: 'unverschluesselt' };
+  const status = await versendeUmschlaege(kanalId, ziel, eigeneKennung, klartextBytes,
+    anhaenge.map((a) => a.id));
+  if (status !== 'verschluesselt') {
+    return status === 'unverschluesselt' ? { art: 'unverschluesselt' } : null;
   }
 
   const nachricht: Message = {
@@ -254,4 +277,37 @@ export async function sendeVerschluesselt(
   });
 
   return { art: 'verschluesselt', nachricht };
+}
+
+/**
+ * Löscht eine verschlüsselte Nachricht: verschickt einen Lösch-Frame
+ * (`baueLoeschNutzlast`) über denselben verschlüsselten Sendeweg — der
+ * Server bleibt blindes Postfach, keine eigene Route nötig. `true`, wenn
+ * der Frame zugestellt wurde; der Aufrufer setzt den lokalen Grabstein
+ * unabhängig davon (`verlaufNachrichtGeloescht`).
+ */
+export async function sendeLoeschung(
+  kanalId: string,
+  empfaengerUserId: string,
+  nachrichtId: string
+): Promise<boolean> {
+  const eigeneUserId = auth.user?.id ?? null;
+  if (eigeneUserId === null) return false;
+  const eigeneKennung = await geraeteKennung();
+  const buendel = await keysApi.claim([eigeneUserId, empfaengerUserId], cloudRoute());
+  const ziel = zielgeraeteBerechnen(
+    buendel,
+    eigeneUserId,
+    empfaengerUserId,
+    eigeneKennung,
+    isElectron() || isCapacitorAndroid()
+  );
+  if (ziel.length === 0) return false;
+  const status = await versendeUmschlaege(
+    kanalId,
+    ziel,
+    eigeneKennung,
+    baueLoeschNutzlast(nachrichtId)
+  );
+  return status === 'verschluesselt';
 }

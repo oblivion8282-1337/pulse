@@ -119,7 +119,8 @@
  * unveraendert.
  */
 import type { Message } from '../api/types';
-import { verlaufSpeichernPflicht } from '../verlauf';
+import { verlaufSpeichernPflicht, verlaufNachrichtGeloescht } from '../verlauf';
+import { messages } from '../stores/messages.svelte';
 import { verlaufZustand } from '../verlauf/zustand.svelte';
 import { postfachApi } from '../api/postfach';
 import { serversStore } from '../api/servers.svelte';
@@ -197,6 +198,15 @@ async function postfachZyklus(): Promise<Message[]> {
 
   for (const ergebnis of ergebnisse) {
     if (!ergebnis) continue;
+    if (ergebnis.art === 'loeschung') {
+      // Lösch-Frame (2026-09-02): lokal Grabstein setzen (zusammen mit dem
+      // Sicherungs-Grabstein in `verlaufNachrichtGeloescht`) und aus der
+      // Anzeige nehmen — nichts abzulegen, direkt quittierbar.
+      verlaufNachrichtGeloescht(ergebnis.channelId, ergebnis.nachrichtId);
+      messages.remove(ergebnis.channelId, ergebnis.nachrichtId);
+      schonQuittierbar.push(ergebnis.id);
+      continue;
+    }
     if (ergebnis.art === 'schonAbgelegt' || ergebnis.art === 'ohneAblage') {
       schonQuittierbar.push(ergebnis.id);
       continue;
