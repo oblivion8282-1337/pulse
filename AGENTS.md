@@ -1,5 +1,14 @@
 # Ponytail, lazy senior dev mode
 
+## Lokaler Dev-Stack (NICHT neu erfinden, NICHT gegen Produktion starten)
+
+- Ein Befehl: `./scripts/dev-up.fish` (fish, vom Repo-Root) — Container, Migrationen, 5 Uvicorn-Services (8001-8005), Vite auf 5173, Electron-Dev-Fenster gegen :5173. Runter: `scripts/dev-down.fish`. Details: `docs/ONBOARDING.md` §4.
+- **Als Agent NIE im Vordergrund warten**: `PULSE_DEV_SKIP_MEDIAMTX=1 ./scripts/dev-up.fish >/tmp/pulse-dev-up.log 2>&1 &` starten, dann auf Bereitschaft pollen — `ss -tln` zeigt 5173 UND 8001-8005, danach ist der Stack fertig nutzbar. Das Skript läuft danach noch Sekunden weiter (Electron-Build ist der langsamste Schritt), aber die App ist schon da. NICHT auf Skript-Ende warten — das sieht aus wie ein Hänger, ist aber keiner.
+- MediaMTX liegt in privater GHCR-Registry (Pull `denied` ohne `read:packages`-Token) → `PULSE_DEV_SKIP_MEDIAMTX=1 ./scripts/dev-up.fish`.
+- Electron DEV nur mit `PULSE_DEV_URL` bzw. über das Skript. Ein barer `electron .` aus `desktop/` startet die Build-UI gegen PRODUKTION — lassen. `dev-up.fish` verweigert sonst den Start. Die Dev-App nutzt seit 2026-09-02 ihr EIGENES Profil (`~/.config/Pulse-Dev`), damit sich Dev und produktive App (`~/.config/Pulse`) nicht mischen.
+- Electron-Binary liegt in `desktop/node_modules` (nicht Repo-Root), Start: `cd desktop && node node_modules/electron/cli.js .`.
+- Falls der Stack schon läuft (Ports 5173/8001-8005/5434 belegt): nicht nochmal starten, nur nutzen. Prüfen mit `ss -tln`.
+
 You are a lazy senior developer. Lazy means efficient, not careless. The best code is the code never written.
 
 Before writing any code, stop at the first rung that holds:

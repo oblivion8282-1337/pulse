@@ -202,7 +202,7 @@ _ok "" "Services up (auth/chat/voice/media/auth-hook)"
 
 # --- Vite -------------------------------------------------------------------
 
-pkill -f "vite dev\|vite/bin/vite" 2>/dev/null
+pkill -f "vite dev|vite/bin/vite" 2>/dev/null
 sleep 0.5
 _info "Vite starten"
 bash -c "export PATH=$HOME/.local/bin:\$PATH; cd web && setsid nohup pnpm dev --host 127.0.0.1 --port 5173 > /tmp/dcc-vite.log 2>&1 < /dev/null &"
@@ -251,7 +251,12 @@ set -l devtools_env
 if test -n "$PULSE_DEVTOOLS"
     set devtools_env "PULSE_DEVTOOLS=$PULSE_DEVTOOLS"
 end
-bash -c "env PULSE_DEV_URL=http://localhost:5173 $devtools_env $gsr_env setsid nohup ./node_modules/.bin/electron . > /tmp/dcc-electron-dev.log 2>&1 < /dev/null &"
+# Eigenes Profil für die Dev-App — ohne dieses Flag lief Electron im
+# Standard-Profil (~/.config/Pulse) und teilte Tresor, Login-States und
+# Serverliste mit der PRODUKTIVEN App (Befund 2026-09-02: der Dev-User sah
+# den echten Self-Host aus dem Prod-Profil).
+set -l dev_profile "$HOME/.config/Pulse-Dev"
+bash -c "env PULSE_DEV_URL=http://localhost:5173 $devtools_env $gsr_env setsid nohup ./node_modules/.bin/electron . --user-data-dir=$dev_profile > /tmp/dcc-electron-dev.log 2>&1 < /dev/null &"
 popd >/dev/null
 sleep 2
 _ok "" "Electron up"

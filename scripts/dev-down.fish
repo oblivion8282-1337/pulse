@@ -13,14 +13,18 @@ set -l rst (set_color normal)
 function _ok; echo "$grn ✓ $rst$argv"; end
 function _info; echo "$grn→ $rst$argv"; end
 
-# Nur Dev-Electron killen (PULSE_DEV_URL gesetzt) — Prod-Mode nicht anfassen.
+# Nur Dev-Electron killen — Prod-Mode nicht anfassen. pkill nutzt ERE: eine
+# Alternation ist ein nacktes |, "\|" waere ein LITERALES Pipe-Zeichen und
+# wuerde nie matchen (Befund 2026-09-02: Dev-Electron ueberlebte dev-down).
 _info "Electron (Dev) stoppen"
-pkill -f "PULSE_DEV_URL.*electron\|electron@42.*electron \." 2>/dev/null
+pkill -f "user-data-dir=.*/Pulse-Dev" 2>/dev/null
+pkill -f "PULSE_DEV_URL.*electron" 2>/dev/null
+pkill -f "electron@42.*electron \." 2>/dev/null
 sleep 0.5
 _ok "Electron weg"
 
 _info "Vite stoppen"
-pkill -f "vite dev\|vite/bin/vite" 2>/dev/null
+pkill -f "vite dev|vite/bin/vite" 2>/dev/null
 sleep 0.3
 _ok "Vite weg"
 
