@@ -79,3 +79,14 @@ Ziel-Adapter implementieren `lösche`.
 Basis: `8bd92e2b` (Merge) + Ordner-Feature `356ec52d` + Lösch-Feature
 `54661b85`. Jäger-Berichte nach §6 behandelt; B1 und B3 vom Assistenten
 nachgefahren und bestätigt.
+
+## Ergänzung 2026-09-02 (E2EE-Test auf lokalem Stack)
+
+**B11 | HOCH (UX/Funktion) | Desktop-App bekommt den „braucht ein Gerät"-Wall statt Geräte-Setup.**
+`DmOhneAppGeraet.svelte` bietet nur „Apps herunterladen" + „Browser koppeln" —
+mitten in der Electron-App. Das lokale Test-Konto hat nie Geräte-Schlüssel
+ausgestellt bekommen; die Wand erscheint dadurch JEDES Mal beim DM-Öffnen
+(`GET /keys/verschluesselbar/{eigene_id}` = false). Erwartet: In der App
+entweder automatisches Geräte-Setup beim Login oder der Wall-Knopf „Gerät
+jetzt einrichten". Ohne diesen Weg sind verschlüsselte DMs auf einem frischen
+App-Profil unerreichbar — Blocker für den E2EE-Test auf lokalem Stack.
