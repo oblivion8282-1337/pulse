@@ -2,6 +2,21 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-02.1",
+      "date": "2026-09-02",
+      "style": "Sachlich",
+      "title": "Anhänge — für alle, mit Vorhalt",
+      "intro": "Die Büroklammer ist zurück in verschlüsselten Direktnachrichten. Diesmal ohne Voraussetzungen.",
+      "items": [
+        "Anhänge senden und empfangen funktioniert wieder für jeden — es muss kein Cloud-Laufwerk mehr verbunden sein. Das Bild, das Video, die Datei: verschlüsselt wird auf deinem Gerät, abgelegt wird der Ciphertext auf dem Pulse-Server.",
+        "Der Server hält einen Anhang 15 Tage als Vorhalt. In dieser Zeit kann jedes deine Geräte ihn abholen; danach ist er dort gelöscht. Wer ihn geöffnet hat, behält seine lokale Kopie.",
+        "Hast du die Sicherung mit deinem eigenen Cloud-Laufwerk aktiviert, liegt der Anhang zusätzlich dauerhaft in deinem Archiv — von deinem Rechner aus hochgeladen, verschlüsselt, genau wie deine Textnachrichten. Nur der Absender schreibt ihn dort hinein, deshalb gibt es keine Doppel.",
+        "Je Anhang sind jetzt 5 MB möglich. Grössere Dateien weist Pulse vor dem Hochladen ab.",
+        "Bilder lassen sich über die Vollbild-Ansicht direkt speichern. Andere Dateien hatten den Herunterladen-Weg bereits."
+      ],
+      "outro": "Neu auch: öffnest du Pulse auf einem frischen Gerät, weist ein Hinweis mit einem Klick direkt in die Sicherung — dort holst du deinen Verlauf aus deinem Archiv."
+    },
+    {
       "id": "2026-09-01.2",
       "date": "2026-09-01",
       "style": "Sachlich",
