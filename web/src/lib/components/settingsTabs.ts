@@ -74,7 +74,10 @@ export function getSettingsTabs(): SettingsTabDef[] {
     { id: 'privacy', label: m.settings_dialog_tab_privacy(), icon: LockIcon },
     { id: 'security', label: m.settings_dialog_tab_security(), icon: ShieldIcon },
     { id: 'sicherung', label: m.settings_dialog_tab_sicherung(), icon: CloudUploadIcon },
-    { id: 'storage', label: m.settings_dialog_tab_storage(), icon: HardDriveIcon },
+    // Auslieferungsschritt 1 (2026-09-02, Eigentümer): die Cloud-Laufwerk-
+    // Oberfläche bleibt versteckt, bis sie freigegeben wird. Der Code
+    // (Ablage/§11-Anhänge) bleibt voll erhalten — nur der Reiter ist aus.
+    // { id: 'storage', label: m.settings_dialog_tab_storage(), icon: HardDriveIcon },
     { id: 'apps', label: m.settings_dialog_tab_apps(), icon: DownloadIcon, browserOnly: true },
     { id: 'experimental', label: m.settings_dialog_tab_diagnostics(), icon: PlugZapIcon, electronOnly: true },
   ];
