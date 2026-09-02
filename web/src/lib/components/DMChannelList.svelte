@@ -52,7 +52,7 @@
     {
       icon: UsersIcon,
       href: '/app/friends',
-      label: 'Freunde',
+      label: m.nav_freunde(),
       count: pendingCount,
       active: friendsActive,
       testid: 'sidebar-friends',
@@ -61,7 +61,7 @@
     {
       icon: MailIcon,
       href: '/app/invites',
-      label: 'Einladungen',
+      label: m.nav_einladungen(),
       count: invitesCount,
       active: invitesActive,
       testid: 'sidebar-invites',

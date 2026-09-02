@@ -15,6 +15,7 @@ import { base64UrlDecode, base64UrlEncode } from '$lib/utils/base64url';
 import { request, resetRefreshLock } from './client';
 import { saveTokens } from './storage';
 import type { Tokens } from './types';
+import { m } from '$lib/paraglide/messages.js';
 
 export type WebAuthnCredentialSummary = {
   id: string;
@@ -119,16 +120,13 @@ function encodeAssertion(cred: PublicKeyCredential): Record<string, unknown> {
 function ceremonyError(err: unknown): Error {
   if (err instanceof DOMException) {
     if (err.name === 'NotAllowedError')
-      return new Error('Abgebrochen oder Zeitüberschreitung — bitte erneut versuchen.');
+      return new Error(m.webauthn_abgebrochen());
     if (err.name === 'InvalidStateError')
-      return new Error('Dieser Authenticator ist bereits als Passkey registriert.');
+      return new Error(m.webauthn_bereits_registriert());
     if (err.name === 'SecurityError')
-      return new Error(
-        'Passkey nicht möglich: Die Seite muss über HTTPS laufen und die ' +
-          'Server-Domain (rpId/Origin) muss zur aufgerufenen Adresse passen.'
-      );
+      return new Error(m.webauthn_domain());
   }
-  return err instanceof Error ? err : new Error('Passkey-Vorgang fehlgeschlagen.');
+  return err instanceof Error ? err : new Error(m.webauthn_fehlgeschlagen());
 }
 
 // ---- registration (authenticated) ------------------------------------------

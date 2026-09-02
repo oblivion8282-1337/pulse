@@ -10,6 +10,7 @@
   (from stream_state, e.g. "Monitor 1" / "Chrome") carries the distinction.
 -->
 <script lang="ts">
+  import { m } from '$lib/paraglide/messages.js';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import { streamPicker } from '$lib/stream/streamPicker.svelte';
@@ -57,7 +58,7 @@
         onclick={openAll}
       >
         <MonitorIcon class="text-primary size-4 shrink-0" />
-        <span>Alle ansehen</span>
+        <span>{m.stream_alle_ansehen()}</span>
       </MenuRow>
     </div>
   </Dialog.Content>

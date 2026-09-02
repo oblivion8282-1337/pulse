@@ -11,6 +11,7 @@
   DM-Spalte + Panel), damit der Wechsel zwischen beiden nicht springt.
 -->
 <script lang="ts">
+  import { m } from '$lib/paraglide/messages.js';
   import { goto } from '$app/navigation';
   import GuildRail from '$lib/components/GuildRail.svelte';
   import DMChannelList from '$lib/components/DMChannelList.svelte';
@@ -50,7 +51,7 @@
   class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl"
   data-testid="invites-page"
 >
-  <BereichsKopf titel="Einladungen" />
+  <BereichsKopf titel={m.seite_invites_titel()} />
 
   <div class="flex-1 overflow-y-auto px-4 pb-4">
     {#if communityInvites.list.length === 0}

@@ -82,19 +82,19 @@
     // Archiv hinterlegt", waehrend das Archiv da war und das Oeffnen
     // scheiterte.
     if (verlauf.art === 'kein-archiv') {
-      toast.info(
-        'Es war kein Archiv hinterlegt — deine Laufwerke sind zurück, dein Verlauf konnte nicht geholt werden.'
-      );
+      toast.info(m.wiederherstellung_toast_kein_archiv());
     } else if (verlauf.art === 'fehler') {
-      toast.error(`Der Verlauf konnte nicht geholt werden: ${verlauf.grund}`);
+      toast.error(m.wiederherstellung_toast_fehler({ grund: verlauf.grund }));
     } else if (verlauf.bericht.zurueckgeholt === 0) {
-      toast.warning('Im Archiv lag kein Verlauf. Deine Laufwerke sind zurück.');
+      toast.warning(m.wiederherstellung_toast_leer());
     } else {
       const uebersprungen =
         verlauf.bericht.uebersprungen > 0
-          ? ` (${verlauf.bericht.uebersprungen} unlesbar übersprungen)`
+          ? m.wiederherstellung_toast_uebersprungen({ n: verlauf.bericht.uebersprungen })
           : '';
-      toast.success(`${verlauf.bericht.zurueckgeholt} Nachrichten zurückgeholt${uebersprungen}.`);
+      toast.success(
+        m.wiederherstellung_toast_erfolg({ n: verlauf.bericht.zurueckgeholt }) + uebersprungen
+      );
     }
     void ladeStatus();
   }

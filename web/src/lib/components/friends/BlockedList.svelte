@@ -1,5 +1,5 @@
 <!--
-  Blocked-users tab. Hydrates the blocks store via GET /blocks on mount
+    Blocked-users tab. Hydrates the blocks store via GET /blocks on mount
   (the ready frame only carries the id list, not the timestamps — the
   full call gives us "since" + lets the user inspect when the block was
   set up).
@@ -8,6 +8,7 @@
   Etappe 5 — Etappe 4 just exposes the foundation.
 -->
 <script lang="ts">
+  import { m } from '$lib/paraglide/messages.js';
   import { onMount } from 'svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import UserMinusIcon from '@lucide/svelte/icons/user-minus';
@@ -36,7 +37,7 @@
       await friendsApi.unblockUser(userId);
       blocks.remove(userId);
     } catch (e) {
-      toast.error('Entsperren fehlgeschlagen', {
+      toast.error(m.blockliste_entsperren_fehler(), {
         description: e instanceof Error ? e.message : undefined
       });
     }
@@ -49,7 +50,7 @@
   </h2>
   {#if blocks.list.length === 0}
     <p class="text-text-muted px-1 py-4 text-sm" data-testid="blocked-empty">
-      Niemand blockiert.
+      {m.blockliste_leer()}
     </p>
   {/if}
   {#each blocks.list as b (b.user_id)}

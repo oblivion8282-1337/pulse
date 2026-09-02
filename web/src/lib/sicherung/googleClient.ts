@@ -22,6 +22,7 @@
 import { isElectron } from '../platform/runtime.ts';
 import { erzeugePkce, type Pkce } from '../ablage/oauth.ts';
 import { autorisierungsAdresse, tauscheCodeAus, type GdriveAnbindung } from '../ablage/gdrive.ts';
+import { m } from '$lib/paraglide/messages.js';
 type GdriveVerbindungRecord = {
 	ziel: 'gdrive';
 	kundenId: string;
@@ -93,7 +94,7 @@ function ruecklaufBruecke(): RuecklaufBruecke | null {
 export function zerlegeRueckgabe(rueckgabe: string): { code: string; state: string } {
 	const code = /[?&]code=([^&]+)/.exec(rueckgabe)?.[1];
 	const state = /[?&]state=([^&]+)/.exec(rueckgabe)?.[1];
-	if (!code || !state) throw new Error('Rückgabe ohne Code oder State');
+	if (!code || !state) throw new Error(m.sicherung_oauth_rueckgabe_unvollstaendig());
 	return { code: decodeURIComponent(code), state: decodeURIComponent(state) };
 }
 
@@ -101,7 +102,7 @@ export function zerlegeRueckgabe(rueckgabe: string): { code: string; state: stri
 export function pruefeRueckgabe(roh: string, erwarteterState: string): string {
 	const geparst = JSON.parse(roh) as { state?: string; code?: string };
 	if (geparst.state !== erwarteterState || typeof geparst.code !== 'string') {
-		throw new Error('State passt nicht — Rückgabe verworfen.');
+		throw new Error(m.sicherung_oauth_state_falsch());
 	}
 	return geparst.code;
 }
@@ -114,7 +115,7 @@ export function pruefeRueckgabe(roh: string, erwarteterState: string): string {
 export async function googleSicherungVerbinden(): Promise<GdriveVerbindungRecord> {
 	const bruecke = isElectron() ? ruecklaufBruecke() : null;
 	if (isElectron() && !bruecke) {
-		throw new Error('Diese Pulse-Version unterstützt die Rückkehr noch nicht.');
+		throw new Error(m.sicherung_oauth_nicht_unterstuetzt());
 	}
 	const weiterleitung = isElectron()
 		? `http://127.0.0.1:${await bruecke!.oauthPort()}/ruecklauf`
@@ -128,7 +129,7 @@ export async function googleSicherungVerbinden(): Promise<GdriveVerbindungRecord
 	if (isElectron()) {
 		const rueckgabe = zerlegeRueckgabe(await bruecke!.oauthStart(adresse));
 		if (rueckgabe.state !== zustand) {
-			throw new Error('OAuth-State passt nicht — Rückgabe verworfen.');
+			throw new Error(m.sicherung_oauth_state_falsch());
 		}
 		code = rueckgabe.code;
 	} else {
@@ -150,7 +151,7 @@ export async function googleSicherungVerbinden(): Promise<GdriveVerbindungRecord
 					}
 				} else if (Date.now() > frist) {
 					clearInterval(uhr);
-					ablehnen(new Error('Zeit abgelaufen — bitte erneut verbinden.'));
+					ablehnen(new Error(m.sicherung_oauth_zeit_abgelaufen()));
 				}
 			}, 500);
 		});

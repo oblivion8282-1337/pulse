@@ -11,6 +11,7 @@
   Component-Toasts rendert sonner unstyled → die Card-Optik liefern wir hier.
 -->
 <script lang="ts">
+  import { m } from '$lib/paraglide/messages.js';
   import XIcon from '@lucide/svelte/icons/x';
   import { Button } from '$lib/components/ui/button';
   import type { ChangelogEntry } from '$lib/changelog/types';
@@ -33,13 +34,13 @@
   onpointerdown={(e) => e.stopPropagation()}
 >
   <div class="flex items-start justify-between gap-3">
-    <p class="text-sm font-semibold">Was ist neu?</p>
+    <p class="text-sm font-semibold">{m.changelog_was_ist_neu()}</p>
     <Button
       variant="ghost"
       size="icon-xs"
       class="-m-1 shrink-0"
       onclick={() => closeToast?.()}
-      aria-label="Schließen"
+      aria-label={m.changelog_schliessen()}
       data-testid="changelog-toast-close"
     >
       <XIcon class="size-4" />

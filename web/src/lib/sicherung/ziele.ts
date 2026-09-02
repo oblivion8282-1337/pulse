@@ -18,6 +18,7 @@ import { adapterAusVerzeichnis, type AblageVerzeichnis } from '../ablage/syncOrd
 import { gdriveAdapter, auffrischeZugang, type GdriveAnbindung } from '../ablage/gdrive.ts';
 import { ordnerAdapter, ordnerZugriffOk } from './ordner.ts';
 import { TokenVorrat } from './tokenVorrat.ts';
+import { m } from '$lib/paraglide/messages.js';
 
 const DB_NAME = 'pulse-sicherung';
 const DB_VERSION = 4; // 4: puffer mit keyPath 'schluessel' neu angelegt (put ohne expliziten Schluessel warf sonst)
@@ -236,7 +237,7 @@ async function ladeZugang(): Promise<{ zugangsToken: string; gueltigSekunden?: n
 	const g = z.gdrive;
 	if (!g) throw new Error('Sicherung: kein Google-Ziel eingerichtet');
 	if (g.nachspieleToken === '') {
-		throw new Error('Google-Verbindung ohne Nachspiel-Token — bitte Verbindung entfernen und neu herstellen.');
+		throw new Error(m.sicherung_token_fehlt());
 	}
 	const alt = g.nachspieleToken;
 	const zugang = await auffrischeZugang(gdriveAnbindung(g), alt);
