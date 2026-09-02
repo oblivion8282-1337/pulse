@@ -2,9 +2,10 @@
 
 > **Achtung: die beiden Gates sind seit dem 2026-06-28 NICHT MEHR verdrahtet.**
 > Commit `b345ca8d` hat sie aus `.claude/settings.json` entfernt („Hooks haben
-> hauptsächlich genervt"); dort stehen heute nur noch zwei graphify-Hooks, kein
-> `git commit`-Gate und kein `Stop`-Gate. Die Skripte liegen weiter hier und
-> funktionieren — sie feuern nur niemand mehr.
+> hauptsächlich genervt"). Daneben standen bis zum 2026-09-02 noch zwei
+> graphify-Hooks; mit der Deinstallation von graphify sind auch die weg, und
+> damit ist in `.claude/settings.json` **gar nichts mehr verdrahtet**. Die
+> Skripte hier liegen weiter und funktionieren — sie feuern nur niemand mehr.
 >
 > **Was daraus folgt:** die Regel unten ist eine Regel, keine Schranke. Sie wird
 > nicht mehr erzwungen, sondern muss eingehalten werden. `simplify-stamp.sh`
@@ -18,8 +19,8 @@
 >
 > Wer sie zurückwill: die beiden Einträge (`PreToolUse` mit Matcher `Bash` auf
 > `require-simplifier.sh`, plus ein `Stop`-Eintrag auf
-> `stop-require-simplifier.sh`) gehören in `.claude/settings.json` neben die
-> graphify-Hooks.
+> `stop-require-simplifier.sh`) gehören in eine `hooks`-Sektion in
+> `.claude/settings.json`, die es dort derzeit nicht gibt.
 
 Diese vier Skripte erzwingen eine einzige Regel:
 
@@ -43,36 +44,23 @@ ungehindert durch.
 | `simplify-changed-hash.sh` | Inhalts-Hash der geänderten App-Dateien |
 | `simplify-stamp.sh` | setzt beide Stempel = „Simplifier gelaufen, Checks grün" |
 
-Verdrahtet sind die beiden Hooks in `.claude/settings.json`.
+Verdrahtet ist davon nichts — s. den Kasten ganz oben.
 
-# Der graphify-Hinweis — der einzige Hook, der wirklich feuert
+# Eine Lehre aus dem entfernten graphify-Hook
 
-`graphify-hinweis.mjs` ist der fünfte Bewohner dieses Verzeichnisses und
-gehört **nicht** zu den Simplifier-Gates oben. Er erinnert daran, `graphify`
-zu fragen, bevor roh gesucht (`Bash`, Matcher auf grep/rg/find/…) oder roh
-gelesen wird (`Read|Glob`, Matcher auf Quell- und Doku-Endungen) — und nur,
-solange `graphify-out/graph.json` überhaupt existiert.
+Hier lag bis zum 2026-09-02 `graphify-hinweis.mjs`, der vor rohem Suchen und
+Lesen an `graphify` erinnerte. Mit dem Werkzeug ist er weg. Ein Satz daraus
+gilt für **jeden** Hook, der hier je wieder entsteht:
 
-**Seit dem 2026-08-06 ist es eine Datei statt zweier `python3 -c`-Einzeiler in
-`settings.json`.** Der Grund ist kein Schönheitsempfinden: auf dem
-Windows-Rechner (Sidecar- und Player-Bau) gibt es **kein Python** — `python3`
-ist dort der Microsoft-Store-Platzhalter, der mit „Python was not found"
-abbricht. Beide Einzeiler endeten auf `2>/dev/null || true`, **also fielen sie
-dort still aus und haben nie gefeuert.** Dasselbe Muster wie im Kasten ganz
-oben: ein Netz, das man für gespannt hält.
+**Er war ursprünglich ein `python3 -c`-Einzeiler in `settings.json` und feuerte
+auf dem Windows-Rechner NIE** — `python3` ist dort der Microsoft-Store-Platz-
+halter, der mit „Python was not found" abbricht, und das `2>/dev/null || true`
+am Ende verschluckte es. Node ist auf jedem Rechner dieses Repos Voraussetzung
+(pnpm-Workspace), Python nur fürs Backend. Und ein Hook gehört in eine **Datei**,
+weil man die von Hand anstossen und damit nachprüfen kann; ein Einzeiler mit
+dreifach geflüchteten Anführungszeichen lässt sich nur hoffen. Dasselbe Muster
+wie im Kasten ganz oben: ein Netz, das man für gespannt hält.
 
-Node ist stattdessen eine harte Voraussetzung dieses Repos auf jedem Rechner
-(pnpm-Workspace für `web` und `desktop`), Python nur für das Backend.
-
-**Nachprüfbar, und das war der zweite Gewinn:**
-
-```
-echo '{"tool_input":{"command":"grep -r foo ."}}' | node .claude/hooks/graphify-hinweis.mjs bash
-echo '{"tool_input":{"pattern":"**/*.ts"}}'       | node .claude/hooks/graphify-hinweis.mjs lesen
-```
-
-Ohne `graphify-out/graph.json` im Arbeitsverzeichnis bleibt beides stumm — das
-ist der Normalfall auf einem Rechner, auf dem noch kein Graph gebaut wurde.
 
 **Warum zwei Gates.** Das Commit-Gate allein käme zu spät: Nicht jede Änderung
 mündet sofort in einen Commit. Das Stop-Gate zieht den Simplifier ans Ende

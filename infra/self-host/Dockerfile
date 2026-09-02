@@ -129,7 +129,7 @@ RUN test -f /opt/pulse/services/auth/alembic.ini \
 # ──────────────────────────────────────────────────────────────────────────
 FROM rust:1-slim-bookworm AS wasm-build
 # Version gepinnt wie ueberall sonst im Baum (pnpm@10.33.0 drei Zeilen
-# weiter, electron 43.0.0, mediamtx 1.19.1-pulse5): ohne `--version` holt
+# weiter, electron 43.0.0, mediamtx 1.19.1-pulse6): ohne `--version` holt
 # `cargo install` zur BAUZEIT, was crates.io gerade als neuestes fuehrt —
 # und dessen Ausgabe landet im ausgelieferten Buendel. 0.15.0 ist die
 # Fassung, gegen die lokal geprueft wurde.

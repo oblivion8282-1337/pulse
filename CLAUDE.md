@@ -311,7 +311,7 @@ Top-Level `plugins/` (Referenz `hello` + `tamagotchi`). Manifest `plugin.toml` (
 - **Auto-Update**: push → main → `ci.yml` baut+pusht GHCR → Cron zieht `:latest` ≤5 min (inkl. migrate → Migrationen auto). Struktur-Änderung (Service/Env/Config): `rsync infra/ → ~/pulse/infra/` + `docker compose up -d`.
 - **Deploy vom Test-Gate entkoppelt**: `images`-Job hängt nur am `changelog`-Job (der **warnt nur**) → kein blockierendes CI-Gate. **Verbindliches Test-Gate ist LOKAL vor dem Push** (pytest + `pnpm check` + build grün, BEVOR gepusht).
 - **Routing**: Caddy → `pulse_web` nginx → `/api/{auth,chat,ws,voice}/*`, `/wheph`+`/hls` MediaMTX, `/livekit` LiveKit. host-net-Ziele **statisch** `proxy_pass http://host.docker.internal:PORT/` (Variable+Resolver → 502, da Dockers `127.0.0.11` `host.docker.internal` nicht kennt).
-- **Gotchas**: Secrets server-seitig in `.env` + `secrets/jwt_*.pem` (**PEM `chmod 0644`**, uid 10001). Avatar-Volume Fresh-Deploy `chown 10001:10001` (sonst Upload-500). UFW `7880`/`9997` nur vom Docker-Bridge (`ufw allow from 10.0.0.0/8`) — sonst blockt `INPUT DROP`. MediaMTX = **1.19.1-pulse5**-Fork (`infra/mediamtx-fork/`, TempDelim-Patch für AMD-VAAPI AV1, Image `ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse5`); `:9997`-API-Schutz hängt **nur an der UFW** (`apiAllowAddresses` in 1.19 entfernt). Dev-compose läuft ebenfalls 1.19.1-pulse5. Migrate-Container laufen automatisch beim Deploy mit.
+- **Gotchas**: Secrets server-seitig in `.env` + `secrets/jwt_*.pem` (**PEM `chmod 0644`**, uid 10001). Avatar-Volume Fresh-Deploy `chown 10001:10001` (sonst Upload-500). UFW `7880`/`9997` nur vom Docker-Bridge (`ufw allow from 10.0.0.0/8`) — sonst blockt `INPUT DROP`. MediaMTX = **1.19.1-pulse6**-Fork (`infra/mediamtx-fork/`, TempDelim-Patch für AMD-VAAPI AV1, Image `ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse6`); `:9997`-API-Schutz hängt **nur an der UFW** (`apiAllowAddresses` in 1.19 entfernt). **Der Tag entsteht aus `MEDIAMTX_VERSION` + `PULSE_REVISION` in `infra/mediamtx-fork/Dockerfile` — die einzige Quelle.** Wer ihn dort anhebt, zieht ausser den drei Compose-Dateien auch die Stellen nach, die ihn bloss BEHAUPTEN (diese hier, `infra/mediamtx-fork/README.md`, die Paritaets-Tabelle in `infra/dev-remote/README.md`, das wortgleiche Pin-Beispiel in `infra/self-host/Dockerfile` UND `web/Dockerfile`) — sie brechen nichts und blieben deshalb beim Sprung auf 6 stehen. **Achtung: jede Aenderung unter `infra/mediamtx-fork/**` und am Workflow `mediamtx-fork.yml` loest den Fork-Bau aus** — auch eine reine Kommentar-Aenderung, und der neue Digest unter altem Tag rekreiert beim naechsten Cron-Lauf den MediaMTX-Container (Streams reissen ab). Dev-compose und Remote-Dev-Stack laufen auf derselben Fassung. Migrate-Container laufen automatisch beim Deploy mit.
 
 ## CI-Workflows (`.github/workflows/`)
 
@@ -439,11 +439,3 @@ User-facing Changelog, **einmalig nach einem Deploy-Reload** als **nicht-blockie
 - ❌ `@livekit/krisp-noise-filter` (kostenpflichtig) · ❌ `deepfilternet3-noise-filter` (kratzig + Worklet-Underrun) · ❌ `svelte-french-toast` (Sv5-inaktiv) · ❌ `svelte-markdown` blind (kein Sanitizer)
 - ❌ Exactly-once-Delivery · ❌ Re-Publishing MediaMTX→LiveKit (Transcoding zu teuer)
 - ❌ Routes-/Service-Dateien über die Größen-Grenze wachsen lassen statt splitten
-
-## graphify
-
-Knowledge graph in `graphify-out/` (god nodes, community structure, cross-file relationships).
-- Bei Codebase-Fragen zuerst `graphify query "<Frage>"` (oder `graphify path "<A>" "<B>"` / `graphify explain "<Konzept>"`) — liefert ein scoped Subgraph, viel kleiner als `GRAPH_REPORT.md` oder grep.
-- Breite Navigation über `graphify-out/wiki/index.md` (falls vorhanden) statt rohem Source-Browsing.
-- `GRAPH_REPORT.md` nur für breiten Architektur-Review.
-- Nach Code-Änderung `graphify update .` (AST-only, kein API-Kosten).

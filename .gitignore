@@ -134,7 +134,6 @@ Pulse-*-*.zip
 # Lokale Analyse-Artefakte (simplify-scan u.ä.)
 .cache/
 .superpowers/
-graphify-out/
 # App-Hosting: gebündelte Podman-Binaries (CI/dist lädt sie, nie committen)
 desktop/resources-podman/*
 !desktop/resources-podman/README.md

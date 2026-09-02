@@ -97,7 +97,7 @@ bewusst auf die Prod-Fassung gepinnt**:
 
 | | Produktion | hier |
 |---|---|---|
-| MediaMTX-Fork | `1.19.1-pulse5` | `1.19.1-pulse5` |
+| MediaMTX-Fork | `1.19.1-pulse6` | `1.19.1-pulse6` |
 | LiveKit | `v1.13.3` | `v1.13.3` |
 
 Vorher lief hier ein lokal gebautes MediaMTX vom 2026-08-04 und LiveKit
