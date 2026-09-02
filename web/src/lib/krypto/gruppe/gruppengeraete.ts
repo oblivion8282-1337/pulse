@@ -106,3 +106,39 @@ export function inEmpfaengerBloecke(pubkeys: string[], groesse = 64): string[][]
  * nicht sofort wieder anstoesst.
  */
 export const MAX_UMSCHLAEGE_JE_ANFRAGE = 90;
+
+/** Ein einzuliefernder Umschlag — strukturgleich zu `PostfachNutzlast` in
+ *  `api/postfach.ts`; hier noch einmal benannt, weil diese Datei importfrei
+ *  bleibt. */
+export type GruppenUmschlag = {
+  art: number;
+  daten: string;
+  empfaenger: string[];
+  archiv: boolean;
+};
+
+/**
+ * Baut aus den Empfaenger-Bloecken (`inEmpfaengerBloecke`) die
+ * einzuliefernden Umschlaege — mit der Archiv-Marke an **genau einem**, dem
+ * ersten.
+ *
+ * Die Blockteilung ist eine Empfaenger-Teilung, kein Inhalt: ab 65
+ * Zielgeraeten entstehen mehrere Nutzlasten mit bitgleichem `daten`. Traegt
+ * jede von ihnen `archiv: true`, legt der Server dieselbe Nachricht mehrfach
+ * im Kanal-Ordner ab — jede unter einem anderen Dateinamen (der Name ist die
+ * Nutzlast-ID), also ohne dass irgendetwas sie noch zusammenfuehren koennte.
+ * Genau ein Umschlag genuegt: welcher, ist gleichgueltig — sie sind
+ * inhaltlich identisch.
+ */
+export function gruppenUmschlaegeBauen(
+  art: number,
+  daten: string,
+  bloecke: readonly (readonly string[])[]
+): GruppenUmschlag[] {
+  return bloecke.map((block, i) => ({
+    art,
+    daten,
+    empfaenger: [...block],
+    archiv: i === 0
+  }));
+}

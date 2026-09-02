@@ -8,7 +8,14 @@
  * die Reihenfolge Ablegen -> Quittieren, an der alles haengt. Hier nur die
  * Faelle, die diese Funktion selbst entscheidet:
  *
- * * schon lokal abgelegt -> `schonAbgelegt` (nur noch quittieren);
+ * * schon lokal abgelegt -> `schonAbgelegt` (nur noch quittieren) — zweimal
+ *   gefragt: einmal ueber die Kennung DIESER Zustellung, und nach dem
+ *   Entschluesseln noch einmal ueber die KANONISCHE Nachrichten-ID aus der
+ *   Nutzlast (`verlaufKenntKanonischeId`, s. dort). Die zweite Frage ist der
+ *   Riegel gegen Doppel-Ablage, seit dieselbe Nachricht ein Geraet auf zwei
+ *   Wegen erreicht: ueber das Postfach unter ihrer Zustellungs-ID, ueber die
+ *   Datei im Kanal-Ordner unter ihrer Nutzlast-ID. Sie steht hier und nicht
+ *   in einem der beiden Leser, damit sie fuer BEIDE Richtungen gilt;
  * * Megolm-Gruppennachricht -> eigener Weg (`gruppe/empfangen.ts`);
  * * Olm-Umschlag -> Sitzung laden bzw. eingehend aufbauen, entschluesseln,
  *   sichern; enthaelt der Klartext einen Gruppen-Verteilschluessel, wird er
@@ -20,6 +27,7 @@ import type { Identitaet } from '../../../../krypto/pulse-krypto/pkg/pulse_krypt
 import { Umschlag } from '../../../../krypto/pulse-krypto/pkg/pulse_krypto.js';
 import { directMessages } from '../stores/directMessages.svelte';
 import { verlaufSchonAbgelegt } from '../verlauf';
+import { verlaufKenntKanonischeId } from '../verlauf/kanonischeId';
 import type { PostfachZustellung } from '../api/postfach';
 import {
   sitzungLaden,
@@ -99,7 +107,14 @@ export async function zustellungOeffnen(
   if (istGruppennachricht(z)) {
     if (!PRIVATE_GRUPPEN_ENABLED && !ABLAGE_KANAL_ENABLED) return null;
     const nachricht = await oeffneGruppennachricht(z);
-    return nachricht ? { art: 'neu', nachricht } : null;
+    if (!nachricht) return null;
+    // Die kanonische ID steht in `krypto_id` (s. `empfangeneNachricht.ts`) —
+    // der Doppel-Riegel gilt hier genauso wie im Olm-Zweig unten, und er
+    // greift praktisch nur hier: ein Ablage-Kanal sendet ueber Megolm.
+    if (nachricht.krypto_id && (await verlaufKenntKanonischeId(z.channel_id, nachricht.krypto_id))) {
+      return { art: 'schonAbgelegt', channelId: z.channel_id, id: z.id };
+    }
+    return { art: 'neu', nachricht };
   }
 
   const absenderUserId = absenderErmitteln(
@@ -174,6 +189,12 @@ export async function zustellungOeffnen(
         // lokal (Grabstein im Verlauf, damit auch im Archiv) und quittiert
         // direkt — es gibt nichts anzuzeigen und nichts abzulegen.
         return { art: 'loeschung', id: z.id, channelId: z.channel_id, nachrichtId: gelesen.id };
+      }
+      // NACH dem Loesch-Zweig: dessen `gelesen.id` benennt die ZIEL-Nachricht,
+      // die lokal selbstverstaendlich vorhanden ist — eine Pruefung davor
+      // wuerde jeden Loesch-Frame als „schon abgelegt" verschlucken.
+      if (gelesen.id !== null && (await verlaufKenntKanonischeId(z.channel_id, gelesen.id))) {
+        return { art: 'schonAbgelegt', channelId: z.channel_id, id: z.id };
       }
       return { art: 'neu', nachricht: baueEmpfangeneNachricht(z, absenderUserId, gelesen) };
     } catch (err) {

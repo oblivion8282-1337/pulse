@@ -93,7 +93,12 @@ import {
   gruppensitzungSichern,
   neueGruppensitzung
 } from './gruppenSitzungen';
-import { inBloecke, inEmpfaengerBloecke, MAX_UMSCHLAEGE_JE_ANFRAGE } from './gruppengeraete';
+import {
+  gruppenUmschlaegeBauen,
+  inBloecke,
+  inEmpfaengerBloecke,
+  MAX_UMSCHLAEGE_JE_ANFRAGE
+} from './gruppengeraete';
 import {
   zielGeraeteBerechnen,
   schluesselUmschlaegeBauen,
@@ -178,10 +183,14 @@ export async function sendeInKanal(
       eigeneKennung,
       schluesselUmschlaege
     );
-    const nachrichtUmschlaege: PostfachNutzlast[] = inEmpfaengerBloecke(alleGeraete).map(
-      // Der Server legt ab, wenn der Kanal ein Ordner-Kanal ist; sonst
-      // ignoriert er das Feld.
-      (block) => ({ art: ART_GRUPPENNACHRICHT, daten, empfaenger: block, archiv: true })
+    // Die Archiv-Marke traegt genau EIN Umschlag, s.
+    // `gruppenUmschlaegeBauen` (dort steht auch, warum). Der Server legt
+    // ohnehin nur ab, wenn der Kanal ein Ordner-Kanal ist; sonst ignoriert
+    // er das Feld.
+    const nachrichtUmschlaege: PostfachNutzlast[] = gruppenUmschlaegeBauen(
+      ART_GRUPPENNACHRICHT,
+      daten,
+      inEmpfaengerBloecke(alleGeraete)
     );
     const { beliefert: nachrichtBeliefert, letzterFehler: nachrichtFehler } =
       await bloeckeEinliefern(

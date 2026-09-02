@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   gruppengeraeteBerechnen,
+  gruppenUmschlaegeBauen,
   inBloecke,
   inEmpfaengerBloecke,
   MAX_UMSCHLAEGE_JE_ANFRAGE,
@@ -98,4 +99,22 @@ test('Umschlaege werden auf Anfragen aufgeteilt, bevor der Server sie ablehnt', 
   assert.equal(anfragen.length, 2);
   assert.ok(anfragen.every((a) => a.length <= MAX_UMSCHLAEGE_JE_ANFRAGE));
   assert.deepEqual(anfragen.flat(), umschlaege);
+});
+
+test('gruppenUmschlaegeBauen markiert GENAU EINEN Umschlag fuers Archiv', () => {
+  // Befund I4: bei mehr als 64 Zielgeraeten entstehen mehrere Nutzlasten mit
+  // bitgleichem `daten`. Trueg jede die Marke, laege dieselbe Nachricht
+  // mehrfach im Kanal-Ordner — unter verschiedenen Dateinamen.
+  const umschlaege = gruppenUmschlaegeBauen(2, 'geheim', [['a', 'b'], ['c'], ['d']]);
+  assert.deepEqual(
+    umschlaege.map((u) => u.archiv),
+    [true, false, false]
+  );
+  // Inhalt und Empfaenger bleiben unangetastet.
+  assert.deepEqual(umschlaege[0], { art: 2, daten: 'geheim', empfaenger: ['a', 'b'], archiv: true });
+  assert.deepEqual(umschlaege[2].empfaenger, ['d']);
+});
+
+test('gruppenUmschlaegeBauen ohne Bloecke liefert nichts zu Markierendes', () => {
+  assert.deepEqual(gruppenUmschlaegeBauen(2, 'geheim', []), []);
 });

@@ -14,6 +14,30 @@
  * belieferter Geraet die gerade verschickte Nachricht nicht mehr (der
  * Ratchet waere schon einen Schritt weiter). `sendeInKanal` haelt sich
  * daran, indem es diese Funktion vor `stand.sitzung.verschluesseln()` ruft.
+ *
+ * ## Die Grenze dieser Nachlieferung, ausdruecklich
+ *
+ * Nachgeliefert wird **genau eine** Sitzung: die AUSGEHENDE dieses Geraets
+ * (`gruppensitzungLaden`, ein Eintrag je Kanal). Ein Geraet fuehrt daneben
+ * beliebig viele EINGEHENDE Sitzungen — eine je (Kanal, Absendergeraet,
+ * Sitzungskennung), s. `gruppenSitzungen.ts` — und **keine davon kann es
+ * weiterreichen.** `Gruppenempfang` bietet nur `entschluesseln`,
+ * `einfrieren` und `auftauen`; einen Export gibt es nicht, weder in der
+ * WASM-Grenze (`krypto/pulse-krypto/src/wasm.rs`) noch in der Kiste selbst
+ * (`gruppe.rs`), und vodozemacs `InboundGroupSession::export_at` ist dort
+ * bewusst nicht durchgereicht: an ihm haengt die Zusicherung „wer spaeter
+ * dazukommt, liest den Verlauf davor nicht" (Modulkopf von `gruppe.rs`).
+ *
+ * **Praktische Folge, und sie ist keine Kleinigkeit:** ein frisches Geraet
+ * bekommt hierueber den Schluessel fuer alles, was DIESES Geraet ab jetzt
+ * sendet — nicht fuer das, was ANDERE Mitglieder gesendet haben. Den
+ * Verlauf eines Ordner-Kanals sieht es deshalb erst, wenn jedes andere
+ * sendende Geraet seinerseits nachgeliefert hat (was es beim naechsten
+ * Kanal-Oeffnen tut, s. `components/chat/ablageKanalVerlauf.ts`), und fuer
+ * Nachrichten aus einer laengst abgeloesten Sitzung eines Geraets, das nicht
+ * wiederkommt, gar nicht. Das aufzuheben hiesse, `export_at` freizugeben —
+ * eine Entscheidung ueber die Vorwaertssicherheit des Kanals, nicht eine
+ * Erweiterung dieser Datei.
  */
 import type { PostfachNutzlast } from '../../api/postfach';
 import { keysApi } from '../../api/keys';

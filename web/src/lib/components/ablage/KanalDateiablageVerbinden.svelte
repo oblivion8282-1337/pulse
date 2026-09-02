@@ -93,8 +93,10 @@
     } catch (e) {
       // 404 (`ApiError`) heisst „kein Ordner-Kanal" — jeder andere Fehler
       // (Netz/Server) ist unentschieden, nichts gelernt. Beides fällt unten
-      // gleich auf "nicht verbunden" zurück; ein späterer Aufruf holt es
-      // nach.
+      // gleich auf "nicht verbunden" zurück. **Nachgeholt wird das erst beim
+      // nächsten Einhängen dieser Komponente** (`pruefeStatus` läuft nur
+      // dort, es gibt keine Wiederholung) — ein Netzfehler zeigt bis dahin
+      // „nicht verbunden" für einen Kanal, der verbunden sein kann.
       void e;
     }
     status = 'nicht_verbunden';

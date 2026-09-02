@@ -20,7 +20,18 @@
  * (`ablage/kanalOrdnerLeseweg.ts::kanalOrdnerVerlaufLesen`) — liest die vom
  * Server abgelegten Umschlag-Dateien direkt (`api/ablageKanalOrdner.ts`),
  * ohne Umweg über das Nextcloud-Laufwerk des Erstellers. `null` heißt dort
- * „kein Ordner-Kanal"; erst dann greift der ältere Laufwerksweg oben.
+ * „kein Ordner-Kanal"; dann greift der ältere Laufwerksweg oben.
+ *
+ * **Ein LEERES Ergebnis des Ordner-Wegs ist kein Ersatz für den
+ * Laufwerksweg** (Befund C3): der Ordner füllt sich erst mit Nachrichten,
+ * die NACH seiner Einrichtung gesendet wurden — alles davor liegt weiterhin
+ * nur im Laufwerksbestand des Erstellers, ebenso alles, was dieses Gerät
+ * mangels passender Megolm-Sitzung nicht öffnen konnte
+ * (`kanalOrdnerLeseweg.ts` überspringt solche Dateien). Ein frisch
+ * eingerichteter Ordner-Kanal hätte damit einen leeren Verlauf gezeigt,
+ * obwohl der Bestand vorhanden ist. Deshalb: bei `[]` zusätzlich den
+ * Laufwerksweg versuchen und BEIDE Ergebnisse mergen — `verlaufMergen`
+ * entscheidet über Dubletten, nicht diese Datei.
  *
  * `hatServerVerlauf()` kennt Ablage-Kanäle bereits (`verlauf/index.ts`) und
  * hält deshalb den Nachlade-Weg (`verlauf/nachladen.ts`, über
@@ -63,19 +74,25 @@ function ausAblageNachricht(kanalId: string, n: AblageNachricht): Message {
   };
 }
 
+/** Der ältere direkte Laufwerksweg, in die Wire-Form übersetzt. `[]` bei
+ *  jedem Fehlschlag — fail-closed wie `kanalVerlaufLesen` selbst, s.
+ *  Modulkopf. */
+async function vomLaufwerkLesen(kanalId: string): Promise<Message[]> {
+  const bestand = await kanalVerlaufLesen(kanalId).catch(() => null);
+  return bestand ? bestand.nachrichten.map((n) => ausAblageNachricht(kanalId, n)) : [];
+}
+
 export async function ladeAblageKanalVerlauf(kanalId: string): Promise<void> {
   const lokal = await verlaufLesen(kanalId, { anzahl: 50 });
   const ausOrdner = await kanalOrdnerVerlaufLesen(kanalId).catch(() => null);
-  let ausLaufwerk: Message[];
-  if (ausOrdner !== null) {
-    ausLaufwerk = ausOrdner;
-  } else {
-    const vomLaufwerk = await kanalVerlaufLesen(kanalId).catch(() => null);
-    ausLaufwerk = vomLaufwerk
-      ? vomLaufwerk.nachrichten.map((n) => ausAblageNachricht(kanalId, n))
-      : [];
-  }
-  messages.setInitial(kanalId, verlaufMergen(lokal, ausLaufwerk));
+  // `null` = kein Ordner-Kanal, `[]` = Ordner-Kanal ohne (lesbaren) Inhalt.
+  // Beide Male lohnt der Laufwerksweg, s. Modulkopf — im zweiten Fall
+  // ZUSÄTZLICH, nicht statt.
+  const fremd =
+    ausOrdner === null || ausOrdner.length === 0
+      ? [...(ausOrdner ?? []), ...(await vomLaufwerkLesen(kanalId))]
+      : ausOrdner;
+  messages.setInitial(kanalId, verlaufMergen(lokal, fremd));
 
   // Erst NACH dem Lesen, nie darin: `kanalOrdnerVerlaufLesen` haelt oben
   // bereits die Kontosperre (`mitKontosperre`, intern in
