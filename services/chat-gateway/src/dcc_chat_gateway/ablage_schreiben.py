@@ -126,9 +126,62 @@ async def schreibe(
             await client.aclose()
 
 
+async def ordner_anlegen(
+    *,
+    basis: str,
+    pfad: str,
+    timeout_s: float = 30.0,
+    resolver: Resolver | None = None,
+    http: httpx.AsyncClient | None = None,
+) -> None:
+    """Legt ``pfad`` als Ordner unter ``basis`` an, per WebDAV-``MKCOL``.
+
+    **Warum Segment fuer Segment.** Nextcloud legt bei ``PUT`` keine
+    fehlenden Zwischenordner an (anders als ein lokales Dateisystem) — ein
+    ``MKCOL`` auf ``kanaele/42`` scheitert mit 409, solange ``kanaele``
+    selbst noch nicht existiert. Diese Funktion geht deshalb jedes Praefix
+    einzeln durch (``kanaele``, dann ``kanaele/42``) statt den ganzen Pfad
+    auf einmal zu versuchen.
+
+    **201 und 405 sind beide Erfolg.** 201 = neu angelegt, 405 = ``MKCOL``
+    auf einer Ressource, die schon eine Sammlung ist (RFC 4918 §9.3.1) — das
+    ist bei jedem zweiten Aufruf mit demselben Kanal der Normalfall
+    (``kanaele`` existiert dann bereits) und kein Fehler.
+    """
+    tatsaechlicher_resolver = resolver if resolver is not None else standard_resolver
+    segmente = normalisiere_pfad(pfad)
+
+    eigener_client = http is None
+    client = http if http is not None else client_ctor(
+        timeout=timeout_s, follow_redirects=False
+    )
+    try:
+        async with asyncio.timeout(timeout_s):
+            for ende in range(1, len(segmente) + 1):
+                url = baue_ziel_url(basis, segmente[:ende])
+                adresse = await pruefe_ziel_oeffentlich(url, tatsaechlicher_resolver)
+                verankert, host = _url_auf_adresse_verankern(url, adresse)
+                antwort = await client.request(
+                    "MKCOL",
+                    verankert,
+                    headers={"Host": host},
+                    extensions={"sni_hostname": host},
+                )
+                if antwort.status_code not in (201, 405):
+                    raise AblageAbrufFehler("upstream_fehler")
+    except TimeoutError as exc:
+        raise AblageAbrufFehler("zeit_ueberschritten") from exc
+    except httpx.HTTPError as exc:
+        raise AblageAbrufFehler("upstream_nicht_erreichbar") from exc
+    finally:
+        if eigener_client:
+            await client.aclose()
+
+
 async def liste(
     *,
     basis: str,
+    ordner: str | None = None,
     timeout_s: float = 30.0,
     resolver: Resolver | None = None,
     http: httpx.AsyncClient | None = None,
@@ -148,9 +201,18 @@ async def liste(
 
     Ein Ordner, den es noch nicht gibt (404), ist eine leere Liste und kein
     Fehler: beim allerersten Festigen ist das der Normalfall.
+
+    ``ordner`` fragt einen Unterordner der Basis ab (z. B. ``kanaele/42`` —
+    der Kanal-Ordner im Konto-Laufwerk des Erstellers) statt der
+    Laufwerks-Wurzel. Der Pfad laeuft durch dieselbe ``normalisiere_pfad``/
+    ``baue_ziel_url``-Pruefung wie bei ``schreibe``/``loesche`` — kein
+    Sonderweg fuer Unterordner.
     """
     tatsaechlicher_resolver = resolver if resolver is not None else standard_resolver
-    url = basis if basis.endswith("/") else f"{basis}/"
+    if ordner is not None:
+        url = baue_ziel_url(basis, normalisiere_pfad(ordner)) + "/"
+    else:
+        url = basis if basis.endswith("/") else f"{basis}/"
 
     eigener_client = http is None
     client = http if http is not None else client_ctor(
