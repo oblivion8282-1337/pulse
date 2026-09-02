@@ -32,7 +32,13 @@ _RULES: dict[str, tuple[int, float]] = {
     "dropbox_restore": (20, 60.0),   # 20 entry restores / minute
     "dropbox_empty_trash": (10, 60.0), # 10 manual empty-trash / minute
     "dropbox_download": (20, 60.0),  # 20 archive/download-url mints / minute
-    "ablage_abruf": (30, 60.0),      # 30 Weiterreich-Abrufe / Minute (Design §4.2)
+    # Weiterreich-Abrufe (Design §4.2). Seit dem 2026-09-02 liest auch die
+    # Sicherung hier: eine Wiederherstellung holt JEDES Segment und jeden
+    # Anhang einzeln, und die Anhang-Spiegelung prueft vor jedem Schreiben
+    # per Lesen, ob die Datei schon liegt. Mit 30/Minute kroch ein Archiv
+    # mit 200 Dateien sieben Minuten, und der Rest lief in 429 — was die
+    # Sicherung als „Anhang fehlt" schluckt, nicht als Drossel meldet.
+    "ablage_abruf": (300, 60.0),
     "ablage_laufwerk_setzen": (10, 60.0), # 10 Freigabe-Adresse-Aenderungen / Minute
     "ablage_guild_laufwerk_setzen": (10, 60.0), # dasselbe fuer das Community-Laufwerk (E8)
     "ablage_guild_abruf": (30, 60.0), # dasselbe fuer die Community-Weiterreich-Route (E8)
@@ -49,10 +55,16 @@ _RULES: dict[str, tuple[int, float]] = {
     # Der Schreib-Weiterreicher. Grosszuegiger als die Probe: hier ist das
     # Ziel serverseitig hinterlegt und gehoert dem Aufrufer selbst, es gibt
     # also nichts zu scannen. Die Schranke begrenzt, wie schnell ein Geraet
-    # sein eigenes Laufwerk vollschreiben kann — 60/Minute bei 8 MB je
-    # Aufruf ist die Obergrenze, der Regelbetrieb liegt um Groessenordnungen
-    # darunter (ein Log-Segment ist klein, und die Schleife geht alle 30 s).
-    "ablage_schreiben": (60, 60.0),
+    # sein eigenes Laufwerk vollschreiben kann. Bis zum 2026-09-02 standen
+    # hier 60/Minute mit der Begruendung, der Regelbetrieb liege weit
+    # darunter — das galt fuer die Ablage-Schleife (alle 30 s ein Segment),
+    # nicht fuer die Sicherung, die seither ueber dieselbe Route laeuft: ihre
+    # Erstsicherung schreibt Schluessel, Manifeste, Segmente und Anhaenge
+    # in EINEM Schub (am Dev-Stack gemessen: 60 Treffer, dann 7 mal 429,
+    # und der Rest blieb im Puffer haengen). 300/Minute bei 8 MB je Aufruf
+    # bleibt eine Obergrenze fuer das eigene Laufwerk; der Klient wartet bei
+    # 429 zusaetzlich mit steigenden Pausen (`ablage/geduld429.ts`).
+    "ablage_schreiben": (300, 60.0),
 }
 
 
