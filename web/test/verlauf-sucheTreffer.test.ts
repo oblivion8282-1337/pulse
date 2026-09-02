@@ -55,12 +55,12 @@ test('Rangfolge: neueste Nachrichten-ID zuerst, ueber beide ID-Schemata hinweg',
   // Lokale ID (20 Stellen, Date.now()=1700000000000 + Zufall) ist AELTER als
   // die Snowflake unten, obwohl sie als rohe Zahl groesser ist — dieselbe
   // Faustregel wie in `verlauf-zusammenfuegen.test.ts`.
-  const verschluesseltAelter = satz('17000000000001234567', 'treffer eins');
+  const verschluesseltAelter = satz('1700000000000123456', 'treffer eins');
   const klartextNeuer = satz('20971520000', 'treffer zwei');
   const ergebnis = lokaleTreffer([verschluesseltAelter, klartextNeuer], 'treffer');
   assert.deepEqual(
     ergebnis.map((t) => t.message_id),
-    ['20971520000', '17000000000001234567']
+    ['20971520000', '1700000000000123456']
   );
 });
 

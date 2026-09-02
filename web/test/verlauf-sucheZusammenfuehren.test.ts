@@ -55,12 +55,12 @@ test('ein rein serverseitiger Treffer (alte, unverschluesselte Nachricht) bleibt
 });
 
 test('Rangfolge nach dem Zusammenfuehren: neueste Nachrichten-ID zuerst', () => {
-  const lokal = [treffer('kanal-1', '17000000000001234567')]; // lokale ID, "aelter"
+  const lokal = [treffer('kanal-1', '1700000000000123456')]; // lokale ID, "aelter"
   const vomServer = [treffer('kanal-1', '20971520000')]; // Snowflake, "neuer"
   const ergebnis = sucheZusammenfuehren(lokal, vomServer, 20);
   assert.deepEqual(
     ergebnis.map((t) => t.message_id),
-    ['20971520000', '17000000000001234567']
+    ['20971520000', '1700000000000123456']
   );
 });
 

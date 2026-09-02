@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { compareSnowflakeId } from '../src/lib/utils/snowflake.ts';
 
-test('eine AELTERE lokale (20-stellige) ID sortiert vor einer NEUEREN echten Snowflake (17-stellig)', () => {
+test('eine AELTERE lokale (19-stellige) ID sortiert vor einer NEUEREN echten Snowflake (17-stellig)', () => {
   // Bughunt Fund 1: `compareSnowflakeId` verglich bisher zuerst nach
   // Dezimal-Laenge. Das ist fuer reine Server-Snowflakes korrekt (dort
   // waechst die Laenge monoton mit der Zeit), aber `krypto/senden.ts::
@@ -13,10 +13,10 @@ test('eine AELTERE lokale (20-stellige) ID sortiert vor einer NEUEREN echten Sno
   // groesser (= neuer) einsortiert, unabhaengig vom echten Zeitpunkt.
   //
   // Lokale ID: Date.now() = 1700000000000 (2023-11-14) + Zufall "1234567".
-  const lokalAelter = '17000000000001234567';
+  const lokalAelter = '1700000000000123456';
   // Echte Snowflake: 5000 ms nach dem Snowflake-Epoch (2026-01-01 + 5 s) -
   // deutlich SPAETER als die lokale ID oben, obwohl numerisch/laengenmaessig
-  // kleiner (17 vs. 20 Stellen). delta_ms(5000) << 22 Bit = 5000 * 4194304.
+  // kleiner (17 vs. 19 Stellen). delta_ms(5000) << 22 Bit = 5000 * 4194304.
   const serverNeuer = String(5000n * 4194304n); // '20971520000'
 
   // Vorher (laengen-zuerst): lokalAelter (20 Stellen) > serverNeuer (11

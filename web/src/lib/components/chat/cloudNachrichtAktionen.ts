@@ -69,6 +69,29 @@ export async function nachrichtLoeschen(
     }
     return;
   }
+  // Eine ID jenseits von int64 kann in keiner Server-Zeile liegen (Postgres-
+  // BIGINT sprengt sie, der Versuch endet in einem 500) — direkt der E2E-Weg.
+  const ueberInt64 = (() => {
+    try {
+      return BigInt(msg.id) > BigInt('9223372036854775807');
+    } catch {
+      return false;
+    }
+  })();
+  if (ueberInt64) {
+    verlaufNachrichtGeloescht(msg.channel_id, msg.id);
+    messages.remove(msg.channel_id, msg.id);
+    if (opts.partnerId) {
+      try {
+        await sendeLoeschung(msg.channel_id, opts.partnerId, msg.id);
+      } catch (e) {
+        toast.error(m.dm_page_delete_failed());
+        console.error(e);
+      }
+    }
+    return;
+  }
+
   try {
     await chatApi.deleteMessage(msg.id, route);
   } catch (e) {

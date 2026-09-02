@@ -50,7 +50,7 @@
 
 const SNOWFLAKE_EPOCH_MS = 1767225600000n; // dcc_shared/snowflake.py::DEFAULT_EPOCH_MS
 const SNOWFLAKE_ZEIT_SHIFT = 22n; // WORKER_BITS(10) + SEQ_BITS(12)
-const LOKALE_ID_LAENGE = 20; // lokaleNachrichtId(): 13-stelliger Date.now() + 7 Zufallsstellen
+const LOKALE_ID_LAENGE = 19; // lokaleNachrichtId(): 13-stelliger Date.now() + 6 Zufallsstellen (unter int64, Befund 2026-09-02)
 const LOKALE_ID_ZEIT_STELLEN = 13;
 /** `chat/dmKlartextSenden.ts`: `tmp-${nonce}` mit `nonce = n-${Date.now()}-${4
  *  Hexstellen}` — die optimistische Kopie einer noch nicht bestaetigten
