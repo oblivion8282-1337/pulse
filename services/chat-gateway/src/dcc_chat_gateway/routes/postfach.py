@@ -38,20 +38,18 @@ geraten.
 
 from __future__ import annotations
 
-import logging
 from datetime import UTC, datetime, timedelta
 
-from dcc_shared.events import PostfachNeuEvent
-from fastapi import APIRouter, HTTPException, Request
-from sqlalchemy import exists, func, select
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from sqlalchemy import exists, select
 
 import dcc_chat_gateway.config as chat_config
 from dcc_chat_gateway.ablage_kanal_ordner import ablegen as ablegen_im_ordner
-from dcc_chat_gateway.ablage_kanal_ordner import festige_archiv_markierungen
+from dcc_chat_gateway.ablage_kanal_ordner import festigung_nachlaufen
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import DeviceKeyBundle, DmNutzlast, DmZustellung
 from dcc_chat_gateway.postfach_anhaenge import bezuege_anlegen, binde_anhaenge
-from dcc_chat_gateway.push import fan_out_dm_push_encrypted
+from dcc_chat_gateway.postfach_benachrichtigung import wecke_und_pushe
 
 # Die Pruef-Helfer liegen seit Etappe E in ``_postfach_deps.py`` (die Datei
 # waere sonst ueber die Groessen-Policy gewachsen). Der Import haelt sie
@@ -67,13 +65,12 @@ from dcc_chat_gateway.routes._postfach_deps import (
     _bundle_laden,
     _channel_zugriff_pruefen,
     _envelope_groesse,
+    offene_zustellungen_zaehlen,
 )
 from dcc_chat_gateway.schemas import PostfachEinliefernRequest, PostfachEinliefernResponse
 from dcc_chat_gateway.schluessel_nachweis import pruefe_geraet
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
-
-log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["postfach"])
 
@@ -82,6 +79,7 @@ router = APIRouter(tags=["postfach"])
 async def postfach_einliefern(
     body: PostfachEinliefernRequest,
     request: Request,
+    background: BackgroundTasks,
     session: SessionDep,
     user: CurrentUser,
 ) -> PostfachEinliefernResponse:
@@ -160,14 +158,11 @@ async def postfach_einliefern(
     # FIX 3, korrigiert im belegten Fehler vom 2026-08-29: die
     # GESAMT-Obergrenze allein zaehlt ueber alle Absender hinweg, ein
     # einzelner angenommener Kontakt kann sie also allein fuellen und damit
-    # jeden ANDEREN Absender an dieses Geraet aussperren. Gezaehlt wird ueber
-    # ``DmNutzlast.absender_user_id`` (das KONTO), NICHT ueber
-    # ``absender_device_pubkey`` — ein Konto kann mehrere Geraete fuehren
-    # (bis zu ``schluessel_max_buendel_je_konto``), und eine geraetebezogene
-    # Zaehlung liesse genau diese Geraete gemeinsam die Grenze umgehen (s.
-    # Migration 0076). Absender-KONTO ist innerhalb dieser Anfrage konstant
-    # (``user.id``, ein Login pro Aufruf), der Cache-Schluessel ist deshalb
-    # einfach der Empfaenger-Pubkey.
+    # jeden ANDEREN Absender an dieses Geraet aussperren. Warum ueber das
+    # KONTO und nicht ueber das Sendegeraet gezaehlt wird, steht bei
+    # ``offene_zustellungen_zaehlen``. Das Absender-Konto ist innerhalb
+    # dieser Anfrage konstant (``user.id``, ein Login pro Aufruf), der
+    # Cache-Schluessel ist deshalb einfach der Empfaenger-Pubkey.
     offene_je_sender_und_geraet: dict[str, int] = {}
     gesamt_zustellungen = 0
     verworfene_nutzlasten = 0
@@ -238,25 +233,15 @@ async def postfach_einliefern(
                 uebersprungene_empfaenger[pubkey] = None
                 continue
             if pubkey not in offene_je_geraet:
-                offene_je_geraet[pubkey] = (
-                    await session.execute(
-                        select(func.count())
-                        .select_from(DmZustellung)
-                        .where(DmZustellung.empfaenger_device_pubkey == pubkey)
-                    )
-                ).scalar_one()
-            if pubkey not in offene_je_sender_und_geraet:
-                offene_je_sender_und_geraet[pubkey] = (
-                    await session.execute(
-                        select(func.count())
-                        .select_from(DmZustellung)
-                        .join(DmNutzlast, DmNutzlast.id == DmZustellung.nutzlast_id)
-                        .where(
-                            DmZustellung.empfaenger_device_pubkey == pubkey,
-                            DmNutzlast.absender_user_id == user.id,
-                        )
-                    )
-                ).scalar_one()
+                # Beide Zaehler kommen gemeinsam (``_postfach_deps.py``) und
+                # werden gemeinsam zwischengespeichert — sie entstehen immer
+                # beim selben ersten Auftreten dieses Pubkeys.
+                (
+                    offene_je_geraet[pubkey],
+                    offene_je_sender_und_geraet[pubkey],
+                ) = await offene_zustellungen_zaehlen(
+                    session, pubkey=pubkey, absender_user_id=user.id
+                )
             if (
                 offene_je_geraet[pubkey] >= settings.postfach_max_offene_zustellungen_je_geraet
                 or offene_je_sender_und_geraet[pubkey]
@@ -330,38 +315,30 @@ async def postfach_einliefern(
 
     await session.commit()
 
-    # 4b. Ableger (Task 3) fuer Nutzlasten mit ``archiv: true`` — Block
-    # ausgelagert nach ``ablage_kanal_ordner.festige_archiv_markierungen``
-    # (Groessen-Policy). Laeuft NACH dem Commit, damit ``nutzlast.id`` fuer
-    # einen Nachtrag gueltig in der Datenbank steht.
-    await festige_archiv_markierungen(session, angelegte, ableger=ablegen_im_ordner)
+    # 4b. Festigung (Task 3) fuer Nutzlasten mit ``archiv: true`` — als
+    # Hintergrundaufgabe NACH der Antwort, nicht im Anfragepfad: das Ablegen
+    # geht an eine FREMDE Cloud, und ein Einliefern darf nicht auf sie warten
+    # (Nextcloud-Zeitueberschreitungen liegen im Sekundenbereich). Der Lauf
+    # bekommt deshalb eine eigene Session (``ablage_kanal_ordner.py``) — die
+    # Anfrage-Session hier ist beendet, sobald die Antwort raus ist — und
+    # schluckt JEDEN Fehler zu einem Nachtrag; die Antwort bleibt ein Erfolg,
+    # der Umschlag ist ja zugestellt.
+    background.add_task(
+        festigung_nachlaufen,
+        [n.id for n, archiv in angelegte if archiv],
+        ableger=ablegen_im_ordner,
+    )
 
-    # 5. Weckruf — inhaltslos, traegt Kanal und Anzahl, NIE einen Umschlag
-    # (sonst laege der Inhalt wieder in Redis). Best-effort, wie die
-    # entsprechenden Publishes in ws_op_send.py: die Zustellungen sind
-    # bereits persistiert, ein Redis-Hiccup darf die Antwort nicht kippen.
-    if gesamt_zustellungen > 0:
-        manager = getattr(request.app.state, "connection_manager", None)
-        if manager is not None:
-            try:
-                await manager.publish(
-                    str(cid_int),
-                    PostfachNeuEvent(channel_id=str(cid_int), anzahl=gesamt_zustellungen),
-                )
-            except Exception:
-                log.exception("postfach wake publish failed for channel %s", cid_int)
-
-    # 6. Geschlossene-Browser-Benachrichtigung — der WS-Weckruf oben erreicht
-    # nur offene Tabs. Der Server kennt den Inhalt nie; der Push traegt
-    # deshalb weder Nachrichteninhalt noch Dateiname, nur Absender und Kanal
-    # (dieselbe Grenze wie beim Klartext-Push). Best-effort — kein ``try``
-    # noetig, ``_fan_out_payload`` faengt selbst jede Ausnahme ab.
-    if push_empfaenger:
-        await fan_out_dm_push_encrypted(
-            recipient_ids=push_empfaenger,
-            author_name=user.username,
-            channel_id=cid_int,
-        )
+    # 5./6. Weckruf (WS) + Push — ausgelagert nach
+    # ``postfach_benachrichtigung.py`` (Groessen-Policy), Verhalten
+    # unveraendert. Beides best-effort, beides ohne Inhalt.
+    await wecke_und_pushe(
+        getattr(request.app.state, "connection_manager", None),
+        channel_id=cid_int,
+        zustellungen=gesamt_zustellungen,
+        push_empfaenger=push_empfaenger,
+        absender_name=user.username,
+    )
 
     return PostfachEinliefernResponse(
         zustellungen_angelegt=gesamt_zustellungen,

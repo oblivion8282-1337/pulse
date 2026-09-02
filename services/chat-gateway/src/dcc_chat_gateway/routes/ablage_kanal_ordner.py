@@ -13,7 +13,15 @@ gleichnamige Nicht-Route-Modul) und zum Nachtrag gehoeren:
 Mitgliedschaft + ``VIEW_CHANNEL`` wie bei jeder anderen Ablage-Kanal-Route
 (``_kanal_fuer_mitglied``, importiert aus ``ablage_kanal.py`` statt
 kopiert). ``GET`` gilt fuer jedes Mitglied — Namen verraten nichts ueber den
-Inhalt (Chiffrat); nur das ``PUT`` ist dem Ersteller vorbehalten.
+Inhalt (Chiffrat).
+
+Das ``PUT`` verlangt zusaetzlich ``MANAGE_CHANNELS``. Es entscheidet, in
+WESSEN Cloud-Laufwerk der dauerhafte Bestand dieses Kanals kuenftig liegt —
+eine Kanal-Verwaltungsentscheidung, wie sie ``routes/channels.py`` und
+``routes/dropbox.py`` fuer Anlegen/Umbenennen/Loeschen ebenfalls an dieses
+Recht binden. Ohne die Pruefung koennte jedes einfache Mitglied den Kanal an
+sein eigenes Laufwerk binden, solange noch niemand anders es getan hat (das
+409 greift erst danach).
 """
 
 from __future__ import annotations
@@ -29,6 +37,7 @@ from dcc_chat_gateway.ablage_schreiben import liste as liste_vom_laufwerk
 from dcc_chat_gateway.ablage_ssrf import AblageAbrufFehler
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import AblageKanalOrdner, AblageKontoLaufwerk
+from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.routes._ablage_abruf import ablage_abruf_antwort
 from dcc_chat_gateway.routes.ablage_kanal import _kanal_fuer_mitglied
 from dcc_chat_gateway.security import CurrentUser
@@ -65,8 +74,18 @@ async def ordner_kanal_anlegen(
     nicht am mitgeschickten Koerper (es gibt keinen), sondern an einer
     Vorbedingung auf dem Konto des Aufrufers, die dieser erst an anderer
     Stelle herstellen muss (``PUT /ablage/archiv/laufwerk``).
+
+    ``MANAGE_CHANNELS`` VOR dem Ratenbegrenzer: wer das Recht nicht hat,
+    soll nicht erst einen Eimer belasten, um dann abgewiesen zu werden.
     """
     channel = await _kanal_fuer_mitglied(session, channel_id, current)
+    await check_permission(
+        session,
+        current,
+        channel.guild_id,
+        Permissions.MANAGE_CHANNELS,
+        channel_id=channel.id,
+    )
     # Eimer ``ablage_laufwerk_setzen``, nicht ``ablage_abruf`` — dieselbe
     # Kategorie wie ``ablage_kanal.setze_freigabe_adresse``: das PUT setzt
     # eine Adresse/Zeile fest, es liest nichts, gehoert also zum
@@ -127,21 +146,31 @@ async def ordner_kanal_liste(
     passend = [name for name in roh if _DATEI_MUSTER.match(name)]
     passend.sort(key=_puls_id)
     if nach is not None:
-        schranke = _puls_id_wenn_gueltig(nach)
-        if schranke is not None:
-            passend = [name for name in passend if _puls_id(name) > schranke]
+        passend = [name for name in passend if _puls_id(name) > _cursor_id(nach)]
     return passend[:limit]
 
 
-def _puls_id_wenn_gueltig(nach: str) -> int | None:
-    """``nach`` kommt vom Aufrufer und muss keine gueltige ID sein — ein
-    ungueltiger Cursor blendet dann schlicht nichts aus, statt die Route mit
-    422 scheitern zu lassen (der Cursor ist eine Fortsetzungs-Markierung,
-    kein validierter Dateiname wie bei der Einzel-Datei-Route)."""
+def _cursor_id(nach: str) -> int:
+    """Der Cursor als Zahl — 422 bei allem anderen.
+
+    Frueher blendete ein unlesbarer Cursor schlicht nichts aus. Das ist der
+    schlechtere Fehlermodus: der Klient blaettert, bekommt jedes Mal
+    dieselbe erste Seite und laeuft entweder ewig im Kreis oder legt jede
+    Nachricht doppelt ab — beides ohne eine einzige Fehlermeldung. Ein
+    ungueltiger Cursor ist ein Klientenfehler und soll als solcher
+    sichtbar sein, genau wie ein ungueltiger Dateiname an der
+    Einzel-Datei-Route.
+
+    Der Cursor ist die NUTZLAST-ID des zuletzt gesehenen Namens, nicht der
+    Name selbst (``ablage/ordnerSeiten.ts::naechsterCursor`` auf der
+    Klientenseite) — ``17`` also, nicht ``17.puls``.
+    """
     try:
         return int(nach)
-    except ValueError:
-        return None
+    except ValueError as fehler:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail="invalid cursor"
+        ) from fehler
 
 
 @router.get("/channels/{channel_id}/ablage/ordner/{name}")

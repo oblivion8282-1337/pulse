@@ -18,11 +18,16 @@ from __future__ import annotations
 import base64
 import itertools
 import random
+from types import SimpleNamespace
 
 import pytest
 from dcc_chat_gateway import ablage_kanal_ordner as ordner_mod
 from dcc_chat_gateway.ablage_ssrf import AblageAbrufFehler
-from dcc_chat_gateway.models import AblageKanalNachtrag, AblageKanalOrdner
+from dcc_chat_gateway.models import (
+    AblageKanalNachtrag,
+    AblageKanalOrdner,
+    AblageKontoLaufwerk,
+)
 from dcc_chat_gateway.routes import postfach as postfach_mod
 
 pytestmark = pytest.mark.usefixtures("cloud_mode")
@@ -83,8 +88,22 @@ async def _bundel_seeden(session_factory, *, user_id: int) -> str:
 
 
 async def _ordner_eintragen(session_factory, *, channel_id, ersteller_id: int) -> None:
+    """Ordner-Zeile UND Konto-Laufwerk des Erstellers.
+
+    Beides zusammen, weil es nur zusammen vorkommt: die Ordner-Zeile entsteht
+    ausschliesslich ueber ``PUT .../ablage/ordner``, und die Route verlangt
+    dafuer ein Konto-Laufwerk (412 sonst). Ohne das Laufwerk gilt ein Nachtrag
+    zu diesem Kanal seit I6 als aufgegeben statt als wiederholbar — ein
+    Zustand, den es in der Wirklichkeit nur gibt, wenn der Ersteller sein
+    Laufwerk NACHTRAEGLICH abgehaengt hat.
+    """
     async with session_factory() as s:
         s.add(AblageKanalOrdner(channel_id=int(channel_id), ersteller_id=ersteller_id))
+        s.add(
+            AblageKontoLaufwerk(
+                user_id=ersteller_id, freigabe_adresse="https://wolke.example/ersteller"
+            )
+        )
         await s.commit()
 
 
@@ -119,12 +138,27 @@ async def _aufbau(client, session_factory, _auth_signer, friend_pair, *, mit_ord
 
 
 class _AblegerMock:
-    def __init__(self, *, fehler: AblageAbrufFehler | None = None) -> None:
-        self.aufrufe: list = []
+    """Der Ableger, den ``routes/postfach.py`` als Hintergrundaufgabe ruft.
+
+    Aufgezeichnet wird eine KOPIE der drei interessanten Felder, nicht die
+    ORM-Zeile selbst: die Hintergrundaufgabe schliesst ihre Session, sobald
+    sie fertig ist, und im Fehlerpfad setzt sie sie ausserdem zurueck — ein
+    festgehaltenes ORM-Objekt waere danach abgehaengt und jeder Feldzugriff
+    im Test ein ``DetachedInstanceError``.
+    """
+
+    def __init__(self, *, fehler: BaseException | None = None) -> None:
+        self.aufrufe: list[SimpleNamespace] = []
         self.fehler = fehler
 
     async def __call__(self, session, nutzlast):
-        self.aufrufe.append(nutzlast)
+        self.aufrufe.append(
+            SimpleNamespace(
+                id=nutzlast.id,
+                channel_id=nutzlast.channel_id,
+                absender_user_id=nutzlast.absender_user_id,
+            )
+        )
         if self.fehler is not None:
             raise self.fehler
         return True
@@ -211,7 +245,37 @@ async def test_sweep_raeumt_den_nachtrag_wenn_es_danach_klappt(
     heil = _AblegerMock()
     monkeypatch.setattr(ordner_mod, "ablegen", heil)
     async with session_factory() as s:
-        erledigt = await ordner_mod.nachtrag_sweep(s)
-    assert erledigt == 1
+        erledigt, aufgegeben = await ordner_mod.nachtrag_sweep(s)
+    assert (erledigt, aufgegeben) == (1, 0)
     async with session_factory() as s:
         assert await s.get(AblageKanalNachtrag, nutzlast_id) is None
+
+
+@pytest.mark.asyncio
+async def test_programmfehler_im_ableger_bleibt_200_und_hinterlaesst_einen_nachtrag(
+    client, session_factory, _auth_signer, friend_pair, monkeypatch
+):
+    """I7: die Festigung faengt JEDEN Fehler, nicht nur ``AblageAbrufFehler``.
+
+    Ein ``TypeError`` im Ableger ist der Fall, der frueher durchschlug: die
+    Hintergrundaufgabe laeuft in Starlette NACH der bereits gesendeten
+    Antwort, ein Wurf dort faellt aus dem ASGI-Aufruf heraus. Der Umschlag
+    ist zu diesem Zeitpunkt zugestellt — es gibt nichts zu melden ausser der
+    fehlenden Festigung, und genau die traegt der Nachtrag.
+    """
+    mock = _AblegerMock(fehler=TypeError("kaputter Ableger"))
+    monkeypatch.setattr(postfach_mod, "ablegen_im_ordner", mock)
+    token_a, _uid_a, _tb, _uid_b, dm_id, pub_b = await _aufbau(
+        client, session_factory, _auth_signer, friend_pair, mit_ordner=True
+    )
+
+    r = await _einliefern(
+        client, token=token_a, channel_id=dm_id, empfaenger=[pub_b], archiv=True
+    )
+
+    assert r.status_code == 200, r.text
+    assert len(mock.aufrufe) == 1
+    async with session_factory() as s:
+        nachtrag = await s.get(AblageKanalNachtrag, mock.aufrufe[0].id)
+    assert nachtrag is not None
+    assert nachtrag.channel_id == int(dm_id)

@@ -227,6 +227,7 @@ async def app(session_factory, _auth_signer):
     REST-side `post_message` checks the manager for None before
     publishing, so we install a real one for those tests.
     """
+    import dcc_chat_gateway.ablage_kanal_ordner as ablage_kanal_ordner
     import dcc_chat_gateway.routes.ws_op_send as routes_ws_op_send
     import dcc_chat_gateway.routes.ws_ops as routes_ws_ops
     import dcc_chat_gateway.routes.ws_ops_handlers as routes_ws_ops_handlers
@@ -247,6 +248,11 @@ async def app(session_factory, _auth_signer):
     routes_ws_ops_handlers.SessionLocal = session_factory
     routes_ws_op_send.SessionLocal = session_factory
     routes_ws_ready.SessionLocal = session_factory
+    # Die Festigung des Ordner-Kanals laeuft als BackgroundTask NACH der
+    # Antwort und braucht deshalb eine eigene Session — dieselbe Patch-Stelle
+    # wie oben, sonst schriebe sie in die ungepatchte Prod-DB.
+    original_factory_ablage = ablage_kanal_ordner.SessionLocal
+    ablage_kanal_ordner.SessionLocal = session_factory
 
     application = create_app(skip_redis=True)
     redis = Redis.from_url(_TEST_SETTINGS.redis_url, decode_responses=False)
@@ -274,6 +280,19 @@ async def app(session_factory, _auth_signer):
         routes_ws_ops_handlers.SessionLocal = original_factory_handlers
         routes_ws_op_send.SessionLocal = original_factory_send
         routes_ws_ready.SessionLocal = original_factory_ready
+        ablage_kanal_ordner.SessionLocal = original_factory_ablage
+
+
+@pytest.fixture(autouse=True)
+def _ordner_zwischenspeicher_leeren():
+    """``ablage_kanal_ordner`` merkt sich prozessweit, fuer welche Kanaele es
+    das MKCOL schon gefahren hat. Ohne dieses Zuruecksetzen haengt es an der
+    Testreihenfolge, ob ein Test das Anlegen ueberhaupt sieht."""
+    from dcc_chat_gateway.ablage_kanal_ordner import ordner_zwischenspeicher_leeren
+
+    ordner_zwischenspeicher_leeren()
+    yield
+    ordner_zwischenspeicher_leeren()
 
 
 @pytest_asyncio.fixture

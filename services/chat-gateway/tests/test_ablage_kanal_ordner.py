@@ -18,6 +18,7 @@ from dcc_chat_gateway.models import (
     AblageKontoLaufwerk,
     DmNutzlast,
 )
+from dcc_chat_gateway.postfach_pflege import sweep_verwaiste_nutzlasten
 from dcc_chat_gateway.snowflake import next_id
 
 
@@ -190,9 +191,9 @@ async def test_nachtrag_sweep_schreibt_und_loescht(session_factory, mock_laufwer
         await s.commit()
 
     async with session_factory() as s:
-        erledigt = await ordner_mod.nachtrag_sweep(s)
+        erledigt, aufgegeben = await ordner_mod.nachtrag_sweep(s)
 
-    assert erledigt == 1
+    assert (erledigt, aufgegeben) == (1, 0)
     assert len(mock_laufwerk.schreiben_calls) == 1
     async with session_factory() as s:
         assert await s.get(AblageKanalNachtrag, nutzlast.id) is None
@@ -212,8 +213,138 @@ async def test_nachtrag_sweep_laesst_zeile_bei_fehler_stehen(session_factory, mo
     monkeypatch.setattr(ordner_mod, "schreibe_aufs_laufwerk", kaputt.schreibe)
 
     async with session_factory() as s:
-        erledigt = await ordner_mod.nachtrag_sweep(s)
+        erledigt, aufgegeben = await ordner_mod.nachtrag_sweep(s)
 
-    assert erledigt == 0
+    assert (erledigt, aufgegeben) == (0, 0)
     async with session_factory() as s:
         assert await s.get(AblageKanalNachtrag, nutzlast.id) is not None
+
+
+@pytest.mark.asyncio
+async def test_nachtrag_ohne_ordner_zeile_wird_aufgegeben(session_factory, mock_laufwerk):
+    """I6: der Kanal ist kein Ordner-Kanal mehr — dieser Nachtrag kann nie
+    mehr gelingen. Ohne das Aufgeben belegte er in JEDEM Lauf einen Platz im
+    Stapel von 100 und hungerte die uebrigen aus."""
+    nutzlast = await _nutzlast_anlegen(session_factory, channel_id=4242)
+    async with session_factory() as s:
+        s.add(AblageKanalNachtrag(nutzlast_id=nutzlast.id, channel_id=4242))
+        await s.commit()
+
+    async with session_factory() as s:
+        erledigt, aufgegeben = await ordner_mod.nachtrag_sweep(s)
+
+    assert (erledigt, aufgegeben) == (0, 1)
+    assert mock_laufwerk.schreiben_calls == []
+    async with session_factory() as s:
+        assert await s.get(AblageKanalNachtrag, nutzlast.id) is None
+
+
+@pytest.mark.asyncio
+async def test_nachtrag_ohne_konto_laufwerk_des_erstellers_wird_aufgegeben(
+    session_factory, mock_laufwerk
+):
+    nutzlast = await _nutzlast_anlegen(session_factory, channel_id=4343)
+    await _ordner_eintragen(session_factory, channel_id=4343, ersteller_id=99)
+    async with session_factory() as s:
+        s.add(AblageKanalNachtrag(nutzlast_id=nutzlast.id, channel_id=4343))
+        await s.commit()
+
+    async with session_factory() as s:
+        erledigt, aufgegeben = await ordner_mod.nachtrag_sweep(s)
+
+    assert (erledigt, aufgegeben) == (0, 1)
+    async with session_factory() as s:
+        assert await s.get(AblageKanalNachtrag, nutzlast.id) is None
+
+
+@pytest.mark.asyncio
+async def test_nachtrag_sweep_nimmt_hoechstens_hundert_zeilen(
+    session_factory, mock_laufwerk, monkeypatch
+):
+    """I6: der Stapel ist gedeckelt. Gegen die Grenze selbst geprueft
+    (``_NACHTRAG_BATCH``), nicht gegen die Zahl 100 im Test — sonst
+    behauptete der Test einen Wert, den er selbst gesetzt hat."""
+    monkeypatch.setattr(ordner_mod, "_NACHTRAG_BATCH", 3)
+    await _ordner_eintragen(session_factory, channel_id=4444, ersteller_id=9)
+    await _laufwerk_eintragen(session_factory, user_id=9, adresse="https://wolke.example/9")
+    for _ in range(5):
+        nutzlast = await _nutzlast_anlegen(session_factory, channel_id=4444)
+        async with session_factory() as s:
+            s.add(AblageKanalNachtrag(nutzlast_id=nutzlast.id, channel_id=4444))
+            await s.commit()
+
+    async with session_factory() as s:
+        erledigt, aufgegeben = await ordner_mod.nachtrag_sweep(s)
+
+    assert (erledigt, aufgegeben) == (3, 0)
+    assert len(mock_laufwerk.schreiben_calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_mkcol_laeuft_je_kanal_nur_einmal(session_factory, mock_laufwerk):
+    """I8: der Ordner entsteht genau einmal; jedes weitere MKCOL waere eine
+    Netzrunde zu einer fremden Cloud fuer eine Antwort, die feststeht."""
+    await _ordner_eintragen(session_factory, channel_id=4545, ersteller_id=9)
+    await _laufwerk_eintragen(session_factory, user_id=9, adresse="https://wolke.example/9")
+    erste = await _nutzlast_anlegen(session_factory, channel_id=4545)
+    zweite = await _nutzlast_anlegen(session_factory, channel_id=4545)
+
+    async with session_factory() as s:
+        await ordner_mod.ablegen(s, erste)
+        await ordner_mod.ablegen(s, zweite)
+
+    assert mock_laufwerk.ordner_anlegen_calls == [("https://wolke.example/9", "kanaele/4545")]
+    assert len(mock_laufwerk.schreiben_calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_gescheitertes_mkcol_wird_nicht_als_erledigt_gemerkt(
+    session_factory, monkeypatch
+):
+    """Der Zwischenspeicher darf sich nur einen ERFOLG merken — sonst waere
+    ein einmaliger Ausfall der fremden Cloud gleichbedeutend damit, dass der
+    Ordner in diesem Prozess nie mehr angelegt wird."""
+    await _ordner_eintragen(session_factory, channel_id=4646, ersteller_id=9)
+    await _laufwerk_eintragen(session_factory, user_id=9, adresse="https://wolke.example/9")
+    nutzlast = await _nutzlast_anlegen(session_factory, channel_id=4646)
+
+    kaputt = _LaufwerkMock(fehler="upstream_nicht_erreichbar")
+    monkeypatch.setattr(ordner_mod, "ordner_anlegen_am_laufwerk", kaputt.ordner_anlegen)
+    monkeypatch.setattr(ordner_mod, "schreibe_aufs_laufwerk", kaputt.schreibe)
+    async with session_factory() as s:
+        with pytest.raises(AblageAbrufFehler):
+            await ordner_mod.ablegen(s, nutzlast)
+
+    heil = _LaufwerkMock()
+    monkeypatch.setattr(ordner_mod, "ordner_anlegen_am_laufwerk", heil.ordner_anlegen)
+    monkeypatch.setattr(ordner_mod, "schreibe_aufs_laufwerk", heil.schreibe)
+    async with session_factory() as s:
+        assert await ordner_mod.ablegen(s, nutzlast) is True
+
+    assert heil.ordner_anlegen_calls == [("https://wolke.example/9", "kanaele/4646")]
+
+
+# ---------------------------------------------------------------------------
+# Zusammenspiel mit der Postfach-Pflege (I5)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_nutzlast_mit_nachtrag_ueberlebt_den_verwaisten_sweep(session_factory):
+    """I5: eine quittierte Nutzlast hat keine Zustellung mehr und faellt
+    normalerweise dem Verwaisten-Sweep zum Opfer. Steht ihre Festigung noch
+    aus, waere das der endgueltige Verlust genau der Nachricht, die der
+    Ordner-Kanal dauerhaft halten soll."""
+    mit_nachtrag = await _nutzlast_anlegen(session_factory, channel_id=4747)
+    ohne_nachtrag = await _nutzlast_anlegen(session_factory, channel_id=4747)
+    async with session_factory() as s:
+        s.add(AblageKanalNachtrag(nutzlast_id=mit_nachtrag.id, channel_id=4747))
+        await s.commit()
+
+    async with session_factory() as s:
+        await sweep_verwaiste_nutzlasten(s)
+
+    async with session_factory() as s:
+        assert await s.get(DmNutzlast, mit_nachtrag.id) is not None
+        # Gegenprobe: ohne Nachtrag greift der Sweep unveraendert.
+        assert await s.get(DmNutzlast, ohne_nachtrag.id) is None

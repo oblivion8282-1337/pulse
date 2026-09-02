@@ -180,6 +180,33 @@ async def test_anlegen_mit_fremder_ersteller_zeile_ist_409(client, session_facto
     assert antwort.status_code == 409, antwort.text
 
 
+@pytest.mark.asyncio
+async def test_anlegen_ohne_manage_channels_ist_403(client, session_factory, _auth_signer):
+    """I11: das PUT entscheidet, in wessen Cloud-Laufwerk der dauerhafte
+    Bestand dieses Kanals liegt — eine Kanal-Verwaltungsentscheidung. Ohne
+    ``MANAGE_CHANNELS`` konnte sie bisher jedes einfache Mitglied treffen,
+    solange noch niemand anders sie getroffen hatte."""
+    _token_owner, uid_owner = await _register(_auth_signer)
+    token_mitglied, uid_mitglied = await _register(_auth_signer)
+    # @everyone traegt nur VIEW_CHANNEL (Vorgabe von ``_guild_mit_kanal``),
+    # also kein MANAGE_CHANNELS fuer das gewoehnliche Mitglied.
+    _gid, cid = await _guild_mit_kanal(
+        session_factory,
+        owner_id=uid_owner,
+        mitglieder=(uid_owner, uid_mitglied),
+        ablage=True,
+    )
+    await _laufwerk_eintragen(
+        session_factory, user_id=uid_mitglied, adresse="https://wolke.example/m"
+    )
+
+    antwort = await client.put(f"/channels/{cid}/ablage/ordner", headers=_auth(token_mitglied))
+
+    assert antwort.status_code == 403, antwort.text
+    async with session_factory() as s:
+        assert await s.get(AblageKanalOrdner, cid) is None
+
+
 # ---------------------------------------------------------------------------
 # GET .../ablage/ordner — Dateiliste
 # ---------------------------------------------------------------------------
@@ -431,3 +458,58 @@ async def test_ratenbegrenzer_greift_bei_liste_und_datei(
 
     assert liste_antwort.status_code == 429, liste_antwort.text
     assert datei_antwort.status_code == 429, datei_antwort.text
+
+
+@pytest.mark.asyncio
+async def test_liste_mit_unlesbarem_cursor_ist_422(
+    client, session_factory, _auth_signer, monkeypatch
+):
+    """C1: ein Cursor, der keine Nutzlast-ID ist, blendete frueher schlicht
+    nichts aus. Der Klient bekam damit ewig dieselbe erste Seite — entweder
+    eine Endlosschleife oder jede Nachricht doppelt, beides ohne eine
+    einzige Fehlermeldung."""
+    token, uid = await _register(_auth_signer)
+    _gid, cid = await _guild_mit_kanal(
+        session_factory, owner_id=uid, mitglieder=(uid,), ablage=True
+    )
+    await _laufwerk_eintragen(session_factory, user_id=uid, adresse="https://wolke.example/x")
+    await _ordner_eintragen(session_factory, channel_id=cid, ersteller_id=uid)
+
+    async def _mock_liste(*, basis, ordner=None, **_rest):
+        return ["1.puls", "2.puls"]
+
+    monkeypatch.setattr(routen_mod, "liste_vom_laufwerk", _mock_liste)
+
+    # Der Dateiname statt der ID ist der Fehler, der tatsaechlich passiert
+    # ist (der Klient reichte den letzten NAMEN als Cursor weiter).
+    antwort = await client.get(
+        f"/channels/{cid}/ablage/ordner", params={"nach": "2.puls"}, headers=_auth(token)
+    )
+
+    assert antwort.status_code == 422, antwort.text
+    assert antwort.json()["detail"] == "invalid cursor"
+
+
+@pytest.mark.asyncio
+async def test_liste_mit_numerischem_cursor_schneidet_weiterhin(
+    client, session_factory, _auth_signer, monkeypatch
+):
+    """Gegenprobe zum 422 oben: die ID als Cursor bleibt der gueltige Weg."""
+    token, uid = await _register(_auth_signer)
+    _gid, cid = await _guild_mit_kanal(
+        session_factory, owner_id=uid, mitglieder=(uid,), ablage=True
+    )
+    await _laufwerk_eintragen(session_factory, user_id=uid, adresse="https://wolke.example/x")
+    await _ordner_eintragen(session_factory, channel_id=cid, ersteller_id=uid)
+
+    async def _mock_liste(*, basis, ordner=None, **_rest):
+        return ["1.puls", "2.puls", "3.puls"]
+
+    monkeypatch.setattr(routen_mod, "liste_vom_laufwerk", _mock_liste)
+
+    antwort = await client.get(
+        f"/channels/{cid}/ablage/ordner", params={"nach": "2"}, headers=_auth(token)
+    )
+
+    assert antwort.status_code == 200, antwort.text
+    assert antwort.json() == ["3.puls"]

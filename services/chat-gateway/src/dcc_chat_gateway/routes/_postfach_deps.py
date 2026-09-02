@@ -25,10 +25,11 @@ from collections.abc import Collection
 from typing import NamedTuple
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_chat_gateway.friend_helpers import block_exists_either_way, friendship_exists
-from dcc_chat_gateway.models import DeviceKeyBundle
+from dcc_chat_gateway.models import DeviceKeyBundle, DmNutzlast, DmZustellung
 from dcc_chat_gateway.permissions import members_who_can_view
 from dcc_chat_gateway.private_gruppen_zugriff import gruppen_teilnehmer
 from dcc_chat_gateway.routes._deps import resolve_channel_for_user
@@ -197,9 +198,47 @@ def _envelope_groesse(daten_b64: str) -> int:
         raise HTTPException(status_code=400, detail="ungueltige_nutzlast") from exc
 
 
+async def offene_zustellungen_zaehlen(
+    session: AsyncSession, *, pubkey: str, absender_user_id: int
+) -> tuple[int, int]:
+    """Die beiden Zaehler der Obergrenzen-Pruefung (``routes/postfach.py``
+    Schritt 4) fuer EIN Empfaengergeraet: ``(insgesamt, von diesem
+    Absender-KONTO)``.
+
+    Beide zusammen, weil der Aufrufer sie auch zusammen braucht und sonst
+    zweimal dieselbe Fallunterscheidung „schon gezaehlt?" schriebe.
+
+    Der zweite Zaehler geht ueber ``DmNutzlast.absender_user_id`` (das
+    KONTO), NICHT ueber ``absender_device_pubkey``: ein Konto kann mehrere
+    Geraete fuehren (bis zu ``schluessel_max_buendel_je_konto``), und eine
+    geraetebezogene Zaehlung liesse genau diese Geraete gemeinsam die Grenze
+    umgehen (FIX 3, belegter Fehler vom 2026-08-29, s. Migration 0076).
+    """
+    gesamt = (
+        await session.execute(
+            select(func.count())
+            .select_from(DmZustellung)
+            .where(DmZustellung.empfaenger_device_pubkey == pubkey)
+        )
+    ).scalar_one()
+    je_absender = (
+        await session.execute(
+            select(func.count())
+            .select_from(DmZustellung)
+            .join(DmNutzlast, DmNutzlast.id == DmZustellung.nutzlast_id)
+            .where(
+                DmZustellung.empfaenger_device_pubkey == pubkey,
+                DmNutzlast.absender_user_id == absender_user_id,
+            )
+        )
+    ).scalar_one()
+    return gesamt, je_absender
+
+
 __all__ = [
     "KanalZugriff",
     "_bundle_laden",
     "_channel_zugriff_pruefen",
     "_envelope_groesse",
+    "offene_zustellungen_zaehlen",
 ]

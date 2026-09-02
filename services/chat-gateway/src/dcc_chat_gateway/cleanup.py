@@ -76,6 +76,21 @@ async def _run_once(engine: AsyncEngine, settings: Settings) -> int:
     deleted = res.rowcount or 0
     log.info("push_subscription_cleanup_done deleted=%d", deleted)
 
+    # Nachtraege des Kanal-Ordner-Ablegers (Task 3/4, Entwurf 2026-09-02) —
+    # Umschlaege, deren Festigung beim Einliefern an einem Nextcloud-Ausfall
+    # scheiterte. Kein Log mit einer Adresse, nur die Anzahlen.
+    #
+    # **VOR ``sweep_verwaiste_nutzlasten``**, nicht am Ende: der Nachtrag
+    # braucht die Nutzlast, die jener Lauf loescht (sie ist quittiert und
+    # damit zustellungslos). Andersherum verloere jeder Takt genau die
+    # Umschlaege, die gerade noch nachzuholen waren. Der zweite Riegel dafuer
+    # steht in ``sweep_verwaiste_nutzlasten`` selbst.
+    async with session_factory() as session:
+        nachtraege, aufgegeben = await sweep_ablage_kanal_nachtraege(session)
+    log.info(
+        "ablage_kanal_nachtrag_done erledigt=%d aufgegeben=%d", nachtraege, aufgegeben
+    )
+
     async with session_factory() as session:
         verfallen = await sweep_verfallene_zustellungen(session)
         verwaist = await sweep_verwaiste_nutzlasten(session)
@@ -115,13 +130,6 @@ async def _run_once(engine: AsyncEngine, settings: Settings) -> int:
             session, settings.postfach_anhang_vorhalte_tage
         )
     log.info("postfach_anhang_vorhalte_done abgelaufen=%d", abgelaufen)
-
-    # Nachtraege des Kanal-Ordner-Ablegers (Task 3/4, Entwurf 2026-09-02) —
-    # Umschlaege, deren Festigung beim Einliefern an einem Nextcloud-Ausfall
-    # scheiterte. Kein Log mit einer Adresse, nur die Anzahl.
-    async with session_factory() as session:
-        n = await sweep_ablage_kanal_nachtraege(session)
-    log.info("ablage_kanal_nachtrag_done anzahl=%d", n)
 
     return deleted
 
