@@ -33,15 +33,25 @@ export type SchlossMelden = (userId: string, verschluesselbar: boolean) => void;
  * obwohl das Gespraech verschluesselt laufen kann. Zu einer Schleife wird das
  * nicht: der Aufrufer fragt nur beim Betreten eines Gespraechs, nicht in
  * einem Takt.
+ *
+ * `{ erneut: true }` umgeht die Sperre fuer genau diesen Abruf — fuer die
+ * Stelle, die WISST, dass sich der Stand am Server geaendert hat (das eigene
+ * Geraet veroeffentlicht seine Schluessel nach, s. `geraeteEinrichtung.ts`),
+ * ohne dass ein neuer Seitenaufruf das once-je-Konto wettmacht. Ein
+ * fehlgeschlagener erneuter Abruf gibt wie gehabt frei.
  */
 export function schlossAbfrageErzeugen(
   holen: SchlossHolen,
   melden: SchlossMelden
-): (userId: string) => Promise<void> {
+): (userId: string, optionen?: { erneut?: boolean }) => Promise<void> {
   const gefragt = new Set<string>();
 
-  return async function sicherstellen(userId: string): Promise<void> {
-    if (!userId || gefragt.has(userId)) return;
+  return async function sicherstellen(
+    userId: string,
+    optionen?: { erneut?: boolean }
+  ): Promise<void> {
+    if (!userId) return;
+    if (!optionen?.erneut && gefragt.has(userId)) return;
     gefragt.add(userId);
     try {
       melden(userId, await holen(userId));

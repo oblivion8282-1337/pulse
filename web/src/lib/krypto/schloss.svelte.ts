@@ -60,5 +60,21 @@ export const schloss = {
   sicherstellen(userId: string): void {
     if (!E2E_DMS_ENABLED) return;
     void sicherstellen(userId);
+  },
+
+  /**
+   * Fragt dieses Konto ERNEUT, auch wenn die Auskunft schon einmal geholt
+   * wurde, und liefert den frischen Stand (`undefined`, wenn der Schalter
+   * aus ist). Fuer die eine Stelle, die WEISS, dass sich der Stand am Server
+   * gerade geaendert hat: dieses Geraet hat seine Schluessel nachveroeffentlicht
+   * (`geraeteEinrichtung.ts`) — die einmal-je-Konto-Sperre oben wuerde die
+   * alte Antwort sonst bis zum naechsten Seitenaufruf stehenlassen, und genau
+   * diese veraltete `false` war die Wand, die nach gegluecktem Setup stehen
+   * blieb.
+   */
+  async erneutFragen(userId: string): Promise<boolean | undefined> {
+    if (!E2E_DMS_ENABLED) return undefined;
+    await sicherstellen(userId, { erneut: true });
+    return stand[userId];
   }
 };

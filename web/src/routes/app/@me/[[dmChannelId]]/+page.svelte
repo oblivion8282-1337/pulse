@@ -22,7 +22,8 @@
   import { E2E_DMS_ENABLED, PRIVATE_GRUPPEN_ENABLED } from '$lib/krypto/schalter';
   import { schloss } from '$lib/krypto/schloss.svelte';
   import { dmSendeSperre } from '$lib/krypto/dmSendeSperre';
-  import { dmOhneAppGeraet } from '$lib/krypto/dmOhneAppGeraet';
+  import { wandEntscheidung } from '$lib/krypto/dmOhneAppGeraet';
+  import { isCapacitorAndroid, isElectron } from '$lib/platform/runtime';
   import DmOhneAppGeraet from '$lib/components/dm/DmOhneAppGeraet.svelte';
   import type { AnhangAngabe } from '$lib/krypto/nachrichtNutzlast';
   import type { DMChannel, Message } from '$lib/api/types';
@@ -82,12 +83,16 @@
   // ueber dieselbe Route (`darf_schluessel_holen` erlaubt das eigene Konto
   // ausdruecklich). Ohne mindestens ein eigenes App-Geraet gibt es fuer
   // dieses Konto keine Direktnachrichten — der Bildschirm tritt an die
-  // Stelle der Liste, statt sie leer zu lassen.
+  // Stelle der Liste, statt sie leer zu lassen. Wand-Entscheidung und
+  // -Auspraegung importfrei (`krypto/dmOhneAppGeraet.ts`); in App-Kontexten
+  // (dieselbe Erkennung wie `veroeffentlichen.ts::eigenesGeraetDauerhaft`)
+  // bietet der Bildschirm die Einrichtung DIESES Geraets an (B11).
+  const appKontext = isElectron() || isCapacitorAndroid();
   $effect(() => {
     if (auth.user) schloss.sicherstellen(auth.user.id);
   });
-  let ohneAppGeraet = $derived(
-    dmOhneAppGeraet(E2E_DMS_ENABLED, auth.user ? schloss.stand(auth.user.id) : undefined)
+  let wandArt = $derived(
+    wandEntscheidung(E2E_DMS_ENABLED, appKontext, auth.user ? schloss.stand(auth.user.id) : undefined)
   );
 
   // Umschalten zwischen Gespraechen (Laden, Abonnieren, Nachhol-Bestellungen)
@@ -206,9 +211,10 @@
 
 <!-- Spec §3a Punkt 1: ohne eigenes App-Geraet gibt es fuer dieses Konto
      keine Direktnachrichten — ersetzt Liste UND Chat, statt eine leere
-     Liste zu zeigen. -->
-{#if ohneAppGeraet}
-  <DmOhneAppGeraet />
+     Liste zu zeigen. Die Auspraegung (App: Geraet einrichten / Browser:
+     Apps + Kopplung) entscheidet `wandEntscheidung`. -->
+{#if wandArt !== 'keine'}
+  <DmOhneAppGeraet art={wandArt} />
 {:else}
 
 <!-- DM-Liste. Auf dem Handy ist sie der Chats-Bereich und fuellt den

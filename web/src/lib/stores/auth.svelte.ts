@@ -132,7 +132,13 @@ class AuthStore {
           try {
             const { runIssueFlow } = await import('$lib/identity/issue-flow');
             await runIssueFlow();
-          } catch { /* best-effort — der naechste Login/Restore versucht es erneut */ }
+          } catch (fehler) {
+            // best-effort — der naechste Login/Restore versucht es erneut.
+            // Seit B11 wirft der Fluss auch das Scheitern der Schluessel-
+            // veroeffentlichung weiter; unsichtbar darf es nicht bleiben
+            // (die DM-Wand bietet in App-Kontexten den sichtbaren Weg).
+            console.warn('[krypto] Geraete-Anmeldung fehlgeschlagen:', fehler instanceof Error ? fehler.message : fehler);
+          }
         })();
       }
     } catch (e) {
@@ -183,7 +189,10 @@ class AuthStore {
       try {
         const { runIssueFlow } = await import('$lib/identity/issue-flow');
         await runIssueFlow();
-      } catch { /* der naechste Login/Restore versucht es erneut */ }
+      } catch (fehler) {
+        // s. derselbe Hinweis im Restore-Pfad oben (B11): sichtbar warnen.
+        console.warn('[krypto] Geraete-Anmeldung fehlgeschlagen:', fehler instanceof Error ? fehler.message : fehler);
+      }
     })();
   }
 

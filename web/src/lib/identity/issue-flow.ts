@@ -101,7 +101,9 @@ export interface IssueFlowResult {
  *  3. Profile-Statement holen
  *  4. Statement speichern, Schluesselbuendel veroeffentlichen
  *
- * Wirft bei Netzwerk- oder Cookie-Auth-Fehlern (caller zeigt Toast).
+ * Wirft bei Netzwerk-, Cookie-Auth- oder Schluessel-Fehlern (die Login-
+ * Aufrufer fangen best-effort ab; `krypto/geraeteEinrichtung.*` zeigt ihn
+ * an der Wand an).
  */
 export async function runIssueFlow(): Promise<IssueFlowResult> {
   const label = buildDeviceLabel();
@@ -137,16 +139,14 @@ export async function runIssueFlow(): Promise<IssueFlowResult> {
   // Best-effort und bewusst NACH dem Statement-Store-Write: die
   // Geraetekennung kommt aus dem lokalen Geraete-Pubkey
   // (`krypto/geraeteKennung.ts`). Ein Fehlschlag hier darf
-  // Login/Registrierung nicht abbrechen — der naechste Login versucht es
-  // erneut.
-  try {
-    await veroeffentlicheSchluessel();
-  } catch (fehler) {
-    // Nicht rethrowen — Login/Profil haengt nicht daran. Aber SICHTBAR
-    // warnen: ein stummer Fehlschlag waere ein unsichtbares Fehlen der
-    // Geraete-Buendel (Befund aus dem Hetzner-Zwei-Geraete-Lauf).
-    console.warn('[krypto] Schluessel-Veroeffentlichung fehlgeschlagen:', fehler instanceof Error ? fehler.message : fehler);
-  }
+  // Login/Registrierung nicht abbrechen — alle Login-Aufrufer
+  // (`auth.svelte.ts`) fangen ab und bleiben best-effort. Er wird aber seit
+  // B11 (2026-09-02) WEITERGERICHTET, nicht mehr in der Konsole begraben:
+  // die Geraete-Einrichtung an der DM-Wand (`krypto/geraeteEinrichtung.*`)
+  // startet denselben Lauf mit sichtbarem Ergebnis — ein still
+  // verschluckter Fehlschlag liess die Wand „braucht ein Geraet" zeigen,
+  // wo dieses Geraet nur seine Einrichtung nicht beenden konnte.
+  await veroeffentlicheSchluessel();
 
   return { statement, keypairCreated };
 }

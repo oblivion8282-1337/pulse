@@ -31,3 +31,26 @@ export function dmOhneAppGeraet(
 ): boolean {
   return featureSchalterEin && eigenerStand === false;
 }
+
+/**
+ * WAS an der Wand-Stelle zu sehen ist, wenn sie ueberhaupt steht (B11,
+ * 2026-09-02): In einer App (Electron oder Android-Huelle) hat der Nutzer
+ * sein Geraet schon in der Hand — „Apps herunterladen" waere dorthin ein
+ * Witz, und das Einrichten ist DIESEM Geraet moeglich. Deshalb dort die
+ * Einrichtung anbieten (und beim Erscheinen der Wand selbst anstossen, s.
+ * `geraeteEinrichtung.ts`). Im Browser bleibt es bei der alten Wand
+ * (Regel d4cd6aee: der Browser braucht eine Kopplung, kein Auto-Setup —
+ * ein losloser Tab zaehlt als Geraet nicht, Spec §3a).
+ *
+ * Importfrei wie `dmOhneAppGeraet`, deren Kriterium sie nur fachelt.
+ */
+export type Wandart = 'keine' | 'einrichtung' | 'apps';
+
+export function wandEntscheidung(
+  featureSchalterEin: boolean,
+  appKontext: boolean,
+  eigenerStand: boolean | undefined
+): Wandart {
+  if (!dmOhneAppGeraet(featureSchalterEin, eigenerStand)) return 'keine';
+  return appKontext ? 'einrichtung' : 'apps';
+}

@@ -89,4 +89,4 @@ ausgestellt bekommen; die Wand erscheint dadurch JEDES Mal beim DM-Öffnen
 (`GET /keys/verschluesselbar/{eigene_id}` = false). Erwartet: In der App
 entweder automatisches Geräte-Setup beim Login oder der Wall-Knopf „Gerät
 jetzt einrichten". Ohne diesen Weg sind verschlüsselte DMs auf einem frischen
-App-Profil unerreichbar — Blocker für den E2EE-Test auf lokalem Stack.
+App-Profil unerreichbar — Blocker für den E2EE-Test auf lokalem Stack. GEFIXT (2026-09-02): Ursache war ein Rennen — die Wand-Cached-Antwort (false) gewann gegen die erst danach laufende Schlüssel-Veröffentlichung und blieb die ganze Session stehen;Publish-Fehler wurden zudem still geschluckt. Neu: Frisch-Nachfrage nach dem Setup-Flow (Wand heilt sich selbst), „Gerät jetzt einrichten"-Primärknopf in App-Kontexten (Electron/Android), sichtbare Fehlschläge mit Retry, Browser unverändert. 1092 Tests grün.

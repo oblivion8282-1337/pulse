@@ -62,3 +62,44 @@ test('ein Fehlschlag wird beim naechsten Betreten neu versucht', async () => {
 
   assert.equal(rufe, 2);
 });
+
+// B11 (2026-09-02): die Stelle, die WEISS, dass sich der Stand geaendert hat
+// (das eigene Geraet hat nachveroeffentlicht), darf die einmal-je-Konto-
+// Sperre fuer genau diesen Abruf umgehen.
+test('erneut: true fragt auch ein schon gefragtes Konto neu ab', async () => {
+  const gefragt: string[] = [];
+  const gemeldet: Array<[string, boolean]> = [];
+  const sicherstellen = schlossAbfrageErzeugen(
+    async (userId) => {
+      gefragt.push(userId);
+      return gefragt.length > 1;
+    },
+    (userId, wert) => gemeldet.push([userId, wert])
+  );
+
+  await sicherstellen('7');
+  await sicherstellen('7'); // gesperrt — kein zweiter Aufruf
+  await sicherstellen('7', { erneut: true }); // bewusst frisch
+
+  assert.deepEqual(gefragt, ['7', '7']);
+  assert.deepEqual(gemeldet, [['7', false], ['7', true]]);
+});
+
+test('ein fehlgeschlagener erneuter Abruf gibt das Konto wieder frei', async () => {
+  let scheitern = true;
+  let rufe = 0;
+  const sicherstellen = schlossAbfrageErzeugen(
+    async () => {
+      rufe += 1;
+      if (scheitern) throw new Error('Netz weg');
+      return true;
+    },
+    () => {}
+  );
+
+  await sicherstellen('7', { erneut: true });
+  scheitern = false;
+  await sicherstellen('7');
+
+  assert.equal(rufe, 2);
+});
