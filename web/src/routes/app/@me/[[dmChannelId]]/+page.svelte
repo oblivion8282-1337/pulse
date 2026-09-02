@@ -223,14 +223,9 @@
   }}
 />
 
-<!-- Spec §3a Punkt 1: ohne eigenes App-Geraet gibt es fuer dieses Konto
-     keine Direktnachrichten — ersetzt Liste UND Chat, statt eine leere
-     Liste zu zeigen. Die Auspraegung (App: Geraet einrichten / Browser:
-     Apps + Kopplung) entscheidet `wandEntscheidung`. -->
-{#if wandArt !== 'keine'}
-  <DmOhneAppGeraet art={wandArt} />
-{:else}
-
+<!-- Die Liste bleibt IMMER erreichbar — Freunde und (Community-)Einladungen
+     laufen unverschluesselt und haben mit dem Geraet-Stand nichts zu tun; die
+     Wand hierunter haette sie verschluckt (Fehlerbefund 2026-09-02). -->
 <!-- DM-Liste. Auf dem Handy ist sie der Chats-Bereich und fuellt den
      Bildschirm, solange kein Gespraech offen ist — kein Drawer mehr, damit der
      Bildschirmrand der System-Zurueck-Geste gehoert. Ab `md` wieder die
@@ -247,8 +242,13 @@
   />
 {/if}
 
-<!-- Chat: ab `md` dauerhaft; auf dem Handy nur mit geoeffnetem Gespraech. -->
-{#if !viewport.isMobile || !!dmChannelId}
+<!-- Chat-Bereich: Spec §3a Punkt 1 — ohne eigenes App-Geraet gibt es fuer
+     dieses Konto keine Direktnachrichten; die Wand ersetzt NUR den Chat, die
+     Liste daneben bleibt. Die Auspraegung (App: Geraet einrichten / Browser:
+     Apps + Kopplung) entscheidet `wandEntscheidung`. -->
+{#if wandArt !== 'keine'}
+  <DmOhneAppGeraet art={wandArt} />
+{:else if !viewport.isMobile || !!dmChannelId}
   {#if kanalWechsel.loadError}
     <section
       class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 md:rounded-2xl"
@@ -303,6 +303,4 @@
       </p>
     </section>
   {/if}
-{/if}
-
 {/if}
