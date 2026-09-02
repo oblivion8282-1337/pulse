@@ -15,6 +15,9 @@
    * einrichten oder den Re-Wrap-Knopf im Aktiv-Zustand.
    */
   import { SICHERUNG_ENABLED } from '$lib/krypto/schalter';
+  import { Button } from '$lib/components/ui/button/index.js';
+  import { m } from '$lib/paraglide/messages.js';
+  import { isElectron } from '$lib/platform/runtime';
   import { erzeugeDek, wickleSchluesselDatei, öffneSchluesselDatei } from '$lib/sicherung/krypto';
   import { SCHLUESSEL_DATEI } from '$lib/sicherung/spiegel';
   import {
@@ -43,13 +46,14 @@
   import { ordnerVerzeichnisWählen, ordnerZugriffErneuern } from '$lib/sicherung/ordner';
   import SicherungZiel from './SicherungZiel.svelte';
   import SicherungFormular from './SicherungFormular.svelte';
-  import SicherungAktiv from './SicherungAktiv.svelte';
   import SicherungPasswortAendern from './SicherungPasswortAendern.svelte';
 
-  let zustand = $state<'pruefe' | 'verbinden' | 'passwort' | 'an'>('pruefe');
+  let zustand = $state<'pruefe' | 'verbinden' | 'passwort' | 'an' | 'ziel'>('pruefe');
+  /** Reinspringen: welches Ziel wird verwaltet. */
+  let zielDetail = $state<'gdrive' | 'ordner' | null>(null);
+  let passwortOffen = $state(false);
   /** Archiv existiert schon (anderes Gerät) → Passwort entpackt es. */
   let neuesPasswort = $state(true);
-  let meldung = $state('');
   let fehler = $state('');
   let laeuft = $state(false);
   let ziele = $state<SicherungZiele>({});
@@ -70,7 +74,7 @@
         try {
           await adapterLieferant();
         } catch {
-          fehler = 'Ein Ziel ist gerade nicht bedienbar — bitte Verbindung prüfen.';
+          fehler = m.sicherung_fehler_ziel_tot();
         }
         void laden();
       }
@@ -106,11 +110,10 @@
 
   async function laden(): Promise<void> {
     try {
-      const anzahl = await sicherungArchivLaden();
-      if (anzahl > 0) meldung = `${anzahl} Nachrichten aus dem Archiv geladen.`;
-      else meldung = 'Archiv enthält (noch) keine neuen Nachrichten.';
+      await sicherungArchivLaden();
+      const anzahl = 0;
     } catch (e) {
-      fehler = 'Archiv-Laden: ' + (e instanceof Error ? e.message : String(e));
+      fehler = m.sicherung_fehler_archiv_laden({ grund: e instanceof Error ? e.message : String(e) });
     }
   }
 
@@ -129,7 +132,7 @@
       let dek: Uint8Array;
       if (neuesPasswort) {
         if (formPasswort.length < 8 || formPasswort !== formPasswort2) {
-          throw new Error('Mindestens 8 Zeichen, beide Felder gleich.');
+          throw new Error(m.sicherung_fehler_passwort_regeln());
         }
         dek = erzeugeDek();
         await zieleSchreiben({ ...ziele });
@@ -138,7 +141,7 @@
       } else {
         const adapter = await adapterLieferant();
         const bytes = await adapter.lese(SCHLUESSEL_DATEI);
-        if (bytes === null) throw new Error('Schlüssel-Datei fehlt im Archiv-Ordner');
+        if (bytes === null) throw new Error(m.sicherung_fehler_schluessel_fehlt());
         dek = (await öffneSchluesselDatei(bytes, formPasswort)).dek;
       }
       const kuerzel = (await dekAusZwischenlager())?.kuerzel ?? crypto.randomUUID();
@@ -148,18 +151,13 @@
       // Upload geht in den Hintergrund (Fortschritt in der Meldung).
       zustand = 'an';
       laeuft = false;
-      meldung = 'Aktiv — bestehende Nachrichten werden im Hintergrund gesichert …';
       void (async () => {
         try {
-          const gesichert = await sicherungErstsicherung();
+          await sicherungErstsicherung();
           await sicherungJetztSpuelen();
-          const geladen = await sicherungArchivLaden();
-          const teile: string[] = ['Aktiv'];
-          if (gesichert > 0) teile.push(`${gesichert} Nachrichten gesichert`);
-          if (geladen > 0) teile.push(`${geladen} Nachrichten aus dem Archiv geladen`);
-          meldung = teile.length > 1 ? teile.join(' — ') : 'Aktiv — alles auf Stand.';
+          await sicherungArchivLaden();
         } catch (e) {
-          fehler = 'Hintergrund-Sicherung: ' + (e instanceof Error ? e.message : String(e));
+          fehler = m.sicherung_fehler_hintergrund({ grund: e instanceof Error ? e.message : String(e) });
         }
       })();
     } catch (e) {
@@ -174,7 +172,6 @@
     fehler = '';
     try {
       const anzahl = await sicherungErstsicherung();
-      meldung = `${anzahl} bestehende Nachrichten gesichert.`;
       nachholNoetig = false;
       await sicherungJetztSpuelen();
     } catch (e) {
@@ -202,24 +199,42 @@
     await dekZwischenlagerWischen();
     await pufferWischen();
     ziele = {};
+    passwortOffen = false;
+    zielDetail = null;
     zustand = 'verbinden';
-    meldung = '';
   }
 </script>
 
 <div class="space-y-4">
-  <h3 class="text-sm font-semibold">Sicherung</h3>
+  <div class="flex items-center gap-2">
+    <h2 class="text-text-bright text-base font-semibold">Sicherung</h2>
+    {#if zustand === 'an' || zustand === 'ziel'}
+      <span
+        class="text-success inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-2xs font-semibold"
+        data-testid="sicherung-status"
+      >
+        {m.sicherung_status_aktiv()}
+      </span>
+    {:else if zustand !== 'pruefe'}
+      <span
+        class="text-text-muted inline-flex items-center rounded-full bg-bg-hover px-2 py-0.5 text-2xs font-semibold"
+        data-testid="sicherung-status"
+      >
+        {m.sicherung_status_nicht_aktiv()}
+      </span>
+    {/if}
+    {#if zustand === 'ziel'}
+      <Button variant="outline" size="sm" class="ml-auto" onclick={() => (zustand = 'an')} data-testid="sicherung-zurueck">
+        ‹ {m.sicherung_zurueck()}
+      </Button>
+    {/if}
+  </div>
 
   {#if !SICHERUNG_ENABLED}
-    <p class="text-sm text-muted-foreground">Derzeit deaktiviert.</p>
+    <p class="text-sm text-muted-foreground">{m.sicherung_deaktiviert()}</p>
   {:else}
-    <p class="text-sm text-muted-foreground">
-      Dein verschlüsselter Nachrichten-Verlauf, gespiegelt in deine eigenen
-      Ziele. Ohne dein Passwort ist das Archiv für niemanden lesbar.
-    </p>
-
     {#if zustand === 'pruefe'}
-      <p class="text-sm text-muted-foreground">Prüfe …</p>
+      <p class="text-sm text-muted-foreground">{m.sicherung_pruefe()}</p>
     {:else if zustand === 'verbinden'}
       <SicherungZiel
         laeuft={laeuft}
@@ -233,20 +248,64 @@
         neu={neuesPasswort}
         laeuft={laeuft}
         aufOeffnen={oeffnen}
+        aufAbbrechen={() => void entfernen()}
         ordnerModus={ziele.ordner !== undefined}
         aufZugriff={() => void zugriffErneuern()}
       />
-    {:else}
-      <SicherungAktiv
-        meldung={meldung}
-        ordnerModus={ziele.ordner !== undefined}
-        aufJetztSichern={() => void sicherungJetztSpuelen()}
-        aufZugriff={() => void zugriffErneuern()}
-        aufEntfernen={entfernen}
-        aufErstsicherung={erstsicherungNachreichen}
-        nachholNoetig={nachholNoetig}
+    {:else if zustand === 'an'}
+      {#if nachholNoetig}
+        <Button variant="secondary" size="sm" onclick={erstsicherungNachreichen} data-testid="sicherung-nachholen">
+          {m.sicherung_aktiv_nachholen()}
+        </Button>
+      {/if}
+      <SicherungZiel
+        laeuft={laeuft}
+        gdriveAktiv={ziele.gdrive !== undefined}
+        ordnerAktiv={ziele.ordner !== undefined}
+        aufGoogle={() => void zielHinzufügen('gdrive')}
+        aufOrdner={() => void zielHinzufügen('ordner')}
+        aufVerwalten={(z) => {
+          zielDetail = z;
+          passwortOffen = false;
+          zustand = 'ziel';
+        }}
       />
-      <SicherungPasswortAendern />
+    {:else if zustand === 'ziel'}
+      <div class="space-y-2">
+        <p class="text-text-bright text-sm font-semibold">
+          {zielDetail === 'ordner' ? m.sicherung_ziel_ordner() : m.sicherung_ziel_gdrive()}
+        </p>
+        <p class="text-success text-sm">✓ {m.sicherung_ziel_verbunden()}</p>
+        {#if zielDetail === 'ordner'}
+          <Button variant="secondary" size="sm" onclick={() => void zugriffErneuern()}>
+            {m.sicherung_aktiv_zugriff()}
+          </Button>
+        {:else if !isElectron()}
+          <p class="text-xs text-muted-foreground">{m.sicherung_ziel_browser_hinweis()}</p>
+        {/if}
+      </div>
+      <div class="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onclick={() => (passwortOffen = !passwortOffen)}
+          data-testid="sicherung-passwort-aendern"
+        >
+          {m.sicherung_passwort_aendern_link()}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          class="border-destructive text-destructive hover:bg-destructive/10"
+          onclick={entfernen}
+          data-testid="sicherung-entfernen"
+        >
+          {m.sicherung_aktiv_entfernen()}
+        </Button>
+      </div>
+      {#if passwortOffen}
+        <SicherungPasswortAendern />
+      {/if}
     {/if}
 
     {#if fehler}<p class="text-sm text-destructive">{fehler}</p>{/if}

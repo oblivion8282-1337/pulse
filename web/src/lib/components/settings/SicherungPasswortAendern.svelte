@@ -1,7 +1,7 @@
 <script lang="ts">
   /**
-   * Der dezente Passwort-Wechsel im Aktiv-Zustand: erst ein Text-Link, dann
-   * zwei Felder + Speichern. Eigenständig, damit die Sektion unter der
+   * Das Passwort-Wechsel-Formular im Aktiv-Zustand: zwei Felder + Speichern;
+   * der Knopf liegt in der Übersicht. Eigenständig, damit die Sektion unter der
    * Komponenten-Policy bleibt; die Logik liegt hier, weil sie einen eigenen,
    * engen Fehler-Umfang hat (die Sektion kennt nur Öffnen und Entfernen).
    *
@@ -12,13 +12,20 @@
    * ohnehin nicht öffnen und der Nutzer muss erst wieder freischalten.
    */
   import { Button } from '$lib/components/ui/button/index.js';
-  import { wickleSchluesselDatei } from '$lib/sicherung/krypto';
+  import { m } from '$lib/paraglide/messages.js';
+  import CheckIcon from '@lucide/svelte/icons/check';
+  import XIcon from '@lucide/svelte/icons/x';
+  import { wickleSchluesselDatei, öffneSchluesselDatei } from '$lib/sicherung/krypto';
   import { SCHLUESSEL_DATEI } from '$lib/sicherung/spiegel';
-  import { adapterLieferant, dekAusZwischenlager } from '$lib/sicherung/geraete';
+  import { adapterLieferant, dekAusZwischenlager, dekZwischenlagern } from '$lib/sicherung/geraete';
 
-  let offen = $state(false);
+  let altPasswort = $state('');
   let passwort = $state('');
   let passwort2 = $state('');
+
+  const reichlich = $derived(passwort.length >= 8);
+  const gleich = $derived(passwort2.length > 0 && passwort === passwort2);
+  const gueltig = $derived(reichlich && gleich);
   let laeuft = $state(false);
   let fehler = $state('');
   let meldung = $state('');
@@ -29,17 +36,27 @@
     meldung = '';
     try {
       if (passwort.length < 8 || passwort !== passwort2) {
-        throw new Error('Mindestens 8 Zeichen, beide Felder gleich.');
-      }
-      const gelagert = await dekAusZwischenlager();
-      if (gelagert === null) {
-        throw new Error(
-          'Der Schlüssel liegt nicht mehr auf diesem Gerät — bitte erst öffnen oder die Sicherung neu verbinden.',
-        );
+        throw new Error(m.sicherung_fehler_passwort_regeln());
       }
       const adapter = await adapterLieferant();
-      await adapter.schreibe(SCHLUESSEL_DATEI, await wickleSchluesselDatei(gelagert.dek, passwort));
-      meldung = 'Passwort geändert — ab jetzt mit dem neuen öffnen (auch auf anderen Geräten).';
+      // Das bisherige Passwort wird am Archiv verifiziert, und der DEK kommt
+      // AUS DEM ARCHIV (nicht aus dem Geräte-Zwischenlager): Der neue Umschlag
+      // umhüllt garantiert denselben DEK wie der alte — nur wer das bisherige
+      // Passwort kennt, darf ihn neu verschließen.
+      const bytes = await adapter.lese(SCHLUESSEL_DATEI);
+      if (bytes === null) throw new Error(m.sicherung_fehler_schluessel_fehlt());
+      let dek: Uint8Array;
+      try {
+        dek = (await öffneSchluesselDatei(bytes, altPasswort)).dek;
+      } catch {
+        throw new Error(m.sicherung_passwort_alt_falsch());
+      }
+      await adapter.schreibe(SCHLUESSEL_DATEI, await wickleSchluesselDatei(dek, passwort));
+      // Gerät frisch bestücken, falls das Zwischenlager leer war.
+      const gelagert = await dekAusZwischenlager();
+      await dekZwischenlagern(dek, gelagert?.kuerzel ?? crypto.randomUUID());
+      meldung = m.sicherung_meldung_passwort_geaendert();
+      altPasswort = '';
       passwort = '';
       passwort2 = '';
     } catch (e) {
@@ -50,31 +67,40 @@
   }
 </script>
 
-{#if !offen}
-  <button class="text-xs text-muted-foreground hover:underline" onclick={() => (offen = true)}>
-    Passwort ändern
-  </button>
-{:else}
   <div class="space-y-2">
-    <p class="text-sm text-muted-foreground">
-      Neues Passwort festlegen (mindestens 8 Zeichen — es gibt keine
-      Wiederherstellung). Das Archiv selbst bleibt unverändert:
-    </p>
     <input
       class="w-full rounded-md border bg-transparent px-3 py-1.5 text-sm"
       type="password"
+      placeholder={m.sicherung_passwort_alt()}
+      bind:value={altPasswort}
+    />
+    <input
+      class="w-full rounded-md border bg-transparent px-3 py-1.5 text-sm"
+      type="password"
+      placeholder={m.sicherung_passwort_neu2()}
       bind:value={passwort}
     />
     <input
       class="w-full rounded-md border bg-transparent px-3 py-1.5 text-sm"
       type="password"
-      placeholder="Wiederholen"
+      placeholder={m.sicherung_passwort_wiederholen()}
       bind:value={passwort2}
     />
-    <Button onclick={aendern} size="sm" disabled={laeuft || passwort.length === 0}>
-      {laeuft ? 'Lädt …' : 'Passwort speichern'}
+    <ul class="space-y-1 text-xs" data-testid="sicherung-passwort-checkliste">
+      <li class="flex items-center gap-1.5 {reichlich ? 'text-success' : 'text-muted-foreground'}">
+        {#if reichlich}<CheckIcon class="size-3.5" />{:else}<XIcon class="size-3.5" />{/if}
+        {m.sicherung_passwort_zeichen({ n: passwort.length })}
+      </li>
+      {#if passwort2.length > 0}
+        <li class="flex items-center gap-1.5 {gleich ? 'text-success' : 'text-muted-foreground'}">
+          {#if gleich}<CheckIcon class="size-3.5" />{:else}<XIcon class="size-3.5" />{/if}
+          {m.sicherung_passwort_gleich()}
+        </li>
+      {/if}
+    </ul>
+    <Button onclick={aendern} size="sm" disabled={laeuft || altPasswort.length === 0 || !gueltig}>
+      {laeuft ? m.sicherung_laebt() : m.sicherung_passwort_speichern()}
     </Button>
     {#if meldung}<p class="text-sm text-muted-foreground">{meldung}</p>{/if}
     {#if fehler}<p class="text-sm text-destructive">{fehler}</p>{/if}
   </div>
-{/if}
