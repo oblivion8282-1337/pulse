@@ -31,6 +31,7 @@ import {
 } from '../identity/idb-shared.ts';
 import type { WarteEintrag } from './spiegel.ts';
 import type { AblageNachricht } from '../ablage/nutzlast.ts';
+import type { SicherungLeseStand } from './wiederherstellen.ts';
 import { öffneDb, STORE_PUFFER, STORE_LESESTAND } from './ziele.ts';
 
 
@@ -140,34 +141,42 @@ export async function pufferWischen(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Lesestand: bis wohin hat DIESES Gerät das Archiv je Konto schon importiert —
-// je Geräte-Namensraum der Segment-Index und die letzte Rahmen-Id. Ohne ihn
-// lud jedes Öffnen des Reiters das GESAMTE Archiv erneut herunter.
+// Lesestand: bis wohin hat DIESES Gerät den Archiv-Ordner JESES Kanals schon
+// importiert — je Geräte-Kette ein Gelesen-Fenster (Form: wiederherstellen.
+// ts::SicherungLeseStand). Schlüssel ist Konto UND Kanal
+// (`<kontoId>:<kanalId>`), denn gelesen wird je Kanal-Ordner seitenweise.
+// Ohne ihn lud jedes Öffnen desselben Kanals dessen Archiv erneut herunter.
+// Der alte Schlüssel ohne Kanal entfällt bewusst — Testbestände sind
+// Wegwerf, keine Migration.
 // ---------------------------------------------------------------------------
 
-export interface LeseStand {
-	segIndex: number;
-	frameId: string;
+function lesestandSchluessel(kontoId: string, kanalId: string): string {
+	return `${kontoId}:${kanalId}`;
 }
 
-export async function lesestandLesen(kontoId: string): Promise<Record<string, LeseStand>> {
+export async function lesestandLesen(
+	kontoId: string,
+	kanalId: string,
+): Promise<Record<string, SicherungLeseStand>> {
 	const db = await öffneDb();
 	return new Promise((resolve, reject) => {
 		const tx = db.transaction(STORE_LESESTAND, 'readonly');
-		const anfrage = tx.objectStore(STORE_LESESTAND).get(kontoId);
-		anfrage.onsuccess = () => resolve((anfrage.result as Record<string, LeseStand> | undefined) ?? {});
+		const anfrage = tx.objectStore(STORE_LESESTAND).get(lesestandSchluessel(kontoId, kanalId));
+		anfrage.onsuccess = () =>
+			resolve((anfrage.result as Record<string, SicherungLeseStand> | undefined) ?? {});
 		anfrage.onerror = () => reject(anfrage.error);
 	});
 }
 
 export async function lesestandSchreiben(
 	kontoId: string,
-	stand: Record<string, LeseStand>,
+	kanalId: string,
+	stand: Record<string, SicherungLeseStand>,
 ): Promise<void> {
 	const db = await öffneDb();
 	return new Promise((resolve, reject) => {
 		const tx = db.transaction(STORE_LESESTAND, 'readwrite');
-		tx.objectStore(STORE_LESESTAND).put(stand, kontoId);
+		tx.objectStore(STORE_LESESTAND).put(stand, lesestandSchluessel(kontoId, kanalId));
 		tx.oncomplete = () => resolve();
 		tx.onerror = () => reject(tx.error);
 	});

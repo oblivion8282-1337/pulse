@@ -46,15 +46,16 @@
  * `put` selbst, ohne einen weiteren `await` dazwischen.
  */
 import {
-  hatServerVerlauf,
-  verlaufLesen,
-  verlaufSpeichern,
-  verlaufNachrichtGeloescht
+	hatServerVerlauf,
+	verlaufLesen,
+	verlaufSpeichern,
+	verlaufNachrichtGeloescht
 } from './index';
 import { betrifftLuecke, lueckeNachServerantwortAktualisieren } from './luecke';
 import { ermittleGeloeschteIds } from './abgleich';
 import { ohneFrischeGrabsteine } from './ohneFrischeGrabsteine';
 import { messages } from '$lib/stores/messages.svelte';
+import { directMessages } from '$lib/stores/directMessages.svelte';
 import { chatApi } from '$lib/api/chat';
 import type { Message } from '$lib/api/types';
 
@@ -72,18 +73,38 @@ export async function ladeAeltereSeite(
   seitenGroesse: number,
   route: { serverId?: string } | undefined
 ): Promise<AeltereSeite> {
-  if (!betrifftLuecke(channelId, oldest)) {
-    const lokal = (await verlaufLesen(channelId, { vor: oldest, anzahl: seitenGroesse })).filter(
-      (n) => n.deleted_at === null
-    );
-    if (lokal.length > 0) {
-      // Abgleich nur, wo es etwas abzugleichen gibt (s. `hatServerVerlauf`).
-      if (hatServerVerlauf(channelId)) {
-        void reconciliereAeltereSeite(channelId, oldest, seitenGroesse, lokal, route);
-      }
-      return { nachrichten: lokal, vomServer: false };
-    }
-  }
+	if (!betrifftLuecke(channelId, oldest)) {
+		const lokal = (await verlaufLesen(channelId, { vor: oldest, anzahl: seitenGroesse })).filter(
+			(n) => n.deleted_at === null
+		);
+		if (lokal.length > 0) {
+			// Abgleich nur, wo es etwas abzugleichen gibt (s. `hatServerVerlauf`).
+			if (hatServerVerlauf(channelId)) {
+				void reconciliereAeltereSeite(channelId, oldest, seitenGroesse, lokal, route);
+			}
+			return { nachrichten: lokal, vomServer: false };
+		}
+		// Der lokale Bestand ist an dieser Stelle zu Ende — BEVOR der Server
+		// gefragt wird, hol die nächste ältere Seite aus dem Sicherungs-Archiv
+		// in den lokalen Verlauf. Nur für die Kanalarten, die die Sicherung
+		// überhaupt spiegelt (DMs, private Gruppen, Ablage-Kanäle — derselbe
+		// Filter wie `istLokalerKanal`); der Lesestand wird je Kanal geführt,
+		// der nächste Hochscroll-Aufruf bekommt also nur strikt Älteres. Kam
+		// etwas an, gilt die Seite als lokal gelesen — derselbe Rückgabeweg
+		// wie oben. `sicherungKanalSeiteLaden` wirft nie (s. andock.ts), der
+		// Server-Zweig läuft sonst unverändert weiter. Dynamischer Import wie
+		// in `verlauf/index.ts`: die Sicherung (inkl. hash-wasm) gehört nicht
+		// in den Chat-Grundstack.
+		if (!hatServerVerlauf(channelId) || channelId in directMessages.byId) {
+			const { sicherungKanalSeiteLaden } = await import('$lib/sicherung/andock');
+			if ((await sicherungKanalSeiteLaden(channelId, seitenGroesse)) > 0) {
+				const nachgeladen = (
+					await verlaufLesen(channelId, { vor: oldest, anzahl: seitenGroesse })
+				).filter((n) => n.deleted_at === null);
+				if (nachgeladen.length > 0) return { nachrichten: nachgeladen, vomServer: false };
+			}
+		}
+	}
 
   // Eine private Gruppe hat keinen Server-Verlauf — der lokale Bestand ist
   // die einzige Kopie. Ist er erschoepft, ist die Seite zu Ende; ein Aufruf

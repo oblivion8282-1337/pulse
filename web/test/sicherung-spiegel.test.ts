@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { praefixAdapter, SicherungsSpiegel, geraeteKuerzel } from '../src/lib/sicherung/spiegel.ts';
+import { praefixAdapter, ordnerAdapter, SicherungsSpiegel, geraeteKuerzel } from '../src/lib/sicherung/spiegel.ts';
 import { erzeugeDek } from '../src/lib/sicherung/krypto.ts';
 import { leseSicherungEintrag } from '../src/lib/sicherung/nutzlast.ts';
 import { entschlüsseleEintrag } from '../src/lib/sicherung/krypto.ts';
@@ -39,22 +39,41 @@ test('praefixAdapter — Namen unter dem Präfix, liste() streift ihn ab', async
 	assert.equal(await umbaut.lese('fremd.puls'), null);
 });
 
+test('ordnerAdapter — Kanal-Ordner als Präfix, Wurzel unberührt', async () => {
+	const basis = speicherAdapter();
+	const ordner = ordnerAdapter(basis, 'kanal-a');
+	await ordner.schreibe('dev-aaaa1111-seg-000000.puls', new Uint8Array([1, 2, 3]));
+	await basis.schreibe('key.puls', new Uint8Array([9]));
+	// Ein zweiter Kanal, dessen Id denselben Anfang teilt — darf NICHT in
+	// die Liste von kanal-a rutschen (der Präfix endet auf `/`).
+	const fremd = ordnerAdapter(basis, 'kanal-ab');
+	await fremd.schreibe('dev-bbbb2222-seg-000000.puls', new Uint8Array([4]));
+
+	assert.deepEqual(await ordner.liste(), ['dev-aaaa1111-seg-000000.puls']);
+	assert.deepEqual(await fremd.liste(), ['dev-bbbb2222-seg-000000.puls']);
+	assert.deepEqual(await basis.lese('kanal-a/dev-aaaa1111-seg-000000.puls'), new Uint8Array([1, 2, 3]));
+	assert.ok(await basis.lese('key.puls'), 'Schlüssel-Datei bleibt im Wurzel-Ordner');
+	assert.equal(await ordner.lese('key.puls'), null);
+});
+
 test('geraeteKuerzel — stabil und unterschiedlich je Kennung', async () => {
 	assert.equal(await geraeteKuerzel('geraet-x'), await geraeteKuerzel('geraet-x'));
 	assert.notEqual(await geraeteKuerzel('geraet-x'), await geraeteKuerzel('geraet-y'));
 	assert.match(await geraeteKuerzel('geraet-x'), /^dev-[0-9a-f]{8}$/);
 });
 
-test('Spiegel end-to-end: aufnehmen → spuelen → verschlüsselte Segmente im eigenen Namensraum', async () => {
+test('Spiegel end-to-end: aufnehmen → spuelen → verschlüsselte Segmente im Kanal-Ordner', async () => {
 	const basis = speicherAdapter();
 	const dek = erzeugeDek();
 	const praefix = 'dev-aaaa1111-';
-	const spiegel = new SicherungsSpiegel(basis, dek, praefix, {
+	// Der Spiegel arbeitet im Ordner SEINER Unterhaltung — alle Dateinamen
+	// landen unter `kanal-a/`, die Log-Engine sieht bloße Namen.
+	const spiegel = new SicherungsSpiegel(ordnerAdapter(basis, 'kanal-a'), dek, praefix, {
 		verzoegerungMs: 10,
 		schwelle: 50,
 	});
 
-	spiegel.aufnehmen('kanal-b', [nachricht('200', 'zweite')]);
+	spiegel.aufnehmen('kanal-a', [nachricht('200', 'zweite')]);
 	spiegel.aufnehmen('kanal-a', [nachricht('100', 'erste')]);
 	assert.equal(spiegel.pufferLaenge(), 2);
 	const ergebnis = await spiegel.jetztSpuelen();
@@ -63,11 +82,11 @@ test('Spiegel end-to-end: aufnehmen → spuelen → verschlüsselte Segmente im 
 	assert.equal(spiegel.pufferLaenge(), 0);
 
 	const dateien = (await basis.liste()).sort();
-	assert.ok(dateien.some((n) => n === `${praefix}seg-000000.puls`), 'Segmentdatei fehlt');
-	assert.ok(dateien.some((n) => n === `${praefix}manifest.puls`), 'Manifest fehlt');
+	assert.ok(dateien.some((n) => n === `kanal-a/${praefix}seg-000000.puls`), 'Segmentdatei fehlt');
+	assert.ok(dateien.some((n) => n === `kanal-a/${praefix}manifest.puls`), 'Manifest fehlt');
 
 	// Der Segmentkopf trägt die Index-Nummer 0 — und der Inhalt ist verschlüsselt.
-	const seg = (await basis.lese(`${praefix}seg-000000.puls`))!;
+	const seg = (await basis.lese(`kanal-a/${praefix}seg-000000.puls`))!;
 	assert.equal(leseSegmentKopf(seg).index, 0);
 	const text = new TextDecoder().decode(seg);
 	assert.ok(!text.includes('erste') && !text.includes('zweite'), 'Klartext im Segment');
@@ -83,7 +102,9 @@ test('Spiegel end-to-end: aufnehmen → spuelen → verschlüsselte Segmente im 
 		gelesen.push(`${eintrag.kanalId}/${eintrag.nachricht.inhalt}`);
 	}
 	// Aufsteigend nach Nachricht-Id — die Sortierung des Spuels ist im Log.
-	assert.deepEqual(gelesen, ['kanal-a/erste', 'kanal-b/zweite']);
+	// Beide Nutzlasten tragen die kanalId des Ordners (der Spiegel spiegelt
+	// nur SEINE Unterhaltung).
+	assert.deepEqual(gelesen, ['kanal-a/erste', 'kanal-a/zweite']);
 });
 
 test('Duplikate wandern nur einmal in den Puffer', async () => {
@@ -98,10 +119,11 @@ test('Duplikate wandern nur einmal in den Puffer', async () => {
 	spiegel.beenden();
 });
 
-test('zwei Geräte schreiben nebeneinander in denselben Ordner', async () => {
+test('zwei Geräte schreiben nebeneinander in denselben Kanal-Ordner', async () => {
 	const basis = speicherAdapter();
-	const eins = new SicherungsSpiegel(basis, erzeugeDek(), 'dev-cccc3333-', { verzoegerungMs: 10 });
-	const zwei = new SicherungsSpiegel(basis, erzeugeDek(), 'dev-dddd4444-', { verzoegerungMs: 10 });
+	const ordner = ordnerAdapter(basis, 'kanal-a');
+	const eins = new SicherungsSpiegel(ordner, erzeugeDek(), 'dev-cccc3333-', { verzoegerungMs: 10 });
+	const zwei = new SicherungsSpiegel(ordner, erzeugeDek(), 'dev-dddd4444-', { verzoegerungMs: 10 });
 
 	eins.aufnehmen('kanal-a', [nachricht('400', 'von eins')]);
 	zwei.aufnehmen('kanal-a', [nachricht('401', 'von zwei')]);
@@ -109,13 +131,13 @@ test('zwei Geräte schreiben nebeneinander in denselben Ordner', async () => {
 	await zwei.jetztSpuelen();
 
 	const dateien = (await basis.liste()).sort();
-	assert.equal(dateien.filter((n) => n.startsWith('dev-cccc3333-')).length, 2);
-	assert.equal(dateien.filter((n) => n.startsWith('dev-dddd4444-')).length, 2);
+	assert.equal(dateien.filter((n) => n === `kanal-a/dev-cccc3333-seg-000000.puls` || n === `kanal-a/dev-cccc3333-manifest.puls`).length, 2);
+	assert.equal(dateien.filter((n) => n === `kanal-a/dev-dddd4444-seg-000000.puls` || n === `kanal-a/dev-dddd4444-manifest.puls`).length, 2);
 	// Kein Gerät hat die Dateien des anderen angefasst — Namensräume getrennt.
 	const fremd = await eins.jetztSpuelen();
 	void fremd;
-	const nurEins = await basis.lese('dev-cccc3333-manifest.puls');
-	const nurZwei = await basis.lese('dev-dddd4444-manifest.puls');
+	const nurEins = await basis.lese('kanal-a/dev-cccc3333-manifest.puls');
+	const nurZwei = await basis.lese('kanal-a/dev-dddd4444-manifest.puls');
 	assert.ok(nurEins !== null && nurZwei !== null);
 });
 

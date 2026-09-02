@@ -20,6 +20,15 @@
  *      Start mit. Erst nach dem erfolgreichen Spülen löscht die
  *      `nachSpuelung`-Rückkehr die Zeilen.
  *
+ * **EIN Ordner je Unterhaltung.** Der Container trägt `<kanalId>/`-Ordner
+ * mit je einem Geräte-Segment-Log pro Unterhaltung (spiegel.ts::
+ * `ordnerAdapter`); der Schlüssel (`key.puls`) bleibt im Wurzel-Ordner.
+ * Deshalb hält dieses Modul eine Spiegel-MAP je kanalId statt eines
+ * einzelnen Spiegels — Schreibrecht (Web-Locks) und Puffer-Nachlauf bleiben
+ * tab-global. Gelesen wird je Kanal-Ordner: seitenweise für die Chat-
+ * Ansicht (`sicherungKanalSeiteLaden`), komplett für den Bulk-Weg
+ * (`sicherungArchivLaden`).
+ *
  * Importfrei-Pflicht gilt hier nicht (läuft nie im Node-Läufer — hängt an
  * `verlauf/index.ts`, das selbst schon IDB-seitig ist), aber die Rechnung
  * bleibt sauber getrennt: der Spiegel weiß nichts von IndexedDB.
@@ -28,20 +37,20 @@
 import { SICHERUNG_ENABLED } from '../krypto/schalter.ts';
 import type { Message } from '../api/types.ts';
 import { ausWire, NUTZLAST_FASSUNG, type AblageNachricht } from '../ablage/nutzlast.ts';
+import type { AblageAdapter } from '../ablage/adapter.ts';
 import { openIdentityDb, idbPutIdentity, idbGetIdentity } from '../identity/idb-shared.ts';
-import { verlaufAlleLesen, anhangBytesLesen, anhangBytesSichern, verlaufPutSaetze } from '../verlauf/db.ts';
+import { verlaufAlleLesen, anhangBytesLesen, verlaufPutSaetze } from '../verlauf/db.ts';
 import { aktuellesKonto } from '../verlauf/konto.ts';
 import { zuSatz } from '../verlauf/satz.ts';
-import { entschlüsseleEintrag, verschlüsseleEintrag } from './krypto.ts';
-import { leseSicherungInkrementell } from './wiederherstellen.ts';
+import { verschlüsseleEintrag } from './krypto.ts';
+import { KANAL_ORDNER_MUSTER, leseSicherungKanalSeite } from './wiederherstellen.ts';
+import type { SicherungEintrag } from './nutzlast.ts';
 import {
 	SicherungsSpiegel,
 	aufbauAdapter,
 	geraeteKuerzel,
-	SCHLUESSEL_DATEI,
-	type WarteEintrag,
+	ordnerAdapter,
 } from './spiegel.ts';
-import { öffneSchluesselDatei } from './krypto.ts';
 import {
 	adapterLieferant,
 	zieleBesetzt,
@@ -60,65 +69,107 @@ import {
 	dekZwischenlagerWischen,
 } from './geraete.ts';
 
-let spiegel: SicherungsSpiegel | null = null;
+/** Ein Spiegel je Unterhaltung — sein Ordner (`<kanalId>/`) im Archiv. */
+let spiegelJeKanal = new Map<string, SicherungsSpiegel>();
+/** Bau-Läufe je Kanal — zwei gleichzeitige `sicherungSpiegeln` desselben
+ *  Kanals dürfen nicht zwei Spiegel bauen (zwei Schreiber auf EINEM
+ *  Segment-Namen verlören sich gegenseitig ihre Rahmen). */
+const spiegelBauJeKanal = new Map<string, Promise<SicherungsSpiegel | null>>();
 /** Der Bau-Lauf des aktuellen Schreibrecht-Nehmers — Single-Flight für alle
- *  Aufrufer, bis der Spiegel steht (nach `sicherungVerwerfen` wieder null). */
-let spiegelBau: Promise<SicherungsSpiegel> | null = null;
+ *  Aufrufer, bis das Schreibrecht steht (nach `sicherungVerwerfen` wieder
+ *  null). Das Recht gilt für ALLE Kanal-Spiegel des Tabs gleichermaßen. */
+let spiegelBau: Promise<void> | null = null;
+
+/**
+ * Baut den Spiegel EINES Kanals (Ordner-Namensraum, Geräte-Präfix,
+ * Puffer-Nachlauf) — ohne Schreibrecht.
+ */
+async function baueSpiegel(
+	kanalId: string,
+	dek: Uint8Array,
+	kuerzel: string,
+): Promise<SicherungsSpiegel> {
+	const praefix = await geraeteKuerzel(kuerzel);
+	const spiegel = new SicherungsSpiegel(
+		ordnerAdapter(aufbauAdapter(adapterLieferant), kanalId),
+		dek,
+		praefix,
+		{
+			nachSpuelung: (ergebnis, fehler, partien) => {
+				if (fehler !== null || ergebnis === null || partien.length === 0) return;
+				void pufferWeg(partien).catch(() => {
+					/* bleibt in der nächsten `pufferAlles`-Runde hängen — harmlos */
+				});
+				// Der SCHREIBER bedient alle Tabs: dessen Rest-Puffer (Zeilen
+				// anderer Tabs und Kanäle) wandert nach jeder Spülung in den
+				// je-Kanal-Spiegel, so weit er schon gebaut ist.
+				void (async () => {
+					const rest = await pufferAlles();
+					for (const zeile of rest) {
+						spiegelJeKanal.get(zeile.kanalId)?.aufnehmen(zeile.kanalId, [
+							zeile.nachricht,
+						]);
+					}
+				})().catch(() => {});
+			},
+		},
+	);
+	spiegelJeKanal.set(kanalId, spiegel);
+	// Überlebende des letzten Absturzes DIESES Kanals nachholen — sie sind
+	// nie gespült. (Fremde Kanäle gehören in DEREN Spiegel: wo eine Zeile
+	// liegt, entscheidet der Ordner-Präfix, nicht die Nutzlast — ein Spiegel
+	// schreibt ausschließlich in seinen eigenen Kanal-Ordner.)
+	const uebrig = (await pufferAlles()).filter((zeile) => zeile.kanalId === kanalId);
+	if (uebrig.length > 0) {
+		spiegel.aufnehmen(
+			kanalId,
+			uebrig.map((zeile) => zeile.nachricht),
+		);
+	}
+	return spiegel;
+}
 
 /**
  * Ist die Sicherung auf diesem Gerät einsatzbereit (Verbindung + DEK im
- * Zwischenlager)? Der Spiegel wird bei Bedarf lazy hochgezogen; ein
- * Fehlschlag wird gemerkt, damit nicht jede Nachricht einen neuen Versuch
- * kostet.
+ * Zwischenlager)? Der Spiegel des Kanals wird bei Bedarf lazy hochgezogen;
+ * ein Fehlschlag wird gemerkt, damit nicht jede Nachricht einen neuen
+ * Versuch kostet.
  */
-/** Baut den Spiegel (Namensraum, Puffer-Nachlauf) — ohne Schreibrecht. */
-async function baueSpiegel(dek: Uint8Array, kuerzel: string): Promise<void> {
-	const praefix = await geraeteKuerzel(kuerzel);
-	spiegel = new SicherungsSpiegel(aufbauAdapter(adapterLieferant), dek, praefix, {
-		nachSpuelung: (ergebnis, fehler, partien) => {
-			if (fehler !== null || ergebnis === null || partien.length === 0) return;
-			void pufferWeg(partien).catch(() => {
-				/* bleibt in der nächsten `pufferAlles`-Runde hängen — harmlos */
-			});
-			// Der SCHREIBER bedient alle Tabs: dessen Rest-Puffer (Zeilen
-			// anderer Tabs) wird nach jeder Spülung nachgeholt.
-			void (async () => {
-				const rest = await pufferAlles();
-				for (const zeile of rest) spiegel?.aufnehmen(zeile.kanalId, [zeile.nachricht]);
-			})().catch(() => {});
-		},
-	});
-	// Überlebte des letzten Absturzes nachholen — sie sind nie gespült.
-	const uebrig = await pufferAlles();
-	const nachKanal = new Map<string, AblageNachricht[]>();
-	for (const zeile of uebrig) {
-		const liste = nachKanal.get(zeile.kanalId) ?? [];
-		liste.push(zeile.nachricht);
-		nachKanal.set(zeile.kanalId, liste);
+async function spiegelFallsBereit(kanalId: string): Promise<SicherungsSpiegel | null> {
+	const da = spiegelJeKanal.get(kanalId);
+	if (da !== undefined) return da;
+	let bau = spiegelBauJeKanal.get(kanalId);
+	if (bau === undefined) {
+		bau = baueMitSchreibrecht(kanalId);
+		spiegelBauJeKanal.set(kanalId, bau);
+		void bau.catch(() => {
+			/* Fehlschlag merken: der nächste Aufrufer baut neu */
+			spiegelBauJeKanal.delete(kanalId);
+		});
 	}
-	for (const [kanalId, liste] of nachKanal) {
-		spiegel.aufnehmen(kanalId, liste);
-	}
+	return bau;
 }
 
-async function spiegelFallsBereit(): Promise<SicherungsSpiegel | null> {
-	if (spiegel !== null) return spiegel;
+/** Bereitschaft prüfen, Schreibrecht nehmen (Web-Locks), Spiegel bauen. */
+async function baueMitSchreibrecht(kanalId: string): Promise<SicherungsSpiegel | null> {
 	const [ziele, zwischengelagert] = await Promise.all([
 		zieleLesen(),
 		dekAusZwischenlager(),
 	]);
 	if (!zieleBesetzt(ziele) || zwischengelagert === null) return null;
-	// Schreibrecht: ZWEI Tabs desselben Profils teilen dasselbe Kürzel —
-	// ohne Abstimmung überschriebe der eine dem anderen per PATCH die
-	// Segmentdatei (Review 2026-08-31, Befund 4). Die Web-Locks-API reiht
-	// den Wunsch in eine WARTESCHLANGE: der zweite Tab wird Schreiber,
-	// sobald der erste endet — und bis dahin sichert der aktive Schreiber
-	// auch dessen Puffer mit (Nachlauf nach jeder Spülung). Ohne
-	// Locks-API (alte Browser) baut der erste Aufrufer direkt.
+	// Schreibrecht: ZWEI Tabs desselben Profils teilen dieselben
+	// Kanal-Ordner — ohne Abstimmung überschriebe der eine dem anderen
+	// per PATCH die Segmentdatei (Review 2026-08-31, Befund 4; gegen
+	// ZWEITE GERÄTE schützt der Geräte-Präfix je Datei). Die Web-Locks-
+	// API reiht den Wunsch in eine WARTESCHLANGE: der zweite Tab wird
+	// Schreiber, sobald der erste endet — und bis dahin sichert der
+	// aktive Schreiber auch dessen Puffer mit (Nachlauf nach jeder
+	// Spülung). Ohne Locks-API (alte Browser) baut der erste Aufrufer
+	// direkt. Das Recht wird EINMAL je Tab geholt und gilt für alle
+	// Kanal-Spiegel; die bauen danach direkt.
 	const schreiber = (globalThis as { navigator?: { locks?: LockManager } }).navigator?.locks;
 	if (!schreiber) {
-		await baueSpiegel(zwischengelagert.dek, zwischengelagert.kuerzel);
-		return spiegel;
+		return baueSpiegel(kanalId, zwischengelagert.dek, zwischengelagert.kuerzel);
 	}
 	spiegelBau ??= (async () => {
 		let bauFertig!: () => void;
@@ -129,10 +180,10 @@ async function spiegelFallsBereit(): Promise<SicherungsSpiegel | null> {
 		// Schreibrecht bis zum Tab-Ende. Ihn zu awaiten war der stille
 		// Hänger: der erste Aufrufer im Tab wartete auf ein Nie-Ende
 		// (Frischprofil, 2026-09-01). Gewartet wird nur auf den Abschluss
-		// des Baus; das Halten selbst läuft feuer-und-vergessen weiter.
+		// der Übernahme; das Halten selbst läuft feuer-und-vergessen
+		// weiter.
 		void schreiber
 			.request('pulse-sicherung-schreiber', async () => {
-				await baueSpiegel(zwischengelagert.dek, zwischengelagert.kuerzel);
 				bauFertig();
 				await new Promise(() => {
 					/* Schreibrecht halten, bis der Tab endet */
@@ -142,14 +193,14 @@ async function spiegelFallsBereit(): Promise<SicherungsSpiegel | null> {
 				/* Lock entzogen (Tab-Ende) — der nächste Aufrufer baut neu */
 			});
 		await gebaut;
-		return spiegel as unknown as SicherungsSpiegel;
 	})();
 	try {
-		return await spiegelBau;
+		await spiegelBau;
 	} catch (e) {
 		spiegelBau = null;
 		throw e;
 	}
+	return baueSpiegel(kanalId, zwischengelagert.dek, zwischengelagert.kuerzel);
 }
 
 /**
@@ -164,7 +215,7 @@ export function sicherungSpiegeln(kanalId: string, nachrichten: Message[]): void
 	void (async () => {
 		const ablageNachrichten = nachrichten.map((m) => ausWire(m));
 		await pufferLegen(kanalId, ablageNachrichten);
-		const bereit = await spiegelFallsBereit();
+		const bereit = await spiegelFallsBereit(kanalId);
 		bereit?.aufnehmen(kanalId, ablageNachrichten);
 		// Anhänge VOR dem nächsten Spülen sichern — die Bytes liegen jetzt
 		// frisch in der lokalen IDB (Empfang holt sie vor dem Ablegen).
@@ -174,22 +225,13 @@ export function sicherungSpiegeln(kanalId: string, nachrichten: Message[]): void
 	});
 }
 
-/**
- * Holt den Archiv-Bestand in den lokalen Verlauf. Dedupliziert über die
- * Nachrichten-Ids; dem Gerät bereits bekannte Zeilen bleiben unangetastet.
- * Liefert die Anzahl. Anhang-BYTES lädt sie bewusst NICHT — die holt die
- * Chat-Ansicht lazily aus dem Archiv, wenn eine Kachel gerendert wird
- * (krypto/anhangHolen.ts → archivAnhang), sonst läde der erste Login alles.
- */
-export async function sicherungArchivLaden(): Promise<number> {
-	const entpackt = await dekAusZwischenlager();
-	if (entpackt === null) return 0;
-	const kontoId = aktuellesKonto();
-	if (kontoId === null) return 0;
-	const adapter = await adapterLieferant();
-	const altStand = await lesestandLesen(kontoId);
-	const { bestand, lesestand } = await leseSicherungInkrementell(adapter, entpackt.dek, altStand);
-	const saetze = bestand.eintraege
+/** Wandelt gelesene Sicherungs-Einträge in Verlaufs-Sätze — die geteilte
+ *  Rechnung von seitenweisem und Bulk-Laden. Anhang-BYTES bleiben draußen:
+ *  die holt die Chat-Ansicht lazily aus dem Archiv, wenn eine Kachel
+ *  gerendert wird (krypto/anhangHolen.ts → archivAnhang), sonst läde der
+ *  erste Login alles. */
+function eintraegeZuSaetze(eintraege: SicherungEintrag[], kontoId: string) {
+	return eintraege
 		.map((eintrag) =>
 			zuSatz(eintrag.kanalId, {
 				id: eintrag.nachricht.id,
@@ -213,11 +255,88 @@ export async function sicherungArchivLaden(): Promise<number> {
 			}, kontoId),
 		)
 		.filter((satz) => satz !== null);
-	await verlaufPutSaetze(saetze);
-	// Lesestand erst NACH erfolgreichem Ablegen anheben — ein Fehler mid-
-	// run lässt den nächsten Lauf dieselben Namensräume komplett lesen.
-	await lesestandSchreiben(kontoId, lesestand);
+}
+
+/**
+ * Lädt EINE Seite aus dem Archiv-Ordner des Kanals in den lokalen Verlauf —
+ * der seitenweise Weg der Chat-Ansicht (Kanal öffnen, Hochscrollen). Der
+ * Lesestand wird je Konto+Kanal geführt (geraete.ts); der nächste Aufruf
+ * liefert nur noch strikt ältere Nachrichten.
+ *
+ * **Wirft nie** und liefert 0, wenn die Sicherung nicht bereit ist — der
+ * Aufrufer feuert und vergisst, ein totes Ziel darf die Ansicht nie
+ * blockieren (Regel 1 im Modulkopf).
+ */
+export async function sicherungKanalSeiteLaden(kanalId: string, anzahl = 50): Promise<number> {
+	try {
+		const entpackt = await dekAusZwischenlager();
+		if (entpackt === null) return 0;
+		const kontoId = aktuellesKonto();
+		if (kontoId === null) return 0;
+		const adapter = await adapterLieferant();
+		return await kanalSeiteFüttern(adapter, entpackt.dek, kontoId, kanalId, anzahl);
+	} catch {
+		return 0;
+	}
+}
+
+/** Eine Seite (oder mit `anzahl = Infinity` den ganzen Ordner) lesen und in
+ *  den lokalen Verlauf legen — die geteilte Rechnung beider Lade-Wege. */
+async function kanalSeiteFüttern(
+	adapter: AblageAdapter,
+	dek: Uint8Array,
+	kontoId: string,
+	kanalId: string,
+	anzahl: number,
+): Promise<number> {
+	const altStand = await lesestandLesen(kontoId, kanalId);
+	const { eintraege, lesestand } = await leseSicherungKanalSeite(
+		ordnerAdapter(adapter, kanalId),
+		dek,
+		altStand,
+		anzahl,
+	);
+	if (eintraege.length === 0) return 0;
+	const saetze = eintraegeZuSaetze(eintraege, kontoId);
+	if (saetze.length > 0) await verlaufPutSaetze(saetze);
+	// Lesestand erst NACH erfolgreichem Ablegen anheben — ein Fehler mid-run
+	// lässt den nächsten Lauf dieselbe Seite noch einmal lesen (Upsert über
+	// die Nachrichten-Ids; dem Gerät bereits bekannte Zeilen bleiben
+	// unangetastet).
+	await lesestandSchreiben(kontoId, kanalId, lesestand);
 	return saetze.length;
+}
+
+/**
+ * Holt den GESAMTEN Archiv-Bestand in den lokalen Verlauf (Bulk-Weg, Knopf
+ * der Sicherungsektion). Läuft je Kanal-Ordner mit demselben Lesestand wie
+ * der seitenweise Weg — beide Wege teilen sich den Fortschritt. Anhang-BYTES
+ * lädt sie bewusst NICHT (s. `eintraegeZuSaetze`).
+ */
+export async function sicherungArchivLaden(): Promise<number> {
+	const entpackt = await dekAusZwischenlager();
+	if (entpackt === null) return 0;
+	const kontoId = aktuellesKonto();
+	if (kontoId === null) return 0;
+	const adapter = await adapterLieferant();
+	// EIN Lauf je Kanal-Ordner — ein Ordner existiert, sobald er ein
+	// Segment trägt (KANAL_ORDNER_MUSTER über die Wurzel-Listung).
+	const kanalIds = new Set<string>();
+	for (const name of await adapter.liste()) {
+		const treffer = KANAL_ORDNER_MUSTER.exec(name);
+		if (treffer !== null) kanalIds.add(treffer[1]!);
+	}
+	let gesamt = 0;
+	for (const kanalId of kanalIds) {
+		// Infinity: ein Lauf liest den Ordner vollständig; die zweite Runde
+		// (liefert 0) belegt die Erschöpfung und bricht ab.
+		for (;;) {
+			const seite = await kanalSeiteFüttern(adapter, entpackt.dek, kontoId, kanalId, Infinity);
+			if (seite === 0) break;
+			gesamt += seite;
+		}
+	}
+	return gesamt;
 }
 
 /**
@@ -245,10 +364,11 @@ export async function sicherungAnhaenge(kanalId: string, nachrichten: AblageNach
 	}
 }
 
-/** „Jetzt sichern" der Oberfläche — spült den Puffer, wenn alles bereit steht. */
+/** „Jetzt sichern" der Oberfläche — spült ALLE gebauten Kanal-Spiegel. */
 export async function sicherungJetztSpuelen(): Promise<void> {
-	const bereit = await spiegelFallsBereit();
-	await bereit?.jetztSpuelen();
+	for (const spiegel of [...spiegelJeKanal.values()]) {
+		await spiegel.jetztSpuelen();
+	}
 }
 
 /**
@@ -275,8 +395,13 @@ export async function erstsicherungErledigt(): Promise<boolean> {
 }
 
 export async function sicherungErstsicherung(): Promise<number> {
-	const bereit = await spiegelFallsBereit();
-	if (bereit === null) throw new Error('Sicherung nicht bereit — erst verbinden und entsperren.');
+	// Bereitschaft einmal vorab prüfen — dieselbe Bedingung, die
+	// `spiegelFallsBereit` je Kanal erfüllt; so scheitert der Lauf auch bei
+	// leerem Verlauf sichtbar statt still mit 0.
+	const [ziele, entpackt] = await Promise.all([zieleLesen(), dekAusZwischenlager()]);
+	if (!zieleBesetzt(ziele) || entpackt === null) {
+		throw new Error('Sicherung nicht bereit — erst verbinden und entsperren.');
+	}
 	const kontoId = aktuellesKonto();
 	if (kontoId === null) throw new Error('kein angemeldetes Konto');
 	const saetze = await verlaufAlleLesen(kontoId);
@@ -310,6 +435,12 @@ export async function sicherungErstsicherung(): Promise<number> {
 	}
 	let gesamt = 0;
 	for (const [kanalId, liste] of nachKanal) {
+		// Je Kanal der eigene Spiegel — die Erstsicherung gruppiert weiter
+		// nach kanalId und füttert damit genau die Ordner-Struktur.
+		const bereit = await spiegelFallsBereit(kanalId);
+		if (bereit === null) {
+			throw new Error('Sicherung nicht bereit — erst verbinden und entsperren.');
+		}
 		await pufferLegen(kanalId, liste);
 		bereit.aufnehmen(kanalId, liste);
 		await sicherungAnhaenge(kanalId, liste);
@@ -324,10 +455,11 @@ export async function sicherungErstsicherung(): Promise<number> {
 	return gesamt;
 }
 
-/** Test-Handgriff: den laufenden Spiegel verwerfen (Modulzustand zurück). */
+/** Test-Handgriff: die laufenden Spiegel verwerfen (Modulzustand zurück). */
 export function sicherungVerwerfen(): void {
-	spiegel?.beenden();
-	spiegel = null;
+	for (const spiegel of spiegelJeKanal.values()) spiegel.beenden();
+	spiegelJeKanal.clear();
+	spiegelBauJeKanal.clear();
 	spiegelBau = null;
 }
 
@@ -344,6 +476,3 @@ export async function sicherungBeiAbmeldungWischen(): Promise<void> {
 	await dekZwischenlagerWischen();
 	await pufferWischen();
 }
-
-export { SCHLUESSEL_DATEI };
-export type { WarteEintrag };

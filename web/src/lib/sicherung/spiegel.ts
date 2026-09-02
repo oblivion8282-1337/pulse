@@ -79,6 +79,18 @@ export function praefixAdapter(basis: AblageAdapter, praefix: string): AblageAda
 }
 
 /**
+ * Namensraum EINER Unterhaltung: ein Ordner je Kanal im Archiv (`<kanalId>/`).
+ * Der Schrägstrich-Präfix macht den Ordner, ohne dass die Log-Engine davon
+ * erfährt — Schreiber und Leser arbeiten mit bloßen Dateinamen, `liste()`
+ * streift den Präfix ab. Die Schlüssel-Datei (`SCHLUESSEL_DATEI`) bleibt
+ * bewusst unpräfixt im Wurzel-Ordner: sie gehört zum Container, nicht zu
+ * einer Unterhaltung.
+ */
+export function ordnerAdapter(adapter: AblageAdapter, kanalId: string): AblageAdapter {
+	return praefixAdapter(adapter, `${kanalId}/`);
+}
+
+/**
  * Baut den Adapter je AUFRUF frisch — der gdrive-Adapter friert den
  * Zugangs-Token beim Bau ein (kopf in gdriveAdapter), ein stundenlang
  * laufender Spiegel braucht also je Operation einen aktuellen. Der

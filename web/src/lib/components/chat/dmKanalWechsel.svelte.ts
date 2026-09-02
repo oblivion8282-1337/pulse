@@ -140,6 +140,29 @@ export function erstelleDmKanalWechsel(cloudRoute: DmRoute) {
     }
 
     if (isStale()) return;
+    // Dünner lokaler Bestand: das Sicherungs-Archiv hält womöglich mehr
+    // dieses Gesprächs. Die neuesten 50 fire-and-forget in den lokalen
+    // Verlauf holen und die Ansicht per `prepend` auffrischen — deduped
+    // über die Ids, hält die Scroll-Position, wirft nie (s.
+    // `sicherungKanalSeiteLaden`). Bewusst NACH dem `setInitial` oben:
+    // ein Treffer, der während des Serverabrufs einläuft, würde sonst
+    // überschrieben. Nur beim Frischladen; ein wiedergeöffneter Kanal
+    // deckt das Hochscrollen ab (`verlauf/nachladen.ts`). Dynamischer
+    // Import wie in `verlauf/index.ts` — die Sicherung gehört nicht in
+    // den Chat-Grundstack.
+    if (!alreadyLoaded && lokal.length < 50) {
+      void import('$lib/sicherung/andock')
+        .then(({ sicherungKanalSeiteLaden }) => sicherungKanalSeiteLaden(cid, 50))
+        .then(async (angekommen) => {
+          if (angekommen === 0 || isStale()) return;
+          const frisch = await verlaufLesen(cid, { anzahl: 50 });
+          if (isStale()) return;
+          messages.prepend(cid, verlaufMergen(frisch, []));
+        })
+        .catch(() => {
+          /* die Sicherung darf den Kanalwechsel nie stören — s. andock.ts */
+        });
+    }
     cloudGateway.subscribe(cid);
     // Backfill anything that landed while the subscription was dropped.
     // Nicht fuer Gruppen: `gapFill` holt ueber die Klartext-Route nach, die
