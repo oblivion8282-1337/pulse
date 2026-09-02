@@ -17,6 +17,7 @@ import type { AblageAdapter } from '../ablage/adapter.ts';
 import { adapterAusVerzeichnis, type AblageVerzeichnis } from '../ablage/syncOrdner.ts';
 import { gdriveAdapter, auffrischeZugang, type GdriveAnbindung } from '../ablage/gdrive.ts';
 import { ordnerAdapter, ordnerZugriffOk } from './ordner.ts';
+import { webdavAdapter } from '../ablage/webdav.ts';
 import { TokenVorrat } from './tokenVorrat.ts';
 import { m } from '$lib/paraglide/messages.js';
 
@@ -29,6 +30,8 @@ const VERBINDUNG_KEY_LEGACY = 'gdrive';
 
 export interface SicherungZiele {
 	ordner?: { verzeichnis: AblageVerzeichnis };
+	/** Nextcloud über Freigabe-Link: WebDAV-Zugriff auf genau diesen Ordner. */
+	nextcloud?: { basis: string; ordner: string; benutzer: string; passwort: string };
 	gdrive?: {
 		kundenId: string;
 		kundenGeheimnis?: string;
@@ -43,7 +46,7 @@ export interface SicherungZiele {
 
 /** Ein Ziel ist da, sobald einer der beiden Zwecke belegt ist. */
 export function zieleBesetzt(z: SicherungZiele): boolean {
-	return z.ordner !== undefined || z.gdrive !== undefined;
+	return z.ordner !== undefined || z.gdrive !== undefined || z.nextcloud !== undefined;
 }
 
 export const STORE_PUFFER = 'puffer';
@@ -119,6 +122,21 @@ function sanitisiereZiele(roh: unknown): SicherungZiele {
 		};
 	}
 
+	const nc = rohObjekt.nextcloud as Record<string, unknown> | undefined;
+	if (
+		nc !== null &&
+		typeof nc === 'object' &&
+		typeof nc.basis === 'string' && nc.basis !== '' &&
+		typeof nc.passwort === 'string' && nc.passwort !== ''
+	) {
+		z.nextcloud = {
+			basis: nc.basis,
+			ordner: typeof nc.ordner === 'string' ? nc.ordner : '',
+			benutzer: typeof nc.benutzer === 'string' ? nc.benutzer : '',
+			passwort: nc.passwort,
+		};
+	}
+
 	const o = rohObjekt.ordner as Record<string, unknown> | undefined;
 	if (
 		o !== null &&
@@ -184,6 +202,9 @@ export async function zieleSchreiben(z: SicherungZiele): Promise<void> {
 	if (z.ordner?.verzeichnis) {
 		kopie.ordner = { verzeichnis: z.ordner.verzeichnis };
 	}
+	if (z.nextcloud?.basis && z.nextcloud.passwort !== '') {
+		kopie.nextcloud = { ...z.nextcloud };
+	}
 	if (z.gdrive?.kundenId && z.gdrive.nachspieleToken !== undefined) {
 		kopie.gdrive = {
 			kundenId: z.gdrive.kundenId,
@@ -221,7 +242,7 @@ export async function zieleLeeren(): Promise<void> {
 }
 
 /** Ein einzelnes Ziel entfernen — die anderen bleiben Spiegelziele. */
-export async function zielEntfernen(ziel: 'gdrive' | 'ordner'): Promise<void> {
+export async function zielEntfernen(ziel: 'gdrive' | 'ordner' | 'nextcloud'): Promise<void> {
 	const z = await zieleLesen();
 	if (ziel === 'gdrive') tokenVorrat.leeren();
 	delete z[ziel];
@@ -309,6 +330,9 @@ export async function adapterLieferant(): Promise<AblageAdapter> {
 		} catch {
 			/* Google gerade nicht erreichbar — Ordner sichert weiter */
 		}
+	}
+	if (z.nextcloud !== undefined) {
+		teile.push(webdavAdapter(z.nextcloud));
 	}
 	if (teile.length === 0) {
 		throw new Error('Sicherung: kein Ziel momentan bedienbar');

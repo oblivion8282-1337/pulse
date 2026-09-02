@@ -43,6 +43,8 @@
     erstsicherungErledigt,
   } from '$lib/sicherung/andock';
   import { googleSicherungVerbinden } from '$lib/sicherung/googleClient';
+  import NextcloudVerbinden from '$lib/components/ablage/NextcloudVerbinden.svelte';
+  import type { AblageVerbindung } from '$lib/ablage/verbindungen.svelte';
   import { ordnerVerzeichnisWählen, ordnerZugriffErneuern } from '$lib/sicherung/ordner';
   import SicherungZiel from './SicherungZiel.svelte';
   import SicherungFormular from './SicherungFormular.svelte';
@@ -50,7 +52,8 @@
 
   let zustand = $state<'pruefe' | 'verbinden' | 'passwort' | 'an' | 'ziel'>('pruefe');
   /** Reinspringen: welches Ziel wird verwaltet. */
-  let zielDetail = $state<'gdrive' | 'ordner' | null>(null);
+  let zielDetail = $state<'gdrive' | 'ordner' | 'nextcloud' | null>(null);
+  let nextcloudOffen = $state(false);
   let passwortOffen = $state(false);
   /** Archiv existiert schon (anderes Gerät) → Passwort entpackt es. */
   let neuesPasswort = $state(true);
@@ -82,7 +85,11 @@
   });
 
   /** Ziel hinzufügen (Google oder Ordner) und den Schlüssel-Stand prüfen. */
-  async function zielHinzufügen(ziel: 'gdrive' | 'ordner'): Promise<void> {
+  async function zielHinzufügen(ziel: 'gdrive' | 'ordner' | 'nextcloud'): Promise<void> {
+    if (ziel === 'nextcloud') {
+      nextcloudOffen = true;
+      return;
+    }
     laeuft = true;
     fehler = '';
     sicherungVerwerfen();
@@ -105,6 +112,27 @@
       fehler = e instanceof Error ? e.message : String(e);
     } finally {
       laeuft = false;
+    }
+  }
+
+  /** Der Freigabe-Link-Dialog hat verbunden: WebDAV-Zugriff als Ziel
+   *  übernehmen und in den Passwort-Schritt weiterlaufen. */
+  async function nextcloudVerbunden(v: AblageVerbindung): Promise<void> {
+    nextcloudOffen = false;
+    fehler = '';
+    ziele.nextcloud = {
+      basis: v.konfiguration.basis ?? '',
+      ordner: v.konfiguration.ordner ?? '',
+      benutzer: v.konfiguration.benutzer ?? '',
+      passwort: v.konfiguration.passwort ?? ''
+    };
+    try {
+      await zieleSchreiben({ ...ziele });
+      const adapter = await adapterLieferant();
+      neuesPasswort = (await adapter.lese(SCHLUESSEL_DATEI)) === null;
+      zustand = 'passwort';
+    } catch (e) {
+      fehler = e instanceof Error ? e.message : String(e);
     }
   }
 
@@ -240,8 +268,10 @@
         laeuft={laeuft}
         gdriveAktiv={ziele.gdrive !== undefined}
         ordnerAktiv={ziele.ordner !== undefined}
+        nextcloudAktiv={ziele.nextcloud !== undefined}
         aufGoogle={() => void zielHinzufügen('gdrive')}
         aufOrdner={() => void zielHinzufügen('ordner')}
+        aufNextcloud={() => zielHinzufügen('nextcloud')}
       />
     {:else if zustand === 'passwort'}
       <SicherungFormular
@@ -262,18 +292,23 @@
         laeuft={laeuft}
         gdriveAktiv={ziele.gdrive !== undefined}
         ordnerAktiv={ziele.ordner !== undefined}
+        nextcloudAktiv={ziele.nextcloud !== undefined}
         aufGoogle={() => void zielHinzufügen('gdrive')}
         aufOrdner={() => void zielHinzufügen('ordner')}
+        aufNextcloud={() => zielHinzufügen('nextcloud')}
         aufVerwalten={(z) => {
           zielDetail = z;
           passwortOffen = false;
           zustand = 'ziel';
         }}
       />
+      {#if nextcloudOffen}
+        <NextcloudVerbinden onVerbunden={(v) => void nextcloudVerbunden(v)} />
+      {/if}
     {:else if zustand === 'ziel'}
       <div class="space-y-2">
         <p class="text-text-bright text-sm font-semibold">
-          {zielDetail === 'ordner' ? m.sicherung_ziel_ordner() : m.sicherung_ziel_gdrive()}
+          {zielDetail === 'ordner' ? m.sicherung_ziel_ordner() : zielDetail === 'nextcloud' ? 'Nextcloud' : m.sicherung_ziel_gdrive()}
         </p>
         <p class="text-success text-sm">✓ {m.sicherung_ziel_verbunden()}</p>
         {#if zielDetail === 'ordner'}
