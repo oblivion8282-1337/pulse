@@ -56,6 +56,32 @@ test('leerer Ordner: keine Einträge, Lesestand unverändert', async () => {
 	const seite = await leseSicherungKanalSeite(speicherAdapter(), dek, {}, 50);
 	assert.deepEqual(seite.eintraege, []);
 	assert.deepEqual(seite.lesestand, {});
+	assert.equal(seite.erschoepft, true, 'nichts da — erschöpft ohne jeden Lauf (B10)');
+});
+
+test('B10: Erschöpfungs-Kennung — begrenzte Seite nicht, Infinity-Lauf erschöpft den Ordner', async () => {
+	const kanalId = 'kanal-a';
+	const { basis, dek } = await ordnerMit(kanalId, 120);
+	const ordner = ordnerAdapter(basis, kanalId);
+
+	// Endliche Seite: die `anzahl`-Grenze trifft zu — NICHT erschöpft, es
+	// bliebe etwas übrig.
+	const erste = await leseSicherungKanalSeite(ordner, dek, {}, 50);
+	assert.equal(erste.eintraege.length, 50);
+	assert.equal(erste.erschoepft, false, 'an der Grenze abgebrochen: Ordner trägt noch');
+
+	// Der Bulk-Weg (`anzahl = Infinity`, EIN Lauf): die Grenze trifft nie
+	// zu — der Lauf meldet Erschöpfung selbst, der Aufrufer braucht keinen
+	// zweiten Voll-Lauf mehr, der den Ordner nur zur Bestätigung erneut
+	// aus dem Drive läde (B10).
+	const alles = await leseSicherungKanalSeite(ordner, dek, {}, Infinity);
+	assert.equal(alles.eintraege.length, 120, 'ein Lauf, der ganze Ordner');
+	assert.equal(alles.erschoepft, true, 'Infinity-Lauf ist stets erschöpft');
+
+	// Danach: erschöpft UND leer — die Kennung und der Inhalt stimmen überein.
+	const danach = await leseSicherungKanalSeite(ordner, dek, alles.lesestand, Infinity);
+	assert.equal(danach.eintraege.length, 0);
+	assert.equal(danach.erschoepft, true);
 });
 
 test('Seitenweise rückwärts: 120 Nachrichten in drei Seiten ohne Dublette und Lücke', async () => {

@@ -94,32 +94,41 @@ export async function ladeAeltereSeite(
 			}
 			return { nachrichten: lokal, vomServer: false };
 		}
-		// Der lokale Bestand ist an dieser Stelle zu Ende — BEVOR der Server
-		// gefragt wird, hol die nächste ältere Seite aus dem Sicherungs-Archiv
-		// in den lokalen Verlauf. Nur für die Kanalarten, die die Sicherung
-		// überhaupt spiegelt (DMs, private Gruppen, Ablage-Kanäle — derselbe
-		// Filter wie `istLokalerKanal`); der Lesestand wird je Kanal geführt,
-		// der nächste Hochscroll-Aufruf bekommt also nur strikt Älteres. Kam
-		// etwas an, gilt die Seite als lokal gelesen — derselbe Rückgabeweg
-		// wie oben. `sicherungKanalSeiteLaden` wirft nie (s. andock.ts), der
-		// Server-Zweig läuft sonst unverändert weiter. Dynamischer Import wie
-		// in `verlauf/index.ts`: die Sicherung (inkl. hash-wasm) gehört nicht
-		// in den Chat-Grundstack.
-		if (!hatServerVerlauf(channelId) || channelId in directMessages.byId) {
-			const { sicherungKanalSeiteLaden } = await import('$lib/sicherung/andock');
-			const archivSeite = await sicherungKanalSeiteLaden(channelId, seitenGroesse);
-			if (archivSeite > 0) {
-				const nachgeladen = (
-					await verlaufLesen(channelId, { vor: oldest, anzahl: seitenGroesse })
-				).filter((n) => n.deleted_at === null);
-				if (nachgeladen.length > 0)
-					return { nachrichten: nachgeladen, vomServer: false, sicherungLieferte: true };
-				// B6: Archiv-Seite > 0, aber alles ≥ `oldest` (schon sichtbar) —
-				// der Server-Zweig läuft unten weiter; sein (möglicherweise
-				// leerer) Rest darf aber nicht als Historie-Ende gelten, denn
-				// der Archiv-Lesestand ist einen Schritt weitergerückt.
-				sicherungLieferte = true;
-			}
+	}
+
+	// Der lokale Bestand ist an dieser Stelle zu Ende (oder eine aktive
+	// Lücke verbietet ihm zu vertrauen) — BEVOR der Server gefragt wird,
+	// hol die nächste ältere Seite aus dem Sicherungs-Archiv in den
+	// lokalen Verlauf. B9: AUSSERHALB der Lücken-Klammer — der Archiv-Zweig
+	// hängt früher darin und wurde bei aktiver WS-Lücke übersprungen; bei
+	// leerer Server-Antwort blieb dann `hasMore = false` für die Session,
+	// obwohl der Archiv-Ordner noch ältere Seiten trägt. Das ist
+	// dedup-sicher: der je-Kanal-Lesestand der Sicherung ist vom Cursor
+	// unabhängig, gelieferte Zeilen landen per Upsert im lokalen Verlauf,
+	// und die untere Nachlese hier gibt nur Zeilen STRIKT älter als
+	// `oldest` weiter. Nur für die Kanalarten, die die Sicherung überhaupt
+	// spiegelt (DMs, private Gruppen, Ablage-Kanäle — derselbe Filter wie
+	// `istLokalerKanal`); der Lesestand wird je Kanal geführt, der nächste
+	// Hochscroll-Aufruf bekommt also nur strikt Älteres. Kam etwas an,
+	// gilt die Seite als lokal gelesen — derselbe Rückgabeweg wie oben.
+	// `sicherungKanalSeiteLaden` wirft nie (s. andock.ts), der
+	// Server-Zweig läuft sonst unverändert weiter. Dynamischer Import wie
+	// in `verlauf/index.ts`: die Sicherung (inkl. hash-wasm) gehört nicht
+	// in den Chat-Grundstack.
+	if (!hatServerVerlauf(channelId) || channelId in directMessages.byId) {
+		const { sicherungKanalSeiteLaden } = await import('$lib/sicherung/andock');
+		const archivSeite = await sicherungKanalSeiteLaden(channelId, seitenGroesse);
+		if (archivSeite > 0) {
+			const nachgeladen = (
+				await verlaufLesen(channelId, { vor: oldest, anzahl: seitenGroesse })
+			).filter((n) => n.deleted_at === null);
+			if (nachgeladen.length > 0)
+				return { nachrichten: nachgeladen, vomServer: false, sicherungLieferte: true };
+			// B6: Archiv-Seite > 0, aber alles ≥ `oldest` (schon sichtbar) —
+			// der Server-Zweig läuft unten weiter; sein (möglicherweise
+			// leerer) Rest darf aber nicht als Historie-Ende gelten, denn
+			// der Archiv-Lesestand ist einen Schritt weitergerückt.
+			sicherungLieferte = true;
 		}
 	}
 

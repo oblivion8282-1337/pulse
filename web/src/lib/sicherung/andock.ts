@@ -328,29 +328,32 @@ export async function sicherungKanalSeiteLaden(kanalId: string, anzahl = 50): Pr
 		const kontoId = aktuellesKonto();
 		if (kontoId === null) return 0;
 		const adapter = await adapterLieferant();
-		return await kanalSeiteFüttern(adapter, entpackt.dek, kontoId, kanalId, anzahl);
+		return (await kanalSeiteFüttern(adapter, entpackt.dek, kontoId, kanalId, anzahl)).anzahl;
 	} catch {
 		return 0;
 	}
 }
 
 /** Eine Seite (oder mit `anzahl = Infinity` den ganzen Ordner) lesen und in
- *  den lokalen Verlauf legen — die geteilte Rechnung beider Lade-Wege. */
+ *  den lokalen Verlauf legen — die geteilte Rechnung beider Lade-Wege. Der
+ *  Rückgabewert reicht die Erschöpfungs-Kennung des Lesers mit durch (B10):
+ *  `erschoepft` heißt, der Lauf hat die `anzahl`-Grenze nie erreicht, der
+ *  Ordner trägt dahinter nichtsmehr. */
 async function kanalSeiteFüttern(
 	adapter: AblageAdapter,
 	dek: Uint8Array,
 	kontoId: string,
 	kanalId: string,
 	anzahl: number,
-): Promise<number> {
+): Promise<{ anzahl: number; erschoepft: boolean }> {
 	const altStand = await lesestandLesen(kontoId, kanalId);
-	const { eintraege, lesestand } = await leseSicherungKanalSeite(
+	const { eintraege, lesestand, erschoepft } = await leseSicherungKanalSeite(
 		ordnerAdapter(adapter, kanalId),
 		dek,
 		altStand,
 		anzahl,
 	);
-	if (eintraege.length === 0) return 0;
+	if (eintraege.length === 0) return { anzahl: 0, erschoepft };
 	// Grabsteine werden NICHT als sichtbarer Satz angelegt — sie markieren
 	// nur einen (etwaigen) lokalen Satz als gelöscht; fehlt er, bleibt es
 	// ein stiller No-Op und der Stein allein wandert nicht in den Verlauf.
@@ -371,7 +374,7 @@ async function kanalSeiteFüttern(
 	// die Nachrichten-Ids; dem Gerät bereits bekannte Zeilen bleiben
 	// unangetastet).
 	await lesestandSchreiben(kontoId, kanalId, lesestand);
-	return saetze.length;
+	return { anzahl: saetze.length, erschoepft };
 }
 
 /**
@@ -395,12 +398,15 @@ export async function sicherungArchivLaden(): Promise<number> {
 	}
 	let gesamt = 0;
 	for (const kanalId of kanalIds) {
-		// Infinity: ein Lauf liest den Ordner vollständig; die zweite Runde
-		// (liefert 0) belegt die Erschöpfung und bricht ab.
+		// B10: der Leser meldet die Erschöpfung selbst (`erschoepft`) — der
+		// frühere zweite Lauf (lieferte 0) lud je Kanal-Ordner ALLE Dateien
+		// erneut aus dem Drive, nur um sie zu bestätigen. Mit `Infinity`
+		// trifft die `anzahl`-Grenze nie zu, ein Lauf ist also stets
+		// erschöpft: genau ein Lauf je Ordner, die Schleife bricht sofort.
 		for (;;) {
 			const seite = await kanalSeiteFüttern(adapter, entpackt.dek, kontoId, kanalId, Infinity);
-			if (seite === 0) break;
-			gesamt += seite;
+			gesamt += seite.anzahl;
+			if (seite.erschoepft) break;
 		}
 	}
 	return gesamt;

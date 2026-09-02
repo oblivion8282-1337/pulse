@@ -93,13 +93,27 @@ function positionVergleich(a: SicherungPosition, b: SicherungPosition): number {
  * Seiten-Inhalt unterhalb von `tief`. Der zurückgegebene Lesestand schließt
  * das Fenster um alles so Erreichte. `anzahl = Infinity` liest den Ordner
  * vollständig in einem Lauf (Bulk-Weg).
+ *
+ * `erschoepft` (B10) sagt, ob der Lauf die `anzahl`-Grenze NIE erreicht
+ * hat — also jede Kette bis zu ihrem Datei-Ende durch ist und der nächste
+ * Lauf nur durch NEU dazwischengekommene Segmente etwas finden könnte.
+ * Der Bulk-Aufrufer braucht danach keinen Bestätigungs-Lauf mehr, der den
+ * Ordner nur erneut aus dem Drive läde.
  */
 export async function leseSicherungKanalSeite(
 	adapter: AblageAdapter,
 	dek: Uint8Array,
 	lesestand: SicherungLeseStaende,
 	anzahl: number,
-): Promise<{ eintraege: SicherungEintrag[]; lesestand: SicherungLeseStaende }> {
+): Promise<{
+	eintraege: SicherungEintrag[];
+	lesestand: SicherungLeseStaende;
+	erschoepft: boolean;
+}> {
+	// B10: `true`, sobald ein Lauf an der `anzahl`-Grenze abbricht — dann
+	// sind Ketten/Segmente unbehandelt geblieben und der Ordner ist NICHT
+	// erschöpft. Bei `anzahl = Infinity` trifft die Grenze nie zu.
+	let voll = false;
 	// Je Geräte-Kette gruppieren — Cursor und Fortschritt gehören zum Präfix.
 	const jePraefix = new Map<string, string[]>();
 	for (const name of await adapter.liste()) {
@@ -120,7 +134,10 @@ export async function leseSicherungKanalSeite(
 	const neuerStand: SicherungLeseStaende = { ...lesestand };
 
 	for (const [praefix, dateien] of ketten) {
-		if (nachSchluessel.size >= anzahl) break;
+		if (nachSchluessel.size >= anzahl) {
+			voll = true;
+			break;
+		}
 		// NEUESTE Segmente zuerst (Index absteigend).
 		dateien.sort((a, b) => segIndexVon(b) - segIndexVon(a));
 		const stand = lesestand[praefix] ?? { hoch: null, tief: null };
@@ -134,7 +151,10 @@ export async function leseSicherungKanalSeite(
 		let letzte: SicherungPosition | null = null;
 
 		for (const name of dateien) {
-			if (nachSchluessel.size >= anzahl) break;
+			if (nachSchluessel.size >= anzahl) {
+				voll = true;
+				break;
+			}
 			const index = segIndexVon(name);
 			const bytes = await adapter.lese(name);
 			if (bytes === null) continue; // Datei verschwand beim Lesen
@@ -190,7 +210,10 @@ export async function leseSicherungKanalSeite(
 				} catch {
 					/* Unlesbare Nutzlast — überspringen, der Cursor ist drüber */
 				}
-				if (nachSchluessel.size >= anzahl) break;
+				if (nachSchluessel.size >= anzahl) {
+					voll = true;
+					break;
+				}
 			}
 		}
 		// Fenster nur dort schließen, wo dieser Lauf tatsächlich war — eine
@@ -219,5 +242,5 @@ export async function leseSicherungKanalSeite(
 				? -1
 				: 1,
 	);
-	return { eintraege, lesestand: neuerStand };
+	return { eintraege, lesestand: neuerStand, erschoepft: !voll };
 }

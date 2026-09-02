@@ -306,6 +306,19 @@ export class SicherungsSpiegel {
 		if (this.laufend !== null) return this.laufend.then(() => this.letztesErgebnis);
 		if (this.warte.length === 0) return null;
 		this.laufend = this.spueleEinmal().catch((fehler) => {
+			// B7: Fallback ohne Locks-API — zwei Tabs desselben Geräts teilen
+			// denselben Geräte-Präfix und damit Segmentdatei UND Manifest.
+			// Scheitert der Lauf am Konflikt („Ablage wurde von anderswo
+			// weitergeschrieben"), hängt der blinde Retry die eigene Partie
+			// JE Versuch erneut an die inzwischen fremd gewachsene Datei —
+			// `schreibBasis` liest sie neu und das eigene Manifest bleibt
+			// für immer veraltet. Darum erzwingt jeder Retry die Adoption:
+			// `einrichtungSichtbar` zurücksetzen heißt, das nächste
+			// `spueleEinmal` beginnt mit `bestandAufnehmen()` — der Nachzug
+			// berichtigt das offene Segment (eigene Waisen UND Fremd-Rahmen
+			// landen im Stand) und der Retry hängt mit frischen Ids dahinter
+			// an, statt zu wachsen.
+			this.einrichtungSichtbar = false;
 			// Neue Runde — auch der Fehler selbst interessiert den Aufrufer.
 			if (this.timer === null) {
 				this.timer = setTimeout(() => {

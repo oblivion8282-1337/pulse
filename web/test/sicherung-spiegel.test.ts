@@ -263,3 +263,61 @@ test('Spül-Fehler hält den Puffer und plant neu — nichts fällt vom Tisch', 
 	// Nach dem Fehlversuch muss der zweite Lauf die Nachricht gebracht haben.
 	assert.ok(versuch >= 2, 'keine zweite Runde geplant');
 });
+
+test('B7: Fallback ohne Locks — zwei Tabs am selben Präfix, der Retry adoptiert statt zu wachsen', async () => {
+	const basis = speicherAdapter();
+	const ordner = ordnerAdapter(basis, 'kanal-a');
+	const praefix = 'dev-ffff6666-';
+	const dek = erzeugeDek();
+	// Zwei Tabs, EIN Gerät → EIN Geräte-Präfix, damit Segmentdatei UND
+	// Manifest gemeinsam; ohne Locks-API ohne jede Abstimmung.
+	const tabEins = new SicherungsSpiegel(ordner, dek, praefix, { verzoegerungMs: 10, schwelle: 50 });
+	const tabZwei = new SicherungsSpiegel(ordner, dek, praefix, { verzoegerungMs: 10, schwelle: 50 });
+
+	tabEins.aufnehmen('kanal-a', [nachricht('100', 'erste')]);
+	await tabEins.jetztSpuelen();
+	tabZwei.aufnehmen('kanal-a', [nachricht('200', 'fremd')]);
+	await tabZwei.jetztSpuelen();
+
+	// Tab eins spült mit VERALTETEM Stand (1 statt 2) in die inzwischen von
+	// Tab zwei weitergeschriebene Ablage — ohne Locks der Normalfall. Der
+	// erste Versuch schreibt die Partie als Waise ins offene Segment und
+	// wirft DANN den Konflikt; die Partie bleibt im Wartezimmer.
+	tabEins.aufnehmen('kanal-a', [nachricht('300', 'eigene')]);
+	await tabEins.jetztSpuelen();
+	assert.equal(tabEins.pufferLaenge(), 1, 'Versuch 1 bleibt am Fremd-Stand hängen');
+
+	// Der Retry nimmt den Bestand neu auf (Adoption der Waise UND der
+	// Fremd-Rahmen, `einrichtungSichtbar` im Spül-Fehlerpfad zurückgesetzt)
+	// und hängt die Partie EINMAL mit frischer Id dahinter an — statt sie
+	// blind je Versuch erneut anzuhängen (ohne Adoption bleibt das eigene
+	// Manifest für immer veraltet, die Datei wüchse je Runde).
+	assert.ok((await tabEins.jetztSpuelen()) !== null, 'Retry mit Adoption kommt durch');
+	assert.equal(tabEins.pufferLaenge(), 0, 'Partie ist abgeflossen');
+
+	const seg = (await ordner.lese(`${praefix}seg-000000.puls`))!;
+	const { rahmen } = leseRahmenFolge(seg.slice(9));
+	// 4 Rahmen: 100, 200, die Waise 300 und der Retry-Rahmen 300 — die Waise
+	// bleibt liegen (der Wiederherstellungs-Leser dedupliziert je
+	// Nachrichten-Id), aber die Datei wächst nicht über die eine Partie hinaus.
+	assert.equal(rahmen.length, 4, 'ein Anhang je Partie, kein Retry-Wachstum');
+	const ids = new Set<string>();
+	for (const r of rahmen) {
+		const eintrag = leseSicherungEintrag(await entschlüsseleEintrag(dek, r.nutzlast));
+		ids.add(eintrag.nachricht.id);
+	}
+	assert.deepEqual([...ids].sort(), ['100', '200', '300'], 'alle Nachrichten im Log');
+
+	// Und der Kampf bleibt beilegbar: auch der andere Tab gewinnt danach.
+	tabZwei.aufnehmen('kanal-a', [nachricht('400', 'noch-fremd')]);
+	await tabZwei.jetztSpuelen(); // scheitert am Stand von tabEins
+	await tabZwei.jetztSpuelen(); // Retry mit Adoption
+	assert.equal(tabZwei.pufferLaenge(), 0, 'auch der zweite Tab kommt danach durch');
+	assert.equal(
+		leseRahmenFolge(((await ordner.lese(`${praefix}seg-000000.puls`))!).slice(9)).rahmen.length,
+		6,
+		'100, 200, 300 (Waise + Retry), 400 (Waise + Retry)',
+	);
+	tabEins.beenden();
+	tabZwei.beenden();
+});
