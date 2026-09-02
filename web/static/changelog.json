@@ -12,7 +12,9 @@
         "Der Server hält einen Anhang 15 Tage als Vorhalt. In dieser Zeit kann jedes deine Geräte ihn abholen; danach ist er dort gelöscht. Wer ihn geöffnet hat, behält seine lokale Kopie.",
         "Hast du die Sicherung mit deinem eigenen Cloud-Laufwerk aktiviert, liegt der Anhang zusätzlich dauerhaft in deinem Archiv — von deinem Rechner aus hochgeladen, verschlüsselt, genau wie deine Textnachrichten. Nur der Absender schreibt ihn dort hinein, deshalb gibt es keine Doppel.",
         "Je Anhang sind jetzt 5 MB möglich. Grössere Dateien weist Pulse vor dem Hochladen ab.",
-        "Bilder lassen sich über die Vollbild-Ansicht direkt speichern. Andere Dateien hatten den Herunterladen-Weg bereits."
+        "Bilder lassen sich über die Vollbild-Ansicht direkt speichern. Andere Dateien hatten den Herunterladen-Weg bereits.",
+        "Löschen funktioniert jetzt auch in verschlüsselten Gesprächen. Die Nachricht verschwindet auf deinen Geräten, bei der Gegenseite und im Archiv; zugehörige Anhang-Dateien räumt Pulse aus deinem Cloud-Laufwerk mit.",
+        "Die Sicherung kennt ein drittes Ziel: Nextcloud. Verbunden wird über einen Freigabe-Link mit Schreibrecht, ohne Anmeldung bei einem Anbieter."
       ],
       "outro": "Neu auch: öffnest du Pulse auf einem frischen Gerät, weist ein Hinweis mit einem Klick direkt in die Sicherung — dort holst du deinen Verlauf aus deinem Archiv."
     },
