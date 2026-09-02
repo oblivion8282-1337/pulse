@@ -66,9 +66,7 @@
  * ist nur noch die Reihenfolge selbst, und die ist genau das, was sichtbar
  * bleiben soll.
  */
-import { keysApi } from '../../api/keys';
 import type { PostfachNutzlast } from '../../api/postfach';
-import { serversStore } from '../../api/servers.svelte';
 import { auth } from '../../stores/auth.svelte';
 import { verlaufSpeichernPflicht } from '../../verlauf';
 import { verlaufZustand } from '../../verlauf/zustand.svelte';
@@ -88,29 +86,24 @@ import {
   standNachSendung
 } from './kanalSitzungswahl';
 import { kanalMitgliederMitSicht } from './kanalMitglieder';
-import { bloeckeEinliefern, verteilUmschlaege } from './gruppenEinliefern';
-import { kanalLaufwerkSchluesselLaden } from '../../ablage/kanalLaufwerkSchluessel';
+import { bloeckeEinliefern } from './gruppenEinliefern';
 import { ART_GRUPPENNACHRICHT, baueGruppenhuelle, neueSitzungId } from './gruppenNutzlast';
 import {
   gruppensitzungLaden,
   gruppensitzungSichern,
   neueGruppensitzung
 } from './gruppenSitzungen';
+import { inBloecke, inEmpfaengerBloecke, MAX_UMSCHLAEGE_JE_ANFRAGE } from './gruppengeraete';
 import {
-  gruppengeraeteBerechnen,
-  inBloecke,
-  inEmpfaengerBloecke,
-  MAX_UMSCHLAEGE_JE_ANFRAGE
-} from './gruppengeraete';
+  zielGeraeteBerechnen,
+  schluesselUmschlaegeBauen,
+  schluesselUmschlaegeEinliefern
+} from './kanalSchluesselNachliefern';
 
 // Re-Export — `GruppenSendeErgebnis` ist derselbe Ergebnistyp wie bei
 // privaten Gruppen, ein Aufrufer, der beide Wege verdrahtet, braucht nur
 // einen Namen.
 export type { GruppenSendeErgebnis };
-
-function cloudRoute(): { serverId?: string } {
-  return { serverId: serversStore.cloudId() };
-}
 
 /**
  * Sendet `klartext` verschluesselt in den Ablage-Kanal `kanalId` (Teil der
@@ -141,8 +134,7 @@ export async function sendeInKanal(
     kanalMitgliederMitSicht(guildId, kanalId)
   );
 
-  const buendel = await keysApi.claim(mitgliederIds, cloudRoute());
-  const ziel = gruppengeraeteBerechnen(buendel, mitgliederIds, eigeneUserId, eigeneKennung);
+  const ziel = await zielGeraeteBerechnen(mitgliederIds, eigeneUserId, eigeneKennung);
 
   // Ab hier unter der Gruppensitzungssperre — Begruendung identisch zu
   // `sendeInGruppe` (Bughunt 2026-08-29): die ausgehende Megolm-Sitzung
@@ -165,21 +157,7 @@ export async function sendeInKanal(
     kanalStandUebernehmen(state, wahl);
 
     const nachzuliefern = new Set(wahl.nachzuliefern);
-    // Kennt DIESES Geraet den Ablage-Hauptschluessel + die Freigabe-Adresse
-    // (Kanal selbst verbunden ODER frueher ueber das Postfach empfangen —
-    // beide Faelle landen im selben Speicher, s. `kanalLaufwerkSchluessel.ts`),
-    // reist beides mit derselben Zustellung wie die Gruppensitzung mit
-    // (Design §3.1). Kennt es sie nicht (gewoehnliches Mitgliedsgeraet, das
-    // selbst noch nichts empfangen hat), bleibt `ablage` `undefined` — die
-    // naechste Sendung eines Geraets, das sie kennt, liefert sie nach.
-    const ablage = await kanalLaufwerkSchluesselLaden(kanalId);
-    const schluesselUmschlaege = await verteilUmschlaege(
-      kanalId,
-      stand.sitzungId,
-      stand.sitzung.verteilschluessel(),
-      ziel.filter((z) => nachzuliefern.has(z.geraet.device_pubkey)),
-      ablage ?? undefined
-    );
+    const schluesselUmschlaege = await schluesselUmschlaegeBauen(kanalId, stand, ziel, nachzuliefern);
 
     const nachrichtId = lokaleNachrichtId();
     const geheimtext = stand.sitzung.verschluesseln(
@@ -195,10 +173,10 @@ export async function sendeInKanal(
       return { art: 'nicht_zugestellt' };
     }
 
-    const { beliefert: schluesselBeliefert } = await bloeckeEinliefern(
+    const schluesselBeliefert = await schluesselUmschlaegeEinliefern(
       kanalId,
       eigeneKennung,
-      inBloecke(schluesselUmschlaege, MAX_UMSCHLAEGE_JE_ANFRAGE)
+      schluesselUmschlaege
     );
     const nachrichtUmschlaege: PostfachNutzlast[] = inEmpfaengerBloecke(alleGeraete).map(
       // Der Server legt ab, wenn der Kanal ein Ordner-Kanal ist; sonst

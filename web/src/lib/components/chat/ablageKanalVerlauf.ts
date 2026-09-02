@@ -31,6 +31,7 @@ import { verlaufLesen, verlaufMergen } from '$lib/verlauf';
 import { messages } from '$lib/stores/messages.svelte';
 import { kanalVerlaufLesen } from '$lib/ablage/kanalLeseweg.ts';
 import { kanalOrdnerVerlaufLesen } from '$lib/ablage/kanalOrdnerLeseweg.ts';
+import { kanalSchluesselNachliefern } from '$lib/krypto/gruppe/kanalSchluesselNachliefern.ts';
 import type { AblageNachricht } from '$lib/ablage/nutzlast.ts';
 import type { Message } from '$lib/api/types';
 
@@ -75,4 +76,12 @@ export async function ladeAblageKanalVerlauf(kanalId: string): Promise<void> {
       : [];
   }
   messages.setInitial(kanalId, verlaufMergen(lokal, ausLaufwerk));
+
+  // Erst NACH dem Lesen, nie darin: `kanalOrdnerVerlaufLesen` haelt oben
+  // bereits die Kontosperre (`mitKontosperre`, intern in
+  // `kanalOrdnerLeseweg.ts`), und Web Locks sind nicht wiedereintrittsfaehig
+  // — ein Aufruf hier waehrend des Lesens wuerde den Tab blockieren, nicht
+  // nur diese Nachlieferung. Best-effort: die Schluessel-Uebergabe darf den
+  // Verlaufsweg nie stoeren (Aufgabe 10).
+  void kanalSchluesselNachliefern(kanalId).catch(() => {});
 }
