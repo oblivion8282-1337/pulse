@@ -46,10 +46,13 @@ from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import exists, func, select
 
 import dcc_chat_gateway.config as chat_config
+from dcc_chat_gateway.ablage_kanal_ordner import ablegen as ablegen_im_ordner
+from dcc_chat_gateway.ablage_kanal_ordner import festige_archiv_markierungen
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import DeviceKeyBundle, DmNutzlast, DmZustellung
 from dcc_chat_gateway.postfach_anhaenge import bezuege_anlegen, binde_anhaenge
 from dcc_chat_gateway.push import fan_out_dm_push_encrypted
+
 # Die Pruef-Helfer liegen seit Etappe E in ``_postfach_deps.py`` (die Datei
 # waere sonst ueber die Groessen-Policy gewachsen). Der Import haelt sie
 # zugleich als Attribute DIESES Moduls verfuegbar — ``postfach_anhaenge`` und
@@ -168,6 +171,8 @@ async def postfach_einliefern(
     offene_je_sender_und_geraet: dict[str, int] = {}
     gesamt_zustellungen = 0
     verworfene_nutzlasten = 0
+    # Angelegte Nutzlasten mit ihrem ``archiv``-Wunsch, fuer den Ableger unten.
+    angelegte: list[tuple[DmNutzlast, bool]] = []
     # Fremde Konten mit mindestens einer Zustellung -> Grundlage fuer den
     # Push in Schritt 6 (dedupliziert: mehrere Nutzlasten an denselben
     # Empfaenger loesen nur EINEN Push aus).
@@ -288,18 +293,18 @@ async def postfach_einliefern(
             continue
 
         nutzlast_id = next_id()
-        session.add(
-            DmNutzlast(
-                id=nutzlast_id,
-                channel_id=cid_int,
-                absender_device_pubkey=geraet,
-                absender_user_id=user.id,
-                absender_curve25519=absender_curve25519,
-                art=eintrag.art,
-                daten=eintrag.daten,
-                groesse=groesse,
-            )
+        nutzlast_obj = DmNutzlast(
+            id=nutzlast_id,
+            channel_id=cid_int,
+            absender_device_pubkey=geraet,
+            absender_user_id=user.id,
+            absender_curve25519=absender_curve25519,
+            art=eintrag.art,
+            daten=eintrag.daten,
+            groesse=groesse,
         )
+        session.add(nutzlast_obj)
+        angelegte.append((nutzlast_obj, eintrag.archiv))
         # Jede Nutzlast traegt denselben Anhang — bei einer DM ist sie je
         # Empfaengergeraet eine andere, der hochgeladene Klumpen aber nur
         # einmal da. Er faellt erst, wenn die LETZTE dieser Nutzlasten weg
@@ -324,6 +329,12 @@ async def postfach_einliefern(
         gesamt_zustellungen += len(empfaenger_zeilen)
 
     await session.commit()
+
+    # 4b. Ableger (Task 3) fuer Nutzlasten mit ``archiv: true`` — Block
+    # ausgelagert nach ``ablage_kanal_ordner.festige_archiv_markierungen``
+    # (Groessen-Policy). Laeuft NACH dem Commit, damit ``nutzlast.id`` fuer
+    # einen Nachtrag gueltig in der Datenbank steht.
+    await festige_archiv_markierungen(session, angelegte, ableger=ablegen_im_ordner)
 
     # 5. Weckruf — inhaltslos, traegt Kanal und Anzahl, NIE einen Umschlag
     # (sonst laege der Inhalt wieder in Redis). Best-effort, wie die

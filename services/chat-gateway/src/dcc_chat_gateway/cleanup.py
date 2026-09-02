@@ -37,10 +37,11 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
+from dcc_chat_gateway.ablage_kanal_ordner import nachtrag_sweep as sweep_ablage_kanal_nachtraege
 from dcc_chat_gateway.ablage_zwischenlager_pflege import sweep_alte_zwischenlager_dateien
 from dcc_chat_gateway.config import Settings
-from dcc_chat_gateway.models import WebPushSubscription
 from dcc_chat_gateway.kopplung_pflege import sweep_verfallene_kopplungen
+from dcc_chat_gateway.models import WebPushSubscription
 from dcc_chat_gateway.postfach_pflege import (
     sweep_abgelaufene_anhaenge,
     sweep_verfallene_zustellungen,
@@ -114,6 +115,13 @@ async def _run_once(engine: AsyncEngine, settings: Settings) -> int:
             session, settings.postfach_anhang_vorhalte_tage
         )
     log.info("postfach_anhang_vorhalte_done abgelaufen=%d", abgelaufen)
+
+    # Nachtraege des Kanal-Ordner-Ablegers (Task 3/4, Entwurf 2026-09-02) —
+    # Umschlaege, deren Festigung beim Einliefern an einem Nextcloud-Ausfall
+    # scheiterte. Kein Log mit einer Adresse, nur die Anzahl.
+    async with session_factory() as session:
+        n = await sweep_ablage_kanal_nachtraege(session)
+    log.info("ablage_kanal_nachtrag_done anzahl=%d", n)
 
     return deleted
 

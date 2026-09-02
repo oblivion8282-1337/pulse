@@ -1375,6 +1375,12 @@ class PostfachNutzlastIn(BaseModel):
     #: Grenze bleibt, weil sie die Zustellungszeilen je Nutzlast deckelt,
     #: nicht die Gruppengroesse.
     empfaenger: list[str] = Field(min_length=1, max_length=64)
+    #: Soll dieser Umschlag zusaetzlich im Kanal-Ordner festgehalten werden
+    #: (Entwurf 2026-09-02, §2-3)? Wirkt nur in einem Ordner-Kanal — sonst
+    #: entscheidet ``ablage_kanal_ordner.ablegen`` selbst mit ``False``, ohne
+    #: dass die Route das hier vorpruefen muss. Vorgabe ``False``: ein
+    #: normaler DM-Umschlag hat gar keinen Ordner, dem er zugehoert.
+    archiv: bool = False
 
 
 class PostfachEinliefernRequest(BaseModel):

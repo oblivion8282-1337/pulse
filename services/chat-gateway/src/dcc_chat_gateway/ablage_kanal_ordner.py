@@ -24,6 +24,8 @@ HTTP-Verhalten von ``ablage_schreiben`` mitzusimulieren.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -111,4 +113,45 @@ async def nachtrag_sweep(session: AsyncSession) -> int:
     return erledigt
 
 
-__all__ = ["ordner_pfad", "datei_name", "datei_inhalt", "ablegen", "nachtrag_sweep"]
+async def festige_archiv_markierungen(
+    session: AsyncSession,
+    angelegte: list[tuple[DmNutzlast, bool]],
+    *,
+    ableger: Callable[[AsyncSession, DmNutzlast], Awaitable[bool]],
+) -> None:
+    """Der Ablage-Block aus ``routes/postfach.py`` (Task 4) — hier statt
+    dort, damit die Route unter der Groessen-Policy bleibt. ``ableger`` kommt
+    als Parameter (nicht der modulweite Name ``ablegen``), damit
+    ``routes/postfach.py`` seinen eigenen, test-patchbaren Namen
+    ``ablegen_im_ordner`` durchreichen kann, statt hier den unpatchbaren
+    Direktaufruf zu verstecken.
+
+    Nur Nutzlasten mit ``archiv: True`` — ein Ordner-Kanal entscheidet
+    ``ableger`` selbst mit ``False``, hier wird das nicht vorgeprueft.
+    Scheitert das Ablegen, bleibt die Antwort der Route ein Erfolg: der
+    Umschlag ist zugestellt, nur die Festigung fehlt noch und holt sich die
+    Pflege ueber den Nachtrag (``cleanup.py``).
+    """
+    zu_committen = False
+    for nutzlast, archiv in angelegte:
+        if not archiv:
+            continue
+        zu_committen = True
+        try:
+            await ableger(session, nutzlast)
+        except AblageAbrufFehler:
+            session.add(
+                AblageKanalNachtrag(nutzlast_id=nutzlast.id, channel_id=nutzlast.channel_id)
+            )
+    if zu_committen:
+        await session.commit()
+
+
+__all__ = [
+    "ordner_pfad",
+    "datei_name",
+    "datei_inhalt",
+    "ablegen",
+    "nachtrag_sweep",
+    "festige_archiv_markierungen",
+]
