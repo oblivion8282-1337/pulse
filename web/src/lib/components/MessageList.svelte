@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick, untrack } from 'svelte';
+  import { tick, untrack, type Snippet } from 'svelte';
   import { VList, type VListHandle } from 'virtua/svelte';
   import MessageItem from './MessageItem.svelte';
   import { plainifyMentions } from './messageRender';
@@ -43,6 +43,10 @@
     route = {},
     /** Pin-Recht vorgerechnet (Guild: MANAGE_MESSAGES; DM: immer wahr). */
     canPin = false,
+    /** Optionaler Inhalt für den Leerraum bei messages.length === 0 —
+     *  z. B. der Sicherungs-Frischgerät-Hinweis. Fehlt er, greift der
+     *  Standard-Absatz. */
+    leerHinweis = undefined as Snippet | undefined,
     onSetReplyTarget,
     onEditMessage,
     onDeleteMessage,
@@ -61,6 +65,7 @@
     isOwner?: boolean;
     route?: { serverId?: string };
     canPin?: boolean;
+    leerHinweis?: Snippet;
     onSetReplyTarget: (m: Message) => void;
     onEditMessage: (m: Message, newContent: string) => void;
     onDeleteMessage: (m: Message) => void;
@@ -528,11 +533,17 @@
       <!-- `{' '}` statt eines Leerzeichens am Ende des Textbausteins: dort wäre es
            bei der Durchsicht unsichtbar, fiele Formatierern zum Opfer und ginge
            Übersetzern verloren. Genau so entstand „…Nachrichten in#general". -->
-      <p class="text-text-muted px-4 py-8 text-center text-sm">
-        {pm.chat_view_no_messages_prefix()}{' '}<strong class="text-text-bright"
-          >{namePrefix}{channel.name}</strong
-        >{pm.chat_view_no_messages_suffix()}
-      </p>
+      {#if leerHinweis}
+        <div class="flex justify-center px-4 py-8">
+          {@render leerHinweis()}
+        </div>
+      {:else}
+        <p class="text-text-muted px-4 py-8 text-center text-sm">
+          {pm.chat_view_no_messages_prefix()}{' '}<strong class="text-text-bright"
+            >{namePrefix}{channel.name}</strong
+          >{pm.chat_view_no_messages_suffix()}
+        </p>
+      {/if}
     {:else}
       <!-- `itemSize` = Höhen-Schätzung für ungemessene Zeilen (~eine kurze
            Textnachricht). Ohne den Wert leitet virtua sie aus dem ab, was beim

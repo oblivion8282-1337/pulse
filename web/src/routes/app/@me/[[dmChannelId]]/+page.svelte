@@ -25,6 +25,10 @@
   import { schloss } from '$lib/krypto/schloss.svelte';
   import { dmSendeSperre } from '$lib/krypto/dmSendeSperre';
   import { wandEntscheidung } from '$lib/krypto/dmOhneAppGeraet';
+  import { SICHERUNG_ENABLED } from '$lib/krypto/schalter';
+  import { zieleLesen, zieleBesetzt } from '$lib/sicherung/ziele';
+  import { dekAusZwischenlager } from '$lib/sicherung/geraete';
+  import SicherungHinweis from '$lib/components/settings/SicherungHinweis.svelte';
   import { isCapacitorAndroid, isElectron } from '$lib/platform/runtime';
   import DmOhneAppGeraet from '$lib/components/dm/DmOhneAppGeraet.svelte';
   import type { AnhangAngabe } from '$lib/krypto/nachrichtNutzlast';
@@ -96,6 +100,31 @@
   let wandArt = $derived(
     wandEntscheidung(E2E_DMS_ENABLED, appKontext, auth.user ? schloss.stand(auth.user.id) : undefined)
   );
+
+  // Frischgerät-Erkennung: läuft die Sicherung auf DIESEM Gerät noch nicht,
+  // liegt der Verlauf noch im Cloud-Archiv — Hinweis mit Direktsprung in die
+  // Sicherungs-Einstellungen zeigen. Prüft beim Laden und periodisch nach,
+  // damit der Hinweis verschwindet, sobald die Sicherung aktiv ist.
+  let sicherungHinweis = $state(false);
+  $effect(() => {
+    if (!SICHERUNG_ENABLED || !auth.user) return;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const pruefe = async (): Promise<void> => {
+      const aktiv =
+        zieleBesetzt(await zieleLesen()) && (await dekAusZwischenlager()) !== null;
+      sicherungHinweis = !aktiv;
+      if (!sicherungHinweis && timer) {
+        clearInterval(timer);
+        timer = undefined;
+      }
+    };
+    void pruefe();
+    timer = setInterval(() => void pruefe(), 10_000);
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  });
+
 
   // Umschalten zwischen Gespraechen (Laden, Abonnieren, Nachhol-Bestellungen)
   // ausgelagert — s. `chat/dmKanalWechsel.svelte.ts`.
@@ -273,25 +302,29 @@
       onToggleReaction={toggleReaction}
     />
   {:else if activeDM && synthChannel}
+    {#snippet leereNachrichten()}
+      <SicherungHinweis />
+    {/snippet}
     <ChatView
-      channel={synthChannel}
-      messages={visibleMessages}
-      onSend={sendMessage}
-      headerKind="dm"
-      dmPartnerId={activeDM.other_user_id}
-      onBack={() => goto('/app/@me')}
-      cloudScoped
-      verschluesselteAnhaenge={E2E_DMS_ENABLED}
-      showMemberList={false}
-      composerDisabled={dmSperre !== null}
-      composerDisabledReason={dmSperre === 'ohne_app'
-        ? m.dm_page_composer_ohne_app_reason()
-        : m.dm_page_composer_disabled_reason()}
-      onEditMessage={editMessage}
-      onDeleteMessage={deleteMessage}
-      onToggleReaction={toggleReaction}
-      onTogglePin={togglePin}
-    />
+        channel={synthChannel}
+        messages={visibleMessages}
+        onSend={sendMessage}
+        headerKind="dm"
+        dmPartnerId={activeDM.other_user_id}
+        onBack={() => goto('/app/@me')}
+        cloudScoped
+        verschluesselteAnhaenge={E2E_DMS_ENABLED}
+        showMemberList={false}
+        composerDisabled={dmSperre !== null}
+        composerDisabledReason={dmSperre === 'ohne_app'
+          ? m.dm_page_composer_ohne_app_reason()
+          : m.dm_page_composer_disabled_reason()}
+        onEditMessage={editMessage}
+        onDeleteMessage={deleteMessage}
+        onToggleReaction={toggleReaction}
+        onTogglePin={togglePin}
+        leerHinweis={sicherungHinweis ? leereNachrichten : undefined}
+      />
   {:else}
     <section
       class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-2 rounded-none p-8 md:rounded-2xl"
@@ -301,6 +334,9 @@
       <p class="text-text-muted max-w-sm text-center text-sm">
         {m.dm_page_empty_hint()}
       </p>
+      {#if sicherungHinweis}
+        <SicherungHinweis />
+      {/if}
     </section>
   {/if}
 {/if}

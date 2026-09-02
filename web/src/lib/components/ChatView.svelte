@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { untrack, type Snippet } from 'svelte';
   import StatusDot from '$lib/components/ui/StatusDot.svelte';
   import { presence } from '$lib/stores/presence.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
@@ -42,6 +42,9 @@
     channel,
     messages,
     onSend,
+    /** Optionaler Inhalt fuer den Leerraum bei messages.length === 0 —
+     *  wird unverändert an MessageList durchgereicht. */
+    leerHinweis = undefined as Snippet | undefined,
     isOwner = false,
     headerKind = 'channel',
     /** Zurueck zur Liste — nur auf dem Handy gesetzt und nur dort gezeigt. */
@@ -70,6 +73,7 @@
       anhaenge: AnhangAngabe[]
     ) => void;
     isOwner?: boolean;
+    leerHinweis?: Snippet;
     /** 'dm' swaps the # for an @-style icon and prefixes names with @.
      *  'gruppe' ist eine private Gruppe (Etappe G): eigenes Zeichen, kein
      *  Namenspraefix (der Gruppenname ist kein Kanalname und keine Person)
@@ -475,6 +479,7 @@
       layout={headerKind === 'dm' ? 'bubble' : 'row'}
       {channel}
       {messages}
+      {leerHinweis}
       {myId}
       {namePrefix}
       {isOwner}
