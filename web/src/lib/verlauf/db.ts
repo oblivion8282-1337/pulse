@@ -230,6 +230,37 @@ export function anhangBytesLesen(id: string): Promise<AnhangBytes | undefined> {
   );
 }
 
+/** Die Anhang-IDs eines Satzes, oder `[]` — für den Grabstein-Weg, der die
+ *  zugehörigen Anhang-Dateien aus Archiv und Geräte-Cache mitentfernen muss.
+ *  Wirft nie. */
+export function verlaufSatzAnhangIds(
+  kanalId: string,
+  nachrichtId: string,
+  kontoId: string
+): Promise<string[]> {
+  const schluessel = sortierSchluessel(kanalId, nachrichtId);
+  return mitVerbindung(
+    (db) =>
+      new Promise<string[]>((resolve, reject) => {
+        const tx = db.transaction(STORE_NACHRICHTEN, 'readonly');
+        const anfrage = tx.objectStore(STORE_NACHRICHTEN).get(schluessel);
+        anfrage.onsuccess = () => {
+          const satz = anfrage.result as { anhaenge?: unknown; kontoId?: string } | undefined;
+          if (!satz || satz.kontoId !== kontoId || !Array.isArray(satz.anhaenge)) {
+            resolve([]);
+            return;
+          }
+          resolve(
+            satz.anhaenge
+              .map((a) => (a && typeof a === 'object' && typeof (a as { id?: unknown }).id === 'string' ? (a as { id: string }).id : null))
+              .filter((id): id is string => id !== null)
+          );
+        };
+        anfrage.onerror = () => reject(anfrage.error);
+      })
+  );
+}
+
 /** Entfernt die Bytes eines Anhangs — fuer einen abgebrochenen oder aus dem
  *  Verfasser-Fenster wieder entfernten Upload. Ohne das bliebe die Datei
  *  eines nie abgeschickten Anhangs dauerhaft auf dem Geraet liegen. */

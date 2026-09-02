@@ -49,8 +49,9 @@ import {
   verlaufPutSaetze,
   verlaufMarkiereGeloescht,
   verlaufLesenSaetze,
-  verlaufSatzVorhanden
-} from './db';
+  verlaufSatzVorhanden,
+  verlaufSatzAnhangIds,
+  anhangBytesLoeschen} from './db';
 import { aktuellesKonto } from './konto';
 import { dauerhaftenSpeicherAnfordern } from '$lib/identity/dauerhafterSpeicher';
 import { verlaufZustand } from './zustand.svelte';
@@ -243,6 +244,14 @@ function sicherungGrabstein(kanalId: string, nachrichtId: string): void {
  */
 export function verlaufNachrichtGeloescht(kanalId: string, nachrichtId: string): void {
   if (!istLokalerKanal(kanalId)) return;
+  // Die lokalen Anhang-Bytes der Nachricht wandern mit — gelöscht heißt
+  // gelöscht, auch im Geräte-Cache.
+  const kontoIdFuerAnhaenge = aktuellesKonto();
+  if (kontoIdFuerAnhaenge !== null) {
+    void verlaufSatzAnhangIds(kanalId, nachrichtId, kontoIdFuerAnhaenge)
+      .then((ids) => Promise.all(ids.map((id) => anhangBytesLoeschen(id))))
+      .catch(() => {});
+  }
   // Erst in die Sicherung — sie braucht weder Konto noch lokalen Satz, nur
   // die Id. Nur gespiegelte Kanäle (E2EE-Weg) kommen hier überhaupt durch.
   sicherungGrabstein(kanalId, nachrichtId);
