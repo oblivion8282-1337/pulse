@@ -309,7 +309,15 @@ an nur EINER Stelle korrigiert" weiter unten warnt.
   braucht; seit demselben Tag melden `zustellungOeffnen.ts` und der
   Abhol-Handler in der Konsole, WARUM ein Umschlag nicht aufgeht. Der
   Übergang selbst (`pickelUebergang.ts`) verwirft seither unlesbaren
-  Zustand (`verlustPlan`) statt zu werfen — er ist ohnehin verloren.
+  Zustand (`verlustPlan`) statt zu werfen — er ist ohnehin verloren. **Ein
+  Frischstart hat zwei Folgen, die mitziehen müssen:** der Server verwirft
+  die Einmalschlüssel eines Geräts, sobald es mit neuem `curve25519`
+  erscheint (`routes/schluessel.py`, sonst beansprucht ein Absender einen
+  Schlüssel des alten Kontos → „Sitzungsaufbau fehlgeschlagen"), und der
+  Absender merkt sich je Sitzung den Partnerschlüssel
+  (`sitzungen.ts::partnerSchluessel*`) und baut neu auf, wenn das Bündel
+  einen anderen zeigt (sonst laufende Umschläge in eine Sitzung, die drüben
+  nicht mehr existiert → „keine Sitzung").
 - **Im Gate seit Anfang an**: `scripts/gate-rust.sh` matcht `streaming/pulse-*`
   **und** `krypto/pulse-*`. Ohne die zweite Zeile wären die Tests der Kiste in
   keinem Gate gelaufen (17 Stück, Stand 2026-08-28 — die Zahl wächst, der

@@ -70,7 +70,13 @@ import { verlaufZustand } from '../verlauf/zustand.svelte';
 import { kryptoAccountLaden } from './account.svelte';
 import { geraeteKennung } from './geraeteKennung';
 import { lokaleNachrichtId } from './lokaleNachrichtId';
-import { sitzungLaden, sitzungSichern, mitSitzungssperre } from './sitzungen';
+import {
+  sitzungLaden,
+  sitzungSichern,
+  mitSitzungssperre,
+  partnerSchluesselLesen,
+  partnerSchluesselMerken
+} from './sitzungen';
 import { baueNachrichtNutzlast, baueLoeschNutzlast, type AnhangAngabe } from './nachrichtNutzlast';
 import { anhangAngabeZuAttachment } from './anhangAnzeige';
 import { zielgeraeteBerechnen } from './empfaengerGeraete';
@@ -107,10 +113,25 @@ async function versendeUmschlaege(
   for (const { geraet } of ziel) {
     const umschlag = await mitSitzungssperre(kanalId, geraet.device_pubkey, async () => {
       let sitzung = await sitzungLaden(kanalId, geraet.device_pubkey);
+      if (sitzung) {
+        // Gilt die Sitzung noch? Traegt das Buendel einen anderen
+        // Identitaetsschluessel als den, fuer den sie gebaut wurde, ist die
+        // Gegenseite frisch gestartet — die Sitzung ist dort weg
+        // (Begruendung an `partnerSchluesselLesen`). Eine Sitzung ohne
+        // gemerkten Partner (von vor dem 2026-09-03) gilt als ungewiss und
+        // wird einmal neu gebaut; das kostet einen Einmalschluessel, nicht
+        // mehr.
+        const gemerkt = await partnerSchluesselLesen(kanalId, geraet.device_pubkey);
+        if (gemerkt !== geraet.curve25519) {
+          console.warn('[postfach] Gegenseite hat neuen Schlüsselbund — Sitzung wird neu aufgebaut');
+          sitzung = null;
+        }
+      }
       if (!sitzung) {
         const einmal = geraet.einmalschluessel ?? geraet.rueckfallschluessel;
         if (!einmal) return null; // Kein Schluessel veroeffentlicht -> Geraet gerade unerreichbar.
         sitzung = ident.sitzungAusgehend(geraet.curve25519, einmal);
+        await partnerSchluesselMerken(kanalId, geraet.device_pubkey, geraet.curve25519);
       }
       const umschlag = sitzung.verschluesseln(klartextBytes);
       // Sichern VOR dem Einliefern — s. Modulkopf.

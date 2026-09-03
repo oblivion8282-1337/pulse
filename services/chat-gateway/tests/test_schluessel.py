@@ -1140,3 +1140,45 @@ async def test_sweep_stempelt_und_raeumt_die_einmalschluessel(
     assert zeilen["pub-sweep-frisch"].verfallen_am is None
     assert await _vorrat_zaehlen(session_factory, bid_alt) == 0
     assert await _vorrat_zaehlen(session_factory, bid_frisch) == 1
+
+
+@pytest.mark.asyncio
+async def test_neuer_identitaetsschluessel_raeumt_alte_einmalschluessel_weg(
+    client, session_factory, cloud_mode, _auth_signer
+):
+    """Ein Geraet, das nach unlesbarem Zustand frisch startet, veroeffentlicht
+    dieselbe Kennung mit NEUEM curve25519. Die Einmalschluessel des alten
+    Kontos muessen dann fallen — sonst beansprucht ein Absender einen davon
+    und baut eine Sitzung, die das neue Konto nie oeffnen kann (2026-09-03
+    in der Cloud: 25 alte Schluessel, jede neue Nachricht scheiterte)."""
+    token, uid = _register(_auth_signer)
+    pubkey = "pub-frischstart-geraet"
+    bid = await _buendel_seeden(
+        session_factory, user_id=uid, device_pubkey=pubkey,
+        einmalschluessel=["otk-alt-1", "otk-alt-2"],
+    )
+    assert await _vorrat_zaehlen(session_factory, bid) == 2
+
+    r = await client.put(
+        "/keys/bundle",
+        json={"device_pubkey": pubkey, "curve25519": "curve-neu", "dauerhaft": True},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 204, r.text
+    assert await _vorrat_zaehlen(session_factory, bid) == 0
+
+    # Dieselbe Identitaet erneut veroeffentlicht (jeder Start tut das) laesst
+    # den inzwischen nachgefuellten Vorrat in Ruhe.
+    r = await client.post(
+        "/keys/onetime",
+        json={"device_pubkey": pubkey, "schluessel": ["otk-neu-1"]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 204, r.text
+    r = await client.put(
+        "/keys/bundle",
+        json={"device_pubkey": pubkey, "curve25519": "curve-neu", "dauerhaft": True},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 204, r.text
+    assert await _vorrat_zaehlen(session_factory, bid) == 1

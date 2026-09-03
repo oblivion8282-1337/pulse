@@ -25,7 +25,8 @@ import {
   sitzungLaden,
   sitzungSichern,
   sitzungMitKontoAtomarSichern,
-  mitSitzungssperre
+  mitSitzungssperre,
+  partnerSchluesselMerken
 } from './sitzungen';
 import { leseNachrichtNutzlast } from './nachrichtNutzlast';
 import { baueEmpfangeneNachricht } from './empfangeneNachricht';
@@ -159,6 +160,13 @@ export async function zustellungOeffnen(
         } catch (err) {
           throw new KontoSicherungFehlgeschlagen('Konto/Sitzung nicht sicherbar', { cause: err });
         }
+        // Fuer wen die Sitzung gilt — damit `senden.ts` einen spaeteren
+        // Schluesselwechsel der Gegenseite erkennt.
+        await partnerSchluesselMerken(
+          z.channel_id,
+          z.absender_device_pubkey,
+          z.absender_curve25519 as string
+        );
       }
 
       if (

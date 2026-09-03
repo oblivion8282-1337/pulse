@@ -51,6 +51,44 @@ function idbSchluessel(kanalId: string, geraetePubkey: string): string {
 /** Laedt die eingefrorene Sitzung fuer dieses Geraetepaar — `null`, wenn
  *  noch keine besteht (dann muss `sitzungAusgehend`/`sitzungEingehend` eine
  *  neue anlegen). */
+/**
+ * Der Identitaetsschluessel (curve25519) der Gegenseite, fuer den die
+ * gespeicherte Sitzung gebaut wurde. Kein Geheimnis — er steht im
+ * veroeffentlichten Buendel —, deshalb ungefroren daneben.
+ *
+ * **Wozu (2026-09-03):** startet die Gegenseite frisch (neues Olm-Konto,
+ * gleiche Geraetekennung), gilt die gespeicherte Sitzung nicht mehr. Ohne
+ * diesen Vergleich schickte der Absender weiter laufende Umschlaege (Art 1)
+ * in eine Sitzung, die es druben nicht mehr gibt — „keine Sitzung", jede
+ * Nachricht, ohne Ausweg fuer den Empfaenger. Der Vergleich beim Senden
+ * (`senden.ts`) erkennt den Wechsel am Buendel und baut neu auf.
+ */
+function idbPartnerSchluessel(kanalId: string, geraetePubkey: string): string {
+  return `pulse.krypto-partner.${sitzungsSchluessel(kanalId, geraetePubkey)}`;
+}
+
+export async function partnerSchluesselLesen(
+  kanalId: string,
+  geraetePubkey: string
+): Promise<string | null> {
+  const db = await openIdentityDb();
+  const wert = (await idbGetIdentity(db, idbPartnerSchluessel(kanalId, geraetePubkey))) as
+    | string
+    | undefined;
+  db.close();
+  return wert ?? null;
+}
+
+export async function partnerSchluesselMerken(
+  kanalId: string,
+  geraetePubkey: string,
+  curve25519: string
+): Promise<void> {
+  const db = await openIdentityDb();
+  await idbPutIdentity(db, idbPartnerSchluessel(kanalId, geraetePubkey), curve25519);
+  db.close();
+}
+
 export async function sitzungLaden(
   kanalId: string,
   geraetePubkey: string
