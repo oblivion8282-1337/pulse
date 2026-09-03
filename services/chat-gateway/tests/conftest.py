@@ -107,6 +107,12 @@ def _isolate_chat_settings():
     # gemeinsamen Lauf zweier Anhang-Dateien in EINEM Prozess auf (unter
     # ``-n 8`` lagen sie in verschiedenen Prozessen und es fiel nicht auf).
     _TEST_SETTINGS.ablage_anhang_max_bytes = 25 * 1024 * 1024
+    # Umschlaege je Einlieferung: derselbe Leak-Grund. ``test_postfach.py``
+    # setzt sie auf 1, um den Strukturcheck zu belegen — und jeder spaetere
+    # Test derselben Sitzung, der ZWEI Umschlaege in einer Anfrage schickt,
+    # bekam danach 400 ``zu_viele_nutzlasten``. Aufgefallen beim
+    # Dedup-Test der Fixwelle 2 (zwei Bloecke, ein Inhalt), der genau das tut.
+    _TEST_SETTINGS.postfach_max_nutzlasten_je_anfrage = 100
 
     def _provider() -> chat_cfg.Settings:
         return _TEST_SETTINGS

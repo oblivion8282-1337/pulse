@@ -101,14 +101,17 @@ test('Umschlaege werden auf Anfragen aufgeteilt, bevor der Server sie ablehnt', 
   assert.deepEqual(anfragen.flat(), umschlaege);
 });
 
-test('gruppenUmschlaegeBauen markiert GENAU EINEN Umschlag fuers Archiv', () => {
-  // Befund I4: bei mehr als 64 Zielgeraeten entstehen mehrere Nutzlasten mit
-  // bitgleichem `daten`. Trueg jede die Marke, laege dieselbe Nachricht
-  // mehrfach im Kanal-Ordner — unter verschiedenen Dateinamen.
+test('gruppenUmschlaegeBauen markiert JEDEN Umschlag fuers Archiv', () => {
+  // Fixwelle 2 R6: markiert war frueher nur der erste Block (Befund I4 — es
+  // darf nur EINE Datei im Ordner entstehen). Findet ausgerechnet der keinen
+  // zustellbaren Empfaenger, legt der Server fuer ihn keine Nutzlast an und
+  // damit auch keine Datei — obwohl die Nachricht ueber die anderen Bloecke
+  // unterwegs ist. Die Einmaligkeit entscheidet deshalb jetzt der Server
+  // (Dedup ueber `sha256(daten)`), der sieht, welcher Block Empfaenger fand.
   const umschlaege = gruppenUmschlaegeBauen(2, 'geheim', [['a', 'b'], ['c'], ['d']]);
   assert.deepEqual(
     umschlaege.map((u) => u.archiv),
-    [true, false, false]
+    [true, true, true]
   );
   // Inhalt und Empfaenger bleiben unangetastet.
   assert.deepEqual(umschlaege[0], { art: 2, daten: 'geheim', empfaenger: ['a', 'b'], archiv: true });

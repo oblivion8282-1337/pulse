@@ -40,11 +40,14 @@ leave dangling rows").
 from __future__ import annotations
 
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import exists, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_chat_gateway.models import DeviceKeyBundle, DeviceOneTimeKey, DmNutzlast, DmZustellung
-from dcc_chat_gateway.postfach_pflege import loesche_anhaenge_ohne_umschlag
+from dcc_chat_gateway.postfach_pflege import (
+    loesche_anhaenge_ohne_umschlag,
+    verwaist_bedingungen,
+)
 
 
 async def purge_postfach(session: AsyncSession, user_id: int) -> None:
@@ -67,16 +70,12 @@ async def purge_postfach(session: AsyncSession, user_id: int) -> None:
     await session.execute(
         sa_delete(DmZustellung).where(DmZustellung.empfaenger_user_id == user_id)
     )
-    # Verwaiste Nutzlasten nachziehen — dieselbe Abfrage wie der reguläre
-    # Verfallslauf, damit hier keine zweite, potenziell abweichende
-    # Definition von „verwaist" entsteht.
-    await session.execute(
-        sa_delete(DmNutzlast).where(
-            ~exists(
-                select(DmZustellung.id).where(DmZustellung.nutzlast_id == DmNutzlast.id)
-            )
-        )
-    )
+    # Verwaiste Nutzlasten nachziehen — buchstäblich DIESELBE Bedingung wie
+    # der reguläre Verfallslauf (`verwaist_bedingungen`), damit hier keine
+    # zweite, potenziell abweichende Definition von „verwaist" entsteht. Sie
+    # schont deshalb auch eine Nutzlast mit offenem Nachtrag: die wandert
+    # noch in den Kanal-Ordner und fällt beim nächsten Pflegelauf.
+    await session.execute(sa_delete(DmNutzlast).where(*verwaist_bedingungen()))
     # Und die Anhaenge, die mit diesen Nutzlasten ihren letzten Umschlag
     # verloren haben (Etappe E) — wieder DIESELBE Funktion wie im
     # Verfallslauf, kein zweiter Begriff von „verwaist".

@@ -30,7 +30,12 @@ from fastapi import APIRouter, Response, status
 from sqlalchemy import delete, exists, select
 
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import DeviceKeyBundle, DmNutzlast, DmZustellung
+from dcc_chat_gateway.models import (
+    AblageKanalNachtrag,
+    DeviceKeyBundle,
+    DmNutzlast,
+    DmZustellung,
+)
 from dcc_chat_gateway.schemas import (
     PostfachAbholenRequest,
     PostfachQuittungRequest,
@@ -136,6 +141,17 @@ async def postfach_quittung(
     # steckt in DERSELBEN atomaren DELETE-Anweisung wie die Entscheidung
     # selbst — kein separater Lese-dann-Schreib-Schritt dazwischen, an dem
     # ein anderer Vorgang haette eingreifen koennen.
+    #
+    # **Der zweite EXISTS ist ein Wettlauf-Riegel** (Entwurf 2026-09-02,
+    # Fixwelle 2): traegt die Nutzlast einen Nachtrag („Festigung offen",
+    # angelegt im Einliefer-Commit), steht ihre Ablage im Kanal-Ordner noch
+    # aus — die laeuft als Hintergrundaufgabe NACH der Antwort auf
+    # ``POST /postfach``, und ein schnell quittierendes Geraet war
+    # regelmaessig frueher dran. Ohne diesen Riegel loeschte die Quittung
+    # die Nutzlast, und die Festigung fand nichts mehr vor: die Nachricht
+    # fehlte im dauerhaften Bestand des Kanals, obwohl genau er der Zweck
+    # des Ordner-Kanals ist. Dieselbe Bedingung steht in
+    # ``postfach_pflege.py::sweep_verwaiste_nutzlasten``.
     for nutzlast_id in set(betroffene_nutzlasten):
         await session.execute(
             delete(DmNutzlast).where(
@@ -143,6 +159,11 @@ async def postfach_quittung(
                 ~exists(
                     select(DmZustellung.id).where(
                         DmZustellung.nutzlast_id == nutzlast_id
+                    )
+                ),
+                ~exists(
+                    select(AblageKanalNachtrag.nutzlast_id).where(
+                        AblageKanalNachtrag.nutzlast_id == nutzlast_id
                     )
                 ),
             )

@@ -21,6 +21,7 @@ import random
 from types import SimpleNamespace
 
 import pytest
+from dcc_chat_gateway import ablage_kanal_nachtrag as nachtrag_mod
 from dcc_chat_gateway import ablage_kanal_ordner as ordner_mod
 from dcc_chat_gateway.ablage_ssrf import AblageAbrufFehler
 from dcc_chat_gateway.models import (
@@ -29,6 +30,7 @@ from dcc_chat_gateway.models import (
     AblageKontoLaufwerk,
 )
 from dcc_chat_gateway.routes import postfach as postfach_mod
+from sqlalchemy import select
 
 pytestmark = pytest.mark.usefixtures("cloud_mode")
 
@@ -245,7 +247,7 @@ async def test_sweep_raeumt_den_nachtrag_wenn_es_danach_klappt(
     heil = _AblegerMock()
     monkeypatch.setattr(ordner_mod, "ablegen", heil)
     async with session_factory() as s:
-        erledigt, aufgegeben = await ordner_mod.nachtrag_sweep(s)
+        erledigt, aufgegeben = await nachtrag_mod.nachtrag_sweep(s)
     assert (erledigt, aufgegeben) == (1, 0)
     async with session_factory() as s:
         assert await s.get(AblageKanalNachtrag, nutzlast_id) is None
@@ -279,3 +281,192 @@ async def test_programmfehler_im_ableger_bleibt_200_und_hinterlaesst_einen_nacht
         nachtrag = await s.get(AblageKanalNachtrag, mock.aufrufe[0].id)
     assert nachtrag is not None
     assert nachtrag.channel_id == int(dm_id)
+
+
+# ---------------------------------------------------------------------------
+# R1 — der Marker steht schon im Einliefer-Commit
+# ---------------------------------------------------------------------------
+
+
+async def _abholen_und_quittieren(client, *, token: str, geraet: str) -> None:
+    offen = await client.post(
+        "/postfach/abholen", json={"device_pubkey": geraet}, headers=_auth(token)
+    )
+    assert offen.status_code == 200, offen.text
+    ids = [z["id"] for z in offen.json()]
+    quittung = await client.post(
+        "/postfach/quittung",
+        json={"device_pubkey": geraet, "zustellung_ids": ids},
+        headers=_auth(token),
+    )
+    assert quittung.status_code == 204, quittung.text
+
+
+@pytest.mark.asyncio
+async def test_schnelle_quittung_vor_der_ablage_verliert_die_datei_nicht(
+    client, session_factory, _auth_signer, friend_pair, monkeypatch
+):
+    """R1, der wichtigste Punkt: die Festigung laeuft NACH der Antwort, ein
+    zuegig quittierendes Geraet war regelmaessig frueher dran — und loeschte
+    die Nutzlast, bevor sie jemand ablegen konnte.
+
+    Der Wettlauf wird gestellt, indem die Hintergrundaufgabe hier gar nicht
+    laeuft (sie ist ersetzt): danach quittiert der Empfaenger, und erst
+    danach holt der Nachtrag-Sweep die Ablage nach. Ohne den Marker im
+    Einliefer-Commit waere die Nutzlast an dieser Stelle laengst weg.
+    """
+    gerufen: list[list[int]] = []
+
+    async def _nichts_tun(nutzlast_ids, *, ableger):
+        gerufen.append(list(nutzlast_ids))
+
+    monkeypatch.setattr(postfach_mod, "festigung_nachlaufen", _nichts_tun)
+    token_a, _uid_a, token_b, _uid_b, dm_id, pub_b = await _aufbau(
+        client, session_factory, _auth_signer, friend_pair, mit_ordner=True
+    )
+
+    r = await _einliefern(
+        client, token=token_a, channel_id=dm_id, empfaenger=[pub_b], archiv=True
+    )
+    assert r.status_code == 200, r.text
+    nutzlast_id = gerufen[0][0]
+    async with session_factory() as s:
+        # Der Marker steht schon jetzt — vor jedem Hintergrundlauf.
+        assert await s.get(AblageKanalNachtrag, nutzlast_id) is not None
+
+    await _abholen_und_quittieren(client, token=token_b, geraet=pub_b)
+
+    from dcc_chat_gateway.models import DmNutzlast
+
+    async with session_factory() as s:
+        assert await s.get(DmNutzlast, nutzlast_id) is not None
+
+    geschrieben: list[str] = []
+
+    async def _mkcol(*, basis, pfad, **_rest):
+        return None
+
+    async def _schreibe(*, basis, pfad, inhalt, **_rest):
+        geschrieben.append(pfad)
+
+    monkeypatch.setattr(ordner_mod, "ordner_anlegen_am_laufwerk", _mkcol)
+    monkeypatch.setattr(ordner_mod, "schreibe_aufs_laufwerk", _schreibe)
+    ordner_mod.ordner_zwischenspeicher_leeren()
+    async with session_factory() as s:
+        assert await nachtrag_mod.nachtrag_sweep(s) == (1, 0)
+
+    assert geschrieben == [f"kanaele/{dm_id}/{nutzlast_id}.puls"]
+    # Und danach faellt die Nutzlast wie jede andere quittierte.
+    from dcc_chat_gateway.postfach_pflege import sweep_verwaiste_nutzlasten
+
+    async with session_factory() as s:
+        await sweep_verwaiste_nutzlasten(s)
+    async with session_factory() as s:
+        assert await s.get(DmNutzlast, nutzlast_id) is None
+
+
+@pytest.mark.asyncio
+async def test_archiv_nutzlast_ohne_empfaengergeraet_wird_trotzdem_abgelegt(
+    client, session_factory, _auth_signer, friend_pair, monkeypatch
+):
+    """R1, zweiter Teil: ein Ordner-Kanal, in dem gerade kein Empfaengergeraet
+    erreichbar ist, hat trotzdem einen dauerhaften Bestand — genau er ist der
+    Zweck des Kanals. Vorher zaehlte der Server so einen Umschlag als
+    ``verworfene_nutzlasten`` und legte nichts an."""
+    mock = _AblegerMock()
+    monkeypatch.setattr(postfach_mod, "ablegen_im_ordner", mock)
+    token_a, _uid_a, _tb, _uid_b, dm_id, _pub_b = await _aufbau(
+        client, session_factory, _auth_signer, friend_pair, mit_ordner=True
+    )
+
+    r = await _einliefern(
+        client,
+        token=token_a,
+        channel_id=dm_id,
+        empfaenger=[_make_device()],  # kennt der Server nicht -> uebersprungen
+        archiv=True,
+    )
+
+    assert r.status_code == 200, r.text
+    rumpf = r.json()
+    assert rumpf["zustellungen_angelegt"] == 0
+    assert rumpf["verworfene_nutzlasten"] == 0
+    assert len(mock.aufrufe) == 1
+
+
+@pytest.mark.asyncio
+async def test_ohne_ordner_kanal_entsteht_kein_marker_und_nichts_bleibt_liegen(
+    client, session_factory, _auth_signer, friend_pair, monkeypatch
+):
+    """Gegenprobe zu R1: ein gewoehnlicher Kanal bekommt keinen Marker —
+    sonst haette der Sweep Zeilen, die er nur aufgeben kann, und die
+    Quittung liesse Nutzlasten stehen, die niemand mehr braucht."""
+    mock = _AblegerMock()
+    monkeypatch.setattr(postfach_mod, "ablegen_im_ordner", mock)
+    token_a, _uid_a, _tb, _uid_b, dm_id, pub_b = await _aufbau(
+        client, session_factory, _auth_signer, friend_pair, mit_ordner=False
+    )
+
+    r = await _einliefern(
+        client, token=token_a, channel_id=dm_id, empfaenger=[pub_b], archiv=True
+    )
+
+    assert r.status_code == 200, r.text
+    assert len(mock.aufrufe) == 1  # der Ableger entscheidet weiterhin selbst
+    async with session_factory() as s:
+        assert await s.get(AblageKanalNachtrag, mock.aufrufe[0].id) is None
+
+
+# ---------------------------------------------------------------------------
+# R6 — zwei Bloecke mit gleichem Inhalt, eine Datei
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_zwei_bloecke_mit_gleichem_inhalt_ergeben_eine_ablage(
+    client, session_factory, _auth_signer, friend_pair, monkeypatch
+):
+    """R6: der Klient markiert seit der Fixwelle ALLE Empfaenger-Bloecke einer
+    Gruppennachricht mit ``archiv`` — sonst haenge die Festigung daran, dass
+    ausgerechnet der erste Block Empfaenger findet. Abgelegt werden darf
+    trotzdem nur EINE Datei: der Dateiname ist die Nutzlast-ID, zwei Dateien
+    liessen sich hinterher durch nichts mehr zusammenfuehren."""
+    gerufen: list[list[int]] = []
+
+    async def _nichts_tun(nutzlast_ids, *, ableger):
+        gerufen.append(list(nutzlast_ids))
+
+    monkeypatch.setattr(postfach_mod, "festigung_nachlaufen", _nichts_tun)
+    token_a, _uid_a, _tb, uid_b, dm_id, pub_b1 = await _aufbau(
+        client, session_factory, _auth_signer, friend_pair, mit_ordner=True
+    )
+    pub_b2 = await _bundel_seeden(session_factory, user_id=uid_b)
+    daten = _b64_unpadded(b"olm")
+
+    r = await client.post(
+        "/postfach",
+        json={
+            "channel_id": str(dm_id),
+            "device_pubkey": await _sendegeraet(client, token_a),
+            "nutzlasten": [
+                {"art": 1, "daten": daten, "empfaenger": [pub_b1], "archiv": True},
+                {"art": 1, "daten": daten, "empfaenger": [pub_b2], "archiv": True},
+            ],
+        },
+        headers=_auth(token_a),
+    )
+
+    assert r.status_code == 200, r.text
+    assert r.json()["zustellungen_angelegt"] == 2
+    # Beide Zustellungen entstehen — gefestigt wird nur EIN Umschlag, und
+    # genau er traegt den Marker.
+    assert len(gerufen[0]) == 1
+    async with session_factory() as s:
+        marker = (
+            await s.execute(
+                select(AblageKanalNachtrag).where(
+                    AblageKanalNachtrag.channel_id == int(dm_id)
+                )
+            )
+        ).scalars().all()
+    assert [m.nutzlast_id for m in marker] == gerufen[0]

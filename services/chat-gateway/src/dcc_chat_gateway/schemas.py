@@ -1339,10 +1339,17 @@ class VerschluesselbarOut(BaseModel):
     Bewusst nur ein Bit. Die Geraeteliste des Ziels gehoert NICHT hierher —
     fuer ein Schloss im Kopf des Gespraechs braucht sie niemand, und jedes
     zusaetzliche Feld waere Metadaten, die ``POST /keys/claim`` nur gegen
-    Vorratsverbrauch herausgibt.
+    Vorratsverbrauch herausgibt. Wer die LISTE braucht (und nur sie), nimmt
+    ``POST /keys/geraeteliste``.
     """
 
     verschluesselbar: bool
+
+
+class GeraetelisteRequest(BaseModel):
+    """Rumpf von ``POST /keys/geraeteliste`` — dieselbe Form wie ``claim``."""
+
+    user_ids: Annotated[list[SnowflakeId], Field(min_length=1, max_length=64)]
 
 
 # ---------------------------------------------------------------------------
@@ -1376,10 +1383,15 @@ class PostfachNutzlastIn(BaseModel):
     #: nicht die Gruppengroesse.
     empfaenger: list[str] = Field(min_length=1, max_length=64)
     #: Soll dieser Umschlag zusaetzlich im Kanal-Ordner festgehalten werden
-    #: (Entwurf 2026-09-02, §2-3)? Wirkt nur in einem Ordner-Kanal — sonst
-    #: entscheidet ``ablage_kanal_ordner.ablegen`` selbst mit ``False``, ohne
-    #: dass die Route das hier vorpruefen muss. Vorgabe ``False``: ein
-    #: normaler DM-Umschlag hat gar keinen Ordner, dem er zugehoert.
+    #: (Entwurf 2026-09-02, §2-3)? Wirkt nur in einem Ordner-Kanal; ob der
+    #: Kanal einer ist, fragt die Route EINMAL je Anfrage
+    #: (``_postfach_festigung.py``). Vorgabe ``False``: ein normaler
+    #: DM-Umschlag hat gar keinen Ordner, dem er zugehoert.
+    #:
+    #: **Der Klient markiert ALLE Bloecke einer Gruppennachricht**, nicht nur
+    #: den ersten (sonst haenge die Festigung daran, dass ausgerechnet dieser
+    #: Block Empfaenger findet). Der Server legt trotzdem nur EINE Datei an —
+    #: dedupliziert ueber ``sha256(daten)`` innerhalb der Anfrage.
     archiv: bool = False
 
 

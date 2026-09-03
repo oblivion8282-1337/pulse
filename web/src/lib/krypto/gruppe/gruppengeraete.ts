@@ -119,26 +119,37 @@ export type GruppenUmschlag = {
 
 /**
  * Baut aus den Empfaenger-Bloecken (`inEmpfaengerBloecke`) die
- * einzuliefernden Umschlaege — mit der Archiv-Marke an **genau einem**, dem
- * ersten.
+ * einzuliefernden Umschlaege — mit der Archiv-Marke an **ALLEN**.
  *
  * Die Blockteilung ist eine Empfaenger-Teilung, kein Inhalt: ab 65
- * Zielgeraeten entstehen mehrere Nutzlasten mit bitgleichem `daten`. Traegt
- * jede von ihnen `archiv: true`, legt der Server dieselbe Nachricht mehrfach
- * im Kanal-Ordner ab — jede unter einem anderen Dateinamen (der Name ist die
- * Nutzlast-ID), also ohne dass irgendetwas sie noch zusammenfuehren koennte.
- * Genau ein Umschlag genuegt: welcher, ist gleichgueltig — sie sind
- * inhaltlich identisch.
+ * Zielgeraeten entstehen mehrere Nutzlasten mit bitgleichem `daten`, und im
+ * Kanal-Ordner darf davon nur EINE Datei landen (der Dateiname ist die
+ * Nutzlast-ID, zwei Dateien liessen sich hinterher durch nichts mehr
+ * zusammenfuehren).
+ *
+ * **Wer davon nur einen markiert, entscheidet es an der falschen Stelle.**
+ * Die erste Fassung markierte den ersten Block. Findet ausgerechnet der
+ * keinen einzigen zustellbaren Empfaenger (jedes Geraet dieses Blocks
+ * abgemeldet, ausgeschieden oder voll), legt der Server fuer ihn gar keine
+ * Nutzlast an — und damit auch keine Datei, obwohl die Nachricht ueber die
+ * anderen Bloecke sehr wohl unterwegs ist. Die Festigung haenge dann an der
+ * Zufallsordnung der Geraeteliste.
+ *
+ * Deshalb markiert der Klient alle und der SERVER entscheidet, welcher zaehlt:
+ * er dedupliziert innerhalb einer Anfrage ueber `sha256(daten)` und legt nur
+ * fuer den ersten Umschlag eines Inhalts eine Datei an
+ * (`routes/_postfach_festigung.py`). Der Server sieht dabei, was der Klient
+ * nicht sehen kann — welcher Block tatsaechlich Empfaenger gefunden hat.
  */
 export function gruppenUmschlaegeBauen(
   art: number,
   daten: string,
   bloecke: readonly (readonly string[])[]
 ): GruppenUmschlag[] {
-  return bloecke.map((block, i) => ({
+  return bloecke.map((block) => ({
     art,
     daten,
     empfaenger: [...block],
-    archiv: i === 0
+    archiv: true
   }));
 }

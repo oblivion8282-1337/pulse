@@ -55,18 +55,16 @@ from dcc_chat_gateway.postfach_benachrichtigung import wecke_und_pushe
 # waere sonst ueber die Groessen-Policy gewachsen). Der Import haelt sie
 # zugleich als Attribute DIESES Moduls verfuegbar — ``postfach_anhaenge`` und
 # die Tests holen ``_channel_zugriff_pruefen``/``_envelope_groesse`` weiterhin
-# von hier.
-#
-# **Neuer Code nimmt ``_postfach_deps`` direkt** (so ``postfach_anhaenge_
-# laufwerk.py`` seit Design §11). Der Umweg ueber dieses Modul ist nur noch
-# Bestandsschutz fuer die Aufrufer von damals; er kostet nichts, aber er ist
-# kein Muster, dem man folgen sollte.
+# von hier. **Neuer Code nimmt ``_postfach_deps`` direkt** (so
+# ``postfach_anhaenge_laufwerk.py`` seit Design §11); der Umweg hier ist nur
+# Bestandsschutz und kein Muster, dem man folgen sollte.
 from dcc_chat_gateway.routes._postfach_deps import (
     _bundle_laden,
     _channel_zugriff_pruefen,
     _envelope_groesse,
     offene_zustellungen_zaehlen,
 )
+from dcc_chat_gateway.routes._postfach_festigung import festigungslauf_starten
 from dcc_chat_gateway.schemas import PostfachEinliefernRequest, PostfachEinliefernResponse
 from dcc_chat_gateway.schluessel_nachweis import pruefe_geraet
 from dcc_chat_gateway.security import CurrentUser
@@ -120,6 +118,11 @@ async def postfach_einliefern(
     zugriff = await _channel_zugriff_pruefen(session, cid_int, user)
     teilnehmer = zugriff.teilnehmer
 
+    # 3c. Festigung im Kanal-Ordner (``_postfach_festigung.py``) — dort
+    # steht, warum der Marker in DIESEN Commit gehoert und warum ueber den
+    # Inhalt dedupliziert wird.
+    festigung = await festigungslauf_starten(session, cid_int, body.nutzlasten)
+
     # 3b. Anhaenge (Etappe E). VOR dem Anlegen der Umschlaege: eine fremde
     # oder kanalfremde Kennung soll die Anfrage kippen, bevor irgendeine
     # Zeile entsteht. ``binde_anhaenge`` setzt ``postfach_gebunden_am`` und
@@ -146,12 +149,11 @@ async def postfach_einliefern(
     absender_bundle = await _bundle_laden(session, geraet, {user.id})
     absender_curve25519 = absender_bundle.curve25519 if absender_bundle else None
 
-    # ``offene_je_geraet`` ist ein In-Request-Cache: eine
-    # Anfrage mit mehreren Umschlaegen an dasselbe volle Geraet soll dieses
-    # Geraet nicht mehrfach abfragen, und der lokale Zaehler wird bei jeder
-    # neu angelegten Zustellung mitgefuehrt (sonst zaehlte er innerhalb der
-    # Anfrage nicht mit, weil ungesetzte Inserts vor dem Commit nicht in
-    # einem erneuten COUNT auftauchen).
+    # ``offene_je_geraet`` ist ein In-Request-Cache: eine Anfrage mit mehreren
+    # Umschlaegen an dasselbe volle Geraet soll dieses Geraet nicht mehrfach
+    # abfragen, und der lokale Zaehler wird bei jeder neu angelegten
+    # Zustellung mitgefuehrt (ungesetzte Inserts tauchen vor dem Commit in
+    # keinem erneuten COUNT auf).
     verfaellt_am = datetime.now(UTC) + timedelta(days=settings.postfach_frist_tage)
     offene_je_geraet: dict[str, int] = {}
     # Wie ``offene_je_geraet``, aber je (Absender-KONTO, Empfaengergeraet) —
@@ -166,8 +168,6 @@ async def postfach_einliefern(
     offene_je_sender_und_geraet: dict[str, int] = {}
     gesamt_zustellungen = 0
     verworfene_nutzlasten = 0
-    # Angelegte Nutzlasten mit ihrem ``archiv``-Wunsch, fuer den Ableger unten.
-    angelegte: list[tuple[DmNutzlast, bool]] = []
     # Fremde Konten mit mindestens einer Zustellung -> Grundlage fuer den
     # Push in Schritt 6 (dedupliziert: mehrere Nutzlasten an denselben
     # Empfaenger loesen nur EINEN Push aus).
@@ -177,6 +177,7 @@ async def postfach_einliefern(
     uebersprungene_empfaenger: dict[str, None] = {}
 
     for eintrag, groesse in zip(body.nutzlasten, groessen, strict=True):
+        archiv_wirksam, marker_noetig = festigung.bewerten(eintrag.archiv, eintrag.daten)
         empfaenger_zeilen: list[tuple[str, int]] = []
         for pubkey in dict.fromkeys(eintrag.empfaenger):  # Duplikate raus.
             # **Das Geraet muss zu DIESEM Gespraech gehoeren** — die Suche
@@ -259,21 +260,23 @@ async def postfach_einliefern(
                 #
                 # Vertretbar ist die Naeherung erst, seit oben geprueft wird,
                 # dass ein Empfaengergeraet zu DIESEM Gespraech gehoert: das
-                # Kontingent eines Fremden ist damit unerreichbar, und wer es
-                # ueberschreiten kann, ist jemand, mit dem man befreundet ist
-                # und schreibt — dessen Ueberschuss zudem nach
-                # ``postfach_frist_tage`` von selbst verfaellt.
+                # Kontingent eines Fremden ist damit unerreichbar, und wessen
+                # Ueberschuss bleibt, verfaellt nach ``postfach_frist_tage``.
                 uebersprungene_empfaenger[pubkey] = None
                 continue
             empfaenger_zeilen.append((pubkey, bundle.user_id))
             offene_je_geraet[pubkey] += 1
             offene_je_sender_und_geraet[pubkey] += 1
 
-        if not empfaenger_zeilen:
+        if not empfaenger_zeilen and not marker_noetig:
             # Keine Zustellung moeglich -> keine Nutzlast anlegen (sonst
             # eine Zeile, die niemand je abholen kann) — und dem Absender
             # gemeldet (FIX 1), statt es in einem unbedingten Erfolg
             # verschwinden zu lassen.
+            #
+            # **Ausnahme ``marker_noetig``:** ein Ordner-Kanal ohne
+            # Empfaengergeraet (nur der Ersteller drin) hat trotzdem einen
+            # dauerhaften Bestand — genau er ist der Zweck des Kanals.
             verworfene_nutzlasten += 1
             continue
 
@@ -289,7 +292,13 @@ async def postfach_einliefern(
             groesse=groesse,
         )
         session.add(nutzlast_obj)
-        angelegte.append((nutzlast_obj, eintrag.archiv))
+        festigung.vermerken(
+            session,
+            nutzlast_id=nutzlast_id,
+            channel_id=cid_int,
+            archiv_wirksam=archiv_wirksam,
+            marker_noetig=marker_noetig,
+        )
         # Jede Nutzlast traegt denselben Anhang — bei einer DM ist sie je
         # Empfaengergeraet eine andere, der hochgeladene Klumpen aber nur
         # einmal da. Er faellt erst, wenn die LETZTE dieser Nutzlasten weg
@@ -315,19 +324,13 @@ async def postfach_einliefern(
 
     await session.commit()
 
-    # 4b. Festigung (Task 3) fuer Nutzlasten mit ``archiv: true`` — als
-    # Hintergrundaufgabe NACH der Antwort, nicht im Anfragepfad: das Ablegen
-    # geht an eine FREMDE Cloud, und ein Einliefern darf nicht auf sie warten
-    # (Nextcloud-Zeitueberschreitungen liegen im Sekundenbereich). Der Lauf
-    # bekommt deshalb eine eigene Session (``ablage_kanal_ordner.py``) — die
-    # Anfrage-Session hier ist beendet, sobald die Antwort raus ist — und
-    # schluckt JEDEN Fehler zu einem Nachtrag; die Antwort bleibt ein Erfolg,
-    # der Umschlag ist ja zugestellt.
-    background.add_task(
-        festigung_nachlaufen,
-        [n.id for n, archiv in angelegte if archiv],
-        ableger=ablegen_im_ordner,
-    )
+    # 4b. Festigung (Task 3) als Hintergrundaufgabe NACH der Antwort, nicht im
+    # Anfragepfad: das Ablegen geht an eine FREMDE Cloud, und ein Einliefern
+    # darf nicht auf sie warten. Der Lauf bekommt eine eigene Session
+    # (``ablage_kanal_ordner.py``) und schluckt JEDEN Fehler; die Antwort
+    # bleibt ein Erfolg, der Umschlag ist ja zugestellt. Der Marker gegen den
+    # Wettlauf mit der Quittung steht schon im Commit oben.
+    background.add_task(festigung_nachlaufen, festigung.ids, ableger=ablegen_im_ordner)
 
     # 5./6. Weckruf (WS) + Push — ausgelagert nach
     # ``postfach_benachrichtigung.py`` (Groessen-Policy), Verhalten

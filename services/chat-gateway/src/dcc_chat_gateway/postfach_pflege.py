@@ -41,6 +41,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from dcc_chat_gateway.models import (
     AblageKanalNachtrag,
@@ -68,33 +69,41 @@ async def sweep_verfallene_zustellungen(session: AsyncSession) -> int:
     return ergebnis.rowcount or 0
 
 
+def verwaist_bedingungen() -> tuple[ColumnElement[bool], ...]:
+    """Was „verwaist" heisst — als Funktion, damit ``user_purge_postfach.py``
+    buchstaeblich DIESELBE Bedingung nimmt statt einer Kopie, die sich
+    auseinanderentwickeln kann (genau das ist beim Nachtrag-Riegel unten
+    passiert).
+
+    Zwei Teile: keine Zustellung mehr, UND kein offener Nachtrag.
+    """
+    return (
+        ~exists(select(DmZustellung.id).where(DmZustellung.nutzlast_id == DmNutzlast.id)),
+        ~exists(
+            select(AblageKanalNachtrag.nutzlast_id).where(
+                AblageKanalNachtrag.nutzlast_id == DmNutzlast.id
+            )
+        ),
+    )
+
+
 async def sweep_verwaiste_nutzlasten(session: AsyncSession) -> int:
     """Loescht jede Nutzlast ohne verbleibende Zustellung. Gibt die Anzahl zurueck.
 
     **Eine Nutzlast mit offenem Nachtrag bleibt stehen** (Entwurf 2026-09-02):
     sie ist quittiert, also ohne Zustellung — aber ihre Festigung im
-    Kanal-Ordner steht noch aus (``AblageKanalNachtrag``, angelegt, weil das
-    Ablegen beim Einliefern scheiterte). Ohne diese Bedingung liefen die
-    beiden Laeufe gegeneinander: der Empfaenger quittiert schnell, dieser
-    Sweep loescht die Nutzlast, und ``nachtrag_sweep`` findet danach nur noch
-    eine leere Kennung — die Nachricht waere aus dem dauerhaften Bestand des
+    Kanal-Ordner steht noch aus. Die ``AblageKanalNachtrag``-Zeile entsteht
+    dafuer schon im Einliefer-Commit (``routes/postfach.py``) und faellt
+    erst, wenn die Datei liegt. Ohne diese Bedingung liefen die beiden
+    Laeufe gegeneinander: der Empfaenger quittiert schnell, dieser Sweep
+    loescht die Nutzlast, und der Nachtrag-Sweep findet danach nur noch eine
+    leere Kennung — die Nachricht waere aus dem dauerhaften Bestand des
     Kanals verschwunden, obwohl genau er der Zweck des Ordner-Kanals ist.
-    ``cleanup.py::_run_once`` laesst deshalb ``nachtrag_sweep`` VOR diesem
-    Lauf laufen; die Bedingung hier ist der Riegel fuer den Fall, dass der
-    Nachtrag dabei erneut scheitert.
+    ``cleanup.py::_run_once`` laesst den Nachtrag-Sweep deshalb VOR diesem
+    Lauf laufen; die Bedingung hier ist der Riegel fuer den Fall, dass er
+    dabei erneut scheitert.
     """
-    ergebnis = await session.execute(
-        delete(DmNutzlast).where(
-            ~exists(
-                select(DmZustellung.id).where(DmZustellung.nutzlast_id == DmNutzlast.id)
-            ),
-            ~exists(
-                select(AblageKanalNachtrag.nutzlast_id).where(
-                    AblageKanalNachtrag.nutzlast_id == DmNutzlast.id
-                )
-            ),
-        )
-    )
+    ergebnis = await session.execute(delete(DmNutzlast).where(*verwaist_bedingungen()))
     await session.commit()
     return ergebnis.rowcount or 0
 
@@ -221,6 +230,7 @@ async def sweep_verwaiste_anhaenge(session: AsyncSession) -> int:
 
 
 __all__ = [
+    "verwaist_bedingungen",
     "loesche_anhaenge_ohne_umschlag",
     "loesche_abgelaufene_anhaenge",
     "sweep_abgelaufene_anhaenge",
