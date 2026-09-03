@@ -295,6 +295,7 @@ an nur EINER Stelle korrigiert" weiter unten warnt.
   Morgen desselben Tages hatte nur den Fall „Kanal offen, Self-Host aktiv"
   geheilt, und der Zwei-Browser-Nachweis hält den Kanal offen — deshalb sah
   ihn kein Test (`test_einliefern_weckt_das_empfaengerkonto_auch_ohne_offenen_kanal`).
+- **Der Server-Abgleich beim Hochscrollen darf verschlüsselte Nachrichten nie als gelöscht werten** (`verlauf/abgleich.ts`, seit 2026-09-03). `reconciliereAeltereSeite` hielt „fehlt in der Serverantwort" für eine Löschung — richtig für Klartext, falsch für alles Verschlüsselte, das der Server nie sah. Auf einem Gerät mit lokalem Verlauf (Flatpak + Archiv) löschte ein Hochscrollen 25 von 29 Nachrichten der Unterhaltung, schrieb Grabsteine ins Archiv, und die kamen beim nächsten Öffnen zurück. Ein frisches Gerät sah nichts davon (keine lokale Seite, kein Abgleich) — der Zwei-Browser-Nachweis läuft immer mit frischen Geräten und ist für diese Klasse blind. **Was das Archiv angeht:** dort liegende Grabsteine lassen sich nicht zurücknehmen, es gibt keinen „Wiederherstellen"-Eintrag; ein lokal enttarnter Satz kann durch eine noch ungelesene Archiv-Seite erneut markiert werden.
 - **Abmelden muss den eingefrorenen Krypto-Zustand MIT löschen, nicht nur
   Geheimnis und Marke** (`geraeteGeheimnis.ts::geraeteGeheimnisWischen`,
   seit 2026-09-03). Bis dahin blieb der Zustand ohne seinen Schlüssel stehen,
