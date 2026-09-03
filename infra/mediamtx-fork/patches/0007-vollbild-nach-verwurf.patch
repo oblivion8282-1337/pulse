@@ -1,0 +1,333 @@
+# Vollbild vom Sender anfordern, sobald MediaMTX selbst ein Bild verwirft —
+# und ein Umordnungsfenster, in dem eine NACK-Nachlieferung noch ankommt.
+#
+# Gefunden am 2026-09-03 an der echten Leitung (Cloud, netcup):
+#
+#   * Ein Schub auf dem Uplink des Senders kostet ein Fragment. pion fordert
+#     es per NACK nach, der Sender (webrtc-rs, NACK-Responder mit 8192
+#     Paketen Vorrat) liefert es auch — aber gortsplibs Umordnungspuffer am
+#     Eingang wartet nur 64 Pakete. Bei 4 Mbit/s sind das ~150 ms, die erste
+#     Nachlieferung braucht ~160 ms (100 ms NACK-Takt + 60 ms Umlauf). Die
+#     Nachlieferung kommt an und wird als Duplikat verworfen, der Decoder
+#     wirft das ganze Bild weg ("processing error").
+#   * MediaMTX nummeriert die Pakete zum Zuschauer neu durch. Der sieht einen
+#     lueckenlosen Strom, dem ein Bild fehlt, und kann den Verlust nicht
+#     erkennen. Nur ein Decoder, der mit Fehler aussteigt, schickt ein PLI —
+#     H.264-Decoder verschmieren stattdessen, AV1-Decoder bleiben mitunter
+#     stehen. Mit 60 s Vollbild-Abstand steht der Schaden bis zum naechsten
+#     regulaeren Vollbild.
+#   * Belegt am Sidecar-Log des Senders: fuenf Verwerfungen mit angeschlossenen
+#     Zuschauern zwischen 12:54 und 14:33 UTC, null Vollbild-Anforderungen am
+#     Sender. Die einzigen zwei des Tages kamen von Zuschauer-Beitritten.
+#
+# Was der Patch tut (beides AUS, bis die Variable gesetzt ist):
+#
+#   PULSE_KEYFRAME_ON_DISCARD=1     Gibt der RTP-Decoder einer BILDspur einen
+#                                   Fehler zurueck, ruft der Stream
+#                                   RequestKeyFrame() (aus Patch 0002) — mit
+#                                   dessen Drossel von einer Anforderung je
+#                                   500 ms. Tonspuren sind ausgenommen.
+#   PULSE_VIDEO_REORDER_BUFFER=128  Umordnungspuffer fuer Bildspuren, Pakete,
+#                                   Zweierpotenz zwischen 64 und 4096. Nur
+#                                   Bild: Opus laeuft mit 50 Paketen/s, dort
+#                                   hielte 128 einen echten Verlust 2,5 s fest.
+#
+# Geht gegen den Stand NACH 0001-0004 und 0006 (inbound_track.go traegt schon
+# 0002, stream.go dessen RequestKeyFrame). Nachrechnen wie bei den anderen:
+#   git clone --depth=1 -b v1.19.1 https://github.com/bluenviron/mediamtx.git
+#   for p in 0001 0002 0003 0004 0006 0007; do patch -p1 < $p-*.patch; done
+#
+diff --git a/internal/protocols/webrtc/inbound_track.go b/internal/protocols/webrtc/inbound_track.go
+index d32be7e..779a3d0 100644
+--- a/internal/protocols/webrtc/inbound_track.go
++++ b/internal/protocols/webrtc/inbound_track.go
+@@ -2,6 +2,7 @@ package webrtc
+ 
+ import (
+ 	"os"
++	"strconv"
+ 	"sync"
+ 	"time"
+ 
+@@ -64,6 +65,42 @@ func pulseKeyFrameInterval() time.Duration {
+ 	return d
+ }
+ 
++// pulseVideoReorderBuffer returns the size of the inbound reorder buffer for
++// VIDEO tracks (Pulse, `PULSE_VIDEO_REORDER_BUFFER`). Zero means "leave the
++// gortsplib default", which is 64 packets.
++//
++// Why 64 is too small for our uplink, measured 2026-09-03: the buffer is
++// counted in packets, and it is the deadline for a NACK retransmission.
++// pion's NACK generator asks every 100 ms, the real line has ~60 ms round
++// trip, so the first retransmission lands after roughly 160 ms. At 4 Mbit/s
++// and ~1200-byte packets 64 packets are ~150 ms — the deadline expires just
++// before the repair arrives, and a single key frame (~110 kB, 90+ packets)
++// overruns it on its own. The sender DOES answer NACKs (webrtc-rs responder,
++// 8192-packet history); the repair is simply thrown away here as a
++// duplicate, and the frame is discarded.
++//
++// Why this is a switch and not a bigger constant: the buffer is packets,
++// not time. A track that is quiet (low-motion desktop, 100 packets/s) holds
++// an unrecoverable loss for buffer/100 s before it flushes — the trade is
++// "more repairs land" against "a truly lost packet stalls longer". 128
++// buys a second NACK round at 4 Mbit/s and costs at most ~1.3 s on a quiet
++// track; 256 would cost 2.5 s. This is set per deployment, and it stays off
++// audio: Opus runs at 50 packets/s, where even 128 would mean a 2.5 s hold.
++//
++// Must be a power of two (gortsplib masks with size-1); anything else, or a
++// value below the default, is ignored so a typo cannot corrupt reordering.
++func pulseVideoReorderBuffer() int {
++	v, ok := os.LookupEnv("PULSE_VIDEO_REORDER_BUFFER")
++	if !ok || v == "" {
++		return 0
++	}
++	n, err := strconv.Atoi(v)
++	if err != nil || n < 64 || n > 4096 || n&(n-1) != 0 {
++		return 0
++	}
++	return n
++}
++
+ func inboundTrackTWCCExtensionID(params webrtc.RTPParameters) uint8 {
+ 	for _, ext := range params.HeaderExtensions {
+ 		if ext.URI == twccExtensionURI {
+@@ -411,6 +448,10 @@ func (t *InboundTrack) start() {
+ 			t.writeRTCP([]rtcp.Packet{p}) //nolint:errcheck
+ 		},
+ 	}
++	// Pulse: give NACK repairs on video a real deadline (see pulseVideoReorderBuffer).
++	if n := pulseVideoReorderBuffer(); n != 0 && t.track.Kind() == webrtc.RTPCodecTypeVideo {
++		t.rtpReceiver.BufferSize = n
++	}
+ 	err := t.rtpReceiver.Initialize()
+ 	if err != nil {
+ 		panic(err)
+diff --git a/internal/protocols/webrtc/inbound_track_pulse_test.go b/internal/protocols/webrtc/inbound_track_pulse_test.go
+new file mode 100644
+index 0000000..e198661
+--- /dev/null
++++ b/internal/protocols/webrtc/inbound_track_pulse_test.go
+@@ -0,0 +1,32 @@
++package webrtc
++
++import (
++	"testing"
++
++	"github.com/stretchr/testify/require"
++)
++
++// Pulse, patch 0007: the reorder-buffer switch accepts only what gortsplib can
++// use (a power of two, not below its default) and otherwise falls back to
++// "leave the default alone" rather than corrupting the reordering mask.
++func TestPulseVideoReorderBuffer(t *testing.T) {
++	for _, ca := range []struct {
++		env  string
++		want int
++	}{
++		{"", 0},
++		{"128", 128},
++		{"256", 256},
++		{"4096", 4096},
++		{"64", 64},
++		{"100", 0},  // not a power of two
++		{"32", 0},   // below the default
++		{"8192", 0}, // above the cap
++		{"abc", 0},
++	} {
++		t.Run(ca.env, func(t *testing.T) {
++			t.Setenv("PULSE_VIDEO_REORDER_BUFFER", ca.env)
++			require.Equal(t, ca.want, pulseVideoReorderBuffer())
++		})
++	}
++}
+diff --git a/internal/stream/stream.go b/internal/stream/stream.go
+index 7895c0e..fe5c227 100644
+--- a/internal/stream/stream.go
++++ b/internal/stream/stream.go
+@@ -293,6 +293,31 @@ type Stream struct {
+ 	onKeyFrameRequest func()
+ }
+ 
++// pulseKeyFrameOnDiscard reports whether a frame the RTP decoder had to
++// discard should make MediaMTX itself ask the publisher for a key frame
++// (Pulse, `PULSE_KEYFRAME_ON_DISCARD=1`).
++//
++// Why this exists, found on the real line on 2026-09-03: an uplink burst
++// costs a fragment, the inbound reorder buffer gives up on it, and the
++// decoder drops the whole frame. MediaMTX then re-numbers the outgoing
++// packets, so a viewer sees a gap-free stream that is merely missing one
++// frame — nothing on its side can tell. Only a decoder that errors out will
++// send a PLI, and H.264 decoders conceal instead of erroring, AV1 decoders
++// in the wild sometimes stop instead. With key frames 60 s apart (the
++// Pulse default) the damage stands until the next scheduled key frame:
++// five such discards with viewers attached, and not one request reached
++// the sender. The one party that KNOWS a frame was lost is this process, at
++// the exact moment the decoder returns an error — so this is where the
++// request belongs. InboundTrack throttles it (keyFrameRequestMinInterval),
++// a burst of 118 errors in a second costs the publisher two IDRs, not 118.
++//
++// Off unless set, like every other Pulse switch in this fork: the
++// behaviour change is real (an IDR per discarded frame) and a rollback must
++// be a config line, not a rebuild.
++func pulseKeyFrameOnDiscard() bool {
++	return os.Getenv("PULSE_KEYFRAME_ON_DISCARD") == "1"
++}
++
+ // SetOnKeyFrameRequest registers the publisher's key frame handler (Pulse).
+ // Passing nil clears it, which readers then treat as "nobody can help".
+ func (s *Stream) SetOnKeyFrameRequest(cb func()) {
+@@ -378,6 +403,9 @@ func (s *Stream) Initialize() error {
+ 			inboundFramesInError: s.inboundFramesInError,
+ 			parent:               s.Parent,
+ 		}
++		if pulseKeyFrameOnDiscard() {
++			sm.requestKeyFrame = s.RequestKeyFrame
++		}
+ 		err := sm.initialize()
+ 		if err != nil {
+ 			return err
+diff --git a/internal/stream/stream_format.go b/internal/stream/stream_format.go
+index 7972106..843a201 100644
+--- a/internal/stream/stream_format.go
++++ b/internal/stream/stream_format.go
+@@ -49,6 +49,8 @@ type streamFormat struct {
+ 	writeRTSP            func([]*rtp.Packet, time.Time)
+ 	updateOutDesc        func(func())
+ 	parent               logger.Writer
++	// Pulse: called whenever the RTP decoder gives up on a frame (nil = off).
++	onFrameDiscarded func()
+ 
+ 	outFormat     format.Format
+ 	forceRemux    bool
+diff --git a/internal/stream/stream_media.go b/internal/stream/stream_media.go
+index dac6afc..d66742c 100644
+--- a/internal/stream/stream_media.go
++++ b/internal/stream/stream_media.go
+@@ -23,6 +23,8 @@ type streamMedia struct {
+ 	updateOutDesc        func(func())
+ 	inboundFramesInError *errordumper.Dumper
+ 	parent               logger.Writer
++	// Pulse: publisher-side key frame request, see Stream.RequestKeyFrame.
++	requestKeyFrame func()
+ 
+ 	outMedia *description.Media
+ 	formats  map[format.Format]*streamFormat
+@@ -51,6 +53,12 @@ func (sm *streamMedia) initialize() error {
+ 			updateOutDesc:        sm.updateOutDesc,
+ 			parent:               sm.parent,
+ 		}
++		// Pulse: only a video frame can be repaired by a key frame. A lost
++		// audio packet is a click, not a stuck picture, and asking the
++		// publisher for an IDR because of it would make every viewer pay.
++		if sm.requestKeyFrame != nil && sm.origMedia.Type == description.MediaTypeVideo {
++			sf.onFrameDiscarded = sm.requestKeyFrame
++		}
+ 		err := sf.initialize()
+ 		if err != nil {
+ 			return err
+diff --git a/internal/stream/stream_pulse_test.go b/internal/stream/stream_pulse_test.go
+new file mode 100644
+index 0000000..c729d32
+--- /dev/null
++++ b/internal/stream/stream_pulse_test.go
+@@ -0,0 +1,80 @@
++package stream
++
++import (
++	"sync/atomic"
++	"testing"
++
++	"github.com/bluenviron/gortsplib/v5/pkg/description"
++	"github.com/bluenviron/gortsplib/v5/pkg/format"
++	"github.com/bluenviron/mediamtx/internal/unit"
++	"github.com/pion/rtp"
++	"github.com/stretchr/testify/require"
++)
++
++// Pulse, patch 0007: a frame the RTP decoder discards must make the Stream
++// ask the publisher for a key frame — but only for video, and only when the
++// switch is set.
++//
++// The packets replay the real failure: an FU-A start fragment, then a
++// fragment whose sequence number skips one. gortsplib answers
++// "discarding frame since a RTP packet is missing", the same line the
++// production log showed on 2026-09-03 at 13:06:29 UTC.
++func pulseFeedBrokenFragments(t *testing.T, mediaType description.MediaType) uint32 {
++	t.Helper()
++
++	forma := &format.H264{PacketizationMode: 1}
++	desc := &description.Session{Medias: []*description.Media{{
++		Type:    mediaType,
++		Formats: []format.Format{forma},
++	}}}
++
++	strm := &Stream{
++		OrigDesc:          desc,
++		WriteQueueSize:    512,
++		RTPMaxPayloadSize: 1450,
++		Parent:            &nilLogger{},
++	}
++	require.NoError(t, strm.Initialize())
++	defer strm.Close()
++
++	var requests atomic.Uint32
++	strm.SetOnKeyFrameRequest(func() { requests.Add(1) })
++
++	subStream := &SubStream{Stream: strm, UseRTPPackets: true}
++	require.NoError(t, subStream.Initialize())
++
++	// FU-A start (S=1, type 5) — needs more packets, must NOT count.
++	subStream.WriteUnit(desc.Medias[0], forma, &unit.Unit{
++		RTPPackets: []*rtp.Packet{{
++			Header:  rtp.Header{Version: 2, PayloadType: 96, SequenceNumber: 10},
++			Payload: []byte{0x7c, 0x85, 1, 2, 3},
++		}},
++	})
++	require.Equal(t, uint32(0), requests.Load(), "a fragment that merely needs more packets is not a loss")
++
++	// FU-A middle with a sequence gap — the decoder gives the frame up.
++	subStream.WriteUnit(desc.Medias[0], forma, &unit.Unit{
++		RTPPackets: []*rtp.Packet{{
++			Header:  rtp.Header{Version: 2, PayloadType: 96, SequenceNumber: 12},
++			Payload: []byte{0x7c, 0x05, 4, 5, 6},
++		}},
++	})
++	require.Equal(t, uint64(1), strm.InboundFramesInError(), "the decoder must have discarded exactly one frame")
++
++	return requests.Load()
++}
++
++func TestPulseKeyFrameOnDiscardVideo(t *testing.T) {
++	t.Setenv("PULSE_KEYFRAME_ON_DISCARD", "1")
++	require.Equal(t, uint32(1), pulseFeedBrokenFragments(t, description.MediaTypeVideo))
++}
++
++func TestPulseKeyFrameOnDiscardOff(t *testing.T) {
++	t.Setenv("PULSE_KEYFRAME_ON_DISCARD", "")
++	require.Equal(t, uint32(0), pulseFeedBrokenFragments(t, description.MediaTypeVideo))
++}
++
++func TestPulseKeyFrameOnDiscardNotForAudio(t *testing.T) {
++	t.Setenv("PULSE_KEYFRAME_ON_DISCARD", "1")
++	require.Equal(t, uint32(0), pulseFeedBrokenFragments(t, description.MediaTypeAudio))
++}
+diff --git a/internal/stream/sub_stream_format.go b/internal/stream/sub_stream_format.go
+index f523ec9..3ca15dc 100644
+--- a/internal/stream/sub_stream_format.go
++++ b/internal/stream/sub_stream_format.go
+@@ -108,6 +108,14 @@ func (ssf *subStreamFormat) writeUnitInner(u *unit.Unit) error {
+ 			var err error
+ 			u.Payload, err = ssf.rtpDecoder.decode(u.RTPPackets[0])
+ 			if err != nil {
++				// Pulse: this is the one place that knows a frame was lost
++				// for good (ErrMorePacketsNeeded never gets here, the
++				// decoder wrapper swallows it). Ask for a key frame BEFORE
++				// reporting, so the request is not tied to the error dumper's
++				// once-per-second summary.
++				if ssf.streamFormat.onFrameDiscarded != nil {
++					ssf.streamFormat.onFrameDiscarded()
++				}
+ 				return err
+ 			}
+ 		}

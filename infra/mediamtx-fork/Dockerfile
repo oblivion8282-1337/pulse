@@ -78,7 +78,14 @@ ARG MEDIAMTX_VERSION=1.19.1
 # `1.19.1-pulse5` bleibt in der Registry unangetastet und ist damit weiterhin
 # der Rueckweg; welche der beiden Fassungen dort liegt, ist die zuletzt
 # gebaute (mit 0006).
-ARG PULSE_REVISION=6
+#
+# 7 (2026-09-03): Patch `0007-vollbild-nach-verwurf` — MediaMTX fordert selbst
+# ein Vollbild an, wenn sein RTP-Decoder ein Bild verwirft, und das
+# Umordnungsfenster fuer Bildspuren wird einstellbar. Beides hinter
+# `PULSE_KEYFRAME_ON_DISCARD` / `PULSE_VIDEO_REORDER_BUFFER`; die drei
+# Compose-Dateien setzen die Variablen bereits, zeigen aber weiter auf
+# `pulse6`, bis dieses Bild gebaut ist (Reihenfolge s. oben).
+ARG PULSE_REVISION=7
 ARG GO_VERSION=1.26
 
 # ── Stage 1: build the patched binary ──────────────────────────────────────
@@ -144,6 +151,15 @@ RUN CGO_ENABLED=0 \
       -trimpath \
       -o /out/mediamtx \
       .
+
+# The patches carry their own Go tests (0002/0007 in internal/stream and
+# internal/protocols/webrtc, 0006's fixture check among them), and until
+# 2026-09-03 nothing ran them: not this build, not any workflow — a test that
+# never runs looks exactly like a green one. So they run here, after the
+# binary compiled and BEFORE the image gets a tag. ~20 s. Vendored (offline),
+# like the build above. The two packages are the only ones our patches touch;
+# the whole suite would add minutes for code we did not change.
+RUN go test ./internal/stream/ ./internal/protocols/webrtc/
 
 # ── Stage 2: minimal runtime ──────────────────────────────────────────────
 # Match upstream's `docker/standard.Dockerfile` shape — `FROM scratch`

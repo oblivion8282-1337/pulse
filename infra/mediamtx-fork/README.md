@@ -7,7 +7,7 @@ A patched MediaMTX image, built as a multi-stage Dockerfile, published to
 
 ## What it does
 
-**Six patches, in two groups.** The Dockerfile header carries the full
+**Seven patches, in two groups.** The Dockerfile header carries the full
 rationale for each; this is the map.
 
 `patches/` — applied to the MediaMTX source right after clone:
@@ -19,6 +19,7 @@ rationale for each; this is the map.
 | `0003-flexfec-on-whep` | generates FlexFEC parity on the WHEP sending side (`PULSE_FLEXFEC=1`, media:parity via `PULSE_FLEXFEC_MEDIA`/`_FEC`). |
 | `0004-flexfec-adaptiv` | drives that parity off the incoming NACK instead of paying it unconditionally (`PULSE_FLEXFEC_ADAPTIV=1`). |
 | `0006-bildmarke-durchreichen` | carries the AV1 Dependency Descriptor (a running frame number) across MediaMTX's re-packetisation, so a viewer can tell a *lost* frame from one the sender never produced (`PULSE_DEPENDENCY_DESCRIPTOR=1`). |
+| `0007-vollbild-nach-verwurf` | asks the publisher for a key frame the moment MediaMTX's own RTP decoder discards a video frame (`PULSE_KEYFRAME_ON_DISCARD=1`) — nobody else can see that loss, the outgoing packets are re-numbered — and makes the inbound reorder buffer for video tracks configurable (`PULSE_VIDEO_REORDER_BUFFER`, packets, power of two), because the 64-packet default expires just before the first NACK repair arrives. |
 
 `patches-vendor/` — applied to vendored third-party code, after `go mod vendor`:
 
@@ -26,7 +27,7 @@ rationale for each; this is the map.
 |---|---|
 | `0005-flexfec-nachlieferungen-nicht-puffern` | keeps NACK retransmissions out of pion's parity buffer; a single one otherwise left the whole group unprotected. |
 
-**Every one of 0002-0006 is off unless its environment variable is set.** An
+**Every one of 0002-0007 is off unless its environment variable is set.** An
 un-configured deployment behaves exactly like upstream plus 0001.
 
 > **Dieser Abschnitt beschrieb den Fork bis 2026-08-04 als „minimal" mit genau
@@ -98,7 +99,7 @@ cd infra/mediamtx-fork
 # Edit Dockerfile: MEDIAMTX_VERSION=<new>
 # Verify the patch still applies cleanly against the new tag:
 git clone --depth=1 -b v<new> https://github.com/bluenviron/mediamtx.git /tmp/mediamtx-check
-# EVERY patch, not just 0001 — there are four here plus one vendored.
+# EVERY patch, not just 0001 — there are six here plus one vendored.
 ( cd /tmp/mediamtx-check && for p in ../patches/*.patch; do patch -p1 --dry-run < "$p"; done )
 # If one fails to apply, rebase that patch against the new line numbers.
 #
