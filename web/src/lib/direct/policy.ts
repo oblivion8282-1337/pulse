@@ -31,6 +31,32 @@ export function isDirectOnly(server: DirectPolicyServer | null | undefined): boo
 }
 
 /**
+ * True, wenn ein 404 des Telefonbuch-Lookups für diese Sitzung als endgültig
+ * gelten darf — dann muss der Klient nicht alle 60 s erneut fragen.
+ *
+ * Das gilt für VPS-Self-Hosts: deren `direct-adapter` legt sich mangels
+ * Relay-Token schlafen (`infra/self-host/s6/…/direct-adapter/run`), es
+ * entsteht also nie ein Eintrag, und der Direktpfad ist für sie ohnehin nur
+ * eine Optimierung. **Nicht** für App-Host-Instanzen: deren Server-App kann
+ * nach dem Seitenaufruf starten und ihren ersten Heartbeat senden — ein
+ * dauerhaft gemerktes 404 liesse sie für die ganze Sitzung offline aussehen.
+ *
+ * Nur 404 zählt. Ein 401 (Cloud-Sitzung noch nicht da) oder 5xx sagt nichts
+ * über den Eintrag aus und bleibt der kurzen Wiederholung überlassen.
+ *
+ * Das 404 der Route deckt zwei weitere Fälle mit ab (ungültige Kennung und
+ * fehlende Mitgliedschaft — 404 statt 403 gegen Existence-Leak, s.
+ * `routes_selfhost_directory.py`). Beide sitzungsweit zu merken kostet
+ * höchstens die Optimierung: der Hostname bleibt der Weg des VPS.
+ */
+export function fehlenderEintragIstDauerhaft(
+  status: number,
+  server: DirectPolicyServer | null | undefined
+): boolean {
+  return status === 404 && !isDirectOnly(server);
+}
+
+/**
  * Fehler-Mapping der drei Direktpfad-Fehlzustände auf i18n-Key-Namen
  * (das UI ruft `m[key]()` auf — hier nur die pure Zuordnung):
  *  - offline: Telefonbuch meldet die Instanz als offline → bestehende

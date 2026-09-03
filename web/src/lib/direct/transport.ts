@@ -47,7 +47,7 @@ export async function transportFetch(
 ): Promise<Response> {
   if (directEligible(server)) {
     const instanceId = server!.instance_id!;
-    const result = await getDirectConnectionDetailed(instanceId);
+    const result = await getDirectConnectionDetailed(instanceId, server);
     if (result.ok && result.conn.isOpen) {
       try {
         const resp = await result.conn.fetch(toPath(url), init);
