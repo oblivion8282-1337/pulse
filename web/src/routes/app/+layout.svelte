@@ -372,9 +372,9 @@
       !kanalQuerStream &&
       (!istDetailScreen(page.url.pathname) || istSprachBildschirm)
   );
-  // Handy quer ist KEIN Tablet: keine linke Spalte, die mobile Navigation
-  // (unten) gilt weiter.
-  let zeigeSpalteLinks = $derived(hydrated && viewport.isTablet && !viewport.istHandy);
+  // Nur die Tablet-Klasse traegt die linke Navigations-Spalte — die Partition
+  // im Store schliesst handy wie desktop bereits aus, keine zweite Bedingung.
+  let zeigeSpalteLinks = $derived(hydrated && viewport.isTablet);
 
   // Räume-Bereich-Gedächtnis: jede Navigation, die im Räume-Bereich landet
   // (Räume, Raum-Ansicht, Kanal, Entdecken), wird als letzter Stand gemerkt

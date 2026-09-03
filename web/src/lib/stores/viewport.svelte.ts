@@ -1,13 +1,27 @@
 // Reaktiver Viewport-Store — SSR-sicher (ssr=false, aber trotzdem gegated).
-// Bevorzuge CSS-Breakpoints (md:, lg:, max-md:) für rein visuelle Anpassungen;
-// diese Klasse nur für konditionelle Logik/Markup (z.B. Drawer-Overlay vs. Spalte).
+//
+// **Der Vertrag: drei Geräteklassen, saubere Trennung (2026-09-04).**
+// `desktop`, `tablet` und `handy` schliessen sich gegenseitig aus und decken
+// jeden Fall ab — entschieden am GERAET (Desktop-App, Zeigertyp, kurze
+// Bildschirmkante), nie an der Fensterbreite. Die Breite darf INNERHALB einer
+// Klasse verkleinern (Spalten schrumpfen, per CSS-Breakpoint etwas ausblenden),
+// aber nie die Klasse wechseln: ein schmales Fenster am Rechner bleibt die
+// Desktop-Anordnung, ein quer gedrehtes Handy bleibt die Handy-Anordnung.
+//
+// * Klasse pruefen → diese Getter (`isMobile` / `istHandy` / `isTablet` /
+//   `isDesktop`). Nie `width` mit einer Schwelle vergleichen.
+// * CSS-Breakpoints (`md:` / `lg:` / `max-md:`) nur für Groesse-Feinjustierung
+//   innerhalb der eigenen Klasse — nie, um die Anordnung einer ANDEREN Klasse
+//   nachzubauen (das war die Falle, in der `GuildRail` bis 2026-09-04 hing).
+// * Die Rechnung selbst: `geraetKlasse.ts` (importfrei, in `pnpm test:unit`
+//   geprueft). Diese Klasse hier ist nur ihre reaktive Huelle.
+import { isElectron } from '$lib/platform/runtime';
+import { geraetKlasse, type GeraetKlasse } from './geraetKlasse';
+
 class Viewport {
   width = $state(typeof window !== 'undefined' ? window.innerWidth : 1280);
   height = $state(typeof window !== 'undefined' ? window.innerHeight : 800);
 
-  get isMobile() {
-    return this.width < 768; // < md
-  }
   /**
    * Grober Zeiger = Finger. `(pointer: coarse)` beschreibt den PRIMÄREN
    * Zeiger, ein Notebook mit Touchscreen und Maus bleibt also `fine`.
@@ -22,31 +36,44 @@ class Viewport {
       : false
   );
 
-  /**
-   * Ein Handy bleibt ein Handy, auch quer (844×390): dort verrät die KURZE
-   * Kante das Gerät. Die mobile Oberfläche (Leisten, Stream-Vollbild,
-   * schwebende Knöpfe) gilt nach dieser Kante — quer ohne Stream bleibt die
-   * Ansicht einfach die gewohnte mobile, nur breiter.
-   *
-   * **Die kurze Kante allein genügt NICHT**, und das ist der Kern: sie ist am
-   * Rechner die Fensterhöhe. Ein maximiertes 1366×768-Notebook hat rund 640 px
-   * Innenhöhe, ein Electron-Fenster einmal kleiner gezogen ebenso (Vorgabe
-   * 1280×832) — beide gälten als Handy, und das Drei-Spalten-Layout samt
-   * Kachel-Leiste und Doppelklick-Vollbild verschwände am Schreibtisch.
-   * Deshalb zählt die kurze Kante nur zusammen mit einem Finger als Zeiger.
-   *
-   * Die Breiten-Bedingung steht bewusst UNVERÄNDERT davor: ein schmales
-   * Fenster war schon immer die mobile Ansicht (`isMobile`), daran ändert die
-   * Querformat-Erweiterung nichts.
-   */
+  /** Die Geräteklasse dieses Geräts — die EINE Quelle fuer alle vier
+   *  Sichtbarkeits-Getter darunter. Reaktiv über `zeigerGrob` und die
+   *  Fenstermaße; die Klasse selbst wechselt im Betrieb nur, wenn ein Tablet
+   *  angedockt/abgedockt wird (Zeigerwechsel), nie durch Fensterresizen. */
+  get geraet(): GeraetKlasse {
+    return geraetKlasse(
+      isElectron(),
+      this.zeigerGrob,
+      Math.min(this.width, this.height)
+    );
+  }
+
+  /** Handy-Klasse (Finger, kurze Kante < 768) — auch quer (844×390). Die
+   *  mobile Oberfläche (Vollbild-Listen, Drawer, Karten, Bereichs-Leiste
+   *  unten) haengt an diesem Zeichen. */
+  get isMobile() {
+    return this.geraet === 'handy';
+  }
+
+  /** Deutsche Bezeichnung derselben Klasse wie `isMobile`. Beide Namen sind
+   *  im Code seit je im Gebrauch (Voice/Stream/Mobile nutzen `istHandy`,
+   *  Chat/Routen `isMobile`) — sie meinen exakt dasselbe, die Partition
+   *  kennt nur ein „handy". */
   get istHandy() {
-    return this.isMobile || (this.zeigerGrob && Math.min(this.width, this.height) < 768);
+    return this.geraet === 'handy';
   }
+
+  /** Tablet-Klasse (Finger, kurze Kante >= 768): Liste und Detail nebenein-
+   *  ande, Navigation als `TabletNavRail`-Spalte links statt Leiste unten. */
   get isTablet() {
-    return this.width >= 768 && this.width < 1024;
+    return this.geraet === 'tablet';
   }
+
+  /** Desktop-Klasse: Desktop-App oder Maus-/Trackpad-Zeiger. Bleibt auch im
+   *  schmalsten Fenster die Desktop-Anordnung (Rail, Spalten, Member-Liste
+   *  nach eigenem Feinverhalten) — Breite veraendert sie nicht. */
   get isDesktop() {
-    return this.width >= 1024;
+    return this.geraet === 'desktop';
   }
 
   #inited = false;

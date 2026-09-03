@@ -39,6 +39,9 @@ export interface SettingsTabDef {
   label: string;
   icon: typeof MicIcon;
   desktopOnly?: true;
+  /** Nur mobil zeigen — der Reiter regelt etwas, das es am Rechner nicht gibt
+   *  (z.B. „Layout": Reihenfolge der mobilen Bereichs-Leiste). */
+  mobileOnly?: true;
   browserOnly?: true;
   electronOnly?: true;
   /**
@@ -64,7 +67,7 @@ export function getSettingsTabs(): SettingsTabDef[] {
   return [
     { id: 'profile', label: m.settings_dialog_tab_profile(), icon: UserIcon },
     { id: 'appearance', label: m.settings_dialog_tab_appearance(), icon: PaletteIcon },
-    { id: 'layout', label: m.settings_dialog_tab_layout(), icon: PanelTopIcon },
+    { id: 'layout', label: m.settings_dialog_tab_layout(), icon: PanelTopIcon, mobileOnly: true },
     { id: 'audio-video', label: m.settings_dialog_tab_audio_video(), icon: MicIcon },
     { id: 'screen-share', label: m.settings_dialog_tab_screen_share(), icon: MonitorIcon, desktopOnly: true },
     { id: 'standplatz', label: m.settings_dialog_tab_standplatz(), icon: MonitorCogIcon, standplatzGate: true },
@@ -120,6 +123,7 @@ export function sichtbareReiter(
   return tabs.filter(
     (t) =>
       (!t.desktopOnly || !b.istMobil) &&
+      (!t.mobileOnly || b.istMobil) &&
       (!t.browserOnly || b.imBrowser) &&
       (!t.electronOnly || b.istDesktopApp) &&
       (!t.standplatzGate || b.zeigtStandplatz)

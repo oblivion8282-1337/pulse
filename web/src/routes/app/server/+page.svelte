@@ -23,10 +23,10 @@
   import { viewport } from '$lib/stores/viewport.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
-  // Zurück dorthin, wo der Einstieg steht: unter `lg` die Räume-Liste, darüber
-  // die Startseite (dort ist die Server-Leiste selbst der Ort des Knopfes).
-  // 1024 = der `lg`-Bruchpunkt, an dem die Leiste erscheint (`hidden lg:flex`).
-  let zurueckZiel = $derived(viewport.width < 1024 ? '/app/rooms' : '/app');
+  // Zurück dorthin, wo der Einstieg steht: auf Handgeräten (Tablet/Handy) die
+  // Räume-Liste, am Desktop die Startseite (dort ist die Server-Leiste selbst
+  // der Ort des Knopfes). Klasse statt Fensterbreite — s. `viewport.svelte.ts`.
+  let zurueckZiel = $derived(viewport.isDesktop ? '/app' : '/app/rooms');
 
 
 </script>
