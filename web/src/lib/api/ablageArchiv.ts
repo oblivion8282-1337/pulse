@@ -20,12 +20,33 @@
 
 import { ApiError, fetchAuthenticated, request, type RequestRoute } from './client';
 import { extractDetail, safeParse } from './parse';
+import { serversStore } from './servers.svelte';
+
+/**
+ * **Jeder Aufruf hier geht an die CLOUD, nicht an den aktiven Server.**
+ *
+ * Das Archiv-Laufwerk hängt am Konto, und das Konto lebt in der Cloud: dort
+ * wird die Freigabe-Adresse hinterlegt, und dort legt der Server beim
+ * Versenden einer verschlüsselten DM das Chiffrat in den Archiv-Ordner jedes
+ * Beteiligten. Ein Aufruf ohne Route landet in `client.ts` beim AKTIVEN
+ * Server — und ist das ein Self-Host, fragt der Empfänger den falschen
+ * Rechner nach seiner Datei. Genau so am 2026-09-03 passiert: mit aktivem
+ * Self-Host beantwortete dieser `GET /ablage/archiv/abruf` mit 404, der
+ * Rückfall auf Pulses eigene Kopie fand nichts mehr (sie ist nach der
+ * Verteilung freigegeben), und ein frisch empfangener Anhang blieb bis zum
+ * Reload leer. Dieselbe Falle wie bei `ws/gapFill.ts` am selben Tag, nur in
+ * REST-Form — deshalb steht die Route hier EINMAL als Vorgabe und nicht in
+ * jedem Aufrufer.
+ */
+function cloudRoute(): RequestRoute {
+	return { serverId: serversStore.cloudId() };
+}
 
 /** Hinterlegt die Freigabe-Adresse des Archivs. Ein zweiter Aufruf ersetzt
  *  sie — wer sein Archiv umzieht, soll das ohne Umweg können. */
 export async function archivLaufwerkSetzen(
 	freigabeAdresse: string,
-	route: RequestRoute = {}
+	route: RequestRoute = cloudRoute()
 ): Promise<void> {
 	await request<void>(
 		'/ablage/archiv/laufwerk',
@@ -46,7 +67,7 @@ export async function archivLaufwerkSetzen(
  * Serverseitig idempotent (204 auch ohne hinterlegte Adresse) — der
  * Aufrufer muss also nicht wissen, ob je eine da war.
  */
-export async function archivLaufwerkTrennen(route: RequestRoute = {}): Promise<void> {
+export async function archivLaufwerkTrennen(route: RequestRoute = cloudRoute()): Promise<void> {
 	await request<void>('/ablage/archiv/laufwerk', { method: 'DELETE' }, route);
 }
 
@@ -54,7 +75,7 @@ export async function archivLaufwerkTrennen(route: RequestRoute = {}): Promise<v
 export async function archivSchreiben(
 	pfad: string,
 	inhalt: Uint8Array,
-	route: RequestRoute = {}
+	route: RequestRoute = cloudRoute()
 ): Promise<void> {
 	const params = new URLSearchParams({ pfad });
 	const resp = await fetchAuthenticated(
@@ -73,7 +94,7 @@ export async function archivSchreiben(
  *  gibt — beim ersten Lauf ist das der Normalfall, kein Fehler. */
 export async function archivAbruf(
 	pfad: string,
-	route: RequestRoute = {}
+	route: RequestRoute = cloudRoute()
 ): Promise<Uint8Array | null> {
 	const params = new URLSearchParams({ pfad });
 	const resp = await fetchAuthenticated(
@@ -93,11 +114,11 @@ export async function archivAbruf(
 /** Die Dateinamen im Archiv-Ordner. */
 /** Entfernt eine Datei aus dem Archiv-Ordner — ein 404 dort ist Erfolg
  *  (`ablage_schreiben.loesche`). */
-export async function archivLoeschen(pfad: string, route: RequestRoute = {}): Promise<void> {
+export async function archivLoeschen(pfad: string, route: RequestRoute = cloudRoute()): Promise<void> {
 	const params = new URLSearchParams({ pfad });
 	await request<void>(`/ablage/archiv/datei?${params.toString()}`, { method: 'DELETE' }, route);
 }
 
-export async function archivListe(route: RequestRoute = {}): Promise<string[]> {
+export async function archivListe(route: RequestRoute = cloudRoute()): Promise<string[]> {
 	return request<string[]>('/ablage/archiv/liste', {}, route);
 }

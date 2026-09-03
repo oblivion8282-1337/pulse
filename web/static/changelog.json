@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-03.4",
+      "date": "2026-09-03",
+      "style": "Sachlich",
+      "title": "Anhänge in Direktnachrichten kommen wieder sofort an",
+      "intro": "War ein eigener Server (Self-Host) ausgewählt, blieb ein frisch empfangener verschlüsselter Anhang leer, bis die Seite neu geladen wurde. Das ist behoben.",
+      "items": [
+        "Die App holte den Anhang aus dem Archiv-Laufwerk beim gerade aktiven Server ab statt bei der Cloud, an der das Konto und sein Archiv hängen. Jetzt geht jeder Zugriff auf das Archiv an die Cloud, unabhängig davon, welcher Server in der Seitenleiste aktiv ist."
+      ]
+    },
+    {
       "id": "2026-09-03.3",
       "date": "2026-09-03",
       "style": "Sachlich",
