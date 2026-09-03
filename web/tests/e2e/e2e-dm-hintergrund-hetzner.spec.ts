@@ -119,5 +119,15 @@ test.describe.serial('Verschluesselte DM bei aktivem Self-Host (Hintergrund-Clou
     await expect(
       dev2Page.locator('[data-testid="message-content"]', { hasText: TEXT })
     ).toBeVisible({ timeout: 15_000 });
+
+    // Gemeldet 2026-09-03: „alle Nachrichten, die dev an oblivion schickt,
+    // sind nach einem Neuladen verschwunden" — beim Empfaenger war ein
+    // Self-Host aktiv. Was nach dem Neuladen erscheint, kommt allein aus dem
+    // lokalen Verlauf; der Server hat fuer verschluesselte DMs keinen.
+    await dev2Page.reload();
+    await expect(
+      dev2Page.locator('[data-testid="message-content"]', { hasText: TEXT }),
+      'nach Neuladen weg — beim Empfang mit aktivem Self-Host nicht gespeichert'
+    ).toBeVisible({ timeout: 20_000 });
   });
 });

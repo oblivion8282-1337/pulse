@@ -35,3 +35,17 @@ test('eine leere Serverantwort meldet jede lokale ID als geloescht', () => {
 test('eine leere lokale Seite meldet nichts', () => {
   assert.deepEqual(ermittleGeloeschteIds([], [{ id: '1' }]), []);
 });
+
+test('verschluesselte Nachrichten gelten NIE als geloescht, nur weil der Server sie nicht kennt', () => {
+  // 2026-09-03: der Server hat verschluesselte DMs nie gesehen — „fehlt in
+  // der Antwort" ist fuer sie der Normalzustand. Ein Hochscrollen loeschte
+  // sonst die ganze lokale Seite samt Grabsteinen im Archiv.
+  const lokal = [
+    { id: '1', verschluesselt: true },
+    { id: '2' },
+    { id: '3', verschluesselt: true },
+    { id: '4', verschluesselt: false }
+  ];
+  const vomServer: { id: string }[] = [];
+  assert.deepEqual(ermittleGeloeschteIds(lokal, vomServer), ['2', '4']);
+});
