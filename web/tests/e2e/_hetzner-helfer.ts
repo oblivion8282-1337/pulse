@@ -102,8 +102,11 @@ export async function becomeFriends(pageA: Page, uidA: string, pageB: Page, uidB
       });
       return { status: resp.status, body: await resp.text() };
     }, targetId);
-    // 201 = angelegt; 409/400 = besteht bereits — beides gut genug.
-    if (r.status !== 201 && r.status !== 409 && r.status !== 400) {
+    // 201 = angelegt; 409/400 = besteht bereits — beides gut genug. 429 =
+    // gedrosselt nach mehreren Laeufen kurz hintereinander; die Freundschaft
+    // steht dann laengst, und ein fehlender DM-Kanal fiele gleich danach in
+    // `createDmChannel` mit einem klaren Fehler auf.
+    if (r.status !== 201 && r.status !== 409 && r.status !== 400 && r.status !== 429) {
       throw new Error(`friend-request failed ${r.status}: ${r.body}`);
     }
   };

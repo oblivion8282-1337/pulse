@@ -268,6 +268,19 @@ an nur EINER Stelle korrigiert" weiter unten warnt.
   ohne das wäre er nach dem ersten Veröffentlichen nicht mehr auslesbar, und
   `PUT /keys/bundle` (ersetzt die Zeile vollständig) würde ihn beim nächsten
   Mal auf NULL setzen.
+- **Die Cloud-Verbindung läuft im HINTERGRUND, sobald ein Self-Host aktiv
+  ist — und dispatcht dann nur die Allowlist in `ws/dispatch-rules.ts`.**
+  Jeder WS-Op, an dem der verschlüsselte Weg hängt, muss dort stehen. Der
+  Weckruf `postfach_neu` fehlte bis zum 2026-09-03: mit aktivem Self-Host
+  erschien eine verschlüsselte DM erst nach einem Reload, weil der
+  `ready`-Rahmen der einzige zweite Auslöser ist. Kein Test sah es — der
+  Zwei-Browser-Nachweis prüfte nur den Empfänger MIT aktiver Cloud, und den
+  Absender nie (seine Zeile kommt lokal, nicht über den Weckruf). Nachweis
+  seitdem: `tests/e2e/e2e-dm-hintergrund-hetzner.spec.ts`. Dieselbe Falle in
+  REST-Form: ein `chatApi`-Aufruf ohne `route` geht an den AKTIVEN Server —
+  `ws/gapFill.ts` fragte so den Self-Host nach dem Verlauf einer Cloud-DM
+  (404, still verschluckt); die Verbindung reicht seither ihren eigenen
+  `serverId` durch.
 - **Im Gate seit Anfang an**: `scripts/gate-rust.sh` matcht `streaming/pulse-*`
   **und** `krypto/pulse-*`. Ohne die zweite Zeile wären die Tests der Kiste in
   keinem Gate gelaufen (17 Stück, Stand 2026-08-28 — die Zahl wächst, der

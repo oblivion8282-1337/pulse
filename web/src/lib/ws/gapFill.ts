@@ -18,13 +18,23 @@
  */
 import { messages } from '$lib/stores/messages.svelte';
 import { chatApi } from '$lib/api/chat';
+import type { RequestRoute } from '$lib/api/client';
 import { compareSnowflakeId } from '$lib/utils/snowflake';
 import { verlaufSpeichern } from '$lib/verlauf';
 import { lueckeMarkieren } from '$lib/verlauf/luecke';
 
 const GAP_FILL_LIMIT = 100;
 
-export async function gapFillChannel(cid: string, refetchOnOverflow: boolean): Promise<void> {
+/** `route` = der Server der aufrufenden Verbindung. Ohne ihn ging der Abruf an
+ *  den AKTIVEN Server — die Cloud-Verbindung holte den Verlauf einer DM dann
+ *  von einem Self-Host, sobald einer aktiv war (404 in der Konsole, still
+ *  verschluckt, kein Nachholen). Deshalb Pflicht-Parameter statt Vorgabe `{}`:
+ *  ein Aufrufer, der ihn vergisst, faellt in genau dieses Loch zurueck. */
+export async function gapFillChannel(
+  cid: string,
+  refetchOnOverflow: boolean,
+  route: RequestRoute
+): Promise<void> {
   const lastId = messages.lastPersistedId(cid);
   if (!lastId) return;
   try {
@@ -33,7 +43,7 @@ export async function gapFillChannel(cid: string, refetchOnOverflow: boolean): P
     // Without `after`, exactly 100 new messages would trigger a false
     // overflow because oldestFetched > lastId could still be true even
     // though no gap exists.
-    const page = await chatApi.listMessages(cid, { limit: GAP_FILL_LIMIT, after: lastId });
+    const page = await chatApi.listMessages(cid, { limit: GAP_FILL_LIMIT, after: lastId }, route);
     if (!page.length) return;
     // `listMessages` returns newest-first → its last entry is the oldest.
     const oldestFetched = page[page.length - 1].id;
@@ -74,7 +84,7 @@ export async function gapFillChannel(cid: string, refetchOnOverflow: boolean): P
     // newest window WITHOUT the cursor instead — that's the slice most
     // likely to have picked up a late edit/reaction while the WS was down,
     // and it does overlap with what we already hold.
-    const recent = await chatApi.listMessages(cid, { limit: GAP_FILL_LIMIT });
+    const recent = await chatApi.listMessages(cid, { limit: GAP_FILL_LIMIT }, route);
     messages.reconcile(cid, recent);
     void verlaufSpeichern(cid, recent);
   } catch {
@@ -83,6 +93,6 @@ export async function gapFillChannel(cid: string, refetchOnOverflow: boolean): P
   }
 }
 
-export async function gapFillAll(subs: Iterable<string>): Promise<void> {
-  await Promise.allSettled([...subs].map(cid => gapFillChannel(cid, false)));
+export async function gapFillAll(subs: Iterable<string>, route: RequestRoute): Promise<void> {
+  await Promise.allSettled([...subs].map((cid) => gapFillChannel(cid, false, route)));
 }

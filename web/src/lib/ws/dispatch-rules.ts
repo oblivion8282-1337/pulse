@@ -32,6 +32,18 @@ const PURE_SOCIAL_OPS: ReadonlySet<ServerEvent['op']> = new Set([
   'user_blocked',
   'user_unblocked',
   'dm_bump',
+  // Der Weckruf fürs verschlüsselte Postfach (DMs, private Gruppen und
+  // Ablage-Kanäle). Er trägt nur Kanal und Anzahl, nie Inhalt; abgeholt wird
+  // danach alles Offene — `postfachAbholenUndAnzeigen` (`handlers/chat.ts`)
+  // liest den Rahmen gar nicht aus, und die Abonnements der dispatchenden
+  // Verbindung entscheiden dort nur über gelesen/ungelesen.
+  // Fehlte hier bis zum 2026-09-03: die Hintergrund-Cloud-Verbindung verwarf
+  // ihn, sobald ein Self-Host aktiv war, und eine verschlüsselte DM erschien
+  // erst nach einem Reload (der `ready`-Rahmen ist der einzige zweite
+  // Auslöser, s. `handlers/ready.ts`). Nachgestellt gegen den Remote-Dev-
+  // Stack: Empfänger mit aktivem Self-Host sah die Nachricht nicht,
+  // Absender schon.
+  'postfach_neu',
 ]);
 
 /**

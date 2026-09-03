@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-03.2",
+      "date": "2026-09-03",
+      "style": "Sachlich",
+      "title": "Direktnachrichten kommen wieder sofort an",
+      "intro": "War gerade ein eigener Server (Self-Host) ausgewählt, erschienen neue verschlüsselte Direktnachrichten erst nach einem Neuladen der Seite. Das ist behoben.",
+      "items": [
+        "Verschlüsselte Direktnachrichten und Gruppennachrichten erscheinen jetzt auch dann sofort, wenn in der Seitenleiste ein eigener Server aktiv ist. Bisher ging der Weckruf der Cloud in diesem Fall verloren.",
+        "Einladungskarten zu eigenen Servern zeigen jetzt „ungültig oder abgelaufen“, wenn der Server den Code nicht mehr kennt. Bisher blieben solche Karten dauerhaft anklickbar.",
+        "Ein Nachholen verpasster Nachrichten fragte bei aktivem eigenem Server den falschen Server. Das lief ins Leere und ist korrigiert."
+      ]
+    },
+    {
       "id": "2026-09-03.1",
       "date": "2026-09-03",
       "style": "Sachlich",
