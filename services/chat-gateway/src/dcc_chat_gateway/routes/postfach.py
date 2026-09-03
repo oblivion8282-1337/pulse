@@ -172,6 +172,9 @@ async def postfach_einliefern(
     # Push in Schritt 6 (dedupliziert: mehrere Nutzlasten an denselben
     # Empfaenger loesen nur EINEN Push aus).
     push_empfaenger: set[int] = set()
+    # Alle Konten mit einer Zustellung, den Absender eingeschlossen — fuer
+    # den Weckruf je Konto (Schritt 5), nicht fuer den Push.
+    weck_konten: set[int] = set()
     # Ueber die ganze Anfrage dedupliziert, Reihenfolge egal — ``dict`` statt
     # ``set`` nur, damit die Reihenfolge fuer die Antwort stabil bleibt.
     uebersprungene_empfaenger: dict[str, None] = {}
@@ -321,6 +324,7 @@ async def postfach_einliefern(
             # (``messages.py``/``ws_op_send.py``): nur der jeweils andere.
             if empf_user_id != user.id:
                 push_empfaenger.add(empf_user_id)
+            weck_konten.add(empf_user_id)
         gesamt_zustellungen += len(empfaenger_zeilen)
 
     await session.commit()
@@ -332,13 +336,32 @@ async def postfach_einliefern(
     if gesamt_zustellungen > 0:
         manager = getattr(request.app.state, "connection_manager", None)
         if manager is not None:
+            weckruf = PostfachNeuEvent(channel_id=str(cid_int), anzahl=gesamt_zustellungen)
+            # Zwei Wege, weil der Kanal-Weg allein den wichtigsten Fall
+            # verfehlt. ``manager.publish(kanal)`` erreicht nur Sockets, die
+            # den Kanal ABONNIERT haben — und abonniert ist, was der Klient
+            # gerade anzeigt (``ws_ops_handlers.py``, ``ctx.subs``). Wer die
+            # Unterhaltung nicht offen hat, bekam bis zum 2026-09-03 gar
+            # nichts: kein Ungelesen-Zaehler, kein Ton, keine Zeile in der
+            # Liste, bis zum naechsten Reload (der ``ready``-Rahmen holt
+            # nach). Der Klartext-Weg hat dafuer ``dm_bump`` an alle; hier
+            # geht der Weckruf je Empfaengerkonto an alle seine Sockets,
+            # auch die anderen Geraete des Absenders (Multi-Device) — der
+            # Rahmen traegt nur Kanal und Anzahl, nie Inhalt, ein Konto,
+            # das nichts zu holen hat, bekommt vom Abholen eine leere Liste.
+            # Der Kanal-Weg bleibt daneben bestehen: er ist, was die
+            # Ereignisweg-Tests der privaten Gruppen und Ablage-Kanaele
+            # belegen, und ein doppelter Weckruf am geoeffneten Kanal kostet
+            # ein zweites, leeres Abholen.
             try:
-                await manager.publish(
-                    str(cid_int),
-                    PostfachNeuEvent(channel_id=str(cid_int), anzahl=gesamt_zustellungen),
-                )
+                await manager.publish(str(cid_int), weckruf)
             except Exception:
                 log.exception("postfach wake publish failed for channel %s", cid_int)
+            for konto in weck_konten:
+                try:
+                    await manager.publish_user_event(konto, weckruf)
+                except Exception:
+                    log.exception("postfach wake user publish failed for user %s", konto)
 
     # 6. Geschlossene-Browser-Benachrichtigung — der WS-Weckruf oben erreicht
     # nur offene Tabs. Der Server kennt den Inhalt nie; der Push traegt

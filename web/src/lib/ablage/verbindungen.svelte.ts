@@ -272,7 +272,9 @@ export class AblageVerbindungsStore {
     if (!v) return null;
     const hauptschlüssel = base64ZuBytes(v.hauptschlüsselB64);
     const adapter =
-      v.istArchiv && !direktErreichbar(v.anbieter) ? archivUeberPulse() : await adapterFür(v);
+      v.istArchiv && !direktErreichbar(v.anbieter)
+        ? archivUeberPulse(v.konfiguration.basis)
+        : await adapterFür(v);
     return new DateiSpeicher(adapter, `ablage/${v.id}`, hauptschlüssel);
   }
 

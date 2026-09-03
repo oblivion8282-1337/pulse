@@ -342,7 +342,7 @@ export async function adapterLieferant(): Promise<AblageAdapter> {
 	if (z.nextcloud !== undefined) {
 		// Über den Server, abgeflacht: die Archiv-Routen kennen keine Ordner
 		// (Begründung in `flachPfad.ts`).
-		teile.push(flachAdapter(archivUeberPulse()));
+		teile.push(flachAdapter(archivUeberPulse(z.nextcloud.basis)));
 	}
 	if (teile.length === 0) {
 		throw new Error('Sicherung: kein Ziel momentan bedienbar');

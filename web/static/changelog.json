@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-03.5",
+      "date": "2026-09-03",
+      "style": "Sachlich",
+      "title": "Direktnachrichten melden sich jetzt auch bei geschlossener Unterhaltung",
+      "intro": "Eine neue verschlüsselte Nachricht oder ein Anhang wurde nur bemerkt, wenn die Unterhaltung gerade geöffnet war. Wer woanders in der App war, sah bis zum Neuladen weder Zähler noch Hinweis. Das ist behoben.",
+      "items": [
+        "Der Server meldet neue verschlüsselte Nachrichten jetzt jedem Konto direkt, nicht nur dem geöffneten Kanal. Ungelesen-Zähler und Ton kommen damit sofort, egal wo man sich in der App befindet.",
+        "Das Archiv-Laufwerk trägt sich bei der Cloud von selbst nach, wenn es dort noch nicht bekannt ist. Wer sein Archiv mit aktivem eigenen Server eingerichtet hatte, muss nichts erneut speichern."
+      ]
+    },
+    {
       "id": "2026-09-03.4",
       "date": "2026-09-03",
       "style": "Sachlich",

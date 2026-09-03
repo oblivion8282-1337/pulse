@@ -9,7 +9,7 @@ import random
 
 import pytest
 import pytest_asyncio
-from dcc_chat_gateway.pubsub_channels import CHANNEL_KEY
+from dcc_chat_gateway.pubsub_channels import CHANNEL_KEY, USER_EVENTS_CHANNEL
 
 pytestmark = pytest.mark.usefixtures("cloud_mode")
 
@@ -390,6 +390,48 @@ async def test_einliefern_weckt_die_empfaenger(
         assert "daten" not in empfangen and "nutzlasten" not in empfangen
     finally:
         await pubsub.unsubscribe(CHANNEL_KEY.format(channel_id=dm_id))
+        await pubsub.aclose()
+
+
+@pytest.mark.asyncio
+async def test_einliefern_weckt_das_empfaengerkonto_auch_ohne_offenen_kanal(
+    client, app, session_factory, _auth_signer, friend_pair
+):
+    """Der Kanal-Weckruf erreicht nur Sockets, die den Kanal gerade
+    anzeigen. Wer die Unterhaltung nicht offen hat, braucht den Weckruf an
+    sein KONTO — sonst gibt es bis zum Reload weder Zaehler noch Ton
+    (2026-09-03 so gemeldet: „bekommt der keine Benachrichtigung")."""
+    token_a, uid_a = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+    dm_id = await _dm_erstellen(client, token_a, uid_b)
+    await _bundel_seeden(session_factory, user_id=uid_b, device_pubkey="empf-konto")
+
+    pubsub = app.state.redis.pubsub()
+    await pubsub.subscribe(USER_EVENTS_CHANNEL)
+    try:
+        daten = base64.b64encode(b"olm-umschlag").decode()
+        r = await _einliefern(
+            client, token=token_a, channel_id=dm_id,
+            nutzlasten=[{"art": 1, "daten": daten, "empfaenger": ["empf-konto"]}],
+        )
+        assert r.status_code == 200, r.text
+
+        an_b = None
+        for _ in range(20):
+            msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+            if msg is None:
+                continue
+            rahmen = json.loads(msg["data"])
+            if rahmen.get("op") == "postfach_neu" and rahmen.get("_target_user_id") == str(uid_b):
+                an_b = rahmen
+                break
+        assert an_b is not None, "kein Weckruf an das Empfaengerkonto"
+        assert an_b["channel_id"] == str(dm_id)
+        assert an_b["anzahl"] == 1
+        assert "daten" not in an_b and "nutzlasten" not in an_b
+    finally:
+        await pubsub.unsubscribe(USER_EVENTS_CHANNEL)
         await pubsub.aclose()
 
 
