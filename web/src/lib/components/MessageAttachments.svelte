@@ -166,11 +166,15 @@
              reserved box the element starts at the 300×150 default and resizes
              once metadata arrives. Uploads carry no dimensions for video, so
              16/9 is the fallback ratio (the element letterboxes anything else). -->
+        <!-- Feste Breite statt `w-full`: in der DM-Sprechblase (Breite wächst
+             mit dem Inhalt) loest sich 100 % nicht auf — Video und Audio
+             schrumpften auf Mindestbreite zusammen. `w-96 max-w-full` ist
+             ueberall die gleiche, definite Breite. -->
         <video
           src={quelleVideo ?? undefined}
           controls
           preload="metadata"
-          class="block max-h-96 w-full max-w-md rounded-xl border border-border"
+          class="block max-h-96 w-96 max-w-full rounded-xl border border-border"
           style={reserveBox(a) || 'aspect-ratio:16 / 9;'}
           data-testid="attachment-video"
         >
@@ -182,7 +186,7 @@
           src={quelleAudio ?? undefined}
           controls
           preload="metadata"
-          class="block w-full max-w-md"
+          class="block w-96 max-w-full"
           data-testid="attachment-audio"
         ></audio>
       {:else}
