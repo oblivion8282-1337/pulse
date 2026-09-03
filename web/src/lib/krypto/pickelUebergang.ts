@@ -48,8 +48,10 @@ import {
   MARKE_KRYPTOGEHEIMNIS,
   markeDeuten,
   umschreibenPlanen,
+  verlustPlan,
   type Pickleart,
-  type Speichereintrag
+  type Speichereintrag,
+  type Umschreibung
 } from './pickelUebergangPlan';
 
 /** Taut mit dem alten Schluessel auf und friert mit dem neuen wieder ein.
@@ -146,10 +148,24 @@ function schreibeUebergang(
           schluessel: String(k),
           wert: werte.result[i]
         }));
-        const plan = umschreibenPlanen(eintraege, (art, gefroren) => {
-          if (!alt) throw new Error('PICKELUEBERGANG_OHNE_ALTSCHLUESSEL');
-          return umfrieren(art, gefroren, alt, neu);
-        });
+        let plan: Umschreibung[];
+        try {
+          plan = umschreibenPlanen(eintraege, (art, gefroren) => {
+            if (!alt) throw new Error('PICKELUEBERGANG_OHNE_ALTSCHLUESSEL');
+            return umfrieren(art, gefroren, alt, neu);
+          });
+        } catch (fehler) {
+          // Kein vorhandener Schluessel oeffnet den Zustand — Totalverlust.
+          // Verwerfen und als frisches Geraet weiter; die Begruendung steht
+          // an `verlustPlan`. Ohne Inhalt: nur die Anzahl und der Grund.
+          const weg = verlustPlan(eintraege);
+          console.warn('[krypto] eingefrorener Zustand unlesbar — Gerät startet frisch', {
+            eintraege: weg.length,
+            grund: fehler instanceof Error ? fehler.message : String(fehler)
+          });
+          for (const k of weg) speicher.delete(k);
+          plan = [];
+        }
         for (const eintrag of plan) speicher.put(eintrag.wert, eintrag.schluessel);
         speicher.put(geheimnis, IDB_KEY_PICKELGEHEIMNIS);
         // Zuletzt: sie ist die Zusage, dass alles darueber steht.

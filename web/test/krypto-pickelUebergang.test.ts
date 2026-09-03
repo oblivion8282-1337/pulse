@@ -6,7 +6,8 @@ import {
   MARKE_KRYPTOGEHEIMNIS,
   markeDeuten,
   pickleartVon,
-  umschreibenPlanen
+  umschreibenPlanen,
+  verlustPlan
 } from '../src/lib/krypto/pickelUebergangPlan.ts';
 
 /**
@@ -249,4 +250,26 @@ test('die Planung ist leer, wenn es nichts umzufrieren gibt', () => {
     }
   );
   assert.deepEqual(plan, []);
+});
+
+test('Verlustplan: nur Krypto-Eintraege, Geheimnis/Marke/Fremdes bleiben', () => {
+  const weg = verlustPlan([
+    { schluessel: 'pulse.krypto-account', wert: 'x' },
+    { schluessel: 'pulse.krypto-sitzung.k.g', wert: 'x' },
+    { schluessel: 'pulse.krypto-gruppensitzung.k', wert: { gefroren: 'x' } },
+    { schluessel: 'pulse.krypto-gruppenempfang.k', wert: 'x' },
+    { schluessel: 'pulse.krypto-pickelgeheimnis', wert: 'x' },
+    { schluessel: 'pulse.krypto-pickelquelle', wert: 'x' },
+    { schluessel: 'pulse.identity-keypair', wert: 'x' }
+  ]);
+  assert.deepEqual(weg, [
+    'pulse.krypto-account',
+    'pulse.krypto-sitzung.k.g',
+    'pulse.krypto-gruppensitzung.k',
+    'pulse.krypto-gruppenempfang.k'
+  ]);
+});
+
+test('Verlustplan auf leerem Speicher ist leer — frisches Geraet verliert nichts', () => {
+  assert.deepEqual(verlustPlan([]), []);
 });

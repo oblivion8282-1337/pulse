@@ -120,3 +120,22 @@ export function umschreibenPlanen(
   }
   return plan;
 }
+
+/**
+ * Was zu loeschen ist, wenn der eingefrorene Zustand mit KEINEM Schluessel
+ * mehr aufgeht: alle Krypto-Eintraege (Konto, Sitzungen, Gruppen), nichts
+ * sonst. Der naechste Schritt ist dann ein frisches Geraet.
+ *
+ * **Warum Verwerfen hier richtig ist und nicht Aufgeben** (2026-09-03): das
+ * Abmelden loeschte Geheimnis und Marke, liess die damit eingefrorenen
+ * Eintraege aber stehen. Der naechste Start sah „Marke offen", versuchte den
+ * Uebergang mit dem alten Anmeldeschluessel — und scheiterte an Eintraegen,
+ * die nie damit eingefroren waren („Auftauen fehlgeschlagen"). Der Fehler
+ * warf, der Start wiederholte ihn, und das Geraet blieb ohne Krypto: keine
+ * Direktnachricht kam mehr an, bei jedem Start von neuem, ohne Ausweg. Ein
+ * Zustand, den kein vorhandener Schluessel oeffnet, ist aber schon verloren;
+ * ihn zu behalten kostet nur das Geraet.
+ */
+export function verlustPlan(eintraege: Speichereintrag[]): string[] {
+  return eintraege.map((e) => e.schluessel).filter((k) => pickleartVon(k) !== null);
+}
