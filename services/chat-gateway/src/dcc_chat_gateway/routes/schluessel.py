@@ -15,7 +15,7 @@ Schnitts dort.
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import DeviceKeyBundle, DeviceOneTimeKey
@@ -102,6 +102,18 @@ async def bundle_veroeffentlichen(
     gekoppelt_am = await kopplungszeitpunkt(session, user.id, body.device_pubkey)
 
     if vorhanden is not None:
+        if vorhanden.curve25519 != body.curve25519:
+            # Ein neuer Identitaetsschluessel heisst: ein neues Olm-Konto auf
+            # demselben Geraet (Frischstart nach unlesbarem Zustand, s.
+            # ``pickelUebergangPlan.ts::verlustPlan``). Die alten
+            # Einmalschluessel gehoeren zum alten Konto — wer einen davon
+            # beansprucht, baut eine Sitzung, die das neue Konto nie oeffnen
+            # kann („Sitzungsaufbau fehlgeschlagen", 2026-09-03 genau so
+            # gesehen: 25 Schluessel vom Nachmittag lagen noch da). Der
+            # Klient fuellt danach nach, weil ``/keys/onetime/count`` 0 sagt.
+            await session.execute(
+                delete(DeviceOneTimeKey).where(DeviceOneTimeKey.bundle_id == vorhanden.id)
+            )
         vorhanden.curve25519 = body.curve25519
         vorhanden.rueckfallschluessel = body.rueckfallschluessel
         vorhanden.dauerhaft = body.dauerhaft
