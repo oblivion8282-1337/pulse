@@ -304,7 +304,7 @@ services:
   # weiterhin CI und einen neuen Tag — Quellcode-Sync hilft dabei nicht.
   mediamtx:
     <<: *base
-    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse6
+    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse7
     container_name: pulsetest_mediamtx
     environment:
       PULSE_KEYFRAME_INTERVAL: "0"
@@ -315,7 +315,7 @@ services:
       # Sekunde bei voellig gesunder Leitung). Voller Hintergrund:
       # docs/superpowers/specs/2026-08-21-dependency-descriptor-design.md
       PULSE_DEPENDENCY_DESCRIPTOR: "1"
-      # Patch 0007 (2026-09-03), wirksam erst ab Bild `1.19.1-pulse7`. Muss
+      # Patch 0007 (2026-09-03), wirksam ab Bild `1.19.1-pulse7`. Muss
       # 1:1 mit infra/prod/docker-compose.yml uebereinstimmen; Begruendung dort
       # und im Kopf des Patches.
       PULSE_KEYFRAME_ON_DISCARD: "1"
