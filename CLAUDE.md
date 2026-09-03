@@ -289,6 +289,16 @@ an nur EINER Stelle korrigiert" weiter unten warnt.
 - Bauen: `bash krypto/pulse-krypto/bauen-wasm.sh` (`wasm-pack` liegt unter
   `~/.cargo/bin`, das nicht in jedem PATH steht).
 
+## Nextcloud-Kanäle: Pulse legt selbst ab (seit 2026-09-03)
+
+Entwurf `docs/superpowers/specs/2026-09-02-nextcloud-kanal-server-festigung-design.md`, Plan daneben. Ein Nextcloud-Kanal ist ein Ordner `kanaele/<kanalId>/` im **Konto-Laufwerk** seines Erstellers (eine Nextcloud-Verbindung je Konto trägt Sicherung, Anhänge und Kanäle); der Server legt jeden Nachrichten-Umschlag als Datei `<nutzlastId>.puls` ab, Mitglieder lesen über `GET /channels/{id}/ablage/ordner[/{name}]`. Google-/Dropbox-Kanäle bleiben beim Protokoll-Format mit Gerät des Erstellers. **Was man wissen muss:**
+- **Ein Browser kann in eine Nextcloud weder schreiben noch aus ihr lesen** (keine CORS-Kopfzeilen, nextcloud/server#3131; PR #40537 ist Entwurf). Deshalb läuft ALLES über den Pulse-Server — auch die Sicherung (`sicherung/ziele.ts` → `/ablage/archiv/*`, seit 2026-09-02) und die Ordner-Kanäle. Der einzige Weg zum Google-artigen Direktzugriff ist die Nextcloud-App WebAppPassword auf der Instanz des Nutzers (vorgemerkt, nicht gebaut).
+- **Zwei ID-Räume für dieselbe Nachricht**: Datei = Nutzlast-ID, Postfach-Abholung = Zustellungs-ID. Dedup läuft **zentral in `krypto/zustellungOeffnen.ts`** über die kanonische ID der Nutzlast (`verlauf/kanonischeId.ts`, Index `nach_krypto`, IDB-Fassung 3) — nach dem Lösch-Zweig, sonst verschluckt der Riegel jeden Lösch-Frame.
+- **Der Nachtrag-Marker ist der Riegel gegen den Quittungs-Wettlauf**: die Ablage läuft als BackgroundTask NACH der Antwort, eine schnelle Quittung löschte die Nutzlast vorher. Deshalb entsteht die `ablage_kanal_nachtrag`-Zeile für archiv-Nutzlasten schon im Einliefer-Commit, und jeder Nutzlast-Löscher (Quittung, verwaist-Sweep, user_purge) schont Nutzlasten mit Marker. Eine archiv-Nutzlast ohne Empfänger (Kanal nur mit Ersteller) wird trotzdem angelegt.
+- **Der Klient markiert ALLE Empfänger-Blöcke mit `archiv`**, der Server dedupliziert je Anfrage über `sha256(daten)` — es gewinnt der erste Block, unabhängig von Empfängern.
+- **Schlüssel verteilen Geräte, nie Pulse.** `kanalSchluesselNachliefern` läuft beim Öffnen eines Kanals, berechnet das Delta über `POST /keys/geraeteliste` (verbrauchsfrei) und claimt nur dafür — ein `claim` verbraucht Einmalschlüssel. Ehrliche Grenze: nur die **ausgehende** Megolm-Sitzung ist exportierbar; ältere Nachrichten bleiben für neu Beitretende unlesbar.
+- **MKCOL-Cache je (Kanal, Laufwerksadresse)**, nicht je Kanal; die Pflege holt Nachträge mit Backoff nach, wobei `cleanup_interval_seconds` (86400) den Deckel praktisch auf einen Takt setzt.
+
 ## Plugin-System (Stufe A)
 
 Top-Level `plugins/` (Referenz `hello` + `tamagotchi`). Manifest `plugin.toml` (Backend) + `manifest.ts` (Frontend-Spiegel, **manuell synchron halten**). Loader `chat_gateway/plugins/loader.py` + `web/src/lib/plugins/loader.ts`. Ops colon-namespaced (`tamagotchi:feed`). Stufe B/C → `docs/PLUGIN_ROADMAP.md`.

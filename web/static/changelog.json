@@ -2,6 +2,21 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-03",
+      "date": "2026-09-03",
+      "style": "Sachlich",
+      "title": "Textkanäle auf Nextcloud — Pulse legt selbst ab",
+      "intro": "Ein Kanal auf deiner Nextcloud braucht kein Gerät mehr, das online ist.",
+      "items": [
+        "Wer Nextcloud als Archiv verbunden hat, legt einen Kanal mit einem Klick im eigenen Laufwerk an: „Im Konto-Laufwerk anlegen“. Ein zweiter Freigabe-Link ist nicht mehr nötig.",
+        "Jede Nachricht landet sofort als Datei im Kanal-Ordner deiner Nextcloud, auch wenn du gerade offline bist. Pulse legt sie ab und holt sie für Mitglieder wieder, lesen kann sie nur, wer den Schlüssel hat.",
+        "Ist die Nextcloud gerade nicht erreichbar, merkt sich Pulse die Nachricht und trägt sie nach, sobald sie wieder antwortet.",
+        "Kanäle anlegen und an ein Laufwerk binden darf nur noch, wer Kanäle verwalten darf. Bisher konnte das jedes Mitglied mit Leserecht.",
+        "Beim Trennen des Archivs weist Pulse darauf hin, dass Kanäle in diesem Laufwerk für alle unlesbar werden."
+      ],
+      "outro": "Google- und Dropbox-Kanäle funktionieren wie bisher: dort trägt dein Gerät ein."
+    },
+    {
       "id": "2026-09-02.1",
       "date": "2026-09-02",
       "style": "Sachlich",
