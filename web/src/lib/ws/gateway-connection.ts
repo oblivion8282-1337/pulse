@@ -378,12 +378,12 @@ export class GatewayConnection {
    *  WebSocket gegen den Hostname zurück. */
   private async _openSocket(token: string): Promise<SocketLike> {
     if (!this.isCloud && this.instanceId) {
-      const result = await getDirectConnectionDetailed(this.instanceId).catch(() => null);
+      const entry = serversStore.find(this.serverId);
+      const result = await getDirectConnectionDetailed(this.instanceId, entry).catch(() => null);
       if (result?.ok && result.conn.isOpen) {
         directStatus.clear(this.instanceId);
         return new DirectWebSocket(result.conn, `${this.wsPath}?token=${encodeURIComponent(token)}`);
       }
-      const entry = serversStore.find(this.serverId);
       if (isDirectOnly(entry)) {
         const reason = result && !result.ok ? result.reason : 'ice-failed';
         directStatus.report(this.instanceId, reason);
