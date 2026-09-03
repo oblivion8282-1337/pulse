@@ -22,12 +22,25 @@ import { extractDetail, safeParse } from './parse';
 import { mitGeduldBei429 } from '../ablage/geduld429';
 import type { PostfachZustellung } from './postfach';
 
-/** Legt den Ablage-Ordner fuer diesen Kanal an — 412, wenn der Aufrufer
- *  kein Konto-Laufwerk verbunden hat (Aufrufer entscheidet, wie er das
- *  meldet). */
-export async function ordnerAnlegen(kanalId: string, route: RequestRoute = {}): Promise<void> {
+/** Wo der Verlauf dieses Kanals liegt: bei Pulse (nur Chiffrat in der
+ *  Datenbank) oder in der Nextcloud des Erstellers. */
+export type OrdnerSpeicher = 'pulse' | 'nextcloud';
+
+/** Legt den Ablage-Ordner fuer diesen Kanal an. Vorgabe `pulse` seit der
+ *  Entscheidung vom 2026-09-03; nur der Nextcloud-Weg braucht ein
+ *  Konto-Laufwerk und antwortet ohne eines mit 412 (der Aufrufer
+ *  entscheidet, wie er das meldet). */
+export async function ordnerAnlegen(
+	kanalId: string,
+	speicher: OrdnerSpeicher = 'pulse',
+	route: RequestRoute = {}
+): Promise<void> {
+	// `body` als Objekt, nicht als fertiges JSON: `request()` kodiert selbst
+	// (`client.ts`), ein `JSON.stringify` hier ergaebe eine doppelt kodierte
+	// Zeichenkette.
 	await request<void>(`/channels/${encodeURIComponent(kanalId)}/ablage/ordner`, {
-		method: 'PUT'
+		method: 'PUT',
+		body: { speicher }
 	}, route);
 }
 

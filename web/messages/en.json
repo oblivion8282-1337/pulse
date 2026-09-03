@@ -3254,5 +3254,7 @@
   "kanal_ordner_aufforderung_hinweis": "No folder for this channel in the account drive yet.",
   "kanal_ordner_fehler_kein_recht": "Only someone who can manage this channel may connect it to a drive.",
   "kanal_ordner_fehler_belegt": "This channel is already connected to a drive.",
-  "kanal_ordner_fehler_allgemein": "Connecting failed."
+  "kanal_ordner_fehler_allgemein": "Connecting failed.",
+  "kanal_ordner_pulse_hinweis": "This channel is encrypted; Pulse only holds ciphertext.",
+  "kanal_ordner_pulse_knopf": "Create encrypted"
 }

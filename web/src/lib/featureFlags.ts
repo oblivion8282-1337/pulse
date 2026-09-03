@@ -41,3 +41,15 @@ export const APP_HOSTING_ENABLED = false;
  * macht ihn nur wählbar, er ersetzt keine Cloud.
  */
 export const ABLAGE_KANAL_ENABLED = true;
+
+/**
+ * Kanäle in der Nextcloud ihres Erstellers — der zweite Speicher für einen
+ * verschlüsselten Kanal.
+ *
+ * **AUS seit der Entscheidung vom 2026-09-03: verschlüsselte Textkanäle
+ * zuerst, Nextcloud-Kanäle später.** Der Server kann beide Wege
+ * (`ablage_kanal_ordner.speicher`), die Oberfläche bietet nur den bei Pulse
+ * an; hinter diesem Schalter warten der Nextcloud-Knopf und der ältere Weg
+ * über einen eigenen Freigabe-Link.
+ */
+export const NEXTCLOUD_KANAL_ENABLED = false;

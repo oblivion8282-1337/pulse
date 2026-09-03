@@ -3254,5 +3254,7 @@
   "kanal_ordner_aufforderung_hinweis": "Noch kein Ordner für diesen Kanal im Konto-Laufwerk angelegt.",
   "kanal_ordner_fehler_kein_recht": "Nur wer diesen Kanal verwalten darf, kann ihn mit einem Laufwerk verbinden.",
   "kanal_ordner_fehler_belegt": "Dieser Kanal ist bereits mit einem Laufwerk verbunden.",
-  "kanal_ordner_fehler_allgemein": "Verbinden fehlgeschlagen."
+  "kanal_ordner_fehler_allgemein": "Verbinden fehlgeschlagen.",
+  "kanal_ordner_pulse_hinweis": "Dieser Kanal ist verschlüsselt, Pulse hält nur Chiffrat.",
+  "kanal_ordner_pulse_knopf": "Verschlüsselt anlegen"
 }
