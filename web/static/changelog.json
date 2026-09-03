@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-03.1",
+      "date": "2026-09-03",
+      "style": "Sachlich",
+      "title": "Private Gruppen freigeschaltet",
+      "intro": "Die verschlüsselten Gruppen konnten auf dem Server bislang nicht benutzt werden — der Schalter dafür stand noch auf aus. Das ist nachgeholt.",
+      "items": [
+        "Private Gruppen lassen sich jetzt anlegen, betreten und lesen — Ende-zu-Ende-verschlüsselt wie Direktnachrichten, ohne Umweg über den Server.",
+        "Endet eine Anmeldung wirklich — etwa nach Ablauf oder Sperrung —, meldet Pulse jetzt sauber ab und zeigt beim nächsten Start einen kurzen Hinweis. Bisher konnte die App in einem toten Zustand weiterlaufen und Anforderungen im Hintergrund stumm wiederholen."
+      ]
+    },
+    {
       "id": "2026-09-02.1",
       "date": "2026-09-02",
       "style": "Sachlich",
