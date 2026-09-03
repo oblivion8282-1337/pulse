@@ -319,16 +319,16 @@ class Settings(BaseSettings):
     # haengt.
     postfach_max_offene_zustellungen_je_absender_und_geraet: int = 50
 
-    # Private Gruppen (Etappe G1) — Vorgabe AUS, am Vorbild von
-    # ``cloud_dm_attachments_enabled`` oben. Grund: die Kanalart wird HIER
-    # gebaut, aber die Krypto (Megolm, Etappe G2) kommt erst spaeter — private
-    # Gruppen sollen von Geburt an verschluesselt sein, ohne Altbestand und
-    # ohne Umschaltmoment (Spec §9). Solange der Schalter aus ist, kann
-    # ``POST /gruppen`` keine Zeile anlegen; die Oberflaeche zeigt die
-    # Kanalart ohnehin nicht (kein UI in dieser Etappe). Reversibel per
-    # ``PRIVATE_GROUPS_ENABLED=true`` — gedacht fuer G2, nicht fuer diese
-    # Etappe.
-    private_groups_enabled: bool = False
+    # Private Gruppen — Vorgabe AN seit dem 2026-09-03. Der G1-Vorbehalt
+    # (Schalter AUS, weil die Megolm-Krypto der Etappe G2 noch fehlte und
+    # private Gruppen von Geburt an verschluesselt sein muessen, ohne
+    # Altbestand und ohne Umschaltmoment — Spec §9) ist entfallen: G2 ist
+    # gelandet und der Klient schaltet sein Gegenstück
+    # ``PRIVATE_GRUPPEN_ENABLED`` (``krypto/schalter.ts``) seit dem
+    # 2026-09-01 an — bei AUS hier lief jeder WS-Connect des Klienten in eine
+    # garantierte 403 ``private_groups_disabled``. Gezielt AUS schalten bleibt
+    # moeglich per ``PRIVATE_GROUPS_ENABLED=false``.
+    private_groups_enabled: bool = True
     # Obergrenze der Mitgliederzahl. In G2 wird der Gruppenschluessel an JEDES
     # Geraet JEDES Mitglieds verteilt — ohne Obergrenze waere eine einzelne
     # Mitgliedschaftsaenderung in einer grossen Gruppe ein Schwall kleiner
