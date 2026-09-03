@@ -165,3 +165,39 @@ async def test_run_once_stempelt_verfallene_geraete(engine, session_factory):
             )
         ).scalar_one()
     assert zeile.verfallen_am is not None
+
+
+@pytest.mark.asyncio
+async def test_ein_kaputter_teil_sweep_stoppt_die_uebrigen_nicht(
+    engine, session_factory, monkeypatch, caplog
+):
+    """R8: alle Sweeps lagen in einer Funktion ohne eigenes ``try`` — der
+    erste Fehler (eine fremde Cloud, ein DB-Deadlock) brach den ganzen Lauf
+    ab, und alles dahinter blieb bis zum naechsten Takt liegen, ohne dass
+    irgendwo stand, WELCHER Teil gefehlt hat.
+
+    Der Nachtrag-Sweep laeuft als erster Teil nach dem Web-Push-Lauf; er ist
+    hier der Kaputte. Gemessen wird an einem SPAETEREN Teil, dass er
+    trotzdem dran kam.
+    """
+    from dcc_chat_gateway import cleanup as cleanup_mod
+
+    async def _wirft(_session):
+        raise RuntimeError("Nextcloud weg")
+
+    gelaufen: list[str] = []
+
+    async def _spaeter(_session):
+        gelaufen.append("kopplung")
+        return 0
+
+    monkeypatch.setattr(cleanup_mod, "sweep_ablage_kanal_nachtraege", _wirft)
+    monkeypatch.setattr(cleanup_mod, "sweep_verfallene_kopplungen", _spaeter)
+
+    with caplog.at_level(logging.ERROR, logger="dcc_chat_gateway.cleanup"):
+        deleted = await _run_once(engine, _settings())
+
+    assert deleted == 0
+    assert gelaufen == ["kopplung"]
+    # Und der Fehlschlag ist benannt, nicht verschluckt.
+    assert any("teil=ablage_kanal_nachtrag" in r.getMessage() for r in caplog.records)

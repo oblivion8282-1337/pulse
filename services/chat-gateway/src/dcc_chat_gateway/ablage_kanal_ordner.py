@@ -18,10 +18,18 @@ FREIGABE-ADRESSE des Laufwerks steht nirgends darin und wird auch nicht
 geloggt (``ablage_kanal.py``-Modulkopf).
 
 **Ablauf statt Nachrichtenverlauf.** Der Server schreibt an eine Adresse, die
-er nie zurueckgibt. Schlaegt der Schreibversuch fehl (Nextcloud kurz nicht
-erreichbar), entsteht eine ``AblageKanalNachtrag``-Zeile — die Pflege holt
-sie ueber ``nachtrag_sweep`` nach, statt den Umschlag stillschweigend
-verloren zu geben.
+er nie zurueckgibt. Die ``AblageKanalNachtrag``-Zeile entsteht dabei nicht
+erst nach einem Fehlschlag, sondern schon im EINLIEFER-COMMIT
+(``routes/postfach.py``) als Marker „Festigung offen"; ``ablegen`` loescht
+sie, sobald die Datei liegt, und die Pflege (``ablage_kanal_nachtrag.py``)
+holt nach, was liegen blieb.
+
+**Der Marker ist zugleich der Riegel gegen einen Wettlauf.** Quittiert der
+Empfaenger schneller, als die Hintergrund-Ablage laeuft (sie beginnt erst
+nach der Antwort), loeschte ``postfach_quittung`` die Nutzlast — und die
+Festigung fand nichts mehr vor. Beide Loescher (Quittung und
+``sweep_verwaiste_nutzlasten``) schonen deshalb jede Nutzlast mit
+Nachtrag-Zeile.
 
 **Die Festigung laeuft NACH der Antwort** (``festigung_nachlaufen``, als
 FastAPI-``BackgroundTask`` aus ``routes/postfach.py``), mit einer EIGENEN
@@ -43,7 +51,6 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable, Sequence
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_chat_gateway.ablage_schreiben import ordner_anlegen as ordner_anlegen_am_laufwerk
@@ -59,12 +66,6 @@ from dcc_chat_gateway.models import (
 from dcc_chat_gateway.schemas import PostfachZustellungOut
 
 log = logging.getLogger(__name__)
-
-#: Hoechstens so viele Nachtraege je Pflegelauf — dieselbe Begruendung wie
-#: ``_ANHANG_BATCH`` in ``postfach_pflege.py``: ein Rueckstau (Nextcloud war
-#: eine Nacht lang weg) darf nicht eine einzige Transaktion und eine fremde
-#: Cloud gleichzeitig ueberfahren. Der naechste Takt holt den Rest.
-_NACHTRAG_BATCH = 100
 
 #: Kanaele, fuer die dieser Prozess das MKCOL schon gefahren hat. Der Ordner
 #: entsteht genau einmal; jedes weitere MKCOL ist eine Netzrunde zu einer
@@ -143,78 +144,30 @@ async def ablegen(session: AsyncSession, nutzlast: DmNutzlast) -> bool:
     return True
 
 
-async def _aufgabe_ist_gegenstandslos(session: AsyncSession, zeile: AblageKanalNachtrag) -> bool:
-    """Ob dieser Nachtrag nie mehr gelingen KANN — dann wird er aufgegeben
-    statt bei jedem Lauf erneut probiert.
-
-    Zwei solche Faelle, beide dauerhaft: der Kanal ist kein Ordner-Kanal mehr
-    (die ``AblageKanalOrdner``-Zeile ist weg), oder sein Ersteller hat kein
-    Konto-Laufwerk mehr. Ein Netzfehler gehoert ausdruecklich NICHT dazu —
-    der bleibt liegen und wird wiederholt.
-    """
-    ordner_zeile = await session.get(AblageKanalOrdner, zeile.channel_id)
-    if ordner_zeile is None:
-        return True
-    return await session.get(AblageKontoLaufwerk, ordner_zeile.ersteller_id) is None
-
-
-async def nachtrag_sweep(session: AsyncSession) -> tuple[int, int]:
-    """Holt liegen gebliebene Nachtraege nach — hoechstens ``_NACHTRAG_BATCH``
-    je Lauf, mit einem Commit JE ZEILE.
-
-    Gibt ``(erledigt, aufgegeben)`` zurueck:
-
-    * **erledigt** — geschrieben (oder die Nutzlast war inzwischen verfallen,
-      dann ist der Nachtrag gegenstandslos) und die Zeile geloescht.
-    * **aufgegeben** — geloescht, ohne je geschrieben worden zu sein: der
-      Kanal ist kein Ordner-Kanal mehr oder sein Ersteller hat sein
-      Konto-Laufwerk abgehaengt. Ohne diese Unterscheidung bliebe so eine
-      Zeile fuer immer stehen und verbraeuchte in JEDEM Lauf einen Platz im
-      Stapel — ein einziger abgehaengter Ersteller wuerde die Nachtraege
-      aller anderen aushungern.
-
-    Eine Zeile, die an einem Netzfehler scheitert, bleibt fuer den naechsten
-    Lauf stehen. Der Commit je Zeile ist kein Stil, sondern Absicht: ein
-    Fehler in Zeile 50 darf die 49 bereits geschriebenen Dateien nicht
-    wieder als „noch offen" markieren.
-    """
-    zeilen = (
-        await session.execute(select(AblageKanalNachtrag).limit(_NACHTRAG_BATCH))
-    ).scalars().all()
-    erledigt = 0
-    aufgegeben = 0
-    for zeile in zeilen:
-        nutzlast = await session.get(DmNutzlast, zeile.nutzlast_id)
-        if nutzlast is None:
-            # Die Nutzlast ist inzwischen verfallen (Postfach-Pflege) — der
-            # Nachtrag ist damit gegenstandslos, nicht mehr nachholbar.
-            await session.delete(zeile)
-            await session.commit()
-            erledigt += 1
-            continue
-        if await _aufgabe_ist_gegenstandslos(session, zeile):
-            await session.delete(zeile)
-            await session.commit()
-            aufgegeben += 1
-            continue
-        try:
-            await ablegen(session, nutzlast)
-        except AblageAbrufFehler:
-            continue
-        await session.delete(zeile)
-        await session.commit()
-        erledigt += 1
-    return erledigt, aufgegeben
-
-
 async def _nachtrag_vormerken(session: AsyncSession, nutzlast_id: int, channel_id: int) -> None:
     """Legt die Nachtrag-Zeile an, falls sie noch nicht existiert. Der
     Existenz-Check ist kein Schmuck: ``nutzlast_id`` ist der Primaerschluessel,
     ein zweiter Versuch fuer dieselbe Nutzlast liefe sonst in einen
-    Integritaetsfehler."""
+    Integritaetsfehler.
+
+    Seit dem Marker im Einliefer-Commit (``routes/postfach.py``) ist der
+    Regelfall, dass die Zeile bereits da ist; noetig bleibt die Funktion
+    fuer den Nachtrag-Sweep und fuer Nutzlasten, die zum Einliefern noch
+    keine Ordner-Zeile hatten.
+    """
     if await session.get(AblageKanalNachtrag, nutzlast_id) is not None:
         return
     session.add(AblageKanalNachtrag(nutzlast_id=nutzlast_id, channel_id=channel_id))
+    await session.commit()
+
+
+async def _marker_loeschen(session: AsyncSession, nutzlast_id: int) -> None:
+    """Nimmt den Marker „Festigung offen" zurueck — die Datei liegt jetzt im
+    Ordner. Erst danach darf die Nutzlast fallen (Quittung/Pflege)."""
+    zeile = await session.get(AblageKanalNachtrag, nutzlast_id)
+    if zeile is None:
+        return
+    await session.delete(zeile)
     await session.commit()
 
 
@@ -251,6 +204,10 @@ async def festigung_nachlaufen(
                     continue
                 channel_id = nutzlast.channel_id
                 await ableger(session, nutzlast)
+                # Erst NACH dem erfolgreichen Ablegen faellt der Marker —
+                # bis dahin haelt er die Nutzlast gegen Quittung und Pflege
+                # (s. Modulkopf).
+                await _marker_loeschen(session, nutzlast_id)
             except Exception as fehler:  # noqa: BLE001
                 log.warning(
                     "ablage_kanal_festigung_fehlgeschlagen nutzlast=%s klasse=%s code=%s",
@@ -290,7 +247,6 @@ __all__ = [
     "datei_name",
     "datei_inhalt",
     "ablegen",
-    "nachtrag_sweep",
     "festigung_nachlaufen",
     "ordner_zwischenspeicher_leeren",
 ]

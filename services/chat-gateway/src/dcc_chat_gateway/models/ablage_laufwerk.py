@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Text, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from dcc_chat_gateway.db import Base
@@ -171,9 +171,21 @@ class AblageKanalOrdner(Base):
 
 
 class AblageKanalNachtrag(Base):
-    """Eine Nutzlast, die noch nicht im Ordner liegt (Nextcloud war beim
-    Einliefern nicht erreichbar). Die Pflege-Schleife holt sie nach; fällt
-    die Nutzlast, fällt der Nachtrag mit (CASCADE)."""
+    """Eine Nutzlast, deren Festigung im Kanal-Ordner noch aussteht. Fällt
+    die Nutzlast, fällt der Nachtrag mit (CASCADE).
+
+    **Die Zeile entsteht schon im Einliefer-Commit**, nicht erst nach einem
+    Fehlschlag (Fixwelle 2 R1): sie ist der Marker „Festigung offen", und an
+    ihm hängt der Schutz der Nutzlast vor den beiden Löschern (Quittung und
+    ``sweep_verwaiste_nutzlasten``). Entstünde sie erst im Fehlerfall, hätte
+    eine schnelle Quittung die Nutzlast bereits gelöscht, bevor die
+    Hintergrund-Ablage sie überhaupt lesen konnte.
+
+    ``versuche``/``naechster_versuch_at`` tragen den Wiederholungs-Abstand
+    (``nachtrag_sweep``): ohne sie liefe eine dauerhaft unerreichbare Cloud
+    in JEDEM Pflegetakt erneut in dieselbe Zeitüberschreitung und
+    verbrauchte dabei den Stapelplatz aller anderen.
+    """
 
     __tablename__ = "ablage_kanal_nachtrag"
 
@@ -181,6 +193,15 @@ class AblageKanalNachtrag(Base):
         BigInteger, ForeignKey("dm_nutzlasten.id", ondelete="CASCADE"), primary_key=True
     )
     channel_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    #: Wie oft das Ablegen für diese Zeile schon gescheitert ist.
+    versuche: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )
+    #: Frühestens ab hier wieder anfassen — der Sweep filtert danach und
+    #: sortiert danach, die ältesten Wartenden zuerst.
+    naechster_versuch_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
