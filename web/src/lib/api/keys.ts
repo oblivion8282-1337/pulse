@@ -138,7 +138,29 @@ export const keysApi = {
     );
   },
 
-  /** Holt die Buendel aller Geraete jedes angefragten Nutzers ab. */
+  /** Die Geraete-Kennungen jedes angefragten Nutzers — **ohne einen
+   *  Einmalschluessel zu verbrauchen** (`routes/schluessel_auskunft.py`).
+   *
+   *  Fuer die Frage „muss ich ueberhaupt etwas nachliefern?" ist das die
+   *  richtige Route: `claim` beantwortet sie zwar auch, kostet das Gegenueber
+   *  dabei aber je Geraet einen Einmalschluessel — bei JEDEM Kanalwechsel,
+   *  meist ohne dass danach etwas zu tun waere. Schluesselmaterial gibt es
+   *  hier nicht; wer eine Olm-Sitzung aufbauen will, ruft weiterhin `claim`. */
+  geraeteliste(
+    userIds: string[],
+    route: { serverId?: string } = {}
+  ): Promise<Record<string, string[]>> {
+    return request<Record<string, string[]>>(
+      '/keys/geraeteliste',
+      { method: 'POST', body: { user_ids: userIds } },
+      route
+    );
+  },
+
+  /** Holt die Buendel aller Geraete jedes angefragten Nutzers ab.
+   *
+   *  **Verbraucht je fremdem Geraet einen Einmalschluessel** — nur rufen,
+   *  wenn tatsaechlich eine Sitzung aufgebaut wird (s. `geraeteliste`). */
   claim(
     userIds: string[],
     route: { serverId?: string } = {}

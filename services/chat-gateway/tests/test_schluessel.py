@@ -1140,3 +1140,60 @@ async def test_sweep_stempelt_und_raeumt_die_einmalschluessel(
     assert zeilen["pub-sweep-frisch"].verfallen_am is None
     assert await _vorrat_zaehlen(session_factory, bid_alt) == 0
     assert await _vorrat_zaehlen(session_factory, bid_frisch) == 1
+
+
+# ---------------------------------------------------------------------------
+# POST /keys/geraeteliste — verbrauchsfreie Geraeteliste (Fixwelle 2 R5)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_geraeteliste_verbraucht_keinen_einmalschluessel(
+    client, session_factory, cloud_mode, _auth_signer, friend_pair
+):
+    """R5: der Klient rief bisher ``claim`` fuer ALLE Mitglieder, bevor
+    ueberhaupt feststand, ob etwas nachzuliefern ist — jeder Kanalwechsel
+    kostete das Gegenueber je Geraet einen Einmalschluessel. Diese Route
+    liefert dieselbe Auskunft, ohne den Vorrat anzuruehren."""
+    sender_token, sender_uid = _register(_auth_signer)
+    _, empf_uid = _register(_auth_signer)
+    await friend_pair(sender_uid, empf_uid)
+    bid = await _buendel_seeden(
+        session_factory,
+        user_id=empf_uid,
+        device_pubkey="pub-liste-1",
+        einmalschluessel=["otk-1", "otk-2"],
+        dauerhaft=True,
+    )
+
+    r = await client.post(
+        "/keys/geraeteliste",
+        json={"user_ids": [str(empf_uid)]},
+        headers={"Authorization": f"Bearer {sender_token}"},
+    )
+
+    assert r.status_code == 200, r.text
+    assert r.json() == {str(empf_uid): ["pub-liste-1"]}
+    assert await _vorrat_zaehlen(session_factory, bid) == 2
+
+
+@pytest.mark.asyncio
+async def test_geraeteliste_ohne_berechtigung_ist_leer_statt_403(
+    client, session_factory, cloud_mode, _auth_signer
+):
+    """Dieselbe Regel wie bei ``claim``: ein einzelner unzulaessiger Eintrag
+    darf die zulaessigen einer Mehrfachanfrage nicht mitreissen."""
+    sender_token, _sender_uid = _register(_auth_signer)
+    _, fremd_uid = _register(_auth_signer)
+    await _buendel_seeden(
+        session_factory, user_id=fremd_uid, device_pubkey="pub-fremd", dauerhaft=True
+    )
+
+    r = await client.post(
+        "/keys/geraeteliste",
+        json={"user_ids": [str(fremd_uid)]},
+        headers={"Authorization": f"Bearer {sender_token}"},
+    )
+
+    assert r.status_code == 200, r.text
+    assert r.json() == {str(fremd_uid): []}

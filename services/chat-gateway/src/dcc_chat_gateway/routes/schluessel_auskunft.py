@@ -22,6 +22,16 @@ Route macht also nichts sichtbar, was vorher verborgen war; sie macht das
 Sichtbare bloss billig. Wer die Zugriffsregel hier lockert, verschiebt genau
 diese Abwaegung und muss sie neu treffen.
 
+``POST /keys/geraeteliste`` gehoert derselben Familie an: die Kennungen der
+empfangsfaehigen Geraete eines Kontos, ohne einen Einmalschluessel
+anzuruehren. Sie beantwortet die Frage „muss ich ueberhaupt etwas
+nachliefern?", die der Klient bisher nur stellen konnte, indem er
+``claim`` rief — und damit bei JEDEM Kanalwechsel je Zielgeraet einen
+Einmalschluessel verbrauchte, meist um dann festzustellen, dass nichts zu
+tun war. Neue Metadaten entstehen dadurch nicht: dieselben Kennungen gibt
+``claim`` demselben Kreis (``darf_schluessel_holen``) ohnehin heraus,
+Schluesselmaterial bleibt hier weg.
+
 **Keine Geraeteangabe** (``schluessel_nachweis.py``): die ist dort noetig, wo
 jemand fuer ein bestimmtes GERAET handelt — beim Veroeffentlichen also. Hier
 wird nichts veroeffentlicht und nichts herausgegeben, was an ein Geraet
@@ -36,10 +46,16 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 from sqlalchemy import or_, select
 
+import dcc_chat_gateway.config as chat_config
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.geraete_widerruf import darf_empfangen
 from dcc_chat_gateway.models import DeviceKeyBundle
-from dcc_chat_gateway.schemas import GeraeteStandOut, SnowflakeId, VerschluesselbarOut
+from dcc_chat_gateway.schemas import (
+    GeraetelisteRequest,
+    GeraeteStandOut,
+    SnowflakeId,
+    VerschluesselbarOut,
+)
 from dcc_chat_gateway.schluessel_verfall import ist_verfallen, verfall_grenze
 from dcc_chat_gateway.schluessel_zugriff import darf_schluessel_holen
 from dcc_chat_gateway.security import CurrentUser
@@ -158,3 +174,43 @@ async def geraetestand(
     if zeile.entfernt:
         return GeraeteStandOut(stand="entfernt")
     return GeraeteStandOut(stand="verfallen" if zeile.verfallen else "gueltig")
+
+
+@router.post("/keys/geraeteliste", response_model=dict[str, list[str]])
+async def geraeteliste(
+    body: GeraetelisteRequest,
+    session: SessionDep,
+    user: CurrentUser,
+) -> dict[str, list[str]]:
+    """Die Kennungen der empfangsfaehigen Geraete je angefragtem Konto —
+    **ohne Vorratsverbrauch**.
+
+    Dieselbe Zugriffsregel und derselbe Empfangsfilter wie
+    ``POST /keys/claim`` (``darf_schluessel_holen`` + ``darf_empfangen``);
+    ein Konto, zu dem man nicht abholen darf, liefert eine leere Liste statt
+    einer 403 — aus demselben Grund wie dort: sonst risse ein einzelner
+    unzulaessiger Eintrag die zulaessigen einer Mehrfachanfrage mit.
+
+    **Was hier fehlt, ist der Punkt:** kein ``curve25519``, kein
+    Einmal-, kein Rueckfallschluessel. Wer eine Olm-Sitzung aufbauen will,
+    muss weiterhin ``claim`` rufen; diese Route beantwortet nur, FUER WEN
+    das noetig ist.
+    """
+    settings = chat_config.get_settings()
+    ergebnis: dict[str, list[str]] = {}
+    for ziel_id in dict.fromkeys(body.user_ids):
+        ergebnis[str(ziel_id)] = []
+        if not await darf_schluessel_holen(session, user.id, ziel_id):
+            continue
+        pubkeys = (
+            await session.execute(
+                select(DeviceKeyBundle.device_pubkey)
+                .where(
+                    DeviceKeyBundle.user_id == ziel_id,
+                    darf_empfangen(verfall_grenze()),
+                )
+                .limit(settings.schluessel_max_buendel_je_konto)
+            )
+        ).scalars().all()
+        ergebnis[str(ziel_id)] = list(pubkeys)
+    return ergebnis

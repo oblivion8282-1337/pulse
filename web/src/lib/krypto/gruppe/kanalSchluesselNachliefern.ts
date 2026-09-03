@@ -8,6 +8,18 @@
  * dazwischen (s. dort). Wer diese Reihenfolge aendert, aendert sie an
  * BEIDEN Aufrufstellen.
  *
+ * ## Was das kostet — und warum die Reihenfolge hier eine andere ist
+ *
+ * `keysApi.claim` VERBRAUCHT je fremdem Geraet einen Einmalschluessel
+ * (`routes/schluessel_abholen.py`). Diese Funktion laeuft bei JEDEM
+ * Kanal-Oeffnen; sie rief `claim` frueher fuer alle Mitglieder, bevor
+ * ueberhaupt feststand, ob etwas nachzuliefern ist — und meist war nichts
+ * nachzuliefern. Heute rechnet `nachlieferBedarf` das Delta zuerst aus der
+ * verbrauchsfreien Geraeteliste (`POST /keys/geraeteliste`) und `claim`
+ * laeuft nur noch fuer die Konten, deren Geraete den Schluessel wirklich
+ * noch nicht haben. `sendeInKanal` bleibt unveraendert: dort wird ohnehin
+ * verschluesselt und zugestellt, der Aufbau lohnt sich immer.
+ *
  * **`schluesselUmschlaegeBauen` MUSS vor jeder Nachrichtenverschluesselung
  * laufen.** `verteilschluessel()` liest den Ratchet-Stand VOR dem
  * Verschluesseln — kaeme die Verschluesselung zuerst, saehe ein neu
@@ -59,6 +71,7 @@ import {
   MAX_UMSCHLAEGE_JE_ANFRAGE,
   type Gruppenzielgeraet
 } from './gruppengeraete';
+import { nachlieferBedarf } from './nachlieferBedarf';
 
 function cloudRoute(): { serverId?: string } {
   return { serverId: serversStore.cloudId() };
@@ -148,17 +161,38 @@ export async function kanalSchluesselNachliefern(kanalId: string): Promise<void>
   const eigeneKennung = await geraeteKennung();
 
   const mitgliederIds = await kanalMitgliederMitSicht(guildId, kanalId);
-  const ziel = await zielGeraeteBerechnen(mitgliederIds, eigeneUserId, eigeneKennung);
+  // **Erst die verbrauchsfreie Liste, dann erst `claim`** (s. Modulkopf,
+  // „Was das kostet"). `geraeteliste` ruehrt keinen Einmalschluessel an.
+  const geraeteJeKonto = await keysApi.geraeteliste(mitgliederIds, cloudRoute());
 
   // Dieselbe Sperre wie `sendeInKanal`, aus demselben Grund (Modulkopf):
   // die ausgehende Megolm-Sitzung liegt im Browserprofil, nicht im Tab.
+  // Der `claim` liegt hier INNERHALB der Sperre — anders als beim Senden,
+  // weil erst der gespeicherte Stand sagt, ob ueberhaupt einer noetig ist.
   return mitGruppensitzungssperre(kanalId, async () => {
+    const jetzt = Date.now();
+    const vorhanden = await gruppensitzungLaden(kanalId);
+    const bedarf = nachlieferBedarf(
+      vorhanden,
+      mitgliederIds,
+      geraeteJeKonto,
+      eigeneUserId,
+      eigeneKennung,
+      jetzt
+    );
+    // Nichts offen -> kein `claim`, kein Vorratsverbrauch beim Gegenueber.
+    // Auch eine faellige Rotation ohne ein einziges Zielgeraet faellt
+    // hierunter: es gaebe niemanden zu beliefern, und die neue Sitzung
+    // entsteht dann beim naechsten Senden.
+    if (bedarf.konten.length === 0) return;
+
+    const ziel = await zielGeraeteBerechnen(bedarf.konten, eigeneUserId, eigeneKennung);
     const wahl = sitzungWaehlen(
-      await gruppensitzungLaden(kanalId),
+      vorhanden,
       mitgliederIds,
       ziel.map((z) => z.geraet.device_pubkey),
       () => ({ sitzung: neueGruppensitzung(), sitzungId: neueSitzungId() }),
-      Date.now()
+      jetzt
     );
     const stand = wahl.stand;
     const nachzuliefern = new Set(wahl.nachzuliefern);
