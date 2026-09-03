@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-04",
+      "date": "2026-09-04",
+      "style": "Sachlich",
+      "title": "Chat bleibt beim Schreiben am Ende",
+      "intro": "Manchmal blieb die Nachrichtenliste oben stehen, neue Nachrichten landeten unsichtbar darunter, und nach unten kam man nur mit einem Neuladen. In anderen Fällen wanderte der Text beim Scrollen nach oben, ließ unten Leerraum und sprang dann zurück. Beides ist behoben.",
+      "items": [
+        "Die Liste hielt sich während ihres eigenen sanften Gleitens ans Ende fälschlich für vom Nutzer hochgescrollt. Kam in diesem Moment eine Nachricht oder lud ein Bild nach, folgte die Ansicht nicht mehr. Jetzt gilt nur noch eine echte Nutzeraktion als Hochscrollen: Mausrad, Finger, Tasten oder der Griff an die Scrollleiste.",
+        "Nachgemessen mit 40 Nachrichten im Sekundentakt: vorher stand die Ansicht ab der 19. Nachricht 650 Pixel über dem Ende, jetzt bleibt sie durchgehend unten."
+      ]
+    },
+    {
       "id": "2026-09-03.9",
       "date": "2026-09-03",
       "style": "Sachlich",
