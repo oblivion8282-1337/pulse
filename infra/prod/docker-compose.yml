@@ -438,7 +438,7 @@ services:
     # instantly. The AV1 temporal-delimiter patch still applies cleanly and is
     # kept. Rollback: revert this commit → `:1.17.1-pulse` (image still in GHCR
     # and cached on the host) + `docker compose up -d pulse_mediamtx`.
-    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse6
+    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse7
     container_name: pulse_mediamtx
     restart: unless-stopped
     network_mode: host
@@ -476,9 +476,8 @@ services:
       # Sekunde bei voellig gesunder Leitung). Voller Hintergrund:
       # docs/superpowers/specs/2026-08-21-dependency-descriptor-design.md
       PULSE_DEPENDENCY_DESCRIPTOR: "1"
-      # Patch 0007 (2026-09-03), beides erst wirksam ab Bild `1.19.1-pulse7`;
-      # das Bild `pulse6` ignoriert die Variablen, sie duerfen also schon hier
-      # stehen. Begruendung samt Messung im Kopf des Patches.
+      # Patch 0007 (2026-09-03), wirksam ab Bild `1.19.1-pulse7`. Begruendung
+      # samt Messung im Kopf des Patches.
       #
       # Verwirft MediaMTX selbst ein Bild (Uplink-Schub, Nachlieferung kam zu
       # spaet), fordert es beim Sender ein Vollbild an. Vorher tat das

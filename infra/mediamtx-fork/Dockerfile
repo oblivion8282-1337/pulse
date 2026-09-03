@@ -82,9 +82,9 @@ ARG MEDIAMTX_VERSION=1.19.1
 # 7 (2026-09-03): Patch `0007-vollbild-nach-verwurf` — MediaMTX fordert selbst
 # ein Vollbild an, wenn sein RTP-Decoder ein Bild verwirft, und das
 # Umordnungsfenster fuer Bildspuren wird einstellbar. Beides hinter
-# `PULSE_KEYFRAME_ON_DISCARD` / `PULSE_VIDEO_REORDER_BUFFER`; die drei
-# Compose-Dateien setzen die Variablen bereits, zeigen aber weiter auf
-# `pulse6`, bis dieses Bild gebaut ist (Reihenfolge s. oben).
+# `PULSE_KEYFRAME_ON_DISCARD` / `PULSE_VIDEO_REORDER_BUFFER`. Der Workflow
+# hat `1.19.1-pulse7` am 2026-09-03 gebaut, die drei Compose-Dateien zeigen
+# seitdem darauf (Reihenfolge s. oben, so eingehalten).
 ARG PULSE_REVISION=7
 ARG GO_VERSION=1.26
 

@@ -21,7 +21,7 @@ services:
     # stehen im Kopf von `infra/mediamtx-fork/Dockerfile`.
     #
     # Der Patch-Stand steht seit 2026-08-04 im Tag (`PULSE_REVISION` im
-    # Dockerfile) — vorher hieß jeder Bau `-pulse`. `-pulse6` (2026-08-27)
+    # Dockerfile) — vorher hieß jeder Bau `-pulse`. `-pulse7` (2026-09-03)
     # trägt: den Rückweg für Vollbild-Anforderungen, den abschaltbaren
     # Keyframe-Takt, FlexFEC, die verlustgeregelte Parität, den
     # Kontinuitäts-Fix für Nachlieferungen und die Bildmarke.
@@ -42,7 +42,7 @@ services:
     # beide Tags auf denselben Digest eines 1.17.1-Images zeigten — der
     # Container meldete `v1.17.1-dirty`. Nach einem Bump also
     # `docker logs streaming-mediamtx | head -1` pruefen, nicht den Tag glauben.
-    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse6
+    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse7
     container_name: streaming-mediamtx
     restart: unless-stopped
     network_mode: host
@@ -68,7 +68,7 @@ services:
       # Sekunde bei voellig gesunder Leitung). Voller Hintergrund:
       # docs/superpowers/specs/2026-08-21-dependency-descriptor-design.md
       PULSE_DEPENDENCY_DESCRIPTOR: "1"
-      # Patch 0007 (2026-09-03), wirksam erst ab Bild `1.19.1-pulse7`. Muss
+      # Patch 0007 (2026-09-03), wirksam ab Bild `1.19.1-pulse7`. Muss
       # 1:1 mit infra/prod/docker-compose.yml uebereinstimmen; Begruendung dort
       # und im Kopf des Patches.
       PULSE_KEYFRAME_ON_DISCARD: "1"
