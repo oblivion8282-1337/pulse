@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-04.2",
+      "date": "2026-09-04",
+      "style": "Sachlich",
+      "title": "Ansicht folgt dem Gerät, nicht der Fensterbreite",
+      "intro": "Die App kannte drei Ansichten — Desktop, Tablet und Mobil —, die allein an der Fensterbreite hingen: Wer am Rechner das Fenster verkleinerte, bekam plötzlich die Handy- oder Tablet-Anordnung, mit umgebauter Navigation und verschwundener Community-Leiste. Die Ansicht hängt jetzt am Gerät, nicht an der Fenstergröße.",
+      "items": [
+        "Am Rechner (Desktop-App wie Browser) bleibt die Desktop-Anordnung in jeder Fenstergröße — Community-Leiste, Spalten und Anordnung bleiben stehen, das Fenster wird einfach schmaler.",
+        "Handys zeigen weiterhin die mobile Ansicht, auch im Querformat. Tablets zeigen die Tablet-Anordnung mit Navigations-Spalte — durchgängig, nicht je nach Fensterbreite.",
+        "Der Einstellungen-Reiter „Layout“ erscheint nur noch bei mobiler Ansicht — er ordnet ausschließlich die mobile Navigationsleiste.",
+        "Audio- und Video-Anhänge in Direktnachrichten erschienen als winziges, abgeschnittenes Feld. Sie zeigen sich jetzt als vollwertiger Player in der Nachricht."
+      ]
+    },
+    {
       "id": "2026-09-04",
       "date": "2026-09-04",
       "style": "Sachlich",
