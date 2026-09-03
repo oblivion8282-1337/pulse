@@ -19,7 +19,7 @@
  * Location: ``<userData>/sidecar.log`` (on Windows
  * ``%APPDATA%\Pulse\sidecar.log``), beside the existing ``updater.log``.
  * Bounded by rotation: once the file passes {@link MAX_BYTES} it is renamed to
- * ``sidecar.log.old`` and a fresh file starts (keeps ~one back-file → ≤ ~4 MB
+ * ``sidecar.log.old`` and a fresh file starts (keeps ~one back-file → ≤ ~32 MB
  * total). Everything is best-effort — logging must never break the sidecar.
  *
  * Secret hygiene (project rule: never log stream tokens): anything that looks
@@ -34,8 +34,20 @@ import { createNoiseFilter } from './sidecar-log-noise';
 
 const FILE = 'sidecar.log';
 const OLD_FILE = 'sidecar.log.old';
-/** Rotate the active log once it exceeds this — keeps one `.old` back-file. */
-const MAX_BYTES = 2 * 1024 * 1024;
+/**
+ * Rotate the active log once it exceeds this — keeps one `.old` back-file.
+ *
+ * 16 MB, was 2 MB until 2026-09-03. The per-second diagnostics (`Verteilung je
+ * Bild`, `Encode-Latenz`, `Zeitachse`) write roughly 2 MB per 40 minutes of
+ * streaming, so a two-hour stream rotated its own start away and one more
+ * stream evicted it entirely. That is exactly what happened when an AV1 viewer
+ * froze on 2026-09-03: by the time the log was read, the lines of the run in
+ * question were gone and the sender side of the incident could not be shown.
+ * 16 MB holds about five hours of streaming in the active file, ten with the
+ * back-file — a whole evening, at a size the log upload (which only ships the
+ * tail) never sees.
+ */
+const MAX_BYTES = 16 * 1024 * 1024;
 
 /** Secret-bearing patterns redacted from every logged line. */
 const SECRET_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [

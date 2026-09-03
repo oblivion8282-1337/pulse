@@ -476,6 +476,22 @@ services:
       # Sekunde bei voellig gesunder Leitung). Voller Hintergrund:
       # docs/superpowers/specs/2026-08-21-dependency-descriptor-design.md
       PULSE_DEPENDENCY_DESCRIPTOR: "1"
+      # Patch 0007 (2026-09-03), beides erst wirksam ab Bild `1.19.1-pulse7`;
+      # das Bild `pulse6` ignoriert die Variablen, sie duerfen also schon hier
+      # stehen. Begruendung samt Messung im Kopf des Patches.
+      #
+      # Verwirft MediaMTX selbst ein Bild (Uplink-Schub, Nachlieferung kam zu
+      # spaet), fordert es beim Sender ein Vollbild an. Vorher tat das
+      # niemand: der Zuschauer sieht einen lueckenlosen Strom, dem ein Bild
+      # fehlt, und mit 60 s Vollbild-Abstand stand der Schaden bis zum
+      # naechsten regulaeren Vollbild — belegt an fuenf Verwerfungen mit
+      # Zuschauern und null Anforderungen am Sender.
+      PULSE_KEYFRAME_ON_DISCARD: "1"
+      # Umordnungsfenster fuer BILDspuren, in Paketen (Vorgabe 64 = ~150 ms
+      # bei 4 Mbit/s, knapp UNTER der ersten NACK-Nachlieferung von ~160 ms).
+      # 128 gibt der Nachlieferung eine zweite Runde und haelt einen echten
+      # Verlust auf einer ruhigen Spur hoechstens ~1,3 s fest. Zweierpotenz.
+      PULSE_VIDEO_REORDER_BUFFER: "128"
       # FlexFEC-Paritaet auf dem WHEP-Ausgang. **Bedingung dafuer, dass ein
       # Verlust ueberlebt wird** — nicht bloss eine Verbesserung: ein
       # Vollbild-Strom heilt zwar am naechsten Vollbild byte-perfekt, aber der

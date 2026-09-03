@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-03.3",
+      "date": "2026-09-03",
+      "style": "Sachlich",
+      "title": "Bildschirmübertragung: Standbild nach Netzstörung heilt schneller",
+      "intro": "Bricht auf der Leitung des Senders kurz etwas weg, konnte das Bild beim Zuschauer bis zu einer Minute stehen bleiben, obwohl die Verbindung stand. Der Server bemerkt so einen Ausfall jetzt selbst und fordert sofort ein neues Vollbild an.",
+      "items": [
+        "Der Streaming-Server erkennt, wenn ihm nach einem Paketverlust ein ganzes Bild fehlt, und bittet den Sender umgehend um ein Vollbild. Bisher musste das der Browser des Zuschauers bemerken, und der konnte es nicht, weil der Strom für ihn lückenlos aussah.",
+        "Nachgelieferte Pakete bekommen am Server mehr Zeit anzukommen, bevor ein Bild verworfen wird.",
+        "Das Diagnose-Protokoll der Desktop-App hält jetzt einen ganzen Abend Übertragung vor statt rund 40 Minuten, damit ein gemeldeter Fehler beim Nachsehen noch im Protokoll steht."
+      ],
+      "outro": "Die Server-Änderung wird mit dem nächsten Streaming-Server-Update aktiv."
+    },
+    {
       "id": "2026-09-03.2",
       "date": "2026-09-03",
       "style": "Sachlich",
