@@ -22,10 +22,12 @@
  * Zusage nicht stillschweigend kassieren.
  */
 import {
+  STORE_NAME,
   openIdentityDb,
   idbGetIdentity,
   idbDeleteIdentity
 } from '../identity/idb-shared';
+import { pickleartVon } from './pickelUebergangPlan';
 
 /** Das Geheimnis selbst. */
 export const IDB_KEY_PICKELGEHEIMNIS = 'pulse.krypto-pickelgeheimnis';
@@ -66,11 +68,38 @@ export async function pickelmarkeLesen(db: IDBDatabase): Promise<unknown> {
  * und wuerde mit `PICKELGEHEIMNIS_FEHLT` haengenbleiben, statt sich als
  * frisches Geraet zu verhalten.
  */
+/** Loescht alle Krypto-Eintraege (Konto, Sitzungen, Gruppen) — nichts sonst
+ *  im Identitaets-Store. */
+function kryptoZustandWischen(db: IDBDatabase): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const speicher = tx.objectStore(STORE_NAME);
+    const anfrage = speicher.getAllKeys();
+    anfrage.onsuccess = () => {
+      for (const k of anfrage.result) {
+        if (pickleartVon(String(k)) !== null) speicher.delete(k);
+      }
+    };
+    anfrage.onerror = () => reject(anfrage.error);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('KRYPTOZUSTAND_WISCHEN_ABGEBROCHEN'));
+    tx.oncomplete = () => resolve();
+  });
+}
+
 export async function geraeteGeheimnisWischen(): Promise<void> {
   try {
     const db = await openIdentityDb();
     await idbDeleteIdentity(db, IDB_KEY_PICKELMARKE);
     await idbDeleteIdentity(db, IDB_KEY_PICKELGEHEIMNIS);
+    // Den damit eingefrorenen Zustand MIT loeschen. Bis zum 2026-09-03
+    // blieb er stehen — mit Marke und Geheimnis weg, aber ohne den Schluessel
+    // dazu. Der naechste Start hielt ihn fuer einen offenen Uebergang,
+    // scheiterte am Auftauen und blieb ohne Krypto haengen (Voll-Befund an
+    // `pickelUebergangPlan.ts::verlustPlan`). Der Zweck dieser Funktion war
+    // immer, dass der naechste Nutzer den Zustand des vorigen nicht LIEST;
+    // ihn zu loeschen ist die Form, die das auch einloest.
+    await kryptoZustandWischen(db);
     db.close();
   } catch {
     // Best-effort — wie `wipeKeypair()`.

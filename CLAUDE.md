@@ -295,6 +295,21 @@ an nur EINER Stelle korrigiert" weiter unten warnt.
   Morgen desselben Tages hatte nur den Fall „Kanal offen, Self-Host aktiv"
   geheilt, und der Zwei-Browser-Nachweis hält den Kanal offen — deshalb sah
   ihn kein Test (`test_einliefern_weckt_das_empfaengerkonto_auch_ohne_offenen_kanal`).
+- **Abmelden muss den eingefrorenen Krypto-Zustand MIT löschen, nicht nur
+  Geheimnis und Marke** (`geraeteGeheimnis.ts::geraeteGeheimnisWischen`,
+  seit 2026-09-03). Bis dahin blieb der Zustand ohne seinen Schlüssel stehen,
+  der nächste Start hielt „Marke offen" für einen ausstehenden Übergang,
+  versuchte den alten Anmeldeschlüssel, scheiterte („Auftauen
+  fehlgeschlagen") und warf — bei jedem Start, ohne Ausweg. Folge: das
+  Gerät hatte keine Krypto, keine DM kam an, keine liess sich lesen, und
+  nichts meldete es ausser einer `console.error`. Ein Tag Fehlersuche an
+  fünf anderen Stellen (Allowlist, Archiv-Route, Weckruf je Konto,
+  Sitzungs-Rückfall), alle real, keine die Ursache. **Die Lehre:** ein
+  `catch`, das still `null` zurückgibt, versteckt genau den Befund, den man
+  braucht; seit demselben Tag melden `zustellungOeffnen.ts` und der
+  Abhol-Handler in der Konsole, WARUM ein Umschlag nicht aufgeht. Der
+  Übergang selbst (`pickelUebergang.ts`) verwirft seither unlesbaren
+  Zustand (`verlustPlan`) statt zu werfen — er ist ohnehin verloren.
 - **Im Gate seit Anfang an**: `scripts/gate-rust.sh` matcht `streaming/pulse-*`
   **und** `krypto/pulse-*`. Ohne die zweite Zeile wären die Tests der Kiste in
   keinem Gate gelaufen (17 Stück, Stand 2026-08-28 — die Zahl wächst, der

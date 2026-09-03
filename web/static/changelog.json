@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-03.7",
+      "date": "2026-09-03",
+      "style": "Sachlich",
+      "title": "Verschlüsselung nach dem Abmelden wieder funktionsfähig",
+      "intro": "Wer sich abgemeldet und wieder angemeldet hatte, blieb ohne funktionierende Verschlüsselung: Direktnachrichten kamen weder an noch ließen sie sich lesen, und jedes Neuladen scheiterte an derselben Stelle. Das ist behoben.",
+      "items": [
+        "Beim Abmelden wurde der Schlüssel zum Gerätezustand gelöscht, der Zustand selbst aber nicht. Beim nächsten Start versuchte die App, ihn mit einem Schlüssel zu öffnen, der nie dazu gehörte, und blieb an diesem Fehler hängen. Jetzt wird beim Abmelden beides gelöscht, und ein Zustand, der sich mit keinem vorhandenen Schlüssel öffnen lässt, wird verworfen. Das Gerät startet dann als frisches Gerät.",
+        "Betroffene Geräte heilen sich beim nächsten Neuladen von selbst. Nachrichten, die in der Zwischenzeit an das alte Gerät gingen, sind nicht mehr lesbar; alles ab jetzt kommt wieder an."
+      ]
+    },
+    {
       "id": "2026-09-03.6",
       "date": "2026-09-03",
       "style": "Sachlich",
