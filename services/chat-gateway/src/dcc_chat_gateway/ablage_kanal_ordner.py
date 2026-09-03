@@ -72,7 +72,11 @@ _NACHTRAG_BATCH = 100
 #: prozessweit und ohne Verfall: ein Neustart faehrt es einmal erneut (billig
 #: und richtig), und wer den Ordner draussen loescht, bekommt ihn beim
 #: naechsten Neustart zurueck — nicht frueher.
-_ORDNER_ANGELEGT: set[int] = set()
+#: Schluessel ist (Kanal, Laufwerksadresse), nicht der Kanal allein: wechselt
+#: der Ersteller seinen Freigabe-Link, ist der Ordner auf dem NEUEN Laufwerk
+#: noch nicht da, und ein Cache nur nach Kanal-ID liesse jedes PUT dort
+#: scheitern — bis zum Prozessneustart, mit endlos wiederholtem Nachtrag.
+_ORDNER_ANGELEGT: set[tuple[int, str]] = set()
 
 
 def ordner_zwischenspeicher_leeren() -> None:
@@ -127,9 +131,10 @@ async def ablegen(session: AsyncSession, nutzlast: DmNutzlast) -> bool:
         raise AblageAbrufFehler("kein_laufwerk")
 
     pfad = ordner_pfad(nutzlast.channel_id)
-    if nutzlast.channel_id not in _ORDNER_ANGELEGT:
+    marke = (nutzlast.channel_id, laufwerk.freigabe_adresse)
+    if marke not in _ORDNER_ANGELEGT:
         await ordner_anlegen_am_laufwerk(basis=laufwerk.freigabe_adresse, pfad=pfad)
-        _ORDNER_ANGELEGT.add(nutzlast.channel_id)
+        _ORDNER_ANGELEGT.add(marke)
     await schreibe_aufs_laufwerk(
         basis=laufwerk.freigabe_adresse,
         pfad=f"{pfad}/{datei_name(nutzlast.id)}",
@@ -255,7 +260,11 @@ async def festigung_nachlaufen(
                 )
                 # Die Session kann nach einem DB-seitigen Fehler unbrauchbar
                 # sein — zuruecksetzen, BEVOR der Nachtrag geschrieben wird.
-                await session.rollback()
+                # Auch das Zuruecksetzen selbst darf die Hintergrundaufgabe
+                # nicht verlassen: die Antwort ist laengst draussen, ein Wurf
+                # hier landet nur im Log des Workers.
+                if not await _still_zuruecksetzen(session, nutzlast_id):
+                    continue
                 if channel_id is not None:
                     try:
                         await _nachtrag_vormerken(session, nutzlast_id, channel_id)
@@ -263,7 +272,17 @@ async def festigung_nachlaufen(
                         log.warning(
                             "ablage_kanal_nachtrag_nicht_schreibbar nutzlast=%s", nutzlast_id
                         )
-                        await session.rollback()
+                        await _still_zuruecksetzen(session, nutzlast_id)
+
+
+async def _still_zuruecksetzen(session: AsyncSession, nutzlast_id: int) -> bool:
+    """Rollback, der nie wirft — ``False``, wenn die Session verloren ist."""
+    try:
+        await session.rollback()
+    except Exception:  # noqa: BLE001
+        log.warning("ablage_kanal_session_verloren nutzlast=%s", nutzlast_id)
+        return False
+    return True
 
 
 __all__ = [

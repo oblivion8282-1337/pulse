@@ -14,6 +14,7 @@ import {
   STORE_NACHRICHTEN,
   STORE_ANHAENGE,
   INDEX_KANAL,
+  INDEX_KRYPTO,
   type AnhangBytes,
   type Satz
 } from './schema';
@@ -262,36 +263,27 @@ export function verlaufSatzAnhangIds(
 }
 
 /** Die lokale Nachrichten-ID des Satzes, der `kryptoId` als Absender-ID
- *  fuehrt — fuer den Loesch-Frame (`krypto/loeschZiel.ts`, s. dortigen
- *  Modulkopf): ein empfangener Satz liegt unter der Zustellungs-ID, der
- *  Frame nennt die Absender-ID. Bereichs-Cursor ueber den Kanal wie in
- *  `verlaufLesenSaetze`; `null`, wenn kein Satz dieses Kontos sie traegt. */
+ *  fuehrt — fuer den Loesch-Frame (`krypto/loeschZiel.ts`) und den
+ *  Doppel-Riegel (`verlauf/kanonischeId.ts`): ein empfangener Satz liegt
+ *  unter der Zustellungs-ID, Frame und Datei nennen die Absender-ID. Ueber
+ *  den `kryptoId`-Index (Fassung 3), nicht per Kanal-Cursor: der Riegel
+ *  fragt bei JEDER Nachricht, und der Treffer fehlt im Normalfall. `null`,
+ *  wenn kein Satz dieses Kontos in diesem Kanal sie traegt. */
 export function verlaufSatzIdFuerKryptoId(
   kanalId: string,
   kryptoId: string,
   kontoId: string
 ): Promise<string | null> {
-  const bereich = IDBKeyRange.bound(
-    sortierSchluessel(kanalId, ''),
-    sortierSchluessel(kanalId, OBERE_ID)
-  );
   return mitVerbindung(
     (db) =>
       new Promise<string | null>((resolve, reject) => {
         const tx = db.transaction(STORE_NACHRICHTEN, 'readonly');
-        const req = tx.objectStore(STORE_NACHRICHTEN).openCursor(bereich);
+        const req = tx.objectStore(STORE_NACHRICHTEN).index(INDEX_KRYPTO).getAll(kryptoId);
         req.onsuccess = () => {
-          const cursor = req.result;
-          if (!cursor) {
-            resolve(null);
-            return;
-          }
-          const satz = cursor.value as Satz;
-          if (satz.kryptoId === kryptoId && gehoertZuKonto(satz, kontoId)) {
-            resolve(satz.nachrichtId);
-            return;
-          }
-          cursor.continue();
+          const treffer = (req.result as Satz[]).find(
+            (satz) => satz.kanalId === kanalId && gehoertZuKonto(satz, kontoId)
+          );
+          resolve(treffer ? treffer.nachrichtId : null);
         };
         req.onerror = () => reject(req.error);
       })

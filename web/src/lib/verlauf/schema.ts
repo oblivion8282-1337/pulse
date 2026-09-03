@@ -21,12 +21,18 @@ export const DB_NAME = 'pulse-verlauf';
  * haette, kann es nicht geben — der verschluesselte Weg ist mit diesem
  * Speicher zusammen entstanden.
  */
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 export const STORE_NACHRICHTEN = 'nachrichten';
 /** Entschluesselte Anhang-Bytes (Etappe E) — s. `anhangSchema` unten. */
 export const STORE_ANHAENGE = 'anhaenge';
 /** Nach Kanal, damit ein Kanal am Stueck gelesen werden kann. */
 export const INDEX_KANAL = 'nach_kanal';
+/** Fassung 3 (2026-09-03): Index auf `kryptoId`. Der Doppel-Riegel in
+ *  `krypto/zustellungOeffnen.ts` fragt seit der Kanal-Ordner-Ablage bei JEDER
+ *  entschluesselten Nachricht, ob ihre kanonische ID schon als `kryptoId`
+ *  eines Satzes liegt — ohne Index war das ein voller Cursor ueber den Kanal,
+ *  je Nachricht, unter der Kontosperre. */
+export const INDEX_KRYPTO = 'nach_krypto';
 
 /** Ein Satz des lokalen Nachrichtenverlaufs — eine Zeile in `STORE_NACHRICHTEN`. */
 export type Satz = {

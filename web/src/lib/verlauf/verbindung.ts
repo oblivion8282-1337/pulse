@@ -12,7 +12,14 @@
  * Muster wie `lib/identity/idb-shared.ts`: eine geteilte, zwischengespeicherte
  * Verbindung.
  */
-import { DB_NAME, DB_VERSION, STORE_NACHRICHTEN, STORE_ANHAENGE, INDEX_KANAL } from './schema';
+import {
+  DB_NAME,
+  DB_VERSION,
+  STORE_NACHRICHTEN,
+  STORE_ANHAENGE,
+  INDEX_KANAL,
+  INDEX_KRYPTO
+} from './schema';
 
 let _dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -33,6 +40,12 @@ function _openFresh(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_ANHAENGE)) {
         const anhaenge = db.createObjectStore(STORE_ANHAENGE, { keyPath: 'id' });
         anhaenge.createIndex(INDEX_KANAL, 'kanalId');
+      }
+      // Fassung 3: Index auf `kryptoId` (s. `schema.ts`). Ueber die
+      // Upgrade-Transaktion, weil der Speicher bei 2 -> 3 schon existiert.
+      const nachrichten = req.transaction!.objectStore(STORE_NACHRICHTEN);
+      if (!nachrichten.indexNames.contains(INDEX_KRYPTO)) {
+        nachrichten.createIndex(INDEX_KRYPTO, 'kryptoId');
       }
     };
     req.onsuccess = () => {
