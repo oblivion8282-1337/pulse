@@ -280,7 +280,21 @@ an nur EINER Stelle korrigiert" weiter unten warnt.
   REST-Form: ein `chatApi`-Aufruf ohne `route` geht an den AKTIVEN Server —
   `ws/gapFill.ts` fragte so den Self-Host nach dem Verlauf einer Cloud-DM
   (404, still verschluckt); die Verbindung reicht seither ihren eigenen
-  `serverId` durch.
+  `serverId` durch. **Dritter Fund derselben Klasse am selben Abend:** die
+  Archiv-Routen (`api/ablageArchiv.ts`) liefen ohne Route — das Laufwerk
+  landete auf dem Self-Host, die Cloud (die beim Versand verteilt) hatte
+  NULL Einträge, ein empfangener Anhang blieb leer. Seither Cloud-Route als
+  Vorgabe dort, und `archivAdapter.ts` trägt das Laufwerk beim ersten 404
+  selbst nach.
+- **Der Weckruf `postfach_neu` geht seit 2026-09-03 auch je KONTO**
+  (`manager.publish_user_event`, `routes/postfach.py` Schritt 5), nicht nur an
+  den Kanal. `manager.publish(kanal)` erreicht nur Sockets, die den Kanal
+  gerade anzeigen (`ctx.subs`) — wer die Unterhaltung nicht offen hatte,
+  bekam bis dahin nichts bis zum Reload: kein Zähler, kein Ton. Der
+  Klartext-Weg hat dafür `dm_bump` an alle. Die Allowlist-Korrektur vom
+  Morgen desselben Tages hatte nur den Fall „Kanal offen, Self-Host aktiv"
+  geheilt, und der Zwei-Browser-Nachweis hält den Kanal offen — deshalb sah
+  ihn kein Test (`test_einliefern_weckt_das_empfaengerkonto_auch_ohne_offenen_kanal`).
 - **Im Gate seit Anfang an**: `scripts/gate-rust.sh` matcht `streaming/pulse-*`
   **und** `krypto/pulse-*`. Ohne die zweite Zeile wären die Tests der Kiste in
   keinem Gate gelaufen (17 Stück, Stand 2026-08-28 — die Zahl wächst, der

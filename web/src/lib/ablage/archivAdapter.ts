@@ -25,7 +25,14 @@
  */
 
 import type { AblageAdapter } from './adapter.ts';
-import { archivAbruf, archivListe, archivLoeschen, archivSchreiben } from '../api/ablageArchiv';
+import {
+	archivAbruf,
+	archivLaufwerkSetzen,
+	archivListe,
+	archivLoeschen,
+	archivSchreiben
+} from '../api/ablageArchiv';
+import { ApiError } from '../api/client';
 import { mitGeduldBei429 } from './geduld429.ts';
 
 /**
@@ -47,11 +54,45 @@ export { direktErreichbar } from './archivZiel.ts';
  * **Bei 429 wartet er** (`geduld429.ts`): der Server begrenzt je Nutzer und
  * Minute, und die Sicherung schreibt ihre Erstsicherung in einem Schub.
  */
-export function archivUeberPulse(): AblageAdapter {
+export function archivUeberPulse(adresse?: string): AblageAdapter {
+	const heilend = <T>(aufruf: () => Promise<T>) =>
+		mitGeduldBei429(() => mitLaufwerkNachtragen(adresse, aufruf));
 	return {
-		schreibe: (datei, inhalt) => mitGeduldBei429(() => archivSchreiben(datei, inhalt)),
-		lese: (datei) => mitGeduldBei429(() => archivAbruf(datei)),
-		liste: () => mitGeduldBei429(() => archivListe()),
-		lösche: (datei) => mitGeduldBei429(() => archivLoeschen(datei))
+		schreibe: (datei, inhalt) => heilend(() => archivSchreiben(datei, inhalt)),
+		lese: (datei) => heilend(() => archivAbruf(datei)),
+		liste: () => heilend(() => archivListe()),
+		lösche: (datei) => heilend(() => archivLoeschen(datei))
 	};
+}
+
+/** Läuft je Sitzung höchstens einmal — ein Laufwerk, das der Server auch nach
+ *  dem Nachtragen nicht kennt, ist ein echter Fehler und keine Lücke. */
+let nachgetragen = false;
+
+/**
+ * **Trägt das Laufwerk bei der Cloud nach, wenn sie es nicht kennt.**
+ *
+ * Bis zum 2026-09-03 ging jeder Aufruf der Archiv-Routen an den AKTIVEN
+ * Server (`api/ablageArchiv.ts`, dort steht der Grund). Wer sein Archiv mit
+ * aktivem Self-Host eingerichtet hat, hat die Freigabe-Adresse damit auf dem
+ * Self-Host hinterlegt — die Cloud, die seither zuständig ist, hat sie nie
+ * gesehen und antwortet auf alles mit 404 „no archive drive connected".
+ * Nachgezählt am Tag der Umstellung: null Einträge in der Cloud-Tabelle,
+ * bei laufender Sicherung. Der Klient kennt die Adresse aber (sie steht in
+ * seiner Verbindung), also trägt er sie beim ersten 404 selbst nach und
+ * wiederholt den Aufruf — statt den Nutzer in die Einstellungen zu schicken,
+ * um etwas zu speichern, das er längst gespeichert hat.
+ *
+ * Ein 404 kann auch „Datei nicht da" heißen (`archivAbruf` liefert dafür
+ * `null`, wirft also nicht) — hier landet nur das 404 der Laufwerksprüfung.
+ */
+async function mitLaufwerkNachtragen<T>(adresse: string | undefined, aufruf: () => Promise<T>) {
+	try {
+		return await aufruf();
+	} catch (e) {
+		if (!adresse || nachgetragen || !(e instanceof ApiError) || e.status !== 404) throw e;
+		nachgetragen = true;
+		await archivLaufwerkSetzen(adresse);
+		return await aufruf();
+	}
 }
