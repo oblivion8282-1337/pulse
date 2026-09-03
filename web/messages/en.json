@@ -3249,5 +3249,10 @@
   "seite_invites_titel": "Invites",
   "kanal_ordner_archiv_erfordert": "First connect your Nextcloud in the storage section as an archive.",
   "speicher_archiv_trennen_kanaele": "Nextcloud channels stored on this drive will become unreadable for everyone.",
-  "kanal_ordner_anlegen_knopf": "Create in account drive"
+  "kanal_ordner_anlegen_knopf": "Create in account drive",
+  "kanal_ordner_verbunden_hinweis": "This channel lives in its creator's account drive.",
+  "kanal_ordner_aufforderung_hinweis": "No folder for this channel in the account drive yet.",
+  "kanal_ordner_fehler_kein_recht": "Only someone who can manage this channel may connect it to a drive.",
+  "kanal_ordner_fehler_belegt": "This channel is already connected to a drive.",
+  "kanal_ordner_fehler_allgemein": "Connecting failed."
 }

@@ -3249,5 +3249,10 @@
   "seite_invites_titel": "Einladungen",
   "kanal_ordner_archiv_erfordert": "Verbinde zuerst deine Nextcloud im Speicher-Bereich als Archiv.",
   "speicher_archiv_trennen_kanaele": "Nextcloud-Kanäle, die in diesem Laufwerk liegen, werden für alle unlesbar.",
-  "kanal_ordner_anlegen_knopf": "Im Konto-Laufwerk anlegen"
+  "kanal_ordner_anlegen_knopf": "Im Konto-Laufwerk anlegen",
+  "kanal_ordner_verbunden_hinweis": "Dieser Kanal liegt im Konto-Laufwerk seines Erstellers.",
+  "kanal_ordner_aufforderung_hinweis": "Noch kein Ordner für diesen Kanal im Konto-Laufwerk angelegt.",
+  "kanal_ordner_fehler_kein_recht": "Nur wer diesen Kanal verwalten darf, kann ihn mit einem Laufwerk verbinden.",
+  "kanal_ordner_fehler_belegt": "Dieser Kanal ist bereits mit einem Laufwerk verbunden.",
+  "kanal_ordner_fehler_allgemein": "Verbinden fehlgeschlagen."
 }

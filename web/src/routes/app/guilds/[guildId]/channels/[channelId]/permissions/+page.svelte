@@ -114,7 +114,7 @@
           {editorPermissions}
         />
       {:else if reiter === 'laufwerk' && zeigeLaufwerkReiter}
-        <KanalDateiablageVerbinden kanalId={channelId} />
+        <KanalDateiablageVerbinden kanalId={channelId} {guildId} />
       {:else}
         <PruefenAnsicht {guildId} {channelId} kanalName={channel.name} />
       {/if}
