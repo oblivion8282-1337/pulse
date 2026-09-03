@@ -30,6 +30,7 @@ import {
 import { leseNachrichtNutzlast } from './nachrichtNutzlast';
 import { baueEmpfangeneNachricht } from './empfangeneNachricht';
 import { absenderErmitteln } from './absenderErmitteln';
+import { oeffneMitRueckfall } from './sitzungsRueckfall';
 import { PRIVATE_GRUPPEN_ENABLED } from './schalter';
 import { ABLAGE_KANAL_ENABLED } from '../featureFlags';
 import {
@@ -110,30 +111,44 @@ export async function zustellungOeffnen(
 
   return mitSitzungssperre(z.channel_id, z.absender_device_pubkey, async () => {
     try {
-      let sitzung = await sitzungLaden(z.channel_id, z.absender_device_pubkey);
-      let klartextBytes: Uint8Array;
-
-      if (sitzung) {
-        klartextBytes = sitzung.entschluesseln(new Umschlag(z.art, z.daten));
+      const vorhanden = await sitzungLaden(z.channel_id, z.absender_device_pubkey);
+      // Sitzungsaufbau nur, wenn der Umschlag einer ist (Art 0) und der
+      // Identitaetsschluessel mitkommt. Die Entscheidung "erst die alte
+      // Sitzung, dann der Aufbau" steht in `sitzungsRueckfall.ts` — mit dem
+      // Grund, warum es den Rueckfall geben MUSS.
+      const aufbauen =
+        z.art === 0 && z.absender_curve25519 !== null
+          ? () => {
+              const ergebnis = ident.sitzungEingehend(
+                z.absender_curve25519 as string,
+                new Umschlag(z.art, z.daten)
+              );
+              return { sitzung: ergebnis.sitzung(), klartext: ergebnis.klartext() };
+            }
+          : null;
+      const geoeffnet = oeffneMitRueckfall(
+        vorhanden,
+        (sitzung) => sitzung.entschluesseln(new Umschlag(z.art, z.daten)),
+        aufbauen
+      );
+      if (!geoeffnet) {
+        // Laufende Nachricht ohne bekannte Sitzung, oder Sitzungsaufbau
+        // ohne Identitaetsschluessel — nicht zu oeffnen, liegen lassen.
+        console.warn('[postfach] Umschlag nicht zu öffnen: keine Sitzung', { art: z.art });
+        return null;
+      }
+      const sitzung = geoeffnet.sitzung;
+      const klartextBytes = geoeffnet.klartext;
+      if (!geoeffnet.neu) {
         // Sichern VOR dem Quittieren — s. `empfangen.ts`-Modulkopf.
         await sitzungSichern(z.channel_id, z.absender_device_pubkey, sitzung);
       } else {
-        if (z.art !== 0 || z.absender_curve25519 === null) {
-          // Laufende Nachricht ohne bekannte Sitzung, oder Sitzungsaufbau
-          // ohne Identitaetsschluessel — nicht zu oeffnen, liegen lassen.
-          return null;
-        }
-        const ergebnis = ident.sitzungEingehend(
-          z.absender_curve25519,
-          new Umschlag(z.art, z.daten)
-        );
-        sitzung = ergebnis.sitzung();
-        klartextBytes = ergebnis.klartext();
         // ATOMAR mit dem Konto sichern. Ab hier ist `ident` bereits mutiert
         // (der Einmalschluessel ist verbraucht); ein Fehlschlag hier darf NUR
         // diese eine Zustellung liegen lassen (FIX 2, Runde 3), darum ein
         // eigener, nicht-schluckbarer Fehlertyp statt des normalen "unlesbar
-        // liegenlassen".
+        // liegenlassen". Ersetzt eine alte Sitzung zum selben Geraet — die
+        // hat gerade bewiesen, dass sie nicht mehr passt.
         try {
           await sitzungMitKontoAtomarSichern(
             ident,
@@ -146,15 +161,6 @@ export async function zustellungOeffnen(
         }
       }
 
-      // **VOR dem Nachrichten-Leser**: dieser Klartext koennte ein
-      // Gruppen-Verteilschluessel sein (Etappe G2). `leseNachrichtNutzlast`
-      // faellt bei allem ohne `text` auf den Legacy-Zweig zurueck und wuerde
-      // den Schluessel als Nachrichtentext anzeigen UND im lokalen Verlauf
-      // ablegen — die Reihenfolge ist deshalb keine Geschmacksfrage, s.
-      // Modulkopf von `gruppe/gruppenNutzlast.ts` und der Test
-      // `krypto-gruppe-nutzlast.test.ts::WARUM die Lesereihenfolge …`.
-      // Derselbe Doppel-Schalter wie oben: ein Verteilschluessel kann von
-      // einer privaten Gruppe ODER einem Ablage-Kanal stammen.
       if (
         (PRIVATE_GRUPPEN_ENABLED || ABLAGE_KANAL_ENABLED) &&
         (await verteilschluesselAufnehmen(z, klartextBytes))
@@ -186,6 +192,17 @@ export async function zustellungOeffnen(
       }
       // Entschluesseln fehlgeschlagen (fremde/kaputte Sitzung, korrupter
       // Umschlag) — NICHT quittieren, s. `empfangen.ts`-Modulkopf.
+      //
+      // Bis zum 2026-09-03 stand hier nur das `return null` — und eine
+      // Zustellung, die nicht zu oeffnen war, verschwand ohne jede Spur:
+      // kein Log, kein Zaehler, die Zeile blieb unquittiert liegen, und die
+      // Gegenseite schickte weiter in eine Sitzung, die hier nie ankam.
+      // Ohne Inhalt: der Fehlertext kommt aus dem Krypto-Kern, nie aus dem
+      // Umschlag.
+      console.warn('[postfach] Umschlag nicht zu öffnen', {
+        art: z.art,
+        fehler: err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+      });
       return null;
     }
   });
