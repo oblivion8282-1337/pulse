@@ -118,9 +118,9 @@ async def postfach_einliefern(
     zugriff = await _channel_zugriff_pruefen(session, cid_int, user)
     teilnehmer = zugriff.teilnehmer
 
-    # 3c. Festigung im Kanal-Ordner (``_postfach_festigung.py``) — dort
-    # steht, warum der Marker in DIESEN Commit gehoert und warum ueber den
-    # Inhalt dedupliziert wird.
+    # 3c. Bestand des Kanals (``_postfach_festigung.py``) — dort steht, warum
+    # der Marker in DIESEN Commit gehoert, warum ueber den Inhalt
+    # dedupliziert wird, und was den Pulse- vom Nextcloud-Weg trennt.
     festigung = await festigungslauf_starten(session, cid_int, body.nutzlasten)
 
     # 3b. Anhaenge (Etappe E). VOR dem Anlegen der Umschlaege: eine fremde
@@ -177,7 +177,7 @@ async def postfach_einliefern(
     uebersprungene_empfaenger: dict[str, None] = {}
 
     for eintrag, groesse in zip(body.nutzlasten, groessen, strict=True):
-        archiv_wirksam, marker_noetig = festigung.bewerten(eintrag.archiv, eintrag.daten)
+        urteil = festigung.bewerten(eintrag.archiv, eintrag.daten)
         empfaenger_zeilen: list[tuple[str, int]] = []
         for pubkey in dict.fromkeys(eintrag.empfaenger):  # Duplikate raus.
             # **Das Geraet muss zu DIESEM Gespraech gehoeren** — die Suche
@@ -268,13 +268,13 @@ async def postfach_einliefern(
             offene_je_geraet[pubkey] += 1
             offene_je_sender_und_geraet[pubkey] += 1
 
-        if not empfaenger_zeilen and not marker_noetig:
+        if not empfaenger_zeilen and not urteil.bestand:
             # Keine Zustellung moeglich -> keine Nutzlast anlegen (sonst
             # eine Zeile, die niemand je abholen kann) — und dem Absender
             # gemeldet (FIX 1), statt es in einem unbedingten Erfolg
             # verschwinden zu lassen.
             #
-            # **Ausnahme ``marker_noetig``:** ein Ordner-Kanal ohne
+            # **Ausnahme ``urteil.bestand``:** ein Ordner-Kanal ohne
             # Empfaengergeraet (nur der Ersteller drin) hat trotzdem einen
             # dauerhaften Bestand — genau er ist der Zweck des Kanals.
             verworfene_nutzlasten += 1
@@ -290,14 +290,13 @@ async def postfach_einliefern(
             art=eintrag.art,
             daten=eintrag.daten,
             groesse=groesse,
+            # Nur im Pulse-Weg: diese Zeile IST der dauerhafte Bestand des
+            # Kanals und gehoert danach keinem Loescher mehr.
+            archiv=urteil.pulse_archiv,
         )
         session.add(nutzlast_obj)
         festigung.vermerken(
-            session,
-            nutzlast_id=nutzlast_id,
-            channel_id=cid_int,
-            archiv_wirksam=archiv_wirksam,
-            marker_noetig=marker_noetig,
+            session, nutzlast_id=nutzlast_id, channel_id=cid_int, urteil=urteil
         )
         # Jede Nutzlast traegt denselben Anhang — bei einer DM ist sie je
         # Empfaengergeraet eine andere, der hochgeladene Klumpen aber nur
@@ -330,7 +329,12 @@ async def postfach_einliefern(
     # (``ablage_kanal_ordner.py``) und schluckt JEDEN Fehler; die Antwort
     # bleibt ein Erfolg, der Umschlag ist ja zugestellt. Der Marker gegen den
     # Wettlauf mit der Quittung steht schon im Commit oben.
-    background.add_task(festigung_nachlaufen, festigung.ids, ableger=ablegen_im_ordner)
+    #
+    # **Im Pulse-Weg bleibt die Liste leer** — der Bestand steht schon in der
+    # eben committeten Zeile, es gibt nichts nachzureichen. Die Aufgabe wird
+    # dann gar nicht erst angehaengt, statt sie leer laufen zu lassen.
+    if festigung.ids:
+        background.add_task(festigung_nachlaufen, festigung.ids, ableger=ablegen_im_ordner)
 
     # 5./6. Weckruf (WS) + Push — ausgelagert nach
     # ``postfach_benachrichtigung.py`` (Groessen-Policy), Verhalten

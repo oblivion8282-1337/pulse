@@ -154,10 +154,16 @@ class AblageKontoLaufwerk(Base):
 
 
 class AblageKanalOrdner(Base):
-    """Kanal liegt als Ordner ``kanaele/<channel_id>/`` im Konto-Laufwerk
-    seines Erstellers; der Server legt ab (Entwurf 2026-09-02, §2-3).
-    Kein ``freigabe_adresse`` hier — die kommt aus ``AblageKontoLaufwerk``
-    des Erstellers, es gibt EINEN Link je Konto."""
+    """Der Ordner eines verschluesselten Kanals — bei Pulse oder in der
+    Nextcloud seines Erstellers (Entwurf 2026-09-02 §2-3, Entscheidung
+    2026-09-03).
+
+    Kein ``freigabe_adresse`` hier — die kommt bei ``speicher == "nextcloud"``
+    aus ``AblageKontoLaufwerk`` des Erstellers, es gibt EINEN Link je Konto.
+    Bei ``speicher == "pulse"`` gibt es gar keine: der Bestand steht in
+    ``dm_nutzlasten`` (Spalte ``archiv``), und die beiden Leserouten
+    beantworten Liste und Datei aus Postgres.
+    """
 
     __tablename__ = "ablage_kanal_ordner"
 
@@ -165,6 +171,13 @@ class AblageKanalOrdner(Base):
         BigInteger, ForeignKey("channels.id", ondelete="CASCADE"), primary_key=True
     )
     ersteller_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    #: ``pulse`` oder ``nextcloud``. **Die Vorgabe hier ist ``nextcloud``,
+    #: die der Route ``pulse``** — eine Zeile ohne ausdrueckliche Angabe
+    #: stammt aus der Zeit vor dem Pulse-Speicher und liegt in der Cloud
+    #: ihres Erstellers.
+    speicher: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'nextcloud'"), default="nextcloud"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

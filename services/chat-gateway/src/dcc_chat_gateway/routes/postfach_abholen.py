@@ -156,6 +156,14 @@ async def postfach_quittung(
         await session.execute(
             delete(DmNutzlast).where(
                 DmNutzlast.id == nutzlast_id,
+                # **Eine Archiv-Nutzlast faellt hier NIE** (Entscheidung
+                # 2026-09-03): sie IST der dauerhafte Bestand eines
+                # verschluesselten Kanals bei Pulse, und der ueberdauert
+                # jede Quittung — sonst waere die Nachricht fuer jeden
+                # spaeter Beitretenden weg, sobald das letzte anwesende
+                # Geraet sie abgeholt hat. Sie faellt nur mit ihrem Kanal
+                # (``routes/channels.py::delete_channel``).
+                DmNutzlast.archiv.is_(False),
                 ~exists(
                     select(DmZustellung.id).where(
                         DmZustellung.nutzlast_id == nutzlast_id

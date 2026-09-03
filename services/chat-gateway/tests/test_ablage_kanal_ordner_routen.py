@@ -24,6 +24,7 @@ from dcc_chat_gateway.models import (
     AblageKanalOrdner,
     AblageKontoLaufwerk,
     Channel,
+    DmNutzlast,
     Guild,
     GuildMember,
     Role,
@@ -122,6 +123,28 @@ async def test_anlegen_ohne_mitgliedschaft_ist_403(client, session_factory, _aut
 
 @pytest.mark.asyncio
 async def test_anlegen_ohne_konto_laufwerk_ist_412(client, session_factory, _auth_signer):
+    """Nur der Nextcloud-Weg braucht ein Konto-Laufwerk — er legt dort
+    Dateien ab. Die Gegenprobe (Pulse ohne Laufwerk) steht darunter."""
+    token, uid = await _register(_auth_signer)
+    _gid, cid = await _guild_mit_kanal(
+        session_factory, owner_id=uid, mitglieder=(uid,), ablage=True
+    )
+
+    antwort = await client.put(
+        f"/channels/{cid}/ablage/ordner",
+        json={"speicher": "nextcloud"},
+        headers=_auth(token),
+    )
+
+    assert antwort.status_code == 412, antwort.text
+    assert antwort.json()["detail"] == "no account drive"
+
+
+@pytest.mark.asyncio
+async def test_anlegen_bei_pulse_braucht_kein_laufwerk(client, session_factory, _auth_signer):
+    """Ein verschluesselter Kanal mit Bestand bei Pulse (Vorgabe seit dem
+    2026-09-03) haengt an keiner fremden Cloud — ohne Konto-Laufwerk, ohne
+    Rumpf."""
     token, uid = await _register(_auth_signer)
     _gid, cid = await _guild_mit_kanal(
         session_factory, owner_id=uid, mitglieder=(uid,), ablage=True
@@ -129,8 +152,11 @@ async def test_anlegen_ohne_konto_laufwerk_ist_412(client, session_factory, _aut
 
     antwort = await client.put(f"/channels/{cid}/ablage/ordner", headers=_auth(token))
 
-    assert antwort.status_code == 412, antwort.text
-    assert antwort.json()["detail"] == "no account drive"
+    assert antwort.status_code == 204, antwort.text
+    async with session_factory() as s:
+        zeile = await s.get(AblageKanalOrdner, cid)
+    assert zeile is not None
+    assert zeile.speicher == "pulse"
 
 
 @pytest.mark.asyncio
@@ -161,9 +187,37 @@ async def test_anlegen_ist_idempotent_fuer_denselben_ersteller(
     await _laufwerk_eintragen(session_factory, user_id=uid, adresse="https://wolke.example/x")
     await _ordner_eintragen(session_factory, channel_id=cid, ersteller_id=uid)
 
-    antwort = await client.put(f"/channels/{cid}/ablage/ordner", headers=_auth(token))
+    # ``_ordner_eintragen`` legt eine Nextcloud-Zeile an (Vorgabe der
+    # Spalte) — dieselbe Angabe im Rumpf, sonst waere es ein Wechsel des
+    # Speichers und damit ein 409 (Test darunter).
+    antwort = await client.put(
+        f"/channels/{cid}/ablage/ordner",
+        json={"speicher": "nextcloud"},
+        headers=_auth(token),
+    )
 
     assert antwort.status_code == 204, antwort.text
+
+
+@pytest.mark.asyncio
+async def test_anlegen_mit_anderem_speicher_ist_409(client, session_factory, _auth_signer):
+    """Derselbe Ersteller, anderer Speicher: ein 204 waere eine Luege — der
+    Bestand laege danach weiter, wo er lag."""
+    token, uid = await _register(_auth_signer)
+    _gid, cid = await _guild_mit_kanal(
+        session_factory, owner_id=uid, mitglieder=(uid,), ablage=True
+    )
+    await _laufwerk_eintragen(session_factory, user_id=uid, adresse="https://wolke.example/x")
+    await _ordner_eintragen(session_factory, channel_id=cid, ersteller_id=uid)
+
+    antwort = await client.put(
+        f"/channels/{cid}/ablage/ordner", json={"speicher": "pulse"}, headers=_auth(token)
+    )
+
+    assert antwort.status_code == 409, antwort.text
+    async with session_factory() as s:
+        zeile = await s.get(AblageKanalOrdner, cid)
+    assert zeile is not None and zeile.speicher == "nextcloud"
 
 
 @pytest.mark.asyncio
@@ -668,3 +722,155 @@ async def test_freigabe_adresse_setzen_ohne_manage_channels_ist_403(
     assert antwort.status_code == 403, antwort.text
     async with session_factory() as s:
         assert await s.get(AblageKanalLaufwerk, cid) is None
+
+
+# ---------------------------------------------------------------------------
+# Pulse-Speicher — dieselben zwei Leserouten, Bestand aus Postgres
+# (Entscheidung 2026-09-03)
+# ---------------------------------------------------------------------------
+
+
+async def _pulse_ordner_eintragen(session_factory, *, channel_id: int, ersteller_id: int) -> None:
+    async with session_factory() as s:
+        s.add(
+            AblageKanalOrdner(
+                channel_id=channel_id, ersteller_id=ersteller_id, speicher="pulse"
+            )
+        )
+        await s.commit()
+
+
+async def _nutzlast_seeden(
+    session_factory, *, channel_id: int, archiv: bool = True, absender_id: int = 1
+) -> int:
+    nid = next_id()
+    async with session_factory() as s:
+        s.add(
+            DmNutzlast(
+                id=nid,
+                channel_id=channel_id,
+                absender_device_pubkey=f"geraet-{nid}",
+                absender_user_id=absender_id,
+                art=1,
+                daten="Y2hpZmZyYXQ",
+                groesse=7,
+                archiv=archiv,
+            )
+        )
+        await s.commit()
+    return nid
+
+
+@pytest.mark.asyncio
+async def test_pulse_liste_gibt_die_archiv_zeilen_sortiert_und_ohne_laufwerk(
+    client, session_factory, _auth_signer
+):
+    """Kein Konto-Laufwerk im Spiel (kein 412), keine fremde Cloud — und eine
+    Nicht-Archiv-Zeile desselben Kanals gehoert NICHT dazu: sie ist Post an
+    ein einzelnes Geraet, nicht Bestand."""
+    token, uid = await _register(_auth_signer)
+    _gid, cid = await _guild_mit_kanal(
+        session_factory, owner_id=uid, mitglieder=(uid,), ablage=True
+    )
+    await _pulse_ordner_eintragen(session_factory, channel_id=cid, ersteller_id=uid)
+    erste = await _nutzlast_seeden(session_factory, channel_id=cid)
+    zweite = await _nutzlast_seeden(session_factory, channel_id=cid)
+    await _nutzlast_seeden(session_factory, channel_id=cid, archiv=False)
+
+    antwort = await client.get(f"/channels/{cid}/ablage/ordner", headers=_auth(token))
+
+    assert antwort.status_code == 200, antwort.text
+    assert antwort.json() == [f"{erste}.puls", f"{zweite}.puls"]
+
+
+@pytest.mark.asyncio
+async def test_pulse_liste_schneidet_an_cursor_und_limit(
+    client, session_factory, _auth_signer
+):
+    token, uid = await _register(_auth_signer)
+    _gid, cid = await _guild_mit_kanal(
+        session_factory, owner_id=uid, mitglieder=(uid,), ablage=True
+    )
+    await _pulse_ordner_eintragen(session_factory, channel_id=cid, ersteller_id=uid)
+    erste = await _nutzlast_seeden(session_factory, channel_id=cid)
+    zweite = await _nutzlast_seeden(session_factory, channel_id=cid)
+    dritte = await _nutzlast_seeden(session_factory, channel_id=cid)
+
+    nach_erster = await client.get(
+        f"/channels/{cid}/ablage/ordner", params={"nach": str(erste)}, headers=_auth(token)
+    )
+    mit_limit = await client.get(
+        f"/channels/{cid}/ablage/ordner", params={"limit": 1}, headers=_auth(token)
+    )
+
+    assert nach_erster.json() == [f"{zweite}.puls", f"{dritte}.puls"]
+    assert mit_limit.json() == [f"{erste}.puls"]
+
+
+@pytest.mark.asyncio
+async def test_pulse_liste_mit_unlesbarem_cursor_ist_422(
+    client, session_factory, _auth_signer
+):
+    """Derselbe Fehlermodus wie im Nextcloud-Weg: ein Cursor, der keine
+    Nutzlast-ID ist, darf nicht stumm dieselbe erste Seite liefern."""
+    token, uid = await _register(_auth_signer)
+    _gid, cid = await _guild_mit_kanal(
+        session_factory, owner_id=uid, mitglieder=(uid,), ablage=True
+    )
+    await _pulse_ordner_eintragen(session_factory, channel_id=cid, ersteller_id=uid)
+
+    antwort = await client.get(
+        f"/channels/{cid}/ablage/ordner", params={"nach": "7.puls"}, headers=_auth(token)
+    )
+
+    assert antwort.status_code == 422, antwort.text
+    assert antwort.json()["detail"] == "invalid cursor"
+
+
+@pytest.mark.asyncio
+async def test_pulse_datei_liefert_den_umschlag_als_json(
+    client, session_factory, _auth_signer
+):
+    token, uid = await _register(_auth_signer)
+    _gid, cid = await _guild_mit_kanal(
+        session_factory, owner_id=uid, mitglieder=(uid,), ablage=True
+    )
+    await _pulse_ordner_eintragen(session_factory, channel_id=cid, ersteller_id=uid)
+    nid = await _nutzlast_seeden(session_factory, channel_id=cid, absender_id=uid)
+
+    antwort = await client.get(f"/channels/{cid}/ablage/ordner/{nid}.puls", headers=_auth(token))
+
+    assert antwort.status_code == 200, antwort.text
+    rumpf = antwort.json()
+    # IDs als Strings ueber die Grenze, ``daten`` unveraendert — dieselbe
+    # Form wie beim Abholen aus dem Postfach.
+    assert rumpf["id"] == str(nid)
+    assert rumpf["channel_id"] == str(cid)
+    assert rumpf["daten"] == "Y2hpZmZyYXQ"
+
+
+@pytest.mark.asyncio
+async def test_pulse_datei_ist_404_bei_fremdem_kanal_und_ohne_archiv(
+    client, session_factory, _auth_signer
+):
+    """Die Nutzlast-ID ist ratbar: Kanal UND ``archiv`` gehoeren beide zur
+    Pruefung, sonst reichte diese Route Post aus fremden Gespraechen
+    heraus."""
+    token, uid = await _register(_auth_signer)
+    _gid, cid = await _guild_mit_kanal(
+        session_factory, owner_id=uid, mitglieder=(uid,), ablage=True
+    )
+    _gid2, fremd_cid = await _guild_mit_kanal(
+        session_factory, owner_id=uid, mitglieder=(uid,), ablage=True
+    )
+    await _pulse_ordner_eintragen(session_factory, channel_id=cid, ersteller_id=uid)
+    ohne_archiv = await _nutzlast_seeden(session_factory, channel_id=cid, archiv=False)
+    fremde = await _nutzlast_seeden(session_factory, channel_id=fremd_cid)
+
+    a = await client.get(
+        f"/channels/{cid}/ablage/ordner/{ohne_archiv}.puls", headers=_auth(token)
+    )
+    b = await client.get(f"/channels/{cid}/ablage/ordner/{fremde}.puls", headers=_auth(token))
+
+    assert a.status_code == 404, a.text
+    assert b.status_code == 404, b.text

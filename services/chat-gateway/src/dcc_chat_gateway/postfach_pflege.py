@@ -75,10 +75,16 @@ def verwaist_bedingungen() -> tuple[ColumnElement[bool], ...]:
     auseinanderentwickeln kann (genau das ist beim Nachtrag-Riegel unten
     passiert).
 
-    Zwei Teile: keine Zustellung mehr, UND kein offener Nachtrag.
+    Drei Teile: keine Zustellung mehr, kein offener Nachtrag, UND kein
+    dauerhafter Bestand (``archiv``).
     """
     return (
         ~exists(select(DmZustellung.id).where(DmZustellung.nutzlast_id == DmNutzlast.id)),
+        # Eine Archiv-Nutzlast ist der Bestand eines verschluesselten
+        # Kanals bei Pulse (Entscheidung 2026-09-03) — sie hat nie mehr
+        # eine Zustellung und saehe fuer diesen Lauf ohne die Bedingung
+        # aus wie Muell. Sie faellt nur mit ihrem Kanal.
+        DmNutzlast.archiv.is_(False),
         ~exists(
             select(AblageKanalNachtrag.nutzlast_id).where(
                 AblageKanalNachtrag.nutzlast_id == DmNutzlast.id

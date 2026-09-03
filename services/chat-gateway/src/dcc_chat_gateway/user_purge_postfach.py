@@ -74,7 +74,9 @@ async def purge_postfach(session: AsyncSession, user_id: int) -> None:
     # der reguläre Verfallslauf (`verwaist_bedingungen`), damit hier keine
     # zweite, potenziell abweichende Definition von „verwaist" entsteht. Sie
     # schont deshalb auch eine Nutzlast mit offenem Nachtrag: die wandert
-    # noch in den Kanal-Ordner und fällt beim nächsten Pflegelauf.
+    # noch in den Kanal-Ordner und fällt beim nächsten Pflegelauf — und
+    # ebenso eine Archiv-Nutzlast: sie ist der Bestand eines
+    # verschlüsselten Kanals und gehört nicht mehr dem Absender allein.
     await session.execute(sa_delete(DmNutzlast).where(*verwaist_bedingungen()))
     # Und die Anhaenge, die mit diesen Nutzlasten ihren letzten Umschlag
     # verloren haben (Etappe E) — wieder DIESELBE Funktion wie im

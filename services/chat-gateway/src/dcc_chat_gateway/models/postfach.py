@@ -25,7 +25,17 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, SmallInteger, Text, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    SmallInteger,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from dcc_chat_gateway.db import Base
@@ -79,11 +89,33 @@ class DmNutzlast(Base):
     #: Bytes VOR der Base64-Kodierung — mitgeschrieben, damit Obergrenzen
     #: und Aufraeum-Statistiken ohne Lesen der Nutzlast auskommen.
     groesse: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    #: Der dauerhafte Bestand eines verschluesselten Kanals bei Pulse
+    #: (``AblageKanalOrdner.speicher == "pulse"``, Entscheidung 2026-09-03).
+    #: Eine Zeile mit ``archiv`` gehoert KEINEM Loescher mehr: Quittung,
+    #: verwaist-Sweep und ``user_purge_postfach`` gehen an ihr vorbei — sie
+    #: faellt nur mit ihrem Kanal (``routes/channels.py::delete_channel``).
+    #: Gesetzt wird sie nur vom Server, fuer den ERSTEN Umschlag eines
+    #: Inhalts (``routes/_postfach_festigung.py``), nie vom Klienten.
+    archiv: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
-    __table_args__ = (Index("ix_dm_nutzlasten_channel", "channel_id"),)
+    __table_args__ = (
+        Index("ix_dm_nutzlasten_channel", "channel_id"),
+        # Die einzige Abfrage auf ``archiv``: „die Archiv-Zeilen dieses
+        # Kanals, aufsteigend" (``GET .../ablage/ordner``). Als Teil-Index,
+        # weil die allermeisten Postfach-Zeilen nie archiv sind.
+        Index(
+            "ix_dm_nutzlasten_archiv",
+            "channel_id",
+            "id",
+            postgresql_where=text("archiv"),
+            sqlite_where=text("archiv"),
+        ),
+    )
 
 
 class DmZustellung(Base):

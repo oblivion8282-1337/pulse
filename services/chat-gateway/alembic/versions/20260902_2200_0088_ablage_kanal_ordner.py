@@ -6,6 +6,13 @@ im Konto-Laufwerk seines Erstellers (Entwurf 2026-09-02, §2-3). Diese
 Tabelle haelt nur noch, WER der Ersteller ist — die Adresse selbst kommt
 weiterhin aus ``AblageKontoLaufwerk``, es gibt EINEN Link je Konto.
 
+``speicher`` sagt, WO der Ordner liegt: ``pulse`` (der Bestand steht in
+``dm_nutzlasten``, Spalte ``archiv``) oder ``nextcloud`` (Datei im
+Konto-Laufwerk des Erstellers). Die Spalte kam mit der Entscheidung vom
+2026-09-03 dazu, dass verschluesselte Textkanaele ZUERST bei Pulse liegen;
+der Zweig war nie ausgerollt, deshalb wandert sie in dieselbe Revision
+statt in eine eigene.
+
 ``ablage_kanal_nachtrag`` merkt sich Nutzlasten, deren Festigung im Ordner
 noch aussteht — angelegt schon im Einliefer-Commit als Marker „Festigung
 offen"; eine Pflege-Schleife holt sie nach (mit Wiederholungs-Abstand ueber
@@ -34,6 +41,15 @@ def upgrade() -> None:
         "ablage_kanal_ordner",
         sa.Column("channel_id", sa.BigInteger(), nullable=False),
         sa.Column("ersteller_id", sa.BigInteger(), nullable=False),
+        # ``nextcloud`` als Vorgabe der SPALTE, ``pulse`` als Vorgabe der
+        # ROUTE: eine Zeile, die ohne ausdrueckliche Angabe entsteht, ist
+        # eine aus der Zeit vor dem Pulse-Speicher.
+        sa.Column(
+            "speicher",
+            sa.Text(),
+            server_default=sa.text("'nextcloud'"),
+            nullable=False,
+        ),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -88,8 +104,33 @@ def upgrade() -> None:
         schema=SCHEMA,
     )
 
+    # Der dauerhafte Bestand eines Pulse-Kanals: eine Nutzlast, die keinem
+    # Loescher mehr gehoert (Quittung, verwaist-Sweep, user_purge schonen
+    # sie) und nur mit ihrem Kanal faellt.
+    op.add_column(
+        "dm_nutzlasten",
+        sa.Column(
+            "archiv", sa.Boolean(), server_default=sa.text("false"), nullable=False
+        ),
+        schema=SCHEMA,
+    )
+    # Teil-Index: gelesen wird ausschliesslich „die Archiv-Zeilen dieses
+    # Kanals, aufsteigend" (``GET .../ablage/ordner``). Ein voller Index
+    # ueber ``(channel_id, id)`` traege jede Postfach-Zeile mit, von denen
+    # die allermeisten nie archiv sind.
+    op.create_index(
+        "ix_dm_nutzlasten_archiv",
+        "dm_nutzlasten",
+        ["channel_id", "id"],
+        schema=SCHEMA,
+        postgresql_where=sa.text("archiv"),
+        sqlite_where=sa.text("archiv"),
+    )
+
 
 def downgrade() -> None:
+    op.drop_index("ix_dm_nutzlasten_archiv", table_name="dm_nutzlasten", schema=SCHEMA)
+    op.drop_column("dm_nutzlasten", "archiv", schema=SCHEMA)
     op.drop_index(
         "ix_ablage_kanal_nachtrag_channel_id",
         table_name="ablage_kanal_nachtrag",

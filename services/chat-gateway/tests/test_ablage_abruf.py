@@ -21,6 +21,7 @@ import dcc_chat_gateway.ablage_ssrf as ablage_ssrf
 import dcc_chat_gateway.config as chat_config
 import httpx
 import pytest
+from dcc_chat_gateway.models import AblageKanalOrdner
 
 BASIS = "https://cloud.example/pub"
 
@@ -34,9 +35,18 @@ async def _register_user(_auth_signer) -> tuple[str, int]:
     return _auth_signer.issue_access(uid, f"u{uid}"), uid
 
 
-async def _guild_mit_ablage_kanal(client, _auth_signer, basis: str = BASIS):
+async def _guild_mit_ablage_kanal(client, _auth_signer, session_factory, basis: str = BASIS):
     """Owner + ein zweites Mitglied; ein dritter Token bleibt bewusst
-    aussen vor (Nicht-Mitglied-Fall)."""
+    aussen vor (Nicht-Mitglied-Fall).
+
+    **Der Freigabe-Link-Weg ist seit dem 2026-09-03 der alte Weg.** Ein neu
+    angelegter Ablage-Kanal ist von Geburt an ein verschluesselter Kanal mit
+    Bestand bei Pulse (``routes/channels.py``), und die beiden Wege
+    schliessen einander aus — ohne das Wegraeumen der Ordner-Zeile
+    antwortete ``PUT .../ablage/laufwerk`` hier mit 409. Diese Tests pruefen
+    genau diesen alten Weg, also entsteht hier ein Kanal, wie es ihn vor der
+    Entscheidung gab.
+    """
     t_owner, _ = await _register_user(_auth_signer)
     t_mitglied, uid_mitglied = await _register_user(_auth_signer)
     t_fremd, _ = await _register_user(_auth_signer)
@@ -54,6 +64,12 @@ async def _guild_mit_ablage_kanal(client, _auth_signer, basis: str = BASIS):
             headers=auth(t_owner),
         )
     ).json()
+
+    async with session_factory() as s:
+        zeile = await s.get(AblageKanalOrdner, int(c["id"]))
+        if zeile is not None:
+            await s.delete(zeile)
+            await s.commit()
 
     r = await client.put(
         f"/channels/{c['id']}/ablage/laufwerk",
@@ -118,7 +134,9 @@ def _abruf_grenzen_zuruecksetzen():
 
 
 @pytest.mark.asyncio
-async def test_guter_fall_liefert_das_chiffrat(client, _auth_signer, kein_dns, upstream):
+async def test_guter_fall_liefert_das_chiffrat(
+    client, _auth_signer, session_factory, kein_dns, upstream
+):
     def handler(request: httpx.Request) -> httpx.Response:
         # Die Verbindung geht an die GEPRUEFTE IP (DNS-Rebinding-Schutz,
         # s. ablage_ssrf._url_auf_adresse_verankern), Host-Kopfzeile und
@@ -130,7 +148,7 @@ async def test_guter_fall_liefert_das_chiffrat(client, _auth_signer, kein_dns, u
         return httpx.Response(200, content=b"chiffrat-bytes", headers={"content-type": "application/octet-stream"})
 
     upstream(handler)
-    _, t_mitglied, _, cid = await _guild_mit_ablage_kanal(client, _auth_signer)
+    _, t_mitglied, _, cid = await _guild_mit_ablage_kanal(client, _auth_signer, session_factory)
 
     r = await client.get(
         f"/channels/{cid}/ablage/abruf",
@@ -145,9 +163,11 @@ async def test_guter_fall_liefert_das_chiffrat(client, _auth_signer, kein_dns, u
 
 
 @pytest.mark.asyncio
-async def test_nicht_mitglied_wird_abgewiesen(client, _auth_signer, kein_dns, upstream):
+async def test_nicht_mitglied_wird_abgewiesen(
+    client, _auth_signer, session_factory, kein_dns, upstream
+):
     upstream(lambda req: httpx.Response(200, content=b"x"))
-    _, _, t_fremd, cid = await _guild_mit_ablage_kanal(client, _auth_signer)
+    _, _, t_fremd, cid = await _guild_mit_ablage_kanal(client, _auth_signer, session_factory)
 
     r = await client.get(
         f"/channels/{cid}/ablage/abruf",
@@ -175,7 +195,9 @@ async def test_nicht_mitglied_wird_abgewiesen(client, _auth_signer, kein_dns, up
     ],
 )
 @pytest.mark.asyncio
-async def test_pfad_ausbrueche_werden_abgewiesen(client, _auth_signer, kein_dns, upstream, pfad):
+async def test_pfad_ausbrueche_werden_abgewiesen(
+    client, _auth_signer, session_factory, kein_dns, upstream, pfad
+):
     aufgerufen = False
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -184,7 +206,7 @@ async def test_pfad_ausbrueche_werden_abgewiesen(client, _auth_signer, kein_dns,
         return httpx.Response(200, content=b"sollte-nie-passieren")
 
     upstream(handler)
-    _, t_mitglied, _, cid = await _guild_mit_ablage_kanal(client, _auth_signer)
+    _, t_mitglied, _, cid = await _guild_mit_ablage_kanal(client, _auth_signer, session_factory)
 
     r = await client.get(
         f"/channels/{cid}/ablage/abruf",
@@ -201,14 +223,16 @@ async def test_pfad_ausbrueche_werden_abgewiesen(client, _auth_signer, kein_dns,
 
 
 @pytest.mark.asyncio
-async def test_umleitung_auf_127_0_0_1_wird_abgewiesen(client, _auth_signer, kein_dns, upstream):
+async def test_umleitung_auf_127_0_0_1_wird_abgewiesen(
+    client, _auth_signer, session_factory, kein_dns, upstream
+):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.headers["host"] == "cloud.example":
             return httpx.Response(302, headers={"location": "http://127.0.0.1:9999/geheim"})
         raise AssertionError("die Umleitung haette nie verfolgt werden duerfen")
 
     upstream(handler)
-    _, t_mitglied, _, cid = await _guild_mit_ablage_kanal(client, _auth_signer)
+    _, t_mitglied, _, cid = await _guild_mit_ablage_kanal(client, _auth_signer, session_factory)
 
     r = await client.get(
         f"/channels/{cid}/ablage/abruf",
@@ -220,7 +244,7 @@ async def test_umleitung_auf_127_0_0_1_wird_abgewiesen(client, _auth_signer, kei
 
 @pytest.mark.asyncio
 async def test_umleitung_auf_privat_aufloesenden_namen_wird_abgewiesen(
-    client, _auth_signer, kein_dns, upstream
+    client, _auth_signer, session_factory, kein_dns, upstream
 ):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.headers["host"] == "cloud.example":
@@ -228,7 +252,7 @@ async def test_umleitung_auf_privat_aufloesenden_namen_wird_abgewiesen(
         raise AssertionError("die Umleitung haette nie verfolgt werden duerfen")
 
     upstream(handler)
-    _, t_mitglied, _, cid = await _guild_mit_ablage_kanal(client, _auth_signer)
+    _, t_mitglied, _, cid = await _guild_mit_ablage_kanal(client, _auth_signer, session_factory)
 
     r = await client.get(
         f"/channels/{cid}/ablage/abruf",
@@ -269,7 +293,7 @@ def wackelnder_resolver(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_dns_rebinding_wird_nicht_ausgenutzt(
-    client, _auth_signer, wackelnder_resolver, upstream
+    client, _auth_signer, session_factory, wackelnder_resolver, upstream
 ):
     def handler(request: httpx.Request) -> httpx.Response:
         # Die tatsaechliche Verbindung geht an die beim einzigen Resolver-
@@ -281,7 +305,7 @@ async def test_dns_rebinding_wird_nicht_ausgenutzt(
 
     upstream(handler)
     _, t_mitglied, _, cid = await _guild_mit_ablage_kanal(
-        client, _auth_signer, basis="https://wackel.example/pub"
+        client, _auth_signer, session_factory, basis="https://wackel.example/pub"
     )
 
     r = await client.get(
@@ -303,14 +327,16 @@ async def test_dns_rebinding_wird_nicht_ausgenutzt(
 
 
 @pytest.mark.asyncio
-async def test_zu_grosse_antwort_wird_abgewiesen(client, _auth_signer, kein_dns, upstream):
+async def test_zu_grosse_antwort_wird_abgewiesen(
+    client, _auth_signer, session_factory, kein_dns, upstream
+):
     chat_config.get_settings().ablage_abruf_max_bytes = 8
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=b"x" * 4096)
 
     upstream(handler)
-    _, t_mitglied, _, cid = await _guild_mit_ablage_kanal(client, _auth_signer)
+    _, t_mitglied, _, cid = await _guild_mit_ablage_kanal(client, _auth_signer, session_factory)
 
     r = await client.get(
         f"/channels/{cid}/ablage/abruf",
@@ -326,8 +352,8 @@ async def test_zu_grosse_antwort_wird_abgewiesen(client, _auth_signer, kein_dns,
 
 
 @pytest.mark.asyncio
-async def test_nur_ersteller_darf_die_adresse_ersetzen(client, _auth_signer):
-    t_owner, t_mitglied, _, cid = await _guild_mit_ablage_kanal(client, _auth_signer)
+async def test_nur_ersteller_darf_die_adresse_ersetzen(client, _auth_signer, session_factory):
+    t_owner, t_mitglied, _, cid = await _guild_mit_ablage_kanal(client, _auth_signer, session_factory)
 
     r = await client.put(
         f"/channels/{cid}/ablage/laufwerk",

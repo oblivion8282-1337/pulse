@@ -1,22 +1,29 @@
-"""Ordner-Kanal: anlegen + lesen (Entwurf 2026-09-02, §2-3, Task 5).
+"""Verschluesselter Kanal: anlegen + lesen (Entwurf 2026-09-02 §2-3,
+Entscheidung 2026-09-03).
 
-Die drei Routen, die zum Ableger (``ablage_kanal_ordner.py``, das
-gleichnamige Nicht-Route-Modul) und zum Nachtrag gehoeren:
+Die drei Routen des Ordner-Kanals:
 
-* ``PUT .../ablage/ordner`` — der Ersteller macht seinen Kanal zu einem
-  Ordner-Kanal (legt ``AblageKanalOrdner`` an). Danach schreibt der Server
-  dorthin (``ablegen``), Mitglieder lesen ueber die beiden GET-Routen.
+* ``PUT .../ablage/ordner`` — macht den Kanal zu einem Ordner-Kanal (legt
+  ``AblageKanalOrdner`` an). Der Rumpf sagt, WO der Bestand liegt:
+  ``pulse`` (Vorgabe) oder ``nextcloud``.
 * ``GET .../ablage/ordner`` — die Dateiliste, gefiltert auf ``<id>.puls``
   und numerisch sortiert, mit Cursor (``nach``) und Obergrenze (``limit``).
-* ``GET .../ablage/ordner/{name}`` — eine einzelne Datei, roh durchgereicht.
+* ``GET .../ablage/ordner/{name}`` — eine einzelne Datei.
+
+**Zwei Speicher, EINE Aussenansicht.** Bei ``nextcloud`` liest der Server
+die Dateien aus dem Konto-Laufwerk des Erstellers; bei ``pulse`` beantwortet
+er dieselben zwei Routen aus Postgres (``dm_nutzlasten`` mit ``archiv``),
+in derselben Form — Namen ``<nutzlastId>.puls``, Inhalt derselbe Umschlag
+wie beim Abholen. Der Klient unterscheidet die beiden nicht und muss es
+nicht: fuer ihn ist ein verschluesselter Kanal ein Ordner mit Umschlaegen.
 
 Mitgliedschaft + ``VIEW_CHANNEL`` wie bei jeder anderen Ablage-Kanal-Route
 (``_kanal_fuer_mitglied``, importiert aus ``ablage_kanal.py`` statt
 kopiert). ``GET`` gilt fuer jedes Mitglied — Namen verraten nichts ueber den
 Inhalt (Chiffrat).
 
-Das ``PUT`` verlangt zusaetzlich ``MANAGE_CHANNELS``. Es entscheidet, in
-WESSEN Cloud-Laufwerk der dauerhafte Bestand dieses Kanals kuenftig liegt —
+Das ``PUT`` verlangt zusaetzlich ``MANAGE_CHANNELS``. Es entscheidet, WO
+und in wessen Laufwerk der dauerhafte Bestand dieses Kanals kuenftig liegt —
 eine Kanal-Verwaltungsentscheidung, wie sie ``routes/channels.py`` und
 ``routes/dropbox.py`` fuer Anlegen/Umbenennen/Loeschen ebenfalls an dieses
 Recht binden. Ohne die Pruefung koennte jedes einfache Mitglied den Kanal an
@@ -27,12 +34,14 @@ sein eigenes Laufwerk binden, solange noch niemand anders es getan hat (das
 from __future__ import annotations
 
 import re
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Path, Query, Response, status
+from pydantic import BaseModel
+from sqlalchemy import select
 
 from dcc_chat_gateway import ratelimit
-from dcc_chat_gateway.ablage_kanal_ordner import ordner_pfad
+from dcc_chat_gateway.ablage_kanal_ordner import datei_inhalt, datei_name, ordner_pfad
 from dcc_chat_gateway.ablage_schreiben import liste as liste_vom_laufwerk
 from dcc_chat_gateway.ablage_ssrf import AblageAbrufFehler
 from dcc_chat_gateway.db import SessionDep
@@ -40,13 +49,27 @@ from dcc_chat_gateway.models import (
     AblageKanalLaufwerk,
     AblageKanalOrdner,
     AblageKontoLaufwerk,
+    DmNutzlast,
 )
 from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.routes._ablage_abruf import ablage_abruf_antwort
+from dcc_chat_gateway.routes._postfach_festigung import SPEICHER_PULSE
 from dcc_chat_gateway.routes.ablage_kanal import _kanal_fuer_mitglied
 from dcc_chat_gateway.security import CurrentUser
 
 router = APIRouter()
+
+
+class OrdnerAnlegenIn(BaseModel):
+    """Wo der Bestand dieses Kanals liegen soll.
+
+    **Vorgabe ``pulse``**, waehrend die Spalte in der Datenbank
+    ``nextcloud`` vorgibt: eine Zeile ohne Angabe stammt aus der Zeit vor
+    dieser Entscheidung, eine Anfrage ohne Angabe meint den heutigen Weg.
+    """
+
+    speicher: Literal["pulse", "nextcloud"] = SPEICHER_PULSE
+
 
 # Dieselbe Form wie ``ablage_kanal_ordner.datei_name`` — hier zusaetzlich als
 # Filter/Validierung, weil der Aufrufer (Cursor und Dateiname) einen Namen
@@ -71,16 +94,18 @@ async def ordner_kanal_anlegen(
     channel_id: int,
     session: SessionDep,
     current: CurrentUser,
+    payload: OrdnerAnlegenIn | None = None,
 ) -> Response:
     """Macht den Aufrufer zum Ersteller des Ordner-Kanals — analog zu
     ``ablage_kanal.setze_freigabe_adresse``: das erste erfolgreiche PUT legt
     die Zeile an, jedes weitere von demselben Konto ist ein No-Op, ein
     fremdes 409.
 
-    **412 statt 400/422** fuer „kein Konto-Laufwerk": der Zustand liegt
-    nicht am mitgeschickten Koerper (es gibt keinen), sondern an einer
-    Vorbedingung auf dem Konto des Aufrufers, die dieser erst an anderer
-    Stelle herstellen muss (``PUT /ablage/archiv/laufwerk``).
+    **412 nur im Nextcloud-Weg** („kein Konto-Laufwerk"): der Zustand liegt
+    nicht am mitgeschickten Koerper, sondern an einer Vorbedingung auf dem
+    Konto des Aufrufers, die dieser erst an anderer Stelle herstellen muss
+    (``PUT /ablage/archiv/laufwerk``). Ein Pulse-Kanal braucht kein
+    Laufwerk — sein Bestand liegt hier.
 
     ``MANAGE_CHANNELS`` VOR dem Ratenbegrenzer: wer das Recht nicht hat,
     soll nicht erst einen Eimer belasten, um dann abgewiesen zu werden.
@@ -100,9 +125,13 @@ async def ordner_kanal_anlegen(
     if not ratelimit.check("ablage_laufwerk_setzen", current.id):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limited")
 
-    laufwerk = await session.get(AblageKontoLaufwerk, current.id)
-    if laufwerk is None:
-        raise HTTPException(status.HTTP_412_PRECONDITION_FAILED, detail="no account drive")
+    speicher = payload.speicher if payload is not None else SPEICHER_PULSE
+    if speicher != SPEICHER_PULSE:
+        laufwerk = await session.get(AblageKontoLaufwerk, current.id)
+        if laufwerk is None:
+            raise HTTPException(
+                status.HTTP_412_PRECONDITION_FAILED, detail="no account drive"
+            )
 
     # **Die beiden Wege schliessen einander aus.** Ein Kanal liegt entweder
     # an einer eigenen Freigabe-Adresse (``AblageKanalLaufwerk``, der
@@ -120,12 +149,25 @@ async def ordner_kanal_anlegen(
 
     bestehend = await session.get(AblageKanalOrdner, channel.id)
     if bestehend is None:
-        session.add(AblageKanalOrdner(channel_id=channel.id, ersteller_id=current.id))
+        session.add(
+            AblageKanalOrdner(
+                channel_id=channel.id, ersteller_id=current.id, speicher=speicher
+            )
+        )
         await session.commit()
     elif bestehend.ersteller_id != current.id:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             detail="this channel is already a folder channel of another member",
+        )
+    elif bestehend.speicher != speicher:
+        # Derselbe Ersteller, aber ein anderer Speicher: ein 204 waere hier
+        # eine Luege — der Bestand liegt danach weiter, wo er lag, und der
+        # Aufrufer glaubte, er habe ihn umgezogen. Umziehen kann diese Route
+        # nicht (die bestehenden Nachrichten muessten mit), also sagt sie es.
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="this channel already stores its history elsewhere",
         )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -152,6 +194,22 @@ async def ordner_kanal_liste(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not a folder channel")
     if not ratelimit.check("ablage_abruf", current.id):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limited")
+
+    if ordner_zeile.speicher == SPEICHER_PULSE:
+        # Der Bestand steht hier: die Archiv-Nutzlasten dieses Kanals,
+        # aufsteigend hinter dem Cursor. Sortiert und geschnitten wird in
+        # der Datenbank (Teil-Index ``ix_dm_nutzlasten_archiv``), nicht in
+        # Python — anders als beim Nextcloud-Weg, wo die Liste als Ganzes
+        # von der fremden Cloud kommt.
+        bedingungen = [DmNutzlast.channel_id == channel.id, DmNutzlast.archiv.is_(True)]
+        if nach is not None:
+            bedingungen.append(DmNutzlast.id > _cursor_id(nach))
+        ids = (
+            await session.execute(
+                select(DmNutzlast.id).where(*bedingungen).order_by(DmNutzlast.id).limit(limit)
+            )
+        ).scalars()
+        return [datei_name(i) for i in ids]
 
     laufwerk = await session.get(AblageKontoLaufwerk, ordner_zeile.ersteller_id)
     if laufwerk is None:
@@ -218,6 +276,16 @@ async def ordner_kanal_datei(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not a folder channel")
     if not ratelimit.check("ablage_abruf", current.id):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limited")
+
+    if ordner_zeile.speicher == SPEICHER_PULSE:
+        nutzlast = await session.get(DmNutzlast, _puls_id(name))
+        # Kanal UND ``archiv`` gehoeren beide zur Pruefung: die Nutzlast-ID
+        # ist ein Snowflake und ratbar, und eine gewoehnliche Postfach-Zeile
+        # ist kein Bestand dieses Kanals, sondern Post an ein einzelnes
+        # Geraet.
+        if nutzlast is None or nutzlast.channel_id != channel.id or not nutzlast.archiv:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not found")
+        return Response(content=datei_inhalt(nutzlast), media_type="application/json")
 
     laufwerk = await session.get(AblageKontoLaufwerk, ordner_zeile.ersteller_id)
     if laufwerk is None:

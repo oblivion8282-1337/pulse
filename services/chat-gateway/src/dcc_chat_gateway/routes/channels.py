@@ -15,9 +15,11 @@ from sqlalchemy import delete, select
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway import config as chat_config
 from dcc_chat_gateway.guild_caps import enforce_channel_cap
+from dcc_chat_gateway.ablage_kanal_bestand import bestand_loeschen
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_DROPBOX,
     CHANNEL_TYPE_VOICE,
+    AblageKanalOrdner,
     Channel,
     DropboxConfig,
     DropboxFile,
@@ -121,6 +123,23 @@ async def create_channel(
         topic=payload.topic,
     )
     session.add(channel)
+    if payload.ablage:
+        # ``flush`` vor der Ordner-Zeile: die Reihenfolge zweier unabhaengig
+        # hinzugefuegter Objekte entscheidet sonst die Arbeitseinheit, und
+        # der Fremdschluessel auf ``channels.id`` faellt um, wenn sie die
+        # Ordner-Zeile zuerst schreibt (in den SQLite-Tests belegt).
+        await session.flush()
+        # Ein Ablage-Kanal ist seit dem 2026-09-03 von Geburt an ein
+        # verschluesselter Kanal mit Bestand bei Pulse — in DERSELBEN
+        # Transaktion, damit es keinen Zwischenzustand gibt, in dem ein
+        # Kanal ablage traegt und trotzdem nichts festhaelt. Ersteller ist,
+        # wer ihn anlegt; ein spaeteres ``PUT .../ablage/ordner`` findet die
+        # Zeile dann schon vor.
+        session.add(
+            AblageKanalOrdner(
+                channel_id=channel.id, ersteller_id=current.id, speicher="pulse"
+            )
+        )
     await session.commit()
     await session.refresh(channel)
     await _publish_guild_event(
@@ -283,6 +302,11 @@ async def delete_channel(
         if cfg is not None:
             cfg.used_bytes = 0
     await session.execute(delete(Message).where(Message.channel_id == channel_id))
+    # Der Bestand eines verschluesselten Kanals bei Pulse: Archiv-Nutzlasten
+    # gehoeren keinem der drei Postfach-Loescher mehr (Quittung,
+    # verwaist-Sweep, ``user_purge_postfach``) — sie fallen NUR hier
+    # (``ablage_kanal_bestand.py``, dort die Begruendung).
+    await bestand_loeschen(session, channel_id)
     await session.delete(channel)
     await session.commit()
     await purge_s3_keys(s3_keys_to_purge)
