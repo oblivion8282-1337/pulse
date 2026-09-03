@@ -138,8 +138,10 @@ export type GruppenUmschlag = {
  * Deshalb markiert der Klient alle und der SERVER entscheidet, welcher zaehlt:
  * er dedupliziert innerhalb einer Anfrage ueber `sha256(daten)` und legt nur
  * fuer den ersten Umschlag eines Inhalts eine Datei an
- * (`routes/_postfach_festigung.py`). Der Server sieht dabei, was der Klient
- * nicht sehen kann — welcher Block tatsaechlich Empfaenger gefunden hat.
+ * (`routes/_postfach_festigung.py`). Es gewinnt schlicht der ERSTE Block mit
+ * diesem Inhalt — ob er Empfaenger findet, ist dafuer gleich, denn in einem
+ * Ordner-Kanal legt der Server eine archiv-Nutzlast auch ohne Empfaenger an
+ * (`routes/postfach.py`, Marker „Festigung offen").
  */
 export function gruppenUmschlaegeBauen(
   art: number,

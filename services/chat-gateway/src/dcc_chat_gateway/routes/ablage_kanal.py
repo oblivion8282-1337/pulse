@@ -87,6 +87,13 @@ async def setze_freigabe_adresse(
     ``Channel`` kennt sonst keinen Ersteller, s. ``models/ablage_laufwerk.py``);
     jedes weitere PUT darf nur noch von genau diesem Konto kommen."""
     channel = await _kanal_fuer_mitglied(session, channel_id, current)
+    # Wer den Bestand eines Kanals an ein Laufwerk bindet, bestimmt, wo er
+    # liegt und wer ihn abhaengen kann — dieselbe Schwelle wie beim
+    # Ordner-Kanal (``ablage_kanal_ordner.py``, 2026-09-03): nicht jedes
+    # Mitglied mit Leserecht, sondern ``MANAGE_CHANNELS``.
+    await check_permission(
+        session, current, channel.guild_id, Permissions.MANAGE_CHANNELS, channel_id=channel.id
+    )
     if not ratelimit.check("ablage_laufwerk_setzen", current.id):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limited")
 

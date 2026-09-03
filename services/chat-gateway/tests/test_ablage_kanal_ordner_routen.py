@@ -640,3 +640,31 @@ async def test_dateiname_mit_zeilenumbruch_faellt_aus_liste_und_route(
         f"/channels/{cid}/ablage/ordner/12.puls%0A", headers=_auth(token)
     )
     assert datei.status_code == 422, datei.text
+
+
+@pytest.mark.asyncio
+async def test_freigabe_adresse_setzen_ohne_manage_channels_ist_403(
+    client, session_factory, _auth_signer
+):
+    """Der Freigabe-Link-Weg (``PUT .../ablage/laufwerk``) bindet den Bestand
+    genauso an ein Laufwerk wie der Ordner-Weg — bis zum 2026-09-03 verlangte
+    nur der Ordner-Weg ``MANAGE_CHANNELS``, der Kommentar in
+    ``KanalDateiablageVerbinden.svelte`` behauptete es fuer beide."""
+    _token_owner, uid_owner = await _register(_auth_signer)
+    token_mitglied, uid_mitglied = await _register(_auth_signer)
+    _gid, cid = await _guild_mit_kanal(
+        session_factory,
+        owner_id=uid_owner,
+        mitglieder=(uid_owner, uid_mitglied),
+        ablage=True,
+    )
+
+    antwort = await client.put(
+        f"/channels/{cid}/ablage/laufwerk",
+        json={"freigabe_adresse": "https://wolke.example/m"},
+        headers=_auth(token_mitglied),
+    )
+
+    assert antwort.status_code == 403, antwort.text
+    async with session_factory() as s:
+        assert await s.get(AblageKanalLaufwerk, cid) is None

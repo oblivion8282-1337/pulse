@@ -99,6 +99,14 @@ async def _zeile_abarbeiten(
     # Zeitueberschreitung, und die Nachtraege aller anderen kaemen im
     # selben Takt nicht mehr dran.
     if ordner_zeile.ersteller_id in stumme_laufwerke:
+        # Auch die uebersprungene Zeile rueckt nach hinten — OHNE Zaehlung,
+        # sie wurde ja nicht versucht. Bliebe sie stehen, saesse sie im
+        # naechsten Takt wieder am Kopf von ``ORDER BY naechster_versuch_at``:
+        # ein einziger dauerhaft toter Ersteller mit ≥100 Nachtraegen fuellte
+        # das Fenster jeden Takt aufs Neue, und die Nachtraege aller anderen
+        # kaemen nie dran.
+        zeile.naechster_versuch_at = jetzt + timedelta(minutes=backoff_minuten(zeile.versuche))
+        await session.commit()
         return "uebersprungen"
 
     try:
