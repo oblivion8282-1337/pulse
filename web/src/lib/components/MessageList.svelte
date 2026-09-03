@@ -123,7 +123,20 @@
     const size = vlist.getScrollSize();
     // Vor dem ersten echten Inhalt ist die Größe 0 → nicht auswerten.
     if (size === 0) return;
-    pinnedToBottom = offset + vlist.getViewportSize() >= size - 80;
+    // NUR nach true schalten, nie nach false. Bis zum 2026-09-03 stand hier
+    // eine Zuweisung in beide Richtungen — und die riss das Kleben ab, ohne
+    // dass der Nutzer etwas getan hatte: `pinToEnd(true)` gleitet ans Ende,
+    // jedes Zwischen-Scroll-Ereignis der Gleitfahrt liegt noch nicht am
+    // Ende und setzte `pinnedToBottom = false`; kam in diesem Fenster (oder
+    // waehrend ein Bild die Liste wachsen liess) die naechste Nachricht, gab
+    // es keinen Pin mehr, und die Ansicht blieb stehen — neue Zeilen wuchsen
+    // unsichtbar unter dem Sichtfenster. Nachgemessen mit 40 Nachrichten im
+    // Sekundentakt: ab Nr. 19 klebte die Liste 650 px ueber dem Ende, bei
+    // Nr. 22 lag die eigene neue Zeile ausserhalb des gerenderten Fensters
+    // („die Nachrichten haengen zu weit oben, ich kann nicht hochscrollen").
+    // Nach unten geht es seither nur ueber erklaerte Absicht: Rad/Finger
+    // nach oben, Tasten, Griff an die Scrollleiste (`unpin` im Effekt unten).
+    if (offset + vlist.getViewportSize() >= size - 80) pinnedToBottom = true;
     if (
       canPaginate &&
       hasMore &&
@@ -305,15 +318,32 @@
       const y = e.touches[0]?.clientY ?? touchStartY;
       if (y - touchStartY > 8) unpin();
     };
+    // Tasten und Scrollleiste erzeugen kein wheel-Event; seit der
+    // Scroll-Handler nicht mehr selbst entpinnt (s. `handleVirtuaScroll`),
+    // muessen sie hier ausdruecklich zaehlen. Der Griff an die Leiste wird
+    // an der Position erkannt: rechts vom Inhaltsbereich des Scrollers.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'PageUp' || e.key === 'ArrowUp' || e.key === 'Home') unpin();
+    };
+    const onMouseDown = (e: MouseEvent) => {
+      const scroller = el.firstElementChild as HTMLElement | null;
+      if (!scroller) return;
+      const r = scroller.getBoundingClientRect();
+      if (e.clientX >= r.left + scroller.clientWidth) unpin();
+    };
     el.addEventListener('wheel', onWheel, { passive: true, capture: true });
     el.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
     el.addEventListener('touchmove', onTouchMove, { passive: true, capture: true });
+    el.addEventListener('keydown', onKey, { capture: true });
+    el.addEventListener('mousedown', onMouseDown, { capture: true });
     return () => {
       ro?.disconnect();
       el.removeEventListener('load', onGrow, true);
       el.removeEventListener('wheel', onWheel, true);
       el.removeEventListener('touchstart', onTouchStart, true);
       el.removeEventListener('touchmove', onTouchMove, true);
+      el.removeEventListener('keydown', onKey, true);
+      el.removeEventListener('mousedown', onMouseDown, true);
     };
   });
 
