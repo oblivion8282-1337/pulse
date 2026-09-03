@@ -36,7 +36,11 @@ from dcc_chat_gateway.ablage_kanal_ordner import ordner_pfad
 from dcc_chat_gateway.ablage_schreiben import liste as liste_vom_laufwerk
 from dcc_chat_gateway.ablage_ssrf import AblageAbrufFehler
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import AblageKanalOrdner, AblageKontoLaufwerk
+from dcc_chat_gateway.models import (
+    AblageKanalLaufwerk,
+    AblageKanalOrdner,
+    AblageKontoLaufwerk,
+)
 from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.routes._ablage_abruf import ablage_abruf_antwort
 from dcc_chat_gateway.routes.ablage_kanal import _kanal_fuer_mitglied
@@ -47,7 +51,10 @@ router = APIRouter()
 # Dieselbe Form wie ``ablage_kanal_ordner.datei_name`` — hier zusaetzlich als
 # Filter/Validierung, weil der Aufrufer (Cursor und Dateiname) einen Namen
 # mitbringt statt eine ID entgegenzunehmen.
-_DATEI_MUSTER = re.compile(r"^\d+\.puls$")
+#: ``fullmatch``, nicht ``match``: ``$`` traefe auch VOR einem abschliessenden
+#: Zeilenumbruch, ``"12.puls\n"`` haette den Filter also bestanden und waere
+#: als Pfadsegment an die fremde Cloud gegangen.
+_DATEI_MUSTER = re.compile(r"\d+\.puls")
 
 
 def _puls_id(name: str) -> int:
@@ -97,6 +104,20 @@ async def ordner_kanal_anlegen(
     if laufwerk is None:
         raise HTTPException(status.HTTP_412_PRECONDITION_FAILED, detail="no account drive")
 
+    # **Die beiden Wege schliessen einander aus.** Ein Kanal liegt entweder
+    # an einer eigenen Freigabe-Adresse (``AblageKanalLaufwerk``, der
+    # Google-/Dropbox-Weg) ODER als Ordner im Konto-Laufwerk seines
+    # Erstellers — nie beides. Ohne diesen Riegel entstuenden zwei Bestaende
+    # desselben Kanals an zwei Orten, und keiner der beiden waere der
+    # vollstaendige; welcher gelesen wird, entschiede der Zufall der
+    # Klient-Reihenfolge. Das Gegenstueck steht in
+    # ``ablage_kanal.py::setze_freigabe_adresse``.
+    if await session.get(AblageKanalLaufwerk, channel.id) is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="this channel already has its own share drive",
+        )
+
     bestehend = await session.get(AblageKanalOrdner, channel.id)
     if bestehend is None:
         session.add(AblageKanalOrdner(channel_id=channel.id, ersteller_id=current.id))
@@ -136,6 +157,13 @@ async def ordner_kanal_liste(
     if laufwerk is None:
         raise HTTPException(status.HTTP_412_PRECONDITION_FAILED, detail="no account drive")
 
+    # **Einmal, und VOR dem Abruf.** Vorher stand der Aufruf in der
+    # Filter-Schleife: er lief je Dateinamen einmal, und bei einem LEEREN
+    # Ordner gar nicht — ein unlesbarer Cursor kam dann als 200 mit leerer
+    # Liste zurueck, also genau als die Sackgasse, gegen die ``_cursor_id``
+    # gebaut ist.
+    cursor = _cursor_id(nach) if nach is not None else None
+
     try:
         roh = await liste_vom_laufwerk(
             basis=laufwerk.freigabe_adresse, ordner=ordner_pfad(channel.id)
@@ -143,10 +171,10 @@ async def ordner_kanal_liste(
     except AblageAbrufFehler as fehler:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(fehler)) from fehler
 
-    passend = [name for name in roh if _DATEI_MUSTER.match(name)]
+    passend = [name for name in roh if _DATEI_MUSTER.fullmatch(name)]
     passend.sort(key=_puls_id)
-    if nach is not None:
-        passend = [name for name in passend if _puls_id(name) > _cursor_id(nach)]
+    if cursor is not None:
+        passend = [name for name in passend if _puls_id(name) > cursor]
     return passend[:limit]
 
 
@@ -181,7 +209,7 @@ async def ordner_kanal_datei(
     name: Annotated[str, Path(max_length=64)],
 ) -> Response:
     """Eine einzelne Datei aus dem Kanal-Ordner, roh durchgereicht."""
-    if not _DATEI_MUSTER.match(name):
+    if not _DATEI_MUSTER.fullmatch(name):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="invalid file name")
 
     channel = await _kanal_fuer_mitglied(session, channel_id, current)

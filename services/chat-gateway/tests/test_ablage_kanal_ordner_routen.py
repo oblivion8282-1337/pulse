@@ -15,11 +15,12 @@ kennt kein ``ablage``-Feld).
 from __future__ import annotations
 
 import random
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from dcc_chat_gateway import ratelimit as ratelimit_mod
 from dcc_chat_gateway.models import (
+    AblageKanalLaufwerk,
     AblageKanalOrdner,
     AblageKontoLaufwerk,
     Channel,
@@ -70,7 +71,7 @@ async def _guild_mit_kanal(
         )
         s.add(Channel(id=channel_id, guild_id=gid, name="k", type=0, ablage=ablage))
         for uid in mitglieder:
-            s.add(GuildMember(guild_id=gid, user_id=uid, joined_at=datetime.now(timezone.utc)))
+            s.add(GuildMember(guild_id=gid, user_id=uid, joined_at=datetime.now(UTC)))
         await s.commit()
     return gid, channel_id
 
@@ -513,3 +514,129 @@ async def test_liste_mit_numerischem_cursor_schneidet_weiterhin(
 
     assert antwort.status_code == 200, antwort.text
     assert antwort.json() == ["3.puls"]
+
+
+# ---------------------------------------------------------------------------
+# R2 — die beiden Ablage-Wege schliessen einander aus
+# ---------------------------------------------------------------------------
+
+
+async def _kanal_laufwerk_eintragen(
+    session_factory, *, channel_id: int, ersteller_id: int
+) -> None:
+    async with session_factory() as s:
+        s.add(
+            AblageKanalLaufwerk(
+                channel_id=channel_id,
+                ersteller_id=ersteller_id,
+                freigabe_adresse="https://wolke.example/kanal",
+            )
+        )
+        await s.commit()
+
+
+@pytest.mark.asyncio
+async def test_ordner_anlegen_ist_409_wenn_der_kanal_ein_eigenes_laufwerk_hat(
+    client, session_factory, _auth_signer
+):
+    """R2: ein Kanal liegt entweder an einer eigenen Freigabe-Adresse (der
+    Google-/Dropbox-Weg) ODER als Ordner im Konto-Laufwerk seines Erstellers.
+    Beides zugleich hiesse zwei Bestaende an zwei Orten, von denen keiner
+    vollstaendig ist."""
+    token, uid = await _register(_auth_signer)
+    _gid, cid = await _guild_mit_kanal(
+        session_factory, owner_id=uid, mitglieder=(uid,), ablage=True
+    )
+    await _laufwerk_eintragen(session_factory, user_id=uid, adresse="https://wolke.example/x")
+    await _kanal_laufwerk_eintragen(session_factory, channel_id=cid, ersteller_id=uid)
+
+    antwort = await client.put(f"/channels/{cid}/ablage/ordner", headers=_auth(token))
+
+    assert antwort.status_code == 409, antwort.text
+    async with session_factory() as s:
+        assert await s.get(AblageKanalOrdner, cid) is None
+
+
+@pytest.mark.asyncio
+async def test_freigabe_adresse_setzen_ist_409_wenn_der_kanal_ein_ordner_kanal_ist(
+    client, session_factory, _auth_signer
+):
+    """R2, die andere Richtung — dieselbe Begruendung."""
+    token, uid = await _register(_auth_signer)
+    _gid, cid = await _guild_mit_kanal(
+        session_factory, owner_id=uid, mitglieder=(uid,), ablage=True
+    )
+    await _ordner_eintragen(session_factory, channel_id=cid, ersteller_id=uid)
+
+    antwort = await client.put(
+        f"/channels/{cid}/ablage/laufwerk",
+        json={"freigabe_adresse": "https://wolke.example/kanal"},
+        headers=_auth(token),
+    )
+
+    assert antwort.status_code == 409, antwort.text
+    async with session_factory() as s:
+        assert await s.get(AblageKanalLaufwerk, cid) is None
+
+
+# ---------------------------------------------------------------------------
+# R7 — Cursor einmal vorab, Dateiname strikt
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_unlesbarer_cursor_ist_auch_bei_leerem_ordner_422(
+    client, session_factory, _auth_signer, monkeypatch
+):
+    """R7: der Cursor wurde in der Filter-Schleife geparst — bei einem LEEREN
+    Ordner lief sie gar nicht durch, und derselbe kaputte Cursor kam als 200
+    mit leerer Liste zurueck. Genau die stumme Sackgasse, gegen die die 422
+    gebaut ist."""
+    token, uid = await _register(_auth_signer)
+    _gid, cid = await _guild_mit_kanal(
+        session_factory, owner_id=uid, mitglieder=(uid,), ablage=True
+    )
+    await _laufwerk_eintragen(session_factory, user_id=uid, adresse="https://wolke.example/x")
+    await _ordner_eintragen(session_factory, channel_id=cid, ersteller_id=uid)
+
+    async def _leer(*, basis, ordner=None, **_rest):
+        return []
+
+    monkeypatch.setattr(routen_mod, "liste_vom_laufwerk", _leer)
+
+    antwort = await client.get(
+        f"/channels/{cid}/ablage/ordner", params={"nach": "2.puls"}, headers=_auth(token)
+    )
+
+    assert antwort.status_code == 422, antwort.text
+    assert antwort.json()["detail"] == "invalid cursor"
+
+
+@pytest.mark.asyncio
+async def test_dateiname_mit_zeilenumbruch_faellt_aus_liste_und_route(
+    client, session_factory, _auth_signer, monkeypatch
+):
+    """R7: ``re.match`` mit ``$`` traf auch VOR einem abschliessenden
+    Zeilenumbruch — ``12.puls\\n`` haette den Filter bestanden und waere als
+    Pfadsegment an die fremde Cloud gegangen. ``fullmatch`` schliesst das aus,
+    an BEIDEN Stellen."""
+    token, uid = await _register(_auth_signer)
+    _gid, cid = await _guild_mit_kanal(
+        session_factory, owner_id=uid, mitglieder=(uid,), ablage=True
+    )
+    await _laufwerk_eintragen(session_factory, user_id=uid, adresse="https://wolke.example/x")
+    await _ordner_eintragen(session_factory, channel_id=cid, ersteller_id=uid)
+
+    async def _mit_umbruch(*, basis, ordner=None, **_rest):
+        return ["12.puls\n", "13.puls"]
+
+    monkeypatch.setattr(routen_mod, "liste_vom_laufwerk", _mit_umbruch)
+
+    liste = await client.get(f"/channels/{cid}/ablage/ordner", headers=_auth(token))
+    assert liste.status_code == 200, liste.text
+    assert liste.json() == ["13.puls"]
+
+    datei = await client.get(
+        f"/channels/{cid}/ablage/ordner/12.puls%0A", headers=_auth(token)
+    )
+    assert datei.status_code == 422, datei.text

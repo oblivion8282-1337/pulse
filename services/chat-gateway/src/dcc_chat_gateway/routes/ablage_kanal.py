@@ -31,7 +31,7 @@ from dcc_chat_gateway.ablage_schreiben import liste as liste_vom_laufwerk
 from dcc_chat_gateway.ablage_schreiben import schreibe as schreibe_aufs_laufwerk
 from dcc_chat_gateway.ablage_ssrf import AblageAbrufFehler
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import AblageKanalLaufwerk, Channel
+from dcc_chat_gateway.models import AblageKanalLaufwerk, AblageKanalOrdner, Channel
 from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.routes._ablage_abruf import ablage_abruf_antwort
 from dcc_chat_gateway.routes._deps import channel_membership
@@ -93,6 +93,17 @@ async def setze_freigabe_adresse(
     geteilt = urllib.parse.urlsplit(payload.freigabe_adresse)
     if geteilt.scheme not in ("http", "https") or not geteilt.hostname:
         raise HTTPException(422, detail="freigabe_adresse must be an http(s) URL")
+
+    # **Die beiden Wege schliessen einander aus** — Gegenstueck zu
+    # ``ablage_kanal_ordner.py::ordner_kanal_anlegen``: liegt der Kanal
+    # bereits als Ordner im Konto-Laufwerk seines Erstellers, entstuende mit
+    # einer eigenen Freigabe-Adresse ein zweiter, unvollstaendiger Bestand
+    # desselben Kanals an einem zweiten Ort.
+    if await session.get(AblageKanalOrdner, channel.id) is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="this channel is a folder channel in its creator's account drive",
+        )
 
     bestehend = await session.get(AblageKanalLaufwerk, channel.id)
     if bestehend is None:
