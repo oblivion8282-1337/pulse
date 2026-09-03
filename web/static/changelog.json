@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-03.6",
+      "date": "2026-09-03",
+      "style": "Sachlich",
+      "title": "Verschlüsselte Direktnachrichten nach Neuanmeldung wieder lesbar",
+      "intro": "Nach einer Neuanmeldung konnten sich zwei Geräte gegenseitig nicht mehr lesen. Die Nachrichten kamen an, blieben aber unsichtbar, und zwar in beide Richtungen. Das ist behoben.",
+      "items": [
+        "Meldet sich ein Gerät neu an, baut es zur Gegenseite eine frische Sitzung auf. Die App hielt bisher an der alten Sitzung fest und ließ den Sitzungsaufbau ungeöffnet liegen. Jetzt öffnet sie ihn und ersetzt die alte Sitzung.",
+        "Kann ein Umschlag nicht geöffnet werden, steht der Grund jetzt in der Entwicklerkonsole, ohne Inhalt. Bisher verschwand er spurlos."
+      ]
+    },
+    {
       "id": "2026-09-03.5",
       "date": "2026-09-03",
       "style": "Sachlich",

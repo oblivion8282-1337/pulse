@@ -150,11 +150,12 @@ export function postfachAbholenUndAnzeigen(istAboniert: (kanalId: string) => boo
         }
       }
     })
-    .catch(() => {
-      // Nicht quittierte Umschlaege bleiben auf dem Server liegen (s.
-      // `empfangen.ts`) — der naechste Weckruf/Connect holt sie nach. Kein
-      // Log: eine Fehlermeldung hier duerfte nichts ueber den Inhalt sagen
-      // und saehe fuer den Nutzer wie ein Zustellfehler aus, der es nicht ist.
+    .catch((err: unknown) => {
+      // Bis 2026-09-03 stand hier ein leeres `catch` — ein Fehler beim
+      // Abholen verschwand spurlos und sah aus wie "nichts da".
+      console.warn('[postfach] Abholen fehlgeschlagen', {
+        fehler: err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+      });
     });
 }
 
