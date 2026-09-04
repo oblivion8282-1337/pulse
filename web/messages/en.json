@@ -3278,5 +3278,7 @@
   "gast_links_entwertet": "revoked",
   "gast_links_laeuft_ab": "valid until {datum}",
   "gast_links_hinweis": "Anyone with the link can join this voice channel without an account — until it expires or you revoke it.",
-  "gast_links_code_einmal": "The link is shown only now. Copy it before you close this."
+  "gast_links_code_einmal": "The link is shown only now. Copy it before you close this.",
+  "gast_entfernen": "Remove guest",
+  "gast_entfernen_fehler": "Could not remove the guest."
 }

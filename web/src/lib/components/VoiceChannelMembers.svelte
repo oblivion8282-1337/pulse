@@ -4,6 +4,11 @@
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { settings } from '$lib/stores/settings.svelte';
   import { voicePresence, istGastKennung } from '$lib/stores/voicePresence.svelte';
+  import { roles } from '$lib/stores/roles.svelte';
+  import { Perm } from '$lib/permissions/bitfield';
+  import { disconnectFromVoice } from '$lib/api/voice';
+  import UserMinusIcon from '@lucide/svelte/icons/user-minus';
+  import { toast } from 'svelte-sonner';
   import { safeAvatarUrl } from '$lib/avatar';
   import { nameColor, nameStyle, avatarFallbackStyle } from '$lib/utils/nameColor';
   import VoiceMuteIcon from './VoiceMuteIcon.svelte';
@@ -64,6 +69,22 @@
   // ``userCache`` fragt für sie ein Profil ab, das es nicht gibt.
   const mitglieder = $derived(userIds.filter((id) => !istGastKennung(id)));
   const gaeste = $derived(userIds.filter(istGastKennung));
+
+  // Gäste rauswerfen darf, wer MOVE_MEMBERS hält — dasselbe Bit, das auch den
+  // Gast-Link erzeugt. Die Prüfung hier ist nur die Anzeige; verbindlich ist
+  // sie serverseitig (``voice-disconnect``), wo sie kanalgenau aufgelöst wird.
+  const darfWerfen = $derived(roles.hasGuildPermission(guildId, Perm.MOVE_MEMBERS));
+
+  async function gastEntfernen(gastId: string): Promise<void> {
+    try {
+      await disconnectFromVoice(channelId, gastId);
+      // Vorgreifend aus der Liste nehmen: die Präsenz kommt erst über den
+      // LiveKit-Webhook zurück, und bis dahin stünde der eben Entfernte noch da.
+      voicePresence.removeUser(channelId, gastId);
+    } catch {
+      toast.error(m.gast_entfernen_fehler());
+    }
+  }
 
   const streamingSet = $derived(new Set(streamingUserIds));
   const camSet = $derived(new Set(camUserIds));
@@ -251,6 +272,18 @@
     <span class="ml-auto flex shrink-0 items-center gap-1">
       {#if gastState?.mic_muted}
         <VoiceMuteIcon kind="mic" forced={false} label={m.gast_stumm()} />
+      {/if}
+      {#if darfWerfen}
+        <button
+          type="button"
+          class="text-text-muted hover:text-destructive rounded p-1 transition-colors"
+          title={m.gast_entfernen()}
+          aria-label={m.gast_entfernen()}
+          data-testid="gast-entfernen"
+          onclick={() => gastEntfernen(gid)}
+        >
+          <UserMinusIcon class="size-3.5" />
+        </button>
       {/if}
     </span>
   </div>

@@ -3278,5 +3278,7 @@
   "gast_links_entwertet": "entwertet",
   "gast_links_laeuft_ab": "gültig bis {datum}",
   "gast_links_hinweis": "Wer den Link hat, kommt ohne Konto in diesen Sprachkanal — bis er abläuft oder du ihn entwertest.",
-  "gast_links_code_einmal": "Der Link wird nur jetzt angezeigt. Kopiere ihn, bevor du schliesst."
+  "gast_links_code_einmal": "Der Link wird nur jetzt angezeigt. Kopiere ihn, bevor du schliesst.",
+  "gast_entfernen": "Gast entfernen",
+  "gast_entfernen_fehler": "Der Gast konnte nicht entfernt werden."
 }
