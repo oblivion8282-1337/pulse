@@ -33,6 +33,8 @@ from fastapi import APIRouter, Header, HTTPException, Path, Query, Request, stat
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
+from dcc_shared import gaeste as _geteilt
+
 from dcc_chat_gateway import gaeste
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.db import SessionDep
@@ -165,7 +167,8 @@ async def gast_beitritt(
     """Ein Gast-Ticket für diesen Link ausstellen lassen.
 
     Die Laufzeit ist die Restlaufzeit des Links, gedeckelt auf vier Stunden
-    (``gaeste.TICKET_MAX_TTL_S``, auth-svc deckelt unabhängig noch einmal).
+    (``dcc_shared.gaeste.TICKET_MAX_TTL_S`` — dieselbe Zahl, die auth-svc beim
+    Ausstellen deckelt).
     Ein Ticket lebt damit nie länger als der Link, der es rechtfertigt — und
     weil ``ticket_holen`` jede Laufzeit unter einer Minute anhebt, wird ein
     Link in seiner letzten Minute gar nicht mehr eingelöst (s. unten).
@@ -180,7 +183,7 @@ async def gast_beitritt(
     await _limit_pruefen(session, redis, link.channel_id)
 
     rest = int((gaeste.als_utc(link.expires_at) - datetime.now(UTC)).total_seconds())
-    if rest < gaeste.TICKET_MIN_TTL_S:
+    if rest < _geteilt.TICKET_MIN_TTL_S:
         # Ein Link, der in unter einer Minute abläuft, taugt nicht mehr als
         # Zutritt. Ihn trotzdem einzulösen hiesse, ein Ticket auszustellen,
         # das den Link ÜBERLEBT — ``ticket_holen`` hebt jede kürzere Laufzeit
@@ -189,7 +192,7 @@ async def gast_beitritt(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="link not found")
 
     gast_id = f"gast-{next_id()}"
-    ttl = min(rest, gaeste.TICKET_MAX_TTL_S)
+    ttl = min(rest, _geteilt.TICKET_MAX_TTL_S)
     ticket, ttl = await gaeste.ticket_holen(
         gast_id=gast_id,
         guild_id=link.guild_id,
@@ -224,7 +227,7 @@ async def _gast_pruefen(gast: CurrentGast, request: Request, channel_id: str) ->
             status.HTTP_403_FORBIDDEN, detail="ticket is for another channel"
         )
     redis = getattr(request.app.state, "redis", None)
-    if await gaeste.gast_gesperrt(redis, gast.gast_id):
+    if await _geteilt.ist_gesperrt(redis, gast.gast_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="removed from the meeting")
 
 
@@ -235,10 +238,11 @@ async def gast_stream_state(
 ) -> dict[str, list[dict[str, object]]]:
     """Wer überträgt gerade in DEM Kanal des Tickets.
 
-    Der Gast hat keinen WebSocket — er fragt nach, statt geschickt zu bekommen.
-    Preis: Anfang und Ende einer Übertragung erscheinen bei ihm um die
-    Abfragefrist verzögert (Klient: 5 s). Ein schlanker Gast-WebSocket wäre die
-    saubere Alternative und der erste Kandidat, falls das im Betrieb stört.
+    ponytail: Abfrage statt Zustellung. Decke: der Gast erfährt Anfang und Ende
+    einer Übertragung um die Abfragefrist verzögert (Klient: 5 s), und jeder
+    Gast kostet eine Anfrage alle 5 s. Aufstieg: ein schlanker Gast-WebSocket
+    — er kostet aber einen zweiten Zugangsweg mit eigener Rechteprüfung, und
+    dafür ist die Verzögerung hier zu billig.
     """
     await _gast_pruefen(gast, request, gast.channel_id)
     mgr = getattr(request.app.state, "connection_manager", None)

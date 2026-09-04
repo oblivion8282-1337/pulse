@@ -33,11 +33,21 @@ GAST_LINK_KEY = "gast:link:{link_id}"
 #: allein daran.
 GAST_IDENTITY_PREFIX = "gast-"
 
-#: Höchstlaufzeit eines Gast-Tickets (auth-svc deckelt darauf). Eine Sperre,
-#: die so lange lebt, überdauert damit jedes ausgestellte Ticket — länger muss
-#: sie nie sein, kürzer darf sie nicht: dann käme ein Rausgeworfener mit
-#: seinem alten Ticket zurück.
+#: Höchstlaufzeit eines Gast-Tickets — **die eine Quelle**. auth-svc deckelt
+#: beim Ausstellen darauf, chat-gateway rechnet damit, und eine Rauswurf-Sperre
+#: lebt genauso lange: sie überdauert damit jedes ausgestellte Ticket, länger
+#: muss sie nie sein, kürzer darf sie nicht (dann käme ein Rausgeworfener mit
+#: seinem alten Ticket zurück).
+#:
+#: Vier Stunden decken eine lange Besprechung ab; wer länger tagt, tritt einmal
+#: neu bei. Die Zahl stand kurzzeitig in drei Dateien — genau die Sorte
+#: Wiederholung, die beim nächsten Anfassen an zwei Stellen stimmt.
 TICKET_MAX_TTL_S = 4 * 3600
+
+#: Untergrenze: ein Ticket unter einer Minute ist kein brauchbarer Zutritt
+#: mehr, und auth-svc nimmt kürzere Laufzeiten gar nicht erst an. Ein Link in
+#: seiner letzten Minute wird deshalb nicht mehr eingelöst.
+TICKET_MIN_TTL_S = 60
 
 
 def ist_gast(kennung: str) -> bool:

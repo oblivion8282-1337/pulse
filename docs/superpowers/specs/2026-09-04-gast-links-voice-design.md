@@ -370,3 +370,34 @@ Sechs Befunde, alle behoben. Zwei davon hätte kein bestehender Test gefunden:
 Nicht behoben, weil unverändert richtig: ein Rauswurf beendet eine Sitzung,
 nicht den Zugang. Wer denselben Link erneut öffnet, ist ein neuer Gast — das
 ist der Grund, warum die Entwertung danebensteht.
+
+## Bughunt, zweite Runde (ponytail-Raster)
+
+Vier Befunde. Die beiden ersten sind Funktionen, die es nur auf dem Papier gab:
+
+1. **Das „Gast"-Abzeichen an der Sprecher-Kachel lief nie.** Ich hatte es in
+   den Zweig gesetzt, den `VoiceParticipantTile` für Teilnehmer MIT Nutzer-ID
+   rendert — für einen Gast läuft der `{:else}`-Zweig. Ein Gast sah in der
+   Mitte des Sprachkanals also aus wie ein Mitglied, obwohl sein Name selbst
+   getippt und von niemandem geprüft ist. Dass die Datei dafür zwei getrennte
+   Zweige hat, war der Grund, aus dem der Gast dort überhaupt erscheint —
+   und genau deshalb übersehen.
+2. **Eine Gast-Kamera hätte niemand öffnen können.** Das CAM-Abzeichen steht
+   ebenfalls nur im Mitglieder-Zweig. Erlaubt hatte ich die Kamera im Token,
+   sichtbar war sie nirgends. Jetzt trägt der Gast-Zweig genau dieses eine
+   Aktivitäts-Abzeichen (es hängt an der LiveKit-Identität, nicht an einem
+   Profil); LIVE und PARTY bleiben weg, die brauchen Server-Präsenz.
+3. **Die Vier-Stunden-Grenze stand in drei Dateien.** `dcc_shared`,
+   `chat_gateway` und `auth-svc` trugen je ihre eigene `4 * 3600` — die
+   Sorte Wiederholung, die beim nächsten Anfassen an zwei Stellen stimmt.
+   Jetzt eine Quelle, aus der die anderen beiden importieren; die
+   delegierenden Hüllen im chat-gateway sind mit weggefallen.
+4. **Die Ratenbremse konnte eine IP dauerhaft aussperren.** Zähler und Frist
+   sind zwei Befehle; blieb der zweite aus, lag ein fristloser Schlüssel da,
+   der weiterzählte und nie ablief. `expire(..., nx=True)` holt die Frist beim
+   nächsten Aufruf nach und verlängert ein laufendes Fenster nicht.
+
+Dazu, aus der ponytail-Konvention: die drei bewussten Abkürzungen mit
+bekannter Decke tragen jetzt einen `ponytail:`-Vermerk mit Decke und
+Aufstiegsweg (Abfrage statt Zustellung, zweimal; Schleife statt Sammel-Aufruf
+bei der Entwertung).

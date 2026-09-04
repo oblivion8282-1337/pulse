@@ -21,17 +21,19 @@ from typing import Annotated
 from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from dcc_shared.gaeste import TICKET_MAX_TTL_S
+
 from dcc_auth import config as _config
 from dcc_auth.security import get_signer
 
 router = APIRouter()
 
-# Obergrenze der Ticket-Laufzeit. Ein Gast-Ticket ist unwiderrufbar bis zum
-# Ablauf (es gibt keine Sperrliste — dieselbe Überlegung wie beim
-# Server-Ticket), deshalb ist die Frist das einzige Sicherheitsmaß, das ohne
-# Zutun wirkt. Vier Stunden decken eine lange Besprechung ab; wer länger
-# tagt, tritt einmal neu bei.
-MAX_TTL_S = 4 * 3600
+# Obergrenze der Ticket-Laufzeit, aus ``dcc_shared`` statt hier gesetzt: die
+# Zahl gilt für chat-gateway (das rechnet) und für die Rauswurf-Sperre (die so
+# lange leben muss) genauso. Ein Gast-Ticket ist unwiderrufbar bis zum Ablauf
+# — es gibt keine Sperrliste, dieselbe Überlegung wie beim Server-Ticket —,
+# damit ist die Frist das einzige Sicherheitsmaß, das ohne Zutun wirkt.
+MAX_TTL_S = TICKET_MAX_TTL_S
 
 
 class GastTicketIn(BaseModel):

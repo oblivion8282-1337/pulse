@@ -34,23 +34,6 @@ from dcc_chat_gateway.zeit import als_utc  # noqa: F401 — Weiterreichung für 
 
 log = logging.getLogger(__name__)
 
-# --- Redis-Schlüssel: kanonisch in ``dcc_shared.gaeste`` -------------------
-# Hier nur durchgereicht. voice-signaling liest dieselben Schlüssel; zwei
-# Fassungen davon liefen still auseinander (Begründung dort).
-GAST_KEY = _geteilt.GAST_KEY
-GAST_SPERRE_KEY = _geteilt.GAST_SPERRE_KEY
-GAST_LINK_KEY = _geteilt.GAST_LINK_KEY
-
-# Höchstlaufzeit eines Tickets. auth-svc deckelt unabhängig davon noch einmal
-# auf denselben Wert (``routes_gast_ticket.MAX_TTL_S``) — die Grenze steht
-# absichtlich auf beiden Seiten: hier, weil der chat-gateway rechnet, und dort,
-# weil auth-svc keinem Aufrufer glauben soll.
-TICKET_MAX_TTL_S = 4 * 3600
-# Untergrenze: ein Link, der in weniger als einer Minute abläuft, ist kein
-# brauchbarer Beitritt mehr — auth-svc lehnt kürzere Laufzeiten ohnehin ab.
-TICKET_MIN_TTL_S = 60
-
-
 def code_hash(code: str) -> str:
     """SHA-256-Hex eines Link-Codes. In der Datenbank steht nur das."""
     return hashlib.sha256(code.encode()).hexdigest()
@@ -85,8 +68,16 @@ async def bremse(redis: Any, schluessel: str, limit: int, fenster_s: int) -> boo
         return True
     try:
         n = await redis.incr(schluessel)
-        if n == 1:
-            await redis.expire(schluessel, fenster_s)
+        # ``nx=True`` statt ``if n == 1``: der Zähler und seine Frist sind zwei
+        # Befehle, und dazwischen kann etwas dazwischenkommen. Schlug das
+        # ``expire`` beim ersten Aufruf fehl, blieb der Schlüssel OHNE Frist
+        # liegen — er zählte weiter, lief nie ab, und die IP wäre dauerhaft
+        # ausgesperrt gewesen. So bekommt auch ein fristloser Altbestand beim
+        # nächsten Aufruf seine Frist, und ein bereits laufendes Fenster wird
+        # nicht verlängert (sonst hielte ein bestürmender Aufrufer sich selbst
+        # unbegrenzt im Sperrzustand — und den Nachbarn hinter derselben IP
+        # gleich mit).
+        await redis.expire(schluessel, fenster_s, nx=True)
         return n <= limit
     except Exception:  # noqa: BLE001 — Redis-Transportfehler
         return True
@@ -139,7 +130,7 @@ async def ticket_holen(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="guest links unavailable — INTERNAL_SERVICE_SECRET not set",
         )
-    ttl = max(TICKET_MIN_TTL_S, min(int(ttl_s), TICKET_MAX_TTL_S))
+    ttl = max(_geteilt.TICKET_MIN_TTL_S, min(int(ttl_s), _geteilt.TICKET_MAX_TTL_S))
     url = settings.auth_svc_url.rstrip("/") + "/internal/guest-token"
     body = {
         "gast_id": gast_id,
@@ -188,7 +179,7 @@ async def gast_eintragen(
     if redis is None:
         return
     try:
-        key = GAST_KEY.format(gast_id=gast_id)
+        key = _geteilt.GAST_KEY.format(gast_id=gast_id)
         await redis.hset(
             key,
             mapping={
@@ -199,7 +190,7 @@ async def gast_eintragen(
             },
         )
         await redis.expire(key, ttl_s)
-        link_key = GAST_LINK_KEY.format(link_id=link_id)
+        link_key = _geteilt.GAST_LINK_KEY.format(link_id=link_id)
         await redis.sadd(link_key, gast_id)
         await redis.expire(link_key, ttl_s)
     except Exception:  # noqa: BLE001
@@ -210,22 +201,15 @@ async def gast_eintragen(
         log.warning("gast_eintragen fehlgeschlagen gast_id=%s", gast_id)
 
 
-async def gast_gesperrt(redis: Any, gast_id: str) -> bool:
-    """True, wenn dieser Gast rausgeworfen wurde (geteilter Leser)."""
-    return await _geteilt.ist_gesperrt(redis, gast_id)
-
-
 async def gaeste_des_links(redis: Any, link_id: int) -> list[str]:
     """Die Gast-IDs, die über diesen Link beigetreten sind."""
     if redis is None:
         return []
     try:
-        roh = await redis.smembers(GAST_LINK_KEY.format(link_id=link_id))
+        roh = await redis.smembers(_geteilt.GAST_LINK_KEY.format(link_id=link_id))
     except Exception:  # noqa: BLE001
         return []
     return [m.decode() if isinstance(m, bytes) else m for m in roh]
 
 
-async def gast_sperren(redis: Any, gast_id: str, ttl_s: int) -> None:
-    """Den Gast bis zum Ticket-Ablauf aussperren (geteilter Schreiber)."""
-    await _geteilt.sperren(redis, gast_id, ttl_s)
+

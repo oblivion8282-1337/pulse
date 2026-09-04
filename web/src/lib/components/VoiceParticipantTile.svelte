@@ -258,14 +258,6 @@
           >
             {resolvedName}{p.isLocal ? m.voice_participant_tile_local_suffix() : ''}
           </span>
-          {#if istGast}
-            <span
-              class="text-2xs border-border text-text-muted shrink-0 rounded-full border px-1.5 py-0.5 uppercase"
-              data-testid="voice-participant-guest"
-            >
-              {m.gast_abzeichen()}
-            </span>
-          {/if}
           {#if showMicOff}
             <VoiceMuteIcon
               kind="mic"
@@ -303,8 +295,14 @@
   {/snippet}
 </UserProfilePopover>
 {:else}
-  <!-- Anonymous participants (no userId — pre-LiveKit-join race window):
-       no popover, no DM, no volume, no activity badges (we can't tell who they are). -->
+  <!-- Teilnehmer ohne Nutzer-ID. Zwei Faelle, gleiche Darstellung: das kurze
+       Fenster vor dem LiveKit-Beitritt, und ein GAST (Besprechungslink, hat
+       gar keine Nutzer-ID). Kein Popover, keine DM, keine Lautstaerke, keine
+       Aktivitaets-Abzeichen — es gibt kein Profil dahinter.
+       Der Gast wird als solcher ausgewiesen: sein Name ist selbst getippt und
+       von niemandem geprueft, das muss man ihm ansehen. Das Abzeichen stand
+       zuerst im Zweig darueber und lief dort NIE — dort gibt es per
+       Bedingung nur Teilnehmer MIT Nutzer-ID. -->
   <button
     type="button"
     class="glass-panel flex flex-col items-center gap-3 rounded-2xl px-6 py-5 text-left transition-colors"
@@ -345,6 +343,37 @@
       >
         {resolvedName}{p.isLocal ? m.voice_participant_tile_local_suffix() : ''}
       </span>
+      {#if istGast}
+        <span
+          class="text-2xs border-border text-text-muted shrink-0 rounded-full border px-1.5 py-0.5 uppercase"
+          data-testid="voice-participant-guest"
+        >
+          {m.gast_abzeichen()}
+        </span>
+      {/if}
+      {#if hasCam}
+        <!-- Das EINZIGE Aktivitaets-Abzeichen in diesem Zweig, und zwar
+             zwingend: ein Gast darf seine Kamera senden (das LiveKit-Token
+             laesst die Quelle ausdruecklich zu). Ohne diesen Knopf koennte
+             sein Bild niemand oeffnen — die erlaubte Kamera waere eine
+             Funktion, die es nur auf dem Papier gibt. Die uebrigen Abzeichen
+             (LIVE/PARTY) bleiben weg: die haengen an Server-Praesenz, die es
+             ohne Nutzer-ID nicht gibt. Beides hier laeuft ueber die
+             LiveKit-Identitaet und braucht kein Profil. -->
+        <span
+          role="button"
+          tabindex="0"
+          class="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-badge-cam px-2 py-0.5 text-2xs font-bold uppercase text-white shadow-sm hover:bg-badge-cam-hover active:scale-95"
+          data-testid="voice-participant-cam-badge"
+          title={m.voice_participant_tile_open_webcam()}
+          aria-label={m.voice_participant_tile_open_webcam_aria({ name: resolvedName })}
+          onclick={(e) => {
+            e.stopPropagation();
+            openCam();
+          }}
+          onkeydown={badgeKeydown(openCam)}
+        ><span class="size-1.5 rounded-full bg-white/80"></span>CAM</span>
+      {/if}
       {#if showMicOff}
         <VoiceMuteIcon
           kind="mic"

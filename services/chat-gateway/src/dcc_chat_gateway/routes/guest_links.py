@@ -166,12 +166,17 @@ async def revoke_guest_link(
         await session.commit()
 
     redis = getattr(request.app.state, "redis", None)
+    # ponytail: Schleife über die Gäste, drei Rundläufe je Gast (sperren,
+    # Lese-Token, LiveKit). Decke: eine Besprechung hat eine Handvoll Gäste,
+    # keine tausend. Aufstieg wäre ein Sammel-Aufruf an voice-signaling (den
+    # es für Mitglieder schon gibt: ``channel_ids`` in einem Rutsch) — lohnt
+    # sich erst, wenn jemand Gast-Links für Grossveranstaltungen benutzt.
     gast_ids = await gaeste.gaeste_des_links(redis, link_id)
     # Restlaufzeit als Sperrdauer: länger als das längstmögliche Ticket muss
     # die Sperre nie leben, kürzer darf sie nicht.
     rest = int((gaeste.als_utc(link.expires_at) - datetime.now(UTC)).total_seconds())
     for gast_id in gast_ids:
-        await gaeste.gast_sperren(redis, gast_id, min(max(rest, 1), gaeste.TICKET_MAX_TTL_S))
+        await _geteilt.sperren(redis, gast_id, min(max(rest, 1), _geteilt.TICKET_MAX_TTL_S))
         # Auch hier die Lese-Token wegnehmen — ein entwerteter Link, nach dem
         # ein Gast noch eine Stunde zusehen kann, ist nicht entwertet.
         await _geteilt.lese_token_loeschen(redis, gast_id)

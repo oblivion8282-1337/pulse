@@ -6,9 +6,11 @@
  * Der Gast hat keinen: er hält keine Sitzung, und ein WebSocket für ihn wäre
  * ein zweiter Zugangsweg mit eigener Rechteprüfung. Also fragt er nach.
  *
- * **Preis, ausdrücklich:** Anfang und Ende einer Übertragung erscheinen beim
- * Gast bis zu `ABFRAGE_MS` verspätet. Ein schlanker Gast-WebSocket wäre die
- * saubere Alternative und der erste Kandidat, falls das im Betrieb stört.
+ * ponytail: Abfrage im festen Takt. Decke: Anfang und Ende einer Übertragung
+ * erscheinen beim Gast bis zu `ABFRAGE_MS` verspätet, und jeder Gast kostet
+ * eine Anfrage je Takt. Aufstieg: ein schlanker Gast-WebSocket — der kostet
+ * einen zweiten Zugangsweg mit eigener Rechteprüfung, und dafür ist die
+ * Verzögerung hier zu billig.
  */
 
 import { connectWhep, type WhepSession } from '$lib/stream/whep';
