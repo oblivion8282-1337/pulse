@@ -401,3 +401,44 @@ Dazu, aus der ponytail-Konvention: die drei bewussten Abkürzungen mit
 bekannter Decke tragen jetzt einen `ponytail:`-Vermerk mit Decke und
 Aufstiegsweg (Abfrage statt Zustellung, zweimal; Schleife statt Sammel-Aufruf
 bei der Entwertung).
+
+## Bughunt, dritte Runde
+
+Sechs Befunde, davon zwei in der Testschiene — und der zweite war ein
+Flackern, das ich selbst eingebaut hatte.
+
+1. **Off-by-one an der Platz-Schranke.** `GET /gast/sitzung/whep` liess
+   `slot` bis 99 durch, `SLOT_MAX` ist 98: Platz 99 kam durch den
+   chat-gateway und holte sich in media-svc ein 422, das der Gast als
+   undurchsichtigen Fehler sah. Genau die zweite Wahrheit, vor der der
+   Kommentar am Mitglieder-Weg warnt — jetzt dieselbe `SlotQuery`.
+2. **Bearer-Zerlegung von Hand** (`split(" ")[-1]`) neben dem vorhandenen
+   `_bearer_from_header`. Die Handarbeit hätte einen Header ohne
+   `Bearer`-Präfix als Token weitergereicht.
+3. **Ein Knopf, der etwas Falsches behauptete:** die Kopieren-Schaltfläche
+   trug „Link kopiert" — die Rückmeldung *nach* dem Klick.
+4. **Ton-Elemente mit ungleichem Schlüsselpaar** (Setzen mit Rückfall auf die
+   Identität, Löschen mit Rückfall auf den leeren Text). Die Karte ist ganz
+   entfallen; `track.detach()` gibt seine Elemente selbst zurück.
+5. **Ein Kamerawechsel mitten in der Besprechung** hätte das alte Bild
+   stehen lassen: gleicher Sender, gleiche Quelle, neuer Track — der
+   `{#each}`-Schlüssel trägt jetzt die Spur-Kennung.
+6. **`gastStreams.fehler` wurde gesetzt und nirgends gezeigt.** Der Gast
+   klickte auf „Ansehen" und sah bei einem Fehlschlag nichts.
+
+**Testschiene**, beide Male dieselbe Fehlerklasse (feste Schlüssel auf einem
+geteilten Redis, dazu ein `flushdb()`):
+* `test_voice_override.py` verdrahtete `redis://localhost:6380/9` fest. Unter
+  `-n` startet der Wurzel-`conftest` je Worker einen eigenen Server — fest
+  verdrahtet landeten alle auf demselben und räumten einander mitten im Test
+  die Schlüssel weg. Der Server kommt jetzt aus `REDIS_URL`, Datenbank 9
+  bleibt (sonst leerte ein serieller Lauf die Dev-Daten).
+* Meine eigenen Redis-Tests in `test_gast_token.py` benutzten feste
+  Kennungen (`gast-77`) und stiessen unter `-n 8` mit sich selbst zusammen.
+  Jetzt je Test eine eigene Kennung.
+
+Nachgemessen: **acht Volllaufe unter `-n 8`**, davon die letzten sechs
+durchgehend 2594 grün.
+
+Ponytail: `gaeste.als_utc` war eine Weiterreichung mit `noqa` — die drei
+Aufrufer holen die Funktion jetzt direkt aus `zeit.py`.

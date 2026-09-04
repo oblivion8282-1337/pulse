@@ -30,7 +30,6 @@ from fastapi import HTTPException, status
 from dcc_shared import gaeste as _geteilt
 
 from dcc_chat_gateway.config import get_settings
-from dcc_chat_gateway.zeit import als_utc  # noqa: F401 — Weiterreichung für die Gast-Routen
 
 log = logging.getLogger(__name__)
 

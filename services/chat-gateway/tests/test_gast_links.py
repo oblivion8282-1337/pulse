@@ -310,3 +310,52 @@ async def test_link_erzeugen_ist_gebremst(client, _auth_signer):
     assert len(codes) == 20
     zuviel = await client.post(f"/channels/{cid}/guest-links", json={}, headers=_auth(token))
     assert zuviel.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_gast_whep_weist_einen_platz_ab_den_media_svc_nie_annimmt(
+    client, _auth_signer
+):
+    """Die Platz-Schranke muss dieselbe sein wie auf dem Mitglieder-Weg.
+
+    Sie stand kurzzeitig auf 99, ``SLOT_MAX`` ist 98: Platz 99 kam durch und
+    holte sich drüben ein 422, das der Gast als undurchsichtigen Fehler sah.
+    Eine eigene Zahl an dieser Stelle ist genau die zweite Wahrheit, vor der
+    der Kommentar am Mitglieder-Weg warnt.
+    """
+    from dcc_shared.streaming import SLOT_MAX
+
+    token, _ = _owner(_auth_signer)
+    gid = await _guild(client, token)
+    cid = await _voice_channel(client, token, gid)
+    r = await client.post(f"/channels/{cid}/guest-links", json={}, headers=_auth(token))
+    bei = await client.post(f"/gast/{r.json()['code']}/beitritt", json={"name": "G"})
+    ticket = bei.json()["ticket"]
+
+    zu_hoch = await client.get(
+        f"/gast/sitzung/whep?user_id=42&slot={SLOT_MAX + 1}", headers=_auth(ticket)
+    )
+    assert zu_hoch.status_code == 422, "über der Schranke muss die Route selbst abweisen"
+
+
+@pytest.mark.asyncio
+async def test_gast_whep_ohne_bearer_praefix_ist_kein_token(client, _auth_signer):
+    """Ein Header ohne ``Bearer``-Präfix darf nicht als Token durchgehen.
+
+    Die Handarbeit an dieser Stelle (``split(" ")[-1]``) hätte den ganzen
+    Wert weitergereicht; der geteilte Helfer weist ihn ab. Praktisch kommt man
+    hier ohnehin nicht vorbei — ``CurrentGast`` prüft vorher —, aber die Route
+    reicht den Wert an einen anderen Dienst weiter, und das ist die Sorte
+    Stelle, an der eine schlampige Zerlegung später teuer wird.
+    """
+    token, _ = _owner(_auth_signer)
+    gid = await _guild(client, token)
+    cid = await _voice_channel(client, token, gid)
+    r = await client.post(f"/channels/{cid}/guest-links", json={}, headers=_auth(token))
+    bei = await client.post(f"/gast/{r.json()['code']}/beitritt", json={"name": "G"})
+
+    antwort = await client.get(
+        "/gast/sitzung/whep?user_id=42",
+        headers={"Authorization": bei.json()["ticket"]},  # ohne "Bearer "
+    )
+    assert antwort.status_code == 401

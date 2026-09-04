@@ -8,6 +8,8 @@ Community geworden — der Gast bräuchte nur eine andere Zahl zu schicken.
 
 from __future__ import annotations
 
+import uuid
+
 import jwt
 import pytest
 
@@ -20,9 +22,27 @@ def auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _ticket(auth_signer, *, channel_id: str = "555", name: str = "Frau Meier") -> str:
+def _eigene_kennung() -> str:
+    """Eine Gast-Kennung, die nur zu DIESEM Test gehört.
+
+    Die Redis-Tests hier laufen gegen den gemeinsamen Dev-Redis (die Fixture
+    ``app`` bringt keinen mit). Feste Kennungen liessen zwei Worker unter
+    ``-n`` an denselben Schlüsseln arbeiten — einer räumte dem anderen die
+    Zeile weg, und das sah aus wie ein Flackern, war aber ein echter
+    Zusammenstoss. (Prompt passiert, mit genau diesen Tests.)
+    """
+    return f"gast-{uuid.uuid4().int % 10**12}"
+
+
+def _ticket(
+    auth_signer,
+    *,
+    channel_id: str = "555",
+    name: str = "Frau Meier",
+    gast_id: str = "gast-77",
+) -> str:
     return auth_signer.issue_gast(
-        gast_id="gast-77",
+        gast_id=gast_id,
         guild_id="9",
         channel_id=channel_id,
         name=name,
@@ -121,14 +141,17 @@ async def test_rausgeworfener_gast_kommt_nicht_zurueck(client, auth_signer, app)
         )
     )
     app.state.redis = redis
-    await gaeste.sperren(redis, "gast-77", 60)
+    kennung = _eigene_kennung()
+    await gaeste.sperren(redis, kennung, 60)
     try:
         r = await client.post(
-            "/gast/token", json={"channel_id": "555"}, headers=auth(_ticket(auth_signer))
+            "/gast/token",
+            json={"channel_id": "555"},
+            headers=auth(_ticket(auth_signer, gast_id=kennung)),
         )
         assert r.status_code == 403
     finally:
-        await redis.delete(gaeste.GAST_SPERRE_KEY.format(gast_id="gast-77"))
+        await redis.delete(gaeste.GAST_SPERRE_KEY.format(gast_id=kennung))
         await redis.aclose()
         app.state.redis = None
 
@@ -152,13 +175,15 @@ async def test_rauswurf_nimmt_dem_gast_die_zuschau_adresse(app, auth_signer):
             "localhost", "127.0.0.1"
         )
     )
-    zeiger = read_cache_key("gast-77", "555", "42", 0)
-    datensatz = token_key("tok-abc")
+    kennung = _eigene_kennung()
+    tok = f"tok-{uuid.uuid4().hex}"
+    zeiger = read_cache_key(kennung, "555", "42", 0)
+    datensatz = token_key(tok)
     try:
-        await redis.set(zeiger, "tok-abc")
+        await redis.set(zeiger, tok)
         await redis.set(datensatz, '{"scope":"read"}')
 
-        gefallen = await gaeste.lese_token_loeschen(redis, "gast-77")
+        gefallen = await gaeste.lese_token_loeschen(redis, kennung)
 
         assert gefallen == 2, "Zeiger UND Datensatz muessen fallen"
         assert await redis.exists(zeiger) == 0
@@ -187,12 +212,16 @@ async def test_lese_token_eines_anderen_bleiben_unberuehrt(app):
             "localhost", "127.0.0.1"
         )
     )
-    meiner = read_cache_key("gast-7", "555", "42", 0)
-    fremder = read_cache_key("gast-77", "555", "42", 0)
+    # Beide Kennungen teilen sich absichtlich einen Präfix: ``<n>`` und
+    # ``<n>7`` — daran hängt die Aussage des Tests.
+    kurz = _eigene_kennung()
+    lang = f"{kurz}7"
+    meiner = read_cache_key(kurz, "555", "42", 0)
+    fremder = read_cache_key(lang, "555", "42", 0)
     try:
         await redis.set(meiner, "tok-a")
         await redis.set(fremder, "tok-b")
-        await gaeste.lese_token_loeschen(redis, "gast-7")
+        await gaeste.lese_token_loeschen(redis, kurz)
         assert await redis.exists(meiner) == 0
         assert await redis.exists(fremder) == 1
     finally:

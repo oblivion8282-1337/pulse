@@ -40,6 +40,13 @@
             {m.gast_stream_ansehen()}
           </button>
         {/each}
+        {#if gastStreams.fehler}
+          <!-- Sonst klickt der Gast auf „Ansehen" und es passiert sichtbar
+               nichts: der Fehler wurde gesetzt und nirgends gezeigt. -->
+          <span class="text-destructive text-sm" data-testid="gast-stream-fehler">
+            {m.gast_stream_fehler()}
+          </span>
+        {/if}
         {#if gastStreams.offen}
           <button class="text-muted-foreground text-sm underline" onclick={() => gastStreams.schliessen()}>
             {m.gast_stream_schliessen()}
@@ -58,7 +65,12 @@
     </div>
   {/if}
 
-  {#each gastRaum.videos as v (v.identity + v.quelle)}
+  <!-- Die Spur-Kennung gehört in den Schlüssel: wechselt jemand mitten in der
+       Besprechung die Kamera, ist es derselbe Sender mit derselben Quelle,
+       aber ein NEUER Track. Ohne sie liefe die Einhäng-Action nicht erneut
+       (sie hat keinen Update-Zweig) und die Kachel zeigte weiter das alte,
+       stehende Bild. -->
+  {#each gastRaum.videos as v (v.identity + v.quelle + (v.track.sid ?? ''))}
     <figure class="space-y-1">
       <!-- svelte-ignore a11y_media_has_caption -->
       <video

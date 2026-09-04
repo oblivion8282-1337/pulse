@@ -39,8 +39,10 @@ from dcc_chat_gateway import gaeste
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import Channel, GuestLink, Guild
+from dcc_chat_gateway.routes.streaming import SlotQuery, _bearer_from_header
 from dcc_chat_gateway.security import CurrentGast
 from dcc_chat_gateway.snowflake import next_id
+from dcc_chat_gateway.zeit import als_utc
 
 router = APIRouter()
 
@@ -98,7 +100,7 @@ async def _link_holen(session, code: str, redis, request: Request, aktion: str):
     if (
         link is None
         or link.revoked_at is not None
-        or gaeste.als_utc(link.expires_at) <= datetime.now(UTC)
+        or als_utc(link.expires_at) <= datetime.now(UTC)
     ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="link not found")
     return link
@@ -182,7 +184,7 @@ async def gast_beitritt(
 
     await _limit_pruefen(session, redis, link.channel_id)
 
-    rest = int((gaeste.als_utc(link.expires_at) - datetime.now(UTC)).total_seconds())
+    rest = int((als_utc(link.expires_at) - datetime.now(UTC)).total_seconds())
     if rest < _geteilt.TICKET_MIN_TTL_S:
         # Ein Link, der in unter einer Minute abläuft, taugt nicht mehr als
         # Zutritt. Ihn trotzdem einzulösen hiesse, ein Ticket auszustellen,
@@ -256,7 +258,11 @@ async def gast_whep(
     gast: CurrentGast,
     request: Request,
     user_id: Annotated[str, Query(min_length=1, max_length=20, pattern=r"^\d+$")],
-    slot: Annotated[int, Query(ge=0, le=99)] = 0,
+    # Dieselbe Schranke wie auf dem Mitglieder-Weg, aus derselben Quelle: eine
+    # eigene Zahl hier liesse Plätze durch, die media-svc nie annimmt (sie
+    # stand kurzzeitig auf 99, SLOT_MAX ist 98 — der Gast bekam dafür ein
+    # weitergereichtes 422 statt einer sauberen Abweisung).
+    slot: SlotQuery = 0,
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, object]:
     """Zuschau-URL für die HQ-Übertragung eines Mitglieds im Ticket-Kanal.
@@ -268,7 +274,10 @@ async def gast_whep(
     """
     await _gast_pruefen(gast, request, gast.channel_id)
     settings = get_settings()
-    bearer = (authorization or "").split(" ", 1)[-1].strip()
+    # Den vorhandenen Helfer nehmen statt selbst zu zerlegen: er wirft bei
+    # einem Header ohne ``Bearer``-Präfix, wo die Handarbeit hier den ganzen
+    # Wert als Token durchgereicht hätte.
+    bearer = _bearer_from_header(authorization)
     url = (
         settings.media_svc_url.rstrip("/")
         + f"/gast/whep?channel_id={gast.channel_id}&user_id={user_id}&slot={slot}"

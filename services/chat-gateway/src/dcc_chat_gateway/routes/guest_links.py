@@ -30,6 +30,7 @@ from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.ratelimit import check as ratelimit_check
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
+from dcc_chat_gateway.zeit import als_utc
 from dcc_chat_gateway.voice_evict import evict_gast
 
 router = APIRouter()
@@ -174,7 +175,7 @@ async def revoke_guest_link(
     gast_ids = await gaeste.gaeste_des_links(redis, link_id)
     # Restlaufzeit als Sperrdauer: länger als das längstmögliche Ticket muss
     # die Sperre nie leben, kürzer darf sie nicht.
-    rest = int((gaeste.als_utc(link.expires_at) - datetime.now(UTC)).total_seconds())
+    rest = int((als_utc(link.expires_at) - datetime.now(UTC)).total_seconds())
     for gast_id in gast_ids:
         await _geteilt.sperren(redis, gast_id, min(max(rest, 1), _geteilt.TICKET_MAX_TTL_S))
         # Auch hier die Lese-Token wegnehmen — ein entwerteter Link, nach dem

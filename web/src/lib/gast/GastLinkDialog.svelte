@@ -89,8 +89,11 @@
           <code class="bg-muted min-w-0 flex-1 truncate rounded px-2 py-1 text-xs" data-testid="gast-link-url">
             {gastLinkUrl(frischerCode)}
           </code>
+          <!-- ``gast_links_kopiert`` ist die Rückmeldung NACH dem Klick
+               (Toast) — als Knopf-Beschriftung behauptete sie, es sei schon
+               geschehen. -->
           <Button size="sm" variant="secondary" onclick={() => kopieren(frischerCode!)}>
-            {m.gast_links_kopiert()}
+            {m.gast_links_kopieren()}
           </Button>
         </div>
       </div>

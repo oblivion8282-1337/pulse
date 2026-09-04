@@ -57,7 +57,13 @@ class GastRaum {
   beitritt = $state<GastBeitritt | null>(null);
 
   #room: Room | null = null;
-  #audioEls = new Map<string, HTMLAudioElement>();
+  /** Die eingehängten Ton-Elemente. Eine Menge, keine Karte: gelöst werden
+   *  sie über ``track.detach()`` (das gibt seine Elemente selbst zurück),
+   *  gebraucht wird die Sammlung nur beim Abbau. Vorher war es eine Karte,
+   *  deren Schlüssel beim Setzen und beim Löschen VERSCHIEDEN gebildet wurden
+   *  (Rückfall auf die Identität gegen Rückfall auf den leeren Text) — ein
+   *  Eintrag, den niemand mehr findet. */
+  #audioEls = new Set<HTMLAudioElement>();
   /** Wird gerufen, wenn die Verbindung endet — egal ob durch Auflegen,
    *  Rauswurf oder Ticket-Ablauf. Die Seite hängt daran das Einstellen der
    *  Stream-Abfrage: ein rausgeworfener Gast fragte sonst weiter im
@@ -138,7 +144,7 @@ class GastRaum {
   }
 
   async #abbauen(): Promise<void> {
-    for (const el of this.#audioEls.values()) el.remove();
+    for (const el of this.#audioEls) el.remove();
     this.#audioEls.clear();
     this.videos = [];
     this.teilnehmer = [];
@@ -182,20 +188,19 @@ class GastRaum {
             el.autoplay = true;
             el.style.display = 'none';
             document.body.appendChild(el);
-            this.#audioEls.set(track.sid ?? p.identity, el);
+            this.#audioEls.add(el);
           }
           this.#auffrischen();
         }
       )
       .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
         if (!aktiv()) return;
-        const sid = track.sid ?? '';
-        const el = this.#audioEls.get(sid);
-        if (el) {
+        // ``detach()`` ohne Argument löst ALLE Elemente dieses Tracks und
+        // gibt sie zurück — mehr braucht es nicht.
+        for (const el of track.detach()) {
           el.remove();
-          this.#audioEls.delete(sid);
+          this.#audioEls.delete(el as HTMLAudioElement);
         }
-        track.detach().forEach((e) => e.remove());
         this.#auffrischen();
       });
   }
