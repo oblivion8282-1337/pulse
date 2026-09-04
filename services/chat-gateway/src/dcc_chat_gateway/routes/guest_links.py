@@ -21,10 +21,13 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
+from dcc_shared import gaeste as _geteilt
+
 from dcc_chat_gateway import gaeste
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, Channel, GuestLink
 from dcc_chat_gateway.permissions import Permissions, check_permission
+from dcc_chat_gateway.ratelimit import check as ratelimit_check
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 from dcc_chat_gateway.voice_evict import evict_gast
@@ -91,6 +94,10 @@ async def create_guest_link(
         Permissions.MOVE_MEMBERS,
         channel_id=channel_id,
     )
+    if not ratelimit_check("guest_link", current.id):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded"
+        )
     code = gaeste.neuer_code()
     link = GuestLink(
         id=next_id(),
@@ -165,4 +172,7 @@ async def revoke_guest_link(
     rest = int((gaeste.als_utc(link.expires_at) - datetime.now(UTC)).total_seconds())
     for gast_id in gast_ids:
         await gaeste.gast_sperren(redis, gast_id, min(max(rest, 1), gaeste.TICKET_MAX_TTL_S))
+        # Auch hier die Lese-Token wegnehmen — ein entwerteter Link, nach dem
+        # ein Gast noch eine Stunde zusehen kann, ist nicht entwertet.
+        await _geteilt.lese_token_loeschen(redis, gast_id)
         await evict_gast(link.channel_id, gast_id)

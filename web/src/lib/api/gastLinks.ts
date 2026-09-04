@@ -1,4 +1,5 @@
 import { request } from './client';
+import { activeServer } from '$lib/stores/active-server.svelte';
 
 /**
  * Gast-Links (Besprechungslinks für Leute ohne Konto). Verwaltungsseite —
@@ -37,11 +38,22 @@ export function revokeGastLink(linkId: string): Promise<void> {
 
 /** Die Adresse, die der Gastgeber verschickt.
  *
- * Aus dem Ursprung DIESER Seite gebaut, nicht serverseitig gesetzt: ein
- * Self-Host kennt seine öffentliche Adresse nicht zuverlässig (er sieht nur,
- * was der Proxy ihm sagt), der Browser des Gastgebers dagegen schon — er ist
- * ja gerade darüber verbunden.
+ * **Sie zeigt auf den Server, auf dem die Community lebt** — nicht auf den
+ * Ursprung dieser Seite. Der Unterschied ist der ganze Punkt: wer von der
+ * Cloud aus eine Self-Host-Community verwaltet, säße sonst einen Link
+ * zusammen, der auf ``howispulse.com`` zeigt, wo der Code gar nicht existiert
+ * (er liegt in der Datenbank des Self-Hosts) — der Gast bekäme ein 404 und
+ * niemand wüsste warum.
+ *
+ * Anders als beim Einladungslink (``guilds/inviteLink.ts``) gibt es hier
+ * **keinen ``?host=``-Umweg über die Cloud**: der führt den Empfänger durch
+ * Anmeldung und Grant, und genau die hat ein Gast nicht. Er spricht
+ * ausschliesslich den Server, der die Besprechung hält, und der liefert ihm
+ * auch die Seite dafür aus.
  */
 export function gastLinkUrl(code: string): string {
-  return `${window.location.origin}/gast/${code}`;
+  const srv = activeServer.current;
+  if (!srv || srv.isCloud) return `${window.location.origin}/gast/${code}`;
+  const host = srv.hostname.replace(/\/+$/, '');
+  return `${host}/gast/${code}`;
 }

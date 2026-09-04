@@ -29,7 +29,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 import httpx
-from fastapi import APIRouter, Header, HTTPException, Query, Request, status
+from fastapi import APIRouter, Header, HTTPException, Path, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
@@ -41,6 +41,11 @@ from dcc_chat_gateway.security import CurrentGast
 from dcc_chat_gateway.snowflake import next_id
 
 router = APIRouter()
+
+# Der Code ist 22 Zeichen lang (128 bit, ``gaeste.neuer_code``). Die Schranke
+# steht trotzdem da: ohne sie nimmt die Route jeden beliebig langen Pfad
+# entgegen und hasht ihn, bevor irgendeine Bremse greift.
+CodePfad = Annotated[str, Path(min_length=1, max_length=64)]
 
 
 class GastInfoOut(BaseModel):
@@ -135,7 +140,7 @@ async def _limit_pruefen(session, redis, channel_id: int) -> None:
 
 @router.get("/gast/{code}", response_model=GastInfoOut)
 async def gast_info(
-    code: str,
+    code: CodePfad,
     session: SessionDep,
     request: Request,
 ) -> GastInfoOut:
@@ -152,7 +157,7 @@ async def gast_info(
 
 @router.post("/gast/{code}/beitritt", response_model=BeitrittOut)
 async def gast_beitritt(
-    code: str,
+    code: CodePfad,
     payload: BeitrittIn,
     session: SessionDep,
     request: Request,
@@ -161,7 +166,9 @@ async def gast_beitritt(
 
     Die Laufzeit ist die Restlaufzeit des Links, gedeckelt auf vier Stunden
     (``gaeste.TICKET_MAX_TTL_S``, auth-svc deckelt unabhängig noch einmal).
-    Ein Ticket lebt damit nie länger als der Link, der es rechtfertigt.
+    Ein Ticket lebt damit nie länger als der Link, der es rechtfertigt — und
+    weil ``ticket_holen`` jede Laufzeit unter einer Minute anhebt, wird ein
+    Link in seiner letzten Minute gar nicht mehr eingelöst (s. unten).
     """
     redis = getattr(request.app.state, "redis", None)
     link = await _link_holen(session, code, redis, request, "beitritt")
@@ -172,9 +179,17 @@ async def gast_beitritt(
 
     await _limit_pruefen(session, redis, link.channel_id)
 
-    gast_id = f"gast-{next_id()}"
     rest = int((gaeste.als_utc(link.expires_at) - datetime.now(UTC)).total_seconds())
-    ttl = max(gaeste.TICKET_MIN_TTL_S, min(rest, gaeste.TICKET_MAX_TTL_S))
+    if rest < gaeste.TICKET_MIN_TTL_S:
+        # Ein Link, der in unter einer Minute abläuft, taugt nicht mehr als
+        # Zutritt. Ihn trotzdem einzulösen hiesse, ein Ticket auszustellen,
+        # das den Link ÜBERLEBT — ``ticket_holen`` hebt jede kürzere Laufzeit
+        # auf diese Untergrenze an (auth-svc nimmt darunter nichts an). Für
+        # den Gast ist das dasselbe wie abgelaufen, also dieselbe Antwort.
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="link not found")
+
+    gast_id = f"gast-{next_id()}"
+    ttl = min(rest, gaeste.TICKET_MAX_TTL_S)
     ticket, ttl = await gaeste.ticket_holen(
         gast_id=gast_id,
         guild_id=link.guild_id,

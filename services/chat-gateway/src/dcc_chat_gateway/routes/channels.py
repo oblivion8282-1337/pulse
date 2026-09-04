@@ -21,6 +21,7 @@ from dcc_chat_gateway.models import (
     Channel,
     DropboxConfig,
     DropboxFile,
+    GuestLink,
     Message,
     MessageAttachment,
 )
@@ -283,6 +284,10 @@ async def delete_channel(
         if cfg is not None:
             cfg.used_bytes = 0
     await session.execute(delete(Message).where(Message.channel_id == channel_id))
+    # Gast-Links dieses Kanals: kein Fremdschluessel (Modell ``guest_links``),
+    # also von Hand. Ohne das bliebe der Link bis zu seinem Ablauf in der
+    # Liste stehen und zeigte auf einen Kanal, den es nicht mehr gibt.
+    await session.execute(delete(GuestLink).where(GuestLink.channel_id == channel_id))
     await session.delete(channel)
     await session.commit()
     await purge_s3_keys(s3_keys_to_purge)

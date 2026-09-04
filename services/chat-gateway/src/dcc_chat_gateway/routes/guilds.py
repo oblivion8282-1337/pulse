@@ -28,6 +28,7 @@ from dcc_chat_gateway.models import (
     AblageZwischenlagerDatei,
     Channel,
     CommunityInviteNotification,
+    GuestLink,
     Guild,
     GuildMember,
     GuildSoundOverride,
@@ -366,6 +367,12 @@ async def delete_guild(
             CommunityInviteNotification.guild_id == guild_id
         )
     )
+    # Gast-Links derselben Community, aus demselben Grund von Hand: sie tragen
+    # bewusst keinen Fremdschluessel (Modell ``guest_links``). Ein Gast kommt
+    # ueber einen solchen Link zwar ohnehin nicht mehr herein — der Beitritt
+    # schlaegt fehl, sobald Kanal oder Community fehlen —, aber die Zeile
+    # bliebe bis zu ihrem Ablauf als Karteileiche stehen.
+    await session.execute(sa_delete(GuestLink).where(GuestLink.guild_id == guild_id))
     await session.delete(guild)
     await session.commit()
     # Purge MinIO objects only after the commit succeeds — a rollback must not

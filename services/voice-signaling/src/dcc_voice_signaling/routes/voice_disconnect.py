@@ -88,6 +88,10 @@ async def disconnect_from_voice(
         # wieder da. Die Sperre lebt so lange wie das längstmögliche Ticket —
         # länger muss sie nicht, kürzer darf sie nicht.
         await gaeste.sperren(redis, user_id)
+        # Und ihm die WHEP-Lese-Token wegnehmen: ohne das liefe eine bereits
+        # geholte Zuschau-Adresse bis zu einer Stunde weiter, obwohl er den
+        # Raum verlassen musste (Begründung ausführlich in ``gaeste``).
+        await gaeste.lese_token_loeschen(redis, user_id)
 
     livekit_api = getattr(request.app.state, "livekit_api", None)
     await voice_routes._livekit_remove_participant(channel_id, user_id, api_client=livekit_api)

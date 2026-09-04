@@ -324,3 +324,49 @@ während laufender Besprechung.
   Gast-Abzeichen und Profil-Auslassung in den fünf genannten Komponenten,
   Verwaltungsfläche für Links im Kanal-Menü.
 - `web/static/changelog.json` — Eintrag, sobald die Funktion sichtbar wird.
+
+---
+
+## Bughunt 2026-09-04 (nach der Umsetzung)
+
+Sechs Befunde, alle behoben. Zwei davon hätte kein bestehender Test gefunden:
+
+1. **Ein rausgeworfener Gast konnte weiterschauen.** Das WHEP-Lese-Token hängt
+   an Kanal und Streamer, nicht am Zuschauer, und der auth-hook nimmt es die
+   volle Stunde lang an, ohne es zu verbrauchen — er sieht keine Identität. Der
+   Rauswurf sperrte nur den Weg zu einer *neuen* Adresse. Dieselbe Lücke, die
+   der Bughunt am 2026-08-13 beim gebannten Mitglied fand
+   (`chat_gateway/stream_revoke.py`), und dieselbe Antwort: das Token aktiv
+   wegnehmen. Neu in `dcc_shared/gaeste.py::lese_token_loeschen`, gerufen beim
+   Rauswurf **und** bei der Link-Entwertung. Ohne Datenbank, weil das Ticket
+   eines Gastes ohnehin nur einen Kanal nennt — nur deshalb kann
+   voice-signaling es selbst tun.
+2. **Der Gast-Link zeigte bei einer Self-Host-Community auf die Cloud.**
+   `window.location.origin` ist der Ursprung der *Seite*, nicht der Server, auf
+   dem die Community lebt. Wer von `howispulse.com` aus einen Self-Host
+   verwaltet, verschickte einen Link, dessen Code dort gar nicht existiert —
+   der Gast bekäme ein 404 ohne erkennbaren Grund. Anders als beim
+   Einladungslink gibt es hier **keinen `?host=`-Umweg über die Cloud**: der
+   führt durch Anmeldung und Grant, und genau die hat ein Gast nicht.
+3. **Ein Ticket konnte den Link überleben.** `ticket_holen` hebt jede Laufzeit
+   unter einer Minute an (auth-svc nimmt darunter nichts an) — ein Link mit
+   zehn Sekunden Restlaufzeit erzeugte einen Gast, der ihn um fünfzig Sekunden
+   überlebte. Der Kommentar behauptete dabei ausdrücklich das Gegenteil. Jetzt
+   wird ein Link in seiner letzten Minute nicht mehr eingelöst.
+4. **Der Rauswurf hatte keinen Knopf** (eigener Commit): beide Stellen, an
+   denen man einen Teilnehmer anklickt, hängen an `UserProfilePopover`, und die
+   steht hinter `{#if p.userId}` — ein Gast hat keine. Der Server konnte es von
+   Anfang an, die Oberfläche bot es nur nirgends an.
+5. **Die Gastseite blieb auf der Endseite stehen.** `gastRaum` ist ein
+   Modul-Singleton und überlebt den Seitenwechsel; wer verlassen hatte und den
+   Link erneut öffnete, sah weiter „Besprechung verlassen". Dazu lief die
+   Stream-Abfrage nach einem Rauswurf im Fünf-Sekunden-Takt weiter und
+   sammelte 403er.
+6. **Karteileichen und fehlende Bremse:** Gast-Links überlebten das Löschen
+   ihres Kanals und ihrer Community (kein Fremdschlüssel, wie beim
+   Einladungs-Modell — das Aufräumen gehört in die Delete-Route), und das
+   Erzeugen war ungebremst.
+
+Nicht behoben, weil unverändert richtig: ein Rauswurf beendet eine Sitzung,
+nicht den Zugang. Wer denselben Link erneut öffnet, ist ein neuer Gast — das
+ist der Grund, warum die Entwertung danebensteht.

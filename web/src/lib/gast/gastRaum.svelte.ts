@@ -22,6 +22,7 @@ import {
   type RemoteTrack,
   type RemoteTrackPublication
 } from 'livekit-client';
+import { istGastKennung } from '$lib/stores/voicePresence.svelte';
 import { gastBeitritt, gastVoiceToken, type GastBeitritt } from './api';
 
 export type GastVideo = {
@@ -57,9 +58,37 @@ class GastRaum {
 
   #room: Room | null = null;
   #audioEls = new Map<string, HTMLAudioElement>();
+  /** Wird gerufen, wenn die Verbindung endet — egal ob durch Auflegen,
+   *  Rauswurf oder Ticket-Ablauf. Die Seite hängt daran das Einstellen der
+   *  Stream-Abfrage: ein rausgeworfener Gast fragte sonst weiter im
+   *  Fünf-Sekunden-Takt nach und bekäme im Takt ein 403. */
+  #beimEnde: (() => void) | null = null;
+
+  beimEnde(rueckruf: (() => void) | null): void {
+    this.#beimEnde = rueckruf;
+  }
 
   get ticket(): string | null {
     return this.beitritt?.ticket ?? null;
+  }
+
+  /** Den Zustand für einen frischen Besuch zurücksetzen.
+   *
+   * Der Raum ist ein Modul-Singleton und überlebt damit den Wechsel der
+   * Seite. Ohne dieses Zurücksetzen sähe ein Gast, der die Besprechung
+   * verlassen hat und den Link erneut öffnet, weiterhin die Endseite —
+   * der Zustand ``weg`` bliebe stehen, obwohl er gerade neu ankommt.
+   * Dasselbe gilt für eine stehengebliebene Fehlermeldung.
+   */
+  zuruecksetzen(): void {
+    if (this.#room) return; // eine laufende Verbindung nicht wegräumen
+    this.phase = 'vorraum';
+    this.fehler = null;
+    this.beitritt = null;
+    this.teilnehmer = [];
+    this.videos = [];
+    this.mikroStumm = false;
+    this.kameraAn = false;
   }
 
   async beitreten(code: string, name: string): Promise<void> {
@@ -89,6 +118,7 @@ class GastRaum {
   async verlassen(): Promise<void> {
     await this.#abbauen();
     this.phase = 'weg';
+    this.#beimEnde?.();
   }
 
   async mikroUmschalten(): Promise<void> {
@@ -140,6 +170,7 @@ class GastRaum {
           // endgültig, es gibt nichts, worauf man warten könnte.
           void this.#abbauen();
           this.phase = 'weg';
+          this.#beimEnde?.();
         }
       })
       .on(
@@ -185,7 +216,7 @@ class GastRaum {
       liste.push({
         identity: p.identity,
         name: p.name?.trim() || p.identity,
-        istGast: p.identity.startsWith('gast-'),
+        istGast: istGastKennung(p.identity),
         spricht: sprecher.has(p.identity),
         stumm: !p.isMicrophoneEnabled
       });

@@ -7,7 +7,7 @@
   import { safeAvatarUrl } from '$lib/avatar';
   import { nameColor, nameStyle, avatarFallbackStyle } from '$lib/utils/nameColor';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
-  import { voicePresence } from '$lib/stores/voicePresence.svelte';
+  import { voicePresence, istGastKennung } from '$lib/stores/voicePresence.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
@@ -35,7 +35,7 @@
   // und alle profilgebundenen Zweige unten greifen deshalb ohnehin nicht. Was
   // fehlt, ist die Ansage: sein Name ist selbst getippt und von niemandem
   // geprüft, das muss man ihm ansehen.
-  let istGast = $derived(p.identity.startsWith('gast-'));
+  let istGast = $derived(istGastKennung(p.identity));
   let initial = $derived((resolvedName.trim()[0] ?? '?').toUpperCase());
   let avatarSrc = $derived(p.userId ? safeAvatarUrl(userCache.get(p.userId)?.avatar_url) : null);
   // Same name colour as the member list: role colour → profile colour.

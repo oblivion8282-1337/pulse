@@ -23,6 +23,11 @@
   let laedt = $state(false);
 
   onMount(async () => {
+    // Der Raum ist ein Singleton und überlebt den Seitenwechsel — ein Gast,
+    // der verlassen hat und den Link erneut öffnet, sähe sonst weiter die
+    // Endseite statt des Vorraums.
+    gastRaum.zuruecksetzen();
+    gastRaum.beimEnde(() => gastStreams.beenden());
     try {
       info = await gastInfo(code);
     } catch (e) {
@@ -39,6 +44,7 @@
   }
 
   onDestroy(() => {
+    gastRaum.beimEnde(null);
     gastStreams.beenden();
     void gastRaum.verlassen();
   });

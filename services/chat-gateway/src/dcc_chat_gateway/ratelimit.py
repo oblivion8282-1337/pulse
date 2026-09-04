@@ -23,6 +23,11 @@ _RULES: dict[str, tuple[int, float]] = {
     "community_invite": (30, 3600.0), # 30 community invites / hour (per inviter)
     "member_invite": (10, 3600.0),  # 10 Nutzername-Einladungen / Stunde (pro Absender)
     "report": (10, 3600.0),         # 10 reports / hour
+    # 20 Gast-Links / Stunde (pro Erzeuger). MOVE_MEMBERS haelt nur, wem man
+    # ohnehin vertraut — die Bremse steht gegen ein durchgedrehtes Skript,
+    # nicht gegen den Menschen: jeder Aufruf schreibt eine Zeile, und die
+    # Liste im Dialog wuerde bei tausenden unbrauchbar.
+    "guest_link": (20, 3600.0),
     "attach": (20, 60.0),           # 20 upload-URL requests / minute
     "dropbox_mint": (30, 60.0),     # 30 dropbox upload-URL mints / minute
     "dropbox_folder_create": (20, 60.0), # 20 folder creates / minute

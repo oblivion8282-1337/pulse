@@ -131,3 +131,70 @@ async def test_rausgeworfener_gast_kommt_nicht_zurueck(client, auth_signer, app)
         await redis.delete(gaeste.GAST_SPERRE_KEY.format(gast_id="gast-77"))
         await redis.aclose()
         app.state.redis = None
+
+
+@pytest.mark.asyncio
+async def test_rauswurf_nimmt_dem_gast_die_zuschau_adresse(app, auth_signer):
+    """Ein Rauswurf ohne das waere unvollstaendig.
+
+    Das WHEP-Lese-Token haengt an Kanal und Streamer, nicht am Zuschauer, und
+    der auth-hook nimmt es die volle Stunde lang an, ohne es zu verbrauchen.
+    Der Rausgeworfene bekaeme also keine NEUE Adresse mehr — die bereits
+    geholte liefe weiter.
+    """
+    import os
+
+    from dcc_shared.streaming import read_cache_key, token_key
+    from redis.asyncio import Redis
+
+    redis = Redis.from_url(
+        os.environ.get("REDIS_URL", "redis://localhost:6380/0").replace(
+            "localhost", "127.0.0.1"
+        )
+    )
+    zeiger = read_cache_key("gast-77", "555", "42", 0)
+    datensatz = token_key("tok-abc")
+    try:
+        await redis.set(zeiger, "tok-abc")
+        await redis.set(datensatz, '{"scope":"read"}')
+
+        gefallen = await gaeste.lese_token_loeschen(redis, "gast-77")
+
+        assert gefallen == 2, "Zeiger UND Datensatz muessen fallen"
+        assert await redis.exists(zeiger) == 0
+        # Der Datensatz ist der eigentliche Zweck: nur sein Wegfall macht die
+        # schon ausgehaendigte Adresse ungueltig.
+        assert await redis.exists(datensatz) == 0
+    finally:
+        await redis.delete(zeiger, datensatz)
+        await redis.aclose()
+
+
+@pytest.mark.asyncio
+async def test_lese_token_eines_anderen_bleiben_unberuehrt(app):
+    """Die Suche darf nur die Token DIESES Gastes treffen.
+
+    Der Doppelpunkt im Muster trennt ``gast-7`` sauber von ``gast-77`` — ohne
+    ihn naehme ein Rauswurf dem falschen Zuschauer das Bild weg.
+    """
+    import os
+
+    from dcc_shared.streaming import read_cache_key
+    from redis.asyncio import Redis
+
+    redis = Redis.from_url(
+        os.environ.get("REDIS_URL", "redis://localhost:6380/0").replace(
+            "localhost", "127.0.0.1"
+        )
+    )
+    meiner = read_cache_key("gast-7", "555", "42", 0)
+    fremder = read_cache_key("gast-77", "555", "42", 0)
+    try:
+        await redis.set(meiner, "tok-a")
+        await redis.set(fremder, "tok-b")
+        await gaeste.lese_token_loeschen(redis, "gast-7")
+        assert await redis.exists(meiner) == 0
+        assert await redis.exists(fremder) == 1
+    finally:
+        await redis.delete(meiner, fremder)
+        await redis.aclose()

@@ -221,3 +221,92 @@ async def test_gast_ticket_oeffnet_keine_normale_route(client, _auth_signer):
             else aufruf(pfad, headers=_auth(ticket))
         )
         assert antwort.status_code == 401, f"{methode.upper()} {pfad} liess ein Gast-Ticket durch"
+
+
+@pytest.mark.asyncio
+async def test_link_in_seiner_letzten_minute_wird_nicht_mehr_eingeloest(
+    client, _auth_signer, session_factory
+):
+    """Ein Ticket darf den Link nicht überleben.
+
+    ``ticket_holen`` hebt jede Laufzeit unter einer Minute auf diese
+    Untergrenze an (auth-svc nimmt darunter nichts an) — ein Link mit zehn
+    Sekunden Restlaufzeit erzeugte damit einen Gast, der ihn um fünfzig
+    Sekunden überlebt. Für den Beitretenden ist das dasselbe wie abgelaufen,
+    also dieselbe Antwort.
+    """
+    token, _ = _owner(_auth_signer)
+    gid = await _guild(client, token)
+    cid = await _voice_channel(client, token, gid)
+    r = await client.post(f"/channels/{cid}/guest-links", json={}, headers=_auth(token))
+    code, link_id = r.json()["code"], int(r.json()["id"])
+
+    async with session_factory() as s:
+        link = await s.get(GuestLink, link_id)
+        link.expires_at = datetime.now(UTC) + timedelta(seconds=10)
+        await s.commit()
+
+    # Die Vorschau zeigt ihn noch — er lebt ja.
+    assert (await client.get(f"/gast/{code}")).status_code == 200
+    # Einlösen nicht mehr.
+    bei = await client.post(f"/gast/{code}/beitritt", json={"name": "Zuspaet"})
+    assert bei.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_geloeschter_kanal_nimmt_seine_gast_links_mit(
+    client, _auth_signer, session_factory
+):
+    """Sonst bliebe der Link bis zu seinem Ablauf als Karteileiche stehen.
+
+    Hereinkommen könnte damit ohnehin niemand mehr (der Beitritt scheitert,
+    sobald der Kanal fehlt) — aber er stünde weiter in der Liste des
+    Gastgebers und zeigte auf einen Kanal, den es nicht mehr gibt.
+    """
+    token, _ = _owner(_auth_signer)
+    gid = await _guild(client, token)
+    cid = await _voice_channel(client, token, gid)
+    r = await client.post(f"/channels/{cid}/guest-links", json={}, headers=_auth(token))
+    link_id = int(r.json()["id"])
+
+    weg = await client.delete(f"/channels/{cid}", headers=_auth(token))
+    assert weg.status_code == 204
+    async with session_factory() as s:
+        assert await s.get(GuestLink, link_id) is None
+
+
+@pytest.mark.asyncio
+async def test_geloeschte_community_nimmt_ihre_gast_links_mit(
+    client, _auth_signer, session_factory
+):
+    token, _ = _owner(_auth_signer)
+    gid = await _guild(client, token)
+    cid = await _voice_channel(client, token, gid)
+    r = await client.post(f"/channels/{cid}/guest-links", json={}, headers=_auth(token))
+    link_id = int(r.json()["id"])
+
+    weg = await client.delete(f"/guilds/{gid}", headers=_auth(token))
+    assert weg.status_code == 204
+    async with session_factory() as s:
+        assert await s.get(GuestLink, link_id) is None
+
+
+@pytest.mark.asyncio
+async def test_link_erzeugen_ist_gebremst(client, _auth_signer):
+    """Jeder Aufruf schreibt eine Zeile — ein durchgedrehtes Skript sonst viele.
+
+    Die Bremse steht nicht gegen den Menschen (``MOVE_MEMBERS`` hält nur, wem
+    man ohnehin vertraut), sondern gegen die unbegrenzte Zeilenzahl.
+    """
+    token, _ = _owner(_auth_signer)
+    gid = await _guild(client, token)
+    cid = await _voice_channel(client, token, gid)
+    codes = set()
+    for _ in range(20):
+        r = await client.post(f"/channels/{cid}/guest-links", json={}, headers=_auth(token))
+        assert r.status_code == 200, r.text
+        codes.add(r.json()["code"])
+    # 20 verschiedene Codes — der Zufall wiederholt sich nicht.
+    assert len(codes) == 20
+    zuviel = await client.post(f"/channels/{cid}/guest-links", json={}, headers=_auth(token))
+    assert zuviel.status_code == 429
