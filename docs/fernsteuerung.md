@@ -7,7 +7,9 @@ gestrichen. In `CLAUDE.md` steht jetzt die Kurzfassung mit einem Verweis
 hierher; **wer an der Fernsteuerung arbeitet, liest zuerst diese Datei.**
 
 Verwandt: `docs/standplatz-geraete.md` (Fernsteuerung ohne Aufsicht),
-`docs/plans/2026-08-12-input-wire-protokoll-v2.md` (Protokoll-Spezifikation).
+`docs/plans/2026-08-12-input-wire-protokoll-v2.md` (Protokoll-Spezifikation),
+`docs/2026-09-05-fernsteuerung-weitere-eingabegeraete.md` (Controller und
+Speed Editor — Machbarkeit, nichts gebaut).
 
 **Fernsteuerung (im Bau, Serverweg)** — Bild + Eingabe sind **getrennte Wege**: das Bild läuft unverändert über HQ-Streaming in den `pulse-player`, neu ist nur der **Rückweg für Eingaben**. Spezifikation `docs/plans/2026-08-12-input-wire-protokoll-v2.md` (selbsttragend, ersetzt v1 auf `feat/remote-control-windows`).
 - **Kein P2P.** Die Zahl, mit der der Serverweg 2026-07 verworfen wurde („300 ms+"), war nie gemessen; nachgemessen 55–85 ms. Eingaben gehen über das WS-Op `remote_input` (`{session_id, slot, frames:[base64]}`). **`remote_signal` bleibt trotzdem stehen** — billige Rückfahrkarte; das *teure* P2P-Stück (Sidecar-Abgriff, TURN, coturn, `pulse-remote-webrtc`) liegt weiter auf `feat/remote-control-windows`.
