@@ -339,4 +339,3 @@ async def get_current_user(
     get_settings: Callable[[], Any],
 ) -> AuthenticatedUser:
     return await _user_from_token(_extract_bearer(authorization), get_settings)
-

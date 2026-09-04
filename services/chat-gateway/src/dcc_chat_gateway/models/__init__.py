@@ -47,6 +47,7 @@ from dcc_chat_gateway.models.friendships import (
 from dcc_chat_gateway.models.geraete_schluessel import DeviceKeyBundle, DeviceOneTimeKey
 from dcc_chat_gateway.models.guilds import Guild, GuildBan, GuildInvite, GuildMember
 from dcc_chat_gateway.models.kopplung import Kopplung, UmzugStueck
+from dcc_chat_gateway.models.guest_links import GuestLink
 from dcc_chat_gateway.models.member_invites import CommunityInviteNotification
 from dcc_chat_gateway.models.membership import InstanceMember
 from dcc_chat_gateway.models.messages import (
@@ -89,6 +90,7 @@ __all__ = [
     "DROPBOX_KIND_FOLDER",
     "CommunityInvite",
     "CommunityInviteNotification",
+    "GuestLink",
     "MENTION_EVERYONE_TARGET_ID",
     "MENTION_TYPE_EVERYONE",
     "MENTION_TYPE_ROLE",

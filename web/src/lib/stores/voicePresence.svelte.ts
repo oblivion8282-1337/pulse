@@ -9,7 +9,19 @@ export type VoiceChannelState = {
   streaming_user_ids?: string[];
   camera_user_ids?: string[];
   user_states?: Record<string, UserVoiceState>;
+  /** Namen der Gäste (`gast-<id>` → getippter Name). Nur Gäste stehen darin.
+   *  Muss mitreisen: für eine Gast-Kennung gibt es beim Klienten KEINE zweite
+   *  Quelle — kein Profil, kein Mitgliedseintrag, nichts nachzuladen. */
+  gast_namen?: Record<string, string>;
 };
+
+/** Trägt diese Präsenz-Kennung einen Gast (statt einer Nutzer-ID)?
+ *  Spiegel von ``dcc_shared.gaeste.ist_gast`` — die Präsenz-Sets tragen beide
+ *  Formen nebeneinander, und allein am Präfix entscheidet sich, ob die
+ *  Oberfläche ein Profil nachschlagen darf. */
+export function istGastKennung(id: string): boolean {
+  return id.startsWith('gast-');
+}
 
 class VoicePresenceStore {
   /** Maps channel_id → user_ids (always full snapshot from server). */
@@ -34,6 +46,8 @@ class VoicePresenceStore {
   overrideByChannel = $state<
     Record<string, Record<string, { muted: boolean; deafened: boolean }>>
   >({});
+  /** channel_id → { gast-Kennung → Name }. Siehe ``VoiceChannelState.gast_namen``. */
+  gastNamenByChannel = $state<Record<string, Record<string, string>>>({});
 
   /** Seed from the ready payload (re-sync after WS (re)connect). Replaces all
    * existing state. */
@@ -42,7 +56,11 @@ class VoicePresenceStore {
     const nextStreaming: Record<string, string[]> = {};
     const nextCamera: Record<string, string[]> = {};
     const nextStates: Record<string, Record<string, UserVoiceState>> = {};
+    const nextGaeste: Record<string, Record<string, string>> = {};
     for (const s of states) {
+      if (s.gast_namen && Object.keys(s.gast_namen).length > 0) {
+        nextGaeste[s.channel_id] = s.gast_namen;
+      }
       if (s.user_ids.length > 0) next[s.channel_id] = s.user_ids;
       if (s.streaming_user_ids && s.streaming_user_ids.length > 0) {
         nextStreaming[s.channel_id] = s.streaming_user_ids;
@@ -58,6 +76,7 @@ class VoicePresenceStore {
     this.streamingByChannel = nextStreaming;
     this.cameraByChannel = nextCamera;
     this.userStatesByChannel = nextStates;
+    this.gastNamenByChannel = nextGaeste;
   }
 
   /** Hydrate the admin-override map from the ready payload.
@@ -83,8 +102,18 @@ class VoicePresenceStore {
     userIds: string[],
     streamingUserIds?: string[],
     userStates?: Record<string, UserVoiceState>,
-    cameraUserIds?: string[]
+    cameraUserIds?: string[],
+    gastNamen?: Record<string, string>
   ): void {
+    const gaeste = gastNamen ?? {};
+    if (Object.keys(gaeste).length === 0) {
+      if (this.gastNamenByChannel[channelId] !== undefined) {
+        const { [channelId]: _, ...rest } = this.gastNamenByChannel;
+        this.gastNamenByChannel = rest;
+      }
+    } else {
+      this.gastNamenByChannel = { ...this.gastNamenByChannel, [channelId]: gaeste };
+    }
     if (userIds.length === 0) {
       if (this.byChannel[channelId] !== undefined) {
         const { [channelId]: _, ...rest } = this.byChannel;
@@ -175,6 +204,14 @@ class VoicePresenceStore {
 
   usersIn(channelId: string): string[] {
     return this.byChannel[channelId] ?? [];
+  }
+
+  /** Der Name eines Gastes in diesem Kanal — oder die Kennung als Rückfall.
+   *  Ein fehlender Name (Redis gestört, Ticket gerade abgelaufen) ist ein
+   *  Schönheitsfehler, kein Anlass, die Zeile wegzulassen: der Gast SITZT ja
+   *  im Kanal, und eine Präsenzliste, die ihn verschweigt, wäre falsch. */
+  gastName(channelId: string, id: string): string {
+    return this.gastNamenByChannel[channelId]?.[id] ?? id;
   }
 
   streamingIn(channelId: string): string[] {

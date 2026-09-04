@@ -3,7 +3,7 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { settings } from '$lib/stores/settings.svelte';
-  import { voicePresence } from '$lib/stores/voicePresence.svelte';
+  import { voicePresence, istGastKennung } from '$lib/stores/voicePresence.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
   import { nameColor, nameStyle, avatarFallbackStyle } from '$lib/utils/nameColor';
   import VoiceMuteIcon from './VoiceMuteIcon.svelte';
@@ -58,6 +58,13 @@
     onCamOpen?: (userId: string) => void;
   } = $props();
 
+  // Gäste (Besprechungslink) werden GETRENNT gerendert: sie haben kein Profil,
+  // keinen Avatar, keine Lautstärke-Erinnerung und keine Guild-Aktionen. Liefe
+  // ihre Kennung durch die Mitglieder-Zeile, stünde dort still „…" — der
+  // ``userCache`` fragt für sie ein Profil ab, das es nicht gibt.
+  const mitglieder = $derived(userIds.filter((id) => !istGastKennung(id)));
+  const gaeste = $derived(userIds.filter(istGastKennung));
+
   const streamingSet = $derived(new Set(streamingUserIds));
   const camSet = $derived(new Set(camUserIds));
   const speakingSet = $derived(new Set(speakingUserIds));
@@ -65,11 +72,11 @@
   const selfId = $derived(currentServerUserId());
 
   $effect(() => {
-    for (const id of userIds) userCache.queue(id);
+    for (const id of mitglieder) userCache.queue(id);
   });
 </script>
 
-{#each userIds as uid (uid)}
+{#each mitglieder as uid (uid)}
   {@const user = userCache.get(uid)}
   {@const name = user?.display_name ?? user?.username ?? '…'}
   {@const initial = (name.trim()[0] ?? '?').toUpperCase()}
@@ -225,4 +232,26 @@
       {/if}
     {/snippet}
   </UserProfilePopover>
+{/each}
+
+{#each gaeste as gid (gid)}
+  {@const gastState = userStates[gid]}
+  <div
+    class="text-text-muted flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm"
+    data-testid="voice-presence-guest"
+    data-user-id={gid}
+  >
+    <span class="border-border text-2xs flex size-7 shrink-0 items-center justify-center rounded-full border">
+      {m.gast_abzeichen()[0]}
+    </span>
+    <span class="truncate">{voicePresence.gastName(channelId, gid)}</span>
+    <span class="text-2xs border-border shrink-0 rounded-full border px-1.5 py-0.5 uppercase">
+      {m.gast_abzeichen()}
+    </span>
+    <span class="ml-auto flex shrink-0 items-center gap-1">
+      {#if gastState?.mic_muted}
+        <VoiceMuteIcon kind="mic" forced={false} label={m.gast_stumm()} />
+      {/if}
+    </span>
+  </div>
 {/each}

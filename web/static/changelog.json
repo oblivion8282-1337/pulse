@@ -2,6 +2,20 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-04.3",
+      "date": "2026-09-04",
+      "style": "Sachlich",
+      "title": "Gäste ohne Konto in einen Sprachkanal einladen",
+      "intro": "Für Besprechungen mit Leuten ausserhalb der eigenen Community: Wer einen Sprachkanal verwalten darf, erzeugt dafür einen Link. Wer ihn öffnet, tippt einen Namen ein und ist im Gespräch — ohne Konto, ohne Anmeldung, ohne Installation.",
+      "items": [
+        "Rechtsklick auf einen Sprachkanal, „Gast-Links“: Link erzeugen, kopieren, verschicken. Er gilt standardmässig einen Tag und lässt sich jederzeit vorzeitig entwerten — laufende Gäste fliegen dabei sofort heraus.",
+        "Gäste hören und sprechen, können ihre Kamera einschalten und sehen zu — sowohl geteilte Bildschirme als auch Übertragungen in hoher Qualität. Sie sehen nur diesen einen Kanal: keinen Chat, keine Kanalliste, keine anderen Räume.",
+        "In der Teilnehmerliste sind Gäste deutlich als Gast gekennzeichnet — ihr Name ist selbst eingetippt und von niemandem geprüft.",
+        "Wer einen Gast aus dem Sprachkanal entfernen darf, kann das wie bei einem Mitglied; mit demselben Zugang kommt er nicht zurück.",
+        "Der Link wird nur einmal angezeigt, direkt nach dem Erzeugen. Danach lässt er sich nicht mehr nachschlagen — auf dem Server liegt nur seine Prüfsumme."
+      ]
+    },
+    {
       "id": "2026-09-04.2",
       "date": "2026-09-04",
       "style": "Sachlich",

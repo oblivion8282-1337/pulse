@@ -518,7 +518,24 @@ class ConnectionManager(
             "streaming_user_ids": _decode_sorted(streamers),
             "camera_user_ids": _decode_sorted(cameras),
             "user_states": user_states,
+            # Gastnamen für den ready-Rahmen: wer nach einem Neuladen in einen
+            # Kanal blickt, in dem ein Gast sitzt, bekommt sonst nur dessen
+            # Kennung zu sehen — das Ereignis mit der Namenskarte kam vor
+            # seiner Verbindung.
+            "gast_namen": await self._gast_namen_fuer(user_ids),
         }
+
+    async def _gast_namen_fuer(self, user_ids: list[str]) -> dict[str, str]:
+        """Die Namen der Gäste unter ``user_ids`` (leer, wenn keine dabei)."""
+        from dcc_shared import gaeste as _gaeste  # noqa: PLC0415
+
+        kennungen = [u for u in user_ids if _gaeste.ist_gast(u)]
+        if not kennungen:
+            return {}
+        namen = await asyncio.gather(
+            *(_gaeste.gast_name(self._redis, k) for k in kennungen)
+        )
+        return {k: n for k, n in zip(kennungen, namen) if n}
 
     async def voice_states_for(self, channel_ids: list[str]) -> list[dict[str, Any]]:
         if not channel_ids:

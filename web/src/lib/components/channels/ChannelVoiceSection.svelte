@@ -40,6 +40,10 @@
     sprachAblegen,
     type ZiehKontext
   } from '$lib/channels/ziehen.svelte';
+  import LinkIcon from '@lucide/svelte/icons/link';
+  import { roles } from '$lib/stores/roles.svelte';
+  import { Perm } from '$lib/permissions/bitfield';
+  import GastLinkDialog from '$lib/gast/GastLinkDialog.svelte';
   import ChannelTopicTooltip from '../ChannelTopicTooltip.svelte';
   import VoiceChannelPresence from './VoiceChannelPresence.svelte';
   import DeviceChannelRows from '$lib/devices/components/DeviceChannelRows.svelte';
@@ -80,6 +84,12 @@
     onDelete: (c: Channel) => void;
     onReport: (c: Channel) => void;
   } = $props();
+
+  // Offener Gast-Link-Dialog (Kanal-ID) — einer für alle Zeilen: es ist immer
+  // höchstens einer offen, und ein Dialog je Kanalzeile wäre N Dialoge im
+  // Baum, von denen N-1 nichts tun.
+  let gastLinkKanal = $state<string | null>(null);
+  let gastLinkOffen = $state(false);
 
   // Auto-Connect-Wahl (gerätelokal, an User + Server gebunden). Es kann nur
   // EINEN Auto-Connect-Channel pro Gerät geben — Setzen verschiebt den Blitz.
@@ -199,6 +209,18 @@
           {m.channel_list_rename_channel()}
         </ContextMenu.Item>
       {/if}
+      {#if guild && roles.hasGuildPermission(guild.id, Perm.MOVE_MEMBERS)}
+        <ContextMenu.Item
+          onSelect={() => {
+            gastLinkKanal = c.id;
+            gastLinkOffen = true;
+          }}
+          data-testid={`channel-guest-links-${c.id}`}
+        >
+          <LinkIcon />
+          {m.gast_links_titel()}
+        </ContextMenu.Item>
+      {/if}
       {#if canManagePermissions && guild}
         <ContextMenu.Item
           onSelect={() => goto(`/app/guilds/${guild!.id}/channels/${c.id}/permissions`)}
@@ -250,4 +272,8 @@
 {/each}
 {:else}
   <p class="text-text-muted px-3 py-2 text-xs">{m.channel_list_no_voice_channels()}</p>
+{/if}
+
+{#if gastLinkKanal && guild}
+  <GastLinkDialog bind:open={gastLinkOffen} channelId={gastLinkKanal} guildId={guild.id} />
 {/if}

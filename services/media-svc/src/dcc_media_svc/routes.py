@@ -37,7 +37,7 @@ from dcc_shared.streaming import MONITOR_INDEX_MAX, MONITOR_INDEX_MIN, SLOT_MAX
 
 from dcc_media_svc.config import get_settings
 from dcc_media_svc.poller import _parse_state, _publish_event
-from dcc_media_svc.security import CurrentUser
+from dcc_media_svc.security import CurrentGast, CurrentUser
 from dcc_shared.streaming import read_cache_key
 from dcc_media_svc.streamkeys import (
     CHANNEL_STATE_KEY,
@@ -468,6 +468,69 @@ async def _read_token_fuer(
     )
 
 
+async def _whep_fuer_zuschauer(
+    request: Request,
+    *,
+    zuschauer_id: str,
+    channel_id: str,
+    user_id: str,
+    slot: int,
+) -> WhepOut:
+    """Der gemeinsame Rumpf beider WHEP-Routen (Mitglied und Gast).
+
+    Der Zuschauer taucht nur als Schluessel-Bestandteil des Lese-Tokens auf
+    (``read_cache_key``); ob dort eine Nutzer-ID oder eine Gast-Kennung steht,
+    ist dieser Ebene gleich. Deshalb EIN Rumpf statt zweier Kopien, die beim
+    naechsten Nonce-/Pfad-Umbau auseinanderliefen.
+    """
+    redis = _get_redis(request)
+    raw = await redis.get(active_key(channel_id, user_id, slot))
+    if raw is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
+    data = _parse_state(raw)
+    if data is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
+    path = data.get("path")
+    if not isinstance(path, str) or not path:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
+    s = get_settings()
+    read_token = await _read_token_fuer(redis, zuschauer_id, channel_id, user_id, slot)
+    base = s.mediamtx_public_base.rstrip("/")
+    return WhepOut(
+        whep_url=f"{base}/{path}/whep?token={read_token}",
+        ten_bit=data.get("ten_bit") is True,
+        remote_input=data.get("remote_input") is True,
+    )
+
+
+@router.get("/gast/whep", response_model=WhepOut)
+async def get_whep_url_gast(
+    channel_id: ChannelId,
+    user_id: UserIdQuery,
+    gast: CurrentGast,
+    request: Request,
+    slot: SlotQuery = 0,
+) -> WhepOut:
+    """WHEP-URL fuer einen Gast (Besprechungslink, kein Konto).
+
+    Die Kanalbindung des Tickets IST die Berechtigung: ein Ticket fuer Kanal A
+    darf Kanal B nicht oeffnen. Ohne diesen Vergleich waere aus dem Ticket fuer
+    den Besprechungsraum eines fuer jeden Sprachkanal der Community geworden.
+
+    Eine eigene Route statt eines Gast-Zweigs in ``get_whep_url``: es soll
+    nirgends ein „Nutzer oder Gast" an einer Abhaengigkeit haengen.
+    """
+    if gast.channel_id != str(channel_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="ticket is for another channel")
+    return await _whep_fuer_zuschauer(
+        request,
+        zuschauer_id=gast.gast_id,
+        channel_id=channel_id,
+        user_id=user_id,
+        slot=slot,
+    )
+
+
 @router.get("/channels/{channel_id}/whep", response_model=WhepOut)
 async def get_whep_url(
     channel_id: ChannelId,
@@ -489,24 +552,12 @@ async def get_whep_url(
     media-svc directly (the self-host Caddy used to) hands the nonce'd WHEP
     URL to unauthenticated callers.
     """
-    redis = _get_redis(request)
-    raw = await redis.get(active_key(channel_id, user_id, slot))
-    if raw is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
-    data = _parse_state(raw)
-    if data is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
-    path = data.get("path")
-    if not isinstance(path, str) or not path:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
-    s = get_settings()
-
-    read_token = await _read_token_fuer(redis, str(user.id), channel_id, user_id, slot)
-    base = s.mediamtx_public_base.rstrip("/")
-    return WhepOut(
-        whep_url=f"{base}/{path}/whep?token={read_token}",
-        ten_bit=data.get("ten_bit") is True,
-        remote_input=data.get("remote_input") is True,
+    return await _whep_fuer_zuschauer(
+        request,
+        zuschauer_id=str(user.id),
+        channel_id=channel_id,
+        user_id=user_id,
+        slot=slot,
     )
 
 

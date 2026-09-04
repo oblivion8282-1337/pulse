@@ -219,3 +219,19 @@ async def evict_ineligible_from_voice_channels(
                 and has_permission(value, Permissions.CONNECT)
             ):
                 await _post_evict(secret, [cid], uid_str)
+
+
+async def evict_gast(channel_id: int, gast_id: str) -> None:
+    """Einen Gast aus seinem Sprachkanal werfen (Rauswurf/Link-Entwertung).
+
+    Derselbe Weg wie beim Mitglied, nur mit einer Gast-Kennung
+    (``gast-<id>``) statt einer Nutzer-ID — voice-signaling nimmt beide Formen
+    an. Best-effort und still, wie der Rest dieses Moduls: der Gast ist durch
+    die Redis-Sperre ohnehin ausgeschlossen, der LiveKit-Aufruf beendet nur
+    seine laufende Verbindung sofort statt erst beim naechsten Token.
+    """
+    secret = get_settings().internal_service_secret
+    if not secret:
+        log.info("voice-evict (gast) skipped: internal_service_secret unset")
+        return
+    await _post_evict(secret, [channel_id], gast_id)

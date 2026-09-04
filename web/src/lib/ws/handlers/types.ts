@@ -201,6 +201,8 @@ export type ServerEvent =
       streaming_user_ids?: string[];
       camera_user_ids?: string[];
       user_states?: Record<string, UserVoiceState>;
+      /** Namen der Gäste im Kanal (``gast-<id>`` → getippter Name). */
+      gast_namen?: Record<string, string>;
     }
   | {
       op: 'voice_override';

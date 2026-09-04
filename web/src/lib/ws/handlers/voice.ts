@@ -17,7 +17,8 @@ export function register(ctx: HandlerContext): void {
       evt.user_ids,
       evt.streaming_user_ids,
       evt.user_states,
-      evt.camera_user_ids
+      evt.camera_user_ids,
+      evt.gast_namen
     );
     ctx.fireVoiceDiff(evt.channel_id, oldIds, evt.user_ids);
   });

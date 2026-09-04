@@ -1,6 +1,22 @@
 # Gast-Links: externe Teilnehmer in einem Sprachkanal
 
-Stand 2026-09-04. Entwurf, noch nicht gebaut.
+Stand 2026-09-04. **Gebaut.** Drei Stellen weichen bewusst vom ersten Entwurf
+ab; sie sind unten jeweils dort vermerkt, wo sie hingehören, und hier in einer
+Zeile:
+
+1. **Getrennte Routen statt Gast-Zweigen.** Der Entwurf liess
+   ``GET /channels/{id}/whep`` und ``voice/token`` zusätzlich Gast-Tickets
+   annehmen. Das widersprach der eigenen Regel „nirgends ein Nutzer ODER Gast
+   an einer Abhängigkeit": beide haben jetzt eine eigene Gast-Route
+   (``/gast/sitzung/whep`` im chat-gateway, ``/gast/whep`` in media-svc,
+   ``POST /gast/token`` in voice-signaling).
+2. **Die Ticket-Routen liegen unter ``/gast/sitzung/…``**, nicht direkt unter
+   ``/gast/…`` — ``/gast/{code}`` frisst sonst jeden einsegmentigen Pfad
+   darunter. Beim ersten Testlauf prompt passiert (404 statt 403).
+3. **Das Benutzerlimit wird beim Beitritt geprüft**, nicht bei der
+   Token-Ausgabe: die Kanal-Zeile mit dem Limit liegt in der
+   chat-gateway-Datenbank, und der Gast-Weg in voice-signaling hat keinen
+   Nutzer-Bearer, mit dem er danach fragen könnte.
 
 ## Wozu
 
@@ -148,7 +164,8 @@ verifiziert** und wird deshalb überall als Gast markiert dargestellt (s. u.).
 
 ## Voice
 
-`POST /voice/token` (voice-signaling) nimmt zusätzlich ein Gast-Ticket an:
+`POST /gast/token` (voice-signaling) — eine **eigene** Route neben
+`POST /token`, nicht ein Zweig darin:
 
 - Kein Aufruf zum chat-gateway für Mitgliedschaft und Rechte. Statt dessen:
   `claim.channel_id` **ist** der Kanal; ein Ticket für Kanal A kann Kanal B
@@ -189,17 +206,18 @@ verifizierter Mitgliedsname aussehen.
 **LiveKit-Screenshare** fällt ohne Zutun ab: der Gast ist im selben Raum und
 abonniert die Tracks der anderen.
 
-**HQ-Übertragung.** `GET /channels/{channel_id}/whep` akzeptiert das
-Gast-Ticket: statt `require_member` prüft die Route `claim.channel_id ==
-channel_id` und reicht sonst unverändert an media-svc weiter. media-svc muss
-`typ: "gast"` beim Mint des Read-Tokens durchlassen; die Gast-ID tritt dort an
-die Stelle der Nutzer-ID (das Read-Token ist ohnehin kanal- und
-nutzergebunden).
+**HQ-Übertragung.** `GET /gast/sitzung/whep` (chat-gateway) reicht das
+Gast-Ticket an `GET /gast/whep` (media-svc) weiter. Beide prüfen den
+Kanal-Claim gegen den angefragten Kanal, keine prüft eine Mitgliedschaft. In
+media-svc teilen sich Mitglieder- und Gast-Route denselben Rumpf
+(`_whep_fuer_zuschauer`) — der Zuschauer taucht dort nur als Bestandteil des
+Lese-Token-Schlüssels auf, und ob dort eine Nutzer-ID oder eine Gast-Kennung
+steht, ist dieser Ebene gleich.
 
 **Woher weiss der Gast, dass übertragen wird.** Das Ereignis
 `stream:events` läuft heute nur über den chat-gateway-WebSocket, den der Gast
 nicht hat. Die Gastseite fragt statt dessen alle **5 s**
-`GET /gast/stream-state` ab (Gast-Ticket, liest dieselben `stream:channel:*`
+`GET /gast/sitzung/stream-state` ab (Gast-Ticket, liest dieselben `stream:channel:*`
 aus Redis wie die Mitglieder-Route). Preis, ausdrücklich: Anfang und Ende
 einer Übertragung erscheinen beim Gast bis zu 5 s verzögert. Ein schlanker
 Gast-WebSocket wäre die saubere Alternative und ist der erste Kandidat, falls
@@ -249,8 +267,10 @@ Deshalb, nicht verhandelbar:
    die nur `typ="gast"` akzeptiert. Es gibt nirgends ein „`CurrentUser` oder
    Gast" — das ist die Konstruktion, in der eine spätere Änderung still ein
    Loch aufreisst.
-3. Genau **drei** Stellen kennen `CurrentGast`: `POST /voice/token`,
-   `GET /channels/{id}/whep` und `GET /gast/stream-state`. Die beiden
+3. Genau **vier** Stellen kennen eine Gast-Abhängigkeit, je eine pro Dienst
+   plus die zweite im chat-gateway: `POST /gast/token` (voice-signaling),
+   `GET /gast/whep` (media-svc), `GET /gast/sitzung/whep` und
+   `GET /gast/sitzung/stream-state` (chat-gateway). Die beiden
    Beitrittsrouten (`GET /gast/{code}`, `POST /gast/{code}/beitritt`) sind
    davon verschieden: sie sind **anonym**, verlangen gar kein Ticket und
    stellen es erst aus.
@@ -265,7 +285,9 @@ jeden Sprachkanal der Community.
 
 ## Tests
 
-**pytest** (chat-gateway, voice-signaling, auth-svc):
+**pytest** (chat-gateway, voice-signaling, media-svc, auth-svc) — gebaut in
+`test_gast_links.py`, `test_gast_token.py`, `test_gast_whep.py`,
+`test_gast_ticket.py` und zwei Ergänzungen in `test_webhook.py`:
 - Link-Lebenslauf: erzeugen, benutzen, abgelaufen, entwertet, unbekannter Code
   — die letzten drei mit identischer Antwort.
 - Ticket-Form: auth-svc deckelt `ttl_s`; ein Aufruf ohne internes Geheimnis

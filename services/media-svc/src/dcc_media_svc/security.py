@@ -17,15 +17,18 @@ from typing import Annotated, Any
 from fastapi import Depends, Header
 from dcc_shared.token_verify import (
     AuthenticatedUser,
+    _extract_bearer,
     install_static_jwks,
     reset_cache,
 )
 from dcc_shared import token_verify as _tv
+from dcc_shared.gast_ticket import GastClaims, decode_gast_ticket
 
 from dcc_media_svc.config import get_settings
 
 __all__ = [
     "AuthenticatedUser",
+    "CurrentGast",
     "CurrentUser",
     "decode_token",
     "get_current_user",
@@ -48,3 +51,24 @@ async def get_current_user(
 
 
 CurrentUser = Annotated[AuthenticatedUser, Depends(get_current_user)]
+
+
+async def get_current_gast(
+    authorization: str | None = Header(default=None),
+) -> GastClaims:
+    """Ein Gast-Ticket (``typ="gast"``), sonst 401.
+
+    Eigene Abhaengigkeit statt eines zweiten Zweigs in ``get_current_user``:
+    ein Gast ist kein Nutzer, und ``CurrentUser`` weist sein Ticket weiterhin
+    ab (``_decode_cloud_token`` verlangt ``typ == "access"``). Genau eine
+    Route hier kennt sie: ``GET /gast/whep``.
+    """
+    from fastapi import HTTPException, status  # noqa: PLC0415
+
+    token = _extract_bearer(authorization)
+    if not token:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing guest ticket")
+    return await decode_gast_ticket(token, get_settings)
+
+
+CurrentGast = Annotated[GastClaims, Depends(get_current_gast)]

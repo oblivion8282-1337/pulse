@@ -39,6 +39,13 @@ class VoiceStateSnapshot(_EventBase):
     user_ids: list[str]
     streaming_user_ids: list[str] = []
     camera_user_ids: list[str] = []
+    # Namenskarte für Gäste: ``{"gast-17…": "Frau Meier"}``. Nur Gäste stehen
+    # darin, und nur, solange ihr Ticket lebt. Sie MUSS mitreisen, weil die
+    # Mitglieder-Oberfläche für eine Gast-Kennung nirgendwo ein Profil
+    # nachschlagen kann — anders als bei einer Nutzer-ID gibt es keine zweite
+    # Quelle. Fehlt ein Eintrag (Redis gestört, Ticket abgelaufen), zeigt der
+    # Klient die Kennung; das ist hässlich, aber nicht falsch.
+    gast_namen: dict[str, str] = {}
 
 
 class VoiceDisconnectEvent(_EventBase):

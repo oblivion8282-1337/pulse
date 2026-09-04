@@ -30,6 +30,12 @@
   // mangels Username auf die rohe ``user-<id>``-Identity zurück. Sobald der
   // userCache den Namen aufgelöst hat (via Self-Host /users, F19), den bevorzugen.
   let resolvedName = $derived(userCache.displayName(p.userId, p.name));
+
+  // Ein Gast (Besprechungslink) hat keine Nutzer-ID — ``p.userId`` ist null,
+  // und alle profilgebundenen Zweige unten greifen deshalb ohnehin nicht. Was
+  // fehlt, ist die Ansage: sein Name ist selbst getippt und von niemandem
+  // geprüft, das muss man ihm ansehen.
+  let istGast = $derived(p.identity.startsWith('gast-'));
   let initial = $derived((resolvedName.trim()[0] ?? '?').toUpperCase());
   let avatarSrc = $derived(p.userId ? safeAvatarUrl(userCache.get(p.userId)?.avatar_url) : null);
   // Same name colour as the member list: role colour → profile colour.
@@ -252,6 +258,14 @@
           >
             {resolvedName}{p.isLocal ? m.voice_participant_tile_local_suffix() : ''}
           </span>
+          {#if istGast}
+            <span
+              class="text-2xs border-border text-text-muted shrink-0 rounded-full border px-1.5 py-0.5 uppercase"
+              data-testid="voice-participant-guest"
+            >
+              {m.gast_abzeichen()}
+            </span>
+          {/if}
           {#if showMicOff}
             <VoiceMuteIcon
               kind="mic"

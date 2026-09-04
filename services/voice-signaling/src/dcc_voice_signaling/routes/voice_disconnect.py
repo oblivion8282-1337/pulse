@@ -9,6 +9,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Path, Request, status
 
+from dcc_shared import gaeste
+
 from dcc_voice_signaling import routes as voice_routes
 from dcc_voice_signaling.routes import chat_gateway
 from dcc_voice_signaling.security import CurrentUser
@@ -16,7 +18,12 @@ from dcc_voice_signaling.security import CurrentUser
 router = APIRouter()
 
 # Snowflake-format path parameter constraint (mirrors InternalEvictIn.user_id).
-_SnowflakePath = Annotated[str, Path(min_length=1, max_length=20, pattern=r"^\d+$")]
+# Nutzer-ID (nur Ziffern) ODER Gast-Kennung (``gast-<id>``): derselbe Rauswurf
+# trifft beide, und ein zweiter Pfad dafür wäre eine zweite Stelle, an der die
+# MOVE_MEMBERS-Prüfung stehen müsste.
+_SnowflakePath = Annotated[
+    str, Path(min_length=1, max_length=25, pattern=r"^(gast-)?\d+$")
+]
 
 
 @router.post("/channels/{channel_id}/members/{user_id}/voice-disconnect")
@@ -59,15 +66,28 @@ async def disconnect_from_voice(
             status.HTTP_403_FORBIDDEN, detail="missing permission: MOVE_MEMBERS"
         )
 
-    # Verify that the target user is a member of the channel's guild. This
-    # prevents an admin from removing arbitrary user IDs outside their guild.
-    await chat_gateway._require_target_in_guild(channel_id, user_id, bearer)
+    ist_gast = gaeste.ist_gast(user_id)
+    if not ist_gast:
+        # Verify that the target user is a member of the channel's guild. This
+        # prevents an admin from removing arbitrary user IDs outside their guild.
+        await chat_gateway._require_target_in_guild(channel_id, user_id, bearer)
+    # Ein Gast hat keine Mitgliedschaft, die man prüfen könnte. Seine
+    # Zugehörigkeit steckt im Ticket, und das nennt genau einen Kanal — er kann
+    # also gar nicht in einem anderen sitzen als dem, für den der Aufrufer hier
+    # MOVE_MEMBERS nachgewiesen hat.
 
     redis = voice_routes._get_redis(request)
     if redis is None:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, detail="redis unavailable"
         )
+
+    if ist_gast:
+        # Erst sperren, dann werfen: andersherum könnte der Gast in der Lücke
+        # mit demselben Ticket ein neues LiveKit-Token holen und wäre sofort
+        # wieder da. Die Sperre lebt so lange wie das längstmögliche Ticket —
+        # länger muss sie nicht, kürzer darf sie nicht.
+        await gaeste.sperren(redis, user_id)
 
     livekit_api = getattr(request.app.state, "livekit_api", None)
     await voice_routes._livekit_remove_participant(channel_id, user_id, api_client=livekit_api)

@@ -29,6 +29,8 @@ from livekit.api import TokenVerifier, WebhookReceiver
 from livekit.protocol.models import TrackSource, TrackType
 from redis.asyncio import Redis
 
+from dcc_shared import gaeste as _gaeste
+
 from dcc_voice_signaling.config import get_settings
 
 log = structlog.get_logger(__name__)
@@ -76,6 +78,8 @@ VOICE_STREAMING_KEY = "voice:room:{room}:streaming"
 VOICE_CAMERA_KEY = "voice:room:{room}:camera"
 _ROOM_PREFIX = "channel-"
 _IDENTITY_PREFIX = "user-"
+# Gäste (Besprechungslink, kein Konto). Kanonisch in ``dcc_shared.gaeste``.
+_GAST_IDENTITY_PREFIX = _gaeste.GAST_IDENTITY_PREFIX
 
 # Int values for screen-share sources (Protobuf enum — both video+audio tracks).
 _SCREEN_SHARE_SOURCES = frozenset({int(TrackSource.SCREEN_SHARE), int(TrackSource.SCREEN_SHARE_AUDIO)})
@@ -168,6 +172,17 @@ def channel_id_from_room(room_name: str) -> str | None:
 
 
 def user_id_from_identity(identity: str) -> str | None:
+    """Die Präsenz-Kennung zu einer LiveKit-Identität.
+
+    Zwei Formen: ``user-<id>`` → die nackte Nutzer-ID (wie seit jeher), und
+    ``gast-<id>`` → die Gast-Kennung **mitsamt Präfix**. Der Unterschied ist
+    Absicht: die Präsenz-Sets tragen beide nebeneinander, und allein am
+    Präfix erkennt die Oberfläche später, dass sie eine Gast-Kachel malen und
+    kein Profil nachschlagen darf. Eine nackte Gast-Zahl wäre von einer
+    Nutzer-ID nicht mehr zu unterscheiden.
+    """
+    if identity.startswith(_GAST_IDENTITY_PREFIX):
+        return identity if len(identity) > len(_GAST_IDENTITY_PREFIX) else None
     if not identity.startswith(_IDENTITY_PREFIX):
         return None
     uid = identity[len(_IDENTITY_PREFIX) :]
@@ -214,11 +229,21 @@ async def _publish_state(redis: Redis, room_name: str, channel_id: str) -> None:
     user_ids = sorted(_as_str(m) for m in members_raw)
     streaming_user_ids = sorted(_as_str(m) for m in streamers_raw)
     camera_user_ids = sorted(_as_str(m) for m in camera_raw)
+    # Gastnamen mitschicken — für eine Gast-Kennung gibt es beim Empfänger
+    # keine zweite Quelle (s. ``VoiceStateSnapshot.gast_namen``).
+    gast_namen: dict[str, str] = {}
+    for kennung in user_ids:
+        if not _gaeste.ist_gast(kennung):
+            continue
+        name = await _gaeste.gast_name(redis, kennung)
+        if name:
+            gast_namen[kennung] = name
     snapshot = VoiceStateSnapshot(
         channel_id=channel_id,
         user_ids=user_ids,
         streaming_user_ids=streaming_user_ids,
         camera_user_ids=camera_user_ids,
+        gast_namen=gast_namen,
     )
     await redis.publish(
         VOICE_EVENTS_CHANNEL,

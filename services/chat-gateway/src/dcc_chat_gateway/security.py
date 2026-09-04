@@ -36,12 +36,14 @@ from dcc_shared.token_verify import (
     reset_cache,
 )
 from dcc_shared import token_verify as _tv
+from dcc_shared.gast_ticket import GastClaims, decode_gast_ticket
 
 from dcc_chat_gateway.config import get_settings
 
 __all__ = [
     "AdminUser",
     "AuthenticatedUser",
+    "CurrentGast",
     "CurrentUser",
     "CurrentUserQuery",
     "OwnerUser",
@@ -108,3 +110,34 @@ async def require_owner(current: CurrentUser) -> AuthenticatedUser:
 
 
 OwnerUser = Annotated[AuthenticatedUser, Depends(require_owner)]
+
+
+# ---------------------------------------------------------------------------
+# Gäste
+# ---------------------------------------------------------------------------
+#
+# Ein Gast ist KEIN Nutzer. Er hat keine Zeile in einer Tabelle, keine
+# Mitgliedschaft, keine Rolle, und er erscheint in keinem Rechte-Resolver.
+# Deshalb hat er eine EIGENE Abhängigkeit statt eines zweiten Zweigs in
+# ``get_current_user``: es soll nirgends ein „Nutzer oder Gast" geben, an dem
+# eine spätere Änderung still ein Loch aufreisst.
+#
+# Der Standardweg bleibt davon unberührt zu: ``_decode_cloud_token`` verlangt
+# ``typ == "access"``, ein Gast-Ticket fällt dort von selbst heraus. Genau drei
+# Routen kennen ``CurrentGast`` — ``POST /voice/token`` (in voice-signaling),
+# ``GET /channels/{id}/whep`` und ``GET /gast/stream-state``.
+
+
+async def get_current_gast(
+    authorization: str | None = Header(default=None),
+) -> GastClaims:
+    """Ein gültiges Gast-Ticket aus dem ``Authorization``-Header, sonst 401."""
+    token = _extract_bearer(authorization)
+    if not token:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, detail="missing guest ticket"
+        )
+    return await decode_gast_ticket(token, get_settings)
+
+
+CurrentGast = Annotated[GastClaims, Depends(get_current_gast)]

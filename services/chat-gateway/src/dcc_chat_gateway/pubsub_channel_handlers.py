@@ -148,6 +148,13 @@ async def handle_voice_events(
             str(u) for u in payload.get("camera_user_ids", [])
         ],
         "user_states": user_states,
+        # Gastnamen durchreichen. Der Klient hat für eine Gast-Kennung keine
+        # zweite Quelle — würde die Karte hier verschluckt, stünde bei den
+        # Mitgliedern „gast-17…" statt eines Namens.
+        "gast_namen": {
+            str(k): str(v)
+            for k, v in (payload.get("gast_namen") or {}).items()
+        },
     }
     async with manager._lock:
         raw_targets = list(manager._connections)
