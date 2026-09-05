@@ -231,8 +231,35 @@
     }
 
     # ------------------------------------------------------------------ #
-    # Kein Web-UI auf einem Self-Host. Identität + Client leben in der     #
-    # Cloud (howispulse.com); Nutzer verbinden sich von dort per           #
+    # Gast-Seite (Besprechungslinks): die EINZIGE Web-UI auf dem           #
+    # Self-Host. Der Gast-Link zeigt auf https://<host>/gast/<code> —      #
+    # ohne diesen Handle liefe der Gast in die leere Fallback-Seite        #
+    # unten, bevor irgendein API-Aufruf passiert. Es wird AUSSCHLIESSLICH  #
+    # /gast/* (plus der SPA-Fallback und die öffentlichen /_app-Bündel     #
+    # und Mark-Assets, die die Seite lädt) ausgeliefert — Login/Registrie- #
+    # rung bleiben hier unerreichbar, alles andere fällt in den leeren     #
+    # Fallback.                                                            #
+    # ------------------------------------------------------------------ #
+    handle /gast {
+        redir /gast/ 301
+    }
+    handle /gast/* {
+        root * /var/www/pulse
+        try_files {path} /index.html
+        file_server
+    }
+    handle /pulse-mark.svg {
+        root * /var/www/pulse
+        file_server
+    }
+    handle /_app/* {
+        root * /var/www/pulse
+        file_server
+    }
+
+    # ------------------------------------------------------------------ #
+    # Kein weiteres Web-UI auf einem Self-Host. Identität + Client leben   #
+    # in der Cloud (howispulse.com); Nutzer verbinden sich von dort per    #
     # cert-login zu den /api-, /ws-, /whep- und /livekit-Routen oben.      #
     # Ein Browser, der die Server-Domain direkt aufruft, bekommt bewusst   #
     # eine leere Seite — Login/Registrierung sind hier nicht möglich.      #

@@ -320,3 +320,20 @@ Beim Ändern also beide Stellen mitziehen.
   `05-init-livekit.sh` gerendert) — dieser Punkt gilt seit dessen Einführung
   nur noch für MediaMTX. Für Operatoren mit eigenen MediaMTX-Configs als
   Folge-Arbeit.
+
+## Gast-Links (Besprechungen mit Leuten ohne Pulse-Konto)
+
+Mitglieder mit `MOVE_MEMBERS`-Recht können in Sprachkanälen Gast-Links erzeugen
+(Kanal → „Gast-Links“). Der Link zeigt auf **diese Server-Domain**
+(`https://<host>/gast/<code>`) — der Self-Host liefert dafür eine eigene,
+reduzierte Gast-Seite aus (Vorraum → Beitritt mit selbst gewähltem Namen),
+served by Caddy aus dem Image (`/gast/*` + `/pulse-mark.svg` + `/_app/*`).
+Kein weiteres Web-UI wird freigeschaltet: Login/Registrierung bleiben
+unerreichbar, alle anderen Pfade fallen weiterhin in die leere Seite.
+
+Gäste benötigen **kein Konto** und erhalten ein temporäres Ticket (max. 4 h,
+gekoppelt an die Link-Laufzeit, einstellbar von „sofort“ bis 7 Tage).
+„Gast entfernen“ in der Kanalliste beendet die Sitzung; optional kann der
+Link direkt mit entwertet werden. Der Beitritt scheitert einheitlich mit
+„Link gilt nicht mehr“ bei abgelaufenen, entwerteten, noch-nicht-gültigen
+Links sowie auf gesperrten Instanzen.
