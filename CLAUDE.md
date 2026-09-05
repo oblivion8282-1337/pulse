@@ -408,6 +408,7 @@ Top-Level `plugins/` (Referenz `hello` + `tamagotchi`). Manifest `plugin.toml` (
 - **media-svc**: `MEDIAMTX_API_URL=http://localhost:9997/v3/paths/list`. MediaMTX down → nur `mediamtx_poll_failed`-Log.
 Einzel-Infra: MediaMTX `docker compose -f streaming/server/docker-compose.yml up -d`, LiveKit `docker compose --profile voice up -d`.
 
+<<<<<<< HEAD
 ## Eine neue Maschine einrichten (ZUERST, wenn dieses Repo hier frisch geklont ist)
 
 Die Werkzeugkette reist über das Repo mit, **Systemwerkzeuge und persönliche
@@ -434,6 +435,9 @@ im PATH genügt.
 nur über Git Bash, `dev-up.fish` läuft dort gar nicht → Remote-Dev-Stack
 (`infra/dev-remote/README.md`) oder WSL. macOS und Linux sind gleichwertig.
 Ausführlich: `docs/ONBOARDING.md`.
+=======
+**(c) Lokal unter Windows** — `pnpm dev:local` (`scripts/dev-local.mjs`, Port von `dev-up.fish` nach Node, gleiche Begründung wie `dev-remote.mjs`). Einmalig nötig: **Docker Desktop + WSL2** und **uv** (Pre-flight nennt die Befehle); `.env`/JWT-Keys/Binaries erzeugt `pnpm dev:local:bootstrap` selbst. **Unterschied zum Linux-Stack:** LiveKit und MediaMTX laufen **nativ als Windows-Prozesse** statt im Container — deren Compose-Dateien setzen `network_mode: host`, das gibt es auf Docker Desktop nicht. Folgen: (1) der native MediaMTX hat die **fünf Pulse-Patches nicht** (Vollbild-Rückweg, Keyframe-Takt, FlexFEC, Dependency-Descriptor) — App-Entwicklung und Streaming-Grundpfad laufen, gezielte Messläufe zu diesen Features gehören auf den Linux-Stack/Testserver; (2) `LIVEKIT_URL` bleibt `ws://localhost:7880`, weil voice-signaling mit den Repo-Dev-Keys gegen eine Nicht-lokale URL den Start verweigert — **Voice vom Handy im LAN braucht echte LiveKit-Keys**, Streaming vom Handy geht (MediaMTX-Config bekommt die LAN-IP als ICE-Kandidat, Oberfläche im LAN via `PULSE_WEB_HOST=0.0.0.0`). Stolperfalle beim detached-Start unter Windows: `spawn(shell:true, detached:true)` verliert lautlos Stdout/Stderr — die Dienste laufen dann mit leeren Logs und ohne Port (deshalb startet `dev-local.mjs` detached grundsätzlich **ohne** Shell; uv/livekit/mediamtx sind echte `.exe`). Logs: `.dev-local/logs/`, alles aus: `pnpm dev:local:down` (Volumes bleiben).
+>>>>>>> a11fbcd9 (feat(dev): lokaler Dev-Stack für Windows — scripts/dev-local.mjs)
 
 ## Tests
 

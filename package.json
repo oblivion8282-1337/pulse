@@ -6,6 +6,10 @@
   "description": "Discord-Clone monorepo (frontend workspace root)",
   "packageManager": "pnpm@10.33.0",
   "scripts": {
+    "dev:local": "node scripts/dev-local.mjs",
+    "dev:local:web": "node scripts/dev-local.mjs --no-electron",
+    "dev:local:down": "node scripts/dev-local.mjs --down",
+    "dev:local:bootstrap": "node scripts/dev-local.mjs --bootstrap",
     "dev:remote": "node scripts/dev-remote.mjs",
     "dev:remote:web": "node scripts/dev-remote.mjs --no-electron",
     "dev:remote:logs": "node scripts/dev-remote.mjs --logs",
