@@ -84,25 +84,27 @@ def _bearer_from_header(authorization: str | None) -> str:
     return authorization.split(" ", 1)[1].strip()
 
 
-_membership_warning_emitted = False
+def _chat_gateway_enforced() -> str:
+    """The configured chat-gateway base URL, or 503.
+
+    Fail-closed (Audit 2026-09): ohne ``CHAT_GATEWAY_URL`` waere JEDE
+    Mitgliedschaft „erfüllt" — ein vergessener Eintrag im Deployment darf
+    keine Stimmtokens für fremde Kanäle ausstellen. Vorher stand hier ein
+    stiller No-Op mit Log-Warnung; Tests mocken ``_chat_gateway_request``."""
+    base = voice_routes.get_settings().chat_gateway_url
+    if base is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="membership enforcement unavailable — set CHAT_GATEWAY_URL",
+        )
+    return base
 
 
 async def _require_voice_channel_member(channel_id: str, bearer: str) -> int:
     """Ensure the caller is a member of `channel_id`'s guild and that the
     channel is a voice channel. Returns the channel's ``user_limit``
-    (0 = unbegrenzt) so the token route can enforce it. No-op in dev/test
-    setups where ``chat_gateway_url`` is unset (a one-shot warning is
-    logged) → returns 0 (kein Limit)."""
-    global _membership_warning_emitted
-    settings = voice_routes.get_settings()
-    if settings.chat_gateway_url is None:
-        if not _membership_warning_emitted:
-            log.warning(
-                "chat_gateway_url unset — voice tokens are issued without a "
-                "channel-membership check. Set CHAT_GATEWAY_URL in production."
-            )
-            _membership_warning_emitted = True
-        return 0
+    (0 = unbegrenzt) so the token route can enforce it."""
+    _chat_gateway_enforced()
     try:
         resp = await voice_routes._chat_gateway_request(
             "GET", f"/channels/{channel_id}", bearer=bearer
@@ -156,12 +158,7 @@ async def _resolve_channel_permissions(channel_id: str, bearer: str) -> int:
     already been verified via ``_require_voice_channel_member`` by the
     time this runs, so a 403 here would mean a race (member kicked
     between the two calls) — bailing to 0 is the safe answer."""
-    settings = voice_routes.get_settings()
-    if settings.chat_gateway_url is None:
-        # No chat-gateway configured (test/dev fallback) — assume full
-        # publish, matching the pre-gate behaviour. The
-        # ``_require_voice_channel_member`` warning already fired.
-        return _PERM_CONNECT | _PERM_SPEAK | _PERM_USE_VIDEO | _PERM_STREAM
+    _chat_gateway_enforced()
     try:
         resp = await voice_routes._chat_gateway_request(
             "GET", f"/channels/{channel_id}/permissions/me", bearer=bearer
@@ -185,11 +182,8 @@ async def _resolve_channel_permissions(channel_id: str, bearer: str) -> int:
 async def _require_target_in_guild(channel_id: str, user_id: str, bearer: str) -> None:
     """Ensure the target ``user_id`` is a member of ``channel_id``'s guild —
     shared by the admin endpoints (voice-override / voice-disconnect) so an
-    admin can't operate on users outside their guild. No-op when
-    ``chat_gateway_url`` is unset (dev/test)."""
-    settings = voice_routes.get_settings()
-    if settings.chat_gateway_url is None:
-        return
+    admin can't operate on users outside their guild."""
+    _chat_gateway_enforced()
     try:
         channel_resp = await voice_routes._chat_gateway_request(
             "GET", f"/channels/{channel_id}", bearer=bearer

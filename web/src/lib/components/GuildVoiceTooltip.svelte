@@ -24,7 +24,7 @@
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import PresenceBadge from '$lib/components/PresenceBadge.svelte';
   import { guilds as guildsStore } from '$lib/stores/guilds.svelte';
-  import { voicePresence } from '$lib/stores/voicePresence.svelte';
+  import { voicePresence, istGastKennung } from '$lib/stores/voicePresence.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { userCache, type UserSummary } from '$lib/stores/users.svelte';
@@ -174,7 +174,9 @@
   $effect(() => {
     if (isRemote) return;
     for (const ch of voiceChannels) {
-      for (const id of ch.userIds) userCache.queue(id);
+      // Gäste auslassen: für eine Gast-Kennung gibt es kein Profil zu laden,
+      // die Abfrage liefe ins Leere und die Zeile bliebe auf „…" stehen.
+      for (const id of ch.userIds) if (!istGastKennung(id)) userCache.queue(id);
     }
   });
 </script>
@@ -214,8 +216,11 @@
           <!-- User im Channel -->
           <ul class="flex flex-col gap-1 pl-0.5">
             {#each ch.userIds as id (id)}
-              {@const avatarUrl = safeAvatarUrl(userCache.get(id)?.avatar_url)}
-              {@const display = userCache.displayName(id)}
+              {@const istGast = istGastKennung(id)}
+              {@const avatarUrl = istGast ? null : safeAvatarUrl(userCache.get(id)?.avatar_url)}
+              {@const display = istGast
+                ? voicePresence.gastName(ch.id, id)
+                : userCache.displayName(id)}
               {@const isLive = liveSet.has(id)}
               {@const isCam = camSet.has(id)}
               {@const isParty = partySet.has(id)}
@@ -231,6 +236,11 @@
                   </Avatar.Fallback>
                 </Avatar.Root>
                 <span class="text-text-base truncate text-xs">{display}</span>
+                {#if istGast}
+                  <span class="text-amber-500 shrink-0 text-2xs uppercase">
+                    {m.gast_abzeichen()}
+                  </span>
+                {/if}
                 {#if isLive || isCam || isParty}
                   <!-- Statische Indikator-Pills (nicht klickbar): der Tooltip
                        verschwindet beim Verlassen des Icons, Klickziele darin

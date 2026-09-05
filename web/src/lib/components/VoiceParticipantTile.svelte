@@ -7,7 +7,7 @@
   import { safeAvatarUrl } from '$lib/avatar';
   import { nameColor, nameStyle, avatarFallbackStyle } from '$lib/utils/nameColor';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
-  import { voicePresence } from '$lib/stores/voicePresence.svelte';
+  import { voicePresence, istGastKennung } from '$lib/stores/voicePresence.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
@@ -30,6 +30,12 @@
   // mangels Username auf die rohe ``user-<id>``-Identity zurück. Sobald der
   // userCache den Namen aufgelöst hat (via Self-Host /users, F19), den bevorzugen.
   let resolvedName = $derived(userCache.displayName(p.userId, p.name));
+
+  // Ein Gast (Besprechungslink) hat keine Nutzer-ID — ``p.userId`` ist null,
+  // und alle profilgebundenen Zweige unten greifen deshalb ohnehin nicht. Was
+  // fehlt, ist die Ansage: sein Name ist selbst getippt und von niemandem
+  // geprüft, das muss man ihm ansehen.
+  let istGast = $derived(istGastKennung(p.identity));
   let initial = $derived((resolvedName.trim()[0] ?? '?').toUpperCase());
   let avatarSrc = $derived(p.userId ? safeAvatarUrl(userCache.get(p.userId)?.avatar_url) : null);
   // Same name colour as the member list: role colour → profile colour.
@@ -289,8 +295,14 @@
   {/snippet}
 </UserProfilePopover>
 {:else}
-  <!-- Anonymous participants (no userId — pre-LiveKit-join race window):
-       no popover, no DM, no volume, no activity badges (we can't tell who they are). -->
+  <!-- Teilnehmer ohne Nutzer-ID. Zwei Faelle, gleiche Darstellung: das kurze
+       Fenster vor dem LiveKit-Beitritt, und ein GAST (Besprechungslink, hat
+       gar keine Nutzer-ID). Kein Popover, keine DM, keine Lautstaerke, keine
+       Aktivitaets-Abzeichen — es gibt kein Profil dahinter.
+       Der Gast wird als solcher ausgewiesen: sein Name ist selbst getippt und
+       von niemandem geprueft, das muss man ihm ansehen. Das Abzeichen stand
+       zuerst im Zweig darueber und lief dort NIE — dort gibt es per
+       Bedingung nur Teilnehmer MIT Nutzer-ID. -->
   <button
     type="button"
     class="glass-panel flex flex-col items-center gap-3 rounded-2xl px-6 py-5 text-left transition-colors"
@@ -331,6 +343,37 @@
       >
         {resolvedName}{p.isLocal ? m.voice_participant_tile_local_suffix() : ''}
       </span>
+      {#if istGast}
+        <span
+          class="text-2xs border-amber-500/60 bg-amber-500/10 text-amber-500 shrink-0 rounded-full border px-1.5 py-0.5 uppercase"
+          data-testid="voice-participant-guest"
+        >
+          {m.gast_abzeichen()}
+        </span>
+      {/if}
+      {#if hasCam}
+        <!-- Das EINZIGE Aktivitaets-Abzeichen in diesem Zweig, und zwar
+             zwingend: ein Gast darf seine Kamera senden (das LiveKit-Token
+             laesst die Quelle ausdruecklich zu). Ohne diesen Knopf koennte
+             sein Bild niemand oeffnen — die erlaubte Kamera waere eine
+             Funktion, die es nur auf dem Papier gibt. Die uebrigen Abzeichen
+             (LIVE/PARTY) bleiben weg: die haengen an Server-Praesenz, die es
+             ohne Nutzer-ID nicht gibt. Beides hier laeuft ueber die
+             LiveKit-Identitaet und braucht kein Profil. -->
+        <span
+          role="button"
+          tabindex="0"
+          class="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-badge-cam px-2 py-0.5 text-2xs font-bold uppercase text-white shadow-sm hover:bg-badge-cam-hover active:scale-95"
+          data-testid="voice-participant-cam-badge"
+          title={m.voice_participant_tile_open_webcam()}
+          aria-label={m.voice_participant_tile_open_webcam_aria({ name: resolvedName })}
+          onclick={(e) => {
+            e.stopPropagation();
+            openCam();
+          }}
+          onkeydown={badgeKeydown(openCam)}
+        ><span class="size-1.5 rounded-full bg-white/80"></span>CAM</span>
+      {/if}
       {#if showMicOff}
         <VoiceMuteIcon
           kind="mic"

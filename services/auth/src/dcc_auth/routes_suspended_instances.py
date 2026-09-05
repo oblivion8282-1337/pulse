@@ -246,6 +246,7 @@ def _require_internal_secret(authorization: str | None = Header(default=None)) -
 @router.post("/admin/instances/_broadcast-update")
 async def broadcast_update(
     session: SessionDep,
+    request: Request,
     _auth: None = Header(default=None),  # placeholder; real check via Depends below
     authorization: str | None = Header(default=None),
 ):
@@ -266,6 +267,11 @@ async def broadcast_update(
     from dcc_auth.security import get_signer
 
     settings = get_settings()
+    # Rate limit BEFORE the secret compare — rejected attempts count too, so
+    # online guessing on the bearer secret can't run hot (Audit 2026-09).
+    await _check_rate(
+        request, "internal_secret", settings.rate_limit_internal_secret
+    )
     secret = settings.internal_service_secret
     if not secret:
         raise HTTPException(

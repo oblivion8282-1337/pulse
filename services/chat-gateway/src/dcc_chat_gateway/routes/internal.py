@@ -23,7 +23,9 @@ from fastapi import APIRouter, Header, HTTPException, Request, status
 from pydantic import BaseModel
 
 from dcc_chat_gateway import config as chat_cfg
+from dcc_chat_gateway.client_ip import client_ip
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.ratelimit import check as ratelimit_check
 from dcc_chat_gateway.user_purge import purge_user
 from dcc_chat_gateway.voice_pull_cleanup import revoke_voice_pull
 
@@ -61,12 +63,19 @@ class ModerationDmIn(BaseModel):
     content: str
 
 
-def _check_internal_secret(provided: str | None) -> None:
+def _check_internal_secret(request: Request, provided: str | None) -> None:
     """Constant-time compare against ``settings.internal_service_secret``.
 
     Raises 401 on missing / empty / wrong header, or when the server
     secret itself is unset (fail-closed — same posture as
-    voice-signaling's ``/internal/evict-from-voice``)."""
+    voice-signaling's ``/internal/evict-from-voice``). Rate-limited BEFORE
+    the compare so online guessing can't run hot (Audit 2026-09; the
+    nginx/Caddy deny for ``/api/chat/internal/*`` is the layer in front)."""
+    if not ratelimit_check("internal_secret", client_ip(request)):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="rate limit exceeded (internal_secret)",
+        )
     expected = chat_cfg.get_settings().internal_service_secret
     if not expected:
         # Treat unset secret as 401 (caller can't fix this, but a 5xx
@@ -102,7 +111,7 @@ async def purge_user_endpoint(
     we don't want a half-purged-user state where auth.users is gone
     but chat-gateway still has their messages.
     """
-    _check_internal_secret(x_pulse_internal_secret)
+    _check_internal_secret(request, x_pulse_internal_secret)
     manager = getattr(request.app.state, "connection_manager", None)
     redis = getattr(request.app.state, "redis", None)
     try:
@@ -137,7 +146,7 @@ async def revoke_voice_pull_endpoint(
     (or a stale Redis marker) is a no-op because ``revoke_voice_pull``
     only acts when a ``channel_voice_pulls`` row exists, so a permanent
     user-overwrite can never be touched here."""
-    _check_internal_secret(x_pulse_internal_secret)
+    _check_internal_secret(request, x_pulse_internal_secret)
     manager = getattr(request.app.state, "connection_manager", None)
     redis = getattr(request.app.state, "redis", None)
     revoked = await revoke_voice_pull(
@@ -159,7 +168,7 @@ async def complaint_notify_endpoint(
     """Live-push a ``complaint_new`` to each admin so the operator's inbox
     badge + open list update immediately (no 60s poll wait / no reload).
     Best-effort — a dead manager/Redis just means the poll catches up later."""
-    _check_internal_secret(x_pulse_internal_secret)
+    _check_internal_secret(request, x_pulse_internal_secret)
     from dcc_shared.events import ComplaintNewEvent
 
     manager = getattr(request.app.state, "connection_manager", None)
@@ -178,7 +187,7 @@ async def moderation_dm_endpoint(
 ) -> None:
     """Send a one-way admin→user DM on behalf of another service (auth-svc's
     complaint-notify flow). Bypasses the friend-gate; see ``system_dm``."""
-    _check_internal_secret(x_pulse_internal_secret)
+    _check_internal_secret(request, x_pulse_internal_secret)
     from dcc_chat_gateway.system_dm import send_moderation_dm
 
     manager = getattr(request.app.state, "connection_manager", None)
@@ -189,3 +198,38 @@ async def moderation_dm_endpoint(
         to_user_id=payload.to_user_id,
         content=payload.content,
     )
+
+
+class GastLinkRevokeIn(BaseModel):
+    """Body for the guest-link revoke call from voice-signaling.
+
+    „Gast entfernen + Link entwerten": voice-signaling hat den Gast bereits
+    gesperrt und rausgeworfen und kennt dessen ``link_id`` aus dem Redis-Gast-
+    Hash; die Link-Zeile (und damit die Entwertung aller Gäste des Links)
+    lebt in der chat-gateway-DB."""
+
+    link_id: int
+
+
+@router.post(
+    "/internal/guest-links/revoke", status_code=status.HTTP_204_NO_CONTENT
+)
+async def revoke_gast_link_internal(
+    payload: GastLinkRevokeIn,
+    request: Request,
+    session: SessionDep,
+    x_pulse_internal_secret: Annotated[str | None, Header()] = None,
+) -> None:
+    """Gast-Link ohne Nutzerkontext entwerten („Gast entfernen“-Option)."""
+    from dcc_chat_gateway.models import GuestLink  # noqa: PLC0415
+    from dcc_chat_gateway.routes.guest_links import entwerte_link  # noqa: PLC0415
+
+    _check_internal_secret(request, x_pulse_internal_secret)
+    link = await session.get(GuestLink, payload.link_id)
+    if link is None:
+        # Der Link kann inzwischen abgelaufen und aus der Liste gefallen,
+        # die Zeile aber noch da sein — oder längst weg. Beides in Ordnung:
+        # entwertet ist entwertet.
+        return
+    await entwerte_link(session, request, link)
+    await session.commit()  # entwerte_link committet bewusst nicht selbst

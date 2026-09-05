@@ -41,6 +41,8 @@ from dcc_chat_gateway.routes import (
     invites,
     kopplung,
     kopplung_umzug,
+    gast,
+    guest_links,
     member_invites,
     mention_search,
     messages,
@@ -104,6 +106,8 @@ router.include_router(ablage_zwischenlager.router)
 router.include_router(dms.router)
 router.include_router(friends.router)
 router.include_router(community_invites.router)
+router.include_router(gast.router)
+router.include_router(guest_links.router)
 router.include_router(member_invites.router)
 router.include_router(blocks.router)
 router.include_router(privacy.router)

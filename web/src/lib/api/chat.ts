@@ -280,6 +280,8 @@ export const chatApi = {
       user_ids: string[];
       streaming_user_ids: string[];
       camera_user_ids: string[];
+      /** Namen der Gäste (``gast-<id>`` → getippter Name), s. voicePresence. */
+      gast_namen?: Record<string, string>;
     }[];
   }> {
     return request(`/guilds/${guildId}/voice-state`, {}, route);

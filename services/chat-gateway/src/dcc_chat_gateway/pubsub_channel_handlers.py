@@ -137,6 +137,14 @@ async def handle_voice_events(
         }
     else:
         user_states = await manager.user_voice_states_for(user_ids)
+    # Gäste mit stummem Mikrofon (voice-signaling liest es aus den
+    # track_muted/unmuted-Webhooks) landen in derselben Map wie die
+    # selbst gemeldeten Mitglieder-Zustände — der Klient unterscheidet
+    # nicht, woher ein Eintrag kam.
+    for gid in payload.get("gast_stumm") or []:
+        gid = str(gid)
+        if gid in user_ids:
+            user_states[gid] = {"mic_muted": True, "deafened": False}
     envelope = {
         "op": "voice_state",
         "channel_id": voice_cid,
@@ -148,6 +156,13 @@ async def handle_voice_events(
             str(u) for u in payload.get("camera_user_ids", [])
         ],
         "user_states": user_states,
+        # Gastnamen durchreichen. Der Klient hat für eine Gast-Kennung keine
+        # zweite Quelle — würde die Karte hier verschluckt, stünde bei den
+        # Mitgliedern „gast-17…" statt eines Namens.
+        "gast_namen": {
+            str(k): str(v)
+            for k, v in (payload.get("gast_namen") or {}).items()
+        },
     }
     async with manager._lock:
         raw_targets = list(manager._connections)

@@ -68,6 +68,10 @@ def create_app(*, skip_redis: bool = False, skip_poller: bool = False) -> FastAP
         allow_headers=["*"],
     )
     app.include_router(router)
+    from dcc_media_svc.routes import _kill_router  # noqa: PLC0415
+
+    app.include_router(_kill_router)
+    app.state.internal_service_secret = settings.internal_service_secret
 
     @app.get("/health")
     async def health() -> dict[str, str]:

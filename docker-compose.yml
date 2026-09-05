@@ -12,7 +12,10 @@ services:
       - pgdata:/var/lib/postgresql/data
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     ports:
-      - "${POSTGRES_HOST_PORT:-5433}:5432"
+      # 127.0.0.1-Prefix: Dev-Wegwerf-Credentials (devpassword o.ä.) haben in
+      # einem Café-WLAN nichts zu suchen — ohne Prefix bindet Docker auf
+      # 0.0.0.0 (Audit 2026-09). Gleiches gilt für Redis/MinIO unten.
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dcc} -d ${POSTGRES_DB:-dcc}"]
       interval: 5s
@@ -28,7 +31,7 @@ services:
     volumes:
       - redisdata:/data
     ports:
-      - "${REDIS_HOST_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -53,8 +56,8 @@ services:
     volumes:
       - miniodata:/data
     ports:
-      - "${MINIO_HOST_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
+      - "127.0.0.1:${MINIO_HOST_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
     healthcheck:
       test: ["CMD-SHELL", "mc ready local || exit 1"]
       interval: 10s

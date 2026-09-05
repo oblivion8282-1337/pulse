@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     # How often the presence poller hits the MediaMTX API.
     poll_interval_s: float = 3.0
 
+    # Service-to-service secret (chat-gateway/voice-signaling → media-svc),
+    # header ``X-Pulse-Internal-Secret`` — dieselbe Konvention wie in den
+    # übrigen Diensten. Leer = die Internal-Routen sind abgeschaltet (503),
+    # fail-closed wie bei voice-signaling ohne ``CHAT_GATEWAY_URL``.
+    internal_service_secret: str = ""
+
     # Ingest endpoint for building the publish push-URL handed to the HQ sidecar.
     # The "rtmp" protocol is served over TLS (rtmps://) so the token isn't on the
     # wire in cleartext — RTMPS lives on its own port (1936 in prod).

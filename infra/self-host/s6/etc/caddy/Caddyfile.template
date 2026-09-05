@@ -67,6 +67,24 @@
     # API-Routes                                                          #
     # ------------------------------------------------------------------ #
 
+    # Interne Bäume von auth (mintet Gast-Tickets) und chat (löscht Accounts):
+    # `handle_path /api/auth/*` bzw. `/api/chat/*` unten lassen sie sonst 1:1
+    # durch, nur das INTERNAL_SERVICE_SECRET stünde zwischen Internet und
+    # Route. Handle-Blöcke sind exklusiv in Dateireihenfolge — deshalb stehen
+    # diese VOR den Weiterleitungen (Spiegel des @voice_restricted-Blocks
+    # unten und der Cloud-nginx-deny-Blöcke, Audit 2026-09).
+    @auth_chat_internal path /api/auth/internal/* /api/chat/internal/*
+    handle @auth_chat_internal {
+        respond 403
+    }
+    # FastAPI-Swagger/OpenAPI hinter den /api/*-Weiterleitungen: kompletter
+    # Recon-Katalog aller Routen (inkl. der internen oben) — kein öffentliches
+    # Inventar. Lokal bleibt /docs für die Entwicklung erreichbar.
+    @api_docs path_regexp ^/api/(auth|chat|voice)/(docs|redoc|openapi\.json)$
+    handle @api_docs {
+        respond 403
+    }
+
     # auth-svc (8001) — login, MFA, identity-cert, /.well-known/jwks.json
     handle_path /api/auth/* {
         reverse_proxy 127.0.0.1:8001 {
@@ -213,8 +231,35 @@
     }
 
     # ------------------------------------------------------------------ #
-    # Kein Web-UI auf einem Self-Host. Identität + Client leben in der     #
-    # Cloud (howispulse.com); Nutzer verbinden sich von dort per           #
+    # Gast-Seite (Besprechungslinks): die EINZIGE Web-UI auf dem           #
+    # Self-Host. Der Gast-Link zeigt auf https://<host>/gast/<code> —      #
+    # ohne diesen Handle liefe der Gast in die leere Fallback-Seite        #
+    # unten, bevor irgendein API-Aufruf passiert. Es wird AUSSCHLIESSLICH  #
+    # /gast/* (plus der SPA-Fallback und die öffentlichen /_app-Bündel     #
+    # und Mark-Assets, die die Seite lädt) ausgeliefert — Login/Registrie- #
+    # rung bleiben hier unerreichbar, alles andere fällt in den leeren     #
+    # Fallback.                                                            #
+    # ------------------------------------------------------------------ #
+    handle /gast {
+        redir /gast/ 301
+    }
+    handle /gast/* {
+        root * /var/www/pulse
+        try_files {path} /index.html
+        file_server
+    }
+    handle /pulse-mark.svg {
+        root * /var/www/pulse
+        file_server
+    }
+    handle /_app/* {
+        root * /var/www/pulse
+        file_server
+    }
+
+    # ------------------------------------------------------------------ #
+    # Kein weiteres Web-UI auf einem Self-Host. Identität + Client leben   #
+    # in der Cloud (howispulse.com); Nutzer verbinden sich von dort per    #
     # cert-login zu den /api-, /ws-, /whep- und /livekit-Routen oben.      #
     # Ein Browser, der die Server-Domain direkt aufruft, bekommt bewusst   #
     # eine leere Seite — Login/Registrierung sind hier nicht möglich.      #

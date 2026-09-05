@@ -68,6 +68,10 @@ uv.lock.backup
 
 # Uploaded files (avatars, guild icons, …) — never check in user content.
 services/*/uploads/
+# …und das uploads/-Verzeichnis am Repo-Root (Guild-Icons der lokalen Devs,
+# Audit 2026-09): nur services/*/uploads/ zu ignorieren liesse ein
+# `git add -A` den User-Content am Root committen.
+/uploads/
 
 # Service-runtime state (auto-generated VAPID keys etc.) — never commit.
 services/*/data/

@@ -2,6 +2,35 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-06.1",
+      "date": "2026-09-06",
+      "style": "Sachlich",
+      "title": "Gast-Besprechungen: Feinschliff, Sicherheit, eigene Server",
+      "intro": "Die Gast-Seite ist erwachsen geworden — und funktioniert jetzt auch auf eigenen Servern.",
+      "items": [
+        "Die Gast-Seite sieht aus wie Pulse: große Teilnehmer-Kacheln mit Sprech-Puls, LIVE- und CAM-Abzeichen, und an jeder Übertragung eine Steuerleiste mit Lautstärke und Vollbild. Mehrere Streams laufen nebeneinander — schaltet jemand einen zweiten Monitor dazu, öffnet sich dieser automatisch.",
+        "Mitglieder sind in der Besprechung mit Profilbild und Anzeigename sichtbar; das Stumm-Zeichen eines Gastes erscheint jetzt auch in der Kanalliste.",
+        "„Gast entfernen“ fragt nach: nur rauswerfen — oder den Link gleich mit entwerten. Rausgeworfene Gäste bleiben sicher draußen, und ihre laufende Übertragung wird sofort getrennt statt bis zum nächsten Neuverbinden weiterzulaufen.",
+        "Gast-Links bekommen ein Zeitfenster: gültig ab/bis frei wählbar (Vorlagen von einer Stunde bis sieben Tage). Ein Link vor Beginn sagt dem Gast ehrlich, dass die Besprechung noch nicht angefangen hat.",
+        "Eigene Server (Self-Host) laden Gäste jetzt vollständig ein: die Gast-Seite wird vom eigenen Server ausgeliefert, und gesperrte Instanzen lassen keine Gäste mehr herein.",
+        "Eine Sicherheitsrunde hat Nebentüren geschlossen: Moderatoren fremder Communities können Gäste nicht mehr rauswerfen, entwertete Links stellen keine heimlichen Tickets mehr aus, und die Ratenbremsen der Gast-Seiten sind nicht mehr per Kopf umgehbar."
+      ]
+    },
+    {
+      "id": "2026-09-04.3",
+      "date": "2026-09-04",
+      "style": "Sachlich",
+      "title": "Gäste ohne Konto in einen Sprachkanal einladen",
+      "intro": "Für Besprechungen mit Leuten ausserhalb der eigenen Community: Wer einen Sprachkanal verwalten darf, erzeugt dafür einen Link. Wer ihn öffnet, tippt einen Namen ein und ist im Gespräch — ohne Konto, ohne Anmeldung, ohne Installation.",
+      "items": [
+        "Rechtsklick auf einen Sprachkanal, „Gast-Links“: Link erzeugen, kopieren, verschicken. Er gilt standardmässig einen Tag und lässt sich jederzeit vorzeitig entwerten — laufende Gäste fliegen dabei sofort heraus.",
+        "Gäste hören und sprechen, können ihre Kamera einschalten und sehen zu — sowohl geteilte Bildschirme als auch Übertragungen in hoher Qualität. Sie sehen nur diesen einen Kanal: keinen Chat, keine Kanalliste, keine anderen Räume.",
+        "In der Teilnehmerliste sind Gäste deutlich als Gast gekennzeichnet — ihr Name ist selbst eingetippt und von niemandem geprüft.",
+        "Wer einen Gast aus dem Sprachkanal entfernen darf, kann das wie bei einem Mitglied; mit demselben Zugang kommt er nicht zurück.",
+        "Der Link wird nur einmal angezeigt, direkt nach dem Erzeugen. Danach lässt er sich nicht mehr nachschlagen — auf dem Server liegt nur seine Prüfsumme."
+      ]
+    },
+    {
       "id": "2026-09-04.2",
       "date": "2026-09-04",
       "style": "Sachlich",

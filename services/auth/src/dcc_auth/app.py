@@ -37,6 +37,7 @@ from dcc_auth.routes_reachability import router as reachability_router
 from dcc_auth.routes_recovery import router as recovery_router
 from dcc_auth.routes_recovery_package import router as recovery_package_router
 from dcc_auth.routes_registry_auth import router as registry_auth_router
+from dcc_auth.routes_gast_ticket import router as gast_ticket_router
 from dcc_auth.routes_search import router as search_router
 from dcc_auth.routes_selfhost_bootstrap import router as selfhost_bootstrap_router
 from dcc_auth.routes_server_ticket import router as server_ticket_router
@@ -232,6 +233,7 @@ def create_app() -> FastAPI:
     app.include_router(reachability_router)
     app.include_router(selfhost_diagnose_router)
     app.include_router(registry_auth_router)
+    app.include_router(gast_ticket_router)
 
     @app.get("/health")
     async def health() -> dict[str, str]:

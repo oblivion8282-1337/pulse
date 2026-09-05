@@ -417,6 +417,13 @@ def test_voice_state_snapshot_bare() -> None:
         "user_ids": ["3"],
         "streaming_user_ids": [],
         "camera_user_ids": [],
+        # Namenskarte fuer Gaeste (Besprechungslinks). Leer, solange keiner im
+        # Kanal sitzt — und genau darum steht sie hier: das Feld reist IMMER
+        # mit, damit der Empfaenger es nicht mal gibt und mal nicht.
+        "gast_namen": {},
+        # Stumme Gaeste (Präsenz-Kennungen). Derselbe Grund wie gast_namen:
+        # reist immer mit, damit die Envelope-Form stabil bleibt.
+        "gast_stumm": [],
     }
     assert "op" not in dumped
 

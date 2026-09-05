@@ -12,6 +12,8 @@ falls back to no-redis path checks where applicable.
 
 from __future__ import annotations
 
+import os
+
 import json
 
 import httpx
@@ -47,11 +49,31 @@ def _make_voice_channel_mock(perms_bf: int):
     return _mock
 
 
+def _redis_url_db9() -> str:
+    """Der Redis DIESES Laufs, auf Datenbank 9.
+
+    Zwei Eigenschaften, und beide werden gebraucht:
+
+    * **Der Server kommt aus ``REDIS_URL``**, nicht fest aus ``localhost:6380``.
+      Unter ``-n`` startet der Wurzel-``conftest`` je Worker einen EIGENEN
+      ``redis-server`` und schreibt ihn dorthin. Fest verdrahtet landeten alle
+      Worker auf demselben Server, und weil die Fixture unten ``flushdb()``
+      ruft, räumten sie einander mitten im Test die Schlüssel weg — der
+      Override-Test fand seine Zeile dann nicht mehr und sah aus wie ein
+      Flackern. (Gefunden 2026-09-04 unter ``-n 8``.)
+    * **Datenbank 9 bleibt**, damit ein serieller Lauf ohne eigenen Server
+      nicht die Dev-Daten auf ``/0`` leert — genau davor schützte die alte
+      Wahl, und das ``flushdb()`` unten macht sie zur Pflicht.
+    """
+    roh = os.environ.get("REDIS_URL", "redis://localhost:6380/0")
+    return roh.rsplit("/", 1)[0] + "/9"
+
+
 @pytest_asyncio.fixture
 async def redis_client(_isolate_voice_settings):
     """Per-test Redis connection on db /9 (segregated from /0 so dev data
     isn't disturbed). Flushed afterwards to keep the namespace clean."""
-    r = Redis.from_url("redis://localhost:6380/9", decode_responses=False)
+    r = Redis.from_url(_redis_url_db9(), decode_responses=False)
     await r.flushdb()
     yield r
     await r.flushdb()

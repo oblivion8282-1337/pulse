@@ -67,10 +67,15 @@ class Settings(BaseSettings):
 
     # chat-gateway is the source of truth for guild/channel membership. Token
     # issue verifies the caller is a member of the requested voice channel by
-    # calling ``GET /channels/{id}``. Unset → no check (dev/test convenience;
-    # NEVER leave unset in production — anyone with a valid Pulse access token
-    # could otherwise join arbitrary voice channels).
+    # calling ``GET /channels/{id}``. Unset → token/override routes answer
+    # 503 (fail-closed, Audit 2026-09): a deployment that forgets
+    # CHAT_GATEWAY_URL must not hand out voice tokens for arbitrary
+    # channels. Dev/tests set the URL and mock ``_chat_gateway_request``.
     chat_gateway_url: str | None = None
+    # media-svc für den WHEP-Session-Kill beim Rauswurf (siehe
+    # voice_disconnect): ohne URL/Secret bleibt der Kill ein No-Op, die
+    # Redis-Sperre fängt den Gast trotzdem.
+    media_svc_url: str | None = None
     chat_gateway_timeout_s: float = 3.0
 
     # Shared secret for service-to-service POSTs from chat-gateway

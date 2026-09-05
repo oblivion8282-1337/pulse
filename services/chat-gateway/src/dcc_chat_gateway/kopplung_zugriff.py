@@ -30,16 +30,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_chat_gateway.models import Kopplung
+from dcc_chat_gateway.zeit import als_utc
 
 
-def _als_utc(wert: datetime) -> datetime:
-    """SQLite gibt ``DateTime(timezone=True)`` naiv zurueck, Postgres nicht.
-
-    Ohne diese Anpassung wirft der Vergleich mit ``datetime.now(UTC)`` im
-    Test ``TypeError`` und im Betrieb nicht — der Unterschied faellt dann
-    erst auf der Prod-Datenbank auf, also am spaetestmoeglichen Ort.
-    """
-    return wert if wert.tzinfo is not None else wert.replace(tzinfo=UTC)
+# Die Umrechnung selbst steht in ``zeit.py`` — sie galt hier und im Gast-Kern
+# wortgleich. Der alte Name bleibt, damit ``routes/kopplung.py`` unveraendert
+# importieren kann.
+_als_utc = als_utc
 
 
 async def kopplung_laden(
