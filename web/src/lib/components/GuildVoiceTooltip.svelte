@@ -237,7 +237,7 @@
                 </Avatar.Root>
                 <span class="text-text-base truncate text-xs">{display}</span>
                 {#if istGast}
-                  <span class="text-text-muted shrink-0 text-2xs uppercase">
+                  <span class="text-amber-500 shrink-0 text-2xs uppercase">
                     {m.gast_abzeichen()}
                   </span>
                 {/if}

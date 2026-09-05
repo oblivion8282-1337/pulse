@@ -13,6 +13,8 @@ export type GastLink = {
   channel_id: string;
   guild_id: string;
   expires_at: string;
+  /** Frühester Eintritt — null heisst „ab sofort" (alle Bestandslinks). */
+  valid_from: string | null;
   revoked: boolean;
   created_by: string;
   /** Nur in der Antwort auf das Erzeugen gesetzt — die Liste liefert ihn nie
@@ -20,10 +22,26 @@ export type GastLink = {
   code?: string | null;
 };
 
-export function createGastLink(channelId: string, gueltigStunden = 24): Promise<GastLink> {
+export type GastLinkZeitfenster = {
+  /** Dauer in Stunden — nur relevant, wenn kein absolutes Ende gesetzt ist. */
+  gueltigStunden?: number;
+  /** ISO-Zeitpunkte (oder null = ab sofort). ``gueltigBis`` gewinnt über die
+   *  Stunden-Rechnung, wenn beides gesetzt ist. */
+  gueltigAb?: string | null;
+  gueltigBis?: string | null;
+};
+
+export function createGastLink(
+  channelId: string,
+  zeitfenster: GastLinkZeitfenster = {}
+): Promise<GastLink> {
   return request<GastLink>(`/channels/${channelId}/guest-links`, {
     method: 'POST',
-    body: { gueltig_stunden: gueltigStunden },
+    body: {
+      gueltig_stunden: zeitfenster.gueltigStunden ?? 24,
+      gueltig_ab: zeitfenster.gueltigAb ?? null,
+      gueltig_bis: zeitfenster.gueltigBis ?? null
+    },
     endpoint: 'chat'
   });
 }

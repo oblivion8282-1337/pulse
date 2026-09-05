@@ -12,6 +12,7 @@ test('jeder Fehlschlag bekommt einen eigenen Grund', () => {
 	assert.equal(gastFehler(404), 'abgelaufen');
 	assert.equal(gastFehler(403), 'entfernt');
 	assert.equal(gastFehler(409), 'voll');
+	assert.equal(gastFehler(425), 'zufrueh');
 	assert.equal(gastFehler(429), 'zuviel');
 });
 

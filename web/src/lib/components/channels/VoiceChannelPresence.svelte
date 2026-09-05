@@ -10,7 +10,7 @@
    */
   import { voice } from '$lib/voice/livekit.svelte';
   import { inVoiceChannel } from '$lib/voice/state.svelte';
-  import { voicePresence, type UserVoiceState } from '$lib/stores/voicePresence.svelte';
+  import { voicePresence, istGastKennung, type UserVoiceState } from '$lib/stores/voicePresence.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { stromGehoertGeraet } from '$lib/devices/darstellung';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
@@ -52,11 +52,20 @@
     if (!(voice.connected && voice.channelId === channelId)) return base;
     const merged: Record<string, UserVoiceState> = { ...base };
     for (const p of voice.participants) {
-      if (!p.userId) continue;
-      merged[p.userId] = {
-        mic_muted: p.micMuted,
-        deafened: p.isLocal ? voice.deafened : (merged[p.userId]?.deafened ?? false)
-      };
+      if (p.userId) {
+        merged[p.userId] = {
+          mic_muted: p.micMuted,
+          deafened: p.isLocal ? voice.deafened : (merged[p.userId]?.deafened ?? false)
+        };
+      } else if (istGastKennung(p.identity)) {
+        // Gäste haben keine Nutzer-ID — ihre Kennung tritt als Schlüssel an.
+        // Ohne diesen Zweig sah die Kachel das Stumm-Zeichen sofort, die
+        // Liste erst mit dem nächsten Server-Schnappschuss (oder nie).
+        merged[p.identity] = {
+          mic_muted: p.micMuted,
+          deafened: merged[p.identity]?.deafened ?? false
+        };
+      }
     }
     return merged;
   }

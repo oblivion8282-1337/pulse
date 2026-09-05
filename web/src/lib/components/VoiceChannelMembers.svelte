@@ -1,5 +1,6 @@
 <script lang="ts">
   import * as Avatar from '$lib/components/ui/avatar/index.js';
+import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { userCache } from '$lib/stores/users.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { settings } from '$lib/stores/settings.svelte';
@@ -8,6 +9,7 @@
   import { Perm } from '$lib/permissions/bitfield';
   import { disconnectFromVoice } from '$lib/api/voice';
   import UserMinusIcon from '@lucide/svelte/icons/user-minus';
+import { Button } from '$lib/components/ui/button';
   import { toast } from 'svelte-sonner';
   import { safeAvatarUrl } from '$lib/avatar';
   import { nameColor, nameStyle, avatarFallbackStyle } from '$lib/utils/nameColor';
@@ -75,14 +77,22 @@
   // sie serverseitig (``voice-disconnect``), wo sie kanalgenau aufgelöst wird.
   const darfWerfen = $derived(roles.hasGuildPermission(guildId, Perm.MOVE_MEMBERS));
 
-  async function gastEntfernen(gastId: string): Promise<void> {
+  /** Der Gast, für den der Entfernen-Dialog offen ist (null = zu). */
+  let kickGast = $state<string | null>(null);
+  let kickLaeuft = $state(false);
+
+  async function gastEntfernen(gastId: string, linkEntwerten = false): Promise<void> {
+    kickLaeuft = true;
     try {
-      await disconnectFromVoice(channelId, gastId);
+      await disconnectFromVoice(channelId, gastId, { linkEntwerten });
       // Vorgreifend aus der Liste nehmen: die Präsenz kommt erst über den
       // LiveKit-Webhook zurück, und bis dahin stünde der eben Entfernte noch da.
       voicePresence.removeUser(channelId, gastId);
+      kickGast = null;
     } catch {
       toast.error(m.gast_entfernen_fehler());
+    } finally {
+      kickLaeuft = false;
     }
   }
 
@@ -257,18 +267,22 @@
 
 {#each gaeste as gid (gid)}
   {@const gastState = userStates[gid]}
+  {@const gastName = voicePresence.gastName(channelId, gid)}
   <div
     class="text-text-muted flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm"
     data-testid="voice-presence-guest"
     data-user-id={gid}
   >
-    <span class="border-border text-2xs flex size-7 shrink-0 items-center justify-center rounded-full border">
-      {m.gast_abzeichen()[0]}
-    </span>
-    <span class="truncate">{voicePresence.gastName(channelId, gid)}</span>
-    <span class="text-2xs border-border shrink-0 rounded-full border px-1.5 py-0.5 uppercase">
+    <!-- Kein Kreis-Symbol vor dem Namen: das Abzeichen SELBST steht links —
+         der Name daneben ist selbst getippt und von niemandem geprüft, das
+         muss man sehen, bevor man den Namen liest. -->
+    <span
+      class="text-2xs border-amber-500/60 bg-amber-500/10 text-amber-500 shrink-0 rounded-full border px-1.5 py-0.5 uppercase"
+      data-testid="voice-presence-guest-badge"
+    >
       {m.gast_abzeichen()}
     </span>
+    <span class="truncate">{gastName}</span>
     <span class="ml-auto flex shrink-0 items-center gap-1">
       {#if gastState?.mic_muted}
         <VoiceMuteIcon kind="mic" forced={false} label={m.gast_stumm()} />
@@ -280,7 +294,7 @@
           title={m.gast_entfernen()}
           aria-label={m.gast_entfernen()}
           data-testid="gast-entfernen"
-          onclick={() => gastEntfernen(gid)}
+          onclick={() => (kickGast = gid)}
         >
           <UserMinusIcon class="size-3.5" />
         </button>
@@ -288,3 +302,34 @@
     </span>
   </div>
 {/each}
+
+
+{#if kickGast}
+  <Dialog.Root open={!!kickGast} onOpenChange={(o) => { if (!o) kickGast = null; }}>
+    <Dialog.Content class="sm:max-w-md">
+      <Dialog.Header>
+        <Dialog.Title>{m.gast_kick_titel()}</Dialog.Title>
+        <Dialog.Description>
+          {m.gast_kick_text({ name: voicePresence.gastName(channelId, kickGast) })}
+        </Dialog.Description>
+      </Dialog.Header>
+      <p class="text-muted-foreground text-xs">{m.gast_kick_link_hinweis()}</p>
+      <Dialog.Footer class="flex flex-wrap gap-2">
+        <Button
+          variant="ghost"
+          disabled={kickLaeuft}
+          onclick={() => gastEntfernen(kickGast!, false)}
+        >
+          {m.gast_kick_nur_raus()}
+        </Button>
+        <Button
+          variant="destructive"
+          disabled={kickLaeuft}
+          onclick={() => gastEntfernen(kickGast!, true)}
+        >
+          {m.gast_kick_link_mit()}
+        </Button>
+      </Dialog.Footer>
+    </Dialog.Content>
+  </Dialog.Root>
+{/if}

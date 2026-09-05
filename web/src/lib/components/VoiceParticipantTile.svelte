@@ -345,7 +345,7 @@
       </span>
       {#if istGast}
         <span
-          class="text-2xs border-border text-text-muted shrink-0 rounded-full border px-1.5 py-0.5 uppercase"
+          class="text-2xs border-amber-500/60 bg-amber-500/10 text-amber-500 shrink-0 rounded-full border px-1.5 py-0.5 uppercase"
           data-testid="voice-participant-guest"
         >
           {m.gast_abzeichen()}

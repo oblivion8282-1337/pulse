@@ -40,10 +40,12 @@ export function setVoiceOverride(
  * isn't currently connected. The override (if any) is cleared. */
 export function disconnectFromVoice(
   channelId: string,
-  userId: string
+  userId: string,
+  optionen: { linkEntwerten?: boolean } = {}
 ): Promise<{ disconnected: boolean }> {
+  const query = optionen.linkEntwerten ? '?link_entwerten=true' : '';
   return request<{ disconnected: boolean }>(
-    `/channels/${channelId}/members/${userId}/voice-disconnect`,
+    `/channels/${channelId}/members/${userId}/voice-disconnect${query}`,
     { method: 'POST', endpoint: 'voice' }
   );
 }

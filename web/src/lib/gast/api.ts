@@ -29,7 +29,18 @@ export type GastBeitritt = {
 export type GastVoiceToken = { token: string; ws_url: string; room: string };
 
 export type GastStreamStand = {
-  stream_states: { channel_id: string; user_ids?: string[] }[];
+  stream_states: {
+    channel_id: string;
+    user_ids?: string[];
+    /** Slot-Deskriptoren — nur anwesend, wenn mindestens ein Sender MEHRERE
+     *  Streams gleichzeitig fährt (oder ein Monitor-Label mitschickt). Fehlt
+     *  die Liste, läuft alles über ``user_ids`` mit Slot 0. */
+    streams?: { user_id: string; slot: number; label?: string }[];
+  }[];
+  /** Profil-Stückchen der Mitglieder im Kanal (``user_id`` → Name + Avatar).
+   *  Der Gast hat keine kontobasierte Quelle dafür — ohne diese Map gäbe es
+   *  nur Initialen statt Profilbildern. */
+  teilnehmer?: Record<string, { name: string; avatar_url: string | null }>;
 };
 
 /** Warum ein Beitritt scheiterte, in der Sprache des Gastes.
@@ -41,6 +52,7 @@ export function gastFehler(status: number): string {
   if (status === 404) return 'abgelaufen';
   if (status === 403) return 'entfernt';
   if (status === 409) return 'voll';
+  if (status === 425) return 'zufrueh';
   if (status === 429) return 'zuviel';
   return 'fehler';
 }
