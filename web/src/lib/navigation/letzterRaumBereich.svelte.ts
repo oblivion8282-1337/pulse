@@ -38,3 +38,16 @@ export function merkeRaumPfad(pfad: string): void {
 export function letzterRaumPfad(): string | null {
   return letzterPfad;
 }
+
+/** Nach dem Auflegen in einer Community: zeigt der gemerkte Pfad noch auf
+ *  einen KANAL dieser Community (z. B. den Sprachkanal, in dem man war),
+ *  wird er auf die Raum-Übersicht zurückgestuft — der Räume-Tab soll den
+ *  RAUM zeigen, in dem man zuletzt war, nicht den verlassenen Kanal (der
+ *  über seinen Auto-Rejoin sonst sofort wieder beitreten würde). Pfade auf
+ *  andere Communities oder außerhalb bleiben unberührt. */
+export function raumPfadNachAuflegen(guildId: string): void {
+  const treffer = /^\/app\/guilds\/([^/]+)\/channels\//.exec(letzterPfad ?? '');
+  if (treffer && treffer[1] === guildId) {
+    letzterPfad = `/app/rooms/${guildId}`;
+  }
+}

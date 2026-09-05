@@ -139,10 +139,24 @@ public class MainActivity extends BridgeActivity {
         // mit SecurityException starten). Noch nicht erteilt → runtime anfragen
         // und den Start zurückstellen, bis der Grant eintrifft.
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
+                != PackageManager.PERMISSION_GRANTED
+                || ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                        != PackageManager.PERMISSION_GRANTED) {
             micStartPending = true;
             List<String> need = new ArrayList<>();
-            need.add(Manifest.permission.RECORD_AUDIO);
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                    != PackageManager.PERMISSION_GRANTED) {
+                need.add(Manifest.permission.RECORD_AUDIO);
+            }
+            // Kamera gleich mit anfragen: Ein Voice-Call kann sie jederzeit
+            // aktivieren (Kamera-Knopf); eine separate Nachfrage mitten im
+            // Call wäre schlechter Zeitpunkt. Wer sie ablehnt, kann ohne
+            // Kamera weiter telefonieren — die WebView fragt dann nur Mic
+            // durch (Audio-Only-GetUserMedia braucht kein CAMERA-Grant).
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                    != PackageManager.PERMISSION_GRANTED) {
+                need.add(Manifest.permission.CAMERA);
+            }
             if (Build.VERSION.SDK_INT >= 33
                     && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                             != PackageManager.PERMISSION_GRANTED) {

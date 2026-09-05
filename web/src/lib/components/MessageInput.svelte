@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
   import PaperclipIcon from '@lucide/svelte/icons/paperclip';
+  import CameraIcon from '@lucide/svelte/icons/camera';
   import ComposerReplyBanner from './composer/ComposerReplyBanner.svelte';
   import ComposerEmojiButton from './composer/ComposerEmojiButton.svelte';
   import ComposerSendButton from './composer/ComposerSendButton.svelte';
@@ -12,6 +13,7 @@
   import { dateienAusEinfuegen } from '$lib/attachments/eingefuegteDateien';
   import type { AnhangAngabe } from '$lib/krypto/nachrichtNutzlast';
   import { guilds } from '$lib/stores/guilds.svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import { lookupComposer } from '$lib/shortcuts/engine.svelte';
   import { applyComposerAction } from '$lib/shortcuts/composerActions';
   import { isElectron } from '$lib/platform/runtime';
@@ -93,6 +95,7 @@
   });
   let textarea: HTMLTextAreaElement | undefined = $state();
   let fileInput: HTMLInputElement | undefined = $state();
+  let cameraInput: HTMLInputElement | undefined = $state();
 
   // Anhang-Zeilen samt Upload-Buchfuehrung — inklusive der Weiche zwischen
   // Klartext- und verschluesseltem Weg (`verfasserZeilen.svelte.ts`).
@@ -304,6 +307,31 @@
         class="sr-only"
         data-testid="attachment-file-input"
       />
+      <!-- Kamera-Aufnahme (mobil): `capture` öffnet auf Android/iOS direkt die
+           Kamera-App statt des Datei-Pickers; das geschossene Foto läuft durch
+           dieselbe Upload-Pipeline wie ein gewähltes. Nur auf dem Handy — am
+           Rechner wäre der Knopf nur ein zweiter Datei-Dialog. -->
+      {#if viewport.istHandy}
+        <input
+          type="file"
+          accept="image/*"
+          capture="environment"
+          bind:this={cameraInput}
+          onchange={onFilePick}
+          class="sr-only"
+          data-testid="attachment-camera-input"
+        />
+        <Button
+          variant="ghost"
+          size="icon"
+          class="size-10 md:size-9"
+          aria-label={m.message_input_take_photo()}
+          onclick={() => cameraInput?.click()}
+          data-testid="attachment-camera-button"
+        >
+          <CameraIcon class="size-5" />
+        </Button>
+      {/if}
       <Button
         variant="ghost"
         size="icon"

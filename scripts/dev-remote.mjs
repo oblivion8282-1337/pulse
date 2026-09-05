@@ -140,7 +140,15 @@ function printHelp() {
 
 function tailRemoteLogs() {
   console.log(`→ Logs von ${DEV_HOST}:${DEV_DIR}`);
-  run('ssh', [DEV_HOST, `cd '${DEV_DIR}' && docker compose logs -f --tail=50 ${SERVICES}`]);
+  // Unter Windows läuft das Kind über cmd.exe (shell:true in run()): ein
+  // unquotetes `&&` im Remote-Befehl wäre DEREN Operator und zerreißt die
+  // Zeile, bevor ssh sie zu sehen bekommt. Der Remote-Befehl enthält selbst
+  // keine Doppelten Anführungszeichen, kann also als ein Argument gewrappt
+  // werden. Der Server-Wrapper (pulse-dev-inner.sh) wiederum matcht die
+  // Befehlszeichenkette exakt — die inneren einfachen Quotes um DEV_DIR
+  // müssen also stehen bleiben.
+  const remote = `cd '${DEV_DIR}' && docker compose logs -f --tail=50 ${SERVICES}`;
+  run('ssh', WIN ? [DEV_HOST, `"${remote}"`] : [DEV_HOST, remote]);
 }
 
 /**

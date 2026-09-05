@@ -295,17 +295,17 @@ public class SpeakerphoneRouter {
 
     public String routeName() {
         switch (route) {
-            case ROUTE_SPEAKER: return "speaker";
-            case ROUTE_EARPIECE: return "earpiece";
+            case ROUTE_SPEAKER:
+            case ROUTE_EARPIECE: return "speaker"; // Legacy: Hörmuschel entfernt
             default: return "auto";
         }
     }
 
     private int targetDeviceType() {
-        // AUTO + SPEAKER → Lautsprecher; nur EARPIECE → Hörmuschel.
-        return route == ROUTE_EARPIECE
-                ? AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
-                : AudioDeviceInfo.TYPE_BUILTIN_SPEAKER;
+        // Immer Lautsprecher — der Hörmuschel-Modus ist entfernt (2026-08-25):
+        // Voice läuft wie „Anruf auf Lautsprecher". ROUTE_EARPIECE existiert nur
+        // noch als Legacy-Konstante und wird wie SPEAKER behandelt.
+        return AudioDeviceInfo.TYPE_BUILTIN_SPEAKER;
     }
 
     /**
@@ -349,9 +349,9 @@ public class SpeakerphoneRouter {
         }
     }
 
-    /** Wählt das Ziel-Gerät für API 31+: Override → speaker/earpiece; AUTO+BT →
-     *  das verbundene BT-SCO-Gerät; AUTO sonst → speaker/earpiece. {@code null},
-     *  wenn (AUTO + BT gemeldet, aber SCO-Gerät noch nicht als comm-Gerät verfügbar). */
+    /** Wählt das Ziel-Gerät für API 31+: immer Lautsprecher (Hörmuschel entfernt);
+     *  AUTO+BT → das verbundene BT-SCO-Gerät. {@code null}, wenn (AUTO + BT
+     *  gemeldet, aber SCO-Gerät noch nicht als comm-Gerät verfügbar). */
     private AudioDeviceInfo pickTargetDevice() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null;
         int type = targetDeviceType();
@@ -363,7 +363,7 @@ public class SpeakerphoneRouter {
             // nicht anrühren (race beim BT-Verbinden).
             return null;
         }
-        // Explizite speaker/earpiece-Wahl oder AUTO ohne BT.
+        // Explizite Lautsprecher-Wahl oder AUTO ohne BT.
         return findDeviceByType(type);
     }
 

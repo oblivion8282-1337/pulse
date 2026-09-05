@@ -51,7 +51,8 @@
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { orientierungSperren } from '$lib/platform/orientation';
   import { registriereZurueckTaste } from '$lib/platform/zurueckTaste';
-  import { istRaumBereich, merkeRaumPfad } from '$lib/navigation/letzterRaumBereich.svelte';
+  import { istRaumBereich, merkeRaumPfad, raumPfadNachAuflegen } from '$lib/navigation/letzterRaumBereich.svelte';
+  import { untrack } from 'svelte';
   import { page } from '$app/state';
   import UpdateBanner from '$lib/components/server/UpdateBanner.svelte';
   import SelfHostDisclaimer from '$lib/components/server/SelfHostDisclaimer.svelte';
@@ -382,6 +383,24 @@
   $effect(() => {
     const pfad = page.url.pathname;
     if (istRaumBereich(pfad)) merkeRaumPfad(pfad);
+  });
+
+  // Auflegen außerhalb der Kanal-Seite (z. B. vom Ich-Tab): ohne diese
+  // Rückstufung bliebe der gemerkte Räume-Pfad auf dem SPRACHKANAL stehen,
+  // und der Räume-Tab würde dorthin werfen — wo der Auto-Rejoin sofort
+  // wieder beitreten würde. Nach dem Verbinden→Getrennt-Übergang zeigt der
+  // Tab daher auf die Raum-Übersicht der Community, in der man war.
+  let voiceWarVerbunden = $state(false);
+  let letzteVoiceGuildId = $state('');
+  $effect(() => {
+    if (voice.connected && voice.channelId) {
+      letzteVoiceGuildId = guilds.guildIdForChannel(voice.channelId) ?? '';
+    }
+    const verbunden = voice.connected;
+    if (voiceWarVerbunden && !verbunden && !voice.connecting && letzteVoiceGuildId) {
+      untrack(() => raumPfadNachAuflegen(letzteVoiceGuildId));
+    }
+    voiceWarVerbunden = verbunden;
   });
 
   // Android-Hülle: Querformat nur mit ANGEDOCKTEM Stream. Ein Stream im

@@ -11,8 +11,6 @@
   import VideoIcon from '@lucide/svelte/icons/video';
   import VideoOffIcon from '@lucide/svelte/icons/video-off';
   import SwitchCameraIcon from '@lucide/svelte/icons/switch-camera';
-  import Volume2Icon from '@lucide/svelte/icons/volume-2';
-  import EarIcon from '@lucide/svelte/icons/ear';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
@@ -25,8 +23,6 @@
   import WatchPartyStartButton from './WatchPartyStartButton.svelte';
   import StreamStatusBar from '$lib/stream/components/StreamStatusBar.svelte';
   import { onMount } from 'svelte';
-  import { isCapacitorAndroid } from '$lib/platform/runtime';
-  import { setAudioRoute, getAudioRoute } from '$lib/platform/audioRoute';
 
   // Camera-toggle gate: same shape as the HQ-stream button. Hide when
   // the channel's resolved permissions lack USE_VIDEO. Falls back to
@@ -81,22 +77,10 @@
     selfContext ? voicePresence.isForceDeafened(selfContext.cid, selfContext.uid) : false
   );
 
-  // Manueller Lautsprecher/Hörmuschel-Umschalter — nur in der Android-App
-  // (ruft das native AudioRoute-Plugin). Im Browser/Electron unsichtbar/No-op.
-  // Default = Lautsprecher (= nativer Auto-Modus); Tippen erzwingt Hörmuschel
-  // bzw. zurück. Onmount mit dem nativen Stand synchronisieren.
-  const showAudioRouteToggle = isCapacitorAndroid();
-  let speakerOn = $state(true);
-  onMount(() => {
-    if (!showAudioRouteToggle) return;
-    void getAudioRoute().then((r) => {
-      speakerOn = r !== 'earpiece';
-    });
-  });
-  function toggleAudioRoute(): void {
-    speakerOn = !speakerOn;
-    void setAudioRoute(speakerOn ? 'speaker' : 'earpiece');
-  }
+  // Manueller Lautsprecher/Hörmuschel-Umschalter ENTFERNT (2026-08-25): der
+  // native Router routet Voice immer auf den Lautsprecher („Anruf auf
+  // Lautsprecher"), ein Hörmuschel-Weg existiert nicht mehr — der Knopf hätte
+  // also nichts mehr umgeschaltet.
 
   // `rounded-full` ausdrücklich: Anruf-Steuerungen sind rund, das ist die
   // Konvention aus jeder Telefon-Oberfläche und keine Abweichung vom Baukasten.
@@ -212,33 +196,6 @@
           {/if}
         </Tooltip.Content>
       </Tooltip.Root>
-
-      <!-- Lautsprecher/Hörmuschel-Umschalter — nur in der Android-App (nativer
-           AudioRoute-Toggle). Behebt den earpiece-Default im Kommunikationsmodus. -->
-      {#if showAudioRouteToggle && !viewport.isMobile}
-        <Tooltip.Root>
-          <Tooltip.Trigger>
-            {#snippet child({ props })}
-              <Button
-                {...props}
-                variant={speakerOn ? 'default' : 'ghost'}
-                size="icon-sm"
-                class={btnCls}
-                onclick={toggleAudioRoute}
-                data-testid="voice-audio-route-toggle"
-                aria-label={speakerOn
-                  ? m.voice_bar_route_to_earpiece()
-                  : m.voice_bar_route_to_speaker()}
-              >
-                {#if speakerOn}<Volume2Icon class={iconCls} />{:else}<EarIcon class={iconCls} />{/if}
-              </Button>
-            {/snippet}
-          </Tooltip.Trigger>
-          <Tooltip.Content>
-            {speakerOn ? m.voice_bar_route_speaker_hint() : m.voice_bar_route_earpiece_hint()}
-          </Tooltip.Content>
-        </Tooltip.Root>
-      {/if}
 
       <!-- Watch-Party auf Mobil ausgeblendet — Desktop-Feature (s. Phase 6). -->
       {#if voice.channelId && !viewport.isMobile}
