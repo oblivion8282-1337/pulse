@@ -36,6 +36,7 @@ from sqlalchemy import select
 from dcc_shared import gaeste as _geteilt
 
 from dcc_chat_gateway import gaeste
+from dcc_chat_gateway.client_ip import client_ip
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import Channel, GuestLink, Guild
@@ -75,21 +76,29 @@ class BeitrittOut(BaseModel):
 
 
 def _absender_ip(request: Request) -> str | None:
-    """Die IP des Aufrufers, wie sie hinter dem Proxy ankommt.
+    """Die IP des Aufrufers — nur aus vertrauenswürdigen Quellen.
 
-    ``X-Forwarded-For`` kann der Aufrufer selbst setzen — als
-    Sicherheitsmerkmal wäre der Wert wertlos. Für eine Bremse taugt er
-    trotzdem: wer ihn fälscht, umgeht die IP-Zählung und läuft in die
-    Code-Zählung, die daneben steht und nicht fälschbar ist.
+    Ein blindes ``X-Forwarded-For`` wäre frei wählbar: mit rotierenden
+    Fake-IPs umginge ein Angreifer genau die IP-Bremse, die gegen das
+    Streuen vieler Codes gebaut ist, und bliebe nur dem je-Code-Zähler
+    unterworfen. Deshalb derselbe Pfad wie überall im Dienst
+    (``client_ip``): XFF nur von ``trusted_proxies``, sonst die
+    Socket-Adresse.
     """
-    fwd = request.headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",")[0].strip()[:64]
-    return request.client.host if request.client else None
+    return client_ip(request)
 
 
 async def _link_holen(session, code: str, redis, request: Request, aktion: str):
     """Den lebenden Link zu einem Code — oder 404 für jede Art von „nein"."""
+    # Gesperrte/gelöschte Instanz (Self-Host, Cloud-Sperrliste): Gäste kommen
+    # nicht mehr NEU herein — der Suspension-Stopp greift sonst nur an
+    # WebSocket-Handshake und Token-Erneuerung, und ein Gast hat beides nicht.
+    # Uniform-404 wie die übrigen „nein"-Fälle; fail-open steckt im
+    # read_state selbst (Redis-Ausfall).
+    from dcc_chat_gateway.suspend_poller import read_state as _read_suspend  # noqa: PLC0415
+
+    if await _read_suspend(redis):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="link not found")
     code_h = gaeste.code_hash(code)
     await gaeste.bremse_pruefen(
         redis, ip=_absender_ip(request), code_h=code_h, aktion=aktion
@@ -103,6 +112,13 @@ async def _link_holen(session, code: str, redis, request: Request, aktion: str):
         or als_utc(link.expires_at) <= datetime.now(UTC)
     ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="link not found")
+    if link.valid_from is not None and als_utc(link.valid_from) > datetime.now(UTC):
+        # Noch nicht begonnen. Bewusst NICHT das Uniform-404 der übrigen
+        # „nein"-Fälle: ein 404 würde dem Code-Halter die falsche Auskunft
+        # geben, der Link sei vorbei. Die Unterscheidung ist gefahrlos — nur
+        # wer den Code HÄLT, kommt überhaupt bis hierher (128 bit, nicht
+        # ratbar), es leakt also nichts an Unberechtigte.
+        raise HTTPException(status.HTTP_425_TOO_EARLY, detail="link not valid yet")
     return link
 
 
@@ -155,7 +171,10 @@ async def gast_info(
     return GastInfoOut(
         guild_name=guild_name,
         channel_name=channel_name,
-        expires_at=link.expires_at.isoformat(),
+        # ``als_utc`` wie in guest_links._out — ohne es ist das ISO-Format je
+        # nach DB mal offsetlos, und der Vorraum rechnete eine falsche
+        # Restlaufzeit.
+        expires_at=als_utc(link.expires_at).isoformat(),
     )
 
 
@@ -202,6 +221,19 @@ async def gast_beitritt(
         name=name,
         ttl_s=ttl,
     )
+    # TOCTOU-Schließe: Zwischen ``_link_holen`` und hier kann parallel die
+    # Entwertung gelaufen sein — ihr Räum-Snapshot kennt diesen Gast noch
+    # nicht, er säße sonst mit einem 4-h-Ticket auf einem toten Link.
+    # WICHTIG: ``session.get`` allein wäre ein No-Op — der Link liegt aus
+    # ``_link_holen`` in der Identity-Map der Session, ``get`` würde den
+    # alten Zustand zurückgeben, ohne die DB zu fragen. ``refresh`` erzwingt
+    # den echten Datenbank-Lesevorgang.
+    try:
+        await session.refresh(link)
+    except Exception:  # noqa: BLE001 — Zeile zwischendurch gelöscht
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="link not found")
+    if link.revoked_at is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="link not found")
     await gaeste.gast_eintragen(
         redis,
         gast_id=gast_id,
@@ -237,20 +269,85 @@ async def _gast_pruefen(gast: CurrentGast, request: Request, channel_id: str) ->
 async def gast_stream_state(
     gast: CurrentGast,
     request: Request,
-) -> dict[str, list[dict[str, object]]]:
-    """Wer überträgt gerade in DEM Kanal des Tickets.
+    session: SessionDep,
+) -> dict[str, object]:
+    """Wer überträgt gerade in DEM Kanal des Tickets — und wer sitzt darin.
 
     ponytail: Abfrage statt Zustellung. Decke: der Gast erfährt Anfang und Ende
     einer Übertragung um die Abfragefrist verzögert (Klient: 5 s), und jeder
     Gast kostet eine Anfrage alle 5 s. Aufstieg: ein schlanker Gast-WebSocket
     — er kostet aber einen zweiten Zugangsweg mit eigener Rechteprüfung, und
     dafür ist die Verzögerung hier zu billig.
+
+    Die ``teilnehmer``-Map trägt Profil-Namen und Avatar-URLs der Mitglieder
+    im Kanal mit. Der Gast hat keine kontobasierte Quelle dafür (``/users``
+    braucht eine Sitzung) — das LiveKit-Token trägt nur den Nutzernamen, und
+    ein Avatar-Bild wäre sonst gar nicht auffindbar. Öffentliche URLs, aber
+    das AUFINDEN ist der privileged Teil, und der ist kanalgebunden.
     """
     await _gast_pruefen(gast, request, gast.channel_id)
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is None:
-        return {"stream_states": []}
-    return {"stream_states": await mgr.stream_states_for([gast.channel_id])}
+        return {"stream_states": [], "teilnehmer": {}}
+    return {
+        "stream_states": await mgr.stream_states_for([gast.channel_id]),
+        "teilnehmer": await _mitglieder_profile(session, request, gast.channel_id),
+    }
+
+
+async def _mitglieder_profile(
+    session: SessionDep, request: Request, channel_id: str
+) -> dict[str, dict[str, str | None]]:
+    """Profil-Stückchen (Name, Avatar) der Mitglieder im Ticket-Kanal.
+
+    Dieselbe Quelle wie ``/users`` (CachedUserProfile); die Kanal-Mitgliedschaft
+    kommt aus der LiveKit-Präsenz in Redis — Gäste in dem Set fliegen raus, sie
+    haben kein Profil. Fehlt ein Eintrag (Profil nie synchronisiert), steht der
+    Nutzer nicht in der Map: der Klient fällt auf den LiveKit-Namen und die
+    Initiale zurück, wie vor diesem Feld.
+
+    Die Avatar-URL läuft bewusst RELATIV (``/api/auth/avatars/by-hash/…``):
+    der Gast löst sie gegen die Herkunft seiner Seite auf — und genau dort
+    wird ``/api/auth`` eh proxyt. Absolut mit Cloud-Ursprung würde dagegen in
+    der Entwicklung (Bild liegt lokal) und auf dem Self-Host ins Leere laufen.
+    """
+    from dcc_chat_gateway.models import CachedUserProfile  # noqa: PLC0415
+    from dcc_chat_gateway.routes.users import cloud_avatar_url  # noqa: PLC0415
+
+    redis = getattr(request.app.state, "redis", None)
+    if redis is None:
+        return {}
+    raw = await redis.smembers(f"voice:room:channel-{channel_id}")
+    kennungen = {
+        m.decode() if isinstance(m, bytes) else m
+        for m in (raw or set())
+        if not _geteilt.ist_gast(m.decode() if isinstance(m, bytes) else m)
+    }
+    if not kennungen:
+        return {}
+    ids = {int(k) for k in kennungen if k.isdigit()}
+    if not ids:
+        return {}
+
+    cloud_origin = get_settings().pulse_cloud_origin.rstrip("/")
+
+    def _relativ(url: str | None) -> str | None:
+        if url is None:
+            return None
+        return url.removeprefix(cloud_origin) or "/"
+
+    rows = (
+        (await session.execute(select(CachedUserProfile).where(CachedUserProfile.synthetic_user_id.in_(ids))))
+        .scalars()
+        .all()
+    )
+    return {
+        str(p.synthetic_user_id): {
+            "name": p.display_name or p.username,
+            "avatar_url": _relativ(cloud_avatar_url(p.avatar_hash)),
+        }
+        for p in rows
+    }
 
 
 @router.get("/gast/sitzung/whep")

@@ -198,3 +198,38 @@ async def moderation_dm_endpoint(
         to_user_id=payload.to_user_id,
         content=payload.content,
     )
+
+
+class GastLinkRevokeIn(BaseModel):
+    """Body for the guest-link revoke call from voice-signaling.
+
+    „Gast entfernen + Link entwerten": voice-signaling hat den Gast bereits
+    gesperrt und rausgeworfen und kennt dessen ``link_id`` aus dem Redis-Gast-
+    Hash; die Link-Zeile (und damit die Entwertung aller Gäste des Links)
+    lebt in der chat-gateway-DB."""
+
+    link_id: int
+
+
+@router.post(
+    "/internal/guest-links/revoke", status_code=status.HTTP_204_NO_CONTENT
+)
+async def revoke_gast_link_internal(
+    payload: GastLinkRevokeIn,
+    request: Request,
+    session: SessionDep,
+    x_pulse_internal_secret: Annotated[str | None, Header()] = None,
+) -> None:
+    """Gast-Link ohne Nutzerkontext entwerten („Gast entfernen“-Option)."""
+    from dcc_chat_gateway.models import GuestLink  # noqa: PLC0415
+    from dcc_chat_gateway.routes.guest_links import entwerte_link  # noqa: PLC0415
+
+    _check_internal_secret(request, x_pulse_internal_secret)
+    link = await session.get(GuestLink, payload.link_id)
+    if link is None:
+        # Der Link kann inzwischen abgelaufen und aus der Liste gefallen,
+        # die Zeile aber noch da sein — oder längst weg. Beides in Ordnung:
+        # entwertet ist entwertet.
+        return
+    await entwerte_link(session, request, link)
+    await session.commit()  # entwerte_link committet bewusst nicht selbst

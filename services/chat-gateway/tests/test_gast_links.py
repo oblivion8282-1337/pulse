@@ -189,7 +189,7 @@ async def test_ticket_ist_an_seinen_kanal_gebunden(client, _auth_signer):
 
     stand = await client.get("/gast/sitzung/stream-state", headers=_auth(ticket))
     assert stand.status_code == 200
-    assert stand.json() == {"stream_states": []}
+    assert stand.json() == {"stream_states": [], "teilnehmer": {}}
 
 
 @pytest.mark.asyncio
@@ -302,12 +302,15 @@ async def test_link_erzeugen_ist_gebremst(client, _auth_signer):
     gid = await _guild(client, token)
     cid = await _voice_channel(client, token, gid)
     codes = set()
-    for _ in range(20):
+    # Die Bremse zählt seit 2026-09 in REDIS je Nutzer (10/Minute) — ein
+    # Prozess-Zähler wäre hinter mehreren Instanzen ein Limit je Instanz
+    # gewesen, dasselbe Argument wie bei den anonymen Gast-Routen.
+    for _ in range(10):
         r = await client.post(f"/channels/{cid}/guest-links", json={}, headers=_auth(token))
         assert r.status_code == 200, r.text
         codes.add(r.json()["code"])
-    # 20 verschiedene Codes — der Zufall wiederholt sich nicht.
-    assert len(codes) == 20
+    # 10 verschiedene Codes — der Zufall wiederholt sich nicht.
+    assert len(codes) == 10
     zuviel = await client.post(f"/channels/{cid}/guest-links", json={}, headers=_auth(token))
     assert zuviel.status_code == 429
 
@@ -359,3 +362,132 @@ async def test_gast_whep_ohne_bearer_praefix_ist_kein_token(client, _auth_signer
         headers={"Authorization": bei.json()["ticket"]},  # ohne "Bearer "
     )
     assert antwort.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_stream_state_traegt_mitglieder_profile(client, _auth_signer, app, session_factory):
+    """Der Gast bekommt Name + Avatar-URL der Mitglieder im Kanal.
+
+    Ohne diese Map könnte der Gast keine Profilbilder zeigen: ``/users``
+    braucht eine Sitzung, und das LiveKit-Token trägt nur den Nutzernamen.
+    Gäste im Präsenz-Set fliegen raus — sie haben kein Profil, und die Map
+    würde sonst eine Kennung behaupten, hinter der nichts liegt.
+    """
+    from dcc_chat_gateway.models import CachedUserProfile
+
+    token, uid = _owner(_auth_signer)
+    gid = await _guild(client, token)
+    cid = await _voice_channel(client, token, gid)
+    r = await client.post(f"/channels/{cid}/guest-links", json={}, headers=_auth(token))
+    bei = await client.post(f"/gast/{r.json()['code']}/beitritt", json={"name": "G"})
+    ticket = bei.json()["ticket"]
+
+    # Der Eigentümer "sitzt" im Sprachkanal (Präsenz-Set) und hat ein Profil.
+    async with session_factory() as session:
+        session.add(
+            CachedUserProfile(
+                synthetic_user_id=int(uid),
+                user_identifier=f"test-{uid}",
+                username="dev",
+                display_name="Dev Anzeige",
+                avatar_hash="abc123",
+                last_statement_iat=datetime.now(UTC),
+                stale=False,
+            )
+        )
+        await session.commit()
+    await app.state.redis.sadd(f"voice:room:channel-{cid}", uid)
+    # Ein GAST sitzt auch da — er darf in der Map nicht auftauchen.
+    await app.state.redis.sadd(f"voice:room:channel-{cid}", "gast-testx")
+
+    try:
+        stand = await client.get("/gast/sitzung/stream-state", headers=_auth(ticket))
+        assert stand.status_code == 200
+        teilnehmer = stand.json()["teilnehmer"]
+        assert teilnehmer[str(uid)]["name"] == "Dev Anzeige"
+        # Relativ — der Gast löst gegen seine Seiten-Herkunft auf (in der
+        # Entwicklung liegt das Bild lokal, nicht auf der Cloud).
+        assert teilnehmer[str(uid)]["avatar_url"] == "/api/auth/avatars/by-hash/abc123.webp"
+        assert "gast-testx" not in teilnehmer
+    finally:
+        await app.state.redis.delete(f"voice:room:channel-{cid}")
+
+
+@pytest.mark.asyncio
+async def test_zeitfenster_gueltig_ab_zukunft_weist_zu_frueh_ab(client, _auth_signer):
+    """Ein Link mit Zukunfts-Start antwortet 425 — nicht 404.
+
+    404 wäre die gelogene Auskunft („gibt es nicht mehr"); 425 sagt der
+    Wahrheit entsprechend „noch nicht". Die Unterscheidung ist gefahrlos:
+    nur wer den Code hält, erreicht die Prüfung überhaupt (128 bit).
+    """
+    token, _ = _owner(_auth_signer)
+    gid = await _guild(client, token)
+    cid = await _voice_channel(client, token, gid)
+    ab = "2100-01-01T00:00:00+00:00"
+    bis = "2100-01-02T00:00:00+00:00"
+    r = await client.post(
+        f"/channels/{cid}/guest-links",
+        json={"gueltig_ab": ab, "gueltig_bis": bis},
+        headers=_auth(token),
+    )
+    assert r.status_code == 200, r.text
+    daten = r.json()
+    assert daten["valid_from"] == ab
+    code = daten["code"]
+
+    info = await client.get(f"/gast/{code}")
+    assert info.status_code == 425
+    bei = await client.post(f"/gast/{code}/beitritt", json={"name": "X"})
+    assert bei.status_code == 425
+
+
+@pytest.mark.asyncio
+async def test_zeitfenster_bis_vor_ab_wird_abgewiesen(client, _auth_signer):
+    token, _ = _owner(_auth_signer)
+    gid = await _guild(client, token)
+    cid = await _voice_channel(client, token, gid)
+    r = await client.post(
+        f"/channels/{cid}/guest-links",
+        json={
+            "gueltig_ab": "2100-01-02T00:00:00+00:00",
+            "gueltig_bis": "2100-01-01T00:00:00+00:00",
+        },
+        headers=_auth(token),
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_zeitfenster_stunden_ohne_absolute_zeiten_unveraendert(client, _auth_signer):
+    """Der alte Weg (nur ``gueltig_stunden``) bleibt wie er ist: ab sofort,
+    kein ``valid_from``."""
+    token, _ = _owner(_auth_signer)
+    gid = await _guild(client, token)
+    cid = await _voice_channel(client, token, gid)
+    r = await client.post(
+        f"/channels/{cid}/guest-links",
+        json={"gueltig_stunden": 5},
+        headers=_auth(token),
+    )
+    assert r.status_code == 200
+    daten = r.json()
+    assert daten["valid_from"] is None
+    # Ein Bestandslink (Spalte NULL) läuft unverändert: die Migration ist
+    # rein additiv, hier über den Standardwert repräsentiert.
+
+
+@pytest.mark.asyncio
+async def test_zeitfenster_naive_zeitstempel_schlagen_nicht_als_500_durch(client, _auth_signer):
+    """ISO ohne Zonen-Suffix („2030-01-01T00:00:00“) vergleicht sich nicht
+    mit ``datetime.now(UTC)`` — der frühere Zustand war ein unbehandelter
+    TypeError, also ein 500. Jetzt: normalisiert und angenommen."""
+    token, _ = _owner(_auth_signer)
+    gid = await _guild(client, token)
+    cid = await _voice_channel(client, token, gid)
+    r = await client.post(
+        f"/channels/{cid}/guest-links",
+        json={"gueltig_ab": "2030-01-01T00:00:00", "gueltig_bis": "2030-01-02T00:00:00"},
+        headers=_auth(token),
+    )
+    assert r.status_code == 200, r.text

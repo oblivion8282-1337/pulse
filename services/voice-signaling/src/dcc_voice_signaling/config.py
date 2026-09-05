@@ -72,6 +72,10 @@ class Settings(BaseSettings):
     # CHAT_GATEWAY_URL must not hand out voice tokens for arbitrary
     # channels. Dev/tests set the URL and mock ``_chat_gateway_request``.
     chat_gateway_url: str | None = None
+    # media-svc für den WHEP-Session-Kill beim Rauswurf (siehe
+    # voice_disconnect): ohne URL/Secret bleibt der Kill ein No-Op, die
+    # Redis-Sperre fängt den Gast trotzdem.
+    media_svc_url: str | None = None
     chat_gateway_timeout_s: float = 3.0
 
     # Shared secret for service-to-service POSTs from chat-gateway

@@ -21,6 +21,8 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dcc_shared import gaeste as _geteilt
+
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, Channel
 from dcc_chat_gateway.permissions import Permissions, has_permission, resolve_permissions
@@ -154,9 +156,16 @@ async def evict_all_from_voice_channels(
             continue
         for raw in members:
             uid = raw.decode() if isinstance(raw, (bytes, bytearray)) else str(raw)
-            # The evict endpoint validates ^\d+$; skip any non-numeric stray.
-            if uid.isdigit():
+            # Mitglieder stehen numerisch im Set, Gäste mit ``gast-``-Präfix —
+            # der voice-signaling-Endpunkt nimmt beide Formen an. Beide müssen
+            # raus, sonst säßen Gäste in einer Geistersitzung ohne Kanal
+            # weiter (und könnten sich dort sogar neue Tokens holen).
+            if uid.isdigit() or uid.startswith("gast-"):
                 await _post_evict(secret, [cid], uid)
+                if uid.startswith("gast-"):
+                    await kill_gast_whep_sitzungen(
+                        await _geteilt.lese_token_werte(redis, uid)
+                    )
 
 
 async def evict_ineligible_from_voice_channels(
@@ -229,9 +238,54 @@ async def evict_gast(channel_id: int, gast_id: str) -> None:
     an. Best-effort und still, wie der Rest dieses Moduls: der Gast ist durch
     die Redis-Sperre ohnehin ausgeschlossen, der LiveKit-Aufruf beendet nur
     seine laufende Verbindung sofort statt erst beim naechsten Token.
+
+    Der WHEP-Session-Kill gehoert hier NICHT hin: er braucht die Token-Werte
+    VOR ``lese_token_loeschen``, und die sammelt der Aufrufer (z. B.
+    ``entwerte_link``) selbst — hier waeren sie schon weg.
     """
     secret = get_settings().internal_service_secret
     if not secret:
         log.info("voice-evict (gast) skipped: internal_service_secret unset")
         return
     await _post_evict(secret, [channel_id], gast_id)
+
+
+async def kill_gast_whep_sitzungen(token_werte: list[str]) -> None:
+    """Die laufenden WHEP-Zuschau-Sitzungen eines Gastes hart trennen.
+
+    Die Lese-Token sterben in Redis (``lese_token_loeschen``), aber eine
+    bereits etablierte MediaMTX-Session prueft ihr Token nur beim Handshake —
+    sie lief sonst bis zum naechsten Client-Reconnect weiter. Der Aufruf an
+    media-svc (das den MediaMTX-API-Zugang haelt) reisst die Sitzungen sofort
+    ab; die Token-WERTE muessen davor gesammelt werden
+    (``gaeste.lese_token_werte``), nach dem Loeschen ist die Zuordnung weg.
+    Best-effort: scheitert der Aufruf, bleibt der naechste Reconnect als
+    Rueckfallebene — der Gast kommt ohnehin nicht mehr rein.
+    """
+    if not token_werte:
+        return
+    settings = get_settings()
+    secret = settings.internal_service_secret
+    if not secret:
+        log.info("gast-whep-kill skipped: internal_service_secret unset")
+        return
+    try:
+        import httpx  # noqa: PLC0415
+
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.post(
+                settings.media_svc_url.rstrip("/")
+                + "/internal/streams/kill-sessions",
+                json={"tokens": token_werte},
+                headers={"X-Pulse-Internal-Secret": secret},
+            )
+            if resp.status_code >= 400:
+                # ``log.warning`` nimmt keine freien Kwargs — der Kontext
+                # gehoert in die Nachricht, sonst TypeError im Except-Pfad.
+                log.warning(
+                    "gast-whep-kill rejected: status=%s tokens=%s",
+                    resp.status_code,
+                    len(token_werte),
+                )
+    except Exception:  # noqa: BLE001 — best-effort, siehe Docstring
+        log.warning("gast-whep-kill failed", exc_info=True)

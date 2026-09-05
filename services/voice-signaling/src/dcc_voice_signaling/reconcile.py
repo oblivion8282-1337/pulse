@@ -31,14 +31,20 @@ import asyncio
 import json
 
 import structlog
+from livekit.protocol.models import TrackSource
 from redis.asyncio import Redis
+
+from dcc_shared import gaeste as _gaeste
 
 from dcc_voice_signaling.webhook import (
     _is_camera,
+    _is_microphone,
+    _is_unknown_video,
     _is_screen_share,
     _publish_state,
     camera_key,
     channel_id_from_room,
+    gast_stumm_key,
     room_key,
     streaming_key,
     user_id_from_identity,
@@ -49,21 +55,22 @@ log = structlog.get_logger(__name__)
 _KEY_PREFIX = "voice:room:"
 _SCAN_PATTERN = f"{_KEY_PREFIX}channel-*"
 
-# Atomically rewrite the presence, streaming AND camera sets for one room in a
-# single round-trip, so a concurrent ``_publish_state`` can never observe a
-# partially-rewritten snapshot (e.g. the new presence set with the old
+# Atomically rewrite the presence, streaming, camera AND guest-mute sets for
+# one room in a single round-trip, so a concurrent ``_publish_state`` can never
+# observe a partially-rewritten snapshot (e.g. the new presence set with the old
 # streaming set, yielding streaming_user_ids that contain a user absent from
 # user_ids). Each set is replaced wholesale: DEL, then SADD the desired members
 # (decoded from a JSON array argument), then a plain non-NX EXPIRE. An empty
 # target leaves the key deleted — mirroring the webhook's leave-empty +
 # room_finished behaviour, where an absent key reads as "nobody".
 #
-# KEYS[1] = presence set, KEYS[2] = streaming set, KEYS[3] = camera set.
-# ARGV[1..3] = JSON arrays of member strings for KEYS[1..3].
-# ARGV[4] = TTL seconds (applied to whichever keys end up non-empty).
+# KEYS[1] = presence set, KEYS[2] = streaming set, KEYS[3] = camera set,
+# KEYS[4] = guest-mute set.
+# ARGV[1..4] = JSON arrays of member strings for KEYS[1..4].
+# ARGV[5] = TTL seconds (applied to whichever keys end up non-empty).
 _LUA_SET_EXACT_TRIPLE = """
-local ttl = tonumber(ARGV[4])
-for i = 1, 3 do
+local ttl = tonumber(ARGV[5])
+for i = 1, 4 do
     redis.call('DEL', KEYS[i])
     local members = cjson.decode(ARGV[i])
     if #members > 0 then
@@ -84,25 +91,33 @@ async def _set_exact_triple(
     streaming: set[str],
     camera: set[str],
     ttl_seconds: int,
+    gast_stumm_key_: str | None = None,
+    gast_stumm: set[str] | None = None,
 ) -> None:
-    """Rewrite all three per-room sets atomically (single Lua round-trip).
+    """Rewrite all per-room sets atomically (single Lua round-trip).
 
     Plain (non-NX) EXPIRE: reconcile is now the authority, so refreshing the
     TTL every pass is correct — a set only expires if reconcile itself stops
-    running (backstop), not while a channel stays occupied. Doing the three
-    rewrites in one Lua script (vs. three separate transactions) closes the
-    window in which a reader could see a mismatched mix of old/new sets.
+    running (backstop), not while a channel stays occupied. Doing the rewrites
+    in one Lua script (vs. separate transactions) closes the window in which a
+    reader could see a mismatched mix of old/new sets. The guest-mute set is
+    optional: older callers (tests) may pass only the three original sets.
     """
-    await redis.eval(  # type: ignore[arg-type]
-        _LUA_SET_EXACT_TRIPLE,
-        3,
-        presence_key,
-        streaming_key_,
-        camera_key_,
+    keys = [presence_key, streaming_key_, camera_key_]
+    argv = [
         json.dumps(sorted(members), separators=(",", ":")),
         json.dumps(sorted(streaming), separators=(",", ":")),
         json.dumps(sorted(camera), separators=(",", ":")),
-        str(ttl_seconds),
+    ]
+    if gast_stumm_key_ is not None:
+        keys.append(gast_stumm_key_)
+        argv.append(json.dumps(sorted(gast_stumm or set()), separators=(",", ":")))
+    argv.append(str(ttl_seconds))
+    await redis.eval(  # type: ignore[arg-type]
+        _LUA_SET_EXACT_TRIPLE,
+        len(keys),
+        *keys,
+        *argv,
     )
 
 
@@ -121,18 +136,53 @@ async def _reconcile_room(
     members: set[str] = set()
     streaming: set[str] = set()
     camera: set[str] = set()
+    # Stumme Gäste. LiveKit sendet KEINE track_muted-Webhooks — der Mute-Zustand
+    # eines Gastes existiert für den Server nur in dieser Abfrage. Mitglieder
+    # melden ihren Zustand selbst und tauchen hier bewusst nicht auf.
+    gast_stumm: set[str] = set()
+    # Gesperrte Gäste, die mit ihrem noch gültigen LiveKit-JWT neu gejoint
+    # sind: LiveKit hat keine Sperrliste, also wirft sie der Sweep hier raus
+    # (Audit 2026-09 — vorher galt der Rauswurf nur für NEUE Tokens).
+    rauszuwerfen: list[str] = []
     for p in parts.participants:
         uid = user_id_from_identity(p.identity)
         if uid is None:
             continue
+        is_gast = _gaeste.ist_gast(uid)
+        if is_gast and await _gaeste.ist_gesperrt(redis, uid):
+            rauszuwerfen.append(p.identity)
+            continue
         members.add(uid)
+        mikro_da = False
         for track in p.tracks:
-            # Screen-share check first — it owns the UNKNOWN-source video
-            # fallback (same precedence as the webhook handler).
-            if _is_screen_share(track):
+            # Für Gäste entfällt der UNKNOWN→Screen-Share-Fallback: sie
+            # dürfen gar nicht teilen; ein UNKNOWN-Video von ihnen ist eine
+            # Kamera (Drittclient). Deshalb die Gast-Prüfung VOR dem
+            # Screen-Share-Fallback.
+            if is_gast and _is_unknown_video(track):
+                camera.add(uid)
+            elif _is_screen_share(track):
                 streaming.add(uid)
             elif _is_camera(track):
                 camera.add(uid)
+            elif is_gast and _is_microphone(track):
+                mikro_da = True
+                if track.muted:
+                    gast_stumm.add(uid)
+        if is_gast and not mikro_da:
+            # Kein publiziertes Mikrofon (Drittclient, Publish-Fehler): ohne
+            # diese Regel würde der stumme Gast als „laut" geführt.
+            gast_stumm.add(uid)
+
+    for identity in rauszuwerfen:
+        try:
+            await lk_api.room.remove_participant(
+                lk.RoomParticipantIdentity(room=room_name, identity=identity)
+            )
+        except Exception:  # noqa: BLE001 — der Sitzungs-TTL-Rückfall greift
+            log.warning(
+                "reconcile_gast_removal_failed", identity=identity, room=room_name
+            )
     await _set_exact_triple(
         redis,
         room_key(room_name),
@@ -142,6 +192,8 @@ async def _reconcile_room(
         streaming,
         camera,
         ttl_seconds,
+        gast_stumm_key_=gast_stumm_key(room_name),
+        gast_stumm=gast_stumm,
     )
     await _publish_state(redis, room_name, cid)
 
@@ -150,7 +202,10 @@ async def _clear_ghost_room(redis: Redis, room_name: str, cid: str) -> None:
     """Delete one ghost room's sets and publish the empty snapshot so clients
     clear it. Each room is independent → safe to run concurrently."""
     await redis.delete(
-        room_key(room_name), streaming_key(room_name), camera_key(room_name)
+        room_key(room_name),
+        streaming_key(room_name),
+        camera_key(room_name),
+        gast_stumm_key(room_name),
     )
     await _publish_state(redis, room_name, cid)  # publishes empty → clients clear
 
@@ -183,8 +238,12 @@ async def reconcile_once(redis: Redis, lk_api, *, ttl_seconds: int) -> dict[str,
     ghosts: list[tuple[str, str]] = []
     async for raw in redis.scan_iter(match=_SCAN_PATTERN):
         key = raw.decode() if isinstance(raw, (bytes, bytearray)) else raw
-        suffix = key[len(_KEY_PREFIX) :]  # channel-<id>[:streaming|:camera]
-        if suffix.endswith(":streaming") or suffix.endswith(":camera"):
+        suffix = key[len(_KEY_PREFIX) :]  # channel-<id>[:streaming|:camera|:gast-stumm]
+        if (
+            suffix.endswith(":streaming")
+            or suffix.endswith(":camera")
+            or suffix.endswith(":gast-stumm")
+        ):
             continue  # base presence key drives the cleanup; siblings go with it
         room_name = suffix
         if room_name in active:

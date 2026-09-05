@@ -76,6 +76,10 @@ VOICE_EVENTS_CHANNEL = "voice:events"
 VOICE_ROOM_KEY = "voice:room:{room}"
 VOICE_STREAMING_KEY = "voice:room:{room}:streaming"
 VOICE_CAMERA_KEY = "voice:room:{room}:camera"
+# Gäste mit stummem Mikrofon (Präsenz-Kennungen). Mitglieder melden ihren
+# Zustand selbst über ihre Gateway-Sitzung; Gäste haben keine — ihr Zustand
+# wird aus den ``track_muted``/``track_unmuted``-Webhooks abgelesen.
+VOICE_GAST_STUMM_KEY = "voice:room:{room}:gast-stumm"
 _ROOM_PREFIX = "channel-"
 _IDENTITY_PREFIX = "user-"
 # Gäste (Besprechungslink, kein Konto). Kanonisch in ``dcc_shared.gaeste``.
@@ -85,6 +89,9 @@ _GAST_IDENTITY_PREFIX = _gaeste.GAST_IDENTITY_PREFIX
 _SCREEN_SHARE_SOURCES = frozenset({int(TrackSource.SCREEN_SHARE), int(TrackSource.SCREEN_SHARE_AUDIO)})
 # Int value for the camera source (Protobuf enum).
 _CAMERA_SOURCE = int(TrackSource.CAMERA)
+# Int value for the microphone source. Guests' mute state is read off THIS
+# track (reconcile poll — LiveKit sends no mute webhooks).
+_MICROPHONE_SOURCE = int(TrackSource.MICROPHONE)
 
 
 def _as_str(m: bytes | str) -> str:
@@ -106,6 +113,36 @@ def _is_camera(track) -> bool:  # noqa: ANN001
     except (TypeError, ValueError):
         pass
     return False
+
+
+def _is_microphone(track) -> bool:  # noqa: ANN001
+    """Return True if this TrackInfo is the participant's microphone.
+
+    Unlike screen-share there is no name/type fallback: only the explicit
+    MICROPHONE source counts, because this flag drives the mute badge —
+    a false positive would show "muted" for someone speaking.
+    """
+    try:
+        return int(track.source) == _MICROPHONE_SOURCE
+    except (TypeError, ValueError):
+        return False
+
+
+def _is_unknown_video(track) -> bool:  # noqa: ANN001
+    """Ein VIDEO-Track mit UNKNOWN-Quelle.
+
+    Der Screen-Share-Fallback (``_is_screen_share``) sortet genau diese
+    Tracks als Bildschirmfreigabe — richtig für Mitglieder, falsch für
+    Gäste: die dürfen gar nicht teilen, ein UNKNOWN-Video von ihnen ist
+    eine Kamera eines Drittklients.
+    """
+    try:
+        return (
+            int(track.source) == 0
+            and int(track.type) == int(TrackType.VIDEO)
+        )
+    except (TypeError, ValueError):
+        return False
 
 
 def _is_screen_share(track) -> bool:  # noqa: ANN001
@@ -162,6 +199,10 @@ def streaming_key(room_name: str) -> str:
 
 def camera_key(room_name: str) -> str:
     return VOICE_CAMERA_KEY.format(room=room_name)
+
+
+def gast_stumm_key(room_name: str) -> str:
+    return VOICE_GAST_STUMM_KEY.format(room=room_name)
 
 
 def channel_id_from_room(room_name: str) -> str | None:
@@ -225,7 +266,8 @@ async def _publish_state(redis: Redis, room_name: str, channel_id: str) -> None:
     pipe.smembers(room_key(room_name))
     pipe.smembers(streaming_key(room_name))
     pipe.smembers(camera_key(room_name))
-    members_raw, streamers_raw, camera_raw = await pipe.execute()
+    pipe.smembers(gast_stumm_key(room_name))
+    members_raw, streamers_raw, camera_raw, gast_stumm_raw = await pipe.execute()
     user_ids = sorted(_as_str(m) for m in members_raw)
     streaming_user_ids = sorted(_as_str(m) for m in streamers_raw)
     camera_user_ids = sorted(_as_str(m) for m in camera_raw)
@@ -244,6 +286,11 @@ async def _publish_state(redis: Redis, room_name: str, channel_id: str) -> None:
         streaming_user_ids=streaming_user_ids,
         camera_user_ids=camera_user_ids,
         gast_namen=gast_namen,
+        # Nur Gäste, die auch wirklich im Raum sind — ein verwaister Eintrag
+        # (participants_left ging verloren) würde sonst mitreisen.
+        gast_stumm=sorted(
+            _as_str(m) for m in gast_stumm_raw if _as_str(m) in set(user_ids)
+        ),
     )
     await redis.publish(
         VOICE_EVENTS_CHANNEL,
@@ -272,11 +319,21 @@ async def _apply_leave(redis: Redis, room_name: str, user_id: str) -> None:
     # inconsistent snapshot (streaming_/camera_user_ids containing a user absent
     # from user_ids).
     await redis.eval(_LUA_LEAVE, 3, key, sk, ck, user_id)  # type: ignore[arg-type]
+    # Ein stummer Gast, der den Raum verlässt, soll sein Stumm-Zeichen nicht
+    # mitnehmen: beim Wiedereintritt gilt er als nicht stumm, bis er selbst
+    # wieder mutet. (_publish_state filtert zusätzlich, aber aufräumen ist
+    # ehrlicher als filtern.)
+    await redis.eval(
+        _LUA_SREM_DEL_IF_EMPTY, 1, gast_stumm_key(room_name), user_id
+    )  # type: ignore[arg-type]
 
 
 async def _apply_room_finished(redis: Redis, room_name: str) -> None:
     await redis.delete(
-        room_key(room_name), streaming_key(room_name), camera_key(room_name)
+        room_key(room_name),
+        streaming_key(room_name),
+        camera_key(room_name),
+        gast_stumm_key(room_name),
     )
 
 
@@ -332,6 +389,17 @@ async def livekit_webhook(request: Request) -> None:
     )
     if not auth_header:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing signature")
+    settings = get_settings()
+    if not settings.livekit_api_key or not settings.livekit_api_secret:
+        # Fail-closed (Audit 2026-09): eine Signaturprüfung gegen leere
+        # Credentials wäre fälschbar — die Präsenz-Sets wären von Fremden
+        # beschreibbar. Vor der Signaturprüfung, damit der Fall nicht als
+        # 401 („falsche Signatur“) fehlinterpretiert wird.
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="webhook disabled — LIVEKIT_API_KEY/SECRET unset",
+        )
+
     raw_body = await request.body()
     try:
         body = raw_body.decode("utf-8")
@@ -368,6 +436,15 @@ async def livekit_webhook(request: Request) -> None:
         if user_id is None:
             return
         if kind == "participant_joined":
+            # Gesperrter Gast mit noch gültigem LiveKit-JWT joint neu —
+            # LiveKit hat keine Sperrliste, also verweigern wir mindestens
+            # die Präsenz; das LiveKit-Remove übernimmt der Reconcile-Sweep
+            # (Audit 2026-09: „Rauswurf hält bis zum Ticket-Ablauf“ galt
+            # vorher nur für NEUE Tokens).
+            if _gaeste.ist_gast(user_id) and await _gaeste.ist_gesperrt(redis, user_id):
+                log.info("gast_gesperrt_rejoin", user_id=user_id, room=room_name)
+                await _publish_state(redis, room_name, channel_id)
+                return
             await _apply_join(redis, room_name, user_id)
         else:
             await _apply_leave(redis, room_name, user_id)
@@ -415,4 +492,9 @@ async def livekit_webhook(request: Request) -> None:
                 await _apply_camera_stop(redis, room_name, user_id)
             await _publish_state(redis, room_name, channel_id)
             return
-        return
+        # Bewusst KEIN Zweig für track_muted/track_unmuted: LiveKit sendet
+        # diese Ereignisse nicht als Webhooks (nur room_*/participant_*/track_
+        # published/unpublished). Der Stumm-Zustand der Gäste wird stattdessen
+        # im reconcile-Poll aus list_participants abgelesen (``reconcile.py``)
+        # — dort ist er auch für Kanäle sichtbar, in denen man selbst nicht
+        # sitzt. Mitglieder melden ihren Zustand ohnehin selbst.

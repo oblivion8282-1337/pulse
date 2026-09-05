@@ -38,6 +38,10 @@ async def test_gast_bekommt_die_zuschau_url(client, redis, auth_signer):
         json.dumps({"user_id": "42", "started_at": "2026-09-04T00:00:00+00:00", "path": path}),
     )
     read_token = None
+    # Die Tests teilen sich die Dev-Redis: eine überbliebene Rauswurf-Sperre
+    # für das feste gast-77 (z. B. aus dem Sperr-Test weiter unten oder einem
+    # Live-Kick) würde diesen Test sonst ohne eigene Schuld fallen lassen.
+    await redis.delete("gast:gesperrt:gast-77")
     try:
         r = await client.get(
             f"/gast/whep?channel_id={cid}&user_id=42",

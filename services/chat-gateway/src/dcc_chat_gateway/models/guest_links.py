@@ -54,6 +54,13 @@ class GuestLink(Base):
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
+    # Frühester Eintritt. NULL = ab sofort gültig (der historische Modus — alle
+    # Bestandslinks haben NULL und verhalten sich unverändert). Ein Link mit
+    # Zukunfts-Start antwortet auf Beitritt/Info wie ein unbekannter Code (404),
+    # damit die Existenz des Links nicht vorab verraten wird.
+    valid_from: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # Gesetzt = entwertet. Bewusst eine Spalte statt eines Löschens: die Liste
     # soll einen widerrufenen Link noch zeigen können, solange er nicht
     # abgelaufen ist ("den habe ich abgeschaltet" ist eine Antwort, ein

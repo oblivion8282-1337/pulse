@@ -147,3 +147,29 @@ async def lese_token_loeschen(redis: Any, gast_id: str) -> int:
         return int(await redis.delete(*cache_keys, *token_keys))
     except Exception:  # noqa: BLE001 — Redis-Transportfehler
         return 0
+
+
+async def lese_token_werte(redis: Any, gast_id: str) -> list[str]:
+    """Die WHEP-Lese-Token-WERTE eines Gastes lesen (ohne zu löschen).
+
+    Für den Session-Kill: eine bereits etablierte MediaMTX-WHEP-Session prüft
+    ihr Token nur beim Handshake — sie muss aktiv getrennt werden, und der
+    einzige Weg, SITZUNG und Token zusammenzubringen, ist der Token-Wert in
+    der Session-Query. Ruf diesen Helfer VOR ``lese_token_loeschen`` auf;
+    danach sind die Datensätze weg. Best-effort, wie die Geschwister.
+    """
+    if redis is None:
+        return []
+    try:
+        cache_keys = [
+            key
+            async for key in redis.scan_iter(
+                match=read_cache_scan_pattern(gast_id), count=100
+            )
+        ]
+        if not cache_keys:
+            return []
+        werte = await redis.mget(cache_keys)
+        return [w.decode() if isinstance(w, bytes) else w for w in werte if w]
+    except Exception:  # noqa: BLE001 — Redis-Transportfehler
+        return []

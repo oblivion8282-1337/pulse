@@ -82,6 +82,16 @@ async def bremse(redis: Any, schluessel: str, limit: int, fenster_s: int) -> boo
         return True
 
 
+async def erzeugung_bremse(redis: Any, user_id: int) -> bool:
+    """True = erlaubt. Erzeugen von Gast-Links, je NUTZER in Redis gezählt.
+
+    Derselbe Grund, warum die anonymen Routen nicht ``ratelimit.py`` nutzen:
+    ein Prozess-Zähler wäre hinter mehreren Instanzen ein Zähler je Instanz.
+    10 pro Minute ist großzügig — ein Link gilt bis zu 7 Tage.
+    """
+    return await bremse(redis, f"gast:rate:create:{user_id}", 10, 60)
+
+
 async def bremse_pruefen(
     redis: Any, *, ip: str | None, code_h: str, aktion: str
 ) -> None:

@@ -46,6 +46,12 @@ class VoiceStateSnapshot(_EventBase):
     # Quelle. Fehlt ein Eintrag (Redis gestört, Ticket abgelaufen), zeigt der
     # Klient die Kennung; das ist hässlich, aber nicht falsch.
     gast_namen: dict[str, str] = {}
+    # Gäste, deren Mikrofon gerade stumm ist (Präsenz-Kennungen). Mitglieder
+    # melden ihren Zustand selbst (Gateway-Sitzung); Gäste haben keine — ihr
+    # Stumm-Zustand kommt aus den LiveKit-``track_muted``/``track_unmuted``
+    # -Webhooks. Fehlt der Eintrag beim Klienten, fehlt nur das Stumm-Zeichen
+    # in der Kanalliste — der Ton selbst hängt nicht daran.
+    gast_stumm: list[str] = []
 
 
 class VoiceDisconnectEvent(_EventBase):

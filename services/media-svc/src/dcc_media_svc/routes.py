@@ -28,7 +28,7 @@ from time import monotonic
 from typing import Annotated, Any
 
 import structlog
-from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Header, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from redis.asyncio import Redis
 
@@ -681,4 +681,115 @@ async def stop_stream(
         slot=slot,
         remaining=len(remaining_uids),
     )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# --- internal: WHEP-Sitzungen eines Gastes hart trennen ---------------------
+
+_kill_router = APIRouter(prefix="/internal", tags=["internal"])
+
+
+class KillSessionsIn(BaseModel):
+    """Die WHEP-Lese-Token-WERTE eines Gastes (siehe ``dcc_shared.gaeste``).
+
+    Die Session-Query der MediaMTX-WHEP-Sitzung trägt ``token=<wert>`` —
+    daran, und nur daran, lassen sich Sitzung und Gast zusammenbringen.
+    """
+
+    tokens: list[str] = Field(min_length=1, max_length=64)
+
+
+@_kill_router.post("/streams/kill-sessions", status_code=status.HTTP_204_NO_CONTENT)
+async def kill_gast_sessions(
+    payload: KillSessionsIn,
+    request: Request,
+    x_pulse_internal_secret: Annotated[str | None, Header()] = None,
+) -> Response:
+    """Die MediaMTX-WHEP-Sitzungen trennen, die mit diesen Token laufen.
+
+    Der Lese-Token wird nur beim Handshake geprüft und danach nicht verbraucht
+    — einem Rausgeworfenen lief sein Bild also bis zum nächsten Reconnect
+    weiter. Hier wird die Session aktiv gelöscht. Fail-closed: ohne Secret
+    gibt es 503, nicht stillen No-Op.
+    """
+    import httpx  # noqa: PLC0415
+
+    # Secret vom App-State (create_app setzt es aus den Settings) — das macht
+    # den Wert auch im Test überschreibbar, ohne am Settings-Singleton
+    # herumzuschrauben. Fallback auf Settings für Deployments, die den State
+    # nicht setzen.
+    secret = getattr(
+        request.app.state,
+        "internal_service_secret",
+        get_settings().internal_service_secret,
+    )
+    expected = secret.encode() if secret else b""
+    given = (x_pulse_internal_secret or "").encode()
+    if not expected or not secrets.compare_digest(given, expected):
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="internal routes disabled")
+
+    # ``mediamtx_api_url`` zeigt auf ``…/v3/paths/list`` — die Sessions-Liste
+    # lebt daneben unter ``…/v3/whepsessions``.
+    basis = get_settings().mediamtx_api_url.rsplit("/", 1)[0]
+    sessions_url = f"{basis}/whepsessions"
+    tokens = set(payload.tokens)
+    getrennt = 0
+
+    def _passt(query: str, t: str) -> bool:
+        # Delimiter-bewusst: ``token=abc`` darf nicht ``token=abcdef`` eines
+        # fremden Zuschauers treffen. Ende der Query oder ``&`` beendet den
+        # Wert.
+        stelle = 0
+        nadel = f"token={t}"
+        while (i := query.find(nadel, stelle)) != -1:
+            ende = i + len(nadel)
+            if ende == len(query) or query[ende] == "&":
+                return True
+            stelle = i + 1
+        return False
+
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        seiten = 0
+        while seiten < 50:  # Schutz gegen Endlos-Paginierung
+            seiten += 1
+            try:
+                resp = await client.get(
+                    sessions_url, params={"itemsPerPage": 1000, "page": seiten - 1}
+                )
+                # Bewusst KEIN ``raise_for_status``: das verlangt einen
+                # request-gebundenen Response und ist hier ohnehin
+                # best-effort — ein MediaMTX-Blip bricht den Kick nicht,
+                # die Redis-Sperre verhindert jeden Neustart.
+                if resp.status_code >= 400:
+                    log.warning("whep_session_list_rejected", status=resp.status_code)
+                    break
+                data = (
+                    resp.json()
+                    if resp.headers.get("content-type", "").startswith("application/json")
+                    else {}
+                )
+            except Exception:  # noqa: BLE001 — siehe oben
+                log.warning("whep_session_list_failed", page=seiten)
+                break
+            items = (data.get("items") or []) if isinstance(data, dict) else []
+            if not items:
+                break
+            items = (data.get("items") or []) if isinstance(data, dict) else []
+            if not items:
+                break
+            for session_obj in items:
+                query = str(session_obj.get("query") or "")
+                sid = str(session_obj.get("id") or "")
+                if not sid:
+                    continue
+                if any(_passt(query, t) for t in tokens):
+                    try:
+                        delete = await client.delete(f"{sessions_url}/{sid}")
+                        if delete.status_code < 400:
+                            getrennt += 1
+                    except Exception:  # noqa: BLE001 — best-effort je Session
+                        log.warning("whep_session_delete_failed", sid=sid)
+            if len(items) < 1000:
+                break
+    log.info("gast_whep_sessions_killed", sessions=getrennt, tokens=len(tokens))
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -62,6 +62,12 @@ async def issue_gast_token(
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, detail="removed from the meeting"
         )
+    if gast.exp - int(time.time()) < 60:
+        # Letzte Ticket-Minute: kein Token mehr. Der alte max(60, …)-Floor
+        # hätte den LiveKit-Grant bis zu 59 s ÜBER das Ticket hinaus
+        # verlängert (Audit 2026-09); für den Gast ist das dasselbe wie
+        # abgelaufen.
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="ticket expired")
 
     room = voice_routes._room_for_channel(payload.channel_id)
     # Das Benutzerlimit des Kanals wird hier NICHT geprüft, sondern beim

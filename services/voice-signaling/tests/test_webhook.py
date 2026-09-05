@@ -584,3 +584,27 @@ async def test_webhook_gast_ohne_namenseintrag_faellt_nicht_um(webhook_client, r
     finally:
         await pubsub.aclose()
         await redis.delete(room_key(room))
+
+
+
+@pytest.mark.asyncio
+async def test_webhook_gesperrter_gast_kommt_nicht_in_die_praesenz(webhook_client, redis):
+    """Ein gesperrter Gast, der mit seinem noch gültigen LiveKit-JWT neu
+    joint, taucht nicht wieder in der Präsenz auf — LiveKit hat keine
+    Sperrliste, deshalb wehrt sich der Webhook hier. Der LiveKit-Remove
+    selbst folgt im Reconcile-Sweep."""
+    from dcc_shared import gaeste
+    from dcc_voice_signaling.webhook import room_key
+
+    cid = str(abs(hash(uuid.uuid4())) & ((1 << 31) - 1))
+    room = f"channel-{cid}"
+    await gaeste.sperren(redis, "gast-900", ttl_s=600)
+    try:
+        body = _event_body("participant_joined", room, "gast-900")
+        r = await webhook_client.post(
+            "/webhook", content=body, headers={"Authorization": _sign(body)}
+        )
+        assert r.status_code == 204
+        assert await redis.scard(room_key(room)) == 0
+    finally:
+        await redis.delete(room_key(room), gaeste.GAST_SPERRE_KEY.format(gast_id="gast-900"))

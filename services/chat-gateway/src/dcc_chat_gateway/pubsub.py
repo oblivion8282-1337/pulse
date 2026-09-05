@@ -505,14 +505,23 @@ class ConnectionManager(
         key = f"voice:room:channel-{channel_id}"
         sk = f"voice:room:channel-{channel_id}:streaming"
         ck = f"voice:room:channel-{channel_id}:camera"
+        gk = f"voice:room:channel-{channel_id}:gast-stumm"
         # Issue all SMEMBERS in parallel rather than sequentially.
-        members, streamers, cameras = await asyncio.gather(
+        members, streamers, cameras, gast_stumm = await asyncio.gather(
             self._redis.smembers(key),
             self._redis.smembers(sk),
             self._redis.smembers(ck),
+            self._redis.smembers(gk),
         )
         user_ids = _decode_sorted(members)
         user_states = await self.user_voice_states_for(user_ids)
+        # Gäste haben keine Sitzung, deren Zustand man lesen könnte — ihr
+        # Stumm-Zustand hält voice-signaling im ``:gast-stumm``-Set bereit
+        # (LiveKit track_muted/unmuted-Webhooks) und kommt hier in dieselbe
+        # ``user_states``-Map wie bei Mitgliedern.
+        for gid in _decode_sorted(gast_stumm):
+            if gid in user_ids:
+                user_states[gid] = {"mic_muted": True, "deafened": False}
         return {
             "user_ids": user_ids,
             "streaming_user_ids": _decode_sorted(streamers),
