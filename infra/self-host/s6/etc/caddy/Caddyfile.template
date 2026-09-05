@@ -67,6 +67,24 @@
     # API-Routes                                                          #
     # ------------------------------------------------------------------ #
 
+    # Interne Bäume von auth (mintet Gast-Tickets) und chat (löscht Accounts):
+    # `handle_path /api/auth/*` bzw. `/api/chat/*` unten lassen sie sonst 1:1
+    # durch, nur das INTERNAL_SERVICE_SECRET stünde zwischen Internet und
+    # Route. Handle-Blöcke sind exklusiv in Dateireihenfolge — deshalb stehen
+    # diese VOR den Weiterleitungen (Spiegel des @voice_restricted-Blocks
+    # unten und der Cloud-nginx-deny-Blöcke, Audit 2026-09).
+    @auth_chat_internal path /api/auth/internal/* /api/chat/internal/*
+    handle @auth_chat_internal {
+        respond 403
+    }
+    # FastAPI-Swagger/OpenAPI hinter den /api/*-Weiterleitungen: kompletter
+    # Recon-Katalog aller Routen (inkl. der internen oben) — kein öffentliches
+    # Inventar. Lokal bleibt /docs für die Entwicklung erreichbar.
+    @api_docs path_regexp ^/api/(auth|chat|voice)/(docs|redoc|openapi\.json)$
+    handle @api_docs {
+        respond 403
+    }
+
     # auth-svc (8001) — login, MFA, identity-cert, /.well-known/jwks.json
     handle_path /api/auth/* {
         reverse_proxy 127.0.0.1:8001 {

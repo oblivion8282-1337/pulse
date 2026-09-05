@@ -7,6 +7,12 @@ import jwt
 import pytest
 
 import dcc_voice_signaling.routes as voice_routes
+from dcc_voice_signaling.routes.chat_gateway import (
+    _PERM_CONNECT,
+    _PERM_SPEAK,
+    _PERM_STREAM,
+    _PERM_USE_VIDEO,
+)
 
 
 def auth(token: str) -> dict[str, str]:
@@ -26,7 +32,22 @@ async def test_token_requires_auth(client):
 
 
 @pytest.mark.asyncio
-async def test_token_happy_path(client, auth_signer):
+async def test_token_happy_path(client, auth_signer, monkeypatch):
+    # Seit dem Fail-closed-Umbau (Audit 2026-09) stellt /token ohne
+    # chat-gateway KEIN Token mehr aus — auch der Happy Path braucht
+    # Mitgliedschaft + Rechte aus dem (gemockten) chat-gateway.
+    monkeypatch.setattr(voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test")
+    voll = _PERM_CONNECT | _PERM_SPEAK | _PERM_USE_VIDEO | _PERM_STREAM
+
+    async def _voice_channel(method, path, *, bearer):
+        if path.endswith("/permissions/me"):
+            return httpx.Response(200, json={"permissions": str(voll)})
+        return httpx.Response(
+            200,
+            json={"id": "987654321", "guild_id": "9", "type": 1, "user_limit": 0},
+        )
+
+    monkeypatch.setattr(voice_routes, "_chat_gateway_request", _voice_channel)
     access = auth_signer.issue_access(42, "alice")
     r = await client.post(
         "/token",
@@ -49,6 +70,20 @@ async def test_token_happy_path(client, auth_signer):
     assert payload["sub"] == "user-42"
     assert payload["video"]["room"] == "channel-987654321"
     assert payload["video"]["roomJoin"] is True
+
+
+@pytest.mark.asyncio
+async def test_token_ohne_chat_gateway_url_bleibt_zu(client, auth_signer):
+    """Fail-closed (Audit 2026-09): ohne CHAT_GATEWAY_URL gilt NICHT mehr
+    jede Mitgliedschaft als erfüllt — die Route antwortet 503 statt
+    Stimmtokens für beliebige Kanäle auszustellen."""
+    access = auth_signer.issue_access(42, "alice")
+    r = await client.post(
+        "/token",
+        json={"channel_id": "987654321"},
+        headers=auth(access),
+    )
+    assert r.status_code == 503
 
 
 @pytest.mark.asyncio

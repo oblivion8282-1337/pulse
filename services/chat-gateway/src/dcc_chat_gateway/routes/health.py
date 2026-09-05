@@ -33,7 +33,9 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from dcc_chat_gateway import config as chat_cfg
+from dcc_chat_gateway.client_ip import client_ip
 from dcc_chat_gateway.db import SessionLocal
+from dcc_chat_gateway.ratelimit import check as ratelimit_check
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -100,11 +102,19 @@ def _disk_warning(disk: dict | None) -> bool:
     return float(percent_used) > 80.0
 
 
-def _check_internal_secret(provided: str | None) -> None:
+def _check_internal_secret(request: Request, provided: str | None) -> None:
     """Constant-time Compare gegen INTERNAL_SERVICE_SECRET.
 
     Fehlt der Secret auf Server-Seite → 401 (fail-closed, kein Info-Leak).
+    Die Bremse sitzt VOR dem Vergleich — abgewiesene Versuche zählen mit,
+    sonst wäre Raten auf das Secret ungedrosselt (Audit 2026-09; die
+    nginx/Caddy-Sperre für ``/api/chat/internal/*`` ist die Schicht davor).
     """
+    if not ratelimit_check("internal_secret", client_ip(request)):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="rate limit exceeded (internal_secret)",
+        )
     expected = chat_cfg.get_settings().internal_service_secret
     if not expected:
         raise HTTPException(
@@ -170,7 +180,7 @@ async def health_probe(
     Nur mit gültigem X-Pulse-Internal-Secret-Header erreichbar.
     Returnt version, services, jwks_status, disk_usage.
     """
-    _check_internal_secret(x_pulse_internal_secret)
+    _check_internal_secret(request, x_pulse_internal_secret)
 
     settings = chat_cfg.get_settings()
     db_ok, redis_ok = await asyncio.gather(_check_db(), _check_redis(request))

@@ -13,7 +13,7 @@ from __future__ import annotations
 from time import monotonic
 
 # action -> {user_id -> (window_start_monotonic, count)}
-_buckets: dict[str, dict[int, tuple[float, int]]] = {}
+_buckets: dict[str, dict[int | str, tuple[float, int]]] = {}
 
 # action -> (limit, window_seconds)
 _RULES: dict[str, tuple[int, float]] = {
@@ -70,14 +70,22 @@ _RULES: dict[str, tuple[int, float]] = {
     # bleibt eine Obergrenze fuer das eigene Laufwerk; der Klient wartet bei
     # 429 zusaetzlich mit steigenden Pausen (`ablage/geduld429.ts`).
     "ablage_schreiben": (300, 60.0),
+    # Internal-Secret-Routen (Account-Purge, jwks-status, …): Schluessel ist
+    # die Client-IP, nicht eine Nutzer-ID — der Aufrufer ist ein anderer
+    # Dienst. 120/min liegt weit ueber dem Binnenvolumen und deckelt
+    # Online-Raten auf INTERNAL_SERVICE_SECRET (Audit 2026-09); die
+    # nginx-/Caddy-deny-Bloecke sind die erste Schicht davor.
+    "internal_secret": (120, 60.0),
 }
 
 
-def check(action: str, user_id: int) -> bool:
-    """Return True if the call is allowed, False if the user is over budget.
+def check(action: str, key: int | str) -> bool:
+    """Return True if the call is allowed, False if the key is over budget.
 
-    A side effect of every call is an opportunistic sweep of expired buckets
-    for this action, which keeps the dict from growing without bound.
+    ``key`` ist normalerweise die Nutzer-ID; fuer dienst-internen Verkehr
+    die Client-IP (s. ``internal_secret``). A side effect of every call is an
+    opportunistic sweep of expired buckets for this action, which keeps the
+    dict from growing without bound.
     """
     limit, window = _RULES[action]
     now = monotonic()
@@ -89,14 +97,14 @@ def check(action: str, user_id: int) -> bool:
         for uid in expired:
             del bucket[uid]
 
-    entry = bucket.get(user_id)
+    entry = bucket.get(key)
     if entry is None or now - entry[0] >= window:
-        bucket[user_id] = (now, 1)
+        bucket[key] = (now, 1)
         return True
     start, count = entry
     if count >= limit:
         return False
-    bucket[user_id] = (start, count + 1)
+    bucket[key] = (start, count + 1)
     return True
 
 

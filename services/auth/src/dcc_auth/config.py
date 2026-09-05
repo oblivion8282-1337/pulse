@@ -130,6 +130,12 @@ class Settings(BaseSettings):
     rate_limit_totp_setup: str = "10/minute"
     rate_limit_totp_disable: str = "10/minute"
     rate_limit_totp_backup_regenerate: str = "10/minute"
+    # Internal-Secret-Routen (Gast-Ticket-Mint, Discoverable-Spiegel,
+    # Instanz-Broadcast). Der Proxy sperrt die Pfade öffentlich; diese Bremse
+    # ist die zweite Schicht gegen Online-Raten auf INTERNAL_SERVICE_SECRET.
+    # 120/min liegt über jeder legitimen Spitze (Gast-Ticket: ein Call pro
+    # Gast-Beitritt) und deckelt Raten auf 2/s.
+    rate_limit_internal_secret: str = "120/minute"
     # Self-Host One-Command-Installer: Mint ist owner-cookie-gated (locker),
     # Redeem ist token-gated + öffentlich (eng). TTL = Lebensdauer des
     # One-Time-Bootstrap-Tokens.

@@ -67,6 +67,26 @@ async def test_ticket_fuer_anderen_kanal_sieht_nichts(client, redis, auth_signer
 
 
 @pytest.mark.asyncio
+async def test_rausgeworfener_gast_bekommt_keine_neue_zuschau_url(
+    client, redis, auth_signer
+):
+    """Audit 2026-09: Die Rauswurf-Sperre gilt auch hier, nicht nur im
+    chat-gateway-Proxy — ein rausgeworfener Gast mit noch laufendem Ticket
+    (bis 4 h) darf sich keine NEUEN Lese-Token holen statt nur die alten
+    zu verlieren."""
+    from dcc_shared.gaeste import sperren
+
+    cid = "770004"
+    await sperren(redis, "gast-77")
+    r = await client.get(
+        f"/gast/whep?channel_id={cid}&user_id=42",
+        headers=_auth(_ticket(auth_signer, channel_id=cid)),
+    )
+    assert r.status_code == 403
+    assert r.json()["detail"] == "removed from the meeting"
+
+
+@pytest.mark.asyncio
 async def test_konto_token_taugt_hier_nicht_und_gast_ticket_dort_nicht(
     client, redis, auth_signer
 ):

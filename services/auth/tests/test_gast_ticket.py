@@ -54,6 +54,29 @@ class TestGastTicket:
         r = await client.post("/internal/guest-token", json=_body())
         assert r.status_code == 401
 
+    async def test_raten_auf_das_geheimnis_ist_gedrosselt(
+        self, client, _isolate_settings
+    ):
+        """Audit 2026-09: Die Bremse sitzt VOR dem Secret-Vergleich — auch
+        abgewiesene Versuche zählen, sonst wäre Online-Raten auf das Secret
+        ungedrosselt. Testhalber auf 3/min gedrückt: der vierte Versuch
+        bekommt 429, selbst mit dem richtigen Secret."""
+        _isolate_settings.internal_service_secret = _SECRET
+        _isolate_settings.rate_limit_internal_secret = "3/minute"
+        for _ in range(3):
+            r = await client.post(
+                "/internal/guest-token",
+                json=_body(),
+                headers={"X-Pulse-Internal-Secret": "falsch"},
+            )
+            assert r.status_code == 401
+        r = await client.post(
+            "/internal/guest-token",
+            json=_body(),
+            headers={"X-Pulse-Internal-Secret": _SECRET},
+        )
+        assert r.status_code == 429
+
     async def test_ungesetztes_geheimnis_schliesst_die_route(self, client, _isolate_settings):
         """Fail-closed: ohne serverseitiges Geheimnis ist die Route zu.
 

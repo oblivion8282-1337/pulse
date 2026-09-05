@@ -95,6 +95,33 @@ async def test_purge_disabled_when_secret_unset(client, _isolate_chat_settings):
     assert r.status_code == 401
 
 
+@pytest.mark.asyncio
+async def test_purge_rate_limits_secret_guessing(
+    client, _internal_secret_set, monkeypatch
+):
+    """Audit 2026-09: Die Bremse sitzt VOR dem Secret-Vergleich — auch
+    abgewiesene Versuche zählen, sonst wäre Online-Raten auf das Secret
+    ungedrosselt. Testhalber auf 2/min gedrückt: der dritte Versuch bekommt
+    429, selbst mit dem richtigen Secret."""
+    import dcc_chat_gateway.ratelimit as ratelimit
+
+    monkeypatch.setitem(ratelimit._RULES, "internal_secret", (2, 60.0))
+    try:
+        for _ in range(2):
+            r = await client.post(
+                "/internal/users/12345/purge",
+                headers={"X-Pulse-Internal-Secret": "wrong"},
+            )
+            assert r.status_code == 401
+        r = await client.post(
+            "/internal/users/12345/purge",
+            headers=_internal_headers(),
+        )
+        assert r.status_code == 429
+    finally:
+        ratelimit.reset()
+
+
 # ---------------------------------------------------------------------------
 # Behaviour
 

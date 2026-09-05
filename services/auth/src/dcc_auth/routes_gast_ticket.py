@@ -18,12 +18,13 @@ from __future__ import annotations
 import hmac
 from typing import Annotated
 
-from fastapi import APIRouter, Header, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from dcc_shared.gaeste import TICKET_MAX_TTL_S
 
 from dcc_auth import config as _config
+from dcc_auth.routes import _check_rate
 from dcc_auth.security import get_signer
 
 router = APIRouter()
@@ -51,8 +52,17 @@ class GastTicketOut(BaseModel):
     expires_in: int
 
 
-def _check_internal_secret(provided: str | None) -> None:
-    """Fail-closed: ohne serverseitiges Geheimnis ist die Route zu."""
+async def _check_internal_secret(request: Request, provided: str | None) -> None:
+    """Fail-closed: ohne serverseitiges Geheimnis ist die Route zu.
+
+    Die Bremse sitzt VOR dem Vergleich — abgewiesene Versuche zählen mit,
+    sonst wäre Raten auf das Secret ungedrosselt (Audit 2026-09; die
+    Proxy-Sperre für ``/api/auth/internal/*`` ist die erste Schicht)."""
+    await _check_rate(
+        request,
+        "internal_secret",
+        _config.get_settings().rate_limit_internal_secret,
+    )
     expected = _config.get_settings().internal_service_secret
     if not expected:
         raise HTTPException(
@@ -68,9 +78,10 @@ def _check_internal_secret(provided: str | None) -> None:
 @router.post("/internal/guest-token", response_model=GastTicketOut)
 async def issue_guest_token(
     payload: GastTicketIn,
+    request: Request,
     x_pulse_internal_secret: Annotated[str | None, Header()] = None,
 ) -> GastTicketOut:
-    _check_internal_secret(x_pulse_internal_secret)
+    await _check_internal_secret(request, x_pulse_internal_secret)
     ttl = min(payload.ttl_s, MAX_TTL_S)
     token = get_signer().issue_gast(
         gast_id=payload.gast_id,

@@ -33,6 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from redis.asyncio import Redis
 
 from dcc_shared.events import StreamDescriptor
+from dcc_shared.gaeste import ist_gesperrt
 from dcc_shared.streaming import MONITOR_INDEX_MAX, MONITOR_INDEX_MIN, SLOT_MAX
 
 from dcc_media_svc.config import get_settings
@@ -517,11 +518,21 @@ async def get_whep_url_gast(
     darf Kanal B nicht oeffnen. Ohne diesen Vergleich waere aus dem Ticket fuer
     den Besprechungsraum eines fuer jeden Sprachkanal der Community geworden.
 
+    Dazu die Rauswurf-Sperre — beides oder nichts, wie ``_gast_pruefen`` im
+    chat-gateway: ein rausgeworfener Gast mit noch laufendem Ticket (bis 4 h)
+    darf sich keine NEUEN Lese-Token holen statt nur die alten zu verlieren
+    (Audit 2026-09). Aktuell unroutbar von außen (media-svc hat keine
+    oeffentliche Proxy-Route, Gäste gehen ueber den chat-gateway-Proxy, der
+    dieselbe Sperre prueft) — dieser Check macht den Rauswurf netzweit
+    wasserdicht, statt nur auf dem einen Pfad.
+
     Eine eigene Route statt eines Gast-Zweigs in ``get_whep_url``: es soll
     nirgends ein „Nutzer oder Gast" an einer Abhaengigkeit haengen.
     """
     if gast.channel_id != str(channel_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="ticket is for another channel")
+    if await ist_gesperrt(_get_redis(request), gast.gast_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="removed from the meeting")
     return await _whep_fuer_zuschauer(
         request,
         zuschauer_id=gast.gast_id,
