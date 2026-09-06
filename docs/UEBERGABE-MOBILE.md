@@ -65,7 +65,13 @@ Alles Folgende ist **schon gebaut** — bitte nichts doppelt erfinden:
   (`routes/postfach.py`, `routes/postfach_anhaenge.py`), Zustell-Quittung
   (`routes/postfach_abholen.py`).
 - E2EE-Anhänge inkl. Thumbnails (`krypto/anhangKrypto.ts`, `lib/attachments/uploadVerschluesselt.ts`).
-- E2EE-**private Gruppen** (`routes/private_gruppen.py`, `krypto/gruppe/`).
+- E2EE-**private Gruppen** (`routes/private_gruppen.py`, `krypto/gruppe/`):
+  Backend und Krypto-Suite sind komplett (Anlegen, Liste, Mitglieder +/−,
+  Verlassen, WS-Abos über `ws_gruppen_abo.py`), und Gruppen erscheinen mobil in
+  der Chats-Liste (`MobileGruppenZeile.svelte`) und öffnen im ChatView
+  (`headerKind: 'gruppe'`). **ABER:** Kein Bildschirm im Produkt ruft die
+  Verwaltungs-API auf — Anlegen/Verwalten geht nur über die API, nicht über UI
+  (Details §5.4).
 - Wichtig: DM-Composer sperren, wenn der Partner kein App-Gerät hat
   (`krypto/dmSendeSperre.ts`) — „ohne App-Gerät keine Direktnachrichten".
 
@@ -167,43 +173,67 @@ werden — in einem frischen Checkout normal).
    Abbruch, Wellenform), Wiedergabe mit Geschwindigkeit, Autoplay-Kette optional.
    Auch an den E2EE-Weg anbinden (Postfach-Anhang), sonst gilt die Funktion nur
    im Klartext-Pfad.
+4. **Gruppenchats komplettieren — Anlegen und Verwalten.** Für ein
+   WhatsApp-Gefühl sind Gruppen Kernfunktionalität, und der seltsame Stand ist:
+   **alles Unterbau ist fertig, nur die UI fehlt.** Backend-Lifecycle komplett
+   (`routes/private_gruppen.py`), E2EE-Krypto-Suite komplett
+   (`web/src/lib/krypto/gruppe/`), API-Client ebenfalls
+   (`web/src/lib/api/gruppen.ts`: `erstellen`, `mitgliedHinzufuegen`,
+   `mitgliedEntfernen`, `verlassen`) — aber **kein einziger Bildschirm ruft diese
+   Methoden auf** (geprüft am 2026-09-06, null Aufrufer). Gruppen sind heute nur
+   über die direkte API anlegbar, also faktisch ein Testfeature. Zu bauen:
+   - „Gruppe erstellen" im Chats-Tab (Einstieg im `NeuesGespraechDialog` oder
+     eigener Sheet-Einstieg): Name wählen, Freunde hinzufügen (`POST /gruppen`,
+     `POST .../mitglieder`).
+   - Gruppen-Sheet im Chat (•••): Mitgliederliste aus `MemberList`,
+     Hinzufügen/Entfernen, Gruppe verlassen — alles vorhandene Endpunkte.
+   - Hinweis: Es gibt **keinen Einladungs-/Beitritts-Flow** — Mitglieder werden
+     direkt per `user_id` hinzugefügt (Ersteller fügt seine Freunde hinzu). Das
+     reicht für den Messenger-Kern; einen Einladungs-Link-Flow würde ich bewusst
+     erst später planen.
+   - Politur danach: Gruppen-Zeilen zeigen bewusst keinen Vorschautext
+     (Docblock in `MobileGruppenZeile.svelte` — der Server liefert für Gruppen
+     keine Vorschau, anders als bei DMs via `dm_vorschau.py`). Wenn Gruppen
+     Erstklassig werden sollen: serverseitige Gruppen-Vorschau nach dem
+     DM-Vorbild (Achtung E2EE: Vorschaufeld wäre Klartext auf dem Server —
+     Entweder-Entscheidung dokumentieren).
 
 ### P1 — Chat-Alltag rund machen
 
-4. **Reaktionen/Bearbeiten/Löschen im E2EE-Pfad.** Klartext-DMs können das,
+5. **Reaktionen/Bearbeiten/Löschen im E2EE-Pfad.** Klartext-DMs können das,
    verschlüsselte Nachrichten nicht (keine Server-Zeile; Fehlermeldung in
    `web/src/lib/krypto/…/cloudNachrichtAktionen.ts`). Ansatz: Reaktion als
    Postfach-Umschlag, Löschen als Tombstone im lokalen Verlauf + Umschlag an
    Geräte.
-5. **Long-Press-ActionSheet in der Bubble-Darstellung verifizieren**
+6. **Long-Press-ActionSheet in der Bubble-Darstellung verifizieren**
    (`MessageActionSheet.svelte` existiert) und **Swipe-to-reply** ergänzen.
-6. **Medienübersicht pro Chat** — Bilder-/Datei-Grid aus dem lokalen Verlauf
+7. **Medienübersicht pro Chat** — Bilder-/Datei-Grid aus dem lokalen Verlauf
    (IndexedDB, `web/src/lib/verlauf/`) + Attachment-Metadaten.
-7. **Android App Links + Share-Target.** `howispulse.com/app/...`-Links sollen die
+8. **Android App Links + Share-Target.** `howispulse.com/app/...`-Links sollen die
    App öffnen (Benachrichtigungs-Klicks, geteilte Links); Fotos/Text aus anderen
    Apps in einen Chat teilen (Intent-Filter in `AndroidManifest.xml`, Empfang im
    Web-Layer).
-8. **E2EE-Ersteinrichtung auf neuem Gerät als App-Onboarding.** Das Koppeln mit
+9. **E2EE-Ersteinrichtung auf neuem Gerät als App-Onboarding.** Das Koppeln mit
    Verlaufsumzug existiert, aber der Flow muss auf Android sauber durchlaufen —
    ohne ihn sendet der Nutzer keine DMs (`dmSendeSperre`).
 
 ### P2 — Hülle & Release
 
-9. **Bundle-vs-Remote-Entscheidung.** Die Hülle lädt hartcodiert Produktion. Für
+10. **Bundle-vs-Remote-Entscheidung.** Die Hülle lädt hartcodiert Produktion. Für
    den Play-Store und das Self-Host/Managed-Server-Modell (Docs:
    `docs/managed-server-vermietung.md`, `docs/user-gehostete-kanaele-analyse.md`)
    braucht es entweder ein gebündeltes Frontend (SvelteKit-Build nach `mobile/www/`
    statt Redirect, Updates über Play) oder eine Server-Auswahl in der App.
    `android:usesCleartextTraffic` bleibt aus; lokale Dev-URLs über Capacitor-
    `server.cleartext` nur im Dev-Build.
-10. **Release-Handwerk:** Signing-Keystore-Management (liegt korrekt nicht im
+11. **Release-Handwerk:** Signing-Keystore-Management (liegt korrekt nicht im
     Repo — Aufbewahrung regeln!), targetSdk passend zu Capacitor 8 (API 35),
     App-Icon/Splash (Ressourcen liegen in `mobile/android/app/src/main/res/`),
     Play-Data-Safety-Angaben (E2EE = Erklärpflicht + Verkaufsargument).
-11. **Rate-Limiter im chat-gateway** — existiert nicht (dokumentiert in
+12. **Rate-Limiter im chat-gateway** — existiert nicht (dokumentiert in
     `routes/dms.py`). Ein Messenger mit Hintergrund-Sync ist genau der Traffic,
     für den man einen will.
-12. **Offline-UX.** Ohne Netz zeigt die WebView einen toten Bildschirm; lokaler
+13. **Offline-UX.** Ohne Netz zeigt die WebView einen toten Bildschirm; lokaler
     Verlauf existiert, aber der Start braucht einen Offline-Fallback/Retry.
 
 ### iOS (nach Android — heute existiert kein iOS-Projekt)
@@ -271,6 +301,6 @@ gibt es aber noch nicht und sie gehören auf die Roadmap:
 2. `feat/mobile` auschecken, `cd web && pnpm install && pnpm test:unit` → grün?
 3. APK bauen und aufs Gerät bekommen (§6) — erst gegen Produktion, dann lokal.
 4. Dieses Dokument mit Michael durchgehen: P0-Reihenfolge bestätigen, die offene
-   Hörmuschel-Entscheidung (§4) und Bundle-vs-Remote (§5.9) klären.
+   Hörmuschel-Entscheidung (§4) und Bundle-vs-Remote (§5.10) klären.
 5. Erster Arbeitspaket-Schnitt: **FCM-Push** — Firebase-Projekt ist das einzige
    echte external Dependency auf dem Weg.
