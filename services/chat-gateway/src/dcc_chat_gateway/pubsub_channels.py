@@ -11,6 +11,26 @@ from __future__ import annotations
 CHANNEL_KEY = "chat:channel:{channel_id}"
 CHANNEL_PATTERN = "chat:channel:*"
 
+# WS-Replay-Cursor (``hist_replay``-Op): Für dauerhafte Chat-Ops stempelt
+# ``ConnectionManager.publish`` einen pro Kanal lückenlosen Ereigniszähler
+# (INCR auf ``chat:seq:<id>``) in den Umschlag und legt das Ereignis
+# zusätzlich in einem Redis-Stream ``chat:hist:<id>`` ab, aus dem ein
+# wiederverbindender Client „alles ab Sequenz X" nachholen kann. Der Stream
+# trimmt sich selbst auf ``HIST_MAXLEN`` Einträge — war ein Client länger
+# offline, antwortet das Replay mit ``complete:false`` und der Client fällt
+# auf seinen REST-Lückenfill zurück (wie vor dem Replay). ``chat:seq`` darf
+# niemals gelöscht werden, solange Clients Cursor darauf halten — ein
+# Zurücksetzen macht jede ausstehende Cursor-Anfrage schlicht „incomplete".
+CHANNEL_SEQ_KEY = "chat:seq:{channel_id}"
+CHANNEL_HIST_KEY = "chat:hist:{channel_id}"
+HIST_MAXLEN = 1000
+#: Obergrenze pro Replay-Antwort (Frames von mehreren MB vermeiden); mehr
+#: als das → ``complete:false``, der REST-Lückenfill holt seitenweise nach.
+HIST_REPLAY_CAP = 200
+#: Wie viele Kanal-Cursor eine einzelne ``hist_replay``-Anfrage abarbeiten
+#: darf (realistisch sind es die Kanäle einer Sitzung, zweistellig).
+HIST_REPLAY_MAX_CHANNELS = 100
+
 # Voice-presence events published by the voice-signaling service. Payload:
 # {"channel_id": "<id>", "user_ids": ["<id>", ...]} — the *full* current
 # member set of that voice channel. We rebroadcast it to every connected

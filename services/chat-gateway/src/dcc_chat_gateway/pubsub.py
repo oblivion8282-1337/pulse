@@ -25,9 +25,13 @@ from redis.asyncio import Redis
 from dcc_chat_gateway.device_registry import _DeviceRegistryMixin
 from dcc_chat_gateway.pubsub_channels import (
     ADMIN_EVENTS_CHANNEL,
+    CHANNEL_HIST_KEY,
     CHANNEL_KEY,
     CHANNEL_PATTERN,
+    CHANNEL_SEQ_KEY,
     GUILD_EVENTS_CHANNEL,
+    HIST_MAXLEN,
+    HIST_REPLAY_CAP,
     STREAM_CHANNEL_STATE_KEY,
     STREAM_EVENTS_CHANNEL,
     USER_EVENTS_CHANNEL,
@@ -45,6 +49,23 @@ from dcc_chat_gateway.watch_registry import _WatchRegistryMixin
 from dcc_chat_gateway.watchkeys import WATCH_EVENTS_CHANNEL, read_states_for
 
 log = logging.getLogger(__name__)
+
+#: Kanal-Ops, die den WS-Replay-Cursor (``seq``/``hist``) tragen und im
+#: Redis-Stream fürs ``hist_replay``-Nachholen landen. Bewusst OHNE alles
+#: Flüchtige: ``typing`` veraltet in Sekunden (und würde das 1000er-Fenster
+#: mit Müll fluten), Stream-/Watch-Chat und Plugin-Ops hatten noch nie einen
+#: Lückenfill und bekommen auch keinen — dafür läuft der REST-Fallback.
+#: Alte Bare-Dict-Publisher ohne ``op`` senden per Definition ``message``.
+_HIST_OPS = frozenset(
+    {
+        "message",
+        "message_update",
+        "message_delete",
+        "reaction_add",
+        "reaction_remove",
+        "pin_update",
+    }
+)
 
 
 def _decode_sorted(members: Iterable[Any]) -> list[str]:
@@ -424,10 +445,112 @@ class ConnectionManager(
     async def publish(
         self, channel_id: str, payload: dict[str, Any] | _EventBase
     ) -> None:
+        wire = self._to_wire(payload)
+        op = wire.get("op")
+        if op is None:
+            # Legacy: nacktes Nachrichtendict. HIER wickeln — nicht erst im
+            # Listener — damit der Replay-Stempel oben auf dem Umschlag
+            # liegt und nicht in ``data`` verrutscht. Der Listener erkennt
+            # das ``op`` und leitet den Umschlag unverändert durch; am
+            # Client kommt exakt dasselbe Frame an wie vorher.
+            wire = {"op": "message", "data": wire}
+            op = "message"
+        if op in _HIST_OPS:
+            await self._hist_stempeln(channel_id, wire)
         await self._redis.publish(
             CHANNEL_KEY.format(channel_id=channel_id),
-            json.dumps(self._to_wire(payload), separators=(",", ":")),
+            json.dumps(wire, separators=(",", ":")),
         )
+
+    async def _hist_stempeln(self, channel_id: str, wire: dict[str, Any]) -> None:
+        """WS-Replay-Cursor auf ein dauerhaftes Kanal-Ereignis stempeln.
+
+        ``seq`` kommt aus einem atomaren Redis-INCR — instanzübergreifend
+        lückenlos, deshalb zählt NUR diese Nummer für die
+        Vollständigkeitsprüfung beim Nachholen, nicht der Stream-Eintrag.
+        Das Ereignis liegt danach im Stream ``chat:hist:<id>``, aus dem
+        :meth:`read_channel_history` für das ``hist_replay``-Op liest.
+
+        ``ponytail:`` Der Stream ist ein gleitendes Fenster (HIST_MAXLEN,
+        Redis-trimmt von links). Ein Client, der LÄNGER offline war, als
+        das Fenster reicht, bekommt ``complete:false`` und fällt auf den
+        REST-Lückenfill zurück — die „mehr als 100 Nachrichten"–Schwelle
+        des REST-Pfads bleibt dafür bestehen. Upgrade-Pfad, falls das
+        je weh tut: Ereignis-Log-Tabelle in Postgres statt Stream.
+        """
+        seq = await self._redis.incr(CHANNEL_SEQ_KEY.format(channel_id=channel_id))
+        wire["seq"] = seq
+        entry_id = await self._redis.xadd(
+            CHANNEL_HIST_KEY.format(channel_id=channel_id),
+            {"e": json.dumps(wire, separators=(",", ":"))},
+            maxlen=HIST_MAXLEN,
+            approximate=True,
+        )
+        wire["hist"] = (
+            entry_id.decode() if isinstance(entry_id, bytes) else str(entry_id)
+        )
+
+    async def read_channel_history(
+        self, channel_id: str, last_id: str, last_seq: int
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """Kanal-Ereignisse nach dem Cursor ``(last_id, last_seq)`` lesen.
+
+        ``last_id`` ist die letzte vom Client gesehene Stream-Eintrag-ID,
+        ``last_seq`` die letzte gesehene Sequenznummer. Zurück kommt
+        ``(events, complete)``: ``complete`` genau dann, wenn der erste
+        gelieferte Eintrag lückenlos an den Client-Cursor anschließt —
+        jede Lücke (getrimmte Ereignisse, Sequenz-Reset nach einem
+        Redis-Verlust, Müll im Cursor) macht das Ergebnis „unvollständig"
+        und der Client muss über seinen REST-Lückenfill weitermachen.
+
+        Fehler (fremder Cursor, Redis-Weg) werden als ``([], False)`
+        gemeldet, nie geworfen — das Nachholen darf den Op-Loop nicht
+        reißen.
+        """
+        try:
+            raw = await self._redis.xrange(
+                CHANNEL_HIST_KEY.format(channel_id=channel_id),
+                min=f"({last_id}",
+                max="+",
+                count=HIST_REPLAY_CAP + 1,
+            )
+        except Exception:  # noqa: BLE001 — fremder Cursor → ResponseError
+            return [], False
+        overflow = len(raw) > HIST_REPLAY_CAP
+        raw = raw[:HIST_REPLAY_CAP]
+        events: list[dict[str, Any]] = []
+        first_seq: int | None = None
+        for entry_id, fields in raw:
+            # redis-py liefert Feldnamen je nach decode_responses als bytes
+            # oder str — beides fressen.
+            raw_env = fields.get("e", fields.get(b"e"))
+            try:
+                env = json.loads(raw_env or "{}")
+            except (ValueError, TypeError):
+                return events, False
+            if not isinstance(env, dict):
+                return events, False
+            env["hist"] = (
+                entry_id.decode() if isinstance(entry_id, bytes) else str(entry_id)
+            )
+            if first_seq is None:
+                first_seq = env.get("seq")
+            events.append(env)
+        if overflow:
+            return events, False
+        if not events:
+            try:
+                current = int(
+                    await self._redis.get(CHANNEL_SEQ_KEY.format(channel_id=channel_id))
+                    or 0
+                )
+            except Exception:  # noqa: BLE001 — Redis-Weg → incomplete
+                return [], False
+            # Nichts nachzuholen, aber nur vollständig, wenn sich der
+            # Zähler seit dem Client-Cursor nicht bewegt hat. Stream weg
+            # (Verlust/Trimming) + Zähler weiter gelaufen ⇒ Lücke.
+            return [], current == last_seq
+        return events, first_seq == last_seq + 1
 
     async def publish_guild_event(
         self, envelope: dict[str, Any] | _EventBase

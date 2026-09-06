@@ -27,6 +27,7 @@ from dcc_chat_gateway.models import (
     CHANNEL_TYPE_VOICE,
 )
 from dcc_chat_gateway.permissions import resolve_permissions
+from dcc_chat_gateway.pubsub_channels import HIST_REPLAY_MAX_CHANNELS
 from dcc_chat_gateway.presence_status import (
     STATUS_DND,
     STATUS_INVISIBLE,
@@ -119,6 +120,43 @@ async def handle_unsubscribe(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     cid = str(cid_int)
     await ctx.manager.unsubscribe(ctx.websocket, cid)
     ctx.subscribed.pop(cid, None)
+
+
+@register_ws_op("hist_replay")
+async def handle_hist_replay(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    """WS-Lückenfill (Centrifugo-Blaupause): Der Client meldet pro Kanal
+    den zuletzt gesehenen Ereignis-Cursor ``(hist, seq)``; der Server
+    spielt die seither veröffentlichten Ereignisse als ``replay``-Rahmen
+    nach. Reihenfolge am Socket: subscribe → (ready) → hist_replay —
+    deshalb ist jeder Kanal hier schon über den regulären subscribe-Pfad
+    gegen Zugriff geprüft; Cursor für NICHT abonnierte Kanäle werden
+    stumm ignoriert (leakt keinen Kanalinhalt, den der Socket nicht ohnehin
+    live bekäme). Pro Kanal ein Rahmen, ``complete:false`` schickt den
+    Client in seinen REST-Lückenfill."""
+    cursors = msg.get("cursors")
+    if not isinstance(cursors, dict) or not cursors:
+        return
+    for cid_raw, cur in list(cursors.items())[:HIST_REPLAY_MAX_CHANNELS]:
+        cid = str(cid_raw)
+        if cid not in ctx.subscribed or not isinstance(cur, dict):
+            continue
+        last_id = cur.get("hist")
+        last_seq = cur.get("seq")
+        if not isinstance(last_id, str) or not last_id:
+            continue
+        if not isinstance(last_seq, int) or isinstance(last_seq, bool):
+            continue
+        events, complete = await ctx.manager.read_channel_history(
+            cid, last_id, last_seq
+        )
+        await ctx.websocket.send_json(
+            {
+                "op": "replay",
+                "channel_id": cid,
+                "complete": complete,
+                "events": events,
+            }
+        )
 
 
 @register_ws_op("voice_self_state")
