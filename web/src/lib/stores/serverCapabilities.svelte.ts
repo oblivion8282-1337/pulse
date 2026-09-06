@@ -29,6 +29,9 @@ type ServerCaps = {
    * Reine UI-Hints; der jeweilige Server erzwingt dieselben Regeln selbst. */
   dmAttachmentsEnabled: boolean;
   dropboxEnabled: boolean;
+  /** Kanal-Erstellung (Konzept §2a): "regular" oder "ablage_only".
+   *  Ältere Instanzen ohne das Feld gelten als "regular". */
+  channelCreationPolicy: 'regular' | 'ablage_only';
   /** Erlaubte MIME-Präfixe für Anhänge; leer = unbeschränkt. */
   attachmentMimePrefixes: string[];
 };
@@ -58,6 +61,7 @@ class ServerCapabilitiesStore {
           // ``?? true`` / ``?? []``: ältere Instanzen kennen die Felder nicht →
           // unbeschränkt, damit ein Update der Cloud keine fremden Server gatet.
           dmAttachmentsEnabled: c.dm_attachments_enabled ?? true,
+          channelCreationPolicy: c.channel_creation_policy ?? 'regular',
           dropboxEnabled: c.dropbox_enabled ?? true,
           attachmentMimePrefixes: c.attachment_mime_prefixes ?? [],
         },

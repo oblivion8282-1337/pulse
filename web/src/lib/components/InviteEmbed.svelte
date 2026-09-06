@@ -59,6 +59,11 @@
   // sobald man dem Server über genau diese Karte beigetreten ist.
   let selfHostServer = $derived(host ? serversStore.findByHostname(host) : undefined);
   let selfHostPreview = $state<InvitePreview | null>(null);
+  // Der Ziel-Server hat den Code abgewiesen (404 = ungültig, abgelaufen oder
+  // verbraucht — `GET /invites/{code}` unterscheidet das nicht). Nur DIESER
+  // Fall macht die Karte tot; eine fehlende Session und Netzfehler lassen sie
+  // klickbar, weil der Beitritt selbst dann noch gelingen kann.
+  let selfHostInvalid = $state(false);
   // Dedupe pro Server-Zustand (NICHT reaktiv): Schlüssel enthält die Kennung,
   // das erst nach erfolgreichem Cert-Login gesetzt wird — ein Fehlversuch im
   // Provisional-Fenster (noch kein Token) blockiert so den Post-Join-Retry
@@ -74,8 +79,10 @@
     void serverGuilds.ensureLoaded(srv.id);
     getInvitePreviewOn(code, { serverId: srv.id })
       .then((p) => (selfHostPreview = p))
-      .catch(() => {
-        /* keine Session / Code tot → Karte bleibt im schlanken Modus */
+      .catch((e: unknown) => {
+        // Keine Session → Karte bleibt im schlanken Modus, der Beitritt
+        // klärt das. Ein 404 vom Ziel-Server ist dagegen endgültig.
+        if (e instanceof ApiError && e.status === 404) selfHostInvalid = true;
       });
   });
 
@@ -171,7 +178,7 @@
       </div>
     </div>
     <div class="h-8 w-20 rounded-md bg-bg-hover animate-pulse shrink-0"></div>
-  {:else if host}
+  {:else if host && !selfHostInvalid}
     <Avatar.Root class="size-10 shrink-0">
       <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">
         {guildInitial(host)}
@@ -191,7 +198,7 @@
     >
       {alreadyMemberSelfHost ? m.invite_embed_joined() : joining ? '…' : m.invite_embed_join()}
     </Button>
-  {:else if invalid || !preview}
+  {:else if invalid || selfHostInvalid || !preview}
     <div class="text-text-muted flex-1 text-sm">{m.invite_embed_invalid()}</div>
     <Button variant="outline" size="sm" disabled>{m.invite_embed_join()}</Button>
   {:else}

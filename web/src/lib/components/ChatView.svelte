@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { untrack, type Snippet } from 'svelte';
   import StatusDot from '$lib/components/ui/StatusDot.svelte';
   import { presence } from '$lib/stores/presence.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
@@ -14,11 +14,16 @@
   import ComposerDisabledBanner from './ComposerDisabledBanner.svelte';
   import { plainifyMentions } from './messageRender';
   import { Button } from '$lib/components/ui/button';
+  import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
+  import PinIcon from '@lucide/svelte/icons/pin';
   import type { Channel, Message } from '$lib/api/types';
+  import type { AnhangAngabe } from '$lib/krypto/nachrichtNutzlast';
   import { auth } from '$lib/stores/auth.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { typing } from '$lib/stores/typing.svelte';
   import { userCache } from '$lib/stores/users.svelte';
+  import { messages as messageStore } from '$lib/stores/messages.svelte';
+  import { chatApi } from '$lib/api/chat';
   import { gateway, cloudGateway } from '$lib/ws/connection';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { isElectron } from '$lib/platform/runtime';
@@ -29,11 +34,17 @@
   import { serverCapabilities } from '$lib/stores/serverCapabilities.svelte';
   import { serversStore } from '$lib/api/servers.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
+  import { anhangKnopfSichtbar, anhangKnopfGrund } from '$lib/attachments/anhangKnopfSichtbar';
+  import { anhangBereitschaft } from '$lib/attachments/anhangBereitschaft.svelte';
+  import AnhangLaufwerkHinweis from './AnhangLaufwerkHinweis.svelte';
 
   let {
     channel,
     messages,
     onSend,
+    /** Optionaler Inhalt fuer den Leerraum bei messages.length === 0 —
+     *  wird unverändert an MessageList durchgereicht. */
+    leerHinweis = undefined as Snippet | undefined,
     isOwner = false,
     headerKind = 'channel',
     /** Zurueck zur Liste — nur auf dem Handy gesetzt und nur dort gezeigt. */
@@ -47,16 +58,29 @@
     composerDisabled = false,
     composerDisabledReason = '',
     cloudScoped = false,
+    verschluesselteAnhaenge = false,
     onEditMessage,
     onDeleteMessage,
-    onToggleReaction
+    onToggleReaction,
+    onTogglePin
   }: {
     channel: Channel | null;
     messages: Message[];
-    onSend: (text: string, replyToId: string | null, attachmentIds: string[]) => void;
+    onSend: (
+      text: string,
+      replyToId: string | null,
+      attachmentIds: string[],
+      anhaenge: AnhangAngabe[]
+    ) => void;
     isOwner?: boolean;
-    /** 'dm' swaps the # for an @-style icon and prefixes names with @. */
-    headerKind?: 'channel' | 'dm';
+    leerHinweis?: Snippet;
+    /** 'dm' swaps the # for an @-style icon and prefixes names with @.
+     *  'gruppe' ist eine private Gruppe (Etappe G): eigenes Zeichen, kein
+     *  Namenspraefix (der Gruppenname ist kein Kanalname und keine Person)
+     *  und Zeilen- statt Sprechblasen-Darstellung — Sprechblasen sind fuer
+     *  DMs vorgesehen (CLAUDE.md, „Sprechblasen nur in DMs"), und bei mehr
+     *  als zwei Beteiligten traegt der Autorname die Aussage. */
+    headerKind?: 'channel' | 'dm' | 'gruppe';
     onBack?: () => void;
     onSwitchChannel?: () => void;
     dmPartnerId?: string;
@@ -66,6 +90,11 @@
      *  aktive-Server-ID — sonst stimmt bei aktivem Self-Host weder das
      *  Typing-Ziel noch der Self-Echo-Filter. */
     cloudScoped?: boolean;
+    /** Ende-zu-Ende-verschluesselte Anhaenge (Etappe E). Setzt die Seite, die
+     *  weiss, dass dieses Gespraech verschluesselt laeuft — hier wird nur
+     *  durchgereicht. Hebt zugleich die Klartext-Sperre auf, s.
+     *  `attachmentsAllowed`. */
+    verschluesselteAnhaenge?: boolean;
     /** Hide the member-list toggle + inline panel (DMs have no member list). */
     showMemberList?: boolean;
     /** Lock the composer (no typing, no submit). Drives the DM hard-cut
@@ -75,10 +104,14 @@
     onEditMessage: (m: Message, newContent: string) => void;
     onDeleteMessage: (m: Message) => void;
     onToggleReaction: (m: Message, emoji: string, currentlyMine: boolean) => void;
+    /** Pin anpinnen/lösen — Implementierung in den Seiten (Toast bei Fehler). */
+    onTogglePin?: (m: Message) => void;
   } = $props();
 
-  // '#'-Prefix für Guild-Channels (Screenshot-Tests + Gewohnheit), '@' für DMs.
-  let namePrefix = $derived(headerKind === 'dm' ? '@' : '#');
+  // '#'-Prefix für Guild-Channels (Screenshot-Tests + Gewohnheit), '@' für DMs,
+  // keins für eine Gruppe (ihr Name ist weder Kanal- noch Personenname).
+  const NAMENS_PRAEFIX = { channel: '#', dm: '@', gruppe: '' } as const;
+  let namePrefix = $derived(NAMENS_PRAEFIX[headerKind]);
 
   let replyTarget = $state<Message | null>(null);
 
@@ -101,9 +134,48 @@
   const policyServerId = $derived(
     cloudScoped ? (serversStore.cloudId() ?? '') : activeServer.serverId
   );
+  // Dieselbe Server-Wahl für `MessageList`s Hochscroll-Nachladen — DMs
+  // (`cloudScoped`) müssen auch bei aktivem Self-Host gegen die Cloud laufen.
+  const messageRoute = $derived(cloudScoped ? { serverId: serversStore.cloudId() } : undefined);
   const serverPolicy = $derived(serverCapabilities.get(policyServerId));
+  // `dmAttachmentsEnabled` steht fuer „Anhaenge im UNVERSCHLUESSELTEN Weg"
+  // und ist in der Cloud aus (`cloud_dm_attachments_enabled`, Vorgabe false).
+  // Der verschluesselte Weg haengt bewusst NICHT daran — er stellt die Frage
+  // gar nicht, die der Schalter beantwortet: der Server kann einen
+  // verschluesselten Anhang ohnehin nicht lesen, und sein Klumpen faellt mit
+  // dem letzten Umschlag. Dieselbe Entscheidung serverseitig, mit derselben
+  // Begruendung, in `routes/postfach_anhaenge.py`.
+  // Eine private Gruppe hat KEINEN Klartext-Weg (Spec §9) — der Anhang-Weg
+  // dieser Ansicht laedt aber ueber die Klartext-Route hoch. Solange der
+  // verschluesselte Gruppen-Anhang nicht gebaut ist, bleibt der Knopf hier
+  // aus; ein sichtbarer Knopf, dessen Hochladen dann am Kanal scheitert,
+  // waere ein Versprechen, das die Ansicht nicht einloest.
+  // Fuer DMs erscheint der Knopf erst, wenn die Server-Auskunft bekannt UND
+  // positiv ist (kein permissiver Vorgabewert mehr) — Begruendung + Regel
+  // stehen importfrei in `anhangKnopfSichtbar.ts`.
+  // Seit Design §11.2 kommt eine zweite Bedingung dazu: ein verschluesselter
+  // Anhang landet im Cloud-Ordner JEDES Beteiligten, und wer keinen hat, kann
+  // ihn nicht empfangen. Die Auskunft kommt je Kanal (in einer Gruppe
+  // blockiert ein einzelnes Mitglied alle) und wird beim Betreten geholt.
+  $effect(() => {
+    if (channel?.id && verschluesselteAnhaenge) anhangBereitschaft.sicherstellen(channel.id);
+  });
+  const laufwerkeBereit = $derived(
+    channel?.id ? anhangBereitschaft.moeglich(channel.id) : undefined
+  );
   const attachmentsAllowed = $derived(
-    headerKind === 'dm' ? (serverPolicy?.dmAttachmentsEnabled ?? true) : true
+    anhangKnopfSichtbar(
+      headerKind,
+      verschluesselteAnhaenge,
+      serverPolicy?.dmAttachmentsEnabled,
+      laufwerkeBereit
+    )
+  );
+  // Ein fehlender Knopf ohne Erklaerung wirkt wie ein Defekt — §11.2 verlangt
+  // ausdruecklich, den Fall zu BENENNEN. Wen es trifft und wie das formuliert
+  // wird, rechnet der Hinweis selbst aus (`AnhangLaufwerkHinweis.svelte`).
+  const anhangGrund = $derived(
+    anhangKnopfGrund(headerKind, verschluesselteAnhaenge, laufwerkeBereit)
   );
   /** `accept`-Attribut für den Datei-Dialog; leer = alles. Nur ein Filter im
    *  Auswahlfenster, keine Kontrolle — der Server erzwingt dieselbe Liste. */
@@ -156,9 +228,44 @@
   // Cloud-scoped (DM) → Cloud-User-ID (auth.user.id); sonst aktive-Server-ID.
   let myId = $derived(cloudScoped ? (auth.user?.id ?? null) : currentServerUserId());
 
-  // REST-Route fürs Historie-Nachladen der MessageList: DMs gegen die Cloud,
-  // Guild-Kanäle gegen den aktiven Server (leer = Default-Weiche der API).
-  let messageRoute = $derived(cloudScoped ? { serverId: serversStore.cloudId() } : {});
+  // ── Pinned Messages (Kanalkopf) ─────────────────────────────────────────
+  // Pin-Liste pro Kanal beim Öffnen laden; WS `pin_update` hält sie aktuell
+  // (messages.applyPin), und jeder Popover-Öffnen holt sie zur Sicherheit
+  // frisch — der WS-Weg kann Platzhalter (ohne Inhalt/Autor) hinterlassen,
+  // z. B. für Nachrichten außerhalb des geladenen Verlaufs. Fehler still —
+  // ohne Pins läuft der Chat.
+  let pins = $derived(channel ? (messageStore.pinsByChannel[channel.id] ?? null) : null);
+  function ladePins() {
+    const cid = channel?.id;
+    if (!cid) return;
+    void chatApi
+      .listPins(cid, messageRoute)
+      .then((list) => messageStore.setPins(cid, list))
+      .catch(() => {
+        // Beim ersten Laden wenigstens [] hinterlassen, damit der Effekt
+        // nicht endlos nachlädt; beim Auffrischen den alten Stand behalten.
+        if (messageStore.pinsByChannel[cid] === undefined) messageStore.setPins(cid, []);
+      });
+  }
+  $effect(() => {
+    const cid = channel?.id;
+    if (!cid || messageStore.pinsByChannel[cid] !== undefined) return;
+    untrack(ladePins);
+  });
+  /** Kanalkopf-Badge "📌 N": Zahl direkt aus der Pin-Liste. */
+  const pinCount = $derived(pins?.length ?? 0);
+  // Pin-Recht: Guild-Kanäle koppeln an MANAGE_MESSAGES (dieselbe Vorgabe wie
+  // canDelete fremder Nachrichten), DM-Teilnehmer dürfen immer pinnen.
+  const canPin = $derived(channel?.guild_id ? isOwner : true);
+  // Sprung in die Liste (von MessageList gemountet) für Klicks im Popover.
+  let jumpToMessage = $state<((id: string) => void) | undefined>(undefined);
+  // Pin-Listen-Einträge können aus dem pin_update-WS-Event stammen und dann
+  // noch keine Inhalte tragen (nur id/channel/pinned_at) — deshalb defensiv
+  // (`text` darf undefined sein). Dient auch der Reply-Banner-Vorschau unten.
+  function snippet80(text: string | undefined): string {
+    const t = (text ?? '').replace(/\s+/g, ' ').trim();
+    return t.length > 80 ? t.slice(0, 77) + '…' : t;
+  }
 
   // Laufenden Drag bei Kanalwechsel abbrechen — sonst bleibt das Drop-Overlay
   // sichtbar, wenn der User während eines Drags den Kanal wechselt.
@@ -179,19 +286,15 @@
     }
     return userCache.displayName(m.author_id);
   }
-  function snippet(text: string): string {
-    const t = text.replace(/\s+/g, ' ').trim();
-    return t.length > 80 ? t.slice(0, 77) + '…' : t;
-  }
   const replyBanner = $derived(
     replyTarget
-      ? { id: replyTarget.id, author: authorName(replyTarget), snippet: snippet(plainifyMentions(replyTarget.content)) }
+      ? { id: replyTarget.id, author: authorName(replyTarget), snippet: snippet80(plainifyMentions(replyTarget.content)) }
       : null
   );
 
-  function handleSend(text: string, attachmentIds: string[]) {
+  function handleSend(text: string, attachmentIds: string[], anhaenge: AnhangAngabe[]) {
     const target = replyTarget;
-    onSend(text, target?.id ?? null, attachmentIds);
+    onSend(text, target?.id ?? null, attachmentIds, anhaenge);
     replyTarget = null;
   }
 
@@ -272,6 +375,8 @@
         </span>
       {:else if headerKind === 'dm'}
         <AtSignIcon class="text-primary size-5 shrink-0" />
+      {:else if headerKind === 'gruppe'}
+        <UsersIcon class="text-primary size-5 shrink-0" />
       {:else}
         <HashIcon class="text-primary size-5 shrink-0" />
       {/if}
@@ -295,8 +400,62 @@
         <ChannelHeading
           name={channel.name}
           topic={channel.topic}
-          nameStyle={headerKind === 'dm' ? '' : channelNameStyle(channel)}
+          nameStyle={headerKind === 'channel' ? channelNameStyle(channel) : ''}
         />
+      {/if}
+      <!-- Kein Schloss-Kennzeichen mehr (bis 2026-08-29, Spec §3a): seit jede
+           Direktnachricht verschluesselt ist, sagt ein immer sichtbares
+           Schloss nichts — der Gegenfall sperrt das Eingabefeld mit Grund. -->
+      {#if pinCount > 0}
+        <!-- "📌 N" + Pin-Liste als Dropdown (Desktop genügt laut Scope; auf
+             Mobil ist derselbe Button klickbar, nur nicht extra gestylt). -->
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger>
+            {#snippet child({ props })}
+              <Button
+                {...props}
+                variant="ghost"
+                size="icon"
+                class="relative"
+                onclick={ladePins}
+                title={pm.chat_view_pins_title({ count: pinCount })}
+                aria-label={pm.chat_view_pins_title({ count: pinCount })}
+                data-testid="pins-toggle"
+              >
+                <PinIcon class="text-text-muted size-4" />
+                <span
+                  class="bg-primary text-primary-foreground absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold"
+                  >{pinCount}</span
+                >
+              </Button>
+            {/snippet}
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Content align="end" class="max-h-80 w-80 overflow-y-auto" data-testid="pins-list">
+            <DropdownMenu.Item
+              class="text-text-muted text-xs font-semibold"
+              disabled
+            >
+              {pm.chat_view_pins_title({ count: pinCount })}
+            </DropdownMenu.Item>
+            {#each pins ?? [] as p (p.id)}
+              <DropdownMenu.Item
+                class="cursor-pointer gap-2"
+                onclick={() => jumpToMessage?.(p.id)}
+                data-testid="pin-entry"
+              >
+                <PinIcon class="text-primary size-3.5 shrink-0" />
+                <span class="min-w-0">
+                  <span class="text-text-bright block truncate text-xs font-semibold"
+                    >{authorName(p)}</span
+                  >
+                  <span class="text-text-muted block truncate text-xs"
+                    >{snippet80(p.content)}</span
+                  >
+                </span>
+              </DropdownMenu.Item>
+            {/each}
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
       {/if}
       {#if showMemberList}
         <Button
@@ -320,14 +479,18 @@
       layout={headerKind === 'dm' ? 'bubble' : 'row'}
       {channel}
       {messages}
+      {leerHinweis}
       {myId}
       {namePrefix}
       {isOwner}
+      {canPin}
       route={messageRoute}
+      bind:jumper={jumpToMessage}
       onSetReplyTarget={(m) => (replyTarget = m)}
       onEditMessage={onEditMessage}
       onDeleteMessage={onDeleteMessage}
       onToggleReaction={onToggleReaction}
+      onTogglePin={onTogglePin}
     />
 
     <!-- Inline auf md+ -->
@@ -354,6 +517,13 @@
         <span class="truncate font-medium">{typingLabel}</span>
       </div>
     {/if}
+    {#if anhangGrund === 'kein-laufwerk'}
+      <!-- Auslieferungsschritt 1 (2026-09-02, Eigentümer): Laufwerk-Hinweise
+           ausgeblendet — ohne Laufwerke gibt es ohnehin keine Anhänge
+           (§11.2 versteckt den Knopf selbst). Reaktivierung: Zeile zurück.
+      <AnhangLaufwerkHinweis kanalId={channel.id} /> -->
+
+    {/if}
     <MessageInput
       bind:this={composer}
       handleDrop={false}
@@ -369,6 +539,7 @@
       disabledReason={composerDisabledReason}
       {attachmentsAllowed}
       {attachmentAccept}
+      verschluesselt={verschluesselteAnhaenge}
     />
   {/if}
 </section>

@@ -212,15 +212,41 @@ async def stream_object(key: str) -> AsyncIterator[bytes]:
     """Yield an object's bytes in chunks from MinIO (internal client).
 
     Async generator consumed by the dropbox ZIP streamer (``AioZipStream``
-    feeds an async generator straight into an archive entry). The
-    ``get_object`` context stays open for the lifetime of the generator
-    and is released when the consumer stops iterating (or on GC), so the
-    underlying connection is held only while a file is actively streamed.
+    feeds an async generator straight into an archive entry) and, since
+    Design §11.1, by the attachment distributor
+    (``ablage_anhang_verteilung.py``). The body stays open for the lifetime
+    of the generator and is released when the consumer stops iterating (or
+    on GC), so the underlying connection is held only while a file is
+    actively streamed.
+
+    **Zwei Fallen der aiobotocore-Schnittstelle, beide gemessen.**
+
+    1. ``client.get_object(...)`` ist eine Koroutine und kein
+       Kontextmanager. ``async with`` darauf wirft ``TypeError: 'coroutine'
+       object does not support the asynchronous context manager protocol``.
+       Erst ``await``, dann den Körper nehmen.
+    2. Der Körper ``resp["Body"]`` (``aiobotocore.response.StreamingBody``)
+       IST ein Kontextmanager — aber sein ``__aenter__`` gibt das
+       umschlossene ``aiohttp.ClientResponse`` zurück, nicht sich selbst.
+       Ein ``as``-Name daraus hat kein ``iter_chunks``
+       (``AttributeError: 'ClientResponse' object has no attribute
+       'iter_chunks'``). Gelesen wird deshalb weiter am ``StreamingBody``;
+       das ``async with`` dient allein dem Schliessen.
+
+    **Warum das vom 2026-07-01 bis zum 2026-09-01 unbemerkt blieb:** diese
+    Funktion hat keinen einzigen Test, der sie wirklich ausführt — beide
+    Test-Dateien, die sie berühren (``test_dropbox*.py``, seit heute auch
+    ``test_postfach_anhaenge_laufwerk.py``), ersetzen sie per
+    ``monkeypatch.setattr`` durch eine Attrappe. Grün war also immer nur die
+    Attrappe. Gefunden hat es der erste echte Aufruf gegen eine laufende
+    MinIO, im Hetzner-Nachweis.
     """
     s = get_settings()
     client = await _ensure_internal_client()
-    async with client.get_object(Bucket=s.s3_bucket, Key=key) as resp:
-        async for chunk in resp["Body"].iter_chunks():
+    resp = await client.get_object(Bucket=s.s3_bucket, Key=key)
+    koerper = resp["Body"]
+    async with koerper:
+        async for chunk in koerper.iter_chunks():
             yield chunk
 
 

@@ -22,8 +22,9 @@
 <script lang="ts">
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
+  import PresenceBadge from '$lib/components/PresenceBadge.svelte';
   import { guilds as guildsStore } from '$lib/stores/guilds.svelte';
-  import { voicePresence } from '$lib/stores/voicePresence.svelte';
+  import { voicePresence, istGastKennung } from '$lib/stores/voicePresence.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { userCache, type UserSummary } from '$lib/stores/users.svelte';
@@ -173,7 +174,9 @@
   $effect(() => {
     if (isRemote) return;
     for (const ch of voiceChannels) {
-      for (const id of ch.userIds) userCache.queue(id);
+      // Gäste auslassen: für eine Gast-Kennung gibt es kein Profil zu laden,
+      // die Abfrage liefe ins Leere und die Zeile bliebe auf „…" stehen.
+      for (const id of ch.userIds) if (!istGastKennung(id)) userCache.queue(id);
     }
   });
 </script>
@@ -213,8 +216,11 @@
           <!-- User im Channel -->
           <ul class="flex flex-col gap-1 pl-0.5">
             {#each ch.userIds as id (id)}
-              {@const avatarUrl = safeAvatarUrl(userCache.get(id)?.avatar_url)}
-              {@const display = userCache.displayName(id)}
+              {@const istGast = istGastKennung(id)}
+              {@const avatarUrl = istGast ? null : safeAvatarUrl(userCache.get(id)?.avatar_url)}
+              {@const display = istGast
+                ? voicePresence.gastName(ch.id, id)
+                : userCache.displayName(id)}
               {@const isLive = liveSet.has(id)}
               {@const isCam = camSet.has(id)}
               {@const isParty = partySet.has(id)}
@@ -230,6 +236,11 @@
                   </Avatar.Fallback>
                 </Avatar.Root>
                 <span class="text-text-base truncate text-xs">{display}</span>
+                {#if istGast}
+                  <span class="text-amber-500 shrink-0 text-2xs uppercase">
+                    {m.gast_abzeichen()}
+                  </span>
+                {/if}
                 {#if isLive || isCam || isParty}
                   <!-- Statische Indikator-Pills (nicht klickbar): der Tooltip
                        verschwindet beim Verlassen des Icons, Klickziele darin
@@ -237,22 +248,25 @@
                        Stil identisch zur Member-Liste (VoiceChannelMembers). -->
                   <span class="ml-auto flex shrink-0 items-center gap-1">
                     {#if isParty}
-                      <span
-                        class="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-amber-400"
+                      <PresenceBadge
+                        kind="party"
+                        label="PARTY"
                         title={m.voice_channel_members_watch_party_hosting()}
-                      ><span class="size-1.5 rounded-full bg-amber-400"></span>PARTY</span>
+                      />
                     {/if}
                     {#if isLive}
-                      <span
-                        class="inline-flex items-center gap-1 rounded-md border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-red-400"
+                      <PresenceBadge
+                        kind="live"
+                        label="LIVE"
                         title={m.voice_channel_members_stream_sharing_screen()}
-                      ><span class="size-1.5 rounded-full bg-red-400"></span>LIVE</span>
+                      />
                     {/if}
                     {#if isCam}
-                      <span
-                        class="inline-flex items-center gap-1 rounded-md border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-cyan-400"
+                      <PresenceBadge
+                        kind="cam"
+                        label="CAM"
                         title={m.voice_channel_members_cam_on()}
-                      ><span class="size-1.5 rounded-full bg-cyan-400"></span>CAM</span>
+                      />
                     {/if}
                   </span>
                 {/if}

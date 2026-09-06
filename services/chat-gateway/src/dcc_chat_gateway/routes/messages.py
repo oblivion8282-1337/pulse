@@ -41,6 +41,7 @@ from dcc_chat_gateway.message_helpers import (
 )
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_TEXT,
+    LEGACY_READONLY_DETAIL,
     Message,
     MessageAttachment,
     MessageMention,
@@ -147,6 +148,20 @@ async def post_message(
     if kind == "guild" and ch.type != CHANNEL_TYPE_TEXT:
         # Voice channels reject text posts. DM channels are always text-only.
         raise HTTPException(404, detail="text channel not found")
+    if kind == "guild" and getattr(ch, "ablage", False):
+        # Mischzustand-Regel (Konzept §2a): Ablage-Kanaele sind serverblind.
+        # Klartext wird nicht stillschweigend akzeptiert — der Klient
+        # verschluesselt und konsolidiert selbst; der Server fuhrt nur
+        # Zustellung und Metadaten.
+        raise HTTPException(
+            403,
+            detail="ablage channel: content is end-to-end encrypted, not accepted here",
+        )
+    if kind == "guild" and getattr(ch, "legacy_readonly", False):
+        # Umstellung (Entwurf §9, Etappe E9): dieser Alt-Kanal ist eingefroren
+        # — Verlauf bleibt lesbar, neue Nachrichten nimmt nur noch ein
+        # Ablage-Kanal an. Begruendende Meldung statt nacktem 403, s. Aufgabe.
+        raise HTTPException(403, detail=LEGACY_READONLY_DETAIL)
     if kind == "dm":
         # Etappe 2 friend-gate: a DM send requires both sides to still be
         # friends with no block in either direction. Pre-existing rows from
@@ -565,6 +580,12 @@ async def delete_message(
             raise HTTPException(403, detail="not allowed to delete this message")
 
     msg.deleted_at = datetime.now(UTC)
+    # Gelöschte Nachricht löst ihren Pin — die Pin-Liste filtert zwar nach
+    # deleted_at, aber so bleibt der Zustand in der DB sauber (Limit-Zählung,
+    # erneutes Anpinnen nach einem hypothetischen Restore). Clients räumen
+    # ihre Pin-Liste im message_delete-Handler auf; ein extra pin_update-
+    # Event ist überflüssig.
+    msg.pinned_at = None
     # Moderator-deleted someone else's message (guild only — DMs 403 above for
     # non-authors). Self-deletes are not audited.
     if msg.author_id != current.id and kind != "dm":

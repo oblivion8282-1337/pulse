@@ -11,9 +11,16 @@
  * nur beim Login gesetzt → nach Ablauf/Neustart fehlt er, obwohl der User
  * eingeloggt ist. Bei 401 etabliert `renewSession()` (POST `/session/renew`
  * mit Bearer) einen frischen Cookie und der Request wird einmal wiederholt.
+ *
+ * Scheitert auch das — weil die JWT-Kette selbst tot ist (revoked/abgelaufen,
+ * Tokens von `doRefresh`/`renewSession` bereits gelöscht) — ist die Session
+ * endgültig vorbei: `cookieFetch` meldet den User dann über `auth.signOut()`
+ * ab. Ohne das bliebe `auth.user` als Zombie-Cache stehen und z. B. die
+ * 60-s-Admin-Polls (Anträge/Beschwerden) würden endlos 401 feuern.
  */
 
 import { AUTH_BASE, ApiError, getCloudBearer } from './client';
+import { clearTokens, loadTokens } from './storage';
 import { safeParse, extractDetail } from './parse';
 
 /**
@@ -33,6 +40,17 @@ export async function renewSession(): Promise<boolean> {
         credentials: 'include',
         headers: { Authorization: `Bearer ${bearer}` }
       });
+      if (resp.status === 401) {
+        // Der Server lehnt den frisch geholten Bearer ab (revoked/gesperrt) —
+        // dieselbe Konsequenz wie `doRefresh()` bei abgelehntem `/refresh`:
+        // Session definitiv tot, Tokens weg + Marker für den Login-Toast.
+        // Kein 403-Fall: der (Preemptive-)E-Mail-Gate-Bounce darf hier nicht
+        // ausgelöst werden.
+        clearTokens();
+        if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.setItem('pulse.session_expired', '1');
+        }
+      }
       return resp.ok;
     } catch {
       return false;
@@ -64,6 +82,18 @@ export async function cookieFetch<T>(
   // durchfallen (z.B. /me/profile, /admin/instances).
   if (resp.status === 401 && !retried) {
     if (await renewSession()) return cookieFetch<T>(path, opts, true);
+    // Auch der Renew scheitert UND die JWT-Tokens sind weg (entweder hat
+    // `doRefresh` sie bei definitiver Ablehnung bereits gelöscht, oder
+    // `renewSession` gerade oben) → die Cloud-Session ist endgültig tot.
+    // Statt den Zombie-Zustand weiter 401en zu lassen, sauber abmelden.
+    // Tokens noch da → transient (z. B. offline während des Renew), der
+    // nächste Tick versucht es erneut — die bewusste Gnadenfrist von
+    // `doRefresh`/`NetworkError` bleibt unangetastet.
+    if (typeof window !== 'undefined' && !loadTokens()) {
+      void import('$lib/stores/auth.svelte').then((m) => {
+        if (m.auth.user) m.auth.signOut();
+      });
+    }
   }
 
   if (resp.status === 204) return undefined as T;

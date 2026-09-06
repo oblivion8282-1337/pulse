@@ -55,6 +55,7 @@ export type ChatSettings = {
 };
 
 export type Permissions = {
+  channel_creation_policy: string;
   allow_guild_creation: boolean;
   allow_member_invites: boolean;
   /** Self-Host-only: Wenn true, können keine neuen Nutzer beitreten (auch nicht per Invite/öffentlicher Adresse). */

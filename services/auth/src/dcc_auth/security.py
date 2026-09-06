@@ -59,14 +59,6 @@ def _b64url_uint(value: int) -> str:
     return base64.urlsafe_b64encode(value.to_bytes(byte_len, "big")).rstrip(b"=").decode()
 
 
-@dataclass(frozen=True)
-class TokenPair:
-    access_token: str
-    refresh_token: str
-    refresh_jti: uuid.UUID
-    refresh_expires_at: int  # unix ts
-
-
 class JwtSigner:
     """Wraps an RS256 private key and signs Discord-clone JWTs."""
 
@@ -207,6 +199,49 @@ class JwtSigner:
             "exp": exp,
             "jti": str(jti),
             "typ": "refresh",
+        }
+        return self._sign(payload)
+
+    def issue_gast(
+        self,
+        *,
+        gast_id: str,
+        guild_id: str,
+        channel_id: str,
+        name: str,
+        ttl_s: int,
+    ) -> str:
+        """Gast-Ticket für einen Sprachkanal (``typ="gast"``).
+
+        Ein Gast hat KEIN Konto. Das Ticket ist seine ganze Identität und
+        gilt für **genau einen Kanal** — jede Route, die es annimmt,
+        vergleicht ``channel_id`` gegen den angefragten Kanal.
+
+        Warum auth-svc das ausstellt, obwohl es von Kanälen nichts weiß:
+        es ist der einzige Dienst mit dem RS256-Schlüssel, und dessen
+        JWKS ist das einzige Vertrauensverhältnis, das chat-gateway,
+        voice-signaling UND media-svc in BEIDEN Betriebsarten (Cloud wie
+        Self-Host) schon haben. Der Ed25519-Sitzungsschlüssel schiede aus:
+        in der Cloud liegt er allein im chat-gateway-Volume.
+
+        ``aud`` ist derselbe wie beim Access-Token — die Empfänger sind
+        dieselben Dienste. Getrennt werden die beiden über ``typ``, und
+        zwar fail-closed: der normale Weg (``decode(expected_type=
+        "access")``) weist ein Gast-Ticket ab, ohne dass hier etwas
+        dazugetan werden muss.
+        """
+        now = int(time.time())
+        payload: dict[str, Any] = {
+            "iss": self._settings.jwt_issuer,
+            "aud": self._settings.jwt_audience,
+            "sub": gast_id,
+            "guild_id": guild_id,
+            "channel_id": channel_id,
+            "name": name,
+            "iat": now,
+            "exp": now + ttl_s,
+            "jti": str(uuid.uuid4()),
+            "typ": "gast",
         }
         return self._sign(payload)
 

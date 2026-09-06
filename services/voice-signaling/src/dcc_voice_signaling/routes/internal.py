@@ -29,7 +29,11 @@ class InternalEvictIn(BaseModel):
         list[Annotated[str, Field(min_length=1, max_length=64, pattern=r"^\d+$")]],
         Field(max_length=100),
     ]
-    user_id: Annotated[str, Field(min_length=1, max_length=64, pattern=r"^\d+$")]
+    # Nutzer-ID oder Gast-Kennung (``gast-<id>``) — chat-gateway wirft über
+    # denselben Weg Mitglieder (Kick/Bann) und Gäste (Link-Entwertung) raus.
+    user_id: Annotated[
+        str, Field(min_length=1, max_length=64, pattern=r"^(gast-)?\d+$")
+    ]
 
 
 @router.post("/internal/evict-from-voice", status_code=204)

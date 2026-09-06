@@ -84,6 +84,29 @@ def _isolate_chat_settings():
     _TEST_SETTINGS.cloud_dm_attachments_enabled = False
     _TEST_SETTINGS.cloud_dropbox_enabled = False
     _TEST_SETTINGS.cloud_attachment_mime_prefixes = "image/"
+    # Private Gruppen (Etappe G1): derselbe Leak-Grund wie oben — Tests, die
+    # den Schalter oder die Mitgliederobergrenze fuer sich brauchen (s.
+    # test_private_gruppen.py), setzen sie ueber dasselbe Settings-Objekt
+    # direkt, nicht per monkeypatch.
+    _TEST_SETTINGS.private_groups_enabled = False
+    _TEST_SETTINGS.private_group_max_members = 50
+    # Geraete-Obergrenze: derselbe Leak-Grund, aber erst seit 2026-08-30
+    # sichtbar. ``test_schluessel.py`` setzt sie fuer die Verdraengungs-Tests
+    # direkt auf 2 und stellt sie nicht zurueck; das fiel nie auf, solange
+    # KEIN anderer Test Buendel anlegte. Seit die Kopplungs-Routen ein
+    # eingetragenes Geraet verlangen (Spec §3b), veroeffentlicht
+    # ``test_kopplung.py`` drei davon — und das dritte verdraengte bei
+    # geleaktem Limit das erste, mitten in einem Test ueber Rollen.
+    _TEST_SETTINGS.schluessel_max_buendel_je_konto = 20
+    # Anhang-Obergrenze (Design §11.3): derselbe Leak-Grund. Der Test, der
+    # belegt, dass die Grenze wirklich aus der EINSTELLUNG kommt
+    # (``test_postfach_anhaenge_laufwerk.py``), muss sie dafuer verstellen —
+    # und ohne diese Zeile trug er sie in jeden spaeteren Test derselben
+    # Sitzung weiter, wo dann jeder Upload mit 413 scheiterte. Genau der Fall,
+    # vor dem die Kommentare darueber warnen; er trat prompt beim ersten
+    # gemeinsamen Lauf zweier Anhang-Dateien in EINEM Prozess auf (unter
+    # ``-n 8`` lagen sie in verschiedenen Prozessen und es fiel nicht auf).
+    _TEST_SETTINGS.ablage_anhang_max_bytes = 25 * 1024 * 1024
 
     def _provider() -> chat_cfg.Settings:
         return _TEST_SETTINGS

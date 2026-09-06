@@ -26,6 +26,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy import select, update as sa_update
 
+from dcc_auth.browser_sessions import COOKIE_NAME
 from dcc_auth.db import SessionDep
 from dcc_auth.models import RefreshToken, User, UserSession
 from dcc_auth.routes import _get_current_user, _hash_ip
@@ -143,7 +144,7 @@ async def revoke_session(
         await revoke_session_of_token_fallback(
             session,
             rt,
-            keep_sid=parse_sid(request.cookies.get("pulse_session")),
+            keep_sid=parse_sid(request.cookies.get(COOKIE_NAME)),
             now=now,
         )
     await session.commit()
@@ -190,7 +191,7 @@ async def revoke_all_sessions(
     # "sign out everywhere else". Preserve the caller's own current cookie so
     # this request's device stays signed in. validate_session rejects any row
     # with revoked_at set, so the other cookies die immediately.
-    current_sid = request.cookies.get("pulse_session")
+    current_sid = request.cookies.get(COOKIE_NAME)
     keep_sid: str | None = None
     if current_sid:
         try:

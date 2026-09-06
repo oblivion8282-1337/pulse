@@ -20,14 +20,15 @@
    */
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
-  import SearchIcon from '@lucide/svelte/icons/search';
-  import XIcon from '@lucide/svelte/icons/x';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import BereichsKopf from './BereichsKopf.svelte';
+  import SuchPille from '$lib/components/SuchPille.svelte';
   import MobileChatsSuche from './MobileChatsSuche.svelte';
   import NeuesGespraechDialog from './NeuesGespraechDialog.svelte';
+  import MobileGruppenZeile from './MobileGruppenZeile.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
+  import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { presence } from '$lib/stores/presence.svelte';
   import { readState } from '$lib/stores/readState.svelte';
@@ -40,10 +41,17 @@
   import { m } from '$lib/paraglide/messages.js';
 
   let {
-    onSelect
+    onSelect,
+    onSelectGruppe
   }: {
     onSelect: (dm: DMChannel) => void;
+    /** Eine private Gruppe oeffnen (Etappe G). Fehlt der Rueckruf, kommen
+     *  keine Gruppen in die Liste — sie waeren sonst nicht antippbar. */
+    onSelectGruppe?: (gruppeId: string) => void;
   } = $props();
+
+  /** Gruppen erscheinen nur, wenn die Seite sie auch oeffnen kann. */
+  const gruppen = $derived(onSelectGruppe ? privateGruppen.list : []);
 
   let neuesGespraech = $state(false);
   let suche = $state('');
@@ -122,36 +130,13 @@
 
   <!-- Suchleiste: filtert die Gespräche lokal und durchsucht ab drei Zeichen
        die ganze DM-Historie serverseitig. -->
-  <div class="px-5 pb-5" data-testid="chats-search-wrap">
-    <label class="border-border bg-bg-input flex items-center gap-2 rounded-full border px-3 py-2">
-      <SearchIcon class="text-text-muted size-4 shrink-0" />
-      <input
-        type="text"
-        bind:value={suche}
-        placeholder={m.chats_search_placeholder()}
-        class="placeholder:text-text-muted min-w-0 flex-1 bg-transparent text-sm outline-none"
-        data-testid="chats-search-input"
-        aria-label={m.chats_search_placeholder()}
-      />
-      {#if suche}
-        <button
-          type="button"
-          onclick={() => (suche = '')}
-          class="text-text-muted hover:text-text-bright shrink-0"
-          data-testid="chats-search-clear"
-          aria-label={m.chats_search_clear()}
-        >
-          <XIcon class="size-4" />
-        </button>
-      {/if}
-    </label>
-  </div>
+  <SuchPille bind:value={suche} placeholder={m.chats_search_placeholder()} testid="chats" />
 
   <nav class="flex flex-1 flex-col gap-2 overflow-y-auto px-2.5 pb-3">
     {#if suchbegriff}
       <MobileChatsSuche {suchbegriff} roheEingabe={suche} {onSelect} />
     {:else}
-      {#if directMessages.list.length === 0}
+      {#if directMessages.list.length === 0 && gruppen.length === 0}
         <!-- Ein leerer Bildschirm ist eine Aufforderung, keine Stimmung. Das
              Motiv ist der Ping der Bildmarke — hier als das, was er bedeutet:
              es ist noch niemand da, ruf jemanden. -->
@@ -225,6 +210,13 @@
             {/if}
           </span>
         </button>
+      {/each}
+      <!-- Private Gruppen unter den Direktnachrichten, in derselben Liste
+           aber als eigener Block: die Sortierung der DMs nach Aktualitaet
+           soll eine Gruppe nicht dazwischenschieben, solange die Gruppenliste
+           keinen Vorschautext und keine Uhrzeit vom Server bekommt. -->
+      {#each gruppen as gruppe (gruppe.id)}
+        <MobileGruppenZeile {gruppe} onSelect={onSelectGruppe!} />
       {/each}
     {/if}
   </nav>

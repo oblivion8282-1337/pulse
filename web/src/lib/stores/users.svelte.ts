@@ -21,6 +21,12 @@ export type UserSummary = {
  *  ``PULSE_SYSTEM_USER_ID`` (0 — never a real snowflake). */
 export const SYSTEM_USER_ID = '0';
 
+/** Rückgabe von {@link UserCacheStore.displayName}, solange die ID weder im
+ *  Zwischenspeicher liegt noch als endgültig unauflösbar markiert ist.
+ *  Exportiert, damit Aufrufer den Ladezustand erkennen können, statt den
+ *  String `'…'` an mehreren Stellen nachzubilden. */
+export const UNRESOLVED_DISPLAY_NAME = '…';
+
 const PULSE_SYSTEM_PROFILE: UserSummary = {
   id: SYSTEM_USER_ID,
   username: 'pulse',
@@ -43,9 +49,11 @@ class UserCacheStore {
     return this.byId[id] ?? null;
   }
 
-  displayName(id: string): string {
-    const u = this.byId[id];
-    if (!u) return `…`;
+  /** Name aus dem Cache; ohne Cache-Eintrag (oder ohne ID, z. B. LiveKit-
+   *  Identity nicht parsbar) der `fallback` — sonst `…`. */
+  displayName(id: string | null | undefined, fallback?: string): string {
+    const u = id ? this.byId[id] : null;
+    if (!u) return fallback ?? UNRESOLVED_DISPLAY_NAME;
     return u.display_name ?? u.username;
   }
 
@@ -166,3 +174,12 @@ class UserCacheStore {
 }
 
 export const userCache = new UserCacheStore();
+
+/** „@Name" aus dem Cache — ohne Eintrag (oder ohne ID) der `…`+ID-Suffix.
+ *  Wortgleich in drei Admin-Listen gewesen (Audit-Log, AuditLogViewer,
+ *  ModQueue); hier ist die einzige Stelle, die das Cache-Layout kennt. */
+export function fmtUser(id: string | null): string {
+  if (!id) return '—';
+  const u = userCache.get(id);
+  return u ? `@${u.display_name ?? u.username}` : `…${id.slice(-6)}`;
+}

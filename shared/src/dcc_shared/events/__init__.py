@@ -14,6 +14,8 @@ this registry.
     - ``reaction_add``, ``reaction_remove``
     - ``stream_chat_message``, ``watch_chat_message``
     - ``watch_chat_reaction``
+    - ``postfach_neu`` (verschluesseltes Postfach, Etappe D — inhaltsloser
+      Weckruf, traegt Kanal + Anzahl, nie einen Umschlag)
 
 * ``user:events`` (direct-delivery to one user — wrapper adds
   ``_target_user_id`` for routing, stripped by listener):
@@ -77,6 +79,9 @@ from dcc_shared.events.chat import (
     MessageDeleteEvent,
     MessageEvent,
     MessageUpdateEvent,
+    PinUpdateData,
+    PinUpdateEvent,
+    PostfachNeuEvent,
     ReactionAddEvent,
     ReactionData,
     ReactionRemoveEvent,
@@ -87,10 +92,7 @@ from dcc_shared.events.chat import (
     WatchChatReactionData,
     WatchChatReactionEvent,
 )
-from dcc_shared.events.community import (
-    CommunityInviteReceivedEvent,
-    CommunityInviteRemovedEvent,
-)
+from dcc_shared.events.community import CommunityInviteReceivedEvent
 from dcc_shared.events.friends import (
     FriendRemovedEvent,
     FriendRequestAcceptedEvent,
@@ -166,6 +168,10 @@ EVENT_REGISTRY: dict[str, type[_EventBase]] = {
     "dm_bump": DmBumpEvent,
     # ---- ephemeral typing indicator
     "typing": TypingEvent,
+    # ---- pinned messages (chat-channel)
+    "pin_update": PinUpdateEvent,
+    # ---- Postfach-Weckruf (Etappe D, E2E-DM)
+    "postfach_neu": PostfachNeuEvent,
     # ---- direct-delivery (user:events)
     "mention_added": MentionAddedEvent,
     "application_decided": ApplicationDecidedEvent,
@@ -178,7 +184,6 @@ EVENT_REGISTRY: dict[str, type[_EventBase]] = {
     "user_unblocked": UserUnblockedEvent,
     # ---- community-invite broker (B-lite, cloud-only)
     "community_invite_received": CommunityInviteReceivedEvent,
-    "community_invite_removed": CommunityInviteRemovedEvent,
     # ---- guild lifecycle
     "channel_created": ChannelCreatedEvent,
     "channel_updated": ChannelUpdatedEvent,
@@ -227,7 +232,6 @@ __all__ = [
     "_EventBase",
     # community-invite broker
     "CommunityInviteReceivedEvent",
-    "CommunityInviteRemovedEvent",
     # chat
     "ChannelBumpEvent",
     "DmBumpEvent",
@@ -237,6 +241,9 @@ __all__ = [
     "MessageDeleteEvent",
     "MessageEvent",
     "MessageUpdateEvent",
+    "PinUpdateData",
+    "PinUpdateEvent",
+    "PostfachNeuEvent",
     "ReactionAddEvent",
     "ReactionData",
     "ReactionRemoveEvent",

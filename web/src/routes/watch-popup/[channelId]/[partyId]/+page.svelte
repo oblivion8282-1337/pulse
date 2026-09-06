@@ -56,7 +56,17 @@
     // that's the first moment we'd actually know whether the party exists. A
     // fixed timer raced the popup's cold-start (auth → connect → ready can
     // exceed any fixed grace) and closed the window before the still-alive
-    // party ever arrived. A short settle lets the seeded `watch_state` apply.
+    // party ever arrived.
+    //
+    // 600ms war dabei selbst noch zu knapp: das ist die Zeit NACH einem
+    // bereits abgeschlossenen `ready` — auf `localhost` unauffällig, über eine
+    // echte Leitung (langsamere Reaktivitäts-Weiterleitung, ein Reconnect
+    // mittendrin, ein grosser Ready-Frame) reisst das leicht, und das Popup
+    // schliesst sich selbst, obwohl die Party noch laeuft (2026-08-31
+    // gemeldet: Fenster geht kurz auf und schliesst sich sofort wieder).
+    // 3s deckt einen realistischen Kaltstart ab, ohne ein wirklich totes
+    // Popup lange offen zu lassen — das zeigt bis dahin ohnehin nur den
+    // Ladezustand.
     gateway
       .waitForReady()
       .then(() => {
@@ -65,7 +75,7 @@
           if (!cancelled && !watchPartyPresence.partyIn(channelId, partyId)) {
             closeThisWindow();
           }
-        }, 600);
+        }, 3000);
       })
       .catch(() => {
         /* never became ready — the layout's auth guard handles that path */

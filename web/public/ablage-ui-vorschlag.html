@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="de" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ablage UI — Vorschläge</title>
+<style>
+  :root {
+    --panel: rgba(255,255,255,0.045);
+    --panel-2: rgba(255,255,255,0.035);
+    --panel-solid: rgba(20,20,24,0.92);
+    --bg: #0a0a0c;
+    --fg: #f0f1f3;
+    --muted-fg: rgba(240,241,243,0.55);
+    --muted: rgba(255,255,255,0.05);
+    --border: rgba(255,255,255,0.08);
+    --primary: #3b82f6;
+    --accent: rgba(59,130,246,0.18);
+    --accent-soft: rgba(59,130,246,0.2);
+    --danger: #ef4444;
+    --success: #22c55e;
+    --warning: #eab308;
+    --radius: 8px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: 'Inter', 'Plus Jakarta Sans', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    padding: 24px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 4px; }
+  .untertitel { color: var(--muted-fg); margin-bottom: 24px; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 1px solid var(--border); padding-bottom: 0; flex-wrap: wrap; }
+  .tab {
+    padding: 8px 16px; border: none; background: transparent; color: var(--muted-fg);
+    cursor: pointer; font-size: 13px; border-bottom: 2px solid transparent;
+    font-family: inherit; transition: color .15s, border-color .15s;
+  }
+  .tab:hover { color: var(--fg); }
+  .tab.aktiv { color: var(--primary); border-bottom-color: var(--primary); }
+  .bildschirm { display: none; }
+  .bildschirm.aktiv { display: block; }
+
+  .karte {
+    background: var(--panel-solid);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .karte h2 { font-size: 1rem; font-weight: 600; margin-bottom: 4px; }
+  .karte .unterzeile { font-size: 12px; color: var(--muted-fg); margin-bottom: 16px; }
+
+  .anbieter-liste { display: flex; flex-direction: column; gap: 8px; }
+  .anbieter {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 12px 16px;
+    cursor: pointer; transition: border-color .15s, background .15s;
+  }
+  .anbieter:hover { border-color: var(--primary); background: var(--accent-soft); }
+  .anbieter .icon { font-size: 24px; width: 32px; text-align: center; }
+  .anbieter .name { font-weight: 600; }
+  .anbieter .beschreibung { font-size: 12px; color: var(--muted-fg); }
+  .anbieter .aktion { margin-left: auto; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 14px; border-radius: var(--radius);
+    border: none; cursor: pointer; font-size: 13px; font-family: inherit;
+    transition: background .15s;
+  }
+  .btn-primär { background: var(--primary); color: white; }
+  .btn-primär:hover { background: #2b6cc4; }
+  .btn-sekundär { background: var(--muted); color: var(--fg); border: 1px solid var(--border); }
+  .btn-sekundär:hover { background: rgba(255,255,255,0.1); }
+  .btn-geist { background: transparent; color: var(--muted-fg); }
+  .btn-geist:hover { color: var(--fg); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .typ-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+  .typ-btn {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 10px; border-radius: var(--radius); border: 1px solid var(--border);
+    background: var(--panel); color: var(--fg); cursor: pointer;
+    font-size: 13px; font-family: inherit; transition: all .15s;
+  }
+  .typ-btn:hover { border-color: var(--primary); }
+  .typ-btn.aktiv { background: var(--accent-soft); border-color: var(--primary); color: var(--primary); }
+  .typ-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .typ-btn:disabled:hover { border-color: var(--border); }
+
+  .feld-label { font-size: 11px; font-weight: 600; color: var(--muted-fg); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .eingabe {
+    width: 100%; padding: 8px 12px; border-radius: var(--radius);
+    border: 1px solid var(--border); background: var(--panel-2); color: var(--fg);
+    font-size: 14px; font-family: inherit; outline: none;
+  }
+  .eingabe:focus { border-color: var(--primary); }
+  .eingabe:disabled { opacity: 0.4; }
+
+  .dialog-hinweis {
+    font-size: 12px; color: var(--muted-fg);
+    padding: 10px 12px; background: var(--muted); border-radius: var(--radius);
+    margin-bottom: 12px; border-left: 3px solid var(--primary);
+  }
+
+  .datei-zeile {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; border-radius: var(--radius);
+    transition: background .1s; cursor: default;
+  }
+  .datei-zeile:hover { background: var(--muted); }
+  .datei-icon { font-size: 18px; width: 28px; text-align: center; flex-shrink: 0; }
+  .datei-name { font-weight: 500; }
+  .datei-meta { font-size: 11px; color: var(--muted-fg); }
+  .datei-aktionen { margin-left: auto; display: flex; gap: 4px; opacity: 0; transition: opacity .1s; }
+  .datei-zeile:hover .datei-aktionen { opacity: 1; }
+  .aktions-btn {
+    padding: 4px 8px; border-radius: 6px; border: none;
+    background: transparent; color: var(--muted-fg); cursor: pointer;
+    font-size: 14px; transition: all .1s;
+  }
+  .aktions-btn:hover { background: var(--muted); color: var(--fg); }
+
+  .festigung { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .festigung.grün { background: var(--success); }
+  .festigung.gelb { background: var(--warning); }
+
+  .dialog-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center; z-index: 100;
+  }
+  .dialog-box {
+    background: var(--panel-solid); border: 1px solid var(--border);
+    border-radius: 12px; padding: 24px; width: 420px; max-width: 90vw;
+  }
+  .dialog-box h3 { font-size: 1rem; font-weight: 600; margin-bottom: 4px; }
+  .dialog-box .dialog-unterzeile { font-size: 12px; color: var(--muted-fg); margin-bottom: 16px; }
+
+  .hinweis-karte {
+    padding: 12px; border-radius: var(--radius);
+    background: rgba(234, 179, 8, 0.08); border: 1px solid rgba(234, 179, 8, 0.2);
+    font-size: 12px; color: var(--muted-fg); margin-bottom: 16px;
+  }
+
+  .getrennt { height: 1px; background: var(--border); margin: 16px 0; }
+  .label { font-size: 11px; font-weight: 600; color: var(--muted-fg); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+  .zeile { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+  .zeile .name { font-weight: 500; }
+  .zeile .detail { font-size: 12px; color: var(--muted-fg); }
+  .zeile .aktion { margin-left: auto; }
+  .status-punkt { width: 8px; height: 8px; border-radius: 50%; }
+  .status-punkt.grün { background: var(--success); }
+  .schalter {
+    width: 36px; height: 20px; border-radius: 10px; background: var(--primary);
+    position: relative; cursor: pointer;
+  }
+  .schalter::after {
+    content: ''; position: absolute; top: 2px; right: 2px;
+    width: 16px; height: 16px; border-radius: 50%; background: white;
+  }
+</style>
+</head>
+<body>
+
+<h1>Ablage — UI-Vorschläge</h1>
+<p class="untertitel">Vier Bildschirme für die verschlüsselte Dateiablage auf dem eigenen Cloud-Laufwerk</p>
+
+<div class="tabs">
+  <button class="tab aktiv" onclick="zeigen('verbinden')">1 · Ablage verbinden</button>
+  <button class="tab" onclick="zeigen('erstellen')">2 · Kanal erstellen</button>
+  <button class="tab" onclick="zeigen('ansicht')">3 · Ablage-Ansicht</button>
+  <button class="tab" onclick="zeigen('einstellungen')">4 · Meine Ablagen</button>
+</div>
+
+<!-- ═══ Bildschirm 1: Ablage verbinden ═══ -->
+<div class="bildschirm aktiv" id="b-verbinden">
+  <div class="karte">
+    <h2>Ablage verbinden</h2>
+    <p class="unterzeile">Wähle, wo deine verschlüsselten Kanäle und Dateien liegen sollen. Der Pulse-Server sieht den Inhalt nie.</p>
+    <div class="anbieter-liste">
+      <div class="anbieter" onclick="this.style.borderColor='var(--primary)'; this.querySelector('.aktion').textContent='✓ Verbunden'">
+        <span class="icon">📦</span>
+        <div>
+          <div class="name">Dropbox</div>
+          <div class="beschreibung">Mit deinem Dropbox-Konto verbinden — App-Ordner, nur Pulse sieht ihn</div>
+        </div>
+        <span class="aktion btn btn-primär" style="margin-left:auto">Verbinden</span>
+      </div>
+      <div class="anbieter">
+        <span class="icon">☁️</span>
+        <div>
+          <div class="name">OneDrive</div>
+          <div class="beschreibung">Mit deinem Microsoft-Konto verbinden — versteckter App-Ordner</div>
+        </div>
+        <span class="aktion btn btn-sekundär" style="margin-left:auto">Verbinden</span>
+      </div>
+      <div class="anbieter">
+        <span class="icon">🔵</span>
+        <div>
+          <div class="name">Google Drive</div>
+          <div class="beschreibung">Nur app-erzeugte Dateien sichtbar — dein restliches Drive bleibt privat</div>
+        </div>
+        <span class="aktion btn btn-sekundär" style="margin-left:auto">Verbinden</span>
+      </div>
+      <div class="anbieter">
+        <span class="icon">🌐</span>
+        <div>
+          <div class="name">Nextcloud</div>
+          <div class="beschreibung">Server-Adresse und App-Passwort angeben</div>
+        </div>
+        <span class="aktion btn btn-sekundär" style="margin-left:auto">Verbinden</span>
+      </div>
+      <div class="anbieter">
+        <span class="icon">📁</span>
+        <div>
+          <div class="name">Sync-Ordner</div>
+          <div class="beschreibung">Ein lokaler Ordner — dein Dropbox-/Drive-/Nextcloud-Client trägt die Dateien hoch</div>
+        </div>
+        <span class="aktion btn btn-sekundär" style="margin-left:auto">Ordner wählen</span>
+      </div>
+      <div class="anbieter">
+        <span class="icon">🪣</span>
+        <div>
+          <div class="name">S3-kompatibel</div>
+          <div class="beschreibung">Hetzner, Wasabi, MinIO — Endpoint, Bucket und Schlüssel angeben</div>
+        </div>
+        <span class="aktion btn btn-sekundär" style="margin-left:auto">Verbinden</span>
+      </div>
+    </div>
+    <div class="getrennt"></div>
+    <div style="font-size: 12px; color: var(--muted-fg); display: flex; align-items: center; gap: 8px;">
+      <span>🔒</span>
+      <span>Deine Schlüssel verlassen dieses Gerät nie. Der Pulse-Server sieht weder deine Dateien noch deine Zugangsdaten.</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Bildschirm 2: Kanal erstellen ═══ -->
+<div class="bildschirm" id="b-erstellen">
+  <div class="dialog-overlay" style="position: relative; inset: auto; background: transparent;">
+    <div class="dialog-box" style="width: 100%;">
+      <h3>Kanal erstellen</h3>
+      <p class="dialog-unterzeile">In dieser Community: <strong>Meine Community</strong></p>
+
+      <div class="label">Kanaltyp</div>
+      <div class="typ-grid">
+        <button class="typ-btn aktiv" onclick="typWählen(this, 0)">
+          <span>#</span> Text
+        </button>
+        <button class="typ-btn" onclick="typWählen(this, 1)">
+          <span>🔊</span> Voice
+        </button>
+        <button class="typ-btn" onclick="typWählen(this, 2)">
+          <span>📁</span> Ablage
+        </button>
+      </div>
+
+      <div class="dialog-hinweis" id="ablage-hinweis" style="display:none;">
+        Ablage-Kanäle speichern alle Nachrichten und Dateien verschlüsselt auf
+        <strong>deinem</strong> Cloud-Laufwerk. Der Pulse-Server sieht den Inhalt nie.
+        Mitglieder entschlüsseln auf ihren Geräten mit ihren Schlüsseln.
+      </div>
+
+      <div class="label">Kanalname</div>
+      <input class="eingabe" placeholder="neuer-kanal" value="projekt-x">
+
+      <div class="label" style="margin-top: 12px;">Ablage</div>
+      <div class="zeile" style="padding: 8px 12px; background: var(--panel); border-radius: var(--radius); border: 1px solid var(--border);">
+        <span class="status-punkt grün"></span>
+        <span style="font-weight: 500;">Dropbox · pulse-probe</span>
+        <span class="detail" style="margin-left: auto;">/Apps/Pulse-Ablage-Dev</span>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 8px; margin-top: 12px;">
+        <div class="schalter" style="background: var(--success);"></div>
+        <span style="font-size: 13px;">☑ Verschlüsselt — nur Mitglieder können lesen</span>
+      </div>
+
+      <div class="getrennt"></div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px;">
+        <button class="btn btn-geist">Abbrechen</button>
+        <button class="btn btn-primär">Kanal erstellen</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Bildschirm 3: Ablage-Ansicht ═══ -->
+<div class="bildschirm" id="b-ansicht">
+  <div class="karte" style="padding: 0; overflow: hidden;">
+    <div style="padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px;">
+      <strong># projekt-x</strong>
+      <span class="detail" style="color: var(--muted-fg); font-size: 12px;">Ablage · Dropbox · verschlüsselt</span>
+      <div style="margin-left: auto; display: flex; gap: 8px;">
+        <button class="btn btn-sekundär" style="font-size: 12px; padding: 4px 10px;">🔍</button>
+        <button class="btn btn-primär" style="font-size: 12px; padding: 4px 12px;">⬆ Hochladen</button>
+      </div>
+    </div>
+
+    <div style="padding: 8px 16px;">
+      <div class="datei-zeile">
+        <span class="datei-icon">📄</span>
+        <div>
+          <div class="datei-name">projekt-brief.pdf</div>
+          <div class="datei-meta">2,4 MB · dev · vor 2 Min</div>
+        </div>
+        <span class="festigung grün" style="margin-left: auto;" title="Gefestigt — in der Ablage gesichert"></span>
+        <div class="datei-aktionen">
+          <button class="aktions-btn" title="Herunterladen">⬇</button>
+          <button class="aktions-btn" title="Löschen">🗑</button>
+        </div>
+      </div>
+      <div class="datei-zeile">
+        <span class="datei-icon">🖼️</span>
+        <div>
+          <div class="datei-name">foto-urlaub.png</div>
+          <div class="datei-meta">1,1 MB · dev · vor 5 Min</div>
+        </div>
+        <span class="festigung grün" style="margin-left: auto;" title="Gefestigt"></span>
+        <div class="datei-aktionen">
+          <button class="aktions-btn" title="Herunterladen">⬇</button>
+          <button class="aktions-btn" title="Löschen">🗑</button>
+        </div>
+      </div>
+      <div class="datei-zeile">
+        <span class="datei-icon">📊</span>
+        <div>
+          <div class="datei-name">budget-2026.xlsx</div>
+          <div class="datei-meta">890 KB · dev2 · vor 1 Std</div>
+        </div>
+        <span class="festigung gelb" style="margin-left: auto;" title="Wartet auf Festigung — dev2 ist noch nicht in der Ablage gesichert"></span>
+        <div class="datei-aktionen">
+          <button class="aktions-btn" title="Herunterladen">⬇</button>
+          <button class="aktions-btn" title="Löschen">🗑</button>
+        </div>
+      </div>
+      <div class="datei-zeile">
+        <span class="datei-icon">📝</span>
+        <div>
+          <div class="datei-name">notizen.md</div>
+          <div class="datei-meta">3 KB · dev2 · vor 2 Std</div>
+        </div>
+        <span class="festigung grün" style="margin-left: auto;" title="Gefestigt"></span>
+        <div class="datei-aktionen">
+          <button class="aktions-btn" title="Herunterladen">⬇</button>
+          <button class="aktions-btn" title="Löschen">🗑</button>
+        </div>
+      </div>
+    </div>
+
+    <div style="padding: 12px 16px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted-fg); display: flex; justify-content: space-between;">
+      <span>4 Dateien · 4,4 MB gesamt</span>
+      <span style="display: flex; align-items: center; gap: 6px;">
+        <span class="festigung grün"></span> Gefestigt
+        <span class="festigung gelb" style="margin-left: 8px;"></span> Wartet
+      </span>
+    </div>
+  </div>
+
+  <div class="karte" style="margin-top: 12px;">
+    <h2>Drag & Drop</h2>
+    <div style="border: 2px dashed var(--border); border-radius: var(--radius); padding: 32px; text-align: center; color: var(--muted-fg); margin-top: 8px;">
+      <div style="font-size: 32px; margin-bottom: 8px;">📁</div>
+      Dateien hierher ziehen zum Hochladen.<br>
+      Sie werden auf diesem Gerät verschlüsselt und in deine Ablage geschrieben.
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Bildschirm 4: Meine Ablagen ═══ -->
+<div class="bildschirm" id="b-einstellungen">
+  <div class="karte">
+    <h2>Meine Ablagen</h2>
+    <p class="unterzeile">Verbundene Cloud-Laufwerke für verschlüsselte Kanäle und Dateien.</p>
+
+    <div class="label">Verbundene Ablagen</div>
+    <div class="zeile" style="padding: 12px; background: var(--panel); border-radius: var(--radius); border: 1px solid var(--border); margin-bottom: 8px;">
+      <span class="icon" style="font-size: 20px;">📦</span>
+      <div>
+        <div class="name">Dropbox</div>
+        <div class="detail">/Apps/Pulse-Ablage-Dev · 4 Dateien · 4,4 MB</div>
+      </div>
+      <span class="status-punkt grün" style="margin-left: auto;" title="Verbunden"></span>
+      <span class="aktion btn btn-geist" style="font-size: 12px;">Trennen</span>
+    </div>
+    <div class="zeile" style="padding: 12px; background: var(--panel); border-radius: var(--radius); border: 1px solid var(--border); margin-bottom: 8px;">
+      <span class="icon" style="font-size: 20px;">📁</span>
+      <div>
+        <div class="name">Sync-Ordner</div>
+        <div class="detail">/home/dev/OneDrive/Pulse-Probe · 2 Dateien · 15 KB</div>
+      </div>
+      <span class="status-punkt grün" style="margin-left: auto;" title="Verbunden"></span>
+      <span class="aktion btn btn-geist" style="font-size: 12px;">Trennen</span>
+    </div>
+    <button class="btn btn-sekundär" style="font-size: 12px;">+ Ablage verbinden</button>
+  </div>
+
+  <div class="karte">
+    <h2>Geräte</h2>
+    <p class="unterzeile">Geräte mit Zugang zu deinen verschlüsselten Ablagen.</p>
+    <div class="zeile" style="padding: 8px 0; border-bottom: 1px solid var(--border);">
+      <span>💻 Pulse Desktop (dieses Gerät)</span>
+      <span class="status-punkt grün" style="margin-left: auto;"></span>
+      <span class="detail">aktiv</span>
+    </div>
+    <div class="zeile" style="padding: 8px 0; border-bottom: 1px solid var(--border);">
+      <span>📱 Pixel 8 · Pulse App</span>
+      <span class="status-punkt grün" style="margin-left: auto;"></span>
+      <span class="detail">vor 3 Tagen</span>
+    </div>
+    <div class="zeile" style="padding: 8px 0;">
+      <span>🌐 Chrome (gekoppelter Browser)</span>
+      <span class="status-punkt" style="margin-left: auto; background: var(--warning);"></span>
+      <span class="detail">vor 16 Tagen — läuft in 12 Tagen ab</span>
+      <span class="aktion btn btn-geist" style="font-size: 12px; margin-left: 8px;">Entfernen</span>
+    </div>
+  </div>
+
+  <div class="karte">
+    <h2>Sicherheits-Hinweise</h2>
+    <div style="font-size: 13px; color: var(--muted-fg); line-height: 1.7;">
+      <p>🔒 Deine Ablage-Schlüssel verlassen dieses Gerät nicht. Sie sind an dein Konto und dieses Gerät gebunden.</p>
+      <p style="margin-top: 8px;">🔑 Wenn du ein Gerät entfernst, verliert es den Zugang zu deinen Ablagen. Bereits entschlüsselte lokale Kopien bleiben auf dem Gerät.</p>
+      <p style="margin-top: 8px;">⚠️ Bestehende Kanäle bleiben beim Modus-Wechsel lesbar. Die Einstellung wirkt nur auf die Neuanlage.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+function zeigen(id) {
+  document.querySelectorAll('.bildschirm').forEach(b => b.classList.remove('aktiv'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('aktiv'));
+  document.getElementById('b-' + id).classList.add('aktiv');
+  event.target.classList.add('aktiv');
+}
+function typWählen(btn, nr) {
+  btn.parentElement.querySelectorAll('.typ-btn').forEach(b => b.classList.remove('aktiv'));
+  btn.classList.add('aktiv');
+  document.getElementById('ablage-hinweis').style.display = nr === 2 ? 'block' : 'none';
+}
+</script>
+
+</body>
+</html>

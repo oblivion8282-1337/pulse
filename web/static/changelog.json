@@ -2,6 +2,256 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-06.1",
+      "date": "2026-09-06",
+      "style": "Sachlich",
+      "title": "Gast-Besprechungen: Feinschliff, Sicherheit, eigene Server",
+      "intro": "Die Gast-Seite ist erwachsen geworden — und funktioniert jetzt auch auf eigenen Servern.",
+      "items": [
+        "Die Gast-Seite sieht aus wie Pulse: große Teilnehmer-Kacheln mit Sprech-Puls, LIVE- und CAM-Abzeichen, und an jeder Übertragung eine Steuerleiste mit Lautstärke und Vollbild. Mehrere Streams laufen nebeneinander — schaltet jemand einen zweiten Monitor dazu, öffnet sich dieser automatisch.",
+        "Mitglieder sind in der Besprechung mit Profilbild und Anzeigename sichtbar; das Stumm-Zeichen eines Gastes erscheint jetzt auch in der Kanalliste.",
+        "„Gast entfernen“ fragt nach: nur rauswerfen — oder den Link gleich mit entwerten. Rausgeworfene Gäste bleiben sicher draußen, und ihre laufende Übertragung wird sofort getrennt statt bis zum nächsten Neuverbinden weiterzulaufen.",
+        "Gast-Links bekommen ein Zeitfenster: gültig ab/bis frei wählbar (Vorlagen von einer Stunde bis sieben Tage). Ein Link vor Beginn sagt dem Gast ehrlich, dass die Besprechung noch nicht angefangen hat.",
+        "Eigene Server (Self-Host) laden Gäste jetzt vollständig ein: die Gast-Seite wird vom eigenen Server ausgeliefert, und gesperrte Instanzen lassen keine Gäste mehr herein.",
+        "Eine Sicherheitsrunde hat Nebentüren geschlossen: Moderatoren fremder Communities können Gäste nicht mehr rauswerfen, entwertete Links stellen keine heimlichen Tickets mehr aus, und die Ratenbremsen der Gast-Seiten sind nicht mehr per Kopf umgehbar."
+      ]
+    },
+    {
+      "id": "2026-09-04.3",
+      "date": "2026-09-04",
+      "style": "Sachlich",
+      "title": "Gäste ohne Konto in einen Sprachkanal einladen",
+      "intro": "Für Besprechungen mit Leuten ausserhalb der eigenen Community: Wer einen Sprachkanal verwalten darf, erzeugt dafür einen Link. Wer ihn öffnet, tippt einen Namen ein und ist im Gespräch — ohne Konto, ohne Anmeldung, ohne Installation.",
+      "items": [
+        "Rechtsklick auf einen Sprachkanal, „Gast-Links“: Link erzeugen, kopieren, verschicken. Er gilt standardmässig einen Tag und lässt sich jederzeit vorzeitig entwerten — laufende Gäste fliegen dabei sofort heraus.",
+        "Gäste hören und sprechen, können ihre Kamera einschalten und sehen zu — sowohl geteilte Bildschirme als auch Übertragungen in hoher Qualität. Sie sehen nur diesen einen Kanal: keinen Chat, keine Kanalliste, keine anderen Räume.",
+        "In der Teilnehmerliste sind Gäste deutlich als Gast gekennzeichnet — ihr Name ist selbst eingetippt und von niemandem geprüft.",
+        "Wer einen Gast aus dem Sprachkanal entfernen darf, kann das wie bei einem Mitglied; mit demselben Zugang kommt er nicht zurück.",
+        "Der Link wird nur einmal angezeigt, direkt nach dem Erzeugen. Danach lässt er sich nicht mehr nachschlagen — auf dem Server liegt nur seine Prüfsumme."
+      ]
+    },
+    {
+      "id": "2026-09-04.2",
+      "date": "2026-09-04",
+      "style": "Sachlich",
+      "title": "Ansicht folgt dem Gerät, nicht der Fensterbreite",
+      "intro": "Die App kannte drei Ansichten — Desktop, Tablet und Mobil —, die allein an der Fensterbreite hingen: Wer am Rechner das Fenster verkleinerte, bekam plötzlich die Handy- oder Tablet-Anordnung, mit umgebauter Navigation und verschwundener Community-Leiste. Die Ansicht hängt jetzt am Gerät, nicht an der Fenstergröße.",
+      "items": [
+        "Am Rechner (Desktop-App wie Browser) bleibt die Desktop-Anordnung in jeder Fenstergröße — Community-Leiste, Spalten und Anordnung bleiben stehen, das Fenster wird einfach schmaler.",
+        "Handys zeigen weiterhin die mobile Ansicht, auch im Querformat. Tablets zeigen die Tablet-Anordnung mit Navigations-Spalte — durchgängig, nicht je nach Fensterbreite.",
+        "Der Einstellungen-Reiter „Layout“ erscheint nur noch bei mobiler Ansicht — er ordnet ausschließlich die mobile Navigationsleiste.",
+        "Audio- und Video-Anhänge in Direktnachrichten erschienen als winziges, abgeschnittenes Feld. Sie zeigen sich jetzt als vollwertiger Player in der Nachricht."
+      ]
+    },
+    {
+      "id": "2026-09-04",
+      "date": "2026-09-04",
+      "style": "Sachlich",
+      "title": "Chat bleibt beim Schreiben am Ende",
+      "intro": "Manchmal blieb die Nachrichtenliste oben stehen, neue Nachrichten landeten unsichtbar darunter, und nach unten kam man nur mit einem Neuladen. In anderen Fällen wanderte der Text beim Scrollen nach oben, ließ unten Leerraum und sprang dann zurück. Beides ist behoben.",
+      "items": [
+        "Die Liste hielt sich während ihres eigenen sanften Gleitens ans Ende fälschlich für vom Nutzer hochgescrollt. Kam in diesem Moment eine Nachricht oder lud ein Bild nach, folgte die Ansicht nicht mehr. Jetzt gilt nur noch eine echte Nutzeraktion als Hochscrollen: Mausrad, Finger, Tasten oder der Griff an die Scrollleiste.",
+        "Nachgemessen mit 40 Nachrichten im Sekundentakt: vorher stand die Ansicht ab der 19. Nachricht 650 Pixel über dem Ende, jetzt bleibt sie durchgehend unten."
+      ]
+    },
+    {
+      "id": "2026-09-03.9",
+      "date": "2026-09-03",
+      "style": "Sachlich",
+      "title": "Verschlüsselte Nachrichten verschwinden nicht mehr beim Hochscrollen",
+      "intro": "Auf Geräten mit gespeichertem Verlauf wurden verschlüsselte Direktnachrichten nach dem Hochscrollen und einem Neuladen als gelöscht angezeigt. Das ist behoben.",
+      "items": [
+        "Beim Nachladen älterer Nachrichten gleicht die App den lokalen Verlauf mit dem Server ab und hielt jede Nachricht, die der Server nicht kennt, für gelöscht. Verschlüsselte Nachrichten kennt der Server nie. Sie werden jetzt von diesem Abgleich ausgenommen.",
+        "Bereits fälschlich als gelöscht markierte Nachrichten lassen sich wiederherstellen; die Anleitung dazu kommt gesondert."
+      ]
+    },
+    {
+      "id": "2026-09-03.8",
+      "date": "2026-09-03",
+      "style": "Sachlich",
+      "title": "Nach einem Schlüsselwechsel finden beide Seiten wieder zueinander",
+      "intro": "Startet ein Gerät mit frischen Schlüsseln, hielten Absender an der alten Sitzung fest und der Server an den alten Einmalschlüsseln. Neue Nachrichten waren dann für das frische Gerät nicht lesbar. Beides zieht jetzt mit.",
+      "items": [
+        "Der Server verwirft die Einmalschlüssel eines Geräts, sobald es mit neuem Identitätsschlüssel erscheint, und das Gerät legt sofort frische nach.",
+        "Ein Absender merkt sich, für welchen Schlüssel seine Sitzung gilt, und baut sie neu auf, wenn die Gegenseite einen anderen zeigt."
+      ]
+    },
+    {
+      "id": "2026-09-03.7",
+      "date": "2026-09-03",
+      "style": "Sachlich",
+      "title": "Verschlüsselung nach dem Abmelden wieder funktionsfähig",
+      "intro": "Wer sich abgemeldet und wieder angemeldet hatte, blieb ohne funktionierende Verschlüsselung: Direktnachrichten kamen weder an noch ließen sie sich lesen, und jedes Neuladen scheiterte an derselben Stelle. Das ist behoben.",
+      "items": [
+        "Beim Abmelden wurde der Schlüssel zum Gerätezustand gelöscht, der Zustand selbst aber nicht. Beim nächsten Start versuchte die App, ihn mit einem Schlüssel zu öffnen, der nie dazu gehörte, und blieb an diesem Fehler hängen. Jetzt wird beim Abmelden beides gelöscht, und ein Zustand, der sich mit keinem vorhandenen Schlüssel öffnen lässt, wird verworfen. Das Gerät startet dann als frisches Gerät.",
+        "Betroffene Geräte heilen sich beim nächsten Neuladen von selbst. Nachrichten, die in der Zwischenzeit an das alte Gerät gingen, sind nicht mehr lesbar; alles ab jetzt kommt wieder an."
+      ]
+    },
+    {
+      "id": "2026-09-03.6",
+      "date": "2026-09-03",
+      "style": "Sachlich",
+      "title": "Verschlüsselte Direktnachrichten nach Neuanmeldung wieder lesbar",
+      "intro": "Nach einer Neuanmeldung konnten sich zwei Geräte gegenseitig nicht mehr lesen. Die Nachrichten kamen an, blieben aber unsichtbar, und zwar in beide Richtungen. Das ist behoben.",
+      "items": [
+        "Meldet sich ein Gerät neu an, baut es zur Gegenseite eine frische Sitzung auf. Die App hielt bisher an der alten Sitzung fest und ließ den Sitzungsaufbau ungeöffnet liegen. Jetzt öffnet sie ihn und ersetzt die alte Sitzung.",
+        "Kann ein Umschlag nicht geöffnet werden, steht der Grund jetzt in der Entwicklerkonsole, ohne Inhalt. Bisher verschwand er spurlos."
+      ]
+    },
+    {
+      "id": "2026-09-03.5",
+      "date": "2026-09-03",
+      "style": "Sachlich",
+      "title": "Direktnachrichten melden sich jetzt auch bei geschlossener Unterhaltung",
+      "intro": "Eine neue verschlüsselte Nachricht oder ein Anhang wurde nur bemerkt, wenn die Unterhaltung gerade geöffnet war. Wer woanders in der App war, sah bis zum Neuladen weder Zähler noch Hinweis. Das ist behoben.",
+      "items": [
+        "Der Server meldet neue verschlüsselte Nachrichten jetzt jedem Konto direkt, nicht nur dem geöffneten Kanal. Ungelesen-Zähler und Ton kommen damit sofort, egal wo man sich in der App befindet.",
+        "Das Archiv-Laufwerk trägt sich bei der Cloud von selbst nach, wenn es dort noch nicht bekannt ist. Wer sein Archiv mit aktivem eigenen Server eingerichtet hatte, muss nichts erneut speichern."
+      ]
+    },
+    {
+      "id": "2026-09-03.4",
+      "date": "2026-09-03",
+      "style": "Sachlich",
+      "title": "Anhänge in Direktnachrichten kommen wieder sofort an",
+      "intro": "War ein eigener Server (Self-Host) ausgewählt, blieb ein frisch empfangener verschlüsselter Anhang leer, bis die Seite neu geladen wurde. Das ist behoben.",
+      "items": [
+        "Die App holte den Anhang aus dem Archiv-Laufwerk beim gerade aktiven Server ab statt bei der Cloud, an der das Konto und sein Archiv hängen. Jetzt geht jeder Zugriff auf das Archiv an die Cloud, unabhängig davon, welcher Server in der Seitenleiste aktiv ist."
+      ]
+    },
+    {
+      "id": "2026-09-03.3",
+      "date": "2026-09-03",
+      "style": "Sachlich",
+      "title": "Bildschirmübertragung: Standbild nach Netzstörung heilt schneller",
+      "intro": "Bricht auf der Leitung des Senders kurz etwas weg, konnte das Bild beim Zuschauer bis zu einer Minute stehen bleiben, obwohl die Verbindung stand. Der Server bemerkt so einen Ausfall jetzt selbst und fordert sofort ein neues Vollbild an.",
+      "items": [
+        "Der Streaming-Server erkennt, wenn ihm nach einem Paketverlust ein ganzes Bild fehlt, und bittet den Sender umgehend um ein Vollbild. Bisher musste das der Browser des Zuschauers bemerken, und der konnte es nicht, weil der Strom für ihn lückenlos aussah.",
+        "Nachgelieferte Pakete bekommen am Server mehr Zeit anzukommen, bevor ein Bild verworfen wird.",
+        "Das Diagnose-Protokoll der Desktop-App hält jetzt einen ganzen Abend Übertragung vor statt rund 40 Minuten, damit ein gemeldeter Fehler beim Nachsehen noch im Protokoll steht."
+      ],
+      "outro": "Die Server-Änderung wird mit dem nächsten Streaming-Server-Update aktiv."
+    },
+    {
+      "id": "2026-09-03.2",
+      "date": "2026-09-03",
+      "style": "Sachlich",
+      "title": "Direktnachrichten kommen wieder sofort an",
+      "intro": "War gerade ein eigener Server (Self-Host) ausgewählt, erschienen neue verschlüsselte Direktnachrichten erst nach einem Neuladen der Seite. Das ist behoben.",
+      "items": [
+        "Verschlüsselte Direktnachrichten und Gruppennachrichten erscheinen jetzt auch dann sofort, wenn in der Seitenleiste ein eigener Server aktiv ist. Bisher ging der Weckruf der Cloud in diesem Fall verloren.",
+        "Einladungskarten zu eigenen Servern zeigen jetzt „ungültig oder abgelaufen“, wenn der Server den Code nicht mehr kennt. Bisher blieben solche Karten dauerhaft anklickbar.",
+        "Ein Nachholen verpasster Nachrichten fragte bei aktivem eigenem Server den falschen Server. Das lief ins Leere und ist korrigiert."
+      ]
+    },
+    {
+      "id": "2026-09-03.1",
+      "date": "2026-09-03",
+      "style": "Sachlich",
+      "title": "Private Gruppen freigeschaltet",
+      "intro": "Die verschlüsselten Gruppen konnten auf dem Server bislang nicht benutzt werden — der Schalter dafür stand noch auf aus. Das ist nachgeholt.",
+      "items": [
+        "Private Gruppen lassen sich jetzt anlegen, betreten und lesen — Ende-zu-Ende-verschlüsselt wie Direktnachrichten, ohne Umweg über den Server.",
+        "Endet eine Anmeldung wirklich — etwa nach Ablauf oder Sperrung —, meldet Pulse jetzt sauber ab und zeigt beim nächsten Start einen kurzen Hinweis. Bisher konnte die App in einem toten Zustand weiterlaufen und Anforderungen im Hintergrund stumm wiederholen."
+      ]
+    },
+    {
+      "id": "2026-09-02.1",
+      "date": "2026-09-02",
+      "style": "Sachlich",
+      "title": "Anhänge — für alle, mit Vorhalt",
+      "intro": "Die Büroklammer ist zurück in verschlüsselten Direktnachrichten. Diesmal ohne Voraussetzungen.",
+      "items": [
+        "Anhänge senden und empfangen funktioniert wieder für jeden — es muss kein Cloud-Laufwerk mehr verbunden sein. Das Bild, das Video, die Datei: verschlüsselt wird auf deinem Gerät, abgelegt wird der Ciphertext auf dem Pulse-Server.",
+        "Der Server hält einen Anhang 15 Tage als Vorhalt. In dieser Zeit kann jedes deine Geräte ihn abholen; danach ist er dort gelöscht. Wer ihn geöffnet hat, behält seine lokale Kopie.",
+        "Hast du die Sicherung mit deinem eigenen Cloud-Laufwerk aktiviert, liegt der Anhang zusätzlich dauerhaft in deinem Archiv — von deinem Rechner aus hochgeladen, verschlüsselt, genau wie deine Textnachrichten. Nur der Absender schreibt ihn dort hinein, deshalb gibt es keine Doppel.",
+        "Je Anhang sind jetzt 5 MB möglich. Grössere Dateien weist Pulse vor dem Hochladen ab.",
+        "Bilder lassen sich über die Vollbild-Ansicht direkt speichern. Andere Dateien hatten den Herunterladen-Weg bereits.",
+        "Löschen funktioniert jetzt auch in verschlüsselten Gesprächen. Die Nachricht verschwindet auf deinen Geräten, bei der Gegenseite und im Archiv; zugehörige Anhang-Dateien räumt Pulse aus deinem Cloud-Laufwerk mit.",
+        "Die Sicherung kennt ein drittes Ziel: Nextcloud. Verbunden wird über einen Freigabe-Link mit Schreibrecht, ohne Anmeldung bei einem Anbieter."
+      ],
+      "outro": "Neu auch: öffnest du Pulse auf einem frischen Gerät, weist ein Hinweis mit einem Klick direkt in die Sicherung — dort holst du deinen Verlauf aus deinem Archiv."
+    },
+    {
+      "id": "2026-09-01.2",
+      "date": "2026-09-01",
+      "style": "Sachlich",
+      "title": "Anhänge liegen künftig in deinem eigenen Speicher",
+      "intro": "Ein Bild in einem verschlüsselten Gespräch war bisher schnell wieder weg. Das ändert sich.",
+      "items": [
+        "Bisher hat Pulse den Anhang gelöscht, sobald ihn alle Geräte abgeholt hatten — oft nach wenigen Minuten. Wer ihn nie geöffnet hatte, hatte ihn verloren.",
+        "Jetzt legt Pulse dieselbe verschlüsselte Datei in das Cloud-Laufwerk jedes Beteiligten und gibt die eigene Kopie frei. Öffnen kannst du sie danach jederzeit, auch in Wochen — sie liegt in deinem Speicher.",
+        "Lesen kann sie dort niemand ausser den Beteiligten. Auch nicht dein Cloud-Anbieter und auch nicht Pulse: verschlüsselt wird auf deinem Gerät, und der Dateiname steht ebenfalls nur in der verschlüsselten Nachricht.",
+        "Dafür braucht jeder Beteiligte ein verbundenes Laufwerk. Fehlt eines, erscheint die Büroklammer gar nicht erst, und darüber steht, an wem es liegt. Textnachrichten funktionieren unverändert weiter.",
+        "Trennst du dein Laufwerk in den Einstellungen, meldet Pulse es jetzt auch beim Server ab und schreibt nichts mehr dorthin. Was schon in deiner Cloud liegt, bleibt dort liegen — aufräumen kannst nur du selbst.",
+        "Je Datei sind 25 MB möglich. Zu grosse Dateien sagt Pulse dir vor dem Hochladen, nicht danach."
+      ],
+      "outro": "Aufräumen im eigenen Cloud-Speicher kommt in einem späteren Schritt."
+    },
+    {
+      "id": "2026-09-01.1",
+      "date": "2026-09-01",
+      "style": "Sachlich",
+      "title": "Eigener Speicher — verbinden, sichern, mitnehmen",
+      "intro": "Pulse kann deine Daten verschlüsselt auf deinem eigenen Cloud-Speicher ablegen. Der Bereich dafür ist da, samt Sicherheitsnetz.",
+      "items": [
+        "In den Einstellungen gibt es den neuen Bereich „Speicher\". Dort verbindest du ein Laufwerk — Google Drive, Nextcloud oder Dropbox — und siehst, wie es ihm geht.",
+        "Nextcloud verbindest du mit einem Freigabe-Link: in Nextcloud eine Freigabe mit Schreibrecht anlegen, Link einfügen, fertig. Kein App-Passwort, und zurückziehen kannst du ihn dort mit einem Klick.",
+        "Beim Verbinden wird das Laufwerk sofort geprüft: einmal schreiben, lesen, vergleichen, löschen. Kann es das nicht, erfährst du es hier und nicht erst, wenn etwas fehlt.",
+        "Eine abgelaufene Anmeldung beim Cloud-Anbieter erneuert sich von selbst. Bisher endete die Verbindung dabei stillschweigend.",
+        "Neu ist ein Wiederherstellungs-Code. Er wird einmal angezeigt, und du solltest ihn aufschreiben: Ohne ihn ist dein Archiv nach dem Verlust aller Geräte endgültig unlesbar — auch für uns. Mit ihm kommt ein neues Gerät an dieselben Daten.",
+        "Ein Knopf „Alles lesbar exportieren\" gibt dein Archiv als gewöhnliche Text- und Anhangdateien heraus. Was dabei fehlt, steht in einer Übersicht statt still zu verschwinden."
+      ],
+      "outro": "Die verschlüsselten Kanäle, die diesen Speicher nutzen, sind gebaut und werden nach weiteren Tests freigeschaltet."
+    },
+    {
+      "id": "2026-09-01",
+      "date": "2026-09-01",
+      "style": "Sachlich",
+      "title": "Angepinnte Nachrichten",
+      "intro": "Wichtige Nachrichten bleiben im Blick.",
+      "items": [
+        "Moderatoren können Nachrichten in einem Kanal anpinnen und wieder lösen. In privaten Gesprächen geht das für beide Seiten. Der Menüpunkt sitzt bei den Aktionen an der Nachricht.",
+        "Über die Nadel im Kanalkopf öffnet sich die Liste aller angepinnten Nachrichten des Kanals — ein Klick auf einen Eintrag springt zur Nachricht.",
+        "Angepinnte Nachrichten sind im Verlauf an einer Nadel neben der Uhrzeit und einer dezenten Markierung zu erkennen.",
+        "Pro Kanal sind bis zu 50 Nachrichten angepinnt. Wird eine angepinnte Nachricht gelöscht, verschwindet sie auch aus der Liste.",
+        "Für Betreiber eigener Server: Das Update enthält eine Datenbankänderung, die beim Start automatisch angewendet wird."
+      ]
+    },
+    {
+      "id": "2026-08-31.3",
+      "date": "2026-08-31",
+      "style": "Sachlich",
+      "title": "Ausgekoppeltes Watch-Party-Fenster",
+      "items": [
+        "Das eigene Fenster für eine Watch-Party ging manchmal kurz auf und direkt wieder zu, obwohl die Party lief. Eine zu knappe Wartezeit hielt eine noch aufbauende Verbindung fälschlich für eine nicht mehr existierende Party. Das Fenster wartet jetzt länger, bevor es sich von selbst schließt."
+      ]
+    },
+    {
+      "id": "2026-08-31.2",
+      "date": "2026-08-31",
+      "style": "Sachlich",
+      "title": "Kamera und Bildschirmfreigabe im Sprachkanal",
+      "intro": "Zwei Kleinigkeiten bei der Wiedergabe.",
+      "items": [
+        "Das Bild einer eingeschalteten Kamera passte sich nicht an die Größe der Kachel an, sondern blieb bei seiner Ursprungsgröße. Es skaliert jetzt sauber mit.",
+        "Auf einem eigenen Server stand über der Kamera- oder Bildschirmfreigabe-Kachel manchmal nur „user“ mit einer Zahl statt des richtigen Namens. Der Name kommt jetzt zuverlässig."
+      ]
+    },
+    {
+      "id": "2026-08-31",
+      "date": "2026-08-31",
+      "style": "Sachlich",
+      "title": "Eigene Server auf dem Handy",
+      "intro": "Zwei Wege, die es auf dem Rechner schon gab, fehlten am Telefon.",
+      "items": [
+        "Im Räume-Bereich lässt sich jetzt auch am Handy einem Server über seine Adresse beitreten (Menü oben rechts oder im leeren Zustand). Bisher war das nur am Rechner möglich.",
+        "Eine Community auf einem eigenen Server, dem man schon beigetreten war, ließ sich am Handy antippen, ohne dass etwas passierte. Sie öffnet jetzt zuverlässig.",
+        "Das Symbol einer Community auf einem eigenen Server wurde am Handy nicht angezeigt (weder im Räume-Bereich noch beim Entdecken) — es zeigte stattdessen die Anfangsbuchstaben. Beides zeigt jetzt das richtige Bild.",
+        "Derselbe Fehler bestand auch im Menü „Zu Server einladen“ (auf jeder Plattform, nicht nur am Handy) — behoben."
+      ]
+    },
+    {
       "id": "2026-08-28.4",
       "date": "2026-08-28",
       "style": "Sachlich",

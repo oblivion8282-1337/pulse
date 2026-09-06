@@ -5,6 +5,8 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { directMessages } from '$lib/stores/directMessages.svelte';
+  import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
+  import { m } from '$lib/paraglide/messages.js';
   import { userCache } from '$lib/stores/users.svelte';
   import { nameStyle } from '$lib/utils/nameColor';
   import { readState } from '$lib/stores/readState.svelte';
@@ -16,10 +18,14 @@
 
   let {
     activeDMId = null,
-    onSelect
+    onSelect,
+    onSelectGruppe
   }: {
     activeDMId?: string | null;
     onSelect: (dm: DMChannel) => void;
+    /** Eine private Gruppe oeffnen (Etappe G). Fehlt der Rueckruf, bleibt der
+     *  Abschnitt aus — die Liste behauptet dann nicht, es gaebe Gruppen. */
+    onSelectGruppe?: (gruppeId: string) => void;
   } = $props();
 
   const friendsActive = $derived(page.url.pathname.startsWith('/app/friends'));
@@ -38,6 +44,30 @@
   function displayName(dm: DMChannel): string {
     return userCache.displayName(dm.other_user_id);
   }
+
+  // Die zwei Zwillings-Knöpfe (Freunde/Einladungen) als Konfiguration —
+  // `mutedLabel` nur beim Einladungs-Knopf: sein Label graut aus, wenn
+  // nichts pending ist; beim Freunde-Knopf ist der Badge der einzige Hinweis.
+  const navButtons = $derived([
+    {
+      icon: UsersIcon,
+      href: '/app/friends',
+      label: m.nav_freunde(),
+      count: pendingCount,
+      active: friendsActive,
+      testid: 'sidebar-friends',
+      mutedLabel: false
+    },
+    {
+      icon: MailIcon,
+      href: '/app/invites',
+      label: m.nav_einladungen(),
+      count: invitesCount,
+      active: invitesActive,
+      testid: 'sidebar-invites',
+      mutedLabel: true
+    }
+  ]);
 </script>
 
 <aside
@@ -53,44 +83,27 @@
          damit direkt ueber dem gleichnamigen Knopf. Die zwei Eintraege
          beschriften sich selbst; die Trennlinie darunter grenzt sie von den
          Direktnachrichten ab. -->
-    <button
-      class="group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
-      data-active={friendsActive}
-      onclick={() => goto('/app/friends')}
-      data-testid="sidebar-friends-link"
-    >
-      <UsersIcon
-        class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary"
-      />
-      <span class="truncate">Freunde</span>
-      {#if pendingCount > 0}
-        <span
-          class="bg-rose-500 text-white ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-2xs font-semibold leading-none"
-          data-testid="sidebar-friends-badge"
-        >
-          {pendingCount}
-        </span>
-      {/if}
-    </button>
-    <button
-      class="group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
-      data-active={invitesActive}
-      onclick={() => goto('/app/invites')}
-      data-testid="sidebar-invites-link"
-    >
-      <MailIcon
-        class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary"
-      />
-      <span class="truncate {invitesCount === 0 ? 'text-text-muted' : ''}">Einladungen</span>
-      {#if invitesCount > 0}
-        <span
-          class="bg-rose-500 text-white ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-2xs font-semibold leading-none"
-          data-testid="sidebar-invites-badge"
-        >
-          {invitesCount}
-        </span>
-      {/if}
-    </button>
+    {#each navButtons as btn (btn.href)}
+      <button
+        class="group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
+        data-active={btn.active}
+        onclick={() => goto(btn.href)}
+        data-testid="{btn.testid}-link"
+      >
+        <btn.icon
+          class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary"
+        />
+        <span class="truncate {btn.mutedLabel && btn.count === 0 ? 'text-text-muted' : ''}">{btn.label}</span>
+        {#if btn.count > 0}
+          <span
+            class="bg-rose-500 text-white ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-2xs font-semibold leading-none"
+            data-testid="{btn.testid}-badge"
+          >
+            {btn.count}
+          </span>
+        {/if}
+      </button>
+    {/each}
 
     <div class="my-3 hairline bg-border" aria-hidden="true"></div>
     <p
@@ -148,6 +161,50 @@
         {/if}
       </button>
     {/each}
+
+    <!-- Private Gruppen (Etappe G). Eigener Abschnitt statt untergemischt:
+         `listed`/DM und Gruppe sind zwei Begriffe, und wer sie in EINE Liste
+         legt, muss sie an jeder Stelle danach wieder auseinandersortieren.
+         Der Abschnitt fehlt ganz, solange es keine Gruppe gibt — ein leerer
+         Titel waere eine Ankuendigung ohne Inhalt. -->
+    {#if onSelectGruppe && privateGruppen.list.length > 0}
+      <div class="my-3 hairline bg-border" aria-hidden="true"></div>
+      <p class="text-text-muted px-3 pb-1 text-2xs font-semibold uppercase tracking-wider">
+        {m.dm_list_gruppen_heading()}
+      </p>
+      {#each privateGruppen.list as gruppe (gruppe.id)}
+        {@const isUnread = activeDMId !== gruppe.id && readState.isUnread(gruppe.id)}
+        {@const unreadCount = activeDMId !== gruppe.id ? readState.getUnreadCount(gruppe.id) : 0}
+        <button
+          class="group flex w-full items-center gap-3 rounded-xl px-3 py-4 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
+          data-active={activeDMId === gruppe.id}
+          data-unread={isUnread}
+          onclick={() => onSelectGruppe(gruppe.id)}
+          data-testid={`gruppe-${gruppe.id}`}
+        >
+          <UsersIcon
+            class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary group-data-[unread=true]:text-text-bright"
+          />
+          <span class="truncate {isUnread ? 'font-semibold text-text-bright' : ''}">
+            {gruppe.name}
+          </span>
+          {#if unreadCount > 0}
+            <span
+              class="ml-auto inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-badge-count px-1 text-2xs font-bold leading-none text-white"
+              data-testid="gruppe-unread-pill"
+              data-unread-count={unreadCount}
+              aria-label="ungelesen"
+            >{unreadCount > 99 ? '99+' : unreadCount}</span>
+          {:else if isUnread}
+            <span
+              class="ml-auto size-2 shrink-0 rounded-full bg-badge-count"
+              data-testid="gruppe-unread-dot"
+              aria-label="ungelesen"
+            ></span>
+          {/if}
+        </button>
+      {/each}
+    {/if}
   </nav>
 
   <SidebarFooter />

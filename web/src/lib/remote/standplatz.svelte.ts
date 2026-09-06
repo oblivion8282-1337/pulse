@@ -33,7 +33,7 @@
  * fernaktivieren. Aufgelöst wird die Liste vom Gateway (dadurch werden Rollen
  * erstmals möglich, siehe unten), der das Ergebnis als Feld `freigabe` an
  * `remote_request` anhängt; **die Zustimmung selbst erteilt weiterhin dieses
- * Gerät** (`selbsttaetigRegel.ts`). Was am Gerät bleibt, ist der lokale
+ * Gerät** — alle drei Bedingungen fail-closed. Was am Gerät bleibt, ist der lokale
  * Hauptschalter `aktiv` — steht er auf „aus", stimmt der Rechner nie
  * selbsttätig zu, unabhängig davon, was der Server sagt. Ein Gerät, das offline
  * ist, stimmt weiterhin nie zu.
@@ -62,8 +62,8 @@
  * Geräts, den der Aufrufer beisteuert (`geraeteanbindung.ts`).
  */
 
+import { m } from '$lib/paraglide/messages.js';
 import { loadAll, saveAll } from '$lib/stream/persistence';
-import { selbsttaetig } from './selbsttaetigRegel';
 import { umziehenNoetig, serverBereitsUmgezogen } from './umzugRegel';
 import { freigaben } from '$lib/devices/freigaben.svelte';
 import { dedupliziertLaden } from '$lib/devices/ladeWaechter';
@@ -96,6 +96,28 @@ export function spanneMs(menge: number, einheit: Einheit): number {
   const faktor = einheit === 'wochen' ? 7 * 24 * stunde : einheit === 'tage' ? 24 * stunde : stunde;
   return Math.max(1, Math.round(menge)) * faktor;
 }
+
+/** Die Zahl, mit der `spanneMs` rechnet: ein geleertes Zahlenfeld liefert über
+ *  `bind:value` ein `null` — ungeklemmt würde daraus ein Ablauf in der
+ *  Vergangenheit. Klemmt die Oberfläche deshalb VOR dem Speichern, nicht erst
+ *  im Speicher. */
+export function klemmeMenge(menge: number): number {
+  return Number.isFinite(Number(menge)) && Number(menge) > 0 ? Number(menge) : 1;
+}
+
+/** Die Wahlen der Geltung/Einheit für die Auswahloberflächen — bewusst die
+ *  label-Funktionen, damit die Beschriftung erst beim Rendern die aktuelle
+ *  Sprache trifft. Standen wortgleich in `DeviceFreigabenGeltung` und
+ *  `SettingsStandplatz`. */
+export const geltungen: { id: Geltung; label: () => string }[] = [
+  { id: 'befristet', label: m.standplatz_settings_duration_limited },
+  { id: 'dauerhaft', label: m.standplatz_settings_duration_permanent },
+];
+export const einheiten: { id: Einheit; label: () => string }[] = [
+  { id: 'stunden', label: m.standplatz_settings_unit_hours },
+  { id: 'tage', label: m.standplatz_settings_unit_days },
+  { id: 'wochen', label: m.standplatz_settings_unit_weeks },
+];
 
 /**
  * Ein einzeln Freigegebener.
@@ -209,7 +231,7 @@ function ausSpeicher(roh: unknown): Gespeichert {
     jeder: o.jeder === true,
     // Alte Stände: „acht_stunden" war befristet und trägt sein Ende in
     // `gueltigBis`; „neustart" verfällt ohnehin beim Laden (s. `laden`).
-    geltung: istGeltung(o.geltung) ? o.geltung : o.geltung === 'dauerhaft' ? 'dauerhaft' : 'befristet',
+    geltung: istGeltung(o.geltung) ? o.geltung : 'befristet',
     gueltigBis: typeof o.gueltigBis === 'number' && Number.isFinite(o.gueltigBis)
       ? o.gueltigBis
       : null,
@@ -462,11 +484,9 @@ class StandplatzFreigabe {
    * Server (`device_grants`); hier bleibt der Hauptschalter.
    */
   selbsttaetigZustimmen(freigabeVomServer: boolean): boolean {
-    return selbsttaetig({
-      geladen: this.geladen,
-      aktiv: this.aktiv,
-      freigabe: freigabeVomServer,
-    });
+    // Alle drei fail-closed (s. `umzugRegel.ts`-Muster): gespeicherter Stand
+    // gelesen, Hauptschalter am Gerät, deckende Dauerfreigabe vom Server.
+    return this.geladen && this.aktiv && freigabeVomServer;
   }
 
   /** Wie lange die Freigabe noch gilt (ms), `null` = ohne Ablauf, `0` = nicht

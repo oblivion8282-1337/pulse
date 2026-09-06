@@ -156,10 +156,12 @@ class ConnectionManager(
         # ``_ws_perms`` — plain dict, writers guard with ``ws in self._ws_user``.
         self._ws_guilds: dict[WebSocket, set[int]] = {}
         # Hebel A — broadcast-filter channel identity cache: cid → owning
-        # guild_id (>0), -1 for a DM (no overlay → passes unfiltered), 0 for a
-        # deleted/unknown id. Avoids a DB ``session.get(Channel)`` + DM fallback
-        # on every single fan-out. Invalidated alongside ``_ws_perms`` (channel
-        # delete / perm change). Plain dict — bounded by the channel count.
+        # guild_id (>0), -1 for a DM (no overlay → passes unfiltered), -2 for a
+        # private group (membership filter, Etappe G), 0 for a deleted/unknown
+        # id. Die Werte stehen als ``_KIND_*`` in ``pubsub_perm_filter.py``.
+        # Avoids a DB ``session.get(Channel)`` + fallbacks on every single
+        # fan-out. Invalidated alongside ``_ws_perms`` (channel delete / perm
+        # change). Plain dict — bounded by the channel count.
         self._channel_kind_cache: dict[int, int] = {}
         # Hebel B — resolved VIEW_CHANNEL member set per (guild, channel):
         # lets a burst of cold sockets (e.g. reconnect after a deploy) pay the
@@ -503,20 +505,46 @@ class ConnectionManager(
         key = f"voice:room:channel-{channel_id}"
         sk = f"voice:room:channel-{channel_id}:streaming"
         ck = f"voice:room:channel-{channel_id}:camera"
+        gk = f"voice:room:channel-{channel_id}:gast-stumm"
         # Issue all SMEMBERS in parallel rather than sequentially.
-        members, streamers, cameras = await asyncio.gather(
+        members, streamers, cameras, gast_stumm = await asyncio.gather(
             self._redis.smembers(key),
             self._redis.smembers(sk),
             self._redis.smembers(ck),
+            self._redis.smembers(gk),
         )
         user_ids = _decode_sorted(members)
         user_states = await self.user_voice_states_for(user_ids)
+        # Gäste haben keine Sitzung, deren Zustand man lesen könnte — ihr
+        # Stumm-Zustand hält voice-signaling im ``:gast-stumm``-Set bereit
+        # (LiveKit track_muted/unmuted-Webhooks) und kommt hier in dieselbe
+        # ``user_states``-Map wie bei Mitgliedern.
+        for gid in _decode_sorted(gast_stumm):
+            if gid in user_ids:
+                user_states[gid] = {"mic_muted": True, "deafened": False}
         return {
             "user_ids": user_ids,
             "streaming_user_ids": _decode_sorted(streamers),
             "camera_user_ids": _decode_sorted(cameras),
             "user_states": user_states,
+            # Gastnamen für den ready-Rahmen: wer nach einem Neuladen in einen
+            # Kanal blickt, in dem ein Gast sitzt, bekommt sonst nur dessen
+            # Kennung zu sehen — das Ereignis mit der Namenskarte kam vor
+            # seiner Verbindung.
+            "gast_namen": await self._gast_namen_fuer(user_ids),
         }
+
+    async def _gast_namen_fuer(self, user_ids: list[str]) -> dict[str, str]:
+        """Die Namen der Gäste unter ``user_ids`` (leer, wenn keine dabei)."""
+        from dcc_shared import gaeste as _gaeste  # noqa: PLC0415
+
+        kennungen = [u for u in user_ids if _gaeste.ist_gast(u)]
+        if not kennungen:
+            return {}
+        namen = await asyncio.gather(
+            *(_gaeste.gast_name(self._redis, k) for k in kennungen)
+        )
+        return {k: n for k, n in zip(kennungen, namen) if n}
 
     async def voice_states_for(self, channel_ids: list[str]) -> list[dict[str, Any]]:
         if not channel_ids:

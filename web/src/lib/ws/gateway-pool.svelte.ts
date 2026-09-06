@@ -56,10 +56,6 @@ class GatewayPool {
     this.#connections.clear();
   }
 
-  /** Debug/Test: gibt die aktiven Connection-IDs zurück. */
-  ids(): string[] {
-    return Array.from(this.#connections.keys());
-  }
 }
 
 export const gatewayPool = new GatewayPool();

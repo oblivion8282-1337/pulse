@@ -16,6 +16,7 @@
   re-render — kein eigener Timer nötig.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import PlayIcon from '@lucide/svelte/icons/play';
@@ -26,6 +27,7 @@
   import { ApiError } from '$lib/api/client';
   import { gsr } from '../gsr';
   import { stream, streamForSlot, markStopped } from '../state.svelte';
+  import { stopSlot } from '../slotControl.svelte';
   import {
     streamSettings,
     isAppAudioMode,
@@ -141,7 +143,7 @@
         toast.error(m.stream_controls_toast_start_failed(), { description: localError });
       }
     } catch (e) {
-      localError = e instanceof Error ? e.message : String(e);
+      localError = errText(e);
     } finally {
       busy = false;
     }
@@ -149,20 +151,15 @@
 
   async function onStop() {
     busy = true;
-    try {
-      // The backend is told the stream stopped centrally, when the sidecar
-      // emits its `stopped` event (see stream/state.svelte.ts) — that covers
-      // every stop path (this dialog button, the rocket toggle, the hotkey,
-      // a voice-channel switch), so there's nothing to notify here.
-      await gsr.stop(slot);
-      // Reconcile locally — a stop after a crash hits a fresh sidecar that
-      // emits no `stopped` event, so the UI would otherwise stay stuck "live".
-      markStopped(slot);
-    } catch (e) {
-      localError = e instanceof Error ? e.message : String(e);
-    } finally {
-      busy = false;
-    }
+    // The backend is told the stream stopped centrally, when the sidecar
+    // emits its `stopped` event (see stream/state.svelte.ts) — that covers
+    // every stop path (this dialog button, the rocket toggle, the hotkey,
+    // a voice-channel switch), so there's nothing to notify here. `stopSlot`
+    // macht gsr.stop + lokales Reconcile und schluckt den Fehler selbst —
+    // das `false` bleibt für die lokale Fehlerzeile.
+    const ok = await stopSlot(slot);
+    if (!ok) localError = m.stream_controls_error_stop_failed();
+    busy = false;
   }
 
   let displayError = $derived(localError ?? session.error);

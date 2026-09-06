@@ -27,7 +27,6 @@
   import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
   import { freigaben } from '$lib/devices/freigaben.svelte';
   import { mitNeuem } from '$lib/devices/freigabenBearbeitung';
-  import { merkenSichtbar } from '$lib/remote/merkenSichtbar';
 
   // Nicht bei selbsttätiger Zustimmung: die Dauerfreigabe des Standplatz-Geräts
   // hat die Frage schon beantwortet (`$lib/remote/standplatz.svelte.ts`). Die
@@ -66,10 +65,10 @@
   // Desktop-App (nur dort gibt es den Geräte-Speicher) UND nur, wenn dieser
   // Rechner auf dem gerade dispatchenden Server als Standplatz-Gerät
   // eingetragen ist — sonst gäbe es keine Server-Liste, in die der Haken
-  // schreiben könnte. Reine Regel in `merkenSichtbar.ts`.
+  // schreiben könnte.
   const desktop = isElectron();
   let eintragung = $derived(geraeteAnmeldung.fuerServer(remoteSession.serverId));
-  let zeigeMerken = $derived(merkenSichtbar({ desktop, hatEintragung: eintragung !== null }));
+  let zeigeMerken = $derived(desktop && eintragung !== null);
   let merken = $state(false);
 
   // Beim Wechsel der Anfrage zurücksetzen: das Kreuz gehört der Anfrage, vor

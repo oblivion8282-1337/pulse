@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Message } from '$lib/api/types';
   import CornerDownRightIcon from '@lucide/svelte/icons/corner-down-right';
+  import EyeOffIcon from '@lucide/svelte/icons/eye-off';
   import MessageActions from './MessageActions.svelte';
   import MessageActionSheet from './MessageActionSheet.svelte';
   import MessageAttachments from './MessageAttachments.svelte';
@@ -13,6 +14,8 @@
   import { detectEmbeds } from '$lib/embeds/providers';
   import { renderMessage } from './messageRender';
   import { m } from '$lib/paraglide/messages.js';
+  import { blocks } from '$lib/stores/blocks.svelte';
+  import { nachrichtVonBlockiertem } from '$lib/nachrichten/blockierteAnzeige';
 
   let {
     message,
@@ -25,6 +28,9 @@
     highlight = false,
     canEdit,
     canDelete,
+    /** Moderationsrecht (MANAGE_MESSAGES bzw. DM-Teilnehmer) — schaltet den
+     *  Pin-Menüpunkt frei; die Aktion selbst prüft der Server erneut. */
+    canPin = false,
     /** Ob der aktuelle User Nachrichten anderer melden darf (= nicht eigen). */
     canReport = false,
     /** Direktnachricht-Kontext: eine Meldung geht ans Betreiberteam statt an
@@ -48,6 +54,7 @@
     onEditSubmit,
     onDelete,
     onToggleReaction,
+    onTogglePin,
     onJumpToReply
   }: {
     message: Message;
@@ -60,6 +67,7 @@
     highlight?: boolean;
     canEdit: boolean;
     canDelete: boolean;
+    canPin?: boolean;
     canReport?: boolean;
     isDirect?: boolean;
     guildId?: string;
@@ -71,6 +79,7 @@
     onEditSubmit: (m: Message, newContent: string) => void;
     onDelete: (m: Message) => void;
     onToggleReaction: (m: Message, emoji: string, currentlyMine: boolean) => void;
+    onTogglePin?: (m: Message) => void;
     onJumpToReply?: (parentId: string) => void;
   } = $props();
 
@@ -106,6 +115,29 @@
   // so edit / delete / react would hit `/messages/tmp-…` and 4xx. Gate them
   // until the echo swaps in the persisted message.
   const isPending = $derived(message.id.startsWith('tmp-'));
+
+  // Eine verschluesselte DM hat keine `messages`-Zeile — `createOperatorReport`
+  // (nachrichtenbezogen) faende sie nicht (Bughunt 2026-08-28, Befund 2).
+  // Der Melden-Knopf bleibt trotzdem sichtbar (der Nutzer selbst ist meldbar),
+  // wechselt hier nur auf den Nutzer-Melden-Weg samt ehrlicher Erklaerung.
+  const meldungOhneNachricht = $derived(!!message.verschluesselt);
+
+  // Kompensation fuer den Server-Kommentar in `_postfach_deps.py`: Blockieren
+  // greift nur beim DM (dort kommt die Zustellung nie an) — in einer
+  // privaten Gruppe stellt der Server bewusst weiter zu, weil Wegblocken
+  // dort den Gruppenschluessel fuer alle veralten liesse. Die Anzeige haelt
+  // das Versprechen ein, nicht die Zustellung: zusammengeklappt statt
+  // spurlos ausgeblendet, weil eine verschwindende Nachricht einen
+  // Gespraechsfaden unverstaendlich macht (fehlende Antwort ohne Frage).
+  // Geltungsbereich (Bughunt 2026-08-29, Befund 1): NUR DMs und private
+  // Gruppen — `isDirect` (kein `guild_id`) trifft auf beide zu, denselben
+  // Unterschied nutzt schon die Sprechblasen-Huelle. Ein Community-Kanal
+  // kennt server-seitig ueberhaupt keine Blockade-Pruefung.
+  const blockierteIds = $derived(new Set(Object.keys(blocks.byId)));
+  const istBlockiert = $derived(
+    nachrichtVonBlockiertem(message.author_id, blockierteIds, isDirect)
+  );
+  let aufgeklappt = $state(false);
 
   // Link-Previews: erkenne unterstützte Provider-URLs (YouTube/Vimeo/Spotify)
   // im Inhalt und rendere darunter je eine Karte. Der Rohlink bleibt im Text
@@ -173,55 +205,75 @@
     canEdit: canEdit && !isPending,
     canDelete: canDelete && !isPending,
     canReport: canReport && !isPending,
+    canPin: canPin && !isPending,
+    pinned: !!message.pinned_at,
     onReply: () => onReply(message),
     onEdit: startEdit,
     onDelete: () => onDelete(message),
-    onReact: (e: string) => handleToggle(e, false),
-    onReport: () => (reportOpen = true)
+    // Reaktionen laufen im Klartext-Weg über den Server — für verschlüsselte
+    // Nachrichten gibt es sie (noch) nicht, also kein Reaktions-Eintrag.
+    onReact: message.verschluesselt ? undefined : (e: string) => handleToggle(e, false),
+    onReport: () => (reportOpen = true),
+    onTogglePin: onTogglePin ? () => onTogglePin(message) : undefined
   });
 </script>
 
 {#snippet body()}
-  {#if replyTo}
+  {#if istBlockiert && !aufgeklappt}
+    <!-- Zusammengeklappt statt entfernt: der Faden bleibt lesbar, der Inhalt
+         steht erst nach einem bewussten Klick da. -->
     <button
       type="button"
-      class="text-text-muted hover:text-text-bright mb-0.5 flex max-w-full items-center gap-1 text-xs"
-      onclick={() => onJumpToReply?.(replyTo!.id)}
-      data-testid="message-reply-quote"
+      class="text-text-muted hover:text-text-bright flex items-center gap-1.5 text-sm italic"
+      onclick={() => (aufgeklappt = true)}
+      data-testid="message-blockiert-hinweis"
     >
-      <CornerDownRightIcon class="size-3 shrink-0" />
-      <span class="font-semibold">{replyTo.author}</span>
-      <span class="text-text-muted/70 truncate">{replyTo.snippet}</span>
+      <EyeOffIcon class="size-3.5 shrink-0" />
+      <span>{m.message_item_blockiert_hinweis()}</span>
+      <span class="text-2xs not-italic underline">{m.message_item_blockiert_anzeigen()}</span>
     </button>
-  {/if}
-  {#if editing}
-    <textarea
-      bind:value={draft}
-      onkeydown={onEditKey}
-      rows="2"
-      class="text-text-bright w-full rounded-md border border-border bg-bg-input px-2 py-1 text-[15px] outline-none focus:border-primary"
-      data-testid="message-edit-input"
-    ></textarea>
-    <div class="text-text-muted mt-0.5 text-2xs">
-      {m.message_item_edit_hint()}
-    </div>
   {:else}
-    {#if message.content && !isInviteOnly}
-      <div class="text-text-base break-words text-[15px]" data-testid="message-content">
-        {@html html}
-        {#if isEdited}
-          <span class="text-text-muted text-2xs" title={message.edited_at ?? ''}>{m.message_item_edited_label()}</span>
-        {/if}
+    {#if replyTo}
+      <button
+        type="button"
+        class="text-text-muted hover:text-text-bright mb-0.5 flex max-w-full items-center gap-1 text-xs"
+        onclick={() => onJumpToReply?.(replyTo!.id)}
+        data-testid="message-reply-quote"
+      >
+        <CornerDownRightIcon class="size-3 shrink-0" />
+        <span class="font-semibold">{replyTo.author}</span>
+        <span class="text-text-muted/70 truncate">{replyTo.snippet}</span>
+      </button>
+    {/if}
+    {#if editing}
+      <textarea
+        bind:value={draft}
+        onkeydown={onEditKey}
+        rows="2"
+        class="text-text-bright w-full rounded-md border border-border bg-bg-input px-2 py-1 text-[15px] outline-none focus:border-primary"
+        data-testid="message-edit-input"
+      ></textarea>
+      <div class="text-text-muted mt-0.5 text-2xs">
+        {m.message_item_edit_hint()}
       </div>
+    {:else}
+      {#if message.content && !isInviteOnly}
+        <div class="text-text-base break-words text-[15px]" data-testid="message-content">
+          {@html html}
+          {#if isEdited}
+            <span class="text-text-muted text-2xs" title={message.edited_at ?? ''}>{m.message_item_edited_label()}</span>
+          {/if}
+        </div>
+      {/if}
+      {#if inviteCode}
+        <InviteEmbed code={inviteCode} host={inviteHost} />
+      {/if}
+      {#each linkEmbeds as embed (embed.url)}
+        <LinkEmbed url={embed.url} provider={embed.provider} />
+      {/each}
+      <MessageAttachments {attachments} />
+      <MessageReactions messageId={message.id} {reactions} onToggle={handleToggle} />
     {/if}
-    {#if inviteCode}
-      <InviteEmbed code={inviteCode} host={inviteHost} />
-    {/if}
-    {#each linkEmbeds as embed (embed.url)}
-      <LinkEmbed url={embed.url} provider={embed.provider} />
-    {/each}
-    <MessageAttachments {attachments} />
-    <MessageReactions messageId={message.id} {reactions} onToggle={handleToggle} />
   {/if}
 {/snippet}
 
@@ -266,8 +318,10 @@
 <MessageActionSheet bind:open={sheetOpen} {...aktionen} />
 
 <ReportMessageDialog
-  messageId={message.id}
+  messageId={meldungOhneNachricht ? undefined : message.id}
   userId={message.author_id}
+  kind={meldungOhneNachricht ? 'user' : 'message'}
+  verschluesseltHinweis={meldungOhneNachricht}
   toCloud={isDirect}
   bind:open={reportOpen}
   onClose={() => {

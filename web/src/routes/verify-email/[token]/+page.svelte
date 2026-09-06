@@ -11,7 +11,7 @@
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import MailCheckIcon from '@lucide/svelte/icons/mail-check';
   import Loader2Icon from '@lucide/svelte/icons/loader-2';
-  import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';
+  import AuthCard from '$lib/components/AuthCard.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
   type Status = 'pending' | 'ok' | 'error';
@@ -66,14 +66,11 @@
   }
 </script>
 
-<div class="flex min-h-dvh">
-  <AuthBrandPanel
-    headline={m.verify_email_brand_headline()}
-    description={m.verify_email_brand_description()}
-    features={[m.verify_email_feature_single_use(), m.verify_email_feature_expires(), m.verify_email_feature_protection()]}
-  />
-
-  <div class="flex flex-1 items-center justify-center p-4 md:flex-none md:basis-[46%]">
+<AuthCard
+  headline={m.verify_email_brand_headline()}
+  description={m.verify_email_brand_description()}
+  features={[m.verify_email_feature_single_use(), m.verify_email_feature_expires(), m.verify_email_feature_protection()]}
+>
     <div
       class="bg-card w-full max-w-md space-y-4 rounded-xl p-8 text-center shadow-2xl"
       data-testid="verify-email-card"
@@ -128,5 +125,4 @@
         {/if}
       {/if}
     </div>
-  </div>
-</div>
+</AuthCard>

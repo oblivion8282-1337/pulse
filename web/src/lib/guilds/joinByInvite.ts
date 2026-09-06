@@ -217,7 +217,7 @@ async function joinByPublicHandle(
  */
 export async function joinGuildByInvite(input: string, confirmed = false): Promise<void> {
   const parsed = parseJoinInput(input);
-  if (!input.trim()) throw new Error('Bitte einen Einladungslink, -code oder eine Community-Adresse eingeben.');
+  if (!input.trim()) throw new Error(m.einladung_beitritt_eingabe());
 
   if (parsed.kind === 'public') {
     return joinByPublicHandle(parsed.handle, parsed.host, confirmed);
@@ -232,7 +232,7 @@ export async function joinGuildByInvite(input: string, confirmed = false): Promi
 
   // --- Invite-Code-Pfad (unveränderte Logik) ---
   const { code, host } = parsed;
-  if (!code) throw new Error('Bitte einen Einladungslink, -code oder eine Community-Adresse eingeben.');
+  if (!code) throw new Error(m.einladung_beitritt_eingabe());
 
   if (host) {
     // Self-Host: HTTPS-Hostname normalisieren

@@ -526,3 +526,85 @@ async def _drain_one(pubsub, attempts: int = 50):
             return msg
         await asyncio.sleep(0.01)
     return None
+
+
+@pytest.mark.asyncio
+async def test_webhook_gast_kommt_mit_namen_in_die_praesenz(webhook_client, redis):
+    """Ein Gast steht in denselben Sets — mit Präfix und mit Namen.
+
+    Beides ist nötig und beides aus einem Grund: die Mitglieder-Oberfläche kann
+    für eine Gast-Kennung nirgendwo ein Profil nachschlagen. Ohne das Präfix
+    wäre sie von einer Nutzer-ID nicht zu unterscheiden (und die Oberfläche
+    liefe in einen Profil-Abruf, den es nicht gibt); ohne den Namen im Ereignis
+    stünde bei den Mitgliedern „gast-77" statt „Frau Meier".
+    """
+    from dcc_shared import gaeste
+
+    cid = str(abs(hash(uuid.uuid4())) & ((1 << 31) - 1))
+    room = f"channel-{cid}"
+    await redis.hset(gaeste.GAST_KEY.format(gast_id="gast-77"), mapping={"name": "Frau Meier"})
+    pubsub = redis.pubsub(ignore_subscribe_messages=True)
+    await pubsub.subscribe(VOICE_EVENTS_CHANNEL)
+    try:
+        body = _event_body("participant_joined", room, "gast-77")
+        r = await webhook_client.post(
+            "/webhook", content=body, headers={"Authorization": _sign(body)}
+        )
+        assert r.status_code == 204
+        assert {m.decode() for m in await redis.smembers(room_key(room))} == {"gast-77"}
+        decoded = json.loads((await _drain_one(pubsub))["data"])
+        assert decoded["user_ids"] == ["gast-77"]
+        assert decoded["gast_namen"] == {"gast-77": "Frau Meier"}
+    finally:
+        await pubsub.aclose()
+        await redis.delete(room_key(room))
+        await redis.delete(gaeste.GAST_KEY.format(gast_id="gast-77"))
+
+
+@pytest.mark.asyncio
+async def test_webhook_gast_ohne_namenseintrag_faellt_nicht_um(webhook_client, redis):
+    """Ein fehlender Name ist ein Schönheitsfehler, kein Fehler.
+
+    Er kommt vor: Redis war beim Beitritt gestört, oder das Ticket lief
+    zwischen Beitritt und Ereignis ab. Der Gast SITZT dann trotzdem im Kanal —
+    eine Präsenz, die ihn deshalb verschwiege, wäre falsch.
+    """
+    cid = str(abs(hash(uuid.uuid4())) & ((1 << 31) - 1))
+    room = f"channel-{cid}"
+    pubsub = redis.pubsub(ignore_subscribe_messages=True)
+    await pubsub.subscribe(VOICE_EVENTS_CHANNEL)
+    try:
+        body = _event_body("participant_joined", room, "gast-999")
+        await webhook_client.post(
+            "/webhook", content=body, headers={"Authorization": _sign(body)}
+        )
+        decoded = json.loads((await _drain_one(pubsub))["data"])
+        assert decoded["user_ids"] == ["gast-999"]
+        assert decoded["gast_namen"] == {}
+    finally:
+        await pubsub.aclose()
+        await redis.delete(room_key(room))
+
+
+
+@pytest.mark.asyncio
+async def test_webhook_gesperrter_gast_kommt_nicht_in_die_praesenz(webhook_client, redis):
+    """Ein gesperrter Gast, der mit seinem noch gültigen LiveKit-JWT neu
+    joint, taucht nicht wieder in der Präsenz auf — LiveKit hat keine
+    Sperrliste, deshalb wehrt sich der Webhook hier. Der LiveKit-Remove
+    selbst folgt im Reconcile-Sweep."""
+    from dcc_shared import gaeste
+    from dcc_voice_signaling.webhook import room_key
+
+    cid = str(abs(hash(uuid.uuid4())) & ((1 << 31) - 1))
+    room = f"channel-{cid}"
+    await gaeste.sperren(redis, "gast-900", ttl_s=600)
+    try:
+        body = _event_body("participant_joined", room, "gast-900")
+        r = await webhook_client.post(
+            "/webhook", content=body, headers={"Authorization": _sign(body)}
+        )
+        assert r.status_code == 204
+        assert await redis.scard(room_key(room)) == 0
+    finally:
+        await redis.delete(room_key(room), gaeste.GAST_SPERRE_KEY.format(gast_id="gast-900"))

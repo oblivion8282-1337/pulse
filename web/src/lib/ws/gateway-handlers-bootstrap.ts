@@ -35,6 +35,6 @@ export function bootstrapHandlersOnce(deps: HandlerBootstrapDeps): void {
       fireGuildDeleted: deps.fireGuildDeleted,
       fireVoiceDiff,
     },
-    { onReadySeeded: deps.onReadySeeded },
+    { onReadySeeded: deps.onReadySeeded, getSubs: deps.getSubs },
   );
 }

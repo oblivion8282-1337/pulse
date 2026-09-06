@@ -154,6 +154,30 @@ async function truncateDb(env: NodeJS.ProcessEnv) {
   });
 }
 
+/**
+ * Der Redis-Container (``dcc_night_redis``) wird mit dem lokalen pytest-Lauf
+ * geteilt (s. CLAUDE.md „Port-Mapping"). ``services/chat-gateway/tests/
+ * test_schluessel.py`` und ``test_postfach.py`` seeden dort — inzwischen mit
+ * eigenem Aufraeum-Fixture, s. dort — eine gefaelschte JWKS unter dem echten
+ * Cache-Key ``auth:jwks:cached`` (``jwks_pinning.py::REDIS_JWKS_KEY`` /
+ * ``credential_validator.py::REDIS_JWKS_KEY``), den der von dieser Suite
+ * gestartete chat-gateway fuers Cert-Pinning liest. Ohne diesen Reset wuerde
+ * ein Testlauf, der den Aufraeum-Schritt verpasst (alter Checkpoint, manuell
+ * unterbrochener pytest, ein weiterer Schreiber derselben Keys), jedes
+ * echte Zertifikat in dieser Suite mit 403 „Zertifikat ungueltig oder
+ * gesperrt" scheitern lassen — ein Fehlerbild, das wie ein Krypto-Bug aussieht
+ * und keiner ist. Race-frei, weil der Reset laeuft, BEVOR die E2E-Dienste
+ * unten gestartet werden und ihre eigene, echte JWKS hineinschreiben.
+ * ``auth:revoked:certs`` wird aus demselben Grund mitgenommen.
+ */
+function clearSharedAuthRedisCache(redisUrl: string): void {
+  const db = new URL(redisUrl).pathname.replace(/^\//, '') || '0';
+  execSync(
+    `${CONTAINER_EXEC} exec -i dcc_night_redis redis-cli -n ${db} DEL auth:jwks:cached auth:revoked:certs`,
+    { stdio: 'ignore' }
+  );
+}
+
 function ensureTestDb(postgresUser: string) {
   const cwd = resolve(__dirname, '../../..');
   // CREATE DATABASE has no IF NOT EXISTS — check first, then create.
@@ -343,6 +367,7 @@ export default async function globalSetup() {
   await applyMigrations(baseEnv, 'dcc-auth', resolve(ROOT, 'services/auth'));
   await applyMigrations(baseEnv, 'dcc-chat-gateway', resolve(ROOT, 'services/chat-gateway'));
   await truncateDb(baseEnv);
+  clearSharedAuthRedisCache(baseEnv.REDIS_URL);
 
   // Kill only previously-spawned test services (from the last run's pid file).
   // This cleans up stale test processes after a crash without touching the

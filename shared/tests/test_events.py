@@ -127,6 +127,15 @@ _PAYLOADS: dict[str, dict[str, Any]] = {
         "channel_id": "7",
         "user_id": "3",
     },
+    "pin_update": {
+        "op": "pin_update",
+        "data": {"message_id": "42", "channel_id": "7", "pinned": True},
+    },
+    "postfach_neu": {
+        "op": "postfach_neu",
+        "channel_id": "7",
+        "anzahl": 3,
+    },
     "mention_added": {
         "op": "mention_added",
         "data": {"channel_id": "6", "message_id": "1", "guild_id": "5"},
@@ -162,10 +171,6 @@ _PAYLOADS: dict[str, dict[str, Any]] = {
             "target_host": "pulse.firma.de",
             "code": "ABCD1234",
         },
-    },
-    "community_invite_removed": {
-        "op": "community_invite_removed",
-        "data": {"invite_id": "9"},
     },
     "channel_created": {"op": "channel_created", "channel": {"id": "6"}},
     "channel_updated": {"op": "channel_updated", "channel": {"id": "6"}},
@@ -412,6 +417,13 @@ def test_voice_state_snapshot_bare() -> None:
         "user_ids": ["3"],
         "streaming_user_ids": [],
         "camera_user_ids": [],
+        # Namenskarte fuer Gaeste (Besprechungslinks). Leer, solange keiner im
+        # Kanal sitzt — und genau darum steht sie hier: das Feld reist IMMER
+        # mit, damit der Empfaenger es nicht mal gibt und mal nicht.
+        "gast_namen": {},
+        # Stumme Gaeste (Präsenz-Kennungen). Derselbe Grund wie gast_namen:
+        # reist immer mit, damit die Envelope-Form stabil bleibt.
+        "gast_stumm": [],
     }
     assert "op" not in dumped
 

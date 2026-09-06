@@ -1,4 +1,5 @@
-"""Periodic cleanup of long-idle Web-Push subscriptions.
+"""Periodic cleanup of long-idle Web-Push subscriptions, and (since Etappe D,
+Task 4) the Postfach.
 
 ``push.py`` already removes a sub on a 404/410 response from the push
 provider (``pywebpush`` raises with the dead endpoint). What it does
@@ -17,6 +18,13 @@ The sweep below deletes a row when:
 
 Same pattern as ``routes.attachments.reaper_loop`` (sleep-driven asyncio
 loop, errors logged + swallowed, ``CancelledError`` re-raised).
+
+The Postfach sweep (``postfach_pflege.py::sweep_verfallene_zustellungen`` +
+``sweep_verwaiste_nutzlasten`` + ``sweep_verwaiste_anhaenge``), der
+Kopplungs-Lauf (``kopplung_pflege.py``) und der Geraete-Verfall
+(``schluessel_verfall.py::sweep_verfallene_geraete``) reiten auf DERSELBEN
+Schleife und demselben Takt — keine zweite Hintergrundaufgabe, s. ``_run_once``
+unten.
 """
 
 from __future__ import annotations
@@ -29,14 +37,28 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
+from dcc_chat_gateway.ablage_zwischenlager_pflege import sweep_alte_zwischenlager_dateien
 from dcc_chat_gateway.config import Settings
 from dcc_chat_gateway.models import WebPushSubscription
+from dcc_chat_gateway.kopplung_pflege import sweep_verfallene_kopplungen
+from dcc_chat_gateway.postfach_pflege import (
+    sweep_abgelaufene_anhaenge,
+    sweep_verfallene_zustellungen,
+    sweep_verwaiste_anhaenge,
+    sweep_verwaiste_nutzlasten,
+)
+from dcc_chat_gateway.schluessel_verfall import sweep_verfallene_geraete
 
 log = logging.getLogger(__name__)
 
 
 async def _run_once(engine: AsyncEngine, settings: Settings) -> int:
-    """Execute one sweep. Returns the number of rows deleted."""
+    """Execute one sweep. Returns the number of Web-Push rows deleted.
+
+    Der Rueckgabewert bleibt bewusst nur die Web-Push-Zahl (bestehende
+    Tests pruefen exakt darauf) — die Postfach-Zaehler gehen in ein
+    eigenes Log statt in den Rueckgabewert.
+    """
     cutoff = datetime.now(UTC) - timedelta(days=settings.push_subscription_idle_days)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as session:
@@ -52,6 +74,47 @@ async def _run_once(engine: AsyncEngine, settings: Settings) -> int:
         await session.commit()
     deleted = res.rowcount or 0
     log.info("push_subscription_cleanup_done deleted=%d", deleted)
+
+    async with session_factory() as session:
+        verfallen = await sweep_verfallene_zustellungen(session)
+        verwaist = await sweep_verwaiste_nutzlasten(session)
+        # Reihenfolge: erst die Nutzlasten, dann die Anhaenge. Ein Anhang
+        # gilt genau dann als verwaist, wenn seine letzte Nutzlast weg ist —
+        # umgekehrt liefe der Anhang-Lauf jedes Mal eine Runde hinterher.
+        anhaenge = await sweep_verwaiste_anhaenge(session)
+    log.info(
+        "postfach_pflege_done verfallen=%d verwaist=%d anhaenge=%d",
+        verfallen,
+        verwaist,
+        anhaenge,
+    )
+
+    async with session_factory() as session:
+        kopplungen = await sweep_verfallene_kopplungen(session)
+    log.info("kopplung_pflege_done verfallen=%d", kopplungen)
+
+    # Gekoppelte Browser, die seit ``geraete_verfall_tage`` niemand mehr
+    # geoeffnet hat (Spec §3a) — dieselbe Schleife, derselbe Takt wie oben.
+    async with session_factory() as session:
+        geraete = await sweep_verfallene_geraete(session)
+    log.info("geraete_verfall_done verfallen=%d", geraete)
+
+    # Zwischenlager-Klumpen, die zu lange auf Festigung warten (Etappe E8,
+    # Design §7) — dieselbe Schleife, derselbe Takt.
+    async with session_factory() as session:
+        zwischenlager = await sweep_alte_zwischenlager_dateien(
+            session, settings.ablage_zwischenlager_max_alter_tage
+        )
+    log.info("ablage_zwischenlager_pflege_done verfallen=%d", zwischenlager)
+
+    # Abgelaufene DM-Anhänge (Vorhaltezeit, Standard 15 Tage) — dieselbe
+    # Schleife, derselbe Takt.
+    async with session_factory() as session:
+        abgelaufen = await sweep_abgelaufene_anhaenge(
+            session, settings.postfach_anhang_vorhalte_tage
+        )
+    log.info("postfach_anhang_vorhalte_done abgelaufen=%d", abgelaufen)
+
     return deleted
 
 

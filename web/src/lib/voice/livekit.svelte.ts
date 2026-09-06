@@ -32,6 +32,8 @@ import { capabilities } from '$lib/stores/capabilities.svelte';
 import { effectiveNsLimits, effectiveVoiceBitrateMaxKbps } from '$lib/stream/guildLimits';
 import { clampNsResolution } from '$lib/settings-registry/sections/screenShare';
 import { AudioDevices } from './audioDevices.svelte';
+import { applySinkId } from '$lib/audio/applySinkId';
+import { ballistics, ClipHold, LEVEL_DECAY, PEAK_DECAY } from './meter';
 import { createSendProcessor, type SendProcessorHandle, type SendProcessorMode } from './noiseFilter';
 import { LocalMicAnalyser } from './localMicAnalyser';
 import { SpeakingDetector } from './speakingDetector';
@@ -237,8 +239,7 @@ class VoiceRoom {
     this.#onRemoteSpeakingChange(identity, speaking)
   );
   /** Clip-flag and timer for the send meter. */
-  #sendClipping = false;
-  #sendClipUntilMs = 0;
+  #sendClipHold = new ClipHold();
 
   /** Mic state captured at deafen-on so un-deafen can restore it. */
   #micEnabledBeforeDeafen = false;
@@ -416,12 +417,7 @@ class VoiceRoom {
 
     const room = new Room(this.#roomOptions());
     this.#room = room;
-    this.#audioEls.deafened = this.deafened;
-    this.#audioEls.outputDeviceId = this.#devices.selectedOutputId;
-    this.#audioEls.setUserVolumes(settings.voice.userVolumes);
-    this.#audioEls.setMasterVolume(settings.voice.outputVolume);
-    this.#audioEls.setLimiterEnabled(settings.audio.limiterEnabled);
-    void this.#audioEls.setSpatialMode(settings.audio.spatialMode);
+    this.#applyPlaybackSettings();
     // Vor room.connect() verdrahten, sonst gehen Handshake-Events verloren.
     // `.on()` dedupliziert nicht — genau einmal aufrufen.
     this.#wireEvents(room);
@@ -487,12 +483,7 @@ class VoiceRoom {
     this.#refreshParticipants();
     // Setter erneut anwenden (idempotent): die Settings können sich während des
     // connect-await geändert haben.
-    this.#audioEls.deafened = this.deafened;
-    this.#audioEls.outputDeviceId = this.#devices.selectedOutputId;
-    this.#audioEls.setUserVolumes(settings.voice.userVolumes);
-    this.#audioEls.setMasterVolume(settings.voice.outputVolume);
-    this.#audioEls.setLimiterEnabled(settings.audio.limiterEnabled);
-    void this.#audioEls.setSpatialMode(settings.audio.spatialMode);
+    this.#applyPlaybackSettings();
 
     // micEnabled synchron setzen (vor dem await) — sonst lesen Listener
     // (TraySync, Buttons) transient connected=true + micEnabled=false und das
@@ -532,8 +523,6 @@ class VoiceRoom {
         this.micEnabled = false;
         this.error = micErrorMessage(e);
       }
-    } else if (startMuted || this.pttMode) {
-      // Bewusst stumm: nichts zu publishen.
     }
     // Re-check again after setMicEnabled() — same risk of a concurrent connect
     // that replaced this.#room during the await.
@@ -1621,17 +1610,20 @@ class VoiceRoom {
     this.#bindLocalMeter();
   }
 
+  /** Playback-Setter erneut anwenden (idempotent) — nach dem Room-Bau und
+   *  nochmal nach dem connect-await, falls sich die Settings inzwischen
+   *  geändert haben. */
+  #applyPlaybackSettings(): void {
+    this.#audioEls.deafened = this.deafened;
+    this.#audioEls.outputDeviceId = this.#devices.selectedOutputId;
+    this.#audioEls.setUserVolumes(settings.voice.userVolumes);
+    this.#audioEls.setMasterVolume(settings.voice.outputVolume);
+    this.#audioEls.setLimiterEnabled(settings.audio.limiterEnabled);
+    void this.#audioEls.setSpatialMode(settings.audio.spatialMode);
+  }
+
   async #applyMonitorSink(): Promise<void> {
-    const el = this.#monitorEl as
-      | (HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> })
-      | null;
-    if (el?.setSinkId && this.#monitorOutputId) {
-      try {
-        await el.setSinkId(this.#monitorOutputId);
-      } catch {
-        /* unsupported — default sink */
-      }
-    }
+    if (this.#monitorEl) await applySinkId(this.#monitorEl, this.#monitorOutputId);
   }
 
   /** RAF-callback from the processor's internal post-gain AnalyserNode tap.
@@ -1657,41 +1649,13 @@ class VoiceRoom {
     this.#sendSpeakingDetector.feed(rms);
     // RMS bar (smooth) and peak-hold (slow decay) — same dBFS scale, different
     // decay; see #meterBallistics.
-    this.localSendLevel = this.#meterBallistics(rms, this.localSendLevel, 0.85);
-    this.localSendPeak = this.#meterBallistics(peak, this.localSendPeak, 0.97);
-    // Clip on raw peak amplitude > ~-1 dBFS. Read the clock only while a clip is
-    // active or starting — the common (quiet) frame skips the timestamp entirely.
-    if (peak >= 0.891 || this.#sendClipping) {
-      const now = performance.now();
-      if (peak >= 0.891) {
-        this.#sendClipUntilMs = now + 300;
-        if (!this.#sendClipping) {
-          this.#sendClipping = true;
-          this.localSendClip = true;
-        }
-      } else if (now >= this.#sendClipUntilMs) {
-        this.#sendClipping = false;
-        this.localSendClip = false;
-      }
-    }
+    this.localSendLevel = ballistics(rms, this.localSendLevel, LEVEL_DECAY);
+    this.localSendPeak = ballistics(peak, this.localSendPeak, PEAK_DECAY);
+    this.localSendClip = this.#sendClipHold.update(peak, performance.now());
   };
 
-  /** Peak-meter ballistics shared by the RMS bar and the peak-hold line:
-   *  instant attack (jump up), then exponential decay toward the new level by
-   *  `decayFactor` per frame. Maps the raw 0..1 amplitude onto a −50..−5 dBFS
-   *  bar (0..1) first. */
-  #meterBallistics(raw: number, current: number, decayFactor: number): number {
-    let level = 0;
-    if (raw > 0.0005) {
-      const db = 20 * Math.log10(raw);
-      level = Math.max(0, Math.min(1, (db + 50) / 45));
-    }
-    return level > current ? level : current * decayFactor + level * (1 - decayFactor);
-  }
-
   #resetSendLevel(): void {
-    this.#sendClipping = false;
-    this.#sendClipUntilMs = 0;
+    this.#sendClipHold.reset();
     this.localSendLevel = 0;
     this.localSendPeak = 0;
     this.localSendClip = false;

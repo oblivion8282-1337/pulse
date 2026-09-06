@@ -15,6 +15,7 @@
   stopSlot, HqStreamDialog-per-Slot).
 -->
 <script lang="ts">
+  import { m } from '$lib/paraglide/messages.js';
   import { tick } from 'svelte';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import AppWindowIcon from '@lucide/svelte/icons/app-window';
@@ -134,7 +135,7 @@
               onclick={(e) => e.stopPropagation()}
               maxlength="40"
               data-testid="stream-status-label-input"
-              aria-label="Stream-Label bearbeiten"
+              aria-label={m.stream_label_bearbeiten()}
               class="text-text-bright placeholder:text-text-muted max-w-[10rem] rounded bg-bg/60 px-1.5 py-0.5 font-medium outline-none ring-1 ring-transparent focus:ring-text-bright"
               placeholder={lbl.label}
             />
@@ -145,7 +146,7 @@
                 e.stopPropagation();
                 cancelEditLabel();
               }}
-              aria-label="Abbrechen"
+              aria-label={m.stream_abbrechen()}
               data-testid="stream-status-edit-cancel"
             >
               <XIcon class={iconCls} />
@@ -155,7 +156,7 @@
               type="button"
               class="flex min-w-0 items-center gap-1.5"
               onclick={() => openConfig(slot)}
-              aria-label="Stream-Einstellungen öffnen"
+              aria-label={m.stream_einstellungen_oeffnen()}
             >
               <span class="text-text-bright truncate font-medium" data-testid="stream-status-label">{displayName}</span>
             </button>
@@ -169,7 +170,7 @@
               e.stopPropagation();
               startEditLabel(slot, displayName);
             }}
-            aria-label="Label umbenennen"
+            aria-label={m.stream_label_umbenennen()}
             data-testid="stream-status-edit-label"
             data-has-custom={customName ? 'true' : 'false'}
           >
@@ -180,7 +181,7 @@
           type="button"
           class="{chipIconBtn} hover:bg-destructive/20 hover:text-destructive"
           onclick={() => stopSlot(slot)}
-          aria-label="Stream stoppen"
+          aria-label={m.stream_stoppen()}
           data-testid="stream-status-stop"
         >
           <XIcon class={iconCls} />

@@ -462,6 +462,15 @@ export interface PulseApi {
    *  auch dort nur, wenn das Binary vorhanden ist — vorher `available()`
    *  fragen und sonst auf den `<video>`-Weg zurueckfallen. */
   player?: PulsePlayerApi;
+  /** Sicherung (Google-Konsent): nur unter Electron. Öffnet die
+   *  Anmelde-Adresse im Standardbrowser und liefert die Loopback-
+   *  Rückgabe-URL mit dem Code; Main lauscht auf 127.0.0.1:9109. */
+  sicherung?: {
+    /** Dynamischer Loopback-Port des Rücklauf-Zuhörers — VOR dem Bau der
+     *  Anmelde-Adresse abfragen, die Weiterleitung muss ihn tragen. */
+    oauthPort(): Promise<number>;
+    oauthStart(adresse: string): Promise<string>;
+  };
   notify: PulseNotifyApi;
   invite?: PulseInviteApi;
   updates?: PulseUpdatesApi;

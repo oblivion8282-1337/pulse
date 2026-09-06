@@ -21,10 +21,12 @@
 import { chatApi } from '$lib/api/chat';
 import { rolesApi, type Overwrite, type Role } from '$lib/api/roles';
 import type { Member } from '$lib/api/types';
+import { guilds } from '$lib/stores/guilds.svelte';
+import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
 import { userCache } from '$lib/stores/users.svelte';
 import type { KanalEntwurf } from './entwurf.svelte';
 import type { Aufloesungsziel, BenanntesOverwrite } from './herkunft';
-import { alsBenannteRolle, benannteRollen, zielSchluessel } from './schnappschuesse';
+import { alsBenannteRolle, benannteRollen, teileSchluessel, zielSchluessel } from './schnappschuesse';
 
 /** Mitglieder der Community und ihre Rollen-IDs. Ein Fehlschlag lässt die
  *  Ansicht leer stehen statt sie abzubrechen — sie ist dann nur ärmer. */
@@ -58,10 +60,10 @@ export function wirkendeAbweichungen(
   const bekannt = new Set(gespeicherte);
   const nurImEntwurf = Object.keys(entwurf.aenderungen).filter((key) => !bekannt.has(key));
   return [...gespeicherte, ...nurImEntwurf].map((key) => {
-    const [art, id] = key.split(':');
+    const { art, id } = teileSchluessel(key);
     const p = entwurf.stand(key);
     return {
-      target_type: Number(art) as 0 | 1,
+      target_type: art,
       target_id: id,
       allow: p.allow,
       deny: p.deny,
@@ -80,8 +82,8 @@ export function zielAufloesung(args: {
   besitzerId: string | null;
   abweichungen: BenanntesOverwrite[];
 }): Aufloesungsziel {
-  const [art, id] = args.key.split(':');
-  if (art === '0') {
+  const { art, id } = teileSchluessel(args.key);
+  if (art === 0) {
     const everyone = args.rollen.find((r) => r.is_everyone);
     const rolle = args.rollen.find((r) => r.id === id);
     const gedacht: Role[] = [];
@@ -106,4 +108,12 @@ export function zielAufloesung(args: {
     overwrites: args.abweichungen,
     eigenerSchluessel: args.key
   };
+}
+
+/** Eigentümer-Kennung der Community — erst aus den geladenen Guilds, sonst aus
+ *  dem Serververzeichnis (Fremde Communities stehen nur dort). Stand doppelt in
+ *  `ChannelOverridesEditor` und `PruefenAnsicht`, beide brauchen ihn für
+ *  dieselbe Besitzer-Prüfung im Resolver. */
+export function besitzerId(guildId: string): string | null {
+  return guilds.byId[guildId]?.owner_id ?? serverGuilds.findGuild(guildId)?.owner_id ?? null;
 }

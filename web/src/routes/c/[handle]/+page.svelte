@@ -11,6 +11,7 @@
                login flow joins automatically afterwards.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
@@ -72,7 +73,7 @@
         return;
       }
       toast.error(m.public_community_join_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       busy = false;

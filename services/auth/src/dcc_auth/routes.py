@@ -19,9 +19,11 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from dcc_auth.browser_sessions import (
+    COOKIE_NAME,
     clear_session_cookie,
     create_session,
     set_session_cookie,
+    user_and_session_from_cookie,
 )
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
@@ -239,27 +241,8 @@ async def _get_current_user(
         return user
 
     # --- Cookie path ---
-    from dcc_auth.browser_sessions import validate_session as _validate_session
-
-    raw = request.cookies.get("pulse_session")
-    if raw:
-        try:
-            sid = uuid.UUID(raw)
-        except ValueError:
-            raise HTTPException(
-                status.HTTP_401_UNAUTHORIZED, detail="invalid session cookie"
-            )
-        row = await _validate_session(session, sid)
-        if row is None:
-            raise HTTPException(
-                status.HTTP_401_UNAUTHORIZED, detail="session expired or not found"
-            )
-        user = await session.get(User, row.user_id)
-        if user is None:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="user not found")
-        if user.disabled or user.is_suspended:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="account disabled")
-        return user
+    user, _row = await user_and_session_from_cookie(request, session)
+    return user
 
     raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing bearer token")
 
@@ -562,7 +545,7 @@ async def renew_session(
     (``session_link.relink_to_new_session``).
     """
     amr, acr = await _strongest_session_context(request, session, current.id)
-    old_sid = parse_sid(request.cookies.get("pulse_session"))
+    old_sid = parse_sid(request.cookies.get(COOKIE_NAME))
     sid = await create_session(
         session,
         user_id=current.id,
@@ -618,7 +601,7 @@ async def _strongest_session_context(
     """
     default: tuple[list[str], str] = (["pwd"], "0")
 
-    raw = request.cookies.get("pulse_session")
+    raw = request.cookies.get(COOKIE_NAME)
     if not raw:
         return default
     try:
@@ -809,7 +792,7 @@ async def logout(
                 committed = True
 
     # --- Revoke browser session cookie (if present) ---
-    raw_cookie = request.cookies.get("pulse_session")
+    raw_cookie = request.cookies.get(COOKIE_NAME)
     if raw_cookie:
         try:
             sid = uuid.UUID(raw_cookie)

@@ -6,6 +6,7 @@
   CSAM-Sonderfall: Banner mit Behörden-Hinweis.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { Button } from '$lib/components/ui/button';
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
@@ -24,6 +25,10 @@
     guildId,
     kind = 'message',
     toCloud = false,
+    /** E2E-verschluesselte Nachricht: es gibt keine Nachrichten-Zeile zum
+     *  Melden, nur den Nutzer (Bughunt 2026-08-28, Befund 2). Zeigt eine
+     *  ehrliche Erklaerung statt eines Knopfs, der in einen 404 laeuft. */
+    verschluesseltHinweis = false,
     open = $bindable(false),
     onClose
   }: {
@@ -40,6 +45,7 @@
      *  handeln könnte. Die Meldung geht dann als Beschwerde ans Betreiberteam
      *  (auth-svc /reports → Admin-Complaints), gemeldet wird der Nutzer. */
     toCloud?: boolean;
+    verschluesseltHinweis?: boolean;
     open?: boolean;
     onClose: () => void;
   } = $props();
@@ -116,7 +122,7 @@
       onClose();
     } catch (e) {
       toast.error(m.report_message_toast_error(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       submitting = false;
@@ -144,6 +150,15 @@
           data-testid="report-cloud-hint"
         >
           {m.report_to_cloud_hint()}
+        </p>
+      {/if}
+
+      {#if verschluesseltHinweis}
+        <p
+          class="text-text-muted bg-bg-input/60 rounded-md px-3 py-2 text-xs"
+          data-testid="report-encrypted-hint"
+        >
+          {m.report_message_encrypted_hint()}
         </p>
       {/if}
 

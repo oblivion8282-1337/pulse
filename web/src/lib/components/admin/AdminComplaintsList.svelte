@@ -9,13 +9,14 @@
   Pro Ansicht eigene Instanz (Eltern remountet via {#key}) — onMount lädt einmal.
 -->
 <script lang="ts">
+  import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
-  import * as Dialog from '$lib/components/ui/dialog/index.js';
-  import { Label } from '$lib/components/ui/label/index.js';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
   import { adminComplaintsApi, type Complaint } from '$lib/api/complaints';
+  import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
+  import ReasonDialog from '$lib/components/feedback/ReasonDialog.svelte';
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
@@ -32,29 +33,20 @@
   // Forward flow
   let forwardTarget = $state<Complaint | null>(null);
   let forwardOpen = $state(false);
-  let forwardNotice = $state('');
   let forwarding = $state(false);
 
   // Resolve flow
   let resolveTarget = $state<Complaint | null>(null);
   let resolveOpen = $state(false);
-  let resolveNote = $state('');
   let resolving = $state(false);
 
   // Notify-user flow (PM vom Betreiber an den gemeldeten Nutzer)
   let notifyTarget = $state<Complaint | null>(null);
   let notifyOpen = $state(false);
-  let notifyMessage = $state('');
   let notifying = $state(false);
 
   // Ban-user flow (Konto plattformweit sperren + Beschwerde erledigen)
-  let banTarget = $state<Complaint | null>(null);
-  let banOpen = $state(false);
   let banning = $state(false);
-
-  function errMsg(e: unknown): string {
-    return e instanceof Error ? e.message : String(e);
-  }
 
   function fmt(d: string | null): string {
     return d ? new Date(d).toLocaleString('de-DE') : '';
@@ -94,7 +86,7 @@
         );
       }
     } catch (e) {
-      loadError = errMsg(e);
+      loadError = errText(e);
     } finally {
       loading = false;
     }
@@ -105,12 +97,12 @@
     onchange?.();
   }
 
-  async function doForward() {
-    if (!forwardTarget || !forwardNotice.trim()) return;
+  async function doForward(notice: string) {
+    if (!forwardTarget || !notice.trim()) return;
     const c = forwardTarget;
     forwarding = true;
     try {
-      const res = await adminComplaintsApi.forward(c.id, forwardNotice.trim());
+      const res = await adminComplaintsApi.forward(c.id, notice.trim());
       if (res.email_sent && res.forwarded_to_email) {
         toast.success(m.admin_complaints_forwarded_ok({ email: res.forwarded_to_email }));
       } else if (res.email_error === 'no_operator_email') {
@@ -121,72 +113,79 @@
         toast.warning(m.admin_complaints_forwarded_failed_toast());
       }
       forwardOpen = false;
-      forwardNotice = '';
       forwardTarget = null;
       drop(c.id);
     } catch (e) {
-      toast.error(m.admin_complaints_forward_failed(), { description: errMsg(e) });
+      toast.error(m.admin_complaints_forward_failed(), { description: errText(e) });
     } finally {
       forwarding = false;
     }
   }
 
-  async function doNotify() {
-    if (!notifyTarget || !notifyMessage.trim()) return;
+  async function doNotify(message: string) {
+    if (!notifyTarget || !message.trim()) return;
     const c = notifyTarget;
     notifying = true;
     try {
-      const res = await adminComplaintsApi.notifyUser(c.id, notifyMessage.trim());
+      const res = await adminComplaintsApi.notifyUser(c.id, message.trim());
       if (res.sent) {
         toast.success(m.admin_complaints_notify_ok());
         notifyOpen = false;
-        notifyMessage = '';
         notifyTarget = null;
         // Kein drop(): Benachrichtigen schließt die Beschwerde nicht.
       } else {
         toast.warning(m.admin_complaints_notify_not_sent());
       }
     } catch (e) {
-      toast.error(m.admin_complaints_notify_failed(), { description: errMsg(e) });
+      toast.error(m.admin_complaints_notify_failed(), { description: errText(e) });
     } finally {
       notifying = false;
     }
   }
 
-  async function doBanUser() {
-    if (!banTarget?.target_user_id || banning) return;
-    const c = banTarget;
+  // Ban-Bestätigung über den gemeinsamen Dienst (statt handgebautem Dialog).
+  async function askBan(c: Complaint) {
+    const ok = await confirmDialog({
+      title: m.admin_complaints_ban_title(),
+      description: `${c.target_username ?? c.target_user_id ?? ''} — ${m.admin_complaints_ban_desc()}`,
+      confirmLabel: m.admin_complaints_ban_confirm(),
+      cancelLabel: m.admin_complaints_cancel(),
+      destructive: true
+    });
+    if (!ok) return;
+    await doBanUser(c);
+  }
+
+  async function doBanUser(c: Complaint) {
+    if (!c.target_user_id || banning) return;
     banning = true;
     try {
       // Zwei bestehende, getestete Endpoints: Konto plattformweit sperren
       // (widerruft Sessions/Tokens, Owner-Schutz serverseitig) + Beschwerde
       // erledigen (schickt dem Melder die automatische Rückmeldung).
-      await adminApi.patchUser(c.target_user_id!, { disabled: true });
+      await adminApi.patchUser(c.target_user_id, { disabled: true });
       await adminComplaintsApi.resolve(c.id, m.admin_complaints_ban_note());
       toast.success(m.admin_complaints_ban_ok());
-      banOpen = false;
-      banTarget = null;
       drop(c.id);
     } catch (e) {
-      toast.error(m.admin_complaints_ban_failed(), { description: errMsg(e) });
+      toast.error(m.admin_complaints_ban_failed(), { description: errText(e) });
     } finally {
       banning = false;
     }
   }
 
-  async function doResolve() {
+  async function doResolve(note: string) {
     if (!resolveTarget || resolving) return;
     const c = resolveTarget;
     resolving = true;
     try {
-      await adminComplaintsApi.resolve(c.id, resolveNote.trim());
+      await adminComplaintsApi.resolve(c.id, note.trim());
       toast.success(m.admin_complaints_resolved_ok());
       resolveOpen = false;
-      resolveNote = '';
       resolveTarget = null;
       drop(c.id);
     } catch (e) {
-      toast.error(m.admin_complaints_resolve_failed(), { description: errMsg(e) });
+      toast.error(m.admin_complaints_resolve_failed(), { description: errText(e) });
     } finally {
       resolving = false;
     }
@@ -281,7 +280,6 @@
                 size="xs"
                 onclick={() => {
                   forwardTarget = c;
-                  forwardNotice = '';
                   forwardOpen = true;
                 }}
               >
@@ -293,7 +291,6 @@
                 size="xs"
                 onclick={() => {
                   notifyTarget = c;
-                  notifyMessage = '';
                   notifyOpen = true;
                 }}
                 data-testid="complaint-notify-btn"
@@ -303,10 +300,8 @@
               <Button
                 variant="destructive-solid"
                 size="xs"
-                onclick={() => {
-                  banTarget = c;
-                  banOpen = true;
-                }}
+                onclick={() => askBan(c)}
+                disabled={banning}
                 data-testid="complaint-ban-btn"
               >
                 {m.admin_complaints_btn_ban_user()}
@@ -317,7 +312,6 @@
               size="xs"
               onclick={() => {
                 resolveTarget = c;
-                resolveNote = '';
                 resolveOpen = true;
               }}
             >
@@ -331,139 +325,60 @@
 {/if}
 
 <!-- Forward Dialog -->
-<Dialog.Root bind:open={forwardOpen}>
-  <Dialog.Portal>
-    <Dialog.Overlay />
-    <Dialog.Content class="max-w-md" data-testid="complaint-forward-dialog">
-      <Dialog.Header>
-        <Dialog.Title>{m.admin_complaints_forward_title()}</Dialog.Title>
-        <Dialog.Description>
-          {forwardTarget?.target_instance_hostname ?? forwardTarget?.target_instance_id ?? ''}
-        </Dialog.Description>
-      </Dialog.Header>
-      {#if forwardTarget && !forwardTarget.operator_email}
-        <p class="rounded-md bg-warning/10 px-3 py-2 text-xs text-warning">
-          {m.admin_complaints_forward_no_operator_warn()}
-        </p>
-      {/if}
-      <div class="flex flex-col gap-2">
-        <Label class="text-text-bright text-xs font-medium" for="forward-notice">
-          {m.admin_complaints_forward_notice_label()}
-        </Label>
-        <textarea
-          id="forward-notice"
-          bind:value={forwardNotice}
-          rows="4"
-          maxlength="5000"
-          placeholder={m.admin_complaints_forward_notice_placeholder()}
-          class="bg-bg-input border-border text-text-bright focus:ring-primary resize-none rounded-xl border px-3 py-2 text-sm focus:ring-1 focus:outline-none"
-        ></textarea>
-      </div>
-      <div class="flex justify-end gap-2 pt-2">
-        <Button variant="ghost" onclick={() => (forwardOpen = false)}>
-          {m.admin_complaints_cancel()}
-        </Button>
-        <Button
-          variant="warning-solid"
-          onclick={doForward}
-          disabled={forwarding || !forwardNotice.trim()}
-        >
-          {m.admin_complaints_forward_submit()}
-        </Button>
-      </div>
-    </Dialog.Content>
-  </Dialog.Portal>
-</Dialog.Root>
+<ReasonDialog
+  bind:open={forwardOpen}
+  title={m.admin_complaints_forward_title()}
+  description={forwardTarget?.target_instance_hostname ?? forwardTarget?.target_instance_id ?? ''}
+  label={m.admin_complaints_forward_notice_label()}
+  placeholder={m.admin_complaints_forward_notice_placeholder()}
+  maxlength={5000}
+  rows={4}
+  requireReason
+  busy={forwarding}
+  confirmLabel={m.admin_complaints_forward_submit()}
+  cancelLabel={m.admin_complaints_cancel()}
+  confirmVariant="warning-solid"
+  testId="complaint-forward-dialog"
+  onConfirm={doForward}
+>
+  {#snippet children()}
+    {#if forwardTarget && !forwardTarget.operator_email}
+      <p class="rounded-md bg-warning/10 px-3 py-2 text-xs text-warning">
+        {m.admin_complaints_forward_no_operator_warn()}
+      </p>
+    {/if}
+  {/snippet}
+</ReasonDialog>
 
 <!-- Resolve Dialog -->
-<Dialog.Root bind:open={resolveOpen}>
-  <Dialog.Portal>
-    <Dialog.Overlay />
-    <Dialog.Content class="max-w-md" data-testid="complaint-resolve-dialog">
-      <Dialog.Header>
-        <Dialog.Title>{m.admin_complaints_resolve_title()}</Dialog.Title>
-      </Dialog.Header>
-      <div class="flex flex-col gap-2">
-        <Label class="text-text-bright text-xs font-medium" for="resolve-note">
-          {m.admin_complaints_resolve_note_label()}
-        </Label>
-        <textarea
-          id="resolve-note"
-          bind:value={resolveNote}
-          rows="3"
-          maxlength="2000"
-          placeholder={m.admin_complaints_resolve_note_placeholder()}
-          class="bg-bg-input border-border text-text-bright focus:ring-primary resize-none rounded-xl border px-3 py-2 text-sm focus:ring-1 focus:outline-none"
-        ></textarea>
-      </div>
-      <div class="flex justify-end gap-2 pt-2">
-        <Button variant="ghost" onclick={() => (resolveOpen = false)}>
-          {m.admin_complaints_cancel()}
-        </Button>
-        <Button variant="success-solid" onclick={doResolve} disabled={resolving}>
-          {m.admin_complaints_resolve_submit()}
-        </Button>
-      </div>
-    </Dialog.Content>
-  </Dialog.Portal>
-</Dialog.Root>
+<ReasonDialog
+  bind:open={resolveOpen}
+  title={m.admin_complaints_resolve_title()}
+  label={m.admin_complaints_resolve_note_label()}
+  placeholder={m.admin_complaints_resolve_note_placeholder()}
+  maxlength={2000}
+  rows={3}
+  busy={resolving}
+  confirmLabel={m.admin_complaints_resolve_submit()}
+  cancelLabel={m.admin_complaints_cancel()}
+  confirmVariant="success-solid"
+  testId="complaint-resolve-dialog"
+  onConfirm={doResolve}
+/>
 
 <!-- Notify-User Dialog -->
-<Dialog.Root bind:open={notifyOpen}>
-  <Dialog.Portal>
-    <Dialog.Overlay />
-    <Dialog.Content class="max-w-md" data-testid="complaint-notify-dialog">
-      <Dialog.Header>
-        <Dialog.Title>{m.admin_complaints_notify_title()}</Dialog.Title>
-        <Dialog.Description>
-          {notifyTarget?.target_username ?? notifyTarget?.target_user_id ?? ''}
-        </Dialog.Description>
-      </Dialog.Header>
-      <div class="flex flex-col gap-2">
-        <Label class="text-text-bright text-xs font-medium" for="notify-message">
-          {m.admin_complaints_notify_message_label()}
-        </Label>
-        <textarea
-          id="notify-message"
-          bind:value={notifyMessage}
-          rows="4"
-          maxlength="2000"
-          placeholder={m.admin_complaints_notify_message_placeholder()}
-          class="bg-bg-input border-border text-text-bright focus:ring-primary resize-none rounded-xl border px-3 py-2 text-sm focus:ring-1 focus:outline-none"
-        ></textarea>
-      </div>
-      <div class="flex justify-end gap-2 pt-2">
-        <Button variant="ghost" onclick={() => (notifyOpen = false)}>
-          {m.admin_complaints_cancel()}
-        </Button>
-        <Button onclick={doNotify} disabled={notifying || !notifyMessage.trim()}>
-          {m.admin_complaints_notify_submit()}
-        </Button>
-      </div>
-    </Dialog.Content>
-  </Dialog.Portal>
-</Dialog.Root>
-
-<!-- Ban-User Dialog (Konto plattformweit sperren) -->
-<Dialog.Root bind:open={banOpen}>
-  <Dialog.Portal>
-    <Dialog.Overlay />
-    <Dialog.Content class="max-w-md" data-testid="complaint-ban-dialog">
-      <Dialog.Header>
-        <Dialog.Title>{m.admin_complaints_ban_title()}</Dialog.Title>
-        <Dialog.Description>
-          {banTarget?.target_username ?? banTarget?.target_user_id ?? ''}
-        </Dialog.Description>
-      </Dialog.Header>
-      <p class="text-text-muted text-sm">{m.admin_complaints_ban_desc()}</p>
-      <div class="flex justify-end gap-2 pt-2">
-        <Button variant="ghost" onclick={() => (banOpen = false)}>
-          {m.admin_complaints_cancel()}
-        </Button>
-        <Button variant="destructive-solid" onclick={doBanUser} disabled={banning}>
-          {banning ? m.admin_complaints_ban_submitting() : m.admin_complaints_ban_confirm()}
-        </Button>
-      </div>
-    </Dialog.Content>
-  </Dialog.Portal>
-</Dialog.Root>
+<ReasonDialog
+  bind:open={notifyOpen}
+  title={m.admin_complaints_notify_title()}
+  description={notifyTarget?.target_username ?? notifyTarget?.target_user_id ?? ''}
+  label={m.admin_complaints_notify_message_label()}
+  placeholder={m.admin_complaints_notify_message_placeholder()}
+  maxlength={2000}
+  rows={4}
+  requireReason
+  busy={notifying}
+  confirmLabel={m.admin_complaints_notify_submit()}
+  cancelLabel={m.admin_complaints_cancel()}
+  testId="complaint-notify-dialog"
+  onConfirm={doNotify}
+/>

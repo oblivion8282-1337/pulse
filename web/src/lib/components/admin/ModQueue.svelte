@@ -7,6 +7,7 @@
   Sichtbar nur mit MANAGE_MESSAGES | BAN_MEMBERS | MANAGE_GUILD.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
   import { toast } from 'svelte-sonner';
   import {
@@ -16,7 +17,8 @@
     type Report,
     type ResolveInput
   } from '$lib/api/moderation';
-  import { userCache } from '$lib/stores/users.svelte';
+  import { userCache, fmtUser } from '$lib/stores/users.svelte';
+  import { formatTimestamp } from '$lib/utils/formatTimestamp';
   import { modQueueCounts } from '$lib/stores/modQueueCounts.svelte';
   import BansList from '$lib/components/settings/BansList.svelte';
   import { m } from '$lib/paraglide/messages.js';
@@ -93,7 +95,7 @@
         if (r.target_user_id) userCache.queue(r.target_user_id);
       }
     } catch (e) {
-      loadError = e instanceof Error ? e.message : String(e);
+      loadError = errText(e);
     } finally {
       loading = false;
     }
@@ -124,7 +126,7 @@
       return true;
     } catch (e) {
       toast.error(m.mod_queue_toast_error(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
       return false;
     } finally {
@@ -184,7 +186,7 @@
       escalateDialogOpen = false;
     } catch (e) {
       toast.error(m.mod_queue_toast_error(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       escalating = false;
@@ -197,19 +199,6 @@
     if (r.resolution_action === 'ban') return m.mod_queue_outcome_banned();
     if (r.resolution_action === 'message_delete') return m.mod_queue_outcome_deleted();
     return m.mod_queue_outcome_resolved();
-  }
-
-  function fmtUser(id: string | null): string {
-    if (!id) return '—';
-    const u = userCache.get(id);
-    return u ? `@${u.display_name ?? u.username}` : `…${id.slice(-6)}`;
-  }
-
-  function fmtTime(iso: string): string {
-    return new Date(iso).toLocaleString('de-DE', {
-      day: '2-digit', month: '2-digit', year: 'numeric',
-      hour: '2-digit', minute: '2-digit'
-    });
   }
 </script>
 
@@ -252,7 +241,7 @@
             <span class="rounded-full px-2 py-0.5 text-xs font-medium {REASON_COLORS[r.reason_code] ?? REASON_COLORS.other}">
               {REASON_LABELS[r.reason_code] ?? r.reason_code}
             </span>
-            <span class="text-text-muted text-xs">{fmtTime(r.created_at)}</span>
+            <span class="text-text-muted text-xs">{formatTimestamp(r.created_at)}</span>
             <span class="text-text-muted text-xs">{m.mod_queue_report_by({ user: fmtUser(r.reporter_user_id) })}</span>
             {#if r.target_user_id}
               <span class="text-text-muted text-xs">→ {fmtUser(r.target_user_id)}</span>

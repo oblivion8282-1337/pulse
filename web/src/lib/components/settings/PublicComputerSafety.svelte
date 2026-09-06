@@ -2,8 +2,9 @@
   Öffentlicher-Computer-Sicherheits-Abschnitt in den Sicherheits-Einstellungen.
 
   Ermöglicht das vollständige Löschen aller lokalen Pulse-Daten + Abmelden.
-  Löscht: IndexedDB (pulse-identity), localStorage (pulse.*-Keys),
-  sessionStorage, dann signOut() → /login.
+  Löscht: IndexedDB (`OEFFENTLICHER_COMPUTER_DATENBANKEN`, u. a. der lokale
+  Verlauf `pulse-verlauf`), localStorage (pulse.*-Keys), sessionStorage,
+  dann signOut() → /login.
 -->
 <script lang="ts">
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
@@ -11,6 +12,7 @@
   import MonitorXIcon from '@lucide/svelte/icons/monitor-x';
   import { auth } from '$lib/stores/auth.svelte';
   import { m } from '$lib/paraglide/messages.js';
+  import { OEFFENTLICHER_COMPUTER_DATENBANKEN } from './oeffentlicherComputerDatenbanken';
 
   let confirmOpen = $state(false);
   let wiping = $state(false);
@@ -18,8 +20,9 @@
   async function wipeAndSignOut() {
     wiping = true;
     try {
-      // 1. IndexedDB löschen (pulse-identity + pulse-stream falls vorhanden)
-      const dbNames = ['pulse-identity', 'pulse-stream'];
+      // 1. IndexedDB löschen — Liste s. `oeffentlicherComputerDatenbanken.ts`
+      // (Bughunt 2026-08-29, Befund 2: fehlte bisher der lokale Verlauf).
+      const dbNames = OEFFENTLICHER_COMPUTER_DATENBANKEN;
       await Promise.allSettled(
         dbNames.map(
           (name) =>

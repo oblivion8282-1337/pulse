@@ -11,6 +11,7 @@
   DM-Spalte + Panel), damit der Wechsel zwischen beiden nicht springt.
 -->
 <script lang="ts">
+  import { m } from '$lib/paraglide/messages.js';
   import { goto } from '$app/navigation';
   import GuildRail from '$lib/components/GuildRail.svelte';
   import DMChannelList from '$lib/components/DMChannelList.svelte';
@@ -20,18 +21,12 @@
   import { communityInvites } from '$lib/stores/communityInvites.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { navDrawer } from '$lib/stores/navDrawer.svelte';
+  import { selectGuild, selectDM } from '$lib/navigation/railNavi';
   import { viewport } from '$lib/stores/viewport.svelte';
-  import type { DMChannel } from '$lib/api/types';
 
-  async function selectGuild(g: { id: string }) {
-    navDrawer.open = true;
-    await goto(`/app/guilds/${g.id}/channels/_`);
-  }
 
-  async function selectDM(dm: DMChannel) {
-    navDrawer.open = false;
-    await goto(`/app/@me/${dm.id}`);
-  }
+
+
 </script>
 
 <GuildRail
@@ -56,7 +51,7 @@
   class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl"
   data-testid="invites-page"
 >
-  <BereichsKopf titel="Einladungen" />
+  <BereichsKopf titel={m.seite_invites_titel()} />
 
   <div class="flex-1 overflow-y-auto px-4 pb-4">
     {#if communityInvites.list.length === 0}

@@ -11,21 +11,65 @@
   import { Dialog as DialogPrimitive } from 'bits-ui';
   import AutoRefreshImage from './AutoRefreshImage.svelte';
   import XIcon from '@lucide/svelte/icons/x';
+  import DownloadIcon from '@lucide/svelte/icons/download';
   import { m } from '$lib/paraglide/messages.js';
+  import type { Attachment } from '$lib/api/types';
 
   let {
     open = $bindable(false),
     attachmentId,
     src,
     alt = '',
-    filename
-  }: {
+    filename,
+    anhang = null
+  } = $props<{
     open?: boolean;
     attachmentId: string;
     src: string;
     alt?: string;
     filename?: string | null;
-  } = $props();
+    /** Nur bei einem VERSCHLUESSELTEN Anhang gesetzt — wird unveraendert an
+     *  `AutoRefreshImage` durchgereicht (s. dort). */
+    anhang?: Attachment | null;
+  }>();
+
+  let laeuft = $state(false);
+
+  /** Speichert das Bild lokal: verschlüsselt über `anhangBlob` (Archiv zuerst,
+   *  dann Postfach), Klartext via `fetch` auf die Adresse. Anschließend der
+   *  `<a download>`-Trick auf einer Objekt-URL — ein direktes `download` auf
+   *  der Adresse reicht nicht, sie ist fremdorigin bzw. läuft ohne sie ins
+   *  Navigieren (s. `MessageAttachments.svelte::ERSATZ_DATEINAME`). */
+  async function herunterladen(): Promise<void> {
+    if (laeuft) return;
+    laeuft = true;
+    try {
+      let blob: Blob | null = null;
+      if (anhang?.schluessel) {
+        const { anhangBlob } = await import('$lib/krypto/anhangHolen');
+        blob = await anhangBlob(
+          anhang.id,
+          anhang.schluessel,
+          anhang.mime ?? 'application/octet-stream',
+          false
+        );
+      } else if (src) {
+        const antwort = await fetch(src);
+        blob = antwort.ok ? await antwort.blob() : null;
+      }
+      if (!blob) return;
+      const adresse = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = adresse;
+      a.download = filename || 'bild';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(adresse), 10_000);
+    } finally {
+      laeuft = false;
+    }
+  }
 </script>
 
 <DialogPrimitive.Root bind:open>
@@ -45,8 +89,21 @@
         {attachmentId}
         {src}
         {alt}
+        {anhang}
         class="max-h-full max-w-full rounded-xl object-contain shadow-2xl"
       />
+
+      <button
+        type="button"
+        class="absolute right-16 top-[max(1rem,var(--safe-top))] rounded-full bg-black/60 p-2 text-white hover:bg-black/80 disabled:opacity-50"
+        onclick={() => void herunterladen()}
+        disabled={laeuft}
+        aria-label={m.lightbox_download()}
+        title={m.lightbox_download()}
+        data-testid="lightbox-download"
+      >
+        <DownloadIcon class="size-5" />
+      </button>
 
       <DialogPrimitive.Close>
         {#snippet child({ props })}

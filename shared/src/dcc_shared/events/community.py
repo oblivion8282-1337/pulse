@@ -24,10 +24,6 @@ from typing import Any, Literal
 from dcc_shared.events._base import _EventBase
 
 
-class _CommunityInviteIdData(_EventBase):
-    invite_id: str
-
-
 class CommunityInviteReceivedEvent(_EventBase):
     """A community invitation just landed in the invitee's pending list.
 
@@ -37,11 +33,3 @@ class CommunityInviteReceivedEvent(_EventBase):
     op: Literal["community_invite_received"] = "community_invite_received"
     data: dict[str, Any]
 
-
-class CommunityInviteRemovedEvent(_EventBase):
-    """A pending community invitation was removed — either the invitee
-    accepted/declined it (B-lite: the row is deleted) or it expired. The
-    invitee's other tabs drop the matching card by ``invite_id``."""
-
-    op: Literal["community_invite_removed"] = "community_invite_removed"
-    data: _CommunityInviteIdData

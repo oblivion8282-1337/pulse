@@ -108,6 +108,10 @@ function cloudRoute(): { serverId?: string } {
 export type ServerCapabilities = {
   allow_guild_creation: boolean;
   allow_member_invites: boolean;
+  /** Konzept §2a: "regular" (wie bisher) oder "ablage_only" (erstellen
+   *  setzt eine verbundene Cloud-Ablage voraus). Ältere Instanzen kennen
+   *  das Feld nicht — daraus wird "regular". */
+  channel_creation_policy?: 'regular' | 'ablage_only';
   guild_sound_max_size_bytes: number;
   hq_bitrate_min_kbps: number;
   hq_bitrate_max_kbps: number;
@@ -276,6 +280,8 @@ export const chatApi = {
       user_ids: string[];
       streaming_user_ids: string[];
       camera_user_ids: string[];
+      /** Namen der Gäste (``gast-<id>`` → getippter Name), s. voicePresence. */
+      gast_namen?: Record<string, string>;
     }[];
   }> {
     return request(`/guilds/${guildId}/voice-state`, {}, route);
@@ -466,6 +472,19 @@ export const chatApi = {
       {},
       route
     );
+  },
+
+  // ── Pinned Messages ────────────────────────────────────────────────────
+  /** Pin-Liste des Kanals (max. 50, ältester Pin zuerst). Pinnen/Lösen
+   *  ist serverseitig an MANAGE_MESSAGES gekoppelt (DMs: beide Teilnehmer). */
+  listPins(channelId: string, route: { serverId?: string } = {}): Promise<Message[]> {
+    return request<Message[]>(`/channels/${channelId}/pins`, {}, route);
+  },
+  pinMessage(messageId: string, route: { serverId?: string } = {}): Promise<void> {
+    return request<void>(`/messages/${messageId}/pin`, { method: 'PUT' }, route);
+  },
+  unpinMessage(messageId: string, route: { serverId?: string } = {}): Promise<void> {
+    return request<void>(`/messages/${messageId}/pin`, { method: 'DELETE' }, route);
   },
 
   // Direct messages — 1:1 DM channels. Polymorphic with guild channels at the

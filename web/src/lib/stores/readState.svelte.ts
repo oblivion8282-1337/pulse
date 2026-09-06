@@ -8,8 +8,10 @@
  *    in this session, in memory only.
  *
  * A channel is unread when `latest > lastRead`. Snowflake-IDs werden über
- * `compareSnowflakeId` verglichen (längen- dann lexikografisch) — ein reiner
- * String-Vergleich bricht an der Stellen-Grenze (17→18 Ziffern, ~Okt 2026).
+ * `compareSnowflakeId` verglichen (vergleicht die eingebettete Zeit, s.
+ * `utils/snowflakeZeit.ts`) — ein reiner String- oder Längen-Vergleich bricht
+ * sowohl an der Stellen-Grenze (17→18 Ziffern, ~Okt 2026) als auch bei den
+ * lokalen 20-stelligen IDs verschlüsselter Nachrichten.
  *
  * Limitation (v1): unread state seeds from activity DURING the session. If a
  * message was posted while the client was offline and never sync-loaded, the

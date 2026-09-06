@@ -158,6 +158,19 @@ Für die eigentlichen FFmpeg-Bibliotheken gilt auch hier, was oben steht: Es wir
 ein LGPL-Build dynamisch eingebunden und als eigene, austauschbare Datei
 ausgeliefert.
 
+## Web-Krypto-Kern (WASM)
+
+Die Ende-zu-Ende-verschlüsselten Direktnachrichten kapseln
+[vodozemac](https://github.com/matrix-org/vodozemac) (die Olm/Megolm-Umsetzung
+in Rust, aus dem Matrix-Projekt) und werden als WebAssembly in den Browser
+eingebettet — Teil des Web-Bundles, gebaut aus `krypto/pulse-krypto/`.
+
+| Komponente | Version | Lizenz |
+|---|---|---|
+| [vodozemac](https://github.com/matrix-org/vodozemac) | 0.10.0 | Apache-2.0 |
+| [wasm-bindgen](https://github.com/rustwasm/wasm-bindgen) | 0.2.127 | MIT oder Apache-2.0 |
+| [getrandom](https://github.com/rust-random/getrandom) (0.2 und 0.3) | 0.2.17 / 0.3.4 | MIT oder Apache-2.0 |
+
 ---
 
-Stand: 20. August 2026
+Stand: 28. August 2026

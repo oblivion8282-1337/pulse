@@ -22,9 +22,13 @@ from sqlalchemy import select
 
 from dcc_chat_gateway import s3
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import ChatSettings, Guild, GuildSoundOverride
+from dcc_chat_gateway.models import ChatSettings, GuildSoundOverride
 from dcc_chat_gateway.permissions import Permissions, check_permission
-from dcc_chat_gateway.routes._deps import require_member
+from dcc_chat_gateway.routes._deps import (
+    guild_or_404,
+    publish_guild_event,
+    require_member,
+)
 from dcc_chat_gateway.schemas import GuildSoundOverrideOut
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.sounds import (
@@ -75,15 +79,13 @@ async def _serialize(row: GuildSoundOverride) -> GuildSoundOverrideOut:
 async def _publish_sound_event(
     request: Request, guild_id: int, sound_id: str, *, removed: bool
 ) -> None:
-    mgr = getattr(request.app.state, "connection_manager", None)
-    if mgr is None:
-        return
-    await mgr.publish_guild_event(
+    await publish_guild_event(
+        request,
         GuildSoundUpdatedEvent(
             guild_id=str(guild_id),
             sound_id=sound_id,
             removed=removed,
-        )
+        ),
     )
 
 
@@ -96,9 +98,7 @@ async def list_sounds(
     session: SessionDep,
     current: CurrentUser,
 ) -> list[GuildSoundOverrideOut]:
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     await require_member(session, guild_id, current.id)
 
     rows = list(
@@ -127,9 +127,7 @@ async def upload_sound(
 ) -> GuildSoundOverrideOut:
     _validate_sound_id(sound_id)
 
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     await check_permission(
         session,
         current,
@@ -209,9 +207,7 @@ async def delete_sound(
 ) -> None:
     _validate_sound_id(sound_id)
 
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     await check_permission(
         session,
         current,

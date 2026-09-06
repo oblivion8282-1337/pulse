@@ -37,12 +37,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_chat_gateway import config as chat_config, ratelimit, s3
 from dcc_chat_gateway.db import SessionDep, SessionLocal
-from dcc_chat_gateway.models import Channel, ChatSettings, Guild, MessageAttachment
+from dcc_chat_gateway.models import (
+    LEGACY_READONLY_DETAIL,
+    Channel,
+    ChatSettings,
+    Guild,
+    MessageAttachment,
+)
 from dcc_chat_gateway.permissions import (
     Permissions,
     check_permission,
 )
-from dcc_chat_gateway.routes._deps import resolve_channel_or_raise
+from dcc_chat_gateway.routes._deps import guild_or_404, resolve_channel_or_raise
 from dcc_chat_gateway.schemas import (
     AttachmentDownloadOut,
     AttachmentOut,
@@ -141,9 +147,7 @@ async def _limits_for_channel(
     guild Channel (use the Guild row's columns) or a DM channel (use the
     chat_settings singleton)."""
     if kind == "guild":
-        guild = await session.get(Guild, ch.guild_id)
-        if guild is None:
-            raise HTTPException(404, detail="guild not found")
+        guild = await guild_or_404(session, ch.guild_id)
         return guild.attachment_max_size_bytes, guild.attachment_max_count_per_message
     # DM
     settings = await session.get(ChatSettings, 1)
@@ -220,6 +224,17 @@ async def create_upload_url(
         )
     _validate_mime(payload.mime)
     kind, ch = await resolve_channel_or_raise(session, channel_id, current.id)
+    if kind == "guild" and getattr(ch, "ablage", False):
+        # Mischzustand-Regel: Anhaenge von Ablage-Kanaelen verschluesselt der
+        # Klient und legt sie in die Ablage — MinIO sieht hier nichts.
+        raise HTTPException(
+            403,
+            detail="ablage channel: plaintext attachment upload is not accepted",
+        )
+    if kind == "guild" and getattr(ch, "legacy_readonly", False):
+        # Umstellung (Entwurf §9, Etappe E9): eingefrorener Alt-Kanal — kein
+        # neuer Anhang, egal ob er je an eine Nachricht gebunden würde.
+        raise HTTPException(403, detail=LEGACY_READONLY_DETAIL)
     _enforce_dm_attachment_policy(kind)
     # ATTACH_FILES gate (guild channels only — DMs have no permission overlay).
     if kind == "guild":
@@ -305,6 +320,10 @@ async def refresh_download_url(
     if row.message_id is None:
         # Pending row — only the uploader can re-sign it (no other user
         # could know the id anyway, but defense in depth).
+        # Ein verschluesselter Anhang (Etappe E) steht dauerhaft in diesem
+        # Zweig: fuer ihn ist es die richtige Antwort — der Absender kommt an
+        # seine eigenen Bytes, Empfaenger holen ihre Adresse ueber
+        # ``routes/postfach_anhaenge.py`` gegen einen Zustellungsnachweis.
         if row.uploader_id != current.id:
             raise HTTPException(404, detail="attachment not found")
     else:
@@ -374,6 +393,13 @@ async def bind_attachments(
         if r.channel_id != channel_id:
             raise HTTPException(400, detail=f"attachment {aid} in wrong channel")
         if r.message_id is not None and r.message_id != message_id:
+            raise HTTPException(400, detail=f"attachment {aid} already bound")
+        # Haengt der Anhang schon an einem verschluesselten Umschlag
+        # (Etappe E), faellt er mit dessen letztem — die Nachricht zeigte
+        # danach auf Bytes, die es nicht mehr gibt. Gegenrichtung:
+        # ``postfach_anhaenge.py::binde_anhaenge``. Dieselbe Meldung wie
+        # oben, weil sie zutrifft: gebunden, nur eben an einen Umschlag.
+        if r.postfach_gebunden_am is not None:
             raise HTTPException(400, detail=f"attachment {aid} already bound")
         r.message_id = message_id
     # caller commits
@@ -554,6 +580,15 @@ async def _reap_once() -> int:
                 MessageAttachment.thumb_storage_key,
             ).where(
                 MessageAttachment.message_id.is_(None),
+                # Ein verschluesselter Anhang (Etappe E) traegt fuer immer
+                # ``message_id IS NULL`` — verschluesselte Nachrichten
+                # erzeugen keine ``messages``-Zeile. Ohne diese zweite
+                # Bedingung loeschte der Reaper ihn eine Stunde nach dem
+                # Hochladen, waehrend sein Umschlag noch auf Abholung
+                # wartet. Zustaendig ist dafuer
+                # ``postfach_pflege.py::sweep_verwaiste_anhaenge`` — genau
+                # die Gegenbedingung, kein zweiter Lauf ueber dieselbe Menge.
+                MessageAttachment.postfach_gebunden_am.is_(None),
                 MessageAttachment.created_at < cutoff,
             ).limit(REAPER_BATCH_SIZE)
         )

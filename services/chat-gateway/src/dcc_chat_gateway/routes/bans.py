@@ -17,7 +17,6 @@ from dcc_shared.events import (
     GuildBanAddedEvent,
     GuildBanLiftedEvent,
     GuildBanRemovedEvent,
-    GuildMemberRemovedEvent,
     GuildMembershipRevokedEvent,
 )
 from fastapi import APIRouter, HTTPException, Request, status
@@ -30,24 +29,17 @@ from dcc_chat_gateway.audit_log import write_audit_log
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import (
     Channel,
-    Guild,
     GuildBan,
     GuildMember,
     PermissionOverwrite,
 )
 from dcc_chat_gateway.permissions import Permissions, check_permission
-from dcc_chat_gateway.remote_guard import (
-    end_remote_sessions_for_member,
-    remove_devices_for_member,
-)
+from dcc_chat_gateway.routes._deps import guild_or_404, publish_guild_event
+from dcc_chat_gateway.routes.guilds import _after_member_removed
 from dcc_chat_gateway.role_hierarchy import assert_actor_outranks
 from dcc_chat_gateway.schemas import BanIn, BanOut
 from dcc_chat_gateway.security import CurrentUser
-from dcc_chat_gateway.stream_evict import end_active_streams_for_member
-from dcc_chat_gateway.stream_revoke import revoke_read_tokens_for_viewer
 from dcc_chat_gateway.system_dm import send_moderation_dm
-from dcc_chat_gateway.voice_evict import evict_user_from_guild_voice
-from dcc_chat_gateway.watch_evict import end_watch_parties_for_member
 
 router = APIRouter()
 
@@ -66,9 +58,6 @@ async def _publish_ban_event(
     user_id: int,
     reason: str | None = None,
 ) -> None:
-    mgr = getattr(request.app.state, "connection_manager", None)
-    if mgr is None:
-        return
     if op == "guild_ban_added":
         envelope = GuildBanAddedEvent(
             guild_id=str(guild_id),
@@ -81,23 +70,7 @@ async def _publish_ban_event(
         )
     else:
         raise ValueError(f"unknown ban op: {op!r}")
-    await mgr.publish_guild_event(envelope)
-
-
-async def _publish_member_removed(
-    request: Request, guild_id: int, user_id: int
-) -> None:
-    """When a ban evicts an existing member, surface it as a regular
-    guild_member_removed so clients run the same cleanup path as a kick
-    (drop guild locally if it's me, prune member-list otherwise)."""
-    mgr = getattr(request.app.state, "connection_manager", None)
-    if mgr is None:
-        return
-    await mgr.publish_guild_event(
-        GuildMemberRemovedEvent(
-            guild_id=str(guild_id), user_id=str(user_id)
-        )
-    )
+    await publish_guild_event(request, envelope)
 
 
 async def _notify_membership_revoked(
@@ -153,9 +126,7 @@ async def list_bans(
     session: SessionDep,
     current: CurrentUser,
 ) -> list[GuildBan]:
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     await check_permission(session, current, guild_id, Permissions.BAN_MEMBERS)
     stmt = (
         select(GuildBan)
@@ -190,9 +161,7 @@ async def ban_user(
       * broadcasts ``guild_member_removed`` (if a member was evicted)
         followed by ``guild_ban_added``.
     """
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     # Permission-Gate VOR den self/owner-Branches: sonst leakt die owner-Prüfung
     # ("cannot ban the guild owner") einem Aufrufer OHNE BAN_MEMBERS, dass ein
     # geratenes user_id der Owner ist (Bestätigungs-Orakel). Erst autorisieren,
@@ -268,63 +237,10 @@ async def ban_user(
     await session.refresh(existing)
 
     if was_member:
-        # Yank the banned user out of any LiveKit voice session before
-        # the WS broadcast goes out so by the time other clients see
-        # "member_removed" the target is already disconnected.
-        await evict_user_from_guild_voice(session, guild_id, user_id)
-        # Dasselbe fuer laufende Fernsteuerungen: ein Bann, der dem Gebannten
-        # noch 30 s Tastatur auf dem Rechner eines Mitglieds laesst (bis der
-        # Takt-Prueflauf greift), ist kein Bann.
-        await end_remote_sessions_for_member(
-            session,
-            getattr(request.app.state, "connection_manager", None),
-            guild_id,
-            user_id,
-            reason="membership_revoked",
-        )
-        # Und die Geraetezeilen: ein Standplatz-Geraet laesst sich von jedem
-        # wecken, der im Kanal ``REMOTE_CONTROL`` hat — geprueft wird das Recht
-        # des RUFERS, nicht die Mitgliedschaft des Besitzers. Bliebe es stehen,
-        # waere der Rechner eines Ex-Mitglieds weiter benutzbar, und der
-        # Besitzer kaeme nicht einmal mehr heran, um ihn auszutragen.
-        await remove_devices_for_member(
-            session,
-            getattr(request.app.state, "connection_manager", None),
-            guild_id,
-            user_id,
-        )
-        # Und die Lese-Token für laufende Streams: sie sind an Kanal und
-        # Streamer gebunden, nicht an die Person, und werden nicht verbraucht —
-        # ohne das hier schaut der Entfernte bis zu eine Stunde weiter und kann
-        # die Adresse weitergeben (s. `stream_revoke`).
-        await revoke_read_tokens_for_viewer(
-            getattr(request.app.state, "redis", None),
-            session,
-            guild_id,
-            user_id,
-            grund="membership_revoked",
-        )
-        # Und die eigene laufende Bildschirmuebertragung des Gebannten: ohne das
-        # sendet der Sidecar auf seinem Rechner unveraendert weiter, und der
-        # media-svc-Poller haelt den Kanal auf "live" (s. `stream_evict`).
-        await end_active_streams_for_member(
-            getattr(request.app.state, "redis", None),
-            session,
-            guild_id,
-            user_id,
-            grund="membership_revoked",
-        )
-        # Und eine laufende Watch-Party, die der Gebannte gerade hostet: die
-        # Kontroll-Ops pruefen nur noch den gespeicherten Host, nie die
-        # Mitgliedschaft (s. `watch_evict`).
-        await end_watch_parties_for_member(
-            session,
-            getattr(request.app.state, "redis", None),
-            getattr(request.app.state, "connection_manager", None),
-            guild_id,
-            user_id,
-        )
-        await _publish_member_removed(request, guild_id, user_id)
+        # Derselbe Post-Commit-Abräum-Pfad wie bei Kick/Austritt (Voice,
+        # Remote-Sessions, Geraete, Lese-Token, Streams, Watch-Parties,
+        # guild_member_removed-Broadcast).
+        await _after_member_removed(session, request, guild_id, user_id)
         # Tell the banned user directly (with the reason) — otherwise the
         # community just silently vanishes from their client.
         await _notify_membership_revoked(
@@ -357,9 +273,7 @@ async def unban_user(
     """Remove a ban entry. The user can then re-join via any normal
     membership-creation path (invite, direct add). Idempotent: 404 if
     the user was not banned to begin with, to keep the API explicit."""
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     await check_permission(session, current, guild_id, Permissions.BAN_MEMBERS)
     row = await session.get(GuildBan, (guild_id, user_id))
     if row is None:

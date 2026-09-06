@@ -2,10 +2,22 @@
 
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, status
-from sqlalchemy import select
+import logging
 
-from dcc_chat_gateway.models import Channel, DirectMessageChannel, Guild, GuildMember
+from fastapi import Depends, HTTPException, WebSocket, status
+from sqlalchemy import select
+from dcc_shared.events import _EventBase
+
+from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.models import (
+    Channel,
+    DirectMessageChannel,
+    Guild,
+    GuildMember,
+    Role,
+)
+
+log = logging.getLogger(__name__)
 
 
 async def is_guild_suspended(session, guild_id: int) -> bool:
@@ -45,12 +57,63 @@ async def require_cloud() -> None:
 CloudOnly = Depends(require_cloud)
 
 
+async def publish_guild_event(
+    request: Request, envelope: _EventBase | dict[str, object]
+) -> None:
+    """Best-effort Broadcast eines Guild-Events an alle verbundenen Clients.
+
+    Ohne Connection-Manager (Einzeltests, Selfhost ohne WS) ist dies ein
+    Noop. Die Routen-Module hatten denselben ``mgr = getattr(...)-Block``
+    je lokal kopiert; die Tests patchen ``publish_guild_event`` am Manager
+    selbst, daher ist die Delegation hierdrauf nicht sichtbar."""
+    mgr = getattr(request.app.state, "connection_manager", None)
+    if mgr is not None:
+        await mgr.publish_guild_event(envelope)
+
+
+async def guild_or_404(session: SessionDep, guild_id: int) -> Guild:
+    """Community nachladen oder 404 — die Routen hier teilen sich dieselbe
+    Semantik (404 "guild not found", nicht 403), daher ein Helfer."""
+    guild = await session.get(Guild, guild_id)
+    if guild is None:
+        raise HTTPException(404, detail="guild not found")
+    return guild
+
+
+async def role_or_404(session: SessionDep, guild_id: int, role_id: int) -> Role:
+    """Rolle nachladen UND auf den Community-Scope prüfen oder 404. Die
+    Scope-Prüfung verhindert, dass eine Role-ID einer FREMDEN Community
+    adressiert werden kann (globale Snowflakes!). (Nicht in
+    ``permission_overwrites.py`` wiederverwenden — dort ist derselbe Fall
+    bewusst ein 404 mit anderer Detailmeldung.)"""
+    role = await session.get(Role, role_id)
+    if role is None or role.guild_id != guild_id:
+        raise HTTPException(404, detail="role not found")
+    return role
+
+
 async def require_member(session, guild_id: int, user_id: int) -> None:
     member = await session.get(GuildMember, (guild_id, user_id))
     if member is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="not a member of this guild")
     if await is_guild_suspended(session, guild_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="community is suspended")
+
+
+async def guild_oder_404(session, guild_id: int) -> Guild:
+    """Wie ``require_member`` bewusst OHNE Suspendierungs-Prüfung — für die
+    Ablage-Routen (``routes/ablage_guild_laufwerk.py``/``ablage_zwischenlager.py``),
+    die diese Unterscheidung nicht treffen (Community existiert oder nicht)."""
+    guild = await session.get(Guild, guild_id)
+    if guild is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="guild not found")
+    return guild
+
+
+async def mitglied_oder_403(session, guild_id: int, user_id: int) -> None:
+    """Nur die Mitgliedschaft, keine Suspendierungs-Prüfung — s. ``guild_oder_404``."""
+    if await session.get(GuildMember, (guild_id, user_id)) is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="not a member of this guild")
 
 
 async def is_guild_member(session, guild_id: int, user_id: int) -> bool:
@@ -76,6 +139,43 @@ async def channel_membership(session, channel_id: int, user_id: int) -> Channel 
     if await is_guild_suspended(session, channel.guild_id):
         return None
     return channel
+
+
+def parse_snowflake_int(value: object) -> int | None:
+    """Parse a stringified snowflake (channel_id, host_user_id, …) to int, or
+    ``None`` when it is missing or malformed. Geteilte Grundlage der
+    ``_channel_id``-Helfer in den WS-Op-Modulen."""
+    s = str(value or "").strip()
+    if not s:
+        return None
+    try:
+        return int(s)
+    except ValueError:
+        return None
+
+
+def ws_manager(websocket: WebSocket):
+    """Der Connection-Manager der App — in Tests may er fehlen (``None``)."""
+    return getattr(websocket.app.state, "connection_manager", None)
+
+
+async def ws_err(websocket: WebSocket, code: int, msg: str, *, audit: bool = False) -> None:
+    """Reject one op. Der Code allein genuegt (4051 = kein Zugriff, 4052 = Host
+    nicht erreichbar, …); Nutzdaten stehen bewusst nicht drin.
+
+    ``audit=True`` heisst INFO, sonst DEBUG. Am 2026-08-12 im Zwei-Geraete-Test
+    war eine Ablehnung am Client nur als ausbleibende Wirkung sichtbar (toter
+    Knopf) — deshalb ueberhaupt eine Zeile. Sie stand aber VOR jeder
+    Autorisierung: ein beliebiger eingeloggter Nutzer konnte mit missgeformten
+    ``remote_*``-Ops unbegrenzt INFO-Zeilen erzeugen und damit das Protokoll
+    fluten. INFO gibt es jetzt nur noch, wenn der Rufer die Rechtepruefung
+    bereits bestanden hat — genau die Faelle, die im Test die Frage
+    beantworteten ("Host nicht erreichbar", "schon belegt")."""
+    if audit:
+        log.info("op rejected: code=%s msg=%s", code, msg)
+    else:
+        log.debug("op rejected: code=%s msg=%s", code, msg)
+    await websocket.send_json({"op": "error", "code": code, "msg": msg})
 
 
 async def dm_member_check(

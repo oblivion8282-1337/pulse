@@ -2,7 +2,9 @@
 
 Public surface:
   * ``POST /token`` — issue a LiveKit access token for joining a voice
-    channel. Membership + per-channel permissions are resolved via
+    channel.
+  * ``POST /gast/token`` — dasselbe für einen Gast (Besprechungslink,
+    kein Konto): feste Rechte, Kanalbindung aus dem Ticket. Membership + per-channel permissions are resolved via
     chat-gateway (voice-signaling does not own the auth DB).
   * ``PUT /channels/{cid}/members/{uid}/voice-override`` — admin
     force-mute / unmute (caller must hold ``MUTE_MEMBERS``).
@@ -112,10 +114,14 @@ from dcc_voice_signaling.routes.internal import (
     InternalEvictIn,
     router as _internal_router,
 )
+from dcc_voice_signaling.routes.token_gast import (
+    router as _token_gast_router,
+)
 
 
 router = APIRouter()
 router.include_router(_token_router)
+router.include_router(_token_gast_router)
 router.include_router(_voice_override_router)
 router.include_router(_voice_disconnect_router)
 router.include_router(_internal_router)

@@ -5,6 +5,7 @@
   revoke. Status (Aktiv/Aufgebraucht/Abgelaufen/Widerrufen) is derived client-side.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -38,7 +39,7 @@
     try {
       invites = await adminApi.listInvites();
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errText(e);
     } finally {
       loading = false;
     }
@@ -77,7 +78,7 @@
       toast.success(m.admin_registration_invite_toast_created());
     } catch (e) {
       toast.error(m.admin_registration_invite_toast_create_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       busy = false;
@@ -99,7 +100,7 @@
       invites = invites.map((i) => (i.code === code ? { ...i, revoked: true } : i));
     } catch (e) {
       toast.error(m.admin_registration_invite_toast_revoke_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     }
   }

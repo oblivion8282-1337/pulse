@@ -7,7 +7,7 @@
 <script lang="ts">
   import { Input } from '$lib/components/ui/input/index.js';
   import Select from '$lib/components/form/Select.svelte';
-  import type { Einheit, Geltung } from '$lib/remote/standplatz.svelte';
+  import { einheiten, geltungen, type Einheit, type Geltung } from '$lib/remote/standplatz.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
   let {
@@ -15,16 +15,6 @@
     menge = $bindable(),
     einheit = $bindable(),
   }: { geltung: Geltung; menge: number; einheit: Einheit } = $props();
-
-  const geltungen: { id: Geltung; label: () => string }[] = [
-    { id: 'befristet', label: m.standplatz_settings_duration_limited },
-    { id: 'dauerhaft', label: m.standplatz_settings_duration_permanent },
-  ];
-  const einheiten: { id: Einheit; label: () => string }[] = [
-    { id: 'stunden', label: m.standplatz_settings_unit_hours },
-    { id: 'tage', label: m.standplatz_settings_unit_days },
-    { id: 'wochen', label: m.standplatz_settings_unit_weeks },
-  ];
 
   const einheitenOptionen = $derived(einheiten.map((e) => ({ value: e.id, label: e.label() })));
 </script>

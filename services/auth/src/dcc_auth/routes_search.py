@@ -110,9 +110,16 @@ class _DiscoverableIn(BaseModel):
     discoverable: bool
 
 
-def _check_internal_secret(provided: str | None) -> None:
+async def _check_internal_secret(request: Request, provided: str | None) -> None:
     """Mirror of ``routes/internal.py::_check_internal_secret`` in
-    chat-gateway. Fail-closed when the server-side secret is unset."""
+    chat-gateway. Fail-closed when the server-side secret is unset; rate-
+    limited BEFORE the compare so guessing the secret can't run hot
+    (Audit 2026-09)."""
+    await _check_rate(
+        request,
+        "internal_secret",
+        _config.get_settings().rate_limit_internal_secret,
+    )
     expected = _config.get_settings().internal_service_secret
     if not expected:
         raise HTTPException(
@@ -131,9 +138,10 @@ def _check_internal_secret(provided: str | None) -> None:
 async def set_user_discoverable(
     payload: _DiscoverableIn,
     session: SessionDep,
+    request: Request,
     x_pulse_internal_secret: Annotated[str | None, Header()] = None,
 ) -> None:
-    _check_internal_secret(x_pulse_internal_secret)
+    await _check_internal_secret(request, x_pulse_internal_secret)
     try:
         uid = int(payload.user_id)
     except ValueError as exc:

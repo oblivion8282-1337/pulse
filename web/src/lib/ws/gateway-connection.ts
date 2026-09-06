@@ -378,12 +378,12 @@ export class GatewayConnection {
    *  WebSocket gegen den Hostname zurück. */
   private async _openSocket(token: string): Promise<SocketLike> {
     if (!this.isCloud && this.instanceId) {
-      const result = await getDirectConnectionDetailed(this.instanceId).catch(() => null);
+      const entry = serversStore.find(this.serverId);
+      const result = await getDirectConnectionDetailed(this.instanceId, entry).catch(() => null);
       if (result?.ok && result.conn.isOpen) {
         directStatus.clear(this.instanceId);
         return new DirectWebSocket(result.conn, `${this.wsPath}?token=${encodeURIComponent(token)}`);
       }
-      const entry = serversStore.find(this.serverId);
       if (isDirectOnly(entry)) {
         const reason = result && !result.ok ? result.reason : 'ice-failed';
         directStatus.report(this.instanceId, reason);
@@ -449,7 +449,7 @@ export class GatewayConnection {
         void import('$lib/voice/livekit.svelte').then(({ voice }) => {
           voice.resyncSelfState();
         });
-        void gapFillAll(this.subs);
+        void gapFillAll(this.subs, { serverId: this.serverId });
         this._startHeartbeat();
         resolve();
       });
@@ -551,7 +551,7 @@ export class GatewayConnection {
    *  already-in-progress guard in `gapFillChannel`, so callers always get a
    *  fresh fetch regardless of the channel's recent request state. */
   async gapFill(channelId: string): Promise<void> {
-    await gapFillChannel(channelId, true);
+    await gapFillChannel(channelId, true, { serverId: this.serverId });
   }
 
   private _handle(evt: ServerEvent): void {

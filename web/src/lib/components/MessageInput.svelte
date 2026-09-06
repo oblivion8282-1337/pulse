@@ -1,16 +1,16 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
-  import SendHorizontalIcon from '@lucide/svelte/icons/send-horizontal';
-  import SmilePlusIcon from '@lucide/svelte/icons/smile-plus';
   import PaperclipIcon from '@lucide/svelte/icons/paperclip';
-  import XIcon from '@lucide/svelte/icons/x';
-  import EmojiPicker from './EmojiPicker.svelte';
+  import ComposerReplyBanner from './composer/ComposerReplyBanner.svelte';
+  import ComposerEmojiButton from './composer/ComposerEmojiButton.svelte';
+  import ComposerSendButton from './composer/ComposerSendButton.svelte';
   import AttachmentPreviewStrip from './AttachmentPreviewStrip.svelte';
   import MentionTriggerOverlay from './MentionTriggerOverlay.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import { expandShortcodes } from '$lib/emoji';
-  import { startUpload, cleanupRow, type PendingAttachment } from '$lib/attachments/upload.svelte';
+  import { VerfasserAnhaenge } from '$lib/attachments/verfasserZeilen.svelte';
+  import { dateienAusEinfuegen } from '$lib/attachments/eingefuegteDateien';
+  import type { AnhangAngabe } from '$lib/krypto/nachrichtNutzlast';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { lookupComposer } from '$lib/shortcuts/engine.svelte';
   import { applyComposerAction } from '$lib/shortcuts/composerActions';
@@ -32,11 +32,12 @@
     disabledReason = '',
     handleDrop = true,
     attachmentsAllowed = true,
-    attachmentAccept = ''
+    attachmentAccept = '',
+    verschluesselt = false
   }: {
     channelId?: string | null;
     placeholder?: string;
-    onSend: (text: string, attachmentIds: string[]) => void;
+    onSend: (text: string, attachmentIds: string[], anhaenge: AnhangAngabe[]) => void;
     /** Fired (cheaply, on every keystroke with non-empty content) so the
      *  parent can broadcast a debounced "typing" signal. Optional — the
      *  stream/watch-party chat composer doesn't wire it. */
@@ -63,12 +64,16 @@
     /** `accept` list for the file dialog (e.g. `image/*`); empty = anything.
      *  Cosmetic pre-filter only — the server enforces the same allowlist. */
     attachmentAccept?: string;
+    /** Ende-zu-Ende-verschluesselter Verfasser (Etappe E): jede Datei wird auf
+     *  dem Geraet verschluesselt und ueber die Postfach-Route hochgeladen,
+     *  ihr Dateischluessel faehrt in der Nachricht mit. Aendert NUR den
+     *  Upload-Weg — Auswahl, Vorschau und Abbruch bleiben identisch. */
+    verschluesselt?: boolean;
   } = $props();
 
   const attachmentsEnabled = $derived(channelId !== null && attachmentsAllowed);
 
   let text = $state('');
-  let pickerOpen = $state(false);
 
   // Entwurf je Channel (auch DMs): beim Mount/Channel-Wechsel wiederherstellen …
   // (untrack: der Effect soll nur auf channelId reagieren, nicht auf spätere
@@ -89,22 +94,33 @@
   let textarea: HTMLTextAreaElement | undefined = $state();
   let fileInput: HTMLInputElement | undefined = $state();
 
-  // Pending uploads + their abort handles. Each `row` carries its own
-  // local id so we can find + replace it on state-change callbacks.
-  let pending = $state<PendingAttachment[]>([]);
-  const aborts = new Map<string, () => void>();
+  // Anhang-Zeilen samt Upload-Buchfuehrung — inklusive der Weiche zwischen
+  // Klartext- und verschluesseltem Weg (`verfasserZeilen.svelte.ts`).
+  const anhaenge = new VerfasserAnhaenge();
 
   // Leaving the channel (switch or unmount) abandons any in-flight uploads of
   // the previous channel: abort them and revoke their preview object-URLs so a
   // half-finished upload neither lands in a channel we left nor leaks memory.
+  //
+  // **Der Effekt folgt der KENNUNG, nicht dem Kanal-Objekt** — und das ist
+  // keine Feinheit, sondern die Ursache eines stillen Datenverlusts
+  // (2026-09-01, gemessen im Hetzner-Nachweis). Bei einer Direktnachricht
+  // baut `berechneSynthChannel` bei JEDER Neuberechnung ein frisches
+  // `Channel`-Objekt; sie laeuft unter anderem, sobald ein Anzeigename im
+  // `userCache` nachgeladen wird — was waehrend eines Uploads regelmaessig
+  // passiert. Las dieser Effekt `channelId` direkt, haengte er damit am
+  // Objekt und nicht an der Zeichenkette darin: jede Neuberechnung riss ihn
+  // ab, sein Aufraeumer brach den laufenden Upload ab, und die Kachel
+  // verschwand kommentarlos aus der Leiste — ohne Fehler, ohne Nachricht,
+  // mit einer verwaisten Anhang-Zeile beim Server.
+  //
+  // Ein `$derived` auf denselben Wert bricht die Kette: es rechnet zwar
+  // erneut, meldet seine Aenderung aber nur weiter, wenn die Zeichenkette
+  // sich wirklich unterscheidet.
+  const kanalSchluessel = $derived(channelId);
   $effect(() => {
-    void channelId; // track so the cleanup runs whenever the channel changes
-    return () => {
-      aborts.forEach((abort) => abort());
-      aborts.clear();
-      pending.forEach(cleanupRow);
-      pending = [];
-    };
+    void kanalSchluessel; // track so the cleanup runs whenever the channel changes
+    return () => anhaenge.alleAbbrechen();
   });
 
   let isDragging = $state(false);
@@ -126,9 +142,8 @@
   // suppresses role + everyone suggestions.
   const guildId = $derived(channelId ? guilds.guildIdForChannel(channelId) : null);
 
-  const anyUploading = $derived(pending.some((p) => p.state === 'uploading' || p.state === 'queued'));
   const sendDisabled = $derived(
-    disabled || (text.trim().length === 0 && pending.length === 0) || anyUploading
+    disabled || (text.trim().length === 0 && anhaenge.zeilen.length === 0) || anhaenge.laeuftNoch
   );
   const effectivePlaceholder = $derived(
     disabled && disabledReason ? disabledReason : placeholder
@@ -139,13 +154,7 @@
     // parent's `addExternalFiles`) — guarding here rather than at each call
     // site is what keeps paste/drop from staying live once the button is gone.
     if (!channelId || !attachmentsAllowed) return;
-    for (const file of Array.from(files)) {
-      const { row, abort } = startUpload(channelId, file, (next) => {
-        pending = pending.map((p) => (p.localId === next.localId ? next : p));
-      });
-      pending = [...pending, row];
-      aborts.set(row.localId, abort);
-    }
+    anhaenge.hinzufuegen(channelId, Array.from(files), verschluesselt);
   }
 
   /** Entry point for files dropped *outside* the composer — the whole
@@ -156,13 +165,7 @@
     addFiles(files);
   }
 
-  function removeAttachment(localId: string) {
-    aborts.get(localId)?.();
-    aborts.delete(localId);
-    const row = pending.find((p) => p.localId === localId);
-    if (row) cleanupRow(row);
-    pending = pending.filter((p) => p.localId !== localId);
-  }
+  const removeAttachment = (localId: string) => anhaenge.entfernen(localId);
   const onFilePick = (e: Event) => {
     const input = e.currentTarget as HTMLInputElement;
     if (input.files) addFiles(input.files);
@@ -171,24 +174,10 @@
   const onPaste = (e: ClipboardEvent) => {
     const dt = e.clipboardData;
     if (!dt) return;
-    // A pasted image (e.g. a screenshot) lives in the clipboard as inline bytes,
-    // not as a file on disk — so it's readable even in the sandboxed Electron
-    // renderer (unlike a *dropped* file, which is a path the sandbox can't
-    // reach). Collect every clipboard entry that carries real bytes; skip
-    // 0-byte entries (a copied file *reference* shows up empty in the sandbox)
-    // and plain text (→ no files → browser default paste).
-    const collected: File[] = [];
-    for (const item of Array.from(dt.items)) {
-      if (item.kind === 'file' && item.type.startsWith('image/')) {
-        const f = item.getAsFile();
-        if (f && f.size > 0) collected.push(f);
-      }
-    }
-    for (const f of Array.from(dt.files)) {
-      if (f.size > 0 && !collected.some((c) => c.name === f.name && c.size === f.size)) {
-        collected.push(f);
-      }
-    }
+    // Welche Dateien wirklich drinstecken, rechnet `eingefuegteDateien.ts`
+    // (importfrei und dort unit-geprueft) — inklusive der Falle mit der
+    // 0-Byte-Datei-Referenz im abgeschotteten Electron-Renderer.
+    const collected = dateienAusEinfuegen(Array.from(dt.items), Array.from(dt.files));
     if (!collected.length) return; // nothing usable → leave default paste alone
     e.preventDefault(); // don't also drop a path/text into the textarea
     addFiles(collected);
@@ -201,13 +190,11 @@
     // sending. The overlay tracked each autocomplete insertion; manually typed
     // @-patterns are left as-is (they won't match the tracked display texts).
     const markupValue = mentionOverlay?.toMarkup(value) ?? value;
-    const ids = pending.filter((p) => p.state === 'done' && p.attachmentId).map((p) => p.attachmentId!);
+    const ids = anhaenge.ids;
     if (!markupValue && ids.length === 0) return;
-    onSend(markupValue, ids);
+    onSend(markupValue, ids, anhaenge.anhaenge);
     text = '';
-    pending.forEach(cleanupRow);
-    pending = [];
-    aborts.clear();
+    anhaenge.nachDemSenden();
     mentionOverlay?.clear();
   }
 
@@ -255,12 +242,11 @@
 
   function insertEmoji(emoji: string) {
     const ta = textarea;
-    if (!ta) { text = text + emoji; pickerOpen = false; return; }
+    if (!ta) { text = text + emoji; return; }
     const start = ta.selectionStart ?? text.length;
     const end = ta.selectionEnd ?? text.length;
     text = text.slice(0, start) + emoji + text.slice(end);
     queueMicrotask(() => { ta.focus(); ta.setSelectionRange(start + emoji.length, start + emoji.length); });
-    pickerOpen = false;
   }
 
   // Auto-Grow (Discord-Stil): das Eingabefeld wächst mit dem Inhalt mit, statt
@@ -288,32 +274,17 @@
   onsubmit={(e) => { e.preventDefault(); fire(); }}
 >
   {#if replyTo}
-    <div
-      class="bg-bg-input mb-1 flex items-center gap-2 rounded-t-xl border border-b-0 border-border px-3 py-1.5 text-xs"
-      data-testid="reply-banner"
-    >
-      <span class="text-text-muted">{m.message_input_reply_to()}</span>
-      <span class="text-text-bright font-semibold">{replyTo.author}</span>
-      <span class="text-text-muted truncate">— {replyTo.snippet}</span>
-      <button
-        type="button"
-        class="text-text-muted hover:text-text-bright ml-auto rounded p-0.5"
-        aria-label={m.message_input_cancel_reply()}
-        onclick={() => onCancelReply?.()}
-      >
-        <XIcon class="size-3.5" />
-      </button>
-    </div>
+    <ComposerReplyBanner {replyTo} onCancel={onCancelReply} />
   {/if}
 
-  <AttachmentPreviewStrip {pending} onRemove={removeAttachment} />
+  <AttachmentPreviewStrip pending={anhaenge.zeilen} onRemove={removeAttachment} />
 
   <!-- `items-end` ohne Breakpoint: die Knöpfe sollen bei der Schreibmarke stehen,
        sobald der Text mehrzeilig wird. Bei einer Zeile ist es einerlei, weil der
        Textkasten genauso hoch ist wie die Knöpfe (siehe unten). -->
   <div
     class="bg-bg-input relative flex items-end gap-1.5 border border-border px-3 py-2 shadow-[var(--panel-shadow)] backdrop-blur-sm md:gap-2 md:px-4 md:py-3 dark:shadow-none
-           {replyTo || pending.length > 0 ? 'rounded-b-2xl rounded-t-none' : 'rounded-2xl'}"
+           {replyTo || anhaenge.zeilen.length > 0 ? 'rounded-b-2xl rounded-t-none' : 'rounded-2xl'}"
   >
     {#if isDragging}
       <div
@@ -376,52 +347,7 @@
       {guildId}
       onChange={(t) => (text = t)}
     />
-    <!-- Emoji-Picker nur ab Tablet: auf dem Handy liefert die Tastatur
-         selbst Emojis, der Knopf nahm nur Platz in der kompakten Zeile weg. -->
-    <DropdownMenu.Root bind:open={pickerOpen}>
-      <DropdownMenu.Trigger>
-        {#snippet child({ props })}
-          <Button
-            {...props}
-            variant="ghost"
-            size="icon"
-            class="hidden size-10 md:inline-flex md:size-9"
-            aria-label={m.message_input_insert_emoji()}
-            data-testid="emoji-button"
-          >
-            <SmilePlusIcon class="size-5" />
-          </Button>
-        {/snippet}
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Content
-        side="top"
-        align="end"
-        sideOffset={6}
-        class="w-auto max-w-[calc(100vw-1rem)] overflow-visible border-0 bg-transparent p-0 shadow-none"
-      >
-        <EmojiPicker onPick={insertEmoji} />
-      </DropdownMenu.Content>
-    </DropdownMenu.Root>
-    <!-- Drei beabsichtigte Abweichungen von der Standard-Variante:
-         Grösse: `md:size-9` (36px) zieht mit Büroklammer und Emoji daneben
-         gleich, vorher war dieser eine Knopf 32px. `size-10` (40px) auf dem
-         Handy: kompakte Zeilenhöhe mit ausreichender Trefferfläche.
-         Verlauf: `accent-gradient` statt der einfarbigen Fläche — direkt unter
-         den eigenen (blauen) Sprechblasen hob sich ein flaches `bg-primary`
-         nicht vom Umfeld ab; der leichte Schatten unterstützt das.
-         Gesperrt: die Basis blendet auf 50 % aus, was einen blassblauen Geist
-         ergab. `disabled:opacity-100` hebt das auf, erst dadurch werden
-         `disabled:bg-secondary`/`disabled:text-text-muted` sichtbar — eine
-         echte graue Fläche statt „halb da". Die Abweichungen gehören zusammen. -->
-    <Button
-      type="submit"
-      size="icon"
-      class="accent-gradient size-10 text-white shadow-[0_4px_14px_rgba(37,99,235,0.35)] hover:brightness-110 disabled:bg-none disabled:bg-secondary disabled:text-text-muted disabled:opacity-100 disabled:shadow-none md:size-9"
-      disabled={sendDisabled}
-      data-testid="message-send"
-      aria-label={m.message_input_send()}
-    >
-      <SendHorizontalIcon />
-    </Button>
+    <ComposerEmojiButton onPick={insertEmoji} />
+    <ComposerSendButton disabled={sendDisabled} />
   </div>
 </form>

@@ -4,6 +4,7 @@
   next attachment-upload-url request reads the new value live.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -27,7 +28,7 @@
       sizeMB = Math.round(cs.dm_attachment_max_size_bytes / 1024 / 1024);
       count = cs.dm_attachment_max_count_per_message;
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errText(e);
     }
   });
 
@@ -49,7 +50,7 @@
       toast.success(m.admin_attachments_limits_updated());
     } catch (e) {
       toast.error(m.admin_attachments_save_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       busy = false;

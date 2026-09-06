@@ -132,6 +132,7 @@ export type ServerEvent =
   | { op: 'message_delete'; data: { id: string; channel_id: string } }
   | { op: 'reaction_add'; data: ReactionEvent }
   | { op: 'reaction_remove'; data: ReactionEvent }
+  | { op: 'pin_update'; data: { message_id: string; channel_id: string; pinned: boolean } }
   | { op: 'message_ack'; nonce: string | null; id: string }
   | { op: 'channel_created'; channel: ChannelPayload }
   | { op: 'channel_updated'; channel: ChannelPayload }
@@ -154,6 +155,14 @@ export type ServerEvent =
       user_b_id: string;
       message_id: string;
       author_id: string;
+    }
+  | {
+      // Weckruf fuers verschluesselte Postfach (Etappe D2) — inhaltslos,
+      // traegt nur Kanal und Anzahl. Der Klient holt danach selbst ab
+      // (`POST /postfach/abholen`); der Server weiss nie, was drinsteht.
+      op: 'postfach_neu';
+      channel_id: string;
+      anzahl: number;
     }
   | { op: 'guild_updated'; guild: GuildPayload }
   | { op: 'guild_deleted'; guild_id: string }
@@ -193,6 +202,8 @@ export type ServerEvent =
       streaming_user_ids?: string[];
       camera_user_ids?: string[];
       user_states?: Record<string, UserVoiceState>;
+      /** Namen der Gäste im Kanal (``gast-<id>`` → getippter Name). */
+      gast_namen?: Record<string, string>;
     }
   | {
       op: 'voice_override';

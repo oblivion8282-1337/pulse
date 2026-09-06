@@ -1,50 +1,25 @@
 <!--
-  Watch-Popup-Layout — eigenständiger Mini-Shell für entkoppelte Watch-
-  Partys, außerhalb von `/app`. Nur Auth + Gateway, kein Guild-Rail.
-  Praktisch identisch zum stream-popup-Layout — Multi-Tab/Multi-Window
-  ist seitens des Backends unkritisch (jede Gateway-Connection = eigene
-  Session am chat-gateway).
+  Watch-Popup-Layout — entkoppelte Watch-Partys. Die Shell (Auth + Gateway +
+  schwarzem Vollbild-Hintergrund) lebt in `PopupShell.svelte`.
+  Multi-Tab/Multi-Window ist seitens des Backends unkritisch (jede Gateway-
+  Connection = eigene Session am chat-gateway).
 -->
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import { goto } from '$app/navigation';
-  import { auth } from '$lib/stores/auth.svelte';
-  import { gateway } from '$lib/ws/connection';
-  import { watchFehlerWacht } from '$lib/watch/fehlerwacht.svelte';
+  import PopupShell from '$lib/components/PopupShell.svelte';
   import { m } from '$lib/paraglide/messages.js';
-  import LoadingState from '$lib/components/feedback/LoadingState.svelte';
+  import { watchFehlerWacht } from '$lib/watch/fehlerwacht.svelte';
 
   let { children } = $props();
-  let hydrated = $state(false);
-
-  onMount(async () => {
-    await auth.hydrate();
-    if (!auth.isAuthenticated) {
-      try { window.close(); } catch {}
-      await goto('/login', { replaceState: true });
-      return;
-    }
-    gateway.connect().catch((e) => console.error('watch-popup gateway connect', e));
-    hydrated = true;
-  });
-
-  onDestroy(() => {
-    gateway.disconnect();
-  });
 
   // Ablehnungen des Servers zur Watch-Party sichtbar machen. Einmal je
   // Fenster — Begruendung in `watch/fehlerwacht.svelte.ts`.
   watchFehlerWacht();
 </script>
 
-<svelte:head><title>{m.watch_popup_page_title()}</title></svelte:head>
-
-<div class="h-dvh w-screen bg-black text-text-base">
-  {#if hydrated}
-    {@render children?.()}
-  {:else}
-    <div class="flex h-full w-full items-center justify-center">
-      <LoadingState density="page" label={m.watch_popup_loading()} />
-    </div>
-  {/if}
-</div>
+<PopupShell
+  title={m.watch_popup_page_title()}
+  loadingLabel={m.watch_popup_loading()}
+  logLabel="watch-popup gateway connect"
+>
+  {@render children()}
+</PopupShell>

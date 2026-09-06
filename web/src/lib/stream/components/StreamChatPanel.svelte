@@ -17,8 +17,9 @@
   import RocketIcon from '@lucide/svelte/icons/rocket';
   import XIcon from '@lucide/svelte/icons/x';
   import { Button } from '$lib/components/ui/button';
-  import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
+  import { meldeSendeFehler } from '../sendeFehler';
+  import { uhrzeitHHMM } from '$lib/utils/uhrzeit';
 
   let {
     channelId,
@@ -89,25 +90,11 @@
       // Kein lokales Echo nötig — der eigene WS-Stream liefert die Message
       // gleich zurück (dedupliziert per id im Store).
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (msg.includes('410')) {
-        toast.error(m.stream_chat_panel_streamer_offline());
-      } else if (msg.includes('429')) {
-        toast.warning(m.stream_chat_panel_too_fast());
-      } else {
-        toast.error(m.stream_chat_panel_send_failed(), { description: msg });
-      }
-    }
-  }
-
-  function fmtTime(iso: string): string {
-    try {
-      return new Date(iso).toLocaleTimeString(undefined, {
-        hour: '2-digit',
-        minute: '2-digit'
+      meldeSendeFehler(e, {
+        offline: m.stream_chat_panel_streamer_offline(),
+        tooFast: m.stream_chat_panel_too_fast(),
+        failed: m.stream_chat_panel_send_failed()
       });
-    } catch {
-      return '';
     }
   }
 
@@ -161,7 +148,7 @@
             <span class="font-semibold text-primary">
               {userCache.displayName(msg.author_id)}
             </span>
-            <span class="text-text-muted ml-1 text-2xs">{fmtTime(msg.created_at)}</span>
+            <span class="text-text-muted ml-1 text-2xs">{uhrzeitHHMM(msg.created_at)}</span>
             <p class="text-text-bright break-words">{msg.content}</p>
           </li>
         {/each}

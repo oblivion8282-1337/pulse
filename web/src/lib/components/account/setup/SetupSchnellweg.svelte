@@ -19,7 +19,7 @@
   import { m } from '$lib/paraglide/messages.js';
   import { ApiError } from '$lib/api/client';
   import { instancesApi, type Instance } from '$lib/api/instances';
-  import BootstrapConsumedPanel from '../BootstrapConsumedPanel.svelte';
+  import InlineResetPanel from '../InlineResetPanel.svelte';
   import { Button } from '$lib/components/ui/button';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
   import CopyIcon from '@lucide/svelte/icons/copy';
@@ -109,7 +109,19 @@
 {#if loading && !token}
   <LoadingState label={m.instance_setup_loading()} />
 {:else if consumed}
-  <BootstrapConsumedPanel {resetting} onreset={() => { resetting = true; void mint(true); }} />
+  <InlineResetPanel
+    testid="instance-setup-consumed"
+    title={m.instance_setup_consumed_title()}
+    body={m.instance_setup_consumed_body()}
+    confirmBody={m.instance_setup_reset_confirm_body()}
+    confirmBtn={m.instance_setup_reset_confirm_btn()}
+    resetBtn={m.instance_setup_reset_btn()}
+    busy={resetting}
+    onreset={() => {
+      resetting = true;
+      void mint(true);
+    }}
+  />
 {:else if error}
   <div
     class="border-destructive/30 bg-destructive/10 flex items-center justify-between gap-3 rounded-xl border p-3"

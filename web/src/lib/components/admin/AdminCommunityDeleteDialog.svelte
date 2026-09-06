@@ -20,6 +20,7 @@
   import { toast } from 'svelte-sonner';
   import { adminApi, type Community } from '$lib/api/admin';
   import { m } from '$lib/paraglide/messages.js';
+  import { errText } from '$lib/utils/errText';
 
   let {
     open = false,
@@ -64,7 +65,7 @@
       onClose();
     } catch (err) {
       toast.error(m.admin_communities_delete_failed(), {
-        description: err instanceof Error ? err.message : String(err)
+        description: errText(err)
       });
     } finally {
       busy = false;

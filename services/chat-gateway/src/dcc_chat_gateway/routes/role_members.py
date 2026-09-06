@@ -21,7 +21,11 @@ from dcc_chat_gateway.permissions import (
     resolve_permissions,
 )
 from dcc_chat_gateway.role_hierarchy import highest_role_position
-from dcc_chat_gateway.routes._deps import require_member
+from dcc_chat_gateway.routes._deps import (
+    publish_guild_event,
+    require_member,
+    role_or_404,
+)
 from dcc_chat_gateway.schemas import RoleOut
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.voice_evict import evict_ineligible_from_voice_channels
@@ -55,13 +59,10 @@ async def _assert_role_within_actor_tier(
 async def _publish_member_roles_updated(
     request: Request, guild_id: int, user_id: int
 ) -> None:
-    mgr = getattr(request.app.state, "connection_manager", None)
-    if mgr is not None:
-        await mgr.publish_guild_event(
-            MemberRolesUpdatedEvent(
-                guild_id=str(guild_id), user_id=str(user_id)
-            )
-        )
+    await publish_guild_event(
+        request,
+        MemberRolesUpdatedEvent(guild_id=str(guild_id), user_id=str(user_id)),
+    )
 
 
 @router.put(
@@ -76,9 +77,7 @@ async def assign_member_role(
     current: CurrentUser,
     request: Request,
 ):
-    role = await session.get(Role, role_id)
-    if role is None or role.guild_id != guild_id:
-        raise HTTPException(404, detail="role not found")
+    role = await role_or_404(session, guild_id, role_id)
     if role.is_everyone:
         raise HTTPException(
             400, detail="@everyone is implicit — cannot be assigned explicitly"
@@ -129,9 +128,7 @@ async def unassign_member_role(
     current: CurrentUser,
     request: Request,
 ):
-    role = await session.get(Role, role_id)
-    if role is None or role.guild_id != guild_id:
-        raise HTTPException(404, detail="role not found")
+    role = await role_or_404(session, guild_id, role_id)
     if role.is_everyone:
         raise HTTPException(
             400, detail="@everyone is implicit — cannot be unassigned"

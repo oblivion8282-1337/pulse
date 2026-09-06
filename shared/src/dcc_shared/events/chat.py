@@ -68,6 +68,22 @@ class ReactionRemoveEvent(_EventBase):
     data: ReactionData
 
 
+class PinUpdateData(_EventBase):
+    message_id: str
+    channel_id: str
+    pinned: bool
+
+
+class PinUpdateEvent(_EventBase):
+    """``op="pin_update"`` — eine Kanalnachricht wurde angepinnt/gelöst.
+    An alle Kanal-Abonnenten, damit niemand reloaden muss. Gelöschte
+    Nachrichten verlieren ihren Pin serverseitig; der Client räumt seine
+    Pin-Liste bereits im ``message_delete``-Handler auf."""
+
+    op: Literal["pin_update"] = "pin_update"
+    data: PinUpdateData
+
+
 class StreamChatMessagePayload(_EventBase):
     id: str
     author_id: str
@@ -150,6 +166,19 @@ class DmBumpEvent(_EventBase):
     user_b_id: str
     message_id: str
     author_id: str
+
+
+class PostfachNeuEvent(_EventBase):
+    """``op="postfach_neu"`` — Weckruf fuers verschluesselte Postfach
+    (Etappe D, E2E-DM). Absichtlich inhaltslos: er traegt Kanal und
+    Anzahl, NIE einen Umschlag — sonst laege der Chiffretext wieder in
+    Redis, genau was die ganze Etappe vermeiden soll. Der Klient holt
+    die tatsaechlichen Umschlaege ueber ``POST /postfach/abholen`` (REST,
+    Zertifikats-Nachweis), dieses Ereignis sagt nur "da liegt etwas"."""
+
+    op: Literal["postfach_neu"] = "postfach_neu"
+    channel_id: str
+    anzahl: int
 
 
 class TypingEvent(_EventBase):

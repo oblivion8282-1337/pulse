@@ -15,6 +15,7 @@
  */
 
 import type { LocalVideoTrack, RemoteVideoTrack } from 'livekit-client';
+import { formatBitrate } from '$lib/utils/formatBitrate';
 
 /** Was wir aus `outbound-rtp` + `codec`-Stats für den Streamer rauspulen. */
 export type PublishStats = {
@@ -119,12 +120,6 @@ function formatFps(fps: number | undefined): string {
   return typeof fps === 'number' ? `${Math.round(fps)} fps` : '—';
 }
 
-function formatBitrate(deltaBytes: number, deltaMs: number): string {
-  if (deltaMs <= 0) return '—';
-  const kbps = (deltaBytes * 8) / (deltaMs / 1000) / 1000;
-  if (!Number.isFinite(kbps) || kbps < 0) return '—';
-  return kbps >= 1000 ? `${(kbps / 1000).toFixed(1)} Mbit/s` : `${Math.round(kbps)} kbit/s`;
-}
 
 export class PublishStatsReader {
   #lastBytes = 0;

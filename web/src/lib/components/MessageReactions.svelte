@@ -19,6 +19,7 @@
   popover; the chat stays focused.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { Popover as PopoverPrimitive } from 'bits-ui';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
@@ -30,13 +31,13 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
-  import { idealTextColor, sanitizeProfileColor, sanitizeGradientAngle } from '$lib/utils/nameColor';
-  import type { Snippet } from 'svelte';
+  import { avatarFallbackStyle, gradientTextStyle, sanitizeProfileColor } from '$lib/utils/nameColor';
   import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button';
   import EmptyState from './feedback/EmptyState.svelte';
   import LoadingState from './feedback/LoadingState.svelte';
   import FieldError from './feedback/FieldError.svelte';
+  import { emojiPickerContentProps } from './emojiPickerContent';
 
   // Hard cap so a viral message doesn't render a thousand-row popover.
   // Discord uses 25; we err generous because reactions are cheap to
@@ -46,8 +47,7 @@
   let {
     messageId,
     reactions,
-    onToggle,
-    children
+    onToggle
   }: {
     /** Required for the "who reacted" popover (regular channel messages,
      *  backed by the persistent `message_reactions` table). Omit for
@@ -56,7 +56,6 @@
     messageId?: string;
     reactions: ReactionAggregate[];
     onToggle: (emoji: string, currentlyMine: boolean) => void;
-    children?: Snippet;
   } = $props();
 
   let pickerOpen = $state(false);
@@ -97,7 +96,7 @@
       // shows a fallback initial until then.
       for (const entry of list) for (const id of entry.user_ids) userCache.queue(id);
     } catch (e) {
-      loadError = e instanceof Error ? e.message : String(e);
+      loadError = errText(e);
     } finally {
       loadingEmoji = null;
     }
@@ -130,28 +129,19 @@
   }
 
   function displayNameFor(userId: string): string {
-    const u = userCache.get(userId);
-    return u?.display_name ?? u?.username ?? '…';
+    return userCache.displayName(userId);
   }
 
   function avatarStyle(userId: string): string {
     const u = userCache.get(userId);
-    const c = sanitizeProfileColor(u?.profile_color);
-    return c ? `background: ${c}; color: ${idealTextColor(c)}` : '';
+    return avatarFallbackStyle(u?.profile_color);
   }
 
   function nameStyleFor(userId: string): string {
     const u = userCache.get(userId);
     const c1 = sanitizeProfileColor(u?.profile_color);
     const c2 = sanitizeProfileColor(u?.profile_color_secondary);
-    if (c1 && c2) {
-      const angle = sanitizeGradientAngle(u?.profile_gradient_angle);
-      return (
-        `background-image: linear-gradient(${angle}deg, ${c1}, ${c2}); ` +
-        `-webkit-background-clip: text; background-clip: text; ` +
-        `color: transparent; -webkit-text-fill-color: transparent;`
-      );
-    }
+    if (c1 && c2) return gradientTextStyle(c1, c2, u?.profile_gradient_angle);
     if (c1) return `color: ${c1}`;
     return '';
   }
@@ -304,15 +294,9 @@
           </button>
         {/snippet}
       </DropdownMenu.Trigger>
-      <DropdownMenu.Content
-        side="top"
-        align="start"
-        sideOffset={6}
-        class="w-auto max-w-[calc(100vw-1rem)] overflow-visible border-0 bg-transparent p-0 shadow-none"
-      >
+      <DropdownMenu.Content {...emojiPickerContentProps} align="start">
         <EmojiPicker onPick={pick} />
       </DropdownMenu.Content>
     </DropdownMenu.Root>
-    {#if children}{@render children()}{/if}
   </div>
 {/if}

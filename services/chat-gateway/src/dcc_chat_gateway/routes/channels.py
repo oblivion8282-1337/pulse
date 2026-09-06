@@ -8,12 +8,12 @@ from dcc_shared.events import (
     ChannelCreatedEvent,
     ChannelDeletedEvent,
     ChannelUpdatedEvent,
-    _EventBase,
 )
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import delete, select
 
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway import config as chat_config
 from dcc_chat_gateway.guild_caps import enforce_channel_cap
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_DROPBOX,
@@ -21,7 +21,7 @@ from dcc_chat_gateway.models import (
     Channel,
     DropboxConfig,
     DropboxFile,
-    Guild,
+    GuestLink,
     Message,
     MessageAttachment,
 )
@@ -38,7 +38,8 @@ from dcc_chat_gateway.permissions import (
 # into shared/dcc_shared/text.py. Importing across route modules is
 # intentional here — same package, no cycle.
 from dcc_chat_gateway.routes._dropbox_helpers import validate_name
-from dcc_chat_gateway.routes._deps import require_member
+from dcc_chat_gateway.routes._deps import guild_or_404, require_member
+from dcc_chat_gateway.routes.guilds import _publish_guild_event
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments, purge_s3_keys
 from dcc_chat_gateway.remote_guard import (
     collect_devices_for_cascade,
@@ -52,6 +53,7 @@ from dcc_chat_gateway.schemas import (
 )
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
+from dcc_chat_gateway.routes.guest_links import entwerte_link
 from dcc_chat_gateway.voice_evict import evict_all_from_voice_channels
 
 router = APIRouter()
@@ -66,6 +68,8 @@ def _channel_dict(channel: Channel) -> dict[str, object]:
         "guild_id": str(channel.guild_id),
         "name": channel.name,
         "type": channel.type,
+        "ablage": getattr(channel, "ablage", False),
+        "legacy_readonly": getattr(channel, "legacy_readonly", False),
         "position": channel.position,
         "topic": channel.topic,
         # Stamped onto the instance by routes that computed it; freshly
@@ -76,14 +80,6 @@ def _channel_dict(channel: Channel) -> dict[str, object]:
         "name_gradient_angle": channel.name_gradient_angle,
         "user_limit": channel.user_limit,
     }
-
-
-async def _publish_guild_event(
-    request: Request, envelope: _EventBase | dict[str, object]
-) -> None:
-    mgr = getattr(request.app.state, "connection_manager", None)
-    if mgr is not None:
-        await mgr.publish_guild_event(envelope)
 
 
 @router.post(
@@ -98,11 +94,19 @@ async def create_channel(
     current: CurrentUser,
     request: Request,
 ):
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     await check_permission(session, current, guild_id, Permissions.MANAGE_CHANNELS)
     await enforce_channel_cap(session, guild_id)
+    # Instanz-Einstellung (Konzept §2a): im Modus „Nur Ablage" ist die
+    # Neuanlage von Klartext-Kanaelen gesperrt. Der Server kann die Ablage
+    # selbst nicht verifizieren (Zugangsdaten bleiben beim Klienten) — er
+    # erzwingt nur die Kennzeichnung; die Krypto-Zusage traegt der Klient.
+    policy = chat_config.get_settings().channel_creation_policy
+    if policy == "ablage_only" and not payload.ablage:
+        raise HTTPException(
+            403,
+            detail="channel_creation_requires_ablage: connect a cloud drive first",
+        )
     # Display-string sink: must go through validate_name to harden
     # against path-traversal / bidi-spoofing / homograph phishing.
     try:
@@ -114,6 +118,7 @@ async def create_channel(
         guild_id=guild_id,
         name=clean_name,
         type=payload.type,
+        ablage=payload.ablage,
         position=payload.position,
         topic=payload.topic,
     )
@@ -280,6 +285,20 @@ async def delete_channel(
         if cfg is not None:
             cfg.used_bytes = 0
     await session.execute(delete(Message).where(Message.channel_id == channel_id))
+    # Gast-Links dieses Kanals: kein Fremdschluessel (Modell ``guest_links``),
+    # also von Hand. Ohne das bliebe der Link bis zu seinem Ablauf in der
+    # Liste stehen und zeigte auf einen Kanal, den es nicht mehr gibt.
+    # Vor dem Row-Delete jeden Link entwerten (Sperre + Lese-Token + Evict +
+    # WHEP-Session-Kill): sonst sitzen Gäste in einer Geistersitzung weiter —
+    # der Beitritt schlaegt zwar fehl, die laufende Besprechung aber nicht.
+    gast_links = (
+        (await session.execute(select(GuestLink).where(GuestLink.channel_id == channel_id)))
+        .scalars()
+        .all()
+    )
+    for gast_link in gast_links:
+        await entwerte_link(session, request, gast_link)
+    await session.execute(delete(GuestLink).where(GuestLink.channel_id == channel_id))
     await session.delete(channel)
     await session.commit()
     await purge_s3_keys(s3_keys_to_purge)

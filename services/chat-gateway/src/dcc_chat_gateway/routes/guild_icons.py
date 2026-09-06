@@ -25,8 +25,8 @@ from PIL import Image, UnidentifiedImageError
 Image.MAX_IMAGE_PIXELS = 16 * 1024 * 1024
 
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import Guild
 from dcc_chat_gateway.permissions import Permissions, check_permission
+from dcc_chat_gateway.routes._deps import guild_or_404
 from dcc_chat_gateway.routes.guilds import _guild_dict, _publish_guild_event
 from dcc_chat_gateway.schemas import GuildOut
 from dcc_chat_gateway.security import CurrentUser
@@ -78,9 +78,7 @@ async def upload_icon(
     current: CurrentUser,
     request: Request,
 ):
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     await check_permission(
         session, current, guild_id, Permissions.MANAGE_GUILD,
         detail="only the owner can change the icon",
@@ -101,7 +99,7 @@ async def upload_icon(
         img = Image.open(io.BytesIO(raw))
         img.verify()
         img = Image.open(io.BytesIO(raw))
-    except (UnidentifiedImageError, Exception) as exc:
+    except Exception as exc:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail="invalid image file"
         ) from exc
@@ -127,9 +125,7 @@ async def delete_icon(
     current: CurrentUser,
     request: Request,
 ):
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     await check_permission(
         session, current, guild_id, Permissions.MANAGE_GUILD,
         detail="only the owner can clear the icon",

@@ -21,11 +21,14 @@ from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.community_categories import is_valid_category
 from dcc_chat_gateway.audit_log import write_audit_log
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.routes._deps import guild_or_404
 from dcc_chat_gateway.guild_limits import clamp_to_ceilings, effective_wire_limits
 from dcc_chat_gateway.guild_caps import enforce_member_cap
 from dcc_chat_gateway.models import (
+    AblageZwischenlagerDatei,
     Channel,
     CommunityInviteNotification,
+    GuestLink,
     Guild,
     GuildMember,
     GuildSoundOverride,
@@ -48,6 +51,7 @@ from dcc_chat_gateway.role_hierarchy import assert_actor_outranks
 from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments, purge_s3_keys
 from dcc_chat_gateway.routes.dropbox_admin import purge_guild_dropbox_objects
+from dcc_chat_gateway.routes.guest_links import entwerte_link
 from dcc_chat_gateway.schemas import (
     GuildIn,
     GuildOut,
@@ -159,9 +163,7 @@ async def list_guilds(session: SessionDep, current: CurrentUser):
 
 @router.get("/guilds/{guild_id}", response_model=GuildOut)
 async def get_guild(guild_id: int, session: SessionDep, current: CurrentUser):
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     await require_member(session, guild_id, current.id)
     return guild
 
@@ -182,9 +184,7 @@ async def get_guild_settings(
     Requires ``MANAGE_GUILD`` — the handle/address is a server-management
     concern, and we don't want a regular member enumerating whether a community
     is publicly addressable from inside."""
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     await check_permission(session, current, guild_id, Permissions.MANAGE_GUILD)
     return GuildSettingsOut(
         id=guild.id,
@@ -221,18 +221,15 @@ async def patch_guild(
     Broadcasts ``op:guild_updated`` on guild:events so every connected client
     can refresh its sidebar without a refetch.
     """
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     await check_permission(session, current, guild_id, Permissions.MANAGE_GUILD)
-    if payload.name is not None:
-        guild.name = payload.name
-    if payload.icon_url is not None:
-        guild.icon_url = payload.icon_url
-    if payload.attachment_max_size_bytes is not None:
-        guild.attachment_max_size_bytes = payload.attachment_max_size_bytes
-    if payload.attachment_max_count_per_message is not None:
-        guild.attachment_max_count_per_message = payload.attachment_max_count_per_message
+    # Nur ausdruecklich gesendete Felder setzen — ``None`` heisst hier
+    # durchgehend "keine Aenderung", nie "loeschen" (loeschen geht ueber
+    # die eigenen Endpunkte, z. B. Icon via handle-Reset). Null-Filter,
+    # weil ``exclude_unset`` ein explizit gesendetes null durchlaesst.
+    for feld, wert in payload.model_dump(exclude_unset=True).items():
+        if wert is not None:
+            setattr(guild, feld, wert)
     # Diese zwei Felder sind Werte der Community, keine Obergrenzen — ohne das
     # Klemmen könnte MANAGE_GUILD hier die Vorgabe des Betreibers überschreiben
     # (genau die Lücke, die Migration 0057 geschlossen hat).
@@ -314,9 +311,7 @@ async def delete_guild(
     deleted explicitly below. Broadcasts ``op:guild_deleted`` so clients can
     navigate away and prune their local stores.
     """
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     if guild.owner_id != current.id and not current.is_admin:
         raise HTTPException(403, detail="only the owner can delete the guild")
     mgr = getattr(request.app.state, "connection_manager", None)
@@ -355,6 +350,13 @@ async def delete_guild(
         GuildSoundOverride.guild_id == guild_id
     )
     s3_keys_to_purge.extend((await session.execute(sound_keys_stmt)).scalars())
+    # Ablage-Zwischenlager (Etappe E8): dieselbe Luecke wie bei den Sound-
+    # Overrides — ``ON DELETE CASCADE`` auf ``guild_id`` raeumt die Zeilen,
+    # MinIO erfaehrt davon nichts. Erst hier erfassen, vor dem Cascade-Delete.
+    zwischenlager_keys_stmt = select(AblageZwischenlagerDatei.storage_key).where(
+        AblageZwischenlagerDatei.guild_id == guild_id
+    )
+    s3_keys_to_purge.extend((await session.execute(zwischenlager_keys_stmt)).scalars())
     # Offene Einladungen in diese Community von Hand raeumen. Bis Migration
     # 0063 erledigte das ein ON DELETE CASCADE; der Fremdschluessel musste
     # weichen, weil ``guild_id`` seither auch auf eine Community auf einem
@@ -366,6 +368,21 @@ async def delete_guild(
             CommunityInviteNotification.guild_id == guild_id
         )
     )
+    # Gast-Links derselben Community, aus demselben Grund von Hand: sie tragen
+    # bewusst keinen Fremdschluessel (Modell ``guest_links``). Ein Gast kommt
+    # ueber einen solchen Link zwar ohnehin nicht mehr herein — der Beitritt
+    # schlaegt fehl, sobald Kanal oder Community fehlen —, aber die Zeile
+    # bliebe bis zu ihrem Ablauf als Karteileiche stehen.
+    # Vor dem Row-Delete entwerten (Sperre + Lese-Token + Evict +
+    # WHEP-Session-Kill) — sonst säßen Gäste in Geistersitzungen weiter.
+    gast_links = (
+        (await session.execute(select(GuestLink).where(GuestLink.guild_id == guild_id)))
+        .scalars()
+        .all()
+    )
+    for gast_link in gast_links:
+        await entwerte_link(session, request, gast_link)
+    await session.execute(sa_delete(GuestLink).where(GuestLink.guild_id == guild_id))
     await session.delete(guild)
     await session.commit()
     # Purge MinIO objects only after the commit succeeds — a rollback must not
@@ -414,9 +431,7 @@ async def transfer_ownership(
     reasoning. The transfer is atomic: the previous owner stays as a
     regular member afterward.
     """
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     if guild.owner_id != current.id:
         raise HTTPException(
             403, detail="only the owner can transfer ownership"
@@ -457,9 +472,7 @@ async def add_member(
     current: CurrentUser,
     request: Request,
 ):
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     # MANAGE_INVITES gates direct-add-by-id (same caller-trust as creating
     # an invite link). Self-add is intentionally NOT allowed: guild IDs are
     # enumerable, so a self-add path would let any authenticated user join
@@ -607,9 +620,7 @@ async def patch_member(
     owner oracle."""
     if user_id == current.id:
         raise HTTPException(400, detail="use PATCH .../members/@me for self-edits")
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     # Membership gate before any target-specific lookup: an empty body ({})
     # must not leak the target's nickname/join time, and a non-member must get
     # the generic 403 here rather than a distinguishable owner-vs-not response
@@ -673,9 +684,23 @@ async def _remove_guild_member(
         )
     await session.delete(member)
     await session.commit()
+    await _after_member_removed(session, request, guild_id, user_id)
+
+
+async def _after_member_removed(
+    session: SessionDep,
+    request: Request,
+    guild_id: int,
+    user_id: int,
+) -> None:
+    """Post-commit cleanup shared by kick/leave (``_remove_guild_member``)
+    und Bann (``bans.ban_user``): Voice-, Remote-, Stream- und Watch-Party-
+    Abräumen plus ``guild_member_removed``-Broadcast. FIRE-AND-FORGET je
+    Schritt — failure is logged but doesn't unwind the removal (the WS
+    event already went out, membership is gone). Der Aufrufer besitzt die
+    Pre-Commit-Arbeit (Zeilen löschen, Overwrites wipen, Audit)."""
     # Yank the user out of LiveKit + clear voice-overrides for every voice
-    # channel of this guild. Fire-and-forget — failure is logged but doesn't
-    # unwind the removal (the WS event already went out, membership is gone).
+    # channel of this guild.
     await evict_user_from_guild_voice(session, guild_id, user_id)
     # Und aus jeder Fernsteuerung dieses Servers — in BEIDEN Rollen. Der
     # Takt-Prueflauf (remote_guard) braucht bis zu 30 s; ein ausdruecklicher
@@ -753,9 +778,7 @@ async def leave_guild(
     PATCH pair above). Same removal mechanics as ``kick_member``, gated on
     "self" instead of ``KICK_MEMBERS``.
     """
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     if guild.owner_id == current.id:
         raise HTTPException(403, detail="owner_cannot_leave")
     member = await session.get(GuildMember, (guild_id, current.id))
@@ -803,9 +826,7 @@ async def kick_member(
     """
     if user_id == current.id:
         raise HTTPException(400, detail="cannot kick yourself")
-    guild = await session.get(Guild, guild_id)
-    if guild is None:
-        raise HTTPException(404, detail="guild not found")
+    guild = await guild_or_404(session, guild_id)
     if not current.is_admin:
         await require_member(session, guild_id, current.id)
     if guild.owner_id == user_id:

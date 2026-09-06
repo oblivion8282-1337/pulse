@@ -6,8 +6,11 @@
  * mutated by ``user_blocked`` / ``user_unblocked`` events.
  *
  * The set is consulted by ``directMessages.svelte.ts`` to refresh
- * ``can_send`` on lifecycle changes and by the friends/add UI to label a
- * search-hit as "blocked" instead of "add".
+ * ``can_send`` on lifecycle changes, by the friends/add UI to label a
+ * search-hit as "blocked" instead of "add", and by ``MessageItem.svelte``
+ * (via ``nachrichtVonBlockiertem``) to collapse a message from a blocked
+ * sender in a private group — the DM path never reaches that check, the
+ * server withholds delivery there already.
  */
 
 export type BlockedEntry = {

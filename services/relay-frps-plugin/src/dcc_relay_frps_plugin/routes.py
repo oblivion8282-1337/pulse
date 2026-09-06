@@ -77,6 +77,9 @@ async def handler(body: dict[str, Any], request: Request) -> dict[str, Any]:
             return _allow()
         return _reject("unauthorized relay proxy")
 
-    # Unknown / not-yet-handled ops: allow-and-keep so frps' other ops are not
-    # blocked by this plugin (only Login + NewProxy are registered in frps.toml).
-    return _allow()
+    # Unknown / not-yet-handled ops: frps sends ONLY the ops registered in
+    # frps.toml (Login + NewProxy). Anything else means frps.toml grew an op
+    # this plugin has no handler for — fail closed instead of waving an
+    # unvalidated op through (Audit 2026-09). Adding an op to frps.toml
+    # requires growing a branch above.
+    return _reject("unsupported op")

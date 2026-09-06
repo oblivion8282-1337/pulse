@@ -94,6 +94,7 @@ def serialize_message(
         "created_at": msg.created_at.isoformat(),
         "edited_at": msg.edited_at.isoformat() if msg.edited_at else None,
         "deleted_at": msg.deleted_at.isoformat() if msg.deleted_at else None,
+        "pinned_at": msg.pinned_at.isoformat() if msg.pinned_at else None,
         "reactions": reactions or [],
         "attachments": attachments or [],
         "mentions": mentions or [],

@@ -43,6 +43,7 @@ on:
       - 'services/**'
       - 'shared/**'
       - 'web/**'                 # Frontend steckt im allinone-Image!
+      - 'krypto/**'               # Krypto-Kern wird als WASM ins Frontend eingebaut
       - 'plugins/**'
       - 'infra/self-host/**'     # Dockerfile + Rust-Direktpfad-Adapter
       - 'pyproject.toml'

@@ -9,7 +9,9 @@ and the channel_bump/dm_bump envelope.
 
 Behaviour-neutral relative to the pre-split branch: same error codes (4005,
 4006, 4008, 4013, 4014, 4290), same envelope shapes, same best-effort
-guards around Redis publishes and mention fan-out.
+guards around Redis publishes and mention fan-out. 4015 added for Etappe E9
+(Umstellung, Entwurf §9): a legacy_readonly channel gets a begründende
+message instead of the generic 4006.
 """
 
 from __future__ import annotations
@@ -40,12 +42,17 @@ from dcc_chat_gateway.mentions import (
 )
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_TEXT,
+    LEGACY_READONLY_DETAIL,
+    Channel,
     DirectMessageChannel,
     Message,
 )
 from dcc_chat_gateway.permissions import resolve_permissions
 from dcc_chat_gateway.push import fan_out_dm_push, fan_out_mention_push
-from dcc_chat_gateway.routes._deps import resolve_channel_for_user
+from dcc_chat_gateway.routes._deps import (
+    parse_snowflake_int as _channel_id,
+    resolve_channel_for_user,
+)
 from dcc_chat_gateway.routes.messages import serialize_message
 from dcc_chat_gateway.routes.ws_ops_registry import WSOpContext
 from dcc_chat_gateway.snowflake import next_id
@@ -55,14 +62,25 @@ log = logging.getLogger(__name__)
 _MAX_NONCE_LEN = 64
 
 
-def _channel_id(value: object) -> int | None:
-    s = str(value or "").strip()
-    if not s:
-        return None
-    try:
-        return int(s)
-    except ValueError:
-        return None
+def _guild_send_erlaubt(ch: Channel) -> tuple[bool, bool]:
+    """Ob ein Klartext-``send`` in diesen bereits als ``guild`` erkannten
+    Kanal angenommen wird, und — falls nicht — ob der Grund speziell der
+    eingefrorene Alt-Kanal ist (2. Rueckgabewert -> 4015 statt dem
+    generischen 4006). Gemeinsam fuer den schnellen (``subscribed``-Cache)
+    und den langsamen (DB-Lookup) Pfad unten, die beide dieselbe
+    Mischzustand-Regel (Konzept §2a) und dieselbe Umstellungs-Regel
+    (Entwurf §9) durchsetzen muessen.
+
+    Ablage geht vor Alt-Kanal-Sperre: ein Ablage-Kanal traegt
+    ``legacy_readonly`` ohnehin nie (Migration 0083 setzt es nur an
+    Bestands-Textkanaelen), die Reihenfolge macht hier keinen Unterschied,
+    ausser dass sie die generische Ablage-Ablehnung (kein 4015) klar macht.
+    """
+    if getattr(ch, "ablage", False):
+        return False, False
+    if getattr(ch, "legacy_readonly", False):
+        return False, True
+    return True, False
 
 
 async def handle_send(ctx: WSOpContext, msg: dict[str, Any]) -> None:
@@ -132,6 +150,11 @@ async def handle_send(ctx: WSOpContext, msg: dict[str, Any]) -> None:
         # (user_a_id, user_b_id) for the dm_bump envelope. Filled by a
         # small SELECT when kind == "dm".
         dm_pair: tuple[int, int] | None = None
+        # Umstellung (Entwurf §9, Etappe E9): separat von ``ok`` verfolgt, damit
+        # ein eingefrorener Alt-Kanal eine begründende Meldung bekommt statt
+        # des generischen "channel not accessible" (4006) — anders als
+        # Ablage-Kanäle, deren Ablehnung hier historisch generisch bleibt.
+        legacy_blocked = False
         if cid in subscribed:
             gid = subscribed[cid]
             kind = "dm" if gid is None else "guild"
@@ -148,7 +171,21 @@ async def handle_send(ctx: WSOpContext, msg: dict[str, Any]) -> None:
                     dm_pair = (dm_obj.user_a_id, dm_obj.user_b_id)
                     ok = True
             else:
-                ok = True
+                # Die Mischzustand-Regel (Konzept §2a) gilt auf BEIDEN Pfaden.
+                # Sie stand bis zum 2026-08-31 nur im langsamen Zweig unten —
+                # ein einziges ``subscribe`` vorher genuegte deshalb, um
+                # Klartext in einen Kanal zu schreiben, der sich nach aussen
+                # als Ende-zu-Ende-verschluesselt ausweist. Was der schnelle
+                # Pfad einspart, ist die Rechte-Aufloesung; die Kanalzeile
+                # selbst ist ein Primaerschluessel-Treffer und liegt nach dem
+                # ``subscribe`` derselben Sitzung ohnehin meist schon in der
+                # Identity Map. Der DM-Zweig darueber laedt aus demselben
+                # Grund seine Zeile.
+                ch_obj = await session.get(Channel, cid_int)
+                if ch_obj is None:
+                    ok = False
+                else:
+                    ok, legacy_blocked = _guild_send_erlaubt(ch_obj)
         else:
             resolved = await resolve_channel_for_user(session, cid_int, user.id)
             if resolved is None:
@@ -157,12 +194,18 @@ async def handle_send(ctx: WSOpContext, msg: dict[str, Any]) -> None:
                 kind, ch = resolved
                 if kind == "guild" and ch.type != CHANNEL_TYPE_TEXT:
                     ok = False
+                elif kind == "guild":
+                    ok, legacy_blocked = _guild_send_erlaubt(ch)
+                    if ok:
+                        guild_id_for_bump = ch.guild_id
                 else:
                     ok = True
-                    if kind == "guild":
-                        guild_id_for_bump = ch.guild_id
-                    else:
-                        dm_pair = (ch.user_a_id, ch.user_b_id)
+                    dm_pair = (ch.user_a_id, ch.user_b_id)
+        if legacy_blocked:
+            await websocket.send_json(
+                {"op": "error", "code": 4015, "msg": LEGACY_READONLY_DETAIL}
+            )
+            return
         if not ok:
             await websocket.send_json(
                 {"op": "error", "code": 4006, "msg": "channel not accessible"}

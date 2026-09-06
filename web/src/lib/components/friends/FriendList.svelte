@@ -17,6 +17,7 @@
   import StatusDot from '$lib/components/ui/StatusDot.svelte';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import UserProfilePopover from '$lib/components/UserProfilePopover.svelte';
+  import PresenceBadge from '$lib/components/PresenceBadge.svelte';
   import { friends } from '$lib/stores/friends.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { presence } from '$lib/stores/presence.svelte';
@@ -237,19 +238,13 @@
               <p class="text-text-bright flex items-center gap-1.5 truncate text-sm font-semibold">
                 <span class="truncate">{u?.display_name ?? u?.username ?? '…'}</span>
                 {#if stream}
-                  <span
-                    class="inline-flex shrink-0 items-center gap-1 rounded-md border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-red-400"
-                  >
-                    <span class="size-1.5 rounded-full bg-red-500"></span>
-                    {m.friend_badge_live()}
+                  <span class="shrink-0">
+                    <PresenceBadge kind="live" label={m.friend_badge_live()} />
                   </span>
                 {/if}
                 {#if party}
-                  <span
-                    class="inline-flex shrink-0 items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-amber-400"
-                  >
-                    <span class="size-1.5 rounded-full bg-amber-400"></span>
-                    {m.friend_badge_party()}
+                  <span class="shrink-0">
+                    <PresenceBadge kind="party" label={m.friend_badge_party()} />
                   </span>
                 {/if}
               </p>

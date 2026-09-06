@@ -1,15 +1,16 @@
 <script lang="ts">
-  import { tick, untrack } from 'svelte';
+  import { tick, untrack, type Snippet } from 'svelte';
   import { VList, type VListHandle } from 'virtua/svelte';
   import MessageItem from './MessageItem.svelte';
   import { plainifyMentions } from './messageRender';
-  import { chatApi } from '$lib/api/chat';
   import { messages as messageStore } from '$lib/stores/messages.svelte';
+  import { ladeAeltereSeite } from '$lib/verlauf/nachladen';
   import type { Channel, Message } from '$lib/api/types';
   import { auth } from '$lib/stores/auth.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { nameStyle } from '$lib/utils/nameColor';
   import { safeAvatarUrl } from '$lib/avatar';
+  import { findeReplyZiel } from './replyLookup';
   import { m as pm } from '$lib/paraglide/messages.js';
 
   type ChatItem =
@@ -40,10 +41,20 @@
     /** REST-Route fürs Nachladen: DMs laufen gegen die Cloud (siehe ChatView),
      *  Guild-Kanäle gegen den aktiven Server (leer = Default-Weiche). */
     route = {},
+    /** Pin-Recht vorgerechnet (Guild: MANAGE_MESSAGES; DM: immer wahr). */
+    canPin = false,
+    /** Optionaler Inhalt für den Leerraum bei messages.length === 0 —
+     *  z. B. der Sicherungs-Frischgerät-Hinweis. Fehlt er, greift der
+     *  Standard-Absatz. */
+    leerHinweis = undefined as Snippet | undefined,
     onSetReplyTarget,
     onEditMessage,
     onDeleteMessage,
-    onToggleReaction
+    onToggleReaction,
+    onTogglePin,
+    /** Wird beim Mounten mit der Sprung-Funktion gefüllt — der Kanalkopf-
+     *  Pin-Popover springt damit zur angeklickten Nachricht. */
+    jumper = $bindable()
   }: {
     channel: Channel | null;
     messages: Message[];
@@ -53,15 +64,18 @@
     namePrefix?: string;
     isOwner?: boolean;
     route?: { serverId?: string };
+    canPin?: boolean;
+    leerHinweis?: Snippet;
     onSetReplyTarget: (m: Message) => void;
     onEditMessage: (m: Message, newContent: string) => void;
     onDeleteMessage: (m: Message) => void;
     onToggleReaction: (m: Message, emoji: string, currentlyMine: boolean) => void;
+    onTogglePin?: (m: Message) => void;
+    jumper?: (id: string) => void;
   } = $props();
 
-  // Überall paginieren — DMs genauso wie Guild-Kanäle (deren Route kommt als
-  // Prop). Der frühere Ausschluss („DMs haben selten tiefe Historie") ließ
-  // DMs jenseits der ersten Seite hart enden: hoch scrollen lud nichts nach.
+  // Beide Kanalarten paginieren: `ladeAeltereSeite` liefert für Guild-Kanäle
+  // ohnehin nur den Server-Zweig (nur DMs landen lokal, s. `verlauf/index.ts`).
   const canPaginate = $derived(!!channel);
 
   let vlist = $state<VListHandle>();
@@ -109,7 +123,20 @@
     const size = vlist.getScrollSize();
     // Vor dem ersten echten Inhalt ist die Größe 0 → nicht auswerten.
     if (size === 0) return;
-    pinnedToBottom = offset + vlist.getViewportSize() >= size - 80;
+    // NUR nach true schalten, nie nach false. Bis zum 2026-09-03 stand hier
+    // eine Zuweisung in beide Richtungen — und die riss das Kleben ab, ohne
+    // dass der Nutzer etwas getan hatte: `pinToEnd(true)` gleitet ans Ende,
+    // jedes Zwischen-Scroll-Ereignis der Gleitfahrt liegt noch nicht am
+    // Ende und setzte `pinnedToBottom = false`; kam in diesem Fenster (oder
+    // waehrend ein Bild die Liste wachsen liess) die naechste Nachricht, gab
+    // es keinen Pin mehr, und die Ansicht blieb stehen — neue Zeilen wuchsen
+    // unsichtbar unter dem Sichtfenster. Nachgemessen mit 40 Nachrichten im
+    // Sekundentakt: ab Nr. 19 klebte die Liste 650 px ueber dem Ende, bei
+    // Nr. 22 lag die eigene neue Zeile ausserhalb des gerenderten Fensters
+    // („die Nachrichten haengen zu weit oben, ich kann nicht hochscrollen").
+    // Nach unten geht es seither nur ueber erklaerte Absicht: Rad/Finger
+    // nach oben, Tasten, Griff an die Scrollleiste (`unpin` im Effekt unten).
+    if (offset + vlist.getViewportSize() >= size - 80) pinnedToBottom = true;
     if (
       canPaginate &&
       hasMore &&
@@ -173,7 +200,7 @@
     if (!oldest) return;
     loadingOlder = true;
     try {
-      const older = await chatApi.listMessages(channel.id, { before: oldest, limit: OLDER_PAGE }, route);
+      const { nachrichten: older, vomServer, sicherungLieferte } = await ladeAeltereSeite(channel.id, oldest, OLDER_PAGE, route);
       // shift NUR für diese eine Prepend-Längenänderung aktivieren, dann sofort
       // wieder deaktivieren — virtua liest den Wert im Moment, in dem `items`
       // (und damit data.length) wächst, also innerhalb des tick()-Flushes.
@@ -181,8 +208,13 @@
       const added = messageStore.prepend(channel.id, older);
       await tick();
       prependShift = false;
-      // Historie-Ende: nichts Neues kam dazu, oder die Seite war unvollständig.
-      if (!added || older.length < OLDER_PAGE) hasMore = false;
+      // Historie-Ende: nur aussagekräftig, wenn die Seite vom Server kam —
+      // eine kleine lokale Seite bedeutet nicht "keine Historie mehr", nur
+      // "der Rest liegt noch nicht lokal". B6: auch eine kleine SERVER-Seite
+      // ist kein Ende, wenn die Sicherung in diesem Lauf eine Archiv-Seite
+      // (>0) nachgeladen hat — deren ältere Zeilen kommen beim nächsten
+      // Hochscrollen (dann lokal).
+      if (vomServer && !sicherungLieferte && (!added || older.length < OLDER_PAGE)) hasMore = false;
     } catch {
       // Netzwerkfehler → still,Retry beim nächsten Scroll.
     } finally {
@@ -286,15 +318,32 @@
       const y = e.touches[0]?.clientY ?? touchStartY;
       if (y - touchStartY > 8) unpin();
     };
+    // Tasten und Scrollleiste erzeugen kein wheel-Event; seit der
+    // Scroll-Handler nicht mehr selbst entpinnt (s. `handleVirtuaScroll`),
+    // muessen sie hier ausdruecklich zaehlen. Der Griff an die Leiste wird
+    // an der Position erkannt: rechts vom Inhaltsbereich des Scrollers.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'PageUp' || e.key === 'ArrowUp' || e.key === 'Home') unpin();
+    };
+    const onMouseDown = (e: MouseEvent) => {
+      const scroller = el.firstElementChild as HTMLElement | null;
+      if (!scroller) return;
+      const r = scroller.getBoundingClientRect();
+      if (e.clientX >= r.left + scroller.clientWidth) unpin();
+    };
     el.addEventListener('wheel', onWheel, { passive: true, capture: true });
     el.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
     el.addEventListener('touchmove', onTouchMove, { passive: true, capture: true });
+    el.addEventListener('keydown', onKey, { capture: true });
+    el.addEventListener('mousedown', onMouseDown, { capture: true });
     return () => {
       ro?.disconnect();
       el.removeEventListener('load', onGrow, true);
       el.removeEventListener('wheel', onWheel, true);
       el.removeEventListener('touchstart', onTouchStart, true);
       el.removeEventListener('touchmove', onTouchMove, true);
+      el.removeEventListener('keydown', onKey, true);
+      el.removeEventListener('mousedown', onMouseDown, true);
     };
   });
 
@@ -306,8 +355,6 @@
   }
 
   const getKey = (item: ChatItem): string => item.key;
-
-  let messageMap = $derived(new Map(messages.map((m) => [m.id, m])));
 
   // Append-Cache: vermeidet vollen Rebuild bei einfachen Appends. Plain (nicht
   // `$state`) — würden sie in einem `$derived` geschrieben, wirft Svelte
@@ -456,7 +503,7 @@
 
   function replyMetaFor(m: Message): { id: string; author: string; snippet: string } | null {
     if (!m.reply_to_id) return null;
-    const parent = messageMap.get(m.reply_to_id);
+    const parent = findeReplyZiel(messages, m.reply_to_id);
     if (!parent) {
       return { id: m.reply_to_id, author: '…', snippet: pm.chat_view_older_message() };
     }
@@ -474,18 +521,33 @@
     setTimeout(() => { if (highlightId === parentId) highlightId = null; }, 1500);
   }
 
+  // Verschluesselte DM hat keine `messages`-Zeile (s. `Message.verschluesselt`
+  // in `api/types.ts`) — Bearbeiten/Loeschen liefen sonst in einen 404.
   function canEditMessage(m: Message): boolean {
+    if (m.verschluesselt) return false;
     return !!myId && m.author_id === myId && !m.id.startsWith('tmp-') && !m.deleted_at;
   }
   function canDeleteMessage(m: Message): boolean {
-    if (!myId) return false;
-    if (m.id.startsWith('tmp-')) return false;
+    if (!myId || m.id.startsWith('tmp-')) return false;
+    // Verschlüsselt: Löschen läuft als E2E-Lösch-Frame — nur der Autor,
+    // und nur wenn der Marker nach dem Reload überlebt hat (alte Sätze
+    // ohne Marker bleiben außen vor, s. `verlauf/satz.ts`).
+    if (m.verschluesselt) return m.author_id === myId;
     return m.author_id === myId || isOwner;
   }
   function canReportMessage(m: Message): boolean {
     if (!myId) return false;
     return m.author_id !== myId;
   }
+  function canPinMessage(m: Message): boolean {
+    return canPin && !m.id.startsWith('tmp-') && !m.deleted_at;
+  }
+
+  // Sprung-Funktion nach außen geben (Kanalkopf → Pin-Popover). Reaktiv:
+  // jumpToReply hängt an vlist, das erst nach dem Mount da ist.
+  $effect(() => {
+    jumper = jumpToReply;
+  });
 </script>
 
 <!-- **Ein kurzes Gespraech klebt oben statt unten am Eingabefeld**, anders als
@@ -504,11 +566,17 @@
       <!-- `{' '}` statt eines Leerzeichens am Ende des Textbausteins: dort wäre es
            bei der Durchsicht unsichtbar, fiele Formatierern zum Opfer und ginge
            Übersetzern verloren. Genau so entstand „…Nachrichten in#general". -->
-      <p class="text-text-muted px-4 py-8 text-center text-sm">
-        {pm.chat_view_no_messages_prefix()}{' '}<strong class="text-text-bright"
-          >{namePrefix}{channel.name}</strong
-        >{pm.chat_view_no_messages_suffix()}
-      </p>
+      {#if leerHinweis}
+        <div class="flex justify-center px-4 py-8">
+          {@render leerHinweis()}
+        </div>
+      {:else}
+        <p class="text-text-muted px-4 py-8 text-center text-sm">
+          {pm.chat_view_no_messages_prefix()}{' '}<strong class="text-text-bright"
+            >{namePrefix}{channel.name}</strong
+          >{pm.chat_view_no_messages_suffix()}
+        </p>
+      {/if}
     {:else}
       <!-- `itemSize` = Höhen-Schätzung für ungemessene Zeilen (~eine kurze
            Textnachricht). Ohne den Wert leitet virtua sie aus dem ab, was beim
@@ -556,12 +624,14 @@
               canEdit={canEditMessage(item.message)}
               canDelete={canDeleteMessage(item.message)}
               canReport={canReportMessage(item.message)}
+              canPin={canPinMessage(item.message)}
               isDirect={!channel?.guild_id}
               guildId={channel?.guild_id ?? undefined}
               onReply={onSetReplyTarget}
               onEditSubmit={onEditMessage}
               onDelete={onDeleteMessage}
               onToggleReaction={onToggleReaction}
+              onTogglePin={onTogglePin}
               onJumpToReply={jumpToReply}
             />
           {/if}

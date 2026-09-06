@@ -145,6 +145,30 @@ export default defineConfig({
   server: {
     port: WEB_PORT,
     host: '127.0.0.1',
+    fs: {
+      // Task 0 (Etappe B2) mass nur den Prod-Build nach, und bettete das
+      // WASM-Paket damals ein, WEIL `krypto/pulse-krypto/pkg/` zufaellig
+      // schon auf der Bau-Maschine lag (Entwicklerrechner, von Hand gebaut) —
+      // Vite selbst holt sich das Paket nicht, es liest nur, was am
+      // Importpfad liegt. `web/Dockerfile` und `infra/self-host/Dockerfile`
+      // kopierten `krypto/` gar nicht in den Build-Kontext und bauten das
+      // Paket nicht: der Prod-Build brach dort mit UNRESOLVED_IMPORT ab,
+      // unbemerkt, weil er auf keiner Entwicklermaschine je fehlte. Seit
+      // 2026-08-28 hat jede der beiden Dockerfile-Stages eine eigene
+      // `wasm-builder`-Stufe (Rust + `wasm-pack build --target web`), die das
+      // Paket VOR dem Node-Build erzeugt und an genau diese Stelle kopiert.
+      // Der DEV-Server serviert Dateien dagegen ueber eine eigene Allow-Liste (Default: web/-Baum +
+      // web/node_modules); `krypto/pulse-krypto/pkg/` liegt eine Ebene
+      // hoeher und wird ohne diese Erweiterung mit "outside of Vite serving
+      // allow list" abgewiesen — erst beim echten Testen im Dev-Server
+      // aufgefallen (Playwright-Nachweis dieser Etappe), nicht beim Bauen.
+      // GENAU dieses eine Verzeichnis, nicht `'..'`. Der Elternpfad wäre die
+      // Wurzel des Arbeitsbaums, und der Dev-Server würde damit auch
+      // `secrets/jwt_private.pem` und `.env` ausliefern, wenn jemand danach
+      // fragt. Auf localhost, aber es gibt keinen Grund dafür: gebraucht wird
+      // ausschliesslich die WASM-Ausgabe des Krypto-Kerns.
+      allow: ['./', '../krypto/pulse-krypto/pkg']
+    },
     // NIE still auf den nächsten freien Port ausweichen. Der Port wird von
     // außen fest adressiert — Playwright über `baseURL`, die Electron-Dev-App
     // über `PULSE_DEV_URL`, `dev-up.fish` über seine Bereitschaftsprüfung.

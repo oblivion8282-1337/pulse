@@ -5,6 +5,7 @@
   values are clamped by the backend — see routes/_dropbox_schemas.py.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { toast } from 'svelte-sonner';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
@@ -93,7 +94,7 @@
       toast.success(m.dropbox_settings_saved());
     } catch (e) {
       toast.error(m.dropbox_settings_save_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       busy = false;

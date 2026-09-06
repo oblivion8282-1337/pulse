@@ -11,18 +11,15 @@
   Component-Toasts rendert sonner unstyled → die Card-Optik liefern wir hier.
 -->
 <script lang="ts">
+  import { m } from '$lib/paraglide/messages.js';
   import XIcon from '@lucide/svelte/icons/x';
   import { Button } from '$lib/components/ui/button';
   import type { ChangelogEntry } from '$lib/changelog/types';
+  import { formatLangDatum } from '$lib/utils/formatLangDatum';
 
   let { entries = [], closeToast }: { entries?: ChangelogEntry[]; closeToast?: () => void } =
     $props();
 
-  function fmtDate(iso: string): string {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return '';
-    return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
-  }
 </script>
 
 <!-- ``onpointerdown`` mit ``stopPropagation`` verhindert, dass sonners
@@ -37,13 +34,13 @@
   onpointerdown={(e) => e.stopPropagation()}
 >
   <div class="flex items-start justify-between gap-3">
-    <p class="text-sm font-semibold">Was ist neu?</p>
+    <p class="text-sm font-semibold">{m.changelog_was_ist_neu()}</p>
     <Button
       variant="ghost"
       size="icon-xs"
       class="-m-1 shrink-0"
       onclick={() => closeToast?.()}
-      aria-label="Schließen"
+      aria-label={m.changelog_schliessen()}
       data-testid="changelog-toast-close"
     >
       <XIcon class="size-4" />
@@ -55,7 +52,7 @@
       <section data-testid="changelog-entry">
         <h3 class="text-sm font-semibold leading-tight">{entry.title}</h3>
         {#if entry.date}
-          <p class="text-text-muted mt-0.5 text-xs">{fmtDate(entry.date)}</p>
+          <p class="text-text-muted mt-0.5 text-xs">{formatLangDatum(entry.date)}</p>
         {/if}
         {#if entry.intro}
           <p class="text-text-muted mt-1.5 text-xs">{entry.intro}</p>

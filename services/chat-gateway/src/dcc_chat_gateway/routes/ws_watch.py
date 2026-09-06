@@ -29,7 +29,12 @@ from fastapi import WebSocket
 from dcc_chat_gateway import watchkeys
 from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE
 from dcc_chat_gateway.permissions import Permissions, has_permission, resolve_permissions
-from dcc_chat_gateway.routes._deps import channel_membership
+from dcc_chat_gateway.routes._deps import (
+    channel_membership,
+    parse_snowflake_int as _channel_id,
+    ws_err as _err,
+    ws_manager as _manager,
+)
 from dcc_chat_gateway.security import AuthenticatedUser
 from dcc_chat_gateway.snowflake import next_id
 from dcc_chat_gateway.watch_source import parse_source
@@ -45,16 +50,6 @@ _MAX_POSITION_S = 360_000
 # `startHeartbeat`) so no regular beat is dropped even under timer throttling.
 # 500ms gives a 500ms margin on the 1s interval while still killing bursts.
 _HEARTBEAT_DEBOUNCE_MS = 500
-
-
-def _channel_id(value: object) -> int | None:
-    s = str(value or "").strip()
-    if not s:
-        return None
-    try:
-        return int(s)
-    except ValueError:
-        return None
 
 
 def _party_id(value: object) -> str | None:
@@ -84,14 +79,6 @@ def _stale_epoch(state: dict, epoch: int | None) -> bool:
 
 def _redis(websocket: WebSocket):
     return getattr(websocket.app.state, "redis", None)
-
-
-def _manager(websocket: WebSocket):
-    return getattr(websocket.app.state, "connection_manager", None)
-
-
-async def _err(websocket: WebSocket, code: int, msg: str) -> None:
-    await websocket.send_json({"op": "error", "code": code, "msg": msg})
 
 
 async def _emit_mutate_error(websocket: WebSocket, result: object) -> None:
@@ -294,6 +281,14 @@ async def handle_stop(
         mgr.cancel_host_end(cid, pid)
 
 
+def _valid_position(position: object) -> bool:
+    """Einmal die Positionsgrenze (0.._MAX_POSITION_S, Zahl) prüfen —
+    handle_control lehnt ab, handle_heartbeat verwirft still."""
+    return (
+        isinstance(position, (int, float)) and 0 <= position <= _MAX_POSITION_S
+    )
+
+
 async def handle_control(
     websocket: WebSocket,
     user: AuthenticatedUser,
@@ -306,7 +301,7 @@ async def handle_control(
     if cid_int is None or pid is None or action not in ("play", "pause", "seek"):
         await _err(websocket, 4012, "invalid watch_control payload")
         return
-    if not isinstance(position, (int, float)) or position < 0 or position > _MAX_POSITION_S:
+    if not _valid_position(position):
         await _err(websocket, 4012, "invalid position")
         return
     cid = str(cid_int)
@@ -414,13 +409,7 @@ async def handle_heartbeat(
     position = msg.get("position")
     # Same position bounds as handle_control — an out-of-range heartbeat must
     # not be able to set a position the control op would reject.
-    if (
-        cid_int is None
-        or pid is None
-        or not isinstance(position, (int, float))
-        or position < 0
-        or position > _MAX_POSITION_S
-    ):
+    if cid_int is None or pid is None or not _valid_position(position):
         return
     cid = str(cid_int)
     redis = _redis(websocket)

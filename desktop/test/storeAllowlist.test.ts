@@ -61,6 +61,30 @@ function geschriebeneSchluessel(): string[] {
   const gefunden = new Set<string>();
   for (const datei of dateien) {
     const text = readFileSync(datei, 'utf8');
+    // Nur Dateien, die den Electron-Speicher WIRKLICH anfassen. Das Muster
+    // oben hoert auf die Sorte (`…SCHLUESSEL`) und nicht auf einen Namen —
+    // das ist Absicht und muss breit bleiben. Es trifft damit aber auch
+    // Konstanten, die einen ganz anderen Speicher adressieren:
+    // `krypto/account.svelte.ts` haelt `IDB_KEY_RUECKFALLSCHLUESSEL`, und der
+    // geht ueber `idbGetIdentity`/`idbPutIdentity` in die IndexedDB, fuer die
+    // `ALLOWED_STORE_KEYS` nicht zustaendig ist. Der Test meldete ihn am
+    // 2026-08-28 als fehlend — ein Fehlalarm, und ein Fehlalarm ist hier
+    // teuer: dieser Test soll das EINE Mal ueberzeugen, wenn er wirklich
+    // umfaellt.
+    //
+    // Dass es am Namen lag und nicht an der Sache, zeigt der Nachbar drei
+    // Zeilen darueber: `IDB_KEY = 'pulse.krypto-account'` liegt in derselben
+    // IndexedDB und wurde nie gemeldet, weil sein Name nicht auf
+    // `SCHLUESSEL` endet.
+    //
+    // Nachgesehen, nicht vermutet: alle vier echten Schreiber
+    // (`devices/{anmeldung,profil}`, `remote/{protokoll,standplatz}`) nennen
+    // `pulse.store` bzw. `persistence`, die Krypto-Datei nennt keines von
+    // beiden. Fuehrt jemand einen fuenften Speicher-Schreiber ein, der den
+    // Zugriff hinter einer weiteren Huelle versteckt, faellt er hier
+    // stillschweigend heraus — dann gehoert diese Bedingung erweitert, nicht
+    // das Schluessel-Muster.
+    if (!/pulse\.store|persistence/.test(text)) continue;
     for (const treffer of text.matchAll(/[A-Z_]*SCHLUESSEL = '([^']+)'/g)) {
       gefunden.add(treffer[1]);
     }

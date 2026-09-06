@@ -192,6 +192,13 @@ async def _publish_event(
     user_ids: list[str],
     streams: list[dict[str, Any]] | None = None,
 ) -> None:
+    """Publish the channel's full streamer set on ``stream:events``.
+
+    Gemeinsame Implementierung für Poller und routes.py (stop_stream) —
+    dieselbe Funktion statt zweier Kopien; ``streams`` (the additive
+    ``[{user_id, slot}]`` list) is only put on the wire when non-empty, so
+    single-stream channels keep the legacy ``{channel_id, user_ids}`` shape
+    byte-for-byte."""
     from dcc_shared.events import StreamStateSnapshot
 
     snapshot = StreamStateSnapshot(channel_id=channel_id, user_ids=user_ids, streams=streams or [])
@@ -208,7 +215,9 @@ async def _publish_event(
 
 
 def _parse_state(raw: bytes | str | None) -> dict[str, Any] | None:
-    """Decode a raw Redis value into a state dict, or None on any error."""
+    """Decode a raw Redis value into a state dict, or None on any error.
+    Wird auch von routes.py benutzt — eine tolerante Variante statt
+    inline-Kopien an jeder Lesestelle."""
     if raw is None:
         return None
     try:

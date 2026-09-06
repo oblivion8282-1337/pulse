@@ -4,6 +4,7 @@
   REST, Live-Updates per WS `watch_chat_message`.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount, tick } from 'svelte';
   import { watchChat } from '$lib/stores/watchChat.svelte';
   import { userCache } from '$lib/stores/users.svelte';
@@ -11,6 +12,7 @@
   import MessageInput from '$lib/components/MessageInput.svelte';
   import MessageReactions from '$lib/components/MessageReactions.svelte';
   import EmojiPicker from '$lib/components/EmojiPicker.svelte';
+  import { emojiPickerContentProps } from '$lib/components/emojiPickerContent';
   import EmptyState from '$lib/components/feedback/EmptyState.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
@@ -80,7 +82,7 @@
     try {
       await chatApi.postWatchChat(channelId, partyId, content);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = errText(e);
       if (msg.includes('410')) {
         toast.error(m.watch_chat_panel_party_inactive());
       } else if (msg.includes('429')) {
@@ -102,7 +104,7 @@
     try {
       await chatApi.toggleWatchChatReaction(channelId, partyId, messageId, emoji);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = errText(e);
       if (msg.includes('410')) {
         toast.error(m.watch_chat_panel_party_inactive());
       } else if (!msg.includes('429')) {
@@ -180,12 +182,7 @@
                     </button>
                   {/snippet}
                 </DropdownMenu.Trigger>
-                <DropdownMenu.Content
-                  side="top"
-                  align="end"
-                  sideOffset={6}
-                  class="w-auto max-w-[calc(100vw-1rem)] overflow-visible border-0 bg-transparent p-0 shadow-none"
-                >
+                <DropdownMenu.Content {...emojiPickerContentProps} align="end">
                   <EmojiPicker onPick={(emoji) => toggleReaction(msg.id, emoji, false)} />
                 </DropdownMenu.Content>
               </DropdownMenu.Root>

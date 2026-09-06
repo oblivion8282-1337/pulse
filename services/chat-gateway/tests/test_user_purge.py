@@ -95,6 +95,33 @@ async def test_purge_disabled_when_secret_unset(client, _isolate_chat_settings):
     assert r.status_code == 401
 
 
+@pytest.mark.asyncio
+async def test_purge_rate_limits_secret_guessing(
+    client, _internal_secret_set, monkeypatch
+):
+    """Audit 2026-09: Die Bremse sitzt VOR dem Secret-Vergleich — auch
+    abgewiesene Versuche zählen, sonst wäre Online-Raten auf das Secret
+    ungedrosselt. Testhalber auf 2/min gedrückt: der dritte Versuch bekommt
+    429, selbst mit dem richtigen Secret."""
+    import dcc_chat_gateway.ratelimit as ratelimit
+
+    monkeypatch.setitem(ratelimit._RULES, "internal_secret", (2, 60.0))
+    try:
+        for _ in range(2):
+            r = await client.post(
+                "/internal/users/12345/purge",
+                headers={"X-Pulse-Internal-Secret": "wrong"},
+            )
+            assert r.status_code == 401
+        r = await client.post(
+            "/internal/users/12345/purge",
+            headers=_internal_headers(),
+        )
+        assert r.status_code == 429
+    finally:
+        ratelimit.reset()
+
+
 # ---------------------------------------------------------------------------
 # Behaviour
 
@@ -697,6 +724,98 @@ async def test_purge_deletes_dm_channels(
 
 
 @pytest.mark.asyncio
+async def test_purge_raeumt_e2e_postfach(
+    client, session_factory, _auth_signer, _internal_secret_set
+):
+    """FIX 3. ``DeviceKeyBundle``/``DeviceOneTimeKey``/``DmZustellung``/
+    ``DmNutzlast`` ueberlebten einen Konto-Purge bisher unveraendert —
+    dieselbe Faehrte wie ``community_invite_notifications`` nach Migration
+    0063 (s. ``user_purge_gruppen.py``-Docstring). Drei Regeln auf einmal
+    geprueft: eigene Buendel + ihre Einmalschluessel weg (ueber ``user_id``),
+    an DIESES Konto gerichtete Zustellungen weg (ueber
+    ``empfaenger_user_id``), aber eine Zustellung an einen noch existierenden
+    ANDEREN Empfaenger bleibt stehen — und damit auch die Nutzlast, an der
+    sie haengt."""
+    from dcc_chat_gateway.models import (
+        DeviceKeyBundle,
+        DeviceOneTimeKey,
+        DmNutzlast,
+        DmZustellung,
+    )
+    from dcc_chat_gateway.snowflake import next_id
+
+    _, uid_a = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
+
+    bundle_id = next_id()
+    async with session_factory() as s:
+        s.add(DeviceKeyBundle(
+            id=bundle_id, user_id=uid_a, device_pubkey="pub-a",
+            curve25519="curve-a",
+        ))
+        s.add(DeviceOneTimeKey(id=next_id(), bundle_id=bundle_id, schluessel="otk-a"))
+        await s.commit()
+
+    # Nutzlast 1: eine Zustellung an B (bleibt), eine an ein Zweitgeraet von
+    # A selbst (verschwindet mit dem Purge von A) — die Nutzlast bleibt, weil
+    # B's Zustellung sie noch am Leben haelt.
+    nid_teilweise = next_id()
+    async with session_factory() as s:
+        s.add(DmNutzlast(
+            id=nid_teilweise, channel_id=1, absender_device_pubkey="pub-a",
+            art=1, daten="x", groesse=1,
+        ))
+        s.add(DmZustellung(
+            id=next_id(), nutzlast_id=nid_teilweise,
+            empfaenger_device_pubkey="pub-b", empfaenger_user_id=uid_b,
+        ))
+        s.add(DmZustellung(
+            id=next_id(), nutzlast_id=nid_teilweise,
+            empfaenger_device_pubkey="pub-a-2", empfaenger_user_id=uid_a,
+        ))
+        await s.commit()
+
+    # Nutzlast 2: NUR an ein Geraet von A adressiert — muss nach dem Purge
+    # komplett verwaisen und mitgeraeumt werden.
+    nid_verwaist = next_id()
+    async with session_factory() as s:
+        s.add(DmNutzlast(
+            id=nid_verwaist, channel_id=1, absender_device_pubkey="pub-a",
+            art=1, daten="y", groesse=1,
+        ))
+        s.add(DmZustellung(
+            id=next_id(), nutzlast_id=nid_verwaist,
+            empfaenger_device_pubkey="pub-a-3", empfaenger_user_id=uid_a,
+        ))
+        await s.commit()
+
+    r = await client.post(
+        f"/internal/users/{uid_a}/purge", headers=_internal_headers()
+    )
+    assert r.status_code == 204, r.text
+
+    async with session_factory() as s:
+        assert (await s.get(DeviceKeyBundle, bundle_id)) is None
+        assert (await s.execute(select(DeviceOneTimeKey))).scalars().all() == []
+
+        rest_teilweise = (
+            await s.execute(
+                select(DmZustellung).where(DmZustellung.nutzlast_id == nid_teilweise)
+            )
+        ).scalars().all()
+        assert len(rest_teilweise) == 1
+        assert rest_teilweise[0].empfaenger_user_id == uid_b
+        assert (await s.get(DmNutzlast, nid_teilweise)) is not None
+
+        assert (
+            (await s.execute(
+                select(DmZustellung).where(DmZustellung.nutzlast_id == nid_verwaist)
+            )).scalars().all()
+        ) == []
+        assert (await s.get(DmNutzlast, nid_verwaist)) is None
+
+
+@pytest.mark.asyncio
 async def test_purge_clears_friendship_system(
     client, session_factory, _auth_signer, _internal_secret_set, monkeypatch, cloud_mode
 ):
@@ -1189,3 +1308,58 @@ async def test_purge_closes_open_report_targeting_deleted_user_directly(
         report = await s.get(Report, int(report_id))
     assert report is not None
     assert report.status in ("resolved", "dismissed")
+
+
+@pytest.mark.asyncio
+async def test_purge_raeumt_kopplung(
+    client, session_factory, _auth_signer, _internal_secret_set
+):
+    """Bughunt 2026-08-29 (Runde 6, Befund 5): ``Kopplung``/``UmzugStueck``
+    ueberlebten einen Konto-Purge unveraendert — dieselbe Faehrte wie beim
+    Postfach vor Etappe D (``test_purge_raeumt_e2e_postfach``). Eine
+    Kopplung ist eine Verabredung zwischen zwei Geraeten DESSELBEN Kontos
+    (``Kopplung.user_id``, s. Modell-Docstring) — ein Konto B in der Naehe
+    dient hier nur als Kontrolle, dass der Purge nicht ueber sein Konto
+    hinausgreift."""
+    from datetime import UTC, datetime, timedelta
+
+    from dcc_chat_gateway.models import Kopplung, UmzugStueck
+    from dcc_chat_gateway.snowflake import next_id
+
+    _, uid_a = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
+
+    kopplung_a = next_id()
+    kopplung_b = next_id()
+    frist = datetime.now(UTC) + timedelta(hours=1)
+    async with session_factory() as s:
+        s.add(Kopplung(
+            id=kopplung_a, user_id=uid_a, code_hash="hash-a",
+            alt_device_pubkey="pub-a-alt", neu_device_pubkey="pub-a-neu",
+            eingeloest_am=datetime.now(UTC), gesamt_stuecke=2,
+            verfaellt_am=frist,
+        ))
+        s.add(Kopplung(
+            id=kopplung_b, user_id=uid_b, code_hash="hash-b",
+            alt_device_pubkey="pub-b-alt", verfaellt_am=frist,
+        ))
+        await s.commit()
+
+    stueck_a = next_id()
+    async with session_factory() as s:
+        s.add(UmzugStueck(
+            id=stueck_a, kopplung_id=kopplung_a, folge=0,
+            daten="x", groesse=1,
+        ))
+        await s.commit()
+
+    r = await client.post(
+        f"/internal/users/{uid_a}/purge", headers=_internal_headers()
+    )
+    assert r.status_code == 204, r.text
+
+    async with session_factory() as s:
+        assert (await s.get(Kopplung, kopplung_a)) is None
+        assert (await s.get(UmzugStueck, stueck_a)) is None
+        # Konto B ist nicht betroffen.
+        assert (await s.get(Kopplung, kopplung_b)) is not None

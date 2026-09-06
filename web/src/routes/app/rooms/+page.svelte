@@ -13,14 +13,16 @@
    */
   import { goto } from '$app/navigation';
   import CompassIcon from '@lucide/svelte/icons/compass';
+  import LogInIcon from '@lucide/svelte/icons/log-in';
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
-  import SearchIcon from '@lucide/svelte/icons/search';
-  import XIcon from '@lucide/svelte/icons/x';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import { suchnorm, namePasst } from '$lib/utils/suche';
   import { serversStore } from '$lib/api/servers.svelte';
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
+  import { activeServer } from '$lib/stores/active-server.svelte';
+  import { guildIconSrc } from '$lib/guildIcon';
   import CommunityAnlegenKnopf from '$lib/components/mobile/CommunityAnlegenKnopf.svelte';
+  import CommunityBeitretenKnopf from '$lib/components/mobile/CommunityBeitretenKnopf.svelte';
   import SelfHostRoomsButton from '$lib/components/selfhost/SelfHostRoomsButton.svelte';
   import { guilds as guildsStore } from '$lib/stores/guilds.svelte';
   import { readState } from '$lib/stores/readState.svelte';
@@ -28,6 +30,7 @@
   import { viewport } from '$lib/stores/viewport.svelte';
   import TabletPlaceholder from '$lib/components/mobile/TabletPlaceholder.svelte';
   import BereichsKopf from '$lib/components/mobile/BereichsKopf.svelte';
+  import SuchPille from '$lib/components/SuchPille.svelte';
   import { initialen } from '$lib/utils/initialen';
   import { m } from '$lib/paraglide/messages.js';
   import type { Guild } from '$lib/api/types';
@@ -98,7 +101,14 @@
   // sagen — je Server einer und darunter nochmal der globale.
   let ueberallLeer = $derived(server.every((s) => serverGuilds.get(s.id).length === 0));
 
-  function oeffnen(g: Guild) {
+  // Wie `GuildRail.selectGuildFromServer`: eine Kachel kann zu einem
+  // NICHT-aktiven Server gehoeren (fremder Self-Host) — ohne den Wechsel
+  // laedt die Zielseite gegen den falschen Server und zeigt dauerhaft nichts
+  // (guild/channels bleiben leer, `ensureChannels` scheitert still gegen den
+  // falschen Server). `activeServer.set()` resettet die Server-scoped Stores
+  // und stoesst die WS-Connection an; der Ready-Frame befuellt sie neu.
+  function oeffnen(g: Guild, serverId: string) {
+    if (serverId !== activeServer.serverId) activeServer.set(serverId);
     void goto(`/app/rooms/${g.id}`);
   }
 
@@ -123,6 +133,17 @@
           {/snippet}
         </DropdownMenu.Trigger>
         <DropdownMenu.Content align="end" class="w-52">
+          <!-- Server per Adresse beitreten (Erstkontakt, kein Invite-Code):
+               `/app?add=join` wie die GuildRail. Warum es diesen Einstieg auf
+               `< lg` braucht, steht in `CommunityBeitretenKnopf.svelte`. -->
+          <DropdownMenu.Item
+            onclick={() => void goto('/app?add=join')}
+            data-testid="rooms-menu-join"
+            class="flex items-center gap-2"
+          >
+            <LogInIcon class="size-4" />
+            {m.guild_rail_join_community()}
+          </DropdownMenu.Item>
           <DropdownMenu.Item
             onclick={() => void goto('/app/discover')}
             data-testid="rooms-menu-discover"
@@ -138,30 +159,7 @@
 
   <!-- Suchleiste in derselben Hülle wie Chats und Freunde — gleiche Größe,
        gleiche Höhe, dieselbe Frage „wo suche ich". -->
-  <div class="px-5 pb-5" data-testid="rooms-search-wrap">
-    <label class="border-border bg-bg-input flex items-center gap-2 rounded-full border px-3 py-2">
-      <SearchIcon class="text-text-muted size-4 shrink-0" />
-      <input
-        type="text"
-        bind:value={suche}
-        placeholder={m.rooms_search_placeholder()}
-        class="placeholder:text-text-muted min-w-0 flex-1 bg-transparent text-sm outline-none"
-        data-testid="rooms-search-input"
-        aria-label={m.rooms_search_placeholder()}
-      />
-      {#if suche}
-        <button
-          type="button"
-          onclick={() => (suche = '')}
-          class="text-text-muted hover:text-text-bright shrink-0"
-          data-testid="rooms-search-clear"
-          aria-label={m.chats_search_clear()}
-        >
-          <XIcon class="size-4" />
-        </button>
-      {/if}
-    </label>
-  </div>
+  <SuchPille bind:value={suche} placeholder={m.rooms_search_placeholder()} testid="rooms" />
 
   <div class="flex-1 overflow-y-auto px-3 pb-4">
     {#each server as s (s.id)}
@@ -185,20 +183,21 @@
           {#each liste as g (g.id)}
             {@const zahl = ungelesen(g)}
             {@const l = leben(g)}
+            {@const iconSrc = guildIconSrc(g.icon_url, s.hostname)}
             <button
               class="bg-bg-input border-border hover:border-primary/40 hover:bg-bg-hover flex flex-col items-start gap-2.5 rounded-[16px] border p-3.5 text-left transition-colors"
-              onclick={() => oeffnen(g)}
+              onclick={() => oeffnen(g, s.id)}
               data-testid={`room-tile-${g.id}`}
             >
               <span class="relative">
                 <span
                   class="flex size-14 items-center justify-center overflow-hidden rounded-[18px] text-lg font-bold text-white"
-                  style={g.icon_url
+                  style={iconSrc
                     ? ''
                     : 'background-image: linear-gradient(135deg in oklab, var(--accent-grad-from), var(--accent-grad-to));'}
                 >
-                  {#if g.icon_url}
-                    <img src={g.icon_url} alt={g.name} class="size-full object-cover" />
+                  {#if iconSrc}
+                    <img src={iconSrc} alt={g.name} class="size-full object-cover" />
                   {:else}
                     {initialen(g.name)}
                   {/if}
@@ -248,6 +247,7 @@
         >
           {m.rooms_discover_cta()}
         </a>
+        <CommunityBeitretenKnopf />
       </div>
     {/if}
 

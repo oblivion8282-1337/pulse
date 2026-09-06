@@ -7,32 +7,43 @@
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import FlagIcon from '@lucide/svelte/icons/flag';
+  import PinIcon from '@lucide/svelte/icons/pin';
+  import PinOffIcon from '@lucide/svelte/icons/pin-off';
   import EmojiPicker from './EmojiPicker.svelte';
+  // align="end": der Button sitzt am rechten Nachrichtenrand — der Picker
+  // öffnet nach links, nicht (wie im Composer) nach rechts.
+  import { emojiPickerContentProps } from './emojiPickerContent';
 
   let {
     canEdit,
     canDelete,
     canReport = false,
+    canPin = false,
+    pinned = false,
     onReply,
     onEdit,
     onDelete,
     onReact,
-    onReport
+    onReport,
+    onTogglePin
   }: {
     canEdit: boolean;
     canDelete: boolean;
     canReport?: boolean;
+    canPin?: boolean;
+    pinned?: boolean;
     onReply: () => void;
     onEdit: () => void;
     onDelete: () => void;
-    onReact: (emoji: string) => void;
+    onReact?: (emoji: string) => void;
     onReport?: () => void;
+    onTogglePin?: () => void;
   } = $props();
 
   let pickerOpen = $state(false);
 
   function pick(emoji: string) {
-    onReact(emoji);
+    onReact?.(emoji);
     pickerOpen = false;
   }
 </script>
@@ -42,6 +53,7 @@
          {pickerOpen ? 'flex' : 'hidden group-hover:flex'}"
   data-testid="message-actions"
 >
+  {#if onReact}
   <DropdownMenu.Root bind:open={pickerOpen}>
     <DropdownMenu.Trigger>
       {#snippet child({ props })}
@@ -57,15 +69,11 @@
         </Button>
       {/snippet}
     </DropdownMenu.Trigger>
-    <DropdownMenu.Content
-      side="top"
-      align="end"
-      sideOffset={6}
-      class="w-auto max-w-[calc(100vw-1rem)] overflow-visible border-0 bg-transparent p-0 shadow-none"
-    >
+    <DropdownMenu.Content {...emojiPickerContentProps} align="end">
       <EmojiPicker onPick={pick} />
     </DropdownMenu.Content>
   </DropdownMenu.Root>
+  {/if}
 
   <Button
     variant="ghost"
@@ -88,6 +96,23 @@
       onclick={onEdit}
     >
       <PencilIcon class="size-4" />
+    </Button>
+  {/if}
+
+  {#if canPin && onTogglePin}
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      title={pinned ? m.message_actions_unpin() : m.message_actions_pin()}
+      aria-label={pinned ? m.message_actions_unpin() : m.message_actions_pin()}
+      data-testid={pinned ? 'message-action-unpin' : 'message-action-pin'}
+      onclick={onTogglePin}
+    >
+      {#if pinned}
+        <PinOffIcon class="size-4" />
+      {:else}
+        <PinIcon class="size-4" />
+      {/if}
     </Button>
   {/if}
 

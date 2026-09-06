@@ -1,232 +1,74 @@
-"""Access-token verification (mirrors voice-signaling / chat-gateway).
+"""Token verification — dünner Shim um ``dcc_shared.token_verify``.
 
-media-svc verifies the bearer chat-gateway forwards on
-``POST /channels/{id}/stream-token`` — two token shapes flow through here:
-
-* **Cloud Access-JWT** — RS256, ``kid`` header, validated against the JWKS from
-  auth-svc (``auth_jwks_url``); same audience/issuer convention as the others.
-* **Self-Host Session-JWT** — EdDSA, no ``kid``, minted by the instance's
-  cert-login. Validated locally with the session signing key, only in
-  ``pulse_instance_mode == "self-host"``. WITHOUT this branch HQ-streaming 401s
-  on a self-host: the forwarded bearer is a session token, not a Cloud RS256
-  access token. Dispatch is keyed off the ``kid`` header (cryptographic
-  structure), never an attacker-controlled payload claim.
+Die komplette Logik (JWKS-Cache + Single-Flight, kid-Dispatch Cloud/Self-Host)
+lebt einmal in ``dcc_shared.token_verify``; dieser Shim hält nur die
+dienstspezifische Settings-Injektion fest. media-svc übernimmt dadurch auch
+das ``email_blocked``-Gate aus ``get_current_user`` — gleicher Gate wie
+voice-signaling — Drift gefixt: die frühere Kopie hier kannte ihn nicht,
+unbestätigte Accounts konnten streamen. Tests
+monkeypatchen ``media_security.get_settings`` — die Wrapper lesen das
+Modul-Globale deshalb bei jedem Aufruf, nicht importzeitgebunden.
 """
 
 from __future__ import annotations
 
-import asyncio
-import json as _json
-import time
-from dataclasses import dataclass
 from typing import Annotated, Any
 
-import httpx
-import jwt
-from dcc_shared.session_tokens import (
-    validate_session_token,
+from fastapi import Depends, Header
+from dcc_shared.token_verify import (
+    AuthenticatedUser,
+    _extract_bearer,
+    install_static_jwks,
+    reset_cache,
 )
-from fastapi import Depends, Header, HTTPException, status
-from jwt.algorithms import RSAAlgorithm
+from dcc_shared import token_verify as _tv
+from dcc_shared.gast_ticket import GastClaims, decode_gast_ticket
 
 from dcc_media_svc.config import get_settings
 
-
-@dataclass
-class _JwksEntry:
-    keys_by_kid: dict[str, Any]
-    expires_at: float
-
-
-_cache: _JwksEntry | None = None
-_cache_generation: int = 0
-_static_jwks: dict[str, Any] | None = None
-_fetch_lock: asyncio.Lock | None = None
-
-
-def _get_lock() -> asyncio.Lock:
-    global _fetch_lock
-    if _fetch_lock is None:
-        _fetch_lock = asyncio.Lock()
-    return _fetch_lock
-
-
-def install_static_jwks(jwks: dict[str, Any]) -> None:
-    """Used in tests to bypass the HTTP fetch."""
-    global _static_jwks, _cache, _cache_generation
-    _static_jwks = jwks
-    _cache = None
-    _cache_generation += 1
-
-
-def reset_cache() -> None:
-    global _cache, _static_jwks, _fetch_lock, _cache_generation
-    _cache = None
-    _static_jwks = None
-    _fetch_lock = None
-    _cache_generation = 0
-
-
-def _build_keys(jwks: dict[str, Any]) -> dict[str, Any]:
-    keys: dict[str, Any] = {}
-    for key_dict in jwks.get("keys", []):
-        kid = key_dict.get("kid")
-        if not kid:
-            continue
-        keys[kid] = RSAAlgorithm.from_jwk(_json.dumps(key_dict))
-    return keys
-
-
-async def _get_keys() -> dict[str, Any]:
-    global _cache, _cache_generation
-    settings = get_settings()
-    now = time.monotonic()
-    if _cache and _cache.expires_at > now:
-        return _cache.keys_by_kid
-
-    # Single-flight: serialize concurrent cache misses so only one JWKS fetch
-    # fires per key-rollover event instead of N parallel fetches.
-    async with _get_lock():
-        now = time.monotonic()
-        if _cache and _cache.expires_at > now:
-            return _cache.keys_by_kid
-
-        if _static_jwks is not None:
-            jwks = _static_jwks
-        else:
-            async with httpx.AsyncClient(timeout=5.0) as http:
-                resp = await http.get(settings.auth_jwks_url)
-                resp.raise_for_status()
-                jwks = resp.json()
-        keys = _build_keys(jwks)
-        _cache = _JwksEntry(keys_by_kid=keys, expires_at=now + settings.jwks_cache_seconds)
-        _cache_generation += 1
-        return keys
-
-
-async def _force_refresh_keys() -> dict[str, Any]:
-    """Force a fresh JWKS fetch for a previously-unknown ``kid``, single-flight.
-    See chat-gateway/security.py for the rationale."""
-    global _cache, _cache_generation
-    settings = get_settings()
-    observed_gen = _cache_generation
-    async with _get_lock():
-        if _cache is not None and _cache_generation > observed_gen:
-            return _cache.keys_by_kid
-
-        if _static_jwks is not None:
-            jwks = _static_jwks
-        else:
-            async with httpx.AsyncClient(timeout=5.0) as http:
-                resp = await http.get(settings.auth_jwks_url)
-                resp.raise_for_status()
-                jwks = resp.json()
-        keys = _build_keys(jwks)
-        _cache = _JwksEntry(
-            keys_by_kid=keys,
-            expires_at=time.monotonic() + settings.jwks_cache_seconds,
-        )
-        _cache_generation += 1
-        return keys
-
-
-async def _decode_cloud_token(token: str, kid: str) -> dict[str, Any]:
-    """Validate a Cloud-issued RS256 Access-JWT against the JWKS cache."""
-    settings = get_settings()
-    keys = await _get_keys()
-    if kid not in keys:
-        # Possibly a key rollover — force-refresh once (single-flight inside).
-        keys = await _force_refresh_keys()
-        if kid not in keys:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="unknown signing key")
-    try:
-        payload = jwt.decode(
-            token,
-            keys[kid],
-            algorithms=["RS256"],
-            audience=settings.jwt_audience,
-            issuer=settings.jwt_issuer,
-        )
-    except jwt.PyJWTError as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token") from exc
-    if payload.get("typ") != "access":
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="not an access token")
-    return payload
-
-
-def _decode_self_host_session_token(token: str) -> dict[str, Any]:
-    """Validate a locally-issued Self-Host Session-JWT (EdDSA, no ``kid``).
-
-    Mirrors chat-gateway / voice-signaling: synthesises a Cloud-Access-JWT-shaped
-    payload whose ``sub`` is the synthetic 63-bit int derived from the
-    pairwise-sub — so the forwarded token's user_id matches the one the other
-    services compute for the same identity.
-    """
-    settings = get_settings()
-    claims = validate_session_token(token, key_path=settings.session_signing_key_file)
-    if claims is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token")
-    # Die Kennung IST die Zahl (seit 2026-08-28, Ticket-Weg). Ein Token mit
-    # nicht-numerischer Kennung ist verformt — 401 statt eines 500 aus ``int()``.
-    try:
-        synthetic_id = int(claims.user_identifier)
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED, detail="invalid token"
-        ) from exc
-    return {
-        "sub": str(synthetic_id),
-        "username": "",
-        "admin": claims.admin,
-        "typ": "access",
-        "iat": claims.iat,
-        "exp": claims.exp,
-        "cert_id": claims.cert_id,
-        "pairwise_sub": claims.user_identifier,
-        "self_host": True,
-    }
+__all__ = [
+    "AuthenticatedUser",
+    "CurrentGast",
+    "CurrentUser",
+    "decode_token",
+    "get_current_user",
+    "get_settings",
+    "install_static_jwks",
+    "reset_cache",
+]
 
 
 async def decode_token(token: str) -> dict[str, Any]:
-    """Decode + validate a bearer token (Cloud RS256 *or* Self-Host EdDSA).
-
-    Dispatch is keyed off the ``kid`` header: present → Cloud RS256/JWKS path;
-    absent → Self-Host session-JWT path, but only in self-host mode. A kid-less
-    token in cloud mode keeps the historical "missing kid" rejection (also stops
-    an attacker from flooding the JWKS-fetch path with kid-less tokens).
-    """
-    try:
-        header = jwt.get_unverified_header(token)
-    except jwt.PyJWTError as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token") from exc
-    kid = header.get("kid")
-    if kid:
-        return await _decode_cloud_token(token, kid)
-    # No ``kid`` → could be a Self-Host session-JWT. Only accept in self-host
-    # mode; otherwise reject with "missing kid" exactly like before.
-    if get_settings().pulse_instance_mode != "self-host":
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing kid")
-    return _decode_self_host_session_token(token)
-
-
-@dataclass(frozen=True)
-class AuthenticatedUser:
-    id: int
-    username: str
+    # Bewusst indirekt: der Name ``get_settings`` wird pro Aufruf aus den
+    # Modul-Globals gelesen, damit Monkeypatches in Tests greifen.
+    return await _tv.decode_token(token, get_settings)
 
 
 async def get_current_user(
     authorization: str | None = Header(default=None),
 ) -> AuthenticatedUser:
-    if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing bearer token")
-    token = authorization.split(" ", 1)[1].strip()
-    payload = await decode_token(token)
-    try:
-        uid = int(payload["sub"])
-    except (KeyError, ValueError) as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid sub") from exc
-    return AuthenticatedUser(id=uid, username=payload.get("username", ""))
+    return await _tv.get_current_user(authorization, get_settings)
 
 
 CurrentUser = Annotated[AuthenticatedUser, Depends(get_current_user)]
+
+
+async def get_current_gast(
+    authorization: str | None = Header(default=None),
+) -> GastClaims:
+    """Ein Gast-Ticket (``typ="gast"``), sonst 401.
+
+    Eigene Abhaengigkeit statt eines zweiten Zweigs in ``get_current_user``:
+    ein Gast ist kein Nutzer, und ``CurrentUser`` weist sein Ticket weiterhin
+    ab (``_decode_cloud_token`` verlangt ``typ == "access"``). Genau eine
+    Route hier kennt sie: ``GET /gast/whep``.
+    """
+    from fastapi import HTTPException, status  # noqa: PLC0415
+
+    token = _extract_bearer(authorization)
+    if not token:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing guest ticket")
+    return await decode_gast_ticket(token, get_settings)
+
+
+CurrentGast = Annotated[GastClaims, Depends(get_current_gast)]

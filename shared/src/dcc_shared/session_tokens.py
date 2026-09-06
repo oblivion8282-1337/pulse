@@ -14,7 +14,7 @@ such a token:
   :func:`reset_session_signer`),
 * :func:`_token_redis_key` — Redis key derivation (no token-in-keyspace).
 
-The *minting* side (``issue_session_token`` + ``store_session_token``) lives in
+The *minting* side (``issue_session_token``) lives in
 chat-gateway, which is the only service that signs tokens. It re-uses the
 key-loading helpers from here so both sides share a single key cache per
 process.

@@ -504,3 +504,55 @@ async def test_ready_hides_private_voice_channel_from_denied_member(
         assert cid not in member_states  # denied member → channel fully hidden
     finally:
         await redis.delete(f"voice:room:channel-{cid}")
+
+
+@pytest.mark.asyncio
+async def test_voice_state_traegt_gast_stumm_in_user_states(ws_app, _auth_signer, redis):
+    """``gast_stumm`` aus dem voice-signaling-Schnappschuss landet als
+    ``mic_muted``-Eintrag in ``user_states`` — derselbe Weg wie bei
+    Mitgliedern, damit der Klient nicht zwei Formen unterscheiden muss.
+    Gäste haben keine Sitzung: ohne diesen Merge bliebe das Stumm-Zeichen
+    in der Kanalliste dauerhaft weg."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            uid = random.randint(1, 1_000_000)
+            token = _auth_signer.issue_access(uid, f"u{uid}")
+            g = tc.post("/guilds", json={"name": "g"}, headers=_auth(token)).json()
+            vc = tc.post(
+                f"/guilds/{g['id']}/channels",
+                json={"name": "Voice", "type": 1},
+                headers=_auth(token),
+            ).json()
+            cid = vc["id"]
+            with tc.websocket_connect(f"/ws?token={token}") as ws:
+                receive_skipping(ws)  # skip hello + ready
+                import redis as sync_redis
+
+                r = sync_redis.Redis.from_url(_REDIS_URL)
+                try:
+                    r.publish(
+                        "voice:events",
+                        json.dumps({
+                            "channel_id": cid,
+                            "user_ids": [f"gast-77", 123],
+                            "streaming_user_ids": [],
+                            "gast_namen": {"gast-77": "Frau Meier"},
+                            # gast-88 sitzt NICHT im Kanal — ein verwaister
+                            # Eintrag darf nicht durchreichen werden.
+                            "gast_stumm": ["gast-77", "gast-88"],
+                        }),
+                    )
+                finally:
+                    r.close()
+                got = ws.receive_json()
+                assert got["op"] == "voice_state"
+                assert got["gast_namen"] == {"gast-77": "Frau Meier"}
+                assert got["user_states"]["gast-77"] == {
+                    "mic_muted": True,
+                    "deafened": False,
+                }
+                # Der stumme Gast steht nicht in user_ids → kein Eintrag.
+                assert "gast-88" not in got["user_states"]
+
+    await asyncio.to_thread(_run)

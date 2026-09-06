@@ -12,11 +12,8 @@
   import { darfCommunityAnlegen } from '$lib/servers/erstellrecht';
   import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
-  import { roles } from '$lib/stores/roles.svelte';
-  import { guildSounds } from '$lib/stores/guildSounds.svelte';
-  import { chatApi } from '$lib/api/chat';
-  import { rolesApi } from '$lib/api/roles';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
+  import { erstelleCommunity } from '$lib/guilds/erstellen';
   import { navDrawer } from '$lib/stores/navDrawer.svelte';
   import { voiceAutoConnect } from '$lib/voice/autoconnect.svelte';
   import DMChannelList from '$lib/components/DMChannelList.svelte';
@@ -67,23 +64,8 @@
   });
 
   async function createGuild(name: string) {
-    const g = await chatApi.createGuild(name);
-    guilds.add(g);
-    // Seed empty stores for the new guild so per-guild affordances render
-    // immediately as "no overrides yet" / owner-grants-all instead of
-    // staying hidden until the next WS reconnect rebuilds ``ready``.
-    roles.recomputeGuild(g.id);
-    guildSounds.ensureSlot(g.id);
-    void rolesApi
-      .list(g.id)
-      .then((rows) => {
-        for (const r of rows) roles.upsertRole(r);
-      })
-      .catch(() => undefined);
+    await erstelleCommunity(name);
     creating = false;
-    const c = await chatApi.createChannel(g.id, { name: 'general' });
-    guilds.addChannel(c);
-    await goto(`/app/guilds/${g.id}/channels/${c.id}`);
   }
 
   async function joinGuild(linkOrCode: string, confirmed?: boolean) {

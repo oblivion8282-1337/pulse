@@ -30,13 +30,14 @@ and a Self-Host's. The instance-membership grant only happens in self-host mode.
 
 from __future__ import annotations
 
-from dcc_shared.events import GuildMemberAddedEvent
 from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.guild_caps import enforce_member_cap
+from dcc_chat_gateway.routes.invites import (
+    _join_guild,
+    _member_count,
+)
 from dcc_chat_gateway.membership import (
     add_member as add_instance_member,
     is_instance_locked,
@@ -59,25 +60,6 @@ router = APIRouter()
 # private". Three distinct internal reasons, one external signal — so a probe
 # can't tell a private community apart from a non-existent one.
 _NOT_FOUND = "community not found"
-
-
-async def _member_count(session, guild_id: int) -> int:
-    stmt = select(func.count()).select_from(GuildMember).where(
-        GuildMember.guild_id == guild_id
-    )
-    return int((await session.execute(stmt)).scalar_one())
-
-
-async def _first_text_channel_id(session, guild_id: int) -> int | None:
-    from dcc_chat_gateway.models import CHANNEL_TYPE_TEXT, Channel
-
-    stmt = (
-        select(Channel.id)
-        .where(Channel.guild_id == guild_id, Channel.type == CHANNEL_TYPE_TEXT)
-        .order_by(Channel.position, Channel.id)
-        .limit(1)
-    )
-    return (await session.execute(stmt)).scalar_one_or_none()
 
 
 async def _public_guild_or_404(session, handle: str) -> Guild:
@@ -197,14 +179,6 @@ async def join_public_community(
     guild_id = guild.id
     guild_out = InviteGuildOut(id=guild.id, name=guild.name, icon_url=guild.icon_url)
 
-    # Ban check first — a banned user must learn nothing more than a 403 and
-    # must never reach the "already member" idempotent path. Imported lazily to
-    # avoid the import cycle (bans.py imports from models via guilds).
-    from dcc_chat_gateway.routes.bans import is_user_banned  # local: import cycle
-
-    if await is_user_banned(session, guild_id, current.id):
-        raise HTTPException(403, detail="you are banned from this server")
-
     # Late-import config so test fixtures that rebind
     # ``dcc_chat_gateway.config.get_settings`` at module level are honoured at
     # request time (same pattern as ``routes/_deps.py::require_cloud``).
@@ -212,68 +186,32 @@ async def join_public_community(
 
     is_self_host = _cfg.get_settings().pulse_instance_mode == "self-host"
 
-    # "Server gesperrt" not-aus toggle (Stufe 5). Defensive instance-grant guard:
-    # the primary lock sits in the cert-login gate (a new user can't even mint a
-    # session token while locked), but block here too so this path never coins a
-    # NEW instance membership on a sealed self-host. Existing instance members
-    # pass (re-join the community freely); Cloud has no instance lock. Checked
-    # before any membership write so a locked instance stays sealed.
-    if (
-        is_self_host
-        and not await is_instance_member(session, current.user_identifier)
-        and await is_instance_locked(session)
-    ):
-        raise HTTPException(403, detail="join_locked")
+    async def _lock_guard() -> None:
+        # "Server gesperrt" not-aus toggle (Stufe 5). Defensive instance-grant guard:
+        # the primary lock sits in the cert-login gate (a new user can't even mint a
+        # session token while locked), but block here too so this path never coins a
+        # NEW instance membership on a sealed self-host. Existing instance members
+        # pass (re-join the community freely); Cloud has no instance lock. Checked
+        # before any membership write so a locked instance stays sealed.
+        if (
+            is_self_host
+            and not await is_instance_member(session, current.user_identifier)
+            and await is_instance_locked(session)
+        ):
+            raise HTTPException(403, detail="join_locked")
 
-    # Already a member: idempotent no-op success. We still make sure the
-    # instance-membership row exists on self-host (covers the edge where a user
-    # is a guild member but somehow lacks the instance row — e.g. data from
-    # before public-join existed; the lock guard above already let an existing
-    # instance member through, and a non-member would have been refused).
-    existing = await session.get(GuildMember, (guild_id, current.id))
-    if existing is not None:
+    async def _grant_instance(added: bool) -> None:
+        # Public community = its own permission → grant instance membership (the
+        # ``locked`` guard above already rejected a new join on a sealed
+        # instance). ``add_instance_member`` is idempotent + flushes; auch im
+        # „schon Mitglied“-Zweig, damit dort die Instanz-Zeile nachgetragen
+        # wird (deckt Datenstände vor Einführung des Public-Join ab).
         if is_self_host:
             await add_instance_member(
                 session, current.user_identifier, joined_via="public_community"
             )
-            await session.commit()
-        channel_id = await _first_text_channel_id(session, guild_id)
-        return PublicCommunityJoinOut(guild=guild_out, channel_id=channel_id)
 
-    # Community member cap (before staging the new membership).
-    await enforce_member_cap(session, guild_id)
-
-    # New member. Stage the guild_members row, then re-check the ban list inside
-    # the transaction before commit so a PUT /bans that committed between the
-    # first check and now can't slip through.
-    session.add(GuildMember(guild_id=guild_id, user_id=current.id))
-    if is_self_host:
-        # Public community = its own permission → grant instance membership (the
-        # ``locked`` guard above already rejected a new join on a sealed
-        # instance). ``add_instance_member`` is idempotent + flushes.
-        await add_instance_member(
-            session, current.user_identifier, joined_via="public_community"
-        )
-    if await is_user_banned(session, guild_id, current.id):
-        await session.rollback()
-        raise HTTPException(403, detail="you are banned from this server")
-
-    actually_added = True
-    try:
-        await session.commit()
-    except IntegrityError:
-        # Race: another request added the same member concurrently. Treat as the
-        # idempotent path — the join still succeeded from the caller's view.
-        await session.rollback()
-        actually_added = False
-
-    channel_id = await _first_text_channel_id(session, guild_id)
-    if actually_added:
-        mgr = getattr(request.app.state, "connection_manager", None)
-        if mgr is not None:
-            await mgr.publish_guild_event(
-                GuildMemberAddedEvent(
-                    guild_id=str(guild_id), user_id=str(current.id)
-                )
-            )
+    _, channel_id = await _join_guild(
+        session, request, guild_id, current.id, pre=_lock_guard, stage=_grant_instance
+    )
     return PublicCommunityJoinOut(guild=guild_out, channel_id=channel_id)

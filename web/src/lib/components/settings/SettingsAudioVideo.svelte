@@ -5,6 +5,7 @@
   import { isMobile } from '$lib/platform/runtime';
   import { deviceDisplayName } from '$lib/voice/devices';
   import Checkbox from '$lib/components/form/Checkbox.svelte';
+  import Switch from '$lib/components/form/Switch.svelte';
   import Select from '$lib/components/form/Select.svelte';
   import MicGainControl from './MicGainControl.svelte';
   import OutputVolumeControl from './OutputVolumeControl.svelte';
@@ -237,10 +238,9 @@
          im Kanal voice.selfMonitor, außerhalb micTest. -->
     <label class="flex cursor-pointer items-center justify-between gap-3" data-testid="settings-mic-monitor">
       <span class="text-text-base text-sm">{m.settings_audio_video_monitor_label()}</span>
-      <Checkbox
-        role="switch"
+      <Switch
         checked={voice.connected ? voice.selfMonitor : micTest.monitor}
-        onchange={(e) => onMonitorChange((e.currentTarget as HTMLInputElement).checked)}
+        onCheckedChange={(v) => onMonitorChange(v)}
       />
     </label>
   </div>
@@ -318,12 +318,11 @@
         class:cursor-pointer={!spatialDisabled}
       >
         <span class="text-text-base text-sm">{m.settings_audio_video_spatial_label()}</span>
-        <Checkbox
-          role="switch"
+        <Switch
           checked={settings.audio.spatialMode !== 'off'}
           disabled={spatialDisabled}
-          onchange={(e) => {
-            const mode = (e.currentTarget as HTMLInputElement).checked ? 'high' : 'off';
+          onCheckedChange={(v) => {
+            const mode = v ? 'high' : 'off';
             settings.setSpatialMode(mode);
             voice.setSpatialMode(mode);
           }}

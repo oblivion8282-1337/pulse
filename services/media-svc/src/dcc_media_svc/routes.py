@@ -28,48 +28,26 @@ from time import monotonic
 from typing import Annotated, Any
 
 import structlog
-from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Header, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from redis.asyncio import Redis
 
 from dcc_shared.events import StreamDescriptor
+from dcc_shared.gaeste import ist_gesperrt
 from dcc_shared.streaming import MONITOR_INDEX_MAX, MONITOR_INDEX_MIN, SLOT_MAX
 
 from dcc_media_svc.config import get_settings
-from dcc_media_svc.security import CurrentUser
+from dcc_media_svc.poller import _parse_state, _publish_event
+from dcc_media_svc.security import CurrentGast, CurrentUser
 from dcc_shared.streaming import read_cache_key
 from dcc_media_svc.streamkeys import (
     CHANNEL_STATE_KEY,
-    STREAM_EVENTS_CHANNEL,
     TOKEN_KEY,
     active_key,
     path_for_channel_user,
     stopping_key,
     streams_from_state,
 )
-
-
-async def _publish_stream_event(
-    redis: Redis,
-    channel_id: str,
-    user_ids: list[str],
-    streams: list[dict[str, Any]] | None = None,
-) -> None:
-    """Publish the channel's *full* current streamer set on ``stream:events``
-    (same shape the poller emits) so chat-gateway re-broadcasts it at once.
-
-    ``streams`` (the additive ``[{user_id, slot}]`` list) is only put on the
-    wire when non-empty, so single-stream channels keep the legacy
-    ``{channel_id, user_ids}`` shape byte-for-byte."""
-    from dcc_shared.events import StreamStateSnapshot
-
-    snap = StreamStateSnapshot(channel_id=channel_id, user_ids=user_ids, streams=streams or [])
-    # `label` omission when unset is handled by the StreamDescriptor
-    # `@model_serializer` — see poller.py for the same comment.
-    data = snap.model_dump(mode="json")
-    if not snap.streams:
-        data.pop("streams", None)
-    await redis.publish(STREAM_EVENTS_CHANNEL, json.dumps(data, separators=(",", ":")))
 
 
 log = structlog.get_logger(__name__)
@@ -373,11 +351,8 @@ async def get_stream_state(
     raw = await redis.get(CHANNEL_STATE_KEY.format(channel_id=channel_id))
     if raw is None:
         return StreamStateOut(channel_id=channel_id)
-    try:
-        data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
-    except (ValueError, TypeError, AttributeError):
-        return StreamStateOut(channel_id=channel_id)
-    if not isinstance(data, dict):
+    data = _parse_state(raw)
+    if data is None:
         return StreamStateOut(channel_id=channel_id)
     uids = [str(u) for u in (data.get("user_ids") or []) if u]
     streams = [StreamDescriptor(**d) for d in streams_from_state(data)]
@@ -494,6 +469,79 @@ async def _read_token_fuer(
     )
 
 
+async def _whep_fuer_zuschauer(
+    request: Request,
+    *,
+    zuschauer_id: str,
+    channel_id: str,
+    user_id: str,
+    slot: int,
+) -> WhepOut:
+    """Der gemeinsame Rumpf beider WHEP-Routen (Mitglied und Gast).
+
+    Der Zuschauer taucht nur als Schluessel-Bestandteil des Lese-Tokens auf
+    (``read_cache_key``); ob dort eine Nutzer-ID oder eine Gast-Kennung steht,
+    ist dieser Ebene gleich. Deshalb EIN Rumpf statt zweier Kopien, die beim
+    naechsten Nonce-/Pfad-Umbau auseinanderliefen.
+    """
+    redis = _get_redis(request)
+    raw = await redis.get(active_key(channel_id, user_id, slot))
+    if raw is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
+    data = _parse_state(raw)
+    if data is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
+    path = data.get("path")
+    if not isinstance(path, str) or not path:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
+    s = get_settings()
+    read_token = await _read_token_fuer(redis, zuschauer_id, channel_id, user_id, slot)
+    base = s.mediamtx_public_base.rstrip("/")
+    return WhepOut(
+        whep_url=f"{base}/{path}/whep?token={read_token}",
+        ten_bit=data.get("ten_bit") is True,
+        remote_input=data.get("remote_input") is True,
+    )
+
+
+@router.get("/gast/whep", response_model=WhepOut)
+async def get_whep_url_gast(
+    channel_id: ChannelId,
+    user_id: UserIdQuery,
+    gast: CurrentGast,
+    request: Request,
+    slot: SlotQuery = 0,
+) -> WhepOut:
+    """WHEP-URL fuer einen Gast (Besprechungslink, kein Konto).
+
+    Die Kanalbindung des Tickets IST die Berechtigung: ein Ticket fuer Kanal A
+    darf Kanal B nicht oeffnen. Ohne diesen Vergleich waere aus dem Ticket fuer
+    den Besprechungsraum eines fuer jeden Sprachkanal der Community geworden.
+
+    Dazu die Rauswurf-Sperre — beides oder nichts, wie ``_gast_pruefen`` im
+    chat-gateway: ein rausgeworfener Gast mit noch laufendem Ticket (bis 4 h)
+    darf sich keine NEUEN Lese-Token holen statt nur die alten zu verlieren
+    (Audit 2026-09). Aktuell unroutbar von außen (media-svc hat keine
+    oeffentliche Proxy-Route, Gäste gehen ueber den chat-gateway-Proxy, der
+    dieselbe Sperre prueft) — dieser Check macht den Rauswurf netzweit
+    wasserdicht, statt nur auf dem einen Pfad.
+
+    Eine eigene Route statt eines Gast-Zweigs in ``get_whep_url``: es soll
+    nirgends ein „Nutzer oder Gast" an einer Abhaengigkeit haengen.
+    """
+    if gast.channel_id != str(channel_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="ticket is for another channel")
+    if await ist_gesperrt(_get_redis(request), gast.gast_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="removed from the meeting")
+    return await _whep_fuer_zuschauer(
+        request,
+        zuschauer_id=gast.gast_id,
+        channel_id=channel_id,
+        user_id=user_id,
+        slot=slot,
+    )
+
+
 @router.get("/channels/{channel_id}/whep", response_model=WhepOut)
 async def get_whep_url(
     channel_id: ChannelId,
@@ -515,25 +563,12 @@ async def get_whep_url(
     media-svc directly (the self-host Caddy used to) hands the nonce'd WHEP
     URL to unauthenticated callers.
     """
-    redis = _get_redis(request)
-    raw = await redis.get(active_key(channel_id, user_id, slot))
-    if raw is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
-    try:
-        data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
-    except (ValueError, TypeError, AttributeError):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
-    path = data.get("path") if isinstance(data, dict) else None
-    if not isinstance(path, str) or not path:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
-    s = get_settings()
-
-    read_token = await _read_token_fuer(redis, str(user.id), channel_id, user_id, slot)
-    base = s.mediamtx_public_base.rstrip("/")
-    return WhepOut(
-        whep_url=f"{base}/{path}/whep?token={read_token}",
-        ten_bit=data.get("ten_bit") is True,
-        remote_input=data.get("remote_input") is True,
+    return await _whep_fuer_zuschauer(
+        request,
+        zuschauer_id=str(user.id),
+        channel_id=channel_id,
+        user_id=user_id,
+        slot=slot,
     )
 
 
@@ -593,11 +628,8 @@ async def stop_stream(
     remaining_streams: list[dict[str, Any]] = []
     since: str | None = None
     if raw is not None:
-        try:
-            data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
-        except (ValueError, TypeError, AttributeError):
-            data = None
-        if isinstance(data, dict):
+        data = _parse_state(raw)
+        if data is not None:
             since = data.get("since")
             old_streams = streams_from_state(data)
             if old_streams:
@@ -641,7 +673,7 @@ async def stop_stream(
     else:
         await redis.delete(CHANNEL_STATE_KEY.format(channel_id=channel_id))
 
-    await _publish_stream_event(redis, channel_id, remaining_uids, streams=publish_streams)
+    await _publish_event(redis, channel_id, remaining_uids, streams=publish_streams)
     log.info(
         "stream_stopped",
         channel_id=channel_id,
@@ -649,4 +681,115 @@ async def stop_stream(
         slot=slot,
         remaining=len(remaining_uids),
     )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# --- internal: WHEP-Sitzungen eines Gastes hart trennen ---------------------
+
+_kill_router = APIRouter(prefix="/internal", tags=["internal"])
+
+
+class KillSessionsIn(BaseModel):
+    """Die WHEP-Lese-Token-WERTE eines Gastes (siehe ``dcc_shared.gaeste``).
+
+    Die Session-Query der MediaMTX-WHEP-Sitzung trägt ``token=<wert>`` —
+    daran, und nur daran, lassen sich Sitzung und Gast zusammenbringen.
+    """
+
+    tokens: list[str] = Field(min_length=1, max_length=64)
+
+
+@_kill_router.post("/streams/kill-sessions", status_code=status.HTTP_204_NO_CONTENT)
+async def kill_gast_sessions(
+    payload: KillSessionsIn,
+    request: Request,
+    x_pulse_internal_secret: Annotated[str | None, Header()] = None,
+) -> Response:
+    """Die MediaMTX-WHEP-Sitzungen trennen, die mit diesen Token laufen.
+
+    Der Lese-Token wird nur beim Handshake geprüft und danach nicht verbraucht
+    — einem Rausgeworfenen lief sein Bild also bis zum nächsten Reconnect
+    weiter. Hier wird die Session aktiv gelöscht. Fail-closed: ohne Secret
+    gibt es 503, nicht stillen No-Op.
+    """
+    import httpx  # noqa: PLC0415
+
+    # Secret vom App-State (create_app setzt es aus den Settings) — das macht
+    # den Wert auch im Test überschreibbar, ohne am Settings-Singleton
+    # herumzuschrauben. Fallback auf Settings für Deployments, die den State
+    # nicht setzen.
+    secret = getattr(
+        request.app.state,
+        "internal_service_secret",
+        get_settings().internal_service_secret,
+    )
+    expected = secret.encode() if secret else b""
+    given = (x_pulse_internal_secret or "").encode()
+    if not expected or not secrets.compare_digest(given, expected):
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="internal routes disabled")
+
+    # ``mediamtx_api_url`` zeigt auf ``…/v3/paths/list`` — die Sessions-Liste
+    # lebt daneben unter ``…/v3/whepsessions``.
+    basis = get_settings().mediamtx_api_url.rsplit("/", 1)[0]
+    sessions_url = f"{basis}/whepsessions"
+    tokens = set(payload.tokens)
+    getrennt = 0
+
+    def _passt(query: str, t: str) -> bool:
+        # Delimiter-bewusst: ``token=abc`` darf nicht ``token=abcdef`` eines
+        # fremden Zuschauers treffen. Ende der Query oder ``&`` beendet den
+        # Wert.
+        stelle = 0
+        nadel = f"token={t}"
+        while (i := query.find(nadel, stelle)) != -1:
+            ende = i + len(nadel)
+            if ende == len(query) or query[ende] == "&":
+                return True
+            stelle = i + 1
+        return False
+
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        seiten = 0
+        while seiten < 50:  # Schutz gegen Endlos-Paginierung
+            seiten += 1
+            try:
+                resp = await client.get(
+                    sessions_url, params={"itemsPerPage": 1000, "page": seiten - 1}
+                )
+                # Bewusst KEIN ``raise_for_status``: das verlangt einen
+                # request-gebundenen Response und ist hier ohnehin
+                # best-effort — ein MediaMTX-Blip bricht den Kick nicht,
+                # die Redis-Sperre verhindert jeden Neustart.
+                if resp.status_code >= 400:
+                    log.warning("whep_session_list_rejected", status=resp.status_code)
+                    break
+                data = (
+                    resp.json()
+                    if resp.headers.get("content-type", "").startswith("application/json")
+                    else {}
+                )
+            except Exception:  # noqa: BLE001 — siehe oben
+                log.warning("whep_session_list_failed", page=seiten)
+                break
+            items = (data.get("items") or []) if isinstance(data, dict) else []
+            if not items:
+                break
+            items = (data.get("items") or []) if isinstance(data, dict) else []
+            if not items:
+                break
+            for session_obj in items:
+                query = str(session_obj.get("query") or "")
+                sid = str(session_obj.get("id") or "")
+                if not sid:
+                    continue
+                if any(_passt(query, t) for t in tokens):
+                    try:
+                        delete = await client.delete(f"{sessions_url}/{sid}")
+                        if delete.status_code < 400:
+                            getrennt += 1
+                    except Exception:  # noqa: BLE001 — best-effort je Session
+                        log.warning("whep_session_delete_failed", sid=sid)
+            if len(items) < 1000:
+                break
+    log.info("gast_whep_sessions_killed", sessions=getrennt, tokens=len(tokens))
     return Response(status_code=status.HTTP_204_NO_CONTENT)

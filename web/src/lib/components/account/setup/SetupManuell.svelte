@@ -10,7 +10,7 @@
   import { m } from '$lib/paraglide/messages.js';
   import { ApiError } from '$lib/api/client';
   import { instancesApi, type Instance } from '$lib/api/instances';
-  import EnvReissuePanel from '../EnvReissuePanel.svelte';
+  import InlineResetPanel from '../InlineResetPanel.svelte';
   import ComposeDownloadLinks from '../ComposeDownloadLinks.svelte';
   import { Button } from '$lib/components/ui/button';
   import DownloadIcon from '@lucide/svelte/icons/download';
@@ -58,7 +58,16 @@
   <p class="text-text-muted text-xs">{m.instance_setup_manual_desc()}</p>
 
   {#if envConsumed}
-    <EnvReissuePanel busy={envDownloading} onreissue={() => void downloadEnv(true)} />
+    <InlineResetPanel
+      testid="instance-setup-env-reissue"
+      title={m.instance_setup_env_consumed_title()}
+      body={m.instance_setup_env_consumed_body()}
+      confirmBody={m.instance_setup_env_reissue_confirm_body()}
+      confirmBtn={m.instance_setup_env_reissue_confirm_btn()}
+      resetBtn={m.instance_setup_env_reissue_btn()}
+      busy={envDownloading}
+      onreset={() => void downloadEnv(true)}
+    />
   {:else}
     <Button
       variant="outline"

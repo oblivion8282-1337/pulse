@@ -18,11 +18,23 @@
  */
 import { messages } from '$lib/stores/messages.svelte';
 import { chatApi } from '$lib/api/chat';
+import type { RequestRoute } from '$lib/api/client';
 import { compareSnowflakeId } from '$lib/utils/snowflake';
+import { verlaufSpeichern } from '$lib/verlauf';
+import { lueckeMarkieren } from '$lib/verlauf/luecke';
 
 const GAP_FILL_LIMIT = 100;
 
-export async function gapFillChannel(cid: string, refetchOnOverflow: boolean): Promise<void> {
+/** `route` = der Server der aufrufenden Verbindung. Ohne ihn ging der Abruf an
+ *  den AKTIVEN Server — die Cloud-Verbindung holte den Verlauf einer DM dann
+ *  von einem Self-Host, sobald einer aktiv war (404 in der Konsole, still
+ *  verschluckt, kein Nachholen). Deshalb Pflicht-Parameter statt Vorgabe `{}`:
+ *  ein Aufrufer, der ihn vergisst, faellt in genau dieses Loch zurueck. */
+export async function gapFillChannel(
+  cid: string,
+  refetchOnOverflow: boolean,
+  route: RequestRoute
+): Promise<void> {
   const lastId = messages.lastPersistedId(cid);
   if (!lastId) return;
   try {
@@ -31,13 +43,14 @@ export async function gapFillChannel(cid: string, refetchOnOverflow: boolean): P
     // Without `after`, exactly 100 new messages would trigger a false
     // overflow because oldestFetched > lastId could still be true even
     // though no gap exists.
-    const page = await chatApi.listMessages(cid, { limit: GAP_FILL_LIMIT, after: lastId });
+    const page = await chatApi.listMessages(cid, { limit: GAP_FILL_LIMIT, after: lastId }, route);
     if (!page.length) return;
     // `listMessages` returns newest-first → its last entry is the oldest.
     const oldestFetched = page[page.length - 1].id;
-    // `compareSnowflakeId` is length-aware — raw string `>` would mis-order ids
-    // across a decimal-digit boundary (e.g. "1000" > "999" is false), which would
-    // suppress overflow detection and leave exactly the silent hole this guards against.
+    // `compareSnowflakeId` compares the embedded timestamp — raw string `>` would
+    // mis-order ids across a decimal-digit boundary (e.g. "1000" > "999" is false),
+    // which would suppress overflow detection and leave exactly the silent hole
+    // this guards against.
     if (page.length >= GAP_FILL_LIMIT && compareSnowflakeId(oldestFetched, lastId) > 0) {
       // Even the oldest row on the page is newer than anything we hold —
       // the gap exceeds one page; older missed messages would be lost.
@@ -45,6 +58,15 @@ export async function gapFillChannel(cid: string, refetchOnOverflow: boolean): P
         // Channel-switch path: no page-effect reload to fall back to, so
         // adopt the latest page as the new history.
         messages.setInitial(cid, page);
+        void verlaufSpeichern(cid, page);
+        // This write leaves a HOLE in local storage: everything strictly
+        // between `lastId` (the old high-water mark) and `oldestFetched`
+        // (the oldest row of `page`) was skipped entirely and never
+        // persisted. Mark it so `verlauf/nachladen.ts::ladeAeltereSeite`
+        // doesn't mistake the untouched pre-gap rows for a contiguous
+        // continuation once the user scrolls back up into it (s.
+        // `verlauf/luecke.ts` fuer die Begruendung).
+        lueckeMarkieren(cid, lastId, oldestFetched);
       } else {
         // Reconnect path: drop the cache so the page-effect in
         // `routes/app/.../+page.svelte` triggers a full reload.
@@ -53,6 +75,7 @@ export async function gapFillChannel(cid: string, refetchOnOverflow: boolean): P
       return;
     }
     messages.mergeGap(cid, page);
+    void verlaufSpeichern(cid, page);
     // `reconcile` re-syncs content/edited_at/reactions of messages we
     // ALREADY hold — but `page` (`after=lastId`) is by construction only
     // ids strictly newer than anything we hold, so it can never overlap with
@@ -61,14 +84,15 @@ export async function gapFillChannel(cid: string, refetchOnOverflow: boolean): P
     // newest window WITHOUT the cursor instead — that's the slice most
     // likely to have picked up a late edit/reaction while the WS was down,
     // and it does overlap with what we already hold.
-    const recent = await chatApi.listMessages(cid, { limit: GAP_FILL_LIMIT });
+    const recent = await chatApi.listMessages(cid, { limit: GAP_FILL_LIMIT }, route);
     messages.reconcile(cid, recent);
+    void verlaufSpeichern(cid, recent);
   } catch {
     // Best-effort. A 401 means the token already rotated again (unlikely
     // but possible); the next reconnect/switch will retry.
   }
 }
 
-export async function gapFillAll(subs: Iterable<string>): Promise<void> {
-  await Promise.allSettled([...subs].map(cid => gapFillChannel(cid, false)));
+export async function gapFillAll(subs: Iterable<string>, route: RequestRoute): Promise<void> {
+  await Promise.allSettled([...subs].map((cid) => gapFillChannel(cid, false, route)));
 }

@@ -14,6 +14,8 @@
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
+  import { userCache } from '$lib/stores/users.svelte';
+  import { userIdFromIdentity } from '$lib/voice/identity';
   import { m } from '$lib/paraglide/messages.js';
 
   let {
@@ -57,6 +59,15 @@
     t.attach(el);
     return () => { t.detach(el); };
   });
+
+  // `name` kommt von LiveKit (`Participant.name`) — auf einem Self-Host ist
+  // das immer leer, LiveKit fällt dann auf die Identity `user-<id>` zurück.
+  // Der Nutzer-Cache kennt den echten Namen — bevorzugt den, sonst `name`.
+  const angezeigteUserId = $derived(userIdFromIdentity(identity));
+  $effect(() => {
+    if (angezeigteUserId) userCache.queue(angezeigteUserId);
+  });
+  const anzeigeName = $derived(userCache.displayName(angezeigteUserId, name));
 </script>
 
 <TileShell
@@ -64,7 +75,7 @@
   containerTestid="camera-tile"
   testidPrefix="camera"
   {identity}
-  {name}
+  name={anzeigeName}
   video={videoEl}
   onHide={onHide ?? (() => openedTiles.close('cam', channelId, identity))}
 >
@@ -87,7 +98,7 @@
       autoplay
       playsinline
       muted
-      class="h-full w-full object-cover {mirror ? '-scale-x-100' : ''}"
+      class="h-full min-h-0 w-full min-w-0 object-cover {mirror ? '-scale-x-100' : ''}"
     ></video>
   {/snippet}
 </TileShell>

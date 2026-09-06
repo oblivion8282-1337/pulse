@@ -1,12 +1,20 @@
 <script lang="ts">
   import * as Avatar from '$lib/components/ui/avatar/index.js';
+import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { userCache } from '$lib/stores/users.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { settings } from '$lib/stores/settings.svelte';
-  import { voicePresence } from '$lib/stores/voicePresence.svelte';
+  import { voicePresence, istGastKennung } from '$lib/stores/voicePresence.svelte';
+  import { roles } from '$lib/stores/roles.svelte';
+  import { Perm } from '$lib/permissions/bitfield';
+  import { disconnectFromVoice } from '$lib/api/voice';
+  import UserMinusIcon from '@lucide/svelte/icons/user-minus';
+import { Button } from '$lib/components/ui/button';
+  import { toast } from 'svelte-sonner';
   import { safeAvatarUrl } from '$lib/avatar';
-  import { nameColor, nameStyle, idealTextColor } from '$lib/utils/nameColor';
+  import { nameColor, nameStyle, avatarFallbackStyle } from '$lib/utils/nameColor';
   import VoiceMuteIcon from './VoiceMuteIcon.svelte';
+  import PresenceBadge from '$lib/components/PresenceBadge.svelte';
   import type { UserVoiceState } from '$lib/stores/voicePresence.svelte';
   import UserProfilePopover from './UserProfilePopover.svelte';
   import { startUserDrag } from '$lib/voice/userDrag';
@@ -57,6 +65,37 @@
     onCamOpen?: (userId: string) => void;
   } = $props();
 
+  // Gäste (Besprechungslink) werden GETRENNT gerendert: sie haben kein Profil,
+  // keinen Avatar, keine Lautstärke-Erinnerung und keine Guild-Aktionen. Liefe
+  // ihre Kennung durch die Mitglieder-Zeile, stünde dort still „…" — der
+  // ``userCache`` fragt für sie ein Profil ab, das es nicht gibt.
+  const mitglieder = $derived(userIds.filter((id) => !istGastKennung(id)));
+  const gaeste = $derived(userIds.filter(istGastKennung));
+
+  // Gäste rauswerfen darf, wer MOVE_MEMBERS hält — dasselbe Bit, das auch den
+  // Gast-Link erzeugt. Die Prüfung hier ist nur die Anzeige; verbindlich ist
+  // sie serverseitig (``voice-disconnect``), wo sie kanalgenau aufgelöst wird.
+  const darfWerfen = $derived(roles.hasGuildPermission(guildId, Perm.MOVE_MEMBERS));
+
+  /** Der Gast, für den der Entfernen-Dialog offen ist (null = zu). */
+  let kickGast = $state<string | null>(null);
+  let kickLaeuft = $state(false);
+
+  async function gastEntfernen(gastId: string, linkEntwerten = false): Promise<void> {
+    kickLaeuft = true;
+    try {
+      await disconnectFromVoice(channelId, gastId, { linkEntwerten });
+      // Vorgreifend aus der Liste nehmen: die Präsenz kommt erst über den
+      // LiveKit-Webhook zurück, und bis dahin stünde der eben Entfernte noch da.
+      voicePresence.removeUser(channelId, gastId);
+      kickGast = null;
+    } catch {
+      toast.error(m.gast_entfernen_fehler());
+    } finally {
+      kickLaeuft = false;
+    }
+  }
+
   const streamingSet = $derived(new Set(streamingUserIds));
   const camSet = $derived(new Set(camUserIds));
   const speakingSet = $derived(new Set(speakingUserIds));
@@ -64,11 +103,11 @@
   const selfId = $derived(currentServerUserId());
 
   $effect(() => {
-    for (const id of userIds) userCache.queue(id);
+    for (const id of mitglieder) userCache.queue(id);
   });
 </script>
 
-{#each userIds as uid (uid)}
+{#each mitglieder as uid (uid)}
   {@const user = userCache.get(uid)}
   {@const name = user?.display_name ?? user?.username ?? '…'}
   {@const initial = (name.trim()[0] ?? '?').toUpperCase()}
@@ -124,7 +163,7 @@
               {/if}
               <Avatar.Fallback
                 class="bg-primary text-primary-foreground text-2xs"
-                style={colour ? `background: ${colour}; color: ${idealTextColor(colour)}` : ''}
+                style={avatarFallbackStyle(colour)}
               >
                 {initial}
               </Avatar.Fallback>
@@ -167,72 +206,53 @@
                  Bild halten müssen. items-center zentriert Schrift + Punkt. -->
             {#if partyHostSet.has(uid)}
               {#if onPartyOpen}
-                <span
-                  role="button"
-                  tabindex="0"
-                  class="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-amber-400 hover:bg-amber-500/20"
-                  data-testid="user-watch-party-badge"
+                <PresenceBadge
+                  kind="party"
+                  label="PARTY"
                   title={m.voice_channel_members_watch_party_open()}
-                  aria-label={m.voice_channel_members_watch_party_open_label({ name })}
-                  onclick={(e) => { e.stopPropagation(); onPartyOpen(uid); }}
-                  onkeydown={(e) => {
-                    if (e.key !== 'Enter' && e.key !== ' ') return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onPartyOpen(uid);
-                  }}
-                ><span class="size-1.5 rounded-full bg-amber-400"></span>PARTY</span>
+                  ariaLabel={m.voice_channel_members_watch_party_open_label({ name })}
+                  testid="user-watch-party-badge"
+                  onclick={() => onPartyOpen(uid)}
+                />
               {:else}
-                <span
-                  class="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-amber-400"
-                  data-testid="user-watch-party-badge"
+                <PresenceBadge
+                  kind="party"
+                  label="PARTY"
                   title={m.voice_channel_members_watch_party_hosting()}
-                ><span class="size-1.5 rounded-full bg-amber-400"></span>PARTY</span>
+                  testid="user-watch-party-badge"
+                />
               {/if}
             {/if}
             {#if streamingSet.has(uid)}
               {#if onLiveOpen}
                 <!-- role=button (not <button>) — `<button>` inside the outer
                      context-menu trigger button would be invalid HTML. -->
-                <span
-                  role="button"
-                  tabindex="0"
-                  class="inline-flex items-center gap-1 rounded-md border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-red-400 hover:bg-red-500/20"
-                  data-testid="user-streaming-badge"
+                <PresenceBadge
+                  kind="live"
+                  label="LIVE"
                   title={m.voice_channel_members_stream_open()}
-                  aria-label={m.voice_channel_members_stream_open_label({ name })}
-                  onclick={(e) => { e.stopPropagation(); onLiveOpen(uid); }}
-                  onkeydown={(e) => {
-                    if (e.key !== 'Enter' && e.key !== ' ') return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onLiveOpen(uid);
-                  }}
-                ><span class="size-1.5 rounded-full bg-red-400"></span>LIVE</span>
+                  ariaLabel={m.voice_channel_members_stream_open_label({ name })}
+                  testid="user-streaming-badge"
+                  onclick={() => onLiveOpen(uid)}
+                />
               {:else}
-                <span
-                  class="inline-flex items-center gap-1 rounded-md border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-red-400"
-                  data-testid="user-streaming-badge"
+                <PresenceBadge
+                  kind="live"
+                  label="LIVE"
                   title={m.voice_channel_members_stream_sharing_screen()}
-                ><span class="size-1.5 rounded-full bg-red-400"></span>LIVE</span>
+                  testid="user-streaming-badge"
+                />
               {/if}
             {/if}
             {#if camSet.has(uid) && onCamOpen}
-              <span
-                role="button"
-                tabindex="0"
-                class="inline-flex items-center gap-1 rounded-md border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-2xs font-bold uppercase text-cyan-400 hover:bg-cyan-500/20"
-                data-testid="user-cam-badge"
+              <PresenceBadge
+                kind="cam"
+                label="CAM"
                 title={m.voice_channel_members_cam_open()}
-                aria-label={m.voice_channel_members_cam_open_label({ name })}
-                onclick={(e) => { e.stopPropagation(); onCamOpen(uid); }}
-                onkeydown={(e) => {
-                  if (e.key !== 'Enter' && e.key !== ' ') return;
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onCamOpen(uid);
-                }}
-              ><span class="size-1.5 rounded-full bg-cyan-400"></span>CAM</span>
+                ariaLabel={m.voice_channel_members_cam_open_label({ name })}
+                testid="user-cam-badge"
+                onclick={() => onCamOpen(uid)}
+              />
             {/if}
           </span>
         </button>
@@ -244,3 +264,72 @@
     {/snippet}
   </UserProfilePopover>
 {/each}
+
+{#each gaeste as gid (gid)}
+  {@const gastState = userStates[gid]}
+  {@const gastName = voicePresence.gastName(channelId, gid)}
+  <div
+    class="text-text-muted flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm"
+    data-testid="voice-presence-guest"
+    data-user-id={gid}
+  >
+    <!-- Kein Kreis-Symbol vor dem Namen: das Abzeichen SELBST steht links —
+         der Name daneben ist selbst getippt und von niemandem geprüft, das
+         muss man sehen, bevor man den Namen liest. -->
+    <span
+      class="text-2xs border-amber-500/60 bg-amber-500/10 text-amber-500 shrink-0 rounded-full border px-1.5 py-0.5 uppercase"
+      data-testid="voice-presence-guest-badge"
+    >
+      {m.gast_abzeichen()}
+    </span>
+    <span class="truncate">{gastName}</span>
+    <span class="ml-auto flex shrink-0 items-center gap-1">
+      {#if gastState?.mic_muted}
+        <VoiceMuteIcon kind="mic" forced={false} label={m.gast_stumm()} />
+      {/if}
+      {#if darfWerfen}
+        <button
+          type="button"
+          class="text-text-muted hover:text-destructive rounded p-1 transition-colors"
+          title={m.gast_entfernen()}
+          aria-label={m.gast_entfernen()}
+          data-testid="gast-entfernen"
+          onclick={() => (kickGast = gid)}
+        >
+          <UserMinusIcon class="size-3.5" />
+        </button>
+      {/if}
+    </span>
+  </div>
+{/each}
+
+
+{#if kickGast}
+  <Dialog.Root open={!!kickGast} onOpenChange={(o) => { if (!o) kickGast = null; }}>
+    <Dialog.Content class="sm:max-w-md">
+      <Dialog.Header>
+        <Dialog.Title>{m.gast_kick_titel()}</Dialog.Title>
+        <Dialog.Description>
+          {m.gast_kick_text({ name: voicePresence.gastName(channelId, kickGast) })}
+        </Dialog.Description>
+      </Dialog.Header>
+      <p class="text-muted-foreground text-xs">{m.gast_kick_link_hinweis()}</p>
+      <Dialog.Footer class="flex flex-wrap gap-2">
+        <Button
+          variant="ghost"
+          disabled={kickLaeuft}
+          onclick={() => gastEntfernen(kickGast!, false)}
+        >
+          {m.gast_kick_nur_raus()}
+        </Button>
+        <Button
+          variant="destructive"
+          disabled={kickLaeuft}
+          onclick={() => gastEntfernen(kickGast!, true)}
+        >
+          {m.gast_kick_link_mit()}
+        </Button>
+      </Dialog.Footer>
+    </Dialog.Content>
+  </Dialog.Root>
+{/if}

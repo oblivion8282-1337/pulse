@@ -26,7 +26,7 @@ from dcc_auth.bootstrap import (
     generate_bootstrap_token,
     hash_bootstrap_token,
 )
-from dcc_auth.browser_sessions import validate_session
+from dcc_auth.browser_sessions import user_and_session_from_cookie
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.instance_env_file import render_instance_env
@@ -61,28 +61,7 @@ async def _require_user_mit_sitzung(request: Request, db):
     heikle Aktionen einen zweiten Faktor verlangen kann. Wer nur den ``User``
     hat, kann das nicht wissen und schriebe stillschweigend „Passwort" hin.
     """
-    import uuid
-
-    raw = request.cookies.get("pulse_session")
-    if not raw:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing session cookie")
-    try:
-        sid = uuid.UUID(raw)
-    except ValueError as exc:
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED, detail="invalid session cookie"
-        ) from exc
-    row = await validate_session(db, sid)
-    if row is None:
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED, detail="session expired or not found"
-        )
-    user = await db.get(User, row.user_id)
-    if user is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="user not found")
-    if user.disabled or user.is_suspended:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="account disabled")
-    return user, row
+    return await user_and_session_from_cookie(request, db)
 
 
 def _require_self_host_enabled(user: User) -> None:

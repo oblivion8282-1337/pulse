@@ -19,6 +19,7 @@ import { pendingComplaints } from '$lib/stores/pendingComplaints.svelte';
 import { toast } from 'svelte-sonner';
 import { m } from '$lib/paraglide/messages.js';
 import { registerWsHandler } from '../handler-registry';
+import { teardownGuildLocally } from './guildTeardown';
 import type { HandlerContext } from './context';
 
 /** Reason-code → localised label for the report toast. Mirrors the mod-queue
@@ -53,20 +54,7 @@ export function register(ctx: HandlerContext): void {
 
   registerWsHandler('guild_deleted', (evt) => {
     if (!guilds.byId[evt.guild_id]) return;
-    // Drop every WS subscription for channels in that guild — they're
-    // gone server-side and would otherwise leak in `ctx.subs`. We walk
-    // both `subs` *and* `channelsByGuild` because the former may contain
-    // ids the client never navigated to (only got via WS push).
-    const channelIds = new Set<string>(
-      (guilds.channelsByGuild[evt.guild_id] ?? []).map((c) => c.id)
-    );
-    for (const subId of ctx.subs) {
-      if (channelIds.has(subId)) ctx.unsubscribe(subId);
-    }
-    for (const id of channelIds) messages.clearChannel(id);
-    guilds.remove(evt.guild_id);
-    guildSounds.remove(evt.guild_id);
-    ctx.fireGuildDeleted(evt.guild_id);
+    teardownGuildLocally(evt.guild_id, ctx);
   });
 
   // role_created and role_updated share an implementation: upsertRole

@@ -22,6 +22,12 @@ import { userCache } from '$lib/stores/users.svelte';
 import { roles } from '$lib/stores/roles.svelte';
 import { currentServerUserId } from '$lib/stores/currentServerUser';
 import { memberRoles } from '$lib/stores/memberRoles.svelte';
+import { parseMentionMarkers } from './mentionMarkierungen';
+
+// Re-Export fuer bestehende Aufrufer (`+page.svelte`-Optimistic-Echo,
+// `krypto/senden.ts`/`empfangen.ts`) — die eigentliche, testbare Rechnung
+// liegt importfrei in `mentionMarkierungen.ts`, s. dort.
+export { parseMentionMarkers };
 
 const ALLOWED_TAGS = [
   'b', 'i', 'em', 'strong', 'code', 'pre', 'del', 's',
@@ -162,30 +168,6 @@ function promoteSelfTitleToDataAttr(html: string): string {
     /<a href="mention:([^"]+)" title="self">/g,
     '<a href="mention:$1" data-self="1">'
   );
-}
-
-/**
- * Client-side mention-marker extraction for the optimistic-send echo.
- * Mirrors `dcc_chat_gateway/mentions.py::parse_markers` so a just-sent
- * message renders its pills immediately, instead of flashing the raw
- * `<@id>` marker until the server's authoritative `mentions` list lands
- * on the WS echo. The server still has the last word — `upsert` swaps
- * the optimistic copy and may drop markers that don't ping a real
- * member/role (non-member, locked role, missing MENTION_EVERYONE).
- */
-export function parseMentionMarkers(content: string): Mention[] {
-  const out: Mention[] = [];
-  const seen = new Set<string>();
-  const add = (type: 0 | 1 | 2, id: string) => {
-    const key = `${type}:${id}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    out.push({ type, id });
-  };
-  for (const m of content.matchAll(/<@(\d{1,20})>/g)) add(0, m[1]);
-  for (const m of content.matchAll(/<@&(\d{1,20})>/g)) add(1, m[1]);
-  if (/@(everyone|here)\b/.test(content)) add(2, '0');
-  return out;
 }
 
 /**

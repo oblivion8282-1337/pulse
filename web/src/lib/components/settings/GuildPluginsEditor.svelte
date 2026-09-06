@@ -13,6 +13,7 @@
   SidebarFooter ohne Reload erscheint/verschwindet.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import PuzzleIcon from '@lucide/svelte/icons/puzzle';
@@ -41,7 +42,7 @@
     try {
       rows = await guildPluginsApi.list(guildId);
     } catch (e) {
-      loadError = e instanceof Error ? e.message : String(e);
+      loadError = errText(e);
     } finally {
       loading = false;
     }
@@ -68,7 +69,7 @@
       // Revert.
       rows[idx] = { ...rows[idx], enabled: !target };
       toast.error(m.guild_plugins_editor_toggle_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errText(e)
       });
     } finally {
       busy[name] = false;

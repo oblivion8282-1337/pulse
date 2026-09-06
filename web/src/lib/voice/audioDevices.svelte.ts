@@ -84,11 +84,6 @@ export class AudioDevices {
     }
   }
 
-  reset(): void {
-    // Keep device lists/selection — they survive across channel joins.
-    // Nothing channel-scoped lives here.
-  }
-
   async #switch(room: Room, kind: MediaDeviceKind, deviceId: string): Promise<void> {
     try {
       await room.switchActiveDevice(kind, deviceId);

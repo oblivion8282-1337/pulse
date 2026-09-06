@@ -55,6 +55,11 @@ class Message(Base):
     )
     edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Angepinnt („Pinned Messages“). Zeitstempel statt bool-Flag: er ordnet
+    # die Pin-Liste des Kanals (Discord ordnet nach Pin-Zeit) und NULL ist
+    # zugleich der „nicht angepinnt“-Zustand — eine Extra-Tabelle lohnt für
+    # max. 50 Pins pro Kanal nicht. Löschen einer Nachricht löst den Pin.
+    pinned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Parsed `<@uid>` / `<@&rid>` / `@everyone` markers are stored in the
     # ``message_mentions`` table — see ``MessageMention`` below + the
@@ -72,6 +77,14 @@ class Message(Base):
         # ``GET /members/{id}``-style author lookups — otherwise a full table
         # scan on the biggest table in the schema.
         Index("ix_messages_author", "author_id"),
+        # Bedient GET /channels/{id}/pins — nur angepinnte Zeilen stehen drin
+        # (max. 50 pro Kanal), der Index bleibt also klein.
+        Index(
+            "ix_messages_pinned",
+            "channel_id",
+            "pinned_at",
+            postgresql_where="pinned_at IS NOT NULL",
+        ),
     )
 
 
@@ -149,6 +162,16 @@ class MessageAttachment(Base):
     ``mime`` / ``filename`` / ``width`` / ``height`` are nullable
     by-design — Phase-2 E2EE DMs will store ciphertext blobs where the
     server doesn't know any of those.
+
+    Seit Etappe E (2026-08-28) ist dieser Fall gebaut, und er brauchte
+    genau eine Spalte mehr: ``postfach_gebunden_am``. Ein verschluesselter
+    Anhang traegt ``message_id IS NULL`` fuer immer — verschluesselte
+    Nachrichten erzeugen keine ``messages``-Zeile —, und das ist derselbe
+    Zustand, in dem ein noch nicht abgeschickter Klartext-Upload steht, den
+    der Reaper nach einer Stunde wegraeumt. Ohne ein Unterscheidungsmerkmal
+    haette der Reaper jeden zugestellten verschluesselten Anhang eine Stunde
+    nach dem Hochladen geloescht, waehrend sein Umschlag noch auf Abholung
+    wartete.
     """
 
     __tablename__ = "message_attachments"
@@ -174,6 +197,22 @@ class MessageAttachment(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Gesetzt, sobald der Anhang in eine Postfach-Einlieferung aufgenommen
+    #: wurde (``postfach_anhaenge.py::binde_anhaenge``, Migration 0073).
+    #: Trennt die beiden Aufraeumwege: der Reaper unten nimmt nur Zeilen mit
+    #: NULL (nie eingeliefert), der Postfach-Lauf nur die anderen.
+    postfach_gebunden_am: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: Gesetzt, sobald das Chiffrat in den Cloud-Ordner JEDES Beteiligten
+    #: gelegt und die eigene Kopie im Objektspeicher freigegeben wurde
+    #: (``ablage_anhang_verteilung.py``, Migration 0087, Design §11.1).
+    #: Ab dann gibt es bei Pulse keine Bytes mehr — die Abruf-Route antwortet
+    #: darauf mit 410 statt einer vorsignierten Adresse ins Leere, und der
+    #: Klient liest aus seinem eigenen Laufwerk.
+    laufwerk_verteilt_am: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     __table_args__ = (
         Index("ix_message_attachments_message", "message_id"),

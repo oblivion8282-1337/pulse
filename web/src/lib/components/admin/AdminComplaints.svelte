@@ -7,6 +7,7 @@
   import { onMount } from 'svelte';
   import FlagIcon from '@lucide/svelte/icons/flag';
   import AdminComplaintsList from './AdminComplaintsList.svelte';
+  import AdminTabBar from './AdminTabBar.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import { adminComplaintsApi } from '$lib/api/complaints';
   import { pendingComplaints } from '$lib/stores/pendingComplaints.svelte';
@@ -59,27 +60,13 @@
     </div>
   </div>
 
-  <div class="border-border mb-4 flex gap-1 border-b">
-    {#each tabs as t (t.id)}
-      <button
-        type="button"
-        onclick={() => (activeTab = t.id)}
-        class="-mb-px border-b-2 px-3 py-2 text-sm transition-colors {activeTab === t.id
-          ? 'border-primary text-text-bright font-medium'
-          : 'text-text-muted hover:text-text-base border-transparent'}"
-        data-testid="complaints-tab-{t.id}"
-      >
-        {t.label}
-        {#if t.id === 'open' && newCount && newCount > 0}
-          <span
-            class="ml-1.5 inline-flex min-w-4 items-center justify-center rounded-full bg-warning px-1 align-middle text-2xs font-semibold text-black"
-          >
-            {newCount}
-          </span>
-        {/if}
-      </button>
-    {/each}
-  </div>
+  <AdminTabBar
+    bind:active={activeTab}
+    {tabs}
+    testIdPrefix="complaints-tab"
+    badgeTab="open"
+    badgeCount={newCount}
+  />
 
   {#key activeTab}
     <AdminComplaintsList view={activeTab} onchange={refreshNewCount} />

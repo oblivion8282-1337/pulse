@@ -41,8 +41,9 @@ Versionen in `uv.lock` / `pnpm-lock.yaml`. Runtimes: **Python** 3.13 (`>=3.13,<3
 - **@sapphi-red/web-noise-suppressor**: RNNoise→NoiseGate (`lib/voice/noiseFilter.ts`). **`MediaStreamDestinationNode.channelCount = 1` zwingend** (Default Stereo + `explicit` → mono-Worklet füllt nur output[0], rechter Kanal stumm).
 - **mode-watcher** via `setMode()` (`settings.svelte.ts`), persistiert `dcc.settings`; FOUC-Inline-Script in `app.html`.
 - **@svelte-put/shortcut**: In-Window-PTT (Taste aus `settings.voice.pttKey`).
-- Tests: `@playwright/test` E2E + `svelte-check` (`pnpm check`). **Kein Vitest** — Unit-Tests laufen über Nodes eingebauten Läufer (`pnpm test:unit`). Node streift die Typen selbst ab, keine Abhängigkeit, keine Konfiguration. **Die Falle:** eine geprüfte Datei darf keinen erweiterungslosen Laufzeit-Import haben (`from './nachbar'`) — der Bundler löst ihn auf, Node nicht. Wer etwas testbar machen will, zieht die reine Rechnung in ein importfreies Modul (Muster: `lib/remote/zeigerbildPruefung.ts`).
-  - **Die zwei Pakete fahren NICHT dieselbe Schiene**, und hier stand bis zum 2026-08-31 das Gegenteil. `web` nutzt einen Glob (`test/*.test.ts`) und nimmt jede neue Datei von selbst mit. **`desktop` führt eine handgepflegte Dateiliste** im `test:unit`-Skript — wer dort eine Testdatei anlegt und sie nicht einträgt, hat einen Test, der **nie läuft**. Genau so passiert am 2026-08-31 (`test/ablage-weiche.test.ts`, beim Anlegen vergessen, beim nächsten Schritt zufällig bemerkt). Dieselbe Fehlerklasse wie bei den mac-Kisten und `pulse-whip`: ein nicht ausgeführter Test sieht in der Ausgabe genauso aus wie ein grüner. **Nach jeder neuen Datei unter `desktop/test/` die Testzahl vergleichen** — steigt sie nicht, läuft sie nicht.
+- Tests: `@playwright/test` E2E + `svelte-check` (`pnpm check`). **Kein Vitest** — Unit-Tests laufen über Nodes eingebauten Läufer (`pnpm test:unit`, in `web` per Glob `test/*.test.ts`). Node streift die Typen selbst ab, keine Abhängigkeit, keine Konfiguration. **Zwei Fallen.** (1) Eine geprüfte Datei darf keinen erweiterungslosen Laufzeit-Import haben (`from './nachbar'`) — der Bundler löst ihn auf, Node nicht. (2) Sie darf auch **kein `$state()` auf Modulebene** erreichen, weder selbst noch über einen Import: die Runes sind reine Compiler-Symbole, und Node stirbt mit `$state is not defined`. Ein `.svelte.ts` ist damit grundsätzlich nicht direkt prüfbar. Wer etwas testbar machen will, zieht die reine Rechnung in ein importfreies Modul und lässt die Rune-Hülle daneben stehen (Muster: `lib/remote/zeigerbildPruefung.ts`, `lib/verlauf/{satz,speicherfehler,zusammenfuegen}.ts` neben `zustand.svelte.ts`).
+  - **Die zwei Pakete fahren NICHT dieselbe Schiene.** `web` nimmt jede neue Testdatei per Glob von selbst mit. **`desktop` führt eine handgepflegte Dateiliste** im `test:unit`-Skript — wer dort eine Testdatei anlegt und sie nicht einträgt, hat einen Test, der **nie läuft**. Genau so passiert am 2026-08-31 (`test/ablage-weiche.test.ts`, beim Anlegen vergessen, beim nächsten Schritt zufällig bemerkt). Dieselbe Fehlerklasse wie bei den mac-Kisten und `pulse-whip`: ein nicht ausgeführter Test sieht in der Ausgabe genauso aus wie ein grüner. **Nach jeder neuen Datei unter `desktop/test/` die Testzahl vergleichen** — steigt sie nicht, läuft sie nicht.
+- **Die Umkehrung derselben Falle, und sie ist teurer: eine Rune in einer schlichten `.ts`-Datei wird von KEINER Prüfung gefunden, sondern reisst zur Laufzeit die ganze Route ab** (`Svelte error: rune_outside_svelte`, `/app` antwortet 500). Der Compiler verarbeitet nur `.svelte` und `.svelte.ts`; anderswo bleibt `$state()` ein nackter Aufruf. Am 2026-08-31 so passiert: `ablage/verbindungen.ts` legte beim Import einen Store mit `$state` an, hing aber monatelang nur an einer nirgends eingebundenen Komponente — und fiel erst um, als der neue Speicher-Abschnitt sie in den Startpfad holte. **`pnpm check` (0 Fehler), `pnpm build`, 846 Unit-Tests und das ganze Gate waren dabei grün**; keine dieser Prüfungen wertet ein Modul im Browser aus. Sichtbar war es allein in Playwright — als 29 grün / 104 „did not run", weil jedes Setup an der fehlenden App-Hülle scheiterte. Wer eine Rune schreibt, prüft die Dateiendung.
 
 **Desktop** (`desktop/`, Electron `@dcc/desktop`):
 - electron **43.0.0** gepinnt (Chromium 150 + Opus-DTX-Fix webrtc #42233214; ohne knackst der Wiedereinstieg nach Stille → Untergrenze). **DTX fest an** (`dtx:true` in `#audioPublishDefaults`, `livekit.svelte.ts`). Bundlet Node 24.x. **Kein `postinstall`** — Binary lazy beim ersten `require('electron')`.
@@ -120,6 +121,16 @@ Versionen in `uv.lock` / `pnpm-lock.yaml`. Runtimes: **Python** 3.13 (`>=3.13,<3
 - **Trefferflächen ≥ 48 dp** werden **gemessen**, nicht behauptet: `web/tests/e2e/mobile-treffflaechen.spec.ts` läuft über alle vier Bereiche und listet jede zu kleine Fläche auf. Der erste Lauf fand prompt eine (Status-Schalter, 32 px hoch).
 - **Offen und bewusst so:** wie der zweite Bereich heißt. Der Canvas sagt „Räume", die App sonst überall „Community" für dieselbe Sache. Alle vier Namen liegen im Paraglide-Katalog (`nav_tab_*`), ein Wortwechsel kostet eine Zeile; die technische Adresse bleibt `rooms`.
 
+**Gast-Links (Besprechung ohne Konto, seit 2026-09-04)** — ein Mitglied mit `MOVE_MEMBERS` erzeugt für einen Sprachkanal einen Link; wer ihn öffnet, tippt einen Namen und sitzt im Kanal. Voll-Doku: `docs/superpowers/specs/2026-09-04-gast-links-voice-design.md`. Was man auch ausserhalb wissen muss:
+- **Das Gast-Ticket unterschreibt auth-svc** (`POST /internal/guest-token`, `typ="gast"`, ≤4 h, an GENAU EINEN Kanal gebunden). Nicht der chat-gateway: dessen Ed25519-Sitzungsschlüssel liegt in der Cloud allein in `pulse_chat_data`, voice-signaling und media-svc kommen nicht heran und weisen kid-lose Token im Cloud-Betrieb ohnehin ab. Der RS256-Schlüssel von auth-svc ist das einzige Vertrauensverhältnis, das **alle drei Dienste in beiden Betriebsarten** schon haben.
+- **Es gibt nirgends ein „Nutzer ODER Gast" an einer Abhängigkeit.** `_decode_cloud_token` verlangt `typ == "access"`, ein Gast-Ticket fällt dort von selbst heraus; die Gast-Routen hängen an einer eigenen `CurrentGast` und sind **eigene Routen** (`POST /gast/token` in voice-signaling, `GET /gast/whep` in media-svc, `GET /gast/sitzung/{whep,stream-state}` im chat-gateway). Ein fehlender `typ`-Check machte aus einem Gast einen Vollnutzer mit synthetischer ID — dagegen steht ein Riegel-Test je Dienst.
+- **Die Ticket-Routen liegen unter `/gast/sitzung/…`, nicht unter `/gast/…`** — `/gast/{code}` frisst jeden einsegmentigen Pfad darunter. Die Trennung steckt in der Form des Pfades, nicht in der Registrierungsreihenfolge (die kann eine Umsortierung kaputt machen; genau so beim ersten Testlauf passiert).
+- **`/gast/{code}` und `/gast/{code}/beitritt` sind die ersten ANONYMEN Routen im chat-gateway.** Sein `ratelimit.py` zählt pro Nutzer-ID und im Prozess — für Anonyme wirkungslos. Beide bremsen über Redis, doppelt (pro IP und pro Code, `gaeste.bremse_pruefen`). Abgelaufen, entwertet und unbekannt antworten **gleich** (404).
+- **Gäste stehen in denselben Präsenz-Sets, mit Präfix** (`gast-<id>` statt der nackten Zahl) — allein daran erkennt die Oberfläche, dass sie kein Profil nachschlagen darf. Ihr Name reist als `gast_namen`-Karte im `voice_state` mit, weil es beim Klienten **keine zweite Quelle** dafür gibt. Redis-Schlüssel + Leser kanonisch in `dcc_shared/gaeste.py` (chat-gateway schreibt, voice-signaling liest).
+- **Gast-Zeilen haengen an KEINEM Profil-Popover** (`UserProfilePopover` steht hinter `{#if p.userId}`, und ein Gast hat keine Nutzer-ID). Aktionen an einem Gast brauchen deshalb einen eigenen Knopf — der Rauswurf sitzt in `VoiceChannelMembers.svelte`. Wer weitere Aktionen ergaenzt, faellt in dieselbe Falle: der Server kann sie laengst, die Oberflaeche bietet sie nur nicht an.
+- **Ein Rauswurf beendet eine Sitzung, nicht den Zugang** — wer denselben Link erneut öffnet, ist ein neuer Gast. Dagegen wirkt nur die Entwertung des Links; die beiden gehören deshalb zusammen und sind beide da.
+- **Der Link-Code steht nie in der Datenbank**, nur sein SHA-256. Folge: die Liste kann ihn nicht nachliefern, er wird genau einmal ausgeliefert.
+
 **Watch-Party Host-sticky**: Host **behält** die Party bis explizit `watch_handoff`, **kein Auto-Handoff**. Channel-Wechsel/Unmount (`watch_leave`) beendet sofort; WS-Disconnect startet `WATCH_HOST_GRACE_S` (default 30, E2E=1) Schonfrist. Watcher-Menge **in-process** im ConnectionManager (`watch_registry`, Socket-Refcount → Multi-Tab-korrekt, kein Redis). Client-Sync `web/src/lib/watch/partyController.svelte.ts`. **WS-Tests lokal brauchen `PULSE_INSTANCE_MODE=cloud`** (sonst self-host-Guard-Crash im Lifespan).
 
 **Fernsteuerung + mehrere Host-Bildschirme** — **Voll-Doku: `docs/fernsteuerung.md`. Wer daran arbeitet, liest die zuerst.** Hier nur, was man auch ausserhalb wissen muss:
@@ -173,6 +184,173 @@ Minecraft-Modell: Identität zentral über die Cloud (howispulse.com), Server si
 - **Tote Stelle, nicht anfassen ohne sie zu bauen:** `/internal/trigger-update` hat eine Caddy-Route (`Caddyfile.template`) und einen Cloud-Sender mit signiertem JWT (`routes_suspended_instances.py::broadcast_update`), aber **keinen Handler** im chat-gateway — jede Instanz antwortet 404. Legacy aus der Watchtower-Zeit; Auto-Update läuft heute über den Host-Timer. Wäre der natürliche Träger für kooperative Prüfungen (Cloud bittet die Instanz, ein UDP-Paket zu senden).
 - **Account-basierte Server-Liste** in `auth.user_instance_memberships` (Cloud-DB, Migration 0037); beim Bootstrap-Redeem automatisch eingetragen, `GET /me/instances` liest sie. Inhalts-Privacy unverändert (isolierte DB-Welten); der frühere E2E-Vault ist **komplett entfernt**. Nicht-Owner-Erweiterung für Phase 4-6 (`role`-Feld vorbereitet).
 
+## Ende-zu-Ende-verschlüsselte Direktnachrichten (seit 2026-08-28)
+
+Rust-Kiste `krypto/pulse-krypto` um **vodozemac 0.10.0** (Apache-2.0), plus
+Schlüsselverzeichnis, Postfach und lokaler Verlauf. **Die Kiste selbst kennt
+weder Datenmodelle noch Netzwerk** — nur Identitäten, Sitzungen, Umschläge;
+angeschlossen wird sie von den Schichten darum herum, und die stehen:
+`routes/{schluessel,postfach,postfach_abholen}.py` am Server,
+`web/src/lib/krypto/**` und `web/src/lib/verlauf/**` im Klienten.
+
+**Die Schalter sind AUS und bleiben es**, bis zwei echte Geräte nachweislich
+miteinander sprechen — eine verschlüsselte Nachricht, die der Empfänger nicht
+öffnen kann, ist endgültig weg.
+
+**Es sind drei, und sie heissen nicht, wie diese Datei lange behauptet hat.**
+`e2e_dms_enabled` existiert **nur als Planprosa**, im Code gibt es ihn nicht;
+gemeint ist `E2E_DMS_ENABLED` (`web/src/lib/krypto/schalter.ts`), und der gilt
+**nur für DMs**. Für Gruppen kam am 2026-08-29 `PRIVATE_GRUPPEN_ENABLED`
+daneben — ein eigener Klient-Schalter, obwohl es serverseitig
+`private_groups_enabled` schon gibt. Grund: der Server meldet den seinen dem
+Klienten **nirgends** (weder `/capabilities` noch der `ready`-Rahmen führen
+ihn), er wäre also erst am 403 erkennbar. Ein Schalter, den man erst am
+Fehlschlag bemerkt, kann keinen Serveraufruf verhindern — und genau das ist
+seine Aufgabe.
+
+**Die Koexistenz-Regel ist seit dem 2026-08-29 überholt, der CODE setzt aber
+noch die alte um.** Beschlossen ist: **ohne App-Gerät keine
+Direktnachrichten** — womit jede DM verschlüsselt ist und der Klartext-Weg
+ersatzlos entfällt (Vorbild WhatsApp Web / Signal Desktop; ein gekoppelter
+Browser zählt mit, Etappe F). Die bestehenden unverschlüsselten DMs werden
+dabei **sofort gelöscht, ohne Frist** — ausdrücklich so entschieden. Diese
+Löschung ist ein **eigener, ausgelöster Schritt, nie eine Deploy-Nebenwirkung**,
+und setzt eine nachgewiesene frische Sicherung voraus. Wer die Regel umsetzt,
+liest zuerst §3a des Entwurfs; wer bis dahin am Koexistenz-Code arbeitet, weiss
+damit, dass er an etwas Abzuschaffendem arbeitet. Offen ist einzig, ob ein
+gekoppelter Browser dauerhaft zählt oder nach längerer Funkstille verfällt.
+
+Entwurf: `docs/superpowers/specs/2026-08-28-e2e-dm-design.md` (§10 nennt alle
+Etappen und ihre Pläne). **Der ältere `plans/2026-08-28-e2e-dm-etappen.md` ist
+überholt** — er beschreibt unter anderem einen nativen Android-Weg, den es
+nicht gibt.
+
+Die frühere Fassung dieses Absatzes sagte „noch an nichts angeschlossen". Das
+stimmte am Tag von Etappe A und blieb stehen, während sieben weitere Etappen
+landeten — die Fehlerklasse, vor der der Abschnitt „eine Behauptung wird nie
+an nur EINER Stelle korrigiert" weiter unten warnt.
+- **Neuer Top-Level-Bereich, Client-lizenziert** (läuft im Browser und auf dem
+  Telefon, nicht am Server) — in `LICENSE` und `README.md` nachgezogen,
+  `krypto/LICENSE` angelegt. `LICENSE-CLIENT.md` führt keine Verzeichnisliste.
+- **Kein nativer Android-Bau, und das bleibt so.** Die Capacitor-App lädt
+  dieselbe entfernte Web-App wie Electron → die Krypto läuft dort als **WASM in
+  der WebView**, es gibt keine JNI-Grenze. Ein NDK wäre erst nötig, wenn Pulse
+  eine eigenständige Android-App bekäme. Das Übergabedokument führte diesen
+  Cross-Build noch als eigene Aufgabe; sie ist ersatzlos entfallen.
+- **Olm läuft auf `SessionConfig::version_2()`, hinter dem Feature
+  `experimental-session-config`.** Das Wort täuscht: v1 kürzt den MAC auf
+  8 Bytes und existiert nur zur libolm-Kompatibilität, „experimentell" heißt
+  hier *im Matrix-Ökosystem noch nicht überall gesprochen*. Pulse spricht nur
+  mit Pulse. **Die Fassung steckt im eingefrorenen Sitzungszustand — ein
+  Wechsel bricht bestehende Sitzungen.** Megolm hat keine v2.
+- **Zwei `getrandom`-Hauptversionen sind Absicht** (0.2 über `rand_core` 0.6,
+  0.3 direkt): im Browser braucht **jede** eine Wasm-Quelle, sonst bricht der
+  Bau an der älteren, obwohl nur die neuere genannt ist.
+- **An der Grenze nur Base64 und Zahlen** — dieselbe Grenze überquert JS über
+  WASM. `src/wasm.rs` ist reine Übersetzung ohne Logik; was dort stünde, wäre
+  von `cargo test` nicht erreichbar.
+- **Rust schreibt Base64 OHNE Polsterung, Python verlangt sie.** vodozemac
+  benutzt `STANDARD_NO_PAD`; `base64.b64decode()` wirft ohne `=`-Auffüllung.
+  Jede Python-Stelle, die etwas vom Krypto-Kern entgegennimmt, muss `"=="`
+  anhängen (Muster: `schluessel_nachweis.py`, `routes/postfach.py`) — das ist
+  gefahrlos, Python ist bei überzähliger Polsterung nachsichtig.
+  **Die Fehlerklasse ist die eigentliche Lehre:** der Server wies eine Zeit
+  lang JEDEN echten Umschlag mit 400 ab, und kein einziger Backend-Test sah
+  es — weil sie ihre Testdaten alle mit Pythons eigenem, gepolstertem
+  `b64encode` bauen. Ein Test, der seine Eingabe selbst erzeugt, prüft die
+  eigene Kodierung, nicht die der Gegenseite. Gefunden hat es erst der
+  Zwei-Browser-Nachweis (`web/tests/e2e/e2e-dm.spec.ts`).
+- **`generate_fallback_key()` liefert den VORHERIGEN Schlüssel, nicht den
+  neuen** — steht so in vodozemacs Doc-Kommentar („mostly useful for logging
+  purposes"). Der neue kommt aus `fallback_key()` danach. Die erste Fassung
+  reichte den Rückgabewert durch: auf einem frischen Account war das `None`,
+  nach einem Wechsel der **alte** Schlüssel — Absender hätten an einen
+  Schlüssel verschlüsselt, den das Gerät verworfen hat, und die Nachrichten
+  wären unlesbar gewesen, ohne dass irgendwo ein Fehler erscheint.
+  **Die Lehre, die über diese eine Funktion hinausgeht:** die API war am
+  Quelltext gepinnt — aber nur die **Signatur**, nicht die **Bedeutung**.
+  Ein `-> Option<Curve25519PublicKey>` sieht bei „gib mir einen neuen
+  Schlüssel" genau richtig aus. Wer eine fremde Funktion einbindet, liest den
+  Doc-Kommentar, nicht die Zeile darunter. Aufgefallen ist es erst beim
+  ersten echten Gebrauch, weil der Rückfallschlüssel keinen Test hatte.
+- **`fallback_key()` gibt nur einen UNVERÖFFENTLICHTEN Schlüssel zurück**, und
+  `mark_keys_as_published()` betrifft ihn mit. Der Klient hält ihn deshalb
+  zwischengespeichert (`account.svelte.ts::rueckfallschluesselSicherstellen`);
+  ohne das wäre er nach dem ersten Veröffentlichen nicht mehr auslesbar, und
+  `PUT /keys/bundle` (ersetzt die Zeile vollständig) würde ihn beim nächsten
+  Mal auf NULL setzen.
+- **Die Cloud-Verbindung läuft im HINTERGRUND, sobald ein Self-Host aktiv
+  ist — und dispatcht dann nur die Allowlist in `ws/dispatch-rules.ts`.**
+  Jeder WS-Op, an dem der verschlüsselte Weg hängt, muss dort stehen. Der
+  Weckruf `postfach_neu` fehlte bis zum 2026-09-03: mit aktivem Self-Host
+  erschien eine verschlüsselte DM erst nach einem Reload, weil der
+  `ready`-Rahmen der einzige zweite Auslöser ist. Kein Test sah es — der
+  Zwei-Browser-Nachweis prüfte nur den Empfänger MIT aktiver Cloud, und den
+  Absender nie (seine Zeile kommt lokal, nicht über den Weckruf). Nachweis
+  seitdem: `tests/e2e/e2e-dm-hintergrund-hetzner.spec.ts`. Dieselbe Falle in
+  REST-Form: ein `chatApi`-Aufruf ohne `route` geht an den AKTIVEN Server —
+  `ws/gapFill.ts` fragte so den Self-Host nach dem Verlauf einer Cloud-DM
+  (404, still verschluckt); die Verbindung reicht seither ihren eigenen
+  `serverId` durch. **Dritter Fund derselben Klasse am selben Abend:** die
+  Archiv-Routen (`api/ablageArchiv.ts`) liefen ohne Route — das Laufwerk
+  landete auf dem Self-Host, die Cloud (die beim Versand verteilt) hatte
+  NULL Einträge, ein empfangener Anhang blieb leer. Seither Cloud-Route als
+  Vorgabe dort, und `archivAdapter.ts` trägt das Laufwerk beim ersten 404
+  selbst nach.
+- **Der Weckruf `postfach_neu` geht seit 2026-09-03 auch je KONTO**
+  (`manager.publish_user_event`, `routes/postfach.py` Schritt 5), nicht nur an
+  den Kanal. `manager.publish(kanal)` erreicht nur Sockets, die den Kanal
+  gerade anzeigen (`ctx.subs`) — wer die Unterhaltung nicht offen hatte,
+  bekam bis dahin nichts bis zum Reload: kein Zähler, kein Ton. Der
+  Klartext-Weg hat dafür `dm_bump` an alle. Die Allowlist-Korrektur vom
+  Morgen desselben Tages hatte nur den Fall „Kanal offen, Self-Host aktiv"
+  geheilt, und der Zwei-Browser-Nachweis hält den Kanal offen — deshalb sah
+  ihn kein Test (`test_einliefern_weckt_das_empfaengerkonto_auch_ohne_offenen_kanal`).
+- **Der Server-Abgleich beim Hochscrollen darf verschlüsselte Nachrichten nie als gelöscht werten** (`verlauf/abgleich.ts`, seit 2026-09-03). `reconciliereAeltereSeite` hielt „fehlt in der Serverantwort" für eine Löschung — richtig für Klartext, falsch für alles Verschlüsselte, das der Server nie sah. Auf einem Gerät mit lokalem Verlauf (Flatpak + Archiv) löschte ein Hochscrollen 25 von 29 Nachrichten der Unterhaltung, schrieb Grabsteine ins Archiv, und die kamen beim nächsten Öffnen zurück. Ein frisches Gerät sah nichts davon (keine lokale Seite, kein Abgleich) — der Zwei-Browser-Nachweis läuft immer mit frischen Geräten und ist für diese Klasse blind. **Was das Archiv angeht:** dort liegende Grabsteine lassen sich nicht zurücknehmen, es gibt keinen „Wiederherstellen"-Eintrag; ein lokal enttarnter Satz kann durch eine noch ungelesene Archiv-Seite erneut markiert werden.
+- **Abmelden muss den eingefrorenen Krypto-Zustand MIT löschen, nicht nur
+  Geheimnis und Marke** (`geraeteGeheimnis.ts::geraeteGeheimnisWischen`,
+  seit 2026-09-03). Bis dahin blieb der Zustand ohne seinen Schlüssel stehen,
+  der nächste Start hielt „Marke offen" für einen ausstehenden Übergang,
+  versuchte den alten Anmeldeschlüssel, scheiterte („Auftauen
+  fehlgeschlagen") und warf — bei jedem Start, ohne Ausweg. Folge: das
+  Gerät hatte keine Krypto, keine DM kam an, keine liess sich lesen, und
+  nichts meldete es ausser einer `console.error`. Ein Tag Fehlersuche an
+  fünf anderen Stellen (Allowlist, Archiv-Route, Weckruf je Konto,
+  Sitzungs-Rückfall), alle real, keine die Ursache. **Die Lehre:** ein
+  `catch`, das still `null` zurückgibt, versteckt genau den Befund, den man
+  braucht; seit demselben Tag melden `zustellungOeffnen.ts` und der
+  Abhol-Handler in der Konsole, WARUM ein Umschlag nicht aufgeht. Der
+  Übergang selbst (`pickelUebergang.ts`) verwirft seither unlesbaren
+  Zustand (`verlustPlan`) statt zu werfen — er ist ohnehin verloren. **Ein
+  Frischstart hat zwei Folgen, die mitziehen müssen:** der Server verwirft
+  die Einmalschlüssel eines Geräts, sobald es mit neuem `curve25519`
+  erscheint (`routes/schluessel.py`, sonst beansprucht ein Absender einen
+  Schlüssel des alten Kontos → „Sitzungsaufbau fehlgeschlagen"), und der
+  Absender merkt sich je Sitzung den Partnerschlüssel
+  (`sitzungen.ts::partnerSchluessel*`) und baut neu auf, wenn das Bündel
+  einen anderen zeigt (sonst laufende Umschläge in eine Sitzung, die drüben
+  nicht mehr existiert → „keine Sitzung").
+- **Im Gate seit Anfang an**: `scripts/gate-rust.sh` matcht `streaming/pulse-*`
+  **und** `krypto/pulse-*`. Ohne die zweite Zeile wären die Tests der Kiste in
+  keinem Gate gelaufen (17 Stück, Stand 2026-08-28 — die Zahl wächst, der
+  Punkt bleibt).
+- **Vite trägt das WASM-Paket, aber Bau und Dev-Server sind zwei Fragen.**
+  `pnpm build` legt `pulse_krypto_bg.<hash>.wasm` (531 kB) unter
+  `build/_app/immutable/assets/` und schreibt den gehashten Pfad in die
+  `new URL(…, import.meta.url)` der wasm-pack-Ausgabe — **kein zusätzliches
+  Plugin**; die App liefert mit `rnnoise` längst ein `.wasm` nach demselben
+  Muster aus. **Der Dev-Server hat davon unabhängig eine eigene
+  `server.fs.allow`-Liste** (Vorgabe: der `web/`-Baum), und
+  `krypto/pulse-krypto/pkg/` liegt eine Ebene höher — ohne Eintrag „outside
+  of Vite serving allow list". Der Eintrag nennt **genau dieses Verzeichnis**,
+  nicht `'..'`: der Elternpfad wäre die Wurzel des Arbeitsbaums, und der
+  Dev-Server lieferte damit auch `secrets/` und `.env` aus.
+  **Die Lehre: ein grüner `pnpm build` beweist nichts über den Dev-Server.**
+  Der erste Befund hier prüfte nur den Bau und behauptete „ohne Zutun"; der
+  Unterschied fiel erst beim echten Testen im Dev-Server auf.
+- Bauen: `bash krypto/pulse-krypto/bauen-wasm.sh` (`wasm-pack` liegt unter
+  `~/.cargo/bin`, das nicht in jedem PATH steht).
+
 ## Plugin-System (Stufe A)
 
 Top-Level `plugins/` (Referenz `hello` + `tamagotchi`). Manifest `plugin.toml` (Backend) + `manifest.ts` (Frontend-Spiegel, **manuell synchron halten**). Loader `chat_gateway/plugins/loader.py` + `web/src/lib/plugins/loader.ts`. Ops colon-namespaced (`tamagotchi:feed`). Stufe B/C → `docs/PLUGIN_ROADMAP.md`.
@@ -195,7 +373,8 @@ Top-Level `plugins/` (Referenz `hello` + `tamagotchi`). Manifest `plugin.toml` (
 - **Auto-Update**: push → main → `ci.yml` baut+pusht GHCR → Cron zieht `:latest` ≤5 min (inkl. migrate → Migrationen auto). Struktur-Änderung (Service/Env/Config): `rsync infra/ → ~/pulse/infra/` + `docker compose up -d`.
 - **Deploy vom Test-Gate entkoppelt**: `images`-Job hängt nur am `changelog`-Job (der **warnt nur**) → kein blockierendes CI-Gate. **Verbindliches Test-Gate ist LOKAL vor dem Push** (pytest + `pnpm check` + build grün, BEVOR gepusht).
 - **Routing**: Caddy → `pulse_web` nginx → `/api/{auth,chat,ws,voice}/*`, `/wheph`+`/hls` MediaMTX, `/livekit` LiveKit. host-net-Ziele **statisch** `proxy_pass http://host.docker.internal:PORT/` (Variable+Resolver → 502, da Dockers `127.0.0.11` `host.docker.internal` nicht kennt).
-- **Gotchas**: Secrets server-seitig in `.env` + `secrets/jwt_*.pem` (**PEM `chmod 0644`**, uid 10001). Avatar-Volume Fresh-Deploy `chown 10001:10001` (sonst Upload-500). UFW `7880`/`9997` nur vom Docker-Bridge (`ufw allow from 10.0.0.0/8`) — sonst blockt `INPUT DROP`. MediaMTX = **1.19.1-pulse5**-Fork (`infra/mediamtx-fork/`, TempDelim-Patch für AMD-VAAPI AV1, Image `ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse5`); `:9997`-API-Schutz hängt **nur an der UFW** (`apiAllowAddresses` in 1.19 entfernt). Dev-compose läuft ebenfalls 1.19.1-pulse5. Migrate-Container laufen automatisch beim Deploy mit.
+- **Gotchas**: Secrets server-seitig in `.env` + `secrets/jwt_*.pem` (**PEM `chmod 0644`**, uid 10001). Avatar-Volume Fresh-Deploy `chown 10001:10001` (sonst Upload-500). UFW `7880`/`9997` nur vom Docker-Bridge (`ufw allow from 10.0.0.0/8`) — sonst blockt `INPUT DROP`. MediaMTX = **1.19.1-pulse7**-Fork (`infra/mediamtx-fork/`, TempDelim-Patch für AMD-VAAPI AV1, Image `ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse7`); `:9997`-API-Schutz hängt **nur an der UFW** (`apiAllowAddresses` in 1.19 entfernt). **Der Tag entsteht aus `MEDIAMTX_VERSION` + `PULSE_REVISION` in `infra/mediamtx-fork/Dockerfile` — die einzige Quelle.** Wer ihn dort anhebt, zieht ausser den drei Compose-Dateien auch die Stellen nach, die ihn bloss BEHAUPTEN (diese hier, `infra/mediamtx-fork/README.md`, die Paritaets-Tabelle in `infra/dev-remote/README.md`, das wortgleiche Pin-Beispiel in `infra/self-host/Dockerfile` UND `web/Dockerfile`) — sie brechen nichts und blieben deshalb beim Sprung auf 6 stehen. **Achtung: jede Aenderung unter `infra/mediamtx-fork/**` und am Workflow `mediamtx-fork.yml` loest den Fork-Bau aus** — auch eine reine Kommentar-Aenderung, und der neue Digest unter altem Tag rekreiert beim naechsten Cron-Lauf den MediaMTX-Container (Streams reissen ab). Dev-compose und Remote-Dev-Stack laufen auf derselben Fassung. Migrate-Container laufen automatisch beim Deploy mit.
+  - **Seit 2026-09-03 überall `1.19.1-pulse7`** (Patch `0007-vollbild-nach-verwurf`, Variablen `PULSE_KEYFRAME_ON_DISCARD=1` und `PULSE_VIDEO_REORDER_BUFFER=128` in allen drei Compose-Dateien; Reihenfolge laut Dockerfile-Kopf eingehalten, erst Bild, dann Tags). Warum es den Patch gibt: MediaMTX verwirft nach einem Uplink-Schub ganze Bilder (Umordnungspuffer 64 Pakete ≈ 150 ms, die erste NACK-Nachlieferung braucht ≈ 160 ms), nummeriert die Pakete zum Zuschauer aber lückenlos neu — **der Zuschauer kann den Verlust nicht sehen, und bis 0007 forderte niemand ein Vollbild an**; bei 60 s Vollbild-Abstand stand der Schaden bis zum nächsten regulären Vollbild (fünf Verwerfungen mit Zuschauern, null Anforderungen am Sender, Sidecar-Log vom 2026-09-03). **Der Sender beantwortet NACKs sehr wohl** (webrtc-rs `register_default_interceptors` → NACK-Responder, 8192 Pakete Vorrat) — wer im Kopf von `whip/mod.rs` nur PLI/FIR liest, sieht die Bibliotheksebene nicht.
 
 ## CI-Workflows (`.github/workflows/`)
 
@@ -264,7 +443,7 @@ Ausführlich: `docs/ONBOARDING.md`.
   - Der Cargo-Teil liegt in `scripts/gate-rust.sh` — zusammen wäre `gate.sh` über der Größen-Policy. **Eine Änderung daran gegenüber ship.sh:** die gepinnte FFmpeg wird an DREI Stellen gesucht (`$PULSE_FFMPEG_DIR`, Cache-Prefix, **und `streaming/pulse-player/ffmpeg-dist/n8.1-lgpl-shared`** — der Pfad, den `fetch-ffmpeg-linux.sh` befüllt). Vorher stand dort nur der Cache-Prefix; auf einer Maschine, die den üblichen Weg gegangen war, meldete das Gate bei JEDER Rust-Änderung „FFmpeg fehlt — Cargo-Tests ÜBERSPRUNGEN" und lief weiter. 415 + 101 Tests, die niemand fuhr — dieselbe Fehlerklasse wie bei den Node-Unit-Tests (2026-08-17) und den mac-Kisten (2026-08-23).
   - **`bash scripts/gate.sh --maschine`** prüft die Voraussetzungen eines Rechners (Werkzeuge, `git user.email` gegen den CLA-Bot, FFmpeg-Prefix) — das Gate reist über das Repo mit, die Werkzeuge nicht. Einrichtung einer frischen Maschine: `docs/ONBOARDING.md` §6.
   - **Der Stempel ist maschinen-lokal und bleibt es.** Ein grüner Lauf auf einem anderen Rechner beweist hier nichts (andere Toolchain, anderes OS) — übertragen wäre er wieder eine Behauptung statt eines Belegs. Der `origin/main`-Vergleich braucht dagegen keinen Zustand und wirkt auf einem frischen Klon sofort; das ist der Teil, der Einheitlichkeit ohne Verteilung liefert.
-- Backend einzeln: `REDIS_URL=redis://localhost:6380/0 uv run --all-packages pytest -q`. Pro-Service `services/*/tests/` (MediaMTX/LiveKit gemockt; Redis `/1`).
+- Backend einzeln: `REDIS_URL=redis://127.0.0.1:6380/1 PULSE_INSTANCE_MODE=cloud PULSE_INSTANCE_ID=0 uv run --all-packages pytest -q`. Pro-Service `services/*/tests/` (MediaMTX/LiveKit gemockt). **Die drei Variablen sind Pflicht und stehen genau so in `gate.sh`** — hier stand lange nur `REDIS_URL=…/0`, und das kostet Stunden: ohne `PULSE_INSTANCE_MODE=cloud` gilt die Vorgabe `self-host`, `credential_validator._get_jwks_keys` liest dann `auth:cloud_jwks:cached` statt `auth:jwks:cached`, den keine Fixture setzt, und faellt fail-closed auf 403 zurueck. Ergebnis am 2026-08-28: **159 rote Tests im chat-gateway allein**, alle mit `Zertifikat ungueltig oder gesperrt` — was wie ein Einsturz aussieht und nur eine fehlende Variable ist. Wer einen solchen Wall sieht, vergleicht ZUERST seine Umgebung mit der Zeile in `gate.sh`, bevor er im Code sucht. (`127.0.0.1` statt `localhost` ist kein Schoenheitsfehler: unter Windows stallt `localhost` je Redis-Verbindung ~2 s.)
 - **Parallel (`-n`) braucht je Worker einen EIGENEN `redis-server`, nicht bloss eine eigene Redis-DB** — der Wurzel-`conftest.py` startet ihn (freier Port vom Betriebssystem; ein festes Portschema liesse zwei gleichzeitige Läufe wieder zusammenlaufen). **Grund: Redis-Pubsub ist server-global, nicht pro Datenbank** — nachgemessen, auf DB 7 veröffentlicht kommt auf DB 2 an. Der erste Anlauf trennte nur die DBs; die Schlüssel waren getrennt, der Ereignisbus (`guild:events`, `stream:events`, `voice:events`) nicht, und 14 Tests blieben rot, die wie Flackern aussahen. Fehlt das Binary, ist der conftest fail-closed — **`gate.sh` sieht aber vorher nach und fährt dann seriell** (sonst wäre das Gate auf so einer Maschine rot statt langsam).
 - **Flake-Retry**: CI-pytest `--reruns 2 --only-rerun AssertionError --only-rerun RuntimeError`. Root-Cause = Cache-Mutation-Races (Fix `SELECT FOR UPDATE` aus `state_store.py`).
 - **Den Volllauf NICHT neben schwere Builds legen.** Läuft parallel `cargo build`/`pnpm build`, **hängt** ein WS-Test bis ins Zeitlimit statt nur langsamer zu werden (2026-08-12 zweimal, jeweils in `test_remote_handlers.py`; `--reruns` greift nicht, weil ein Timeout kein `AssertionError` ist). Auf ruhiger Maschine: **2308 grün in 7:23 seriell, 1:15 mit `-n 8`**. Wer einen Hänger sieht, prüft zuerst die Maschinenlast, nicht den Test.
@@ -323,11 +502,3 @@ User-facing Changelog, **einmalig nach einem Deploy-Reload** als **nicht-blockie
 - ❌ `@livekit/krisp-noise-filter` (kostenpflichtig) · ❌ `deepfilternet3-noise-filter` (kratzig + Worklet-Underrun) · ❌ `svelte-french-toast` (Sv5-inaktiv) · ❌ `svelte-markdown` blind (kein Sanitizer)
 - ❌ Exactly-once-Delivery · ❌ Re-Publishing MediaMTX→LiveKit (Transcoding zu teuer)
 - ❌ Routes-/Service-Dateien über die Größen-Grenze wachsen lassen statt splitten
-
-## graphify
-
-Knowledge graph in `graphify-out/` (god nodes, community structure, cross-file relationships).
-- Bei Codebase-Fragen zuerst `graphify query "<Frage>"` (oder `graphify path "<A>" "<B>"` / `graphify explain "<Konzept>"`) — liefert ein scoped Subgraph, viel kleiner als `GRAPH_REPORT.md` oder grep.
-- Breite Navigation über `graphify-out/wiki/index.md` (falls vorhanden) statt rohem Source-Browsing.
-- `GRAPH_REPORT.md` nur für breiten Architektur-Review.
-- Nach Code-Änderung `graphify update .` (AST-only, kein API-Kosten).

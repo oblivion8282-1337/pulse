@@ -17,12 +17,14 @@
   import SettingsNotifications from './SettingsNotifications.svelte';
   import SettingsSounds from './SettingsSounds.svelte';
   import SettingsSecurity from './SettingsSecurity.svelte';
+  import SicherungSektion from './SicherungSektion.svelte';
   import SettingsKeyboard from './SettingsKeyboard.svelte';
   import SettingsPrivacy from './SettingsPrivacy.svelte';
   import SettingsProfile from './SettingsProfile.svelte';
   import SettingsApps from './SettingsApps.svelte';
   import SettingsExperimental from './SettingsExperimental.svelte';
   import SettingsStandplatz from './SettingsStandplatz.svelte';
+  import SpeicherSektion from './SpeicherSektion.svelte';
 
   let { tab }: { tab: SettingsTab } = $props();
 </script>
@@ -47,10 +49,14 @@
   <SettingsKeyboard />
 {:else if tab === 'privacy'}
   <SettingsPrivacy />
+{:else if tab === 'sicherung'}
+  <SicherungSektion />
 {:else if tab === 'apps'}
   <SettingsApps />
 {:else if tab === 'experimental'}
   <SettingsExperimental />
+{:else if tab === 'storage'}
+  <SpeicherSektion />
 {:else}
   <SettingsSecurity />
 {/if}

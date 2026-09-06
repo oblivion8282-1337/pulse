@@ -116,6 +116,19 @@ test.describe('Räume-Bereich auf dem Handy', () => {
     await expect(page.getByTestId('chat-back')).toBeHidden();
     await page.setViewportSize(HANDY);
   });
+
+  // Die GuildRail (mit dem "+"-Menue, das den Beitritts-Dialog oeffnet) ist
+  // auf `< lg` `hidden lg:flex` — ohne einen eigenen Einstieg im Raeume-Bereich
+  // konnte man am Telefon einem Self-Host per Adresse nie beitreten
+  // (`joinByInvite.ts` weist nackte Hostadressen im Entdecken-Feld ausdruecklich
+  // ab und verweist auf "den Dialog", den es am Telefon nicht gab).
+  test('das Raeume-Menue bietet "Beitreten" und oeffnet den Dialog', async () => {
+    await page.goto('/app/rooms');
+    await page.getByTestId('rooms-menu').click();
+    await page.getByTestId('rooms-menu-join').click();
+    await page.waitForURL(/\/app\?add=join/);
+    await expect(page.getByTestId('join-guild-input')).toBeVisible();
+  });
 });
 
 /**

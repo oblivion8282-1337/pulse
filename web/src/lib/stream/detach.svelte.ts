@@ -13,129 +13,17 @@
  *
  * Wir verfolgen geöffnete Popup-Fensterreferenzen lokal (nur im
  * eigenen Tab gültig) damit „Fenster fokussieren" / „Schließen" funktioniert.
+ * Der Mechanismus (Channel, Sweep-Poll, Zentrierung) lebt in der gemeinsamen
+ * `PopupDetacher`-Basis — hier steht nur die Konfiguration.
  */
-const KEY_SEP = '::';
-const CHANNEL_NAME = 'pulse:stream-detach';
+import { PopupDetacher } from './popupDetacher.svelte';
 
-function keyOf(cid: string, uid: string, slot: number): string {
-  return [cid, uid, slot].join(KEY_SEP);
-}
-
-type DetachMessage =
-  | { kind: 'closed'; cid: string; uid: string; slot: number }
-  | { kind: 'close'; cid: string; uid: string; slot: number };
-
-class DetachedStreams {
-  #set = $state<Set<string>>(new Set());
-  // Popup-Fensterreferenzen, ungetrackt — werden nur lokal pro Tab gebraucht.
-  #windows = new Map<string, Window>();
-  #channel: BroadcastChannel | null = null;
-  #pollTimer: ReturnType<typeof setInterval> | null = null;
-
-  constructor() {
-    if (typeof window === 'undefined') return;
-    this.#channel = new BroadcastChannel(CHANNEL_NAME);
-    this.#channel.onmessage = (ev: MessageEvent<DetachMessage>) => {
-      const m = ev.data;
-      if (!m || typeof m !== 'object') return;
-      if (m.kind === 'closed') this.#markAttached(m.cid, m.uid, m.slot);
-    };
-  }
-
-  /** Start the sweep poll when the first popup is opened; stop when all are closed. */
-  #ensurePollRunning(): void {
-    if (this.#pollTimer === null && this.#windows.size > 0) {
-      this.#pollTimer = setInterval(() => this.#sweepClosedWindows(), 800);
-    }
-  }
-
-  /** Stop the poll if no more windows are being tracked. */
-  #ensurePollStopped(): void {
-    if (this.#pollTimer !== null && this.#windows.size === 0) {
-      clearInterval(this.#pollTimer);
-      this.#pollTimer = null;
-    }
-  }
-
-  has(cid: string, uid: string, slot: number): boolean {
-    return this.#set.has(keyOf(cid, uid, slot));
-  }
-
-  /** Öffnet das Popup-Fenster und markiert den Stream als entkoppelt.
-   *  Wenn das Popup geblockt wird, wird nichts markiert und `false` zurückgegeben. */
-  open(cid: string, uid: string, slot: number): boolean {
-    const k = keyOf(cid, uid, slot);
-    const existing = this.#windows.get(k);
-    if (existing && !existing.closed) {
-      existing.focus();
-      return true;
-    }
-    const url =
-      `/stream-popup/${encodeURIComponent(cid)}/${encodeURIComponent(uid)}?slot=${slot}`;
-    const w = 1100;
-    const h = 680;
-    const x = Math.round((window.screen.availWidth - w) / 2);
-    const y = Math.round((window.screen.availHeight - h) / 2);
-    const features = `popup=yes,width=${w},height=${h},left=${x},top=${y},resizable=yes`;
-    const popup = window.open(url, `pulse-stream-${k}`, features);
-    if (!popup) return false; // Popup-Blocker
-    this.#windows.set(k, popup);
-    this.#set = new Set(this.#set).add(k);
-    this.#ensurePollRunning();
-    return true;
-  }
-
-  /** Schließt das Popup-Fenster (falls offen, im eigenen Tab geöffnet) und
-   *  räumt den Detached-State sofort auf. Popups aus anderen Tabs werden
-   *  über die Broadcast-Channel-Message 'close' aufgefordert sich zu schließen. */
-  reattach(cid: string, uid: string, slot: number): void {
-    const k = keyOf(cid, uid, slot);
-    const w = this.#windows.get(k);
-    if (w && !w.closed) w.close();
-    this.#windows.delete(k);
-    this.#channel?.postMessage({ kind: 'close', cid, uid, slot } satisfies DetachMessage);
-    this.#markAttached(cid, uid, slot);
-  }
-
-  /** Vom Popup selbst aufgerufen wenn es geschlossen wird (`onbeforeunload`). */
-  notifyClosed(cid: string, uid: string, slot: number): void {
-    this.#channel?.postMessage({ kind: 'closed', cid, uid, slot } satisfies DetachMessage);
-  }
-
-  /** Vom Popup abgefragt: soll ich mich schließen (z.B. Stream offline)? */
-  onCloseRequest(cb: (cid: string, uid: string, slot: number) => void): () => void {
-    if (!this.#channel) return () => {};
-    const ch = this.#channel;
-    const handler = (ev: MessageEvent<DetachMessage>) => {
-      const m = ev.data;
-      if (m && m.kind === 'close') cb(m.cid, m.uid, m.slot);
-    };
-    ch.addEventListener('message', handler);
-    return () => ch.removeEventListener('message', handler);
-  }
-
-  #markAttached(cid: string, uid: string, slot: number): void {
-    const k = keyOf(cid, uid, slot);
-    if (!this.#set.has(k)) return;
-    const next = new Set(this.#set);
-    next.delete(k);
-    this.#set = next;
-    this.#ensurePollStopped();
-  }
-
-  #sweepClosedWindows(): void {
-    for (const [k, w] of this.#windows) {
-      if (w.closed) {
-        this.#windows.delete(k);
-        if (this.#set.has(k)) {
-          const next = new Set(this.#set);
-          next.delete(k);
-          this.#set = next;
-        }
-      }
-    }
-    this.#ensurePollStopped();
-  }
-}
-
-export const detachedStreams = new DetachedStreams();
+export const detachedStreams = new PopupDetacher<[string, string, number]>({
+  channelName: 'pulse:stream-detach',
+  key: (cid, uid, slot) => [cid, uid, slot].join('::'),
+  msg: (kind, cid, uid, slot) => ({ kind, cid, uid, slot }),
+  parse: (m) => [m.cid as string, m.uid as string, m.slot as number],
+  popupUrl: (cid, uid, slot) =>
+    `/stream-popup/${encodeURIComponent(cid)}/${encodeURIComponent(uid)}?slot=${slot}`,
+  windowName: (k) => `pulse-stream-${k}`
+});

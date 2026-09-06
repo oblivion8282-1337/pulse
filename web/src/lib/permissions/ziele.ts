@@ -16,6 +16,7 @@ import type { Role } from '$lib/api/roles';
 import type { Member } from '$lib/api/types';
 import { safeAvatarUrl } from '$lib/avatar';
 import { userCache } from '$lib/stores/users.svelte';
+import { vergleichRollen } from './bitfield';
 
 export type ZielEintrag = {
   /** `<art>:<id>` — derselbe Schlüssel wie bei den Überschreibungen. */
@@ -40,10 +41,9 @@ export function baueZiele(
   gesetzte: (key: string) => number
 ): ZielEintrag[] {
   const rollenZiele = [...rollen]
-    .sort((a, b) => {
-      if (a.is_everyone !== b.is_everyone) return a.is_everyone ? -1 : 1;
-      return b.position - a.position;
-    })
+    // Absteigend (wichtigste zuerst), aber derselbe Rollen-Vergleich wie
+    // überall sonst.
+    .sort((a, b) => vergleichRollen(b, a))
     .map((r) => ({
       key: `0:${r.id}`,
       art: 0 as const,

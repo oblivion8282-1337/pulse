@@ -45,6 +45,32 @@ async def test_dm_push_payload(captured):
 
 
 @pytest.mark.asyncio
+async def test_dm_push_encrypted_payload_traegt_keinen_inhalt(captured):
+    """Bughunt 2026-08-28 Runde 4, Befund 1: die verschluesselte DM hat
+    KEINEN Klartext auf dem Server — der Push darf deshalb weder Inhalt noch
+    Nachrichten-Id verraten, nur Absender und Kanal (dieselbe Grenze wie beim
+    Klartext-Push oben). Vor dem Fix rief ``routes/postfach.py`` diese
+    Funktion nirgends auf; ein geschlossener/im-Hintergrund-liegender Klient
+    bekam fuer eine verschluesselte DM ueberhaupt keine Benachrichtigung."""
+    await push.fan_out_dm_push_encrypted(
+        recipient_ids={42, 43},
+        author_name="alice",
+        channel_id=999,
+    )
+    assert len(captured) == 1
+    users, payload = captured[0]
+    assert users == {42, 43}
+    assert payload["type"] == "dm"
+    assert payload["title"] == "alice"
+    assert payload["channel_id"] == "999"
+    assert payload["message_id"] is None
+    assert payload["guild_id"] is None
+    # Kein Klartext-Marker (Dateiname/Snippet) im Text — nur der feste,
+    # inhaltsfreie Hinweistext.
+    assert payload["body"] == "Neue Direktnachricht"
+
+
+@pytest.mark.asyncio
 async def test_friend_request_push_payload(captured):
     await push.fan_out_friend_push(
         recipient_id=7, actor_name="bob", kind="friend_request"

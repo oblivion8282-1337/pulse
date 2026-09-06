@@ -164,7 +164,10 @@ set -l common_env "REDIS_URL=redis://localhost:6380/0 AUTH_JWKS_URL=http://127.0
 # und DM-Anhänge in der Entwicklung tot und die E2E-Suites (dropbox.spec.ts)
 # würden reihenweise brechen, obwohl der Code in Ordnung ist. Dev bekommt
 # deshalb die permissiven Werte; Prod erbt die harten Defaults.
-set -l upload_env "CLOUD_DM_ATTACHMENTS_ENABLED=true CLOUD_DROPBOX_ENABLED=true CLOUD_ATTACHMENT_MIME_PREFIXES="
+# PRIVATE_GROUPS_ENABLED: der Klient-Schalter `PRIVATE_GRUPPEN_ENABLED` steht
+# auf an und ruft `GET /gruppen` bei jedem Start — ohne den Server-Schalter
+# antwortet der chat-gateway 403, bei jedem Verbindungsaufbau (2026-09-02).
+set -l upload_env "CLOUD_DM_ATTACHMENTS_ENABLED=true CLOUD_DROPBOX_ENABLED=true CLOUD_ATTACHMENT_MIME_PREFIXES= PRIVATE_GROUPS_ENABLED=true"
 set -l pg_env "POSTGRES_PASSWORD=$POSTGRES_PASSWORD POSTGRES_HOST=localhost POSTGRES_PORT=5434"
 set -l jwt_env "JWT_PRIVATE_KEY_FILE=$repo_root/secrets/jwt_private.pem JWT_PUBLIC_KEY_FILE=$repo_root/secrets/jwt_public.pem"
 set -l lk_env "LIVEKIT_API_KEY=devkey LIVEKIT_API_SECRET=devsecretdevsecretdevsecretdevsecret LIVEKIT_URL=ws://localhost:7880"
@@ -183,7 +186,7 @@ bash -c "cd services/chat-gateway && env $pg_env $common_env $internal_env $uplo
 # voice-signaling (8003) — braucht INTERNAL_SERVICE_SECRET, damit der
 # participant_left-Webhook den chat-gateway-Revoke-Endpoint authentifiziert
 # aufrufen kann (sonst bleibt ein Voice-Pull-Grant beim Verlassen stehen).
-bash -c "cd services/voice-signaling && env $common_env $lk_env $internal_env CHAT_GATEWAY_URL=http://127.0.0.1:8002 setsid nohup uv run uvicorn dcc_voice_signaling.app:app --host 127.0.0.1 --port 8003 --reload > /tmp/dcc-voice.log 2>&1 < /dev/null &"
+bash -c "cd services/voice-signaling && env $common_env $lk_env $internal_env CHAT_GATEWAY_URL=http://127.0.0.1:8002 MEDIA_SVC_URL=http://127.0.0.1:8004 setsid nohup uv run uvicorn dcc_voice_signaling.app:app --host 127.0.0.1 --port 8003 --reload > /tmp/dcc-voice.log 2>&1 < /dev/null &"
 
 # media-svc (8004)
 bash -c "cd services/media-svc && env $common_env MEDIAMTX_API_URL=http://localhost:9997/v3/paths/list setsid nohup uv run uvicorn dcc_media_svc.app:app --host 127.0.0.1 --port 8004 --reload > /tmp/dcc-media.log 2>&1 < /dev/null &"
@@ -202,7 +205,7 @@ _ok "" "Services up (auth/chat/voice/media/auth-hook)"
 
 # --- Vite -------------------------------------------------------------------
 
-pkill -f "vite dev\|vite/bin/vite" 2>/dev/null
+pkill -f "vite dev|vite/bin/vite" 2>/dev/null
 sleep 0.5
 _info "Vite starten"
 bash -c "export PATH=$HOME/.local/bin:\$PATH; cd web && setsid nohup pnpm dev --host 127.0.0.1 --port 5173 > /tmp/dcc-vite.log 2>&1 < /dev/null &"
@@ -251,7 +254,12 @@ set -l devtools_env
 if test -n "$PULSE_DEVTOOLS"
     set devtools_env "PULSE_DEVTOOLS=$PULSE_DEVTOOLS"
 end
-bash -c "env PULSE_DEV_URL=http://localhost:5173 $devtools_env $gsr_env setsid nohup ./node_modules/.bin/electron . > /tmp/dcc-electron-dev.log 2>&1 < /dev/null &"
+# Eigenes Profil für die Dev-App — ohne dieses Flag lief Electron im
+# Standard-Profil (~/.config/Pulse) und teilte Tresor, Login-States und
+# Serverliste mit der PRODUKTIVEN App (Befund 2026-09-02: der Dev-User sah
+# den echten Self-Host aus dem Prod-Profil).
+set -l dev_profile "$HOME/.config/Pulse-Dev"
+bash -c "env PULSE_DEV_URL=http://localhost:5173 $devtools_env $gsr_env setsid nohup ./node_modules/.bin/electron . --user-data-dir=$dev_profile > /tmp/dcc-electron-dev.log 2>&1 < /dev/null &"
 popd >/dev/null
 sleep 2
 _ok "" "Electron up"

@@ -4,6 +4,7 @@
   up). No interaction — informational.
 -->
 <script lang="ts">
+import { errText } from '$lib/utils/errText';
   import { onMount } from 'svelte';
   import { adminApi, type AuthStats, type ChatStats } from '$lib/api/admin';
   import { m } from '$lib/paraglide/messages.js';
@@ -14,6 +15,7 @@
   import HardDriveIcon from '@lucide/svelte/icons/hard-drive';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import LoadingState from '$lib/components/feedback/LoadingState.svelte';
+  import { formatBytes } from '$lib/utils/formatBytes';
 
   // Auf Self-Host (isCloud=false) gibt es keine auth.users — die auth-Stats
   // (User/Admin/Disabled-Count) kämen von der Cloud-auth und sind hier
@@ -31,16 +33,11 @@
       chat = await adminApi.chatStats();
       if (isCloud) auth = await adminApi.authStats();
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errText(e);
     }
   });
 
-  function fmtBytes(n: number | null): string {
-    if (n === null) return '—';
-    const mb = n / 1024 / 1024;
-    if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
-    return `${mb.toFixed(1)} MB`;
-  }
+  // Null → 0: storage_bytes === null zeigt eh den "nicht aktiv"-Hinweis.
 </script>
 
 <section class="rounded-2xl border border-border bg-bg-input p-5" data-testid="admin-overview">
@@ -95,12 +92,12 @@
           <HardDriveIcon class="size-3.5" />
           MinIO
         </div>
-        <div class="text-text-bright text-2xl font-semibold">{fmtBytes(chat.storage_bytes)}</div>
+        <div class="text-text-bright text-2xl font-semibold">{formatBytes(chat.storage_bytes ?? 0)}</div>
         <div class="text-text-muted text-xs">
           {#if chat.storage_bytes === null}
             {m.admin_overview_storage_not_active()}
           {:else if chat.storage_total_bytes !== null && chat.storage_free_bytes !== null}
-            {m.admin_overview_storage_used_detail({ free: fmtBytes(chat.storage_free_bytes), total: fmtBytes(chat.storage_total_bytes) })}
+            {m.admin_overview_storage_used_detail({ free: formatBytes(chat.storage_free_bytes ?? 0), total: formatBytes(chat.storage_total_bytes ?? 0) })}
           {:else}
             {m.admin_overview_storage_used()}
           {/if}

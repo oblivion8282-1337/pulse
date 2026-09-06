@@ -11,6 +11,11 @@
  */
 import { messages } from '$lib/stores/messages.svelte';
 import { directMessages } from '$lib/stores/directMessages.svelte';
+import { verlaufSpeichern, verlaufNachrichtGeloescht } from '$lib/verlauf';
+import { E2E_DMS_ENABLED, PRIVATE_GRUPPEN_ENABLED } from '$lib/krypto/schalter';
+import { ABLAGE_KANAL_ENABLED } from '$lib/featureFlags';
+import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
+import { dmGegenstelle } from '$lib/krypto/dmGegenstelle';
 import { streamChat } from '$lib/stores/streamChat.svelte';
 import { watchChat } from '$lib/stores/watchChat.svelte';
 import { readState } from '$lib/stores/readState.svelte';
@@ -24,6 +29,7 @@ import { viewport } from '$lib/stores/viewport.svelte';
 import { sounds } from '$lib/sounds/engine';
 import { goto } from '$app/navigation';
 import { toast } from 'svelte-sonner';
+import { meldeNeueZustellung } from './postfachBenachrichtigung';
 import { registerWsHandler } from '../handler-registry';
 import { isRecentMention, markRecentMention } from './_mentionSuppression';
 import type { HandlerContext } from './context';
@@ -44,9 +50,119 @@ function dmVorschauAuffrischen(): void {
   }, 1500);
 }
 
+/**
+ * Holt offene Postfach-Zustellungen ab, entschluesselt sie und zeigt sie an
+ * — geteilt zwischen zwei Ausloesern (Bughunt-Runde 3, FIX 1): dem `postfach_
+ * neu`-Weckruf hier unten UND `ws/handlers/ready.ts` (jeder Connect/Reconnect
+ * — bis Runde 3 gab es dort GAR KEINEN Abholversuch, sodass eine waehrend
+ * der Abwesenheit zugestellte Nachricht nie abgefragt wurde, wenn Tab-Schluss/
+ * Verbindungsabriss/ein verlorener Redis-Weckruf den einzigen Ausloeser
+ * verpasste — s. `docs/superpowers/plans/2026-08-28-etappe-d2-klient-
+ * verschluesselt.md`, „Auf `postfach_neu` (WS) und beim Start abholen"). Das
+ * eigentliche Einzeltakt-Gate (`mitNachlaufBeiWeckung`, s.
+ * `postfachNachlauf.ts`) sitzt in `empfangen.ts` — beide Ausloeser haengen
+ * sich bei Ueberlappung an denselben (oder einen vorgemerkten Nachlauf-)
+ * Zyklus an, statt ihn doppelt zu fahren.
+ *
+ * `istAboniert` entscheidet, ob eine neue Nachricht sofort als gelesen gilt
+ * (der Kanal ist gerade offen) oder den Ungelesen-Zaehler erhoeht — sowohl
+ * der `postfach_neu`-Aufrufer als auch der `ready`-Aufrufer reichen dafuer
+ * denselben Live-Blick auf `subs` durch (`ctx.subs` bzw. `ctx.getSubs()`,
+ * s. `ready.ts`), keiner der beiden faellt mehr auf "nie abonniert" zurueck.
+ */
+export function postfachAbholenUndAnzeigen(istAboniert: (kanalId: string) => boolean): void {
+  // Solange ALLE DREI Schalter aus sind (s. `$lib/krypto/schalter.ts` +
+  // `$lib/featureFlags.ts`), bleibt dieser Weckruf wirkungslos und jede DM
+  // laeuft ueber `message` weiter. **Alle drei, nicht nur der DM-Schalter**:
+  // das Postfach traegt seit Etappe G auch Gruppen-Umschlaege (private
+  // Gruppen UND Ablage-Kanaele, s. `zustellungOeffnen.ts`), und die haben
+  // keinen Klartext-Weg, auf den man ausweichen koennte. Stuende hier
+  // weiter nur `E2E_DMS_ENABLED`, waere eine allein freigeschaltete Gruppe
+  // bzw. ein allein freigeschalteter Ablage-Kanal stumm — verschluesselt
+  // zugestellt, aber nie abgeholt.
+  if (!E2E_DMS_ENABLED && !PRIVATE_GRUPPEN_ENABLED && !ABLAGE_KANAL_ENABLED) return;
+  // Dynamischer Import: der Krypto-Kern (WASM) soll nicht in jedem
+  // Session-Start geladen werden, wenn er nie gebraucht wird.
+  void import('$lib/krypto/empfangen')
+    .then(({ postfachAbholenUndEntschluesseln }) => postfachAbholenUndEntschluesseln())
+    // Abgelegt hat `empfangen.ts` schon selbst; hier kommt nur noch die
+    // Anzeige dazu.
+    .then((neue) => {
+      const me = dispatchingUserId();
+      for (const nachricht of neue) {
+        messages.upsert(nachricht);
+        // Wie im `message`-Handler oben: eine angekommene Nachricht beendet
+        // das „X schreibt …" sofort — auf dem verschlüsselten Weg gibt es
+        // kein Server-`message`-Ereignis, das das sonst besorgen könnte.
+        typing.clear(nachricht.channel_id, nachricht.author_id);
+        // Die DM-Liste nachziehen (Bughunt 2026-08-28, FIX 3) — der
+        // verschluesselte Weg loest kein `dm_bump` aus, das die
+        // Reihenfolge/den Ungelesen-Stand sonst besorgt. Gegenstelle:
+        // der Absender, ausser er ist man selbst (eigenes anderes
+        // Geraet) — dann bleibt nur der bereits bekannte Kanal-Gegenpart,
+        // s. `upsertFromEncrypted`-Docstring.
+        if (!me) continue;
+        // **Eine Gruppennachricht gehoert NICHT in die DM-Liste.** Ohne diese
+        // Weiche liefe sie durch `dmGegenstelle` — das findet keinen
+        // Kanal-Gegenpart und nimmt deshalb den Absender — und legte fuer
+        // den Gruppenkanal einen DM-Eintrag an, der auf eine einzelne Person
+        // zeigt. Die Liste zaehlte danach eine DM, die es nicht gibt, und
+        // ein Klick darauf oeffnete die Gruppe unter einem Personennamen.
+        const gruppe = privateGruppen.byId[nachricht.channel_id];
+        if (!gruppe) {
+          const otherUserId = dmGegenstelle(
+            nachricht.author_id,
+            me,
+            directMessages.byId[nachricht.channel_id]?.other_user_id
+          );
+          if (otherUserId) {
+            directMessages.upsertFromEncrypted({
+              channel_id: nachricht.channel_id,
+              message_id: nachricht.id,
+              otherUserId,
+              inhalt: nachricht.content,
+              autorId: nachricht.author_id,
+              erstelltAm: nachricht.created_at,
+              anhaenge: nachricht.attachments
+            });
+          }
+        } else {
+          // Die Gruppenliste sortiert nach `last_message_id` (s.
+          // `privateGruppen.svelte.ts`). Der Server ruehrt diese Spalte im
+          // verschluesselten Weg nicht an — er sieht keine Nachricht —,
+          // also zieht der Klient sie hier selbst nach. Reine Anzeige: die
+          // Mitgliederliste bleibt unberuehrt, sie kommt beim Senden frisch
+          // vom Server (`krypto/gruppe/sitzungswahl.ts`).
+          privateGruppen.upsert({ ...gruppe, last_message_id: nachricht.id });
+        }
+        if (nachricht.author_id !== me) {
+          readState.recordSeen(nachricht.channel_id, nachricht.id);
+          if (istAboniert(nachricht.channel_id)) {
+            readState.markRead(nachricht.channel_id, nachricht.id);
+          } else {
+            readState.incUnread(nachricht.channel_id);
+            // Toast/Ton/In-Page-Benachrichtigung — zieht mit `dm_bump` gleich
+            // (Bughunt Runde 4, Befund 1: vorher loeste der verschluesselte
+            // Weg keins von beiden aus). Der Rumpf steht seit Etappe G in
+            // `./postfachBenachrichtigung.ts`.
+            meldeNeueZustellung(nachricht, gruppe?.name ?? null);
+          }
+        }
+      }
+    })
+    .catch((err: unknown) => {
+      // Bis 2026-09-03 stand hier ein leeres `catch` — ein Fehler beim
+      // Abholen verschwand spurlos und sah aus wie "nichts da".
+      console.warn('[postfach] Abholen fehlgeschlagen', {
+        fehler: err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+      });
+    });
+}
+
 export function register(ctx: HandlerContext): void {
   registerWsHandler('message', (evt) => {
     messages.upsert(evt.data);
+    void verlaufSpeichern(evt.data.channel_id, [evt.data]);
     // A delivered message means the author just stopped typing — drop their
     // "X schreibt …" immediately instead of waiting out the 6s TTL.
     typing.clear(evt.data.channel_id, evt.data.author_id);
@@ -63,10 +179,12 @@ export function register(ctx: HandlerContext): void {
 
   registerWsHandler('message_update', (evt) => {
     messages.update(evt.data);
+    void verlaufSpeichern(evt.data.channel_id, [evt.data]);
   });
 
   registerWsHandler('message_delete', (evt) => {
     messages.remove(evt.data.channel_id, evt.data.id);
+    verlaufNachrichtGeloescht(evt.data.channel_id, evt.data.id);
   });
 
   registerWsHandler('reaction_add', (evt) => {
@@ -75,6 +193,12 @@ export function register(ctx: HandlerContext): void {
 
   registerWsHandler('reaction_remove', (evt) => {
     messages.applyReaction(evt.data, -1);
+  });
+
+  registerWsHandler('pin_update', (evt) => {
+    // Angepinnt/gelöst — alle Kanal-Mitglieder bekommen das, damit die
+    // Pin-Liste im Kanalkopf ohne Reload aktuell bleibt.
+    messages.applyPin(evt.data);
   });
 
   registerWsHandler('typing', (evt) => {
@@ -178,6 +302,10 @@ export function register(ctx: HandlerContext): void {
         }
       }
     }
+  });
+
+  registerWsHandler('postfach_neu', () => {
+    postfachAbholenUndAnzeigen((kanalId) => ctx.subs.has(kanalId));
   });
 
   registerWsHandler('mention_added', (evt) => {

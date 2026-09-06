@@ -21,6 +21,7 @@
   import type { Guild } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
   import MenuRow from '$lib/components/menu/MenuRow.svelte';
+  import { guildIconSrc } from '$lib/guildIcon';
 
   let {
     friendUserId,
@@ -87,14 +88,15 @@
     </p>
   {:else}
     {#each invitableGuilds as guild (guild.id)}
+      {@const iconSrc = guildIconSrc(guild.icon_url, activeServer.current?.hostname)}
       <MenuRow
         onclick={() => sendInvite(guild)}
         disabled={working}
         data-testid="invite-guild-btn"
       >
         <Avatar.Root class="size-6 shrink-0">
-          {#if guild.icon_url}
-            <Avatar.Image src={guild.icon_url} alt={guild.name} />
+          {#if iconSrc}
+            <Avatar.Image src={iconSrc} alt={guild.name} />
           {/if}
           <Avatar.Fallback class="accent-gradient text-primary-foreground text-xs font-semibold">
             {guildInitial(guild.name)}

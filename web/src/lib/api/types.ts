@@ -72,6 +72,12 @@ export type Guild = {
 };
 
 export type Channel = {
+  /** Ablage-Kanal (Konzept §2a) — serverblind, Inhalte clientverschluesselt. */
+  ablage?: boolean;
+  /** Alt-Kanal eingefroren (Entwurf §9, Etappe E9) — Verlauf bleibt lesbar,
+   *  der Server nimmt keine neuen Nachrichten/Anhaenge mehr an. Absent in
+   *  back-compat / mocked frames — treated as false. */
+  legacy_readonly?: boolean;
   id: string;
   guild_id: string;
   name: string;
@@ -130,9 +136,26 @@ export type Attachment = {
   thumb_width?: number | null;
   thumb_height?: number | null;
   /** Presigned MinIO GET URL — ~30 min TTL, auto-refresh on 403 via
-   *  `chatApi.refreshAttachmentDownloadUrl`. */
+   *  `chatApi.refreshAttachmentDownloadUrl`. Bei einem VERSCHLUESSELTEN
+   *  Anhang leer: dort gibt der Server eine Adresse nur gegen einen
+   *  Geraete-Nachweis heraus (`krypto/anhangHolen.ts`), und was dahinter
+   *  liegt, ist ohnehin Kauderwelsch. */
   url: string;
   thumb_url?: string | null;
+  /**
+   * Ende-zu-Ende-verschluesselter Anhang einer Direktnachricht (Etappe E).
+   * Der Server setzt dieses Feld nie — es entsteht ausschliesslich beim
+   * Uebersetzen einer `AnhangAngabe` aus der entschluesselten Nutzlast
+   * (`krypto/anhangAnzeige.ts`). Wo es steht, gilt: `url`/`thumb_url` sind
+   * leer, und jede Anzeige laeuft ueber Holen + Entschluesseln + Objekt-URL.
+   */
+  verschluesselt?: boolean;
+  /** Dateischluessel (Base64) — nur bei `verschluesselt`. */
+  schluessel?: string;
+  /** Eigener Schluessel des Vorschaubildes — nur bei `verschluesselt` und nur,
+   *  wenn es ein Vorschaubild gibt (s. `krypto/anhangKrypto.ts`: je Klumpen
+   *  ein eigener Schluessel). */
+  thumb_schluessel?: string | null;
 };
 
 export type Message = {
@@ -145,10 +168,35 @@ export type Message = {
   created_at: string;
   edited_at?: string | null;
   deleted_at?: string | null;
+  /** Angepinnt-Zeitstempel (Pinned Messages); absent/null = nicht angepinnt. */
+  pinned_at?: string | null;
   reactions?: ReactionAggregate[];
   attachments?: Attachment[];
   /** Server-parsed mention list. Empty/absent when the message has none. */
   mentions?: Mention[];
+  /**
+   * Client-only marker: `true` exactly for an E2E-verschluesselte DM
+   * (`krypto/senden.ts`/`krypto/empfangen.ts`) — ihre `id` ist eine
+   * Postfach-Zustellungs-Kennung, keine Zeile in `chat.messages`. JEDE
+   * REST-Route, die eine `messages`-Zeile erwartet (Bearbeiten, Loeschen,
+   * Melden-als-Nachricht), antwortet dafuer 404. Der Server setzt dieses
+   * Feld nie — eine normale Nachricht hat es nicht einmal `false`, sondern
+   * `undefined`, s. `absent`-Falsy-Checks an den Aufrufstellen.
+   */
+  verschluesselt?: boolean;
+  /**
+   * Nur bei einer EMPFANGENEN verschluesselten Nachricht gesetzt: die vom
+   * URSPRUENGLICHEN Absender gewaehlte, geraeteuebergreifende ID (steckt in
+   * der Nutzlast, s. `krypto/nachrichtNutzlast.ts`) — anders als `id` oben
+   * (auf diesem Geraet die Postfach-Zustellungs-Kennung, je Empfaenger
+   * verschieden). Wird gebraucht, um eine EINGEHENDE Antwort auf DIESE
+   * Nachricht wiederzufinden (`kanonischeAntwortId.ts`,
+   * `MessageList.svelte::replyMetaFor`) — ohne dieses Feld faende die
+   * Zitat-Anzeige den Bezug auf diesem Geraet nicht, weil `reply_to_id`
+   * einer eingehenden Antwort ebenfalls die kanonische, nicht die lokale ID
+   * traegt.
+   */
+  krypto_id?: string;
 };
 
 /**

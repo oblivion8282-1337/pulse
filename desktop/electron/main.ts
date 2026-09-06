@@ -48,6 +48,7 @@ import { migriereAufStandardAn, onSidecarEventForUpload } from './experimental-l
 import { initStore, storeGet, storeGetAll, storeSet, storeSetBatch } from './store';
 import { createTray, applyTrayStatus, setTrayImageFromDataUrl } from './tray';
 import { wireNotify } from './notify';
+import { wireSicherungRuecklauf } from './sicherungRuecklauf';
 import { wirePower } from './power';
 import { wireClipboard } from './clipboard';
 import { startUpdater } from './updater';
@@ -1541,6 +1542,7 @@ async function bootClient(): Promise<void> {
   wireNetdiag();
   wireScreenShare();
   wireNotify(() => mainWindow);
+  wireSicherungRuecklauf();
   wirePower();
   wireClipboard();
   wireGlobalShortcuts(() => mainWindow);

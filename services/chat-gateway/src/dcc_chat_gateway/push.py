@@ -378,6 +378,36 @@ async def fan_out_dm_push(
     await _fan_out_payload({recipient_id}, payload)
 
 
+async def fan_out_dm_push_encrypted(
+    *,
+    recipient_ids: set[int],
+    author_name: str,
+    channel_id: int,
+) -> None:
+    """Push eine geschlossene-Browser-Benachrichtigung fuer eine ende-zu-
+    ende-verschluesselte DM aus.
+
+    Gegenstueck zu ``fan_out_dm_push`` fuer den Postfach-Weg
+    (``routes/postfach.py``): der Server oeffnet den Umschlag nie und kennt
+    deshalb weder Klartext noch Nachrichten-Id — ``body`` ist derselbe
+    inhaltsfreie Text wie die In-App-Benachrichtigung des Klienten fuer
+    diesen Fall (``chat_handler_dm_notification_body`` im Paraglide-
+    Katalog: "Neue Direktnachricht"), ``message_id`` bleibt ``null``. Absender
+    und Kanal duerfen genannt werden — das tut der Klartext-Weg auch.
+    """
+    payload = {
+        "type": "dm",
+        "title": author_name or "Pulse",
+        "body": "Neue Direktnachricht",
+        "channel_id": str(channel_id),
+        "message_id": None,
+        "guild_id": None,
+        "author_name": author_name or "",
+        "icon": None,
+    }
+    await _fan_out_payload(recipient_ids, payload)
+
+
 async def fan_out_friend_push(
     *, recipient_id: int, actor_name: str, kind: str
 ) -> None:
@@ -429,6 +459,7 @@ __all__ = [
     "VapidKeys",
     "ensure_vapid",
     "fan_out_dm_push",
+    "fan_out_dm_push_encrypted",
     "fan_out_friend_push",
     "fan_out_mention_push",
     "reset_vapid_cache_for_tests",
