@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-06.3",
+      "date": "2026-09-06",
+      "style": "Sachlich",
+      "title": "Chat: Nachholen verpasster Nachrichten überarbeitet",
+      "intro": "Wer offline war — Funkloch, Standby, Verbindungsabbruch — bekommt beim Wiederverbinden Verpasstes jetzt zuverlässig und unauffällig nachgeliefert.",
+      "items": [
+        "Nachrichten, Bearbeitungen, Reaktionen und Pins aus der Offline-Zeit laufen über einen einzigen Nachhol-Weg. Vorher konnten Bearbeitungen an älteren Nachrichten verloren gehen, weil dafür nur die neuesten Nachrichten geprüft wurden.",
+        "Der Kanal bleibt beim Wiederverbinden stehen, wo er war. Das sichtbare Neu-Laden des gesamten Kanals gibt es nur noch bei außergewöhnlich langer Abwesenheit.",
+        "Mehrere Verbindungsabbrüche hintereinander liefern jeweils exakt das Nachgeholt, was in der Zwischenzeit angekommen ist — nichts kommt doppelt."
+      ]
+    },
+    {
       "id": "2026-09-06.2",
       "date": "2026-09-06",
       "style": "Sachlich",
