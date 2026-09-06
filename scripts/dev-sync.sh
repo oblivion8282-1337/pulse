@@ -3,8 +3,16 @@
 # Backend-Quellcode auf den gemeinsamen Remote-Dev-Stack schieben.
 #
 #   scripts/dev-sync.sh                 Quellcode -> Hetzner, Dienste laden selbst neu (~2 s)
+#   scripts/dev-sync.sh --pull          umgekehrt gedacht: der Server holt sich den
+#                                       Stand selbst von GitHub (nach ~/pulse-test/repo)
+#                                       und legt ihn in src/ — Stand ist dann ein
+#                                       benennbarer Commit, kein lokaler Zufall
+#   scripts/dev-sync.sh --pull --branch X   diesen Branch ziehen (Vorgabe: main)
 #   scripts/dev-sync.sh --watch         Dauerlauf: bei jedem Speichern automatisch
 #   scripts/dev-sync.sh --web           zusätzlich die Oberfläche bauen und ausliefern
+#                                       (auch bei --pull: der Server hat nur Node 18,
+#                                       das für den Vite-Bau zu alt ist — gebaut wird
+#                                       hier lokal und hochgeladen wie gehabt)
 #   scripts/dev-sync.sh --migrate       zusätzlich Alembic laufen lassen
 #   scripts/dev-sync.sh --restart       Dienste hart neu starten statt nur neu laden
 #
@@ -85,20 +93,31 @@ RSYNC_EXCLUDES=(--exclude='__pycache__/' --exclude='*.pyc' --exclude='.pytest_ca
 TAR_EXCLUDES=(--exclude='__pycache__' --exclude='*.pyc' --exclude='.pytest_cache')
 WATCH_EXCLUDE='(__pycache__|\.pyc$|\.pytest_cache)'
 
-do_web=0; do_migrate=0; do_restart=0; do_watch=0
-for arg in "$@"; do
-  case "$arg" in
+do_web=0; do_migrate=0; do_restart=0; do_watch=0; do_pull=0
+branch="main"
+while [ $# -gt 0 ]; do
+  case "$1" in
     --web)     do_web=1 ;;
     --migrate) do_migrate=1 ;;
     --restart) do_restart=1 ;;
     --watch)   do_watch=1 ;;
+    --pull)    do_pull=1 ;;
+    --branch)  [ $# -ge 2 ] || { echo "--branch braucht einen Namen" >&2; exit 2; }
+               branch="$2"; shift ;;
+    --branch=*) branch="${1#--branch=}" ;;
     # Kopfkommentar bis zur ersten Nicht-Kommentarzeile ausgeben — wächst der
     # Kopf, wächst die Hilfe mit, ohne dass hier eine Zeilennummer nachgezogen
     # werden muss.
     -h|--help) awk 'NR > 1 { if (!/^#/) exit; sub(/^# ?/, ""); print }' "$0"; exit 0 ;;
-    *) echo "Unbekannte Option: $arg (--help zeigt die Liste)" >&2; exit 2 ;;
+    *) echo "Unbekannte Option: $1 (--help zeigt die Liste)" >&2; exit 2 ;;
   esac
+  shift
 done
+
+if [ "$do_watch" = 1 ] && [ "$do_pull" = 1 ]; then
+  echo "--watch und --pull zusammen ergibt keinen Sinn: der Dauerlauf schiebt lokale Änderungen, der Pull-Modus holt Commits." >&2
+  exit 2
+fi
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
@@ -144,6 +163,32 @@ push_web() {
   fi
 }
 
+# ── Pull-Modus ───────────────────────────────────────────────────────────────
+# Nicht von hier schieben, sondern den Server selbst von GitHub holen lassen.
+# Der sichtbare Unterschied zum Schieben: der Stack steht danach auf einem
+# Commit, den jeder nennen kann (`git log` im repo dort drüben), nicht auf
+# dem halbfertigen Zustand eines Arbeitsverzeichnisses. Und das Auffrischen
+# läuft in rsync AUF DEM SERVER — der kennt kein tar-Fallback und kann
+# deshalb auch lokal gelöschte Dateien entfernen, was der Weg von Windows
+# aus bislang nicht konnte.
+#
+# Das Server-Checkout `$DIR/repo` wird absichtlich nur per `--ff-only`
+# angeschnallt: hängt dort lokale Arbeit drin, bricht der Pull ab, statt
+# sie still wegzuwerfen.
+pull_source() {
+  echo "→ Server holt $branch von GitHub"
+  ssh_run "set -e
+    cd '$DIR'
+    git -C repo fetch origin --prune
+    git -C repo checkout '$branch' >/dev/null
+    git -C repo pull --ff-only origin '$branch'
+    git -C repo log --oneline -1
+    cd repo
+    rsync -az --delete --no-perms --no-owner --no-group \\
+      ${RSYNC_EXCLUDES[*]} \\
+      -R ${PATHS[*]} ../src/"
+}
+
 run_migrations() {
   echo "→ Alembic (auth + chat-gateway)"
   ssh_run "cd '$DIR' && docker compose up migrate-auth migrate-chat"
@@ -155,14 +200,18 @@ restart_services() {
 }
 
 sync_once() {
-  push_source
+  if [ "$do_pull" = 1 ]; then pull_source; else push_source; fi
   if [ "$do_web" = 1 ]; then push_web; fi
   if [ "$do_migrate" = 1 ]; then run_migrations; fi
   if [ "$do_restart" = 1 ]; then restart_services; fi
 }
 
 if [ "$do_watch" = 0 ]; then
-  echo "→ Quellcode -> $HOST:$DIR/src/"
+  if [ "$do_pull" = 1 ]; then
+    echo "→ Server zieht GitHub-Stand nach $HOST:$DIR/src/"
+  else
+    echo "→ Quellcode -> $HOST:$DIR/src/"
+  fi
   sync_once
   echo "✓ fertig — die Dienste laden binnen ~2 s neu (Log: scripts/dev-remote.mjs --logs)"
   exit 0
