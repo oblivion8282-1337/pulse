@@ -32,6 +32,7 @@ from dcc_chat_gateway.pubsub_channels import (
     GUILD_EVENTS_CHANNEL,
     HIST_MAXLEN,
     HIST_REPLAY_CAP,
+    HIST_TTL_SECONDS,
     STREAM_CHANNEL_STATE_KEY,
     STREAM_EVENTS_CHANNEL,
     USER_EVENTS_CHANNEL,
@@ -66,6 +67,34 @@ _HIST_OPS = frozenset(
         "pin_update",
     }
 )
+
+#: Stempel-Script: INCR (Sequenz) + XADD (Stream-Eintrag MIT seq) + EXPIRE
+#: + PUBLISH (Umschlag MIT seq+hist) — alles in EINER atomaren Ausführung.
+#: Lua statt MULTI-Pipeline, weil die Entry-ID erst beim XADD existiert,
+#: aber sowohl der gespeicherte Eintrag als auch der Live-Umschlag die
+#: Stempel tragen müssen. Nebeneffekt: Live-Zustellung folgt exakt der
+#: Stream-/Sequenz-Reihenfolge (PUBLISH läuft im Script), also kann der
+#: Client keine Ereignisse in vertauschter Reihenfolge sehen.
+#:
+#: Der JSON-Body wird BEWUSST nicht via cjson dekodiert/rekodiert — cjson
+#: kann leere Arrays von leeren Objekten nicht unterscheiden (``mentions:
+#: []`` käme als ``{}`` wieder heraus, getestet gegen test_mentions) und
+#: würde Schlüssel-Reihenfolge misleading verwerfen. Stattdessen hängt das
+#: Script die zwei Stempel-Felder als reinen Text VOR die schließende
+#: Klammer: ``{…}`` → ``{…,"seq":N,"hist":"id"}``. Invariante: ARGV[1] ist
+#: immer ``json.dumps`` eines DICTS (endet mit ``}``, keine Top-Level-
+#: Arrays) — das stellt publish() sicher. Entry-IDs bestehen nur aus
+#: Ziffern+Bindestrich, brauchen also kein JSON-Escaping.
+_HIST_STEMPEL_LUA = """
+local seq = redis.call('INCR', KEYS[1])
+local body = ARGV[1]
+local stored = string.sub(body, 1, #body - 1) .. ',"seq":' .. seq .. '}'
+local id = redis.call('XADD', KEYS[2], 'MAXLEN', '~', ARGV[3], '*', 'e', stored)
+redis.call('EXPIRE', KEYS[2], ARGV[2])
+local live = string.sub(stored, 1, #stored - 1) .. ',"hist":"' .. id .. '"}'
+redis.call('PUBLISH', KEYS[3], live)
+return {seq, id}
+"""
 
 
 def _decode_sorted(members: Iterable[Any]) -> list[str]:
@@ -127,6 +156,7 @@ class ConnectionManager(
 
     def __init__(self, redis: Redis) -> None:
         self._redis = redis
+        self._hist_script = redis.register_script(_HIST_STEMPEL_LUA)
         self._pubsub = redis.pubsub(ignore_subscribe_messages=True)
         self._listener_task: asyncio.Task | None = None
         # Async sessionmaker injected by the lifespan/setup code so the
@@ -457,37 +487,38 @@ class ConnectionManager(
             op = "message"
         if op in _HIST_OPS:
             await self._hist_stempeln(channel_id, wire)
+            return
         await self._redis.publish(
             CHANNEL_KEY.format(channel_id=channel_id),
             json.dumps(wire, separators=(",", ":")),
         )
 
     async def _hist_stempeln(self, channel_id: str, wire: dict[str, Any]) -> None:
-        """WS-Replay-Cursor auf ein dauerhaftes Kanal-Ereignis stempeln.
-
-        ``seq`` kommt aus einem atomaren Redis-INCR — instanzübergreifend
-        lückenlos, deshalb zählt NUR diese Nummer für die
-        Vollständigkeitsprüfung beim Nachholen, nicht der Stream-Eintrag.
-        Das Ereignis liegt danach im Stream ``chat:hist:<id>``, aus dem
-        :meth:`read_channel_history` für das ``hist_replay``-Op liest.
+        """WS-Replay-Cursor auf ein dauerhaftes Kanal-Ereignis stempeln und
+        es zustellen (Script übernimmt auch das PUBLISH — s.
+        ``_HIST_STEMPEL_LUA`` für die Begründung).
 
         ``ponytail:`` Der Stream ist ein gleitendes Fenster (HIST_MAXLEN,
-        Redis-trimmt von links). Ein Client, der LÄNGER offline war, als
-        das Fenster reicht, bekommt ``complete:false`` und fällt auf den
-        REST-Lückenfill zurück — die „mehr als 100 Nachrichten"–Schwelle
-        des REST-Pfads bleibt dafür bestehen. Upgrade-Pfad, falls das
-        je weh tut: Ereignis-Log-Tabelle in Postgres statt Stream.
+        Redis-trimmt von links; EXPIRE schließt es bei Funkstille ganz).
+        Ein Client, der LÄNGER offline war, bekommt ``complete:false`` und
+        fällt auf den REST-Lückenfill zurück — die „mehr als 100
+        Nachrichten"–Schwelle des REST-Pfads bleibt dafür bestehen.
+        Verliert Redis Zähler UND Stream gemeinsam (AOF-Rollback), kann das
+        Replay ``complete`` über nie zugestellte Ereignisse behaupten; das
+        Fenster ist ~1s und der nächste REST-Initialload heilt es.
+        Upgrade-Pfad, falls das je weh tut: Ereignis-Log in Postgres.
         """
-        seq = await self._redis.incr(CHANNEL_SEQ_KEY.format(channel_id=channel_id))
-        wire["seq"] = seq
-        entry_id = await self._redis.xadd(
-            CHANNEL_HIST_KEY.format(channel_id=channel_id),
-            {"e": json.dumps(wire, separators=(",", ":"))},
-            maxlen=HIST_MAXLEN,
-            approximate=True,
-        )
-        wire["hist"] = (
-            entry_id.decode() if isinstance(entry_id, bytes) else str(entry_id)
+        await self._hist_script(
+            keys=[
+                CHANNEL_SEQ_KEY.format(channel_id=channel_id),
+                CHANNEL_HIST_KEY.format(channel_id=channel_id),
+                CHANNEL_KEY.format(channel_id=channel_id),
+            ],
+            args=[
+                json.dumps(wire, separators=(",", ":")),
+                HIST_TTL_SECONDS,
+                HIST_MAXLEN,
+            ],
         )
 
     async def read_channel_history(

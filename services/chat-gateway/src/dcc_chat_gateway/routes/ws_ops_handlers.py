@@ -60,6 +60,11 @@ from dcc_chat_gateway.routes.ws_ops_registry import WSOpContext, register_ws_op
 
 log = logging.getLogger(__name__)
 
+#: Sekunden-Deckel für ``hist_replay`` — dieselbe Begründung wie bei
+#: ``resync`` (Redis-Reads + potentiell großer Rahmen; legitimer Takt ist
+#: ein Reconnect, nicht ein Strom).
+_HIST_REPLAY_THROTTLE_S = 5.0
+
 
 @register_ws_op("subscribe")
 async def handle_subscribe(ctx: WSOpContext, msg: dict[str, Any]) -> None:
@@ -128,35 +133,68 @@ async def handle_hist_replay(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     den zuletzt gesehenen Ereignis-Cursor ``(hist, seq)``; der Server
     spielt die seither veröffentlichten Ereignisse als ``replay``-Rahmen
     nach. Reihenfolge am Socket: subscribe → (ready) → hist_replay —
-    deshalb ist jeder Kanal hier schon über den regulären subscribe-Pfad
-    gegen Zugriff geprüft; Cursor für NICHT abonnierte Kanäle werden
-    stumm ignoriert (leakt keinen Kanalinhalt, den der Socket nicht ohnehin
-    live bekäme). Pro Kanal ein Rahmen, ``complete:false`` schickt den
-    Client in seinen REST-Lückenfill."""
+    deshalb ist jeder Kanal hier über den regulären subscribe-Pfad gegen
+    Zugriff geprüft. Drei Decken, damit kein Kanal stumm durchs Netz fällt
+    und nichts ungeprüft fließt:
+
+    * **Rechte-Neuprüfung** über denselben Filter wie der Live-Fanout
+      (``_filter_by_view_channel``): ein unterwegs entzogenes VIEW_CHANNEL,
+      ein Kick oder eine Kanal-Löschung würde zwar die Subscription nicht
+      zwangsräumen — aber das Replay liest hier nichts mehr, genauso wenig
+      wie der Live-Weg noch liefert.
+    * Kanäle OHNE gültige Subscription (fehlgeschlagene Re-Subscribes,
+      Cursor über den 100er-Slice hinaus) bekommen einen LEEREN
+      ``complete:false``-Rahmen — der Client fällt dafür in seinen
+      REST-Lückenfill, statt still eine Lücke zu behalten.
+    * Throttle wie ``resync``: ein Replay kostet Redis-Reads + einen
+      potentiellegroßen Frame, der legitime Takt ist ein Reconnect.
+    """
     cursors = msg.get("cursors")
     if not isinstance(cursors, dict) or not cursors:
         return
-    for cid_raw, cur in list(cursors.items())[:HIST_REPLAY_MAX_CHANNELS]:
+    now = time.monotonic()
+    if now - ctx.last_hist_replay < _HIST_REPLAY_THROTTLE_S:
+        return  # backstop: ignore rapid repeats (legit cadence is reconnects)
+    ctx.last_hist_replay = now
+    items = list(cursors.items())
+    for i, (cid_raw, cur) in enumerate(items):
         cid = str(cid_raw)
+        if i >= HIST_REPLAY_MAX_CHANNELS:
+            await ctx.websocket.send_json(_replay_frame(cid, [], False))
+            continue
         if cid not in ctx.subscribed or not isinstance(cur, dict):
+            # Nur für Kanäle, für die ein Cursor-Versuch erkennbar ist,
+            # gibt's den Fallback-Rahmen — Mist-Typen schweigen (Client-Fehler).
+            if isinstance(cur, dict):
+                await ctx.websocket.send_json(_replay_frame(cid, [], False))
             continue
         last_id = cur.get("hist")
         last_seq = cur.get("seq")
         if not isinstance(last_id, str) or not last_id:
+            await ctx.websocket.send_json(_replay_frame(cid, [], False))
             continue
         if not isinstance(last_seq, int) or isinstance(last_seq, bool):
+            await ctx.websocket.send_json(_replay_frame(cid, [], False))
+            continue
+        # Live-Parität: ohne aktuelles Leserecht kein Replay — auch wenn die
+        # (nie zwangsgeräumte) Subscription das Kanal noch kennt.
+        if not await ctx.manager._filter_by_view_channel([ctx.websocket], cid):
             continue
         events, complete = await ctx.manager.read_channel_history(
             cid, last_id, last_seq
         )
-        await ctx.websocket.send_json(
-            {
-                "op": "replay",
-                "channel_id": cid,
-                "complete": complete,
-                "events": events,
-            }
-        )
+        await ctx.websocket.send_json(_replay_frame(cid, events, complete))
+
+
+def _replay_frame(
+    cid: str, events: list[dict[str, Any]], complete: bool
+) -> dict[str, Any]:
+    return {
+        "op": "replay",
+        "channel_id": cid,
+        "complete": complete,
+        "events": events,
+    }
 
 
 @register_ws_op("voice_self_state")
