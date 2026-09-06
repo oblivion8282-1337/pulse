@@ -16,19 +16,36 @@ CHANNEL_PATTERN = "chat:channel:*"
 # (INCR auf ``chat:seq:<id>``) in den Umschlag und legt das Ereignis
 # zusätzlich in einem Redis-Stream ``chat:hist:<id>`` ab, aus dem ein
 # wiederverbindender Client „alles ab Sequenz X" nachholen kann. Der Stream
-# trimmt sich selbst auf ``HIST_MAXLEN`` Einträge — war ein Client länger
-# offline, antwortet das Replay mit ``complete:false`` und der Client fällt
-# auf seinen REST-Lückenfill zurück (wie vor dem Replay). ``chat:seq`` darf
-# niemals gelöscht werden, solange Clients Cursor darauf halten — ein
-# Zurücksetzen macht jede ausstehende Cursor-Anfrage schlicht „incomplete".
+# trimmt sich selbst auf ``HIST_MAXLEN`` Einträge und vergisst nach
+# ``HIST_TTL_SECONDS`` Funkstille ganz — war ein Client länger offline,
+# antwortet das Replay mit ``complete:false`` und der Client fällt auf seinen
+# REST-Lückenfill zurück (wie vor dem Replay).
+#
+# Betriebsregeln:
+# * ``chat:seq`` hat bewusst KEINE TTL — ein abgelaufener Zähler ergäbe
+#   massenweise ``complete:false``. Ein VERLORENER Zähler (Redis-Rollback
+#   ohne AOF) ist dagegen harmlos: der Vergleich ``current == last_seq``
+#   fällt auseinander und alles läuft konservativ über REST. Restrisiko:
+#   Zähler UND Stream rollen GEMEINSAM zurück (AOF-Verlust ~1s), dann
+#   glaubt das Replay ``complete`` über nie gelieferte Ereignisse — Fenster
+#   ist winzig und wird vom nächsten REST-Initialload geheilt.
+# * Chat-Gateway nie in zwei VERSIONEN parallel ans selbe Redis hängen
+#   (Rolling Deploy): eine alte Instanz validiert gestempelte Umschläge
+#   gegen ihr altes ``extra="forbid"``-Schema und wirft sie im Strict-Mode
+#   weg. Single-Instance-Topologien (dev/prod/self-host heute) sind nicht
+#   betroffen.
 CHANNEL_SEQ_KEY = "chat:seq:{channel_id}"
 CHANNEL_HIST_KEY = "chat:hist:{channel_id}"
 HIST_MAXLEN = 1000
+#: Funkstillen-Zeit, nach der der Stream eines Kanals ganz vergisst (wird bei
+#: jedem Stempel aufgefrischt). Hält Redis von verwaisten Kanälen frei.
+HIST_TTL_SECONDS = 30 * 24 * 3600
 #: Obergrenze pro Replay-Antwort (Frames von mehreren MB vermeiden); mehr
 #: als das → ``complete:false``, der REST-Lückenfill holt seitenweise nach.
 HIST_REPLAY_CAP = 200
-#: Wie viele Kanal-Cursor eine einzelne ``hist_replay``-Anfrage abarbeiten
-#: darf (realistisch sind es die Kanäle einer Sitzung, zweistellig).
+#: Wie viele Kanal-Cursor eine einzelne ``hist_replay``-Anfrage tatsächlich
+#: abarbeitet; für die darüber liegenden kommt ein leerer ``complete:false``
+#:-Rahmen zurück (REST-Fallback), damit nichts stumm durchs Netz fällt.
 HIST_REPLAY_MAX_CHANNELS = 100
 
 # Voice-presence events published by the voice-signaling service. Payload:

@@ -57,6 +57,11 @@ const BUFFER_BEFORE_READY: ReadonlySet<ServerEvent['op']> = new Set([
   'guild_updated', 'guild_deleted', 'guild_member_added', 'guild_sound_updated',
 ]);
 
+/** Wie lange der Client auf das hello wartet, bevor er ohne Fähigkeits-
+ *  Info (Server älter als Phase 3.3) den REST-Lückenfill für alle Kanäle
+ *  fährt. Hello kommt in der Praxis in Millisekunden nach dem open. */
+const GAPFILL_HELLO_FALLBACK_MS = 2500;
+
 export type WsListener = (evt: ServerEvent) => void;
 export type ChannelDeletedHook = (guildId: string, channelId: string) => void;
 export type GuildDeletedHook = (guildId: string) => void;
@@ -183,6 +188,7 @@ export class GatewayConnection {
    * nur Fallback für Kanäle ohne Cursor bzw. übergelaufene Fenster.
    * Connection-scoped — Cursor gelten pro Server, nicht global.
    */
+  private _gapfillTimer: ReturnType<typeof setTimeout> | null = null;
   private _hist = new Map<string, { id: string; seq: number }>();
 
   /** Reaktiv: erstes Hello-Frame des Servers (nur Self-Host). */
@@ -464,17 +470,18 @@ export class GatewayConnection {
         void import('$lib/voice/livekit.svelte').then(({ voice }) => {
           voice.resyncSelfState();
         });
-        // WS-Replay nimmt sich der Kanäle mit Cursor an (`hist_replay` nach
-        // dem hello; `complete:false` schickt den Kanal einzeln in den REST-
-        // Lückenfill). Übrig bleiben für den REST-Pfad: Kanäle ohne Cursor
-        // (erste Subscription der Sitzung) — oder ALLE, wenn der Server die
-        // hist_replay-Fähigkeit nicht hat (helloMeta = Stand des VORHERigen
-        // Dials derselben Server-Instanz; beim Erstconnect REST für alle).
-        const histFaehig = this._kannHistReplay();
-        const rest = histFaehig
-          ? [...this.subs].filter((cid) => !this._hist.has(cid))
-          : [...this.subs];
-        void gapFillAll(rest, { serverId: this.serverId });
+        // REST/Replay-Entscheidung fällt erst im hello-Zweig — DORT ist
+        // bekannt, ob DIESE Verbindung einen hist_replay-fähigen Server hat
+        // (helloMeta hier wäre der STALE Stand des VORHERigen Dials; nach
+        // einem Downgrade/Rollback blieben Cursor-Kanäle sonst ohne jeden
+        // Lückenfill). Der Timer ist das Sicherheitsnetz für Server, die
+        // gar kein hello senden (Phase < 3.3): dann REST für alle, wie vor
+        // dem Replay.
+        if (this._gapfillTimer) clearTimeout(this._gapfillTimer);
+        this._gapfillTimer = setTimeout(() => {
+          this._gapfillTimer = null;
+          void gapFillAll([...this.subs], { serverId: this.serverId });
+        }, GAPFILL_HELLO_FALLBACK_MS);
         this._startHeartbeat();
         resolve();
       });
@@ -527,12 +534,26 @@ export class GatewayConnection {
             // `open`-Zweig (der läuft, bevor das erste Frame da ist).
             this._planeTokenErneuerung();
             // Gleiches Spiel für den WS-Lückenfill: erst NACH dem hello ist
-            // klar, ob der Server `hist_replay` kennt. Die Cursor sind bis
-            // dahin live gelaufener Ereignisse angewachsen — der Server
-            // verarbeitet die Subscribes (gleicher Socket, FIFO) schon, also
-            // deckt das Replay die Lücke zwischen „Socket weg" und „Socket
-            // wieder an".
-            if (this._kannHistReplay()) this._sendHistReplay();
+            // klar, ob der Server `hist_replay` kennt — die Entscheidung
+            // (Replay + REST nur für cursor-lose Kanäle, sonst REST für
+            // alle) liest bewusst das FRISCHE hello, nie stale helloMeta.
+            if (this._gapfillTimer) {
+              clearTimeout(this._gapfillTimer);
+              this._gapfillTimer = null;
+            }
+            if (this._kannHistReplay()) {
+              // Die Cursor sind bis dahin live gelaufener Ereignisse
+              // angewachsen — der Server verarbeitet die Subscribes
+              // (gleicher Socket, FIFO) schon, also deckt das Replay die
+              // Lücke zwischen „Socket weg" und „Socket wieder an".
+              this._sendHistReplay();
+              void gapFillAll(
+                [...this.subs].filter((cid) => !this._hist.has(cid)),
+                { serverId: this.serverId },
+              );
+            } else {
+              void gapFillAll([...this.subs], { serverId: this.serverId });
+            }
             return; // Hello selbst geht NICHT in den Handler-Dispatcher
           }
           // Fallback: älterer Server ohne hello-Support → durchlassen.
@@ -670,8 +691,9 @@ export class GatewayConnection {
   }
 
   /** Empfanges Frame an Stores + alle per-Connection-Listener — der gemeinsame
-   *  Eingang für Live-Verkehr und replayte Offline-Ereignisse (identische
-   *  Dedup/Idempotenz-Regeln: `mergeGap` per ID, Reaktionen als Zustand). */
+   *  Eingang für Live-Verkehr und replayte Offline-Ereignisse. Dedup per ID
+   *  in `upsert`/`mergeGap`; Reaktionen sind DELTA-basiert — doppelte
+   *  Zustellung verhindert der seq-Skip in `_wendeReplayAn`. */
   private _dispatch(evt: ServerEvent): void {
     this._handle(evt);
     for (const l of this.listeners) l(evt);
@@ -703,15 +725,19 @@ export class GatewayConnection {
     this._sendRaw({ op: 'hist_replay', cursors });
   }
 
-  /** Replay-Rahmen anwenden. Überlappungen mit Live-Verkehr sind gewollt
-   *  unkritisch: Nachrichten dedupen per ID, Edits/Reaktionen sind
-   *  zustandsbasiert idempotent. `ponytail:` Eine zwischen Replay-Lese und
-   *  Rahmen-Versand veröffentlichte Änderung kann in seltenen Fällen in
-   *  falscher Reihenfolge anwenden (Live vor Replay) — kosmetisch und
-   *  selbstheilend beim nächsten Ereignis; Centrifugos Positions-Algebra
-   *  wäre der Upgrade-Pfad, falls das je sichtbar wird. */
+  /** Replay-Rahmen anwenden. Bereits gesehene Ereignisse (seq <= Cursor)
+   *  werden übersprungen: Der Reaktions-Handler ist DELTAbasiert
+   *  (count ± 1), ein doppelt zugestelltes Ereignis würde den Zähler
+   *  dauerhaft verdrehen — und Wiederholungen sind möglich, wenn ein
+   *  Stream-Eintrag trotz seiner höheren seq live VOR dem niedrigeren
+   *  ankam (s. Restrisiko-Kommentar in `_hist_stempeln`). Nachrichten
+   *  dedupen zusätzlich per ID in `mergeGap`/`upsert`; Edits/Löschungen/
+   *  Pins sind zustandsbasiert idempotent. */
   private _wendeReplayAn(frame: Extract<ServerEvent, { op: 'replay' }>): void {
+    const minSeq = this._hist.get(frame.channel_id)?.seq ?? 0;
     for (const env of frame.events) {
+      const seq = (env as ServerEvent & HistStamp).seq;
+      if (typeof seq === 'number' && seq <= minSeq) continue;
       this._dispatch(env);
     }
     if (!frame.complete) {

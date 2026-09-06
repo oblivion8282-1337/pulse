@@ -112,6 +112,9 @@ class WSOpContext:
     # throttle backstop. ``resync`` rebuilds the full ready frame (several DB
     # queries + Redis/S3 reads), so an unthrottled loop is a DB-pool DoS vector.
     last_resync: float = 0.0
+    # Monotonic timestamp of the last ``hist_replay`` this socket served —
+    # same throttle rationale (Redis stream reads + potentially large frame).
+    last_hist_replay: float = 0.0
     # Sekunden-Deckel der Fernsteuerung. Die Grenzen je Nachricht formen nur
     # eine EINZELNE Nachricht — ohne diese Zaehler kostet ein Verstoss nichts
     # und ein Steuernder flutet Gateway und Host mit Leitungsgeschwindigkeit.

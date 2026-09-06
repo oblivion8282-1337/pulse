@@ -80,11 +80,15 @@ async def test_read_channel_history_completeness(redis: Redis):
     hist_key = CHANNEL_HIST_KEY.format(channel_id=cid)
     seq_key = CHANNEL_SEQ_KEY.format(channel_id=cid)
     try:
-        cursors = []
         for i in range(3):
-            wire = {"op": "message", "data": {"channel_id": cid, "id": str(i)}}
-            await mgr.publish(cid, wire)
-            cursors.append((wire["hist"], wire["seq"]))
+            await mgr.publish(cid, {"op": "message", "data": {"channel_id": cid, "id": str(i)}})
+
+        # Cursor aus dem Stream lesen — publish() mutiert Aufrufer-Dicts
+        # bewusst nicht mehr (Stempel leben im Script). Cursor-Referenz ist
+        # die Stream-Eintrag-ID, die nur XRANGE kennt.
+        entries = await redis.xrange(hist_key, min="-", max="+")
+        assert len(entries) == 3
+        cursors = [(eid.decode(), json.loads(fields[b"e"])["seq"]) for eid, fields in entries]
 
         # Lückenloser Anschluss: alles nach Ereignis 1, vollständig.
         events, complete = await mgr.read_channel_history(cid, cursors[0][0], 1)
@@ -232,8 +236,10 @@ async def test_replay_reports_incomplete_when_stream_lost(
 
 @pytest.mark.asyncio
 async def test_replay_ignores_foreign_channels(ws_app, _auth_signer, redis):
-    """Cursor für nicht abonnierte Kanäle werden stumm ignoriert — kein
-    ``replay``-Rahmen für Kanäle, deren Zugriff nie geprüft wurde."""
+    """Cursor für nicht abonnierte Kanäle bekommen einen LEEREN
+    ``complete:false``-Rahmen — kein Inhalt, aber auch kein stilles Loch:
+    der Client fällt dafür in seinen REST-Lückenfill (der bei fehlendem
+    Zugriff erfolglos bleibt)."""
 
     def _run():
         uid = random.randint(1, 1_000_000)
@@ -251,20 +257,186 @@ async def test_replay_ignores_foreign_channels(ws_app, _auth_signer, redis):
             ws.send_json(
                 {
                     "op": "hist_replay",
-                    "cursors": {fremd_cid: {"hist": "1-1", "seq": 1}},
+                    "cursors": {
+                        sub_cid: {"hist": "1-1", "seq": 1},
+                        fremd_cid: {"hist": "1-1", "seq": 1},
+                    },
                 }
             )
-            # Nur der Live-Verkehr des abonnierten Kanals darf kommen.
-            tc.post(
-                f"/channels/{sub_cid}/messages",
-                json={"content": "live-nach-fremd-cursor"},
-                headers=_auth(token),
-            )
-            frame = receive_skipping(ws, ignore={"presence_update", "channel_bump", "dm_bump"})
-            return frame.get("op")
+            frames = []
+            for _ in range(2):
+                frames.append(
+                    receive_skipping(
+                        ws, ignore={"presence_update", "channel_bump", "dm_bump"}
+                    )
+                )
+            return frames
 
-    op = await asyncio.to_thread(_run2)
-    assert op == "message"
+    frames = await asyncio.to_thread(_run2)
+    by_channel = {f["channel_id"]: f for f in frames if f.get("op") == "replay"}
+    # Nicht abonnierter Kanal: Fallback-Rahmen ohne Inhalt.
+    fremd_frame = by_channel.get(fremd_cid)
+    assert fremd_frame is not None
+    assert fremd_frame["complete"] is False and fremd_frame["events"] == []
+    # Abonnierter Kanal mit Müll-Cursor: ebenfalls Fallback-Rahmen.
+    sub_frame = by_channel.get(sub_cid)
+    assert sub_frame is not None and sub_frame["complete"] is False
+
     for used in (sub_cid, fremd_cid):
         await redis.delete(CHANNEL_HIST_KEY.format(channel_id=used))
         await redis.delete(CHANNEL_SEQ_KEY.format(channel_id=used))
+
+
+@pytest.mark.asyncio
+async def test_replay_skips_deleted_channel(ws_app, _auth_signer, redis):
+    """Gelöschter Kanal: das Replay liefert NICHTS mehr — dieselbe
+    Rechte-Schleuse wie der Live-Fanout (hier Kanal-Löschung statt
+    VIEW_CHANNEL-Entzug, derselbe Filter)."""
+
+    def _run():
+        uid = random.randint(1, 1_000_000)
+        token = _auth_signer.issue_access(uid, f"u{uid}")
+        _, geloescht = _setup_guild_channel(ws_app, token)
+        _, lebendig = _setup_guild_channel(ws_app, token)
+        return token, geloescht, lebendig
+
+    token, geloescht_cid, lebendig_cid = await asyncio.to_thread(_run)
+
+    def _run2():
+        with TestClient(ws_app) as tc, tc.websocket_connect(f"/ws?token={token}") as ws:
+            receive_skipping(ws)  # ready
+            ws.send_json({"op": "subscribe", "channel_id": geloescht_cid})
+            ws.send_json({"op": "subscribe", "channel_id": lebendig_cid})
+            # Cursor für den bald gelöschten Kanal einsammeln.
+            sent = tc.post(
+                f"/channels/{geloescht_cid}/messages",
+                json={"content": "vor-dem-ende"},
+                headers=_auth(token),
+            ).json()
+            frame = receive_skipping(ws, ignore={"presence_update"})
+            assert frame["op"] == "message" and frame["data"]["id"] == sent["id"]
+            cursor = {"hist": frame["hist"], "seq": frame["seq"]}
+            tc.delete(f"/channels/{geloescht_cid}", headers=_auth(token))
+            ws.send_json(
+                {
+                    "op": "hist_replay",
+                    "cursors": {
+                        geloescht_cid: cursor,
+                        lebendig_cid: {"hist": "1-1", "seq": 1},
+                    },
+                }
+            )
+            return receive_skipping(
+                ws,
+                ignore={
+                    "presence_update",
+                    "channel_deleted",
+                    "channel_bump",
+                    "dm_bump",
+                },
+            )
+
+    frame = await asyncio.to_thread(_run2)
+    # Der erste (einzige) replay-Rahmen gehört zum LEBENDIGEN Kanal — für
+    # den gelöschten kommt nichts (Live-Parität).
+    assert frame.get("op") == "replay"
+    assert frame["channel_id"] == lebendig_cid
+
+    for used in (geloescht_cid, lebendig_cid):
+        await redis.delete(CHANNEL_HIST_KEY.format(channel_id=used))
+        await redis.delete(CHANNEL_SEQ_KEY.format(channel_id=used))
+
+
+@pytest.mark.asyncio
+async def test_replay_overflow_reports_incomplete_with_events(
+    ws_app, _auth_signer, redis, monkeypatch
+):
+    """Fenster kleiner als die Lücke (>HIST_REPLAY_CAP): der Rahmen trägt
+    CAP Ereignisse nach dem Cursor UND complete:false — der Client liest
+    den Rest per REST nach, statt alles zu verwerfen."""
+
+    from dcc_chat_gateway import pubsub as pubsub_mod
+
+    monkeypatch.setattr(pubsub_mod, "HIST_REPLAY_CAP", 2)
+
+    def _run():
+        uid = random.randint(1, 1_000_000)
+        token = _auth_signer.issue_access(uid, f"u{uid}")
+        _, cid = _setup_guild_channel(ws_app, token)
+        cursor = _subscribe_and_capture_cursor(ws_app, token, cid)
+        for i in range(3):
+            _post(ws_app, token, cid, f"ueberlauf-{i}")
+        return token, cid, cursor
+
+    token, cid, cursor = await asyncio.to_thread(_run)
+    try:
+        frame = await asyncio.to_thread(
+            _replay_offline_window, ws_app, token, cid, cursor
+        )
+        assert frame is not None
+        assert frame["complete"] is False
+        assert len(frame["events"]) == 2
+        assert frame["events"][0]["seq"] == cursor[1] + 1
+    finally:
+        await redis.delete(CHANNEL_HIST_KEY.format(channel_id=cid))
+        await redis.delete(CHANNEL_SEQ_KEY.format(channel_id=cid))
+
+
+@pytest.mark.asyncio
+async def test_replay_delivers_edits_and_reactions(ws_app, _auth_signer, redis):
+    """Das zweite Kernversprechen: Bearbeitung + Reaktion aus der
+    Offline-Zeit kommen gestempelt und in Sequenzordnung im Replay."""
+
+    def _run():
+        uid = random.randint(1, 1_000_000)
+        token = _auth_signer.issue_access(uid, f"u{uid}")
+        _, cid = _setup_guild_channel(ws_app, token)
+        with TestClient(ws_app) as tc, tc.websocket_connect(
+            f"/ws?token={token}"
+        ) as ws:
+            receive_skipping(ws)  # ready
+            ws.send_json({"op": "subscribe", "channel_id": cid})
+            sent = tc.post(
+                f"/channels/{cid}/messages",
+                json={"content": "original"},
+                headers=_auth(token),
+            ).json()
+            frame = receive_skipping(ws, ignore={"presence_update"})
+            cursor = {"hist": frame["hist"], "seq": frame["seq"]}
+        # Offline-Zeit: bearbeiten + reagieren.
+        with TestClient(ws_app) as tc:
+            r_edit = tc.patch(
+                f"/messages/{sent['id']}",
+                json={"content": "bearbeitet"},
+                headers=_auth(token),
+            )
+            assert r_edit.status_code == 200, r_edit.text
+            r_react = tc.put(
+                f"/messages/{sent['id']}/reactions/%F0%9F%91%8D/@me",
+                headers=_auth(token),
+            )
+            assert r_react.status_code == 204, r_react.text
+        return token, cid, cursor, sent["id"]
+
+    token, cid, cursor, mid = await asyncio.to_thread(_run)
+    try:
+        frame = await asyncio.to_thread(
+            _replay_offline_window,
+            ws_app,
+            token,
+            cid,
+            (cursor["hist"], cursor["seq"]),
+        )
+        assert frame is not None
+        assert frame["complete"] is True
+        ops = [e["op"] for e in frame["events"]]
+        assert ops == ["message_update", "reaction_add"]
+        assert frame["events"][0]["data"]["content"] == "bearbeitet"
+        assert frame["events"][0]["data"]["id"] == mid
+        # Stempel sitzen auf dem Umschlag, nicht in data.
+        assert all("seq" not in e["data"] for e in frame["events"])
+        seqs = [e["seq"] for e in frame["events"]]
+        assert seqs == [cursor["seq"] + 1, cursor["seq"] + 2]
+    finally:
+        await redis.delete(CHANNEL_HIST_KEY.format(channel_id=cid))
+        await redis.delete(CHANNEL_SEQ_KEY.format(channel_id=cid))
