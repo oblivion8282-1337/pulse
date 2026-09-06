@@ -127,29 +127,3 @@ export function idbPutIdentity(db: IDBDatabase, key: string, value: unknown): Pr
     tx.onerror = () => reject(tx.error);
   });
 }
-
-/**
- * Liest und schreibt einen Schlüssel in EINER Transaktion — für einen
- * Lesen-Ändern-Schreiben-Zyklus, der mehrere Tabs ohne Sperre teilt
- * (`ablage/archivSchreibweg.ts`). Zwei getrennte `idbGetIdentity`/
- * `idbPutIdentity`-Aufrufe ließen ein Fenster zwischen Lesen und Schreiben,
- * in dem ein zweiter Tab dazwischenschreiben und danach überschrieben werden
- * könnte — mit dieser Transaktion kann das nicht mehr passieren.
- */
-export function idbUpdateIdentity(
-  db: IDBDatabase,
-  key: string,
-  updater: (aktuell: unknown) => unknown
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    const store = tx.objectStore(STORE_NAME);
-    const req = store.get(key);
-    req.onsuccess = () => {
-      store.put(updater(req.result), key);
-    };
-    req.onerror = () => reject(req.error);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}

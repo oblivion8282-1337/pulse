@@ -31,8 +31,7 @@ export function leereRohwerte(): VerbindungsRohwerte {
 		anmeldungAbgelaufen: false,
 		laufwerkWeg: false,
 		freieBytes: null,
-		benoetigteBytes: 0,
-		ausstehend: 0
+		benoetigteBytes: 0
 	};
 }
 

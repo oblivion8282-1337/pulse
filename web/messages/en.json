@@ -2742,8 +2742,6 @@
   "speicher_archiv_setzen_fehler": "The archive drive could not be registered: {fehler}",
   "speicher_archiv_trennen_fehler": "The archive drive could not be deregistered on the server — it stays connected for now. Please try again: {fehler}",
   "speicher_archiv_unmarkieren": "No longer archive",
-  "speicher_ausstehend": "{anzahl} pending",
-  "speicher_ausstehend_keine": "Everything backed up",
   "speicher_beschreibung": "Connect a drive to hold your encrypted channels and files. The Pulse server never sees the content.",
   "speicher_handgriff_neu_anmelden": "Sign in again",
   "speicher_handgriff_ordner_waehlen": "Choose folder again",
@@ -2758,7 +2756,6 @@
   "speicher_zuletzt_gesichert_nie": "Nothing backed up yet",
   "speicher_zustand_anmeldung_abgelaufen": "Sign-in expired",
   "speicher_zustand_gut": "Connected",
-  "speicher_zustand_hinterher": "Backing up",
   "speicher_zustand_kein_platz": "Not enough space",
   "speicher_zustand_laufwerk_weg": "Drive unreachable",
   "standplatz_banner_clear_failed": "Could not clear the grant list. Please try again.",
@@ -3220,11 +3217,6 @@
   "sicherung_hinweis_text": "To see your previous messages, connect your cloud drive — they are stored encrypted in your archive.",
   "sicherung_hinweis_knopf": "Connect backup",
   "lightbox_download": "Save image",
-  "wiederherstellung_toast_kein_archiv": "No archive was present — your drives are back, but your history could not be fetched.",
-  "wiederherstellung_toast_fehler": "Could not fetch the history: {grund}",
-  "wiederherstellung_toast_leer": "The archive contained no history. Your drives are back.",
-  "wiederherstellung_toast_erfolg": "{n} messages fetched.",
-  "wiederherstellung_toast_uebersprungen": " ({n} unreadable skipped)",
   "blockliste_entsperren_fehler": "Unblock failed",
   "blockliste_leer": "Nobody is blocked.",
   "webauthn_abgebrochen": "Cancelled or timed out — please try again.",
@@ -3303,5 +3295,6 @@
   "gast_kick_link_mit": "Remove and revoke link",
   "gast_kick_link_hinweis": "Afterwards the link no longer works for anyone — all guests lose access.",
   "gast_links_kopieren": "Copy",
-  "gast_stream_fehler": "Could not open the stream."
+  "gast_stream_fehler": "Could not open the stream.",
+  "wiederherstellung_toast_verlauf_sicherung": "Your messages come back via the backup — connect your drive and enter the backup password (Settings → Backup)."
 }

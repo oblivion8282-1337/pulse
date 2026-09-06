@@ -59,7 +59,6 @@ import { dauerhaftenSpeicherAnfordern } from '$lib/identity/dauerhafterSpeicher'
 import { verlaufZustand } from './zustand.svelte';
 import { zusammenfuegen, type Mergeposten } from './zusammenfuegen';
 import { VerlaufSpeichernFehlgeschlagen, pruefeSpeicherErgebnis } from './speichernPflicht';
-import { archivSaetzeEinreihen } from '../ablage/archivSchreibweg.ts';
 import { directMessages } from '$lib/stores/directMessages.svelte';
 import { privateGruppen } from '$lib/stores/privateGruppen.svelte';
 import { guilds } from '$lib/stores/guilds.svelte';
@@ -202,14 +201,6 @@ export async function verlaufSpeichernPflicht(
   void dauerhaftenSpeicherAnfordern();
   await verlaufPutSaetze(saetze);
   sicherungSpiegeln(kanalId, nachrichten as Message[]);
-  // Aufgabe 3 (persoenliches Archiv): ist eine Ablage-Verbindung als „mein
-  // Archiv" markiert, wandert der Satz zusaetzlich dorthin — der
-  // Browser-Speicher oben bleibt der schnelle, massgebliche Weg, das Archiv
-  // nur die zusaetzliche dauerhafte Kopie. Fire-and-forget: ein Fehlschlag
-  // dort darf dieses (bereits erfolgreich abgeschlossene) lokale Schreiben
-  // nicht rueckwirkend zu einem Fehler machen, s.
-  // `archivSchreibweg.ts`-Modulkopf.
-  archivSaetzeEinreihen(saetze);
   return saetze.length;
 }
 

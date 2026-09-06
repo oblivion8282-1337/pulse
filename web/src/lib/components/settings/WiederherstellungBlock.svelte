@@ -15,7 +15,6 @@
    *    `WiederherstellungCodeZeigen.svelte` schliesst ihn. Genau das ist der
    *    Punkt: niemand soll den Code wegklicken, ohne ihn notiert zu haben.
    */
-  import type { VerlaufsErgebnis } from '$lib/krypto/wiederherstellung.svelte.ts';
   import { onMount } from 'svelte';
   import KeyRoundIcon from '@lucide/svelte/icons/key-round';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -73,29 +72,12 @@
     toast.success(m.wiederherstellung_erzeugen_erfolg());
   }
 
-  function wiederhergestellt(anzahl: number, verlauf: VerlaufsErgebnis) {
+  function wiederhergestellt(anzahl: number) {
     toast.success(m.wiederherstellung_einloesen_erfolg({ anzahl }));
-    // **Den Verlauf getrennt melden, und jede Ursache beim Namen.**
-    // Zurueckgeholte Laufwerke sind nicht der Zweck der Uebung — der Verlauf
-    // ist es. Eine Sammelmeldung fuer alle Fehlschlaege hat am 2026-09-01
-    // die Fehlersuche in die falsche Richtung geschickt: sie sagte „kein
-    // Archiv hinterlegt", waehrend das Archiv da war und das Oeffnen
-    // scheiterte.
-    if (verlauf.art === 'kein-archiv') {
-      toast.info(m.wiederherstellung_toast_kein_archiv());
-    } else if (verlauf.art === 'fehler') {
-      toast.error(m.wiederherstellung_toast_fehler({ grund: verlauf.grund }));
-    } else if (verlauf.bericht.zurueckgeholt === 0) {
-      toast.warning(m.wiederherstellung_toast_leer());
-    } else {
-      const uebersprungen =
-        verlauf.bericht.uebersprungen > 0
-          ? m.wiederherstellung_toast_uebersprungen({ n: verlauf.bericht.uebersprungen })
-          : '';
-      toast.success(
-        m.wiederherstellung_toast_erfolg({ n: verlauf.bericht.zurueckgeholt }) + uebersprungen
-      );
-    }
+    // Der Code bringt nur die Verbindungen zurück. Die Nachrichten kommen
+    // über die Sicherung (Ordner + Passwort) — das getrennt zu sagen gehört
+    // zur Meldung, sonst sucht der Nutzer seinen Chat im leeren Fenster.
+    toast.info(m.wiederherstellung_toast_verlauf_sicherung());
     void ladeStatus();
   }
 
