@@ -124,21 +124,23 @@ impl App {
             // `direct_start` liefert den Offer-SDP als Antwortnutzlast, die
             // Electron-Huelle reicht ihn zum Sidecar durch; `direct_signal`
             // nimmt deren Answer entgegen. Ohne `session`-Feld gilt die eine
-            // Direkt-Sitzung des Prozesses (s. `direkte_sitzung`).
-            "direct_start" => {
-                self.direct_op(id, req.session, |reply| SessionCommand::DirectStart { reply }, move
-                    |data| Response::ok(id, data))
-            }
+            // Direkt-Sitzung des Prozesses (s. `direct_op`). Das
+            // `params`-Objekt der Vereinbarung liest der Player nicht — die
+            // Ops tragen ihre Nutzlast wie alle anderen flach.
+            "direct_start" => self.direct_op(
+                id,
+                req.session,
+                |reply| SessionCommand::DirectStart { reply },
+                move |data| Response::ok(id, data),
+            ),
 
-            "direct_signal" => match req.answer.clone() {
-                Some(answer) => {
-                    self.direct_op(
-                        id,
-                        req.session,
-                        |reply| SessionCommand::DirectSignal { answer, reply },
-                        move |_| Response::bare(id),
-                    )
-                }
+            "direct_signal" => match direct_answer(&req) {
+                Some(answer) => self.direct_op(
+                    id,
+                    req.session,
+                    |reply| SessionCommand::DirectSignal { answer, reply },
+                    move |_| Response::bare(id),
+                ),
                 None => self.stdout.send(&Response::err(id, "answer fehlt")),
             },
 
@@ -442,6 +444,23 @@ fn build_patch(req: &Request) -> Result<PlayerOptions, String> {
     Ok(patch)
 }
 
+/// Die Answer eines `direct_signal`-Requests — flach (`answer`) oder in der
+/// `params`-Huelse der Schnittstellen-Vereinbarung. Reines Lesen; die
+/// Begruendung, beides zu akzeptieren, steht an [`Request::params`].
+///
+/// Ein leeres oder nicht-Text-`params.answer` gilt als Fehlantwort (None) —
+/// die Ops duerfen nicht mit einer LEEREN Answer `ok` melden, das haette der
+/// Sidecar ohnehin abgelehnt, aber die Meldung hier ist eindeutiger.
+fn direct_answer(req: &Request) -> Option<String> {
+    req.answer.clone().or_else(|| {
+        req.params
+            .as_ref()?
+            .get("answer")?
+            .as_str()
+            .map(str::to_owned)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -483,5 +502,27 @@ mod tests {
             build_patch(&req(r#"{"op":"set_option","key":"deband","value":"viel"}"#)).is_err(),
             "Text fuer eine Zahl muss abgelehnt werden"
         );
+    }
+
+    /// Die beiden Schreibweisen der Direkt-Ops: das Protokoll traegt seine
+    /// Felder flach, die Vereinbarung zeigt sie in der `params`-Huelse. Ohne
+    /// den Doppelweg liesse serde die Huelse still fallen — und die Answer
+    /// kaeme nie an, ohne dass eine der beiden Seiten es merkt.
+    #[test]
+    fn direct_signal_liest_answer_flach_und_in_params_huelle() {
+        let flach = req(r#"{"op":"direct_signal","answer":"v=0\r\nm=video 9\r\n"}"#);
+        assert_eq!(direct_answer(&flach).as_deref(), Some("v=0\r\nm=video 9\r\n"));
+
+        let gehuellt =
+            req(r#"{"op":"direct_signal","params":{"answer":"v=0\r\nm=audio 9\r\n"}}"#);
+        assert_eq!(direct_answer(&gehuellt).as_deref(), Some("v=0\r\nm=audio 9\r\n"));
+    }
+
+    #[test]
+    fn direct_signal_ohne_answer_ist_leer() {
+        assert_eq!(direct_answer(&req(r#"{"op":"direct_signal"}"#)), None);
+        // Eine nicht-Text-Answer ist keine: sie haette `set_remote_description`
+        // ohnehin abgelehnt, aber die Fehlermeldung hier ist eindeutiger.
+        assert_eq!(direct_answer(&req(r#"{"op":"direct_signal","params":{"answer":7}}"#)), None);
     }
 }

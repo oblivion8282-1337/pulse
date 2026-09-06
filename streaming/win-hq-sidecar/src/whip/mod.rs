@@ -266,7 +266,10 @@ fn verbindung_ueberwachen(pc: &Arc<RTCPeerConnection>) {
 /// nicht von Bandbreite. Die beiden Meldungen unterscheiden sich NUR im
 /// Ereignisnamen und im Wortlaut der Log-Zeile — das Ereignis selbst wird
 /// deshalb an einer Stelle abgesetzt.
-fn remb_auswerten(
+///
+/// `pub(crate)`, weil der Direktpfad (`crate::direct`) denselben RTCP-Loop
+/// mit derselben REMB-Einordnung fährt — nur die Lesestelle ist eine andere.
+pub(crate) fn remb_auswerten(
     wacht: &mut pulse_whip::bandbreite::BandbreitenWacht,
     bps: f32,
     ziel_kbps: u32,

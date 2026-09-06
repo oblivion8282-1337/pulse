@@ -50,7 +50,7 @@ const STOP_JOIN_TIMEOUT: Duration = Duration::from_secs(13);
 #[derive(Debug, Clone)]
 pub struct StreamSnapshot {
     pub running: bool,
-    pub state: &'static str, // "idle" | "starting" | "live" | "error" | "stopped"
+    pub state: &'static str, // "idle" | "wartend" | "starting" | "live" | "error" | "stopped"
     pub fps: Option<f64>,
     pub uptime_s: Option<f64>,
     pub argv_redacted: Option<Vec<String>>,
@@ -149,6 +149,14 @@ pub struct StartParams {
     /// Antworten geben — die Bildpunkte trügen die eine, die Metadaten die
     /// andere.
     pub schirm: Option<crate::system::hdr::SchirmFarbe>,
+    /// Direktpfad statt Server-Push (`"direct": true` im Request, Aufbau in
+    /// `crate::direct`). Ändert den Start, nicht das Streaming: der
+    /// Controller geht in den Wartezustand und wartet auf `direct_offer`;
+    /// erst die verbundene PeerConnection startet die Pipeline über
+    /// [`StreamController::pipeline_starten`]. Der Weg AB HIER ist der
+    /// übliche — deshalb trägt dieses Feld nur den Startzustand und taucht
+    /// in keiner Pipeline-Entscheidung auf.
+    pub direct: bool,
 }
 
 impl StartParams {
@@ -174,6 +182,11 @@ struct Inner {
     stop_tx: Option<Sender<()>>,
     worker: Option<JoinHandle<()>>,
     started_at: Option<Instant>,
+    /// Parameter des wartenden Direkt-Streams — im Direktmodus startet der
+    /// Worker erst mit [`StreamController::pipeline_starten`] und braucht
+    /// sie dann; bis dahin sind sie die EINE Quelle für die Aushandlung
+    /// (`direct::Sitzung::anbieten`).
+    pending_direct: Option<StartParams>,
 }
 
 impl StreamController {
@@ -185,6 +198,7 @@ impl StreamController {
                 stop_tx: None,
                 worker: None,
                 started_at: None,
+                pending_direct: None,
             }),
         })
     }
@@ -204,8 +218,32 @@ impl StreamController {
             return Err(anyhow!("a stream is already running; stop it first"));
         }
 
-        let (stop_tx, stop_rx) = channel();
         let argv = build_argv_redacted(&params);
+
+        // Direktmodus: KEIN Worker, KEINE Aufnahme — der Controller geht in
+        // den Wartezustand und die Sitzung (`crate::direct`) beantwortet das
+        // Angebot des Players. Erst `pipeline_starten` (PC `Connected`)
+        // bringt die gewohnte `starting`→`live`-Maschinerie in Gang.
+        if params.direct {
+            inner.snapshot = StreamSnapshot {
+                running: true,
+                state: "wartend",
+                fps: None,
+                uptime_s: Some(0.0),
+                argv_redacted: Some(argv.clone()),
+            };
+            inner.pending_direct = Some(params);
+            inner.stop_tx = None;
+            inner.worker = None;
+            inner.started_at = None;
+            // state-Event sofort, ohne den Mutex gehalten zu haben.
+            drop(inner);
+            emit_state("wartend", true, 0.0);
+            return Ok(argv);
+        }
+        inner.pending_direct = None; // kein Rest vom Vorigen in den Server-Pfad
+
+        let (stop_tx, stop_rx) = channel();
 
         inner.snapshot = StreamSnapshot {
             running: true,
@@ -238,11 +276,80 @@ impl StreamController {
         Ok(argv)
     }
 
+    /// Direktmodus: die wartende Pipeline tatsächlich starten — gerufen von
+    /// der Sitzung, sobald die PeerConnection `Connected` meldet. Derselbe
+    /// Rumpf wie im Server-Zweig von [`start`](Self::start): Stop-Kanal,
+    /// Slot-Anmeldung, Worker, `starting`-Event.
+    pub fn pipeline_starten(&self) -> Result<()> {
+        let mut inner = self.inner.lock().unwrap();
+        if !inner.snapshot.running || inner.snapshot.state != "wartend" {
+            return Err(anyhow!(
+                "kein wartender Direkt-Stream (running={}, state={})",
+                inner.snapshot.running,
+                inner.snapshot.state
+            ));
+        }
+        let Some(params) = inner.pending_direct.take() else {
+            return Err(anyhow!("kein wartender Direkt-Stream in der Warte-Zuweisung"));
+        };
+
+        let (stop_tx, stop_rx) = channel();
+        inner.snapshot.state = "starting";
+        inner.snapshot.uptime_s = Some(0.0);
+        inner.started_at = Some(Instant::now());
+        inner.stop_tx = Some(stop_tx);
+        // Slot-Anmeldung erst mit der Aufnahme — im Wartezustand nimmt der
+        // Schirm ja noch nichts auf, die Fernsteuerung findet zu dem Slot
+        // also noch keine Quelle (`remote_input::ziel`).
+        crate::remote_input::ziel::strom_gestartet(params.slot);
+
+        let worker = thread::Builder::new()
+            .name("stream-pipeline".into())
+            .spawn(move || run_pipeline(params, stop_rx))
+            .context("spawn stream-pipeline thread")?;
+        inner.worker = Some(worker);
+        drop(inner);
+        emit_state("starting", true, 0.0);
+        Ok(())
+    }
+
+    /// Direktmodus, nur Teardown-Weg: zurück in den Wartezustand statt
+    /// `stopped` — der Stream lebt als Bereitschaft weiter, das nächste
+    /// Angebot darf kommen. Emitted den `wartend`-State-Event selbst.
+    pub fn wieder_wartend(&self) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.snapshot = StreamSnapshot {
+            running: true,
+            state: "wartend",
+            fps: None,
+            uptime_s: Some(0.0),
+            argv_redacted: inner.snapshot.argv_redacted.clone(),
+        };
+        inner.started_at = None;
+        inner.stop_tx = None;
+        inner.worker = None;
+        drop(inner);
+        emit_state("wartend", true, 0.0);
+    }
+
+    /// Direktmodus: die Parameter des wartenden Streams — die EINE Quelle
+    /// für die Aushandlung (`direct::Sitzung::anbieten`). `None` = nichts
+    /// wartet.
+    pub fn wartende_direct_params(&self) -> Option<StartParams> {
+        let inner = self.inner.lock().unwrap();
+        inner.pending_direct.clone()
+    }
+
     pub fn stop(&self) -> Result<()> {
         let mut inner = self.inner.lock().unwrap();
         if !inner.snapshot.running {
             return Ok(()); // No-op; aufrufer-seitig ist das idempotent.
         }
+        // Der Wartezustand stirbt mit dem Stream — die wartenden Parameter
+        // dürfen einen `stop` NICHT überleben (anders als [`wieder_wartend`],
+        // das sie für die Bereitschaft bewusst stehen lässt): danach bedient
+        // kein `direct_offer` mehr einen toten Stream.
+        inner.pending_direct = None;
         if let Some(tx) = inner.stop_tx.take() {
             let _ = tx.send(());
         }
@@ -369,6 +476,10 @@ impl StreamController {
 
 fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
     let ctrl = StreamController::singleton();
+    // Vor dem `catch_unwind` gelesen — `params` wandert als Ganzes in die
+    // Schließung, der Modus muss aber im Auswertungs-Tail unten noch
+    // bekannt sein.
+    let direct = params.direct;
     // Eine Vollbild-Anforderung, die nach dem letzten Bild des vorigen Streams
     // eintraf, gehoert nicht diesem hier (Begruendung an `keyframe::reset`).
     crate::keyframe::reset();
@@ -470,13 +581,24 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
     let error_msg = result.err().map(|e| format!("{e:#}"));
     let had_error = error_msg.is_some();
     ctrl.worker_finished(error_msg);
-    // Nach einem Fehler den Prozess geordnet beenden (Sentinel läuft HINTER
-    // den error-Events durch den Writer) — Begründung: `events::request_exit`.
-    // Beim regulären Ende übernimmt das der `stop`-Op (`exit_after`).
+    // Direktmodus: das Ende der Pipeline ist das Ende des Stroms, NICHT des
+    // Prozesses — die Sitzung (`crate::direct`) schließt den PC, kehrt nach
+    // wartend zurück und erlaubt das nächste Angebot. Auch ein Fehler hier
+    // (Encoder/Capture) lebt in seinen error-Events; die Bereitschaft bleibt.
+    // Der Exit nach Fehler bleibt dem Server-Pfad vorbehalten: dort spawnt
+    // Electron je Stream einen frischen Sidecar; den Wartezustand per Exit
+    // zu beenden, würde die Direkt-Sitzung wegen eines Einzelfehlers
+    // abschalten.
+    if direct {
+        crate::direct::sitzung().pipeline_beendet();
+    } else if had_error {
+        events::request_exit();
+    }
     // WICHTIG: `had_error` deckt auch den source_closed-Fall ab (Spiel
     // beendet → `SOURCE_CLOSED_MARKER`-Err aus der Capture): worker_finished
     // mappt den zwar auf einen SAUBEREN Stop, aber ein `stop`-Op kommt nie —
-    // ohne diesen Exit bliebe der Prozess für immer stehen.
+    // ohne diesen Exit bliebe der Prozess für immer stehen. Im Direktmodus
+    // trifft das nicht zu: dort wartet der Prozess bewusst weiter.
     if had_error {
         events::request_exit();
     }
@@ -490,4 +612,94 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> &str {
         .copied()
         .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
         .unwrap_or("<non-string panic payload>")
+}
+
+#[cfg(test)]
+mod wartend_tests {
+    use super::*;
+
+    /// Der Controller ist ein Singleton — zwei Tests, die ihn anfassen,
+    /// würden sich gegenseitig den Zustand umschreiben. (Dasselbe Muster wie
+    /// die SERIELL-Wachen in `keyframe`.)
+    static SERIELL: Mutex<()> = Mutex::new(());
+
+    fn direkte_params() -> StartParams {
+        StartParams {
+            profile: &crate::profiles::BASELINE,
+            profile_name: "Test".into(),
+            channel_id: "direct".into(),
+            token: String::new(),
+            push_url: crate::direct::SITZUNG_URL.into(),
+            capture: CaptureSource::PrimaryMonitor,
+            slot: None,
+            audio: None,
+            override_codec: None,
+            override_bitrate_kbps: None,
+            override_fps: None,
+            override_resolution: None,
+            ten_bit: false,
+            hdr: false,
+            schirm: None,
+            show_cursor: true,
+            av_offset_ms: 0,
+            direct: true,
+        }
+    }
+
+    /// Der Direkt-Start geht in die BEREITSCHAFT, nicht in einen Worker:
+    /// `wartend` + `running`, keine Aufnahme — die Parameter liegen bereit
+    /// für die Aushandlung. Erst `pipeline_starten` (PC `Connected`) dreht
+    /// den Stream hoch; das spawnt einen echten Worker und gehört deshalb
+    /// NICHT in einen Test.
+    #[test]
+    fn direkter_start_landet_im_wartezustand() {
+        let _wache = SERIELL.lock().unwrap_or_else(|e| e.into_inner());
+        let ctrl = StreamController::singleton();
+        ctrl.start(direkte_params()).expect("der Wartestart wird angenommen");
+        let snapshot = ctrl.state();
+        assert!(snapshot.running);
+        assert_eq!(snapshot.state, "wartend");
+        assert!(
+            ctrl.wartende_direct_params().is_some(),
+            "die Aushandlung braucht die wartenden Parameter"
+        );
+        // Doppelstart bleibt verweigert — auch im Wartezustand.
+        let fehler = ctrl.start(direkte_params()).unwrap_err().to_string();
+        assert!(fehler.contains("already running"), "{fehler}");
+        // `stop` beendet alles — idempotent, auch ohne jemals gestarteten
+        // Worker (der Wartezustand hat keinen).
+        ctrl.stop().expect("stop aus dem Wartezustand ist ein No-op auf dem Worker");
+        assert!(!ctrl.state().running);
+    }
+
+    /// Nach dem Teardown kehrt der Controller als Bereitschaft zurück:
+    /// `wieder_wartend` setzt denselben Zustand wie der Start — das ist der
+    /// Vertrags-Punkt „direct_stop … returns the sidecar to the wartend
+    /// state".
+    #[test]
+    fn wieder_wartend_ist_die_bereitschaft() {
+        let _wache = SERIELL.lock().unwrap_or_else(|e| e.into_inner());
+        let ctrl = StreamController::singleton();
+        ctrl.start(direkte_params()).expect("Wartestart");
+        ctrl.wieder_wartend();
+        let snapshot = ctrl.state();
+        assert!(snapshot.running);
+        assert_eq!(snapshot.state, "wartend");
+        assert!(
+            ctrl.wartende_direct_params().is_some(),
+            "die Parameter überleben den Teardown — sonst könnte kein neues Angebot kommen"
+        );
+        ctrl.stop().unwrap();
+    }
+
+    /// Ohne Wartestart gibt `pipeline_starten` keine Pipeline frei — das ist
+    /// die Wache dagegen, dass ein PC-Zustands-Callback der Fernsteuerung in
+    /// einen falschen Stream hineinfährt.
+    #[test]
+    fn pipeline_starten_ohne_warten_verweigert() {
+        let _wache = SERIELL.lock().unwrap_or_else(|e| e.into_inner());
+        let ctrl = StreamController::singleton();
+        assert!(ctrl.wartende_direct_params().is_none());
+        assert!(ctrl.pipeline_starten().is_err());
+    }
 }

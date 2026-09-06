@@ -201,9 +201,18 @@ pub struct Request {
     #[serde(default)]
     pub direct: Option<bool>,
     /// SDP-Answer des Hosts fuer `direct_signal` (Zeile fuer Zeile der
-    /// Antwort des Sidecars). Nur bei diesem Op gelesen.
+    /// Antwort des Sidecars). Nur bei diesem Op gelesen — flach oder in der
+    /// `params`-Huelse (s. [`Request::params`]).
     #[serde(default)]
     pub answer: Option<String>,
+    /// Nutzlast-Huelse der Direkt-Ops: die Schnittstellen-Vereinbarung zeigt
+    /// `direct_start`/`direct_signal` als `{"op":…,"params":{…}}`, waehrend
+    /// der Rest dieses Protokolls seine Felder flach traegt. Beides zu
+    /// akzeptieren kostet hier nichts — `serde` liesse ein fremdes `params`
+    /// sonst still fallen, und `direct_signal` kaeme ohne seine Answer an.
+    /// Gedeutet wird die Huelse nur dort (s. `app::requests::direct_answer`).
+    #[serde(default)]
+    pub params: Option<serde_json::Value>,
 }
 
 /// Alles, was zur Laufzeit umgeschaltet werden kann.

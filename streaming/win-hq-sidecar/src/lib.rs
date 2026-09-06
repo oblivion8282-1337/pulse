@@ -7,6 +7,7 @@
 pub mod ablage;
 pub mod audio;
 pub mod capture;
+pub mod direct;
 pub mod dispatch;
 pub mod encode;
 pub mod env;
