@@ -148,6 +148,12 @@ export class NativePlayerSession {
    *  WHEP-URL starten, der Offer-Umlauf läuft über die Fernsteuer-Sitzung
    *  (`$lib/remote/direktbild`); das Fenster verhält sich sonst identisch. */
   readonly #modus: 'whep' | 'direkt';
+  /** Öffentlich für den Kachel-Abgleich (`HqStreamKeepAlive`): ein
+   *  Direktfenster hängt an keiner Kachel und darf vom `closeExcept`-Lauf
+   *  nicht mitgeräumt werden. */
+  get direkt(): boolean {
+    return this.#modus === 'direkt';
+  }
 
   constructor(channelId: string, userId: string, slot = 0, title?: string, modus: 'whep' | 'direkt' = 'whep') {
     this.channelId = channelId;
@@ -527,12 +533,21 @@ export const nativePlayerSessions = {
   /** Schliesst jede Sitzung, deren Schluessel NICHT in `wanted` steht — die
    *  schliessende Haelfte von `hqStreams.reconcile()`, ohne dessen oeffnende
    *  Haelfte: geoeffnet wird ausschliesslich vom `WhepPlayer`-Effect, gated auf
-   *  `useNativePlayer` + `isPlayerAvailable()`. */
+   *  `useNativePlayer` + `isPlayerAvailable()`.
+   *
+   *  **Direktfenster (P2P) werden verschont** — sie haengen an keiner Kachel
+   *  und sollen es auch nicht: ihr Bild kommt nicht vom Server, es gibt also
+   *  nie einen Strom, der eine Kachel fuer sie fuellt. Ihr Leben gehoert der
+   *  Fernsteuer-Sitzung (`$lib/remote/direktbild`), nicht dieser Abgleichung.
+   *  Ohne die Ausnahme schloss der Aufraeumer das frisch geoeffnete
+   *  P2P-Fenster jede halbe Sekunde wieder — gemessen 2026-09-06. */
   closeExcept(wanted: { channelId: string; userId: string; slot: number }[]): void {
     const wantedKeys = new Set(wanted.map((w) => keyOf(w.channelId, w.userId, w.slot)));
     for (const k of [...registry.keys()]) {
       if (!wantedKeys.has(k)) {
-        registry.get(k)!.close();
+        const s = registry.get(k)!;
+        if (s.direkt) continue;
+        s.close();
         registry.delete(k);
       }
     }
