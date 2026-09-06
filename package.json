@@ -10,6 +10,7 @@
     "dev:remote:web": "node scripts/dev-remote.mjs --no-electron",
     "dev:remote:logs": "node scripts/dev-remote.mjs --logs",
     "dev:sync": "bash scripts/dev-sync.sh",
+    "dev:sync:pull": "bash scripts/dev-sync.sh --pull",
     "dev:sync:watch": "bash scripts/dev-sync.sh --watch"
   },
   "engines": {
