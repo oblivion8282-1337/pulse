@@ -2742,8 +2742,6 @@
   "speicher_archiv_setzen_fehler": "Das Archiv-Laufwerk konnte nicht hinterlegt werden: {fehler}",
   "speicher_archiv_trennen_fehler": "Das Archiv-Laufwerk konnte beim Server nicht abgemeldet werden — es bleibt vorerst verbunden. Bitte noch einmal versuchen: {fehler}",
   "speicher_archiv_unmarkieren": "Nicht mehr Archiv",
-  "speicher_ausstehend": "{anzahl} ausstehend",
-  "speicher_ausstehend_keine": "Alles gesichert",
   "speicher_beschreibung": "Verbinde ein Laufwerk, auf dem deine verschlüsselten Kanäle und Dateien liegen. Der Pulse-Server sieht den Inhalt nie.",
   "speicher_handgriff_neu_anmelden": "Neu anmelden",
   "speicher_handgriff_ordner_waehlen": "Ordner neu wählen",
@@ -2758,7 +2756,6 @@
   "speicher_zuletzt_gesichert_nie": "Noch nichts gesichert",
   "speicher_zustand_anmeldung_abgelaufen": "Anmeldung abgelaufen",
   "speicher_zustand_gut": "Verbunden",
-  "speicher_zustand_hinterher": "Sichert gerade",
   "speicher_zustand_kein_platz": "Zu wenig Platz",
   "speicher_zustand_laufwerk_weg": "Laufwerk nicht erreichbar",
   "standplatz_banner_clear_failed": "Freigabeliste konnte nicht geleert werden. Bitte erneut versuchen.",
@@ -3220,11 +3217,6 @@
   "sicherung_hinweis_text": "Um deine bisherigen Nachrichten zu sehen, verbinde dein Cloud-Laufwerk — sie liegen verschlüsselt in deinem Archiv.",
   "sicherung_hinweis_knopf": "Sicherung verbinden",
   "lightbox_download": "Bild speichern",
-  "wiederherstellung_toast_kein_archiv": "Es war kein Archiv hinterlegt — deine Laufwerke sind zurück, dein Verlauf konnte nicht geholt werden.",
-  "wiederherstellung_toast_fehler": "Der Verlauf konnte nicht geholt werden: {grund}",
-  "wiederherstellung_toast_leer": "Im Archiv lag kein Verlauf. Deine Laufwerke sind zurück.",
-  "wiederherstellung_toast_erfolg": "{n} Nachrichten zurückgeholt.",
-  "wiederherstellung_toast_uebersprungen": " ({n} unlesbar übersprungen)",
   "blockliste_entsperren_fehler": "Entsperren fehlgeschlagen",
   "blockliste_leer": "Niemand blockiert.",
   "webauthn_abgebrochen": "Abgebrochen oder Zeitüberschreitung — bitte erneut versuchen.",
@@ -3303,5 +3295,6 @@
   "gast_kick_link_mit": "Entfernen und Link entwerten",
   "gast_kick_link_hinweis": "Der Link gilt danach für niemanden mehr — alle Gäste verlieren den Zugang.",
   "gast_links_kopieren": "Kopieren",
-  "gast_stream_fehler": "Die Übertragung liess sich nicht öffnen."
+  "gast_stream_fehler": "Die Übertragung liess sich nicht öffnen.",
+  "wiederherstellung_toast_verlauf_sicherung": "Deine Nachrichten holst du über die Sicherung zurück — Laufwerk verbinden und Sicherungs-Passwort eingeben (Einstellungen → Sicherung)."
 }

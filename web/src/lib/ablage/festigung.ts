@@ -6,12 +6,11 @@
  * Verlust, derselbe Fehler wie beim Bughunt 2026-08-28, dieselbe Regel wie
  * `verlaufSpeichernPflicht`).
  *
- * Vorbild ist `archivSchreibweg.ts` (Auftrag E8): ein Eintrag je Datei, kein
- * Wasserzeichen (jeder Zwischenlager-Eintrag wird bei jedem Durchlauf erneut
- * versucht, keiner faellt unter den Tisch, weil ein juengerer erfolgreich
- * war), Backoff mit Deckel, Head-of-Line-Schutz (ein haengender Eintrag
- * blockiert die anderen nicht — `Promise.allSettled` statt einer Schleife,
- * die bei der ersten Ablehnung abbricht).
+ * Ein Eintrag je Datei, kein Wasserzeichen (jeder Zwischenlager-Eintrag wird
+ * bei jedem Durchlauf erneut versucht, keiner faellt unter den Tisch, weil ein
+ * juengerer erfolgreich war), Backoff mit Deckel, Head-of-Line-Schutz (ein
+ * haengender Eintrag blockiert die anderen nicht — `Promise.allSettled` statt
+ * einer Schleife, die bei der ersten Ablehnung abbricht).
  *
  * **Nur das Besitzer-Geraet ruft das auf.** Es erkennt sich selbst daran,
  * dass es lokal eine `AblageVerbindung` mit `fuerGuild === guildId` hat

@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-06.4",
+      "date": "2026-09-06",
+      "style": "Sachlich",
+      "title": "Sicherung: ein Weg für deine Nachrichten",
+      "intro": "Deine Nachrichten werden jetzt nur noch über die Sicherung gespiegelt — Laufwerk verbinden, Sicherungs-Passwort setzen, fertig. Das zweite System mit den vielen kleinen Einzeldateien schreibt nicht mehr.",
+      "items": [
+        "Der Nachrichten-Verlauf liegt gebündelt und verschlüsselt in wenigen Segmentdateien statt als eine Datei je Nachricht — dein Cloud-Ordner bleibt klein und übersichtlich.",
+        "Der Wiederherstellungscode holt weiterhin deine Laufwerk-Verbindungen zurück. Die Nachrichten selbst kommen über die Sicherung: gleiches Laufwerk verbinden, Sicherungs-Passwort eingeben.",
+        "Bereits geschriebene Einzeldateien in deinem Ordner bleiben unangetastet liegen — ihr Inhalt steckt doppelt da und kann jederzeit von Hand aufgeräumt werden."
+      ]
+    },
+    {
       "id": "2026-09-06.3",
       "date": "2026-09-06",
       "style": "Sachlich",

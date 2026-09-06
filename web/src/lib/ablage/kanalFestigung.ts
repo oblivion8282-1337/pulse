@@ -22,9 +22,8 @@
  * jede Gruppennachricht bereits unter `mitKontosperre` (s. dort). Diese Datei
  * baut keine eigene Sperre und keinen eigenen Postfach-/Krypto-Zugriff.
  *
- * **Backoff mit Deckel statt Wasserzeichen-Warteschlange**: anders als
- * `archivSchreibweg.ts` (Vorbild für diese Datei) gibt es hier keine
- * Warteschlange einzelner Einträge, die getrennt scheitern oder gelingen
+ * **Backoff mit Deckel statt Wasserzeichen-Warteschlange**: es gibt hier
+ * keine Warteschlange einzelner Einträge, die getrennt scheitern oder gelingen
  * könnten — ein Kanal hat genau EIN Ziel (sein Laufwerk), und `nachziehen()`
  * arbeitet den gesamten offenen Postfach-Bestand dieses Kanals in einem
  * Rutsch ab. Ein Fehlschlag betrifft deshalb den ganzen Durchlauf, nicht

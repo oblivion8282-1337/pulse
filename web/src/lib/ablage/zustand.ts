@@ -16,8 +16,6 @@
 export type VerbindungsZustand =
 	/** Alles gesichert, nichts steht an. */
 	| 'gut'
-	/** Es laeuft, aber es steht noch etwas aus. */
-	| 'hinterher'
 	/** Der Zugang ist abgelaufen und liess sich nicht auffrischen. */
 	| 'anmeldung-abgelaufen'
 	/** Ziel nicht erreichbar: Ordner geloescht, Freigabe entzogen. */
@@ -34,8 +32,6 @@ export interface VerbindungsRohwerte {
 	freieBytes: number | null;
 	/** Was das Sichern des Ausstehenden ungefaehr braucht. */
 	benoetigteBytes: number;
-	/** Wie viele Eintraege noch nicht gesichert sind. */
-	ausstehend: number;
 }
 
 /**
@@ -49,8 +45,7 @@ export interface VerbindungsRohwerte {
  *    noch galt, also womoeglich veraltet. Erst neu anmelden, dann weitersehen.
  * 2. `laufwerk-weg` — ohne Ziel nuetzt der beste Zugang nichts.
  * 3. `kein-platz` — Zugang und Ziel stehen, nur das Schreiben scheitert.
- * 4. `hinterher` — es laeuft, es dauert nur.
- * 5. `gut`.
+ * 4. `gut`.
  *
  * `kein-platz` wird nur gemeldet, wenn der Anbieter den freien Platz
  * wirklich nennt. Aus einem fehlenden Wert „vermutlich voll" zu machen waere
@@ -61,7 +56,6 @@ export function stufeEin(roh: VerbindungsRohwerte): VerbindungsZustand {
 	if (roh.anmeldungAbgelaufen) return 'anmeldung-abgelaufen';
 	if (roh.laufwerkWeg) return 'laufwerk-weg';
 	if (roh.freieBytes !== null && roh.benoetigteBytes > roh.freieBytes) return 'kein-platz';
-	if (roh.ausstehend > 0) return 'hinterher';
 	return 'gut';
 }
 

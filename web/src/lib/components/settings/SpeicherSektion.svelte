@@ -32,7 +32,6 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { ablageVerbindungen, type AblageVerbindung } from '$lib/ablage/verbindungen.svelte.ts';
   import { leereRohwerte, pruefeZustand } from '$lib/ablage/speicherPruefung.ts';
-  import { archivEintraegeAusstehend } from '$lib/ablage/archivSchreibweg.ts';
   import { archivZiel } from '$lib/ablage/archivZiel.ts';
   import {
     gleicheArchivAdresseAb,
@@ -55,11 +54,6 @@
   function rohwerteFuer(v: AblageVerbindung): VerbindungsRohwerte {
     const basis = leereRohwerte();
     basis.anmeldungAbgelaufen = v.anmeldungAbgelaufen ?? false;
-    // Was noch aussteht, weiss nur die Archiv-Warteschlange — und nur die
-    // markierte Verbindung bekommt etwas ab. Bei allen anderen bleibt die
-    // Zahl bei null, statt dieselbe Zahl mehrfach zu zeigen und damit einen
-    // Rückstand zu erfinden, den es nur einmal gibt.
-    if (v.istArchiv) basis.ausstehend = archivEintraegeAusstehend();
     return { ...basis, ...rohwerteNachId[v.id] };
   }
 

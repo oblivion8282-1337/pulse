@@ -24,23 +24,6 @@ import {
 	ablageVerbindungen,
 	type AblageAnbieterArt,
 } from '../ablage/verbindungen.svelte.ts';
-import { holeVerlaufAusArchiv, type RueckwegBericht } from '../ablage/archivRueckweg.ts';
-
-/**
- * Wie der Verlaufs-Teil des Einlösens ausgegangen ist.
- *
- * **Drei Fälle, nicht zwei — und das ist der Punkt.** Die erste Fassung
- * lieferte `RueckwegBericht | null`, und die Oberfläche machte aus `null`
- * die Meldung „es war kein Archiv hinterlegt". Das war eine von DREI
- * möglichen Ursachen, als Tatsache behauptet: es kann auch das Laufwerk
- * unerreichbar oder das Entschlüsseln fehlgeschlagen sein. Beim ersten
- * echten Lauf am 2026-09-01 trat genau das ein — und die Meldung schickte
- * die Fehlersuche in die falsche Richtung.
- */
-export type VerlaufsErgebnis =
-	| { art: 'kein-archiv' }
-	| { art: 'fehler'; grund: string }
-	| { art: 'ok'; bericht: RueckwegBericht };
 import { aktuellesKonto } from '../verlauf/konto.ts';
 import { putRecoveryPackage, getRecoveryPackage, istKeinPaeckchenFehler } from '../api/recovery-package';
 
@@ -111,13 +94,14 @@ export async function erzeugeUndSichere(): Promise<string> {
 /**
  * Löst einen vorgelegten Code ein: holt das Päckchen vom Server, öffnet es
  * und schreibt die enthaltenen Verbindungen in den lokalen Store zurück.
- * Wirft immer `EinloeseFehler` mit einem der drei Fälle — nie eine rohe
- * `ApiError`/`WiederherstellungsFehler`, damit die Oberfläche nicht selbst
- * zwischen den Fehlertypen der beiden Schichten unterscheiden muss.
+ * Der Nachrichten-Verlauf kommt NICHT hiermit zurück, sondern über die
+ * Sicherung (Ordner + Passwort, `lib/sicherung`) — seit der Sicherung der
+ * einzige Backup-Weg ist. Wirft immer `EinloeseFehler` mit einem der drei
+ * Fälle — nie eine rohe `ApiError`/`WiederherstellungsFehler`, damit die
+ * Oberfläche nicht selbst zwischen den Fehlertypen der beiden Schichten
+ * unterscheiden muss.
  */
-export async function loeseEin(
-	eingabe: string,
-): Promise<{ anzahl: number; verlauf: VerlaufsErgebnis }> {
+export async function loeseEin(eingabe: string): Promise<{ anzahl: number }> {
 	const kontoId = pruefeAngemeldet();
 
 	let bytes: Uint8Array;
@@ -171,35 +155,5 @@ export async function loeseEin(
 		});
 	}
 
-	// **Und jetzt der eigentliche Zweck: den Verlauf zurückholen.**
-	// Ohne diesen Schritt endete das Einlösen mit geöffneten Laufwerken und
-	// einem leeren Chat — die Verbindungen waren da, der Grund, sie zu haben,
-	// nicht. Bis zum 2026-09-01 war das so.
-	//
-	// Ein Fehlschlag hier wirft NICHT: die Verbindungen sind zu diesem
-	// Zeitpunkt bereits sicher abgelegt, und ein geworfener Fehler liesse den
-	// Nutzer glauben, das Einlösen sei gescheitert — er würde es wiederholen,
-	// mit demselben Ergebnis. Der Bericht sagt stattdessen, was zurückkam;
-	// die Oberfläche kann daraus „0 Nachrichten" anzeigen und zum erneuten
-	// Versuch auffordern.
-	const archiv = inhalt.verbindungen.find((v) => v.istArchiv === true);
-	let verlauf: VerlaufsErgebnis;
-	if (archiv === undefined) {
-		verlauf = { art: 'kein-archiv' };
-	} else {
-		try {
-			const speicher = await ablageVerbindungen.dateiSpeicherFür(archiv.id);
-			verlauf =
-				speicher === null
-					? { art: 'fehler', grund: 'Das Archiv-Laufwerk liess sich nicht öffnen.' }
-					: { art: 'ok', bericht: await holeVerlaufAusArchiv(speicher, kontoId) };
-		} catch (fehler) {
-			verlauf = {
-				art: 'fehler',
-				grund: fehler instanceof Error ? fehler.message : String(fehler),
-			};
-		}
-	}
-
-	return { anzahl: inhalt.verbindungen.length, verlauf };
+	return { anzahl: inhalt.verbindungen.length };
 }

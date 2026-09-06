@@ -13,7 +13,6 @@
    * erscheint die Zahl hier ohne weitere Änderung an dieser Datei.
    */
   import CheckCircleIcon from '@lucide/svelte/icons/check-circle';
-  import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
   import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
   import HardDriveIcon from '@lucide/svelte/icons/hard-drive';
   import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
@@ -58,14 +57,12 @@
   // eine Zeile statt einer fünffach gestuften Bedingung.
   const ZUSTAND_TEXT: Record<VerbindungsZustand, () => string> = {
     gut: m.speicher_zustand_gut,
-    hinterher: m.speicher_zustand_hinterher,
     'anmeldung-abgelaufen': m.speicher_zustand_anmeldung_abgelaufen,
     'laufwerk-weg': m.speicher_zustand_laufwerk_weg,
     'kein-platz': m.speicher_zustand_kein_platz,
   };
   const ZUSTAND_FARBE: Record<VerbindungsZustand, string> = {
     gut: 'text-emerald-500',
-    hinterher: 'text-amber-500',
     'anmeldung-abgelaufen': 'text-destructive',
     'laufwerk-weg': 'text-destructive',
     'kein-platz': 'text-destructive',
@@ -93,8 +90,6 @@
       <p class="flex items-center gap-1 text-xs {zustandFarbe}" data-testid="speicher-zustand">
         {#if zustand === 'gut'}
           <CheckCircleIcon class="size-3.5" />
-        {:else if zustand === 'hinterher'}
-          <RefreshCwIcon class="size-3.5" />
         {:else if zustand === 'kein-platz'}
           <CircleAlertIcon class="size-3.5" />
         {:else}
@@ -115,13 +110,6 @@
           {m.speicher_zuletzt_gesichert({ datum: datum(verbindung.zuletztGesichertAm) })}
         {:else}
           {m.speicher_zuletzt_gesichert_nie()}
-        {/if}
-      </p>
-      <p class="text-xs text-muted-foreground">
-        {#if rohwerte.ausstehend > 0}
-          {m.speicher_ausstehend({ anzahl: rohwerte.ausstehend })}
-        {:else}
-          {m.speicher_ausstehend_keine()}
         {/if}
       </p>
       {#if rohwerte.freieBytes !== null}
