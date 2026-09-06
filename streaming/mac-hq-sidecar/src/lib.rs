@@ -9,6 +9,7 @@ pub mod berechtigung;
 pub mod caps;
 pub mod capture;
 pub mod dispatch;
+pub mod direct;
 pub mod encode;
 pub mod events;
 pub(crate) mod keyframe;
