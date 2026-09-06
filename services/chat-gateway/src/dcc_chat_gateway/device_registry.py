@@ -356,10 +356,9 @@ class _DeviceRegistryMixin:
         try:
             self.device_set_busy(device_id, controller_user_id, socket)
             await self.publish_device_state(device_id)
-            log.info(
-                "device busy mark: Gerät %s belegt durch Nutzer %s",
-                device_id,
-                controller_user_id,
+            print(
+                f"BUSY-DEBUG: mark Gerät {device_id} durch Nutzer {controller_user_id}",
+                flush=True,
             )
         except Exception:  # noqa: BLE001  # pragma: no cover
             log.debug("device busy state not published", exc_info=True)
@@ -435,12 +434,12 @@ class _DeviceRegistryMixin:
         # außen nicht von einer laufenden Sitzung zu unterscheiden (beobachtet
         # 2026-09-06, P2P-Selbsttest).
         if device_id is None:
-            log.info(
-                "device busy release: nichts gefunden (Socket ohne Belegung) — offene Belegungen: %s",
-                list(self._device_busy_socket.keys()),
+            print(
+                f"BUSY-DEBUG: release ohne Treffer — offene Belegungen: {list(self._device_busy_socket.keys())}",
+                flush=True,
             )
             return
-        log.info("device busy release: Gerät %s wird frei", device_id)
+        print(f"BUSY-DEBUG: release Gerät {device_id}", flush=True)
         self.device_set_busy(device_id, None)
         await self.publish_device_state(device_id)
 
