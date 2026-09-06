@@ -42,6 +42,8 @@ import { KEINE_ANTWORT, remoteErrorMessage } from './fehlertexte';
 import { WachtSchalter, anfrageFrist, fehlerWacht, verbindungsWachtMitGnadenfrist } from './wachten';
 import { nachReclaimBehaupten } from './wiederaufnahme';
 import { VerworfeneAnfragen } from './verworfeneAnfragen';
+import { aktiverDirektPlatz } from '$lib/devices/wecken';
+import { direktbild } from './direktbild.svelte';
 
 export type RemotePhase = 'idle' | 'requesting' | 'incoming' | 'active';
 export type RemoteRole = 'controller' | 'host';
@@ -95,6 +97,15 @@ class RemoteSessionStore {
   error = $state<string | null>(null);
   /** Hat die Dauerfreigabe des Geräts geantwortet? Folgen: `geraeteanbindung.ts`. */
   selbsttaetig = $state(false);
+  /**
+   * **P2P-Wunsch dieser Sitzung** — das Bild geht direkt zum Steuernden, nicht
+   * über MediaMTX. Auf beiden Seiten gesetzt (der Wunsch reist in
+   * `remote_request` hin und wirkt auf beiden gleich): der Steuernde startet
+   * nach der Zusage die Player-Verhandlung (`direktbild.steuerndStart`), der
+   * Host bereitet die Sidecar-Beantwortung vor (`direktbild.hostBereit`) und
+   * legt den Platz seines wartenden Sidecars in die Zusage.
+   */
+  p2p = $state(false);
 
   /** Die drei Wachten der Sitzung (`wachten.ts`). */
   readonly #fehler = new WachtSchalter();
@@ -118,7 +129,7 @@ class RemoteSessionStore {
   readonly #verworfene = new VerworfeneAnfragen();
 
   // ── Controller-Seite ──────────────────────────────────────────────────────
-  request(channelId: string, hostUserId: string, slot = 0): void {
+  request(channelId: string, hostUserId: string, slot = 0, p2p = false): void {
     if (this.phase !== 'idle') return;
     this.error = null;
     let conn: GatewayConnection;
@@ -138,7 +149,14 @@ class RemoteSessionStore {
     // Verbindung nach einem Gateway-Neustart noch neu aufgebaut wurde.
     // Die Gerätekennung mit: sonst landet die Einladung auch auf anderen
     // Rechnern desselben Kontos (`geraeteanbindung.ts`).
-    if (!conn.sendRemoteRequest(channelId, hostUserId, geraet.geraetFuerAnfrage(channelId, hostUserId))) {
+    if (
+      !conn.sendRemoteRequest(
+        channelId,
+        hostUserId,
+        geraet.geraetFuerAnfrage(channelId, hostUserId),
+        p2p,
+      )
+    ) {
       this.error = m.remote_error_offline();
       return;
     }
@@ -147,6 +165,7 @@ class RemoteSessionStore {
     this.peerUserId = hostUserId;
     this.channelId = channelId;
     this.targetSlot = slot;
+    this.p2p = p2p;
     this.sessionId = null; // vergibt der Server, kommt gleich mit remote_pending
     this.phase = 'requesting';
     this.#watchErrors(); // Host offline / belegt → op:'error' abfangen
@@ -261,7 +280,7 @@ class RemoteSessionStore {
     // dem Klick stillgelegten Knöpfen, aus dem der Host dann nur noch durch
     // Neuladen herauskäme. Fehlgeschlagen heißt ohnehin „Anfrage tot": ist der
     // Socket zu, hat der Gateway sie abgeräumt (`cleanup_remote_on_disconnect`).
-    if (!this.#senden((c) => c.sendRemoteRespond(id, true))) {
+    if (!this.#senden((c) => c.sendRemoteRespond(id, true, this.p2p ? aktiverDirektPlatz() ?? undefined : undefined))) {
       this.error = m.remote_error_offline();
       this.#reset();
       return;
@@ -331,6 +350,7 @@ class RemoteSessionStore {
     fromUserId: string,
     deviceId: string | undefined,
     freigabe: boolean,
+    p2p = false,
   ): void {
     if (this.phase !== 'idle') return; // schon beschäftigt — Server-Gate (4054) deckt das ab
     // Kann dieser Rechner überhaupt ferngesteuert werden? Ohne Brücke
@@ -364,6 +384,7 @@ class RemoteSessionStore {
     this.channelId = channelId;
     this.peerUserId = fromUserId;
     this.targetSlot = 0; // Host-Seite: der Slot steht in jeder einzelnen Nachricht.
+    this.p2p = p2p;
     this.phase = 'incoming';
     // Auch der Host bekommt Frist und Fehler-Wacht: der Gateway räumt eine
     // unbeantwortete Anfrage nach 30 s ab, sagt das aber NUR dem Steuernden —
@@ -381,7 +402,7 @@ class RemoteSessionStore {
     }
   }
 
-  _response(sessionId: string, accepted: boolean): void {
+  _response(sessionId: string, accepted: boolean, slot?: number): void {
     // Eine Response ist nur zu erwarten, solange wir wirklich darauf warten:
     // Controller in 'requesting', Host in 'incoming'. Ein Duplikat/verspätetes
     // Echo im 'active'-Zustand würde sonst eine tote Session wiederbeleben.
@@ -401,9 +422,37 @@ class RemoteSessionStore {
     }
     this.phase = 'active';
     this.#watchVerbindung(sessionId);
+    // **Der Platz des Direktstroms** reist in der Zusage (P2P): der Host allein
+    // kennt ihn, eine Stromliste gibt es ohne Server-Stream nicht. Nur der
+    // Steuernde braucht ihn — der Host hat ihn ohnehin.
+    if (this.role === 'controller' && typeof slot === 'number') {
+      this.targetSlot = slot;
+    }
     // Das Fenster ist die FOLGE der Zusage, nicht ihre Voraussetzung — warum,
-    // steht in `fenster.ts`.
-    fensterZurSitzung(this.role, this.channelId, this.peerUserId, this.targetSlot);
+    // steht in `fenster.ts`. Im P2P-Modus öffnet die Direktverhandlung das
+    // Fenster SELBST (Direktmodus, ohne WHEP-URL) — der gewohnte Ruf würde
+    // einen Stream am Server anfordern, den es diesmal nicht gibt.
+    if (this.p2p && this.role === 'controller') {
+      void direktbild.steuerndStart(
+        sessionId,
+        this.targetSlot,
+        (kind, data) => this.#senden((c) => c.sendRemoteSignal(sessionId, kind, data)),
+        (meldung) => {
+          this.error = m.remote_direct_failed();
+          this.#reset();
+        },
+      );
+    } else {
+      fensterZurSitzung(this.role, this.channelId, this.peerUserId, this.targetSlot);
+    }
+    // **Host-Seite des Direktbilds:** die Beantwortung des Player-Offers
+    // scharfstellen. Der Steuernde sieht den Zustand an seiner eigenen
+    // Verhandlung; der Host hört nur auf die Sidecar-Ereignisse.
+    if (this.p2p && this.role === 'host') {
+      void direktbild.hostBereit(sessionId, (kind, data) =>
+        this.#senden((c) => c.sendRemoteSignal(sessionId, kind, data)),
+      );
+    }
     geraet.uebernahmeBeginnen(this.role, sessionId, this.peerUserId, this.selbsttaetig);
     // Den direkten Eingabekanal daneben aufbauen — auf der Verbindung DIESER
     // Sitzung, wie alles andere. Bis er steht, trägt der Serverweg; scheitert
@@ -508,6 +557,11 @@ class RemoteSessionStore {
     // Hängt an keinem der beiden davor — der Kommentar an `remoteVorrang.stop()`
     // begründet nur deren eigenen Vorrang vor P2P.
     remoteAblage.stop();
+    // Das Direktbild zuerst abbauen: seine Abbaurufe (Player-Fenster zu,
+    // Sidecar zurück in den Wartezustand) brauchen die Rollen- und
+    // Platz-Auskünfte, die unten fallen gelassen werden.
+    if (this.role === 'host') direktbild.hostEnde();
+    else direktbild.abraeumen(this.role);
     remoteP2P.stop();
     // „Alles loslassen beim Ende" (Wire-Spec) — hier, weil #reset der EINZIGE
     // Ausgang aus jeder Sitzung ist: Beenden, Ablehnung, Gegenüber weg,
@@ -523,6 +577,7 @@ class RemoteSessionStore {
     this.targetSlot = 0;
     this.#letzterSlot = 0;
     this.selbsttaetig = false;
+    this.p2p = false;
     this.#setConn(null);
     // `error` bleibt bewusst stehen: er wird oft im selben Zug gesetzt, in dem
     // hier aufgeräumt wird (Ablehnung, Zeitablauf), und `RemoteErrorToast` holt

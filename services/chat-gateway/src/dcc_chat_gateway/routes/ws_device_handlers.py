@@ -354,6 +354,15 @@ async def handle_wake(ctx: Any, msg: dict[str, Any]) -> None:
     monitor = msg.get("monitor")
     if isinstance(monitor, int) and 1 <= monitor <= MAX_MONITORS:
         frame["monitor"] = monitor
+    # **P2P-Wunsch.** Nur eine Markierung: sie sagt dem Gerät, dass der
+    # Steuernde das Bild DIREKT empfangen will und der Serverweg (WHIP→
+    # MediaMTX) diesmal nichts zu tun hat. Entscheidet hier nichts — die
+    # Berechtigung ist dieselbe REMOTE_CONTROL-Prüfung wie oben, und die
+    # Direktverbindung selbst wird später über die ganz normale Consent-
+    # Sitzung verhandelt (`remote_signal`), die ohne Zustimmung gar nicht
+    # erst fließt.
+    if msg.get("p2p") is True:
+        frame["p2p"] = True
     for sock in ziele:
         await send_to_socket(sock, frame)
 

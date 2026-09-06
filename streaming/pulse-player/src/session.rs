@@ -1,6 +1,7 @@
-//! Eine Wiedergabe-Sitzung: WHEP -> Jitter-Puffer -> Depacketisierung ->
-//! Decode. Laeuft vollstaendig im Tokio-Kontext und schickt fertige Bilder an
-//! den Fenster-Thread.
+//! Eine Wiedergabe-Sitzung: Quelle (WHEP oder direkter P2P-Weg,
+//! s. [`Quelle`]) -> Jitter-Puffer -> Depacketisierung -> Decode. Laeuft
+//! vollstaendig im Tokio-Kontext und schickt fertige Bilder an den
+//! Fenster-Thread.
 //!
 //! Die Reihenfolge ist der Kern des Ganzen. Chromium versteckt Puffer und
 //! Decoder-Wahl; hier ist beides sichtbar und zur Laufzeit einstellbar.
@@ -9,6 +10,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::sync::atomic::Ordering::Relaxed;
 
+use anyhow::Result;
 use tokio::sync::mpsc;
 
 use crate::decode::{DecodedFrame, VideoDecoder};
@@ -258,17 +260,115 @@ pub enum SessionCommand {
     /// Laufende Aufnahme starten/stoppen bzw. die letzten Sekunden sichern.
     /// Die Antwort geht direkt an den Aufrufer zurueck, damit die
     /// RPC-Antwort das Ergebnis tragen kann.
-    /// Antwort ist die JSON-Nutzlast der RPC-Antwort — bei `record` und `clip`
-    /// steht dort der tatsaechlich benutzte Pfad, dessen Endung sich nach dem
-    /// Codec richtet (AV1 braucht Matroska, H.264 MPEG-TS).
+    /// Antwort ist die JSON-Nutzlast der RPC-Antwort — bei `record` und
+    /// `clip` steht dort der tatsaechlich benutzte Pfad, dessen Endung sich
+    /// nach dem Codec richtet (AV1 braucht Matroska, H.264 MPEG-TS).
     Record { path: String, reply: MediaReply },
     StopRecord { reply: MediaReply },
     Clip { path: String, seconds: f64, reply: MediaReply },
+    /// Direkter P2P-Weg: PeerConnection bauen, Offer mit gesammelten
+    /// Kandidaten als `{"sdp": …}` zurueckgeben (s. [`crate::direkt`]).
+    /// Nur im Direktmodus sinnvoll; sonst antwortet die Sitzung mit einem
+    /// Fehler statt stillzustehen.
+    DirectStart { reply: MediaReply },
+    /// Direkter P2P-Weg: die Answer des Hosts setzen. Die Antwort traegt
+    /// keine Nutzlast — Erfolg und Misserfolg genuegen.
+    DirectSignal { answer: String, reply: MediaReply },
     /// Fernsteuerung laeuft (true) bzw. ist beendet (false). Die Sitzung senkt
     /// dafuer die Jitter-Geduld RTT-gekoppelt ab (s. [`FERN_JITTER_MIN_MS`])
     /// und stellt danach die Geduld des Nutzers wieder her.
     Fernsteuerung(bool),
     Stop,
+}
+
+/// Woher diese Sitzung ihren Strom nimmt.
+pub enum Quelle {
+    /// WHEP-Client: der Offer geht per POST an MediaMTX, die Answer kommt
+    /// mit der HTTP-Antwort zurueck. Der klassische Weg.
+    Whep,
+    /// Direkter P2P-Weg zum Host-Sidecar: der Player ist Offerer, Offer und
+    /// Answer reisen ueber den stdio-RPC (`direct_start`/`direct_signal`).
+    /// `stdout` ist der Ereigniskanal fuer die `direct_state`-Meldungen.
+    Direkt { stdout: crate::rpc::StdoutWriter },
+}
+
+/// Die Stromquelle einer Sitzung, so wie die Schleife sie sieht.
+///
+/// Beide Wege teilen SICH ALLES nach der Aushandlung: RTP kommt ueber denselben
+/// Kanal, Zaehler und Vollbild-Anforderungen laufen ueber dieselben Methoden.
+/// Der Wrapper existiert, damit die Schleife nicht an jeder Stelle unterscheiden
+/// muss, woher ihr Strom kommt — und damit ein Weg, der noch nicht ausgehandelt
+/// ist (Direkt vor `direct_signal`), seine Neutralwerte meldet statt einer
+/// Sonderbehandlung an jeder Aufrufstelle.
+enum Strom {
+    Whep(whep::WhepSession),
+    Direkt(crate::direkt::DirektSitzung),
+}
+
+impl Strom {
+    async fn request_keyframe(&self, media_ssrc: u32) {
+        match self {
+            Strom::Whep(s) => s.request_keyframe(media_ssrc).await,
+            Strom::Direkt(s) => s.request_keyframe(media_ssrc).await,
+        }
+    }
+
+    fn marken_id(&self) -> u8 {
+        match self {
+            Strom::Whep(s) => s.marken_id(),
+            Strom::Direkt(s) => s.marken_id(),
+        }
+    }
+
+    fn rtt_ms(&self) -> Option<u64> {
+        match self {
+            Strom::Whep(s) => s.rtt_ms(),
+            Strom::Direkt(s) => s.rtt_ms(),
+        }
+    }
+
+    fn fec_zaehler(&self) -> (u64, u64, u64, u64, u64) {
+        match self {
+            Strom::Whep(s) => s.fec_zaehler(),
+            Strom::Direkt(s) => s.fec_zaehler(),
+        }
+    }
+
+    async fn close(&mut self) {
+        match self {
+            Strom::Whep(s) => s.close().await,
+            Strom::Direkt(s) => s.close().await,
+        }
+    }
+
+    /// Seit wann ist die Aushandlung durch? `None`, solange der Strom nicht
+    /// verbindet — im Direktmodus der Zeitraum vor `direct_signal`. Das
+    /// Auffangnetz („kein Bild nach N Sekunden“, Abriss bei Stille) darf erst
+    /// ab diesem Punkt zaehlen, sonst beendet es eine Direkt-Sitzung, die
+    /// noch auf ihren RPC wartet. Beim WHEP ist die Aushandlung beim
+    /// Schleifenstart bereits durch; dort gilt der Sitzungsstart.
+    fn aushandelt_ab(&self, sitzungsstart: Instant) -> Option<Instant> {
+        match self {
+            Strom::Whep(_) => Some(sitzungsstart),
+            Strom::Direkt(s) => s.aushandelt_ab(),
+        }
+    }
+
+    async fn direct_starten(&mut self, tx: mpsc::Sender<RtpArrival>) -> Result<String> {
+        match self {
+            Strom::Direkt(s) => s.start(tx).await,
+            Strom::Whep(_) => anyhow::bail!("direct_start nur im Direktmodus (open mit direct:true)"),
+        }
+    }
+
+    async fn antwort_setzen(&mut self, answer: &str) -> Result<()> {
+        match self {
+            Strom::Direkt(s) => s.antwort(answer).await,
+            Strom::Whep(_) => {
+                anyhow::bail!("direct_signal nur im Direktmodus (open mit direct:true)")
+            }
+        }
+    }
 }
 
 /// Fuehrt eine Sitzung von Anfang bis Ende. Kehrt zurueck, wenn die Sitzung
@@ -284,6 +384,7 @@ pub enum SessionCommand {
 /// (`app::Session`); ein prozessweites waere fuer das zweite Fenster still das
 /// falsche.
 pub async fn run(
+    quelle: Quelle,
     url: String,
     ice: Vec<String>,
     mut options: PlayerOptions,
@@ -293,14 +394,30 @@ pub async fn run(
 ) {
     let (rtp_tx, mut rtp_rx) = mpsc::channel::<RtpArrival>(1024);
 
-    let mut whep_session = match whep::connect(&url, &ice, rtp_tx).await {
-        Ok(s) => s,
-        Err(e) => {
-            let _ = events
-                .send(SessionEvent::Ended { reason: redact_tokens(&format!("{e:#}")), failed: true })
-                .await;
-            return;
-        }
+    // Die Stromquelle steht vor der Schleife fest. Im WHEP-Fall ist die
+    // Aushandlung BEI LOOPBEGINN durch — oder die Sitzung endet hier mit
+    // einer Fehlermeldung. Im Direktfall entsteht die PeerConnection erst
+    // mit `direct_start` (s. `Strom::direct_starten`): bis dahin wartet die
+    // Schleife stumm auf den RPC, und die Auffangnetze (s. `aushandelt_ab`)
+    // bleiben untaetig, damit sie die Sitzung nicht unterm Warten beenden.
+    //
+    // `rtp_tx` wird immer nur GEKLONT übergeben, nie verschoben: der
+    // WHEP-Aufbau frisst den Sender in seine on_track-Haenger, und der
+    // Direktweg braucht ihn erst spaeter beim `direct_start`.
+    let mut strom = match quelle {
+        Quelle::Whep => match whep::connect(&url, &ice, rtp_tx.clone()).await {
+            Ok(s) => Strom::Whep(s),
+            Err(e) => {
+                let _ = events
+                    .send(SessionEvent::Ended {
+                        reason: redact_tokens(&format!("{e:#}")),
+                        failed: true,
+                    })
+                    .await;
+                return;
+            }
+        },
+        Quelle::Direkt { stdout } => Strom::Direkt(crate::direkt::DirektSitzung::neu(stdout)),
     };
 
     // Die GELTENDE Geduld — `jitter_setzen` schreibt sie fort, und neue Puffer
@@ -375,7 +492,12 @@ pub async fn run(
     // bleibt `marken_id` null und es wird GAR NICHT geurteilt: „Marke oder
     // nichts". Volle Herleitung in
     // `docs/superpowers/specs/2026-08-21-dependency-descriptor-design.md`.
-    let marken_id = whep_session.marken_id();
+    //
+    // **Je Durchlauf frisch gelesen, nicht einmal vor der Schleife.** Beim
+    // WHEP steht sie beim Schleifenstart fest; im Direktmodus steht sie erst
+    // mit der Answer fest, die beliebige Zeit NACH dem Schleifenstart
+    // eintrifft. Vorher meldet die Quelle 0 („nicht ausgehandelt") und es
+    // wird, wie oben beschrieben, gar nicht geurteilt.
     let mut bildzaehler = crate::bildmarke::Bildzaehler::neu();
     let mut bild_luecken: u64 = 0;
     // Wie viele Bilder gesehen, wie viele davon mit Nummer.
@@ -487,6 +609,34 @@ pub async fn run(
                             let _ = reply.send(Err(e));
                         }
                     }
+                }
+                Some(SessionCommand::DirectStart { reply }) => {
+                    // Der Player wird Offerer: PeerConnection bauen, Offer
+                    // mit gesammelten Kandidaten erzeugen. Die Antwort traegt
+                    // den SDP-Text; sie geht ueber `requests.rs` direkt in
+                    // die RPC-Antwort (`{"ok":true,"sdp":…}`). Ein Scheitern
+                    // hier laesst die Sitzung bestehen — die Gegenstelle
+                    // kann einen zweiten Versuch mit `direct_start` nicht
+                    // haben (eindeutiger Zyklus, s. `crate::direkt`), aber
+                    // Stop und Optionen wirken weiter.
+                    let ergebnis = strom.direct_starten(rtp_tx.clone()).await;
+                    let _ = reply.send(
+                        ergebnis
+                            .map(|sdp| serde_json::json!({ "sdp": sdp }))
+                            .map_err(|e| format!("{e:#}")),
+                    );
+                }
+                Some(SessionCommand::DirectSignal { answer, reply }) => {
+                    // Die Answer des Hosts setzen. Danach verbindet die
+                    // PeerConnection sich von selbst; der erste `direct_state`
+                    // nach diesem Punkt kommt aus dem Zustands-Callback, nicht
+                    // von hier.
+                    let ergebnis = strom.antwort_setzen(&answer).await;
+                    let _ = reply.send(
+                        ergebnis
+                            .map(|()| serde_json::Value::Null)
+                            .map_err(|e| format!("{e:#}")),
+                    );
                 }
                 Some(SessionCommand::Fernsteuerung(aktiv)) => {
                     fernsteuerung = aktiv;
@@ -607,7 +757,18 @@ pub async fn run(
 
         // Auffangnetz gegen jede Art von haengendem Aufbau. Greift nur bis zum
         // ersten Bild; danach ist ein stiller Strom Sache des Senders.
-        if !schon_gespielt(&decoder) && started.elapsed() > FIRST_FRAME_TIMEOUT {
+        //
+        // Die Frist laeuft ab dem Zeitpunkt der Aushandlung, nicht ab dem
+        // Sitzungsbeginn: im Direktmodus wartet die Sitzung beliebig lange
+        // auf `direct_start`/`direct_signal` (wann angefragt wird, entscheidet
+        // der Renderer), und eine Frist ab `started` wuerde jede Direkt-
+        // Sitzung toeten, die spaeter als 20 s nach dem Fensterstart
+        // anfaengt. Beim WHEP ist der Bezugspunkt der Sitzungsstart — der
+        // alte Wert, unverändert.
+        let aushandlungs_bezug = strom.aushandelt_ab(started);
+        if aushandlungs_bezug.is_some_and(|ab| ab.elapsed() > FIRST_FRAME_TIMEOUT)
+            && !schon_gespielt(&decoder)
+        {
             break 'sitzung (
                 format!(
                     "kein Bild nach {} s — Verbindung kam nicht zustande",
@@ -619,6 +780,9 @@ pub async fn run(
 
         // Faellige Pakete freigeben und zu Zugriffseinheiten zusammensetzen.
         let now = Instant::now();
+        // Je Durchlauf frisch gelesen (Begruendung beim Kommentar vor der
+        // Schleife): im Direktmodus steht die Nummer erst mit der Answer fest.
+        let marken_id = strom.marken_id();
         for (codec, buffer) in buffers.iter_mut() {
             let assembler = assemblers
                 .entry(*codec)
@@ -781,7 +945,7 @@ pub async fn run(
                             if let Some(ssrc) = video_ssrc.filter(|_| !ohne_anforderung) {
                                 if last_keyframe_request.elapsed() >= KEYFRAME_REQUEST_INTERVAL {
                                     last_keyframe_request = Instant::now();
-                                    whep_session.request_keyframe(ssrc).await;
+                                    strom.request_keyframe(ssrc).await;
                                 }
                             }
                         }
@@ -890,7 +1054,7 @@ pub async fn run(
                 {
                     if let Some(ssrc) = video_ssrc.filter(|_| !ohne_anforderung) {
                         last_keyframe_request = Instant::now();
-                        whep_session.request_keyframe(ssrc).await;
+                        strom.request_keyframe(ssrc).await;
                     }
                 }
 
@@ -918,7 +1082,7 @@ pub async fn run(
                 {
                     if let Some(ssrc) = video_ssrc.filter(|_| !ohne_anforderung) {
                         last_keyframe_request = Instant::now();
-                        whep_session.request_keyframe(ssrc).await;
+                        strom.request_keyframe(ssrc).await;
                     }
                 }
             }
@@ -973,7 +1137,7 @@ pub async fn run(
         stats.bytes_received = buffers.values().map(|b| b.bytes_received).sum();
         stats.packets_lost = buffers.values().map(|b| b.lost).sum();
         (stats.fec_repariert, stats.fec_unreparierbar, stats.fec_verworfen,
-         stats.fec_mehrfach_loch, stats.fec_zu_spaet) = whep_session.fec_zaehler();
+         stats.fec_mehrfach_loch, stats.fec_zu_spaet) = strom.fec_zaehler();
         stats.packets_reordered = buffers.values().map(|b| b.reordered).sum();
         stats.packets_duplicate = buffers.values().map(|b| b.duplicates).sum();
         stats.buffered_packets = buffers.values().map(|b| b.buffered() as u64).sum();
@@ -1025,8 +1189,15 @@ pub async fn run(
             // EINFRIEREN und gehoert der Erkennung in `decode.rs`. Hier geht es
             // um den Fall, in dem gar nichts mehr kommt — und der sah bis heute
             // von aussen genauso aus.
+            //
+            // Nur nach einer AUSHANDLUNG: im Direktmodus vor `direct_start`
+            // kommen designgemaess null Bytes, und ohne die Schranke wuerde
+            // der Waechter jede wartende Sitzung nach drei Sekunden als
+            // abgerissen melden.
             if stats.bytes_received == bytes_im_letzten_fenster {
-                stille_fenster += 1;
+                if aushandlungs_bezug.is_some() {
+                    stille_fenster += 1;
+                }
             } else {
                 stille_fenster = 0;
                 bytes_im_letzten_fenster = stats.bytes_received;
@@ -1049,7 +1220,7 @@ pub async fn run(
             // wie die Statistik, weil `get_stats()` ueber alle Transporte
             // laeuft — bei jedem Schleifendurchlauf waere das ueber 1000-mal
             // je Sekunde.
-            stats.rtt_ms = whep_session.rtt_ms();
+            stats.rtt_ms = strom.rtt_ms();
             // Fernsteuerung: Jitter-Geduld an die gemessene Umlaufzeit koppeln
             // (Begruendung bei FERN_JITTER_MIN_MS). Im Statistik-Takt, nicht je
             // Durchlauf — die RTT aendert sich nicht schneller, und `set_target`
@@ -1108,7 +1279,7 @@ pub async fn run(
         started.elapsed().as_secs_f64(),
         if failed { "Fehler" } else { "regulaer" },
     );
-    whep_session.close().await;
+    strom.close().await;
     let _ = events.send(SessionEvent::Ended { reason, failed }).await;
 }
 
@@ -1282,6 +1453,7 @@ mod tests {
         let (_cmd_tx, cmd_rx) = mpsc::channel(1);
         // Port 1 ist reserviert und antwortet nicht.
         run(
+            Quelle::Whep,
             "http://127.0.0.1:1/whep".to_string(),
             vec![],
             PlayerOptions::defaults(),

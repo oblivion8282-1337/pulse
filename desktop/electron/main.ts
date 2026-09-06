@@ -794,6 +794,12 @@ const ALLOWED_GSR_OPS = new Set([
   'build_argv',
   'start',
   'stop',
+  // **Direktverbindung (P2P):** SDP-Austausch mit dem Sidecar des Platzes und
+  // das Lösen der Direktverbindung. Keine Zuordnung, keine Rechte-Entscheidung
+  // — die Sitzung dahinter hat der Consent schon geprüft (`remote_signal`
+  // fließt nur in aktiven Sitzungen); hier geht es nur um die ZULEITUNG.
+  'direct_offer',
+  'direct_stop',
 ]);
 
 /** Clamp a renderer-supplied slot to a valid stream slot (0..MAX_STREAM_SLOTS-1).
@@ -1045,6 +1051,12 @@ const ALLOWED_PLAYER_OPS = new Set([
   // genau das, was hier niemanden angeht — anders als `input_capture`, das
   // zugleich eine Zuordnung anlegt und deshalb im Hauptprozess bleibt.
   'ablage',
+  // **Direktverbindung (P2P):** die zwei Signaling-RPCs des Players. Ebenfalls
+  // reine ZULEITUNG — Offer-SDP hinaus, Answer hinein; der Zustandswechsel
+  // kommt als Ereignis (`direct_state`) zurück. Rechte und Gegenüber kennt
+  // allein die Sitzung im Renderer.
+  'direct_start',
+  'direct_signal',
 ]);
 
 /** Zuordnung Player-Sitzung -> Fernsteuerungs-Sitzung (s. `remoteInput.ts`). */

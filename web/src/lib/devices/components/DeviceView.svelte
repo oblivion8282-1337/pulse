@@ -28,9 +28,10 @@
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import PlayIcon from '@lucide/svelte/icons/play';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
+  import WaypointsIcon from '@lucide/svelte/icons/waypoints';
   import { Button } from '$lib/components/ui/button/index.js';
   import type { Device } from '$lib/api/devices';
-  import { schirmWarten, schirmeVon } from '$lib/devices/schirme.svelte';
+  import { schirmWarten, schirmeVon, direktUebernehmen } from '$lib/devices/schirme.svelte';
   import DeviceScreenList from '$lib/devices/components/DeviceScreenList.svelte';
   import DeviceVerwaltung from '$lib/devices/components/DeviceVerwaltung.svelte';
   import DeviceFreigaben from '$lib/devices/components/DeviceFreigaben.svelte';
@@ -183,6 +184,22 @@
     >
       <PlayIcon class="size-4" />
       {wartetAuf ? m.device_view_waking() : m.device_view_wake()}
+    </Button>
+    <!-- **Der zweite Weg, derselbe Anfang:** der P2P-Knopf weckt dasselbe Gerät
+         und fordert dieselbe Zustimmung — nur geht das Bild danach DIREKT zum
+         Steuernden, an jedem Server vorbei, und nur er sieht es (Stufe 1, Plan
+         2026-09-06). Kein zweiter Encoder, kein zweiter Stream: der Serverweg
+         läuft in diesem Modus schlicht nicht. -->
+    <Button
+      variant="outline"
+      size="lg"
+      onclick={() => direktUebernehmen(device)}
+      disabled={!!wartetAuf || device.state === 'offline'}
+      data-testid="device-view-take-over-p2p"
+      title={m.device_view_p2p_hint()}
+    >
+      <WaypointsIcon class="size-4" />
+      {m.device_view_wake_p2p()}
     </Button>
     {#if device.state === 'offline'}
       <!-- Nur der Befund, nicht die Anleitung: der Knopf darueber ist bereits

@@ -150,13 +150,19 @@ export interface GsrBuildArgv {
 export interface GsrStartArgs {
   profile: string;
   /** Pulse-channel pathway: server profile built via `ServerProfile.from_channel`.
-   *  This is the only pathway — Pulse always streams into a voice channel. */
-  channel: {
+   *  This is the only pathway — Pulse always streams into a voice channel.
+   *  **Ausnahme P2P** (`direct: true`): dort gibt es keinen Serverkontakt und
+   *  damit keinen Kanal-Block — der Sidecar wartet auf die Direktverhandlung. */
+  channel?: {
     id: string;
     token: string;
     /** Full push URL from media-svc — handed to GSR's `-o` verbatim. */
     push_url?: string;
   };
+  /** **Direktverbindung (P2P, Stufe 1).** Wahr heißt: kein WHIP-Push, der
+   *  Sidecar startet im Wartezustand (`wartend`) und verhandelt die
+   *  Verbindung über `op direct_offer` mit dem Player des Steuernden. */
+  direct?: boolean;
   capture: string;
   audio: { mode: string; excluded_apps?: string[] };
   /** Spiegelt `OverrideSet` aus `stream/settings.svelte.ts` — `bit_depth` fehlte
@@ -226,7 +232,13 @@ export type GsrEventBody =
   // `reason` is an optional machine-readable tag (Windows sidecar; e.g.
   // 'source_closed' → the shared window was closed, the sidecar ended the
   // stream on its own). Absent on plain user stops and on Linux.
-  | { ev: 'stopped'; code?: number; reason?: string };
+  | { ev: 'stopped'; code?: number; reason?: string }
+  // **Direktverbindung (P2P)**: Zustand des WebRTC-Pfads zum Steuernden.
+  // `wartend` = Start ohne Serverkontakt, `connecting` = SDP ausgetauscht,
+  // `live` = Peer-Verbindung steht (Encoder startet), `failed` = ICE/PC tot.
+  // Nur der Windows-Sidecar sendet sie heute (Stufe 1); Verbraucher müssen
+  // ihr Fehlen tolerieren.
+  | { ev: 'direct_state'; state: 'wartend' | 'connecting' | 'live' | 'failed' | 'closed' };
 
 /** A sidecar event, tagged by the Electron main process with the stream `slot`
  *  it came from (0 = primary stream, 1 = a second concurrent stream). `slot` is
@@ -288,6 +300,19 @@ export const gsr = {
   async stop(slot = 0, grund?: string): Promise<GsrStopResult | null> {
     const b = bridge();
     return b ? ((await b.stop(slot, grund)) as GsrStopResult) : null;
+  },
+
+  /** **Direktverbindung (P2P):** den Offer-SDP des Steuernden in den Sidecar
+   *  des Platzes geben; die Antwort (Answer-SDP) kommt als Ergebnis zurück.
+   *  Rein additive Ops — im Browser und ohne Brücke `null`. */
+  async directOffer(slot: number, sdp: string): Promise<{ ok?: boolean; sdp?: string; error?: string } | null> {
+    const b = bridge();
+    return b ? ((await b.directOffer(slot, sdp)) as { ok?: boolean; sdp?: string }) : null;
+  },
+  /** Die Direktverbindung lösen — Sidecar zurück in den Wartezustand. */
+  async directStop(slot: number): Promise<unknown | null> {
+    const b = bridge();
+    return b ? await b.directStop(slot) : null;
   },
 
   /**

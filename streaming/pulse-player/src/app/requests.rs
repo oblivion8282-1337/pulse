@@ -120,6 +120,28 @@ impl App {
                 Err(e) => self.stdout.send(&Response::err(id, e)),
             },
 
+            // Direkter P2P-Weg (s. `crate::direkt`): der Player ist Offerer.
+            // `direct_start` liefert den Offer-SDP als Antwortnutzlast, die
+            // Electron-Huelle reicht ihn zum Sidecar durch; `direct_signal`
+            // nimmt deren Answer entgegen. Ohne `session`-Feld gilt die eine
+            // Direkt-Sitzung des Prozesses (s. `direkte_sitzung`).
+            "direct_start" => {
+                self.direct_op(id, req.session, |reply| SessionCommand::DirectStart { reply }, move
+                    |data| Response::ok(id, data))
+            }
+
+            "direct_signal" => match req.answer.clone() {
+                Some(answer) => {
+                    self.direct_op(
+                        id,
+                        req.session,
+                        |reply| SessionCommand::DirectSignal { answer, reply },
+                        move |_| Response::bare(id),
+                    )
+                }
+                None => self.stdout.send(&Response::err(id, "answer fehlt")),
+            },
+
             "stats" => match req.session.and_then(|s| self.sessions.get(&s)) {
                 Some(session) => self.stdout.send(&Response::ok(id, self.stats_json(session))),
                 None => self.stdout.send(&Response::err(id, "unbekannte Sitzung")),
@@ -263,6 +285,42 @@ impl App {
                 Err(_) => stdout.send(&Response::err(id, "Sitzung beendet")),
             }
         });
+    }
+
+    /// Loest die Sitzung fuer `direct_start`/`direct_signal` auf.
+    ///
+    /// **Ohne `session`-Feld gilt: genau eine Direkt-Sitzung des Prozesses.**
+    /// Der Direktmodus ist pro Fenster einer, und der Offer-Weg kennt seine
+    /// Sitzungsnummer meist gar nicht — das Angebot ueber die App erreicht
+    /// den Renderer, nicht den Player. Sind es mehrere oder keine, wird
+    /// abgelehnt statt geraten: eine Nummer zu erfinden fuehrte dazu, dass
+    /// die Answer des Hosts in ein fremdes Fenster ginge.
+    fn direct_op<T, F, R>(&mut self, id: Option<i64>, session: Option<u64>, make: F, ok: R)
+    where
+        T: Send + 'static,
+        F: FnOnce(tokio::sync::oneshot::Sender<Result<T, String>>) -> SessionCommand,
+        R: FnOnce(T) -> Response + Send + 'static,
+    {
+        let ziel = match session {
+            Some(sid) if self.sessions.get(&sid).is_some_and(|s| s.direkt) => Some(sid),
+            Some(_) => None,
+            None => {
+                let treffer: Vec<u64> = self
+                    .sessions
+                    .iter()
+                    .filter(|(_, s)| s.direkt)
+                    .map(|(sid, _)| *sid)
+                    .collect();
+                (treffer.len() == 1).then(|| treffer[0])
+            }
+        };
+        match ziel {
+            Some(sid) => self.session_reply(id, Some(sid), make, ok),
+            None => {
+                self.stdout
+                    .send(&Response::err(id, "keine Direkt-Sitzung (open mit direct:true noetig)"))
+            }
+        }
     }
 
     /// Schickt allen Sitzungen `Stop` und gibt ihnen kurz Zeit, sauber

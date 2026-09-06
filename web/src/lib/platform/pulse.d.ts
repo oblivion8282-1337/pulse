@@ -124,6 +124,12 @@ export interface PulseGsrApi {
    *  mac-Sidecar bleibt warm und hielte die Ablage des Nutzers sonst bis zum
    *  App-Ende belegt. */
   ablageEnde(slot: number): Promise<{ ok: boolean; error?: string }>;
+  /** **Direktverbindung (P2P):** den Offer-SDP des Steuernden in den Sidecar
+   *  des Platzes geben; die Antwort (Answer-SDP) kommt als Ergebnis zurück.
+   *  ZULEITUNG nur — gedeutet wird nichts (`$lib/remote/direktbild`). */
+  directOffer(slot: number, sdp: string): Promise<{ ok?: boolean; sdp?: string }>;
+  /** Die Direktverbindung lösen — Sidecar zurück in den Wartezustand. */
+  directStop(slot: number): Promise<unknown>;
 }
 
 /** Payload for `pulse.notify.show()` — mention/DM toast. The renderer is
@@ -553,8 +559,19 @@ export interface PulsePlayerApi {
     title?: string;
     fullscreen?: boolean;
     options?: PulsePlayerOptions;
+    /** **Direktverbindung (P2P):** ohne WHEP-URL starten — der Player fordert
+     *  keinen Stream an und wartet auf `direct_start`. */
+    direct?: boolean;
   }): Promise<PulsePlayerResult>;
   close(session: number): Promise<PulsePlayerResult>;
+  /** **Direktverbindung (P2P):** den Peer-Connection des Players bauen und den
+   *  Offer-SDP liefern (recvonly video+audio, non-trickle gesammelt). Nur
+   *  ZULEITUNG — gedeutet wird nichts (`$lib/remote/direktbild`). Optional wie
+   *  `transportStatus`: eine ältere Shell kennt die Brücke nicht, dann kann
+   *  dieser Rechner P2P nicht ansehen — die App meldet es, statt zu hängen. */
+  directStart?(session: number): Promise<PulsePlayerResult & { sdp?: string }>;
+  /** Die Answer des Host-Sidecars in den Player einspeisen. */
+  directSignal?(session: number, answer: string): Promise<PulsePlayerResult>;
   /** Fernsteuerung: Anzeigetext des Eingabewegs fürs Statistik-Feld
    *  („Direktverbindung" / „Serverweg — …"). Nur Anzeige — die
    *  Zustandsmaschine lebt in `$lib/remote/p2p.ts`. Optional wie `input`: die

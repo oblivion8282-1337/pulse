@@ -190,6 +190,20 @@ pub struct Request {
     /// Startwerte fuer `open` — dieselben Schluessel wie bei `set_option`.
     #[serde(default)]
     pub options: Option<PlayerOptions>,
+
+    // --- open (Direktmodus) / direct_start / direct_signal (s. `crate::direkt`) ---
+    /// Direkter P2P-Weg zum Host-Sidecar: der Player wird Offerer und baut
+    /// KEINE WHEP-Verbindung auf. Er wartet dann auf `direct_start` und
+    /// `direct_signal`. **Ohne Angabe gilt `false`** — der bestehende Weg
+    /// darf sich nicht aus einem fehlenden Feld ergeben. Ein `fallback_url`
+    /// bleibt im Direktmodus wirkungslos: es waere eine zweite WHEP-Anfrage,
+    /// und der Direktmodus macht per Definition keine.
+    #[serde(default)]
+    pub direct: Option<bool>,
+    /// SDP-Answer des Hosts fuer `direct_signal` (Zeile fuer Zeile der
+    /// Antwort des Sidecars). Nur bei diesem Op gelesen.
+    #[serde(default)]
+    pub answer: Option<String>,
 }
 
 /// Alles, was zur Laufzeit umgeschaltet werden kann.

@@ -46,70 +46,88 @@ export async function streamStarten(
   channelId: string,
   slot: number,
   standplatz?: StandplatzStart,
+  p2p = false,
 ): Promise<StartErgebnis> {
   let tok;
-  try {
-    // Den lesbaren Namen (etwa „Monitor 1", „Chrome") einmal beim Start
-    // auflösen, damit die Auswahl der Zuschauer den Stream benennen kann, ohne
-    // die GSR-Kataloge zu haben.
-    //
-    // **Beim Standplatz-Gerät aus der WIRKLICH aufgenommenen Quelle**, nicht
-    // aus der Slot-Einstellung des Besitzers: der Platz wird beim Wecken frei
-    // vergeben, und `resolveSlotLabel` läse dort die Quelle, die der Besitzer
-    // irgendwann für diesen Platz gewählt hat. Der Steuernde bekäme dann eine
-    // Kachel „Monitor 1", die Monitor 3 zeigt — bei mehreren Schirmen genau die
-    // Verwechslung, die er nicht bemerken würde.
-    const aufgeloest = standplatz
-      ? resolveStreamLabel(
-          standplatz.quelle,
-          {
-            monitors: streamSettings.available_monitors,
-            windows: streamSettings.available_windows,
-          },
-          slot,
-        )
-      : resolveSlotLabel(slot);
-    tok = await chatApi.getStreamToken(
-      channelId,
-      // Warum Betriebsart UND Codec den Transport mitentscheiden: s.
-      // `pushProtokoll`. Beim Standplatz-Gerät entscheidet der Codec des
-      // PROFILS — sonst holt der Client ein Token für den falschen Weg.
-      pushProtokoll(standplatz?.uebersteuerung),
-      slot,
-      aufgeloest.label,
-      // 10 bit gibt es auch im Fernbetrieb (Profil-Feld `zehn_bit`,
-      // `devices/profil.svelte.ts`) — der Wunsch kommt dann aus dem Profil,
-      // nicht aus den Stream-Einstellungen des abwesenden Besitzers. Dieselbe
-      // Prüfung wie in `buildStartArgs`, EINE Definition (`tenBitPossible`,
-      // s. dort): ein fest verdrahtetes `false` hier hätte Zuschauern die
-      // falsche Farbtiefe angesagt, obwohl der Sidecar tatsächlich mit 10 bit
-      // sendet.
-      tenBitPossible(standplatz?.uebersteuerung),
-      // Ferngesteuert werden kann nur, wessen Sidecar Eingaben einspielen kann —
-      // heute allein der Windows-Sidecar. Der Wert reist mit dem Stream bis zum
-      // Zuschauer und entscheidet dort, ob der Anfrage-Knopf erscheint.
-      stream.fernsteuerbar,
-      // Dieselbe Nummer, die `resolveStreamLabel` schon fuer die eigene
-      // Statuszeile aufgeloest hat — kein zweiter Aufloese-Weg noetig.
-      aufgeloest.monitorIndex,
-    );
-  } catch (fehler) {
-    return { ok: false, stufe: 'token', fehler };
+  if (p2p) {
+    // **Im P2P-Modus fragt der Client bewusst KEIN Token an.** Es gäbe keins,
+    // das etwas täte: der Stream geht nie an MediaMTX, und der Server sieht
+    // von der Übertragung nichts — die Berechtigung zur Direktverbindung ist
+    // die Fernsteuer-Sitzung selbst (Consent + `remote_signal`-Schranke).
+    // Der Sidecar läuft im Wartezustand, bis die Verbindung steht.
+    tok = null;
+  } else {
+    let t;
+    try {
+      // Den lesbaren Namen (etwa „Monitor 1", „Chrome") einmal beim Start
+      // auflösen, damit die Auswahl der Zuschauer den Stream benennen kann, ohne
+      // die GSR-Kataloge zu haben.
+      //
+      // **Beim Standplatz-Gerät aus der WIRKLICH aufgenommenen Quelle**, nicht
+      // aus der Slot-Einstellung des Besitzers: der Platz wird beim Wecken frei
+      // vergeben, und `resolveSlotLabel` läse dort die Quelle, die der Besitzer
+      // irgendwann für diesen Platz gewählt hat. Der Steuernde bekäme dann eine
+      // Kachel „Monitor 1", die Monitor 3 zeigt — bei mehreren Schirmen genau die
+      // Verwechslung, die er nicht bemerken würde.
+      const aufgeloest = standplatz
+        ? resolveStreamLabel(
+            standplatz.quelle,
+            {
+              monitors: streamSettings.available_monitors,
+              windows: streamSettings.available_windows,
+            },
+            slot,
+          )
+        : resolveSlotLabel(slot);
+      t = await chatApi.getStreamToken(
+        channelId,
+        // Warum Betriebsart UND Codec den Transport mitentscheiden: s.
+        // `pushProtokoll`. Beim Standplatz-Gerät entscheidet der Codec des
+        // PROFILS — sonst holt der Client ein Token für den falschen Weg.
+        pushProtokoll(standplatz?.uebersteuerung),
+        slot,
+        aufgeloest.label,
+        // 10 bit gibt es auch im Fernbetrieb (Profil-Feld `zehn_bit`,
+        // `devices/profil.svelte.ts`) — der Wunsch kommt dann aus dem Profil,
+        // nicht aus den Stream-Einstellungen des abwesenden Besitzers. Dieselbe
+        // Prüfung wie in `buildStartArgs`, EINE Definition (`tenBitPossible`,
+        // s. dort): ein fest verdrahtetes `false` hier hätte Zuschauern die
+        // falsche Farbtiefe angesagt, obwohl der Sidecar tatsächlich mit 10 bit
+        // sendet.
+        tenBitPossible(standplatz?.uebersteuerung),
+        // Ferngesteuert werden kann nur, wessen Sidecar Eingaben einspielen kann —
+        // heute allein der Windows-Sidecar. Der Wert reist mit dem Stream bis zum
+        // Zuschauer und entscheidet dort, ob der Anfrage-Knopf erscheint.
+        stream.fernsteuerbar,
+        // Dieselbe Nummer, die `resolveStreamLabel` schon fuer die eigene
+        // Statuszeile aufgeloest hat — kein zweiter Aufloese-Weg noetig.
+        aufgeloest.monitorIndex,
+      );
+    } catch (fehler) {
+      return { ok: false, stufe: 'token', fehler };
+    }
+    tok = t;
   }
 
   try {
     const args = buildStartArgs(
-      { channelId, token: tok.token, pushUrl: tok.push_url },
+      tok
+        ? { channelId, token: tok.token, pushUrl: tok.push_url }
+        : { channelId, token: '', pushUrl: '' },
       slot,
       standplatz,
+      p2p,
     );
     const r = await gsr.start(args, slot);
     if (r && !r.ok) return { ok: false, stufe: 'start', fehler: r.error };
     // Für den Auto-Neustart nach einer Auflösungsänderung merken, was der
     // Neustart sonst nirgends erführe: den Kanal — und beim Standplatz-Gerät
     // den ganzen Satz, sonst startet der Rechner mit den Einstellungen seines
-    // abwesenden Besitzers neu (`neustartGedaechtnis.ts`).
-    startMerken(slot, { channelId, standplatz });
+    // abwesenden Besitzers neu (`neustartGedaechtnis.ts`). Im P2P-Modus NICHTS
+    // merken: ein Auto-Neustart liefe über den Token-Weg und wäre ein stiller
+    // Rückfall in den Serverweg — genau der ist in Stufe 1 ausdrücklich kein
+    // Ziel (Plan 2026-09-06, „Nicht-Ziele").
+    if (!p2p) startMerken(slot, { channelId, standplatz });
     return { ok: true };
   } catch (fehler) {
     return { ok: false, stufe: 'start_wurf', fehler };

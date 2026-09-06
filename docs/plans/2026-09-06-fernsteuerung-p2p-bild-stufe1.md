@@ -78,10 +78,18 @@ Renderer wird bewusst NICHT gebaut; zwei Bildwege zu pflegen wäre der teurere P
 `remote_signal` trägt heute `offer/answer/ice` (8-KiB-Grenze, 60/s, peer-bound)
 und fließt nur in **aktiver** Sitzung — genau die Eigenschaft, die wir wollen:
 Ohne Zustimmung des Hosts entsteht keine Direktverbindung, kein SDP verlässt den
-Weg. Stufe 1 fügt KEINE neue Signalart hinzu und keinen Vorab-Pfad vor dem Consent.
+Weg.
+
+**Zwei neue Kinds waren trotzdem nötig** — die Planfassung behauptete das Gegenteil:
+`offer`/`answer`/`ice` sind vom Eingabe-Kanal belegt (`p2p.ts` läuft über dieselbe
+Sitzung), und zwei Verhandlungen auf denselben Kinds würden sich gegenseitig die
+Frames zuschanzen. Das Direktbild fährt deshalb `bild_offer` und `bild_answer` —
+non-trickle auf beiden Seiten (Kandidaten bis zum Abschluss sammeln), damit ICE
+in den SDP-Texten bleibt und es kein drittes Kind braucht.
+
 Konsequenz: Der „P2P“-Button startet denselben Consent-Dialog wie „Übernehmen“.
 Erst `remote_response: accept` schaltet den Signal-Weg frei, dann offeriert der
-Player. (Der Weckruf läuft vorher — der host startet den Sidecar im Wartezustand,
+Player. (Der Weckruf läuft vorher — der Host startet den Sidecar im Wartezustand,
 Encoder idle, bis die Direktverbindung steht. Kosten: kaum; Gegenprobe im
 Bug hunt: Sidecar-RAM im Leerlauf messen.)
 

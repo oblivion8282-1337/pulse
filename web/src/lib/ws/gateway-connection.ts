@@ -820,10 +820,14 @@ export class GatewayConnection {
     senders.sendPluginOp(this._raw, op, payload);
 
   // Fernsteuerung (remote control) — Consent-Handshake.
-  sendRemoteRequest = (channelId: string, hostUserId: string, deviceId?: string | null): boolean =>
-    senders.sendRemoteRequest(this._raw, channelId, hostUserId, deviceId);
-  sendRemoteRespond = (sessionId: string, accept: boolean): boolean =>
-    senders.sendRemoteRespond(this._raw, sessionId, accept);
+  sendRemoteRequest = (
+    channelId: string,
+    hostUserId: string,
+    deviceId?: string | null,
+    p2p = false,
+  ): boolean => senders.sendRemoteRequest(this._raw, channelId, hostUserId, deviceId, p2p);
+  sendRemoteRespond = (sessionId: string, accept: boolean, slot?: number): boolean =>
+    senders.sendRemoteRespond(this._raw, sessionId, accept, slot);
   sendRemoteEnd = (sessionId: string): boolean =>
     senders.sendRemoteEnd(this._raw, sessionId);
   sendRemoteReclaim = (sessionId: string): boolean =>
@@ -848,8 +852,8 @@ export class GatewayConnection {
   sendDeviceWithdraw = (deviceId: string): boolean =>
     senders.sendDeviceWithdraw(this._raw, deviceId);
 
-  sendDeviceWake = (deviceId: string, monitor?: number): boolean =>
-    senders.sendDeviceWake(this._raw, deviceId, monitor);
+  sendDeviceWake = (deviceId: string, monitor?: number, p2p = false): boolean =>
+    senders.sendDeviceWake(this._raw, deviceId, monitor, p2p);
 
   private _raw = (evt: ClientEvent): boolean => this._sendRaw(evt);
 

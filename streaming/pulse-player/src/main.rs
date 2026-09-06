@@ -37,6 +37,7 @@ mod decode;
 mod decodefaden;
 mod decoderwahl;
 mod depacket;
+mod direkt;
 mod dump;
 mod einfrieren;
 mod fec;

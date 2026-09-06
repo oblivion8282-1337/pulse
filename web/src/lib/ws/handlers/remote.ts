@@ -19,6 +19,7 @@ import { remoteZeigerform } from '$lib/remote/zeigerform';
 import { remoteAblage } from '$lib/remote/ablage';
 import { eingabeEinspielen } from '$lib/remote/sidecarInput';
 import { userCache } from '$lib/stores/users.svelte';
+import { direktbild } from '$lib/remote/direktbild.svelte';
 
 /**
  * Eingabe-Frames einspielen — aber nur, wenn für genau diese Sitzung wirklich
@@ -67,6 +68,7 @@ export function register(): void {
       evt.from_user_id,
       evt.device_id,
       evt.freigabe === true,
+      evt.p2p === true,
     );
   });
   // Nur an den Steuernden: die Kennung seiner gerade angelegten Sitzung.
@@ -74,7 +76,7 @@ export function register(): void {
     remoteSession._pending(evt.session_id, evt.channel_id, evt.host_user_id),
   );
   registerWsHandler('remote_response', (evt) =>
-    remoteSession._response(evt.session_id, evt.accepted),
+    remoteSession._response(evt.session_id, evt.accepted, evt.slot),
   );
   registerWsHandler('remote_ended', (evt) =>
     remoteSession._ended(evt.session_id, evt.reason),
@@ -103,6 +105,20 @@ export function register(): void {
     // die Plattform-Brücke (`$lib/remote/ablage.ts`) — das Format lebt in
     // `streaming/pulse-ablage`, nicht hier.
     else if (evt.kind === 'ablage') remoteAblage._signal(evt.data);
+    // **Direktbild (P2P):** die zwei SDP-Kinds. `bild_offer` nur auf der
+    // Host-Seite (er geht an den Sidecar des gemerkten Platzes), `bild_answer`
+    // nur beim Steuernden (er geht in den Player). Die Kennung ist oben schon
+    // gegen die laufende Sitzung geprüft — dieselbe Schranke wie beim
+    // Eingabe-Kanal.
+    else if (evt.kind === 'bild_offer' && remoteSession.role === 'host') {
+      const sdp = (evt.data as { sdp?: unknown })?.sdp;
+      if (typeof sdp === 'string') direktbild.hostOffer(sdp);
+    } else if (evt.kind === 'bild_answer' && remoteSession.role === 'controller') {
+      const sdp = (evt.data as { sdp?: unknown })?.sdp;
+      if (typeof sdp === 'string') {
+        void direktbild.steuerndAnswer(direktbild.steuerndSitzung(), sdp);
+      }
+    }
     else remoteP2P.signal(evt.kind, evt.data);
   });
   // Frames, die über den DataChannel hereinkommen, laufen durch DENSELBEN
