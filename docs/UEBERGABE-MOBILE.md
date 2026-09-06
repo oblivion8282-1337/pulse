@@ -20,6 +20,9 @@ anfühlen, nicht wie ein „Discord-Klon". Konkret:
   Voice-Kanälen) · **Freunde** · **Du** (Profil/Einstellungen).
 - Voice hat bewusst **keinen eigenen Tab** — Einstieg über einen Sprachkanal im
   Räume-Tab, Dauerpräsenz über das Voice-Dock.
+- **Anrufe** (Audio und Video, 1:1 wie Gruppenanrufe) gehören zum Kern — aus dem
+  Chat heraus gestartet, mit Klingeln/Annehmen/Verpasst wie bei jedem Messenger
+  (Epic in §5).
 - **Android zuerst**, iOS danach (es gibt noch gar kein iOS-Projekt — siehe §5.4).
 
 ## 2. Architektur in einem Absatz
@@ -111,6 +114,10 @@ Alles Folgende ist **schon gebaut** — bitte nichts doppelt erfinden:
 - LiveKit (`web/src/lib/voice/livekit.svelte.ts`), Token-Dienst
   `services/voice-signaling`, Bluetooth-SCO-Routing-Fix, Mic-Foreground-Service
   (native). Kamera im Voice-Call funktioniert (WebView getUserMedia).
+  Achtung: Der Token-Flow ist an **Guild-Sprachkanäle** gebunden
+  (`POST /token { channel_id }` → `_require_voice_channel_member` +
+  `_room_for_channel(channel_id)`) — für Anrufe aus DMs/Gruppen braucht es ein
+  eigenes Call-Room-Konzept (siehe Anrufe-Epic in §5).
 
 **Android-Hülle heute**
 - `versionCode 3` / `versionName "1.2"`, minSdk/targetSdk aus
@@ -175,7 +182,9 @@ werden — in einem frischen Checkout normal).
    im Klartext-Pfad.
 4. **Gruppenchats komplettieren — Anlegen und Verwalten.** Für ein
    WhatsApp-Gefühl sind Gruppen Kernfunktionalität, und der seltsame Stand ist:
-   **alles Unterbau ist fertig, nur die UI fehlt.** Backend-Lifecycle komplett
+   **alles Unterbau ist fertig, nur die UI fehlt.** Produktentscheid 2026-09-06:
+   gilt **produktweit** — Desktop und Mobile teilen den Web-Layer, die fehlende
+   UI wird also einmal gebaut und erscheint in beiden. Backend-Lifecycle komplett
    (`routes/private_gruppen.py`), E2EE-Krypto-Suite komplett
    (`web/src/lib/krypto/gruppe/`), API-Client ebenfalls
    (`web/src/lib/api/gruppen.ts`: `erstellen`, `mitgliedHinzufuegen`,
@@ -197,6 +206,47 @@ werden — in einem frischen Checkout normal).
      Erstklassig werden sollen: serverseitige Gruppen-Vorschau nach dem
      DM-Vorbild (Achtung E2EE: Vorschaufeld wäre Klartext auf dem Server —
      Entweder-Entscheidung dokumentieren).
+
+### Epic: Anrufe — Audio/Video, 1:1 und Gruppe
+
+Produktentscheid 2026-09-06: Aus der Direktnachricht heraus anrufen (1:1,
+Audio wie Video) und Gruppenanrufe gehören in den Kern des Produkts. Der
+LiveKit-Unterbau existiert (Mehrfach-Teilnehmer, Reconnect, Audio-Routing,
+Mic-Foreground-Service, Kamera-Track); was fehlt, ist die **Anruf-Ebene
+darüber**. Stufen:
+
+- **A — Call-Room-Konzept im Backend.** Der Token-Flow
+  (`services/voice-signaling/routes/token.py`) verlangt einen Guild-Voice-Kanal
+  (`_require_voice_channel_member`, `_room_for_channel(channel_id)`). DMs und
+  private Gruppen haben keinen solchen Kanal. Nötig: Anruf-Entität
+  (id, Typ `dm|gruppe`, Teilnehmer, Zustand) im chat-gateway/voice-signaling und
+  eine Token-Ausstellung mit Anruf-Mitgliedschaftsprüfung (DM-Teilnahme bzw.
+  Gruppen-Mitgliedschaft statt Kanal-Mitgliedschaft).
+- **B — Klingeln/Signalisierung.** WS-Events (`call_invite`, `call_accept`,
+  `call_decline`, `call_cancel`, `call_timeout`) über das bestehende Gateway —
+  ephemeral, kein Gap-Fill. Gerät offline: **inhaltloser Push** (Muster
+  existiert: `fan_out_dm_push_encrypted` in `push.py`; FCM laut P0.1). Anruf-
+  ergebnis als Systemzeile im Chat („Verpasst", „Dauer") — WhatsApp-Prinzip.
+- **C — UI, 1:1 zuerst.** Ausgehend: Klingel-Screen + Auflegen. Eingehend:
+  Annehmen (nur Audio / mit Video), Ablehnen. Laufend: die bestehende
+  Voice-UI-Komponenten wiederverwenden (`VoiceControlBar`, Kacheln,
+  `MobileVoiceStack`, Lautsprecher-Routing, Mic-Foreground-Service). Kamera
+  an/aus und Front/Rück-Wechsel sind im LiveKit-Stack bereits gebaut.
+- **D — Gruppenanruf.** Derselbe Mechanismus mit n Teilnehmern; LiveKit-Räume
+  skalieren bereits (Raum-Kanäle machen nichts anderes). Einstieg „Anruf
+  starten" in der Gruppe; Modell wie WhatsApp: klingeln, wer will, stößt hinzu.
+- **E — Sperre/Hintergrund.** Android: eingehender Anruf als Full-Screen-Intent
+  bzw. `ConnectionService` (in-call UI über den Sperrbildschirm),
+  `MicForegroundService` um einen Call-Typ (Kamera!) erweitern. iOS:
+  PushKit + CallKit — Apple verlangt den CallKit-Report, **bevor** der VoIP-Push
+  verarbeitet wird, sonst wird die App bestraft. Stufe E erst, wenn A–D im
+  Vordergrund sauber laufen.
+
+**Ehrlichkeits-Hinweis (Produkt + Play-Listing):** Anrufe sind **nicht**
+Ende-zu-Ende verschlüsselt — LiveKit transportverschlüsselt (DTLS-SRTP), aber
+der SFU sieht das Medien-Plaintext. DM-*Texte* sind dagegen E2EE. Diesen
+Unterschied in der Security-Dokumentation sauber benennen. Echte E2EE-Anrufe
+wären ein eigenes Projekt und sind bewusst zurückgestellt (siehe unten).
 
 ### P1 — Chat-Alltag rund machen
 
@@ -242,8 +292,8 @@ werden — in einem frischen Checkout normal).
 - Alle vier Java-Plugins (AudioRoute, MicForegroundService, SpeakerphoneRouter,
   OrientationLock) brauchen Swift-Pendants; der Permission-Flow in `MainActivity`
   ebenfalls.
-- VoIP-Push über PushKit/CallKit ist auf iOS ein eigener Block (frühestens relevant,
-  wenn es 1:1-Anrufe gibt — siehe unten).
+- VoIP-Push über PushKit/CallKit ist ein eigener Block und als Stufe E Teil des
+  Anrufe-Epics (§5) — der iOS-Anschluss der Anrufe hängt daran.
 - **Deshalb:** Push-Fan-out, Read-State und Sprachnachrichten bewusst
   plattformneutral im chat-gateway bauen, damit der iOS-Anschluss mechanisch statt
   konzeptionell wird.
@@ -264,11 +314,15 @@ gibt es aber noch nicht und sie gehören auf die Roadmap:
   `docs/superpowers/plans/2026-08-31-ablage-e3-persoenliches-archiv.md` lesen,
   das ist der neuere Architektur-Ansatz für persönliche Archive.
 
-### Bewusst NICHT geplant
+### Bewusst zurückgestellt
 
-- 1:1-Anrufe (Ring/Annehmen): Voice hängt an Raum-Kanälen (`POST /token` mit
-  `channel_id`); ein DM-Anruf-Flow existiert nicht. Später sinnvoll, aber kein
-  P0–P2.
+- **E2EE-Anrufe** — Anrufe laufen über den LiveKit-SFU (transportverschlüsselt,
+  aber nicht End-zu-Ende, siehe Anrufe-Epic). Echte E2EE-Anrufe (LiveKit-External-
+  E2EE-Keys oder Mesh ohne SFU) sind ein eigenes Projekt und erst anzugehen,
+  wenn die Anruf-Stufen A–E stehen.
+- **Einladungs-Link-Flow für Gruppen** — Mitglieder werden zunächst direkt per
+  `user_id` hinzugefügt (P0.4). Beitreten-per-Link wäre eine spätere Erweiterung
+  mit eigener Sicherheitsbetrachtung.
 
 ## 6. Arbeiten im Repo — was die neue Person wissen muss
 
