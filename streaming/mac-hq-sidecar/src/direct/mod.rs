@@ -143,12 +143,13 @@ impl Sitzung {
             "av1" => "av1",
             _ => "h264",
         };
+        let bitrate_kbps = params.bitrate_kbps;
         let konfig = pulse_whip::direct::Konfig {
             codec_slug,
             fps: params.fps,
             breite: params.width,
             hoehe: params.height,
-            bitrate_kbps: params.bitrate_kbps,
+            bitrate_kbps,
         };
         let sender = Arc::new(
             pulse_whip::direct::DirectSender::neu(&konfig)
