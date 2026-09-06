@@ -356,10 +356,6 @@ class _DeviceRegistryMixin:
         try:
             self.device_set_busy(device_id, controller_user_id, socket)
             await self.publish_device_state(device_id)
-            print(
-                f"BUSY-DEBUG: mark Gerät {device_id} durch Nutzer {controller_user_id}",
-                flush=True,
-            )
         except Exception:  # noqa: BLE001  # pragma: no cover
             log.debug("device busy state not published", exc_info=True)
 
@@ -428,18 +424,8 @@ class _DeviceRegistryMixin:
         device_id = next(
             (d for d, s in self._device_busy_socket.items() if s is socket), None
         )
-        # **Der eine Punkt, an dem „wird gesteuert" stehen bleiben kann** — hier
-        # findet oder löst sich die Belegung. Beide Ausgänge je eine INFO-Zeile:
-        # ein stecken gebliebener „Wird gesteuert"-Text ist ohne diese Spur von
-        # außen nicht von einer laufenden Sitzung zu unterscheiden (beobachtet
-        # 2026-09-06, P2P-Selbsttest).
         if device_id is None:
-            print(
-                f"BUSY-DEBUG: release ohne Treffer — offene Belegungen: {list(self._device_busy_socket.keys())}",
-                flush=True,
-            )
             return
-        print(f"BUSY-DEBUG: release Gerät {device_id}", flush=True)
         self.device_set_busy(device_id, None)
         await self.publish_device_state(device_id)
 

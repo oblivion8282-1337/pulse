@@ -45,12 +45,13 @@ export type DirektZustand =
   | 'fehlgeschlagen';
 
 /**
- * Der Stand der Direktverbindung dieser Sitzung. Bewusst EIN Wert und nicht
+ * Der Zustand der Direktverbindung, so wie ihn beide Seiten sehen. Bewusst EIN Wert und nicht
  * je Seite: es gibt in Stufe 1 höchstens eine Direktverbindung, und jede Rolle
  * setzt ihn für sich — der Steuernde beim Verhandeln, der Host beim Empfang
  * der Sidecar-Ereignisse.
  */
 const zustand = $state<{ wert: DirektZustand }>({ wert: 'aus' });
+
 
 /** Der Player-Fenster-Sitzung des Steuernden — für das saubere Ende. */
 let playerSitzung: number | null = null;
