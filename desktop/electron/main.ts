@@ -99,6 +99,18 @@ if (process.platform === 'linux' && !process.env.PULSE_PROP) {
   process.env.PULSE_PROP = 'node.name=Pulse';
 }
 
+// ── Dev-only: Zweitinstanz für den P2P-Selbsttest ────────────────────────────
+// `PULSE_DEV_ZWEITINSTANZ=1` startet die App als zweites, UNABHÄNGIGES Fenster
+// mit eigenem Profilverzeichnis: eigenes Login, keine Gerät-Registrierung, kein
+// Streit um die Single-Instance-Sperre. Damit lässt sich der komplette
+// Fernsteuerungs-Weg (Host und Steuernder) auf EINER Maschine testen — genau
+// dafür ist er gebaut. In verpackten Builds ohne Wirkung auf den Regelbetrieb;
+// die Umgebungsvariable muss bewusst gesetzt sein.
+const DEV_ZWEITINSTANZ = process.env.PULSE_DEV_ZWEITINSTANZ === '1';
+if (DEV_ZWEITINSTANZ) {
+  app.setPath('userData', path.join(app.getPath('appData'), 'Pulse Zweitinstanz (Dev)'));
+}
+
 // Override the user-visible app name BEFORE any other Electron API touches it.
 // `app.getName()` falls back to package.json `name`, which is `@dcc/desktop` —
 // KDE/Plasma's StatusNotifier surfaces that as "@dcc/desktop status icon" in
@@ -1442,7 +1454,10 @@ function wireScreenShare(): void {
 // Second launch hands focus to the running window instead of starting a 2nd one.
 // Windows: the OS passes the pulse:// URL as an argv entry to the second instance;
 // we forward it to the running window via handleDeepLink.
-if (!app.requestSingleInstanceLock()) {
+// **Ausnahme: die Dev-Zweitinstanz** (`PULSE_DEV_ZWEITINSTANZ=1`) will genau
+// KEINE Fensterübergabe — sie ist der Steuernde im Selbsttest auf einer
+// Maschine und hat ihr eigenes Profilverzeichnis (s. oben).
+if (!DEV_ZWEITINSTANZ && !app.requestSingleInstanceLock()) {
   app.quit();
   process.exit(0);
 }

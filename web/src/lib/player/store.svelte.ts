@@ -362,6 +362,8 @@ export class NativePlayerSession {
   }
 
   close(): void {
+    console.info('[direkt-diagnose] NativePlayerSession.close() — Trace:', new Error().stack);
+
     this.#disposed = true;
     this.#setAudioOwner(false);
     this.#setRuhend(false);

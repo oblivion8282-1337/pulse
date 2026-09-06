@@ -97,6 +97,8 @@ export async function openPlayer(
 }
 
 export async function closePlayer(session: number): Promise<void> {
+  console.info('[direkt-diagnose] closePlayer(', session, ') — Trace:', new Error().stack);
+
   try {
     await api()?.close(session);
   } catch {
