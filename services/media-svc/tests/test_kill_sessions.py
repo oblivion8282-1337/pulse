@@ -45,7 +45,7 @@ class _FakeMediaMtx:
         return httpx.Response(404)
 
 
-ll(monkeypatch, app, holder: dict, fake: _FakeMediaMtx) -> None:
+def _install(monkeypatch, app, holder: dict, fake: _FakeMediaMtx) -> None:
     """media-svc mit Fake-Transport und Settings verdrahten."""
     import httpx as _httpx
 
