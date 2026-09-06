@@ -69,6 +69,11 @@ pub enum Event {
 #[allow(dead_code)]
 pub enum StreamState {
     Idle,
+    /// Direktpfad-Bereitschaft: `start(direct:true)` angenommen, es wird auf
+    /// das Angebot des Players gewartet (`crate::direct`). Tatsächlich
+    /// gesendet wird der Zustand als String in den `state`-Events — dieser
+    /// Enum ist nur die dokumentierte Gesamttabelle.
+    Wartend,
     Starting,
     Live,
     Error,
