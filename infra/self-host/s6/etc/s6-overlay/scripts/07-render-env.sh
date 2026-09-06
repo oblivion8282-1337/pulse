@@ -97,6 +97,9 @@ export SESSION_SIGNING_KEY_FILE='${KEYS}/session_signing.pem'
 export INTERNAL_SERVICE_SECRET='${INTERNAL_SECRET}'
 export CHAT_GATEWAY_URL='http://127.0.0.1:8002'
 export MEDIA_SVC_URL='http://127.0.0.1:8004'
+# chat-gateway holt Gast-Tickets beim auth-svc (auch: discoverable-Mirror,
+# Beschwerde-Eskalation). Default trifft hier zu — explizit, wie die Nachbarn.
+export AUTH_SVC_URL='http://127.0.0.1:8001'
 export AUTH_JWKS_URL='http://127.0.0.1:8001/.well-known/jwks.json'
 
 # Cert-login challenge HMAC
