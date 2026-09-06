@@ -22,4 +22,8 @@ from __future__ import annotations
 #:
 #: ``token_refresh``: erneuert das Sitzungs-Token am offenen Socket, statt ihn
 #: beim Ablauf zu schliessen.
-SERVER_FAEHIGKEITEN: tuple[str, ...] = ("token_refresh", "server-ticket")
+#:
+#: ``hist_replay``: kennt das ``hist_replay``-Op — der Klient schickt nach
+#: dem Hello seine Kanal-Cursor ``(hist, seq)`` und bekommt verpasste
+#: Kanal-Ereignisse als ``replay``-Rahmen nachgespielt (WS-Lückenfill).
+SERVER_FAEHIGKEITEN: tuple[str, ...] = ("token_refresh", "server-ticket", "hist_replay")

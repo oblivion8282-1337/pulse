@@ -17,7 +17,7 @@ wire format is already a string.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class _EventBase(BaseModel):
@@ -34,3 +34,15 @@ class _EventBase(BaseModel):
         frozen=True,
         populate_by_name=True,
     )
+
+    # ``hist``/``seq``: WS-Replay-Cursor, gestempelt vom chat-gateway beim
+    # Veröffentlichen auf ``chat:channel:<id>`` (nur dauerhafte Ops — s.
+    # ``_HIST_OPS`` in pubsub.py). ``seq`` ist der pro Kanal lückenlose
+    # Ereigniszähler (Redis INCR), ``hist`` die ID des Redis-Stream-Eintrags,
+    # unter dem das Ereignis für den Nachhol-Abruf (``hist_replay``-Op) liegt.
+    # ``exclude=True``: unbelegte Umschläge bleiben binärkompatibel zum
+    # alten Wire-Format; nur tatsächlich gestempelte Ereignisse tragen die
+    # Felder. Deklariert, damit die strikte Listener-Validation
+    # (``extra="forbid"``) gestempelte Ereignisse nicht verwirft.
+    hist: str | None = Field(default=None, exclude=True)
+    seq: int | None = Field(default=None, exclude=True)

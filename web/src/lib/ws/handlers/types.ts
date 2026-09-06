@@ -448,7 +448,21 @@ export type ServerEvent =
        *  Gegenstellen; leere Liste heisst „sendet nicht mehr". */
       stream_slots?: number[];
     }
+  // WS-Lückenfill (hist_replay-Capability): Antwort auf den hist_replay-Op —
+  // die Offline-Zeit eines Kanals als bereits gestempelte Ereignisse. Nur
+  // Server ab der hist_replay-Faehigkeit schicken ihn.
+  | { op: 'replay'; channel_id: string; complete: boolean; events: ServerEvent[] }
+  // Gestempelte Kanal-Ereignisse (message/message_update/message_delete/
+  // reaction_add/reaction_remove/pin_update) tragen Cursor fuer den
+  // Wiederanschluss; Client merkt sich das Hoechstwasser pro Kanal.
   | { op: 'error'; code: number; msg: string };
+
+/** Cursor-Stempel auf dauerhaften Chat-Ereignissen (Server: `_hist_stempeln`).
+ *  `hist` = Redis-Stream-Eintrag-ID, `seq` = lückenloser Kanal-Zähler. */
+export interface HistStamp {
+  hist?: string;
+  seq?: number;
+}
 
 export type ClientEvent =
   | { op: 'subscribe'; channel_id: string }
@@ -530,6 +544,10 @@ export type ClientEvent =
   // Beim Server-Switch ZU einer schon offenen Connection ist der gecachte
   // ready stale (Live-voice/stream/watch-Events seit Connect fehlen darin) —
   // resync holt den aktuellen Stand, statt den stale Cache zu replayen.
+  // „Ich bin bei Kanal X bis Cursor (hist, seq)" — Antwort ist ein
+  // `replay`-Rahmen pro Kanal. Nur senden, wenn hello die
+  // `hist_replay`-Capability nennt (`$lib/ws/gateway-connection.ts`).
+  | { op: 'hist_replay'; cursors: Record<string, { hist: string; seq: number }> }
   | { op: 'resync' }
   // Frisches Token am OFFENEN Socket (`$lib/ws/token-erneuerung.ts`). Der
   // Server haengt die Lebensdauer des Sockets an das ``exp`` seines Tokens;

@@ -44,7 +44,12 @@ import {
   wiederholungLohnt,
 } from './token-erneuerung';
 import { compareVersions } from '$lib/utils/semver';
-import type { ServerEvent, ClientEvent, RemoteSignalKind } from './handlers/types';
+import type {
+  ServerEvent,
+  ClientEvent,
+  RemoteSignalKind,
+  HistStamp,
+} from './handlers/types';
 import type { DeviceMonitor } from '$lib/api/devices';
 
 const BUFFER_BEFORE_READY: ReadonlySet<ServerEvent['op']> = new Set([
@@ -169,6 +174,16 @@ export class GatewayConnection {
    *  geleerten Server-Teil (guilds/voice/…) neu seedet. `replayReadyForActivation()`
    *  re-dispatcht diesen Cache mit `_isActive=true`. */
   private _lastReadyEvent: ServerEvent | null = null;
+
+  /**
+   * WS-Replay-Cursor je Kanal (Centrifugo-Blaupause): höchstwasser von
+   * `(hist, seq)` über alle gestempelten Kanal-Ereignisse. Bei Reconnect
+   * schickt `hist_replay` diese Cursor; der Server spielt die Offline-Zeit
+   * als `replay`-Rahmen nach und der REST-Lückenfill (`gapFillAll`) bleibt
+   * nur Fallback für Kanäle ohne Cursor bzw. übergelaufene Fenster.
+   * Connection-scoped — Cursor gelten pro Server, nicht global.
+   */
+  private _hist = new Map<string, { id: string; seq: number }>();
 
   /** Reaktiv: erstes Hello-Frame des Servers (nur Self-Host). */
   helloMeta: HelloMeta | null = null;
@@ -449,7 +464,17 @@ export class GatewayConnection {
         void import('$lib/voice/livekit.svelte').then(({ voice }) => {
           voice.resyncSelfState();
         });
-        void gapFillAll(this.subs, { serverId: this.serverId });
+        // WS-Replay nimmt sich der Kanäle mit Cursor an (`hist_replay` nach
+        // dem hello; `complete:false` schickt den Kanal einzeln in den REST-
+        // Lückenfill). Übrig bleiben für den REST-Pfad: Kanäle ohne Cursor
+        // (erste Subscription der Sitzung) — oder ALLE, wenn der Server die
+        // hist_replay-Fähigkeit nicht hat (helloMeta = Stand des VORHERigen
+        // Dials derselben Server-Instanz; beim Erstconnect REST für alle).
+        const histFaehig = this._kannHistReplay();
+        const rest = histFaehig
+          ? [...this.subs].filter((cid) => !this._hist.has(cid))
+          : [...this.subs];
+        void gapFillAll(rest, { serverId: this.serverId });
         this._startHeartbeat();
         resolve();
       });
@@ -477,6 +502,13 @@ export class GatewayConnection {
           this._planeTokenErneuerungAus(tokenRenewed.exp ?? null);
           return;
         }
+        // Replay-Rahmen (Antwort auf hist_replay) ist Meta — die INNERHALB
+        // getragenen Ereignisse werden einzeln dispatched, der Rahmen selbst
+        // geht nicht in die Stores.
+        if ((evt as unknown as { op: string }).op === 'replay') {
+          this._wendeReplayAn(evt as Extract<ServerEvent, { op: 'replay' }>);
+          return;
+        }
         if (firstFrame) {
           firstFrame = false;
           if ((evt as unknown as { op: string }).op === 'hello') {
@@ -494,12 +526,18 @@ export class GatewayConnection {
             // deshalb wird die Erneuerung im hello geplant und nicht im
             // `open`-Zweig (der läuft, bevor das erste Frame da ist).
             this._planeTokenErneuerung();
+            // Gleiches Spiel für den WS-Lückenfill: erst NACH dem hello ist
+            // klar, ob der Server `hist_replay` kennt. Die Cursor sind bis
+            // dahin live gelaufener Ereignisse angewachsen — der Server
+            // verarbeitet die Subscribes (gleicher Socket, FIFO) schon, also
+            // deckt das Replay die Lücke zwischen „Socket weg" und „Socket
+            // wieder an".
+            if (this._kannHistReplay()) this._sendHistReplay();
             return; // Hello selbst geht NICHT in den Handler-Dispatcher
           }
           // Fallback: älterer Server ohne hello-Support → durchlassen.
         }
-        this._handle(evt);
-        for (const l of this.listeners) l(evt);
+        this._dispatch(evt);
       });
       ws.addEventListener('close', (event) => {
         this.ws = null;
@@ -555,6 +593,16 @@ export class GatewayConnection {
   }
 
   private _handle(evt: ServerEvent): void {
+    // WS-Replay-Cursor: gestempelte Kanal-Ereignisse heben das
+    // Höchstwasser des Kanals — VOR dem Background-Guard, damit auch eine
+    // Hintergrund-Connection ihren Cursor weiterschreibt (sie dispatcht
+    // die Stores nicht, aber ihre Cursor gelten trotzdem).
+    const st = evt as ServerEvent & HistStamp & { channel_id?: unknown; data?: { channel_id?: unknown } };
+    if (typeof st.seq === 'number' && typeof st.hist === 'string') {
+      const cid =
+        typeof st.channel_id === 'string' ? st.channel_id : st.data?.channel_id;
+      if (typeof cid === 'string') this._histMerke(cid, st.hist, st.seq);
+    }
     // Cache the raw `ready` for the server-switch replay (see _lastReadyEvent).
     // Store a stamp-free shallow clone so a later replay re-derives the
     // active/cloud flags from the *then*-current truth, never a stale stamp.
@@ -619,6 +667,59 @@ export class GatewayConnection {
       r._serverId = this.serverId;
     }
     void dispatch(evt);
+  }
+
+  /** Empfanges Frame an Stores + alle per-Connection-Listener — der gemeinsame
+   *  Eingang für Live-Verkehr und replayte Offline-Ereignisse (identische
+   *  Dedup/Idempotenz-Regeln: `mergeGap` per ID, Reaktionen als Zustand). */
+  private _dispatch(evt: ServerEvent): void {
+    this._handle(evt);
+    for (const l of this.listeners) l(evt);
+  }
+
+  // ── WS-Replay (hist_replay) — Centrifugo-Blaupause ────────────────────────
+
+  private _kannHistReplay(): boolean {
+    return (this.helloMeta?.capabilities ?? []).includes('hist_replay');
+  }
+
+  private _histMerke(cid: string, id: string, seq: number): void {
+    const cur = this._hist.get(cid);
+    if (cur && cur.seq >= seq) return; // niemals rückwärts (Replay-Überlappung)
+    this._hist.set(cid, { id, seq });
+  }
+
+  /** Nach dem hello: alle Cursor der abonnierten Kanäle vorlegen. Der Server
+   *  antwortet mit einem `replay`-Rahmen je Kanal (oder schweigt für Kanäle
+   *  ohne gespeicherten Cursor). */
+  private _sendHistReplay(): void {
+    if (!this.subs.size) return;
+    const cursors: Record<string, { hist: string; seq: number }> = {};
+    for (const cid of this.subs) {
+      const cur = this._hist.get(cid);
+      if (cur) cursors[cid] = { hist: cur.id, seq: cur.seq };
+    }
+    if (Object.keys(cursors).length === 0) return;
+    this._sendRaw({ op: 'hist_replay', cursors });
+  }
+
+  /** Replay-Rahmen anwenden. Überlappungen mit Live-Verkehr sind gewollt
+   *  unkritisch: Nachrichten dedupen per ID, Edits/Reaktionen sind
+   *  zustandsbasiert idempotent. `ponytail:` Eine zwischen Replay-Lese und
+   *  Rahmen-Versand veröffentlichte Änderung kann in seltenen Fällen in
+   *  falscher Reihenfolge anwenden (Live vor Replay) — kosmetisch und
+   *  selbstheilend beim nächsten Ereignis; Centrifugos Positions-Algebra
+   *  wäre der Upgrade-Pfad, falls das je sichtbar wird. */
+  private _wendeReplayAn(frame: Extract<ServerEvent, { op: 'replay' }>): void {
+    for (const env of frame.events) {
+      this._dispatch(env);
+    }
+    if (!frame.complete) {
+      // Fenster überlaufen (länger offline als HIST_MAXLEN Ereignisse) oder
+      // Server-Sequenz verloren: REST-Lückenfill für genau diesen Kanal —
+      // derselbe Weg wie vor dem Replay, inkl. ">100 ⇒ sichtbares Neu laden".
+      void gapFillChannel(frame.channel_id, false, { serverId: this.serverId });
+    }
   }
 
   /** Start the keepalive once a socket opens. Sends a ping every
