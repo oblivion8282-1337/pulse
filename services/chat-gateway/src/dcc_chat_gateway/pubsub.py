@@ -476,16 +476,14 @@ class ConnectionManager(
         self, channel_id: str, payload: dict[str, Any] | _EventBase
     ) -> None:
         wire = self._to_wire(payload)
-        op = wire.get("op")
-        if op is None:
+        if wire.get("op") is None:
             # Legacy: nacktes Nachrichtendict. HIER wickeln — nicht erst im
             # Listener — damit der Replay-Stempel oben auf dem Umschlag
             # liegt und nicht in ``data`` verrutscht. Der Listener erkennt
             # das ``op`` und leitet den Umschlag unverändert durch; am
             # Client kommt exakt dasselbe Frame an wie vorher.
             wire = {"op": "message", "data": wire}
-            op = "message"
-        if op in _HIST_OPS:
+        if wire["op"] in _HIST_OPS:
             await self._hist_stempeln(channel_id, wire)
             return
         await self._redis.publish(

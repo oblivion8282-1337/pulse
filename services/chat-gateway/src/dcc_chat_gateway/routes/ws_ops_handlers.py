@@ -162,18 +162,19 @@ async def handle_hist_replay(ctx: WSOpContext, msg: dict[str, Any]) -> None:
         if i >= HIST_REPLAY_MAX_CHANNELS:
             await ctx.websocket.send_json(_replay_frame(cid, [], False))
             continue
-        if cid not in ctx.subscribed or not isinstance(cur, dict):
-            # Nur für Kanäle, für die ein Cursor-Versuch erkennbar ist,
-            # gibt's den Fallback-Rahmen — Mist-Typen schweigen (Client-Fehler).
-            if isinstance(cur, dict):
-                await ctx.websocket.send_json(_replay_frame(cid, [], False))
+        if not isinstance(cur, dict):
+            # Mist-Typen schweigen (Client-Fehler) — der Fallback-Rahmen
+            # unten gibt's nur für Kanäle mit erkennbarem Cursor-Versuch.
             continue
         last_id = cur.get("hist")
         last_seq = cur.get("seq")
-        if not isinstance(last_id, str) or not last_id:
-            await ctx.websocket.send_json(_replay_frame(cid, [], False))
-            continue
-        if not isinstance(last_seq, int) or isinstance(last_seq, bool):
+        if (
+            cid not in ctx.subscribed
+            or not isinstance(last_id, str)
+            or not last_id
+            or not isinstance(last_seq, int)
+            or isinstance(last_seq, bool)
+        ):
             await ctx.websocket.send_json(_replay_frame(cid, [], False))
             continue
         # Live-Parität: ohne aktuelles Leserecht kein Replay — auch wenn die
