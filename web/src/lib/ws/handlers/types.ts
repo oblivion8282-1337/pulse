@@ -35,7 +35,8 @@ export type RemoteSignalKind =
   | 'ice'
   | 'vorrang'
   | 'zeiger'
-  | 'zeiger_im_bild';
+  | 'zeiger_im_bild'
+  | 'ablage';
 
 export type ChannelPayload = {
   id: string;

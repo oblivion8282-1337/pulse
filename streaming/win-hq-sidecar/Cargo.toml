@@ -39,6 +39,20 @@ pulse-bildmarke = { path = "../pulse-bildmarke" }
 # SendInput-Normierung und die Zeigerform.
 pulse-fernsteuerung = { path = "../pulse-fernsteuerung" }
 
+# Geteilte Zwischenablage der Fernsteuerung, seit 2026-08-31 gemeinsam mit dem
+# Player in einer eigenen Kiste: Rahmenformat, Stueckelung, Zustandsfuehrung
+# samt Fristen und Vorbestand — und seit demselben Tag auch die
+# WINDOWS-Umsetzung (`pulse_ablage::plattform::windows`): der Fensterfaden, das
+# Auftragsbuch und die Win32-Vorgaenge auf dem Fach. Sie stand bis dahin hier
+# und war damit fuer den Player unerreichbar. Hier bleibt nur die Verdrahtung
+# (`src/ablage.rs`): welcher Wert wohin, wer taktet, wann Schluss ist.
+#
+# **Deshalb fehlen unten drei `windows`-Merkmale, die frueher dastanden**
+# (`Win32_System_{DataExchange,Memory,Ole}`): dieser Sidecar nennt jene APIs
+# nicht mehr selbst — `pulse-ablage` fuehrt sie fuer denselben Zielsatz in
+# seinem eigenen Cargo.toml, und Cargo vereinigt Merkmale je Paket.
+pulse-ablage = { path = "../pulse-ablage" }
+
 # Stage 2: DXGI-Adapter-Enum (real `gpu_info` + populates `health.gsr.vendor`).
 # Features kept narrow — only what the adapter walk + COM init needs.
 windows = { version = "0.62", features = [

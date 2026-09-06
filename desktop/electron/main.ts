@@ -43,6 +43,7 @@ import {
 import { playerManager } from './player';
 import { auftragLesen, EingabeWeiche, erfassungSchalten } from './remoteInput';
 import { RemoteEingabe } from './remoteInputHost';
+import { zielFuerAblage, rolleLesen, endeAnstoss } from './ablageWeiche';
 import { migriereAufStandardAn, onSidecarEventForUpload } from './experimental-log-upload';
 import { initStore, storeGet, storeGetAll, storeSet, storeSetBatch } from './store';
 import { createTray, applyTrayStatus, setTrayImageFromDataUrl } from './tray';
@@ -830,6 +831,18 @@ const remoteEingabe = new RemoteEingabe(
  * loslassen, weil die Sitzung, die sie gedrueckt hat, nicht mehr existiert.
  */
 function fernsteuerungAufraeumen(grund: string): void {
+  // **Die Zwischenablage zuerst, und ohne die Abkuerzung darunter.** Der
+  // Host-Sidecar haelt sie womoeglich mit verzoegertem Rendern; nach einem
+  // Neuladen lebt er mit `wach = true` weiter, waehrend niemand mehr zuhoert.
+  // Jedes lokale Strg+V des Host-Nutzers loeste dann `WM_RENDERFORMAT` aus,
+  // ein `hol` ginge ins Leere, und nach der Abruf-Frist bekaeme er zwei
+  // Sekunden spaeter NICHTS — fuer den Rest des Streams, samt verlorenem
+  // Vorbestand (Befund B1). Der Steuernde hat das Problem nicht, er wird ueber
+  // `input_capture:false` mit abgeraeumt.
+  //
+  // Vor der Abkuerzung, weil die Ablage auch ohne eine einzige Eingabe-Sitzung
+  // beansprucht sein kann: `beginn` haengt an der Sitzung, nicht an Frames.
+  ablageAufraeumen();
   const offen = remoteEingabe.offen();
   const angemeldet = eingabeWeiche.angemeldet();
   if (offen.length === 0 && angemeldet.length === 0) return;
@@ -850,6 +863,28 @@ function fernsteuerungAufraeumen(grund: string): void {
       .catch(() => undefined);
   }
   eingabeWeiche.alleAbmelden(); // Steuernder: Zuordnungen zeigen ins Leere
+}
+
+/**
+ * Den Host-Sidecars sagen, dass ihre Ablage-Sitzung vorbei ist.
+ *
+ * **Nur an LAUFENDE Sidecars** (`sidecarRunning`): `getSidecar()` spawnt lazy,
+ * ein Ruf an einen unbelegten Platz startete also einen Prozess, nur um ihm zu
+ * sagen, dass er nichts zu tun hat — dieselbe Zurueckhaltung, die
+ * `remoteInputHost.ts` an drei Stellen uebt.
+ *
+ * Ein `ende` an einen Sidecar, der nie ein `beginn` gesehen hat, ist folgenlos:
+ * seine Zustandsmaschine ist nicht wach und seine Plattform nicht wirksam.
+ * Gebucht wird hier nichts — welcher Platz Traeger war, weiss der Renderer, und
+ * den gibt es in diesem Moment gerade nicht mehr.
+ */
+function ablageAufraeumen(): void {
+  for (let slot = 0; slot < MAX_STREAM_SLOTS; slot++) {
+    if (!sidecarRunning(slot)) continue;
+    void getSidecar(slot)
+      .call('ablage', { data: endeAnstoss() })
+      .catch(() => undefined);
+  }
 }
 
 function wireSidecar(): void {
@@ -900,6 +935,75 @@ function wireSidecar(): void {
       remoteEingabe.frames(slot, sessionId, frames, hostAktiv === true),
   );
   ipcMain.handle('gsr:remoteInputEnd', () => remoteEingabe.beenden());
+
+  // Fernsteuerung, Host-Seite: dem Sidecar eines Platzes sagen, dass seine
+  // Ablage-Sitzung vorbei ist. Der Renderer ruft das beim TRAEGERWECHSEL
+  // (`$lib/remote/ablageTraeger.ts::traegerWechsel`).
+  //
+  // **Der `sidecarRunning`-Riegel ist der ganze Zweck dieses Kanals** — und
+  // zugleich der Plattform-Unterschied, ohne dass hier ein
+  // `process.platform` stuende: `getSidecar()` spawnt lazy, ein Ruf an einen
+  // Platz ohne laufenden Sidecar startete also einen Prozess, nur um ihm zu
+  // sagen, dass er nichts zu tun hat (Befund B7). Auf Windows ist der alte
+  // Traeger nach `stop` weg, der Riegel greift, und es bleibt beim bisherigen
+  // Verhalten. Auf macOS bleibt der Sidecar warm (`mac-hq-sidecar/
+  // src/dispatch.rs`: kein `exit_after`) — er lebt, bekommt sein `ende` und
+  // gibt die Zwischenablage des Nutzers frei, statt sie bis zum App-Ende
+  // belegt zu halten.
+  ipcMain.handle('gsr:ablageEnde', async (_e, slot: unknown) => {
+    const platz = normaliseSlot(slot);
+    if (!sidecarRunning(platz)) return { ok: true, note: 'kein laufender Sidecar' };
+    try {
+      return await getSidecar(platz).call('ablage', { data: endeAnstoss() });
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
+
+  // Fernsteuerung — geteilte Zwischenablage (`$lib/remote/ablage.ts`). Der
+  // Hauptprozess deutet die Nutzlast nicht, er entscheidet nur, wohin sie
+  // geht (`ablageWeiche.ts`). Sie traegt die Huelle aus `ablageHuelle.ts`
+  // (`{rahmen:…}` von der Gegenseite, `{anstoss:…}` vom eigenen Renderer) —
+  // gesetzt wird sie im Renderer, geoeffnet erst im Player. Die Rolle wird
+  // NICHT aus der Sitzungsnummer
+  // erschlossen (das brach: ein Host, der nebenbei den Strom eines Dritten im
+  // nativen Player anschaut, traegt ebenfalls eine Sitzungsnummer > 0 und
+  // waere faelschlich als 'controller' gedeutet worden) — sie kommt vom
+  // Renderer mit, der sie aus `remoteAblage.start(rolle, …)` kennt, und wird
+  // hier nur noch geprueft (`rolleLesen`, fail-closed). Zulaessig, weil diese
+  // Weiche nur entscheidet, welcher der EIGENEN lokalen Prozesse die Ablage
+  // haelt — anders als bei `input_capture` (Sicherheitsentscheidung ueber
+  // Eingabe-Injektion, deshalb dort bewusst im Hauptprozess) kostet eine
+  // falsche Rolle hier ein fehlgeleitetes Einfuegen, keine Befugnis.
+  //
+  // Die Host-Haelfte geht an den Sidecar des TRAEGER-Platzes. Welcher das ist,
+  // entscheidet der Renderer (`$lib/remote/ablageTraeger.ts`): je Platz laeuft
+  // ein eigener Sidecar-Prozess, die Zwischenablage ist aber maschinenweit —
+  // beanspruchten alle, ueberschrieben sie sich gegenseitig. Hier wird der
+  // Platz nur auf den gueltigen Bereich geklemmt, wie bei `gsr:call`.
+  //
+  // **Kein `sidecarRunning`-Riegel wie bei `remoteInput`**, und das ist der
+  // Unterschied: dort nennt die GEGENSEITE den Platz, und ein erfundener
+  // startete einen Prozess, nur damit er `unknown_slot` antwortet. Hier nennt
+  // ihn der eigene Renderer, und er nennt genau den, dessen Stream er selbst
+  // laufen sieht.
+  ipcMain.handle(
+    'gsr:ablage',
+    async (_e, rolleRoh: unknown, session: unknown, data: unknown, slot?: unknown) => {
+      const rolle = rolleLesen(rolleRoh);
+      if (!rolle) return { ok: false, error: 'unbekannte Rolle' };
+      try {
+        if (zielFuerAblage(rolle) === 'sidecar') {
+          return await getSidecar(normaliseSlot(slot)).call('ablage', { data });
+        }
+        const s =
+          typeof session === 'number' && Number.isInteger(session) && session > 0 ? session : 0;
+        return await playerManager.call('ablage', { session: s, data });
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      }
+    },
+  );
 }
 
 /**
@@ -935,6 +1039,12 @@ const ALLOWED_PLAYER_OPS = new Set([
   // Ob der Anfrage-Knopf in der Bedienleiste erscheint. Ebenfalls reine
   // Anzeige: der Klick kommt als Ereignis zurueck, angefragt wird im Renderer.
   'remote_anfragbar',
+  // `ablage` darf ueber den generischen Kanal: der Hauptprozess reicht den
+  // Rahmen unveraendert durch und deutet ihn nicht. Er traegt beim Kopieren
+  // keinen Inhalt (nur eine Ankuendigung), und beim Abruf ist der Inhalt
+  // genau das, was hier niemanden angeht — anders als `input_capture`, das
+  // zugleich eine Zuordnung anlegt und deshalb im Hauptprozess bleibt.
+  'ablage',
 ]);
 
 /** Zuordnung Player-Sitzung -> Fernsteuerungs-Sitzung (s. `remoteInput.ts`). */

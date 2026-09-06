@@ -85,6 +85,14 @@ pub enum OverlayAction {
     /// in der App (`crate::app::anordnen`). Der Knopf erscheint deshalb nur,
     /// wenn beides zutrifft.
     FensterAnordnen,
+    /// Schalter „Zwischenablage teilen", je Sitzung, Vorgabe an.
+    ///
+    /// **Das Fenster tut hier nichts selbst** — wie ueberall in dieser Liste.
+    /// Was daran haengt, steht in `app::ablage`: ausschalten gibt einen
+    /// laufenden Anspruch frei und schreibt den Vorbestand zurueck, statt
+    /// bloss den naechsten Anspruch zu unterlassen. Sonst bliebe die Ablage
+    /// des Nutzers leer, obwohl er das Teilen gerade abgeschaltet hat.
+    AblageTeilen(bool),
 }
 
 /// Ein Bildschirm des ferngesteuerten Rechners, wie ihn die App ins Fenster

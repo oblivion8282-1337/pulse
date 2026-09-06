@@ -327,6 +327,26 @@ impl App {
 }
 
 impl WaylandZug {
+    /// Die Gastverbindung als Umsetzung der Zwischenablage (s.
+    /// `app::ablage`).
+    ///
+    /// **Dieselbe Verbindung, zwei Aufgaben** — und das ist Absicht, kein
+    /// Sparzwang: das `selection`-Ereignis kommt auf demselben
+    /// `wl_data_device`, das der Zug ohnehin je Sitzplatz gebunden hat. Eine
+    /// zweite Verbindung daneben bekaeme dieselben Ereignisse noch einmal und
+    /// muesste Seat, Zeiger und Datengeraet doppelt fuehren.
+    ///
+    /// **Der Zug-Zustand wird davon nicht beruehrt.** Die Zwischenablage hat
+    /// mit dem Ziehen nichts zu tun; `wayland_zug_abbau` raeumt weiterhin
+    /// ausschliesslich Zug-Zustand.
+    #[cfg(target_os = "linux")]
+    pub(super) fn ablage_plattform(
+        &mut self,
+    ) -> Option<&mut dyn crate::app::ablage::Ablageplattform> {
+        let verbindung = self.inner.verbindung.as_mut()?;
+        Some(verbindung)
+    }
+
     /// Die Verbindung abbauen, solange winits Anzeige noch lebt — muss aus
     /// `App::exiting()` kommen (Review C3). Dieselbe Zusage wie
     /// `tastensperre::wayland::Gemeinsam::schliessen`/[`Drop`]: `main.rs`

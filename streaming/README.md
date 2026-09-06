@@ -85,6 +85,7 @@ JSON-Request und schreibt pro Antwort/Event eine JSON-Zeile auf stdout:
 | `start` | `profile, channel: {id, token, push_url?, mediamtx_endpoint?, push_protocol?}, capture, audio: {mode, excluded_apps}, overrides? {codec, bitrate_kbps, fps, resolution, bit_depth, hdr}` | `argv` (die gleiche Liste) — danach kommen Events |
 | `stop` | — | `ok` |
 | `state` | — | `running, state, fps, uptime_s, argv` |
+| `ablage` | `data` | `ok` — ein Wert der geteilten Zwischenablage (`streaming/pulse-ablage`). **Windows- und macOS-Sidecar** (Linux ist nie Host). Der Sidecar deutet ihn nicht selbst — das tut die Kiste, und die Hülle entscheidet: `{"rahmen":…}` kommt von der Gegenseite, `{"anstoss":"beginn"\|"neu_bitte"\|"ende"}` vom eigenen Renderer. **`beginn` ist zugleich die Trägerwahl**: es läuft ein Sidecar-Prozess je Stream-Platz, die Zwischenablage ist maschinenweit, und erst dieser Anstoß stellt den Fenster- (Windows) bzw. Eigner-Faden (macOS) auf. **Auf macOS gibt `stop` die Ablage wieder frei**, weil der Prozess dort über Streams hinweg warm bleibt — auf Windows erledigt das sein Prozessende. Was daraufhin hinausgeht, kommt als **Ereignis** (`ablage`), nicht als Antwort — ein `hol` wird beantwortet, sobald der Lesevorgang durch ist. |
 | `keyframe` | — | `ok` — beim nächsten Bild ein Vollbild erzeugen. **Nur Linux- und Windows-Sidecar.** Ohne laufenden Stream folgenlos; mehrere Anforderungen innerhalb eines Bildabstands fallen zu einer zusammen (bei mehreren Zuschauern zahlt der Sender ein Intra-Bild einmal für alle). Der reguläre Weg ist der RTCP-Rückkanal des eigenen WHIP-Sendewegs — diese Operation ist die Gegenstelle von Hand, damit die Wirkung messbar ist, ohne dass ein echter Zuschauer und ein Verlustprofil zusammenkommen müssen. |
 
 **Bis zum 2026-08-21 gab es hier ein `overrides.intra_refresh`** — rollender
@@ -184,6 +185,12 @@ beschrieben, und wer diese Liste für vollständig hielt, übersah sie:
   **Auf macOS ist `shape` immer `default`** und die Information steckt im Bild:
   die Plattform hat keine Namenszuordnung, weil `+[NSCursor arrowCursor]` und
   `IBeamCursor` selbst `nil` liefern.
+- `ablage` — `data`. Ein Rahmen der geteilten Zwischenablage, der zur
+  Gegenseite soll. **Ohne Sitzungsnummer**: die Zwischenablage gehört der
+  Maschine, nicht einem Stream-Platz — welchen Platz das Ereignis verlässt,
+  hängt Electron selbst an (`main.ts`, `{...ev, slot}`), und der Renderer
+  verwirft daran, was nicht vom Träger kommt. Windows-Sidecar seit dem
+  2026-08-31, macOS-Sidecar seit Plan 1c.
 - `remote_pointer_in_frame` — `aktiv` (bool). **Nur macOS, seit 2026-08-23.**
   Der Rückfall: die Zeigerabfrage gab nichts her, der Host-Zeiger wurde zurück
   ins Videobild geschaltet und reitet dort mit — der Steuernde muss seinen

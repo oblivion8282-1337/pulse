@@ -316,6 +316,78 @@ Drei Dinge, die man beim Lesen sucht:
   gestartet —, die Sitzung eine Nachricht später mit „Eingabe vor dem
   Hello-Handschlag".
 
+## Fernsteuerung — geteilte Zwischenablage (`src/ablage.rs`)
+
+Entwurf: `docs/superpowers/specs/2026-08-31-fernsteuerung-zwischenablage-design.md`.
+Der Mechanismus ist **verzögertes Rendern** und liegt vollständig in
+`streaming/pulse-ablage` (Rahmenformat, Stückelung, Zustandsführung, Fristen)
+— **seit dem 2026-08-31 auch die Windows-Umsetzung**
+(`pulse_ablage::plattform::windows`: Fensterfaden, Auftragsbuch,
+Win32-Vorgänge). Sie stand bis dahin hier, in `src/ablage/`, und war damit für
+den `pulse-player` unerreichbar: ein Windows-Nutzer als **Steuernder** teilte
+nichts, obwohl derselbe Rechner als Host es konnte.
+
+Hier bleibt die Verdrahtung — welcher Wert wohin, wer taktet, wann Schluss ist.
+Eine Operation:
+
+```jsonc
+{"op":"ablage", "id":9, "params":{"data":{"anstoss":"beginn"}}}
+{"op":"ablage", "id":9, "params":{"data":{"rahmen":{"t":"neu","gen":1,"typ":"text"}}}}
+// → {"ok":true}
+```
+
+Was hinausgeht, kommt **als Ereignis** (`{"ev":"ablage","data":{…}}`), nicht als
+Antwort: ein `hol` wird beantwortet, sobald der Lesevorgang durch ist, und die
+Abruf-Frist meldet sich Takte später.
+
+Vier Dinge, die man beim Lesen sucht:
+
+- **Der Rückruf blockiert, und deshalb liegt er auf einem eigenen Faden.**
+  `WM_RENDERFORMAT` muss mit `SetClipboardData` beantwortet werden, bevor er
+  zurückkehrt — in dieser Zeit wartet das einfügende Programm auf einen
+  Netz-Umlauf. Er darf weder auf dem Dispatch-Faden liegen noch auf dem
+  **Hook-Faden der Vorrang-Wache**: Windows hängt einen Hook, dessen Faden nicht
+  binnen `LowLevelHooksTimeout` (300 ms) antwortet, stillschweigend ab.
+- **Es sind zwei eigene Fäden.** Der Takt (`src/ablage.rs`, hier) läuft nicht
+  auf dem Fensterfaden (in der Kiste), weil er weiterlaufen muss, *während* der
+  in `WM_RENDERFORMAT` steht: die Abruf-Frist ist es, die dem wartenden
+  Programm die leere Antwort zustellt. Ein Faden, der auf sich selbst wartet,
+  hängt. **Genau an dieser Naht ist der Umzug geschnitten:** der Fensterfaden
+  ist Betriebssystem und liegt in der Kiste, der Takt hängt am Verbraucher und
+  bleibt hier — im Player taktet stattdessen dessen Fensterschleife.
+- **`beginn` ist die Trägerwahl.** Je Stream-Platz läuft ein eigener
+  Sidecar-Prozess, die Zwischenablage ist maschinenweit; beanspruchten alle,
+  überschrieben sie sich gegenseitig. Gewählt wird im Renderer des Hosts
+  (`web/src/lib/remote/ablageTraeger.ts`) — dieselbe Auflösung wie beim Vorrang.
+  Ein Sidecar ohne diesen Anstoß stellt kein Fenster auf und rührt die Ablage
+  nicht an.
+- **Jedes GEORDNETE Prozessende schreibt den Vorbestand zurück**
+  (`beenden_endgueltig`, aus `main.rs` auf beiden Wegen: `stop`-Op und
+  stdin-EOF). Der Sidecar ist per-Stream: endet der Träger-Stream, stirbt der
+  Prozess — als Eigentümer eines verzögerten Rendervorgangs. Ohne das
+  Zurückschreiben hielte Windows danach ein leeres Fach, und was der Nutzer vor
+  der Sitzung kopiert hatte, wäre still weg.
+  **„Geordnet" ist hier keine Floskel:** `desktop/electron/sidecar.ts`
+  eskaliert nach `SHUTDOWN_SIGTERM_GRACE_MS` (2 s) auf `kill('SIGKILL')`, und
+  auf Windows ist jedes `child.kill()` ein `TerminateProcess` — dort läuft
+  nichts mehr. Ein hängender oder abgestürzter Sidecar hinterlässt genau den
+  Schaden, gegen den der Vorbestand gebaut ist. Ungelöst, und ohne einen
+  zweiten Halter (etwa den Hauptprozess) auch nicht lösbar.
+
+**Was geprüft ist und was nicht.** Die Rechnung darüber steht vollständig in
+`streaming/pulse-ablage` — Zustandsführung (`lage`) und Buchführung über eigene
+und fremde Änderungen (`stand`), zusammen 88 Tests der Kiste. `gate-rust.sh`
+fährt sie, **wenn die Kiste angefasst wurde** (er nimmt jede geänderte
+`streaming/pulse-*`, nicht jede vorhandene) — und seit dem 2026-08-31
+zusätzlich `cargo check --target x86_64-pc-windows-msvc` über die Kiste, womit
+die Win32-Aufrufe in **jedem** Gate übersetzt werden statt nur dann, wenn
+jemand auf Windows sitzt.
+
+Hier liegt kein einziger Test: was hier steht, ist Verdrahtung, und `cargo
+test` dieses Crates fährt ohnehin nur, wer auf Windows sitzt. Übersetzt ist
+alles; **ausgeführt hat den Windows-Weg noch niemand**. Echtes Kopieren über
+zwei Maschinen bleibt Handarbeit.
+
 ## Env-Overrides (Test/Debug)
 
 **Für alle Schalter gilt dieselbe Auslegung** (`src/env.rs`): nicht gesetzt =

@@ -2,6 +2,20 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-06.2",
+      "date": "2026-09-06",
+      "style": "Sachlich",
+      "title": "Fernsteuerung: die Zwischenablage wandert mit",
+      "intro": "Wer einen fremden Rechner fernsteuert, kann jetzt Text hin- und herreichen: auf dem eigenen Rechner kopieren, am Ziel einfügen — und umgekehrt.",
+      "items": [
+        "Kopiere etwas auf deinem Rechner, während du fernsteuerst, und füge es direkt im fremden Rechner ein — ein Pfad, eine Fehlermeldung, ein Befehl, ein Codeschnipsel muss nicht mehr abgetippt oder über den Chat geschickt werden.",
+        "Es funktioniert in beide Richtungen: auch aus der Fernsteuerung heraus Kopiertes landet in deiner eigenen Zwischenablage und kann lokal eingefügt werden.",
+        "Die geteilte Zwischenablage trägt einfachen Text. Dateien und Bilder wandern (noch) nicht mit — sie bleiben beim gewohnten Weg über den Chat.",
+        "Die Zwischenablage folgt der Sitzung: Endet die Fernsteuerung, hält jeder Rechner seine eigene wieder in der Hand."
+      ],
+      "outro": "Beide Seiten brauchen die neue Version — der Windows- wie der Mac-Bau liefern sie mit diesem Update aus."
+    },
+    {
       "id": "2026-09-06.1",
       "date": "2026-09-06",
       "style": "Sachlich",

@@ -157,6 +157,41 @@ if [ -n "$rust_crates" ]; then
     done
   fi
 fi
+# --- Die FREMDEN Plattform-Teile von pulse-ablage: wenigstens uebersetzen ---
+#
+# Die Kisten-Schleife oben faehrt `cargo test` — die Teile für andere
+# Betriebssysteme übersetzt sie GAR NICHT (sie hängen an `cfg(target_os = …)`).
+# Ein grüner Kisten-Lauf sagt über sie also nichts, und das ist genau die
+# Fehlerklasse, die dieses Projekt schon dreimal bezahlt hat: ein nicht
+# ausgeführter Test sieht aus wie ein grüner.
+#
+# **Seit dem 2026-08-31 sind es zwei Sätze.** In der Kiste liegt nicht mehr nur
+# die macOS-Umsetzung, sondern auch die für Windows (sie lag im Sidecar, den
+# der Player nicht erreicht) — und die Windows-Prüfung hat beim Umzug sofort
+# ein fehlendes `windows`-Merkmal gefangen, das im Sidecar nur zufällig da war.
+#
+# `cargo check --target …` LINKT nicht und braucht deshalb weder macOS-SDK noch
+# MSVC — nur den Zielsatz. Fehlt er, wird es GESAGT statt geschwiegen; die
+# eigene Plattform deckt der normale Testlauf ohnehin ab.
+if echo "$changed" | grep -q '^streaming/pulse-ablage/'; then
+  fremd="aarch64-apple-darwin x86_64-pc-windows-msvc"
+  case "$(uname -s)" in
+    Darwin) fremd="x86_64-pc-windows-msvc" ;;
+    MINGW*|MSYS*|CYGWIN*) fremd="aarch64-apple-darwin" ;;
+  esac
+  for ziel in $fremd; do
+    if rustup target list --installed 2>/dev/null | grep -q "^${ziel}\$"; then
+      echo "  pulse-ablage gegen ${ziel} (cargo check)…"
+      ( cd streaming/pulse-ablage && cargo check -q --target "$ziel" ) \
+        || { echo "✗ pulse-ablage übersetzt NICHT gegen ${ziel} — abgebrochen." >&2; exit 1; }
+    else
+      echo "⚠  pulse-ablage geändert, aber der Zielsatz ${ziel} fehlt." >&2
+      echo "   Sein Teil für diese Plattform wurde hier NICHT übersetzt. Einmalig:" >&2
+      echo "   rustup target add ${ziel}" >&2
+    fi
+  done
+fi
+
 # --- Die macOS-Kisten, und nur auf macOS ---
 #
 # **Hier stand bis zum 2026-08-23 nichts**, mit der Begründung „die bauen

@@ -273,6 +273,13 @@ impl Overlay {
                             }
                             ui.add_space(6.0);
                         }
+                        // Der Schalter „Zwischenablage teilen" (s.
+                        // `super::ablageschalter`). Er steht ueber dem
+                        // Trennen-Knopf, weil er die laufende Sitzung
+                        // veraendert statt sie zu beenden — und er zeichnet
+                        // sich samt Abstand selbst, weil er auf Plattformen
+                        // ohne Umsetzung ganz entfaellt.
+                        self.ablage_schalter(ui, actions);
                         // Trennen steht unten und allein — es beendet die
                         // Fernsteuerung, nicht den Stream. Wer danach nur
                         // zusieht, hat wieder die gewohnte Leiste.

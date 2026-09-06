@@ -2148,6 +2148,7 @@
   "register_suggestions_label": "Suggestions:",
   "remote_consent_allow": "Allow",
   "remote_consent_body": "{user} wants to take over mouse and keyboard on your shared screen.",
+  "remote_consent_clipboard": "The clipboard is shared: what you copy, the other computer can paste — and vice versa. Content is only transferred once it is actually pasted there.",
   "remote_consent_deny": "Deny",
   "remote_consent_place": "Requested in {community}, channel {channel}",
   "remote_consent_place_unknown": "Origin cannot be resolved — the request did not come from a channel this view knows.",

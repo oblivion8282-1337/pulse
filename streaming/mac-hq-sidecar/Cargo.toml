@@ -41,6 +41,17 @@ pulse-fernsteuerung = { path = "../pulse-fernsteuerung" }
 # `streaming/zwillinge/tests/bau_ausloeser.rs`.
 pulse-zeigerbild = { path = "../pulse-zeigerbild" }
 
+# Geteilte Zwischenablage der Fernsteuerung (Rahmenformat, Stueckelung,
+# Zustandsmaschine) — **und auf macOS auch die Plattform-Umsetzung selbst**
+# (`pulse_ablage::plattform::macos`), anders als auf Windows. Der Grund: hier
+# braucht sie ausser diesem Sidecar (Host) auch der `pulse-player`
+# (Steuernder), und beide Haelften einer Zwischenablage sind spiegelbildlich
+# gleich — beim Verbraucher laege sie zweimal im Baum.
+#
+# Mit dieser Zeile faellt `streaming/pulse-ablage/**` unter die Pfad-Filter von
+# `mac-build.yml`; nachgerechnet von `streaming/zwillinge/tests/bau_ausloeser.rs`.
+pulse-ablage = { path = "../pulse-ablage" }
+
 # Capture — ScreenCaptureKit (SCStream) + the surrounding CoreMedia/CoreVideo/
 # CoreGraphics types, via the official objc2 framework bindings (no Swift shim).
 # Same objc2 0.3-framework / 0.6-core release train.

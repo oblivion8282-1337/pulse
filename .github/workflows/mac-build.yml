@@ -52,6 +52,7 @@ on:
       - 'streaming/pulse-bildmarke/**'
       - 'streaming/pulse-zeigerbild/**'
       - 'streaming/pulse-fernsteuerung/**'
+      - 'streaming/pulse-ablage/**'
       # Der native Player wird seit 2026-08-20 auch im DMG ausgeliefert. Ohne
       # diesen Eintrag löst eine Änderung an ihm keinen Build aus, und das DMG
       # trüge weiter den alten Stand — dieselbe Falle, die win-build.yml beim

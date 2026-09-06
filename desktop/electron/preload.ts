@@ -130,6 +130,50 @@ contextBridge.exposeInMainWorld('pulse', {
       ipcRenderer.on('gsr:event', handler);
       return () => ipcRenderer.removeListener('gsr:event', handler);
     },
+
+    /** Fernsteuerung: ein Wert der geteilten Zwischenablage
+     *  (`$lib/remote/ablage.ts`). Der Vorlader deutet ihn nicht — das Format
+     *  lebt in `streaming/pulse-ablage`, und eine zweite Fassung hier liefe
+     *  auseinander.
+     *
+     *  `data` traegt die Huelle aus `$lib/remote/ablageHuelle.ts`:
+     *  `{rahmen:…}` von der Gegenseite, `{anstoss:…}` vom eigenen Renderer.
+     *  Fremde Nutzlast liegt damit IMMER unter `rahmen` und kann keinen
+     *  Anstoss ausloesen. Beim Steuernden landet er im Player, beim Host im Sidecar;
+     *  die Weiche steht im Hauptprozess (`ablageWeiche.ts`) und entscheidet
+     *  nach `rolle` — die reist mit, weil der Hauptprozess sie nicht kennt und
+     *  sie aus der Sitzungsnummer nicht sicher erschliessen kann (ein Host, der
+     *  nebenbei einen fremden Stream im Player anschaut, traegt ebenfalls eine
+     *  Sitzungsnummer). `session` ist die Player-Fensternummer — ohne sie
+     *  koennte der Player den Rahmen keinem Fenster zuordnen, dieselbe
+     *  Sitzungspflicht wie bei `pointerShape`.
+     *
+     *  `slot` ist das Gegenstueck fuer die Host-Seite: der Stream-Platz des
+     *  Sidecars, der die Ablage dieser Maschine haelt (Traegerwahl in
+     *  `$lib/remote/ablageTraeger.ts`). **Zwei Felder statt eines
+     *  gemeinsamen**, weil sie Verschiedenes bedeuten — ein Feld, dessen
+     *  Bedeutung von der Rolle abhaengt, wird beim naechsten Lesen falsch
+     *  verstanden. Das jeweils andere ist 0. */
+    ablage: (
+      rolle: 'host' | 'controller',
+      session: number,
+      data: unknown,
+      slot = 0,
+    ): Promise<unknown> => ipcRenderer.invoke('gsr:ablage', rolle, session, data, slot),
+
+    /** Fernsteuerung, Host-Seite: dem Sidecar eines Platzes sagen, dass seine
+     *  Ablage-Sitzung vorbei ist (Traegerwechsel,
+     *  `$lib/remote/ablageTraeger.ts`).
+     *
+     *  **Eigener Kanal statt `ablage(...)`**, weil der Hauptprozess hier einen
+     *  Riegel setzt, den der Renderer nicht kennt: geschickt wird nur an einen
+     *  Platz mit LAUFENDEM Sidecar (`sidecarRunning`) — sonst startete
+     *  `getSidecar()` einen frischen Prozess, nur um ihm zu sagen, dass er
+     *  nichts zu tun hat. Genau dieser Riegel ist der Unterschied zwischen den
+     *  Plattformen: der Windows-Sidecar beendet sich nach `stop`, der
+     *  mac-Sidecar bleibt warm und muss sein `ende` bekommen. */
+    ablageEnde: (slot: number): Promise<unknown> =>
+      ipcRenderer.invoke('gsr:ablageEnde', slot),
   },
 
   /**

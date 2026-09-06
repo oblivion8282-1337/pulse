@@ -1,0 +1,261 @@
+//! Der Rundlauf beider Enden, ohne Betriebssystem.
+//!
+//! Dieser Test ist der Beleg fuer die eine Zusicherung, um derentwillen die
+//! ganze Kiste so gebaut ist: **beim Kopieren geht kein Inhalt hinaus.**
+
+use pulse_ablage::beobachter::Beobachter;
+use pulse_ablage::eigentum::Eigentum;
+use pulse_ablage::format::{Grund, Rahmen};
+use pulse_ablage::pruefstand::TestAblage;
+use pulse_ablage::sitzung::{Ankuendiger, Empfaenger, Fortschritt};
+
+/// Eine Seite: eigene Ablage, eigener Ankuendiger, eigener Empfaenger.
+struct Seite {
+    ablage: TestAblage,
+    ank: Ankuendiger,
+    emp: Empfaenger,
+}
+
+impl Seite {
+    fn neu() -> Seite {
+        Seite { ablage: TestAblage::neu(), ank: Ankuendiger::neu(), emp: Empfaenger::neu() }
+    }
+
+    /// Der Nutzer kopiert. Liefert, was daraufhin hinausgeht.
+    fn kopiert(&mut self, text: &str) -> Vec<Rahmen> {
+        self.ablage.setzen(text);
+        if self.ablage.geaendert() { vec![self.ank.geaendert()] } else { Vec::new() }
+    }
+
+    /// Ein Rahmen der Gegenseite. Liefert, was zurueckgeht.
+    fn empfaengt(&mut self, r: &Rahmen) -> Vec<Rahmen> {
+        match r {
+            Rahmen::Neu { .. } => {
+                if self.emp.angekuendigt(r) {
+                    self.ablage.beanspruchen().expect("Testdoppel scheitert nie");
+                }
+                Vec::new()
+            }
+            // Zwei Felder desselben `self` getrennt auszuleihen ist zulaessig
+            // — der Ankuendiger liest die Ablage selbst, damit Pruefen und
+            // Lesen nicht auseinanderfallen koennen (s. `beantworte`).
+            Rahmen::Hol { .. } => self.ank.beantworte(r, &mut self.ablage),
+            Rahmen::Stueck { .. } | Rahmen::Leer { .. } => {
+                match self.emp.eingang(r) {
+                    Fortschritt::Fertig(t) => self.ablage.liefern(&t),
+                    Fortschritt::Leer(_) => self.ablage.liefern(""),
+                    Fortschritt::Warten => {}
+                }
+                Vec::new()
+            }
+        }
+    }
+
+    /// Der Nutzer fuegt ein.
+    fn fuegt_ein(&mut self, jetzt_ms: u64) -> Vec<Rahmen> {
+        self.emp.abrufen(jetzt_ms).into_iter().collect()
+    }
+}
+
+/// Rahmen so lange hin und her reichen, bis nichts mehr fliesst. Liefert alles,
+/// was insgesamt ueber die Leitung ging.
+fn austauschen(a: &mut Seite, b: &mut Seite, start: Vec<Rahmen>) -> Vec<Rahmen> {
+    let mut alle = Vec::new();
+    let mut nach_b = start;
+    let mut nach_a: Vec<Rahmen> = Vec::new();
+    while !nach_b.is_empty() || !nach_a.is_empty() {
+        let mut neu_a = Vec::new();
+        for r in &nach_b {
+            alle.push(r.clone());
+            neu_a.extend(b.empfaengt(r));
+        }
+        let mut neu_b = Vec::new();
+        for r in &nach_a {
+            alle.push(r.clone());
+            neu_b.extend(a.empfaengt(r));
+        }
+        nach_b = neu_b;
+        nach_a = neu_a;
+    }
+    alle
+}
+
+#[test]
+fn beim_kopieren_geht_kein_inhalt_hinaus() {
+    let mut a = Seite::neu();
+    let mut b = Seite::neu();
+
+    let hinaus = a.kopiert("streng geheim");
+    let alle = austauschen(&mut a, &mut b, hinaus);
+
+    assert_eq!(alle.len(), 1, "genau ein Rahmen: die Ankuendigung");
+    assert!(matches!(alle[0], Rahmen::Neu { .. }));
+    for r in &alle {
+        let j = serde_json::to_string(&r.nach_json()).expect("serialisierbar");
+        assert!(!j.contains("geheim"), "Inhalt in einem Rahmen gefunden: {j}");
+    }
+    assert!(b.ablage.beansprucht(), "B haelt jetzt einen Anspruch, aber keine Daten");
+    assert_eq!(b.ablage.geliefert(), None, "B hat nichts geliefert bekommen");
+}
+
+#[test]
+fn erst_das_einfuegen_holt_den_inhalt() {
+    let mut a = Seite::neu();
+    let mut b = Seite::neu();
+
+    let hinaus = a.kopiert("streng geheim");
+    austauschen(&mut a, &mut b, hinaus);
+
+    let hol = b.fuegt_ein(0);
+    assert_eq!(hol.len(), 1);
+    // Achtung Richtung: der `hol` geht von B nach A, die Antwort zurueck.
+    let alle = austauschen(&mut b, &mut a, hol);
+
+    assert!(alle.iter().any(|r| matches!(r, Rahmen::Stueck { .. })), "Inhalt muss geflossen sein");
+    assert_eq!(b.ablage.geliefert().as_deref(), Some("streng geheim"));
+}
+
+#[test]
+fn ein_zwischenzeitliches_kopieren_macht_den_abruf_veraltet() {
+    let mut a = Seite::neu();
+    let mut b = Seite::neu();
+
+    let hinaus = a.kopiert("alt");
+    austauschen(&mut a, &mut b, hinaus);
+
+    // B beginnt den Abruf …
+    let hol = b.fuegt_ein(0);
+    // … waehrenddessen kopiert A etwas anderes.
+    a.kopiert("neu");
+
+    let alle = austauschen(&mut b, &mut a, hol);
+    assert!(
+        alle.iter().any(|r| matches!(r, Rahmen::Leer { grund: Grund::Veraltet, .. })),
+        "der Abruf muss als veraltet abgelehnt werden, nicht mit dem neuen Inhalt beantwortet"
+    );
+    // **Die exakte Erwartung, keine schwarze Liste.** Ein `assert_ne!(…,
+    // Some("neu"))` haette genau einen Eintrag und bliebe gruen, sobald etwas
+    // DRITTES geliefert wird — und das ist die Fehlerklasse aus C1.
+    assert_eq!(
+        b.ablage.geliefert().as_deref(),
+        Some(""),
+        "nach `veraltet` wird leer geliefert — nie ein anderer Inhalt"
+    );
+}
+
+#[test]
+fn langer_text_kommt_vollstaendig_an() {
+    let mut a = Seite::neu();
+    let mut b = Seite::neu();
+    let text = "Zeile mit Umlauten: Größe µ\n".repeat(600);
+
+    let hinaus = a.kopiert(&text);
+    austauschen(&mut a, &mut b, hinaus);
+    let hol = b.fuegt_ein(0);
+    austauschen(&mut b, &mut a, hol);
+
+    assert_eq!(b.ablage.geliefert().as_deref(), Some(text.as_str()));
+}
+
+#[test]
+fn ein_anspruch_loescht_den_vorbestand_und_gibt_ihn_zurueck() {
+    // **Die Falle, die kein Protokoll loest.** B hat lokal einen Pfad kopiert.
+    // Drueben kopiert A etwas, B beansprucht daraufhin seine Ablage — und der
+    // Pfad ist weg, ohne dass B etwas getan hat. Wird nie eingefuegt, merkt es
+    // niemand, bis B einfuegen will.
+    let mut a = Seite::neu();
+    let mut b = Seite::neu();
+
+    b.ablage.setzen("/home/michael/wichtig.txt");
+    b.ablage.geaendert(); // den eigenen Stand quittieren
+
+    let hinaus = a.kopiert("drueben kopiert");
+    austauschen(&mut a, &mut b, hinaus);
+
+    assert!(b.ablage.beansprucht());
+    assert_eq!(b.ablage.inhalt(), None, "der Anspruch hat den Vorbestand geloescht");
+    assert_eq!(
+        b.ablage.vorbestand().as_deref(),
+        Some("/home/michael/wichtig.txt"),
+        "er muss gemerkt sein, sonst ist er unwiederbringlich"
+    );
+
+    // Sitzungsende: zurueckschreiben.
+    let vorher = b.ablage.vorbestand();
+    b.ablage.freigeben(vorher.as_deref());
+    assert_eq!(
+        b.ablage.inhalt().as_deref(),
+        Some("/home/michael/wichtig.txt"),
+        "nach Sitzungsende steht wieder da, was der Nutzer selbst kopiert hatte"
+    );
+}
+
+#[test]
+fn zwei_ankuendigungen_vernichten_den_vorbestand_nicht() {
+    // A kopiert zweimal hintereinander — alltaeglich. B darf seinen eigenen
+    // Vorbestand darueber nicht verlieren.
+    let mut a = Seite::neu();
+    let mut b = Seite::neu();
+
+    b.ablage.setzen("/home/michael/wichtig.txt");
+    b.ablage.geaendert();
+
+    let erste = a.kopiert("eins");
+    austauschen(&mut a, &mut b, erste);
+    let zweite = a.kopiert("zwei");
+    austauschen(&mut a, &mut b, zweite);
+
+    assert_eq!(
+        b.ablage.vorbestand().as_deref(),
+        Some("/home/michael/wichtig.txt"),
+        "die zweite Ankuendigung darf den Merkposten nicht ueberschreiben"
+    );
+    let vorher = b.ablage.vorbestand();
+    b.ablage.freigeben(vorher.as_deref());
+    assert_eq!(b.ablage.inhalt().as_deref(), Some("/home/michael/wichtig.txt"));
+}
+
+#[test]
+fn eigenes_kopieren_schlaegt_den_gemerkten_vorbestand() {
+    let mut a = Seite::neu();
+    let mut b = Seite::neu();
+
+    b.ablage.setzen("alt");
+    b.ablage.geaendert();
+    let hinaus = a.kopiert("von drueben");
+    austauschen(&mut a, &mut b, hinaus);
+    assert!(b.ablage.beansprucht());
+
+    // Der Nutzer kopiert selbst — ab jetzt gehoert die Ablage ihm.
+    b.ablage.setzen("frisch vom Nutzer");
+
+    let vorher = b.ablage.vorbestand();
+    b.ablage.freigeben(vorher.as_deref());
+    assert_eq!(
+        b.ablage.inhalt().as_deref(),
+        Some("frisch vom Nutzer"),
+        "ein Merkposten von vorhin darf die frische Ablage nicht ueberschreiben"
+    );
+}
+
+#[test]
+fn nach_fristablauf_wird_leer_geliefert_statt_zu_haengen() {
+    // Auf Windows und macOS wartet an dieser Stelle ein blockierter Faden. Ein
+    // Einfuegen, das nichts einfuegt, versteht jeder; ein haengendes Programm
+    // nicht.
+    let mut a = Seite::neu();
+    let mut b = Seite::neu();
+
+    let hinaus = a.kopiert("kommt nie an");
+    austauschen(&mut a, &mut b, hinaus);
+
+    let hol = b.fuegt_ein(1_000);
+    assert_eq!(hol.len(), 1, "der Abruf geht hinaus");
+    // Die Antwort geht unterwegs verloren — nichts wird zugestellt.
+
+    match b.emp.takt(1_000 + pulse_ablage::sitzung::ABRUF_FRIST_MS) {
+        Fortschritt::Leer(Grund::Frist) => b.ablage.liefern(""),
+        andere => panic!("erwartet Leer(Frist), bekam {andere:?}"),
+    }
+    assert_eq!(b.ablage.geliefert().as_deref(), Some(""), "es wurde geliefert, wenn auch nichts");
+}

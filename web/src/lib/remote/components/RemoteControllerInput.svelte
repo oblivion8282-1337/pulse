@@ -19,6 +19,7 @@
 -->
 <script lang="ts">
   import { remoteSession } from '$lib/remote/session.svelte';
+  import { remoteAblage } from '$lib/remote/ablage';
   import { remoteP2P } from '$lib/remote/p2p';
   import { nativePlayerSessions } from '$lib/player/store.svelte';
   import {
@@ -86,6 +87,7 @@
       hatteFenster = false;
       remoteP2P.setStatusSink(null);
       remoteZeigerform.setSenke(null);
+      remoteAblage.setSenke(null);
       allesAus();
       return;
     }
@@ -164,6 +166,19 @@
     remoteZeigerform.setSenke((form, bild, imBild) => {
       for (const f of fenster) void zeigerformMelden(f.nummer, form, bild, imBild);
     });
+    // Die Ablage kennt nur EIN Fenster, nicht alle (anders als Zeigerform/
+    // Transport oben) — sie hält nicht mehrere Sichten auf dasselbe an,
+    // sondern die eine Zwischenablage DIESER Maschine, und jedes offene
+    // Fenster spricht mit demselben System-Clipboard.
+    //
+    // **Es genügt IRGENDEINES.** Welche Sitzung die Ablage hält, entscheidet
+    // der Player (`App::ablage` löst auf `ablage_traeger` auf) — hier wird nur
+    // zugestellt, und das erste Fenster ist stabil nach Öffnungsreihenfolge
+    // (`nativePlayerSessions.fuerHost`). Die Nummer als Antwort auf „wer hält
+    // die Ablage" zu lesen wäre falsch: die Erfassung darf für ein einzelnes
+    // Fenster scheitern (s. oben, „ein einzelnes darf scheitern"), und dann
+    // ist Fenster 0 kein Träger.
+    remoteAblage.setSenke(fenster[0].nummer);
   });
 
   // Der Aufräumer für den Fall, den der Effect oben nicht sieht: das Ende der
@@ -172,6 +187,7 @@
   $effect(() => () => {
     remoteP2P.setStatusSink(null);
     remoteZeigerform.setSenke(null);
+    remoteAblage.setSenke(null);
     allesAus();
   });
 

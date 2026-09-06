@@ -20,7 +20,9 @@
 //! | state                    | stub       | Stage 8 |
 //! | remote_input             | real       | Fernsteuerung — Eingabe-Frames (Wire v2) |
 //! | remote_input_end         | real       | Fernsteuerung — Sitzung schließen |
+//! | ablage                   | real       | Fernsteuerung — geteilte Zwischenablage |
 
+pub mod ablage;
 pub mod build_argv;
 pub mod gpu_info;
 pub mod health;

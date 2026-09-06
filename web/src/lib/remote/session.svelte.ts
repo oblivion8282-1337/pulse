@@ -30,7 +30,8 @@ import type { GatewayConnection } from '$lib/ws/connection';
 import { setRemoteSessionConnection } from '$lib/ws/dispatch-rules';
 import { m } from '$lib/paraglide/messages.js';
 import { eingabeFreigeben, eingabeMoeglich } from './sidecarInput';
-import { stream } from '$lib/stream/state.svelte';
+import { runningStreamSlots, stream } from '$lib/stream/state.svelte';
+import { remoteAblage } from './ablage';
 import { remoteP2P } from './p2p';
 import { remoteVorrang } from './vorrang';
 import { remoteZeigerform } from './zeigerform';
@@ -426,6 +427,22 @@ class RemoteSessionStore {
     remoteZeigerform.start(this.role, (kind, data) =>
       this.#senden((c) => c.sendRemoteSignal(sessionId, kind, data)),
     );
+    // Geteilte Zwischenablage (`ablage.ts`) — beim Kopieren geht nur eine
+    // Ankündigung hinüber, der Inhalt erst beim tatsächlichen Einfügen.
+    // Anders als Vorrang und Zeigerform ist sie SYMMETRISCH: beide Rollen
+    // kündigen an und beide rufen ab, deshalb bekommt sie die Rolle zwar
+    // mit, verzweigt aber nicht danach.
+    //
+    // Die laufenden Stream-Plätze braucht nur der Host: dort liegt je Platz
+    // ein eigener Sidecar-Prozess, die Zwischenablage ist aber maschinenweit,
+    // und genau einer von ihnen wird Träger (`ablageTraeger.ts`). Die Liste
+    // wird hereingereicht statt dort importiert — die Fernsteuerung soll vom
+    // Streaming-Zustand nichts wissen müssen ausser dieser Zahlenliste.
+    remoteAblage.start(
+      this.role,
+      (kind, data) => this.#senden((c) => c.sendRemoteSignal(sessionId, kind, data)),
+      runningStreamSlots,
+    );
   }
 
   _ended(sessionId: string, reason: string): void {
@@ -488,6 +505,9 @@ class RemoteSessionStore {
     // und braucht dafür den Eingabeweg-Text, den `remoteP2P.stop()` löscht.
     remoteVorrang.stop();
     remoteZeigerform.stop();
+    // Hängt an keinem der beiden davor — der Kommentar an `remoteVorrang.stop()`
+    // begründet nur deren eigenen Vorrang vor P2P.
+    remoteAblage.stop();
     remoteP2P.stop();
     // „Alles loslassen beim Ende" (Wire-Spec) — hier, weil #reset der EINZIGE
     // Ausgang aus jeder Sitzung ist: Beenden, Ablehnung, Gegenüber weg,
@@ -523,10 +543,15 @@ class RemoteSessionStore {
         this.#conn,
         sessionId,
         () => this.#senden((c) => c.sendRemoteReclaim(sessionId)),
-        () =>
+        () => {
           nachReclaimBehaupten(this.role, (frames) =>
             this.#senden((c) => c.sendRemoteInput(sessionId, this.#letzterSlot, frames)),
-          ),
+          );
+          // Beide Rollen kündigen ihren Ablage-Stand nach dem Reclaim erneut
+          // an — die Gegenseite kennt sonst nur noch eine Generation, die
+          // hier niemand mehr hat (Begründung in `ablage.ts::neuBitte`).
+          remoteAblage.neuBitte();
+        },
         () => this.#reset(),
       ),
     );

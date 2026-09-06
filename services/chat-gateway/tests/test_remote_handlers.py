@@ -883,6 +883,79 @@ async def test_zeiger_im_bild_signal_reaches_the_controller(ws_app, _auth_signer
 
 
 @pytest.mark.asyncio
+async def test_ablage_signal_reaches_the_controller(ws_app, _auth_signer):
+    """Die geteilte Zwischenablage (``streaming/pulse-ablage``) reitet auf
+    demselben Weiterleiter wie Zeigerform und Vorrang: derselbe Empfaenger,
+    dieselbe Bindung an die per Consent bestaetigte Sitzung, derselbe Deckel.
+    Steht die Art nicht in der Pruefliste, holt sich der Sender ein 4050 ab —
+    fuer beide Richtungen, hier die vom Steuernden zum Host. Der Gateway
+    deutet die Nutzlast nicht: sie muss unveraendert ankommen."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, member_token, member_uid, _, cid = _setup_remote(
+                tc, _auth_signer
+            )
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ctrl_ws, \
+                 tc.websocket_connect(f"/ws?token={member_token}") as host_ws:
+                skip_init_frames(ctrl_ws)
+                skip_init_frames(host_ws)
+                sid = _open_session(ctrl_ws, host_ws, cid, member_uid)
+                ctrl_ws.send_json({
+                    "op": "remote_signal",
+                    "session_id": sid,
+                    "kind": "ablage",
+                    "data": {"t": "neu", "gen": 1, "typ": "text"},
+                })
+                sig = _drain_for(host_ws, "remote_signal")
+                assert sig["kind"] == "ablage"
+                assert sig["data"] == {"t": "neu", "gen": 1, "typ": "text"}
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_ablage_signal_over_the_limit_is_rejected(ws_app, _auth_signer):
+    """Der Deckel (8 KiB, gemessen als kompaktes JSON) gilt fuer ``ablage`` wie
+    fuer jede andere Art — sonst waere sie ein Loch in einer Grenze, die fuer
+    alle anderen gilt. Die blosse 4050-Antwort allein unterscheidet nicht
+    zwischen ``kind`` unbekannt und Nutzlast zu gross (beide melden denselben
+    Code) — erst der normal grosse Nachschuss beweist, dass ``ablage`` selbst
+    ankommt und nur die ueberlange Fassung faellt."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, member_token, member_uid, _, cid = _setup_remote(
+                tc, _auth_signer
+            )
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ctrl_ws, \
+                 tc.websocket_connect(f"/ws?token={member_token}") as host_ws:
+                skip_init_frames(ctrl_ws)
+                skip_init_frames(host_ws)
+                sid = _open_session(ctrl_ws, host_ws, cid, member_uid)
+                ctrl_ws.send_json({
+                    "op": "remote_signal",
+                    "session_id": sid,
+                    "kind": "ablage",
+                    "data": {"t": "stueck", "id": 1, "i": 0, "n": 1, "d": "x" * 9000},
+                })
+                assert [f.get("code") for f in _frames_until_pong(ctrl_ws)] == [4050]
+                ping_barrier(host_ws)  # nichts weitergereicht
+                # Ein normal grosses Stueck geht weiter durch.
+                ctrl_ws.send_json({
+                    "op": "remote_signal",
+                    "session_id": sid,
+                    "kind": "ablage",
+                    "data": {"t": "stueck", "id": 1, "i": 0, "n": 1, "d": "x"},
+                })
+                sig = _drain_for(host_ws, "remote_signal")
+                assert sig["kind"] == "ablage"
+                assert sig["data"] == {"t": "stueck", "id": 1, "i": 0, "n": 1, "d": "x"}
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
 async def test_remote_respond_decline(ws_app, _auth_signer):
     def _run():
         with TestClient(ws_app) as tc:

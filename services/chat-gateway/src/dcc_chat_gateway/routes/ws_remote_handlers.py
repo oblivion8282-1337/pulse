@@ -124,7 +124,14 @@ _SIGNAL_MAX_DATA_BYTES = 8 * 1024
 # falsche Seite schickt, findet dort keinen Abnehmer (``$lib/remote/vorrang.ts``
 # und ``$lib/remote/zeigerform.ts`` hoeren nur als Steuernder zu). **Mit
 # ``RemoteSignalKind`` synchron halten** (``web/src/lib/ws/handlers/types.ts``).
-_SIGNAL_KINDS = ("offer", "answer", "ice", "vorrang", "zeiger", "zeiger_im_bild")
+#
+# ``ablage`` traegt die geteilte Zwischenablage (``streaming/pulse-ablage``).
+# Sie reitet aus denselben Gruenden hier mit wie ``zeiger``: derselbe
+# Empfaenger, dieselbe Bindung an die per Consent bestaetigte Sitzung,
+# derselbe Deckel. **Der Gateway parst den Rahmen nicht** — beim Kopieren
+# traegt er ohnehin keinen Inhalt, und beim Abruf ist der Inhalt genau das,
+# was hier niemanden angeht. Er zaehlt nur mit und reicht durch.
+_SIGNAL_KINDS = ("offer", "answer", "ice", "vorrang", "zeiger", "zeiger_im_bild", "ablage")
 
 
 def _session_id(value: object) -> str:

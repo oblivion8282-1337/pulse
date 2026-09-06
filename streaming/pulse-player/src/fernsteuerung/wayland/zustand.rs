@@ -34,6 +34,7 @@ use std::time::{Duration, Instant};
 use wayland_backend::sys::client::ObjectId;
 use wayland_client::protocol::wl_data_offer;
 
+use super::ablage::AblageZustand;
 use super::ende::Zugende;
 use super::zug::ZugLage;
 
@@ -157,8 +158,14 @@ pub(super) struct Zustand {
     /// ausdruecklich. **Haengt bewusst NICHT am Merker `eigener_zug`**: bei
     /// unserem eigenen Zug ist es ohnehin immer `None`, belegt wird es also nur
     /// von FREMDEN Zuegen — und genau die muessen aufgeraeumt werden.
-    /// `Selection` (die Zwischenablage) befuellt es nie.
+    /// `Selection` (die Zwischenablage) befuellt es nie — sie fuehrt ihr
+    /// eigenes Angebot in [`AblageZustand`] daneben.
     pub(super) angebot: Option<wl_data_offer::WlDataOffer>,
+    /// Die geteilte Zwischenablage (s. [`super::ablage`]). Liegt hier, weil
+    /// ihre Ereignisse (`selection`, `send`) auf demselben `wl_data_device`
+    /// bzw. an derselben Verbindung ankommen wie der Zug — **berechnet wird
+    /// aus ihr aber nichts, was den Zug betrifft**, und umgekehrt.
+    pub(super) ablage: AblageZustand,
 }
 
 /// Ein Datengeraet-Ereignis, so weit fuer den Zug bedeutsam — ohne

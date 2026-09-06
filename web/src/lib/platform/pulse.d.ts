@@ -82,6 +82,48 @@ export interface PulseGsrApi {
    *  the main process so the renderer can route it to the right stream. Returns
    *  an unsubscribe function. */
   onEvent(cb: (ev: PulseGsrEvent) => void): () => void;
+  /** Fernsteuerung: ein Wert der geteilten Zwischenablage
+   *  (`$lib/remote/ablage.ts`). Ungedeutet durchgereicht — das Format lebt in
+   *  `streaming/pulse-ablage`. Beim Steuernden landet er im Player-Fenster,
+   *  beim Host im Sidecar; die Weiche steht im Hauptprozess
+   *  (`desktop/electron/ablageWeiche.ts`) und entscheidet nach `rolle`.
+   *
+   *  `data` traegt die Huelle aus `$lib/remote/ablageHuelle.ts`:
+   *  `{rahmen:…}` von der Gegenseite, `{anstoss:…}` vom eigenen Renderer.
+   *  Fremde Nutzlast liegt damit IMMER unter `rahmen` und kann keinen Anstoss
+   *  ausloesen.
+   *
+   *  `rolle` reist mit, statt im Hauptprozess erschlossen zu werden: ein
+   *  Host, der nebenbei den Strom eines Dritten im nativen Player anschaut,
+   *  traegt ebenfalls eine Sitzungsnummer > 0 — daraus liesse sich fälschlich
+   *  'controller' folgern. Der Renderer kennt seine Rolle, er muss sie nicht
+   *  erschliessen.
+   *
+   *  `session` ist die Player-Fensternummer — ohne sie koennte der Player den
+   *  Rahmen keinem Fenster zuordnen, dieselbe Sitzungspflicht wie bei
+   *  `PulsePlayerApi.pointerShape`. 0, wenn keine bekannt ist (Host-Seite).
+   *
+   *  `slot` ist das Gegenstueck fuer die Host-Seite: der Stream-Platz des
+   *  Sidecars, der die Ablage dieser Maschine haelt (Traegerwahl in
+   *  `$lib/remote/ablageTraeger.ts`). Zwei Felder statt eines gemeinsamen,
+   *  weil sie Verschiedenes bedeuten; das jeweils andere ist 0. */
+  ablage(
+    rolle: 'host' | 'controller',
+    session: number,
+    data: unknown,
+    slot?: number,
+  ): Promise<{ ok: boolean; error?: string }>;
+  /** Fernsteuerung, Host-Seite: dem Sidecar eines Platzes sagen, dass seine
+   *  Ablage-Sitzung vorbei ist — beim Traegerwechsel
+   *  (`$lib/remote/ablageTraeger.ts::traegerWechsel`).
+   *
+   *  Eigener Kanal statt `ablage(...)`, weil der Hauptprozess hier einen
+   *  Riegel setzt, den der Renderer nicht kennt: geschickt wird nur an einen
+   *  Platz mit LAUFENDEM Sidecar. Der Riegel ist zugleich der ganze
+   *  Plattform-Unterschied — der Windows-Sidecar beendet sich nach `stop`, der
+   *  mac-Sidecar bleibt warm und hielte die Ablage des Nutzers sonst bis zum
+   *  App-Ende belegt. */
+  ablageEnde(slot: number): Promise<{ ok: boolean; error?: string }>;
 }
 
 /** Payload for `pulse.notify.show()` — mention/DM toast. The renderer is

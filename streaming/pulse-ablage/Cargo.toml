@@ -1,0 +1,105 @@
+[package]
+name = "pulse-ablage"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Geteilte Zwischenablage der Fernsteuerung — Rahmenformat, Stueckelung, Zustandsmaschine"
+
+# Grundsatz wie in `pulse-zeitbasis` und `pulse-fernsteuerung`: keine
+# Abhaengigkeit, die einen Bauweg beschwert. Hier stehen ZWEI.
+#
+# `pulse-fernsteuerung` ist eine Schwesterkiste im selben Baum (Pfad-
+# Abhaengigkeit, keine Fremdquelle). Von dort kommt das handgeschriebene
+# Base64; ein eigenes waere genau die Doppelung, gegen die `pulse-zeigerbild`
+# und `pulse-zeitbasis` gebaut wurden.
+#
+# `serde_json` ist eine DIREKTE crates.io-Abhaengigkeit — nachgesehen:
+# `pulse-fernsteuerung` re-exportiert es nicht, die Deklaration ist also noetig.
+# Sie beschwert trotzdem keinen Bauweg, weil jeder kuenftige Verbraucher dieser
+# Kiste (pulse-player, win-hq-sidecar, mac-hq-sidecar) `serde_json` ohnehin
+# schon fuehrt — dieselbe Nachmessung, mit der es in `pulse-fernsteuerung`
+# aufgenommen wurde. Jede WEITERE Abhaengigkeit braucht ihre eigene.
+[dependencies]
+pulse-fernsteuerung = { path = "../pulse-fernsteuerung" }
+serde_json = "1"
+
+# ---------------------------------------------------------------------------
+# macOS — die Plattform-Umsetzung liegt HIER und nicht beim Verbraucher
+# (`plattform/macos/`), anders als Windows (Sidecar) und Wayland (Player).
+#
+# Der Grund ist der Zuschnitt der Rollen: auf macOS traegt der Sidecar die
+# Host-Haelfte und der Player die des Steuernden, und beide Haelften einer
+# Zwischenablage sind spiegelbildlich gleich — dieselben drei Traits, dieselben
+# NSPasteboard-Aufrufe. Beim Verbraucher laege sie also ZWEIMAL im Baum. Genau
+# das ist der Fehler, gegen den die gemeinsamen Kisten gebaut sind.
+#
+# **Vom Nutzer freigegeben am 2026-08-31**, fuer diesen Zweck: `NSPasteboard`
+# ist AppKit, und ohne Bindungen dafuer gaebe es auf macOS gar keine
+# Zwischenablage. Vier Kisten kommen zusammen herein — `objc2` (Laufzeit),
+# `objc2-app-kit` (NSPasteboard samt Eigentuemer-Protokoll), `objc2-foundation`
+# (NSArray/NSString/NSRunLoop/NSDate/NSThread; ausserdem verlangt die
+# Protokoll-Konformitaet des Eigner-Objekts sie als DIREKTE Abhaengigkeit) und
+# transitiv `objc2-encode`. Alle vier MIT-lizenziert, alle nur auf macOS.
+#
+# **Die Merkmalslisten sind knapp gehalten und das ist kein Geschmack**: ohne
+# `default-features = false` zoegen die beiden Framework-Kisten den halben
+# AppKit-Baum in jedes `Cargo.lock`, das diese Kiste beruehrt — und damit in
+# `packaging/pulse-player-cargo-sources.json`, das der Flatpak offline baut.
+#
+# **Die Grenze bleibt hart:** jede weitere Abhaengigkeit braucht ihre eigene
+# Nachmessung und ihre eigene Entscheidung.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSPasteboard",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSArray",
+    "NSString",
+    "NSDate",
+    "NSRunLoop",
+    "NSObjCRuntime",
+    "NSThread",
+] }
+
+# ---------------------------------------------------------------------------
+# Windows — dieselbe Lage wie bei macOS, nur ein halbes Jahr spaeter bemerkt:
+# die Umsetzung (`plattform/windows/`) lag im `win-hq-sidecar`, solange Windows
+# nur den Host kannte. Der `pulse-player` ist der zweite Verbraucher, und im
+# Sidecar erreichbar heisst fuer ihn gar nicht erreichbar.
+#
+# **Keine neue Fremdquelle, und das ist der Grund, warum diese Zeile ohne
+# eigene Nachmessung durchgeht:** die `windows`-Kiste steht in beiden
+# Verbraucher-Lockfiles bereits, in derselben Fassung 0.62 (nachgesehen in
+# `win-hq-sidecar/Cargo.toml` und `pulse-player/Cargo.lock`, nicht angenommen).
+# Merkmale sind additiv und stehen nicht im Lockfile — es kommt also kein Paket
+# hinzu.
+#
+# **Die Merkmalsliste ist knapp gehalten**: genau die vier Bereiche, die
+# `fenster.rs`, `auftragsbuch.rs` und `fach.rs` anfassen, und keiner mehr. Die
+# Grenze bleibt hart — jede weitere Abhaengigkeit braucht ihre eigene
+# Nachmessung und ihre eigene Entscheidung.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    # **Nicht offensichtlich, und die Uebersetzung gegen den Zielsatz hat es
+    # gefangen:** `RegisterClassW`/`WNDCLASSW` haengen in windows-rs an
+    # `Win32_Graphics_Gdi` (die Klasse traegt Pinsel und Zeiger), obwohl das
+    # Fenster hier nie zeichnet. Im Sidecar fiel das nicht auf — dort stand das
+    # Merkmal fuer die Bildschirm-Aufzaehlung ohnehin da (fenster.rs)
+    "Win32_Graphics_Gdi",
+    # AddClipboardFormatListener, OpenClipboard, SetClipboardData: Beobachtung
+    # und verzoegertes Rendern (fenster.rs, fach.rs)
+    "Win32_System_DataExchange",
+    # GlobalAlloc/GlobalLock: der bewegliche Speicher, den SetClipboardData
+    # verlangt (fach.rs)
+    "Win32_System_Memory",
+    # CF_UNICODETEXT — die Zwischenablage-Formate liegen in windows-rs unter
+    # Ole (fenster.rs, fach.rs)
+    "Win32_System_Ole",
+    # HWND_MESSAGE, GetMessageW, PostMessageW: das nur fuer Nachrichten
+    # sichtbare Fenster und sein Faden (fenster.rs, auftragsbuch.rs)
+    "Win32_UI_WindowsAndMessaging",
+] }

@@ -174,6 +174,19 @@ pub struct Request {
     #[serde(default)]
     pub screens: Option<Vec<crate::overlay::Schirm>>,
 
+    // --- ablage ---
+    /// Ein Rahmen der geteilten Zwischenablage, unveraendert vom Renderer
+    /// durchgereicht. Gedeutet wird er hier, nicht dort — das Format lebt in
+    /// `pulse-ablage` (`crate::app::ablage`).
+    ///
+    /// **Der Wert traegt eine Huelle**, und die kennt `pulse-ablage` nicht:
+    /// `{"rahmen":{…}}` ist Nutzlast der Gegenseite, `{"anstoss":"ende"}` /
+    /// `{"anstoss":"neu_bitte"}` ein Anstoss des eigenen Renderers, der nie
+    /// ueber die Leitung geht. Ausgepackt wird in `app::ablage` — die Huelle
+    /// haelt fremde Nutzlast strukturell von den Anstoessen fern.
+    #[serde(default)]
+    pub data: Option<serde_json::Value>,
+
     /// Startwerte fuer `open` — dieselben Schluessel wie bei `set_option`.
     #[serde(default)]
     pub options: Option<PlayerOptions>,

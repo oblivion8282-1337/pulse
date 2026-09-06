@@ -35,6 +35,7 @@
 //! Was gezeichnet wird — Statistik-Feld und Bedienleiste — steht in
 //! [`controls`]; hier liegt die Schleife, die entscheidet, WANN.
 
+mod ablageschalter;
 mod controls;
 mod fernbedienung;
 mod schirmkarte;
@@ -131,6 +132,18 @@ pub struct Overlay {
     /// [`Self::fern_schirme`] nur seine eigene Kopie und kann daraus weder die
     /// Lagen der anderen Fenster noch deren Sitzung ablesen.
     fern_anordenbar: bool,
+    /// Schalter „Zwischenablage teilen" im Fern-Menue (s.
+    /// [`ablageschalter`]). **Vorgabe an** — und die Vorgabe steht nur hier
+    /// zur ANZEIGE: verbindlich ist die der Sitzung (`app::ablage`), von der
+    /// dieses Feld ueber [`Self::set_ablage_teilen`] nachgezogen wird.
+    ablage_teilen: bool,
+    /// Gibt es auf DIESER Maschine ueberhaupt eine Zwischenablage-Umsetzung,
+    /// und haelt diese Sitzung sie? **Vorgabe aus** — ein Schalter, der etwas
+    /// verspricht, das nicht stattfindet, ist schlimmer als keiner. Setzt die
+    /// App aus der tatsaechlichen Verfuegbarkeit, nicht aus `cfg`
+    /// (`app::ablage`); damit traegt er auch, wenn Plan 1b-2 und 1c die
+    /// uebrigen Plattformen nachreichen.
+    ablage_verfuegbar: bool,
 }
 
 impl Overlay {
@@ -186,6 +199,8 @@ impl Overlay {
             fern_anfragbar: false,
             fern_schirme: Vec::new(),
             fern_anordenbar: false,
+            ablage_teilen: true,
+            ablage_verfuegbar: false,
         })
     }
 
@@ -590,6 +605,28 @@ impl Overlay {
             return;
         }
         self.fern_anordenbar = anordenbar;
+        self.input_pending = true;
+    }
+
+    /// Den Stand des Schalters „Zwischenablage teilen" nachziehen.
+    ///
+    /// **Die App ist die Quelle**, nicht das Fenster: sie fuehrt den Zustand
+    /// je Sitzung und weiss als Einzige, ob das Freigeben geklappt hat.
+    pub fn set_ablage_teilen(&mut self, an: bool) {
+        if self.ablage_teilen == an {
+            return;
+        }
+        self.ablage_teilen = an;
+        self.input_pending = true;
+    }
+
+    /// Ob es auf dieser Maschine eine Zwischenablage-Umsetzung gibt und diese
+    /// Sitzung sie haelt (s. [`Self::ablage_verfuegbar`]).
+    pub fn set_ablage_verfuegbar(&mut self, verfuegbar: bool) {
+        if self.ablage_verfuegbar == verfuegbar {
+            return;
+        }
+        self.ablage_verfuegbar = verfuegbar;
         self.input_pending = true;
     }
 

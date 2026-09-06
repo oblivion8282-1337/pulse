@@ -16,6 +16,7 @@ import { remoteSession } from '$lib/remote/session.svelte';
 import { remoteP2P } from '$lib/remote/p2p';
 import { remoteVorrang } from '$lib/remote/vorrang';
 import { remoteZeigerform } from '$lib/remote/zeigerform';
+import { remoteAblage } from '$lib/remote/ablage';
 import { eingabeEinspielen } from '$lib/remote/sidecarInput';
 import { userCache } from '$lib/stores/users.svelte';
 
@@ -98,6 +99,10 @@ export function register(): void {
     // melden und legt seinen Zeiger zurück ins Videobild. Der Player blendet
     // dann seinen lokalen aus (`$lib/remote/zeigerImBild.ts`).
     else if (evt.kind === 'zeiger_im_bild') remoteZeigerform._signalImBild(evt.data);
+    // 'ablage': ein Rahmen der geteilten Zwischenablage. Ungedeutet weiter an
+    // die Plattform-Brücke (`$lib/remote/ablage.ts`) — das Format lebt in
+    // `streaming/pulse-ablage`, nicht hier.
+    else if (evt.kind === 'ablage') remoteAblage._signal(evt.data);
     else remoteP2P.signal(evt.kind, evt.data);
   });
   // Frames, die über den DataChannel hereinkommen, laufen durch DENSELBEN

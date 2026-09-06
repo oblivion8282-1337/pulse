@@ -33,15 +33,18 @@ use super::zustand::{zugschluss, Zugschluss, Zustand, ANLAUFFRIST};
 /// `zug_beginnen`/`zeiger_ueber` (s. [`super::zug`]) sind die Methoden, die ihn
 /// tatsaechlich ausloesen bzw. auswerten, verdrahtet in `app::wayland_zug`.
 ///
-/// **`qh`/`manager`/`seats`/`zeiger` werden nach [`aufbauen`] nie wieder
-/// GELESEN** — der Compiler sieht das erst, seit dieses Modul ueberhaupt
-/// benutzt wird, und meldet es sonst als `dead_code`. Gehalten werden sie
-/// trotzdem: `seats`/`zeiger` sind die Bindungen, aus denen `datengeraete`
-/// entstand (dieselbe Rolle wie `seats` in
-/// `crate::tastensperre::wayland::Verbindung`), `qh` und `manager` gehoeren
-/// zur selben Verbindung und wuerden sonst am Ende von [`aufbauen`] gleich
-/// wieder fallen. Keins davon ist ein Aufraeum-Versehen, das nachgeholt
+/// **`seats`/`zeiger` werden nach [`aufbauen`] nie wieder GELESEN** — der
+/// Compiler sieht das erst, seit dieses Modul ueberhaupt benutzt wird, und
+/// meldet es sonst als `dead_code`. Gehalten werden sie trotzdem: sie sind die
+/// Bindungen, aus denen `datengeraete` entstand (dieselbe Rolle wie `seats` in
+/// `crate::tastensperre::wayland::Verbindung`), und wuerden sonst am Ende von
+/// [`aufbauen`] gleich wieder fallen. Kein Aufraeum-Versehen, das nachgeholt
 /// werden muesste.
+///
+/// **`qh` und `manager` standen bis zum 2026-08-31 in derselben Aufzaehlung —
+/// seither werden sie gelesen:** die Zwischenablage legt damit ihre
+/// `wl_data_source` an (`super::ablage`). Der `#[allow(dead_code)]` unten
+/// bleibt trotzdem, er deckt weiterhin `seats`/`zeiger`.
 ///
 /// Die Felder sind `pub(super)`, weil `super::zug` denselben Typ weiterbaut
 /// (`start_drag` braucht `conn` und `datengeraete`) — sie sind ein
@@ -50,8 +53,10 @@ use super::zustand::{zugschluss, Zugschluss, Zustand, ANLAUFFRIST};
 pub struct Gastverbindung {
     pub(super) conn: Connection,
     queue: EventQueue<Zustand>,
-    qh: QueueHandle<Zustand>,
-    manager: wl_data_device_manager::WlDataDeviceManager,
+    /// Wird von der Zwischenablage gebraucht (`create_data_source`).
+    pub(super) qh: QueueHandle<Zustand>,
+    /// Ebenso — er erzeugt die eigene Quelle (s. `super::ablage`).
+    pub(super) manager: wl_data_device_manager::WlDataDeviceManager,
     /// Alle Sitzplaetze — winit gibt nicht heraus, welchen es selbst benutzt
     /// (dieselbe Begruendung wie in der Vorlage).
     seats: Vec<wl_seat::WlSeat>,

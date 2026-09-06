@@ -106,6 +106,15 @@ impl App {
                 Err(e) => self.stdout.send(&Response::err(id, e)),
             },
 
+            // Fernsteuerung: ein Rahmen der geteilten Zwischenablage. Der
+            // Player DEUTET ihn (anders als der Renderer, s. `app::ablage`) —
+            // das Format lebt in `pulse-ablage`, an genau einer Stelle im
+            // Baum.
+            "ablage" => match self.ablage(&req) {
+                Ok(()) => self.stdout.send(&Response::bare(id)),
+                Err(e) => self.stdout.send(&Response::err(id, e)),
+            },
+
             "remote_screens" => match self.remote_screens(&req) {
                 Ok(()) => self.stdout.send(&Response::bare(id)),
                 Err(e) => self.stdout.send(&Response::err(id, e)),
@@ -268,6 +277,12 @@ impl App {
         let senders: Vec<_> = self.sessions.values().map(|s| s.commands.clone()).collect();
         if senders.is_empty() {
             return;
+        }
+        // **Vor dem Leeren**, sonst gibt es die Sitzungen nicht mehr, an denen
+        // die Zwischenablage haengt (Review C3): der Vorbestand des Nutzers
+        // muss zurueck, bevor der Player die Auswahl mit sich nimmt.
+        for id in self.sessions.keys().copied().collect::<Vec<_>>() {
+            self.ablage_abbau(id);
         }
         self.sessions.clear();
         self.by_window.clear();

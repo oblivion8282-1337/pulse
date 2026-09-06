@@ -13,6 +13,7 @@
 // gaten — das ist die einzige Stelle ausserhalb von `app`, die etwas von hier
 // braucht. Weiter als bis zum eigenen Crate muss niemand.
 pub(crate) mod anordnen;
+pub(crate) mod ablage;
 pub mod diagnose;
 mod eingabe;
 mod requests;
@@ -297,6 +298,11 @@ struct Session {
     /// stillstehen (s. [`crate::tastensperre`]). Ausserhalb von Linux/Wayland
     /// ein leerer Wert ohne Kosten.
     tastensperre: crate::tastensperre::Tastensperre,
+    /// Die geteilte Zwischenablage dieser Fernsteuerungs-Sitzung (s.
+    /// [`ablage`]). **Schlaeft**, bis `input_capture` sie weckt — ohne
+    /// laufende Fernsteuerung wird die Ablage des Nutzers gar nicht erst
+    /// beobachtet.
+    ablage: ablage::Ablagelage,
 }
 
 pub struct App {
@@ -345,6 +351,17 @@ pub struct App {
     /// macOS-Bau dieses Feld faelschlich als toten Code.
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     wayland_zug: wayland_zug::WaylandZug,
+    /// Welche Sitzung die geteilte Zwischenablage haelt — **eine je Prozess**
+    /// (s. `ablage::App::mit_ablage`). Die Spiegelung der Host-Regel „ein
+    /// Traeger je Maschine" aus dem Entwurf: der Wayland-Zustand haengt an der
+    /// Verbindung, die Zustandsmaschine an der Sitzung, und zwei
+    /// Zustandsmaschinen auf einer Ablage rechnen gegeneinander.
+    ablage_traeger: Option<u64>,
+    /// Der verdraengte Vorbestand des Nutzers und die Frage, ob dieser Prozess
+    /// ihn verdraengt hat — **am Prozess, weil die Auswahl am Prozess haengt**
+    /// (s. `ablage::Prozessablage`). An der Sitzung verlor ihn jeder
+    /// Traegerwechsel.
+    ablage_stand: ablage::Prozessablage,
 }
 
 /// Wie lange nach dem letzten Bild des Hauptstroms das Auffangnetz noch
@@ -371,6 +388,8 @@ impl App {
             tastensperre: crate::tastensperre::Gemeinsam::default(),
             zuletzt_fokussiert: None,
             wayland_zug: wayland_zug::WaylandZug::default(),
+            ablage_traeger: None,
+            ablage_stand: ablage::Prozessablage::default(),
         }
     }
 
@@ -707,6 +726,7 @@ impl App {
                 fern_schirme: Vec::new(),
                 optionskette: None,
                 tastensperre: crate::tastensperre::Tastensperre::default(),
+                ablage: ablage::Ablagelage::default(),
             },
         );
         // Einmal zeichnen, bevor das erste Bild da ist: sonst zeigt das Fenster
@@ -1270,6 +1290,10 @@ impl App {
             // Anwenden (Fenster-Objekte, Wayland-Riegel) liegen in
             // `anordnen::fenster_anordnen` — hier wird nur aufgefangen.
             OverlayAction::FensterAnordnen => self.fenster_anordnen(id),
+            // Schalter „Zwischenablage teilen" (s. `ablage`). **Ausschalten
+            // gibt einen laufenden Anspruch frei und schreibt den Vorbestand
+            // zurueck** — nicht bloss den naechsten Anspruch unterlassen.
+            OverlayAction::AblageTeilen(an) => self.ablage_teilen_setzen(id, an),
         }
     }
 
@@ -1308,6 +1332,12 @@ impl App {
     fn close_session(&mut self, id: u64) {
         // VOR dem Entfernen: danach gibt es die Warteschlange nicht mehr.
         self.eingabe_raeumen(id);
+        // Und die Zwischenablage, aus demselben Grund und mit demselben
+        // Trichter wie beim Ausschalten der Erfassung (Review C3): wer sein
+        // Fenster waehrend einer Fernsteuerung schliesst, liesse sonst eine
+        // Quelle stehen, die niemand mehr bedient — jedes Einfuegen auf dem
+        // Desktop haenge, und sein eigener Vorbestand waere weg.
+        self.ablage_abbau(id);
         // Dasselbe fuer die Tastenkuerzel des Fenstermanagers. `Halter::drop`
         // faenge es zwar auch auf — aber nur ohne das `flush` danach, und der
         // Nutzer soll seine Kuerzel jetzt zurueckbekommen und nicht beim
@@ -1459,6 +1489,18 @@ impl ApplicationHandler<UserEvent> for App {
             self.tastensperre.freigeben(&mut session.tastensperre);
         }
         self.tastensperre.schliessen();
+        // **Vor `wayland_zug.schliessen()`** (Review C3): das Zurueckschreiben
+        // des Vorbestands laeuft ueber genau diese Verbindung. Danach waere es
+        // ein Aufruf auf einer Anzeige, die es nicht mehr gibt. Ueblicherweise
+        // ist hier schon aufgeraeumt (`stop_all_sessions` kommt auf beiden
+        // Beende-Wegen zuerst) — dies ist die letzte Gelegenheit fuer den Weg,
+        // den niemand vorhergesehen hat.
+        for id in self.sessions.keys().copied().collect::<Vec<_>>() {
+            self.ablage_abbau(id);
+        }
+        // Und danach der Faden, der auf macOS die Ablage haelt — er gehoert dem
+        // Prozess, nicht einer Sitzung. Auf den uebrigen Plattformen ein No-op.
+        self.ablage_prozess_ende();
         // Review C3: derselbe geordnete Abbau wie bei `tastensperre` — ohne
         // dieses Rufziel wuerden die Wayland-Objekte des Zugs (Verbindung,
         // Warteschlange, Proxys) beim Fallen von `self` ihre Zerstoerung auf
