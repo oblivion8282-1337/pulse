@@ -144,11 +144,16 @@ export class NativePlayerSession {
    */
   onCloseTile: ((channelId: string, userId: string, slot: number) => void) | null = null;
   #disposed = false;
+  /** `whep` = der gewohnte Weg (URL holen, anfordern). `direkt` = P2P: ohne
+   *  WHEP-URL starten, der Offer-Umlauf läuft über die Fernsteuer-Sitzung
+   *  (`$lib/remote/direktbild`); das Fenster verhält sich sonst identisch. */
+  readonly #modus: 'whep' | 'direkt';
 
-  constructor(channelId: string, userId: string, slot = 0, title?: string) {
+  constructor(channelId: string, userId: string, slot = 0, title?: string, modus: 'whep' | 'direkt' = 'whep') {
     this.channelId = channelId;
     this.userId = userId;
     this.slot = slot;
+    this.#modus = modus;
     this.#unlisten = onPlayerEvent((ev) => this.#onEvent(ev));
     this.#unlistenOptions = onPlayerOptionEvent((ev) => this.#onOptionEvent(ev));
     this.#unlistenWindow = onPlayerWindowRequest((kind, session) => {
@@ -182,6 +187,37 @@ export class NativePlayerSession {
     if (this.#disposed) return;
     this.phase = 'connecting';
     this.error = null;
+    // **Direktmodus (P2P):** kein WHEP-Anruf, keine Bittiefen-Sonderwege — das
+    // Fenster wartet auf `direct_start`, und die Verhandlung trägt die
+    // Fernsteuer-Sitzung (`$lib/remote/direktbild`). Genau deshalb muss diese
+    // Sitzung in der REGISTRY stehen: die Eingabe-Erfassung wird über
+    // `fuerHost` bewaffnet (`RemoteControllerInput.svelte`), und ein Fenster,
+    // das dort fehlt, bleibt taub — genau dieser Fehler stand am Anfang des
+    // P2P-Wegs.
+    if (this.#modus === 'direkt') {
+      try {
+        const session = await openPlayer('', {
+          title,
+          direct: true,
+          options: { volume: getStreamVolume(this.userId) / 100 },
+        });
+        if (this.#disposed) {
+          if (session !== null) void closePlayer(session);
+          return;
+        }
+        if (session === null) {
+          this.phase = 'failed';
+          this.error = 'native player: open (direkt) fehlgeschlagen';
+          return;
+        }
+        this.#session = session;
+      } catch (e) {
+        if (this.#disposed) return;
+        this.phase = 'failed';
+        this.error = errText(e);
+      }
+      return;
+    }
     try {
       const { whep_url, ten_bit } = await chatApi.getWhepUrl(
         this.channelId,
@@ -412,6 +448,31 @@ export const nativePlayerSessions = {
     }
     if (!s) {
       s = new NativePlayerSession(channelId, userId, slot, title);
+      registry.set(k, s);
+    }
+    return s;
+  },
+
+  /**
+   * **Direktfenster (P2P)** holen oder anlegen — dieselbe Registry, derselbe
+   * Schlüssel, aber der Öffnungsweg ist ein anderer: ohne WHEP-Anruf, der
+   * Offer-Umlauf läuft über die Fernsteuer-Sitzung (`$lib/remote/direktbild`).
+   *
+   * **Warum überhaupt in die Registry:** die Eingabe-Erfassung wird über
+   * `fuerHost` bewaffnet — ein Fenster, das nur direkt geöffnet wird und hier
+   * fehlt, sieht die Fernsteuerung nicht, und der Steuernde sitzt vor einem
+   * Bild, das nichts reagiert (genau so stand es beim ersten P2P-Lauf).
+   */
+  ensureDirekt(channelId: string, userId: string, slot = 0, title?: string): NativePlayerSession {
+    const k = keyOf(channelId, userId, slot);
+    let s = registry.get(k);
+    if (s && (s.phase === 'failed' || s.phase === 'closed')) {
+      void s.close();
+      registry.delete(k);
+      s = undefined;
+    }
+    if (!s) {
+      s = new NativePlayerSession(channelId, userId, slot, title, 'direkt');
       registry.set(k, s);
     }
     return s;

@@ -434,6 +434,8 @@ class RemoteSessionStore {
     // einen Stream am Server anfordern, den es diesmal nicht gibt.
     if (this.p2p && this.role === 'controller') {
       void direktbild.steuerndStart(
+        this.channelId ?? '',
+        this.peerUserId ?? '',
         sessionId,
         this.targetSlot,
         (kind, data) => this.#senden((c) => c.sendRemoteSignal(sessionId, kind, data)),

@@ -32,7 +32,8 @@
 
 import { gsr } from '$lib/stream/gsr';
 import { aktiverDirektPlatz } from '$lib/devices/wecken';
-import { openPlayer, closePlayer, onDirectState } from '$lib/player/client';
+import { onDirectState } from '$lib/player/client';
+import { nativePlayerSessions } from '$lib/player/store.svelte';
 import { isElectron } from '$lib/platform/runtime';
 import type { RemoteSignalKind } from '$lib/ws/handlers/types';
 
@@ -53,6 +54,9 @@ const zustand = $state<{ wert: DirektZustand }>({ wert: 'aus' });
 
 /** Der Player-Fenster-Sitzung des Steuernden — für das saubere Ende. */
 let playerSitzung: number | null = null;
+/** Der Registry-Schlüssel des Direktfensters, damit der Abbau dieselbe
+ *  Sitzung trifft, die aufgegangen ist. */
+let registrySchluessel: { channelId: string; hostUserId: string; slot: number } | null = null;
 
 /** Hört der Host gerade auf die Sidecar-Ereignisse? (Abo-Verwaltung.) */
 let hostAbo: (() => void) | null = null;
@@ -74,9 +78,18 @@ function setze(w: DirektZustand): void {
  * ruft es bei jedem Durchlauf, auch wenn nie eine Direktverbindung entstand.
  */
 export function abraeumen(rolle: 'controller' | 'host' | null): void {
-  if (rolle === 'controller' && playerSitzung !== null) {
-    void closePlayer(playerSitzung);
+  if (rolle === 'controller') {
+    // Über die Registry schliessen: die trägt Kanal/Host/Platz, und nur sie
+    // räumt auch den Eintrag weg, über den die Eingabe-Erfassung läuft.
+    if (registrySchluessel) {
+      nativePlayerSessions.close(
+        registrySchluessel.channelId,
+        registrySchluessel.hostUserId,
+        registrySchluessel.slot,
+      );
+    }
     playerSitzung = null;
+    registrySchluessel = null;
   }
   if (controllerAbo) {
     controllerAbo();
@@ -106,6 +119,8 @@ export function abraeumen(rolle: 'controller' | 'host' | null): void {
  * Fensters.
  */
 export async function steuerndStart(
+  channelId: string,
+  hostUserId: string,
   sessionId: string,
   slot: number,
   send: (kind: RemoteSignalKind, data: unknown) => boolean,
@@ -121,15 +136,28 @@ export async function steuerndStart(
     return;
   }
   setze('verbinde');
-  // Das Fenster braucht keine WHEP-URL: `direct: true` sagt dem Player, dass
-  // er auf `direct_start` warten soll, statt selbst einen Stream anzufordern.
-  const offen = await openPlayer('', { direct: true });
+  // **Das Fenster geht über die REGISTRY, nicht über einen nackten `openPlayer`.**
+  // Die Eingabe-Erfassung wird über `nativePlayerSessions.fuerHost` bewaffnet —
+  // ein Fenster, das nur hier direkt geöffnet würde, sähe die Fernsteuerung
+  // nicht, und der Steuernde säße vor einem Bild, das nichts reagiert. Genau
+  // so sah der erste P2P-Lauf aus.
+  const sitzung = nativePlayerSessions.ensureDirekt(channelId, hostUserId, slot);
+  // Die Fensternummer steht erst nach dem asynchronen Öffnen — kurz warten,
+  // statt mit Polling die Registry zu foltern. 5 s sind großzügig: Öffnen ist
+  // ein Prozess-Start plus RPC, kein Netzweg.
+  let offen: number | null = null;
+  for (let warte = 0; warte < 50; warte++) {
+    offen = sitzung.fensterSitzung;
+    if (offen !== null) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
   if (offen === null) {
     openFehlgeschlagen('direct_no_player');
     setze('aus');
     return;
   }
   playerSitzung = offen;
+  registrySchluessel = { channelId, hostUserId, slot };
   // Die Zustandsereignisse der Direktverbindung lesen — der Player meldet den
   // PC-Wechsel getrennt vom Fensterzustand (`client.ts::onDirectState`).
   controllerAbo = onDirectState((zustandNeu) => {
