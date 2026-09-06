@@ -22,11 +22,23 @@ use super::WhipSender;
 
 /// Der Bauer, den `main.rs` anmeldet.
 ///
-/// Scheitert der Aufbau, bricht der Start ab — kein stiller Rückfall auf den
-/// Muxer. Der wäre die schlimmere Antwort: der Stream liefe, aber ohne
-/// Rückkanal, und bei 60 s Vollbild-Abstand wartete ein Zuschauer bis zu eine
-/// Minute auf sein erstes Bild, ohne dass irgendwo ein Fehler auftaucht.
+/// Direktpfad zuerst: zielt der Auftrag auf die Direkt-Sitzung
+/// (`direct://`, s. `crate::direct`), steht der Sender schon — er ist beim
+/// `direct_offer` gebaut und ausgehandelt worden, die Pipeline holt ihn sich
+/// hier nur noch ab ([`crate::direct::Sitzung::nimm_senke`]). Das ist der
+/// eine Punkt, an dem sich die beiden WebRTC-Wege im Abbende-Zweig
+/// unterscheiden; alles davor und danach ist geteilt.
+///
+/// Sonst der WHIP-Weg wie immer. Scheitert der Aufbau, bricht der Start ab —
+/// kein stiller Rückfall auf den Muxer. Der wäre die schlimmere Antwort: der
+/// Stream liefe, aber ohne Rückkanal, und bei 60 s Vollbild-Abstand wartete
+/// ein Zuschauer bis zu eine Minute auf sein erstes Bild, ohne dass
+/// irgendwo ein Fehler auftaucht.
 pub fn baue(auftrag: &SenkenAuftrag) -> Result<Box<dyn PaketSenke>> {
+    if let Some(senke) = crate::direct::sitzung().nimm_senke(auftrag)? {
+        eprintln!("[encode] Ausgabe: Direktpfad-Sender der wartenden Sitzung");
+        return Ok(senke);
+    }
     let sender = WhipSender::connect(
         auftrag.url,
         auftrag.codec,

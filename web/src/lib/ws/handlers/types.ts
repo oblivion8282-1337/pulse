@@ -36,7 +36,12 @@ export type RemoteSignalKind =
   | 'vorrang'
   | 'zeiger'
   | 'zeiger_im_bild'
-  | 'ablage';
+  | 'ablage'
+  // **Direktbild (P2P, Stufe 1):** Offer des Player des Steuernden, Answer des
+  // Sidecars des Hosts. Der Server sieht nur die zwei SDP-Texte — die
+  // RTP-Pakete gehen an jedem Gateway vorbei.
+  | 'bild_offer'
+  | 'bild_answer';
 
 export type ChannelPayload = {
   id: string;
@@ -389,6 +394,10 @@ export type ServerEvent =
        *  (Rollen, Kanalmitgliedschaft); der Client prueft nur noch seinen
        *  Hauptschalter (`$lib/remote/standplatz.svelte.ts`). */
       freigabe?: boolean;
+      /** **P2P-Wunsch:** das Bild soll direkt zum Steuernden fließen — der
+       *  Host startet seinen Sidecar im Wartezustand und beantwortet nach der
+       *  Zusage den Player-Offer (`$lib/remote/direktbild`). */
+      p2p?: boolean;
     }
   // Nur an den STEUERNDEN, unmittelbar nach dem Anlegen der Sitzung und noch
   // bevor die Host-Tabs die Anfrage sehen. Erst damit kennt der Steuernde seine
@@ -396,7 +405,8 @@ export type ServerEvent =
   // hereinkommende Antwort der eigenen Sitzung zuordnen (jede fremde galt als
   // die eigene, s. `remote/session.svelte.ts::_pending`).
   | { op: 'remote_pending'; session_id: string; channel_id: string; host_user_id: string }
-  | { op: 'remote_response'; session_id: string; accepted: boolean }
+  | { op: 'remote_response'; session_id: string; accepted: boolean; /** **P2P:** der Platz des Direktstroms beim Host (nur bei `accepted`). */
+      slot?: number }
   | { op: 'remote_ended'; session_id: string; reason: string }
   // Antwort auf `remote_reclaim` (Gnadenfrist nach Verbindungsabriss,
   // `$lib/remote/wachten.ts`). `remote_reclaim_failed` trägt einen Klartext
@@ -435,6 +445,9 @@ export type ServerEvent =
       channel_id: string;
       from_user_id: string;
       monitor?: number;
+      /** **P2P-Wunsch:** das Bild geht später direkt zum Steuernden — der
+       *  Sidecar startet im Wartezustand, ohne WHIP-Push zum Server. */
+      p2p?: boolean;
     }
   | {
       op: 'device_state';
@@ -513,8 +526,10 @@ export type ClientEvent =
   | { op: 'activity' }
   | { op: 'typing'; channel_id: string }
   // Fernsteuerung — Outbound-Ops des Consent-Handshakes (s. ws_remote_handlers.py).
-  | { op: 'remote_request'; channel_id: string; host_user_id: string; device_id?: string }
-  | { op: 'remote_respond'; session_id: string; accept: boolean }
+  | { op: 'remote_request'; channel_id: string; host_user_id: string; device_id?: string; /** **P2P-Wunsch:** das Bild geht direkt zum Steuernden. */
+      p2p?: boolean }
+  | { op: 'remote_respond'; session_id: string; accept: boolean; /** **P2P:** der Platz des wartenden Direktstroms (nur Host, nur bei Zusage). */
+      slot?: number }
   // Eingabe-Frames zum Host. Nur der Steuernde sendet; der Gateway prüft
   // Sitzung, Rolle und Größe und schaut nicht in die Frames hinein.
   | { op: 'remote_input'; session_id: string; slot: number; frames: string[] }

@@ -228,12 +228,29 @@ pub fn baue_api(
     video: &RTCRtpCodecCapability,
     audio: &RTCRtpCodecCapability,
 ) -> Result<webrtc::api::API> {
+    baue_api_mit_settings(video, audio, webrtc::api::setting_engine::SettingEngine::default())
+}
+
+/// Dasselbe wie [`baue_api`], mit einer Setting-Engine des Aufrufers.
+///
+/// **Der einzige Zweck ist der Direktpfad** ([`crate::direct`]): der dessen
+/// ICE-Filter (Schleifen-/virtuelle Adapter raus, `direct::rtc`) sitzt in der
+/// Setting-Engine, und genau die sollte NICHT hier erfunden werden — der
+/// WHIP-Weg will sie unverändert lassen (kein STUN, kein Filter; Begründung
+/// bei `WhipSender::connect`). Was im Angebot steht, ist hier weiterhin an
+/// EINEM Ort: beide Wege teilen Registrierung und Interceptor.
+pub(crate) fn baue_api_mit_settings(
+    video: &RTCRtpCodecCapability,
+    audio: &RTCRtpCodecCapability,
+    se: webrtc::api::setting_engine::SettingEngine,
+) -> Result<webrtc::api::API> {
     let mut media = MediaEngine::default();
     register_codecs(&mut media, video, audio).context("Codecs registrieren")?;
     register_header_extensions(&mut media).context("Header-Erweiterungen registrieren")?;
     let registry = register_default_interceptors(Registry::new(), &mut media)
         .context("Interceptor-Registry")?;
     Ok(APIBuilder::new()
+        .with_setting_engine(se)
         .with_media_engine(media)
         .with_interceptor_registry(registry)
         .build())

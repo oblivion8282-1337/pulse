@@ -17,6 +17,8 @@
 //! | build_argv               | real       | Teilt den Parse-Pfad mit `start` |
 //! | start                    | stub       | Stages 5-8 (capture + audio + encode + RTMPS) |
 //! | stop                     | stub       | Stage 8 |
+//! | direct_offer             | real       | Direktpfad — Angebot des Players beantworten |
+//! | direct_stop              | real       | Direktpfad — zurück in den Wartezustand |
 //! | state                    | stub       | Stage 8 |
 //! | remote_input             | real       | Fernsteuerung — Eingabe-Frames (Wire v2) |
 //! | remote_input_end         | real       | Fernsteuerung — Sitzung schließen |
@@ -24,6 +26,8 @@
 
 pub mod ablage;
 pub mod build_argv;
+pub mod direct_offer;
+pub mod direct_stop;
 pub mod gpu_info;
 pub mod health;
 pub mod keyframe;

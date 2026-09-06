@@ -23,8 +23,10 @@
 //! Zustandswechseln an, also eine Handvoll je Sitzung, und wer sie erst
 //! einschalten muss, hat sie im Fehlerfall nicht.
 
+use std::sync::Arc;
 use std::time::Instant;
 
+use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
 use webrtc::peer_connection::RTCPeerConnection;
 
 /// Haengt die Zustandsmeldungen an eine frisch gebaute PeerConnection.
@@ -42,6 +44,20 @@ use webrtc::peer_connection::RTCPeerConnection;
 /// Sitzungsuhr ist zugleich der Zeitbezug der Aufnahme, und den zu verschieben
 /// waere ein Nebeneffekt an einer Stelle, die mit Diagnose nichts zu tun hat.
 pub fn zustaende_melden(pc: &RTCPeerConnection) {
+    zustaende_melden_mit(pc, None);
+}
+
+/// Wie [`zustaende_melden`], plus ein Rueckruf fuer jeden VERBINDUNGSzustand.
+///
+/// **Der einzige Nutzer ist der Direktweg** ([`crate::direkt`]): er muss dieselben
+/// Zustandswechsel in `direct_state`-Ereignisse uebersetzen, und webrtc-rs
+/// haelt nur EINEN Callback je Ereignis — ein zweiter `on_peer_connection_
+/// state_change` wuerde die stderr-Meldung hier stilllegen. Beides passiert
+/// deshalb in diesem einen Callback.
+pub(crate) fn zustaende_melden_mit(
+    pc: &RTCPeerConnection,
+    bei_verbindungszustand: Option<Arc<dyn Fn(RTCPeerConnectionState) + Send + Sync>>,
+) {
     let start = Instant::now();
 
     pc.on_peer_connection_state_change(Box::new(move |zustand| {
@@ -49,6 +65,9 @@ pub fn zustaende_melden(pc: &RTCPeerConnection) {
             "pulse-player: Verbindungszustand {:.1} s nach dem Aufbau: {zustand}",
             start.elapsed().as_secs_f64()
         );
+        if let Some(melden) = bei_verbindungszustand.as_ref() {
+            melden(zustand);
+        }
         Box::pin(async {})
     }));
 

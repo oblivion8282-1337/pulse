@@ -339,6 +339,7 @@ export function buildStartArgs(
   channelArg: ChannelStreamArg,
   slot = 0,
   standplatz?: { quelle: string; uebersteuerung: OverrideSet; ton: AudioMode },
+  p2p = false,
 ): GsrStartArgs {
   // Ein geweckter Standplatz-Rechner übersteuert IMMER — das Profil ist ja
   // gerade dafür da, dass nicht gilt, was zuletzt von Hand eingestellt war
@@ -347,11 +348,19 @@ export function buildStartArgs(
 
   const args: GsrStartArgs = {
     profile: streamSettings.profile_name,
-    channel: {
-      id: channelArg.channelId,
-      token: channelArg.token,
-      ...(channelArg.pushUrl ? { push_url: channelArg.pushUrl } : {}),
-    },
+    // **P2P: kein Kanal-Block.** Ohne Token und Push-URL hat der Sidecar
+    // keinen Serverkontakt — er startet im Wartezustand und verhandelt die
+    // Direktverbindung später selbst (`op direct_offer`,
+    // `$lib/remote/direktbild`). Stattdessen reist die Markierung `direct`,
+    // die den Sidecar-Zweig wählt.
+    ...(p2p ? {} : {
+      channel: {
+        id: channelArg.channelId,
+        token: channelArg.token,
+        ...(channelArg.pushUrl ? { push_url: channelArg.pushUrl } : {}),
+      },
+    }),
+    ...(p2p ? { direct: true } : {}),
     // Each slot captures its own source (a different monitor); the rest of the
     // settings — profile, audio, overrides — are shared across both streams.
     // Die aktive, nicht die gemerkte Quelle: fehlt der gewählte Bildschirm

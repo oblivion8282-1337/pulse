@@ -187,14 +187,33 @@ export function geraetWecken(
   serverId: string | null,
   deviceId: string,
   monitor?: number,
+  p2p = false,
 ): boolean {
   const conn = serverId ? gatewayForServer(serverId) : null;
   if (!conn) return false;
   try {
-    return conn.sendDeviceWake(deviceId, monitor);
+    return conn.sendDeviceWake(deviceId, monitor, p2p);
   } catch {
     return false;
   }
+}
+
+/**
+ * Der Platz, auf dem der P2P-Stream dieses Geräts wartet — nur auf dem GERAET
+ * geführt, und nur EINER: Stufe 1 kennt genau einen direkten Zuschauer.
+ *
+ * **Warum der Platz überhaupt über die Zusage reist** (statt im Weckruf zu
+ * bleiben): der Steuernde braucht ihn für die Eingabe-Frames — sie tragen die
+ * Platznummer in jeder Nachricht — und für das Player-Fenster. Eine Stromliste
+ * auf seiner Seite gibt es im P2P-Modus nicht (kein MediaMTX, kein
+ * `stream:active`), also ist die Sitzungszusage der einzige Moment, in dem die
+ * Zahl von hier nach dort kommen kann.
+ */
+let direktPlatz: number | null = null;
+
+/** Der Platz des wartenden Direktstroms, `null` wenn keiner läuft. */
+export function aktiverDirektPlatz(): number | null {
+  return direktPlatz;
 }
 
 /**
@@ -224,6 +243,10 @@ export async function wiederEinschlafen(grund: string): Promise<void> {
   const laufend = new Set(runningStreamSlots());
   const plaetze = [...platzFuerQuelle.keys()].filter((slot) => laufend.has(slot));
   platzFuerQuelle.clear();
+  // Der Direktplatz gehört mit zu den abgeräumten Plätzen — sonst behielte der
+  // eingeschlafene Stream seine Nummer, und die nächste Zusage nännte einen
+  // Platz, auf dem nichts mehr wartet.
+  direktPlatz = null;
   for (const [slot, vorgang] of vorgangFuerPlatz) {
     if (laufend.has(slot)) void remoteProtokoll.beenden(vorgang);
   }
@@ -298,6 +321,7 @@ export async function weckrufBehandeln(
   channelId: string,
   vonUserId: string | null,
   monitor?: number,
+  p2p = false,
 ): Promise<void> {
   const eintrag = geraeteAnmeldung.fuerServer(serverId);
   if (!eintrag || eintrag.deviceId !== deviceId) return;
@@ -334,16 +358,30 @@ export async function weckrufBehandeln(
     // **Mit dem Standplatz-Profil, nicht mit den Einstellungen des Besitzers:**
     // der Rechner überträgt hier für jemand anderen und zu einem anderen Zweck
     // als beim Vorführen (Begründung in `profil.svelte.ts`).
-    const r = await streamStarten(channelId, slot, {
-      quelle,
-      uebersteuerung: standplatzProfil.alsUebersteuerung(),
-      ton: erster ? 'Desktop' : 'Aus',
-    });
+    //
+    // **P2P**: der Sidecar startet im WARTENDE-Zustand — kein WHIP-Push, kein
+    // Token, der Server sieht von diesem Stream nichts. Der Encoder legt los,
+    // sobald die Direktverbindung zum Steuernden steht (`direktbild`).
+    const r = await streamStarten(
+      channelId,
+      slot,
+      {
+        quelle,
+        uebersteuerung: standplatzProfil.alsUebersteuerung(),
+        ton: erster ? 'Desktop' : 'Aus',
+      },
+      p2p,
+    );
     // Scheitert der Start, gehört der Platz nicht diesem Schirm — sonst hielte
     // die Karte ihn für belegt, und ein zweiter Versuch liefe ins Leere.
     if (!r.ok) {
       platzFuerQuelle.delete(slot);
       return;
+    }
+    if (p2p) {
+      // Merken für die Sitzungszusage: der Steuernde erfährt dort, welcher
+      // Platz ihm gehört (`$lib/remote/session.svelte.ts::accept`).
+      direktPlatz = slot;
     }
     // Ab hier gibt der Rechner wirklich Bild her — beides hängt genau daran:
     // die Spur im Protokoll und die Wache, die ihn wieder einschlafen lässt.

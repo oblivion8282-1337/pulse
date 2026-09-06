@@ -67,6 +67,25 @@ const DEV_DIR = process.env.PULSE_DEV_DIR || 'pulse-test';
 const VITE_PORT = Number(process.env.PULSE_WEB_PORT || 5173);
 const SERVICES = 'auth chat-gateway voice-signaling media-svc mediamtx-auth-hook';
 
+/**
+ * EIGENES Profilverzeichnis für das Dev-Fenster — NIEMALS das der
+ * produktiven App berühren. Ohne diesen Flag lief `electron .` im
+ * Standard-Profil (`~/.config/Pulse`): das dort gespeicherte Gerät ist auf
+ * dem Ziel-Backend unter einem ANDEREN Konto registriert, die
+ * Geräte-Anmeldung flog mit 409 `geraet_gehoert_anderem_konto` auf, und der
+ * Postfach-Abruf dahinter mit 403 — ohne dass etwas rot würde, was auf das
+ * Profil als Ursache deutet. (dev-up.fish setzt denselben Schalter seit
+ * jeher per Hand; hier war er der Lücke.)
+ */
+function devUserData() {
+  if (process.env.PULSE_DEV_USERDATA) return process.env.PULSE_DEV_USERDATA;
+  if (WIN) return path.join(os.homedir(), 'AppData', 'Roaming', 'Pulse-Dev-Remote');
+  if (process.platform === 'darwin') {
+    return path.join(os.homedir(), 'Library', 'Application Support', 'Pulse-Dev-Remote');
+  }
+  return path.join(os.homedir(), '.config', 'Pulse-Dev-Remote');
+}
+
 const kids = [];
 let shuttingDown = false;
 
@@ -248,7 +267,10 @@ async function startElectron() {
   for (const line of report) console.log(`  ${line}`);
 
   console.log('→ Electron starten');
-  run('pnpm', ['run', 'start'], {
+  // Direkt über die electron-cli statt `pnpm run start --`: pnpm reicht das
+  // `--` als ARGUMENT durch, und Chromium wertet Switches hinter einem
+  // alleinstehenden `--` nicht mehr aus — der user-data-dir-Flag wäre tot.
+  run('node', [path.join(REPO, 'desktop', 'node_modules', 'electron', 'cli.js'), '.', `--user-data-dir=${devUserData()}`], {
     cwd: path.join(REPO, 'desktop'),
     // DevTools NICHT erzwingen: sie gingen bei jedem Start als eigenes Fenster
     // auf. Wer sie will, setzt PULSE_DEVTOOLS=1 in der Umgebung (wird von

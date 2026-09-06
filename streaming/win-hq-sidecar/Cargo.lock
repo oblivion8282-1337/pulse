@@ -1629,8 +1629,11 @@ name = "pulse-whip"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytes",
  "pulse-bildmarke",
  "pulse-zeitbasis",
+ "rustls",
+ "stun",
  "tokio",
  "webrtc",
 ]

@@ -106,6 +106,7 @@ export function sendRemoteRequest(
   channelId: string,
   hostUserId: string,
   deviceId?: string | null,
+  p2p = false,
 ): boolean {
   // `device_id` sagt, welches GERAET gemeint ist. Ohne das ginge die Einladung
   // an alle Fenster des Hosts, auch an seinen Laptop mit demselben Konto — und
@@ -116,10 +117,30 @@ export function sendRemoteRequest(
     channel_id: channelId,
     host_user_id: hostUserId,
     ...(deviceId ? { device_id: deviceId } : {}),
+    // P2P-Wunsch: das Bild soll DIREKT zum Steuernden fließen, nicht über
+    // MediaMTX. Der Gateway gibt die Markierung nur an den Host weiter —
+    // verhandelt wird die Verbindung erst nach der Zusage (`remote_signal`).
+    ...(p2p ? { p2p: true } : {}),
   });
 }
-export function sendRemoteRespond(send: SendRaw, sessionId: string, accept: boolean): boolean {
-  return send({ op: 'remote_respond', session_id: sessionId, accept });
+/**
+ * `slot` reist nur im P2P-Weg (`$lib/remote/direktbild.svelte.ts`): dort kennt
+ * allein der Host den Platz seines wartenden Sidecars — eine Stromliste, aus
+ * der der Steuernde ihn sonst lesen würde, gibt es ohne Server-Stream nicht.
+ * Der Gateway prüft den Bereich und reicht die Zahl in der Zusage weiter.
+ */
+export function sendRemoteRespond(
+  send: SendRaw,
+  sessionId: string,
+  accept: boolean,
+  slot?: number,
+): boolean {
+  return send({
+    op: 'remote_respond',
+    session_id: sessionId,
+    accept,
+    ...(typeof slot === 'number' ? { slot } : {}),
+  });
 }
 export function sendRemoteEnd(send: SendRaw, sessionId: string): boolean {
   return send({ op: 'remote_end', session_id: sessionId });
@@ -198,6 +219,7 @@ export function sendDeviceWake(
   send: SendRaw,
   deviceId: string,
   monitor?: number,
+  p2p = false,
 ): boolean {
   // Ohne Nummer nimmt das Geraet seinen Hauptbildschirm — so beginnt jede
   // Sitzung, die weiteren Schirme schaltet der Steuernde danach dazu.
@@ -205,5 +227,9 @@ export function sendDeviceWake(
     op: 'device_wake',
     device_id: deviceId,
     ...(monitor === undefined ? {} : { monitor }),
+    // P2P-Wunsch: das Gerät startet seinen Sidecar im Wartezustand — kein
+    // WHIP-Push zum Server, das Bild geht später direkt zum Steuernden
+    // (`$lib/devices/wecken.ts`, `$lib/remote/direktbild.svelte.ts`).
+    ...(p2p ? { p2p: true } : {}),
   });
 }

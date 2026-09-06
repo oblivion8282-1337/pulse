@@ -131,7 +131,21 @@ _SIGNAL_MAX_DATA_BYTES = 8 * 1024
 # derselbe Deckel. **Der Gateway parst den Rahmen nicht** — beim Kopieren
 # traegt er ohnehin keinen Inhalt, und beim Abruf ist der Inhalt genau das,
 # was hier niemanden angeht. Er zaehlt nur mit und reicht durch.
-_SIGNAL_KINDS = ("offer", "answer", "ice", "vorrang", "zeiger", "zeiger_im_bild", "ablage")
+_SIGNAL_KINDS = (
+    "offer",
+    "answer",
+    "ice",
+    "vorrang",
+    "zeiger",
+    "zeiger_im_bild",
+    "ablage",
+    # **Direktbild (P2P, Stufe 1).** Ein Angebot des Players des Steuernden und
+    # die Antwort des Sidecars des Hosts — derselbe Umlauf wie beim
+    # Eingabe-Kanal, nur fuer das VIDEO. Der Server sieht von der Verbindung
+    # nur diese zwei SDP-Texte; die RTP-Pakete gehen an jedem Gateway vorbei.
+    "bild_offer",
+    "bild_answer",
+)
 
 
 def _session_id(value: object) -> str:
@@ -307,6 +321,14 @@ async def handle_request(
         # trotzdem weiter: es antwortet mit einer ganz gewöhnlichen Zustimmung,
         # nur ohne Dialog. Damit bleibt „Gerät offline = keine Zustimmung".
         frame["freigabe"] = freigabe_gilt
+    # **P2P-Wunsch des Steuernden** — reine Weitergabe wie ``device_id``: der
+    # Host liest daraus, dass der Stream diesmal DIREKT zum Steuernden fließt
+    # und der Serverweg nichts zu tun hat. Kein eigenes Verhalten des Gateways,
+    # keine zweite Berechtigung: die Direktverbindung wird NACH der Zusage über
+    # ``remote_signal`` verhandelt, und dieser Weg steht nur Peers einer
+    # aktiven Sitzung offen.
+    if msg.get("p2p") is True:
+        frame["p2p"] = True
     # Zeitgeber VOR der Faecherung scharfstellen. Jedes ``send_to_socket``
     # unten ist ein await: antwortet ein Host-Tab mitten in der Faecherung,
     # loeschte der Accept einen Zeitgeber, den es noch gar nicht gab — und der
@@ -385,6 +407,15 @@ async def handle_respond(
     sess.host_socket = websocket
     await mgr.remote_dismiss_host_tabs(sess, answered=websocket)
     frame = {"op": "remote_response", "session_id": session_id, "accepted": True}
+    # **Der Platz des Direktstroms.** Im P2P-Modus gibt es keinen Server-Stream
+    # und damit keine Stromliste, aus der der Steuernde den Platz lesen könnte —
+    # der Host kennt ihn allein (sein Sidecar läuft im Wartezustand auf genau
+    # diesem Platz). Er reist als simple Zahl in der Zusage; der Gateway prüft
+    # den Bereich und reicht weiter, mehr nicht. Ohne das Feld (Regelweg)
+    # bleibt die Antwort unverändert.
+    slot = msg.get("slot")
+    if isinstance(slot, int) and 0 <= slot <= 32 and websocket is sess.host_socket:
+        frame["slot"] = slot
     await send_to_socket(sess.controller_socket, frame)
     await send_to_socket(websocket, frame)
     # Ist der Host ein eingetragenes Standplatz-Geraet, steht es ab jetzt als

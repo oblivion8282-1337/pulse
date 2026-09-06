@@ -9,8 +9,13 @@
 //!  "audio":{"mode":"Aus|Desktop|Mikrofon|Desktop + Mikrofon","excluded_apps":[]},
 //!  "overrides":{"codec":"h264","bitrate_kbps":4000,"fps":60,"resolution":"1080p"}?,
 //!  "show_cursor":true?,
-//!  "av_offset_ms":0?}   // konstanter A/V-Trim, >0 = Audio später
+//!  "av_offset_ms":0?,   // konstanter A/V-Trim, >0 = Audio später
+//!  "direct":true?}      // Direktpfad statt Server-Push (s. `crate::direct`)
 //! ```
+//!
+//! Mit `"direct": true` entfällt `channel` ganz; der Sidecar geht in den
+//! Wartezustand (`{"ev":"state","running":true,"state":"wartend"}`) und
+//! beantwortet per `direct_offer` das Angebot des Players.
 //!
 //! Returnt `{"ok":true, "argv":[…redactet…]}`, danach kommen via `events::emit`
 //! die `state`/`fps`/`log`/`error`/`stopped`-Events.
@@ -34,28 +39,67 @@ pub(crate) fn parse_start_params(params: &Map<String, Value>) -> Result<StartPar
     let profile_name = profile_label(params);
     let profile = &BASELINE;
 
-    let channel = params
-        .get("channel")
-        .and_then(Value::as_object)
-        .context("channel ist Pflicht (Pulse streamt immer in einen Voice-Channel)")?;
-    let channel_id = channel
-        .get("id")
-        .and_then(|v| v.as_str().map(str::to_string).or_else(|| v.as_i64().map(|n| n.to_string())))
-        .ok_or_else(|| anyhow!("channel.id ist Pflicht"))?;
-    let token = channel
-        .get("token")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let push_url = channel
-        .get("push_url")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .ok_or_else(|| {
-            anyhow!(
-                "channel.push_url ist auf Windows Pflicht (media-svc reicht die rtmps://- bzw. WHIP-URL durch)"
-            )
-        })?;
+    // Direktmodus (`"direct": true`): KEIN Server als Ziel — der Strom geht
+    // über eine eigene WebRTC-Verbindung zum Player, der als Angeboter
+    // `direct_offer` nachschiebt. Alles andere (Codec, fps, Bitrate, Capture,
+    // Audio, Overrides, Profil) verhält sich identisch.
+    //
+    // **Streng wie die Overrides**: nur ein echtes `true` zählt, ein
+    // `"true"`-String oder eine 1 sind Fehler beim Bauen des Requests — und
+    // der soll niemandem als „hat ja funktioniert" durchgehen.
+    //
+    // **Entscheidung direct + push_url: ABLEHNUNG, nicht Ignorieren.** Ein
+    // Request, der beides trägt, widerspricht sich; still das eine zu
+    // gewinnen wäre genau die Sorte Verwechslung, gegen die der Muxer-Guard
+    // in `open_output` gebaut ist. Stufe 1 ist exklusiv (Begruendung in
+    // `crate::direct`).
+    let direct = match params.get("direct") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(andere) => {
+            return Err(anyhow!("direct muss ein Boolean sein (war {andere})"));
+        }
+    };
+    let (channel_id, token, push_url) = if direct {
+        if params
+            .get("channel")
+            .and_then(Value::as_object)
+            .is_some_and(|k| k.contains_key("push_url"))
+        {
+            return Err(anyhow!(
+                "direct:true und channel.push_url schließen sich aus — \
+                 entweder Server-Push oder Direktpfad"
+            ));
+        }
+        // Der Platzhalter-Kanal trägt nur die Diagnose-argv (`--out` zeigt
+        // auf `direct::SITZUNG_URL`); ein echter Kanal existiert im
+        // Direktmodus nicht.
+        ("direct".to_string(), String::new(), crate::direct::SITZUNG_URL.to_string())
+    } else {
+        let channel = params
+            .get("channel")
+            .and_then(Value::as_object)
+            .context("channel ist Pflicht (Pulse streamt immer in einen Voice-Channel)")?;
+        let channel_id = channel
+            .get("id")
+            .and_then(|v| v.as_str().map(str::to_string).or_else(|| v.as_i64().map(|n| n.to_string())))
+            .ok_or_else(|| anyhow!("channel.id ist Pflicht"))?;
+        let token = channel
+            .get("token")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let push_url = channel
+            .get("push_url")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| {
+                anyhow!(
+                    "channel.push_url ist auf Windows Pflicht (media-svc reicht die rtmps://- bzw. WHIP-URL durch)"
+                )
+            })?;
+        (channel_id, token, push_url)
+    };
 
     let capture = parse_capture(params)?;
     let audio = parse_audio(params);
@@ -114,11 +158,15 @@ pub(crate) fn parse_start_params(params: &Map<String, Value>) -> Result<StartPar
         schirm: None,
         show_cursor,
         av_offset_ms,
+        // Direktmodus: der Controller startet im Wartezustand, die Pipeline
+        // erst, wenn die PeerConnection steht (`direct::Sitzung`).
+        direct,
     })
 }
 
 pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
     let start_params = parse_start_params(&params)?;
+    let direct = start_params.direct;
     // Die Opus-Rahmenlänge haengt am Sendeweg,
     // gebraucht wird sie aber an Stellen, die die Start-Parameter nicht sehen
     // (Aufnahme-Raster, Paketdauer im Sendeweg). **Vor** `start()`, weil die
@@ -126,10 +174,21 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
     //
     // Ohne "ungesagt": die Ziel-URL liegt vor, also steht der Weg fest — und
     // ein Rest aus dem vorigen Stream waere hier schlimmer als eine Vorgabe.
-    crate::encode::audio::setze_sendeweg(crate::encode::output::is_whip_url(
-        &start_params.push_url,
-    ));
+    // Der Direktpfad zählt als eigener Sendeweg: RTP mit eigener Spur-Zeit-
+    // basierung, also derselbe 10-ms-Rahmen wie beim WHIP-Weg.
+    crate::encode::audio::setze_sendeweg(
+        direct || crate::encode::output::is_whip_url(&start_params.push_url),
+    );
     let argv = StreamController::singleton().start(start_params)?;
+
+    // Die Warte-Buchung der Direkt-Sitzung — NACH dem Controller, dessen
+    // „already running"-Wache der strengere Doppelstart-Schutz ist. Prak-
+    // tisch unfehlbar (der Dispatch ist single-threaded), aber wer hier
+    // stillschweigend weiterliefe, würde einen `wartend`-Controller ohne
+    // Empfangsbereitschaft hinterlassen.
+    if direct {
+        crate::direct::sitzung().bereite_vor()?;
+    }
 
     let mut out = Map::new();
     out.insert(
@@ -334,4 +393,79 @@ fn parse_overrides(params: &Map<String, Value>) -> Overrides {
         None => crate::env::flag("PULSE_HDR"),
     };
     Overrides { codec, bitrate_kbps: bitrate, fps, resolution, ten_bit, hdr }
+}
+
+#[cfg(test)]
+mod direct_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn params(v: Value) -> Map<String, Value> {
+        v.as_object().expect("Objekt").clone()
+    }
+
+    /// Der Direkt-Start OHNE Kanal und OHNE push_url wird angenommen — das
+    /// ist der Vertrag mit dem Renderer. `push_url` trägt die Direktpfad-
+    /// Markierung, damit die Sendeweg-Weiche (`encode::senke::zustaendig`)
+    /// den Strom an den Direkt-Sender schickt.
+    #[test]
+    fn direct_ohne_channel_wird_akzeptiert() {
+        let p = parse_start_params(&params(json!({
+            "direct": true,
+            "profile": "H.264 Standard",
+            "capture": "monitor",
+        })))
+        .expect("direkter Start ohne channel ist der Normalfall");
+        assert!(p.direct);
+        assert_eq!(p.push_url, crate::direct::SITZUNG_URL);
+        assert_eq!(p.channel_id, "direct");
+        // Der Sendeweg-Markierung folgt auch die Weiche:
+        assert!(crate::encode::output::is_direct_url(&p.push_url));
+        assert!(!crate::encode::output::is_whip_url(&p.push_url));
+    }
+
+    /// Beides zusammen ist ein sich widersprechender Request — abgelehnt,
+    /// nicht still entschärft (Begründung an der Parse-Stelle).
+    #[test]
+    fn direct_mit_push_url_wird_abgelehnt() {
+        let fehler = parse_start_params(&params(json!({
+            "direct": true,
+            "channel": {"id": "123", "token": "t", "push_url": "whip://srv/x"},
+        })))
+        .expect_err("direct und push_url schließen sich aus");
+        assert!(format!("{fehler:#}").contains("push_url"), "{fehler:#}");
+    }
+
+    /// `false` ist der alte Weg: ohne `direct` bleibt ALLES beim Alten —
+    /// fehlender Kanal ist ein Fehler, vorhandener zählt unverändert.
+    #[test]
+    fn ohne_direct_ist_kein_kanal_ein_fehler() {
+        let fehler = parse_start_params(&params(json!({})))
+            .expect_err("ohne direct ist channel Pflicht");
+        assert!(format!("{fehler:#}").contains("channel"), "{fehler:#}");
+    }
+
+    #[test]
+    fn ohne_direct_wird_der_kanal_wie_bisher_gelesen() {
+        let p = parse_start_params(&params(json!({
+            "channel": {"id": 456, "token": "geheim", "push_url": "rtmps://srv/live/key"},
+            "direct": false,
+        })))
+        .expect("klassischer Start unverändert");
+        assert!(!p.direct);
+        assert_eq!(p.channel_id, "456");
+        assert_eq!(p.push_url, "rtmps://srv/live/key");
+    }
+
+    /// Streng wie die Overrides: nur ein echtes `true` zählt. Ein String ist
+    /// ein Bau-Fehler, kein stiller Direktpfad.
+    #[test]
+    fn direct_als_string_ist_ein_fehler() {
+        let fehler = parse_start_params(&params(json!({
+            "direct": "true",
+            "channel": {"id": "123", "push_url": "whip://srv/x"},
+        })))
+        .expect_err("ein 'true'-String ist kein Schalter");
+        assert!(format!("{fehler:#}").contains("Boolean"), "{fehler:#}");
+    }
 }

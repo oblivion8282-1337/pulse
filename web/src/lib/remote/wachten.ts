@@ -99,10 +99,6 @@ export function verbindungsWachtMitGnadenfrist(
   beiWiederhergestellt: () => void,
   beiEndgueltigemVerlust: () => void,
 ): Abbruch {
-  if (!conn || !istOffen(conn)) {
-    beiEndgueltigemVerlust();
-    return () => {};
-  }
   const frist = new Gnadenfrist();
   let generation = 0;
   let zeitgeber: ReturnType<typeof setTimeout> | null = null;
@@ -113,6 +109,36 @@ export function verbindungsWachtMitGnadenfrist(
   // schon in ihrem eigenen Rumpf. Feuert erst, NACHDEM die Funktion unten
   // fertig durchlaufen ist, also längst zugewiesen.
   let ab: Abbruch = () => {};
+
+  // **Sofort-Prüfung MIT Gnadenfrist statt Todesurteil** (Befund 2026-09-06,
+  // P2P-Selbsttest). Die Fassung hier hiesse „Verbindung schon weg beim Start
+  // der Wacht — es gibt nichts zu retten" und rief sofort
+  // `beiEndgueltigemVerlust`. Genau das hat eine frische Sitzung getötet: kam
+  // die Zusage herein, während der Socket im Reconnect-Loch hing
+  // (Token-Erneuerung nach Ablauf, Backend-Reload auf dem Teststack), war
+  // `istOffen` falsch — und die Wacht riss die Sitzung ab, BEVOR ihr Reclaim
+  // je eine Chance hatte. Der Server hielt sie in seiner Gnadenfrist weiter
+  // offen: das Gerät blieb „wird gesteuert" stehen, und das P2P-Fenster starb
+  // eine halbe Sekunde nach der Zusage. Seit dem gilt derselbe Weg wie bei
+  // jedem späteren Abriss: Frist starten, zurückkommen lässt sich die
+  // Verbindung selbst (`ready` → Reclaim); ohne `conn` gibt es keine
+  // Reclaim-Schiene, dort bleibt der Sofort-Abbruch.
+  if (!conn) {
+    beiEndgueltigemVerlust();
+    return () => {};
+  }
+  if (!istOffen(conn)) {
+    generation = frist.verloren(Date.now(), CLIENT_GRACE_MS);
+    zeitgeber = setTimeout(() => {
+      if (frist.abgelaufen(Date.now())) {
+        ab();
+        beiEndgueltigemVerlust();
+      }
+    }, CLIENT_GRACE_MS);
+    // Wrapper, nicht `ab` selbst: die Variable wird erst unten belegt, und
+    // der Rückgabewert hier müsste die BELEGUNG sehen, nicht die Leere.
+    return () => ab();
+  }
 
   const zeitgeberAbraeumen = (): void => {
     if (zeitgeber !== null) clearTimeout(zeitgeber);

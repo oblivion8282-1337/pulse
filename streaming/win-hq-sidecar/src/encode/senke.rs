@@ -119,15 +119,16 @@ pub fn registriere_senken_bauer(bauer: SenkenBauer) {
 /// Übernimmt ein angemeldeter Sendeweg diese URL?
 ///
 /// **Welche URLs das sind, entscheidet diese Bibliothek, nicht der Anmelder** —
-/// nämlich genau die, die sonst zu FFmpegs WHIP-Muxer gingen. Das ist der
-/// einzige Ausgang, den ein fremder Sendeweg sinnvoll ersetzen kann; für RTMPS
-/// gibt es einen funktionierenden Muxer. Die Schema-Tabelle steht damit
-/// weiterhin an genau einer Stelle ([`super::output::url_format_hint`]) — eine
-/// zweite Liste beim Anmelder würde früher oder später abweichen, und dann
-/// liefe entweder ein RTMPS-Stream in einen WebRTC-Sender oder ein WHIP-Stream
-/// still über den Muxer.
+/// nämlich genau die, die sonst zu FFmpegs WHIP-Muxer gingen, plus die
+/// Direktpfad-Markierung (`output::is_direct_url`): beides sind WebRTC-Wege
+/// ohne Container, der Muxer hätte nichts zu sagen. Die Schema-Tabelle steht
+/// damit weiterhin an genau einer Stelle ([`super::output::url_format_hint`])
+/// — eine zweite Liste beim Anmelder würde früher oder später abweichen, und
+/// dann liefe entweder ein RTMPS-Stream in einen WebRTC-Sender oder ein WHIP-
+/// Stream still über den Muxer.
 pub(crate) fn zustaendig(url: &str) -> bool {
-    BAUER.get().is_some() && super::output::is_whip_url(url)
+    BAUER.get().is_some()
+        && (super::output::is_whip_url(url) || super::output::is_direct_url(url))
 }
 
 /// Die Sitzung aufbauen. Nur rufen, wenn [`zustaendig`] `true` gesagt hat.
@@ -155,9 +156,24 @@ mod tests {
             "rtmps://host:1936/live/x",
             "https://host/whip/x",
             "http://host/whip/x",
+            "direct://sitzung",
             "out.mp4",
         ] {
             assert!(!super::zustaendig(url), "{url} darf ohne Anmeldung nicht uebernommen werden");
+        }
+    }
+
+    /// Die Schema-Tabelle bleibt EINE: die Direktpfad-Markierung wird dort
+    /// erkannt (`crate::direct::SITZUNG_URL`) und nichts anderes rutscht in
+    /// den WebRTC-Korb. Mit Anmeldung würde `direct://` übernommen — das
+    /// halten die Tests der Sitzung fest; hier zählt die Abgrenzung.
+    #[test]
+    fn die_tabelle_kennt_nur_die_verabredeten_schemata() {
+        assert!(crate::encode::output::is_direct_url("direct://sitzung"));
+        assert!(!crate::encode::output::is_whip_url("direct://sitzung"));
+        for kein_webrtc in ["rtmps://host/live/x", "out.mp4", "srt://host:9000"] {
+            assert!(!crate::encode::output::is_direct_url(kein_webrtc), "{kein_webrtc}");
+            assert!(!crate::encode::output::is_whip_url(kein_webrtc), "{kein_webrtc}");
         }
     }
 }

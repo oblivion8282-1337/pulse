@@ -62,6 +62,9 @@ pub fn interleave_delta_us() -> i64 {
 /// - `srt://` → MPEG-TS (SRT-Standard)
 /// - `http(s)://` → WHIP (WebRTC-Ingest; media-svc mintet solche URLs für
 ///   Gäste auf App-gehosteten Instanzen)
+/// - `direct://` → Direktpfad (kein Server; `crate::direct::SITZUNG_URL`,
+///   die URL erreicht den Muxer nie — [`super::senke::zustaendig`] greift
+///   vorher. Sie steht hier, damit die Schema-Tabelle EINE bleibt)
 /// - Sonst → `None` (FFmpeg-Default, Extension-basiert)
 pub fn url_format_hint(target: &str) -> Option<&'static str> {
     let lower = target.to_ascii_lowercase();
@@ -71,6 +74,8 @@ pub fn url_format_hint(target: &str) -> Option<&'static str> {
         Some("mpegts")
     } else if lower.starts_with("http://") || lower.starts_with("https://") {
         Some("whip")
+    } else if lower.starts_with("direct://") {
+        Some("direct")
     } else {
         None
     }
@@ -88,6 +93,15 @@ pub fn url_format_hint(target: &str) -> Option<&'static str> {
 /// 2026-07-30 eine ganze Messreihe entwertet.
 pub fn is_whip_url(url: &str) -> bool {
     url_format_hint(url) == Some("whip")
+}
+
+/// Ist das ein Direktpfad-Ziel (`direct::SITZUNG_URL`)? Aus derselben
+/// Schema-Tabelle wie [`is_whip_url`] — eine zweite Liste wäre früher oder
+/// später eine andere. Was daran hängt: die Routing-Weiche
+/// ([`super::senke::zustaendig`]) schickt diese URLs an den Direkt-Sender,
+/// nicht an Muxer oder `WhipSender`.
+pub fn is_direct_url(url: &str) -> bool {
+    url_format_hint(url) == Some("direct")
 }
 
 /// Öffnet den Output-Kontext für die Push-URL.

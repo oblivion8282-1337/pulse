@@ -249,6 +249,30 @@ function uebernehmen(device: Device, slot: number): void {
 }
 
 /**
+ * **P2P-Übernahme anfordern** — der zweite Knopf unter „Übernehmen".
+ *
+ * Der Ablauf ähnelt dem gewohnten, mit zwei bewussten Unterschieden: der
+ * Weckruf trägt den P2P-Wunsch (der Sidecar des Geräts startet im Wartezustand,
+ * ohne Serverkontakt), und die Anfrage geht **sofort** nach dem Weckruf hinaus
+ * statt erst nach dem ersten Bild — es gibt kein `stream:active`, auf das man
+ * warten könnte, denn der Server sieht diesen Stream nicht. Das Bild selbst
+ * entsteht erst nach der Zusage in der Verhandlung (`$lib/remote/direktbild`).
+ *
+ * Dieselben Riegel wie [`uebernehmen`]: ohne `REMOTE_CONTROL` gar nicht erst
+ * fragen (der Gateway wiese ab), bei „busy" nicht dazwischenfunken.
+ */
+export function direktUebernehmen(device: Device): void {
+  if (!darfFernsteuern(device.channel_id, device.owner_user_id)) return;
+  if (device.state === 'busy') return;
+  // Der Weckruf und die Anfrage laufen über dieselbe Verbindung; ist sie zu,
+  // schlägt auch die Anfrage fehl und setzt dieselbe lesbare Offline-Meldung.
+  // Deshalb kein eigener Fehlerzweig für den Ruf — „gescheitert" doppelt
+  // gemeldet wäre Lärm, gar nicht gemeldet eine tote Schaltfläche.
+  geraetWecken(activeServer.serverId, device.id, undefined, true);
+  remoteSession.request(device.channel_id, device.owner_user_id, 0, true);
+}
+
+/**
  * Einem laufenden Bildschirm **nur zusehen** — ohne Übernahme-Anfrage.
  *
  * Der zweite der beiden Wege, die es an einem Gerät gibt, und der leisere:

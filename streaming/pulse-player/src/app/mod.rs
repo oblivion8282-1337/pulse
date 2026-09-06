@@ -38,7 +38,7 @@ use crate::overlay::{Overlay, OverlayAction, Schirm, StatsView};
 use crate::proto::{Event, PlayerOptions, Request, SessionState};
 use crate::render;
 use crate::rpc::StdoutWriter;
-use crate::session::{self, SessionCommand, SessionEvent, SessionStats};
+use crate::session::{self, Quelle, SessionCommand, SessionEvent, SessionStats};
 use takt::Ausgabetakt;
 
 pub use takt::VORHALT_MAX_MS;
@@ -303,6 +303,12 @@ struct Session {
     /// laufende Fernsteuerung wird die Ablage des Nutzers gar nicht erst
     /// beobachtet.
     ablage: ablage::Ablagelage,
+    /// Direkter P2P-Weg statt WHEP (s. [`crate::direkt`]). Nur eine Anzeige
+    /// des Modus: die `direct_start`/`direct_signal`-Ops muessen ihre Sitzung
+    /// finden, auch wenn der Aufrufer die Nummer nicht nennt — und ein
+    /// `direct_start` gegen eine WHEP-Sitzung soll als Fehler antworten,
+    /// nicht still ins Leere laufen.
+    direkt: bool,
 }
 
 pub struct App {
@@ -528,15 +534,32 @@ impl App {
         // Geraet.
         let netz_geraet = geraet.clone();
         self.runtime.spawn(async move {
-            session::run(url, vec![], options, haupt_tx, haupt_cmd_rx, geraet).await
+            session::run(Quelle::Whep, url, vec![], options, haupt_tx, haupt_cmd_rx, geraet).await
         });
         self.runtime.spawn(async move {
-            session::run(fallback_url, vec![], netz_opts, netz_tx, netz_cmd_rx, netz_geraet).await
+            session::run(
+                Quelle::Whep,
+                fallback_url,
+                vec![],
+                netz_opts,
+                netz_tx,
+                netz_cmd_rx,
+                netz_geraet,
+            )
+            .await
         });
     }
 
     fn open(&mut self, req: Request, event_loop: &ActiveEventLoop) -> Result<u64> {
-        let url = req.url.clone().ok_or_else(|| anyhow::anyhow!("url fehlt"))?;
+        // Der Modus VOR der URL-Pruefung: im Direktmodus ist die WHEP-URL
+        // ohne Bedeutung, und ein fehlender Wert ist dort erlaubt — es wird
+        // nie auf sie zugegriffen (s. `crate::direkt`).
+        let direkt = req.direct.unwrap_or(false);
+        let url = match req.url.clone() {
+            Some(url) => url,
+            None if direkt => String::new(),
+            None => return Err(anyhow::anyhow!("url fehlt")),
+        };
         let mut options = PlayerOptions::defaults();
         // Die Umgebung VOR dem Aufrufer: sie ist das Werkzeug des Pruefstands,
         // der den Player ohne Oberflaeche faehrt. Ein `open` mit gesetztem
@@ -678,18 +701,39 @@ impl App {
         // Das Geraet des gerade gebauten Renderers — die Sitzung reicht es bis
         // zum Decoder durch (s. `session::run`).
         let geraet = Some(renderer.device().clone());
-        match req.fallback_url.clone() {
-            None => {
-                self.runtime.spawn(async move {
-                    session::run(url, vec![], opts, ev_tx, cmd_rx, geraet).await
-                });
-            }
-            Some(fallback) => {
-                // Zwei Sitzungen, EIN Fenster: beide melden unter derselben
-                // Kennung, deshalb landet ihr Bild in derselben Anzeige. Was
-                // gezeigt wird, entscheidet der Filter unten — nicht der
-                // Renderer, der davon nichts wissen muss.
-                self.spawn_with_fallback(url, fallback, opts, ev_tx, cmd_rx, geraet);
+        if direkt {
+            // Direkter P2P-Weg: keine WHEP-Anfrage, das Fenster wartet auf
+            // `direct_start`/`direct_signal`. Ein `fallback_url` bleibt hier
+            // bewusst wirkungslos — es waere eine WHEP-Anfrage, und genau
+            // diese schliesst der Direktmodus aus; auch das Auffangnetz
+            // waere im P2P-Fall ein zweiter, fremder Strom.
+            let stdout = self.stdout.clone();
+            self.runtime.spawn(async move {
+                session::run(
+                    Quelle::Direkt { stdout },
+                    url,
+                    vec![],
+                    opts,
+                    ev_tx,
+                    cmd_rx,
+                    geraet,
+                )
+                .await
+            });
+        } else {
+            match req.fallback_url.clone() {
+                None => {
+                    self.runtime.spawn(async move {
+                        session::run(Quelle::Whep, url, vec![], opts, ev_tx, cmd_rx, geraet).await
+                    });
+                }
+                Some(fallback) => {
+                    // Zwei Sitzungen, EIN Fenster: beide melden unter derselben
+                    // Kennung, deshalb landet ihr Bild in derselben Anzeige. Was
+                    // gezeigt wird, entscheidet der Filter unten — nicht der
+                    // Renderer, der davon nichts wissen muss.
+                    self.spawn_with_fallback(url, fallback, opts, ev_tx, cmd_rx, geraet);
+                }
             }
         }
 
@@ -727,6 +771,7 @@ impl App {
                 optionskette: None,
                 tastensperre: crate::tastensperre::Tastensperre::default(),
                 ablage: ablage::Ablagelage::default(),
+                direkt,
             },
         );
         // Einmal zeichnen, bevor das erste Bild da ist: sonst zeigt das Fenster

@@ -14,10 +14,26 @@ publish = false
 # Re-Export — siehe `src/zeitbasis.rs`.
 [dependencies]
 anyhow = "1"
+# Die RTP-Nutzlasten des Direktpfad-Senders sind referenzgezählt (`Bytes`) —
+# dieselbe Form wie in den Sidecars (`whip/mod.rs`), damit die Pakete ohne
+# Kopie durch den Pacer gehen.
+bytes = "1"
 # Der Pacer verteilt auf einem eigenen Faden und wartet auf absolute
 # Zeitpunkte — beides ueber tokio, wie in beiden Sidecars.
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
 webrtc = "0.17"
+# Direktpfad: STUN-Probe fuer den srflx-Fallback (`direct::stun`). Diese Crate
+# bringt webrtc selbst mit — es kommt keine neue Fassung in den Graph, nur ein
+# weiterer Nutzer derselben.
+stun = "0.17"
+# Direktpfad: der rustls-Krypto-Provider wird EXPLIZIT gewaehlt
+# (`direct::rtc::sorge_krypto_provider`), bevor die erste DTLS-Verhandlung
+# laeuft. Zwei Provider in einer Binary heisst: rustls raet nicht, sondern
+# panict erst beim Handschlag (Projektfallstrick, Plan
+# docs/plans/2026-07-09-direct-path-webrtc.md). `ring`, weil webrtc es
+# mitbringt — ein zweiter Provider (aws-lc-rs) wuerde genau jenen Fehler
+# erst erzeugen.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 pulse-zeitbasis = { path = "../pulse-zeitbasis" }
 pulse-bildmarke = { path = "../pulse-bildmarke" }
 

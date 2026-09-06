@@ -120,6 +120,30 @@ impl App {
                 Err(e) => self.stdout.send(&Response::err(id, e)),
             },
 
+            // Direkter P2P-Weg (s. `crate::direkt`): der Player ist Offerer.
+            // `direct_start` liefert den Offer-SDP als Antwortnutzlast, die
+            // Electron-Huelle reicht ihn zum Sidecar durch; `direct_signal`
+            // nimmt deren Answer entgegen. Ohne `session`-Feld gilt die eine
+            // Direkt-Sitzung des Prozesses (s. `direct_op`). Das
+            // `params`-Objekt der Vereinbarung liest der Player nicht — die
+            // Ops tragen ihre Nutzlast wie alle anderen flach.
+            "direct_start" => self.direct_op(
+                id,
+                req.session,
+                |reply| SessionCommand::DirectStart { reply },
+                move |data| Response::ok(id, data),
+            ),
+
+            "direct_signal" => match direct_answer(&req) {
+                Some(answer) => self.direct_op(
+                    id,
+                    req.session,
+                    |reply| SessionCommand::DirectSignal { answer, reply },
+                    move |_| Response::bare(id),
+                ),
+                None => self.stdout.send(&Response::err(id, "answer fehlt")),
+            },
+
             "stats" => match req.session.and_then(|s| self.sessions.get(&s)) {
                 Some(session) => self.stdout.send(&Response::ok(id, self.stats_json(session))),
                 None => self.stdout.send(&Response::err(id, "unbekannte Sitzung")),
@@ -265,6 +289,42 @@ impl App {
         });
     }
 
+    /// Loest die Sitzung fuer `direct_start`/`direct_signal` auf.
+    ///
+    /// **Ohne `session`-Feld gilt: genau eine Direkt-Sitzung des Prozesses.**
+    /// Der Direktmodus ist pro Fenster einer, und der Offer-Weg kennt seine
+    /// Sitzungsnummer meist gar nicht — das Angebot ueber die App erreicht
+    /// den Renderer, nicht den Player. Sind es mehrere oder keine, wird
+    /// abgelehnt statt geraten: eine Nummer zu erfinden fuehrte dazu, dass
+    /// die Answer des Hosts in ein fremdes Fenster ginge.
+    fn direct_op<T, F, R>(&mut self, id: Option<i64>, session: Option<u64>, make: F, ok: R)
+    where
+        T: Send + 'static,
+        F: FnOnce(tokio::sync::oneshot::Sender<Result<T, String>>) -> SessionCommand,
+        R: FnOnce(T) -> Response + Send + 'static,
+    {
+        let ziel = match session {
+            Some(sid) if self.sessions.get(&sid).is_some_and(|s| s.direkt) => Some(sid),
+            Some(_) => None,
+            None => {
+                let treffer: Vec<u64> = self
+                    .sessions
+                    .iter()
+                    .filter(|(_, s)| s.direkt)
+                    .map(|(sid, _)| *sid)
+                    .collect();
+                (treffer.len() == 1).then(|| treffer[0])
+            }
+        };
+        match ziel {
+            Some(sid) => self.session_reply(id, Some(sid), make, ok),
+            None => {
+                self.stdout
+                    .send(&Response::err(id, "keine Direkt-Sitzung (open mit direct:true noetig)"))
+            }
+        }
+    }
+
     /// Schickt allen Sitzungen `Stop` und gibt ihnen kurz Zeit, sauber
     /// abzubauen. Best effort mit Zeitschranke: ein haengender Abbau darf das
     /// Beenden nicht blockieren.
@@ -384,6 +444,23 @@ fn build_patch(req: &Request) -> Result<PlayerOptions, String> {
     Ok(patch)
 }
 
+/// Die Answer eines `direct_signal`-Requests — flach (`answer`) oder in der
+/// `params`-Huelse der Schnittstellen-Vereinbarung. Reines Lesen; die
+/// Begruendung, beides zu akzeptieren, steht an [`Request::params`].
+///
+/// Ein leeres oder nicht-Text-`params.answer` gilt als Fehlantwort (None) —
+/// die Ops duerfen nicht mit einer LEEREN Answer `ok` melden, das haette der
+/// Sidecar ohnehin abgelehnt, aber die Meldung hier ist eindeutiger.
+fn direct_answer(req: &Request) -> Option<String> {
+    req.answer.clone().or_else(|| {
+        req.params
+            .as_ref()?
+            .get("answer")?
+            .as_str()
+            .map(str::to_owned)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -425,5 +502,27 @@ mod tests {
             build_patch(&req(r#"{"op":"set_option","key":"deband","value":"viel"}"#)).is_err(),
             "Text fuer eine Zahl muss abgelehnt werden"
         );
+    }
+
+    /// Die beiden Schreibweisen der Direkt-Ops: das Protokoll traegt seine
+    /// Felder flach, die Vereinbarung zeigt sie in der `params`-Huelse. Ohne
+    /// den Doppelweg liesse serde die Huelse still fallen — und die Answer
+    /// kaeme nie an, ohne dass eine der beiden Seiten es merkt.
+    #[test]
+    fn direct_signal_liest_answer_flach_und_in_params_huelle() {
+        let flach = req(r#"{"op":"direct_signal","answer":"v=0\r\nm=video 9\r\n"}"#);
+        assert_eq!(direct_answer(&flach).as_deref(), Some("v=0\r\nm=video 9\r\n"));
+
+        let gehuellt =
+            req(r#"{"op":"direct_signal","params":{"answer":"v=0\r\nm=audio 9\r\n"}}"#);
+        assert_eq!(direct_answer(&gehuellt).as_deref(), Some("v=0\r\nm=audio 9\r\n"));
+    }
+
+    #[test]
+    fn direct_signal_ohne_answer_ist_leer() {
+        assert_eq!(direct_answer(&req(r#"{"op":"direct_signal"}"#)), None);
+        // Eine nicht-Text-Answer ist keine: sie haette `set_remote_description`
+        // ohnehin abgelehnt, aber die Fehlermeldung hier ist eindeutiger.
+        assert_eq!(direct_answer(&req(r#"{"op":"direct_signal","params":{"answer":7}}"#)), None);
     }
 }

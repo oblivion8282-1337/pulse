@@ -97,6 +97,15 @@ contextBridge.exposeInMainWorld('pulse', {
     // Kein Sidecar wertet das Feld aus (keiner benutzt `deny_unknown_fields`),
     // es faellt dort still weg.
     stop: (slot = 0, grund?: string) => gsrCall('stop', grund ? { grund } : {}, slot),
+    /** **Direktverbindung (P2P):** Signaling-RPCs an den Sidecar des Platzes —
+     *  `direct_offer` (SDP des Player-Offers hinein, Answer zurück) und
+     *  `direct_stop` (Verbindung lösen, zurück in den Wartezustand). Kein
+     *  zweiter Kanal nötig: die Ops tragen keinen Pfad und keine Zuordnung,
+     *  nur den Platz, den `gsr:call` ohnehin nimmt — der Hauptprozess
+     *  entscheidet hier nichts (Allowlist in `main.ts`). */
+    directOffer: (slot: number, sdp: string): Promise<unknown> =>
+      gsrCall('direct_offer', { sdp }, slot),
+    directStop: (slot: number): Promise<unknown> => gsrCall('direct_stop', {}, slot),
 
     /** Welcher Linux-Sidecar läuft (rust/gsr) und warum — für die Anzeige im
      *  Kompatibilitäts-Tab. Eigener Kanal, kein `gsr:call`: das ist eine
@@ -189,6 +198,15 @@ contextBridge.exposeInMainWorld('pulse', {
     health: () => playerCall('health'),
     open: (params: unknown) => playerCall('open', params),
     close: (session: number) => playerCall('close', { session }),
+    /** **Direktverbindung (P2P):** die zwei Signaling-RPCs des Players —
+     *  `direct_start` baut den Peer und liefert den Offer-SDP zurück,
+     *  `direct_signal` nimmt die Answer des Host-Sidecars auf. Nur ZULEITUNG:
+     *  gedeutet wird nichts, die Zustandsmaschine lebt in
+     *  `$lib/remote/direktbild.svelte.ts` (Allowlist in `main.ts`). */
+    directStart: (session: number): Promise<unknown> =>
+      playerCall('direct_start', { session }),
+    directSignal: (session: number, answer: string): Promise<unknown> =>
+      playerCall('direct_signal', { session, answer }),
     setOption: (session: number, key: string, value: unknown) =>
       playerCall('set_option', { session, key, value }),
     setOptions: (session: number, options: unknown) =>

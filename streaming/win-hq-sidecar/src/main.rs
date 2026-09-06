@@ -188,6 +188,10 @@ fn main() -> anyhow::Result<()> {
     // Dasselbe fuer die Zwischenablage: Eigentum abgeben, den gemerkten
     // Vorbestand des Nutzers zurueckschreiben (s. `ablage::beenden_endgueltig`).
     pulse_win_hq_sidecar::ablage::beenden_endgueltig();
+    // Und eine evtl. stehende Direkt-Sitzung: deren PeerConnection gehört
+    // zum Prozess — ohne das bliebe der ICE-Socket bis zum process::exit
+    // offen (Idempotenz: ohne Direktpfad ein No-op, s. `crate::direct`).
+    pulse_win_hq_sidecar::direct::sitzung().beende_endgueltig();
     let _ = pulse_win_hq_sidecar::stream_controller::StreamController::singleton().stop();
 
     Ok(())

@@ -69,16 +69,21 @@ export async function openPlayer(
      *  dann bietet die Leiste im Fenster kein „wieder in der App zeigen" an
      *  (der Knopf koennte sein Versprechen nicht halten). */
     canReattach?: boolean;
+    /** **Direktverbindung (P2P):** ohne WHEP-URL starten. Der Player fordert
+     *  keinen Stream an, sondern wartet auf `direct_start` — der Offer-Umlauf
+     *  läuft über die Sitzung (`$lib/remote/direktbild.svelte.ts`). */
+    direct?: boolean;
   } = {},
 ): Promise<number | null> {
   const p = api();
   if (!p) return null;
   try {
-    const { canReattach, ...rest } = opts;
+    const { canReattach, direct, ...rest } = opts;
     const res = await p.open({
       url: whepUrl,
       ...rest,
       ...(canReattach === undefined ? {} : { can_reattach: canReattach }),
+      ...(direct ? { direct: true } : {}),
     });
     if (!res.ok) {
       console.warn('[player] open fehlgeschlagen:', res.error);
@@ -92,6 +97,7 @@ export async function openPlayer(
 }
 
 export async function closePlayer(session: number): Promise<void> {
+
   try {
     await api()?.close(session);
   } catch {
@@ -141,6 +147,33 @@ export function onPlayerEvent(cb: (ev: PlayerStateEvent) => void): () => void {
     const ev = raw as Partial<PlayerStateEvent>;
     if (ev?.ev === 'player:state' && typeof ev.state === 'string') {
       cb(ev as PlayerStateEvent);
+    }
+  });
+}
+
+/** Der Zustand der Direktverbindung, wie der Player ihn meldet. */
+export type DirectZustand = 'wartend' | 'connecting' | 'live' | 'failed' | 'closed';
+
+/**
+ * Abonniert die Direktverbindungs-Ereignisse des Players (`direct_state` —
+ * separater Strom, weil der Fenster-Zustand `player:state` eine ANDERE Frage
+ * beantwortet: „lebt das Fenster" gegen „steht die Verbindung"). Liefert eine
+ * Abmelde-Funktion (im Browser eine leere).
+ */
+export function onDirectState(cb: (zustand: DirectZustand) => void): () => void {
+  const p = api();
+  if (!p) return () => {};
+  return p.onEvent((raw) => {
+    const ev = raw as { ev?: string; state?: string };
+    if (ev?.ev !== 'direct_state') return;
+    if (
+      ev.state === 'wartend' ||
+      ev.state === 'connecting' ||
+      ev.state === 'live' ||
+      ev.state === 'failed' ||
+      ev.state === 'closed'
+    ) {
+      cb(ev.state);
     }
   });
 }

@@ -43,7 +43,7 @@ use webrtc::util::Marshal;
 const DEFAULT_STUN: &str = "stun:stun.l.google.com:19302";
 
 /// Obergrenze fuers ICE-Gathering, bevor der Offer trotzdem rausgeht.
-const ICE_GATHERING_TIMEOUT: Duration = Duration::from_secs(2);
+pub(crate) const ICE_GATHERING_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Groesster Antwortkoerper, den der WHEP-POST annimmt. Eine SDP-Answer ist
 /// wenige Kilobyte gross; 256 KiB lassen selbst fuer eine ungewoehnlich lange
@@ -477,16 +477,34 @@ fn interceptors_mit_zuegigem_nack(
     configure_twcc_receiver_only(registry, media).context("TWCC-Interceptor")
 }
 
-/// Stellt eine recvonly-WHEP-Sitzung her und schiebt fertige Frames in `tx`.
+/// Was der gemeinsame Empfaenger-Aufbau hervorbringt.
+pub(crate) struct EmpfaengerBau {
+    pub pc: Arc<RTCPeerConnection>,
+    pub fec: Arc<crate::fec::Zaehler>,
+    pub nack_rtt: Arc<std::sync::atomic::AtomicU64>,
+}
+
+/// Baut die EMPFAENGERSEITE einer WebRTC-Sitzung — MediaEngine, Interceptors,
+/// SettingEngine, PeerConnection, je ein recvonly-Transceiver fuer Video und
+/// Audio — und haengt den Track-Empfang an `tx`.
 ///
-/// Kehrt zurueck, sobald die SDP-Aushandlung durch ist; die Frames laufen
-/// danach asynchron ein. Ein Fehler beim Aufbau raeumt die halbfertige
-/// PeerConnection selbst wieder ab.
-pub async fn connect(
-    whep_url: &str,
+/// **Gemeinsam von zwei Wegen genutzt:** dem WHEP-Client ([`connect`]) und dem
+/// direkten P2P-Weg zum Host-Sidecar ([`crate::direkt`]). Beide muessen im SDP
+/// und im Empfangsweg identisch sein — derselbe Jitter-Puffer, derselbe
+/// Depacketisierer, derselbe Decoder haengt dahinter. Der einzige Unterschied
+/// ist, WER die Aushandlung treibt und ueber welchen Kanal die SDP reist; das
+/// regeln die Aufrufer. `setting_anpassen` dient genau diesen Unterschieden
+/// (beim Direktweg: der Schnittstellen-Filter), ohne dass die WHEP-Seite etwas
+/// davon sieht.
+///
+/// Die Transceiverreihenfolge (erst Video, dann Audio) ist bewusst dieselbe
+/// wie beim Browser-Client — sie bestimmt die m-Zeilen im Offer, und der
+/// Sidecar wird an genau diese Reihenfolge gebaut.
+pub(crate) async fn baue_empfaenger_pc(
+    tx: &mpsc::Sender<RtpArrival>,
     extra_ice: &[String],
-    tx: mpsc::Sender<RtpArrival>,
-) -> Result<WhepSession> {
+    setting_anpassen: impl FnOnce(&mut SettingEngine),
+) -> Result<EmpfaengerBau> {
     let mut media = MediaEngine::default();
     media
         .register_default_codecs()
@@ -530,10 +548,12 @@ pub async fn connect(
     let nack_sperre = Arc::new(std::sync::atomic::AtomicU64::new(nack_sperre_start()));
     let nack_rtt = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let registry = interceptors_mit_zuegigem_nack(&mut media, &nack_sperre, &nack_rtt)?;
+    let mut setting = srtp_fenster_fuer_nachlieferung();
+    setting_anpassen(&mut setting);
     let api = APIBuilder::new()
         .with_media_engine(media)
         .with_interceptor_registry(registry)
-        .with_setting_engine(srtp_fenster_fuer_nachlieferung())
+        .with_setting_engine(setting)
         .build();
 
     let mut urls = vec![DEFAULT_STUN.to_string()];
@@ -544,8 +564,6 @@ pub async fn connect(
     };
 
     let pc = Arc::new(api.new_peer_connection(config).await?);
-    // Vor dem Aushandeln: sonst fehlen genau die Wechsel des Aufbaus.
-    crate::abriss::zustaende_melden(&pc);
 
     // RTCRtpTransceiverInit ist nicht Clone — je Aufruf frisch bauen.
     let recvonly = || {
@@ -568,8 +586,9 @@ pub async fn connect(
     let fec_an = crate::fec::eingeschaltet();
     let fec_zaehler = Arc::new(crate::fec::Zaehler::default());
     let fec_fuer_track = fec_zaehler.clone();
+    let tx_fuer_track = tx.clone();
     pc.on_track(Box::new(move |track, receiver, _transceiver| {
-        let tx = tx.clone();
+        let tx = tx_fuer_track.clone();
         let fec_zaehler = fec_fuer_track.clone();
         Box::pin(async move {
             // Nur am VIDEO-Track: dort liegt der geschuetzte Strom, und nur
@@ -589,6 +608,24 @@ pub async fn connect(
             tokio::spawn(pump_track(track, tx, medien_tx));
         })
     }));
+
+    Ok(EmpfaengerBau { pc, fec: fec_zaehler, nack_rtt })
+}
+
+/// Baut eine recvonly-WHEP-Sitzung her und schiebt fertige Frames in `tx`.
+///
+/// Kehrt zurueck, sobald die SDP-Aushandlung durch ist; die Frames laufen
+/// danach asynchron ein. Ein Fehler beim Aufbau raeumt die halbfertige
+/// PeerConnection selbst wieder ab.
+pub async fn connect(
+    whep_url: &str,
+    extra_ice: &[String],
+    tx: mpsc::Sender<RtpArrival>,
+) -> Result<WhepSession> {
+    let EmpfaengerBau { pc, fec: fec_zaehler, nack_rtt, .. } =
+        baue_empfaenger_pc(&tx, extra_ice, |_| {}).await?;
+    // Vor dem Aushandeln: sonst fehlen genau die Wechsel des Aufbaus.
+    crate::abriss::zustaende_melden(&pc);
 
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
@@ -626,7 +663,11 @@ pub async fn connect(
 /// die ausgehandelte Beschreibung war nirgends sichtbar. Dieselbe Ueberlegung
 /// wie bei der ICE-Kandidaten-Zeile darueber — eine Zeile, die eine sonst
 /// unbeantwortbare Frage beantwortet, ist ihren Platz wert.
-fn melde_rueckkanal(answer: &str) {
+///
+/// Auch der Direktweg ruft sie: seine Gegenstelle ist der Sidecar statt
+/// MediaMTX, und genau dort ist die Frage danach, was der Rueckkanal kann,
+/// beim ersten Kontakt noch offener.
+pub(crate) fn melde_rueckkanal(answer: &str) {
     let (nack, pli, rtx) = rueckkanal_flags(answer);
     let marke = bildmarke_id(answer);
     eprintln!(
@@ -648,7 +689,7 @@ fn melde_rueckkanal(answer: &str) {
 /// Das Format ist `a=extmap:<id>[/<richtung>] <uri>[ <attr>]` (RFC 8285); die
 /// Richtungsangabe ist zulaessig und muss abgeschnitten werden, sonst
 /// scheitert das Parsen der Zahl genau dann, wenn eine Gegenstelle sie setzt.
-fn bildmarke_id(answer: &str) -> u8 {
+pub(crate) fn bildmarke_id(answer: &str) -> u8 {
     answer
         .lines()
         .filter_map(|l| l.strip_prefix("a=extmap:"))
@@ -694,11 +735,17 @@ fn rueckkanal_flags(answer: &str) -> (bool, bool, bool) {
     (hat("nack"), hat("nack pli"), rtx)
 }
 
-async fn negotiate(
-    pc: &Arc<RTCPeerConnection>,
-    http: &reqwest::Client,
-    whep_url: &str,
-) -> Result<(Option<String>, u8)> {
+/// Offer erzeugen, lokal setzen, nicht-trickle auf das Ende des Gatherings
+/// warten — und den fertigen Offer-SDP samt Kandidaten-Kontrolle liefern.
+///
+/// **Gemeinsam von beiden Wegen genutzt:** MediaMTX bekommt den Offer per
+/// POST, der Sidecar ueber den stdio-RPC — aber in beiden Faellen ist der
+/// Offer erst mit den Kandidaten etwas wert, und in beiden Faellen ist ein
+/// Offer OHNE Kandidaten schwer zu erkennen (die Gegenstelle nimmt ihn an,
+/// die Verbindung kommt nie zustande). Diese Zeilen stehen deshalb an EINER
+/// Stelle; [`negotiate`] und [`crate::direkt`] haengen sich danach nur noch
+/// ihren jeweiligen Transport dran.
+pub(crate) async fn offer_mit_kandidaten(pc: &Arc<RTCPeerConnection>) -> Result<String> {
     let offer = pc.create_offer(None).await.context("create_offer")?;
     pc.set_local_description(offer).await.context("set_local_description")?;
 
@@ -728,6 +775,15 @@ async fn negotiate(
         bail!("keine ICE-Kandidaten gesammelt — die Verbindung koennte nicht zustande kommen");
     }
 
+    Ok(sdp)
+}
+
+async fn negotiate(
+    pc: &Arc<RTCPeerConnection>,
+    http: &reqwest::Client,
+    whep_url: &str,
+) -> Result<(Option<String>, u8)> {
+    let sdp = offer_mit_kandidaten(pc).await?;
     let res = http
         .post(whep_url)
         .header(reqwest::header::CONTENT_TYPE, "application/sdp")

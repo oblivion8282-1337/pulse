@@ -41,6 +41,9 @@ export function register(): void {
       // auch dann, wenn nie eine Uebernahme daraus wird (`wecken.ts`).
       typeof evt.from_user_id === 'string' ? evt.from_user_id : null,
       typeof evt.monitor === 'number' ? evt.monitor : undefined,
+      // **P2P-Wunsch**: der Sidecar startet im Wartezustand, das Bild geht
+      // später direkt zum Steuernden (`$lib/remote/direktbild.svelte.ts`).
+      evt.p2p === true,
     );
   });
 
