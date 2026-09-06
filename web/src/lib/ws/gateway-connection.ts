@@ -715,7 +715,6 @@ export class GatewayConnection {
    *  antwortet mit einem `replay`-Rahmen je Kanal (oder schweigt für Kanäle
    *  ohne gespeicherten Cursor). */
   private _sendHistReplay(): void {
-    if (!this.subs.size) return;
     const cursors: Record<string, { hist: string; seq: number }> = {};
     for (const cid of this.subs) {
       const cur = this._hist.get(cid);

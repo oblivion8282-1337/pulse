@@ -45,6 +45,17 @@ def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+async def _loesche_hist(redis: Redis, *cids: str) -> None:
+    """Stream + Sequenz-Zähler aller im Test benutzten Kanäle löschen."""
+    await redis.delete(
+        *[
+            key.format(channel_id=cid)
+            for cid in cids
+            for key in (CHANNEL_HIST_KEY, CHANNEL_SEQ_KEY)
+        ]
+    )
+
+
 async def test_publish_stamps_only_hist_ops(redis: Redis):
     mgr = ConnectionManager(redis)
     # Eigenen Kanal-Namensraum verwenden — eindeutig pro Testlauf.
@@ -70,15 +81,13 @@ async def test_publish_stamps_only_hist_ops(redis: Redis):
         assert "seq" not in typing and "hist" not in typing
         assert await redis.xlen(CHANNEL_HIST_KEY.format(channel_id=cid)) == 2
     finally:
-        await redis.delete(CHANNEL_HIST_KEY.format(channel_id=cid))
-        await redis.delete(CHANNEL_SEQ_KEY.format(channel_id=cid))
+        await _loesche_hist(redis, cid)
 
 
 async def test_read_channel_history_completeness(redis: Redis):
     mgr = ConnectionManager(redis)
     cid = str(random.randint(10**14, 10**15))
     hist_key = CHANNEL_HIST_KEY.format(channel_id=cid)
-    seq_key = CHANNEL_SEQ_KEY.format(channel_id=cid)
     try:
         for i in range(3):
             await mgr.publish(cid, {"op": "message", "data": {"channel_id": cid, "id": str(i)}})
@@ -113,8 +122,7 @@ async def test_read_channel_history_completeness(redis: Redis):
         events, complete = await mgr.read_channel_history(cid, cursors[0][0], 1)
         assert events == [] and complete is False
     finally:
-        await redis.delete(hist_key)
-        await redis.delete(seq_key)
+        await _loesche_hist(redis, cid)
 
 
 def _setup_guild_channel(app, token: str) -> tuple[str, str]:
@@ -205,8 +213,7 @@ async def test_replay_delivers_offline_window(ws_app, _auth_signer, redis):
         assert all(e["seq"] == cursor[1] + i + 1 for i, e in enumerate(frame["events"]))
         assert all(e["hist"] for e in frame["events"])
     finally:
-        await redis.delete(CHANNEL_HIST_KEY.format(channel_id=cid))
-        await redis.delete(CHANNEL_SEQ_KEY.format(channel_id=cid))
+        await _loesche_hist(redis, cid)
 
 
 @pytest.mark.asyncio
@@ -230,8 +237,7 @@ async def test_replay_reports_incomplete_when_stream_lost(
         assert frame is not None
         assert frame["complete"] is False and frame["events"] == []
     finally:
-        await redis.delete(CHANNEL_HIST_KEY.format(channel_id=cid))
-        await redis.delete(CHANNEL_SEQ_KEY.format(channel_id=cid))
+        await _loesche_hist(redis, cid)
 
 
 @pytest.mark.asyncio
@@ -282,9 +288,7 @@ async def test_replay_ignores_foreign_channels(ws_app, _auth_signer, redis):
     sub_frame = by_channel.get(sub_cid)
     assert sub_frame is not None and sub_frame["complete"] is False
 
-    for used in (sub_cid, fremd_cid):
-        await redis.delete(CHANNEL_HIST_KEY.format(channel_id=used))
-        await redis.delete(CHANNEL_SEQ_KEY.format(channel_id=used))
+    await _loesche_hist(redis, sub_cid, fremd_cid)
 
 
 @pytest.mark.asyncio
@@ -342,9 +346,7 @@ async def test_replay_skips_deleted_channel(ws_app, _auth_signer, redis):
     assert frame.get("op") == "replay"
     assert frame["channel_id"] == lebendig_cid
 
-    for used in (geloescht_cid, lebendig_cid):
-        await redis.delete(CHANNEL_HIST_KEY.format(channel_id=used))
-        await redis.delete(CHANNEL_SEQ_KEY.format(channel_id=used))
+    await _loesche_hist(redis, geloescht_cid, lebendig_cid)
 
 
 @pytest.mark.asyncio
@@ -378,8 +380,7 @@ async def test_replay_overflow_reports_incomplete_with_events(
         assert len(frame["events"]) == 2
         assert frame["events"][0]["seq"] == cursor[1] + 1
     finally:
-        await redis.delete(CHANNEL_HIST_KEY.format(channel_id=cid))
-        await redis.delete(CHANNEL_SEQ_KEY.format(channel_id=cid))
+        await _loesche_hist(redis, cid)
 
 
 @pytest.mark.asyncio
@@ -438,5 +439,4 @@ async def test_replay_delivers_edits_and_reactions(ws_app, _auth_signer, redis):
         seqs = [e["seq"] for e in frame["events"]]
         assert seqs == [cursor["seq"] + 1, cursor["seq"] + 2]
     finally:
-        await redis.delete(CHANNEL_HIST_KEY.format(channel_id=cid))
-        await redis.delete(CHANNEL_SEQ_KEY.format(channel_id=cid))
+        await _loesche_hist(redis, cid)
