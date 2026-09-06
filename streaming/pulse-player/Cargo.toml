@@ -88,7 +88,7 @@ pulse-fernsteuerung = { path = "../pulse-fernsteuerung" }
 pulse-ablage = { path = "../pulse-ablage" }
 
 # --- Decode (LGPL-FFmpeg, dynamisch gelinkt) ---
-ffmpeg-next = { version = "9.0", default-features = false, features = [
+ffmpeg-next = { version = "8.1", default-features = false, features = [
     "codec",
     "format",
     "software-resampling",
