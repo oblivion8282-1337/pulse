@@ -435,7 +435,7 @@
       <!-- Stream-Reactions (IDEAS.md §4): Burst-Ebene + Schnellwahl, nur am
            lebenden Stream (die Platzhalter-Flaechen oben haben damit nichts
            zu tun). -->
-      <StreamReactions {channelId} bursten={reaktionenAn} />
+      <StreamReactions {channelId} leisteAn={reaktionenAn} />
     {/if}
   {/snippet}
   {#snippet controlsExtra()}

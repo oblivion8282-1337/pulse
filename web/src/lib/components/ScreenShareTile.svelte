@@ -331,7 +331,7 @@
       {#if streamerId}
         <!-- Stream-Reactions (IDEAS.md §4): Burst-Ebene + Schnellwahl — nur
              mit bekanntem Gastgeber, sonst gibt es keinen Stream zum Reagieren. -->
-        <StreamReactions {channelId} bursten={reaktionenAn} />
+        <StreamReactions {channelId} leisteAn={reaktionenAn} />
       {/if}
     {/snippet}
     {#snippet chatPanel()}
