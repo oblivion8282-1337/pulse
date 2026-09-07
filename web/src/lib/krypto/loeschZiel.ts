@@ -14,17 +14,32 @@
  * `krypto_id` führt (jedes empfangende Gerät). Beides zugleich kommt bei
  * mehreren Geräten desselben Kontos vor, deshalb eine Liste.
  *
+ * **Und nur, wenn der Absender des Umschlags auch der Autor des Satzes ist.**
+ * Ein Lösch-Frame trägt eine ID und sonst nichts; wer die ID kennt, kann ihn
+ * bauen. Der Gesprächspartner kennt sie immer — er hat sie mit der Nachricht
+ * bekommen und legt sie als `krypto_id` ab, während sie beim Verfasser die
+ * lokale `id` IST. Ohne diesen Vergleich löscht ein angepasster Klient der
+ * Gegenseite die eigenen Nachrichten des Empfängers auf dessen Gerät, samt
+ * Grabstein im Archiv — und ein Archiv-Grabstein lässt sich nicht
+ * zurücknehmen.
+ *
  * Importfrei, damit Nodes eingebauter Testläufer die Datei ohne Bundler
  * prüft (s. CLAUDE.md „Die Falle").
  */
 
 export function lokaleIdsFuerLoeschung(
   frameId: string,
-  kandidaten: ReadonlyArray<{ id: string; krypto_id?: string }>
+  kandidaten: ReadonlyArray<{ id: string; krypto_id?: string; author_id?: string }>,
+  absenderUserId: string
 ): string[] {
   const treffer = new Set<string>();
   for (const k of kandidaten) {
-    if (k.id === frameId || k.krypto_id === frameId) treffer.add(k.id);
+    if (k.id !== frameId && k.krypto_id !== frameId) continue;
+    // Ohne bekannten Autor wird nicht gelöscht: fehlt das Feld, ist der Satz
+    // nicht zuzuordnen, und „im Zweifel löschen" ist bei einem Vorgang ohne
+    // Rückweg die falsche Richtung.
+    if (k.author_id !== absenderUserId) continue;
+    treffer.add(k.id);
   }
   return [...treffer];
 }

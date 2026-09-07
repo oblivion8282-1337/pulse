@@ -217,13 +217,19 @@ async function postfachZyklus(): Promise<Message[]> {
       // denn eine Nachricht, die nie ankam, kann auch nicht stehen bleiben.
       let ziele = lokaleIdsFuerLoeschung(
         ergebnis.nachrichtId,
-        messages.for(ergebnis.channelId)
+        messages.for(ergebnis.channelId),
+        ergebnis.absenderUserId
       );
       if (ziele.length === 0) {
         const imVerlauf = await verlaufLokaleIdFuerKryptoId(
           ergebnis.channelId,
-          ergebnis.nachrichtId
+          ergebnis.nachrichtId,
+          ergebnis.absenderUserId
         );
+        // Kein Treffer im Verlauf: der Grabstein geht auf die Frame-ID selbst.
+        // Er greift ins Leere, solange nichts mit dieser ID existiert — und
+        // eine ID vergibt nur ihr eigener Verfasser, ein Fremder kann darüber
+        // also keinen künftigen Satz eines anderen treffen.
         ziele = [imVerlauf ?? ergebnis.nachrichtId];
       }
       for (const lokaleId of ziele) {

@@ -67,7 +67,15 @@ export type ZustellungOffenErgebnis =
   | { art: 'neu'; nachricht: Message }
   | { art: 'schonAbgelegt'; channelId: string; id: string }
   | { art: 'ohneAblage'; id: string }
-  | { art: 'loeschung'; id: string; channelId: string; nachrichtId: string }
+  | {
+      art: 'loeschung';
+      id: string;
+      channelId: string;
+      nachrichtId: string;
+      /** Wer den Frame geschickt hat — nur seine eigenen Sätze darf er löschen
+       *  (s. `loeschZiel.ts`). */
+      absenderUserId: string;
+    }
   | null;
 
 /** Die Nachricht einer erfolgreich geoeffneten Zustellung — `null`, wenn der
@@ -187,7 +195,13 @@ export async function zustellungOeffnen(
         // Lösch-Frame (2026-09-02): der Aufrufer entfernt die Nachricht
         // lokal (Grabstein im Verlauf, damit auch im Archiv) und quittiert
         // direkt — es gibt nichts anzuzeigen und nichts abzulegen.
-        return { art: 'loeschung', id: z.id, channelId: z.channel_id, nachrichtId: gelesen.id };
+        return {
+          art: 'loeschung',
+          id: z.id,
+          channelId: z.channel_id,
+          nachrichtId: gelesen.id,
+          absenderUserId
+        };
       }
       return { art: 'neu', nachricht: baueEmpfangeneNachricht(z, absenderUserId, gelesen) };
     } catch (err) {
