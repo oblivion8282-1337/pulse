@@ -2,7 +2,6 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
-<<<<<<< HEAD
       "id": "2026-09-07.2",
       "date": "2026-09-07",
       "style": "Sachlich",
@@ -12,7 +11,9 @@
         "Der Picker öffnet sich als ein durchgehendes Feld: Kategorien links, alle Emojis untereinander, eigene Suchleiste.",
         "Die Suche findet Begriffe im ganzen Katalog statt nur in einer kleinen Auswahlliste.",
         "Häufig genutzte Emojis erscheinen automatisch oben."
-=======
+      ]
+    },
+    {
       "id": "2026-09-07.1",
       "date": "2026-09-07",
       "style": "Sachlich",
@@ -22,7 +23,6 @@
         "Sechs schnelle Reaktionen (Daumen hoch, Herz, Lachen, Wow, Ärger, Feuer) direkt an der Kachel — Twitch-Style, ohne den Chat zu berühren.",
         "Die Reaktionen werden nicht gespeichert: sie sind der Augenblick, nicht der Verlauf.",
         "Zuschauer ohne Chat-Schreibrecht dürfen mitreagieren."
->>>>>>> origin/main
       ]
     },
     {
