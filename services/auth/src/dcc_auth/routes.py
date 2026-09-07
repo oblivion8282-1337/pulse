@@ -565,7 +565,7 @@ async def renew_session(
         # Das abgelöste Cookie ist beim Client bereits ersetzt; es weiter
         # gelten zu lassen hiesse nur, eine zweite lebende Sitzung zu führen,
         # die niemand mehr sieht.
-        await revoke_sessions(session, [old_sid])
+        await revoke_sessions(session, [old_sid], user_id=current.id)
     await session.commit()
     set_session_cookie(response, sid)
     return None

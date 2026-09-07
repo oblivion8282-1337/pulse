@@ -316,6 +316,61 @@ async def test_renew_recovers_after_session_expiry(client, session_factory):
 
 
 @pytest.mark.asyncio
+async def test_renew_beendet_keine_fremde_sitzung(client, session_factory):
+    """Eine Sitzungs-Kennung ist keine Berechtigung, sie zu beenden.
+
+    ``/session/renew`` meldet ueber den Bearer an, liest die abzuloesende
+    Kennung aber roh aus dem Cookie. Ohne die Einengung auf das eigene Konto
+    entwertet ein Aufruf mit eigenem Token und fremder Kennung die fremde
+    Zeile — der Angreifer koennte sie nicht benutzen, aber abmelden.
+    """
+    # Opfer anlegen, seine Sitzung merken.
+    await client.post("/register", json=_REG)
+    opfer_login = await client.post("/login", json=_LOGIN)
+    assert opfer_login.status_code == 200, opfer_login.text
+    fremde_sid = opfer_login.cookies["pulse_session"]
+
+    # Angreifer: eigenes Konto, eigenes Token.
+    angreifer_reg = {
+        "username": "cookie_angreifer",
+        "email": "angreifer@dcc-test.example.com",
+        "password": "correct horse battery staple",
+        "display_name": "Angreifer",
+    }
+    await client.post("/register", json=angreifer_reg)
+    angreifer_login = await client.post(
+        "/login",
+        json={
+            "email_or_username": angreifer_reg["email"],
+            "password": angreifer_reg["password"],
+        },
+    )
+    assert angreifer_login.status_code == 200, angreifer_login.text
+    angreifer_access = angreifer_login.json()["access_token"]
+
+    # Eigenes Token, fremdes Cookie.
+    r = await client.post(
+        "/session/renew",
+        headers={
+            "Authorization": f"Bearer {angreifer_access}",
+            "Cookie": f"pulse_session={fremde_sid}",
+        },
+    )
+    assert r.status_code == 204, r.text
+
+    # Die fremde Zeile muss unangetastet sein.
+    async with session_factory() as db:
+        opfer_zeile = await db.get(UserSession, str(uuid.UUID(fremde_sid)))
+        assert opfer_zeile is not None
+        assert opfer_zeile.revoked_at is None, "fremde Sitzung wurde entwertet"
+
+    # ... und weiter funktionieren.
+    me = await client.get("/me", headers={"Cookie": f"pulse_session={fremde_sid}"})
+    assert me.status_code == 200, me.text
+    assert me.json()["email"] == _REG["email"]
+
+
+@pytest.mark.asyncio
 async def test_renew_without_auth_returns_401(client):
     """No bearer and no cookie -> renew can't mint from nothing -> 401."""
     r = await client.post("/session/renew")
