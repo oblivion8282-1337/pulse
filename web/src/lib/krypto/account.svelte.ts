@@ -172,13 +172,36 @@ export async function kryptoAccountSichern(ident: Identitaet): Promise<void> {
  * Sichern und Zwischenspeichern sind vier Schritte, und der erzeugte
  * Rueckfallschluessel ist zwischen Schritt zwei und vier nirgends dauerhaft
  * abgelegt. Der einzige Aufrufer ist `veroeffentlichen.ts`, der sie haelt.
+ *
+ * **Der Cache haengt am Konto, nicht am Geraet.** Er ueberlebt sonst genau
+ * die Ereignisse, die das Konto austauschen: Abmelden (`kryptoZustandWischen`
+ * raeumt nur, was `pickelartVon` als Pickle kennt — dieser Eintrag steht dort
+ * ausdruecklich NICHT drin) und den Frischstart nach unlesbarem Zustand
+ * (`verlustPlan`, dieselbe Liste). Das Geraet behaelt dabei sein Schluesselpaar
+ * und damit seine Kennung, `PUT /keys/bundle` trifft also die BESTEHENDE
+ * Zeile — und veroeffentlicht neben dem neuen `curve25519` den
+ * Rueckfallschluessel des ALTEN Kontos, dessen privaten Teil niemand mehr hat.
+ * Der Server gibt ihn jedes Mal aus, wenn kein Einmalschluessel frei ist
+ * (`schluessel_abholen.py`); die damit gebauten Umschlaege sind hier nie zu
+ * oeffnen, werden nie quittiert und liegen bis zum Fristablauf — dann sind
+ * sie weg. Ein Vergleich gegen `curve25519()` faengt das ohne zusaetzlichen
+ * Wisch-Pfad ab: passt er nicht, wird einmalig neu erzeugt und im selben Lauf
+ * veroeffentlicht.
  */
 export async function rueckfallschluesselSicherstellen(ident: Identitaet): Promise<string> {
   const db = await openIdentityDb();
-  const gecacht = (await idbGetIdentity(db, IDB_KEY_RUECKFALLSCHLUESSEL)) as string | undefined;
-  if (gecacht) {
+  const konto = ident.curve25519();
+  const gecacht = (await idbGetIdentity(db, IDB_KEY_RUECKFALLSCHLUESSEL)) as
+    | { curve25519: string; schluessel: string }
+    | string
+    | undefined;
+  // Ein blosser String ist der Bestand von vor der Konto-Bindung: er koennte
+  // zu diesem Konto gehoeren oder zu einem abgemeldeten, und das ist von
+  // aussen nicht zu unterscheiden. Er wird deshalb verworfen — einmalig eine
+  // Rotation, die im selben Lauf veroeffentlicht wird.
+  if (typeof gecacht === 'object' && gecacht !== null && gecacht.curve25519 === konto) {
     db.close();
-    return gecacht;
+    return gecacht.schluessel;
   }
 
   const neu = ident.rueckfallschluesselErzeugen();
@@ -194,7 +217,7 @@ export async function rueckfallschluesselSicherstellen(ident: Identitaet): Promi
   // Mutiert den Account — MUSS gesichert werden, s. Doc-Kommentar oben an
   // `kryptoAccountSichern`.
   await kryptoAccountSichern(ident);
-  await idbPutIdentity(db, IDB_KEY_RUECKFALLSCHLUESSEL, neu);
+  await idbPutIdentity(db, IDB_KEY_RUECKFALLSCHLUESSEL, { curve25519: konto, schluessel: neu });
   db.close();
   return neu;
 }
