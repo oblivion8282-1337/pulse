@@ -16,7 +16,6 @@
   import StreamChatOverlay from '$lib/stream/components/StreamChatOverlay.svelte';
   import StreamChatInlineInput from '$lib/stream/components/StreamChatInlineInput.svelte';
   import StreamReactions from '$lib/stream/components/StreamReactions.svelte';
-  import SparklesIcon from '@lucide/svelte/icons/sparkles';
   import StreamChatPanel from '$lib/stream/components/StreamChatPanel.svelte';
   import ScreenShareDocPipView from '$lib/stream/components/ScreenShareDocPipView.svelte';
   import TileShell from '$lib/stream/components/TileShell.svelte';
@@ -307,6 +306,8 @@
     onEnableAudio={enableAudio}
     {chatOpen}
     onToggleChat={streamerId ? () => (chatOpen = !chatOpen) : undefined}
+    reaktionenAn={reaktionenAn}
+    onToggleReaktionen={streamerId ? () => (reaktionenAn = !reaktionenAn) : undefined}
     onDetach={docPipAvailable ? () => void openDocPip() : undefined}
     onHide={() => openedTiles.close('screen', channelId, identity)}
     stats={statsPill}
@@ -331,21 +332,6 @@
         <!-- Stream-Reactions (IDEAS.md §4): Burst-Ebene + Schnellwahl — nur
              mit bekanntem Gastgeber, sonst gibt es keinen Stream zum Reagieren. -->
         <StreamReactions {channelId} bursten={reaktionenAn} />
-      {/if}
-    {/snippet}
-    {#snippet controlsExtra()}
-      {#if streamerId}
-        <!-- Stream-Reactions ein-/ausblenden: nur die Burst-Ebene kippt, die
-             Schnellwahl zum Selber-Senden bleibt an der Kachel. -->
-        <Button
-          size="sm"
-          variant="ghost"
-          aria-pressed={reaktionenAn}
-          onclick={() => (reaktionenAn = !reaktionenAn)}
-          data-testid="stream-reactions-toggle"
-        >
-          <SparklesIcon class="size-4" />
-        </Button>
       {/if}
     {/snippet}
     {#snippet chatPanel()}

@@ -38,6 +38,10 @@ export interface TileShellProps {
   onEnableAudio?: () => void;
   chatOpen?: boolean;
   onToggleChat?: () => void;
+  /** Stream-Reactions ein-/ausgeblendet (Kippschalter in der Dock-Leiste,
+   *  zwischen Statistik und Chat). Ohne `onToggleReaktionen` kein Knopf. */
+  reaktionenAn?: boolean;
+  onToggleReaktionen?: () => void;
   /** Watch Party: gleicher Seitenpanel-Slot wie der Chat, aber für die
    *  Warteschlange. Chat + Queue schliessen sich gegenseitig aus (der Aufrufer
    *  regelt das), es liegt also immer nur eins rechts. */
