@@ -47,15 +47,21 @@ const OPUS_BITRATE_KBPS: u32 = 128;
 
 /// Wohin die encodierten Pakete gehen.
 ///
-/// Zwei Wege, die sich grundlegend unterscheiden: der Muxer schreibt in einen
-/// Container (FLV/MPEG-TS) und braucht dafuer Zeitbasen und Stream-Indizes; der
-/// eigene WebRTC-Weg kennt beides nicht — dort ist ein Bild ein Sample, und die
-/// Paketierung macht webrtc-rs. Zwilling zu `Ausgabe` im Linux-Sidecar.
+/// Drei Wege, die sich grundlegend unterscheiden: der Muxer schreibt in einen
+/// Container (FLV/MPEG-TS) und braucht dafuer Zeitbasen und Stream-Indizes;
+/// die beiden eigenen WebRTC-Wege kennen beides nicht — dort ist ein Bild ein
+/// Sample, und die Paketierung macht webrtc-rs (WHIP an MediaMTX, `Direct`
+/// Direkt zum Player). Zwilling zu `Ausgabe` im Linux-Sidecar.
 enum Ausgabe {
     Mux(MuxWriter),
     /// Eigener WHIP-Sendeweg (s. [`crate::whip`]). Der einzige Weg, auf dem
-    /// eine Vollbild-Anforderung des Zuschauers den Encoder erreicht.
+    /// eine Vollbild-Anforderung des Zuschauers den Encoder erreicht — bis
+    /// Stufe 1.5, denn der Direktpfad hat denselben Rückkanal.
     Whip(Arc<crate::whip::WhipSender>),
+    /// Direkt-Sendeweg zum Player (s. [`crate::direct`]). Der Sender ist bei
+    /// der Aushandlung gebaut worden und wird hier NUR angeschlossen —
+    /// genau einmal, mit Codec-/fps-Prüfung (`crate::direct::sitzung`).
+    Direct(Arc<pulse_whip::direct::DirectSender>),
 }
 
 /// Bildgroesse + Takt + Bitrate — gebuendelt, damit `open_video_encoder` nicht
@@ -107,12 +113,18 @@ impl VideoEncoder {
         // Der eigene WHIP-Sender traegt H.264 UND AV1 (anders als ffmpegs
         // WHIP-Muxer, der nur H.264 kennt) — nur HEVC faellt weiterhin auf
         // H.264 zurueck, weil `whip::sdp::codec_capability` es nicht anbietet.
-        let codec_id = if format_hint == Some("whip") && codec_id != "h264" && codec_id != "av1" {
-            eprintln!("[encode] Codec '{codec_id}' über WHIP nicht verfügbar → Fallback auf h264");
-            "h264"
-        } else {
-            codec_id
-        };
+        // Der Direkt-Sendeweg teilt dieselbe Sprachwahl (Zwilling win
+        // `direct/mod.rs`: codec_slug nur h264/av1).
+        let codec_id =
+            if (format_hint == Some("whip") || format_hint == Some("direct"))
+                && codec_id != "h264"
+                && codec_id != "av1"
+            {
+                eprintln!("[encode] Codec '{codec_id}' über WebRTC nicht verfügbar → Fallback auf h264");
+                "h264"
+            } else {
+                codec_id
+            };
 
         let params = VideoParams { width, height, fps, bitrate_kbps };
 
@@ -122,6 +134,13 @@ impl VideoEncoder {
         // und gilt fuer diesen Weg nicht.
         if format_hint == Some("whip") {
             return Self::start_whip(push_url, &params, codec_id, enable_audio);
+        }
+        // Direktpfad: derselbe Aufbau wie start_whip, nur dass der Sender
+        // NICHT hier verbindet — er ist bei der Aushandlung
+        // (`crate::direct::sitzung::anbieten`) gebaut worden und wird hier
+        // nur noch abgeholt.
+        if format_hint == Some("direct") {
+            return Self::start_direct(&params, codec_id, enable_audio);
         }
 
         // ── Output context (FLV/RTMPS oder MPEG-TS/SRT) ──────────────────────
@@ -256,6 +275,53 @@ impl VideoEncoder {
         })
     }
 
+    /// Direktpfad-Zwillig zu [`start_whip`]: Encoder + Ton ohne jeden
+    /// ffmpeg-Ausgang, gleiche 90-kHz-Zeitbasis, `global_header` bewusst
+    /// `false` (Begruendung dort). Der Unterschied: kein `connect` — der
+    /// [`pulse_whip::direct::DirectSender`] steht seit dem `direct_offer`
+    /// und wird über `crate::direct::sitzung().nimm_sender(...)` abgeholt.
+    /// Der Abhol-Aufruf trägt den genau-einmal-Vertrag (Codec/Fps-Prüfung
+    /// inklusive); scheitert er, war die Reihenfolge Programmfehler.
+    fn start_direct(params: &VideoParams, codec_id: &str, enable_audio: bool) -> Result<Self> {
+        let enc_name = videotoolbox_encoder(codec_id);
+        let codec = codec::encoder::find_by_name(enc_name)
+            .ok_or_else(|| anyhow!("encoder {enc_name} not in linked FFmpeg"))?;
+        let hw = VtHwContext::new(params.width, params.height)?;
+        let encoder_time_base = Rational::new(1, crate::zeitbasis::VIDEO_HZ as i32);
+        warne_bei_langem_abstand_ohne_rueckkanal(true);
+        let encoder = Self::open_video_encoder(codec, params, encoder_time_base, &hw, false)?;
+
+        // Ton-Encoder MUSS vor dem ersten Bild stehen — dieselbe
+        // Nachverhandlungs-Begründung wie beim WHIP-Weg.
+        let audio = if enable_audio {
+            Some(AudioEncoder::create_standalone(48_000, OPUS_BITRATE_KBPS)?)
+        } else {
+            None
+        };
+
+        // Erst NACH dem Oeffnen der Encoder die Senke abholen: scheitert
+        // einer von ihnen, bliebe eine ausgehandelte Sitzung ohne Pipeline
+        // hängen (der Aufruf bucht `nimm_senke` — genau einmal).
+        let sender = crate::direct::sitzung().nimm_sender(codec_id, params.fps)?;
+
+        Ok(Self {
+            encoder,
+            hw,
+            audio,
+            ausgabe: Ausgabe::Direct(sender),
+            width: params.width,
+            height: params.height,
+            stream_idx: 0,
+            encoder_time_base,
+            // Gleich der Encoder-Zeitbasis: auf diesem Weg wird nicht
+            // umgerechnet (s. `drain`), das Feld bleibt nur belegt, damit die
+            // Struktur eine bleibt.
+            stream_time_base: encoder_time_base,
+            frame_index: 0,
+            fps: params.fps,
+        })
+    }
+
     /// Den VideoToolbox-Encoder aufsetzen und oeffnen — gemeinsam fuer Muxer-
     /// und WHIP-Weg, damit die gemessenen Einstellungen nicht in zwei Kopien
     /// auseinanderlaufen koennen (Zwilling `open_encoder` im Linux-Sidecar).
@@ -309,6 +375,7 @@ impl VideoEncoder {
             let senke = match &self.ausgabe {
                 Ausgabe::Mux(m) => audio::TonSenke::Mux(m),
                 Ausgabe::Whip(w) => audio::TonSenke::Whip(w),
+                Ausgabe::Direct(d) => audio::TonSenke::Direct(d),
             };
             a.push(samples, &senke, anchor_samples)?;
         }
@@ -337,7 +404,11 @@ impl VideoEncoder {
     pub fn push_pixel_buffer(&mut self, pb: *mut c_void, pts: i64) -> Result<()> {
         let pts = pts.max(self.frame_index);
         self.frame_index = pts + 1;
-        let encoder_pts = encoder_pts_fuer(matches!(self.ausgabe, Ausgabe::Whip(_)), pts, self.fps);
+        let encoder_pts = encoder_pts_fuer(
+            matches!(self.ausgabe, Ausgabe::Whip(_) | Ausgabe::Direct(_)),
+            pts,
+            self.fps,
+        );
         unsafe {
             let frame = hw::wrap(&self.hw, pb, self.width, self.height, encoder_pts)?;
             // Vollbild auf Anforderung: `pict_type = I` bringt `h264_videotoolbox`
@@ -383,10 +454,16 @@ impl VideoEncoder {
                     // nimmt die rohen Bytes. Der `pts` geht MIT — bereits in
                     // der 90-kHz-RTP-Uhr (`start_whip`/`push_pixel_buffer`),
                     // `WhipSender::send` reicht ihn als Identitaet weiter
-                    // (Falle 1, s. Modulkopf).
+                    // (Falle 1, s. Modulkopf). Der Direkt-Sender macht es
+                    // genauso.
                     Ausgabe::Whip(w) => {
                         if let Some(daten) = packet.data() {
                             w.send(daten, packet.pts())?;
+                        }
+                    }
+                    Ausgabe::Direct(d) => {
+                        if let Some(daten) = packet.data() {
+                            d.send(daten, packet.pts())?;
                         }
                     }
                 },
@@ -407,13 +484,20 @@ impl VideoEncoder {
             let senke = match &self.ausgabe {
                 Ausgabe::Mux(m) => audio::TonSenke::Mux(m),
                 Ausgabe::Whip(w) => audio::TonSenke::Whip(w),
+                Ausgabe::Direct(d) => audio::TonSenke::Direct(d),
             };
             a.flush(&senke)?;
         }
         match &mut self.ausgabe {
             Ausgabe::Mux(m) => m.finish(),
+            // close ist auf beiden Sendern idempotent — die Sitzung kann
+            // zusätzlich aufräumen (s. `crate::direct`).
             Ausgabe::Whip(w) => {
                 w.close();
+                Ok(())
+            }
+            Ausgabe::Direct(d) => {
+                d.close();
                 Ok(())
             }
         }

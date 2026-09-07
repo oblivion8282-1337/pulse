@@ -23,15 +23,17 @@ pub const OPUS_FRAME_SAMPLES: usize = 960;
 
 /// Wohin die Ton-Pakete gehen.
 ///
-/// Zwei Wege mit grundverschiedener Natur: der Muxer will ein `Packet` mit
-/// Stream-Index und umgerechneter Zeitbasis; die WebRTC-Spur will rohe Bytes
-/// und die Dauer des Pakets. Zwilling zu `TonSenke` im Linux-Sidecar — dort als
-/// `Arc`-Clones, weil Audio dort auf einem eigenen Encode-Faden laeuft; hier
-/// als Referenzen, weil `push_audio` (`encode/mod.rs`) synchron im selben
-/// Faden wie das Bild aufgerufen wird und keinen eigenen Ton-Faden hat.
+/// Drei Wege mit grundverschiedener Natur: der Muxer will ein `Packet` mit
+/// Stream-Index und umgerechneter Zeitbasis; die WebRTC-Spuren wollen rohe
+/// Bytes und die Dauer des Pakets (WHIP an MediaMTX, `Direct` direkt zum
+/// Player). Zwilling zu `TonSenke` im Linux-Sidecar — dort als `Arc`-Clones,
+/// weil Audio dort auf einem eigenen Encode-Faden laeuft; hier als
+/// Referenzen, weil `push_audio` (`encode/mod.rs`) synchron im selben Faden
+/// wie das Bild aufgerufen wird und keinen eigenen Ton-Faden hat.
 pub enum TonSenke<'a> {
     Mux(&'a MuxWriter),
     Whip(&'a Arc<WhipSender>),
+    Direct(&'a Arc<pulse_whip::direct::DirectSender>),
 }
 
 pub struct AudioEncoder {
@@ -198,10 +200,17 @@ impl AudioEncoder {
                         mux.send(packet)?;
                     }
                     // Kein Umrechnen: die Spur bekommt die Bytes und die
-                    // PAKETDAUER (konstant, s. `OPUS_FRAME_DURATION`).
+                    // PAKETDAUER (konstant, s. `OPUS_FRAME_DURATION`). Der
+                    // Direkt-Sender macht es genauso — derselbe Opus-Rahmen,
+                    // dieselbe Dauer-Konvention wie beim WHIP-Weg.
                     TonSenke::Whip(w) => {
                         if let Some(d) = packet.data() {
                             w.send_audio(d, OPUS_FRAME_DURATION)?;
+                        }
+                    }
+                    TonSenke::Direct(sender) => {
+                        if let Some(bytes) = packet.data() {
+                            sender.send_audio(bytes, OPUS_FRAME_DURATION)?;
                         }
                     }
                 },

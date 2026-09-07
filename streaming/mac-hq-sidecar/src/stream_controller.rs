@@ -19,6 +19,10 @@ use crate::events;
 use crate::proto::{Event, StreamState};
 
 /// Resolved parameters for one stream (built by `ops::start` from the request).
+/// `Clone`, weil die wartenden Direkt-Parameter für jede Aushandlung als
+/// Schnappschuss herausgegeben werden (`wartende_direct_params`, Zwilling
+/// `pending_direct` beim Windows-Zwilling).
+#[derive(Clone)]
 pub struct StartParams {
     pub display_index: usize,
     /// When set, capture this single window instead of the display.
@@ -36,6 +40,11 @@ pub struct StartParams {
     /// Manual A/V trim in ms (UI slider). >0 shifts audio later. Applied to the
     /// audio anchor to correct any residual constant offset.
     pub av_offset_ms: i32,
+    /// Direktpfad statt Server-Push (`"direct": true` im Request, Aufbau in
+    /// `crate::direct`). Ändert den Start, nicht das Streaming: der
+    /// Controller geht in den Wartezustand und wartet auf `direct_offer`;
+    /// erst `pipeline_starten` bringt die gewohnte Maschinerie in Gang.
+    pub direct: bool,
 }
 
 pub struct StreamSnapshot {
@@ -62,7 +71,29 @@ struct Active {
 }
 
 pub struct StreamController {
-    active: Mutex<Option<Active>>,
+    platz: Mutex<Platz>,
+}
+
+/// Der eine Platz des Controllers: entweder läuft ein Worker (`aktiv`) oder
+/// ein Direkt-Stream wartet auf sein Angebot (`wartend`) — beides zusammen
+/// ist ausgeschlossen und teilt sich deshalb einen Riegel (win-Zwilling:
+/// ein gemeinsamer `snapshot`, `pending_direct`).
+#[derive(Default)]
+struct Platz {
+    aktiv: Option<Active>,
+    wartend: Option<WartendAuftrag>,
+}
+
+/// Ein wartender Direkt-Stream: `start(direct:true)` ist angenommen, Aufnahme
+/// und Encoder stehen still, bis die PeerConnection steht (`pipeline_starten`).
+///
+/// `params` ist eine `Option`, weil sie genau einmal in die Pipeline wandern
+/// (`take` in `pipeline_starten`); nach einem Teardown wartet der Platz OHNE
+/// Parameter — das nächste Angebot braucht einen frischen `start(direct:true)`
+/// (Zwilling: win `pending_direct`, den ein `stop` ebenfalls entleert).
+struct WartendAuftrag {
+    params: Option<StartParams>,
+    argv: Vec<String>,
 }
 
 static INSTANCE: OnceLock<StreamController> = OnceLock::new();
@@ -126,21 +157,37 @@ fn reap_finished(guard: &mut Option<Active>) {
 
 impl StreamController {
     pub fn singleton() -> &'static StreamController {
-        INSTANCE.get_or_init(|| StreamController { active: Mutex::new(None) })
+        INSTANCE.get_or_init(|| StreamController { platz: Mutex::new(Platz::default()) })
     }
 
     /// Start a stream. `argv` is the redacted diagnostic argv (for `state`).
     pub fn start(&self, params: StartParams, argv: Vec<String>) -> Result<()> {
-        let mut guard = self.active.lock().unwrap();
+        let mut platz = self.platz.lock().unwrap();
         // **Diese Zeile ist von keinem Test gedeckt** (nachgemessen: ihre
         // Entfernung bleibt gruen). `start` verlangt echte Aufnahme, ein
         // Unit-Test kommt nicht hierher; geprueft ist nur `reap_finished`
         // selbst. Wer den Aufruf anfasst, hat kein Netz — der Weg dorthin
         // waere ein Pruefling wie `examples/probe_ziel` beim Zwilling.
-        reap_finished(&mut guard);
-        if guard.is_some() {
+        reap_finished(&mut platz.aktiv);
+        if platz.aktiv.is_some() || platz.wartend.is_some() {
             return Err(anyhow!("ein Stream läuft bereits"));
         }
+
+        // Direktmodus: KEIN Worker, KEINE Aufnahme — der Controller geht in
+        // den Wartezustand und die Sitzung (`crate::direct`) beantwortet das
+        // Angebot des Players. Erst `pipeline_starten` (PC `Connected`)
+        // bringt die gewohnte `starting`→`live`-Maschinerie in Gang.
+        if params.direct {
+            platz.wartend = Some(WartendAuftrag { params: Some(params), argv });
+            drop(platz);
+            emit(Event::State {
+                state: StreamState::Wartend,
+                running: true,
+                uptime_s: 0.0,
+            });
+            return Ok(());
+        }
+
         // Eine Vollbild-Anforderung, die nach dem letzten Bild des vorigen
         // Streams eintraf, gehoert nicht diesem hier — und vor allem darf seine
         // Drossel den neuen Stream nicht sperren (Begruendung an
@@ -205,14 +252,136 @@ impl StreamController {
                 anyhow!("spawn hq-stream thread: {e}")
             })?;
 
-        *guard = Some(Active { stop_tx, worker, shared, argv });
+        platz.aktiv = Some(Active { stop_tx, worker, shared, argv });
         Ok(())
+    }
+
+    /// Direktmodus: die wartende Pipeline tatsächlich starten — gerufen von
+    /// der Sitzung, sobald die PeerConnection `Connected` meldet. Derselbe
+    /// Rumpf wie im Server-Zweig von [`start`](Self::start): Stop-Kanal,
+    /// Quell-Anmeldung, Worker, `starting`-Event (das der Worker selbst
+    /// emittiert, s. `run_stream`).
+    pub fn pipeline_starten(&self) -> Result<()> {
+        let mut platz = self.platz.lock().unwrap();
+        reap_finished(&mut platz.aktiv);
+        if platz.aktiv.is_some() {
+            return Err(anyhow!("ein Stream läuft bereits"));
+        }
+        let Some(auftrag) = platz.wartend.as_mut() else {
+            return Err(anyhow!("kein wartender Direkt-Stream"));
+        };
+        let Some(params) = auftrag.params.take() else {
+            return Err(anyhow!("kein wartender Direkt-Stream in der Warte-Zuweisung"));
+        };
+        let argv = auftrag.argv.clone();
+
+        // Dieselben Vorkehrungen wie im Server-Zweig von `start`: alte
+        // Vollbild-Wuensche gehoeren dem vorigen Strom, und die
+        // Fernsteuerung braucht ihre Quell-Anmeldung erst, wenn wirklich
+        // aufgenommen wird (im Wartezustand nahm der Schirm ja noch nichts
+        // auf, win-Zwilling: `pipeline_starten` meldet den Slot dort gleich).
+        crate::keyframe::reset();
+        match crate::remote_input::ziel::quelle_aus(params.window_id, params.display_index) {
+            Some(quelle) => crate::remote_input::ziel::strom_gestartet(None, quelle),
+            None => eprintln!(
+                "[remote-input] Aufnahmequelle nicht bestimmbar — dieser Strom traegt keine Fernsteuerung"
+            ),
+        }
+
+        let (stop_tx, stop_rx) = channel::<()>();
+        let shared = Arc::new(Shared {
+            running: AtomicBool::new(true),
+            live: AtomicBool::new(false),
+            fps_milli: AtomicU64::new(0),
+            started_at: Mutex::new(None),
+        });
+        let shared_worker = shared.clone();
+        // Vor dem Move gelesen — der Modus entscheidet im Auswerte-Tail des
+        // Workers, ob dessen Ende die Bereitschaft neu bucht (Zwilling win
+        // `run_pipeline`, `if direct { sitzung().pipeline_beendet() }`).
+        let direct = params.direct;
+        let worker = thread::Builder::new()
+            .name("hq-stream".into())
+            .spawn(move || {
+                let _fertig = WorkerDoneGuard(shared_worker.clone());
+                let result = run_stream(params, stop_rx, &shared_worker);
+                crate::remote_input::ziel::strom_beendet();
+                shared_worker.running.store(false, Ordering::SeqCst);
+                shared_worker.live.store(false, Ordering::SeqCst);
+                if let Err(e) = result {
+                    emit(Event::Error { message: format!("{e:#}") });
+                    emit(Event::State {
+                        state: StreamState::Error,
+                        running: false,
+                        uptime_s: 0.0,
+                    });
+                }
+                emit(Event::State {
+                    state: StreamState::Stopped,
+                    running: false,
+                    uptime_s: 0.0,
+                });
+                emit(Event::Stopped { code: None });
+                // Direktmodus: das Ende der Pipeline ist das Ende des Stroms,
+                // NICHT des Prozesses — die Sitzung (`crate::direct`) schließt
+                // den PC, kehrt nach wartend zurück und erlaubt das nächste
+                // Angebot. Auch ein Fehler hier (Encoder/Capture) lebt in
+                // seinen error-Events; die Bereitschaft bleibt.
+                if direct {
+                    crate::direct::sitzung().pipeline_beendet();
+                }
+            })
+            .map_err(|e| anyhow!("spawn hq-stream thread: {e}"))?;
+
+        platz.aktiv = Some(Active { stop_tx, worker, shared, argv });
+        Ok(())
+    }
+
+    /// Direktmodus, nur Teardown-Weg: zurück in den Wartezustand statt
+    /// `stopped` — der Stream lebt als Bereitschaft weiter. Ein noch
+    /// vorhandener toter Worker wird abgemeldet OHNE Join: dieser Ruf kommt
+    /// im `pipeline_beendet`-Fall aus dem Worker selbst (Selbst-Join wäre
+    /// eine Sackgasse; in den übrigen Fällen hat `stop` schon verbunden).
+    /// Emitted den `wartend`-State-Event selbst.
+    pub fn wieder_wartend(&self) {
+        let mut platz = self.platz.lock().unwrap();
+        let argv = platz
+            .aktiv
+            .as_ref()
+            .map(|a| a.argv.clone())
+            .or_else(|| platz.wartend.as_ref().map(|w| w.argv.clone()))
+            .unwrap_or_default();
+        platz.aktiv = None;
+        platz.wartend = Some(WartendAuftrag { params: None, argv });
+        drop(platz);
+        emit(Event::State {
+            state: StreamState::Wartend,
+            running: true,
+            uptime_s: 0.0,
+        });
+    }
+
+    /// Direktmodus: die Parameter des wartenden Streams — die EINE Quelle
+    /// für die Aushandlung (`direct::Sitzung::anbieten`). `None` = nichts
+    /// wartet.
+    pub fn wartende_direct_params(&self) -> Option<StartParams> {
+        let platz = self.platz.lock().unwrap();
+        platz.wartend.as_ref().and_then(|w| w.params.clone())
     }
 
     /// Stop the active stream (idempotent). Blocks until the worker has finished
     /// flushing + closing the RTMP connection.
     pub fn stop(&self) -> Result<()> {
-        let active = self.active.lock().unwrap().take();
+        let mut platz = self.platz.lock().unwrap();
+        // Der Wartezustand stirbt mit dem Stream — die wartenden Parameter
+        // dürfen einen `stop` NICHT überleben (anders als
+        // [`wieder_wartend`]): danach bedient kein `direct_offer` mehr einen
+        // toten Stream (Zwilling win `stop`). Der mac-Sidecar bleibt
+        // trotzdem warm — statt des wartend-Reports meldet `state` danach
+        // schlicht „idle", so wie nach jedem anderen Stop auch.
+        platz.wartend = None;
+        let active = platz.aktiv.take();
+        drop(platz);
         if let Some(active) = active {
             let _ = active.stop_tx.send(());
             let _ = active.worker.join();
@@ -221,11 +390,22 @@ impl StreamController {
     }
 
     pub fn state(&self) -> StreamSnapshot {
-        let mut guard = self.active.lock().unwrap();
+        let mut platz = self.platz.lock().unwrap();
         // Auch hier einsammeln: sonst meldet die Auskunft einen toten Strom
         // als „starting", bis jemand von Hand stoppt.
-        reap_finished(&mut guard);
-        match guard.as_ref() {
+        reap_finished(&mut platz.aktiv);
+        // Der Wartezustand geht vor: hier läuft kein Worker, aber der
+        // Controller ist als bereit gemeldet (`start(direct:true)`).
+        if let Some(auftrag) = &platz.wartend {
+            return StreamSnapshot {
+                running: true,
+                state: "wartend".to_string(),
+                fps: None,
+                uptime_s: Some(0.0),
+                argv_redacted: Some(auftrag.argv.clone()),
+            };
+        }
+        match platz.aktiv.as_ref() {
             Some(a) => {
                 let running = a.shared.running.load(Ordering::SeqCst);
                 let live = a.shared.live.load(Ordering::SeqCst);

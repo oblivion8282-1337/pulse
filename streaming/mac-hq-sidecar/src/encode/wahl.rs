@@ -106,9 +106,10 @@ pub(crate) fn videotoolbox_encoder(codec: &str) -> &'static str {
     }
 }
 
-/// FLV for RTMP/RTMPS, MPEG-TS for SRT, WHIP for http(s) — but WHIP does NOT
-/// go through ffmpeg's own muxer here (s. `Ausgabe::Whip` in `mod.rs`); the
-/// hint only decides the branch in `VideoEncoder::start`.
+/// FLV for RTMP/RTMPS, MPEG-TS for SRT, WHIP for http(s), `direct` for
+/// `direct://` — but NEITHER WebRTC path goes through ffmpeg's own muxer here
+/// (s. `Ausgabe::Whip`/`Ausgabe::Direct` in `mod.rs`); the hint only decides
+/// the branch in `VideoEncoder::start`.
 pub(super) fn url_format_hint(target: &str) -> Option<&'static str> {
     let lower = target.to_ascii_lowercase();
     if lower.starts_with("rtmp://") || lower.starts_with("rtmps://") {
@@ -117,6 +118,8 @@ pub(super) fn url_format_hint(target: &str) -> Option<&'static str> {
         Some("mpegts")
     } else if lower.starts_with("http://") || lower.starts_with("https://") {
         Some("whip")
+    } else if lower.starts_with("direct://") {
+        Some("direct")
     } else {
         None
     }
