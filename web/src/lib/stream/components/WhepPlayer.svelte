@@ -25,6 +25,7 @@
   import { acquireWakeLock } from '$lib/platform/wakeLock';
   import StreamChatOverlay from './StreamChatOverlay.svelte';
   import StreamChatInlineInput from './StreamChatInlineInput.svelte';
+  import StreamReactions from './StreamReactions.svelte';
   import StreamChatPanel from './StreamChatPanel.svelte';
   import TileShell from './TileShell.svelte';
   import RemoteRequestButton from '$lib/remote/components/RemoteRequestButton.svelte';
@@ -424,6 +425,11 @@
         <p class="text-sm">{m.whep_player_stream_load_failed()}</p>
         {#if detail}<p class="max-w-sm text-center text-2xs text-destructive/70">{detail}</p>{/if}
       </div>
+    {:else if phase === 'playing'}
+      <!-- Stream-Reactions (IDEAS.md §4): Burst-Ebene + Schnellwahl, nur am
+           lebenden Stream (die Platzhalter-Flaechen oben haben damit nichts
+           zu tun). -->
+      <StreamReactions {channelId} />
     {/if}
   {/snippet}
   {#snippet controlsExtra()}

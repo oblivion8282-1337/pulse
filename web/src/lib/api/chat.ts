@@ -705,5 +705,15 @@ export const chatApi = {
       `/channels/${channelId}/watch-party/${partyId}/chat/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`,
       { method: 'PUT' }
     );
+  },
+
+  /** Fire a quick emoji at the live stream. Fire-and-forget: broadcast only,
+   *  no storage — der Burst auf allen Tiles des Channels ist der ganze Effekt
+   *  (Stream-Reactions, IDEAS.md §4). */
+  sendStreamReaction(channelId: string, emoji: string): Promise<{ emoji: string }> {
+    return request<{ emoji: string }>(
+      `/channels/${channelId}/stream/reactions/${encodeURIComponent(emoji)}/@me`,
+      { method: 'PUT' }
+    );
   }
 };
