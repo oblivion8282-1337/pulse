@@ -49,12 +49,38 @@ INTERNE_NETZE = (
 )
 
 
+def _eingebettetes_v4(adr: ipaddress._BaseAddress) -> ipaddress._BaseAddress:
+    """Holt die IPv4-Adresse heraus, die in einer IPv6-Adresse steckt.
+
+    **Warum das sein muss:** ``IPv6Address in IPv4Network`` ist in Python immer
+    ``False`` — kein Fehler, einfach kein Treffer. Die IPv4-Einträge in
+    ``INTERNE_NETZE`` greifen deshalb bei ``::ffff:169.254.169.254`` nicht, und
+    die Sperre wäre mit einem AAAA-Eintrag zu umgehen: der Betreiber einer
+    genehmigten Instanz kontrolliert seine DNS-Zone auch nach der Genehmigung,
+    ``pruefe_dns`` fragt mit ``AF_UNSPEC`` (also auch AAAA), und die erste
+    Adresse wird für alle folgenden Schritte gepinnt. Der TCP-Schritt gibt
+    „offen/kein_durchkommen" im Befund zurück — damit wäre die Diagnose ein
+    Port-Orakel ins Cloud-interne Netz.
+
+    Drei Formen betten IPv4 ein, alle drei werden ausgepackt; die Sperrliste
+    darunter braucht dadurch keine v6-Spiegelbilder ihrer v4-Einträge.
+    """
+    if isinstance(adr, ipaddress.IPv6Address):
+        for eingebettet in (adr.ipv4_mapped, adr.sixtofour, adr.teredo):
+            if isinstance(eingebettet, tuple):  # teredo -> (server, client)
+                eingebettet = eingebettet[0]
+            if eingebettet is not None:
+                return eingebettet
+    return adr
+
+
 def ist_oeffentlich(roh: str) -> bool:
     """True nur für global routbare Adressen."""
     try:
         adr = ipaddress.ip_address(roh)
     except ValueError:
         return False
+    adr = _eingebettetes_v4(adr)
     return not any(adr in netz for netz in INTERNE_NETZE)
 
 
