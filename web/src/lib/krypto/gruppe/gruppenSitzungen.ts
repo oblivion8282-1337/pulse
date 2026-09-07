@@ -150,8 +150,20 @@ export async function gruppenempfangSichern(
  * Ueberschreiben setzte sie auf den Anfangsstand zurueck; das wuerde zwar
  * nichts unlesbar machen (der Ratchet laeuft von dort erneut vorwaerts),
  * aber jede seither gelesene Nachricht ein zweites Mal entschluesselbar
- * machen — und damit die Wiedereinspiel-Erkennung ueber den
- * Nachrichtenzaehler aushebeln, die der Krypto-Kern ausdruecklich anbietet.
+ * machen.
+ *
+ * **Der Zaehler faengt das heute NICHT ab.** Der Krypto-Kern gibt ihn zwar
+ * heraus (`Gruppennachricht::zaehler`), aber `oeffneGruppennachricht` nimmt
+ * nur den Klartext und wirft ihn weg — im ganzen Klienten wird er nirgends
+ * gelesen. Die einzige Sperre gegen eine doppelt angezeigte Nachricht ist
+ * `verlaufSchonAbgelegt` ueber die vom SERVER vergebene Zustellungs-Kennung;
+ * derselbe Geheimtext unter einer neuen Kennung kaeme also durch. Hier stand
+ * bis zum 2026-09-07 das Gegenteil („die Wiedereinspiel-Erkennung ueber den
+ * Nachrichtenzaehler, die der Krypto-Kern ausdruecklich anbietet") — angeboten
+ * ist sie, benutzt nicht, und dieser Absatz begruendete mit ihr sogar das
+ * Nicht-Ueberschreiben. Das Nicht-Ueberschreiben bleibt trotzdem richtig, aus
+ * dem ersten Grund oben; es ist nur nicht die zweite Haelfte eines Schutzes,
+ * den es gibt.
  */
 export async function gruppenempfangAnlegenFallsNeu(
   kanalId: string,

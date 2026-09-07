@@ -211,14 +211,22 @@ async def _require_owner(session, user, device: Device) -> None:
     Der Verwaltung bleibt, was ihr Raum betrifft: übernehmen darf sie nach den
     Kanalrechten, und eine laufende Sitzung beenden.
 
-    **Der Fall, den das offenlässt**, ist geprüft und trägt: verlässt der
-    Besitzer die Community oder wird er gebannt, bleibt seine Eintragung stehen
-    (weder ``leave_guild`` noch ``kick_member`` noch ``ban_member`` räumen
-    Geräte — nur die Kontolöschung tut es, ``user_purge``). Der Eintrag ist dann
-    aber **tot**: ohne Verbindung meldet sich das Gerät nie wieder an, steht
-    dauerhaft auf „offline", und laufende Sitzungen hat ``remote_guard``
-    ohnehin sofort beendet. Ein toter Listeneintrag ist der geringere Preis
-    dafür, dass niemand sonst über einen fremden Rechner verfügt.
+    **Verlässt der Besitzer die Community oder wird er gebannt, räumt der
+    Server selbst**: ``_after_member_removed`` (``routes/guilds.py``) ruft
+    ``remove_devices_for_member``, und es hängt an allen drei Wegen — Austritt,
+    Rauswurf (beide über ``_remove_guild_member``) und Bann (``routes/bans.py``).
+    Hier stand bis zum 2026-09-07 das Gegenteil („weder ``leave_guild`` noch
+    ``kick_member`` noch ``ban_member`` räumen Geräte — nur die Kontolöschung
+    tut es"), und darauf stützte sich die Rechtfertigung, ein zurückbleibender
+    Eintrag sei ja tot und damit der geringere Preis. Die Rechtfertigung
+    brauchte es gar nicht; wer die Rechtefrage künftig neu bewertet, sollte
+    nicht von einem Aufräumproblem ausgehen, das es nicht gibt.
+
+    **Der Fall, der wirklich offen bleibt:** der Besitzer bleibt Mitglied und
+    verliert nur die Sicht auf den Kanal (Überschreibung ohne
+    ``VIEW_CHANNEL``). Dann räumt niemand, weil die Mitgliedschaft besteht —
+    der Eintrag bleibt sichtbar, und entfernen kann ihn nur der Besitzer, der
+    den Kanal nicht mehr sieht.
     """
     if device.owner_user_id != user.id:
         raise HTTPException(

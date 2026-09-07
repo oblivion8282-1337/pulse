@@ -32,9 +32,16 @@ use crate::fehler::KryptoFehler;
 /// Was beim Entschluesseln herauskommt.
 pub struct Gruppennachricht {
     pub klartext: Vec<u8>,
-    /// Laufende Nummer innerhalb der Sitzung. Die Anwendungsschicht erkennt
-    /// daran ein Wiedereinspielen — dieselbe Nummer zweimal ist ein Angriff
-    /// oder ein Fehler, nie normaler Betrieb.
+    /// Laufende Nummer innerhalb der Sitzung. Dieselbe Nummer zweimal ist ein
+    /// Angriff oder ein Fehler, nie normaler Betrieb — die Anwendungsschicht
+    /// KOENNTE ein Wiedereinspielen daran erkennen.
+    ///
+    /// **Sie tut es bis heute nicht** (Stand 2026-09-07): der Klient nimmt aus
+    /// `entschluesseln` nur den Klartext, der Zaehler wird nirgends gelesen.
+    /// Hier stand vorher „erkennt daran", also eine Zusicherung ueber eine
+    /// fremde Schicht, die diese Schicht nie eingeloest hat. Wer sie einloest,
+    /// braucht je Sitzung einen dauerhaft gemerkten Hoechststand — ein
+    /// Neustart darf die Erkennung nicht zuruecksetzen.
     pub zaehler: u32,
 }
 
