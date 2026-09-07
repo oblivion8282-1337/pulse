@@ -75,13 +75,26 @@ export type RoleSnapshot = {
 
 /** Rollen-Komparator: aufsteigend nach Position, @everyone zuerst — die
  *  Anwendungsreihenfolge des Servers. Auch Anzeige-Sortierungen greifen darauf
- *  zurück (`herkunft.ts`, `ziele.ts` dort absteigend). */
-export function vergleichRollen<T extends { is_everyone: boolean; position: number }>(
-  a: T,
-  b: T
-): number {
+ *  zurück (`herkunft.ts`, `ziele.ts` dort absteigend).
+ *
+ *  **Bei gleicher Position entscheidet die Kennung**, wie beim Server
+ *  (`permission_resolver.py`: `key=(not r.is_everyone, r.position, r.id)`).
+ *  Zwei Rollen dürfen sich eine Position teilen; ohne diesen dritten Schlüssel
+ *  hing die Reihenfolge hier an der Eingangsreihenfolge von `ctx.roles`, und
+ *  bei gegenläufigen Kanal-Überschreibungen (eine erlaubt VIEW_CHANNEL, die
+ *  andere verbietet es) rechnete die Oberfläche etwas anderes aus als der
+ *  Server — ein sichtbarer Kanal ohne Zugriff, oder umgekehrt.
+ *
+ *  Verglichen wird als Zahl, nicht als Zeichenkette: Snowflakes sind nicht
+ *  gleich lang, und `"9" > "10"` gilt nur alphabetisch. */
+export function vergleichRollen<
+  T extends { id: string; is_everyone: boolean; position: number }
+>(a: T, b: T): number {
   if (a.is_everyone !== b.is_everyone) return a.is_everyone ? -1 : 1;
-  return a.position - b.position;
+  if (a.position !== b.position) return a.position - b.position;
+  const ka = BigInt(a.id);
+  const kb = BigInt(b.id);
+  return ka < kb ? -1 : ka > kb ? 1 : 0;
 }
 
 export type OverwriteSnapshot = {
