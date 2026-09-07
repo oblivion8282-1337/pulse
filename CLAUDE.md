@@ -193,11 +193,22 @@ angeschlossen wird sie von den Schichten darum herum, und die stehen:
 `routes/{schluessel,postfach,postfach_abholen}.py` am Server,
 `web/src/lib/krypto/**` und `web/src/lib/verlauf/**` im Klienten.
 
-**Die Schalter sind AUS und bleiben es**, bis zwei echte Geräte nachweislich
-miteinander sprechen — eine verschlüsselte Nachricht, die der Empfänger nicht
-öffnen kann, ist endgültig weg.
+**Die Schalter sind seit `0d93cd43` AN** („alle vier Schalter an —
+Verschluesselung ist der Normalweg"): `E2E_DMS_ENABLED`,
+`PRIVATE_GRUPPEN_ENABLED`, `GERAETE_KOPPLUNG_ENABLED`, `SICHERUNG_ENABLED`,
+alle in `web/src/lib/krypto/schalter.ts`. Hier stand bis zum 2026-09-07 „Die
+Schalter sind AUS und bleiben es" — die Bedingung (zwei echte Geräte sprechen
+nachweislich miteinander) ist eingelöst, die Zeile wurde nur nicht nachgezogen.
 
-**Es sind drei, und sie heissen nicht, wie diese Datei lange behauptet hat.**
+**Warum das mehr ist als eine veraltete Notiz:** Der Satz sagte, ein Fehler im
+verschlüsselten Weg könne niemanden treffen. Der Bughunt vom 2026-09-07 fand
+dort zwei, die Nachrichten endgültig verlieren (Lösch-Frame ohne
+Autorenprüfung, Rückfallschlüssel des abgemeldeten Kontos) — beide im Betrieb
+wirksam, und beide wären unter der alten Annahme als theoretisch eingestuft
+worden. Wer einen Fund gegen diesen Bereich bewertet, prüft den Schalterstand
+im Code, nicht hier.
+
+**Es sind vier, und sie heissen nicht, wie diese Datei lange behauptet hat.**
 `e2e_dms_enabled` existiert **nur als Planprosa**, im Code gibt es ihn nicht;
 gemeint ist `E2E_DMS_ENABLED` (`web/src/lib/krypto/schalter.ts`), und der gilt
 **nur für DMs**. Für Gruppen kam am 2026-08-29 `PRIVATE_GRUPPEN_ENABLED`
@@ -207,6 +218,14 @@ Klienten **nirgends** (weder `/capabilities` noch der `ready`-Rahmen führen
 ihn), er wäre also erst am 403 erkennbar. Ein Schalter, den man erst am
 Fehlschlag bemerkt, kann keinen Serveraufruf verhindern — und genau das ist
 seine Aufgabe.
+
+Die anderen beiden schalten je einen eigenen Baustein:
+`GERAETE_KOPPLUNG_ENABLED` den Zwei-Geräte-Weg (nachgewiesen in
+`tests/e2e/e2e-kopplung.spec.ts`, samt Gegenprobe, dass der Server den Verlauf
+nie im Klartext sieht) und `SICHERUNG_ENABLED` die Spiegelung des
+verschlüsselten Verlaufs ins eigene Google-Laufwerk (`lib/sicherung`, an seit
+2026-08-31). Der letzte ist der einzige ohne Verlust-Fall dahinter: die lokale
+Verlaufs-Datenbank steht unabhängig, die Sicherung wäre nur die zweite Kopie.
 
 **Die Koexistenz-Regel ist seit dem 2026-08-29 überholt, der CODE setzt aber
 noch die alte um.** Beschlossen ist: **ohne App-Gerät keine
