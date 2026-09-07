@@ -2,6 +2,22 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-07.3",
+      "date": "2026-09-07",
+      "style": "Sachlich",
+      "title": "Fehlerbehebungen",
+      "intro": "Ein Durchgang durch den Code hat mehrere Fehler zutage gefördert — vor allem bei den verschlüsselten Direktnachrichten, wo in seltenen Fällen Nachrichten verloren gingen. Alle sind behoben.",
+      "items": [
+        "Nachrichten an ein Gerät, das sich zwischendurch ab- und wieder angemeldet hatte, liessen sich nicht mehr öffnen und liefen still ab. Sie kommen jetzt an.",
+        "Eine empfangene Nachricht konnte doppelt erscheinen, eine davon mit dem falschen Absender darunter.",
+        "Das Löschen einer Nachricht wirkt jetzt ausschliesslich auf die Nachrichten dessen, der sie geschrieben hat.",
+        "Nach einem Wechsel zwischen Servern galten weiter die Qualitätsgrenzen des zuvor besuchten Servers — Bildrate, Auflösung und Bitrate der Übertragung wurden mit den falschen Werten berechnet.",
+        "Ein aus einem Sprachkanal entfernter Gast wird jetzt sofort getrennt. Bisher liefen Ton und Bild noch bis zu eine halbe Minute weiter, obwohl er in der Teilnehmerliste schon verschwunden war.",
+        "In der Rechteanzeige konnten Kanäle sichtbar sein, auf die der Server den Zugriff verweigert — und umgekehrt. Das betraf Mitglieder mit mehreren gleichrangigen Rollen."
+      ],
+      "outro": "Dazu mehrere Korrekturen, die man nicht sieht: geschlossene Sicherheitslücken und Fehlerfälle, die bisher einen Serverfehler statt einer Meldung ergaben."
+    },
+    {
       "id": "2026-09-07.2",
       "date": "2026-09-07",
       "style": "Sachlich",
