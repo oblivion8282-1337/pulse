@@ -302,14 +302,21 @@ export function verlaufSchonAbgelegt(kanalId: string, nachrichtId: string): Prom
 /**
  * Die lokale ID des Satzes, der `kryptoId` als Absender-ID fuehrt — fuer den
  * Loesch-Frame (`krypto/loeschZiel.ts`): die Anzeige kennt nur die geladenen
- * Nachrichten, der Verlauf auch die aelteren. Wirft nie; `null` heisst „kein
- * solcher Satz auf diesem Geraet".
+ * Nachrichten, der Verlauf auch die aelteren. `autorId` muss der Absender des
+ * Loesch-Frames sein: es gilt dieselbe Schranke wie in der Anzeige, sonst
+ * loeschte ein Frame ueber den Verlauf genau das, was er ueber die geladene
+ * Liste nicht darf. Wirft nie; `null` heisst „kein solcher Satz auf diesem
+ * Geraet".
  */
-export function verlaufLokaleIdFuerKryptoId(kanalId: string, kryptoId: string): Promise<string | null> {
+export function verlaufLokaleIdFuerKryptoId(
+  kanalId: string,
+  kryptoId: string,
+  autorId: string
+): Promise<string | null> {
   if (!istLokalerKanal(kanalId)) return Promise.resolve(null);
   const kontoId = aktuellesKonto();
   if (kontoId === null) return Promise.resolve(null);
-  return verlaufSatzIdFuerKryptoId(kanalId, kryptoId, kontoId).catch((err) => {
+  return verlaufSatzIdFuerKryptoId(kanalId, kryptoId, kontoId, autorId).catch((err) => {
     verlaufZustand.melde(err);
     return null;
   });

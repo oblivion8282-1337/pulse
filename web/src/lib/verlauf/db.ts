@@ -269,7 +269,8 @@ export function verlaufSatzAnhangIds(
 export function verlaufSatzIdFuerKryptoId(
   kanalId: string,
   kryptoId: string,
-  kontoId: string
+  kontoId: string,
+  autorId: string
 ): Promise<string | null> {
   const bereich = IDBKeyRange.bound(
     sortierSchluessel(kanalId, ''),
@@ -287,7 +288,11 @@ export function verlaufSatzIdFuerKryptoId(
             return;
           }
           const satz = cursor.value as Satz;
-          if (satz.kryptoId === kryptoId && gehoertZuKonto(satz, kontoId)) {
+          if (
+            satz.kryptoId === kryptoId &&
+            satz.autorId === autorId &&
+            gehoertZuKonto(satz, kontoId)
+          ) {
             resolve(satz.nachrichtId);
             return;
           }
