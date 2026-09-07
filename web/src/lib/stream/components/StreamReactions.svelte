@@ -19,7 +19,7 @@
   import { useGatewayListener } from '$lib/ws/useGatewayListener.svelte';
   import { chatApi } from '$lib/api/chat';
 
-  let { channelId, live = true }: { channelId: string; live?: boolean } = $props();
+  let { channelId }: { channelId: string } = $props();
 
   /** Twitch-konventionelle Schnellwahl — bewusst fix und klein; Custom-Emojis
    *  pro Guild sind ein eigener IDEAS.md-Punkt. */
@@ -69,7 +69,6 @@
   {/each}
 </div>
 
-{#if live}
   <div
     class="absolute right-2 bottom-2 z-20 flex items-center gap-0.5 rounded-full bg-black/45 px-1.5 py-1 backdrop-blur-sm"
     data-testid="stream-reactions-bar"
@@ -85,4 +84,3 @@
       </button>
     {/each}
   </div>
-{/if}
