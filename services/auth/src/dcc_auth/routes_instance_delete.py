@@ -27,6 +27,8 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import delete, update
 
+from dcc_shared.snowflake import kennung_aus_text
+
 from dcc_auth.db import SessionDep
 from dcc_auth.models_instances import (
     InstanceApplication,
@@ -59,12 +61,9 @@ async def delete_my_instance(
     """
     user = await _require_user(request, db)
 
-    try:
-        iid = int(instance_id)
-    except ValueError as exc:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden"
-        ) from exc
+    iid = kennung_aus_text(instance_id)
+    if iid is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
 
     inst = await db.get(RegisteredInstance, iid, with_for_update=True)
     if inst is None or inst.registered_by != user.id or inst.status == "deleted":

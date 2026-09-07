@@ -18,6 +18,8 @@ from slowapi.util import get_remote_address
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
+from dcc_shared.snowflake import INT64_MAX, INT64_MIN
+
 from dcc_auth.browser_sessions import (
     COOKIE_NAME,
     clear_session_cookie,
@@ -870,9 +872,16 @@ async def batch_users(
     int_ids: list[int] = []
     for s in raw_ids:
         try:
-            int_ids.append(int(s))
+            kennung = int(s)
         except ValueError:
-            pass  # skip non-numeric ids silently
+            continue  # skip non-numeric ids silently
+        # Ausserhalb von BIGINT wird die Kennung nicht bloss nichts finden:
+        # asyncpg kann den Wert an die Spalte gar nicht erst binden und wirft,
+        # die Route antwortet dann 500 statt einer leeren Liste. Eine zu grosse
+        # Zahl ist derselbe Fall wie eine nicht-numerische — sie kann kein
+        # Konto bezeichnen, also wird sie genauso still uebergangen.
+        if INT64_MIN <= kennung <= INT64_MAX:
+            int_ids.append(kennung)
     if not int_ids:
         return []
     stmt = select(User).where(User.id.in_(int_ids))

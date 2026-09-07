@@ -20,6 +20,8 @@ from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from dcc_shared.snowflake import kennung_aus_text
+
 from dcc_auth.bootstrap import (
     bootstrap_redeemed,
     drop_unredeemed_tokens,
@@ -326,12 +328,9 @@ async def generate_env_file(
     settings = get_settings()
     await _check_rate(request, "bootstrap_mint", settings.rate_limit_bootstrap_mint)
 
-    try:
-        iid = int(instance_id)
-    except ValueError:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden"
-        ) from None
+    iid = kennung_aus_text(instance_id)
+    if iid is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
 
     inst = await db.get(RegisteredInstance, iid, with_for_update=True)
     if inst is None or inst.registered_by != user.id or inst.status == "deleted":
@@ -434,12 +433,9 @@ async def mint_bootstrap_token(
     settings = get_settings()
     await _check_rate(request, "bootstrap_mint", settings.rate_limit_bootstrap_mint)
 
-    try:
-        iid = int(instance_id)
-    except ValueError:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden"
-        ) from None
+    iid = kennung_aus_text(instance_id)
+    if iid is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
 
     inst = await db.get(RegisteredInstance, iid)
     if inst is None or inst.registered_by != user.id or inst.status == "deleted":

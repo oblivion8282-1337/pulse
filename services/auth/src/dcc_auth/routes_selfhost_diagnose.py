@@ -31,6 +31,8 @@ import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel
 
+from dcc_shared.snowflake import kennung_aus_text
+
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.diagnose_texte import SCHRITTE, container_name, erklaerung, sprache_aus_header, titel
@@ -93,10 +95,9 @@ async def _instanz_oder_404(
     client_secret: str | None,
 ) -> RegisteredInstance:
     """Holt die Instanz und prüft die Berechtigung. Wirft 404, nie 403."""
-    try:
-        iid = int(instance_id)
-    except ValueError as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not found") from exc
+    iid = kennung_aus_text(instance_id)
+    if iid is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not found")
     inst = await db.get(RegisteredInstance, iid)
     if inst is None or inst.status != "active":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not found")

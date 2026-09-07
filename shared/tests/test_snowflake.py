@@ -8,9 +8,12 @@ import pytest
 
 from dcc_shared.snowflake import (
     DEFAULT_EPOCH_MS,
+    INT64_MAX,
+    INT64_MIN,
     MAX_WORKER_ID,
     Snowflake,
     SnowflakeGenerator,
+    kennung_aus_text,
 )
 
 
@@ -95,3 +98,33 @@ def test_default_epoch_is_after_year_2026() -> None:
 
     now_ms = int(time.time() * 1000)
     assert DEFAULT_EPOCH_MS <= now_ms
+
+
+# ---------------------------------------------------------------------------
+# kennung_aus_text — die Schranke, die zehn Routen im auth-svc gefehlt hat
+# ---------------------------------------------------------------------------
+
+
+def test_kennung_aus_text_nimmt_gueltige_kennungen() -> None:
+    assert kennung_aus_text("0") == 0
+    assert kennung_aus_text("7100000000000000000") == 7100000000000000000
+    assert kennung_aus_text(str(INT64_MAX)) == INT64_MAX
+    assert kennung_aus_text(str(INT64_MIN)) == INT64_MIN
+
+
+def test_kennung_aus_text_weist_nicht_numerisches_ab() -> None:
+    for roh in ("", "  ", "abc", "12a", "1.5", "0x10", None):
+        assert kennung_aus_text(roh) is None, roh  # type: ignore[arg-type]
+
+
+def test_kennung_aus_text_weist_ausserhalb_von_bigint_ab() -> None:
+    """Der eigentliche Grund fuer die Funktion.
+
+    Eine Route, die nur ``ValueError`` abfaengt, sieht geprueft aus und faellt
+    hier trotzdem um: der Wert ist eine gueltige Zahl, nur keine, die in eine
+    BIGINT-Spalte passt — asyncpg kann sie nicht binden und wirft, die Route
+    antwortet 500 statt einer Eingabemeldung.
+    """
+    assert kennung_aus_text("99999999999999999999999") is None
+    assert kennung_aus_text(str(INT64_MAX + 1)) is None
+    assert kennung_aus_text(str(INT64_MIN - 1)) is None

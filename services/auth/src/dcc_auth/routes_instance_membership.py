@@ -20,6 +20,8 @@ from pydantic import BaseModel, Field
 
 from dcc_auth.db import SessionDep
 from dcc_auth.models_instances import RegisteredInstance, UserInstanceMembership
+from dcc_shared.snowflake import kennung_aus_text
+
 from dcc_auth.routes import _check_rate
 from dcc_auth.routes_instance_applications import _require_user
 
@@ -71,15 +73,13 @@ async def join_instance_membership(
     # beschriebenen Wege etwas vorweg. Der Konto-Eimer ist der wichtigere:
     # Kennungen durchprobieren kostet ein Konto, nicht eine IP.
     await _check_rate(request, "instance_membership_join", "30/hour", account=str(user.id))
-    try:
-        iid = int(instance_id)
-    except ValueError:
-        # ``from None`` an allen diesen Stellen: eine nicht-numerische ID ist
-        # erwartetes Verhalten, kein Fehlerfall — ein angehaengter Traceback
-        # waere nur Log-Laerm.
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden"
-        ) from None
+    # Eine unbrauchbare Kennung ist erwartetes Verhalten, kein Fehlerfall —
+    # deshalb kein Traceback, der nur Log-Laerm waere. ``kennung_aus_text``
+    # deckt beide Formen ab: nicht-numerisch UND ausserhalb von BIGINT (die
+    # zweite brachte sonst den Datenbanktreiber als 500er zu Fall).
+    iid = kennung_aus_text(instance_id)
+    if iid is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
     inst = await db.get(RegisteredInstance, iid)
     if inst is None or inst.status == "deleted":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
@@ -109,12 +109,9 @@ async def leave_instance_membership(
     Idempotent: keine Membership → 204.
     """
     user = await _require_user(request, db)
-    try:
-        iid = int(instance_id)
-    except ValueError:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden"
-        ) from None
+    iid = kennung_aus_text(instance_id)
+    if iid is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
     existing = await db.get(UserInstanceMembership, (user.id, iid))
     if existing is None:
         return
@@ -141,12 +138,9 @@ async def update_instance_preferences(
     auf allen Geräten, nicht nur lokal. Partiell: nur gesetzte Felder ändern.
     404, wenn der User keine Membership auf der Instanz hat."""
     user = await _require_user(request, db)
-    try:
-        iid = int(instance_id)
-    except ValueError:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden"
-        ) from None
+    iid = kennung_aus_text(instance_id)
+    if iid is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
     membership = await db.get(UserInstanceMembership, (user.id, iid))
     if membership is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
