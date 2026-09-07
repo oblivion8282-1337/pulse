@@ -15,6 +15,7 @@
   import { VolumeBoost } from '$lib/stream/volumeBoost';
   import StreamChatOverlay from '$lib/stream/components/StreamChatOverlay.svelte';
   import StreamChatInlineInput from '$lib/stream/components/StreamChatInlineInput.svelte';
+  import StreamReactions from '$lib/stream/components/StreamReactions.svelte';
   import StreamChatPanel from '$lib/stream/components/StreamChatPanel.svelte';
   import ScreenShareDocPipView from '$lib/stream/components/ScreenShareDocPipView.svelte';
   import TileShell from '$lib/stream/components/TileShell.svelte';
@@ -320,6 +321,13 @@
       <!-- hidden audio element for screen-share audio track -->
       <!-- svelte-ignore a11y_media_has_caption -->
       <audio bind:this={audioEl} autoplay style="display:none"></audio>
+    {/snippet}
+    {#snippet overlay()}
+      {#if streamerId}
+        <!-- Stream-Reactions (IDEAS.md §4): Burst-Ebene + Schnellwahl — nur
+             mit bekanntem Gastgeber, sonst gibt es keinen Stream zum Reagieren. -->
+        <StreamReactions {channelId} />
+      {/if}
     {/snippet}
     {#snippet chatPanel()}
       {#if streamerId}

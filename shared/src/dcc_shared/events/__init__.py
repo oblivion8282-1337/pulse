@@ -87,6 +87,8 @@ from dcc_shared.events.chat import (
     ReactionRemoveEvent,
     StreamChatMessageEvent,
     StreamChatMessagePayload,
+    StreamReactionData,
+    StreamReactionEvent,
     TypingEvent,
     WatchChatMessageEvent,
     WatchChatReactionData,
@@ -161,6 +163,7 @@ EVENT_REGISTRY: dict[str, type[_EventBase]] = {
     "reaction_add": ReactionAddEvent,
     "reaction_remove": ReactionRemoveEvent,
     "stream_chat_message": StreamChatMessageEvent,
+    "stream_reaction": StreamReactionEvent,
     "watch_chat_message": WatchChatMessageEvent,
     "watch_chat_reaction": WatchChatReactionEvent,
     # ---- channel-bump / dm-bump (cross-channel notification)
@@ -253,6 +256,8 @@ __all__ = [
     "WatchChatMessageEvent",
     "WatchChatReactionData",
     "WatchChatReactionEvent",
+    "StreamReactionData",
+    "StreamReactionEvent",
     # friends
     "ApplicationDecidedEvent",
     "FriendRemovedEvent",

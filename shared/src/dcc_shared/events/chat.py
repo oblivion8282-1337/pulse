@@ -136,6 +136,23 @@ class WatchChatReactionEvent(_EventBase):
     data: WatchChatReactionData
 
 
+class StreamReactionData(_EventBase):
+    channel_id: str
+    user_id: str
+    emoji: str
+
+
+class StreamReactionEvent(_EventBase):
+    """``op="stream_reaction"`` — a single viewer fired a quick emoji at the
+    live stream. Fire-and-forget: nothing is stored, the payload exists only
+    to trigger the floating-burst overlay on the channel's stream tiles
+    (Twitch-style). Fanned out on the same per-channel pubsub as the
+    messages."""
+
+    op: Literal["stream_reaction"] = "stream_reaction"
+    data: StreamReactionData
+
+
 # ---- Cross-channel notifications (user:events / guild:events) --------------
 
 
