@@ -74,7 +74,11 @@ async def _session_alive(db: AsyncSession, sid: str | None, now: datetime) -> bo
 
 
 async def revoke_sessions(
-    db: AsyncSession, session_ids: list[str], *, now: datetime | None = None
+    db: AsyncSession,
+    session_ids: list[str],
+    *,
+    user_id: int | None = None,
+    now: datetime | None = None,
 ) -> int:
     """Die genannten Cookie-Zeilen entwerten. Committet nicht.
 
@@ -82,16 +86,28 @@ async def revoke_sessions(
     Sicherheitsentscheidung, kein Ablauf. ``validate_session`` weist eine
     widerrufene Zeile sofort ab, und ``/session/renew`` erbt ihren
     Anmeldekontext (acr/amr) nicht mehr.
+
+    ``user_id`` engt den Widerruf auf ein Konto ein und **gehört überall dort
+    hin, wo die Kennung von aussen kommt**: eine Sitzungs-Kennung ist keine
+    Berechtigung, sie zu beenden. ``/session/renew`` liest sie roh aus dem
+    Cookie, während die Anmeldung am Bearer-Token hängt — ohne die Einengung
+    beendet ein Aufruf mit eigenem Token und fremder Kennung die fremde
+    Sitzung. Die Kennung ist eine uuid4 und wird von keiner Route ausgegeben,
+    der Weg dahin ist also schmal; die Prüfung kostet nichts und hängt nicht
+    davon ab, dass das so bleibt. Wo die Kennungen aus einer bereits auf das
+    Konto gefilterten Abfrage stammen (``revoke_sessions_of_tokens``), ändert
+    sie nichts.
     """
     ids = [s for s in session_ids if s]
     if not ids:
         return 0
     at = now or datetime.now(UTC)
-    result = await db.execute(
-        sa_update(UserSession)
-        .where(UserSession.session_id.in_(ids), UserSession.revoked_at.is_(None))
-        .values(expires_at=at, revoked_at=at)
+    stmt = sa_update(UserSession).where(
+        UserSession.session_id.in_(ids), UserSession.revoked_at.is_(None)
     )
+    if user_id is not None:
+        stmt = stmt.where(UserSession.user_id == user_id)
+    result = await db.execute(stmt.values(expires_at=at, revoked_at=at))
     return result.rowcount or 0
 
 
