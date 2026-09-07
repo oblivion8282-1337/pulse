@@ -61,11 +61,15 @@
 </script>
 
 {#if bursten}
-  <!-- Burst-Ebene: rein dekorativ, keine Zeiger-Events. -->
+  <!-- Burst-Ebene: rein dekorativ, keine Zeiger-Events. Die Bursts steigen
+       ÜBER der Schnellwahl auf (bottom-24), die Schnellwahl selbst liegt
+       bei bottom-14 — IMMER über der Dock-Höhe, denn im Vollbild legt
+       TileShell die Steuerleiste als Overlay über den unteren Bildrand
+       (TileShell-Kopf: overlay=true) und würde bei bottom-2 überlagert. -->
   <div class="pointer-events-none absolute inset-0 z-10 overflow-hidden">
     {#each bursts as b (b.id)}
       <span
-        class="stream-reaction-float absolute bottom-14 text-3xl drop-shadow-md"
+        class="stream-reaction-float absolute bottom-24 text-3xl drop-shadow-md"
         style="left: {b.links}%; --drift: {b.drift}px"
       >
         {b.emoji}
@@ -75,7 +79,7 @@
 {/if}
 
 <div
-  class="absolute right-2 bottom-2 z-20 flex items-center gap-0.5 rounded-full bg-black/45 px-1.5 py-1 backdrop-blur-sm"
+  class="absolute right-2 bottom-14 z-20 flex items-center gap-0.5 rounded-full bg-black/45 px-1.5 py-1 backdrop-blur-sm"
   data-testid="stream-reactions-bar"
 >
   {#each SCHNELLWAHL as emoji (emoji)}
