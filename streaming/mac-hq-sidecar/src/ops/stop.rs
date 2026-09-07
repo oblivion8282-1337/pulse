@@ -24,6 +24,10 @@ pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
     // Fernsteuerungs-Sitzung, nicht am Stream. Idempotent — haelt dieser
     // Prozess nichts, tut der Ruf nichts.
     crate::ablage::beenden();
+    // Und eine evtl. stehende Direkt-Sitzung: deren PeerConnection gehört
+    // zum Prozess — ohne das bliebe der ICE-Socket offen. Idempotent gebaut:
+    // ohne Direktpfad ein No-op (s. `crate::direct`, Zwilling win `ops/stop`).
+    crate::direct::sitzung().beende_endgueltig();
     let ctrl = StreamController::singleton();
     if !ctrl.state().running {
         return Ok(json_to_map(json!({

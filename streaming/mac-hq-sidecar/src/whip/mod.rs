@@ -225,8 +225,10 @@ fn verbindung_ueberwachen(pc: &Arc<RTCPeerConnection>) {
 /// **Bis zum 2026-08-27 gab es das hier nicht** — `goog-remb` stand im
 /// gemeinsamen Angebot, ausgewertet hat es nur Windows. Bewusst KEINE
 /// automatische Anpassung der Datenrate; volle Begruendung am Zwilling im
-/// Linux-Sidecar.
-fn remb_auswerten(
+/// Linux-Sidecar. `pub(crate)` seit dem Direktpfad: dessen RTCP-Lesefaden
+/// (`direct/rueckkanal.rs`) ordnet REMB genauso ein — Zwilling
+/// `win-hq-sidecar/src/whip/mod.rs` (dort `pub(crate)` von Anfang an).
+pub(crate) fn remb_auswerten(
     wacht: &mut pulse_whip::bandbreite::BandbreitenWacht,
     bps: f32,
     ziel_kbps: u32,

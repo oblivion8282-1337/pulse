@@ -25,9 +25,13 @@
 //! | keyframe               | echt    | Vollbild auf Anforderung                  |
 //! | remote_input           | echt    | Fernsteuerung: Frames einspielen          |
 //! | remote_input_end       | echt    | Fernsteuerung: Sitzung schliessen         |
+//! | direct_offer           | echt    | Direktpfad — Angebot des Players beantworten |
+//! | direct_stop            | echt    | Direktpfad — zurück in den Wartezustand   |
 
 pub mod ablage;
 pub mod build_argv;
+pub mod direct_offer;
+pub mod direct_stop;
 pub mod gpu_info;
 pub mod health;
 pub mod keyframe;

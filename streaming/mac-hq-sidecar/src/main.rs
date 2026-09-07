@@ -16,7 +16,7 @@
 use std::io::{self, BufRead, Write};
 use std::thread;
 
-use pulse_mac_hq_sidecar::{ablage, dispatch, events, remote_input};
+use pulse_mac_hq_sidecar::{ablage, direct, dispatch, events, remote_input};
 
 fn main() -> anyhow::Result<()> {
     let (out_tx, out_rx) = std::sync::mpsc::channel::<serde_json::Value>();
@@ -125,14 +125,18 @@ fn main() -> anyhow::Result<()> {
     // kopiert hatte, ist still weg (s. `ablage::beenden_endgueltig`).
     ablage::beenden_endgueltig();
 
+    // Und eine evtl. stehende Direkt-Sitzung: deren PeerConnection gehört
+    // zum Prozess — ohne das bliebe der ICE-Socket bis zum Prozessende offen
+    // (Idempotenz: ohne Direktpfad ein No-op, s. `crate::direct`, Zwilling
+    // win `main.rs`).
+    direct::sitzung().beende_endgueltig();
+
     // EOF on stdin → let the writer thread finish. Drop the emitter-internal
     // sender clone first, otherwise the OnceLock holds it for the whole process
     // lifetime and `writer.join()` hangs forever.
     events::shutdown();
     drop(out_tx);
     let _ = writer.join();
-
-    // TODO(capture): once StreamController lands, stop any running stream here.
 
     Ok(())
 }

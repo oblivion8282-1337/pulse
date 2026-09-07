@@ -18,17 +18,54 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
     let profile_name = profile_label(&params);
     let profile = &BASELINE;
 
-    let channel = params
-        .get("channel")
-        .and_then(Value::as_object)
-        .context("channel ist Pflicht (Pulse streamt immer in einen Voice-Channel)")?;
-    let push_url = channel
-        .get("push_url")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .ok_or_else(|| {
-            anyhow!("channel.push_url ist Pflicht (media-svc reicht die rtmps://-URL durch)")
-        })?;
+    // Direktmodus (`"direct": true`): KEIN Server als Ziel — der Strom geht
+    // über eine eigene WebRTC-Verbindung zum Player, der als Angeboter
+    // `direct_offer` nachschiebt (Zwilling `win-hq-sidecar/src/ops/start.rs`).
+    //
+    // **Streng wie die Overrides**: nur ein echtes `true` zählt, ein
+    // `"true"`-String oder eine 1 sind Fehler beim Bauen des Requests — und
+    // der soll niemandem als „hat ja funktioniert" durchgehen.
+    //
+    // **Entscheidung direct + push_url: ABLEHNUNG, nicht Ignorieren.** Ein
+    // Request, der beides trägt, widerspricht sich; still das eine zu
+    // gewinnen wäre genau die Sorte Verwechslung, gegen die der Muxer-Guard
+    // in `open_output` gebaut ist. Stufe 1 ist exklusiv (Begruendung in
+    // `crate::direct`).
+    let direct = match params.get("direct") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(andere) => {
+            return Err(anyhow!("direct muss ein Boolean sein (war {andere})"));
+        }
+    };
+    let push_url = if direct {
+        if params
+            .get("channel")
+            .and_then(Value::as_object)
+            .is_some_and(|k| k.contains_key("push_url"))
+        {
+            return Err(anyhow!(
+                "direct:true und channel.push_url schließen sich aus — \
+                 entweder Server-Push oder Direktpfad"
+            ));
+        }
+        // Der Platzhalter-Kanal trägt nur die Diagnose-argv (`--out` zeigt
+        // auf `direct::SITZUNG_URL`); ein echter Kanal existiert im
+        // Direktmodus nicht.
+        crate::direct::SITZUNG_URL.to_string()
+    } else {
+        let channel = params
+            .get("channel")
+            .and_then(Value::as_object)
+            .context("channel ist Pflicht (Pulse streamt immer in einen Voice-Channel)")?;
+        channel
+            .get("push_url")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| {
+                anyhow!("channel.push_url ist Pflicht (media-svc reicht die rtmps://-URL durch)")
+            })?
+    };
 
     let capture_src = params.get("capture").and_then(Value::as_str).unwrap_or("display:1");
     let window_id = parse_window_id(capture_src);
@@ -102,9 +139,19 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
             enable_audio,
             audio_scope,
             av_offset_ms,
+            direct,
         },
         argv.clone(),
     )?;
+
+    // Die Warte-Buchung der Direkt-Sitzung — NACH dem Controller, dessen
+    // „läuft bereits“-Wache der strengere Doppelstart-Schutz ist. Prak-
+    // tisch unfehlbar (der Dispatch ist single-threaded), aber wer hier
+    // stillschweigend weiterliefe, würde einen `wartend`-Controller ohne
+    // Empfangsbereitschaft hinterlassen. (Zwilling: win `ops/start.rs`.)
+    if direct {
+        crate::direct::sitzung().bereite_vor()?;
+    }
 
     let mut out = Map::new();
     out.insert(
