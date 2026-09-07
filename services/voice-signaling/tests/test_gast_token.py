@@ -242,3 +242,18 @@ async def test_gast_token_in_letzter_minute_wird_abgewiesen(client, auth_signer)
         headers=auth(ticket),
     )
     assert r.status_code == 404
+
+
+def test_livekit_identitaet_eines_gastes_traegt_kein_user_praefix():
+    """Ein Rauswurf muss den Gast treffen, nicht ins Leere greifen.
+
+    ``token_gast.py`` gibt einem Gast seine Kennung unverändert als
+    LiveKit-Identität; ein Konto bekommt ``user-<id>``. Wurde hier blind
+    ``user-`` vorangestellt, adressierte ``remove_participant`` bei einem
+    Gast ``user-gast-<id>`` — niemanden. Der Aufruf ist best-effort, der
+    Rauswurf sah deshalb erfolgreich aus, während der Gast weiter sendete.
+    """
+    from dcc_voice_signaling.routes.livekit_client import _lk_identity
+
+    assert _lk_identity("gast-42") == "gast-42"
+    assert _lk_identity("1234567890") == "user-1234567890"
