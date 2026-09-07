@@ -30,7 +30,7 @@ from fastapi import APIRouter, Response, status
 from sqlalchemy import delete, exists, select
 
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import DeviceKeyBundle, DmNutzlast, DmZustellung
+from dcc_chat_gateway.models import DmNutzlast, DmZustellung
 from dcc_chat_gateway.schemas import (
     PostfachAbholenRequest,
     PostfachQuittungRequest,
@@ -65,20 +65,34 @@ async def postfach_abholen(
                 # Wer die Zustellung geschrieben hat, NICHT der Kanal-
                 # Gegenpart — eine verschluesselte DM liefert auch an die
                 # eigenen anderen Geraete des Senders aus (s.
-                # ``PostfachZustellungOut.absender_user_id``). Ein OUTER Join:
-                # das Sendegeraet kann sich zwischen Einliefern und Abholen
-                # abgemeldet haben, dann ist sein Buendel weg und die Spalte
-                # NULL, statt dass die ganze Zustellung fehlt.
-                DeviceKeyBundle.user_id.label("absender_user_id"),
+                # ``PostfachZustellungOut.absender_user_id``).
+                #
+                # **Aus der Nutzlast, nicht ueber das Schluessel-Buendel.**
+                # Bis 2026-09-07 stand hier ein OUTER Join auf
+                # ``DeviceKeyBundle`` ueber ``absender_device_pubkey`` allein.
+                # Eindeutig ist dort aber ``(user_id, device_pubkey)``, die
+                # Kennung fuer sich traegt nur einen Index — zwei Zeilen zu
+                # einer Kennung lieferten dieselbe Zustellung MEHRFACH, jede
+                # mit einer anderen ``absender_user_id``, und die falsche
+                # blieb im lokalen Verlauf des Empfaengers stehen. Der Join
+                # war zugleich die einzige unskopierte Verbrauchsstelle im
+                # Baum (``_postfach_deps.py::_bundle_laden`` warnt in seinem
+                # Docstring vor genau diesem Muster) — und er war ueberfluessig:
+                # ``DmNutzlast.absender_user_id`` gibt es seit Migration 0076,
+                # gefuellt bei jeder Einlieferung aus ``user.id``. Deren
+                # Begruendung nennt sogar, dass die Herleitung ueber das Geraet
+                # „mit dem Geraet verwaist" — nur die Anzeige blieb beim Join.
+                #
+                # NULL bleibt moeglich (Zustellungen von vor 0076, laengstens
+                # bis zum Ablauf der ``postfach_frist_tage``); dafuer faellt
+                # der Klient auf den Kanal-Gegenpart zurueck, wie bisher schon
+                # beim abgemeldeten Sendegeraet (``absenderErmitteln.ts``).
+                DmNutzlast.absender_user_id,
                 DmNutzlast.art,
                 DmNutzlast.daten,
                 DmNutzlast.groesse,
             )
             .join(DmNutzlast, DmNutzlast.id == DmZustellung.nutzlast_id)
-            .outerjoin(
-                DeviceKeyBundle,
-                DeviceKeyBundle.device_pubkey == DmNutzlast.absender_device_pubkey,
-            )
             .where(
                 # NICHT nur auf den Empfaenger-Pubkey filtern (obwohl er
                 # faktisch geraeteweit eindeutig ist) — das Konto zusaetzlich

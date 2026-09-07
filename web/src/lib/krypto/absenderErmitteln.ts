@@ -3,21 +3,21 @@
  * (s. `pnpm test:unit`-Falle in `CLAUDE.md`), damit `empfangen.ts` diese
  * eine Rechnung nicht in einer `$state()`-tragenden Datei verstecken muss.
  *
- * Der Server liefert `absender_user_id` als hergeleitetes Feld (join
- * `DeviceKeyBundle` ueber `absender_device_pubkey`,
- * `postfach_abholen.py`) — der Klient kann es NICHT selbst bestimmen: er
+ * Der Server liefert `absender_user_id` aus der Nutzlast-Zeile selbst
+ * (`postfach_abholen.py`; bis 2026-09-07 war es ein Join ueber die
+ * Geraetekennung, der bei doppelt gefuehrter Kennung die falsche Antwort
+ * geben konnte) — der Klient kann es NICHT selbst bestimmen: er
  * kennt zu einer Zustellung nur den Kanal, und eine verschluesselte DM
  * liefert auch an die EIGENEN anderen Geraete des Senders aus (so kommt
  * eine vom Handy gesendete Nachricht auf dem Desktop an). „Der andere
  * Kanal-Teilnehmer" waere in genau diesem Fall die FALSCHE Zuschreibung.
  *
- * `absenderUserId` ist `null`, wenn sich das Sendegeraet zwischen
- * Einliefern und Abholen abgemeldet und sein Schluessel-Buendel damit
- * geloescht hat (der Server kann dann nicht mehr nachschlagen, wer es war)
+ * `absenderUserId` ist `null` bei Zustellungen von vor Migration 0076, die
+ * die Spalte noch nicht tragen (laengstens bis zum Ablauf ihrer Frist)
  * — in dem Fall faellt diese Funktion auf `kanalGegenpart` zurueck, das
  * bisherige Verhalten vor diesem Feld. Bei einer DM ist der Kanal-Gegenpart
- * fast immer richtig (das seltene Eigengeraet-ohne-Buendel-Fenster
- * ausgenommen); eine private Gruppe hat keinen einzelnen Gegenpart und
+ * meist richtig, aber genau dann falsch, wenn die Zustellung vom eigenen
+ * anderen Geraet kam; eine private Gruppe hat keinen einzelnen Gegenpart und
  * uebergibt hier `undefined`.
  */
 export function absenderErmitteln(

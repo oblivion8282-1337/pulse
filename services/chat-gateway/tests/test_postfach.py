@@ -1056,14 +1056,24 @@ async def test_absender_user_id_zeigt_das_sendegeraet_auch_beim_eigenen_zweitger
 
 
 @pytest.mark.asyncio
-async def test_absender_user_id_ist_null_wenn_sendegeraet_abgemeldet_ist(
+async def test_absender_user_id_ueberlebt_das_abmelden_des_sendegeraets(
     client, app, session_factory, _auth_signer, friend_pair
 ):
     """Das Sendegeraet kann sich zwischen Einliefern und Abholen abmelden —
-    sein Schluessel-Buendel ist dann weg, und der OUTER Join findet nichts
-    mehr. `absender_user_id` wird `None`, statt dass die Abholung crasht
-    oder die Zustellung verschwindet (der Klient faellt in diesem Fall auf
-    den Kanal-Gegenpart zurueck, s. `absenderErmitteln.ts`)."""
+    sein Schluessel-Buendel ist dann weg.
+
+    **Dieser Test hat bis zum 2026-09-07 das Gegenteil festgehalten** (er
+    hiess ``..._ist_null_wenn_sendegeraet_abgemeldet_ist``), weil die
+    Abholung den Absender ueber einen OUTER Join auf ``DeviceKeyBundle``
+    herleitete: ohne Buendel kein Treffer, also ``None``. Der Join war der
+    Fehler — die Kennung allein ist nicht eindeutig, nur ``(user_id,
+    device_pubkey)`` ist es, und eine doppelt gefuehrte Kennung lieferte
+    dieselbe Zustellung mehrfach mit verschiedenen Absendern. Der Wert kommt
+    jetzt aus ``DmNutzlast.absender_user_id`` (Migration 0076), wo er beim
+    Einliefern festgeschrieben wird. Dass er das Abmelden ueberlebt, ist die
+    erwuenschte Nebenwirkung: der Empfaenger muss nicht mehr auf den
+    Kanal-Gegenpart raten (was bei einer Zustellung vom eigenen Zweitgeraet
+    die falsche Antwort gewesen waere)."""
     from dcc_chat_gateway.models import DeviceKeyBundle
     from sqlalchemy import delete
 
@@ -1088,6 +1098,51 @@ async def test_absender_user_id_ist_null_wenn_sendegeraet_abgemeldet_ist(
     async with session_factory() as s:
         await s.execute(
             delete(DeviceKeyBundle).where(DeviceKeyBundle.device_pubkey == sender_pub)
+        )
+        await s.commit()
+
+    r = await _abholen(client, token=token_b, pubkey=empf_pub)
+    assert r.status_code == 200, r.text
+    zustellungen = r.json()
+    assert len(zustellungen) == 1
+    assert zustellungen[0]["absender_user_id"] == str(uid_a)
+
+
+async def test_absender_user_id_bleibt_null_bei_zustellungen_von_vor_0076(
+    client, app, session_factory, _auth_signer, friend_pair
+):
+    """Zustellungen aus der Zeit vor Migration 0076 tragen die Spalte nicht.
+
+    Sie leben laengstens bis zum Ablauf ihrer Frist; bis dahin liefert die
+    Abholung fuer sie ``None``, und der Klient faellt auf den Kanal-Gegenpart
+    zurueck (``absenderErmitteln.ts``). Wichtig ist nur, dass die Zustellung
+    nicht verschwindet und die Abholung nicht bricht.
+    """
+    from sqlalchemy import update
+
+    from dcc_chat_gateway.models import DmNutzlast
+
+    token_a, uid_a = await _register(_auth_signer)
+    token_b, uid_b = await _register(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+    dm_id = await _dm_erstellen(client, token_a, uid_b)
+
+    sender_pub = await _bundel_seeden_geraet(session_factory, user_id=uid_a)
+    empf_pub = await _bundel_seeden_geraet(session_factory, user_id=uid_b)
+
+    daten = base64.b64encode(b"olm-umschlag").decode()
+    r = await _einliefern_mit_geraet(
+        client, token=token_a, channel_id=dm_id, pubkey=sender_pub,
+        nutzlasten=[{"art": 1, "daten": daten, "empfaenger": [empf_pub]}],
+    )
+    assert r.status_code == 200, r.text
+
+    # Den Altbestand nachstellen: die Spalte gab es damals noch nicht.
+    async with session_factory() as s:
+        await s.execute(
+            update(DmNutzlast)
+            .where(DmNutzlast.absender_device_pubkey == sender_pub)
+            .values(absender_user_id=None)
         )
         await s.commit()
 
