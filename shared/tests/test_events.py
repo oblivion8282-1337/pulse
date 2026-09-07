@@ -107,6 +107,14 @@ _PAYLOADS: dict[str, dict[str, Any]] = {
             "added": True,
         },
     },
+    "stream_reaction": {
+        "op": "stream_reaction",
+        "data": {
+            "channel_id": "10",
+            "user_id": "11",
+            "emoji": "🔥",
+        },
+    },
     "channel_bump": {
         "op": "channel_bump",
         "guild_id": "5",
