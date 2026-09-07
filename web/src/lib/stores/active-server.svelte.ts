@@ -8,6 +8,7 @@
 import { serversStore, CLOUD_HOSTNAME } from '$lib/api/servers.svelte';
 import type { ServerEntry } from '$lib/api/servers.svelte';
 import { resetServerScopedStores } from './multi-server-reset';
+import { capabilities } from './capabilities.svelte';
 import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
 
 export type { ServerEntry };
@@ -79,6 +80,17 @@ class ActiveServer {
     this._persist();
 
     resetServerScopedStores();
+
+    // `capabilities` liegt NICHT im Reset oben — der Store haelt aber
+    // instanz-eigene Werte: `GET /capabilities` liest die `ChatSettings`-Zeile
+    // der jeweiligen Server-Datenbank, und die Admin-Grenzen darin (Bitraten,
+    // Bildraten, Aufloesungen, `allow_member_invites`) unterscheiden sich von
+    // Server zu Server. Ohne diesen Nachladeschritt bliebe er auf den Werten
+    // des ZUERST besuchten Servers stehen, und der Encoder rechnete danach mit
+    // fremden Deckeln weiter. Der einzige andere Auffrischpfad,
+    // `permissions_updated`, feuert nur bei einer Live-Aenderung auf dem
+    // bereits aktiven Server und holt beim Wechsel nichts nach.
+    void capabilities.hydrate();
 
     try {
       const conn = gatewayPool.for(serverId);
