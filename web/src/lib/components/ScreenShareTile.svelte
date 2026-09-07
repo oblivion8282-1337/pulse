@@ -16,6 +16,7 @@
   import StreamChatOverlay from '$lib/stream/components/StreamChatOverlay.svelte';
   import StreamChatInlineInput from '$lib/stream/components/StreamChatInlineInput.svelte';
   import StreamReactions from '$lib/stream/components/StreamReactions.svelte';
+  import SparklesIcon from '@lucide/svelte/icons/sparkles';
   import StreamChatPanel from '$lib/stream/components/StreamChatPanel.svelte';
   import ScreenShareDocPipView from '$lib/stream/components/ScreenShareDocPipView.svelte';
   import TileShell from '$lib/stream/components/TileShell.svelte';
@@ -55,6 +56,9 @@
   // Twitch-style in-tile chat — TileShell rendert Panel/Overlay je nach
   // Fullscreen, hier nur der Toggle-State.
   let chatOpen = $state(false);
+  /** Stream-Reactions ein-/ausgeblendet — Kippschalter in der Dock-Leiste
+   *  (Schnellwahl bleibt unabhängig davon nutzbar), Zwilling WhepPlayer. */
+  let reaktionenAn = $state(true);
 
   let videoEl = $state<HTMLVideoElement | null>(null);
   let audioEl = $state<HTMLAudioElement | null>(null);
@@ -326,7 +330,22 @@
       {#if streamerId}
         <!-- Stream-Reactions (IDEAS.md §4): Burst-Ebene + Schnellwahl — nur
              mit bekanntem Gastgeber, sonst gibt es keinen Stream zum Reagieren. -->
-        <StreamReactions {channelId} />
+        <StreamReactions {channelId} bursten={reaktionenAn} />
+      {/if}
+    {/snippet}
+    {#snippet controlsExtra()}
+      {#if streamerId}
+        <!-- Stream-Reactions ein-/ausblenden: nur die Burst-Ebene kippt, die
+             Schnellwahl zum Selber-Senden bleibt an der Kachel. -->
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-pressed={reaktionenAn}
+          onclick={() => (reaktionenAn = !reaktionenAn)}
+          data-testid="stream-reactions-toggle"
+        >
+          <SparklesIcon class="size-4" />
+        </Button>
       {/if}
     {/snippet}
     {#snippet chatPanel()}

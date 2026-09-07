@@ -38,6 +38,8 @@
   import { toast } from 'svelte-sonner';
   import LoaderIcon from '@lucide/svelte/icons/loader-circle';
   import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
+  import SparklesIcon from '@lucide/svelte/icons/sparkles';
+  import { Button } from '$lib/components/ui/button';
   import ClipboardIcon from '@lucide/svelte/icons/clipboard';
   import CheckIcon from '@lucide/svelte/icons/check';
   import NativeWindowPanel from '$lib/player/components/NativeWindowPanel.svelte';
@@ -66,6 +68,9 @@
 
   let videoEl = $state<HTMLVideoElement | null>(null);
   let chatOpen = $state(false);
+  /** Stream-Reactions ein-/ausgeblendet — Kippschalter in der Dock-Leiste
+   *  (Schnellwahl bleibt unabhängig davon nutzbar). */
+  let reaktionenAn = $state(true);
 
   // Die WHEP-Verbindung + der Ton gehören dem dauerhaften Manager (überlebt die
   // Navigation, siehe hqStreamManager). ensure() ist idempotent — der Keep-
@@ -429,7 +434,7 @@
       <!-- Stream-Reactions (IDEAS.md §4): Burst-Ebene + Schnellwahl, nur am
            lebenden Stream (die Platzhalter-Flaechen oben haben damit nichts
            zu tun). -->
-      <StreamReactions {channelId} />
+      <StreamReactions {channelId} bursten={reaktionenAn} />
     {/if}
   {/snippet}
   {#snippet controlsExtra()}
@@ -451,6 +456,18 @@
     {#if desktop && fernsteuerbarGesehen}
       <RemoteRequestButton channelId={channelId} hostUserId={userId} slot={streamSlot} />
     {/if}
+    <!-- Stream-Reactions ein-/ausblenden: nur die Burst-Ebene kippt, die
+         Schnellwahl zum Selber-Senden bleibt an der Kachel. -->
+    <Button
+      size="sm"
+      variant="ghost"
+      aria-pressed={reaktionenAn}
+      onclick={() => (reaktionenAn = !reaktionenAn)}
+      data-testid="stream-reactions-toggle"
+    >
+      <SparklesIcon class="size-4" />
+      {m.stream_reactions_toggle()}
+    </Button>
   {/snippet}
   {#snippet chatPanel()}
     <StreamChatPanel {channelId} streamerId={userId} onClose={() => (chatOpen = false)} />

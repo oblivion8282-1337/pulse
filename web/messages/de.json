@@ -3314,5 +3314,6 @@
   "emoji_picker_categories_label": "Kategorien",
   "emoji_picker_skins_choose": "Hautton wählen",
   "emoji_picker_skins_change": "Hautton ändern",
-  "emoji_picker_load_failed": "Emoji-Auswahl konnte nicht geladen werden."
+  "emoji_picker_load_failed": "Emoji-Auswahl konnte nicht geladen werden.",
+  "stream_reactions_toggle": "Reaktionen"
 }

@@ -3314,5 +3314,6 @@
   "emoji_picker_categories_label": "Categories",
   "emoji_picker_skins_choose": "Choose skin tone",
   "emoji_picker_skins_change": "Change skin tone",
-  "emoji_picker_load_failed": "Could not load the emoji picker."
+  "emoji_picker_load_failed": "Could not load the emoji picker.",
+  "stream_reactions_toggle": "Reactions"
 }
