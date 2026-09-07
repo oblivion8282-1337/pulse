@@ -390,6 +390,10 @@
   // und der Räume-Tab würde dorthin werfen — wo der Auto-Rejoin sofort
   // wieder beitreten würde. Nach dem Verbinden→Getrennt-Übergang zeigt der
   // Tab daher auf die Raum-Übersicht der Community, in der man war.
+  // `!voice.channelId` ist der eigentliche „wirklich aufgelegt"-Beweis:
+  // `connected` fällt auch bei einem Media-Reconnecting (Netzwechsel im Call)
+  // auf false ab, ohne dass der Kanal verlassen wird — `channelId` bleibt
+  // dabei gesetzt und wird erst im Teardown beim echten Disconnect genullt.
   let voiceWarVerbunden = $state(false);
   let letzteVoiceGuildId = $state('');
   $effect(() => {
@@ -397,7 +401,13 @@
       letzteVoiceGuildId = guilds.guildIdForChannel(voice.channelId) ?? '';
     }
     const verbunden = voice.connected;
-    if (voiceWarVerbunden && !verbunden && !voice.connecting && letzteVoiceGuildId) {
+    if (
+      voiceWarVerbunden &&
+      !verbunden &&
+      !voice.channelId &&
+      !voice.connecting &&
+      letzteVoiceGuildId
+    ) {
       untrack(() => raumPfadNachAuflegen(letzteVoiceGuildId));
     }
     voiceWarVerbunden = verbunden;
