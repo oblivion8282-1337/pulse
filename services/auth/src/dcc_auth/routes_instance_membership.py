@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from dcc_auth.db import SessionDep
 from dcc_auth.models_instances import RegisteredInstance, UserInstanceMembership
+from dcc_auth.routes import _check_rate
 from dcc_auth.routes_instance_applications import _require_user
 
 router = APIRouter(tags=["self-host"])
@@ -59,6 +60,17 @@ async def join_instance_membership(
     ruft den Endpoint ohnehin erst nach erfolgreichem Cert-Login auf.
     """
     user = await _require_user(request, db)
+    # Beitreten ist billig, idempotent und braucht keinen Nachweis — deshalb
+    # eignet es sich zum Durchprobieren von Instanz-Kennungen. Das lohnt sich,
+    # weil eine eingetragene Mitgliedschaft heute die Bedingung fuer die
+    # Telefonbuch-Auskunft des Direktwegs ist (``routes_selfhost_directory``,
+    # ``routes_selfhost_signal``), und die gibt die Heimadresse des Betreibers
+    # heraus. Dass sie das tut, ist der eigentliche Fehler und woanders zu
+    # beheben (s. ``docs/2026-09-07-direktweg-berechtigung.md``); die Bremse
+    # hier steht unabhaengig davon richtig und nimmt keinem der drei dort
+    # beschriebenen Wege etwas vorweg. Der Konto-Eimer ist der wichtigere:
+    # Kennungen durchprobieren kostet ein Konto, nicht eine IP.
+    await _check_rate(request, "instance_membership_join", "30/hour", account=str(user.id))
     try:
         iid = int(instance_id)
     except ValueError:
