@@ -13,9 +13,23 @@ import logging
 
 from livekit import api as lk
 
+from dcc_shared import gaeste
 from dcc_voice_signaling import routes as voice_routes
 
 log = logging.getLogger(__name__)
+
+
+def _lk_identity(user_id: str) -> str:
+    """Die LiveKit-Identität zu einer Präsenz-Kennung.
+
+    Zwei Formen, und sie unterscheiden sich nicht nur im Präfix: ein Konto
+    heisst in LiveKit ``user-<id>`` (``token.py``), ein Gast trägt seine
+    Kennung unverändert (``token_gast.py`` setzt ``with_identity(gast_id)``).
+    Wer hier blind ``user-`` voranstellt, adressiert bei einem Gast niemanden
+    — und weil beide Aufrufer best-effort sind, sieht der Rauswurf danach
+    erfolgreich aus, während der Gast weiter sendet.
+    """
+    return user_id if gaeste.ist_gast(user_id) else f"user-{user_id}"
 
 
 def _room_for_channel(channel_id: str) -> str:
@@ -83,7 +97,7 @@ async def _livekit_remove_participant(
         await api_client.room.remove_participant(
             lk.RoomParticipantIdentity(
                 room=_room_for_channel(channel_id),
-                identity=f"user-{user_id}",
+                identity=_lk_identity(user_id),
             )
         )
     except Exception:  # noqa: BLE001 — participant offline / server down
@@ -132,7 +146,7 @@ async def _livekit_update_participant(
         await api_client.room.update_participant(
             lk.UpdateParticipantRequest(
                 room=_room_for_channel(channel_id),
-                identity=f"user-{user_id}",
+                identity=_lk_identity(user_id),
                 permission=lk.ParticipantPermission(
                     can_subscribe=True,
                     can_publish=can_publish,
