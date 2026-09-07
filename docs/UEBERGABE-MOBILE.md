@@ -330,13 +330,34 @@ gibt es aber noch nicht und sie gehören auf die Roadmap:
   Paraglide/Vite-Falle, „kein pkill"). Dazu `docs/ONBOARDING.md` §4 für den
   Dev-Stack (`./scripts/dev-up.fish`, Ports 5173 + 8001–8005,
   `PULSE_DEV_SKIP_MEDIAMTX=1` wenn MediaMTX nicht pullbar ist).
-- **Android-Dev-Loop ist noch nicht dokumentiert — erster Auftrag: etablieren und
-  in diesem Dokument nachtragen.** Der Standard-Capacitor-Weg:
-  `cd mobile && npx cap sync android`, dann `cd mobile/android && ./gradlew
-  installDebug` (oder Android Studio). Zum Testen gegen den lokalen Stack
-  `server.url` in `mobile/capacitor.config.json` auf die LAN-/Emulator-Adresse
-  (Emulator: `http://10.0.2.2:5173`) umstellen und `server.cleartext: true` setzen
-  — **nicht committen**.
+- **Android-Dev-Loop — etabliert und gegen den lokalen Stack verifiziert
+  (2026-09-08).** Der Standard-Weg, mit den Fallstricken, die alle real
+  reingelaufen sind:
+  - **JDK 21 ist Pflicht**, nicht 17: Capacitor 8 kompiliert mit
+    `source release 21` (`capacitor-android`), JDK 17 bricht mit
+    „invalid source release: 21" ab. `JAVA_HOME=/usr/lib/jvm/java-21-openjdk`.
+  - **`cap sync` braucht die CLI in `mobile/` selbst:** `mobile` ist kein
+    pnpm-Workspace-Paket; `pnpm install` dort würde am Root vorbeilaufen.
+    Also `cd mobile && pnpm install --ignore-workspace && ./node_modules/.bin/cap sync android`.
+  - **Gegen den lokalen Stack:** `server.url` in `mobile/capacitor.config.json`
+    auf `http://10.0.2.2:5173` (Emulator-Alias für den Host) und
+    `server.cleartext: true` — **nicht committen**. Der Sync backt die Config
+    nach `mobile/android/app/src/main/assets/capacitor.config.json`.
+  - **Bauen + installieren:** `cd mobile/android && ./gradlew assembleDebug`
+    → `app/build/outputs/apk/debug/app-debug.apk`, dann
+    `adb install -r <apk>` und `adb shell am start -n com.howispulse.app/.MainActivity`.
+  - **Emulator einmalig** (ohne Android Studio): cmdline-tools von
+    dl.google.com nach `~/Android/Sdk`, `sdkmanager --licenses` akzeptieren,
+    `platform-tools emulator platforms;android-36 system-images;android-36;google_apis;x86_64`,
+    `avdmanager create avd -n pulse-dev -d pixel_7 -k „system-images;…"`.
+    Stolperfalle: `avdmanager` legt das AVD unter `~/.config/.android/avd/`
+    an, der Emulator sucht in `~/.android/avd/` — Abhilfe
+    `ANDROID_AVD_HOME=$HOME/.config/.android/avd` beim Start.
+  - **WebView-Debugging:** der debuggable Bau exponiert
+    `webview_devtools_remote_<pid>` — per `adb forward` an das
+    Chrome-DevTools-Protokoll anbinden, dann laufen Konsole und
+    JS-Auswertung aus dem Terminal. So wurde z. B. der
+    Secure-Context-Crash (`crypto.randomUUID`, s. oben §3/§4) gefunden.
 - Konventionen: Code-Pfade und Bezeichner überwiegend **deutsch**, Svelte 5 Runes,
   Tailwind-Tokens aus `web/src/app.css`, Icons aus `@lucide/svelte`,
   Übersetzungen in `web/messages/{de,en}.json` (nach neuen Keys: Vite neu starten,
