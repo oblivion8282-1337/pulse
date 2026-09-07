@@ -4,15 +4,32 @@
 #
 # Trigger: only when something under infra/mediamtx-fork/ changes on main.
 # We don't rebuild on every commit because the binary is otherwise identical
-# to upstream v1.17.1 — there's nothing to bump unless the patch or Dockerfile
+# to upstream — there's nothing to bump unless the patch or Dockerfile
 # changed.
 #
-# Output: two tags pushed to GHCR
-#   ghcr.io/oblivion8282-1337/pulse-mediamtx:1.17.1-pulse  ← what compose pins
+# Output: two tags pushed to GHCR (Version und Patch-Stand liest der Lauf aus
+# dem Dockerfile, das die Quelle der Wahrheit bleibt — der Tag unten ist der
+# Stand vom 2026-09-03 und altert hier, nicht dort)
+#   ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse7  ← what compose pins
 #   ghcr.io/oblivion8282-1337/pulse-mediamtx:latest        ← rolling, unused
 #
-# Build time: ~3 min cold, ~30 s with the gha cache warm. The build is
-# straight `go build` of MediaMTX 1.17.1 + our patch; no cross-compile.
+# Build time: ~3 min cold, ~30 s with the gha cache warm.
+#
+# **Zwei Architekturen, ohne Emulation** (seit 2026-09-07). Bis dahin baute
+# dieser Workflow ohne `platforms:` — also nur fuer die Architektur des
+# Laeufers, amd64. Das Self-Host-Bild (`allinone.yml`) wird dagegen fuer amd64
+# UND arm64 gebaut, konnte den Fork deshalb nicht einsetzen und fuhr
+# Stock-MediaMTX. Heimservern fehlte damit vor allem Patch 0002, dessen
+# PLI/FIR-Rueckweg als einziger ohne Schalter wirkt: nach einem Paketverlust
+# fror das Bild dauerhaft ein. Der eigentliche Grund stand nirgends — im
+# Self-Host-Dockerfile stand stattdessen eine Begruendung, die nur Patch 0001
+# abdeckt.
+#
+# QEMU braucht es dafuer nicht: der Bau ist reines Go mit `CGO_ENABLED=0`,
+# Go cross-kompiliert selbst. Das Dockerfile haelt die Bau-Stufe deshalb auf
+# `$BUILDPLATFORM` und schaltet nur `GOARCH` um — beide Bilder entstehen auf
+# demselben amd64-Laeufer in einem Durchgang, ein zweiter Laeufer wie in
+# `allinone.yml` waere hier nur Umstand.
 
 name: mediamtx-fork
 
@@ -74,6 +91,11 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: infra/mediamtx-fork
+          # Beide Architekturen in EINEM Aufruf: buildx legt darueber eine
+          # Manifest-Liste, `docker pull` waehlt daraus selbst. Ein
+          # Zusammenfuehren wie in `allinone.yml` (dort noetig, weil die Bilder
+          # auf zwei verschiedenen Laeufern entstehen) entfaellt hier.
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ghcr.io/oblivion8282-1337/pulse-mediamtx:${{ steps.ver.outputs.tag }}

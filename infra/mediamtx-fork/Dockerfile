@@ -89,8 +89,19 @@ ARG PULSE_REVISION=7
 ARG GO_VERSION=1.26
 
 # ── Stage 1: build the patched binary ──────────────────────────────────────
-FROM golang:${GO_VERSION}-alpine AS build
+# `--platform=$BUILDPLATFORM` haelt diese Stufe auf der Architektur des
+# LAEUFERS, auch wenn fuer arm64 gebaut wird — Go cross-kompiliert selbst
+# (`GOARCH` unten), und weil `CGO_ENABLED=0` gilt, braucht es dafuer keinen
+# fremden Werkzeugkasten. Der Unterschied ist kein Feinschliff: liesse man
+# die Stufe unter QEMU in der Zielarchitektur laufen, dauerte derselbe Bau
+# ein Vielfaches (der Kopf von `allinone.yml` nennt fuer das grosse Bild
+# 90 min emuliert gegen 8 min nativ).
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS build
 ARG MEDIAMTX_VERSION
+#: Von buildx gesetzt (`linux/arm64` → `arm64`). Leer beim einfachen
+#: `docker build` ohne buildx — dann faellt der Bau unten auf die
+#: Laeufer-Architektur zurueck, also das bisherige Verhalten.
+ARG TARGETARCH
 
 WORKDIR /src
 RUN apk add --no-cache git patch
@@ -122,11 +133,35 @@ COPY bildmarke-formen.json internal/protocols/webrtc/testdata/bildmarke-formen.j
 #   * internal/servers/hls/hlsjsdownloader  — fetches hls.min.js (embedded into the binary)
 #   * internal/core/versiongetter           — writes internal/core/VERSION (embedded too)
 # Both are referenced via `//go:embed` directives, so a missing file is
-# a hard compile error. The third generator (rpicamera/mtxrpicamdownloader)
-# pulls ARM-only binaries we don't need — skip it explicitly by listing
-# the two we want instead of running `go generate ./...`.
+# a hard compile error. That is also why the third one is listed separately
+# instead of just running `go generate ./...`.
 RUN go generate -mod=mod ./internal/servers/hls/... \
                          ./internal/core/...
+
+# Der dritte Generator (rpicamera/mtxrpicamdownloader) holt vorgebaute
+# Raspberry-Pi-Kamerabinaerdateien (≤10 MB, `maxInboundRPICameraSize`).
+#
+# **Er wurde uebersprungen, solange nur fuer amd64 gebaut wurde, und genau das
+# liess den ersten arm64-Bau scheitern:**
+# `internal/staticsources/rpicamera/camera_linux_arm64.go` traegt ein
+# `//go:embed mtxrpicam_64/*` und wird von den Build-Tags des Pakets fuer
+# `linux/arm` und `linux/arm64` hart eingezogen — auf amd64 greift stattdessen
+# `camera_other.go`, das nichts einbettet. Ein fehlendes Verzeichnis ist bei
+# `go:embed` ein Uebersetzungsfehler, kein stiller Ausfall
+# (`pattern mtxrpicam_64/*: no matching files found`), und einen Build-Tag zum
+# Abschalten gibt es upstream nicht.
+#
+# Pulse benutzt die Kameraquelle nie — hier laeuft MediaMTX nur als Verteiler.
+# Die Binaerdateien werden trotzdem echt geholt statt durch einen Platzhalter
+# ersetzt: eine untergeschobene Leerdatei brachte ein Bild hervor, das die
+# Kameraquelle anbietet und beim Benutzen bricht, und der Trick waere nur hier
+# erklaert. Sie ziehen deshalb nur in das arm64-Bild ein, wo sie eingebettet
+# werden — auf amd64 waeren es 10 MB Netz fuer Code, den kein Build-Tag
+# erreicht.
+RUN if [ "${TARGETARCH:-$(go env GOARCH)}" = "arm64" ] || \
+       [ "${TARGETARCH:-$(go env GOARCH)}" = "arm" ]; then \
+      go generate -mod=mod ./internal/staticsources/rpicamera/...; \
+    fi
 
 # Patches against VENDORED third-party code (pion's FlexFEC interceptor) can
 # only be applied once the dependency tree is on disk — `go mod vendor` would
@@ -142,9 +177,16 @@ RUN set -e; \
       patch -p1 < "$p"; \
     done
 
-# Standard MediaMTX build settings — matches what their `binaries.mk`
-# uses for the official linux/amd64 binary, minus the cross-compile bits.
-RUN CGO_ENABLED=0 \
+# Standard MediaMTX build settings — matches what their `binaries.mk` uses for
+# the official binaries, cross-compile bits included: `GOARCH` kommt von
+# buildx, und ohne CGO ist der Zielwechsel fuer Go eine reine Umgebungsvariable.
+#
+# **Warum das arm64 ueberhaupt braucht:** das Self-Host-Bild (`allinone.yml`)
+# wird fuer amd64 UND arm64 gebaut, dieses hier lange nur fuer amd64. Ein
+# Heimserver konnte den Fork deshalb nicht einsetzen und fuhr Stock-MediaMTX —
+# ihm fehlte damit vor allem Patch 0002, dessen PLI/FIR-Rueckweg als einziger
+# ohne Schalter wirkt: nach einem Paketverlust fror das Bild dauerhaft ein.
+RUN CGO_ENABLED=0 GOARCH=${TARGETARCH:-$(go env GOARCH)} \
     go build \
       -tags=osusergo,netgo \
       -ldflags="-s -w" \
@@ -159,6 +201,12 @@ RUN CGO_ENABLED=0 \
 # binary compiled and BEFORE the image gets a tag. ~20 s. Vendored (offline),
 # like the build above. The two packages are the only ones our patches touch;
 # the whole suite would add minutes for code we did not change.
+#
+# Sie laufen in der LAEUFER-Architektur (kein `GOARCH` davor, anders als beim
+# Bau darueber): der Testlauf fuehrt die Binaerdateien aus, und ein
+# arm64-Testbinary liesse sich auf einem amd64-Laeufer nicht starten. Was die
+# Patches pruefen, haengt nicht an der Architektur — einmal ausfuehren genuegt,
+# und dieselben Quellen gehen in beide Bilder.
 RUN go test ./internal/stream/ ./internal/protocols/webrtc/
 
 # ── Stage 2: minimal runtime ──────────────────────────────────────────────
