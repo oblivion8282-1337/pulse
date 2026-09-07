@@ -1,5 +1,13 @@
 //! Die Direkt-Sitzung des Sidecars: Antworten statt veröffentlichen.
 //!
+//! **Stufe 1.5 auf dem Mac** — Zwilling zu `win-hq-sidecar/src/direct/mod.rs`.
+//! Der Unterschied liegt NICHT im Protokoll, sondern in der Übergabe des
+//! Senders an die Encode-Pipeline: Windows koppelt über ein Senken-Trait
+//! (`PaketSenke`), der Mac fächelt in `encode/mod.rs` über das `Ausgabe`-
+//! Enum — diese Variante heißt hier `Ausgabe::Direct` und holt den Sender
+//! über [`Sitzung::nimm_sender`] selbst ab. Alles andere (Buchungen,
+//! Wartezustand, Teardown, Ereignisse) ist wortgleich zum Windows-Zwilling.
+//!
 //! **Stufe 1 ist exklusiv.** Ein Stream läuft ENTWEDER als Server-Push (WHIP
 //! an MediaMTX / RTMPS) ODER als Direktverbindung zum Player — nie beides.
 //! Der Direktmodus beginnt mit `start` + `"direct": true`: der Controller
@@ -13,9 +21,9 @@
 //!
 //! **Wo der Sender herkommt.** [`pulse_whip::direct::DirectSender`] wird beim
 //! Angebot gebaut und aushandelt dort. Die Pipeline holt ihn sich später
-//! über [`Sitzung::nimm_senke`] — dieselbe Stelle, an der der WHIP-Weg
-//! seinen `WhipSender` baut (`whip::senke::baue`): der abgebende Zweig
-//! ([`PaketSenke`]) behandelt beide gleich.
+//! über [`Sitzung::nimm_sender`] — derselbe genau-einmal-Vertrag wie beim
+//! Windows-Zwilling (nimm_senke): Codec und fps müssen zum Auftrag passen,
+//! eine zweite Abholung ist ein Programmfehler.
 //!
 //! **Rückkanal.** PLI/FIR landen über den RTCP-Lesefaden bei
 //! `crate::keyframe::request_keyframe` — derselbe Weg wie bei MediaMTX.
@@ -36,22 +44,15 @@ use std::sync::{Arc, Mutex, OnceLock};
 use anyhow::{anyhow, Context, Result};
 use serde_json::{json, Map, Value};
 
-use crate::encode::senke::{PaketSenke, SenkenAuftrag};
 use crate::events;
 use crate::stream_controller::StreamController;
-use rueckkanal::{rtcp_schleife, verdrahte_pc, DirectSenke};
+use rueckkanal::{rtcp_schleife, verdrahte_pc};
 
 /// Pseudo-Ziel-URL des Direktpfads. Kein Server dahinter — sie dient allein
-/// als Markierung im Routing (`encode::output::url_format_hint` kennt das
+/// als Markierung im Routing (`encode::wahl::url_format_hint` kennt das
 /// Schema) und in der Diagnose-argv. Die Auswahl der Schemas bleibt an EINEM
 /// Ort, damit der Muxer nie an einem fremden Sendeweg vorbeiläuft.
 pub const SITZUNG_URL: &str = "direct://sitzung";
-
-/// Angebotsmaße, wenn der Renderer keine Auflösungs-Box gesetzt hat. Es geht
-/// hier nur um die fmtp-STUFE des Answers: zu hoch ist folgenlos, zu niedrig
-/// lässt den Hardware-Decoder des Players aussteigen — also lieber die
-/// größte übliche Schirmgröße annehmen als zu klein ansetzen.
-const ANGENOMMENE_MASSE: (u32, u32) = (3840, 2160);
 
 pub struct Sitzung {
     inner: Mutex<SitzungsInner>,
@@ -125,17 +126,19 @@ impl Sitzung {
         let params = StreamController::singleton()
             .wartende_direct_params()
             .ok_or_else(|| anyhow!("kein wartender Direkt-Stream (start mit direct:true)"))?;
-        let (breite, hoehe) = params.override_resolution.unwrap_or(ANGENOMMENE_MASSE);
-        let fps = params.override_fps.unwrap_or(params.profile.fps);
-        let bitrate_kbps = params
-            .override_bitrate_kbps
-            .unwrap_or(params.profile.bitrate_kbps);
+        // Macs StartParams trägt flache Maße (win: Overrides + Profil). Der
+        // Codec läuft durch denselben Slug-Space wie `start_whip`: nur h264
+        // und av1 sprechen den Direkt-Sendeweg (s. dortige Fallback-Begründung).
+        let codec_slug: &'static str = match params.codec.as_str() {
+            "av1" => "av1",
+            _ => "h264",
+        };
         let konfig = pulse_whip::direct::Konfig {
-            codec_slug: params.codec().slug(),
-            fps,
-            breite,
-            hoehe,
-            bitrate_kbps,
+            codec_slug,
+            fps: params.fps,
+            breite: params.width,
+            hoehe: params.height,
+            bitrate_kbps: params.bitrate_kbps,
         };
         let sender = Arc::new(
             pulse_whip::direct::DirectSender::neu(&konfig)
@@ -148,7 +151,7 @@ impl Sitzung {
         let antwort = sender
             .connect(offer_sdp)
             .context("Angebot beantworten")?;
-        rtcp_schleife(sender.video_sender(), bitrate_kbps);
+        rtcp_schleife(sender.video_sender(), params.bitrate_kbps);
         Ok((antwort, sender))
     }
 
@@ -172,7 +175,7 @@ impl Sitzung {
             );
             return Ok(out);
         }
-        let sender = self.nimm_sender();
+        let sender = self.nimm_sender_fuer_teardown();
         self.raeume_auf(sender);
         Ok(Map::new())
     }
@@ -181,7 +184,7 @@ impl Sitzung {
     /// zurückzukehren — danach existiert der Prozess nicht mehr.
     pub fn beende_endgueltig(&self) {
         { let mut inner = self.lock(); inner.ablauf.reissen(); }
-        if let Some(s) = self.nimm_sender() {
+        if let Some(s) = self.nimm_sender_fuer_teardown() {
             s.close();
         }
     }
@@ -198,7 +201,7 @@ impl Sitzung {
         if let Err(e) = StreamController::singleton().pipeline_starten() {
             eprintln!("[direct] Pipeline starten fehlgeschlagen: {e:#}");
             events::emit(json!({ "ev": "direct_state", "state": "failed" }));
-            let sender = self.nimm_sender();
+            let sender = self.nimm_sender_fuer_teardown();
             self.raeume_auf(sender);
         }
     }
@@ -217,23 +220,23 @@ impl Sitzung {
         let _ = std::thread::Builder::new()
             .name("direct-teardown".into())
             .spawn(move || {
-                let sender = sitzung().nimm_sender();
+                let sender = sitzung().nimm_sender_fuer_teardown();
                 sitzung().raeume_auf(sender);
             });
     }
 
-    /// Vom Pipeline-Worker (nach `worker_finished`, nur im Direktmodus): die
-    /// Pipeline endete von selbst — Encoder- oder Capture-Fehler, oder das
-    /// Stop-Signal des Teardowns. Im zweiten Fall bucht `reissen` nichts
-    /// (Aufräum-Phase läuft schon); im ersten führen WIR den Teardown, aber
-    /// OHNE `stop()`-Warte: dieser Aufruf IST der Worker-Faden, ein Selbst-
-    /// Join wäre eine Sackgasse.
+    /// Vom Pipeline-Worker (nach dessen eigener End-Meldung, nur im
+    /// Direktmodus): die Pipeline endete von selbst — Encoder- oder
+    /// Capture-Fehler, oder das Stop-Signal des Teardowns. Im zweiten Fall
+    /// bucht `reissen` nichts (Aufräum-Phase läuft schon); im ersten führen
+    /// WIR den Teardown, aber OHNE `stop()`-Warte: dieser Aufruf IST der
+    /// Worker-Faden, ein Selbst-Join wäre eine Sackgasse.
     pub fn pipeline_beendet(&self) {
         let abreissen = { let mut inner = self.lock(); inner.ablauf.reissen() };
         if !abreissen {
             return;
         }
-        let sender = self.nimm_sender();
+        let sender = self.nimm_sender_fuer_teardown();
         if let Some(s) = &sender {
             s.close();
         }
@@ -242,42 +245,44 @@ impl Sitzung {
         { let mut inner = self.lock(); inner.ablauf.wieder_wartend(); }
     }
 
-    /// Für `whip::senke::baue`: zielt der Auftrag auf den Direktpfad
-    /// (`direct://`), bekommt die Pipeline DIESEN Sender als Senke — genau
-    /// einmal, nur mit passendem Codec. Alles andere ist ein Programmfehler:
-    /// die Pipeline läuft ausschließlich nach einer Aushandlung.
-    pub fn nimm_senke(&self, auftrag: &SenkenAuftrag) -> Result<Option<Box<dyn PaketSenke>>> {
-        if !crate::encode::output::is_direct_url(auftrag.url) {
-            return Ok(None); // kein Direktpfad-Auftrag → der WHIP-Weg baut selbst
-        }
+    /// Für `encode::start_direct`: zielt der Auftrag auf den Direktpfad,
+    /// bekommt die Pipeline DIESEN Sender — genau einmal, nur mit passendem
+    /// Codec und Bildrate. Alles andere ist ein Programmfehler: die Pipeline
+    /// läuft ausschließlich nach einer Aushandlung. (Zwilling zu
+    /// `nimm_senke` beim Windows-Sidecar; der Mac entkoppelt über sein
+    /// `Ausgabe`-Enum statt über ein Senken-Trait.)
+    pub(crate) fn nimm_sender(
+        &self,
+        codec: &str,
+        fps: u32,
+    ) -> Result<Arc<pulse_whip::direct::DirectSender>> {
         let mut inner = self.lock();
         inner.ablauf.nimm_senke()?;
         let sender = inner
             .sender
             .as_ref()
             .ok_or_else(|| anyhow!("ausgehandelte Direkt-Sitzung ohne Sender (Programmfehler)"))?;
-        if sender.codec_slug() != auftrag.codec {
+        if sender.codec_slug() != codec {
             return Err(anyhow!(
                 "Direkt-Sitzung läuft als {}, der Pipeline-Auftrag sagt {} (Programmfehler)",
                 sender.codec_slug(),
-                auftrag.codec
+                codec
             ));
         }
-        if sender.fps() != auftrag.fps {
+        if sender.fps() != fps {
             return Err(anyhow!(
                 "Direkt-Sitzung verhandelte {} fps, der Pipeline-Auftrag sagt {} (Programmfehler)",
                 sender.fps(),
-                auftrag.fps
+                fps
             ));
         }
-        Ok(Some(Box::new(DirectSenke::neu(Arc::clone(sender)))))
+        Ok(Arc::clone(sender))
     }
 
     /// Der Teardown selbst: Pipeline stoppen (wartet auf den Worker — nur von
     /// Nicht-Worker-Fäden rufen!), PC schließen, Controller in wartend.
-    /// `worker_finished` des Workers läuft VOR dem hier wartenden `stop()`
-    /// ab und meldet stopped/error; der wartend-Event danach ist die
-    /// sichtbare Rückkehr in die Bereitschaft.
+    /// Der wartend-Event danach ist die sichtbare Rückkehr in die
+    /// Bereitschaft.
     fn raeume_auf(&self, sender: Option<Arc<pulse_whip::direct::DirectSender>>) {
         let _ = StreamController::singleton().stop();
         if let Some(s) = &sender {
@@ -288,7 +293,7 @@ impl Sitzung {
         { let mut inner = self.lock(); inner.ablauf.wieder_wartend(); }
     }
 
-    fn nimm_sender(&self) -> Option<Arc<pulse_whip::direct::DirectSender>> {
+    fn nimm_sender_fuer_teardown(&self) -> Option<Arc<pulse_whip::direct::DirectSender>> {
         let mut inner = self.lock();
         inner.sender.take()
     }

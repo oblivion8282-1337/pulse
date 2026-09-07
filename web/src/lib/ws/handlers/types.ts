@@ -271,6 +271,10 @@ export type ServerEvent =
         added: boolean;
       };
     }
+  /** Fire-and-forget: ein Zuschauer feuert ein Schnell-Emoji auf den Live-
+   *  Stream — nichts gespeichert, der Burst auf dem Tile ist der ganze Effekt
+   *  (IDEAS.md §4 "Stream-Reactions"). */
+  | { op: 'stream_reaction'; data: { channel_id: string; user_id: string; emoji: string } }
   | {
       op: 'permissions_updated';
       allow_guild_creation: boolean;
