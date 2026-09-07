@@ -8,9 +8,10 @@
    * **Warum eine Bibliothek.** Der bisherige Eigenbau zeigte 8 Kategorie-
    * Knoepfe, die nicht ins 288px-Kaestchen passten, nur englische Suche und
    * keine „zuletzt benutzt“-Liste. Emoji Mart bringt den vollstaendigen
-   * Unicode-Katalog, deutsche Beschriftungen, Suche und „Haeufig benutzt“
-   * mit — und, fuer spaeter: eigene Emojis pro Guild als eigene Kategorie
-   * (`custom`-Prop, IDEAS.md „Custom Emoji + Sticker“).
+   * Unicode-Katalog, Suche und „Haeufig benutzt“ mit — Beschriftungen über
+   * Paraglide in der aktiven Sprache. Und, fuer spaeter: eigene Emojis pro
+   * Guild als eigene Kategorie (`custom`-Prop, IDEAS.md „Custom Emoji +
+   * Sticker“).
    *
    * **Daten + Bibliothek werden traege geladen** (`import()` — eigener
    * Chunk, erst beim ersten Öffnen), und aus dem Bundle heraus gehostet:
@@ -29,29 +30,29 @@
   let anker = $state<HTMLDivElement | null>(null);
   let fehler = $state(false);
 
-  /** Beschriftungen auf Deutsch — Form des emoji-mart-i18n-Objekts
-   *  (Kategorienamen, Suche, Buttons). Suchbegriffe selbst kommen aus den
-   *  Katalogdaten, s. Modulkopf. */
-  const DEUTSCH = {
+  /** Beschriftungen des Pickers — über Paraglide in der aktiven Sprache
+   *  (de/en), zur Öffnungszeit aufgelöst. Die Suchbegriffe selbst kommen
+   *  aus den Katalogdaten, s. Modulkopf. */
+  const beschriftungen = () => ({
     categories: {
-      frequent: 'Häufig benutzt',
-      people: 'Smileys & Leute',
-      nature: 'Tiere & Natur',
-      foods: 'Essen & Trinken',
-      activity: 'Aktivitäten',
-      places: 'Reisen & Orte',
-      objects: 'Objekte',
-      symbols: 'Symbole',
-      flags: 'Flaggen',
+      frequent: m.emoji_picker_cat_frequent(),
+      people: m.emoji_picker_cat_people(),
+      nature: m.emoji_picker_cat_nature(),
+      foods: m.emoji_picker_cat_foods(),
+      activity: m.emoji_picker_cat_activity(),
+      places: m.emoji_picker_cat_places(),
+      objects: m.emoji_picker_cat_objects(),
+      symbols: m.emoji_picker_cat_symbols(),
+      flags: m.emoji_picker_cat_flags(),
     },
-    search: 'Suchen',
-    search_no_results_1: 'Mh.',
-    search_no_results_2: 'Kein Emoji gefunden',
-    pick: 'Emoji auswählen…',
-    add_custom: 'Eigenes Emoji hinzufügen',
-    categories_label: 'Kategorien',
-    skins: { choose: 'Hautton wählen', change: 'Hautton ändern' },
-  };
+    search: m.emoji_picker_search_label(),
+    search_no_results_1: m.emoji_picker_no_results_1(),
+    search_no_results_2: m.emoji_picker_no_results_2(),
+    pick: m.emoji_picker_pick(),
+    add_custom: m.emoji_picker_add_custom(),
+    categories_label: m.emoji_picker_categories_label(),
+    skins: { choose: m.emoji_picker_skins_choose(), change: m.emoji_picker_skins_change() },
+  });
 
   onMount(() => {
     let abgebrochen = false;
@@ -76,7 +77,7 @@
         // vollen Emoji-Daten; uns interessiert `native`.
         const picker = new Picker({
           data: daten,
-          i18n: DEUTSCH,
+          i18n: beschriftungen(),
           onEmojiSelect: (emoji: { native: string }) => onPick(emoji.native),
           // Auto folgt der OS-Einstellung; Pulse schaltet seine .dark-Klasse
           // nach Nutzerwunsch — der Picker liest daher die ANGEWANDTE Klasse
@@ -107,7 +108,7 @@
   aria-label={m.emoji_picker_dialog_label()}
 >
   {#if fehler}
-    <p class="p-3 text-sm text-muted-foreground">Emoji-Auswahl konnte nicht geladen werden.</p>
+    <p class="p-3 text-sm text-muted-foreground">{m.emoji_picker_load_failed()}</p>
   {:else}
     <div bind:this={anker} class="emoji-mart-anker"></div>
   {/if}
