@@ -68,27 +68,25 @@
         ]);
         if (abgebrochen || !anker) return;
 
-        const picker = new Picker({
-          data: daten,
-          i18n: DEUTSCH,
-          // Auto folgt der OS-Einstellung; Pulse schaltet seine .dark-Klasse
-          // nach Nutzerwunsch — der Picker liest daher die ANGEWANDTE Klasse
-          // zum Öffnungszeitpunkt.
-          theme: document.documentElement.classList.contains('dark') ? 'dark' : 'light',
-          set: 'native',
-          previewPosition: 'none',
-        });
-        // Der EINE Auslöser: das emoji-click-DOM-Event der Web-Komponente.
-        // (Zusätzliches onEmojiClick als Option wäre ein zweiter Pfad —
-        // doppeltes Einfügen.) Der Bibliotheks-Typ des Pickers deklariert
-        // die DOM-Seite nicht — daher der Doppel-Cast über HTMLElement.
-        const element = picker as unknown as HTMLElement;
-        element.addEventListener('emoji-click', (klick: Event) => {
-          const emoji = (klick as CustomEvent<{ emoji: { native: string } }>).detail?.emoji;
-          if (emoji?.native) onPick(emoji.native);
-        });
-        angehaengt = element;
-        anker.appendChild(element);
+        // Emoji Mart v5 ist ein Custom Element: Optionen sind PROPERTIES am
+        // Element (ein Konstruktor-Objekt wird zur Laufzeit ignoriert — Daten
+        // kamen sonst still vom CDN!), und der Klick kommt als
+        // onEmojiSelect-Callback. Ein emoji-click-DOM-Event existiert in v5
+        // NICHT (0 Vorkommen im Paket — der erste Versuch hing an genau
+        // diesem Phantom-Event).
+        const picker = new Picker({}) as unknown as HTMLElement & {
+            data: unknown;
+            i18n: unknown;
+            onEmojiSelect: (emoji: { native: string }) => void;
+        };
+        picker.data = daten;
+        picker.i18n = DEUTSCH;
+        picker.onEmojiSelect = (emoji) => onPick(emoji.native);
+        picker.setAttribute('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+        picker.setAttribute('set', 'native');
+        picker.setAttribute('preview-position', 'none');
+        angehaengt = picker;
+        anker.appendChild(picker);
       } catch (e) {
         console.error('[emoji-picker] Laden fehlgeschlagen:', e);
         if (!abgebrochen) fehler = true;
