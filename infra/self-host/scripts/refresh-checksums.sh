@@ -96,7 +96,10 @@ read_arg() {
 S6_OVERLAY_VERSION="$(read_arg S6_OVERLAY_VERSION)"
 CADDY_VERSION="$(read_arg CADDY_VERSION)"
 LIVEKIT_VERSION="$(read_arg LIVEKIT_VERSION)"
-MEDIAMTX_VERSION="$(read_arg MEDIAMTX_VERSION)"
+# MediaMTX steht hier NICHT mehr: das Binary kommt seit 2026-09-07 aus dem
+# Pulse-Fork-Bild (`PULSE_MEDIAMTX_TAG` im Dockerfile) statt von upstream, und
+# die Registry sichert ihre Schichten selbst ueber den Digest — eine von Hand
+# gepflegte Pruefsumme waere eine zweite Wahrheit ohne Gewinn.
 
 # Apply --set overrides
 for key in "${!VERSION_OVERRIDES[@]}"; do
@@ -104,17 +107,16 @@ for key in "${!VERSION_OVERRIDES[@]}"; do
         S6_OVERLAY_VERSION) S6_OVERLAY_VERSION="${VERSION_OVERRIDES[$key]}" ;;
         CADDY_VERSION)      CADDY_VERSION="${VERSION_OVERRIDES[$key]}" ;;
         LIVEKIT_VERSION)    LIVEKIT_VERSION="${VERSION_OVERRIDES[$key]}" ;;
-        MEDIAMTX_VERSION)   MEDIAMTX_VERSION="${VERSION_OVERRIDES[$key]}" ;;
         *)
             echo "error: --set: unknown version name '$key'" >&2
-            echo "       valid: S6_OVERLAY_VERSION CADDY_VERSION LIVEKIT_VERSION MEDIAMTX_VERSION" >&2
+            echo "       valid: S6_OVERLAY_VERSION CADDY_VERSION LIVEKIT_VERSION" >&2
             exit 2
             ;;
     esac
 done
 
 # Validate we got everything
-for var in S6_OVERLAY_VERSION CADDY_VERSION LIVEKIT_VERSION MEDIAMTX_VERSION; do
+for var in S6_OVERLAY_VERSION CADDY_VERSION LIVEKIT_VERSION; do
     if [[ -z "${!var}" ]]; then
         echo "error: ${var} not set (Dockerfile parse failed?)" >&2
         exit 1
@@ -132,12 +134,10 @@ declare -A URLS=(
     [CADDY_ARM64]="https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_arm64.tar.gz"
     [LIVEKIT_AMD64]="https://github.com/livekit/livekit/releases/download/v${LIVEKIT_VERSION}/livekit_${LIVEKIT_VERSION}_linux_amd64.tar.gz"
     [LIVEKIT_ARM64]="https://github.com/livekit/livekit/releases/download/v${LIVEKIT_VERSION}/livekit_${LIVEKIT_VERSION}_linux_arm64.tar.gz"
-    [MEDIAMTX_AMD64]="https://github.com/bluenviron/mediamtx/releases/download/v${MEDIAMTX_VERSION}/mediamtx_v${MEDIAMTX_VERSION}_linux_amd64.tar.gz"
-    [MEDIAMTX_ARM64]="https://github.com/bluenviron/mediamtx/releases/download/v${MEDIAMTX_VERSION}/mediamtx_v${MEDIAMTX_VERSION}_linux_arm64.tar.gz"
 )
 
 # Iteration order is stable (we sort the keys) so log output is reproducible.
-NAMES=(S6_NOARCH S6_X86_64 S6_AARCH64 CADDY_AMD64 CADDY_ARM64 LIVEKIT_AMD64 LIVEKIT_ARM64 MEDIAMTX_AMD64 MEDIAMTX_ARM64)
+NAMES=(S6_NOARCH S6_X86_64 S6_AARCH64 CADDY_AMD64 CADDY_ARM64 LIVEKIT_AMD64 LIVEKIT_ARM64)
 
 # ──────────────────────────────────────────────────────────────────────────
 # Download + hash each binary into a temp dir, capture results.
@@ -156,7 +156,6 @@ echo "Versions:"
 echo "  S6_OVERLAY_VERSION = ${S6_OVERLAY_VERSION}"
 echo "  CADDY_VERSION      = ${CADDY_VERSION}"
 echo "  LIVEKIT_VERSION    = ${LIVEKIT_VERSION}"
-echo "  MEDIAMTX_VERSION   = ${MEDIAMTX_VERSION}"
 echo
 echo "Downloading + hashing ${#NAMES[@]} binaries..."
 echo

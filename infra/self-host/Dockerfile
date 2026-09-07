@@ -30,13 +30,37 @@ ARG CADDY_VERSION=2.8.4
 # kompatibel zu livekit-client 2.18.9 (das frühere F17-Problem war ein ZU
 # ALTER Server 1.8.4 mit protocol 15, nicht ein zu neuer).
 ARG LIVEKIT_VERSION=1.13.3
-# 1.19.1: Parität mit der Cloud (die fährt den 1.19.1-pulse-Fork). App-Hosts
-# streamen über WHIP (WebRTC), nicht RTMP — der AV1-Temporal-Delimiter-Patch des
-# Cloud-Forks (RTMP-only, AMD-VAAPI) betrifft sie nicht, daher reicht Upstream
-# und bleibt sauber multi-arch. Bringt den pion/ice-WHEP-Reconnect-Fix + das
-# schnellere Track-Aufsetzen. Self-Host-mediamtx.yml (08-init-mediamtx.sh) nutzt
-# keine in 1.19 entfernten Keys (apiAllowAddresses & Co.) — geprüft 2026-07-13.
-ARG MEDIAMTX_VERSION=1.19.1
+# MediaMTX kommt als BINAERDATEI AUS DEM PULSE-FORK, nicht mehr von upstream
+# (seit 2026-09-07) — dieselbe Fassung, die die Cloud faehrt.
+#
+# **Vorher stand hier Upstream 1.19.1, mit dieser Begruendung:** App-Hosts
+# streamen ueber WHIP (WebRTC), nicht RTMP, der AV1-Temporal-Delimiter-Patch
+# des Forks sei RTMP-only und betreffe sie nicht, „daher reicht Upstream und
+# bleibt sauber multi-arch". Beide Haelften trugen nicht:
+#
+#   * Der Satz galt fuer Patch 0001. Der Fork hat sieben. Vier davon
+#     (0003/0004/0006/0007) haengen an PULSE_*-Variablen, die im
+#     Self-Host-Baum nirgends gesetzt werden — die fehlten also folgenlos.
+#     **0002 nicht:** sein PLI/FIR-Rueckweg wirkt ohne Schalter, und ohne ihn
+#     verhallt die Vollbild-Anforderung eines Zuschauers. Nach einem
+#     Paketverlust fror sein Bild dauerhaft ein, waehrend Daten weiterliefen —
+#     in der Cloud laengst behoben, auf jedem Heimserver offen.
+#   * „bleibt sauber multi-arch" war der EIGENTLICHE Grund, stand aber nicht
+#     da: `mediamtx-fork.yml` baute ohne `platforms:`, also nur amd64, und
+#     dieses Bild hier ist multi-arch. Die Folge traf aber beide
+#     Architekturen — auch amd64-Heimserver bekamen Upstream, obwohl es den
+#     Fork fuer sie seit Monaten gab. Der Fork baut seit dem 2026-09-07 fuer
+#     beide (Go cross-kompiliert, kein QEMU), damit entfaellt der Grund.
+#
+# **Reihenfolge beim Heben, zwingend** — dieselbe Regel wie im Fork-Dockerfile:
+# erst muss `mediamtx-fork.yml` den neuen Tag GEBAUT haben, danach darf diese
+# Zeile darauf zeigen. Andersherum findet der Bau das Bild nicht.
+#
+# Das Bild ist privat; der Bau in `allinone.yml` ist an GHCR angemeldet
+# (`docker/login-action` laeuft dort vor dem Bau). Wer dieses Dockerfile von
+# Hand baut, braucht ein `docker login ghcr.io` — beim frueheren
+# `curl`-Download war das nicht noetig.
+ARG PULSE_MEDIAMTX_TAG=1.19.1-pulse7
 # MinIO — S3-compatible object store for message attachments. Pinned to the
 # SAME release the prod stack runs (infra/prod/docker-compose.yml) for parity.
 # Format is the upstream RELEASE.<timestamp> tag, used verbatim in the URL.
@@ -65,8 +89,6 @@ ARG SHA256_CADDY_AMD64=a7e8306c54138cf88e371c5ec0caf7baf142ecc1d60a30897dfb67d65
 ARG SHA256_CADDY_ARM64=93a3eb31883d678c6590c6d823eb6bb9f7a3af66dcd9d53df3eb2c7528b2af05
 ARG SHA256_LIVEKIT_AMD64=7ac9372a229b3d31a716d63b5a9915ad2ffb7d28a8bacc5ba5fc33a2a475d8a3
 ARG SHA256_LIVEKIT_ARM64=b76fa445c625827999ab6a8cd2d30a64547cb3c9e7189b64ab1dd7444bc17159
-ARG SHA256_MEDIAMTX_AMD64=035ee04f91b1c7a0c02e13b2139ca2456e43b6bd6a80e3100e8c228556e07807
-ARG SHA256_MEDIAMTX_ARM64=97a277cf24153e168008c18da53fe84e8d364456e2d7b457dc0457666c32867b
 ARG SHA256_MINIO_AMD64=7c5bd8512c6e966455b1d198209358b2d191c77a83ab377c4073281065fb855f
 ARG SHA256_MINIO_ARM64=5c83cd2cf151717ba0243f73e1c7802ff36e272b67144bdd7f1f7d684fd6f03d
 # frp: upstream publiziert keine Checksums-Datei — re-hashed vom offiziellen Tarball.
@@ -179,11 +201,16 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # against a pinned SHA-256 from the top-level ARGs — a tampered, swapped or
 # silently re-built upstream artifact fails the build instead of installing.
 # ──────────────────────────────────────────────────────────────────────────
+# Das Fork-Bild als benannte Stufe, damit `COPY --from=mediamtx-fork` unten den
+# Tag aus dem ARG nimmt (in einem `COPY --from=<literal>` wuerde er nicht
+# aufgeloest). Das Bild ist `FROM scratch` und traegt genau die Binaerdatei.
+ARG PULSE_MEDIAMTX_TAG
+FROM ghcr.io/oblivion8282-1337/pulse-mediamtx:${PULSE_MEDIAMTX_TAG} AS mediamtx-fork
+
 FROM debian:bookworm-slim AS binaries
 ARG S6_OVERLAY_VERSION
 ARG CADDY_VERSION
 ARG LIVEKIT_VERSION
-ARG MEDIAMTX_VERSION
 ARG FRP_VERSION
 ARG TARGETARCH
 ARG SHA256_S6_NOARCH
@@ -193,8 +220,6 @@ ARG SHA256_CADDY_AMD64
 ARG SHA256_CADDY_ARM64
 ARG SHA256_LIVEKIT_AMD64
 ARG SHA256_LIVEKIT_ARM64
-ARG SHA256_MEDIAMTX_AMD64
-ARG SHA256_MEDIAMTX_ARM64
 ARG MINIO_VERSION
 ARG SHA256_MINIO_AMD64
 ARG SHA256_MINIO_ARM64
@@ -254,19 +279,16 @@ RUN set -eux; \
     mkdir -p /opt/livekit; \
     tar -C /opt/livekit -xzf livekit.tar.gz livekit-server
 
-# MediaMTX — static linux binary. Upstream publishes no checksums file at all,
-# so we pin SHA-256 re-hashed from the official tarball.
-RUN set -eux; \
-    case "${TARGETARCH}" in \
-        amd64) MTX_ARCH=linux_amd64; SHA256_MEDIAMTX="${SHA256_MEDIAMTX_AMD64}" ;; \
-        arm64) MTX_ARCH=linux_arm64; SHA256_MEDIAMTX="${SHA256_MEDIAMTX_ARM64}" ;; \
-        *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
-    esac; \
-    curl -fsSL -o mediamtx.tar.gz \
-        "https://github.com/bluenviron/mediamtx/releases/download/v${MEDIAMTX_VERSION}/mediamtx_v${MEDIAMTX_VERSION}_${MTX_ARCH}.tar.gz"; \
-    echo "${SHA256_MEDIAMTX}  mediamtx.tar.gz" | sha256sum -c -; \
-    mkdir -p /opt/mediamtx; \
-    tar -C /opt/mediamtx -xzf mediamtx.tar.gz mediamtx
+# MediaMTX — aus dem Pulse-Fork, s. `PULSE_MEDIAMTX_TAG` oben.
+#
+# Keine Pruefsumme mehr wie bei den `curl`-Bezuegen daneben: die Registry
+# adressiert ihre Schichten selbst ueber deren Digest, ein manuell gepflegter
+# SHA-256 waere hier eine zweite, von Hand zu haltende Wahrheit ohne Gewinn.
+# Deshalb faellt MediaMTX auch aus `scripts/refresh-checksums.sh` heraus.
+#
+# `--from` mit dem Fork-Bild: buildx zieht daraus automatisch die Schicht der
+# ZIELarchitektur, die Fallunterscheidung ueber `TARGETARCH` entfaellt damit.
+COPY --from=mediamtx-fork /mediamtx /opt/mediamtx/mediamtx
 
 # frpc — Tunnel-Client für den Steuerungs-Relay (App-Hosting). Upstream
 # publiziert keine Checksums-Datei; SHA-256 re-hashed vom offiziellen Tarball.
