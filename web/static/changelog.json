@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-07.4",
+      "date": "2026-09-07",
+      "style": "Sachlich",
+      "title": "Hochscrollen springt nicht mehr zurück",
+      "intro": "Wer in einem Textkanal mit dem Mausrad nach oben rollte, wurde manchmal von der nächsten eingehenden Nachricht wieder ans Ende gezogen. Das ist behoben.",
+      "items": [
+        "Ein einzelner Rad-Tick nach oben reicht jetzt: die Ansicht bleibt oben, auch wenn währenddessen Nachrichten eintreffen oder Bilder nachladen.",
+        "Wer unten steht, bleibt unten — neue Nachrichten ziehen die Ansicht weiterhin nach, auch bei einer schnellen Folge."
+      ]
+    },
+    {
       "id": "2026-09-07.3",
       "date": "2026-09-07",
       "style": "Sachlich",
