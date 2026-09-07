@@ -20,6 +20,7 @@
   import { isElectron } from '$lib/platform/runtime';
   import { erzeugeDek, wickleSchluesselDatei, öffneSchluesselDatei } from '$lib/sicherung/krypto';
   import { SCHLUESSEL_DATEI } from '$lib/sicherung/spiegel';
+  import { neueUuid } from '$lib/utils/uuid';
   import {
     adapterLieferant,
     zieleLesen,
@@ -178,7 +179,7 @@
         if (bytes === null) throw new Error(m.sicherung_fehler_schluessel_fehlt());
         dek = (await öffneSchluesselDatei(bytes, formPasswort)).dek;
       }
-      const kuerzel = (await dekAusZwischenlager())?.kuerzel ?? crypto.randomUUID();
+      const kuerzel = (await dekAusZwischenlager())?.kuerzel ?? neueUuid();
       await dekZwischenlagern(dek, kuerzel);
       sicherungVerwerfen();
       // Verbindung steht — die Oberfläche löst sich sofort, der Bestands-
