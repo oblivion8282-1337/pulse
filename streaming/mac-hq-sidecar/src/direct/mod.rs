@@ -54,12 +54,6 @@ use rueckkanal::{rtcp_schleife, verdrahte_pc};
 /// Ort, damit der Muxer nie an einem fremden Sendeweg vorbeiläuft.
 pub const SITZUNG_URL: &str = "direct://sitzung";
 
-/// Angebotsmaße, wenn der Renderer keine Auflösungs-Box gesetzt hat. Es geht
-/// hier nur um die fmtp-STUFE des Answers: zu hoch ist folgenlos, zu niedrig
-/// lässt den Hardware-Decoder des Players aussteigen — also lieber die
-/// größte übliche Schirmgröße annehmen als zu klein ansetzen.
-const ANGENOMMENE_MASSE: (u32, u32) = (3840, 2160);
-
 pub struct Sitzung {
     inner: Mutex<SitzungsInner>,
 }
@@ -67,8 +61,6 @@ pub struct Sitzung {
 struct SitzungsInner {
     ablauf: ablauf::Ablauf,
     sender: Option<Arc<pulse_whip::direct::DirectSender>>,
-    /// Ziel-Bitrate der laufenden Aushandlung — Maßstab der REMB-Wacht.
-    bitrate_kbps: u32,
 }
 
 /// Der Singleton. Genau eine Direkt-Sitzung je Prozess — der Sidecar ist
@@ -80,7 +72,6 @@ pub fn sitzung() -> &'static Sitzung {
         inner: Mutex::new(SitzungsInner {
             ablauf: ablauf::Ablauf::neu(),
             sender: None,
-            bitrate_kbps: 0,
         }),
     })
 }
@@ -114,11 +105,10 @@ impl Sitzung {
             }
             return Err(e);
         }
-        let (antwort, sender, bitrate_kbps) = resultat.unwrap();
+        let (antwort, sender) = resultat.unwrap();
         {
             let mut inner = self.lock();
             inner.sender = Some(sender);
-            inner.bitrate_kbps = bitrate_kbps;
         }
         // Nach dem Ok der Response vorausgeschickt (Reihenfolge-Begründung im
         // Modulkopf).
@@ -130,7 +120,7 @@ impl Sitzung {
     fn aushandle(
         &self,
         offer_sdp: &str,
-    ) -> Result<(String, Arc<pulse_whip::direct::DirectSender>, u32)> {
+    ) -> Result<(String, Arc<pulse_whip::direct::DirectSender>)> {
         // Was gestreamt wird, steht im Wartezustand des Controllers — dessen
         // `wartende_direct_params` sind die EINE Quelle.
         let params = StreamController::singleton()
@@ -143,13 +133,12 @@ impl Sitzung {
             "av1" => "av1",
             _ => "h264",
         };
-        let bitrate_kbps = params.bitrate_kbps;
         let konfig = pulse_whip::direct::Konfig {
             codec_slug,
             fps: params.fps,
             breite: params.width,
             hoehe: params.height,
-            bitrate_kbps,
+            bitrate_kbps: params.bitrate_kbps,
         };
         let sender = Arc::new(
             pulse_whip::direct::DirectSender::neu(&konfig)
@@ -162,8 +151,8 @@ impl Sitzung {
         let antwort = sender
             .connect(offer_sdp)
             .context("Angebot beantworten")?;
-        rtcp_schleife(sender.video_sender(), bitrate_kbps);
-        Ok((antwort, sender, bitrate_kbps))
+        rtcp_schleife(sender.video_sender(), params.bitrate_kbps);
+        Ok((antwort, sender))
     }
 
     /// `direct_stop`: PeerConnection und — falls schon mitlaufend — die
