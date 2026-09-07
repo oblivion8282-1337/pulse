@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-07.2",
+      "date": "2026-09-07",
+      "style": "Sachlich",
+      "title": "Neuer Emoji-Picker",
+      "intro": "Der Emoji-Picker zeigt jetzt die komplette Emoji-Sammlung mit deutschen Beschriftungen, Suche und einer „Häufig benutzt“-Leiste — die alte Auswahl mit den acht engen Kategorie-Knöpfen ist damit Geschichte.",
+      "items": [
+        "Der Picker öffnet sich als ein durchgehendes Feld: Kategorien links, alle Emojis untereinander, eigene Suchleiste.",
+        "Die Suche findet Begriffe im ganzen Katalog statt nur in einer kleinen Auswahlliste.",
+        "Häufig genutzte Emojis erscheinen automatisch oben."
+      ]
+    },
+    {
       "id": "2026-09-07.1",
       "date": "2026-09-07",
       "style": "Sachlich",
