@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-07.1",
+      "date": "2026-09-07",
+      "style": "Sachlich",
+      "title": "Streams: Reaktionen mit Emojis",
+      "intro": "Am lebenden Stream-Tile gibt es jetzt eine Emoji-Schnellwahl — jeder Klick lässt das Emoji über dem Bild aufsteigen, für alle Zuschauer gleichzeitig.",
+      "items": [
+        "Sechs schnelle Reaktionen (Daumen hoch, Herz, Lachen, Wow, Ärger, Feuer) direkt an der Kachel — Twitch-Style, ohne den Chat zu berühren.",
+        "Die Reaktionen werden nicht gespeichert: sie sind der Augenblick, nicht der Verlauf.",
+        "Zuschauer ohne Chat-Schreibrecht dürfen mitreagieren."
+      ]
+    },
+    {
       "id": "2026-09-06.4",
       "date": "2026-09-06",
       "style": "Sachlich",
