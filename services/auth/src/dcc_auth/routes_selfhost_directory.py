@@ -25,6 +25,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete
 
+from dcc_shared.snowflake import kennung_aus_text
+
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.models_instances import (
@@ -78,9 +80,8 @@ def _public_ip_or_400(raw: str) -> str:
 async def _authed_instance(
     db: SessionDep, instance_id: str, token: str
 ) -> RegisteredInstance:
-    try:
-        iid = int(instance_id)
-    except ValueError:
+    iid = kennung_aus_text(instance_id)
+    if iid is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
     inst = await db.get(RegisteredInstance, iid)
     if (
@@ -133,9 +134,8 @@ async def get_direct_endpoint(
     await _check_rate(request, "directory_lookup", settings.rate_limit_directory_lookup)
     user = await _require_user(request, db)
 
-    try:
-        iid = int(instance_id)
-    except ValueError:
+    iid = kennung_aus_text(instance_id)
+    if iid is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not found")
     membership = await db.get(UserInstanceMembership, (user.id, iid))
     if membership is None:

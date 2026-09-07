@@ -109,3 +109,25 @@ class SnowflakeGenerator:
 # nicht.
 INT64_MIN = -(2**63)
 INT64_MAX = 2**63 - 1
+
+
+def kennung_aus_text(roh: str) -> int | None:
+    """Eine von aussen kommende Kennung als ``int``, oder ``None``.
+
+    ``None`` heisst „das kann keine Kennung sein" — nicht-numerisch ODER
+    ausserhalb von BIGINT. Die beiden gehoeren zusammen, obwohl sie sich
+    verschieden anfuehlen: eine Route, die nur ``ValueError`` abfaengt, sieht
+    aus wie geprueft und faellt bei ``99999999999999999999`` trotzdem um, weil
+    erst der Datenbanktreiber den Wert zurueckweist — als 500er, nicht als
+    Eingabefehler.
+
+    Genau so lag es bis zum 2026-09-07 an sieben Stellen im auth-svc; die
+    Grenzen darueber gab es da laengst, benutzt hat sie nur der chat-gateway.
+    Deshalb nicht bloss die Konstanten teilen, sondern den ganzen Handgriff:
+    wer ihn ruft, kann die zweite Haelfte nicht mehr vergessen.
+    """
+    try:
+        wert = int(roh)
+    except (TypeError, ValueError):
+        return None
+    return wert if INT64_MIN <= wert <= INT64_MAX else None

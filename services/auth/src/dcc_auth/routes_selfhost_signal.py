@@ -17,6 +17,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, statu
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.websockets import WebSocketDisconnect
 
+from dcc_shared.snowflake import kennung_aus_text
+
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.direct_signal import InstanceOffline, OfferTimeout, hub
@@ -90,9 +92,8 @@ async def direct_offer(
     await _check_rate(request, "directory_offer", settings.rate_limit_directory_offer)
     user = await _require_user(request, db)
 
-    try:
-        iid = int(instance_id)
-    except ValueError:
+    iid = kennung_aus_text(instance_id)
+    if iid is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not found")
     membership = await db.get(UserInstanceMembership, (user.id, iid))
     if membership is None:
