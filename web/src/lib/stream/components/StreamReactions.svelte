@@ -19,10 +19,11 @@
   import { useGatewayListener } from '$lib/ws/useGatewayListener.svelte';
   import { chatApi } from '$lib/api/chat';
 
-  /** `bursten = false` blendet die aufsteigenden Emojis aus — die Schnellwahl
-   *  zum Selber-Senden bleibt, und es wird auch nichts mehr gesammelt (der
-   *  Kachel-Vorschlag aus dem Test: nicht jeder will das Feuerwerk). */
-  let { channelId, bursten = true }: { channelId: string; bursten?: boolean } = $props();
+  /** `leisteAn = true` zeigt die Emoji-Schnellwahl an der Kachel; aus = ruhige
+   *  Kachel ohne Leiste (der Kippschalter in der Dock-Leiste). Die Bursts der
+   *  anderen steigen unabhängig davon auf — der Schalter regelt nur die
+   *  Leiste, nicht was andere senden. */
+  let { channelId, leisteAn = true }: { channelId: string; leisteAn?: boolean } = $props();
 
   /** Twitch-konventionelle Schnellwahl — bewusst fix und klein; Custom-Emojis
    *  pro Guild sind ein eigener IDEAS.md-Punkt. */
@@ -48,7 +49,7 @@
   }
 
   useGatewayListener((evt) => {
-    if (evt.op === 'stream_reaction' && evt.data.channel_id === channelId && bursten) {
+    if (evt.op === 'stream_reaction' && evt.data.channel_id === channelId) {
       burst(evt.data.emoji);
     }
   });
@@ -60,32 +61,36 @@
   }
 </script>
 
-{#if bursten}
-  <!-- Burst-Ebene: rein dekorativ, keine Zeiger-Events. -->
-  <div class="pointer-events-none absolute inset-0 z-10 overflow-hidden">
-    {#each bursts as b (b.id)}
-      <span
-        class="stream-reaction-float absolute bottom-14 text-3xl drop-shadow-md"
-        style="left: {b.links}%; --drift: {b.drift}px"
+<!-- Burst-Ebene: rein dekorativ, keine Zeiger-Events. Die Bursts steigen
+     ÜBER der Schnellwahl auf (bottom-24), die Schnellwahl selbst liegt
+     bei bottom-14 — IMMER über der Dock-Höhe, denn im Vollbild legt
+     TileShell die Steuerleiste als Overlay über den unteren Bildrand
+     (TileShell-Kopf: overlay=true) und würde bei bottom-2 überlagert. -->
+<div class="pointer-events-none absolute inset-0 z-10 overflow-hidden">
+  {#each bursts as b (b.id)}
+    <span
+      class="stream-reaction-float absolute bottom-24 text-3xl drop-shadow-md"
+      style="left: {b.links}%; --drift: {b.drift}px"
+    >
+      {b.emoji}
+    </span>
+  {/each}
+</div>
+
+{#if leisteAn}
+  <div
+    class="absolute right-2 bottom-14 z-20 flex items-center gap-0.5 rounded-full bg-black/45 px-1.5 py-1 backdrop-blur-sm"
+    data-testid="stream-reactions-bar"
+  >
+    {#each SCHNELLWAHL as emoji (emoji)}
+      <button
+        type="button"
+        class="cursor-pointer rounded-full px-1 text-xl leading-none transition-transform hover:scale-125 focus-visible:scale-125 focus-visible:outline-none"
+        aria-label={emoji}
+        onclick={() => feuern(emoji)}
       >
-        {b.emoji}
-      </span>
+        {emoji}
+      </button>
     {/each}
   </div>
 {/if}
-
-<div
-  class="absolute right-2 bottom-2 z-20 flex items-center gap-0.5 rounded-full bg-black/45 px-1.5 py-1 backdrop-blur-sm"
-  data-testid="stream-reactions-bar"
->
-  {#each SCHNELLWAHL as emoji (emoji)}
-    <button
-      type="button"
-      class="cursor-pointer rounded-full px-1 text-xl leading-none transition-transform hover:scale-125 focus-visible:scale-125 focus-visible:outline-none"
-      aria-label={emoji}
-      onclick={() => feuern(emoji)}
-    >
-      {emoji}
-    </button>
-  {/each}
-</div>

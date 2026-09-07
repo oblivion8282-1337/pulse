@@ -39,7 +39,6 @@
   import LoaderIcon from '@lucide/svelte/icons/loader-circle';
   import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
   import SparklesIcon from '@lucide/svelte/icons/sparkles';
-  import { Button } from '$lib/components/ui/button';
   import ClipboardIcon from '@lucide/svelte/icons/clipboard';
   import CheckIcon from '@lucide/svelte/icons/check';
   import NativeWindowPanel from '$lib/player/components/NativeWindowPanel.svelte';
@@ -384,6 +383,8 @@
   onEnableAudio={enableAudio}
   {chatOpen}
   onToggleChat={() => (chatOpen = !chatOpen)}
+  reaktionenAn={reaktionenAn}
+  onToggleReaktionen={() => (reaktionenAn = !reaktionenAn)}
   onDetach={canDetach ? handleDetach : undefined}
   detachLabel={fensterTitel}
   {hideDock}
@@ -434,7 +435,7 @@
       <!-- Stream-Reactions (IDEAS.md §4): Burst-Ebene + Schnellwahl, nur am
            lebenden Stream (die Platzhalter-Flaechen oben haben damit nichts
            zu tun). -->
-      <StreamReactions {channelId} bursten={reaktionenAn} />
+      <StreamReactions {channelId} leisteAn={reaktionenAn} />
     {/if}
   {/snippet}
   {#snippet controlsExtra()}
@@ -456,18 +457,6 @@
     {#if desktop && fernsteuerbarGesehen}
       <RemoteRequestButton channelId={channelId} hostUserId={userId} slot={streamSlot} />
     {/if}
-    <!-- Stream-Reactions ein-/ausblenden: nur die Burst-Ebene kippt, die
-         Schnellwahl zum Selber-Senden bleibt an der Kachel. -->
-    <Button
-      size="sm"
-      variant="ghost"
-      aria-pressed={reaktionenAn}
-      onclick={() => (reaktionenAn = !reaktionenAn)}
-      data-testid="stream-reactions-toggle"
-    >
-      <SparklesIcon class="size-4" />
-      {m.stream_reactions_toggle()}
-    </Button>
   {/snippet}
   {#snippet chatPanel()}
     <StreamChatPanel {channelId} streamerId={userId} onClose={() => (chatOpen = false)} />

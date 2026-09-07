@@ -22,6 +22,7 @@
   import MaximizeIcon from '@lucide/svelte/icons/maximize';
   import MinimizeIcon from '@lucide/svelte/icons/minimize';
   import MessageSquareIcon from '@lucide/svelte/icons/message-square';
+  import SparklesIcon from '@lucide/svelte/icons/sparkles';
   import ListVideoIcon from '@lucide/svelte/icons/list-video';
   import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
   import ActivityIcon from '@lucide/svelte/icons/activity';
@@ -50,6 +51,8 @@
     hasStats = false,
     chatOpen = false,
     onToggleChat,
+    reaktionenAn,
+    onToggleReaktionen,
     queueOpen = false,
     onToggleQueue,
     controlsExtra,
@@ -77,6 +80,9 @@
     hasStats?: boolean;
     chatOpen?: boolean;
     onToggleChat?: () => void;
+    /** Stream-Reactions ein-/ausgeblendet — Knopf nur mit Rueckruf. */
+    reaktionenAn?: boolean;
+    onToggleReaktionen?: () => void;
     queueOpen?: boolean;
     onToggleQueue?: () => void;
     controlsExtra?: Snippet;
@@ -211,6 +217,19 @@
           data-testid={`${testidPrefix}-queue-toggle`}
         >
           <ListVideoIcon class={ICON} />
+        </button>
+      {/if}
+      {#if onToggleReaktionen}
+        <button
+          type="button"
+          onclick={() => onToggleReaktionen?.()}
+          class={btn(reaktionenAn)}
+          aria-label={m.stream_reactions_toggle()}
+          aria-pressed={reaktionenAn}
+          title={m.stream_reactions_toggle()}
+          data-testid={`${testidPrefix}-reactions-toggle`}
+        >
+          <SparklesIcon class={ICON} />
         </button>
       {/if}
       {#if onToggleChat}
