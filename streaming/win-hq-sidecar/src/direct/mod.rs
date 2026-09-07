@@ -60,8 +60,6 @@ pub struct Sitzung {
 struct SitzungsInner {
     ablauf: ablauf::Ablauf,
     sender: Option<Arc<pulse_whip::direct::DirectSender>>,
-    /// Ziel-Bitrate der laufenden Aushandlung — Maßstab der REMB-Wacht.
-    bitrate_kbps: u32,
 }
 
 /// Der Singleton. Genau eine Direkt-Sitzung je Prozess — der Sidecar ist
@@ -73,7 +71,6 @@ pub fn sitzung() -> &'static Sitzung {
         inner: Mutex::new(SitzungsInner {
             ablauf: ablauf::Ablauf::neu(),
             sender: None,
-            bitrate_kbps: 0,
         }),
     })
 }
@@ -107,11 +104,10 @@ impl Sitzung {
             }
             return Err(e);
         }
-        let (antwort, sender, bitrate_kbps) = resultat.unwrap();
+        let (antwort, sender) = resultat.unwrap();
         {
             let mut inner = self.lock();
             inner.sender = Some(sender);
-            inner.bitrate_kbps = bitrate_kbps;
         }
         // Nach dem Ok der Response vorausgeschickt (Reihenfolge-Begründung im
         // Modulkopf).
@@ -123,7 +119,7 @@ impl Sitzung {
     fn aushandle(
         &self,
         offer_sdp: &str,
-    ) -> Result<(String, Arc<pulse_whip::direct::DirectSender>, u32)> {
+    ) -> Result<(String, Arc<pulse_whip::direct::DirectSender>)> {
         // Was gestreamt wird, steht im Wartezustand des Controllers — dessen
         // `wartende_direct_params` sind die EINE Quelle.
         let params = StreamController::singleton()
@@ -153,7 +149,7 @@ impl Sitzung {
             .connect(offer_sdp)
             .context("Angebot beantworten")?;
         rtcp_schleife(sender.video_sender(), bitrate_kbps);
-        Ok((antwort, sender, bitrate_kbps))
+        Ok((antwort, sender))
     }
 
     /// `direct_stop`: PeerConnection und — falls schon mitlaufend — die
