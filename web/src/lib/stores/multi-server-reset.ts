@@ -7,8 +7,13 @@
  *    Liste (vorher 15+ einzelne `.clear()`-Calls).
  *
  * Globale UI-State (`settings`, `viewport`, `navDrawer`, `uiOverlays`,
- * `privacy`, `capabilities`) bleibt erhalten — die hängt nicht
- * am gerade aktiven Server. `userCache` ist ebenfalls global gehalten und wird
+ * `privacy`) bleibt erhalten — die hängt nicht am gerade aktiven Server.
+ * `capabilities` stand hier lange mit in der Aufzählung, und das war falsch:
+ * der Store hält instanz-eigene Admin-Grenzen (`GET /capabilities` liest die
+ * `ChatSettings`-Zeile der jeweiligen Server-DB). Er wird nicht geleert,
+ * sondern von `activeServer.set()` direkt nach diesem Reset neu geladen —
+ * Leeren allein liesse die Grenzen bis zur Antwort auf den Code-Vorgaben
+ * stehen. `userCache` ist ebenfalls global gehalten und wird
  * nur bei Sign-Out (nicht Switch) geleert — sonst flackern Avatare beim Hin-
  * und Herwechseln.
  *
