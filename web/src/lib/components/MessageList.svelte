@@ -5,6 +5,13 @@
   import { plainifyMentions } from './messageRender';
   import { messages as messageStore } from '$lib/stores/messages.svelte';
   import { ladeAeltereSeite } from '$lib/verlauf/nachladen';
+  import {
+    anfangsKlebezustand,
+    nachEigenerFahrt,
+    nachNutzergeste,
+    nachScroll,
+    type Klebezustand
+  } from '$lib/nachrichten/klebezustand';
   import type { Channel, Message } from '$lib/api/types';
   import { auth } from '$lib/stores/auth.svelte';
   import { userCache } from '$lib/stores/users.svelte';
@@ -90,7 +97,9 @@
   // Scrollen aktualisiert — also BEVOR eine neue Nachricht die Liste höher
   // macht. Neue Nachrichten wachsen den Container nach unten, ohne ein
   // scroll-Event auszulösen, d.h. dieser Wert bleibt korrekt erhalten.
-  let pinnedToBottom = $state(true);
+  // Die Rechnung selbst (samt der Geschichte ihrer zwei Fehler) steht in
+  // `nachrichten/klebezustand.ts`; hier nur die Verdrahtung.
+  let klebe = $state<Klebezustand>(anfangsKlebezustand());
   // Kurzzeitig zu highlightende Nachricht (z.B. nach jumpToReply).
   let highlightId = $state<string | null>(null);
   // Frisch angekommen (gesendet/empfangen) → kurzes Einblenden. Markierung
@@ -120,23 +129,13 @@
 
   function handleVirtuaScroll(offset: number) {
     if (!vlist) return;
-    const size = vlist.getScrollSize();
-    // Vor dem ersten echten Inhalt ist die Größe 0 → nicht auswerten.
-    if (size === 0) return;
-    // NUR nach true schalten, nie nach false. Bis zum 2026-09-03 stand hier
-    // eine Zuweisung in beide Richtungen — und die riss das Kleben ab, ohne
-    // dass der Nutzer etwas getan hatte: `pinToEnd(true)` gleitet ans Ende,
-    // jedes Zwischen-Scroll-Ereignis der Gleitfahrt liegt noch nicht am
-    // Ende und setzte `pinnedToBottom = false`; kam in diesem Fenster (oder
-    // waehrend ein Bild die Liste wachsen liess) die naechste Nachricht, gab
-    // es keinen Pin mehr, und die Ansicht blieb stehen — neue Zeilen wuchsen
-    // unsichtbar unter dem Sichtfenster. Nachgemessen mit 40 Nachrichten im
-    // Sekundentakt: ab Nr. 19 klebte die Liste 650 px ueber dem Ende, bei
-    // Nr. 22 lag die eigene neue Zeile ausserhalb des gerenderten Fensters
-    // („die Nachrichten haengen zu weit oben, ich kann nicht hochscrollen").
-    // Nach unten geht es seither nur ueber erklaerte Absicht: Rad/Finger
-    // nach oben, Tasten, Griff an die Scrollleiste (`unpin` im Effekt unten).
-    if (offset + vlist.getViewportSize() >= size - 80) pinnedToBottom = true;
+    // Wessen Scroll das ist, entscheidet die Rechnung: während einer eigenen
+    // Fahrt ans Ende (`pinToEnd`) stellt sie nur scharf — die Zwischenframes
+    // der Gleitfahrt liegen noch nicht am Ende und dürfen nicht lösen. Sonst
+    // rechnet sie beidseitig, damit ein animierter Rad-Tick nach oben, dessen
+    // erste Frames noch in der Toleranzzone liegen, das Kleben nicht wieder
+    // scharf stellt (beide Fälle nachgemessen, s. `klebezustand.ts`).
+    klebe = nachScroll(klebe, offset, vlist.getViewportSize(), vlist.getScrollSize());
     if (
       canPaginate &&
       hasMore &&
@@ -159,6 +158,7 @@
     if (items.length === 0) return;
     const schontReduced =
       typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    klebe = nachEigenerFahrt(klebe);
     vlist?.scrollToIndex(items.length - 1, { align: 'end', smooth: soft && !schontReduced });
   }
 
@@ -182,7 +182,7 @@
       requestAnimationFrame(() =>
         requestAnimationFrame(() => {
           if (channel?.id !== forChannel) return;
-          if (!unbedingt && !pinnedToBottom) return;
+          if (!unbedingt && !klebe.klebt) return;
           // Initial-Load springt instant; Appends (eigene + fremde Nachrichten)
           // gleiten — die bestehenden Nachrichten wandern sanft hoch statt
           // hart umzusetzen.
@@ -251,7 +251,7 @@
     untrack(() => {
       lastCount = 0;
       lastSeenId = '';
-      pinnedToBottom = true;
+      klebe = anfangsKlebezustand();
       hasMore = true;
       loadingOlder = false;
       freshKey = null;
@@ -275,7 +275,7 @@
       // "Klebt der User unten?" wird VOR dem DOM-Wachstum bestimmt (über den
       // laufenden Scroll-Handler) — nicht erst nach tick(), wenn die neue,
       // u.U. >80px hohe Nachricht die Messung schon verfälscht hätte.
-      const shouldScroll = isInitialLoad || pinnedToBottom;
+      const shouldScroll = isInitialLoad || klebe.klebt;
       lastCount = count;
       lastSeenId = lastId;
       if (shouldScroll) pinToEndWhenMeasured(isInitialLoad);
@@ -293,18 +293,18 @@
   $effect(() => {
     const el = wrapperEl;
     if (!el) return;
-    const onGrow = () => { if (pinnedToBottom) pinToEnd(true); };
+    const onGrow = () => { if (klebe.klebt) pinToEnd(true); };
     const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(onGrow);
     ro?.observe(el);
     el.addEventListener('load', onGrow, true);
     // Scroll-Absicht des Users schlägt das automatische Ans-Ende-Ziehen — und
-    // zwar SOFORT, nicht erst wenn das daraus folgende scroll-Event
-    // `pinnedToBottom` neu berechnet. Ohne das kann ein Bild, das genau in
-    // diesem Fenster fertig lädt, `pinToEnd()` auslösen und den gerade
-    // begonnenen Hochroll-Versuch wieder nach unten reißen. Die Korrektur ist
-    // selbstheilend: bleibt der User doch unten, setzt der Scroll-Handler
-    // `pinnedToBottom` im selben Zug wieder auf true.
-    const unpin = () => { pinnedToBottom = false; };
+    // zwar SOFORT, nicht erst wenn das daraus folgende scroll-Event den
+    // Zustand neu berechnet. Ohne das kann ein Bild, das genau in diesem
+    // Fenster fertig lädt, `pinToEnd()` auslösen und den gerade begonnenen
+    // Hochroll-Versuch wieder nach unten reißen. Die Geste beendet auch eine
+    // laufende eigene Fahrt; bleibt der User doch unten, stellt der
+    // Scroll-Handler das Kleben im selben Zug wieder scharf.
+    const unpin = () => { klebe = nachNutzergeste(klebe); };
     // Nur nach oben: ein Rad-Tick nach unten führt ohnehin ans Ende.
     const onWheel = (e: WheelEvent) => { if (e.deltaY < 0) unpin(); };
     // Touch braucht denselben Richtungsfilter wie das Rad. Ein richtungsloses
@@ -318,10 +318,10 @@
       const y = e.touches[0]?.clientY ?? touchStartY;
       if (y - touchStartY > 8) unpin();
     };
-    // Tasten und Scrollleiste erzeugen kein wheel-Event; seit der
-    // Scroll-Handler nicht mehr selbst entpinnt (s. `handleVirtuaScroll`),
-    // muessen sie hier ausdruecklich zaehlen. Der Griff an die Leiste wird
-    // an der Position erkannt: rechts vom Inhaltsbereich des Scrollers.
+    // Tasten und Scrollleiste erzeugen kein wheel-Event; damit sie eine
+    // laufende eigene Fahrt sofort abbrechen (nicht erst über das folgende
+    // Scroll-Ereignis), zaehlen sie hier ausdruecklich. Der Griff an die
+    // Leiste wird an der Position erkannt: rechts vom Inhaltsbereich.
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'PageUp' || e.key === 'ArrowUp' || e.key === 'Home') unpin();
     };
@@ -516,6 +516,10 @@
   function jumpToReply(parentId: string) {
     const idx = items.findIndex((it) => it.kind === 'message' && it.message.id === parentId);
     if (idx < 0 || !vlist) return;
+    // Der Sprung ist eine erklärte Absicht, weg vom Ende — wie eine Geste. Sonst
+    // bliebe eine gerade laufende eigene Fahrt offen und die nächste Nachricht
+    // zöge die Ansicht von der angesprungenen Stelle wieder ans Ende.
+    klebe = nachNutzergeste(klebe);
     vlist.scrollToIndex(idx, { align: 'center' });
     highlightId = parentId;
     setTimeout(() => { if (highlightId === parentId) highlightId = null; }, 1500);
