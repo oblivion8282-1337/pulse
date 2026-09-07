@@ -408,6 +408,25 @@ def test_interne_adressen_gelten_nie_als_oeffentlich():
         assert not ist_oeffentlich(adr), adr
 
 
+def test_in_v6_eingebettetes_v4_umgeht_die_sperre_nicht():
+    """Die Sperrliste ist ueberwiegend v4 — eine v6-Huelle darf sie nicht loesen.
+
+    ``IPv6Address in IPv4Network`` ist in Python immer False. Ohne das
+    Auspacken kaeme ``::ffff:169.254.169.254`` als „oeffentlich" durch, und
+    wer die DNS-Zone seiner genehmigten Instanz kontrolliert (das ist ihr
+    Betreiber, jederzeit), koennte die Diagnose als Port-Orakel gegen das
+    Cloud-Innere richten.
+    """
+    for adr in (
+        "::ffff:169.254.169.254",  # Cloud-Metadaten
+        "::ffff:127.0.0.1",
+        "::ffff:10.0.0.1",
+        "::ffff:192.168.1.1",
+        "2002:a9fe:a9fe::1",  # 6to4 auf 169.254.169.254
+    ):
+        assert not ist_oeffentlich(adr), adr
+
+
 def test_oeffentliche_adressen_kommen_durch():
     for adr in ("203.0.113.7", "8.8.8.8", "2606:4700::1111"):
         assert ist_oeffentlich(adr), adr
