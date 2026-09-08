@@ -17,6 +17,7 @@
   import BottomSheet from '$lib/components/mobile/BottomSheet.svelte';
   import UserPlusIcon from '@lucide/svelte/icons/user-plus';
   import XIcon from '@lucide/svelte/icons/x';
+  import PhoneIcon from '@lucide/svelte/icons/phone';
   import { friends } from '$lib/stores/friends.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { nameStyle } from '$lib/utils/nameColor';
@@ -30,12 +31,15 @@
   let {
     gruppe,
     open = $bindable(false),
-    onVerlassen
+    onVerlassen,
+    onAnrufen
   }: {
     gruppe: PrivateGruppe;
     open?: boolean;
     /** Nach dem Verlassen — der Aufrufer navigiert weg (Kanal existiert dann nicht mehr). */
     onVerlassen?: () => void;
+    /** Gruppenanruf starten (Anrufe-Epic D). */
+    onAnrufen?: () => void;
   } = $props();
 
   let freundeZumHinzufuegen = $derived(
@@ -126,6 +130,20 @@
     <p class="text-text-muted text-xs">
       {m.gruppen_blatt_mitglieder({ count: gruppe.members.length })}
     </p>
+    {#if onAnrufen}
+      <button
+        type="button"
+        class="text-primary hover:bg-bg-hover mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-border py-2 text-sm font-semibold"
+        onclick={() => {
+          open = false;
+          onAnrufen();
+        }}
+        data-testid="group-call-button"
+      >
+        <PhoneIcon class="size-4" />
+        {m.anruf_starten()}
+      </button>
+    {/if}
   </div>
 
   <ul class="flex flex-col gap-0.5 px-2">

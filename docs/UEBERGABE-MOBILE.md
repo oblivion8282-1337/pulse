@@ -248,6 +248,22 @@ der SFU sieht das Medien-Plaintext. DM-*Texte* sind dagegen E2EE. Diesen
 Unterschied in der Security-Dokumentation sauber benennen. Echte E2EE-Anrufe
 wären ein eigenes Projekt und sind bewusst zurückgestellt (siehe unten).
 
+**Stand 2026-09-08 (auf `feat/mobile`):** Stufen A–D sind gebaut; der
+1:1-Anruf ist über zwei Geräte (Android-Emulator ↔ Electron-Fenster) live
+verifiziert — Klingeln per WS (`call_klingelt/angenommen/abgelehnt/ende`,
+ephemeral, `publish_user_event` an beide Teilnehmer), Call-Entität
+`chat.anrufe` (Migration 0091) mit Zustandsmaschine klingelnd → laufend →
+beendet (aufgelegt/abgelehnt/verpasst), LiveKit-Token über
+`POST /call/token` in voice-signaling (Mitgliedschaft löst der
+chat-gateway, `GET /anrufe/{id}/mitgliedschaft`). UI: globales
+Anruf-Overlay (`AnrufOverlay.svelte`), Anruf-Knopf im DM-Kopf,
+Gruppenanruf-Einstieg im Gruppen-Blatt. Offen: Anruf-Systemzeilen im Chat
+(„Verpasst/Dauer") — in E2EE-DMs nur als Client-Umschlag sauber baubar,
+zurückgestellt bis zum E2EE-Reaktions-Muster (P1.5); Push an
+offline-Geräte hängt an P0.1/FCM. Bob-seitige In-Call-Anzeige ließ sich im
+Emulator-Lauf per CDP schwer prüfen (Renderer unter LiveKit-Last) — auf
+einem echten Gerät nochmal ansehen.
+
 ### P1 — Chat-Alltag rund machen
 
 5. **Reaktionen/Bearbeiten/Löschen im E2EE-Pfad.** Klartext-DMs können das,

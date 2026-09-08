@@ -8,6 +8,7 @@
   import HashIcon from '@lucide/svelte/icons/hash';
   import AtSignIcon from '@lucide/svelte/icons/at-sign';
   import UsersIcon from '@lucide/svelte/icons/users';
+  import PhoneIcon from '@lucide/svelte/icons/phone';
   import MessageInput from './MessageInput.svelte';
   import MessageList from './MessageList.svelte';
   import MemberList from './MemberList.svelte';
@@ -64,7 +65,9 @@
     onToggleReaction,
     onTogglePin,
     /** Nur 'gruppe': oeffnet das Gruppen-Blatt (Mitglieder, Verlassen). */
-    onGruppenBlatt
+    onGruppenBlatt,
+    /** Nur 'dm': startet einen Anruf an die Gegenstelle (Anrufe-Epic C). */
+    onAnrufen
   }: {
     channel: Channel | null;
     messages: Message[];
@@ -109,6 +112,7 @@
     /** Pin anpinnen/lösen — Implementierung in den Seiten (Toast bei Fehler). */
     onTogglePin?: (m: Message) => void;
     onGruppenBlatt?: () => void;
+    onAnrufen?: () => void;
   } = $props();
 
   // '#'-Prefix für Guild-Channels (Screenshot-Tests + Gewohnheit), '@' für DMs,
@@ -470,6 +474,18 @@
           data-testid="group-sheet-toggle"
         >
           <UsersIcon class="text-text-muted size-4" />
+        </Button>
+      {/if}
+      {#if headerKind === 'dm' && onAnrufen}
+        <Button
+          variant="ghost"
+          size="icon"
+          class="ml-auto"
+          onclick={onAnrufen}
+          aria-label={pm.anruf_starten()}
+          data-testid="dm-call-button"
+        >
+          <PhoneIcon class="text-text-muted size-4" />
         </Button>
       {/if}
       {#if showMemberList}

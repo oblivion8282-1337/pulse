@@ -12,6 +12,17 @@ from dcc_chat_gateway.models.ablage_laufwerk import (
     AblageKontoLaufwerk,
 )
 from dcc_chat_gateway.models.ablage_zwischenlager import AblageZwischenlagerDatei
+from dcc_chat_gateway.models.anrufe import (
+    ART_DM,
+    ART_GRUPPE,
+    Anruf,
+    GRUND_ABGELEHNT,
+    GRUND_AUFGELEGT,
+    GRUND_VERPASST,
+    ZUSTAND_BEENDET,
+    ZUSTAND_KLINGELND,
+    ZUSTAND_LAEUFEND,
+)
 from dcc_chat_gateway.models.admin import AdminAuditLog, ChatSettings
 from dcc_chat_gateway.models.channels import (
     CHANNEL_TYPE_DROPBOX,
@@ -97,6 +108,15 @@ __all__ = [
     "MENTION_TYPE_ROLE",
     "MENTION_TYPE_USER",
     "AdminAuditLog",
+    "Anruf",
+    "ART_DM",
+    "ART_GRUPPE",
+    "GRUND_ABGELEHNT",
+    "GRUND_AUFGELEGT",
+    "GRUND_VERPASST",
+    "ZUSTAND_BEENDET",
+    "ZUSTAND_KLINGELND",
+    "ZUSTAND_LAEUFEND",
     "Channel",
     "ChannelVoicePull",
     "ChatSettings",

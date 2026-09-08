@@ -54,6 +54,7 @@
   import { istRaumBereich, merkeRaumPfad, raumPfadNachAuflegen } from '$lib/navigation/letzterRaumBereich.svelte';
   import { untrack } from 'svelte';
   import { installiereLesestandSync } from '$lib/api/lesestand';
+  import AnrufOverlay from '$lib/components/anrufe/AnrufOverlay.svelte';
   import { page } from '$app/state';
   import UpdateBanner from '$lib/components/server/UpdateBanner.svelte';
   import SelfHostDisclaimer from '$lib/components/server/SelfHostDisclaimer.svelte';
@@ -481,6 +482,10 @@
       <VoiceControlBar />
     </div>
   {/if}
+  <!-- Anruf-Overlay (Anrufe-Epic C): global über allem, weil ein Anruf
+       Navigation überdauert — Klingeln/Annahme/Auflegen sind überall
+       erreichbar. -->
+  <AnrufOverlay />
   <!-- Die Bereichs-Leiste sitzt UNTER dem Voice-Dock (Canvas 3a): das Dock ist
        der laufende Zustand, die Leiste die Navigation. `--safe-bottom` traegt
        jetzt sie, sonst laege der Home-Balken des Telefons darauf. -->

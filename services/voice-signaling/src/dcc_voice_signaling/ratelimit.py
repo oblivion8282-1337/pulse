@@ -17,6 +17,9 @@ _buckets: dict[str, dict[int, tuple[float, int]]] = {}
 # action -> (limit, window_seconds)
 _RULES: dict[str, tuple[int, float]] = {
     "token": (5, 60.0),  # 5 token requests / minute
+    # Anruf-Token: Klingeln + Annahme je Gerät; großzügiger als Channel-Tokens,
+    # weil beide Teilnehmer beim Verbindungsaufbau je einen brauchen.
+    "call_token": (10, 60.0),  # 10 call token requests / minute
 }
 
 

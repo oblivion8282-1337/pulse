@@ -6,6 +6,7 @@
   import DMChannelList from '$lib/components/DMChannelList.svelte';
   import MobileChatsList from '$lib/components/mobile/MobileChatsList.svelte';
   import GruppenSheet from '$lib/components/mobile/GruppenSheet.svelte';
+  import { anrufe } from '$lib/anrufe/anruf.svelte';
   import ChatView from '$lib/components/ChatView.svelte';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import { auth } from '$lib/stores/auth.svelte';
@@ -196,6 +197,17 @@
   /** Gruppen-Blatt (Mitglieder/Verlassen) — nur sinnvoll, solange eine Gruppe offen ist. */
   let gruppenBlattOffen = $state(false);
 
+  /** Anruf aus der offenen DM bzw. der offenen Gruppe (Anrufe-Epic C/D). */
+  function anrufStartenFuer(art: 'dm' | 'gruppe'): void {
+    if (art === 'dm') {
+      if (!activeDM) return;
+      const name = userCache.displayName(activeDM.other_user_id);
+      void anrufe.starten('dm', activeDM.id, name);
+    } else if (aktiveGruppe) {
+      void anrufe.starten('gruppe', aktiveGruppe.id, aktiveGruppe.name);
+    }
+  }
+
   // Sende-Einstieg (Gruppe / verschluesselte DM / Klartext-DM) ausgelagert —
   // s. `chat/dmSenden.ts`.
   function sendMessage(
@@ -306,6 +318,7 @@
       onDeleteMessage={deleteMessage}
       onToggleReaction={toggleReaction}
       onGruppenBlatt={() => (gruppenBlattOffen = true)}
+      onAnrufen={() => anrufStartenFuer('gruppe')}
     />
   {:else if activeDM && synthChannel}
     {#snippet leereNachrichten()}
@@ -329,6 +342,7 @@
         onDeleteMessage={deleteMessage}
         onToggleReaction={toggleReaction}
         onTogglePin={togglePin}
+        onAnrufen={() => anrufStartenFuer('dm')}
         leerHinweis={sicherungHinweis ? leereNachrichten : undefined}
       />
   {:else}
@@ -352,5 +366,6 @@
     gruppe={aktiveGruppe}
     bind:open={gruppenBlattOffen}
     onVerlassen={() => goto('/app/@me')}
+    onAnrufen={() => anrufStartenFuer('gruppe')}
   />
 {/if}

@@ -36,6 +36,12 @@ const PURE_SOCIAL_OPS: ReadonlySet<ServerEvent['op']> = new Set([
   // Hintergrund ankommen — sonst bleiben Häkchen und Zähler auf anderen
   // Geräten stehen, bis zum nächsten Reload.
   'dm_lesestand',
+  // Anruf-Signalisierung (Anrufe-Epic B): klingeln muss jeden Hintergrund-
+  // Tab erreichen, sonst verpasst man Anrufe, während ein Self-Host aktiv ist.
+  'call_klingelt',
+  'call_angenommen',
+  'call_abgelehnt',
+  'call_ende',
   // Der Weckruf fürs verschlüsselte Postfach (DMs, private Gruppen und
   // Ablage-Kanäle). Er trägt nur Kanal und Anzahl, nie Inhalt; abgeholt wird
   // danach alles Offene — `postfachAbholenUndAnzeigen` (`handlers/chat.ts`)

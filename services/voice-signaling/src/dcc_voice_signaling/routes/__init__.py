@@ -117,11 +117,15 @@ from dcc_voice_signaling.routes.internal import (
 from dcc_voice_signaling.routes.token_gast import (
     router as _token_gast_router,
 )
+from dcc_voice_signaling.routes.call_token import (
+    router as _call_token_router,
+)
 
 
 router = APIRouter()
 router.include_router(_token_router)
 router.include_router(_token_gast_router)
+router.include_router(_call_token_router)
 router.include_router(_voice_override_router)
 router.include_router(_voice_disconnect_router)
 router.include_router(_internal_router)

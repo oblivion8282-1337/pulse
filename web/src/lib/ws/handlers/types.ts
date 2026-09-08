@@ -173,6 +173,19 @@ export type ServerEvent =
       user_id: string;
       last_read_message_id: string;
     }
+  | {
+      // Anruf-Signalisierung (Anrufe-Epic B) — ephemeral an konkrete
+      // Teilnehmerkonten. Medien laufen nach der Annahme über LiveKit.
+      op: 'call_klingelt';
+      call_id: string;
+      art: 'dm' | 'gruppe';
+      channel_id: string;
+      einleiter_id: string;
+      video: boolean;
+    }
+  | { op: 'call_angenommen'; call_id: string; user_id: string }
+  | { op: 'call_abgelehnt'; call_id: string; user_id: string }
+  | { op: 'call_ende'; call_id: string; grund: 'aufgelegt' | 'abgelehnt' | 'verpasst'; dauer_sek: number }
   | { op: 'guild_updated'; guild: GuildPayload }
   | { op: 'guild_deleted'; guild_id: string }
   | { op: 'guild_member_added'; guild_id: string; user_id: string }

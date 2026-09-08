@@ -93,6 +93,12 @@ from dcc_shared.events.chat import (
     WatchChatReactionData,
     WatchChatReactionEvent,
 )
+from dcc_shared.events.anrufe import (
+    CallAbgelehntEvent,
+    CallAngenommenEvent,
+    CallEndeEvent,
+    CallKlingeltEvent,
+)
 from dcc_shared.events.community import CommunityInviteReceivedEvent
 from dcc_shared.events.friends import (
     FriendRemovedEvent,
@@ -169,6 +175,11 @@ EVENT_REGISTRY: dict[str, type[_EventBase]] = {
     "dm_bump": DmBumpEvent,
     # ---- serverseitiger Lesefortschritt (P0.2)
     "dm_lesestand": DmLesestandEvent,
+    # ---- Anruf-Signalisierung (Anrufe-Epic B) — ephemeral
+    "call_klingelt": CallKlingeltEvent,
+    "call_angenommen": CallAngenommenEvent,
+    "call_abgelehnt": CallAbgelehntEvent,
+    "call_ende": CallEndeEvent,
     # ---- ephemeral typing indicator
     "typing": TypingEvent,
     # ---- pinned messages (chat-channel)
@@ -239,6 +250,10 @@ __all__ = [
     "ChannelBumpEvent",
     "DmBumpEvent",
     "DmLesestandEvent",
+    "CallKlingeltEvent",
+    "CallAngenommenEvent",
+    "CallAbgelehntEvent",
+    "CallEndeEvent",
     "MentionAddedData",
     "MentionAddedEvent",
     "MessageDeleteData",
