@@ -13,10 +13,13 @@
  *  2. `notificationclick` router: focus an existing Pulse tab (and post-message
  *     it the channel/guild to navigate to) or open a new one on the right URL.
  *
- * Caching is intentionally minimal — SvelteKit's adapter-static already serves
- * everything with strong hash-based filenames + the API is uncacheable. We
- * keep a tiny precache of the build manifest so the install pass at least
- * primes the browser cache; deliberately NO offline shell yet.
+ * Caching: der Install-Pass precacht den Build + Statics (gehashte Namen —
+ * Cache-Treffer sind per Definition aktuell) plus den SPA-Fallback
+ * ``index.html``. Seit P2.13 bedient der Fetch-Handler daraus eine
+ * Offline-Shell: Navigationsanfragen fallen bei Netz-Ausfall auf den
+ * Fallback zurück, Build-/Static-Assets kommen cache-first. API, WebSocket
+ * und fremde Ursprünge gehen immer ans Netz — Drossel und Auth dürfen nie
+ * aus dem Cache antworten.
  */
 
 import { build, files, version } from '$service-worker';
@@ -29,10 +32,36 @@ const CACHE = `pulse-cache-${version}`;
 // sie herunter, auch wer das Modell nie aktiviert); der HTTP-Cache der
 // Browser-Fetches reicht, die Dateien ändern sich nur bei Release-Updates.
 const ASSETS = [...build, ...files].filter((p) => !p.startsWith('/gtcrn/'));
+// SPA-Fallback des adapter-static — liegt NICHT in `build`, muss für die
+// Offline-Navigation aber greifbar sein (P2.13).
+const SPA_FALLBACK = '/index.html';
+const ASSET_SET = new Set([...ASSETS, SPA_FALLBACK]);
 
 sw.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(ASSETS)).catch(() => undefined)
+    (async () => {
+      const cache = await caches.open(CACHE);
+      // Pro Datei einzeln tolerieren: `addAll` ist atomar — EIN 404 aus
+      // `files` hätte den gesamten Precache (inkl. SPA-Fallback) leer
+      // gelassen und die Offline-Shell wäre nie entstanden (Feldbefund
+      // 2026-09-08). Fehlende Einzelteile füllt der Fetch-Handler nach.
+      await Promise.allSettled(
+        ASSETS.map((p) => cache.add(p).catch(() => undefined))
+      );
+      // Pflichtteil: der SPA-Fallback MUSS liegen, sonst gibt die Offline-
+      // Navigation einen toten Bildschirm. Statische Server (vite preview,
+      // aber auch manche nginx-Konfigurationen) 404en einen literalen
+      // /index.html-Pfad — geholt wird deshalb '/', abgelegt unter dem
+      // Fallback-Schlüssel.
+      if (!(await cache.match(SPA_FALLBACK))) {
+        try {
+          const r = await fetch('/');
+          if (r.ok) await cache.put(SPA_FALLBACK, r.clone());
+        } catch {
+          /* offline während der Installation — nächster Start versucht erneut */
+        }
+      }
+    })()
   );
   // New SW takes over on the next navigation rather than waiting.
   void sw.skipWaiting();
@@ -50,11 +79,61 @@ sw.addEventListener('activate', (event) => {
   );
 });
 
-// We don't try to be an offline-first PWA yet. Pass everything through to the
-// network. Keeping this listener present (even as a no-op) ensures the SW
-// counts as "fetch-handling" so installability checks succeed on iOS/Android.
-sw.addEventListener('fetch', () => {
-  /* network only — no respondWith */
+/**
+ * Offline-Shell (Übergabe P2.13): ohne Netz startet die App aus dem Precache
+ * statt in einem toten Bildschirm — der lokale Verlauf (IndexedDB) liefert
+ * dann die Daten, sobald die Hülle steht.
+ *
+ * - Navigationsanfragen: Netz hat Vorrang (Frische), beim Scheitern springt
+ *   der SPA-Fallback aus dem Cache. Same-origin only — /api und fremde
+ *   Ursprünge bleiben unberührt.
+ * - Build-/Static-Assets: Cache zuerst (gehashte Dateinamen — Cache-Treffer
+ *   sind per Definition aktuell), Netz füllt Lücken, Fehler laufen weiter
+ *   hoch (Rufende Routen haben eigenes Fehlerhandling).
+ *
+ * Alles andere (API, WebSocket-Upgrades, fremde Ursprünge) geht unberührt
+ * durchs Netz — Drossel- und Auth-Logik dürfen niemals aus dem Cache antworten.
+ */
+sw.addEventListener('fetch', (event) => {
+  const req = event.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  if (url.origin !== sw.location.origin) return;
+
+  if (req.mode === 'navigate') {
+    event.respondWith(
+      (async () => {
+        try {
+          return await fetch(req);
+        } catch {
+          const cache = await caches.open(CACHE);
+          return (
+            (await cache.match(url.pathname)) ||
+            (await cache.match(SPA_FALLBACK)) ||
+            Response.error()
+          );
+        }
+      })()
+    );
+    return;
+  }
+
+  if (ASSET_SET.has(url.pathname)) {
+    event.respondWith(
+      (async () => {
+        const cache = await caches.open(CACHE);
+        const hit = await cache.match(url.pathname);
+        if (hit) return hit;
+        try {
+          const resp = await fetch(req);
+          if (resp.ok) await cache.put(url.pathname, resp.clone());
+          return resp;
+        } catch {
+          return Response.error();
+        }
+      })()
+    );
+  }
 });
 
 type PushPayload = {
