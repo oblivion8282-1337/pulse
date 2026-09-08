@@ -296,9 +296,11 @@ einem echten Gerät nochmal ansehen.
     Repo — Aufbewahrung regeln!), targetSdk passend zu Capacitor 8 (API 35),
     App-Icon/Splash (Ressourcen liegen in `mobile/android/app/src/main/res/`),
     Play-Data-Safety-Angaben (E2EE = Erklärpflicht + Verkaufsargument).
-12. **Rate-Limiter im chat-gateway** — existiert nicht (dokumentiert in
-    `routes/dms.py`). Ein Messenger mit Hintergrund-Sync ist genau der Traffic,
-    für den man einen will.
+12. **Rate-Limiter im chat-gateway** — ~~existiert nicht~~ **erledigt
+    (2026-09-08)**: der E2EE-Sendeweg ``POST /postfach`` teilt sich jetzt den
+    ``message``-Rahmen (10/s je Nutzer) mit dem Klartext-Pfad; Drossel sitzt
+    vor den teuren Prüfungen (``routes/postfach.py``, Test
+    ``test_postfach_drossel.py``).
 13. **Offline-UX.** Ohne Netz zeigt die WebView einen toten Bildschirm; lokaler
     Verlauf existiert, aber der Start braucht einen Offline-Fallback/Retry.
 

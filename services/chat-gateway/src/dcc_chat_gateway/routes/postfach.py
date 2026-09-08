@@ -42,10 +42,11 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from dcc_shared.events import PostfachNeuEvent
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import exists, func, select
 
 import dcc_chat_gateway.config as chat_config
+from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import DeviceKeyBundle, DmNutzlast, DmZustellung
 from dcc_chat_gateway.postfach_anhaenge import bezuege_anlegen, binde_anhaenge
@@ -88,6 +89,14 @@ async def postfach_einliefern(
     # in conftest.py) nicht.
     settings = chat_config.get_settings()
     cid_int = int(body.channel_id)
+
+    # 0. Drossel (Übergabe P2.12): der verschlüsselte Weg ist DER Standard-Sendeweg
+    # für DMs/Gruppen — derselbe Rahmen wie der Klartext-Sendepfad (10/s, gleiche
+    # Begründung: Hintergrund-Sync ist genau der Verkehr, für den man eine Bremse
+    # will). Ein Gerät, das pusht, schiebt hier Zeilen durch; ohne Grenze wäre
+    # die Postfach-Tabelle der billigste Müllplatz des Dienstes.
+    if not ratelimit.check("message", user.id):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded")
 
     # 1. Obergrenzen ZUERST (Bughunt 2026-08-28 (Missbrauch), FIX 4) —
     # reiner Strukturcheck auf dem Rumpf, keine DB. Vorher liefen
