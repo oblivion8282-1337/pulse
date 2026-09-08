@@ -15,6 +15,7 @@
   import { renderMessage } from './messageRender';
   import { m } from '$lib/paraglide/messages.js';
   import { blocks } from '$lib/stores/blocks.svelte';
+  import { readState } from '$lib/stores/readState.svelte';
   import { nachrichtVonBlockiertem } from '$lib/nachrichten/blockierteAnzeige';
 
   let {
@@ -115,6 +116,16 @@
   // so edit / delete / react would hit `/messages/tmp-…` and 4xx. Gate them
   // until the echo swaps in the persisted message.
   const isPending = $derived(message.id.startsWith('tmp-'));
+
+  /** Lese-Häkchen (P0.2) — nur eigene DM-Nachrichten (bubble): true = von
+   *  der Gegenstelle gelesen, false = nur zugestellt, undefined = keine
+   *  Auskunft (optimistische Kopie, oder Partner-Stand unbekannt). */
+  function leseBestaetigtFuer(nachricht: Message): boolean | undefined {
+    if (layout !== 'bubble' || !istEigene || nachricht.id.startsWith('tmp-')) return undefined;
+    if (!nachricht.channel_id) return undefined;
+    // `null` (kein Partner-Stand) → `undefined` (gar kein Häkchen).
+    return readState.istGelesen(nachricht.channel_id, nachricht.id) ?? undefined;
+  }
 
   // Eine verschluesselte DM hat keine `messages`-Zeile — `createOperatorReport`
   // (nachrichtenbezogen) faende sie nicht (Bughunt 2026-08-28, Befund 2).
@@ -291,6 +302,7 @@
     {message}
     {time}
     eigen={istEigene}
+    leseBestaetigt={leseBestaetigtFuer(message)}
     {isContinuation}
     {isGroupEnd}
     {highlight}

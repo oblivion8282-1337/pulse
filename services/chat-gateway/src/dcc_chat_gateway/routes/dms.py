@@ -14,11 +14,13 @@ historical thread without a composer.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
@@ -26,12 +28,26 @@ from dcc_chat_gateway.friend_helpers import (
     block_exists_either_way,
     friendship_exists,
 )
-from dcc_chat_gateway.dm_vorschau import Letzte, letzte_nachrichten
-from dcc_chat_gateway.models import DirectMessageChannel, Friendship, Message, UserBlock
+from dcc_chat_gateway.dm_vorschau import Letzte, letzte_nachrichten, lesestaende
+from dcc_chat_gateway.models import (
+    DirectMessageChannel,
+    DmLesestand,
+    Friendship,
+    Message,
+    UserBlock,
+)
 from dcc_chat_gateway.routes._deps import CloudOnly, dm_member_check
-from dcc_chat_gateway.schemas import DMChannelCreateIn, DMChannelOut, DMMessageSearchHit
+from dcc_chat_gateway.schemas import (
+    DmLesestandIn,
+    DMChannelCreateIn,
+    DMChannelOut,
+    DMMessageSearchHit,
+)
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
+from dcc_shared.events import DmLesestandEvent
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=[CloudOnly])
 
@@ -42,6 +58,7 @@ def _wire(
     *,
     can_send: bool = True,
     letzte: Letzte | None = None,
+    lesestand: dict[int, int] | None = None,
 ) -> dict[str, object]:
     """Wire shape with ``other_user_id`` computed from the caller's
     perspective. ``can_send`` is precomputed by the route since it
@@ -50,8 +67,13 @@ def _wire(
     ``letzte`` traegt den Vorschautext der Chats-Liste (Mobil-Umbau). Fehlt er
     — Einzelabfragen, geloeschte Nachricht —, bleiben die drei Felder null und
     die Zeile faellt auf Name und Uhrzeit zurueck.
+
+    ``lesestand`` traegt den serverseitigen Lesefortschritt (P0.2) je
+    Teilnehmer; None ohne Abfrage, fehlende Eintraege bleiben null.
     """
     other = dm.user_b_id if caller_id == dm.user_a_id else dm.user_a_id
+    eigener = (lesestand or {}).get((dm.id, caller_id))
+    partner = (lesestand or {}).get((dm.id, other))
     return {
         "id": dm.id,
         "other_user_id": other,
@@ -61,6 +83,8 @@ def _wire(
         "last_message_preview": letzte.text if letzte else None,
         "last_message_author_id": letzte.author_id if letzte else None,
         "last_message_at": letzte.created_at if letzte else None,
+        "last_read_message_id": eigener,
+        "partner_last_read_message_id": partner,
     }
 
 
@@ -201,6 +225,62 @@ async def create_or_get_dm_channel(
     return _wire(dm, current.id, can_send=True)
 
 
+@router.put("/dm-channels/{dm_channel_id}/lesestand", status_code=status.HTTP_204_NO_CONTENT)
+async def set_dm_lesestand(
+    dm_channel_id: int,
+    payload: DmLesestandIn,
+    session: SessionDep,
+    current: CurrentUser,
+    request: Request,
+) -> None:
+    """Serverseitiger Lesefortschritt des Aufrufers in dieser DM (P0.2).
+
+    Upsert mit Monotonie-Guard: ein veralteter Client kann den Stand nicht
+    zurückschieben (dasselbe Vorgehen wie das clientseitige ``markRead``).
+    Das Event geht an BEIDE Teilnehmer: die Gegenstelle baut die
+    Lese-Häkchen, die anderen Geräte des Lesenden löschen ihre
+    Ungelesen-Zähler. Best-effort-Publish — der Stand ist persistiert,
+    ein Redis-Hiccup kippt die Antwort nicht (Muster wie in postfach.py).
+    """
+    dm = await dm_member_check(session, dm_channel_id, current.id)
+    if dm is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="dm_channel_not_found")
+
+    stmt = (
+        pg_insert(DmLesestand)
+        .values(
+            channel_id=dm.id,
+            user_id=current.id,
+            last_read_message_id=payload.last_read_message_id,
+        )
+        .on_conflict_do_update(
+            index_elements=[DmLesestand.channel_id, DmLesestand.user_id],
+            set_={
+                "last_read_message_id": pg_insert(DmLesestand).excluded.last_read_message_id,
+                "gelesen_am": func.now(),
+            },
+            where=pg_insert(DmLesestand).excluded.last_read_message_id
+            > DmLesestand.last_read_message_id,
+        )
+    )
+    await session.execute(stmt)
+    await session.commit()
+
+    other = dm.user_b_id if dm.user_a_id == current.id else dm.user_a_id
+    ereignis = DmLesestandEvent(
+        channel_id=str(dm.id),
+        user_id=str(current.id),
+        last_read_message_id=str(payload.last_read_message_id),
+    )
+    manager = getattr(request.app.state, "connection_manager", None)
+    if manager is not None:
+        for konto in (current.id, other):
+            try:
+                await manager.publish_user_event(konto, ereignis)
+            except Exception:
+                log.exception("dm_lesestand publish failed for user %s", konto)
+
+
 @router.get("/dm-channels", response_model=list[DMChannelOut])
 async def list_dm_channels(
     session: SessionDep,
@@ -232,11 +312,18 @@ async def list_dm_channels(
     }
     can_send = await _can_send_batch(session, current.id, others)
     letzte = await letzte_nachrichten(session, list(rows))
+    lese = await lesestaende(session, [d.id for d in rows])
     return [
-        _wire(d, current.id, letzte=letzte.get(d.id), can_send=can_send.get(
-            d.user_b_id if d.user_a_id == current.id else d.user_a_id,
-            False,
-        ))
+        _wire(
+            d,
+            current.id,
+            letzte=letzte.get(d.id),
+            can_send=can_send.get(
+                d.user_b_id if d.user_a_id == current.id else d.user_a_id,
+                False,
+            ),
+            lesestand=lese,
+        )
         for d in rows
     ]
 

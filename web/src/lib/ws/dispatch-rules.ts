@@ -32,6 +32,10 @@ const PURE_SOCIAL_OPS: ReadonlySet<ServerEvent['op']> = new Set([
   'user_blocked',
   'user_unblocked',
   'dm_bump',
+  // Serverseitiger Lesefortschritt (P0.2): Cloud-Sozialschicht, muss auch im
+  // Hintergrund ankommen — sonst bleiben Häkchen und Zähler auf anderen
+  // Geräten stehen, bis zum nächsten Reload.
+  'dm_lesestand',
   // Der Weckruf fürs verschlüsselte Postfach (DMs, private Gruppen und
   // Ablage-Kanäle). Er trägt nur Kanal und Anzahl, nie Inhalt; abgeholt wird
   // danach alles Offene — `postfachAbholenUndAnzeigen` (`handlers/chat.ts`)

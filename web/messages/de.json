@@ -1778,6 +1778,8 @@
   "message_input_cancel_reply": "Antwort abbrechen",
   "message_input_drop_files_hint": "Datei hier ablegen zum Hochladen",
   "message_input_insert_emoji": "Emoji einfügen",
+  "message_lesebestaetigung_gelesen": "Gelesen",
+  "message_lesebestaetigung_gesendet": "Zugestellt",
   "message_input_placeholder": "Nachricht senden",
   "message_input_reply_to": "Antwort an",
   "message_input_send": "Senden",

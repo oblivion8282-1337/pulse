@@ -443,6 +443,13 @@ class DMChannelCreateIn(BaseModel):
     target_user_id: SnowflakeId
 
 
+class DmLesestandIn(BaseModel):
+    """Body von ``PUT /dm-channels/{id}/lesestand`` (Übergabe P0.2) —
+    numerisch-opak, Details am ``DmLesestand``-Modell."""
+
+    last_read_message_id: SnowflakeId
+
+
 class DMChannelOut(BaseModel):
     """Wire representation of a 1:1 direct-message channel.
 
@@ -472,8 +479,19 @@ class DMChannelOut(BaseModel):
     last_message_preview: str | None = None
     last_message_author_id: int | None = None
     last_message_at: datetime | None = None
+    #: Serverseitiger Lesefortschritt (P0.2) — eigener Stand und der der
+    #: Gegenstelle, numerisch-opak (Details am ``DmLesestand``-Modell).
+    last_read_message_id: int | None = None
+    partner_last_read_message_id: int | None = None
 
-    @field_serializer("id", "other_user_id", "last_message_id", "last_message_author_id")
+    @field_serializer(
+        "id",
+        "other_user_id",
+        "last_message_id",
+        "last_message_author_id",
+        "last_read_message_id",
+        "partner_last_read_message_id",
+    )
     def _ser_ids(self, v: int | None) -> str | None:
         return _opt_id_str(v)
 

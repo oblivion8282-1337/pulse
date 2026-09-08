@@ -20,6 +20,7 @@ from sqlalchemy import select
 
 from dcc_chat_gateway.models import (
     DirectMessageChannel,
+    DmLesestand,
     Message,
     MessageAttachment,
 )
@@ -121,3 +122,23 @@ async def letzte_nachrichten(
         for d in dms
         if d.last_message_id in je_nachricht
     }
+
+
+async def lesestaende(session, kanal_ids: list[int]) -> dict[tuple[int, int], int]:
+    """Serverseitiger Lesefortschritt (P0.2) je (Kanal, Leser).
+
+    Ein Zug für eigen + Gegenstelle aller gelieferten DMs — derselbe
+    Doppelnutzer wie `letzte_nachrichten`: der ready-Rahmen und
+    `GET /dm-channels` seiden beide dieselbe Auskunft in ihre Zeilen ein.
+    Leere Eingabe → leerer Map (kein needless IN ()-Rundflug).
+    """
+    if not kanal_ids:
+        return {}
+    rows = await session.execute(
+        select(
+            DmLesestand.channel_id,
+            DmLesestand.user_id,
+            DmLesestand.last_read_message_id,
+        ).where(DmLesestand.channel_id.in_(kanal_ids))
+    )
+    return {(kanal, leser): stand for kanal, leser, stand in rows.all()}

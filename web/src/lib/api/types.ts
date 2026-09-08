@@ -222,6 +222,13 @@ export type DMChannel = {
   last_message_author_id?: string | null;
   last_message_at?: string | null;
   /**
+   * Serverseitiger Lesefortschritt (P0.2): eigener Stand und der der
+   * Gegenstelle — numerisch-opak, verglichen über `compareSnowflakeId`.
+   * Optional für Rückwärtskompatibilität mit älteren ready-Rahmen.
+   */
+  last_read_message_id?: string | null;
+  partner_last_read_message_id?: string | null;
+  /**
    * Server-resolved gate: true iff a friendship exists AND no block sits
    * between the two users in either direction. Drives the hard-cut DM
    * composer disable (Etappe 4). Refreshed on every WS ``ready`` frame

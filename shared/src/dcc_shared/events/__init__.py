@@ -73,6 +73,7 @@ from dcc_shared.events.applications import ApplicationDecidedEvent
 from dcc_shared.events.chat import (
     ChannelBumpEvent,
     DmBumpEvent,
+    DmLesestandEvent,
     MentionAddedData,
     MentionAddedEvent,
     MessageDeleteData,
@@ -166,6 +167,8 @@ EVENT_REGISTRY: dict[str, type[_EventBase]] = {
     # ---- channel-bump / dm-bump (cross-channel notification)
     "channel_bump": ChannelBumpEvent,
     "dm_bump": DmBumpEvent,
+    # ---- serverseitiger Lesefortschritt (P0.2)
+    "dm_lesestand": DmLesestandEvent,
     # ---- ephemeral typing indicator
     "typing": TypingEvent,
     # ---- pinned messages (chat-channel)
@@ -235,6 +238,7 @@ __all__ = [
     # chat
     "ChannelBumpEvent",
     "DmBumpEvent",
+    "DmLesestandEvent",
     "MentionAddedData",
     "MentionAddedEvent",
     "MessageDeleteData",

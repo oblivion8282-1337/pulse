@@ -181,6 +181,21 @@ class PostfachNeuEvent(_EventBase):
     anzahl: int
 
 
+class DmLesestandEvent(_EventBase):
+    """``op="dm_lesestand"`` — ein DM-Teilnehmer hat bis (inklusive)
+    ``last_read_message_id`` gelesen (Übergabe P0.2). ID numerisch-opak,
+    Details am ``DmLesestand``-Modell des chat-gateway.
+
+    Geht an BEIDE Teilnehmer: der Partner baut daraus die Lese-Häkchen,
+    die anderen Geräte des Lesenden löschen damit ihre Ungelesen-Zähler
+    (geräteübergreifender Stand, der eigentliche Punkt von P0.2)."""
+
+    op: Literal["dm_lesestand"] = "dm_lesestand"
+    channel_id: str
+    user_id: str
+    last_read_message_id: str
+
+
 class TypingEvent(_EventBase):
     """``op="typing"`` — ephemeral "user is typing" ping on a channel.
 

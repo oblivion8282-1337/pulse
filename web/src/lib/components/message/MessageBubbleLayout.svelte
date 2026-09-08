@@ -32,6 +32,7 @@
     message,
     time,
     eigen,
+    leseBestaetigt = undefined,
     isContinuation = false,
     isGroupEnd = true,
     highlight = false,
@@ -43,6 +44,11 @@
     time: string;
     /** Vom angemeldeten Nutzer selbst — bestimmt Seite und Farbe. */
     eigen: boolean;
+    /** Lesebestätigung für EIGENE DM-Nachrichten (P0.2): `false` = nur
+     *  gesendet (einfaches Häkchen), `true` = von der Gegenstelle gelesen
+     *  (doppeltes), `undefined` = keine Auskunft (Fremdnachricht, ältere
+     *  Gegenstelle) → gar kein Häkchen. */
+    leseBestaetigt?: boolean;
     isContinuation?: boolean;
     isGroupEnd?: boolean;
     highlight?: boolean;
@@ -99,6 +105,37 @@
               aria-label={m.message_pinned_badge()}
               data-testid="message-pinned-badge"
             />
+          {/if}
+          {#if eigen && leseBestaetigt !== undefined}
+            <!-- Häkchen-Wege: einfach = zugestellt an den Server, doppelt =
+                 von der Gegenstelle gelesen (WhatsApp-Semantik, P0.2). -->
+            <svg
+              viewBox="0 0 16 12"
+              class="mr-1 inline size-3 align-baseline opacity-70"
+              aria-label={leseBestaetigt
+                ? m.message_lesebestaetigung_gelesen()
+                : m.message_lesebestaetigung_gesendet()}
+              role="img"
+            >
+              <path
+                d="M1 6.5 4.5 10 11 2.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              {#if leseBestaetigt}
+                <path
+                  d="M6.5 8 7.5 9.5 14 2"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              {/if}
+            </svg>
           {/if}
           {time}</span
         >

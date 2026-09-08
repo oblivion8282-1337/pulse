@@ -53,6 +53,7 @@
   import { registriereZurueckTaste } from '$lib/platform/zurueckTaste';
   import { istRaumBereich, merkeRaumPfad, raumPfadNachAuflegen } from '$lib/navigation/letzterRaumBereich.svelte';
   import { untrack } from 'svelte';
+  import { installiereLesestandSync } from '$lib/api/lesestand';
   import { page } from '$app/state';
   import UpdateBanner from '$lib/components/server/UpdateBanner.svelte';
   import SelfHostDisclaimer from '$lib/components/server/SelfHostDisclaimer.svelte';
@@ -384,6 +385,10 @@
     const pfad = page.url.pathname;
     if (istRaumBereich(pfad)) merkeRaumPfad(pfad);
   });
+
+  // Serverseitiger Lesefortschritt (P0.2): markRead-Meldungen spiegeln in die
+  // Cloud (entprellt, fire-and-forget) — einmalig beim App-Start verkabelt.
+  installiereLesestandSync();
 
   // Auflegen außerhalb der Kanal-Seite (z. B. vom Ich-Tab): ohne diese
   // Rückstufung bliebe der gemerkte Räume-Pfad auf dem SPRACHKANAL stehen,

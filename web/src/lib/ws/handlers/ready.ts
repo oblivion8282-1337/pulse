@@ -10,6 +10,7 @@
  */
 import { guilds } from '$lib/stores/guilds.svelte';
 import { directMessages } from '$lib/stores/directMessages.svelte';
+import { readState } from '$lib/stores/readState.svelte';
 import { voicePresence } from '$lib/stores/voicePresence.svelte';
 import { streamPresence } from '$lib/stores/streamPresence.svelte';
 import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
@@ -131,7 +132,20 @@ export function register(ctx: ReadyContext): void {
       // Globale Freunde/DMs/Requests/Blocks kommen ausschließlich aus dem
       // Cloud-ready. All fields optional for back-compat with older mocked
       // ready frames; we fall through to clean defaults when absent.
-      if (evt.dm_channels) directMessages.seed(evt.dm_channels);
+      if (evt.dm_channels) {
+        directMessages.seed(evt.dm_channels);
+        // Serverseitiger Lesefortschritt (P0.2): eigener Stand + Gegenstelle
+        // je DM max-mergen — der Server ist die geräteübergreifende Wahrheit,
+        // ein frisch geladener Tab darf ihn nicht nach hinten ziehen.
+        for (const dm of evt.dm_channels) {
+          if (dm.last_read_message_id) {
+            readState.seedOwnLesestand(dm.id, dm.last_read_message_id);
+          }
+          if (dm.partner_last_read_message_id) {
+            readState.setPartnerLesestand(dm.id, dm.partner_last_read_message_id);
+          }
+        }
+      }
       friends.seedAll(evt.friends ?? []);
       friendRequests.seedAll({
         incoming: evt.friend_requests_in ?? [],

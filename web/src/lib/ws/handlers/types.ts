@@ -164,6 +164,15 @@ export type ServerEvent =
       channel_id: string;
       anzahl: number;
     }
+  | {
+      // Serverseitiger Lesefortschritt (P0.2) — an beide Teilnehmer: der
+      // Partner baut Lese-Häkchen, die anderen Geräte des Lesenden
+      // löschen ihre Ungelesen-Zähler. Numerisch-opake ID.
+      op: 'dm_lesestand';
+      channel_id: string;
+      user_id: string;
+      last_read_message_id: string;
+    }
   | { op: 'guild_updated'; guild: GuildPayload }
   | { op: 'guild_deleted'; guild_id: string }
   | { op: 'guild_member_added'; guild_id: string; user_id: string }

@@ -20,6 +20,7 @@ from dcc_chat_gateway.models.channels import (
     LEGACY_READONLY_DETAIL,
     Channel,
     DirectMessageChannel,
+    DmLesestand,
 )
 from dcc_chat_gateway.models.community_invites import CommunityInvite
 from dcc_chat_gateway.models.devices import (
@@ -106,6 +107,7 @@ __all__ = [
     "DeviceOneTimeKey",
     "DirectMessageChannel",
     "DmAnhangBezug",
+    "DmLesestand",
     "DmNutzlast",
     "DmZustellung",
     "DropboxConfig",

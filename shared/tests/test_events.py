@@ -122,6 +122,12 @@ _PAYLOADS: dict[str, dict[str, Any]] = {
         "message_id": "1",
         "author_id": "3",
     },
+    "dm_lesestand": {
+        "op": "dm_lesestand",
+        "channel_id": "7",
+        "user_id": "3",
+        "last_read_message_id": "1",
+    },
     "typing": {
         "op": "typing",
         "channel_id": "7",

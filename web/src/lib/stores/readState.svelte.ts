@@ -20,6 +20,7 @@
  */
 
 import { compareSnowflakeId } from '$lib/utils/snowflake';
+import { istGelesenBis, vorwaertsMerge } from '$lib/stores/lesestandKern';
 
 const STORAGE_PREFIX = 'pulse.readState.';
 const MENTIONS_PREFIX = 'pulse.mentions.';
@@ -28,6 +29,10 @@ const UNREAD_PREFIX = 'pulse.unread.';
 class ReadState {
   lastReadByChannel = $state<Record<string, string>>({});
   latestByChannel = $state<Record<string, string>>({});
+  /** Serverseitiger Lesestand der GEGENSTELLE je DM (P0.2) — füttert die
+   *  Lese-Häkchen an der Bubble. Nur in-memory: die Wahrheit liegt auf dem
+   *  Server, der ready-Rahmen und `dm_lesestand`-Events liefern sie nach. */
+  partnerLastReadByChannel = $state<Record<string, string>>({});
   /** Per-channel unread @-mention counter — bumped by the WS handler
    *  when a `mention_added` event (or an inline `message` whose mentions
    *  include the current user) lands for a channel the user isn't
@@ -82,6 +87,7 @@ class ReadState {
     this.unreadKey = '';
     this.lastReadByChannel = {};
     this.latestByChannel = {};
+    this.partnerLastReadByChannel = {};
     this.mentionCountByChannel = {};
     this.unreadCountByChannel = {};
   }
@@ -111,6 +117,9 @@ class ReadState {
     this.flushPending();
     this.latestByChannel = {};
     this.lastReadByChannel = this.ladeKarte<string>(this.storageKey) ?? {};
+    // Partner-Stand ist sessionseitig vom Server geliefert — der neue
+    // ready-Rahmen füllt ihn nach (gleiches Bild wie nach einem Reload).
+    this.partnerLastReadByChannel = {};
     this.mentionCountByChannel = this.ladeKarte<number>(this.mentionsKey) ?? {};
     this.unreadCountByChannel = this.ladeKarte<number>(this.unreadKey) ?? {};
   }
@@ -166,7 +175,10 @@ class ReadState {
   /** Acknowledge the channel up to (and including) `messageId`. Falls back
    *  to the latest-seen id if none is provided. Persists immediately.
    *  Also clears any pending mention count for the channel — opening a
-   *  channel mark-reads it, so the @-badge goes away in lockstep. */
+   *  channel mark-reads it, so the @-badge goes away in lockstep.
+   *  P0.2: der Fortschritt geht zusätzlich entprellt an den Server
+   *  (`serverSync`-Haken, installiert von `api/lesestand.ts`) — dort ist
+   *  die geräteübergreifende Wahrheit. */
   markRead(channelId: string, messageId?: string): void {
     const target = messageId ?? this.latestByChannel[channelId];
     if (!target) {
@@ -180,9 +192,42 @@ class ReadState {
     if (!prev || compareSnowflakeId(target, prev) > 0) {
       this.lastReadByChannel = { ...this.lastReadByChannel, [channelId]: target };
       this.persist();
+      this.serverSync?.(channelId, target);
     }
     this.clearMentions(channelId);
     this.clearUnread(channelId);
+  }
+
+  /** Hook für den Server-Reporter (`api/lesestand.ts`); null = nur lokal. */
+  private serverSync: ((channelId: string, messageId: string) => void) | null = null;
+  setServerSync(fn: (channelId: string, messageId: string) => void): void {
+    this.serverSync = fn;
+  }
+
+  /** Mergt den EIGENEN Server-Stand in den lokalen — nur vorwärts. Ein
+   *  frisch geladener Tab (oder das zweite Gerät) übernimmt den größeren
+   *  Stand, ohne jemals einen neueren lokalen zu verlieren. */
+  seedOwnLesestand(channelId: string, messageId: string): void {
+    this.lastReadByChannel = {
+      ...this.lastReadByChannel,
+      [channelId]: vorwaertsMerge(this.lastReadByChannel[channelId], messageId)
+    };
+  }
+
+  /** Mergt den Lesestand der Gegenstelle — Quelle ist der ready-Rahmen bzw.
+   *  das `dm_lesestand`-Event; nur vorwärts, Quelle ist der Server. */
+  setPartnerLesestand(channelId: string, messageId: string): void {
+    this.partnerLastReadByChannel = {
+      ...this.partnerLastReadByChannel,
+      [channelId]: vorwaertsMerge(this.partnerLastReadByChannel[channelId], messageId)
+    };
+  }
+
+  /** Lesebestätigung für eine EIGENE Nachricht in dieser DM: mindestens
+   *  eine Gegenstellen-Antwort mit id >= messageId gelesen? `null`, wenn
+   *  kein Partner-Stand bekannt ist (Häkchen zeigt dann nur „gesendet“). */
+  istGelesen(channelId: string, messageId: string): boolean | null {
+    return istGelesenBis(this.partnerLastReadByChannel[channelId], messageId);
   }
 
   isUnread(channelId: string): boolean {

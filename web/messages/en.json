@@ -1778,6 +1778,8 @@
   "message_input_cancel_reply": "Cancel reply",
   "message_input_drop_files_hint": "Drop file here to upload",
   "message_input_insert_emoji": "Insert emoji",
+  "message_lesebestaetigung_gelesen": "Read",
+  "message_lesebestaetigung_gesendet": "Delivered",
   "message_input_placeholder": "Send a message",
   "message_input_reply_to": "Replying to",
   "message_input_send": "Send",

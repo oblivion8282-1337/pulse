@@ -308,6 +308,21 @@ export function register(ctx: HandlerContext): void {
     postfachAbholenUndAnzeigen((kanalId) => ctx.subs.has(kanalId));
   });
 
+  registerWsHandler('dm_lesestand', (evt) => {
+    // Serverseitiger Lesefortschritt (P0.2) — geht an BEIDE Teilnehmer.
+    // Eigener Stand: andere Geräte des eigenen Kontos löschen damit ihre
+    // Ungelesen-Zähler (die eigene markRead-Meldung kommt als Echo wieder
+    // und ist durch den Vorwärts-Merge harmlos). Fremder Stand: die
+    // Gegenstelle hat gelesen → Lese-Häkchen an der eigenen Bubble.
+    const me = dispatchingUserId();
+    if (!me) return;
+    if (evt.user_id === me) {
+      readState.seedOwnLesestand(evt.channel_id, evt.last_read_message_id);
+    } else {
+      readState.setPartnerLesestand(evt.channel_id, evt.last_read_message_id);
+    }
+  });
+
   registerWsHandler('mention_added', (evt) => {
     // Per-user notification fanned out only to mentioned sockets. We
     // intentionally drive the unread-mention badge from THIS event
