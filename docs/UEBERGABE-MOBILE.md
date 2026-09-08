@@ -139,12 +139,17 @@ Alles Folgende ist **schon gebaut** — bitte nichts doppelt erfinden:
   (README = kompletter Design-Handoff: Screens, Interaktionen, Tokens, offene Punkte).
 - **`d5dec5ec`**: i18n-Key `message_input_take_photo` (de/en).
 
-⚠️ **Offene Entscheidung, die in diesem Commit steckt:** Er entfernt den
-Lautsprecher/Hörmuschel-Umschalter aus der `VoiceControlBar` und mappt nativ
-`earpiece → speaker` („Voice läuft immer wie Anruf auf Lautsprecher", Entscheidung
-vom 25.08. im alten Branch). Auf main lebt der Umschalter noch. Falls er bleiben
-soll: die drei Dateien `VoiceControlBar.svelte`, `SpeakerphoneRouter.java`,
-`AudioRoutePlugin.java` aus diesem Commit zurücknehmen. **Mit Michael klären.**
+✅ **Entscheidung gefallen (06.09.2026, mit Michael):** der
+Lautsprecher/Hörmuschel-Umschalter ist ZURÜCK — `VoiceControlBar.svelte`
+hat wieder den Route-Umschalter (`$lib/platform/audioRoute`, Standard
+Lautsprecher, Tippen schaltet auf Hörmuschel), nativ mappt
+`AudioRoutePlugin`/`SpeakerphoneRouter` `earpiece` weiter durch. Kein
+Handlungsbedarf mehr; der Hinweis zu `06994b21` oben ist damit historisch.
+
+**Zweite Entscheidung (06.09.2026):** Bundle-vs-Remote → **Remote-only**.
+Die Hülle lädt weiterhin `https://howispulse.com/app`; `capacitor.config.json`
+im Repo bleibt auf Produktion (lokale Dev-URL nur temporär, vor dem Commit
+zurücksetzen — siehe §6 Android-Dev-Loop).
 
 Verifikationsstand: Unit-Suite 1150 Tests grün; `pnpm check` im `web/` zeigt nur die
 9 Vorbefunde des ungebaute-Krypto-wasm (`krypto/pulse-krypto/pkg/` muss gebaut
@@ -154,18 +159,23 @@ werden — in einem frischen Checkout normal).
 
 ### P0 — ohne das ist die App kein Messenger
 
-1. **FCM-Push End-to-End (größter Block).** In der Capacitor-WebView gibt es kein
-   Web Push. Nötig:
-   - `@capacitor/push-notifications` (FCM) in die Hülle; Firebase-Projekt anlegen,
-     `google-services.json` in `mobile/android/app/`.
-   - Backend: Fan-out in `push.py` um FCM v1 erweitern — es existieren bereits
-     `fan_out_dm_push` und `fan_out_dm_push_encrypted` (inhaltlos) als Blaupausen;
-     Device-Tokens persistieren (analog `web_push_subscriptions`-Migration).
-   - Notification-Tap → Deep-Link in den Chat: die Web-Routen sind bereits
-     URL-basiert (§3), in der WebView also einfach navigieren.
-   - `POST_NOTIFICATIONS`-Permission ist im Manifest, muss aber als Runtime-
-     Permission beim ersten Start abgefragt werden (`MainActivity` macht das
-     bereits — dort anschließen).
+1. **FCM-Push End-to-End (größter Block).** — **erledigt + live verifiziert
+   (2026-09-08, `b81296dd`)**: `@capacitor-firebase/messaging` (statt
+   push-notifications) in der Hülle, Firebase-Projekt `pulse-8cad0`,
+   `google-services.json` liegt im Repo (kein Geheimnis). Backend:
+   `fcm_tokens`-Tabelle (Migration 0092, Token UNIQUE — ein Gerät gehört zu
+   genau einem Konto), `POST/DELETE /fcm/token` mit Drossel, `firebase_admin`
+   als weiche Abhängigkeit; die DM-Push-Wege feuern das FCM-Bein nur an
+   Geräte ohne offene WebSocket und bleiben inhaltsfrei. Server-Key:
+   `FIREBASE_SERVICE_ACCOUNT_KEY` in der `.env` (Datei liegt in `data/`,
+   git-ignoriert; erstellt via `gcloud iam service-accounts keys create`).
+   **Live-Kette geprüft** (Emulator, echte Google-Zustellung):
+   Token-Registrierung → Offline-Gate → Tray-Meldung („bob / Neue Nachricht",
+   Kanal `messages`) → Tap → Deep-Link `/app/@me/<kanal>`.
+   ⚠️ **Test-Falle:** `adb shell am force-stop` setzt die App in den
+   Android-„stopped"-State — Google liefert dann KEIN FCM aus, bis die App
+   wieder gestartet wurde. Für Push-Tests: App per Start in den Hintergrund,
+   dann `am kill` (sanftes Beenden), nicht force-stop.
 2. **Serverseitiger Read-State + Lese-Häkchen.** Heute ist Unread reines
    localStorage (`web/src/lib/stores/readState.svelte.ts` — der Kopfkommentar
    dokumentiert die Lücke selbst): Zähler stimmen nicht geräteübergreifend und
@@ -270,11 +280,23 @@ einem echten Gerät nochmal ansehen.
    verschlüsselte Nachrichten nicht (keine Server-Zeile; Fehlermeldung in
    `web/src/lib/krypto/…/cloudNachrichtAktionen.ts`). Ansatz: Reaktion als
    Postfach-Umschlag, Löschen als Tombstone im lokalen Verlauf + Umschlag an
-   Geräte.
+   Geräte. — **Reaktionen: erledigt + live verifiziert (2026-09-08,
+   `50a386c3` + Emulator↔Browser-Lauf in der Gruppe „Testrunde": alice 👍 →
+   bob sieht „👍 1", bob 👍 → alice sieht „👍 2").** Bearbeiten: Umschlag
+   gebaut und lokal angewandt (Agent-Verifikation); Live-Doppeltest wie oben
+   steht noch aus.
 6. **Long-Press-ActionSheet in der Bubble-Darstellung verifizieren**
    (`MessageActionSheet.svelte` existiert) und **Swipe-to-reply** ergänzen.
+   — ActionSheet live verifiziert (2026-09-08, Emulator-Long-Press öffnet
+   Schnell-Reaktionen + Reply/Report).
 7. **Medienübersicht pro Chat** — Bilder-/Datei-Grid aus dem lokalen Verlauf
-   (IndexedDB, `web/src/lib/verlauf/`) + Attachment-Metadaten.
+   (IndexedDB, `web/src/lib/verlauf/`) + Attachment-Metadaten. — **erledigt +
+   live verifiziert (2026-09-08)**: Sheet im DM zeigt IMAGES/FILES-Abschnitte,
+   Lightbox öffnet („2b4efe6c" skaliert kleine Bilder auf viewportgröße).
+   **Grenze:** private Gruppen haben bewusst keinen Anhang-Knopf
+   (`anhangKnopfSichtbar`: Gruppen-Weg ohne verschlüsselten Anhang-Transport
+   → Knopf aus) — Medienübersicht in Gruppen entsteht erst mit dem
+   E2EE-Gruppen-Anhangsweg (gehört zu „Medien-Nachziehen" unten).
 8. **Android App Links + Share-Target.** `howispulse.com/app/...`-Links sollen die
    App öffnen (Benachrichtigungs-Klicks, geteilte Links); Fotos/Text aus anderen
    Apps in einen Chat teilen (Intent-Filter in `AndroidManifest.xml`, Empfang im
@@ -403,7 +425,11 @@ gibt es aber noch nicht und sie gehören auf die Roadmap:
 1. Repo klonen, `AGENTS.md` + `docs/ONBOARDING.md` lesen, Dev-Stack starten.
 2. `feat/mobile` auschecken, `cd web && pnpm install && pnpm test:unit` → grün?
 3. APK bauen und aufs Gerät bekommen (§6) — erst gegen Produktion, dann lokal.
-4. Dieses Dokument mit Michael durchgehen: P0-Reihenfolge bestätigen, die offene
-   Hörmuschel-Entscheidung (§4) und Bundle-vs-Remote (§5.10) klären.
-5. Erster Arbeitspaket-Schnitt: **FCM-Push** — Firebase-Projekt ist das einzige
-   echte external Dependency auf dem Weg.
+4. Dieses Dokument mit Michael durchgehen: P0-Reihenfolge bestätigen. Die
+   Hörmuschel- und Bundle-vs-Remote-Entscheidungen sind gefallen (§4) — nur
+   noch abnicken, nicht neu diskutieren.
+5. FCM-Push ist gebaut und live verifiziert (§5.1) — für echte Zustellung auf
+   dem Produktionsserver braucht es nur den `FIREBASE_SERVICE_ACCOUNT_KEY`
+   (generieren wie in §5.1 beschrieben) + Migration 0092.
+6. Offen danach: echtes Gerät (Bluetooth, reale Netze), E2EE-Gruppen-Anhänge /
+   Medien-Nachziehen (§5), Release-Handwerk (§5.11).
