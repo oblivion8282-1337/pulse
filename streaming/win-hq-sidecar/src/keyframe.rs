@@ -44,11 +44,17 @@ static ANGEFORDERT: AtomicBool = AtomicBool::new(false);
 // ── Rueckstaffelung ──────────────────────────────────────────────────────────
 //
 // **Wogegen.** Ein Zuschauer, dessen Decoder endgueltig ausgestiegen ist,
-// fordert ohne Unterlass Vollbilder an und hoert nie wieder auf — am
-// 2026-08-01 im Browser mit AV1 10 bit gemessen: **425 Anforderungen** in
-// einem Lauf, nachdem Chromes Hardware-Decoder mitten im Strom auf `dav1d`
-// zurueckfiel und der kein 10 bit kann (Messakte
-// `profiles/browser-2026-08-01-windows-av1-10bit.json`). Jede davon kostet den
+// fordert ohne Unterlass Vollbilder an und hoert nie wieder auf — im Browser
+// mit AV1 10 bit zweimal gemessen: **61 Anforderungen in 12 s** bei
+// erzwungenem Software-Decode, ohne dass je ein Bild entstand
+// (`profiles/browser-2026-08-01-windows-av1-10bit.json`), und **65 in einem
+// Lauf**, nachdem Chromiums Hardware-Decoder mitten im Strom auf `dav1d`
+// zurueckfiel (`profiles/amd-2026-08-02-qualitaet-und-browser.json`,
+// „einzeln_mit_ton_10bit": 0 Bilder). Der Grund ist nicht dav1d selbst,
+// sondern libwebrtcs Anbindung, die `bpc != 8` ablehnt
+// (`profiles/browser-2026-07-31-fec-und-codecs.json`). Bis zum 2026-09-08
+// stand hier „425 Anforderungen" mit Verweis auf die erste Akte — die Zahl
+// steht in keiner Messakte. Jede Anforderung kostet den
 // Sender ein volles Intra-Bild, und weil der Strom EINER ist, zahlen alle
 // anderen Zuschauer mit: bei fester Bitrate bricht die Bildqualitaet ein und
 // der Bildfluss geht in Stoesse. Ein einzelner kaputter Empfaenger legt so die
@@ -490,7 +496,7 @@ mod tests {
         let mut jetzt = t0;
         let mut angenommen = 0;
         // 20 Sekunden lang alle 50 ms anfordern — das Muster des kaputten
-        // 10-Bit-Zuschauers (425 Anforderungen in einem Lauf).
+        // 10-Bit-Zuschauers (rund 65 Anforderungen je Lauf, s. Modulkopf).
         for _ in 0..400 {
             if l.anfordern(jetzt) {
                 angenommen += 1;

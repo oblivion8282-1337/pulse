@@ -54,7 +54,10 @@ Zwei Dinge, die man beim Lesen der Ausgabe kennen muss:
 
 Offen: die **Aufnahme** selbst ist weiterhin 8 bit (der Compositor liefert `XRGB8888`);
 10-bit-Encode nutzt trotzdem etwas gegen Banding, ist aber keine echte 10-bit-Quelle.
-VAAPI hat keinen 10-bit-Zweig. „Desktop + Mikrofon" mischt bisher nur Desktop.
+Beide Encoder-Wege tragen 10 bit: NVENC über den P010-Shader (`encode/nv_p010.rs`),
+VAAPI über `scale_vaapi=format=p010` (`encode/va_import.rs`, seit 2026-08-01). Bis zum
+2026-09-08 stand hier „VAAPI hat keinen 10-bit-Zweig" — richtig am 2026-07-31, einen Tag
+später vom Code überholt und nicht nachgezogen. „Desktop + Mikrofon" mischt bisher nur Desktop.
 
 Die Herleitung der Encoder- und Puffer-Werte mit den zugehörigen Messungen steht in
 `CLAUDE.md` in diesem Verzeichnis — dort ist auch festgehalten, welche Wege gemessen

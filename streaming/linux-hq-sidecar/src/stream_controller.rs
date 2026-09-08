@@ -226,8 +226,8 @@ pub struct StartParams {
     pub resolution: ResolutionRequest,
     /// 10 bit je Farbkanal statt 8. Von `ops::start` schon gegen Codec und
     /// Fähigkeiten aufgelöst — hier steht nur noch ein erfüllbarer Wunsch.
-    /// Trägt die aufnehmende Karte kein NVENC, fällt der Importer-Aufbau
-    /// zusätzlich auf 8 bit zurück (der VAAPI-Pfad hat keinen 10-bit-Zweig).
+    /// Beide Importer tragen ihn: NVENC über den P010-Shader (`nv_p010`),
+    /// VAAPI über `scale_vaapi=format=p010` (s. `build_importer` unten).
     pub ten_bit: bool,
 }
 
