@@ -55,6 +55,7 @@
   import { untrack } from 'svelte';
   import { installiereLesestandSync } from '$lib/api/lesestand';
   import { installiereShareEmpfang } from '$lib/platform/shareEmpfang';
+  import { installiereFcmPush } from '$lib/platform/fcm';
   import AnrufOverlay from '$lib/components/anrufe/AnrufOverlay.svelte';
   import { page } from '$app/state';
   import UpdateBanner from '$lib/components/server/UpdateBanner.svelte';
@@ -393,6 +394,9 @@
   installiereLesestandSync();
   // Share-Target (P1.8): geteilte Texte/Bilder aus anderen Apps einsammeln.
   installiereShareEmpfang();
+  // FCM-Push (P0.1): Token holen + melden, Push-Tap → Deep-Link. Nur in der
+  // Capacitor-App aktiv, sonst ein No-op.
+  installiereFcmPush();
 
   // Auflegen außerhalb der Kanal-Seite (z. B. vom Ich-Tab): ohne diese
   // Rückstufung bliebe der gemerkte Räume-Pfad auf dem SPRACHKANAL stehen,

@@ -347,6 +347,7 @@ async def post_message(
                 content=payload.content,
                 channel_id=channel_id,
                 message_id=msg.id,
+                manager=mgr,
             )
     msg.reactions = []  # type: ignore[attr-defined]
     msg.attachments = atts  # type: ignore[attr-defined]

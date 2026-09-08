@@ -37,6 +37,7 @@ from dcc_chat_gateway.models import (
     CommunityInvite,
     Device,
     DirectMessageChannel,
+    FcmToken,
     FriendRequest,
     Friendship,
     Guild,
@@ -331,6 +332,9 @@ async def _purge_db(
     await session.execute(
         sa_delete(WebPushSubscription).where(WebPushSubscription.user_id == user_id)
     )
+
+    # 8b. FCM-Tokens der Android-Geräte (Übergabe P0.1).
+    await session.execute(sa_delete(FcmToken).where(FcmToken.user_id == user_id))
 
     # 9. DM channels the user was a participant in (1:1 → drop the
     # whole channel + every message in it).

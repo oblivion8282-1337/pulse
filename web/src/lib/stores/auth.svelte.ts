@@ -232,6 +232,8 @@ class AuthStore {
       // signOut(): ohne das erbt der neue User am selben Gerät dessen
       // Klartext-Vorschauen von Erwähnungen/DMs. Fire-and-forget/best-effort.
       void import('$lib/notifications/pushSubscribe').then((m) => m.unsubscribeUser());
+      // FCM-Token ebenso (P0.1) — gleiche Erb-Baisse, gleiche Entsaftung.
+      void import('$lib/platform/fcm').then((m) => m.abmeldeFcmToken());
       // Self-Host-Connections + Session-Tokens des Vorgängers schließen.
       for (const s of serversStore.servers) {
         if (s.isCloud) continue;
@@ -336,6 +338,9 @@ class AuthStore {
     const pushBearer =
       (activeServer.current?.isCloud ?? true) ? (currentAccessToken() ?? undefined) : undefined;
     void import('$lib/notifications/pushSubscribe').then((m) => m.unsubscribeUser(pushBearer));
+    // FCM-Token des Android-Geräts ebenso abmelden (P0.1) — sonst klingelt
+    // hier weiter die Post des Vorgängers. Best-effort wie oben.
+    void import('$lib/platform/fcm').then((m) => m.abmeldeFcmToken(pushBearer));
     clearTokens();
     // Voice-Resume verwerfen — nach explizitem Logout darf der nächste Boot
     // nicht in den alten Channel zurückspringen.

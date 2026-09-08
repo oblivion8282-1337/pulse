@@ -75,6 +75,10 @@ _RULES: dict[str, tuple[int, float]] = {
     # Online-Raten auf INTERNAL_SERVICE_SECRET (Audit 2026-09); die
     # nginx-/Caddy-deny-Bloecke sind die erste Schicht davor.
     "internal_secret": (120, 60.0),
+    # FCM-Token-Anmeldungen der Android-App (Übergabe P0.1). Der App-Start
+    # upsertet einmal je Gerät — ein Mensch braucht dafür keine zehn Anläufe
+    # je Minute; das Band fängt nur durchgedrehte Clients.
+    "fcm_token": (10, 60.0),
 }
 
 

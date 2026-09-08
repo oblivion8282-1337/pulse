@@ -11,6 +11,7 @@
   "license": "SEE LICENSE IN LICENSE",
   "type": "commonjs",
   "dependencies": {
+    "@capacitor-firebase/messaging": "^8.5.1",
     "@capacitor/android": "^8.4.0",
     "@capacitor/app": "^8.1.1",
     "@capacitor/cli": "^8.4.0",

@@ -73,7 +73,7 @@ from dcc_chat_gateway.models.messages import (
     MessageReaction,
 )
 from dcc_chat_gateway.models.moderation import CachedUserProfile, ModAuditLog, Report
-from dcc_chat_gateway.models.notifications import WebPushSubscription
+from dcc_chat_gateway.models.notifications import FcmToken, WebPushSubscription
 from dcc_chat_gateway.models.plugin_activation import (
     GuildPlugin,
     GuildPluginState,
@@ -133,6 +133,7 @@ __all__ = [
     "DropboxConfig",
     "DropboxFile",
     "DropboxPendingUpload",
+    "FcmToken",
     "FriendRequest",
     "Friendship",
     "Guild",

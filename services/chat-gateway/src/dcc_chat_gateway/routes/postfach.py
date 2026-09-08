@@ -382,6 +382,7 @@ async def postfach_einliefern(
             recipient_ids=push_empfaenger,
             author_name=user.username,
             channel_id=cid_int,
+            manager=getattr(request.app.state, "connection_manager", None),
         )
 
     return PostfachEinliefernResponse(

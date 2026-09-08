@@ -400,4 +400,5 @@ async def handle_send(ctx: WSOpContext, msg: dict[str, Any]) -> None:
                 content=content,
                 channel_id=cid_int,
                 message_id=persisted.id,
+                manager=manager,
             )

@@ -261,6 +261,14 @@ class Settings(BaseSettings):
     vapid_subject: str = "mailto:admin@example.com"
     vapid_key_file: str = "./data/vapid.json"
 
+    # FCM-Push (Übergabe P0.1): Pfad zur Service-Account-JSON des
+    # Firebase-Projekts (Firebase Console → Projekteinstellungen →
+    # Dienstkonten → Neuen privaten Schlüssel generieren). Nicht gesetzt
+    # (= None) heisst bewusst: kein FCM-Push, aber auch kein Crash — die
+    # Token-Routen laufen weiter, nur der Versand fällt stillschweigend aus.
+    # Siehe ``fcm.ensure_fcm``.
+    firebase_service_account_key: str | None = None
+
     # Background cleanup of long-idle Web-Push subscriptions. ``push.py``
     # already drops a sub when the provider returns 404/410; this catches
     # the case where the endpoint still answers 2xx but belongs to a
