@@ -301,18 +301,18 @@ einem echten Gerät nochmal ansehen.
     ``message``-Rahmen (10/s je Nutzer) mit dem Klartext-Pfad; Drossel sitzt
     vor den teuren Prüfungen (``routes/postfach.py``, Test
     ``test_postfach_drossel.py``).
-13. **Offline-UX** — **teilweise erledigt (2026-09-08)**: der Service Worker
-    precacht jetzt den kompletten Build + den SPA-Fallback und bedient
-    Navigationsanfragen offline aus dem Cache (``web/src/service-worker.ts``,
-    Fallback wird unter ``/index.html`` gegen den Fetch von ``/`` gepackt —
-    statische Server 404en den literalen Pfad). Verifiziert im
-    Produktions-Build (``vite preview``): Offline-Reload liefert die Shell aus
-    dem Cache statt chrome-error. **Offen:** die SvelteKit-App hydratisiert
-    offline noch nicht bis zur UI (Boot hängt an einem Pfad, der offline
-    scheitert — eigene Debug-Runde mit echten DevTools, die
-    Fern-Diagnose über CDP reichte nicht). Bis dahin gilt: Verlauf ist lokal
-    in IndexedDB, die Hülle kommt aus dem Cache — der Rest ist Verdrahtung,
-    kein Architekturproblem.
+13. **Offline-UX** — **erledigt (2026-09-08)**: der Service Worker precacht
+    den kompletten Build + den SPA-Fallback und bedient Navigationsanfragen
+    offline aus dem Cache (``web/src/service-worker.ts``; der Fallback wird
+    unter ``/index.html`` gegen den Fetch von ``/`` gepackt — statische
+    Server 404en den literalen Pfad). Offline-Reload rendert die Shell
+    statt chrome-error; Verlauf/Daten kommen aus IndexedDB. Prüfung:
+    ``web/scripts/offline-shell-pruefung.ts`` (Playwright, setzt
+    ``setOffline``, prüft Precache + Shell + Console; Lauf:
+    ``pnpm build && pnpm exec vite preview … && node --experimental-strip-types scripts/offline-shell-pruefung.ts``).
+    Grenze (bewusst): wer offline neu installiert, BEVOR der Precache
+    fertig ist, hat einen leeren Cache — die Shell kommt erst nach dem
+    ersten Online-Besuch.
 
 ### iOS (nach Android — heute existiert kein iOS-Projekt)
 
