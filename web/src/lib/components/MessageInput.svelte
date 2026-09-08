@@ -2,6 +2,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import PaperclipIcon from '@lucide/svelte/icons/paperclip';
   import CameraIcon from '@lucide/svelte/icons/camera';
+  import MicIcon from '@lucide/svelte/icons/mic';
   import ComposerReplyBanner from './composer/ComposerReplyBanner.svelte';
   import ComposerEmojiButton from './composer/ComposerEmojiButton.svelte';
   import ComposerSendButton from './composer/ComposerSendButton.svelte';
@@ -11,8 +12,16 @@
   import { expandShortcodes } from '$lib/emoji';
   import { VerfasserAnhaenge } from '$lib/attachments/verfasserZeilen.svelte';
   import { dateienAusEinfuegen } from '$lib/attachments/eingefuegteDateien';
+  import {
+    beendeAufnahme,
+    brichAufnahmeAb,
+    starteAufnahme,
+    type LaufendeAufnahme
+  } from '$lib/attachments/aufnahme';
+  import { formatiereDauer } from '$lib/attachments/aufnahmeKern';
   import type { AnhangAngabe } from '$lib/krypto/nachrichtNutzlast';
   import { guilds } from '$lib/stores/guilds.svelte';
+  import { toast } from 'svelte-sonner';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { lookupComposer } from '$lib/shortcuts/engine.svelte';
   import { applyComposerAction } from '$lib/shortcuts/composerActions';
@@ -174,6 +183,65 @@
     if (input.files) addFiles(input.files);
     input.value = ''; // allow re-selecting the same file later
   };
+
+  // ---- Sprachnachricht (P0.3): halten zum Sprechen, loslassen = senden. ----
+  // Halten statt Klick, weil die Aufnahme keine Zustände haben soll, die man
+  // erst suchen muss: Daumen drauf = läuft, Daumen weg = geht raus. Verwerfen
+  // ist der ausdrückliche Knopf daneben.
+  let aufnahme: LaufendeAufnahme | undefined = $state();
+  let aufnahmeSekunden = $state(0);
+  let aufnahmeTimer: ReturnType<typeof setInterval> | undefined;
+  /** Losgelassen, BEVOR getUserMedia auflöste (Erstnutzung mit Permission-
+   *  Prompt): der Pointerup verpufft sonst und die Aufnahme läuft verwaist
+   *  weiter — nach dem Auflösen sofort verwerfen. */
+  let losgelassenWährendPrompt = false;
+
+  function aufnahmeTickerStarten(): void {
+    aufnahmeSekunden = 0;
+    aufnahmeTimer = setInterval(() => {
+      if (aufnahme) aufnahmeSekunden = Math.floor((Date.now() - aufnahme.gestartetAm) / 1000);
+    }, 500);
+  }
+
+  async function aufnahmeStart(): Promise<void> {
+    if (aufnahme || !channelId || !attachmentsAllowed) return;
+    losgelassenWährendPrompt = false;
+    try {
+      aufnahme = await starteAufnahme();
+    } catch {
+      toast.error(m.message_input_mikrofon_fehler());
+      return;
+    }
+    if (losgelassenWährendPrompt) {
+      brichAufnahmeAb(aufnahme);
+      aufnahme = undefined;
+      return;
+    }
+    aufnahmeTickerStarten();
+  }
+
+  async function aufnahmeEnde(): Promise<void> {
+    const lauf = aufnahme;
+    if (!lauf) {
+      losgelassenWährendPrompt = true;
+      return;
+    }
+    aufnahme = undefined;
+    clearInterval(aufnahmeTimer);
+    const datei = await beendeAufnahme(lauf);
+    if (datei) addFiles([datei]);
+  }
+
+  function aufnahmeVerwerfen(): void {
+    const lauf = aufnahme;
+    if (!lauf) return;
+    aufnahme = undefined;
+    clearInterval(aufnahmeTimer);
+    brichAufnahmeAb(lauf);
+  }
+
+  const aufnahmeDauer = $derived(formatiereDauer(aufnahmeSekunden));
+
   const onPaste = (e: ClipboardEvent) => {
     const dt = e.clipboardData;
     if (!dt) return;
@@ -330,6 +398,44 @@
           data-testid="attachment-camera-button"
         >
           <CameraIcon class="size-5" />
+        </Button>
+      {/if}
+      <!-- Sprachnachricht (mobil): halten zum Sprechen, loslassen sendet.
+           `contextmenu` wird abgefangen — Android feuert es beim Langhalten
+           und würde sonst das Auswahlfenster über den Knopf legen. -->
+      {#if viewport.istHandy && attachmentsEnabled}
+        {#if aufnahme}
+          <div
+            class="text-error flex h-10 items-center gap-2 px-1 text-sm font-semibold"
+            data-testid="recording-indicator"
+          >
+            <span class="bg-error size-2.5 animate-pulse rounded-full"></span>
+            {aufnahmeDauer}
+            <button
+              type="button"
+              class="text-text-muted hover:text-text-bright ml-1 text-xs underline"
+              onclick={aufnahmeVerwerfen}
+              data-testid="recording-discard"
+            >
+              {m.message_input_recording_discard()}
+            </button>
+          </div>
+        {/if}
+        <Button
+          variant="ghost"
+          size="icon"
+          class="size-10 md:size-9 {aufnahme ? 'text-error' : ''}"
+          aria-label={m.message_input_hold_to_speak()}
+          onpointerdown={aufnahmeStart}
+          onpointerup={aufnahmeEnde}
+          onpointercancel={aufnahmeEnde}
+          onpointerleave={() => {
+            if (aufnahme) void aufnahmeEnde();
+          }}
+          oncontextmenu={(e) => e.preventDefault()}
+          data-testid="voice-record-button"
+        >
+          <MicIcon class="size-5" />
         </Button>
       {/if}
       <Button

@@ -32,6 +32,7 @@
   import type { Attachment } from '$lib/api/types';
   import AutoRefreshImage from './AutoRefreshImage.svelte';
   import Lightbox from './Lightbox.svelte';
+  import AudioNachricht from './message/AudioNachricht.svelte';
   import FileIcon from '@lucide/svelte/icons/file';
   import FileTextIcon from '@lucide/svelte/icons/file-text';
   import DownloadIcon from '@lucide/svelte/icons/download';
@@ -181,14 +182,7 @@
           <track kind="captions" />
         </video>
       {:else if k === 'audio'}
-        {@const quelleAudio = quelle(a)}
-        <audio
-          src={quelleAudio ?? undefined}
-          controls
-          preload="metadata"
-          class="block w-96 max-w-full"
-          data-testid="attachment-audio"
-        ></audio>
+        <AudioNachricht src={quelle(a) ?? undefined} />
       {:else}
         {@const quelleDatei = quelle(a)}
         <a
