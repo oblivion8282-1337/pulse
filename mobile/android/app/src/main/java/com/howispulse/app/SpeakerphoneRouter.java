@@ -295,17 +295,19 @@ public class SpeakerphoneRouter {
 
     public String routeName() {
         switch (route) {
-            case ROUTE_SPEAKER:
-            case ROUTE_EARPIECE: return "speaker"; // Legacy: Hörmuschel entfernt
+            case ROUTE_SPEAKER: return "speaker";
+            case ROUTE_EARPIECE: return "earpiece";
             default: return "auto";
         }
     }
 
     private int targetDeviceType() {
-        // Immer Lautsprecher — der Hörmuschel-Modus ist entfernt (2026-08-25):
-        // Voice läuft wie „Anruf auf Lautsprecher". ROUTE_EARPIECE existiert nur
-        // noch als Legacy-Konstante und wird wie SPEAKER behandelt.
-        return AudioDeviceInfo.TYPE_BUILTIN_SPEAKER;
+        // AUTO + SPEAKER → Lautsprecher; nur EARPIECE → Hörmuschel
+        // (2026-09-08: Hörmuschel auf Nutz Constantin zurückgeholt — der
+        // Lautsprecher-Default bleibt, aber die Wahl existiert wieder).
+        return route == ROUTE_EARPIECE
+                ? AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+                : AudioDeviceInfo.TYPE_BUILTIN_SPEAKER;
     }
 
     /**

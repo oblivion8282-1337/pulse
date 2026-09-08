@@ -36,11 +36,11 @@ public class AudioRoutePlugin extends Plugin {
             return;
         }
         final int mode;
-        if ("speaker".equals(route) || "earpiece".equals(route)) {
-            // Legacy „earpiece" wird auf Lautsprecher gemappt — der Hörmuschel-
-            // Modus ist entfernt (2026-08-25): Voice läuft immer wie „Anruf auf
-            // Lautsprecher".
+        if ("speaker".equals(route)) {
             mode = SpeakerphoneRouter.ROUTE_SPEAKER;
+        } else if ("earpiece".equals(route)) {
+            // Hörmuschel-Modus zurück (2026-09-08): der Nutzer soll wählen können.
+            mode = SpeakerphoneRouter.ROUTE_EARPIECE;
         } else {
             mode = SpeakerphoneRouter.ROUTE_AUTO;
         }
