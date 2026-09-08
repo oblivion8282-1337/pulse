@@ -31,6 +31,7 @@ from dcc_chat_gateway.routes import (
     dropbox_downloads,
     dropbox_uploads,
     fcm,
+    meine_anhaenge,
     friends,
     geraete,
     guild_icons,
@@ -177,6 +178,7 @@ router.include_router(dropbox_downloads.router, dependencies=_dropbox_gate)
 router.include_router(dropbox_admin.admin_router, dependencies=_dropbox_gate)
 router.include_router(notifications.router)
 router.include_router(fcm.router)
+router.include_router(meine_anhaenge.router)
 router.include_router(anrufe.router)
 router.include_router(presence.router)
 router.include_router(reports.router)
