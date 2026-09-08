@@ -229,6 +229,69 @@ export function baueBearbeitungsNutzlast(zielNachrichtId: string, inhalt: string
   return new TextEncoder().encode(JSON.stringify({ v: FASSUNG, text: '', bearbeitung }));
 }
 
+/**
+ * Ein erkannter Aktions-Frame samt allem, was der Abholzyklus zum Anwenden
+ * braucht — strukturell identisch zu den drei Frame-Zweigen von
+ * `zustellungOeffnen.ts::ZustellungOffenErgebnis` (dort steht der Vertrag des
+ * Zyklus, hier die Erkennung; absichtlich zwei Typen, damit diese Datei
+ * importfrei bleibt).
+ *
+ * Die Erkennung ist GEMEINSAM fuer beide Empfangswege — den Olm-Weg der DMs
+ * und den Megolm-Weg der Gruppen (`gruppe/empfangen.ts`): eine
+ * Aktions-Nutzlast bedeutet ueberall dasselbe, und zwei Kopien der
+ * Fallunterscheidung liefen auseinander. `autorId` steht nicht IN der
+ * Nutzlast — er ist beim Olm-Weg der Sitzungs-Partner, beim Megolm-Weg der
+ * Zustellungs-Absender, und wird hier nur durchgereicht.
+ */
+export type RahmenErgebnis =
+  | { art: 'loeschung'; id: string; channelId: string; nachrichtId: string }
+  | {
+      art: 'reaktion';
+      id: string;
+      channelId: string;
+      autorId: string;
+      ziel: string;
+      emoji: string;
+      entfernen: boolean;
+    }
+  | { art: 'bearbeitung'; id: string; channelId: string; ziel: string; inhalt: string };
+
+/** Liest aus einer geoeffneten Nutzlast einen Aktions-Frame — `null`, wenn es
+ *  eine gewoehnliche Nachricht ist (der Aufrufer baut dann selbst die
+ *  Anzeige-Form). Ein Loesch-Frame ohne ID ist keiner und faellt durch,
+ *  fail-closed wie die Leser oben. */
+export function rahmenAusNutzlast(
+  gelesen: NachrichtNutzlast,
+  id: string,
+  channelId: string,
+  autorId: string
+): RahmenErgebnis | null {
+  if (gelesen.geloescht && gelesen.id !== null) {
+    return { art: 'loeschung', id, channelId, nachrichtId: gelesen.id };
+  }
+  if (gelesen.reaktion) {
+    return {
+      art: 'reaktion',
+      id,
+      channelId,
+      autorId,
+      ziel: gelesen.reaktion.ziel,
+      emoji: gelesen.reaktion.emoji,
+      entfernen: gelesen.reaktion.entfernen === true
+    };
+  }
+  if (gelesen.bearbeitung) {
+    return {
+      art: 'bearbeitung',
+      id,
+      channelId,
+      ziel: gelesen.bearbeitung.ziel,
+      inhalt: gelesen.bearbeitung.inhalt
+    };
+  }
+  return null;
+}
+
 export function leseNachrichtNutzlast(bytes: Uint8Array): NachrichtNutzlast {
   const roh = new TextDecoder().decode(bytes);
   try {

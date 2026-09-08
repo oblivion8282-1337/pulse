@@ -28,7 +28,10 @@ import {
   mitSitzungssperre,
   partnerSchluesselMerken
 } from './sitzungen';
-import { leseNachrichtNutzlast } from './nachrichtNutzlast';
+import {
+  leseNachrichtNutzlast,
+  rahmenAusNutzlast
+} from './nachrichtNutzlast';
 import { baueEmpfangeneNachricht } from './empfangeneNachricht';
 import { absenderErmitteln } from './absenderErmitteln';
 import { oeffneMitRueckfall } from './sitzungsRueckfall';
@@ -113,8 +116,11 @@ export async function zustellungOeffnen(
   // real entstanden sein und muss geoeffnet werden.
   if (istGruppennachricht(z)) {
     if (!PRIVATE_GRUPPEN_ENABLED && !ABLAGE_KANAL_ENABLED) return null;
-    const nachricht = await oeffneGruppennachricht(z);
-    return nachricht ? { art: 'neu', nachricht } : null;
+    // Liefert NEBEN der Nachricht inzwischen auch Aktions-Frames
+    // (Reaktion/Bearbeitung/Loeschung — dieselbe Erkennung wie im Olm-Weg
+    // unten) direkt in der Ergebnis-Form dieses Zyklus, s.
+    // `gruppe/empfangen.ts`.
+    return oeffneGruppennachricht(z);
   }
 
   const absenderUserId = absenderErmitteln(
@@ -194,38 +200,12 @@ export async function zustellungOeffnen(
       // dieser Aenderung lieferte reinen, huellenlosen Text, den
       // `leseNachrichtNutzlast` als Legacy-Fall ohne beides erkennt. Die
       // Umsetzung in die Anzeige-Form teilt sich dieser Weg mit dem
-      // Megolm-Weg, s. `empfangeneNachricht.ts`.
+      // Megolm-Weg, s. `empfangeneNachricht.ts`. Die Frame-Erkennung
+      // (Loeschung/Reaktion/Bearbeitung) teilt er sich EBENFALLS mit dem
+      // Megolm-Weg — dieselbe Funktion, dieselbe Bedeutung auf beiden Wegen.
       const gelesen = leseNachrichtNutzlast(klartextBytes);
-      if (gelesen.geloescht && gelesen.id !== null) {
-        // Lösch-Frame (2026-09-02): der Aufrufer entfernt die Nachricht
-        // lokal (Grabstein im Verlauf, damit auch im Archiv) und quittiert
-        // direkt — es gibt nichts anzuzeigen und nichts abzulegen.
-        return { art: 'loeschung', id: z.id, channelId: z.channel_id, nachrichtId: gelesen.id };
-      }
-      if (gelesen.reaktion) {
-        // Reaktions-Umschlag (P1.5): wie der Lösch-Frame ein Bezug auf eine
-        // ANDERE Nachricht — der Aufrufer wendet ihn am Verlaufs-Satz an.
-        return {
-          art: 'reaktion',
-          id: z.id,
-          channelId: z.channel_id,
-          autorId: absenderUserId,
-          ziel: gelesen.reaktion.ziel,
-          emoji: gelesen.reaktion.emoji,
-          entfernen: gelesen.reaktion.entfernen === true
-        };
-      }
-      if (gelesen.bearbeitung) {
-        // Bearbeitungs-Umschlag (P1.5 Teil 2): wie der Lösch-Frame ein Bezug
-        // auf eine ANDERE Nachricht — der Aufrufer ersetzt den Text.
-        return {
-          art: 'bearbeitung',
-          id: z.id,
-          channelId: z.channel_id,
-          ziel: gelesen.bearbeitung.ziel,
-          inhalt: gelesen.bearbeitung.inhalt
-        };
-      }
+      const rahmen = rahmenAusNutzlast(gelesen, z.id, z.channel_id, absenderUserId);
+      if (rahmen) return rahmen;
       return { art: 'neu', nachricht: baueEmpfangeneNachricht(z, absenderUserId, gelesen) };
     } catch (err) {
       if (err instanceof KontoSicherungFehlgeschlagen) {

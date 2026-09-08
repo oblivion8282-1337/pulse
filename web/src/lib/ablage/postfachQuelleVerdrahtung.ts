@@ -70,13 +70,26 @@ function cloudRoute(): { serverId?: string } {
  * `abholen` liest ueber die echte Postfach-API (DMs/Gruppen sind
  * cloud-only, s. `api/postfach.ts`-Modulkopf — dieselbe Route wie in
  * `krypto/empfangen.ts`). `oeffnen` ist `oeffneGruppennachricht`, unter der
- * Konto-Sperre — s. Modulkopf fuer die Begruendung.
+ * Konto-Sperre — s. Modulkopf fuer die Begruendung. Seit es Aktions-Frames
+ * im Megolm-Weg gibt (2026-09-07), liefert sie statt einer Nachricht auch
+ * deren Ergebnisse; fuer den Nachzug bedeuten sie „nichts zu archivieren“.
+ *
+ * ponytail: ein Frame im Ablage-Kanal haette hier `null` zurueck und wuerde
+ * den Nachzug an der Stelle dauerhaft anstauen (`postfachQuelle.ts` bricht an
+ * der ersten unoffenbaren Zustellung ab). Es gibt heute keinen Sender, der
+ * Frames in einen Ablage-Kanal schreibt (`frameSenden.ts` bedient nur private
+ * Gruppen, und die Kanal-Filterung hier sieht deren Zustellungen gar nicht) —
+ * ist das jemals null, braucht `postfachQuelle.ts` ein drittes Oeffner-
+ * Ergebnis „ueberspringen“ statt dieses stillen Falls.
  */
 export function postfachQuelleFuerKanal(kanalId: string): NachzieherQuelle {
   return postfachQuelle(
     kanalId,
     geraeteKennung,
     (deviceKennung) => postfachApi.abholen({ device_pubkey: deviceKennung }, cloudRoute()),
-    (zustellung) => mitKontosperre(() => oeffneGruppennachricht(zustellung))
+    async (zustellung) => {
+      const ergebnis = await mitKontosperre(() => oeffneGruppennachricht(zustellung));
+      return ergebnis?.art === 'neu' ? ergebnis.nachricht : null;
+    }
   );
 }

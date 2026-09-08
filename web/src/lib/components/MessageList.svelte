@@ -44,10 +44,12 @@
     /** Pin-Recht vorgerechnet (Guild: MANAGE_MESSAGES; DM: immer wahr). */
     canPin = false,
     /** Reaktionen auf verschluesselte Nachrichten laufen als Umschlag —
-     *  nur der DM-Zweig setzt das, s. `ChatView.reaktionUmschlag`. */
+     *  die Zweige verschluesselter Gespraechefaeden setzen das (DM und
+     *  private Gruppe), s. `ChatView.reaktionUmschlag`. */
     reaktionUmschlag = false,
-    /** P1.5 Teil 2: verschlüsselte DM darf per Umschlag bearbeitet werden —
-     *  nur der DM-Zweig setzt das (analog `reaktionUmschlag`). */
+    /** P1.5 Teil 2: verschluesselte Nachrichten duerfen per Umschlag
+     *  bearbeitet werden — die Zweige verschluesselter Gespraechefaeden
+     *  setzen das (analog `reaktionUmschlag`). */
     bearbeitungErlaubt = false,
     /** Optionaler Inhalt für den Leerraum bei messages.length === 0 —
      *  z. B. der Sicherungs-Frischgerät-Hinweis. Fehlt er, greift der
@@ -529,12 +531,14 @@
     setTimeout(() => { if (highlightId === parentId) highlightId = null; }, 1500);
   }
 
-  // Verschluesselte DM hat keine `messages`-Zeile (s. `Message.verschluesselt`
-  // in `api/types.ts`) — Bearbeiten/Loeschen liefen sonst in einen 404.
+  // Verschluesselte Nachricht hat keine `messages`-Zeile (s.
+  // `Message.verschluesselt` in `api/types.ts`) — Bearbeiten/Loeschen
+  // liefen sonst in einen 404.
   function canEditMessage(m: Message): boolean {
-    // Verschluesselte DM (P1.5 Teil 2): Bearbeiten läuft als Bearbeitungs-
-    // Umschlag — nur der Autor, nur wenn der DM-Zweig den Umschlag
-    // freischaltet (`bearbeitungErlaubt`, analog `reaktionUmschlag`).
+    // Verschluesselt (P1.5 Teil 2): Bearbeiten läuft als Bearbeitungs-
+    // Umschlag — nur der Autor, nur wenn der Zweig des Gesprächs den
+    // Umschlag freischaltet (`bearbeitungErlaubt`, analog
+    // `reaktionUmschlag`).
     if (m.verschluesselt) return bearbeitungErlaubt && m.author_id === myId && !m.id.startsWith('tmp-') && !m.deleted_at;
     return !!myId && m.author_id === myId && !m.id.startsWith('tmp-') && !m.deleted_at;
   }
@@ -551,7 +555,8 @@
     return m.author_id !== myId;
   }
   // Verschluesselt: Reagieren laeuft als Reaktions-Umschlag (P1.5) — nur wo
-  // der Schalter gesetzt ist (DM); sonst bliebe der Server-Weg mit 404.
+  // der Schalter gesetzt ist (DM oder verschluesselte private Gruppe); sonst
+  // bliebe der Server-Weg mit 404.
   function canReactMessage(m: Message): boolean {
     if (m.id.startsWith('tmp-')) return false;
     return m.verschluesselt ? reaktionUmschlag : true;

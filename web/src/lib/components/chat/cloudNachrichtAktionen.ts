@@ -9,13 +9,13 @@
  * Nachrichten-ID an, nicht ueber die Kanalart.
  *
  * **Was fuer eine verschluesselte Nachricht davon wirkt, entscheidet der
- * Server, nicht diese Datei** — mit zwei Ausnahmen, die gar nicht erst zum
- * Server gehen: Loeschen (Loesch-Frame, 2026-09-02) und Reagieren
- * (Reaktions-Umschlag, P1.5) laufen bei einer verschluesselten DM ueber das
- * Postfach an die Geraete. Bearbeiten bleibt gesperrt (`MessageList::
- * canEditMessage`); eine verschluesselte Nachricht hat keine Server-Zeile,
- * die Route findet sie nicht, und der Fehler wird angezeigt, nicht
- * verschluckt.
+ * Server, nicht diese Datei** — mit den Aktions-Umschlaegen (Loesch-Frame,
+ * Reaktions-Umschlag, Bearbeitungs-Umschlag), die bei verschluesselten DMs
+ * UND verschluesselten privaten Gruppen über das Postfach an die Geraete
+ * laufen: bei einer DM per Olm-Paarung an die Gegenstelle, in einer Gruppe
+ * per Megolm durch den Gruppen-Sendeweg (`gruppe/frameSenden.ts`) an alle
+ * Mitglieder-Geraete. Der Aufrufer sagt ueber `opts` (`partnerId` bzw.
+ * `gruppe`), welcher Weg es ist.
  */
 import { toast } from 'svelte-sonner';
 
@@ -25,9 +25,18 @@ import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
 import { m } from '$lib/paraglide/messages.js';
 import { auth } from '$lib/stores/auth.svelte';
 import { messages } from '$lib/stores/messages.svelte';
-import { verlaufNachrichtGeloescht, verlaufReaktionAnwenden } from '$lib/verlauf';
+import {
+  verlaufBearbeitungAnwenden,
+  verlaufNachrichtGeloescht,
+  verlaufReaktionAnwenden
+} from '$lib/verlauf';
 import { kanonischeAntwortId } from '$lib/krypto/kanonischeAntwortId';
 import { sendeBearbeitung, sendeLoeschung, sendeReaktion } from '$lib/krypto/senden';
+import {
+  sendeGruppenBearbeitung,
+  sendeGruppenLoeschung,
+  sendeGruppenReaktion
+} from '$lib/krypto/gruppe/frameSenden';
 import type { Message } from '$lib/api/types';
 
 type Route = { serverId?: string };
@@ -36,19 +45,27 @@ export async function nachrichtBearbeiten(
   msg: Message,
   content: string,
   route: Route,
-  /** Nur bei einer verschlüsselten DM: die Gegenstelle für den
-   *  Bearbeitungs-Umschlag (P1.5 Teil 2). Fehlt sie (Gruppe), bleibt die
-   *  Sperre — `MessageList::canEditMessage` schaltet vorher ab. */
-  opts: { partnerId?: string } = {}
+  /** Verschluesseltes Gespraech: `gruppe` waehlt den Gruppen-Umschlag (Megolm
+   *  an alle Mitglieder-Geraete), `partnerId` den DM-Umschlag (Olm-Paarung).
+   *  Fehlt beides (unverschluesselter Kontext), laeuft der Server-Weg. */
+  opts: { partnerId?: string; gruppe?: boolean } = {}
 ): Promise<void> {
-  if (msg.verschluesselt && opts.partnerId) {
+  if (msg.verschluesselt && (opts.partnerId || opts.gruppe)) {
     // E2EE: keine Server-Zeile — die Bearbeitung reist als Umschlag an alle
-    // Zielgeräte und wird ERST NACH der Zustellung lokal angewendet (wie der
-    // Klartext-Weg auf sein WS-Event wartet). Ziel in KANONISCHER Form.
+    // Zielgeräte. Ziel in KANONISCHER Form.
+    const ziel = kanonischeAntwortId(msg.id, [msg]) ?? msg.id;
     try {
-      const ziel = kanonischeAntwortId(msg.id, [msg]) ?? msg.id;
-      if (!(await sendeBearbeitung(msg.channel_id, opts.partnerId, ziel, content))) {
-        throw new Error('Bearbeitungs-Umschlag nicht zugestellt');
+      const zugestellt = opts.gruppe
+        ? await sendeGruppenBearbeitung(msg.channel_id, ziel, content)
+        : await sendeBearbeitung(msg.channel_id, opts.partnerId as string, ziel, content);
+      if (!zugestellt) throw new Error('Bearbeitungs-Umschlag nicht zugestellt');
+      // Lokal nachziehen — "ERST NACH der Zustellung": der Frame kehrt zum
+      // sendenden Geraet nicht zurueck (das eigene aktuelle Geraet bleibt
+      // bewusst Empfaenger aussen), und ein WS-Echo wie beim Klartext-Weg
+      // existiert hier nicht.
+      const bearbeitetAm = new Date().toISOString();
+      if (await verlaufBearbeitungAnwenden(msg.channel_id, msg.id, content, bearbeitetAm)) {
+        messages.bearbeiteInhalt(msg.channel_id, msg.id, content, bearbeitetAm);
       }
     } catch (e) {
       toast.error(m.dm_page_edit_failed());
@@ -67,31 +84,41 @@ export async function nachrichtBearbeiten(
 export async function nachrichtLoeschen(
   msg: Message,
   route: Route,
-  /** Nur bei einer verschlüsselten DM: die Gegenstelle, an die der
-   *  Lösch-Frame geht. Fehlt sie (private Gruppe), bleibt die Löschung
-   *  gerätelokal — ein Gruppen-Fan-out ist ein anderes Bauvorhaben. */
-  opts: { partnerId?: string } = {}
+  /** Verschluesseltes Gespraech, s. `nachrichtBearbeiten`. Fehlt beides
+   *  (private Gruppe ohne Krypto oder alter Kontext), bleibt die Loeschung
+   *  geraetelokal bzw. beim Server-Weg. */
+  opts: { partnerId?: string; gruppe?: boolean } = {}
 ): Promise<void> {
   const ok = await confirmDialog({
     description: m.dm_page_delete_confirm(),
     destructive: true
   });
   if (!ok) return;
+  // Der Loesch-Frame je nach Gespraechsart: Gruppe -> Gruppen-Sendeweg
+  // (Megolm an alle Mitglieder-Geraete), DM -> Olm-Paarung an die
+  // Gegenstelle. `null` = es gibt keinen Frame-Weg (lokal genug).
+  const loeschFrame = opts.gruppe
+    ? () => sendeGruppenLoeschung(msg.channel_id, msg.id)
+    : opts.partnerId
+      ? () => sendeLoeschung(msg.channel_id, opts.partnerId as string, msg.id)
+      : null;
+  const frameWeg = async (): Promise<void> => {
+    if (!loeschFrame) return;
+    try {
+      await loeschFrame();
+    } catch (e) {
+      toast.error(m.dm_page_delete_failed());
+      console.error(e);
+    }
+  };
   if (msg.verschluesselt) {
     // E2EE: keine Server-Zeile — der Grabstein läuft lokal (Verlauf +
-    // Sicherungs-Archiv) und der Lösch-Frame an die Gegenseite über den
+    // Sicherungs-Archiv) und der Lösch-Frame an die anderen Geräte über den
     // verschlüsselten Sendeweg. Schlägt das Senden fehl, ist die lokale
     // Löschung trotzdem gültig; der Fehler wird sichtbar gemacht.
     verlaufNachrichtGeloescht(msg.channel_id, msg.id);
     messages.remove(msg.channel_id, msg.id);
-    if (opts.partnerId) {
-      try {
-        await sendeLoeschung(msg.channel_id, opts.partnerId, msg.id);
-      } catch (e) {
-        toast.error(m.dm_page_delete_failed());
-        console.error(e);
-      }
-    }
+    await frameWeg();
     return;
   }
   // Eine ID jenseits von int64 kann in keiner Server-Zeile liegen (Postgres-
@@ -106,14 +133,7 @@ export async function nachrichtLoeschen(
   if (ueberInt64) {
     verlaufNachrichtGeloescht(msg.channel_id, msg.id);
     messages.remove(msg.channel_id, msg.id);
-    if (opts.partnerId) {
-      try {
-        await sendeLoeschung(msg.channel_id, opts.partnerId, msg.id);
-      } catch (e) {
-        toast.error(m.dm_page_delete_failed());
-        console.error(e);
-      }
-    }
+    await frameWeg();
     return;
   }
 
@@ -125,15 +145,10 @@ export async function nachrichtLoeschen(
     // keine Server-Zeile gibt. Dann greift derselbe E2E-Weg wie oben; ein
     // 404 für eine echte Klartext-Zeile heißt "schon weg" und verträgt den
     // lokalen Grabstein ebenfalls.
-    if (e instanceof ApiError && e.status === 404 && opts.partnerId) {
+    if (e instanceof ApiError && e.status === 404 && loeschFrame) {
       verlaufNachrichtGeloescht(msg.channel_id, msg.id);
       messages.remove(msg.channel_id, msg.id);
-      try {
-        await sendeLoeschung(msg.channel_id, opts.partnerId, msg.id);
-      } catch (frameErr) {
-        toast.error(m.dm_page_delete_failed());
-        console.error(frameErr);
-      }
+      await frameWeg();
       return;
     }
     toast.error(m.dm_page_delete_failed());
@@ -146,13 +161,11 @@ export async function reaktionUmschalten(
   emoji: string,
   currentlyMine: boolean,
   route: Route,
-  /** Nur bei einer verschlüsselten DM: die Gegenstelle für den Reaktions-
-   *  Umschlag (P1.5). Fehlt sie (private Gruppe), bleibt der Server-Weg —
-   *  und damit für eine verschlüsselte Gruppen-Nachricht der 404, den die
-   *  Anzeige ohnehin vorher sperrt (`MessageList::canReactMessage`). */
-  opts: { partnerId?: string } = {}
+  /** Verschluesseltes Gespraech, s. `nachrichtBearbeiten`. Fehlt beides
+   *  (private Gruppe ohne Krypto), laeuft der Server-Weg. */
+  opts: { partnerId?: string; gruppe?: boolean } = {}
 ): Promise<void> {
-  if (msg.verschluesselt && opts.partnerId) {
+  if (msg.verschluesselt && (opts.partnerId || opts.gruppe)) {
     // E2EE: keine Server-Zeile — die Reaktion reist als Umschlag an alle
     // Zielgeräte (auch die eigenen) und wird ERST NACH der Zustellung lokal
     // angewendet, wie der Klartext-Weg auf sein WS-Echo wartet. Ziel in
@@ -163,7 +176,10 @@ export async function reaktionUmschalten(
       // kanonischeAntwortId ist typisiert als string | null — der Fallback
       // auf die eigene ID ist der dokumentierte Endpunkt der Kette.
       const ziel = kanonischeAntwortId(msg.id, [msg]) ?? msg.id;
-      if (!(await sendeReaktion(msg.channel_id, opts.partnerId, ziel, emoji, currentlyMine))) {
+      const zugestellt = opts.gruppe
+        ? await sendeGruppenReaktion(msg.channel_id, ziel, emoji, currentlyMine)
+        : await sendeReaktion(msg.channel_id, opts.partnerId as string, ziel, emoji, currentlyMine);
+      if (!zugestellt) {
         throw new Error('Reaktions-Umschlag nicht zugestellt');
       }
     } catch (e) {

@@ -28,9 +28,9 @@
  * Schluessel nach, und die liegengebliebene Nachricht laesst sich dann
  * oeffnen. Ohne die Reihenfolge in Schritt 8 waere sie dauerhaft verloren.
  */
-import type { Message } from '../../api/types';
 import type { PostfachZustellung } from '../../api/postfach';
-import { leseNachrichtNutzlast } from '../nachrichtNutzlast';
+import type { ZustellungOffenErgebnis } from '../zustellungOeffnen';
+import { leseNachrichtNutzlast, rahmenAusNutzlast } from '../nachrichtNutzlast';
 import { baueEmpfangeneNachricht } from '../empfangeneNachricht';
 import { ART_GRUPPENNACHRICHT, leseGruppenhuelle, leseVerteilNutzlast } from './gruppenNutzlast';
 import {
@@ -100,12 +100,21 @@ export async function verteilschluesselAufnehmen(
  * eine, die einen Zyklus spaeter kommt. Fehlt `absender_user_id` (das
  * Sendegeraet hat sich zwischen Einliefern und Abholen abgemeldet), bleibt
  * die Zustellung liegen.
+ *
+ * **Aktions-Frames (Reaktion, Bearbeitung, Loeschung) reisen hier im selben
+ * Megolm-Geheimtext wie Nachrichten** — sie werden durch denselben
+ * Gruppen-Sendeweg (`gruppe/frameSenden.ts`) an alle Mitglieder-Geraete
+ * verteilt. Die Erkennung teilt dieser Weg mit dem Olm-Weg
+ * (`rahmenAusNutzlast`); das Ergebnis in der Form des Abholzyklus liefert
+ * diese Funktion direkt zurueck, der Aufrufer (`zustellungOeffnen.ts`)
+ * muss darin keinen Unterschied mehr sehen.
  */
 export async function oeffneGruppennachricht(
   z: PostfachZustellung
-): Promise<Message | null> {
+): Promise<ZustellungOffenErgebnis | null> {
   const huelle = leseGruppenhuelle(z.daten);
   if (!huelle || z.absender_user_id === null) return null;
+  const autorId = z.absender_user_id;
 
   const empfang = await gruppenempfangLaden(
     z.channel_id,
@@ -128,5 +137,8 @@ export async function oeffneGruppennachricht(
   // Dieselbe Umsetzung in die Anzeige-Form wie im Olm-Weg, s.
   // `../empfangeneNachricht.ts` — dort stehen auch die Gruende fuer die
   // ID-Wahl und die beiden bedingten Felder.
-  return baueEmpfangeneNachricht(z, z.absender_user_id, leseNachrichtNutzlast(klartextBytes));
+  const gelesen = leseNachrichtNutzlast(klartextBytes);
+  const rahmen = rahmenAusNutzlast(gelesen, z.id, z.channel_id, autorId);
+  if (rahmen) return rahmen;
+  return { art: 'neu', nachricht: baueEmpfangeneNachricht(z, autorId, gelesen) };
 }

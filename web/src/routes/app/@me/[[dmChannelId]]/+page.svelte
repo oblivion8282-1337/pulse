@@ -231,13 +231,24 @@
     });
   }
 
+  // Aktions-Umschläge (Reaktion/Bearbeitung/Löschen, P1.5): bei einer DM
+  // läuft der Frame per Olm-Paarung an die Gegenstelle, in einer
+  // verschlüsselten privaten Gruppe per Megolm durch den Gruppen-Sendeweg —
+  // `gruppe` sagt `cloudNachrichtAktionen`, welcher Weg es ist.
   const editMessage = (msg: Message, content: string) =>
-    nachrichtBearbeiten(msg, content, cloudRoute, { partnerId: activeDM?.other_user_id });
+    nachrichtBearbeiten(msg, content, cloudRoute, {
+      partnerId: activeDM?.other_user_id,
+      gruppe: aktiveGruppe !== undefined
+    });
   const deleteMessage = (msg: Message) =>
-    nachrichtLoeschen(msg, cloudRoute, { partnerId: activeDM?.other_user_id });
+    nachrichtLoeschen(msg, cloudRoute, {
+      partnerId: activeDM?.other_user_id,
+      gruppe: aktiveGruppe !== undefined
+    });
   const toggleReaction = (msg: Message, emoji: string, currentlyMine: boolean) =>
     reaktionUmschalten(msg, emoji, currentlyMine, cloudRoute, {
-      partnerId: activeDM?.other_user_id
+      partnerId: activeDM?.other_user_id,
+      gruppe: aktiveGruppe !== undefined
     });
 
   async function togglePin(msg: Message) {
@@ -307,7 +318,9 @@
     <!-- Dieselbe Ansicht wie bei einer DM, nur mit anderer Huelle im Kopf und
          Zeilen- statt Sprechblasen-Darstellung. Eine eigene Gruppen-Ansicht
          daneben haette Anhaenge, Antworten, Reaktionen und das Aktionsblatt
-         still verloren. -->
+         still verloren. Eine private Gruppe ist von Geburt an verschluesselt
+         (Spec §9) — dieselben Umschlaege wie der DM-Zweig, nur durch den
+         Gruppen-Sendeweg (`krypto/gruppe/frameSenden.ts`). -->
     <ChatView
       channel={synthChannel}
       messages={visibleMessages}
@@ -316,6 +329,8 @@
       onBack={() => goto('/app/@me')}
       cloudScoped
       showMemberList={false}
+      reaktionUmschlag={PRIVATE_GRUPPEN_ENABLED}
+      bearbeitungErlaubt={PRIVATE_GRUPPEN_ENABLED}
       onEditMessage={editMessage}
       onDeleteMessage={deleteMessage}
       onToggleReaction={toggleReaction}

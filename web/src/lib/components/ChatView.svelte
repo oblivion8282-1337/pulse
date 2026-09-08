@@ -69,7 +69,8 @@
     onTogglePin,
     /** Nur 'gruppe': oeffnet das Gruppen-Blatt (Mitglieder, Verlassen). */
     onGruppenBlatt,
-    /** Nur 'dm': verschlüsselte Nachrichten per Umschlag bearbeitbar (P1.5 Teil 2). */
+    /** Nur verschluesselte Gespraechefaeden (DM und private Gruppe): die
+     *  Nachricht per Umschlag bearbeitbar (P1.5 Teil 2). */
     bearbeitungErlaubt = false,
     /** Nur 'dm': startet einen Anruf an die Gegenstelle (Anrufe-Epic C). */
     onAnrufen
@@ -106,9 +107,11 @@
      *  `attachmentsAllowed`. */
     verschluesselteAnhaenge?: boolean;
     /** Reaktionen auf verschluesselte Nachrichten als Postfach-Umschlag
-     *  (P1.5). Setzt NUR der DM-Zweig: eine verschluesselte Gruppen-Nachricht
-     *  haette keinen Fan-out dafuer, und der Server-Weg endet fuer sie im 404
-     *  — ohne den Schalter bleibt der Reaktions-Eintrag dort gesperrt. */
+     *  (P1.5). Setzen die Zweige verschluesselter Gespraechefaeden: DM und
+     *  private Gruppe (dort geht der Frame durch den Gruppen-Sendeweg, s.
+     *  `krypto/gruppe/frameSenden.ts`). Ohne den Schalter bleibt der
+     *  Reaktions-Eintrag gesperrt — der Server-Weg endet fuer eine
+     *  verschluesselte Nachricht im 404. */
     reaktionUmschlag?: boolean;
     /** Hide the member-list toggle + inline panel (DMs have no member list). */
     showMemberList?: boolean;
