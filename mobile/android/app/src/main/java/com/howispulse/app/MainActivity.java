@@ -59,6 +59,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(AudioRoutePlugin.class);
         registerPlugin(OrientationLockPlugin.class);
         registerPlugin(ShareReceiverPlugin.class);
+        registerPlugin(AnrufPlugin.class);
         super.onCreate(savedInstanceState);
         speakerRouter = new SpeakerphoneRouter(this, this, ContextCompat.getMainExecutor(this));
         speakerRouter.start();
@@ -134,6 +135,9 @@ public class MainActivity extends BridgeActivity {
         // Nach Rückkehr gilt die aktuelle Orientierung wieder (z. B. quer
         // gesperrt mit Stream → Leisten bleiben weg).
         wendeLeistenAn(getResources().getConfiguration().orientation);
+        // App sichtbar → das Web-Overlay zeigt den Anruf, die Sperrbildschirm-
+        // Notification ist redundant (No-op, wenn nichts klingelt).
+        CallForegroundService.beenden(this);
     }
 
     /**

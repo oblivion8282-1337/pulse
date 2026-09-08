@@ -63,6 +63,19 @@
             android:name=".MicForegroundService"
             android:foregroundServiceType="microphone"
             android:exported="false" />
+
+        <!-- Klingelnder Anruf als Sperrbildschirm-Notification (Anrufe-Epic E).
+             Start/Stopp via AnrufPlugin (Web: call_klingelt / Entscheidung). -->
+        <service
+            android:name=".CallForegroundService"
+            android:foregroundServiceType="phoneCall"
+            android:exported="false" />
+
+        <!-- Annehmen/Ablehnen direkt aus der Notification, auch über dem
+             Sperrbildschirm (entscheidet zurück an die WebView). -->
+        <receiver
+            android:name=".CallForegroundService$AktionsEmpfaenger"
+            android:exported="false" />
     </application>
 
     <!-- Permissions -->
@@ -79,4 +92,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <!-- FGS-Notification ist ab Android 13 (API 33) eine Runtime-Permission. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Anrufe-Epic E: eingehende Anrufe über dem Sperrbildschirm.
+         USE_FULL_SCREEN_INTENT startet bei Sperrbildschirm die MainActivity im
+         Vollbild; FOREGROUND_SERVICE_PHONE_CALL + MANAGE_OWN_CALLS sind die
+         Voraussetzung für den phoneCall-FGS (CallStyle-Notification, ab API 34
+         typpflichtig). -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
 </manifest>

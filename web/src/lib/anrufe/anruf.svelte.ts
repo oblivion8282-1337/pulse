@@ -13,6 +13,8 @@
  */
 
 import { ConnectionState, Room, RoomEvent, Track } from 'livekit-client';
+import { registerPlugin, type PluginListenerHandle } from '@capacitor/core';
+import { isCapacitorAndroid } from '$lib/platform/runtime';
 import {
   anrufAnnehmen,
   anrufAblehnen,
@@ -28,6 +30,44 @@ import { m } from '$lib/paraglide/messages.js';
 import { anrufSystemzeile, type AnrufZeilenSchluessel } from './systemzeileKern';
 
 const KLINGEL_TIMEOUT_MS = 45_000;
+
+/**
+ * Native Brücke (nur im Capacitor-Android-APK, s. mobile/android …/AnrufPlugin.java,
+ * Anrufe-Epic E): eingehende Anrufe zeigen eine Full-Screen-Intent-Notification
+ * über dem Sperrbildschirm; Annehmen/Ablehnen aus der Notification kommen als
+ * `aktion`-Event zurück, weil die Signalisierung (anrufAnnehmen/anrufAblehnen)
+ * im Klienten lebt. In Browser/Electron No-op.
+ */
+interface AnrufNativPlugin {
+  ankommen(opts: { callId: string; gegenstelle: string }): Promise<void>;
+  beenden(): Promise<void>;
+  addListener(
+    event: 'aktion',
+    cb: (data: { aktion: 'annehmen' | 'ablehnen'; callId: string }) => void
+  ): Promise<PluginListenerHandle>;
+}
+
+const anrufNativ = registerPlugin<AnrufNativPlugin>('Anruf');
+
+/** Klingel-Notification nativ zeigen (No-op außerhalb des Android-Wrappers). */
+async function nativAnkommen(callId: string, gegenstelle: string): Promise<void> {
+  if (!isCapacitorAndroid()) return;
+  try {
+    await anrufNativ.ankommen({ callId, gegenstelle });
+  } catch (e) {
+    console.warn('[anruf] native Klingel-Anzeige fehlgeschlagen', e);
+  }
+}
+
+/** Klingel-Notification nativ entfernen (No-op außerhalb des Android-Wrappers). */
+async function nativBeenden(): Promise<void> {
+  if (!isCapacitorAndroid()) return;
+  try {
+    await anrufNativ.beenden();
+  } catch (e) {
+    console.warn('[anruf] native Klingel-Anzeige entfernen fehlgeschlagen', e);
+  }
+}
 
 type Rolle = 'ausgehend' | 'eingehend';
 
@@ -123,6 +163,8 @@ class AnrufStore {
     this.#systemzeileErledigt = false;
     sounds.play('notification.dm');
     this.#klingelWeckerPlanen();
+    // Sperrbildschirm (Anrufe-Epic E): nativ Full-Screen-Notification zeigen.
+    void nativAnkommen(evt.call_id, gegenstelle);
   }
 
   /** Die Gegenseite hat den Namen ins Overlay getragen (vom Klienten des
@@ -139,6 +181,8 @@ class AnrufStore {
     try {
       await anrufAnnehmen(anruf.id);
       await this.#verbinden();
+      // Klingel-Notification weg — das Overlay übernimmt.
+      void nativBeenden();
     } catch (e) {
       // Annahme fehlgeschlagen (Anruf inzwischen vorbei?) — sauber abräumen.
       toast.error(m.anruf_aktion_fehlgeschlagen(), {
@@ -308,6 +352,9 @@ class AnrufStore {
   /** Lokaler Abbau — Room, Ticker, Zustand. Der Server-POST passiert
    *  getrennt (auflegen/ablehnen), damit Fehler hier nicht hängen bleiben. */
   #aufräumen(): void {
+    // Klingel-Notification auf dem Sperrbildschirm entfernen — deckt ablehnen,
+    // auflegen, call_ende, Klingel-Timeout und Annahme-Fehlschlag ab.
+    void nativBeenden();
     this.#abbauGen++;
     // Auch der Klingel-Wecker gehört zum Aufräumen — sonst feuert der Wecker
     // eines beendeten Anrufs in den NÄCHSTEN hinein und legt ihn still weg.
@@ -331,3 +378,13 @@ class AnrufStore {
 }
 
 export const anrufe = new AnrufStore();
+
+// Annehmen/Ablehnen aus der nativen Sperrbildschirm-Notification (feuert nur
+// unter Capacitor-Android). Fremde oder abgelaufene callIds (verspäteter Tap
+// auf eine alte Klingel-Notification) werden ignoriert.
+void anrufNativ.addListener('aktion', ({ aktion, callId }) => {
+  const anruf = anrufe.aktiv;
+  if (!anruf || anruf.id !== callId) return;
+  if (aktion === 'annehmen') void anrufe.annehmen(anruf.gegenstelle);
+  else void anrufe.ablehnen();
+});
