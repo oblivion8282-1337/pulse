@@ -9,6 +9,8 @@
   import AtSignIcon from '@lucide/svelte/icons/at-sign';
   import UsersIcon from '@lucide/svelte/icons/users';
   import PhoneIcon from '@lucide/svelte/icons/phone';
+  import ImagesIcon from '@lucide/svelte/icons/images';
+  import MedienuebersichtSheet from '$lib/components/chat/MedienuebersichtSheet.svelte';
   import MessageInput from './MessageInput.svelte';
   import MessageList from './MessageList.svelte';
   import MemberList from './MemberList.svelte';
@@ -130,6 +132,9 @@
   let namePrefix = $derived(NAMENS_PRAEFIX[headerKind]);
 
   let replyTarget = $state<Message | null>(null);
+  /** Medienübersicht (P1.7) — Knopf nur mit mindestens einem Anhang. */
+  let medienOffen = $state(false);
+  let hatMedien = $derived(messages.some((n) => (n.attachments ?? []).length > 0));
 
   // ChatView ist eine Drop-Zone (Discord-Style) und reicht Dateien an den Composer durch.
   let composer = $state<MessageInput | undefined>();
@@ -485,6 +490,17 @@
           <UsersIcon class="text-text-muted size-4" />
         </Button>
       {/if}
+      {#if hatMedien}
+        <Button
+          variant="ghost"
+          size="icon"
+          onclick={() => (medienOffen = true)}
+          aria-label={pm.medien_titel()}
+          data-testid="media-sheet-toggle"
+        >
+          <ImagesIcon class="text-text-muted size-4" />
+        </Button>
+      {/if}
       {#if headerKind === 'dm' && onAnrufen}
         <Button
           variant="ghost"
@@ -618,3 +634,7 @@
     }
   }
 </style>
+
+{#if medienOffen}
+  <MedienuebersichtSheet bind:open={medienOffen} {messages} />
+{/if}
