@@ -403,6 +403,89 @@ async def test_abgelaufene_zustellung_410_offene_200_gefegt_404(
     assert weg.json()["detail"] == "anhang_nicht_gefunden"
 
 
+@pytest.fixture
+def gruppen_an(_isolate_chat_settings):
+    """Wie in ``test_postfach.py``/``test_private_gruppen.py``: der Schalter
+    steht per Vorgabe aus, wer eine Gruppe braucht, fordert ihn ausdruecklich
+    an. Kopiert statt importiert — s. Modulkopf."""
+    _isolate_chat_settings.private_groups_enabled = True
+    return _isolate_chat_settings
+
+
+async def _gruppe_anlegen(client, token_ersteller: str, *mitglied_ids: int) -> str:
+    r = await client.post(
+        "/gruppen", json={"name": "Testgruppe"}, headers=_auth(token_ersteller)
+    )
+    assert r.status_code == 201, r.text
+    gid = r.json()["id"]
+    for uid in mitglied_ids:
+        r = await client.post(
+            f"/gruppen/{gid}/mitglieder",
+            json={"user_id": str(uid)},
+            headers=_auth(token_ersteller),
+        )
+        assert r.status_code == 201, r.text
+    return gid
+
+
+@pytest.mark.asyncio
+async def test_gruppen_anhang_abgelaufen_410_je_eigener_zustellung(
+    client, app, session_factory, _auth_signer, mock_s3, gruppen_an
+):
+    """Derselbe Ablauf-Mechanismus gilt in der PRIVATEN GRUPPE — ohne eigenen
+    Gruppen-Weg: Megolm verschluesselt EINMAL fuer alle (eine Nutzlast, viele
+    Zustellungen), und ``anhang_abruffrist`` fragt nur die EIGENEN
+    Zustellungen ab, nie den Kanal. Deshalb ist der 410 hier derselbe wie bei
+    der DM; der Test haelt das fest, damit eine spaetere Verschärfung der
+    Query den Gruppenfall nicht lautlos verliert (UEBERGABE-MOBILE §5)."""
+    from dcc_chat_gateway.postfach_pflege import sweep_verfallene_zustellungen
+
+    t_a, _uid_a = await _register(_auth_signer)
+    t_b, uid_b = await _register(_auth_signer)
+    t_c, uid_c = await _register(_auth_signer)
+    gid = await _gruppe_anlegen(client, t_a, uid_b, uid_c)
+    pub_b = await _bundel_seeden(session_factory, user_id=uid_b)
+    pub_c = await _bundel_seeden(session_factory, user_id=uid_c)
+
+    anhang_id = (
+        await _anhang_hochladen(client, token=t_a, channel_id=gid)
+    ).json()["id"]
+    r = await _einliefern(
+        client, token=t_a, channel_id=gid,
+        empfaenger=[pub_b, pub_c], anhaenge=[anhang_id],
+        daten=_b64_unpadded(b"megolm-mit-anhang"),
+    )
+    assert r.status_code == 200, r.text
+
+    # Nur B's Frist laeuft ab — C's Zustellung bleibt gueltig. Genau daran
+    # zeigt sich, dass die Frist an der EIGENEN Zustellung haengt, nicht am
+    # Kanal: derselbe Anhang ist fuer C weiter abrufbar.
+    async with session_factory() as s:
+        zustellungen = (await s.execute(select(DmZustellung))).scalars().all()
+        assert len(zustellungen) == 2
+        for z in zustellungen:
+            if z.empfaenger_device_pubkey == pub_b:
+                z.verfaellt_am = datetime.now(UTC) - timedelta(minutes=1)
+        await s.commit()
+
+    abgelaufen = await _abrufadresse(
+        client, token=t_b, anhang_id=anhang_id, pubkey=pub_b
+    )
+    assert abgelaufen.status_code == 410
+    assert abgelaufen.json()["detail"] == "anhang_abgelaufen"
+
+    ok_c = await _abrufadresse(client, token=t_c, anhang_id=anhang_id, pubkey=pub_c)
+    assert ok_c.status_code == 200, ok_c.text
+
+    # Nach dem Feegen von B's Zustellung: generische 404 wie bei der DM, und
+    # die Nutzlast ueberlebt — C's Zustellung traegt sie weiter.
+    async with session_factory() as s:
+        assert await sweep_verfallene_zustellungen(s) == 1
+    weg = await _abrufadresse(client, token=t_b, anhang_id=anhang_id, pubkey=pub_b)
+    assert weg.status_code == 404
+    assert weg.json()["detail"] == "anhang_nicht_gefunden"
+
+
 # ---------------------------------------------------------------------------
 # Fegen
 # ---------------------------------------------------------------------------

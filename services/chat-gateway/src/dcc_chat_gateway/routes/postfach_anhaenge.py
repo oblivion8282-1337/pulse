@@ -1,6 +1,11 @@
 """Verschluesselte Anhaenge — Hochladen und Abrufen (Etappe E, E2E-DM).
 
-Zwei Routen, beide DM-only wie das uebrige Postfach:
+Zwei Routen, beide ausschliesslich auf das verschluesselte Postfach
+beschraenkt. Das Postfach selbst traegt seit Etappe G2/E6 DMs, private
+Gruppen und Ablage-Kanaele — die Kanalart steht hier aber nirgends an: das
+Abrufrecht haengt allein an der eigenen Zustellung
+(``postfach_anhaenge.py::anhang_abruffrist``), der Ablauf-410 unten gilt
+deshalb fuer Gruppen-Anhaenge derselbe wie fuer DM-Anhaenge.
 
 ``POST /postfach/anhaenge/upload-url`` legt eine Anhang-Zeile OHNE
 Dateinamen, OHNE Typ und OHNE Maße an und gibt eine vorsignierte
