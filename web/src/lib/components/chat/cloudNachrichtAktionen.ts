@@ -9,9 +9,13 @@
  * Nachrichten-ID an, nicht ueber die Kanalart.
  *
  * **Was fuer eine verschluesselte Nachricht davon wirkt, entscheidet der
- * Server, nicht diese Datei.** Eine lokal abgelegte, verschluesselte
- * Nachricht hat keine Server-Zeile; die Route findet sie nicht. Der Fehler
- * wird deshalb angezeigt und nicht verschluckt.
+ * Server, nicht diese Datei** — mit zwei Ausnahmen, die gar nicht erst zum
+ * Server gehen: Loeschen (Loesch-Frame, 2026-09-02) und Reagieren
+ * (Reaktions-Umschlag, P1.5) laufen bei einer verschluesselten DM ueber das
+ * Postfach an die Geraete. Bearbeiten bleibt gesperrt (`MessageList::
+ * canEditMessage`); eine verschluesselte Nachricht hat keine Server-Zeile,
+ * die Route findet sie nicht, und der Fehler wird angezeigt, nicht
+ * verschluckt.
  */
 import { toast } from 'svelte-sonner';
 
@@ -19,9 +23,11 @@ import { chatApi } from '$lib/api/chat';
 import { ApiError } from '$lib/api/client';
 import { confirmDialog } from '$lib/components/feedback/confirm.svelte';
 import { m } from '$lib/paraglide/messages.js';
+import { auth } from '$lib/stores/auth.svelte';
 import { messages } from '$lib/stores/messages.svelte';
-import { verlaufNachrichtGeloescht } from '$lib/verlauf';
-import { sendeLoeschung } from '$lib/krypto/senden';
+import { verlaufNachrichtGeloescht, verlaufReaktionAnwenden } from '$lib/verlauf';
+import { kanonischeAntwortId } from '$lib/krypto/kanonischeAntwortId';
+import { sendeLoeschung, sendeReaktion } from '$lib/krypto/senden';
 import type { Message } from '$lib/api/types';
 
 type Route = { serverId?: string };
@@ -120,8 +126,42 @@ export async function reaktionUmschalten(
   msg: Message,
   emoji: string,
   currentlyMine: boolean,
-  route: Route
+  route: Route,
+  /** Nur bei einer verschlüsselten DM: die Gegenstelle für den Reaktions-
+   *  Umschlag (P1.5). Fehlt sie (private Gruppe), bleibt der Server-Weg —
+   *  und damit für eine verschlüsselte Gruppen-Nachricht der 404, den die
+   *  Anzeige ohnehin vorher sperrt (`MessageList::canReactMessage`). */
+  opts: { partnerId?: string } = {}
 ): Promise<void> {
+  if (msg.verschluesselt && opts.partnerId) {
+    // E2EE: keine Server-Zeile — die Reaktion reist als Umschlag an alle
+    // Zielgeräte (auch die eigenen) und wird ERST NACH der Zustellung lokal
+    // angewendet, wie der Klartext-Weg auf sein WS-Echo wartet. Ziel in
+    // KANONISCHER Form, s. `kanonischeAntwortId.ts`.
+    const eigeneUserId = auth.user?.id ?? null;
+    if (eigeneUserId === null) return;
+    try {
+      // kanonischeAntwortId ist typisiert als string | null — der Fallback
+      // auf die eigene ID ist der dokumentierte Endpunkt der Kette.
+      const ziel = kanonischeAntwortId(msg.id, [msg]) ?? msg.id;
+      if (!(await sendeReaktion(msg.channel_id, opts.partnerId, ziel, emoji, currentlyMine))) {
+        throw new Error('Reaktions-Umschlag nicht zugestellt');
+      }
+    } catch (e) {
+      toast.error(m.dm_page_reaction_failed());
+      console.error(e);
+      return;
+    }
+    const reactions = await verlaufReaktionAnwenden(
+      msg.channel_id,
+      msg.id,
+      eigeneUserId,
+      emoji,
+      currentlyMine
+    );
+    if (reactions) messages.setReactions(msg.channel_id, msg.id, reactions);
+    return;
+  }
   const action = currentlyMine ? chatApi.removeReaction : chatApi.addReaction;
   try {
     await action(msg.id, emoji, route);

@@ -43,6 +43,9 @@
     route = {},
     /** Pin-Recht vorgerechnet (Guild: MANAGE_MESSAGES; DM: immer wahr). */
     canPin = false,
+    /** Reaktionen auf verschluesselte Nachrichten laufen als Umschlag —
+     *  nur der DM-Zweig setzt das, s. `ChatView.reaktionUmschlag`. */
+    reaktionUmschlag = false,
     /** Optionaler Inhalt für den Leerraum bei messages.length === 0 —
      *  z. B. der Sicherungs-Frischgerät-Hinweis. Fehlt er, greift der
      *  Standard-Absatz. */
@@ -65,6 +68,7 @@
     isOwner?: boolean;
     route?: { serverId?: string };
     canPin?: boolean;
+    reaktionUmschlag?: boolean;
     leerHinweis?: Snippet;
     onSetReplyTarget: (m: Message) => void;
     onEditMessage: (m: Message, newContent: string) => void;
@@ -539,6 +543,12 @@
     if (!myId) return false;
     return m.author_id !== myId;
   }
+  // Verschluesselt: Reagieren laeuft als Reaktions-Umschlag (P1.5) — nur wo
+  // der Schalter gesetzt ist (DM); sonst bliebe der Server-Weg mit 404.
+  function canReactMessage(m: Message): boolean {
+    if (m.id.startsWith('tmp-')) return false;
+    return m.verschluesselt ? reaktionUmschlag : true;
+  }
   function canPinMessage(m: Message): boolean {
     return canPin && !m.id.startsWith('tmp-') && !m.deleted_at;
   }
@@ -625,6 +635,7 @@
               canDelete={canDeleteMessage(item.message)}
               canReport={canReportMessage(item.message)}
               canPin={canPinMessage(item.message)}
+              canReact={canReactMessage(item.message)}
               isDirect={!channel?.guild_id}
               guildId={channel?.guild_id ?? undefined}
               onReply={onSetReplyTarget}

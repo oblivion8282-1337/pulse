@@ -10,7 +10,7 @@
  * ist die Datei entfallen (Spec §3b).
  *
  * FASSUNG 1: JSON `{v:1, text: string, id?: string, replyToId?: string,
- * anhaenge?: AnhangAngabe[]}`.
+ * anhaenge?: AnhangAngabe[], geloescht?: true, reaktion?: ReaktionsAngabe}`.
  *
  * **Die Fassungsnummer bleibt bei 1, obwohl `anhaenge` neu ist — das ist
  * Absicht, nicht Nachlaessigkeit.** `leseNachrichtNutzlast` prueft `v ===
@@ -77,6 +77,17 @@ export type AnhangAngabe = {
   vorschau: { schluessel: string; breite: number; hoehe: number } | null;
 };
 
+/**
+ * Reaktions-Umschlag (Uebergabe P1.5): `ziel` ist die KANONISCHE ID der
+ * Nachricht, auf die reagiert wird (`kanonischeAntwortId.ts` — dieselbe
+ * Uebersetzung wie bei `replyToId`, aus demselben Grund: die lokale ID ist
+ * je Geraet verschieden). `entfernen` nimmt die eigene Reaktion zurueck.
+ * Der Absender steht nicht in der Nutzlast — er ist der Sitzungs-Partner
+ * (`absenderErmitteln.ts`), und nur der darf seine Reaktion entfernen
+ * (`reaktionen.ts`).
+ */
+export type ReaktionsAngabe = { ziel: string; emoji: string; entfernen?: true };
+
 export type NachrichtNutzlast = {
   text: string;
   /** Kanonische Nachrichten-ID des Autors — `null` nur bei einer Legacy-
@@ -86,6 +97,9 @@ export type NachrichtNutzlast = {
   /** Lösch-Frame (2026-09-02): `true` = die Nachricht mit dieser ID wurde
    *  vom Autor gelöscht — Empfaenger entfernen sie lokal (Grabstein). */
   geloescht?: true;
+  /** Reaktions-Umschlag (s. `ReaktionsAngabe`) — wie `geloescht` ein Frame
+   *  ohne Text, der sich auf eine ANDERE Nachricht bezieht. */
+  reaktion?: ReaktionsAngabe;
   /** Leer, wenn die Nutzlast keine Anhaenge trug ODER von einem Sender vor
    *  Etappe E stammt — beides sieht beim Lesen gleich aus und soll es auch. */
   anhaenge: AnhangAngabe[];
@@ -160,6 +174,32 @@ export function baueLoeschNutzlast(nachrichtId: string): Uint8Array {
   );
 }
 
+/** Reaktions-Umschlag: Frame ohne Text und ohne eigene ID — er IST keine
+ *  Nachricht, sondern bezieht sich auf eine (`ReaktionsAngabe.ziel`, kanonisch).
+ *  Derselbe verschluesselte Sendeweg wie der Loesch-Frame. */
+export function baueReaktionsNutzlast(
+  zielNachrichtId: string,
+  emoji: string,
+  entfernen: boolean
+): Uint8Array {
+  const reaktion: ReaktionsAngabe = { ziel: zielNachrichtId, emoji };
+  if (entfernen) reaktion.entfernen = true;
+  return new TextEncoder().encode(JSON.stringify({ v: FASSUNG, text: '', reaktion }));
+}
+
+/** Fail-closed wie `leseAnhang`: ein Frame ohne Ziel oder Emoji ist keine
+ *  Reaktion — und faellt dann als leere Textnachricht NICHT in die Anzeige,
+ *  weil `zustellungOeffnen` nur ein gelesenes `reaktion` als Frame behandelt;
+ *  der Rest liest sich als gewoehnliche (leere) Nutzlast. */
+function leseReaktion(wert: unknown): ReaktionsAngabe | null {
+  if (wert === null || typeof wert !== 'object') return null;
+  const r = wert as Record<string, unknown>;
+  if (typeof r.ziel !== 'string' || r.ziel === '' || typeof r.emoji !== 'string' || r.emoji === '') {
+    return null;
+  }
+  return { ziel: r.ziel, emoji: r.emoji, ...(r.entfernen === true ? { entfernen: true as const } : {}) };
+}
+
 export function leseNachrichtNutzlast(bytes: Uint8Array): NachrichtNutzlast {
   const roh = new TextDecoder().decode(bytes);
   try {
@@ -178,12 +218,14 @@ export function leseNachrichtNutzlast(bytes: Uint8Array): NachrichtNutzlast {
           if (gelesen) anhaenge.push(gelesen);
         }
       }
+      const reaktion = leseReaktion(o.reaktion);
       return {
         text: o.text as string,
         id: typeof o.id === 'string' ? o.id : null,
         replyToId: typeof o.replyToId === 'string' ? o.replyToId : null,
         anhaenge,
-        ...(o.geloescht === true ? { geloescht: true as const } : {})
+        ...(o.geloescht === true ? { geloescht: true as const } : {}),
+        ...(reaktion ? { reaktion } : {})
       };
     }
   } catch {

@@ -60,6 +60,7 @@
     composerDisabledReason = '',
     cloudScoped = false,
     verschluesselteAnhaenge = false,
+    reaktionUmschlag = false,
     onEditMessage,
     onDeleteMessage,
     onToggleReaction,
@@ -100,6 +101,11 @@
      *  durchgereicht. Hebt zugleich die Klartext-Sperre auf, s.
      *  `attachmentsAllowed`. */
     verschluesselteAnhaenge?: boolean;
+    /** Reaktionen auf verschluesselte Nachrichten als Postfach-Umschlag
+     *  (P1.5). Setzt NUR der DM-Zweig: eine verschluesselte Gruppen-Nachricht
+     *  haette keinen Fan-out dafuer, und der Server-Weg endet fuer sie im 404
+     *  — ohne den Schalter bleibt der Reaktions-Eintrag dort gesperrt. */
+    reaktionUmschlag?: boolean;
     /** Hide the member-list toggle + inline panel (DMs have no member list). */
     showMemberList?: boolean;
     /** Lock the composer (no typing, no submit). Drives the DM hard-cut
@@ -515,6 +521,7 @@
       {namePrefix}
       {isOwner}
       {canPin}
+      {reaktionUmschlag}
       route={messageRoute}
       bind:jumper={jumpToMessage}
       onSetReplyTarget={(m) => (replyTarget = m)}

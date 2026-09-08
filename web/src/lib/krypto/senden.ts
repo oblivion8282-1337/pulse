@@ -77,7 +77,12 @@ import {
   partnerSchluesselLesen,
   partnerSchluesselMerken
 } from './sitzungen';
-import { baueNachrichtNutzlast, baueLoeschNutzlast, type AnhangAngabe } from './nachrichtNutzlast';
+import {
+  baueNachrichtNutzlast,
+  baueLoeschNutzlast,
+  baueReaktionsNutzlast,
+  type AnhangAngabe
+} from './nachrichtNutzlast';
 import { anhangAngabeZuAttachment } from './anhangAnzeige';
 import { zielgeraeteBerechnen } from './empfaengerGeraete';
 import { wurdeZugestellt, deuteEinliefernFehler } from './zustellErgebnis';
@@ -301,16 +306,17 @@ export async function sendeVerschluesselt(
 }
 
 /**
- * Löscht eine verschlüsselte Nachricht: verschickt einen Lösch-Frame
- * (`baueLoeschNutzlast`) über denselben verschlüsselten Sendeweg — der
- * Server bleibt blindes Postfach, keine eigene Route nötig. `true`, wenn
- * der Frame zugestellt wurde; der Aufrufer setzt den lokalen Grabstein
- * unabhängig davon (`verlaufNachrichtGeloescht`).
+ * Ein Frame ohne eigene Nachricht (Loeschen, Reaktion): derselbe
+ * verschluesselte Sendeweg wie `sendeVerschluesselt` — an die Gegenstelle UND
+ * die eigenen anderen Geraete (`zielgeraeteBerechnen`) —, aber ohne lokale
+ * Ablage und ohne DM-Listen-Nachzug: ein Frame ist keine Nachricht. `true`,
+ * wenn der Frame zugestellt wurde; was lokal daraus folgt, entscheidet der
+ * Aufrufer.
  */
-export async function sendeLoeschung(
+async function versendeFrame(
   kanalId: string,
   empfaengerUserId: string,
-  nachrichtId: string
+  klartextBytes: Uint8Array
 ): Promise<boolean> {
   const eigeneUserId = auth.user?.id ?? null;
   if (eigeneUserId === null) return false;
@@ -324,11 +330,43 @@ export async function sendeLoeschung(
     isElectron() || isCapacitorAndroid()
   );
   if (ziel.length === 0) return false;
-  const status = await versendeUmschlaege(
-    kanalId,
-    ziel,
-    eigeneKennung,
-    baueLoeschNutzlast(nachrichtId)
-  );
+  const status = await versendeUmschlaege(kanalId, ziel, eigeneKennung, klartextBytes);
   return status === 'verschluesselt';
+}
+
+/**
+ * Löscht eine verschlüsselte Nachricht: verschickt einen Lösch-Frame
+ * (`baueLoeschNutzlast`) über denselben verschlüsselten Sendeweg — der
+ * Server bleibt blindes Postfach, keine eigene Route nötig. `true`, wenn
+ * der Frame zugestellt wurde; der Aufrufer setzt den lokalen Grabstein
+ * unabhängig davon (`verlaufNachrichtGeloescht`).
+ */
+export function sendeLoeschung(
+  kanalId: string,
+  empfaengerUserId: string,
+  nachrichtId: string
+): Promise<boolean> {
+  return versendeFrame(kanalId, empfaengerUserId, baueLoeschNutzlast(nachrichtId));
+}
+
+/**
+ * Reagiert auf eine verschluesselte Nachricht (Uebergabe P1.5): ein
+ * Reaktions-Umschlag (`baueReaktionsNutzlast`) an alle Zielgeraete —
+ * dadurch sehen auch die eigenen anderen Geraete die Reaktion.
+ * `zielNachrichtId` MUSS die KANONISCHE Form sein (`kanonischeAntwortId.ts`).
+ * `true` nur bei Zustellung; der Aufrufer wendet die Reaktion erst DANN lokal
+ * an (`verlaufReaktionAnwenden`), wie der Klartext-Weg auf sein WS-Echo wartet.
+ */
+export function sendeReaktion(
+  kanalId: string,
+  empfaengerUserId: string,
+  zielNachrichtId: string,
+  emoji: string,
+  entfernen: boolean
+): Promise<boolean> {
+  return versendeFrame(
+    kanalId,
+    empfaengerUserId,
+    baueReaktionsNutzlast(zielNachrichtId, emoji, entfernen)
+  );
 }

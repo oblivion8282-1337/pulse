@@ -70,6 +70,39 @@ export function verlaufMarkiereGeloescht(schluessel: string, kontoId: string): P
 }
 
 /**
+ * Schreibt einen vorhandenen Satz um — `umschreiben` bekommt den Satz und
+ * liefert die neue Fassung oder `null` fuer „nichts zu tun". Lesen und
+ * Schreiben in EINER Transaktion, damit zwei gleichzeitige Umschlaege (etwa
+ * zwei Reaktionen im selben Abholzyklus) einander nicht ueberschreiben.
+ * Gibt die geschriebene Fassung zurueck, sonst `null` (kein Satz, fremdes
+ * Konto — s. `verlaufMarkiereGeloescht` —, oder `umschreiben` winkte ab).
+ */
+export function verlaufSatzUmschreiben(
+  schluessel: string,
+  kontoId: string,
+  umschreiben: (satz: Satz) => Satz | null
+): Promise<Satz | null> {
+  return mitVerbindung(
+    (db) =>
+      new Promise<Satz | null>((resolve, reject) => {
+        const tx = db.transaction(STORE_NACHRICHTEN, 'readwrite');
+        const store = tx.objectStore(STORE_NACHRICHTEN);
+        let neu: Satz | null = null;
+        const getReq = store.get(schluessel);
+        getReq.onsuccess = () => {
+          const satz = getReq.result as Satz | undefined;
+          if (!satz || !gehoertZuKonto(satz, kontoId)) return;
+          neu = umschreiben(satz);
+          if (neu) store.put(neu);
+        };
+        getReq.onerror = () => reject(getReq.error);
+        tx.oncomplete = () => resolve(neu);
+        tx.onerror = () => reject(tx.error);
+      })
+  );
+}
+
+/**
  * Prueft, ob unter diesem Primaerschluessel bereits ein Satz liegt —
  * fuer den Krypto-Empfangspfad (`krypto/empfangen.ts` FIX 3, Bughunt-Runde
  * 3, s. dortigen Modulkopf): scheitert nach erfolgreichem Ablegen NUR die

@@ -68,6 +68,18 @@ export type ZustellungOffenErgebnis =
   | { art: 'schonAbgelegt'; channelId: string; id: string }
   | { art: 'ohneAblage'; id: string }
   | { art: 'loeschung'; id: string; channelId: string; nachrichtId: string }
+  /** Reaktions-Umschlag (P1.5): `ziel` ist die KANONISCHE ID der Nachricht,
+   *  `autorId` der Sitzungs-Partner, der reagiert hat. Der Aufrufer wendet
+   *  ihn lokal an und quittiert direkt — nichts abzulegen. */
+  | {
+      art: 'reaktion';
+      id: string;
+      channelId: string;
+      autorId: string;
+      ziel: string;
+      emoji: string;
+      entfernen: boolean;
+    }
   | null;
 
 /** Die Nachricht einer erfolgreich geoeffneten Zustellung — `null`, wenn der
@@ -188,6 +200,19 @@ export async function zustellungOeffnen(
         // lokal (Grabstein im Verlauf, damit auch im Archiv) und quittiert
         // direkt — es gibt nichts anzuzeigen und nichts abzulegen.
         return { art: 'loeschung', id: z.id, channelId: z.channel_id, nachrichtId: gelesen.id };
+      }
+      if (gelesen.reaktion) {
+        // Reaktions-Umschlag (P1.5): wie der Lösch-Frame ein Bezug auf eine
+        // ANDERE Nachricht — der Aufrufer wendet ihn am Verlaufs-Satz an.
+        return {
+          art: 'reaktion',
+          id: z.id,
+          channelId: z.channel_id,
+          autorId: absenderUserId,
+          ziel: gelesen.reaktion.ziel,
+          emoji: gelesen.reaktion.emoji,
+          entfernen: gelesen.reaktion.entfernen === true
+        };
       }
       return { art: 'neu', nachricht: baueEmpfangeneNachricht(z, absenderUserId, gelesen) };
     } catch (err) {

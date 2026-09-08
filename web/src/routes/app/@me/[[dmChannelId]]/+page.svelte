@@ -236,7 +236,9 @@
   const deleteMessage = (msg: Message) =>
     nachrichtLoeschen(msg, cloudRoute, { partnerId: activeDM?.other_user_id });
   const toggleReaction = (msg: Message, emoji: string, currentlyMine: boolean) =>
-    reaktionUmschalten(msg, emoji, currentlyMine, cloudRoute);
+    reaktionUmschalten(msg, emoji, currentlyMine, cloudRoute, {
+      partnerId: activeDM?.other_user_id
+    });
 
   async function togglePin(msg: Message) {
     try {
@@ -333,6 +335,7 @@
         onBack={() => goto('/app/@me')}
         cloudScoped
         verschluesselteAnhaenge={E2E_DMS_ENABLED}
+        reaktionUmschlag={E2E_DMS_ENABLED}
         showMemberList={false}
         composerDisabled={dmSperre !== null}
         composerDisabledReason={dmSperre === 'ohne_app'

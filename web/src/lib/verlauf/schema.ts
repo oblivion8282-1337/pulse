@@ -59,6 +59,16 @@ export type Satz = {
    *  auf. */
   kryptoId: string | null;
   /**
+   * Reaktionen auf eine VERSCHLUESSELTE Nachricht (Uebergabe P1.5): je Zeile
+   * ein (Autor, Emoji)-Paar, gepflegt ueber Reaktions-Umschlaege
+   * (`krypto/reaktionen.ts` rechnet Merge und Anzeige-Form). Bewusst NICHT
+   * die Server-Aggregate einer Klartext-Nachricht — die haben keine Autoren
+   * und liessen sich nicht idempotent zusammenfuehren; fuer sie bleibt der
+   * Server die Wahrheit. Kein `DB_VERSION`-Bump (neues FELD, s. `antwortAufId`);
+   * Altsaetze ohne das Feld lesen sich als „keine Reaktionen".
+   */
+  reaktionen?: { emoji: string; userId: string }[];
+  /**
    * Bughunt 2026-08-29 (Befund 1): welches Konto diesen Satz geschrieben hat
    * (`verlauf/konto.ts::aktuellesKonto`, dieselbe Cloud-User-ID wie
    * `auth.svelte.ts::_enforceDeviceOwner`). `pulse-verlauf` ist pro
