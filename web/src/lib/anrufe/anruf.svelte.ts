@@ -25,6 +25,7 @@ import { sounds } from '$lib/sounds/engine';
 import { toast } from 'svelte-sonner';
 import { formatiereDauer } from '$lib/attachments/aufnahmeKern';
 import { m } from '$lib/paraglide/messages.js';
+import { anrufSystemzeile, type AnrufZeilenSchluessel } from './systemzeileKern';
 
 const KLINGEL_TIMEOUT_MS = 45_000;
 
@@ -53,15 +54,31 @@ class AnrufStore {
   #ferneStimmen: HTMLMediaElement[] = [];
   /** In einem WS-Handler gesetzte Endes-Info für das gerade Abgebaute. */
   #abbauGen = 0;
+  /** Vom WS-Bootstrap angedockte Senke für die Chat-Systemzeile — Injektion
+   *  statt Import (`systemzeileSenden.ts`), sonst zirkelt die Sendekette. */
+  #zeilenZiel:
+    | ((kanalId: string, schluessel: AnrufZeilenSchluessel, dauerSek: number) => void)
+    | null = null;
+  /** Schon eine Zeile für den LAUFENDEN Anruf hinterlassen? `ende()` und der
+   *  lokale Abbau können sich im Wettlauf doppelt melden. */
+  #systemzeileErledigt = false;
 
   get inAnruf(): boolean {
     return this.aktiv !== null;
+  }
+
+  /** Vom WS-Bootstrap: dockt die Senke an, die die Systemzeile sendet. */
+  zeilenZielSetzen(
+    ziel: (kanalId: string, schluessel: AnrufZeilenSchluessel, dauerSek: number) => void
+  ): void {
+    this.#zeilenZiel = ziel;
   }
 
   async starten(art: AnrufArt, channelId: string, gegenstelle: string): Promise<void> {
     if (this.aktiv) return;
     // Sync-Platzhalter schließt das Doppelklick-Fenster vor dem await.
     this.aktiv = { id: '', art, channel_id: channelId, rolle: 'ausgehend', gegenstelle, zustand: 'klingelt' };
+    this.#systemzeileErledigt = false;
     try {
       const angabe = await anrufStarten(art, channelId);
       this.aktiv = {
@@ -103,6 +120,7 @@ class AnrufStore {
       gegenstelle,
       zustand: 'klingelt'
     };
+    this.#systemzeileErledigt = false;
     sounds.play('notification.dm');
     this.#klingelWeckerPlanen();
   }
@@ -148,6 +166,12 @@ class AnrufStore {
   async auflegen(): Promise<void> {
     const anruf = this.aktiv;
     if (!anruf) return;
+    // Klingelt der Anruf noch, stuft der Server das Auflegen als „verpasst“
+    // ein (routes/anrufe.py) — dieselbe Einstufung für die eigene Zeile.
+    this.#systemzeileHinterlassen(
+      anruf.zustand === 'klingelt' ? 'verpasst' : 'aufgelegt',
+      anruf.zustand === 'klingelt' ? 0 : this.dauerSekunden
+    );
     this.#klingelWeckerLoeschen();
     try {
       await anrufAuflegen(anruf.id);
@@ -191,6 +215,7 @@ class AnrufStore {
   ende(callId: string, grund: string, dauerSek: number): void {
     const anruf = this.aktiv;
     if (!anruf || anruf.id !== callId) return;
+    this.#systemzeileHinterlassen(grund, dauerSek);
     this.#aufräumen();
     if (anruf.rolle === 'eingehend' && grund === 'verpasst') {
       toast.error(m.anruf_verpasst());
@@ -216,6 +241,19 @@ class AnrufStore {
       clearTimeout(this.#klingelWecker);
       this.#klingelWecker = null;
     }
+  }
+
+  /** Grund und Dauer sind bekannt → einmalig die Chat-Zeile anstoßen. Ob und
+   *  was, rechnet `systemzeileKern.ts` (nur 1:1, nur der Einleiter); ohne
+   *  angedockte Senke (Tests, vor dem Bootstrap) bleibt es beim lokalen
+   *  Abbau. */
+  #systemzeileHinterlassen(grund: string, dauerSek: number): void {
+    const anruf = this.aktiv;
+    if (!anruf || this.#systemzeileErledigt) return;
+    const zeile = anrufSystemzeile(anruf.art, anruf.rolle, grund, dauerSek);
+    if (!zeile) return;
+    this.#systemzeileErledigt = true;
+    this.#zeilenZiel?.(anruf.channel_id, zeile.schluessel, zeile.dauerSek);
   }
 
   /** LiveKit-Raum betreten — Token von voice-signaling, Room-Name vom Server. */

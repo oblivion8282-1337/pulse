@@ -4,9 +4,14 @@
 import type { HandlerContext } from './context';
 import { registerWsHandler } from '../handler-registry';
 import { anrufe } from '$lib/anrufe/anruf.svelte';
+import { sendeAnrufSystemzeile } from '$lib/anrufe/systemzeileSenden';
 import { userCache } from '$lib/stores/users.svelte';
 
 export function register(_ctx: HandlerContext): void {
+  // Die Systemzeile wird hier angedockt — einmalig beim Gateway-Aufbau, bevor
+  // es Anrufe geben kann, und unabhängig von der gerade offenen Seite.
+  anrufe.zeilenZielSetzen(sendeAnrufSystemzeile);
+
   registerWsHandler('call_klingelt', (evt) => {
     anrufe.eingehend(evt, userCache.displayName(evt.einleiter_id));
   });
