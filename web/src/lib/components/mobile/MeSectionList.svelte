@@ -14,8 +14,10 @@
    */
   import { goto } from '$app/navigation';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+  import ImageIcon from '@lucide/svelte/icons/image';
   import BereichsKopf from './BereichsKopf.svelte';
   import LogOutIcon from '@lucide/svelte/icons/log-out';
+  import MedienArchivSheet from './MedienArchivSheet.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { settings } from '$lib/stores/settings.svelte';
   import { getSettingsTabs } from '$lib/components/settingsTabs';
@@ -77,6 +79,11 @@
   }
 
   let anzeigename = $derived(auth.user?.display_name || auth.user?.username || '');
+
+  /** Geraeteweites Medien-Archiv (Stufe B1) — eigener Einstieg ueber der
+   *  Einstellungsliste; oeffnet als Blatt statt als /app/me-Sektion, weil es
+   *  keine Einstellung ist, sondern ein Bestand. */
+  let medienOffen = $state(false);
 </script>
 
 <div
@@ -105,6 +112,23 @@
         <div class="text-text-muted truncate text-sm">@{auth.user?.username ?? ''}</div>
       </div>
       <StatusPicker />
+    </div>
+
+    <!-- Medien-Archiv -->
+    <div
+      class="border-border bg-bg-input mb-4 overflow-hidden rounded-[14px] border shadow-[0_6px_14px_-8px_rgba(0,0,0,0.7)]"
+    >
+      <button
+        class="hover:bg-bg-hover flex min-h-12 w-full items-center gap-3 px-3 py-3 text-left transition-colors"
+        onclick={() => (medienOffen = true)}
+        data-testid="me-medien-archiv"
+      >
+        <ImageIcon class="text-text-muted size-5 shrink-0" />
+        <span class="text-text-bright flex-1 truncate text-sm font-medium"
+          >{m.medien_archiv_titel()}</span
+        >
+        <ChevronRightIcon class="text-text-muted size-4 shrink-0" />
+      </button>
     </div>
 
     <!-- Einstellungen -->
@@ -143,3 +167,5 @@
     </button>
   </div>
 </div>
+
+<MedienArchivSheet bind:open={medienOffen} />

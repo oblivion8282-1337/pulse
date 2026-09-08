@@ -1714,6 +1714,8 @@
   "medien_bild_oeffnen": "Open image",
   "medien_unbenannt": "Unnamed file",
   "medien_datei_laden": "Download file",
+  "medien_archiv_titel": "All media",
+  "medien_archiv_leer": "No media on this device yet",
   "member_activity_header_direct_video": "Direct Video",
   "member_activity_header_host_label": "Host",
   "member_activity_header_open_stream_aria": "Open stream",

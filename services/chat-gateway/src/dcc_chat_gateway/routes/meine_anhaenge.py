@@ -23,12 +23,13 @@ from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 from sqlalchemy import select
 
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import MessageAttachment
 from dcc_chat_gateway.ratelimit import check as ratelimit_check
+from dcc_chat_gateway.schemas import _id_str
 from dcc_chat_gateway.security import CurrentUser
 
 router = APIRouter(tags=["anhaenge"])
@@ -51,6 +52,14 @@ class AnhangMetadaten(BaseModel):
     #: True, sobald die Bytes im eigenen Cloud-Laufwerk liegen (§11.1) —
     #: der Objektspeicher antwortet dann 410, der Klient liest lokal.
     laufwerk_verteilt: bool
+
+    #: Snowflakes als Strings — wie bei jedem anderen Out-Schema
+    #: (``AttachmentOut`` & Co.): als JSON-Number verlöre JS jenseits von
+    #: 2^53 still Bits, und der Klient braucht die id exakt (Cursor und
+    #: Primärschlüssel seines Medien-Index).
+    @field_serializer("id", "channel_id")
+    def _ser_ids(self, v: int) -> str:
+        return _id_str(v)
 
 
 def _serialize(a: MessageAttachment) -> AnhangMetadaten:

@@ -12,7 +12,7 @@
  * Muster wie `lib/identity/idb-shared.ts`: eine geteilte, zwischengespeicherte
  * Verbindung.
  */
-import { DB_NAME, DB_VERSION, STORE_NACHRICHTEN, STORE_ANHAENGE, INDEX_KANAL } from './schema';
+import { DB_NAME, DB_VERSION, STORE_NACHRICHTEN, STORE_ANHAENGE, STORE_MEDIEN, INDEX_KANAL } from './schema';
 
 let _dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -33,6 +33,15 @@ function _openFresh(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_ANHAENGE)) {
         const anhaenge = db.createObjectStore(STORE_ANHAENGE, { keyPath: 'id' });
         anhaenge.createIndex(INDEX_KANAL, 'kanalId');
+      }
+      // Fassung 3 (Medien-Nachziehen, Stufe B1). Dieselbe Wache wie oben:
+      // dieser Block laeuft auch bei 0 -> 3 (Neuanlage) und 1 -> 3 / 2 -> 3
+      // gleichermaassen, und der Speicher traegt nur `kontoId`-pflichtige
+      // Zeilen (`schema.ts::MedienZeile`) — kein zweiter Index noetig; die
+      // Snowflake-Zeitordnung fuer die Anzeige baut `medienLesen` in JS
+      // (der Primaerschluessel sortiert nur lexikografisch).
+      if (!db.objectStoreNames.contains(STORE_MEDIEN)) {
+        db.createObjectStore(STORE_MEDIEN, { keyPath: 'id' });
       }
     };
     req.onsuccess = () => {

@@ -13,24 +13,41 @@
 import {
   STORE_NACHRICHTEN,
   STORE_ANHAENGE,
+  STORE_MEDIEN,
   INDEX_KANAL,
   type AnhangBytes,
-  type Satz
+  type MedienZeile,
+  type Satz,
+  medienZeilenAusSatz
 } from './schema';
 import { mitVerbindung } from './verbindung';
 import { sortierSchluessel } from './satz';
 import { gehoertZuKonto } from './kontoFilter';
 
 /** Legt mehrere Sätze in einer einzigen Transaktion ab (put = Upsert über den
- *  Primärschlüssel — ein Grabstein überschreibt seine frühere Fassung). */
+ *  Primärschlüssel — ein Grabstein überschreibt seine frühere Fassung).
+ *
+ *  Zweit-Schreibweg `medien` (Stufe B1): die Anhänge eines Satzes wandern
+ *  als Index-Zeilen (`schema.ts::MedienZeile`) mit in dieselbe Transaktion.
+ *  Das MUSS hier passieren und nirgends sonst — `verlaufPutSaetze` ist die
+ *  einzige Schreibpforte aller Wege (WS, Nachladen, Krypto-Empfang,
+ *  `archivRueckweg`), der Medien-Index baut sich damit überall automatisch
+ *  mit auf, ohne eigenen Code je Weg. Grabstein-Sätze liefern keine Zeilen
+ *  (`medienZeilenAusSatz`); bestehende Index-Zeilen bleiben bei einem
+ *  Grabstein stehen (der Nachzug darf sie weiter zeigen — der Server hat die
+ *  Zeile ohnehin weggeräumt, sie ist hier der letzte Rest, bis B2 das aufräumt). */
 export function verlaufPutSaetze(saetze: Satz[]): Promise<void> {
   if (saetze.length === 0) return Promise.resolve();
   return mitVerbindung(
     (db) =>
       new Promise<void>((resolve, reject) => {
-        const tx = db.transaction(STORE_NACHRICHTEN, 'readwrite');
+        const tx = db.transaction([STORE_NACHRICHTEN, STORE_MEDIEN], 'readwrite');
         const store = tx.objectStore(STORE_NACHRICHTEN);
-        for (const satz of saetze) store.put(satz);
+        const medien = tx.objectStore(STORE_MEDIEN);
+        for (const satz of saetze) {
+          store.put(satz);
+          for (const zeile of medienZeilenAusSatz(satz)) medien.put(zeile);
+        }
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
       })
@@ -232,6 +249,77 @@ export function verlaufAlleLesen(kontoId: string): Promise<Satz[]> {
 }
 
 /**
+ * Der geraeteweite Medien-Index dieses Kontos, neueste zuerst — fuer das
+ * Medien-Archiv-Blatt (`MedienArchivSheet.svelte`), ein Lesezugriff
+ * neben `verlaufAlleLesen`. Konto-gefiltert wie jeder Lesepfad
+ * (`kontoFilter.ts`, fail-closed).
+ *
+ * Sortierung in JS ueber die Snowflake (Zeitordnung), nicht per
+ * Store-Cursor: der Primaerschluessel sortiert nur lexikografisch, und
+ * Snowflakes verschiedener Ziffernlaengen (der Generator-Epoch ist jung,
+ * die IDs wachsen in die naechste Stelle hinein) wuerden dabei verkehrt
+ * herum liegen. ponytail: Voller Scan wie `verlaufAlleLesen` — der Speicher
+ * traegt nur Metadaten-Zeilen eines Kontos, keine Bytes.
+ */
+export function medienLesen(kontoId: string): Promise<MedienZeile[]> {
+  return mitVerbindung(
+    (db) =>
+      new Promise<MedienZeile[]>((resolve, reject) => {
+        const tx = db.transaction(STORE_MEDIEN, 'readonly');
+        const zeilen: MedienZeile[] = [];
+        const req = tx.objectStore(STORE_MEDIEN).openCursor();
+        req.onsuccess = () => {
+          const cursor = req.result;
+          if (!cursor) {
+            zeilen.sort((a, b) => (BigInt(a.id) > BigInt(b.id) ? -1 : BigInt(a.id) < BigInt(b.id) ? 1 : 0));
+            resolve(zeilen);
+            return;
+          }
+          const zeile = cursor.value as MedienZeile;
+          if (gehoertZuKonto(zeile, kontoId)) zeilen.push(zeile);
+          cursor.continue();
+        };
+        req.onerror = () => reject(req.error);
+      })
+  );
+}
+
+/** Liegt unter dieser Anhang-ID schon eine Index-Zeile DES Kontos? — die
+ *  Overlap-Frage des Nachzugs (`medienNachzug.ts`): der erste lokal
+ *  bekannte Anhang beendet den Lauf, alles Dahinter ist ohnehin lokal. */
+export function medienIdVorhanden(id: string, kontoId: string): Promise<boolean> {
+  return mitVerbindung(
+    (db) =>
+      new Promise<boolean>((resolve, reject) => {
+        const tx = db.transaction(STORE_MEDIEN, 'readonly');
+        const req = tx.objectStore(STORE_MEDIEN).get(id);
+        req.onsuccess = () => {
+          const zeile = req.result as MedienZeile | undefined;
+          resolve(zeile !== undefined && gehoertZuKonto(zeile, kontoId));
+        };
+        req.onerror = () => reject(req.error);
+      })
+  );
+}
+
+/** Upsert mehrerer Index-Zeilen in einer Transaktion — der Schreibweg des
+ *  Nachzugs (`put` ueberschreibt gefahrlos, dieselbe Semantik wie in
+ *  `verlaufPutSaetze`). */
+export function medienSchreiben(zeilen: MedienZeile[]): Promise<void> {
+  if (zeilen.length === 0) return Promise.resolve();
+  return mitVerbindung(
+    (db) =>
+      new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(STORE_MEDIEN, 'readwrite');
+        const store = tx.objectStore(STORE_MEDIEN);
+        for (const zeile of zeilen) store.put(zeile);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      })
+  );
+}
+
+/**
  * Legt die entschluesselten Bytes eines Anhangs ab (Etappe E). `put` =
  * Upsert — ein zweiter Empfang derselben Kennung ueberschreibt gefahrlos.
  *
@@ -347,8 +435,8 @@ export function anhangBytesLoeschen(id: string): Promise<void> {
 }
 
 /**
- * Loescht den GESAMTEN lokalen Verlauf dieses Geraets — Nachrichten und
- * Anhang-Bytes.
+ * Loescht den GESAMTEN lokalen Verlauf dieses Geraets — Nachrichten,
+ * Anhang-Bytes und den Medien-Index.
  *
  * Genau ein Aufrufer (`krypto/verfallPruefen.ts`): der gekoppelte Browser,
  * dessen Kopplung nach 14 Tagen ohne Benutzung abgelaufen ist (Spec §3a).
@@ -360,16 +448,21 @@ export function anhangBytesLoeschen(id: string): Promise<void> {
  * Konto darauf; ein halb geraeumter Speicher waere genau die Haelfte, die man
  * auf einem fremden Rechner nicht zuruecklassen will.
  *
- * Beide Speicher in EINER Transaktion: ein Abbruch dazwischen liesse sonst
- * die Anhang-Bytes ohne die Nachrichten stehen, die auf sie zeigen.
+ * Alle Speicher in EINER Transaktion: ein Abbruch dazwischen liesse sonst
+ * die Anhang-Bytes ohne die Nachrichten stehen, die auf sie zeigen (und
+ * seit Stufe B1 einen Medien-Index, der auf beides zeigt).
  */
 export function verlaufAllesLoeschen(): Promise<void> {
   return mitVerbindung(
     (db) =>
       new Promise<void>((resolve, reject) => {
-        const tx = db.transaction([STORE_NACHRICHTEN, STORE_ANHAENGE], 'readwrite');
+        const tx = db.transaction(
+          [STORE_NACHRICHTEN, STORE_ANHAENGE, STORE_MEDIEN],
+          'readwrite'
+        );
         tx.objectStore(STORE_NACHRICHTEN).clear();
         tx.objectStore(STORE_ANHAENGE).clear();
+        tx.objectStore(STORE_MEDIEN).clear();
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
       })

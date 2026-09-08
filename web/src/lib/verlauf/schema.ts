@@ -20,11 +20,23 @@ export const DB_NAME = 'pulse-verlauf';
  * faengt leer an. Ein Anhang, den dieses Geraet vor der Umstellung empfangen
  * haette, kann es nicht geben — der verschluesselte Weg ist mit diesem
  * Speicher zusammen entstanden.
+ *
+ * FASSUNG 3 (Medien-Nachziehen, Stufe B1, Plan
+ * `docs/plans/2026-09-08-medien-nachziehen.md`): der Speicher `medien` ist
+ * dazugekommen — derselbe Bump-Zwang wie bei Fassung 2 (neuer
+ * Objektspeicher, nur in `onupgradeneeded` anlegbar). Er ist ein reiner
+ * ABLEGER: jede Zeile ist aus dem Satz in `nachrichten` wiederherstellbar,
+ * der Nachzug (`medienNachzug.ts`) fuellt ihn zusaetzlich mit
+ * Server-Metadaten, die lokal nie als Satz anlagen (alte Uploads, ferne
+ * Kanaele). Bestandsdaten wandern nicht: der Index baut sich beim ersten
+ * Schreiben ueber `verlaufPutSaetze` selbst.
  */
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 export const STORE_NACHRICHTEN = 'nachrichten';
 /** Entschluesselte Anhang-Bytes (Etappe E) — s. `anhangSchema` unten. */
 export const STORE_ANHAENGE = 'anhaenge';
+/** Geraeteweiter Medien-Index (Stufe B1) — s. `MedienZeile` unten. */
+export const STORE_MEDIEN = 'medien';
 /** Nach Kanal, damit ein Kanal am Stueck gelesen werden kann. */
 export const INDEX_KANAL = 'nach_kanal';
 
@@ -111,3 +123,77 @@ export type AnhangBytes = {
   /** Klartext-Bytes des Vorschaubildes, falls es eines gab. */
   vorschau: Blob | null;
 };
+
+/**
+ * Eine Zeile des geraeteweiten Medien-Index (Stufe B1) — Primaerschluessel
+ * `id` (die Anhang-Snowflake des Servers, als String). Ein ABLEGER, kein
+ * zweites Archiv: alles hier steckt entweder im Satz (`nachrichten`) oder
+ * kommt vom Nachzug-Endpunkt (`GET /meine-anhaenge`) — geloescht werden kann
+ * eine Zeile, indem man sie vergisst; der naechste Schreibweg baut sie neu.
+ *
+ * Zwei Wege fuellen den Speicher (beide enden in `verlauf/db.ts`):
+ * `medienZeilenAusSatz` beim Ablegen eines Satzes (kennt Schluessel und
+ * Namen auch bei E2EE) und `medienNachzug.ts::zeileAusServerAnhang` fuer
+ * Server-Metadaten (bei E2EE ohne Namen und ohne Schluessel — die sieht der
+ * Server bewusst nicht, `routes/meine_anhaenge.py`). `kontoId` ist Pflicht:
+ * `kontoFilter.ts`-Regeln gelten, der Speicher ist pro Browserprofil
+ * global, nicht pro Konto.
+ */
+export type MedienZeile = {
+  id: string;
+  kontoId: string;
+  kanalId: string;
+  /** Wer den Anhang hochgeladen hat. Beim Nachzug immer das eigene Konto
+   *  (der Endpunkt liefert nur eigene Uploads) — deshalb traegt diese Zeile
+   *  dieselbe ID wie `kontoId`. */
+  autorId: string;
+  erstelltAm: string;
+  /** NULL bei E2EE-Server-Zeilen — der Name lebt im verschluesselten
+   *  Umschlag; lokale Saetze ergaenzen ihn. */
+  dateiname: string | null;
+  mime: string | null;
+  size: number;
+  verschluesselt: boolean;
+  hatThumb: boolean;
+  /** Dateischluessel (Base64) — nur von lokalen Saetzen, NIE vom Server. */
+  schluessel: string | null;
+  /** True, sobald die Bytes im eigenen Cloud-Laufwerk liegen (§11.1) — der
+   *  Objektspeicher antwortet dann 410, der Klient liest lokal. */
+  laufwerkVerteilt: boolean;
+};
+
+/** Die Index-Zeilen der Anhaenge EINES Satzes — der Zweit-Schreibweg in
+ *  `verlaufPutSaetze`. Reine Rechnung (importfrei, Node-testbar). Fail-closed
+ *  wie `zuSatz`: ein Anhang ohne kennbaren `id`-String wird uebersprungen,
+ *  statt Muell in den Index zu legen. Grabstein-Saetze liefern bewusst keine
+ *  Zeilen — ein geloeschtes Medium ist keins mehr, und der Server liefert
+ *  seine Zeile ebenfalls nicht mehr. */
+export function medienZeilenAusSatz(satz: Satz): MedienZeile[] {
+  if (satz.geloescht || !Array.isArray(satz.anhaenge)) return [];
+  const zeilen: MedienZeile[] = [];
+  for (const a of satz.anhaenge) {
+    if (typeof a !== 'object' || a === null) continue;
+    const roh = a as Record<string, unknown>;
+    if (typeof roh.id !== 'string' || roh.id === '') continue;
+    zeilen.push({
+      id: roh.id,
+      kontoId: satz.kontoId,
+      kanalId: satz.kanalId,
+      autorId: satz.autorId,
+      erstelltAm: satz.erstelltAm,
+      dateiname: typeof roh.filename === 'string' ? roh.filename : null,
+      mime: typeof roh.mime === 'string' ? roh.mime : null,
+      size: typeof roh.size === 'number' ? roh.size : 0,
+      verschluesselt: roh.verschluesselt === true,
+      hatThumb:
+        roh.thumb_schluessel != null ||
+        (roh.thumb_url != null && roh.thumb_url !== ''),
+      schluessel: typeof roh.schluessel === 'string' ? roh.schluessel : null,
+      // Der Satz kennt die Server-Spalte nicht — `true` kann hier nur der
+      // Nachzug schreiben, der an der Overlap-Abbruchgrenze endet. Bis dahin
+      // gilt: lokal unbekannt (Anzeige-Frage, B2).
+      laufwerkVerteilt: false
+    });
+  }
+  return zeilen;
+}

@@ -63,7 +63,7 @@ async def test_paginierung_newest_first_mit_exklusivem_cursor(
     ids = []
     for _ in range(5):
         ids.append(await _anhang(session_factory, uploader=uid))
-    erwartete_reihenfolge = list(reversed(sorted(ids)))
+    erwartete_reihenfolge = [str(i) for i in reversed(sorted(ids))]
 
     headers = make_auth_header(token)
     r = await client.get("/meine-anhaenge?limit=2", headers=headers)
@@ -71,6 +71,9 @@ async def test_paginierung_newest_first_mit_exklusivem_cursor(
     seite1 = r.json()
     assert [row["id"] for row in seite1] == erwartete_reihenfolge[:2]
     assert len(seite1) == 2
+    # Snowflakes kommen als Strings (JS verlöre als Number still Bits —
+    # der Klient braucht die id exakt für Cursor und Medien-Index).
+    assert all(isinstance(row["id"], str) for row in seite1)
 
     # Cursor = letzte gesehene id; exklusiv heißt: die kommt nicht nochmal.
     r = await client.get(
@@ -115,7 +118,7 @@ async def test_zeilenauswahl_pending_und_geloescht_bleiben_aussen(
 
     r = await client.get("/meine-anhaenge", headers=make_auth_header(token))
     zeilen = r.json()
-    assert {row["id"] for row in zeilen} == {ok_id, ok_gebunden}
+    assert {row["id"] for row in zeilen} == {str(ok_id), str(ok_gebunden)}
 
 
 async def test_verschluesselte_zeile_mit_null_metadaten(
@@ -126,7 +129,7 @@ async def test_verschluesselte_zeile_mit_null_metadaten(
         session_factory, uploader=uid, verschluesselt=True, gebunden=True
     )
     r = await client.get("/meine-anhaenge", headers=make_auth_header(token))
-    zeile = next(row for row in r.json() if row["id"] == anhang_id)
+    zeile = next(row for row in r.json() if row["id"] == str(anhang_id))
     assert zeile["filename"] is None
     assert zeile["mime"] is None
     assert zeile["width"] is None and zeile["height"] is None

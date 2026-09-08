@@ -1714,6 +1714,8 @@
   "medien_bild_oeffnen": "Bild öffnen",
   "medien_unbenannt": "Unbenannte Datei",
   "medien_datei_laden": "Datei herunterladen",
+  "medien_archiv_titel": "Alle Medien",
+  "medien_archiv_leer": "Noch keine Medien auf diesem Gerät",
   "member_activity_header_direct_video": "Direkt-Video",
   "member_activity_header_host_label": "Host",
   "member_activity_header_open_stream_aria": "Stream öffnen",
