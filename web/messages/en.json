@@ -1773,6 +1773,7 @@
   "message_actions_report": "Report",
   "message_attachments_open_image": "Open image: {filename}",
   "message_attachments_unavailable": "Attachment no longer available",
+  "message_attachments_abgelaufen": "Attachment expired",
   "message_attachments_unnamed": "Attachment",
   "message_input_attach_file": "Attach file",
   "message_input_cancel_reply": "Cancel reply",

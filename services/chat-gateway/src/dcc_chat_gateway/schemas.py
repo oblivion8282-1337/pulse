@@ -1562,7 +1562,7 @@ class PostfachAnhangAbrufIn(BaseModel):
 
     Welches Geraet fragt — das angemeldete Konto allein genuegt als
     Zeilenwahl nicht: ein Anhang ist ueber die Zustellung an ein EINZELNES
-    Geraet berechtigt (``postfach_anhaenge.py::darf_anhang_abrufen``).
+    Geraet berechtigt (``postfach_anhaenge.py::anhang_abruffrist``).
     """
 
     device_pubkey: GeraeteKennung

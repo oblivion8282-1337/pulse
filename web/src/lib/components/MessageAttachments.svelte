@@ -38,6 +38,7 @@
   import DownloadIcon from '@lucide/svelte/icons/download';
   import { m } from '$lib/paraglide/messages.js';
   import { formatBytes } from '$lib/utils/formatBytes';
+  import { istAnhangAbgelaufenFehler } from '$lib/krypto/anhangAbgelaufen';
 
   let { attachments }: { attachments: Attachment[] } = $props();
 
@@ -49,6 +50,12 @@
    *  Klumpen ist mit seiner letzten Zustellung gefallen, s.
    *  `krypto/anhangHolen.ts`), sonst die fertige Adresse. */
   let quellen = $state<Record<string, string>>({});
+
+  /** Anhaenge, deren eigene Zustellung abgelaufen ist (410
+   *  `anhang_abgelaufen`, als ApiError durchgereicht) —
+   *  sie bekommen die ruhige „abgelaufen“-Meldung statt des generischen
+   *  „nicht mehr verfügbar“. */
+  let abgelaufen = $state<Record<string, boolean>>({});
 
   // Bilder bleiben aussen vor: die holt `AutoRefreshImage` selbst, samt
   // ref-gezaehltem Zwischenspeicher fuer die virtualisierte Liste.
@@ -64,22 +71,33 @@
     // Eigener Sammler statt `{ ...quellen }`: ein Lesen des eigenen `$state`
     // im Effekt machte ihn von sich selbst abhaengig.
     const gesammelt: Record<string, string> = {};
+    const abgelaufenGesammelt: Record<string, boolean> = {};
     void (async () => {
       const { anhangBlob } = await import('$lib/krypto/anhangHolen');
       for (const a of liste) {
         if (abgebrochen) return;
-        const blob = a.schluessel
-          ? await anhangBlob(a.id, a.schluessel, a.mime ?? 'application/octet-stream', false)
-          : null;
-        if (abgebrochen) return;
-        if (blob) {
-          const url = URL.createObjectURL(blob);
-          erzeugt.push(url);
-          gesammelt[a.id] = url;
-        } else {
+        // Ein Ablauf-Wurf ist hier kein Abbruch des
+        // Laufs: die uebrigen Anhaenge der Nachricht laden weiter, und der
+        // abgelaufene bekommt unten seine eigene Zeile. Auch jeder andere
+        // Fehler bleibt beim neutralen „nicht verfügbar“.
+        try {
+          const blob = a.schluessel
+            ? await anhangBlob(a.id, a.schluessel, a.mime ?? 'application/octet-stream', false)
+            : null;
+          if (abgebrochen) return;
+          if (blob) {
+            const url = URL.createObjectURL(blob);
+            erzeugt.push(url);
+            gesammelt[a.id] = url;
+          } else {
+            gesammelt[a.id] = '';
+          }
+        } catch (fehler) {
           gesammelt[a.id] = '';
+          if (istAnhangAbgelaufenFehler(fehler)) abgelaufenGesammelt[a.id] = true;
         }
         quellen = { ...gesammelt };
+        abgelaufen = { ...abgelaufenGesammelt };
       }
     })();
     // Beim Verlassen freigeben — anders als bei den Bildern gibt es hier
@@ -88,6 +106,7 @@
       abgebrochen = true;
       for (const url of erzeugt) URL.revokeObjectURL(url);
       quellen = {};
+      abgelaufen = {};
     };
   });
 
@@ -205,7 +224,11 @@
               {a.filename ?? m.message_attachments_unnamed()}
             </p>
             <p class="text-text-muted text-xs">
-              {quelleDatei === '' ? m.message_attachments_unavailable() : formatBytes(a.size)}
+              {abgelaufen[a.id]
+                ? m.message_attachments_abgelaufen()
+                : quelleDatei === ''
+                  ? m.message_attachments_unavailable()
+                  : formatBytes(a.size)}
             </p>
           </div>
           <DownloadIcon class="text-text-muted size-4 shrink-0" />

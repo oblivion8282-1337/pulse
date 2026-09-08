@@ -9,7 +9,7 @@ der Gateway sieht sie nie — genau wie im Klartext-Weg.
 
 ``POST /postfach/anhaenge/{id}/abrufadresse`` gibt eine kurzlebige
 signierte GET-Adresse heraus, aber nur an ein Geraet, das eine offene
-Zustellung zu diesem Anhang hat (``postfach_anhaenge.py::darf_anhang_abrufen``).
+Zustellung zu diesem Anhang hat (``postfach_anhaenge.py::anhang_abruffrist``).
 Fail-closed: jeder andere bekommt 404, ohne Unterschied zwischen „gibt es
 nicht" und „gehoert dir nicht".
 
@@ -37,13 +37,15 @@ Schalter, gaebe es sie nirgends.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, HTTPException, status
 
 import dcc_chat_gateway.config as chat_config
 from dcc_chat_gateway import ratelimit, s3
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import MessageAttachment
-from dcc_chat_gateway.postfach_anhaenge import darf_anhang_abrufen
+from dcc_chat_gateway.postfach_anhaenge import anhang_abruffrist
 from dcc_chat_gateway.routes.attachments import _storage_key
 from dcc_chat_gateway.routes.postfach import _channel_zugriff_pruefen
 from dcc_chat_gateway.schemas import (
@@ -55,6 +57,7 @@ from dcc_chat_gateway.schemas import (
 from dcc_chat_gateway.schluessel_nachweis import pruefe_geraet
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
+from dcc_chat_gateway.zeit import als_utc
 
 router = APIRouter(tags=["postfach"])
 
@@ -177,7 +180,7 @@ async def anhang_abrufadresse(
 
     Das Geraet steht im Rumpf und muss zum angemeldeten Konto gehoeren
     (``schluessel_nachweis.py``); ob es zu DIESEM Anhang eine offene
-    Zustellung hat, entscheidet ``darf_anhang_abrufen`` eine Zeile weiter
+    Zustellung hat, entscheidet ``anhang_abruffrist`` eine Zeile weiter
     unten — das ist die Bedingung, an der die Route wirklich haengt.
     """
     geraet = await pruefe_geraet(session, user, body.device_pubkey)
@@ -195,14 +198,21 @@ async def anhang_abrufadresse(
         or zeile.postfach_gebunden_am is None
     ):
         raise HTTPException(status_code=404, detail="anhang_nicht_gefunden")
-    if not await darf_anhang_abrufen(
+    frist = await anhang_abruffrist(
         session,
         anhang_id=anhang_id,
         device_pubkey=geraet,
         user_id=user.id,
-    ):
+    )
+    if frist is None:
         # Dieselbe 404 wie „gibt es nicht" — wer keine Zustellung hat, soll
-        # nicht einmal erfahren, ob die Kennung existiert.
+        # nicht einmal erfahren, ob die Kennung existiert. Das gilt AUCH,
+        # wenn die eigene Zustellung schon GEFEGT ist (Frist abgelaufen,
+        # ``postfach_pflege.py::sweep_verfallene_zustellungen``): hinterher
+        # gaebe es kein Unterscheidungsmerkmal mehr, das nicht einem Fremden
+        # etwas ueber die Kennung verraet. Nur das Fenster VOR dem Feegen
+        # (bis zu einem Cleanup-Takt) ist ehrlich als „deine Kopie ist
+        # abgelaufen" meldbar — siehe unten.
         raise HTTPException(status_code=404, detail="anhang_nicht_gefunden")
 
     # **410 statt einer Adresse ins Leere** (Design §11.1). Ist der Anhang in
@@ -219,6 +229,18 @@ async def anhang_abrufadresse(
     # bis hierher.
     if zeile.laufwerk_verteilt_am is not None:
         raise HTTPException(status_code=410, detail="anhang_im_laufwerk")
+
+    # **Abgelaufen vor dem Feegen** (gerettete Idee, UEBERGABE-MOBILE §5):
+    # die Frist der eigenen Zustellung ist vorueber, der Verfallslauf hat sie
+    # nur noch nicht eingesammelt — statt jetzt eine Adresse auf Bytes
+    # herauszugeben, die der naechste Takt ohnehin loescht, meldet die Route
+    # 410 ``anhang_abgelaufen``. Der Klient zeigt „Anhang abgelaufen" statt
+    # des generischen „nicht verfuegbar". Nach dem Feegen bleibt es bei der
+    # 404 oben — die Zeile, die den Grund kennen wuerde, ist dann selbst weg.
+    # **Nach der Laufwerk-410**: liegt die Datei im eigenen Archiv, ist sie
+    # nicht verloren — „abgelaufen" waere dort die falsche Meldung.
+    if als_utc(frist) <= datetime.now(UTC):
+        raise HTTPException(status_code=410, detail="anhang_abgelaufen")
 
     # Ohne ``filename``/``mime`` kann und soll hier nichts gesetzt werden:
     # ``inline=False`` und kein Dateiname heisst, der Browser bekommt reine

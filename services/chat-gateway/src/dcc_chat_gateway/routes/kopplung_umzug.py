@@ -48,7 +48,7 @@ Der lokale Verlauf enthaelt seit Etappe E entschluesselte Anhang-Bytes
 
 * Es sind Blobs in Bild- und Videogroesse. Diese Tabelle ist eine
   Text-Spalte in Postgres; der Blob-Speicher des Projekts ist MinIO.
-* Der Weg zu MinIO ist da, aber sein Zugriffsrecht nicht: ``darf_anhang_abrufen``
+* Der Weg zu MinIO ist da, aber sein Zugriffsrecht nicht: ``anhang_abruffrist``
   (``postfach_anhaenge.py``) haengt an einer OFFENEN ZUSTELLUNG des
   abrufenden Geraets. Beim Umzug gibt es keine — der Empfaenger war nie
   Adressat dieser Nachrichten. Ein Anhang-Umzug braucht also einen zweiten,

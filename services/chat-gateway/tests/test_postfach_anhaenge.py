@@ -20,7 +20,12 @@ import pytest_asyncio
 from sqlalchemy import select
 
 from dcc_chat_gateway import s3 as s3_mod
-from dcc_chat_gateway.models import DmAnhangBezug, DmNutzlast, MessageAttachment
+from dcc_chat_gateway.models import (
+    DmAnhangBezug,
+    DmNutzlast,
+    DmZustellung,
+    MessageAttachment,
+)
 
 pytestmark = pytest.mark.usefixtures("cloud_mode")
 
@@ -340,6 +345,62 @@ async def test_fremder_anhang_laesst_sich_nicht_binden(
     assert r.json()["detail"] == "anhang_nicht_verwendbar"
     async with session_factory() as s:
         assert (await s.execute(select(DmNutzlast))).scalars().all() == []
+
+
+# ---------------------------------------------------------------------------
+# Ablauf
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_abgelaufene_zustellung_410_offene_200_gefegt_404(
+    client, app, session_factory, _auth_signer, friend_pair, mock_s3
+):
+    """Der Anhang-Verfall wird sauber GEMELDET (gerettete Idee,
+    UEBERGABE-MOBILE §5): Ist die Frist der eigenen Zustellung vorueber,
+    antwortet die Abrufadresse mit 410 ``anhang_abgelaufen`` statt wie eine
+    fremde Kennung mit 404. Eine offene Zustellung bleibt der Normalweg
+    (200). Nach dem Feegen ist der Grund selbst weg — dann bleibt es bei
+    der generischen 404, damit der Unterschied 410/404 keinem Fremden etwas
+    ueber die Kennung verraet."""
+    from dcc_chat_gateway.postfach_pflege import sweep_verfallene_zustellungen
+
+    token_a, uid_a, token_b, uid_b, dm_id, pub_b = await _aufbau(
+        client, session_factory, _auth_signer, friend_pair
+    )
+    anhang_id = (
+        await _anhang_hochladen(client, token=token_a, channel_id=dm_id)
+    ).json()["id"]
+    r = await _einliefern(
+        client, token=token_a, channel_id=dm_id,
+        empfaenger=[pub_b], anhaenge=[anhang_id],
+    )
+    assert r.status_code == 200, r.text
+
+    # Offene Frist → der Normalweg.
+    ok = await _abrufadresse(client, token=token_b, anhang_id=anhang_id, pubkey=pub_b)
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["url"].startswith("https://mock/")
+
+    # Frist um eine Minute überzogen, der Verfallslauf war noch nicht da.
+    async with session_factory() as s:
+        zustellung = (await s.execute(select(DmZustellung))).scalars().one()
+        zustellung.verfaellt_am = datetime.now(UTC) - timedelta(minutes=1)
+        await s.commit()
+
+    abgelaufen = await _abrufadresse(
+        client, token=token_b, anhang_id=anhang_id, pubkey=pub_b
+    )
+    assert abgelaufen.status_code == 410
+    assert abgelaufen.json()["detail"] == "anhang_abgelaufen"
+
+    # Nach dem Feegen: keine Zustellung mehr → die ehrliche Antwort ist die
+    # generische 404 (ein Unterschied hier waere ein Orakel).
+    async with session_factory() as s:
+        await sweep_verfallene_zustellungen(s)
+    weg = await _abrufadresse(client, token=token_b, anhang_id=anhang_id, pubkey=pub_b)
+    assert weg.status_code == 404
+    assert weg.json()["detail"] == "anhang_nicht_gefunden"
 
 
 # ---------------------------------------------------------------------------

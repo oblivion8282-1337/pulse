@@ -66,6 +66,10 @@
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(adresse), 10_000);
+    } catch {
+      // `anhangBlob` kann hier sachlich scheitern (z. B. 410 anhang_abgelaufen
+      // — die Kachel zeigt den Grund schon); der Knopf unternimmt still nichts,
+      // wie heute bei `blob === null`.
     } finally {
       laeuft = false;
     }

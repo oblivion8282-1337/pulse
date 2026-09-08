@@ -1773,6 +1773,7 @@
   "message_actions_report": "Melden",
   "message_attachments_open_image": "Bild öffnen: {filename}",
   "message_attachments_unavailable": "Anhang nicht mehr verfügbar",
+  "message_attachments_abgelaufen": "Anhang abgelaufen",
   "message_attachments_unnamed": "Anhang",
   "message_input_attach_file": "Datei anhängen",
   "message_input_cancel_reply": "Antwort abbrechen",
