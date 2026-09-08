@@ -183,11 +183,13 @@
   // damit durch dieselbe Upload-Pipeline). Verbrauchen = leeren, sonst
   // klebt der Share an jedem später geöffneten Chat.
   async function freigabeUebernehmen(): Promise<void> {
+    // Kontext PRÜFEN, dann konsumieren — sonst wäre der Share weg, wenn der
+    // Composer ihn gar nicht aufnehmen kann (Kanal ohne Anhänge, kein Chat).
+    if (!channelId || !attachmentsAllowed) return;
     const { freigabeHolen, freigabeLeeren } = await import('$lib/freigabe/freigabeStore');
     const paket = freigabeHolen();
     if (!paket) return;
     freigabeLeeren();
-    if (!channelId || !attachmentsAllowed) return;
     if (paket.text) text = paket.text;
     if (paket.bild) {
       const bytes = Uint8Array.from(atob(paket.bild.base64), (c) => c.charCodeAt(0));
