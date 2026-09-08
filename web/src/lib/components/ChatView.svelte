@@ -67,6 +67,8 @@
     onTogglePin,
     /** Nur 'gruppe': oeffnet das Gruppen-Blatt (Mitglieder, Verlassen). */
     onGruppenBlatt,
+    /** Nur 'dm': verschlüsselte Nachrichten per Umschlag bearbeitbar (P1.5 Teil 2). */
+    bearbeitungErlaubt = false,
     /** Nur 'dm': startet einen Anruf an die Gegenstelle (Anrufe-Epic C). */
     onAnrufen
   }: {
@@ -119,6 +121,7 @@
     onTogglePin?: (m: Message) => void;
     onGruppenBlatt?: () => void;
     onAnrufen?: () => void;
+    bearbeitungErlaubt?: boolean;
   } = $props();
 
   // '#'-Prefix für Guild-Channels (Screenshot-Tests + Gewohnheit), '@' für DMs,
@@ -522,6 +525,7 @@
       {isOwner}
       {canPin}
       {reaktionUmschlag}
+      {bearbeitungErlaubt}
       route={messageRoute}
       bind:jumper={jumpToMessage}
       onSetReplyTarget={(m) => (replyTarget = m)}

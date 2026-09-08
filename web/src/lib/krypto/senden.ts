@@ -79,6 +79,7 @@ import {
 } from './sitzungen';
 import {
   baueNachrichtNutzlast,
+  baueBearbeitungsNutzlast,
   baueLoeschNutzlast,
   baueReaktionsNutzlast,
   type AnhangAngabe
@@ -369,4 +370,19 @@ export function sendeReaktion(
     empfaengerUserId,
     baueReaktionsNutzlast(zielNachrichtId, emoji, entfernen)
   );
+}
+
+/**
+ * Bearbeitet eine verschluesselte Nachricht (P1.5 Teil 2): ein
+ * Bearbeitungs-Umschlag (`baueBearbeitungsNutzlast`) an alle Zielgeraete.
+ * `zielNachrichtId` MUSS die KANONISCHE Form sein. `true` nur bei Zustellung;
+ * der Aufrufer wendet den neuen Inhalt erst DANN lokal an.
+ */
+export function sendeBearbeitung(
+  kanalId: string,
+  empfaengerUserId: string,
+  zielNachrichtId: string,
+  inhalt: string
+): Promise<boolean> {
+  return versendeFrame(kanalId, empfaengerUserId, baueBearbeitungsNutzlast(zielNachrichtId, inhalt));
 }

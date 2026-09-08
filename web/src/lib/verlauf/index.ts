@@ -336,6 +336,27 @@ export function verlaufReaktionAnwenden(
     });
 }
 
+export async function verlaufBearbeitungAnwenden(
+  kanalId: string,
+  nachrichtId: string,
+  inhalt: string,
+  bearbeitetAm: string
+): Promise<boolean> {
+  if (!istLokalerKanal(kanalId)) return false;
+  const kontoId = aktuellesKonto();
+  if (kontoId === null) return false;
+  return verlaufSatzUmschreiben(
+    sortierSchluessel(kanalId, nachrichtId),
+    kontoId,
+    (satz) => (satz.geloescht ? null : { ...satz, inhalt, bearbeitetAm })
+  )
+    .then((neu) => neu !== null)
+    .catch((err) => {
+      verlaufZustand.melde(err);
+      return false;
+    });
+}
+
 /**
  * `true`, wenn fuer diese Nachrichten-ID im Kanal bereits ein Satz liegt —
  * fuer `krypto/empfangen.ts` FIX 3 (Bughunt-Runde 3, s. dortigen Modulkopf):

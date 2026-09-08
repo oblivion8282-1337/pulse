@@ -232,7 +232,7 @@
   }
 
   const editMessage = (msg: Message, content: string) =>
-    nachrichtBearbeiten(msg, content, cloudRoute);
+    nachrichtBearbeiten(msg, content, cloudRoute, { partnerId: activeDM?.other_user_id });
   const deleteMessage = (msg: Message) =>
     nachrichtLoeschen(msg, cloudRoute, { partnerId: activeDM?.other_user_id });
   const toggleReaction = (msg: Message, emoji: string, currentlyMine: boolean) =>
@@ -336,6 +336,7 @@
         cloudScoped
         verschluesselteAnhaenge={E2E_DMS_ENABLED}
         reaktionUmschlag={E2E_DMS_ENABLED}
+        bearbeitungErlaubt={E2E_DMS_ENABLED}
         showMemberList={false}
         composerDisabled={dmSperre !== null}
         composerDisabledReason={dmSperre === 'ohne_app'

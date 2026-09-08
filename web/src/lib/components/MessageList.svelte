@@ -46,6 +46,9 @@
     /** Reaktionen auf verschluesselte Nachrichten laufen als Umschlag —
      *  nur der DM-Zweig setzt das, s. `ChatView.reaktionUmschlag`. */
     reaktionUmschlag = false,
+    /** P1.5 Teil 2: verschlüsselte DM darf per Umschlag bearbeitet werden —
+     *  nur der DM-Zweig setzt das (analog `reaktionUmschlag`). */
+    bearbeitungErlaubt = false,
     /** Optionaler Inhalt für den Leerraum bei messages.length === 0 —
      *  z. B. der Sicherungs-Frischgerät-Hinweis. Fehlt er, greift der
      *  Standard-Absatz. */
@@ -69,6 +72,7 @@
     route?: { serverId?: string };
     canPin?: boolean;
     reaktionUmschlag?: boolean;
+    bearbeitungErlaubt?: boolean;
     leerHinweis?: Snippet;
     onSetReplyTarget: (m: Message) => void;
     onEditMessage: (m: Message, newContent: string) => void;
@@ -528,7 +532,10 @@
   // Verschluesselte DM hat keine `messages`-Zeile (s. `Message.verschluesselt`
   // in `api/types.ts`) — Bearbeiten/Loeschen liefen sonst in einen 404.
   function canEditMessage(m: Message): boolean {
-    if (m.verschluesselt) return false;
+    // Verschluesselte DM (P1.5 Teil 2): Bearbeiten läuft als Bearbeitungs-
+    // Umschlag — nur der Autor, nur wenn der DM-Zweig den Umschlag
+    // freischaltet (`bearbeitungErlaubt`, analog `reaktionUmschlag`).
+    if (m.verschluesselt) return bearbeitungErlaubt && m.author_id === myId && !m.id.startsWith('tmp-') && !m.deleted_at;
     return !!myId && m.author_id === myId && !m.id.startsWith('tmp-') && !m.deleted_at;
   }
   function canDeleteMessage(m: Message): boolean {

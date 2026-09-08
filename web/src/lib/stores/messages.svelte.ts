@@ -247,6 +247,18 @@ class MessageStore {
     this.byChannel = { ...this.byChannel, [channelId]: next };
   }
 
+  /** E2EE-Bearbeitungs-Umschlag angewendet (P1.5 Teil 2): Text + edited_at
+   *  auf der geladenen Nachricht ersetzen (harter Ersatz statt Delta). */
+  bearbeiteInhalt(channelId: string, id: string, inhalt: string, bearbeitetAm: string): void {
+    const list = this.byChannel[channelId];
+    if (!list) return;
+    const idx = list.findIndex((m) => m.id === id);
+    if (idx < 0) return;
+    const next = list.slice();
+    next[idx] = { ...next[idx], content: inhalt, edited_at: bearbeitetAm };
+    this.byChannel = { ...this.byChannel, [channelId]: next };
+  }
+
   /** Pin-Liste setzen (REST-Antwort beim Kanalöffnen). */
   setPins(channelId: string, pins: Message[]): void {
     this.pinsByChannel = { ...this.pinsByChannel, [channelId]: pins };

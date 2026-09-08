@@ -27,7 +27,7 @@ import { auth } from '$lib/stores/auth.svelte';
 import { messages } from '$lib/stores/messages.svelte';
 import { verlaufNachrichtGeloescht, verlaufReaktionAnwenden } from '$lib/verlauf';
 import { kanonischeAntwortId } from '$lib/krypto/kanonischeAntwortId';
-import { sendeLoeschung, sendeReaktion } from '$lib/krypto/senden';
+import { sendeBearbeitung, sendeLoeschung, sendeReaktion } from '$lib/krypto/senden';
 import type { Message } from '$lib/api/types';
 
 type Route = { serverId?: string };
@@ -35,8 +35,27 @@ type Route = { serverId?: string };
 export async function nachrichtBearbeiten(
   msg: Message,
   content: string,
-  route: Route
+  route: Route,
+  /** Nur bei einer verschlüsselten DM: die Gegenstelle für den
+   *  Bearbeitungs-Umschlag (P1.5 Teil 2). Fehlt sie (Gruppe), bleibt die
+   *  Sperre — `MessageList::canEditMessage` schaltet vorher ab. */
+  opts: { partnerId?: string } = {}
 ): Promise<void> {
+  if (msg.verschluesselt && opts.partnerId) {
+    // E2EE: keine Server-Zeile — die Bearbeitung reist als Umschlag an alle
+    // Zielgeräte und wird ERST NACH der Zustellung lokal angewendet (wie der
+    // Klartext-Weg auf sein WS-Event wartet). Ziel in KANONISCHER Form.
+    try {
+      const ziel = kanonischeAntwortId(msg.id, [msg]) ?? msg.id;
+      if (!(await sendeBearbeitung(msg.channel_id, opts.partnerId, ziel, content))) {
+        throw new Error('Bearbeitungs-Umschlag nicht zugestellt');
+      }
+    } catch (e) {
+      toast.error(m.dm_page_edit_failed());
+      console.error(e);
+    }
+    return;
+  }
   try {
     await chatApi.editMessage(msg.id, content, {}, route);
   } catch (e) {

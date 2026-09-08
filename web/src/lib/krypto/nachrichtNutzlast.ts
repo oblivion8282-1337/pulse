@@ -88,6 +88,11 @@ export type AnhangAngabe = {
  */
 export type ReaktionsAngabe = { ziel: string; emoji: string; entfernen?: true };
 
+/** Bearbeitungs-Frame (P1.5 Teil 2): referenziert die Nachricht mit der
+ *  kanonischen/localen ID und trägt den NEUEN Inhalt. Der Absender steht
+ *  wie bei Reaktionen außerhalb — der Sitzungs-Partner ist der Autor. */
+export type BearbeitungsAngabe = { ziel: string; inhalt: string };
+
 export type NachrichtNutzlast = {
   text: string;
   /** Kanonische Nachrichten-ID des Autors — `null` nur bei einer Legacy-
@@ -100,6 +105,9 @@ export type NachrichtNutzlast = {
   /** Reaktions-Umschlag (s. `ReaktionsAngabe`) — wie `geloescht` ein Frame
    *  ohne Text, der sich auf eine ANDERE Nachricht bezieht. */
   reaktion?: ReaktionsAngabe;
+  /** Bearbeitungs-Umschlag (P1.5 Teil 2) — wie `reaktion` ein Frame ohne
+   *  eigenen Text, dessen `inhalt` den Text der Ziel-Nachricht ERSETZT. */
+  bearbeitung?: BearbeitungsAngabe;
   /** Leer, wenn die Nutzlast keine Anhaenge trug ODER von einem Sender vor
    *  Etappe E stammt — beides sieht beim Lesen gleich aus und soll es auch. */
   anhaenge: AnhangAngabe[];
@@ -200,6 +208,27 @@ function leseReaktion(wert: unknown): ReaktionsAngabe | null {
   return { ziel: r.ziel, emoji: r.emoji, ...(r.entfernen === true ? { entfernen: true as const } : {}) };
 }
 
+/** Fail-closed wie `leseReaktion`: ein Frame ohne Ziel oder Inhalt ist keine
+ *  Bearbeitung — und faellt dann als leere Textnachricht NICHT in die Anzeige,
+ *  weil `zustellungOeffnen` nur ein gelesenes `bearbeitung` als Frame behandelt;
+ *  der Rest liest sich als gewoehnliche (leere) Nutzlast. */
+function leseBearbeitung(wert: unknown): BearbeitungsAngabe | null {
+  if (wert === null || typeof wert !== 'object') return null;
+  const b = wert as Record<string, unknown>;
+  if (typeof b.ziel !== 'string' || b.ziel === '' || typeof b.inhalt !== 'string' || b.inhalt === '') {
+    return null;
+  }
+  return { ziel: b.ziel, inhalt: b.inhalt };
+}
+
+/** Bearbeitungs-Umschlag: Frame ohne Text und ohne eigene ID — er IST keine
+ *  Nachricht, sondern ersetzt den Text der Ziel-Nachricht. Derselbe
+ *  verschluesselte Sendeweg wie Loesch- und Reaktions-Frame. */
+export function baueBearbeitungsNutzlast(zielNachrichtId: string, inhalt: string): Uint8Array {
+  const bearbeitung: BearbeitungsAngabe = { ziel: zielNachrichtId, inhalt };
+  return new TextEncoder().encode(JSON.stringify({ v: FASSUNG, text: '', bearbeitung }));
+}
+
 export function leseNachrichtNutzlast(bytes: Uint8Array): NachrichtNutzlast {
   const roh = new TextDecoder().decode(bytes);
   try {
@@ -219,13 +248,15 @@ export function leseNachrichtNutzlast(bytes: Uint8Array): NachrichtNutzlast {
         }
       }
       const reaktion = leseReaktion(o.reaktion);
+      const bearbeitung = leseBearbeitung(o.bearbeitung);
       return {
         text: o.text as string,
         id: typeof o.id === 'string' ? o.id : null,
         replyToId: typeof o.replyToId === 'string' ? o.replyToId : null,
         anhaenge,
         ...(o.geloescht === true ? { geloescht: true as const } : {}),
-        ...(reaktion ? { reaktion } : {})
+        ...(reaktion ? { reaktion } : {}),
+        ...(bearbeitung ? { bearbeitung } : {})
       };
     }
   } catch {

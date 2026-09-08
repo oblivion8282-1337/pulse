@@ -123,6 +123,7 @@ import {
   verlaufSpeichernPflicht,
   verlaufNachrichtGeloescht,
   verlaufLokaleIdFuerKryptoId,
+  verlaufBearbeitungAnwenden,
   verlaufReaktionAnwenden
 } from '../verlauf';
 import { lokaleIdsFuerLoeschung } from './loeschZiel';
@@ -251,6 +252,23 @@ async function postfachZyklus(): Promise<Message[]> {
           ergebnis.entfernen
         );
         if (reactions) messages.setReactions(ergebnis.channelId, lokaleId, reactions);
+      }
+      schonQuittierbar.push(ergebnis.id);
+      continue;
+    }
+    if (ergebnis.art === 'bearbeitung') {
+      // Bearbeitungs-Umschlag (P1.5 Teil 2): Text der Ziel-Nachricht
+      // ersetzen, Anzeige nachziehen, direkt quittieren — nichts abzulegen.
+      // Unbekanntes Ziel bleibt wirkungslos und wird trotzdem quittiert.
+      // ponytail: zwei Frames auf dasselbe Ziel wenden last-write-wins an —
+      // same-cycle ist die Reihenfolge garantiert, cross-cycle sortiert der
+      // Server; ein bearbeitetAm-Vergleich waere der Ausbau, falls je
+      // ueberholende Frames beobachtet werden.
+      for (const lokaleId of await lokaleZielIds(ergebnis.channelId, ergebnis.ziel)) {
+        const bearbeitetAm = new Date().toISOString();
+        if (await verlaufBearbeitungAnwenden(ergebnis.channelId, lokaleId, ergebnis.inhalt, bearbeitetAm)) {
+          messages.bearbeiteInhalt(ergebnis.channelId, lokaleId, ergebnis.inhalt, bearbeitetAm);
+        }
       }
       schonQuittierbar.push(ergebnis.id);
       continue;
