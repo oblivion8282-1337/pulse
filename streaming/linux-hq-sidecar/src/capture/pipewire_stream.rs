@@ -307,10 +307,17 @@ fn video_format_to_drm_fourcc(fmt: VideoFormat) -> Option<DrmFourcc> {
 
 /// Bietet die Aufnahme dem Compositor auch 10-Bit-Formate an?
 ///
-/// **Vorgabe AUS — und nach der Messung unten bleibt sie es auch.** Der Rest
-/// der Kette ist auf 8-bit-Puffer gebaut (`va_import`/`nv_import` und der
-/// Filtergraph dahinter); ein ausgehandeltes `XB30` kaeme dort nicht an. Das
-/// hier ist ein Messschalter, keine Funktion.
+/// **Vorgabe AUS — und nach der Messung unten bleibt sie es auch.** Bis zum
+/// 2026-09-08 stand hier, ein ausgehandeltes `XB30` kaeme in der Kette
+/// dahinter ohnehin nicht an. Das gilt fuer den 8-bit-Weg (`blit_rgba8`
+/// schreibt in eine RGBA8-Staging) und fuer VAAPI, **nicht** fuer den
+/// NVENC-10-bit-Weg: `nv_p010` sampelt die Quelltextur im Shader als
+/// normalisierte Fliesskommawerte und truege 10 bit unveraendert durch (aus
+/// dem Code belegt, an Hardware ungetestet). Der Schalter ist damit auf
+/// NVIDIA eine moegliche Funktion, sobald ein Compositor 10 bit herausgibt —
+/// niri tut das laut seinem Issue 3145, sobald der Output in 10 bit laeuft;
+/// auf der Dev-Maschine (niri 26.04, RTX 5080) lag der Scanout am 2026-09-08
+/// aber auf XR24 (`docs/2026-09-08-zehnbit-linux-nvidia-analyse.md`).
 ///
 /// **Die Frage, die er beantwortet hat.** Bis 2026-08-04 stand die Aufnahme als
 /// prinzipiell 8-bit im Repo, mit dem Vermerk „ob niri/KWin mehr anbietet, ist
