@@ -13,6 +13,8 @@
   import { friendRequests } from '$lib/stores/friendRequests.svelte';
   import { communityInvites } from '$lib/stores/communityInvites.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
+  import NeueGruppeDialog from './mobile/NeueGruppeDialog.svelte';
+  import PlusIcon from '@lucide/svelte/icons/plus';
   import SidebarFooter from './SidebarFooter.svelte';
   import type { DMChannel } from '$lib/api/types';
 
@@ -27,6 +29,8 @@
      *  Abschnitt aus — die Liste behauptet dann nicht, es gaebe Gruppen. */
     onSelectGruppe?: (gruppeId: string) => void;
   } = $props();
+
+  let neueGruppe = $state(false);
 
   const friendsActive = $derived(page.url.pathname.startsWith('/app/friends'));
   const pendingCount = $derived(friendRequests.incomingList.length);
@@ -77,6 +81,22 @@
   <header class="text-text-bright flex h-12 items-center px-4 pt-3">
     <span class="truncate text-base font-bold tracking-tight">@me</span>
   </header>
+
+  <!-- Neue Gruppe — derselbe Dialog wie im Handy-Chats-Bereich: Gruppen sind
+       produktweit (Übergabe §5 P0.4), der Einstieg also an beiden Listen. -->
+  {#if onSelectGruppe}
+    <div class="flex justify-end px-4">
+      <button
+        type="button"
+        class="text-text-muted hover:bg-bg-hover hover:text-text-bright flex size-8 items-center justify-center rounded-lg transition-colors"
+        onclick={() => (neueGruppe = true)}
+        data-testid="sidebar-new-group"
+        aria-label={m.chats_new_group()}
+      >
+        <PlusIcon class="size-4" />
+      </button>
+    </div>
+  {/if}
 
   <nav class="flex-1 overflow-y-auto px-2.5 pb-3 pt-2">
     <!-- Kein Gruppentitel ueber diesen beiden: er hiess "Freunde" und stand
@@ -209,3 +229,7 @@
 
   <SidebarFooter />
 </aside>
+
+{#if onSelectGruppe}
+  <NeueGruppeDialog bind:open={neueGruppe} onErstellt={onSelectGruppe} />
+{/if}

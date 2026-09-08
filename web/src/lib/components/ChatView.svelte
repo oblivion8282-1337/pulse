@@ -62,7 +62,9 @@
     onEditMessage,
     onDeleteMessage,
     onToggleReaction,
-    onTogglePin
+    onTogglePin,
+    /** Nur 'gruppe': oeffnet das Gruppen-Blatt (Mitglieder, Verlassen). */
+    onGruppenBlatt
   }: {
     channel: Channel | null;
     messages: Message[];
@@ -106,6 +108,7 @@
     onToggleReaction: (m: Message, emoji: string, currentlyMine: boolean) => void;
     /** Pin anpinnen/lösen — Implementierung in den Seiten (Toast bei Fehler). */
     onTogglePin?: (m: Message) => void;
+    onGruppenBlatt?: () => void;
   } = $props();
 
   // '#'-Prefix für Guild-Channels (Screenshot-Tests + Gewohnheit), '@' für DMs,
@@ -456,6 +459,18 @@
             {/each}
           </DropdownMenu.Content>
         </DropdownMenu.Root>
+      {/if}
+      {#if headerKind === 'gruppe' && onGruppenBlatt}
+        <Button
+          variant="ghost"
+          size="icon"
+          class="ml-auto"
+          onclick={onGruppenBlatt}
+          aria-label={pm.gruppen_blatt_oeffnen()}
+          data-testid="group-sheet-toggle"
+        >
+          <UsersIcon class="text-text-muted size-4" />
+        </Button>
       {/if}
       {#if showMemberList}
         <Button

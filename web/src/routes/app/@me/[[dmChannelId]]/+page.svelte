@@ -5,6 +5,7 @@
   import GuildRail from '$lib/components/GuildRail.svelte';
   import DMChannelList from '$lib/components/DMChannelList.svelte';
   import MobileChatsList from '$lib/components/mobile/MobileChatsList.svelte';
+  import GruppenSheet from '$lib/components/mobile/GruppenSheet.svelte';
   import ChatView from '$lib/components/ChatView.svelte';
   import FieldError from '$lib/components/feedback/FieldError.svelte';
   import { auth } from '$lib/stores/auth.svelte';
@@ -192,6 +193,9 @@
       }
     : undefined;
 
+  /** Gruppen-Blatt (Mitglieder/Verlassen) — nur sinnvoll, solange eine Gruppe offen ist. */
+  let gruppenBlattOffen = $state(false);
+
   // Sende-Einstieg (Gruppe / verschluesselte DM / Klartext-DM) ausgelagert —
   // s. `chat/dmSenden.ts`.
   function sendMessage(
@@ -301,6 +305,7 @@
       onEditMessage={editMessage}
       onDeleteMessage={deleteMessage}
       onToggleReaction={toggleReaction}
+      onGruppenBlatt={() => (gruppenBlattOffen = true)}
     />
   {:else if activeDM && synthChannel}
     {#snippet leereNachrichten()}
@@ -340,4 +345,12 @@
       {/if}
     </section>
   {/if}
+{/if}
+
+{#if aktiveGruppe && gruppenBlattOffen}
+  <GruppenSheet
+    gruppe={aktiveGruppe}
+    bind:open={gruppenBlattOffen}
+    onVerlassen={() => goto('/app/@me')}
+  />
 {/if}
