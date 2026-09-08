@@ -1,5 +1,14 @@
 # Medien-Nachziehen / lokales Medien-Archiv — Planung (2026-09-08)
 
+> Stand: **A1 erledigt (`849d4086`) + B1 erledigt (`564e6480`)** — B1 mit
+> Simplifier-Überarbeitung (Snowflake-ids als Strings über die Leitung,
+> Klartext-Dateien im Archiv-Blatt downloadbar, Drahtform nur einmal
+> definiert). B2: die Code-Frage ist durch die bestehenden E3-A4-Tests
+> (`web/test/ablage-umgebungen.test.ts`: ohne `showDirectoryPicker` bleibt
+> Cloud wählbar, Ordner fällt aus) beantwortet; der reale Cache-Clear-
+> Rückweg-Lauf auf dem Gerät steht noch aus (braucht eine eingerichtete
+> Cloud-Verbindung, S3/MinIO im Dev-Stack reicht dafür).
+
 > Feature aus `docs/UEBERGABE-MOBILE.md` §5 „gerettete Ideen". Zweiteiliger
 > Schnitt: (A) Backfill-Endpunkt im chat-gateway, (B) Geräte-Ablage im Klienten
 > (Android zuerst). Rahmen: Ponytail — kleinster arbeitsfähiger Schnitt je
