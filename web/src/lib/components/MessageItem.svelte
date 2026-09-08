@@ -303,6 +303,7 @@
     {time}
     eigen={istEigene}
     leseBestaetigt={leseBestaetigtFuer(message)}
+    onSwipeReply={() => onReply(message)}
     {isContinuation}
     {isGroupEnd}
     {highlight}

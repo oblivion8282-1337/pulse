@@ -24,6 +24,9 @@
    */
   import type { Snippet } from 'svelte';
   import { longpress } from '$lib/utils/longpress';
+  import { swipetoreply } from '$lib/utils/swipetoreply';
+  import { pfeilDeckkraft } from '$lib/utils/swipeKern';
+  import CornerDownRightIcon from '@lucide/svelte/icons/corner-down-right';
   import type { Message } from '$lib/api/types';
   import PinIcon from '@lucide/svelte/icons/pin';
   import { m } from '$lib/paraglide/messages.js';
@@ -37,6 +40,7 @@
     isGroupEnd = true,
     highlight = false,
     onLongPress,
+    onSwipeReply,
     body,
     actions
   }: {
@@ -52,10 +56,15 @@
     isContinuation?: boolean;
     isGroupEnd?: boolean;
     highlight?: boolean;
-    onLongPress: () => void;
+    onLongPress: (e: PointerEvent) => void;
+    /** Swipe-to-reply (P1.6, nur Touch): löst die Antwort auf diese Nachricht aus. */
+    onSwipeReply: () => void;
     body: Snippet;
     actions: Snippet;
   } = $props();
+
+  /** Live-Versatz der Blase (px) — steuert die Pfeil-Deckkraft beim Zug. */
+  let swipeOffset = $state(0);
 
   /** Angepinnt → Nadel neben der Uhrzeit, Blase bekommt einen Hauch Ton. */
   const pinned = $derived(!!message.pinned_at);
@@ -79,7 +88,25 @@
   data-eigen={eigen}
   use:longpress={{ onLongPress }}
 >
-  <div class="flex max-w-[78%] min-w-0 flex-col {eigen ? 'items-end' : 'items-start'}">
+  <!-- Antwort-Pfeil der Swipe-Geste: an der Zug-Gegenseite, Deckkraft aus
+       dem Live-Versatz. `eigen`-Blasen ziehen nach links (Pfeil rechts),
+       fremde nach rechts (Pfeil links). -->
+  {#if swipeOffset !== 0}
+    <span
+      class="text-primary absolute inset-y-0 flex items-center {eigen
+        ? 'right-4'
+        : 'left-4'}"
+      style="opacity: {pfeilDeckkraft(swipeOffset)}"
+      aria-hidden="true"
+    >
+      <CornerDownRightIcon class="size-5" />
+    </span>
+  {/if}
+  <div
+    class="flex max-w-[78%] min-w-0 flex-col {eigen ? 'items-end' : 'items-start'}"
+    style="touch-action: pan-y"
+    use:swipetoreply={{ onReply: onSwipeReply, onMove: (o) => (swipeOffset = o) }}
+  >
     <div
       class="min-w-0 px-3 py-2 {eigen
         ? 'accent-gradient-deep text-white'
