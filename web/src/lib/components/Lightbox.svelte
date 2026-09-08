@@ -79,10 +79,10 @@
 <DialogPrimitive.Root bind:open>
   <DialogPrimitive.Portal>
     <DialogPrimitive.Overlay
-      class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm data-open:animate-in data-closed:animate-out data-open:fade-in-0 data-closed:fade-out-0"
+      class="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm data-open:animate-in data-closed:animate-out data-open:fade-in-0 data-closed:fade-out-0"
     />
     <DialogPrimitive.Content
-      class="fixed inset-4 z-50 flex items-center justify-center outline-none data-open:animate-in data-closed:animate-out data-open:fade-in-0 data-closed:fade-out-0 data-open:zoom-in-95 data-closed:zoom-out-95"
+      class="fixed inset-4 z-[60] flex items-center justify-center outline-none data-open:animate-in data-closed:animate-out data-open:fade-in-0 data-closed:fade-out-0 data-open:zoom-in-95 data-closed:zoom-out-95"
       data-testid="lightbox"
     >
       <DialogPrimitive.Title class="sr-only">
@@ -94,7 +94,7 @@
         {src}
         {alt}
         {anhang}
-        class="max-h-full max-w-full rounded-xl object-contain shadow-2xl"
+        class="h-full w-full rounded-xl object-contain shadow-2xl"
       />
 
       <button
