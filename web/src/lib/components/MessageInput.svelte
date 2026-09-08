@@ -177,6 +177,42 @@
     addFiles(files);
   }
 
+  // ---- Geteilter Inhalt (Übergabe P1.8, Share-Target) -----------------
+  // Ein Share aus einer anderen App wird im NÄCHSTEN offenen Composer
+  // angewendet: Text vorbefüllt, Bild landet im Anhang-Streifen (und läuft
+  // damit durch dieselbe Upload-Pipeline). Verbrauchen = leeren, sonst
+  // klebt der Share an jedem später geöffneten Chat.
+  async function freigabeUebernehmen(): Promise<void> {
+    const { freigabeHolen, freigabeLeeren } = await import('$lib/freigabe/freigabeStore');
+    const paket = freigabeHolen();
+    if (!paket) return;
+    freigabeLeeren();
+    if (!channelId || !attachmentsAllowed) return;
+    if (paket.text) text = paket.text;
+    if (paket.bild) {
+      const bytes = Uint8Array.from(atob(paket.bild.base64), (c) => c.charCodeAt(0));
+      const datei = new File([bytes], 'geteilt.' + (paket.bild.mime.split('/')[1] ?? 'png'), {
+        type: paket.bild.mime
+      });
+      addFiles([datei]);
+    }
+  }
+
+  $effect(() => {
+    void freigabeUebernehmen();
+    // visibilitychange feuert beim Vordergrund-Wechsel (Share-intent kommt
+    // über onNewIntent, kein Seiten-Reload) — dann ist das Paket frisch.
+    const beiSichtbar = () => {
+      if (document.visibilityState === 'visible') void freigabeUebernehmen();
+    };
+    document.addEventListener('visibilitychange', beiSichtbar);
+    window.addEventListener('pulse-freigabe', beiSichtbar);
+    return () => {
+      document.removeEventListener('visibilitychange', beiSichtbar);
+      window.removeEventListener('pulse-freigabe', beiSichtbar);
+    };
+  });
+
   const removeAttachment = (localId: string) => anhaenge.entfernen(localId);
   const onFilePick = (e: Event) => {
     const input = e.currentTarget as HTMLInputElement;

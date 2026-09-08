@@ -54,6 +54,7 @@
   import { istRaumBereich, merkeRaumPfad, raumPfadNachAuflegen } from '$lib/navigation/letzterRaumBereich.svelte';
   import { untrack } from 'svelte';
   import { installiereLesestandSync } from '$lib/api/lesestand';
+  import { installiereShareEmpfang } from '$lib/platform/shareEmpfang';
   import AnrufOverlay from '$lib/components/anrufe/AnrufOverlay.svelte';
   import { page } from '$app/state';
   import UpdateBanner from '$lib/components/server/UpdateBanner.svelte';
@@ -390,6 +391,8 @@
   // Serverseitiger Lesefortschritt (P0.2): markRead-Meldungen spiegeln in die
   // Cloud (entprellt, fire-and-forget) — einmalig beim App-Start verkabelt.
   installiereLesestandSync();
+  // Share-Target (P1.8): geteilte Texte/Bilder aus anderen Apps einsammeln.
+  installiereShareEmpfang();
 
   // Auflegen außerhalb der Kanal-Seite (z. B. vom Ich-Tab): ohne diese
   // Rückstufung bliebe der gemerkte Räume-Pfad auf dem SPRACHKANAL stehen,

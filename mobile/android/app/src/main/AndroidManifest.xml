@@ -22,6 +22,28 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- App Links (Übergabe P1.8): https-Links auf howispulse.com/app
+                 öffnen die App statt dem Browser. autoVerify verlangt die
+                 assetlinks.json unter https://howispulse.com/.well-known/ —
+                 ohne sie (oder mit falschem Fingerabdruck) zeigt Android den
+                 Disambiguator, der Link funktioniert trotzdem. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="howispulse.com" />
+            </intent-filter>
+
+            <!-- Share-Target (Übergabe P1.8): Text und Bilder aus anderen
+                 Apps teilen. Empfang in MainActivity, Weitergabe an die
+                 WebView über ShareReceiverPlugin. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+
         </activity>
 
         <provider

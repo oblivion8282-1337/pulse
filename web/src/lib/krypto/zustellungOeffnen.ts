@@ -80,6 +80,7 @@ export type ZustellungOffenErgebnis =
       emoji: string;
       entfernen: boolean;
     }
+  | { art: 'bearbeitung'; id: string; channelId: string; ziel: string; inhalt: string }
   | null;
 
 /** Die Nachricht einer erfolgreich geoeffneten Zustellung — `null`, wenn der
@@ -212,6 +213,17 @@ export async function zustellungOeffnen(
           ziel: gelesen.reaktion.ziel,
           emoji: gelesen.reaktion.emoji,
           entfernen: gelesen.reaktion.entfernen === true
+        };
+      }
+      if (gelesen.bearbeitung) {
+        // Bearbeitungs-Umschlag (P1.5 Teil 2): wie der Lösch-Frame ein Bezug
+        // auf eine ANDERE Nachricht — der Aufrufer ersetzt den Text.
+        return {
+          art: 'bearbeitung',
+          id: z.id,
+          channelId: z.channel_id,
+          ziel: gelesen.bearbeitung.ziel,
+          inhalt: gelesen.bearbeitung.inhalt
         };
       }
       return { art: 'neu', nachricht: baueEmpfangeneNachricht(z, absenderUserId, gelesen) };

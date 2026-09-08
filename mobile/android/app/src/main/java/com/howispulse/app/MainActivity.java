@@ -16,6 +16,9 @@ import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.getcapacitor.BridgeActivity;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -55,12 +58,50 @@ public class MainActivity extends BridgeActivity {
         // kennt, bevor die WebView lädt (Capacitor-Konvention).
         registerPlugin(AudioRoutePlugin.class);
         registerPlugin(OrientationLockPlugin.class);
+        registerPlugin(ShareReceiverPlugin.class);
         super.onCreate(savedInstanceState);
         speakerRouter = new SpeakerphoneRouter(this, this, ContextCompat.getMainExecutor(this));
         speakerRouter.start();
         // Querformat nur mit Stream (s. OrientationLockPlugin): Start immer
         // hochkant — das Web gibt die Sperre frei, sobald ein Stream läuft.
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT);
+        shareAusIntent(getIntent());
+    }
+
+    @Override
+    public void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        // singleTask: ein Share in die laufende App kommt hier an.
+        shareAusIntent(intent);
+    }
+
+    /** ACTION_SEND (Übergabe P1.8, Share-Target): EXTRA_TEXT und/oder
+     *  EXTRA_STREAM (Bild) einlesen und an das Plugin weiterreichen.
+     *  Fehler werden bewusst geschluckt — ein kaputter Share darf die App
+     *  nicht umwerfen. */
+    private void shareAusIntent(Intent intent) {
+        if (intent == null) return;
+        if (!Intent.ACTION_SEND.equals(intent.getAction())) return;
+        String text = intent.getStringExtra(Intent.EXTRA_TEXT);
+        android.net.Uri stream = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+        if (text == null && stream == null) return;
+        String imageMime = null;
+        byte[] imageBytes = null;
+        if (stream != null) {
+            try (InputStream in = getContentResolver().openInputStream(stream)) {
+                ByteArrayOutputStream puffer = new ByteArrayOutputStream();
+                byte[] block = new byte[8192];
+                int n;
+                while ((n = in.read(block)) > 0) puffer.write(block, 0, n);
+                imageBytes = puffer.toByteArray();
+                imageMime = intent.getType();
+            } catch (Exception e) {
+                android.util.Log.w("PulseShare", "share image read failed", e);
+            }
+        }
+        if (text == null && imageBytes == null) return;
+        ShareReceiverPlugin.ankommen(text, imageMime, imageBytes);
     }
 
     /** Vom {@link AudioRoutePlugin} genutzt, damit der UI-Umschalter und das
