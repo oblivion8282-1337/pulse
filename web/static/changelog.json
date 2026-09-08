@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-08",
+      "date": "2026-09-08",
+      "style": "Sachlich",
+      "title": "Ruhigeres Scrollen in Textkanälen",
+      "intro": "Die Nachrichtenliste konnte beim schnellen Scrollen noch einen Ruck nach hinten machen, unabhängig von der gestrigen Korrektur. Die zugrunde liegende Komponente wurde auf die aktuelle Fassung gehoben, die diesen Fehler behebt.",
+      "items": [
+        "Beim schnellen Hochscrollen mit Rad oder Finger bleibt die Position jetzt stehen.",
+        "Die Liste zeichnet sich bei neuen Nachrichten seltener neu, das spart Rechenzeit auf schwächeren Geräten."
+      ]
+    },
+    {
       "id": "2026-09-07.4",
       "date": "2026-09-07",
       "style": "Sachlich",
