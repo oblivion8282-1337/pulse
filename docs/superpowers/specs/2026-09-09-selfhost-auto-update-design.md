@@ -31,6 +31,15 @@ den Update-Cron einzurichten, und niemand merkt es, bis etwas kaputt ist.
   `web/src/lib/api/constants.ts::MIN_SERVER_VERSION` wird ins Web-Bundle
   gebacken, `server-info.ts` lehnt zu alte Server ab. Ein Cloud-Deploy mit
   angehobenem Wert sperrt jede nicht nachgezogene Instanz aus, ohne Vorwarnung.
+- **`server_version` ist eine Konstante, keine Versionsnummer.**
+  `dcc_chat_gateway/__init__.py::__version__ = "0.8.0"` steht seit Monaten
+  fest; jeder `main`-Push liefert ein anderes Image mit derselben Zahl. Am
+  2026-09-09 nachgesehen: `selfhost.unicutmedia.com` (Compose-Weg, ohne
+  Updater, Instanz-ID 86842704352251904) lief auf dem Bau von 14:15 UTC,
+  die Registry hatte seit 15:32 UTC einen neueren, und beide meldeten
+  `0.8.0`. **Folge für A:** die Version muss beim Bau aus Commit oder Tag
+  eingebrannt werden (z. B. `0.8.0+sha-<short>` oder das Image-Digest),
+  sonst kann die Cloud Drift auch mit Versionsspalte nicht sehen.
 - **Versions-Policy** (`/.well-known/pulse-version-policy.json`,
   `routes_version_policy.py`; Poller `cloud_policy_poller.py`, 6 h): wird
   ausgeliefert und in Redis abgelegt, **nirgends verglichen**. Vorgabe
