@@ -11,6 +11,11 @@
  *
  * Absolute URLs (nicht relativ), damit die Links auch aus einer lokalen
  * Dev-Umgebung heraus auf die echten Artefakte zeigen.
+ *
+ * ACHTUNG — dieselben fuenf Konstanten stehen ein zweites Mal in
+ * `web/static/landing.js` (Landingpage auf `/`). Die Datei laeuft ohne
+ * Bundler und kann hier nicht importieren, also **synchron halten**: wer eine
+ * URL hier aendert, aendert sie dort mit.
  */
 
 const BASE = 'https://howispulse.com';

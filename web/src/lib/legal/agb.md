@@ -1,11 +1,5 @@
 # Allgemeine Geschäftsbedingungen / Nutzungsbedingungen
 
-> ⚠️ **Hinweis:** Sorgfältig erstellte Vorlage nach gängiger deutscher
-> Rechtspraxis — **keine Rechtsberatung**. AGB sind besonders bei nutzer-
-> generierten Inhalten und Haftungsfragen heikel; vor Veröffentlichung bitte
-> **juristisch prüfen** lassen. Mit `[…]` markierte Stellen müssen
-> ergänzt/bestätigt werden.
-
 ## 1. Geltungsbereich und Anbieter
 
 1.1 Diese Nutzungsbedingungen gelten für die Nutzung des unter **howispulse.com**

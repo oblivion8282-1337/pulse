@@ -171,6 +171,16 @@ eingebettet — Teil des Web-Bundles, gebaut aus `krypto/pulse-krypto/`.
 | [wasm-bindgen](https://github.com/rustwasm/wasm-bindgen) | 0.2.127 | MIT oder Apache-2.0 |
 | [getrandom](https://github.com/rust-random/getrandom) (0.2 und 0.3) | 0.2.17 / 0.3.4 | MIT oder Apache-2.0 |
 
+## Startseite (howispulse.com)
+
+Die Startseite der Cloud-Instanz liefert ihre beiden Schriften vom eigenen
+Server aus, damit kein Browser eines Besuchers Google Fonts kontaktiert.
+
+| Bestandteil | Herkunft | Lizenz |
+|---|---|---|
+| Plus Jakarta Sans (variabel) | [tokotype/PlusJakartaSans](https://github.com/tokotype/PlusJakartaSans), Copyright 2020 The Plus Jakarta Sans Project Authors | SIL Open Font License 1.1 |
+| JetBrains Mono (variabel) | [JetBrains/JetBrainsMono](https://github.com/JetBrains/JetBrainsMono), Copyright 2020 The JetBrains Mono Project Authors | SIL Open Font License 1.1 |
+
 ---
 
-Stand: 28. August 2026
+Stand: 9. September 2026
