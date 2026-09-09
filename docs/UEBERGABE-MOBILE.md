@@ -252,11 +252,15 @@ darüber**. Stufen:
   verarbeitet wird, sonst wird die App bestraft. Stufe E erst, wenn A–D im
   Vordergrund sauber laufen.
 
-**Ehrlichkeits-Hinweis (Produkt + Play-Listing):** Anrufe sind **nicht**
-Ende-zu-Ende verschlüsselt — LiveKit transportverschlüsselt (DTLS-SRTP), aber
-der SFU sieht das Medien-Plaintext. DM-*Texte* sind dagegen E2EE. Diesen
-Unterschied in der Security-Dokumentation sauber benennen. Echte E2EE-Anrufe
-wären ein eigenes Projekt und sind bewusst zurückgestellt (siehe unten).
+**Ehrlichkeits-Hinweis (Produkt + Play-Listing), Stand 2026-09-09:** Anrufe
+in verschlüsselten DMs und privaten Gruppen sind jetzt **Ende-zu-Ende
+verschlüsselt** (LiveKit-E2EE, `264ed00e`, Plan
+`docs/plans/2026-09-09-e2ee-anrufe.md`) — der SFU sieht nur Chiffrat; das
+Overlay zeigt das Badge „Ende-zu-Ende verschlüsselt". Der Klartext-Weg
+(Self-Host-DMs ohne E2EE-Schalter) läuft weiter transportverschlüsselt und
+zeigt ehrlich „nur Transportverschlüsselung". Rest-Ceilings: ein
+gemeinsamer Schlüssel je Anruf, Verbindungs-Metadaten (wer ruft wen, Dauer)
+sichtbar für den Server, kein Sicherheitsnummern-Vergleich.
 
 **Stand 2026-09-08 (auf `feat/mobile`):** Stufen A–D sind gebaut; der
 1:1-Anruf ist über zwei Geräte (Android-Emulator ↔ Electron-Fenster) live
@@ -366,10 +370,10 @@ gibt es aber noch nicht und sie gehören auf die Roadmap:
 
 ### Bewusst zurückgestellt
 
-- **E2EE-Anrufe** — Anrufe laufen über den LiveKit-SFU (transportverschlüsselt,
-  aber nicht End-zu-Ende, siehe Anrufe-Epic). Echte E2EE-Anrufe (LiveKit-External-
-  E2EE-Keys oder Mesh ohne SFU) sind ein eigenes Projekt und erst anzugehen,
-  wenn die Anruf-Stufen A–E stehen.
+- ~~E2EE-Anrufe~~ — **erledigt (2026-09-09, `264ed00e`)**: LiveKit-E2EE mit
+  Schlüssel-Verteilung über die verschlüsselten Postfach-Umschläge; Plan und
+  Ceilings: `docs/plans/2026-09-09-e2ee-anrufe.md`. Offen: Sicherheitsnummern-
+  Vergleich („ist das wirklich Bob?") als eigener Baustein.
 - **Einladungs-Link-Flow für Gruppen** — Mitglieder werden zunächst direkt per
   `user_id` hinzugefügt (P0.4). Beitreten-per-Link wäre eine spätere Erweiterung
   mit eigener Sicherheitsbetrachtung.
