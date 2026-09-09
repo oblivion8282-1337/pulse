@@ -59,8 +59,12 @@ class Permissions(IntFlag):
     MOVE_MEMBERS = 1 << 36
     # Darf eine Fernsteuerung eines anderen Mitglieds ANFRAGEN. Der Host stimmt
     # jeder Sitzung zusätzlich per Consent zu — dieses Bit ist die Vorabhürde,
-    # nicht die Erlaubnis selbst. Bewusst NICHT in DEFAULT_EVERYONE_PERMISSIONS
-    # (sensibelste Fähigkeit; ein Admin muss sie explizit an eine Rolle geben).
+    # nicht die Erlaubnis selbst. Stand 2026-09-09 IN
+    # DEFAULT_EVERYONE_PERMISSIONS (Eigentümer-Entscheidung: neue Communitys
+    # starten mit „anfragen erlaubt“, weil der Consent des Hosts je Sitzung
+    # ohnehin die eigentliche Hürde bleibt). Bestehende Communitys behalten
+    # ihren alten Stand — das Bit ist dort nicht gesetzt und muss einem Admin
+    # weiterhin explizit an eine Rolle gegeben werden.
     REMOTE_CONTROL = 1 << 37
 
     # Bypass all checks. Owner is granted this implicitly by the resolver.
@@ -93,6 +97,7 @@ DEFAULT_EVERYONE_PERMISSIONS: int = int(
     | Permissions.SPEAK
     | Permissions.STREAM
     | Permissions.USE_VIDEO
+    | Permissions.REMOTE_CONTROL
 )
 
 
