@@ -2,6 +2,20 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-09.3",
+      "date": "2026-09-09",
+      "style": "Sachlich",
+      "title": "Einstellungen für Remote-Rechner aufgeräumt",
+      "intro": "Der Reiter „Remote-Rechner“ zeigte dasselbe mehrfach: das eigene Gerät zweimal, die Frage „wie lange“ zweimal und die Verwaltung noch einmal neben der Geräteansicht. Jetzt steht alles einmal.",
+      "items": [
+        "Eine Karte für diesen Rechner: wo er eingetragen ist, ein Schalter für die Fernsteuerung und darunter, wer ohne Rückfrage übernehmen darf.",
+        "Der Schalter ist nur noch An oder Aus. Wie lange eine Freigabe gilt, wählst du je Person oder Rolle aus festen Stufen (1 Stunde bis dauerhaft).",
+        "Personen und Rollen kommen über ein gemeinsames Feld dazu; „Jeder mit dem Fernsteuer-Recht“ ist ein Schalter.",
+        "Übertragungsprofil und Protokoll sind eingeklappt und zeigen in der Kopfzeile, was gilt.",
+        "Die Liste „Meine Remote-Rechner“ steht unten, markiert den eigenen Rechner und führt zur Geräteansicht. Umbenennen, Umziehen und Entfernen gibt es dort."
+      ]
+    },
+    {
       "id": "2026-09-09.2",
       "date": "2026-09-09",
       "style": "Sachlich",

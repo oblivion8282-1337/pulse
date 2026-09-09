@@ -3,17 +3,15 @@
 
   Ausgelagert aus `SettingsStandplatz.svelte` (Zerlegung Aufgabe 10, Grenze
   250 Zeilen für Svelte-Komponenten). Reine Anzeige von `remoteProtokoll` +
-  „Protokoll leeren" — die Begründung, warum das Protokoll überhaupt neben der
-  Freigabe steht (§7 des Entwurfs), steht am Dateikopf von `SettingsStandplatz`.
+  „Protokoll leeren". Die Dauer-Formel (`dauer`) liefert auch die
+  Zusammenfassung der zugeklappten Karte im Reiter (`protokollZeile`).
 -->
-<script lang="ts">
-  import ScrollTextIcon from '@lucide/svelte/icons/scroll-text';
-  import { Button } from '$lib/components/ui/button/index.js';
-  import { remoteProtokoll } from '$lib/remote/protokoll.svelte';
+<script module lang="ts">
   import { formatTimestamp } from '$lib/utils/formatTimestamp';
   import { m } from '$lib/paraglide/messages.js';
+  import type { ProtokollEintrag } from '$lib/remote/protokoll.svelte';
 
-  function dauer(beginn: number, ende: number | null): string {
+  export function dauer(beginn: number, ende: number | null): string {
     if (ende === null) return m.standplatz_settings_log_running();
     const ms = ende - beginn;
     if (ms <= 0) return m.standplatz_settings_log_unknown_duration();
@@ -24,13 +22,26 @@
   function zeitpunkt(ms: number): string {
     return formatTimestamp(new Date(ms).toISOString());
   }
+
+  /** Die Zeile für die zugeklappte Karte: der jüngste Eintrag oder „noch keine". */
+  export function protokollZeile(eintraege: readonly ProtokollEintrag[]): string {
+    const e = eintraege[0];
+    if (!e) return m.standplatz_settings_log_empty();
+    return m.standplatz_settings_log_latest({
+      name: e.name,
+      zeitpunkt: zeitpunkt(e.beginn),
+      dauer: dauer(e.beginn, e.ende),
+    });
+  }
 </script>
 
-<div class="border-border flex flex-col gap-3 rounded-2xl border p-4">
-  <span class="text-text-bright flex items-center gap-2 text-sm font-semibold">
-    <ScrollTextIcon class="size-4" />
-    {m.standplatz_settings_log()}
-  </span>
+<script lang="ts">
+  import { Button } from '$lib/components/ui/button/index.js';
+  import { remoteProtokoll } from '$lib/remote/protokoll.svelte';
+</script>
+
+<!-- Rahmen und Titel trägt die Klappe im Reiter (`SettingsStandplatzKlappe`). -->
+<div class="flex flex-col gap-3">
   {#if remoteProtokoll.eintraege.length === 0}
     <span class="text-text-muted text-xs italic">{m.standplatz_settings_log_empty()}</span>
   {:else}

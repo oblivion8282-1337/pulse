@@ -21,7 +21,6 @@
   nach unten, keine Umgehung (`buildStartArgs`).
 -->
 <script lang="ts">
-  import SlidersIcon from '@lucide/svelte/icons/sliders-horizontal';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import Checkbox from '$lib/components/form/Checkbox.svelte';
@@ -153,13 +152,10 @@
   }
 </script>
 
-<div class="border-border flex flex-col gap-3 rounded-2xl border p-4">
-  <span class="text-text-bright flex items-center gap-2 text-sm font-semibold">
-    <SlidersIcon class="size-4" />
-    {m.standplatz_profil_title()}
-  </span>
-
-  <div class="border-border/60 flex flex-col gap-2 border-t pt-3">
+<!-- Rahmen und Titel trägt die Klappe im Reiter (`SettingsStandplatzKlappe`) —
+     hier steht nur noch das Formular. -->
+<div class="flex flex-col gap-3">
+  <div class="flex flex-col gap-2">
     <label class="flex flex-col gap-1">
       <span class="text-text-muted text-xs">{m.standplatz_profil_source()}</span>
       <Select
@@ -215,26 +211,25 @@
       </label>
     </div>
 
-
     <!-- Die drei Schalter nebeneinander: sie gehören zusammen (was der
          Encoder zusätzlich tun soll) und kosten einzeln untereinander mehr
          Höhe als der ganze Rest des Bildes. -->
     <div class="border-border/60 flex flex-wrap items-start gap-x-6 gap-y-2 border-t pt-3">
       <label class="flex items-start gap-2">
         <Checkbox
-        class="mt-0.5 shrink-0"
-        bind:checked={entwurf.zehn_bit}
-        disabled={!zehnBitMoeglich}
-        data-testid="standplatz-profil-zehnbit"
+          class="mt-0.5 shrink-0"
+          bind:checked={entwurf.zehn_bit}
+          disabled={!zehnBitMoeglich}
+          data-testid="standplatz-profil-zehnbit"
         />
         <span class="text-text-bright text-sm font-medium">{m.standplatz_profil_ten_bit()}</span>
       </label>
       <label class="flex items-start gap-2">
         <Checkbox
-        class="mt-0.5 shrink-0"
-        bind:checked={entwurf.hdr}
-        disabled={!hdrMoeglich}
-        data-testid="standplatz-profil-hdr"
+          class="mt-0.5 shrink-0"
+          bind:checked={entwurf.hdr}
+          disabled={!hdrMoeglich}
+          data-testid="standplatz-profil-hdr"
         />
         <span class="text-text-bright text-sm font-medium">{m.standplatz_profil_hdr()}</span>
       </label>
