@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-09-09.2",
+      "date": "2026-09-09",
+      "style": "Sachlich",
+      "title": "Desktop-App startet wieder beim Anmeldebildschirm",
+      "intro": "Seit der neuen Startseite landete die Desktop-App ohne Anmeldung auf der Vorstellungsseite statt beim Login. Das ist behoben.",
+      "items": [
+        "Die Windows-, Mac- und Linux-App öffnet ohne Sitzung direkt den Anmeldebildschirm; angemeldete Nutzer landen wie gewohnt in der App.",
+        "Die Startseite auf howispulse.com bleibt für den Browser unverändert."
+      ]
+    },
+    {
       "id": "2026-09-09",
       "date": "2026-09-09",
       "style": "Sachlich",
