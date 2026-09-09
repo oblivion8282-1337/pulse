@@ -39,7 +39,8 @@ import { mitGruppensitzungssperre } from '../sperren';
 import {
   baueBearbeitungsNutzlast,
   baueLoeschNutzlast,
-  baueReaktionsNutzlast
+  baueReaktionsNutzlast,
+  baueAnrufSchluesselNutzlast
 } from '../nachrichtNutzlast';
 import { PRIVATE_GRUPPEN_ENABLED } from '../schalter';
 import { sitzungWaehlen, standNachSendung } from './sitzungswahl';
@@ -174,4 +175,18 @@ export function sendeGruppenBearbeitung(
   inhalt: string
 ): Promise<boolean> {
   return versendeGruppenFrame(kanalId, baueBearbeitungsNutzlast(zielNachrichtId, inhalt));
+}
+
+/**
+ * Verschickt den E2EE-Schluessel eines Gruppenanrufs (E2EE-Anrufe,
+ * 2026-09-09): Anruf-Schluessel-Frame an alle Mitglieder-Geraete. `true` nur
+ * bei Zustellung; der Aufrufer (`anruf.svelte.ts`) bricht den Anruf ab,
+ * wenn sie misslingt — fail-closed.
+ */
+export function sendeGruppenAnrufSchluessel(
+  kanalId: string,
+  anrufId: string,
+  schluessel: string
+): Promise<boolean> {
+  return versendeGruppenFrame(kanalId, baueAnrufSchluesselNutzlast(anrufId, schluessel));
 }

@@ -16,6 +16,7 @@
   import PhoneIcon from '@lucide/svelte/icons/phone';
   import PhoneOffIcon from '@lucide/svelte/icons/phone-off';
   import VideoIcon from '@lucide/svelte/icons/video';
+  import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
   import { m } from '$lib/paraglide/messages.js';
 
   const aktiv = $derived(anrufe.aktiv);
@@ -47,6 +48,27 @@
           ? formatiereDauer(anrufe.dauerSekunden)
           : m.anruf_klingelt_hinweis()}
       </p>
+
+      {#if anrufe.schluesselWarten}
+        <!-- E2EE-Annahme: der Schlüssel-Umschlag ist noch unterwegs (Postfach). -->
+        <p class="text-text-muted mt-1 animate-pulse text-xs" data-testid="call-key-waiting">
+          {m.anruf_schluessel_wird_uebertragen()}
+        </p>
+      {/if}
+      {#if anrufe.verschluesselung === 'e2ee'}
+        <p
+          class="mt-1 flex items-center gap-1 text-xs font-bold text-green-500"
+          data-testid="call-e2ee-badge"
+        >
+          <ShieldCheckIcon class="size-3.5 shrink-0" />
+          {m.anruf_e2ee_aktiv()}
+        </p>
+      {:else if anrufe.verschluesselung === 'transport'}
+        <!-- Klartext-Weg (kein E2EE-Schlüssel für diesen Anruf) — ehrlich benannt. -->
+        <p class="text-text-muted mt-1 text-xs" data-testid="call-e2ee-badge">
+          {m.anruf_nur_transport()}
+        </p>
+      {/if}
 
       <div class="mt-3 flex items-center justify-center gap-3">
         {#if aktiv.rolle === 'eingehend' && aktiv.zustand === 'klingelt'}

@@ -82,6 +82,7 @@ import {
   baueBearbeitungsNutzlast,
   baueLoeschNutzlast,
   baueReaktionsNutzlast,
+  baueAnrufSchluesselNutzlast,
   type AnhangAngabe
 } from './nachrichtNutzlast';
 import { anhangAngabeZuAttachment } from './anhangAnzeige';
@@ -385,4 +386,21 @@ export function sendeBearbeitung(
   inhalt: string
 ): Promise<boolean> {
   return versendeFrame(kanalId, empfaengerUserId, baueBearbeitungsNutzlast(zielNachrichtId, inhalt));
+}
+
+/**
+ * Verschickt den E2EE-Schluessel eines Anrufs (E2EE-Anrufe, 2026-09-09):
+ * ein Anruf-Schluessel-Frame (`baueAnrufSchluesselNutzlast`) an alle
+ * Zielgeraete der Gegenstelle UND die eigenen anderen — jedes Geraet beider
+ * Konten kann so am Anruf teilnehmen. `true` nur bei Zustellung; der
+ * Aufrufer (`anruf.svelte.ts`) bricht den Anruf ab, wenn sie misslingt —
+ * fail-closed, kein unverschluesselter Anruf.
+ */
+export function sendeAnrufSchluessel(
+  kanalId: string,
+  empfaengerUserId: string,
+  anrufId: string,
+  schluessel: string
+): Promise<boolean> {
+  return versendeFrame(kanalId, empfaengerUserId, baueAnrufSchluesselNutzlast(anrufId, schluessel));
 }

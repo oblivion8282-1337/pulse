@@ -139,6 +139,7 @@ import { verarbeiteMitWiederherstellung } from './postfachSchleife';
 import { KontoSicherungFehlgeschlagen, zustellungOeffnen } from './zustellungOeffnen';
 import { mitKontosperre } from './sperren';
 import { mitNachlaufBeiWeckung } from './postfachNachlauf';
+import { anrufe } from '../anrufe/anruf.svelte';
 
 // DMs sind heute cloud-only (Global-Friends Stufe 1) — s. `api/keys.ts`
 // Modulkopf (Bughunt 2026-08-28, FIX 4). Ohne diesen Parameter faellt
@@ -270,6 +271,15 @@ async function postfachZyklus(): Promise<Message[]> {
           messages.bearbeiteInhalt(ergebnis.channelId, lokaleId, ergebnis.inhalt, bearbeitetAm);
         }
       }
+      schonQuittierbar.push(ergebnis.id);
+      continue;
+    }
+    if (ergebnis.art === 'anrufSchluessel') {
+      // Anruf-Schlüssel-Frame (E2EE-Anrufe): nur im Anruf-Store merken
+      // (Arbeitsspeicher, nichts im Verlauf) — direkt quittierbar. Ein
+      // unbeteiligtes Gerät (eigenes Zweitgerät, Anruf längst vorbei) legt
+      // den Schlüssel ebenso still ab; der Store räumt beim Anruf-Ende auf.
+      anrufe.schluesselEmpfangen(ergebnis.anrufId, ergebnis.schluessel);
       schonQuittierbar.push(ergebnis.id);
       continue;
     }

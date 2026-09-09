@@ -84,6 +84,17 @@ export type ZustellungOffenErgebnis =
       entfernen: boolean;
     }
   | { art: 'bearbeitung'; id: string; channelId: string; ziel: string; inhalt: string }
+  /** Anruf-Schluessel-Frame (E2EE-Anrufe): `anrufId` + LiveKit-E2EE-Schluessel
+   *  (`schluessel`, 32 Bytes base64). Der Aufrufer reicht beides an den
+   *  Anruf-Store weiter und quittiert direkt — nichts abzulegen. */
+  | {
+      art: 'anrufSchluessel';
+      id: string;
+      channelId: string;
+      autorId: string;
+      anrufId: string;
+      schluessel: string;
+    }
   | null;
 
 /** Die Nachricht einer erfolgreich geoeffneten Zustellung — `null`, wenn der

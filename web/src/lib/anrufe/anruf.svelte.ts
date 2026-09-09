@@ -10,9 +10,20 @@
  * (`call_angenommen`) → beide verbinden ihren Raum → Auflegen/Ende
  * (`call_ende`) räumt überall ab. 45 s ohne Annahme: der Rufende bricht
  * ab (serverseitig „verpasst“), der Angerufene lehnt automatisch ab.
+ *
+ * E2EE (2026-09-09): bei E2EE-fähigem Ziel (verschlüsselte DM bzw. private
+ * Gruppe) erzeugt der Initiator EINEN LiveKit-E2EE-Schlüssel (32
+ * Zufallsbytes) und verschickt ihn als Anruf-Schlüssel-Frame über das
+ * verschlüsselte Postfach (`krypto/senden.ts` bzw. `krypto/gruppe/
+ * frameSenden.ts`) — misslingt die Zustellung, bricht der Anruf ab
+ * (fail-closed, kein unverschlüsselter Anruf). Der Angerufene wartet nach
+ * der Annahme auf den Schlüssel (`schluesselWarten.ts`), bevor er mit der
+ * `encryption`-Room-Option verbindet; Schlüssel liegen NUR im
+ * Arbeitsspeicher dieser Map. Klartext-DMs (Schalter aus) laufen wie bisher
+ * ohne Schlüssel — transportverschlüsselt, ehrlich im Overlay benannt.
  */
 
-import { ConnectionState, Room, RoomEvent, Track } from 'livekit-client';
+import { ConnectionState, Room, RoomEvent, Track, ExternalE2EEKeyProvider } from 'livekit-client';
 import { registerPlugin, type PluginListenerHandle } from '@capacitor/core';
 import { isCapacitorAndroid } from '$lib/platform/runtime';
 import {
@@ -28,8 +39,44 @@ import { toast } from 'svelte-sonner';
 import { formatiereDauer } from '$lib/attachments/aufnahmeKern';
 import { m } from '$lib/paraglide/messages.js';
 import { anrufSystemzeile, type AnrufZeilenSchluessel } from './systemzeileKern';
+import { warteAufAnrufSchluessel } from './schluesselWarten';
+import { E2E_DMS_ENABLED, PRIVATE_GRUPPEN_ENABLED } from '$lib/krypto/schalter';
 
 const KLINGEL_TIMEOUT_MS = 45_000;
+
+/** E2EE-fähiges Ziel? Bei DMs entscheidet der DM-Schalter, bei Gruppen der
+ *  Gruppen-Schalter — ist einer aus, gibt es dort schlicht keinen
+ *  verschlüsselten Weg (Klartext-DM), und der Anruf läuft ohne Schlüssel. */
+function e2eeFaehig(art: AnrufArt): boolean {
+  return art === 'gruppe' ? PRIVATE_GRUPPEN_ENABLED : E2E_DMS_ENABLED;
+}
+
+/** Frischer Anruf-Schlüssel: 32 Zufallsbytes, base64. */
+function neuAnrufSchluessel(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  let binär = '';
+  for (const b of bytes) binär += String.fromCharCode(b);
+  return btoa(binär);
+}
+
+/** base64 → ArrayBuffer (für `keyProvider.setKey`). */
+function base64ZuBytes(wert: string): ArrayBuffer {
+  const binär = atob(wert);
+  const bytes = new Uint8Array(binär.length);
+  for (let i = 0; i < binär.length; i++) bytes[i] = binär.charCodeAt(i);
+  return bytes.buffer;
+}
+
+/** Der E2EE-Worker wird über alle Anrufe wiederverwendet (LiveKit-Muster:
+ *  ein Worker, viele Rooms) — Seiten-Lebensdauer, kein Abbau nötig.
+ *  Subpfad laut exports-Map dieser Version: `./e2ee-worker` (Bindestrich,
+ *  NICHT `e2ee.worker` wie in der LiveKit-Doku). */
+let e2eeArbeiter: Worker | null = null;
+function e2eeWorker(): Worker {
+  return (e2eeArbeiter ??= new Worker(new URL('livekit-client/e2ee-worker', import.meta.url), {
+    type: 'module'
+  }));
+}
 
 /**
  * Native Brücke (nur im Capacitor-Android-APK, s. mobile/android …/AnrufPlugin.java,
@@ -86,6 +133,12 @@ class AnrufStore {
   kameranAn = $state(false);
   /** Sekunden seit Annahme — der Ticker der Overlay-UI. */
   dauerSekunden = $state(0);
+  /** Overlay-Badge (E2EE-Anrufe): 'e2ee' = Ende-zu-Ende (gelesen aus
+   *  `room.isE2EEEnabled`), 'transport' = Klartext-Weg, `null` = kein Anruf
+   *  / noch nicht verbunden. */
+  verschluesselung = $state<'e2ee' | 'transport' | null>(null);
+  /** Overlay-Hinweis während der Angerufene auf den Schlüssel wartet. */
+  schluesselWarten = $state(false);
 
   #room: Room | null = null;
   #klingelWecker: ReturnType<typeof setTimeout> | null = null;
@@ -94,6 +147,14 @@ class AnrufStore {
   #ferneStimmen: HTMLMediaElement[] = [];
   /** In einem WS-Handler gesetzte Endes-Info für das gerade Abgebaute. */
   #abbauGen = 0;
+  /** Anruf-Schlüssel (E2EE-Anrufe), NUR im Arbeitsspeicher — `anrufId →
+   *  base64`. Gefüllt vom Empfangs-Dispatch (`empfangen.ts::schluessel-
+   *  Empfangen`) und vom Initiator in `starten`.
+   *  ponytail: Einträge von Anrufen, die dieses Gerät nie führte (fremde
+   *  Gruppenanrufe, eigenes Zweitgerät), bleiben bis zum Seitenende stehen —
+   *  je Eintrag 32 Bytes; Aufräumen per Altersliste wäre der Ausbau, falls
+   *  das je sichtbar wird. */
+  #schluessel = new Map<string, string>();
   /** Vom WS-Bootstrap angedockte Senke für die Chat-Systemzeile — Injektion
    *  statt Import (`systemzeileSenden.ts`), sonst zirkelt die Sendekette. */
   #zeilenZiel:
@@ -114,8 +175,25 @@ class AnrufStore {
     this.#zeilenZiel = ziel;
   }
 
+  /** Vom Empfangs-Dispatch (`empfangen.ts`, art 'anrufSchluessel'): den
+   *  Schlüssel eines Anrufs merken — fail-closed, nur sauber dekodierbare
+   *  32-Byte-Schlüssel; alles andere wird verworfen, statt einen halben
+   *  Schlüssel an LiveKit zu reichen. */
+  schluesselEmpfangen(anrufId: string, schluessel: string): void {
+    if (anrufId === '' || schluessel === '') return;
+    try {
+      if (base64ZuBytes(schluessel).byteLength !== 32) return;
+    } catch {
+      return; // kein base64
+    }
+    this.#schluessel.set(anrufId, schluessel);
+  }
+
   async starten(art: AnrufArt, channelId: string, gegenstelle: string): Promise<void> {
     if (this.aktiv) return;
+    // E2EE-fähiges Ziel: Schlüssel JETZT erzeugen — die ID des Anrufs kennt
+    // erst der Server, der Schlüsselinhalt kommt vom Initiator.
+    const schluessel = e2eeFaehig(art) ? neuAnrufSchluessel() : null;
     // Sync-Platzhalter schließt das Doppelklick-Fenster vor dem await.
     this.aktiv = { id: '', art, channel_id: channelId, rolle: 'ausgehend', gegenstelle, zustand: 'klingelt' };
     this.#systemzeileErledigt = false;
@@ -129,11 +207,55 @@ class AnrufStore {
         gegenstelle,
         zustand: 'klingelt'
       };
+      if (schluessel !== null) {
+        this.#schluessel.set(angabe.id, schluessel);
+        try {
+          await this.#schluesselVerteilen(art, channelId, angabe.id, schluessel);
+        } catch (e) {
+          // Fail-closed: ohne zugestellten Schlüssel keinen Anruf — der WS-
+          // Ruf ist durch den POST schon draußen, also den Server-Anruf
+          // beenden (sonst klingelt die Gegenseite ins Leere), dann abbrechen.
+          toast.error(m.anruf_schluessel_senden_fehlgeschlagen(), {
+            description: e instanceof Error ? e.message : undefined
+          });
+          void anrufAuflegen(angabe.id).catch(() => {});
+          this.#aufräumen();
+          return;
+        }
+      }
     } catch (e) {
       this.#aufräumen();
       throw e;
     }
     this.#klingelWeckerPlanen();
+  }
+
+  /** Schlüssel-Umschlag an alle Geräte verteilen — DM per Olm, Gruppe per
+   *  Megolm. Dynamisch importiert (Muster wie `systemzeileSenden`): die
+   *  Sendekette zieht den halben Krypto-Stack nach sich, und der Store lädt
+   *  sie erst, wenn wirklich verschickt wird. Wirft, wenn nichts zugestellt
+   *  wurde — der Aufrufer bricht den Anruf ab. */
+  async #schluesselVerteilen(
+    art: AnrufArt,
+    kanalId: string,
+    anrufId: string,
+    schluessel: string
+  ): Promise<void> {
+    const nichtZustellbar = () => new Error('Anruf-Schlüssel nicht zustellbar');
+    if (art === 'gruppe') {
+      const { sendeGruppenAnrufSchluessel } = await import('$lib/krypto/gruppe/frameSenden');
+      if (!(await sendeGruppenAnrufSchluessel(kanalId, anrufId, schluessel))) {
+        throw nichtZustellbar();
+      }
+      return;
+    }
+    const { directMessages } = await import('$lib/stores/directMessages.svelte');
+    const empfaenger = directMessages.byId[kanalId]?.other_user_id;
+    if (!empfaenger) throw nichtZustellbar();
+    const { sendeAnrufSchluessel } = await import('$lib/krypto/senden');
+    if (!(await sendeAnrufSchluessel(kanalId, empfaenger, anrufId, schluessel))) {
+      throw nichtZustellbar();
+    }
   }
 
   /** Eingehender Ruf aus dem WS-Event `call_klingelt` — der Name der
@@ -180,6 +302,28 @@ class AnrufStore {
     this.#klingelWeckerLoeschen();
     try {
       await anrufAnnehmen(anruf.id);
+      if (e2eeFaehig(anruf.art)) {
+        // Postfach-Abholung anstoßen (bestehender Einstiegspunkt, dynamisch
+        // importiert — der WS-Weckruf `postfach_neu` hat sie meist schon
+        // angestoßen; hier doppelt sich nichts, der Nachlauf dedupliziert),
+        // dann fail-closed auf den Schlüssel warten.
+        void import('$lib/krypto/empfangen')
+          .then(({ postfachAbholenUndEntschluesseln }) => postfachAbholenUndEntschluesseln())
+          .catch(() => {});
+        this.schluesselWarten = true;
+        const schluessel = await warteAufAnrufSchluessel(
+          () => this.#schluessel.get(anruf.id) ?? null
+        );
+        this.schluesselWarten = false;
+        if (this.aktiv?.id !== anruf.id) return; // inzwischen beendet — Abbau lief
+        if (schluessel === null) {
+          // Kein Schlüssel, kein Anruf — NICHT unverschlüsselt weitermachen.
+          toast.error(m.anruf_schluessel_fehlt());
+          void anrufAuflegen(anruf.id).catch(() => {});
+          this.#aufräumen();
+          return;
+        }
+      }
       await this.#verbinden();
       // Klingel-Notification weg — das Overlay übernimmt.
       void nativBeenden();
@@ -300,15 +444,29 @@ class AnrufStore {
     this.#zeilenZiel?.(anruf.channel_id, zeile.schluessel, zeile.dauerSek);
   }
 
-  /** LiveKit-Raum betreten — Token von voice-signaling, Room-Name vom Server. */
+  /** LiveKit-Raum betreten — Token von voice-signaling, Room-Name vom Server.
+   *  Liegt ein Schlüssel zum Anruf (E2EE-Anrufe), wird der Raum mit der
+   *  `encryption`-Option gebaut und der Schlüssel VOR `connect()` gesetzt —
+   *  ohne Schlüssel (Klartext-Weg) verbindet der Raum wie bisher ohne E2EE. */
   async #verbinden(): Promise<void> {
     const anruf = this.aktiv;
     if (!anruf) return;
+    const schluessel = this.#schluessel.get(anruf.id) ?? null;
     const gen = ++this.#abbauGen;
     try {
       const resp = await getAnrufToken(anruf.id);
       if (gen !== this.#abbauGen) return; // inzwischen abgebaut
-      const room = new Room();
+      let encryption: { keyProvider: ExternalE2EEKeyProvider; worker: Worker } | undefined;
+      if (schluessel !== null) {
+        const keyProvider = new ExternalE2EEKeyProvider();
+        await keyProvider.setKey(base64ZuBytes(schluessel));
+        // ponytail: LiveKits Frame-Verschlüsselung trägt nur VP8/Opus; der
+        // videoCodec läuft schon per Default auf vp8. Upgrade-Pfad: Codecs per
+        // Fähigkeit aushandeln, sobald LiveKit mehr beherrscht.
+        encryption = { keyProvider, worker: e2eeWorker() };
+      }
+      const room = new Room(encryption ? { encryption } : undefined);
+      if (encryption) await room.setE2EEEnabled(true);
       this.#room = room;
       room
         .on(RoomEvent.ConnectionStateChanged, (s) => {
@@ -326,11 +484,21 @@ class AnrufStore {
             this.#ferneStimmen.push(element);
           }
         })
+        .on(RoomEvent.ParticipantEncryptionStatusChanged, (aktiv, teilnehmer) => {
+          // Das ehrliche Live-Lesezeichen fürs Badge — deckt auch den Fall,
+          // dass der Status erst NACH dem Connect-Resolve umschaltet.
+          if (teilnehmer?.isLocal && this.#room === room) {
+            this.verschluesselung = aktiv ? 'e2ee' : 'transport';
+          }
+        });
 
       await room.connect(resp.ws_url, resp.token);
       if (gen !== this.#abbauGen) {
         void room.disconnect();
         return;
+      }
+      if (this.verschluesselung === null) {
+        this.verschluesselung = room.isE2EEEnabled ? 'e2ee' : 'transport';
       }
       await room.localParticipant.setMicrophoneEnabled(!this.stumm);
     } catch (e) {
@@ -368,6 +536,9 @@ class AnrufStore {
     this.stumm = false;
     this.kameranAn = false;
     this.dauerSekunden = 0;
+    this.schluesselWarten = false;
+    this.verschluesselung = null;
+    if (this.aktiv) this.#schluessel.delete(this.aktiv.id);
     this.aktiv = null;
     if (room) void room.disconnect();
     // `room.disconnect()` trennt die Tracks, aber die angehängten Elemente
@@ -382,9 +553,14 @@ export const anrufe = new AnrufStore();
 // Annehmen/Ablehnen aus der nativen Sperrbildschirm-Notification (feuert nur
 // unter Capacitor-Android). Fremde oder abgelaufene callIds (verspäteter Tap
 // auf eine alte Klingel-Notification) werden ignoriert.
-void anrufNativ.addListener('aktion', ({ aktion, callId }) => {
-  const anruf = anrufe.aktiv;
-  if (!anruf || anruf.id !== callId) return;
-  if (aktion === 'annehmen') void anrufe.annehmen(anruf.gegenstelle);
-  else void anrufe.ablehnen();
-});
+// Guard ist PFLICHT: der Web-Stub von registerPlugin wirft beim addListener
+// ("not implemented on web") und riss sonst das komplette Boot mit — die
+// Login-Seite blieb im Browser weiß (Befund 2026-09-09).
+if (isCapacitorAndroid()) {
+  void anrufNativ.addListener('aktion', ({ aktion, callId }) => {
+    const anruf = anrufe.aktiv;
+    if (!anruf || anruf.id !== callId) return;
+    if (aktion === 'annehmen') void anrufe.annehmen(anruf.gegenstelle);
+    else void anrufe.ablehnen();
+  });
+}

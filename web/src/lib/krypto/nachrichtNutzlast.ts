@@ -93,6 +93,15 @@ export type ReaktionsAngabe = { ziel: string; emoji: string; entfernen?: true };
  *  wie bei Reaktionen außerhalb — der Sitzungs-Partner ist der Autor. */
 export type BearbeitungsAngabe = { ziel: string; inhalt: string };
 
+/** Anruf-Schlüssel-Frame (E2EE-Anrufe, 2026-09-09): `schluessel` ist der EINE
+ *  LiveKit-E2EE-Schlüssel des Anrufs — 32 Zufallsbytes des Initiators, base64
+ *  —, `anrufId` die Server-ID des Anrufs, unter der der Empfaenger ihn im
+ *  Anruf-Store (`anruf.svelte.ts`) wiederfindet. Reist über denselben
+ *  verschlüsselten Sendeweg wie die anderen Frames: DM per Olm
+ *  (`senden.ts::sendeAnrufSchluessel`), Gruppe per Megolm
+ *  (`gruppe/frameSenden.ts::sendeGruppenAnrufSchluessel`). */
+export type AnrufSchluesselAngabe = { anrufId: string; schluessel: string };
+
 export type NachrichtNutzlast = {
   text: string;
   /** Kanonische Nachrichten-ID des Autors — `null` nur bei einer Legacy-
@@ -108,6 +117,10 @@ export type NachrichtNutzlast = {
   /** Bearbeitungs-Umschlag (P1.5 Teil 2) — wie `reaktion` ein Frame ohne
    *  eigenen Text, dessen `inhalt` den Text der Ziel-Nachricht ERSETZT. */
   bearbeitung?: BearbeitungsAngabe;
+  /** Anruf-Schlüssel-Frame (E2EE-Anrufe) — wie `reaktion` ein Frame ohne
+   *  eigenen Text; er gehört zu einem LAUFENDEN Anruf, nicht zu einer
+   *  Nachricht (`AnrufSchluesselAngabe`). */
+  anrufSchluessel?: AnrufSchluesselAngabe;
   /** Leer, wenn die Nutzlast keine Anhaenge trug ODER von einem Sender vor
    *  Etappe E stammt — beides sieht beim Lesen gleich aus und soll es auch. */
   anhaenge: AnhangAngabe[];
@@ -229,6 +242,33 @@ export function baueBearbeitungsNutzlast(zielNachrichtId: string, inhalt: string
   return new TextEncoder().encode(JSON.stringify({ v: FASSUNG, text: '', bearbeitung }));
 }
 
+/** Anruf-Schlüssel-Umschlag: Frame ohne Text — er gehört zu einem Anruf,
+ *  nicht zu einer Nachricht. Derselbe verschluesselte Sendeweg wie Loesch-,
+ *  Reaktions- und Bearbeitungs-Frame (DM: Olm, Gruppe: Megolm). */
+export function baueAnrufSchluesselNutzlast(anrufId: string, schluessel: string): Uint8Array {
+  return new TextEncoder().encode(
+    JSON.stringify({ v: FASSUNG, text: '', anrufSchluessel: { anrufId, schluessel } })
+  );
+}
+
+/** Fail-closed wie `leseReaktion`: ein Frame ohne anrufId oder Schlüssel ist
+ *  keiner — der Rest liest sich dann als gewöhnliche leere Nutzlast. Ob der
+ *  Schlüssel WIRKLICH 32 Bytes sind, prueft erst der Anruf-Store beim Merken
+ *  (dort liegt atob, hier nicht — importfrei). */
+function leseAnrufSchluessel(wert: unknown): AnrufSchluesselAngabe | null {
+  if (wert === null || typeof wert !== 'object') return null;
+  const a = wert as Record<string, unknown>;
+  if (
+    typeof a.anrufId !== 'string' ||
+    a.anrufId === '' ||
+    typeof a.schluessel !== 'string' ||
+    a.schluessel === ''
+  ) {
+    return null;
+  }
+  return { anrufId: a.anrufId, schluessel: a.schluessel };
+}
+
 /**
  * Ein erkannter Aktions-Frame samt allem, was der Abholzyklus zum Anwenden
  * braucht — strukturell identisch zu den drei Frame-Zweigen von
@@ -254,7 +294,15 @@ export type RahmenErgebnis =
       emoji: string;
       entfernen: boolean;
     }
-  | { art: 'bearbeitung'; id: string; channelId: string; ziel: string; inhalt: string };
+  | { art: 'bearbeitung'; id: string; channelId: string; ziel: string; inhalt: string }
+  | {
+      art: 'anrufSchluessel';
+      id: string;
+      channelId: string;
+      autorId: string;
+      anrufId: string;
+      schluessel: string;
+    };
 
 /** Liest aus einer geoeffneten Nutzlast einen Aktions-Frame — `null`, wenn es
  *  eine gewoehnliche Nachricht ist (der Aufrufer baut dann selbst die
@@ -289,6 +337,16 @@ export function rahmenAusNutzlast(
       inhalt: gelesen.bearbeitung.inhalt
     };
   }
+  if (gelesen.anrufSchluessel) {
+    return {
+      art: 'anrufSchluessel',
+      id,
+      channelId,
+      autorId,
+      anrufId: gelesen.anrufSchluessel.anrufId,
+      schluessel: gelesen.anrufSchluessel.schluessel
+    };
+  }
   return null;
 }
 
@@ -312,6 +370,7 @@ export function leseNachrichtNutzlast(bytes: Uint8Array): NachrichtNutzlast {
       }
       const reaktion = leseReaktion(o.reaktion);
       const bearbeitung = leseBearbeitung(o.bearbeitung);
+      const anrufSchluessel = leseAnrufSchluessel(o.anrufSchluessel);
       return {
         text: o.text as string,
         id: typeof o.id === 'string' ? o.id : null,
@@ -319,7 +378,8 @@ export function leseNachrichtNutzlast(bytes: Uint8Array): NachrichtNutzlast {
         anhaenge,
         ...(o.geloescht === true ? { geloescht: true as const } : {}),
         ...(reaktion ? { reaktion } : {}),
-        ...(bearbeitung ? { bearbeitung } : {})
+        ...(bearbeitung ? { bearbeitung } : {}),
+        ...(anrufSchluessel ? { anrufSchluessel } : {})
       };
     }
   } catch {
