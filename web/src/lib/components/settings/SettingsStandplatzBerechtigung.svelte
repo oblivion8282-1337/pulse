@@ -3,7 +3,7 @@
    * Warum dieser Rechner nicht ferngesteuert werden kann — mit dem Weg zur
    * richtigen Systemeinstellung.
    *
-   * **Nicht zu verwechseln mit `SettingsStandplatzFreigabe`**: das ist die
+   * **Nicht zu verwechseln mit `DeviceFreigaben`**: das ist die
    * Liste, WER diesen Rechner steuern darf. Hier geht es darum, ob er es
    * ueberhaupt KANN — eine Frage an das Betriebssystem, nicht an den Server.
    *

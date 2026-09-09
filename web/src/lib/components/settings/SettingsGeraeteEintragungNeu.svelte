@@ -97,6 +97,7 @@ import { errText } from '$lib/utils/errText';
     <MonitorCogIcon class="size-4" />
     {m.device_settings_register_title()}
   </span>
+  <span class="text-text-muted text-xs">{m.device_settings_register_intro()}</span>
 
   <div class="border-border/60 flex flex-col gap-2 border-t pt-3">
     <label class="flex flex-col gap-1">
