@@ -70,6 +70,7 @@ import { checkReachability } from './localBackend/reachability';
 import { mapMediaPorts } from './localBackend/portMapper';
 import { diagnostiziere } from './localBackend/netdiag';
 import { checkCredsSupersede } from './serverSupersede';
+import { startAdresse } from './startAdresse';
 
 /** Intervall für den periodischen Ablöse-Check (③c-Ergänzung) — 10 Min sind
  *  träge genug, um den Registry-Token-Realm nicht spürbar zu belasten, aber
@@ -414,11 +415,11 @@ function createWindow(): void {
     if (loadCreds({ get: storeGet, set: storeSet })) {
       mainWindow.loadFile(path.join(__dirname, 'server.html'));
     } else {
-      mainWindow.loadURL(PROD_URL);
+      mainWindow.loadURL(startAdresse(PROD_URL, true));
       startLoginWatch(mainWindow);
     }
   } else {
-    void mainWindow.loadURL(TARGET_URL);
+    void mainWindow.loadURL(startAdresse(TARGET_URL, false));
     if (OPEN_DEVTOOLS) mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
 }
