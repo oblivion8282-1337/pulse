@@ -378,6 +378,34 @@ gibt es aber noch nicht und sie gehören auf die Roadmap:
   `user_id` hinzugefügt (P0.4). Beitreten-per-Link wäre eine spätere Erweiterung
   mit eigener Sicherheitsbetrachtung.
 
+### Testrunde 2026-09-09 — Befunde + lokale Testkonten
+
+Zwei UX-Funde aus der Feindselig-Testrunde (noch offen, kleine Hebel):
+
+- **Konto-Wechsel im selben Browser hängt an der Geräte-Wand:** Nach
+  Abmelden + Anmeldung eines ANDEREN Kontos im selben Browser lehnt
+  ``PUT /keys/bundle`` mit 409 ``geraet_gehoert_anderem_konto`` ab
+  (korrekt — die Browser-Identität gehört dem alten Konto,
+  ``routes/schluessel.py``), aber der Klient baut die Identität nicht neu
+  auf und zeigt keine klare Anleitung — der Nutzer bleibt an der
+  „braucht ein Gerät"-Wand hängen. Fix-Idee: bei diesem 409 die lokale
+  Identität automatisch neu erzeugen (der Client weiß, dass sie nicht
+  mehr dem neuen Konto gehören kann) oder einen sichtbaren
+  „Als neues Gerät einrichten"-Weg anbieten.
+- **Still abgelaufene Session:** Läuft ein Tab lange im Hintergrund,
+  stirbt die Session mit stillen 401ern — kein Banner „Abgelaufen, bitte
+  neu anmelden". Der Nutzer tippt ins Leere, bis er merkt, dass nichts
+  geht. Kleiner Hebel: auf 401 in einer „ruhigen" Verbindung ein
+  sichtbares Session-abgelaufen-Banner.
+
+Lokale Testkonten (Dev-DB, Passwörter für Tests gesetzt):
+``alice`` / ``alice-test-1234``, ``bob`` / ``push-test-bob``,
+``carla`` / ``carla-test-1234``, ``dave`` / ``dave-test-1234`` — alle
+``@dcc-test.example.com``. Freundschaften: alice↔bob, alice↔carla,
+alice↔dave. Achtung: Browser-Wechsel des Kontos stößt die 409-Falle oben
+aus — für Zweitgeräte-Tests die Kopplung nutzen oder das Konto NEU
+registrieren.
+
 ## 6. Arbeiten im Repo — was die neue Person wissen muss
 
 - **`AGENTS.md` im Repo-Root ist Pflichtlektüre** (Arbeitsregeln, Dev-Stack,
