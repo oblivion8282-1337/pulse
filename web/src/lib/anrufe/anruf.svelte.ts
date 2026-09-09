@@ -481,6 +481,10 @@ class AnrufStore {
           // Voice-Engine, nur ohne Gain-/Kompressor-Zubehör).
           if (track.kind === Track.Kind.Audio) {
             const element = track.attach();
+            // Versteckt an den Body — ein schwebendes Element spielt zwar,
+            // ist aber gegen GC-/Pause-Heuristiken einiger Browser unsicher.
+            element.hidden = true;
+            document.body.appendChild(element);
             this.#ferneStimmen.push(element);
           }
         })
