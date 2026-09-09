@@ -36,6 +36,7 @@
   import { standplatz } from '$lib/remote/standplatz.svelte';
   import { remoteProtokoll } from '$lib/remote/protokoll.svelte';
   import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
+  import { rechnerName } from '$lib/devices/rechnerName.svelte';
   import { standplatzProfil } from '$lib/devices/profil.svelte';
   import { loadAll } from '$lib/stream/persistence';
   import { starteHintergrundFestigung } from '$lib/ablage/hintergrundFestigung';
@@ -169,6 +170,7 @@
       standplatz.laden(geraeteSpeicher),
       remoteProtokoll.laden(geraeteSpeicher),
       geraeteAnmeldung.laden(geraeteSpeicher),
+      rechnerName.laden(geraeteSpeicher),
       standplatzProfil.laden(geraeteSpeicher),
     ]);
     // Eintragungen von Servern raeumen, die es hier nicht mehr gibt. Ein

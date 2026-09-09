@@ -1,6 +1,6 @@
 <!--
   SettingsGeraeteEintragungNeu — das Formular, mit dem dieser Rechner zum
-  Standplatz-Gerät wird: Community, Sprachkanal, Name.
+  Standplatz-Gerät wird: Name zuerst, dann Community und Sprachkanal.
 
   Eigene Datei neben `SettingsGeraeteEintragung` (Grössen-Regel, Komponenten
   ≤250 Zeilen). Die Naht ist die Lage: dort die Frage, in welchem der vier
@@ -17,11 +17,11 @@
 import { errText } from '$lib/utils/errText';
   import MonitorCogIcon from '@lucide/svelte/icons/monitor-cog';
   import { Button } from '$lib/components/ui/button/index.js';
-  import { Input } from '$lib/components/ui/input/index.js';
   import Select from '$lib/components/form/Select.svelte';
   import { devicesApi } from '$lib/api/devices';
   import { deviceStore } from '$lib/devices/store.svelte';
   import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
+  import { rechnerName } from '$lib/devices/rechnerName.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { gatewayForServer } from '$lib/ws/connection';
   import { m } from '$lib/paraglide/messages.js';
@@ -30,7 +30,6 @@ import { errText } from '$lib/utils/errText';
 
   let zielGuild = $state('');
   let zielKanal = $state('');
-  let geraetName = $state('');
   let busy = $state(false);
   let fehler = $state<string | null>(null);
 
@@ -49,13 +48,14 @@ import { errText } from '$lib/utils/errText';
   const kanalOptionen = $derived(sprachkanaele.map((c) => ({ value: c.id, label: c.name })));
 
   async function eintragen(): Promise<void> {
-    if (!serverId || !zielGuild || !zielKanal || !geraetName.trim()) return;
+    const name = rechnerName.name.trim();
+    if (!serverId || !zielGuild || !zielKanal || !name) return;
     busy = true;
     fehler = null;
     try {
       const device = await devicesApi.create(zielGuild, {
         channel_id: zielKanal,
-        name: geraetName.trim(),
+        name,
       });
       await geraeteAnmeldung.merken({
         serverId,
@@ -83,7 +83,9 @@ import { errText } from '$lib/utils/errText';
         );
       }
       deviceStore._changed(device.guild_id, device, false);
-      geraetName = '';
+      // Der Name lebt jetzt auf dem Server — lokal mitspiegeln, damit er eine
+      // spätere Entfernung der Zeile überlebt.
+      void rechnerName.speichern(device.name);
     } catch (e) {
       fehler = errText(e);
     } finally {
@@ -99,55 +101,57 @@ import { errText } from '$lib/utils/errText';
   </span>
   <span class="text-text-muted text-xs">{m.device_settings_register_intro()}</span>
 
-  <div class="border-border/60 flex flex-col gap-2 border-t pt-3">
-    <label class="flex flex-col gap-1">
-      <span class="text-text-muted text-xs">{m.device_settings_register_community()}</span>
-      <Select
-        value={zielGuild}
-        options={guildOptionen}
-        placeholder="—"
-        onchange={(v) => {
-          zielGuild = v;
-          // Der Kanal gehört zur alten Community, bis die neue etwas anderes
-          // sagt (Muster aus `DeviceVerwaltung`).
-          zielKanal = '';
-        }}
-        data-testid="device-register-guild"
-      />
-      {#if guildOptionen.length === 0}
-        <span class="text-text-muted text-xs">{m.device_settings_register_no_guilds()}</span>
-      {/if}
-    </label>
+  <div class="border-border/60 flex flex-col gap-3 border-t pt-3">
+    <!-- Der Name steht im PANEL (StandplatzRailButton) und wird von dort
+         gespeichert/gelesen (`rechnerName`) — hier stünde er doppelt. -->
+    <div class="border-border flex flex-col gap-2 rounded-2xl border p-3">
+      <span class="text-text-bright text-sm font-medium">
+        {m.device_settings_register_destination()}
+      </span>
 
-    <label class="flex flex-col gap-1">
-      <span class="text-text-muted text-xs">{m.device_settings_register_channel()}</span>
-      <Select
-        value={zielKanal}
-        options={kanalOptionen}
-        placeholder="—"
-        disabled={!zielGuild}
-        onchange={(v) => (zielKanal = v)}
-        data-testid="device-register-channel"
-      />
-      {#if zielGuild && kanalOptionen.length === 0}
-        <span class="text-text-muted text-xs">{m.device_settings_register_no_channels()}</span>
-      {/if}
-    </label>
+      <label class="flex flex-col gap-1">
+        <span class="text-text-muted text-xs">{m.device_settings_register_community()}</span>
+        <Select
+          value={zielGuild}
+          options={guildOptionen}
+          placeholder="—"
+          onchange={(v) => {
+            zielGuild = v;
+            // Der Kanal gehört zur alten Community, bis die neue etwas anderes
+            // sagt (Muster aus `DeviceVerwaltung`).
+            zielKanal = '';
+          }}
+          data-testid="device-register-guild"
+        />
+        {#if guildOptionen.length === 0}
+          <span class="text-text-muted text-xs">{m.device_settings_register_no_guilds()}</span>
+        {/if}
+      </label>
 
-    <label class="flex flex-col gap-1">
-      <span class="text-text-muted text-xs">{m.device_settings_register_name()}</span>
-      <Input bind:value={geraetName} placeholder="werkstatt-pc" data-testid="device-register-name" />
-      <span class="text-text-muted text-xs">{m.device_settings_register_name_hint()}</span>
-    </label>
+      <label class="flex flex-col gap-1">
+        <span class="text-text-muted text-xs">{m.device_settings_register_channel()}</span>
+        <Select
+          value={zielKanal}
+          options={kanalOptionen}
+          placeholder="—"
+          disabled={!zielGuild}
+          onchange={(v) => (zielKanal = v)}
+          data-testid="device-register-channel"
+        />
+        {#if zielGuild && kanalOptionen.length === 0}
+          <span class="text-text-muted text-xs">{m.device_settings_register_no_channels()}</span>
+        {/if}
+      </label>
 
-    <div class="flex justify-end pt-1">
-      <Button
-        onclick={eintragen}
-        disabled={busy || !zielGuild || !zielKanal || !geraetName.trim()}
-        data-testid="device-register-submit"
-      >
-        {m.device_settings_register_submit()}
-      </Button>
+      <div class="flex justify-end pt-1">
+        <Button
+          onclick={eintragen}
+          disabled={busy || !zielGuild || !zielKanal || !rechnerName.name.trim()}
+          data-testid="device-register-submit"
+        >
+          {m.device_settings_register_submit()}
+        </Button>
+      </div>
     </div>
   </div>
 

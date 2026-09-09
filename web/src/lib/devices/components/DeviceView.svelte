@@ -33,8 +33,6 @@
   import type { Device } from '$lib/api/devices';
   import { schirmWarten, schirmeVon, direktUebernehmen } from '$lib/devices/schirme.svelte';
   import DeviceScreenList from '$lib/devices/components/DeviceScreenList.svelte';
-  import DeviceVerwaltung from '$lib/devices/components/DeviceVerwaltung.svelte';
-  import DeviceFreigaben from '$lib/devices/components/DeviceFreigaben.svelte';
   import { gegenstelle } from '$lib/remote/gegenstelle';
   import { userCache } from '$lib/stores/users.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
@@ -220,31 +218,11 @@
     <p class="text-sm text-red-500" data-testid="device-view-error">{fehler}</p>
   {/if}
 
-  <!-- Verwaltung — unterhalb aller Übernehmen-/Zusehen-Zustände, denn sie ist
-       davon unabhängig: ob und wie ein Gerät gerade übertragt, ändert nichts
-       daran, wer es umbenennen, umstellen oder entfernen darf.
-
-       **Nur für den Besitzer im DOM.** Stand hier bis zum 2026-08-26 als
-       `eigenes || darfVerwalten` — richtig, solange `MANAGE_GUILD` umbenennen
-       und entfernen durfte. Seit das dem Besitzer allein zusteht
-       (`routes/devices.py::_require_owner`), zeigte die Bedingung einem
-       Verwalter eine Karte, deren letztes wirksames Feld ihm genommen wurde.
-
-       Der ältere Fix zu Prüfbefund W-4 (2026-08-20) bleibt damit gültig, nur
-       enger: das Namensfeld war einmal für JEDEN freigeschaltet und feuerte
-       beim Verlassen ein `PATCH`, das der Server mit 403 abwies — ein
-       Mitglied sah eine Karte „Verwalten" mit einem Feld, das nichts tut.
-       Dieselbe Falle, eine Rechtestufe höher. -->
-  {#if eigenes}
-    <DeviceVerwaltung {device} />
-  {/if}
-
-  <!-- Freigabeliste — nur für den Besitzer, und dafür nicht bloss
-       ausgeblendet, sondern gar nicht erst im DOM (`eigenes` ist dieselbe
-       Bedingung wie `device.owner_user_id === currentServerUserId()`, hier
-       schon berechnet). Die Liste sagt, wer den Rechner ohne Rückfrage
-       übernehmen darf — das geht sonst niemanden etwas an. -->
-  {#if eigenes}
-    <DeviceFreigaben {device} />
-  {/if}
+  <!-- Die Karten „Verwalten" (Name, Community, Kanal, Entfernen) und „Wer
+       ohne Rückfrage übernehmen darf" stehen hier seit dem 2026-09-09 NICHT
+       mehr — sie sind in das Standplatz-Panel gewandert
+       (`StandplatzRailButton`: „Eintragung ändern", die Zeilen unter „Meine
+       Remote-Rechner" und die Freigaben unter dem Schalter), damit es EINEN
+       Ort für die Verwaltung gibt. Die Geräteansicht zeigt nur noch
+       Übernehmen/Zusehen. -->
 </div>

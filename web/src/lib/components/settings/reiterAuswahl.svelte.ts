@@ -21,13 +21,8 @@
  * Aufrufer packt sie in sein eigenes `$derived` bzw. `$effect` und bekommt
  * damit dieselbe Reaktivitaet wie vorher an Ort und Stelle.
  */
-import { activeServer } from '$lib/stores/active-server.svelte';
-import { currentServerUserId } from '$lib/stores/currentServerUser';
 import { deviceStore } from '$lib/devices/store.svelte';
-import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
 import { guilds } from '$lib/stores/guilds.svelte';
-import { darfStandplatzSein } from '$lib/remote/darfStandplatzSein';
-import { reiterSichtbar } from '$lib/devices/reiterSichtbar';
 import { isCapacitorAndroid, isElectron } from '$lib/platform/runtime';
 import { viewport } from '$lib/stores/viewport.svelte';
 import { sichtbareReiter, type SettingsTabDef } from '$lib/components/settingsTabs';
@@ -50,36 +45,16 @@ import { sichtbareReiter, type SettingsTabDef } from '$lib/components/settingsTa
  *   (`sidecar-log.ts` kennt den Windows-Pfad ausdruecklich), es fehlte allein
  *   der Schalter.
  * * **`istMobil`** — blendet die reinen Rechner-Reiter aus.
- * * **`zeigtStandplatz`** — drei Gruende, unabhaengig voneinander
- *   (`reiterSichtbar.ts`):
- *   - Dieser RECHNER kann selbst Standplatz sein (`darfStandplatzSein`) —
- *     dieselbe Bedingung wie bei der Anmeldung in `ws/handlers/ready.ts`.
- *     Reiter und Anmeldung liefen am 2026-08-18 schon einmal auseinander: der
- *     Reiter war unter Linux versteckt, die vorhandene Eintragung meldete sich
- *     trotzdem weiter an.
- *   - Es liegt bereits eine Eintragung fuer diesen Server vor. Ohne diesen
- *     Fall waere der Reiter die Falle, die er am 2026-08-18 kurz war — die
- *     EINZIGE Stelle zum Entfernen einer Eintragung sitzt darin
- *     (`SettingsGeraeteEintragung`). Wer einen Rechner unter Windows
- *     eingetragen hat und ihn spaeter unter Linux startet, saehe sonst
- *     dauerhaft eine Geraetezeile in der Kanalliste und haette keinen Weg
- *     mehr, sie loszuwerden. Was man anlegen kann, muss man ueberall wieder
- *     abraeumen koennen.
- *   - Dieser NUTZER besitzt Geraete auf diesem Server, unabhaengig davon, ob
- *     der Rechner, an dem er gerade sitzt, selbst Standplatz sein kann — der
- *     neue Fall seit 2026-08-20: auch unter Linux/macOS/Browser soll man die
- *     eigenen Geraete sehen und entfernen koennen.
+ *
+ * Der Standplatz hatte hier bis zum 2026-09-09 eine vierte Bedingung
+ * (`zeigtStandplatz`, s. `$lib/devices/reiterSichtbar.ts`); mit dem Reiter
+ * ist auch sie in die Rail gewandert (`StandplatzRailButton`).
  */
 export function sichtbareReiterJetzt(tabs: SettingsTabDef[]): SettingsTabDef[] {
   return sichtbareReiter(tabs, {
     istMobil: viewport.isMobile,
     imBrowser: !isElectron() && !isCapacitorAndroid(),
     istDesktopApp: isElectron(),
-    zeigtStandplatz: reiterSichtbar({
-      kannStandplatzSein: darfStandplatzSein(),
-      hatEintragung: !!geraeteAnmeldung.fuerServer(activeServer.serverId),
-      besitztGeraete: deviceStore.eigene(currentServerUserId()).length > 0
-    })
   });
 }
 
@@ -88,8 +63,9 @@ export function sichtbareReiterJetzt(tabs: SettingsTabDef[]): SettingsTabDef[] {
  * Aufrufers, der seine eigene Bedingung davorsetzt (der Dialog nur bei
  * geoeffnetem Dialog, die Liste immer).
  *
- * Ohne das kennt `deviceStore.eigene()` oben nur die Community, deren
- * Kanalliste zuletzt offen war, und `zeigtStandplatz` bliebe dauerhaft falsch,
+ * Ohne das kennt `deviceStore.eigene()` nur die Community, deren
+ * Kanalliste zuletzt offen war, und die Standplatz-Sichtbarkeit bliebe
+ * dauerhaft falsch,
  * wenn das eigene Geraet woanders steht oder die Einstellungen aus einer
  * Ansicht ohne aktive Community geoeffnet werden (DM/Freunde, mobile Bereiche).
  * Der einzige bisherige Nachlade-Pfad (`SettingsStandplatzGeraete`) lag HINTER

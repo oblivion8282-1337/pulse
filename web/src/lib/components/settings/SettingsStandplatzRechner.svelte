@@ -18,14 +18,15 @@
 -->
 <script lang="ts">
   import MonitorCogIcon from '@lucide/svelte/icons/monitor-cog';
-  import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+  import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import Switch from '$lib/components/form/Switch.svelte';
   import DeviceFreigaben from '$lib/devices/components/DeviceFreigaben.svelte';
+  import DeviceVerwaltung from '$lib/devices/components/DeviceVerwaltung.svelte';
   import { standplatz } from '$lib/remote/standplatz.svelte';
   import { restzeit } from '$lib/devices/restzeit';
   import { restText } from '$lib/devices/restanzeige';
   import { geraetOrtText } from '$lib/devices/ort';
-  import { punktKlasse, geraetPfad } from '$lib/devices/darstellung';
+  import { punktKlasse } from '$lib/devices/darstellung';
   import { formatTimestamp } from '$lib/utils/formatTimestamp';
   import { m } from '$lib/paraglide/messages.js';
   import type { Device } from '$lib/api/devices';
@@ -54,6 +55,12 @@
     if (an) void standplatz.freigeben({ geltung: 'dauerhaft' });
     else void standplatz.zuruecknehmen();
   }
+
+  // Die Eintragung (Name, Community, Kanal, Entfernen) klappt HIER im Panel
+  // auf statt in die Geräteansicht zu navigieren — Remote-UI-Runde
+  // 2026-09-09: das Panel ist der Ort für diesen Rechner, ein Klick darf die
+  // Ansicht nicht verlassen.
+  let eintragungOffen = $state(false);
 </script>
 
 <div class="border-border flex flex-col gap-4 rounded-2xl border p-4" data-testid="standplatz-rechner">
@@ -68,20 +75,32 @@
         {geraetOrtText(device)}
       </span>
     </span>
-    <a
-      href={geraetPfad(device)}
+    <button
+      type="button"
       class="text-accent-on-soft flex shrink-0 items-center gap-1 text-xs hover:underline"
+      onclick={() => (eintragungOffen = !eintragungOffen)}
+      aria-expanded={eintragungOffen}
       data-testid="standplatz-rechner-eintragung"
     >
       {m.standplatz_rechner_eintragung_aendern()}
-      <ChevronRightIcon class="size-3.5" />
-    </a>
+      <ChevronDownIcon
+        class="size-3.5 transition-transform {eintragungOffen ? 'rotate-180' : ''}"
+      />
+    </button>
   </div>
+
+  {#if eintragungOffen}
+    <div class="border-border/60 border-t pt-4" data-testid="standplatz-eintragung-verwaltung">
+      <DeviceVerwaltung {device} />
+    </div>
+  {/if}
 
   <div class="border-border/60 flex items-center justify-between gap-3 border-t pt-4">
     <span class="flex min-w-0 flex-col">
       <span class="text-text-bright text-sm font-medium">{m.standplatz_rechner_erlauben()}</span>
-      <span class="text-text-muted text-xs">{ablaufText ?? m.standplatz_rechner_erlauben_hint()}</span>
+      {#if ablaufText}
+        <span class="text-text-muted text-xs">{ablaufText}</span>
+      {/if}
     </span>
     <Switch
       checked={standplatz.aktiv}

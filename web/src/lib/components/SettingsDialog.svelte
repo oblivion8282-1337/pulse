@@ -13,7 +13,6 @@
     | 'security'
     | 'sicherung'
     | 'privacy'
-    | 'standplatz'
     | 'storage'
     | 'apps'
     | 'experimental';

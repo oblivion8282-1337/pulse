@@ -7,26 +7,26 @@
   Liste zeigt jedes Gerät, dessen Besitzer der angemeldete Nutzer auf DIESEM
   Server ist, und wird deshalb unabhängig von `kannStandplatz` gerendert.
 
-  **Nur Liste, keine Verwaltung** (seit 2026-09-09): der Lösch-Knopf je
-  Zeile ist weg. Auf einem eingetragenen Rechner stand sein eigenes Gerät
-  sonst zweimal im Reiter, mit zwei Lösch-Knöpfen. Jede Zeile führt in die
-  Geräteansicht, und dort gibt es Umbenennen, Umziehen und Entfernen einmal
-  und vollständig. Der eigene Rechner ist markiert statt doppelt aufgeführt.
+  **Nur Liste, Verwaltung klappt inline auf** (seit 2026-09-09): eine Zeile
+  führt NICHT mehr in die Geräteansicht — der Klick klappt unter der Zeile
+  die `DeviceVerwaltung` auf (Akkordeon, eine Zeile gleichzeitig), das Panel
+  ist damit der einzige Ort, den man für diese Geräte braucht. Der eigene
+  Rechner ist markiert statt doppelt aufgeführt.
 
   **Läuft über alle geladenen Communitys** (`deviceStore.eigene`), lädt sie
   aber selbst nach: ohne den Effect unten wüsste der Store nur von der
   Community, in der man gerade eine Kanalliste geöffnet hatte.
 -->
 <script lang="ts">
-  import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
-  import { goto } from '$app/navigation';
+  import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import { deviceStore } from '$lib/devices/store.svelte';
   import { geraeteAnmeldung } from '$lib/devices/anmeldung.svelte';
-  import { punktKlasse, geraetPfad } from '$lib/devices/darstellung';
+  import { punktKlasse } from '$lib/devices/darstellung';
   import { geraetOrtText } from '$lib/devices/ort';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
+  import DeviceVerwaltung from '$lib/devices/components/DeviceVerwaltung.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import type { Device } from '$lib/api/devices';
 
@@ -40,9 +40,9 @@
   const eigeneGeraete = $derived(deviceStore.eigene(currentServerUserId()));
   const diesesGeraetId = $derived(geraeteAnmeldung.fuerServer(activeServer.serverId)?.deviceId ?? null);
 
-  function oeffnen(device: Device): void {
-    void goto(geraetPfad(device));
-  }
+  /** Akkordeon: die aufgeklappte Zeile zeigt die Verwaltung inline — Klick
+   *  verlässt das Panel nicht mehr (Remote-UI-Runde 2026-09-09). */
+  let offenId = $state<string | null>(null);
 </script>
 
 <div class="flex flex-col gap-2" data-testid="settings-my-devices">
@@ -57,8 +57,8 @@
           <button
             type="button"
             class="hover:bg-bg-hover flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors"
-            onclick={() => oeffnen(d)}
-            title={m.device_settings_my_devices_open()}
+            onclick={() => (offenId = offenId === d.id ? null : d.id)}
+            aria-expanded={offenId === d.id}
             data-testid={`my-device-open-${d.id}`}
           >
             <span class="flex min-w-0 flex-1 flex-col">
@@ -75,11 +75,17 @@
                 {geraetOrtText(d)}
               </span>
             </span>
-            <ChevronRightIcon class="text-text-muted size-4 shrink-0" />
+            <ChevronDownIcon
+              class="text-text-muted size-4 shrink-0 transition-transform {offenId === d.id ? 'rotate-180' : ''}"
+            />
           </button>
+          {#if offenId === d.id}
+            <div class="border-border/60 mt-1 border-t pt-2 pl-1">
+              <DeviceVerwaltung device={d} />
+            </div>
+          {/if}
         </li>
       {/each}
     </ul>
   {/if}
-  <span class="text-text-muted text-xs">{m.device_settings_my_devices_hint()}</span>
 </div>

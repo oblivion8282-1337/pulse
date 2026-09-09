@@ -28,7 +28,6 @@ import ShieldIcon from '@lucide/svelte/icons/shield';
 import CloudUploadIcon from '@lucide/svelte/icons/cloud-upload';
 import LockIcon from '@lucide/svelte/icons/lock';
 import ServerIcon from '@lucide/svelte/icons/server';
-import MonitorCogIcon from '@lucide/svelte/icons/monitor-cog';
 import UserIcon from '@lucide/svelte/icons/user';
 import HardDriveIcon from '@lucide/svelte/icons/hard-drive';
 import { m } from '$lib/paraglide/messages.js';
@@ -44,23 +43,6 @@ export interface SettingsTabDef {
   mobileOnly?: true;
   browserOnly?: true;
   electronOnly?: true;
-  /**
-   * Nur dort zeigen, wo `reiterSichtbar()` es erlaubt (Rechner kann selbst
-   * Standplatz sein, oder es liegt eine Eintragung vor, oder der Nutzer
-   * besitzt Geräte auf diesem Server — s. `$lib/devices/reiterSichtbar.ts`).
-   *
-   * **Hiess bis 2026-08-20 `windowsOnly`.** Der Name stimmte, solange die
-   * einzige Bedingung war, ob DIESER Rechner ferngesteuert werden kann (nur
-   * der Windows-Sidecar spielt Eingaben ein). Seit auch „besitzt Geräte auf
-   * diesem Server" den Reiter zeigt, ist das nicht mehr plattformgebunden —
-   * ein Linux-Nutzer mit einem eigenen Windows-Gerät sieht den Reiter jetzt
-   * ebenfalls, ohne dass sein eigener Rechner etwas kann.
-   *
-   * **Betrifft nur das ANBIETEN der Freigabe/Eintragung-Formulare.** Steuern,
-   * zusehen und Geräte in der Kanalliste sehen bleibt plattformneutral — der
-   * Steuernde braucht keinen Sidecar.
-   */
-  standplatzGate?: true;
 }
 
 export function getSettingsTabs(): SettingsTabDef[] {
@@ -70,7 +52,6 @@ export function getSettingsTabs(): SettingsTabDef[] {
     { id: 'layout', label: m.settings_dialog_tab_layout(), icon: PanelTopIcon, mobileOnly: true },
     { id: 'audio-video', label: m.settings_dialog_tab_audio_video(), icon: MicIcon },
     { id: 'screen-share', label: m.settings_dialog_tab_screen_share(), icon: MonitorIcon, desktopOnly: true },
-    { id: 'standplatz', label: m.settings_dialog_tab_standplatz(), icon: MonitorCogIcon, standplatzGate: true },
     { id: 'notifications', label: m.settings_dialog_tab_notifications(), icon: BellIcon },
     { id: 'sounds', label: m.settings_dialog_tab_sounds(), icon: Volume2Icon },
     { id: 'keyboard', label: m.settings_dialog_tab_keyboard(), icon: KeyboardIcon, desktopOnly: true },
@@ -101,8 +82,6 @@ export interface ReiterBedingungen {
   imBrowser: boolean;
   /** Läuft in einer Desktop-App, gleich welcher Plattform. */
   istDesktopApp: boolean;
-  /** Standplatz-Reiter zeigen — s. `$lib/devices/reiterSichtbar.ts`. */
-  zeigtStandplatz: boolean;
 }
 
 /**
@@ -125,7 +104,6 @@ export function sichtbareReiter(
       (!t.desktopOnly || !b.istMobil) &&
       (!t.mobileOnly || b.istMobil) &&
       (!t.browserOnly || b.imBrowser) &&
-      (!t.electronOnly || b.istDesktopApp) &&
-      (!t.standplatzGate || b.zeigtStandplatz)
+      (!t.electronOnly || b.istDesktopApp)
   );
 }

@@ -108,28 +108,32 @@
     <SettingsGeraeteEintragung steuerbar={false} />
   {:else}
     <SettingsGeraeteEintragung steuerbar={true} />
-    {#if eingetragen}
-      <SettingsStandplatzKlappe
-        icon={SlidersIcon}
-        title={m.standplatz_profil_title()}
-        summary={profilZeile}
-        testid="standplatz-profil"
-      >
-        <SettingsStandplatzProfil />
-      </SettingsStandplatzKlappe>
-      <SettingsStandplatzKlappe
-        icon={ScrollTextIcon}
-        title={m.standplatz_settings_log()}
-        summary={protokollZeile(remoteProtokoll.eintraege)}
-        testid="standplatz-protokoll"
-      >
-        <SettingsStandplatzProtokoll />
-      </SettingsStandplatzKlappe>
-    {/if}
   {/if}
 
+  <!-- „Meine Remote-Rechner" sitzt über den aufklappbaren Karten — die
+       häufigste Frage ist „welche Rechner habe ich", das Protokoll ist
+       Nachschlag und steht deshalb ganz unten (Remote-UI-Runde 2026-09-09). -->
   <span class="text-text-muted text-xs font-semibold tracking-wide uppercase">
     {m.device_settings_my_devices_title()}
   </span>
   <SettingsStandplatzGeraete />
+
+  {#if desktop && kannStandplatz && eingetragen}
+    <SettingsStandplatzKlappe
+      icon={SlidersIcon}
+      title={m.standplatz_profil_title()}
+      summary={profilZeile}
+      testid="standplatz-profil"
+    >
+      <SettingsStandplatzProfil />
+    </SettingsStandplatzKlappe>
+    <SettingsStandplatzKlappe
+      icon={ScrollTextIcon}
+      title={m.standplatz_settings_log()}
+      summary={protokollZeile(remoteProtokoll.eintraege)}
+      testid="standplatz-protokoll"
+    >
+      <SettingsStandplatzProtokoll />
+    </SettingsStandplatzKlappe>
+  {/if}
 </div>

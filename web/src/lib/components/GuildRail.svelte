@@ -63,6 +63,7 @@
   import UserFooter from './UserFooter.svelte';
   import ServerAdminButton from './ServerAdminButton.svelte';
   import SelfHostRailButton from '$lib/components/selfhost/SelfHostRailButton.svelte';
+  import StandplatzRailButton from '$lib/devices/components/StandplatzRailButton.svelte';
   import GuildSettingsDialog from './settings/GuildSettingsDialog.svelte';
   import GuildVoiceTooltip from './GuildVoiceTooltip.svelte';
   import type { Guild } from '$lib/api/types';
@@ -764,6 +765,7 @@
        Admins) und – auf Mobil – das eigene Avatar-Symbol (Desktop hat den User
        im Sidebar-Footer mit Name). -->
   <div class="mt-auto flex shrink-0 flex-col items-center gap-2 pt-1">
+    <StandplatzRailButton />
     <SelfHostRailButton />
     <ServerAdminButton />
     {#if viewport.isMobile}

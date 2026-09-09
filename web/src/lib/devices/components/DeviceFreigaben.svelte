@@ -141,6 +141,22 @@
     }
   }
 
+  /** Dauer gewählt — wirkt SOFORT auf eine laufende Jeder-Freigabe, nicht
+   *  erst bei der nächsten (Remote-UI-Runde 2026-09-09: die Anzeige „noch
+   *  x Std." blieb sonst stehen, obwohl man „1 Tag" gewählt hatte). */
+  function dauerSetzen(wert: FreigabeDauer): void {
+    dauer = wert;
+    if (jederGrant) {
+      void speichern(
+        mitNeuem(liste, {
+          subject_type: 'everyone',
+          subject_id: null,
+          expires_at: ablaufAb(wert, Date.now()),
+        }),
+      );
+    }
+  }
+
   function entfernen(grant: Grant): void {
     void speichern(ohne(liste, grant.id));
   }
@@ -212,7 +228,7 @@
       class="w-auto shrink-0"
       value={dauer}
       options={dauerOptionen}
-      onchange={(v) => (dauer = v as FreigabeDauer)}
+      onchange={(v) => dauerSetzen(v as FreigabeDauer)}
       data-testid="device-grant-dauer"
     />
   </div>

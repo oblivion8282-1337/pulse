@@ -1306,6 +1306,12 @@ const ALLOWED_STORE_KEYS = new Set([
   // der Merker verworfen, der Client hält den Umzug bei JEDEM Start erneut für
   // unerledigt und fragt die Server-Liste jedes Mal wieder ab.
   'remote.standplatz.umgezogen',
+  // Der Name DIESES Rechners, schon VOR der Eintragung speicherbar
+  // (`devices/rechnerName.svelte.ts`). Ohne Allowlist-Eintrag verwirft
+  // store:setAll ihn still — exakt derselbe Befund wie bei `remote.geraete`
+  // (2026-08-16): der Renderer behält den Stand im Speicher, alles sieht
+  // richtig aus, bis zum Neuladen.
+  'remote.rechner-name',
   // HINWEIS: `pulse.host.creds` (③c-Pairing-Credentials) steht BEWUSST NICHT
   // hier. Der Main-Prozess schreibt sie via pairing.ts::saveCreds über einen
   // DIREKTEN storeSet-Aufruf (store.ts kennt keine Allowlist — die gilt nur für

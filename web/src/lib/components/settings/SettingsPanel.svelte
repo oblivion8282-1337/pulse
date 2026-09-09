@@ -23,7 +23,6 @@
   import SettingsProfile from './SettingsProfile.svelte';
   import SettingsApps from './SettingsApps.svelte';
   import SettingsExperimental from './SettingsExperimental.svelte';
-  import SettingsStandplatz from './SettingsStandplatz.svelte';
   import SpeicherSektion from './SpeicherSektion.svelte';
 
   let { tab }: { tab: SettingsTab } = $props();
@@ -39,8 +38,6 @@
   <SettingsAudioVideo />
 {:else if tab === 'screen-share'}
   <SettingsScreenShare />
-{:else if tab === 'standplatz'}
-  <SettingsStandplatz />
 {:else if tab === 'notifications'}
   <SettingsNotifications />
 {:else if tab === 'sounds'}
